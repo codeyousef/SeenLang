@@ -1,0 +1,60 @@
+// ir_method_receiver_lookup_plan.seen - pure method receiver lookup routing.
+
+fun shouldLookupDottedLiteralReceiverImpl(operandCount: Int,
+    literalValue: String) r: Bool {
+
+    return operandCount == 0 and literalValue.contains(".")
+}
+
+fun shouldBuildDottedReceiverExprImpl(hasDottedReceiver: Bool,
+    segmentCount: Int, baseReceiverType: String) r: Bool {
+
+    return hasDottedReceiver and segmentCount > 0 and baseReceiverType != ""
+}
+
+fun shouldResolveDottedReceiverFallbackImpl(hasDottedReceiver: Bool,
+    receiverReg: String) r: Bool {
+
+    return hasDottedReceiver and receiverReg == ""
+}
+
+fun shouldResolveSimpleLiteralReceiverImpl(hasDottedReceiver: Bool,
+    literalValue: String) r: Bool {
+
+    return not hasDottedReceiver and literalValue != ""
+}
+
+fun shouldUseLocalLiteralReceiverImpl(varIndex: Int) r: Bool {
+    return varIndex >= 0
+}
+
+fun shouldUseModuleConstantLiteralReceiverImpl(constIndex: Int) r: Bool {
+    return constIndex >= 0
+}
+
+fun shouldTryImplicitThisLiteralReceiverImpl(receiverReg: String,
+    thisIndex: Int) r: Bool {
+
+    return receiverReg == "" and thisIndex >= 0
+}
+
+fun implicitThisReceiverLookupActionImpl(thisType: String, varName: String,
+    generatorFieldIndex: Int, structIndex: Int, fieldIndex: Int) r: Int {
+
+    if thisType == "LLVMIRGenerator" and generatorFieldIndex >= 0 {
+        return 1
+    }
+    if structIndex >= 0 and fieldIndex >= 0 {
+        return 2
+    }
+    if thisType == "SeenLexer" and varName == "keywordManager" {
+        return 3
+    }
+    return 0
+}
+
+fun shouldResolveImplicitThisDottedReceiverImpl(thisIndex: Int,
+    firstFieldType: String) r: Bool {
+
+    return thisIndex >= 0 and firstFieldType != ""
+}

@@ -93,6 +93,7 @@ import codegen.ir_method_finalize.{resolveMethodCallInstanceTypeNameImpl, tryGen
 import codegen.ir_method_fastpath.{emitPreparedDynTraitMethodCallImpl, tryGeneratePreparedExplicitReceiverFastPathImpl, tryGeneratePreparedLocalVariableReceiverFastPathImpl, tryGenerateLengthLikeMethodCallImpl, emitStringBuilderReceiverMethodCallImpl, tryGeneratePrimitiveConversionMethodCallImpl, tryGenerateNumericReceiverMethodCallImpl, tryGenerateStringLikeReceiverMethodCallImpl, resolveStaticMethodClassNamesImpl, isStaticMethodReceiverReferenceImpl, tryGenerateStaticFactoryMethodCallImpl, resolveStaticMethodReturnTypeImpl, prepareModuleConstantMethodReceiverImpl, emitPreparedStaticMethodCallImpl, shouldLowerUnresolvedMethodAsCallImpl, tryGenerateUnresolvedReceiverFallbackMethodImpl, applyUnresolvedReceiverDefaultImpl}
 import codegen.ir_method_receiver_predicates.{isOptionReceiverTypeImpl, isSmallVecReceiverTypeImpl, isCollectionReceiverTypeImpl, isArrayReceiverTypeImpl, isStringBuilderRuntimeMethodImpl, isNumericReceiverMethodImpl, needsStaticFactoryArgumentImpl}
 import codegen.ir_method_call_plan.{hasExplicitMethodReceiverImpl, hasDottedLiteralMethodReceiverImpl, shouldBuildDottedLiteralReceiverExprImpl, shouldResolveDottedLiteralReceiverFallbackImpl, shouldResolveSimpleLiteralMethodReceiverImpl, hasResolvedMethodReceiverImpl, planResolvedReceiverFastPathImpl, shouldReadOptionDefaultFastPathArgImpl, shouldReadSmallVecFastPathArgImpl, shouldReadReceiverFastPathArgImpl, shouldTraceUnwrapToJsonSourceImpl, isUnwrapMethodCallExprImpl, isFusedStringBuilderFloatAppendImpl, shouldPrepareFirstMethodArgImpl, shouldTryStaticMethodCallImpl, isPascalStaticReceiverNameImpl, shouldTryNoArgStaticFactoryImpl, shouldTryArgStaticFactoryImpl, resolveStaticCallClassNameImpl, shouldPromoteStaticMethodFloatArgsImpl, staticMethodFunctionNameImpl, shouldRecordStaticMethodLateDeclareImpl, shouldUseUnresolvedReceiverFallbackImpl, shouldLookupImplicitMethodReturnImpl, isSeenLexerKeywordManagerReceiverImpl, hasGeneratorFieldReceiverImpl, hasStructFieldReceiverImpl, shouldResolveImplicitThisDottedFieldReceiverImpl, isArrayFreeMutatorMethodImpl, shouldUseLiteralArrayFreeReceiverTypeImpl, shouldResolveArrayFreePointerFromLiteralImpl, shouldEmitArrayFreePointerImpl, shouldEmitClassFreeMutationImpl, planArrayMutatorMethodImpl, isDottedArrayMutatorLiteralImpl, shouldResolveChainedArrayMutatorReceiverImpl, shouldLoadLocalArrayMutatorPointerImpl, shouldUseImplicitThisArrayMutatorPointerImpl, shouldUseArrayMutatorReceiverFallbackImpl, shouldEmitArrayMutatorWithPointerImpl, isArrayPushMutatorMethodImpl, isArrayPopMutatorMethodImpl, isArraySwapMutatorMethodImpl, resolveArrayMutatorVariableNameImpl, resolveArrayReceiverElementTypeImpl, resolveArrayPushElementTypeImpl, shouldUseReceiverRegForArrayMutationImpl}
+import codegen.ir_method_receiver_lookup_plan.{shouldLookupDottedLiteralReceiverImpl, shouldBuildDottedReceiverExprImpl, shouldResolveDottedReceiverFallbackImpl, shouldResolveSimpleLiteralReceiverImpl, shouldUseLocalLiteralReceiverImpl, shouldUseModuleConstantLiteralReceiverImpl, shouldTryImplicitThisLiteralReceiverImpl, implicitThisReceiverLookupActionImpl, shouldResolveImplicitThisDottedReceiverImpl}
 import codegen.ir_struct_gen.{emitStructFieldStoresImpl, resolveStructLiteralFieldFallback, inferStructFieldTypeFromExpr}
 import codegen.ir_struct_layout_build.{prepareStructLayoutRegistrationSnapshotImpl}
 import codegen.ir_class_type_layout.{emitClassTypeFieldsImpl, emitClassTypeHeaderImpl, emitClassTypeFooterImpl, prepareClassTypeAliasStateSnapshotImpl}
@@ -6829,7 +6830,7 @@ class LLVMIRGenerator {
         let methodName = expr.callee
         var receiverReg = ""
         var receiverType = "String"
-        let hasDottedReceiver = hasDottedLiteralMethodReceiverImpl(
+        let hasDottedReceiver = shouldLookupDottedLiteralReceiverImpl(
             expr.operands.length(), expr.literalValue)
 
         if hasDottedReceiver {
@@ -6838,7 +6839,7 @@ class LLVMIRGenerator {
             if receiverSegments.length() > 0 {
                 let baseReceiverName = receiverSegments[0]
                 let baseReceiverType = findVarType(baseReceiverName)
-                if shouldBuildDottedLiteralReceiverExprImpl(
+                if shouldBuildDottedReceiverExprImpl(
                     hasDottedReceiver, receiverSegments.length(),
                     baseReceiverType) {
                     let rebuiltReceiverExpr = buildChainedPathExprImpl(
@@ -6879,7 +6880,7 @@ class LLVMIRGenerator {
             }
         }
 
-        if shouldResolveDottedLiteralReceiverFallbackImpl(
+        if shouldResolveDottedReceiverFallbackImpl(
             hasDottedReceiver, receiverReg) {
 
             let enumReceiverRegBox = Array<String>()
@@ -6899,7 +6900,7 @@ class LLVMIRGenerator {
                         thisType, pathParts[0], structNames,
                         structFieldNames, structFieldTypes,
                         structMethodNames, structMethodRetTypes)
-                    if shouldResolveImplicitThisDottedFieldReceiverImpl(
+                    if shouldResolveImplicitThisDottedReceiverImpl(
                         thisIdx, firstFieldType) {
                         let thisPtrReg = emitImplicitThisPointerLoadImpl(
                             output, g_regBox, varRegs[thisIdx])
@@ -6926,11 +6927,11 @@ class LLVMIRGenerator {
                 }
             }
         } else {
-            if shouldResolveSimpleLiteralMethodReceiverImpl(hasDottedReceiver,
+            if shouldResolveSimpleLiteralReceiverImpl(hasDottedReceiver,
                 expr.literalValue) {
                 let varName = expr.literalValue
                 let idx = findActiveVariableIndexImpl(varNames, activeVarCount, varName)
-                if idx >= 0 {
+                if shouldUseLocalLiteralReceiverImpl(idx) {
                     let varReg = varRegs[idx]
                     let varType = varTypes[idx]
                     let llvmType = mapType(varType)
@@ -6953,7 +6954,7 @@ class LLVMIRGenerator {
                     }
                 } else {
                     let gvMcIdx = findModuleConstant(varName)
-                    if gvMcIdx >= 0 {
+                    if shouldUseModuleConstantLiteralReceiverImpl(gvMcIdx) {
                         let gvMcType = moduleConstantTypes[gvMcIdx]
                         let gvMcInvSuffix =
                             moduleConstantInvariantLoadSuffixImpl(gvMcIdx,
@@ -6972,13 +6973,24 @@ class LLVMIRGenerator {
                     }
                     if receiverReg == "" {
                         let thisIdx = findActiveVariableIndexImpl(varNames, activeVarCount, "this")
-                        if thisIdx >= 0 {
+                        if shouldTryImplicitThisLiteralReceiverImpl(
+                            receiverReg, thisIdx) {
                             let thisReg = varRegs[thisIdx]
                             let thisType = varTypes[thisIdx]
-                            if thisType == "LLVMIRGenerator" {
-                                let idxCheck =
-                                    getLLVMIRGeneratorFieldIndexImpl(varName)
-                                if hasGeneratorFieldReceiverImpl(idxCheck) {
+                            let idxCheck =
+                                getLLVMIRGeneratorFieldIndexImpl(varName)
+                            let structIdx = findStructReg(thisType,
+                                structNames)
+                            var fieldIdx = -1
+                            if structIdx >= 0 {
+                                fieldIdx = getFieldInfo(thisType,
+                                    varName)
+                            }
+                            let implicitLookupAction =
+                                implicitThisReceiverLookupActionImpl(
+                                thisType, varName, idxCheck, structIdx,
+                                fieldIdx)
+                            if implicitLookupAction == 1 {
                                     let thisPtrReg =
                                         emitImplicitThisPointerLoadImpl(
                                             output, g_regBox, thisReg)
@@ -6988,18 +7000,8 @@ class LLVMIRGenerator {
                                     receiverType =
                                         resolveLiteralMethodReceiverType(
                                             varName)
-                                }
                             }
-                            if receiverReg == "" {
-                                let structIdx = findStructReg(thisType,
-                                    structNames)
-                                var fieldIdx = -1
-                                if structIdx >= 0 {
-                                    fieldIdx = getFieldInfo(thisType,
-                                        varName)
-                                }
-                                if hasStructFieldReceiverImpl(structIdx,
-                                    fieldIdx) {
+                            if implicitLookupAction == 2 {
                                     let thisPtrReg =
                                         emitImplicitThisPointerLoadImpl(
                                             output, g_regBox, thisReg)
@@ -7008,9 +7010,8 @@ class LLVMIRGenerator {
                                     receiverType =
                                         resolveLiteralMethodReceiverType(
                                             varName)
-                                } else {
-                                    if isSeenLexerKeywordManagerReceiverImpl(
-                                        thisType, varName) {
+                            }
+                            if implicitLookupAction == 3 {
                                         let thisPtrReg =
                                             emitImplicitThisPointerLoadImpl(
                                             output, g_regBox, thisReg)
@@ -7018,8 +7019,6 @@ class LLVMIRGenerator {
                                             emitSeenLexerKeywordManagerReceiverImpl(
                                                 output, g_regBox, thisPtrReg)
                                         receiverType = "KeywordManager"
-                                    }
-                                }
                             }
                         }
                     }
