@@ -108,6 +108,7 @@ import codegen.ir_unary_expr.{unaryOperatorMethodNameImpl, shouldSkipUnaryOverlo
 import codegen.ir_class_method_gen.{tryEmitOptionClassMethodShimImpl, shouldTraceClassMethodStartImpl, collectClassMethodParameterInfoImpl, emitClassMethodSignatureStateImpl, emitClassMethodReceiverBindingStateImpl, emitClassMethodParameterBindingsStateImpl, emitClassMethodConstructorSetupStateImpl, tryEmitClassMethodConstructorReturnStateImpl, emitClassMethodDefaultReturnStateImpl}
 import codegen.ir_stmt_decl.{shouldInferDeclarationInitializerTypeImpl, resolveDeclarationBaseTypeImpl, resolveLetStatementTypeImpl, resolveLetStatementAllocaImpl, prepareLetStatementPlanImpl, resolveLetPreAllocatedRegImpl, findPreAllocatedOccurrenceImpl, nextDeclarationOrdinalImpl, classifyCollectedStatementKindImpl, shouldTraceCollectedDeclarationTypeImpl, appendCollectedDeclarationImpl, resolveCollectedForInElementTypeImpl, buildForInIndexNameImpl, shouldSeedDeclarationPendingArrayLiteralTypeImpl, emitDeadLiteralInitializerSkipNoteImpl, emitDeclarationInitializerStoreImpl}
 import codegen.ir_stmt_gen.{emitConditionToI1Impl, emitIfBranchingImpl, computeIfBranchWeightMetadataForStatementImpl, normalizeIfConditionTypeImpl, finalizeConditionalEndBlockImpl, emitIfExpressionBranchValueImpl, emitPhiMergeValueImpl, emitIfLetBindingStateImpl, emitIndexedForLoopHeaderImpl, emitRegionStatementPreambleImpl, emitRegionStatementCleanupImpl, classifyParallelForRangeExprImpl, buildParallelForBodyFunctionNameImpl, emitParallelForBodyHeaderImpl, finalizeParallelForBodyImpl, emitUnusedResultCallWarningImpl}
+import codegen.ir_stmt_select_plan.{planPairedAssignmentSelectIfImpl, planSingleArmSelectIfImpl}
 import codegen.ir_stmt_dead_code.{shouldSkipDeadLiteralInitializerImpl}
 import codegen.ir_stmt_comptime.{ComptimeRegistryStateSnapshot, classifyComptimeStatementKindImpl, resolveComptimeAssignmentTargetImpl, emitComptimeIntNoteImpl, emitComptimeStringNoteImpl, emitComptimeWhileUnrolledNoteImpl, resolveComptimeAssertMessageImpl, emitComptimeAssertFailureNoteImpl, emitComptimeAssertAbortImpl, emitComptimeAssertPassedNoteImpl, classifyComptimeIfBranchImpl, emitComptimeIfBranchNoteImpl, registerComptimeVarSnapshotImpl, updateComptimeVarSnapshotImpl, registerComptimeStrVarSnapshotImpl}
 import codegen.ir_stmt_return.{emitErrdeferTempReturnLoadImpl, emitReturnRegionAndProfileCleanupImpl, emitDefaultEmptyReturnStatementImpl, emitCharLiteralReturnImpl, shouldSeedReturnPendingArrayLiteralTypeImpl, shouldMarkReturnTailCallImpl, resolveCharLiteralReturnValueImpl, emitFinalReturnStatementValueImpl}
@@ -3335,47 +3336,13 @@ class LLVMIRGenerator {
     }
 
     fun tryEmitPairedAssignmentSelectIfStatement(stmt: StatementNode) r: Bool {
-        if stmt.thenBranch.statements.length() != 1 or stmt.elseBranch.statements.length() != 1 {
+        let selectPlan = planPairedAssignmentSelectIfImpl(stmt)
+        if not selectPlan.isValid {
             return false
         }
 
-        let thenStmt = stmt.thenBranch.statements[0]
-        let elseStmt = stmt.elseBranch.statements[0]
-        var thenAssignName = ""
-        var elseAssignName = ""
-        var thenIsExprAssign = false
-        var elseIsExprAssign = false
-        var thenIsStmtAssign = false
-        var elseIsStmtAssign = false
-
-        if thenStmt.kind == "Expression" and thenStmt.expression.kind == "Assignment" {
-            thenAssignName = thenStmt.expression.variableName
-            thenIsExprAssign = true
-        }
-        if thenStmt.kind == "Assignment" {
-            thenAssignName = thenStmt.variableName
-            thenIsStmtAssign = true
-        }
-        if elseStmt.kind == "Expression" and elseStmt.expression.kind == "Assignment" {
-            elseAssignName = elseStmt.expression.variableName
-            elseIsExprAssign = true
-        }
-        if elseStmt.kind == "Assignment" {
-            elseAssignName = elseStmt.variableName
-            elseIsStmtAssign = true
-        }
-
-        var thenHasRhs = false
-        var elseHasRhs = false
-        if thenIsExprAssign and thenStmt.expression.operands.length() > 0 { thenHasRhs = true }
-        if thenIsStmtAssign { thenHasRhs = true }
-        if elseIsExprAssign and elseStmt.expression.operands.length() > 0 { elseHasRhs = true }
-        if elseIsStmtAssign { elseHasRhs = true }
-        if thenAssignName == "" or thenAssignName != elseAssignName or not thenHasRhs or not elseHasRhs {
-            return false
-        }
-
-        let varIdx = findActiveVariableIndexImpl(varNames, activeVarCount, thenAssignName)
+        let varIdx = findActiveVariableIndexImpl(varNames, activeVarCount,
+            selectPlan.assignName)
         if varIdx < 0 {
             return false
         }
@@ -3386,64 +3353,25 @@ class LLVMIRGenerator {
             return false
         }
 
-        var thenRhs = thenStmt.initializer
-        if thenIsExprAssign { thenRhs = thenStmt.expression.operands[0] }
-        var elseRhs = elseStmt.initializer
-        if elseIsExprAssign { elseRhs = elseStmt.expression.operands[0] }
-        if exprCost(thenRhs) >= 8 or exprCost(elseRhs) >= 8 {
-            return false
-        }
-
         let condReg = generateExpression(stmt.condition)
-        let thenReg = generateExpression(thenRhs)
-        let elseReg = generateExpression(elseRhs)
+        let thenReg = generateExpression(selectPlan.thenRhs)
+        let elseReg = generateExpression(selectPlan.elseRhs)
         let resultReg = getNextReg()
         output.append("  " + resultReg + " = select i1 " + condReg + ", " + llvmType + " " + thenReg + ", " + llvmType + " " + elseReg + " ; branchless if/else\n")
         output.append("  store " + llvmType + " " + resultReg + ", ptr " + varRegs[varIdx] + "\n")
         g_branchesEliminated = g_branchesEliminated + 1
-        mlLogDecision("select", "if-else", thenAssignName)
+        mlLogDecision("select", "if-else", selectPlan.assignName)
         return true
     }
 
     fun tryEmitSingleArmSelectIfStatement(stmt: StatementNode) r: Bool {
-        if stmt.thenBranch.statements.length() != 1 or stmt.elseBranch.statements.length() != 0 {
+        let selectPlan = planSingleArmSelectIfImpl(stmt)
+        if not selectPlan.isValid {
             return false
         }
 
-        let thenStmt = stmt.thenBranch.statements[0]
-        var assignName = ""
-        var isExprAssign = false
-        var isStmtAssign = false
-        if thenStmt.kind == "Expression" and thenStmt.expression.kind == "Assignment" {
-            assignName = thenStmt.expression.variableName
-            isExprAssign = true
-        }
-        if thenStmt.kind == "Assignment" {
-            assignName = thenStmt.variableName
-            isStmtAssign = true
-        }
-        if assignName == "" or stmt.condition.kind != "Binary" {
-            return false
-        }
-
-        var isCompareOp = false
-        if stmt.condition.operator == ">" or stmt.condition.operator == ">=" or stmt.condition.operator == "<" or stmt.condition.operator == "<=" {
-            isCompareOp = true
-        }
-        var hasRhs = false
-        if isExprAssign and thenStmt.expression.operands.length() > 0 { hasRhs = true }
-        if isStmtAssign { hasRhs = true }
-        if not isCompareOp or stmt.condition.operands.length() < 2 or not hasRhs {
-            return false
-        }
-
-        var rhsExpr = thenStmt.initializer
-        if isExprAssign { rhsExpr = thenStmt.expression.operands[0] }
-        if exprCost(rhsExpr) >= 5 {
-            return false
-        }
-
-        let varIdx = findActiveVariableIndexImpl(varNames, activeVarCount, assignName)
+        let varIdx = findActiveVariableIndexImpl(varNames, activeVarCount,
+            selectPlan.assignName)
         if varIdx < 0 {
             return false
         }
@@ -3455,14 +3383,14 @@ class LLVMIRGenerator {
         }
 
         let condReg = generateExpression(stmt.condition)
-        let newValueReg = generateExpression(rhsExpr)
+        let newValueReg = generateExpression(selectPlan.rhsExpr)
         let oldValueReg = getNextReg()
         output.append("  " + oldValueReg + " = load " + llvmType + ", ptr " + varRegs[varIdx] + "\n")
         let selectedValueReg = getNextReg()
         output.append("  " + selectedValueReg + " = select i1 " + condReg + ", " + llvmType + " " + newValueReg + ", " + llvmType + " " + oldValueReg + " ; branchless max/min\n")
         output.append("  store " + llvmType + " " + selectedValueReg + ", ptr " + varRegs[varIdx] + "\n")
         g_branchesEliminated = g_branchesEliminated + 1
-        mlLogDecision("select", "max-min", assignName)
+        mlLogDecision("select", "max-min", selectPlan.assignName)
         return true
     }
 

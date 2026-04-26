@@ -1,0 +1,131 @@
+// ir_stmt_select_plan.seen - pure select-optimized if-statement plans.
+
+import parser.real_parser.{StatementNode, ParserExpressionNode}
+import codegen.ir_optimization.{exprCost}
+
+class PairedAssignmentSelectPlan {
+    var isValid: Bool
+    var assignName: String
+    var thenRhs: ParserExpressionNode
+    var elseRhs: ParserExpressionNode
+
+    static fun new(isValid: Bool, assignName: String,
+        thenRhs: ParserExpressionNode, elseRhs: ParserExpressionNode)
+        r: PairedAssignmentSelectPlan {
+
+        return PairedAssignmentSelectPlan{
+            isValid: isValid,
+            assignName: assignName,
+            thenRhs: thenRhs,
+            elseRhs: elseRhs
+        }
+    }
+}
+
+class SingleArmSelectPlan {
+    var isValid: Bool
+    var assignName: String
+    var rhsExpr: ParserExpressionNode
+
+    static fun new(isValid: Bool, assignName: String,
+        rhsExpr: ParserExpressionNode) r: SingleArmSelectPlan {
+
+        return SingleArmSelectPlan{
+            isValid: isValid,
+            assignName: assignName,
+            rhsExpr: rhsExpr
+        }
+    }
+}
+
+fun invalidPairedAssignmentSelectPlanImpl() r: PairedAssignmentSelectPlan {
+    let emptyExpr = ParserExpressionNode.new()
+    return PairedAssignmentSelectPlan.new(false, "", emptyExpr, emptyExpr)
+}
+
+fun invalidSingleArmSelectPlanImpl() r: SingleArmSelectPlan {
+    return SingleArmSelectPlan.new(false, "", ParserExpressionNode.new())
+}
+
+fun selectAssignmentNameImpl(stmt: StatementNode) r: String {
+    if stmt.kind == "Expression" and stmt.expression.kind == "Assignment" {
+        return stmt.expression.variableName
+    }
+    if stmt.kind == "Assignment" {
+        return stmt.variableName
+    }
+    return ""
+}
+
+fun selectAssignmentHasRhsImpl(stmt: StatementNode) r: Bool {
+    if stmt.kind == "Expression" and stmt.expression.kind == "Assignment" {
+        return stmt.expression.operands.length() > 0
+    }
+    return stmt.kind == "Assignment"
+}
+
+fun selectAssignmentRhsImpl(stmt: StatementNode) r: ParserExpressionNode {
+    if stmt.kind == "Expression" and stmt.expression.kind == "Assignment" {
+        return stmt.expression.operands[0]
+    }
+    return stmt.initializer
+}
+
+fun isSelectCompareOperatorImpl(operator: String) r: Bool {
+    return operator == ">" or operator == ">=" or operator == "<" or
+        operator == "<="
+}
+
+fun planPairedAssignmentSelectIfImpl(stmt: StatementNode)
+    r: PairedAssignmentSelectPlan {
+
+    if stmt.thenBranch.statements.length() != 1 or
+        stmt.elseBranch.statements.length() != 1 {
+        return invalidPairedAssignmentSelectPlanImpl()
+    }
+
+    let thenStmt = stmt.thenBranch.statements[0]
+    let elseStmt = stmt.elseBranch.statements[0]
+    let thenAssignName = selectAssignmentNameImpl(thenStmt)
+    let elseAssignName = selectAssignmentNameImpl(elseStmt)
+    if thenAssignName == "" or thenAssignName != elseAssignName {
+        return invalidPairedAssignmentSelectPlanImpl()
+    }
+    if not selectAssignmentHasRhsImpl(thenStmt) or
+        not selectAssignmentHasRhsImpl(elseStmt) {
+        return invalidPairedAssignmentSelectPlanImpl()
+    }
+
+    let thenRhs = selectAssignmentRhsImpl(thenStmt)
+    let elseRhs = selectAssignmentRhsImpl(elseStmt)
+    if exprCost(thenRhs) >= 8 or exprCost(elseRhs) >= 8 {
+        return invalidPairedAssignmentSelectPlanImpl()
+    }
+
+    return PairedAssignmentSelectPlan.new(true, thenAssignName,
+        thenRhs, elseRhs)
+}
+
+fun planSingleArmSelectIfImpl(stmt: StatementNode) r: SingleArmSelectPlan {
+    if stmt.thenBranch.statements.length() != 1 or
+        stmt.elseBranch.statements.length() != 0 {
+        return invalidSingleArmSelectPlanImpl()
+    }
+
+    let thenStmt = stmt.thenBranch.statements[0]
+    let assignName = selectAssignmentNameImpl(thenStmt)
+    if assignName == "" or stmt.condition.kind != "Binary" {
+        return invalidSingleArmSelectPlanImpl()
+    }
+    if not isSelectCompareOperatorImpl(stmt.condition.operator) or
+        stmt.condition.operands.length() < 2 or
+        not selectAssignmentHasRhsImpl(thenStmt) {
+        return invalidSingleArmSelectPlanImpl()
+    }
+
+    let rhsExpr = selectAssignmentRhsImpl(thenStmt)
+    if exprCost(rhsExpr) >= 5 {
+        return invalidSingleArmSelectPlanImpl()
+    }
+    return SingleArmSelectPlan.new(true, assignName, rhsExpr)
+}

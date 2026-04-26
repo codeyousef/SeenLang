@@ -112,6 +112,7 @@ import codegen.ir_class_constructor_gen.{emitConstructorAllocationImpl, emitCons
 import codegen.ir_class_method_gen.{buildMethodAttrsImpl}
 import codegen.ir_stmt_decl.{resolveLetStatementTypeImpl, prepareLetStatementPlanImpl, resolveLetPreAllocatedRegImpl}
 import codegen.ir_stmt_gen.{emitConditionToI1Impl, computeIfBranchWeightMetadataForStatementImpl, normalizeIfConditionTypeImpl, emitIfLetBindingStateImpl, emitUnusedResultCallWarningImpl}
+import codegen.ir_stmt_select_plan.{planPairedAssignmentSelectIfImpl, planSingleArmSelectIfImpl}
 import codegen.ir_stmt_dead_code.{scanBlockDeadStorePatternsSnapshotImpl, emitTrailingDeadCodeNoticeSnapshotImpl, shouldSkipDeadLiteralInitializerImpl}
 import codegen.ir_stmt_comptime.{ComptimeRegistryStateSnapshot, classifyComptimeStatementKindImpl, registerComptimeVarSnapshotImpl, updateComptimeVarSnapshotImpl, registerComptimeStrVarSnapshotImpl}
 import codegen.ir_stmt_return.{emitErrdeferTempReturnLoadImpl, emitProfileExitOnReturnImpl, emitReturnRegionAndProfileCleanupImpl, emitFinalReturnStatementValueImpl}
@@ -1976,6 +1977,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_stmt_scope")
         modules.push("codegen.ir_stmt_decl")
         modules.push("codegen.ir_stmt_gen")
+        modules.push("codegen.ir_stmt_select_plan")
         modules.push("codegen.ir_stmt_dead_code")
         modules.push("codegen.ir_stmt_comptime")
         modules.push("codegen.ir_stmt_return")
