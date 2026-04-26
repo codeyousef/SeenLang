@@ -7143,37 +7143,22 @@ class LLVMIRGenerator {
                             if receiverReg == "" {
                                 let structIdx = findStructReg(thisType,
                                     structNames)
-                                output.append("; DEBUG methodCall: varName=" +
-                                    varName + " thisType=" + thisType +
-                                    " structIdx=" + structIdx.toString() +
-                                    "\n")
                                 if structIdx >= 0 {
                                     let fieldIdx = getFieldInfo(thisType,
                                         varName)
-                                    output.append("; DEBUG fieldIdx=" +
-                                        fieldIdx.toString() + "\n")
                                     if fieldIdx >= 0 {
                                         let thisPtrReg =
                                             emitImplicitThisPointerLoadImpl(
                                                 output, g_regBox, thisReg)
                                         receiverReg = generateFieldAccess(
                                             thisPtrReg, thisType, varName)
-                                        output.append(
-                                            "; DEBUG after generateFieldAccess: receiverReg=" +
-                                            receiverReg + "\n")
                                         receiverType =
                                             resolveLiteralMethodReceiverType(
                                                 varName)
-                                        output.append("; DEBUG receiverType=" +
-                                            receiverType + "\n")
                                     }
                                 } else {
-                                    output.append("; DEBUG: thisType=" +
-                                        thisType + " varName=" + varName +
-                                        "\n")
                                     if thisType == "SeenLexer" and
                                         varName == "keywordManager" {
-                                        output.append("; DEBUG: Matched SeenLexer.keywordManager!\n")
                                         let thisPtrReg =
                                             emitImplicitThisPointerLoadImpl(
                                                 output, g_regBox, thisReg)
@@ -7184,10 +7169,6 @@ class LLVMIRGenerator {
                                             " = load ptr, ptr " + gepReg +
                                             "\n")
                                         receiverType = "KeywordManager"
-                                        output.append("; DEBUG: receiverReg=" +
-                                            receiverReg +
-                                            " receiverType=" + receiverType +
-                                            "\n")
                                     }
                                 }
                             }
