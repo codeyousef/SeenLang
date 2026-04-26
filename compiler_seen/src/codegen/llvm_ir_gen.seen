@@ -70,8 +70,9 @@ import codegen.ir_special_top_level_emit.{tryHandleSpecialTopLevelFunctionImpl}
 import codegen.ir_type_layout.{getLlvmTypeAlignImpl, getLlvmTypeSizeImpl, computeStructSizeFromLayoutImpl}
 import codegen.ir_type_mapping.{parseSimpleIntImpl, lookupComptimeVarImpl, lookupComptimeStrVarImpl, comptimeSizeofImpl, comptimeTypeFieldCountImpl, comptimeTypeFieldNameImpl, comptimeTypeFieldTypeImpl, evaluateConstExprStrImpl, evaluateConstExprImpl}
 import codegen.ir_type_tables.{inferMethodCallTypeTable, inferCallTypeTable, inferFieldTypeFallback, inferIndexElementType, registerKnownDataTypesImpl, resolveCollectionGetTypeImpl, resolveUnwrapTypeImpl, resolvePopElementTypeImpl, resolveTryPropagateTypeImpl}
-import codegen.ir_control_flow.{emitForInElementFetchImpl, emitForInPrefetchImpl, emitForInIncrementImpl, detectMemcpyPatternImpl, detectLoopBoundImpl, computeLoopTileSizeImpl, detectReductionPatternImpl, detectInductionVarImpl, detectBreakOnFlagImpl, detectNestedLoopImpl, detectGcdPatternImpl, emitWhileConditionBranchImpl, emitStringForInElementImpl, emitMemcpyLoopExitBlocksImpl}
+import codegen.ir_control_flow.{emitForInElementFetchImpl, emitForInPrefetchImpl, emitForInIncrementImpl, detectLoopBoundImpl, computeLoopTileSizeImpl, detectReductionPatternImpl, detectInductionVarImpl, detectBreakOnFlagImpl, detectNestedLoopImpl, detectGcdPatternImpl, emitWhileConditionBranchImpl, emitStringForInElementImpl, emitMemcpyLoopExitBlocksImpl}
 import codegen.ir_loop_context.{appendLoopTileHintImpl, appendLoopMetadataIdImpl, emitLoopMetadataImpl, enterLoopContextImpl, restoreLoopContextImpl, emitLoopEndLabelImpl, emitContinueStatementImpl, emitBreakStatementImpl}
+import codegen.ir_loop_plan.{planMemcpyOptimizedWhileLoopImpl, iteratorProtocolFunctionNameImpl, planIteratorProtocolForInLoopImpl, isRangeForInIterableImpl}
 import codegen.ir_infer_type.{inferBinaryTypeImpl, inferLiteralTypeImpl, inferOperatorOverloadSuffix, inferExplicitThisMethodCallTypeImpl, inferBareMethodOrFunctionCallTypeImpl, inferDeclaredStaticMethodCallTypeImpl, inferStaticFactoryMethodTypeImpl, inferStaticFromJsonMethodTypeImpl, inferLateMethodCallFallbackTypeImpl, inferGeneratedCallTypeImpl, inferBuiltinCallExprTypeStateImpl, inferResolvedCallExprTypeImpl, inferSimdReduceMethodTypeImpl, inferReceiverRegistryMethodCallTypeImpl, inferMethodCallBoolSuffixImpl, inferReceiverMethodTypeImpl, inferCallExprTypeImpl}
 import codegen.ir_special_expr_infer.{inferIndexAccessExprTypeImpl, inferKnownArrayLiteralTypeImpl, inferArrayLiteralExprTypeImpl, inferUnaryExprTypeImpl, inferAwaitExprTypeImpl, inferTryPropagateExprTypeImpl, inferNullishSpecialExprTypeImpl, inferBranchingSpecialExprTypeImpl, inferFixedSpecialExprTypeImpl, inferSpecialExprTypeImpl}
 import codegen.ir_type_dispatch.{emitVecMethodImpl, emitBTreeMapMethodImpl, emitHashMapMethodImpl, emitLinkedListMethodImpl, dispatchCollectionMethodImpl}
@@ -3615,22 +3616,19 @@ class LLVMIRGenerator {
     }
 
     fun tryEmitMemcpyOptimizedWhileLoop(stmt: StatementNode, condLabel: String, bodyLabel: String, endLabel: String, savedCondLabel: String, savedEndLabel: String) r: Bool {
-        let memcpyInfo = Array<String>()
-        let memcpyKind = detectMemcpyPatternImpl(stmt.loopCondition, stmt.loopBody, memcpyInfo)
-        if memcpyKind == 0 or memcpyInfo.length() < 3 {
+        let memcpyPlan = planMemcpyOptimizedWhileLoopImpl(stmt)
+        if not memcpyPlan.isValid {
             return false
         }
-        let mcLHSArrName = memcpyInfo[0]
-        let mcRHSArrName = memcpyInfo[1]
-        let mcIncrVarName = memcpyInfo[2]
-        let mcBoundExpr = stmt.loopCondition.operands[1]
-        let mcBoundReg = generateExpression(mcBoundExpr)
+        let mcBoundReg = generateExpression(memcpyPlan.boundExpr)
 
-        if memcpyKind == 1 {
-            let mcDstType = findVarType(mcLHSArrName)
-            let mcSrcType = findVarType(mcRHSArrName)
-            let mcDstIdx = findActiveVariableIndexImpl(varNames, activeVarCount, mcLHSArrName)
-            let mcSrcIdx = findActiveVariableIndexImpl(varNames, activeVarCount, mcRHSArrName)
+        if memcpyPlan.kind == 1 {
+            let mcDstType = findVarType(memcpyPlan.lhsArrayName)
+            let mcSrcType = findVarType(memcpyPlan.rhsArrayName)
+            let mcDstIdx = findActiveVariableIndexImpl(varNames,
+                activeVarCount, memcpyPlan.lhsArrayName)
+            let mcSrcIdx = findActiveVariableIndexImpl(varNames,
+                activeVarCount, memcpyPlan.rhsArrayName)
             if mcDstType != "Array<Int>" or mcSrcType != "Array<Int>" or mcDstIdx < 0 or mcSrcIdx < 0 {
                 return false
             }
@@ -3649,17 +3647,20 @@ class LLVMIRGenerator {
             let mcByteCount = getNextReg()
             output.append("  " + mcByteCount + " = shl nsw i64 " + mcBoundReg + ", 3\n")
             output.append("  call void @llvm.memcpy.p0.p0.i64(ptr " + mcDstData + ", ptr " + mcSrcData + ", i64 " + mcByteCount + ", i1 false)\n")
-            let mcLoopVarIdx = findActiveVariableIndexImpl(varNames, activeVarCount, mcIncrVarName)
+            let mcLoopVarIdx = findActiveVariableIndexImpl(varNames,
+                activeVarCount, memcpyPlan.incrementVarName)
             if mcLoopVarIdx >= 0 {
                 output.append("  store i64 " + mcBoundReg + ", ptr " + varRegs[mcLoopVarIdx] + "\n")
             }
-            output.append("  ; memcpy optimization: " + mcLHSArrName + "[i] = " + mcRHSArrName + "[i] → llvm.memcpy\n")
-            mlLogDecision("memcpy", "applied", mcLHSArrName + "<-" + mcRHSArrName)
+            output.append("  ; memcpy optimization: " + memcpyPlan.lhsArrayName + "[i] = " + memcpyPlan.rhsArrayName + "[i] → llvm.memcpy\n")
+            mlLogDecision("memcpy", "applied",
+                memcpyPlan.lhsArrayName + "<-" + memcpyPlan.rhsArrayName)
             g_loopsOptimized = g_loopsOptimized + 1
         }
-        if memcpyKind == 2 {
-            let mcArrType = findVarType(mcLHSArrName)
-            let mcArrIdx = findActiveVariableIndexImpl(varNames, activeVarCount, mcLHSArrName)
+        if memcpyPlan.kind == 2 {
+            let mcArrType = findVarType(memcpyPlan.lhsArrayName)
+            let mcArrIdx = findActiveVariableIndexImpl(varNames,
+                activeVarCount, memcpyPlan.lhsArrayName)
             if mcArrType != "Array<Int>" or mcArrIdx < 0 {
                 return false
             }
@@ -3674,12 +3675,14 @@ class LLVMIRGenerator {
             let mcByteCount = getNextReg()
             output.append("  " + mcByteCount + " = shl nsw i64 " + mcBoundReg + ", 3\n")
             output.append("  call void @llvm.memmove.p0.p0.i64(ptr " + mcData + ", ptr " + mcSrc + ", i64 " + mcByteCount + ", i1 false)\n")
-            let mcLoopVarIdx = findActiveVariableIndexImpl(varNames, activeVarCount, mcIncrVarName)
+            let mcLoopVarIdx = findActiveVariableIndexImpl(varNames,
+                activeVarCount, memcpyPlan.incrementVarName)
             if mcLoopVarIdx >= 0 {
                 output.append("  store i64 " + mcBoundReg + ", ptr " + varRegs[mcLoopVarIdx] + "\n")
             }
-            output.append("  ; memmove optimization: " + mcLHSArrName + "[i] = " + mcLHSArrName + "[i+1] → llvm.memmove\n")
-            mlLogDecision("memmove", "applied", mcLHSArrName + "[i]<-[i+1]")
+            output.append("  ; memmove optimization: " + memcpyPlan.lhsArrayName + "[i] = " + memcpyPlan.lhsArrayName + "[i+1] → llvm.memmove\n")
+            mlLogDecision("memmove", "applied",
+                memcpyPlan.lhsArrayName + "[i]<-[i+1]")
             g_loopsOptimized = g_loopsOptimized + 1
         }
         emitMemcpyLoopExitBlocksImpl(output, condLabel, bodyLabel, endLabel)
@@ -3800,10 +3803,12 @@ class LLVMIRGenerator {
     fun tryEmitIteratorProtocolForInLoop(stmt: StatementNode, loopVarName: String, loopVarType: String,
         loopVarReg: String, forInIterable: ParserExpressionNode, iterableType: String,
         condLabel: String, bodyLabel: String, endLabel: String) r: Bool {
-        let iterFuncName = iterableType + "_iter"
-        let iterFuncRet = getFunctionReturnTypeStateImpl(iterFuncName,
+        let iterLookupName = iteratorProtocolFunctionNameImpl(iterableType)
+        let iterFuncRet = getFunctionReturnTypeStateImpl(iterLookupName,
             funcNames, funcRetTypes)
-        if iterFuncRet == "" {
+        let iterPlan = planIteratorProtocolForInLoopImpl(iterableType,
+            iterFuncRet)
+        if not iterPlan.isValid {
             return false
         }
 
@@ -3811,8 +3816,8 @@ class LLVMIRGenerator {
         let iterThisReg = getNextReg()
         output.append("  " + iterThisReg + " = inttoptr i64 " + iterableReg + " to ptr\n")
         let iterObjReg = getNextReg()
-        let iterRetLlvm = mapType(iterFuncRet)
-        output.append("  " + iterObjReg + " = call " + iterRetLlvm + " @" + quoteIdentIfNeeded(iterFuncName) + "(ptr " + iterThisReg + ")\n")
+        let iterRetLlvm = mapType(iterPlan.iterReturnType)
+        output.append("  " + iterObjReg + " = call " + iterRetLlvm + " @" + quoteIdentIfNeeded(iterPlan.iterFuncName) + "(ptr " + iterThisReg + ")\n")
         let iterStoreReg = getNextReg()
         output.append("  " + iterStoreReg + " = alloca i64, align 8\n")
         output.append("  store i64 " + iterObjReg + ", ptr " + iterStoreReg + "\n")
@@ -3826,23 +3831,21 @@ class LLVMIRGenerator {
         output.append("  " + iterLoadReg + " = load i64, ptr " + iterStoreReg + "\n")
         let iterPtrReg = getNextReg()
         output.append("  " + iterPtrReg + " = inttoptr i64 " + iterLoadReg + " to ptr\n")
-        let hasNextFunc = iterFuncRet + "_hasNext"
         let hasNextReg = getNextReg()
-        output.append("  " + hasNextReg + " = call i1 @" + quoteIdentIfNeeded(hasNextFunc) + "(ptr " + iterPtrReg + ")\n")
+        output.append("  " + hasNextReg + " = call i1 @" + quoteIdentIfNeeded(iterPlan.hasNextFuncName) + "(ptr " + iterPtrReg + ")\n")
         output.append("  br i1 " + hasNextReg + ", label %" + bodyLabel + ", label %" + endLabel + "\n")
 
         output.append(bodyLabel + ":\n")
         cseClear()
         blockTerminated = false
-        let nextFunc = iterFuncRet + "_next"
-        let nextRetType = getFunctionReturnTypeStateImpl(nextFunc, funcNames,
-            funcRetTypes)
+        let nextRetType = getFunctionReturnTypeStateImpl(
+            iterPlan.nextFuncName, funcNames, funcRetTypes)
         var nextRetLlvm = "i64"
         if nextRetType != "" {
             nextRetLlvm = mapType(nextRetType)
         }
         let nextReg = getNextReg()
-        output.append("  " + nextReg + " = call " + nextRetLlvm + " @" + quoteIdentIfNeeded(nextFunc) + "(ptr " + iterPtrReg + ")\n")
+        output.append("  " + nextReg + " = call " + nextRetLlvm + " @" + quoteIdentIfNeeded(iterPlan.nextFuncName) + "(ptr " + iterPtrReg + ")\n")
         if loopVarReg != "" {
             output.append("  store " + nextRetLlvm + " " + nextReg + ", ptr " + loopVarReg + "\n")
         }
@@ -3979,7 +3982,7 @@ class LLVMIRGenerator {
         let loopVarType = loopVarInfo[0]
         let loopVarReg = loopVarInfo[1]
         let forInIterable = stmt.expression
-        if forInIterable.kind == "Range" {
+        if isRangeForInIterableImpl(forInIterable.kind) {
             emitRangeForInLoop(stmt, loopVarName, loopVarType, loopVarReg, forInIterable,
                 condLabel, bodyLabel, endLabel, loopMetaIdStr)
         } else {

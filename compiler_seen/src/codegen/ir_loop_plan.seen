@@ -1,0 +1,85 @@
+// ir_loop_plan.seen - pure loop optimization plan helpers.
+
+import parser.real_parser.{StatementNode, ParserExpressionNode}
+import codegen.ir_control_flow.{detectMemcpyPatternImpl}
+
+class MemcpyOptimizedWhilePlan {
+    var isValid: Bool
+    var kind: Int
+    var lhsArrayName: String
+    var rhsArrayName: String
+    var incrementVarName: String
+    var boundExpr: ParserExpressionNode
+
+    static fun new(isValid: Bool, kind: Int, lhsArrayName: String,
+        rhsArrayName: String, incrementVarName: String,
+        boundExpr: ParserExpressionNode) r: MemcpyOptimizedWhilePlan {
+
+        return MemcpyOptimizedWhilePlan{
+            isValid: isValid,
+            kind: kind,
+            lhsArrayName: lhsArrayName,
+            rhsArrayName: rhsArrayName,
+            incrementVarName: incrementVarName,
+            boundExpr: boundExpr
+        }
+    }
+}
+
+class IteratorProtocolForInPlan {
+    var isValid: Bool
+    var iterFuncName: String
+    var iterReturnType: String
+    var hasNextFuncName: String
+    var nextFuncName: String
+
+    static fun new(isValid: Bool, iterFuncName: String,
+        iterReturnType: String, hasNextFuncName: String,
+        nextFuncName: String) r: IteratorProtocolForInPlan {
+
+        return IteratorProtocolForInPlan{
+            isValid: isValid,
+            iterFuncName: iterFuncName,
+            iterReturnType: iterReturnType,
+            hasNextFuncName: hasNextFuncName,
+            nextFuncName: nextFuncName
+        }
+    }
+}
+
+fun invalidMemcpyOptimizedWhilePlanImpl() r: MemcpyOptimizedWhilePlan {
+    return MemcpyOptimizedWhilePlan.new(false, 0, "", "", "",
+        ParserExpressionNode.new())
+}
+
+fun planMemcpyOptimizedWhileLoopImpl(stmt: StatementNode)
+    r: MemcpyOptimizedWhilePlan {
+
+    let memcpyInfo = Array<String>()
+    let memcpyKind = detectMemcpyPatternImpl(stmt.loopCondition,
+        stmt.loopBody, memcpyInfo)
+    if memcpyKind == 0 or memcpyInfo.length() < 3 {
+        return invalidMemcpyOptimizedWhilePlanImpl()
+    }
+    return MemcpyOptimizedWhilePlan.new(true, memcpyKind, memcpyInfo[0],
+        memcpyInfo[1], memcpyInfo[2], stmt.loopCondition.operands[1])
+}
+
+fun iteratorProtocolFunctionNameImpl(iterableType: String) r: String {
+    return iterableType + "_iter"
+}
+
+fun planIteratorProtocolForInLoopImpl(iterableType: String,
+    iterReturnType: String) r: IteratorProtocolForInPlan {
+
+    if iterReturnType == "" {
+        return IteratorProtocolForInPlan.new(false, "", "", "", "")
+    }
+    let iterFuncName = iteratorProtocolFunctionNameImpl(iterableType)
+    return IteratorProtocolForInPlan.new(true, iterFuncName, iterReturnType,
+        iterReturnType + "_hasNext", iterReturnType + "_next")
+}
+
+fun isRangeForInIterableImpl(iterableKind: String) r: Bool {
+    return iterableKind == "Range"
+}
