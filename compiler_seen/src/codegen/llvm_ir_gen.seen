@@ -101,7 +101,7 @@ import codegen.ir_method_receiver_predicates.{isOptionReceiverTypeImpl, isSmallV
 import codegen.ir_method_call_plan.{planResolvedReceiverFastPathImpl, shouldReadOptionDefaultFastPathArgImpl, shouldReadSmallVecFastPathArgImpl, shouldReadReceiverFastPathArgImpl, shouldTryStaticMethodCallImpl, isPascalStaticReceiverNameImpl, shouldTryNoArgStaticFactoryImpl, shouldTryArgStaticFactoryImpl, resolveStaticCallClassNameImpl, shouldPromoteStaticMethodFloatArgsImpl, staticMethodFunctionNameImpl, shouldRecordStaticMethodLateDeclareImpl, isSeenLexerKeywordManagerReceiverImpl, hasGeneratorFieldReceiverImpl, hasStructFieldReceiverImpl, shouldResolveImplicitThisDottedFieldReceiverImpl, planArrayMutatorMethodImpl, planArrayMutatorFreeTypeImpl, planArrayMutatorFreeEmitImpl, planArrayMutatorPushPointerImpl, planArrayMutatorFallbackPointerImpl, isDottedArrayMutatorLiteralImpl, shouldResolveChainedArrayMutatorReceiverImpl, shouldLoadLocalArrayMutatorPointerImpl, shouldUseImplicitThisArrayMutatorPointerImpl, resolveArrayMutatorVariableNameImpl, resolveArrayReceiverElementTypeImpl, resolveArrayPushElementTypeImpl}
 import codegen.ir_method_lower_plan.{planMethodLowerCallImpl, methodLowerStringBuilderArgActionImpl, shouldUseMethodLowerUnwrapTraceSourceImpl}
 import codegen.ir_method_final_plan.{planMethodUnresolvedReceiverStartImpl, planMethodUnresolvedReceiverFinalImpl, planMethodFinalDispatchImpl}
-import codegen.ir_method_receiver_lookup_plan.{planDottedReceiverStageImpl, planExplicitReceiverStageImpl, planDottedReceiverFallbackStageImpl, planImplicitThisDottedReceiverStageImpl, planSimpleLiteralReceiverStageImpl, planImplicitThisReceiverStageImpl}
+import codegen.ir_method_receiver_lookup_plan.{planMethodReceiverInitialPhaseImpl, planMethodReceiverPostLookupPhaseImpl, planMethodReceiverPostResolutionPhaseImpl, planDottedReceiverStageImpl, planDottedReceiverFallbackStageImpl, planImplicitThisDottedReceiverStageImpl, planSimpleLiteralReceiverStageImpl, planImplicitThisReceiverStageImpl}
 import codegen.ir_method_receiver_lookup_gen.{emitLocalMethodReceiverLoadImpl, emitModuleConstantMethodReceiverLoadImpl, emitKeywordManagerMethodReceiverLoadImpl}
 import codegen.ir_struct_gen.{emitStructFieldStoresImpl, resolveStructLiteralFieldFallback, inferStructFieldTypeFromExpr}
 import codegen.ir_struct_layout_build.{prepareStructLayoutRegistrationSnapshotImpl}
@@ -6811,11 +6811,11 @@ class LLVMIRGenerator {
         let methodName = expr.callee
         var receiverReg = ""
         var receiverType = "String"
-        let dottedReceiverPlan = planDottedReceiverStageImpl(
-            expr.operands.length(), expr.literalValue, 0, "")
-        let hasDottedReceiver = dottedReceiverPlan.hasDottedReceiver
+        let receiverPhasePlan = planMethodReceiverInitialPhaseImpl(
+            expr.operands.length(), expr.literalValue)
+        let hasDottedReceiver = receiverPhasePlan.hasDottedReceiver
 
-        if hasDottedReceiver {
+        if receiverPhasePlan.shouldTryDottedReceiver {
 
             let receiverSegments = splitChainedPathImpl(expr.literalValue)
             if receiverSegments.length() > 0 {
@@ -6835,9 +6835,7 @@ class LLVMIRGenerator {
             }
         }
 
-        let explicitReceiverPlan = planExplicitReceiverStageImpl(
-            expr.operands.length())
-        if explicitReceiverPlan.shouldUseExplicitReceiver {
+        if receiverPhasePlan.shouldUseExplicitReceiver {
             receiverReg = generateExpression(expr.operands[0])
             receiverType = inferExpressionType(expr.operands[0])
 
@@ -6865,9 +6863,11 @@ class LLVMIRGenerator {
             }
         }
 
+        let postLookupPhase = planMethodReceiverPostLookupPhaseImpl(
+            hasDottedReceiver, receiverReg, expr.literalValue)
         let dottedFallbackPlan = planDottedReceiverFallbackStageImpl(
             hasDottedReceiver, receiverReg)
-        if dottedFallbackPlan.shouldResolveFallback {
+        if postLookupPhase.shouldTryDottedFallback {
 
             let enumReceiverRegBox = Array<String>()
             enumReceiverRegBox.push("")
@@ -6916,10 +6916,7 @@ class LLVMIRGenerator {
                 }
             }
         } else {
-            let simpleLiteralPlanSeed =
-                planSimpleLiteralReceiverStageImpl(hasDottedReceiver,
-                    expr.literalValue, -1, -1, receiverReg, -1)
-            if simpleLiteralPlanSeed.shouldResolveSimpleLiteral {
+            if postLookupPhase.shouldTrySimpleLiteral {
                 let varName = expr.literalValue
                 let idx = findActiveVariableIndexImpl(varNames, activeVarCount, varName)
                 var gvMcIdx = -1
@@ -7025,22 +7022,30 @@ class LLVMIRGenerator {
             }
         }
 
-        let resolvedReceiverFastPath = tryGenerateResolvedReceiverFastPathMethodCall(expr, methodName, receiverReg, receiverType)
-        if resolvedReceiverFastPath != "" {
-            return resolvedReceiverFastPath
+        let postResolutionPhase = planMethodReceiverPostResolutionPhaseImpl(
+            receiverReg, currentClassName)
+        if postResolutionPhase.shouldTryResolvedFastPath {
+            let resolvedReceiverFastPath = tryGenerateResolvedReceiverFastPathMethodCall(expr, methodName, receiverReg, receiverType)
+            if resolvedReceiverFastPath != "" {
+                return resolvedReceiverFastPath
+            }
         }
 
         // Check if this is a static method call BEFORE setting receiver fallback
         // Static method call: ClassName.method() where ClassName is not a variable
         // Class names use PascalCase (start with uppercase letter)
-        let staticCallResult = tryGenerateStaticMethodCall(expr, methodName, receiverReg)
-        if staticCallResult != "" {
-            return staticCallResult
+        if postResolutionPhase.shouldTryStaticCall {
+            let staticCallResult = tryGenerateStaticMethodCall(expr, methodName, receiverReg)
+            if staticCallResult != "" {
+                return staticCallResult
+            }
         }
 
         let unresolvedStartPlan = planMethodUnresolvedReceiverStartImpl(
             receiverReg, currentClassName)
-        if unresolvedStartPlan.shouldHandle {
+        if postResolutionPhase.shouldTryUnresolvedFallback and
+            unresolvedStartPlan.shouldHandle {
+
             var implicitMethodRetType = ""
             if unresolvedStartPlan.shouldLookupImplicitReturn {
                 implicitMethodRetType = getMethodReturnType(currentClassName,
@@ -7085,9 +7090,11 @@ class LLVMIRGenerator {
         }
 
         // Generate arguments BEFORE allocating result register to keep numbers in order
-        let arrayMutatorResult = tryGenerateArrayMutatorMethodCall(expr, methodName, receiverReg, receiverType)
-        if arrayMutatorResult != "" {
-            return arrayMutatorResult
+        if postResolutionPhase.shouldTryArrayMutator {
+            let arrayMutatorResult = tryGenerateArrayMutatorMethodCall(expr, methodName, receiverReg, receiverType)
+            if arrayMutatorResult != "" {
+                return arrayMutatorResult
+            }
         }
 
         let lowerPlan = planMethodLowerCallImpl(receiverType, methodName,
@@ -7095,7 +7102,7 @@ class LLVMIRGenerator {
             isStringBuilderRuntimeMethodImpl(methodName),
             isNumericReceiverMethodImpl(methodName))
 
-        if lowerPlan.shouldTryLengthLike {
+        if postResolutionPhase.shouldTryLowering and lowerPlan.shouldTryLengthLike {
             let lengthLikeResult = tryGenerateLengthLikeMethodCallImpl(output,
                 g_regBox, methodName, receiverReg, receiverType,
                 g_reprCClassNames, structNames)
@@ -7104,7 +7111,9 @@ class LLVMIRGenerator {
             }
         }
 
-        if lowerPlan.shouldTryStringBuilder {
+        if postResolutionPhase.shouldTryLowering and
+            lowerPlan.shouldTryStringBuilder {
+
             var sbArg0 = ""
             var isFloatFused = 0
             var sbArgKind = ""
@@ -7136,7 +7145,9 @@ class LLVMIRGenerator {
             }
         }
 
-        if lowerPlan.shouldTryPrimitiveConversion {
+        if postResolutionPhase.shouldTryLowering and
+            lowerPlan.shouldTryPrimitiveConversion {
+
             let conversionResult = tryGeneratePrimitiveConversionMethodCallImpl(
                 output, g_regBox, methodName, receiverReg, receiverType,
                 structNames)
@@ -7145,7 +7156,7 @@ class LLVMIRGenerator {
             }
         }
 
-        if lowerPlan.shouldTryNumeric {
+        if postResolutionPhase.shouldTryLowering and lowerPlan.shouldTryNumeric {
             var numArg0 = ""
             var numArg1 = ""
             if lowerPlan.hasArg0 {
@@ -7165,7 +7176,7 @@ class LLVMIRGenerator {
         var strArg0 = ""
         var strArg1 = ""
         let strArgCount = expr.arguments.length()
-        if lowerPlan.shouldTryStringLike {
+        if postResolutionPhase.shouldTryLowering and lowerPlan.shouldTryStringLike {
             if lowerPlan.hasArg0 {
                 strArg0 = generateExpression(expr.arguments[0])
             }
@@ -7181,7 +7192,9 @@ class LLVMIRGenerator {
         }
 
         var tracedUnwrapSourceType = ""
-        if lowerPlan.shouldTraceUnwrapToJsonSource {
+        if postResolutionPhase.shouldTryLowering and
+            lowerPlan.shouldTraceUnwrapToJsonSource {
+
             let receiverExpr = expr.operands[0]
             if shouldUseMethodLowerUnwrapTraceSourceImpl(receiverExpr.kind,
                 receiverExpr.callee, receiverExpr.operands.length()) {
@@ -7194,10 +7207,12 @@ class LLVMIRGenerator {
         let funcName = instanceTypeName + "_" + methodName
 
         var hotStateArg = ""
-        if lowerPlan.shouldReadHotStateArg {
+        if postResolutionPhase.shouldTryLowering and
+            lowerPlan.shouldReadHotStateArg {
+
             hotStateArg = generateExpression(expr.arguments[0])
         }
-        if lowerPlan.shouldTryHotReload {
+        if postResolutionPhase.shouldTryLowering and lowerPlan.shouldTryHotReload {
             let hotReloadResult =
                 tryGeneratePreparedHotReloadInstanceMethodCallImpl(
                 output, g_regBox, methodName, quoteIdentIfNeeded(funcName),
@@ -7208,6 +7223,7 @@ class LLVMIRGenerator {
         }
 
         let finalDispatchPlan = planMethodFinalDispatchImpl(
+            postResolutionPhase.shouldTryFinalDispatch and
             lowerPlan.shouldTrySpecialized)
         if finalDispatchPlan.shouldPrepareArguments {
             prepareCallArgumentsWithDefaults(funcName, expr.arguments, false,

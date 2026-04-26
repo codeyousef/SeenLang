@@ -70,6 +70,52 @@ class ImplicitThisReceiverStagePlan {
     }
 }
 
+class MethodReceiverInitialPhasePlan {
+    var hasDottedReceiver: Bool
+    var shouldTryDottedReceiver: Bool
+    var shouldUseExplicitReceiver: Bool
+
+    static fun new() r: MethodReceiverInitialPhasePlan {
+        return MethodReceiverInitialPhasePlan{
+            hasDottedReceiver: false,
+            shouldTryDottedReceiver: false,
+            shouldUseExplicitReceiver: false
+        }
+    }
+}
+
+class MethodReceiverPostLookupPhasePlan {
+    var shouldTryDottedFallback: Bool
+    var shouldTrySimpleLiteral: Bool
+
+    static fun new() r: MethodReceiverPostLookupPhasePlan {
+        return MethodReceiverPostLookupPhasePlan{
+            shouldTryDottedFallback: false,
+            shouldTrySimpleLiteral: false
+        }
+    }
+}
+
+class MethodReceiverPostResolutionPhasePlan {
+    var shouldTryResolvedFastPath: Bool
+    var shouldTryStaticCall: Bool
+    var shouldTryUnresolvedFallback: Bool
+    var shouldTryArrayMutator: Bool
+    var shouldTryLowering: Bool
+    var shouldTryFinalDispatch: Bool
+
+    static fun new() r: MethodReceiverPostResolutionPhasePlan {
+        return MethodReceiverPostResolutionPhasePlan{
+            shouldTryResolvedFastPath: true,
+            shouldTryStaticCall: true,
+            shouldTryUnresolvedFallback: true,
+            shouldTryArrayMutator: true,
+            shouldTryLowering: true,
+            shouldTryFinalDispatch: true
+        }
+    }
+}
+
 fun shouldLookupDottedLiteralReceiverImpl(operandCount: Int,
     literalValue: String) r: Bool {
 
@@ -127,6 +173,41 @@ fun shouldResolveImplicitThisDottedReceiverImpl(thisIndex: Int,
     firstFieldType: String) r: Bool {
 
     return thisIndex >= 0 and firstFieldType != ""
+}
+
+fun planMethodReceiverInitialPhaseImpl(operandCount: Int,
+    literalValue: String) r: MethodReceiverInitialPhasePlan {
+
+    let plan = MethodReceiverInitialPhasePlan.new()
+    plan.hasDottedReceiver = shouldLookupDottedLiteralReceiverImpl(
+        operandCount, literalValue)
+    plan.shouldTryDottedReceiver = plan.hasDottedReceiver
+    plan.shouldUseExplicitReceiver = operandCount > 0
+    return plan
+}
+
+fun planMethodReceiverPostLookupPhaseImpl(hasDottedReceiver: Bool,
+    receiverReg: String, literalValue: String)
+    r: MethodReceiverPostLookupPhasePlan {
+
+    let plan = MethodReceiverPostLookupPhasePlan.new()
+    plan.shouldTryDottedFallback =
+        shouldResolveDottedReceiverFallbackImpl(hasDottedReceiver,
+            receiverReg)
+    plan.shouldTrySimpleLiteral =
+        not plan.shouldTryDottedFallback and
+        shouldResolveSimpleLiteralReceiverImpl(hasDottedReceiver,
+            literalValue)
+    return plan
+}
+
+fun planMethodReceiverPostResolutionPhaseImpl(receiverReg: String,
+    currentClassName: String) r: MethodReceiverPostResolutionPhasePlan {
+
+    let plan = MethodReceiverPostResolutionPhasePlan.new()
+    plan.shouldTryUnresolvedFallback =
+        receiverReg == "" or currentClassName != ""
+    return plan
 }
 
 fun planDottedReceiverStageImpl(operandCount: Int, literalValue: String,
