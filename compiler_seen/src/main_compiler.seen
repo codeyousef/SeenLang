@@ -55,7 +55,7 @@ import codegen.ir_string_interp_gen.{generateStringInterpolationFromPartsImpl}
 import codegen.ir_string_interp_infer.{inferStringInterpolationExprTypeStateImpl}
 import codegen.ir_string_emit.{escapeStringImpl}
 import codegen.ir_nullish_gen.{emitNullishCheckComparisonImpl}
-import codegen.ir_enum_ctor_gen.{allocateEnumConstructorObjectImpl}
+import codegen.ir_enum_ctor_gen.{lookupEnumVariantTagStateImpl, lookupEnumParentStateImpl, lookupEnumFieldTypeStateImpl, lookupEnumFieldCountStateImpl, isEnumVariantStateImpl, planEnumConstructorImpl, shouldCollectEnumConstructorFieldImpl, allocateEnumConstructorObjectImpl, emitEnumConstructorFieldStoresImpl}
 import codegen.ir_when_arm_gen.{emitWhenArmGuardImpl}
 import codegen.ir_when_pattern_gen.{emitWhenPatternBranchImpl}
 import codegen.ir_when_result_gen.{allocateWhenResultSlotImpl}

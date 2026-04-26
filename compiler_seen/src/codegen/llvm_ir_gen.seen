@@ -39,7 +39,7 @@
 
 import parser.real_parser.{ProgramNode, ItemNode, FunctionNode, ClassNode, BlockNode, StatementNode, ParserExpressionNode, TypeNode, AnnotationNode}
 import str.string.{StringBuilder}
-import codegen.ir_optimization.{parseGlobalVarMutable, parseGlobalVarType, parseGlobalVarValue, parseIntManual, foldIntConstants, foldIntComparison, selectSimdWidth, pipeGet, exprCost, egraphLookup, egraphLookupFloat, egraphSelfComparison, selfCallCheck, parseFixedPoint100, g_inlineW0, g_inlineW1, g_inlineW2, g_inlineW3, g_inlineBias, g_mlWeightsActive, lookupEnumVariantTagImpl, lookupEnumParentImpl, lookupEnumFieldTypeImpl, lookupEnumFieldCountImpl, isEnumVariantImpl, pipeContains, splitPipe, simpleHash, getNextRegFn, getNextBlockFn, emitEgraphPeepholeImpl, emitEgraphFloatPeepholeImpl}
+import codegen.ir_optimization.{parseGlobalVarMutable, parseGlobalVarType, parseGlobalVarValue, parseIntManual, foldIntConstants, foldIntComparison, selectSimdWidth, pipeGet, exprCost, egraphLookup, egraphLookupFloat, egraphSelfComparison, selfCallCheck, parseFixedPoint100, g_inlineW0, g_inlineW1, g_inlineW2, g_inlineW3, g_inlineBias, g_mlWeightsActive, pipeContains, splitPipe, simpleHash, getNextRegFn, getNextBlockFn, emitEgraphPeepholeImpl, emitEgraphFloatPeepholeImpl}
 import codegen.ir_decl_runtime.{emitCoreRuntimeDecls, emitStringAndIODecls, emitMacroAndLspDecls}
 import codegen.ir_decl_parser.{emitParserDecls, emitTypecheckerDecls}
 import codegen.ir_decl_features.{emitFeatureDecls, generateHotReloadMethodsImpl}
@@ -62,7 +62,7 @@ import codegen.ir_string_interp_gen.{generateStringInterpolationFromPartsImpl}
 import codegen.ir_string_interp_infer.{inferStringInterpolationExprTypeStateImpl}
 import codegen.ir_string_emit.{escapeStringImpl, addStringConstantTableImpl, getStringConstantIndexImpl, emitAdditionalGeneratedStringConstantsImpl, loadEmbeddedStringConstantInfoImpl, emitStringConstantsImpl, emitStringConstantsWithPrefixImpl}
 import codegen.ir_nullish_gen.{emitNullishCheckComparisonImpl, defaultValueForLlvmTypeImpl, emitNullishBranchingImpl, emitNullishBranchToEndImpl, enterNullishElseBranchImpl, finalizeNullishMergeImpl, buildSafeNavigationMemberExprImpl}
-import codegen.ir_enum_ctor_gen.{allocateEnumConstructorObjectImpl, emitEnumConstructorFieldStoresImpl}
+import codegen.ir_enum_ctor_gen.{lookupEnumVariantTagStateImpl, lookupEnumParentStateImpl, lookupEnumFieldTypeStateImpl, lookupEnumFieldCountStateImpl, isEnumVariantStateImpl, planEnumConstructorImpl, shouldCollectEnumConstructorFieldImpl, allocateEnumConstructorObjectImpl, emitEnumConstructorFieldStoresImpl}
 import codegen.ir_when_arm_gen.{emitWhenArmGuardImpl, ensureWhenPatternDestructPtrImpl, emitWhenPatternBindingStoreImpl, normalizeWhenArmStoreValueImpl}
 import codegen.ir_when_pattern_gen.{emitWhenLiteralPatternBranchImpl, emitWhenIsPatternBranchImpl, emitWhenPatternBranchImpl}
 import codegen.ir_when_result_gen.{allocateWhenResultSlotImpl, emitWhenArmReturnImpl, emitWhenArmStoreImpl, finalizeWhenResultImpl}
@@ -4237,7 +4237,8 @@ class LLVMIRGenerator {
     fun emitIsExpressionTest(expr: ParserExpressionNode) r: String {
         let isSubjectReg = generateExpression(expr.operands[0])
         let isTypeName = expr.literalValue
-        let isTagIdx = lookupEnumVariantTag(isTypeName)
+        let isTagIdx = lookupEnumVariantTagStateImpl(isTypeName,
+            g_enumVariantNames, g_enumVariantTags, g_enumVariantCount)
         if isTagIdx >= 0 {
             let isTagLoad = getNextReg()
             output.append("  " + isTagLoad + " = load i64, ptr " + isSubjectReg + "\n")
@@ -4665,15 +4666,21 @@ class LLVMIRGenerator {
     }
 
     fun tryGenerateEnumMemberAccess(receiverName: String, fieldName: String) r: String {
-        if g_enumVariantCount > 0 and isEnumVariant(fieldName) {
-            let parentEnum = lookupEnumParent(fieldName)
+        if g_enumVariantCount > 0 and isEnumVariantStateImpl(fieldName,
+            g_enumVariantNames, g_enumVariantCount) {
+            let parentEnum = lookupEnumParentStateImpl(fieldName,
+                g_enumVariantNames, g_enumVariantParent, g_enumVariantCount)
             if parentEnum == receiverName {
-                let varFieldCount = lookupEnumFieldCount(fieldName)
+                let varFieldCount = lookupEnumFieldCountStateImpl(fieldName,
+                    g_enumVariantNames, g_enumVariantFieldCounts,
+                    g_enumVariantCount)
                 if varFieldCount > 0 {
                     let enumExpr = ParserExpressionNode.new()
                     return generateEnumConstructor(fieldName, enumExpr)
                 }
-                return lookupEnumVariantTag(fieldName).toString()
+                return lookupEnumVariantTagStateImpl(fieldName,
+                    g_enumVariantNames, g_enumVariantTags,
+                    g_enumVariantCount).toString()
             }
         }
         if receiverName == "SeenTokenType" {
@@ -5785,9 +5792,12 @@ class LLVMIRGenerator {
         var lowIsVariantCall = false
         var lowVariantFieldCount = 0
         if g_enumVariantCount > 0 {
-            lowIsVariantCall = isEnumVariant(funcName)
+            lowIsVariantCall = isEnumVariantStateImpl(funcName,
+                g_enumVariantNames, g_enumVariantCount)
             if lowIsVariantCall {
-                lowVariantFieldCount = lookupEnumFieldCount(funcName)
+                lowVariantFieldCount = lookupEnumFieldCountStateImpl(funcName,
+                    g_enumVariantNames, g_enumVariantFieldCounts,
+                    g_enumVariantCount)
             }
         }
         let lowPlan = planLowLevelBuiltinCallImpl(funcName,
@@ -7994,7 +8004,8 @@ class LLVMIRGenerator {
     fun tryInferBuiltinCallExprType(expr: ParserExpressionNode) r: String {
         var isVariantCall = false
         if g_enumVariantCount > 0 {
-            isVariantCall = isEnumVariant(expr.callee)
+            isVariantCall = isEnumVariantStateImpl(expr.callee,
+                g_enumVariantNames, g_enumVariantCount)
         }
         let builtinPlan = planBuiltinCallInferenceImpl(expr.callee,
             expr.arguments.length(), g_enumVariantCount, isVariantCall)
@@ -8006,7 +8017,8 @@ class LLVMIRGenerator {
         let builtinType = inferCallExprTypeImpl(expr.callee)
         var enumParentType = ""
         if builtinPlan.shouldLookupEnumParent {
-            enumParentType = lookupEnumParent(expr.callee)
+            enumParentType = lookupEnumParentStateImpl(expr.callee,
+                g_enumVariantNames, g_enumVariantParent, g_enumVariantCount)
         }
         return inferBuiltinCallExprTypeStateImpl(expr.callee, selectedArgType,
             builtinType, enumParentType)
@@ -8058,8 +8070,11 @@ class LLVMIRGenerator {
             }
         }
         if memberPlan.shouldTryEnumVariant {
-            if isEnumVariant(expr.variableName) {
-                let enumParent = lookupEnumParent(expr.variableName)
+            if isEnumVariantStateImpl(expr.variableName, g_enumVariantNames,
+                g_enumVariantCount) {
+                let enumParent = lookupEnumParentStateImpl(expr.variableName,
+                    g_enumVariantNames, g_enumVariantParent,
+                    g_enumVariantCount)
                 if enumParent != "" and enumParent == expr.literalValue {
                     return enumParent
                 }
@@ -8445,7 +8460,9 @@ class LLVMIRGenerator {
     }
 
     fun emitWhenIsPatternBranch(subjectReg: String, subjectLlvm: String, patternExpr: ParserExpressionNode, armBodyLabel: String, nextCheckLabel: String) r: Void {
-        let variantTagIdx = lookupEnumVariantTag(patternExpr.literalValue)
+        let variantTagIdx = lookupEnumVariantTagStateImpl(
+            patternExpr.literalValue, g_enumVariantNames, g_enumVariantTags,
+            g_enumVariantCount)
         emitWhenIsPatternBranchImpl(output, g_regBox, subjectReg, subjectLlvm,
             armBodyLabel, nextCheckLabel, variantTagIdx)
     }
@@ -8497,7 +8514,9 @@ class LLVMIRGenerator {
                     continue
                 }
                 let fieldOffset = 8 + fieldIdx * 8
-                let fType = lookupEnumFieldType(variantName, fieldIdx)
+                let fType = lookupEnumFieldTypeStateImpl(variantName,
+                    fieldIdx, g_enumVariantNames, g_enumVariantFieldTypes,
+                    g_enumVariantCount)
                 let fLlvm = mapType(fType)
                 let bindIdx = findActiveVariableIndexImpl(varNames, activeVarCount, bindingName)
                 if bindIdx >= 0 {
@@ -8603,51 +8622,17 @@ class LLVMIRGenerator {
         return resultReg
     }
 
-    // Look up enum variant tag index by variant name
-    fun lookupEnumVariantTag(variantName: String) r: Int {
-        return lookupEnumVariantTagImpl(variantName, g_enumVariantNames, g_enumVariantTags, g_enumVariantCount)
-    }
-
-    // Look up parent enum type for a variant name
-    fun lookupEnumParent(variantName: String) r: String {
-        return lookupEnumParentImpl(variantName, g_enumVariantNames, g_enumVariantParent, g_enumVariantCount)
-    }
-
-    // Look up enum field type by variant name and field index
-    fun lookupEnumFieldType(variantName: String, fieldIdx: Int) r: String {
-        return lookupEnumFieldTypeImpl(variantName, fieldIdx, g_enumVariantNames, g_enumVariantFieldTypes, g_enumVariantCount)
-    }
-
-    // Look up field count for a variant
-    fun lookupEnumFieldCount(variantName: String) r: Int {
-        return lookupEnumFieldCountImpl(variantName, g_enumVariantNames, g_enumVariantFieldCounts, g_enumVariantCount)
-    }
-
-    // Check if a name is a registered enum variant
-    fun isEnumVariant(name: String) r: Bool {
-        return isEnumVariantImpl(name, g_enumVariantNames, g_enumVariantCount)
-    }
-
-    // Generate enum variant constructor call
-    // Simple enums (no fields): return tag as i64
-    // Data enums (with fields): allocate tagged heap object [i64 tag, field1, field2, ...]
-    // Generate IR for an enum variant constructor call. Simple enums
-    // (no fields) return the tag as an i64 integer value directly.
-    // Data enums (with fields) allocate a heap object: 8 bytes for the
-    // tag at offset 0, then 8 bytes per field at offsets 8, 16, 24, etc.
-    // Returns the malloc'd pointer (data enums map to "ptr" in mapType).
-    fun allocateEnumConstructorObject(tag: Int, fieldCount: Int) r: String {
-        return allocateEnumConstructorObjectImpl(output, g_regBox, tag,
-            fieldCount)
-    }
-
     fun emitEnumConstructorFieldStores(variantName: String, expr: ParserExpressionNode, objReg: String, fieldCount: Int) r: Void {
         let fieldRegs = Array<String>()
         let fieldLlvmTypes = Array<String>()
         var fi = 0
-        while fi < fieldCount and fi < expr.arguments.length() {
+        while shouldCollectEnumConstructorFieldImpl(fi, fieldCount,
+            expr.arguments.length()) {
+
             fieldRegs.push(generateExpression(expr.arguments[fi]))
-            let fieldType = lookupEnumFieldType(variantName, fi)
+            let fieldType = lookupEnumFieldTypeStateImpl(variantName, fi,
+                g_enumVariantNames, g_enumVariantFieldTypes,
+                g_enumVariantCount)
             fieldLlvmTypes.push(mapType(fieldType))
             fi = fi + 1
         }
@@ -8656,12 +8641,15 @@ class LLVMIRGenerator {
     }
 
     fun generateEnumConstructor(variantName: String, expr: ParserExpressionNode) r: String {
-        let tag = lookupEnumVariantTag(variantName)
-        let fieldCount = lookupEnumFieldCount(variantName)
-        if fieldCount == 0 {
-            return tag.toString()
+        let enumCtorPlan = planEnumConstructorImpl(variantName,
+            g_enumVariantNames, g_enumVariantTags, g_enumVariantFieldCounts,
+            g_enumVariantCount)
+        if enumCtorPlan.isSimple {
+            return enumCtorPlan.tag.toString()
         }
-        let objReg = allocateEnumConstructorObject(tag, fieldCount)
-        emitEnumConstructorFieldStores(variantName, expr, objReg, fieldCount)
+        let objReg = allocateEnumConstructorObjectImpl(output, g_regBox,
+            enumCtorPlan.tag, enumCtorPlan.fieldCount)
+        emitEnumConstructorFieldStores(variantName, expr, objReg,
+            enumCtorPlan.fieldCount)
         return objReg
     }
