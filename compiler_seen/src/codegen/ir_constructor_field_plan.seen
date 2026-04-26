@@ -1,0 +1,69 @@
+// ir_constructor_field_plan.seen - pure constructor field planning helpers.
+
+class ConstructorFieldTypePlan {
+    var hasField: Bool
+    var fieldSeenType: String
+    var nextTypePos: Int
+
+    static fun new() r: ConstructorFieldTypePlan {
+        return ConstructorFieldTypePlan{
+            hasField: false,
+            fieldSeenType: "",
+            nextTypePos: 0
+        }
+    }
+}
+
+class ConstructorFieldStorePlan {
+    var hasField: Bool
+    var fieldSeenType: String
+    var fieldOffset: Int
+    var nextTypePos: Int
+    var nextByteOffset: Int
+
+    static fun new() r: ConstructorFieldStorePlan {
+        return ConstructorFieldStorePlan{
+            hasField: false,
+            fieldSeenType: "",
+            fieldOffset: 0,
+            nextTypePos: 0,
+            nextByteOffset: 0
+        }
+    }
+}
+
+fun planNextConstructorFieldTypeImpl(fieldTypes: String,
+    typePos: Int) r: ConstructorFieldTypePlan {
+
+    let plan = ConstructorFieldTypePlan.new()
+    plan.nextTypePos = fieldTypes.length()
+    if typePos > fieldTypes.length() {
+        return plan
+    }
+
+    var typeEnd = typePos
+    while typeEnd < fieldTypes.length() and
+        fieldTypes.byteAt(typeEnd) != 124 {
+        typeEnd = typeEnd + 1
+    }
+
+    plan.hasField = true
+    plan.fieldSeenType = fieldTypes.substring(typePos, typeEnd)
+    if typeEnd < fieldTypes.length() {
+        plan.nextTypePos = typeEnd + 1
+    }
+    return plan
+}
+
+fun planConstructorFieldStoreImpl(fieldSeenType: String,
+    nextTypePos: Int, currentByteOffset: Int, fieldOffset: Int,
+    fieldSize: Int) r: ConstructorFieldStorePlan {
+
+    let plan = ConstructorFieldStorePlan.new()
+    plan.hasField = true
+    plan.fieldSeenType = fieldSeenType
+    plan.fieldOffset = fieldOffset
+    plan.nextTypePos = nextTypePos
+    plan.nextByteOffset = currentByteOffset + fieldSize
+    return plan
+}

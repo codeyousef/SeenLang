@@ -81,6 +81,7 @@ import codegen.ir_method_gen.{emitSmallVecMethodImpl, emitArrayBasicMethodImpl, 
 import codegen.ir_call_dispatch.{emitUserMethodCallImpl, emitUserFunctionCallImpl, emitIncludeStrImpl, emitIncludeBytesImpl}
 import codegen.ir_call_constructors.{emitReprCConstructorImpl, emitArrayBulkInitImpl, emitArrayPreallocImpl, emitArrayInlineImpl, emitSmallVecConstructorImpl, isArrayConstructorNameImpl, resolveArrayConstructorElementTypeImpl, resolveArrayConstructorElementSizeImpl, isSmallVecConstructorNameImpl, isCollectionConstructorNameImpl, emitCollectionConstructorImpl}
 import codegen.ir_constructor_call_plan.{planArrayConstructorCallImpl, shouldEmitSmallVecConstructorImpl, shouldEmitCollectionConstructorImpl, shouldReadFirstConstructorArgImpl, isReprCConstructorTypeImpl, shouldEmitReprCZeroInitializerImpl, shouldEmitHeapClassConstructorImpl}
+import codegen.ir_constructor_field_plan.{planNextConstructorFieldTypeImpl, planConstructorFieldStoreImpl}
 import codegen.ir_call_args.{fillDefaultParamsImpl, appendPreparedCallArgImpl, promoteFloatArgsImpl}
 import codegen.ir_call_runtime.{emitPrintLikeCallImpl, emitOptionRuntimeBuiltinCallImpl, emitSuperRuntimeBuiltinCallImpl, emitReadTextRuntimeCallImpl, emitWriteTextRuntimeCallImpl, emitArgsRuntimeCallImpl, emitPanicRuntimeCallImpl, emitMathBuiltinCallImpl}
 import codegen.ir_call_runtime_plan.{isOptionRuntimeCallPlanImpl, shouldReadSomeRuntimeArgImpl, isSuperRuntimeCallPlanImpl, isEmptyRuntimeCalleeImpl, isPrintRuntimeCallPlanImpl, shouldReadPrintRuntimeArgImpl, runtimeIoCallActionImpl, isPanicRuntimeCallPlanImpl, shouldReadPanicRuntimeArgImpl, isMathRuntimeCallPlanImpl, shouldReadMathRuntimeArgImpl}
@@ -6053,17 +6054,11 @@ class LLVMIRGenerator {
         var typePos = 0
         while reprCArgIdx < argCount {
             reprCArgRegs.push(generateExpression(expr.arguments[reprCArgIdx]))
-            var typeEnd = typePos
-            while typeEnd < fieldTypesStr.length() and fieldTypesStr.byteAt(typeEnd) != 124 {
-                typeEnd = typeEnd + 1
-            }
-            reprCFieldTypes.push(mapType(fieldTypesStr.substring(typePos, typeEnd)))
+            let reprCFieldPlan = planNextConstructorFieldTypeImpl(
+                fieldTypesStr, typePos)
+            reprCFieldTypes.push(mapType(reprCFieldPlan.fieldSeenType))
             reprCArgIdx = reprCArgIdx + 1
-            if typeEnd < fieldTypesStr.length() {
-                typePos = typeEnd + 1
-            } else {
-                typePos = fieldTypesStr.length()
-            }
+            typePos = reprCFieldPlan.nextTypePos
         }
         return emitReprCConstructorImpl(output, g_regBox, funcName, reprCArgRegs, reprCFieldTypes)
     }
@@ -6078,41 +6073,39 @@ class LLVMIRGenerator {
         var ctorTypePos = 0
         var ctorArgIdx = 0
         while ctorArgIdx < expr.arguments.length() and ctorTypePos < ctorFieldTypesStr.length() {
-            var ctorTypeEnd = ctorTypePos
-            while ctorTypeEnd < ctorFieldTypesStr.length() and ctorFieldTypesStr.byteAt(ctorTypeEnd) != 124 {
-                ctorTypeEnd = ctorTypeEnd + 1
-            }
-            let ctorFieldSeenType = ctorFieldTypesStr.substring(ctorTypePos, ctorTypeEnd)
+            let ctorTypePlan = planNextConstructorFieldTypeImpl(
+                ctorFieldTypesStr, ctorTypePos)
             let ctorArgExpr = expr.arguments[ctorArgIdx]
             let ctorArgReg = generateExpression(ctorArgExpr)
             let ctorFieldPtrReg = getNextReg()
             let ctorFieldOffset = resolveClassConstructorFieldOffsetImpl(
                 structIdx, ctorArgIdx, ctorByteOffset, structNames,
                 structLayouts, structSizes)
-            output.append("  " + ctorFieldPtrReg + " = getelementptr inbounds i8, ptr " + ptrReg + ", i64 " + ctorFieldOffset.toString() + "\n")
-            if isDataType(ctorFieldSeenType) {
+            let ctorFieldByteSize = getTypeSizeReg(
+                ctorTypePlan.fieldSeenType, structNames, structSizes)
+            let ctorStorePlan = planConstructorFieldStoreImpl(
+                ctorTypePlan.fieldSeenType, ctorTypePlan.nextTypePos,
+                ctorByteOffset, ctorFieldOffset, ctorFieldByteSize)
+            output.append("  " + ctorFieldPtrReg + " = getelementptr inbounds i8, ptr " + ptrReg + ", i64 " + ctorStorePlan.fieldOffset.toString() + "\n")
+            if isDataType(ctorStorePlan.fieldSeenType) {
                 if ctorArgExpr.kind == "StructLiteral" {
-                    let ctorFieldSize = getDataTypeSize(ctorFieldSeenType)
-                    output.append("  call void @llvm.memcpy.p0.p0.i64(ptr " + ctorFieldPtrReg + ", ptr " + ctorArgReg + ", i64 " + ctorFieldSize.toString() + ", i1 false)\n")
+                    let ctorMemcpySize = getDataTypeSize(
+                        ctorStorePlan.fieldSeenType)
+                    output.append("  call void @llvm.memcpy.p0.p0.i64(ptr " + ctorFieldPtrReg + ", ptr " + ctorArgReg + ", i64 " + ctorMemcpySize.toString() + ", i1 false)\n")
                 } else {
-                    output.append("  store %" + ctorFieldSeenType + " " + ctorArgReg + ", ptr " + ctorFieldPtrReg + "\n")
+                    output.append("  store %" + ctorStorePlan.fieldSeenType + " " + ctorArgReg + ", ptr " + ctorFieldPtrReg + "\n")
                 }
             } else {
-                let ctorFieldLlvmType = mapType(ctorFieldSeenType)
+                let ctorFieldLlvmType = mapType(ctorStorePlan.fieldSeenType)
                 var ctorStoreReg = ctorArgReg
                 if ctorFieldLlvmType == "ptr" and ctorStoreReg == "0" {
                     ctorStoreReg = "null"
                 }
                 output.append("  store " + ctorFieldLlvmType + " " + ctorStoreReg + ", ptr " + ctorFieldPtrReg + "\n")
             }
-            ctorByteOffset = ctorByteOffset + getTypeSizeReg(
-                ctorFieldSeenType, structNames, structSizes)
+            ctorByteOffset = ctorStorePlan.nextByteOffset
             ctorArgIdx = ctorArgIdx + 1
-            if ctorTypeEnd < ctorFieldTypesStr.length() {
-                ctorTypePos = ctorTypeEnd + 1
-            } else {
-                ctorTypePos = ctorFieldTypesStr.length()
-            }
+            ctorTypePos = ctorStorePlan.nextTypePos
         }
     }
 
