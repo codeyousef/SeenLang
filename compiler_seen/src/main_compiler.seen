@@ -117,6 +117,7 @@ import codegen.ir_field_layout.{resolveFieldAccessLayoutImpl}
 import codegen.ir_bitfield_access.{findBitfieldWidthImpl}
 import codegen.ir_path_expr.{splitFirstPathDotImpl}
 import codegen.ir_member_access.{extractLastMemberFieldSegmentImpl}
+import codegen.ir_member_access_plan.{planMemberAccessRouteImpl}
 import codegen.ir_member_access_gen.{emitVariableReceiverMemberAccessImpl}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, emitSeenLexerKeywordManagerReceiverImpl}
 import codegen.ir_binary_expr.{binaryOperatorMethodSuffixImpl, isSimdBinaryOperatorImpl, isIntLiteralOperandImpl, isFloatLiteralOperandImpl, isSelfVariableComparisonImpl, shouldTryAssociativeIntFoldImpl, associativeIntFoldRewriteCostImpl, emitSelfComparisonConstResultImpl, emitFoldedBoolLiteralBinaryResultImpl, emitFoldedIntLiteralBinaryResultImpl, emitAssociativeIntFoldResultImpl, shouldUseFmaForOperandTypesImpl, emitFmaOperandPromotionImpl, emitFmaCallImpl, buildBinaryCseKeyImpl, buildBinaryFoldLogValueImpl}
@@ -1992,6 +1993,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_bitfield_access")
         modules.push("codegen.ir_path_expr")
         modules.push("codegen.ir_member_access")
+        modules.push("codegen.ir_member_access_plan")
         modules.push("codegen.ir_member_access_gen")
         modules.push("codegen.ir_method_receiver")
         modules.push("codegen.ir_method_receiver_predicates")

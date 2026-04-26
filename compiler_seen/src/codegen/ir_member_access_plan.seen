@@ -1,0 +1,61 @@
+// ir_member_access_plan.seen - pure member-access routing helpers.
+
+class MemberAccessRoutePlan {
+    var shouldTryRebuild: Bool
+    var shouldTryEnum: Bool
+    var shouldTrySwizzle: Bool
+    var shouldUseExpressionReceiver: Bool
+    var shouldTryVariableReceiver: Bool
+    var shouldTryModuleConstantReceiver: Bool
+    var shouldTryBracketPath: Bool
+    var shouldTryChainedReceiver: Bool
+    var shouldTryImplicitThisReceiver: Bool
+
+    static fun new() r: MemberAccessRoutePlan {
+        return MemberAccessRoutePlan{
+            shouldTryRebuild: false,
+            shouldTryEnum: false,
+            shouldTrySwizzle: false,
+            shouldUseExpressionReceiver: false,
+            shouldTryVariableReceiver: false,
+            shouldTryModuleConstantReceiver: false,
+            shouldTryBracketPath: false,
+            shouldTryChainedReceiver: false,
+            shouldTryImplicitThisReceiver: false
+        }
+    }
+}
+
+fun shouldRebuildMemberAccessReceiverImpl(operandCount: Int,
+    receiverName: String, dottedBaseKnown: Bool) r: Bool {
+
+    if operandCount > 0 {
+        return false
+    }
+    if receiverName.contains("[") {
+        return false
+    }
+    if receiverName.contains("()") {
+        return true
+    }
+    return receiverName.contains(".") and dottedBaseKnown
+}
+
+fun planMemberAccessRouteImpl(operandCount: Int, receiverName: String,
+    dottedBaseKnown: Bool) r: MemberAccessRoutePlan {
+
+    let plan = MemberAccessRoutePlan.new()
+    plan.shouldTryRebuild = shouldRebuildMemberAccessReceiverImpl(
+        operandCount, receiverName, dottedBaseKnown)
+    plan.shouldTryEnum = true
+    plan.shouldTrySwizzle = receiverName != ""
+    plan.shouldUseExpressionReceiver = operandCount > 0
+    plan.shouldTryVariableReceiver = operandCount == 0
+    plan.shouldTryModuleConstantReceiver = operandCount == 0
+    plan.shouldTryBracketPath = operandCount == 0 and receiverName.contains("[")
+    plan.shouldTryChainedReceiver = operandCount == 0 and
+        receiverName.contains(".")
+    plan.shouldTryImplicitThisReceiver = operandCount == 0 and
+        receiverName != ""
+    return plan
+}
