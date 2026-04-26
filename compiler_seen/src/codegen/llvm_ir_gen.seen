@@ -119,7 +119,7 @@ import codegen.ir_stmt_comptime.{ComptimeRegistryStateSnapshot, classifyComptime
 import codegen.ir_stmt_return.{emitErrdeferTempReturnLoadImpl, emitReturnRegionAndProfileCleanupImpl, emitDefaultEmptyReturnStatementImpl, emitCharLiteralReturnImpl, shouldSeedReturnPendingArrayLiteralTypeImpl, shouldMarkReturnTailCallImpl, resolveCharLiteralReturnValueImpl, emitFinalReturnStatementValueImpl}
 import codegen.ir_stmt_scope.{recordDeferredStatementSnapshotImpl, enterUnsafeStatementImpl, exitUnsafeStatementImpl, beginTryCatchStatementSnapshotImpl, finalizeTryCatchArmImpl, emitTryCatchCatchHeaderImpl, emitTryCatchFooterImpl}
 import codegen.ir_assignment_gen.{emitFieldStoreImpl, emitValueReceiverMemberAssignmentImpl, emitVariableReceiverMemberAssignmentImpl, emitImplicitThisMemberAssignmentImpl, emitIndexAssignmentBoundsCheckImpl, emitPrimitiveIndexAssignmentStoreImpl, emitGenericIndexAssignmentStoreImpl}
-import codegen.ir_variable_gen.{getExprVariableNameImpl, findActiveVariableIndexImpl, findVisibleVariableTypeImpl, storeActiveVariableBindingImpl, emitMovedVariableUseTrapImpl, emitComptimeVariableLoadImpl, emitModuleConstantLoadImpl, emitFunctionPointerInteropLoadImpl, emitLocalVariableLoadImpl, emitStoreValueToPtrImpl, emitDistinctTypeMismatchWarningImpl, emitImplicitThisPointerLoadImpl, emitImplicitThisFieldStoreImpl, emitMoveSourceNullifyImpl, emitTriviallyCopyableAssignmentNoteImpl}
+import codegen.ir_variable_gen.{getExprVariableNameImpl, findActiveVariableIndexImpl, findVisibleVariableTypeImpl, storeActiveVariableBindingImpl, emitMovedVariableUseTrapImpl, emitComptimeVariableLoadImpl, emitModuleConstantLoadImpl, emitFunctionPointerInteropLoadImpl, emitLocalVariableLoadImpl, emitStoreValueToPtrImpl, emitDistinctTypeMismatchWarningImpl, emitImplicitThisPointerLoadImpl, emitImplicitThisFieldStoreImpl, emitMoveSourceNullifyImpl, shouldNullifyMovedArgumentSourceImpl, resolveMovedArgumentSourceNameImpl, shouldRecordMovedArgumentSourceImpl, emitTriviallyCopyableAssignmentNoteImpl}
 import codegen.type_registry.{findStructReg, ensureStructEntryReg, registerStructMethodReg, registerKnownDataTypesReg, getFunctionReturnTypeReg, isClassTypeReg, isDataTypeReg, getTypeSizeReg, getPoolEligibleClassSizeReg, getDataTypeSizeReg, getFieldInfoReg, applyStructLayoutRegistrationReg}
 import codegen.type_registry.{TypeRegistry, CodegenState, FunctionLoweringOptions, getSharedCodegenState}
 import codegen.ir_function_gen.{generateLiteralFree, NestedScratchStateSnapshot, emitAsyncCoroutineEpilogueImpl, snapshotNestedScratchStateImpl, resetLocalCodegenStateImpl, clearActiveBindingsImpl, beginNestedScratchStateImpl, restoreNestedScratchStateImpl, emitParallelForCallImpl, emitPreAllocatedAllocasImpl, emitFunctionEntrySetupSnapshotImpl, emitFunctionExitResetSnapshotImpl, prepareFunctionPreludeAnalysisSnapshotImpl, prepareFunctionGenerationIdentitySnapshotImpl}
@@ -7507,20 +7507,22 @@ class LLVMIRGenerator {
             let argLlvmType = mapType(argType)
             appendPreparedCallArgImpl(output, g_regBox, funcName, argReg, argType, argLlvmType, argIdx, argRegs, argTypeStrs, g_dynParamFuncs, enableDynBoxing, enableFloatPromotion, g_floatParamFuncNames, g_floatParamParamIdxs)
 
-            if nullifyMovedSources and g_moveOnlyClasses != "" and g_moveOnlyClasses.contains(argType + "|") {
-                if argExpr.kind == "Variable" or argExpr.kind == "VarExpr" {
-                    var moveVarName = argExpr.variableName
-                    if moveVarName == "" { moveVarName = argExpr.literalValue }
-                    if moveVarName != "" {
-                            let moveVarIdx = findActiveVariableIndexImpl(varNames, activeVarCount, moveVarName)
-                            if moveVarIdx >= 0 {
-                                let moveSrcReg = varRegs[moveVarIdx]
-                                output.append("  store i64 0, ptr " + moveSrcReg + " ; @move: nullify source (" + moveContext + ")\n")
-                                recordMovedVariableImpl(
-                                    getCurrentFunctionEmissionStateImpl(),
-                                    moveVarName)
-                            }
-                        }
+            if shouldNullifyMovedArgumentSourceImpl(nullifyMovedSources,
+                g_moveOnlyClasses, argType) {
+
+                let moveVarName = resolveMovedArgumentSourceNameImpl(
+                    argExpr.kind, argExpr.variableName, argExpr.literalValue)
+                if moveVarName != "" {
+                    let moveVarIdx = findActiveVariableIndexImpl(varNames,
+                        activeVarCount, moveVarName)
+                    if shouldRecordMovedArgumentSourceImpl(moveVarName,
+                        moveVarIdx) {
+                        let moveSrcReg = varRegs[moveVarIdx]
+                        output.append("  store i64 0, ptr " + moveSrcReg + " ; @move: nullify source (" + moveContext + ")\n")
+                        recordMovedVariableImpl(
+                            getCurrentFunctionEmissionStateImpl(),
+                            moveVarName)
+                    }
                 }
             }
             argIdx = argIdx + 1

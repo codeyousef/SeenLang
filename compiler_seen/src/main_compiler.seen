@@ -103,7 +103,7 @@ import codegen.ir_class_gen_support.{scanGeneratedClassDecoratorsImpl}
 import codegen.ir_class_generated_features.{emitGeneratedClassDecoratorMethodsImpl}
 import codegen.ir_field_registry.{resolveFieldIndexImpl}
 import codegen.ir_assignment_gen.{emitFieldStoreImpl}
-import codegen.ir_variable_gen.{getExprVariableNameImpl}
+import codegen.ir_variable_gen.{getExprVariableNameImpl, shouldNullifyMovedArgumentSourceImpl, resolveMovedArgumentSourceNameImpl}
 import codegen.ir_field_layout.{resolveFieldAccessLayoutImpl}
 import codegen.ir_bitfield_access.{findBitfieldWidthImpl}
 import codegen.ir_path_expr.{splitFirstPathDotImpl}

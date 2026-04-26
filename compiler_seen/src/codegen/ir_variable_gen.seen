@@ -134,6 +134,31 @@ fun emitMoveSourceNullifyImpl(output: StringBuilder, rhsSrcReg: String) r: Void 
     output.append("  store i64 0, ptr " + rhsSrcReg + " ; @move: nullify source\n")
 }
 
+fun shouldNullifyMovedArgumentSourceImpl(nullifyMovedSources: Bool,
+    moveOnlyClasses: String, argType: String) r: Bool {
+
+    return nullifyMovedSources and moveOnlyClasses != "" and
+        moveOnlyClasses.contains(argType + "|")
+}
+
+fun resolveMovedArgumentSourceNameImpl(exprKind: String, variableName: String,
+    literalValue: String) r: String {
+
+    if exprKind == "Variable" or exprKind == "VarExpr" {
+        if variableName != "" {
+            return variableName
+        }
+        return literalValue
+    }
+    return ""
+}
+
+fun shouldRecordMovedArgumentSourceImpl(sourceName: String,
+    sourceIndex: Int) r: Bool {
+
+    return sourceName != "" and sourceIndex >= 0
+}
+
 fun emitTriviallyCopyableAssignmentNoteImpl(output: StringBuilder, varType: String) r: Void {
     output.append("  ; @trivially_copyable: bitwise copy of " + varType + "\n")
 }
