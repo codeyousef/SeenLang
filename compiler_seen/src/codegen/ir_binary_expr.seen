@@ -320,6 +320,56 @@ fun buildBinaryCseKeyImpl(leftReg: String, operator: String,
     return leftReg + operator + rightReg
 }
 
+fun shouldUseBinaryCseImpl(leftType: String, rightType: String,
+    operator: String) r: Bool {
+
+    return isPureCseBinaryOpImpl(leftType, rightType, operator)
+}
+
+fun shouldUseFloatPeepholeImpl(leftType: String, rightType: String) r: Bool {
+    return leftType == "Float" and rightType == "Float"
+}
+
+fun isFloatPeepholeIdentityLeftImpl(action: String) r: Bool {
+    return action == "identity_left"
+}
+
+fun isFloatPeepholeIdentityRightImpl(action: String) r: Bool {
+    return action == "identity_right"
+}
+
+fun shouldCountFloatPeepholeFoldImpl(action: String) r: Bool {
+    return action.startsWith("fconst:")
+}
+
+fun shouldGenerateFloatPeepholeRightRegImpl(action: String) r: Bool {
+    return action == "fneg" or action == "fneg_right"
+}
+
+fun shouldGenerateFloatPeepholeLeftRegImpl(action: String) r: Bool {
+    if action == "fneg" or action == "fneg_right" {
+        return false
+    }
+    return not action.startsWith("fconst:")
+}
+
+fun shouldLogSelfComparisonConstImpl(action: String) r: Bool {
+    return action == "const:0" or action == "const:1"
+}
+
+fun buildSelfComparisonLogValueImpl(varName: String, operator: String,
+    action: String) r: String {
+
+    return varName + operator + varName + "=" +
+        action.substring(6, action.length())
+}
+
+fun buildBinaryFoldLogValueImpl(leftValue: String, operator: String,
+    rightValue: String, foldedValue: String) r: String {
+
+    return leftValue + operator + rightValue + "=" + foldedValue
+}
+
 // emitOverloadedBinaryCallImpl — lower user-defined operator overload calls.
 fun emitOverloadedBinaryCallImpl(output: StringBuilder, regBox: Array<Int>,
     quotedFuncName: String, retLlvmType: String, leftReg: String, rightReg: String) r: String {

@@ -104,7 +104,7 @@ import codegen.ir_path_expr.{splitChainedPathImpl, buildChainedPathExprImpl, spl
 import codegen.ir_member_access.{emitSimdSwizzleMemberAccessImpl, inferSimdSwizzleMemberTypeImpl, inferJsonValueMemberAccessTypeImpl, inferLiteralReceiverMemberAccessTypeImpl, inferDirectMemberAccessTypeImpl, extractLastMemberFieldSegmentImpl}
 import codegen.ir_member_access_gen.{emitExpressionReceiverMemberAccessImpl, emitVariableReceiverMemberAccessImpl, emitModuleConstReceiverMemberAccessImpl, emitBracketPathMemberAccessImpl, emitChainedReceiverMemberAccessImpl, emitImplicitThisReceiverMemberAccessImpl}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, inferTypeRegistryFieldTypeImpl, getSemanticFieldTypeImpl, resolveMethodFieldPathTypeImpl, tryResolveEnumLiteralMethodReceiverImpl, convertReceiverToPtrImpl}
-import codegen.ir_binary_expr.{emitPointerArithmeticBinaryImpl, emitSimdBinaryExprImpl, binaryOperatorMethodSuffixImpl, isSimdBinaryOperatorImpl, isIntLiteralOperandImpl, isFloatLiteralOperandImpl, isSelfVariableComparisonImpl, isShortCircuitBinaryOperatorImpl, shouldTryAssociativeIntFoldImpl, associativeIntFoldRewriteCostImpl, emitSelfComparisonConstResultImpl, emitFoldedBoolLiteralBinaryResultImpl, emitFoldedIntLiteralBinaryResultImpl, emitAssociativeIntFoldResultImpl, isFloatFmaCandidateImpl, isBinaryMultiplyExpressionImpl, shouldUseFmaForOperandTypesImpl, emitFmaOperandPromotionImpl, emitFmaCallImpl, isPureCseBinaryOpImpl, buildBinaryCseKeyImpl, emitOverloadedBinaryCallImpl, exprProducesBoolImpl, emitBoolCoercionImpl, emitShortCircuitPhiImpl}
+import codegen.ir_binary_expr.{emitPointerArithmeticBinaryImpl, emitSimdBinaryExprImpl, binaryOperatorMethodSuffixImpl, isSimdBinaryOperatorImpl, isIntLiteralOperandImpl, isFloatLiteralOperandImpl, isSelfVariableComparisonImpl, isShortCircuitBinaryOperatorImpl, shouldTryAssociativeIntFoldImpl, associativeIntFoldRewriteCostImpl, emitSelfComparisonConstResultImpl, emitFoldedBoolLiteralBinaryResultImpl, emitFoldedIntLiteralBinaryResultImpl, emitAssociativeIntFoldResultImpl, isFloatFmaCandidateImpl, isBinaryMultiplyExpressionImpl, shouldUseFmaForOperandTypesImpl, emitFmaOperandPromotionImpl, emitFmaCallImpl, shouldUseBinaryCseImpl, buildBinaryCseKeyImpl, shouldUseFloatPeepholeImpl, isFloatPeepholeIdentityLeftImpl, isFloatPeepholeIdentityRightImpl, shouldCountFloatPeepholeFoldImpl, shouldGenerateFloatPeepholeRightRegImpl, shouldGenerateFloatPeepholeLeftRegImpl, shouldLogSelfComparisonConstImpl, buildSelfComparisonLogValueImpl, buildBinaryFoldLogValueImpl, emitOverloadedBinaryCallImpl, exprProducesBoolImpl, emitBoolCoercionImpl, emitShortCircuitPhiImpl}
 import codegen.ir_unary_expr.{unaryOperatorMethodNameImpl, shouldSkipUnaryOverloadTypeImpl, negatedComparisonPredicateImpl, shouldEmitNegatedComparisonForTypesImpl, emitOverloadedUnaryCallImpl, emitUnaryNegationImpl, emitNegatedComparisonImpl, emitUnaryLogicalNotImpl, emitUnaryAddressOfClassValueImpl, emitUnaryAddressOfVariablePtrImpl, emitUnaryDereferenceImpl, isUnaryBitwiseNotOperatorImpl, emitUnaryBitwiseNotImpl}
 import codegen.ir_class_method_gen.{tryEmitOptionClassMethodShimImpl, shouldTraceClassMethodStartImpl, collectClassMethodParameterInfoImpl, emitClassMethodSignatureStateImpl, emitClassMethodReceiverBindingStateImpl, emitClassMethodParameterBindingsStateImpl, emitClassMethodConstructorSetupStateImpl, tryEmitClassMethodConstructorReturnStateImpl, emitClassMethodDefaultReturnStateImpl}
 import codegen.ir_stmt_decl.{shouldInferDeclarationInitializerTypeImpl, resolveDeclarationBaseTypeImpl, resolveLetStatementTypeImpl, resolveLetStatementAllocaImpl, prepareLetStatementPlanImpl, resolveLetPreAllocatedRegImpl, findPreAllocatedOccurrenceImpl, nextDeclarationOrdinalImpl, classifyCollectedStatementKindImpl, shouldTraceCollectedDeclarationTypeImpl, appendCollectedDeclarationImpl, resolveCollectedForInElementTypeImpl, buildForInIndexNameImpl, shouldSeedDeclarationPendingArrayLiteralTypeImpl, emitDeadLiteralInitializerSkipNoteImpl, emitDeclarationInitializerStoreImpl}
@@ -5440,11 +5440,11 @@ class LLVMIRGenerator {
                     g_regBox, selfAction, expr.operator)
                 if selfFoldReg != "" {
                     g_constantsFolded = g_constantsFolded + 1
-                    if selfAction == "const:0" or selfAction == "const:1" {
+                    if shouldLogSelfComparisonConstImpl(selfAction) {
                         mlLogDecision("e-graph", "self-opt",
-                            leftExpr.literalValue + expr.operator +
-                            leftExpr.literalValue + "=" +
-                            selfAction.substring(6, selfAction.length()))
+                            buildSelfComparisonLogValueImpl(
+                            leftExpr.literalValue, expr.operator,
+                            selfAction))
                     }
                     return selfFoldReg
                 }
@@ -5489,8 +5489,9 @@ class LLVMIRGenerator {
                         if rewriteCost <= origCost {
                             g_constantsFolded = g_constantsFolded + 1
                             mlLogDecision("e-graph", "assoc-fold",
-                                innerRight.literalValue + expr.operator +
-                                rightLitVal + "=" + combinedVal)
+                                buildBinaryFoldLogValueImpl(
+                                innerRight.literalValue, expr.operator,
+                                rightLitVal, combinedVal))
                             let innerLeftReg =
                                 generateExpression(leftExpr.operands[0])
                             let assocResultReg =
@@ -5510,7 +5511,9 @@ class LLVMIRGenerator {
                 if cmpResult != "" {
                     g_constantsFolded = g_constantsFolded + 1
                     g_branchesEliminated = g_branchesEliminated + 1
-                    mlLogDecision("const-fold", "cmp-folded", leftLitVal + expr.operator + rightLitVal + "=" + cmpResult)
+                    mlLogDecision("const-fold", "cmp-folded",
+                        buildBinaryFoldLogValueImpl(leftLitVal,
+                        expr.operator, rightLitVal, cmpResult))
                     return emitFoldedBoolLiteralBinaryResultImpl(output,
                         g_regBox, cmpResult)
                 }
@@ -5520,14 +5523,16 @@ class LLVMIRGenerator {
                 let folded = foldIntConstants(leftLitVal, rightLitVal, expr.operator)
                 if folded != "" {
                     g_constantsFolded = g_constantsFolded + 1
-                    mlLogDecision("const-fold", "folded", leftLitVal + expr.operator + rightLitVal + "=" + folded)
+                    mlLogDecision("const-fold", "folded",
+                        buildBinaryFoldLogValueImpl(leftLitVal,
+                        expr.operator, rightLitVal, folded))
                     return emitFoldedIntLiteralBinaryResultImpl(output,
                         g_regBox, folded)
                 }
             }
         }
         // Float peephole optimizations — delegated to ir_optimization.seen
-        if leftType == "Float" and rightType == "Float" {
+        if shouldUseFloatPeepholeImpl(leftType, rightType) {
             let fLeftIsLit = isFloatLiteralOperandImpl(leftExpr.kind,
                 leftExpr.literalType)
             let fRightIsLit = isFloatLiteralOperandImpl(rightExpr.kind,
@@ -5535,23 +5540,23 @@ class LLVMIRGenerator {
             let fLeftLitVal = leftExpr.literalValue
             let fRightLitVal = rightExpr.literalValue
             let fAction = egraphLookupFloat(expr.operator, fLeftLitVal, fRightLitVal, fLeftIsLit, fRightIsLit)
-            if fAction == "identity_left" {
+            if isFloatPeepholeIdentityLeftImpl(fAction) {
                 return generateExpression(leftExpr)
             }
-            if fAction == "identity_right" {
+            if isFloatPeepholeIdentityRightImpl(fAction) {
                 return generateExpression(rightExpr)
             }
             if fAction != "" {
-                if fAction.startsWith("fconst:") {
+                if shouldCountFloatPeepholeFoldImpl(fAction) {
                     g_constantsFolded = g_constantsFolded + 1
                 }
                 // Generate left/right operands as needed by the action
                 var fgLeftReg = ""
                 var fgRightReg = ""
-                if fAction == "fneg" or fAction == "fneg_right" {
+                if shouldGenerateFloatPeepholeRightRegImpl(fAction) {
                     fgRightReg = generateExpression(rightExpr)
                 }
-                if fAction != "fneg" and fAction != "fneg_right" and not fAction.startsWith("fconst:") {
+                if shouldGenerateFloatPeepholeLeftRegImpl(fAction) {
                     fgLeftReg = generateExpression(leftExpr)
                 }
                 let fResult = emitEgraphFloatPeepholeImpl(output, g_regBox, fAction, fgLeftReg, fgRightReg, expr.operator)
@@ -5617,7 +5622,7 @@ class LLVMIRGenerator {
 
         // CSE within function scope: re-enabled for pure int/float binary ops.
         // Cache is cleared at function entry and block boundaries (safe with dominance).
-        if isPureCseBinaryOpImpl(leftType, rightType, expr.operator) {
+        if shouldUseBinaryCseImpl(leftType, rightType, expr.operator) {
             let cseKey = buildBinaryCseKeyImpl(leftReg, expr.operator, rightReg)
             let cseCached = cseLookup(cseKey)
             if cseCached != "" {
@@ -5660,7 +5665,7 @@ class LLVMIRGenerator {
         if cseSig[0] == 1 { cseClear() }
 
         // CSE recording for pure int/float binary ops (within function scope only)
-        if isPureCseBinaryOpImpl(leftType, rightType, expr.operator) {
+        if shouldUseBinaryCseImpl(leftType, rightType, expr.operator) {
             let cseKey2 = buildBinaryCseKeyImpl(leftReg, expr.operator,
                 rightReg)
             cseRecord(cseKey2, resultReg)
