@@ -4,34 +4,6 @@ fun hasExplicitMethodReceiverImpl(operandCount: Int) r: Bool {
     return operandCount > 0
 }
 
-fun hasDottedLiteralMethodReceiverImpl(operandCount: Int,
-    literalValue: String) r: Bool {
-
-    return operandCount == 0 and literalValue.contains(".")
-}
-
-fun shouldBuildDottedLiteralReceiverExprImpl(hasDottedReceiver: Bool,
-    segmentCount: Int, baseReceiverType: String) r: Bool {
-
-    return hasDottedReceiver and segmentCount > 0 and baseReceiverType != ""
-}
-
-fun shouldResolveDottedLiteralReceiverFallbackImpl(
-    hasDottedReceiver: Bool, receiverReg: String) r: Bool {
-
-    return hasDottedReceiver and receiverReg == ""
-}
-
-fun shouldResolveSimpleLiteralMethodReceiverImpl(
-    hasDottedReceiver: Bool, literalValue: String) r: Bool {
-
-    return not hasDottedReceiver and literalValue != ""
-}
-
-fun hasResolvedMethodReceiverImpl(receiverReg: String) r: Bool {
-    return receiverReg != ""
-}
-
 class ResolvedReceiverFastPathPlan {
     var action: Int
 
@@ -200,10 +172,6 @@ fun shouldResolveImplicitThisDottedFieldReceiverImpl(thisIndex: Int,
     return thisIndex >= 0 and firstFieldType != ""
 }
 
-fun isArrayFreeMutatorMethodImpl(methodName: String) r: Bool {
-    return methodName == "free"
-}
-
 fun shouldUseLiteralArrayFreeReceiverTypeImpl(receiverType: String,
     literalValue: String) r: Bool {
 
@@ -287,22 +255,6 @@ fun shouldUseArrayMutatorReceiverFallbackImpl(arrayPtrReg: String,
 
 fun shouldEmitArrayMutatorWithPointerImpl(arrayPtrReg: String) r: Bool {
     return arrayPtrReg != ""
-}
-
-fun isArrayPushMutatorMethodImpl(methodName: String,
-    receiverIsArray: Bool) r: Bool {
-
-    return methodName == "push" and receiverIsArray
-}
-
-fun isArrayPopMutatorMethodImpl(methodName: String) r: Bool {
-    return methodName == "pop"
-}
-
-fun isArraySwapMutatorMethodImpl(methodName: String,
-    receiverIsArray: Bool, argCount: Int) r: Bool {
-
-    return methodName == "swap" and receiverIsArray and argCount == 2
 }
 
 fun resolveArrayMutatorVariableNameImpl(literalValue: String,

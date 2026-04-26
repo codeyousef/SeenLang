@@ -155,10 +155,6 @@ fun isSelfVariableComparisonImpl(leftKind: String, leftValue: String,
         leftValue == rightValue
 }
 
-fun isShortCircuitBinaryOperatorImpl(operator: String) r: Bool {
-    return operator == "and" or operator == "or"
-}
-
 fun shouldTryAssociativeIntFoldImpl(operator: String, rightIsIntLit: Bool,
     leftKind: String, leftOperator: String, leftOperandCount: Int) r: Bool {
 
@@ -258,18 +254,6 @@ fun emitAssociativeIntFoldResultImpl(output: StringBuilder,
     return ""
 }
 
-fun isFloatFmaCandidateImpl(operator: String, leftType: String,
-    rightType: String) r: Bool {
-
-    return operator == "+" and (leftType == "Float" or rightType == "Float")
-}
-
-fun isBinaryMultiplyExpressionImpl(exprKind: String, operator: String)
-    r: Bool {
-
-    return exprKind == "Binary" and operator == "*"
-}
-
 fun shouldUseFmaForOperandTypesImpl(leftType: String, rightType: String)
     r: Bool {
 
@@ -298,36 +282,10 @@ fun emitFmaCallImpl(output: StringBuilder, regBox: Array<Int>,
     return resultReg
 }
 
-fun isPureCseBinaryOpImpl(leftType: String, rightType: String,
-    operator: String) r: Bool {
-
-    if leftType != "Int" and leftType != "Float" {
-        return false
-    }
-    if rightType != "Int" and rightType != "Float" {
-        return false
-    }
-    if operator == "+" or operator == "-" or operator == "*" or
-        operator == "/" {
-        return true
-    }
-    return false
-}
-
 fun buildBinaryCseKeyImpl(leftReg: String, operator: String,
     rightReg: String) r: String {
 
     return leftReg + operator + rightReg
-}
-
-fun shouldUseBinaryCseImpl(leftType: String, rightType: String,
-    operator: String) r: Bool {
-
-    return isPureCseBinaryOpImpl(leftType, rightType, operator)
-}
-
-fun shouldUseFloatPeepholeImpl(leftType: String, rightType: String) r: Bool {
-    return leftType == "Float" and rightType == "Float"
 }
 
 fun isFloatPeepholeIdentityLeftImpl(action: String) r: Bool {
