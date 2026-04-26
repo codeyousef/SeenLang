@@ -9,6 +9,22 @@ class IndirectCallPlan {
     }
 }
 
+class MetaBuiltinCallPlan {
+    var action: Int
+    var hasArg0: Bool
+    var hasArg1: Bool
+    var targetTypeName: String
+
+    static fun new() r: MetaBuiltinCallPlan {
+        return MetaBuiltinCallPlan{
+            action: 0,
+            hasArg0: false,
+            hasArg1: false,
+            targetTypeName: ""
+        }
+    }
+}
+
 fun isSizeofMetaBuiltinImpl(funcName: String) r: Bool {
     return funcName == "sizeof"
 }
@@ -40,6 +56,39 @@ fun isIncludeStrMetaBuiltinImpl(funcName: String) r: Bool {
 
 fun isIncludeBytesMetaBuiltinImpl(funcName: String) r: Bool {
     return funcName == "includeBytes"
+}
+
+fun planMetaBuiltinCallImpl(funcName: String,
+    argCount: Int) r: MetaBuiltinCallPlan {
+
+    let plan = MetaBuiltinCallPlan.new()
+    plan.hasArg0 = argCount > 0
+    plan.hasArg1 = argCount > 1
+    if isSizeofMetaBuiltinImpl(funcName) {
+        plan.action = 1
+        return plan
+    }
+    if isAlignofMetaBuiltinImpl(funcName) {
+        plan.action = 2
+        return plan
+    }
+    if isOffsetofMetaBuiltinImpl(funcName) {
+        plan.action = 3
+        return plan
+    }
+    if isTransmuteMetaBuiltinImpl(funcName) {
+        plan.action = 4
+        plan.targetTypeName = resolveTransmuteTargetTypeNameImpl(funcName)
+        return plan
+    }
+    if isIncludeStrMetaBuiltinImpl(funcName) {
+        plan.action = 5
+        return plan
+    }
+    if isIncludeBytesMetaBuiltinImpl(funcName) {
+        plan.action = 6
+    }
+    return plan
 }
 
 fun hasBuiltinArgImpl(argCount: Int, argIndex: Int) r: Bool {

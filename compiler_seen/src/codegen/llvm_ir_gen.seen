@@ -87,7 +87,7 @@ import codegen.ir_call_runtime_plan.{isOptionRuntimeCallPlanImpl, shouldReadSome
 import codegen.ir_call_regular_plan.{shouldPromoteRegularCallFloatArgsImpl, resolveRegularCallLlvmReturnTypeImpl, shouldRecordRegularLateDeclareImpl, regularCallTailFlagImpl}
 import codegen.ir_call_meta.{resolveSizeofBuiltinValueImpl, resolveAlignofBuiltinValueImpl, resolveOffsetofBuiltinValueImpl}
 import codegen.ir_call_low_level.{isPtrBuiltinCallImpl, emitPtrBuiltinCallImpl, emitBarrierBuiltinCallImpl, emitStackAllocBuiltinCallImpl, emitConstructAtBuiltinCallImpl, emitDebugAssertBuiltinCallStateImpl, emitCStringBuiltinCallImpl, emitSplitBuiltinCallImpl, emitAsyncYieldBuiltinStateImpl, isSimdBuiltinCallImpl, emitPreparedSimdBuiltinCallImpl, emitIndirectBuiltinCallImpl}
-import codegen.ir_call_builtin_plan.{isSizeofMetaBuiltinImpl, isAlignofMetaBuiltinImpl, isOffsetofMetaBuiltinImpl, isTransmuteMetaBuiltinImpl, resolveTransmuteTargetTypeNameImpl, isIncludeStrMetaBuiltinImpl, isIncludeBytesMetaBuiltinImpl, hasBuiltinArgImpl, shouldReadPtrBuiltinArgImpl, isStackAllocBuiltinImpl, isDefaultValueBuiltinImpl, isAsyncYieldBuiltinImpl, shouldReadSimdShuffleConstArgImpl, planIndirectCallImpl, shouldLookupEnumVariantCallImpl, shouldGenerateEnumVariantConstructorImpl, shouldClearDebugAssertCseImpl}
+import codegen.ir_call_builtin_plan.{planMetaBuiltinCallImpl, hasBuiltinArgImpl, shouldReadPtrBuiltinArgImpl, isStackAllocBuiltinImpl, isDefaultValueBuiltinImpl, isAsyncYieldBuiltinImpl, shouldReadSimdShuffleConstArgImpl, planIndirectCallImpl, shouldLookupEnumVariantCallImpl, shouldGenerateEnumVariantConstructorImpl, shouldClearDebugAssertCseImpl}
 import codegen.ir_call_fixups.{resolveRealParserMisplacedMethodReturnTypeImpl, isStandaloneParserWorkaroundImpl, emitStandaloneParserWorkaroundCallImpl}
 import codegen.ir_method_finalize.{resolveMethodCallInstanceTypeNameImpl, tryGeneratePreparedHotReloadInstanceMethodCallImpl, resolveMethodCallReturnTypeImpl, prepareMethodCallReceiverAbiImpl, tryGenerateSpecializedInstanceMethodCallImpl, emitArrayFreeMutationImpl, emitArrayPushMutationImpl, emitArrayPopMutationImpl, emitArraySwapMutationImpl, emitPoolFreeFromValueSlotImpl, emitClassFreeMutationImpl}
 import codegen.ir_method_fastpath.{emitPreparedDynTraitMethodCallImpl, tryGeneratePreparedExplicitReceiverFastPathImpl, tryGeneratePreparedLocalVariableReceiverFastPathImpl, tryGenerateLengthLikeMethodCallImpl, emitStringBuilderReceiverMethodCallImpl, tryGeneratePrimitiveConversionMethodCallImpl, tryGenerateNumericReceiverMethodCallImpl, tryGenerateStringLikeReceiverMethodCallImpl, resolveStaticMethodClassNamesImpl, isStaticMethodReceiverReferenceImpl, tryGenerateStaticFactoryMethodCallImpl, resolveStaticMethodReturnTypeImpl, prepareModuleConstantMethodReceiverImpl, emitPreparedStaticMethodCallImpl, shouldLowerUnresolvedMethodAsCallImpl, tryGenerateUnresolvedReceiverFallbackMethodImpl, applyUnresolvedReceiverDefaultImpl}
@@ -5734,11 +5734,10 @@ class LLVMIRGenerator {
     }
 
     fun tryGenerateMetaBuiltinCall(expr: ParserExpressionNode, funcName: String) r: String {
-        // sizeof(Type) — compile-time type size in bytes
-        // NOTE: Use inferExpressionType instead of field access on arguments[0]
-        // to avoid stage1_frozen cross-module GEP bug with ParserExpressionNode fields
-        if isSizeofMetaBuiltinImpl(funcName) {
-            if hasBuiltinArgImpl(expr.arguments.length(), 0) {
+        let metaPlan = planMetaBuiltinCallImpl(funcName,
+            expr.arguments.length())
+        if metaPlan.action == 1 {
+            if metaPlan.hasArg0 {
                 // Try comptime evaluator first (handles bare type names like Int32)
                 let ctSize = evaluateConstExpr(expr)
                 if ctSize > 0 {
@@ -5751,9 +5750,8 @@ class LLVMIRGenerator {
             return "0"
         }
 
-        // alignof(Type) — compile-time type alignment in bytes
-        if isAlignofMetaBuiltinImpl(funcName) {
-            if hasBuiltinArgImpl(expr.arguments.length(), 0) {
+        if metaPlan.action == 2 {
+            if metaPlan.hasArg0 {
                 let alignTypeName = inferExpressionType(expr.arguments[0])
                 return resolveAlignofBuiltinValueImpl(mapType(alignTypeName),
                     structNames, structLayouts, structSizes)
@@ -5761,9 +5759,8 @@ class LLVMIRGenerator {
             return "0"
         }
 
-        // offsetof(Type, field) — field walk delegated to ir_call_dispatch.seen
-        if isOffsetofMetaBuiltinImpl(funcName) {
-            if expr.arguments.length() >= 2 {
+        if metaPlan.action == 3 {
+            if metaPlan.hasArg0 and metaPlan.hasArg1 {
                 let offTypeName = inferExpressionType(expr.arguments[0])
                 let offFieldName = inferExpressionType(expr.arguments[1])
                 return resolveOffsetofBuiltinValueImpl(offTypeName,
@@ -5773,25 +5770,22 @@ class LLVMIRGenerator {
             return "0"
         }
 
-        // transmute<TargetType>(value) — delegated to ir_method_gen.seen
-        if isTransmuteMetaBuiltinImpl(funcName) {
+        if metaPlan.action == 4 {
             if g_insideUnsafe == 0 {
                 output.append("  ; ERROR: transmute requires unsafe block\n")
                 return "0"
             }
-            if hasBuiltinArgImpl(expr.arguments.length(), 0) {
+            if metaPlan.hasArg0 {
                 let tmSrcReg = generateExpression(expr.arguments[0])
                 let tmSrcType = inferExpressionType(expr.arguments[0])
-                let tmTargetTypeName =
-                    resolveTransmuteTargetTypeNameImpl(funcName)
-                return emitTransmuteImpl(output, g_regBox, tmSrcReg, mapType(tmSrcType), mapType(tmTargetTypeName))
+                return emitTransmuteImpl(output, g_regBox, tmSrcReg,
+                    mapType(tmSrcType), mapType(metaPlan.targetTypeName))
             }
             return "0"
         }
 
-        // comptime includeStr("path") — delegated to ir_call_dispatch.seen
-        if isIncludeStrMetaBuiltinImpl(funcName) {
-            if hasBuiltinArgImpl(expr.arguments.length(), 0) {
+        if metaPlan.action == 5 {
+            if metaPlan.hasArg0 {
                 let inclPath = expr.arguments[0].literalValue
                 let inclInfo = loadEmbeddedStringConstantInfoImpl(
                     stringConstants, inclPath)
@@ -5807,9 +5801,8 @@ class LLVMIRGenerator {
             return inclEmptyReg
         }
 
-        // comptime includeBytes("path") — delegated to ir_call_dispatch.seen
-        if isIncludeBytesMetaBuiltinImpl(funcName) {
-            if hasBuiltinArgImpl(expr.arguments.length(), 0) {
+        if metaPlan.action == 6 {
+            if metaPlan.hasArg0 {
                 let inclBPath = expr.arguments[0].literalValue
                 let inclBInfo = loadEmbeddedStringConstantInfoImpl(
                     stringConstants, inclBPath)
