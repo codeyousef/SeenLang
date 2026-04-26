@@ -1,0 +1,65 @@
+// ir_program_flow_plan.seen - pure program emission routing helpers.
+
+class ProgramTopLevelFunctionPlan {
+    var shouldTraceLoopItem: Bool
+    var shouldHandleFunction: Bool
+    var shouldTraceFunctionConfirmed: Bool
+    var shouldSkipStandalone: Bool
+    var shouldTrySpecialHandler: Bool
+    var shouldGenerateFunction: Bool
+    var shouldTraceFunctionName: Bool
+    var shouldTraceFunctionBody: Bool
+
+    static fun new() r: ProgramTopLevelFunctionPlan {
+        return ProgramTopLevelFunctionPlan{
+            shouldTraceLoopItem: false,
+            shouldHandleFunction: false,
+            shouldTraceFunctionConfirmed: false,
+            shouldSkipStandalone: false,
+            shouldTrySpecialHandler: false,
+            shouldGenerateFunction: false,
+            shouldTraceFunctionName: false,
+            shouldTraceFunctionBody: false
+        }
+    }
+}
+
+fun shouldVisitProgramFlowIndexImpl(index: Int, count: Int) r: Bool {
+    return index < count
+}
+
+fun shouldEmitProgramClassTypeItemImpl(itemType: String) r: Bool {
+    return itemType == "Class"
+}
+
+fun shouldGenerateProgramClassItemImpl(itemType: String) r: Bool {
+    return itemType == "Class"
+}
+
+fun planProgramTopLevelFunctionStartImpl(itemType: String, traceModule: Bool,
+    shouldSkipStandalone: Bool) r: ProgramTopLevelFunctionPlan {
+
+    let plan = ProgramTopLevelFunctionPlan.new()
+    plan.shouldTraceLoopItem = traceModule
+    plan.shouldHandleFunction = itemType == "Function"
+    plan.shouldTraceFunctionConfirmed = traceModule and
+        plan.shouldHandleFunction
+    plan.shouldSkipStandalone = plan.shouldHandleFunction and
+        shouldSkipStandalone
+    plan.shouldTrySpecialHandler = plan.shouldHandleFunction and
+        not plan.shouldSkipStandalone
+    plan.shouldTraceFunctionName = traceModule and plan.shouldTrySpecialHandler
+    return plan
+}
+
+fun planProgramTopLevelFunctionAfterSpecialImpl(traceModule: Bool,
+    shouldTrySpecialHandler: Bool, handledSpecial: Bool)
+    r: ProgramTopLevelFunctionPlan {
+
+    let plan = ProgramTopLevelFunctionPlan.new()
+    plan.shouldGenerateFunction = shouldTrySpecialHandler and
+        not handledSpecial
+    plan.shouldTraceFunctionBody = traceModule and
+        plan.shouldGenerateFunction
+    return plan
+}

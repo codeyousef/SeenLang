@@ -112,6 +112,7 @@ import codegen.ir_class_generated_features.{emitGeneratedClassDecoratorMethodsIm
 import codegen.ir_class_constructor_gen.{emitClassHeapAllocationImpl, emitClassArrayFieldInitializersImpl, resolveClassConstructorFieldOffsetImpl}
 import codegen.ir_field_registry.{resolveFieldIndexImpl, resolveStructFieldLlvmTypeImpl}
 import codegen.ir_module_emit.{mapGlobalVarLlvmTypeImpl, emitCrossModuleConstantDeclaresImpl, emitTraitVtableConstantsImpl, collectProgramDefinedSymbolsImpl, emitGeneratedClosuresImpl, emitOptimizationStatisticsSummaryImpl, shouldSkipStandaloneTopLevelFunctionImpl, resolveSpecialTopLevelFunctionActionImpl, emitGlobalConstructorsImpl}
+import codegen.ir_program_flow_plan.{shouldVisitProgramFlowIndexImpl, shouldEmitProgramClassTypeItemImpl, shouldGenerateProgramClassItemImpl, planProgramTopLevelFunctionStartImpl, planProgramTopLevelFunctionAfterSpecialImpl}
 import codegen.ir_field_layout.{emitSeenArrayLengthLoadImpl, generateFieldAccessImpl, generateFieldAccessPtrImpl}
 import codegen.ir_path_expr.{splitChainedPathImpl, buildChainedPathExprImpl, splitFirstPathDotImpl, splitBracketPathImpl, resolveChainedPathSuffixTypeImpl}
 import codegen.ir_member_access.{emitSimdSwizzleMemberAccessImpl, inferSimdSwizzleMemberTypeImpl, inferJsonValueMemberAccessTypeImpl, inferLiteralReceiverMemberAccessTypeImpl, inferDirectMemberAccessTypeImpl, extractLastMemberFieldSegmentImpl}
@@ -1575,9 +1576,9 @@ class LLVMIRGenerator {
 
     fun emitProgramClassTypes(program: ProgramNode) r: Void {
         var i = 0
-        while i < program.items.length() {
+        while shouldVisitProgramFlowIndexImpl(i, program.items.length()) {
             let item = program.items[i]
-            if item.itemType == "Class" {
+            if shouldEmitProgramClassTypeItemImpl(item.itemType) {
                 emitClassType(item.classNode)
             }
             i = i + 1
@@ -1586,9 +1587,9 @@ class LLVMIRGenerator {
 
     fun generateProgramClasses(program: ProgramNode) r: Void {
         var i = 0
-        while i < program.items.length() {
+        while shouldVisitProgramFlowIndexImpl(i, program.items.length()) {
             let item = program.items[i]
-            if item.itemType == "Class" {
+            if shouldGenerateProgramClassItemImpl(item.itemType) {
                 if canUseLargePlainClassPath(item.classNode.parentName, item.classNode.decorators, item.classNode.methods) {
                     generatePlainLargeClass(item.classNode.name, item.classNode.parentName, item.classNode.methods)
                 } else {
@@ -1603,33 +1604,44 @@ class LLVMIRGenerator {
         traceModule: Bool) r: Void {
 
         var i = 0
-        while i < program.items.length() {
+        while shouldVisitProgramFlowIndexImpl(i, program.items.length()) {
             let item = program.items[i]
-            if traceModule {
+            var plannedFnName = ""
+            if item.itemType == "Function" {
+                plannedFnName = item.function.name
+            }
+            let fnPlan = planProgramTopLevelFunctionStartImpl(item.itemType,
+                traceModule, shouldSkipStandaloneTopLevelFunctionImpl(
+                plannedFnName))
+            if fnPlan.shouldTraceLoopItem {
                 println("[irgen module " + moduleIndex.toString() + "] function loop item " + i.toString() + ": " + item.itemType)
             }
-            if item.itemType == "Function" {
-                if traceModule {
+            if fnPlan.shouldHandleFunction {
+                if fnPlan.shouldTraceFunctionConfirmed {
                     println("[irgen module " + moduleIndex.toString() + "] function item confirmed at idx " + i.toString())
                 }
                 let fnName = item.function.name
-                if shouldSkipStandaloneTopLevelFunctionImpl(fnName) {
+                if fnPlan.shouldSkipStandalone {
                     i = i + 1
                     continue
                 }
-                if traceModule {
+                if fnPlan.shouldTraceFunctionName {
                     println("[irgen module " + moduleIndex.toString() + "] function name resolved: " + fnName)
                 }
-                if tryHandleSpecialTopLevelFunctionImpl(item.function, output,
-                    funcNames, funcRetTypes) {
+                let handledSpecial = tryHandleSpecialTopLevelFunctionImpl(
+                    item.function, output, funcNames, funcRetTypes)
+                let afterSpecialPlan =
+                    planProgramTopLevelFunctionAfterSpecialImpl(traceModule,
+                        fnPlan.shouldTrySpecialHandler, handledSpecial)
+                if not afterSpecialPlan.shouldGenerateFunction {
                     i = i + 1
                     continue
                 }
-                if traceModule {
+                if afterSpecialPlan.shouldTraceFunctionBody {
                     println("[irgen module " + moduleIndex.toString() + "] function start: " + fnName)
                 }
                 generateFunction(item.function)
-                if traceModule {
+                if afterSpecialPlan.shouldTraceFunctionBody {
                     println("[irgen module " + moduleIndex.toString() + "] function done: " + fnName)
                 }
             }
@@ -1654,7 +1666,7 @@ class LLVMIRGenerator {
 
         // First pass: collect string constants from all programs
         var stringPi = 0
-        while stringPi < programs.length() {
+        while shouldVisitProgramFlowIndexImpl(stringPi, programs.length()) {
             collectStringConstants(programs[stringPi])
             stringPi = stringPi + 1
         }
@@ -1664,14 +1676,14 @@ class LLVMIRGenerator {
 
         // Emit class struct type definitions from all programs
         var classTypePi = 0
-        while classTypePi < programs.length() {
+        while shouldVisitProgramFlowIndexImpl(classTypePi, programs.length()) {
             emitProgramClassTypes(programs[classTypePi])
             classTypePi = classTypePi + 1
         }
 
         // Emit global variable declarations from all programs
         var globalPi = 0
-        while globalPi < programs.length() {
+        while shouldVisitProgramFlowIndexImpl(globalPi, programs.length()) {
             let moduleConstState = captureModuleConstantRegistryStateImpl(
                 g_moduleConstMutable, g_moduleConstSeenTypes)
             emitGlobalVariablesIntoStateImpl(output, programs[globalPi],
@@ -1701,14 +1713,14 @@ class LLVMIRGenerator {
         // obj.serialize(), but the method return type isn't registered yet,
         // causing type inference to fail and generate incorrect IR.
         var classPi = 0
-        while classPi < programs.length() {
+        while shouldVisitProgramFlowIndexImpl(classPi, programs.length()) {
             generateProgramClasses(programs[classPi])
             classPi = classPi + 1
         }
 
         // Emit functions (top-level) from all programs
         var fnPi = 0
-        while fnPi < programs.length() {
+        while shouldVisitProgramFlowIndexImpl(fnPi, programs.length()) {
             emitProgramTopLevelFunctions(programs[fnPi], 0, false)
             fnPi = fnPi + 1
         }

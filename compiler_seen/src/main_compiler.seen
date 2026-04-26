@@ -47,6 +47,7 @@ import codegen.ir_async_await.{emitAwaitPollLoopImpl, emitAwaitResultValueImpl}
 import codegen.ir_async_return.{prepareAsyncReturnValuePlanImpl, emitAsyncReturnValueBranchImpl, emitAsyncReturnVoidBranchImpl}
 import codegen.ir_trait_registry.{appendDynTraitNameImpl}
 import codegen.ir_module_emit.{mapGlobalVarLlvmTypeImpl}
+import codegen.ir_program_flow_plan.{shouldVisitProgramFlowIndexImpl, shouldEmitProgramClassTypeItemImpl, shouldGenerateProgramClassItemImpl, planProgramTopLevelFunctionStartImpl, planProgramTopLevelFunctionAfterSpecialImpl}
 import codegen.ir_method_gen.{emitToStringMethodImpl}
 import codegen.ir_ptr_ops.{emitPtrOpsImpl}
 import codegen.ir_string_collect.{hexToDecimalImpl}
@@ -1931,6 +1932,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_async_return")
         modules.push("codegen.ir_trait_registry")
         modules.push("codegen.ir_module_emit")
+        modules.push("codegen.ir_program_flow_plan")
         modules.push("codegen.ir_method_gen")
         modules.push("codegen.ir_ptr_ops")
         modules.push("codegen.ir_string_collect")
