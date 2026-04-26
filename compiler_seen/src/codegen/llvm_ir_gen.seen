@@ -66,6 +66,7 @@ import codegen.ir_enum_ctor_gen.{allocateEnumConstructorObjectImpl, emitEnumCons
 import codegen.ir_when_arm_gen.{emitWhenArmGuardImpl, ensureWhenPatternDestructPtrImpl, emitWhenPatternBindingStoreImpl, normalizeWhenArmStoreValueImpl}
 import codegen.ir_when_pattern_gen.{emitWhenLiteralPatternBranchImpl, emitWhenIsPatternBranchImpl, emitWhenPatternBranchImpl}
 import codegen.ir_when_result_gen.{allocateWhenResultSlotImpl, emitWhenArmReturnImpl, emitWhenArmStoreImpl, finalizeWhenResultImpl}
+import codegen.ir_when_expr_plan.{planWhenSubjectImpl, planWhenPatternBranchImpl, shouldEmitWhenArmGuardImpl, shouldEmitWhenPatternBindingsImpl, shouldBindWhenPatternFieldImpl, planWhenArmResultImpl, shouldStoreWhenArmResultImpl, shouldBranchWhenArmToEndImpl, shouldEmitWhenFinalFallthroughImpl}
 import codegen.ir_special_top_level_emit.{tryHandleSpecialTopLevelFunctionImpl}
 import codegen.ir_type_layout.{getLlvmTypeAlignImpl, getLlvmTypeSizeImpl, computeStructSizeFromLayoutImpl}
 import codegen.ir_type_mapping.{parseSimpleIntImpl, lookupComptimeVarImpl, lookupComptimeStrVarImpl, comptimeSizeofImpl, comptimeTypeFieldCountImpl, comptimeTypeFieldNameImpl, comptimeTypeFieldTypeImpl, evaluateConstExprStrImpl, evaluateConstExprImpl}
@@ -8512,12 +8513,13 @@ class LLVMIRGenerator {
 
     fun emitWhenPatternBranch(subjectReg: String, subjectLlvm: String, patternExpr: ParserExpressionNode, armBodyLabel: String, nextCheckLabel: String) r: Void {
         let patternKind = patternExpr.variableName
-        if patternKind == "Literal" {
+        let patternPlan = planWhenPatternBranchImpl(patternKind)
+        if patternPlan.branchAction == 1 {
             emitWhenLiteralPatternBranch(subjectReg, patternExpr, armBodyLabel,
                 nextCheckLabel)
             return
         }
-        if patternKind == "Is" {
+        if patternPlan.branchAction == 2 {
             emitWhenIsPatternBranch(subjectReg, subjectLlvm, patternExpr,
                 armBodyLabel, nextCheckLabel)
             return
@@ -8527,7 +8529,7 @@ class LLVMIRGenerator {
     }
 
     fun emitWhenArmGuard(arm: ParserExpressionNode, armBodyLabel: String, nextCheckLabel: String) r: Void {
-        if arm.operands.length() <= 2 {
+        if not shouldEmitWhenArmGuardImpl(arm.operands.length()) {
             return
         }
         let guardReg = generateExpression(arm.operands[2])
@@ -8538,7 +8540,8 @@ class LLVMIRGenerator {
     }
 
     fun emitWhenPatternBindings(subjectReg: String, subjectLlvm: String, patternExpr: ParserExpressionNode) r: Void {
-        if patternExpr.variableName != "Is" or patternExpr.operands.length() == 0 {
+        if not shouldEmitWhenPatternBindingsImpl(patternExpr.variableName,
+            patternExpr.operands.length()) {
             return
         }
         let destructPtrReg = ensureWhenPatternDestructPtrImpl(output, g_regBox,
@@ -8549,7 +8552,8 @@ class LLVMIRGenerator {
             let fieldBind = patternExpr.operands[fieldIdx]
             if fieldBind.kind == "PatternField" {
                 let bindingName = fieldBind.literalValue
-                if bindingName == "" {
+                if not shouldBindWhenPatternFieldImpl(fieldBind.kind,
+                    bindingName) {
                     fieldIdx = fieldIdx + 1
                     continue
                 }
@@ -8572,13 +8576,17 @@ class LLVMIRGenerator {
     }
 
     fun emitWhenArmResult(arm: ParserExpressionNode, resultAlloca: String) r: Void {
-        if arm.operands.length() <= 1 {
+        let resultPlanSeed = planWhenArmResultImpl(arm.operands.length(),
+            "", 0)
+        if resultPlanSeed.resultAction == 0 {
             return
         }
         let armResult = arm.operands[1]
-        if armResult.kind == "ReturnExpr" {
+        let resultPlan = planWhenArmResultImpl(arm.operands.length(),
+            armResult.kind, armResult.operands.length())
+        if resultPlan.resultAction == 1 {
             let retType = mapType(currentFunctionReturnType)
-            if armResult.operands.length() > 0 {
+            if resultPlan.shouldReadReturnValue {
                 let retValReg = generateExpression(armResult.operands[0])
                 emitWhenArmReturnImpl(output, retType, retValReg, true)
             } else {
@@ -8587,8 +8595,11 @@ class LLVMIRGenerator {
             blockTerminated = true
             return
         }
+        if not resultPlan.shouldGenerateValueExpression {
+            return
+        }
         let armResultReg = generateExpression(armResult)
-        if not blockTerminated {
+        if shouldStoreWhenArmResultImpl(blockTerminated) {
             let armResultType = inferExpressionType(armResult)
             let armStoreReg = normalizeWhenArmStoreValue(armResultReg, armResultType)
             emitWhenArmStoreImpl(output, resultAlloca, armStoreReg)
@@ -8597,9 +8608,10 @@ class LLVMIRGenerator {
 
     fun generateWhenExpression(expr: ParserExpressionNode) r: String {
         // Subject expression (if present)
-        var subjectReg = "0"
-        var subjectType = "Int"
-        if expr.operands.length() > 0 {
+        let subjectPlan = planWhenSubjectImpl(expr.operands.length())
+        var subjectReg = subjectPlan.defaultSubjectReg
+        var subjectType = subjectPlan.defaultSubjectType
+        if subjectPlan.shouldEvaluateSubject {
             subjectReg = generateExpression(expr.operands[0])
             subjectType = inferExpressionType(expr.operands[0])
         }
@@ -8630,7 +8642,7 @@ class LLVMIRGenerator {
             emitWhenArmGuard(arm, armBodyLabel, nextCheckLabel)
             emitWhenPatternBindings(subjectReg, subjectLlvm, patternExpr)
             emitWhenArmResult(arm, resultAlloca)
-            if not blockTerminated {
+            if shouldBranchWhenArmToEndImpl(blockTerminated) {
                 output.append("  br label %" + endLabel + "\n")
             }
             blockTerminated = false
@@ -8642,7 +8654,9 @@ class LLVMIRGenerator {
         }
 
         // After all arms, branch to end (fallthrough if no match)
-        output.append("  br label %" + endLabel + "\n")
+        if shouldEmitWhenFinalFallthroughImpl(expr.arguments.length()) {
+            output.append("  br label %" + endLabel + "\n")
+        }
 
         cseClear()
         let resultReg = finalizeWhenResultImpl(output, g_regBox, endLabel,

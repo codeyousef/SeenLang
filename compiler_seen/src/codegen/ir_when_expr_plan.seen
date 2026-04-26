@@ -1,0 +1,106 @@
+// ir_when_expr_plan.seen - pure when-expression planning helpers.
+
+class WhenSubjectPlan {
+    var shouldEvaluateSubject: Bool
+    var defaultSubjectReg: String
+    var defaultSubjectType: String
+
+    static fun new() r: WhenSubjectPlan {
+        return WhenSubjectPlan{
+            shouldEvaluateSubject: false,
+            defaultSubjectReg: "0",
+            defaultSubjectType: "Int"
+        }
+    }
+}
+
+class WhenPatternBranchPlan {
+    var branchAction: Int
+
+    static fun new() r: WhenPatternBranchPlan {
+        return WhenPatternBranchPlan{
+            branchAction: 0
+        }
+    }
+}
+
+class WhenArmResultPlan {
+    var resultAction: Int
+    var shouldReadReturnValue: Bool
+    var shouldGenerateValueExpression: Bool
+
+    static fun new() r: WhenArmResultPlan {
+        return WhenArmResultPlan{
+            resultAction: 0,
+            shouldReadReturnValue: false,
+            shouldGenerateValueExpression: false
+        }
+    }
+}
+
+fun planWhenSubjectImpl(operandCount: Int) r: WhenSubjectPlan {
+    let plan = WhenSubjectPlan.new()
+    plan.shouldEvaluateSubject = operandCount > 0
+    return plan
+}
+
+fun planWhenPatternBranchImpl(patternKind: String)
+    r: WhenPatternBranchPlan {
+
+    let plan = WhenPatternBranchPlan.new()
+    if patternKind == "Literal" {
+        plan.branchAction = 1
+        return plan
+    }
+    if patternKind == "Is" {
+        plan.branchAction = 2
+        return plan
+    }
+    plan.branchAction = 3
+    return plan
+}
+
+fun shouldEmitWhenArmGuardImpl(operandCount: Int) r: Bool {
+    return operandCount > 2
+}
+
+fun shouldEmitWhenPatternBindingsImpl(patternKind: String,
+    patternOperandCount: Int) r: Bool {
+
+    return patternKind == "Is" and patternOperandCount > 0
+}
+
+fun shouldBindWhenPatternFieldImpl(fieldKind: String,
+    bindingName: String) r: Bool {
+
+    return fieldKind == "PatternField" and bindingName != ""
+}
+
+fun planWhenArmResultImpl(operandCount: Int, resultKind: String,
+    resultOperandCount: Int) r: WhenArmResultPlan {
+
+    let plan = WhenArmResultPlan.new()
+    if operandCount <= 1 {
+        return plan
+    }
+    if resultKind == "ReturnExpr" {
+        plan.resultAction = 1
+        plan.shouldReadReturnValue = resultOperandCount > 0
+        return plan
+    }
+    plan.resultAction = 2
+    plan.shouldGenerateValueExpression = true
+    return plan
+}
+
+fun shouldStoreWhenArmResultImpl(blockTerminated: Bool) r: Bool {
+    return not blockTerminated
+}
+
+fun shouldBranchWhenArmToEndImpl(blockTerminated: Bool) r: Bool {
+    return not blockTerminated
+}
+
+fun shouldEmitWhenFinalFallthroughImpl(armCount: Int) r: Bool {
+    return true
+}
