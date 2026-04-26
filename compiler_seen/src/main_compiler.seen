@@ -70,7 +70,8 @@ import codegen.ir_loop_plan.{planMemcpyOptimizedWhileLoopImpl, iteratorProtocolF
 import codegen.ir_call_constructors.{emitStaticCollectionNewImpl, isArrayConstructorNameImpl, resolveArrayConstructorElementTypeImpl, resolveArrayConstructorElementSizeImpl, isSmallVecConstructorNameImpl, isCollectionConstructorNameImpl, emitCollectionConstructorImpl}
 import codegen.ir_call_args.{fillDefaultParamsImpl}
 import codegen.ir_call_runtime.{emitPrintLikeCallImpl}
-import codegen.ir_call_runtime_plan.{isOptionRuntimeCallPlanImpl, runtimeIoCallActionImpl, isMathRuntimeCallPlanImpl}
+import codegen.ir_call_runtime_plan.{isOptionRuntimeCallPlanImpl, runtimeIoCallActionImpl, isMathRuntimeCallPlanImpl, planRuntimeBuiltinDispatchImpl}
+import codegen.ir_call_implicit_this_plan.{planImplicitThisCallImpl, implicitThisTailCallFlagImpl}
 import codegen.ir_call_regular_plan.{shouldPromoteRegularCallFloatArgsImpl, resolveRegularCallLlvmReturnTypeImpl, regularCallTailFlagImpl}
 import codegen.ir_call_meta.{resolveSizeofBuiltinValueImpl}
 import codegen.ir_call_low_level.{isPtrBuiltinCallImpl}
@@ -1947,6 +1948,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_call_args")
         modules.push("codegen.ir_call_runtime")
         modules.push("codegen.ir_call_runtime_plan")
+        modules.push("codegen.ir_call_implicit_this_plan")
         modules.push("codegen.ir_call_regular_plan")
         modules.push("codegen.ir_call_meta")
         modules.push("codegen.ir_call_low_level")

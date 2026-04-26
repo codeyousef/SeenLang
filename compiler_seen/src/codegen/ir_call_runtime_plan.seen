@@ -1,5 +1,33 @@
 // ir_call_runtime_plan.seen - pure runtime-call planning helpers.
 
+class RuntimeBuiltinDispatchPlan {
+    var shouldTryOption: Bool
+    var shouldTrySuper: Bool
+    var shouldTryEmpty: Bool
+    var shouldTryPrint: Bool
+    var shouldTryIo: Bool
+    var ioAction: Int
+    var shouldTryPanic: Bool
+    var shouldTryMath: Bool
+    var shouldReadMathArg0: Bool
+    var shouldReadMathArg1: Bool
+
+    static fun new() r: RuntimeBuiltinDispatchPlan {
+        return RuntimeBuiltinDispatchPlan{
+            shouldTryOption: false,
+            shouldTrySuper: false,
+            shouldTryEmpty: false,
+            shouldTryPrint: false,
+            shouldTryIo: false,
+            ioAction: 0,
+            shouldTryPanic: false,
+            shouldTryMath: false,
+            shouldReadMathArg0: false,
+            shouldReadMathArg1: false
+        }
+    }
+}
+
 fun isOptionRuntimeCallPlanImpl(funcName: String) r: Bool {
     if funcName == "Some" {
         return true
@@ -79,4 +107,21 @@ fun isMathRuntimeCallPlanImpl(funcName: String) r: Bool {
 
 fun shouldReadMathRuntimeArgImpl(argCount: Int, argIndex: Int) r: Bool {
     return argCount > argIndex
+}
+
+fun planRuntimeBuiltinDispatchImpl(funcName: String, argCount: Int)
+    r: RuntimeBuiltinDispatchPlan {
+
+    let plan = RuntimeBuiltinDispatchPlan.new()
+    plan.shouldTryOption = isOptionRuntimeCallPlanImpl(funcName)
+    plan.shouldTrySuper = isSuperRuntimeCallPlanImpl(funcName)
+    plan.shouldTryEmpty = isEmptyRuntimeCalleeImpl(funcName)
+    plan.shouldTryPrint = isPrintRuntimeCallPlanImpl(funcName)
+    plan.ioAction = runtimeIoCallActionImpl(funcName, argCount)
+    plan.shouldTryIo = plan.ioAction != 0
+    plan.shouldTryPanic = isPanicRuntimeCallPlanImpl(funcName)
+    plan.shouldTryMath = isMathRuntimeCallPlanImpl(funcName)
+    plan.shouldReadMathArg0 = shouldReadMathRuntimeArgImpl(argCount, 0)
+    plan.shouldReadMathArg1 = shouldReadMathRuntimeArgImpl(argCount, 1)
+    return plan
 }

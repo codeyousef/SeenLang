@@ -85,7 +85,8 @@ import codegen.ir_constructor_call_plan.{planArrayConstructorCallImpl, shouldEmi
 import codegen.ir_constructor_field_plan.{planNextConstructorFieldTypeImpl, planConstructorFieldStoreImpl}
 import codegen.ir_call_args.{fillDefaultParamsImpl, appendPreparedCallArgImpl, promoteFloatArgsImpl}
 import codegen.ir_call_runtime.{emitPrintLikeCallImpl, emitOptionRuntimeBuiltinCallImpl, emitSuperRuntimeBuiltinCallImpl, emitReadTextRuntimeCallImpl, emitWriteTextRuntimeCallImpl, emitArgsRuntimeCallImpl, emitPanicRuntimeCallImpl, emitMathBuiltinCallImpl}
-import codegen.ir_call_runtime_plan.{isOptionRuntimeCallPlanImpl, shouldReadSomeRuntimeArgImpl, isSuperRuntimeCallPlanImpl, isEmptyRuntimeCalleeImpl, isPrintRuntimeCallPlanImpl, shouldReadPrintRuntimeArgImpl, runtimeIoCallActionImpl, isPanicRuntimeCallPlanImpl, shouldReadPanicRuntimeArgImpl, isMathRuntimeCallPlanImpl, shouldReadMathRuntimeArgImpl}
+import codegen.ir_call_runtime_plan.{isOptionRuntimeCallPlanImpl, shouldReadSomeRuntimeArgImpl, isSuperRuntimeCallPlanImpl, isEmptyRuntimeCalleeImpl, isPrintRuntimeCallPlanImpl, shouldReadPrintRuntimeArgImpl, runtimeIoCallActionImpl, isPanicRuntimeCallPlanImpl, shouldReadPanicRuntimeArgImpl, isMathRuntimeCallPlanImpl, shouldReadMathRuntimeArgImpl, planRuntimeBuiltinDispatchImpl}
+import codegen.ir_call_implicit_this_plan.{planImplicitThisCallImpl, implicitThisTailCallFlagImpl}
 import codegen.ir_call_regular_plan.{shouldPromoteRegularCallFloatArgsImpl, resolveRegularCallLlvmReturnTypeImpl, shouldRecordRegularLateDeclareImpl, regularCallTailFlagImpl}
 import codegen.ir_call_meta.{resolveSizeofBuiltinValueImpl, resolveAlignofBuiltinValueImpl, resolveOffsetofBuiltinValueImpl}
 import codegen.ir_call_low_level.{isPtrBuiltinCallImpl, emitPtrBuiltinCallImpl, emitBarrierBuiltinCallImpl, emitStackAllocBuiltinCallImpl, emitConstructAtBuiltinCallImpl, emitDebugAssertBuiltinCallStateImpl, emitCStringBuiltinCallImpl, emitSplitBuiltinCallImpl, emitAsyncYieldBuiltinStateImpl, isSimdBuiltinCallImpl, emitPreparedSimdBuiltinCallImpl, emitIndirectBuiltinCallImpl}
@@ -6280,32 +6281,50 @@ class LLVMIRGenerator {
     }
 
     fun tryGenerateRuntimeBuiltinCall(expr: ParserExpressionNode, funcName: String) r: String {
-        let optionResult = tryGenerateOptionRuntimeBuiltinCall(expr, funcName)
-        if optionResult != "" {
-            return optionResult
+        let runtimePlan = planRuntimeBuiltinDispatchImpl(funcName,
+            expr.arguments.length())
+        if runtimePlan.shouldTryOption {
+            let optionResult = tryGenerateOptionRuntimeBuiltinCall(expr,
+                funcName)
+            if optionResult != "" {
+                return optionResult
+            }
         }
 
-        let superResult = tryGenerateSuperRuntimeBuiltinCall(funcName)
-        if superResult != "" {
-            return superResult
+        if runtimePlan.shouldTrySuper {
+            let superResult = tryGenerateSuperRuntimeBuiltinCall(funcName)
+            if superResult != "" {
+                return superResult
+            }
         }
 
-        let emptyCallResult = tryGenerateEmptyRuntimeBuiltinCall(expr, funcName)
-        if emptyCallResult != "" {
-            return emptyCallResult
+        if runtimePlan.shouldTryEmpty {
+            let emptyCallResult = tryGenerateEmptyRuntimeBuiltinCall(expr,
+                funcName)
+            if emptyCallResult != "" {
+                return emptyCallResult
+            }
         }
 
-        let printResult = tryGeneratePrintRuntimeBuiltinCall(expr, funcName)
-        if printResult != "" {
-            return printResult
+        if runtimePlan.shouldTryPrint {
+            let printResult = tryGeneratePrintRuntimeBuiltinCall(expr,
+                funcName)
+            if printResult != "" {
+                return printResult
+            }
         }
 
-        let ioResult = tryGenerateIoRuntimeBuiltinCall(expr, funcName)
-        if ioResult != "" {
-            return ioResult
+        if runtimePlan.shouldTryIo {
+            let ioResult = tryGenerateIoRuntimeBuiltinCall(expr, funcName)
+            if ioResult != "" {
+                return ioResult
+            }
         }
 
-        return tryGeneratePanicRuntimeBuiltinCall(expr, funcName)
+        if runtimePlan.shouldTryPanic {
+            return tryGeneratePanicRuntimeBuiltinCall(expr, funcName)
+        }
+        return ""
     }
 
     fun tryGenerateImplicitThisCall(expr: ParserExpressionNode, funcName: String) r: String {
@@ -6316,7 +6335,9 @@ class LLVMIRGenerator {
 
         let thisType = varTypes[thisIdx]
         let misplacedRetType = resolveRealParserMisplacedMethodReturnTypeImpl(funcName)
-        if misplacedRetType != "" and thisType == "RealParser" {
+        let misplacedPlan = planImplicitThisCallImpl(thisIdx, thisType,
+            misplacedRetType, "", false, expr.arguments.length())
+        if misplacedPlan.shouldUseMisplacedRealParserMethod {
             let thisReg = varRegs[thisIdx]
             let methodFuncName = thisType + "_" + funcName
             prepareCallArgumentsWithDefaults(methodFuncName, expr.arguments,
@@ -6326,10 +6347,8 @@ class LLVMIRGenerator {
 
             let thisPtrReg = getNextReg()
             output.append("  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n")
-            var mpTailCall = 0
-            if takeTailCallPositionImpl(getCurrentFunctionOptions()) {
-                mpTailCall = 1
-            }
+            let mpTailCall = implicitThisTailCallFlagImpl(
+                takeTailCallPositionImpl(getCurrentFunctionOptions()))
             return emitUserMethodCallImpl(output, g_regBox, quoteIdentIfNeeded(methodFuncName), misplacedRetType, "ptr", thisPtrReg, argRegs, argTypeStrs, mpTailCall)
         }
 
@@ -6337,6 +6356,9 @@ class LLVMIRGenerator {
         if methodRetType == "" {
             return ""
         }
+        let implicitThisPlan = planImplicitThisCallImpl(thisIdx, thisType,
+            misplacedRetType, methodRetType,
+            isStringBuilderRuntimeMethodImpl(funcName), expr.arguments.length())
 
         let thisReg = varRegs[thisIdx]
         let methodFuncName = thisType + "_" + funcName
@@ -6345,36 +6367,43 @@ class LLVMIRGenerator {
         let argRegs = g_defaultFillArgRegs
         let argTypeStrs = g_defaultFillArgTypeStrs
 
-        if thisType == "StringBuilder" and
-            isStringBuilderRuntimeMethodImpl(funcName) {
+        if implicitThisPlan.shouldUseStringBuilderRuntimeMethod {
             let thisPtrReg = getNextReg()
             output.append("  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n")
             var sbArg0 = ""
-            if argRegs.length() > 0 {
+            if implicitThisPlan.hasArg0 {
                 sbArg0 = argRegs[0]
             }
             return emitStringBuilderMethodImpl(output, g_regBox, funcName, thisPtrReg, sbArg0, 0)
+        }
+
+        if not implicitThisPlan.shouldUseNormalImplicitThisMethod {
+            return ""
         }
 
         let llvmReturnType = mapType(methodRetType)
 
         let thisPtrReg = getNextReg()
         output.append("  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n")
-        var selfTailCall = 0
-        if takeTailCallPositionImpl(getCurrentFunctionOptions()) {
-            selfTailCall = 1
-        }
+        let selfTailCall = implicitThisTailCallFlagImpl(
+            takeTailCallPositionImpl(getCurrentFunctionOptions()))
         return emitUserMethodCallImpl(output, g_regBox, quoteIdentIfNeeded(methodFuncName), llvmReturnType, "ptr", thisPtrReg, argRegs, argTypeStrs, selfTailCall)
     }
 
     fun tryGenerateMathBuiltinCall(expr: ParserExpressionNode, funcName: String) r: String {
-        if not isMathRuntimeCallPlanImpl(funcName) {
+        let runtimePlan = planRuntimeBuiltinDispatchImpl(funcName,
+            expr.arguments.length())
+        if not runtimePlan.shouldTryMath {
             return ""
         }
         var mArg0 = ""
         var mArg1 = ""
-        if shouldReadMathRuntimeArgImpl(expr.arguments.length(), 0) { mArg0 = generateExpression(expr.arguments[0]) }
-        if shouldReadMathRuntimeArgImpl(expr.arguments.length(), 1) { mArg1 = generateExpression(expr.arguments[1]) }
+        if runtimePlan.shouldReadMathArg0 {
+            mArg0 = generateExpression(expr.arguments[0])
+        }
+        if runtimePlan.shouldReadMathArg1 {
+            mArg1 = generateExpression(expr.arguments[1])
+        }
         let mResult = emitMathBuiltinCallImpl(output, g_regBox, funcName,
             mArg0, mArg1)
         if mResult != "" { return mResult }
