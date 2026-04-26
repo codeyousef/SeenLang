@@ -99,7 +99,7 @@ import codegen.ir_path_expr.{splitChainedPathImpl, buildChainedPathExprImpl, spl
 import codegen.ir_member_access.{emitSimdSwizzleMemberAccessImpl, inferSimdSwizzleMemberTypeImpl, inferJsonValueMemberAccessTypeImpl, inferLiteralReceiverMemberAccessTypeImpl, inferDirectMemberAccessTypeImpl, extractLastMemberFieldSegmentImpl}
 import codegen.ir_member_access_gen.{emitExpressionReceiverMemberAccessImpl, emitVariableReceiverMemberAccessImpl, emitModuleConstReceiverMemberAccessImpl, emitBracketPathMemberAccessImpl, emitChainedReceiverMemberAccessImpl, emitImplicitThisReceiverMemberAccessImpl}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, inferTypeRegistryFieldTypeImpl, getSemanticFieldTypeImpl, resolveMethodFieldPathTypeImpl, tryResolveEnumLiteralMethodReceiverImpl, convertReceiverToPtrImpl}
-import codegen.ir_binary_expr.{emitPointerArithmeticBinaryImpl, emitSimdBinaryExprImpl, binaryOperatorMethodSuffixImpl, isSimdBinaryOperatorImpl, isIntLiteralOperandImpl, isFloatLiteralOperandImpl, isPureCseBinaryOpImpl, buildBinaryCseKeyImpl, emitOverloadedBinaryCallImpl, exprProducesBoolImpl, emitBoolCoercionImpl, emitShortCircuitPhiImpl}
+import codegen.ir_binary_expr.{emitPointerArithmeticBinaryImpl, emitSimdBinaryExprImpl, binaryOperatorMethodSuffixImpl, isSimdBinaryOperatorImpl, isIntLiteralOperandImpl, isFloatLiteralOperandImpl, isSelfVariableComparisonImpl, isShortCircuitBinaryOperatorImpl, shouldTryAssociativeIntFoldImpl, associativeIntFoldRewriteCostImpl, emitSelfComparisonConstResultImpl, emitFoldedBoolLiteralBinaryResultImpl, emitFoldedIntLiteralBinaryResultImpl, emitAssociativeIntFoldResultImpl, isPureCseBinaryOpImpl, buildBinaryCseKeyImpl, emitOverloadedBinaryCallImpl, exprProducesBoolImpl, emitBoolCoercionImpl, emitShortCircuitPhiImpl}
 import codegen.ir_class_method_gen.{tryEmitOptionClassMethodShimImpl, shouldTraceClassMethodStartImpl, collectClassMethodParameterInfoImpl, emitClassMethodSignatureStateImpl, emitClassMethodReceiverBindingStateImpl, emitClassMethodParameterBindingsStateImpl, emitClassMethodConstructorSetupStateImpl, tryEmitClassMethodConstructorReturnStateImpl, emitClassMethodDefaultReturnStateImpl}
 import codegen.ir_stmt_decl.{shouldInferDeclarationInitializerTypeImpl, resolveDeclarationBaseTypeImpl, resolveLetStatementTypeImpl, resolveLetStatementAllocaImpl, prepareLetStatementPlanImpl, resolveLetPreAllocatedRegImpl, findPreAllocatedOccurrenceImpl, nextDeclarationOrdinalImpl, classifyCollectedStatementKindImpl, shouldTraceCollectedDeclarationTypeImpl, appendCollectedDeclarationImpl, resolveCollectedForInElementTypeImpl, buildForInIndexNameImpl, shouldSeedDeclarationPendingArrayLiteralTypeImpl, emitDeadLiteralInitializerSkipNoteImpl, emitDeclarationInitializerStoreImpl}
 import codegen.ir_stmt_gen.{emitConditionToI1Impl, emitIfBranchingImpl, computeIfBranchWeightMetadataForStatementImpl, normalizeIfConditionTypeImpl, finalizeConditionalEndBlockImpl, emitIfExpressionBranchValueImpl, emitPhiMergeValueImpl, emitIfLetBindingStateImpl, emitIndexedForLoopHeaderImpl, emitRegionStatementPreambleImpl, emitRegionStatementCleanupImpl, classifyParallelForRangeExprImpl, buildParallelForBodyFunctionNameImpl, emitParallelForBodyHeaderImpl, finalizeParallelForBodyImpl, emitUnusedResultCallWarningImpl}
@@ -5500,38 +5500,24 @@ class LLVMIRGenerator {
             let rightLitVal = rightExpr.literalValue
 
             // Self-comparison: both sides are the same variable (not a call)
-            if leftExpr.kind == "Variable" and rightExpr.kind == "Variable" {
-                if leftExpr.literalValue == rightExpr.literalValue {
-                    let selfAction = egraphSelfComparison(expr.operator)
-                    if selfAction == "const:0" {
-                        g_constantsFolded = g_constantsFolded + 1
-                        mlLogDecision("e-graph", "self-opt", leftExpr.literalValue + expr.operator + leftExpr.literalValue + "=0")
-                        let selfReg = getNextReg()
-                        output.append("  " + selfReg + " = add i64 0, 0 ; e-graph: x " + expr.operator + " x -> 0\n")
-                        return selfReg
+            if isSelfVariableComparisonImpl(leftExpr.kind,
+                leftExpr.literalValue, rightExpr.kind,
+                rightExpr.literalValue) {
+                let selfAction = egraphSelfComparison(expr.operator)
+                if selfAction == "identity_left" {
+                    return generateExpression(leftExpr)
+                }
+                let selfFoldReg = emitSelfComparisonConstResultImpl(output,
+                    g_regBox, selfAction, expr.operator)
+                if selfFoldReg != "" {
+                    g_constantsFolded = g_constantsFolded + 1
+                    if selfAction == "const:0" or selfAction == "const:1" {
+                        mlLogDecision("e-graph", "self-opt",
+                            leftExpr.literalValue + expr.operator +
+                            leftExpr.literalValue + "=" +
+                            selfAction.substring(6, selfAction.length()))
                     }
-                    if selfAction == "const:1" {
-                        g_constantsFolded = g_constantsFolded + 1
-                        mlLogDecision("e-graph", "self-opt", leftExpr.literalValue + expr.operator + leftExpr.literalValue + "=1")
-                        let selfReg = getNextReg()
-                        output.append("  " + selfReg + " = add i64 1, 0 ; e-graph: x " + expr.operator + " x -> 1\n")
-                        return selfReg
-                    }
-                    if selfAction == "identity_left" {
-                        return generateExpression(leftExpr)
-                    }
-                    if selfAction == "const_true" {
-                        g_constantsFolded = g_constantsFolded + 1
-                        let selfReg = getNextReg()
-                        output.append("  " + selfReg + " = add i1 1, 0 ; e-graph: x " + expr.operator + " x -> true\n")
-                        return selfReg
-                    }
-                    if selfAction == "const_false" {
-                        g_constantsFolded = g_constantsFolded + 1
-                        let selfReg = getNextReg()
-                        output.append("  " + selfReg + " = add i1 0, 0 ; e-graph: x " + expr.operator + " x -> false\n")
-                        return selfReg
-                    }
+                    return selfFoldReg
                 }
             }
 
@@ -5559,47 +5545,31 @@ class LLVMIRGenerator {
                 }
             }
 
-            // Associative rewrite: (a + CONST1) + CONST2 → a + (CONST1+CONST2)
-            if expr.operator == "+" and rightIsIntLit {
-                if leftExpr.kind == "Binary" and leftExpr.operator == "+" {
-                    if leftExpr.operands.length() >= 2 {
-                        let innerRight = leftExpr.operands[1]
-                        if innerRight.kind == "Literal" and innerRight.literalType == "Int" {
-                            let combinedVal = foldIntConstants(innerRight.literalValue, rightLitVal, "+")
-                            if combinedVal != "" {
-                                let origCost = exprCost(expr) + exprCost(leftExpr)
-                                let rewriteCost = exprCost(leftExpr.operands[0]) + 3 + 1
-                                if rewriteCost <= origCost {
-                                    g_constantsFolded = g_constantsFolded + 1
-                                    mlLogDecision("e-graph", "assoc-fold", innerRight.literalValue + "+" + rightLitVal + "=" + combinedVal)
-                                    let innerLeftReg = generateExpression(leftExpr.operands[0])
-                                    let assocResultReg = getNextReg()
-                                    output.append("  " + assocResultReg + " = add i64 " + innerLeftReg + ", " + combinedVal + " ; e-graph: (a+C1)+C2 -> a+(C1+C2)\n")
-                                    return assocResultReg
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            // Associative rewrite: (a * CONST1) * CONST2 → a * (CONST1*CONST2)
-            if expr.operator == "*" and rightIsIntLit {
-                if leftExpr.kind == "Binary" and leftExpr.operator == "*" {
-                    if leftExpr.operands.length() >= 2 {
-                        let innerRightMul = leftExpr.operands[1]
-                        if innerRightMul.kind == "Literal" and innerRightMul.literalType == "Int" {
-                            let combinedMulVal = foldIntConstants(innerRightMul.literalValue, rightLitVal, "*")
-                            if combinedMulVal != "" {
-                                let origMulCost = exprCost(expr) + exprCost(leftExpr)
-                                let rewriteMulCost = exprCost(leftExpr.operands[0]) + 5 + 1
-                                if rewriteMulCost <= origMulCost {
-                                    g_constantsFolded = g_constantsFolded + 1
-                                    mlLogDecision("e-graph", "assoc-fold", innerRightMul.literalValue + "*" + rightLitVal + "=" + combinedMulVal)
-                                    let innerLeftMulReg = generateExpression(leftExpr.operands[0])
-                                    let assocMulResultReg = getNextReg()
-                                    output.append("  " + assocMulResultReg + " = mul nsw i64 " + innerLeftMulReg + ", " + combinedMulVal + " ; e-graph: (a*C1)*C2 -> a*(C1*C2)\n")
-                                    return assocMulResultReg
-                                }
+            // Associative rewrite: (a OP CONST1) OP CONST2 → a OP (CONST1 OP CONST2)
+            if shouldTryAssociativeIntFoldImpl(expr.operator, rightIsIntLit,
+                leftExpr.kind, leftExpr.operator, leftExpr.operands.length()) {
+                let innerRight = leftExpr.operands[1]
+                if isIntLiteralOperandImpl(innerRight.kind,
+                    innerRight.literalType) {
+                    let combinedVal = foldIntConstants(
+                        innerRight.literalValue, rightLitVal, expr.operator)
+                    if combinedVal != "" {
+                        let origCost = exprCost(expr) + exprCost(leftExpr)
+                        let rewriteCost = associativeIntFoldRewriteCostImpl(
+                            expr.operator, exprCost(leftExpr.operands[0]))
+                        if rewriteCost <= origCost {
+                            g_constantsFolded = g_constantsFolded + 1
+                            mlLogDecision("e-graph", "assoc-fold",
+                                innerRight.literalValue + expr.operator +
+                                rightLitVal + "=" + combinedVal)
+                            let innerLeftReg =
+                                generateExpression(leftExpr.operands[0])
+                            let assocResultReg =
+                                emitAssociativeIntFoldResultImpl(output,
+                                    g_regBox, expr.operator, innerLeftReg,
+                                    combinedVal)
+                            if assocResultReg != "" {
+                                return assocResultReg
                             }
                         }
                     }
@@ -5612,13 +5582,8 @@ class LLVMIRGenerator {
                     g_constantsFolded = g_constantsFolded + 1
                     g_branchesEliminated = g_branchesEliminated + 1
                     mlLogDecision("const-fold", "cmp-folded", leftLitVal + expr.operator + rightLitVal + "=" + cmpResult)
-                    let cmpFoldReg = getNextReg()
-                    if cmpResult == "true" {
-                        output.append("  " + cmpFoldReg + " = add i1 1, 0 ; constant-folded comparison\n")
-                    } else {
-                        output.append("  " + cmpFoldReg + " = add i1 0, 0 ; constant-folded comparison\n")
-                    }
-                    return cmpFoldReg
+                    return emitFoldedBoolLiteralBinaryResultImpl(output,
+                        g_regBox, cmpResult)
                 }
             }
             // Constant folding: both operands are IntLiteral → compute at compile time
@@ -5627,9 +5592,8 @@ class LLVMIRGenerator {
                 if folded != "" {
                     g_constantsFolded = g_constantsFolded + 1
                     mlLogDecision("const-fold", "folded", leftLitVal + expr.operator + rightLitVal + "=" + folded)
-                    let foldResultReg = getNextReg()
-                    output.append("  " + foldResultReg + " = add i64 " + folded + ", 0 ; constant-folded\n")
-                    return foldResultReg
+                    return emitFoldedIntLiteralBinaryResultImpl(output,
+                        g_regBox, folded)
                 }
             }
         }
@@ -5730,10 +5694,10 @@ class LLVMIRGenerator {
         // --- End peephole optimizations ---
 
         // Short-circuit logical operators (must evaluate before eager left/right eval)
-        if expr.operator == "and" {
-            return generateShortCircuitAnd(expr)
-        }
-        if expr.operator == "or" {
+        if isShortCircuitBinaryOperatorImpl(expr.operator) {
+            if expr.operator == "and" {
+                return generateShortCircuitAnd(expr)
+            }
             return generateShortCircuitOr(expr)
         }
 

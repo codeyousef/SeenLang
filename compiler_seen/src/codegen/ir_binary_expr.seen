@@ -148,6 +148,116 @@ fun isFloatLiteralOperandImpl(exprKind: String, literalType: String) r: Bool {
     return exprKind == "Literal" and literalType == "Float"
 }
 
+fun isSelfVariableComparisonImpl(leftKind: String, leftValue: String,
+    rightKind: String, rightValue: String) r: Bool {
+
+    return leftKind == "Variable" and rightKind == "Variable" and
+        leftValue == rightValue
+}
+
+fun isShortCircuitBinaryOperatorImpl(operator: String) r: Bool {
+    return operator == "and" or operator == "or"
+}
+
+fun shouldTryAssociativeIntFoldImpl(operator: String, rightIsIntLit: Bool,
+    leftKind: String, leftOperator: String, leftOperandCount: Int) r: Bool {
+
+    if not rightIsIntLit {
+        return false
+    }
+    if leftKind != "Binary" or leftOperator != operator {
+        return false
+    }
+    if leftOperandCount < 2 {
+        return false
+    }
+    return operator == "+" or operator == "*"
+}
+
+fun associativeIntFoldRewriteCostImpl(operator: String, baseExprCost: Int)
+    r: Int {
+
+    if operator == "+" {
+        return baseExprCost + 3 + 1
+    }
+    if operator == "*" {
+        return baseExprCost + 5 + 1
+    }
+    return baseExprCost
+}
+
+fun emitSelfComparisonConstResultImpl(output: StringBuilder,
+    regBox: Array<Int>, action: String, operator: String) r: String {
+
+    if action == "const:0" {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg +
+            " = add i64 0, 0 ; e-graph: x " + operator + " x -> 0\n")
+        return resultReg
+    }
+    if action == "const:1" {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg +
+            " = add i64 1, 0 ; e-graph: x " + operator + " x -> 1\n")
+        return resultReg
+    }
+    if action == "const_true" {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg +
+            " = add i1 1, 0 ; e-graph: x " + operator + " x -> true\n")
+        return resultReg
+    }
+    if action == "const_false" {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg +
+            " = add i1 0, 0 ; e-graph: x " + operator + " x -> false\n")
+        return resultReg
+    }
+    return ""
+}
+
+fun emitFoldedBoolLiteralBinaryResultImpl(output: StringBuilder,
+    regBox: Array<Int>, foldedValue: String) r: String {
+
+    let resultReg = getNextRegFn(regBox)
+    if foldedValue == "true" {
+        output.append("  " + resultReg +
+            " = add i1 1, 0 ; constant-folded comparison\n")
+    } else {
+        output.append("  " + resultReg +
+            " = add i1 0, 0 ; constant-folded comparison\n")
+    }
+    return resultReg
+}
+
+fun emitFoldedIntLiteralBinaryResultImpl(output: StringBuilder,
+    regBox: Array<Int>, foldedValue: String) r: String {
+
+    let resultReg = getNextRegFn(regBox)
+    output.append("  " + resultReg + " = add i64 " + foldedValue +
+        ", 0 ; constant-folded\n")
+    return resultReg
+}
+
+fun emitAssociativeIntFoldResultImpl(output: StringBuilder,
+    regBox: Array<Int>, operator: String, baseReg: String,
+    combinedValue: String) r: String {
+
+    let resultReg = getNextRegFn(regBox)
+    if operator == "+" {
+        output.append("  " + resultReg + " = add i64 " + baseReg + ", " +
+            combinedValue + " ; e-graph: (a+C1)+C2 -> a+(C1+C2)\n")
+        return resultReg
+    }
+    if operator == "*" {
+        output.append("  " + resultReg + " = mul nsw i64 " + baseReg +
+            ", " + combinedValue +
+            " ; e-graph: (a*C1)*C2 -> a*(C1*C2)\n")
+        return resultReg
+    }
+    return ""
+}
+
 fun isPureCseBinaryOpImpl(leftType: String, rightType: String,
     operator: String) r: Bool {
 
