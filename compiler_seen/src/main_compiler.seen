@@ -44,6 +44,7 @@ import codegen.ir_module_constants.{findModuleConstantIntoStateImpl, captureModu
 import codegen.ir_local_type_fallback.{tryInferImplicitThisVariableTypeImpl}
 import codegen.ir_async_registry.{registerAsyncFunctionImpl}
 import codegen.ir_async_await.{emitAwaitPollLoopImpl, emitAwaitResultValueImpl}
+import codegen.ir_async_return.{prepareAsyncReturnValuePlanImpl, emitAsyncReturnValueBranchImpl, emitAsyncReturnVoidBranchImpl}
 import codegen.ir_trait_registry.{appendDynTraitNameImpl}
 import codegen.ir_module_emit.{mapGlobalVarLlvmTypeImpl}
 import codegen.ir_method_gen.{emitToStringMethodImpl}
@@ -1905,6 +1906,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_local_type_fallback")
         modules.push("codegen.ir_async_registry")
         modules.push("codegen.ir_async_await")
+        modules.push("codegen.ir_async_return")
         modules.push("codegen.ir_trait_registry")
         modules.push("codegen.ir_module_emit")
         modules.push("codegen.ir_method_gen")

@@ -38,19 +38,6 @@ fun emitReturnRegionAndProfileCleanupImpl(output: StringBuilder,
     }
 }
 
-fun emitAsyncReturnStoreAndBranchImpl(output: StringBuilder,
-    promiseType: String, valueReg: String, promisePtr: String,
-    finalLabel: String) r: Void {
-
-    output.append("  store " + promiseType + " " + valueReg + ", ptr " +
-        promisePtr + "\n")
-    output.append("  br label %" + finalLabel + "\n")
-}
-
-fun emitAsyncReturnBranchImpl(output: StringBuilder, finalLabel: String) r: Void {
-    output.append("  br label %" + finalLabel + "\n")
-}
-
 fun emitErrdeferVoidCleanupIntroImpl(output: StringBuilder) r: Void {
     output.append("  ; errdefer cleanup before void return (LIFO)\n")
 }
