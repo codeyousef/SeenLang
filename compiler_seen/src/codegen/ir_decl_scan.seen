@@ -4,6 +4,7 @@
 import parser.real_parser.{ProgramNode, FunctionNode}
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{parseGlobalVarMutable, parseGlobalVarType, pipeGet}
+import codegen.ir_decl_items.{normalizeDeclaredTypeNodeImpl}
 import codegen.ir_decl_return_types.{resolveMethodReturnTypeImpl}
 import codegen.ir_module_emit.{mapGlobalVarLlvmTypeImpl, isValidCrossModuleConstantEntryImpl}
 import codegen.ir_type_layout.{getLlvmTypeSizeImpl}
@@ -211,8 +212,10 @@ fun collectStructMethodSignaturesImpl(className: String,
     while methodIdx < methods.length() {
         let method = methods[methodIdx]
         let safeMethodName = sanitizeDeclSignaturePartImpl(method.name)
+        let declaredReturnType = normalizeDeclaredTypeNodeImpl(method.returnType)
         let safeRetType = sanitizeDeclSignaturePartImpl(
-            resolveMethodReturnTypeImpl(className, method))
+            resolveMethodReturnTypeImpl(className, method.name,
+                declaredReturnType, ""))
 
         methodNames = appendDelimitedDeclSignaturePartImpl(methodNames, ",",
             safeMethodName, methodIdx)

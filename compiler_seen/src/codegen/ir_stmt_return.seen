@@ -3,6 +3,7 @@
 import codegen.ir_function_gen.{emitDefaultReturnValueImpl}
 import codegen.ir_type_info.{charToCodeStr}
 import codegen.ir_optimization.{getNextRegFn}
+import codegen.ir_stmt_gen.{emitConditionToI1Impl}
 import str.string.{StringBuilder}
 
 fun emitErrdeferTempReturnLoadImpl(output: StringBuilder, loadReg: String,
@@ -156,7 +157,7 @@ fun emitStructLiteralReturnLoadImpl(output: StringBuilder, loadReg: String,
 
 fun normalizeReturnStatementValueRegImpl(output: StringBuilder,
     regBox: Array<Int>, isDataReturnType: Bool, returnKind: String,
-    llvmType: String, valueReg: String) r: String {
+    returnExprType: String, llvmType: String, valueReg: String) r: String {
 
     var normalizedValueReg = valueReg
     if shouldLoadStructLiteralReturnValueImpl(isDataReturnType,
@@ -167,14 +168,18 @@ fun normalizeReturnStatementValueRegImpl(output: StringBuilder,
             normalizedValueReg)
         normalizedValueReg = loadReg
     }
+    if llvmType == "i1" {
+        return emitConditionToI1Impl(output, regBox, normalizedValueReg,
+            returnExprType)
+    }
     return normalizeZeroReturnValueRegImpl(llvmType, normalizedValueReg)
 }
 
 fun emitFinalReturnStatementValueImpl(output: StringBuilder,
     regBox: Array<Int>, isDataReturnType: Bool, returnKind: String,
-    llvmType: String, rawValueReg: String) r: Void {
+    returnExprType: String, llvmType: String, rawValueReg: String) r: Void {
 
     let valueReg = normalizeReturnStatementValueRegImpl(output, regBox,
-        isDataReturnType, returnKind, llvmType, rawValueReg)
+        isDataReturnType, returnKind, returnExprType, llvmType, rawValueReg)
     output.append("  ret " + llvmType + " " + valueReg + "\n")
 }

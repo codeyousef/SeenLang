@@ -23,6 +23,7 @@ STAGE3="/tmp/stage3_safe_rebuild"
 STAGE3_RECOVERY="/tmp/stage3_safe_rebuild_recovery"
 PRESERVED_PROD_BUILDER="/tmp/seen_preserved_prod_builder"
 COMPILER_SOURCE="compiler_seen/src/main_compiler.seen"
+MEMORY_GUARD_SCRIPT="$SCRIPT_DIR/memory_guard.sh"
 
 # --- Progress monitoring helpers ---
 
@@ -45,6 +46,64 @@ format_bytes() {
         printf "%dKB" "$((bytes / 1024))"
     else
         printf "%dB" "$bytes"
+    fi
+}
+
+memory_guard_enabled() {
+    [ "${SEEN_DISABLE_MEMORY_GUARD:-0}" != "1" ] &&
+        [ -x "$MEMORY_GUARD_SCRIPT" ] &&
+        { [ -n "${MEMORY_GUARD_RSS_KB:-}" ] || [ -n "${MEMORY_GUARD_RESERVE_KB:-}" ]; }
+}
+
+run_guarded_command() {
+    local label=$1
+    local timeout_secs=$2
+    local vmem_kb=$3
+    shift 3
+
+    if memory_guard_enabled; then
+        local guard_cmd=("$MEMORY_GUARD_SCRIPT" --label "$label")
+        if [ -n "${MEMORY_GUARD_RSS_KB:-}" ]; then
+            guard_cmd+=(--rss-limit-kb "$MEMORY_GUARD_RSS_KB")
+        fi
+        if [ -n "${MEMORY_GUARD_RESERVE_KB:-}" ]; then
+            guard_cmd+=(--available-reserve-kb "$MEMORY_GUARD_RESERVE_KB")
+        fi
+        if [ -n "$vmem_kb" ]; then
+            guard_cmd+=(--vmem-limit-kb "$vmem_kb")
+        fi
+        if [ -n "$timeout_secs" ] && [ "$timeout_secs" != "0" ]; then
+            guard_cmd+=(--timeout-secs "$timeout_secs")
+        fi
+        if [ -n "${MEMORY_GUARD_TASKS_MAX:-}" ]; then
+            guard_cmd+=(--tasks-max "$MEMORY_GUARD_TASKS_MAX")
+        fi
+        if [ -n "${MEMORY_GUARD_CGROUP_STOP_KB:-}" ]; then
+            guard_cmd+=(--cgroup-stop-kb "$MEMORY_GUARD_CGROUP_STOP_KB")
+        fi
+        guard_cmd+=(-- "$@")
+        "${guard_cmd[@]}"
+        return $?
+    fi
+
+    if [ -n "$timeout_secs" ] && [ "$timeout_secs" != "0" ]; then
+        timeout "$timeout_secs" bash -c '
+            if [ -n "$1" ]; then
+                ulimit -v "$1" 2>/dev/null || true
+            fi
+            shift
+            exec "$@"
+        ' bash "$vmem_kb" "$@"
+        return $?
+    fi
+
+    if [ -n "$vmem_kb" ]; then
+        (
+            ulimit -v "$vmem_kb" 2>/dev/null || true
+            "$@"
+        )
+    else
+        "$@"
     fi
 }
 
@@ -128,15 +187,9 @@ run_with_progress() {
     local logfile=$1
     shift
 
-    # Start compilation in background, logging to file
-    if [ -n "${MAIN_COMPILER_VMEM_KB:-}" ]; then
-        (
-            ulimit -v "$MAIN_COMPILER_VMEM_KB" 2>/dev/null || true
-            "$@"
-        ) > "$logfile" 2>&1 &
-    else
-        "$@" > "$logfile" 2>&1 &
-    fi
+    # Start compilation in background, logging to file. The guard watches the
+    # entire child process tree, so forked opt/link children count toward the cap.
+    run_guarded_command "$label" 0 "${MAIN_COMPILER_VMEM_KB:-}" "$@" > "$logfile" 2>&1 &
     local compile_pid=$!
 
     # Start progress monitor
@@ -284,7 +337,8 @@ bootstrap_binary_usable() {
     local bin=$1
     local smoke_log="/tmp/seen_bootstrap_smoke_$$_$(basename "$bin").log"
     [ -x "$bin" ] || return 1
-    timeout 5 "$bin" >"$smoke_log" 2>&1
+    run_guarded_command "bootstrap smoke $(basename "$bin")" 5 "$MAIN_COMPILER_VMEM_KB" \
+        "$bin" >"$smoke_log" 2>&1
     local exit_code=$?
     rm -f "$smoke_log"
     [ "$exit_code" -eq 0 ] || [ "$exit_code" -eq 1 ]
@@ -419,6 +473,55 @@ derive_opt_vmem_kb() {
     echo "$cap_kb"
 }
 
+derive_memory_guard_reserve_kb() {
+    local total_kb=$1
+    local available_kb=$2
+    local reserve_kb=$((total_kb * 10 / 100))
+    local min_reserve_kb=$((4 * 1024 * 1024))
+
+    if [ "$reserve_kb" -lt "$min_reserve_kb" ]; then
+        reserve_kb=$min_reserve_kb
+    fi
+
+    if is_positive_integer "$available_kb"; then
+        local half_available_kb=$((available_kb / 2))
+        if [ "$half_available_kb" -gt 0 ] && [ "$reserve_kb" -gt "$half_available_kb" ]; then
+            reserve_kb=$half_available_kb
+        fi
+    fi
+
+    if [ "$reserve_kb" -lt 1 ]; then
+        reserve_kb=1
+    fi
+
+    echo "$reserve_kb"
+}
+
+derive_memory_guard_rss_kb() {
+    local total_kb=$1
+    local available_kb=$2
+    local reserve_kb=$3
+    local cap_kb=$((total_kb * 60 / 100))
+
+    if is_positive_integer "$available_kb" && [ "$available_kb" -gt "$reserve_kb" ]; then
+        local available_cap_kb=$((available_kb - reserve_kb))
+        if [ "$available_cap_kb" -gt 0 ] && [ "$available_cap_kb" -lt "$cap_kb" ]; then
+            cap_kb=$available_cap_kb
+        fi
+    fi
+
+    local max_guard_kb=$((48 * 1024 * 1024))
+    if [ "$cap_kb" -gt "$max_guard_kb" ]; then
+        cap_kb=$max_guard_kb
+    fi
+
+    if [ "$cap_kb" -lt 1 ]; then
+        cap_kb=1
+    fi
+
+    echo "$cap_kb"
+}
+
 guard_low_memory_concurrency() {
     if [ "${SEEN_ALLOW_CONCURRENT_REBUILD:-0}" = "1" ]; then
         return 0
@@ -454,13 +557,55 @@ PASS2_COMPILE_FLAGS="--fast --no-cache"
 MAIN_COMPILER_VMEM_KB=""
 OPT_VMEM_KB=""
 RECOVERY_TIMEOUT_SECS="${SEEN_RECOVERY_TIMEOUT_SECS:-1800}"
+SYSTEM_MEMORY_KB=$(detect_effective_system_memory_kb || true)
+SYSTEM_AVAILABLE_KB=$(detect_available_memory_kb || true)
+MEMORY_GUARD_RSS_KB=""
+MEMORY_GUARD_RESERVE_KB=""
+MEMORY_GUARD_TASKS_MAX=""
+MEMORY_GUARD_CGROUP_STOP_KB=""
+
+if [ "${SEEN_DISABLE_MEMORY_GUARD:-0}" != "1" ]; then
+    if ! is_positive_integer "$SYSTEM_MEMORY_KB"; then
+        echo -e "${RED}ERROR: Could not detect system memory for rebuild memory guard.${NC}"
+        echo "Set SEEN_GUARD_RSS_KB and SEEN_GUARD_RESERVE_KB explicitly, or run on a host with /proc/meminfo or sysctl hw.memsize."
+        exit 1
+    fi
+    if [ -n "${SEEN_GUARD_RSS_KB:-}" ] && ! is_positive_integer "$SEEN_GUARD_RSS_KB"; then
+        echo -e "${RED}ERROR: SEEN_GUARD_RSS_KB must be a positive integer KB value.${NC}"
+        exit 1
+    fi
+    if [ -n "${SEEN_GUARD_RESERVE_KB:-}" ] && ! is_positive_integer "$SEEN_GUARD_RESERVE_KB"; then
+        echo -e "${RED}ERROR: SEEN_GUARD_RESERVE_KB must be a positive integer KB value.${NC}"
+        exit 1
+    fi
+    if [ -n "${SEEN_GUARD_TASKS_MAX:-}" ] && ! is_positive_integer "$SEEN_GUARD_TASKS_MAX"; then
+        echo -e "${RED}ERROR: SEEN_GUARD_TASKS_MAX must be a positive integer value.${NC}"
+        exit 1
+    fi
+    if [ -n "${SEEN_GUARD_CGROUP_STOP_KB:-}" ] && ! is_positive_integer "$SEEN_GUARD_CGROUP_STOP_KB"; then
+        echo -e "${RED}ERROR: SEEN_GUARD_CGROUP_STOP_KB must be a positive integer KB value.${NC}"
+        exit 1
+    fi
+    MEMORY_GUARD_RESERVE_KB="${SEEN_GUARD_RESERVE_KB:-$(derive_memory_guard_reserve_kb "$SYSTEM_MEMORY_KB" "$SYSTEM_AVAILABLE_KB")}"
+    MEMORY_GUARD_RSS_KB="${SEEN_GUARD_RSS_KB:-$(derive_memory_guard_rss_kb "$SYSTEM_MEMORY_KB" "$SYSTEM_AVAILABLE_KB" "$MEMORY_GUARD_RESERVE_KB")}"
+    MEMORY_GUARD_TASKS_MAX="${SEEN_GUARD_TASKS_MAX:-256}"
+    MEMORY_GUARD_CGROUP_STOP_KB="${SEEN_GUARD_CGROUP_STOP_KB:-$((MEMORY_GUARD_RSS_KB * 90 / 100))}"
+    if [ "$MEMORY_GUARD_CGROUP_STOP_KB" -lt 1 ]; then
+        MEMORY_GUARD_CGROUP_STOP_KB=1
+    fi
+    export SEEN_MEMORY_GUARD_RSS_KB="$MEMORY_GUARD_RSS_KB"
+    export SEEN_MEMORY_GUARD_RESERVE_KB="$MEMORY_GUARD_RESERVE_KB"
+    export SEEN_MEMORY_GUARD_TASKS_MAX="$MEMORY_GUARD_TASKS_MAX"
+    export SEEN_MEMORY_GUARD_CGROUP_STOP_KB="$MEMORY_GUARD_CGROUP_STOP_KB"
+    if [ "$HOST_OS" != "Darwin" ]; then
+        export SEEN_MEMORY_GUARD_REQUIRE_KERNEL_SCOPE=1
+    fi
+fi
 
 if [ "${SEEN_LOW_MEMORY:-0}" = "1" ]; then
     LOW_MEMORY_MODE=1
     STAGE2_COMPILE_FLAGS="$STAGE2_COMPILE_FLAGS --no-fork"
     PASS2_COMPILE_FLAGS="$PASS2_COMPILE_FLAGS --no-fork"
-    SYSTEM_MEMORY_KB=$(detect_effective_system_memory_kb || true)
-    SYSTEM_AVAILABLE_KB=$(detect_available_memory_kb || true)
     if ! is_positive_integer "$SYSTEM_MEMORY_KB"; then
         echo -e "${RED}ERROR: Could not detect system memory for low-memory rebuild caps.${NC}"
         echo "Set SEEN_MAIN_VMEM_KB and SEEN_OPT_VMEM_KB explicitly, or run on a host with /proc/meminfo or sysctl hw.memsize."
@@ -480,6 +625,21 @@ if [ "${SEEN_LOW_MEMORY:-0}" = "1" ]; then
         echo -e "${RED}ERROR: Low-memory rebuild caps must be positive integer KB values.${NC}"
         exit 1
     fi
+    if [ -z "${SEEN_GUARD_RSS_KB:-}" ]; then
+        MEMORY_GUARD_RSS_KB="$MAIN_COMPILER_VMEM_KB"
+        export SEEN_MEMORY_GUARD_RSS_KB="$MEMORY_GUARD_RSS_KB"
+    fi
+    if [ -z "${SEEN_GUARD_TASKS_MAX:-}" ]; then
+        MEMORY_GUARD_TASKS_MAX=48
+        export SEEN_MEMORY_GUARD_TASKS_MAX="$MEMORY_GUARD_TASKS_MAX"
+    fi
+    if [ -z "${SEEN_GUARD_CGROUP_STOP_KB:-}" ]; then
+        MEMORY_GUARD_CGROUP_STOP_KB=$((MEMORY_GUARD_RSS_KB * 90 / 100))
+        if [ "$MEMORY_GUARD_CGROUP_STOP_KB" -lt 1 ]; then
+            MEMORY_GUARD_CGROUP_STOP_KB=1
+        fi
+        export SEEN_MEMORY_GUARD_CGROUP_STOP_KB="$MEMORY_GUARD_CGROUP_STOP_KB"
+    fi
     RECOVERY_TIMEOUT_SECS="${SEEN_RECOVERY_TIMEOUT_SECS:-7200}"
     export SEEN_LOW_MEMORY=1
     export SEEN_MAIN_VMEM_KB="$MAIN_COMPILER_VMEM_KB"
@@ -488,6 +648,10 @@ if [ "${SEEN_LOW_MEMORY:-0}" = "1" ]; then
     guard_low_memory_concurrency
     echo -e "${YELLOW}Low-memory mode enabled: serial bootstrap stages.${NC}"
     echo -e "${YELLOW}Detected system memory: $(format_bytes $((SYSTEM_MEMORY_KB * 1024))). Main compiler cap: $(format_bytes $((MAIN_COMPILER_VMEM_KB * 1024))). opt cap: $(format_bytes $((OPT_VMEM_KB * 1024))).${NC}"
+fi
+
+if memory_guard_enabled; then
+    echo -e "${YELLOW}Memory guard enabled: tree RSS cap $(format_bytes $((MEMORY_GUARD_RSS_KB * 1024))); cgroup stop $(format_bytes $((MEMORY_GUARD_CGROUP_STOP_KB * 1024))); reserve $(format_bytes $((MEMORY_GUARD_RESERVE_KB * 1024))); tasks max ${MEMORY_GUARD_TASKS_MAX:-unlimited}.${NC}"
 fi
 
 if [ "$HOST_OS" = "Darwin" ]; then
@@ -608,10 +772,8 @@ smoke_test_compiler() {
 
     if ! (
         cd "$REPO_ROOT" &&
-        if [ -n "$MAIN_COMPILER_VMEM_KB" ]; then
-            ulimit -v "$MAIN_COMPILER_VMEM_KB" 2>/dev/null || true
-        fi
-        env "${compiler_env[@]}" "${check_cmd[@]}" > "$check_log" 2>&1
+        run_guarded_command "$stage_label check smoke" 120 "$MAIN_COMPILER_VMEM_KB" \
+            env "${compiler_env[@]}" "${check_cmd[@]}" > "$check_log" 2>&1
     ); then
         echo -e "${YELLOW}${stage_label} failed hello-world check smoke test.${NC}"
         tail -20 "$check_log" 2>/dev/null || true
@@ -623,10 +785,8 @@ smoke_test_compiler() {
 
     if ! (
         cd "$REPO_ROOT" &&
-        if [ -n "$MAIN_COMPILER_VMEM_KB" ]; then
-            ulimit -v "$MAIN_COMPILER_VMEM_KB" 2>/dev/null || true
-        fi
-        env "${compiler_env[@]}" "${compile_cmd[@]}" > "$compile_log" 2>&1
+        run_guarded_command "$stage_label compile smoke" 120 "$MAIN_COMPILER_VMEM_KB" \
+            env "${compiler_env[@]}" "${compile_cmd[@]}" > "$compile_log" 2>&1
     ); then
         echo -e "${YELLOW}${stage_label} failed hello-world compile smoke test.${NC}"
         tail -20 "$compile_log" 2>/dev/null || true
@@ -668,7 +828,14 @@ recover_with_preserved_production_compiler() {
     rm -f "$STAGE3_RECOVERY"
 
     local recovery_exit=0
-    timeout "$RECOVERY_TIMEOUT_SECS" bash -c "if [ -n $(printf '%q' "$MAIN_COMPILER_VMEM_KB") ]; then ulimit -v $(printf '%q' "$MAIN_COMPILER_VMEM_KB"); fi; env PATH=$(printf '%q' "$OPT_WRAPPER_DIR"):\$PATH SEEN_LOW_MEMORY=$(printf '%q' "${SEEN_LOW_MEMORY:-0}") SEEN_SKIP_IR_FIXUPS=1 SEEN_MAIN_VMEM_KB=$(printf '%q' "$MAIN_COMPILER_VMEM_KB") SEEN_OPT_VMEM_KB=$(printf '%q' "$OPT_VMEM_KB") $(printf '%q' "$PRESERVED_PROD_BUILDER") compile $(printf '%q' "$COMPILER_SOURCE") $(printf '%q' "$STAGE3_RECOVERY") --fast --no-cache --no-fork" > /tmp/safe_rebuild_stage3_recovery.log 2>&1 || recovery_exit=$?
+    run_guarded_command "preserved compiler recovery" "$RECOVERY_TIMEOUT_SECS" "$MAIN_COMPILER_VMEM_KB" \
+        env PATH="$OPT_WRAPPER_DIR:$PATH" \
+            SEEN_LOW_MEMORY="${SEEN_LOW_MEMORY:-0}" \
+            SEEN_SKIP_IR_FIXUPS=1 \
+            SEEN_MAIN_VMEM_KB="$MAIN_COMPILER_VMEM_KB" \
+            SEEN_OPT_VMEM_KB="$OPT_VMEM_KB" \
+            "$PRESERVED_PROD_BUILDER" compile "$COMPILER_SOURCE" "$STAGE3_RECOVERY" \
+            --fast --no-cache --no-fork > /tmp/safe_rebuild_stage3_recovery.log 2>&1 || recovery_exit=$?
     if [ "$recovery_exit" -eq 0 ]; then
         echo -e "${GREEN}Recovery rebuild succeeded.${NC}"
         echo ""
@@ -685,6 +852,79 @@ recover_with_preserved_production_compiler() {
     if [ "$recovery_exit" != "124" ]; then
         tail -10 /tmp/safe_rebuild_stage3_recovery.log 2>/dev/null || true
     fi
+    return 1
+}
+
+recover_with_existing_stage_builder() {
+    local builder_path=$1
+    local builder_name
+    local builder_slug
+    local builder_log
+
+    [ -x "$builder_path" ] || return 1
+    builder_name=$(basename "$builder_path")
+    builder_slug=$(printf "%s" "$builder_name" | tr -c 'A-Za-z0-9_' '_')
+    builder_log="/tmp/safe_rebuild_existing_stage_${builder_slug}.log"
+
+    echo ""
+    echo "Recovery: trying existing stage builder $builder_path..."
+    if ! smoke_test_compiler "$builder_path" "Existing stage builder $builder_name" "existing_${builder_slug}"; then
+        echo -e "${YELLOW}Existing stage builder $builder_name failed smoke; trying next recovery builder.${NC}"
+        return 1
+    fi
+
+    cleanup_smoke_build_state
+    rm -f "$STAGE3_RECOVERY"
+
+    local recovery_exit=0
+    run_guarded_command "existing stage builder $builder_name recovery" "$RECOVERY_TIMEOUT_SECS" "$MAIN_COMPILER_VMEM_KB" \
+        env PATH="$OPT_WRAPPER_DIR:$PATH" \
+            SEEN_LOW_MEMORY="${SEEN_LOW_MEMORY:-0}" \
+            SEEN_MAIN_VMEM_KB="$MAIN_COMPILER_VMEM_KB" \
+            SEEN_OPT_VMEM_KB="$OPT_VMEM_KB" \
+            "$builder_path" compile "$COMPILER_SOURCE" "$STAGE3_RECOVERY" \
+            --fast --no-cache --no-fork > "$builder_log" 2>&1 || recovery_exit=$?
+
+    if [ "$recovery_exit" -eq 0 ]; then
+        echo -e "${GREEN}Existing stage builder $builder_name rebuilt the compiler.${NC}"
+        echo ""
+        echo "Recovery smoke: checking hello-world..."
+        if smoke_test_compiler "$STAGE3_RECOVERY" "Recovered compiler from $builder_name" "recovered_${builder_slug}"; then
+            VERIFIED="$STAGE3_RECOVERY"
+            return 0
+        fi
+        echo -e "${YELLOW}Recovered compiler from $builder_name failed smoke; trying next recovery builder.${NC}"
+        return 1
+    fi
+
+    echo -e "${YELLOW}Existing stage builder $builder_name failed or timed out (exit=$recovery_exit).${NC}"
+    if [ "$recovery_exit" != "124" ]; then
+        tail -10 "$builder_log" 2>/dev/null || true
+    fi
+    return 1
+}
+
+recover_with_existing_stage_builders() {
+    local candidate
+    local candidates=()
+
+    if [ -n "${SEEN_STAGE_BUILDER:-}" ]; then
+        candidates+=("$SEEN_STAGE_BUILDER")
+    fi
+    candidates+=(
+        "$REPO_ROOT/stage2_head"
+        "$REPO_ROOT/stage3_recovery_head"
+        "$REPO_ROOT/stage3_head"
+        "$REPO_ROOT/compiler_seen/target/seen_native_snapshot"
+        "$REPO_ROOT/compiler_seen/target/seen_frozen6"
+    )
+
+    for candidate in "${candidates[@]}"; do
+        if recover_with_existing_stage_builder "$candidate"; then
+            return 0
+        fi
+    done
+
     return 1
 }
 
@@ -846,8 +1086,10 @@ fi  # end platform-specific opt wrapper
 
 if [ "$LOW_MEMORY_MODE" = "1" ] && [ "$HOST_OS" != "Darwin" ]; then
     echo ""
-    echo "Low-memory shortcut: trying preserved production compiler before frozen bootstrap..."
-    if recover_with_preserved_production_compiler; then
+    echo "Low-memory shortcut: trying existing stage builders before frozen bootstrap..."
+    if recover_with_existing_stage_builders; then
+        echo -e "${GREEN}Low-memory rebuild succeeded via existing stage builder.${NC}"
+    elif recover_with_preserved_production_compiler; then
         echo -e "${GREEN}Low-memory rebuild succeeded via preserved production compiler.${NC}"
     else
         echo -e "${YELLOW}Low-memory shortcut did not complete; continuing with capped frozen bootstrap.${NC}"
@@ -896,12 +1138,9 @@ else
     rm -rf "$SNAPSHOT_DIR"
 
     # Start compiler in background
-    (
-        if [ -n "$MAIN_COMPILER_VMEM_KB" ]; then
-            ulimit -v "$MAIN_COMPILER_VMEM_KB" 2>/dev/null || true
-        fi
-        env PATH="$OPT_WRAPPER_DIR:$PATH" "$FROZEN" compile "$COMPILER_SOURCE" "$STAGE2" $STAGE2_COMPILE_FLAGS
-    ) > /tmp/safe_rebuild_stage2.log 2>&1 &
+    run_guarded_command "S1->S2" 0 "$MAIN_COMPILER_VMEM_KB" \
+        env PATH="$OPT_WRAPPER_DIR:$PATH" "$FROZEN" compile "$COMPILER_SOURCE" "$STAGE2" \
+            $STAGE2_COMPILE_FLAGS > /tmp/safe_rebuild_stage2.log 2>&1 &
     COMPILE_PID=$!
 
     # Start progress monitor and snapshot watcher
@@ -989,7 +1228,8 @@ else
             # Recovery works in a private temp dir to avoid interference from
             # concurrent compilations. It outputs RECOVERY_DIR=<path> on success.
             RECOVERY_EXIT=0
-            RECOVERY_OUTPUT=$(bash "$SCRIPT_DIR/recovery_opt.sh" "$OPT_WRAPPER_DIR" "$SCRIPT_DIR" 2>&1) || RECOVERY_EXIT=$?
+            RECOVERY_OUTPUT=$(run_guarded_command "Stage2 IR recovery" "$RECOVERY_TIMEOUT_SECS" "$OPT_VMEM_KB" \
+                bash "$SCRIPT_DIR/recovery_opt.sh" "$OPT_WRAPPER_DIR" "$SCRIPT_DIR" 2>&1) || RECOVERY_EXIT=$?
             echo "$RECOVERY_OUTPUT" | grep -v '^RECOVERY_DIR=' || true
 
             if [ "$RECOVERY_EXIT" -ne 0 ]; then
@@ -1041,12 +1281,9 @@ else
                     RETRY_SNAPSHOT="/tmp/seen_retry_snapshot_${$}_${RETRY}"
                     rm -rf "$RETRY_SNAPSHOT"
 
-                    (
-                        if [ -n "$MAIN_COMPILER_VMEM_KB" ]; then
-                            ulimit -v "$MAIN_COMPILER_VMEM_KB" 2>/dev/null || true
-                        fi
-                        env PATH="$OPT_WRAPPER_DIR:$PATH" "$FROZEN" compile "$COMPILER_SOURCE" /dev/null $STAGE2_COMPILE_FLAGS
-                    ) > /tmp/retry_${RETRY}.log 2>&1 &
+                    run_guarded_command "Retry$RETRY" 600 "$MAIN_COMPILER_VMEM_KB" \
+                        env PATH="$OPT_WRAPPER_DIR:$PATH" "$FROZEN" compile "$COMPILER_SOURCE" /dev/null \
+                            $STAGE2_COMPILE_FLAGS > /tmp/retry_${RETRY}.log 2>&1 &
                     RETRY_PID=$!
 
                     start_ll_snapshot_watcher "$RETRY_PID" "$RETRY_SNAPSHOT" &
@@ -1054,9 +1291,7 @@ else
                     monitor_compilation "$RETRY_PID" "Retry$RETRY" &
                     RETRY_MONITOR=$!
 
-                    # Wait with 10-min timeout
-                    timeout 600 tail --pid=$RETRY_PID -f /dev/null 2>/dev/null || true
-                    kill -9 $RETRY_PID 2>/dev/null || true; wait $RETRY_PID 2>/dev/null || true
+                    wait $RETRY_PID 2>/dev/null || true
                     kill $RETRY_WATCHER 2>/dev/null || true; wait $RETRY_WATCHER 2>/dev/null || true
                     kill $RETRY_MONITOR 2>/dev/null || true; wait $RETRY_MONITOR 2>/dev/null || true
                     kill_frozen_orphans
@@ -1104,12 +1339,14 @@ else
                             optfile="$RECOVERY_DIR/${mod}.opt.ll"
                             echo "    Re-optimizing ${mod}..."
                             # Use opt wrapper to apply dedup, byteAt fix, fix_ir.py
-                            if ! "$OPT_WRAPPER_DIR/opt" \
+                            if ! run_guarded_command "Retry$RETRY ${mod} opt" 300 "$OPT_VMEM_KB" \
+                                "$OPT_WRAPPER_DIR/opt" \
                                 -passes='function(sroa,instcombine<no-verify-fixpoint>,simplifycfg),default<O1>' \
                                 -inline-threshold=250 -S "$llfile" -o "$optfile" 2>/dev/null; then
                                 cp "$llfile" "$optfile" 2>/dev/null || true
                             fi
-                            "$REAL_OPT_BIN" --thinlto-bc "$optfile" -o "$objfile" 2>/dev/null || true
+                            run_guarded_command "Retry$RETRY ${mod} thinlto" 300 "$OPT_VMEM_KB" \
+                                "$REAL_OPT_BIN" --thinlto-bc "$optfile" -o "$objfile" 2>/dev/null || true
                         done
                     fi
 
@@ -1147,7 +1384,9 @@ else
                     PASS2_SNAPSHOT="/tmp/seen_pass2_snapshot_$$"
                     rm -rf "$PASS2_SNAPSHOT"
 
-                    $PROD_COMPILER compile "$COMPILER_SOURCE" /dev/null $PASS2_COMPILE_FLAGS > /tmp/pass2.log 2>&1 &
+                    run_guarded_command "Pass2" 600 "$MAIN_COMPILER_VMEM_KB" \
+                        "$PROD_COMPILER" compile "$COMPILER_SOURCE" /dev/null \
+                            $PASS2_COMPILE_FLAGS > /tmp/pass2.log 2>&1 &
                     PASS2_PID=$!
 
                     start_ll_snapshot_watcher "$PASS2_PID" "$PASS2_SNAPSHOT" &
@@ -1155,9 +1394,7 @@ else
                     monitor_compilation "$PASS2_PID" "Pass2" &
                     PASS2_MONITOR=$!
 
-                    # Wait with 10-min timeout (satellite modules complete within 5 min)
-                    timeout 600 tail --pid=$PASS2_PID -f /dev/null 2>/dev/null || true
-                    kill -9 $PASS2_PID 2>/dev/null; wait $PASS2_PID 2>/dev/null || true
+                    wait $PASS2_PID 2>/dev/null || true
                     kill $PASS2_WATCHER 2>/dev/null; wait $PASS2_WATCHER 2>/dev/null || true
                     kill $PASS2_MONITOR 2>/dev/null; wait $PASS2_MONITOR 2>/dev/null || true
                     # Kill any children of the Pass 2 compiler (fork children, opt, clang)
@@ -1218,12 +1455,14 @@ else
 
                             optfile="$RECOVERY_DIR/${modname}.opt.ll"
                             echo "    Re-optimizing $modname..."
-                            if ! "$REAL_OPT_BIN" \
+                            if ! run_guarded_command "Pass2 ${modname} opt" 300 "$OPT_VMEM_KB" \
+                                "$REAL_OPT_BIN" \
                                 -passes='function(sroa,instcombine<no-verify-fixpoint>,simplifycfg),default<O1>' \
                                 -inline-threshold=250 -S "$llfile" -o "$optfile" 2>/dev/null; then
                                 cp "$llfile" "$optfile" 2>/dev/null || true
                             fi
-                            "$REAL_OPT_BIN" --thinlto-bc "$optfile" -o "$objfile" 2>/dev/null || true
+                            run_guarded_command "Pass2 ${modname} thinlto" 300 "$OPT_VMEM_KB" \
+                                "$REAL_OPT_BIN" --thinlto-bc "$optfile" -o "$objfile" 2>/dev/null || true
                         done
 
                         # Recount .o files after merge
@@ -1260,18 +1499,21 @@ else
             RT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)/seen_runtime"
             if [ ! -f "$RT_DIR/seen_runtime.o" ] || [ "$RT_DIR/seen_runtime.c" -nt "$RT_DIR/seen_runtime.o" ]; then
                 echo "  Pre-compiling runtime..."
-                clang -O3 -flto=thin -march=native -ffunction-sections -fdata-sections -pthread \
+                run_guarded_command "runtime seen_runtime.c" 300 "$OPT_VMEM_KB" \
+                    clang -O3 -flto=thin -march=native -ffunction-sections -fdata-sections -pthread \
                     -c -I "$RT_DIR" "$RT_DIR/seen_runtime.c" -o "$RT_DIR/seen_runtime.o" 2>/dev/null || true
             fi
             if [ -f "$RT_DIR/seen_region.c" ]; then
                 if [ ! -f "$RT_DIR/seen_region.o" ] || [ "$RT_DIR/seen_region.c" -nt "$RT_DIR/seen_region.o" ]; then
-                    clang -O3 -flto=thin -march=native -ffunction-sections -fdata-sections \
+                    run_guarded_command "runtime seen_region.c" 300 "$OPT_VMEM_KB" \
+                        clang -O3 -flto=thin -march=native -ffunction-sections -fdata-sections \
                         -c -I "$RT_DIR" "$RT_DIR/seen_region.c" -o "$RT_DIR/seen_region.o" 2>/dev/null || true
                 fi
             fi
             if [ -f "$RT_DIR/seen_gpu.c" ]; then
                 if [ ! -f "$RT_DIR/seen_gpu.o" ] || [ "$RT_DIR/seen_gpu.c" -nt "$RT_DIR/seen_gpu.o" ]; then
-                    clang -O3 -flto=thin -march=native -ffunction-sections -fdata-sections \
+                    run_guarded_command "runtime seen_gpu.c" 300 "$OPT_VMEM_KB" \
+                        clang -O3 -flto=thin -march=native -ffunction-sections -fdata-sections \
                         -c -I "$RT_DIR" "$RT_DIR/seen_gpu.c" -o "$RT_DIR/seen_gpu.o" 2>/dev/null || true
                 fi
             fi
@@ -1290,7 +1532,7 @@ else
             LINK_LIBS="-lm -lpthread"
             [ -f "$RT_DIR/seen_gpu.o" ] && pkg-config --exists vulkan 2>/dev/null && LINK_LIBS="$LINK_LIBS -lvulkan"
 
-            if clang -O1 -flto=thin -fuse-ld=lld \
+            if run_guarded_command "Stage2 recovery link" 0 "" clang -O1 -flto=thin -fuse-ld=lld \
                 -Wl,--thinlto-cache-dir=/tmp/seen_thinlto_cache \
                 -Wl,--allow-multiple-definition \
                 -march=native -Wl,--gc-sections -Wno-unused-command-line-argument \
@@ -1403,7 +1645,8 @@ POSTOPT_FIX
         for optll in /tmp/seen_module_*.opt.ll; do
             modname=$(basename "$optll" .opt.ll)
             objfile="/tmp/${modname}.relink.o"
-            if ! llc -mtriple=arm64-apple-macosx -filetype=obj -O2 "$optll" -o "$objfile" 2>/tmp/relink_llc.log; then
+            if ! run_guarded_command "macOS stage2 ${modname} llc" 300 "$OPT_VMEM_KB" \
+                llc -mtriple=arm64-apple-macosx -filetype=obj -O2 "$optll" -o "$objfile" 2>/tmp/relink_llc.log; then
                 echo -e "${RED}    llc failed for $modname${NC}"
                 cat /tmp/relink_llc.log
                 RELINK_FAILED=1
@@ -1413,12 +1656,15 @@ POSTOPT_FIX
         done
         if [ "$RELINK_FAILED" = "0" ]; then
             NATIVE_RT="/tmp/seen_runtime_native.o"
-            clang -O2 -c -I seen_runtime seen_runtime/seen_runtime.c -o "$NATIVE_RT" 2>/dev/null || true
+            run_guarded_command "macOS stage2 runtime" 300 "$OPT_VMEM_KB" \
+                clang -O2 -c -I seen_runtime seen_runtime/seen_runtime.c -o "$NATIVE_RT" 2>/dev/null || true
             NATIVE_REGION="/tmp/seen_region_native.o"
-            [ -f seen_runtime/seen_region.c ] && clang -O2 -c -I seen_runtime seen_runtime/seen_region.c -o "$NATIVE_REGION" 2>/dev/null || true
+            [ -f seen_runtime/seen_region.c ] && run_guarded_command "macOS stage2 region" 300 "$OPT_VMEM_KB" \
+                clang -O2 -c -I seen_runtime seen_runtime/seen_region.c -o "$NATIVE_REGION" 2>/dev/null || true
             RT_OBJS="$NATIVE_RT"
             [ -f "$NATIVE_REGION" ] && RT_OBJS="$RT_OBJS $NATIVE_REGION"
-            if clang -O2 -arch arm64 $RELINK_OBJS $RT_OBJS -o "$STAGE2" -lm -lpthread 2>/tmp/relink_link.log; then
+            if run_guarded_command "macOS stage2 relink" 0 "$MAIN_COMPILER_VMEM_KB" \
+                clang -O2 -arch arm64 $RELINK_OBJS $RT_OBJS -o "$STAGE2" -lm -lpthread 2>/tmp/relink_link.log; then
                 echo -e "${GREEN}    macOS relink succeeded ($(wc -c < "$STAGE2" | tr -d ' ') bytes).${NC}"
             else
                 echo -e "${RED}    macOS relink failed${NC}"
@@ -1481,7 +1727,8 @@ if [ "$HOST_OS" = "Darwin" ]; then
         for optll in /tmp/seen_module_*.opt.ll; do
             modname=$(basename "$optll" .opt.ll)
             objfile="/tmp/${modname}.relink.o"
-            if ! llc -mtriple=arm64-apple-macosx -filetype=obj -O2 "$optll" -o "$objfile" 2>/tmp/relink_llc.log; then
+            if ! run_guarded_command "macOS stage3 ${modname} llc" 300 "$OPT_VMEM_KB" \
+                llc -mtriple=arm64-apple-macosx -filetype=obj -O2 "$optll" -o "$objfile" 2>/tmp/relink_llc.log; then
                 echo -e "${RED}    llc failed for $modname${NC}"
                 cat /tmp/relink_llc.log
                 RELINK_FAILED=1
@@ -1491,12 +1738,15 @@ if [ "$HOST_OS" = "Darwin" ]; then
         done
         if [ "$RELINK_FAILED" = "0" ]; then
             NATIVE_RT="/tmp/seen_runtime_native.o"
-            clang -O2 -c -I seen_runtime seen_runtime/seen_runtime.c -o "$NATIVE_RT" 2>/dev/null || true
+            run_guarded_command "macOS stage3 runtime" 300 "$OPT_VMEM_KB" \
+                clang -O2 -c -I seen_runtime seen_runtime/seen_runtime.c -o "$NATIVE_RT" 2>/dev/null || true
             NATIVE_REGION="/tmp/seen_region_native.o"
-            [ -f seen_runtime/seen_region.c ] && clang -O2 -c -I seen_runtime seen_runtime/seen_region.c -o "$NATIVE_REGION" 2>/dev/null || true
+            [ -f seen_runtime/seen_region.c ] && run_guarded_command "macOS stage3 region" 300 "$OPT_VMEM_KB" \
+                clang -O2 -c -I seen_runtime seen_runtime/seen_region.c -o "$NATIVE_REGION" 2>/dev/null || true
             RT_OBJS="$NATIVE_RT"
             [ -f "$NATIVE_REGION" ] && RT_OBJS="$RT_OBJS $NATIVE_REGION"
-            if clang -O2 -arch arm64 $RELINK_OBJS $RT_OBJS -o "$STAGE3" -lm -lpthread 2>/tmp/relink_link.log; then
+            if run_guarded_command "macOS stage3 relink" 0 "$MAIN_COMPILER_VMEM_KB" \
+                clang -O2 -arch arm64 $RELINK_OBJS $RT_OBJS -o "$STAGE3" -lm -lpthread 2>/tmp/relink_link.log; then
                 echo -e "${GREEN}    macOS stage3 relink succeeded ($(wc -c < "$STAGE3" | tr -d ' ') bytes).${NC}"
             else
                 echo -e "${RED}    macOS stage3 relink failed${NC}"
@@ -1539,7 +1789,9 @@ else
     echo "Step 2: Attempting S2→S3 bootstrap verification (Linux)..."
     echo -e "${DIM}Timeout: 30 minutes. Falls back to S2 if this fails.${NC}"
 
-    if timeout 1800 bash -c "if [ -n $(printf '%q' "$MAIN_COMPILER_VMEM_KB") ]; then ulimit -v $(printf '%q' "$MAIN_COMPILER_VMEM_KB") 2>/dev/null || true; fi; $(printf '%q' "$STAGE2") compile $(printf '%q' "$COMPILER_SOURCE") $(printf '%q' "$STAGE3") --fast --no-cache --no-fork" > /tmp/safe_rebuild_stage3.log 2>&1; then
+    if run_guarded_command "S2->S3" 1800 "$MAIN_COMPILER_VMEM_KB" \
+        "$STAGE2" compile "$COMPILER_SOURCE" "$STAGE3" --fast --no-cache --no-fork \
+        > /tmp/safe_rebuild_stage3.log 2>&1; then
         echo -e "${GREEN}Stage3 build succeeded.${NC}"
 
         echo ""

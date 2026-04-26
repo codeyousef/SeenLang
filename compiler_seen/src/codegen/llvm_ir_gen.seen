@@ -1271,6 +1271,10 @@ class LLVMIRGenerator {
     fun inferDeclarationInitializerType(expr: ParserExpressionNode) r: String {
         if expr.kind == "MethodCall" {
             var receiverName = expr.literalValue
+            var receiverType = ""
+            if receiverName != "" {
+                receiverType = resolveLiteralMethodReceiverType(receiverName)
+            }
             if receiverName == "" and expr.operands.length() > 0 {
                 let receiverExpr = expr.operands[0]
                 if receiverExpr.kind == "Variable" or receiverExpr.kind == "VarExpr" {
@@ -1278,16 +1282,31 @@ class LLVMIRGenerator {
                     if receiverName == "" {
                         receiverName = receiverExpr.literalValue
                     }
+                    if receiverName != "" {
+                        receiverType = findVarType(receiverName)
+                    }
+                } else {
+                    receiverType = inferExpressionType(receiverExpr)
+                }
+            }
+            if receiverType != "" and receiverType != "Unknown" {
+                let receiverReturnType = getMethodReturnType(receiverType,
+                    expr.callee)
+                if receiverReturnType != "" {
+                    return receiverReturnType
                 }
             }
             if receiverName != "" {
-                let staticReturnType = getMethodReturnType(receiverName, expr.callee)
-                if staticReturnType != "" {
-                    return staticReturnType
-                }
-                if expr.callee == "new" and findStructReg(receiverName,
-                    structNames) >= 0 {
-                    return receiverName
+                if receiverType == "" or receiverType == "Unknown" {
+                    let staticReturnType = getMethodReturnType(receiverName,
+                        expr.callee)
+                    if staticReturnType != "" {
+                        return staticReturnType
+                    }
+                    if expr.callee == "new" and findStructReg(receiverName,
+                        structNames) >= 0 {
+                        return receiverName
+                    }
                 }
             }
         }
@@ -3272,9 +3291,11 @@ class LLVMIRGenerator {
 
         let llvmType = mapType(currentFunctionReturnType)
         let rawValueReg = resolveReturnStatementValueReg(stmt)
+        let returnExprType = normalizeIfConditionTypeImpl(stmt.returnValue,
+            inferExpressionType(stmt.returnValue))
         emitFinalReturnStatementValueImpl(output, g_regBox,
             isDataType(currentFunctionReturnType), stmt.returnValue.kind,
-            llvmType, rawValueReg)
+            returnExprType, llvmType, rawValueReg)
         blockTerminated = true
     }
 

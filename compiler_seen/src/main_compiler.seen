@@ -149,6 +149,9 @@ import codegen.ir_type_header.{emitBuiltinTypeHeaderImpl}
 import tools.translator.{translateSource}
 import tools.c_import_gen.{CImportGenerator, CImportResult}
 
+var g_validationModulePaths: Array<String> = Array<String>()
+var g_validationFrontends: Array<FrontendResult> = Array<FrontendResult>()
+
 // DJB2 hash of a string, returned as 8-char hex
 // Uses byteAt() to avoid per-char string allocation
 fun hashString(data: String) r: String {
@@ -2826,6 +2829,237 @@ fun checkEnumExhaustivenessInFunction(result: FrontendResult, modulePath: String
     checkEnumExhaustivenessBlock(result, modulePath, moduleProgram, modulePaths, frontends, func.body, boundNames, boundTypes, ownerClassName, func.line)
 }
 
+fun isKnownCompilerBuiltinCallName(callName: String) r: Bool {
+    if callName == "sizeof" or callName == "alignof" or callName == "offsetof" {
+        return true
+    }
+    if callName == "includeStr" or callName == "includeBytes" {
+        return true
+    }
+    if callName.startsWith("transmute<") {
+        return true
+    }
+    if callName == "barrier" or callName == "stackAlloc" or
+        callName.startsWith("stackAlloc<") or callName == "constructAt" {
+        return true
+    }
+    if callName == "debug_assert" or callName == "__default" or
+        callName.startsWith("__default<") {
+        return true
+    }
+    if callName == "str_to_cstr" or callName == "cstr_to_str" or
+        callName == "split" or callName == "async_yield" {
+        return true
+    }
+    if callName.startsWith("simd_") or callName.startsWith("Simd") {
+        return true
+    }
+    if isPtrBuiltinCallImpl(callName) == 1 {
+        return true
+    }
+    if isOptionRuntimeBuiltinNameImpl(callName) {
+        return true
+    }
+    if isPrintRuntimeBuiltinNameImpl(callName) {
+        return true
+    }
+    if isIoRuntimeBuiltinNameImpl(callName) {
+        return true
+    }
+    if isPanicRuntimeBuiltinNameImpl(callName) {
+        return true
+    }
+    if isMathRuntimeBuiltinNameImpl(callName) {
+        return true
+    }
+    if isArrayConstructorNameImpl(callName) {
+        return true
+    }
+    if isSmallVecConstructorNameImpl(callName) {
+        return true
+    }
+    if isCollectionConstructorNameImpl(callName) {
+        return true
+    }
+    return false
+}
+
+fun moduleSetHasEnumVariant(variantName: String) r: Bool {
+    var moduleIdx = 0
+    while moduleIdx < g_validationFrontends.length() {
+        let program = g_validationFrontends[moduleIdx].program
+        var itemIdx = 0
+        while itemIdx < program.items.length() {
+            let item = program.items[itemIdx]
+            if item.itemType == "Enum" {
+                if enumHasVariant(item.enumNode, variantName) {
+                    return true
+                }
+            }
+            itemIdx = itemIdx + 1
+        }
+        moduleIdx = moduleIdx + 1
+    }
+    return false
+}
+
+fun isResolvableFreeFunctionCall(modulePath: String,
+    moduleProgram: ProgramNode, callName: String,
+    boundNames: Array<String>, boundTypes: Array<String>,
+    ownerClassName: String) r: Bool {
+
+    if callName == "" {
+        return true
+    }
+    if isKnownCompilerBuiltinCallName(callName) {
+        return true
+    }
+    if lookupBoundType(boundNames, boundTypes, callName) != "" {
+        return true
+    }
+    let referencedFunc = findReferencedFunctionInModules(modulePath,
+        moduleProgram, g_validationModulePaths, g_validationFrontends, callName)
+    if referencedFunc.name != "" {
+        return true
+    }
+    let referencedClass = findReferencedClassInModules(modulePath,
+        moduleProgram, g_validationModulePaths, g_validationFrontends, callName)
+    if referencedClass.name != "" {
+        return true
+    }
+    if moduleSetHasEnumVariant(callName) {
+        return true
+    }
+    if ownerClassName != "" {
+        let methodRet = findReferencedClassMethodReturnTypeInModules(modulePath,
+            moduleProgram, g_validationModulePaths, g_validationFrontends,
+            ownerClassName, callName)
+        if methodRet != "" {
+            return true
+        }
+    }
+    return false
+}
+
+fun addUnresolvedFreeCallDiagnostic(result: FrontendResult,
+    modulePath: String, line: Int, callName: String) r: Void {
+
+    let message = encodeDiagMessage(
+        "unresolved function `" + callName + "`",
+        "E009",
+        "Define `" + callName + "` or import it before calling it.",
+        "",
+        0
+    )
+    result.addDiagnostic(FrontendDiagnostic.new(modulePath, line, 0, "error",
+        message))
+}
+
+fun checkUnresolvedFreeCallExpression(result: FrontendResult,
+    modulePath: String, moduleProgram: ProgramNode, expr: ParserExpressionNode,
+    boundNames: Array<String>, boundTypes: Array<String>,
+    ownerClassName: String, funcLine: Int) r: Void {
+
+    if expr.kind == "None" or expr.kind == "" {
+        return
+    }
+
+    if expr.kind == "Call" {
+        if not isResolvableFreeFunctionCall(modulePath, moduleProgram,
+            expr.callee, boundNames, boundTypes, ownerClassName) {
+            addUnresolvedFreeCallDiagnostic(result, modulePath, funcLine,
+                expr.callee)
+        }
+    }
+
+    var operandIdx = 0
+    while operandIdx < expr.operands.length() {
+        checkUnresolvedFreeCallExpression(result, modulePath, moduleProgram,
+            expr.operands[operandIdx], boundNames, boundTypes, ownerClassName,
+            funcLine)
+        operandIdx = operandIdx + 1
+    }
+
+    var argIdx = 0
+    while argIdx < expr.arguments.length() {
+        checkUnresolvedFreeCallExpression(result, modulePath, moduleProgram,
+            expr.arguments[argIdx], boundNames, boundTypes, ownerClassName,
+            funcLine)
+        argIdx = argIdx + 1
+    }
+}
+
+fun checkUnresolvedFreeCallStatement(result: FrontendResult,
+    modulePath: String, moduleProgram: ProgramNode, stmt: StatementNode,
+    boundNames: Array<String>, boundTypes: Array<String>,
+    ownerClassName: String, funcLine: Int) r: Void {
+
+    if stmt.kind == "Let" or stmt.kind == "Var" {
+        checkUnresolvedFreeCallExpression(result, modulePath, moduleProgram,
+            stmt.initializer, boundNames, boundTypes, ownerClassName, funcLine)
+        let boundType = inferStatementBindingTypeInModules(modulePath,
+            moduleProgram, g_validationModulePaths, g_validationFrontends,
+            stmt, boundNames, boundTypes, ownerClassName)
+        addBoundType(boundNames, boundTypes, stmt.variableName, boundType)
+        return
+    }
+
+    checkUnresolvedFreeCallExpression(result, modulePath, moduleProgram,
+        stmt.expression, boundNames, boundTypes, ownerClassName, funcLine)
+    checkUnresolvedFreeCallExpression(result, modulePath, moduleProgram,
+        stmt.returnValue, boundNames, boundTypes, ownerClassName, funcLine)
+    checkUnresolvedFreeCallExpression(result, modulePath, moduleProgram,
+        stmt.condition, boundNames, boundTypes, ownerClassName, funcLine)
+    checkUnresolvedFreeCallExpression(result, modulePath, moduleProgram,
+        stmt.loopCondition, boundNames, boundTypes, ownerClassName, funcLine)
+    checkUnresolvedFreeCallExpression(result, modulePath, moduleProgram,
+        stmt.initializer, boundNames, boundTypes, ownerClassName, funcLine)
+
+    checkUnresolvedFreeCallBlock(result, modulePath, moduleProgram,
+        stmt.thenBranch, boundNames, boundTypes, ownerClassName, funcLine)
+    checkUnresolvedFreeCallBlock(result, modulePath, moduleProgram,
+        stmt.elseBranch, boundNames, boundTypes, ownerClassName, funcLine)
+    checkUnresolvedFreeCallBlock(result, modulePath, moduleProgram,
+        stmt.loopBody, boundNames, boundTypes, ownerClassName, funcLine)
+}
+
+fun checkUnresolvedFreeCallBlock(result: FrontendResult,
+    modulePath: String, moduleProgram: ProgramNode, block: BlockNode,
+    boundNames: Array<String>, boundTypes: Array<String>,
+    ownerClassName: String, funcLine: Int) r: Void {
+
+    let localNames = copyStringArray(boundNames)
+    let localTypes = copyStringArray(boundTypes)
+    var i = 0
+    while i < block.statements.length() {
+        checkUnresolvedFreeCallStatement(result, modulePath, moduleProgram,
+            block.statements[i], localNames, localTypes, ownerClassName,
+            funcLine)
+        i = i + 1
+    }
+}
+
+fun checkUnresolvedFreeCallsInFunction(result: FrontendResult,
+    modulePath: String, moduleProgram: ProgramNode, func: FunctionNode,
+    ownerClassName: String) r: Void {
+
+    let boundNames = Array<String>()
+    let boundTypes = Array<String>()
+    if ownerClassName != "" {
+        addBoundType(boundNames, boundTypes, "this", ownerClassName)
+    }
+
+    var paramIdx = 0
+    while paramIdx < func.params.length() {
+        let param = func.params[paramIdx]
+        addBoundType(boundNames, boundTypes, param.name, param.paramType.typeName)
+        paramIdx = paramIdx + 1
+    }
+
+    checkUnresolvedFreeCallBlock(result, modulePath, moduleProgram, func.body,
+        boundNames, boundTypes, ownerClassName, func.line)
+}
+
 fun validateSealedModules(modulePaths: Array<String>, language: String) r: FrontendResult {
     let result = FrontendResult.new()
     let frontends = Array<FrontendResult>()
@@ -2839,6 +3073,9 @@ fun validateSealedModules(modulePaths: Array<String>, language: String) r: Front
         frontends.push(frontend)
         i = i + 1
     }
+
+    g_validationModulePaths = modulePaths
+    g_validationFrontends = frontends
 
     i = 0
     while i < modulePaths.length() {
@@ -2906,6 +3143,8 @@ fun validateSealedModules(modulePaths: Array<String>, language: String) r: Front
                     let methodName = cls.name + "." + method.name
                     checkImportedCapabilityBlock(result, modulePath, program, modulePaths, frontends, method, methodName, method.body, method.line)
                     checkEnumExhaustivenessInFunction(result, modulePath, program, modulePaths, frontends, method, cls.name)
+                    checkUnresolvedFreeCallsInFunction(result, modulePath,
+                        program, method, cls.name)
                     methodIdx = methodIdx + 1
                 }
             }
@@ -2914,6 +3153,8 @@ fun validateSealedModules(modulePaths: Array<String>, language: String) r: Front
                 let func = item.function
                 checkImportedCapabilityBlock(result, modulePath, program, modulePaths, frontends, func, func.name, func.body, func.line)
                 checkEnumExhaustivenessInFunction(result, modulePath, program, modulePaths, frontends, func, "")
+                checkUnresolvedFreeCallsInFunction(result, modulePath, program,
+                    func, "")
             }
             itemIdx = itemIdx + 1
         }

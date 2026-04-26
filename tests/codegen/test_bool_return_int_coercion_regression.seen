@@ -1,0 +1,27 @@
+// Regression: Bool return lowering must coerce Int-returning expressions to i1.
+
+fun intPredicateValue(x: Int) r: Int {
+    return x
+}
+
+class Chunk {
+    var id: Int
+
+    static fun new(id: Int) r: Chunk {
+        return Chunk { id: id }
+    }
+
+    fun inBounds(x: Int) r: Bool {
+        return intPredicateValue(x)
+    }
+}
+
+fun main() r: Int {
+    let chunk = Chunk.new(1)
+    if chunk.inBounds(7) {
+        println("PASS: Bool return coercion")
+        return 0
+    }
+    println("FAIL: Bool return coercion")
+    return 1
+}
