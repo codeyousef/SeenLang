@@ -110,8 +110,8 @@ import codegen.ir_path_expr.{splitChainedPathImpl, buildChainedPathExprImpl, spl
 import codegen.ir_member_access.{emitSimdSwizzleMemberAccessImpl, inferSimdSwizzleMemberTypeImpl, inferJsonValueMemberAccessTypeImpl, inferLiteralReceiverMemberAccessTypeImpl, inferDirectMemberAccessTypeImpl, extractLastMemberFieldSegmentImpl}
 import codegen.ir_member_access_gen.{emitExpressionReceiverMemberAccessImpl, emitVariableReceiverMemberAccessImpl, emitModuleConstReceiverMemberAccessImpl, emitBracketPathMemberAccessImpl, emitChainedReceiverMemberAccessImpl, emitImplicitThisReceiverMemberAccessImpl}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, inferTypeRegistryFieldTypeImpl, getSemanticFieldTypeImpl, resolveMethodFieldPathTypeImpl, tryResolveEnumLiteralMethodReceiverImpl, convertReceiverToPtrImpl, emitSeenLexerKeywordManagerReceiverImpl}
-import codegen.ir_binary_expr.{emitPointerArithmeticBinaryImpl, emitSimdBinaryExprImpl, binaryOperatorMethodSuffixImpl, isSimdBinaryOperatorImpl, isIntLiteralOperandImpl, isFloatLiteralOperandImpl, isSelfVariableComparisonImpl, shouldTryAssociativeIntFoldImpl, associativeIntFoldRewriteCostImpl, emitSelfComparisonConstResultImpl, emitFoldedBoolLiteralBinaryResultImpl, emitFoldedIntLiteralBinaryResultImpl, emitAssociativeIntFoldResultImpl, shouldUseFmaForOperandTypesImpl, emitFmaOperandPromotionImpl, emitFmaCallImpl, buildBinaryCseKeyImpl, isFloatPeepholeIdentityLeftImpl, isFloatPeepholeIdentityRightImpl, shouldCountFloatPeepholeFoldImpl, shouldGenerateFloatPeepholeRightRegImpl, shouldGenerateFloatPeepholeLeftRegImpl, shouldLogSelfComparisonConstImpl, buildSelfComparisonLogValueImpl, buildBinaryFoldLogValueImpl, emitOverloadedBinaryCallImpl, exprProducesBoolImpl, emitBoolCoercionImpl, emitShortCircuitPhiImpl}
-import codegen.ir_binary_plan.{shouldTryPointerArithmeticBinaryImpl, shouldTrySimdBinaryGateImpl, shouldUseIntPeepholeGateImpl, shouldUseFloatPeepholeGateImpl, shouldTryFmaBinaryGateImpl, shouldTryRightFmaOperandImpl, shouldTryLeftFmaOperandImpl, shortCircuitBinaryActionImpl, shouldUseBinaryCseGateImpl, shouldTryBinaryOverloadImpl}
+import codegen.ir_binary_expr.{emitPointerArithmeticBinaryImpl, emitSimdBinaryExprImpl, binaryOperatorMethodSuffixImpl, isSimdBinaryOperatorImpl, isIntLiteralOperandImpl, isFloatLiteralOperandImpl, isSelfVariableComparisonImpl, shouldTryAssociativeIntFoldImpl, associativeIntFoldRewriteCostImpl, emitSelfComparisonConstResultImpl, emitFoldedBoolLiteralBinaryResultImpl, emitFoldedIntLiteralBinaryResultImpl, emitAssociativeIntFoldResultImpl, shouldUseFmaForOperandTypesImpl, emitFmaOperandPromotionImpl, emitFmaCallImpl, buildBinaryCseKeyImpl, shouldLogSelfComparisonConstImpl, buildSelfComparisonLogValueImpl, buildBinaryFoldLogValueImpl, emitOverloadedBinaryCallImpl, exprProducesBoolImpl, emitBoolCoercionImpl, emitShortCircuitPhiImpl}
+import codegen.ir_binary_plan.{shouldTryPointerArithmeticBinaryImpl, shouldTrySimdBinaryGateImpl, shouldUseIntPeepholeGateImpl, shouldUseFloatPeepholeGateImpl, shouldTryFmaBinaryGateImpl, planBinaryFmaSidesImpl, shortCircuitBinaryActionImpl, planBinaryCseActionImpl, shouldTryBinaryOverloadImpl, planBinaryEgraphActionImpl, shouldApplyAssociativeIntFoldPlanImpl, shouldFoldIntLiteralComparisonPlanImpl, shouldFoldIntLiteralConstantsPlanImpl, planFloatPeepholeActionImpl}
 import codegen.ir_binary_short_circuit.{allocateShortCircuitBinaryLabelsImpl, emitShortCircuitCheckBridgeImpl, emitShortCircuitAndDecisionImpl, emitShortCircuitOrDecisionImpl, emitShortCircuitRightLabelImpl, emitShortCircuitDoneBridgeImpl, emitShortCircuitMergeJumpImpl}
 import codegen.ir_unary_expr.{unaryOperatorMethodNameImpl, shouldSkipUnaryOverloadTypeImpl, negatedComparisonPredicateImpl, shouldEmitNegatedComparisonForTypesImpl, emitOverloadedUnaryCallImpl, emitUnaryNegationImpl, emitNegatedComparisonImpl, emitUnaryLogicalNotImpl, emitUnaryAddressOfClassValueImpl, emitUnaryAddressOfVariablePtrImpl, emitUnaryDereferenceImpl, isUnaryBitwiseNotOperatorImpl, emitUnaryBitwiseNotImpl}
 import codegen.ir_class_method_gen.{tryEmitOptionClassMethodShimImpl, shouldTraceClassMethodStartImpl, collectClassMethodParameterInfoImpl, emitClassMethodSignatureStateImpl, emitClassMethodReceiverBindingStateImpl, emitClassMethodParameterBindingsStateImpl, emitClassMethodConstructorSetupStateImpl, tryEmitClassMethodConstructorReturnStateImpl, emitClassMethodDefaultReturnStateImpl}
@@ -5358,7 +5358,8 @@ class LLVMIRGenerator {
                 leftExpr.literalValue, rightExpr.kind,
                 rightExpr.literalValue) {
                 let selfAction = egraphSelfComparison(expr.operator)
-                if selfAction == "identity_left" {
+                let selfPlan = planBinaryEgraphActionImpl(selfAction)
+                if selfPlan.returnLeft {
                     return generateExpression(leftExpr)
                 }
                 let selfFoldReg = emitSelfComparisonConstResultImpl(output,
@@ -5377,20 +5378,21 @@ class LLVMIRGenerator {
 
             // E-graph lookup for literal-based rules — delegated to ir_optimization.seen
             let action = egraphLookup(expr.operator, leftLitVal, rightLitVal, leftIsIntLit, rightIsIntLit)
-            if action == "identity_left" {
+            let actionPlan = planBinaryEgraphActionImpl(action)
+            if actionPlan.returnLeft {
                 return generateExpression(leftExpr)
             }
-            if action == "identity_right" {
+            if actionPlan.returnRight {
                 return generateExpression(rightExpr)
             }
-            if action != "" {
-                if action.startsWith("const:") {
+            if actionPlan.shouldEmitAction {
+                if actionPlan.shouldCountConstFold {
                     g_constantsFolded = g_constantsFolded + 1
                     mlLogDecision("e-graph", "folded", expr.operator + "=" + action)
                 }
                 // For non-const actions, generate left operand (all remaining actions use leftReg)
                 var egLeftReg = ""
-                if not action.startsWith("const:") {
+                if actionPlan.shouldGenerateLeftReg {
                     egLeftReg = generateExpression(leftExpr)
                 }
                 let egResult = emitEgraphPeepholeImpl(output, g_regBox, action, egLeftReg, "", expr.operator)
@@ -5407,53 +5409,58 @@ class LLVMIRGenerator {
                     innerRight.literalType) {
                     let combinedVal = foldIntConstants(
                         innerRight.literalValue, rightLitVal, expr.operator)
-                    if combinedVal != "" {
-                        let origCost = exprCost(expr) + exprCost(leftExpr)
-                        let rewriteCost = associativeIntFoldRewriteCostImpl(
-                            expr.operator, exprCost(leftExpr.operands[0]))
-                        if rewriteCost <= origCost {
-                            g_constantsFolded = g_constantsFolded + 1
-                            mlLogDecision("e-graph", "assoc-fold",
-                                buildBinaryFoldLogValueImpl(
-                                innerRight.literalValue, expr.operator,
-                                rightLitVal, combinedVal))
-                            let innerLeftReg =
-                                generateExpression(leftExpr.operands[0])
-                            let assocResultReg =
-                                emitAssociativeIntFoldResultImpl(output,
-                                    g_regBox, expr.operator, innerLeftReg,
-                                    combinedVal)
-                            if assocResultReg != "" {
-                                return assocResultReg
-                            }
+                    let origCost = exprCost(expr) + exprCost(leftExpr)
+                    let rewriteCost = associativeIntFoldRewriteCostImpl(
+                        expr.operator, exprCost(leftExpr.operands[0]))
+                    if shouldApplyAssociativeIntFoldPlanImpl(combinedVal,
+                        rewriteCost, origCost) {
+                        g_constantsFolded = g_constantsFolded + 1
+                        mlLogDecision("e-graph", "assoc-fold",
+                            buildBinaryFoldLogValueImpl(
+                            innerRight.literalValue, expr.operator,
+                            rightLitVal, combinedVal))
+                        let innerLeftReg =
+                            generateExpression(leftExpr.operands[0])
+                        let assocResultReg =
+                            emitAssociativeIntFoldResultImpl(output,
+                                g_regBox, expr.operator, innerLeftReg,
+                                combinedVal)
+                        if assocResultReg != "" {
+                            return assocResultReg
                         }
                     }
                 }
             }
             // Comparison of two integer literals: fold at compile time
+            var cmpResult = ""
             if leftIsIntLit and rightIsIntLit {
-                let cmpResult = foldIntComparison(leftLitVal, rightLitVal, expr.operator)
-                if cmpResult != "" {
-                    g_constantsFolded = g_constantsFolded + 1
-                    g_branchesEliminated = g_branchesEliminated + 1
-                    mlLogDecision("const-fold", "cmp-folded",
-                        buildBinaryFoldLogValueImpl(leftLitVal,
-                        expr.operator, rightLitVal, cmpResult))
-                    return emitFoldedBoolLiteralBinaryResultImpl(output,
-                        g_regBox, cmpResult)
-                }
+                cmpResult = foldIntComparison(leftLitVal, rightLitVal,
+                    expr.operator)
+            }
+            if shouldFoldIntLiteralComparisonPlanImpl(leftIsIntLit,
+                rightIsIntLit, cmpResult) {
+                g_constantsFolded = g_constantsFolded + 1
+                g_branchesEliminated = g_branchesEliminated + 1
+                mlLogDecision("const-fold", "cmp-folded",
+                    buildBinaryFoldLogValueImpl(leftLitVal,
+                    expr.operator, rightLitVal, cmpResult))
+                return emitFoldedBoolLiteralBinaryResultImpl(output,
+                    g_regBox, cmpResult)
             }
             // Constant folding: both operands are IntLiteral → compute at compile time
+            var folded = ""
             if leftIsIntLit and rightIsIntLit {
-                let folded = foldIntConstants(leftLitVal, rightLitVal, expr.operator)
-                if folded != "" {
-                    g_constantsFolded = g_constantsFolded + 1
-                    mlLogDecision("const-fold", "folded",
-                        buildBinaryFoldLogValueImpl(leftLitVal,
-                        expr.operator, rightLitVal, folded))
-                    return emitFoldedIntLiteralBinaryResultImpl(output,
-                        g_regBox, folded)
-                }
+                folded = foldIntConstants(leftLitVal, rightLitVal,
+                    expr.operator)
+            }
+            if shouldFoldIntLiteralConstantsPlanImpl(leftIsIntLit,
+                rightIsIntLit, folded) {
+                g_constantsFolded = g_constantsFolded + 1
+                mlLogDecision("const-fold", "folded",
+                    buildBinaryFoldLogValueImpl(leftLitVal,
+                    expr.operator, rightLitVal, folded))
+                return emitFoldedIntLiteralBinaryResultImpl(output,
+                    g_regBox, folded)
             }
         }
         // Float peephole optimizations — delegated to ir_optimization.seen
@@ -5465,23 +5472,24 @@ class LLVMIRGenerator {
             let fLeftLitVal = leftExpr.literalValue
             let fRightLitVal = rightExpr.literalValue
             let fAction = egraphLookupFloat(expr.operator, fLeftLitVal, fRightLitVal, fLeftIsLit, fRightIsLit)
-            if isFloatPeepholeIdentityLeftImpl(fAction) {
+            let fActionPlan = planFloatPeepholeActionImpl(fAction)
+            if fActionPlan.returnLeft {
                 return generateExpression(leftExpr)
             }
-            if isFloatPeepholeIdentityRightImpl(fAction) {
+            if fActionPlan.returnRight {
                 return generateExpression(rightExpr)
             }
-            if fAction != "" {
-                if shouldCountFloatPeepholeFoldImpl(fAction) {
+            if fActionPlan.shouldEmitAction {
+                if fActionPlan.shouldCountFold {
                     g_constantsFolded = g_constantsFolded + 1
                 }
                 // Generate left/right operands as needed by the action
                 var fgLeftReg = ""
                 var fgRightReg = ""
-                if shouldGenerateFloatPeepholeRightRegImpl(fAction) {
+                if fActionPlan.shouldGenerateRightReg {
                     fgRightReg = generateExpression(rightExpr)
                 }
-                if shouldGenerateFloatPeepholeLeftRegImpl(fAction) {
+                if fActionPlan.shouldGenerateLeftReg {
                     fgLeftReg = generateExpression(leftExpr)
                 }
                 let fResult = emitEgraphFloatPeepholeImpl(output, g_regBox, fAction, fgLeftReg, fgRightReg, expr.operator)
@@ -5495,9 +5503,11 @@ class LLVMIRGenerator {
         let fmaCandidate = shouldTryFmaBinaryGateImpl(expr.operator,
             leftType, rightType)
         if fmaCandidate {
+            let fmaSides = planBinaryFmaSidesImpl(fmaCandidate,
+                leftExpr.kind, leftExpr.operator, rightExpr.kind,
+                rightExpr.operator)
             // Check if right operand is a float multiply
-            if shouldTryRightFmaOperandImpl(fmaCandidate, rightExpr.kind,
-                rightExpr.operator) {
+            if fmaSides.shouldTryRight {
                 let rLeftType = inferExpressionType(rightExpr.operands[0])
                 let rRightType = inferExpressionType(rightExpr.operands[1])
                 if shouldUseFmaForOperandTypesImpl(rLeftType, rRightType) {
@@ -5515,8 +5525,7 @@ class LLVMIRGenerator {
                 }
             }
             // Check if left operand is a float multiply
-            if shouldTryLeftFmaOperandImpl(fmaCandidate, leftExpr.kind,
-                leftExpr.operator) {
+            if fmaSides.shouldTryLeft {
                 let lLeftType = inferExpressionType(leftExpr.operands[0])
                 let lRightType = inferExpressionType(leftExpr.operands[1])
                 if shouldUseFmaForOperandTypesImpl(lLeftType, lRightType) {
@@ -5550,7 +5559,9 @@ class LLVMIRGenerator {
 
         // CSE within function scope: re-enabled for pure int/float binary ops.
         // Cache is cleared at function entry and block boundaries (safe with dominance).
-        if shouldUseBinaryCseGateImpl(leftType, rightType, expr.operator) {
+        let csePlan = planBinaryCseActionImpl(leftType, rightType,
+            expr.operator)
+        if csePlan.shouldLookup {
             let cseKey = buildBinaryCseKeyImpl(leftReg, expr.operator, rightReg)
             let cseCached = cseLookup(cseKey)
             if cseCached != "" {
@@ -5593,7 +5604,7 @@ class LLVMIRGenerator {
         if cseSig[0] == 1 { cseClear() }
 
         // CSE recording for pure int/float binary ops (within function scope only)
-        if shouldUseBinaryCseGateImpl(leftType, rightType, expr.operator) {
+        if csePlan.shouldRecord {
             let cseKey2 = buildBinaryCseKeyImpl(leftReg, expr.operator,
                 rightReg)
             cseRecord(cseKey2, resultReg)

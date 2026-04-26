@@ -1,5 +1,67 @@
 // ir_binary_plan.seen - pure binary expression dispatch gates.
 
+class BinaryEgraphActionPlan {
+    var returnLeft: Bool
+    var returnRight: Bool
+    var shouldEmitAction: Bool
+    var shouldCountConstFold: Bool
+    var shouldGenerateLeftReg: Bool
+
+    static fun new() r: BinaryEgraphActionPlan {
+        return BinaryEgraphActionPlan{
+            returnLeft: false,
+            returnRight: false,
+            shouldEmitAction: false,
+            shouldCountConstFold: false,
+            shouldGenerateLeftReg: false
+        }
+    }
+}
+
+class FloatPeepholeActionPlan {
+    var returnLeft: Bool
+    var returnRight: Bool
+    var shouldEmitAction: Bool
+    var shouldCountFold: Bool
+    var shouldGenerateLeftReg: Bool
+    var shouldGenerateRightReg: Bool
+
+    static fun new() r: FloatPeepholeActionPlan {
+        return FloatPeepholeActionPlan{
+            returnLeft: false,
+            returnRight: false,
+            shouldEmitAction: false,
+            shouldCountFold: false,
+            shouldGenerateLeftReg: false,
+            shouldGenerateRightReg: false
+        }
+    }
+}
+
+class BinaryFmaSidePlan {
+    var shouldTryRight: Bool
+    var shouldTryLeft: Bool
+
+    static fun new() r: BinaryFmaSidePlan {
+        return BinaryFmaSidePlan{
+            shouldTryRight: false,
+            shouldTryLeft: false
+        }
+    }
+}
+
+class BinaryCseActionPlan {
+    var shouldLookup: Bool
+    var shouldRecord: Bool
+
+    static fun new() r: BinaryCseActionPlan {
+        return BinaryCseActionPlan{
+            shouldLookup: false,
+            shouldRecord: false
+        }
+    }
+}
+
 fun shouldTryPointerArithmeticBinaryImpl(leftType: String,
     operator: String) r: Bool {
 
@@ -43,6 +105,18 @@ fun shouldTryLeftFmaOperandImpl(fmaCandidate: Bool, exprKind: String,
     return fmaCandidate and exprKind == "Binary" and operator == "*"
 }
 
+fun planBinaryFmaSidesImpl(fmaCandidate: Bool, leftKind: String,
+    leftOperator: String, rightKind: String,
+    rightOperator: String) r: BinaryFmaSidePlan {
+
+    let plan = BinaryFmaSidePlan.new()
+    plan.shouldTryRight = shouldTryRightFmaOperandImpl(fmaCandidate,
+        rightKind, rightOperator)
+    plan.shouldTryLeft = shouldTryLeftFmaOperandImpl(fmaCandidate,
+        leftKind, leftOperator)
+    return plan
+}
+
 fun shortCircuitBinaryActionImpl(operator: String) r: Int {
     if operator == "and" {
         return 1
@@ -69,6 +143,73 @@ fun shouldUseBinaryCseGateImpl(leftType: String, rightType: String,
     return false
 }
 
+fun planBinaryCseActionImpl(leftType: String, rightType: String,
+    operator: String) r: BinaryCseActionPlan {
+
+    let plan = BinaryCseActionPlan.new()
+    let enabled = shouldUseBinaryCseGateImpl(leftType, rightType, operator)
+    plan.shouldLookup = enabled
+    plan.shouldRecord = enabled
+    return plan
+}
+
 fun shouldTryBinaryOverloadImpl(operatorMethodSuffix: String) r: Bool {
     return operatorMethodSuffix != ""
+}
+
+fun planBinaryEgraphActionImpl(action: String) r: BinaryEgraphActionPlan {
+    let plan = BinaryEgraphActionPlan.new()
+    if action == "identity_left" {
+        plan.returnLeft = true
+        return plan
+    }
+    if action == "identity_right" {
+        plan.returnRight = true
+        return plan
+    }
+    if action != "" {
+        plan.shouldEmitAction = true
+        plan.shouldCountConstFold = action.startsWith("const:")
+        plan.shouldGenerateLeftReg = not action.startsWith("const:")
+    }
+    return plan
+}
+
+fun shouldApplyAssociativeIntFoldPlanImpl(combinedValue: String,
+    rewriteCost: Int, originalCost: Int) r: Bool {
+
+    return combinedValue != "" and rewriteCost <= originalCost
+}
+
+fun shouldFoldIntLiteralComparisonPlanImpl(leftIsIntLiteral: Bool,
+    rightIsIntLiteral: Bool, comparisonResult: String) r: Bool {
+
+    return leftIsIntLiteral and rightIsIntLiteral and comparisonResult != ""
+}
+
+fun shouldFoldIntLiteralConstantsPlanImpl(leftIsIntLiteral: Bool,
+    rightIsIntLiteral: Bool, foldedValue: String) r: Bool {
+
+    return leftIsIntLiteral and rightIsIntLiteral and foldedValue != ""
+}
+
+fun planFloatPeepholeActionImpl(action: String) r: FloatPeepholeActionPlan {
+    let plan = FloatPeepholeActionPlan.new()
+    if action == "identity_left" {
+        plan.returnLeft = true
+        return plan
+    }
+    if action == "identity_right" {
+        plan.returnRight = true
+        return plan
+    }
+    if action != "" {
+        plan.shouldEmitAction = true
+        plan.shouldCountFold = action.startsWith("fconst:")
+        plan.shouldGenerateRightReg =
+            action == "fneg" or action == "fneg_right"
+        plan.shouldGenerateLeftReg = not plan.shouldGenerateRightReg and
+            not action.startsWith("fconst:")
+    }
+    return plan
 }
