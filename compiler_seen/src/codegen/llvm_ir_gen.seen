@@ -105,6 +105,7 @@ import codegen.ir_member_access.{emitSimdSwizzleMemberAccessImpl, inferSimdSwizz
 import codegen.ir_member_access_gen.{emitExpressionReceiverMemberAccessImpl, emitVariableReceiverMemberAccessImpl, emitModuleConstReceiverMemberAccessImpl, emitBracketPathMemberAccessImpl, emitChainedReceiverMemberAccessImpl, emitImplicitThisReceiverMemberAccessImpl}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, inferTypeRegistryFieldTypeImpl, getSemanticFieldTypeImpl, resolveMethodFieldPathTypeImpl, tryResolveEnumLiteralMethodReceiverImpl, convertReceiverToPtrImpl}
 import codegen.ir_binary_expr.{emitPointerArithmeticBinaryImpl, emitSimdBinaryExprImpl, binaryOperatorMethodSuffixImpl, isSimdBinaryOperatorImpl, isIntLiteralOperandImpl, isFloatLiteralOperandImpl, isSelfVariableComparisonImpl, isShortCircuitBinaryOperatorImpl, shouldTryAssociativeIntFoldImpl, associativeIntFoldRewriteCostImpl, emitSelfComparisonConstResultImpl, emitFoldedBoolLiteralBinaryResultImpl, emitFoldedIntLiteralBinaryResultImpl, emitAssociativeIntFoldResultImpl, isFloatFmaCandidateImpl, isBinaryMultiplyExpressionImpl, shouldUseFmaForOperandTypesImpl, emitFmaOperandPromotionImpl, emitFmaCallImpl, shouldUseBinaryCseImpl, buildBinaryCseKeyImpl, shouldUseFloatPeepholeImpl, isFloatPeepholeIdentityLeftImpl, isFloatPeepholeIdentityRightImpl, shouldCountFloatPeepholeFoldImpl, shouldGenerateFloatPeepholeRightRegImpl, shouldGenerateFloatPeepholeLeftRegImpl, shouldLogSelfComparisonConstImpl, buildSelfComparisonLogValueImpl, buildBinaryFoldLogValueImpl, emitOverloadedBinaryCallImpl, exprProducesBoolImpl, emitBoolCoercionImpl, emitShortCircuitPhiImpl}
+import codegen.ir_binary_short_circuit.{allocateShortCircuitBinaryLabelsImpl, emitShortCircuitCheckBridgeImpl, emitShortCircuitAndDecisionImpl, emitShortCircuitOrDecisionImpl, emitShortCircuitRightLabelImpl, emitShortCircuitDoneBridgeImpl, emitShortCircuitMergeJumpImpl}
 import codegen.ir_unary_expr.{unaryOperatorMethodNameImpl, shouldSkipUnaryOverloadTypeImpl, negatedComparisonPredicateImpl, shouldEmitNegatedComparisonForTypesImpl, emitOverloadedUnaryCallImpl, emitUnaryNegationImpl, emitNegatedComparisonImpl, emitUnaryLogicalNotImpl, emitUnaryAddressOfClassValueImpl, emitUnaryAddressOfVariablePtrImpl, emitUnaryDereferenceImpl, isUnaryBitwiseNotOperatorImpl, emitUnaryBitwiseNotImpl}
 import codegen.ir_class_method_gen.{tryEmitOptionClassMethodShimImpl, shouldTraceClassMethodStartImpl, collectClassMethodParameterInfoImpl, emitClassMethodSignatureStateImpl, emitClassMethodReceiverBindingStateImpl, emitClassMethodParameterBindingsStateImpl, emitClassMethodConstructorSetupStateImpl, tryEmitClassMethodConstructorReturnStateImpl, emitClassMethodDefaultReturnStateImpl}
 import codegen.ir_stmt_decl.{shouldInferDeclarationInitializerTypeImpl, resolveDeclarationBaseTypeImpl, resolveLetStatementTypeImpl, resolveLetStatementAllocaImpl, prepareLetStatementPlanImpl, resolveLetPreAllocatedRegImpl, findPreAllocatedOccurrenceImpl, nextDeclarationOrdinalImpl, classifyCollectedStatementKindImpl, shouldTraceCollectedDeclarationTypeImpl, appendCollectedDeclarationImpl, resolveCollectedForInElementTypeImpl, buildForInIndexNameImpl, shouldSeedDeclarationPendingArrayLiteralTypeImpl, emitDeadLiteralInitializerSkipNoteImpl, emitDeclarationInitializerStoreImpl}
@@ -5620,43 +5621,40 @@ class LLVMIRGenerator {
         let leftType = inferExpressionType(leftExpr)
         let rightType = inferExpressionType(rightExpr)
 
-        let checkLabel = getNextBlockLabel()
-        let rightLabel = getNextBlockLabel()
-        let doneLabel = getNextBlockLabel()
-        let mergeLabel = getNextBlockLabel()
+        let labels = allocateShortCircuitBinaryLabelsImpl(g_blockBox)
 
         // Evaluate left side (may emit multiple blocks for nested and/or)
         let leftReg = generateExpression(leftExpr)
 
         // Bridge to known block for phi correctness
-        output.append("  br label %" + checkLabel + "\n")
-        output.append(checkLabel + ":\n")
+        emitShortCircuitCheckBridgeImpl(output, labels.checkLabel)
         cseClear()
 
         // Convert left to i1 if needed
         let leftBool = emitBoolCoercionImpl(output, g_regBox, leftReg, leftType, leftExpr.operator)
 
         // If left is true, evaluate right; otherwise skip to merge with false
-        output.append("  br i1 " + leftBool + ", label %" + rightLabel + ", label %" + mergeLabel + "\n")
+        emitShortCircuitAndDecisionImpl(output, leftBool,
+            labels.rightLabel, labels.mergeLabel)
 
         // Right side block
-        output.append(rightLabel + ":\n")
+        emitShortCircuitRightLabelImpl(output, labels.rightLabel)
         cseClear()
         let rightReg = generateExpression(rightExpr)
 
         // Bridge to known block after right evaluation
-        output.append("  br label %" + doneLabel + "\n")
-        output.append(doneLabel + ":\n")
+        emitShortCircuitDoneBridgeImpl(output, labels.doneLabel)
         cseClear()
 
         // Convert right to i1 if needed
         let rightBool = emitBoolCoercionImpl(output, g_regBox, rightReg, rightType, rightExpr.operator)
 
-        output.append("  br label %" + mergeLabel + "\n")
+        emitShortCircuitMergeJumpImpl(output, labels.mergeLabel)
 
         // Merge block with phi
         cseClear()
-        return emitShortCircuitPhiImpl(output, g_regBox, mergeLabel, "false", checkLabel, rightBool, doneLabel)
+        return emitShortCircuitPhiImpl(output, g_regBox, labels.mergeLabel,
+            "false", labels.checkLabel, rightBool, labels.doneLabel)
     }
 
     // Short-circuit OR: left ? true : right
@@ -5669,43 +5667,40 @@ class LLVMIRGenerator {
         let leftType = inferExpressionType(leftExpr)
         let rightType = inferExpressionType(rightExpr)
 
-        let checkLabel = getNextBlockLabel()
-        let rightLabel = getNextBlockLabel()
-        let doneLabel = getNextBlockLabel()
-        let mergeLabel = getNextBlockLabel()
+        let labels = allocateShortCircuitBinaryLabelsImpl(g_blockBox)
 
         // Evaluate left side (may emit multiple blocks for nested and/or)
         let leftReg = generateExpression(leftExpr)
 
         // Bridge to known block for phi correctness
-        output.append("  br label %" + checkLabel + "\n")
-        output.append(checkLabel + ":\n")
+        emitShortCircuitCheckBridgeImpl(output, labels.checkLabel)
         cseClear()
 
         // Convert left to i1 if needed
         let leftBool = emitBoolCoercionImpl(output, g_regBox, leftReg, leftType, leftExpr.operator)
 
         // If left is true, skip to merge with true; otherwise evaluate right
-        output.append("  br i1 " + leftBool + ", label %" + mergeLabel + ", label %" + rightLabel + "\n")
+        emitShortCircuitOrDecisionImpl(output, leftBool,
+            labels.rightLabel, labels.mergeLabel)
 
         // Right side block
-        output.append(rightLabel + ":\n")
+        emitShortCircuitRightLabelImpl(output, labels.rightLabel)
         cseClear()
         let rightReg = generateExpression(rightExpr)
 
         // Bridge to known block after right evaluation
-        output.append("  br label %" + doneLabel + "\n")
-        output.append(doneLabel + ":\n")
+        emitShortCircuitDoneBridgeImpl(output, labels.doneLabel)
         cseClear()
 
         // Convert right to i1 if needed
         let rightBool = emitBoolCoercionImpl(output, g_regBox, rightReg, rightType, rightExpr.operator)
 
-        output.append("  br label %" + mergeLabel + "\n")
+        emitShortCircuitMergeJumpImpl(output, labels.mergeLabel)
 
         // Merge block with phi
         cseClear()
-        return emitShortCircuitPhiImpl(output, g_regBox, mergeLabel, "true", checkLabel, rightBool, doneLabel)
+        return emitShortCircuitPhiImpl(output, g_regBox, labels.mergeLabel,
+            "true", labels.checkLabel, rightBool, labels.doneLabel)
     }
 
     fun applyComptimeParamSpecialization(funcName: String, expr: ParserExpressionNode) r: Void {
