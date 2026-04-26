@@ -1,0 +1,74 @@
+// ir_binary_plan.seen - pure binary expression dispatch gates.
+
+fun shouldTryPointerArithmeticBinaryImpl(leftType: String,
+    operator: String) r: Bool {
+
+    return leftType.startsWith("*") and
+        (operator == "+" or operator == "-")
+}
+
+fun shouldTrySimdBinaryGateImpl(leftSimdFlag: Int,
+    isSimdOperator: Bool) r: Bool {
+
+    return leftSimdFlag == 1 and isSimdOperator
+}
+
+fun shouldUseIntPeepholeGateImpl(leftType: String,
+    rightType: String) r: Bool {
+
+    return leftType == "Int" and rightType == "Int"
+}
+
+fun shouldUseFloatPeepholeGateImpl(leftType: String,
+    rightType: String) r: Bool {
+
+    return leftType == "Float" and rightType == "Float"
+}
+
+fun shouldTryFmaBinaryGateImpl(operator: String, leftType: String,
+    rightType: String) r: Bool {
+
+    return operator == "+" and (leftType == "Float" or rightType == "Float")
+}
+
+fun shouldTryRightFmaOperandImpl(fmaCandidate: Bool, exprKind: String,
+    operator: String) r: Bool {
+
+    return fmaCandidate and exprKind == "Binary" and operator == "*"
+}
+
+fun shouldTryLeftFmaOperandImpl(fmaCandidate: Bool, exprKind: String,
+    operator: String) r: Bool {
+
+    return fmaCandidate and exprKind == "Binary" and operator == "*"
+}
+
+fun shortCircuitBinaryActionImpl(operator: String) r: Int {
+    if operator == "and" {
+        return 1
+    }
+    if operator == "or" {
+        return 2
+    }
+    return 0
+}
+
+fun shouldUseBinaryCseGateImpl(leftType: String, rightType: String,
+    operator: String) r: Bool {
+
+    if leftType != "Int" and leftType != "Float" {
+        return false
+    }
+    if rightType != "Int" and rightType != "Float" {
+        return false
+    }
+    if operator == "+" or operator == "-" or operator == "*" or
+        operator == "/" {
+        return true
+    }
+    return false
+}
+
+fun shouldTryBinaryOverloadImpl(operatorMethodSuffix: String) r: Bool {
+    return operatorMethodSuffix != ""
+}

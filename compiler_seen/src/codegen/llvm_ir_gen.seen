@@ -109,6 +109,7 @@ import codegen.ir_member_access.{emitSimdSwizzleMemberAccessImpl, inferSimdSwizz
 import codegen.ir_member_access_gen.{emitExpressionReceiverMemberAccessImpl, emitVariableReceiverMemberAccessImpl, emitModuleConstReceiverMemberAccessImpl, emitBracketPathMemberAccessImpl, emitChainedReceiverMemberAccessImpl, emitImplicitThisReceiverMemberAccessImpl}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, inferTypeRegistryFieldTypeImpl, getSemanticFieldTypeImpl, resolveMethodFieldPathTypeImpl, tryResolveEnumLiteralMethodReceiverImpl, convertReceiverToPtrImpl, emitSeenLexerKeywordManagerReceiverImpl}
 import codegen.ir_binary_expr.{emitPointerArithmeticBinaryImpl, emitSimdBinaryExprImpl, binaryOperatorMethodSuffixImpl, isSimdBinaryOperatorImpl, isIntLiteralOperandImpl, isFloatLiteralOperandImpl, isSelfVariableComparisonImpl, isShortCircuitBinaryOperatorImpl, shouldTryAssociativeIntFoldImpl, associativeIntFoldRewriteCostImpl, emitSelfComparisonConstResultImpl, emitFoldedBoolLiteralBinaryResultImpl, emitFoldedIntLiteralBinaryResultImpl, emitAssociativeIntFoldResultImpl, isFloatFmaCandidateImpl, isBinaryMultiplyExpressionImpl, shouldUseFmaForOperandTypesImpl, emitFmaOperandPromotionImpl, emitFmaCallImpl, shouldUseBinaryCseImpl, buildBinaryCseKeyImpl, shouldUseFloatPeepholeImpl, isFloatPeepholeIdentityLeftImpl, isFloatPeepholeIdentityRightImpl, shouldCountFloatPeepholeFoldImpl, shouldGenerateFloatPeepholeRightRegImpl, shouldGenerateFloatPeepholeLeftRegImpl, shouldLogSelfComparisonConstImpl, buildSelfComparisonLogValueImpl, buildBinaryFoldLogValueImpl, emitOverloadedBinaryCallImpl, exprProducesBoolImpl, emitBoolCoercionImpl, emitShortCircuitPhiImpl}
+import codegen.ir_binary_plan.{shouldTryPointerArithmeticBinaryImpl, shouldTrySimdBinaryGateImpl, shouldUseIntPeepholeGateImpl, shouldUseFloatPeepholeGateImpl, shouldTryFmaBinaryGateImpl, shouldTryRightFmaOperandImpl, shouldTryLeftFmaOperandImpl, shortCircuitBinaryActionImpl, shouldUseBinaryCseGateImpl, shouldTryBinaryOverloadImpl}
 import codegen.ir_binary_short_circuit.{allocateShortCircuitBinaryLabelsImpl, emitShortCircuitCheckBridgeImpl, emitShortCircuitAndDecisionImpl, emitShortCircuitOrDecisionImpl, emitShortCircuitRightLabelImpl, emitShortCircuitDoneBridgeImpl, emitShortCircuitMergeJumpImpl}
 import codegen.ir_unary_expr.{unaryOperatorMethodNameImpl, shouldSkipUnaryOverloadTypeImpl, negatedComparisonPredicateImpl, shouldEmitNegatedComparisonForTypesImpl, emitOverloadedUnaryCallImpl, emitUnaryNegationImpl, emitNegatedComparisonImpl, emitUnaryLogicalNotImpl, emitUnaryAddressOfClassValueImpl, emitUnaryAddressOfVariablePtrImpl, emitUnaryDereferenceImpl, isUnaryBitwiseNotOperatorImpl, emitUnaryBitwiseNotImpl}
 import codegen.ir_class_method_gen.{tryEmitOptionClassMethodShimImpl, shouldTraceClassMethodStartImpl, collectClassMethodParameterInfoImpl, emitClassMethodSignatureStateImpl, emitClassMethodReceiverBindingStateImpl, emitClassMethodParameterBindingsStateImpl, emitClassMethodConstructorSetupStateImpl, tryEmitClassMethodConstructorReturnStateImpl, emitClassMethodDefaultReturnStateImpl}
@@ -5316,7 +5317,7 @@ class LLVMIRGenerator {
         let rightType = inferExpressionType(rightExpr)
 
         // --- Pointer arithmetic ---
-        if leftType.startsWith("*") and (expr.operator == "+" or expr.operator == "-") {
+        if shouldTryPointerArithmeticBinaryImpl(leftType, expr.operator) {
             let paLeftReg = generateExpression(leftExpr)
             let paRightReg = generateExpression(rightExpr)
             let paResult = emitPointerArithmeticBinaryImpl(output, g_regBox,
@@ -5328,7 +5329,8 @@ class LLVMIRGenerator {
 
         // --- SIMD vector arithmetic ---
         let simdBinaryOp = isSimdBinaryOperatorImpl(expr.operator)
-        if isSimdVectorType(leftType) == 1 and simdBinaryOp {
+        if shouldTrySimdBinaryGateImpl(isSimdVectorType(leftType),
+            simdBinaryOp) {
             let simdLlvmType = mapType(leftType)
             let simdLeftReg = generateExpression(leftExpr)
             let simdRightReg = generateExpression(rightExpr)
@@ -5341,7 +5343,7 @@ class LLVMIRGenerator {
 
         // --- E-graph peephole optimizations (consolidated via egraph lookup) ---
         // Integer peephole rules
-        if leftType == "Int" and rightType == "Int" {
+        if shouldUseIntPeepholeGateImpl(leftType, rightType) {
             let leftIsIntLit = isIntLiteralOperandImpl(leftExpr.kind,
                 leftExpr.literalType)
             let rightIsIntLit = isIntLiteralOperandImpl(rightExpr.kind,
@@ -5453,7 +5455,7 @@ class LLVMIRGenerator {
             }
         }
         // Float peephole optimizations — delegated to ir_optimization.seen
-        if shouldUseFloatPeepholeImpl(leftType, rightType) {
+        if shouldUseFloatPeepholeGateImpl(leftType, rightType) {
             let fLeftIsLit = isFloatLiteralOperandImpl(leftExpr.kind,
                 leftExpr.literalType)
             let fRightIsLit = isFloatLiteralOperandImpl(rightExpr.kind,
@@ -5488,9 +5490,11 @@ class LLVMIRGenerator {
         }
         // FMA detection: a + (b * c) or (a * b) + c → llvm.fmuladd.f64
         // NOTE: Int operands must be promoted to double via sitofp before use.
-        if isFloatFmaCandidateImpl(expr.operator, leftType, rightType) {
+        let fmaCandidate = shouldTryFmaBinaryGateImpl(expr.operator,
+            leftType, rightType)
+        if fmaCandidate {
             // Check if right operand is a float multiply
-            if isBinaryMultiplyExpressionImpl(rightExpr.kind,
+            if shouldTryRightFmaOperandImpl(fmaCandidate, rightExpr.kind,
                 rightExpr.operator) {
                 let rLeftType = inferExpressionType(rightExpr.operands[0])
                 let rRightType = inferExpressionType(rightExpr.operands[1])
@@ -5509,7 +5513,7 @@ class LLVMIRGenerator {
                 }
             }
             // Check if left operand is a float multiply
-            if isBinaryMultiplyExpressionImpl(leftExpr.kind,
+            if shouldTryLeftFmaOperandImpl(fmaCandidate, leftExpr.kind,
                 leftExpr.operator) {
                 let lLeftType = inferExpressionType(leftExpr.operands[0])
                 let lRightType = inferExpressionType(leftExpr.operands[1])
@@ -5531,10 +5535,11 @@ class LLVMIRGenerator {
         // --- End peephole optimizations ---
 
         // Short-circuit logical operators (must evaluate before eager left/right eval)
-        if isShortCircuitBinaryOperatorImpl(expr.operator) {
-            if expr.operator == "and" {
-                return generateShortCircuitAnd(expr)
-            }
+        let shortCircuitAction = shortCircuitBinaryActionImpl(expr.operator)
+        if shortCircuitAction == 1 {
+            return generateShortCircuitAnd(expr)
+        }
+        if shortCircuitAction == 2 {
             return generateShortCircuitOr(expr)
         }
 
@@ -5543,7 +5548,7 @@ class LLVMIRGenerator {
 
         // CSE within function scope: re-enabled for pure int/float binary ops.
         // Cache is cleared at function entry and block boundaries (safe with dominance).
-        if shouldUseBinaryCseImpl(leftType, rightType, expr.operator) {
+        if shouldUseBinaryCseGateImpl(leftType, rightType, expr.operator) {
             let cseKey = buildBinaryCseKeyImpl(leftReg, expr.operator, rightReg)
             let cseCached = cseLookup(cseKey)
             if cseCached != "" {
@@ -5557,7 +5562,7 @@ class LLVMIRGenerator {
 
         // --- Operator overloading dispatch ---
         let opMethodSuffix = binaryOperatorMethodSuffixImpl(expr.operator)
-        if opMethodSuffix != "" {
+        if shouldTryBinaryOverloadImpl(opMethodSuffix) {
             let opFuncName = leftType + "_" + opMethodSuffix
             let opRetType = getFunctionReturnTypeStateImpl(opFuncName,
                 funcNames, funcRetTypes)
@@ -5586,7 +5591,7 @@ class LLVMIRGenerator {
         if cseSig[0] == 1 { cseClear() }
 
         // CSE recording for pure int/float binary ops (within function scope only)
-        if shouldUseBinaryCseImpl(leftType, rightType, expr.operator) {
+        if shouldUseBinaryCseGateImpl(leftType, rightType, expr.operator) {
             let cseKey2 = buildBinaryCseKeyImpl(leftReg, expr.operator,
                 rightReg)
             cseRecord(cseKey2, resultReg)
