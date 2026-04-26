@@ -10,6 +10,24 @@ fun hasDottedLiteralMethodReceiverImpl(operandCount: Int,
     return operandCount == 0 and literalValue.contains(".")
 }
 
+fun shouldBuildDottedLiteralReceiverExprImpl(hasDottedReceiver: Bool,
+    segmentCount: Int, baseReceiverType: String) r: Bool {
+
+    return hasDottedReceiver and segmentCount > 0 and baseReceiverType != ""
+}
+
+fun shouldResolveDottedLiteralReceiverFallbackImpl(
+    hasDottedReceiver: Bool, receiverReg: String) r: Bool {
+
+    return hasDottedReceiver and receiverReg == ""
+}
+
+fun shouldResolveSimpleLiteralMethodReceiverImpl(
+    hasDottedReceiver: Bool, literalValue: String) r: Bool {
+
+    return not hasDottedReceiver and literalValue != ""
+}
+
 fun hasResolvedMethodReceiverImpl(receiverReg: String) r: Bool {
     return receiverReg != ""
 }
@@ -45,6 +63,12 @@ fun shouldTryStaticMethodCallImpl(receiverReg: String,
     literalValue: String) r: Bool {
 
     return receiverReg == "" and literalValue != ""
+}
+
+fun shouldUseStaticReceiverReferenceImpl(potentialClassName: String,
+    fullClassName: String) r: Bool {
+
+    return potentialClassName != "" and fullClassName != ""
 }
 
 fun isPascalStaticReceiverNameImpl(receiverName: String) r: Bool {
@@ -120,8 +144,39 @@ fun hasStructFieldReceiverImpl(structIndex: Int, fieldIndex: Int) r: Bool {
     return structIndex >= 0 and fieldIndex >= 0
 }
 
+fun shouldResolveImplicitThisDottedFieldReceiverImpl(thisIndex: Int,
+    firstFieldType: String) r: Bool {
+
+    return thisIndex >= 0 and firstFieldType != ""
+}
+
 fun isArrayFreeMutatorMethodImpl(methodName: String) r: Bool {
     return methodName == "free"
+}
+
+fun shouldUseLiteralArrayFreeReceiverTypeImpl(receiverType: String,
+    literalValue: String) r: Bool {
+
+    return (receiverType == "String" or receiverType == "") and
+        literalValue != ""
+}
+
+fun shouldResolveArrayFreePointerFromLiteralImpl(isArrayType: Bool,
+    freePtrReg: String, literalValue: String) r: Bool {
+
+    return isArrayType and freePtrReg == "" and literalValue != ""
+}
+
+fun shouldEmitArrayFreePointerImpl(isArrayType: Bool,
+    freePtrReg: String) r: Bool {
+
+    return isArrayType and freePtrReg != ""
+}
+
+fun shouldEmitClassFreeMutationImpl(isArrayType: Bool,
+    receiverIsClass: Bool) r: Bool {
+
+    return not isArrayType and receiverIsClass
 }
 
 fun isArrayPushMutatorMethodImpl(methodName: String,

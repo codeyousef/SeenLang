@@ -91,7 +91,7 @@ import codegen.ir_call_fixups.{resolveRealParserMisplacedMethodReturnTypeImpl, i
 import codegen.ir_method_finalize.{resolveMethodCallInstanceTypeNameImpl, tryGeneratePreparedHotReloadInstanceMethodCallImpl, resolveMethodCallReturnTypeImpl, prepareMethodCallReceiverAbiImpl, tryGenerateSpecializedInstanceMethodCallImpl, emitArrayFreeMutationImpl, emitArrayPushMutationImpl, emitArrayPopMutationImpl, emitArraySwapMutationImpl, emitPoolFreeFromValueSlotImpl, emitClassFreeMutationImpl}
 import codegen.ir_method_fastpath.{emitPreparedDynTraitMethodCallImpl, tryGeneratePreparedExplicitReceiverFastPathImpl, tryGeneratePreparedLocalVariableReceiverFastPathImpl, tryGenerateLengthLikeMethodCallImpl, emitStringBuilderReceiverMethodCallImpl, tryGeneratePrimitiveConversionMethodCallImpl, tryGenerateNumericReceiverMethodCallImpl, tryGenerateStringLikeReceiverMethodCallImpl, resolveStaticMethodClassNamesImpl, isStaticMethodReceiverReferenceImpl, tryGenerateStaticFactoryMethodCallImpl, resolveStaticMethodReturnTypeImpl, prepareModuleConstantMethodReceiverImpl, emitPreparedStaticMethodCallImpl, shouldLowerUnresolvedMethodAsCallImpl, tryGenerateUnresolvedReceiverFallbackMethodImpl, applyUnresolvedReceiverDefaultImpl}
 import codegen.ir_method_receiver_predicates.{isOptionReceiverTypeImpl, isSmallVecReceiverTypeImpl, isCollectionReceiverTypeImpl, isArrayReceiverTypeImpl, isStringBuilderRuntimeMethodImpl, isNumericReceiverMethodImpl, needsStaticFactoryArgumentImpl}
-import codegen.ir_method_call_plan.{hasExplicitMethodReceiverImpl, hasDottedLiteralMethodReceiverImpl, hasResolvedMethodReceiverImpl, shouldTraceUnwrapToJsonSourceImpl, isUnwrapMethodCallExprImpl, isFusedStringBuilderFloatAppendImpl, shouldPrepareFirstMethodArgImpl, shouldTryStaticMethodCallImpl, isPascalStaticReceiverNameImpl, shouldTryNoArgStaticFactoryImpl, shouldTryArgStaticFactoryImpl, resolveStaticCallClassNameImpl, shouldPromoteStaticMethodFloatArgsImpl, staticMethodFunctionNameImpl, shouldRecordStaticMethodLateDeclareImpl, shouldUseUnresolvedReceiverFallbackImpl, shouldLookupImplicitMethodReturnImpl, isSeenLexerKeywordManagerReceiverImpl, hasGeneratorFieldReceiverImpl, hasStructFieldReceiverImpl, isArrayFreeMutatorMethodImpl, isArrayPushMutatorMethodImpl, isArrayPopMutatorMethodImpl, isArraySwapMutatorMethodImpl, resolveArrayMutatorVariableNameImpl, resolveArrayReceiverElementTypeImpl, resolveArrayPushElementTypeImpl, shouldUseReceiverRegForArrayMutationImpl}
+import codegen.ir_method_call_plan.{hasExplicitMethodReceiverImpl, hasDottedLiteralMethodReceiverImpl, shouldBuildDottedLiteralReceiverExprImpl, shouldResolveDottedLiteralReceiverFallbackImpl, shouldResolveSimpleLiteralMethodReceiverImpl, hasResolvedMethodReceiverImpl, shouldTraceUnwrapToJsonSourceImpl, isUnwrapMethodCallExprImpl, isFusedStringBuilderFloatAppendImpl, shouldPrepareFirstMethodArgImpl, shouldTryStaticMethodCallImpl, shouldUseStaticReceiverReferenceImpl, isPascalStaticReceiverNameImpl, shouldTryNoArgStaticFactoryImpl, shouldTryArgStaticFactoryImpl, resolveStaticCallClassNameImpl, shouldPromoteStaticMethodFloatArgsImpl, staticMethodFunctionNameImpl, shouldRecordStaticMethodLateDeclareImpl, shouldUseUnresolvedReceiverFallbackImpl, shouldLookupImplicitMethodReturnImpl, isSeenLexerKeywordManagerReceiverImpl, hasGeneratorFieldReceiverImpl, hasStructFieldReceiverImpl, shouldResolveImplicitThisDottedFieldReceiverImpl, isArrayFreeMutatorMethodImpl, shouldUseLiteralArrayFreeReceiverTypeImpl, shouldResolveArrayFreePointerFromLiteralImpl, shouldEmitArrayFreePointerImpl, shouldEmitClassFreeMutationImpl, isArrayPushMutatorMethodImpl, isArrayPopMutatorMethodImpl, isArraySwapMutatorMethodImpl, resolveArrayMutatorVariableNameImpl, resolveArrayReceiverElementTypeImpl, resolveArrayPushElementTypeImpl, shouldUseReceiverRegForArrayMutationImpl}
 import codegen.ir_struct_gen.{emitStructFieldStoresImpl, resolveStructLiteralFieldFallback, inferStructFieldTypeFromExpr}
 import codegen.ir_struct_layout_build.{prepareStructLayoutRegistrationSnapshotImpl}
 import codegen.ir_class_type_layout.{emitClassTypeFieldsImpl, emitClassTypeHeaderImpl, emitClassTypeFooterImpl, prepareClassTypeAliasStateSnapshotImpl}
@@ -6524,6 +6524,10 @@ class LLVMIRGenerator {
         let classNames = splitPipe(resolveStaticMethodClassNamesImpl(expr.literalValue))
         let potentialClassName = classNames[0]
         let fullClassName = classNames[1]
+        if not shouldUseStaticReceiverReferenceImpl(potentialClassName,
+            fullClassName) {
+            return ""
+        }
         if not isStaticMethodReceiverReferenceImpl(findActiveVariableIndexImpl(varNames, activeVarCount, expr.literalValue),
             findActiveVariableIndexImpl(varNames, activeVarCount, potentialClassName)) {
             return ""
@@ -6648,7 +6652,8 @@ class LLVMIRGenerator {
 
         if isArrayFreeMutatorMethodImpl(methodName) {
             var freeReceiverType = receiverType
-            if (freeReceiverType == "String" or freeReceiverType == "") and expr.literalValue != "" {
+            if shouldUseLiteralArrayFreeReceiverTypeImpl(freeReceiverType,
+                expr.literalValue) {
                 let freeTypeIdx = findActiveVariableIndexImpl(varNames, activeVarCount, expr.literalValue)
                 if freeTypeIdx >= 0 {
                     freeReceiverType = varTypes[freeTypeIdx]
@@ -6657,16 +6662,18 @@ class LLVMIRGenerator {
             let isArrayType = isArrayReceiverTypeImpl(freeReceiverType)
             if isArrayType {
                 var freePtrReg = receiverReg
-                if freePtrReg == "" and expr.literalValue != "" {
+                if shouldResolveArrayFreePointerFromLiteralImpl(isArrayType,
+                    freePtrReg, expr.literalValue) {
                     freePtrReg = tryResolveArrayMutatorPointerFromLiteral(
                         expr.literalValue)
                 }
-                if freePtrReg != "" {
+                if shouldEmitArrayFreePointerImpl(isArrayType, freePtrReg) {
                     return emitArrayFreeMutationImpl(output, g_regBox,
                         freePtrReg)
                 }
             }
-            if not isArrayType and isClassType(freeReceiverType) {
+            if shouldEmitClassFreeMutationImpl(isArrayType,
+                isClassType(freeReceiverType)) {
                 let freeVarName = resolveArrayMutatorVariableNameImpl(
                     expr.literalValue, expr.variableName)
                 let freeVarIdx = findActiveVariableIndexImpl(varNames, activeVarCount, freeVarName)
@@ -6814,14 +6821,18 @@ class LLVMIRGenerator {
         let methodName = expr.callee
         var receiverReg = ""
         var receiverType = "String"
+        let hasDottedReceiver = hasDottedLiteralMethodReceiverImpl(
+            expr.operands.length(), expr.literalValue)
 
-        if hasDottedLiteralMethodReceiverImpl(expr.operands.length(),
-            expr.literalValue) {
+        if hasDottedReceiver {
 
             let receiverSegments = splitChainedPathImpl(expr.literalValue)
             if receiverSegments.length() > 0 {
                 let baseReceiverName = receiverSegments[0]
-                if findVarType(baseReceiverName) != "" {
+                let baseReceiverType = findVarType(baseReceiverName)
+                if shouldBuildDottedLiteralReceiverExprImpl(
+                    hasDottedReceiver, receiverSegments.length(),
+                    baseReceiverType) {
                     let rebuiltReceiverExpr = buildChainedPathExprImpl(
                         expr.literalValue)
                     if rebuiltReceiverExpr.kind != "None" {
@@ -6860,55 +6871,55 @@ class LLVMIRGenerator {
             }
         }
 
-        if hasDottedLiteralMethodReceiverImpl(expr.operands.length(),
-            expr.literalValue) {
+        if shouldResolveDottedLiteralReceiverFallbackImpl(
+            hasDottedReceiver, receiverReg) {
 
-            if receiverReg == "" {
-                let enumReceiverRegBox = Array<String>()
-                enumReceiverRegBox.push("")
-                let enumReceiverTypeBox = Array<String>()
-                enumReceiverTypeBox.push(receiverType)
-                if tryResolveEnumLiteralMethodReceiverImpl(expr,
-                    enumReceiverRegBox, enumReceiverTypeBox) == 1 {
-                    receiverReg = enumReceiverRegBox[0]
-                    receiverType = enumReceiverTypeBox[0]
-                } else {
-                    let pathParts = splitFirstPathDotImpl(expr.literalValue)
-                    let thisIdx = findActiveVariableIndexImpl(varNames, activeVarCount, "this")
-                    if thisIdx >= 0 {
-                        let thisType = varTypes[thisIdx]
-                        let firstFieldType = resolveMethodFieldPathTypeImpl(
-                            thisType, pathParts[0], structNames,
+            let enumReceiverRegBox = Array<String>()
+            enumReceiverRegBox.push("")
+            let enumReceiverTypeBox = Array<String>()
+            enumReceiverTypeBox.push(receiverType)
+            if tryResolveEnumLiteralMethodReceiverImpl(expr,
+                enumReceiverRegBox, enumReceiverTypeBox) == 1 {
+                receiverReg = enumReceiverRegBox[0]
+                receiverType = enumReceiverTypeBox[0]
+            } else {
+                let pathParts = splitFirstPathDotImpl(expr.literalValue)
+                let thisIdx = findActiveVariableIndexImpl(varNames, activeVarCount, "this")
+                if thisIdx >= 0 {
+                    let thisType = varTypes[thisIdx]
+                    let firstFieldType = resolveMethodFieldPathTypeImpl(
+                        thisType, pathParts[0], structNames,
+                        structFieldNames, structFieldTypes,
+                        structMethodNames, structMethodRetTypes)
+                    if shouldResolveImplicitThisDottedFieldReceiverImpl(
+                        thisIdx, firstFieldType) {
+                        let thisPtrReg = emitImplicitThisPointerLoadImpl(
+                            output, g_regBox, varRegs[thisIdx])
+                        var accessFieldReg = ""
+                        if isClassType(firstFieldType) {
+                            let firstFieldReg = generateFieldAccess(
+                                thisPtrReg, thisType, pathParts[0])
+                            let ptrConvReg = getNextReg()
+                            output.append("  " + ptrConvReg +
+                                " = inttoptr i64 " + firstFieldReg +
+                                " to ptr\n")
+                            accessFieldReg = ptrConvReg
+                        } else {
+                            accessFieldReg = generateFieldAccessPtr(
+                                thisPtrReg, thisType, pathParts[0])
+                        }
+                        receiverReg = generateFieldAccess(accessFieldReg,
+                            firstFieldType, pathParts[1])
+                        receiverType = resolveMethodFieldPathTypeImpl(
+                            firstFieldType, pathParts[1], structNames,
                             structFieldNames, structFieldTypes,
                             structMethodNames, structMethodRetTypes)
-                        if firstFieldType != "" {
-                            let thisPtrReg = emitImplicitThisPointerLoadImpl(
-                                output, g_regBox, varRegs[thisIdx])
-                            var accessFieldReg = ""
-                            if isClassType(firstFieldType) {
-                                let firstFieldReg = generateFieldAccess(
-                                    thisPtrReg, thisType, pathParts[0])
-                                let ptrConvReg = getNextReg()
-                                output.append("  " + ptrConvReg +
-                                    " = inttoptr i64 " + firstFieldReg +
-                                    " to ptr\n")
-                                accessFieldReg = ptrConvReg
-                            } else {
-                                accessFieldReg = generateFieldAccessPtr(
-                                    thisPtrReg, thisType, pathParts[0])
-                            }
-                            receiverReg = generateFieldAccess(accessFieldReg,
-                                firstFieldType, pathParts[1])
-                            receiverType = resolveMethodFieldPathTypeImpl(
-                                firstFieldType, pathParts[1], structNames,
-                                structFieldNames, structFieldTypes,
-                                structMethodNames, structMethodRetTypes)
-                        }
                     }
                 }
             }
         } else {
-            if expr.literalValue != "" {
+            if shouldResolveSimpleLiteralMethodReceiverImpl(hasDottedReceiver,
+                expr.literalValue) {
                 let varName = expr.literalValue
                 let idx = findActiveVariableIndexImpl(varNames, activeVarCount, varName)
                 if idx >= 0 {
