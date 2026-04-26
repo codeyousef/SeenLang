@@ -111,11 +111,6 @@ fun emitBracketPathMemberAccessImpl(output: StringBuilder, regBox: Array<Int>,
     typeAliasCount: Int, enumTypeNames: String, bitfieldCount: Int,
     bitfieldKeys: String, bitfieldWidths: String) r: String {
 
-    output.append("; DEBUG generateMemberAccess: handling array path=" +
-        receiverName + " fieldName=" + fieldName + "\n")
-    output.append("; DEBUG array path split: baseVar=" + baseVarName +
-        " arrayField=" + arrayField + "\n")
-
     var baseIsClass = 0
     if isClassTypeReg(baseType, structNames) { baseIsClass = 1 }
     var baseIsData = 0
@@ -127,13 +122,9 @@ fun emitBracketPathMemberAccessImpl(output: StringBuilder, regBox: Array<Int>,
         structFieldNames, structFieldTypes, reprCClassNames, unionTypes,
         typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames,
         bitfieldCount, bitfieldKeys, bitfieldWidths)
-    output.append("; DEBUG array access: arrayReg=" + arrayReg +
-        " arrayType=" + elementType + "\n")
 
     let elementPtrReg = emitMemberArrayElementPtrImpl(output, regBox, arrayReg,
         indexStr)
-    output.append("; DEBUG element access: elementPtrReg=" + elementPtrReg +
-        " elementType=" + elementType + "\n")
     return emitPreparedReceiverMemberAccessImpl(output, regBox, elementPtrReg,
         elementType, fieldName, fieldLlvmType, structNames, structLayouts,
         structFieldNames, structFieldTypes, reprCClassNames, unionTypes,
@@ -157,11 +148,6 @@ fun emitChainedReceiverMemberAccessImpl(output: StringBuilder,
     if isDataTypeImpl(baseType) == 1 { baseIsData = 1 }
     let basePtrReg = prepareVariableMemberReceiverImpl(output, regBox,
         baseVarReg, baseType, reprCClassNames, baseIsClass, baseIsData)
-
-    output.append("; DEBUG generateMemberAccess: baseType=" + baseType +
-        " restPath=" + restPath + " fieldName=" + fieldName + "\n")
-    output.append("; DEBUG chained type final: intermediateType=" +
-        intermediateType + "\n")
 
     let actualIntermediateReg = resolveMemberAccessFieldReceiverPtrImpl(
         output, regBox, basePtrReg, baseType, restPath, intermediateType,
@@ -188,9 +174,6 @@ fun emitImplicitThisReceiverMemberAccessImpl(output: StringBuilder,
     r: String {
 
     let thisPtrReg = emitImplicitThisPointerLoadImpl(output, regBox, thisReg)
-    output.append("; DEBUG this field access: thisType=" + thisType +
-        " receiverName=" + receiverName + " intermediateType=" +
-        intermediateType + " fieldName=" + fieldName + "\n")
 
     let accessReg = resolveMemberAccessFieldReceiverPtrImpl(output, regBox,
         thisPtrReg, thisType, receiverName, intermediateType, structNames,

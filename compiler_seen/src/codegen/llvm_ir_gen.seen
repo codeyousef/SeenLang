@@ -4210,7 +4210,6 @@ class LLVMIRGenerator {
         let value = expr.operands[1]
         let receiverName = memberAccess.literalValue
         let fieldName = memberAccess.variableName
-        output.append("; DEBUG generateMemberAssignment: receiverName=" + receiverName + " fieldName=" + fieldName + "\n")
 
         let valueReg = generateExpression(value)
 
@@ -4723,15 +4722,12 @@ class LLVMIRGenerator {
             }
         }
 
-        output.append("; DEBUG generateIndexAccess: operands[0].kind=" + expr.operands[0].kind + " variableName=" + expr.operands[0].variableName + " literalValue=" + expr.operands[0].literalValue + "\n")
         var arrayReg = generateExpression(expr.operands[0])
-        output.append("; DEBUG arrayReg=" + arrayReg + "\n")
         let indexReg = generateExpression(expr.operands[1])
 
         // Workaround: if arrayReg is 0 and the variable name is 'statements',
         // try to find a BlockNode variable with that field
         if arrayReg == "0" and expr.operands[0].variableName == "statements" {
-            output.append("; DEBUG trying to find BlockNode for statements\n")
             // Look for any local variable of type BlockNode
             var blockIdx = 0
             while blockIdx < varTypes.length() {
@@ -4742,7 +4738,6 @@ class LLVMIRGenerator {
                     output.append("  " + blockPtrReg + " = load ptr, ptr " + blockVarReg + "\n")
                     // Access the statements field
                     arrayReg = generateFieldAccess(blockPtrReg, "BlockNode", "statements")
-                    output.append("; DEBUG found BlockNode, arrayReg=" + arrayReg + "\n")
                     blockIdx = varTypes.length()  // break
                 }
                 blockIdx = blockIdx + 1
@@ -4768,7 +4763,6 @@ class LLVMIRGenerator {
 
         // Infer the element type from the array type
         let arrayType = inferExpressionType(expr.operands[0])
-        output.append("; DEBUG arrayType=" + arrayType + "\n")
 
         // Both List<T> and Array<T> are ptr to SeenArray on heap - use pointer-based accessors
         // to avoid struct-by-value ABI issues between LLVM and C
@@ -5262,7 +5256,6 @@ class LLVMIRGenerator {
             if regFieldIdx >= 0 {
                 gepIndex = regFieldIdx
                 fieldType = getFieldType(structName, fieldName)
-                output.append("; DEBUG fieldType for " + structName + "." + fieldName + " = " + fieldType + "\n")
             }
             return fieldType + "|" + gepIndex.toString()
         }

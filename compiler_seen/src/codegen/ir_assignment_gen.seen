@@ -222,14 +222,12 @@ fun emitVariableReceiverMemberAssignmentImpl(output: StringBuilder,
 
     let varIdx = findActiveVariableIndexImpl(varNames, activeVarCount,
         receiverName)
-    output.append("; DEBUG generateMemberAssignment: varIdx=" + varIdx.toString() + "\n")
     if varIdx < 0 {
         return 0
     }
 
     let varReg = varRegs[varIdx]
     let varType = varTypes[varIdx]
-    output.append("; DEBUG generateMemberAssignment: varType=" + varType + "\n")
     var isClassReceiver = 0
     if isClassTypeImpl(varType, structNames) == 1 {
         isClassReceiver = 1

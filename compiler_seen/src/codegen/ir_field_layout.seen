@@ -295,9 +295,6 @@ fun tryEmitChainedFieldAccessImpl(output: StringBuilder, regBox: Array<Int>,
 
     let firstType = getSeenFieldTypeImpl(structType, firstField, structNames,
         structFieldNames, structFieldTypes)
-    output.append("; DEBUG chained access: structType=" + structType +
-        " firstField=" + firstField + " firstType=" + firstType +
-        " restFields=" + restFields + "\n")
 
     let firstPtrReg = emitChainedFieldReceiverPtrImpl(output, regBox, ptrReg,
         structType, firstField, firstType, structNames, structLayouts,
@@ -396,9 +393,6 @@ fun walkMemberAccessChainPointerImpl(output: StringBuilder, regBox: Array<Int>,
         let chainField = pathSegments[chainIdx]
         let chainFieldType = getSeenFieldTypeImpl(chainType, chainField,
             structNames, structFieldNames, structFieldTypes)
-        output.append("; DEBUG chained ptr access: chainType=" + chainType +
-            " chainField=" + chainField + " chainFieldType=" +
-            chainFieldType + "\n")
         chainPtr = resolveMemberAccessFieldReceiverPtrImpl(output, regBox,
             chainPtr, chainType, chainField, chainFieldType, structNames,
             structLayouts, structFieldNames, structFieldTypes,
