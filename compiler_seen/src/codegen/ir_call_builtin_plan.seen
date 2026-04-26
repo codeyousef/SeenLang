@@ -1,0 +1,62 @@
+// ir_call_builtin_plan.seen - pure builtin-call planning helpers.
+
+fun isSizeofMetaBuiltinImpl(funcName: String) r: Bool {
+    return funcName == "sizeof"
+}
+
+fun isAlignofMetaBuiltinImpl(funcName: String) r: Bool {
+    return funcName == "alignof"
+}
+
+fun isOffsetofMetaBuiltinImpl(funcName: String) r: Bool {
+    return funcName == "offsetof"
+}
+
+fun isTransmuteMetaBuiltinImpl(funcName: String) r: Bool {
+    return funcName.startsWith("transmute<")
+}
+
+fun resolveTransmuteTargetTypeNameImpl(funcName: String) r: String {
+    let lt = funcName.indexOf("<", 0)
+    let gt = funcName.indexOf(">", 0)
+    if lt >= 0 and gt > lt {
+        return funcName.substring(lt + 1, gt)
+    }
+    return "Int"
+}
+
+fun isIncludeStrMetaBuiltinImpl(funcName: String) r: Bool {
+    return funcName == "includeStr"
+}
+
+fun isIncludeBytesMetaBuiltinImpl(funcName: String) r: Bool {
+    return funcName == "includeBytes"
+}
+
+fun hasBuiltinArgImpl(argCount: Int, argIndex: Int) r: Bool {
+    return argCount > argIndex
+}
+
+fun isStackAllocBuiltinImpl(funcName: String) r: Bool {
+    return funcName == "stackAlloc" or funcName.startsWith("stackAlloc<")
+}
+
+fun isDefaultValueBuiltinImpl(funcName: String) r: Bool {
+    return funcName == "__default" or funcName.startsWith("__default<")
+}
+
+fun isAsyncYieldBuiltinImpl(funcName: String) r: Bool {
+    return funcName == "async_yield"
+}
+
+fun shouldReadSimdShuffleConstArgImpl(funcName: String, argIndex: Int)
+    r: Bool {
+
+    return funcName == "simd_shuffle" and argIndex >= 2
+}
+
+fun shouldClearDebugAssertCseImpl(boundsCheckEnabled: Int,
+    condVal: String) r: Bool {
+
+    return boundsCheckEnabled == 1 and condVal != ""
+}

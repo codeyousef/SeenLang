@@ -83,6 +83,7 @@ import codegen.ir_call_args.{fillDefaultParamsImpl, appendPreparedCallArgImpl, p
 import codegen.ir_call_runtime.{emitPrintLikeCallImpl, emitOptionRuntimeBuiltinCallImpl, emitSuperRuntimeBuiltinCallImpl, emitReadTextRuntimeCallImpl, emitWriteTextRuntimeCallImpl, emitArgsRuntimeCallImpl, emitPanicRuntimeCallImpl, emitMathBuiltinCallImpl, isOptionRuntimeBuiltinNameImpl, isPrintRuntimeBuiltinNameImpl, isIoRuntimeBuiltinNameImpl, isPanicRuntimeBuiltinNameImpl, isMathRuntimeBuiltinNameImpl}
 import codegen.ir_call_meta.{resolveSizeofBuiltinValueImpl, resolveAlignofBuiltinValueImpl, resolveOffsetofBuiltinValueImpl}
 import codegen.ir_call_low_level.{isPtrBuiltinCallImpl, emitPtrBuiltinCallImpl, emitBarrierBuiltinCallImpl, emitStackAllocBuiltinCallImpl, emitConstructAtBuiltinCallImpl, emitDebugAssertBuiltinCallStateImpl, emitCStringBuiltinCallImpl, emitSplitBuiltinCallImpl, emitAsyncYieldBuiltinStateImpl, isSimdBuiltinCallImpl, emitPreparedSimdBuiltinCallImpl, emitIndirectBuiltinCallImpl}
+import codegen.ir_call_builtin_plan.{isSizeofMetaBuiltinImpl, isAlignofMetaBuiltinImpl, isOffsetofMetaBuiltinImpl, isTransmuteMetaBuiltinImpl, resolveTransmuteTargetTypeNameImpl, isIncludeStrMetaBuiltinImpl, isIncludeBytesMetaBuiltinImpl, hasBuiltinArgImpl, isStackAllocBuiltinImpl, isDefaultValueBuiltinImpl, isAsyncYieldBuiltinImpl, shouldReadSimdShuffleConstArgImpl, shouldClearDebugAssertCseImpl}
 import codegen.ir_call_fixups.{resolveRealParserMisplacedMethodReturnTypeImpl, isStandaloneParserWorkaroundImpl, emitStandaloneParserWorkaroundCallImpl}
 import codegen.ir_method_finalize.{resolveMethodCallInstanceTypeNameImpl, tryGeneratePreparedHotReloadInstanceMethodCallImpl, resolveMethodCallReturnTypeImpl, prepareMethodCallReceiverAbiImpl, tryGenerateSpecializedInstanceMethodCallImpl, emitArrayFreeMutationImpl, emitArrayPushMutationImpl, emitArrayPopMutationImpl, emitArraySwapMutationImpl, emitPoolFreeFromValueSlotImpl, emitClassFreeMutationImpl}
 import codegen.ir_method_fastpath.{emitPreparedDynTraitMethodCallImpl, tryGeneratePreparedExplicitReceiverFastPathImpl, tryGeneratePreparedLocalVariableReceiverFastPathImpl, tryGenerateLengthLikeMethodCallImpl, emitStringBuilderReceiverMethodCallImpl, tryGeneratePrimitiveConversionMethodCallImpl, tryGenerateNumericReceiverMethodCallImpl, tryGenerateStringLikeReceiverMethodCallImpl, resolveStaticMethodClassNamesImpl, isStaticMethodReceiverReferenceImpl, tryGenerateStaticFactoryMethodCallImpl, resolveStaticMethodReturnTypeImpl, prepareModuleConstantMethodReceiverImpl, emitPreparedStaticMethodCallImpl, shouldLowerUnresolvedMethodAsCallImpl, tryGenerateUnresolvedReceiverFallbackMethodImpl, applyUnresolvedReceiverDefaultImpl}
@@ -5880,8 +5881,8 @@ class LLVMIRGenerator {
         // sizeof(Type) — compile-time type size in bytes
         // NOTE: Use inferExpressionType instead of field access on arguments[0]
         // to avoid stage1_frozen cross-module GEP bug with ParserExpressionNode fields
-        if funcName == "sizeof" {
-            if expr.arguments.length() > 0 {
+        if isSizeofMetaBuiltinImpl(funcName) {
+            if hasBuiltinArgImpl(expr.arguments.length(), 0) {
                 // Try comptime evaluator first (handles bare type names like Int32)
                 let ctSize = evaluateConstExpr(expr)
                 if ctSize > 0 {
@@ -5895,8 +5896,8 @@ class LLVMIRGenerator {
         }
 
         // alignof(Type) — compile-time type alignment in bytes
-        if funcName == "alignof" {
-            if expr.arguments.length() > 0 {
+        if isAlignofMetaBuiltinImpl(funcName) {
+            if hasBuiltinArgImpl(expr.arguments.length(), 0) {
                 let alignTypeName = inferExpressionType(expr.arguments[0])
                 return resolveAlignofBuiltinValueImpl(mapType(alignTypeName),
                     structNames, structLayouts, structSizes)
@@ -5905,7 +5906,7 @@ class LLVMIRGenerator {
         }
 
         // offsetof(Type, field) — field walk delegated to ir_call_dispatch.seen
-        if funcName == "offsetof" {
+        if isOffsetofMetaBuiltinImpl(funcName) {
             if expr.arguments.length() >= 2 {
                 let offTypeName = inferExpressionType(expr.arguments[0])
                 let offFieldName = inferExpressionType(expr.arguments[1])
@@ -5917,28 +5918,24 @@ class LLVMIRGenerator {
         }
 
         // transmute<TargetType>(value) — delegated to ir_method_gen.seen
-        if funcName.startsWith("transmute<") {
+        if isTransmuteMetaBuiltinImpl(funcName) {
             if g_insideUnsafe == 0 {
                 output.append("  ; ERROR: transmute requires unsafe block\n")
                 return "0"
             }
-            if expr.arguments.length() > 0 {
+            if hasBuiltinArgImpl(expr.arguments.length(), 0) {
                 let tmSrcReg = generateExpression(expr.arguments[0])
                 let tmSrcType = inferExpressionType(expr.arguments[0])
-                let tmLt = funcName.indexOf("<", 0)
-                let tmGt = funcName.indexOf(">", 0)
-                var tmTargetTypeName = "Int"
-                if tmLt >= 0 and tmGt > tmLt {
-                    tmTargetTypeName = funcName.substring(tmLt + 1, tmGt)
-                }
+                let tmTargetTypeName =
+                    resolveTransmuteTargetTypeNameImpl(funcName)
                 return emitTransmuteImpl(output, g_regBox, tmSrcReg, mapType(tmSrcType), mapType(tmTargetTypeName))
             }
             return "0"
         }
 
         // comptime includeStr("path") — delegated to ir_call_dispatch.seen
-        if funcName == "includeStr" {
-            if expr.arguments.length() > 0 {
+        if isIncludeStrMetaBuiltinImpl(funcName) {
+            if hasBuiltinArgImpl(expr.arguments.length(), 0) {
                 let inclPath = expr.arguments[0].literalValue
                 let inclInfo = loadEmbeddedStringConstantInfoImpl(
                     stringConstants, inclPath)
@@ -5955,8 +5952,8 @@ class LLVMIRGenerator {
         }
 
         // comptime includeBytes("path") — delegated to ir_call_dispatch.seen
-        if funcName == "includeBytes" {
-            if expr.arguments.length() > 0 {
+        if isIncludeBytesMetaBuiltinImpl(funcName) {
+            if hasBuiltinArgImpl(expr.arguments.length(), 0) {
                 let inclBPath = expr.arguments[0].literalValue
                 let inclBInfo = loadEmbeddedStringConstantInfoImpl(
                     stringConstants, inclBPath)
@@ -5977,9 +5974,9 @@ class LLVMIRGenerator {
             var ptArg0 = ""
             var ptArg1 = ""
             var ptArg2 = ""
-            if expr.arguments.length() > 0 { ptArg0 = generateExpression(expr.arguments[0]) }
-            if expr.arguments.length() > 1 { ptArg1 = generateExpression(expr.arguments[1]) }
-            if expr.arguments.length() > 2 { ptArg2 = generateExpression(expr.arguments[2]) }
+            if hasBuiltinArgImpl(expr.arguments.length(), 0) { ptArg0 = generateExpression(expr.arguments[0]) }
+            if hasBuiltinArgImpl(expr.arguments.length(), 1) { ptArg1 = generateExpression(expr.arguments[1]) }
+            if hasBuiltinArgImpl(expr.arguments.length(), 2) { ptArg2 = generateExpression(expr.arguments[2]) }
             return emitPtrBuiltinCallImpl(output, g_regBox, funcName,
                 g_insideUnsafe, ptArg0, ptArg1, ptArg2)
         }
@@ -5988,16 +5985,16 @@ class LLVMIRGenerator {
             return emitBarrierBuiltinCallImpl(output)
         }
 
-        if funcName == "stackAlloc" or funcName.startsWith("stackAlloc<") {
+        if isStackAllocBuiltinImpl(funcName) {
             var allocCount = "1"
-            if expr.arguments.length() > 0 {
+            if hasBuiltinArgImpl(expr.arguments.length(), 0) {
                 allocCount = generateExpression(expr.arguments[0])
             }
             return emitStackAllocBuiltinCallImpl(output, g_regBox, allocCount)
         }
 
         if funcName == "constructAt" {
-            if expr.arguments.length() >= 1 {
+            if hasBuiltinArgImpl(expr.arguments.length(), 0) {
                 let caPtr = generateExpression(expr.arguments[0])
                 return emitConstructAtBuiltinCallImpl(output, g_regBox, caPtr)
             }
@@ -6006,7 +6003,7 @@ class LLVMIRGenerator {
 
         if funcName == "debug_assert" {
             var condVal = ""
-            if expr.arguments.length() > 0 {
+            if hasBuiltinArgImpl(expr.arguments.length(), 0) {
                 condVal = generateExpression(expr.arguments[0])
             }
             var boundsCountBox = Array<Int>()
@@ -6014,14 +6011,15 @@ class LLVMIRGenerator {
             let debugResult = emitDebugAssertBuiltinCallStateImpl(output,
                 g_regBox, g_boundsCheckEnabled, condVal, boundsCountBox)
             g_boundsCheckLabelCount = boundsCountBox[0]
-            if g_boundsCheckEnabled == 1 and condVal != "" {
+            if shouldClearDebugAssertCseImpl(g_boundsCheckEnabled,
+                condVal) {
                 cseClear()
             }
             return debugResult
         }
 
         if funcName == "str_to_cstr" {
-            if expr.arguments.length() > 0 {
+            if hasBuiltinArgImpl(expr.arguments.length(), 0) {
                 let strArg = generateExpression(expr.arguments[0])
                 return emitCStringBuiltinCallImpl(output, g_regBox,
                     "str_to_cstr", strArg)
@@ -6040,7 +6038,7 @@ class LLVMIRGenerator {
             }
         }
         if funcName == "cstr_to_str" {
-            if expr.arguments.length() > 0 {
+            if hasBuiltinArgImpl(expr.arguments.length(), 0) {
                 let ptrArg = generateExpression(expr.arguments[0])
                 return emitCStringBuiltinCallImpl(output, g_regBox,
                     "cstr_to_str", ptrArg)
@@ -6048,11 +6046,11 @@ class LLVMIRGenerator {
             return "0"
         }
 
-        if funcName == "__default" or funcName.startsWith("__default<") {
+        if isDefaultValueBuiltinImpl(funcName) {
             return "0"
         }
 
-        if funcName == "async_yield" {
+        if isAsyncYieldBuiltinImpl(funcName) {
             var yieldCounterBox = Array<Int>()
             let functionEmission = getCurrentFunctionEmissionStateImpl()
             yieldCounterBox.push(functionEmission.yieldCounter)
@@ -6068,9 +6066,9 @@ class LLVMIRGenerator {
             var simdArgTypes = Array<String>()
             var simdConstIndices = Array<Int>()
             var simdPreArgIdx = 0
-            let isShuf = funcName == "simd_shuffle"
             while simdPreArgIdx < expr.arguments.length() {
-                if isShuf and simdPreArgIdx >= 2 {
+                if shouldReadSimdShuffleConstArgImpl(funcName,
+                    simdPreArgIdx) {
                     let shufConstIdx = evaluateConstExpr(expr.arguments[simdPreArgIdx])
                     simdConstIndices.push(shufConstIdx)
                 } else {
