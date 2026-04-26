@@ -40,3 +40,125 @@ fun isFusedStringBuilderFloatAppendImpl(receiverType: String,
 fun shouldPrepareFirstMethodArgImpl(argCount: Int) r: Bool {
     return argCount > 0
 }
+
+fun shouldTryStaticMethodCallImpl(receiverReg: String,
+    literalValue: String) r: Bool {
+
+    return receiverReg == "" and literalValue != ""
+}
+
+fun isPascalStaticReceiverNameImpl(receiverName: String) r: Bool {
+    if receiverName.length() == 0 {
+        return false
+    }
+    let firstChar = receiverName.substring(0, 1)
+    return firstChar >= "A" and firstChar <= "Z"
+}
+
+fun shouldTryNoArgStaticFactoryImpl(isPascalReceiver: Bool,
+    methodName: String) r: Bool {
+
+    return isPascalReceiver and methodName == "new"
+}
+
+fun shouldTryArgStaticFactoryImpl(isPascalReceiver: Bool,
+    argCount: Int) r: Bool {
+
+    return isPascalReceiver and argCount > 0
+}
+
+fun resolveStaticCallClassNameImpl(literalValue: String,
+    potentialClassName: String, isPascalReceiver: Bool) r: String {
+
+    if isPascalReceiver {
+        return potentialClassName
+    }
+    return literalValue
+}
+
+fun shouldPromoteStaticMethodFloatArgsImpl(isPascalReceiver: Bool) r: Bool {
+    return not isPascalReceiver
+}
+
+fun staticMethodFunctionNameImpl(staticClassName: String,
+    methodName: String) r: String {
+
+    return staticClassName + "_" + methodName
+}
+
+fun shouldRecordStaticMethodLateDeclareImpl(potentialClassName: String,
+    methodName: String) r: Bool {
+
+    if potentialClassName == "StringBuilder" and methodName == "new" {
+        return false
+    }
+    if potentialClassName == "String" and methodName == "fromCharCode" {
+        return false
+    }
+    return true
+}
+
+fun shouldUseUnresolvedReceiverFallbackImpl(receiverReg: String) r: Bool {
+    return receiverReg == ""
+}
+
+fun shouldLookupImplicitMethodReturnImpl(currentClassName: String) r: Bool {
+    return currentClassName != ""
+}
+
+fun isSeenLexerKeywordManagerReceiverImpl(thisType: String,
+    varName: String) r: Bool {
+
+    return thisType == "SeenLexer" and varName == "keywordManager"
+}
+
+fun isArrayFreeMutatorMethodImpl(methodName: String) r: Bool {
+    return methodName == "free"
+}
+
+fun isArrayPushMutatorMethodImpl(methodName: String,
+    receiverIsArray: Bool) r: Bool {
+
+    return methodName == "push" and receiverIsArray
+}
+
+fun isArrayPopMutatorMethodImpl(methodName: String) r: Bool {
+    return methodName == "pop"
+}
+
+fun isArraySwapMutatorMethodImpl(methodName: String,
+    receiverIsArray: Bool, argCount: Int) r: Bool {
+
+    return methodName == "swap" and receiverIsArray and argCount == 2
+}
+
+fun resolveArrayMutatorVariableNameImpl(literalValue: String,
+    variableName: String) r: String {
+
+    if literalValue != "" {
+        return literalValue
+    }
+    return variableName
+}
+
+fun resolveArrayReceiverElementTypeImpl(receiverType: String) r: String {
+    if receiverType.startsWith("Array<") and receiverType.endsWith(">") {
+        return receiverType.substring(6, receiverType.length() - 1)
+    }
+    return ""
+}
+
+fun resolveArrayPushElementTypeImpl(argType: String,
+    receiverElementType: String) r: String {
+
+    if argType != "" {
+        return argType
+    }
+    return receiverElementType
+}
+
+fun shouldUseReceiverRegForArrayMutationImpl(arrayPtrReg: String,
+    receiverIsArray: Bool) r: Bool {
+
+    return arrayPtrReg == "" and receiverIsArray
+}

@@ -89,7 +89,7 @@ import codegen.ir_call_fixups.{resolveRealParserMisplacedMethodReturnTypeImpl, i
 import codegen.ir_method_finalize.{resolveMethodCallInstanceTypeNameImpl, tryGeneratePreparedHotReloadInstanceMethodCallImpl, resolveMethodCallReturnTypeImpl, prepareMethodCallReceiverAbiImpl, tryGenerateSpecializedInstanceMethodCallImpl, emitArrayFreeMutationImpl, emitArrayPushMutationImpl, emitArrayPopMutationImpl, emitArraySwapMutationImpl, emitPoolFreeFromValueSlotImpl, emitClassFreeMutationImpl}
 import codegen.ir_method_fastpath.{emitPreparedDynTraitMethodCallImpl, tryGeneratePreparedExplicitReceiverFastPathImpl, tryGeneratePreparedLocalVariableReceiverFastPathImpl, tryGenerateLengthLikeMethodCallImpl, emitStringBuilderReceiverMethodCallImpl, tryGeneratePrimitiveConversionMethodCallImpl, tryGenerateNumericReceiverMethodCallImpl, tryGenerateStringLikeReceiverMethodCallImpl, resolveStaticMethodClassNamesImpl, isStaticMethodReceiverReferenceImpl, tryGenerateStaticFactoryMethodCallImpl, resolveStaticMethodReturnTypeImpl, prepareModuleConstantMethodReceiverImpl, emitPreparedStaticMethodCallImpl, shouldLowerUnresolvedMethodAsCallImpl, tryGenerateUnresolvedReceiverFallbackMethodImpl, applyUnresolvedReceiverDefaultImpl}
 import codegen.ir_method_receiver_predicates.{isOptionReceiverTypeImpl, isSmallVecReceiverTypeImpl, isCollectionReceiverTypeImpl, isArrayReceiverTypeImpl, isStringBuilderRuntimeMethodImpl, isNumericReceiverMethodImpl, needsStaticFactoryArgumentImpl}
-import codegen.ir_method_call_plan.{hasExplicitMethodReceiverImpl, hasDottedLiteralMethodReceiverImpl, hasResolvedMethodReceiverImpl, shouldTraceUnwrapToJsonSourceImpl, isUnwrapMethodCallExprImpl, isFusedStringBuilderFloatAppendImpl, shouldPrepareFirstMethodArgImpl}
+import codegen.ir_method_call_plan.{hasExplicitMethodReceiverImpl, hasDottedLiteralMethodReceiverImpl, hasResolvedMethodReceiverImpl, shouldTraceUnwrapToJsonSourceImpl, isUnwrapMethodCallExprImpl, isFusedStringBuilderFloatAppendImpl, shouldPrepareFirstMethodArgImpl, shouldTryStaticMethodCallImpl, isPascalStaticReceiverNameImpl, shouldTryNoArgStaticFactoryImpl, shouldTryArgStaticFactoryImpl, resolveStaticCallClassNameImpl, shouldPromoteStaticMethodFloatArgsImpl, staticMethodFunctionNameImpl, shouldRecordStaticMethodLateDeclareImpl, shouldUseUnresolvedReceiverFallbackImpl, shouldLookupImplicitMethodReturnImpl, isSeenLexerKeywordManagerReceiverImpl, isArrayFreeMutatorMethodImpl, isArrayPushMutatorMethodImpl, isArrayPopMutatorMethodImpl, isArraySwapMutatorMethodImpl, resolveArrayMutatorVariableNameImpl, resolveArrayReceiverElementTypeImpl, resolveArrayPushElementTypeImpl, shouldUseReceiverRegForArrayMutationImpl}
 import codegen.ir_struct_gen.{emitStructFieldStoresImpl, resolveStructLiteralFieldFallback, inferStructFieldTypeFromExpr}
 import codegen.ir_struct_layout_build.{prepareStructLayoutRegistrationSnapshotImpl}
 import codegen.ir_class_type_layout.{emitClassTypeFieldsImpl, emitClassTypeHeaderImpl, emitClassTypeFooterImpl, prepareClassTypeAliasStateSnapshotImpl}
@@ -6597,7 +6597,7 @@ class LLVMIRGenerator {
     fun tryGenerateStaticMethodCall(expr: ParserExpressionNode, methodName: String,
         receiverReg: String) r: String {
 
-        if receiverReg != "" or expr.literalValue == "" {
+        if not shouldTryStaticMethodCallImpl(receiverReg, expr.literalValue) {
             return ""
         }
 
@@ -6609,9 +6609,8 @@ class LLVMIRGenerator {
             return ""
         }
 
-        let firstChar = potentialClassName.substring(0, 1)
-        let isUppercase = firstChar >= "A" and firstChar <= "Z"
-        if isUppercase and methodName == "new" {
+        let isUppercase = isPascalStaticReceiverNameImpl(potentialClassName)
+        if shouldTryNoArgStaticFactoryImpl(isUppercase, methodName) {
             let staticFactoryResult: String = tryGenerateStaticFactoryMethodCallImpl(
                 output, g_regBox, methodName, potentialClassName,
                 fullClassName, "", 0)
@@ -6619,7 +6618,8 @@ class LLVMIRGenerator {
                 return staticFactoryResult
             }
         }
-        if isUppercase and expr.arguments.length() > 0 {
+        if shouldTryArgStaticFactoryImpl(isUppercase,
+            expr.arguments.length()) {
             if needsStaticFactoryArgumentImpl(methodName,
                 potentialClassName) {
                 let staticFactoryArg0 = generateExpression(expr.arguments[0])
@@ -6633,16 +6633,13 @@ class LLVMIRGenerator {
             }
         }
 
-        var staticClassName = expr.literalValue
-        if isUppercase {
-            staticClassName = potentialClassName
-        }
-        let funcName = staticClassName + "_" + methodName
+        let staticClassName = resolveStaticCallClassNameImpl(
+            expr.literalValue, potentialClassName, isUppercase)
+        let funcName = staticMethodFunctionNameImpl(staticClassName,
+            methodName)
 
-        var enableFloatPromotion = true
-        if isUppercase {
-            enableFloatPromotion = false
-        }
+        let enableFloatPromotion =
+            shouldPromoteStaticMethodFloatArgsImpl(isUppercase)
         prepareCallArgumentsWithDefaults(funcName, expr.arguments, false,
             enableFloatPromotion, false, "")
         let argRegs = g_defaultFillArgRegs
@@ -6656,8 +6653,8 @@ class LLVMIRGenerator {
         if isClassType(staticClassName) { isClassRecv = 1 }
         var isDataRecv = 0
         if isDataType(staticClassName) { isDataRecv = 1 }
-        if not ((potentialClassName == "StringBuilder" and methodName == "new") or
-            (potentialClassName == "String" and methodName == "fromCharCode")) {
+        if shouldRecordStaticMethodLateDeclareImpl(potentialClassName,
+            methodName) {
             let staticLateState = captureLateUserDeclareState()
             recordLateUserDeclareIntoStateImpl(funcName, staticLlvmReturnType,
                 argTypeStrs, 0, funcNames, funcRetTypes, g_xmDeclareNames,
@@ -6729,7 +6726,7 @@ class LLVMIRGenerator {
     fun tryGenerateArrayMutatorMethodCall(expr: ParserExpressionNode, methodName: String,
         receiverReg: String, receiverType: String) r: String {
 
-        if methodName == "free" {
+        if isArrayFreeMutatorMethodImpl(methodName) {
             var freeReceiverType = receiverType
             if (freeReceiverType == "String" or freeReceiverType == "") and expr.literalValue != "" {
                 let freeTypeIdx = findActiveVariableIndexImpl(varNames, activeVarCount, expr.literalValue)
@@ -6750,10 +6747,8 @@ class LLVMIRGenerator {
                 }
             }
             if not isArrayType and isClassType(freeReceiverType) {
-                var freeVarName = expr.literalValue
-                if freeVarName == "" {
-                    freeVarName = expr.variableName
-                }
+                let freeVarName = resolveArrayMutatorVariableNameImpl(
+                    expr.literalValue, expr.variableName)
                 let freeVarIdx = findActiveVariableIndexImpl(varNames, activeVarCount, freeVarName)
                 if freeVarIdx >= 0 {
                     let baseType = getBaseTypeNameImpl(freeReceiverType)
@@ -6768,24 +6763,21 @@ class LLVMIRGenerator {
             }
         }
 
-        if methodName == "push" and isArrayReceiverTypeImpl(receiverType) {
+        if isArrayPushMutatorMethodImpl(methodName,
+            isArrayReceiverTypeImpl(receiverType)) {
             let argExpr = expr.arguments[0]
             let argReg = generateExpression(argExpr)
             let argType = inferExpressionType(argExpr)
             let argIsStructLiteral = argExpr.kind == "StructLiteral"
-            var elemType = ""
-            if receiverType.startsWith("Array<") and receiverType.endsWith(">") {
-                elemType = receiverType.substring(6, receiverType.length() - 1)
-            }
-            var pushElemType = argType
-            if pushElemType == "" {
-                pushElemType = elemType
-            }
+            let elemType = resolveArrayReceiverElementTypeImpl(receiverType)
+            let pushElemType = resolveArrayPushElementTypeImpl(argType,
+                elemType)
 
             let varName = expr.literalValue
             var arrayPtrReg = tryResolveArrayMutatorPointerFromLiteral(varName)
 
-            if arrayPtrReg == "" and isArrayReceiverTypeImpl(receiverType) {
+            if shouldUseReceiverRegForArrayMutationImpl(arrayPtrReg,
+                isArrayReceiverTypeImpl(receiverType)) {
                 arrayPtrReg = receiverReg
             }
 
@@ -6799,7 +6791,7 @@ class LLVMIRGenerator {
             }
         }
 
-        if methodName == "pop" {
+        if isArrayPopMutatorMethodImpl(methodName) {
             var arrayPtrReg =
                 tryResolveArrayMutatorPointerFromLiteral(expr.literalValue)
             if arrayPtrReg == "" { arrayPtrReg = receiverReg }
@@ -6809,20 +6801,18 @@ class LLVMIRGenerator {
             }
         }
 
-        if methodName == "swap" {
-            if isArrayReceiverTypeImpl(receiverType) and
-                expr.arguments.length() == 2 {
-                let idxAReg = generateExpression(expr.arguments[0])
-                let idxBReg = generateExpression(expr.arguments[1])
-                var arrayPtrReg =
-                    tryResolveArrayMutatorPointerFromLiteral(expr.literalValue)
-                if arrayPtrReg == "" {
-                    arrayPtrReg = receiverReg
-                }
-                if arrayPtrReg != "" {
-                    return emitArraySwapMutationImpl(output, g_regBox,
-                        arrayPtrReg, idxAReg, idxBReg)
-                }
+        if isArraySwapMutatorMethodImpl(methodName,
+            isArrayReceiverTypeImpl(receiverType), expr.arguments.length()) {
+            let idxAReg = generateExpression(expr.arguments[0])
+            let idxBReg = generateExpression(expr.arguments[1])
+            var arrayPtrReg =
+                tryResolveArrayMutatorPointerFromLiteral(expr.literalValue)
+            if arrayPtrReg == "" {
+                arrayPtrReg = receiverReg
+            }
+            if arrayPtrReg != "" {
+                return emitArraySwapMutationImpl(output, g_regBox,
+                    arrayPtrReg, idxAReg, idxBReg)
             }
         }
 
@@ -7078,8 +7068,8 @@ class LLVMIRGenerator {
                                                 varName)
                                     }
                                 } else {
-                                    if thisType == "SeenLexer" and
-                                        varName == "keywordManager" {
+                                    if isSeenLexerKeywordManagerReceiverImpl(
+                                        thisType, varName) {
                                         let thisPtrReg =
                                             emitImplicitThisPointerLoadImpl(
                                                 output, g_regBox, thisReg)
@@ -7112,9 +7102,9 @@ class LLVMIRGenerator {
             return staticCallResult
         }
 
-        if receiverReg == "" {
+        if shouldUseUnresolvedReceiverFallbackImpl(receiverReg) {
             var implicitMethodRetType = ""
-            if currentClassName != "" {
+            if shouldLookupImplicitMethodReturnImpl(currentClassName) {
                 implicitMethodRetType = getMethodReturnType(currentClassName,
                     methodName)
             }
