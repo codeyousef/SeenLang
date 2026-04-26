@@ -258,6 +258,46 @@ fun emitAssociativeIntFoldResultImpl(output: StringBuilder,
     return ""
 }
 
+fun isFloatFmaCandidateImpl(operator: String, leftType: String,
+    rightType: String) r: Bool {
+
+    return operator == "+" and (leftType == "Float" or rightType == "Float")
+}
+
+fun isBinaryMultiplyExpressionImpl(exprKind: String, operator: String)
+    r: Bool {
+
+    return exprKind == "Binary" and operator == "*"
+}
+
+fun shouldUseFmaForOperandTypesImpl(leftType: String, rightType: String)
+    r: Bool {
+
+    return leftType == "Float" or rightType == "Float"
+}
+
+fun emitFmaOperandPromotionImpl(output: StringBuilder, regBox: Array<Int>,
+    valueReg: String, seenType: String) r: String {
+
+    if seenType == "Float" {
+        return valueReg
+    }
+    let promotedReg = getNextRegFn(regBox)
+    output.append("  " + promotedReg + " = sitofp i64 " + valueReg +
+        " to double\n")
+    return promotedReg
+}
+
+fun emitFmaCallImpl(output: StringBuilder, regBox: Array<Int>,
+    aReg: String, bReg: String, cReg: String, comment: String) r: String {
+
+    let resultReg = getNextRegFn(regBox)
+    output.append("  " + resultReg +
+        " = call double @llvm.fmuladd.f64(double " + aReg + ", double " +
+        bReg + ", double " + cReg + ") ; FMA: " + comment + "\n")
+    return resultReg
+}
+
 fun isPureCseBinaryOpImpl(leftType: String, rightType: String,
     operator: String) r: Bool {
 

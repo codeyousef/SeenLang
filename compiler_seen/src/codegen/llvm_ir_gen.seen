@@ -100,7 +100,7 @@ import codegen.ir_path_expr.{splitChainedPathImpl, buildChainedPathExprImpl, spl
 import codegen.ir_member_access.{emitSimdSwizzleMemberAccessImpl, inferSimdSwizzleMemberTypeImpl, inferJsonValueMemberAccessTypeImpl, inferLiteralReceiverMemberAccessTypeImpl, inferDirectMemberAccessTypeImpl, extractLastMemberFieldSegmentImpl}
 import codegen.ir_member_access_gen.{emitExpressionReceiverMemberAccessImpl, emitVariableReceiverMemberAccessImpl, emitModuleConstReceiverMemberAccessImpl, emitBracketPathMemberAccessImpl, emitChainedReceiverMemberAccessImpl, emitImplicitThisReceiverMemberAccessImpl}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, inferTypeRegistryFieldTypeImpl, getSemanticFieldTypeImpl, resolveMethodFieldPathTypeImpl, tryResolveEnumLiteralMethodReceiverImpl, convertReceiverToPtrImpl}
-import codegen.ir_binary_expr.{emitPointerArithmeticBinaryImpl, emitSimdBinaryExprImpl, binaryOperatorMethodSuffixImpl, isSimdBinaryOperatorImpl, isIntLiteralOperandImpl, isFloatLiteralOperandImpl, isSelfVariableComparisonImpl, isShortCircuitBinaryOperatorImpl, shouldTryAssociativeIntFoldImpl, associativeIntFoldRewriteCostImpl, emitSelfComparisonConstResultImpl, emitFoldedBoolLiteralBinaryResultImpl, emitFoldedIntLiteralBinaryResultImpl, emitAssociativeIntFoldResultImpl, isPureCseBinaryOpImpl, buildBinaryCseKeyImpl, emitOverloadedBinaryCallImpl, exprProducesBoolImpl, emitBoolCoercionImpl, emitShortCircuitPhiImpl}
+import codegen.ir_binary_expr.{emitPointerArithmeticBinaryImpl, emitSimdBinaryExprImpl, binaryOperatorMethodSuffixImpl, isSimdBinaryOperatorImpl, isIntLiteralOperandImpl, isFloatLiteralOperandImpl, isSelfVariableComparisonImpl, isShortCircuitBinaryOperatorImpl, shouldTryAssociativeIntFoldImpl, associativeIntFoldRewriteCostImpl, emitSelfComparisonConstResultImpl, emitFoldedBoolLiteralBinaryResultImpl, emitFoldedIntLiteralBinaryResultImpl, emitAssociativeIntFoldResultImpl, isFloatFmaCandidateImpl, isBinaryMultiplyExpressionImpl, shouldUseFmaForOperandTypesImpl, emitFmaOperandPromotionImpl, emitFmaCallImpl, isPureCseBinaryOpImpl, buildBinaryCseKeyImpl, emitOverloadedBinaryCallImpl, exprProducesBoolImpl, emitBoolCoercionImpl, emitShortCircuitPhiImpl}
 import codegen.ir_unary_expr.{unaryOperatorMethodNameImpl, shouldSkipUnaryOverloadTypeImpl, negatedComparisonPredicateImpl, shouldEmitNegatedComparisonForTypesImpl, emitOverloadedUnaryCallImpl, emitUnaryNegationImpl, emitNegatedComparisonImpl, emitUnaryLogicalNotImpl, emitUnaryAddressOfClassValueImpl, emitUnaryAddressOfVariablePtrImpl, emitUnaryDereferenceImpl, isUnaryBitwiseNotOperatorImpl, emitUnaryBitwiseNotImpl}
 import codegen.ir_class_method_gen.{tryEmitOptionClassMethodShimImpl, shouldTraceClassMethodStartImpl, collectClassMethodParameterInfoImpl, emitClassMethodSignatureStateImpl, emitClassMethodReceiverBindingStateImpl, emitClassMethodParameterBindingsStateImpl, emitClassMethodConstructorSetupStateImpl, tryEmitClassMethodConstructorReturnStateImpl, emitClassMethodDefaultReturnStateImpl}
 import codegen.ir_stmt_decl.{shouldInferDeclarationInitializerTypeImpl, resolveDeclarationBaseTypeImpl, resolveLetStatementTypeImpl, resolveLetStatementAllocaImpl, prepareLetStatementPlanImpl, resolveLetPreAllocatedRegImpl, findPreAllocatedOccurrenceImpl, nextDeclarationOrdinalImpl, classifyCollectedStatementKindImpl, shouldTraceCollectedDeclarationTypeImpl, appendCollectedDeclarationImpl, resolveCollectedForInElementTypeImpl, buildForInIndexNameImpl, shouldSeedDeclarationPendingArrayLiteralTypeImpl, emitDeadLiteralInitializerSkipNoteImpl, emitDeclarationInitializerStoreImpl}
@@ -5627,61 +5627,43 @@ class LLVMIRGenerator {
         }
         // FMA detection: a + (b * c) or (a * b) + c → llvm.fmuladd.f64
         // NOTE: Int operands must be promoted to double via sitofp before use.
-        if expr.operator == "+" and (leftType == "Float" or rightType == "Float") {
+        if isFloatFmaCandidateImpl(expr.operator, leftType, rightType) {
             // Check if right operand is a float multiply
-            if rightExpr.kind == "Binary" and rightExpr.operator == "*" {
+            if isBinaryMultiplyExpressionImpl(rightExpr.kind,
+                rightExpr.operator) {
                 let rLeftType = inferExpressionType(rightExpr.operands[0])
                 let rRightType = inferExpressionType(rightExpr.operands[1])
-                if rLeftType == "Float" or rRightType == "Float" {
+                if shouldUseFmaForOperandTypesImpl(rLeftType, rRightType) {
                     var fmaAReg = generateExpression(rightExpr.operands[0])
-                    if rLeftType != "Float" {
-                        let cvtA = getNextReg()
-                        output.append("  " + cvtA + " = sitofp i64 " + fmaAReg + " to double\n")
-                        fmaAReg = cvtA
-                    }
+                    fmaAReg = emitFmaOperandPromotionImpl(output, g_regBox,
+                        fmaAReg, rLeftType)
                     var fmaBReg = generateExpression(rightExpr.operands[1])
-                    if rRightType != "Float" {
-                        let cvtB = getNextReg()
-                        output.append("  " + cvtB + " = sitofp i64 " + fmaBReg + " to double\n")
-                        fmaBReg = cvtB
-                    }
+                    fmaBReg = emitFmaOperandPromotionImpl(output, g_regBox,
+                        fmaBReg, rRightType)
                     var fmaCReg = generateExpression(leftExpr)
-                    if leftType != "Float" {
-                        let cvtC = getNextReg()
-                        output.append("  " + cvtC + " = sitofp i64 " + fmaCReg + " to double\n")
-                        fmaCReg = cvtC
-                    }
-                    let fmaResultReg = getNextReg()
-                    output.append("  " + fmaResultReg + " = call double @llvm.fmuladd.f64(double " + fmaAReg + ", double " + fmaBReg + ", double " + fmaCReg + ") ; FMA: c + a*b\n")
-                    return fmaResultReg
+                    fmaCReg = emitFmaOperandPromotionImpl(output, g_regBox,
+                        fmaCReg, leftType)
+                    return emitFmaCallImpl(output, g_regBox, fmaAReg,
+                        fmaBReg, fmaCReg, "c + a*b")
                 }
             }
             // Check if left operand is a float multiply
-            if leftExpr.kind == "Binary" and leftExpr.operator == "*" {
+            if isBinaryMultiplyExpressionImpl(leftExpr.kind,
+                leftExpr.operator) {
                 let lLeftType = inferExpressionType(leftExpr.operands[0])
                 let lRightType = inferExpressionType(leftExpr.operands[1])
-                if lLeftType == "Float" or lRightType == "Float" {
+                if shouldUseFmaForOperandTypesImpl(lLeftType, lRightType) {
                     var fmaAReg = generateExpression(leftExpr.operands[0])
-                    if lLeftType != "Float" {
-                        let cvtA = getNextReg()
-                        output.append("  " + cvtA + " = sitofp i64 " + fmaAReg + " to double\n")
-                        fmaAReg = cvtA
-                    }
+                    fmaAReg = emitFmaOperandPromotionImpl(output, g_regBox,
+                        fmaAReg, lLeftType)
                     var fmaBReg = generateExpression(leftExpr.operands[1])
-                    if lRightType != "Float" {
-                        let cvtB = getNextReg()
-                        output.append("  " + cvtB + " = sitofp i64 " + fmaBReg + " to double\n")
-                        fmaBReg = cvtB
-                    }
+                    fmaBReg = emitFmaOperandPromotionImpl(output, g_regBox,
+                        fmaBReg, lRightType)
                     var fmaCReg = generateExpression(rightExpr)
-                    if rightType != "Float" {
-                        let cvtC = getNextReg()
-                        output.append("  " + cvtC + " = sitofp i64 " + fmaCReg + " to double\n")
-                        fmaCReg = cvtC
-                    }
-                    let fmaResultReg = getNextReg()
-                    output.append("  " + fmaResultReg + " = call double @llvm.fmuladd.f64(double " + fmaAReg + ", double " + fmaBReg + ", double " + fmaCReg + ") ; FMA: a*b + c\n")
-                    return fmaResultReg
+                    fmaCReg = emitFmaOperandPromotionImpl(output, g_regBox,
+                        fmaCReg, rightType)
+                    return emitFmaCallImpl(output, g_regBox, fmaAReg,
+                        fmaBReg, fmaCReg, "a*b + c")
                 }
             }
         }
