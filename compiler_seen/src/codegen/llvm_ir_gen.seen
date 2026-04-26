@@ -93,7 +93,8 @@ import codegen.ir_call_fixups.{resolveRealParserMisplacedMethodReturnTypeImpl, i
 import codegen.ir_method_finalize.{resolveMethodCallInstanceTypeNameImpl, tryGeneratePreparedHotReloadInstanceMethodCallImpl, resolveMethodCallReturnTypeImpl, prepareMethodCallReceiverAbiImpl, tryGenerateSpecializedInstanceMethodCallImpl, emitArrayFreeMutationImpl, emitArrayPushMutationImpl, emitArrayPopMutationImpl, emitArraySwapMutationImpl, emitPoolFreeFromValueSlotImpl, emitClassFreeMutationImpl}
 import codegen.ir_method_fastpath.{emitPreparedDynTraitMethodCallImpl, tryGeneratePreparedExplicitReceiverFastPathImpl, tryGeneratePreparedLocalVariableReceiverFastPathImpl, tryGenerateLengthLikeMethodCallImpl, emitStringBuilderReceiverMethodCallImpl, tryGeneratePrimitiveConversionMethodCallImpl, tryGenerateNumericReceiverMethodCallImpl, tryGenerateStringLikeReceiverMethodCallImpl, resolveStaticMethodClassNamesImpl, isStaticMethodReceiverReferenceImpl, tryGenerateStaticFactoryMethodCallImpl, resolveStaticMethodReturnTypeImpl, prepareModuleConstantMethodReceiverImpl, emitPreparedStaticMethodCallImpl, shouldLowerUnresolvedMethodAsCallImpl, tryGenerateUnresolvedReceiverFallbackMethodImpl, applyUnresolvedReceiverDefaultImpl}
 import codegen.ir_method_receiver_predicates.{isOptionReceiverTypeImpl, isSmallVecReceiverTypeImpl, isCollectionReceiverTypeImpl, isArrayReceiverTypeImpl, isStringBuilderRuntimeMethodImpl, isNumericReceiverMethodImpl, needsStaticFactoryArgumentImpl}
-import codegen.ir_method_call_plan.{hasExplicitMethodReceiverImpl, planResolvedReceiverFastPathImpl, shouldReadOptionDefaultFastPathArgImpl, shouldReadSmallVecFastPathArgImpl, shouldReadReceiverFastPathArgImpl, shouldTraceUnwrapToJsonSourceImpl, isUnwrapMethodCallExprImpl, isFusedStringBuilderFloatAppendImpl, shouldPrepareFirstMethodArgImpl, shouldTryStaticMethodCallImpl, isPascalStaticReceiverNameImpl, shouldTryNoArgStaticFactoryImpl, shouldTryArgStaticFactoryImpl, resolveStaticCallClassNameImpl, shouldPromoteStaticMethodFloatArgsImpl, staticMethodFunctionNameImpl, shouldRecordStaticMethodLateDeclareImpl, shouldUseUnresolvedReceiverFallbackImpl, shouldLookupImplicitMethodReturnImpl, isSeenLexerKeywordManagerReceiverImpl, hasGeneratorFieldReceiverImpl, hasStructFieldReceiverImpl, shouldResolveImplicitThisDottedFieldReceiverImpl, shouldUseLiteralArrayFreeReceiverTypeImpl, shouldResolveArrayFreePointerFromLiteralImpl, shouldEmitArrayFreePointerImpl, shouldEmitClassFreeMutationImpl, planArrayMutatorMethodImpl, isDottedArrayMutatorLiteralImpl, shouldResolveChainedArrayMutatorReceiverImpl, shouldLoadLocalArrayMutatorPointerImpl, shouldUseImplicitThisArrayMutatorPointerImpl, shouldUseArrayMutatorReceiverFallbackImpl, shouldEmitArrayMutatorWithPointerImpl, resolveArrayMutatorVariableNameImpl, resolveArrayReceiverElementTypeImpl, resolveArrayPushElementTypeImpl, shouldUseReceiverRegForArrayMutationImpl}
+import codegen.ir_method_call_plan.{hasExplicitMethodReceiverImpl, planResolvedReceiverFastPathImpl, shouldReadOptionDefaultFastPathArgImpl, shouldReadSmallVecFastPathArgImpl, shouldReadReceiverFastPathArgImpl, shouldTryStaticMethodCallImpl, isPascalStaticReceiverNameImpl, shouldTryNoArgStaticFactoryImpl, shouldTryArgStaticFactoryImpl, resolveStaticCallClassNameImpl, shouldPromoteStaticMethodFloatArgsImpl, staticMethodFunctionNameImpl, shouldRecordStaticMethodLateDeclareImpl, shouldUseUnresolvedReceiverFallbackImpl, shouldLookupImplicitMethodReturnImpl, isSeenLexerKeywordManagerReceiverImpl, hasGeneratorFieldReceiverImpl, hasStructFieldReceiverImpl, shouldResolveImplicitThisDottedFieldReceiverImpl, shouldUseLiteralArrayFreeReceiverTypeImpl, shouldResolveArrayFreePointerFromLiteralImpl, shouldEmitArrayFreePointerImpl, shouldEmitClassFreeMutationImpl, planArrayMutatorMethodImpl, isDottedArrayMutatorLiteralImpl, shouldResolveChainedArrayMutatorReceiverImpl, shouldLoadLocalArrayMutatorPointerImpl, shouldUseImplicitThisArrayMutatorPointerImpl, shouldUseArrayMutatorReceiverFallbackImpl, shouldEmitArrayMutatorWithPointerImpl, resolveArrayMutatorVariableNameImpl, resolveArrayReceiverElementTypeImpl, resolveArrayPushElementTypeImpl, shouldUseReceiverRegForArrayMutationImpl}
+import codegen.ir_method_lower_plan.{planMethodLowerCallImpl, methodLowerStringBuilderArgActionImpl, shouldUseMethodLowerUnwrapTraceSourceImpl}
 import codegen.ir_method_receiver_lookup_plan.{shouldLookupDottedLiteralReceiverImpl, shouldBuildDottedReceiverExprImpl, shouldResolveDottedReceiverFallbackImpl, shouldResolveSimpleLiteralReceiverImpl, shouldUseLocalLiteralReceiverImpl, shouldUseModuleConstantLiteralReceiverImpl, shouldTryImplicitThisLiteralReceiverImpl, implicitThisReceiverLookupActionImpl, shouldResolveImplicitThisDottedReceiverImpl}
 import codegen.ir_struct_gen.{emitStructFieldStoresImpl, resolveStructLiteralFieldFallback, inferStructFieldTypeFromExpr}
 import codegen.ir_struct_layout_build.{prepareStructLayoutRegistrationSnapshotImpl}
@@ -7078,57 +7079,68 @@ class LLVMIRGenerator {
             return arrayMutatorResult
         }
 
-        let lengthLikeResult = tryGenerateLengthLikeMethodCallImpl(output,
-            g_regBox, methodName, receiverReg, receiverType,
-            g_reprCClassNames, structNames)
-        if lengthLikeResult != "" {
-            return lengthLikeResult
-        }
+        let lowerPlan = planMethodLowerCallImpl(receiverType, methodName,
+            expr.arguments.length(), expr.operands.length(),
+            isStringBuilderRuntimeMethodImpl(methodName),
+            isNumericReceiverMethodImpl(methodName))
 
-        if receiverType == "StringBuilder" {
-            if isStringBuilderRuntimeMethodImpl(methodName) {
-                var sbArg0 = ""
-                var isFloatFused = 0
-                if methodName == "append" and expr.arguments.length() > 0 {
-                    let appendArgExpr = expr.arguments[0]
-                    if isFusedStringBuilderFloatAppendImpl(receiverType,
-                        methodName, expr.arguments.length(),
-                        appendArgExpr.kind, appendArgExpr.callee,
-                        appendArgExpr.arguments.length()) {
-                        sbArg0 = generateExpression(appendArgExpr.arguments[0])
-                        isFloatFused = 1
-                    } else {
-                        sbArg0 = generateExpression(expr.arguments[0])
-                    }
-                } else {
-                    if shouldPrepareFirstMethodArgImpl(expr.arguments.length()) {
-                        sbArg0 = generateExpression(expr.arguments[0])
-                    }
-                }
-                let stringBuilderResult =
-                    emitStringBuilderReceiverMethodCallImpl(output, g_regBox,
-                        methodName, receiverReg, receiverType, sbArg0,
-                        isFloatFused, g_reprCClassNames, structNames)
-                if stringBuilderResult != "" {
-                    return stringBuilderResult
-                }
+        if lowerPlan.shouldTryLengthLike {
+            let lengthLikeResult = tryGenerateLengthLikeMethodCallImpl(output,
+                g_regBox, methodName, receiverReg, receiverType,
+                g_reprCClassNames, structNames)
+            if lengthLikeResult != "" {
+                return lengthLikeResult
             }
         }
 
-        let conversionResult = tryGeneratePrimitiveConversionMethodCallImpl(
-            output, g_regBox, methodName, receiverReg, receiverType,
-            structNames)
-        if conversionResult != "" {
-            return conversionResult
+        if lowerPlan.shouldTryStringBuilder {
+            var sbArg0 = ""
+            var isFloatFused = 0
+            var sbArgKind = ""
+            var sbArgCallee = ""
+            var sbNestedArgCount = 0
+            if lowerPlan.hasArg0 {
+                let appendArgExpr = expr.arguments[0]
+                sbArgKind = appendArgExpr.kind
+                sbArgCallee = appendArgExpr.callee
+                sbNestedArgCount = appendArgExpr.arguments.length()
+            }
+            let sbArgAction = methodLowerStringBuilderArgActionImpl(
+                receiverType, methodName, expr.arguments.length(),
+                sbArgKind, sbArgCallee, sbNestedArgCount)
+            if sbArgAction == 2 {
+                let appendArgExpr = expr.arguments[0]
+                sbArg0 = generateExpression(appendArgExpr.arguments[0])
+                isFloatFused = 1
+            }
+            if sbArgAction == 1 {
+                sbArg0 = generateExpression(expr.arguments[0])
+            }
+            let stringBuilderResult =
+                emitStringBuilderReceiverMethodCallImpl(output, g_regBox,
+                    methodName, receiverReg, receiverType, sbArg0,
+                    isFloatFused, g_reprCClassNames, structNames)
+            if stringBuilderResult != "" {
+                return stringBuilderResult
+            }
         }
 
-        if isNumericReceiverMethodImpl(methodName) {
+        if lowerPlan.shouldTryPrimitiveConversion {
+            let conversionResult = tryGeneratePrimitiveConversionMethodCallImpl(
+                output, g_regBox, methodName, receiverReg, receiverType,
+                structNames)
+            if conversionResult != "" {
+                return conversionResult
+            }
+        }
+
+        if lowerPlan.shouldTryNumeric {
             var numArg0 = ""
             var numArg1 = ""
-            if expr.arguments.length() > 0 {
+            if lowerPlan.hasArg0 {
                 numArg0 = generateExpression(expr.arguments[0])
             }
-            if expr.arguments.length() > 1 {
+            if lowerPlan.hasArg1 {
                 numArg1 = generateExpression(expr.arguments[1])
             }
             let numericResult = tryGenerateNumericReceiverMethodCallImpl(
@@ -7142,24 +7154,25 @@ class LLVMIRGenerator {
         var strArg0 = ""
         var strArg1 = ""
         let strArgCount = expr.arguments.length()
-        if strArgCount > 0 {
-            strArg0 = generateExpression(expr.arguments[0])
-        }
-        if strArgCount > 1 {
-            strArg1 = generateExpression(expr.arguments[1])
-        }
-        let stringLikeResult = tryGenerateStringLikeReceiverMethodCallImpl(
-            output, g_regBox, methodName, receiverReg, receiverType, strArg0,
-            strArg1, strArgCount, g_reprCClassNames, structNames)
-        if stringLikeResult != "" {
-            return stringLikeResult
+        if lowerPlan.shouldTryStringLike {
+            if lowerPlan.hasArg0 {
+                strArg0 = generateExpression(expr.arguments[0])
+            }
+            if lowerPlan.hasArg1 {
+                strArg1 = generateExpression(expr.arguments[1])
+            }
+            let stringLikeResult = tryGenerateStringLikeReceiverMethodCallImpl(
+                output, g_regBox, methodName, receiverReg, receiverType, strArg0,
+                strArg1, strArgCount, g_reprCClassNames, structNames)
+            if stringLikeResult != "" {
+                return stringLikeResult
+            }
         }
 
         var tracedUnwrapSourceType = ""
-        if shouldTraceUnwrapToJsonSourceImpl(receiverType, methodName,
-            expr.operands.length()) {
+        if lowerPlan.shouldTraceUnwrapToJsonSource {
             let receiverExpr = expr.operands[0]
-            if isUnwrapMethodCallExprImpl(receiverExpr.kind,
+            if shouldUseMethodLowerUnwrapTraceSourceImpl(receiverExpr.kind,
                 receiverExpr.callee, receiverExpr.operands.length()) {
                 tracedUnwrapSourceType = inferExpressionType(
                     receiverExpr.operands[0])
@@ -7170,14 +7183,17 @@ class LLVMIRGenerator {
         let funcName = instanceTypeName + "_" + methodName
 
         var hotStateArg = ""
-        if methodName == "__seen_hot_set_state" and expr.arguments.length() > 0 {
+        if lowerPlan.shouldReadHotStateArg {
             hotStateArg = generateExpression(expr.arguments[0])
         }
-        let hotReloadResult = tryGeneratePreparedHotReloadInstanceMethodCallImpl(
-            output, g_regBox, methodName, quoteIdentIfNeeded(funcName),
-            receiverReg, receiverType, hotStateArg, structNames)
-        if hotReloadResult != "" {
-            return hotReloadResult
+        if lowerPlan.shouldTryHotReload {
+            let hotReloadResult =
+                tryGeneratePreparedHotReloadInstanceMethodCallImpl(
+                output, g_regBox, methodName, quoteIdentIfNeeded(funcName),
+                receiverReg, receiverType, hotStateArg, structNames)
+            if hotReloadResult != "" {
+                return hotReloadResult
+            }
         }
 
         prepareCallArgumentsWithDefaults(funcName, expr.arguments, false, true,
@@ -7202,12 +7218,14 @@ class LLVMIRGenerator {
         let normalizedReceiverReg = receiverRegBox[0]
         let receiverLlvmType = receiverLlvmTypeBox[0]
 
-        let specializedResult = tryGenerateSpecializedInstanceMethodCallImpl(
-            output, g_regBox, methodName, instanceTypeName, receiverType,
-            returnTypeStr, receiverLlvmType, normalizedReceiverReg,
-            structNames)
-        if specializedResult != "" {
-            return specializedResult
+        if lowerPlan.shouldTrySpecialized {
+            let specializedResult = tryGenerateSpecializedInstanceMethodCallImpl(
+                output, g_regBox, methodName, instanceTypeName, receiverType,
+                returnTypeStr, receiverLlvmType, normalizedReceiverReg,
+                structNames)
+            if specializedResult != "" {
+                return specializedResult
+            }
         }
 
         return emitUserMethodCallImpl(output, g_regBox,

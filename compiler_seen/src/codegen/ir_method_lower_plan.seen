@@ -1,0 +1,76 @@
+// ir_method_lower_plan.seen - pure lower-half method-call planning helpers.
+
+class MethodLowerCallPlan {
+    var shouldTryLengthLike: Bool
+    var shouldTryStringBuilder: Bool
+    var shouldTryPrimitiveConversion: Bool
+    var shouldTryNumeric: Bool
+    var shouldTryStringLike: Bool
+    var shouldTraceUnwrapToJsonSource: Bool
+    var shouldReadHotStateArg: Bool
+    var shouldTryHotReload: Bool
+    var shouldTrySpecialized: Bool
+    var hasArg0: Bool
+    var hasArg1: Bool
+
+    static fun new() r: MethodLowerCallPlan {
+        return MethodLowerCallPlan{
+            shouldTryLengthLike: false,
+            shouldTryStringBuilder: false,
+            shouldTryPrimitiveConversion: false,
+            shouldTryNumeric: false,
+            shouldTryStringLike: false,
+            shouldTraceUnwrapToJsonSource: false,
+            shouldReadHotStateArg: false,
+            shouldTryHotReload: false,
+            shouldTrySpecialized: false,
+            hasArg0: false,
+            hasArg1: false
+        }
+    }
+}
+
+fun planMethodLowerCallImpl(receiverType: String, methodName: String,
+    argCount: Int, operandCount: Int, isStringBuilderRuntime: Bool,
+    isNumericReceiver: Bool) r: MethodLowerCallPlan {
+
+    let plan = MethodLowerCallPlan.new()
+    plan.shouldTryLengthLike = true
+    plan.shouldTryStringBuilder =
+        receiverType == "StringBuilder" and isStringBuilderRuntime
+    plan.shouldTryPrimitiveConversion = true
+    plan.shouldTryNumeric = isNumericReceiver
+    plan.shouldTryStringLike = true
+    plan.shouldTraceUnwrapToJsonSource =
+        receiverType == "ptr" and methodName == "toJson" and
+        operandCount > 0
+    plan.shouldReadHotStateArg =
+        methodName == "__seen_hot_set_state" and argCount > 0
+    plan.shouldTryHotReload = true
+    plan.shouldTrySpecialized = true
+    plan.hasArg0 = argCount > 0
+    plan.hasArg1 = argCount > 1
+    return plan
+}
+
+fun methodLowerStringBuilderArgActionImpl(receiverType: String,
+    methodName: String, argCount: Int, argKind: String, argCallee: String,
+    nestedArgCount: Int) r: Int {
+
+    if receiverType == "StringBuilder" and methodName == "append" and
+        argCount > 0 and argKind == "Call" and
+        argCallee == "__FloatToString" and nestedArgCount > 0 {
+        return 2
+    }
+    if argCount > 0 {
+        return 1
+    }
+    return 0
+}
+
+fun shouldUseMethodLowerUnwrapTraceSourceImpl(exprKind: String,
+    callee: String, operandCount: Int) r: Bool {
+
+    return exprKind == "MethodCall" and callee == "unwrap" and
+        operandCount > 0
+}
