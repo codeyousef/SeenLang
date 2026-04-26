@@ -115,7 +115,7 @@ import codegen.ir_stmt_gen.{emitConditionToI1Impl, emitIfBranchingImpl, computeI
 import codegen.ir_stmt_select_plan.{planPairedAssignmentSelectIfImpl, planSingleArmSelectIfImpl}
 import codegen.ir_stmt_dispatch_plan.{planStatementDispatchImpl}
 import codegen.ir_stmt_dead_code.{shouldSkipDeadLiteralInitializerImpl}
-import codegen.ir_stmt_comptime.{ComptimeRegistryStateSnapshot, classifyComptimeStatementKindImpl, resolveComptimeAssignmentTargetImpl, emitComptimeIntNoteImpl, emitComptimeStringNoteImpl, emitComptimeWhileUnrolledNoteImpl, resolveComptimeAssertMessageImpl, emitComptimeAssertFailureNoteImpl, emitComptimeAssertAbortImpl, emitComptimeAssertPassedNoteImpl, classifyComptimeIfBranchImpl, emitComptimeIfBranchNoteImpl, registerComptimeVarSnapshotImpl, updateComptimeVarSnapshotImpl, registerComptimeStrVarSnapshotImpl}
+import codegen.ir_stmt_comptime.{ComptimeRegistryStateSnapshot, classifyComptimeStatementKindImpl, shouldProcessComptimeLetImpl, shouldRegisterComptimeIntValueImpl, shouldRegisterComptimeStringValueImpl, shouldProcessComptimeAssignmentImpl, shouldApplyComptimeAssignmentUpdateImpl, shouldProcessComptimeWhileImpl, shouldContinueComptimeWhileImpl, shouldEmitRuntimeComptimeStatementImpl, resolveComptimeAssignmentTargetImpl, emitComptimeIntNoteImpl, emitComptimeStringNoteImpl, emitComptimeWhileUnrolledNoteImpl, resolveComptimeAssertMessageImpl, emitComptimeAssertFailureNoteImpl, emitComptimeAssertAbortImpl, emitComptimeAssertPassedNoteImpl, classifyComptimeAssertResultImpl, classifyComptimeIfBranchImpl, shouldGenerateComptimeIfThenImpl, shouldGenerateComptimeIfElseImpl, emitComptimeIfBranchNoteImpl, registerComptimeVarSnapshotImpl, updateComptimeVarSnapshotImpl, registerComptimeStrVarSnapshotImpl}
 import codegen.ir_stmt_return.{emitErrdeferTempReturnLoadImpl, emitReturnRegionAndProfileCleanupImpl, emitDefaultEmptyReturnStatementImpl, emitCharLiteralReturnImpl, shouldSeedReturnPendingArrayLiteralTypeImpl, shouldMarkReturnTailCallImpl, resolveCharLiteralReturnValueImpl, emitFinalReturnStatementValueImpl}
 import codegen.ir_stmt_scope.{recordDeferredStatementSnapshotImpl, enterUnsafeStatementImpl, exitUnsafeStatementImpl, beginTryCatchStatementSnapshotImpl, finalizeTryCatchArmImpl, emitTryCatchCatchHeaderImpl, emitTryCatchFooterImpl}
 import codegen.ir_assignment_gen.{emitFieldStoreImpl, emitValueReceiverMemberAssignmentImpl, emitVariableReceiverMemberAssignmentImpl, emitImplicitThisMemberAssignmentImpl, emitIndexAssignmentBoundsCheckImpl, emitPrimitiveIndexAssignmentStoreImpl, emitGenericIndexAssignmentStoreImpl}
@@ -2890,17 +2890,17 @@ class LLVMIRGenerator {
         while ctIdx < block.statements.length() {
             let ctStmt = block.statements[ctIdx]
             let ctAction = classifyComptimeStatementKindImpl(ctStmt.kind)
-            if ctAction == 1 {
+            if shouldProcessComptimeLetImpl(ctAction) {
                 // Try integer evaluation first
                 let ctVal = evaluateConstExpr(ctStmt.initializer)
-                if ctVal != -9999999 {
+                if shouldRegisterComptimeIntValueImpl(ctVal) {
                     registerComptimeVar(ctStmt.variableName, ctVal)
                     emitComptimeIntNoteImpl(output, "let ",
                         ctStmt.variableName, ctVal)
                 } else {
                     // Try string evaluation
                     let ctStrVal = evaluateConstExprStr(ctStmt.initializer)
-                    if ctStrVal != "__EVAL_FAIL__" {
+                    if shouldRegisterComptimeStringValueImpl(ctStrVal) {
                         registerComptimeStrVar(ctStmt.variableName, ctStrVal)
                         emitComptimeStringNoteImpl(output, "let ",
                             ctStmt.variableName, ctStrVal)
@@ -2908,26 +2908,27 @@ class LLVMIRGenerator {
                 }
             }
             // comptime Assignment — update existing comptime variable
-            if ctAction == 2 {
-                if ctStmt.expression.kind == "Assignment" {
-                    let ctAssignName = resolveComptimeAssignmentTargetImpl(
-                        ctStmt.expression)
-                    if ctAssignName != "" {
-                        let ctNewVal = evaluateConstExpr(ctStmt.expression.operands[0])
-                        if ctNewVal != -9999999 {
-                            updateComptimeVar(ctAssignName, ctNewVal)
-                            emitComptimeIntNoteImpl(output, "",
-                                ctAssignName, ctNewVal)
-                        }
+            if shouldProcessComptimeAssignmentImpl(ctAction,
+                ctStmt.expression.kind) {
+
+                let ctAssignName = resolveComptimeAssignmentTargetImpl(
+                    ctStmt.expression)
+                if ctAssignName != "" {
+                    let ctNewVal = evaluateConstExpr(ctStmt.expression.operands[0])
+                    if shouldApplyComptimeAssignmentUpdateImpl(ctAssignName,
+                        ctNewVal) {
+                        updateComptimeVar(ctAssignName, ctNewVal)
+                        emitComptimeIntNoteImpl(output, "",
+                            ctAssignName, ctNewVal)
                     }
                 }
             }
             // comptime While — unroll loop at compile time
-            if ctAction == 3 {
+            if shouldProcessComptimeWhileImpl(ctAction) {
                 var ctWhileIter = 0
                 while ctWhileIter < 1000 {
                     let ctWhileCond = evaluateConstExpr(ctStmt.expression)
-                    if ctWhileCond == 0 or ctWhileCond == -9999999 { break }
+                    if not shouldContinueComptimeWhileImpl(ctWhileCond) { break }
                     // Process body: comptime statements update vars, runtime statements get emitted
                     processComptimeStatements(ctStmt.thenBranch)
                     ctWhileIter = ctWhileIter + 1
@@ -2935,7 +2936,7 @@ class LLVMIRGenerator {
                 emitComptimeWhileUnrolledNoteImpl(output, ctWhileIter)
             }
             // Other statement kinds: emit as runtime code (code generation use case)
-            if ctAction == 0 {
+            if shouldEmitRuntimeComptimeStatementImpl(ctAction) {
                 generateStatement(ctStmt)
             }
             ctIdx = ctIdx + 1
@@ -2987,7 +2988,8 @@ class LLVMIRGenerator {
     // comptime assert(cond, "msg") — compile-time assertion
     fun generateComptimeAssert(stmt: StatementNode) r: Void {
         let condVal = evaluateConstExpr(stmt.expression)
-        if condVal == 0 {
+        let assertAction = classifyComptimeAssertResultImpl(condVal)
+        if assertAction == 1 {
             // Assertion failed
             let msg = resolveComptimeAssertMessageImpl(stmt.condition)
             emitComptimeAssertFailureNoteImpl(output, msg)
@@ -3004,13 +3006,13 @@ class LLVMIRGenerator {
         let condVal = evaluateConstExpr(stmt.expression)
         let branchAction = classifyComptimeIfBranchImpl(condVal,
             stmt.elseBranch.statements.length())
-        if branchAction == 1 {
+        if shouldGenerateComptimeIfThenImpl(branchAction) {
             // Condition is true - generate then branch only
             emitComptimeIfBranchNoteImpl(output, branchAction)
             generateBlock(stmt.thenBranch)
         } else {
             // Condition is false - generate else branch only (if present)
-            if branchAction == 2 {
+            if shouldGenerateComptimeIfElseImpl(branchAction) {
                 emitComptimeIfBranchNoteImpl(output, branchAction)
                 generateBlock(stmt.elseBranch)
             } else {

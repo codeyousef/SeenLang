@@ -102,6 +102,42 @@ fun classifyComptimeStatementKindImpl(stmtKind: String) r: Int {
     return 0
 }
 
+fun shouldProcessComptimeLetImpl(action: Int) r: Bool {
+    return action == 1
+}
+
+fun shouldRegisterComptimeIntValueImpl(value: Int) r: Bool {
+    return value != -9999999
+}
+
+fun shouldRegisterComptimeStringValueImpl(value: String) r: Bool {
+    return value != "__EVAL_FAIL__"
+}
+
+fun shouldProcessComptimeAssignmentImpl(action: Int,
+    exprKind: String) r: Bool {
+
+    return action == 2 and exprKind == "Assignment"
+}
+
+fun shouldApplyComptimeAssignmentUpdateImpl(targetName: String,
+    value: Int) r: Bool {
+
+    return targetName != "" and value != -9999999
+}
+
+fun shouldProcessComptimeWhileImpl(action: Int) r: Bool {
+    return action == 3
+}
+
+fun shouldContinueComptimeWhileImpl(condVal: Int) r: Bool {
+    return condVal != 0 and condVal != -9999999
+}
+
+fun shouldEmitRuntimeComptimeStatementImpl(action: Int) r: Bool {
+    return action == 0
+}
+
 fun resolveComptimeAssignmentTargetImpl(assignExpr: ParserExpressionNode)
     r: String {
 
@@ -160,6 +196,13 @@ fun emitComptimeAssertPassedNoteImpl(output: StringBuilder) r: Void {
     output.append("  ; comptime assert passed\n")
 }
 
+fun classifyComptimeAssertResultImpl(condVal: Int) r: Int {
+    if condVal == 0 {
+        return 1
+    }
+    return 2
+}
+
 fun classifyComptimeIfBranchImpl(condVal: Int, elseStatementCount: Int) r: Int {
     if condVal != 0 {
         return 1
@@ -168,6 +211,14 @@ fun classifyComptimeIfBranchImpl(condVal: Int, elseStatementCount: Int) r: Int {
         return 2
     }
     return 3
+}
+
+fun shouldGenerateComptimeIfThenImpl(branchKind: Int) r: Bool {
+    return branchKind == 1
+}
+
+fun shouldGenerateComptimeIfElseImpl(branchKind: Int) r: Bool {
+    return branchKind == 2
 }
 
 fun emitComptimeIfBranchNoteImpl(output: StringBuilder, branchKind: Int)
