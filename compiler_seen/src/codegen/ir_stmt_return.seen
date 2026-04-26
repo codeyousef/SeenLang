@@ -166,3 +166,19 @@ fun emitStructLiteralReturnLoadImpl(output: StringBuilder, loadReg: String,
     output.append("  " + loadReg + " = load " + llvmType + ", ptr " + valueReg +
         "\n")
 }
+
+fun normalizeReturnStatementValueRegImpl(output: StringBuilder,
+    regBox: Array<Int>, isDataReturnType: Bool, returnKind: String,
+    llvmType: String, valueReg: String) r: String {
+
+    var normalizedValueReg = valueReg
+    if shouldLoadStructLiteralReturnValueImpl(isDataReturnType,
+        returnKind) == 1 {
+
+        let loadReg = getNextRegFn(regBox)
+        emitStructLiteralReturnLoadImpl(output, loadReg, llvmType,
+            normalizedValueReg)
+        normalizedValueReg = loadReg
+    }
+    return normalizeZeroReturnValueRegImpl(llvmType, normalizedValueReg)
+}

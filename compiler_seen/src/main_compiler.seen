@@ -36,11 +36,11 @@ import codegen.ir_decl_features.{emitFeatureDecls}
 // compilers discover them from the main-file import scan before falling back
 // to their embedded compiler-module list.
 import codegen.ir_decl_scan.{pipeContainsValueImpl}
-import codegen.ir_decl_registry.{recordLateUserDeclareStateImpl, captureDeclarationPassStateImpl, packDeclarationPassStateImpl}
-import codegen.ir_decl_items.{registerMethodDeclarationStateImpl}
+import codegen.ir_decl_registry.{recordLateUserDeclareStateImpl, captureDeclarationPassStateImpl, registerCrossModuleConstantsIntoStateImpl}
+import codegen.ir_decl_items.{registerPreparedDeclarationItemsIntoStateImpl}
 import codegen.ir_decl_default_params.{collectDefaultParamStringConstantsImpl}
 import codegen.ir_decl_return_types.{resolveMethodReturnTypeImpl}
-import codegen.ir_module_constants.{findModuleConstantStateImpl, captureModuleConstantRegistryStateImpl}
+import codegen.ir_module_constants.{findModuleConstantIntoStateImpl, captureModuleConstantRegistryStateImpl}
 import codegen.ir_local_type_fallback.{tryInferImplicitThisVariableTypeImpl}
 import codegen.ir_async_registry.{registerAsyncFunctionImpl}
 import codegen.ir_trait_registry.{appendDynTraitNameImpl}
@@ -102,14 +102,14 @@ import codegen.ir_path_expr.{splitFirstPathDotImpl}
 import codegen.ir_member_access.{extractLastMemberFieldSegmentImpl}
 import codegen.ir_member_access_gen.{emitVariableReceiverMemberAccessImpl}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
-import codegen.ir_binary_expr.{binaryOperatorMethodSuffixImpl}
+import codegen.ir_binary_expr.{binaryOperatorMethodSuffixImpl, isPureCseBinaryOpImpl, buildBinaryCseKeyImpl}
 import codegen.ir_class_constructor_gen.{emitConstructorAllocationImpl, emitConstructorReturnImpl, emitClassHeapAllocationImpl, emitClassArrayFieldInitializersImpl, resolveClassConstructorFieldOffsetImpl}
 import codegen.ir_class_method_gen.{buildMethodAttrsImpl}
 import codegen.ir_stmt_decl.{resolveLetStatementTypeImpl, prepareLetStatementPlanImpl, resolveLetPreAllocatedRegImpl}
 import codegen.ir_stmt_gen.{emitConditionToI1Impl, computeIfBranchWeightMetadataForStatementImpl, normalizeIfConditionTypeImpl, emitIfLetBindingStateImpl, emitUnusedResultCallWarningImpl}
 import codegen.ir_stmt_dead_code.{scanBlockDeadStorePatternsSnapshotImpl, emitTrailingDeadCodeNoticeSnapshotImpl, shouldSkipDeadLiteralInitializerImpl}
 import codegen.ir_stmt_comptime.{ComptimeRegistryStateSnapshot, classifyComptimeStatementKindImpl, registerComptimeVarSnapshotImpl, updateComptimeVarSnapshotImpl, registerComptimeStrVarSnapshotImpl}
-import codegen.ir_stmt_return.{emitErrdeferTempReturnLoadImpl, emitProfileExitOnReturnImpl, emitReturnRegionAndProfileCleanupImpl}
+import codegen.ir_stmt_return.{emitErrdeferTempReturnLoadImpl, emitProfileExitOnReturnImpl, emitReturnRegionAndProfileCleanupImpl, normalizeReturnStatementValueRegImpl}
 import codegen.ir_stmt_scope.{classifyScopedStatementKindImpl, recordDeferredStatementSnapshotImpl, beginTryCatchStatementSnapshotImpl}
 import codegen.type_registry.{findStructReg}
 import codegen.ir_type_header.{emitBuiltinTypeHeaderImpl}

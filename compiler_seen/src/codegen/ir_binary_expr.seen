@@ -126,6 +126,28 @@ fun binaryOperatorMethodSuffixImpl(operator: String) r: String {
     return ""
 }
 
+fun isPureCseBinaryOpImpl(leftType: String, rightType: String,
+    operator: String) r: Bool {
+
+    if leftType != "Int" and leftType != "Float" {
+        return false
+    }
+    if rightType != "Int" and rightType != "Float" {
+        return false
+    }
+    if operator == "+" or operator == "-" or operator == "*" or
+        operator == "/" {
+        return true
+    }
+    return false
+}
+
+fun buildBinaryCseKeyImpl(leftReg: String, operator: String,
+    rightReg: String) r: String {
+
+    return leftReg + operator + rightReg
+}
+
 // emitOverloadedBinaryCallImpl — lower user-defined operator overload calls.
 fun emitOverloadedBinaryCallImpl(output: StringBuilder, regBox: Array<Int>,
     quotedFuncName: String, retLlvmType: String, leftReg: String, rightReg: String) r: String {

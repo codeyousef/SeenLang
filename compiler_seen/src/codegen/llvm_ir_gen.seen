@@ -45,8 +45,8 @@ import codegen.ir_decl_parser.{emitParserDecls, emitTypecheckerDecls}
 import codegen.ir_decl_features.{emitFeatureDecls, generateHotReloadMethodsImpl}
 import codegen.ir_decl_scan.{collectStructMethodSignaturesImpl}
 import codegen.ir_async_registry.{registerAsyncFunctionImpl, isAsyncFunctionImpl, getAsyncDeclaredRetTypeImpl}
-import codegen.ir_decl_registry.{preRegisterClassTypesImpl, registerFunctionStateImpl, registerCrossModuleConstantsIntoStateImpl, registerParentClassStateImpl, lookupCResourceDestructorStateImpl, isAsyncFunctionStateImpl, getAsyncDeclaredRetTypeStateImpl, getFunctionReturnTypeStateImpl, recordLateUserDeclareStateImpl, emitLateUserDeclaresStateImpl, unpackDeclRegistryFieldImpl, captureDeclarationPassStateImpl, packDeclarationPassStateImpl}
-import codegen.ir_decl_items.{DeclarationItemContext, PreparedDeclarationItem, normalizeSeenTypeNameImpl, normalizeDeclaredTypeNodeImpl, registerPreparedDeclarationItemsIntoStateImpl}
+import codegen.ir_decl_registry.{DeclarationPassState, preRegisterClassTypesImpl, registerFunctionStateImpl, registerCrossModuleConstantsIntoStateImpl, registerParentClassStateImpl, lookupCResourceDestructorStateImpl, isAsyncFunctionStateImpl, getAsyncDeclaredRetTypeStateImpl, getFunctionReturnTypeStateImpl, recordLateUserDeclareStateImpl, emitLateUserDeclaresStateImpl, unpackDeclRegistryFieldImpl, captureDeclarationPassStateImpl}
+import codegen.ir_decl_items.{DeclarationItemContext, PreparedDeclarationItem, normalizeSeenTypeNameImpl, normalizeDeclaredTypeNodeImpl, prepareDeclarationItemForRegistrationImpl, registerPreparedDeclarationItemsIntoStateImpl}
 import codegen.ir_decl_return_types.{inferReturnExprTypeImpl, resolveMethodReturnTypeImpl, resolveFunctionReturnTypeImpl}
 import codegen.ir_module_constants.{isModuleConstMutableImpl, getModuleConstSeenTypeImpl, tryInferModuleConstantVariableTypeIntoStateImpl, findModuleConstantIntoStateImpl, emitGlobalVariablesIntoStateImpl, moduleConstantInvariantLoadSuffixImpl, captureModuleConstantRegistryStateImpl}
 import codegen.ir_type_header.{tryLoadTypeHeaderIntoOutputImpl, emitBuiltinTypeHeaderImpl}
@@ -99,18 +99,18 @@ import codegen.ir_path_expr.{splitChainedPathImpl, buildChainedPathExprImpl, spl
 import codegen.ir_member_access.{emitSimdSwizzleMemberAccessImpl, inferSimdSwizzleMemberTypeImpl, inferJsonValueMemberAccessTypeImpl, inferLiteralReceiverMemberAccessTypeImpl, inferDirectMemberAccessTypeImpl, extractLastMemberFieldSegmentImpl}
 import codegen.ir_member_access_gen.{emitExpressionReceiverMemberAccessImpl, emitVariableReceiverMemberAccessImpl, emitModuleConstReceiverMemberAccessImpl, emitBracketPathMemberAccessImpl, emitChainedReceiverMemberAccessImpl, emitImplicitThisReceiverMemberAccessImpl}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, inferTypeRegistryFieldTypeImpl, getSemanticFieldTypeImpl, resolveMethodFieldPathTypeImpl, tryResolveEnumLiteralMethodReceiverImpl, convertReceiverToPtrImpl}
-import codegen.ir_binary_expr.{emitPointerArithmeticBinaryImpl, emitSimdBinaryExprImpl, binaryOperatorMethodSuffixImpl, emitOverloadedBinaryCallImpl, exprProducesBoolImpl, emitBoolCoercionImpl, emitShortCircuitPhiImpl}
+import codegen.ir_binary_expr.{emitPointerArithmeticBinaryImpl, emitSimdBinaryExprImpl, binaryOperatorMethodSuffixImpl, isPureCseBinaryOpImpl, buildBinaryCseKeyImpl, emitOverloadedBinaryCallImpl, exprProducesBoolImpl, emitBoolCoercionImpl, emitShortCircuitPhiImpl}
 import codegen.ir_class_method_gen.{tryEmitOptionClassMethodShimImpl, shouldTraceClassMethodStartImpl, collectClassMethodParameterInfoImpl, emitClassMethodSignatureStateImpl, emitClassMethodReceiverBindingStateImpl, emitClassMethodParameterBindingsStateImpl, emitClassMethodConstructorSetupStateImpl, tryEmitClassMethodConstructorReturnStateImpl, emitClassMethodDefaultReturnStateImpl}
 import codegen.ir_stmt_decl.{shouldInferDeclarationInitializerTypeImpl, resolveDeclarationBaseTypeImpl, resolveLetStatementTypeImpl, resolveLetStatementAllocaImpl, prepareLetStatementPlanImpl, resolveLetPreAllocatedRegImpl, findPreAllocatedOccurrenceImpl, nextDeclarationOrdinalImpl, classifyCollectedStatementKindImpl, shouldTraceCollectedDeclarationTypeImpl, appendCollectedDeclarationImpl, resolveCollectedForInElementTypeImpl, buildForInIndexNameImpl, shouldSeedDeclarationPendingArrayLiteralTypeImpl, emitDeadLiteralInitializerSkipNoteImpl, emitDeclarationInitializerStoreImpl}
 import codegen.ir_stmt_gen.{emitConditionToI1Impl, emitIfBranchingImpl, computeIfBranchWeightMetadataForStatementImpl, normalizeIfConditionTypeImpl, finalizeConditionalEndBlockImpl, emitIfExpressionBranchValueImpl, emitPhiMergeValueImpl, emitIfLetBindingStateImpl, emitIndexedForLoopHeaderImpl, emitRegionStatementPreambleImpl, emitRegionStatementCleanupImpl, classifyParallelForRangeExprImpl, buildParallelForBodyFunctionNameImpl, emitParallelForBodyHeaderImpl, finalizeParallelForBodyImpl, emitUnusedResultCallWarningImpl}
 import codegen.ir_stmt_dead_code.{shouldSkipDeadLiteralInitializerImpl}
 import codegen.ir_stmt_comptime.{ComptimeRegistryStateSnapshot, classifyComptimeStatementKindImpl, resolveComptimeAssignmentTargetImpl, emitComptimeIntNoteImpl, emitComptimeStringNoteImpl, emitComptimeWhileUnrolledNoteImpl, resolveComptimeAssertMessageImpl, emitComptimeAssertFailureNoteImpl, emitComptimeAssertAbortImpl, emitComptimeAssertPassedNoteImpl, classifyComptimeIfBranchImpl, emitComptimeIfBranchNoteImpl, registerComptimeVarSnapshotImpl, updateComptimeVarSnapshotImpl, registerComptimeStrVarSnapshotImpl}
-import codegen.ir_stmt_return.{emitErrdeferTempReturnLoadImpl, emitReturnRegionAndProfileCleanupImpl, emitAsyncReturnStoreAndBranchImpl, emitAsyncReturnBranchImpl, emitDefaultEmptyReturnStatementImpl, emitCharLiteralReturnImpl, shouldSeedReturnPendingArrayLiteralTypeImpl, shouldLoadStructLiteralReturnValueImpl, shouldMarkReturnTailCallImpl, resolveCharLiteralReturnValueImpl, normalizeZeroReturnValueRegImpl, emitStructLiteralReturnLoadImpl}
+import codegen.ir_stmt_return.{emitErrdeferTempReturnLoadImpl, emitReturnRegionAndProfileCleanupImpl, emitAsyncReturnStoreAndBranchImpl, emitAsyncReturnBranchImpl, emitDefaultEmptyReturnStatementImpl, emitCharLiteralReturnImpl, shouldSeedReturnPendingArrayLiteralTypeImpl, shouldMarkReturnTailCallImpl, resolveCharLiteralReturnValueImpl, normalizeReturnStatementValueRegImpl}
 import codegen.ir_stmt_scope.{classifyBasicStatementKindImpl, classifyLoopControlStatementKindImpl, classifyScopedStatementKindImpl, classifyMetaStatementKindImpl, recordDeferredStatementSnapshotImpl, enterUnsafeStatementImpl, exitUnsafeStatementImpl, beginTryCatchStatementSnapshotImpl, finalizeTryCatchArmImpl, emitTryCatchCatchHeaderImpl, emitTryCatchFooterImpl}
 import codegen.ir_assignment_gen.{emitFieldStoreImpl, emitValueReceiverMemberAssignmentImpl, emitVariableReceiverMemberAssignmentImpl, emitImplicitThisMemberAssignmentImpl, emitIndexAssignmentBoundsCheckImpl, emitPrimitiveIndexAssignmentStoreImpl, emitGenericIndexAssignmentStoreImpl}
 import codegen.ir_variable_gen.{getExprVariableNameImpl, findActiveVariableIndexImpl, findVisibleVariableTypeImpl, storeActiveVariableBindingImpl, emitMovedVariableUseTrapImpl, emitComptimeVariableLoadImpl, emitModuleConstantLoadImpl, emitFunctionPointerInteropLoadImpl, emitLocalVariableLoadImpl, emitStoreValueToPtrImpl, emitDistinctTypeMismatchWarningImpl, emitImplicitThisPointerLoadImpl, emitImplicitThisFieldStoreImpl, emitMoveSourceNullifyImpl, emitTriviallyCopyableAssignmentNoteImpl}
 import codegen.type_registry.{findStructReg, ensureStructEntryReg, registerStructMethodReg, registerKnownDataTypesReg, getFunctionReturnTypeReg, isClassTypeReg, isDataTypeReg, getTypeSizeReg, getPoolEligibleClassSizeReg, getDataTypeSizeReg, getFieldInfoReg, applyStructLayoutRegistrationReg}
-import codegen.type_registry.{TypeRegistry, CodegenState, FunctionLoweringOptions, getSharedCodegenState, clearTransientFunctionLoweringOptions}
+import codegen.type_registry.{TypeRegistry, CodegenState, FunctionLoweringOptions, getSharedCodegenState}
 import codegen.ir_function_gen.{generateLiteralFree, NestedScratchStateSnapshot, emitAsyncCoroutineEpilogueImpl, snapshotNestedScratchStateImpl, resetLocalCodegenStateImpl, clearActiveBindingsImpl, beginNestedScratchStateImpl, restoreNestedScratchStateImpl, emitParallelForCallImpl, emitPreAllocatedAllocasImpl, emitFunctionEntrySetupSnapshotImpl, emitFunctionExitResetSnapshotImpl, prepareFunctionPreludeAnalysisSnapshotImpl, prepareFunctionGenerationIdentitySnapshotImpl}
 import codegen.ir_function_decorators.{hasFunctionDecoratorImpl, shouldSkipFunctionByCfgStateImpl, emitFunctionDecoratorMetadataCommentsStateImpl, tryHandleIntrinsicFunctionGenerationStateImpl, shouldSkipSpecialFunctionBodyStateImpl, prepareFunctionAttributeStateSnapshotImpl, prepareFunctionDecoratorPreflightSnapshotImpl, tryHandleExternFunctionGenerationStateImpl}
 import codegen.ir_function_usage.{scanUnusedTopLevelFunctionNamesImpl}
@@ -1095,30 +1095,33 @@ class LLVMIRGenerator {
         registerPreparedDeclarationItemsIntoStateImpl(preparedItems,
             declItemContext)
         registerCrossModuleConstantsIntoStateImpl(program, declState)
-        let declStatePacked = packDeclarationPassStateImpl(declState)
-        g_asyncFuncNames = unpackDeclRegistryFieldImpl(declStatePacked, 0)
-        g_asyncFuncRetTypes = unpackDeclRegistryFieldImpl(declStatePacked, 1)
-        g_asyncFuncCount = unpackDeclRegistryFieldImpl(declStatePacked, 2).toInt()
-        g_xmDeclareNames = unpackDeclRegistryFieldImpl(declStatePacked, 3)
-        g_xmDeclareStrs = unpackDeclRegistryFieldImpl(declStatePacked, 4)
-        g_xmDeclareVis = unpackDeclRegistryFieldImpl(declStatePacked, 5)
-        g_xmDeclareCount = unpackDeclRegistryFieldImpl(declStatePacked, 6).toInt()
-        g_enumTypeNames = unpackDeclRegistryFieldImpl(declStatePacked, 7)
-        g_enumVariantNames = unpackDeclRegistryFieldImpl(declStatePacked, 8)
-        g_enumVariantTags = unpackDeclRegistryFieldImpl(declStatePacked, 9)
-        g_enumVariantFieldTypes = unpackDeclRegistryFieldImpl(
-            declStatePacked, 10)
-        g_enumVariantFieldCounts = unpackDeclRegistryFieldImpl(
-            declStatePacked, 11)
-        g_enumVariantParent = unpackDeclRegistryFieldImpl(declStatePacked, 12)
-        g_enumTypeCount = unpackDeclRegistryFieldImpl(declStatePacked, 13).toInt()
-        g_enumVariantCount = unpackDeclRegistryFieldImpl(
-            declStatePacked, 14).toInt()
-        g_xmConstNames = unpackDeclRegistryFieldImpl(declStatePacked, 15)
-        g_xmConstTypes = unpackDeclRegistryFieldImpl(declStatePacked, 16)
-        g_xmConstMutable = unpackDeclRegistryFieldImpl(declStatePacked, 17)
-        g_xmConstSeenTypes = unpackDeclRegistryFieldImpl(declStatePacked, 18)
-        g_xmConstCount = unpackDeclRegistryFieldImpl(declStatePacked, 19).toInt()
+        applyDeclarationPassState(declState)
+    }
+
+    fun applyDeclarationPassState(declState: DeclarationPassState) r: Void {
+        g_asyncFuncNames = declState.asyncFuncNames
+        g_asyncFuncRetTypes = declState.asyncFuncRetTypes
+        g_asyncFuncCount = declState.asyncFuncCount
+        g_xmDeclareNames = declState.xmDeclareNames
+        g_xmDeclareStrs = declState.xmDeclareStrs
+        g_xmDeclareVis = declState.xmDeclareVis
+        g_xmDeclareNamesArr = declState.xmDeclareNamesArr
+        g_xmDeclareStrsArr = declState.xmDeclareStrsArr
+        g_xmDeclareVisArr = declState.xmDeclareVisArr
+        g_xmDeclareCount = declState.xmDeclareCount
+        g_enumTypeNames = declState.enumTypeNames
+        g_enumVariantNames = declState.enumVariantNames
+        g_enumVariantTags = declState.enumVariantTags
+        g_enumVariantFieldTypes = declState.enumVariantFieldTypes
+        g_enumVariantFieldCounts = declState.enumVariantFieldCounts
+        g_enumVariantParent = declState.enumVariantParent
+        g_enumTypeCount = declState.enumTypeCount
+        g_enumVariantCount = declState.enumVariantCount
+        g_xmConstNames = declState.xmConstNames
+        g_xmConstTypes = declState.xmConstTypes
+        g_xmConstMutable = declState.xmConstMutable
+        g_xmConstSeenTypes = declState.xmConstSeenTypes
+        g_xmConstCount = declState.xmConstCount
     }
 
     fun collectClassMethodDeclarationReturnTypes(classNode: ClassNode)
@@ -1137,16 +1140,17 @@ class LLVMIRGenerator {
     fun prepareDeclarationItemForRegistration(item: ItemNode)
         r: PreparedDeclarationItem {
 
-        let preparedItem = PreparedDeclarationItem.new(item)
+        var classMethodRetTypeNames = Array<String>()
+        var funcRetTypeName = ""
         if item.itemType == "Class" {
-            preparedItem.classMethodRetTypeNames =
+            classMethodRetTypeNames =
                 collectClassMethodDeclarationReturnTypes(item.classNode)
         }
         if item.itemType == "Function" {
-            preparedItem.funcRetTypeName = resolveFunctionReturnType(
-                item.function)
+            funcRetTypeName = resolveFunctionReturnType(item.function)
         }
-        return preparedItem
+        return prepareDeclarationItemForRegistrationImpl(item,
+            classMethodRetTypeNames, funcRetTypeName)
     }
 
     fun collectPreparedDeclarationItems(program: ProgramNode)
@@ -3240,18 +3244,6 @@ class LLVMIRGenerator {
         return valueReg
     }
 
-    fun normalizeReturnStatementValueReg(stmt: StatementNode, llvmType: String, valueReg: String) r: String {
-        var normalizedValueReg = valueReg
-        if shouldLoadStructLiteralReturnValueImpl(
-            isDataType(currentFunctionReturnType), stmt.returnValue.kind) == 1 {
-            let loadReg = getNextReg()
-            emitStructLiteralReturnLoadImpl(output, loadReg, llvmType,
-                normalizedValueReg)
-            normalizedValueReg = loadReg
-        }
-        return normalizeZeroReturnValueRegImpl(llvmType, normalizedValueReg)
-    }
-
     // Generate IR for a return statement. Emits pending defer expressions
     // in LIFO order before the return. For async functions, stores the return
     // value into the coroutine promise and branches to the async cleanup label.
@@ -3296,7 +3288,9 @@ class LLVMIRGenerator {
 
         let llvmType = mapType(currentFunctionReturnType)
         let rawValueReg = resolveReturnStatementValueReg(stmt)
-        let valueReg = normalizeReturnStatementValueReg(stmt, llvmType, rawValueReg)
+        let valueReg = normalizeReturnStatementValueRegImpl(output, g_regBox,
+            isDataType(currentFunctionReturnType), stmt.returnValue.kind,
+            llvmType, rawValueReg)
         output.append("  ret " + llvmType + " " + valueReg + "\n")
         blockTerminated = true
     }
@@ -5735,15 +5729,12 @@ class LLVMIRGenerator {
 
         // CSE within function scope: re-enabled for pure int/float binary ops.
         // Cache is cleared at function entry and block boundaries (safe with dominance).
-        if (leftType == "Int" or leftType == "Float") and (rightType == "Int" or rightType == "Float") {
-            let isPureBinOp = expr.operator == "+" or expr.operator == "-" or expr.operator == "*" or expr.operator == "/"
-            if isPureBinOp {
-                let cseKey = leftReg + expr.operator + rightReg
-                let cseCached = cseLookup(cseKey)
-                if cseCached != "" {
-                    mlLogDecision("cse", "hit", cseKey)
-                    return cseCached
-                }
+        if isPureCseBinaryOpImpl(leftType, rightType, expr.operator) {
+            let cseKey = buildBinaryCseKeyImpl(leftReg, expr.operator, rightReg)
+            let cseCached = cseLookup(cseKey)
+            if cseCached != "" {
+                mlLogDecision("cse", "hit", cseKey)
+                return cseCached
             }
         }
 
@@ -5781,12 +5772,10 @@ class LLVMIRGenerator {
         if cseSig[0] == 1 { cseClear() }
 
         // CSE recording for pure int/float binary ops (within function scope only)
-        if (leftType == "Int" or leftType == "Float") and (rightType == "Int" or rightType == "Float") {
-            let isPureBinOp2 = expr.operator == "+" or expr.operator == "-" or expr.operator == "*" or expr.operator == "/"
-            if isPureBinOp2 {
-                let cseKey2 = leftReg + expr.operator + rightReg
-                cseRecord(cseKey2, resultReg)
-            }
+        if isPureCseBinaryOpImpl(leftType, rightType, expr.operator) {
+            let cseKey2 = buildBinaryCseKeyImpl(leftReg, expr.operator,
+                rightReg)
+            cseRecord(cseKey2, resultReg)
         }
 
         return resultReg

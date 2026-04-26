@@ -6,29 +6,6 @@ import str.string.{StringBuilder}
 import codegen.ir_optimization.{pipeGet}
 import codegen.ir_module_emit.{isValidCrossModuleConstantEntryImpl, emitGlobalVariablesImpl}
 
-fun moduleConstPackSepImpl() r: String {
-    return "@@MODCONSTSEP@@"
-}
-
-fun unpackModuleConstFieldImpl(data: String, idx: Int) r: String {
-    let sep = moduleConstPackSepImpl()
-    var start = 0
-    var curIdx = 0
-    while curIdx < idx {
-        let sepPos = data.indexOf(sep, start)
-        if sepPos < 0 {
-            return ""
-        }
-        start = sepPos + sep.length()
-        curIdx = curIdx + 1
-    }
-    let end = data.indexOf(sep, start)
-    if end < 0 {
-        return data.substring(start, data.length())
-    }
-    return data.substring(start, end)
-}
-
 class ModuleConstantRegistryState {
     var moduleConstMutable: String
     var moduleConstSeenTypes: String
@@ -48,14 +25,6 @@ fun captureModuleConstantRegistryStateImpl(moduleConstMutable: String,
 
     return ModuleConstantRegistryState.new(moduleConstMutable,
         moduleConstSeenTypes)
-}
-
-fun applyModuleConstantUpdatedStateImpl(state: ModuleConstantRegistryState,
-    updated: String) r: String {
-
-    state.moduleConstMutable = unpackModuleConstFieldImpl(updated, 0)
-    state.moduleConstSeenTypes = unpackModuleConstFieldImpl(updated, 1)
-    return unpackModuleConstFieldImpl(updated, 2)
 }
 
 fun isModuleConstMutableImpl(idx: Int, moduleConstMutable: String) r: Bool {
@@ -172,82 +141,6 @@ fun appendParsedHeaderModuleConstantImpl(trimmedLine: String,
         }
         constIdx = constIdx + 1
     }
-}
-
-fun findModuleConstantStateImpl(name: String,
-    moduleConstantNames: Array<String>, moduleConstantTypes: Array<String>,
-    moduleConstantValues: Array<String>, moduleConstMutable: String,
-    moduleConstSeenTypes: String, xmConstNames: String, xmConstTypes: String,
-    xmConstMutable: String, xmConstSeenTypes: String, xmConstCount: Int) r: String {
-
-    var i = moduleConstantNames.length() - 1
-    while i >= 0 {
-        if moduleConstantNames[i] == name {
-            let sep = moduleConstPackSepImpl()
-            return moduleConstMutable + sep + moduleConstSeenTypes + sep +
-                i.toString()
-        }
-        i = i - 1
-    }
-
-    var updatedMutable = moduleConstMutable
-    var updatedSeenTypes = moduleConstSeenTypes
-    if xmConstCount > 0 {
-        var xi = 0
-        while xi < xmConstCount {
-            let xcName = pipeGet(xmConstNames, xi)
-            let xcType = pipeGet(xmConstTypes, xi)
-            if isValidCrossModuleConstantEntryImpl(xcName, xcType) and xcName == name {
-                let xcMut = pipeGet(xmConstMutable, xi)
-                let xcSeenType = pipeGet(xmConstSeenTypes, xi)
-                moduleConstantNames.push(name)
-                moduleConstantTypes.push(xcType)
-                moduleConstantValues.push("0")
-                if updatedMutable == "" {
-                    updatedMutable = xcMut
-                } else {
-                    updatedMutable = updatedMutable + "|" + xcMut
-                }
-                if updatedSeenTypes == "" {
-                    updatedSeenTypes = xcSeenType
-                } else {
-                    updatedSeenTypes = updatedSeenTypes + "|" + xcSeenType
-                }
-                let sep = moduleConstPackSepImpl()
-                return updatedMutable + sep + updatedSeenTypes + sep +
-                    (moduleConstantNames.length() - 1).toString()
-            }
-            xi = xi + 1
-        }
-    }
-
-    let sep = moduleConstPackSepImpl()
-    return updatedMutable + sep + updatedSeenTypes + sep + "-1"
-}
-
-fun tryInferModuleConstantVariableTypeStateImpl(name: String,
-    moduleConstantNames: Array<String>, moduleConstantTypes: Array<String>,
-    moduleConstantValues: Array<String>, moduleConstMutable: String,
-    moduleConstSeenTypes: String, xmConstNames: String, xmConstTypes: String,
-    xmConstMutable: String, xmConstSeenTypes: String, xmConstCount: Int) r: String {
-
-    let updated = findModuleConstantStateImpl(name, moduleConstantNames,
-        moduleConstantTypes, moduleConstantValues, moduleConstMutable,
-        moduleConstSeenTypes, xmConstNames, xmConstTypes, xmConstMutable,
-        xmConstSeenTypes, xmConstCount)
-    let updatedMutable = unpackModuleConstFieldImpl(updated, 0)
-    let updatedSeenTypes = unpackModuleConstFieldImpl(updated, 1)
-    let constIdx = unpackModuleConstFieldImpl(updated, 2).toInt()
-    let sep = moduleConstPackSepImpl()
-    if constIdx < 0 {
-        return updatedMutable + sep + updatedSeenTypes + sep
-    }
-    let seenType = getModuleConstSeenTypeImpl(constIdx, updatedSeenTypes)
-    if seenType != "" {
-        return updatedMutable + sep + updatedSeenTypes + sep + seenType
-    }
-    return updatedMutable + sep + updatedSeenTypes + sep +
-        mapModuleConstLlvmTypeToSeenTypeImpl(moduleConstantTypes[constIdx])
 }
 
 fun tryInferModuleConstantVariableTypeIntoStateImpl(name: String,
