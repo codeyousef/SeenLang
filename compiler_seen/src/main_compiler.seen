@@ -71,6 +71,7 @@ import codegen.ir_call_constructors.{emitStaticCollectionNewImpl, isArrayConstru
 import codegen.ir_call_args.{fillDefaultParamsImpl}
 import codegen.ir_call_runtime.{emitPrintLikeCallImpl}
 import codegen.ir_call_runtime_plan.{isOptionRuntimeCallPlanImpl, runtimeIoCallActionImpl, isMathRuntimeCallPlanImpl}
+import codegen.ir_call_regular_plan.{shouldPromoteRegularCallFloatArgsImpl, resolveRegularCallLlvmReturnTypeImpl, regularCallTailFlagImpl}
 import codegen.ir_call_meta.{resolveSizeofBuiltinValueImpl}
 import codegen.ir_call_low_level.{isPtrBuiltinCallImpl}
 import codegen.ir_call_builtin_plan.{isSizeofMetaBuiltinImpl, shouldReadPtrBuiltinArgImpl, isStackAllocBuiltinImpl, isDefaultValueBuiltinImpl, planIndirectCallImpl}
@@ -1941,6 +1942,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_call_args")
         modules.push("codegen.ir_call_runtime")
         modules.push("codegen.ir_call_runtime_plan")
+        modules.push("codegen.ir_call_regular_plan")
         modules.push("codegen.ir_call_meta")
         modules.push("codegen.ir_call_low_level")
         modules.push("codegen.ir_call_builtin_plan")

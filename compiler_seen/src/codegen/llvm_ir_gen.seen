@@ -84,6 +84,7 @@ import codegen.ir_constructor_call_plan.{planArrayConstructorCallImpl, shouldEmi
 import codegen.ir_call_args.{fillDefaultParamsImpl, appendPreparedCallArgImpl, promoteFloatArgsImpl}
 import codegen.ir_call_runtime.{emitPrintLikeCallImpl, emitOptionRuntimeBuiltinCallImpl, emitSuperRuntimeBuiltinCallImpl, emitReadTextRuntimeCallImpl, emitWriteTextRuntimeCallImpl, emitArgsRuntimeCallImpl, emitPanicRuntimeCallImpl, emitMathBuiltinCallImpl}
 import codegen.ir_call_runtime_plan.{isOptionRuntimeCallPlanImpl, shouldReadSomeRuntimeArgImpl, isSuperRuntimeCallPlanImpl, isEmptyRuntimeCalleeImpl, isPrintRuntimeCallPlanImpl, shouldReadPrintRuntimeArgImpl, runtimeIoCallActionImpl, isPanicRuntimeCallPlanImpl, shouldReadPanicRuntimeArgImpl, isMathRuntimeCallPlanImpl, shouldReadMathRuntimeArgImpl}
+import codegen.ir_call_regular_plan.{shouldPromoteRegularCallFloatArgsImpl, resolveRegularCallLlvmReturnTypeImpl, shouldRecordRegularLateDeclareImpl, regularCallTailFlagImpl}
 import codegen.ir_call_meta.{resolveSizeofBuiltinValueImpl, resolveAlignofBuiltinValueImpl, resolveOffsetofBuiltinValueImpl}
 import codegen.ir_call_low_level.{isPtrBuiltinCallImpl, emitPtrBuiltinCallImpl, emitBarrierBuiltinCallImpl, emitStackAllocBuiltinCallImpl, emitConstructAtBuiltinCallImpl, emitDebugAssertBuiltinCallStateImpl, emitCStringBuiltinCallImpl, emitSplitBuiltinCallImpl, emitAsyncYieldBuiltinStateImpl, isSimdBuiltinCallImpl, emitPreparedSimdBuiltinCallImpl, emitIndirectBuiltinCallImpl}
 import codegen.ir_call_builtin_plan.{isSizeofMetaBuiltinImpl, isAlignofMetaBuiltinImpl, isOffsetofMetaBuiltinImpl, isTransmuteMetaBuiltinImpl, resolveTransmuteTargetTypeNameImpl, isIncludeStrMetaBuiltinImpl, isIncludeBytesMetaBuiltinImpl, hasBuiltinArgImpl, shouldReadPtrBuiltinArgImpl, isStackAllocBuiltinImpl, isDefaultValueBuiltinImpl, isAsyncYieldBuiltinImpl, shouldReadSimdShuffleConstArgImpl, planIndirectCallImpl, shouldLookupEnumVariantCallImpl, shouldGenerateEnumVariantConstructorImpl, shouldClearDebugAssertCseImpl}
@@ -6431,26 +6432,26 @@ class LLVMIRGenerator {
             println("[irgen call pre-promote] class=" + currentClassName + " func=" + funcName + " regs=" + argRegs.length().toString() + " types=" + argTypeStrs.length().toString())
         }
 
-        if argRegs.length() == argTypeStrs.length() and g_floatParamFuncNames.length() > 0 and g_floatParamParamIdxs.length() > 0 {
+        if shouldPromoteRegularCallFloatArgsImpl(argRegs.length(),
+            argTypeStrs.length(), g_floatParamFuncNames.length(),
+            g_floatParamParamIdxs.length()) {
             promoteFloatArgsImpl(output, g_regBox, funcName, argRegs, argTypeStrs, g_floatParamFuncNames, g_floatParamParamIdxs)
         }
 
         let returnType = inferExpressionType(expr)
-        var llvmReturnType = mapType(returnType)
-        if isAsyncFunctionStateImpl(funcName, g_asyncFuncNames,
-            g_asyncFuncCount) {
-            llvmReturnType = "ptr"
-        }
+        let llvmReturnType = resolveRegularCallLlvmReturnTypeImpl(
+            mapType(returnType), isAsyncFunctionStateImpl(funcName,
+            g_asyncFuncNames, g_asyncFuncCount))
 
-        let lateState = captureLateUserDeclareState()
-        recordLateUserDeclareIntoStateImpl(funcName, llvmReturnType,
-            argTypeStrs, 0, funcNames, funcRetTypes, g_xmDeclareNames,
-            g_xmDeclareCount, lateState)
-        applyLateUserDeclareState(lateState)
-        var freeCallTail = 0
-        if takeTailCallPositionImpl(getCurrentFunctionOptions()) {
-            freeCallTail = 1
+        if shouldRecordRegularLateDeclareImpl(funcName) {
+            let lateState = captureLateUserDeclareState()
+            recordLateUserDeclareIntoStateImpl(funcName, llvmReturnType,
+                argTypeStrs, 0, funcNames, funcRetTypes, g_xmDeclareNames,
+                g_xmDeclareCount, lateState)
+            applyLateUserDeclareState(lateState)
         }
+        let freeCallTail = regularCallTailFlagImpl(
+            takeTailCallPositionImpl(getCurrentFunctionOptions()))
         return emitUserFunctionCallImpl(output, g_regBox, quoteIdentIfNeeded(funcName), llvmReturnType, argRegs, argTypeStrs, freeCallTail)
     }
 
