@@ -1,0 +1,82 @@
+// ir_method_final_plan.seen - pure final method-call routing helpers.
+
+class MethodUnresolvedReceiverPlan {
+    var shouldHandle: Bool
+    var shouldLookupImplicitReturn: Bool
+    var shouldLowerAsCall: Bool
+    var shouldUseStandaloneParserWorkaround: Bool
+    var shouldWarnAndApplyDefault: Bool
+
+    static fun new() r: MethodUnresolvedReceiverPlan {
+        return MethodUnresolvedReceiverPlan{
+            shouldHandle: false,
+            shouldLookupImplicitReturn: false,
+            shouldLowerAsCall: false,
+            shouldUseStandaloneParserWorkaround: false,
+            shouldWarnAndApplyDefault: false
+        }
+    }
+}
+
+class MethodFinalDispatchPlan {
+    var shouldPrepareArguments: Bool
+    var shouldPrepareReceiverAbi: Bool
+    var shouldTrySpecialized: Bool
+    var shouldEmitUserMethod: Bool
+
+    static fun new() r: MethodFinalDispatchPlan {
+        return MethodFinalDispatchPlan{
+            shouldPrepareArguments: false,
+            shouldPrepareReceiverAbi: false,
+            shouldTrySpecialized: false,
+            shouldEmitUserMethod: false
+        }
+    }
+}
+
+fun planMethodUnresolvedReceiverStartImpl(receiverReg: String,
+    currentClassName: String) r: MethodUnresolvedReceiverPlan {
+
+    let plan = MethodUnresolvedReceiverPlan.new()
+    plan.shouldHandle = receiverReg == ""
+    plan.shouldLookupImplicitReturn =
+        plan.shouldHandle and currentClassName != ""
+    return plan
+}
+
+fun planMethodUnresolvedReceiverFinalImpl(receiverReg: String,
+    currentClassName: String, implicitMethodRetType: String,
+    functionRetType: String, isStandaloneParserWorkaround: Bool)
+    r: MethodUnresolvedReceiverPlan {
+
+    let plan = planMethodUnresolvedReceiverStartImpl(receiverReg,
+        currentClassName)
+    if not plan.shouldHandle {
+        return plan
+    }
+    if currentClassName != "" and implicitMethodRetType != "" {
+        plan.shouldLowerAsCall = true
+        return plan
+    }
+    if functionRetType != "" {
+        plan.shouldLowerAsCall = true
+        return plan
+    }
+    if isStandaloneParserWorkaround {
+        plan.shouldUseStandaloneParserWorkaround = true
+        return plan
+    }
+    plan.shouldWarnAndApplyDefault = true
+    return plan
+}
+
+fun planMethodFinalDispatchImpl(shouldTrySpecializedLowering: Bool)
+    r: MethodFinalDispatchPlan {
+
+    let plan = MethodFinalDispatchPlan.new()
+    plan.shouldPrepareArguments = true
+    plan.shouldPrepareReceiverAbi = true
+    plan.shouldTrySpecialized = shouldTrySpecializedLowering
+    plan.shouldEmitUserMethod = true
+    return plan
+}

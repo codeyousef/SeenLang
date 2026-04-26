@@ -96,10 +96,11 @@ import codegen.ir_call_low_level.{isPtrBuiltinCallImpl, emitPtrBuiltinCallImpl, 
 import codegen.ir_call_builtin_plan.{planMetaBuiltinCallImpl, planLowLevelBuiltinCallImpl, shouldReadSimdShuffleConstArgImpl, planLowLevelBuiltinArgumentReadsImpl, shouldClearLowLevelDebugAssertCseImpl}
 import codegen.ir_call_fixups.{resolveRealParserMisplacedMethodReturnTypeImpl, isStandaloneParserWorkaroundImpl, emitStandaloneParserWorkaroundCallImpl}
 import codegen.ir_method_finalize.{resolveMethodCallInstanceTypeNameImpl, tryGeneratePreparedHotReloadInstanceMethodCallImpl, resolveMethodCallReturnTypeImpl, prepareMethodCallReceiverAbiImpl, tryGenerateSpecializedInstanceMethodCallImpl, emitArrayFreeMutationImpl, emitArrayPushMutationImpl, emitArrayPopMutationImpl, emitArraySwapMutationImpl, emitPoolFreeFromValueSlotImpl, emitClassFreeMutationImpl}
-import codegen.ir_method_fastpath.{emitPreparedDynTraitMethodCallImpl, tryGeneratePreparedExplicitReceiverFastPathImpl, tryGeneratePreparedLocalVariableReceiverFastPathImpl, tryGenerateLengthLikeMethodCallImpl, emitStringBuilderReceiverMethodCallImpl, tryGeneratePrimitiveConversionMethodCallImpl, tryGenerateNumericReceiverMethodCallImpl, tryGenerateStringLikeReceiverMethodCallImpl, resolveStaticMethodClassNamesImpl, isStaticMethodReceiverReferenceImpl, tryGenerateStaticFactoryMethodCallImpl, resolveStaticMethodReturnTypeImpl, prepareModuleConstantMethodReceiverImpl, emitPreparedStaticMethodCallImpl, shouldLowerUnresolvedMethodAsCallImpl, tryGenerateUnresolvedReceiverFallbackMethodImpl, applyUnresolvedReceiverDefaultImpl}
+import codegen.ir_method_fastpath.{emitPreparedDynTraitMethodCallImpl, tryGeneratePreparedExplicitReceiverFastPathImpl, tryGeneratePreparedLocalVariableReceiverFastPathImpl, tryGenerateLengthLikeMethodCallImpl, emitStringBuilderReceiverMethodCallImpl, tryGeneratePrimitiveConversionMethodCallImpl, tryGenerateNumericReceiverMethodCallImpl, tryGenerateStringLikeReceiverMethodCallImpl, resolveStaticMethodClassNamesImpl, isStaticMethodReceiverReferenceImpl, tryGenerateStaticFactoryMethodCallImpl, resolveStaticMethodReturnTypeImpl, prepareModuleConstantMethodReceiverImpl, emitPreparedStaticMethodCallImpl, tryGenerateUnresolvedReceiverFallbackMethodImpl, applyUnresolvedReceiverDefaultImpl}
 import codegen.ir_method_receiver_predicates.{isOptionReceiverTypeImpl, isSmallVecReceiverTypeImpl, isCollectionReceiverTypeImpl, isArrayReceiverTypeImpl, isStringBuilderRuntimeMethodImpl, isNumericReceiverMethodImpl, needsStaticFactoryArgumentImpl}
-import codegen.ir_method_call_plan.{planResolvedReceiverFastPathImpl, shouldReadOptionDefaultFastPathArgImpl, shouldReadSmallVecFastPathArgImpl, shouldReadReceiverFastPathArgImpl, shouldTryStaticMethodCallImpl, isPascalStaticReceiverNameImpl, shouldTryNoArgStaticFactoryImpl, shouldTryArgStaticFactoryImpl, resolveStaticCallClassNameImpl, shouldPromoteStaticMethodFloatArgsImpl, staticMethodFunctionNameImpl, shouldRecordStaticMethodLateDeclareImpl, shouldUseUnresolvedReceiverFallbackImpl, shouldLookupImplicitMethodReturnImpl, isSeenLexerKeywordManagerReceiverImpl, hasGeneratorFieldReceiverImpl, hasStructFieldReceiverImpl, shouldResolveImplicitThisDottedFieldReceiverImpl, shouldUseLiteralArrayFreeReceiverTypeImpl, shouldResolveArrayFreePointerFromLiteralImpl, shouldEmitArrayFreePointerImpl, shouldEmitClassFreeMutationImpl, planArrayMutatorMethodImpl, isDottedArrayMutatorLiteralImpl, shouldResolveChainedArrayMutatorReceiverImpl, shouldLoadLocalArrayMutatorPointerImpl, shouldUseImplicitThisArrayMutatorPointerImpl, shouldUseArrayMutatorReceiverFallbackImpl, shouldEmitArrayMutatorWithPointerImpl, resolveArrayMutatorVariableNameImpl, resolveArrayReceiverElementTypeImpl, resolveArrayPushElementTypeImpl, shouldUseReceiverRegForArrayMutationImpl}
+import codegen.ir_method_call_plan.{planResolvedReceiverFastPathImpl, shouldReadOptionDefaultFastPathArgImpl, shouldReadSmallVecFastPathArgImpl, shouldReadReceiverFastPathArgImpl, shouldTryStaticMethodCallImpl, isPascalStaticReceiverNameImpl, shouldTryNoArgStaticFactoryImpl, shouldTryArgStaticFactoryImpl, resolveStaticCallClassNameImpl, shouldPromoteStaticMethodFloatArgsImpl, staticMethodFunctionNameImpl, shouldRecordStaticMethodLateDeclareImpl, isSeenLexerKeywordManagerReceiverImpl, hasGeneratorFieldReceiverImpl, hasStructFieldReceiverImpl, shouldResolveImplicitThisDottedFieldReceiverImpl, shouldUseLiteralArrayFreeReceiverTypeImpl, shouldResolveArrayFreePointerFromLiteralImpl, shouldEmitArrayFreePointerImpl, shouldEmitClassFreeMutationImpl, planArrayMutatorMethodImpl, isDottedArrayMutatorLiteralImpl, shouldResolveChainedArrayMutatorReceiverImpl, shouldLoadLocalArrayMutatorPointerImpl, shouldUseImplicitThisArrayMutatorPointerImpl, shouldUseArrayMutatorReceiverFallbackImpl, shouldEmitArrayMutatorWithPointerImpl, resolveArrayMutatorVariableNameImpl, resolveArrayReceiverElementTypeImpl, resolveArrayPushElementTypeImpl, shouldUseReceiverRegForArrayMutationImpl}
 import codegen.ir_method_lower_plan.{planMethodLowerCallImpl, methodLowerStringBuilderArgActionImpl, shouldUseMethodLowerUnwrapTraceSourceImpl}
+import codegen.ir_method_final_plan.{planMethodUnresolvedReceiverStartImpl, planMethodUnresolvedReceiverFinalImpl, planMethodFinalDispatchImpl}
 import codegen.ir_method_receiver_lookup_plan.{planDottedReceiverStageImpl, planExplicitReceiverStageImpl, planDottedReceiverFallbackStageImpl, planImplicitThisDottedReceiverStageImpl, planSimpleLiteralReceiverStageImpl, planImplicitThisReceiverStageImpl}
 import codegen.ir_struct_gen.{emitStructFieldStoresImpl, resolveStructLiteralFieldFallback, inferStructFieldTypeFromExpr}
 import codegen.ir_struct_layout_build.{prepareStructLayoutRegistrationSnapshotImpl}
@@ -7032,19 +7033,25 @@ class LLVMIRGenerator {
             return staticCallResult
         }
 
-        if shouldUseUnresolvedReceiverFallbackImpl(receiverReg) {
+        let unresolvedStartPlan = planMethodUnresolvedReceiverStartImpl(
+            receiverReg, currentClassName)
+        if unresolvedStartPlan.shouldHandle {
             var implicitMethodRetType = ""
-            if shouldLookupImplicitMethodReturnImpl(currentClassName) {
+            if unresolvedStartPlan.shouldLookupImplicitReturn {
                 implicitMethodRetType = getMethodReturnType(currentClassName,
                     methodName)
             }
-            if shouldLowerUnresolvedMethodAsCallImpl(currentClassName,
-                implicitMethodRetType, getFunctionReturnTypeStateImpl(
-                methodName, funcNames, funcRetTypes)) {
+            let unresolvedFunctionRetType = getFunctionReturnTypeStateImpl(
+                methodName, funcNames, funcRetTypes)
+            let unresolvedFinalPlan = planMethodUnresolvedReceiverFinalImpl(
+                receiverReg, currentClassName, implicitMethodRetType,
+                unresolvedFunctionRetType,
+                isStandaloneParserWorkaroundImpl(methodName))
+            if unresolvedFinalPlan.shouldLowerAsCall {
                 return generateCall(expr)
             }
 
-            if isStandaloneParserWorkaroundImpl(methodName) {
+            if unresolvedFinalPlan.shouldUseStandaloneParserWorkaround {
                 prepareCallArgumentsWithDefaults(methodName, expr.arguments,
                     false, false, false, "")
                 return emitStandaloneParserWorkaroundCallImpl(output,
@@ -7052,22 +7059,24 @@ class LLVMIRGenerator {
                     g_defaultFillArgTypeStrs)
             }
 
-            output.append("; WARNING: receiver not resolved for " + methodName +
-                ", receiverType='" + receiverType + "', currentClass='" +
-                currentClassName + "', literal='" + expr.literalValue +
-                "', operands=" + expr.operands.length().toString() +
-                ", using default\n")
-            let unresolvedFallback =
-                tryGenerateUnresolvedReceiverFallbackMethodImpl(output,
-                    g_regBox, methodName, receiverReg, receiverType)
-            if unresolvedFallback != "" {
-                return unresolvedFallback
+            if unresolvedFinalPlan.shouldWarnAndApplyDefault {
+                output.append("; WARNING: receiver not resolved for " + methodName +
+                    ", receiverType='" + receiverType + "', currentClass='" +
+                    currentClassName + "', literal='" + expr.literalValue +
+                    "', operands=" + expr.operands.length().toString() +
+                    ", using default\n")
+                let unresolvedFallback =
+                    tryGenerateUnresolvedReceiverFallbackMethodImpl(output,
+                        g_regBox, methodName, receiverReg, receiverType)
+                if unresolvedFallback != "" {
+                    return unresolvedFallback
+                }
+                let unresolvedReceiverRegBox = Array<String>()
+                unresolvedReceiverRegBox.push(receiverReg)
+                applyUnresolvedReceiverDefaultImpl(unresolvedReceiverRegBox,
+                    receiverType)
+                receiverReg = unresolvedReceiverRegBox[0]
             }
-            let unresolvedReceiverRegBox = Array<String>()
-            unresolvedReceiverRegBox.push(receiverReg)
-            applyUnresolvedReceiverDefaultImpl(unresolvedReceiverRegBox,
-                receiverType)
-            receiverReg = unresolvedReceiverRegBox[0]
         }
 
         // Generate arguments BEFORE allocating result register to keep numbers in order
@@ -7193,8 +7202,12 @@ class LLVMIRGenerator {
             }
         }
 
-        prepareCallArgumentsWithDefaults(funcName, expr.arguments, false, true,
-            false, "")
+        let finalDispatchPlan = planMethodFinalDispatchImpl(
+            lowerPlan.shouldTrySpecialized)
+        if finalDispatchPlan.shouldPrepareArguments {
+            prepareCallArgumentsWithDefaults(funcName, expr.arguments, false,
+                true, false, "")
+        }
         let argRegs = g_defaultFillArgRegs
         let argTypeStrs = g_defaultFillArgTypeStrs
 
@@ -7207,15 +7220,17 @@ class LLVMIRGenerator {
         receiverRegBox.push(receiverReg)
         let receiverLlvmTypeBox = Array<String>()
         receiverLlvmTypeBox.push("ptr")
-        prepareMethodCallReceiverAbiImpl(output, g_regBox, instanceTypeName,
-            receiverRegBox, receiverType, receiverLlvmTypeBox, structNames,
-            g_reprCClassNames, g_typeAliasNames, g_typeAliasTargets,
-            g_typeAliasCount, g_enumTypeNames)
+        if finalDispatchPlan.shouldPrepareReceiverAbi {
+            prepareMethodCallReceiverAbiImpl(output, g_regBox, instanceTypeName,
+                receiverRegBox, receiverType, receiverLlvmTypeBox, structNames,
+                g_reprCClassNames, g_typeAliasNames, g_typeAliasTargets,
+                g_typeAliasCount, g_enumTypeNames)
+        }
 
         let normalizedReceiverReg = receiverRegBox[0]
         let receiverLlvmType = receiverLlvmTypeBox[0]
 
-        if lowerPlan.shouldTrySpecialized {
+        if finalDispatchPlan.shouldTrySpecialized {
             let specializedResult = tryGenerateSpecializedInstanceMethodCallImpl(
                 output, g_regBox, methodName, instanceTypeName, receiverType,
                 returnTypeStr, receiverLlvmType, normalizedReceiverReg,
@@ -7225,9 +7240,12 @@ class LLVMIRGenerator {
             }
         }
 
-        return emitUserMethodCallImpl(output, g_regBox,
-            quoteIdentIfNeeded(funcName), llvmReturnType, receiverLlvmType,
-            normalizedReceiverReg, argRegs, argTypeStrs, 0)
+        if finalDispatchPlan.shouldEmitUserMethod {
+            return emitUserMethodCallImpl(output, g_regBox,
+                quoteIdentIfNeeded(funcName), llvmReturnType, receiverLlvmType,
+                normalizedReceiverReg, argRegs, argTypeStrs, 0)
+        }
+        return ""
     }
 
     // Generate IR for an await expression. Calls the async function to get

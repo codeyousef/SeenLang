@@ -86,8 +86,9 @@ import codegen.ir_constructor_field_plan.{planNextConstructorFieldTypeImpl, plan
 import codegen.ir_method_finalize.{normalizeInstanceMethodTypeNameImpl}
 import codegen.ir_method_fastpath.{resolveStaticMethodClassNamesImpl}
 import codegen.ir_method_receiver_predicates.{isOptionReceiverTypeImpl, isSmallVecReceiverTypeImpl, isCollectionReceiverTypeImpl, isArrayReceiverTypeImpl, isStringBuilderRuntimeMethodImpl, isNumericReceiverMethodImpl, needsStaticFactoryArgumentImpl}
-import codegen.ir_method_call_plan.{planResolvedReceiverFastPathImpl, shouldReadOptionDefaultFastPathArgImpl, shouldReadSmallVecFastPathArgImpl, shouldReadReceiverFastPathArgImpl, shouldTryStaticMethodCallImpl, isPascalStaticReceiverNameImpl, shouldUseUnresolvedReceiverFallbackImpl, shouldEmitArrayFreePointerImpl, planArrayMutatorMethodImpl, shouldEmitArrayMutatorWithPointerImpl, hasGeneratorFieldReceiverImpl, hasStructFieldReceiverImpl}
+import codegen.ir_method_call_plan.{planResolvedReceiverFastPathImpl, shouldReadOptionDefaultFastPathArgImpl, shouldReadSmallVecFastPathArgImpl, shouldReadReceiverFastPathArgImpl, shouldTryStaticMethodCallImpl, isPascalStaticReceiverNameImpl, shouldEmitArrayFreePointerImpl, planArrayMutatorMethodImpl, shouldEmitArrayMutatorWithPointerImpl, hasGeneratorFieldReceiverImpl, hasStructFieldReceiverImpl}
 import codegen.ir_method_lower_plan.{planMethodLowerCallImpl, methodLowerStringBuilderArgActionImpl, shouldUseMethodLowerUnwrapTraceSourceImpl}
+import codegen.ir_method_final_plan.{planMethodUnresolvedReceiverStartImpl, planMethodUnresolvedReceiverFinalImpl, planMethodFinalDispatchImpl}
 import codegen.ir_method_receiver_lookup_plan.{planDottedReceiverStageImpl, planExplicitReceiverStageImpl, planDottedReceiverFallbackStageImpl, planImplicitThisDottedReceiverStageImpl, planSimpleLiteralReceiverStageImpl, planImplicitThisReceiverStageImpl}
 import codegen.ir_infer_type.{inferCallExprTypeImpl}
 import codegen.ir_special_expr_infer.{inferSpecialExprTypeImpl}
@@ -2000,6 +2001,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_method_receiver_predicates")
         modules.push("codegen.ir_method_call_plan")
         modules.push("codegen.ir_method_lower_plan")
+        modules.push("codegen.ir_method_final_plan")
         modules.push("codegen.ir_method_receiver_lookup_plan")
         modules.push("codegen.ir_method_fastpath")
         modules.push("codegen.ir_binary_expr")
