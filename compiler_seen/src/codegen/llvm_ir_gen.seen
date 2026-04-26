@@ -39,7 +39,7 @@
 
 import parser.real_parser.{ProgramNode, ItemNode, FunctionNode, ClassNode, BlockNode, StatementNode, ParserExpressionNode, TypeNode, AnnotationNode}
 import str.string.{StringBuilder}
-import codegen.ir_optimization.{parseGlobalVarMutable, parseGlobalVarType, parseGlobalVarValue, parseIntManual, foldIntConstants, foldIntComparison, selectSimdWidth, pipeGet, exprCost, egraphLookup, egraphLookupFloat, egraphSelfComparison, selfCallCheck, parseFixedPoint100, g_inlineW0, g_inlineW1, g_inlineW2, g_inlineW3, g_inlineBias, g_mlWeightsActive, pipeContains, splitPipe, simpleHash, getNextRegFn, getNextBlockFn, emitEgraphPeepholeImpl, emitEgraphFloatPeepholeImpl}
+import codegen.ir_optimization.{parseGlobalVarMutable, parseGlobalVarType, parseGlobalVarValue, parseIntManual, foldIntConstants, foldIntComparison, selectSimdWidth, pipeGet, exprCost, egraphLookup, egraphLookupFloat, egraphSelfComparison, selfCallCheck, parseFixedPoint100, g_inlineW0, g_inlineW1, g_inlineW2, g_inlineW3, g_inlineBias, g_mlWeightsActive, pipeContains, splitPipe, simpleHash, getNextRegFn, getNextBlockFn}
 import codegen.ir_decl_runtime.{emitCoreRuntimeDecls, emitStringAndIODecls, emitMacroAndLspDecls}
 import codegen.ir_decl_parser.{emitParserDecls, emitTypecheckerDecls}
 import codegen.ir_decl_features.{emitFeatureDecls, generateHotReloadMethodsImpl}
@@ -120,7 +120,8 @@ import codegen.ir_member_access.{emitSimdSwizzleMemberAccessImpl, inferSimdSwizz
 import codegen.ir_member_access_plan.{planMemberAccessRouteImpl}
 import codegen.ir_member_access_gen.{emitExpressionReceiverMemberAccessImpl, emitVariableReceiverMemberAccessImpl, emitModuleConstReceiverMemberAccessImpl, emitBracketPathMemberAccessImpl, emitChainedReceiverMemberAccessImpl, emitImplicitThisReceiverMemberAccessImpl}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, inferTypeRegistryFieldTypeImpl, getSemanticFieldTypeImpl, resolveMethodFieldPathTypeImpl, tryResolveEnumLiteralMethodReceiverImpl, convertReceiverToPtrImpl}
-import codegen.ir_binary_expr.{emitPointerArithmeticBinaryImpl, emitSimdBinaryExprImpl, binaryOperatorMethodSuffixImpl, isSimdBinaryOperatorImpl, emitSelfComparisonConstResultImpl, emitFoldedBoolLiteralBinaryResultImpl, emitFoldedIntLiteralBinaryResultImpl, emitAssociativeIntFoldResultImpl, shouldUseFmaForOperandTypesImpl, emitFmaOperandPromotionImpl, emitFmaCallImpl, buildBinaryCseKeyImpl, buildSelfComparisonLogValueImpl, buildBinaryFoldLogValueImpl, emitOverloadedBinaryCallImpl, exprProducesBoolImpl, emitBoolCoercionImpl, emitShortCircuitPhiImpl}
+import codegen.ir_binary_expr.{binaryOperatorMethodSuffixImpl, isSimdBinaryOperatorImpl, shouldUseFmaForOperandTypesImpl, buildSelfComparisonLogValueImpl, buildBinaryFoldLogValueImpl, emitOverloadedBinaryCallImpl, exprProducesBoolImpl, emitBoolCoercionImpl, emitShortCircuitPhiImpl}
+import codegen.ir_binary_emit.{emitPreparedPointerArithmeticBinaryImpl, emitPreparedSimdBinaryExprImpl, emitPreparedSelfComparisonConstResultImpl, emitPreparedIntPeepholeBinaryActionImpl, emitPreparedAssociativeIntFoldResultImpl, emitPreparedFoldedBoolLiteralBinaryResultImpl, emitPreparedFoldedIntLiteralBinaryResultImpl, emitPreparedFloatPeepholeBinaryActionImpl, emitPreparedFmaOperandPromotionImpl, emitPreparedFmaCallImpl, buildPreparedBinaryCseKeyImpl}
 import codegen.ir_binary_plan.{shouldTryPointerArithmeticBinaryImpl, shouldTrySimdBinaryGateImpl, shouldUseIntPeepholeGateImpl, shouldUseFloatPeepholeGateImpl, shortCircuitBinaryActionImpl, shouldTryBinaryOverloadImpl}
 import codegen.ir_binary_fold_plan.{planBinaryOperandLiteralFactsImpl, isBinaryIntLiteralOperandImpl, planBinaryFoldActionImpl, shouldTryBinaryAssociativeIntFoldImpl, binaryAssociativeIntFoldRewriteCostImpl, shouldApplyBinaryAssociativeIntFoldImpl, planBinaryLiteralComparisonFoldImpl, planBinaryLiteralConstantFoldImpl, planBinaryFloatPeepholeImpl, planBinaryFoldFmaImpl, planBinaryFoldCseImpl}
 import codegen.ir_binary_short_circuit.{allocateShortCircuitBinaryLabelsImpl, emitShortCircuitCheckBridgeImpl, emitShortCircuitAndDecisionImpl, emitShortCircuitOrDecisionImpl, emitShortCircuitRightLabelImpl, emitShortCircuitDoneBridgeImpl, emitShortCircuitMergeJumpImpl}
@@ -5294,7 +5295,7 @@ class LLVMIRGenerator {
         if shouldTryPointerArithmeticBinaryImpl(leftType, expr.operator) {
             let paLeftReg = generateExpression(leftExpr)
             let paRightReg = generateExpression(rightExpr)
-            let paResult = emitPointerArithmeticBinaryImpl(output, g_regBox,
+            let paResult = emitPreparedPointerArithmeticBinaryImpl(output, g_regBox,
                 expr.operator, leftType, rightType, paLeftReg, paRightReg)
             if paResult != "" {
                 return paResult
@@ -5308,7 +5309,7 @@ class LLVMIRGenerator {
             let simdLlvmType = mapType(leftType)
             let simdLeftReg = generateExpression(leftExpr)
             let simdRightReg = generateExpression(rightExpr)
-            let simdResult = emitSimdBinaryExprImpl(output, g_regBox,
+            let simdResult = emitPreparedSimdBinaryExprImpl(output, g_regBox,
                 expr.operator, leftType, simdLlvmType, simdLeftReg, simdRightReg)
             if simdResult != "" {
                 return simdResult
@@ -5333,7 +5334,7 @@ class LLVMIRGenerator {
                 if selfPlan.returnLeft {
                     return generateExpression(leftExpr)
                 }
-                let selfFoldReg = emitSelfComparisonConstResultImpl(output,
+                let selfFoldReg = emitPreparedSelfComparisonConstResultImpl(output,
                     g_regBox, selfAction, expr.operator)
                 if selfFoldReg != "" {
                     g_constantsFolded = g_constantsFolded + 1
@@ -5366,7 +5367,7 @@ class LLVMIRGenerator {
                 if actionPlan.shouldGenerateLeftReg {
                     egLeftReg = generateExpression(leftExpr)
                 }
-                let egResult = emitEgraphPeepholeImpl(output, g_regBox, action, egLeftReg, "", expr.operator)
+                let egResult = emitPreparedIntPeepholeBinaryActionImpl(output, g_regBox, action, egLeftReg, expr.operator)
                 if egResult != "" {
                     return egResult
                 }
@@ -5393,7 +5394,7 @@ class LLVMIRGenerator {
                         let innerLeftReg =
                             generateExpression(leftExpr.operands[0])
                         let assocResultReg =
-                            emitAssociativeIntFoldResultImpl(output,
+                            emitPreparedAssociativeIntFoldResultImpl(output,
                                 g_regBox, expr.operator, innerLeftReg,
                                 combinedVal)
                         if assocResultReg != "" {
@@ -5418,7 +5419,7 @@ class LLVMIRGenerator {
                 mlLogDecision("const-fold", "cmp-folded",
                     buildBinaryFoldLogValueImpl(leftLitVal,
                     expr.operator, rightLitVal, cmpResult))
-                return emitFoldedBoolLiteralBinaryResultImpl(output,
+                return emitPreparedFoldedBoolLiteralBinaryResultImpl(output,
                     g_regBox, cmpResult)
             }
             // Constant folding: both operands are IntLiteral → compute at compile time
@@ -5434,7 +5435,7 @@ class LLVMIRGenerator {
                 mlLogDecision("const-fold", "folded",
                     buildBinaryFoldLogValueImpl(leftLitVal,
                     expr.operator, rightLitVal, folded))
-                return emitFoldedIntLiteralBinaryResultImpl(output,
+                return emitPreparedFoldedIntLiteralBinaryResultImpl(output,
                     g_regBox, folded)
             }
         }
@@ -5465,7 +5466,7 @@ class LLVMIRGenerator {
                 if fActionPlan.shouldGenerateLeftReg {
                     fgLeftReg = generateExpression(leftExpr)
                 }
-                let fResult = emitEgraphFloatPeepholeImpl(output, g_regBox, fAction, fgLeftReg, fgRightReg, expr.operator)
+                let fResult = emitPreparedFloatPeepholeBinaryActionImpl(output, g_regBox, fAction, fgLeftReg, fgRightReg, expr.operator)
                 if fResult != "" {
                     return fResult
                 }
@@ -5483,15 +5484,15 @@ class LLVMIRGenerator {
                 let rRightType = inferExpressionType(rightExpr.operands[1])
                 if shouldUseFmaForOperandTypesImpl(rLeftType, rRightType) {
                     var fmaAReg = generateExpression(rightExpr.operands[0])
-                    fmaAReg = emitFmaOperandPromotionImpl(output, g_regBox,
+                    fmaAReg = emitPreparedFmaOperandPromotionImpl(output, g_regBox,
                         fmaAReg, rLeftType)
                     var fmaBReg = generateExpression(rightExpr.operands[1])
-                    fmaBReg = emitFmaOperandPromotionImpl(output, g_regBox,
+                    fmaBReg = emitPreparedFmaOperandPromotionImpl(output, g_regBox,
                         fmaBReg, rRightType)
                     var fmaCReg = generateExpression(leftExpr)
-                    fmaCReg = emitFmaOperandPromotionImpl(output, g_regBox,
+                    fmaCReg = emitPreparedFmaOperandPromotionImpl(output, g_regBox,
                         fmaCReg, leftType)
-                    return emitFmaCallImpl(output, g_regBox, fmaAReg,
+                    return emitPreparedFmaCallImpl(output, g_regBox, fmaAReg,
                         fmaBReg, fmaCReg, "c + a*b")
                 }
             }
@@ -5501,15 +5502,15 @@ class LLVMIRGenerator {
                 let lRightType = inferExpressionType(leftExpr.operands[1])
                 if shouldUseFmaForOperandTypesImpl(lLeftType, lRightType) {
                     var fmaAReg = generateExpression(leftExpr.operands[0])
-                    fmaAReg = emitFmaOperandPromotionImpl(output, g_regBox,
+                    fmaAReg = emitPreparedFmaOperandPromotionImpl(output, g_regBox,
                         fmaAReg, lLeftType)
                     var fmaBReg = generateExpression(leftExpr.operands[1])
-                    fmaBReg = emitFmaOperandPromotionImpl(output, g_regBox,
+                    fmaBReg = emitPreparedFmaOperandPromotionImpl(output, g_regBox,
                         fmaBReg, lRightType)
                     var fmaCReg = generateExpression(rightExpr)
-                    fmaCReg = emitFmaOperandPromotionImpl(output, g_regBox,
+                    fmaCReg = emitPreparedFmaOperandPromotionImpl(output, g_regBox,
                         fmaCReg, rightType)
-                    return emitFmaCallImpl(output, g_regBox, fmaAReg,
+                    return emitPreparedFmaCallImpl(output, g_regBox, fmaAReg,
                         fmaBReg, fmaCReg, "a*b + c")
                 }
             }
@@ -5532,7 +5533,7 @@ class LLVMIRGenerator {
         // Cache is cleared at function entry and block boundaries (safe with dominance).
         let csePlan = planBinaryFoldCseImpl(leftType, rightType, expr.operator)
         if csePlan.shouldLookup {
-            let cseKey = buildBinaryCseKeyImpl(leftReg, expr.operator, rightReg)
+            let cseKey = buildPreparedBinaryCseKeyImpl(leftReg, expr.operator, rightReg)
             let cseCached = cseLookup(cseKey)
             if cseCached != "" {
                 mlLogDecision("cse", "hit", cseKey)
@@ -5575,7 +5576,7 @@ class LLVMIRGenerator {
 
         // CSE recording for pure int/float binary ops (within function scope only)
         if csePlan.shouldRecord {
-            let cseKey2 = buildBinaryCseKeyImpl(leftReg, expr.operator,
+            let cseKey2 = buildPreparedBinaryCseKeyImpl(leftReg, expr.operator,
                 rightReg)
             cseRecord(cseKey2, resultReg)
         }
