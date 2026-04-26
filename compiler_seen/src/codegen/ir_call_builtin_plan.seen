@@ -25,6 +25,24 @@ class MetaBuiltinCallPlan {
     }
 }
 
+class LowLevelBuiltinCallPlan {
+    var action: Int
+    var hasArg0: Bool
+    var hasArg1: Bool
+    var hasArg2: Bool
+    var indirectVarIndex: Int
+
+    static fun new() r: LowLevelBuiltinCallPlan {
+        return LowLevelBuiltinCallPlan{
+            action: 0,
+            hasArg0: false,
+            hasArg1: false,
+            hasArg2: false,
+            indirectVarIndex: -1
+        }
+    }
+}
+
 fun isSizeofMetaBuiltinImpl(funcName: String) r: Bool {
     return funcName == "sizeof"
 }
@@ -147,4 +165,75 @@ fun shouldClearDebugAssertCseImpl(boundsCheckEnabled: Int,
     condVal: String) r: Bool {
 
     return boundsCheckEnabled == 1 and condVal != ""
+}
+
+fun planLowLevelBuiltinCallImpl(funcName: String, argCount: Int,
+    isPtrBuiltin: Int, isSimdBuiltin: Int, varNames: Array<String>,
+    activeVarCount: Int, enumVariantCount: Int, isVariantCall: Bool,
+    variantFieldCount: Int) r: LowLevelBuiltinCallPlan {
+
+    let plan = LowLevelBuiltinCallPlan.new()
+    plan.hasArg0 = argCount > 0
+    plan.hasArg1 = argCount > 1
+    plan.hasArg2 = argCount > 2
+    if isPtrBuiltin == 1 {
+        plan.action = 1
+        return plan
+    }
+    if funcName == "barrier" {
+        plan.action = 2
+        return plan
+    }
+    if isStackAllocBuiltinImpl(funcName) {
+        plan.action = 3
+        return plan
+    }
+    if funcName == "constructAt" {
+        plan.action = 4
+        return plan
+    }
+    if funcName == "debug_assert" {
+        plan.action = 5
+        return plan
+    }
+    if funcName == "str_to_cstr" {
+        plan.action = 6
+        return plan
+    }
+    if funcName == "split" and argCount >= 2 {
+        plan.action = 7
+        return plan
+    }
+    if funcName == "cstr_to_str" {
+        plan.action = 8
+        return plan
+    }
+    if isDefaultValueBuiltinImpl(funcName) {
+        plan.action = 9
+        return plan
+    }
+    if isAsyncYieldBuiltinImpl(funcName) {
+        plan.action = 10
+        return plan
+    }
+    if isSimdBuiltin == 1 {
+        plan.action = 11
+        return plan
+    }
+
+    let indirectPlan = planIndirectCallImpl(funcName, varNames,
+        activeVarCount)
+    if indirectPlan.isIndirect {
+        plan.action = 12
+        plan.indirectVarIndex = indirectPlan.varIndex
+        return plan
+    }
+
+    if shouldLookupEnumVariantCallImpl(enumVariantCount) {
+        if shouldGenerateEnumVariantConstructorImpl(isVariantCall,
+            variantFieldCount) {
+            plan.action = 13
+        }
+    }
+    return plan
 }

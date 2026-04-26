@@ -87,7 +87,7 @@ import codegen.ir_call_runtime_plan.{isOptionRuntimeCallPlanImpl, shouldReadSome
 import codegen.ir_call_regular_plan.{shouldPromoteRegularCallFloatArgsImpl, resolveRegularCallLlvmReturnTypeImpl, shouldRecordRegularLateDeclareImpl, regularCallTailFlagImpl}
 import codegen.ir_call_meta.{resolveSizeofBuiltinValueImpl, resolveAlignofBuiltinValueImpl, resolveOffsetofBuiltinValueImpl}
 import codegen.ir_call_low_level.{isPtrBuiltinCallImpl, emitPtrBuiltinCallImpl, emitBarrierBuiltinCallImpl, emitStackAllocBuiltinCallImpl, emitConstructAtBuiltinCallImpl, emitDebugAssertBuiltinCallStateImpl, emitCStringBuiltinCallImpl, emitSplitBuiltinCallImpl, emitAsyncYieldBuiltinStateImpl, isSimdBuiltinCallImpl, emitPreparedSimdBuiltinCallImpl, emitIndirectBuiltinCallImpl}
-import codegen.ir_call_builtin_plan.{planMetaBuiltinCallImpl, hasBuiltinArgImpl, shouldReadPtrBuiltinArgImpl, isStackAllocBuiltinImpl, isDefaultValueBuiltinImpl, isAsyncYieldBuiltinImpl, shouldReadSimdShuffleConstArgImpl, planIndirectCallImpl, shouldLookupEnumVariantCallImpl, shouldGenerateEnumVariantConstructorImpl, shouldClearDebugAssertCseImpl}
+import codegen.ir_call_builtin_plan.{planMetaBuiltinCallImpl, planLowLevelBuiltinCallImpl, shouldReadSimdShuffleConstArgImpl, shouldClearDebugAssertCseImpl}
 import codegen.ir_call_fixups.{resolveRealParserMisplacedMethodReturnTypeImpl, isStandaloneParserWorkaroundImpl, emitStandaloneParserWorkaroundCallImpl}
 import codegen.ir_method_finalize.{resolveMethodCallInstanceTypeNameImpl, tryGeneratePreparedHotReloadInstanceMethodCallImpl, resolveMethodCallReturnTypeImpl, prepareMethodCallReceiverAbiImpl, tryGenerateSpecializedInstanceMethodCallImpl, emitArrayFreeMutationImpl, emitArrayPushMutationImpl, emitArrayPopMutationImpl, emitArraySwapMutationImpl, emitPoolFreeFromValueSlotImpl, emitClassFreeMutationImpl}
 import codegen.ir_method_fastpath.{emitPreparedDynTraitMethodCallImpl, tryGeneratePreparedExplicitReceiverFastPathImpl, tryGeneratePreparedLocalVariableReceiverFastPathImpl, tryGenerateLengthLikeMethodCallImpl, emitStringBuilderReceiverMethodCallImpl, tryGeneratePrimitiveConversionMethodCallImpl, tryGenerateNumericReceiverMethodCallImpl, tryGenerateStringLikeReceiverMethodCallImpl, resolveStaticMethodClassNamesImpl, isStaticMethodReceiverReferenceImpl, tryGenerateStaticFactoryMethodCallImpl, resolveStaticMethodReturnTypeImpl, prepareModuleConstantMethodReceiverImpl, emitPreparedStaticMethodCallImpl, shouldLowerUnresolvedMethodAsCallImpl, tryGenerateUnresolvedReceiverFallbackMethodImpl, applyUnresolvedReceiverDefaultImpl}
@@ -5819,40 +5819,54 @@ class LLVMIRGenerator {
     }
 
     fun tryGenerateLowLevelBuiltinCall(expr: ParserExpressionNode, funcName: String) r: String {
-        if isPtrBuiltinCallImpl(funcName) == 1 {
+        var lowIsVariantCall = false
+        var lowVariantFieldCount = 0
+        if g_enumVariantCount > 0 {
+            lowIsVariantCall = isEnumVariant(funcName)
+            if lowIsVariantCall {
+                lowVariantFieldCount = lookupEnumFieldCount(funcName)
+            }
+        }
+        let lowPlan = planLowLevelBuiltinCallImpl(funcName,
+            expr.arguments.length(), isPtrBuiltinCallImpl(funcName),
+            isSimdBuiltinCallImpl(funcName, isSimdVectorType(funcName)),
+            varNames, activeVarCount, g_enumVariantCount, lowIsVariantCall,
+            lowVariantFieldCount)
+
+        if lowPlan.action == 1 {
             var ptArg0 = ""
             var ptArg1 = ""
             var ptArg2 = ""
-            if shouldReadPtrBuiltinArgImpl(expr.arguments.length(), 0) { ptArg0 = generateExpression(expr.arguments[0]) }
-            if shouldReadPtrBuiltinArgImpl(expr.arguments.length(), 1) { ptArg1 = generateExpression(expr.arguments[1]) }
-            if shouldReadPtrBuiltinArgImpl(expr.arguments.length(), 2) { ptArg2 = generateExpression(expr.arguments[2]) }
+            if lowPlan.hasArg0 { ptArg0 = generateExpression(expr.arguments[0]) }
+            if lowPlan.hasArg1 { ptArg1 = generateExpression(expr.arguments[1]) }
+            if lowPlan.hasArg2 { ptArg2 = generateExpression(expr.arguments[2]) }
             return emitPtrBuiltinCallImpl(output, g_regBox, funcName,
                 g_insideUnsafe, ptArg0, ptArg1, ptArg2)
         }
 
-        if funcName == "barrier" {
+        if lowPlan.action == 2 {
             return emitBarrierBuiltinCallImpl(output)
         }
 
-        if isStackAllocBuiltinImpl(funcName) {
+        if lowPlan.action == 3 {
             var allocCount = "1"
-            if hasBuiltinArgImpl(expr.arguments.length(), 0) {
+            if lowPlan.hasArg0 {
                 allocCount = generateExpression(expr.arguments[0])
             }
             return emitStackAllocBuiltinCallImpl(output, g_regBox, allocCount)
         }
 
-        if funcName == "constructAt" {
-            if hasBuiltinArgImpl(expr.arguments.length(), 0) {
+        if lowPlan.action == 4 {
+            if lowPlan.hasArg0 {
                 let caPtr = generateExpression(expr.arguments[0])
                 return emitConstructAtBuiltinCallImpl(output, g_regBox, caPtr)
             }
             return "0"
         }
 
-        if funcName == "debug_assert" {
+        if lowPlan.action == 5 {
             var condVal = ""
-            if hasBuiltinArgImpl(expr.arguments.length(), 0) {
+            if lowPlan.hasArg0 {
                 condVal = generateExpression(expr.arguments[0])
             }
             var boundsCountBox = Array<Int>()
@@ -5867,27 +5881,27 @@ class LLVMIRGenerator {
             return debugResult
         }
 
-        if funcName == "str_to_cstr" {
-            if hasBuiltinArgImpl(expr.arguments.length(), 0) {
+        if lowPlan.action == 6 {
+            if lowPlan.hasArg0 {
                 let strArg = generateExpression(expr.arguments[0])
                 return emitCStringBuiltinCallImpl(output, g_regBox,
                     "str_to_cstr", strArg)
             }
             return "0"
         }
-        if funcName == "split" {
-            if expr.arguments.length() >= 2 {
-                let textArg = generateExpression(expr.arguments[0])
-                let delimArg = generateExpression(expr.arguments[1])
-                let splitReg = emitSplitBuiltinCallImpl(output, g_regBox,
-                    textArg, delimArg)
-                if splitReg != "" {
-                    return splitReg
-                }
+
+        if lowPlan.action == 7 {
+            let textArg = generateExpression(expr.arguments[0])
+            let delimArg = generateExpression(expr.arguments[1])
+            let splitReg = emitSplitBuiltinCallImpl(output, g_regBox,
+                textArg, delimArg)
+            if splitReg != "" {
+                return splitReg
             }
         }
-        if funcName == "cstr_to_str" {
-            if hasBuiltinArgImpl(expr.arguments.length(), 0) {
+
+        if lowPlan.action == 8 {
+            if lowPlan.hasArg0 {
                 let ptrArg = generateExpression(expr.arguments[0])
                 return emitCStringBuiltinCallImpl(output, g_regBox,
                     "cstr_to_str", ptrArg)
@@ -5895,11 +5909,11 @@ class LLVMIRGenerator {
             return "0"
         }
 
-        if isDefaultValueBuiltinImpl(funcName) {
+        if lowPlan.action == 9 {
             return "0"
         }
 
-        if isAsyncYieldBuiltinImpl(funcName) {
+        if lowPlan.action == 10 {
             var yieldCounterBox = Array<Int>()
             let functionEmission = getCurrentFunctionEmissionStateImpl()
             yieldCounterBox.push(functionEmission.yieldCounter)
@@ -5910,7 +5924,7 @@ class LLVMIRGenerator {
             return yieldResult
         }
 
-        if isSimdBuiltinCallImpl(funcName, isSimdVectorType(funcName)) == 1 {
+        if lowPlan.action == 11 {
             var simdArgs = Array<String>()
             var simdArgTypes = Array<String>()
             var simdConstIndices = Array<Int>()
@@ -5935,9 +5949,7 @@ class LLVMIRGenerator {
             }
         }
 
-        let indirectPlan = planIndirectCallImpl(funcName, varNames,
-            activeVarCount)
-        if indirectPlan.isIndirect {
+        if lowPlan.action == 12 {
             var icArgRegs = Array<String>()
             var icArgIdx = 0
             while icArgIdx < expr.arguments.length() {
@@ -5946,19 +5958,11 @@ class LLVMIRGenerator {
                 icArgIdx = icArgIdx + 1
             }
             return emitIndirectBuiltinCallImpl(output, g_regBox,
-                varRegs[indirectPlan.varIndex], icArgRegs)
+                varRegs[lowPlan.indirectVarIndex], icArgRegs)
         }
 
-        if shouldLookupEnumVariantCallImpl(g_enumVariantCount) {
-            let isVariantCall = isEnumVariant(funcName)
-            var varFieldCount = 0
-            if isVariantCall {
-                varFieldCount = lookupEnumFieldCount(funcName)
-            }
-            if shouldGenerateEnumVariantConstructorImpl(isVariantCall,
-                varFieldCount) {
-                return generateEnumConstructor(funcName, expr)
-            }
+        if lowPlan.action == 13 {
+            return generateEnumConstructor(funcName, expr)
         }
 
         return ""
