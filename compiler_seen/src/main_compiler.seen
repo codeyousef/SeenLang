@@ -120,8 +120,9 @@ import codegen.ir_member_access.{extractLastMemberFieldSegmentImpl}
 import codegen.ir_member_access_plan.{planMemberAccessRouteImpl}
 import codegen.ir_member_access_gen.{emitVariableReceiverMemberAccessImpl}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, emitSeenLexerKeywordManagerReceiverImpl}
-import codegen.ir_binary_expr.{binaryOperatorMethodSuffixImpl, isSimdBinaryOperatorImpl, isIntLiteralOperandImpl, isFloatLiteralOperandImpl, isSelfVariableComparisonImpl, shouldTryAssociativeIntFoldImpl, associativeIntFoldRewriteCostImpl, emitSelfComparisonConstResultImpl, emitFoldedBoolLiteralBinaryResultImpl, emitFoldedIntLiteralBinaryResultImpl, emitAssociativeIntFoldResultImpl, shouldUseFmaForOperandTypesImpl, emitFmaOperandPromotionImpl, emitFmaCallImpl, buildBinaryCseKeyImpl, buildBinaryFoldLogValueImpl}
-import codegen.ir_binary_plan.{shouldTryPointerArithmeticBinaryImpl, shouldTrySimdBinaryGateImpl, shouldUseIntPeepholeGateImpl, shouldUseFloatPeepholeGateImpl, shouldTryFmaBinaryGateImpl, planBinaryFmaSidesImpl, shortCircuitBinaryActionImpl, planBinaryCseActionImpl, shouldTryBinaryOverloadImpl, planBinaryEgraphActionImpl, shouldApplyAssociativeIntFoldPlanImpl, shouldFoldIntLiteralComparisonPlanImpl, shouldFoldIntLiteralConstantsPlanImpl, planFloatPeepholeActionImpl}
+import codegen.ir_binary_expr.{binaryOperatorMethodSuffixImpl, isSimdBinaryOperatorImpl, emitSelfComparisonConstResultImpl, emitFoldedBoolLiteralBinaryResultImpl, emitFoldedIntLiteralBinaryResultImpl, emitAssociativeIntFoldResultImpl, shouldUseFmaForOperandTypesImpl, emitFmaOperandPromotionImpl, emitFmaCallImpl, buildBinaryCseKeyImpl, buildBinaryFoldLogValueImpl}
+import codegen.ir_binary_plan.{shouldTryPointerArithmeticBinaryImpl, shouldTrySimdBinaryGateImpl, shouldUseIntPeepholeGateImpl, shouldUseFloatPeepholeGateImpl, shortCircuitBinaryActionImpl, shouldTryBinaryOverloadImpl}
+import codegen.ir_binary_fold_plan.{planBinaryOperandLiteralFactsImpl, isBinaryIntLiteralOperandImpl, planBinaryFoldActionImpl, shouldTryBinaryAssociativeIntFoldImpl, binaryAssociativeIntFoldRewriteCostImpl, shouldApplyBinaryAssociativeIntFoldImpl, planBinaryLiteralComparisonFoldImpl, planBinaryLiteralConstantFoldImpl, planBinaryFloatPeepholeImpl, planBinaryFoldFmaImpl, planBinaryFoldCseImpl}
 import codegen.ir_binary_short_circuit.{allocateShortCircuitBinaryLabelsImpl, emitShortCircuitCheckBridgeImpl, emitShortCircuitAndDecisionImpl, emitShortCircuitOrDecisionImpl}
 import codegen.ir_unary_expr.{unaryOperatorMethodNameImpl, shouldSkipUnaryOverloadTypeImpl, negatedComparisonPredicateImpl, shouldEmitNegatedComparisonForTypesImpl, emitOverloadedUnaryCallImpl, emitUnaryNegationImpl, emitNegatedComparisonImpl, emitUnaryLogicalNotImpl, emitUnaryAddressOfClassValueImpl, emitUnaryAddressOfVariablePtrImpl, emitUnaryDereferenceImpl, isUnaryBitwiseNotOperatorImpl, emitUnaryBitwiseNotImpl}
 import codegen.ir_class_constructor_gen.{emitConstructorAllocationImpl, emitConstructorReturnImpl, emitClassHeapAllocationImpl, emitClassArrayFieldInitializersImpl, resolveClassConstructorFieldOffsetImpl}
@@ -2003,6 +2004,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_method_fastpath")
         modules.push("codegen.ir_binary_expr")
         modules.push("codegen.ir_binary_plan")
+        modules.push("codegen.ir_binary_fold_plan")
         modules.push("codegen.ir_binary_short_circuit")
         modules.push("codegen.ir_unary_expr")
         modules.push("codegen.ir_class_constructor_gen")
