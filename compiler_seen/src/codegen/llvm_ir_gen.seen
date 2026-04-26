@@ -86,7 +86,7 @@ import codegen.ir_call_runtime.{emitPrintLikeCallImpl, emitOptionRuntimeBuiltinC
 import codegen.ir_call_runtime_plan.{isOptionRuntimeCallPlanImpl, shouldReadSomeRuntimeArgImpl, isSuperRuntimeCallPlanImpl, isEmptyRuntimeCalleeImpl, isPrintRuntimeCallPlanImpl, shouldReadPrintRuntimeArgImpl, runtimeIoCallActionImpl, isPanicRuntimeCallPlanImpl, shouldReadPanicRuntimeArgImpl, isMathRuntimeCallPlanImpl, shouldReadMathRuntimeArgImpl}
 import codegen.ir_call_meta.{resolveSizeofBuiltinValueImpl, resolveAlignofBuiltinValueImpl, resolveOffsetofBuiltinValueImpl}
 import codegen.ir_call_low_level.{isPtrBuiltinCallImpl, emitPtrBuiltinCallImpl, emitBarrierBuiltinCallImpl, emitStackAllocBuiltinCallImpl, emitConstructAtBuiltinCallImpl, emitDebugAssertBuiltinCallStateImpl, emitCStringBuiltinCallImpl, emitSplitBuiltinCallImpl, emitAsyncYieldBuiltinStateImpl, isSimdBuiltinCallImpl, emitPreparedSimdBuiltinCallImpl, emitIndirectBuiltinCallImpl}
-import codegen.ir_call_builtin_plan.{isSizeofMetaBuiltinImpl, isAlignofMetaBuiltinImpl, isOffsetofMetaBuiltinImpl, isTransmuteMetaBuiltinImpl, resolveTransmuteTargetTypeNameImpl, isIncludeStrMetaBuiltinImpl, isIncludeBytesMetaBuiltinImpl, hasBuiltinArgImpl, isStackAllocBuiltinImpl, isDefaultValueBuiltinImpl, isAsyncYieldBuiltinImpl, shouldReadSimdShuffleConstArgImpl, shouldClearDebugAssertCseImpl}
+import codegen.ir_call_builtin_plan.{isSizeofMetaBuiltinImpl, isAlignofMetaBuiltinImpl, isOffsetofMetaBuiltinImpl, isTransmuteMetaBuiltinImpl, resolveTransmuteTargetTypeNameImpl, isIncludeStrMetaBuiltinImpl, isIncludeBytesMetaBuiltinImpl, hasBuiltinArgImpl, shouldReadPtrBuiltinArgImpl, isStackAllocBuiltinImpl, isDefaultValueBuiltinImpl, isAsyncYieldBuiltinImpl, shouldReadSimdShuffleConstArgImpl, planIndirectCallImpl, shouldLookupEnumVariantCallImpl, shouldGenerateEnumVariantConstructorImpl, shouldClearDebugAssertCseImpl}
 import codegen.ir_call_fixups.{resolveRealParserMisplacedMethodReturnTypeImpl, isStandaloneParserWorkaroundImpl, emitStandaloneParserWorkaroundCallImpl}
 import codegen.ir_method_finalize.{resolveMethodCallInstanceTypeNameImpl, tryGeneratePreparedHotReloadInstanceMethodCallImpl, resolveMethodCallReturnTypeImpl, prepareMethodCallReceiverAbiImpl, tryGenerateSpecializedInstanceMethodCallImpl, emitArrayFreeMutationImpl, emitArrayPushMutationImpl, emitArrayPopMutationImpl, emitArraySwapMutationImpl, emitPoolFreeFromValueSlotImpl, emitClassFreeMutationImpl}
 import codegen.ir_method_fastpath.{emitPreparedDynTraitMethodCallImpl, tryGeneratePreparedExplicitReceiverFastPathImpl, tryGeneratePreparedLocalVariableReceiverFastPathImpl, tryGenerateLengthLikeMethodCallImpl, emitStringBuilderReceiverMethodCallImpl, tryGeneratePrimitiveConversionMethodCallImpl, tryGenerateNumericReceiverMethodCallImpl, tryGenerateStringLikeReceiverMethodCallImpl, resolveStaticMethodClassNamesImpl, isStaticMethodReceiverReferenceImpl, tryGenerateStaticFactoryMethodCallImpl, resolveStaticMethodReturnTypeImpl, prepareModuleConstantMethodReceiverImpl, emitPreparedStaticMethodCallImpl, shouldLowerUnresolvedMethodAsCallImpl, tryGenerateUnresolvedReceiverFallbackMethodImpl, applyUnresolvedReceiverDefaultImpl}
@@ -5821,9 +5821,9 @@ class LLVMIRGenerator {
             var ptArg0 = ""
             var ptArg1 = ""
             var ptArg2 = ""
-            if hasBuiltinArgImpl(expr.arguments.length(), 0) { ptArg0 = generateExpression(expr.arguments[0]) }
-            if hasBuiltinArgImpl(expr.arguments.length(), 1) { ptArg1 = generateExpression(expr.arguments[1]) }
-            if hasBuiltinArgImpl(expr.arguments.length(), 2) { ptArg2 = generateExpression(expr.arguments[2]) }
+            if shouldReadPtrBuiltinArgImpl(expr.arguments.length(), 0) { ptArg0 = generateExpression(expr.arguments[0]) }
+            if shouldReadPtrBuiltinArgImpl(expr.arguments.length(), 1) { ptArg1 = generateExpression(expr.arguments[1]) }
+            if shouldReadPtrBuiltinArgImpl(expr.arguments.length(), 2) { ptArg2 = generateExpression(expr.arguments[2]) }
             return emitPtrBuiltinCallImpl(output, g_regBox, funcName,
                 g_insideUnsafe, ptArg0, ptArg1, ptArg2)
         }
@@ -5933,16 +5933,9 @@ class LLVMIRGenerator {
             }
         }
 
-        var icVarIdx = 0
-        var icIsIndirect = false
-        while icVarIdx < activeVarCount {
-            if varNames[icVarIdx] == funcName {
-                icIsIndirect = true
-                break
-            }
-            icVarIdx = icVarIdx + 1
-        }
-        if icIsIndirect {
+        let indirectPlan = planIndirectCallImpl(funcName, varNames,
+            activeVarCount)
+        if indirectPlan.isIndirect {
             var icArgRegs = Array<String>()
             var icArgIdx = 0
             while icArgIdx < expr.arguments.length() {
@@ -5951,15 +5944,18 @@ class LLVMIRGenerator {
                 icArgIdx = icArgIdx + 1
             }
             return emitIndirectBuiltinCallImpl(output, g_regBox,
-                varRegs[icVarIdx], icArgRegs)
+                varRegs[indirectPlan.varIndex], icArgRegs)
         }
 
-        if g_enumVariantCount > 0 {
-            if isEnumVariant(funcName) {
-                let varFieldCount = lookupEnumFieldCount(funcName)
-                if varFieldCount > 0 {
-                    return generateEnumConstructor(funcName, expr)
-                }
+        if shouldLookupEnumVariantCallImpl(g_enumVariantCount) {
+            let isVariantCall = isEnumVariant(funcName)
+            var varFieldCount = 0
+            if isVariantCall {
+                varFieldCount = lookupEnumFieldCount(funcName)
+            }
+            if shouldGenerateEnumVariantConstructorImpl(isVariantCall,
+                varFieldCount) {
+                return generateEnumConstructor(funcName, expr)
             }
         }
 

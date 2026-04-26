@@ -1,5 +1,14 @@
 // ir_call_builtin_plan.seen - pure builtin-call planning helpers.
 
+class IndirectCallPlan {
+    var isIndirect: Bool
+    var varIndex: Int
+
+    static fun new() r: IndirectCallPlan {
+        return IndirectCallPlan{isIndirect: false, varIndex: -1}
+    }
+}
+
 fun isSizeofMetaBuiltinImpl(funcName: String) r: Bool {
     return funcName == "sizeof"
 }
@@ -37,6 +46,10 @@ fun hasBuiltinArgImpl(argCount: Int, argIndex: Int) r: Bool {
     return argCount > argIndex
 }
 
+fun shouldReadPtrBuiltinArgImpl(argCount: Int, argIndex: Int) r: Bool {
+    return argCount > argIndex
+}
+
 fun isStackAllocBuiltinImpl(funcName: String) r: Bool {
     return funcName == "stackAlloc" or funcName.startsWith("stackAlloc<")
 }
@@ -53,6 +66,32 @@ fun shouldReadSimdShuffleConstArgImpl(funcName: String, argIndex: Int)
     r: Bool {
 
     return funcName == "simd_shuffle" and argIndex >= 2
+}
+
+fun planIndirectCallImpl(funcName: String, varNames: Array<String>,
+    activeVarCount: Int) r: IndirectCallPlan {
+
+    let plan = IndirectCallPlan.new()
+    var varIdx = 0
+    while varIdx < activeVarCount {
+        if varNames[varIdx] == funcName {
+            plan.isIndirect = true
+            plan.varIndex = varIdx
+            return plan
+        }
+        varIdx = varIdx + 1
+    }
+    return plan
+}
+
+fun shouldLookupEnumVariantCallImpl(enumVariantCount: Int) r: Bool {
+    return enumVariantCount > 0
+}
+
+fun shouldGenerateEnumVariantConstructorImpl(isVariant: Bool,
+    fieldCount: Int) r: Bool {
+
+    return isVariant and fieldCount > 0
 }
 
 fun shouldClearDebugAssertCseImpl(boundsCheckEnabled: Int,
