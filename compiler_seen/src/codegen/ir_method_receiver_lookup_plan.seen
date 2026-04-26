@@ -12,16 +12,6 @@ class DottedReceiverStagePlan {
     }
 }
 
-class ExplicitReceiverStagePlan {
-    var shouldUseExplicitReceiver: Bool
-
-    static fun new() r: ExplicitReceiverStagePlan {
-        return ExplicitReceiverStagePlan{
-            shouldUseExplicitReceiver: false
-        }
-    }
-}
-
 class DottedReceiverFallbackStagePlan {
     var shouldResolveFallback: Bool
     var shouldTryEnumLiteralFallback: Bool
@@ -218,14 +208,6 @@ fun planDottedReceiverStageImpl(operandCount: Int, literalValue: String,
         operandCount, literalValue)
     plan.shouldBuildReceiverExpr = shouldBuildDottedReceiverExprImpl(
         plan.hasDottedReceiver, segmentCount, baseReceiverType)
-    return plan
-}
-
-fun planExplicitReceiverStageImpl(operandCount: Int)
-    r: ExplicitReceiverStagePlan {
-
-    let plan = ExplicitReceiverStagePlan.new()
-    plan.shouldUseExplicitReceiver = operandCount > 0
     return plan
 }
 
