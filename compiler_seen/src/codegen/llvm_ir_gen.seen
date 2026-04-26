@@ -82,7 +82,8 @@ import codegen.ir_call_dispatch.{emitUserMethodCallImpl, emitUserFunctionCallImp
 import codegen.ir_call_constructors.{emitReprCConstructorImpl, emitArrayBulkInitImpl, emitArrayPreallocImpl, emitArrayInlineImpl, emitSmallVecConstructorImpl, isArrayConstructorNameImpl, resolveArrayConstructorElementTypeImpl, resolveArrayConstructorElementSizeImpl, isSmallVecConstructorNameImpl, isCollectionConstructorNameImpl, emitCollectionConstructorImpl}
 import codegen.ir_constructor_call_plan.{planArrayConstructorCallImpl, shouldEmitSmallVecConstructorImpl, shouldEmitCollectionConstructorImpl, shouldReadFirstConstructorArgImpl, isReprCConstructorTypeImpl, shouldEmitReprCZeroInitializerImpl, shouldEmitHeapClassConstructorImpl}
 import codegen.ir_call_args.{fillDefaultParamsImpl, appendPreparedCallArgImpl, promoteFloatArgsImpl}
-import codegen.ir_call_runtime.{emitPrintLikeCallImpl, emitOptionRuntimeBuiltinCallImpl, emitSuperRuntimeBuiltinCallImpl, emitReadTextRuntimeCallImpl, emitWriteTextRuntimeCallImpl, emitArgsRuntimeCallImpl, emitPanicRuntimeCallImpl, emitMathBuiltinCallImpl, isOptionRuntimeBuiltinNameImpl, isPrintRuntimeBuiltinNameImpl, isIoRuntimeBuiltinNameImpl, isPanicRuntimeBuiltinNameImpl, isMathRuntimeBuiltinNameImpl}
+import codegen.ir_call_runtime.{emitPrintLikeCallImpl, emitOptionRuntimeBuiltinCallImpl, emitSuperRuntimeBuiltinCallImpl, emitReadTextRuntimeCallImpl, emitWriteTextRuntimeCallImpl, emitArgsRuntimeCallImpl, emitPanicRuntimeCallImpl, emitMathBuiltinCallImpl}
+import codegen.ir_call_runtime_plan.{isOptionRuntimeCallPlanImpl, shouldReadSomeRuntimeArgImpl, isSuperRuntimeCallPlanImpl, isEmptyRuntimeCalleeImpl, isPrintRuntimeCallPlanImpl, shouldReadPrintRuntimeArgImpl, runtimeIoCallActionImpl, isPanicRuntimeCallPlanImpl, shouldReadPanicRuntimeArgImpl, isMathRuntimeCallPlanImpl, shouldReadMathRuntimeArgImpl}
 import codegen.ir_call_meta.{resolveSizeofBuiltinValueImpl, resolveAlignofBuiltinValueImpl, resolveOffsetofBuiltinValueImpl}
 import codegen.ir_call_low_level.{isPtrBuiltinCallImpl, emitPtrBuiltinCallImpl, emitBarrierBuiltinCallImpl, emitStackAllocBuiltinCallImpl, emitConstructAtBuiltinCallImpl, emitDebugAssertBuiltinCallStateImpl, emitCStringBuiltinCallImpl, emitSplitBuiltinCallImpl, emitAsyncYieldBuiltinStateImpl, isSimdBuiltinCallImpl, emitPreparedSimdBuiltinCallImpl, emitIndirectBuiltinCallImpl}
 import codegen.ir_call_builtin_plan.{isSizeofMetaBuiltinImpl, isAlignofMetaBuiltinImpl, isOffsetofMetaBuiltinImpl, isTransmuteMetaBuiltinImpl, resolveTransmuteTargetTypeNameImpl, isIncludeStrMetaBuiltinImpl, isIncludeBytesMetaBuiltinImpl, hasBuiltinArgImpl, isStackAllocBuiltinImpl, isDefaultValueBuiltinImpl, isAsyncYieldBuiltinImpl, shouldReadSimdShuffleConstArgImpl, shouldClearDebugAssertCseImpl}
@@ -6180,12 +6181,12 @@ class LLVMIRGenerator {
     }
 
     fun tryGenerateOptionRuntimeBuiltinCall(expr: ParserExpressionNode, funcName: String) r: String {
-        if not isOptionRuntimeBuiltinNameImpl(funcName) {
+        if not isOptionRuntimeCallPlanImpl(funcName) {
             return ""
         }
         var argReg = "0"
         var argType = "Int"
-        if funcName == "Some" and expr.arguments.length() > 0 {
+        if shouldReadSomeRuntimeArgImpl(funcName, expr.arguments.length()) {
             argReg = generateExpression(expr.arguments[0])
             argType = inferExpressionType(expr.arguments[0])
         }
@@ -6196,7 +6197,7 @@ class LLVMIRGenerator {
     }
 
     fun tryGenerateSuperRuntimeBuiltinCall(funcName: String) r: String {
-        if funcName == "super" {
+        if isSuperRuntimeCallPlanImpl(funcName) {
             if g_currentClassParentName != "" {
                 let thisIdx = findActiveVariableIndexImpl(varNames, activeVarCount, "this")
                 if thisIdx >= 0 {
@@ -6211,7 +6212,7 @@ class LLVMIRGenerator {
     }
 
     fun tryGenerateEmptyRuntimeBuiltinCall(expr: ParserExpressionNode, funcName: String) r: String {
-        if funcName == "" {
+        if isEmptyRuntimeCalleeImpl(funcName) {
             var i = 0
             while i < expr.arguments.length() {
                 generateExpression(expr.arguments[i])
@@ -6223,10 +6224,10 @@ class LLVMIRGenerator {
     }
 
     fun tryGeneratePrintRuntimeBuiltinCall(expr: ParserExpressionNode, funcName: String) r: String {
-        if not isPrintRuntimeBuiltinNameImpl(funcName) {
+        if not isPrintRuntimeCallPlanImpl(funcName) {
             return ""
         }
-        if expr.arguments.length() > 0 {
+        if shouldReadPrintRuntimeArgImpl(funcName, expr.arguments.length()) {
             let argType = inferExpressionType(expr.arguments[0])
             let argReg = generateExpression(expr.arguments[0])
             return emitPrintLikeCallImpl(output, g_regBox, funcName, argReg,
@@ -6237,38 +6238,33 @@ class LLVMIRGenerator {
 
     fun tryGenerateIoRuntimeBuiltinCall(expr: ParserExpressionNode, funcName: String) r: String {
 
-        if not isIoRuntimeBuiltinNameImpl(funcName) {
+        let ioAction = runtimeIoCallActionImpl(funcName, expr.arguments.length())
+        if ioAction == 0 {
             return ""
         }
 
-        if funcName == "readText" {
-            if expr.arguments.length() > 0 {
-                let argReg = generateExpression(expr.arguments[0])
-                return emitReadTextRuntimeCallImpl(output, g_regBox, argReg)
-            }
-            return "0"
+        if ioAction == 1 {
+            let argReg = generateExpression(expr.arguments[0])
+            return emitReadTextRuntimeCallImpl(output, g_regBox, argReg)
         }
 
-        if funcName == "writeText" {
-            if expr.arguments.length() >= 2 {
-                let pathReg = generateExpression(expr.arguments[0])
-                let contentReg = generateExpression(expr.arguments[1])
-                return emitWriteTextRuntimeCallImpl(output, g_regBox, pathReg, contentReg)
-            }
-            return "0"
+        if ioAction == 2 {
+            let pathReg = generateExpression(expr.arguments[0])
+            let contentReg = generateExpression(expr.arguments[1])
+            return emitWriteTextRuntimeCallImpl(output, g_regBox, pathReg, contentReg)
         }
 
-        if funcName == "args" {
+        if ioAction == 3 {
             return emitArgsRuntimeCallImpl(output, g_regBox)
         }
-        return ""
+        return "0"
     }
 
     fun tryGeneratePanicRuntimeBuiltinCall(expr: ParserExpressionNode, funcName: String) r: String {
-        if not isPanicRuntimeBuiltinNameImpl(funcName) {
+        if not isPanicRuntimeCallPlanImpl(funcName) {
             return ""
         }
-        if expr.arguments.length() > 0 {
+        if shouldReadPanicRuntimeArgImpl(funcName, expr.arguments.length()) {
             let argReg = generateExpression(expr.arguments[0])
             return emitPanicRuntimeCallImpl(output, g_regBox, argReg)
         }
@@ -6364,13 +6360,13 @@ class LLVMIRGenerator {
     }
 
     fun tryGenerateMathBuiltinCall(expr: ParserExpressionNode, funcName: String) r: String {
-        if not isMathRuntimeBuiltinNameImpl(funcName) {
+        if not isMathRuntimeCallPlanImpl(funcName) {
             return ""
         }
         var mArg0 = ""
         var mArg1 = ""
-        if expr.arguments.length() > 0 { mArg0 = generateExpression(expr.arguments[0]) }
-        if expr.arguments.length() > 1 { mArg1 = generateExpression(expr.arguments[1]) }
+        if shouldReadMathRuntimeArgImpl(expr.arguments.length(), 0) { mArg0 = generateExpression(expr.arguments[0]) }
+        if shouldReadMathRuntimeArgImpl(expr.arguments.length(), 1) { mArg1 = generateExpression(expr.arguments[1]) }
         let mResult = emitMathBuiltinCallImpl(output, g_regBox, funcName,
             mArg0, mArg1)
         if mResult != "" { return mResult }
