@@ -166,6 +166,40 @@ class ArrayMutatorMethodPlan {
     }
 }
 
+class ArrayMutatorFreeTypePlan {
+    var shouldLookupLiteralType: Bool
+
+    static fun new() r: ArrayMutatorFreeTypePlan {
+        return ArrayMutatorFreeTypePlan{shouldLookupLiteralType: false}
+    }
+}
+
+class ArrayMutatorFreeEmitPlan {
+    var shouldResolvePointerFromLiteral: Bool
+    var shouldEmitArrayFree: Bool
+    var shouldEmitClassFree: Bool
+
+    static fun new() r: ArrayMutatorFreeEmitPlan {
+        return ArrayMutatorFreeEmitPlan{
+            shouldResolvePointerFromLiteral: false,
+            shouldEmitArrayFree: false,
+            shouldEmitClassFree: false
+        }
+    }
+}
+
+class ArrayMutatorPointerPlan {
+    var shouldUseReceiverReg: Bool
+    var shouldEmitWithPointer: Bool
+
+    static fun new() r: ArrayMutatorPointerPlan {
+        return ArrayMutatorPointerPlan{
+            shouldUseReceiverReg: false,
+            shouldEmitWithPointer: false
+        }
+    }
+}
+
 fun planArrayMutatorMethodImpl(methodName: String, receiverIsArray: Bool,
     argCount: Int) r: ArrayMutatorMethodPlan {
 
@@ -184,6 +218,60 @@ fun planArrayMutatorMethodImpl(methodName: String, receiverIsArray: Bool,
     }
     if methodName == "swap" and receiverIsArray and argCount == 2 {
         plan.action = 4
+    }
+    return plan
+}
+
+fun planArrayMutatorFreeTypeImpl(receiverType: String,
+    literalValue: String) r: ArrayMutatorFreeTypePlan {
+
+    let plan = ArrayMutatorFreeTypePlan.new()
+    plan.shouldLookupLiteralType =
+        shouldUseLiteralArrayFreeReceiverTypeImpl(receiverType, literalValue)
+    return plan
+}
+
+fun planArrayMutatorFreeEmitImpl(isArrayType: Bool, freePtrReg: String,
+    literalValue: String, receiverIsClass: Bool)
+    r: ArrayMutatorFreeEmitPlan {
+
+    let plan = ArrayMutatorFreeEmitPlan.new()
+    plan.shouldResolvePointerFromLiteral =
+        shouldResolveArrayFreePointerFromLiteralImpl(isArrayType, freePtrReg,
+            literalValue)
+    plan.shouldEmitArrayFree =
+        shouldEmitArrayFreePointerImpl(isArrayType, freePtrReg)
+    plan.shouldEmitClassFree =
+        shouldEmitClassFreeMutationImpl(isArrayType, receiverIsClass)
+    return plan
+}
+
+fun planArrayMutatorPushPointerImpl(arrayPtrReg: String,
+    receiverReg: String, receiverIsArray: Bool) r: ArrayMutatorPointerPlan {
+
+    let plan = ArrayMutatorPointerPlan.new()
+    plan.shouldUseReceiverReg =
+        shouldUseReceiverRegForArrayMutationImpl(arrayPtrReg, receiverIsArray)
+    plan.shouldEmitWithPointer = shouldEmitArrayMutatorWithPointerImpl(
+        arrayPtrReg)
+    if plan.shouldUseReceiverReg {
+        plan.shouldEmitWithPointer =
+            shouldEmitArrayMutatorWithPointerImpl(receiverReg)
+    }
+    return plan
+}
+
+fun planArrayMutatorFallbackPointerImpl(arrayPtrReg: String,
+    receiverReg: String) r: ArrayMutatorPointerPlan {
+
+    let plan = ArrayMutatorPointerPlan.new()
+    plan.shouldUseReceiverReg =
+        shouldUseArrayMutatorReceiverFallbackImpl(arrayPtrReg, receiverReg)
+    plan.shouldEmitWithPointer = shouldEmitArrayMutatorWithPointerImpl(
+        arrayPtrReg)
+    if plan.shouldUseReceiverReg {
+        plan.shouldEmitWithPointer =
+            shouldEmitArrayMutatorWithPointerImpl(receiverReg)
     }
     return plan
 }
