@@ -83,9 +83,10 @@ import codegen.ir_type_dispatch.{emitVecMethodImpl, emitBTreeMapMethodImpl, emit
 import codegen.ir_type_ops.{emitBinaryOpImpl, emitSimdReductionImpl, emitOptionMethodImpl, emitStringBuilderMethodImpl, emitCastExprImpl}
 import codegen.ir_method_gen.{emitSmallVecMethodImpl, emitArrayBasicMethodImpl, emitTransmuteImpl}
 import codegen.ir_call_dispatch.{emitUserMethodCallImpl, emitUserFunctionCallImpl, emitIncludeStrImpl, emitIncludeBytesImpl}
-import codegen.ir_call_constructors.{emitReprCConstructorImpl, emitArrayBulkInitImpl, emitArrayPreallocImpl, emitArrayInlineImpl, emitSmallVecConstructorImpl, isArrayConstructorNameImpl, resolveArrayConstructorElementTypeImpl, resolveArrayConstructorElementSizeImpl, isSmallVecConstructorNameImpl, isCollectionConstructorNameImpl, emitCollectionConstructorImpl}
+import codegen.ir_call_constructors.{emitArrayBulkInitImpl, emitArrayPreallocImpl, emitArrayInlineImpl, emitSmallVecConstructorImpl, isArrayConstructorNameImpl, resolveArrayConstructorElementTypeImpl, resolveArrayConstructorElementSizeImpl, isSmallVecConstructorNameImpl, isCollectionConstructorNameImpl, emitCollectionConstructorImpl}
 import codegen.ir_constructor_call_plan.{planArrayConstructorCallImpl, shouldEmitSmallVecConstructorImpl, shouldEmitCollectionConstructorImpl, shouldReadFirstConstructorArgImpl, isReprCConstructorTypeImpl, shouldEmitReprCZeroInitializerImpl, shouldEmitHeapClassConstructorImpl}
 import codegen.ir_constructor_field_plan.{planNextConstructorFieldTypeImpl, planConstructorFieldStoreImpl}
+import codegen.ir_constructor_field_emit.{emitPreparedReprCConstructorImpl, emitPreparedClassConstructorFieldStoreImpl}
 import codegen.ir_call_args.{fillDefaultParamsImpl, appendPreparedCallArgImpl, promoteFloatArgsImpl}
 import codegen.ir_call_runtime.{emitPrintLikeCallImpl, emitOptionRuntimeBuiltinCallImpl, emitSuperRuntimeBuiltinCallImpl, emitReadTextRuntimeCallImpl, emitWriteTextRuntimeCallImpl, emitArgsRuntimeCallImpl, emitPanicRuntimeCallImpl, emitMathBuiltinCallImpl}
 import codegen.ir_call_runtime_plan.{isOptionRuntimeCallPlanImpl, shouldReadSomeRuntimeArgImpl, isSuperRuntimeCallPlanImpl, isEmptyRuntimeCalleeImpl, isPrintRuntimeCallPlanImpl, shouldReadPrintRuntimeArgImpl, runtimeIoCallActionImpl, isPanicRuntimeCallPlanImpl, shouldReadPanicRuntimeArgImpl, planRuntimeBuiltinDispatchImpl}
@@ -5996,7 +5997,8 @@ class LLVMIRGenerator {
             reprCArgIdx = reprCArgIdx + 1
             typePos = reprCFieldPlan.nextTypePos
         }
-        return emitReprCConstructorImpl(output, g_regBox, funcName, reprCArgRegs, reprCFieldTypes)
+        return emitPreparedReprCConstructorImpl(output, g_regBox, funcName,
+            reprCArgRegs, reprCFieldTypes)
     }
 
     fun emitClassConstructorArgumentStores(expr: ParserExpressionNode, ptrReg: String, structIdx: Int) r: Void {
@@ -6022,23 +6024,19 @@ class LLVMIRGenerator {
             let ctorStorePlan = planConstructorFieldStoreImpl(
                 ctorTypePlan.fieldSeenType, ctorTypePlan.nextTypePos,
                 ctorByteOffset, ctorFieldOffset, ctorFieldByteSize)
-            output.append("  " + ctorFieldPtrReg + " = getelementptr inbounds i8, ptr " + ptrReg + ", i64 " + ctorStorePlan.fieldOffset.toString() + "\n")
-            if isDataType(ctorStorePlan.fieldSeenType) {
+            let ctorIsDataField = isDataType(ctorStorePlan.fieldSeenType)
+            var ctorStoreLlvmType = mapType(ctorStorePlan.fieldSeenType)
+            var ctorMemcpySize = 0
+            if ctorIsDataField {
+                ctorStoreLlvmType = "%" + ctorStorePlan.fieldSeenType
                 if ctorArgExpr.kind == "StructLiteral" {
-                    let ctorMemcpySize = getDataTypeSize(
-                        ctorStorePlan.fieldSeenType)
-                    output.append("  call void @llvm.memcpy.p0.p0.i64(ptr " + ctorFieldPtrReg + ", ptr " + ctorArgReg + ", i64 " + ctorMemcpySize.toString() + ", i1 false)\n")
-                } else {
-                    output.append("  store %" + ctorStorePlan.fieldSeenType + " " + ctorArgReg + ", ptr " + ctorFieldPtrReg + "\n")
+                    ctorMemcpySize = getDataTypeSize(ctorStorePlan.fieldSeenType)
                 }
-            } else {
-                let ctorFieldLlvmType = mapType(ctorStorePlan.fieldSeenType)
-                var ctorStoreReg = ctorArgReg
-                if ctorFieldLlvmType == "ptr" and ctorStoreReg == "0" {
-                    ctorStoreReg = "null"
-                }
-                output.append("  store " + ctorFieldLlvmType + " " + ctorStoreReg + ", ptr " + ctorFieldPtrReg + "\n")
             }
+            emitPreparedClassConstructorFieldStoreImpl(output, ctorFieldPtrReg,
+                ptrReg, ctorStorePlan.fieldOffset, ctorStoreLlvmType, ctorArgReg,
+                ctorArgExpr.kind == "StructLiteral", ctorIsDataField,
+                ctorMemcpySize)
             ctorByteOffset = ctorStorePlan.nextByteOffset
             ctorArgIdx = ctorArgIdx + 1
             ctorTypePos = ctorStorePlan.nextTypePos

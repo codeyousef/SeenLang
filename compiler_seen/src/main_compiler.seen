@@ -85,6 +85,7 @@ import codegen.ir_call_dispatch.{emitUserFunctionCallImpl}
 import codegen.ir_call_fixups.{isStandaloneParserWorkaroundImpl}
 import codegen.ir_constructor_call_plan.{planArrayConstructorCallImpl, shouldEmitSmallVecConstructorImpl, isReprCConstructorTypeImpl}
 import codegen.ir_constructor_field_plan.{planNextConstructorFieldTypeImpl, planConstructorFieldStoreImpl}
+import codegen.ir_constructor_field_emit.{emitPreparedReprCConstructorImpl, emitPreparedClassConstructorFieldStoreImpl}
 import codegen.ir_method_finalize.{normalizeInstanceMethodTypeNameImpl}
 import codegen.ir_method_fastpath.{resolveStaticMethodClassNamesImpl}
 import codegen.ir_method_receiver_predicates.{isOptionReceiverTypeImpl, isSmallVecReceiverTypeImpl, isCollectionReceiverTypeImpl, isArrayReceiverTypeImpl, isStringBuilderRuntimeMethodImpl, isNumericReceiverMethodImpl, needsStaticFactoryArgumentImpl}
@@ -1974,6 +1975,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_call_fixups")
         modules.push("codegen.ir_constructor_call_plan")
         modules.push("codegen.ir_constructor_field_plan")
+        modules.push("codegen.ir_constructor_field_emit")
         modules.push("codegen.ir_method_finalize")
         modules.push("codegen.ir_infer_type")
         modules.push("codegen.ir_special_expr_infer")
