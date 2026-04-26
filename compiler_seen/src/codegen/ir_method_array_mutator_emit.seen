@@ -1,0 +1,40 @@
+// ir_method_array_mutator_emit.seen - prepared array mutator emit drivers.
+
+import str.string.{StringBuilder}
+import codegen.ir_method_finalize.{emitArrayFreeMutationImpl, emitArrayPushMutationImpl, emitArrayPopMutationImpl, emitArraySwapMutationImpl, emitClassFreeMutationImpl}
+
+fun emitPreparedArrayFreeMutatorImpl(output: StringBuilder,
+    regBox: Array<Int>, arrayPtrReg: String) r: String {
+
+    return emitArrayFreeMutationImpl(output, regBox, arrayPtrReg)
+}
+
+fun emitPreparedArrayPushMutatorImpl(output: StringBuilder,
+    regBox: Array<Int>, blockLabelBox: Array<Int>, arrayPtrReg: String,
+    argReg: String, pushElemType: String, receiverType: String,
+    argIsStructLiteral: Bool, structNames: Array<String>) r: String {
+
+    return emitArrayPushMutationImpl(output, regBox, blockLabelBox,
+        arrayPtrReg, argReg, pushElemType, receiverType, argIsStructLiteral,
+        structNames)
+}
+
+fun emitPreparedArrayPopMutatorImpl(output: StringBuilder,
+    regBox: Array<Int>, arrayPtrReg: String, elemType: String) r: String {
+
+    return emitArrayPopMutationImpl(output, regBox, arrayPtrReg, elemType)
+}
+
+fun emitPreparedArraySwapMutatorImpl(output: StringBuilder,
+    regBox: Array<Int>, arrayPtrReg: String, idxAReg: String,
+    idxBReg: String) r: String {
+
+    return emitArraySwapMutationImpl(output, regBox, arrayPtrReg, idxAReg,
+        idxBReg)
+}
+
+fun emitPreparedClassFreeMutatorImpl(output: StringBuilder,
+    regBox: Array<Int>, valueSlotReg: String, classSize: Int) r: String {
+
+    return emitClassFreeMutationImpl(output, regBox, valueSlotReg, classSize)
+}
