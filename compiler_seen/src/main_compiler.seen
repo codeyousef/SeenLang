@@ -60,6 +60,8 @@ import codegen.ir_when_arm_gen.{emitWhenArmGuardImpl}
 import codegen.ir_when_pattern_gen.{emitWhenPatternBranchImpl}
 import codegen.ir_when_result_gen.{allocateWhenResultSlotImpl}
 import codegen.ir_when_expr_plan.{planWhenSubjectImpl, planWhenPatternBranchImpl, shouldEmitWhenArmGuardImpl, shouldEmitWhenPatternBindingsImpl, shouldBindWhenPatternFieldImpl, planWhenArmResultImpl, shouldStoreWhenArmResultImpl, shouldBranchWhenArmToEndImpl, shouldEmitWhenFinalFallthroughImpl}
+import codegen.ir_index_access_plan.{shouldUsePointerIndexAccessImpl, shouldTryOperatorIndexAccessImpl, shouldEmitIndexBoundsCheckImpl, planTypedIndexAccessImpl}
+import codegen.ir_index_access_gen.{emitPointerIndexAccessImpl, emitOperatorIndexAccessCallImpl, emitIndexBoundsCheckImpl, emitTypedArrayIndexAccessImpl, emitFallbackIndexElementAccessImpl}
 import codegen.ir_special_top_level_emit.{tryHandleSpecialTopLevelFunctionImpl}
 import codegen.ir_type_layout.{alignUpImpl}
 import codegen.ir_type_dispatch.{emitVecMethodImpl}
@@ -1938,6 +1940,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_when_pattern_gen")
         modules.push("codegen.ir_when_result_gen")
         modules.push("codegen.ir_when_expr_plan")
+        modules.push("codegen.ir_index_access_plan")
         modules.push("codegen.ir_special_top_level_emit")
         modules.push("codegen.ir_type_layout")
         modules.push("codegen.ir_type_dispatch")
@@ -1985,6 +1988,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_assignment_gen")
         modules.push("codegen.ir_variable_gen")
         modules.push("codegen.ir_field_layout")
+        modules.push("codegen.ir_index_access_gen")
         modules.push("codegen.ir_bitfield_access")
         modules.push("codegen.ir_path_expr")
         modules.push("codegen.ir_member_access")

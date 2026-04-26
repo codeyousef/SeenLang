@@ -67,6 +67,8 @@ import codegen.ir_when_arm_gen.{emitWhenArmGuardImpl, ensureWhenPatternDestructP
 import codegen.ir_when_pattern_gen.{emitWhenLiteralPatternBranchImpl, emitWhenIsPatternBranchImpl, emitWhenPatternBranchImpl}
 import codegen.ir_when_result_gen.{allocateWhenResultSlotImpl, emitWhenArmReturnImpl, emitWhenArmStoreImpl, finalizeWhenResultImpl}
 import codegen.ir_when_expr_plan.{planWhenSubjectImpl, planWhenPatternBranchImpl, shouldEmitWhenArmGuardImpl, shouldEmitWhenPatternBindingsImpl, shouldBindWhenPatternFieldImpl, planWhenArmResultImpl, shouldStoreWhenArmResultImpl, shouldBranchWhenArmToEndImpl, shouldEmitWhenFinalFallthroughImpl}
+import codegen.ir_index_access_plan.{shouldUsePointerIndexAccessImpl, shouldTryOperatorIndexAccessImpl, shouldEmitIndexBoundsCheckImpl, planTypedIndexAccessImpl}
+import codegen.ir_index_access_gen.{emitPointerIndexAccessImpl, emitOperatorIndexAccessCallImpl, emitIndexBoundsCheckImpl, emitTypedArrayIndexAccessImpl, emitFallbackIndexElementAccessImpl}
 import codegen.ir_special_top_level_emit.{tryHandleSpecialTopLevelFunctionImpl}
 import codegen.ir_type_layout.{getLlvmTypeAlignImpl, getLlvmTypeSizeImpl, computeStructSizeFromLayoutImpl}
 import codegen.ir_type_mapping.{parseSimpleIntImpl, lookupComptimeVarImpl, lookupComptimeStrVarImpl, comptimeSizeofImpl, comptimeTypeFieldCountImpl, comptimeTypeFieldNameImpl, comptimeTypeFieldTypeImpl, evaluateConstExprStrImpl, evaluateConstExprImpl}
@@ -4551,38 +4553,25 @@ class LLVMIRGenerator {
     // bounds checking when g_boundsCheckEnabled is set. Also handles HashMap
     // index access (hash_get_*) and String character access (seen_str_char_at).
     fun generateIndexAccess(expr: ParserExpressionNode) r: String {
-        // operands[0] = array expression
-        // operands[1] = index expression
-        // Pointer index access: ptr[i] → load from (ptr + i*8)
         let idxBaseType = inferExpressionType(expr.operands[0])
-        if idxBaseType.startsWith("*") {
+        if shouldUsePointerIndexAccessImpl(idxBaseType) {
             let piaBaseReg = generateExpression(expr.operands[0])
             let piaIdxReg = generateExpression(expr.operands[1])
-            // Compute byte offset: index * 8 (i64 element size)
-            let piaMulReg = getNextReg()
-            output.append("  " + piaMulReg + " = mul i64 " + piaIdxReg + ", 8\n")
-            let piaOffsetReg = getNextReg()
-            output.append("  " + piaOffsetReg + " = call i64 @seen_ptr_add(i64 " + piaBaseReg + ", i64 " + piaMulReg + ", i64 1)\n")
-            let piaPtrReg = getNextReg()
-            output.append("  " + piaPtrReg + " = inttoptr i64 " + piaOffsetReg + " to ptr\n")
-            let piaResultReg = getNextReg()
-            output.append("  " + piaResultReg + " = load i64, ptr " + piaPtrReg + " ; ptr[i] access\n")
-            return piaResultReg
+            return emitPointerIndexAccessImpl(output, g_regBox, piaBaseReg,
+                piaIdxReg)
         }
-        // Operator overloading: check for operator_index method on non-array types
-        if not idxBaseType.startsWith("Array<") and not idxBaseType.startsWith("List<") and not idxBaseType.startsWith("Vec<") and idxBaseType != "String" {
+
+        if shouldTryOperatorIndexAccessImpl(idxBaseType) {
             let idxOpFunc = idxBaseType + "_operator_index"
             let idxOpRet = getFunctionReturnTypeStateImpl(idxOpFunc, funcNames,
                 funcRetTypes)
             if idxOpRet != "" {
                 let idxBaseReg = generateExpression(expr.operands[0])
                 let idxIdxReg = generateExpression(expr.operands[1])
-                let idxThisReg = getNextReg()
-                output.append("  " + idxThisReg + " = inttoptr i64 " + idxBaseReg + " to ptr\n")
                 let idxRetLlvm = mapType(idxOpRet)
-                let idxResReg = getNextReg()
-                output.append("  " + idxResReg + " = call " + idxRetLlvm + " @" + quoteIdentIfNeeded(idxOpFunc) + "(ptr " + idxThisReg + ", i64 " + idxIdxReg + ")\n")
-                return idxResReg
+                return emitOperatorIndexAccessCallImpl(output, g_regBox,
+                    idxBaseReg, idxIdxReg, idxRetLlvm,
+                    quoteIdentIfNeeded(idxOpFunc))
             }
         }
 
@@ -4608,117 +4597,34 @@ class LLVMIRGenerator {
             }
         }
 
-        // : Bounds checking on array access
-        if g_boundsCheckEnabled == 1 {
-            let bcFailLabel = "bounds_fail_" + g_boundsCheckLabelCount.toString()
-            let bcOkLabel = "bounds_ok_" + g_boundsCheckLabelCount.toString()
-            g_boundsCheckLabelCount = g_boundsCheckLabelCount + 1
-            let lenReg = emitSeenArrayLengthLoadImpl(output, g_regBox,
-                arrayReg, "")
-            let oobReg = getNextReg()
-            output.append("  " + oobReg + " = icmp uge i64 " + indexReg + ", " + lenReg + "\n")
-            output.append("  br i1 " + oobReg + ", label %" + bcFailLabel + ", label %" + bcOkLabel + "\n")
-            output.append(bcFailLabel + ":\n")
-            output.append("  call void @seen_bounds_check(i64 " + indexReg + ", i64 " + lenReg + ")\n")
-            output.append("  unreachable\n")
-            output.append(bcOkLabel + ":\n")
+        if shouldEmitIndexBoundsCheckImpl(g_boundsCheckEnabled) {
+            var boundsCountBox = Array<Int>()
+            boundsCountBox.push(g_boundsCheckLabelCount)
+            emitIndexBoundsCheckImpl(output, g_regBox, arrayReg, indexReg,
+                boundsCountBox)
+            g_boundsCheckLabelCount = boundsCountBox[0]
             cseClear()
         }
 
-        // Infer the element type from the array type
         let arrayType = inferExpressionType(expr.operands[0])
-
-        // Both List<T> and Array<T> are ptr to SeenArray on heap - use pointer-based accessors
-        // to avoid struct-by-value ABI issues between LLVM and C
-
-        var resultReg = ""
-        var handledArr = false
-
-        // Use typed array get functions based on element type (pointer-based variants)
-        if arrayType == "Array<String>" {
-            resultReg = getNextReg()
-            output.append("  " + resultReg + " = call %SeenString @seen_arr_get_str_ptr(ptr " + arrayReg + ", i64 " + indexReg + ")\n")
-            handledArr = true
-        }
-        if not handledArr and arrayType == "Array<FrontendDiagnostic>" {
-            let ptrResultReg = getNextReg()
-            output.append("  " + ptrResultReg + " = call ptr @seen_arr_get_diag_ptr(ptr " + arrayReg + ", i64 " + indexReg + ")\n")
-            // FrontendDiagnostic is a class type stored as i64, convert ptr to i64
-            resultReg = getNextReg()
-            output.append("  " + resultReg + " = ptrtoint ptr " + ptrResultReg + " to i64\n")
-            handledArr = true
-        }
-        if not handledArr and arrayType == "Array<Int>" {
-            // Inline array read: direct GEP to data pointer (field 3) then index
-            // Eliminates function call overhead, enables vectorization and unrolling
-            let dataPtrPtrReg = getNextReg()
-            output.append("  " + dataPtrPtrReg + " = getelementptr inbounds %SeenArray, ptr " + arrayReg + ", i32 0, i32 3\n")
-            let dataPtrReg = getNextReg()
-            output.append("  " + dataPtrReg + " = load ptr, ptr " + dataPtrPtrReg + ", !tbaa !104\n")
-            let elemPtrReg = getNextReg()
-            output.append("  " + elemPtrReg + " = getelementptr inbounds nuw i64, ptr " + dataPtrReg + ", i64 " + indexReg + "\n")
-            resultReg = getNextReg()
-            output.append("  " + resultReg + " = load i64, ptr " + elemPtrReg + ", align 8, !tbaa !105\n")
-            handledArr = true
-        }
-        if not handledArr and arrayType == "Array<Float>" {
-            // Inline array read: direct GEP to data pointer (field 3) then index
-            let dataPtrPtrReg = getNextReg()
-            output.append("  " + dataPtrPtrReg + " = getelementptr inbounds %SeenArray, ptr " + arrayReg + ", i32 0, i32 3\n")
-            let dataPtrReg = getNextReg()
-            output.append("  " + dataPtrReg + " = load ptr, ptr " + dataPtrPtrReg + ", !tbaa !104\n")
-            let elemPtrReg = getNextReg()
-            output.append("  " + elemPtrReg + " = getelementptr inbounds nuw double, ptr " + dataPtrReg + ", i64 " + indexReg + "\n")
-            resultReg = getNextReg()
-            output.append("  " + resultReg + " = load double, ptr " + elemPtrReg + ", align 8, !tbaa !106\n")
-            handledArr = true
-        }
-        if not handledArr and arrayType == "Array<ProgramNode>" {
-            // ProgramNode is a class type, so convert ptr to i64
-            let ptrResultReg = getNextReg()
-            output.append("  " + ptrResultReg + " = call ptr @seen_arr_get_ptr_ptr(ptr " + arrayReg + ", i64 " + indexReg + ")\n")
-            resultReg = getNextReg()
-            output.append("  " + resultReg + " = ptrtoint ptr " + ptrResultReg + " to i64\n")
-            handledArr = true
-        }
-        if not handledArr {
-            // Extract element type from arrayType (e.g., "Array<TypeError>" -> "TypeError")
-            var elementType = ""
-            if arrayType.startsWith("Array<") and arrayType.endsWith(">") {
-                elementType = arrayType.substring(6, arrayType.length() - 1)
-            }
-
-            // Choose the right getter based on element type (pointer-based variants)
-            let ptrResultReg = getNextReg()
-            if isDataType(elementType) {
-                // Data types are stored inline - use seen_arr_get_element_ptr which uses element_size
-                output.append("  " + ptrResultReg + " = call ptr @seen_arr_get_element_ptr(ptr " + arrayReg + ", i64 " + indexReg + ")\n")
-                // Load the inline struct value
-                resultReg = getNextReg()
-                output.append("  " + resultReg + " = load %" + elementType + ", ptr " + ptrResultReg + "\n")
-            } else if isClassType(elementType) {
-                // Class types are stored as pointers - inline GEP for ptr-sized elements
-                // Note: ptrResultReg already allocated above, but we can't use it out-of-order.
-                // Instead, emit a dummy instruction and use new sequential registers.
-                output.append("  " + ptrResultReg + " = getelementptr inbounds %SeenArray, ptr " + arrayReg + ", i32 0, i32 3\n")
-                let clsDataPtr = getNextReg()
-                output.append("  " + clsDataPtr + " = load ptr, ptr " + ptrResultReg + ", !tbaa !104\n")
-                let clsElemPtr = getNextReg()
-                output.append("  " + clsElemPtr + " = getelementptr inbounds ptr, ptr " + clsDataPtr + ", i64 " + indexReg + "\n")
-                let clsLoadReg = getNextReg()
-                output.append("  " + clsLoadReg + " = load ptr, ptr " + clsElemPtr + "\n")
-                // Convert ptr to i64 for class types
-                resultReg = getNextReg()
-                output.append("  " + resultReg + " = ptrtoint ptr " + clsLoadReg + " to i64\n")
-            } else {
-                // Default: use element_ptr - SAFER because it works with any element_size
-                // seen_arr_get_element_ptr uses the stored element_size for correct offset calculation
-                output.append("  " + ptrResultReg + " = call ptr @seen_arr_get_element_ptr(ptr " + arrayReg + ", i64 " + indexReg + ")\n")
-                resultReg = ptrResultReg
-            }
+        let typedIndexPlan = planTypedIndexAccessImpl(arrayType)
+        let typedIndexReg = emitTypedArrayIndexAccessImpl(output, g_regBox,
+            typedIndexPlan.action, arrayReg, indexReg)
+        if typedIndexReg != "" {
+            return typedIndexReg
         }
 
-        return resultReg
+        var isDataElement = 0
+        if isDataType(typedIndexPlan.elementType) {
+            isDataElement = 1
+        }
+        var isClassElement = 0
+        if isClassType(typedIndexPlan.elementType) {
+            isClassElement = 1
+        }
+        return emitFallbackIndexElementAccessImpl(output, g_regBox, arrayReg,
+            indexReg, typedIndexPlan.elementType, isDataElement,
+            isClassElement)
     }
 
     fun shouldRebuildMemberAccessReceiver(receiverName: String) r: Int {
