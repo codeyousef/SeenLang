@@ -417,15 +417,6 @@ fun emitPreparedStaticMethodCallImpl(output: StringBuilder, regBox: Array<Int>,
         0)
 }
 
-fun shouldLowerUnresolvedMethodAsCallImpl(currentClassName: String,
-    implicitMethodRetType: String, functionRetType: String) r: Bool {
-
-    if currentClassName != "" and implicitMethodRetType != "" {
-        return true
-    }
-    return functionRetType != ""
-}
-
 fun tryGenerateUnresolvedReceiverFallbackMethodImpl(output: StringBuilder,
     regBox: Array<Int>, methodName: String, receiverReg: String,
     receiverType: String) r: String {

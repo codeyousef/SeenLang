@@ -113,14 +113,6 @@ fun shouldRecordStaticMethodLateDeclareImpl(potentialClassName: String,
     return true
 }
 
-fun shouldUseUnresolvedReceiverFallbackImpl(receiverReg: String) r: Bool {
-    return receiverReg == ""
-}
-
-fun shouldLookupImplicitMethodReturnImpl(currentClassName: String) r: Bool {
-    return currentClassName != ""
-}
-
 fun isSeenLexerKeywordManagerReceiverImpl(thisType: String,
     varName: String) r: Bool {
 
