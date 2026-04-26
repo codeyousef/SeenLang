@@ -182,3 +182,12 @@ fun normalizeReturnStatementValueRegImpl(output: StringBuilder,
     }
     return normalizeZeroReturnValueRegImpl(llvmType, normalizedValueReg)
 }
+
+fun emitFinalReturnStatementValueImpl(output: StringBuilder,
+    regBox: Array<Int>, isDataReturnType: Bool, returnKind: String,
+    llvmType: String, rawValueReg: String) r: Void {
+
+    let valueReg = normalizeReturnStatementValueRegImpl(output, regBox,
+        isDataReturnType, returnKind, llvmType, rawValueReg)
+    output.append("  ret " + llvmType + " " + valueReg + "\n")
+}
