@@ -1827,6 +1827,10 @@ fun moduleDeclaresMain(path: String) r: Bool {
     return false
 }
 
+fun shouldRunWholeProjectPreflight(moduleCount: Int) r: Bool {
+    return moduleCount <= 48
+}
+
 // Collect all module paths needed for compilation (without storing ASTs).
 // For regular compilations this walks imports recursively so standalone builds
 // include transitive dependencies. For bootstrap compilation we keep the older
@@ -4308,104 +4312,110 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     // compilation. Circular imports would cause the module collector to loop
     // and the IR generator to emit incomplete forward references. Catching
     // this early gives a clear diagnostic instead of a cryptic linker error.
-    let depPaths = collectModulePaths(resolvedInput, true)
-    let sealedValidation = validateSealedModules(depPaths, language)
-    if not sealedValidation.success {
-        printFrontendDiagnostics(sealedValidation)
-        return 1
-    }
-    var depGraph = Array<String>()   // pipe-delimited adjacency: "from|to1|to2|..."
-    var depIdx = 0
-    while depIdx < depPaths.length() {
-        let depPath = depPaths[depIdx]
-        let depSourceDir = getSourceDir(depPath)
-        let depFe = parseModule(depPath, language)
-        var edges = depPath
-        if depFe.success {
-            var depItemIdx = 0
-            while depItemIdx < depFe.program.items.length() {
-                let depItem = depFe.program.items[depItemIdx]
-                if depItem.itemType == "Import" {
-                    let depTarget = resolveImportPath(depItem.importPath, depSourceDir)
-                    edges = edges + "|" + depTarget
-                }
-                depItemIdx = depItemIdx + 1
-            }
+    println("  [Pass 0] Discovering module graph...")
+    let modulePaths = collectModulePaths(resolvedInput, false)
+    println("    Found " + modulePaths.length().toString() + " modules")
+    if shouldRunWholeProjectPreflight(modulePaths.length()) {
+        let sealedValidation = validateSealedModules(modulePaths, language)
+        if not sealedValidation.success {
+            printFrontendDiagnostics(sealedValidation)
+            return 1
         }
-        depGraph.push(edges)
-        depIdx = depIdx + 1
-    }
-    // DFS cycle check: color 0=white, 1=gray, 2=black, 3=queued
-    var depColors = Array<Int>()
-    var depCycleFound = 0
-    var depCyclePath = ""
-    depIdx = 0
-    while depIdx < depPaths.length() {
-        depColors.push(0)
-        depIdx = depIdx + 1
-    }
-    // Simple O(V+E) DFS; sufficient for ~50 modules
-    // Use manual stack via Array<Int> + stackTop counter (no .pop() in runtime)
-    var dfsStack = Array<Int>()
-    var dfsStackTop = 0
-    depIdx = 0
-    while depIdx < depPaths.length() {
-        if depColors[depIdx] == 0 {
-            depColors[depIdx] = 3
-            dfsStack.push(depIdx)
-            dfsStackTop = dfsStackTop + 1
-            while dfsStackTop > 0 {
-                let dfsNode = dfsStack[dfsStackTop - 1]
-                if depColors[dfsNode] == 0 or depColors[dfsNode] == 3 {
-                    depColors[dfsNode] = 1  // gray = in-progress
-                    // Push neighbors
-                    let dfsEdges = depGraph[dfsNode]
-                    // Parse edges (pipe-delimited, first is self)
-                    var dfsPos = 0
-                    var dfsFirst = true
-                    var dfsSegStart = 0
-                    while dfsPos <= dfsEdges.length() {
-                        var dfsIsSep = false
-                        if dfsPos == dfsEdges.length() { dfsIsSep = true }
-                        if not dfsIsSep {
-                            if dfsEdges.substring(dfsPos, dfsPos + 1) == "|" { dfsIsSep = true }
-                        }
-                        if dfsIsSep {
-                            if not dfsFirst {
-                                let dfsTarget = dfsEdges.substring(dfsSegStart, dfsPos)
-                                // Find target index
-                                var dfsTargetIdx = 0
-                                while dfsTargetIdx < depPaths.length() {
-                                    if depPaths[dfsTargetIdx] == dfsTarget {
-                                        if depColors[dfsTargetIdx] == 1 {
-                                            depCycleFound = 1
-                                            depCyclePath = depPaths[dfsNode] + " -> " + dfsTarget
-                                        }
-                                        if depColors[dfsTargetIdx] == 0 {
-                                            depColors[dfsTargetIdx] = 3
-                                            dfsStack.push(dfsTargetIdx)
-                                            dfsStackTop = dfsStackTop + 1
-                                        }
-                                        dfsTargetIdx = depPaths.length()
-                                    }
-                                    dfsTargetIdx = dfsTargetIdx + 1
-                                }
-                            }
-                            dfsFirst = false
-                            dfsSegStart = dfsPos + 1
-                        }
-                        dfsPos = dfsPos + 1
+        var depGraph = Array<String>()   // pipe-delimited adjacency: "from|to1|to2|..."
+        var depIdx = 0
+        while depIdx < modulePaths.length() {
+            let depPath = modulePaths[depIdx]
+            let depSourceDir = getSourceDir(depPath)
+            let depFe = parseModule(depPath, language)
+            var edges = depPath
+            if depFe.success {
+                var depItemIdx = 0
+                while depItemIdx < depFe.program.items.length() {
+                    let depItem = depFe.program.items[depItemIdx]
+                    if depItem.itemType == "Import" {
+                        let depTarget = resolveImportPath(depItem.importPath, depSourceDir)
+                        edges = edges + "|" + depTarget
                     }
-                } else {
-                    depColors[dfsNode] = 2  // black = done
-                    dfsStackTop = dfsStackTop - 1
+                    depItemIdx = depItemIdx + 1
                 }
             }
+            depGraph.push(edges)
+            depIdx = depIdx + 1
         }
-        depIdx = depIdx + 1
-    }
-    if depCycleFound == 1 {
-        println("  WARNING: Circular module dependency detected: " + depCyclePath)
+        // DFS cycle check: color 0=white, 1=gray, 2=black, 3=queued
+        var depColors = Array<Int>()
+        var depCycleFound = 0
+        var depCyclePath = ""
+        depIdx = 0
+        while depIdx < modulePaths.length() {
+            depColors.push(0)
+            depIdx = depIdx + 1
+        }
+        // Simple O(V+E) DFS; sufficient for small and medium module graphs.
+        // Use manual stack via Array<Int> + stackTop counter (no .pop() in runtime)
+        var dfsStack = Array<Int>()
+        var dfsStackTop = 0
+        depIdx = 0
+        while depIdx < modulePaths.length() {
+            if depColors[depIdx] == 0 {
+                depColors[depIdx] = 3
+                dfsStack.push(depIdx)
+                dfsStackTop = dfsStackTop + 1
+                while dfsStackTop > 0 {
+                    let dfsNode = dfsStack[dfsStackTop - 1]
+                    if depColors[dfsNode] == 0 or depColors[dfsNode] == 3 {
+                        depColors[dfsNode] = 1  // gray = in-progress
+                        // Push neighbors
+                        let dfsEdges = depGraph[dfsNode]
+                        // Parse edges (pipe-delimited, first is self)
+                        var dfsPos = 0
+                        var dfsFirst = true
+                        var dfsSegStart = 0
+                        while dfsPos <= dfsEdges.length() {
+                            var dfsIsSep = false
+                            if dfsPos == dfsEdges.length() { dfsIsSep = true }
+                            if not dfsIsSep {
+                                if dfsEdges.substring(dfsPos, dfsPos + 1) == "|" { dfsIsSep = true }
+                            }
+                            if dfsIsSep {
+                                if not dfsFirst {
+                                    let dfsTarget = dfsEdges.substring(dfsSegStart, dfsPos)
+                                    // Find target index
+                                    var dfsTargetIdx = 0
+                                    while dfsTargetIdx < modulePaths.length() {
+                                        if modulePaths[dfsTargetIdx] == dfsTarget {
+                                            if depColors[dfsTargetIdx] == 1 {
+                                                depCycleFound = 1
+                                                depCyclePath = modulePaths[dfsNode] + " -> " + dfsTarget
+                                            }
+                                            if depColors[dfsTargetIdx] == 0 {
+                                                depColors[dfsTargetIdx] = 3
+                                                dfsStack.push(dfsTargetIdx)
+                                                dfsStackTop = dfsStackTop + 1
+                                            }
+                                            dfsTargetIdx = modulePaths.length()
+                                        }
+                                        dfsTargetIdx = dfsTargetIdx + 1
+                                    }
+                                }
+                                dfsFirst = false
+                                dfsSegStart = dfsPos + 1
+                            }
+                            dfsPos = dfsPos + 1
+                        }
+                    } else {
+                        depColors[dfsNode] = 2  // black = done
+                        dfsStackTop = dfsStackTop - 1
+                    }
+                }
+            }
+            depIdx = depIdx + 1
+        }
+        if depCycleFound == 1 {
+            println("  WARNING: Circular module dependency detected: " + depCyclePath)
+        }
+    } else {
+        println("  [Pass 0] Large module graph: deferring whole-project validation to streaming passes")
     }
 
     // ============================================================
@@ -4419,8 +4429,6 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     // produce "undefined value" errors during IR generation.
     // Each AST is released after registration to bound memory usage.
     println("  [Pass 1] Scanning declarations...")
-    let modulePaths = collectModulePaths(resolvedInput, false)
-    println("    Found " + modulePaths.length().toString() + " modules")
 
     var passIdx = 0
     while passIdx < modulePaths.length() {

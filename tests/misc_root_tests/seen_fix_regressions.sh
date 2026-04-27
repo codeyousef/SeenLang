@@ -410,6 +410,78 @@ EOF
     echo "PASS: Seen.toml project modules are included in compilation"
 }
 
+run_large_manifest_scanner_case() {
+    local project_dir="$TMP_ROOT/large_manifest_scanner"
+    local output_file="$project_dir/large_manifest_scanner"
+    local log_file="$project_dir/large_manifest_scanner.log"
+
+    cleanup_seen_artifacts
+    mkdir -p "$project_dir/hearton/src/generated"
+
+    {
+        echo '[project]'
+        echo 'name = "large-manifest-scanner"'
+        echo 'version = "0.1.0"'
+        echo 'language = "en"'
+        echo 'description = "large manifest scanner regression"'
+        echo ''
+        echo 'modules = ['
+        echo '    "main.seen",'
+        for i in $(seq 1 56); do
+            printf '    "hearton/src/generated/module_%03d.seen",\n' "$i"
+        done
+        echo ']'
+        echo ''
+        echo '[build]'
+        echo 'entry = "main.seen"'
+    } >"$project_dir/Seen.toml"
+
+    cat >"$project_dir/main.seen" <<'EOF'
+fun main() r: Int {
+    return 0
+}
+EOF
+
+    for i in $(seq 1 56); do
+        local module_file
+        module_file=$(printf '%s/hearton/src/generated/module_%03d.seen' "$project_dir" "$i")
+        {
+            printf 'fun generatedHelper%03d() r: Int {\n' "$i"
+            printf '    return %d\n' "$i"
+            printf '}\n'
+        } >"$module_file"
+    done
+
+    (
+        cd "$project_dir" &&
+        timeout 120 "$COMPILER" compile "main.seen" "$output_file" --fast --no-cache --no-fork >"$log_file" 2>&1
+    ) || {
+        echo "FAIL: large Seen.toml scanner case did not compile"
+        cat "$log_file"
+        exit 1
+    }
+
+    if grep -q 'free(): invalid size' "$log_file"; then
+        echo "FAIL: large Seen.toml scanner case aborted in manifest handling"
+        cat "$log_file"
+        exit 1
+    fi
+
+    if ! grep -q 'Large module graph' "$log_file"; then
+        echo "FAIL: large Seen.toml scanner case did not use bounded preflight path"
+        cat "$log_file"
+        exit 1
+    fi
+
+    if ! "$output_file" >/dev/null 2>&1; then
+        echo "FAIL: large Seen.toml scanner binary exited non-zero"
+        cat "$log_file"
+        exit 1
+    fi
+
+    echo "PASS: large Seen.toml manifests use bounded scanner path"
+}
+
 run_local_system_dependency_case() {
     local project_dir="$TMP_ROOT/local_system_dependency"
     local outside_dir="$TMP_ROOT/local_system_dependency_outside"
@@ -1085,6 +1157,7 @@ run_success_case "nested continue high-arity functions compile" "$NESTED_CONTINU
 run_c12_case
 run_recovery_partial_failure_case
 run_toml_project_modules_case
+run_large_manifest_scanner_case
 run_local_system_dependency_case
 run_build_entry_seed_case
 run_root_main_build_entry_isolation_case
