@@ -10,38 +10,115 @@ import codegen.ir_type_info.{getLLVMIRGeneratorFieldLlvmTypeImpl}
 
 // Method name -> return type for MethodCall expressions
 fun inferMethodCallTypeTable(callee: String) r: String {
-    if callee == "length" or callee == "size" or callee == "lengthCodepoints" {
-        return "Int"
-    }
+    if callee == "length" { return "Int" }
+    if callee == "size" { return "Int" }
+    if callee == "lengthCodepoints" { return "Int" }
     if callee == "charAt" {
         return "Char"
     }
-    if callee == "charCodeAt" or callee == "byteAt" {
-        return "Int"
-    }
+    if callee == "charCodeAt" { return "Int" }
+    if callee == "byteAt" { return "Int" }
     // Note: 'getValue' must be hardcoded because Token class methods aren't registered
     // before parser module methods are compiled (module load order issue)
-    if callee == "toString" or callee == "substring" or callee == "trim" or callee == "generate" or callee == "generateMultiple" or callee == "generateSingle" or callee == "mapType" or callee == "getNextReg" or callee == "getNextBlock" or callee == "getFieldType" or callee == "getSeenFieldType" or callee == "getFunctionReturnType" or callee == "getMethodReturnType" or callee == "resolveChainedPathType" or callee == "hexToDecimal" or callee == "escapeString" or callee == "findVarType" or callee == "peekTokenTypeStr" or callee == "joinSegments" or callee == "getValue" or callee == "getLastError" or callee == "getTypeInfo" or callee == "getString" or callee == "fromCharCode" or callee == "reverse" {
-        return "String"
-    }
-    if callee == "startsWith" or callee == "endsWith" or callee == "contains" or callee == "success" or callee == "isDynamic" or callee == "isKeyword" or callee == "hasTranslation" or callee == "containsKey" or callee == "containsValue" or callee == "isOkay" or callee == "isErr" or callee == "checkToken" or callee == "matchTokenStr" or callee == "isAtEnd" or callee == "isRunning" or callee == "isNotification" or callee == "hasMethod" or callee == "isWordChar" or callee == "isObject" or callee == "isArray" or callee == "isString" or callee == "isNumber" or callee == "isBool" or callee == "isNull" or callee == "hasKey" or callee == "isDigit" or callee == "isAlpha" or callee == "isAlphanumeric" or callee == "isUpperCase" or callee == "isLowerCase" or callee == "isWhitespace" or callee == "isEmpty" or callee == "isNaN" or callee == "isInfinite" {
-        return "Bool"
-    }
-    if callee == "peek" or callee == "previous" or callee == "consume" or callee == "advance" {
-        return "Token"
-    }
-    if callee == "handleWhitespace" or callee == "handleSingleLineComment" or callee == "handleMultiLineComment" or callee == "handleStringLiteral" or callee == "handleCharLiteral" or callee == "handleNumericLiteral" or callee == "handleIdentifierOrKeyword" or callee == "emitToken" or callee == "emitErrorToken" or callee == "setErrorRecoveryMode" or callee == "push" or callee == "append" or callee == "appendChar" or callee == "appendInt" or callee == "appendFloat" or callee == "clear" or callee == "sendResponse" or callee == "sendNotification" or callee == "sendRaw" or callee == "sendError" or callee == "stop" or callee == "storeDocument" or callee == "removeDocument" or callee == "log" or callee == "register" or callee == "set" {
-        return "Void"
-    }
-    if callee == "peekTokenType" or callee == "getInt" or callee == "count" or callee == "toInt" {
-        return "Int"
-    }
+    if callee == "toString" { return "String" }
+    if callee == "substring" { return "String" }
+    if callee == "trim" { return "String" }
+    if callee == "generate" { return "String" }
+    if callee == "generateMultiple" { return "String" }
+    if callee == "generateSingle" { return "String" }
+    if callee == "mapType" { return "String" }
+    if callee == "getNextReg" { return "String" }
+    if callee == "getNextBlock" { return "String" }
+    if callee == "getFieldType" { return "String" }
+    if callee == "getSeenFieldType" { return "String" }
+    if callee == "getFunctionReturnType" { return "String" }
+    if callee == "getMethodReturnType" { return "String" }
+    if callee == "resolveChainedPathType" { return "String" }
+    if callee == "hexToDecimal" { return "String" }
+    if callee == "escapeString" { return "String" }
+    if callee == "findVarType" { return "String" }
+    if callee == "peekTokenTypeStr" { return "String" }
+    if callee == "joinSegments" { return "String" }
+    if callee == "getValue" { return "String" }
+    if callee == "getLastError" { return "String" }
+    if callee == "getTypeInfo" { return "String" }
+    if callee == "getString" { return "String" }
+    if callee == "fromCharCode" { return "String" }
+    if callee == "reverse" { return "String" }
+    if callee == "startsWith" { return "Bool" }
+    if callee == "endsWith" { return "Bool" }
+    if callee == "contains" { return "Bool" }
+    if callee == "success" { return "Bool" }
+    if callee == "isDynamic" { return "Bool" }
+    if callee == "isKeyword" { return "Bool" }
+    if callee == "hasTranslation" { return "Bool" }
+    if callee == "containsKey" { return "Bool" }
+    if callee == "containsValue" { return "Bool" }
+    if callee == "isOkay" { return "Bool" }
+    if callee == "isErr" { return "Bool" }
+    if callee == "checkToken" { return "Bool" }
+    if callee == "matchTokenStr" { return "Bool" }
+    if callee == "isAtEnd" { return "Bool" }
+    if callee == "isRunning" { return "Bool" }
+    if callee == "isNotification" { return "Bool" }
+    if callee == "hasMethod" { return "Bool" }
+    if callee == "isWordChar" { return "Bool" }
+    if callee == "isObject" { return "Bool" }
+    if callee == "isArray" { return "Bool" }
+    if callee == "isString" { return "Bool" }
+    if callee == "isNumber" { return "Bool" }
+    if callee == "isBool" { return "Bool" }
+    if callee == "isNull" { return "Bool" }
+    if callee == "hasKey" { return "Bool" }
+    if callee == "isDigit" { return "Bool" }
+    if callee == "isAlpha" { return "Bool" }
+    if callee == "isAlphanumeric" { return "Bool" }
+    if callee == "isUpperCase" { return "Bool" }
+    if callee == "isLowerCase" { return "Bool" }
+    if callee == "isWhitespace" { return "Bool" }
+    if callee == "isEmpty" { return "Bool" }
+    if callee == "isNaN" { return "Bool" }
+    if callee == "isInfinite" { return "Bool" }
+    if callee == "peek" { return "Token" }
+    if callee == "previous" { return "Token" }
+    if callee == "consume" { return "Token" }
+    if callee == "advance" { return "Token" }
+    if callee == "handleWhitespace" { return "Void" }
+    if callee == "handleSingleLineComment" { return "Void" }
+    if callee == "handleMultiLineComment" { return "Void" }
+    if callee == "handleStringLiteral" { return "Void" }
+    if callee == "handleCharLiteral" { return "Void" }
+    if callee == "handleNumericLiteral" { return "Void" }
+    if callee == "handleIdentifierOrKeyword" { return "Void" }
+    if callee == "emitToken" { return "Void" }
+    if callee == "emitErrorToken" { return "Void" }
+    if callee == "setErrorRecoveryMode" { return "Void" }
+    if callee == "push" { return "Void" }
+    if callee == "append" { return "Void" }
+    if callee == "appendChar" { return "Void" }
+    if callee == "appendInt" { return "Void" }
+    if callee == "appendFloat" { return "Void" }
+    if callee == "clear" { return "Void" }
+    if callee == "sendResponse" { return "Void" }
+    if callee == "sendNotification" { return "Void" }
+    if callee == "sendRaw" { return "Void" }
+    if callee == "sendError" { return "Void" }
+    if callee == "stop" { return "Void" }
+    if callee == "storeDocument" { return "Void" }
+    if callee == "removeDocument" { return "Void" }
+    if callee == "log" { return "Void" }
+    if callee == "register" { return "Void" }
+    if callee == "set" { return "Void" }
+    if callee == "peekTokenType" { return "Int" }
+    if callee == "getInt" { return "Int" }
+    if callee == "count" { return "Int" }
+    if callee == "toInt" { return "Int" }
     if callee == "getBool" {
         return "Bool"
     }
-    if callee == "getNumber" or callee == "getFloat" or callee == "toFloat" {
-        return "Float"
-    }
+    if callee == "getNumber" { return "Float" }
+    if callee == "getFloat" { return "Float" }
+    if callee == "toFloat" { return "Float" }
     if callee == "getArray" {
         return "Array<JsonValue>"
     }
@@ -54,39 +131,38 @@ fun inferMethodCallTypeTable(callee: String) r: String {
     if callee == "getDiagnostics" {
         return "Array<FrontendDiagnostic>"
     }
-    if callee == "getSources" or callee == "getKeywordSources" or callee == "keys" or callee == "values" or callee == "split" {
-        return "Array<String>"
-    }
+    if callee == "getSources" { return "Array<String>" }
+    if callee == "getKeywordSources" { return "Array<String>" }
+    if callee == "keys" { return "Array<String>" }
+    if callee == "values" { return "Array<String>" }
+    if callee == "split" { return "Array<String>" }
     if callee == "getKeywordCount" {
         return "Int"
     }
     if callee == "check" {
         return "TypeInferenceResult"
     }
-    if callee == "parse" {
-        return "ProgramNode"
-    }
+    if callee == "parse" { return "ProgramNode" }
+    if callee == "parseDeclarationsOnly" { return "ProgramNode" }
     if callee == "tokenize" {
         return "Array<Token>"
     }
-    if callee == "getContext" or callee == "getMessage" or callee == "unwrapErr" {
-        return "String"
-    }
+    if callee == "getContext" { return "String" }
+    if callee == "getMessage" { return "String" }
+    if callee == "unwrapErr" { return "String" }
     if callee == "getLocation" {
         return "Location"
     }
-    if callee == "getExpected" or callee == "getActual" {
-        return "Type"
-    }
+    if callee == "getExpected" { return "Type" }
+    if callee == "getActual" { return "Type" }
     if callee == "toJson" {
         return "JsonValue"
     }
     if callee == "parseJson" {
         return "JsonParseResult"
     }
-    if callee == "open" or callee == "create" {
-        return "FsFileResult"
-    }
+    if callee == "open" { return "FsFileResult" }
+    if callee == "create" { return "FsFileResult" }
     // LSP methods returning nullable types
     if callee == "readMessage" {
         return "LspMessage?"
@@ -97,88 +173,140 @@ fun inferMethodCallTypeTable(callee: String) r: String {
     if callee == "getAt" {
         return "JsonValue?"
     }
-    if callee == "readContent" or callee == "writeContent" or callee == "closeFile" {
-        return "Result"
-    }
+    if callee == "readContent" { return "Result" }
+    if callee == "writeContent" { return "Result" }
+    if callee == "closeFile" { return "Result" }
     return ""
 }
 
 // Function/constructor name -> return type for Call expressions
 fun inferCallTypeTable(callee: String) r: String {
     // Benchmark/runtime intrinsics
-    if callee == "__GetTime" or callee == "__Sqrt" or callee == "__Sin" or callee == "__Cos" or callee == "__Exp" or callee == "__Log" or callee == "__Log10" or callee == "__Fabs" or callee == "__Pow" or callee == "__Asin" or callee == "__Acos" or callee == "__Atan" or callee == "__Atan2" or callee == "__Sinh" or callee == "__Cosh" or callee == "__Tanh" or callee == "__Tan" or callee == "__IntToFloat" or callee == "absFloat" {
-        return "Float"
-    }
-    if callee == "absInt" or callee == "minInt" or callee == "maxInt" or callee == "__FloatToInt" {
-        return "Int"
-    }
+    if callee == "__GetTime" { return "Float" }
+    if callee == "__Sqrt" { return "Float" }
+    if callee == "__Sin" { return "Float" }
+    if callee == "__Cos" { return "Float" }
+    if callee == "__Exp" { return "Float" }
+    if callee == "__Log" { return "Float" }
+    if callee == "__Log10" { return "Float" }
+    if callee == "__Fabs" { return "Float" }
+    if callee == "__Pow" { return "Float" }
+    if callee == "__Asin" { return "Float" }
+    if callee == "__Acos" { return "Float" }
+    if callee == "__Atan" { return "Float" }
+    if callee == "__Atan2" { return "Float" }
+    if callee == "__Sinh" { return "Float" }
+    if callee == "__Cosh" { return "Float" }
+    if callee == "__Tanh" { return "Float" }
+    if callee == "__Tan" { return "Float" }
+    if callee == "__IntToFloat" { return "Float" }
+    if callee == "absFloat" { return "Float" }
+    if callee == "absInt" { return "Int" }
+    if callee == "minInt" { return "Int" }
+    if callee == "maxInt" { return "Int" }
+    if callee == "__FloatToInt" { return "Int" }
     if callee == "__FloatToString" {
         return "String"
     }
-    if callee == "__Print" or callee == "__PrintInt" or callee == "__PrintFloat" or callee == "__PrintRaw" or callee == "__FlushStdout" {
-        return "Void"
-    }
+    if callee == "__Print" { return "Void" }
+    if callee == "__PrintInt" { return "Void" }
+    if callee == "__PrintFloat" { return "Void" }
+    if callee == "__PrintRaw" { return "Void" }
+    if callee == "__FlushStdout" { return "Void" }
     // Explicit class constructor detection (hardcoded for reliability)
     // AST node types
-    if callee == "FunctionNode" or callee == "ClassNode" or callee == "EnumNode" or callee == "BlockNode" or callee == "StatementNode" or callee == "ParserExpressionNode" {
-        return callee
-    }
-    if callee == "ProgramNode" or callee == "ItemNode" or callee == "ImportNode" {
-        return callee
-    }
+    if callee == "FunctionNode" { return callee }
+    if callee == "ClassNode" { return callee }
+    if callee == "EnumNode" { return callee }
+    if callee == "BlockNode" { return callee }
+    if callee == "StatementNode" { return callee }
+    if callee == "ParserExpressionNode" { return callee }
+    if callee == "ProgramNode" { return callee }
+    if callee == "ItemNode" { return callee }
+    if callee == "ImportNode" { return callee }
     // Compiler infrastructure types
-    if callee == "LLVMIRGenerator" or callee == "RealParser" or callee == "SeenLexer" or callee == "TypeChecker" or callee == "Environment" {
-        return callee
-    }
-    if callee == "FrontendResult" or callee == "FrontendDiagnostic" or callee == "TypeInferenceResult" or callee == "TypeError" {
-        return callee
-    }
+    if callee == "LLVMIRGenerator" { return callee }
+    if callee == "RealParser" { return callee }
+    if callee == "SeenLexer" { return callee }
+    if callee == "TypeChecker" { return callee }
+    if callee == "Environment" { return callee }
+    if callee == "FrontendResult" { return callee }
+    if callee == "FrontendDiagnostic" { return callee }
+    if callee == "TypeInferenceResult" { return callee }
+    if callee == "TypeError" { return callee }
     // Data/utility types
-    if callee == "Token" or callee == "StringBuilder" or callee == "KeywordManager" {
-        return callee
-    }
-    if callee == "Map" or callee == "Vec" or callee == "VecChunk" or callee == "VecSlot" or callee == "BTreeMap" or callee == "HashMap" or callee == "LinkedList" {
-        return callee
-    }
-    if callee == "FsFile" or callee == "FsFileResult" or callee == "Result" or callee == "Optional" or callee == "Option" {
-        return callee
-    }
+    if callee == "Token" { return callee }
+    if callee == "StringBuilder" { return callee }
+    if callee == "KeywordManager" { return callee }
+    if callee == "Map" { return callee }
+    if callee == "Vec" { return callee }
+    if callee == "VecChunk" { return callee }
+    if callee == "VecSlot" { return callee }
+    if callee == "BTreeMap" { return callee }
+    if callee == "HashMap" { return callee }
+    if callee == "LinkedList" { return callee }
+    if callee == "FsFile" { return callee }
+    if callee == "FsFileResult" { return callee }
+    if callee == "Result" { return callee }
+    if callee == "Optional" { return callee }
+    if callee == "Option" { return callee }
     // Type system types
-    if callee == "Type" or callee == "FunctionType" or callee == "ClassType" or callee == "InterfaceType" or callee == "Location" {
-        return callee
-    }
+    if callee == "Type" { return callee }
+    if callee == "FunctionType" { return callee }
+    if callee == "ClassType" { return callee }
+    if callee == "InterfaceType" { return callee }
+    if callee == "Location" { return callee }
     // IR classes from ir/interfaces.seen
-    if callee == "IRBuilder" or callee == "IRFunction" or callee == "IRBasicBlock" or callee == "IRModule" or callee == "IRValue" or callee == "IRType" or callee == "IRInstruction" or callee == "IRError" or callee == "IRGenerator" {
-        return callee
-    }
+    if callee == "IRBuilder" { return callee }
+    if callee == "IRFunction" { return callee }
+    if callee == "IRBasicBlock" { return callee }
+    if callee == "IRModule" { return callee }
+    if callee == "IRValue" { return callee }
+    if callee == "IRType" { return callee }
+    if callee == "IRInstruction" { return callee }
+    if callee == "IRError" { return callee }
+    if callee == "IRGenerator" { return callee }
     // LSP types
-    if callee == "JsonRpcHandler" or callee == "LspMessage" or callee == "LspResponse" or callee == "LspError" or callee == "MessageDispatcher" or callee == "MessageHandler" {
-        return callee
-    }
-    if callee == "SeenLspServer" or callee == "Document" or callee == "LspPosition" or callee == "Range" or callee == "Diagnostic" or callee == "CompletionItem" or callee == "CompletionList" {
-        return callee
-    }
-    if callee == "TextDocumentIdentifier" or callee == "TextDocumentItem" or callee == "TextDocumentContentChangeEvent" or callee == "VersionedTextDocumentIdentifier" {
-        return callee
-    }
-    if callee == "MarkupContent" or callee == "Hover" or callee == "TextEdit" or callee == "CodeAction" or callee == "ServerCapabilities" or callee == "ServerInfo" {
-        return callee
-    }
-    if callee == "InitializeParams" or callee == "InitializeResult" or callee == "PublishDiagnosticsParams" {
-        return callee
-    }
+    if callee == "JsonRpcHandler" { return callee }
+    if callee == "LspMessage" { return callee }
+    if callee == "LspResponse" { return callee }
+    if callee == "LspError" { return callee }
+    if callee == "MessageDispatcher" { return callee }
+    if callee == "MessageHandler" { return callee }
+    if callee == "SeenLspServer" { return callee }
+    if callee == "Document" { return callee }
+    if callee == "LspPosition" { return callee }
+    if callee == "Range" { return callee }
+    if callee == "Diagnostic" { return callee }
+    if callee == "CompletionItem" { return callee }
+    if callee == "CompletionList" { return callee }
+    if callee == "TextDocumentIdentifier" { return callee }
+    if callee == "TextDocumentItem" { return callee }
+    if callee == "TextDocumentContentChangeEvent" { return callee }
+    if callee == "VersionedTextDocumentIdentifier" { return callee }
+    if callee == "MarkupContent" { return callee }
+    if callee == "Hover" { return callee }
+    if callee == "TextEdit" { return callee }
+    if callee == "CodeAction" { return callee }
+    if callee == "ServerCapabilities" { return callee }
+    if callee == "ServerInfo" { return callee }
+    if callee == "InitializeParams" { return callee }
+    if callee == "InitializeResult" { return callee }
+    if callee == "PublishDiagnosticsParams" { return callee }
     // JSON types
-    if callee == "JsonValue" or callee == "JsonParseResult" or callee == "ContentLengthReader" {
-        return callee
-    }
+    if callee == "JsonValue" { return callee }
+    if callee == "JsonParseResult" { return callee }
+    if callee == "ContentLengthReader" { return callee }
     // Result constructors (handle both "Err" and "Err<T, E>" forms)
-    if callee == "Err" or callee == "Ok" {
-        return "Result"
-    }
+    if callee == "Err" { return "Result" }
+    if callee == "Ok" { return "Result" }
     // VDOM factory functions - must be hardcoded since module imports may not register return types
-    if callee == "createElement" or callee == "createEmptyElement" or callee == "createText" or callee == "createKeyedElement" or callee == "createFragment" or callee == "createComponent" {
-        return "VNode"
-    }
+    if callee == "createElement" { return "VNode" }
+    if callee == "createEmptyElement" { return "VNode" }
+    if callee == "createText" { return "VNode" }
+    if callee == "createKeyedElement" { return "VNode" }
+    if callee == "createFragment" { return "VNode" }
+    if callee == "createComponent" { return "VNode" }
     if callee == "createDiffer" {
         return "VDOMDiffer"
     }
@@ -200,12 +328,11 @@ fun inferCallTypeTable(callee: String) r: String {
     if callee == "emptyChildren" {
         return "Vec<VNode>"
     }
-    if callee == "makeAttrs" or callee == "makeAttrs2" {
-        return "BTreeMap<String,String>"
-    }
-    if callee == "makeChildren1" or callee == "makeChildren2" or callee == "makeChildren3" {
-        return "Vec<VNode>"
-    }
+    if callee == "makeAttrs" { return "BTreeMap<String,String>" }
+    if callee == "makeAttrs2" { return "BTreeMap<String,String>" }
+    if callee == "makeChildren1" { return "Vec<VNode>" }
+    if callee == "makeChildren2" { return "Vec<VNode>" }
+    if callee == "makeChildren3" { return "Vec<VNode>" }
     // Then hardcoded runtime functions
     if callee == "readText" {
         return "String"
@@ -214,6 +341,9 @@ fun inferCallTypeTable(callee: String) r: String {
         return "Bool"
     }
     if callee == "run_frontend" {
+        return "FrontendResult"
+    }
+    if callee == "run_frontend_declarations" {
         return "FrontendResult"
     }
     if callee == "runCommand" {
@@ -225,44 +355,63 @@ fun inferCallTypeTable(callee: String) r: String {
     if callee == "args" {
         return "Array<String>"
     }
-    if callee == "printUsage" or callee == "printFrontendDiagnostics" {
-        return "Void"
-    }
+    if callee == "printUsage" { return "Void" }
+    if callee == "printFrontendDiagnostics" { return "Void" }
     // String utility functions from string.seen
-    if callee == "trim" or callee == "trimStart" or callee == "trimEnd" {
-        return "String"
-    }
-    if callee == "split" or callee == "lines" or callee == "words" {
-        return "Array<String>"
-    }
-    if callee == "isBlank" or callee == "isWhitespace" or callee == "startsWith" or callee == "endsWith" or callee == "contains" {
-        return "Bool"
-    }
-    if callee == "indexOf" or callee == "lastIndexOf" {
-        return "Int"
-    }
-    if callee == "padStart" or callee == "padEnd" or callee == "repeat" or callee == "join" {
-        return "String"
-    }
-    if callee == "replaceFirst" or callee == "replaceAll" or callee == "replace" {
-        return "String"
-    }
-    if callee == "removePrefix" or callee == "removeSuffix" {
-        return "String"
-    }
-    if callee == "ensurePrefix" or callee == "ensureSuffix" {
-        return "String"
-    }
+    if callee == "trim" { return "String" }
+    if callee == "trimStart" { return "String" }
+    if callee == "trimEnd" { return "String" }
+    if callee == "split" { return "Array<String>" }
+    if callee == "lines" { return "Array<String>" }
+    if callee == "words" { return "Array<String>" }
+    if callee == "isBlank" { return "Bool" }
+    if callee == "isWhitespace" { return "Bool" }
+    if callee == "startsWith" { return "Bool" }
+    if callee == "endsWith" { return "Bool" }
+    if callee == "contains" { return "Bool" }
+    if callee == "indexOf" { return "Int" }
+    if callee == "lastIndexOf" { return "Int" }
+    if callee == "padStart" { return "String" }
+    if callee == "padEnd" { return "String" }
+    if callee == "repeat" { return "String" }
+    if callee == "join" { return "String" }
+    if callee == "replaceFirst" { return "String" }
+    if callee == "replaceAll" { return "String" }
+    if callee == "replace" { return "String" }
+    if callee == "removePrefix" { return "String" }
+    if callee == "removeSuffix" { return "String" }
+    if callee == "ensurePrefix" { return "String" }
+    if callee == "ensureSuffix" { return "String" }
     // LLVMIRGenerator methods called without explicit receiver
-    if callee == "mapType" or callee == "getNextReg" or callee == "getNextBlock" or callee == "getNextBlockLabel" or callee == "getFieldType" or callee == "getSeenFieldType" or callee == "getFunctionReturnType" or callee == "getMethodReturnType" or callee == "resolveChainedPathType" or callee == "hexToDecimal" or callee == "escapeString" or callee == "findVarType" or callee == "getMethodName" {
-        return "String"
-    }
-    if callee == "findVar" or callee == "findStruct" or callee == "getFieldInfo" or callee == "findPreallocated" {
-        return "Int"
-    }
-    if callee == "generateExpression" or callee == "generateBinary" or callee == "generateUnary" or callee == "generateMemberAccess" or callee == "generateMethodCall" or callee == "generateCall" or callee == "generateFieldAccess" or callee == "generateIndexAccess" or callee == "generateStructLiteral" or callee == "generateArrayLiteral" or callee == "generateVarExpression" or callee == "generateLiteral" {
-        return "String"
-    }
+    if callee == "mapType" { return "String" }
+    if callee == "getNextReg" { return "String" }
+    if callee == "getNextBlock" { return "String" }
+    if callee == "getNextBlockLabel" { return "String" }
+    if callee == "getFieldType" { return "String" }
+    if callee == "getSeenFieldType" { return "String" }
+    if callee == "getFunctionReturnType" { return "String" }
+    if callee == "getMethodReturnType" { return "String" }
+    if callee == "resolveChainedPathType" { return "String" }
+    if callee == "hexToDecimal" { return "String" }
+    if callee == "escapeString" { return "String" }
+    if callee == "findVarType" { return "String" }
+    if callee == "getMethodName" { return "String" }
+    if callee == "findVar" { return "Int" }
+    if callee == "findStruct" { return "Int" }
+    if callee == "getFieldInfo" { return "Int" }
+    if callee == "findPreallocated" { return "Int" }
+    if callee == "generateExpression" { return "String" }
+    if callee == "generateBinary" { return "String" }
+    if callee == "generateUnary" { return "String" }
+    if callee == "generateMemberAccess" { return "String" }
+    if callee == "generateMethodCall" { return "String" }
+    if callee == "generateCall" { return "String" }
+    if callee == "generateFieldAccess" { return "String" }
+    if callee == "generateIndexAccess" { return "String" }
+    if callee == "generateStructLiteral" { return "String" }
+    if callee == "generateArrayLiteral" { return "String" }
+    if callee == "generateVarExpression" { return "String" }
+    if callee == "generateLiteral" { return "String" }
     if callee == "isFuncDefinedInModule" {
         return "Bool"
     }
@@ -270,33 +419,52 @@ fun inferCallTypeTable(callee: String) r: String {
         return "String"
     }
     // RealParser utility methods (when called without explicit receiver)
-    if callee == "consume" or callee == "advance" or callee == "previous" or callee == "peek" {
-        return "Token"
-    }
-    if callee == "checkToken" or callee == "matchTokenStr" or callee == "isAtEnd" {
-        return "Bool"
-    }
+    if callee == "consume" { return "Token" }
+    if callee == "advance" { return "Token" }
+    if callee == "previous" { return "Token" }
+    if callee == "peek" { return "Token" }
+    if callee == "checkToken" { return "Bool" }
+    if callee == "matchTokenStr" { return "Bool" }
+    if callee == "isAtEnd" { return "Bool" }
     if callee == "peekTokenType" {
         return "Int"
     }
-    if callee == "peekTokenTypeStr" or callee == "joinSegments" {
-        return "String"
-    }
+    if callee == "peekTokenTypeStr" { return "String" }
+    if callee == "joinSegments" { return "String" }
     if callee == "toArray" {
         return "Array<Token>"
     }
     if callee == "parseTypeNode" {
         return "TypeNode"
     }
-    if callee == "parseFunctionItem" or callee == "parseClassItem" or callee == "parseEnumItem" or callee == "parseImportItem" {
-        return "ItemNode"
-    }
-    if callee == "parseStatement" or callee == "parseBlock" or callee == "parseIfStatement" or callee == "parseWhileStatement" or callee == "parseForStatement" or callee == "parseExpressionStatement" or callee == "parseLetStatement" or callee == "parseVarStatement" or callee == "parseReturnStatement" or callee == "parseBreakStatement" or callee == "parseContinueStatement" {
-        return "StatementNode"
-    }
-    if callee == "parseExpression" or callee == "parsePrimary" or callee == "parseUnary" or callee == "parseBinary" or callee == "parseOr" or callee == "parseAnd" or callee == "parseEquality" or callee == "parseComparison" or callee == "parseTerm" or callee == "parseFactor" or callee == "parseCall" or callee == "parsePostfix" or callee == "parseAssignment" {
-        return "ParserExpressionNode"
-    }
+    if callee == "parseFunctionItem" { return "ItemNode" }
+    if callee == "parseClassItem" { return "ItemNode" }
+    if callee == "parseEnumItem" { return "ItemNode" }
+    if callee == "parseImportItem" { return "ItemNode" }
+    if callee == "parseStatement" { return "StatementNode" }
+    if callee == "parseBlock" { return "StatementNode" }
+    if callee == "parseIfStatement" { return "StatementNode" }
+    if callee == "parseWhileStatement" { return "StatementNode" }
+    if callee == "parseForStatement" { return "StatementNode" }
+    if callee == "parseExpressionStatement" { return "StatementNode" }
+    if callee == "parseLetStatement" { return "StatementNode" }
+    if callee == "parseVarStatement" { return "StatementNode" }
+    if callee == "parseReturnStatement" { return "StatementNode" }
+    if callee == "parseBreakStatement" { return "StatementNode" }
+    if callee == "parseContinueStatement" { return "StatementNode" }
+    if callee == "parseExpression" { return "ParserExpressionNode" }
+    if callee == "parsePrimary" { return "ParserExpressionNode" }
+    if callee == "parseUnary" { return "ParserExpressionNode" }
+    if callee == "parseBinary" { return "ParserExpressionNode" }
+    if callee == "parseOr" { return "ParserExpressionNode" }
+    if callee == "parseAnd" { return "ParserExpressionNode" }
+    if callee == "parseEquality" { return "ParserExpressionNode" }
+    if callee == "parseComparison" { return "ParserExpressionNode" }
+    if callee == "parseTerm" { return "ParserExpressionNode" }
+    if callee == "parseFactor" { return "ParserExpressionNode" }
+    if callee == "parseCall" { return "ParserExpressionNode" }
+    if callee == "parsePostfix" { return "ParserExpressionNode" }
+    if callee == "parseAssignment" { return "ParserExpressionNode" }
     if callee == "parseParam" {
         return "ParamNode"
     }
@@ -330,9 +498,16 @@ fun inferCallTypeTable(callee: String) r: String {
     if callee == "Environment" {
         return "Environment"
     }
-    if callee == "lookup" or callee == "typeInt" or callee == "typeFloat" or callee == "typeString" or callee == "typeBool" or callee == "typeVoid" or callee == "typeUnit" or callee == "typeAny" or callee == "typeNever" or callee == "typeUnknown" {
-        return "Type"
-    }
+    if callee == "lookup" { return "Type" }
+    if callee == "typeInt" { return "Type" }
+    if callee == "typeFloat" { return "Type" }
+    if callee == "typeString" { return "Type" }
+    if callee == "typeBool" { return "Type" }
+    if callee == "typeVoid" { return "Type" }
+    if callee == "typeUnit" { return "Type" }
+    if callee == "typeAny" { return "Type" }
+    if callee == "typeNever" { return "Type" }
+    if callee == "typeUnknown" { return "Type" }
     if callee == "lookupFunction" {
         return "FunctionType"
     }
@@ -356,15 +531,21 @@ fun inferFieldTypeFallback(fieldName: String) r: String {
     if fieldName == "output" {
         return "String"
     }
-    if fieldName == "severity" or fieldName == "message" or fieldName == "file" or fieldName == "name" or fieldName == "typeName" or fieldName == "variableName" or fieldName == "callee" or fieldName == "operator" or fieldName == "kind" or fieldName == "literalValue" or fieldName == "literalType" {
-        return "String"
-    }
-    if fieldName == "line" or fieldName == "column" {
-        return "Int"
-    }
-    if fieldName == "x" or fieldName == "y" {
-        return "Int"
-    }
+    if fieldName == "severity" { return "String" }
+    if fieldName == "message" { return "String" }
+    if fieldName == "file" { return "String" }
+    if fieldName == "name" { return "String" }
+    if fieldName == "typeName" { return "String" }
+    if fieldName == "variableName" { return "String" }
+    if fieldName == "callee" { return "String" }
+    if fieldName == "operator" { return "String" }
+    if fieldName == "kind" { return "String" }
+    if fieldName == "literalValue" { return "String" }
+    if fieldName == "literalType" { return "String" }
+    if fieldName == "line" { return "Int" }
+    if fieldName == "column" { return "Int" }
+    if fieldName == "x" { return "Int" }
+    if fieldName == "y" { return "Int" }
     if fieldName == "items" {
         return "Array<ItemNode>"
     }
@@ -405,21 +586,23 @@ fun inferFieldTypeFallback(fieldName: String) r: String {
     if fieldName == "body" {
         return "BlockNode"
     }
-    if fieldName == "returnType" or fieldName == "variableType" or fieldName == "paramType" {
-        return "TypeNode"
-    }
+    if fieldName == "returnType" { return "TypeNode" }
+    if fieldName == "variableType" { return "TypeNode" }
+    if fieldName == "paramType" { return "TypeNode" }
     // NOTE: "errors" and "warnings" are context-dependent fields:
     // - TypeInferenceResult.errors is Array<TypeError>
     // - MacroExpansionResult.errors is Array<String>
     // - TypeInferenceResult.warnings is Array<String>
     // We must NOT have generic mappings here - let the receiver-based lookup
     // call getSeenFieldType() which has correct struct-specific mappings
-    if fieldName == "initializer" or fieldName == "returnValue" or fieldName == "condition" or fieldName == "loopVariable" or fieldName == "loopIterable" {
-        return "ParserExpressionNode"
-    }
-    if fieldName == "loopBody" or fieldName == "elseBody" or fieldName == "thenBody" {
-        return "BlockNode"
-    }
+    if fieldName == "initializer" { return "ParserExpressionNode" }
+    if fieldName == "returnValue" { return "ParserExpressionNode" }
+    if fieldName == "condition" { return "ParserExpressionNode" }
+    if fieldName == "loopVariable" { return "ParserExpressionNode" }
+    if fieldName == "loopIterable" { return "ParserExpressionNode" }
+    if fieldName == "loopBody" { return "BlockNode" }
+    if fieldName == "elseBody" { return "BlockNode" }
+    if fieldName == "thenBody" { return "BlockNode" }
     return ""
 }
 
@@ -1019,11 +1202,11 @@ fun registerKnownDataTypesImpl(structNames: Array<String>, structLayouts: Array<
     structMethodRetTypes.push("")
     // LLVMIRGenerator state (needed for accurate field typing during self-hosted codegen)
     structNames.push("LLVMIRGenerator")
-    structLayouts.push("{ i64, ptr, i64, i64, ptr, ptr, ptr, i64, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, %SeenString, %SeenString, %SeenString, i1, %SeenString, %SeenString, ptr, ptr, %SeenString, ptr, ptr, i1, i1, %SeenString, ptr, ptr, ptr }")
-    structFieldNames.push("output,stringConstants,nextReg,nextBlock,varNames,varRegs,varTypes,indent,structNames,structLayouts,structFieldNames,structFieldTypes,structLlvmFieldTypes,structSizes,structMethodNames,structMethodRetTypes,funcNames,funcRetTypes,classMethodBaseNames,typeHeaderPath,currentFunctionReturnType,currentClassName,blockTerminated,currentLoopCondLabel,currentLoopEndLabel,preAllocatedVars,preAllocatedTypes,stringConstantPrefix,generatedFunctions,generatedClasses,typesLoadedFromHeader,runtimeDeclsLoaded,pendingArrayLiteralType,moduleConstantNames,moduleConstantValues,moduleConstantTypes")
-    structFieldTypes.push("StringBuilder|Array<String>|Int|Int|Array<String>|Array<String>|Array<String>|Int|Array<String>|Array<String>|Array<String>|Array<String>|Array<String>|Array<Int>|Array<String>|Array<String>|Array<String>|Array<String>|Array<String>|String|String|String|Bool|String|String|Array<String>|Array<String>|String|Array<String>|Array<String>|Bool|Bool|String|Array<String>|Array<String>|Array<String>")
+    structLayouts.push("{ i64, ptr, i64, i64, ptr, ptr, ptr, i64 }")
+    structFieldNames.push("output,stringConstants,nextReg,nextBlock,varNames,varRegs,varTypes,indent")
+    structFieldTypes.push("StringBuilder|Array<String>|Int|Int|Array<String>|Array<String>|Array<String>|Int")
     structLlvmFieldTypes.push("")
-    structSizes.push(336)
+    structSizes.push(64)
     structMethodNames.push("")
     structMethodRetTypes.push("")
     // TypeRegistry — struct/function type metadata (owned by LLVMIRGenerator.registry)

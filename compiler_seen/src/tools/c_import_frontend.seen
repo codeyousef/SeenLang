@@ -1,0 +1,36 @@
+// C-import frontend orchestration kept out of c_import_gen so bootstrap
+// declaration scanning does not have to parse clang-processing bodies there.
+
+import process.process.{runCommand, CommandResult}
+import io.file.{exists}
+import tools.c_import_gen.{CImportGenerator, CImportResult}
+import tools.c_import_ast.{cImportParseClangAstDump}
+import tools.c_import_layout.{cImportParseClangRecordLayouts}
+
+fun cImportParseHeader(gen: CImportGenerator) r: CImportResult {
+    var result = CImportResult.new()
+
+    if not exists(gen.headerPath) {
+        result.errors.push("Header file not found: " + gen.headerPath)
+        result.success = false
+        return result
+    }
+
+    let cmdResult: CommandResult = runCommand(gen.buildClangCommand("-Xclang -ast-dump"))
+    if not cmdResult.success {
+        result.errors.push("clang failed: " + cmdResult.output)
+        result.success = false
+        return result
+    }
+
+    cImportParseClangAstDump(gen, cmdResult.output, result)
+
+    let layoutResult: CommandResult = runCommand(gen.buildClangCommand("-Xclang -fdump-record-layouts-complete"))
+    if layoutResult.success {
+        cImportParseClangRecordLayouts(gen, layoutResult.output, result)
+    } else {
+        result.addWarning("import-c could not inspect record layouts for bitfields in " + gen.headerPath)
+    }
+
+    return result
+}

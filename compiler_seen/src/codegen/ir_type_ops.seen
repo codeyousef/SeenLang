@@ -812,7 +812,12 @@ fun emitStringMethodImpl(output: StringBuilder, regBox: Array<Int>,
     methodName: String, receiverReg: String, receiverType: String,
     arg0: String, arg1: String, argCount: Int) r: String {
 
-    let isStringReceiver = receiverType == "String" or receiverType == ""
+    var isStringReceiver = false
+    if receiverType == "String" { isStringReceiver = true }
+    if receiverType == "String?" { isStringReceiver = true }
+    if receiverType == "SeenString" { isStringReceiver = true }
+    if receiverType == "%SeenString" { isStringReceiver = true }
+    if receiverType == "" { isStringReceiver = true }
 
     if methodName == "startsWith" and isStringReceiver {
         let resultReg = getNextRegFn(regBox)

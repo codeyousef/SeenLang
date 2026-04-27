@@ -1,0 +1,55 @@
+// C-import shared generator-state lookup helpers.
+
+import tools.c_import_gen.{CImportGenerator, CImportResult, CImportedTypedef, CImportedRecordField, CImportedBitfield, CImportedBitfieldLayout, CImportedRecord, CImportedConstant, CImportedFunction}
+
+fun cImportHasImportedRecordNamed(gen: CImportGenerator, name: String) r: Bool {
+    return cImportFindImportedRecordIndex(gen, name) >= 0
+}
+
+fun cImportFindImportedRecordIndex(gen: CImportGenerator, name: String) r: Int {
+    var idx = 0
+    while idx < gen.outputRecords.length() {
+        if gen.outputRecords[idx].name == name {
+            return idx
+        }
+        idx = idx + 1
+    }
+    return -1
+}
+
+fun cImportHasImportedFunctionNamed(gen: CImportGenerator, name: String) r: Bool {
+    var idx = 0
+    while idx < gen.outputFunctions.length() {
+        if gen.outputFunctions[idx].name == name {
+            return true
+        }
+        idx = idx + 1
+    }
+    return false
+}
+
+fun cImportHasImportedTypedefNamed(gen: CImportGenerator, name: String) r: Bool {
+    return cImportFindImportedTypedefIndex(gen, name) >= 0
+}
+
+fun cImportHasImportedConstantNamed(gen: CImportGenerator, name: String) r: Bool {
+    var idx = 0
+    while idx < gen.outputConstants.length() {
+        if gen.outputConstants[idx].name == name {
+            return true
+        }
+        idx = idx + 1
+    }
+    return false
+}
+
+fun cImportFindImportedTypedefIndex(gen: CImportGenerator, name: String) r: Int {
+    var idx = 0
+    while idx < gen.outputTypedefs.length() {
+        if gen.outputTypedefs[idx].name == name {
+            return idx
+        }
+        idx = idx + 1
+    }
+    return -1
+}

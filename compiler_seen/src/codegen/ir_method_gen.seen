@@ -338,7 +338,13 @@ fun emitLengthSizeMethodImpl(output: StringBuilder, regBox: Array<Int>, receiver
         return resultReg
     }
     // String length fallback
-    if receiverType == "String" or receiverType == "" {
+    var isStringLengthReceiver = false
+    if receiverType == "String" { isStringLengthReceiver = true }
+    if receiverType == "String?" { isStringLengthReceiver = true }
+    if receiverType == "SeenString" { isStringLengthReceiver = true }
+    if receiverType == "%SeenString" { isStringLengthReceiver = true }
+    if receiverType == "" { isStringLengthReceiver = true }
+    if isStringLengthReceiver {
         let resultReg = getNextRegFn(regBox)
         var receiverStrReg = receiverReg
         if receiverReg == "0" {

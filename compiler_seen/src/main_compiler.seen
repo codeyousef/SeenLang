@@ -21,7 +21,7 @@
 // Module-level global flags use Int instead of Bool due to a Stage1 codegen
 // limitation where boolean variables generate invalid IR.
 
-import bootstrap.frontend.{FrontendResult, FrontendDiagnostic, run_frontend, encodeDiagMessage, parseDiagBaseMessage, parseDiagCode, parseDiagSuggestion, parseDiagNote, parseDiagEndColumn}
+import bootstrap.frontend.{FrontendResult, FrontendDiagnostic, run_frontend, run_frontend_declarations, encodeDiagMessage, parseDiagBaseMessage, parseDiagCode, parseDiagSuggestion, parseDiagNote, parseDiagEndColumn}
 import io.file.{readText, writeText, exists}
 import process.process.{runCommand, runProgram, CommandResult, commandWasSuccessful, commandOutput, processFork, waitPid, processExit, shellQuote}
 import env.env.{args}
@@ -148,6 +148,14 @@ import codegen.type_registry.{findStructReg}
 import codegen.ir_type_header.{emitBuiltinTypeHeaderImpl}
 import tools.translator.{translateSource}
 import tools.c_import_gen.{CImportGenerator, CImportResult}
+import tools.c_import_frontend.{cImportParseHeader}
+import tools.c_import_ast.{cImportParseClangAstDump}
+import tools.c_import_layout.{cImportParseClangRecordLayouts}
+import tools.c_import_state.{cImportFindImportedRecordIndex, cImportHasImportedRecordNamed}
+import tools.c_import_type_map.{cImportCTypeToSeenType}
+import tools.c_import_type_builtin.{cImportMapBuiltinCTypeToSeenType}
+import tools.c_import_emit.{cImportGenerateExternDeclarations}
+import tools.c_import_util.{findLastIndexOf, getClangAstDepth, extractClangDeclStartLocation, resolveClangTypedefType, repeatPointerPrefix, parseDecimalInt}
 
 var g_validationModulePaths: Array<String> = Array<String>()
 var g_validationFrontends: Array<FrontendResult> = Array<FrontendResult>()
@@ -345,6 +353,23 @@ fun parseModule(path: String, lang: String) r: FrontendResult {
     }
     let source = readText(path)
     return run_frontend(source, path, lang)
+}
+
+fun parseModuleDeclarations(path: String, lang: String) r: FrontendResult {
+    if not exists(path) {
+        let frontend = FrontendResult.new()
+        let message = encodeDiagMessage(
+            "could not read module `" + path + "`",
+            "E005",
+            "",
+            "note: imported and Seen.toml-declared modules must exist on disk",
+            0
+        )
+        frontend.addDiagnostic(FrontendDiagnostic.new(path, 1, 1, "error", message))
+        return frontend
+    }
+    let source = readText(path)
+    return run_frontend_declarations(source, path, lang)
 }
 
 fun stripTomlQuotedValue(value: String) r: String {
@@ -1271,7 +1296,53 @@ fun extractTomlBuildEntry(content: String) r: String {
 }
 
 fun isStdlibImportRoot(segment: String) r: Bool {
-    return segment == "async" or segment == "audio" or segment == "collections" or segment == "core" or segment == "crypto" or segment == "env" or segment == "ffi" or segment == "framework" or segment == "fs" or segment == "graphics" or segment == "hash" or segment == "input" or segment == "io" or segment == "json" or segment == "math" or segment == "memory" or segment == "net" or segment == "platform" or segment == "process" or segment == "random" or segment == "scripting" or segment == "security" or segment == "simd" or segment == "str" or segment == "sync" or segment == "thread" or segment == "time" or segment == "uww"
+    if segment == "async" { return true }
+    if segment == "audio" { return true }
+    if segment == "collections" { return true }
+    if segment == "core" { return true }
+    if segment == "crypto" { return true }
+    if segment == "env" { return true }
+    if segment == "ffi" { return true }
+    if segment == "framework" { return true }
+    if segment == "fs" { return true }
+    if segment == "graphics" { return true }
+    if segment == "hash" { return true }
+    if segment == "input" { return true }
+    if segment == "io" { return true }
+    if segment == "json" { return true }
+    if segment == "math" { return true }
+    if segment == "memory" { return true }
+    if segment == "net" { return true }
+    if segment == "platform" { return true }
+    if segment == "process" { return true }
+    if segment == "random" { return true }
+    if segment == "scripting" { return true }
+    if segment == "security" { return true }
+    if segment == "simd" { return true }
+    if segment == "str" { return true }
+    if segment == "sync" { return true }
+    if segment == "thread" { return true }
+    if segment == "time" { return true }
+    if segment == "uww" { return true }
+    return false
+}
+
+fun isCompilerImportRoot(segment: String) r: Bool {
+    if segment == "lexer" { return true }
+    if segment == "parser" { return true }
+    if segment == "typechecker" { return true }
+    if segment == "macro" { return true }
+    if segment == "bootstrap" { return true }
+    if segment == "codegen" { return true }
+    if segment == "lsp" { return true }
+    if segment == "tools" { return true }
+    if segment == "optimization" { return true }
+    if segment == "trace" { return true }
+    if segment == "ir" { return true }
+    if segment == "types" { return true }
+    if segment == "testing" { return true }
+    if segment == "ffi" { return true }
+    return false
 }
 
 fun firstModuleSegment(modulePath: String) r: String {
@@ -1308,6 +1379,107 @@ fun resolveModulePath(modulePath: String) r: String {
         i = i + 1
     }
     return filePath + ".seen"
+}
+
+fun compilerSourceBasePath() r: String {
+    var basePath = "compiler_seen/src/"
+    let root = getCompilerRoot()
+    if root != "" {
+        basePath = root + "/compiler_seen/src/"
+    }
+    return basePath
+}
+
+fun isCompilerSourceDir(sourceDir: String) r: Bool {
+    if sourceDir.startsWith("compiler_seen/") { return true }
+    if sourceDir.contains("/compiler_seen/") { return true }
+    return false
+}
+
+fun isStdlibSourceDir(sourceDir: String) r: Bool {
+    if sourceDir.startsWith("seen_std/") { return true }
+    if sourceDir.contains("/seen_std/") { return true }
+    return false
+}
+
+fun tryCompilerShortImportPath(moduleName: String, sourceDir: String) r: String {
+    if not isCompilerSourceDir(sourceDir) {
+        return ""
+    }
+    let basePath = compilerSourceBasePath()
+    let rootPath = basePath + moduleName + ".seen"
+    if readText(rootPath) != "" {
+        return rootPath
+    }
+    let bootstrapPath = basePath + "bootstrap/" + moduleName + ".seen"
+    if readText(bootstrapPath) != "" {
+        return bootstrapPath
+    }
+    let toolsPath = basePath + "tools/" + moduleName + ".seen"
+    if readText(toolsPath) != "" {
+        return toolsPath
+    }
+    let parserPath = basePath + "parser/" + moduleName + ".seen"
+    if readText(parserPath) != "" {
+        return parserPath
+    }
+    let lexerPath = basePath + "lexer/" + moduleName + ".seen"
+    if readText(lexerPath) != "" {
+        return lexerPath
+    }
+    let typecheckerPath = basePath + "typechecker/" + moduleName + ".seen"
+    if readText(typecheckerPath) != "" {
+        return typecheckerPath
+    }
+    let macroPath = basePath + "macro/" + moduleName + ".seen"
+    if readText(macroPath) != "" {
+        return macroPath
+    }
+    let codegenPath = basePath + "codegen/" + moduleName + ".seen"
+    if readText(codegenPath) != "" {
+        return codegenPath
+    }
+    let lspPath = basePath + "lsp/" + moduleName + ".seen"
+    if readText(lspPath) != "" {
+        return lspPath
+    }
+    let optimizationPath = basePath + "optimization/" + moduleName + ".seen"
+    if readText(optimizationPath) != "" {
+        return optimizationPath
+    }
+    return ""
+}
+
+fun tryStdlibShortImportPath(moduleName: String, sourceDir: String) r: String {
+    if not isCompilerSourceDir(sourceDir) and not isStdlibSourceDir(sourceDir) {
+        return ""
+    }
+    var basePath = "seen_std/src/"
+    let root = getCompilerRoot()
+    if root != "" {
+        basePath = root + "/seen_std/src/"
+    }
+    let ioPath = basePath + "io/" + moduleName + ".seen"
+    if readText(ioPath) != "" {
+        return ioPath
+    }
+    let processPath = basePath + "process/" + moduleName + ".seen"
+    if readText(processPath) != "" {
+        return processPath
+    }
+    let envPath = basePath + "env/" + moduleName + ".seen"
+    if readText(envPath) != "" {
+        return envPath
+    }
+    let strPath = basePath + "str/" + moduleName + ".seen"
+    if readText(strPath) != "" {
+        return strPath
+    }
+    let corePath = basePath + "core/" + moduleName + ".seen"
+    if readText(corePath) != "" {
+        return corePath
+    }
+    return ""
 }
 
 // Extract last segment from a path (e.g., "foo/bar/baz" -> "baz")
@@ -1387,7 +1559,7 @@ fun resolveImportPath(importPath: Array<String>, sourceDir: String) r: String {
     // Check for compiler-root and stdlib imports first.
     if importPath.length() > 0 {
         let firstSegment = importPath[0]
-        if firstSegment == "lexer" or firstSegment == "parser" or firstSegment == "typechecker" or firstSegment == "macro" or firstSegment == "bootstrap" or firstSegment == "codegen" or firstSegment == "lsp" or firstSegment == "tools" or firstSegment == "optimization" or firstSegment == "trace" or firstSegment == "ir" or firstSegment == "types" or firstSegment == "testing" or firstSegment == "ffi" {
+        if isCompilerImportRoot(firstSegment) {
             var compilerBase = "compiler_seen/src/"
             let compRoot = getCompilerRoot()
             if compRoot != "" {
@@ -1509,6 +1681,21 @@ fun resolveImportPath(importPath: Array<String>, sourceDir: String) r: String {
     let modContent = readText(modPath)
     if modContent != "" {
         return modPath
+    }
+    let directContent = readText(directPath)
+    if directContent != "" {
+        return directPath
+    }
+    if importPath.length() > 0 {
+        let shortImportName = importPath[importPath.length() - 1]
+        let compilerShortPath = tryCompilerShortImportPath(shortImportName, sourceDir)
+        if compilerShortPath != "" {
+            return compilerShortPath
+        }
+        let stdlibShortPath = tryStdlibShortImportPath(shortImportName, sourceDir)
+        if stdlibShortPath != "" {
+            return stdlibShortPath
+        }
     }
     return directPath
 }
@@ -1693,6 +1880,26 @@ fun pushUniquePath(paths: Array<String>, processedPaths: Array<String>, path: St
     return
 }
 
+fun appendCompilerInternalSupportModules(paths: Array<String>, processedPaths: Array<String>) r: Void {
+    let modules = Array<String>()
+    modules.push("lexer.token")
+    modules.push("lexer.token_type")
+    modules.push("lexer.interfaces")
+    modules.push("lexer.keyword_manager")
+    modules.push("lexer.lexer")
+    modules.push("trace")
+    modules.push("io.file")
+    modules.push("process.process")
+    modules.push("env.env")
+
+    var mi = 0
+    while mi < modules.length() {
+        pushUniquePath(paths, processedPaths, resolveModulePath(modules[mi]))
+        mi = mi + 1
+    }
+    return
+}
+
 fun extractQuotedTomlStrings(line: String) r: Array<String> {
     let values = Array<String>()
     var pos = 0
@@ -1806,7 +2013,11 @@ fun discoverImportsFromModule(paths: Array<String>, processedPaths: Array<String
                 let importFilePath = resolveImportPath(item.importPath, sourceDir)
                 let isCompilerRuntimeBackedStdlib = importFilePath == "seen_std/src/str/string.seen" or importFilePath == "seen_std/src/core/option.seen" or importFilePath == "seen_std/src/core/result.seen" or importFilePath == "seen_std/src/collections/map.seen" or importFilePath.endsWith("/seen_std/src/str/string.seen") or importFilePath.endsWith("/seen_std/src/core/option.seen") or importFilePath.endsWith("/seen_std/src/core/result.seen") or importFilePath.endsWith("/seen_std/src/collections/map.seen")
                 let skipCompilerStdlib = not isBootstrap and currentPath != inputFile and inputFile.contains("/compiler_seen/") and isCompilerRuntimeBackedStdlib
-                if not skipCompilerStdlib {
+                var shouldQueueImport = not skipCompilerStdlib
+                if isBootstrap {
+                    shouldQueueImport = shouldQueueImport and exists(importFilePath)
+                }
+                if shouldQueueImport {
                     pushUniquePath(paths, processedPaths, importFilePath)
                 }
             }
@@ -1832,8 +2043,26 @@ fun moduleDeclaresMain(path: String) r: Bool {
     return false
 }
 
-fun shouldRunWholeProjectPreflight(moduleCount: Int) r: Bool {
-    return moduleCount <= 48
+fun moduleGraphContainsCompilerSources(modulePaths: Array<String>) r: Bool {
+    var idx = 0
+    while idx < modulePaths.length() {
+        let modulePath = modulePaths[idx]
+        if modulePath.startsWith("compiler_seen/src/") or modulePath.contains("/compiler_seen/src/") {
+            return true
+        }
+        idx = idx + 1
+    }
+    return false
+}
+
+fun shouldRunWholeProjectPreflight(modulePaths: Array<String>) r: Bool {
+    if modulePaths.length() > 48 {
+        return false
+    }
+    if moduleGraphContainsCompilerSources(modulePaths) {
+        return false
+    }
+    return true
 }
 
 // Collect all module paths needed for compilation (without storing ASTs).
@@ -1907,12 +2136,21 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         discoverIdx = discoverIdx + 1
     }
 
+    if not isBootstrap and moduleGraphContainsCompilerSources(paths) {
+        appendCompilerInternalSupportModules(paths, processedPaths)
+    }
+
     // Add bootstrap modules if compiling the compiler
     if isBootstrap {
         if not quiet {
             println("    Bootstrap mode: adding compiler modules...")
         }
         let modules = Array<String>()
+        // Keep direct stdlib dependencies explicit for bootstrap binaries run
+        // outside compiler_seen/target, where root-based import discovery is fragile.
+        modules.push("io.file")
+        modules.push("process.process")
+        modules.push("env.env")
         modules.push("lexer.token")
         modules.push("lexer.token_type")
         modules.push("lexer.interfaces")
@@ -2077,6 +2315,16 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("lsp.types")
         modules.push("lsp.jsonrpc")
         modules.push("lsp.server")
+        modules.push("tools.translator")
+        modules.push("tools.c_import_gen")
+        modules.push("tools.c_import_frontend")
+        modules.push("tools.c_import_ast")
+        modules.push("tools.c_import_layout")
+        modules.push("tools.c_import_state")
+        modules.push("tools.c_import_type_map")
+        modules.push("tools.c_import_type_builtin")
+        modules.push("tools.c_import_emit")
+        modules.push("tools.c_import_util")
 
         var mi = 0
         while mi < modules.length() {
@@ -4323,7 +4571,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     println("  [Pass 0] Discovering module graph...")
     let modulePaths = collectModulePaths(resolvedInput, false)
     println("    Found " + modulePaths.length().toString() + " modules")
-    if shouldRunWholeProjectPreflight(modulePaths.length()) {
+    if shouldRunWholeProjectPreflight(modulePaths) {
         let sealedValidation = validateSealedModules(modulePaths, language)
         if not sealedValidation.success {
             printFrontendDiagnostics(sealedValidation)
@@ -4422,8 +4670,10 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         if depCycleFound == 1 {
             println("  WARNING: Circular module dependency detected: " + depCyclePath)
         }
-    } else {
+    } else if modulePaths.length() > 48 {
         println("  [Pass 0] Large module graph: deferring whole-project validation to streaming passes")
+    } else {
+        println("  [Pass 0] Compiler-internal module graph: deferring whole-project validation to streaming passes")
     }
 
     // ============================================================
@@ -4442,7 +4692,10 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     while passIdx < modulePaths.length() {
         let path = modulePaths[passIdx]
         println("    Scanning: " + path)
-        let frontend = parseModule(path, language)
+        var frontend = parseModuleDeclarations(path, language)
+        if isDeterministicProfile {
+            frontend = parseModule(path, language)
+        }
         if frontend.success {
             generator.registerDeclarations(frontend.program)
 
@@ -5759,7 +6012,7 @@ fun jitRunCommand(inputFile: String, verbose: Bool, language: String) r: Int {
     var passIdx = 0
     while passIdx < modulePaths.length() {
         let path = modulePaths[passIdx]
-        let frontend = parseModule(path, language)
+        let frontend = parseModuleDeclarations(path, language)
         if frontend.success {
             generator.registerDeclarations(frontend.program)
         } else {

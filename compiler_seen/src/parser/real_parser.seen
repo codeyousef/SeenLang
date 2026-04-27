@@ -957,6 +957,339 @@ class RealParser {
         return currentProgram
     }
 
+    // Declaration-only parse used by compiler Pass 1. It preserves top-level
+    // declaration shape and skips function bodies so large modules do not build
+    // full statement/expression trees just to register signatures.
+    fun parseDeclarationsOnly() r: ProgramNode {
+        currentProgram = ProgramNode.new()
+        pendingDecorators = Array<AnnotationNode>()
+        pendingSealedModifier = 0
+
+        while not isAtEnd() {
+            if matchTokenStr(SeenTokenType.AtSymbol) {
+                parseDecoratorInto()
+                if pendingDecorators.length() > 0 {
+                    let lastDec = pendingDecorators[pendingDecorators.length() - 1]
+                    if lastDec.name == "cImport" {
+                        pushCImportDirectiveFromDecorator(lastDec)
+                        pendingDecorators = Array<AnnotationNode>()
+                    }
+                }
+                continue
+            }
+
+            if matchTokenStr(SeenTokenType.KeywordModule) {
+                skipModuleDeclarationTail()
+                continue
+            }
+
+            if matchTokenStr(getKeywordImportType()) {
+                parseImportItemInto()
+                continue
+            }
+
+            if matchTokenStr(getKeywordUseType()) {
+                parseImportItemInto()
+                continue
+            }
+
+            if matchTokenStr(SeenTokenType.KeywordPub) {
+                if matchTokenStr(getKeywordImportType()) {
+                    parseImportItemInto()
+                    if currentProgram.items.length() > 0 {
+                        let lastItem = currentProgram.items[currentProgram.items.length() - 1]
+                        lastItem.visibility = "public"
+                    }
+                    continue
+                }
+            }
+
+            if matchTokenStr(SeenTokenType.KeywordSealed) {
+                pendingSealedModifier = 1
+            }
+
+            if matchTokenStr(SeenTokenType.AtSymbol) {
+                parseDecoratorInto()
+                if pendingDecorators.length() > 0 {
+                    let lastDecAfterSealed = pendingDecorators[pendingDecorators.length() - 1]
+                    if lastDecAfterSealed.name == "cImport" {
+                        pushCImportDirectiveFromDecorator(lastDecAfterSealed)
+                        pendingDecorators = Array<AnnotationNode>()
+                    }
+                }
+                continue
+            }
+
+            if checkToken(SeenTokenType.KeywordEffect) {
+                parseEffectModifierInto()
+                continue
+            }
+
+            if matchTokenStr(SeenTokenType.KeywordType) {
+                parseTypeAliasDeclarationOnly(false)
+                continue
+            }
+
+            if matchTokenStr(SeenTokenType.KeywordDistinct) {
+                parseTypeAliasDeclarationOnly(true)
+                continue
+            }
+
+            if matchTokenStr(SeenTokenType.KeywordUnion) {
+                parseUnionDeclarationOnly()
+                continue
+            }
+
+            if checkToken(SeenTokenType.Identifier) {
+                let peekedVal = peek().getValue()
+                if peekedVal == "extern" {
+                    advance()
+                    pendingDecorators.push(AnnotationNode.new("extern"))
+                }
+            }
+
+            if checkToken(SeenTokenType.KeywordAsync) {
+                let asyncFunPeek = peekAt(1)
+                if asyncFunPeek.getType() == getKeywordFunType() {
+                    advance()
+                    pendingDecorators.push(AnnotationNode.new("async"))
+                }
+            }
+
+            if matchTokenStr(getKeywordFunType()) {
+                parseFunctionDeclarationItemInto()
+                continue
+            }
+
+            if checkToken(SeenTokenType.KeywordData) {
+                let dataStructPeek = peekAt(1)
+                if dataStructPeek.getType() == SeenTokenType.KeywordStruct {
+                    advance()
+                    advance()
+                    parseDataStructItemInto()
+                    continue
+                }
+            }
+
+            if matchTokenStr(SeenTokenType.KeywordData) {
+                parseClassDeclarationItemInto()
+                continue
+            }
+
+            if matchTokenStr(SeenTokenType.KeywordStruct) {
+                parseClassDeclarationItemInto()
+                continue
+            }
+
+            if matchTokenStr(SeenTokenType.KeywordTrait) {
+                pendingDecorators.push(AnnotationNode.new("trait"))
+                parseClassDeclarationItemInto()
+                continue
+            }
+
+            if matchTokenStr(SeenTokenType.KeywordImpl) {
+                parseImplDeclarationsOnly()
+                continue
+            }
+
+            if matchTokenStr(SeenTokenType.KeywordExtension) {
+                skipDeclarationHeaderAndBody()
+                continue
+            }
+
+            if matchTokenStr(getKeywordClassType()) {
+                parseClassDeclarationItemInto()
+                continue
+            }
+
+            if matchTokenStr(SeenTokenType.KeywordEnum) {
+                parseEnumItemInto()
+                continue
+            }
+
+            if matchTokenStr(SeenTokenType.KeywordLet) {
+                if matchTokenStr(SeenTokenType.KeywordMut) { }
+                parseTopLevelGlobalDeclDeclarationOnly(false)
+                continue
+            }
+
+            if matchTokenStr(SeenTokenType.KeywordConst) {
+                parseTopLevelGlobalDeclDeclarationOnly(false)
+                continue
+            }
+
+            if matchTokenStr(SeenTokenType.KeywordVar) {
+                parseTopLevelGlobalDeclDeclarationOnly(true)
+                continue
+            }
+
+            advance()
+        }
+
+        return currentProgram
+    }
+
+    fun pushCImportDirectiveFromDecorator(dec: AnnotationNode) r: Void {
+        let cImportFn = FunctionNode.new()
+        cImportFn.name = "__cImport"
+        let cImportAnn = AnnotationNode.new("cImport")
+        if dec.arguments.length() > 0 {
+            cImportAnn.addArgument(dec.arguments[0])
+        }
+        cImportFn.decorators.push(cImportAnn)
+        let cImportItem = ItemNode.new()
+        cImportItem.itemType = "Function"
+        cImportItem.name = "__cImport"
+        cImportItem.function = cImportFn
+        currentProgram.items.push(cImportItem)
+    }
+
+    fun skipModuleDeclarationTail() r: Void {
+        while not isAtEnd() and not checkToken(SeenTokenType.Semicolon) {
+            advance()
+        }
+        if matchTokenStr(SeenTokenType.Semicolon) { }
+    }
+
+    fun skipBalancedDelimited(leftType: SeenTokenType, rightType: SeenTokenType) r: Void {
+        var depth = 1
+        while depth > 0 and not isAtEnd() {
+            if matchTokenStr(leftType) {
+                depth = depth + 1
+            } else if matchTokenStr(rightType) {
+                depth = depth - 1
+            } else {
+                advance()
+            }
+        }
+    }
+
+    fun skipGenericParametersIfPresent() r: Void {
+        if checkToken(SeenTokenType.LessThan) {
+            advance()
+            var gd = 1
+            while gd > 0 and not isAtEnd() {
+                if checkToken(SeenTokenType.LessThan) { gd = gd + 1 }
+                if checkToken(SeenTokenType.GreaterThan) { gd = gd - 1 }
+                advance()
+            }
+        }
+    }
+
+    fun skipFunctionBodyAndMarkDeclaration() r: Bool {
+        if matchTokenStr(SeenTokenType.LeftBrace) {
+            skipBalancedDelimited(SeenTokenType.LeftBrace, SeenTokenType.RightBrace)
+            let dummyStmt = StatementNode.new()
+            dummyStmt.kind = "DeclarationBody"
+            lastFunction.body = BlockNode.new()
+            lastFunction.body.statements.push(dummyStmt)
+            return true
+        }
+        return false
+    }
+
+    fun skipExpressionTailAndMarkDeclaration() r: Void {
+        var parenDepth = 0
+        var bracketDepth = 0
+        var braceDepth = 0
+        while not isAtEnd() {
+            if checkToken(SeenTokenType.Semicolon) and parenDepth == 0 and bracketDepth == 0 and braceDepth == 0 {
+                advance()
+                break
+            }
+            if checkToken(SeenTokenType.RightBrace) and parenDepth == 0 and bracketDepth == 0 and braceDepth == 0 {
+                break
+            }
+            if matchTokenStr(SeenTokenType.LeftParen) {
+                parenDepth = parenDepth + 1
+            } else if matchTokenStr(SeenTokenType.RightParen) {
+                if parenDepth > 0 { parenDepth = parenDepth - 1 }
+            } else if matchTokenStr(SeenTokenType.LeftBracket) {
+                bracketDepth = bracketDepth + 1
+            } else if matchTokenStr(SeenTokenType.RightBracket) {
+                if bracketDepth > 0 { bracketDepth = bracketDepth - 1 }
+            } else if matchTokenStr(SeenTokenType.LeftBrace) {
+                braceDepth = braceDepth + 1
+            } else if matchTokenStr(SeenTokenType.RightBrace) {
+                if braceDepth > 0 { braceDepth = braceDepth - 1 }
+            } else {
+                advance()
+            }
+        }
+        let dummyStmt = StatementNode.new()
+        dummyStmt.kind = "DeclarationBody"
+        lastFunction.body = BlockNode.new()
+        lastFunction.body.statements.push(dummyStmt)
+    }
+
+    fun skipDeclarationHeaderAndBody() r: Void {
+        while not isAtEnd() and not checkToken(SeenTokenType.LeftBrace) and not checkToken(SeenTokenType.Semicolon) {
+            advance()
+        }
+        if matchTokenStr(SeenTokenType.Semicolon) { return }
+        if matchTokenStr(SeenTokenType.LeftBrace) {
+            skipBalancedDelimited(SeenTokenType.LeftBrace, SeenTokenType.RightBrace)
+        }
+    }
+
+    fun parseTypeAliasDeclarationOnly(isDistinct: Bool) r: Void {
+        if checkToken(SeenTokenType.Identifier) {
+            let aliasName = advance().getValue()
+            consume(SeenTokenType.Equal, "Expected '=' in type alias")
+            let aliasTarget = parseTypeNode()
+            let aliasClass = ClassNode.new()
+            aliasClass.name = aliasName
+            if isDistinct {
+                let distinctAnn = AnnotationNode.new("distinct")
+                distinctAnn.addArgument(aliasTarget.typeName)
+                aliasClass.decorators.push(distinctAnn)
+            }
+            let aliasAnn = AnnotationNode.new("type_alias")
+            aliasAnn.addArgument(aliasTarget.typeName)
+            aliasClass.decorators.push(aliasAnn)
+            let aliasItem = ItemNode.new()
+            aliasItem.itemType = "Class"
+            aliasItem.name = aliasName
+            aliasItem.classNode = aliasClass
+            aliasItem.visibility = inferVisibility(aliasName)
+            currentProgram.items.push(aliasItem)
+        }
+        if matchTokenStr(SeenTokenType.Semicolon) { }
+    }
+
+    fun parseUnionDeclarationOnly() r: Void {
+        if checkToken(SeenTokenType.Identifier) {
+            let unionName = advance().getValue()
+            let unionClass = ClassNode.new()
+            unionClass.name = unionName
+            unionClass.decorators.push(AnnotationNode.new("union"))
+            if matchTokenStr(SeenTokenType.LeftBrace) {
+                while not checkToken(SeenTokenType.RightBrace) and not isAtEnd() {
+                    if checkToken(SeenTokenType.Identifier) {
+                        let fieldName = advance().getValue()
+                        consume(SeenTokenType.Colon, "Expected ':' after union field name")
+                        let fieldType = parseTypeNode()
+                        let fieldParam = ParamNode.new()
+                        fieldParam.name = fieldName
+                        fieldParam.paramType = fieldType
+                        unionClass.fields.push(fieldParam)
+                    } else {
+                        advance()
+                    }
+                    if matchTokenStr(SeenTokenType.Comma) { }
+                    if matchTokenStr(SeenTokenType.Semicolon) { }
+                }
+                consume(SeenTokenType.RightBrace, "Expected '}' after union body")
+            }
+            let unionItem = ItemNode.new()
+            unionItem.itemType = "Class"
+            unionItem.name = unionName
+            unionItem.classNode = unionClass
+            unionItem.visibility = inferVisibility(unionName)
+            currentProgram.items.push(unionItem)
+        }
+    }
+
     fun topLevelGlobalInitFunctionName() r: String {
         return "__seen_internal_module_init__"
     }
@@ -1382,6 +1715,81 @@ class RealParser {
         }
     }
 
+    fun parseTopLevelGlobalDeclDeclarationOnly(isMutable: Bool) r: Void {
+        let gvNameToken = consumeNameLike("Expected variable name")
+        let gvName = gvNameToken.getValue()
+        var gvType = ""
+        if matchTokenStr(SeenTokenType.Colon) {
+            let gvTypeNode = parseTypeNode()
+            gvType = gvTypeNode.typeName
+        }
+
+        var gvStaticValue = ""
+        if matchTokenStr(SeenTokenType.Equal) {
+            let gvInitExpr = parseExpression()
+            if gvType == "" {
+                gvType = inferTopLevelGlobalType(gvInitExpr)
+            }
+            gvStaticValue = extractTopLevelStaticInitializer(gvInitExpr)
+        }
+        if gvType == "" {
+            gvType = "Int"
+        }
+
+        if matchTokenStr(SeenTokenType.Semicolon) { }
+
+        let gvItem = ItemNode.new()
+        gvItem.itemType = "GlobalVar"
+        gvItem.name = gvName
+        var gvPrefix = "L"
+        if isMutable { gvPrefix = "V" }
+        gvItem.visibility = gvPrefix + gvType + ":" + gvStaticValue
+        currentProgram.items.push(gvItem)
+    }
+
+    fun parseImplDeclarationsOnly() r: Void {
+        if checkToken(SeenTokenType.Identifier) {
+            advance()
+        }
+        if checkToken(SeenTokenType.KeywordFor) {
+            advance()
+            if checkToken(SeenTokenType.Identifier) {
+                advance()
+            }
+        }
+        skipGenericParametersIfPresent()
+
+        if matchTokenStr(SeenTokenType.LeftBrace) {
+            while not checkToken(SeenTokenType.RightBrace) and not isAtEnd() {
+                if matchTokenStr(SeenTokenType.AtSymbol) {
+                    parseDecoratorInto()
+                    continue
+                }
+                if matchTokenStr(SeenTokenType.KeywordPub) { continue }
+                if matchTokenStr(SeenTokenType.KeywordStatic) { continue }
+                if matchTokenStr(SeenTokenType.KeywordOverride) { continue }
+                if matchTokenStr(SeenTokenType.KeywordAsync) {
+                    pendingDecorators.push(AnnotationNode.new("async"))
+                    continue
+                }
+                if checkToken(SeenTokenType.Identifier) {
+                    let implPeekVal = peek().getValue()
+                    if implPeekVal == "extern" {
+                        advance()
+                        pendingDecorators.push(AnnotationNode.new("extern"))
+                        continue
+                    }
+                }
+                if matchTokenStr(getKeywordFunType()) {
+                    parseFunctionDeclarationItemInto()
+                    continue
+                }
+                advance()
+            }
+            if matchTokenStr(SeenTokenType.RightBrace) { }
+        }
+    }
+
     // Parse a decorator and add to pending decorators
     fun parseDecoratorInto() r: Void {
         // Expect identifier or keyword-as-decorator after @
@@ -1659,6 +2067,75 @@ class RealParser {
         currentProgram.items.push(item)
         traceParse("push Function " + item.name)
         // trace
+    }
+
+    fun finishDeclarationFunctionReturnType(resolvedName: String, resolvedNullable: Bool) r: Void {
+        applyPendingFunctionParamTypes()
+        if resolvedName != "Unknown" {
+            lastParsedTypeName = resolvedName
+            lastParsedTypeNullable = resolvedNullable
+            lastFunction.returnType = parsedScratchTypeNode()
+        }
+    }
+
+    fun parseFunctionDeclarationItemInto() r: Void {
+        if isAtEnd() {
+            return
+        }
+
+        let nameToken = consume(SeenTokenType.Identifier, "Expected function name")
+        lastFunction = FunctionNode.new()
+        clearPendingFunctionReturnType()
+        clearPendingFunctionParamTypes()
+
+        var funcName = nameToken.getValue()
+        if matchTokenStr(SeenTokenType.Dot) {
+            let methodToken = consume(SeenTokenType.Identifier, "Expected method name after dot")
+            funcName = funcName + "_" + methodToken.getValue()
+        }
+        lastFunction.name = funcName
+
+        skipGenericParametersIfPresent()
+        applyDecoratorsToFunction()
+        parseParameterListField()
+
+        var resolvedReturnTypeName = pendingFunctionReturnTypeName
+        var resolvedReturnTypeNullable = pendingFunctionReturnTypeNullable
+        parseOptionalReturnTypeIntoScratch()
+        if lastParsedTypeName != "Unknown" {
+            resolvedReturnTypeName = lastParsedTypeName
+            resolvedReturnTypeNullable = lastParsedTypeNullable
+        }
+
+        var bodyHandled = false
+        if checkToken(SeenTokenType.Equal) {
+            let fatArrPeek = peekAt(1)
+            if fatArrPeek.getValue() == ">" {
+                advance()
+                advance()
+                skipExpressionTailAndMarkDeclaration()
+                bodyHandled = true
+            }
+        }
+        if not bodyHandled {
+            if skipFunctionBodyAndMarkDeclaration() {
+                bodyHandled = true
+            }
+        }
+        if not bodyHandled {
+            lastFunction.body = BlockNode.new()
+            if matchTokenStr(SeenTokenType.Semicolon) { }
+        }
+
+        finishDeclarationFunctionReturnType(resolvedReturnTypeName,
+            resolvedReturnTypeNullable)
+
+        let item = ItemNode.new()
+        item.itemType = "Function"
+        item.name = lastFunction.name
+        item.visibility = inferVisibility(lastFunction.name)
+        item.function = lastFunction
+        currentProgram.items.push(item)
     }
 
     // Apply pending decorators to lastFunction and clear them
@@ -2374,6 +2851,208 @@ class RealParser {
             enumNode: EnumNode.new()
         })
         // trace
+    }
+
+    fun parseClassFieldDeclarationInto(classNode: ClassNode) r: Void {
+        let fieldName = consume(SeenTokenType.Identifier, "Expected field name")
+        consume(SeenTokenType.Colon, "Expected ':' after field name")
+        let fieldType = parseTypeNode()
+        if checkToken(SeenTokenType.Colon) {
+            advance()
+            if checkToken(SeenTokenType.IntegerLiteral) {
+                let bitWidth = advance().getValue()
+                fieldType.typeName = fieldType.typeName + ":bitfield(" + bitWidth + ")"
+            }
+        }
+        let field = ParamNode.new()
+        field.name = fieldName.getValue()
+        field.paramType = fieldType
+        classNode.fields.push(field)
+        if matchTokenStr(SeenTokenType.Semicolon) { }
+        if matchTokenStr(SeenTokenType.Comma) { }
+    }
+
+    fun parseOperatorMethodNameDeclarationOnly() r: String {
+        var methodName = "operator"
+        if matchTokenStr(SeenTokenType.Plus) { methodName = "operator_add" }
+        if methodName == "operator" and matchTokenStr(SeenTokenType.Minus) { methodName = "operator_sub" }
+        if methodName == "operator" and matchTokenStr(SeenTokenType.Multiply) { methodName = "operator_mul" }
+        if methodName == "operator" and matchTokenStr(SeenTokenType.Divide) { methodName = "operator_div" }
+        if methodName == "operator" and matchTokenStr(SeenTokenType.Modulo) { methodName = "operator_mod" }
+        if methodName == "operator" and matchTokenStr(SeenTokenType.EqualEqual) { methodName = "operator_eq" }
+        if methodName == "operator" and matchTokenStr(SeenTokenType.NotEqual) { methodName = "operator_neq" }
+        if methodName == "operator" and matchTokenStr(SeenTokenType.LessThan) { methodName = "operator_lt" }
+        if methodName == "operator" and matchTokenStr(SeenTokenType.GreaterThan) { methodName = "operator_gt" }
+        if methodName == "operator" and matchTokenStr(SeenTokenType.LessEqual) { methodName = "operator_lte" }
+        if methodName == "operator" and matchTokenStr(SeenTokenType.GreaterEqual) { methodName = "operator_gte" }
+        return methodName
+    }
+
+    fun parseClassMethodDeclarationInto(classNode: ClassNode, methodName: String,
+        isStaticMethod: Bool, sawOverrideFlag: Int, sawAsyncFlag: Int) r: Void {
+
+        lastFunction = FunctionNode.new()
+        clearPendingFunctionReturnType()
+        clearPendingFunctionParamTypes()
+        lastFunction.name = methodName
+
+        skipGenericParametersIfPresent()
+        applyDecoratorsToFunction()
+        parseParameterListField()
+
+        var resolvedReturnTypeName = pendingFunctionReturnTypeName
+        var resolvedReturnTypeNullable = pendingFunctionReturnTypeNullable
+        parseOptionalReturnTypeIntoScratch()
+        if lastParsedTypeName != "Unknown" {
+            resolvedReturnTypeName = lastParsedTypeName
+            resolvedReturnTypeNullable = lastParsedTypeNullable
+        }
+
+        if not skipFunctionBodyAndMarkDeclaration() {
+            lastFunction.body = BlockNode.new()
+            if matchTokenStr(SeenTokenType.Semicolon) { }
+        }
+
+        finishDeclarationFunctionReturnType(resolvedReturnTypeName,
+            resolvedReturnTypeNullable)
+        lastFunction.isStatic = isStaticMethod
+        if sawOverrideFlag == 1 {
+            lastFunction.isOverride = true
+        }
+        if sawAsyncFlag == 1 {
+            lastFunction.isAsync = true
+        }
+        classNode.methods.push(lastFunction)
+    }
+
+    fun parseClassDeclarationItemInto() r: Void {
+        if isAtEnd() {
+            return
+        }
+
+        let nameToken = consume(SeenTokenType.Identifier, "Expected class name")
+        let classNode = ClassNode.new()
+        classNode.name = nameToken.getValue()
+
+        skipGenericParametersIfPresent()
+
+        if checkToken(SeenTokenType.KeywordExtends) {
+            advance()
+            let parentTok = consume(SeenTokenType.Identifier, "Expected parent class name")
+            classNode.parentName = parentTok.getValue()
+        }
+
+        applyPendingTypeModifiersToClass(classNode)
+
+        if matchTokenStr(SeenTokenType.LeftBrace) {
+            while not checkToken(SeenTokenType.RightBrace) and not isAtEnd() {
+                if matchTokenStr(SeenTokenType.KeywordPub) { }
+                var handled = false
+                var sawOverride = 0
+                var sawAsync = 0
+
+                if matchTokenStr(SeenTokenType.AtSymbol) {
+                    parseDecoratorInto()
+                    handled = true
+                }
+
+                if not handled {
+                    if checkToken(SeenTokenType.KeywordEffect) {
+                        parseEffectModifierInto()
+                        handled = true
+                    }
+                }
+
+                if not handled {
+                    if matchTokenStr(SeenTokenType.KeywordVar) or matchTokenStr(SeenTokenType.KeywordLet) {
+                        if matchTokenStr(SeenTokenType.KeywordMut) { }
+                        parseClassFieldDeclarationInto(classNode)
+                        handled = true
+                    }
+                }
+
+                if not handled {
+                    if matchTokenStr(SeenTokenType.KeywordStatic) {
+                        if matchTokenStr(SeenTokenType.KeywordFun) {
+                            let methodNameTok = consume(SeenTokenType.Identifier, "Expected method name")
+                            parseClassMethodDeclarationInto(classNode,
+                                methodNameTok.getValue(), true, 0, 0)
+                        }
+                        handled = true
+                    }
+                }
+
+                if not handled {
+                    if matchTokenStr(SeenTokenType.KeywordOverride) {
+                        sawOverride = 1
+                    }
+                }
+
+                if not handled {
+                    if matchTokenStr(SeenTokenType.KeywordAsync) {
+                        sawAsync = 1
+                    }
+                }
+
+                if not handled {
+                    if matchTokenStr(SeenTokenType.KeywordFun) {
+                        var methodName = ""
+                        if checkToken(SeenTokenType.KeywordOperator) {
+                            advance()
+                            methodName = parseOperatorMethodNameDeclarationOnly()
+                        } else {
+                            let methodNameTok2 = consume(SeenTokenType.Identifier, "Expected method name")
+                            methodName = methodNameTok2.getValue()
+                        }
+                        parseClassMethodDeclarationInto(classNode, methodName,
+                            false, sawOverride, sawAsync)
+                        handled = true
+                    }
+                }
+
+                if not handled {
+                    if checkToken(SeenTokenType.Identifier) {
+                        let curTokVal = peek().getValue()
+                        if curTokVal != "r" and curTokVal != "seen_std.builtins.r" and curTokVal != "this" {
+                            let nextTok = peekAt(1)
+                            if nextTok.getType() == SeenTokenType.Colon {
+                                parseClassFieldDeclarationInto(classNode)
+                                handled = true
+                            }
+                        }
+                    }
+                }
+
+                if not handled {
+                    if matchTokenStr(SeenTokenType.KeywordType) {
+                        if checkToken(SeenTokenType.Identifier) {
+                            let assocTypeName = advance().getValue()
+                            if matchTokenStr(SeenTokenType.Assign) {
+                                let assocTypeTarget = parseTypeNode()
+                                let assocField = ParamNode.new()
+                                assocField.name = "@type_alias:" + assocTypeName
+                                assocField.paramType = assocTypeTarget
+                                classNode.fields.push(assocField)
+                            }
+                        }
+                        if matchTokenStr(SeenTokenType.Semicolon) { }
+                        handled = true
+                    }
+                }
+
+                if not handled {
+                    advance()
+                }
+            }
+            consume(SeenTokenType.RightBrace, "Expected '}' after class body")
+        }
+
+        let item = ItemNode.new()
+        item.itemType = "Class"
+        item.name = classNode.name
+        item.visibility = inferVisibility(classNode.name)
+        item.classNode = classNode
+        currentProgram.items.push(item)
     }
 
     fun parseDataStructItemInto() r: Void {

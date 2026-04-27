@@ -1,0 +1,536 @@
+// C-import clang AST parsing helpers.
+
+import tools.c_import_gen.{CImportGenerator, CImportResult, CImportedTypedef, CImportedRecordField, CImportedBitfield, CImportedBitfieldLayout, CImportedRecord, CImportedConstant, CImportedFunction}
+import tools.c_import_util.{findLastIndexOf, getClangAstDepth, extractClangDeclStartLocation, resolveClangTypedefType}
+import tools.c_import_type_map.{cImportInferTypedefSeenType, cImportIsRecordBackedTypedef, cImportChoosePreferredClangType}
+import tools.c_import_state.{cImportHasImportedRecordNamed, cImportFindImportedRecordIndex, cImportHasImportedFunctionNamed, cImportHasImportedTypedefNamed, cImportHasImportedConstantNamed, cImportFindImportedTypedefIndex}
+
+fun cImportParseClangAstDump(gen: CImportGenerator, astDump: String, result: CImportResult) r: Void {
+    let lines = astDump.split("\n")
+
+    var i = 0
+    while i < lines.length() {
+        let line = lines[i]
+
+        if line.contains("RecordDecl") and line.contains("definition") and getClangAstDepth(line) == 1 {
+            let importedRecord = cImportParseRecordDecl(gen, line, lines, i)
+            if importedRecord.name != "" and not cImportHasImportedRecordNamed(gen, importedRecord.name) {
+                gen.outputRecords.push(importedRecord)
+            }
+        }
+
+        if line.contains("TypedefDecl") and not line.contains("invalid") {
+            let importedTypedef = cImportParseTypedefDecl(gen, line)
+            if importedTypedef.name != "" and not importedTypedef.name.startsWith("__") and not cImportHasImportedTypedefNamed(gen, importedTypedef.name) {
+                gen.outputTypedefs.push(importedTypedef)
+                result.typedefs.push(importedTypedef)
+            }
+        }
+
+        // Look for FunctionDecl
+        if line.contains("FunctionDecl") and not line.contains("invalid") {
+            // Parse function declaration
+            let fn = cImportParseFunctionDecl(gen, line, lines, i)
+            if fn.name != "" and not fn.name.startsWith("__") and not cImportHasImportedFunctionNamed(gen, fn.name) {
+                gen.outputFunctions.push(fn)
+                result.functions.push(fn)
+            }
+        }
+
+        if line.contains("EnumConstantDecl") and not line.contains("invalid") {
+            let constant = cImportParseEnumConstantDecl(gen, line, lines, i)
+            if constant.name != "" and not cImportHasImportedConstantNamed(gen, constant.name) {
+                gen.outputConstants.push(constant)
+                result.constants.push(constant)
+            }
+        }
+
+        i = i + 1
+    }
+}
+
+fun cImportParseFunctionDecl(gen: CImportGenerator, declLine: String, lines: Array<String>, startIdx: Int) r: CImportedFunction {
+    var fn = CImportedFunction.new()
+    fn.headerPath = gen.headerPath
+
+    // Extract function name and return type from the declaration line
+    // Format: `-FunctionDecl ... <name> '<return_type> (<params>)'
+    // Some real headers produce redeclaration lines like:
+    //   FunctionDecl ... prev 0x... memcpy 'void *(...)'
+    // In those cases the real function name is the LAST valid identifier
+    // before the quoted type signature, not the first one.
+    let parts = declLine.split(" ")
+
+    var candidateName = ""
+    var idx = 0
+    while idx < parts.length() {
+        let part = parts[idx]
+
+        if part.startsWith("'") {
+            if candidateName != "" {
+                fn.name = candidateName
+                let typeStr = cImportExtractQuotedType(gen, parts, idx)
+                cImportParseTypeSignature(gen, typeStr, fn)
+            }
+            break
+        }
+
+        if part.length() > 0 {
+            // Skip clang AST metadata
+            if not part.startsWith("-") and not part.startsWith("|") and not part.startsWith("`") {
+                if not part.contains("<") and not part.contains(">") and not part.contains(":") {
+                    if part != "FunctionDecl" and part != "used" and part != "extern" and part != "implicit" {
+                        // Check if this looks like a C identifier
+                        if cImportIsValidCIdentifier(gen, part) {
+                            candidateName = part
+                        }
+                    }
+                }
+            }
+        }
+
+        idx = idx + 1
+    }
+
+    return fn
+}
+
+fun cImportParseRecordDecl(gen: CImportGenerator, declLine: String, lines: Array<String>, startIdx: Int) r: CImportedRecord {
+    return cImportParseRecordDeclWithOwner(gen, declLine, lines, startIdx, "")
+}
+
+fun cImportParseRecordDeclWithOwner(gen: CImportGenerator, declLine: String, lines: Array<String>, startIdx: Int, ownerRecordName: String) r: CImportedRecord {
+    var importedRecord = CImportedRecord.new()
+    let parts = declLine.split(" ")
+
+    var idx = 0
+    while idx < parts.length() {
+        let part = parts[idx]
+        if part == "struct" or part == "union" {
+            importedRecord.kind = part
+            if idx + 1 < parts.length() {
+                let recordName = parts[idx + 1]
+                if cImportIsValidCIdentifier(gen, recordName) and recordName != "definition" {
+                    importedRecord.name = recordName
+                }
+            }
+            break
+        }
+        idx = idx + 1
+    }
+
+    if importedRecord.name == "" {
+        importedRecord.name = cImportEnsureAnonymousRecordName(gen, declLine, importedRecord.kind, ownerRecordName)
+        if importedRecord.name == "" {
+            return importedRecord
+        }
+    }
+
+    let parentDepth = getClangAstDepth(declLine)
+    var scanIdx = startIdx + 1
+    while scanIdx < lines.length() and scanIdx < startIdx + 256 {
+        let line = lines[scanIdx]
+        let lineDepth = getClangAstDepth(line)
+
+        if lineDepth <= parentDepth {
+            if line.contains("RecordDecl") or line.contains("TypedefDecl") or line.contains("FunctionDecl") or line.contains("EnumDecl") or line.contains("EnumConstantDecl") {
+                break
+            }
+            scanIdx = scanIdx + 1
+            continue
+        }
+
+        if lineDepth == parentDepth + 1 {
+            if line.contains("RecordDecl") and line.contains("definition") {
+                let nestedRecord = cImportParseRecordDeclWithOwner(gen, line, lines, scanIdx, importedRecord.name)
+                if nestedRecord.name != "" and not cImportHasImportedRecordNamed(gen, nestedRecord.name) {
+                    gen.outputRecords.push(nestedRecord)
+                }
+            } else if line.contains("IndirectFieldDecl") {
+                // Represent anonymous members via synthesized fields rather than
+                // flattening clang's promoted aliases into the parent record.
+            } else if line.contains("FieldDecl") {
+                let field = cImportParseRecordFieldDecl(gen, line)
+                if field.name != "" {
+                    importedRecord.fields.push(field)
+                }
+            }
+        }
+        scanIdx = scanIdx + 1
+    }
+
+    return importedRecord
+}
+
+fun cImportParseRecordFieldDecl(gen: CImportGenerator, declLine: String) r: CImportedRecordField {
+    var field = CImportedRecordField.new()
+    let parts = declLine.split(" ")
+
+    var candidateName = ""
+    var idx = 0
+    while idx < parts.length() {
+        let part = parts[idx]
+
+        if part.startsWith("'") {
+            let rawType = cImportExtractQuotedType(gen, parts, idx)
+            let anonymousRecordType = cImportMapAnonymousRecordType(gen, rawType)
+            if anonymousRecordType != "" {
+                field.cType = anonymousRecordType
+                if candidateName != "" {
+                    field.name = candidateName
+                } else {
+                    field.name = cImportEnsureAnonymousFieldName(gen, rawType)
+                }
+            } else if candidateName != "" {
+                field.name = candidateName
+                field.cType = cImportChoosePreferredClangType(gen, rawType)
+            }
+            break
+        }
+
+        if part.length() > 0 {
+            if not part.startsWith("-") and not part.startsWith("|") and not part.startsWith("`") {
+                if not part.contains("<") and not part.contains(">") and not part.contains(":") {
+                    if part != "FieldDecl" and part != "implicit" and cImportIsValidCIdentifier(gen, part) {
+                        candidateName = part
+                    }
+                }
+            }
+        }
+
+        idx = idx + 1
+    }
+
+    return field
+}
+
+fun cImportParseTypedefDecl(gen: CImportGenerator, declLine: String) r: CImportedTypedef {
+    var importedTypedef = CImportedTypedef.new()
+    let parts = declLine.split(" ")
+
+    var candidateName = ""
+    var idx = 0
+    while idx < parts.length() {
+        let part = parts[idx]
+
+        if part.startsWith("'") {
+            if candidateName != "" {
+                importedTypedef.name = candidateName
+                let rawType = cImportExtractQuotedType(gen, parts, idx)
+                importedTypedef.cType = resolveClangTypedefType(rawType)
+                cImportInferTypedefSeenType(gen, importedTypedef)
+                if importedTypedef.seenType == "" or cImportIsRecordBackedTypedef(gen, importedTypedef) {
+                    importedTypedef.name = ""
+                }
+            }
+            break
+        }
+
+        if part.length() > 0 {
+            if not part.startsWith("-") and not part.startsWith("|") and not part.startsWith("`") {
+                if not part.contains("<") and not part.contains(">") and not part.contains(":") {
+                    if part != "TypedefDecl" and part != "referenced" and part != "implicit" and part != "used" {
+                        if cImportIsValidCIdentifier(gen, part) {
+                            candidateName = part
+                        }
+                    }
+                }
+            }
+        }
+
+        idx = idx + 1
+    }
+
+    return importedTypedef
+}
+
+fun cImportEnsureAnonymousRecordName(gen: CImportGenerator, declLine: String, kind: String, ownerRecordName: String) r: String {
+    let key = cImportAnonymousRecordKeyFromDeclLine(gen, declLine, kind)
+    if key == "" {
+        return ""
+    }
+
+    let existing = cImportFindAnonymousRecordName(gen, key)
+    if existing != "" {
+        return existing
+    }
+
+    let ownerPrefix = if ownerRecordName != "" { ownerRecordName } else { "AnonRecord" }
+    let syntheticName = ownerPrefix + "_anon_" + kind + "_" + gen.nextAnonymousRecordId.toString()
+    gen.nextAnonymousRecordId = gen.nextAnonymousRecordId + 1
+
+    gen.anonymousRecordKeys.push(key)
+    gen.anonymousRecordNames.push(syntheticName)
+    return syntheticName
+}
+
+fun cImportFindAnonymousRecordName(gen: CImportGenerator, key: String) r: String {
+    var idx = 0
+    while idx < gen.anonymousRecordKeys.length() {
+        if gen.anonymousRecordKeys[idx] == key {
+            return gen.anonymousRecordNames[idx]
+        }
+        idx = idx + 1
+    }
+    return ""
+}
+
+fun cImportMapAnonymousRecordType(gen: CImportGenerator, rawType: String) r: String {
+    let key = cImportAnonymousRecordKeyFromType(gen, rawType)
+    if key == "" {
+        return ""
+    }
+    return cImportFindAnonymousRecordName(gen, key)
+}
+
+fun cImportEnsureAnonymousFieldName(gen: CImportGenerator, rawType: String) r: String {
+    let key = cImportAnonymousRecordKeyFromType(gen, rawType)
+    if key == "" {
+        return ""
+    }
+
+    let existing = cImportFindAnonymousFieldName(gen, key)
+    if existing != "" {
+        return existing
+    }
+
+    let kind = cImportAnonymousRecordKindFromKey(gen, key)
+    let fieldName = "anon_" + kind + "_" + gen.nextAnonymousFieldId.toString()
+    gen.nextAnonymousFieldId = gen.nextAnonymousFieldId + 1
+    gen.anonymousFieldKeys.push(key)
+    gen.anonymousFieldNames.push(fieldName)
+    return fieldName
+}
+
+fun cImportFindAnonymousFieldName(gen: CImportGenerator, key: String) r: String {
+    var idx = 0
+    while idx < gen.anonymousFieldKeys.length() {
+        if gen.anonymousFieldKeys[idx] == key {
+            return gen.anonymousFieldNames[idx]
+        }
+        idx = idx + 1
+    }
+    return ""
+}
+
+fun cImportAnonymousRecordKindFromKey(gen: CImportGenerator, key: String) r: String {
+    let sepIdx = key.indexOf(":", 0)
+    if sepIdx < 0 {
+        return "record"
+    }
+    return key.substring(0, sepIdx)
+}
+
+fun cImportAnonymousRecordKeyFromDeclLine(gen: CImportGenerator, declLine: String, kind: String) r: String {
+    let location = cImportNormalizeAnonymousRecordLocation(gen, extractClangDeclStartLocation(declLine))
+    if location == "" {
+        return ""
+    }
+    return kind + ":" + location
+}
+
+fun cImportAnonymousRecordKeyFromType(gen: CImportGenerator, rawType: String) r: String {
+    let trimmed = rawType.trim()
+    let kind = cImportAnonymousRecordKindFromType(gen, trimmed)
+    if kind == "" {
+        return ""
+    }
+
+    let unnamedMarker = "unnamed at "
+    let anonymousMarker = "anonymous at "
+    var markerIdx = trimmed.indexOf(unnamedMarker, 0)
+    var markerLen = unnamedMarker.length()
+    if markerIdx < 0 {
+        markerIdx = trimmed.indexOf(anonymousMarker, 0)
+        markerLen = anonymousMarker.length()
+    }
+    if markerIdx < 0 {
+        return ""
+    }
+
+    let locationStart = markerIdx + markerLen
+    let locationEnd = trimmed.indexOf(")", locationStart)
+    if locationEnd < 0 {
+        return ""
+    }
+
+    let location = trimmed.substring(locationStart, locationEnd).trim()
+    if location == "" {
+        return ""
+    }
+    return kind + ":" + location
+}
+
+fun cImportAnonymousRecordKindFromType(gen: CImportGenerator, rawType: String) r: String {
+    if rawType.startsWith("struct ") or rawType == "struct" {
+        return "struct"
+    }
+    if rawType.startsWith("union ") or rawType == "union" {
+        return "union"
+    }
+    return ""
+}
+
+fun cImportNormalizeAnonymousRecordLocation(gen: CImportGenerator, location: String) r: String {
+    if location.startsWith("line:") {
+        return gen.headerPath + ":" + location.substring(5, location.length())
+    }
+    if location.startsWith("col:") {
+        return gen.headerPath + ":" + location.substring(4, location.length())
+    }
+    return location
+}
+
+fun cImportParseEnumConstantDecl(gen: CImportGenerator, declLine: String, lines: Array<String>, startIdx: Int) r: CImportedConstant {
+    var constant = CImportedConstant.new()
+    constant.headerPath = gen.headerPath
+
+    let parts = declLine.split(" ")
+    var candidateName = ""
+    var idx = 0
+    while idx < parts.length() {
+        let part = parts[idx]
+
+        if part.startsWith("'") {
+            constant.name = candidateName
+            break
+        }
+
+        if part.length() > 0 {
+            if not part.startsWith("-") and not part.startsWith("|") and not part.startsWith("`") {
+                if not part.contains("<") and not part.contains(">") and not part.contains(":") {
+                    if part != "EnumConstantDecl" and cImportIsValidCIdentifier(gen, part) {
+                        candidateName = part
+                    }
+                }
+            }
+        }
+        idx = idx + 1
+    }
+
+    var scanIdx = startIdx + 1
+    while scanIdx < lines.length() and scanIdx < startIdx + 6 {
+        let line = lines[scanIdx]
+        let markerIdx = line.indexOf("value: ", 0)
+        if markerIdx >= 0 {
+            let valueMeta = line.substring(markerIdx + 7, line.length()).trim()
+            let valueParts = valueMeta.split(" ")
+            if valueParts.length() >= 2 {
+                constant.value = valueParts[1]
+                return constant
+            }
+        }
+        scanIdx = scanIdx + 1
+    }
+
+    return constant
+}
+
+fun cImportIsValidCIdentifier(gen: CImportGenerator, s: String) r: Bool {
+    if s.length() == 0 {
+        return false
+    }
+
+    // First char must be letter or underscore
+    let first = s.charAt(0)
+    if not ((first >= 'a' and first <= 'z') or (first >= 'A' and first <= 'Z') or first == '_') {
+        return false
+    }
+
+    // Rest can be letters, digits, or underscore
+    var i = 1
+    while i < s.length() {
+        let c = s.charAt(i)
+        if not ((c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z') or (c >= '0' and c <= '9') or c == '_') {
+            return false
+        }
+        i = i + 1
+    }
+
+    return true
+}
+
+fun cImportExtractQuotedType(gen: CImportGenerator, parts: Array<String>, startIdx: Int) r: String {
+    var result = ""
+    var inQuote = false
+
+    var i = startIdx
+    while i < parts.length() {
+        let part = parts[i]
+
+        if part.startsWith("'") {
+            inQuote = true
+            result = part.substring(1, part.length())
+            if result.endsWith("'") {
+                result = result.substring(0, result.length() - 1)
+                return result
+            }
+        } else if inQuote {
+            result = result + " " + part
+            if part.endsWith("'") {
+                result = result.substring(0, result.length() - 1)
+                return result
+            }
+        }
+
+        i = i + 1
+    }
+
+    return result
+}
+
+fun cImportParseTypeSignature(gen: CImportGenerator, typeStr: String, fn: CImportedFunction) r: Void {
+    // Find the opening paren that separates return type from params
+    let parenIdx = typeStr.indexOf("(", 0)
+
+    if parenIdx < 0 {
+        // No params - treat whole thing as return type
+        fn.returnType = typeStr.trim()
+        return
+    }
+
+    // Return type is before the paren
+    fn.returnType = typeStr.substring(0, parenIdx).trim()
+
+    // Parameters are inside parens
+    let closeIdx = findLastIndexOf(typeStr, ")")
+    if closeIdx > parenIdx {
+        let paramsStr = typeStr.substring(parenIdx + 1, closeIdx)
+        cImportParseParams(gen, paramsStr, fn)
+    }
+}
+
+fun cImportParseParams(gen: CImportGenerator, paramsStr: String, fn: CImportedFunction) r: Void {
+    let trimmed = paramsStr.trim()
+
+    if trimmed == "" or trimmed == "void" {
+        return
+    }
+
+    // Check for variadic
+    if trimmed.endsWith("...") {
+        fn.isVariadic = true
+    }
+
+    // Split by comma
+    let params = trimmed.split(",")
+
+    var i = 0
+    while i < params.length() {
+        let param = params[i].trim()
+
+        if param == "..." {
+            // Skip variadic marker
+            i = i + 1
+            continue
+        }
+
+        if param.length() > 0 and param != "void" {
+            // Extract type (may include param name in AST)
+            fn.paramTypes.push(param)
+            fn.paramNames.push("arg" + i.toString())
+        }
+
+        i = i + 1
+    }
+}

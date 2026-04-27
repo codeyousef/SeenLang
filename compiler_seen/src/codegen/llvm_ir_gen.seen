@@ -506,9 +506,37 @@ var g_callCountEntriesBox: Array<Int> = Array<Int>()
 // LLVMIRGenerator object layout so the frozen compiler never has to lower
 // self-hosted field stores for it.
 var preAllocatedRegs: Array<String> = Array<String>()
+var preAllocatedVars: Array<String> = Array<String>()
+var preAllocatedTypes: Array<String> = Array<String>()
 var activeVarCount: Int = 0
+var structNames: Array<String> = Array<String>()
+var structLayouts: Array<String> = Array<String>()
+var structFieldNames: Array<String> = Array<String>()
+var structFieldTypes: Array<String> = Array<String>()
+var structLlvmFieldTypes: Array<String> = Array<String>()
+var structSizes: Array<Int> = Array<Int>()
+var structMethodNames: Array<String> = Array<String>()
+var structMethodRetTypes: Array<String> = Array<String>()
+var funcNames: Array<String> = Array<String>()
+var funcRetTypes: Array<String> = Array<String>()
+var classMethodBaseNames: Array<String> = Array<String>()
+var typeHeaderPath: String = ""
+var currentFunctionReturnType: String = ""
+var currentClassName: String = ""
+var blockTerminated: Bool = false
+var currentLoopCondLabel: String = ""
+var currentLoopEndLabel: String = ""
 var declOrdinalNames: Array<String> = Array<String>()
 var declOrdinalCounts: Array<Int> = Array<Int>()
+var stringConstantPrefix: String = ""
+var generatedFunctions: Array<String> = Array<String>()
+var generatedClasses: Array<String> = Array<String>()
+var typesLoadedFromHeader: Bool = false
+var runtimeDeclsLoaded: Bool = false
+var pendingArrayLiteralType: String = ""
+var moduleConstantNames: Array<String> = Array<String>()
+var moduleConstantValues: Array<String> = Array<String>()
+var moduleConstantTypes: Array<String> = Array<String>()
 
 fun initBootstrapFragileGlobalArrays() r: Void {
     g_cseKeysArr = Array<String>()
@@ -530,9 +558,37 @@ fun initBootstrapFragileGlobalArrays() r: Void {
     g_callCountNamesBox = Array<String>()
     g_callCountEntriesBox = Array<Int>()
     preAllocatedRegs = Array<String>()
+    preAllocatedVars = Array<String>()
+    preAllocatedTypes = Array<String>()
     activeVarCount = 0
+    structNames = Array<String>()
+    structLayouts = Array<String>()
+    structFieldNames = Array<String>()
+    structFieldTypes = Array<String>()
+    structLlvmFieldTypes = Array<String>()
+    structSizes = Array<Int>()
+    structMethodNames = Array<String>()
+    structMethodRetTypes = Array<String>()
+    funcNames = Array<String>()
+    funcRetTypes = Array<String>()
+    classMethodBaseNames = Array<String>()
+    typeHeaderPath = ""
+    currentFunctionReturnType = ""
+    currentClassName = ""
+    blockTerminated = false
+    currentLoopCondLabel = ""
+    currentLoopEndLabel = ""
     declOrdinalNames = Array<String>()
     declOrdinalCounts = Array<Int>()
+    stringConstantPrefix = ""
+    generatedFunctions = Array<String>()
+    generatedClasses = Array<String>()
+    typesLoadedFromHeader = false
+    runtimeDeclsLoaded = false
+    pendingArrayLiteralType = ""
+    moduleConstantNames = Array<String>()
+    moduleConstantValues = Array<String>()
+    moduleConstantTypes = Array<String>()
 }
 
 var g_enumVariantNames: String = ""
@@ -768,45 +824,6 @@ class LLVMIRGenerator {
     var varRegs: Array<String>
     var varTypes: Array<String>
     var indent: Int
-    var structNames: Array<String>
-    var structLayouts: Array<String>
-    var structFieldNames: Array<String>
-    var structFieldTypes: Array<String>
-    var structLlvmFieldTypes: Array<String>
-    var structSizes: Array<Int>
-    var structMethodNames: Array<String>
-    var structMethodRetTypes: Array<String>
-    var funcNames: Array<String>
-    var funcRetTypes: Array<String>
-    var classMethodBaseNames: Array<String>
-    var typeHeaderPath: String
-    // Current function context
-    var currentFunctionReturnType: String
-    var currentClassName: String  // Track current class for method type inference
-    var blockTerminated: Bool  // Track if current block has a terminator
-    // Loop context for break/continue
-    var currentLoopCondLabel: String  // Label to jump to for continue
-    var currentLoopEndLabel: String   // Label to jump to for break
-    // Pre-allocated variable names and types (for hoisting allocas to entry block)
-    var preAllocatedVars: Array<String>
-    var preAllocatedTypes: Array<String>
-    // Module prefix for per-module compilation (empty for multi-module)
-    var stringConstantPrefix: String
-    // Track which functions have been emitted in current module (reset per-module)
-    var generatedFunctions: Array<String>
-    // Track which class types have been emitted in current module (reset per-module)
-    var generatedClasses: Array<String>
-    // Track if types were loaded from header file (skip emitting class types)
-    var typesLoadedFromHeader: Bool
-    // Track if runtime declarations were loaded from header file (skip emitting core runtime decls)
-    var runtimeDeclsLoaded: Bool
-    // Expected array literal type (used to derive element type for [])
-    var pendingArrayLiteralType: String
-    // Module-level constants parsed from type header (parallel arrays)
-    // These are constants like SND_PCM_FORMAT_FLOAT = 14 that are defined at module scope
-    var moduleConstantNames: Array<String>
-    var moduleConstantValues: Array<String>
-    var moduleConstantTypes: Array<String>
     static fun new() r: LLVMIRGenerator {
         initBootstrapFragileGlobalArrays()
         let gen = LLVMIRGenerator{
@@ -817,35 +834,7 @@ class LLVMIRGenerator {
             varNames: Array<String>(),
             varRegs: Array<String>(),
             varTypes: Array<String>(),
-            indent: 0,
-            structNames: Array<String>(),
-            structLayouts: Array<String>(),
-            structFieldNames: Array<String>(),
-            structFieldTypes: Array<String>(),
-            structLlvmFieldTypes: Array<String>(),
-            structSizes: Array<Int>(),
-            structMethodNames: Array<String>(),
-            structMethodRetTypes: Array<String>(),
-            funcNames: Array<String>(),
-            funcRetTypes: Array<String>(),
-            classMethodBaseNames: Array<String>(),
-            typeHeaderPath: "",
-            currentFunctionReturnType: "",
-            currentClassName: "",
-            blockTerminated: false,
-            currentLoopCondLabel: "",
-            currentLoopEndLabel: "",
-            preAllocatedVars: Array<String>(),
-            preAllocatedTypes: Array<String>(),
-            stringConstantPrefix: "",
-            generatedFunctions: Array<String>(),
-            generatedClasses: Array<String>(),
-            typesLoadedFromHeader: false,
-            runtimeDeclsLoaded: false,
-            pendingArrayLiteralType: "",
-            moduleConstantNames: Array<String>(),
-            moduleConstantValues: Array<String>(),
-            moduleConstantTypes: Array<String>()
+            indent: 0
         }
         gen.reset()
         return gen

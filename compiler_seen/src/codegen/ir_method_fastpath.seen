@@ -169,25 +169,39 @@ fun tryGenerateLengthLikeMethodCallImpl(output: StringBuilder, regBox: Array<Int
         return ""
     }
 
-    let isNonArrayColl = receiverType.startsWith("List<") or
-        receiverType == "List" or receiverType.startsWith("Vec<") or
-        receiverType == "Vec" or receiverType.startsWith("BTreeMap<") or
-        receiverType == "BTreeMap"
+    var effectiveReceiverType = receiverType
+    if effectiveReceiverType == "String?" {
+        effectiveReceiverType = "String"
+    }
+    if effectiveReceiverType == "SeenString" {
+        effectiveReceiverType = "String"
+    }
+    if effectiveReceiverType == "%SeenString" {
+        effectiveReceiverType = "String"
+    }
+
+    let isNonArrayColl = effectiveReceiverType.startsWith("List<") or
+        effectiveReceiverType == "List" or
+        effectiveReceiverType.startsWith("Vec<") or
+        effectiveReceiverType == "Vec" or
+        effectiveReceiverType.startsWith("BTreeMap<") or
+        effectiveReceiverType == "BTreeMap"
     if isNonArrayColl {
         let collectionPtrReg = convertReceiverToPtrImpl(output, regBox,
-            receiverReg, receiverType, reprCClassNames, structNames)
+            receiverReg, effectiveReceiverType, reprCClassNames, structNames)
         let resultReg = getNextRegFn(regBox)
         output.append("  " + resultReg +
             " = call i64 @seen_arr_length_ptr(ptr " + collectionPtrReg + ")\n")
         return resultReg
     }
-    if receiverType == "StringBuilder" {
+    if effectiveReceiverType == "StringBuilder" {
         let sbPtrReg = convertReceiverToPtrImpl(output, regBox, receiverReg,
-            receiverType, reprCClassNames, structNames)
+            effectiveReceiverType, reprCClassNames, structNames)
         return emitStringBuilderMethodImpl(output, regBox, "length", sbPtrReg,
             "", 0)
     }
-    return emitLengthSizeMethodImpl(output, regBox, receiverReg, receiverType)
+    return emitLengthSizeMethodImpl(output, regBox, receiverReg,
+        effectiveReceiverType)
 }
 
 fun emitStringBuilderReceiverMethodCallImpl(output: StringBuilder,

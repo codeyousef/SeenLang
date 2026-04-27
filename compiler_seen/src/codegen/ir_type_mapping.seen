@@ -10,24 +10,38 @@ var g_comptimeTargetName: String = ""
 
 fun normalizeComptimeTargetName(target: String) r: String {
     if target == "" { return "" }
-    if target == "linux-x86_64" or target == "x86_64-unknown-linux-gnu" { return "linux-x86_64" }
-    if target == "linux-arm64" or target == "aarch64-unknown-linux-gnu" or target == "arm64-unknown-linux-gnu" { return "linux-arm64" }
-    if target == "windows-x86_64" or target == "x86_64-w64-windows-gnu" { return "windows-x86_64" }
-    if target == "macos-arm64" or target == "arm64-apple-darwin" or target == "aarch64-apple-darwin" or target.startsWith("arm64-apple-macosx") or target.startsWith("aarch64-apple-macosx") {
-        return "macos-arm64"
-    }
-    if target == "macos-x86_64" or target == "x86_64-apple-darwin" or target.startsWith("x86_64-apple-macosx") {
-        return "macos-x86_64"
-    }
-    if target == "ios-sim-arm64" or target == "arm64-apple-ios-simulator" or target == "aarch64-apple-ios-simulator" or ((target.startsWith("arm64-apple-ios") or target.startsWith("aarch64-apple-ios")) and target.contains("simulator")) {
-        return "ios-sim-arm64"
-    }
-    if target == "ios-arm64" or target == "arm64-apple-ios" or target == "aarch64-apple-ios" or ((target.startsWith("arm64-apple-ios") or target.startsWith("aarch64-apple-ios")) and not target.contains("simulator")) {
+    if target == "linux-x86_64" { return "linux-x86_64" }
+    if target == "x86_64-unknown-linux-gnu" { return "linux-x86_64" }
+    if target == "linux-arm64" { return "linux-arm64" }
+    if target == "aarch64-unknown-linux-gnu" { return "linux-arm64" }
+    if target == "arm64-unknown-linux-gnu" { return "linux-arm64" }
+    if target == "windows-x86_64" { return "windows-x86_64" }
+    if target == "x86_64-w64-windows-gnu" { return "windows-x86_64" }
+    if target == "macos-arm64" { return "macos-arm64" }
+    if target == "arm64-apple-darwin" { return "macos-arm64" }
+    if target == "aarch64-apple-darwin" { return "macos-arm64" }
+    if target.startsWith("arm64-apple-macosx") { return "macos-arm64" }
+    if target.startsWith("aarch64-apple-macosx") { return "macos-arm64" }
+    if target == "macos-x86_64" { return "macos-x86_64" }
+    if target == "x86_64-apple-darwin" { return "macos-x86_64" }
+    if target.startsWith("x86_64-apple-macosx") { return "macos-x86_64" }
+    if target == "ios-sim-arm64" { return "ios-sim-arm64" }
+    if target == "arm64-apple-ios-simulator" { return "ios-sim-arm64" }
+    if target == "aarch64-apple-ios-simulator" { return "ios-sim-arm64" }
+    if target.startsWith("arm64-apple-ios") {
+        if target.contains("simulator") { return "ios-sim-arm64" }
         return "ios-arm64"
     }
-    if target == "android-arm64" or target.startsWith("aarch64-linux-android") or target.startsWith("arm64-linux-android") {
-        return "android-arm64"
+    if target.startsWith("aarch64-apple-ios") {
+        if target.contains("simulator") { return "ios-sim-arm64" }
+        return "ios-arm64"
     }
+    if target == "ios-arm64" { return "ios-arm64" }
+    if target == "arm64-apple-ios" { return "ios-arm64" }
+    if target == "aarch64-apple-ios" { return "ios-arm64" }
+    if target == "android-arm64" { return "android-arm64" }
+    if target.startsWith("aarch64-linux-android") { return "android-arm64" }
+    if target.startsWith("arm64-linux-android") { return "android-arm64" }
     return target
 }
 
@@ -82,11 +96,19 @@ fun getComptimeTargetName() r: String {
 }
 
 fun comptimeTargetIsX86_64(target: String) r: Bool {
-    return target == "linux-x86_64" or target == "windows-x86_64" or target == "macos-x86_64"
+    if target == "linux-x86_64" { return true }
+    if target == "windows-x86_64" { return true }
+    if target == "macos-x86_64" { return true }
+    return false
 }
 
 fun comptimeTargetIsAarch64(target: String) r: Bool {
-    return target == "linux-arm64" or target == "macos-arm64" or target == "ios-arm64" or target == "ios-sim-arm64" or target == "android-arm64"
+    if target == "linux-arm64" { return true }
+    if target == "macos-arm64" { return true }
+    if target == "ios-arm64" { return true }
+    if target == "ios-sim-arm64" { return true }
+    if target == "android-arm64" { return true }
+    return false
 }
 
 fun parseSimpleIntImpl(s: String) r: Int {
@@ -276,15 +298,24 @@ fun registerComptimeStrVarStateImpl(name: String, value: String,
 
 // Comptime sizeof for common types
 fun comptimeSizeofImpl(typeName: String) r: Int {
-    if typeName == "Int" or typeName == "Float" or typeName == "String" { return 8 }
+    if typeName == "Int" { return 8 }
+    if typeName == "Float" { return 8 }
+    if typeName == "String" { return 8 }
     if typeName == "Bool" { return 1 }
     if typeName == "Char" { return 8 }
-    if typeName == "Int8" or typeName == "UInt8" { return 1 }
-    if typeName == "Int16" or typeName == "UInt16" { return 2 }
-    if typeName == "Int32" or typeName == "UInt32" or typeName == "Float32" { return 4 }
-    if typeName == "Int64" or typeName == "UInt64" { return 8 }
-    if typeName == "f32x4" or typeName == "i32x4" { return 16 }
-    if typeName == "f32x8" or typeName == "i32x8" { return 32 }
+    if typeName == "Int8" { return 1 }
+    if typeName == "UInt8" { return 1 }
+    if typeName == "Int16" { return 2 }
+    if typeName == "UInt16" { return 2 }
+    if typeName == "Int32" { return 4 }
+    if typeName == "UInt32" { return 4 }
+    if typeName == "Float32" { return 4 }
+    if typeName == "Int64" { return 8 }
+    if typeName == "UInt64" { return 8 }
+    if typeName == "f32x4" { return 16 }
+    if typeName == "i32x4" { return 16 }
+    if typeName == "f32x8" { return 32 }
+    if typeName == "i32x8" { return 32 }
     if typeName == "f64x2" { return 16 }
     if typeName == "f64x4" { return 32 }
     return -9999999
@@ -547,47 +578,86 @@ fun evaluateConstExprImpl(expr: ParserExpressionNode, comptimeNames: String, com
 }
 
 fun isSimdVectorTypeImpl(t: String) r: Int {
-    if t == "f32x4" or t == "f32x8" or t == "i32x4" or t == "i32x8" or t == "f64x2" or t == "f64x4" {
-        return 1
-    }
+    if t == "f32x4" { return 1 }
+    if t == "f32x8" { return 1 }
+    if t == "i32x4" { return 1 }
+    if t == "i32x8" { return 1 }
+    if t == "f64x2" { return 1 }
+    if t == "f64x4" { return 1 }
     return 0
 }
 
 fun simdScalarTypeImpl(t: String) r: String {
-    if t == "f32x4" or t == "f32x8" { return "float" }
-    if t == "f64x2" or t == "f64x4" { return "double" }
-    if t == "i32x4" or t == "i32x8" { return "i32" }
+    if t == "f32x4" { return "float" }
+    if t == "f32x8" { return "float" }
+    if t == "f64x2" { return "double" }
+    if t == "f64x4" { return "double" }
+    if t == "i32x4" { return "i32" }
+    if t == "i32x8" { return "i32" }
     return "i64"
 }
 
 fun simdLaneCountImpl(t: String) r: Int {
-    if t == "f32x4" or t == "i32x4" { return 4 }
-    if t == "f32x8" or t == "i32x8" { return 8 }
+    if t == "f32x4" { return 4 }
+    if t == "i32x4" { return 4 }
+    if t == "f32x8" { return 8 }
+    if t == "i32x8" { return 8 }
     if t == "f64x2" { return 2 }
     if t == "f64x4" { return 4 }
     return 0
 }
 
 fun isSwizzlePatternImpl(s: String, lanes: Int) r: Int {
-    if s.length() == 0 or s.length() > lanes { return 0 }
+    if s.length() == 0 { return 0 }
+    if s.length() > lanes { return 0 }
     var swzI = 0
     while swzI < s.length() {
         let swzC = s.substring(swzI, swzI + 1)
+        var swzOk = false
         if lanes <= 4 {
-            if swzC != "x" and swzC != "y" and swzC != "z" and swzC != "w" { return 0 }
+            if swzC == "x" {
+                swzOk = true
+            } else if swzC == "y" {
+                swzOk = true
+            } else if swzC == "z" {
+                swzOk = true
+            } else if swzC == "w" {
+                swzOk = true
+            }
         } else {
-            if swzC != "a" and swzC != "b" and swzC != "c" and swzC != "d" and swzC != "e" and swzC != "f" and swzC != "g" and swzC != "h" { return 0 }
+            if swzC == "a" {
+                swzOk = true
+            } else if swzC == "b" {
+                swzOk = true
+            } else if swzC == "c" {
+                swzOk = true
+            } else if swzC == "d" {
+                swzOk = true
+            } else if swzC == "e" {
+                swzOk = true
+            } else if swzC == "f" {
+                swzOk = true
+            } else if swzC == "g" {
+                swzOk = true
+            } else if swzC == "h" {
+                swzOk = true
+            }
         }
+        if not swzOk { return 0 }
         swzI = swzI + 1
     }
     return 1
 }
 
 fun swizzleLaneIndexImpl(c: String) r: Int {
-    if c == "x" or c == "a" { return 0 }
-    if c == "y" or c == "b" { return 1 }
-    if c == "z" or c == "c" { return 2 }
-    if c == "w" or c == "d" { return 3 }
+    if c == "x" { return 0 }
+    if c == "a" { return 0 }
+    if c == "y" { return 1 }
+    if c == "b" { return 1 }
+    if c == "z" { return 2 }
+    if c == "c" { return 2 }
+    if c == "w" { return 3 }
+    if c == "d" { return 3 }
     if c == "e" { return 4 }
     if c == "f" { return 5 }
     if c == "g" { return 6 }
@@ -611,9 +681,16 @@ fun simdLlvmSuffixImpl(t: String) r: String {
 
 fun isDataTypeImpl(seenType: String) r: Int {
     let baseType = getBaseTypeNameImpl(seenType)
-    if baseType == "TypeNode" or baseType == "ImportPathInfo" or baseType == "CommandResult" or baseType == "RemovalResult" or baseType == "CompilerInfo" or baseType == "VerificationResult" or baseType == "StageArtifact" or baseType == "BinaryComparison" or baseType == "FunctionSummary" or baseType == "ModuleMetadata" {
-        return 1
-    }
+    if baseType == "TypeNode" { return 1 }
+    if baseType == "ImportPathInfo" { return 1 }
+    if baseType == "CommandResult" { return 1 }
+    if baseType == "RemovalResult" { return 1 }
+    if baseType == "CompilerInfo" { return 1 }
+    if baseType == "VerificationResult" { return 1 }
+    if baseType == "StageArtifact" { return 1 }
+    if baseType == "BinaryComparison" { return 1 }
+    if baseType == "FunctionSummary" { return 1 }
+    if baseType == "ModuleMetadata" { return 1 }
     return 0
 }
 
@@ -626,66 +703,127 @@ fun isClassTypeImpl(name: String, structNames: Array<String>) r: Int {
     if baseType == "" {
         return 0
     }
-    if baseType == "Int" or baseType == "Char" or baseType == "Bool" or baseType == "Boolean" or baseType == "Float" or baseType == "String" or baseType == "Void" {
-        return 0
-    }
-    if name.startsWith("Array<") or baseType == "Array" {
-        return 0
-    }
-    if name.startsWith("List<") or baseType == "List" {
-        return 0
-    }
+    if baseType == "Int" { return 0 }
+    if baseType == "Char" { return 0 }
+    if baseType == "Bool" { return 0 }
+    if baseType == "Boolean" { return 0 }
+    if baseType == "Float" { return 0 }
+    if baseType == "String" { return 0 }
+    if baseType == "Void" { return 0 }
+    if name.startsWith("Array<") { return 0 }
+    if baseType == "Array" { return 0 }
+    if name.startsWith("List<") { return 0 }
+    if baseType == "List" { return 0 }
     if isDataTypeImpl(baseType) == 1 {
         return 0
     }
     if findStructIdx(structNames, baseType) >= 0 {
         return 1
     }
-    if baseType == "FrontendResult" or baseType == "LLVMIRGenerator" or baseType == "ProgramNode" or baseType == "FrontendDiagnostic" or baseType == "Point" or baseType == "TypeInferenceResult" or baseType == "TypeChecker" or baseType == "RealParser" or baseType == "SeenLexer" or baseType == "TypeError" or baseType == "Location" or baseType == "SourceLocation" or baseType == "Type" or baseType == "FsFileResult" or baseType == "FsFile" or baseType == "Result" or baseType == "Unit" or baseType == "Optional" or baseType == "Option" or baseType == "FunctionNode" or baseType == "ClassNode" or baseType == "EnumNode" or baseType == "BlockNode" or baseType == "Environment" or baseType == "ImportNode" or baseType == "Token" or baseType == "StringBuilder" or baseType == "Map" or baseType == "Vec" or baseType == "VecChunk" or baseType == "VecSlot" {
-        return 1
-    }
-    if baseType == "StatementNode" or baseType == "ParserExpressionNode" or baseType == "LexerError" or baseType == "KeywordManager" or baseType == "ClassType" or baseType == "FunctionType" or baseType == "InterfaceType" or baseType == "ImportSymbolNode" or baseType == "ItemNode" or baseType == "ParamNode" or baseType == "AstNode" or baseType == "ComptimeValue" {
-        return 1
-    }
-    if baseType == "JsonValue" or baseType == "JsonParser" or baseType == "JsonBuilder" {
-        return 1
-    }
-    if baseType == "JsonRpcHandler" or baseType == "LspMessage" or baseType == "LspError" or baseType == "LspResponse" or baseType == "MessageDispatcher" or baseType == "MessageHandler" {
-        return 1
-    }
-    if baseType == "LspServer" or baseType == "SeenLspServer" or baseType == "Document" or baseType == "LspPosition" or baseType == "Position" or baseType == "Range" or baseType == "Location" or baseType == "Diagnostic" or baseType == "TextEdit" or baseType == "CompletionItem" or baseType == "CompletionList" or baseType == "Hover" or baseType == "MarkupContent" or baseType == "SignatureHelp" or baseType == "SignatureInformation" or baseType == "ParameterInformation" {
-        return 1
-    }
-    if baseType == "TextDocumentIdentifier" or baseType == "VersionedTextDocumentIdentifier" or baseType == "TextDocumentItem" or baseType == "TextDocumentPositionParams" or baseType == "TextDocumentContentChangeEvent" {
-        return 1
-    }
-    if baseType == "DidOpenTextDocumentParams" or baseType == "DidChangeTextDocumentParams" or baseType == "DidCloseTextDocumentParams" or baseType == "DidSaveTextDocumentParams" {
-        return 1
-    }
-    if baseType == "CodeAction" or baseType == "CodeActionContext" or baseType == "CodeActionParams" or baseType == "DocumentFormattingParams" {
-        return 1
-    }
-    if baseType == "ClientCapabilities" or baseType == "InitializeParams" or baseType == "InitializeResult" or baseType == "ServerCapabilities" or baseType == "ServerInfo" or baseType == "CompletionOptions" or baseType == "TextDocumentSyncOptions" {
-        return 1
-    }
+    if baseType == "FrontendResult" { return 1 }
+    if baseType == "LLVMIRGenerator" { return 1 }
+    if baseType == "ProgramNode" { return 1 }
+    if baseType == "FrontendDiagnostic" { return 1 }
+    if baseType == "Point" { return 1 }
+    if baseType == "TypeInferenceResult" { return 1 }
+    if baseType == "TypeChecker" { return 1 }
+    if baseType == "RealParser" { return 1 }
+    if baseType == "SeenLexer" { return 1 }
+    if baseType == "TypeError" { return 1 }
+    if baseType == "Location" { return 1 }
+    if baseType == "SourceLocation" { return 1 }
+    if baseType == "Type" { return 1 }
+    if baseType == "FsFileResult" { return 1 }
+    if baseType == "FsFile" { return 1 }
+    if baseType == "Result" { return 1 }
+    if baseType == "Unit" { return 1 }
+    if baseType == "Optional" { return 1 }
+    if baseType == "Option" { return 1 }
+    if baseType == "FunctionNode" { return 1 }
+    if baseType == "ClassNode" { return 1 }
+    if baseType == "EnumNode" { return 1 }
+    if baseType == "BlockNode" { return 1 }
+    if baseType == "Environment" { return 1 }
+    if baseType == "ImportNode" { return 1 }
+    if baseType == "Token" { return 1 }
+    if baseType == "StringBuilder" { return 1 }
+    if baseType == "Map" { return 1 }
+    if baseType == "Vec" { return 1 }
+    if baseType == "VecChunk" { return 1 }
+    if baseType == "VecSlot" { return 1 }
+    if baseType == "StatementNode" { return 1 }
+    if baseType == "ParserExpressionNode" { return 1 }
+    if baseType == "LexerError" { return 1 }
+    if baseType == "KeywordManager" { return 1 }
+    if baseType == "ClassType" { return 1 }
+    if baseType == "FunctionType" { return 1 }
+    if baseType == "InterfaceType" { return 1 }
+    if baseType == "ImportSymbolNode" { return 1 }
+    if baseType == "ItemNode" { return 1 }
+    if baseType == "ParamNode" { return 1 }
+    if baseType == "AstNode" { return 1 }
+    if baseType == "ComptimeValue" { return 1 }
+    if baseType == "JsonValue" { return 1 }
+    if baseType == "JsonParser" { return 1 }
+    if baseType == "JsonBuilder" { return 1 }
+    if baseType == "JsonRpcHandler" { return 1 }
+    if baseType == "LspMessage" { return 1 }
+    if baseType == "LspError" { return 1 }
+    if baseType == "LspResponse" { return 1 }
+    if baseType == "MessageDispatcher" { return 1 }
+    if baseType == "MessageHandler" { return 1 }
+    if baseType == "LspServer" { return 1 }
+    if baseType == "SeenLspServer" { return 1 }
+    if baseType == "Document" { return 1 }
+    if baseType == "LspPosition" { return 1 }
+    if baseType == "Position" { return 1 }
+    if baseType == "Range" { return 1 }
+    if baseType == "Diagnostic" { return 1 }
+    if baseType == "TextEdit" { return 1 }
+    if baseType == "CompletionItem" { return 1 }
+    if baseType == "CompletionList" { return 1 }
+    if baseType == "Hover" { return 1 }
+    if baseType == "MarkupContent" { return 1 }
+    if baseType == "SignatureHelp" { return 1 }
+    if baseType == "SignatureInformation" { return 1 }
+    if baseType == "ParameterInformation" { return 1 }
+    if baseType == "TextDocumentIdentifier" { return 1 }
+    if baseType == "VersionedTextDocumentIdentifier" { return 1 }
+    if baseType == "TextDocumentItem" { return 1 }
+    if baseType == "TextDocumentPositionParams" { return 1 }
+    if baseType == "TextDocumentContentChangeEvent" { return 1 }
+    if baseType == "DidOpenTextDocumentParams" { return 1 }
+    if baseType == "DidChangeTextDocumentParams" { return 1 }
+    if baseType == "DidCloseTextDocumentParams" { return 1 }
+    if baseType == "DidSaveTextDocumentParams" { return 1 }
+    if baseType == "CodeAction" { return 1 }
+    if baseType == "CodeActionContext" { return 1 }
+    if baseType == "CodeActionParams" { return 1 }
+    if baseType == "DocumentFormattingParams" { return 1 }
+    if baseType == "ClientCapabilities" { return 1 }
+    if baseType == "InitializeParams" { return 1 }
+    if baseType == "InitializeResult" { return 1 }
+    if baseType == "ServerCapabilities" { return 1 }
+    if baseType == "ServerInfo" { return 1 }
+    if baseType == "CompletionOptions" { return 1 }
+    if baseType == "TextDocumentSyncOptions" { return 1 }
     if baseType == "PublishDiagnosticsParams" {
         return 1
     }
-    if baseType == "ContentLengthReader" or baseType == "StdinReader" {
-        return 1
-    }
-    if name.startsWith("Result<") or name.startsWith("Optional<") or name.startsWith("Option<") {
-        return 1
-    }
-    if baseType == "Vec" or name.startsWith("Vec<") {
-        return 1
-    }
-    if baseType == "BTreeMap" or name.startsWith("BTreeMap<") {
-        return 1
-    }
-    if baseType == "VNode" or baseType == "Patch" or baseType == "VDOMDiffer" or baseType == "VDOMPatcher" or baseType == "VDOMEngine" or baseType == "AttrDiffResult" {
-        return 1
-    }
+    if baseType == "ContentLengthReader" { return 1 }
+    if baseType == "StdinReader" { return 1 }
+    if name.startsWith("Result<") { return 1 }
+    if name.startsWith("Optional<") { return 1 }
+    if name.startsWith("Option<") { return 1 }
+    if name.startsWith("Vec<") { return 1 }
+    if name.startsWith("BTreeMap<") { return 1 }
+    if baseType == "BTreeMap" { return 1 }
+    if baseType == "VNode" { return 1 }
+    if baseType == "Patch" { return 1 }
+    if baseType == "VDOMDiffer" { return 1 }
+    if baseType == "VDOMPatcher" { return 1 }
+    if baseType == "VDOMEngine" { return 1 }
+    if baseType == "AttrDiffResult" { return 1 }
     return 0
 }
 
@@ -741,12 +879,12 @@ fun mapTypeImpl(seenType: String, structNames: Array<String>,
             return "[" + arrayLen.toString() + " x " + elementLlvmType + "]"
         }
     }
-    if trimmed == "SmallVec" or trimmed.startsWith("SmallVec<") or trimmed.startsWith("SmallVec[") {
-        return "i64"
-    }
-    if trimmed.startsWith("Buffer<") or trimmed.startsWith("Uniform<") or trimmed.startsWith("Image<") {
-        return "i64"
-    }
+    if trimmed == "SmallVec" { return "i64" }
+    if trimmed.startsWith("SmallVec<") { return "i64" }
+    if trimmed.startsWith("SmallVec[") { return "i64" }
+    if trimmed.startsWith("Buffer<") { return "i64" }
+    if trimmed.startsWith("Uniform<") { return "i64" }
+    if trimmed.startsWith("Image<") { return "i64" }
     if trimmed.startsWith("*") {
         return "ptr"
     }
@@ -758,9 +896,13 @@ fun mapTypeImpl(seenType: String, structNames: Array<String>,
     }
     if baseType.length() == 1 {
         let c = baseType.substring(0, 1)
-        if c == "T" or c == "K" or c == "V" or c == "E" or c == "R" or c == "S" or c == "U" {
-            return "i64"
-        }
+        if c == "T" { return "i64" }
+        if c == "K" { return "i64" }
+        if c == "V" { return "i64" }
+        if c == "E" { return "i64" }
+        if c == "R" { return "i64" }
+        if c == "S" { return "i64" }
+        if c == "U" { return "i64" }
     }
     if baseType == "f32x4" { return "<4 x float>" }
     if baseType == "f32x8" { return "<8 x float>" }
@@ -771,50 +913,45 @@ fun mapTypeImpl(seenType: String, structNames: Array<String>,
     if baseType == "Int" {
         return "i64"
     }
-    if baseType == "Int8" or baseType == "UInt8" {
-        return "i8"
-    }
-    if baseType == "Int16" or baseType == "UInt16" {
-        return "i16"
-    }
-    if baseType == "Int32" or baseType == "UInt32" {
-        return "i32"
-    }
-    if baseType == "Int64" or baseType == "UInt64" {
-        return "i64"
-    }
+    if baseType == "Int8" { return "i8" }
+    if baseType == "UInt8" { return "i8" }
+    if baseType == "Int16" { return "i16" }
+    if baseType == "UInt16" { return "i16" }
+    if baseType == "Int32" { return "i32" }
+    if baseType == "UInt32" { return "i32" }
+    if baseType == "Int64" { return "i64" }
+    if baseType == "UInt64" { return "i64" }
     if baseType == "Float32" {
         return "float"
     }
     if baseType == "Char" {
         return "i64"
     }
-    if baseType == "Bool" or baseType == "Boolean" {
-        return "i1"
-    }
+    if baseType == "Bool" { return "i1" }
+    if baseType == "Boolean" { return "i1" }
     if baseType == "String" {
         return "%SeenString"
     }
     if baseType == "Float" {
         return "double"
     }
-    if baseType == "Void" or baseType == "" or baseType == "Unknown" {
-        return "void"
-    }
+    if baseType == "Void" { return "void" }
+    if baseType == "" { return "void" }
+    if baseType == "Unknown" { return "void" }
     if baseType == "SeenTokenType" {
         return "i64"
     }
-    if trimmed.startsWith("Array<") or baseType == "Array" {
-        return "ptr"
-    }
-    if trimmed.startsWith("List<") or baseType == "List" {
-        return "ptr"
-    }
-    if baseType == "Option" or baseType == "Result" or baseType == "Map" or
-       baseType == "HashMap" or baseType == "BTreeMap" or baseType == "Vec" or
-       baseType == "LinkedList" {
-        return "i64"
-    }
+    if trimmed.startsWith("Array<") { return "ptr" }
+    if baseType == "Array" { return "ptr" }
+    if trimmed.startsWith("List<") { return "ptr" }
+    if baseType == "List" { return "ptr" }
+    if baseType == "Option" { return "i64" }
+    if baseType == "Result" { return "i64" }
+    if baseType == "Map" { return "i64" }
+    if baseType == "HashMap" { return "i64" }
+    if baseType == "BTreeMap" { return "i64" }
+    if baseType == "Vec" { return "i64" }
+    if baseType == "LinkedList" { return "i64" }
     if isDataTypeImpl(baseType) == 1 {
         return "%" + baseType
     }
@@ -834,22 +971,48 @@ fun mapTypeImpl(seenType: String, structNames: Array<String>,
 // Map a field name (possibly chained like "program.items") to its Seen receiver type.
 // Returns empty string if unknown. Used by generateMethodCall for type inference.
 fun mapFieldNameToReceiverType(fieldName: String) r: String {
-    if fieldName.endsWith(".items") or fieldName == "items" { return "Array<ItemNode>" }
-    if fieldName.endsWith(".diagnostics") or fieldName == "diagnostics" { return "Array<FrontendDiagnostic>" }
-    if fieldName.endsWith(".importPath") or fieldName == "importPath" { return "Array<String>" }
-    if fieldName.endsWith(".line") or fieldName == "line" or fieldName.endsWith(".column") or fieldName == "column" { return "Int" }
-    if fieldName.endsWith(".severity") or fieldName == "severity" or fieldName.endsWith(".message") or fieldName == "message" or fieldName.endsWith(".file") or fieldName == "file" or fieldName.endsWith(".output") or fieldName == "output" { return "String" }
-    if fieldName.endsWith(".program") or fieldName == "program" { return "ProgramNode" }
-    if fieldName.endsWith(".function") or fieldName == "function" { return "FunctionNode" }
-    if fieldName.endsWith(".classNode") or fieldName == "classNode" { return "ClassNode" }
-    if fieldName.endsWith(".methods") or fieldName == "methods" { return "Array<FunctionNode>" }
-    if fieldName.endsWith(".params") or fieldName == "params" { return "Array<ParamNode>" }
-    if fieldName.endsWith(".fields") or fieldName == "fields" { return "Array<ParamNode>" }
-    if fieldName.endsWith(".itemType") or fieldName == "itemType" { return "String" }
-    if fieldName.endsWith(".statements") or fieldName == "statements" { return "Array<StatementNode>" }
-    if fieldName.endsWith(".operands") or fieldName == "operands" or fieldName.endsWith(".arguments") or fieldName == "arguments" { return "Array<ParserExpressionNode>" }
-    if fieldName.endsWith(".errors") or fieldName == "errors" { return "Array<TypeError>" }
-    if fieldName.endsWith(".warnings") or fieldName == "warnings" { return "Array<String>" }
+    if fieldName.endsWith(".items") { return "Array<ItemNode>" }
+    if fieldName == "items" { return "Array<ItemNode>" }
+    if fieldName.endsWith(".diagnostics") { return "Array<FrontendDiagnostic>" }
+    if fieldName == "diagnostics" { return "Array<FrontendDiagnostic>" }
+    if fieldName.endsWith(".importPath") { return "Array<String>" }
+    if fieldName == "importPath" { return "Array<String>" }
+    if fieldName.endsWith(".line") { return "Int" }
+    if fieldName == "line" { return "Int" }
+    if fieldName.endsWith(".column") { return "Int" }
+    if fieldName == "column" { return "Int" }
+    if fieldName.endsWith(".severity") { return "String" }
+    if fieldName == "severity" { return "String" }
+    if fieldName.endsWith(".message") { return "String" }
+    if fieldName == "message" { return "String" }
+    if fieldName.endsWith(".file") { return "String" }
+    if fieldName == "file" { return "String" }
+    if fieldName.endsWith(".output") { return "String" }
+    if fieldName == "output" { return "String" }
+    if fieldName.endsWith(".program") { return "ProgramNode" }
+    if fieldName == "program" { return "ProgramNode" }
+    if fieldName.endsWith(".function") { return "FunctionNode" }
+    if fieldName == "function" { return "FunctionNode" }
+    if fieldName.endsWith(".classNode") { return "ClassNode" }
+    if fieldName == "classNode" { return "ClassNode" }
+    if fieldName.endsWith(".methods") { return "Array<FunctionNode>" }
+    if fieldName == "methods" { return "Array<FunctionNode>" }
+    if fieldName.endsWith(".params") { return "Array<ParamNode>" }
+    if fieldName == "params" { return "Array<ParamNode>" }
+    if fieldName.endsWith(".fields") { return "Array<ParamNode>" }
+    if fieldName == "fields" { return "Array<ParamNode>" }
+    if fieldName.endsWith(".itemType") { return "String" }
+    if fieldName == "itemType" { return "String" }
+    if fieldName.endsWith(".statements") { return "Array<StatementNode>" }
+    if fieldName == "statements" { return "Array<StatementNode>" }
+    if fieldName.endsWith(".operands") { return "Array<ParserExpressionNode>" }
+    if fieldName == "operands" { return "Array<ParserExpressionNode>" }
+    if fieldName.endsWith(".arguments") { return "Array<ParserExpressionNode>" }
+    if fieldName == "arguments" { return "Array<ParserExpressionNode>" }
+    if fieldName.endsWith(".errors") { return "Array<TypeError>" }
+    if fieldName == "errors" { return "Array<TypeError>" }
+    if fieldName.endsWith(".warnings") { return "Array<String>" }
+    if fieldName == "warnings" { return "Array<String>" }
     return ""
 }
 

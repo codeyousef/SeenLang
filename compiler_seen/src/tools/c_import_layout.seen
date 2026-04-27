@@ -1,0 +1,322 @@
+// C-import clang record layout parsing helpers.
+
+import tools.c_import_gen.{CImportGenerator, CImportResult, CImportedTypedef, CImportedRecordField, CImportedBitfield, CImportedBitfieldLayout, CImportedRecord, CImportedConstant, CImportedFunction}
+import tools.c_import_util.{getClangAstDepth, parseDecimalInt}
+import tools.c_import_ast.{cImportIsValidCIdentifier, cImportFindAnonymousRecordName, cImportAnonymousRecordKeyFromType}
+import tools.c_import_state.{cImportFindImportedRecordIndex, cImportHasImportedRecordNamed, cImportFindImportedTypedefIndex}
+import tools.c_import_type_map.{cImportCFieldTypeToSeenType, cImportNormalizeCType, cImportChoosePreferredClangType, cImportMapBuiltinScalarTypedefFieldType}
+import tools.c_import_type_builtin.{cImportIsPositiveIntegerString, cImportMapBuiltinCFieldTypeToSeenType}
+
+fun cImportParseClangRecordLayouts(gen: CImportGenerator, layoutDump: String, result: CImportResult) r: Void {
+    let lines = layoutDump.split("\n")
+
+    var idx = 0
+    while idx < lines.length() {
+        if lines[idx].trim() == "*** Dumping AST Record Layout" {
+            var headerIdx = idx + 1
+            while headerIdx < lines.length() and lines[headerIdx].trim() == "" {
+                headerIdx = headerIdx + 1
+            }
+
+            if headerIdx < lines.length() {
+                let recordName = cImportResolveImportedRecordNameFromLayoutHeader(gen, lines[headerIdx])
+                if recordName != "" {
+                    let layouts = Array<CImportedBitfieldLayout>()
+                    var scanIdx = headerIdx + 1
+                    var blockDone = false
+                    while scanIdx < lines.length() and not blockDone {
+                        let scanLine = lines[scanIdx]
+                        let trimmed = scanLine.trim()
+                        if trimmed == "*** Dumping AST Record Layout" or trimmed.startsWith("*** Dumping AST Record Layout") {
+                            blockDone = true
+                        } else if scanLine.contains("[sizeof=") {
+                            blockDone = true
+                        } else {
+                            let layout = cImportParseBitfieldLayoutLine(gen, scanLine)
+                            if layout.fieldName != "" {
+                                layouts.push(layout)
+                            }
+                            scanIdx = scanIdx + 1
+                        }
+                    }
+
+                    if layouts.length() > 0 {
+                        let recordIdx = cImportFindImportedRecordIndex(gen, recordName)
+                        if recordIdx >= 0 {
+                            cImportApplyBitfieldLayoutsToRecord(gen, gen.outputRecords[recordIdx], layouts, result)
+                        }
+                    }
+                }
+
+                idx = headerIdx
+            }
+        }
+
+        idx = idx + 1
+    }
+}
+
+fun cImportResolveImportedRecordNameFromLayoutHeader(gen: CImportGenerator, line: String) r: String {
+    let pipeIdx = line.indexOf("|", 0)
+    if pipeIdx < 0 {
+        return ""
+    }
+
+    let label = line.substring(pipeIdx + 1, line.length()).trim()
+    if label.startsWith("struct ") {
+        let recordLabel = label.substring(7, label.length()).trim()
+        if cImportIsValidCIdentifier(gen, recordLabel) and cImportHasImportedRecordNamed(gen, recordLabel) {
+            return recordLabel
+        }
+
+        let anonymousName = cImportFindAnonymousRecordName(gen, cImportAnonymousRecordKeyFromType(gen, "struct " + recordLabel))
+        if anonymousName != "" {
+            return anonymousName
+        }
+    }
+
+    if label.startsWith("union ") {
+        let recordLabel = label.substring(6, label.length()).trim()
+        if cImportIsValidCIdentifier(gen, recordLabel) and cImportHasImportedRecordNamed(gen, recordLabel) {
+            return recordLabel
+        }
+
+        let anonymousName = cImportFindAnonymousRecordName(gen, cImportAnonymousRecordKeyFromType(gen, "union " + recordLabel))
+        if anonymousName != "" {
+            return anonymousName
+        }
+    }
+
+    return ""
+}
+
+fun cImportParseBitfieldLayoutLine(gen: CImportGenerator, line: String) r: CImportedBitfieldLayout {
+    var layout = CImportedBitfieldLayout.new()
+
+    let pipeIdx = line.indexOf("|", 0)
+    if pipeIdx < 0 {
+        return layout
+    }
+
+    let left = line.substring(0, pipeIdx).trim()
+    let right = line.substring(pipeIdx + 1, line.length()).trim()
+    let colonIdx = left.indexOf(":", 0)
+    if colonIdx < 0 or right == "" {
+        return layout
+    }
+
+    let parts = right.split(" ")
+    var candidateName = ""
+    var idx = 0
+    while idx < parts.length() {
+        let part = parts[idx].trim()
+        if part != "" and cImportIsValidCIdentifier(gen, part) {
+            candidateName = part
+        }
+        idx = idx + 1
+    }
+
+    if candidateName == "" {
+        return layout
+    }
+
+    let nameMarker = " " + candidateName
+    let typeEnd = findLastIndexOf(right, nameMarker)
+    if typeEnd < 0 {
+        return layout
+    }
+
+    let byteStr = left.substring(0, colonIdx).trim()
+    let rangeStr = left.substring(colonIdx + 1, left.length()).trim()
+    if not cImportIsPositiveIntegerString(gen, byteStr) {
+        return layout
+    }
+
+    let dashIdx = rangeStr.indexOf("-", 0)
+    var bitStartStr = rangeStr
+    var bitEndStr = rangeStr
+    if dashIdx >= 0 {
+        bitStartStr = rangeStr.substring(0, dashIdx).trim()
+        bitEndStr = rangeStr.substring(dashIdx + 1, rangeStr.length()).trim()
+    }
+
+    if not cImportIsPositiveIntegerString(gen, bitStartStr) or not cImportIsPositiveIntegerString(gen, bitEndStr) {
+        return layout
+    }
+
+    let byteOffset = parseDecimalInt(byteStr)
+    let bitStart = parseDecimalInt(bitStartStr)
+    let bitEnd = parseDecimalInt(bitEndStr)
+    if bitEnd < bitStart {
+        return layout
+    }
+
+    layout.fieldName = candidateName
+    layout.cType = right.substring(0, typeEnd).trim()
+    layout.absoluteBitOffset = (byteOffset * 8) + bitStart
+    layout.bitWidth = (bitEnd - bitStart) + 1
+    return layout
+}
+
+fun cImportFindBitfieldLayoutIndex(gen: CImportGenerator, layouts: Array<CImportedBitfieldLayout>, fieldName: String) r: Int {
+    var idx = 0
+    while idx < layouts.length() {
+        if layouts[idx].fieldName == fieldName {
+            return idx
+        }
+        idx = idx + 1
+    }
+    return -1
+}
+
+fun cImportApplyBitfieldLayoutsToRecord(gen: CImportGenerator, importedRecord: CImportedRecord, layouts: Array<CImportedBitfieldLayout>, result: CImportResult) r: Void {
+    var physicalFields = Array<CImportedRecordField>()
+    var transformedBitfields = Array<CImportedBitfield>()
+    var storageCounter = 0
+    var fieldIdx = 0
+
+    while fieldIdx < importedRecord.fields.length() {
+        let field = importedRecord.fields[fieldIdx]
+        let layoutIdx = cImportFindBitfieldLayoutIndex(gen, layouts, field.name)
+        if layoutIdx < 0 {
+            physicalFields.push(field)
+            fieldIdx = fieldIdx + 1
+        } else {
+            let storageBits = cImportResolveBitfieldStorageBits(gen, field.cType)
+            if storageBits <= 0 {
+                result.addWarning("import-c could not lower bitfield " + importedRecord.name + "." + field.name + " with type " + field.cType)
+                physicalFields.push(field)
+                fieldIdx = fieldIdx + 1
+            } else {
+                let storageStartBit = (layouts[layoutIdx].absoluteBitOffset / storageBits) * storageBits
+                let storageFieldName = "_bitfield_storage_" + storageCounter.toString()
+
+                let storageField = CImportedRecordField.new()
+                storageField.name = storageFieldName
+                storageField.cType = field.cType
+                storageField.seenTypeOverride = cImportStorageSeenTypeForBits(gen, storageBits)
+                physicalFields.push(storageField)
+
+                while fieldIdx < importedRecord.fields.length() {
+                    let currentField = importedRecord.fields[fieldIdx]
+                    let currentLayoutIdx = cImportFindBitfieldLayoutIndex(gen, layouts, currentField.name)
+                    if currentLayoutIdx < 0 {
+                        break
+                    }
+
+                    let currentStorageBits = cImportResolveBitfieldStorageBits(gen, currentField.cType)
+                    let currentStorageStartBit = (layouts[currentLayoutIdx].absoluteBitOffset / currentStorageBits) * currentStorageBits
+                    if currentStorageBits != storageBits or currentStorageStartBit != storageStartBit {
+                        break
+                    }
+
+                    let bitfield = CImportedBitfield.new()
+                    bitfield.name = currentField.name
+                    bitfield.storageFieldName = storageFieldName
+                    bitfield.storageBits = storageBits
+                    bitfield.storageByteOffset = storageStartBit / 8
+                    bitfield.bitOffset = layouts[currentLayoutIdx].absoluteBitOffset - storageStartBit
+                    bitfield.bitWidth = layouts[currentLayoutIdx].bitWidth
+                    bitfield.valueSeenType = cImportCFieldTypeToSeenType(gen, currentField.cType)
+                    bitfield.isBool = bitfield.valueSeenType == "Bool"
+                    bitfield.isSigned = cImportIsSignedBitfieldFieldType(gen, currentField.cType, bitfield.valueSeenType)
+                    transformedBitfields.push(bitfield)
+
+                    fieldIdx = fieldIdx + 1
+                }
+
+                storageCounter = storageCounter + 1
+            }
+        }
+    }
+
+    if transformedBitfields.length() > 0 {
+        importedRecord.fields = physicalFields
+        importedRecord.bitfields = transformedBitfields
+    }
+}
+
+fun cImportResolveBitfieldStorageBits(gen: CImportGenerator, cType: String) r: Int {
+    let normalized = cImportNormalizeCType(gen, cImportChoosePreferredClangType(gen, cType))
+
+    if normalized == "bool" or normalized == "_Bool" {
+        return 8
+    }
+
+    if normalized.startsWith("enum ") {
+        return 32
+    }
+
+    let scalarTypedefSeenType = cImportMapBuiltinScalarTypedefFieldType(gen, normalized)
+    if scalarTypedefSeenType != "" {
+        let scalarBits = cImportSeenScalarStorageBits(gen, scalarTypedefSeenType)
+        if scalarBits > 0 {
+            return scalarBits
+        }
+    }
+
+    let typedefIdx = cImportFindImportedTypedefIndex(gen, normalized)
+    if typedefIdx >= 0 {
+        let importedTypedef = gen.outputTypedefs[typedefIdx]
+        if importedTypedef.cType.startsWith("enum ") {
+            return 32
+        }
+
+        let typedefBits = cImportSeenScalarStorageBits(gen, importedTypedef.seenType)
+        if typedefBits > 0 {
+            return typedefBits
+        }
+    }
+
+    return cImportSeenScalarStorageBits(gen, cImportMapBuiltinCFieldTypeToSeenType(gen, normalized))
+}
+
+fun cImportSeenScalarStorageBits(gen: CImportGenerator, seenType: String) r: Int {
+    if seenType == "Bool" or seenType == "Int8" or seenType == "UInt8" or seenType == "Char" {
+        return 8
+    }
+    if seenType == "Int16" or seenType == "UInt16" {
+        return 16
+    }
+    if seenType == "Int32" or seenType == "UInt32" or seenType == "Float32" {
+        return 32
+    }
+    if seenType == "Int64" or seenType == "UInt64" or seenType == "Int" or seenType == "Float64" {
+        return 64
+    }
+    return 0
+}
+
+fun cImportStorageSeenTypeForBits(gen: CImportGenerator, storageBits: Int) r: String {
+    if storageBits <= 8 {
+        return "UInt8"
+    }
+    if storageBits <= 16 {
+        return "UInt16"
+    }
+    if storageBits <= 32 {
+        return "UInt32"
+    }
+    return "UInt64"
+}
+
+fun cImportIsSignedBitfieldFieldType(gen: CImportGenerator, cType: String, valueSeenType: String) r: Bool {
+    let normalized = cImportNormalizeCType(gen, cImportChoosePreferredClangType(gen, cType))
+    if normalized == "bool" or normalized == "_Bool" {
+        return false
+    }
+    if normalized.startsWith("enum ") {
+        return false
+    }
+    if normalized.contains("unsigned") or valueSeenType.startsWith("UInt") {
+        return false
+    }
+    return valueSeenType == "Int" or
+        valueSeenType.startsWith("Int") or
+        normalized.startsWith("signed") or
+        normalized == "int" or
+        normalized == "short" or
+        normalized == "long" or
+        normalized == "long int" or
+        normalized == "long long"
+}

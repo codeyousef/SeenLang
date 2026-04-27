@@ -212,7 +212,7 @@ fun emitCoreRuntimeDecls(output: StringBuilder, runtimeDeclsLoaded: Bool, define
             output.append("declare i64 @ContentLengthReader_new() nounwind\n")
         }
         if not isFuncDefinedInModule("ContentLengthReader_readMessage", definedFuncs) {
-            output.append("declare ptr @ContentLengthReader_readMessage(ptr) nounwind\n")
+            output.append("declare %SeenString @ContentLengthReader_readMessage(ptr) nounwind\n")
         }
         if not isFuncDefinedInModule("ContentLengthReader_getLastError", definedFuncs) {
             output.append("declare %SeenString @ContentLengthReader_getLastError(ptr) nounwind\n")

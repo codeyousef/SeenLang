@@ -171,13 +171,13 @@ class JsonRpcHandler {
     // Read a complete LSP message from stdin
     fun readMessage() r: LspMessage? {
         let body = this.reader.readMessage()
-        if body == null {
+        if body == "" {
             this.lastError = this.reader.getLastError()
             return null
         }
 
         // Parse JSON
-        let parseResult = parseJson(body.unwrap())
+        let parseResult = parseJson(body)
         if parseResult.success == 1 {
             // fall through
         } else {

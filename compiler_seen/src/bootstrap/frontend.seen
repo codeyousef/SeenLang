@@ -180,6 +180,21 @@ fun run_frontend(source: String, fileLabel: String, language: String = "en") r: 
     return result
 }
 
+// Lightweight frontend for declaration registration. It intentionally skips
+// typechecking, macro expansion, and capability validation because Pass 1 only
+// needs declaration shapes for cross-module signatures.
+fun run_frontend_declarations(source: String, fileLabel: String, language: String = "en") r: FrontendResult {
+    let result = FrontendResult.new()
+
+    let lexer = SeenLexer.new(source, 1, language)
+    let tokens = lexer.tokenize()
+
+    let parser = RealParser.new(tokens)
+    result.program = parser.parseDeclarationsOnly()
+    result.success = true
+    return result
+}
+
 fun functionHasDecorator(func: FunctionNode, decoratorName: String) r: Bool {
     var i = 0
     while i < func.decorators.length() {

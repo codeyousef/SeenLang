@@ -1,0 +1,152 @@
+// C-import builtin C type mapping helpers.
+
+import tools.c_import_gen.{CImportGenerator, CImportResult, CImportedTypedef, CImportedRecordField, CImportedBitfield, CImportedBitfieldLayout, CImportedRecord, CImportedConstant, CImportedFunction}
+
+fun cImportIsPositiveIntegerString(gen: CImportGenerator, value: String) r: Bool {
+    if value == "" {
+        return false
+    }
+
+    var idx = 0
+    while idx < value.length() {
+        let code = value.byteAt(idx)
+        if code < 48 or code > 57 {
+            return false
+        }
+        idx = idx + 1
+    }
+
+    return true
+}
+
+fun cImportIsBuiltinScalarTypedefName(gen: CImportGenerator, name: String) r: Bool {
+    if name == "size_t" { return true }
+    if name == "ptrdiff_t" { return true }
+    if name == "wchar_t" { return true }
+    if name == "intptr_t" { return true }
+    if name == "uintptr_t" { return true }
+    if name == "int8_t" { return true }
+    if name == "int16_t" { return true }
+    if name == "int32_t" { return true }
+    if name == "int64_t" { return true }
+    if name == "uint8_t" { return true }
+    if name == "uint16_t" { return true }
+    if name == "uint32_t" { return true }
+    if name == "uint64_t" { return true }
+    if name == "int_least8_t" { return true }
+    if name == "int_least16_t" { return true }
+    if name == "int_least32_t" { return true }
+    if name == "int_least64_t" { return true }
+    if name == "uint_least8_t" { return true }
+    if name == "uint_least16_t" { return true }
+    if name == "uint_least32_t" { return true }
+    if name == "uint_least64_t" { return true }
+    if name == "int_fast8_t" { return true }
+    if name == "int_fast16_t" { return true }
+    if name == "int_fast32_t" { return true }
+    if name == "int_fast64_t" { return true }
+    if name == "uint_fast8_t" { return true }
+    if name == "uint_fast16_t" { return true }
+    if name == "uint_fast32_t" { return true }
+    if name == "uint_fast64_t" { return true }
+    if name == "intmax_t" { return true }
+    if name == "uintmax_t" { return true }
+    return false
+}
+
+fun cImportMapBuiltinCTypeToSeenType(gen: CImportGenerator, normalized: String) r: String {
+    if normalized == "int" { return "Int" }
+    if normalized == "int32_t" { return "Int" }
+    if normalized == "signed int" { return "Int" }
+    if normalized == "long int" { return "Int" }
+    if normalized == "long" { return "Int" }
+    if normalized == "int64_t" { return "Int" }
+    if normalized == "long long" { return "Int" }
+    if normalized == "signed long" { return "Int" }
+    if normalized == "signed long long" { return "Int" }
+    if normalized == "short" { return "Int" }
+    if normalized == "int16_t" { return "Int" }
+    if normalized == "signed short" { return "Int" }
+    if normalized == "unsigned int" { return "Int" }
+    if normalized == "uint32_t" { return "Int" }
+    if normalized == "unsigned long int" { return "Int" }
+    if normalized == "unsigned long" { return "Int" }
+    if normalized == "uint64_t" { return "Int" }
+    if normalized == "size_t" { return "Int" }
+    if normalized == "unsigned long long" { return "Int" }
+    if normalized == "unsigned short" { return "Int" }
+    if normalized == "uint16_t" { return "Int" }
+    if normalized == "unsigned char" { return "Int" }
+    if normalized == "uint8_t" { return "Int" }
+    if normalized == "signed char" { return "Int" }
+    if normalized == "int8_t" { return "Int" }
+    if normalized == "char" { return "Char" }
+    if normalized.contains("char *") or normalized.contains("char*") {
+        return "String"
+    }
+    if normalized == "bool" { return "Bool" }
+    if normalized == "_Bool" { return "Bool" }
+    if normalized == "float" { return "Float" }
+    if normalized == "double" { return "Float" }
+    if normalized == "void" { return "Void" }
+    if normalized.contains("(*") { return "Ptr" }
+    if normalized.endsWith("*") { return "*Void" }
+    if normalized.contains("*") { return "*Void" }
+    return "Int"
+}
+
+fun cImportMapBuiltinCFieldTypeToSeenType(gen: CImportGenerator, normalized: String) r: String {
+    if normalized == "int" { return "Int32" }
+    if normalized == "signed int" { return "Int32" }
+    if normalized == "int32_t" { return "Int32" }
+    if normalized == "unsigned int" { return "UInt32" }
+    if normalized == "uint32_t" { return "UInt32" }
+    if normalized == "short" { return "Int16" }
+    if normalized == "signed short" { return "Int16" }
+    if normalized == "int16_t" { return "Int16" }
+    if normalized == "unsigned short" { return "UInt16" }
+    if normalized == "uint16_t" { return "UInt16" }
+    if normalized == "long" { return "Int64" }
+    if normalized == "signed long" { return "Int64" }
+    if normalized == "long int" { return "Int64" }
+    if normalized == "long long" { return "Int64" }
+    if normalized == "signed long long" { return "Int64" }
+    if normalized == "int64_t" { return "Int64" }
+    if normalized == "unsigned long" { return "UInt64" }
+    if normalized == "unsigned long int" { return "UInt64" }
+    if normalized == "unsigned long long" { return "UInt64" }
+    if normalized == "uint64_t" { return "UInt64" }
+    if normalized == "size_t" { return "UInt64" }
+    if normalized == "uintptr_t" { return "UInt64" }
+    if normalized == "unsigned char" { return "UInt8" }
+    if normalized == "uint8_t" { return "UInt8" }
+    if normalized == "signed char" { return "Int8" }
+    if normalized == "int8_t" { return "Int8" }
+    if normalized == "char" { return "Char" }
+    if normalized == "bool" { return "Bool" }
+    if normalized == "_Bool" { return "Bool" }
+    if normalized == "float" { return "Float32" }
+    if normalized == "double" { return "Float64" }
+    if normalized == "long double" { return "Float64" }
+    if normalized == "void" { return "Void" }
+    if normalized == "char *" { return "*Char" }
+    if normalized == "char*" { return "*Char" }
+    if normalized == "void *" { return "*Void" }
+    if normalized == "void*" { return "*Void" }
+    if normalized.contains("(*") { return "Ptr" }
+    if normalized.endsWith("*") { return "*Void" }
+    if normalized.contains("*") { return "*Void" }
+    return "Int"
+}
+
+fun cImportIsIgnoredCQualifier(gen: CImportGenerator, part: String) r: Bool {
+    if part == "const" { return true }
+    if part == "volatile" { return true }
+    if part == "restrict" { return true }
+    if part == "__restrict" { return true }
+    if part == "__restrict__" { return true }
+    if part == "_Nonnull" { return true }
+    if part == "_Nullable" { return true }
+    if part == "_Null_unspecified" { return true }
+    return false
+}

@@ -146,34 +146,6 @@ fun getLLVMIRGeneratorFieldIndexImpl(fieldName: String) r: Int {
     if fieldName == "varRegs" { return 5 }
     if fieldName == "varTypes" { return 6 }
     if fieldName == "indent" { return 7 }
-    if fieldName == "structNames" { return 8 }
-    if fieldName == "structLayouts" { return 9 }
-    if fieldName == "structFieldNames" { return 10 }
-    if fieldName == "structFieldTypes" { return 11 }
-    if fieldName == "structLlvmFieldTypes" { return 12 }
-    if fieldName == "structSizes" { return 13 }
-    if fieldName == "structMethodNames" { return 14 }
-    if fieldName == "structMethodRetTypes" { return 15 }
-    if fieldName == "funcNames" { return 16 }
-    if fieldName == "funcRetTypes" { return 17 }
-    if fieldName == "classMethodBaseNames" { return 18 }
-    if fieldName == "typeHeaderPath" { return 19 }
-    if fieldName == "currentFunctionReturnType" { return 20 }
-    if fieldName == "currentClassName" { return 21 }
-    if fieldName == "blockTerminated" { return 22 }
-    if fieldName == "currentLoopCondLabel" { return 23 }
-    if fieldName == "currentLoopEndLabel" { return 24 }
-    if fieldName == "preAllocatedVars" { return 25 }
-    if fieldName == "preAllocatedTypes" { return 26 }
-    if fieldName == "stringConstantPrefix" { return 27 }
-    if fieldName == "generatedFunctions" { return 28 }
-    if fieldName == "generatedClasses" { return 29 }
-    if fieldName == "typesLoadedFromHeader" { return 30 }
-    if fieldName == "runtimeDeclsLoaded" { return 31 }
-    if fieldName == "pendingArrayLiteralType" { return 32 }
-    if fieldName == "moduleConstantNames" { return 33 }
-    if fieldName == "moduleConstantValues" { return 34 }
-    if fieldName == "moduleConstantTypes" { return 35 }
     return -1
 }
 
@@ -186,39 +158,11 @@ fun getLLVMIRGeneratorFieldLlvmTypeImpl(fieldName: String) r: String {
     if fieldName == "varRegs" { return "ptr" }
     if fieldName == "varTypes" { return "ptr" }
     if fieldName == "indent" { return "i64" }
-    if fieldName == "structNames" { return "ptr" }
-    if fieldName == "structLayouts" { return "ptr" }
-    if fieldName == "structFieldNames" { return "ptr" }
-    if fieldName == "structFieldTypes" { return "ptr" }
-    if fieldName == "structLlvmFieldTypes" { return "ptr" }
-    if fieldName == "structSizes" { return "ptr" }
-    if fieldName == "structMethodNames" { return "ptr" }
-    if fieldName == "structMethodRetTypes" { return "ptr" }
-    if fieldName == "funcNames" { return "ptr" }
-    if fieldName == "funcRetTypes" { return "ptr" }
-    if fieldName == "classMethodBaseNames" { return "ptr" }
-    if fieldName == "typeHeaderPath" { return "%SeenString" }
-    if fieldName == "currentFunctionReturnType" { return "%SeenString" }
-    if fieldName == "currentClassName" { return "%SeenString" }
-    if fieldName == "blockTerminated" { return "i1" }
-    if fieldName == "currentLoopCondLabel" { return "%SeenString" }
-    if fieldName == "currentLoopEndLabel" { return "%SeenString" }
-    if fieldName == "preAllocatedVars" { return "ptr" }
-    if fieldName == "preAllocatedTypes" { return "ptr" }
-    if fieldName == "stringConstantPrefix" { return "%SeenString" }
-    if fieldName == "generatedFunctions" { return "ptr" }
-    if fieldName == "generatedClasses" { return "ptr" }
-    if fieldName == "typesLoadedFromHeader" { return "i1" }
-    if fieldName == "runtimeDeclsLoaded" { return "i1" }
-    if fieldName == "pendingArrayLiteralType" { return "%SeenString" }
-    if fieldName == "moduleConstantNames" { return "ptr" }
-    if fieldName == "moduleConstantValues" { return "ptr" }
-    if fieldName == "moduleConstantTypes" { return "ptr" }
     return ""
 }
 
 fun getLLVMIRGeneratorStructLayoutImpl() r: String {
-    return "{ i64, ptr, i64, i64, ptr, ptr, ptr, i64, i64, %SeenString, %SeenString, i1, %SeenString, %SeenString, ptr, ptr, %SeenString, ptr, ptr, i1, i1, %SeenString, ptr, ptr, ptr }"
+    return "{ i64, ptr, i64, i64, ptr, ptr, ptr, i64 }"
 }
 
 // Character to ASCII code string conversion
@@ -339,34 +283,6 @@ fun getSeenFieldTypeImpl(structName: String, fieldName: String, structNames: Arr
         if fieldName == "varRegs" { return "Array<String>" }
         if fieldName == "varTypes" { return "Array<String>" }
         if fieldName == "indent" { return "Int" }
-        if fieldName == "structNames" { return "Array<String>" }
-        if fieldName == "structLayouts" { return "Array<String>" }
-        if fieldName == "structFieldNames" { return "Array<String>" }
-        if fieldName == "structFieldTypes" { return "Array<String>" }
-        if fieldName == "structLlvmFieldTypes" { return "Array<String>" }
-        if fieldName == "structSizes" { return "Array<Int>" }
-        if fieldName == "structMethodNames" { return "Array<String>" }
-        if fieldName == "structMethodRetTypes" { return "Array<String>" }
-        if fieldName == "funcNames" { return "Array<String>" }
-        if fieldName == "funcRetTypes" { return "Array<String>" }
-        if fieldName == "currentFunctionReturnType" { return "String" }
-        if fieldName == "currentClassName" { return "String" }
-        if fieldName == "blockTerminated" { return "Bool" }
-        if fieldName == "currentLoopCondLabel" { return "String" }
-        if fieldName == "currentLoopEndLabel" { return "String" }
-        if fieldName == "preAllocatedVars" { return "Array<String>" }
-        if fieldName == "preAllocatedTypes" { return "Array<String>" }
-        if fieldName == "stringConstantPrefix" { return "String" }
-        if fieldName == "generatedFunctions" { return "Array<String>" }
-        if fieldName == "generatedClasses" { return "Array<String>" }
-        if fieldName == "typesLoadedFromHeader" { return "Bool" }
-        if fieldName == "runtimeDeclsLoaded" { return "Bool" }
-        if fieldName == "typeHeaderPath" { return "String" }
-        if fieldName == "pendingArrayLiteralType" { return "String" }
-        if fieldName == "classMethodBaseNames" { return "Array<String>" }
-        if fieldName == "moduleConstantNames" { return "Array<String>" }
-        if fieldName == "moduleConstantValues" { return "Array<String>" }
-        if fieldName == "moduleConstantTypes" { return "Array<String>" }
     }
     let idx = findStructIdx(structNames, structName)
     if idx < 0 {
@@ -1515,7 +1431,7 @@ fun getMethodReturnTypeImpl(structName: String, methodName: String, structNames:
     // IO/stdio classes
     if structName == "ContentLengthReader" {
         if methodName == "new" { return "ContentLengthReader" }
-        if methodName == "readMessage" { return "String?" }
+        if methodName == "readMessage" { return "String" }
         if methodName == "getLastError" { return "String" }
     }
     if structName == "StdinReader" {
