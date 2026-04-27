@@ -148,6 +148,57 @@ fun normalizeZeroReturnValueRegImpl(llvmType: String, valueReg: String) r: Strin
     return valueReg
 }
 
+fun coerceReturnValueRegImpl(output: StringBuilder, regBox: Array<Int>,
+    targetLlvmType: String, sourceLlvmType: String, valueReg: String)
+    r: String {
+
+    if sourceLlvmType == "" or sourceLlvmType == targetLlvmType {
+        return valueReg
+    }
+    if targetLlvmType == "double" and sourceLlvmType == "i64" {
+        let coercedReg = getNextRegFn(regBox)
+        output.append("  " + coercedReg + " = sitofp i64 " + valueReg +
+            " to double\n")
+        return coercedReg
+    }
+    if targetLlvmType == "double" and sourceLlvmType == "i1" {
+        let intReg = getNextRegFn(regBox)
+        output.append("  " + intReg + " = zext i1 " + valueReg + " to i64\n")
+        let coercedReg = getNextRegFn(regBox)
+        output.append("  " + coercedReg + " = sitofp i64 " + intReg +
+            " to double\n")
+        return coercedReg
+    }
+    if targetLlvmType == "i64" and sourceLlvmType == "double" {
+        let coercedReg = getNextRegFn(regBox)
+        output.append("  " + coercedReg + " = fptosi double " + valueReg +
+            " to i64\n")
+        return coercedReg
+    }
+    if targetLlvmType == "i64" and sourceLlvmType == "i1" {
+        let coercedReg = getNextRegFn(regBox)
+        output.append("  " + coercedReg + " = zext i1 " + valueReg +
+            " to i64\n")
+        return coercedReg
+    }
+    if targetLlvmType == "i64" and sourceLlvmType == "ptr" {
+        let coercedReg = getNextRegFn(regBox)
+        output.append("  " + coercedReg + " = ptrtoint ptr " + valueReg +
+            " to i64\n")
+        return coercedReg
+    }
+    if targetLlvmType == "ptr" and sourceLlvmType == "i64" {
+        if valueReg == "0" {
+            return "null"
+        }
+        let coercedReg = getNextRegFn(regBox)
+        output.append("  " + coercedReg + " = inttoptr i64 " + valueReg +
+            " to ptr\n")
+        return coercedReg
+    }
+    return valueReg
+}
+
 fun emitStructLiteralReturnLoadImpl(output: StringBuilder, loadReg: String,
     llvmType: String, valueReg: String) r: Void {
 
@@ -157,7 +208,8 @@ fun emitStructLiteralReturnLoadImpl(output: StringBuilder, loadReg: String,
 
 fun normalizeReturnStatementValueRegImpl(output: StringBuilder,
     regBox: Array<Int>, isDataReturnType: Bool, returnKind: String,
-    returnExprType: String, llvmType: String, valueReg: String) r: String {
+    returnExprType: String, llvmType: String, returnExprLlvmType: String,
+    valueReg: String) r: String {
 
     var normalizedValueReg = valueReg
     if shouldLoadStructLiteralReturnValueImpl(isDataReturnType,
@@ -172,14 +224,18 @@ fun normalizeReturnStatementValueRegImpl(output: StringBuilder,
         return emitConditionToI1Impl(output, regBox, normalizedValueReg,
             returnExprType)
     }
+    normalizedValueReg = coerceReturnValueRegImpl(output, regBox, llvmType,
+        returnExprLlvmType, normalizedValueReg)
     return normalizeZeroReturnValueRegImpl(llvmType, normalizedValueReg)
 }
 
 fun emitFinalReturnStatementValueImpl(output: StringBuilder,
     regBox: Array<Int>, isDataReturnType: Bool, returnKind: String,
-    returnExprType: String, llvmType: String, rawValueReg: String) r: Void {
+    returnExprType: String, returnExprLlvmType: String, llvmType: String,
+    rawValueReg: String) r: Void {
 
     let valueReg = normalizeReturnStatementValueRegImpl(output, regBox,
-        isDataReturnType, returnKind, returnExprType, llvmType, rawValueReg)
+        isDataReturnType, returnKind, returnExprType, llvmType,
+        returnExprLlvmType, rawValueReg)
     output.append("  ret " + llvmType + " " + valueReg + "\n")
 }

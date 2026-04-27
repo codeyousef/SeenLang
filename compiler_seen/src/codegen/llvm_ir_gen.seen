@@ -3121,6 +3121,73 @@ class LLVMIRGenerator {
         return parseSimpleIntImpl(s)
     }
 
+    fun coerceValueForLlvmTarget(targetLlvmType: String,
+        sourceSeenType: String, valueReg: String) r: String {
+
+        var sourceLlvmType = ""
+        if sourceSeenType != "" and sourceSeenType != "Unknown" {
+            sourceLlvmType = mapType(sourceSeenType)
+        }
+        if sourceLlvmType == "" or sourceLlvmType == targetLlvmType {
+            return valueReg
+        }
+        if targetLlvmType == "double" and sourceLlvmType == "i64" {
+            let coercedReg = getNextReg()
+            output.append("  " + coercedReg + " = sitofp i64 " + valueReg +
+                " to double\n")
+            return coercedReg
+        }
+        if targetLlvmType == "double" and sourceLlvmType == "i1" {
+            let intReg = getNextReg()
+            output.append("  " + intReg + " = zext i1 " + valueReg +
+                " to i64\n")
+            let coercedReg = getNextReg()
+            output.append("  " + coercedReg + " = sitofp i64 " + intReg +
+                " to double\n")
+            return coercedReg
+        }
+        if targetLlvmType == "i64" and sourceLlvmType == "double" {
+            let coercedReg = getNextReg()
+            output.append("  " + coercedReg + " = fptosi double " + valueReg +
+                " to i64\n")
+            return coercedReg
+        }
+        if targetLlvmType == "i64" and sourceLlvmType == "i1" {
+            let coercedReg = getNextReg()
+            output.append("  " + coercedReg + " = zext i1 " + valueReg +
+                " to i64\n")
+            return coercedReg
+        }
+        if targetLlvmType == "i64" and sourceLlvmType == "ptr" {
+            let coercedReg = getNextReg()
+            output.append("  " + coercedReg + " = ptrtoint ptr " + valueReg +
+                " to i64\n")
+            return coercedReg
+        }
+        if targetLlvmType == "ptr" and sourceLlvmType == "i64" {
+            if valueReg == "0" {
+                return "null"
+            }
+            let coercedReg = getNextReg()
+            output.append("  " + coercedReg + " = inttoptr i64 " + valueReg +
+                " to ptr\n")
+            return coercedReg
+        }
+        if targetLlvmType == "i1" and sourceLlvmType == "i64" {
+            let coercedReg = getNextReg()
+            output.append("  " + coercedReg + " = icmp ne i64 " + valueReg +
+                ", 0\n")
+            return coercedReg
+        }
+        if targetLlvmType == "i1" and sourceLlvmType == "double" {
+            let coercedReg = getNextReg()
+            output.append("  " + coercedReg + " = fcmp one double " +
+                valueReg + ", 0.0\n")
+            return coercedReg
+        }
+        return valueReg
+    }
+
     fun emitLetStatementInitializer(stmt: StatementNode, reg: String, varType: String, llvmType: String) r: Void {
         if stmt.initializer.kind == "None" {
             return
@@ -3136,7 +3203,11 @@ class LLVMIRGenerator {
         }
         let valueReg = generateExpression(stmt.initializer)
         pendingArrayLiteralType = savedPendingType
-        emitDeclarationInitializerStoreImpl(output, llvmType, valueReg, reg)
+        let initializerType = inferExpressionType(stmt.initializer)
+        let storedValueReg = coerceValueForLlvmTarget(llvmType,
+            initializerType, valueReg)
+        emitDeclarationInitializerStoreImpl(output, llvmType, storedValueReg,
+            reg)
     }
 
     fun generateLetStatement(stmt: StatementNode) r: Void {
@@ -3291,11 +3362,13 @@ class LLVMIRGenerator {
 
         let llvmType = mapType(currentFunctionReturnType)
         let rawValueReg = resolveReturnStatementValueReg(stmt)
+        let inferredReturnExprType = inferExpressionType(stmt.returnValue)
         let returnExprType = normalizeIfConditionTypeImpl(stmt.returnValue,
-            inferExpressionType(stmt.returnValue))
+            inferredReturnExprType)
+        let returnExprLlvmType = mapType(returnExprType)
         emitFinalReturnStatementValueImpl(output, g_regBox,
             isDataType(currentFunctionReturnType), stmt.returnValue.kind,
-            returnExprType, llvmType, rawValueReg)
+            returnExprType, returnExprLlvmType, llvmType, rawValueReg)
         blockTerminated = true
     }
 
@@ -4008,7 +4081,11 @@ class LLVMIRGenerator {
         }
         let constType = moduleConstantTypes[constIdx]
         let valueReg = generateAssignmentValuePreservingPendingType(valueExpr)
-        emitStoreValueToPtrImpl(output, constType, valueReg, "@" + varName)
+        let valueSeenType = inferExpressionType(valueExpr)
+        let storedValueReg = coerceValueForLlvmTarget(constType,
+            valueSeenType, valueReg)
+        emitStoreValueToPtrImpl(output, constType, storedValueReg,
+            "@" + varName)
         return 1
     }
 
@@ -4032,8 +4109,12 @@ class LLVMIRGenerator {
         let fieldSeenType = getSeenFieldType(thisType, varName)
         let valueReg = generateAssignmentValueForSeenType(valueExpr, fieldSeenType)
         let fieldType = getFieldType(thisType, varName)
+        let valueSeenType = inferExpressionType(valueExpr)
+        let storedValueReg = coerceValueForLlvmTarget(fieldType,
+            valueSeenType, valueReg)
         emitImplicitThisFieldStoreImpl(output, g_regBox,
-            varRegs[thisIdx], structLayouts[structIdx], fieldIdx, fieldType, valueReg)
+            varRegs[thisIdx], structLayouts[structIdx], fieldIdx, fieldType,
+            storedValueReg)
         return 1
     }
 
@@ -4057,7 +4138,11 @@ class LLVMIRGenerator {
     fun emitLocalVariableAssignment(idx: Int, valueExpr: ParserExpressionNode) r: String {
         let varType = varTypes[idx]
         let valueReg = generateAssignmentValueForSeenType(valueExpr, varType)
-        emitStoreValueToPtrImpl(output, mapType(varType), valueReg, varRegs[idx])
+        let llvmType = mapType(varType)
+        let valueSeenType = inferExpressionType(valueExpr)
+        let storedValueReg = coerceValueForLlvmTarget(llvmType,
+            valueSeenType, valueReg)
+        emitStoreValueToPtrImpl(output, llvmType, storedValueReg, varRegs[idx])
         return varType
     }
 
@@ -4135,6 +4220,7 @@ class LLVMIRGenerator {
         let fieldName = memberAccess.variableName
 
         let valueReg = generateExpression(value)
+        let valueSeenType = inferExpressionType(value)
 
         if memberAccess.operands.length() > 0 and memberAccess.literalValue == "" {
             let receiverExpr = memberAccess.operands[0]
@@ -4142,7 +4228,7 @@ class LLVMIRGenerator {
             let receiverType = inferExpressionType(receiverExpr)
             if emitValueReceiverMemberAssignmentImpl(output, g_regBox,
                 receiverReg, receiverType, fieldName, valueReg, value.kind,
-                structNames, structLayouts, structFieldNames,
+                valueSeenType, structNames, structLayouts, structFieldNames,
                 structFieldTypes, structLlvmFieldTypes, g_reprCClassNames,
                 g_typeAliasNames, g_typeAliasTargets, g_typeAliasCount,
                 g_enumTypeNames, g_unionTypes, g_bitfieldCount,
@@ -4159,7 +4245,7 @@ class LLVMIRGenerator {
                 let receiverType = inferExpressionType(receiverExpr)
                 if emitValueReceiverMemberAssignmentImpl(output, g_regBox,
                     receiverReg, receiverType, fieldName, valueReg,
-                    value.kind, structNames, structLayouts,
+                    value.kind, valueSeenType, structNames, structLayouts,
                     structFieldNames, structFieldTypes,
                     structLlvmFieldTypes, g_reprCClassNames,
                     g_typeAliasNames, g_typeAliasTargets, g_typeAliasCount,
@@ -4171,7 +4257,8 @@ class LLVMIRGenerator {
         }
 
         if emitVariableReceiverMemberAssignmentImpl(output, g_regBox,
-            receiverName, fieldName, valueReg, value.kind, varNames,
+            receiverName, fieldName, valueReg, value.kind, valueSeenType,
+            varNames,
             activeVarCount, varRegs, varTypes, structNames, structLayouts,
             structFieldNames, structFieldTypes, structLlvmFieldTypes,
             g_reprCClassNames, g_typeAliasNames, g_typeAliasTargets,
@@ -4180,7 +4267,8 @@ class LLVMIRGenerator {
             return
         }
         emitImplicitThisMemberAssignmentImpl(output, g_regBox, receiverName,
-            fieldName, valueReg, value.kind, varNames, activeVarCount,
+            fieldName, valueReg, value.kind, valueSeenType, varNames,
+            activeVarCount,
             varRegs, varTypes, structNames, structLayouts, structFieldNames,
             structFieldTypes, structLlvmFieldTypes, g_reprCClassNames,
             g_typeAliasNames, g_typeAliasTargets, g_typeAliasCount,
@@ -4222,9 +4310,10 @@ class LLVMIRGenerator {
         if value.kind == "StructLiteral" {
             valueIsStructLiteral = 1
         }
+        let valueSeenType = inferExpressionType(value)
         emitPreparedIndexAssignmentStoreImpl(output, g_regBox, arrayReg,
             indexReg, valueReg, elementType, llvmElementType,
-            valueIsStructLiteral, structNames)
+            valueIsStructLiteral, valueSeenType, structNames)
     }
 
     // Main expression codegen dispatcher. Returns the SSA register (or
@@ -5146,10 +5235,27 @@ class LLVMIRGenerator {
         while fieldIdx < expr.arguments.length() {
             let fieldExpr = expr.arguments[fieldIdx]
             let fieldName = fieldExpr.variableName
-            slFieldRegs.push(resolveStructLiteralFieldValue(structName, structIdx, fieldName, fieldExpr))
             let fieldInfo = splitPipe(resolveStructLiteralFieldInfo(structName, structIdx, fieldName, fieldExpr, fieldIdx))
             let fieldType = fieldInfo[0]
             let gepIndex = fieldInfo[1].toInt()
+            var fieldReg = resolveStructLiteralFieldValue(structName,
+                structIdx, fieldName, fieldExpr)
+            if fieldExpr.operands.length() > 0 {
+                let fieldValueExpr = fieldExpr.operands[0]
+                if fieldValueExpr.kind == "StructLiteral" and
+                    fieldType.startsWith("%") {
+
+                    let loadedFieldReg = getNextReg()
+                    output.append("  " + loadedFieldReg + " = load " +
+                        fieldType + ", ptr " + fieldReg + "\n")
+                    fieldReg = loadedFieldReg
+                } else {
+                    let fieldValueSeenType = inferExpressionType(fieldValueExpr)
+                    fieldReg = coerceValueForLlvmTarget(fieldType,
+                        fieldValueSeenType, fieldReg)
+                }
+            }
+            slFieldRegs.push(fieldReg)
             slFieldTypes.push(fieldType)
             slGepIndices.push(gepIndex)
             fieldIdx = fieldIdx + 1
@@ -6010,10 +6116,15 @@ class LLVMIRGenerator {
         var reprCArgIdx = 0
         var typePos = 0
         while reprCArgIdx < argCount {
-            reprCArgRegs.push(generateExpression(expr.arguments[reprCArgIdx]))
+            let reprCArgExpr = expr.arguments[reprCArgIdx]
+            let reprCRawArgReg = generateExpression(reprCArgExpr)
             let reprCFieldPlan = planNextConstructorFieldTypeImpl(
                 fieldTypesStr, typePos)
-            reprCFieldTypes.push(mapType(reprCFieldPlan.fieldSeenType))
+            let reprCFieldLlvmType = mapType(reprCFieldPlan.fieldSeenType)
+            let reprCArgSeenType = inferExpressionType(reprCArgExpr)
+            reprCArgRegs.push(coerceValueForLlvmTarget(reprCFieldLlvmType,
+                reprCArgSeenType, reprCRawArgReg))
+            reprCFieldTypes.push(reprCFieldLlvmType)
             reprCArgIdx = reprCArgIdx + 1
             typePos = reprCFieldPlan.nextTypePos
         }
@@ -6053,8 +6164,15 @@ class LLVMIRGenerator {
                     ctorMemcpySize = getDataTypeSize(ctorStorePlan.fieldSeenType)
                 }
             }
+            var ctorStoreReg = ctorArgReg
+            if not (ctorIsDataField and ctorArgExpr.kind == "StructLiteral") {
+                let ctorArgSeenType = inferExpressionType(ctorArgExpr)
+                ctorStoreReg = coerceValueForLlvmTarget(ctorStoreLlvmType,
+                    ctorArgSeenType, ctorArgReg)
+            }
             emitPreparedClassConstructorFieldStoreImpl(output, ctorFieldPtrReg,
-                ptrReg, ctorStorePlan.fieldOffset, ctorStoreLlvmType, ctorArgReg,
+                ptrReg, ctorStorePlan.fieldOffset, ctorStoreLlvmType,
+                ctorStoreReg,
                 ctorArgExpr.kind == "StructLiteral", ctorIsDataField,
                 ctorMemcpySize)
             ctorByteOffset = ctorStorePlan.nextByteOffset
@@ -7207,6 +7325,18 @@ class LLVMIRGenerator {
                     receiverExpr.operands[0])
             }
         }
+        var getReceiverResolved = false
+        if isArrayReceiverTypeImpl(receiverType) {
+            getReceiverResolved = true
+        }
+        if isCollectionReceiverTypeImpl(receiverType) {
+            getReceiverResolved = true
+        }
+        if methodName == "get" and not getReceiverResolved {
+            output.append("; WARNING: get() receiver not resolved as a collection, receiverType='" +
+                receiverType + "', literal='" + expr.literalValue + "'\n")
+            return "0"
+        }
         let instanceTypeName = resolveMethodCallInstanceTypeNameImpl(expr,
             methodName, receiverType, tracedUnwrapSourceType)
         let funcName = instanceTypeName + "_" + methodName
@@ -7872,7 +8002,7 @@ class LLVMIRGenerator {
             traceGen("inferExpressionType: get() recType=" + receiverType + " literalValue=" + expr.literalValue + " operands=" + expr.operands.length().toString())
             let isCollectionGet = receiverType.startsWith("Array<") or receiverType.startsWith("Vec<") or
                 receiverType.startsWith("HashMap<") or receiverType.startsWith("StringHashMap<") or
-                receiverType.startsWith("BTreeMap<") or receiverType.startsWith("Map<") or receiverType == ""
+                receiverType.startsWith("BTreeMap<") or receiverType.startsWith("Map<")
             if isCollectionGet {
                 let collGetType = resolveCollectionGetTypeImpl(receiverType)
                 if collGetType != "" {

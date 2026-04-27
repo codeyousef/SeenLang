@@ -152,6 +152,11 @@ import tools.c_import_gen.{CImportGenerator, CImportResult}
 var g_validationModulePaths: Array<String> = Array<String>()
 var g_validationFrontends: Array<FrontendResult> = Array<FrontendResult>()
 
+fun clearValidationModuleCache() r: Void {
+    g_validationModulePaths = Array<String>()
+    g_validationFrontends = Array<FrontendResult>()
+}
+
 // DJB2 hash of a string, returned as 8-char hex
 // Uses byteAt() to avoid per-char string allocation
 fun hashString(data: String) r: String {
@@ -3197,6 +3202,7 @@ fun checkUnresolvedFreeCallsInFunction(result: FrontendResult,
 }
 
 fun validateSealedModules(modulePaths: Array<String>, language: String) r: FrontendResult {
+    clearValidationModuleCache()
     let result = FrontendResult.new()
     let frontends = Array<FrontendResult>()
 
@@ -3204,6 +3210,7 @@ fun validateSealedModules(modulePaths: Array<String>, language: String) r: Front
     while i < modulePaths.length() {
         let frontend = parseModule(modulePaths[i], language)
         if not frontend.success {
+            clearValidationModuleCache()
             return frontend
         }
         frontends.push(frontend)
@@ -3301,6 +3308,7 @@ fun validateSealedModules(modulePaths: Array<String>, language: String) r: Front
     if not result.hasErrors() {
         result.success = true
     }
+    clearValidationModuleCache()
     return result
 }
 

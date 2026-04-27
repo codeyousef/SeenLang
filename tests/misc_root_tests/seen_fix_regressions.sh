@@ -35,6 +35,7 @@ WHEN_ENUM_EXHAUSTIVE_OK_SRC="$ROOT_DIR/tests/fixtures/current_limitations/when_e
 WHEN_ENUM_ELSE_OK_SRC="$ROOT_DIR/tests/fixtures/current_limitations/when_enum_else_ok.seen"
 UNRESOLVED_FREE_CALL_SRC="$ROOT_DIR/tests/fixtures/current_limitations/unresolved_free_call.seen"
 BOOL_RETURN_COERCION_SRC="$ROOT_DIR/tests/codegen/test_bool_return_int_coercion_regression.seen"
+FEL22_TYPED_STORE_RETURN_SRC="$ROOT_DIR/tests/codegen/test_fel22_typed_store_return_regression.seen"
 HIGH_ARITY_PARAMS_SRC="$ROOT_DIR/tests/codegen/test_high_arity_params_regression.seen"
 NESTED_CONTINUE_HIGH_ARITY_SRC="$ROOT_DIR/tests/codegen/test_nested_continue_high_arity_regression.seen"
 
@@ -480,6 +481,111 @@ EOF
     fi
 
     echo "PASS: large Seen.toml manifests use bounded scanner path"
+}
+
+run_small_manifest_allocator_stability_case() {
+    local project_dir="$TMP_ROOT/small_manifest_allocator_stability"
+    local output_file="$project_dir/small_manifest_allocator_stability"
+    local log_file="$project_dir/small_manifest_allocator_stability.log"
+
+    cleanup_seen_artifacts
+    mkdir -p "$project_dir/modules"
+
+    {
+        echo '[project]'
+        echo 'name = "small-manifest-allocator-stability"'
+        echo 'version = "0.1.0"'
+        echo 'language = "en"'
+        echo ''
+        echo 'modules = ['
+        echo '    "main.seen",'
+        for i in $(seq 1 12); do
+            printf '    "modules/helper_%02d.seen",\n' "$i"
+        done
+        echo ']'
+        echo ''
+        echo '[build]'
+        echo 'entry = "main.seen"'
+    } >"$project_dir/Seen.toml"
+
+    cat >"$project_dir/main.seen" <<'EOF'
+fun main() r: Int {
+    return 0
+}
+EOF
+
+    for i in $(seq 1 12); do
+        local module_file
+        module_file=$(printf '%s/modules/helper_%02d.seen' "$project_dir" "$i")
+        {
+            printf 'fun smallManifestHelper%02d() r: Int {\n' "$i"
+            printf '    return %d\n' "$i"
+            printf '}\n'
+        } >"$module_file"
+    done
+
+    if ! run_compile_in_dir "$project_dir" "main.seen" "$output_file" "$log_file"; then
+        echo "FAIL: small Seen.toml allocator stability case did not compile"
+        cat "$log_file"
+        exit 1
+    fi
+
+    if grep -q 'free(): invalid size' "$log_file"; then
+        echo "FAIL: small Seen.toml allocator stability case aborted after preflight"
+        cat "$log_file"
+        exit 1
+    fi
+
+    if grep -q 'Large module graph' "$log_file"; then
+        echo "FAIL: small Seen.toml allocator stability case skipped whole-project preflight"
+        cat "$log_file"
+        exit 1
+    fi
+
+    if ! "$output_file" >/dev/null 2>&1; then
+        echo "FAIL: small Seen.toml allocator stability binary exited non-zero"
+        cat "$log_file"
+        exit 1
+    fi
+
+    echo "PASS: small Seen.toml preflight releases validation state cleanly"
+}
+
+run_scalar_get_guard_case() {
+    local source_file="$TMP_ROOT/scalar_get_guard.seen"
+    local output_file="$TMP_ROOT/scalar_get_guard"
+    local log_file="$TMP_ROOT/scalar_get_guard.log"
+
+    cleanup_seen_artifacts
+
+    cat >"$source_file" <<'EOF'
+fun main() r: Int {
+    let value = 5
+    let ignored = value.get(0)
+    return 0
+}
+EOF
+
+    if ! run_compile "$source_file" "$output_file" "$log_file"; then
+        echo "FAIL: scalar get guard case did not compile"
+        cat "$log_file"
+        exit 1
+    fi
+
+    if grep -q '@Int_get' "$log_file" /tmp/seen_module_*.ll 2>/dev/null; then
+        echo "FAIL: scalar get guard still emitted Int_get"
+        cat "$log_file"
+        grep -n '@Int_get' /tmp/seen_module_*.ll 2>/dev/null || true
+        exit 1
+    fi
+
+    if ! "$output_file" >/dev/null 2>&1; then
+        echo "FAIL: scalar get guard binary exited non-zero"
+        cat "$log_file"
+        exit 1
+    fi
+
+    echo "PASS: scalar get receivers do not lower to Int_get"
 }
 
 run_local_system_dependency_case() {
@@ -1152,12 +1258,15 @@ run_check_success_case "enum matches stay allowed when all variants are covered"
 run_check_success_case "enum matches stay allowed with else arm" "$WHEN_ENUM_ELSE_OK_SRC" "$TMP_ROOT/when_enum_else_ok.log"
 run_check_failure_case "unresolved free function calls are diagnosed" "$UNRESOLVED_FREE_CALL_SRC" "$TMP_ROOT/unresolved_free_call.log" 'unresolved function `chunkInBounds`'
 run_success_case "Bool returns coerce Int predicates to i1" "$BOOL_RETURN_COERCION_SRC" "$TMP_ROOT/bool_return_coercion" "$TMP_ROOT/bool_return_coercion.log"
+run_success_case "FEL-22 typed stores and Float returns stay verifier-clean" "$FEL22_TYPED_STORE_RETURN_SRC" "$TMP_ROOT/fel22_typed_store_return" "$TMP_ROOT/fel22_typed_store_return.log"
+run_scalar_get_guard_case
 run_success_case "9+ parameter functions parse without corruption" "$HIGH_ARITY_PARAMS_SRC" "$TMP_ROOT/high_arity_params" "$TMP_ROOT/high_arity_params.log"
 run_success_case "nested continue high-arity functions compile" "$NESTED_CONTINUE_HIGH_ARITY_SRC" "$TMP_ROOT/nested_continue_high_arity" "$TMP_ROOT/nested_continue_high_arity.log"
 run_c12_case
 run_recovery_partial_failure_case
 run_toml_project_modules_case
 run_large_manifest_scanner_case
+run_small_manifest_allocator_stability_case
 run_local_system_dependency_case
 run_build_entry_seed_case
 run_root_main_build_entry_isolation_case
