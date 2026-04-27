@@ -417,12 +417,11 @@ class RealParser {
     }
 
     fun consumeNameLikeValue(message: String) r: String {
-        let value = peekTokenValue()
         if checkNameLikeToken() {
-            advance()
-            return value
+            let token = advance()
+            return token.getValue()
         }
-        return value
+        return peekTokenValue()
     }
 
     fun matchNameValue(expectedName: String) r: Bool {
@@ -5871,7 +5870,11 @@ class RealParser {
                 continue
             }
 
-            if matchTokenStr(getColonType()) and matchTokenStr(getColonType()) {
+            if checkToken(getColonType()) {
+                advance()
+                if not matchTokenStr(getColonType()) {
+                    break
+                }
                 if checkToken(getLeftBraceType()) or checkToken(getKeywordAsType()) {
                     break
                 }
@@ -5953,7 +5956,11 @@ class RealParser {
                 continue
             }
 
-            if matchTokenStr(getColonType()) and matchTokenStr(getColonType()) {
+            if checkToken(getColonType()) {
+                advance()
+                if not matchTokenStr(getColonType()) {
+                    break
+                }
                 if checkToken(getLeftBraceType()) or checkToken(getKeywordAsType()) {
                     break
                 }

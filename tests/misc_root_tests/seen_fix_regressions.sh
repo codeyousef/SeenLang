@@ -1177,6 +1177,75 @@ EOF
     echo "PASS: explicit named imports remain supported"
 }
 
+run_package_explicit_src_import_case() {
+    local package_dir="$TMP_ROOT/seen_input"
+    local project_dir="$TMP_ROOT/package_explicit_src_import"
+    local output_file="$project_dir/package_explicit_src_import"
+    local log_file="$project_dir/package_explicit_src_import.log"
+
+    cleanup_seen_artifacts
+    mkdir -p "$package_dir/src" "$project_dir"
+
+    cat >"$package_dir/Seen.toml" <<'EOF'
+[project]
+name = "seen_input"
+version = "0.1.0"
+language = "en"
+EOF
+
+    cat >"$package_dir/src/keyboard.seen" <<'EOF'
+class Keyboard {
+    var key: Int
+
+    static fun new() r: Keyboard {
+        return Keyboard { key: 42 }
+    }
+}
+EOF
+
+    cat >"$project_dir/Seen.toml" <<'EOF'
+[project]
+name = "package_explicit_src_import"
+version = "0.1.0"
+language = "en"
+
+[dependencies]
+seen_input = { path = "../seen_input" }
+EOF
+
+    cat >"$project_dir/main.seen" <<'EOF'
+import seen_input::src::keyboard.{Keyboard}
+
+fun main() r: Int {
+    let keyboard = Keyboard.new()
+    if keyboard.key == 42 {
+        return 0
+    }
+    return 1
+}
+EOF
+
+    if ! run_compile_in_dir "$project_dir" "main.seen" "$output_file" "$log_file"; then
+        echo "FAIL: package import with explicit src segment did not compile"
+        cat "$log_file"
+        exit 1
+    fi
+
+    if grep -q ':/src/keyboard.seen\|/src/src/keyboard.seen' "$log_file"; then
+        echo "FAIL: package import with explicit src resolved to the wrong path"
+        cat "$log_file"
+        exit 1
+    fi
+
+    if ! "$output_file" >/dev/null 2>&1; then
+        echo "FAIL: package import with explicit src binary exited non-zero"
+        cat "$log_file"
+        exit 1
+    fi
+
+    echo "PASS: package imports with explicit src resolve under package source root"
+}
+
 run_missing_import_failure_case() {
     local project_dir="$TMP_ROOT/missing_import_failure"
     local output_file="$project_dir/missing_import_failure"
@@ -1273,6 +1342,7 @@ run_root_main_build_entry_isolation_case
 run_build_entry_main_fallback_case
 run_legacy_whole_module_import_case
 run_named_import_control_case
+run_package_explicit_src_import_case
 run_missing_import_failure_case
 
 cleanup_seen_artifacts

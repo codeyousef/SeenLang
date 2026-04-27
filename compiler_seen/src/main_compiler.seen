@@ -993,6 +993,11 @@ fun resolvePackageImportPath(importPath: Array<String>, sourceDir: String) r: St
     }
     var packageBase = packageRoot + "/src"
     var idx = 1
+    if importPath.length() > 1 {
+        if importPath[1] == "src" {
+            idx = 2
+        }
+    }
     while idx < importPath.length() {
         packageBase = packageBase + "/" + importPath[idx]
         idx = idx + 1
@@ -1880,6 +1885,19 @@ fun pushUniquePath(paths: Array<String>, processedPaths: Array<String>, path: St
     return
 }
 
+fun isCompilerRuntimeBackedStdlibPath(importFilePath: String) r: Bool {
+    return importFilePath == "seen_std/src/str/string.seen" or importFilePath == "seen_std/src/core/option.seen" or importFilePath == "seen_std/src/core/result.seen" or importFilePath == "seen_std/src/collections/map.seen" or importFilePath.endsWith("/seen_std/src/str/string.seen") or importFilePath.endsWith("/seen_std/src/core/option.seen") or importFilePath.endsWith("/seen_std/src/core/result.seen") or importFilePath.endsWith("/seen_std/src/collections/map.seen")
+}
+
+fun shouldQueueDiscoveredImport(inputFile: String, currentPath: String, isBootstrap: Bool, importFilePath: String) r: Bool {
+    let skipCompilerStdlib = not isBootstrap and currentPath != inputFile and inputFile.contains("/compiler_seen/") and isCompilerRuntimeBackedStdlibPath(importFilePath)
+    var shouldQueueImport = not skipCompilerStdlib
+    if isBootstrap {
+        shouldQueueImport = shouldQueueImport and exists(importFilePath)
+    }
+    return shouldQueueImport
+}
+
 fun appendCompilerInternalSupportModules(paths: Array<String>, processedPaths: Array<String>) r: Void {
     let modules = Array<String>()
     modules.push("lexer.token")
@@ -2004,21 +2022,25 @@ fun extractTomlProjectModules(content: String) r: Array<String> {
 
 fun discoverImportsFromModule(paths: Array<String>, processedPaths: Array<String>, inputFile: String, currentPath: String, isBootstrap: Bool) r: Void {
     let sourceDir = getSourceDir(currentPath)
+    discoverImportsFromSourceText(paths, processedPaths, inputFile, currentPath, isBootstrap)
     let frontend = parseModule(currentPath, "en")
     if frontend.success {
         var itemIdx = 0
         while itemIdx < frontend.program.items.length() {
             let item = frontend.program.items[itemIdx]
             if item.itemType == "Import" {
-                let importFilePath = resolveImportPath(item.importPath, sourceDir)
-                let isCompilerRuntimeBackedStdlib = importFilePath == "seen_std/src/str/string.seen" or importFilePath == "seen_std/src/core/option.seen" or importFilePath == "seen_std/src/core/result.seen" or importFilePath == "seen_std/src/collections/map.seen" or importFilePath.endsWith("/seen_std/src/str/string.seen") or importFilePath.endsWith("/seen_std/src/core/option.seen") or importFilePath.endsWith("/seen_std/src/core/result.seen") or importFilePath.endsWith("/seen_std/src/collections/map.seen")
-                let skipCompilerStdlib = not isBootstrap and currentPath != inputFile and inputFile.contains("/compiler_seen/") and isCompilerRuntimeBackedStdlib
-                var shouldQueueImport = not skipCompilerStdlib
-                if isBootstrap {
-                    shouldQueueImport = shouldQueueImport and exists(importFilePath)
+                var shouldResolveAstImport = item.importPath.length() > 0
+                if shouldResolveAstImport {
+                    if item.importPath[0] == ":" {
+                        shouldResolveAstImport = false
+                    }
                 }
-                if shouldQueueImport {
-                    pushUniquePath(paths, processedPaths, importFilePath)
+                if shouldResolveAstImport {
+                    let importFilePath = resolveImportPath(item.importPath, sourceDir)
+                    let shouldQueueImport = shouldQueueDiscoveredImport(inputFile, currentPath, isBootstrap, importFilePath)
+                    if shouldQueueImport {
+                        pushUniquePath(paths, processedPaths, importFilePath)
+                    }
                 }
             }
             itemIdx = itemIdx + 1
@@ -2041,6 +2063,84 @@ fun moduleDeclaresMain(path: String) r: Bool {
         itemIdx = itemIdx + 1
     }
     return false
+}
+
+fun parseImportTextSegments(importText: String) r: Array<String> {
+    let segments = Array<String>()
+    var currentSegment = ""
+    var idx = 0
+    while idx < importText.length() {
+        let b = importText.byteAt(idx)
+        var isNameChar = false
+        if b >= 48 and b <= 57 { isNameChar = true }
+        if b >= 65 and b <= 90 { isNameChar = true }
+        if b >= 97 and b <= 122 { isNameChar = true }
+        if b == 95 { isNameChar = true }
+
+        if isNameChar {
+            currentSegment = currentSegment + importText.substring(idx, idx + 1)
+        } else {
+            if currentSegment != "" {
+                segments.push(currentSegment)
+                currentSegment = ""
+            }
+            if b != 46 and b != 58 {
+                return segments
+            }
+        }
+        idx = idx + 1
+    }
+    if currentSegment != "" {
+        segments.push(currentSegment)
+    }
+    return segments
+}
+
+fun queueImportTextPath(paths: Array<String>, processedPaths: Array<String>, inputFile: String, currentPath: String, sourceDir: String, isBootstrap: Bool, importText: String) r: Void {
+    let importSegments = parseImportTextSegments(importText)
+    if importSegments.length() == 0 {
+        return
+    }
+    let importFilePath = resolveImportPath(importSegments, sourceDir)
+    if shouldQueueDiscoveredImport(inputFile, currentPath, isBootstrap, importFilePath) {
+        pushUniquePath(paths, processedPaths, importFilePath)
+    }
+    return
+}
+
+fun discoverImportsFromSourceText(paths: Array<String>, processedPaths: Array<String>, inputFile: String, currentPath: String, isBootstrap: Bool) r: Void {
+    let content = readText(currentPath)
+    if content == "" {
+        return
+    }
+    let sourceDir = getSourceDir(currentPath)
+    var lineStart = 0
+    var pos = 0
+    while pos <= content.length() {
+        var atEnd = 0
+        if pos == content.length() {
+            atEnd = 1
+        }
+        var isNewline = 0
+        if atEnd == 0 {
+            if content.byteAt(pos) == 10 {
+                isNewline = 1
+            }
+        }
+        if isNewline == 1 or atEnd == 1 {
+            let line = content.substring(lineStart, pos).trim()
+            if line.startsWith("import ") {
+                queueImportTextPath(paths, processedPaths, inputFile, currentPath, sourceDir, isBootstrap, line.substring(7, line.length()).trim())
+            } else if line.startsWith("use ") {
+                queueImportTextPath(paths, processedPaths, inputFile, currentPath, sourceDir, isBootstrap, line.substring(4, line.length()).trim())
+            } else if line.startsWith("pub import ") {
+                queueImportTextPath(paths, processedPaths, inputFile, currentPath, sourceDir, isBootstrap, line.substring(11, line.length()).trim())
+            }
+            lineStart = pos + 1
+        }
+        pos = pos + 1
+    }
+    return
 }
 
 fun moduleGraphContainsCompilerSources(modulePaths: Array<String>) r: Bool {
