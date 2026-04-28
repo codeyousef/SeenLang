@@ -1,0 +1,76 @@
+// Regression FEL-32: nested property method receivers reached through implicit
+// this must preserve the object pointer through a large registration-like path.
+
+class PropertyRegistry {
+    var lastId: Int
+    var lastValue: Float
+
+    static fun new() r: PropertyRegistry {
+        return PropertyRegistry { lastId: 0, lastValue: 0.0 }
+    }
+
+    fun registerFloat(id: Int, defaultValue: Float) {
+        this.lastId = id
+        this.lastValue = defaultValue
+    }
+}
+
+class EngineServices {
+    var props: PropertyRegistry
+
+    static fun new() r: EngineServices {
+        return EngineServices { props: PropertyRegistry.new() }
+    }
+}
+
+class Engine {
+    var services: EngineServices
+
+    static fun new() r: Engine {
+        return Engine { services: EngineServices.new() }
+    }
+}
+
+class Launcher {
+    var engine: Engine
+
+    static fun new() r: Launcher {
+        return Launcher { engine: Engine.new() }
+    }
+
+    fun registerAll() {
+        engine.services.props.registerFloat(1, 1.0)
+        engine.services.props.registerFloat(2, 2.0)
+        engine.services.props.registerFloat(3, 3.0)
+        engine.services.props.registerFloat(4, 4.0)
+        engine.services.props.registerFloat(5, 5.0)
+        engine.services.props.registerFloat(6, 6.0)
+        engine.services.props.registerFloat(7, 7.0)
+        engine.services.props.registerFloat(8, 8.0)
+        engine.services.props.registerFloat(9, 9.0)
+        engine.services.props.registerFloat(10, 10.0)
+        engine.services.props.registerFloat(11, 11.0)
+        engine.services.props.registerFloat(12, 12.0)
+        engine.services.props.registerFloat(13, 13.0)
+        engine.services.props.registerFloat(14, 21.0)
+    }
+
+    fun lastId() r: Int {
+        return engine.services.props.lastId
+    }
+
+    fun lastValue() r: Float {
+        return engine.services.props.lastValue
+    }
+}
+
+fun main() r: Int {
+    let launcher = Launcher.new()
+    launcher.registerAll()
+    if launcher.lastId() == 14 && launcher.lastValue() > 20.9 {
+        println("PASS: nested property receiver")
+        return 0
+    }
+    println("FAIL: nested property receiver")
+    return 1
+}

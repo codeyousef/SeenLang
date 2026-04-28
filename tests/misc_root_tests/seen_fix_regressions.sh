@@ -36,6 +36,9 @@ WHEN_ENUM_EXHAUSTIVE_OK_SRC="$ROOT_DIR/tests/fixtures/current_limitations/when_e
 WHEN_ENUM_ELSE_OK_SRC="$ROOT_DIR/tests/fixtures/current_limitations/when_enum_else_ok.seen"
 UNRESOLVED_FREE_CALL_SRC="$ROOT_DIR/tests/fixtures/current_limitations/unresolved_free_call.seen"
 BOOL_RETURN_COERCION_SRC="$ROOT_DIR/tests/codegen/test_bool_return_int_coercion_regression.seen"
+BOOL_HELPER_LOGICAL_SRC="$ROOT_DIR/tests/codegen/test_bool_helper_logical_regression.seen"
+FLOAT32_PTR_DEREF_CAST_SRC="$ROOT_DIR/tests/codegen/test_float32_ptr_deref_cast_regression.seen"
+NESTED_PROPERTY_RECEIVER_SRC="$ROOT_DIR/tests/codegen/test_nested_property_receiver_regression.seen"
 FEL22_TYPED_STORE_RETURN_SRC="$ROOT_DIR/tests/codegen/test_fel22_typed_store_return_regression.seen"
 PTR_I64_ALIAS_SRC="$ROOT_DIR/tests/codegen/test_ptr_i64_alias_regression.seen"
 RUNTIME_FILE_BYTES_SRC="$ROOT_DIR/tests/codegen/test_runtime_file_bytes_regression.seen"
@@ -112,6 +115,60 @@ run_success_case() {
     if ! run_compile "$source_file" "$output_file" "$log_file"; then
         echo "FAIL: $label compile failed"
         cat "$log_file"
+        exit 1
+    fi
+
+    if ! "$output_file" >/dev/null 2>&1; then
+        echo "FAIL: $label binary exited non-zero"
+        cat "$log_file"
+        exit 1
+    fi
+
+    echo "PASS: $label"
+}
+
+run_compile_no_cache_no_fork() {
+    local source_file="$1"
+    local output_file="$2"
+    local log_file="$3"
+
+    if [[ "$BUILD_CMD" == "build" ]]; then
+        timeout 120 "$COMPILER" build "$source_file" -o "$output_file" --fast --no-cache --no-fork >"$log_file" 2>&1
+    else
+        timeout 120 "$COMPILER" compile "$source_file" "$output_file" --fast --no-cache --no-fork >"$log_file" 2>&1
+    fi
+}
+
+run_success_case_with_ir_check() {
+    local label="$1"
+    local source_file="$2"
+    local output_file="$3"
+    local log_file="$4"
+    local expected_ir_pattern="$5"
+    local rejected_ir_pattern="$6"
+
+    cleanup_seen_artifacts
+    if ! run_compile_no_cache_no_fork "$source_file" "$output_file" "$log_file"; then
+        echo "FAIL: $label compile failed"
+        cat "$log_file"
+        exit 1
+    fi
+
+    if [[ ! -f /tmp/seen_module_0.ll ]]; then
+        echo "FAIL: $label did not leave LLVM IR to inspect"
+        cat "$log_file"
+        exit 1
+    fi
+
+    if ! grep -Eq "$expected_ir_pattern" /tmp/seen_module_0.ll; then
+        echo "FAIL: $label did not emit the expected LLVM IR"
+        grep -n "PropertyRegistry_registerFloat" /tmp/seen_module_0.ll || true
+        exit 1
+    fi
+
+    if [[ -n "$rejected_ir_pattern" ]] && grep -Eq "$rejected_ir_pattern" /tmp/seen_module_0.ll; then
+        echo "FAIL: $label emitted rejected LLVM IR"
+        grep -n "PropertyRegistry_registerFloat" /tmp/seen_module_0.ll || true
         exit 1
     fi
 
@@ -1621,6 +1678,9 @@ run_check_success_case "enum matches stay allowed when all variants are covered"
 run_check_success_case "enum matches stay allowed with else arm" "$WHEN_ENUM_ELSE_OK_SRC" "$TMP_ROOT/when_enum_else_ok.log"
 run_check_failure_case "unresolved free function calls are diagnosed" "$UNRESOLVED_FREE_CALL_SRC" "$TMP_ROOT/unresolved_free_call.log" 'unresolved function `chunkInBounds`'
 run_success_case "Bool returns coerce Int predicates to i1" "$BOOL_RETURN_COERCION_SRC" "$TMP_ROOT/bool_return_coercion" "$TMP_ROOT/bool_return_coercion.log"
+run_success_case "Bool helper logical conditions stay verifier-clean" "$BOOL_HELPER_LOGICAL_SRC" "$TMP_ROOT/bool_helper_logical" "$TMP_ROOT/bool_helper_logical.log"
+run_success_case "Float32 pointer deref casts directly to Int" "$FLOAT32_PTR_DEREF_CAST_SRC" "$TMP_ROOT/float32_ptr_deref_cast" "$TMP_ROOT/float32_ptr_deref_cast.log"
+run_success_case_with_ir_check "nested property method receivers preserve object pointer" "$NESTED_PROPERTY_RECEIVER_SRC" "$TMP_ROOT/nested_property_receiver" "$TMP_ROOT/nested_property_receiver.log" 'call void @PropertyRegistry_registerFloat' '= call i64 @PropertyRegistry_registerFloat'
 run_success_case "FEL-22 typed stores and Float returns stay verifier-clean" "$FEL22_TYPED_STORE_RETURN_SRC" "$TMP_ROOT/fel22_typed_store_return" "$TMP_ROOT/fel22_typed_store_return.log"
 run_success_case "ptr_deref_i64 and ptr_store_i64 lower to runtime builtins" "$PTR_I64_ALIAS_SRC" "$TMP_ROOT/ptr_i64_alias" "$TMP_ROOT/ptr_i64_alias.log"
 run_success_case "runtime file byte arrays use pointer ABI" "$RUNTIME_FILE_BYTES_SRC" "$TMP_ROOT/runtime_file_bytes" "$TMP_ROOT/runtime_file_bytes.log"
