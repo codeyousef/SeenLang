@@ -8088,7 +8088,7 @@ SEEN_BOOTSTRAP_WEAK int64_t seen_chunk_brick_from_rle(int64_t p, int64_t s) { (v
 SEEN_BOOTSTRAP_WEAK int64_t seen_chunk_brick_load(int64_t p) { (void)p; return 0; }
 SEEN_BOOTSTRAP_WEAK void seen_chunk_brick_free(int64_t p) { (void)p; }
 void seen_quality_log(int64_t level, int64_t msg_ptr, int64_t msg_len) { (void)level; (void)msg_ptr; (void)msg_len; }
-int64_t seen_vk_get_physical_device_timestamp_period(void) { return 0; }
+SEEN_BOOTSTRAP_WEAK int64_t seen_vk_get_physical_device_timestamp_period(void) { return 0; }
 __attribute__((weak)) int64_t seen_vk_create_query_pool(int64_t a, int64_t b) { (void)a; (void)b; return 0; }
 __attribute__((weak)) void seen_vk_cmd_write_timestamp(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
 

@@ -118,10 +118,10 @@ fun planBinaryFmaSidesImpl(fmaCandidate: Bool, leftKind: String,
 }
 
 fun shortCircuitBinaryActionImpl(operator: String) r: Int {
-    if operator == "and" {
+    if operator == "and" or operator == "&&" {
         return 1
     }
-    if operator == "or" {
+    if operator == "or" or operator == "||" {
         return 2
     }
     return 0

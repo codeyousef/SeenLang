@@ -1,0 +1,14 @@
+// Regression FEL-29: direct Float32 pointer deref casts to Int must lower with
+// fptosi float -> i64, not an invalid raw float store into an Int slot.
+
+fun main() r: Int {
+    let addr = ptr_alloc_i32()
+    ptr_store_f32(addr, 7.75 as Float32)
+    let period = ptr_deref_f32(addr) as Int
+    if period == 7 {
+        println("PASS: Float32 ptr deref cast")
+        return 0
+    }
+    println("FAIL: Float32 ptr deref cast = " + period.toString())
+    return 1
+}

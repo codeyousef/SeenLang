@@ -1097,6 +1097,20 @@ class SeenLexer {
             emitToken(SeenTokenType.RightShift, ">>", 2)
             return true
         }
+        if char == '&' and nextChar == '&' {
+            if traceVerbose { traceLexVerbose("handleOperator matched &&") }
+            advance()
+            advance()
+            emitToken(SeenTokenType.LogicalAnd, "&&", 2)
+            return true
+        }
+        if char == '|' and nextChar == '|' {
+            if traceVerbose { traceLexVerbose("handleOperator matched ||") }
+            advance()
+            advance()
+            emitToken(SeenTokenType.LogicalOr, "||", 2)
+            return true
+        }
         if char == '-' and nextChar == '>' {
             if traceVerbose { traceLexVerbose("handleOperator matched ->") }
             advance()
@@ -1178,6 +1192,8 @@ class SeenLexer {
         if op == "-=" { return SeenTokenType.MinusEqual }
         if op == "*=" { return SeenTokenType.MultiplyEqual }
         if op == "/=" { return SeenTokenType.DivideEqual }
+        if op == "&&" { return SeenTokenType.LogicalAnd }
+        if op == "||" { return SeenTokenType.LogicalOr }
         if op == "->" { return SeenTokenType.Arrow }
         if op == "?." { return SeenTokenType.SafeNavigation }
         if op == "?:" { return SeenTokenType.Elvis }

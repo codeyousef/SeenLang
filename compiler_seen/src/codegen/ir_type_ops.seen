@@ -123,6 +123,26 @@ fun emitBinaryOpImpl(output: StringBuilder, regBox: Array<Int>, boundsLabelBox: 
 
     let resultReg = getNextRegFn(regBox)
     var opHandled = false
+    if (operator == "&" or operator == "|") and
+        (leftType == "Bool" or rightType == "Bool") {
+
+        var boolLeftReg = leftReg
+        if leftType != "Bool" {
+            boolLeftReg = getNextRegFn(regBox)
+            output.append("  " + boolLeftReg + " = icmp ne i64 " + leftReg + ", 0\n")
+        }
+        var boolRightReg = rightReg
+        if rightType != "Bool" {
+            boolRightReg = getNextRegFn(regBox)
+            output.append("  " + boolRightReg + " = icmp ne i64 " + rightReg + ", 0\n")
+        }
+        if operator == "&" {
+            output.append("  " + resultReg + " = and i1 " + boolLeftReg + ", " + boolRightReg + "\n")
+        } else {
+            output.append("  " + resultReg + " = or i1 " + boolLeftReg + ", " + boolRightReg + "\n")
+        }
+        return resultReg
+    }
     if operator == "-" {
         if leftType == "Float" or rightType == "Float" {
             if leftType == "Float" and rightType == "Float" {
@@ -1242,6 +1262,12 @@ fun emitCastExprImpl(output: StringBuilder, regBox: Array<Int>, innerReg: String
         castResultReg = cReg
         castDone = 1
     }
+    // Float32 -> Int
+    if castDone == 0 and innerType == "Float32" and castTarget == "Int" {
+        output.append("  " + cReg + " = fptosi float " + innerReg + " to i64\n")
+        castResultReg = cReg
+        castDone = 1
+    }
     // Int -> Bool
     if castDone == 0 and innerType == "Int" and castTarget == "Bool" {
         output.append("  " + cReg + " = trunc i64 " + innerReg + " to i1\n")
@@ -1341,6 +1367,12 @@ fun emitCastExprImpl(output: StringBuilder, regBox: Array<Int>, innerReg: String
     // Float -> Float32 (fptrunc double to float)
     if castDone == 0 and innerType == "Float" and castTarget == "Float32" {
         output.append("  " + cReg + " = fptrunc double " + innerReg + " to float\n")
+        castResultReg = cReg
+        castDone = 1
+    }
+    // Int -> Float32
+    if castDone == 0 and innerType == "Int" and castTarget == "Float32" {
+        output.append("  " + cReg + " = sitofp i64 " + innerReg + " to float\n")
         castResultReg = cReg
         castDone = 1
     }

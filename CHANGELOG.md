@@ -5,6 +5,18 @@ All notable changes to the Seen compiler will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] - 2026-04-28
+
+### Fixed
+
+#### Codegen and runtime regressions
+- Fixed `Float32` pointer dereference casts to `Int` so codegen emits a direct floating-point-to-integer conversion instead of invalid LLVM IR.
+- Fixed `&&` and `||` lexing, type inference, and short-circuit planning, and fixed Bool-aware `&` / `|` lowering to emit type-correct `i1` operations with integer predicate coercion.
+- Fixed no-value class method metadata so calls lower with the `void` ABI instead of as integer-returning calls.
+- Fixed implicit-`this` dotted receiver lookup for nested property method calls, preserving object receiver pointers through chained member access.
+- Made the runtime timestamp-period fallback weak so native implementations can override it at link time.
+- Added focused regression coverage for the codegen/runtime fixes and the no-value method-call IR shape.
+
 ## [0.7.0] - 2026-04-28
 
 ### Added

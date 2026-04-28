@@ -5030,12 +5030,21 @@ class LLVMIRGenerator {
             return ""
         }
         let thisType = varTypes[thisIdx]
-        let fieldIdx = getFieldInfo(thisType, receiverName)
-        if fieldIdx < 0 {
+        var intermediateType = ""
+        if receiverName.contains(".") {
+            intermediateType = resolveMethodFieldPathTypeImpl(thisType,
+                receiverName, structNames, structFieldNames, structFieldTypes,
+                structMethodNames, structMethodRetTypes)
+        } else {
+            let fieldIdx = getFieldInfo(thisType, receiverName)
+            if fieldIdx < 0 {
+                return ""
+            }
+            intermediateType = getSeenFieldType(thisType, receiverName)
+        }
+        if intermediateType == "" {
             return ""
         }
-
-        let intermediateType = getSeenFieldType(thisType, receiverName)
         return emitPreparedImplicitThisReceiverMemberAccessImpl(output, g_regBox,
             receiverName, fieldName, varRegs[thisIdx], thisType,
             intermediateType, getFieldType(intermediateType, fieldName),
@@ -8477,13 +8486,19 @@ class LLVMIRGenerator {
         var literalReceiverFieldType = ""
         if memberPlan.shouldTryLiteralReceiver {
             var chainedPathType = ""
-            if expr.literalValue.contains(".") {
-                chainedPathType = resolveChainedPathType(expr.literalValue)
-            }
             var thisType = ""
             let thisIdx = findActiveVariableIndexImpl(varNames, activeVarCount, "this")
             if thisIdx >= 0 {
                 thisType = varTypes[thisIdx]
+            }
+            if expr.literalValue.contains(".") {
+                chainedPathType = resolveChainedPathType(expr.literalValue)
+                if chainedPathType == "" and thisType != "" {
+                    chainedPathType = resolveMethodFieldPathTypeImpl(thisType,
+                        expr.literalValue, structNames, structFieldNames,
+                        structFieldTypes, structMethodNames,
+                        structMethodRetTypes)
+                }
             }
             literalReceiverFieldType = inferLiteralReceiverMemberAccessTypeImpl(
                 expr.literalValue, fieldName, chainedPathType, literalValueType,
