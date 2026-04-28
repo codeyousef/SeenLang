@@ -19,15 +19,107 @@ import codegen.ir_string_collect.{trimSpacesImpl, normalizeHeaderTypeImpl, parse
 
 var g_findStructCacheNames: Array<String> = Array<String>()
 var g_findStructCacheIdxs: Array<Int> = Array<Int>()
+var g_findStructCacheLens: Array<Int> = Array<Int>()
 var g_fieldInfoCacheKeys: Array<String> = Array<String>()
 var g_fieldInfoCacheIdxs: Array<Int> = Array<Int>()
+var g_funcReturnCacheNames: Array<String> = Array<String>()
+var g_funcReturnCacheIdxs: Array<Int> = Array<Int>()
+var g_funcReturnCacheLens: Array<Int> = Array<Int>()
 
-fun findCachedStructIndex(name: String) r: Int {
+fun cachedStructNameMatches(name: String, cachedName: String) r: Bool {
+    if cachedName == name {
+        return true
+    }
+    if name.contains("<") {
+        let ltIdx = name.indexOf("<", 0)
+        if ltIdx > 0 {
+            let baseName = name.substring(0, ltIdx)
+            if cachedName == baseName {
+                return true
+            }
+        }
+    }
+    return false
+}
+
+fun findCachedStructIndex(name: String, structNames: Array<String>) r: Int {
+    let structLen = structNames.length()
+    var i = g_findStructCacheNames.length() - 1
+    while i >= 0 {
+        if g_findStructCacheNames[i] == name and
+            g_findStructCacheLens[i] == structLen {
+
+            let idx = g_findStructCacheIdxs[i]
+            if idx >= 0 and idx < structLen {
+                if cachedStructNameMatches(name, structNames[idx]) {
+                    return idx
+                }
+            }
+            return -1
+        }
+        i = i - 1
+    }
     return -1
 }
 
-fun cacheStructIndex(name: String, idx: Int) r: Void {
-    return
+fun cacheStructIndex(name: String, idx: Int, structNames: Array<String>) r: Void {
+    if idx < 0 {
+        return
+    }
+    let structLen = structNames.length()
+    var i = g_findStructCacheNames.length() - 1
+    while i >= 0 {
+        if g_findStructCacheNames[i] == name {
+            g_findStructCacheIdxs[i] = idx
+            g_findStructCacheLens[i] = structLen
+            return
+        }
+        i = i - 1
+    }
+    g_findStructCacheNames.push(name)
+    g_findStructCacheIdxs.push(idx)
+    g_findStructCacheLens.push(structLen)
+}
+
+fun findCachedFunctionReturnIndex(name: String,
+    funcNames: Array<String>) r: Int {
+
+    let funcLen = funcNames.length()
+    var i = g_funcReturnCacheNames.length() - 1
+    while i >= 0 {
+        if g_funcReturnCacheNames[i] == name and
+            g_funcReturnCacheLens[i] == funcLen {
+
+            let idx = g_funcReturnCacheIdxs[i]
+            if idx < 0 {
+                return -1
+            }
+            if idx < funcLen and funcNames[idx] == name {
+                return idx
+            }
+            return -2
+        }
+        i = i - 1
+    }
+    return -2
+}
+
+fun cacheFunctionReturnIndex(name: String, idx: Int,
+    funcNames: Array<String>) r: Void {
+
+    let funcLen = funcNames.length()
+    var i = g_funcReturnCacheNames.length() - 1
+    while i >= 0 {
+        if g_funcReturnCacheNames[i] == name {
+            g_funcReturnCacheIdxs[i] = idx
+            g_funcReturnCacheLens[i] = funcLen
+            return
+        }
+        i = i - 1
+    }
+    g_funcReturnCacheNames.push(name)
+    g_funcReturnCacheIdxs.push(idx)
+    g_funcReturnCacheLens.push(funcLen)
 }
 
 fun findCachedFieldIndex(key: String) r: Int {
@@ -83,14 +175,14 @@ class TypeRegistry {
     // =========================================================================
 
     fun findStruct(name: String) r: Int {
-        let cached = findCachedStructIndex(name)
+        let cached = findCachedStructIndex(name, structNames)
         if cached >= 0 {
             return cached
         }
         var i = structNames.length() - 1
         while i >= 0 {
             if structNames[i] == name {
-                cacheStructIndex(name, i)
+                cacheStructIndex(name, i, structNames)
                 return i
             }
             i = i - 1
@@ -102,7 +194,7 @@ class TypeRegistry {
                 var j = structNames.length() - 1
                 while j >= 0 {
                     if structNames[j] == baseName {
-                        cacheStructIndex(name, j)
+                        cacheStructIndex(name, j, structNames)
                         return j
                     }
                     j = j - 1
@@ -166,13 +258,22 @@ class TypeRegistry {
     // =========================================================================
 
     fun getFunctionReturnType(name: String) r: String {
+        let cached = findCachedFunctionReturnIndex(name, funcNames)
+        if cached >= 0 {
+            return funcRetTypes[cached]
+        }
+        if cached == -1 {
+            return ""
+        }
         var i = funcNames.length() - 1
         while i >= 0 {
             if funcNames[i] == name {
+                cacheFunctionReturnIndex(name, i, funcNames)
                 return funcRetTypes[i]
             }
             i = i - 1
         }
+        cacheFunctionReturnIndex(name, -1, funcNames)
         return ""
     }
 
@@ -726,9 +827,14 @@ fun csStoreVar(s: CodegenState, name: String, reg: String, varType: String) r: V
 // =========================================================================
 
 fun findStructReg(name: String, structNames: Array<String>) r: Int {
+    let cached = findCachedStructIndex(name, structNames)
+    if cached >= 0 {
+        return cached
+    }
     var i = structNames.length() - 1
     while i >= 0 {
         if structNames[i] == name {
+            cacheStructIndex(name, i, structNames)
             return i
         }
         i = i - 1
@@ -740,6 +846,7 @@ fun findStructReg(name: String, structNames: Array<String>) r: Int {
             var j = structNames.length() - 1
             while j >= 0 {
                 if structNames[j] == baseName {
+                    cacheStructIndex(name, j, structNames)
                     return j
                 }
                 j = j - 1
@@ -809,11 +916,22 @@ fun registerKnownDataTypesReg(structNames: Array<String>, structLayouts: Array<S
 }
 
 fun getFunctionReturnTypeReg(name: String, funcNames: Array<String>, funcRetTypes: Array<String>) r: String {
+    let cached = findCachedFunctionReturnIndex(name, funcNames)
+    if cached >= 0 {
+        return funcRetTypes[cached]
+    }
+    if cached == -1 {
+        return ""
+    }
     var i = funcNames.length() - 1
     while i >= 0 {
-        if funcNames[i] == name { return funcRetTypes[i] }
+        if funcNames[i] == name {
+            cacheFunctionReturnIndex(name, i, funcNames)
+            return funcRetTypes[i]
+        }
         i = i - 1
     }
+    cacheFunctionReturnIndex(name, -1, funcNames)
     return ""
 }
 

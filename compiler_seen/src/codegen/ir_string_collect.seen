@@ -61,6 +61,19 @@ fun hasCachedStringConst(value: String) r: Bool {
     return false
 }
 
+fun findCachedStringConstIndex(value: String) r: Int {
+    initStringConstCache()
+    let bucket = simpleHash(value, stringConstBucketCount())
+    var idx = g_stringConstCacheBuckets[bucket]
+    while idx >= 0 {
+        if g_stringConstCacheKeys[idx] == value {
+            return idx
+        }
+        idx = g_stringConstCacheNext[idx]
+    }
+    return -1
+}
+
 fun hexToDecimalImpl(value: String) r: String {
     let len = value.length()
     if len < 3 {
@@ -712,17 +725,10 @@ fun collectStringConstantsFromStatementImpl(stmt: StatementNode, stringConstants
 fun collectStringConstantsFromExprImpl(expr: ParserExpressionNode, stringConstants: Array<String>, callCountNamesBox: Array<String>, callCountEntriesBox: Array<Int>) r: Void {
     if expr.kind == "" { return }
     if expr.kind == "Literal" and expr.literalType == "String" {
-        var found = false
-        var i = 0
-        while i < stringConstants.length() {
-            if stringConstants[i] == expr.literalValue {
-                found = true
-                break
-            }
-            i = i + 1
-        }
-        if not found {
+        ensureStringConstCache(stringConstants)
+        if not hasCachedStringConst(expr.literalValue) {
             stringConstants.push(expr.literalValue)
+            cacheStringConstUnchecked(expr.literalValue)
         }
     }
     if expr.kind == "Binary" {

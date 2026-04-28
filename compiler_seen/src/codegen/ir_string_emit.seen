@@ -3,6 +3,7 @@
 
 import str.string.{StringBuilder}
 import io.file.{readText, exists}
+import codegen.ir_string_collect.{ensureStringConstCache, findCachedStringConstIndex, cacheStringConstUnchecked}
 
 // Escape a string for embedding in LLVM IR constant data. Replaces
 // backslash, double-quote, newline, tab, and carriage-return with their
@@ -56,14 +57,8 @@ fun escapeStringImpl(str: String) r: String {
 }
 
 fun findStringConstantIndexImpl(stringConstants: Array<String>, str: String) r: Int {
-    var idx = 0
-    while idx < stringConstants.length() {
-        if stringConstants[idx] == str {
-            return idx
-        }
-        idx = idx + 1
-    }
-    return -1
+    ensureStringConstCache(stringConstants)
+    return findCachedStringConstIndex(str)
 }
 
 fun addStringConstantTableImpl(stringConstants: Array<String>, str: String) r: Int {
@@ -72,6 +67,7 @@ fun addStringConstantTableImpl(stringConstants: Array<String>, str: String) r: I
         return existingIdx
     }
     stringConstants.push(str)
+    cacheStringConstUnchecked(str)
     return stringConstants.length() - 1
 }
 

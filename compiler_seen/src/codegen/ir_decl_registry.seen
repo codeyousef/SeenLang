@@ -312,12 +312,6 @@ fun recordLateUserDeclareIntoStateImpl(name: String, llvmReturnType: String,
     if name.startsWith("__") {
         return
     }
-    if getFunctionReturnTypeStateImpl(name, funcNames, funcRetTypes) != "" {
-        return
-    }
-    if hasCrossModuleDeclareStateImpl(name, xmDeclareNames, xmDeclareCount) {
-        return
-    }
     if hasLateUserDeclareStateImpl(name, state.lateXmDeclareNames,
         state.lateXmDeclareCount) {
 

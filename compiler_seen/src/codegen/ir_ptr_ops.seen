@@ -7,7 +7,7 @@ import str.string.{StringBuilder}
 // emitPtrOpsImpl — pointer operation builtins (ptr_deref/store/add/is_null)
 // arg0/arg1/arg2: pre-generated argument registers
 fun emitPtrOpsImpl(output: StringBuilder, regBox: Array<Int>, funcName: String, arg0: String, arg1: String, arg2: String) r: String {
-    if funcName == "ptr_deref" {
+    if funcName == "ptr_deref" or funcName == "ptr_deref_i64" {
         let loadedReg = getNextRegFn(regBox)
         output.append("  " + loadedReg + " = call i64 @seen_ptr_deref_i64(i64 " + arg0 + ")\n")
         return loadedReg
@@ -17,7 +17,7 @@ fun emitPtrOpsImpl(output: StringBuilder, regBox: Array<Int>, funcName: String, 
         output.append("  " + loadedReg + " = call double @seen_ptr_deref_f64(i64 " + arg0 + ")\n")
         return loadedReg
     }
-    if funcName == "ptr_store" {
+    if funcName == "ptr_store" or funcName == "ptr_store_i64" {
         output.append("  call void @seen_ptr_store_i64(i64 " + arg0 + ", i64 " + arg1 + ")\n")
         return "0"
     }

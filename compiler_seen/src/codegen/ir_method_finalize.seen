@@ -6,7 +6,7 @@ import parser.real_parser.{ParserExpressionNode}
 import codegen.ir_optimization.{getNextRegFn, getNextBlockFn}
 import codegen.ir_call_dispatch.{emitOptionUnwrapSpecializedImpl}
 import codegen.ir_string_collect.{getBaseTypeNameImpl}
-import codegen.ir_type_mapping.{isClassTypeImpl, isDataTypeImpl, mapTypeImpl}
+import codegen.ir_type_mapping.{isClassTypeImpl, isDataTypeImpl, mapTypeImpl, isClassHandleLikeTypeImpl}
 import codegen.type_registry.{isDataTypeReg}
 import str.string.{StringBuilder}
 
@@ -185,11 +185,19 @@ fun prepareMethodCallReceiverAbiImpl(output: StringBuilder, regBox: Array<Int>,
         }
     }
 
-    let receiverIsClass = isClassTypeImpl(receiverType, structNames)
+    let receiverIsKnownClass = isClassTypeImpl(receiverType, structNames)
+    var receiverIsClass = receiverIsKnownClass
+    if receiverIsClass == 0 {
+        receiverIsClass = isClassHandleLikeTypeImpl(receiverType, structNames)
+    }
+    var receiverNeedsPtrLift = 0
+    if receiverStorageLlvmType == "i64" {
+        receiverNeedsPtrLift = 1
+    }
     let receiverIsData = isDataTypeImpl(receiverType)
     resolveMethodReceiverAbiImpl(output, regBox, instanceTypeName,
         receiverStorageLlvmType, receiverRegBox, receiverLlvmTypeBox,
-        receiverIsClass, receiverIsData)
+        receiverNeedsPtrLift, receiverIsData)
 }
 
 // extractOptionInnerTypeImpl — parse Option<T> payload type for unwrap lowering.

@@ -827,6 +827,48 @@ fun isClassTypeImpl(name: String, structNames: Array<String>) r: Int {
     return 0
 }
 
+fun isClassHandleLikeTypeImpl(name: String, structNames: Array<String>) r: Int {
+    let baseType = getBaseTypeNameImpl(name)
+    if baseType == "" {
+        return 0
+    }
+    if baseType == "Int" { return 0 }
+    if baseType == "Char" { return 0 }
+    if baseType == "Bool" { return 0 }
+    if baseType == "Boolean" { return 0 }
+    if baseType == "Float" { return 0 }
+    if baseType == "String" { return 0 }
+    if baseType == "Void" { return 0 }
+    if baseType == "Array" { return 0 }
+    if baseType == "List" { return 0 }
+    if baseType == "Vec" { return 0 }
+    if baseType == "SmallVec" { return 0 }
+    if baseType == "Map" { return 0 }
+    if baseType == "HashMap" { return 0 }
+    if baseType == "BTreeMap" { return 0 }
+    if baseType == "LinkedList" { return 0 }
+    if baseType == "Option" { return 0 }
+    if baseType == "Optional" { return 0 }
+    if baseType == "Result" { return 0 }
+    if baseType == "ErrorUnion" { return 0 }
+    if baseType == "Buffer" { return 0 }
+    if baseType == "Uniform" { return 0 }
+    if baseType == "Image" { return 0 }
+    if name.startsWith("*") { return 0 }
+    if name.startsWith("dyn ") { return 0 }
+    if isDataTypeImpl(baseType) == 1 {
+        return 0
+    }
+    if isClassTypeImpl(baseType, structNames) == 1 {
+        return 1
+    }
+    let first = baseType.byteAt(0)
+    if first >= 65 and first <= 90 {
+        return 1
+    }
+    return 0
+}
+
 // ============================================================
 // mapType — map Seen type name to LLVM IR type
 // ============================================================

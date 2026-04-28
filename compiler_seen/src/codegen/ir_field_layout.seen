@@ -6,7 +6,7 @@ import codegen.ir_optimization.{parseIntManual, splitPipe, getNextRegFn}
 import codegen.ir_bitfield_access.{findBitfieldWidthImpl}
 import codegen.ir_member_access.{emitFieldAccessPtrImpl, emitFieldAccessLoadImpl, emitBitfieldMaskLoadImpl}
 import codegen.ir_type_info.{findStructIdx, g_resolvedFieldIndex, getLLVMIRGeneratorFieldIndexImpl, getLLVMIRGeneratorStructLayoutImpl, getSeenFieldTypeImpl}
-import codegen.ir_type_mapping.{resolveKnownStructFieldImpl, mapTypeImpl}
+import codegen.ir_type_mapping.{resolveKnownStructFieldImpl, mapTypeImpl, isClassHandleLikeTypeImpl}
 import codegen.ir_path_expr.{splitFirstPathDotImpl, splitChainedPathImpl}
 import codegen.type_registry.{getFieldInfoReg, isClassTypeReg}
 
@@ -226,11 +226,15 @@ fun emitChainedFieldReceiverPtrImpl(output: StringBuilder, regBox: Array<Int>,
     typeAliasCount: Int, enumTypeNames: String, bitfieldCount: Int,
     bitfieldKeys: String, bitfieldWidths: String) r: String {
 
-    if isClassTypeReg(fieldSeenType, structNames) {
-        let fieldValueReg = emitSimpleFieldAccessLoadImpl(output, regBox,
-            ptrReg, structType, fieldName, fieldSeenType, structNames,
+    if isClassHandleLikeTypeImpl(fieldSeenType, structNames) == 1 {
+        var fieldLlvmType = mapTypeImpl(fieldSeenType, structNames,
+            typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames)
+        if not isClassTypeReg(fieldSeenType, structNames) {
+            fieldLlvmType = "i64"
+        }
+        let fieldValueReg = emitDirectFieldAccessLoadImpl(output, regBox,
+            ptrReg, structType, fieldName, fieldLlvmType, structNames,
             structLayouts, structFieldNames, reprCClassNames, unionTypes,
-            typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames,
             bitfieldCount, bitfieldKeys, bitfieldWidths)
         let fieldPtrReg = getNextRegFn(regBox)
         output.append("  " + fieldPtrReg + " = inttoptr i64 " + fieldValueReg +
@@ -266,6 +270,20 @@ fun emitChainedFieldAccessTailImpl(output: StringBuilder, regBox: Array<Int>,
         bitfieldKeys, bitfieldWidths)
 }
 
+fun isScalarFieldChainTerminalTypeImpl(typeName: String) r: Bool {
+    if typeName == "" { return true }
+    if typeName == "Unknown" { return true }
+    if typeName == "Int" { return true }
+    if typeName == "Integer" { return true }
+    if typeName == "Char" { return true }
+    if typeName == "Bool" { return true }
+    if typeName == "Boolean" { return true }
+    if typeName == "Float" { return true }
+    if typeName == "String" { return true }
+    if typeName == "Void" { return true }
+    return false
+}
+
 fun tryEmitChainedFieldAccessImpl(output: StringBuilder, regBox: Array<Int>,
     ptrReg: String, structType: String, fieldName: String,
     structNames: Array<String>, structLayouts: Array<String>,
@@ -295,6 +313,12 @@ fun tryEmitChainedFieldAccessImpl(output: StringBuilder, regBox: Array<Int>,
 
     let firstType = getSeenFieldTypeImpl(structType, firstField, structNames,
         structFieldNames, structFieldTypes)
+    if isScalarFieldChainTerminalTypeImpl(firstType) {
+        output.append("; WARNING: chained field access not resolved, baseType='" +
+            structType + "', firstField='" + firstField + "', firstType='" +
+            firstType + "', tail='" + restFields + "'\n")
+        return "0"
+    }
 
     let firstPtrReg = emitChainedFieldReceiverPtrImpl(output, regBox, ptrReg,
         structType, firstField, firstType, structNames, structLayouts,
@@ -349,14 +373,17 @@ fun resolveMemberAccessFieldReceiverPtrImpl(output: StringBuilder,
     typeAliasCount: Int, enumTypeNames: String, bitfieldCount: Int,
     bitfieldKeys: String, bitfieldWidths: String) r: String {
 
-    if isClassTypeReg(fieldType, structNames) {
+    if isClassHandleLikeTypeImpl(fieldType, structNames) == 1 {
+        var fieldLlvmType = mapTypeImpl(fieldType, structNames,
+            typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames)
+        if not isClassTypeReg(fieldType, structNames) {
+            fieldLlvmType = "i64"
+        }
         let loadedVal = generateFieldAccessImpl(output, regBox, basePtrReg,
-            baseType, fieldName, mapTypeImpl(fieldType, structNames,
-            typeAliasNames, typeAliasTargets, typeAliasCount,
-            enumTypeNames), structNames, structLayouts, structFieldNames,
-            structFieldTypes, reprCClassNames, unionTypes, typeAliasNames,
-            typeAliasTargets, typeAliasCount, enumTypeNames, bitfieldCount,
-            bitfieldKeys, bitfieldWidths)
+            baseType, fieldName, fieldLlvmType, structNames, structLayouts,
+            structFieldNames, structFieldTypes, reprCClassNames, unionTypes,
+            typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames,
+            bitfieldCount, bitfieldKeys, bitfieldWidths)
         let ptrConvReg = getNextRegFn(regBox)
         output.append("  " + ptrConvReg + " = inttoptr i64 " + loadedVal +
             " to ptr\n")

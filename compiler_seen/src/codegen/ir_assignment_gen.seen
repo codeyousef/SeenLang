@@ -6,7 +6,7 @@
 import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_string_collect.{getBaseTypeNameImpl}
 import codegen.ir_type_info.{findStructIdx, getSeenFieldTypeImpl}
-import codegen.ir_type_mapping.{isClassTypeImpl, isDataTypeImpl, mapTypeImpl}
+import codegen.ir_type_mapping.{isClassTypeImpl, isDataTypeImpl, mapTypeImpl, isClassHandleLikeTypeImpl}
 import codegen.ir_bitfield_access.{findBitfieldWidthImpl}
 import codegen.ir_field_layout.{emitResolvedFieldAccessPtrImpl, emitResolvedFieldAccessLoadImpl}
 import codegen.ir_member_access.{prepareExpressionMemberReceiverImpl, prepareVariableMemberReceiverImpl}
@@ -221,6 +221,33 @@ fun coerceAssignmentStoreValueImpl(output: StringBuilder, regBox: Array<Int>,
     return valueReg
 }
 
+fun coerceMethodCallHandleAssignmentImpl(output: StringBuilder,
+    regBox: Array<Int>, targetLlvmType: String, valueSeenType: String,
+    valueReg: String, valueKind: String, alreadyCoercedValueReg: String,
+    structNames: Array<String>) r: String {
+
+    if targetLlvmType != "ptr" {
+        return alreadyCoercedValueReg
+    }
+    if alreadyCoercedValueReg != valueReg {
+        return alreadyCoercedValueReg
+    }
+    if valueKind != "MethodCall" and valueKind != "Call" {
+        return alreadyCoercedValueReg
+    }
+    if valueReg == "0" {
+        return "null"
+    }
+    if isClassHandleLikeTypeImpl(valueSeenType, structNames) != 1 {
+        return alreadyCoercedValueReg
+    }
+
+    let coercedReg = getNextRegFn(regBox)
+    output.append("  " + coercedReg + " = inttoptr i64 " + valueReg +
+        " to ptr\n")
+    return coercedReg
+}
+
 fun emitResolvedMemberAssignmentStoreImpl(output: StringBuilder,
     regBox: Array<Int>, receiverPtrReg: String, receiverType: String,
     fieldName: String, valueReg: String, valueKind: String,
@@ -277,8 +304,11 @@ fun emitResolvedMemberAssignmentStoreImpl(output: StringBuilder,
     if isDataTypeImpl(fieldTypes[1]) == 1 {
         isDataField = 1
     }
-    let coercedValueReg = coerceAssignmentStoreValueImpl(output, regBox,
+    var coercedValueReg = coerceAssignmentStoreValueImpl(output, regBox,
         fieldTypes[0], valueSeenType, valueReg, structNames)
+    coercedValueReg = coerceMethodCallHandleAssignmentImpl(output, regBox,
+        fieldTypes[0], valueSeenType, valueReg, valueKind,
+        coercedValueReg, structNames)
     emitFieldStoreImpl(output, regBox, coercedValueReg, fieldTypes[0],
         fieldPtrReg, valueIsStructLit, isDataField)
     return 1

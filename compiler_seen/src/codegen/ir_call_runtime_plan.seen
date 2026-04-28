@@ -70,6 +70,9 @@ fun runtimeIoCallActionImpl(funcName: String, argCount: Int) r: Int {
     if funcName == "args" {
         return 3
     }
+    if funcName == "__ReadFileBytes" {
+        if argCount == 1 { return 5 }
+    }
     return 0
 }
 

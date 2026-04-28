@@ -4,6 +4,40 @@
 
 // inferBinaryTypeImpl — infer result type from binary operator and operand types
 // Returns "" if neither operand type constrains the result (fallthrough to "Int")
+var g_methodBoolSuffixCacheCallees: Array<String> = Array<String>()
+var g_methodBoolSuffixCacheLens: Array<Int> = Array<Int>()
+var g_methodBoolSuffixCacheTypes: Array<String> = Array<String>()
+
+fun findMethodBoolSuffixCacheRecord(callee: String, funcLen: Int) r: Int {
+    var i = g_methodBoolSuffixCacheCallees.length() - 1
+    while i >= 0 {
+        if g_methodBoolSuffixCacheCallees[i] == callee and
+            g_methodBoolSuffixCacheLens[i] == funcLen {
+
+            return i
+        }
+        i = i - 1
+    }
+    return -1
+}
+
+fun cacheMethodBoolSuffixType(callee: String, funcLen: Int,
+    resultType: String) r: Void {
+
+    var i = g_methodBoolSuffixCacheCallees.length() - 1
+    while i >= 0 {
+        if g_methodBoolSuffixCacheCallees[i] == callee {
+            g_methodBoolSuffixCacheLens[i] = funcLen
+            g_methodBoolSuffixCacheTypes[i] = resultType
+            return
+        }
+        i = i - 1
+    }
+    g_methodBoolSuffixCacheCallees.push(callee)
+    g_methodBoolSuffixCacheLens.push(funcLen)
+    g_methodBoolSuffixCacheTypes.push(resultType)
+}
+
 fun inferBinaryTypeImpl(operator: String, leftType: String, rightType: String) r: String {
     // Comparison and logical operators always return Bool
     if operator == "==" or operator == "!=" or operator == "<" or operator == ">" or operator == "<=" or operator == ">=" or operator == "and" or operator == "or" {
@@ -11,7 +45,8 @@ fun inferBinaryTypeImpl(operator: String, leftType: String, rightType: String) r
     }
     // String concatenation via +
     if operator == "+" {
-        if leftType == "String" or rightType == "String" {
+        if leftType == "String" or rightType == "String" or
+            leftType == "Char" or rightType == "Char" {
             return "String"
         }
     }
@@ -284,17 +319,24 @@ fun inferReceiverRegistryMethodCallTypeImpl(methodName: String,
 fun inferMethodCallBoolSuffixImpl(callee: String, funcNames: Array<String>,
     funcRetTypes: Array<String>) r: String {
 
+    let funcLen = funcNames.length()
+    let cached = findMethodBoolSuffixCacheRecord(callee, funcLen)
+    if cached >= 0 {
+        return g_methodBoolSuffixCacheTypes[cached]
+    }
     let boolSuffix = "_" + callee
-    var boolScanIdx = funcNames.length() - 1
+    var boolScanIdx = funcLen - 1
     while boolScanIdx >= 0 {
         if funcNames[boolScanIdx].endsWith(boolSuffix) {
             if funcRetTypes[boolScanIdx] == "Bool" {
+                cacheMethodBoolSuffixType(callee, funcLen, "Bool")
                 return "Bool"
             }
             boolScanIdx = -1
         }
         boolScanIdx = boolScanIdx - 1
     }
+    cacheMethodBoolSuffixType(callee, funcLen, "")
     return ""
 }
 
@@ -347,6 +389,7 @@ fun inferCallExprTypeImpl(callee: String) r: String {
     if callee == "includeStr" { return "String" }
     if callee == "includeBytes" { return "Int" }
     // Typed pointer operation return types
+    if callee == "ptr_deref_i64" { return "Int" }
     if callee == "ptr_deref_i32" { return "Int32" }
     if callee == "ptr_deref_i16" { return "Int16" }
     if callee == "ptr_deref_i8" { return "Int8" }

@@ -5,6 +5,7 @@ import parser.real_parser.{ProgramNode, FunctionNode}
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{parseGlobalVarMutable, parseGlobalVarType, parseGlobalVarValue, pipeGet}
 import codegen.ir_decl_items.{isRuntimeBackedStringCompatFunctionImpl}
+import codegen.ir_string_collect.{hexToDecimalImpl}
 
 fun quoteModuleEmitIdentIfNeeded(name: String) r: String {
     var i = 0
@@ -63,6 +64,10 @@ fun isNumericGlobalLiteralImpl(initVal: String) r: Bool {
     return false
 }
 
+fun normalizeGlobalIntegerLiteralImpl(initVal: String) r: String {
+    return hexToDecimalImpl(initVal)
+}
+
 fun computeGlobalVarInitializerImpl(seenType: String, initVal: String) r: String {
     let defaultInit = defaultGlobalVarInitializerImpl(seenType)
     if initVal == "" {
@@ -78,7 +83,7 @@ fun computeGlobalVarInitializerImpl(seenType: String, initVal: String) r: String
         return defaultInit
     }
     if isNumericGlobalLiteralImpl(initVal) {
-        return initVal
+        return normalizeGlobalIntegerLiteralImpl(initVal)
     }
     return defaultInit
 }
@@ -117,28 +122,34 @@ fun emitGlobalVariablesImpl(output: StringBuilder, program: ProgramNode,
     ensureStringBoxInitialized(moduleConstSeenTypesBox)
 
     var i = 0
-    while i < program.items.length() {
-        let item = program.items[i]
-        if item.itemType == "GlobalVar" {
-            let encoded = item.visibility
-            let seenType = parseGlobalVarType(encoded)
-            let initVal = parseGlobalVarValue(encoded)
-            let llvmType = mapGlobalVarLlvmTypeImpl(seenType)
-            let actualInit = computeGlobalVarInitializerImpl(seenType, initVal)
-            output.append("@" + quoteModuleEmitIdentIfNeeded(item.name) + " = global " + llvmType + " " + actualInit + "\n")
-            moduleConstantNames.push(item.name)
-            moduleConstantTypes.push(llvmType)
-            moduleConstantValues.push(actualInit)
-            var mutStr = "0"
-            if parseGlobalVarMutable(encoded) {
-                mutStr = "1"
-            }
-            appendPipeValueBox(moduleConstMutableBox, mutStr)
-            appendPipeValueBox(moduleConstSeenTypesBox, seenType)
-        }
-        i = i + 1
-    }
-}
+	    while i < program.items.length() {
+	        let item = program.items[i]
+	        if item.itemType == "GlobalVar" {
+	            if not arrayContainsString(moduleConstantNames, item.name) {
+	                let encoded = item.visibility
+	                let seenType = parseGlobalVarType(encoded)
+	                let initVal = parseGlobalVarValue(encoded)
+	                let llvmType = mapGlobalVarLlvmTypeImpl(seenType)
+	                let actualInit = computeGlobalVarInitializerImpl(seenType, initVal)
+	                var linkage = ""
+	                if not parseGlobalVarMutable(encoded) {
+	                    linkage = "weak "
+	                }
+	                output.append("@" + quoteModuleEmitIdentIfNeeded(item.name) + " = " + linkage + "global " + llvmType + " " + actualInit + "\n")
+	                moduleConstantNames.push(item.name)
+	                moduleConstantTypes.push(llvmType)
+	                moduleConstantValues.push(actualInit)
+	                var mutStr = "0"
+	                if parseGlobalVarMutable(encoded) {
+	                    mutStr = "1"
+	                }
+	                appendPipeValueBox(moduleConstMutableBox, mutStr)
+	                appendPipeValueBox(moduleConstSeenTypesBox, seenType)
+	            }
+	        }
+	        i = i + 1
+	    }
+	}
 
 fun arrayContainsString(values: Array<String>, target: String) r: Bool {
     var i = 0
@@ -154,16 +165,18 @@ fun arrayContainsString(values: Array<String>, target: String) r: Bool {
 fun emitCrossModuleConstantDeclaresImpl(output: StringBuilder, moduleConstantNames: Array<String>,
     xmConstNames: String, xmConstTypes: String, xmConstCount: Int) r: Void {
 
-    var i = 0
-    while i < xmConstCount {
-        let name = pipeGet(xmConstNames, i)
-        let llvmType = pipeGet(xmConstTypes, i)
-        if isValidCrossModuleConstantEntryImpl(name, llvmType) and not arrayContainsString(moduleConstantNames, name) {
-            output.append("@" + quoteModuleEmitIdentIfNeeded(name) + " = external global " + llvmType + "\n")
-        }
-        i = i + 1
-    }
-}
+	    var i = 0
+	    let emittedNames = Array<String>()
+	    while i < xmConstCount {
+	        let name = pipeGet(xmConstNames, i)
+	        let llvmType = pipeGet(xmConstTypes, i)
+	        if isValidCrossModuleConstantEntryImpl(name, llvmType) and not arrayContainsString(moduleConstantNames, name) and not arrayContainsString(emittedNames, name) {
+	            output.append("@" + quoteModuleEmitIdentIfNeeded(name) + " = external global " + llvmType + "\n")
+	            emittedNames.push(name)
+	        }
+	        i = i + 1
+	    }
+	}
 
 fun emitTraitVtableConstantsImpl(output: StringBuilder, traitImplRegistry: String,
     traitImplCount: Int, dynTraitNames: String) r: Void {

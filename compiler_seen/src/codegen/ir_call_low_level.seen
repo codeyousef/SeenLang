@@ -12,6 +12,7 @@ fun isPtrBuiltinCallImpl(funcName: String) r: Int {
     if funcName == "ptr_deref" or funcName == "ptr_deref_f64" or
         funcName == "ptr_store" or funcName == "ptr_store_f64" or
         funcName == "ptr_is_null" or funcName == "ptr_add" or
+        funcName == "ptr_deref_i64" or funcName == "ptr_store_i64" or
         funcName == "ptr_deref_i32" or funcName == "ptr_store_i32" or
         funcName == "ptr_deref_i16" or funcName == "ptr_store_i16" or
         funcName == "ptr_deref_i8" or funcName == "ptr_store_i8" or

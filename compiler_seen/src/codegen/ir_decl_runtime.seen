@@ -496,9 +496,10 @@ fun emitCoreRuntimeDecls(output: StringBuilder, runtimeDeclsLoaded: Bool, define
         // File I/O primitives
         output.append("declare i64 @__OpenFile(%SeenString, %SeenString) nounwind\n")
         output.append("declare %SeenString @__ReadFile(i64) nounwind\n")
-        output.append("declare %SeenArray @__ReadFileBytes(i64, i64) nounwind\n")
+        output.append("declare ptr @__ReadFileBytes(i64, i64) nounwind\n")
+        output.append("declare ptr @__ReadFileBytesPath(%SeenString) nounwind\n")
         output.append("declare i64 @__WriteFile(i64, %SeenString) nounwind\n")
-        output.append("declare i64 @__WriteFileBytes(i64, %SeenArray) nounwind\n")
+        output.append("declare i64 @__WriteFileBytes(i64, ptr) nounwind\n")
         output.append("declare i64 @__CloseFile(i64) nounwind\n")
         output.append("declare i64 @__FileSize(i64) nounwind\n")
         output.append("declare %SeenString @__FileError(i64) nounwind\n")

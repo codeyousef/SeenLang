@@ -32,6 +32,17 @@ fun appendPipeValue(box: Array<String>, value: String) r: Void {
     }
 }
 
+fun pipeNameContainsImpl(values: String, count: Int, target: String) r: Bool {
+    var i = 0
+    while i < count {
+        if pipeGet(values, i) == target {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
 fun sanitizeDeclSignaturePartImpl(value: String) r: String {
     let len = value.length()
     if len < 0 or len > 4096 {
@@ -454,6 +465,12 @@ fun registerCrossModuleConstantsImpl(program: ProgramNode,
     xmConstMutableBox: Array<String>, xmConstSeenTypesBox: Array<String>,
     xmConstCountBox: Array<Int>) r: Void {
 
+    ensureStringBoxValue(xmConstNamesBox)
+    ensureStringBoxValue(xmConstTypesBox)
+    ensureStringBoxValue(xmConstMutableBox)
+    ensureStringBoxValue(xmConstSeenTypesBox)
+    ensureIntBoxValue(xmConstCountBox)
+
     var itemIdx = 0
     while itemIdx < program.items.length() {
         let item = program.items[itemIdx]
@@ -461,7 +478,10 @@ fun registerCrossModuleConstantsImpl(program: ProgramNode,
             let encoded = item.visibility
             let seenType = parseGlobalVarType(encoded)
             let llvmType = mapGlobalVarLlvmTypeImpl(seenType)
-            if isValidCrossModuleConstantEntryImpl(item.name, llvmType) {
+            if isValidCrossModuleConstantEntryImpl(item.name, llvmType) and
+                not pipeNameContainsImpl(xmConstNamesBox[0],
+                    xmConstCountBox[0], item.name) {
+
                 var mutFlag = "0"
                 if parseGlobalVarMutable(encoded) {
                     mutFlag = "1"

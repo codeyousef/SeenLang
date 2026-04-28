@@ -170,7 +170,11 @@ fun emitFieldAccessPtrImpl(output: StringBuilder, regBox: Array<Int>,
     ptrReg: String, structLayout: String, fieldIndex: Int) r: String {
 
     let fieldPtrReg = getNextRegFn(regBox)
-    output.append("  " + fieldPtrReg + " = getelementptr inbounds " + structLayout + ", ptr " + ptrReg + ", i32 0, i32 " + fieldIndex.toString() + "\n")
+    var actualPtrReg = ptrReg
+    if actualPtrReg == "0" {
+        actualPtrReg = "null"
+    }
+    output.append("  " + fieldPtrReg + " = getelementptr inbounds " + structLayout + ", ptr " + actualPtrReg + ", i32 0, i32 " + fieldIndex.toString() + "\n")
     return fieldPtrReg
 }
 

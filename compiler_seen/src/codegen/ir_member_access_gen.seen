@@ -3,10 +3,17 @@
 
 import str.string.{StringBuilder}
 import codegen.ir_type_mapping.{isDataTypeImpl}
-import codegen.ir_field_layout.{generateFieldAccessImpl, resolveMemberAccessFieldReceiverPtrImpl}
+import codegen.ir_field_layout.{generateFieldAccessImpl, resolveMemberAccessFieldReceiverPtrImpl, isScalarFieldChainTerminalTypeImpl}
 import codegen.ir_member_access.{emitMemberArrayElementPtrImpl, prepareExpressionMemberReceiverImpl, prepareVariableMemberReceiverImpl, prepareModuleConstMemberReceiverImpl}
 import codegen.ir_variable_gen.{emitImplicitThisPointerLoadImpl}
 import codegen.type_registry.{isClassTypeReg}
+
+fun fallbackMemberAccessValueImpl(fieldLlvmType: String) r: String {
+    if fieldLlvmType == "i1" { return "false" }
+    if fieldLlvmType == "double" { return "0.0" }
+    if fieldLlvmType == "ptr" { return "null" }
+    return "0"
+}
 
 fun emitPreparedReceiverMemberAccessImpl(output: StringBuilder,
     regBox: Array<Int>, preparedReceiverReg: String, receiverType: String,
@@ -17,6 +24,11 @@ fun emitPreparedReceiverMemberAccessImpl(output: StringBuilder,
     typeAliasCount: Int, enumTypeNames: String, bitfieldCount: Int,
     bitfieldKeys: String, bitfieldWidths: String) r: String {
 
+    if isScalarFieldChainTerminalTypeImpl(receiverType) {
+        output.append("; WARNING: member access not resolved, receiverType='" +
+            receiverType + "', fieldName='" + fieldName + "'\n")
+        return fallbackMemberAccessValueImpl(fieldLlvmType)
+    }
     return generateFieldAccessImpl(output, regBox, preparedReceiverReg,
         receiverType, fieldName, fieldLlvmType, structNames, structLayouts,
         structFieldNames, structFieldTypes, reprCClassNames, unionTypes,

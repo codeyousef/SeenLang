@@ -12,9 +12,10 @@ import codegen.ir_trait_registry.{appendTraitImplEntryImpl, autoRegisterTraitImp
 import codegen.ir_type_mapping.{isClassTypeImpl, mapTypeImpl}
 import codegen.type_registry.{CodegenState, csGetNextReg, clearTransientFunctionLoweringOptions}
 import codegen.ir_decl_registry.{registerFunctionStateImpl}
-import codegen.ir_string_collect.{hexToDecimalImpl, trimSpacesImpl, getBaseTypeNameImpl}
+import codegen.ir_string_collect.{hexToDecimalImpl, trimSpacesImpl, getBaseTypeNameImpl, cacheStringConstUnchecked}
 import codegen.ir_string_emit.{addStringConstantTableImpl}
 import codegen.ir_string_emit.{getStringConstantIndexImpl}
+import codegen.ir_string_emit.{findStringConstantIndexImpl}
 import codegen.ir_function_param_meta.{buildFunctionParameterDeclsImpl, emitFunctionParameterAllocasImpl}
 import codegen.ir_function_lowering.{configureFunctionLoweringOptionsImpl, shouldApplyFunctionInlineHeuristicsImpl, countFunctionInlineLoopKindsImpl, appendInlineDecisionAttrImpl, isHighRegisterPressureImpl, emitHighRegisterPressureNoteImpl}
 import codegen.ir_function_usage.{hasGeneratedFunctionNameImpl, shouldSkipRuntimeBuiltinStubImpl}
@@ -955,7 +956,6 @@ fun emitFunctionEntrySetupStateImpl(state: CodegenState, fn: FunctionNode,
 
     ensureFunctionIntBoxValue(profileStringIndexBox)
 
-    println("[irgen function] signature start: " + fnName)
     let signaturePrefix = buildFunctionSignaturePrefixImpl(fn, fnName,
         returnType)
     let paramDecls = buildFunctionParameterDeclsImpl(fn,
@@ -964,7 +964,6 @@ fun emitFunctionEntrySetupStateImpl(state: CodegenState, fn: FunctionNode,
         typeAliasCount, enumTypeNames, reprCClassNames)
     emitFunctionSignatureImpl(state.output, signaturePrefix, paramDecls,
         funcAttrs)
-    println("[irgen function] signature done: " + fnName)
 
     if fn.isAsync {
         let promiseType = mapTypeImpl(state.currentFunctionReturnType,
@@ -982,15 +981,12 @@ fun emitFunctionEntrySetupStateImpl(state: CodegenState, fn: FunctionNode,
         paramActiveVarCountBox, state.registry.structNames, typeAliasNames,
         typeAliasTargets, typeAliasCount, enumTypeNames, reprCClassNames)
     state.activeVarCount = paramActiveVarCountBox[0]
-    println("[irgen function] params done: " + fnName)
 
     state.preAllocatedRegs = emitPreAllocatedAllocasImpl(state.output,
         state.regBox, state.preAllocatedTypes, state.registry.structNames,
         typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames,
         reprCClassNames)
-    println("[irgen function] allocas done: " + fnName)
 
-    println("[irgen function] dead-arg scan start: " + fnName)
     profileStringIndexBox[0] = -1
     if hasFunctionDecoratorGenImpl(fn, "profile") {
         profileStringIndexBox[0] = addStringConstantTableImpl(
@@ -999,7 +995,6 @@ fun emitFunctionEntrySetupStateImpl(state: CodegenState, fn: FunctionNode,
     let unusedParams = emitFunctionDiagnosticsAndProfileEntryImpl(
         state.output, fn, fnName, profileStringIndexBox[0], profiledFlagBox,
         profiledNameBox)
-    println("[irgen function] dead-arg scan done: " + fnName)
 
     configureFunctionLoweringOptionsImpl(fn, state.functionOptions)
     emitFunctionPrefetchHintsImpl(state.output, state.regBox, fn,
@@ -1503,19 +1498,13 @@ fun generateLiteralFree(s: CodegenState, expr: ParserExpressionNode) r: String {
     }
     if expr.literalType == "String" {
         // Find string constant index (or add if not pre-registered by collectStringConstants)
-        var idx = 0
-        var found = false
-        while idx < s.stringConstants.length() {
-            if s.stringConstants[idx] == expr.literalValue {
-                found = true
-                break
-            }
-            idx = idx + 1
-        }
-        if not found {
+        var idx = findStringConstantIndexImpl(s.stringConstants,
+            expr.literalValue)
+        if idx < 0 {
             // String was missed by collectStringConstants (e.g., in IfExpression operands).
             // Add it now so the index is correct and emitStringConstantsWithPrefix will emit it.
             s.stringConstants.push(expr.literalValue)
+            cacheStringConstUnchecked(expr.literalValue)
             idx = s.stringConstants.length() - 1
             // Emit the constant definition inline since emitStringConstantsWithPrefix already ran.
             let strLenFallback = expr.literalValue.length() + 1

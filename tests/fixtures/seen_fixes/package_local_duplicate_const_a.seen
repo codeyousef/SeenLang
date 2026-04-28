@@ -1,0 +1,5 @@
+let PACKAGE_LOCAL_COLLISION = 11
+
+fun packageLocalDuplicateA() r: Int {
+    return 0
+}

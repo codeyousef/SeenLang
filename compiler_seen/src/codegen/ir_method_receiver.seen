@@ -7,7 +7,7 @@ import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_type_info.{getSeenFieldTypeImpl}
 import codegen.ir_string_collect.{getSeenTokenTypeValueImpl}
-import codegen.ir_type_mapping.{isClassTypeImpl, mapFieldNameToReceiverType}
+import codegen.ir_type_mapping.{isClassTypeImpl, isClassHandleLikeTypeImpl, mapFieldNameToReceiverType}
 import codegen.ir_path_expr.{splitFirstPathDotImpl, resolveChainedPathSuffixTypeImpl}
 import codegen.type_registry.{findStructReg, getFieldTypeFromListsReg}
 
@@ -139,7 +139,11 @@ fun convertReceiverToPtrImpl(output: StringBuilder, regBox: Array<Int>,
             return receiverReg
         }
     }
-    if isClassTypeImpl(receiverType, structNames) == 1 {
+    var receiverIsHandle = isClassTypeImpl(receiverType, structNames)
+    if receiverIsHandle == 0 {
+        receiverIsHandle = isClassHandleLikeTypeImpl(receiverType, structNames)
+    }
+    if receiverIsHandle == 1 {
         let ptrConvReg = getNextRegFn(regBox)
         output.append("  " + ptrConvReg + " = inttoptr i64 " + receiverReg + " to ptr\n")
         return ptrConvReg

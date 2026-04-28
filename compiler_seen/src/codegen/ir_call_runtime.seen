@@ -66,6 +66,12 @@ fun emitArgsRuntimeCallImpl(output: StringBuilder, regBox: Array<Int>) r: String
     return resultReg
 }
 
+fun emitReadFileBytesPathRuntimeCallImpl(output: StringBuilder, regBox: Array<Int>, pathReg: String) r: String {
+    let resultReg = getNextRegFn(regBox)
+    output.append("  " + resultReg + " = call ptr @__ReadFileBytesPath(%SeenString " + pathReg + ")\n")
+    return resultReg
+}
+
 fun emitPanicRuntimeCallImpl(output: StringBuilder, regBox: Array<Int>, argReg: String) r: String {
     let lenReg = getNextRegFn(regBox)
     let dataReg = getNextRegFn(regBox)
