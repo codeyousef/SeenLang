@@ -5,6 +5,52 @@ All notable changes to the Seen compiler will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-04-28
+
+### Added
+
+#### LLVM IR generator SRP refactor
+- Extracted ~90 new single-responsibility helper modules from the monolithic `llvm_ir_gen.seen`, covering all major codegen concerns: function entry/exit, method dispatch, member access, binary expressions, loop control-flow, async/await, string interpolation, type layout, struct/class/enum emission, and statement dispatch.
+- Added `ir_function_lifecycle.seen`, `ir_function_prebody.seen`, `ir_function_state.seen`, `ir_function_param_meta.seen`, `ir_method_receiver.seen`, `ir_method_receiver_lookup_plan.seen`, `ir_method_finalize.seen`, `ir_binary_fold_plan.seen`, `ir_loop_context.seen`, `ir_stmt_scope.seen`, `ir_decl_items.seen`, `ir_decl_registry.seen`, `ir_decl_scan.seen`, `ir_type_header.seen`, `ir_struct_layout_build.seen`, `ir_class_type_layout.seen`, `ir_class_type_decorators.seen`, `ir_module_constants.seen`, `ir_module_emit.seen`, `ir_string_emit.seen`, `ir_when_expr_plan.seen`, `ir_when_pattern_gen.seen`, `ir_when_arm_gen.seen`, `ir_constructor_field_emit.seen`, `ir_call_runtime_plan.seen`, `ir_call_builtin_plan.seen`, `ir_call_constructors.seen`, `ir_async_await.seen`, `ir_async_registry.seen`, and many more.
+- Added `scripts/memory_guard.sh` for memory-aware process management during bootstrap builds.
+
+### Changed
+
+#### LLVM IR generator internal architecture
+- Function lowering now uses dedicated state-wrapping helpers (`ir_function_state`, `ir_function_prebody`, `ir_function_lifecycle`) for cleaner access to lowering options, entry setup, and exit cleanup.
+- Method receiver resolution split into planning (`ir_method_receiver_lookup_plan`) and code generation (`ir_method_receiver_lookup_gen`) phases, with predicates moved to `ir_method_receiver_predicates.seen`.
+- Binary expression emission split into planning (`ir_binary_plan`, `ir_binary_fold_plan`) and emit (`ir_binary_emit`) drivers; short-circuit evaluation extracted to `ir_binary_short_circuit.seen`.
+- Loop context and control-flow extracted to `ir_loop_context.seen` and `ir_loop_plan.seen`.
+- Declaration registration and scanning extracted to `ir_decl_scan.seen`, `ir_decl_registry.seen`, and `ir_decl_items.seen`.
+- Module-level constant and emit logic extracted to `ir_module_constants.seen` and `ir_module_emit.seen`.
+- Type header and layout building extracted to `ir_type_header.seen`, `ir_type_layout.seen`, `ir_struct_layout_build.seen`, and `ir_field_layout.seen`.
+- Class method generation extracted to `ir_class_method_gen.seen`; class constructor and type decoration split into `ir_class_constructor_gen.seen`, `ir_class_type_decorators.seen`, and `ir_class_type_special.seen`.
+- Enum constructor emission extracted to `ir_enum_ctor_gen.seen`.
+- String collection and emission split across `ir_string_collect.seen`, `ir_string_emit.seen`, `ir_string_interp_gen.seen`, and `ir_string_interp_infer.seen`.
+- `when` expression handling split into `ir_when_expr_plan.seen`, `ir_when_pattern_gen.seen`, `ir_when_arm_gen.seen`, and `ir_when_result_gen.seen`.
+- Statement dead-store analysis extracted to `ir_stmt_dead_code.seen` and `ir_stmt_scope.seen`.
+- `import-c` frontend split into `c_import_ast.seen`, `c_import_emit.seen`, `c_import_layout.seen`, `c_import_type_builtin.seen`, `c_import_type_map.seen`, `c_import_util.seen`, and `c_import_state.seen`.
+
+#### Bootstrap and build system
+- `safe_rebuild.sh` now uses `memory_guard.sh` for memory-capped subprocess execution during low-memory bootstrap recovery, with serialized opt execution and cleaner temp-state resets.
+
+### Fixed
+
+#### Validation, codegen, and manifest regressions
+- Fixed FEL-18 and FEL-22 validation regressions introduced during the IR refactor.
+- Fixed post-manifest codegen regressions in package-aware builds.
+- Fixed package source import resolution when using `src/` layout in `Seen.toml`.
+- Fixed FEL-22 scanner memory usage during large file ingestion.
+- Fixed FEL-22 manifest graph preflight not accounting for transitive package dependencies.
+- Fixed legacy import visibility resolution for nested module paths.
+- Fixed class method return type receiver inference (FEL-20 regression).
+- Fixed high-arity parameter handling in codegen for `i64` alias and `uint32` global initialization.
+- Fixed nested `continue` in high-arity loop contexts.
+- Fixed bool-to-int coercion return paths in codegen.
+- Fixed class method receiver resolution for static method calls on class instances.
+- Fixed typed store return semantics in the IR backend.
+- Fixed `import-c` output to not emit bogus helper bindings for real system headers.
+
 ## [0.6.0] - 2026-04-14
 
 ### Added
