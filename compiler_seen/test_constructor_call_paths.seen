@@ -1,0 +1,42 @@
+@repr(C)
+class Pair {
+    var left: Int
+    var right: Int
+}
+
+class PlainPair {
+    var left: Int
+    var right: Int
+}
+
+class Holder {
+    var items: Array<Int>
+    var score: Int
+}
+
+fun main() r: Int {
+    let filled = Array<Int>(3, 4)
+    var reserved = Array<Int>(2)
+    reserved.push(5)
+    reserved.push(6)
+
+    var map = HashMap<String, Int>()
+    map.insert("x", 9)
+
+    var holder = Holder()
+    holder.items.push(7)
+    holder.score = 11
+
+    let reprPair = Pair(1, 2)
+    let plainPair = PlainPair(8, 9)
+
+    if filled.get(0) == 4 and filled.get(2) == 4 and
+       reserved.length() == 2 and
+       map.getOrDefault("x", -1) == 9 and
+       holder.items.get(0) == 7 and holder.score == 11 and
+       reprPair.left == 1 and reprPair.right == 2 and
+       plainPair.left == 8 and plainPair.right == 9 {
+        return 0
+    }
+    return 1
+}

@@ -1,0 +1,59 @@
+// ir_when_arm_gen.seen -- Shared when-arm emission helpers
+// Extracted from llvm_ir_gen.seen to keep when-arm lowering thin.
+
+import str.string.{StringBuilder}
+import codegen.ir_optimization.{getNextRegFn}
+
+fun emitWhenArmGuardImpl(output: StringBuilder, regBox: Array<Int>,
+    guardReg: String, guardType: String, armBodyLabel: String,
+    nextCheckLabel: String) r: Void {
+
+    var guardCond = guardReg
+    if guardType != "Bool" {
+        guardCond = getNextRegFn(regBox)
+        output.append("  " + guardCond + " = icmp ne i64 " + guardReg +
+            ", 0\n")
+    }
+    let guardedLabel = armBodyLabel + ".guarded"
+    output.append("  br i1 " + guardCond + ", label %" + guardedLabel +
+        ", label %" + nextCheckLabel + "\n")
+    output.append(guardedLabel + ":\n")
+}
+
+fun ensureWhenPatternDestructPtrImpl(output: StringBuilder, regBox: Array<Int>,
+    subjectReg: String, subjectLlvm: String) r: String {
+
+    if subjectLlvm == "ptr" {
+        return subjectReg
+    }
+    let destructPtrReg = getNextRegFn(regBox)
+    output.append("  " + destructPtrReg + " = inttoptr i64 " + subjectReg +
+        " to ptr\n")
+    return destructPtrReg
+}
+
+fun emitWhenPatternBindingStoreImpl(output: StringBuilder, regBox: Array<Int>,
+    destructPtrReg: String, fieldOffset: Int, fieldLlvm: String,
+    bindPtrReg: String) r: Void {
+
+    let fieldPtrReg = getNextRegFn(regBox)
+    output.append("  " + fieldPtrReg + " = getelementptr i8, ptr " +
+        destructPtrReg + ", i64 " + fieldOffset.toString() + "\n")
+    let fieldLoadReg = getNextRegFn(regBox)
+    output.append("  " + fieldLoadReg + " = load " + fieldLlvm + ", ptr " +
+        fieldPtrReg + "\n")
+    output.append("  store " + fieldLlvm + " " + fieldLoadReg + ", ptr " +
+        bindPtrReg + "\n")
+}
+
+fun normalizeWhenArmStoreValueImpl(output: StringBuilder, regBox: Array<Int>,
+    valueReg: String, valueType: String) r: String {
+
+    if valueType == "Bool" or valueType == "Boolean" {
+        let widenedReg = getNextRegFn(regBox)
+        output.append("  " + widenedReg + " = zext i1 " + valueReg +
+            " to i64\n")
+        return widenedReg
+    }
+    return valueReg
+}

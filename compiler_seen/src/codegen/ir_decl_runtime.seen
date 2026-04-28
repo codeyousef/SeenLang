@@ -88,6 +88,12 @@ fun emitCoreRuntimeDecls(output: StringBuilder, runtimeDeclsLoaded: Bool, define
         if not isFuncDefinedInModule("Option_Unwrap", definedFuncs) {
             output.append("declare i64 @Option_Unwrap(ptr) nounwind\n")
         }
+        if not isFuncDefinedInModule("Result_isOkay", definedFuncs) {
+            output.append("declare i1 @Result_isOkay(ptr) nounwind\n")
+        }
+        if not isFuncDefinedInModule("Result_unwrapErr", definedFuncs) {
+            output.append("declare %SeenString @Result_unwrapErr(ptr) nounwind\n")
+        }
         output.append("declare i64 @SeenTokenType_unwrap(i64) nounwind readonly\n")
         // LSP type unwrap declarations (implementations in seen_runtime.c)
         output.append("declare i64 @LspPosition_unwrap(ptr) nounwind\n")
@@ -206,7 +212,7 @@ fun emitCoreRuntimeDecls(output: StringBuilder, runtimeDeclsLoaded: Bool, define
             output.append("declare i64 @ContentLengthReader_new() nounwind\n")
         }
         if not isFuncDefinedInModule("ContentLengthReader_readMessage", definedFuncs) {
-            output.append("declare ptr @ContentLengthReader_readMessage(ptr) nounwind\n")
+            output.append("declare %SeenString @ContentLengthReader_readMessage(ptr) nounwind\n")
         }
         if not isFuncDefinedInModule("ContentLengthReader_getLastError", definedFuncs) {
             output.append("declare %SeenString @ContentLengthReader_getLastError(ptr) nounwind\n")
@@ -490,9 +496,10 @@ fun emitCoreRuntimeDecls(output: StringBuilder, runtimeDeclsLoaded: Bool, define
         // File I/O primitives
         output.append("declare i64 @__OpenFile(%SeenString, %SeenString) nounwind\n")
         output.append("declare %SeenString @__ReadFile(i64) nounwind\n")
-        output.append("declare %SeenArray @__ReadFileBytes(i64, i64) nounwind\n")
+        output.append("declare ptr @__ReadFileBytes(i64, i64) nounwind\n")
+        output.append("declare ptr @__ReadFileBytesPath(%SeenString) nounwind\n")
         output.append("declare i64 @__WriteFile(i64, %SeenString) nounwind\n")
-        output.append("declare i64 @__WriteFileBytes(i64, %SeenArray) nounwind\n")
+        output.append("declare i64 @__WriteFileBytes(i64, ptr) nounwind\n")
         output.append("declare i64 @__CloseFile(i64) nounwind\n")
         output.append("declare i64 @__FileSize(i64) nounwind\n")
         output.append("declare %SeenString @__FileError(i64) nounwind\n")

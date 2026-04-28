@@ -1,0 +1,72 @@
+// ir_class_generated_features.seen — generated class decorator feature helpers
+// Extracted from llvm_ir_gen.seen to keep @derive/@reflect/@binary/@packet
+// feature emission separate from the main class generator.
+
+import parser.real_parser.{ClassNode}
+import str.string.{StringBuilder}
+import codegen.ir_decl_features.{generateDeriveSerializeImpl, generateDeriveDeserializeImpl, generateDeriveCloneImpl, generateDeriveHashImpl, generateDeriveEqImpl, generateDeriveDebugImpl, generateReflectImpl, generateBinarySerializerImpl, generateBinaryDeserializerImpl, generateJsonSerializeImpl, generateJsonDeserializeImpl, generatePacketWriterImpl, generatePacketReaderImpl}
+
+fun emitGeneratedClassDecoratorMethodsImpl(output: StringBuilder,
+    classNode: ClassNode, decoratorFlags: Array<Int>, packetIdStr: String,
+    structNames: Array<String>, structSizes: Array<Int>,
+    structMethodNames: Array<String>, structMethodRetTypes: Array<String>,
+    funcNames: Array<String>, funcRetTypes: Array<String>,
+    stringConstants: Array<String>, stringConstantPrefix: String,
+    binaryClassNames: String, binaryVersions: String,
+    binaryEndianness: String, binaryClassCount: Int) r: Void {
+
+    if decoratorFlags[0] == 1 {
+        generateDeriveSerializeImpl(output, classNode, structNames,
+            structMethodNames, structMethodRetTypes, funcNames, funcRetTypes)
+    }
+    if decoratorFlags[1] == 1 {
+        generateDeriveDeserializeImpl(output, classNode, structNames,
+            structMethodNames, structMethodRetTypes, funcNames, funcRetTypes)
+    }
+    if decoratorFlags[2] == 1 {
+        generateDeriveCloneImpl(output, classNode, structNames,
+            structMethodNames, structMethodRetTypes, funcNames, funcRetTypes)
+    }
+    if decoratorFlags[3] == 1 {
+        generateDeriveHashImpl(output, classNode, structNames,
+            structMethodNames, structMethodRetTypes, funcNames, funcRetTypes)
+    }
+    if decoratorFlags[4] == 1 {
+        generateDeriveEqImpl(output, classNode, structNames,
+            structMethodNames, structMethodRetTypes, funcNames, funcRetTypes)
+    }
+    if decoratorFlags[5] == 1 {
+        generateDeriveDebugImpl(output, classNode, structNames,
+            structMethodNames, structMethodRetTypes, funcNames, funcRetTypes,
+            stringConstants, stringConstantPrefix)
+    }
+    if decoratorFlags[6] == 1 {
+        generateJsonSerializeImpl(output, classNode, structNames, structSizes,
+            structMethodNames, structMethodRetTypes, funcNames, funcRetTypes,
+            stringConstants, stringConstantPrefix)
+        generateJsonDeserializeImpl(output, classNode, structNames,
+            structSizes, structMethodNames, structMethodRetTypes, funcNames,
+            funcRetTypes, stringConstants, stringConstantPrefix)
+    }
+    if decoratorFlags[8] == 1 {
+        generateReflectImpl(output, classNode, structNames, structMethodNames,
+            structMethodRetTypes, funcNames, funcRetTypes, stringConstants,
+            stringConstantPrefix)
+    }
+    if decoratorFlags[7] == 1 {
+        generateBinarySerializerImpl(output, classNode, structNames,
+            structMethodNames, structMethodRetTypes, funcNames, funcRetTypes,
+            binaryClassNames, binaryVersions, binaryEndianness,
+            binaryClassCount)
+        generateBinaryDeserializerImpl(output, classNode, structNames,
+            structMethodNames, structMethodRetTypes, funcNames, funcRetTypes,
+            binaryClassNames, binaryVersions, binaryEndianness,
+            binaryClassCount)
+    }
+    if decoratorFlags[9] == 1 {
+        generatePacketWriterImpl(output, classNode, packetIdStr, structNames,
+            structMethodNames, structMethodRetTypes, funcNames, funcRetTypes)
+        generatePacketReaderImpl(output, classNode, packetIdStr, structNames,
+            structMethodNames, structMethodRetTypes, funcNames, funcRetTypes)
+    }
+}

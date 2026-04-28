@@ -338,7 +338,13 @@ fun emitLengthSizeMethodImpl(output: StringBuilder, regBox: Array<Int>, receiver
         return resultReg
     }
     // String length fallback
-    if receiverType == "String" or receiverType == "" {
+    var isStringLengthReceiver = false
+    if receiverType == "String" { isStringLengthReceiver = true }
+    if receiverType == "String?" { isStringLengthReceiver = true }
+    if receiverType == "SeenString" { isStringLengthReceiver = true }
+    if receiverType == "%SeenString" { isStringLengthReceiver = true }
+    if receiverType == "" { isStringLengthReceiver = true }
+    if isStringLengthReceiver {
         let resultReg = getNextRegFn(regBox)
         var receiverStrReg = receiverReg
         if receiverReg == "0" {
@@ -386,136 +392,4 @@ fun emitTransmuteImpl(output: StringBuilder, regBox: Array<Int>, srcReg: String,
     output.append("  store " + srcLlvmType + " " + srcReg + ", ptr " + tmSlot + "\n")
     output.append("  " + tmResultReg + " = load " + dstLlvmType + ", ptr " + tmSlot + "\n")
     return tmResultReg
-}
-
-// emitPtrOpsImpl — pointer operation builtins (ptr_deref/store/add/is_null)
-// arg0/arg1/arg2: pre-generated argument registers
-fun emitPtrOpsImpl(output: StringBuilder, regBox: Array<Int>, funcName: String, arg0: String, arg1: String, arg2: String) r: String {
-    if funcName == "ptr_deref" {
-        let loadedReg = getNextRegFn(regBox)
-        output.append("  " + loadedReg + " = call i64 @seen_ptr_deref_i64(i64 " + arg0 + ")\n")
-        return loadedReg
-    }
-    if funcName == "ptr_deref_f64" {
-        let loadedReg = getNextRegFn(regBox)
-        output.append("  " + loadedReg + " = call double @seen_ptr_deref_f64(i64 " + arg0 + ")\n")
-        return loadedReg
-    }
-    if funcName == "ptr_store" {
-        output.append("  call void @seen_ptr_store_i64(i64 " + arg0 + ", i64 " + arg1 + ")\n")
-        return "0"
-    }
-    if funcName == "ptr_store_f64" {
-        output.append("  call void @seen_ptr_store_f64(i64 " + arg0 + ", double " + arg1 + ")\n")
-        return "0"
-    }
-    if funcName == "ptr_is_null" {
-        let resultReg = getNextRegFn(regBox)
-        output.append("  " + resultReg + " = call i64 @seen_ptr_is_null(i64 " + arg0 + ")\n")
-        return resultReg
-    }
-    if funcName == "ptr_add" {
-        let resultReg = getNextRegFn(regBox)
-        output.append("  " + resultReg + " = call i64 @seen_ptr_add(i64 " + arg0 + ", i64 " + arg1 + ", i64 " + arg2 + ")\n")
-        return resultReg
-    }
-    // Typed pointer operations for C interop (fixed-width types)
-    if funcName == "ptr_deref_i32" {
-        let ptrReg = getNextRegFn(regBox)
-        output.append("  " + ptrReg + " = inttoptr i64 " + arg0 + " to ptr\n")
-        let loadedReg = getNextRegFn(regBox)
-        output.append("  " + loadedReg + " = load i32, ptr " + ptrReg + "\n")
-        return loadedReg
-    }
-    if funcName == "ptr_store_i32" {
-        let ptrReg = getNextRegFn(regBox)
-        output.append("  " + ptrReg + " = inttoptr i64 " + arg0 + " to ptr\n")
-        output.append("  store i32 " + arg1 + ", ptr " + ptrReg + "\n")
-        return "0"
-    }
-    if funcName == "ptr_deref_i16" {
-        let ptrReg = getNextRegFn(regBox)
-        output.append("  " + ptrReg + " = inttoptr i64 " + arg0 + " to ptr\n")
-        let loadedReg = getNextRegFn(regBox)
-        output.append("  " + loadedReg + " = load i16, ptr " + ptrReg + "\n")
-        return loadedReg
-    }
-    if funcName == "ptr_store_i16" {
-        let ptrReg = getNextRegFn(regBox)
-        output.append("  " + ptrReg + " = inttoptr i64 " + arg0 + " to ptr\n")
-        output.append("  store i16 " + arg1 + ", ptr " + ptrReg + "\n")
-        return "0"
-    }
-    if funcName == "ptr_deref_i8" {
-        let ptrReg = getNextRegFn(regBox)
-        output.append("  " + ptrReg + " = inttoptr i64 " + arg0 + " to ptr\n")
-        let loadedReg = getNextRegFn(regBox)
-        output.append("  " + loadedReg + " = load i8, ptr " + ptrReg + "\n")
-        return loadedReg
-    }
-    if funcName == "ptr_store_i8" {
-        let ptrReg = getNextRegFn(regBox)
-        output.append("  " + ptrReg + " = inttoptr i64 " + arg0 + " to ptr\n")
-        output.append("  store i8 " + arg1 + ", ptr " + ptrReg + "\n")
-        return "0"
-    }
-    if funcName == "ptr_deref_f32" {
-        let ptrReg = getNextRegFn(regBox)
-        output.append("  " + ptrReg + " = inttoptr i64 " + arg0 + " to ptr\n")
-        let loadedReg = getNextRegFn(regBox)
-        output.append("  " + loadedReg + " = load float, ptr " + ptrReg + "\n")
-        return loadedReg
-    }
-    if funcName == "ptr_store_f32" {
-        let ptrReg = getNextRegFn(regBox)
-        output.append("  " + ptrReg + " = inttoptr i64 " + arg0 + " to ptr\n")
-        output.append("  store float " + arg1 + ", ptr " + ptrReg + "\n")
-        return "0"
-    }
-    // ptr_alloc_i32 / ptr_alloc_i16 / ptr_alloc_i8 — stack allocate and return address as i64
-    if funcName == "ptr_alloc_i32" {
-        let allocReg = getNextRegFn(regBox)
-        output.append("  " + allocReg + " = alloca i32, align 4\n")
-        output.append("  store i32 0, ptr " + allocReg + "\n")
-        let resultReg = getNextRegFn(regBox)
-        output.append("  " + resultReg + " = ptrtoint ptr " + allocReg + " to i64\n")
-        return resultReg
-    }
-    if funcName == "ptr_alloc_i16" {
-        let allocReg = getNextRegFn(regBox)
-        output.append("  " + allocReg + " = alloca i16, align 2\n")
-        output.append("  store i16 0, ptr " + allocReg + "\n")
-        let resultReg = getNextRegFn(regBox)
-        output.append("  " + resultReg + " = ptrtoint ptr " + allocReg + " to i64\n")
-        return resultReg
-    }
-    if funcName == "ptr_alloc_i8" {
-        let allocReg = getNextRegFn(regBox)
-        output.append("  " + allocReg + " = alloca i8, align 1\n")
-        output.append("  store i8 0, ptr " + allocReg + "\n")
-        let resultReg = getNextRegFn(regBox)
-        output.append("  " + resultReg + " = ptrtoint ptr " + allocReg + " to i64\n")
-        return resultReg
-    }
-    return ""
-}
-
-// emitStackAllocImpl — stack allocation, returns ptr as i64
-fun emitStackAllocImpl(output: StringBuilder, regBox: Array<Int>, allocCountReg: String) r: String {
-    let allocReg = getNextRegFn(regBox)
-    output.append("  " + allocReg + " = alloca i8, i64 " + allocCountReg + ", align 8\n")
-    let ptrIntReg = getNextRegFn(regBox)
-    output.append("  " + ptrIntReg + " = ptrtoint ptr " + allocReg + " to i64\n")
-    return ptrIntReg
-}
-
-// emitConstructAtImpl — placement construction at a raw pointer
-fun emitConstructAtImpl(output: StringBuilder, regBox: Array<Int>, ptrReg: String) r: String {
-    let caPtrReg = getNextRegFn(regBox)
-    output.append("  " + caPtrReg + " = inttoptr i64 " + ptrReg + " to ptr\n")
-    // Zero-initialize (avoids cross-module GEP bug, 64 bytes default class size)
-    output.append("  call void @llvm.memset.p0.i64(ptr " + caPtrReg + ", i8 0, i64 64, i1 false)\n")
-    let caResultReg = getNextRegFn(regBox)
-    output.append("  " + caResultReg + " = ptrtoint ptr " + caPtrReg + " to i64\n")
-    return caResultReg
 }

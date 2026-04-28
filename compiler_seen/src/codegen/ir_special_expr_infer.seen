@@ -1,0 +1,160 @@
+// ir_special_expr_infer.seen — Shared special-expression inference helpers
+// Extracted from llvm_ir_gen.seen to keep inferExpressionType dispatch thin.
+
+fun inferIndexAccessExprTypeImpl(arrayType: String, indexedElementType: String) r: String {
+    if indexedElementType != "" {
+        return indexedElementType
+    }
+    if arrayType.startsWith("Array<") and arrayType.endsWith(">") {
+        return arrayType.substring(6, arrayType.length() - 1)
+    }
+    return "ptr"
+}
+
+fun inferKnownArrayLiteralTypeImpl(firstElemType: String) r: String {
+    if firstElemType == "String" {
+        return "Array<String>"
+    }
+    if firstElemType == "Float" {
+        return "Array<Float>"
+    }
+    if firstElemType == "Bool" {
+        return "Array<Bool>"
+    }
+    return ""
+}
+
+fun inferArrayLiteralExprTypeImpl(argumentCount: Int, knownArrayType: String) r: String {
+    if argumentCount == 0 {
+        return "Array"
+    }
+    if knownArrayType != "" {
+        return knownArrayType
+    }
+    return "Array<Int>"
+}
+
+fun inferUnaryExprTypeImpl(operator: String, operandCount: Int,
+    operandType: String) r: String {
+
+    if operator == "!" or operator == "not" {
+        return "Bool"
+    }
+    if operator == "&" and operandCount > 0 {
+        return "*" + operandType
+    }
+    if operator == "*" and operandCount > 0 {
+        if operandType.startsWith("*") {
+            return operandType.substring(1, operandType.length())
+        }
+        return "Int"
+    }
+    if operandCount > 0 {
+        return operandType
+    }
+    return "Int"
+}
+
+fun inferAwaitExprTypeImpl(operandCount: Int, innerKind: String,
+    asyncRetType: String, functionRetType: String, innerType: String) r: String {
+
+    if operandCount == 0 {
+        return "Void"
+    }
+    if innerKind == "Call" {
+        if asyncRetType != "" {
+            return asyncRetType
+        }
+        if functionRetType != "" {
+            return functionRetType
+        }
+    }
+    return innerType
+}
+
+fun inferTryPropagateExprTypeImpl(operandCount: Int, tryResultType: String,
+    innerType: String) r: String {
+
+    if operandCount == 0 {
+        return ""
+    }
+    if tryResultType != "" {
+        return tryResultType
+    }
+    return innerType
+}
+
+fun inferNullishSpecialExprTypeImpl(kind: String, operandType: String) r: String {
+    if kind == "Elvis" or kind == "NullCoalesce" {
+        return operandType
+    }
+    if kind == "SafeNavigation" {
+        return "Int"
+    }
+    return ""
+}
+
+fun inferBranchingSpecialExprTypeImpl(kind: String,
+    firstBranchType: String) r: String {
+
+    if kind == "WhenExpression" or kind == "IfExpression" {
+        return firstBranchType
+    }
+    return ""
+}
+
+fun inferFixedSpecialExprTypeImpl(kind: String, literalValue: String,
+    tryPropagateType: String) r: String {
+
+    if kind == "Range" {
+        return "Range"
+    }
+    if kind == "IsExpression" {
+        return "Bool"
+    }
+    if kind == "Closure" {
+        return "Int"
+    }
+    if kind == "TryPropagate" {
+        return tryPropagateType
+    }
+    if kind == "Cast" {
+        return literalValue
+    }
+    return ""
+}
+
+fun inferSpecialExprTypeImpl(kind: String, literalType: String,
+    indexType: String, arrayLiteralType: String,
+    stringInterpolationType: String, unaryType: String, awaitType: String,
+    nullishType: String, branchingType: String, fixedType: String) r: String {
+
+    if kind == "StructLiteral" {
+        return literalType
+    }
+    if indexType != "" {
+        return indexType
+    }
+    if arrayLiteralType != "" {
+        return arrayLiteralType
+    }
+    if stringInterpolationType != "" {
+        return stringInterpolationType
+    }
+    if unaryType != "" {
+        return unaryType
+    }
+    if awaitType != "" {
+        return awaitType
+    }
+    if nullishType != "" or kind == "SafeNavigation" {
+        return nullishType
+    }
+    if branchingType != "" or kind == "WhenExpression" or kind == "IfExpression" {
+        return branchingType
+    }
+    if fixedType != "" or kind == "Cast" {
+        return fixedType
+    }
+    return ""
+}

@@ -1,0 +1,434 @@
+// ir_call_constructors.seen — constructor/static call helpers
+// Extracted from ir_call_dispatch.seen to keep constructor/allocation
+// lowering separate from general call dispatch and argument preparation.
+
+import codegen.ir_optimization.{getNextRegFn, getNextBlockFn}
+import codegen.type_registry.{isDataTypeReg, getDataTypeSizeReg}
+import str.string.{StringBuilder}
+
+fun isArrayConstructorNameImpl(funcName: String) r: Bool {
+    if funcName == "Array" {
+        return true
+    }
+    return funcName.startsWith("Array<")
+}
+
+fun resolveArrayConstructorElementTypeImpl(funcName: String) r: String {
+    if funcName.startsWith("Array<") and funcName.endsWith(">") {
+        return funcName.substring(6, funcName.length() - 1)
+    }
+    return ""
+}
+
+fun resolveArrayConstructorElementSizeImpl(funcName: String,
+    elementType: String, structNames: Array<String>,
+    structSizes: Array<Int>) r: Int {
+
+    var elemSize = 8
+    if elementType == "String" {
+        elemSize = 16
+    }
+    if funcName == "Array<String>" or funcName.startsWith("Array<String") {
+        elemSize = 16
+    }
+    if isDataTypeReg(elementType) {
+        elemSize = getDataTypeSizeReg(elementType, structNames, structSizes)
+    }
+    return elemSize
+}
+
+fun isSmallVecConstructorNameImpl(funcName: String) r: Bool {
+    if funcName == "SmallVec" {
+        return true
+    }
+    if funcName.startsWith("SmallVec<") {
+        return true
+    }
+    return funcName.startsWith("SmallVec[")
+}
+
+fun isCollectionConstructorNameImpl(funcName: String) r: Bool {
+    if funcName == "Vec" or funcName.startsWith("Vec<") {
+        return true
+    }
+    if funcName == "BTreeMap" or funcName.startsWith("BTreeMap<") {
+        return true
+    }
+    if funcName == "HashMap" or funcName.startsWith("HashMap<") {
+        return true
+    }
+    if funcName == "LinkedList" or funcName.startsWith("LinkedList<") {
+        return true
+    }
+    return false
+}
+
+fun emitCollectionConstructorImpl(output: StringBuilder, regBox: Array<Int>,
+    funcName: String, capArg: String, argCount: Int) r: String {
+
+    if funcName == "Vec" or funcName.startsWith("Vec<") {
+        let rawReg = getNextRegFn(regBox)
+        if funcName.contains("<String") {
+            output.append("  " + rawReg + " = call ptr @Vec_new_str()\n")
+        } else {
+            if funcName.contains("<Float") {
+                output.append("  " + rawReg + " = call ptr @Vec_new_float()\n")
+            } else {
+                output.append("  " + rawReg + " = call ptr @Vec_new()\n")
+            }
+        }
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = ptrtoint ptr " + rawReg + " to i64\n")
+        return resultReg
+    }
+
+    if funcName == "BTreeMap" or funcName.startsWith("BTreeMap<") {
+        let hasStringKeyB = funcName.contains("<String")
+        let hasStringValueB = funcName.contains(", String>") or
+            funcName.contains(",String>")
+        let rawReg = getNextRegFn(regBox)
+        if hasStringKeyB {
+            if hasStringValueB {
+                output.append("  " + rawReg + " = call ptr @BTreeMap_new_str_str()\n")
+            } else {
+                output.append("  " + rawReg + " = call ptr @BTreeMap_new_str()\n")
+            }
+        } else {
+            if hasStringValueB {
+                output.append("  " + rawReg + " = call ptr @BTreeMap_new_int_str()\n")
+            } else {
+                output.append("  " + rawReg + " = call ptr @BTreeMap_new()\n")
+            }
+        }
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = ptrtoint ptr " + rawReg + " to i64\n")
+        return resultReg
+    }
+
+    if funcName == "HashMap" or funcName.startsWith("HashMap<") {
+        let hasStringKeyC = funcName.contains("<String")
+        let hasStringValueC = funcName.contains(", String>") or
+            funcName.contains(",String>")
+        let hasCapArg = argCount == 1
+        let rawReg = getNextRegFn(regBox)
+        if hasStringKeyC {
+            if hasStringValueC {
+                if hasCapArg {
+                    output.append("  " + rawReg + " = call ptr @HashMap_new_str_str_with_capacity(i64 " + capArg + ")\n")
+                } else {
+                    output.append("  " + rawReg + " = call ptr @HashMap_new_str_str()\n")
+                }
+            } else {
+                if hasCapArg {
+                    output.append("  " + rawReg + " = call ptr @HashMap_new_str_with_capacity(i64 " + capArg + ")\n")
+                } else {
+                    output.append("  " + rawReg + " = call ptr @HashMap_new_str()\n")
+                }
+            }
+        } else {
+            if hasStringValueC {
+                if hasCapArg {
+                    output.append("  " + rawReg + " = call ptr @HashMap_new_int_str_with_capacity(i64 " + capArg + ")\n")
+                } else {
+                    output.append("  " + rawReg + " = call ptr @HashMap_new_int_str()\n")
+                }
+            } else {
+                if hasCapArg {
+                    output.append("  " + rawReg + " = call ptr @HashMap_new_with_capacity(i64 " + capArg + ")\n")
+                } else {
+                    output.append("  " + rawReg + " = call ptr @HashMap_new()\n")
+                }
+            }
+        }
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = ptrtoint ptr " + rawReg + " to i64\n")
+        return resultReg
+    }
+
+    if funcName == "LinkedList" or funcName.startsWith("LinkedList<") {
+        let rawReg = getNextRegFn(regBox)
+        if funcName.contains("<String") {
+            output.append("  " + rawReg + " = call ptr @LinkedList_new_str()\n")
+        } else {
+            output.append("  " + rawReg + " = call ptr @LinkedList_new()\n")
+        }
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = ptrtoint ptr " + rawReg + " to i64\n")
+        return resultReg
+    }
+
+    return ""
+}
+
+// emitStaticCollectionNewImpl — Vec/BTreeMap/HashMap/StringHashMap/LinkedList .new() static calls
+// Returns result register (ptrtoint'd ptr), or "" if className not matched
+fun emitStaticCollectionNewImpl(output: StringBuilder, regBox: Array<Int>, className: String, fullClassName: String) r: String {
+    if className == "Vec" {
+        let hasStringElem = fullClassName.contains("<String>")
+        let hasFloatElem = fullClassName.contains("<Float>")
+        let rawReg = getNextRegFn(regBox)
+        if hasStringElem {
+            output.append("  " + rawReg + " = call ptr @Vec_new_str()\n")
+        } else {
+            if hasFloatElem {
+                output.append("  " + rawReg + " = call ptr @Vec_new_float()\n")
+            } else {
+                output.append("  " + rawReg + " = call ptr @Vec_new()\n")
+            }
+        }
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = ptrtoint ptr " + rawReg + " to i64\n")
+        return resultReg
+    }
+    if className == "BTreeMap" {
+        let hasStringKey = fullClassName.contains("<String")
+        let hasStringValue = fullClassName.contains(", String>") or fullClassName.contains(",String>")
+        let rawReg = getNextRegFn(regBox)
+        if hasStringKey {
+            if hasStringValue {
+                output.append("  " + rawReg + " = call ptr @BTreeMap_new_str_str()\n")
+            } else {
+                output.append("  " + rawReg + " = call ptr @BTreeMap_new_str()\n")
+            }
+        } else {
+            if hasStringValue {
+                output.append("  " + rawReg + " = call ptr @BTreeMap_new_int_str()\n")
+            } else {
+                output.append("  " + rawReg + " = call ptr @BTreeMap_new()\n")
+            }
+        }
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = ptrtoint ptr " + rawReg + " to i64\n")
+        return resultReg
+    }
+    if className == "HashMap" {
+        let hasStringKey = fullClassName.contains("<String")
+        let hasStringValue = fullClassName.contains(", String>") or fullClassName.contains(",String>")
+        let rawReg = getNextRegFn(regBox)
+        if hasStringKey {
+            if hasStringValue {
+                output.append("  " + rawReg + " = call ptr @HashMap_new_str_str()\n")
+            } else {
+                output.append("  " + rawReg + " = call ptr @HashMap_new_str()\n")
+            }
+        } else {
+            if hasStringValue {
+                output.append("  " + rawReg + " = call ptr @HashMap_new_int_str()\n")
+            } else {
+                output.append("  " + rawReg + " = call ptr @HashMap_new()\n")
+            }
+        }
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = ptrtoint ptr " + rawReg + " to i64\n")
+        return resultReg
+    }
+    if className == "StringHashMap" {
+        let hasStringValue = fullClassName.contains("<String>")
+        let rawReg = getNextRegFn(regBox)
+        if hasStringValue {
+            output.append("  " + rawReg + " = call ptr @HashMap_new_str_str()\n")
+        } else {
+            output.append("  " + rawReg + " = call ptr @HashMap_new_str()\n")
+        }
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = ptrtoint ptr " + rawReg + " to i64\n")
+        return resultReg
+    }
+    if className == "LinkedList" {
+        let rawReg = getNextRegFn(regBox)
+        if fullClassName.contains("<String") {
+            output.append("  " + rawReg + " = call ptr @LinkedList_new_str()\n")
+        } else {
+            output.append("  " + rawReg + " = call ptr @LinkedList_new()\n")
+        }
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = ptrtoint ptr " + rawReg + " to i64\n")
+        return resultReg
+    }
+    return ""
+}
+
+// emitArrayWithLengthImpl — Array<T>.withLength(n) zero-initialized
+fun emitArrayWithLengthImpl(output: StringBuilder, regBox: Array<Int>, fullClassName: String, countReg: String) r: String {
+    let arrReg = getNextRegFn(regBox)
+    if fullClassName.contains("<Float") {
+        output.append("  " + arrReg + " = call noalias ptr @seen_arr_new_filled_double(i64 " + countReg + ", double 0.0)\n")
+    } else {
+        output.append("  " + arrReg + " = call noalias ptr @seen_arr_new_filled_i64(i64 " + countReg + ", i64 0)\n")
+    }
+    return arrReg
+}
+
+// emitArrayBulkInitImpl — Array<T>(count, value) inline bulk initialization
+// isZeroFill: 1 if value is literal 0 (use memset optimization)
+// alignToVal: alignment from @align_to decorator (0 = default)
+fun emitArrayBulkInitImpl(output: StringBuilder, regBox: Array<Int>, blockLabelBox: Array<Int>, countReg: String, valueReg: String, elementType: String, isZeroFill: Int, alignToVal: Int) r: String {
+    if elementType == "Float" {
+        let arrReg = getNextRegFn(regBox)
+        output.append("  " + arrReg + " = call noalias ptr @seen_arr_new_filled_double(i64 " + countReg + ", double " + valueReg + ")\n")
+        return arrReg
+    }
+    let arrReg = getNextRegFn(regBox)
+    output.append("  " + arrReg + " = call noalias ptr @malloc(i64 32)\n")
+    let byteSizeReg = getNextRegFn(regBox)
+    output.append("  " + byteSizeReg + " = shl i64 " + countReg + ", 3\n")
+    let dataReg = getNextRegFn(regBox)
+    if alignToVal > 0 {
+        output.append("  " + dataReg + " = call noalias ptr @aligned_alloc(i64 " + alignToVal.toString() + ", i64 " + byteSizeReg + ") ; @align_to\n")
+    } else {
+        if elementType == "Int" or elementType == "Float" {
+            output.append("  " + dataReg + " = call noalias ptr @aligned_alloc(i64 32, i64 " + byteSizeReg + ") ; aligned for SIMD\n")
+        } else {
+            output.append("  " + dataReg + " = call noalias ptr @malloc(i64 " + byteSizeReg + ")\n")
+        }
+    }
+    let lenPtr = getNextRegFn(regBox)
+    output.append("  " + lenPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 0\n")
+    output.append("  store i64 " + countReg + ", ptr " + lenPtr + ", align 8\n")
+    let capPtr = getNextRegFn(regBox)
+    output.append("  " + capPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 1\n")
+    output.append("  store i64 " + countReg + ", ptr " + capPtr + ", align 8\n")
+    let szPtr = getNextRegFn(regBox)
+    output.append("  " + szPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 2\n")
+    var bulkElemSz = 8
+    if elementType == "String" { bulkElemSz = 16 }
+    output.append("  store i64 " + bulkElemSz.toString() + ", ptr " + szPtr + ", align 8\n")
+    let dataPtrPtr = getNextRegFn(regBox)
+    output.append("  " + dataPtrPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 3\n")
+    output.append("  store ptr " + dataReg + ", ptr " + dataPtrPtr + ", align 8\n")
+    if isZeroFill == 1 {
+        output.append("  call void @llvm.memset.p0.i64(ptr " + dataReg + ", i8 0, i64 " + byteSizeReg + ", i1 false) ; zero-fill\n")
+        return arrReg
+    }
+    let idxAlloca = getNextRegFn(regBox)
+    output.append("  " + idxAlloca + " = alloca i64\n")
+    output.append("  store i64 0, ptr " + idxAlloca + "\n")
+    let fillCond = getNextBlockFn(blockLabelBox)
+    let fillBody = getNextBlockFn(blockLabelBox)
+    let fillDone = getNextBlockFn(blockLabelBox)
+    output.append("  br label %" + fillCond + "\n")
+    output.append(fillCond + ":\n")
+    let idxLoad = getNextRegFn(regBox)
+    output.append("  " + idxLoad + " = load i64, ptr " + idxAlloca + "\n")
+    let fillCmpReg = getNextRegFn(regBox)
+    output.append("  " + fillCmpReg + " = icmp slt i64 " + idxLoad + ", " + countReg + "\n")
+    output.append("  br i1 " + fillCmpReg + ", label %" + fillBody + ", label %" + fillDone + "\n")
+    output.append(fillBody + ":\n")
+    let elemPtr = getNextRegFn(regBox)
+    output.append("  " + elemPtr + " = getelementptr inbounds i64, ptr " + dataReg + ", i64 " + idxLoad + "\n")
+    output.append("  store i64 " + valueReg + ", ptr " + elemPtr + "\n")
+    let nextIdx = getNextRegFn(regBox)
+    output.append("  " + nextIdx + " = add nsw i64 " + idxLoad + ", 1\n")
+    output.append("  store i64 " + nextIdx + ", ptr " + idxAlloca + "\n")
+    output.append("  br label %" + fillCond + "\n")
+    output.append(fillDone + ":\n")
+    return arrReg
+}
+
+// emitArrayPreallocImpl — Array<T>(capacity) pre-allocation with given capacity
+// elemSize: pre-computed element size (8 for Int, 16 for String, etc.)
+fun emitArrayPreallocImpl(output: StringBuilder, regBox: Array<Int>, capReg: String, elemSize: Int) r: String {
+    let arrReg = getNextRegFn(regBox)
+    output.append("  " + arrReg + " = call noalias ptr @malloc(i64 32)\n")
+    let byteSizeReg = getNextRegFn(regBox)
+    if elemSize == 8 {
+        output.append("  " + byteSizeReg + " = shl i64 " + capReg + ", 3\n")
+    } else {
+        output.append("  " + byteSizeReg + " = mul nsw i64 " + capReg + ", " + elemSize.toString() + "\n")
+    }
+    let dataReg = getNextRegFn(regBox)
+    output.append("  " + dataReg + " = call noalias ptr @malloc(i64 " + byteSizeReg + ")\n")
+    let lenPtr = getNextRegFn(regBox)
+    output.append("  " + lenPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 0\n")
+    output.append("  store i64 0, ptr " + lenPtr + ", align 8\n")
+    let capPtr = getNextRegFn(regBox)
+    output.append("  " + capPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 1\n")
+    output.append("  store i64 " + capReg + ", ptr " + capPtr + ", align 8\n")
+    let szPtr = getNextRegFn(regBox)
+    output.append("  " + szPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 2\n")
+    output.append("  store i64 " + elemSize.toString() + ", ptr " + szPtr + ", align 8\n")
+    let dataPtrPtr = getNextRegFn(regBox)
+    output.append("  " + dataPtrPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 3\n")
+    output.append("  store ptr " + dataReg + ", ptr " + dataPtrPtr + ", align 8\n")
+    return arrReg
+}
+
+// emitArrayInlineImpl — Array<T>() empty inline constructor
+// elemSize: pre-computed element size (8 for Int, 16 for String, etc.)
+// alignToVal: alignment from @align_to decorator (0 = default)
+fun emitArrayInlineImpl(output: StringBuilder, regBox: Array<Int>, elemSize: Int, alignToVal: Int) r: String {
+    let initCap = 8
+    let initBytes = initCap * elemSize
+    let arrReg = getNextRegFn(regBox)
+    output.append("  " + arrReg + " = call noalias ptr @malloc(i64 32)\n")
+    let dataReg = getNextRegFn(regBox)
+    if alignToVal > 0 {
+        output.append("  " + dataReg + " = call noalias ptr @aligned_alloc(i64 " + alignToVal.toString() + ", i64 " + initBytes.toString() + ") ; @align_to\n")
+    } else {
+        output.append("  " + dataReg + " = call noalias ptr @malloc(i64 " + initBytes.toString() + ")\n")
+    }
+    let lenPtr = getNextRegFn(regBox)
+    output.append("  " + lenPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 0\n")
+    output.append("  store i64 0, ptr " + lenPtr + ", align 8\n")
+    let capPtr = getNextRegFn(regBox)
+    output.append("  " + capPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 1\n")
+    output.append("  store i64 " + initCap.toString() + ", ptr " + capPtr + ", align 8\n")
+    let szPtr = getNextRegFn(regBox)
+    output.append("  " + szPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 2\n")
+    output.append("  store i64 " + elemSize.toString() + ", ptr " + szPtr + ", align 8\n")
+    let dataPtrPtr = getNextRegFn(regBox)
+    output.append("  " + dataPtrPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 3\n")
+    output.append("  store ptr " + dataReg + ", ptr " + dataPtrPtr + ", align 8\n")
+    return arrReg
+}
+
+// emitSmallVecConstructorImpl — SmallVec<T, N>() constructor
+// capArgReg: pre-generated capacity arg ("" if no arg, parse from funcName)
+fun emitSmallVecConstructorImpl(output: StringBuilder, regBox: Array<Int>, funcName: String, capArgReg: String) r: String {
+    if capArgReg != "" {
+        let svCallReg = getNextRegFn(regBox)
+        output.append("  " + svCallReg + " = call i64 @seen_small_vec_new(i64 " + capArgReg + ")\n")
+        return svCallReg
+    }
+    var svCapacity = 8
+    var svCommaPos = funcName.indexOf(",")
+    if svCommaPos > 0 {
+        var svCapStr = funcName.substring(svCommaPos + 1, funcName.length())
+        if svCapStr.endsWith(">") or svCapStr.endsWith("]") {
+            svCapStr = svCapStr.substring(0, svCapStr.length() - 1)
+        }
+        var svCapVal = 0
+        var svCapIdx = 0
+        while svCapIdx < svCapStr.length() {
+            let svDigit = svCapStr.byteAt(svCapIdx)
+            if svDigit >= 48 and svDigit <= 57 {
+                svCapVal = svCapVal * 10 + (svDigit - 48)
+            }
+            svCapIdx = svCapIdx + 1
+        }
+        if svCapVal > 0 {
+            svCapacity = svCapVal
+        }
+    }
+    let svCallReg = getNextRegFn(regBox)
+    output.append("  " + svCallReg + " = call i64 @seen_small_vec_new(i64 " + svCapacity.toString() + ")\n")
+    return svCallReg
+}
+
+// emitReprCConstructorImpl — @repr(C) class constructor via insertvalue chain
+// argRegs: pre-generated argument registers
+// fieldLlvmTypes: pre-mapped LLVM types for each field (from wrapper's mapType)
+fun emitReprCConstructorImpl(output: StringBuilder, regBox: Array<Int>, className: String, argRegs: Array<String>, fieldLlvmTypes: Array<String>) r: String {
+    if argRegs.length() == 0 {
+        return "zeroinitializer"
+    }
+    var curVal = "zeroinitializer"
+    var argIdx = 0
+    while argIdx < argRegs.length() {
+        let ivReg = getNextRegFn(regBox)
+        output.append("  " + ivReg + " = insertvalue %" + className + " " + curVal + ", " + fieldLlvmTypes[argIdx] + " " + argRegs[argIdx] + ", " + argIdx.toString() + "\n")
+        curVal = ivReg
+        argIdx = argIdx + 1
+    }
+    return curVal
+}

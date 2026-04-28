@@ -1,0 +1,89 @@
+// ir_binary_emit.seen - prepared binary-expression emission drivers.
+
+import str.string.{StringBuilder}
+import codegen.ir_optimization.{emitEgraphPeepholeImpl, emitEgraphFloatPeepholeImpl}
+import codegen.ir_binary_expr.{emitPointerArithmeticBinaryImpl, emitSimdBinaryExprImpl, emitSelfComparisonConstResultImpl, emitFoldedBoolLiteralBinaryResultImpl, emitFoldedIntLiteralBinaryResultImpl, emitAssociativeIntFoldResultImpl, emitFmaOperandPromotionImpl, emitFmaCallImpl, buildBinaryCseKeyImpl, emitOverloadedBinaryCallImpl}
+
+fun emitPreparedPointerArithmeticBinaryImpl(output: StringBuilder,
+    regBox: Array<Int>, operator: String, leftType: String,
+    rightType: String, leftReg: String, rightReg: String) r: String {
+
+    return emitPointerArithmeticBinaryImpl(output, regBox, operator,
+        leftType, rightType, leftReg, rightReg)
+}
+
+fun emitPreparedSimdBinaryExprImpl(output: StringBuilder,
+    regBox: Array<Int>, operator: String, leftType: String,
+    simdLlvmType: String, leftReg: String, rightReg: String) r: String {
+
+    return emitSimdBinaryExprImpl(output, regBox, operator, leftType,
+        simdLlvmType, leftReg, rightReg)
+}
+
+fun emitPreparedSelfComparisonConstResultImpl(output: StringBuilder,
+    regBox: Array<Int>, action: String, operator: String) r: String {
+
+    return emitSelfComparisonConstResultImpl(output, regBox, action, operator)
+}
+
+fun emitPreparedIntPeepholeBinaryActionImpl(output: StringBuilder,
+    regBox: Array<Int>, action: String, leftReg: String,
+    operator: String) r: String {
+
+    return emitEgraphPeepholeImpl(output, regBox, action, leftReg, "",
+        operator)
+}
+
+fun emitPreparedAssociativeIntFoldResultImpl(output: StringBuilder,
+    regBox: Array<Int>, operator: String, baseReg: String,
+    combinedValue: String) r: String {
+
+    return emitAssociativeIntFoldResultImpl(output, regBox, operator,
+        baseReg, combinedValue)
+}
+
+fun emitPreparedFoldedBoolLiteralBinaryResultImpl(output: StringBuilder,
+    regBox: Array<Int>, foldedValue: String) r: String {
+
+    return emitFoldedBoolLiteralBinaryResultImpl(output, regBox, foldedValue)
+}
+
+fun emitPreparedFoldedIntLiteralBinaryResultImpl(output: StringBuilder,
+    regBox: Array<Int>, foldedValue: String) r: String {
+
+    return emitFoldedIntLiteralBinaryResultImpl(output, regBox, foldedValue)
+}
+
+fun emitPreparedFloatPeepholeBinaryActionImpl(output: StringBuilder,
+    regBox: Array<Int>, action: String, leftReg: String,
+    rightReg: String, operator: String) r: String {
+
+    return emitEgraphFloatPeepholeImpl(output, regBox, action, leftReg,
+        rightReg, operator)
+}
+
+fun emitPreparedFmaTripleCallImpl(output: StringBuilder,
+    regBox: Array<Int>, aReg: String, aType: String, bReg: String,
+    bType: String, cReg: String, cType: String, comment: String)
+    r: String {
+
+    let promotedA = emitFmaOperandPromotionImpl(output, regBox, aReg, aType)
+    let promotedB = emitFmaOperandPromotionImpl(output, regBox, bReg, bType)
+    let promotedC = emitFmaOperandPromotionImpl(output, regBox, cReg, cType)
+    return emitFmaCallImpl(output, regBox, promotedA, promotedB,
+        promotedC, comment)
+}
+
+fun emitPreparedOverloadedBinaryCallImpl(output: StringBuilder,
+    regBox: Array<Int>, quotedFuncName: String, retLlvmType: String,
+    leftReg: String, rightReg: String) r: String {
+
+    return emitOverloadedBinaryCallImpl(output, regBox, quotedFuncName,
+        retLlvmType, leftReg, rightReg)
+}
+
+fun buildPreparedBinaryCseKeyImpl(leftReg: String, operator: String,
+    rightReg: String) r: String {
+
+    return buildBinaryCseKeyImpl(leftReg, operator, rightReg)
+}

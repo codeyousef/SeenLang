@@ -1,0 +1,83 @@
+// ir_method_lower_emit.seen - prepared method lower-half emission drivers.
+
+import str.string.{StringBuilder}
+import codegen.ir_call_dispatch.{emitUserMethodCallImpl}
+import codegen.ir_method_fastpath.{tryGenerateLengthLikeMethodCallImpl, emitStringBuilderReceiverMethodCallImpl, tryGeneratePrimitiveConversionMethodCallImpl, tryGenerateNumericReceiverMethodCallImpl, tryGenerateStringLikeReceiverMethodCallImpl}
+import codegen.ir_method_finalize.{tryGeneratePreparedHotReloadInstanceMethodCallImpl, tryGenerateSpecializedInstanceMethodCallImpl}
+
+fun emitPreparedLengthLikeMethodLowerImpl(output: StringBuilder,
+    regBox: Array<Int>, methodName: String, receiverReg: String,
+    receiverType: String, reprCClassNames: String,
+    structNames: Array<String>) r: String {
+
+    return tryGenerateLengthLikeMethodCallImpl(output, regBox, methodName,
+        receiverReg, receiverType, reprCClassNames, structNames)
+}
+
+fun emitPreparedStringBuilderMethodLowerImpl(output: StringBuilder,
+    regBox: Array<Int>, methodName: String, receiverReg: String,
+    receiverType: String, sbArg0: String, isFloatFused: Int,
+    reprCClassNames: String, structNames: Array<String>) r: String {
+
+    return emitStringBuilderReceiverMethodCallImpl(output, regBox, methodName,
+        receiverReg, receiverType, sbArg0, isFloatFused, reprCClassNames,
+        structNames)
+}
+
+fun emitPreparedPrimitiveConversionMethodLowerImpl(output: StringBuilder,
+    regBox: Array<Int>, methodName: String, receiverReg: String,
+    receiverType: String, structNames: Array<String>) r: String {
+
+    return tryGeneratePrimitiveConversionMethodCallImpl(output, regBox,
+        methodName, receiverReg, receiverType, structNames)
+}
+
+fun emitPreparedNumericMethodLowerImpl(output: StringBuilder,
+    regBox: Array<Int>, methodName: String, receiverReg: String,
+    receiverType: String, numArg0: String, numArg1: String) r: String {
+
+    return tryGenerateNumericReceiverMethodCallImpl(output, regBox,
+        methodName, receiverReg, receiverType, numArg0, numArg1)
+}
+
+fun emitPreparedStringLikeMethodLowerImpl(output: StringBuilder,
+    regBox: Array<Int>, methodName: String, receiverReg: String,
+    receiverType: String, strArg0: String, strArg1: String,
+    strArgCount: Int, reprCClassNames: String,
+    structNames: Array<String>) r: String {
+
+    return tryGenerateStringLikeReceiverMethodCallImpl(output, regBox,
+        methodName, receiverReg, receiverType, strArg0, strArg1,
+        strArgCount, reprCClassNames, structNames)
+}
+
+fun emitPreparedHotReloadMethodLowerImpl(output: StringBuilder,
+    regBox: Array<Int>, methodName: String, quotedFuncName: String,
+    receiverReg: String, receiverType: String, hotStateArg: String,
+    structNames: Array<String>) r: String {
+
+    return tryGeneratePreparedHotReloadInstanceMethodCallImpl(output, regBox,
+        methodName, quotedFuncName, receiverReg, receiverType, hotStateArg,
+        structNames)
+}
+
+fun emitPreparedSpecializedMethodLowerImpl(output: StringBuilder,
+    regBox: Array<Int>, methodName: String, instanceTypeName: String,
+    receiverType: String, returnTypeStr: String, receiverLlvmType: String,
+    receiverReg: String, structNames: Array<String>) r: String {
+
+    return tryGenerateSpecializedInstanceMethodCallImpl(output, regBox,
+        methodName, instanceTypeName, receiverType, returnTypeStr,
+        receiverLlvmType, receiverReg, structNames)
+}
+
+fun emitPreparedUserMethodLowerImpl(output: StringBuilder,
+    regBox: Array<Int>, quotedFuncName: String, llvmReturnType: String,
+    receiverLlvmType: String, receiverReg: String,
+    argRegs: Array<String>, argTypeStrs: Array<String>,
+    tailFlag: Int) r: String {
+
+    return emitUserMethodCallImpl(output, regBox, quotedFuncName,
+        llvmReturnType, receiverLlvmType, receiverReg, argRegs, argTypeStrs,
+        tailFlag)
+}

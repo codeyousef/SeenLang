@@ -1,0 +1,359 @@
+// ir_decl_items.seen — declaration-item registration helpers
+// Keeps Pass 1 declaration-item plumbing out of llvm_ir_gen.seen while
+// preserving the existing registry and cross-module declare behavior.
+
+import parser.real_parser.{FunctionNode, ItemNode, ParamNode, TypeNode}
+import codegen.ir_string_collect.{getBaseTypeNameImpl}
+import codegen.ir_type_mapping.{mapTypeImpl, isClassTypeImpl}
+import codegen.ir_call_args.{hasFloatParamFuncImpl}
+import codegen.ir_decl_scan.{buildDeclareParamsImpl, buildDeclareStringImpl, shouldRegisterCrossModuleFunctionImpl, shouldSkipStringBuilderMethodDeclImpl, recordCrossModuleDeclareImpl}
+import codegen.ir_decl_registry.{DeclarationPassState, registerFunctionStateImpl, registerEnumDeclarationStateImpl}
+import codegen.ir_async_registry.{registerAsyncFunctionImpl}
+import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
+
+class DeclarationItemContext {
+    var structNames: Array<String>
+    var typeAliasNames: String
+    var typeAliasTargets: String
+    var typeAliasCount: Int
+    var reprCClassNames: String
+    var floatParamFuncNames: Array<String>
+    var floatParamParamIdxs: Array<Int>
+    var funcNames: Array<String>
+    var funcRetTypes: Array<String>
+    var state: DeclarationPassState
+
+    static fun new(structNames: Array<String>, typeAliasNames: String,
+        typeAliasTargets: String, typeAliasCount: Int,
+        reprCClassNames: String, floatParamFuncNames: Array<String>,
+        floatParamParamIdxs: Array<Int>, funcNames: Array<String>,
+        funcRetTypes: Array<String>, state: DeclarationPassState)
+        r: DeclarationItemContext {
+
+        return DeclarationItemContext{
+            structNames: structNames,
+            typeAliasNames: typeAliasNames,
+            typeAliasTargets: typeAliasTargets,
+            typeAliasCount: typeAliasCount,
+            reprCClassNames: reprCClassNames,
+            floatParamFuncNames: floatParamFuncNames,
+            floatParamParamIdxs: floatParamParamIdxs,
+            funcNames: funcNames,
+            funcRetTypes: funcRetTypes,
+            state: state
+        }
+    }
+}
+
+class PreparedDeclarationItem {
+    var item: ItemNode
+    var classMethodRetTypeNames: Array<String>
+    var funcRetTypeName: String
+
+    static fun new(item: ItemNode) r: PreparedDeclarationItem {
+        return PreparedDeclarationItem{
+            item: item,
+            classMethodRetTypeNames: Array<String>(),
+            funcRetTypeName: ""
+        }
+    }
+}
+
+fun prepareDeclarationItemForRegistrationImpl(item: ItemNode,
+    classMethodRetTypeNames: Array<String>, funcRetTypeName: String)
+    r: PreparedDeclarationItem {
+
+    let preparedItem = PreparedDeclarationItem.new(item)
+    if item.itemType == "Class" {
+        preparedItem.classMethodRetTypeNames = classMethodRetTypeNames
+    }
+    if item.itemType == "Function" {
+        preparedItem.funcRetTypeName = funcRetTypeName
+    }
+    return preparedItem
+}
+
+fun normalizeSeenTypeNameImpl(seenType: String) r: String {
+    var normalized = seenType
+    if normalized.startsWith("move:") {
+        normalized = normalized.substring(5, normalized.length())
+    }
+    if normalized.startsWith("borrow:") {
+        normalized = normalized.substring(7, normalized.length())
+    }
+    if normalized.startsWith("comptime:") {
+        normalized = normalized.substring(9, normalized.length())
+    }
+    if normalized.contains("~default~") {
+        let defPos = normalized.indexOf("~default~", 0)
+        normalized = normalized.substring(0, defPos)
+    }
+    if normalized == "i1" {
+        return "Bool"
+    }
+    if normalized == "i64" {
+        return "Int"
+    }
+    if normalized == "%SeenString" {
+        return "String"
+    }
+    return normalized
+}
+
+fun normalizeDeclaredTypeNodeImpl(typeNode: TypeNode) r: String {
+    let normalized = normalizeSeenTypeNameImpl(typeNode.typeName)
+    if typeNode.isNullable {
+        if normalized == "Option<String>" or normalized == "Optional<String>" {
+            return "String?"
+        }
+    }
+    return normalized
+}
+
+fun mapDeclaredTypeImpl(seenType: String, structNames: Array<String>,
+    typeAliasNames: String, typeAliasTargets: String, typeAliasCount: Int,
+    enumTypeNames: String, reprCClassNames: String) r: String {
+
+    if seenType.startsWith("dyn ") {
+        return "i64"
+    }
+    if seenType.startsWith("*") {
+        return "i64"
+    }
+    if reprCClassNames != "" {
+        let baseT = getBaseTypeNameImpl(seenType)
+        if reprCClassNames.contains(baseT + "|") {
+            return "%" + baseT
+        }
+    }
+    return mapTypeImpl(seenType, structNames, typeAliasNames, typeAliasTargets,
+        typeAliasCount, enumTypeNames)
+}
+
+fun registerFloatParamMetadataImpl(funcName: String, params: Array<ParamNode>,
+    floatParamFuncNames: Array<String>, floatParamParamIdxs: Array<Int>) r: Void {
+
+    var paramIdx = 0
+    while paramIdx < params.length() {
+        let paramTypeName = normalizeDeclaredTypeNodeImpl(params[paramIdx].paramType)
+        if paramTypeName == "Float" {
+            if not hasFloatParamFuncImpl(funcName, paramIdx, floatParamFuncNames,
+                floatParamParamIdxs) {
+                floatParamFuncNames.push(funcName)
+                floatParamParamIdxs.push(paramIdx)
+            }
+        }
+        paramIdx = paramIdx + 1
+    }
+}
+
+fun collectDeclaredParamTypeInfoImpl(params: Array<ParamNode>,
+    paramSeenTypes: Array<String>, paramLlvmTypes: Array<String>,
+    structNames: Array<String>, typeAliasNames: String,
+    typeAliasTargets: String, typeAliasCount: Int, enumTypeNames: String,
+    reprCClassNames: String) r: Void {
+
+    var paramIdx = 0
+    while paramIdx < params.length() {
+        let paramTypeName = normalizeDeclaredTypeNodeImpl(params[paramIdx].paramType)
+        paramSeenTypes.push(paramTypeName)
+        paramLlvmTypes.push(mapDeclaredTypeImpl(paramTypeName, structNames,
+            typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames,
+            reprCClassNames))
+        paramIdx = paramIdx + 1
+    }
+}
+
+fun isRuntimeBackedStringCompatFunctionImpl(funcName: String) r: Bool {
+    if funcName == "String_toUpperCase" or funcName == "String_toLowerCase" or funcName == "String_toInt" or funcName == "String_toFloat" or funcName == "String_reverse" or funcName == "String_isEmpty" or funcName == "String_count" or funcName == "String_replace" {
+        return true
+    }
+    if funcName == "split" or funcName == "startsWith" or funcName == "endsWith" or funcName == "contains" or funcName == "indexOf" or funcName == "lastIndexOf" {
+        return true
+    }
+    return false
+}
+
+fun registerAsyncFunctionIntoStateImpl(name: String,
+    declaredRetType: String, state: DeclarationPassState) r: Void {
+
+    let namesBox = Array<String>()
+    namesBox.push(state.asyncFuncNames)
+    let retTypesBox = Array<String>()
+    retTypesBox.push(state.asyncFuncRetTypes)
+    let countBox = Array<Int>()
+    countBox.push(state.asyncFuncCount)
+    registerAsyncFunctionImpl(name, declaredRetType, namesBox, retTypesBox,
+        countBox)
+    state.asyncFuncNames = namesBox[0]
+    state.asyncFuncRetTypes = retTypesBox[0]
+    state.asyncFuncCount = countBox[0]
+}
+
+fun recordCrossModuleDeclareIntoStateImpl(symbolName: String,
+    declStr: String, visibility: String, state: DeclarationPassState)
+    r: Void {
+
+    let namesBox = Array<String>()
+    namesBox.push(state.xmDeclareNames)
+    let declsBox = Array<String>()
+    declsBox.push(state.xmDeclareStrs)
+    let visBox = Array<String>()
+    visBox.push(state.xmDeclareVis)
+    let countBox = Array<Int>()
+    countBox.push(state.xmDeclareCount)
+    recordCrossModuleDeclareImpl(symbolName, declStr, visibility, namesBox,
+        declsBox, visBox, countBox)
+    state.xmDeclareNames = namesBox[0]
+    state.xmDeclareStrs = declsBox[0]
+    state.xmDeclareVis = visBox[0]
+    state.xmDeclareCount = countBox[0]
+    state.xmDeclareNamesArr.push(symbolName)
+    state.xmDeclareStrsArr.push(declStr)
+    state.xmDeclareVisArr.push(visibility)
+}
+
+fun getFloatParamRegistryNameImpl(fn: FunctionNode, structNames: Array<String>)
+    r: String {
+
+    var registryName = fn.name
+    if fn.params.length() > 0 {
+        let firstParam = fn.params[0]
+        if firstParam.name == "this" {
+            let firstParamType = firstParam.paramType.typeName
+            if isClassTypeImpl(firstParamType, structNames) == 1 {
+                let expectedPrefix = firstParamType + "_"
+                if not registryName.startsWith(expectedPrefix) {
+                    registryName = expectedPrefix + registryName
+                }
+            }
+        }
+    }
+    return registryName
+}
+
+fun registerClassMethodDeclarationsIntoStateImpl(className: String,
+    methods: Array<FunctionNode>, methodRetTypeNames: Array<String>,
+    visibility: String, ctx: DeclarationItemContext) r: Void {
+
+    let isStringBuilder = className == "StringBuilder"
+    var methodIdx = 0
+    while methodIdx < methods.length() {
+        let method = methods[methodIdx]
+        if isStringBuilder and shouldSkipStringBuilderMethodDeclImpl(
+            method.name) {
+            methodIdx = methodIdx + 1
+            continue
+        }
+
+        let mangledName = className + "_" + method.name
+        let methodRetTypeName = methodRetTypeNames[methodIdx]
+        registerFloatParamMetadataImpl(mangledName, method.params,
+            ctx.floatParamFuncNames, ctx.floatParamParamIdxs)
+
+        var methodRetLlvm = mapDeclaredTypeImpl(methodRetTypeName,
+            ctx.structNames, ctx.typeAliasNames, ctx.typeAliasTargets,
+            ctx.typeAliasCount, ctx.state.enumTypeNames,
+            ctx.reprCClassNames)
+        if method.isAsync {
+            methodRetLlvm = "ptr"
+        }
+        let methodSeenParamTypes = Array<String>()
+        let methodLlvmParamTypes = Array<String>()
+        collectDeclaredParamTypeInfoImpl(method.params, methodSeenParamTypes,
+            methodLlvmParamTypes, ctx.structNames, ctx.typeAliasNames,
+            ctx.typeAliasTargets, ctx.typeAliasCount,
+            ctx.state.enumTypeNames, ctx.reprCClassNames)
+        registerFunctionStateImpl(mangledName, methodRetTypeName,
+            ctx.funcNames, ctx.funcRetTypes)
+        if method.isAsync {
+            registerAsyncFunctionIntoStateImpl(mangledName, methodRetTypeName,
+                ctx.state)
+        }
+        let methodDeclParams = buildDeclareParamsImpl(methodSeenParamTypes,
+            methodLlvmParamTypes, not method.isStatic)
+        let methodDecl = buildDeclareStringImpl(
+            quoteIdentIfNeededImpl(mangledName), methodRetLlvm,
+            methodDeclParams, false)
+        recordCrossModuleDeclareIntoStateImpl(mangledName, methodDecl,
+            visibility, ctx.state)
+        methodIdx = methodIdx + 1
+    }
+}
+
+fun registerTopLevelFunctionDeclarationIntoStateImpl(funcObj: FunctionNode,
+    visibility: String, funcRetTypeName: String, ctx: DeclarationItemContext)
+    r: Void {
+
+    let isRuntimeStringCompat = isRuntimeBackedStringCompatFunctionImpl(
+        funcObj.name)
+    let floatRegistryFuncName = getFloatParamRegistryNameImpl(funcObj,
+        ctx.structNames)
+    registerFloatParamMetadataImpl(floatRegistryFuncName, funcObj.params,
+        ctx.floatParamFuncNames, ctx.floatParamParamIdxs)
+
+    let bodyStmtCount = funcObj.body.statements.length()
+    var declRetLlvm = mapDeclaredTypeImpl(funcRetTypeName, ctx.structNames,
+        ctx.typeAliasNames, ctx.typeAliasTargets, ctx.typeAliasCount,
+        ctx.state.enumTypeNames, ctx.reprCClassNames)
+    if funcObj.isAsync {
+        declRetLlvm = "ptr"
+    }
+    let declSeenParamTypes = Array<String>()
+    let declLlvmParamTypes = Array<String>()
+    collectDeclaredParamTypeInfoImpl(funcObj.params, declSeenParamTypes,
+        declLlvmParamTypes, ctx.structNames, ctx.typeAliasNames,
+        ctx.typeAliasTargets, ctx.typeAliasCount, ctx.state.enumTypeNames,
+        ctx.reprCClassNames)
+    registerFunctionStateImpl(funcObj.name, funcRetTypeName, ctx.funcNames,
+        ctx.funcRetTypes)
+    if funcObj.isAsync {
+        registerAsyncFunctionIntoStateImpl(funcObj.name, funcRetTypeName,
+            ctx.state)
+    }
+    if shouldRegisterCrossModuleFunctionImpl(funcObj.name, funcObj.isExtern,
+        bodyStmtCount, isRuntimeStringCompat) {
+        let declParams = buildDeclareParamsImpl(declSeenParamTypes,
+            declLlvmParamTypes, false)
+        let declStr = buildDeclareStringImpl(
+            quoteIdentIfNeededImpl(funcObj.name), declRetLlvm, declParams,
+            funcObj.isExtern and bodyStmtCount == 0)
+        recordCrossModuleDeclareIntoStateImpl(funcObj.name, declStr,
+            visibility, ctx.state)
+    }
+}
+
+fun registerPreparedDeclarationItemIntoStateImpl(item: ItemNode,
+    classMethodRetTypeNames: Array<String>, funcRetTypeName: String,
+    ctx: DeclarationItemContext) r: Void {
+
+    if item.itemType == "Class" {
+        registerClassMethodDeclarationsIntoStateImpl(item.classNode.name,
+            item.classNode.methods, classMethodRetTypeNames, item.visibility,
+            ctx)
+        return
+    }
+    if item.itemType == "Enum" {
+        registerEnumDeclarationStateImpl(item.enumNode.name,
+            item.enumNode.variants, ctx.state)
+        return
+    }
+    if item.itemType == "Function" {
+        registerTopLevelFunctionDeclarationIntoStateImpl(item.function,
+            item.visibility, funcRetTypeName, ctx)
+    }
+}
+
+fun registerPreparedDeclarationItemsIntoStateImpl(
+    items: Array<PreparedDeclarationItem>, ctx: DeclarationItemContext)
+    r: Void {
+
+    var itemIdx = 0
+    while itemIdx < items.length() {
+        let preparedItem = items[itemIdx]
+        registerPreparedDeclarationItemIntoStateImpl(preparedItem.item,
+            preparedItem.classMethodRetTypeNames, preparedItem.funcRetTypeName,
+            ctx)
+        itemIdx = itemIdx + 1
+    }
+}

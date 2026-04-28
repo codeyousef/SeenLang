@@ -1,0 +1,295 @@
+// ir_function_decorators.seen — top-level function decorator helpers
+// Extracted from llvm_ir_gen.seen to keep cfg/intrinsic/GPU/decorator
+// preflight logic separate from the main function-generation pipeline.
+
+import parser.real_parser.{FunctionNode}
+import str.string.{StringBuilder}
+import codegen.ir_function_gen.{emitIntrinsicWrapperImpl, shouldSkipFunctionByCfgImpl, emitFunctionDecoratorMetadataCommentsImpl, shouldSkipSpecialFunctionBodyImpl, registerFunctionTraitImplDecoratorsImpl, tryHandleGpuShaderFunctionGenerationImpl, prepareFunctionAttributesImpl, prepareExternFunctionGenerationImpl}
+import codegen.ir_type_mapping.{mapTypeImpl}
+import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
+import codegen.ir_decl_items.{normalizeDeclaredTypeNodeImpl, mapDeclaredTypeImpl}
+import codegen.ir_function_param_meta.{mapFunctionParameterTypeImpl}
+import codegen.ir_declarations.{emitExternDeclImpl}
+import codegen.ir_decl_registry.{registerFunctionStateImpl}
+
+class FunctionAttributeStateSnapshot {
+    var funcAttrs: String
+    var initFuncNames: String
+    var initFuncCount: Int
+    var trustedFuncNames: String
+    var specializationNames: String
+    var specializationCount: Int
+
+    static fun new() r: FunctionAttributeStateSnapshot {
+        return FunctionAttributeStateSnapshot{
+            funcAttrs: "",
+            initFuncNames: "",
+            initFuncCount: 0,
+            trustedFuncNames: "",
+            specializationNames: "",
+            specializationCount: 0
+        }
+    }
+}
+
+class FunctionDecoratorPreflightSnapshot {
+    var traitImplRegistry: String
+    var traitImplCount: Int
+    var gpuShaderNames: String
+    var gpuShaderStages: String
+    var gpuShaderWorkgroups: String
+    var gpuShaderBindings: String
+    var gpuShaderCount: Int
+    var handledByDecorator: Int
+
+    static fun new() r: FunctionDecoratorPreflightSnapshot {
+        return FunctionDecoratorPreflightSnapshot{
+            traitImplRegistry: "",
+            traitImplCount: 0,
+            gpuShaderNames: "",
+            gpuShaderStages: "",
+            gpuShaderWorkgroups: "",
+            gpuShaderBindings: "",
+            gpuShaderCount: 0,
+            handledByDecorator: 0
+        }
+    }
+}
+
+fun hasFunctionDecoratorImpl(fn: FunctionNode, decoratorName: String)
+    r: Bool {
+
+    var decoratorIdx = 0
+    while decoratorIdx < fn.decorators.length() {
+        if fn.decorators[decoratorIdx].name == decoratorName {
+            return true
+        }
+        decoratorIdx = decoratorIdx + 1
+    }
+    return false
+}
+
+fun resolveIntrinsicDecoratorNameImpl(fn: FunctionNode) r: String {
+    var decoratorIdx = 0
+    while decoratorIdx < fn.decorators.length() {
+        if fn.decorators[decoratorIdx].name == "intrinsic" {
+            if fn.decorators[decoratorIdx].arguments.length() > 0 {
+                return fn.decorators[decoratorIdx].arguments[0]
+            }
+        }
+        decoratorIdx = decoratorIdx + 1
+    }
+    return ""
+}
+
+fun shouldSkipFunctionByCfgStateImpl(output: StringBuilder, fn: FunctionNode,
+    enabledFeatures: String) r: Bool {
+
+    return shouldSkipFunctionByCfgImpl(output, fn, enabledFeatures)
+}
+
+fun emitFunctionDecoratorMetadataCommentsStateImpl(output: StringBuilder,
+    fn: FunctionNode, traitImplCount: Int) r: Void {
+
+    emitFunctionDecoratorMetadataCommentsImpl(output, fn, traitImplCount)
+}
+
+fun tryHandleIntrinsicFunctionGenerationStateImpl(output: StringBuilder,
+    regBox: Array<Int>, fn: FunctionNode, structNames: Array<String>,
+    typeAliasNames: String, typeAliasTargets: String, typeAliasCount: Int,
+    enumTypeNames: String, intrinsicFuncNamesBox: Array<String>,
+    intrinsicLlvmNamesBox: Array<String>, intrinsicCountBox: Array<Int>)
+    r: Bool {
+
+    if not hasFunctionDecoratorImpl(fn, "intrinsic") {
+        return false
+    }
+
+    let intrinsicLlvmName = resolveIntrinsicDecoratorNameImpl(fn)
+    if intrinsicLlvmName == "" {
+        return false
+    }
+
+    let intrinsicParamTypes = Array<String>()
+    var paramIdx = 0
+    while paramIdx < fn.params.length() {
+        let paramSeenType = fn.params[paramIdx].paramType.typeName
+        intrinsicParamTypes.push(mapTypeImpl(paramSeenType, structNames,
+            typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames))
+        paramIdx = paramIdx + 1
+    }
+    let intrinsicRetType = mapTypeImpl(fn.returnType.typeName, structNames,
+        typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames)
+
+    let intrinsicLines = Array<String>()
+    if emitIntrinsicWrapperImpl(intrinsicLines, regBox, fn.name,
+        intrinsicLlvmName, intrinsicParamTypes, intrinsicParamTypes.length(),
+        intrinsicRetType, quoteIdentIfNeededImpl(fn.name)) {
+
+        var lineIdx = 0
+        while lineIdx < intrinsicLines.length() {
+            output.append(intrinsicLines[lineIdx])
+            lineIdx = lineIdx + 1
+        }
+    }
+
+    if intrinsicCountBox[0] > 0 {
+        intrinsicFuncNamesBox[0] = intrinsicFuncNamesBox[0] + "|"
+        intrinsicLlvmNamesBox[0] = intrinsicLlvmNamesBox[0] + "|"
+    }
+    intrinsicFuncNamesBox[0] = intrinsicFuncNamesBox[0] + fn.name
+    intrinsicLlvmNamesBox[0] = intrinsicLlvmNamesBox[0] +
+        intrinsicLlvmName
+    intrinsicCountBox[0] = intrinsicCountBox[0] + 1
+    return true
+}
+
+fun registerFunctionTraitImplDecoratorsStateImpl(fn: FunctionNode,
+    traitImplRegistryBox: Array<String>, traitImplCountBox: Array<Int>)
+    r: Void {
+
+    registerFunctionTraitImplDecoratorsImpl(fn, traitImplRegistryBox,
+        traitImplCountBox)
+}
+
+fun tryHandleGpuShaderFunctionGenerationStateImpl(output: StringBuilder,
+    regBox: Array<Int>, fn: FunctionNode, gpuNamesBox: Array<String>,
+    gpuStagesBox: Array<String>, gpuWorkgroupsBox: Array<String>,
+    gpuBindingsBox: Array<String>, gpuCountBox: Array<Int>) r: Bool {
+
+    return tryHandleGpuShaderFunctionGenerationImpl(output, regBox, fn,
+        gpuNamesBox, gpuStagesBox, gpuWorkgroupsBox, gpuBindingsBox,
+        gpuCountBox)
+}
+
+fun shouldSkipSpecialFunctionBodyStateImpl(output: StringBuilder,
+    fn: FunctionNode) r: Bool {
+
+    return shouldSkipSpecialFunctionBodyImpl(output, fn)
+}
+
+fun prepareFunctionAttributesStateImpl(output: StringBuilder, fn: FunctionNode,
+    sanitizerMode: String, initFuncNamesBox: Array<String>,
+    initFuncCountBox: Array<Int>, trustedFuncNamesBox: Array<String>,
+    specializationNamesBox: Array<String>,
+    specializationCountBox: Array<Int>) r: String {
+
+    let funcAttrsBox = Array<String>()
+    funcAttrsBox.push("")
+    prepareFunctionAttributesImpl(output, fn, sanitizerMode, funcAttrsBox,
+        initFuncNamesBox, initFuncCountBox, trustedFuncNamesBox,
+        specializationNamesBox, specializationCountBox)
+    return funcAttrsBox[0]
+}
+
+fun prepareFunctionAttributeStateSnapshotImpl(output: StringBuilder,
+    fn: FunctionNode, sanitizerMode: String, initFuncNames: String,
+    initFuncCount: Int, trustedFuncNames: String,
+    specializationNames: String, specializationCount: Int)
+    r: FunctionAttributeStateSnapshot {
+
+    let snapshot = FunctionAttributeStateSnapshot.new()
+    let initFuncNamesBox = Array<String>()
+    initFuncNamesBox.push(initFuncNames)
+    let initFuncCountBox = Array<Int>()
+    initFuncCountBox.push(initFuncCount)
+    let trustedFuncNamesBox = Array<String>()
+    trustedFuncNamesBox.push(trustedFuncNames)
+    let specializationNamesBox = Array<String>()
+    specializationNamesBox.push(specializationNames)
+    let specializationCountBox = Array<Int>()
+    specializationCountBox.push(specializationCount)
+    snapshot.funcAttrs = prepareFunctionAttributesStateImpl(output, fn,
+        sanitizerMode, initFuncNamesBox, initFuncCountBox,
+        trustedFuncNamesBox, specializationNamesBox, specializationCountBox)
+    snapshot.initFuncNames = initFuncNamesBox[0]
+    snapshot.initFuncCount = initFuncCountBox[0]
+    snapshot.trustedFuncNames = trustedFuncNamesBox[0]
+    snapshot.specializationNames = specializationNamesBox[0]
+    snapshot.specializationCount = specializationCountBox[0]
+    return snapshot
+}
+
+fun prepareFunctionDecoratorPreflightSnapshotImpl(output: StringBuilder,
+    regBox: Array<Int>, fn: FunctionNode, traitImplRegistry: String,
+    traitImplCount: Int, gpuShaderNames: String, gpuShaderStages: String,
+    gpuShaderWorkgroups: String, gpuShaderBindings: String,
+    gpuShaderCount: Int) r: FunctionDecoratorPreflightSnapshot {
+
+    let snapshot = FunctionDecoratorPreflightSnapshot.new()
+    let registryBox = Array<String>()
+    registryBox.push(traitImplRegistry)
+    let countBox = Array<Int>()
+    countBox.push(traitImplCount)
+    registerFunctionTraitImplDecoratorsStateImpl(fn, registryBox, countBox)
+    snapshot.traitImplRegistry = registryBox[0]
+    snapshot.traitImplCount = countBox[0]
+
+    let gpuNamesBox = Array<String>()
+    gpuNamesBox.push(gpuShaderNames)
+    let gpuStagesBox = Array<String>()
+    gpuStagesBox.push(gpuShaderStages)
+    let gpuWorkgroupsBox = Array<String>()
+    gpuWorkgroupsBox.push(gpuShaderWorkgroups)
+    let gpuBindingsBox = Array<String>()
+    gpuBindingsBox.push(gpuShaderBindings)
+    let gpuCountBox = Array<Int>()
+    gpuCountBox.push(gpuShaderCount)
+    if tryHandleGpuShaderFunctionGenerationStateImpl(output, regBox, fn,
+        gpuNamesBox, gpuStagesBox, gpuWorkgroupsBox, gpuBindingsBox,
+        gpuCountBox) {
+
+        snapshot.handledByDecorator = 1
+    }
+    snapshot.gpuShaderNames = gpuNamesBox[0]
+    snapshot.gpuShaderStages = gpuStagesBox[0]
+    snapshot.gpuShaderWorkgroups = gpuWorkgroupsBox[0]
+    snapshot.gpuShaderBindings = gpuBindingsBox[0]
+    snapshot.gpuShaderCount = gpuCountBox[0]
+    return snapshot
+}
+
+fun tryHandleExternFunctionGenerationStateImpl(output: StringBuilder,
+    fn: FunctionNode, structNames: Array<String>, typeAliasNames: String,
+    typeAliasTargets: String, typeAliasCount: Int, enumTypeNames: String,
+    reprCClassNames: String, funcNames: Array<String>,
+    funcRetTypes: Array<String>) r: Bool {
+
+    let externSymbolBox = Array<String>()
+    externSymbolBox.push("")
+    let externAction = prepareExternFunctionGenerationImpl(output, fn,
+        externSymbolBox)
+    if externAction == 0 {
+        return false
+    }
+
+    let normalizedReturnType = normalizeDeclaredTypeNodeImpl(fn.returnType)
+    if externAction == 1 {
+        registerFunctionStateImpl(fn.name, normalizedReturnType, funcNames,
+            funcRetTypes)
+        return true
+    }
+
+    let mappedPTypes = Array<String>()
+    var paramIdx = 0
+    while paramIdx < fn.params.length() {
+        let ptName = normalizeDeclaredTypeNodeImpl(fn.params[paramIdx].paramType)
+        mappedPTypes.push(mapFunctionParameterTypeImpl(ptName, structNames,
+            typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames,
+            reprCClassNames))
+        paramIdx = paramIdx + 1
+    }
+
+    let externRetType = mapDeclaredTypeImpl(normalizedReturnType, structNames,
+        typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames,
+        reprCClassNames)
+    var isVariadic = 0
+    if hasFunctionDecoratorImpl(fn, "variadic") {
+        isVariadic = 1
+    }
+    emitExternDeclImpl(output, fn.name, externSymbolBox[0], mappedPTypes,
+        fn.params.length(), externRetType, isVariadic)
+    registerFunctionStateImpl(fn.name, normalizedReturnType, funcNames,
+        funcRetTypes)
+    return true
+}

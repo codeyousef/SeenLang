@@ -1,0 +1,59 @@
+// Reusable runtime memory helpers that wrap the low-level native ABI surface.
+
+extern fun seen_mem_alloc(size: Int) r: Int
+extern fun seen_mem_free(ptr: Int)
+extern fun seen_mem_store_f64(ptr: Int, offset: Int, value: Float)
+extern fun seen_mem_store_i64(ptr: Int, offset: Int, value: Int)
+extern fun seen_mem_store_f32(ptr: Int, offset: Int, value: Float)
+extern fun seen_mem_store_i32(ptr: Int, offset: Int, value: Int)
+extern fun seen_mem_load_i32(ptr: Int, offset: Int) r: Int
+extern fun seen_ptr_deref_f64(ptr: Int) r: Float
+
+fun seen_runtime_mem_alloc(size: Int) r: Int {
+    return seen_mem_alloc(size)
+}
+
+fun seen_runtime_mem_free(ptr: Int) {
+    seen_mem_free(ptr)
+}
+
+fun seen_runtime_store_f64(ptr: Int, offset: Int, value: Float) {
+    seen_mem_store_f64(ptr, offset, value)
+}
+
+fun seen_runtime_store_i64(ptr: Int, offset: Int, value: Int) {
+    seen_mem_store_i64(ptr, offset, value)
+}
+
+fun seen_runtime_store_f32(ptr: Int, offset: Int, value: Float) {
+    seen_mem_store_f32(ptr, offset, value)
+}
+
+fun seen_runtime_store_i32(ptr: Int, offset: Int, value: Int) {
+    seen_mem_store_i32(ptr, offset, value)
+}
+
+fun seen_runtime_load_i32(ptr: Int, offset: Int) r: Int {
+    return seen_mem_load_i32(ptr, offset)
+}
+
+fun seen_runtime_memcpy_floats(dst: Int, src: Int, count: Int) {
+    for i in 0..count {
+        let value = seen_ptr_deref_f64(src + i * 8)
+        seen_runtime_store_f32(dst, i * 4, value)
+    }
+}
+
+fun seen_runtime_memcpy_ints(dst: Int, src: Int, count: Int) {
+    for i in 0..count {
+        let value = ptr_deref(src + i * 8)
+        seen_runtime_store_i32(dst, i * 4, value)
+    }
+}
+
+fun seen_runtime_memcpy_bytes(dst: Int, src: Int, count: Int) {
+    for i in 0..count {
+        let value = ptr_deref_i8(src + i)
+        ptr_store_i8(dst + i, value)
+    }
+}

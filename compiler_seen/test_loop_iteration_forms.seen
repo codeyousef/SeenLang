@@ -1,0 +1,39 @@
+fun main() r: Int {
+    let rangeCount = 0
+    for i in 0..5 {
+        rangeCount = rangeCount + 1
+    }
+
+    var items = Array<Int>()
+    items.push(10)
+    items.push(20)
+    items.push(30)
+    let arraySum = 0
+    for item in items {
+        arraySum = arraySum + item
+    }
+
+    let charCount = 0
+    for ch in "ABCA" {
+        if ch == 'A' {
+            charCount = charCount + 1
+        }
+    }
+
+    let w = 0
+    while w < 5 {
+        if w == 1 {
+            w = w + 1
+            continue
+        }
+        if w == 3 {
+            break
+        }
+        w = w + 1
+    }
+
+    if rangeCount == 5 and arraySum == 60 and charCount == 2 and w == 3 {
+        return 0
+    }
+    return 1
+}

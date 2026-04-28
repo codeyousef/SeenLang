@@ -886,7 +886,9 @@ def fix_cross_module_string_returns(content, all_module_files=None):
     if not i64_declared:
         return content
 
-    # Step 2: Check OTHER modules for definitions returning %SeenString
+    # Step 2: Check OTHER modules for definitions returning %SeenString.
+    # Scan each module once; the old nested fname-by-module regex loop made
+    # per-module fixups crawl on full compiler rebuilds.
     actually_seenstring = set()
     for mod_path in all_module_files:
         try:
@@ -894,11 +896,10 @@ def fix_cross_module_string_returns(content, all_module_files=None):
                 mod_content = f.read()
         except (IOError, OSError):
             continue
-        for fname in list(i64_declared):
-            if fname in actually_seenstring:
-                continue
-            if re.search(rf'^define\s+(?:noundef\s+)?%SeenString\s+@{re.escape(fname)}\s*\(',
-                         mod_content, re.MULTILINE):
+        for m in re.finditer(r'^define\s+(?:noundef\s+)?%SeenString\s+@([A-Za-z0-9_.]+)\s*\(',
+                             mod_content, re.MULTILINE):
+            fname = m.group(1)
+            if fname in i64_declared:
                 actually_seenstring.add(fname)
 
     if not actually_seenstring:

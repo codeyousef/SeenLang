@@ -9,6 +9,18 @@ var g_resolvedFieldIndex = 0
 // Field type encoded as int to avoid module-level String var codegen bug:
 // 0=i64, 1=i1, 2=ptr, 3=%SeenString, 4=%TypeNode, 5=%SeenArray, 6=%Range, 7=%LspPosition
 var g_resolvedFieldTypeCode = 0
+var g_typeInfoFindStructCacheNames: Array<String> = Array<String>()
+var g_typeInfoFindStructCacheIdxs: Array<Int> = Array<Int>()
+var g_typeInfoFindStructCacheLens: Array<Int> = Array<Int>()
+var g_seenFieldTypeCacheKeys: Array<String> = Array<String>()
+var g_seenFieldTypeCacheLens: Array<Int> = Array<Int>()
+var g_seenFieldTypeCacheValues: Array<String> = Array<String>()
+var g_methodReturnCacheKeys: Array<String> = Array<String>()
+var g_methodReturnCacheTypes: Array<String> = Array<String>()
+var g_methodReturnCacheStructLens: Array<Int> = Array<Int>()
+var g_methodReturnCacheStructIdxs: Array<Int> = Array<Int>()
+var g_methodReturnCacheMethodNames: Array<String> = Array<String>()
+var g_methodReturnCacheMethodRetTypes: Array<String> = Array<String>()
 
 fun decodeFieldTypeCode(code: Int) r: String {
     if code == 0 { return "i64" }
@@ -24,12 +36,266 @@ fun decodeFieldTypeCode(code: Int) r: String {
 
 // Local struct name lookup (replaces class findStruct method)
 fun findStructIdx(structNames: Array<String>, name: String) r: Int {
+    let structLen = structNames.length()
+    var cacheIdx = g_typeInfoFindStructCacheNames.length() - 1
+    while cacheIdx >= 0 {
+        if g_typeInfoFindStructCacheNames[cacheIdx] == name and
+            g_typeInfoFindStructCacheLens[cacheIdx] == structLen {
+
+            let cachedStructIdx = g_typeInfoFindStructCacheIdxs[cacheIdx]
+            if cachedStructIdx >= 0 and cachedStructIdx < structLen and
+                structNames[cachedStructIdx] == name {
+
+                return cachedStructIdx
+            }
+            return -1
+        }
+        cacheIdx = cacheIdx - 1
+    }
+
     var i = structNames.length() - 1
     while i >= 0 {
-        if structNames[i] == name { return i }
+        if structNames[i] == name {
+            g_typeInfoFindStructCacheNames.push(name)
+            g_typeInfoFindStructCacheIdxs.push(i)
+            g_typeInfoFindStructCacheLens.push(structLen)
+            return i
+        }
+        i = i - 1
+    }
+    g_typeInfoFindStructCacheNames.push(name)
+    g_typeInfoFindStructCacheIdxs.push(-1)
+    g_typeInfoFindStructCacheLens.push(structLen)
+    return -1
+}
+
+fun findSeenFieldTypeCacheRecord(key: String, structLen: Int) r: Int {
+    var cacheIdx = g_seenFieldTypeCacheKeys.length() - 1
+    while cacheIdx >= 0 {
+        if g_seenFieldTypeCacheKeys[cacheIdx] == key and
+            g_seenFieldTypeCacheLens[cacheIdx] == structLen {
+
+            return cacheIdx
+        }
+        cacheIdx = cacheIdx - 1
+    }
+    return -1
+}
+
+fun cacheSeenFieldType(key: String, structLen: Int, resultType: String) r: Void {
+    var cacheIdx = g_seenFieldTypeCacheKeys.length() - 1
+    while cacheIdx >= 0 {
+        if g_seenFieldTypeCacheKeys[cacheIdx] == key {
+            g_seenFieldTypeCacheLens[cacheIdx] = structLen
+            g_seenFieldTypeCacheValues[cacheIdx] = resultType
+            return
+        }
+        cacheIdx = cacheIdx - 1
+    }
+    g_seenFieldTypeCacheKeys.push(key)
+    g_seenFieldTypeCacheLens.push(structLen)
+    g_seenFieldTypeCacheValues.push(resultType)
+}
+
+fun methodReturnCacheKeyImpl(structName: String, methodName: String) r: String {
+    return structName + ":" + methodName
+}
+
+fun findMethodReturnCacheRecordImpl(structName: String, methodName: String,
+    structNames: Array<String>, structMethodNames: Array<String>,
+    structMethodRetTypes: Array<String>) r: Int {
+
+    let key = methodReturnCacheKeyImpl(structName, methodName)
+    let structLen = structNames.length()
+    let structIdx = findStructIdx(structNames, structName)
+    var methodNames = ""
+    var methodRetTypes = ""
+    if structIdx >= 0 and structIdx < structMethodNames.length() {
+        methodNames = structMethodNames[structIdx]
+        methodRetTypes = structMethodRetTypes[structIdx]
+    }
+
+    var i = g_methodReturnCacheKeys.length() - 1
+    while i >= 0 {
+        if g_methodReturnCacheKeys[i] == key and
+            g_methodReturnCacheStructLens[i] == structLen and
+            g_methodReturnCacheStructIdxs[i] == structIdx and
+            g_methodReturnCacheMethodNames[i] == methodNames and
+            g_methodReturnCacheMethodRetTypes[i] == methodRetTypes {
+
+            return i
+        }
         i = i - 1
     }
     return -1
+}
+
+fun cacheMethodReturnTypeImpl(structName: String, methodName: String,
+    resultType: String, structNames: Array<String>,
+    structMethodNames: Array<String>, structMethodRetTypes: Array<String>)
+    r: Void {
+
+    let key = methodReturnCacheKeyImpl(structName, methodName)
+    let structLen = structNames.length()
+    let structIdx = findStructIdx(structNames, structName)
+    var methodNames = ""
+    var methodRetTypes = ""
+    if structIdx >= 0 and structIdx < structMethodNames.length() {
+        methodNames = structMethodNames[structIdx]
+        methodRetTypes = structMethodRetTypes[structIdx]
+    }
+
+    var i = g_methodReturnCacheKeys.length() - 1
+    while i >= 0 {
+        if g_methodReturnCacheKeys[i] == key {
+            g_methodReturnCacheTypes[i] = resultType
+            g_methodReturnCacheStructLens[i] = structLen
+            g_methodReturnCacheStructIdxs[i] = structIdx
+            g_methodReturnCacheMethodNames[i] = methodNames
+            g_methodReturnCacheMethodRetTypes[i] = methodRetTypes
+            return
+        }
+        i = i - 1
+    }
+    g_methodReturnCacheKeys.push(key)
+    g_methodReturnCacheTypes.push(resultType)
+    g_methodReturnCacheStructLens.push(structLen)
+    g_methodReturnCacheStructIdxs.push(structIdx)
+    g_methodReturnCacheMethodNames.push(methodNames)
+    g_methodReturnCacheMethodRetTypes.push(methodRetTypes)
+}
+
+fun getKnownFieldIndexPrimaryImpl(structName: String, fieldName: String) r: Int {
+    if structName == "FunctionNode" {
+        if fieldName == "name" { return 0 }
+        if fieldName == "params" { return 1 }
+        if fieldName == "returnType" { return 2 }
+        if fieldName == "body" { return 3 }
+        if fieldName == "isAsync" { return 4 }
+        if fieldName == "isInline" { return 5 }
+        if fieldName == "isStatic" { return 6 }
+        if fieldName == "isExtern" { return 7 }
+        if fieldName == "isDeterministic" { return 8 }
+        if fieldName == "isNondeterministic" { return 9 }
+        if fieldName == "decorators" { return 10 }
+        if fieldName == "line" { return 11 }
+        if fieldName == "column" { return 12 }
+        if fieldName == "isOverride" { return 13 }
+    }
+    if structName == "ClassNode" {
+        if fieldName == "name" { return 0 }
+        if fieldName == "fields" { return 1 }
+        if fieldName == "methods" { return 2 }
+        if fieldName == "decorators" { return 3 }
+        if fieldName == "isNondeterministic" { return 4 }
+        if fieldName == "parentName" { return 5 }
+    }
+    if structName == "TypeNode" {
+        if fieldName == "typeName" { return 0 }
+        if fieldName == "isNullable" { return 1 }
+    }
+    if structName == "ParamNode" {
+        if fieldName == "name" { return 0 }
+        if fieldName == "paramType" { return 1 }
+        if fieldName == "isMutable" { return 2 }
+    }
+    if structName == "ItemNode" {
+        if fieldName == "itemType" { return 0 }
+        if fieldName == "name" { return 1 }
+        if fieldName == "visibility" { return 2 }
+        if fieldName == "importPath" { return 3 }
+        if fieldName == "importSymbols" { return 4 }
+        if fieldName == "function" { return 5 }
+        if fieldName == "classNode" { return 6 }
+        if fieldName == "enumNode" { return 7 }
+    }
+    if structName == "ProgramNode" {
+        if fieldName == "items" { return 0 }
+    }
+    if structName == "BlockNode" {
+        if fieldName == "statements" { return 0 }
+    }
+    if structName == "FrontendResult" {
+        if fieldName == "success" { return 0 }
+        if fieldName == "diagnostics" { return 1 }
+        if fieldName == "program" { return 2 }
+    }
+    if structName == "StatementNode" {
+        if fieldName == "kind" { return 0 }
+        if fieldName == "variableName" { return 1 }
+        if fieldName == "variableType" { return 2 }
+        if fieldName == "initializer" { return 3 }
+        if fieldName == "expression" { return 4 }
+        if fieldName == "condition" { return 5 }
+        if fieldName == "thenBranch" { return 6 }
+        if fieldName == "elseBranch" { return 7 }
+        if fieldName == "loopCondition" { return 8 }
+        if fieldName == "loopBody" { return 9 }
+        if fieldName == "returnValue" { return 10 }
+    }
+    if structName == "ParserExpressionNode" {
+        if fieldName == "kind" { return 0 }
+        if fieldName == "operands" { return 1 }
+        if fieldName == "operator" { return 2 }
+        if fieldName == "literalValue" { return 3 }
+        if fieldName == "literalType" { return 4 }
+        if fieldName == "variableName" { return 5 }
+        if fieldName == "callee" { return 6 }
+        if fieldName == "arguments" { return 7 }
+    }
+    return -1
+}
+
+fun getKnownFieldIndexFallbackImpl(structName: String, fieldName: String) r: Int {
+    if structName == "FrontendDiagnostic" {
+        if fieldName == "file" { return 0 }
+        if fieldName == "line" { return 1 }
+        if fieldName == "column" { return 2 }
+        if fieldName == "severity" { return 3 }
+        if fieldName == "message" { return 4 }
+    }
+    if structName == "Token" {
+        if fieldName == "tokenType" { return 0 }
+        if fieldName == "value" { return 1 }
+        if fieldName == "line" { return 2 }
+        if fieldName == "column" { return 3 }
+    }
+    if structName == "FieldNode" {
+        if fieldName == "name" { return 0 }
+        if fieldName == "fieldType" { return 1 }
+        if fieldName == "isMutable" { return 2 }
+        if fieldName == "defaultValue" { return 3 }
+        if fieldName == "visibility" { return 4 }
+    }
+    return -1
+}
+
+fun getLLVMIRGeneratorFieldIndexImpl(fieldName: String) r: Int {
+    if fieldName == "output" { return 0 }
+    if fieldName == "stringConstants" { return 1 }
+    if fieldName == "nextReg" { return 2 }
+    if fieldName == "nextBlock" { return 3 }
+    if fieldName == "varNames" { return 4 }
+    if fieldName == "varRegs" { return 5 }
+    if fieldName == "varTypes" { return 6 }
+    if fieldName == "indent" { return 7 }
+    return -1
+}
+
+fun getLLVMIRGeneratorFieldLlvmTypeImpl(fieldName: String) r: String {
+    if fieldName == "output" { return "i64" }
+    if fieldName == "stringConstants" { return "ptr" }
+    if fieldName == "nextReg" { return "i64" }
+    if fieldName == "nextBlock" { return "i64" }
+    if fieldName == "varNames" { return "ptr" }
+    if fieldName == "varRegs" { return "ptr" }
+    if fieldName == "varTypes" { return "ptr" }
+    if fieldName == "indent" { return "i64" }
+    return ""
+}
+
+fun getLLVMIRGeneratorStructLayoutImpl() r: String {
+    return "{ i64, ptr, i64, i64, ptr, ptr, ptr, i64 }"
 }
 
 // Character to ASCII code string conversion
@@ -141,43 +407,21 @@ fun charToCodeStr(val: String) r: String {
 
 // Get Seen-level type for a struct field (hardcoded + dynamic registry lookup)
 fun getSeenFieldTypeImpl(structName: String, fieldName: String, structNames: Array<String>, structFieldNames: Array<String>, structFieldTypes: Array<String>) r: String {
+    let cacheKey = structName + "." + fieldName
+    let structLen = structNames.length()
+    let cachedFieldType = findSeenFieldTypeCacheRecord(cacheKey, structLen)
+    if cachedFieldType >= 0 {
+        return g_seenFieldTypeCacheValues[cachedFieldType]
+    }
     if structName == "LLVMIRGenerator" {
-        if fieldName == "output" { return "StringBuilder" }
-        if fieldName == "stringConstants" { return "Array<String>" }
-        if fieldName == "nextReg" { return "Int" }
-        if fieldName == "nextBlock" { return "Int" }
-        if fieldName == "varNames" { return "Array<String>" }
-        if fieldName == "varRegs" { return "Array<String>" }
-        if fieldName == "varTypes" { return "Array<String>" }
-        if fieldName == "indent" { return "Int" }
-        if fieldName == "structNames" { return "Array<String>" }
-        if fieldName == "structLayouts" { return "Array<String>" }
-        if fieldName == "structFieldNames" { return "Array<String>" }
-        if fieldName == "structFieldTypes" { return "Array<String>" }
-        if fieldName == "structLlvmFieldTypes" { return "Array<String>" }
-        if fieldName == "structSizes" { return "Array<Int>" }
-        if fieldName == "structMethodNames" { return "Array<String>" }
-        if fieldName == "structMethodRetTypes" { return "Array<String>" }
-        if fieldName == "funcNames" { return "Array<String>" }
-        if fieldName == "funcRetTypes" { return "Array<String>" }
-        if fieldName == "currentFunctionReturnType" { return "String" }
-        if fieldName == "currentClassName" { return "String" }
-        if fieldName == "blockTerminated" { return "Bool" }
-        if fieldName == "currentLoopCondLabel" { return "String" }
-        if fieldName == "currentLoopEndLabel" { return "String" }
-        if fieldName == "preAllocatedVars" { return "Array<String>" }
-        if fieldName == "preAllocatedTypes" { return "Array<String>" }
-        if fieldName == "stringConstantPrefix" { return "String" }
-        if fieldName == "generatedFunctions" { return "Array<String>" }
-        if fieldName == "generatedClasses" { return "Array<String>" }
-        if fieldName == "typesLoadedFromHeader" { return "Bool" }
-        if fieldName == "runtimeDeclsLoaded" { return "Bool" }
-        if fieldName == "typeHeaderPath" { return "String" }
-        if fieldName == "pendingArrayLiteralType" { return "String" }
-        if fieldName == "classMethodBaseNames" { return "Array<String>" }
-        if fieldName == "moduleConstantNames" { return "Array<String>" }
-        if fieldName == "moduleConstantValues" { return "Array<String>" }
-        if fieldName == "moduleConstantTypes" { return "Array<String>" }
+        if fieldName == "output" { cacheSeenFieldType(cacheKey, structLen, "StringBuilder"); return "StringBuilder" }
+        if fieldName == "stringConstants" { cacheSeenFieldType(cacheKey, structLen, "Array<String>"); return "Array<String>" }
+        if fieldName == "nextReg" { cacheSeenFieldType(cacheKey, structLen, "Int"); return "Int" }
+        if fieldName == "nextBlock" { cacheSeenFieldType(cacheKey, structLen, "Int"); return "Int" }
+        if fieldName == "varNames" { cacheSeenFieldType(cacheKey, structLen, "Array<String>"); return "Array<String>" }
+        if fieldName == "varRegs" { cacheSeenFieldType(cacheKey, structLen, "Array<String>"); return "Array<String>" }
+        if fieldName == "varTypes" { cacheSeenFieldType(cacheKey, structLen, "Array<String>"); return "Array<String>" }
+        if fieldName == "indent" { cacheSeenFieldType(cacheKey, structLen, "Int"); return "Int" }
     }
     let idx = findStructIdx(structNames, structName)
     if idx < 0 {
@@ -597,6 +841,7 @@ fun getSeenFieldTypeImpl(structName: String, fieldName: String, structNames: Arr
             if fieldName == "objectKeys" { return "Array<String>" }
             if fieldName == "objectValues" { return "Array<JsonValue>" }
         }
+        cacheSeenFieldType(cacheKey, structLen, "Int")
         return "Int"  // Default
     }
 
@@ -765,6 +1010,7 @@ fun getSeenFieldTypeImpl(structName: String, fieldName: String, structNames: Arr
     }
 
     if not foundField {
+        cacheSeenFieldType(cacheKey, structLen, "Int")
         return "Int"
     }
 
@@ -781,6 +1027,7 @@ fun getSeenFieldTypeImpl(structName: String, fieldName: String, structNames: Arr
         if atPipe == 1 {
             if typeIdx == fieldIdx {
                 let typeName = fieldTypesStr.substring(typeStart, pos)
+                cacheSeenFieldType(cacheKey, structLen, typeName)
                 return typeName
             }
             typeIdx = typeIdx + 1
@@ -788,11 +1035,32 @@ fun getSeenFieldTypeImpl(structName: String, fieldName: String, structNames: Arr
         }
         pos = pos + 1
     }
+    cacheSeenFieldType(cacheKey, structLen, "Int")
     return "Int"  // Default
 }
 
 // Get return type for a struct method (hardcoded + dynamic registry lookup)
-fun getMethodReturnTypeImpl(structName: String, methodName: String, structNames: Array<String>, structMethodNames: Array<String>, structMethodRetTypes: Array<String>) r: String {
+fun getMethodReturnTypeImpl(structName: String, methodName: String,
+    structNames: Array<String>, structMethodNames: Array<String>,
+    structMethodRetTypes: Array<String>) r: String {
+
+    let cached = findMethodReturnCacheRecordImpl(structName, methodName,
+        structNames, structMethodNames, structMethodRetTypes)
+    if cached >= 0 {
+        return g_methodReturnCacheTypes[cached]
+    }
+
+    let resultType = computeMethodReturnTypeUncachedImpl(structName,
+        methodName, structNames, structMethodNames, structMethodRetTypes)
+    cacheMethodReturnTypeImpl(structName, methodName, resultType, structNames,
+        structMethodNames, structMethodRetTypes)
+    return resultType
+}
+
+fun computeMethodReturnTypeUncachedImpl(structName: String, methodName: String,
+    structNames: Array<String>, structMethodNames: Array<String>,
+    structMethodRetTypes: Array<String>) r: String {
+
     // Fallback for well-known types that may not have methods registered
     if structName == "Environment" {
         if methodName == "lookup" { return "Type" }
@@ -1326,7 +1594,7 @@ fun getMethodReturnTypeImpl(structName: String, methodName: String, structNames:
     // IO/stdio classes
     if structName == "ContentLengthReader" {
         if methodName == "new" { return "ContentLengthReader" }
-        if methodName == "readMessage" { return "String?" }
+        if methodName == "readMessage" { return "String" }
         if methodName == "getLastError" { return "String" }
     }
     if structName == "StdinReader" {

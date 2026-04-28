@@ -1,0 +1,199 @@
+// ir_index_access_gen.seen - low-level index-access emission helpers.
+
+import str.string.{StringBuilder}
+import codegen.ir_optimization.{getNextRegFn}
+import codegen.ir_field_layout.{emitSeenArrayLengthLoadImpl}
+
+fun emitPointerIndexAccessImpl(output: StringBuilder, regBox: Array<Int>,
+    baseReg: String, indexReg: String) r: String {
+
+    let mulReg = getNextRegFn(regBox)
+    output.append("  " + mulReg + " = mul i64 " + indexReg + ", 8\n")
+    let offsetReg = getNextRegFn(regBox)
+    output.append("  " + offsetReg + " = call i64 @seen_ptr_add(i64 " +
+        baseReg + ", i64 " + mulReg + ", i64 1)\n")
+    let ptrReg = getNextRegFn(regBox)
+    output.append("  " + ptrReg + " = inttoptr i64 " + offsetReg +
+        " to ptr\n")
+    let resultReg = getNextRegFn(regBox)
+    output.append("  " + resultReg + " = load i64, ptr " + ptrReg +
+        " ; ptr[i] access\n")
+    return resultReg
+}
+
+fun emitPreparedPointerIndexAccessImpl(output: StringBuilder,
+    regBox: Array<Int>, baseReg: String, indexReg: String) r: String {
+
+    return emitPointerIndexAccessImpl(output, regBox, baseReg, indexReg)
+}
+
+fun emitOperatorIndexAccessCallImpl(output: StringBuilder,
+    regBox: Array<Int>, baseReg: String, indexReg: String,
+    returnLlvmType: String, quotedFunctionName: String) r: String {
+
+    let thisReg = getNextRegFn(regBox)
+    output.append("  " + thisReg + " = inttoptr i64 " + baseReg +
+        " to ptr\n")
+    let resultReg = getNextRegFn(regBox)
+    output.append("  " + resultReg + " = call " + returnLlvmType + " @" +
+        quotedFunctionName + "(ptr " + thisReg + ", i64 " + indexReg +
+        ")\n")
+    return resultReg
+}
+
+fun emitPreparedOperatorIndexAccessCallImpl(output: StringBuilder,
+    regBox: Array<Int>, baseReg: String, indexReg: String,
+    returnLlvmType: String, quotedFunctionName: String) r: String {
+
+    return emitOperatorIndexAccessCallImpl(output, regBox, baseReg,
+        indexReg, returnLlvmType, quotedFunctionName)
+}
+
+fun emitIndexBoundsCheckImpl(output: StringBuilder, regBox: Array<Int>,
+    arrayReg: String, indexReg: String, boundsCountBox: Array<Int>) r: Void {
+
+    let bcFailLabel = "bounds_fail_" + boundsCountBox[0].toString()
+    let bcOkLabel = "bounds_ok_" + boundsCountBox[0].toString()
+    boundsCountBox[0] = boundsCountBox[0] + 1
+    let lenReg = emitSeenArrayLengthLoadImpl(output, regBox, arrayReg, "")
+    let oobReg = getNextRegFn(regBox)
+    output.append("  " + oobReg + " = icmp uge i64 " + indexReg + ", " +
+        lenReg + "\n")
+    output.append("  br i1 " + oobReg + ", label %" + bcFailLabel +
+        ", label %" + bcOkLabel + "\n")
+    output.append(bcFailLabel + ":\n")
+    output.append("  call void @seen_bounds_check(i64 " + indexReg +
+        ", i64 " + lenReg + ")\n")
+    output.append("  unreachable\n")
+    output.append(bcOkLabel + ":\n")
+}
+
+fun emitPreparedIndexBoundsCheckImpl(output: StringBuilder,
+    regBox: Array<Int>, arrayReg: String, indexReg: String,
+    boundsCountBox: Array<Int>) r: Void {
+
+    emitIndexBoundsCheckImpl(output, regBox, arrayReg, indexReg,
+        boundsCountBox)
+}
+
+fun emitTypedArrayIndexAccessImpl(output: StringBuilder,
+    regBox: Array<Int>, action: Int, arrayReg: String,
+    indexReg: String) r: String {
+
+    if action == 1 {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg +
+            " = call %SeenString @seen_arr_get_str_ptr(ptr " + arrayReg +
+            ", i64 " + indexReg + ")\n")
+        return resultReg
+    }
+    if action == 2 {
+        let ptrResultReg = getNextRegFn(regBox)
+        output.append("  " + ptrResultReg +
+            " = call ptr @seen_arr_get_diag_ptr(ptr " + arrayReg +
+            ", i64 " + indexReg + ")\n")
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = ptrtoint ptr " + ptrResultReg +
+            " to i64\n")
+        return resultReg
+    }
+    if action == 3 {
+        let dataPtrPtrReg = getNextRegFn(regBox)
+        output.append("  " + dataPtrPtrReg +
+            " = getelementptr inbounds %SeenArray, ptr " + arrayReg +
+            ", i32 0, i32 3\n")
+        let dataPtrReg = getNextRegFn(regBox)
+        output.append("  " + dataPtrReg + " = load ptr, ptr " +
+            dataPtrPtrReg + ", !tbaa !104\n")
+        let elemPtrReg = getNextRegFn(regBox)
+        output.append("  " + elemPtrReg +
+            " = getelementptr inbounds nuw i64, ptr " + dataPtrReg +
+            ", i64 " + indexReg + "\n")
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = load i64, ptr " + elemPtrReg +
+            ", align 8, !tbaa !105\n")
+        return resultReg
+    }
+    if action == 4 {
+        let dataPtrPtrReg = getNextRegFn(regBox)
+        output.append("  " + dataPtrPtrReg +
+            " = getelementptr inbounds %SeenArray, ptr " + arrayReg +
+            ", i32 0, i32 3\n")
+        let dataPtrReg = getNextRegFn(regBox)
+        output.append("  " + dataPtrReg + " = load ptr, ptr " +
+            dataPtrPtrReg + ", !tbaa !104\n")
+        let elemPtrReg = getNextRegFn(regBox)
+        output.append("  " + elemPtrReg +
+            " = getelementptr inbounds nuw double, ptr " + dataPtrReg +
+            ", i64 " + indexReg + "\n")
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = load double, ptr " +
+            elemPtrReg + ", align 8, !tbaa !106\n")
+        return resultReg
+    }
+    if action == 5 {
+        let ptrResultReg = getNextRegFn(regBox)
+        output.append("  " + ptrResultReg +
+            " = call ptr @seen_arr_get_ptr_ptr(ptr " + arrayReg +
+            ", i64 " + indexReg + ")\n")
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = ptrtoint ptr " + ptrResultReg +
+            " to i64\n")
+        return resultReg
+    }
+    return ""
+}
+
+fun emitFallbackIndexElementAccessImpl(output: StringBuilder,
+    regBox: Array<Int>, arrayReg: String, indexReg: String,
+    elementType: String, isDataElement: Int, isClassElement: Int)
+    r: String {
+
+    let ptrResultReg = getNextRegFn(regBox)
+    if isDataElement == 1 {
+        output.append("  " + ptrResultReg +
+            " = call ptr @seen_arr_get_element_ptr(ptr " + arrayReg +
+            ", i64 " + indexReg + ")\n")
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = load %" + elementType +
+            ", ptr " + ptrResultReg + "\n")
+        return resultReg
+    }
+    if isClassElement == 1 {
+        output.append("  " + ptrResultReg +
+            " = getelementptr inbounds %SeenArray, ptr " + arrayReg +
+            ", i32 0, i32 3\n")
+        let clsDataPtr = getNextRegFn(regBox)
+        output.append("  " + clsDataPtr + " = load ptr, ptr " +
+            ptrResultReg + ", !tbaa !104\n")
+        let clsElemPtr = getNextRegFn(regBox)
+        output.append("  " + clsElemPtr +
+            " = getelementptr inbounds ptr, ptr " + clsDataPtr +
+            ", i64 " + indexReg + "\n")
+        let clsLoadReg = getNextRegFn(regBox)
+        output.append("  " + clsLoadReg + " = load ptr, ptr " +
+            clsElemPtr + "\n")
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = ptrtoint ptr " + clsLoadReg +
+            " to i64\n")
+        return resultReg
+    }
+    output.append("  " + ptrResultReg +
+        " = call ptr @seen_arr_get_element_ptr(ptr " + arrayReg +
+        ", i64 " + indexReg + ")\n")
+    return ptrResultReg
+}
+
+fun emitPreparedIndexElementAccessImpl(output: StringBuilder,
+    regBox: Array<Int>, typedAction: Int, arrayReg: String,
+    indexReg: String, elementType: String, isDataElement: Int,
+    isClassElement: Int) r: String {
+
+    let typedIndexReg = emitTypedArrayIndexAccessImpl(output, regBox,
+        typedAction, arrayReg, indexReg)
+    if typedIndexReg != "" {
+        return typedIndexReg
+    }
+    return emitFallbackIndexElementAccessImpl(output, regBox, arrayReg,
+        indexReg, elementType, isDataElement, isClassElement)
+}

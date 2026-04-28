@@ -1,0 +1,125 @@
+// ir_function_state.seen - explicit function lowering state helpers.
+
+import codegen.type_registry.{FunctionLoweringOptions, resetFunctionLoweringOptions}
+
+class FunctionEmissionState {
+    var profiledFlag: Bool
+    var profiledName: String
+    var asyncCoroId: String
+    var asyncCoroHdl: String
+    var asyncPromise: String
+    var asyncFinalLabel: String
+    var asyncCleanupLabel: String
+    var yieldCounter: Int
+    var isMainFunc: Int
+    var highPressureFlag: Bool
+    var movedVarNames: String
+    var movedVarCount: Int
+
+    static fun new() r: FunctionEmissionState {
+        return FunctionEmissionState{
+            profiledFlag: false,
+            profiledName: "",
+            asyncCoroId: "",
+            asyncCoroHdl: "",
+            asyncPromise: "",
+            asyncFinalLabel: "",
+            asyncCleanupLabel: "",
+            yieldCounter: 0,
+            isMainFunc: 0,
+            highPressureFlag: false,
+            movedVarNames: "",
+            movedVarCount: 0
+        }
+    }
+}
+
+var g_currentFunctionEmissionState: Int = 0
+var g_currentFunctionEmissionStateInitialized: Bool = false
+
+fun getCurrentFunctionEmissionStateImpl() r: FunctionEmissionState {
+    if not g_currentFunctionEmissionStateInitialized {
+        g_currentFunctionEmissionState = FunctionEmissionState.new() as Int
+        g_currentFunctionEmissionStateInitialized = true
+    }
+    return g_currentFunctionEmissionState as FunctionEmissionState
+}
+
+fun resetFunctionEmissionForFunctionImpl(state: FunctionEmissionState) r: Void {
+    state.profiledFlag = false
+    state.profiledName = ""
+    state.asyncCoroId = ""
+    state.asyncCoroHdl = ""
+    state.asyncPromise = ""
+    state.asyncFinalLabel = ""
+    state.asyncCleanupLabel = ""
+    state.yieldCounter = 0
+    state.isMainFunc = 0
+    state.highPressureFlag = false
+    state.movedVarNames = ""
+    state.movedVarCount = 0
+}
+
+fun markFunctionEmissionHighPressureImpl(state: FunctionEmissionState) r: Void {
+    state.highPressureFlag = true
+}
+
+fun resetFunctionEmissionHighPressureImpl(state: FunctionEmissionState) r: Void {
+    state.highPressureFlag = false
+}
+
+fun recordMovedVariableImpl(state: FunctionEmissionState, varName: String)
+    r: Void {
+
+    state.movedVarNames = state.movedVarNames + varName + "|"
+    state.movedVarCount = state.movedVarCount + 1
+}
+
+fun isMovedVariableImpl(state: FunctionEmissionState, varName: String) r: Int {
+    if state.movedVarCount > 0 and state.movedVarNames.contains(varName + "|") {
+        return 1
+    }
+    return 0
+}
+
+fun resetFunctionLoweringOptionsStateImpl(opts: FunctionLoweringOptions)
+    r: Void {
+
+    resetFunctionLoweringOptions(opts)
+}
+
+fun resetFunctionHighPressureImpl(opts: FunctionLoweringOptions) r: Void {
+    opts.highPressure = false
+}
+
+fun markFunctionHighPressureImpl(opts: FunctionLoweringOptions) r: Void {
+    opts.highPressure = true
+}
+
+fun isFunctionHighPressureImpl(opts: FunctionLoweringOptions) r: Bool {
+    return opts.highPressure
+}
+
+fun currentFunctionAlignToImpl(opts: FunctionLoweringOptions) r: Int {
+    return opts.alignTo
+}
+
+fun currentFunctionRegionSizeBytesImpl(opts: FunctionLoweringOptions) r: Int {
+    return opts.regionSizeBytes
+}
+
+fun isCurrentFunctionAsyncLoweringImpl(opts: FunctionLoweringOptions) r: Bool {
+    return opts.isAsync
+}
+
+fun markTailCallPositionImpl(opts: FunctionLoweringOptions) r: Void {
+    opts.emitTailCall = true
+}
+
+fun takeTailCallPositionImpl(opts: FunctionLoweringOptions) r: Bool {
+    if opts.emitTailCall {
+        opts.emitTailCall = false
+        return true
+    }
+    return false
+}

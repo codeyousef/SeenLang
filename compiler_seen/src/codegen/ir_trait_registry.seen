@@ -1,0 +1,55 @@
+// Trait registry helpers extracted from llvm_ir_gen.seen.
+
+import codegen.ir_type_info.{getMethodReturnTypeImpl}
+
+fun ensureTraitStringBoxValue(box: Array<String>) r: Void {
+    if box.length() == 0 {
+        box.push("")
+    }
+}
+
+fun ensureTraitIntBoxValue(box: Array<Int>) r: Void {
+    if box.length() == 0 {
+        box.push(0)
+    }
+}
+
+fun appendDynTraitNameImpl(traitName: String, dynTraitNamesBox: Array<String>) r: Void {
+    ensureTraitStringBoxValue(dynTraitNamesBox)
+    dynTraitNamesBox[0] = dynTraitNamesBox[0] + traitName + "|"
+}
+
+fun appendTraitImplEntryImpl(entry: String, traitImplRegistryBox: Array<String>,
+    traitImplCountBox: Array<Int>) r: Void {
+
+    ensureTraitStringBoxValue(traitImplRegistryBox)
+    ensureTraitIntBoxValue(traitImplCountBox)
+    traitImplRegistryBox[0] = traitImplRegistryBox[0] + entry + "|"
+    traitImplCountBox[0] = traitImplCountBox[0] + 1
+}
+
+fun autoRegisterTraitImplsImpl(methodName: String, receiverType: String, implFuncName: String,
+    dynTraitNames: String, structNames: Array<String>, structMethodNames: Array<String>,
+    structMethodRetTypes: Array<String>, traitImplRegistryBox: Array<String>,
+    traitImplCountBox: Array<Int>) r: Void {
+
+    if dynTraitNames == "" {
+        return
+    }
+
+    var traitScan = 0
+    while traitScan < dynTraitNames.length() {
+        var traitPipePos = dynTraitNames.indexOf("|", traitScan)
+        if traitPipePos < 0 {
+            traitPipePos = dynTraitNames.length()
+        }
+        let traitCandidate = dynTraitNames.substring(traitScan, traitPipePos)
+        if traitCandidate != "" {
+            let traitMethodCheck = getMethodReturnTypeImpl(traitCandidate, methodName, structNames, structMethodNames, structMethodRetTypes)
+            if traitMethodCheck != "" {
+                appendTraitImplEntryImpl(traitCandidate + ":" + receiverType + ":" + implFuncName, traitImplRegistryBox, traitImplCountBox)
+            }
+        }
+        traitScan = traitPipePos + 1
+    }
+}

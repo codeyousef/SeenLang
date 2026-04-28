@@ -1,0 +1,290 @@
+// C-import C-to-Seen type mapping helpers.
+
+import tools.c_import_gen.{CImportGenerator, CImportResult, CImportedTypedef, CImportedRecordField, CImportedBitfield, CImportedBitfieldLayout, CImportedRecord, CImportedConstant, CImportedFunction}
+import tools.c_import_util.{findLastIndexOf, resolveClangTypedefType, repeatPointerPrefix}
+import tools.c_import_state.{cImportFindImportedRecordIndex, cImportFindImportedTypedefIndex, cImportHasImportedRecordNamed, cImportHasImportedTypedefNamed}
+import tools.c_import_type_builtin.{cImportIsPositiveIntegerString, cImportIsBuiltinScalarTypedefName, cImportMapBuiltinCTypeToSeenType, cImportMapBuiltinCFieldTypeToSeenType, cImportIsIgnoredCQualifier}
+
+fun cImportCTypeToSeenType(gen: CImportGenerator, cType: String) r: String {
+    let normalized = cImportNormalizeCType(gen, cImportChoosePreferredClangType(gen, cType))
+
+    let importedRecordType = cImportMapImportedRecordType(gen, normalized)
+    if importedRecordType != "" {
+        return importedRecordType
+    }
+
+    let importedTypedefType = cImportMapImportedTypedefType(gen, normalized)
+    if importedTypedefType != "" {
+        return importedTypedefType
+    }
+
+    return cImportMapBuiltinCTypeToSeenType(gen, normalized)
+}
+
+fun cImportCFieldTypeToSeenType(gen: CImportGenerator, cType: String) r: String {
+    let normalized = cImportNormalizeCType(gen, cImportChoosePreferredClangType(gen, cType))
+    let arraySeenType = cImportCArrayTypeToSeenType(gen, normalized)
+    if arraySeenType != "" {
+        return arraySeenType
+    }
+
+    let importedRecordType = cImportMapImportedRecordType(gen, normalized)
+    if importedRecordType != "" {
+        return importedRecordType
+    }
+
+    let builtinScalarTypedefFieldType = cImportMapBuiltinScalarTypedefFieldType(gen, normalized)
+    if builtinScalarTypedefFieldType != "" {
+        return builtinScalarTypedefFieldType
+    }
+
+    let importedTypedefType = cImportMapImportedTypedefType(gen, normalized)
+    if importedTypedefType != "" {
+        return importedTypedefType
+    }
+
+    return cImportMapBuiltinCFieldTypeToSeenType(gen, normalized)
+}
+
+fun cImportCArrayTypeToSeenType(gen: CImportGenerator, normalized: String) r: String {
+    let openIdx = findLastIndexOf(normalized, "[")
+    if openIdx < 0 or not normalized.endsWith("]") {
+        return ""
+    }
+
+    let lenStr = normalized.substring(openIdx + 1, normalized.length() - 1).trim()
+    if not cImportIsPositiveIntegerString(gen, lenStr) {
+        return ""
+    }
+
+    let elementCType = normalized.substring(0, openIdx).trim()
+    if elementCType == "" {
+        return ""
+    }
+
+    let elementSeenType = cImportCFieldTypeToSeenType(gen, elementCType)
+    if elementSeenType == "" {
+        return ""
+    }
+
+    return elementSeenType + "[" + lenStr + "]"
+}
+
+fun cImportMapBuiltinScalarTypedefFieldType(gen: CImportGenerator, normalized: String) r: String {
+    if not cImportIsBuiltinScalarTypedefName(gen, normalized) {
+        return ""
+    }
+
+    let typedefIdx = cImportFindImportedTypedefIndex(gen, normalized)
+    if typedefIdx < 0 {
+        return ""
+    }
+
+    return gen.outputTypedefs[typedefIdx].seenType
+}
+
+fun cImportInferTypedefSeenType(gen: CImportGenerator, importedTypedef: CImportedTypedef) r: Void {
+    let normalized = cImportNormalizeCType(gen, importedTypedef.cType)
+    importedTypedef.cType = normalized
+
+    if normalized.contains("(*") {
+        let seenFunctionType = cImportFunctionPointerCTypeToSeenType(gen, normalized)
+        if seenFunctionType != "" {
+            importedTypedef.seenType = seenFunctionType
+            importedTypedef.category = "callback"
+            return
+        }
+        importedTypedef.seenType = "Ptr"
+        importedTypedef.category = "pointer"
+        return
+    }
+
+    if normalized.endsWith("*") or normalized.contains("*") {
+        importedTypedef.seenType = "Ptr"
+        importedTypedef.category = "pointer"
+        return
+    }
+
+    let arraySeenType = cImportCArrayTypeToSeenType(gen, normalized)
+    if arraySeenType != "" {
+        importedTypedef.seenType = arraySeenType
+        importedTypedef.category = "value"
+        return
+    }
+
+    if normalized.startsWith("struct ") or normalized.startsWith("union ") {
+        importedTypedef.seenType = "Ptr"
+        importedTypedef.category = "opaque"
+        return
+    }
+
+    if normalized.startsWith("enum ") {
+        importedTypedef.seenType = "Int"
+        importedTypedef.category = "value"
+        return
+    }
+
+    let seenType = cImportMapBuiltinCFieldTypeToSeenType(gen, normalized)
+    if seenType == "" {
+        return
+    }
+    importedTypedef.seenType = seenType
+    importedTypedef.category = "value"
+}
+
+fun cImportIsRecordBackedTypedef(gen: CImportGenerator, importedTypedef: CImportedTypedef) r: Bool {
+    let recordIdx = cImportFindImportedRecordIndex(gen, importedTypedef.name)
+    if recordIdx < 0 {
+        return false
+    }
+    return importedTypedef.cType == gen.outputRecords[recordIdx].kind + " " + importedTypedef.name
+}
+
+fun cImportMapImportedRecordType(gen: CImportGenerator, normalized: String) r: String {
+    let exactIdx = cImportFindImportedRecordTypeIndex(gen, normalized)
+    if exactIdx >= 0 {
+        return gen.outputRecords[exactIdx].name
+    }
+
+    var baseType = normalized
+    var pointerDepth = 0
+    while true {
+        let trimmed = baseType.trim()
+        if not trimmed.endsWith("*") {
+            break
+        }
+        pointerDepth = pointerDepth + 1
+        baseType = trimmed.substring(0, trimmed.length() - 1)
+    }
+
+    baseType = baseType.trim()
+    if pointerDepth > 0 {
+        let recordIdx = cImportFindImportedRecordTypeIndex(gen, baseType)
+        if recordIdx >= 0 {
+            return repeatPointerPrefix(pointerDepth, gen.outputRecords[recordIdx].name)
+        }
+    }
+
+    return ""
+}
+
+fun cImportMapImportedTypedefType(gen: CImportGenerator, normalized: String) r: String {
+    if normalized.contains("(*") {
+        return "Ptr"
+    }
+
+    let exactIdx = cImportFindImportedTypedefIndex(gen, normalized)
+    if exactIdx >= 0 {
+        return gen.outputTypedefs[exactIdx].name
+    }
+
+    var baseType = normalized
+    var pointerDepth = 0
+    while true {
+        let trimmed = baseType.trim()
+        if not trimmed.endsWith("*") {
+            break
+        }
+        pointerDepth = pointerDepth + 1
+        baseType = trimmed.substring(0, trimmed.length() - 1)
+    }
+
+    baseType = baseType.trim()
+    if pointerDepth > 0 {
+        let typedefIdx = cImportFindImportedTypedefIndex(gen, baseType)
+        if typedefIdx >= 0 {
+            let importedTypedef = gen.outputTypedefs[typedefIdx]
+            if importedTypedef.category == "opaque" {
+                if pointerDepth == 1 {
+                    return importedTypedef.name
+                }
+                return repeatPointerPrefix(pointerDepth - 1, importedTypedef.name)
+            }
+            return repeatPointerPrefix(pointerDepth, importedTypedef.name)
+        }
+    }
+
+    return ""
+}
+
+fun cImportChoosePreferredClangType(gen: CImportGenerator, rawType: String) r: String {
+    let aliasSepIdx = rawType.indexOf("':'", 0)
+    if aliasSepIdx >= 0 {
+        let aliasName = rawType.substring(0, aliasSepIdx).trim()
+        if cImportHasImportedRecordNamed(gen, aliasName) or cImportHasImportedTypedefNamed(gen, aliasName) {
+            return aliasName
+        }
+        return resolveClangTypedefType(rawType)
+    }
+    return rawType.trim()
+}
+
+fun cImportFindImportedRecordTypeIndex(gen: CImportGenerator, normalized: String) r: Int {
+    let exactIdx = cImportFindImportedRecordIndex(gen, normalized)
+    if exactIdx >= 0 {
+        return exactIdx
+    }
+
+    if normalized.startsWith("struct ") {
+        return cImportFindImportedRecordIndex(gen, normalized.substring(7, normalized.length()).trim())
+    }
+    if normalized.startsWith("union ") {
+        return cImportFindImportedRecordIndex(gen, normalized.substring(6, normalized.length()).trim())
+    }
+
+    return -1
+}
+
+fun cImportFunctionPointerCTypeToSeenType(gen: CImportGenerator, cType: String) r: String {
+    let pointerIdx = cType.indexOf("(*", 0)
+    if pointerIdx < 0 {
+        return ""
+    }
+
+    let paramsStart = cType.indexOf("(", pointerIdx + 2)
+    let paramsEnd = findLastIndexOf(cType, ")")
+    if paramsStart < 0 or paramsEnd <= paramsStart {
+        return ""
+    }
+
+    let seenReturnType = cImportCFieldTypeToSeenType(gen, cType.substring(0, pointerIdx).trim())
+    let paramsStr = cType.substring(paramsStart + 1, paramsEnd).trim()
+
+    var seenType = "fn("
+    if paramsStr != "" and paramsStr != "void" {
+        let params = paramsStr.split(",")
+        var idx = 0
+        while idx < params.length() {
+            let param = params[idx].trim()
+            if param == "..." {
+                return ""
+            }
+            if idx > 0 {
+                seenType = seenType + ", "
+            }
+            seenType = seenType + cImportCFieldTypeToSeenType(gen, param)
+            idx = idx + 1
+        }
+    }
+
+    seenType = seenType + ") -> " + seenReturnType
+    return seenType
+}
+
+fun cImportNormalizeCType(gen: CImportGenerator, cType: String) r: String {
+    let parts = cType.trim().split(" ")
+    var normalized = ""
+    var idx = 0
+    while idx < parts.length() {
+        let part = parts[idx].trim()
+        if part != "" and not cImportIsIgnoredCQualifier(gen, part) {
+            if normalized != "" {
+                normalized = normalized + " "
+            }
+            normalized = normalized + part
+        }
+        idx = idx + 1
+    }
+    return normalized.trim()
+}
+

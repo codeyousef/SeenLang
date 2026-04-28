@@ -1,0 +1,231 @@
+// ir_stmt_decl.seen - declaration statement helper utilities
+
+import parser.real_parser.{StatementNode}
+import codegen.ir_optimization.{getNextRegFn}
+import str.string.{StringBuilder}
+
+class LetStatementPlan {
+    var preIdx: Int
+    var preAllocatedType: String
+    var declaredType: String
+    var varType: String
+
+    static fun new() r: LetStatementPlan {
+        return LetStatementPlan{
+            preIdx: -1,
+            preAllocatedType: "",
+            declaredType: "",
+            varType: ""
+        }
+    }
+}
+
+fun declarationTypeNeedsFallbackImpl(typeName: String) r: Int {
+    if typeName == "" or typeName == "Unknown" or typeName == "Void" {
+        return 1
+    }
+    return 0
+}
+
+fun shouldInferDeclarationInitializerTypeImpl(typeName: String,
+    initializerKind: String) r: Int {
+
+    if declarationTypeNeedsFallbackImpl(typeName) != 0 and
+        initializerKind != "None" {
+        return 1
+    }
+    return 0
+}
+
+fun resolveDeclarationBaseTypeImpl(declaredType: String, initializerType: String)
+    r: String {
+
+    if declarationTypeNeedsFallbackImpl(declaredType) != 0 and
+        initializerType != "" {
+        return initializerType
+    }
+    return declaredType
+}
+
+fun resolveLetStatementTypeImpl(baseType: String, preAllocatedType: String)
+    r: String {
+
+    var varType = baseType
+    if declarationTypeNeedsFallbackImpl(varType) != 0 and
+        preAllocatedType != "" {
+        varType = preAllocatedType
+    }
+    if declarationTypeNeedsFallbackImpl(varType) != 0 {
+        return "Int"
+    }
+    return varType
+}
+
+fun resolveLetStatementAllocaImpl(output: StringBuilder, regBox: Array<Int>,
+    preAllocatedReg: String, preAllocatedLlvmType: String, llvmType: String)
+    r: String {
+
+    if preAllocatedReg != "" and preAllocatedLlvmType == llvmType {
+        return preAllocatedReg
+    }
+    let reg = getNextRegFn(regBox)
+    output.append("  " + reg + " = alloca " + llvmType + "\n")
+    return reg
+}
+
+fun prepareLetStatementPlanImpl(stmt: StatementNode,
+    declOrdinalNames: Array<String>, declOrdinalCounts: Array<Int>,
+    preAllocatedVars: Array<String>, preAllocatedTypes: Array<String>,
+    declaredType: String, initializerType: String) r: LetStatementPlan {
+
+    let plan = LetStatementPlan.new()
+    let declOrdinal = nextDeclarationOrdinalImpl(declOrdinalNames,
+        declOrdinalCounts, stmt.variableName)
+    plan.preIdx = findPreAllocatedOccurrenceImpl(preAllocatedVars,
+        stmt.variableName, declOrdinal)
+    if plan.preIdx >= 0 and plan.preIdx < preAllocatedTypes.length() {
+        plan.preAllocatedType = preAllocatedTypes[plan.preIdx]
+    }
+    plan.declaredType = declaredType
+    plan.varType = resolveLetStatementTypeImpl(
+        resolveDeclarationBaseTypeImpl(plan.declaredType, initializerType),
+        plan.preAllocatedType)
+    return plan
+}
+
+fun resolveLetPreAllocatedRegImpl(preIdx: Int,
+    preAllocatedRegs: Array<String>) r: String {
+
+    if preIdx >= 0 and preIdx < preAllocatedRegs.length() {
+        return preAllocatedRegs[preIdx]
+    }
+    return ""
+}
+
+fun findPreAllocatedOccurrenceImpl(preAllocatedVars: Array<String>,
+    name: String, ordinal: Int) r: Int {
+
+    var seen = 0
+    var i = 0
+    while i < preAllocatedVars.length() {
+        if preAllocatedVars[i] == name {
+            seen = seen + 1
+            if seen == ordinal {
+                return i
+            }
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+fun nextDeclarationOrdinalImpl(declOrdinalNames: Array<String>,
+    declOrdinalCounts: Array<Int>, name: String) r: Int {
+
+    var i = 0
+    while i < declOrdinalNames.length() {
+        if declOrdinalNames[i] == name {
+            let nextOrdinal = declOrdinalCounts[i] + 1
+            declOrdinalCounts[i] = nextOrdinal
+            return nextOrdinal
+        }
+        i = i + 1
+    }
+    declOrdinalNames.push(name)
+    declOrdinalCounts.push(1)
+    return 1
+}
+
+fun findCollectedDeclarationTypeImpl(preAllocatedVars: Array<String>,
+    preAllocatedTypes: Array<String>, name: String) r: String {
+
+    var i = preAllocatedVars.length() - 1
+    while i >= 0 {
+        if preAllocatedVars[i] == name {
+            return preAllocatedTypes[i]
+        }
+        i = i - 1
+    }
+    return ""
+}
+
+fun classifyCollectedStatementKindImpl(stmtKind: String) r: Int {
+    if stmtKind == "Let" or stmtKind == "Var" {
+        return 1
+    }
+    if stmtKind == "If" {
+        return 2
+    }
+    if stmtKind == "While" or stmtKind == "For" {
+        return 3
+    }
+    if stmtKind == "ForIn" {
+        return 4
+    }
+    return 0
+}
+
+fun shouldTraceCollectedDeclarationTypeImpl(varType: String, variableName: String)
+    r: Int {
+
+    if varType.contains("VNode") or varType.contains("Vec<") or
+        variableName == "div" or variableName == "spanChild" or
+        variableName == "span" {
+        return 1
+    }
+    return 0
+}
+
+fun appendCollectedDeclarationImpl(preAllocatedVars: Array<String>,
+    preAllocatedTypes: Array<String>, variableName: String, varType: String)
+    r: Void {
+
+    preAllocatedVars.push(variableName)
+    preAllocatedTypes.push(varType)
+}
+
+fun resolveCollectedForInElementTypeImpl(iterableKind: String, iterableType: String,
+    firstElementType: String) r: String {
+
+    if iterableKind == "Range" {
+        return "Int"
+    }
+    if iterableType.startsWith("Array<") {
+        return iterableType.substring(6, iterableType.length() - 1)
+    }
+    if iterableType == "String" {
+        return "Char"
+    }
+    if iterableKind == "ArrayLiteral" and firstElementType != "" {
+        return firstElementType
+    }
+    return "Int"
+}
+
+fun buildForInIndexNameImpl(loopVarName: String) r: String {
+    return "__forin_idx_" + loopVarName
+}
+
+fun shouldSeedDeclarationPendingArrayLiteralTypeImpl(initializerKind: String,
+    varType: String) r: Int {
+
+    if initializerKind == "ArrayLiteral" and
+        (varType.startsWith("Array") or varType.startsWith("List")) {
+        return 1
+    }
+    return 0
+}
+
+fun emitDeadLiteralInitializerSkipNoteImpl(output: StringBuilder,
+    variableName: String) r: Void {
+
+    output.append("  ; DSE: skipped dead literal init for " + variableName +
+        "\n")
+}
+
+fun emitDeclarationInitializerStoreImpl(output: StringBuilder, llvmType: String,
+    valueReg: String, reg: String) r: Void {
+
+    output.append("  store " + llvmType + " " + valueReg + ", ptr " + reg +
+        "\n")
+}

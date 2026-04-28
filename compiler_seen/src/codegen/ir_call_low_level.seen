@@ -1,0 +1,205 @@
+// ir_call_low_level.seen — low-level builtin call helpers
+// Extracted from llvm_ir_gen.seen to keep low-level call emission separate
+// from the higher-level builtin dispatcher.
+
+import str.string.{StringBuilder}
+import codegen.ir_optimization.{getNextRegFn}
+import codegen.ir_call_dispatch.{emitCStrConversionImpl, emitDebugAssertCallImpl, emitAsyncYieldCallImpl}
+import codegen.ir_ptr_ops.{emitPtrOpsImpl, emitStackAllocImpl, emitConstructAtImpl}
+import codegen.ir_type_ops.{emitSimdBuiltinImpl}
+
+fun isPtrBuiltinCallImpl(funcName: String) r: Int {
+    if funcName == "ptr_deref" or funcName == "ptr_deref_f64" or
+        funcName == "ptr_store" or funcName == "ptr_store_f64" or
+        funcName == "ptr_is_null" or funcName == "ptr_add" or
+        funcName == "ptr_deref_i64" or funcName == "ptr_store_i64" or
+        funcName == "ptr_deref_i32" or funcName == "ptr_store_i32" or
+        funcName == "ptr_deref_i16" or funcName == "ptr_store_i16" or
+        funcName == "ptr_deref_i8" or funcName == "ptr_store_i8" or
+        funcName == "ptr_deref_f32" or funcName == "ptr_store_f32" or
+        funcName == "ptr_alloc_i32" or funcName == "ptr_alloc_i16" or
+        funcName == "ptr_alloc_i8" {
+        return 1
+    }
+    return 0
+}
+
+fun emitPtrBuiltinCallImpl(output: StringBuilder, regBox: Array<Int>,
+    funcName: String, insideUnsafe: Int, arg0: String, arg1: String,
+    arg2: String) r: String {
+
+    if insideUnsafe == 0 {
+        if funcName.startsWith("ptr_deref") or funcName.startsWith("ptr_store") {
+            output.append("  ; WARNING: " + funcName +
+                " requires unsafe block\n")
+        }
+    }
+    let ptResult = emitPtrOpsImpl(output, regBox, funcName, arg0, arg1, arg2)
+    if ptResult != "" {
+        return ptResult
+    }
+    if funcName == "ptr_is_null" {
+        return "1"
+    }
+    return "0"
+}
+
+fun emitBarrierBuiltinCallImpl(output: StringBuilder) r: String {
+    output.append("  call void @seen_barrier()\n")
+    return "0"
+}
+
+fun emitStackAllocBuiltinCallImpl(output: StringBuilder, regBox: Array<Int>,
+    allocCount: String) r: String {
+
+    return emitStackAllocImpl(output, regBox, allocCount)
+}
+
+fun emitConstructAtBuiltinCallImpl(output: StringBuilder, regBox: Array<Int>,
+    ptrReg: String) r: String {
+
+    return emitConstructAtImpl(output, regBox, ptrReg)
+}
+
+fun emitDebugAssertBuiltinCallStateImpl(output: StringBuilder,
+    regBox: Array<Int>, boundsCheckEnabled: Int, condVal: String,
+    boundsCountBox: Array<Int>) r: String {
+
+    if boundsCheckEnabled == 1 and condVal != "" {
+        emitDebugAssertCallImpl(output, regBox, boundsCountBox, condVal)
+    }
+    return "0"
+}
+
+fun emitCStringBuiltinCallImpl(output: StringBuilder, regBox: Array<Int>,
+    funcName: String, argReg: String) r: String {
+
+    if argReg == "" {
+        return "0"
+    }
+    return emitCStrConversionImpl(output, regBox, funcName, argReg)
+}
+
+fun emitSplitBuiltinCallImpl(output: StringBuilder, regBox: Array<Int>,
+    textArg: String, delimArg: String) r: String {
+
+    if textArg == "" or delimArg == "" {
+        return ""
+    }
+    let splitReg = getNextRegFn(regBox)
+    output.append("  " + splitReg +
+        " = call ptr @String_split(%SeenString " + textArg +
+        ", %SeenString " + delimArg + ")\n")
+    return splitReg
+}
+
+fun emitAsyncYieldBuiltinStateImpl(output: StringBuilder, regBox: Array<Int>,
+    asyncFunctionCoroHdl: String, asyncCleanupLabel: String,
+    yieldCounterBox: Array<Int>) r: String {
+
+    if asyncFunctionCoroHdl != "" {
+        emitAsyncYieldCallImpl(output, regBox, yieldCounterBox,
+            asyncCleanupLabel)
+    }
+    return "0"
+}
+
+fun isSimdBuiltinCallImpl(funcName: String, isSimdVectorTypeValue: Int)
+    r: Int {
+
+    if isSimdVectorTypeValue == 1 or funcName.startsWith("simd_load_") or
+        funcName.startsWith("simd_store_") or funcName == "simd_select" or
+        funcName == "simd_shuffle" or funcName.startsWith("simd_gather_") or
+        funcName.startsWith("simd_scatter_") {
+        return 1
+    }
+    return 0
+}
+
+fun emitPreparedSimdBuiltinCallImpl(output: StringBuilder, regBox: Array<Int>,
+    funcName: String, simdArgs: Array<String>, simdArgTypes: Array<String>,
+    simdConstIndices: Array<Int>) r: String {
+
+    return emitSimdBuiltinImpl(output, regBox, funcName, simdArgs,
+        simdArgs.length(), simdArgTypes, simdConstIndices,
+        simdConstIndices.length())
+}
+
+fun emitIndirectBuiltinCallImpl(output: StringBuilder, regBox: Array<Int>,
+    fnVarReg: String, argRegs: Array<String>) r: String {
+
+    let fnPtrReg = getNextRegFn(regBox)
+    output.append("  " + fnPtrReg + " = load i64, ptr " + fnVarReg + "\n")
+    let fnPtrCast = getNextRegFn(regBox)
+    output.append("  " + fnPtrCast + " = inttoptr i64 " + fnPtrReg +
+        " to ptr\n")
+    var callArgs = ""
+    var argIdx = 0
+    while argIdx < argRegs.length() {
+        if argIdx > 0 {
+            callArgs = callArgs + ", "
+        }
+        callArgs = callArgs + "i64 " + argRegs[argIdx]
+        argIdx = argIdx + 1
+    }
+    let resultReg = getNextRegFn(regBox)
+    output.append("  " + resultReg + " = call i64 " + fnPtrCast + "(" +
+        callArgs + ")\n")
+    return resultReg
+}
+
+fun emitPreparedLowLevelBuiltinActionImpl(output: StringBuilder,
+    regBox: Array<Int>, action: Int, funcName: String, insideUnsafe: Int,
+    boundsCheckEnabled: Int, arg0: String, arg1: String, arg2: String,
+    asyncFunctionCoroHdl: String, asyncCleanupLabel: String,
+    yieldCounterBox: Array<Int>, simdArgs: Array<String>,
+    simdArgTypes: Array<String>, simdConstIndices: Array<Int>,
+    indirectFnVarReg: String, indirectArgRegs: Array<String>,
+    boundsCountBox: Array<Int>) r: String {
+
+    if action == 1 {
+        return emitPtrBuiltinCallImpl(output, regBox, funcName, insideUnsafe,
+            arg0, arg1, arg2)
+    }
+    if action == 2 {
+        return emitBarrierBuiltinCallImpl(output)
+    }
+    if action == 3 {
+        return emitStackAllocBuiltinCallImpl(output, regBox, arg0)
+    }
+    if action == 4 {
+        if arg0 == "" {
+            return "0"
+        }
+        return emitConstructAtBuiltinCallImpl(output, regBox, arg0)
+    }
+    if action == 5 {
+        return emitDebugAssertBuiltinCallStateImpl(output, regBox,
+            boundsCheckEnabled, arg0, boundsCountBox)
+    }
+    if action == 6 {
+        return emitCStringBuiltinCallImpl(output, regBox, "str_to_cstr", arg0)
+    }
+    if action == 7 {
+        return emitSplitBuiltinCallImpl(output, regBox, arg0, arg1)
+    }
+    if action == 8 {
+        return emitCStringBuiltinCallImpl(output, regBox, "cstr_to_str", arg0)
+    }
+    if action == 9 {
+        return "0"
+    }
+    if action == 10 {
+        return emitAsyncYieldBuiltinStateImpl(output, regBox,
+            asyncFunctionCoroHdl, asyncCleanupLabel, yieldCounterBox)
+    }
+    if action == 11 {
+        return emitPreparedSimdBuiltinCallImpl(output, regBox, funcName,
+            simdArgs, simdArgTypes, simdConstIndices)
+    }
+    if action == 12 {
+        return emitIndirectBuiltinCallImpl(output, regBox, indirectFnVarReg,
+            indirectArgRegs)
+    }
+    return ""
+}

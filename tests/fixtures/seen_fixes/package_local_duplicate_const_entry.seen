@@ -1,0 +1,6 @@
+import package_local_duplicate_const_a.{packageLocalDuplicateA}
+import package_local_duplicate_const_b.{packageLocalDuplicateB}
+
+fun main() r: Int {
+    return packageLocalDuplicateA() + packageLocalDuplicateB()
+}

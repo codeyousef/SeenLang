@@ -1,0 +1,25 @@
+// ir_stmt_dispatch_plan.seen - pure statement dispatch action planner.
+
+fun planStatementDispatchImpl(stmtKind: String) r: Int {
+    if stmtKind == "Let" or stmtKind == "Var" { return 1 }
+    if stmtKind == "Return" { return 2 }
+    if stmtKind == "Expression" { return 3 }
+    if stmtKind == "If" { return 4 }
+    if stmtKind == "IfLet" { return 5 }
+    if stmtKind == "While" { return 6 }
+    if stmtKind == "Assignment" { return 7 }
+    if stmtKind == "ForIn" { return 8 }
+    if stmtKind == "Region" { return 9 }
+    if stmtKind == "Continue" { return 10 }
+    if stmtKind == "Break" { return 11 }
+    if stmtKind == "Defer" { return 12 }
+    if stmtKind == "Errdefer" { return 13 }
+    if stmtKind == "Block" { return 14 }
+    if stmtKind == "Unsafe" { return 15 }
+    if stmtKind == "TryCatch" { return 16 }
+    if stmtKind == "ParallelFor" { return 17 }
+    if stmtKind == "ComptimeBlock" { return 18 }
+    if stmtKind == "ComptimeAssert" { return 19 }
+    if stmtKind == "ComptimeIf" { return 20 }
+    return 0
+}

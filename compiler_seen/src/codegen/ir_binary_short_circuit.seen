@@ -1,0 +1,70 @@
+// ir_binary_short_circuit.seen - short-circuit binary label and branch helpers.
+
+import str.string.{StringBuilder}
+import codegen.ir_optimization.{getNextBlockFn}
+
+class ShortCircuitBinaryLabels {
+    var checkLabel: String
+    var rightLabel: String
+    var doneLabel: String
+    var mergeLabel: String
+
+    static fun new(checkLabel: String, rightLabel: String,
+        doneLabel: String, mergeLabel: String) r: ShortCircuitBinaryLabels {
+
+        return ShortCircuitBinaryLabels{
+            checkLabel: checkLabel,
+            rightLabel: rightLabel,
+            doneLabel: doneLabel,
+            mergeLabel: mergeLabel
+        }
+    }
+}
+
+fun allocateShortCircuitBinaryLabelsImpl(blockLabelBox: Array<Int>)
+    r: ShortCircuitBinaryLabels {
+
+    return ShortCircuitBinaryLabels.new(getNextBlockFn(blockLabelBox),
+        getNextBlockFn(blockLabelBox), getNextBlockFn(blockLabelBox),
+        getNextBlockFn(blockLabelBox))
+}
+
+fun emitShortCircuitCheckBridgeImpl(output: StringBuilder,
+    checkLabel: String) r: Void {
+
+    output.append("  br label %" + checkLabel + "\n")
+    output.append(checkLabel + ":\n")
+}
+
+fun emitShortCircuitAndDecisionImpl(output: StringBuilder,
+    leftBoolReg: String, rightLabel: String, mergeLabel: String) r: Void {
+
+    output.append("  br i1 " + leftBoolReg + ", label %" + rightLabel +
+        ", label %" + mergeLabel + "\n")
+}
+
+fun emitShortCircuitOrDecisionImpl(output: StringBuilder,
+    leftBoolReg: String, rightLabel: String, mergeLabel: String) r: Void {
+
+    output.append("  br i1 " + leftBoolReg + ", label %" + mergeLabel +
+        ", label %" + rightLabel + "\n")
+}
+
+fun emitShortCircuitRightLabelImpl(output: StringBuilder,
+    rightLabel: String) r: Void {
+
+    output.append(rightLabel + ":\n")
+}
+
+fun emitShortCircuitDoneBridgeImpl(output: StringBuilder,
+    doneLabel: String) r: Void {
+
+    output.append("  br label %" + doneLabel + "\n")
+    output.append(doneLabel + ":\n")
+}
+
+fun emitShortCircuitMergeJumpImpl(output: StringBuilder,
+    mergeLabel: String) r: Void {
+
+    output.append("  br label %" + mergeLabel + "\n")
+}

@@ -1,0 +1,57 @@
+// ir_function_ml_logs.seen - function-pipeline ML log helpers.
+
+import codegen.ir_function_gen.{FunctionPreludeAnalysisSnapshot}
+import codegen.ir_ml_logging.{mlLogDecision, mlLogFeatures}
+import codegen.ir_optimization.{pipeGet}
+
+fun applyFunctionPreludeMlLogsImpl(
+    preludeAnalysis: FunctionPreludeAnalysisSnapshot, fnName: String)
+    r: Void {
+
+    if preludeAnalysis.inlineReplayDecision == 1 {
+        mlLogDecision("inline", "yes", fnName + ":replay")
+    }
+    if preludeAnalysis.inlineFeatureLog == 1 {
+        mlLogFeatures("inline", fnName, preludeAnalysis.inlineBodySize,
+            preludeAnalysis.inlineCallCount,
+            preludeAnalysis.inlineHasLoopsFlag,
+            preludeAnalysis.inlineNestDepth, 0)
+        if preludeAnalysis.inlineDecisionAction != "" {
+            mlLogDecision("inline", preludeAnalysis.inlineDecisionAction,
+                preludeAnalysis.inlineDecisionDetail)
+        }
+    }
+    if preludeAnalysis.highPressure == 1 {
+        mlLogDecision("reg-pressure", "high",
+            preludeAnalysis.regPressureDetail)
+    }
+}
+
+fun applyFunctionUnusedParamMlLogsImpl(unusedParams: Array<String>,
+    fnName: String) r: Void {
+
+    var unusedIdx = 0
+    while unusedIdx < unusedParams.length() {
+        mlLogDecision("dead-arg", "unused",
+            unusedParams[unusedIdx] + ":" + fnName)
+        unusedIdx = unusedIdx + 1
+    }
+}
+
+fun applyDeadStoreMlLogsImpl(deadStoreLogEntries: String) r: Void {
+    var dsLogIdx = 0
+    while dsLogIdx < deadStoreLogEntries.length() {
+        let logEntry = pipeGet(deadStoreLogEntries, dsLogIdx)
+        if logEntry == "" {
+            break
+        }
+        let actionSepPos = logEntry.indexOf(":", 0)
+        if actionSepPos > 0 {
+            let action = logEntry.substring(0, actionSepPos)
+            let detail = logEntry.substring(actionSepPos + 1,
+                logEntry.length())
+            mlLogDecision("dead-store", action, detail)
+        }
+        dsLogIdx = dsLogIdx + 1
+    }
+}

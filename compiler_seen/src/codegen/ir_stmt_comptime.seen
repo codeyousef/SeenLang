@@ -1,0 +1,236 @@
+// ir_stmt_comptime.seen - comptime statement helper utilities
+
+import parser.real_parser.{ParserExpressionNode}
+import str.string.{StringBuilder}
+import codegen.ir_type_mapping.{registerComptimeVarStateImpl, updateComptimeVarStateImpl, registerComptimeStrVarStateImpl}
+
+class ComptimeRegistryStateSnapshot {
+    var comptimeNames: String
+    var comptimeValues: String
+    var comptimeCount: Int
+    var comptimeStrNames: String
+    var comptimeStrValues: String
+    var comptimeStrCount: Int
+
+    static fun new() r: ComptimeRegistryStateSnapshot {
+        return ComptimeRegistryStateSnapshot{
+            comptimeNames: "",
+            comptimeValues: "",
+            comptimeCount: 0,
+            comptimeStrNames: "",
+            comptimeStrValues: "",
+            comptimeStrCount: 0
+        }
+    }
+}
+
+fun captureComptimeRegistryStateImpl(comptimeNames: String,
+    comptimeValues: String, comptimeCount: Int, comptimeStrNames: String,
+    comptimeStrValues: String, comptimeStrCount: Int)
+    r: ComptimeRegistryStateSnapshot {
+
+    let snapshot = ComptimeRegistryStateSnapshot.new()
+    snapshot.comptimeNames = comptimeNames
+    snapshot.comptimeValues = comptimeValues
+    snapshot.comptimeCount = comptimeCount
+    snapshot.comptimeStrNames = comptimeStrNames
+    snapshot.comptimeStrValues = comptimeStrValues
+    snapshot.comptimeStrCount = comptimeStrCount
+    return snapshot
+}
+
+fun registerComptimeVarSnapshotImpl(name: String, value: Int,
+    comptimeNames: String, comptimeValues: String, comptimeCount: Int,
+    comptimeStrNames: String, comptimeStrValues: String,
+    comptimeStrCount: Int) r: ComptimeRegistryStateSnapshot {
+
+    let comptimeNamesBox = Array<String>()
+    comptimeNamesBox.push(comptimeNames)
+    let comptimeValuesBox = Array<String>()
+    comptimeValuesBox.push(comptimeValues)
+    let comptimeCountBox = Array<Int>()
+    comptimeCountBox.push(comptimeCount)
+    registerComptimeVarStateImpl(name, value, comptimeNamesBox,
+        comptimeValuesBox, comptimeCountBox)
+    return captureComptimeRegistryStateImpl(comptimeNamesBox[0],
+        comptimeValuesBox[0], comptimeCountBox[0], comptimeStrNames,
+        comptimeStrValues, comptimeStrCount)
+}
+
+fun updateComptimeVarSnapshotImpl(name: String, value: Int,
+    comptimeNames: String, comptimeValues: String, comptimeCount: Int,
+    comptimeStrNames: String, comptimeStrValues: String,
+    comptimeStrCount: Int) r: ComptimeRegistryStateSnapshot {
+
+    let comptimeValuesBox = Array<String>()
+    comptimeValuesBox.push(comptimeValues)
+    updateComptimeVarStateImpl(name, value, comptimeNames,
+        comptimeValuesBox, comptimeCount)
+    return captureComptimeRegistryStateImpl(comptimeNames,
+        comptimeValuesBox[0], comptimeCount, comptimeStrNames,
+        comptimeStrValues, comptimeStrCount)
+}
+
+fun registerComptimeStrVarSnapshotImpl(name: String, value: String,
+    comptimeNames: String, comptimeValues: String, comptimeCount: Int,
+    comptimeStrNames: String, comptimeStrValues: String,
+    comptimeStrCount: Int) r: ComptimeRegistryStateSnapshot {
+
+    let comptimeStrNamesBox = Array<String>()
+    comptimeStrNamesBox.push(comptimeStrNames)
+    let comptimeStrValuesBox = Array<String>()
+    comptimeStrValuesBox.push(comptimeStrValues)
+    let comptimeStrCountBox = Array<Int>()
+    comptimeStrCountBox.push(comptimeStrCount)
+    registerComptimeStrVarStateImpl(name, value, comptimeStrNamesBox,
+        comptimeStrValuesBox, comptimeStrCountBox)
+    return captureComptimeRegistryStateImpl(comptimeNames, comptimeValues,
+        comptimeCount, comptimeStrNamesBox[0], comptimeStrValuesBox[0],
+        comptimeStrCountBox[0])
+}
+
+fun classifyComptimeStatementKindImpl(stmtKind: String) r: Int {
+    if stmtKind == "Let" or stmtKind == "Var" {
+        return 1
+    }
+    if stmtKind == "Assignment" or stmtKind == "Expression" {
+        return 2
+    }
+    if stmtKind == "While" {
+        return 3
+    }
+    return 0
+}
+
+fun shouldProcessComptimeLetImpl(action: Int) r: Bool {
+    return action == 1
+}
+
+fun shouldRegisterComptimeIntValueImpl(value: Int) r: Bool {
+    return value != -9999999
+}
+
+fun shouldRegisterComptimeStringValueImpl(value: String) r: Bool {
+    return value != "__EVAL_FAIL__"
+}
+
+fun shouldProcessComptimeAssignmentImpl(action: Int,
+    exprKind: String) r: Bool {
+
+    return action == 2 and exprKind == "Assignment"
+}
+
+fun shouldApplyComptimeAssignmentUpdateImpl(targetName: String,
+    value: Int) r: Bool {
+
+    return targetName != "" and value != -9999999
+}
+
+fun shouldProcessComptimeWhileImpl(action: Int) r: Bool {
+    return action == 3
+}
+
+fun shouldContinueComptimeWhileImpl(condVal: Int) r: Bool {
+    return condVal != 0 and condVal != -9999999
+}
+
+fun shouldEmitRuntimeComptimeStatementImpl(action: Int) r: Bool {
+    return action == 0
+}
+
+fun resolveComptimeAssignmentTargetImpl(assignExpr: ParserExpressionNode)
+    r: String {
+
+    if assignExpr.variableName != "" {
+        return assignExpr.variableName
+    }
+    return assignExpr.literalValue
+}
+
+fun emitComptimeIntNoteImpl(output: StringBuilder, prefix: String, name: String,
+    value: Int) r: Void {
+
+    output.append("  ; comptime " + prefix + name + " = " + value.toString() +
+        "\n")
+}
+
+fun emitComptimeStringNoteImpl(output: StringBuilder, prefix: String,
+    name: String, value: String) r: Void {
+
+    output.append("  ; comptime " + prefix + name + " = \"" + value + "\"\n")
+}
+
+fun emitComptimeWhileUnrolledNoteImpl(output: StringBuilder, iterCount: Int)
+    r: Void {
+
+    output.append("  ; comptime while unrolled " + iterCount.toString() +
+        " iterations\n")
+}
+
+fun resolveComptimeAssertMessageImpl(conditionExpr: ParserExpressionNode)
+    r: String {
+
+    if conditionExpr.kind == "Literal" and
+        conditionExpr.literalType == "String" {
+        return conditionExpr.literalValue
+    }
+    return "comptime assertion failed"
+}
+
+fun emitComptimeAssertFailureNoteImpl(output: StringBuilder, msg: String)
+    r: Void {
+
+    output.append("  ; COMPTIME ASSERT FAILED: " + msg + "\n")
+}
+
+fun emitComptimeAssertAbortImpl(output: StringBuilder, msgReg: String)
+    r: Void {
+
+    output.append("  " + msgReg +
+        " = call %SeenString @seen_cstr_to_str(ptr @.str.comptime_assert)\n")
+    output.append("  call void @println(%SeenString " + msgReg + ")\n")
+    output.append("  call void @exit(i64 1)\n")
+}
+
+fun emitComptimeAssertPassedNoteImpl(output: StringBuilder) r: Void {
+    output.append("  ; comptime assert passed\n")
+}
+
+fun classifyComptimeAssertResultImpl(condVal: Int) r: Int {
+    if condVal == 0 {
+        return 1
+    }
+    return 2
+}
+
+fun classifyComptimeIfBranchImpl(condVal: Int, elseStatementCount: Int) r: Int {
+    if condVal != 0 {
+        return 1
+    }
+    if elseStatementCount > 0 {
+        return 2
+    }
+    return 3
+}
+
+fun shouldGenerateComptimeIfThenImpl(branchKind: Int) r: Bool {
+    return branchKind == 1
+}
+
+fun shouldGenerateComptimeIfElseImpl(branchKind: Int) r: Bool {
+    return branchKind == 2
+}
+
+fun emitComptimeIfBranchNoteImpl(output: StringBuilder, branchKind: Int)
+    r: Void {
+
+    if branchKind == 1 {
+        output.append("  ; comptime if: true branch\n")
+        return
+    }
+    if branchKind == 2 {
+        output.append("  ; comptime if: false branch (else)\n")
+        return
+    }
+    output.append("  ; comptime if: false, no else branch — eliminated\n")
+}

@@ -1,0 +1,338 @@
+// ir_method_call_plan.seen - pure method-call dispatch planning helpers.
+
+class ResolvedReceiverFastPathPlan {
+    var action: Int
+
+    static fun new() r: ResolvedReceiverFastPathPlan {
+        return ResolvedReceiverFastPathPlan{action: 0}
+    }
+}
+
+fun planResolvedReceiverFastPathImpl(receiverReg: String,
+    receiverIsOption: Bool, receiverIsSmallVec: Bool,
+    receiverIsCollection: Bool, receiverIsArray: Bool)
+    r: ResolvedReceiverFastPathPlan {
+
+    let plan = ResolvedReceiverFastPathPlan.new()
+    if receiverReg == "" {
+        return plan
+    }
+    if receiverIsOption {
+        plan.action = 1
+        return plan
+    }
+    if receiverIsSmallVec {
+        plan.action = 2
+        return plan
+    }
+    if receiverIsCollection {
+        plan.action = 3
+        return plan
+    }
+    if receiverIsArray {
+        plan.action = 4
+    }
+    return plan
+}
+
+fun shouldReadOptionDefaultFastPathArgImpl(action: Int, methodName: String,
+    argCount: Int) r: Bool {
+
+    return action == 1 and
+        (methodName == "unwrapOr" or methodName == "UnwrapOr") and
+        argCount > 0
+}
+
+fun shouldReadSmallVecFastPathArgImpl(action: Int, methodName: String,
+    argCount: Int) r: Bool {
+
+    return action == 2 and
+        (methodName == "push" or methodName == "get") and argCount > 0
+}
+
+fun shouldReadReceiverFastPathArgImpl(action: Int, argCount: Int,
+    argIndex: Int) r: Bool {
+
+    return action > 0 and argCount > argIndex
+}
+
+fun shouldTryStaticMethodCallImpl(receiverReg: String,
+    literalValue: String) r: Bool {
+
+    return receiverReg == "" and literalValue != ""
+}
+
+fun isPascalStaticReceiverNameImpl(receiverName: String) r: Bool {
+    if receiverName.length() == 0 {
+        return false
+    }
+    let firstChar = receiverName.substring(0, 1)
+    return firstChar >= "A" and firstChar <= "Z"
+}
+
+fun shouldTryNoArgStaticFactoryImpl(isPascalReceiver: Bool,
+    methodName: String) r: Bool {
+
+    return isPascalReceiver and methodName == "new"
+}
+
+fun shouldTryArgStaticFactoryImpl(isPascalReceiver: Bool,
+    argCount: Int) r: Bool {
+
+    return isPascalReceiver and argCount > 0
+}
+
+fun resolveStaticCallClassNameImpl(literalValue: String,
+    potentialClassName: String, isPascalReceiver: Bool) r: String {
+
+    if isPascalReceiver {
+        return potentialClassName
+    }
+    return literalValue
+}
+
+fun shouldPromoteStaticMethodFloatArgsImpl(isPascalReceiver: Bool) r: Bool {
+    return not isPascalReceiver
+}
+
+fun staticMethodFunctionNameImpl(staticClassName: String,
+    methodName: String) r: String {
+
+    return staticClassName + "_" + methodName
+}
+
+fun shouldRecordStaticMethodLateDeclareImpl(potentialClassName: String,
+    methodName: String) r: Bool {
+
+    if potentialClassName == "StringBuilder" and methodName == "new" {
+        return false
+    }
+    if potentialClassName == "String" and methodName == "fromCharCode" {
+        return false
+    }
+    return true
+}
+
+fun isSeenLexerKeywordManagerReceiverImpl(thisType: String,
+    varName: String) r: Bool {
+
+    return thisType == "SeenLexer" and varName == "keywordManager"
+}
+
+fun hasGeneratorFieldReceiverImpl(fieldIndex: Int) r: Bool {
+    return fieldIndex >= 0
+}
+
+fun hasStructFieldReceiverImpl(structIndex: Int, fieldIndex: Int) r: Bool {
+    return structIndex >= 0 and fieldIndex >= 0
+}
+
+fun shouldResolveImplicitThisDottedFieldReceiverImpl(thisIndex: Int,
+    firstFieldType: String) r: Bool {
+
+    return thisIndex >= 0 and firstFieldType != ""
+}
+
+fun shouldUseLiteralArrayFreeReceiverTypeImpl(receiverType: String,
+    literalValue: String) r: Bool {
+
+    return (receiverType == "String" or receiverType == "") and
+        literalValue != ""
+}
+
+fun shouldResolveArrayFreePointerFromLiteralImpl(isArrayType: Bool,
+    freePtrReg: String, literalValue: String) r: Bool {
+
+    return isArrayType and freePtrReg == "" and literalValue != ""
+}
+
+fun shouldEmitArrayFreePointerImpl(isArrayType: Bool,
+    freePtrReg: String) r: Bool {
+
+    return isArrayType and freePtrReg != ""
+}
+
+fun shouldEmitClassFreeMutationImpl(isArrayType: Bool,
+    receiverIsClass: Bool) r: Bool {
+
+    return not isArrayType and receiverIsClass
+}
+
+class ArrayMutatorMethodPlan {
+    var action: Int
+
+    static fun new() r: ArrayMutatorMethodPlan {
+        return ArrayMutatorMethodPlan{action: 0}
+    }
+}
+
+class ArrayMutatorFreeTypePlan {
+    var shouldLookupLiteralType: Bool
+
+    static fun new() r: ArrayMutatorFreeTypePlan {
+        return ArrayMutatorFreeTypePlan{shouldLookupLiteralType: false}
+    }
+}
+
+class ArrayMutatorFreeEmitPlan {
+    var shouldResolvePointerFromLiteral: Bool
+    var shouldEmitArrayFree: Bool
+    var shouldEmitClassFree: Bool
+
+    static fun new() r: ArrayMutatorFreeEmitPlan {
+        return ArrayMutatorFreeEmitPlan{
+            shouldResolvePointerFromLiteral: false,
+            shouldEmitArrayFree: false,
+            shouldEmitClassFree: false
+        }
+    }
+}
+
+class ArrayMutatorPointerPlan {
+    var shouldUseReceiverReg: Bool
+    var shouldEmitWithPointer: Bool
+
+    static fun new() r: ArrayMutatorPointerPlan {
+        return ArrayMutatorPointerPlan{
+            shouldUseReceiverReg: false,
+            shouldEmitWithPointer: false
+        }
+    }
+}
+
+fun planArrayMutatorMethodImpl(methodName: String, receiverIsArray: Bool,
+    argCount: Int) r: ArrayMutatorMethodPlan {
+
+    let plan = ArrayMutatorMethodPlan.new()
+    if methodName == "free" {
+        plan.action = 1
+        return plan
+    }
+    if methodName == "push" and receiverIsArray {
+        plan.action = 2
+        return plan
+    }
+    if methodName == "pop" {
+        plan.action = 3
+        return plan
+    }
+    if methodName == "swap" and receiverIsArray and argCount == 2 {
+        plan.action = 4
+    }
+    return plan
+}
+
+fun planArrayMutatorFreeTypeImpl(receiverType: String,
+    literalValue: String) r: ArrayMutatorFreeTypePlan {
+
+    let plan = ArrayMutatorFreeTypePlan.new()
+    plan.shouldLookupLiteralType =
+        shouldUseLiteralArrayFreeReceiverTypeImpl(receiverType, literalValue)
+    return plan
+}
+
+fun planArrayMutatorFreeEmitImpl(isArrayType: Bool, freePtrReg: String,
+    literalValue: String, receiverIsClass: Bool)
+    r: ArrayMutatorFreeEmitPlan {
+
+    let plan = ArrayMutatorFreeEmitPlan.new()
+    plan.shouldResolvePointerFromLiteral =
+        shouldResolveArrayFreePointerFromLiteralImpl(isArrayType, freePtrReg,
+            literalValue)
+    plan.shouldEmitArrayFree =
+        shouldEmitArrayFreePointerImpl(isArrayType, freePtrReg)
+    plan.shouldEmitClassFree =
+        shouldEmitClassFreeMutationImpl(isArrayType, receiverIsClass)
+    return plan
+}
+
+fun planArrayMutatorPushPointerImpl(arrayPtrReg: String,
+    receiverReg: String, receiverIsArray: Bool) r: ArrayMutatorPointerPlan {
+
+    let plan = ArrayMutatorPointerPlan.new()
+    plan.shouldUseReceiverReg =
+        shouldUseReceiverRegForArrayMutationImpl(arrayPtrReg, receiverIsArray)
+    plan.shouldEmitWithPointer = shouldEmitArrayMutatorWithPointerImpl(
+        arrayPtrReg)
+    if plan.shouldUseReceiverReg {
+        plan.shouldEmitWithPointer =
+            shouldEmitArrayMutatorWithPointerImpl(receiverReg)
+    }
+    return plan
+}
+
+fun planArrayMutatorFallbackPointerImpl(arrayPtrReg: String,
+    receiverReg: String) r: ArrayMutatorPointerPlan {
+
+    let plan = ArrayMutatorPointerPlan.new()
+    plan.shouldUseReceiverReg =
+        shouldUseArrayMutatorReceiverFallbackImpl(arrayPtrReg, receiverReg)
+    plan.shouldEmitWithPointer = shouldEmitArrayMutatorWithPointerImpl(
+        arrayPtrReg)
+    if plan.shouldUseReceiverReg {
+        plan.shouldEmitWithPointer =
+            shouldEmitArrayMutatorWithPointerImpl(receiverReg)
+    }
+    return plan
+}
+
+fun isDottedArrayMutatorLiteralImpl(varName: String) r: Bool {
+    return varName.contains(".")
+}
+
+fun shouldResolveChainedArrayMutatorReceiverImpl(receiverName: String)
+    r: Bool {
+
+    return receiverName.contains(".")
+}
+
+fun shouldLoadLocalArrayMutatorPointerImpl(varIndex: Int) r: Bool {
+    return varIndex >= 0
+}
+
+fun shouldUseImplicitThisArrayMutatorPointerImpl(pointerReg: String)
+    r: Bool {
+
+    return pointerReg != ""
+}
+
+fun shouldUseArrayMutatorReceiverFallbackImpl(arrayPtrReg: String,
+    receiverReg: String) r: Bool {
+
+    return arrayPtrReg == "" and receiverReg != ""
+}
+
+fun shouldEmitArrayMutatorWithPointerImpl(arrayPtrReg: String) r: Bool {
+    return arrayPtrReg != ""
+}
+
+fun resolveArrayMutatorVariableNameImpl(literalValue: String,
+    variableName: String) r: String {
+
+    if literalValue != "" {
+        return literalValue
+    }
+    return variableName
+}
+
+fun resolveArrayReceiverElementTypeImpl(receiverType: String) r: String {
+    if receiverType.startsWith("Array<") and receiverType.endsWith(">") {
+        return receiverType.substring(6, receiverType.length() - 1)
+    }
+    return ""
+}
+
+fun resolveArrayPushElementTypeImpl(argType: String,
+    receiverElementType: String) r: String {
+
+    if argType != "" {
+        return argType
+    }
+    return receiverElementType
+}
+
+fun shouldUseReceiverRegForArrayMutationImpl(arrayPtrReg: String,
+    receiverIsArray: Bool) r: Bool {
+
+    return arrayPtrReg == "" and receiverIsArray
+}

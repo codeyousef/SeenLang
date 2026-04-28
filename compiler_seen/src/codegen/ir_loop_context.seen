@@ -1,0 +1,331 @@
+// ir_loop_context.seen — Loop metadata and loop-control context helpers
+// Extracted from ir_control_flow.seen / ir_optimization.seen for FEL-5 SRP.
+
+import str.string.{StringBuilder}
+import codegen.ir_optimization.{parseIntManual, selectSimdWidth}
+import codegen.type_registry.{FunctionLoweringOptions}
+
+fun ensureLoopContextStringBoxValue(box: Array<String>) r: Void {
+    if box.length() == 0 {
+        box.push("")
+    }
+}
+
+fun appendLoopTileHintImpl(loopTileHintsBox: Array<String>, loopMetaId: Int,
+    hintValue: Int) r: Void {
+
+    ensureLoopContextStringBoxValue(loopTileHintsBox)
+    let metaIdx = loopMetaId - 202
+    let entry = metaIdx.toString() + ":" + hintValue.toString()
+    if loopTileHintsBox[0] == "" {
+        loopTileHintsBox[0] = entry
+    } else {
+        loopTileHintsBox[0] = loopTileHintsBox[0] + "|" + entry
+    }
+}
+
+fun appendLoopMetadataIdImpl(loopIdsBox: Array<String>, loopMetaId: Int) r: Void {
+    ensureLoopContextStringBoxValue(loopIdsBox)
+    let metaIdx = loopMetaId - 202
+    if loopIdsBox[0] == "" {
+        loopIdsBox[0] = metaIdx.toString()
+    } else {
+        loopIdsBox[0] = loopIdsBox[0] + "|" + metaIdx.toString()
+    }
+}
+
+fun enterLoopContextImpl(currentCondBox: Array<String>,
+    currentEndBox: Array<String>, savedCondBox: Array<String>,
+    savedEndBox: Array<String>, condLabel: String, endLabel: String,
+    loopMetaIdStr: String) r: Void {
+
+    ensureLoopContextStringBoxValue(currentCondBox)
+    ensureLoopContextStringBoxValue(currentEndBox)
+    savedCondBox.push(currentCondBox[0])
+    savedEndBox.push(currentEndBox[0])
+    currentCondBox[0] = condLabel + "|" + loopMetaIdStr
+    currentEndBox[0] = endLabel
+}
+
+fun restoreLoopContextImpl(currentCondBox: Array<String>,
+    currentEndBox: Array<String>, savedCondLabel: String,
+    savedEndLabel: String) r: Void {
+
+    ensureLoopContextStringBoxValue(currentCondBox)
+    ensureLoopContextStringBoxValue(currentEndBox)
+    currentCondBox[0] = savedCondLabel
+    currentEndBox[0] = savedEndLabel
+}
+
+fun emitLoopEndLabelImpl(output: StringBuilder, endLabel: String) r: Void {
+    output.append(endLabel + ":\n")
+}
+
+fun emitContinueStatementImpl(output: StringBuilder,
+    currentLoopCondLabel: String) r: Int {
+
+    if currentLoopCondLabel == "" {
+        output.append("  ; ERROR: continue used outside of loop\n")
+        return 0
+    }
+    let pipeIdx = currentLoopCondLabel.indexOf("|")
+    if pipeIdx >= 0 {
+        let actualLabel = currentLoopCondLabel.substring(0, pipeIdx)
+        let metaIdStr = currentLoopCondLabel.substring(pipeIdx + 1,
+            currentLoopCondLabel.length())
+        output.append("  br label %" + actualLabel + ", !llvm.loop !" +
+            metaIdStr + "\n")
+        return 1
+    }
+    output.append("  br label %" + currentLoopCondLabel +
+        ", !llvm.loop !202\n")
+    return 1
+}
+
+fun emitBreakStatementImpl(output: StringBuilder,
+    currentLoopEndLabel: String) r: Int {
+
+    if currentLoopEndLabel == "" {
+        output.append("  ; ERROR: break used outside of loop\n")
+        return 0
+    }
+    output.append("  br label %" + currentLoopEndLabel + "\n")
+    return 1
+}
+
+// emitLoopMetadataImpl — Emit loop vectorization/unroll/distribute metadata nodes
+// options: explicit per-function lowering options (replaces indent bit-packing)
+// blockBox: [0] = next block label counter (determines how many metadata nodes to emit)
+fun emitLoopMetadataImpl(output: StringBuilder, options: FunctionLoweringOptions, blockBox: Array<Int>, reductionLoopIds: String, nestedLoopIds: String, loopTileHints: String) r: Void {
+    output.append("\n; Loop vectorization metadata\n")
+    var noVecFlag = 0
+    if not options.vectorizeEnabled {
+        noVecFlag = 1
+    }
+    var unrollCnt = options.unrollCount
+    var vecWidth = selectSimdWidth(false, false)
+    if options.laneWidth > 0 {
+        vecWidth = options.laneWidth
+    }
+    if options.highPressure {
+        if unrollCnt > 2 { unrollCnt = 2 }
+        vecWidth = vecWidth / 2
+        if vecWidth < 2 { vecWidth = 2 }
+    }
+    output.append("!200 = !{!\"llvm.loop.vectorize.enable\", i1 true}\n")
+    output.append("!201 = !{!\"llvm.loop.vectorize.width\", i32 " + vecWidth.toString() + "}\n")
+    output.append("!199 = !{!\"llvm.loop.vectorize.enable\", i1 false}\n")
+    if unrollCnt > 0 {
+        output.append("!198 = !{!\"llvm.loop.unroll.count\", i32 " + unrollCnt.toString() + "}\n")
+    }
+    output.append("!195 = !{!\"llvm.loop.licm_versioning.disable\"}\n")
+    output.append("!194 = !{!\"llvm.loop.mustprogress\"}\n")
+    output.append("!192 = !{!\"llvm.loop.distribute.enable\", i1 true}\n")
+    output.append("!193 = !{!\"llvm.loop.interleave.count\", i32 4}\n")
+    output.append("!197 = !{!\"branch_weights\", i32 1, i32 2000}\n")
+    output.append("!196 = !{!\"branch_weights\", i32 2000, i32 1}\n")
+    output.append("!190 = !{}\n")
+    output.append("!189 = !{!\"llvm.loop.unroll.full\"}\n")
+    let lbrace = "{"
+    output.append("!188 = !" + lbrace + "i64 0, i64 2147483648}\n")
+    let wideVecWidth = vecWidth * 2
+    output.append("!191 = !{!\"llvm.loop.vectorize.width\", i32 " + wideVecWidth.toString() + "}\n")
+    var nextTileNodeId = blockBox[0] + 302
+    let maxMeta = blockBox[0]
+    var reductionFlags = ""
+    var tileFlags = ""
+    var nestedFlags = ""
+    var tileSizeEntries = ""
+    var bfi = 0
+    while bfi < maxMeta {
+        reductionFlags = reductionFlags + "0"
+        tileFlags = tileFlags + "0"
+        nestedFlags = nestedFlags + "0"
+        bfi = bfi + 1
+    }
+    if reductionLoopIds != "" {
+        var rStart = 0
+        var rPos = 0
+        while rPos <= reductionLoopIds.length() {
+            var rDelim = 0
+            if rPos == reductionLoopIds.length() { rDelim = 1 }
+            if rDelim == 0 {
+                if reductionLoopIds.byteAt(rPos) == 124 { rDelim = 1 }
+            }
+            if rDelim == 1 {
+                let rEntry = reductionLoopIds.substring(rStart, rPos)
+                let rIdx = parseIntManual(rEntry)
+                if rIdx >= 0 {
+                    if rIdx < maxMeta {
+                        reductionFlags = reductionFlags.substring(0, rIdx) + "R" + reductionFlags.substring(rIdx + 1, maxMeta)
+                    }
+                }
+                rStart = rPos + 1
+            }
+            rPos = rPos + 1
+        }
+    }
+    if nestedLoopIds != "" {
+        var nStart = 0
+        var nPos = 0
+        while nPos <= nestedLoopIds.length() {
+            var nDelim = 0
+            if nPos == nestedLoopIds.length() { nDelim = 1 }
+            if nDelim == 0 {
+                if nestedLoopIds.byteAt(nPos) == 124 { nDelim = 1 }
+            }
+            if nDelim == 1 {
+                let nEntry = nestedLoopIds.substring(nStart, nPos)
+                let nIdx = parseIntManual(nEntry)
+                if nIdx >= 0 {
+                    if nIdx < maxMeta {
+                        nestedFlags = nestedFlags.substring(0, nIdx) + "N" + nestedFlags.substring(nIdx + 1, maxMeta)
+                    }
+                }
+                nStart = nPos + 1
+            }
+            nPos = nPos + 1
+        }
+    }
+    if loopTileHints != "" {
+        var tStart = 0
+        var tPos = 0
+        while tPos <= loopTileHints.length() {
+            var tDelim = 0
+            if tPos == loopTileHints.length() { tDelim = 1 }
+            if tDelim == 0 {
+                if loopTileHints.byteAt(tPos) == 124 { tDelim = 1 }
+            }
+            if tDelim == 1 {
+                let tEntry = loopTileHints.substring(tStart, tPos)
+                var colonPos = 0
+                var cpScan = 0
+                while cpScan < tEntry.length() {
+                    if tEntry.byteAt(cpScan) == 58 {
+                        colonPos = cpScan
+                    }
+                    cpScan = cpScan + 1
+                }
+                if colonPos > 0 {
+                    let tMetaStr = tEntry.substring(0, colonPos)
+                    let tTileStr = tEntry.substring(colonPos + 1, tEntry.length())
+                    let tIdx = parseIntManual(tMetaStr)
+                    let tSize = parseIntManual(tTileStr)
+                    if tIdx >= 0 {
+                        if tIdx < maxMeta {
+                            if tSize == -2 {
+                                tileFlags = tileFlags.substring(0, tIdx) + "F" + tileFlags.substring(tIdx + 1, maxMeta)
+                            }
+                            if tSize == -1 {
+                                tileFlags = tileFlags.substring(0, tIdx) + "V" + tileFlags.substring(tIdx + 1, maxMeta)
+                            }
+                            if tSize == 8 {
+                                tileFlags = tileFlags.substring(0, tIdx) + "G" + tileFlags.substring(tIdx + 1, maxMeta)
+                            }
+                            if tSize > 0 {
+                                if tSize != 8 {
+                                    tileFlags = tileFlags.substring(0, tIdx) + "T" + tileFlags.substring(tIdx + 1, maxMeta)
+                                    let tsEntry = tMetaStr + ":" + tTileStr
+                                    if tileSizeEntries == "" {
+                                        tileSizeEntries = tsEntry
+                                    } else {
+                                        tileSizeEntries = tileSizeEntries + "|" + tsEntry
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                tStart = tPos + 1
+            }
+            tPos = tPos + 1
+        }
+    }
+    var metaIdx = 0
+    while metaIdx < maxMeta {
+        let metaId = metaIdx + 202
+        let metaIdStr = metaId.toString()
+        if noVecFlag == 1 {
+            output.append("!" + metaIdStr + " = distinct !{!" + metaIdStr + ", !199, !194}\n")
+        } else {
+            let rFlag = reductionFlags.substring(metaIdx, metaIdx + 1)
+            let nFlag = nestedFlags.substring(metaIdx, metaIdx + 1)
+            var loopTileSize = 0
+            let tFlag = tileFlags.substring(metaIdx, metaIdx + 1)
+            if tFlag == "F" { loopTileSize = -2 }
+            if tFlag == "V" { loopTileSize = -1 }
+            if tFlag == "G" { loopTileSize = 8 }
+            if tFlag == "T" {
+                let metaIdxStr = metaIdx.toString()
+                var tsStart = 0
+                var tsPos = 0
+                while tsPos <= tileSizeEntries.length() {
+                    var tsDelim = 0
+                    if tsPos == tileSizeEntries.length() { tsDelim = 1 }
+                    if tsDelim == 0 {
+                        if tileSizeEntries.byteAt(tsPos) == 124 { tsDelim = 1 }
+                    }
+                    if tsDelim == 1 {
+                        let tsEntry = tileSizeEntries.substring(tsStart, tsPos)
+                        var tsColon = 0
+                        var tscScan = 0
+                        while tscScan < tsEntry.length() {
+                            if tsEntry.byteAt(tscScan) == 58 { tsColon = tscScan }
+                            tscScan = tscScan + 1
+                        }
+                        if tsColon > 0 {
+                            let tsMetaStr = tsEntry.substring(0, tsColon)
+                            if tsMetaStr == metaIdxStr {
+                                let tsTileStr = tsEntry.substring(tsColon + 1, tsEntry.length())
+                                loopTileSize = parseIntManual(tsTileStr)
+                            }
+                        }
+                        tsStart = tsPos + 1
+                    }
+                    tsPos = tsPos + 1
+                }
+            }
+            var vecRef = "!201"
+            if rFlag == "R" { vecRef = "!191" }
+            var distRef = ""
+            if nFlag == "N" { distRef = ", !192" }
+            var loopMetaEmitted = 0
+            if loopTileSize == -2 {
+                output.append("!" + metaIdStr + " = distinct !{!" + metaIdStr + ", !200, " + vecRef + ", !189, !194" + distRef + "}\n")
+                loopMetaEmitted = 1
+            }
+            if loopMetaEmitted == 0 {
+                if loopTileSize < 0 {
+                    output.append("!" + metaIdStr + " = distinct !{!" + metaIdStr + ", !199, !194" + distRef + "}\n")
+                    loopMetaEmitted = 1
+                }
+            }
+            if loopMetaEmitted == 0 {
+                if unrollCnt > 0 {
+                    output.append("!" + metaIdStr + " = distinct !{!" + metaIdStr + ", !200, " + vecRef + ", !195, !198, !194, !193" + distRef + "}\n")
+                } else {
+                    if loopTileSize > 0 {
+                        let tileNodeId = nextTileNodeId
+                        nextTileNodeId = nextTileNodeId + 1
+                        output.append("!" + tileNodeId.toString() + " = !{!\"llvm.loop.unroll.count\", i32 " + loopTileSize.toString() + "}\n")
+                        output.append("!" + metaIdStr + " = distinct !{!" + metaIdStr + ", !200, " + vecRef + ", !195, !" + tileNodeId.toString() + ", !194, !193" + distRef + "}\n")
+                    } else {
+                        output.append("!" + metaIdStr + " = distinct !{!" + metaIdStr + ", !200, " + vecRef + ", !195, !194, !193" + distRef + "}\n")
+                    }
+                }
+            }
+        }
+        metaIdx = metaIdx + 1
+    }
+    if maxMeta == 0 {
+        if noVecFlag == 1 {
+            output.append("!202 = distinct !{!202, !199, !194}\n")
+        } else {
+            if unrollCnt > 0 {
+                output.append("!202 = distinct !{!202, !200, !201, !195, !198, !194, !193}\n")
+            } else {
+                output.append("!202 = distinct !{!202, !200, !201, !195, !194, !193}\n")
+            }
+        }
+    }
+}

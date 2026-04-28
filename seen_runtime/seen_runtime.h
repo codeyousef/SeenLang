@@ -144,6 +144,18 @@ SeenString seen_int_to_string(int64_t n);
 // Bool to string
 SeenString seen_bool_to_string(bool b);
 
+// ============================================================================
+// Shared Error State
+// ============================================================================
+
+int64_t seen_error_code(void);
+int64_t seen_error_subsystem(void);
+void seen_error_clear(void);
+int64_t seen_error_message_ptr(void);
+int64_t seen_error_message_len(void);
+void seen_error_set_cstr(int64_t subsystem, int64_t code, const char* message);
+double seen_ptr_deref_f64(int64_t ptr);
+
 // Char (Unicode code point) to string
 SeenString seen_char_to_str(int64_t c);
 
@@ -406,6 +418,9 @@ bool contains(SeenString text, SeenString needle);
 
 // Find index of substring
 int64_t indexOf(SeenString text, SeenString needle, int64_t start);
+
+// Find last index of substring
+int64_t lastIndexOf(SeenString text, SeenString needle, int64_t start);
 
 // ============================================================================
 // Stdin/Stdout Functions (for LSP and interactive programs)

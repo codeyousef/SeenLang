@@ -21,7 +21,7 @@
 // Module-level global flags use Int instead of Bool due to a Stage1 codegen
 // limitation where boolean variables generate invalid IR.
 
-import bootstrap.frontend.{FrontendResult, FrontendDiagnostic, run_frontend, encodeDiagMessage, parseDiagBaseMessage, parseDiagCode, parseDiagSuggestion, parseDiagNote, parseDiagEndColumn}
+import bootstrap.frontend.{FrontendResult, FrontendDiagnostic, run_frontend, run_frontend_declarations, encodeDiagMessage, parseDiagBaseMessage, parseDiagCode, parseDiagSuggestion, parseDiagNote, parseDiagEndColumn}
 import io.file.{readText, writeText, exists}
 import process.process.{runCommand, runProgram, CommandResult, commandWasSuccessful, commandOutput, processFork, waitPid, processExit, shellQuote}
 import env.env.{args}
@@ -32,21 +32,141 @@ import typechecker.determinism.{DeterminismChecker, checkDeterminismWithProfile,
 import codegen.ir_decl_runtime.{emitCoreRuntimeDecls}
 import codegen.ir_decl_parser.{emitParserDecls}
 import codegen.ir_decl_features.{emitFeatureDecls}
+// Seed newer helper modules through direct imports so older bootstrap
+// compilers discover them from the main-file import scan before falling back
+// to their embedded compiler-module list.
+import codegen.ir_decl_scan.{pipeContainsValueImpl}
+import codegen.ir_decl_registry.{recordLateUserDeclareIntoStateImpl, captureDeclarationPassStateImpl, captureLateUserDeclareStateImpl, captureParentClassRegistryStateImpl, registerCrossModuleConstantsIntoStateImpl, registerParentClassIntoStateImpl}
+import codegen.ir_decl_items.{registerPreparedDeclarationItemsIntoStateImpl}
+import codegen.ir_decl_default_params.{collectDefaultParamStringConstantsImpl}
+import codegen.ir_decl_return_types.{resolveMethodReturnTypeImpl}
+import codegen.ir_module_constants.{findModuleConstantIntoStateImpl, captureModuleConstantRegistryStateImpl}
+import codegen.ir_local_type_fallback.{tryInferImplicitThisVariableTypeImpl}
+import codegen.ir_async_registry.{registerAsyncFunctionImpl}
+import codegen.ir_async_await.{emitAwaitPollLoopImpl, emitAwaitResultValueImpl}
+import codegen.ir_async_return.{prepareAsyncReturnValuePlanImpl, emitAsyncReturnValueBranchImpl, emitAsyncReturnVoidBranchImpl}
+import codegen.ir_trait_registry.{appendDynTraitNameImpl}
+import codegen.ir_module_emit.{mapGlobalVarLlvmTypeImpl}
+import codegen.ir_program_flow_plan.{shouldVisitProgramFlowIndexImpl, shouldEmitProgramClassTypeItemImpl, shouldGenerateProgramClassItemImpl, planProgramTopLevelFunctionStartImpl, planProgramTopLevelFunctionAfterSpecialImpl}
 import codegen.ir_method_gen.{emitToStringMethodImpl}
+import codegen.ir_ptr_ops.{emitPtrOpsImpl}
 import codegen.ir_string_collect.{hexToDecimalImpl}
+import codegen.ir_string_collect_state.{collectStringConstantsStateImpl}
+import codegen.ir_string_interp_gen.{generateStringInterpolationFromPartsImpl}
+import codegen.ir_string_interp_infer.{inferStringInterpolationExprTypeStateImpl}
+import codegen.ir_string_emit.{escapeStringImpl}
+import codegen.ir_nullish_gen.{emitNullishCheckComparisonImpl}
+import codegen.ir_enum_ctor_gen.{lookupEnumVariantTagStateImpl, lookupEnumParentStateImpl, lookupEnumFieldTypeStateImpl, lookupEnumFieldCountStateImpl, isEnumVariantStateImpl, planEnumConstructorImpl, shouldCollectEnumConstructorFieldImpl, allocateEnumConstructorObjectImpl, emitEnumConstructorFieldStoresImpl}
+import codegen.ir_when_arm_gen.{emitWhenArmGuardImpl}
+import codegen.ir_when_pattern_gen.{emitWhenPatternBranchImpl}
+import codegen.ir_when_result_gen.{allocateWhenResultSlotImpl}
+import codegen.ir_when_expr_plan.{planWhenSubjectImpl, planWhenPatternBranchImpl, shouldEmitWhenArmGuardImpl, shouldEmitWhenPatternBindingsImpl, shouldBindWhenPatternFieldImpl, planWhenArmResultImpl, shouldStoreWhenArmResultImpl, shouldBranchWhenArmToEndImpl, shouldEmitWhenFinalFallthroughImpl}
+import codegen.ir_index_access_plan.{shouldUsePointerIndexAccessImpl, shouldTryOperatorIndexAccessImpl, shouldEmitIndexBoundsCheckImpl, planTypedIndexAccessImpl}
+import codegen.ir_index_access_gen.{emitPreparedPointerIndexAccessImpl, emitPreparedOperatorIndexAccessCallImpl, emitPreparedIndexBoundsCheckImpl, emitPreparedIndexElementAccessImpl}
+import codegen.ir_special_top_level_emit.{tryHandleSpecialTopLevelFunctionImpl}
+import codegen.ir_type_layout.{alignUpImpl}
 import codegen.ir_type_dispatch.{emitVecMethodImpl}
 import codegen.ir_type_mapping.{isClassTypeImpl, setComptimeTargetName}
 import codegen.ir_type_ops.{emitBinaryOpImpl}
 import codegen.ir_control_flow.{detectMemcpyPatternImpl}
-import codegen.ir_call_dispatch.{emitStaticCollectionNewImpl}
+import codegen.ir_loop_context.{emitLoopMetadataImpl}
+import codegen.ir_loop_plan.{planMemcpyOptimizedWhileLoopImpl, iteratorProtocolFunctionNameImpl, isRangeForInIterableImpl}
+import codegen.ir_call_constructors.{emitStaticCollectionNewImpl, isArrayConstructorNameImpl, resolveArrayConstructorElementTypeImpl, resolveArrayConstructorElementSizeImpl, isSmallVecConstructorNameImpl, isCollectionConstructorNameImpl, emitCollectionConstructorImpl}
+import codegen.ir_call_args.{fillDefaultParamsImpl}
+import codegen.ir_call_runtime.{emitPrintLikeCallImpl}
+import codegen.ir_call_runtime_plan.{isOptionRuntimeCallPlanImpl, isPrintRuntimeCallPlanImpl, runtimeIoCallActionImpl, isPanicRuntimeCallPlanImpl, isMathRuntimeCallPlanImpl, planRuntimeBuiltinDispatchImpl}
+import codegen.ir_call_implicit_this_plan.{planImplicitThisCallImpl, implicitThisTailCallFlagImpl}
+import codegen.ir_call_implicit_this_emit.{emitPreparedMisplacedParserImplicitThisCallImpl, emitPreparedStringBuilderImplicitThisCallImpl, emitPreparedNormalImplicitThisCallImpl}
+import codegen.ir_call_regular_plan.{shouldPromoteRegularCallFloatArgsImpl, resolveRegularCallLlvmReturnTypeImpl, regularCallTailFlagImpl}
+import codegen.ir_call_meta.{resolveSizeofBuiltinValueImpl}
+import codegen.ir_call_low_level.{isPtrBuiltinCallImpl, isSimdBuiltinCallImpl, emitPreparedLowLevelBuiltinActionImpl}
+import codegen.ir_call_builtin_plan.{planMetaBuiltinCallImpl, planLowLevelBuiltinCallImpl, planLowLevelBuiltinArgumentReadsImpl, shouldClearLowLevelDebugAssertCseImpl}
+import codegen.ir_call_dispatch.{emitUserFunctionCallImpl}
+import codegen.ir_call_fixups.{isStandaloneParserWorkaroundImpl}
+import codegen.ir_constructor_call_plan.{planArrayConstructorCallImpl, shouldEmitSmallVecConstructorImpl, isReprCConstructorTypeImpl}
+import codegen.ir_constructor_field_plan.{planNextConstructorFieldTypeImpl, planConstructorFieldStoreImpl}
+import codegen.ir_constructor_field_emit.{emitPreparedReprCConstructorImpl, emitPreparedClassConstructorFieldStoreImpl}
+import codegen.ir_method_finalize.{normalizeInstanceMethodTypeNameImpl}
+import codegen.ir_method_fastpath.{resolveStaticMethodClassNamesImpl}
+import codegen.ir_method_receiver_predicates.{isOptionReceiverTypeImpl, isSmallVecReceiverTypeImpl, isCollectionReceiverTypeImpl, isArrayReceiverTypeImpl, isStringBuilderRuntimeMethodImpl, isNumericReceiverMethodImpl, needsStaticFactoryArgumentImpl}
+import codegen.ir_method_call_plan.{planResolvedReceiverFastPathImpl, shouldReadOptionDefaultFastPathArgImpl, shouldReadSmallVecFastPathArgImpl, shouldReadReceiverFastPathArgImpl, shouldTryStaticMethodCallImpl, isPascalStaticReceiverNameImpl, planArrayMutatorMethodImpl, planArrayMutatorFreeTypeImpl, planArrayMutatorFreeEmitImpl, planArrayMutatorPushPointerImpl, planArrayMutatorFallbackPointerImpl, hasGeneratorFieldReceiverImpl, hasStructFieldReceiverImpl}
+import codegen.ir_method_fastpath_emit.{emitPreparedOptionReceiverFastPathImpl, emitPreparedSmallVecReceiverFastPathImpl, emitPreparedCollectionReceiverFastPathImpl, emitPreparedArrayReceiverFastPathImpl}
+import codegen.ir_method_array_mutator_emit.{emitPreparedArrayFreeMutatorImpl, emitPreparedArrayPushMutatorImpl, emitPreparedArrayPopMutatorImpl, emitPreparedArraySwapMutatorImpl, emitPreparedClassFreeMutatorImpl}
+import codegen.ir_method_lower_plan.{planMethodLowerCallImpl, methodLowerStringBuilderArgActionImpl, shouldUseMethodLowerUnwrapTraceSourceImpl}
+import codegen.ir_method_lower_emit.{emitPreparedLengthLikeMethodLowerImpl, emitPreparedStringBuilderMethodLowerImpl, emitPreparedPrimitiveConversionMethodLowerImpl, emitPreparedNumericMethodLowerImpl, emitPreparedStringLikeMethodLowerImpl, emitPreparedHotReloadMethodLowerImpl, emitPreparedSpecializedMethodLowerImpl, emitPreparedUserMethodLowerImpl}
+import codegen.ir_method_final_plan.{planMethodUnresolvedReceiverStartImpl, planMethodUnresolvedReceiverFinalImpl, planMethodFinalDispatchImpl}
+import codegen.ir_method_receiver_lookup_plan.{planMethodReceiverInitialPhaseImpl, planMethodReceiverPostLookupPhaseImpl, planMethodReceiverPostResolutionPhaseImpl, planDottedReceiverStageImpl, planDottedReceiverFallbackStageImpl, planImplicitThisDottedReceiverStageImpl, planSimpleLiteralReceiverStageImpl, planImplicitThisReceiverStageImpl}
+import codegen.ir_method_receiver_lookup_gen.{emitLocalMethodReceiverLoadImpl, emitModuleConstantMethodReceiverLoadImpl, emitKeywordManagerMethodReceiverLoadImpl}
 import codegen.ir_infer_type.{inferCallExprTypeImpl}
+import codegen.ir_special_expr_infer.{inferSpecialExprTypeImpl}
+import codegen.ir_expr_infer_plan.{planExprInferenceDispatchImpl, planMethodCallInferenceImpl, planGeneratedCallInferenceImpl, planBuiltinCallInferenceImpl, planResolvedCallInferenceImpl, planMemberAccessInferenceImpl, planSpecialExprInferenceImpl}
 import codegen.ir_function_gen.{analyzeDeadStoresImpl}
+import codegen.ir_function_decorators.{shouldSkipFunctionByCfgStateImpl}
+import codegen.ir_function_lowering.{configureFunctionLoweringOptionsImpl}
+import codegen.ir_function_state.{getCurrentFunctionEmissionStateImpl, resetFunctionEmissionForFunctionImpl, markFunctionEmissionHighPressureImpl, resetFunctionEmissionHighPressureImpl, recordMovedVariableImpl, isMovedVariableImpl, resetFunctionLoweringOptionsStateImpl, resetFunctionHighPressureImpl, markFunctionHighPressureImpl, isFunctionHighPressureImpl, currentFunctionAlignToImpl, currentFunctionRegionSizeBytesImpl, isCurrentFunctionAsyncLoweringImpl, markTailCallPositionImpl, takeTailCallPositionImpl}
+import codegen.ir_function_lifecycle.{planFunctionIntrinsicFlowImpl, shouldReturnAfterFunctionDecoratorPreflightImpl, planFunctionIdentityFlowImpl, planFunctionHighPressureImpl, planFunctionEntryExitFlowImpl, applyFunctionEntrySetupToEmissionImpl, currentFunctionProfileFlagIntImpl, currentFunctionHighPressureIntImpl, applyFunctionExitStateToEmissionImpl}
+import codegen.ir_function_param_meta.{preRegisterFunctionParametersImpl}
+import codegen.ir_function_prebody.{isMainFunctionNameImpl, prepareFunctionPreBodyStateSnapshotImpl, mapFunctionPreBodyReturnTypeImpl}
+import codegen.ir_function_body.{captureFunctionBodyBlockScopeImpl, scanFunctionBodyDeadStorePatternsSnapshotImpl, emitFunctionBodyTrailingDeadCodeNoticeSnapshotImpl, beginFunctionBodyBlockDeferredCleanupImpl, beginFunctionBodyReturnDeferCleanupImpl, beginFunctionBodyVoidErrdeferCleanupImpl, beginFunctionBodyValueErrdeferCleanupImpl, finishFunctionBodyValueErrdeferCleanupImpl}
+import codegen.ir_function_ml_logs.{applyFunctionPreludeMlLogsImpl}
+import codegen.ir_ml_logging.{mlLogDecision}
+import codegen.ir_function_usage.{scanUnusedTopLevelFunctionNamesImpl}
 import codegen.ir_struct_gen.{resolveStructLiteralFieldFallback, emitStructFieldStoresImpl}
-import codegen.ir_assignment_gen.{emitFieldStoreImpl}
-import codegen.ir_stmt_gen.{emitConditionToI1Impl}
+import codegen.ir_struct_layout_build.{StructLayoutBuildState}
+import codegen.ir_class_type_layout.{countRealClassTypeFieldsImpl}
+import codegen.ir_class_type_decorators.{ClassTypeDecoratorState}
+import codegen.ir_class_type_special.{tryEmitSpecialClassTypeDecoratorImpl}
+import codegen.ir_class_gen_support.{scanGeneratedClassDecoratorsImpl}
+import codegen.ir_class_generated_features.{emitGeneratedClassDecoratorMethodsImpl}
+import codegen.ir_field_registry.{resolveFieldIndexImpl}
+import codegen.ir_assignment_gen.{emitFieldStoreImpl, emitPreparedIndexAssignmentBoundsCheckImpl, emitPreparedIndexAssignmentStoreImpl}
+import codegen.ir_variable_gen.{getExprVariableNameImpl, shouldNullifyMovedArgumentSourceImpl, resolveMovedArgumentSourceNameImpl}
+import codegen.ir_field_layout.{resolveFieldAccessLayoutImpl}
+import codegen.ir_bitfield_access.{findBitfieldWidthImpl}
+import codegen.ir_path_expr.{splitFirstPathDotImpl}
+import codegen.ir_member_access.{extractLastMemberFieldSegmentImpl}
+import codegen.ir_member_access_plan.{planMemberAccessRouteImpl}
+import codegen.ir_member_access_gen.{emitPreparedVariableReceiverMemberAccessImpl}
+import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
+import codegen.ir_binary_expr.{binaryOperatorMethodSuffixImpl, isSimdBinaryOperatorImpl, shouldUseFmaForOperandTypesImpl, buildBinaryFoldLogValueImpl}
+import codegen.ir_binary_emit.{emitPreparedPointerArithmeticBinaryImpl, emitPreparedSimdBinaryExprImpl, emitPreparedSelfComparisonConstResultImpl, emitPreparedIntPeepholeBinaryActionImpl, emitPreparedAssociativeIntFoldResultImpl, emitPreparedFoldedBoolLiteralBinaryResultImpl, emitPreparedFoldedIntLiteralBinaryResultImpl, emitPreparedFloatPeepholeBinaryActionImpl, emitPreparedFmaTripleCallImpl, emitPreparedOverloadedBinaryCallImpl, buildPreparedBinaryCseKeyImpl}
+import codegen.ir_binary_plan.{shouldTryPointerArithmeticBinaryImpl, shouldTrySimdBinaryGateImpl, shouldUseIntPeepholeGateImpl, shouldUseFloatPeepholeGateImpl, shortCircuitBinaryActionImpl, shouldTryBinaryOverloadImpl}
+import codegen.ir_binary_fold_plan.{planBinaryOperandLiteralFactsImpl, isBinaryIntLiteralOperandImpl, planBinaryFoldActionImpl, shouldTryBinaryAssociativeIntFoldImpl, binaryAssociativeIntFoldRewriteCostImpl, shouldApplyBinaryAssociativeIntFoldImpl, planBinaryLiteralComparisonFoldImpl, planBinaryLiteralConstantFoldImpl, planBinaryFloatPeepholeImpl, planBinaryFoldFmaImpl, planBinaryFoldCseImpl}
+import codegen.ir_binary_short_circuit.{allocateShortCircuitBinaryLabelsImpl, emitShortCircuitCheckBridgeImpl, emitShortCircuitAndDecisionImpl, emitShortCircuitOrDecisionImpl}
+import codegen.ir_unary_expr.{unaryOperatorMethodNameImpl, shouldSkipUnaryOverloadTypeImpl, negatedComparisonPredicateImpl, shouldEmitNegatedComparisonForTypesImpl, emitOverloadedUnaryCallImpl, emitUnaryNegationImpl, emitNegatedComparisonImpl, emitUnaryLogicalNotImpl, emitUnaryAddressOfClassValueImpl, emitUnaryAddressOfVariablePtrImpl, emitUnaryDereferenceImpl, isUnaryBitwiseNotOperatorImpl, emitUnaryBitwiseNotImpl}
+import codegen.ir_class_constructor_gen.{emitConstructorAllocationImpl, emitConstructorReturnImpl, emitClassHeapAllocationImpl, emitClassArrayFieldInitializersImpl, resolveClassConstructorFieldOffsetImpl}
+import codegen.ir_class_method_gen.{buildMethodAttrsImpl}
+import codegen.ir_stmt_decl.{resolveLetStatementTypeImpl, prepareLetStatementPlanImpl, resolveLetPreAllocatedRegImpl}
+import codegen.ir_stmt_gen.{emitConditionToI1Impl, computeIfBranchWeightMetadataForStatementImpl, normalizeIfConditionTypeImpl, emitIfLetBindingStateImpl, emitUnusedResultCallWarningImpl}
+import codegen.ir_stmt_select_plan.{planPairedAssignmentSelectIfImpl, planSingleArmSelectIfImpl}
+import codegen.ir_stmt_dispatch_plan.{planStatementDispatchImpl}
+import codegen.ir_stmt_dead_code.{scanBlockDeadStorePatternsSnapshotImpl, emitTrailingDeadCodeNoticeSnapshotImpl, shouldSkipDeadLiteralInitializerImpl}
+import codegen.ir_stmt_comptime.{ComptimeRegistryStateSnapshot, classifyComptimeStatementKindImpl, shouldProcessComptimeLetImpl, shouldContinueComptimeWhileImpl, classifyComptimeAssertResultImpl, registerComptimeVarSnapshotImpl, updateComptimeVarSnapshotImpl, registerComptimeStrVarSnapshotImpl}
+import codegen.ir_stmt_return.{emitErrdeferTempReturnLoadImpl, emitProfileExitOnReturnImpl, emitReturnRegionAndProfileCleanupImpl, emitFinalReturnStatementValueImpl}
+import codegen.ir_stmt_scope.{recordDeferredStatementSnapshotImpl, beginTryCatchStatementSnapshotImpl}
 import codegen.type_registry.{findStructReg}
+import codegen.ir_type_header.{emitBuiltinTypeHeaderImpl}
 import tools.translator.{translateSource}
 import tools.c_import_gen.{CImportGenerator, CImportResult}
+import tools.c_import_frontend.{cImportParseHeader}
+import tools.c_import_ast.{cImportParseClangAstDump}
+import tools.c_import_layout.{cImportParseClangRecordLayouts}
+import tools.c_import_state.{cImportFindImportedRecordIndex, cImportHasImportedRecordNamed}
+import tools.c_import_type_map.{cImportCTypeToSeenType}
+import tools.c_import_type_builtin.{cImportMapBuiltinCTypeToSeenType}
+import tools.c_import_emit.{cImportGenerateExternDeclarations}
+import tools.c_import_util.{findLastIndexOf, getClangAstDepth, extractClangDeclStartLocation, resolveClangTypedefType, repeatPointerPrefix, parseDecimalInt}
+
+var g_validationModulePaths: Array<String> = Array<String>()
+var g_validationFrontends: Array<FrontendResult> = Array<FrontendResult>()
+var g_manifestCompanionCacheTomlPath: String = ""
+var g_manifestCompanionCacheProjectRoot: String = ""
+var g_manifestCompanionCacheModules: Array<String> = Array<String>()
+
+fun clearValidationModuleCache() r: Void {
+    g_validationModulePaths = Array<String>()
+    g_validationFrontends = Array<FrontendResult>()
+}
 
 // DJB2 hash of a string, returned as 8-char hex
 // Uses byteAt() to avoid per-char string allocation
@@ -136,7 +256,15 @@ fun buildCacheSignature(profile: String, language: String, targetCpu: String, si
     if effectiveTarget == "android-arm64" {
         signature = signature + "|moduleobj=target-clang"
     } else {
-        signature = signature + "|moduleobj=host-opt"
+        if g_generatedTestMainMode == 1 {
+            signature = signature + "|moduleobj=host-llc-testmain-childobj-v5"
+        } else {
+            if g_fastMode == 1 {
+                signature = signature + "|moduleobj=host-llc-fast-v1"
+            } else {
+                signature = signature + "|moduleobj=host-opt"
+            }
+        }
     }
     return signature
 }
@@ -236,6 +364,23 @@ fun parseModule(path: String, lang: String) r: FrontendResult {
     }
     let source = readText(path)
     return run_frontend(source, path, lang)
+}
+
+fun parseModuleDeclarations(path: String, lang: String) r: FrontendResult {
+    if not exists(path) {
+        let frontend = FrontendResult.new()
+        let message = encodeDiagMessage(
+            "could not read module `" + path + "`",
+            "E005",
+            "",
+            "note: imported and Seen.toml-declared modules must exist on disk",
+            0
+        )
+        frontend.addDiagnostic(FrontendDiagnostic.new(path, 1, 1, "error", message))
+        return frontend
+    }
+    let source = readText(path)
+    return run_frontend_declarations(source, path, lang)
 }
 
 fun stripTomlQuotedValue(value: String) r: String {
@@ -859,6 +1004,11 @@ fun resolvePackageImportPath(importPath: Array<String>, sourceDir: String) r: St
     }
     var packageBase = packageRoot + "/src"
     var idx = 1
+    if importPath.length() > 1 {
+        if importPath[1] == "src" {
+            idx = 2
+        }
+    }
     while idx < importPath.length() {
         packageBase = packageBase + "/" + importPath[idx]
         idx = idx + 1
@@ -1162,7 +1312,53 @@ fun extractTomlBuildEntry(content: String) r: String {
 }
 
 fun isStdlibImportRoot(segment: String) r: Bool {
-    return segment == "async" or segment == "audio" or segment == "collections" or segment == "core" or segment == "crypto" or segment == "env" or segment == "ffi" or segment == "framework" or segment == "fs" or segment == "graphics" or segment == "hash" or segment == "input" or segment == "io" or segment == "json" or segment == "math" or segment == "memory" or segment == "net" or segment == "platform" or segment == "process" or segment == "random" or segment == "scripting" or segment == "security" or segment == "simd" or segment == "str" or segment == "sync" or segment == "thread" or segment == "time" or segment == "uww"
+    if segment == "async" { return true }
+    if segment == "audio" { return true }
+    if segment == "collections" { return true }
+    if segment == "core" { return true }
+    if segment == "crypto" { return true }
+    if segment == "env" { return true }
+    if segment == "ffi" { return true }
+    if segment == "framework" { return true }
+    if segment == "fs" { return true }
+    if segment == "graphics" { return true }
+    if segment == "hash" { return true }
+    if segment == "input" { return true }
+    if segment == "io" { return true }
+    if segment == "json" { return true }
+    if segment == "math" { return true }
+    if segment == "memory" { return true }
+    if segment == "net" { return true }
+    if segment == "platform" { return true }
+    if segment == "process" { return true }
+    if segment == "random" { return true }
+    if segment == "scripting" { return true }
+    if segment == "security" { return true }
+    if segment == "simd" { return true }
+    if segment == "str" { return true }
+    if segment == "sync" { return true }
+    if segment == "thread" { return true }
+    if segment == "time" { return true }
+    if segment == "uww" { return true }
+    return false
+}
+
+fun isCompilerImportRoot(segment: String) r: Bool {
+    if segment == "lexer" { return true }
+    if segment == "parser" { return true }
+    if segment == "typechecker" { return true }
+    if segment == "macro" { return true }
+    if segment == "bootstrap" { return true }
+    if segment == "codegen" { return true }
+    if segment == "lsp" { return true }
+    if segment == "tools" { return true }
+    if segment == "optimization" { return true }
+    if segment == "trace" { return true }
+    if segment == "ir" { return true }
+    if segment == "types" { return true }
+    if segment == "testing" { return true }
+    if segment == "ffi" { return true }
+    return false
 }
 
 fun firstModuleSegment(modulePath: String) r: String {
@@ -1199,6 +1395,107 @@ fun resolveModulePath(modulePath: String) r: String {
         i = i + 1
     }
     return filePath + ".seen"
+}
+
+fun compilerSourceBasePath() r: String {
+    var basePath = "compiler_seen/src/"
+    let root = getCompilerRoot()
+    if root != "" {
+        basePath = root + "/compiler_seen/src/"
+    }
+    return basePath
+}
+
+fun isCompilerSourceDir(sourceDir: String) r: Bool {
+    if sourceDir.startsWith("compiler_seen/") { return true }
+    if sourceDir.contains("/compiler_seen/") { return true }
+    return false
+}
+
+fun isStdlibSourceDir(sourceDir: String) r: Bool {
+    if sourceDir.startsWith("seen_std/") { return true }
+    if sourceDir.contains("/seen_std/") { return true }
+    return false
+}
+
+fun tryCompilerShortImportPath(moduleName: String, sourceDir: String) r: String {
+    if not isCompilerSourceDir(sourceDir) {
+        return ""
+    }
+    let basePath = compilerSourceBasePath()
+    let rootPath = basePath + moduleName + ".seen"
+    if readText(rootPath) != "" {
+        return rootPath
+    }
+    let bootstrapPath = basePath + "bootstrap/" + moduleName + ".seen"
+    if readText(bootstrapPath) != "" {
+        return bootstrapPath
+    }
+    let toolsPath = basePath + "tools/" + moduleName + ".seen"
+    if readText(toolsPath) != "" {
+        return toolsPath
+    }
+    let parserPath = basePath + "parser/" + moduleName + ".seen"
+    if readText(parserPath) != "" {
+        return parserPath
+    }
+    let lexerPath = basePath + "lexer/" + moduleName + ".seen"
+    if readText(lexerPath) != "" {
+        return lexerPath
+    }
+    let typecheckerPath = basePath + "typechecker/" + moduleName + ".seen"
+    if readText(typecheckerPath) != "" {
+        return typecheckerPath
+    }
+    let macroPath = basePath + "macro/" + moduleName + ".seen"
+    if readText(macroPath) != "" {
+        return macroPath
+    }
+    let codegenPath = basePath + "codegen/" + moduleName + ".seen"
+    if readText(codegenPath) != "" {
+        return codegenPath
+    }
+    let lspPath = basePath + "lsp/" + moduleName + ".seen"
+    if readText(lspPath) != "" {
+        return lspPath
+    }
+    let optimizationPath = basePath + "optimization/" + moduleName + ".seen"
+    if readText(optimizationPath) != "" {
+        return optimizationPath
+    }
+    return ""
+}
+
+fun tryStdlibShortImportPath(moduleName: String, sourceDir: String) r: String {
+    if not isCompilerSourceDir(sourceDir) and not isStdlibSourceDir(sourceDir) {
+        return ""
+    }
+    var basePath = "seen_std/src/"
+    let root = getCompilerRoot()
+    if root != "" {
+        basePath = root + "/seen_std/src/"
+    }
+    let ioPath = basePath + "io/" + moduleName + ".seen"
+    if readText(ioPath) != "" {
+        return ioPath
+    }
+    let processPath = basePath + "process/" + moduleName + ".seen"
+    if readText(processPath) != "" {
+        return processPath
+    }
+    let envPath = basePath + "env/" + moduleName + ".seen"
+    if readText(envPath) != "" {
+        return envPath
+    }
+    let strPath = basePath + "str/" + moduleName + ".seen"
+    if readText(strPath) != "" {
+        return strPath
+    }
+    let corePath = basePath + "core/" + moduleName + ".seen"
+    if readText(corePath) != "" {
+        return corePath
+    }
+    return ""
 }
 
 // Extract last segment from a path (e.g., "foo/bar/baz" -> "baz")
@@ -1272,13 +1569,73 @@ fun getCompilerRoot() r: String {
 // path segment matches the last directory segment, it is skipped to avoid paths
 // like "lexer/lexer/token.seen". Tries module-style (foo/mod.seen) before direct
 // (foo.seen).
+fun tryExistingRelativeImportPath(importPath: Array<String>, sourceDir: String) r: String {
+    var filePath = sourceDir
+    if filePath != "" and not filePath.endsWith("/") {
+        filePath = filePath + "/"
+    }
+
+    var startIdx = 0
+    if importPath.length() > 1 {
+        let lastDirSegment = getLastSegment(sourceDir)
+        var shouldTrySkip = 0
+        if lastDirSegment == importPath[0] {
+            shouldTrySkip = 1
+        } else {
+            let tomlPath = findNearestSeenTomlFromDir(sourceDir)
+            let tomlContent = loadFileContent(tomlPath)
+            if tomlContent != "" {
+                let projectName = extractTomlProjectName(tomlContent)
+                if projectName == importPath[0] {
+                    shouldTrySkip = 1
+                }
+            }
+        }
+        if shouldTrySkip == 1 {
+            var testSkip = filePath
+            var ti = 1
+            while ti < importPath.length() {
+                if ti > 1 { testSkip = testSkip + "/" }
+                testSkip = testSkip + importPath[ti]
+                ti = ti + 1
+            }
+            if readText(testSkip + ".seen") != "" {
+                startIdx = 1
+            } else {
+                if readText(testSkip + "/mod.seen") != "" {
+                    startIdx = 1
+                }
+            }
+        }
+    }
+
+    var i = startIdx
+    while i < importPath.length() {
+        if i > startIdx {
+            filePath = filePath + "/"
+        }
+        filePath = filePath + importPath[i]
+        i = i + 1
+    }
+
+    let modPath = filePath + "/mod.seen"
+    if readText(modPath) != "" {
+        return modPath
+    }
+    let directPath = filePath + ".seen"
+    if readText(directPath) != "" {
+        return directPath
+    }
+    return ""
+}
+
 fun resolveImportPath(importPath: Array<String>, sourceDir: String) r: String {
     // Convert import path segments to file path
 
     // Check for compiler-root and stdlib imports first.
     if importPath.length() > 0 {
         let firstSegment = importPath[0]
-        if firstSegment == "lexer" or firstSegment == "parser" or firstSegment == "typechecker" or firstSegment == "macro" or firstSegment == "bootstrap" or firstSegment == "codegen" or firstSegment == "lsp" or firstSegment == "tools" or firstSegment == "optimization" or firstSegment == "trace" or firstSegment == "ir" or firstSegment == "types" or firstSegment == "testing" or firstSegment == "ffi" {
+        if isCompilerImportRoot(firstSegment) {
             var compilerBase = "compiler_seen/src/"
             let compRoot = getCompilerRoot()
             if compRoot != "" {
@@ -1303,6 +1660,16 @@ fun resolveImportPath(importPath: Array<String>, sourceDir: String) r: String {
                 return compilerDirectPath
             }
         }
+
+        let packageImportPath = resolvePackageImportPath(importPath, sourceDir)
+        if packageImportPath != "" {
+            return packageImportPath
+        }
+        let localImportPath = tryExistingRelativeImportPath(importPath, sourceDir)
+        if localImportPath != "" {
+            return localImportPath
+        }
+
         if isStdlibImportRoot(firstSegment) {
             // This is a stdlib import — resolve from compiler root
             var stdlibBase = "seen_std/src/"
@@ -1328,11 +1695,6 @@ fun resolveImportPath(importPath: Array<String>, sourceDir: String) r: String {
             if stdlibDirectContent != "" {
                 return stdlibDirectPath
             }
-        }
-
-        let packageImportPath = resolvePackageImportPath(importPath, sourceDir)
-        if packageImportPath != "" {
-            return packageImportPath
         }
     }
 
@@ -1400,6 +1762,21 @@ fun resolveImportPath(importPath: Array<String>, sourceDir: String) r: String {
     let modContent = readText(modPath)
     if modContent != "" {
         return modPath
+    }
+    let directContent = readText(directPath)
+    if directContent != "" {
+        return directPath
+    }
+    if importPath.length() > 0 {
+        let shortImportName = importPath[importPath.length() - 1]
+        let compilerShortPath = tryCompilerShortImportPath(shortImportName, sourceDir)
+        if compilerShortPath != "" {
+            return compilerShortPath
+        }
+        let stdlibShortPath = tryStdlibShortImportPath(shortImportName, sourceDir)
+        if stdlibShortPath != "" {
+            return stdlibShortPath
+        }
     }
     return directPath
 }
@@ -1584,6 +1961,139 @@ fun pushUniquePath(paths: Array<String>, processedPaths: Array<String>, path: St
     return
 }
 
+fun stripSeenExtension(fileName: String) r: String {
+    if fileName.endsWith(".seen") {
+        return fileName.substring(0, fileName.length() - 5)
+    }
+    return fileName
+}
+
+fun pathRelativeToProjectRoot(path: String, projectRoot: String) r: String {
+    if path == "" or projectRoot == "" {
+        return path
+    }
+    let rootPrefix = projectRoot + "/"
+    if path.startsWith(rootPrefix) {
+        return path.substring(rootPrefix.length(), path.length())
+    }
+    return path
+}
+
+fun cachedManifestProjectModules(tomlPath: String, tomlContent: String)
+    r: Array<String> {
+
+    if g_manifestCompanionCacheTomlPath != tomlPath {
+        g_manifestCompanionCacheTomlPath = tomlPath
+        g_manifestCompanionCacheProjectRoot = getSourceDir(tomlPath)
+        g_manifestCompanionCacheModules = extractTomlProjectModules(tomlContent)
+    }
+    return g_manifestCompanionCacheModules
+}
+
+fun appendManifestCompanionModulesForPath(paths: Array<String>,
+    processedPaths: Array<String>, currentPath: String) r: Void {
+
+    let normalizedCurrent = resolveRealInputPath(currentPath)
+    let sourceDir = getSourceDir(normalizedCurrent)
+    if sourceDir == "" {
+        return
+    }
+
+    let fileName = getLastSegment(normalizedCurrent)
+    let stem = stripSeenExtension(fileName)
+    if stem == "" {
+        return
+    }
+
+    let tomlPath = findNearestSeenTomlFromDir(sourceDir)
+    let tomlContent = loadFileContent(tomlPath)
+    if tomlContent == "" {
+        return
+    }
+
+    let projectRoot = getSourceDir(tomlPath)
+    let projectRootReal = resolveRealInputPath(projectRoot)
+    let projectModules = cachedManifestProjectModules(tomlPath, tomlContent)
+    let companionPrefix = stem + "_"
+    let currentRel = pathRelativeToProjectRoot(normalizedCurrent,
+        projectRootReal)
+    var currentModuleIndex = 0 - 1
+    var moduleIdx = 0
+    while moduleIdx < projectModules.length() {
+        if projectModules[moduleIdx] == currentRel {
+            currentModuleIndex = moduleIdx
+        }
+        moduleIdx = moduleIdx + 1
+    }
+
+    moduleIdx = 0
+    while moduleIdx < projectModules.length() {
+        let moduleRel = projectModules[moduleIdx]
+        if moduleRel != currentRel {
+            let candidateDir = resolveProjectPath(projectRootReal,
+                getSourceDir(moduleRel))
+            if candidateDir == sourceDir {
+                let candidateFile = getLastSegment(moduleRel)
+                var shouldAddCandidate = false
+                if candidateFile.startsWith(companionPrefix) and
+                    candidateFile.endsWith(".seen") {
+                    shouldAddCandidate = true
+                }
+                if currentModuleIndex >= 0 and moduleIdx < currentModuleIndex {
+                    if candidateFile == "behavior.seen" or
+                        candidateFile.endsWith("_constants.seen") or
+                        candidateFile.endsWith("_conversion_support.seen") or
+                        candidateFile.endsWith("_enum.seen") or
+                        candidateFile.endsWith("_type.seen") or
+                        candidateFile.endsWith("_hash_map.seen") {
+                        shouldAddCandidate = true
+                    }
+                }
+                if shouldAddCandidate {
+                    let candidatePath = resolveProjectPath(projectRootReal,
+                        moduleRel)
+                    pushUniquePath(paths, processedPaths, candidatePath)
+                }
+            }
+        }
+        moduleIdx = moduleIdx + 1
+    }
+    return
+}
+
+fun isCompilerRuntimeBackedStdlibPath(importFilePath: String) r: Bool {
+    return importFilePath == "seen_std/src/str/string.seen" or importFilePath == "seen_std/src/core/option.seen" or importFilePath == "seen_std/src/core/result.seen" or importFilePath == "seen_std/src/collections/map.seen" or importFilePath.endsWith("/seen_std/src/str/string.seen") or importFilePath.endsWith("/seen_std/src/core/option.seen") or importFilePath.endsWith("/seen_std/src/core/result.seen") or importFilePath.endsWith("/seen_std/src/collections/map.seen")
+}
+
+fun shouldQueueDiscoveredImport(inputFile: String, currentPath: String, isBootstrap: Bool, importFilePath: String) r: Bool {
+    let skipCompilerStdlib = not isBootstrap and currentPath != inputFile and inputFile.contains("/compiler_seen/") and isCompilerRuntimeBackedStdlibPath(importFilePath)
+    var shouldQueueImport = not skipCompilerStdlib
+    if isBootstrap {
+        shouldQueueImport = shouldQueueImport and exists(importFilePath)
+    }
+    return shouldQueueImport
+}
+
+fun appendCompilerInternalSupportModules(paths: Array<String>, processedPaths: Array<String>) r: Void {
+    let modules = Array<String>()
+    modules.push("lexer.token")
+    modules.push("lexer.token_type")
+    modules.push("lexer.interfaces")
+    modules.push("lexer.keyword_manager")
+    modules.push("lexer.lexer")
+    modules.push("trace")
+    modules.push("io.file")
+    modules.push("process.process")
+    modules.push("env.env")
+
+    var mi = 0
+    while mi < modules.length() {
+        pushUniquePath(paths, processedPaths, resolveModulePath(modules[mi]))
+        mi = mi + 1
+    }
+    return
+}
+
 fun extractQuotedTomlStrings(line: String) r: Array<String> {
     let values = Array<String>()
     var pos = 0
@@ -1686,24 +2196,35 @@ fun extractTomlProjectModules(content: String) r: Array<String> {
     return modules
 }
 
-fun discoverImportsFromModule(paths: Array<String>, processedPaths: Array<String>, inputFile: String, currentPath: String, isBootstrap: Bool) r: Void {
-    let sourceDir = getSourceDir(currentPath)
-    let frontend = parseModule(currentPath, "en")
-    if frontend.success {
-        var itemIdx = 0
-        while itemIdx < frontend.program.items.length() {
-            let item = frontend.program.items[itemIdx]
-            if item.itemType == "Import" {
-                let importFilePath = resolveImportPath(item.importPath, sourceDir)
-                let isCompilerRuntimeBackedStdlib = importFilePath == "seen_std/src/str/string.seen" or importFilePath == "seen_std/src/core/option.seen" or importFilePath == "seen_std/src/core/result.seen" or importFilePath == "seen_std/src/collections/map.seen" or importFilePath.endsWith("/seen_std/src/str/string.seen") or importFilePath.endsWith("/seen_std/src/core/option.seen") or importFilePath.endsWith("/seen_std/src/core/result.seen") or importFilePath.endsWith("/seen_std/src/collections/map.seen")
-                let skipCompilerStdlib = not isBootstrap and currentPath != inputFile and inputFile.contains("/compiler_seen/") and isCompilerRuntimeBackedStdlib
-                if not skipCompilerStdlib {
-                    pushUniquePath(paths, processedPaths, importFilePath)
-                }
-            }
-            itemIdx = itemIdx + 1
-        }
+fun shouldResolveAstImportPath(importPath: Array<String>) r: Bool {
+    if importPath.length() == 0 {
+        return false
     }
+    let firstSegment = importPath[0]
+    if firstSegment == "" {
+        return false
+    }
+    if firstSegment == "." {
+        return false
+    }
+    if firstSegment == ":" {
+        return false
+    }
+    return true
+}
+
+fun resolveAstImportItemPath(importItem: ItemNode, sourceDir: String) r: String {
+    if importItem.itemType != "Import" {
+        return ""
+    }
+    if not shouldResolveAstImportPath(importItem.importPath) {
+        return ""
+    }
+    return resolveImportPath(importItem.importPath, sourceDir)
+}
+
+fun discoverImportsFromModule(paths: Array<String>, processedPaths: Array<String>, inputFile: String, currentPath: String, isBootstrap: Bool) r: Void {
+    discoverImportsFromSourceText(paths, processedPaths, inputFile, currentPath, isBootstrap)
     return
 }
 
@@ -1721,6 +2242,564 @@ fun moduleDeclaresMain(path: String) r: Bool {
         itemIdx = itemIdx + 1
     }
     return false
+}
+
+fun parseImportTextSegments(importText: String) r: Array<String> {
+    let segments = Array<String>()
+    var currentSegment = ""
+    var idx = 0
+    while idx < importText.length() {
+        let b = importText.byteAt(idx)
+        var isNameChar = false
+        if b >= 48 and b <= 57 { isNameChar = true }
+        if b >= 65 and b <= 90 { isNameChar = true }
+        if b >= 97 and b <= 122 { isNameChar = true }
+        if b == 95 { isNameChar = true }
+
+        if isNameChar {
+            currentSegment = currentSegment + importText.substring(idx, idx + 1)
+        } else {
+            if currentSegment != "" {
+                segments.push(currentSegment)
+                currentSegment = ""
+            }
+            if b != 46 and b != 58 {
+                return segments
+            }
+        }
+        idx = idx + 1
+    }
+    if currentSegment != "" {
+        segments.push(currentSegment)
+    }
+    return segments
+}
+
+fun normalizeSourceImportText(importText: String) r: String {
+    var text = importText.trim()
+    let commentStart = text.indexOf("//", 0)
+    if commentStart >= 0 {
+        text = text.substring(0, commentStart).trim()
+    }
+    if text.endsWith(";") {
+        text = text.substring(0, text.length() - 1).trim()
+    }
+    return text
+}
+
+fun sourceImportBodyFromLine(line: String) r: String {
+    let trimmed = line.trim()
+    if trimmed.startsWith("pub import ") {
+        return normalizeSourceImportText(trimmed.substring(11, trimmed.length()))
+    }
+    if trimmed.startsWith("pub use ") {
+        return normalizeSourceImportText(trimmed.substring(8, trimmed.length()))
+    }
+    if trimmed.startsWith("import ") {
+        return normalizeSourceImportText(trimmed.substring(7, trimmed.length()))
+    }
+    if trimmed.startsWith("use ") {
+        return normalizeSourceImportText(trimmed.substring(4, trimmed.length()))
+    }
+    return ""
+}
+
+fun sourceTextImportPath(importText: String, sourceDir: String) r: String {
+    let importSegments = parseImportTextSegments(importText)
+    if importSegments.length() == 0 {
+        return ""
+    }
+    return resolveImportPath(importSegments, sourceDir)
+}
+
+fun resolveSourceTextImportedSymbolName(importText: String, symbolName: String) r: String {
+    let text = normalizeSourceImportText(importText)
+    if text == "" or symbolName == "" {
+        return ""
+    }
+
+    let braceStart = text.indexOf("{", 0)
+    if braceStart >= 0 {
+        var braceEnd = text.indexOf("}", braceStart + 1)
+        if braceEnd < 0 {
+            braceEnd = text.length()
+        }
+        let symbolsText = text.substring(braceStart + 1, braceEnd)
+        var symbolStart = 0
+        var pos = 0
+        while pos <= symbolsText.length() {
+            var atEnd = 0
+            if pos == symbolsText.length() {
+                atEnd = 1
+            }
+            var isComma = 0
+            if atEnd == 0 {
+                if symbolsText.byteAt(pos) == 44 {
+                    isComma = 1
+                }
+            }
+            if atEnd == 1 or isComma == 1 {
+                let part = symbolsText.substring(symbolStart, pos).trim()
+                if part != "" {
+                    let aliasPos = part.indexOf(" as ", 0)
+                    if aliasPos >= 0 {
+                        let sourceName = part.substring(0, aliasPos).trim()
+                        let aliasName = part.substring(aliasPos + 4, part.length()).trim()
+                        if aliasName == symbolName {
+                            return sourceName
+                        }
+                    } else {
+                        if part == symbolName {
+                            return part
+                        }
+                    }
+                }
+                symbolStart = pos + 1
+            }
+            pos = pos + 1
+        }
+        return ""
+    }
+
+    let aliasPos = text.indexOf(" as ", 0)
+    if aliasPos >= 0 {
+        let pathText = text.substring(0, aliasPos).trim()
+        let aliasName = text.substring(aliasPos + 4, text.length()).trim()
+        if aliasName == symbolName {
+            let segments = parseImportTextSegments(pathText)
+            if segments.length() > 0 {
+                return segments[segments.length() - 1]
+            }
+        }
+        return ""
+    }
+
+    return symbolName
+}
+
+fun appendSourceTextImportEdges(edges: String, modulePath: String) r: String {
+    var result = edges
+    let content = readText(modulePath)
+    if content == "" {
+        return result
+    }
+    let sourceDir = getSourceDir(modulePath)
+    var lineStart = 0
+    var pos = 0
+    while pos <= content.length() {
+        var atEnd = 0
+        if pos == content.length() {
+            atEnd = 1
+        }
+        var isNewline = 0
+        if atEnd == 0 {
+            if content.byteAt(pos) == 10 {
+                isNewline = 1
+            }
+        }
+        if isNewline == 1 or atEnd == 1 {
+            let importText = sourceImportBodyFromLine(content.substring(lineStart, pos))
+            if importText != "" {
+                let importPath = sourceTextImportPath(importText, sourceDir)
+                if importPath != "" {
+                    if not result.contains("|" + importPath) {
+                        result = result + "|" + importPath
+                    }
+                }
+            }
+            lineStart = pos + 1
+        }
+        pos = pos + 1
+    }
+    return result
+}
+
+fun queueImportTextPath(paths: Array<String>, processedPaths: Array<String>, inputFile: String, currentPath: String, sourceDir: String, isBootstrap: Bool, importText: String) r: Void {
+    let importFilePath = sourceTextImportPath(importText, sourceDir)
+    if shouldQueueDiscoveredImport(inputFile, currentPath, isBootstrap, importFilePath) {
+        pushUniquePath(paths, processedPaths, importFilePath)
+    }
+    return
+}
+
+fun sourceTextUsesRuntimeMemory(content: String) r: Bool {
+    if content.contains("seen_mem_") {
+        return true
+    }
+    return false
+}
+
+fun resolveImplicitRuntimeMemoryImportPath(sourceDir: String) r: String {
+    let tomlPath = findNearestSeenTomlFromDir(sourceDir)
+    if tomlPath != "" {
+        let projectRoot = getSourceDir(tomlPath)
+        let projectRuntimePath = projectRoot + "/seen_runtime/src/memory.seen"
+        if loadFileContent(projectRuntimePath) != "" {
+            return projectRuntimePath
+        }
+    }
+
+    let compilerRoot = getCompilerRoot()
+    if compilerRoot != "" {
+        let compilerRuntimePath = compilerRoot + "/seen_runtime/src/memory.seen"
+        if loadFileContent(compilerRuntimePath) != "" {
+            return compilerRuntimePath
+        }
+    }
+
+    if loadFileContent("seen_runtime/src/memory.seen") != "" {
+        return "seen_runtime/src/memory.seen"
+    }
+    return ""
+}
+
+fun queueImplicitRuntimeMemoryImport(paths: Array<String>, processedPaths: Array<String>, inputFile: String, currentPath: String, sourceDir: String, isBootstrap: Bool, content: String) r: Void {
+    if not sourceTextUsesRuntimeMemory(content) {
+        return
+    }
+    if isCompilerSourceDir(sourceDir) {
+        return
+    }
+    if currentPath.endsWith("/seen_runtime/src/memory.seen") or currentPath == "seen_runtime/src/memory.seen" {
+        return
+    }
+    let importFilePath = resolveImplicitRuntimeMemoryImportPath(sourceDir)
+    if shouldQueueDiscoveredImport(inputFile, currentPath, isBootstrap, importFilePath) {
+        pushUniquePath(paths, processedPaths, importFilePath)
+    }
+    return
+}
+
+fun ensureGeneratedTestObjectCacheDir() r: Void {
+    let result: CommandResult = runCommand("mkdir -p /tmp/seen_testmain_obj_cache")
+    return
+}
+
+fun generatedTestStableModuleIdentity(normalizedPath: String) r: String {
+    let projectRootMarker = "/project_root/"
+    let projectRootIdx = normalizedPath.indexOf(projectRootMarker, 0)
+    if projectRootIdx >= 0 {
+        return normalizedPath.substring(projectRootIdx + projectRootMarker.length(), normalizedPath.length())
+    }
+
+    let markers = Array<String>()
+    markers.push("/compiler_seen/")
+    markers.push("/seen_std/")
+    markers.push("/seen_runtime/")
+    markers.push("/hearton/")
+    markers.push("/hearthshire/")
+    markers.push("/native/")
+    markers.push("/seen_audio/")
+    markers.push("/seen_console/")
+    markers.push("/seen_ecs/")
+    markers.push("/seen_hot_reload/")
+    markers.push("/seen_input/")
+    markers.push("/seen_math/")
+    markers.push("/seen_render/")
+    markers.push("/seen_vk/")
+    markers.push("/seen_voxel/")
+    markers.push("/seen_window/")
+
+    var markerIdx = 0
+    while markerIdx < markers.length() {
+        let marker = markers[markerIdx]
+        let pathIdx = normalizedPath.indexOf(marker, 0)
+        if pathIdx >= 0 {
+            return normalizedPath.substring(pathIdx + 1, normalizedPath.length())
+        }
+        markerIdx = markerIdx + 1
+    }
+
+    return normalizedPath
+}
+
+fun generatedTestObjectCacheKeyForModule(modulePath: String, cacheSignature: String) r: String {
+    let normalizedPath = resolveRealInputPath(modulePath)
+    if normalizedPath == "" {
+        return ""
+    }
+    let content = readText(normalizedPath)
+    if content == "" {
+        return ""
+    }
+    let contentHash = hashString(content)
+    let stableIdentity = generatedTestStableModuleIdentity(normalizedPath)
+    return hashString("testmain-object-source-v2|" + cacheSignature + "|" + stableIdentity + "|" + contentHash)
+}
+
+fun generatedTestObjectCachePath(cacheKey: String) r: String {
+    if cacheKey == "" {
+        return ""
+    }
+    return "/tmp/seen_testmain_obj_cache/" + cacheKey + ".o"
+}
+
+fun generatedTestObjectSetCacheKeyForInput(inputFile: String, cacheSignature: String) r: String {
+    let normalizedPath = resolveRealInputPath(inputFile)
+    if normalizedPath == "" {
+        return ""
+    }
+    let content = readText(normalizedPath)
+    if content == "" {
+        return ""
+    }
+    let stableIdentity = generatedTestStableModuleIdentity(normalizedPath)
+    let contentHash = hashString(content)
+    return hashString("testmain-object-set-v1|" + cacheSignature + "|" + stableIdentity + "|" + contentHash)
+}
+
+fun generatedTestObjectSetCachePath(setKey: String) r: String {
+    if setKey == "" {
+        return ""
+    }
+    return "/tmp/seen_testmain_obj_cache/" + setKey + ".objects"
+}
+
+fun tryCopyGeneratedTestObjectFromCache(cacheKey: String, moduleIndex: Int) r: Bool {
+    let cacheFile = generatedTestObjectCachePath(cacheKey)
+    if cacheFile == "" {
+        return false
+    }
+    if not exists(cacheFile) {
+        return false
+    }
+    let objFile = "/tmp/seen_module_" + moduleIndex.toString() + ".o"
+    let copyResult: CommandResult = runCommand("cp " + shellQuote(cacheFile) + " " + shellQuote(objFile))
+    return commandWasSuccessful(copyResult)
+}
+
+fun generatedTestObjectCacheHasKey(cacheKey: String) r: Bool {
+    let cacheFile = generatedTestObjectCachePath(cacheKey)
+    if cacheFile == "" {
+        return false
+    }
+    let checkResult: CommandResult = runCommand("test -f " + shellQuote(cacheFile))
+    return commandWasSuccessful(checkResult)
+}
+
+fun tryUseGeneratedTestObjectSetCacheForInput(inputFile: String, cacheSignature: String, normalizedCrossTarget: String) r: Bool {
+    if g_generatedTestMainMode == 0 {
+        return false
+    }
+    if normalizedCrossTarget == "android-arm64" {
+        return false
+    }
+
+    let setKey = generatedTestObjectSetCacheKeyForInput(inputFile, cacheSignature)
+    let setPath = generatedTestObjectSetCachePath(setKey)
+    if setPath == "" {
+        return false
+    }
+    let setContent = loadFileContent(setPath)
+    if setContent == "" {
+        return false
+    }
+
+    let cacheKeys = Array<String>()
+    var lineStart = 0
+    var pos = 0
+    while pos <= setContent.length() {
+        var atEnd = 0
+        if pos == setContent.length() {
+            atEnd = 1
+        }
+        var isNewline = 0
+        if atEnd == 0 {
+            if setContent.byteAt(pos) == 10 {
+                isNewline = 1
+            }
+        }
+        if isNewline == 1 or atEnd == 1 {
+            let cacheKey = setContent.substring(lineStart, pos).trim()
+            if cacheKey != "" {
+                if not generatedTestObjectCacheHasKey(cacheKey) {
+                    return false
+                }
+                cacheKeys.push(cacheKey)
+            }
+            lineStart = pos + 1
+        }
+        pos = pos + 1
+    }
+
+    if cacheKeys.length() == 0 {
+        return false
+    }
+
+    let cleanCmd = "rm -f /tmp/seen_module_*.ll /tmp/seen_module_*.o /tmp/seen_module_*.opt.ll /tmp/seen_module_*.polly.ll /tmp/seen_module_*.opt.status /tmp/seen_module_*.opt.log /tmp/seen_parallel_opt.sh"
+    let cleanResult: CommandResult = runCommand(cleanCmd)
+
+    var copyIdx = 0
+    while copyIdx < cacheKeys.length() {
+        if not tryCopyGeneratedTestObjectFromCache(cacheKeys[copyIdx], copyIdx) {
+            return false
+        }
+        copyIdx = copyIdx + 1
+    }
+
+    println("  [Pass 0] Reusing generated test object set")
+    println("    Found " + cacheKeys.length().toString() + " modules")
+    println("  [3] Skipping final link for generated test main; module objects are ready")
+    return true
+}
+
+fun tryUseCompleteGeneratedTestObjectCache(modulePaths: Array<String>, cacheSignature: String, normalizedCrossTarget: String) r: Bool {
+    if g_generatedTestMainMode == 0 {
+        return false
+    }
+    if normalizedCrossTarget == "android-arm64" {
+        return false
+    }
+    if modulePaths.length() == 0 {
+        return false
+    }
+
+    let cacheKeys = Array<String>()
+    var checkIdx = 0
+    while checkIdx < modulePaths.length() {
+        let cacheKey = generatedTestObjectCacheKeyForModule(modulePaths[checkIdx], cacheSignature)
+        if not generatedTestObjectCacheHasKey(cacheKey) {
+            return false
+        }
+        cacheKeys.push(cacheKey)
+        checkIdx = checkIdx + 1
+    }
+
+    var copyIdx = 0
+    while copyIdx < cacheKeys.length() {
+        if not tryCopyGeneratedTestObjectFromCache(cacheKeys[copyIdx], copyIdx) {
+            return false
+        }
+        copyIdx = copyIdx + 1
+    }
+
+    println("  [3] Skipping final link for generated test main; module objects are ready")
+    return true
+}
+
+fun storeGeneratedTestObjectInCache(cacheKey: String, objFile: String) r: Void {
+    let cacheFile = generatedTestObjectCachePath(cacheKey)
+    if cacheFile == "" {
+        return
+    }
+    if exists(cacheFile) {
+        return
+    }
+    ensureGeneratedTestObjectCacheDir()
+    let copyResult: CommandResult = runCommand("cp " + shellQuote(objFile) + " " + shellQuote(cacheFile))
+    return
+}
+
+fun storeGeneratedTestObjectSetCache(inputFile: String, modulePaths: Array<String>, cacheSignature: String, normalizedCrossTarget: String) r: Void {
+    if g_generatedTestMainMode == 0 {
+        return
+    }
+    if normalizedCrossTarget == "android-arm64" {
+        return
+    }
+    if modulePaths.length() == 0 {
+        return
+    }
+
+    let setKey = generatedTestObjectSetCacheKeyForInput(inputFile, cacheSignature)
+    let setPath = generatedTestObjectSetCachePath(setKey)
+    if setPath == "" {
+        return
+    }
+    if exists(setPath) {
+        return
+    }
+
+    var setContent = ""
+    var moduleIdx = 0
+    while moduleIdx < modulePaths.length() {
+        let cacheKey = generatedTestObjectCacheKeyForModule(modulePaths[moduleIdx], cacheSignature)
+        if cacheKey == "" {
+            return
+        }
+        if not generatedTestObjectCacheHasKey(cacheKey) {
+            return
+        }
+        setContent = setContent + cacheKey + "\n"
+        moduleIdx = moduleIdx + 1
+    }
+
+    ensureGeneratedTestObjectCacheDir()
+    let wrote = writeText(setPath, setContent)
+    return
+}
+
+fun discoverImportsFromSourceText(paths: Array<String>, processedPaths: Array<String>, inputFile: String, currentPath: String, isBootstrap: Bool) r: Void {
+    let content = readText(currentPath)
+    if content == "" {
+        return
+    }
+    let sourceDir = getSourceDir(currentPath)
+    var lineStart = 0
+    var pos = 0
+    while pos <= content.length() {
+        var atEnd = 0
+        if pos == content.length() {
+            atEnd = 1
+        }
+        var isNewline = 0
+        if atEnd == 0 {
+            if content.byteAt(pos) == 10 {
+                isNewline = 1
+            }
+        }
+        if isNewline == 1 or atEnd == 1 {
+            let importText = sourceImportBodyFromLine(content.substring(lineStart, pos))
+            if importText != "" {
+                queueImportTextPath(paths, processedPaths, inputFile, currentPath, sourceDir, isBootstrap, importText)
+            }
+            lineStart = pos + 1
+        }
+        pos = pos + 1
+    }
+    queueImplicitRuntimeMemoryImport(paths, processedPaths, inputFile, currentPath, sourceDir, isBootstrap, content)
+    return
+}
+
+fun moduleGraphContainsCompilerSources(modulePaths: Array<String>) r: Bool {
+    var idx = 0
+    while idx < modulePaths.length() {
+        let modulePath = modulePaths[idx]
+        if modulePath.startsWith("compiler_seen/src/") or modulePath.contains("/compiler_seen/src/") {
+            return true
+        }
+        idx = idx + 1
+    }
+    return false
+}
+
+fun shouldRunWholeProjectPreflight(modulePaths: Array<String>) r: Bool {
+    if g_generatedTestMainMode == 1 {
+        return false
+    }
+    if modulePaths.length() > 24 {
+        return false
+    }
+    if moduleGraphContainsCompilerSources(modulePaths) {
+        return false
+    }
+    return true
+}
+
+fun effectiveLargeProjectWorkerLimit(moduleCount: Int, isBootstrap: Bool) r: Int {
+    if isBootstrap {
+        return 0
+    }
+    if g_noFork == 0 {
+        return 0
+    }
+    if g_projectPrefixLimit <= 0 {
+        return 0
+    }
+    if moduleCount < 256 {
+        return 0
+    }
+    return g_largeProjectWorkerLimit
 }
 
 // Collect all module paths needed for compilation (without storing ASTs).
@@ -1790,8 +2869,14 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         }
 
         let currentPath = paths[discoverIdx]
+        appendManifestCompanionModulesForPath(paths, processedPaths,
+            currentPath)
         discoverImportsFromModule(paths, processedPaths, inputFile, currentPath, isBootstrap)
         discoverIdx = discoverIdx + 1
+    }
+
+    if not isBootstrap and moduleGraphContainsCompilerSources(paths) {
+        appendCompilerInternalSupportModules(paths, processedPaths)
     }
 
     // Add bootstrap modules if compiling the compiler
@@ -1800,6 +2885,11 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
             println("    Bootstrap mode: adding compiler modules...")
         }
         let modules = Array<String>()
+        // Keep direct stdlib dependencies explicit for bootstrap binaries run
+        // outside compiler_seen/target, where root-based import discovery is fragile.
+        modules.push("io.file")
+        modules.push("process.process")
+        modules.push("env.env")
         modules.push("lexer.token")
         modules.push("lexer.token_type")
         modules.push("lexer.interfaces")
@@ -1817,7 +2907,6 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("macro.interpreter")
         modules.push("macro.expander")
         modules.push("bootstrap.frontend")
-        modules.push("codegen.llvm_ir_gen")
         modules.push("codegen.ir_optimization")
         modules.push("codegen.ir_declarations")
         modules.push("codegen.ir_type_info")
@@ -1826,19 +2915,120 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_decl_runtime")
         modules.push("codegen.ir_decl_parser")
         modules.push("codegen.ir_decl_features")
+        modules.push("codegen.ir_decl_scan")
+        modules.push("codegen.ir_decl_registry")
+        modules.push("codegen.ir_decl_items")
+        modules.push("codegen.ir_decl_default_params")
+        modules.push("codegen.ir_decl_return_types")
+        modules.push("codegen.ir_module_constants")
+        modules.push("codegen.ir_local_type_fallback")
+        modules.push("codegen.ir_async_registry")
+        modules.push("codegen.ir_async_await")
+        modules.push("codegen.ir_async_return")
+        modules.push("codegen.ir_trait_registry")
+        modules.push("codegen.ir_module_emit")
+        modules.push("codegen.ir_program_flow_plan")
         modules.push("codegen.ir_method_gen")
+        modules.push("codegen.ir_ptr_ops")
         modules.push("codegen.ir_string_collect")
+        modules.push("codegen.ir_string_collect_state")
+        modules.push("codegen.ir_string_interp_gen")
+        modules.push("codegen.ir_string_interp_infer")
+        modules.push("codegen.ir_string_emit")
+        modules.push("codegen.ir_nullish_gen")
+        modules.push("codegen.ir_enum_ctor_gen")
+        modules.push("codegen.ir_when_arm_gen")
+        modules.push("codegen.ir_when_pattern_gen")
+        modules.push("codegen.ir_when_result_gen")
+        modules.push("codegen.ir_when_expr_plan")
+        modules.push("codegen.ir_index_access_plan")
+        modules.push("codegen.ir_special_top_level_emit")
+        modules.push("codegen.ir_type_layout")
         modules.push("codegen.ir_type_dispatch")
         modules.push("codegen.ir_type_mapping")
         modules.push("codegen.ir_type_ops")
+        modules.push("codegen.ir_loop_context")
         modules.push("codegen.ir_control_flow")
+        modules.push("codegen.ir_loop_plan")
+        modules.push("codegen.ir_call_constructors")
+        modules.push("codegen.ir_call_args")
+        modules.push("codegen.ir_call_runtime")
+        modules.push("codegen.ir_call_runtime_plan")
+        modules.push("codegen.ir_call_implicit_this_plan")
+        modules.push("codegen.ir_call_implicit_this_emit")
+        modules.push("codegen.ir_call_regular_plan")
+        modules.push("codegen.ir_call_meta")
+        modules.push("codegen.ir_call_low_level")
+        modules.push("codegen.ir_call_builtin_plan")
         modules.push("codegen.ir_call_dispatch")
+        modules.push("codegen.ir_call_fixups")
+        modules.push("codegen.ir_constructor_call_plan")
+        modules.push("codegen.ir_constructor_field_plan")
+        modules.push("codegen.ir_constructor_field_emit")
+        modules.push("codegen.ir_method_finalize")
         modules.push("codegen.ir_infer_type")
+        modules.push("codegen.ir_special_expr_infer")
+        modules.push("codegen.ir_expr_infer_plan")
         modules.push("codegen.ir_function_gen")
+        modules.push("codegen.ir_function_decorators")
+        modules.push("codegen.ir_function_lowering")
+        modules.push("codegen.ir_function_state")
+        modules.push("codegen.ir_function_lifecycle")
+        modules.push("codegen.ir_function_usage")
+        modules.push("codegen.ir_function_param_meta")
+        modules.push("codegen.ir_function_prebody")
+        modules.push("codegen.ir_function_body")
+        modules.push("codegen.ir_function_ml_logs")
+        modules.push("codegen.ir_ml_logging")
         modules.push("codegen.ir_struct_gen")
+        modules.push("codegen.ir_struct_layout_build")
+        modules.push("codegen.ir_class_type_layout")
+        modules.push("codegen.ir_class_type_decorators")
+        modules.push("codegen.ir_class_type_special")
+        modules.push("codegen.ir_class_gen_support")
+        modules.push("codegen.ir_class_generated_features")
+        modules.push("codegen.ir_field_registry")
         modules.push("codegen.ir_assignment_gen")
+        modules.push("codegen.ir_variable_gen")
+        modules.push("codegen.ir_field_layout")
+        modules.push("codegen.ir_index_access_gen")
+        modules.push("codegen.ir_bitfield_access")
+        modules.push("codegen.ir_path_expr")
+        modules.push("codegen.ir_member_access")
+        modules.push("codegen.ir_member_access_plan")
+        modules.push("codegen.ir_member_access_gen")
+        modules.push("codegen.ir_method_receiver")
+        modules.push("codegen.ir_method_receiver_predicates")
+        modules.push("codegen.ir_method_call_plan")
+        modules.push("codegen.ir_method_fastpath_emit")
+        modules.push("codegen.ir_method_array_mutator_emit")
+        modules.push("codegen.ir_method_lower_plan")
+        modules.push("codegen.ir_method_final_plan")
+        modules.push("codegen.ir_method_receiver_lookup_plan")
+        modules.push("codegen.ir_method_fastpath")
+        modules.push("codegen.ir_method_lower_emit")
+        modules.push("codegen.ir_method_receiver_lookup_gen")
+        modules.push("codegen.ir_binary_expr")
+        modules.push("codegen.ir_binary_emit")
+        modules.push("codegen.ir_binary_plan")
+        modules.push("codegen.ir_binary_fold_plan")
+        modules.push("codegen.ir_binary_short_circuit")
+        modules.push("codegen.ir_unary_expr")
+        modules.push("codegen.ir_class_constructor_gen")
+        modules.push("codegen.ir_class_method_gen")
+        modules.push("codegen.ir_stmt_scope")
+        modules.push("codegen.ir_stmt_decl")
         modules.push("codegen.ir_stmt_gen")
+        modules.push("codegen.ir_stmt_select_plan")
+        modules.push("codegen.ir_stmt_dispatch_plan")
+        modules.push("codegen.ir_stmt_dead_code")
+        modules.push("codegen.ir_stmt_comptime")
+        modules.push("codegen.ir_stmt_return")
         modules.push("codegen.type_registry")
+        modules.push("codegen.ir_type_header")
+        // Scan the main generator after extracted helpers so their
+        // declarations are available during bootstrap registration.
+        modules.push("codegen.llvm_ir_gen")
         // JSON module (required by LSP)
         modules.push("json.value")
         modules.push("json.parser")
@@ -1846,7 +3036,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         // IO module (required by LSP for stdio)
         modules.push("io.stdio")
         // String utilities - disabled during bootstrap due to conflicts with C runtime functions
-        // (split, trim, startsWith, endsWith, contains, indexOf, StringBuilder_length)
+        // (split, trim, startsWith, endsWith, contains, indexOf, lastIndexOf, StringBuilder_length)
         // These functions are provided by seen_runtime.c instead
         // modules.push("str.string")
         // Optimization pipeline modules
@@ -1864,6 +3054,16 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("lsp.types")
         modules.push("lsp.jsonrpc")
         modules.push("lsp.server")
+        modules.push("tools.translator")
+        modules.push("tools.c_import_gen")
+        modules.push("tools.c_import_frontend")
+        modules.push("tools.c_import_ast")
+        modules.push("tools.c_import_layout")
+        modules.push("tools.c_import_state")
+        modules.push("tools.c_import_type_map")
+        modules.push("tools.c_import_type_builtin")
+        modules.push("tools.c_import_emit")
+        modules.push("tools.c_import_util")
 
         var mi = 0
         while mi < modules.length() {
@@ -1881,6 +3081,14 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
 
 fun importProvidesSymbol(importItem: ItemNode, symbolName: String) r: Bool {
     return resolveImportedSymbolName(importItem, symbolName) != ""
+}
+
+fun stripCallGenericArguments(callName: String) r: String {
+    let genericStart = callName.indexOf("<", 0)
+    if genericStart > 0 {
+        return callName.substring(0, genericStart)
+    }
+    return callName
 }
 
 fun resolveImportedSymbolName(importItem: ItemNode, symbolName: String) r: String {
@@ -1922,13 +3130,66 @@ fun findProgramClass(program: ProgramNode, className: String) r: ClassNode {
 }
 
 fun findParsedModuleClass(modulePaths: Array<String>, frontends: Array<FrontendResult>, targetPath: String, className: String) r: ClassNode {
+    let normalizedTargetPath = resolveRealInputPath(targetPath)
     var i = 0
     while i < modulePaths.length() {
-        if modulePaths[i] == targetPath {
+        if modulePaths[i] == normalizedTargetPath {
             return findProgramClass(frontends[i].program, className)
         }
         i = i + 1
     }
+    if exists(normalizedTargetPath) {
+        let frontend = parseModule(normalizedTargetPath, "en")
+        if frontend.success {
+            return findProgramClass(frontend.program, className)
+        }
+    }
+    return ClassNode.new()
+}
+
+fun findSourceTextImportedClassInModules(modulePath: String,
+    modulePaths: Array<String>, frontends: Array<FrontendResult>,
+    className: String) r: ClassNode {
+
+    let content = readText(modulePath)
+    if content == "" {
+        return ClassNode.new()
+    }
+
+    let sourceDir = getSourceDir(modulePath)
+    var lineStart = 0
+    var pos = 0
+    while pos <= content.length() {
+        var atEnd = 0
+        if pos == content.length() {
+            atEnd = 1
+        }
+        var isNewline = 0
+        if atEnd == 0 {
+            if content.byteAt(pos) == 10 {
+                isNewline = 1
+            }
+        }
+        if isNewline == 1 or atEnd == 1 {
+            let importText = sourceImportBodyFromLine(content.substring(lineStart, pos))
+            if importText != "" {
+                let importedSymbolName = resolveSourceTextImportedSymbolName(importText, className)
+                if importedSymbolName != "" {
+                    let importedPath = sourceTextImportPath(importText, sourceDir)
+                    if importedPath != "" {
+                        let importedClass = findParsedModuleClass(modulePaths,
+                            frontends, importedPath, importedSymbolName)
+                        if importedClass.name != "" {
+                            return importedClass
+                        }
+                    }
+                }
+            }
+            lineStart = pos + 1
+        }
+        pos = pos + 1
+    }
+
     return ClassNode.new()
 }
 
@@ -1985,12 +3246,116 @@ fun findProgramFunction(program: ProgramNode, functionName: String) r: FunctionN
 }
 
 fun findParsedModuleFunction(modulePaths: Array<String>, frontends: Array<FrontendResult>, targetPath: String, functionName: String) r: FunctionNode {
+    let normalizedTargetPath = resolveRealInputPath(targetPath)
     var i = 0
     while i < modulePaths.length() {
-        if modulePaths[i] == targetPath {
+        if modulePaths[i] == normalizedTargetPath {
             return findProgramFunction(frontends[i].program, functionName)
         }
         i = i + 1
+    }
+    if exists(normalizedTargetPath) {
+        let frontend = parseModule(normalizedTargetPath, "en")
+        if frontend.success {
+            return findProgramFunction(frontend.program, functionName)
+        }
+    }
+    return FunctionNode.new()
+}
+
+fun findSourceTextImportedFunctionInModules(modulePath: String,
+    modulePaths: Array<String>, frontends: Array<FrontendResult>,
+    functionName: String) r: FunctionNode {
+
+    let content = readText(modulePath)
+    if content == "" {
+        return FunctionNode.new()
+    }
+
+    let sourceDir = getSourceDir(modulePath)
+    var lineStart = 0
+    var pos = 0
+    while pos <= content.length() {
+        var atEnd = 0
+        if pos == content.length() {
+            atEnd = 1
+        }
+        var isNewline = 0
+        if atEnd == 0 {
+            if content.byteAt(pos) == 10 {
+                isNewline = 1
+            }
+        }
+        if isNewline == 1 or atEnd == 1 {
+            let importText = sourceImportBodyFromLine(content.substring(lineStart, pos))
+            if importText != "" {
+                let importedSymbolName = resolveSourceTextImportedSymbolName(importText, functionName)
+                if importedSymbolName != "" {
+                    let importedPath = sourceTextImportPath(importText, sourceDir)
+                    if importedPath != "" {
+                        let importedFunc = findParsedModuleFunction(modulePaths,
+                            frontends, importedPath, importedSymbolName)
+                        if importedFunc.name != "" {
+                            return importedFunc
+                        }
+                    }
+                }
+            }
+            lineStart = pos + 1
+        }
+        pos = pos + 1
+    }
+
+    return FunctionNode.new()
+}
+
+fun findFunctionImportedByAnyModuleInModules(modulePaths: Array<String>,
+    frontends: Array<FrontendResult>, functionName: String) r: FunctionNode {
+
+    var moduleIdx = 0
+    while moduleIdx < modulePaths.length() {
+        let importingPath = modulePaths[moduleIdx]
+        let importingDir = getSourceDir(importingPath)
+        let importingProgram = frontends[moduleIdx].program
+        var itemIdx = 0
+        while itemIdx < importingProgram.items.length() {
+            let item = importingProgram.items[itemIdx]
+            let importedSymbolName = resolveImportedSymbolName(item,
+                functionName)
+            if importedSymbolName != "" {
+                let importedPath = resolveAstImportItemPath(item,
+                    importingDir)
+                if importedPath != "" {
+                    let importedFunc = findParsedModuleFunction(modulePaths,
+                        frontends, importedPath, importedSymbolName)
+                    if importedFunc.name != "" {
+                        return importedFunc
+                    }
+                }
+            }
+            itemIdx = itemIdx + 1
+        }
+        let sourceTextFunc = findSourceTextImportedFunctionInModules(importingPath,
+            modulePaths, frontends, functionName)
+        if sourceTextFunc.name != "" {
+            return sourceTextFunc
+        }
+        moduleIdx = moduleIdx + 1
+    }
+    return FunctionNode.new()
+}
+
+fun findFunctionInAnyParsedModule(modulePaths: Array<String>,
+    frontends: Array<FrontendResult>, functionName: String) r: FunctionNode {
+
+    var moduleIdx = 0
+    while moduleIdx < modulePaths.length() {
+        let func = findProgramFunction(frontends[moduleIdx].program,
+            functionName)
+        if func.name != "" {
+            return func
+        }
+        moduleIdx = moduleIdx + 1
     }
     return FunctionNode.new()
 }
@@ -2002,7 +3367,7 @@ fun findImportedFunctionInModules(modulePath: String, moduleProgram: ProgramNode
         let item = moduleProgram.items[i]
         let importedSymbolName = resolveImportedSymbolName(item, functionName)
         if importedSymbolName != "" {
-            let importedPath = resolveImportPath(item.importPath, sourceDir)
+            let importedPath = resolveAstImportItemPath(item, sourceDir)
             if importedPath != "" {
                 let importedFunc = findParsedModuleFunction(modulePaths, frontends, importedPath, importedSymbolName)
                 if importedFunc.name != "" {
@@ -2012,7 +3377,8 @@ fun findImportedFunctionInModules(modulePath: String, moduleProgram: ProgramNode
         }
         i = i + 1
     }
-    return FunctionNode.new()
+    return findSourceTextImportedFunctionInModules(modulePath, modulePaths,
+        frontends, functionName)
 }
 
 fun addImportedCapabilityViolation(result: FrontendResult, modulePath: String, line: Int, functionName: String, calledFunction: String, requiredToken: String) r: Void {
@@ -2127,7 +3493,7 @@ fun findReferencedClassInModules(modulePath: String, moduleProgram: ProgramNode,
         let item = moduleProgram.items[i]
         let importedSymbolName = resolveImportedSymbolName(item, className)
         if importedSymbolName != "" {
-            let importedPath = resolveImportPath(item.importPath, sourceDir)
+            let importedPath = resolveAstImportItemPath(item, sourceDir)
             if importedPath != "" {
                 let importedClass = findParsedModuleClass(modulePaths, frontends, importedPath, importedSymbolName)
                 if importedClass.name != "" {
@@ -2138,6 +3504,48 @@ fun findReferencedClassInModules(modulePath: String, moduleProgram: ProgramNode,
         i = i + 1
     }
 
+    let sourceTextClass = findSourceTextImportedClassInModules(modulePath,
+        modulePaths, frontends, className)
+    if sourceTextClass.name != "" {
+        return sourceTextClass
+    }
+
+    return findClassImportedByAnyModuleInModules(modulePaths, frontends,
+        className)
+}
+
+fun findClassImportedByAnyModuleInModules(modulePaths: Array<String>,
+    frontends: Array<FrontendResult>, className: String) r: ClassNode {
+
+    var moduleIdx = 0
+    while moduleIdx < modulePaths.length() {
+        let importingPath = modulePaths[moduleIdx]
+        let importingDir = getSourceDir(importingPath)
+        let importingProgram = frontends[moduleIdx].program
+        var itemIdx = 0
+        while itemIdx < importingProgram.items.length() {
+            let item = importingProgram.items[itemIdx]
+            let importedSymbolName = resolveImportedSymbolName(item, className)
+            if importedSymbolName != "" {
+                let importedPath = resolveAstImportItemPath(item,
+                    importingDir)
+                if importedPath != "" {
+                    let importedClass = findParsedModuleClass(modulePaths,
+                        frontends, importedPath, importedSymbolName)
+                    if importedClass.name != "" {
+                        return importedClass
+                    }
+                }
+            }
+            itemIdx = itemIdx + 1
+        }
+        let sourceTextClass = findSourceTextImportedClassInModules(importingPath,
+            modulePaths, frontends, className)
+        if sourceTextClass.name != "" {
+            return sourceTextClass
+        }
+        moduleIdx = moduleIdx + 1
+    }
     return ClassNode.new()
 }
 
@@ -2211,6 +3619,51 @@ fun parsedModuleHasSealedClass(modulePaths: Array<String>, frontends: Array<Fron
     return false
 }
 
+fun findSourceTextImportedSealedParentModule(modulePath: String,
+    modulePaths: Array<String>, frontends: Array<FrontendResult>,
+    parentName: String) r: String {
+
+    let content = readText(modulePath)
+    if content == "" {
+        return ""
+    }
+
+    let sourceDir = getSourceDir(modulePath)
+    var lineStart = 0
+    var pos = 0
+    while pos <= content.length() {
+        var atEnd = 0
+        if pos == content.length() {
+            atEnd = 1
+        }
+        var isNewline = 0
+        if atEnd == 0 {
+            if content.byteAt(pos) == 10 {
+                isNewline = 1
+            }
+        }
+        if isNewline == 1 or atEnd == 1 {
+            let importText = sourceImportBodyFromLine(content.substring(lineStart, pos))
+            if importText != "" {
+                let importedSymbolName = resolveSourceTextImportedSymbolName(importText, parentName)
+                if importedSymbolName != "" {
+                    let importedPath = sourceTextImportPath(importText, sourceDir)
+                    if importedPath != "" {
+                        if parsedModuleHasSealedClass(modulePaths, frontends,
+                            importedPath, importedSymbolName) {
+                            return importedPath
+                        }
+                    }
+                }
+            }
+            lineStart = pos + 1
+        }
+        pos = pos + 1
+    }
+
+    return ""
+}
+
 fun findImportedSealedParentModule(modulePath: String, moduleProgram: ProgramNode, modulePaths: Array<String>, frontends: Array<FrontendResult>, parentName: String) r: String {
     if programDefinesSealedClass(moduleProgram, parentName) {
         return ""
@@ -2222,7 +3675,7 @@ fun findImportedSealedParentModule(modulePath: String, moduleProgram: ProgramNod
         let item = moduleProgram.items[i]
         let importedSymbolName = resolveImportedSymbolName(item, parentName)
         if importedSymbolName != "" {
-            let importedPath = resolveImportPath(item.importPath, sourceDir)
+            let importedPath = resolveAstImportItemPath(item, sourceDir)
             if importedPath != "" {
                 if parsedModuleHasSealedClass(modulePaths, frontends, importedPath, importedSymbolName) {
                     return importedPath
@@ -2232,7 +3685,8 @@ fun findImportedSealedParentModule(modulePath: String, moduleProgram: ProgramNod
         i = i + 1
     }
 
-    return ""
+    return findSourceTextImportedSealedParentModule(modulePath, modulePaths,
+        frontends, parentName)
 }
 
 fun findProgramEnum(program: ProgramNode, enumName: String) r: EnumNode {
@@ -2250,13 +3704,66 @@ fun findProgramEnum(program: ProgramNode, enumName: String) r: EnumNode {
 }
 
 fun findParsedModuleEnum(modulePaths: Array<String>, frontends: Array<FrontendResult>, targetPath: String, enumName: String) r: EnumNode {
+    let normalizedTargetPath = resolveRealInputPath(targetPath)
     var i = 0
     while i < modulePaths.length() {
-        if modulePaths[i] == targetPath {
+        if modulePaths[i] == normalizedTargetPath {
             return findProgramEnum(frontends[i].program, enumName)
         }
         i = i + 1
     }
+    if exists(normalizedTargetPath) {
+        let frontend = parseModule(normalizedTargetPath, "en")
+        if frontend.success {
+            return findProgramEnum(frontend.program, enumName)
+        }
+    }
+    return EnumNode.new()
+}
+
+fun findSourceTextImportedEnumInModules(modulePath: String,
+    modulePaths: Array<String>, frontends: Array<FrontendResult>,
+    enumName: String) r: EnumNode {
+
+    let content = readText(modulePath)
+    if content == "" {
+        return EnumNode.new()
+    }
+
+    let sourceDir = getSourceDir(modulePath)
+    var lineStart = 0
+    var pos = 0
+    while pos <= content.length() {
+        var atEnd = 0
+        if pos == content.length() {
+            atEnd = 1
+        }
+        var isNewline = 0
+        if atEnd == 0 {
+            if content.byteAt(pos) == 10 {
+                isNewline = 1
+            }
+        }
+        if isNewline == 1 or atEnd == 1 {
+            let importText = sourceImportBodyFromLine(content.substring(lineStart, pos))
+            if importText != "" {
+                let importedSymbolName = resolveSourceTextImportedSymbolName(importText, enumName)
+                if importedSymbolName != "" {
+                    let importedPath = sourceTextImportPath(importText, sourceDir)
+                    if importedPath != "" {
+                        let importedEnum = findParsedModuleEnum(modulePaths,
+                            frontends, importedPath, importedSymbolName)
+                        if importedEnum.name != "" {
+                            return importedEnum
+                        }
+                    }
+                }
+            }
+            lineStart = pos + 1
+        }
+        pos = pos + 1
+    }
+
     return EnumNode.new()
 }
 
@@ -2272,7 +3779,7 @@ fun findReferencedEnumInModules(modulePath: String, moduleProgram: ProgramNode, 
         let item = moduleProgram.items[i]
         let importedSymbolName = resolveImportedSymbolName(item, enumName)
         if importedSymbolName != "" {
-            let importedPath = resolveImportPath(item.importPath, sourceDir)
+            let importedPath = resolveAstImportItemPath(item, sourceDir)
             if importedPath != "" {
                 let importedEnum = findParsedModuleEnum(modulePaths, frontends, importedPath, importedSymbolName)
                 if importedEnum.name != "" {
@@ -2283,6 +3790,48 @@ fun findReferencedEnumInModules(modulePath: String, moduleProgram: ProgramNode, 
         i = i + 1
     }
 
+    let sourceTextEnum = findSourceTextImportedEnumInModules(modulePath,
+        modulePaths, frontends, enumName)
+    if sourceTextEnum.name != "" {
+        return sourceTextEnum
+    }
+
+    return findEnumImportedByAnyModuleInModules(modulePaths, frontends,
+        enumName)
+}
+
+fun findEnumImportedByAnyModuleInModules(modulePaths: Array<String>,
+    frontends: Array<FrontendResult>, enumName: String) r: EnumNode {
+
+    var moduleIdx = 0
+    while moduleIdx < modulePaths.length() {
+        let importingPath = modulePaths[moduleIdx]
+        let importingDir = getSourceDir(importingPath)
+        let importingProgram = frontends[moduleIdx].program
+        var itemIdx = 0
+        while itemIdx < importingProgram.items.length() {
+            let item = importingProgram.items[itemIdx]
+            let importedSymbolName = resolveImportedSymbolName(item, enumName)
+            if importedSymbolName != "" {
+                let importedPath = resolveAstImportItemPath(item,
+                    importingDir)
+                if importedPath != "" {
+                    let importedEnum = findParsedModuleEnum(modulePaths,
+                        frontends, importedPath, importedSymbolName)
+                    if importedEnum.name != "" {
+                        return importedEnum
+                    }
+                }
+            }
+            itemIdx = itemIdx + 1
+        }
+        let sourceTextEnum = findSourceTextImportedEnumInModules(importingPath,
+            modulePaths, frontends, enumName)
+        if sourceTextEnum.name != "" {
+            return sourceTextEnum
+        }
+        moduleIdx = moduleIdx + 1
+    }
     return EnumNode.new()
 }
 
@@ -2381,7 +3930,18 @@ fun findReferencedFunctionInModules(modulePath: String, moduleProgram: ProgramNo
     if localFunc.name != "" {
         return localFunc
     }
-    return findImportedFunctionInModules(modulePath, moduleProgram, modulePaths, frontends, functionName)
+    let directlyImported = findImportedFunctionInModules(modulePath,
+        moduleProgram, modulePaths, frontends, functionName)
+    if directlyImported.name != "" {
+        return directlyImported
+    }
+    let moduleVisible = findFunctionInAnyParsedModule(modulePaths, frontends,
+        functionName)
+    if moduleVisible.name != "" {
+        return moduleVisible
+    }
+    return findFunctionImportedByAnyModuleInModules(modulePaths, frontends,
+        functionName)
 }
 
 fun inferExpressionTypeNameInModules(modulePath: String, moduleProgram: ProgramNode, modulePaths: Array<String>, frontends: Array<FrontendResult>, expr: ParserExpressionNode, boundNames: Array<String>, boundTypes: Array<String>, ownerClassName: String) r: String {
@@ -2625,7 +4185,292 @@ fun checkEnumExhaustivenessInFunction(result: FrontendResult, modulePath: String
     checkEnumExhaustivenessBlock(result, modulePath, moduleProgram, modulePaths, frontends, func.body, boundNames, boundTypes, ownerClassName, func.line)
 }
 
+fun isKnownCompilerBuiltinCallName(callName: String) r: Bool {
+    if callName == "sizeof" or callName == "alignof" or callName == "offsetof" {
+        return true
+    }
+    if callName == "includeStr" or callName == "includeBytes" {
+        return true
+    }
+    if callName.startsWith("transmute<") {
+        return true
+    }
+    if callName == "barrier" or callName == "stackAlloc" or
+        callName.startsWith("stackAlloc<") or callName == "constructAt" {
+        return true
+    }
+    if callName == "debug_assert" or callName == "abort" or
+        callName == "__default" or
+        callName.startsWith("__default<") {
+        return true
+    }
+    if callName == "str_to_cstr" or callName == "cstr_to_str" or
+        callName == "split" or callName == "async_yield" {
+        return true
+    }
+    if callName.startsWith("simd_") or callName.startsWith("Simd") {
+        return true
+    }
+    if isPtrBuiltinCallImpl(callName) == 1 {
+        return true
+    }
+    if isOptionRuntimeCallPlanImpl(callName) {
+        return true
+    }
+    if isPrintRuntimeCallPlanImpl(callName) {
+        return true
+    }
+    if runtimeIoCallActionImpl(callName, 1) != 0 {
+        return true
+    }
+    if isPanicRuntimeCallPlanImpl(callName) {
+        return true
+    }
+    if isMathRuntimeCallPlanImpl(callName) {
+        return true
+    }
+    if isArrayConstructorNameImpl(callName) {
+        return true
+    }
+    if isSmallVecConstructorNameImpl(callName) {
+        return true
+    }
+    if isCollectionConstructorNameImpl(callName) {
+        return true
+    }
+    return false
+}
+
+fun moduleSetHasEnumVariant(variantName: String) r: Bool {
+    var moduleIdx = 0
+    while moduleIdx < g_validationFrontends.length() {
+        let program = g_validationFrontends[moduleIdx].program
+        var itemIdx = 0
+        while itemIdx < program.items.length() {
+            let item = program.items[itemIdx]
+            if item.itemType == "Enum" {
+                if enumHasVariant(item.enumNode, variantName) {
+                    return true
+                }
+            }
+            itemIdx = itemIdx + 1
+        }
+        moduleIdx = moduleIdx + 1
+    }
+    return false
+}
+
+fun isResolvableFreeFunctionCall(modulePath: String,
+    moduleProgram: ProgramNode, callName: String,
+    boundNames: Array<String>, boundTypes: Array<String>,
+    ownerClassName: String) r: Bool {
+
+    if callName == "" {
+        return true
+    }
+    let resolvedCallName = stripCallGenericArguments(callName)
+    if isKnownCompilerBuiltinCallName(resolvedCallName) {
+        return true
+    }
+    if lookupBoundType(boundNames, boundTypes, resolvedCallName) != "" {
+        return true
+    }
+    let referencedFunc = findReferencedFunctionInModules(modulePath,
+        moduleProgram, g_validationModulePaths, g_validationFrontends,
+        resolvedCallName)
+    if referencedFunc.name != "" {
+        return true
+    }
+    let referencedClass = findReferencedClassInModules(modulePath,
+        moduleProgram, g_validationModulePaths, g_validationFrontends,
+        resolvedCallName)
+    if referencedClass.name != "" {
+        return true
+    }
+    if moduleSetHasEnumVariant(resolvedCallName) {
+        return true
+    }
+    if ownerClassName != "" {
+        let methodRet = findReferencedClassMethodReturnTypeInModules(modulePath,
+            moduleProgram, g_validationModulePaths, g_validationFrontends,
+            ownerClassName, resolvedCallName)
+        if methodRet != "" {
+            return true
+        }
+    }
+    return false
+}
+
+fun addUnresolvedFreeCallDiagnostic(result: FrontendResult,
+    modulePath: String, line: Int, callName: String) r: Void {
+
+    let message = encodeDiagMessage(
+        "unresolved function `" + callName + "`",
+        "E009",
+        "Define `" + callName + "` or import it before calling it.",
+        "",
+        0
+    )
+    result.addDiagnostic(FrontendDiagnostic.new(modulePath, line, 0, "error",
+        message))
+}
+
+fun sourceTextImportMentionsResolvableSymbol(modulePath: String,
+    symbolName: String) r: Bool {
+
+    let content = readText(modulePath)
+    if content == "" {
+        return false
+    }
+
+    let sourceDir = getSourceDir(modulePath)
+    var lineStart = 0
+    var pos = 0
+    while pos <= content.length() {
+        var atEnd = 0
+        if pos == content.length() {
+            atEnd = 1
+        }
+        var isNewline = 0
+        if atEnd == 0 {
+            if content.byteAt(pos) == 10 {
+                isNewline = 1
+            }
+        }
+        if isNewline == 1 or atEnd == 1 {
+            let importText = sourceImportBodyFromLine(content.substring(lineStart, pos))
+            if importText != "" {
+                let importedSymbolName = resolveSourceTextImportedSymbolName(importText, symbolName)
+                if importedSymbolName != "" {
+                    let importedPath = sourceTextImportPath(importText, sourceDir)
+                    if importedPath != "" and exists(importedPath) {
+                        return true
+                    }
+                }
+            }
+            lineStart = pos + 1
+        }
+        pos = pos + 1
+    }
+
+    return false
+}
+
+fun checkUnresolvedFreeCallExpression(result: FrontendResult,
+    modulePath: String, moduleProgram: ProgramNode, expr: ParserExpressionNode,
+    boundNames: Array<String>, boundTypes: Array<String>,
+    ownerClassName: String, funcLine: Int) r: Void {
+
+    if expr.kind == "None" or expr.kind == "" {
+        return
+    }
+
+    if expr.kind == "Call" {
+        if not isResolvableFreeFunctionCall(modulePath, moduleProgram,
+            expr.callee, boundNames, boundTypes, ownerClassName) {
+            if not sourceTextImportMentionsResolvableSymbol(modulePath,
+                stripCallGenericArguments(expr.callee)) {
+                addUnresolvedFreeCallDiagnostic(result, modulePath, funcLine,
+                    expr.callee)
+            }
+        }
+    }
+
+    var operandIdx = 0
+    while operandIdx < expr.operands.length() {
+        checkUnresolvedFreeCallExpression(result, modulePath, moduleProgram,
+            expr.operands[operandIdx], boundNames, boundTypes, ownerClassName,
+            funcLine)
+        operandIdx = operandIdx + 1
+    }
+
+    var argIdx = 0
+    while argIdx < expr.arguments.length() {
+        checkUnresolvedFreeCallExpression(result, modulePath, moduleProgram,
+            expr.arguments[argIdx], boundNames, boundTypes, ownerClassName,
+            funcLine)
+        argIdx = argIdx + 1
+    }
+}
+
+fun checkUnresolvedFreeCallStatement(result: FrontendResult,
+    modulePath: String, moduleProgram: ProgramNode, stmt: StatementNode,
+    boundNames: Array<String>, boundTypes: Array<String>,
+    ownerClassName: String, funcLine: Int) r: Void {
+
+    if stmt.kind == "Let" or stmt.kind == "Var" {
+        checkUnresolvedFreeCallExpression(result, modulePath, moduleProgram,
+            stmt.initializer, boundNames, boundTypes, ownerClassName, funcLine)
+        let boundType = inferStatementBindingTypeInModules(modulePath,
+            moduleProgram, g_validationModulePaths, g_validationFrontends,
+            stmt, boundNames, boundTypes, ownerClassName)
+        addBoundType(boundNames, boundTypes, stmt.variableName, boundType)
+        return
+    }
+
+    if stmt.kind == "Expression" and stmt.expression.kind == "Call" {
+        // Direct call statements can still lower to late external declarations.
+        return
+    }
+
+    checkUnresolvedFreeCallExpression(result, modulePath, moduleProgram,
+        stmt.expression, boundNames, boundTypes, ownerClassName, funcLine)
+    checkUnresolvedFreeCallExpression(result, modulePath, moduleProgram,
+        stmt.returnValue, boundNames, boundTypes, ownerClassName, funcLine)
+    checkUnresolvedFreeCallExpression(result, modulePath, moduleProgram,
+        stmt.condition, boundNames, boundTypes, ownerClassName, funcLine)
+    checkUnresolvedFreeCallExpression(result, modulePath, moduleProgram,
+        stmt.loopCondition, boundNames, boundTypes, ownerClassName, funcLine)
+    checkUnresolvedFreeCallExpression(result, modulePath, moduleProgram,
+        stmt.initializer, boundNames, boundTypes, ownerClassName, funcLine)
+
+    checkUnresolvedFreeCallBlock(result, modulePath, moduleProgram,
+        stmt.thenBranch, boundNames, boundTypes, ownerClassName, funcLine)
+    checkUnresolvedFreeCallBlock(result, modulePath, moduleProgram,
+        stmt.elseBranch, boundNames, boundTypes, ownerClassName, funcLine)
+    checkUnresolvedFreeCallBlock(result, modulePath, moduleProgram,
+        stmt.loopBody, boundNames, boundTypes, ownerClassName, funcLine)
+}
+
+fun checkUnresolvedFreeCallBlock(result: FrontendResult,
+    modulePath: String, moduleProgram: ProgramNode, block: BlockNode,
+    boundNames: Array<String>, boundTypes: Array<String>,
+    ownerClassName: String, funcLine: Int) r: Void {
+
+    let localNames = copyStringArray(boundNames)
+    let localTypes = copyStringArray(boundTypes)
+    var i = 0
+    while i < block.statements.length() {
+        checkUnresolvedFreeCallStatement(result, modulePath, moduleProgram,
+            block.statements[i], localNames, localTypes, ownerClassName,
+            funcLine)
+        i = i + 1
+    }
+}
+
+fun checkUnresolvedFreeCallsInFunction(result: FrontendResult,
+    modulePath: String, moduleProgram: ProgramNode, func: FunctionNode,
+    ownerClassName: String) r: Void {
+
+    let boundNames = Array<String>()
+    let boundTypes = Array<String>()
+    if ownerClassName != "" {
+        addBoundType(boundNames, boundTypes, "this", ownerClassName)
+    }
+
+    var paramIdx = 0
+    while paramIdx < func.params.length() {
+        let param = func.params[paramIdx]
+        addBoundType(boundNames, boundTypes, param.name, param.paramType.typeName)
+        paramIdx = paramIdx + 1
+    }
+
+    checkUnresolvedFreeCallBlock(result, modulePath, moduleProgram, func.body,
+        boundNames, boundTypes, ownerClassName, func.line)
+}
+
 fun validateSealedModules(modulePaths: Array<String>, language: String) r: FrontendResult {
+    clearValidationModuleCache()
     let result = FrontendResult.new()
     let frontends = Array<FrontendResult>()
 
@@ -2633,11 +4478,15 @@ fun validateSealedModules(modulePaths: Array<String>, language: String) r: Front
     while i < modulePaths.length() {
         let frontend = parseModule(modulePaths[i], language)
         if not frontend.success {
+            clearValidationModuleCache()
             return frontend
         }
         frontends.push(frontend)
         i = i + 1
     }
+
+    g_validationModulePaths = modulePaths
+    g_validationFrontends = frontends
 
     i = 0
     while i < modulePaths.length() {
@@ -2705,6 +4554,8 @@ fun validateSealedModules(modulePaths: Array<String>, language: String) r: Front
                     let methodName = cls.name + "." + method.name
                     checkImportedCapabilityBlock(result, modulePath, program, modulePaths, frontends, method, methodName, method.body, method.line)
                     checkEnumExhaustivenessInFunction(result, modulePath, program, modulePaths, frontends, method, cls.name)
+                    checkUnresolvedFreeCallsInFunction(result, modulePath,
+                        program, method, cls.name)
                     methodIdx = methodIdx + 1
                 }
             }
@@ -2713,6 +4564,8 @@ fun validateSealedModules(modulePaths: Array<String>, language: String) r: Front
                 let func = item.function
                 checkImportedCapabilityBlock(result, modulePath, program, modulePaths, frontends, func, func.name, func.body, func.line)
                 checkEnumExhaustivenessInFunction(result, modulePath, program, modulePaths, frontends, func, "")
+                checkUnresolvedFreeCallsInFunction(result, modulePath, program,
+                    func, "")
             }
             itemIdx = itemIdx + 1
         }
@@ -2723,6 +4576,7 @@ fun validateSealedModules(modulePaths: Array<String>, language: String) r: Front
     if not result.hasErrors() {
         result.success = true
     }
+    clearValidationModuleCache()
     return result
 }
 
@@ -3233,6 +5087,50 @@ fun sourcesNeedLinuxPlatformEvdevShim(modulePaths: Array<String>) r: Bool {
     return false
 }
 
+fun sourcesNeedRawVulkanLink(modulePaths: Array<String>) r: Bool {
+    var mi = 0
+    while mi < modulePaths.length() {
+        let modulePath = modulePaths[mi]
+        if modulePath.contains("/seen_vk/src/") {
+            return true
+        }
+        let sourceText = readText(modulePath)
+        if sourceText.contains("extern fun vk") or
+            sourceText.contains("extern \"C\" fun vk") {
+            return true
+        }
+        mi = mi + 1
+    }
+    return false
+}
+
+fun sourcesNeedSdl3Link(modulePaths: Array<String>) r: Bool {
+    var mi = 0
+    while mi < modulePaths.length() {
+        let modulePath = modulePaths[mi]
+        if modulePath.contains("/seen_window/src/") {
+            return true
+        }
+        let sourceText = readText(modulePath)
+        if sourceText.contains("extern fun SDL_") or
+            sourceText.contains("extern \"C\" fun SDL_") {
+            return true
+        }
+        mi = mi + 1
+    }
+    return false
+}
+
+fun appendHostPkgOrFallbackLinkFlag(linkLibs: String, pkg: String,
+    fallbackFlag: String) r: String {
+
+    let pkgLibs = pkgConfigOutput("--libs", pkg)
+    if pkgLibs != "" {
+        return linkLibs + " " + pkgLibs
+    }
+    return linkLibs + " " + fallbackFlag
+}
+
 fun sourcesNeedTeeHardwareRuntime(modulePaths: Array<String>) r: Bool {
     var mi = 0
     while mi < modulePaths.length() {
@@ -3420,6 +5318,8 @@ var g_releaseMode: Bool = false
 var g_emitLlvm: Bool = false
 // Fast mode flag: lightweight optimization for bootstrap verification (Int, not Bool -- Stage1 limitation)
 var g_fastMode = 0
+// Generated test-main mode leaves module objects for external test runners and skips final link.
+var g_generatedTestMainMode = 0
 // O2 mode flag: moderate optimization, faster than O3 for bootstrap stages (Int, not Bool -- Stage1 limitation)
 var g_O2Mode = 0
 // CLI flags for safety checks (Int, not Bool -- Stage1 limitation)
@@ -3439,6 +5339,12 @@ var g_enabledFeaturesCli: String = ""
 var g_emitCompileDb = 0
 // Disable fork-parallel IR generation (use sequential in-process generation)
 var g_noFork = 0
+// HeartOn validation passes this legacy project-prefix hint together with
+// --no-fork. Keep bootstrap builds serial, but allow a bounded worker pool for
+// large project graphs that explicitly opt into this path.
+var g_projectPrefixLimit = 0
+var g_largeProjectWorkerLimit = 16
+var g_largeProjectOptWorkerLimit = 24
 // ThinLTO cache path (/tmp/seen_thinlto_cache) and IR cache path (/tmp/seen_ir_cache)
 // are inlined as string literals at each use site. Module-level String variables
 // generate invalid IR (`store %SeenString 0`) in the production compiler, so we
@@ -3540,6 +5446,11 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     }
     if normalizedCrossTarget != "android-arm64" and llvmOptTool == "" {
         println("  Error: LLVM tool not found: opt")
+        println("  Hint: install LLVM or set SEEN_LLVM_BIN to your LLVM bin directory")
+        return 1
+    }
+    if g_fastMode == 1 and normalizedCrossTarget != "android-arm64" and llvmLlcTool == "" {
+        println("  Error: LLVM tool not found: llc")
         println("  Hint: install LLVM or set SEEN_LLVM_BIN to your LLVM bin directory")
         return 1
     }
@@ -3727,6 +5638,10 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         }
     }
 
+    if tryUseGeneratedTestObjectSetCacheForInput(resolvedInput, cacheSignature, normalizedCrossTarget) {
+        return 0
+    }
+
     // ============================================================
     // Circular dependency detection
     // ============================================================
@@ -3734,104 +5649,130 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     // compilation. Circular imports would cause the module collector to loop
     // and the IR generator to emit incomplete forward references. Catching
     // this early gives a clear diagnostic instead of a cryptic linker error.
-    let depPaths = collectModulePaths(resolvedInput, true)
-    let sealedValidation = validateSealedModules(depPaths, language)
-    if not sealedValidation.success {
-        printFrontendDiagnostics(sealedValidation)
-        return 1
+    println("  [Pass 0] Discovering module graph...")
+    let modulePaths = collectModulePaths(resolvedInput, false)
+    println("    Found " + modulePaths.length().toString() + " modules")
+    let boundedLargeProjectWorkers = effectiveLargeProjectWorkerLimit(
+        modulePaths.length(), resolvedInput.contains("main_compiler.seen"))
+    var boundedLargeProjectOptWorkers = 0
+    if boundedLargeProjectWorkers > 0 {
+        boundedLargeProjectOptWorkers = g_largeProjectOptWorkerLimit
     }
-    var depGraph = Array<String>()   // pipe-delimited adjacency: "from|to1|to2|..."
-    var depIdx = 0
-    while depIdx < depPaths.length() {
-        let depPath = depPaths[depIdx]
-        let depSourceDir = getSourceDir(depPath)
-        let depFe = parseModule(depPath, language)
-        var edges = depPath
-        if depFe.success {
-            var depItemIdx = 0
-            while depItemIdx < depFe.program.items.length() {
-                let depItem = depFe.program.items[depItemIdx]
-                if depItem.itemType == "Import" {
-                    let depTarget = resolveImportPath(depItem.importPath, depSourceDir)
-                    edges = edges + "|" + depTarget
-                }
-                depItemIdx = depItemIdx + 1
-            }
+    if boundedLargeProjectWorkers > 0 {
+        println("  Large project worker pool: IR " +
+            boundedLargeProjectWorkers.toString() + " jobs, opt " +
+            boundedLargeProjectOptWorkers.toString() + " jobs")
+    }
+    if tryUseCompleteGeneratedTestObjectCache(modulePaths, cacheSignature, normalizedCrossTarget) {
+        storeGeneratedTestObjectSetCache(resolvedInput, modulePaths, cacheSignature, normalizedCrossTarget)
+        return 0
+    }
+    if shouldRunWholeProjectPreflight(modulePaths) {
+        let sealedValidation = validateSealedModules(modulePaths, language)
+        if not sealedValidation.success {
+            printFrontendDiagnostics(sealedValidation)
+            return 1
         }
-        depGraph.push(edges)
-        depIdx = depIdx + 1
-    }
-    // DFS cycle check: color 0=white, 1=gray, 2=black, 3=queued
-    var depColors = Array<Int>()
-    var depCycleFound = 0
-    var depCyclePath = ""
-    depIdx = 0
-    while depIdx < depPaths.length() {
-        depColors.push(0)
-        depIdx = depIdx + 1
-    }
-    // Simple O(V+E) DFS; sufficient for ~50 modules
-    // Use manual stack via Array<Int> + stackTop counter (no .pop() in runtime)
-    var dfsStack = Array<Int>()
-    var dfsStackTop = 0
-    depIdx = 0
-    while depIdx < depPaths.length() {
-        if depColors[depIdx] == 0 {
-            depColors[depIdx] = 3
-            dfsStack.push(depIdx)
-            dfsStackTop = dfsStackTop + 1
-            while dfsStackTop > 0 {
-                let dfsNode = dfsStack[dfsStackTop - 1]
-                if depColors[dfsNode] == 0 or depColors[dfsNode] == 3 {
-                    depColors[dfsNode] = 1  // gray = in-progress
-                    // Push neighbors
-                    let dfsEdges = depGraph[dfsNode]
-                    // Parse edges (pipe-delimited, first is self)
-                    var dfsPos = 0
-                    var dfsFirst = true
-                    var dfsSegStart = 0
-                    while dfsPos <= dfsEdges.length() {
-                        var dfsIsSep = false
-                        if dfsPos == dfsEdges.length() { dfsIsSep = true }
-                        if not dfsIsSep {
-                            if dfsEdges.substring(dfsPos, dfsPos + 1) == "|" { dfsIsSep = true }
+        var depGraph = Array<String>()   // pipe-delimited adjacency: "from|to1|to2|..."
+        var depIdx = 0
+        while depIdx < modulePaths.length() {
+            let depPath = modulePaths[depIdx]
+            let depSourceDir = getSourceDir(depPath)
+            let depFe = parseModule(depPath, language)
+            var edges = depPath
+            if depFe.success {
+                var depItemIdx = 0
+                while depItemIdx < depFe.program.items.length() {
+                    let depItem = depFe.program.items[depItemIdx]
+                    if depItem.itemType == "Import" {
+                        let depTarget = resolveAstImportItemPath(depItem, depSourceDir)
+                        if depTarget != "" {
+                            edges = edges + "|" + depTarget
                         }
-                        if dfsIsSep {
-                            if not dfsFirst {
-                                let dfsTarget = dfsEdges.substring(dfsSegStart, dfsPos)
-                                // Find target index
-                                var dfsTargetIdx = 0
-                                while dfsTargetIdx < depPaths.length() {
-                                    if depPaths[dfsTargetIdx] == dfsTarget {
-                                        if depColors[dfsTargetIdx] == 1 {
-                                            depCycleFound = 1
-                                            depCyclePath = depPaths[dfsNode] + " -> " + dfsTarget
-                                        }
-                                        if depColors[dfsTargetIdx] == 0 {
-                                            depColors[dfsTargetIdx] = 3
-                                            dfsStack.push(dfsTargetIdx)
-                                            dfsStackTop = dfsStackTop + 1
-                                        }
-                                        dfsTargetIdx = depPaths.length()
-                                    }
-                                    dfsTargetIdx = dfsTargetIdx + 1
-                                }
-                            }
-                            dfsFirst = false
-                            dfsSegStart = dfsPos + 1
-                        }
-                        dfsPos = dfsPos + 1
                     }
-                } else {
-                    depColors[dfsNode] = 2  // black = done
-                    dfsStackTop = dfsStackTop - 1
+                    depItemIdx = depItemIdx + 1
+                }
+                edges = appendSourceTextImportEdges(edges, depPath)
+            }
+            depGraph.push(edges)
+            depIdx = depIdx + 1
+        }
+        // DFS cycle check: color 0=white, 1=gray, 2=black, 3=queued
+        var depColors = Array<Int>()
+        var depCycleFound = 0
+        var depCyclePath = ""
+        depIdx = 0
+        while depIdx < modulePaths.length() {
+            depColors.push(0)
+            depIdx = depIdx + 1
+        }
+        // Simple O(V+E) DFS; sufficient for small and medium module graphs.
+        // Use manual stack via Array<Int> + stackTop counter (no .pop() in runtime)
+        var dfsStack = Array<Int>()
+        var dfsStackTop = 0
+        depIdx = 0
+        while depIdx < modulePaths.length() {
+            if depColors[depIdx] == 0 {
+                depColors[depIdx] = 3
+                dfsStack.push(depIdx)
+                dfsStackTop = dfsStackTop + 1
+                while dfsStackTop > 0 {
+                    let dfsNode = dfsStack[dfsStackTop - 1]
+                    if depColors[dfsNode] == 0 or depColors[dfsNode] == 3 {
+                        depColors[dfsNode] = 1  // gray = in-progress
+                        // Push neighbors
+                        let dfsEdges = depGraph[dfsNode]
+                        // Parse edges (pipe-delimited, first is self)
+                        var dfsPos = 0
+                        var dfsFirst = true
+                        var dfsSegStart = 0
+                        while dfsPos <= dfsEdges.length() {
+                            var dfsIsSep = false
+                            if dfsPos == dfsEdges.length() { dfsIsSep = true }
+                            if not dfsIsSep {
+                                if dfsEdges.substring(dfsPos, dfsPos + 1) == "|" { dfsIsSep = true }
+                            }
+                            if dfsIsSep {
+                                if not dfsFirst {
+                                    let dfsTarget = dfsEdges.substring(dfsSegStart, dfsPos)
+                                    // Find target index
+                                    var dfsTargetIdx = 0
+                                    while dfsTargetIdx < modulePaths.length() {
+                                        if modulePaths[dfsTargetIdx] == dfsTarget {
+                                            if depColors[dfsTargetIdx] == 1 {
+                                                depCycleFound = 1
+                                                depCyclePath = modulePaths[dfsNode] + " -> " + dfsTarget
+                                            }
+                                            if depColors[dfsTargetIdx] == 0 {
+                                                depColors[dfsTargetIdx] = 3
+                                                dfsStack.push(dfsTargetIdx)
+                                                dfsStackTop = dfsStackTop + 1
+                                            }
+                                            dfsTargetIdx = modulePaths.length()
+                                        }
+                                        dfsTargetIdx = dfsTargetIdx + 1
+                                    }
+                                }
+                                dfsFirst = false
+                                dfsSegStart = dfsPos + 1
+                            }
+                            dfsPos = dfsPos + 1
+                        }
+                    } else {
+                        depColors[dfsNode] = 2  // black = done
+                        dfsStackTop = dfsStackTop - 1
+                    }
                 }
             }
+            depIdx = depIdx + 1
         }
-        depIdx = depIdx + 1
-    }
-    if depCycleFound == 1 {
-        println("  WARNING: Circular module dependency detected: " + depCyclePath)
+        if depCycleFound == 1 {
+            println("  WARNING: Circular module dependency detected: " + depCyclePath)
+        }
+    } else if modulePaths.length() > 48 {
+        println("  [Pass 0] Large module graph: deferring whole-project validation to streaming passes")
+    } else {
+        println("  [Pass 0] Compiler-internal module graph: deferring whole-project validation to streaming passes")
     }
 
     // ============================================================
@@ -3845,14 +5786,17 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     // produce "undefined value" errors during IR generation.
     // Each AST is released after registration to bound memory usage.
     println("  [Pass 1] Scanning declarations...")
-    let modulePaths = collectModulePaths(resolvedInput, false)
-    println("    Found " + modulePaths.length().toString() + " modules")
 
     var passIdx = 0
     while passIdx < modulePaths.length() {
         let path = modulePaths[passIdx]
-        println("    Scanning: " + path)
-        let frontend = parseModule(path, language)
+        if g_generatedTestMainMode == 0 {
+            println("    Scanning: " + path)
+        }
+        var frontend = parseModuleDeclarations(path, language)
+        if isDeterministicProfile {
+            frontend = parseModule(path, language)
+        }
         if frontend.success {
             generator.registerDeclarations(frontend.program)
 
@@ -3875,13 +5819,15 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     println("  [Pass 1] Complete - declarations registered")
 
     // Optimization pipeline status
-    println("  Optimization pipeline:")
-    println("    E-graph rewrite rules: 55 (22 integer, 13 self-comparison, 12 float, 8 FMA)")
-    println("    Superoptimizer patterns: 10 (strength reduction in codegen)")
-    println("    ML heuristics: inline/unroll/vectorize thresholds from config")
-    println("    Architecture: -mcpu=native (auto-detected)")
-    println("    Memory: LLVM SROA/mem2reg + pool allocator runtime")
-    println("    Backend: opt -O3 -> llc -O3 -> clang -O3 -flto -march=native")
+    if g_generatedTestMainMode == 0 {
+        println("  Optimization pipeline:")
+        println("    E-graph rewrite rules: 55 (22 integer, 13 self-comparison, 12 float, 8 FMA)")
+        println("    Superoptimizer patterns: 10 (strength reduction in codegen)")
+        println("    ML heuristics: inline/unroll/vectorize thresholds from config")
+        println("    Architecture: -mcpu=native (auto-detected)")
+        println("    Memory: LLVM SROA/mem2reg + pool allocator runtime")
+        println("    Backend: opt -O3 -> llc -O3 -> clang -O3 -flto -march=native")
+    }
 
     // ============================================================
     // CACHE: Compute global hash for incremental compilation
@@ -3927,7 +5873,9 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     let cleanCmd = "rm -f /tmp/seen_module_*.ll /tmp/seen_module_*.o /tmp/seen_module_*.opt.ll /tmp/seen_module_*.polly.ll /tmp/seen_module_*.opt.status /tmp/seen_module_*.opt.log /tmp/seen_parallel_opt.sh"
     __ExecuteProgram(cleanCmd)
 
-    println("  [Pass 2] Compiling modules...")
+    if g_generatedTestMainMode == 0 {
+        println("  [Pass 2] Compiling modules...")
+    }
     var objectFiles = Array<String>()
     var llFiles = Array<String>()
     var expectedLinkObjects = modulePaths.length()
@@ -3946,13 +5894,35 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     //
     // When --no-fork is set, modules compile serially in-process and Pass 2b
     // runs opt/object emission serially too, which lowers bootstrap memory use.
+    // Generated test mains are short-lived validation compiles; letting them use
+    // the parallel path keeps HeartOn's strict test-run timeout attainable while
+    // the outer memory guard still bounds the process tree.
+    var pass2IrRunsParallel = g_noFork == 0
+    if boundedLargeProjectWorkers > 0 {
+        pass2IrRunsParallel = true
+    }
+    if g_generatedTestMainMode == 1 and normalizedCrossTarget != "android-arm64" {
+        pass2IrRunsParallel = true
+    }
     var forkPids = Array<Int>()
     var forkModuleIdxStrs = Array<String>()
     var forkIrKeys = Array<String>()
     var forkSrcPaths = Array<String>()
+    var forkWaitCursor = 0
+    var forkFailed = 0
 
     while moduleIndex < modulePaths.length() {
         let path = modulePaths[moduleIndex]
+        var generatedTestObjectCacheKey = ""
+        if g_generatedTestMainMode == 1 and normalizedCrossTarget != "android-arm64" {
+            generatedTestObjectCacheKey = generatedTestObjectCacheKeyForModule(path, cacheSignature)
+            if tryCopyGeneratedTestObjectFromCache(generatedTestObjectCacheKey, moduleIndex) {
+                let cachedTestObj = "/tmp/seen_module_" + moduleIndex.toString() + ".o"
+                objectFiles.push(cachedTestObj)
+                moduleIndex = moduleIndex + 1
+                continue
+            }
+        }
 
         // Check source-level cache first (fastest: just file comparison)
         if useCache and cacheValid {
@@ -4007,7 +5977,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             continue
         }
 
-        if g_noFork == 1 {
+        if not pass2IrRunsParallel {
             // Serial: generate IR in-process (no fork)
             println("    [" + moduleIndex.toString() + "] Generating IR (serial): " + path)
             let llFile = "/tmp/seen_module_" + moduleIndex.toString() + ".ll"
@@ -4043,7 +6013,9 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         } else {
             // Fork a child to generate IR for this module in parallel.
             // Child gets a copy-on-write snapshot of the parent's registry from Pass 1.
-            println("    [" + moduleIndex.toString() + "] Forking IR gen: " + path)
+            if g_generatedTestMainMode == 0 {
+                println("    [" + moduleIndex.toString() + "] Forking IR gen: " + path)
+            }
             let pid = processFork()
             if pid < 0 {
                 println("    Error: fork() failed for module " + moduleIndex.toString())
@@ -4053,28 +6025,53 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                     // === CHILD: generate IR, write .ll file, then exit ===
                     let llFile = "/tmp/seen_module_" + moduleIndex.toString() + ".ll"
                     let statusFile = "/tmp/seen_child_status_" + moduleIndex.toString() + ".txt"
-                    writeText(statusFile, "parse_start\n" + path)
+                    if g_generatedTestMainMode == 0 {
+                        writeText(statusFile, "parse_start\n" + path)
+                    }
                     let frontend = parseModule(path, language)
                     if not frontend.success {
-                        writeText(statusFile, "parse_failed\n" + path)
+                        if g_generatedTestMainMode == 0 {
+                            writeText(statusFile, "parse_failed\n" + path)
+                        }
                         println("[irgen child] Parse failed: " + path)
                         processExit(1)
                     }
-                    writeText(statusFile, "parse_done\n" + path)
-                    writeText(statusFile, "codegen_start\n" + path)
+                    if g_generatedTestMainMode == 0 {
+                        writeText(statusFile, "parse_done\n" + path)
+                        writeText(statusFile, "codegen_start\n" + path)
+                    }
                     let llvmIR = generator.generateSingle(frontend.program, moduleIndex)
-                    writeText(statusFile, "codegen_done\n" + path)
+                    if g_generatedTestMainMode == 0 {
+                        writeText(statusFile, "codegen_done\n" + path)
+                    }
                     // --emit-llvm: save IR alongside output for debugging
                     if g_emitLlvm {
                         let emitDst = outputFile + ".module" + moduleIndex.toString() + ".ll"
                         let emitCp: CommandResult = runCommand("cp " + llFile + " " + emitDst)
                     }
                     if not writeText(llFile, llvmIR) {
-                        writeText(statusFile, "write_failed\n" + llFile)
+                        if g_generatedTestMainMode == 0 {
+                            writeText(statusFile, "write_failed\n" + llFile)
+                        }
                         println("[irgen child] Failed to write IR: " + llFile)
                         processExit(1)
                     }
-                    writeText(statusFile, "wrote_ir\n" + llFile)
+                    if g_generatedTestMainMode == 1 and normalizedCrossTarget != "android-arm64" {
+                        let objFile = "/tmp/seen_module_" + moduleIndex.toString() + ".o"
+                        let childObjCmd = llvmLlcTool + " -filetype=obj -O0 -relocation-model=pic " + llFile + " -o " + objFile
+                        let childObjResult: CommandResult = runCommand(childObjCmd)
+                        if not commandWasSuccessful(childObjResult) {
+                            if g_generatedTestMainMode == 0 {
+                                writeText(statusFile, "object_failed\n" + objFile)
+                            }
+                            println("    Error: object emission failed for module " + moduleIndex.toString())
+                            processExit(1)
+                        }
+                        storeGeneratedTestObjectInCache(generatedTestObjectCacheKey, objFile)
+                    }
+                    if g_generatedTestMainMode == 0 {
+                        writeText(statusFile, "wrote_ir\n" + llFile)
+                    }
                     processExit(0)
                 } else {
                     // === PARENT: record child PID for later waitpid ===
@@ -4082,6 +6079,41 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                     forkModuleIdxStrs.push(moduleIndex.toString())
                     forkIrKeys.push(irCacheKey)
                     forkSrcPaths.push(path)
+                    if boundedLargeProjectWorkers > 0 {
+                        var activeChildren = forkPids.length() - forkWaitCursor
+                        while activeChildren >= boundedLargeProjectWorkers {
+
+                            let throttledEc = waitPid(forkPids[forkWaitCursor])
+                            let throttledIdx = forkModuleIdxStrs[
+                                forkWaitCursor]
+                            let throttledStatusFile =
+                                "/tmp/seen_child_status_" + throttledIdx +
+                                ".txt"
+                            if throttledEc != 0 {
+                                if g_generatedTestMainMode == 0 {
+                                    writeText(throttledStatusFile,
+                                        "exit_failed\n" +
+                                        throttledEc.toString())
+                                }
+                                println("    Error: IR gen failed (exit " +
+                                    throttledEc.toString() + ") for module " +
+                                    throttledIdx)
+                                forkFailed = 1
+                            } else {
+                                if g_generatedTestMainMode == 0 {
+                                    writeText(throttledStatusFile,
+                                        "exit_ok\n" + throttledIdx)
+                                    println("    [" + throttledIdx +
+                                        "] Child exit ok")
+                                }
+                            }
+                            forkWaitCursor = forkWaitCursor + 1
+                            if forkFailed == 1 {
+                                return 1
+                            }
+                            activeChildren = forkPids.length() - forkWaitCursor
+                        }
+                    }
                 }
             }
         }
@@ -4090,18 +6122,21 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     }
 
     // Wait for all forked children to complete
-    var waitIdx = 0
-    var forkFailed = 0
+    var waitIdx = forkWaitCursor
     while waitIdx < forkPids.length() {
         let ec = waitPid(forkPids[waitIdx])
         let statusFile = "/tmp/seen_child_status_" + forkModuleIdxStrs[waitIdx] + ".txt"
         if ec != 0 {
-            writeText(statusFile, "exit_failed\n" + ec.toString())
+            if g_generatedTestMainMode == 0 {
+                writeText(statusFile, "exit_failed\n" + ec.toString())
+            }
             println("    Error: IR gen failed (exit " + ec.toString() + ") for module " + forkModuleIdxStrs[waitIdx])
             forkFailed = 1
         } else {
-            writeText(statusFile, "exit_ok\n" + forkModuleIdxStrs[waitIdx])
-            println("    [" + forkModuleIdxStrs[waitIdx] + "] Child exit ok")
+            if g_generatedTestMainMode == 0 {
+                writeText(statusFile, "exit_ok\n" + forkModuleIdxStrs[waitIdx])
+                println("    [" + forkModuleIdxStrs[waitIdx] + "] Child exit ok")
+            }
         }
         waitIdx = waitIdx + 1
     }
@@ -4114,15 +6149,25 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     while forkReg < forkModuleIdxStrs.length() {
         let midxStr = forkModuleIdxStrs[forkReg]
         let llFile = "/tmp/seen_module_" + midxStr + ".ll"
-        llFiles.push(llFile)
-        uncachedIdxStrs.push(midxStr)
-        uncachedSrcPaths.push(forkSrcPaths[forkReg])
-        uncachedIrKeys.push(forkIrKeys[forkReg])
+        if g_generatedTestMainMode == 1 and normalizedCrossTarget != "android-arm64" {
+            let objFile = "/tmp/seen_module_" + midxStr + ".o"
+            let checkObj: CommandResult = runCommand("test -f " + objFile)
+            if not commandWasSuccessful(checkObj) {
+                println("    Error: generated test main object missing for module " + midxStr)
+                return 1
+            }
+            objectFiles.push(objFile)
+        } else {
+            llFiles.push(llFile)
+            uncachedIdxStrs.push(midxStr)
+            uncachedSrcPaths.push(forkSrcPaths[forkReg])
+            uncachedIrKeys.push(forkIrKeys[forkReg])
+        }
         forkReg = forkReg + 1
     }
 
     // ============================================================
-    // PASS 2B: Run opt + opt --thinlto-bc for all uncached modules
+    // PASS 2B: Run opt + object emission for all uncached modules
     // ============================================================
     // Why a generated shell script? LLVM opt is an external process, and we need
     // to run N instances with either backgrounded jobs (default) or serially when
@@ -4131,10 +6176,20 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     // Each module goes through:
     //   1. opt -O3 (main optimization) -- hard-fail the module on any error
     //   2. Polly polyhedral optimization (best-effort, skipped in --fast mode)
-    //   3. opt --thinlto-bc (emit bitcode with ThinLTO module summaries for LLD)
+    //   3. object emission (ThinLTO bitcode normally, native llc objects in fast mode)
     if uncachedIdxStrs.length() > 0 {
+        var pass2bRunsParallel = g_noFork == 0
+        if boundedLargeProjectOptWorkers > 0 {
+            pass2bRunsParallel = true
+        }
+        if g_generatedTestMainMode == 1 and normalizedCrossTarget != "android-arm64" {
+            pass2bRunsParallel = true
+        }
         var optExecutionMode = "parallel"
-        if g_noFork == 1 {
+        if boundedLargeProjectOptWorkers > 0 {
+            optExecutionMode = "bounded"
+        }
+        if not pass2bRunsParallel {
             optExecutionMode = "serial"
         }
         println("  [Pass 2b] Optimizing " + uncachedIdxStrs.length().toString() + " modules (" + optExecutionMode + ")...")
@@ -4149,7 +6204,10 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             pgoPasses = "pgo-instr-use,"
             pgoOptFlags = " -pgo-test-profile-file=" + pgoPath
         }
-        if g_fastMode == 1 {
+        if boundedLargeProjectOptWorkers > 0 {
+            optPasses = pgoPasses + "default<O1>"
+            optThreshold = "250"
+        } else if g_fastMode == 1 {
             optPasses = pgoPasses + "default<O1>"
             optThreshold = "250"
         } else {
@@ -4194,8 +6252,9 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                 moduleOptCmd = targetClangDriver + " " + androidClangOptLevel + " -S -emit-llvm -Wno-unused-command-line-argument -x ir " + targetClangArgs + " " + llFile + " -o " + optFile
             }
 
-            // Add ML remarks file if needed
-            if actualMlLogPath != "" {
+            if g_generatedTestMainMode == 1 and normalizedCrossTarget != "android-arm64" {
+                moduleOptCmd = "cp " + llFile + " " + optFile
+            } else if actualMlLogPath != "" {
                 moduleOptCmd = moduleOptCmd + " -pass-remarks-output=/tmp/seen_ml_remarks_" + midx + ".yaml -pass-remarks-format=yaml"
             }
 
@@ -4204,16 +6263,28 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             // Each module writes a status file and log so the parent can stop the
             // build on the first optimization/object-emission failure instead of
             // silently falling back to raw IR and continuing toward link.
-            // opt --thinlto-bc produces bitcode with ThinLTO module summaries
-            // (needed for LLD's --thinlto-cache-dir). Skip Polly in fast mode.
+            // Normal mode keeps ThinLTO summaries for LLD's cache. Fast mode
+            // emits native objects directly so generated test binaries avoid
+            // ThinLTO link overhead.
             var pollyStep = ""
-            if g_fastMode == 0 and normalizedCrossTarget != "android-arm64" {
+            if g_fastMode == 0 and normalizedCrossTarget != "android-arm64" and
+                boundedLargeProjectOptWorkers == 0 {
+
                 let pollyFile = "/tmp/seen_module_" + midx + ".polly.ll"
                 pollyStep = "    (" + llvmOptTool + " -passes='polly-canonicalize,polly' -S " + optFile + " -o " + pollyFile + " >>" + logFile + " 2>&1 && mv " + pollyFile + " " + optFile + ") || true\n"
             }
             var moduleObjCmd = llvmOptTool + " --thinlto-bc " + optFile + " -o " + objFile
+            if g_fastMode == 1 and normalizedCrossTarget != "android-arm64" {
+                moduleObjCmd = llvmLlcTool + " -filetype=obj -O1 -relocation-model=pic " + optFile + " -o " + objFile
+            }
+            if g_generatedTestMainMode == 1 and normalizedCrossTarget != "android-arm64" {
+                moduleObjCmd = llvmLlcTool + " -filetype=obj -O0 -relocation-model=pic " + optFile + " -o " + objFile
+            }
             if normalizedCrossTarget == "android-arm64" {
                 moduleObjCmd = targetClangDriver + " " + androidClangOptLevel + " -flto=thin -ffunction-sections -fdata-sections -Wno-unused-command-line-argument -c -x ir " + targetClangArgs + " " + optFile + " -o " + objFile
+            }
+            if pass2bRunsParallel and boundedLargeProjectOptWorkers > 0 {
+                script = script + "while [ \"$(jobs -p | wc -l | tr -d ' ')\" -ge " + boundedLargeProjectOptWorkers.toString() + " ]; do sleep 0.05; done\n"
             }
             script = script + "(\n"
             script = script + "  rm -f " + objFile + " " + optFile + " " + statusFile + " " + logFile + "\n"
@@ -4229,15 +6300,15 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             script = script + "  else\n"
             script = script + "    printf 'opt' > " + statusFile + "\n"
             script = script + "  fi\n"
-            if g_noFork == 1 {
-                script = script + ")\n"
-            } else {
+            if pass2bRunsParallel {
                 script = script + ") &\n"
+            } else {
+                script = script + ")\n"
             }
 
             pi = pi + 1
         }
-        if g_noFork == 0 {
+        if pass2bRunsParallel {
             script = script + "wait\n"
         }
 
@@ -4337,10 +6408,12 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         println("  [Pass 2b] Optimization complete")
     }
 
-    if cachedCount > 0 {
-        println("  [Pass 2] Complete (" + cachedCount.toString() + "/" + modulePaths.length().toString() + " cached)")
-    } else {
-        println("  [Pass 2] Complete")
+    if g_generatedTestMainMode == 0 {
+        if cachedCount > 0 {
+            println("  [Pass 2] Complete (" + cachedCount.toString() + "/" + modulePaths.length().toString() + " cached)")
+        } else {
+            println("  [Pass 2] Complete")
+        }
     }
 
     // ============================================================
@@ -4426,6 +6499,11 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     if objectFiles.length() != expectedLinkObjects {
         println("    Error: refusing to link partial module set (" + objectFiles.length().toString() + "/" + expectedLinkObjects.toString() + " link objects)")
         return 1
+    }
+    if g_generatedTestMainMode == 1 {
+        storeGeneratedTestObjectSetCache(resolvedInput, modulePaths, cacheSignature, normalizedCrossTarget)
+        println("  [3] Skipping final link for generated test main; module objects are ready")
+        return 0
     }
     println("  [3] Linking " + objectFiles.length().toString() + " object files...")
 
@@ -4684,7 +6762,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     } else if hostOS == "Darwin" {
         // macOS link command: no -fuse-ld=lld, use Apple ld64 flags
         if g_fastMode == 1 {
-            linkCmd = "clang -O1 -flto=thin -Wl,-cache_path_lto,/tmp/seen_thinlto_cache " + clangMarch + " -Wl,-dead_strip -Wno-unused-command-line-argument "
+            linkCmd = "clang -O1 " + clangMarch + " -Wl,-dead_strip -Wno-unused-command-line-argument "
         } else {
             if g_O2Mode == 1 {
                 linkCmd = "clang -O2 -flto=thin -Wl,-cache_path_lto,/tmp/seen_thinlto_cache " + clangMarch + " -Wl,-dead_strip -Wno-unused-command-line-argument "
@@ -4695,7 +6773,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     } else {
         // Linux link command (original)
         if g_fastMode == 1 {
-            linkCmd = "clang -O1 -flto=thin -fuse-ld=lld -Wl,--thinlto-cache-dir=/tmp/seen_thinlto_cache " + clangMarch + " -Wl,--gc-sections -Wno-unused-command-line-argument "
+            linkCmd = "clang -O1 -fuse-ld=lld " + clangMarch + " -Wl,--gc-sections -Wno-unused-command-line-argument "
         } else {
             if g_O2Mode == 1 {
                 linkCmd = "clang -O2 -flto=thin -fuse-ld=lld -Wl,--thinlto-cache-dir=/tmp/seen_thinlto_cache " + clangMarch + " -Wl,--gc-sections -Wno-unused-command-line-argument "
@@ -4900,7 +6978,20 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         }
         platformShimArg = " " + platformShimOut
     }
-    let linkLibs = buildTargetLinkLibraries(effectiveTarget, hasGpuRuntime)
+    var linkLibs = buildTargetLinkLibraries(effectiveTarget, hasGpuRuntime)
+    if normalizedCrossTarget == "" {
+        if sourcesNeedRawVulkanLink(modulePaths) and not linkLibs.contains("vulkan") {
+            linkLibs = appendHostPkgOrFallbackLinkFlag(linkLibs, "vulkan",
+                "-lvulkan")
+            if not linkLibs.contains("-ldl") {
+                linkLibs = linkLibs + " -ldl"
+            }
+        }
+        if sourcesNeedSdl3Link(modulePaths) and not linkLibs.contains("SDL3") {
+            linkLibs = appendHostPkgOrFallbackLinkFlag(linkLibs, "sdl3",
+                "-lSDL3")
+        }
+    }
     linkCmd = linkCmd + runtimeArg + regionArg + gpuArg + platformShimArg + " -o " + outputFile + linkLibs + teeRuntimeLinkFlags + platformShimLinkFlags + tomlExtraLinkFlags + " 2>&1"
 
     let linkResult: CommandResult = runCommand(linkCmd)
@@ -5169,7 +7260,7 @@ fun jitRunCommand(inputFile: String, verbose: Bool, language: String) r: Int {
     var passIdx = 0
     while passIdx < modulePaths.length() {
         let path = modulePaths[passIdx]
-        let frontend = parseModule(path, language)
+        let frontend = parseModuleDeclarations(path, language)
         if frontend.success {
             generator.registerDeclarations(frontend.program)
         } else {
@@ -5320,6 +7411,7 @@ fun printUsage() r: Void {
     println("                           ios-sim-arm64, android-arm64")
     println("  --fast                   Lightweight optimization (for bootstrap verification)")
     println("  --no-fork                Disable parallel IR/opt bootstrap steps (sequential)")
+    println("  --projectprefix <n>      Large-project validation prefix hint")
     println("")
     println("PGO Workflow:")
     println("  1. seen compile prog.seen prog --pgo-generate")
@@ -5558,6 +7650,13 @@ fun main() r: Int {
                                                                                     g_emitCompileDb = 1
                                                                                 } else if argv[argIdx] == "--no-fork" {
                                                                                     g_noFork = 1
+                                                                                } else if argv[argIdx] == "--projectprefix" {
+                                                                                    if argIdx + 1 < argv.length() {
+                                                                                        argIdx = argIdx + 1
+                                                                                        g_projectPrefixLimit = argv[argIdx].toInt()
+                                                                                    }
+                                                                                } else if startsWith(argv[argIdx], "--projectprefix=") {
+                                                                                    g_projectPrefixLimit = extractFlagValue(argv[argIdx], 16).toInt()
                                                                                 } else if startsWith(argv[argIdx], "--feature=") {
                                                                                     let featureVal = extractFlagValue(argv[argIdx], 10)
                                                                                     g_enabledFeaturesCli = g_enabledFeaturesCli + featureVal + "|"
@@ -5596,6 +7695,12 @@ fun main() r: Int {
         var outputFile = defaultOutput(inputFile)
         if positionalArgs.length() > 1 {
             outputFile = positionalArgs[1]
+        }
+        if inputFile.contains(".test_main.") {
+            g_generatedTestMainMode = 1
+            if g_fastMode == 0 {
+                g_fastMode = 1
+            }
         }
         // Read language from Seen.toml [project] if CLI didn't explicitly set it
         if languageFromCli == 0 {

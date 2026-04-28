@@ -1,0 +1,274 @@
+// ir_binary_fold_plan.seen - pure binary fold and peephole planning helpers.
+
+class BinaryOperandLiteralFacts {
+    var leftIsIntLiteral: Bool
+    var rightIsIntLiteral: Bool
+    var leftIsFloatLiteral: Bool
+    var rightIsFloatLiteral: Bool
+    var leftLiteralValue: String
+    var rightLiteralValue: String
+    var isSelfVariableComparison: Bool
+
+    static fun new() r: BinaryOperandLiteralFacts {
+        return BinaryOperandLiteralFacts{
+            leftIsIntLiteral: false,
+            rightIsIntLiteral: false,
+            leftIsFloatLiteral: false,
+            rightIsFloatLiteral: false,
+            leftLiteralValue: "",
+            rightLiteralValue: "",
+            isSelfVariableComparison: false
+        }
+    }
+}
+
+class BinaryFoldActionPlan {
+    var returnLeft: Bool
+    var returnRight: Bool
+    var shouldEmitAction: Bool
+    var shouldCountFold: Bool
+    var shouldGenerateLeftReg: Bool
+    var shouldLogSelfComparison: Bool
+
+    static fun new() r: BinaryFoldActionPlan {
+        return BinaryFoldActionPlan{
+            returnLeft: false,
+            returnRight: false,
+            shouldEmitAction: false,
+            shouldCountFold: false,
+            shouldGenerateLeftReg: false,
+            shouldLogSelfComparison: false
+        }
+    }
+}
+
+class BinaryLiteralFoldPlan {
+    var shouldFold: Bool
+    var shouldCountBranch: Bool
+
+    static fun new() r: BinaryLiteralFoldPlan {
+        return BinaryLiteralFoldPlan{
+            shouldFold: false,
+            shouldCountBranch: false
+        }
+    }
+}
+
+class BinaryFloatPeepholePlan {
+    var returnLeft: Bool
+    var returnRight: Bool
+    var shouldEmitAction: Bool
+    var shouldCountFold: Bool
+    var shouldGenerateLeftReg: Bool
+    var shouldGenerateRightReg: Bool
+
+    static fun new() r: BinaryFloatPeepholePlan {
+        return BinaryFloatPeepholePlan{
+            returnLeft: false,
+            returnRight: false,
+            shouldEmitAction: false,
+            shouldCountFold: false,
+            shouldGenerateLeftReg: false,
+            shouldGenerateRightReg: false
+        }
+    }
+}
+
+class BinaryFoldFmaPlan {
+    var shouldTryCandidate: Bool
+    var shouldTryRight: Bool
+    var shouldTryLeft: Bool
+
+    static fun new() r: BinaryFoldFmaPlan {
+        return BinaryFoldFmaPlan{
+            shouldTryCandidate: false,
+            shouldTryRight: false,
+            shouldTryLeft: false
+        }
+    }
+}
+
+class BinaryFoldCsePlan {
+    var shouldLookup: Bool
+    var shouldRecord: Bool
+
+    static fun new() r: BinaryFoldCsePlan {
+        return BinaryFoldCsePlan{
+            shouldLookup: false,
+            shouldRecord: false
+        }
+    }
+}
+
+fun isBinaryIntLiteralOperandImpl(exprKind: String,
+    literalType: String) r: Bool {
+
+    return exprKind == "Literal" and literalType == "Int"
+}
+
+fun isBinaryFloatLiteralOperandImpl(exprKind: String,
+    literalType: String) r: Bool {
+
+    return exprKind == "Literal" and literalType == "Float"
+}
+
+fun planBinaryOperandLiteralFactsImpl(leftKind: String,
+    leftLiteralType: String, leftLiteralValue: String, rightKind: String,
+    rightLiteralType: String, rightLiteralValue: String)
+    r: BinaryOperandLiteralFacts {
+
+    let facts = BinaryOperandLiteralFacts.new()
+    facts.leftIsIntLiteral = isBinaryIntLiteralOperandImpl(leftKind,
+        leftLiteralType)
+    facts.rightIsIntLiteral = isBinaryIntLiteralOperandImpl(rightKind,
+        rightLiteralType)
+    facts.leftIsFloatLiteral = isBinaryFloatLiteralOperandImpl(leftKind,
+        leftLiteralType)
+    facts.rightIsFloatLiteral = isBinaryFloatLiteralOperandImpl(rightKind,
+        rightLiteralType)
+    facts.leftLiteralValue = leftLiteralValue
+    facts.rightLiteralValue = rightLiteralValue
+    facts.isSelfVariableComparison = leftKind == "Variable" and
+        rightKind == "Variable" and leftLiteralValue == rightLiteralValue
+    return facts
+}
+
+fun planBinaryFoldActionImpl(action: String, isSelfComparison: Bool)
+    r: BinaryFoldActionPlan {
+
+    let plan = BinaryFoldActionPlan.new()
+    if action == "identity_left" {
+        plan.returnLeft = true
+        return plan
+    }
+    if action == "identity_right" {
+        plan.returnRight = true
+        return plan
+    }
+    if action != "" {
+        plan.shouldEmitAction = true
+        plan.shouldCountFold = action.startsWith("const:")
+        plan.shouldGenerateLeftReg = not action.startsWith("const:")
+        plan.shouldLogSelfComparison = isSelfComparison and
+            (action == "const:0" or action == "const:1" or
+            action == "const_true" or action == "const_false")
+    }
+    return plan
+}
+
+fun shouldTryBinaryAssociativeIntFoldImpl(operator: String,
+    rightIsIntLiteral: Bool, leftKind: String, leftOperator: String,
+    leftOperandCount: Int) r: Bool {
+
+    if not rightIsIntLiteral {
+        return false
+    }
+    if leftKind != "Binary" or leftOperator != operator {
+        return false
+    }
+    if leftOperandCount < 2 {
+        return false
+    }
+    return operator == "+" or operator == "*"
+}
+
+fun binaryAssociativeIntFoldRewriteCostImpl(operator: String,
+    baseExprCost: Int) r: Int {
+
+    if operator == "+" {
+        return baseExprCost + 3 + 1
+    }
+    if operator == "*" {
+        return baseExprCost + 5 + 1
+    }
+    return baseExprCost
+}
+
+fun shouldApplyBinaryAssociativeIntFoldImpl(combinedValue: String,
+    rewriteCost: Int, originalCost: Int) r: Bool {
+
+    return combinedValue != "" and rewriteCost <= originalCost
+}
+
+fun planBinaryLiteralComparisonFoldImpl(leftIsIntLiteral: Bool,
+    rightIsIntLiteral: Bool, comparisonResult: String)
+    r: BinaryLiteralFoldPlan {
+
+    let plan = BinaryLiteralFoldPlan.new()
+    plan.shouldFold = leftIsIntLiteral and rightIsIntLiteral and
+        comparisonResult != ""
+    plan.shouldCountBranch = plan.shouldFold
+    return plan
+}
+
+fun planBinaryLiteralConstantFoldImpl(leftIsIntLiteral: Bool,
+    rightIsIntLiteral: Bool, foldedValue: String) r: BinaryLiteralFoldPlan {
+
+    let plan = BinaryLiteralFoldPlan.new()
+    plan.shouldFold = leftIsIntLiteral and rightIsIntLiteral and
+        foldedValue != ""
+    return plan
+}
+
+fun planBinaryFloatPeepholeImpl(action: String)
+    r: BinaryFloatPeepholePlan {
+
+    let plan = BinaryFloatPeepholePlan.new()
+    if action == "identity_left" {
+        plan.returnLeft = true
+        return plan
+    }
+    if action == "identity_right" {
+        plan.returnRight = true
+        return plan
+    }
+    if action != "" {
+        plan.shouldEmitAction = true
+        plan.shouldCountFold = action.startsWith("fconst:")
+        plan.shouldGenerateRightReg =
+            action == "fneg" or action == "fneg_right"
+        plan.shouldGenerateLeftReg = not plan.shouldGenerateRightReg and
+            not action.startsWith("fconst:")
+    }
+    return plan
+}
+
+fun planBinaryFoldFmaImpl(operator: String, leftType: String,
+    rightType: String, leftKind: String, leftOperator: String,
+    rightKind: String, rightOperator: String) r: BinaryFoldFmaPlan {
+
+    let plan = BinaryFoldFmaPlan.new()
+    plan.shouldTryCandidate =
+        operator == "+" and (leftType == "Float" or rightType == "Float")
+    plan.shouldTryRight = plan.shouldTryCandidate and
+        rightKind == "Binary" and rightOperator == "*"
+    plan.shouldTryLeft = plan.shouldTryCandidate and
+        leftKind == "Binary" and leftOperator == "*"
+    return plan
+}
+
+fun shouldUseBinaryFoldCseImpl(leftType: String, rightType: String,
+    operator: String) r: Bool {
+
+    if leftType != "Int" and leftType != "Float" {
+        return false
+    }
+    if rightType != "Int" and rightType != "Float" {
+        return false
+    }
+    if operator == "+" or operator == "-" or operator == "*" or
+        operator == "/" {
+        return true
+    }
+    return false
+}
+
+fun planBinaryFoldCseImpl(leftType: String, rightType: String,
+    operator: String) r: BinaryFoldCsePlan {
+
+    let plan = BinaryFoldCsePlan.new()
+    let enabled = shouldUseBinaryFoldCseImpl(leftType, rightType, operator)
+    plan.shouldLookup = enabled
+    plan.shouldRecord = enabled
+    return plan
+}

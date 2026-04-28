@@ -1,0 +1,260 @@
+// ir_stmt_scope.seen — scoped statement and dispatcher helpers
+
+import parser.real_parser.{StatementNode, ParserExpressionNode}
+import str.string.{StringBuilder}
+
+fun ensureStmtScopeIntBoxValue(box: Array<Int>) r: Void {
+    if box.length() == 0 {
+        box.push(0)
+    }
+}
+
+fun ensureStmtScopeStringBoxValue(box: Array<String>) r: Void {
+    if box.length() == 0 {
+        box.push("")
+    }
+}
+
+fun classifyScopedStatementKindImpl(stmtKind: String) r: Int {
+    if stmtKind == "Defer" {
+        return 1
+    }
+    if stmtKind == "Errdefer" {
+        return 2
+    }
+    if stmtKind == "Block" {
+        return 3
+    }
+    if stmtKind == "Unsafe" {
+        return 4
+    }
+    if stmtKind == "TryCatch" {
+        return 5
+    }
+    return 0
+}
+
+fun classifyBasicStatementKindImpl(stmtKind: String) r: Int {
+    if stmtKind == "Let" or stmtKind == "Var" {
+        return 1
+    }
+    if stmtKind == "Return" {
+        return 2
+    }
+    if stmtKind == "Expression" {
+        return 3
+    }
+    if stmtKind == "If" {
+        return 4
+    }
+    if stmtKind == "IfLet" {
+        return 5
+    }
+    if stmtKind == "While" {
+        return 6
+    }
+    if stmtKind == "Assignment" {
+        return 7
+    }
+    if stmtKind == "ForIn" {
+        return 8
+    }
+    if stmtKind == "Region" {
+        return 9
+    }
+    return 0
+}
+
+fun classifyLoopControlStatementKindImpl(stmtKind: String) r: Int {
+    if stmtKind == "Continue" {
+        return 1
+    }
+    if stmtKind == "Break" {
+        return 2
+    }
+    return 0
+}
+
+fun classifyMetaStatementKindImpl(stmtKind: String) r: Int {
+    if stmtKind == "ParallelFor" {
+        return 1
+    }
+    if stmtKind == "ComptimeBlock" {
+        return 2
+    }
+    if stmtKind == "ComptimeAssert" {
+        return 3
+    }
+    if stmtKind == "ComptimeIf" {
+        return 4
+    }
+    return 0
+}
+
+class DeferredStatementRecordSnapshot {
+    var deferCount: Int
+    var errdeferCount: Int
+
+    static fun new() r: DeferredStatementRecordSnapshot {
+        return DeferredStatementRecordSnapshot{
+            deferCount: 0,
+            errdeferCount: 0
+        }
+    }
+}
+
+class TryCatchStatementContextSnapshot {
+    var currentTryCatchLabel: String
+    var currentTryCatchEndLabel: String
+    var savedTryCatchLabel: String
+    var savedTryCatchEndLabel: String
+    var tryCatchLabel: String
+    var tryEndLabel: String
+
+    static fun new() r: TryCatchStatementContextSnapshot {
+        return TryCatchStatementContextSnapshot{
+            currentTryCatchLabel: "",
+            currentTryCatchEndLabel: "",
+            savedTryCatchLabel: "",
+            savedTryCatchEndLabel: "",
+            tryCatchLabel: "",
+            tryEndLabel: ""
+        }
+    }
+}
+
+fun beginBlockDeferredCleanupImpl(output: StringBuilder, savedDeferCount: Int,
+    currentDeferCount: Int, blockTerminated: Bool) r: Int {
+
+    if currentDeferCount <= savedDeferCount or blockTerminated {
+        return -1
+    }
+    output.append("  ; defer cleanup (LIFO)\n")
+    return currentDeferCount - 1
+}
+
+fun recordDeferredStatementImpl(stmt: StatementNode, isErrdefer: Bool,
+    deferExprs: Array<ParserExpressionNode>, deferCountBox: Array<Int>,
+    errdeferExprs: Array<ParserExpressionNode>, errdeferCountBox: Array<Int>)
+    r: Void {
+
+    ensureStmtScopeIntBoxValue(deferCountBox)
+    ensureStmtScopeIntBoxValue(errdeferCountBox)
+
+    if stmt.expression.kind == "" {
+        return
+    }
+    if isErrdefer {
+        errdeferExprs.push(stmt.expression)
+        errdeferCountBox[0] = errdeferCountBox[0] + 1
+        return
+    }
+    deferExprs.push(stmt.expression)
+    deferCountBox[0] = deferCountBox[0] + 1
+}
+
+fun recordDeferredStatementSnapshotImpl(stmt: StatementNode, isErrdefer: Bool,
+    deferExprs: Array<ParserExpressionNode>, currentDeferCount: Int,
+    errdeferExprs: Array<ParserExpressionNode>, currentErrdeferCount: Int)
+    r: DeferredStatementRecordSnapshot {
+
+    let deferCountBox = Array<Int>()
+    deferCountBox.push(currentDeferCount)
+    let errdeferCountBox = Array<Int>()
+    errdeferCountBox.push(currentErrdeferCount)
+    recordDeferredStatementImpl(stmt, isErrdefer, deferExprs, deferCountBox,
+        errdeferExprs, errdeferCountBox)
+    let snapshot = DeferredStatementRecordSnapshot.new()
+    snapshot.deferCount = deferCountBox[0]
+    snapshot.errdeferCount = errdeferCountBox[0]
+    return snapshot
+}
+
+fun enterUnsafeStatementImpl(output: StringBuilder, insideUnsafeBox: Array<Int>)
+    r: Void {
+
+    ensureStmtScopeIntBoxValue(insideUnsafeBox)
+    output.append("  ; unsafe {\n")
+    insideUnsafeBox[0] = insideUnsafeBox[0] + 1
+}
+
+fun exitUnsafeStatementImpl(output: StringBuilder, insideUnsafeBox: Array<Int>)
+    r: Void {
+
+    ensureStmtScopeIntBoxValue(insideUnsafeBox)
+    insideUnsafeBox[0] = insideUnsafeBox[0] - 1
+    output.append("  ; } // end unsafe\n")
+}
+
+fun beginTryCatchStatementImpl(output: StringBuilder, blockBox: Array<Int>,
+    currentTryCatchLabelBox: Array<String>,
+    currentTryCatchEndLabelBox: Array<String>,
+    savedTryCatchLabelBox: Array<String>,
+    savedTryCatchEndLabelBox: Array<String>, tryCatchLabelBox: Array<String>,
+    tryEndLabelBox: Array<String>) r: Void {
+
+    ensureStmtScopeStringBoxValue(currentTryCatchLabelBox)
+    ensureStmtScopeStringBoxValue(currentTryCatchEndLabelBox)
+    ensureStmtScopeStringBoxValue(savedTryCatchLabelBox)
+    ensureStmtScopeStringBoxValue(savedTryCatchEndLabelBox)
+    ensureStmtScopeStringBoxValue(tryCatchLabelBox)
+    ensureStmtScopeStringBoxValue(tryEndLabelBox)
+
+    tryCatchLabelBox[0] = "catch." + blockBox[0].toString()
+    blockBox[0] = blockBox[0] + 1
+    tryEndLabelBox[0] = "try.end." + blockBox[0].toString()
+    blockBox[0] = blockBox[0] + 1
+
+    savedTryCatchLabelBox[0] = currentTryCatchLabelBox[0]
+    savedTryCatchEndLabelBox[0] = currentTryCatchEndLabelBox[0]
+    currentTryCatchLabelBox[0] = tryCatchLabelBox[0]
+    currentTryCatchEndLabelBox[0] = tryEndLabelBox[0]
+    output.append("  ; try {\n")
+}
+
+fun beginTryCatchStatementSnapshotImpl(output: StringBuilder,
+    blockBox: Array<Int>, currentTryCatchLabel: String,
+    currentTryCatchEndLabel: String) r: TryCatchStatementContextSnapshot {
+
+    let currentTryCatchLabelBox = Array<String>()
+    currentTryCatchLabelBox.push(currentTryCatchLabel)
+    let currentTryCatchEndLabelBox = Array<String>()
+    currentTryCatchEndLabelBox.push(currentTryCatchEndLabel)
+    let savedTryCatchLabelBox = Array<String>()
+    let savedTryCatchEndLabelBox = Array<String>()
+    let tryCatchLabelBox = Array<String>()
+    let tryEndLabelBox = Array<String>()
+    beginTryCatchStatementImpl(output, blockBox, currentTryCatchLabelBox,
+        currentTryCatchEndLabelBox, savedTryCatchLabelBox,
+        savedTryCatchEndLabelBox, tryCatchLabelBox, tryEndLabelBox)
+
+    let snapshot = TryCatchStatementContextSnapshot.new()
+    snapshot.currentTryCatchLabel = currentTryCatchLabelBox[0]
+    snapshot.currentTryCatchEndLabel = currentTryCatchEndLabelBox[0]
+    snapshot.savedTryCatchLabel = savedTryCatchLabelBox[0]
+    snapshot.savedTryCatchEndLabel = savedTryCatchEndLabelBox[0]
+    snapshot.tryCatchLabel = tryCatchLabelBox[0]
+    snapshot.tryEndLabel = tryEndLabelBox[0]
+    return snapshot
+}
+
+fun finalizeTryCatchArmImpl(output: StringBuilder, blockTerminated: Bool,
+    tryEndLabel: String) r: Bool {
+
+    if not blockTerminated {
+        output.append("  br label %" + tryEndLabel + "\n")
+    }
+    return false
+}
+
+fun emitTryCatchCatchHeaderImpl(output: StringBuilder, tryCatchLabel: String)
+    r: Void {
+
+    output.append(tryCatchLabel + ":\n")
+    output.append("  ; catch {\n")
+}
+
+fun emitTryCatchFooterImpl(output: StringBuilder, tryEndLabel: String) r: Void {
+    output.append(tryEndLabel + ":\n")
+    output.append("  ; } // end try/catch\n")
+}

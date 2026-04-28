@@ -1,0 +1,38 @@
+// ir_method_fastpath_emit.seen - prepared resolved-receiver fastpath emit drivers.
+
+import str.string.{StringBuilder}
+import codegen.ir_method_gen.{emitSmallVecMethodImpl, emitArrayBasicMethodImpl}
+import codegen.ir_type_dispatch.{dispatchCollectionMethodImpl}
+import codegen.ir_type_ops.{emitOptionMethodImpl}
+
+fun emitPreparedOptionReceiverFastPathImpl(output: StringBuilder,
+    regBox: Array<Int>, blockLabelBox: Array<Int>, methodName: String,
+    receiverReg: String, defaultReg: String) r: String {
+
+    return emitOptionMethodImpl(output, regBox, blockLabelBox, methodName,
+        receiverReg, defaultReg)
+}
+
+fun emitPreparedSmallVecReceiverFastPathImpl(output: StringBuilder,
+    regBox: Array<Int>, methodName: String, receiverReg: String,
+    receiverType: String, argReg: String) r: String {
+
+    return emitSmallVecMethodImpl(output, regBox, methodName, receiverReg,
+        receiverType, argReg)
+}
+
+fun emitPreparedCollectionReceiverFastPathImpl(output: StringBuilder,
+    regBox: Array<Int>, methodName: String, receiverReg: String,
+    receiverType: String, arg0: String, arg1: String) r: String {
+
+    return dispatchCollectionMethodImpl(output, regBox, methodName,
+        receiverReg, receiverType, arg0, arg1)
+}
+
+fun emitPreparedArrayReceiverFastPathImpl(output: StringBuilder,
+    regBox: Array<Int>, methodName: String, receiverReg: String,
+    receiverType: String, arg0: String, arg1: String) r: String {
+
+    return emitArrayBasicMethodImpl(output, regBox, methodName, receiverReg,
+        receiverType, arg0, arg1)
+}

@@ -1,0 +1,201 @@
+// ir_class_gen_support.seen — shared class-generation support helpers
+// Extracted from llvm_ir_gen.seen to keep decorator scanning, source-method
+// skip rules, and inherited thunk emission out of the main class generator.
+
+import parser.real_parser.{ClassNode}
+import str.string.{StringBuilder}
+import codegen.ir_optimization.{getNextRegFn, pipeGet}
+import codegen.ir_field_registry.{mapRegistryFieldTypeImpl}
+import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
+import codegen.type_registry.{findStructReg}
+
+class GeneratedClassDecoratorSnapshot {
+    var decoratorFlags: Array<Int>
+    var packetId: String
+    var isHotReload: Int
+
+    static fun new() r: GeneratedClassDecoratorSnapshot {
+        let decoratorFlags = Array<Int>()
+        decoratorFlags.push(0)
+        decoratorFlags.push(0)
+        decoratorFlags.push(0)
+        decoratorFlags.push(0)
+        decoratorFlags.push(0)
+        decoratorFlags.push(0)
+        decoratorFlags.push(0)
+        decoratorFlags.push(0)
+        decoratorFlags.push(0)
+        decoratorFlags.push(0)
+        return GeneratedClassDecoratorSnapshot{
+            decoratorFlags: decoratorFlags,
+            packetId: "0",
+            isHotReload: 0
+        }
+    }
+}
+
+fun scanGeneratedClassDecoratorsImpl(classNode: ClassNode,
+    decoratorFlags: Array<Int>, packetIdBox: Array<String>) r: Void {
+
+    var decoratorIdx = 0
+    while decoratorIdx < classNode.decorators.length() {
+        let decorator = classNode.decorators[decoratorIdx]
+        if decorator.name == "derive" {
+            decoratorFlags[0] = 1
+            decoratorFlags[1] = 1
+            decoratorFlags[2] = 1
+            decoratorFlags[3] = 1
+            decoratorFlags[4] = 1
+            decoratorFlags[5] = 1
+            decoratorFlags[6] = 1
+        }
+        if decorator.name == "binary" {
+            decoratorFlags[7] = 1
+        }
+        if decorator.name == "reflect" {
+            decoratorFlags[8] = 1
+        }
+        if decorator.name == "packet" {
+            decoratorFlags[9] = 1
+            if decorator.arguments.length() > 0 {
+                packetIdBox[0] = decorator.arguments[0]
+            }
+        }
+        decoratorIdx = decoratorIdx + 1
+    }
+}
+
+fun prepareGeneratedClassDecoratorSnapshotImpl(classNode: ClassNode)
+    r: GeneratedClassDecoratorSnapshot {
+
+    let snapshot = GeneratedClassDecoratorSnapshot.new()
+    let packetIdBox = Array<String>()
+    packetIdBox.push(snapshot.packetId)
+    scanGeneratedClassDecoratorsImpl(classNode, snapshot.decoratorFlags,
+        packetIdBox)
+    snapshot.packetId = packetIdBox[0]
+    if hasHotReloadMarkerMethodImpl(classNode) {
+        snapshot.isHotReload = 1
+    }
+    return snapshot
+}
+
+fun hasHotReloadMarkerMethodImpl(classNode: ClassNode) r: Bool {
+    var methodIdx = 0
+    while methodIdx < classNode.methods.length() {
+        if classNode.methods[methodIdx].name == "__seen_hot_reload_marker__" {
+            return true
+        }
+        methodIdx = methodIdx + 1
+    }
+    return false
+}
+
+fun isRuntimeBackedStringBuilderMethodImpl(methodName: String) r: Bool {
+    return methodName == "new" or methodName == "append" or
+        methodName == "appendChar" or methodName == "toString" or
+        methodName == "clear" or methodName == "length"
+}
+
+fun shouldSkipSourceClassMethodImpl(methodName: String, isStringBuilder: Bool)
+    r: Bool {
+
+    if methodName == "__seen_hot_reload_marker__" {
+        return true
+    }
+    if isStringBuilder and isRuntimeBackedStringBuilderMethodImpl(methodName) {
+        return true
+    }
+    return false
+}
+
+fun commaGetImpl(data: String, idx: Int) r: String {
+    var pos = 0
+    var count = 0
+    var start = 0
+    while pos < data.length() {
+        if data.byteAt(pos) == 44 {
+            if count == idx {
+                return data.substring(start, pos)
+            }
+            count = count + 1
+            start = pos + 1
+        }
+        pos = pos + 1
+    }
+    if count == idx {
+        return data.substring(start, data.length())
+    }
+    return ""
+}
+
+fun countCommaFieldsImpl(data: String) r: Int {
+    if data == "" {
+        return 0
+    }
+    var count = 1
+    var pos = 0
+    while pos < data.length() {
+        if data.byteAt(pos) == 44 {
+            count = count + 1
+        }
+        pos = pos + 1
+    }
+    return count
+}
+
+fun emitInheritedClassMethodThunksImpl(output: StringBuilder,
+    regBox: Array<Int>, classNode: ClassNode, structNames: Array<String>,
+    structMethodNames: Array<String>, structMethodRetTypes: Array<String>,
+    reprCClassNames: String, typeAliasNames: String,
+    typeAliasTargets: String, typeAliasCount: Int, enumTypeNames: String)
+    r: Void {
+
+    let parentNameLen = classNode.parentName.length()
+    if parentNameLen == 0 {
+        return
+    }
+    let parentIdx = findStructReg(classNode.parentName, structNames)
+    if parentIdx < 0 {
+        return
+    }
+
+    let parentMethodList = structMethodNames[parentIdx]
+    let parentRetTypes = structMethodRetTypes[parentIdx]
+    let parentMethodCount = countCommaFieldsImpl(parentMethodList)
+    var parentMethodIdx = 0
+    while parentMethodIdx < parentMethodCount {
+        let parentMethodName = commaGetImpl(parentMethodList, parentMethodIdx)
+        let parentRetType = pipeGet(parentRetTypes, parentMethodIdx)
+        var childHasMethod = 0
+        var childMethodIdx = 0
+        while childMethodIdx < classNode.methods.length() {
+            if classNode.methods[childMethodIdx].name == parentMethodName {
+                childHasMethod = 1
+            }
+            childMethodIdx = childMethodIdx + 1
+        }
+        if childHasMethod == 0 {
+            let llvmRet = mapRegistryFieldTypeImpl(parentRetType,
+                reprCClassNames, structNames, typeAliasNames,
+                typeAliasTargets, typeAliasCount, enumTypeNames)
+            let thunkName = classNode.name + "_" + parentMethodName
+            let parentFuncName = classNode.parentName + "_" + parentMethodName
+            output.append("define " + llvmRet + " @" +
+                quoteIdentIfNeededImpl(thunkName) + "(ptr %this) {\n")
+            output.append("entry:\n")
+            if llvmRet == "void" {
+                output.append("  call void @" +
+                    quoteIdentIfNeededImpl(parentFuncName) + "(ptr %this)\n")
+                output.append("  ret void\n")
+            } else {
+                let callReg = getNextRegFn(regBox)
+                output.append("  " + callReg + " = call " + llvmRet + " @" +
+                    quoteIdentIfNeededImpl(parentFuncName) + "(ptr %this)\n")
+                output.append("  ret " + llvmRet + " " + callReg + "\n")
+            }
+            output.append("}\n\n")
+        }
+        parentMethodIdx = parentMethodIdx + 1
+    }
+}

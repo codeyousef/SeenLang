@@ -1,0 +1,9 @@
+fun main() r: Int {
+    let x = if true { 11 } else { 22 }
+    let y = 0 ?: 7
+    let z = when (x) {
+        is 11 -> 3,
+        else -> 4
+    }
+    return x + y + z
+}

@@ -1,0 +1,23 @@
+import core.result.{Result, Ok, Err}
+
+fun loadValue() r: Result<Int, String> {
+    return Ok(5)
+}
+
+fun compute() r: Result<Int, String> {
+    let value = loadValue()?
+    let negated = -value
+    let ok = not false
+    if ok {
+        return Ok(0 - negated)
+    }
+    return Err("unreachable")
+}
+
+fun main() r: Int {
+    let result = compute()
+    if result.isOk() {
+        return 0
+    }
+    return 1
+}

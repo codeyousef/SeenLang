@@ -1,0 +1,24 @@
+// ir_string_collect_state.seen — Shared stateful string-collection helpers
+// Extracted from llvm_ir_gen.seen to keep collection orchestration thin.
+
+import parser.real_parser.{ProgramNode, ParserExpressionNode}
+import codegen.ir_string_collect.{collectStringConstantsImpl, collectStringConstantsFromExprImpl}
+import codegen.ir_decl_default_params.{collectDefaultParamStringConstantsImpl}
+
+fun collectStringConstantsStateImpl(program: ProgramNode,
+    stringConstants: Array<String>, selfCallBox: Array<String>,
+    selfCallCountBox: Array<Int>, callCountNamesBox: Array<String>,
+    callCountEntriesBox: Array<Int>) r: Void {
+
+    collectStringConstantsImpl(program, stringConstants, selfCallBox,
+        selfCallCountBox, callCountNamesBox, callCountEntriesBox)
+    collectDefaultParamStringConstantsImpl(program, stringConstants)
+}
+
+fun collectStringConstantsFromExprStateImpl(expr: ParserExpressionNode,
+    stringConstants: Array<String>, callCountNamesBox: Array<String>,
+    callCountEntriesBox: Array<Int>) r: Void {
+
+    collectStringConstantsFromExprImpl(expr, stringConstants, callCountNamesBox,
+        callCountEntriesBox)
+}

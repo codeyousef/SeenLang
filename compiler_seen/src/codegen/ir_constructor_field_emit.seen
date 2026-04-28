@@ -1,0 +1,35 @@
+// ir_constructor_field_emit.seen - prepared constructor field emission helpers.
+
+import str.string.{StringBuilder}
+import codegen.ir_call_constructors.{emitReprCConstructorImpl}
+
+fun emitPreparedReprCConstructorImpl(output: StringBuilder,
+    regBox: Array<Int>, funcName: String, argRegs: Array<String>,
+    fieldTypes: Array<String>) r: String {
+
+    return emitReprCConstructorImpl(output, regBox, funcName, argRegs,
+        fieldTypes)
+}
+
+fun emitPreparedClassConstructorFieldStoreImpl(output: StringBuilder,
+    fieldPtrReg: String, objectPtrReg: String, fieldOffset: Int,
+    storeLlvmType: String, argReg: String, argIsStructLiteral: Bool,
+    isDataField: Bool, memcpySize: Int) r: Void {
+
+    output.append("  " + fieldPtrReg + " = getelementptr inbounds i8, ptr " +
+        objectPtrReg + ", i64 " + fieldOffset.toString() + "\n")
+
+    if isDataField and argIsStructLiteral {
+        output.append("  call void @llvm.memcpy.p0.p0.i64(ptr " +
+            fieldPtrReg + ", ptr " + argReg + ", i64 " +
+            memcpySize.toString() + ", i1 false)\n")
+        return
+    }
+
+    var storeReg = argReg
+    if storeLlvmType == "ptr" and storeReg == "0" {
+        storeReg = "null"
+    }
+    output.append("  store " + storeLlvmType + " " + storeReg +
+        ", ptr " + fieldPtrReg + "\n")
+}

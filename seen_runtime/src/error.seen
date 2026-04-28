@@ -1,0 +1,27 @@
+// Reusable runtime error-state helpers.
+
+extern fun seen_error_code() r: Int
+extern fun seen_error_subsystem() r: Int
+extern fun seen_error_clear()
+extern fun seen_error_message_ptr() r: Int
+extern fun seen_error_message_len() r: Int
+
+fun seen_runtime_error_code() r: Int {
+    return seen_error_code()
+}
+
+fun seen_runtime_error_subsystem() r: Int {
+    return seen_error_subsystem()
+}
+
+fun seen_runtime_error_clear() {
+    seen_error_clear()
+}
+
+fun seen_runtime_error_message_ptr() r: Int {
+    return seen_error_message_ptr()
+}
+
+fun seen_runtime_error_message_len() r: Int {
+    return seen_error_message_len()
+}

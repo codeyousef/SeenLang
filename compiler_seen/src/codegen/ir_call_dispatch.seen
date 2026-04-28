@@ -1,9 +1,11 @@
-// ir_call_dispatch.seen — Call dispatch helpers for generateCall/generateMethodCall
-// Extracted from llvm_ir_gen.seen to follow SRP
-// Each impl function returns a result register string, or "" for fallthrough
+// ir_call_dispatch.seen — general call dispatch and non-constructor helpers
+// Extracted from llvm_ir_gen.seen to follow SRP.
+// Constructor/static-allocation helpers now live in ir_call_constructors.seen
+// and shared argument/default-parameter lowering lives in ir_call_args.seen.
+// Each impl function returns a result register string, or "" for fallthrough.
 
-import codegen.ir_optimization.{getNextRegFn, getNextBlockFn, parseIntManual}
-import codegen.ir_type_mapping.{isDataTypeImpl, simdScalarTypeImpl, simdLlvmSuffixImpl, isSimdVectorTypeImpl, simdLaneCountImpl}
+import codegen.ir_optimization.{getNextRegFn}
+import codegen.ir_type_mapping.{simdScalarTypeImpl, simdLlvmSuffixImpl, isSimdVectorTypeImpl, simdLaneCountImpl}
 import str.string.{StringBuilder}
 
 // Simple LLVM type mapping for common Seen types (no struct registry needed)
@@ -41,105 +43,6 @@ fun widenResultImpl(output: StringBuilder, regBox: Array<Int>, reg: String, scal
         return sextReg
     }
     return reg
-}
-
-// emitStaticCollectionNewImpl — Vec/BTreeMap/HashMap/StringHashMap/LinkedList .new() static calls
-// Returns result register (ptrtoint'd ptr), or "" if className not matched
-fun emitStaticCollectionNewImpl(output: StringBuilder, regBox: Array<Int>, className: String, fullClassName: String) r: String {
-    if className == "Vec" {
-        let hasStringElem = fullClassName.contains("<String>")
-        let hasFloatElem = fullClassName.contains("<Float>")
-        let rawReg = getNextRegFn(regBox)
-        if hasStringElem {
-            output.append("  " + rawReg + " = call ptr @Vec_new_str()\n")
-        } else {
-            if hasFloatElem {
-                output.append("  " + rawReg + " = call ptr @Vec_new_float()\n")
-            } else {
-                output.append("  " + rawReg + " = call ptr @Vec_new()\n")
-            }
-        }
-        let resultReg = getNextRegFn(regBox)
-        output.append("  " + resultReg + " = ptrtoint ptr " + rawReg + " to i64\n")
-        return resultReg
-    }
-    if className == "BTreeMap" {
-        let hasStringKey = fullClassName.contains("<String")
-        let hasStringValue = fullClassName.contains(", String>") or fullClassName.contains(",String>")
-        let rawReg = getNextRegFn(regBox)
-        if hasStringKey {
-            if hasStringValue {
-                output.append("  " + rawReg + " = call ptr @BTreeMap_new_str_str()\n")
-            } else {
-                output.append("  " + rawReg + " = call ptr @BTreeMap_new_str()\n")
-            }
-        } else {
-            if hasStringValue {
-                output.append("  " + rawReg + " = call ptr @BTreeMap_new_int_str()\n")
-            } else {
-                output.append("  " + rawReg + " = call ptr @BTreeMap_new()\n")
-            }
-        }
-        let resultReg = getNextRegFn(regBox)
-        output.append("  " + resultReg + " = ptrtoint ptr " + rawReg + " to i64\n")
-        return resultReg
-    }
-    if className == "HashMap" {
-        let hasStringKey = fullClassName.contains("<String")
-        let hasStringValue = fullClassName.contains(", String>") or fullClassName.contains(",String>")
-        let rawReg = getNextRegFn(regBox)
-        if hasStringKey {
-            if hasStringValue {
-                output.append("  " + rawReg + " = call ptr @HashMap_new_str_str()\n")
-            } else {
-                output.append("  " + rawReg + " = call ptr @HashMap_new_str()\n")
-            }
-        } else {
-            if hasStringValue {
-                output.append("  " + rawReg + " = call ptr @HashMap_new_int_str()\n")
-            } else {
-                output.append("  " + rawReg + " = call ptr @HashMap_new()\n")
-            }
-        }
-        let resultReg = getNextRegFn(regBox)
-        output.append("  " + resultReg + " = ptrtoint ptr " + rawReg + " to i64\n")
-        return resultReg
-    }
-    if className == "StringHashMap" {
-        let hasStringValue = fullClassName.contains("<String>")
-        let rawReg = getNextRegFn(regBox)
-        if hasStringValue {
-            output.append("  " + rawReg + " = call ptr @HashMap_new_str_str()\n")
-        } else {
-            output.append("  " + rawReg + " = call ptr @HashMap_new_str()\n")
-        }
-        let resultReg = getNextRegFn(regBox)
-        output.append("  " + resultReg + " = ptrtoint ptr " + rawReg + " to i64\n")
-        return resultReg
-    }
-    if className == "LinkedList" {
-        let rawReg = getNextRegFn(regBox)
-        if fullClassName.contains("<String") {
-            output.append("  " + rawReg + " = call ptr @LinkedList_new_str()\n")
-        } else {
-            output.append("  " + rawReg + " = call ptr @LinkedList_new()\n")
-        }
-        let resultReg = getNextRegFn(regBox)
-        output.append("  " + resultReg + " = ptrtoint ptr " + rawReg + " to i64\n")
-        return resultReg
-    }
-    return ""
-}
-
-// emitArrayWithLengthImpl — Array<T>.withLength(n) zero-initialized
-fun emitArrayWithLengthImpl(output: StringBuilder, regBox: Array<Int>, fullClassName: String, countReg: String) r: String {
-    let arrReg = getNextRegFn(regBox)
-    if fullClassName.contains("<Float") {
-        output.append("  " + arrReg + " = call noalias ptr @seen_arr_new_filled_double(i64 " + countReg + ", double 0.0)\n")
-    } else {
-        output.append("  " + arrReg + " = call noalias ptr @seen_arr_new_filled_i64(i64 " + countReg + ", i64 0)\n")
-    }
-    return arrReg
 }
 
 // emitStringBuilderNewCallImpl — StringBuilder.new() returns ptr, convert to i64
@@ -210,187 +113,6 @@ fun emitGenericStaticCallImpl(output: StringBuilder, regBox: Array<Int>, quotedF
     }
     output.append(")\n")
     return resultReg
-}
-
-// emitArrayBulkInitImpl — Array<T>(count, value) inline bulk initialization
-// isZeroFill: 1 if value is literal 0 (use memset optimization)
-// alignToVal: alignment from @align_to decorator (0 = default)
-fun emitArrayBulkInitImpl(output: StringBuilder, regBox: Array<Int>, blockLabelBox: Array<Int>, countReg: String, valueReg: String, elementType: String, isZeroFill: Int, alignToVal: Int) r: String {
-    // Float special case: use runtime function
-    if elementType == "Float" {
-        let arrReg = getNextRegFn(regBox)
-        output.append("  " + arrReg + " = call noalias ptr @seen_arr_new_filled_double(i64 " + countReg + ", double " + valueReg + ")\n")
-        return arrReg
-    }
-    // Inline bulk init for Int/other types
-    let arrReg = getNextRegFn(regBox)
-    output.append("  " + arrReg + " = call noalias ptr @malloc(i64 32)\n")
-    let byteSizeReg = getNextRegFn(regBox)
-    output.append("  " + byteSizeReg + " = shl i64 " + countReg + ", 3\n")
-    let dataReg = getNextRegFn(regBox)
-    if alignToVal > 0 {
-        output.append("  " + dataReg + " = call noalias ptr @aligned_alloc(i64 " + alignToVal.toString() + ", i64 " + byteSizeReg + ") ; @align_to\n")
-    } else {
-        if elementType == "Int" or elementType == "Float" {
-            output.append("  " + dataReg + " = call noalias ptr @aligned_alloc(i64 32, i64 " + byteSizeReg + ") ; aligned for SIMD\n")
-        } else {
-            output.append("  " + dataReg + " = call noalias ptr @malloc(i64 " + byteSizeReg + ")\n")
-        }
-    }
-    // Init struct fields
-    let lenPtr = getNextRegFn(regBox)
-    output.append("  " + lenPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 0\n")
-    output.append("  store i64 " + countReg + ", ptr " + lenPtr + ", align 8\n")
-    let capPtr = getNextRegFn(regBox)
-    output.append("  " + capPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 1\n")
-    output.append("  store i64 " + countReg + ", ptr " + capPtr + ", align 8\n")
-    let szPtr = getNextRegFn(regBox)
-    output.append("  " + szPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 2\n")
-    var bulkElemSz = 8
-    if elementType == "String" { bulkElemSz = 16 }
-    output.append("  store i64 " + bulkElemSz.toString() + ", ptr " + szPtr + ", align 8\n")
-    let dataPtrPtr = getNextRegFn(regBox)
-    output.append("  " + dataPtrPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 3\n")
-    output.append("  store ptr " + dataReg + ", ptr " + dataPtrPtr + ", align 8\n")
-    // Zero-fill optimization: use llvm.memset
-    if isZeroFill == 1 {
-        output.append("  call void @llvm.memset.p0.i64(ptr " + dataReg + ", i8 0, i64 " + byteSizeReg + ", i1 false) ; zero-fill\n")
-        return arrReg
-    }
-    // Fill loop using alloca for index (mem2reg will promote to phi)
-    let idxAlloca = getNextRegFn(regBox)
-    output.append("  " + idxAlloca + " = alloca i64\n")
-    output.append("  store i64 0, ptr " + idxAlloca + "\n")
-    let fillCond = getNextBlockFn(blockLabelBox)
-    let fillBody = getNextBlockFn(blockLabelBox)
-    let fillDone = getNextBlockFn(blockLabelBox)
-    output.append("  br label %" + fillCond + "\n")
-    output.append(fillCond + ":\n")
-    let idxLoad = getNextRegFn(regBox)
-    output.append("  " + idxLoad + " = load i64, ptr " + idxAlloca + "\n")
-    let fillCmpReg = getNextRegFn(regBox)
-    output.append("  " + fillCmpReg + " = icmp slt i64 " + idxLoad + ", " + countReg + "\n")
-    output.append("  br i1 " + fillCmpReg + ", label %" + fillBody + ", label %" + fillDone + "\n")
-    output.append(fillBody + ":\n")
-    let elemPtr = getNextRegFn(regBox)
-    output.append("  " + elemPtr + " = getelementptr inbounds i64, ptr " + dataReg + ", i64 " + idxLoad + "\n")
-    output.append("  store i64 " + valueReg + ", ptr " + elemPtr + "\n")
-    let nextIdx = getNextRegFn(regBox)
-    output.append("  " + nextIdx + " = add nsw i64 " + idxLoad + ", 1\n")
-    output.append("  store i64 " + nextIdx + ", ptr " + idxAlloca + "\n")
-    output.append("  br label %" + fillCond + "\n")
-    output.append(fillDone + ":\n")
-    return arrReg
-}
-
-// emitArrayPreallocImpl — Array<T>(capacity) pre-allocation with given capacity
-// elemSize: pre-computed element size (8 for Int, 16 for String, etc.)
-fun emitArrayPreallocImpl(output: StringBuilder, regBox: Array<Int>, capReg: String, elemSize: Int) r: String {
-    let arrReg = getNextRegFn(regBox)
-    output.append("  " + arrReg + " = call noalias ptr @malloc(i64 32)\n")
-    let byteSizeReg = getNextRegFn(regBox)
-    if elemSize == 8 {
-        output.append("  " + byteSizeReg + " = shl i64 " + capReg + ", 3\n")
-    } else {
-        output.append("  " + byteSizeReg + " = mul nsw i64 " + capReg + ", " + elemSize.toString() + "\n")
-    }
-    let dataReg = getNextRegFn(regBox)
-    output.append("  " + dataReg + " = call noalias ptr @malloc(i64 " + byteSizeReg + ")\n")
-    let lenPtr = getNextRegFn(regBox)
-    output.append("  " + lenPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 0\n")
-    output.append("  store i64 0, ptr " + lenPtr + ", align 8\n")
-    let capPtr = getNextRegFn(regBox)
-    output.append("  " + capPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 1\n")
-    output.append("  store i64 " + capReg + ", ptr " + capPtr + ", align 8\n")
-    let szPtr = getNextRegFn(regBox)
-    output.append("  " + szPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 2\n")
-    output.append("  store i64 " + elemSize.toString() + ", ptr " + szPtr + ", align 8\n")
-    let dataPtrPtr = getNextRegFn(regBox)
-    output.append("  " + dataPtrPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 3\n")
-    output.append("  store ptr " + dataReg + ", ptr " + dataPtrPtr + ", align 8\n")
-    return arrReg
-}
-
-// emitArrayInlineImpl — Array<T>() empty inline constructor
-// elemSize: pre-computed element size (8 for Int, 16 for String, etc.)
-// alignToVal: alignment from @align_to decorator (0 = default)
-fun emitArrayInlineImpl(output: StringBuilder, regBox: Array<Int>, elemSize: Int, alignToVal: Int) r: String {
-    let initCap = 8
-    let initBytes = initCap * elemSize
-    let arrReg = getNextRegFn(regBox)
-    output.append("  " + arrReg + " = call noalias ptr @malloc(i64 32)\n")
-    let dataReg = getNextRegFn(regBox)
-    if alignToVal > 0 {
-        output.append("  " + dataReg + " = call noalias ptr @aligned_alloc(i64 " + alignToVal.toString() + ", i64 " + initBytes.toString() + ") ; @align_to\n")
-    } else {
-        output.append("  " + dataReg + " = call noalias ptr @malloc(i64 " + initBytes.toString() + ")\n")
-    }
-    let lenPtr = getNextRegFn(regBox)
-    output.append("  " + lenPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 0\n")
-    output.append("  store i64 0, ptr " + lenPtr + ", align 8\n")
-    let capPtr = getNextRegFn(regBox)
-    output.append("  " + capPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 1\n")
-    output.append("  store i64 " + initCap.toString() + ", ptr " + capPtr + ", align 8\n")
-    let szPtr = getNextRegFn(regBox)
-    output.append("  " + szPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 2\n")
-    output.append("  store i64 " + elemSize.toString() + ", ptr " + szPtr + ", align 8\n")
-    let dataPtrPtr = getNextRegFn(regBox)
-    output.append("  " + dataPtrPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 3\n")
-    output.append("  store ptr " + dataReg + ", ptr " + dataPtrPtr + ", align 8\n")
-    return arrReg
-}
-
-// emitSmallVecConstructorImpl — SmallVec<T, N>() constructor
-// capArgReg: pre-generated capacity arg ("" if no arg, parse from funcName)
-fun emitSmallVecConstructorImpl(output: StringBuilder, regBox: Array<Int>, funcName: String, capArgReg: String) r: String {
-    if capArgReg != "" {
-        let svCallReg = getNextRegFn(regBox)
-        output.append("  " + svCallReg + " = call i64 @seen_small_vec_new(i64 " + capArgReg + ")\n")
-        return svCallReg
-    }
-    // Parse inline capacity N from type string (e.g., "SmallVec<Int, 8>")
-    var svCapacity = 8
-    var svCommaPos = funcName.indexOf(",")
-    if svCommaPos > 0 {
-        var svCapStr = funcName.substring(svCommaPos + 1, funcName.length())
-        if svCapStr.endsWith(">") or svCapStr.endsWith("]") {
-            svCapStr = svCapStr.substring(0, svCapStr.length() - 1)
-        }
-        // Parse digits manually (trimSpaces not needed, byteAt-based)
-        var svCapVal = 0
-        var svCapIdx = 0
-        while svCapIdx < svCapStr.length() {
-            let svDigit = svCapStr.byteAt(svCapIdx)
-            if svDigit >= 48 and svDigit <= 57 {
-                svCapVal = svCapVal * 10 + (svDigit - 48)
-            }
-            svCapIdx = svCapIdx + 1
-        }
-        if svCapVal > 0 {
-            svCapacity = svCapVal
-        }
-    }
-    let svCallReg = getNextRegFn(regBox)
-    output.append("  " + svCallReg + " = call i64 @seen_small_vec_new(i64 " + svCapacity.toString() + ")\n")
-    return svCallReg
-}
-
-// emitReprCConstructorImpl — @repr(C) class constructor via insertvalue chain
-// argRegs: pre-generated argument registers
-// fieldLlvmTypes: pre-mapped LLVM types for each field (from wrapper's mapType)
-fun emitReprCConstructorImpl(output: StringBuilder, regBox: Array<Int>, className: String, argRegs: Array<String>, fieldLlvmTypes: Array<String>) r: String {
-    if argRegs.length() == 0 {
-        return "zeroinitializer"
-    }
-    var curVal = "zeroinitializer"
-    var argIdx = 0
-    while argIdx < argRegs.length() {
-        let ivReg = getNextRegFn(regBox)
-        output.append("  " + ivReg + " = insertvalue %" + className + " " + curVal + ", " + fieldLlvmTypes[argIdx] + " " + argRegs[argIdx] + ", " + argIdx.toString() + "\n")
-        curVal = ivReg
-        argIdx = argIdx + 1
-    }
-    return curVal
 }
 
 // emitDynTraitVtableCallImpl — dyn Trait vtable dispatch (both complex/simple receivers)
@@ -540,7 +262,8 @@ fun emitUserFunctionCallImpl(output: StringBuilder, regBox: Array<Int>, quotedFu
 }
 
 // emitUserMethodCallImpl — final instance method call emission (void and non-void)
-fun emitUserMethodCallImpl(output: StringBuilder, regBox: Array<Int>, quotedFuncName: String, llvmReturnType: String, receiverLlvmType: String, receiverReg: String, argRegs: Array<String>, argTypeStrs: Array<String>) r: String {
+// isTailCall: 1 if the non-void call is in tail position
+fun emitUserMethodCallImpl(output: StringBuilder, regBox: Array<Int>, quotedFuncName: String, llvmReturnType: String, receiverLlvmType: String, receiverReg: String, argRegs: Array<String>, argTypeStrs: Array<String>, isTailCall: Int) r: String {
     if llvmReturnType == "void" {
         output.append("  call void @" + quotedFuncName + "(" + receiverLlvmType + " " + receiverReg)
         var i = 0
@@ -553,7 +276,9 @@ fun emitUserMethodCallImpl(output: StringBuilder, regBox: Array<Int>, quotedFunc
         return "0"
     }
     let resultReg = getNextRegFn(regBox)
-    output.append("  " + resultReg + " = call " + llvmReturnType + " @" + quotedFuncName + "(" + receiverLlvmType + " " + receiverReg)
+    var callPrefix = "call"
+    if isTailCall == 1 { callPrefix = "tail call" }
+    output.append("  " + resultReg + " = " + callPrefix + " " + llvmReturnType + " @" + quotedFuncName + "(" + receiverLlvmType + " " + receiverReg)
     var i = 0
     while i < argRegs.length() {
         output.append(", ")
@@ -712,116 +437,4 @@ fun emitIncludeBytesImpl(output: StringBuilder, regBox: Array<Int>, content: Str
     let inclBIntReg = getNextRegFn(regBox)
     output.append("  " + inclBIntReg + " = ptrtoint ptr " + inclBPtrReg + " to i64\n")
     return inclBIntReg
-}
-
-// fillDefaultParamsImpl — Fill missing arguments with registered default values
-// Mutates argRegs/argTypeStrs to append default values for params beyond argRegs.length()
-// funcName: the function being called
-// funcParamCountArr: pipe-delimited "funcName:count|" registry
-// funcDefaultsArr: pipe-delimited "funcName:paramIdx:value:type|" registry
-// strConstPrefix: string constant prefix for this module (for String defaults)
-// stringConstants: the module's string constant table (for looking up String default indices)
-fun fillDefaultParamsImpl(output: StringBuilder, regBox: Array<Int>, funcName: String, argRegs: Array<String>, argTypeStrs: Array<String>, funcParamCountArr: String, funcDefaultsArr: String, strConstPrefix: String, stringConstants: Array<String>) r: Void {
-    if funcDefaultsArr == "" { return }
-    var dfFuncLookup = funcName + ":"
-    var dfPcPos = funcParamCountArr.indexOf(dfFuncLookup, 0)
-    if dfPcPos < 0 { return }
-    var dfPcStart = dfPcPos + dfFuncLookup.length()
-    var dfPcEnd = funcParamCountArr.indexOf("|", dfPcStart)
-    if dfPcEnd < 0 { dfPcEnd = funcParamCountArr.length() }
-    var dfExpectedStr = funcParamCountArr.substring(dfPcStart, dfPcEnd)
-    var dfExpectedCount = parseIntManual(dfExpectedStr)
-    var dfFillIdx = argRegs.length()
-    while dfFillIdx < dfExpectedCount {
-        var dfLookup = funcName + ":" + dfFillIdx.toString() + ":"
-        var dfPos = funcDefaultsArr.indexOf(dfLookup, 0)
-        if dfPos >= 0 {
-            var dfStart = dfPos + dfLookup.length()
-            var dfEnd = funcDefaultsArr.indexOf("|", dfStart)
-            if dfEnd < 0 { dfEnd = funcDefaultsArr.length() }
-            var dfEntry = funcDefaultsArr.substring(dfStart, dfEnd)
-            var dfColon = dfEntry.indexOf(":", 0)
-            if dfColon > 0 {
-                var dfValue = dfEntry.substring(0, dfColon)
-                var dfType = dfEntry.substring(dfColon + 1, dfEntry.length())
-                if dfType == "String" {
-                    // Look up string constant index from module's string table
-                    var dfStrIdx = 0
-                    var dfSCi = 0
-                    while dfSCi < stringConstants.length() {
-                        if stringConstants[dfSCi] == dfValue {
-                            dfStrIdx = dfSCi
-                            dfSCi = stringConstants.length()
-                        }
-                        dfSCi = dfSCi + 1
-                    }
-                    var dfStrLen = dfValue.length()
-                    let dfGepReg = getNextRegFn(regBox)
-                    output.append("  " + dfGepReg + " = getelementptr [" + (dfStrLen + 1).toString() + " x i8], ptr @.str." + strConstPrefix + dfStrIdx.toString() + ", i64 0, i64 0\n")
-                    let dfInsert1 = getNextRegFn(regBox)
-                    output.append("  " + dfInsert1 + " = insertvalue %SeenString undef, i64 " + dfStrLen.toString() + ", 0\n")
-                    let dfStrReg = getNextRegFn(regBox)
-                    output.append("  " + dfStrReg + " = insertvalue %SeenString " + dfInsert1 + ", ptr " + dfGepReg + ", 1\n")
-                    argRegs.push(dfStrReg)
-                    argTypeStrs.push("%SeenString")
-                } else {
-                    if dfType == "Bool" {
-                        var dfBoolVal = "0"
-                        if dfValue == "true" { dfBoolVal = "1" }
-                        argRegs.push(dfBoolVal)
-                        argTypeStrs.push("i64")
-                    } else {
-                        if dfType == "Float" {
-                            argRegs.push(dfValue)
-                            argTypeStrs.push("double")
-                        } else {
-                            argRegs.push(dfValue)
-                            argTypeStrs.push("i64")
-                        }
-                    }
-                }
-            }
-        }
-        dfFillIdx = dfFillIdx + 1
-    }
-}
-
-fun hasFloatParamFuncImpl(funcName: String, paramIdx: Int, floatParamFuncNames: Array<String>, floatParamParamIdxs: Array<Int>) r: Bool {
-    var lookupLen = floatParamFuncNames.length()
-    if floatParamParamIdxs.length() < lookupLen {
-        lookupLen = floatParamParamIdxs.length()
-    }
-    var lookupIdx = 0
-    while lookupIdx < lookupLen {
-        if floatParamParamIdxs[lookupIdx] == paramIdx and floatParamFuncNames[lookupIdx] == funcName {
-            return true
-        }
-        lookupIdx = lookupIdx + 1
-    }
-    return false
-}
-
-// promoteFloatArgsImpl — Int-to-Float promotion for function call arguments
-// Converts matching i64 args to double using the float parameter registry.
-// Mutates argRegs/argTypeStrs in-place to replace promoted args.
-fun promoteFloatArgsImpl(output: StringBuilder, regBox: Array<Int>, funcName: String, argRegs: Array<String>, argTypeStrs: Array<String>, floatParamFuncNames: Array<String>, floatParamParamIdxs: Array<Int>) r: Void {
-    var promoteLen = argRegs.length()
-    if argTypeStrs.length() < promoteLen {
-        promoteLen = argTypeStrs.length()
-    }
-    if promoteLen == 0 {
-        return
-    }
-    var fpIdx = 0
-    while fpIdx < promoteLen {
-        if argTypeStrs[fpIdx] == "i64" {
-            if hasFloatParamFuncImpl(funcName, fpIdx, floatParamFuncNames, floatParamParamIdxs) {
-                let sitofpReg = getNextRegFn(regBox)
-                output.append("  " + sitofpReg + " = sitofp i64 " + argRegs[fpIdx] + " to double\n")
-                argRegs.set(fpIdx, sitofpReg)
-                argTypeStrs.set(fpIdx, "double")
-            }
-        }
-        fpIdx = fpIdx + 1
-    }
 }

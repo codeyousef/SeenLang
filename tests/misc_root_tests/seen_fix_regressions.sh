@@ -13,6 +13,7 @@ C13_GLOBAL_CLASS_SRC="$ROOT_DIR/tests/fixtures/seen_fixes/c13_module_level_class
 C13_GLOBAL_GAME_SRC="$ROOT_DIR/tests/fixtures/seen_fixes/c13_module_level_game_entry.seen"
 C13_HELPER_GLOBAL_SRC="$ROOT_DIR/tests/fixtures/seen_fixes/c13_imported_helper_global_state_entry.seen"
 C13_MODULE_CONST_BIND_SRC="$ROOT_DIR/tests/fixtures/seen_fixes/c13_module_const_local_bind_entry.seen"
+PACKAGE_LOCAL_DUP_CONST_SRC="$ROOT_DIR/tests/fixtures/seen_fixes/package_local_duplicate_const_entry.seen"
 C12_SRC="$ROOT_DIR/tests/fixtures/seen_fixes/c12_direct_entry_missing_user_decl.seen"
 C12_HELPER_GLOBAL_SRC="$ROOT_DIR/tests/fixtures/seen_fixes/c12_helper_global_state.seen"
 C12_MODULE_CONST_BIND_SRC="$ROOT_DIR/tests/fixtures/seen_fixes/c12_module_const_local_bind.seen"
@@ -33,6 +34,14 @@ SEALED_SAME_MODULE_OK_SRC="$ROOT_DIR/tests/fixtures/current_limitations/sealed_s
 WHEN_ENUM_NON_EXHAUSTIVE_SRC="$ROOT_DIR/tests/fixtures/current_limitations/when_enum_non_exhaustive.seen"
 WHEN_ENUM_EXHAUSTIVE_OK_SRC="$ROOT_DIR/tests/fixtures/current_limitations/when_enum_exhaustive_ok.seen"
 WHEN_ENUM_ELSE_OK_SRC="$ROOT_DIR/tests/fixtures/current_limitations/when_enum_else_ok.seen"
+UNRESOLVED_FREE_CALL_SRC="$ROOT_DIR/tests/fixtures/current_limitations/unresolved_free_call.seen"
+BOOL_RETURN_COERCION_SRC="$ROOT_DIR/tests/codegen/test_bool_return_int_coercion_regression.seen"
+FEL22_TYPED_STORE_RETURN_SRC="$ROOT_DIR/tests/codegen/test_fel22_typed_store_return_regression.seen"
+PTR_I64_ALIAS_SRC="$ROOT_DIR/tests/codegen/test_ptr_i64_alias_regression.seen"
+RUNTIME_FILE_BYTES_SRC="$ROOT_DIR/tests/codegen/test_runtime_file_bytes_regression.seen"
+UINT32_GLOBAL_INIT_SRC="$ROOT_DIR/tests/codegen/test_uint32_global_init_regression.seen"
+HIGH_ARITY_PARAMS_SRC="$ROOT_DIR/tests/codegen/test_high_arity_params_regression.seen"
+NESTED_CONTINUE_HIGH_ARITY_SRC="$ROOT_DIR/tests/codegen/test_nested_continue_high_arity_regression.seen"
 
 cleanup_seen_artifacts() {
     rm -rf "$ROOT_DIR/.seen_cache" /tmp/seen_ir_cache "$TMP_ROOT"
@@ -267,7 +276,6 @@ setup_fake_llvm_dir() {
     real_link="$(command -v llvm-link)"
 
     mkdir -p "$fake_dir"
-    ln -sf "$real_llc" "$fake_dir/llc"
     ln -sf "$real_link" "$fake_dir/llvm-link"
 
     cat >"$fake_dir/opt" <<EOF
@@ -291,6 +299,22 @@ esac
 exec "$real_opt" "\$@"
 EOF
     chmod +x "$fake_dir/opt"
+
+    cat >"$fake_dir/llc" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+echo "\$*" >> "$fake_log"
+case "$kind" in
+  object)
+    if [[ "\$*" == *"/tmp/seen_module_1.opt.ll"* ]]; then
+      echo "forced object emission failure for module 1" >&2
+      exit 1
+    fi
+    ;;
+esac
+exec "$real_llc" "\$@"
+EOF
+    chmod +x "$fake_dir/llc"
 }
 
 run_real_compiler_failure_case() {
@@ -404,6 +428,183 @@ EOF
     fi
 
     echo "PASS: Seen.toml project modules are included in compilation"
+}
+
+run_large_manifest_scanner_case() {
+    local project_dir="$TMP_ROOT/large_manifest_scanner"
+    local output_file="$project_dir/large_manifest_scanner"
+    local log_file="$project_dir/large_manifest_scanner.log"
+
+    cleanup_seen_artifacts
+    mkdir -p "$project_dir/hearton/src/generated"
+
+    {
+        echo '[project]'
+        echo 'name = "large-manifest-scanner"'
+        echo 'version = "0.1.0"'
+        echo 'language = "en"'
+        echo 'description = "large manifest scanner regression"'
+        echo ''
+        echo 'modules = ['
+        echo '    "main.seen",'
+        for i in $(seq 1 56); do
+            printf '    "hearton/src/generated/module_%03d.seen",\n' "$i"
+        done
+        echo ']'
+        echo ''
+        echo '[build]'
+        echo 'entry = "main.seen"'
+    } >"$project_dir/Seen.toml"
+
+    cat >"$project_dir/main.seen" <<'EOF'
+fun main() r: Int {
+    return 0
+}
+EOF
+
+    for i in $(seq 1 56); do
+        local module_file
+        module_file=$(printf '%s/hearton/src/generated/module_%03d.seen' "$project_dir" "$i")
+        {
+            printf 'fun generatedHelper%03d() r: Int {\n' "$i"
+            printf '    return %d\n' "$i"
+            printf '}\n'
+        } >"$module_file"
+    done
+
+    (
+        cd "$project_dir" &&
+        timeout 120 "$COMPILER" compile "main.seen" "$output_file" --fast --no-cache --no-fork >"$log_file" 2>&1
+    ) || {
+        echo "FAIL: large Seen.toml scanner case did not compile"
+        cat "$log_file"
+        exit 1
+    }
+
+    if grep -q 'free(): invalid size' "$log_file"; then
+        echo "FAIL: large Seen.toml scanner case aborted in manifest handling"
+        cat "$log_file"
+        exit 1
+    fi
+
+    if ! grep -q 'Large module graph' "$log_file"; then
+        echo "FAIL: large Seen.toml scanner case did not use bounded preflight path"
+        cat "$log_file"
+        exit 1
+    fi
+
+    if ! "$output_file" >/dev/null 2>&1; then
+        echo "FAIL: large Seen.toml scanner binary exited non-zero"
+        cat "$log_file"
+        exit 1
+    fi
+
+    echo "PASS: large Seen.toml manifests use bounded scanner path"
+}
+
+run_small_manifest_allocator_stability_case() {
+    local project_dir="$TMP_ROOT/small_manifest_allocator_stability"
+    local output_file="$project_dir/small_manifest_allocator_stability"
+    local log_file="$project_dir/small_manifest_allocator_stability.log"
+
+    cleanup_seen_artifacts
+    mkdir -p "$project_dir/modules"
+
+    {
+        echo '[project]'
+        echo 'name = "small-manifest-allocator-stability"'
+        echo 'version = "0.1.0"'
+        echo 'language = "en"'
+        echo ''
+        echo 'modules = ['
+        echo '    "main.seen",'
+        for i in $(seq 1 12); do
+            printf '    "modules/helper_%02d.seen",\n' "$i"
+        done
+        echo ']'
+        echo ''
+        echo '[build]'
+        echo 'entry = "main.seen"'
+    } >"$project_dir/Seen.toml"
+
+    cat >"$project_dir/main.seen" <<'EOF'
+fun main() r: Int {
+    return 0
+}
+EOF
+
+    for i in $(seq 1 12); do
+        local module_file
+        module_file=$(printf '%s/modules/helper_%02d.seen' "$project_dir" "$i")
+        {
+            printf 'fun smallManifestHelper%02d() r: Int {\n' "$i"
+            printf '    return %d\n' "$i"
+            printf '}\n'
+        } >"$module_file"
+    done
+
+    if ! run_compile_in_dir "$project_dir" "main.seen" "$output_file" "$log_file"; then
+        echo "FAIL: small Seen.toml allocator stability case did not compile"
+        cat "$log_file"
+        exit 1
+    fi
+
+    if grep -q 'free(): invalid size' "$log_file"; then
+        echo "FAIL: small Seen.toml allocator stability case aborted after preflight"
+        cat "$log_file"
+        exit 1
+    fi
+
+    if grep -q 'Large module graph' "$log_file"; then
+        echo "FAIL: small Seen.toml allocator stability case skipped whole-project preflight"
+        cat "$log_file"
+        exit 1
+    fi
+
+    if ! "$output_file" >/dev/null 2>&1; then
+        echo "FAIL: small Seen.toml allocator stability binary exited non-zero"
+        cat "$log_file"
+        exit 1
+    fi
+
+    echo "PASS: small Seen.toml preflight releases validation state cleanly"
+}
+
+run_scalar_get_guard_case() {
+    local source_file="$TMP_ROOT/scalar_get_guard.seen"
+    local output_file="$TMP_ROOT/scalar_get_guard"
+    local log_file="$TMP_ROOT/scalar_get_guard.log"
+
+    cleanup_seen_artifacts
+
+    cat >"$source_file" <<'EOF'
+fun main() r: Int {
+    let value = 5
+    let ignored = value.get(0)
+    return 0
+}
+EOF
+
+    if ! run_compile "$source_file" "$output_file" "$log_file"; then
+        echo "FAIL: scalar get guard case did not compile"
+        cat "$log_file"
+        exit 1
+    fi
+
+    if grep -q '@Int_get' "$log_file" /tmp/seen_module_*.ll 2>/dev/null; then
+        echo "FAIL: scalar get guard still emitted Int_get"
+        cat "$log_file"
+        grep -n '@Int_get' /tmp/seen_module_*.ll 2>/dev/null || true
+        exit 1
+    fi
+
+    if ! "$output_file" >/dev/null 2>&1; then
+        echo "FAIL: scalar get guard binary exited non-zero"
+        cat "$log_file"
+        exit 1
+    fi
+
+    echo "PASS: scalar get receivers do not lower to Int_get"
 }
 
 run_local_system_dependency_case() {
@@ -860,6 +1061,484 @@ EOF
     echo "PASS: Seen.toml build entry main is added for non-main input"
 }
 
+run_legacy_whole_module_import_case() {
+    local project_dir="$TMP_ROOT/legacy_whole_module_import"
+    local output_file="$project_dir/legacy_whole_module_import"
+    local log_file="$project_dir/legacy_whole_module_import.log"
+
+    cleanup_seen_artifacts
+    mkdir -p "$project_dir/resolver_visibility_repro"
+
+    cat >"$project_dir/Seen.toml" <<'EOF'
+[project]
+name = "resolver_visibility_repro"
+version = "0.1.0"
+language = "en"
+description = "Package import aggregator visibility repro"
+
+modules = [
+    "resolver_visibility_repro/helper.seen",
+    "resolver_visibility_repro/consumer.seen",
+]
+
+[build]
+entry = "main.seen"
+EOF
+
+    cat >"$project_dir/resolver_visibility_repro/helper.seen" <<'EOF'
+fun helperValue() r: Int {
+    return 41
+}
+EOF
+
+    cat >"$project_dir/resolver_visibility_repro/consumer.seen" <<'EOF'
+fun consumerValue() r: Int {
+    return helperValue() + 1
+}
+EOF
+
+    cat >"$project_dir/main.seen" <<'EOF'
+import resolver_visibility_repro::helper
+import resolver_visibility_repro::consumer
+
+fun main() r: Int {
+    let value = consumerValue()
+    if value == 42 {
+        return 0
+    }
+    return 1
+}
+EOF
+
+    if ! run_compile_in_dir "$project_dir" "main.seen" "$output_file" "$log_file"; then
+        echo "FAIL: legacy whole-module imports did not compile"
+        cat "$log_file"
+        exit 1
+    fi
+
+    if grep -q 'unresolved function' "$log_file"; then
+        echo "FAIL: legacy whole-module imports still reported unresolved functions"
+        cat "$log_file"
+        exit 1
+    fi
+
+    if ! "$output_file" >/dev/null 2>&1; then
+        echo "FAIL: legacy whole-module import binary exited non-zero"
+        cat "$log_file"
+        exit 1
+    fi
+
+    echo "PASS: legacy whole-module imports expose top-level functions"
+}
+
+run_named_import_control_case() {
+    local project_dir="$TMP_ROOT/named_import_control"
+    local output_file="$project_dir/named_import_control"
+    local log_file="$project_dir/named_import_control.log"
+
+    cleanup_seen_artifacts
+    mkdir -p "$project_dir/resolver_visibility_repro"
+
+    cat >"$project_dir/Seen.toml" <<'EOF'
+[project]
+name = "resolver_visibility_repro"
+version = "0.1.0"
+language = "en"
+description = "Curly import control"
+
+modules = [
+    "resolver_visibility_repro/helper.seen",
+    "resolver_visibility_repro/consumer.seen",
+]
+
+[build]
+entry = "main.seen"
+EOF
+
+    cat >"$project_dir/resolver_visibility_repro/helper.seen" <<'EOF'
+fun helperValue() r: Int {
+    return 41
+}
+EOF
+
+    cat >"$project_dir/resolver_visibility_repro/consumer.seen" <<'EOF'
+import resolver_visibility_repro.helper.{helperValue}
+
+fun consumerValue() r: Int {
+    return helperValue() + 1
+}
+EOF
+
+    cat >"$project_dir/main.seen" <<'EOF'
+import resolver_visibility_repro.consumer.{consumerValue}
+
+fun main() r: Int {
+    let value = consumerValue()
+    if value == 42 {
+        return 0
+    }
+    return 1
+}
+EOF
+
+    if ! run_compile_in_dir "$project_dir" "main.seen" "$output_file" "$log_file"; then
+        echo "FAIL: explicit named imports did not compile"
+        cat "$log_file"
+        exit 1
+    fi
+
+    if ! "$output_file" >/dev/null 2>&1; then
+        echo "FAIL: explicit named import binary exited non-zero"
+        cat "$log_file"
+        exit 1
+    fi
+
+    echo "PASS: explicit named imports remain supported"
+}
+
+run_package_explicit_src_import_case() {
+    local package_dir="$TMP_ROOT/seen_input"
+    local project_dir="$TMP_ROOT/package_explicit_src_import"
+    local output_file="$project_dir/package_explicit_src_import"
+    local log_file="$project_dir/package_explicit_src_import.log"
+
+    cleanup_seen_artifacts
+    mkdir -p "$package_dir/src" "$project_dir"
+
+    cat >"$package_dir/Seen.toml" <<'EOF'
+[project]
+name = "seen_input"
+version = "0.1.0"
+language = "en"
+EOF
+
+    cat >"$package_dir/src/keyboard.seen" <<'EOF'
+class Keyboard {
+    var key: Int
+
+    static fun new() r: Keyboard {
+        return Keyboard { key: 42 }
+    }
+}
+EOF
+
+    cat >"$project_dir/Seen.toml" <<'EOF'
+[project]
+name = "package_explicit_src_import"
+version = "0.1.0"
+language = "en"
+
+[dependencies]
+seen_input = { path = "../seen_input" }
+EOF
+
+    cat >"$project_dir/main.seen" <<'EOF'
+import seen_input::src::keyboard.{Keyboard}
+
+fun main() r: Int {
+    let keyboard = Keyboard.new()
+    if keyboard.key == 42 {
+        return 0
+    }
+    return 1
+}
+EOF
+
+    if ! run_compile_in_dir "$project_dir" "main.seen" "$output_file" "$log_file"; then
+        echo "FAIL: package import with explicit src segment did not compile"
+        cat "$log_file"
+        exit 1
+    fi
+
+    if grep -q ':/src/keyboard.seen\|/src/src/keyboard.seen' "$log_file"; then
+        echo "FAIL: package import with explicit src resolved to the wrong path"
+        cat "$log_file"
+        exit 1
+    fi
+
+    if ! "$output_file" >/dev/null 2>&1; then
+        echo "FAIL: package import with explicit src binary exited non-zero"
+        cat "$log_file"
+        exit 1
+    fi
+
+    echo "PASS: package imports with explicit src resolve under package source root"
+}
+
+run_package_local_dotted_import_case() {
+    local package_dir="$TMP_ROOT/seen_audio"
+    local project_dir="$TMP_ROOT/package_local_dotted_import"
+    local output_file="$project_dir/package_local_dotted_import"
+    local log_file="$project_dir/package_local_dotted_import.log"
+
+    cleanup_seen_artifacts
+    mkdir -p "$package_dir/src/platform/linux" "$project_dir"
+
+    cat >"$package_dir/Seen.toml" <<'EOF'
+[project]
+name = "seen_audio"
+version = "0.1.0"
+language = "en"
+EOF
+
+    cat >"$package_dir/src/platform/linux/sdl3.seen" <<'EOF'
+fun audioPlatformValue() r: Int {
+    return 41
+}
+EOF
+
+    cat >"$package_dir/src/runtime.seen" <<'EOF'
+import platform.linux.sdl3.{audioPlatformValue}
+
+fun runtimeValue() r: Int {
+    return audioPlatformValue() + 1
+}
+EOF
+
+    cat >"$project_dir/Seen.toml" <<'EOF'
+[project]
+name = "package_local_dotted_import"
+version = "0.1.0"
+language = "en"
+
+[dependencies]
+seen_audio = { path = "../seen_audio" }
+EOF
+
+    cat >"$project_dir/main.seen" <<'EOF'
+import seen_audio::src::runtime.{runtimeValue}
+
+fun main() r: Int {
+    if runtimeValue() == 42 {
+        return 0
+    }
+    return 1
+}
+EOF
+
+    if ! run_compile_in_dir "$project_dir" "main.seen" "$output_file" "$log_file"; then
+        echo "FAIL: package-local dotted import did not compile"
+        cat "$log_file"
+        exit 1
+    fi
+
+    if grep -q '/src/\./linux/sdl3.seen\|:/src/.*sdl3.seen' "$log_file"; then
+        echo "FAIL: package-local dotted import resolved to the wrong path"
+        cat "$log_file"
+        exit 1
+    fi
+
+    if ! "$output_file" >/dev/null 2>&1; then
+        echo "FAIL: package-local dotted import binary exited non-zero"
+        cat "$log_file"
+        exit 1
+    fi
+
+    echo "PASS: package-local dotted imports resolve from package source root"
+}
+
+run_manifest_sibling_runtime_memory_case() {
+    local project_dir="$TMP_ROOT/manifest_sibling_runtime_memory"
+    local output_file="$project_dir/manifest_sibling_runtime_memory"
+    local log_file="$project_dir/manifest_sibling_runtime_memory.log"
+
+    cleanup_seen_artifacts
+    mkdir -p "$project_dir/seen_runtime/src" "$project_dir/seen_voxel/src"
+
+    cat >"$project_dir/Seen.toml" <<'EOF'
+[project]
+name = "manifest_sibling_runtime_memory"
+version = "0.1.0"
+language = "en"
+
+modules = [
+    "seen_runtime/src/memory.seen",
+    "seen_voxel/src/runtime.seen",
+]
+EOF
+
+    cat >"$project_dir/seen_runtime/src/memory.seen" <<'EOF'
+extern fun seen_mem_alloc(size: Int) r: Int
+EOF
+
+    cat >"$project_dir/seen_voxel/src/runtime.seen" <<'EOF'
+fun runtimeValue() r: Int {
+    let ptr = seen_mem_alloc(8)
+    if ptr != 0 {
+        return 42
+    }
+    return 41
+}
+EOF
+
+    cat >"$project_dir/main.seen" <<'EOF'
+import seen_voxel::src::runtime.{runtimeValue}
+
+fun main() r: Int {
+    if runtimeValue() == 42 {
+        return 0
+    }
+    return 1
+}
+EOF
+
+    if ! run_compile_in_dir "$project_dir" "main.seen" "$output_file" "$log_file"; then
+        echo "FAIL: manifest sibling runtime memory case did not compile"
+        cat "$log_file"
+        exit 1
+    fi
+
+    if grep -q '/seen_voxel/src/seen_runtime/src/memory.seen\|:/src/seen_runtime/src/memory.seen' "$log_file"; then
+        echo "FAIL: implicit runtime memory import resolved relative to sibling package source"
+        cat "$log_file"
+        exit 1
+    fi
+
+    if ! "$output_file" >/dev/null 2>&1; then
+        echo "FAIL: manifest sibling runtime memory binary exited non-zero"
+        cat "$log_file"
+        exit 1
+    fi
+
+    echo "PASS: implicit runtime memory imports resolve from project root"
+}
+
+run_package_whole_module_visibility_case() {
+    local package_dir="$TMP_ROOT/seen_whole"
+    local project_dir="$TMP_ROOT/package_whole_module_visibility"
+    local output_file="$project_dir/package_whole_module_visibility"
+    local log_file="$project_dir/package_whole_module_visibility.log"
+
+    cleanup_seen_artifacts
+    mkdir -p "$package_dir/src" "$project_dir"
+
+    cat >"$package_dir/Seen.toml" <<'EOF'
+[project]
+name = "seen_whole"
+version = "0.1.0"
+language = "en"
+EOF
+
+    cat >"$package_dir/src/helper.seen" <<'EOF'
+fun helperValue() r: Int {
+    return 42
+}
+EOF
+
+    cat >"$project_dir/Seen.toml" <<'EOF'
+[project]
+name = "package_whole_module_visibility"
+version = "0.1.0"
+language = "en"
+
+[dependencies]
+seen_whole = { path = "../seen_whole" }
+EOF
+
+    cat >"$project_dir/main.seen" <<'EOF'
+import seen_whole::src::helper
+
+fun main() r: Int {
+    if helperValue() == 42 {
+        return 0
+    }
+    return 1
+}
+EOF
+
+    if ! run_compile_in_dir "$project_dir" "main.seen" "$output_file" "$log_file"; then
+        echo "FAIL: whole-module package import did not compile"
+        cat "$log_file"
+        exit 1
+    fi
+
+    if ! "$output_file" >/dev/null 2>&1; then
+        echo "FAIL: whole-module package import binary exited non-zero"
+        cat "$log_file"
+        exit 1
+    fi
+
+    echo "PASS: whole-module package imports keep symbols visible"
+}
+
+run_manifest_companion_module_visibility_case() {
+    local package_dir="$TMP_ROOT/seen_facade"
+    local project_dir="$TMP_ROOT/manifest_companion_module_visibility"
+    local output_file="$project_dir/manifest_companion_module_visibility"
+    local log_file="$project_dir/manifest_companion_module_visibility.log"
+
+    cleanup_seen_artifacts
+    mkdir -p "$package_dir/src" "$project_dir"
+
+    cat >"$package_dir/Seen.toml" <<'EOF'
+[project]
+name = "seen_facade"
+version = "0.1.0"
+language = "en"
+
+modules = [
+    "src/shared_type.seen",
+    "src/facade_helper.seen",
+    "src/facade.seen",
+]
+EOF
+
+    cat >"$package_dir/src/shared_type.seen" <<'EOF'
+class SharedType {
+    static fun answer() r: Int {
+        return 42
+    }
+}
+EOF
+
+    cat >"$package_dir/src/facade_helper.seen" <<'EOF'
+fun facadeHelper(value: Int) r: Int {
+    return value
+}
+EOF
+
+    cat >"$package_dir/src/facade.seen" <<'EOF'
+fun facadeValue() r: Int {
+    return facadeHelper(SharedType.answer())
+}
+EOF
+
+    cat >"$project_dir/Seen.toml" <<'EOF'
+[project]
+name = "manifest_companion_module_visibility"
+version = "0.1.0"
+language = "en"
+
+[dependencies]
+seen_facade = { path = "../seen_facade" }
+EOF
+
+    cat >"$project_dir/main.seen" <<'EOF'
+import seen_facade::src::facade.{facadeValue}
+
+fun main() r: Int {
+    if facadeValue() == 42 {
+        return 0
+    }
+    return 1
+}
+EOF
+
+    if ! run_compile_in_dir "$project_dir" "main.seen" "$output_file" "$log_file"; then
+        echo "FAIL: manifest companion module visibility case did not compile"
+        cat "$log_file"
+        exit 1
+    fi
+
+    if ! "$output_file" >/dev/null 2>&1; then
+        echo "FAIL: manifest companion module visibility binary exited non-zero"
+        cat "$log_file"
+        exit 1
+    fi
+
+    echo "PASS: manifest companion modules keep facade helper symbols visible"
+}
+
 run_missing_import_failure_case() {
     local project_dir="$TMP_ROOT/missing_import_failure"
     local output_file="$project_dir/missing_import_failure"
@@ -916,6 +1595,7 @@ run_success_case "C13 module-level class state" "$C13_GLOBAL_CLASS_SRC" "$TMP_RO
 run_success_case "C13 module-level game state" "$C13_GLOBAL_GAME_SRC" "$TMP_ROOT/c13_module_level_game" "$TMP_ROOT/c13_module_level_game.log"
 run_success_case "C13 imported helper global state" "$C13_HELPER_GLOBAL_SRC" "$TMP_ROOT/c13_imported_helper_global_state" "$TMP_ROOT/c13_imported_helper_global_state.log"
 run_success_case "C13 module-const local bind" "$C13_MODULE_CONST_BIND_SRC" "$TMP_ROOT/c13_module_const_local_bind" "$TMP_ROOT/c13_module_const_local_bind.log"
+run_success_case "package-local duplicate immutable constants link cleanly" "$PACKAGE_LOCAL_DUP_CONST_SRC" "$TMP_ROOT/package_local_duplicate_const" "$TMP_ROOT/package_local_duplicate_const.log"
 run_success_case "C14 shadowed branch locals" "$C14_SHADOWED_BRANCH_SRC" "$TMP_ROOT/c14_shadowed_branch_locals" "$TMP_ROOT/c14_shadowed_branch_locals.log"
 run_success_case "C12 helper global state" "$C12_HELPER_GLOBAL_SRC" "$TMP_ROOT/c12_helper_global_state" "$TMP_ROOT/c12_helper_global_state.log"
 run_success_case "C12 module-const local bind" "$C12_MODULE_CONST_BIND_SRC" "$TMP_ROOT/c12_module_const_local_bind" "$TMP_ROOT/c12_module_const_local_bind.log"
@@ -939,13 +1619,31 @@ run_success_case "sealed same-module inheritance stays allowed" "$SEALED_SAME_MO
 run_check_failure_case "enum matches must be exhaustive without else" "$WHEN_ENUM_NON_EXHAUSTIVE_SRC" "$TMP_ROOT/when_enum_non_exhaustive.log" 'non-exhaustive match on enum'
 run_check_success_case "enum matches stay allowed when all variants are covered" "$WHEN_ENUM_EXHAUSTIVE_OK_SRC" "$TMP_ROOT/when_enum_exhaustive_ok.log"
 run_check_success_case "enum matches stay allowed with else arm" "$WHEN_ENUM_ELSE_OK_SRC" "$TMP_ROOT/when_enum_else_ok.log"
+run_check_failure_case "unresolved free function calls are diagnosed" "$UNRESOLVED_FREE_CALL_SRC" "$TMP_ROOT/unresolved_free_call.log" 'unresolved function `chunkInBounds`'
+run_success_case "Bool returns coerce Int predicates to i1" "$BOOL_RETURN_COERCION_SRC" "$TMP_ROOT/bool_return_coercion" "$TMP_ROOT/bool_return_coercion.log"
+run_success_case "FEL-22 typed stores and Float returns stay verifier-clean" "$FEL22_TYPED_STORE_RETURN_SRC" "$TMP_ROOT/fel22_typed_store_return" "$TMP_ROOT/fel22_typed_store_return.log"
+run_success_case "ptr_deref_i64 and ptr_store_i64 lower to runtime builtins" "$PTR_I64_ALIAS_SRC" "$TMP_ROOT/ptr_i64_alias" "$TMP_ROOT/ptr_i64_alias.log"
+run_success_case "runtime file byte arrays use pointer ABI" "$RUNTIME_FILE_BYTES_SRC" "$TMP_ROOT/runtime_file_bytes" "$TMP_ROOT/runtime_file_bytes.log"
+run_success_case "UInt32 top-level globals extend into module init stores" "$UINT32_GLOBAL_INIT_SRC" "$TMP_ROOT/uint32_global_init" "$TMP_ROOT/uint32_global_init.log"
+run_scalar_get_guard_case
+run_success_case "9+ parameter functions parse without corruption" "$HIGH_ARITY_PARAMS_SRC" "$TMP_ROOT/high_arity_params" "$TMP_ROOT/high_arity_params.log"
+run_success_case "nested continue high-arity functions compile" "$NESTED_CONTINUE_HIGH_ARITY_SRC" "$TMP_ROOT/nested_continue_high_arity" "$TMP_ROOT/nested_continue_high_arity.log"
 run_c12_case
 run_recovery_partial_failure_case
 run_toml_project_modules_case
+run_large_manifest_scanner_case
+run_small_manifest_allocator_stability_case
 run_local_system_dependency_case
 run_build_entry_seed_case
 run_root_main_build_entry_isolation_case
 run_build_entry_main_fallback_case
+run_legacy_whole_module_import_case
+run_named_import_control_case
+run_package_explicit_src_import_case
+run_package_local_dotted_import_case
+run_manifest_sibling_runtime_memory_case
+run_package_whole_module_visibility_case
+run_manifest_companion_module_visibility_case
 run_missing_import_failure_case
 
 cleanup_seen_artifacts

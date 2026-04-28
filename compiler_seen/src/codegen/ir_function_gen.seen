@@ -2,14 +2,1372 @@
 // expression codegen free functions extracted from llvm_ir_gen.seen
 //
 // Phase 1: generateLiteralFree (literal expression codegen)
+// Phase 4 additions: function signature/default-return/coroutine helpers
 // Future phases will add generateExpressionFree dispatch + more sub-generators
 
 import parser.real_parser.{FunctionNode, ParserExpressionNode, StatementNode, BlockNode, ParamNode, TypeNode}
-import codegen.ir_optimization.{getNextRegFn, parseIntManual}
-import codegen.type_registry.{CodegenState, csGetNextReg}
-import codegen.ir_string_collect.{hexToDecimalImpl}
+import codegen.ir_optimization.{getNextRegFn, getNextBlockFn, parseIntManual, selfCallCheck, mlShouldInlineWeighted}
+import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
+import codegen.ir_trait_registry.{appendTraitImplEntryImpl, autoRegisterTraitImplsImpl}
+import codegen.ir_type_mapping.{isClassTypeImpl, mapTypeImpl}
+import codegen.type_registry.{CodegenState, csGetNextReg, clearTransientFunctionLoweringOptions}
+import codegen.ir_decl_registry.{registerFunctionStateImpl}
+import codegen.ir_string_collect.{hexToDecimalImpl, trimSpacesImpl, getBaseTypeNameImpl, cacheStringConstUnchecked}
+import codegen.ir_string_emit.{addStringConstantTableImpl}
+import codegen.ir_string_emit.{getStringConstantIndexImpl}
+import codegen.ir_string_emit.{findStringConstantIndexImpl}
+import codegen.ir_function_param_meta.{buildFunctionParameterDeclsImpl, emitFunctionParameterAllocasImpl}
+import codegen.ir_function_lowering.{configureFunctionLoweringOptionsImpl, shouldApplyFunctionInlineHeuristicsImpl, countFunctionInlineLoopKindsImpl, appendInlineDecisionAttrImpl, isHighRegisterPressureImpl, emitHighRegisterPressureNoteImpl}
+import codegen.ir_function_usage.{hasGeneratedFunctionNameImpl, shouldSkipRuntimeBuiltinStubImpl}
 import codegen.ir_type_info.{charToCodeStr}
 import str.string.{StringBuilder}
+
+fun ensureFunctionStringBoxValue(box: Array<String>) r: Void {
+    if box.length() == 0 {
+        box.push("")
+    }
+}
+
+fun ensureFunctionIntBoxValue(box: Array<Int>) r: Void {
+    if box.length() == 0 {
+        box.push(0)
+    }
+}
+
+class NestedScratchStateSnapshot {
+    var output: StringBuilder
+    var varNames: Array<String>
+    var varRegs: Array<String>
+    var varTypes: Array<String>
+    var preAllocatedVars: Array<String>
+    var preAllocatedTypes: Array<String>
+    var preAllocatedRegs: Array<String>
+    var declOrdinalNames: Array<String>
+    var declOrdinalCounts: Array<Int>
+    var activeVarCount: Int
+    var nextReg: Int
+    var blockTerminated: Int
+    var currentFunctionReturnType: String
+
+    static fun new() r: NestedScratchStateSnapshot {
+        return NestedScratchStateSnapshot{
+            output: StringBuilder.new(),
+            varNames: Array<String>(),
+            varRegs: Array<String>(),
+            varTypes: Array<String>(),
+            preAllocatedVars: Array<String>(),
+            preAllocatedTypes: Array<String>(),
+            preAllocatedRegs: Array<String>(),
+            declOrdinalNames: Array<String>(),
+            declOrdinalCounts: Array<Int>(),
+            activeVarCount: 0,
+            nextReg: 1,
+            blockTerminated: 0,
+            currentFunctionReturnType: ""
+        }
+    }
+}
+
+class FunctionInlineHeuristicsAnalysis {
+    var funcAttrs: String
+    var applied: Int
+    var bodySize: Int
+    var hasLoopsFlag: Int
+    var nestDepth: Int
+    var inlineDecision: String
+
+    static fun new() r: FunctionInlineHeuristicsAnalysis {
+        return FunctionInlineHeuristicsAnalysis{
+            funcAttrs: "",
+            applied: 0,
+            bodySize: 0,
+            hasLoopsFlag: 0,
+            nestDepth: 0,
+            inlineDecision: ""
+        }
+    }
+}
+
+class FunctionRegisterPressureAnalysis {
+    var regPressureCount: Int
+    var highPressure: Int
+
+    static fun new() r: FunctionRegisterPressureAnalysis {
+        return FunctionRegisterPressureAnalysis{
+            regPressureCount: 0,
+            highPressure: 0
+        }
+    }
+}
+
+class FunctionGenerationIdentitySnapshot {
+    var implFuncName: String
+    var resolvedFunctionReturnType: String
+    var traitImplRegistry: String
+    var traitImplCount: Int
+    var alreadyGenerated: Int
+    var skipRuntimeBuiltinStub: Int
+
+    static fun new() r: FunctionGenerationIdentitySnapshot {
+        return FunctionGenerationIdentitySnapshot{
+            implFuncName: "",
+            resolvedFunctionReturnType: "",
+            traitImplRegistry: "",
+            traitImplCount: 0,
+            alreadyGenerated: 0,
+            skipRuntimeBuiltinStub: 0
+        }
+    }
+}
+
+class FunctionEntrySetupSnapshot {
+    var unusedParams: Array<String>
+    var profiledFlag: Int
+    var profiledName: String
+    var asyncPromise: String
+    var asyncCoroId: String
+    var asyncCoroHdl: String
+    var asyncFinalLabel: String
+    var asyncCleanupLabel: String
+
+    static fun new() r: FunctionEntrySetupSnapshot {
+        return FunctionEntrySetupSnapshot{
+            unusedParams: Array<String>(),
+            profiledFlag: 0,
+            profiledName: "",
+            asyncPromise: "",
+            asyncCoroId: "",
+            asyncCoroHdl: "",
+            asyncFinalLabel: "",
+            asyncCleanupLabel: ""
+        }
+    }
+}
+
+class FunctionRuntimeStateSnapshot {
+    var profiledFlag: Int
+    var profiledName: String
+    var highPressure: Int
+    var asyncCoroId: String
+    var asyncCoroHdl: String
+    var asyncPromise: String
+    var asyncFinalLabel: String
+    var asyncCleanupLabel: String
+
+    static fun new() r: FunctionRuntimeStateSnapshot {
+        return FunctionRuntimeStateSnapshot{
+            profiledFlag: 0,
+            profiledName: "",
+            highPressure: 0,
+            asyncCoroId: "",
+            asyncCoroHdl: "",
+            asyncPromise: "",
+            asyncFinalLabel: "",
+            asyncCleanupLabel: ""
+        }
+    }
+}
+
+class FunctionPreludeAnalysisSnapshot {
+    var funcAttrs: String
+    var inlineReplayDecision: Int
+    var inlineFeatureLog: Int
+    var inlineBodySize: Int
+    var inlineCallCount: Int
+    var inlineHasLoopsFlag: Int
+    var inlineNestDepth: Int
+    var inlineDecisionAction: String
+    var inlineDecisionDetail: String
+    var highPressure: Int
+    var regPressureCount: Int
+    var regPressureDetail: String
+
+    static fun new() r: FunctionPreludeAnalysisSnapshot {
+        return FunctionPreludeAnalysisSnapshot{
+            funcAttrs: "",
+            inlineReplayDecision: 0,
+            inlineFeatureLog: 0,
+            inlineBodySize: 0,
+            inlineCallCount: 0,
+            inlineHasLoopsFlag: 0,
+            inlineNestDepth: 0,
+            inlineDecisionAction: "",
+            inlineDecisionDetail: "",
+            highPressure: 0,
+            regPressureCount: 0,
+            regPressureDetail: ""
+        }
+    }
+}
+
+fun snapshotNestedScratchStateImpl(state: CodegenState)
+    r: NestedScratchStateSnapshot {
+
+    let snapshot = NestedScratchStateSnapshot.new()
+    snapshot.output = state.output
+    snapshot.varNames = state.varNames
+    snapshot.varRegs = state.varRegs
+    snapshot.varTypes = state.varTypes
+    snapshot.preAllocatedVars = state.preAllocatedVars
+    snapshot.preAllocatedTypes = state.preAllocatedTypes
+    snapshot.preAllocatedRegs = state.preAllocatedRegs
+    snapshot.declOrdinalNames = state.declOrdinalNames
+    snapshot.declOrdinalCounts = state.declOrdinalCounts
+    snapshot.activeVarCount = state.activeVarCount
+    snapshot.nextReg = state.regBox[0]
+    snapshot.blockTerminated = state.blockTerminated
+    snapshot.currentFunctionReturnType = state.currentFunctionReturnType
+    return snapshot
+}
+
+fun resetLocalCodegenStateImpl(state: CodegenState) r: Void {
+    state.varNames = Array<String>()
+    state.varRegs = Array<String>()
+    state.varTypes = Array<String>()
+    state.preAllocatedVars = Array<String>()
+    state.preAllocatedTypes = Array<String>()
+    state.preAllocatedRegs = Array<String>()
+    state.declOrdinalNames = Array<String>()
+    state.declOrdinalCounts = Array<Int>()
+    state.activeVarCount = 0
+    state.regBox[0] = 1
+    state.blockTerminated = 0
+}
+
+fun clearActiveBindingsImpl(state: CodegenState) r: Void {
+    state.varNames = Array<String>()
+    state.varRegs = Array<String>()
+    state.varTypes = Array<String>()
+    state.activeVarCount = 0
+}
+
+fun beginNestedScratchStateImpl(state: CodegenState, returnType: String) r: Void {
+    state.output = StringBuilder.new()
+    resetLocalCodegenStateImpl(state)
+    state.currentFunctionReturnType = returnType
+}
+
+fun restoreNestedScratchStateImpl(state: CodegenState,
+    snapshot: NestedScratchStateSnapshot) r: Void {
+
+    state.output = snapshot.output
+    state.varNames = snapshot.varNames
+    state.varRegs = snapshot.varRegs
+    state.varTypes = snapshot.varTypes
+    state.preAllocatedVars = snapshot.preAllocatedVars
+    state.preAllocatedTypes = snapshot.preAllocatedTypes
+    state.preAllocatedRegs = snapshot.preAllocatedRegs
+    state.declOrdinalNames = snapshot.declOrdinalNames
+    state.declOrdinalCounts = snapshot.declOrdinalCounts
+    state.activeVarCount = snapshot.activeVarCount
+    state.regBox[0] = snapshot.nextReg
+    state.blockTerminated = snapshot.blockTerminated
+    state.currentFunctionReturnType = snapshot.currentFunctionReturnType
+}
+
+fun emitParallelForCallImpl(output: StringBuilder, loopVarName: String,
+    startReg: String, endReg: String, bodyFuncName: String) r: Void {
+
+    output.append("  ; parallel_for " + loopVarName + "\n")
+    output.append("  call void @seen_parallel_for(i64 " + startReg +
+        ", i64 " + endReg + ", ptr " + bodyFuncName + ", i64 0)\n")
+}
+
+fun analyzeFunctionInlineHeuristicsImpl(fn: FunctionNode, funcAttrs: String,
+    replayInline: String, fnCallCount: Int)
+    r: FunctionInlineHeuristicsAnalysis {
+
+    let analysis = FunctionInlineHeuristicsAnalysis.new()
+    analysis.funcAttrs = funcAttrs
+    analysis.bodySize = fn.body.statements.length()
+    analysis.nestDepth = fn.params.length()
+
+    if not shouldApplyFunctionInlineHeuristicsImpl(fn) {
+        return analysis
+    }
+    analysis.applied = 1
+
+    if replayInline == "yes" {
+        analysis.inlineDecision = "always"
+        analysis.funcAttrs = appendInlineDecisionAttrImpl(funcAttrs,
+            analysis.inlineDecision)
+        return analysis
+    }
+
+    if replayInline == "" {
+        if countFunctionInlineLoopKindsImpl(fn) > 0 {
+            analysis.hasLoopsFlag = 1
+        }
+        analysis.inlineDecision = mlShouldInlineWeighted(
+            analysis.bodySize, fnCallCount, analysis.hasLoopsFlag,
+            analysis.nestDepth)
+        analysis.funcAttrs = appendInlineDecisionAttrImpl(funcAttrs,
+            analysis.inlineDecision)
+    }
+    return analysis
+}
+
+fun analyzeFunctionRegisterPressureImpl(output: StringBuilder,
+    fn: FunctionNode) r: FunctionRegisterPressureAnalysis {
+
+    let analysis = FunctionRegisterPressureAnalysis.new()
+    analysis.regPressureCount = countFunctionRegisterPressureImpl(fn)
+    if isHighRegisterPressureImpl(analysis.regPressureCount) {
+        emitHighRegisterPressureNoteImpl(output, analysis.regPressureCount)
+        analysis.highPressure = 1
+    }
+    return analysis
+}
+
+fun lookupFunctionCallCountImpl(callCountNamesArr: Array<String>,
+    funcName: String) r: Int {
+
+    var count = 0
+    var i = 0
+    while i < callCountNamesArr.length() {
+        if callCountNamesArr[i] == funcName {
+            count = count + 1
+        }
+        i = i + 1
+    }
+    return count
+}
+
+fun lookupFunctionReplayDecisionImpl(mlReplayEnabled: Bool,
+    mlReplayLog: String, category: String, detail: String) r: String {
+
+    if not mlReplayEnabled or mlReplayLog.length() == 0 {
+        return ""
+    }
+
+    var pos = 0
+    var lineStart = 0
+    while pos < mlReplayLog.length() {
+        if mlReplayLog.charAt(pos) == '\n' {
+            let line = mlReplayLog.substring(lineStart, pos)
+            let catPrefix = category + "\t"
+            if line.startsWith(catPrefix) {
+                var tabCount = 0
+                var secondTabPos = 0
+                var scanPos = 0
+                while scanPos < line.length() {
+                    if line.charAt(scanPos) == '\t' {
+                        tabCount = tabCount + 1
+                        if tabCount == 2 {
+                            secondTabPos = scanPos
+                        }
+                    }
+                    scanPos = scanPos + 1
+                }
+                if tabCount >= 2 {
+                    let lineDetail = line.substring(secondTabPos + 1,
+                        line.length())
+                    if lineDetail == detail {
+                        var firstTabPos = 0
+                        var ftScan = 0
+                        while ftScan < line.length() {
+                            if line.charAt(ftScan) == '\t' {
+                                firstTabPos = ftScan
+                                break
+                            }
+                            ftScan = ftScan + 1
+                        }
+                        return line.substring(firstTabPos + 1, secondTabPos)
+                    }
+                }
+            }
+            lineStart = pos + 1
+        }
+        pos = pos + 1
+    }
+    return ""
+}
+
+fun prepareFunctionPreludeAnalysisSnapshotImpl(output: StringBuilder,
+    fn: FunctionNode, fnName: String, funcAttrs: String,
+    mlReplayEnabled: Bool, mlReplayLog: String,
+    callCountNamesArr: Array<String>, selfCallFuncs: String,
+    selfCallNames: String, selfCallCount: Int)
+    r: FunctionPreludeAnalysisSnapshot {
+
+    let snapshot = FunctionPreludeAnalysisSnapshot.new()
+    snapshot.funcAttrs = funcAttrs
+    var replayInline = ""
+    var fnCallCount = 0
+    if not fn.isInline and not hasFunctionDecoratorGenImpl(fn, "noinline") {
+        replayInline = lookupFunctionReplayDecisionImpl(mlReplayEnabled,
+            mlReplayLog, "inline", fnName)
+        if replayInline == "" {
+            fnCallCount = lookupFunctionCallCountImpl(callCountNamesArr,
+                fnName)
+        }
+    }
+
+    let inlineAnalysis = analyzeFunctionInlineHeuristicsImpl(fn, funcAttrs,
+        replayInline, fnCallCount)
+    snapshot.funcAttrs = inlineAnalysis.funcAttrs
+    snapshot.inlineBodySize = inlineAnalysis.bodySize
+    snapshot.inlineCallCount = fnCallCount
+    snapshot.inlineHasLoopsFlag = inlineAnalysis.hasLoopsFlag
+    snapshot.inlineNestDepth = inlineAnalysis.nestDepth
+    if inlineAnalysis.applied == 1 and replayInline == "yes" {
+        snapshot.inlineReplayDecision = 1
+    }
+    if inlineAnalysis.applied == 1 and replayInline == "" {
+        snapshot.inlineFeatureLog = 1
+        if inlineAnalysis.inlineDecision == "always" {
+            snapshot.inlineDecisionAction = "yes"
+        }
+        if inlineAnalysis.inlineDecision == "hint" {
+            snapshot.inlineDecisionAction = "hint"
+        }
+        if inlineAnalysis.inlineDecision == "noinline" {
+            snapshot.inlineDecisionAction = "no"
+        }
+        if snapshot.inlineDecisionAction != "" {
+            snapshot.inlineDecisionDetail = fnName + ":sz=" +
+                inlineAnalysis.bodySize.toString()
+        }
+    }
+
+    snapshot.funcAttrs = normalizeRecursiveFunctionAttrsImpl(fnName,
+        snapshot.funcAttrs, selfCallFuncs, selfCallNames, selfCallCount)
+
+    let regPressureAnalysis = analyzeFunctionRegisterPressureImpl(output, fn)
+    snapshot.regPressureCount = regPressureAnalysis.regPressureCount
+    if regPressureAnalysis.highPressure == 1 {
+        snapshot.highPressure = 1
+        snapshot.regPressureDetail = fnName + ":" +
+            regPressureAnalysis.regPressureCount.toString()
+    }
+    return snapshot
+}
+
+fun hasFunctionDecoratorGenImpl(fn: FunctionNode, decoratorName: String) r: Bool {
+    var i = 0
+    while i < fn.decorators.length() {
+        if fn.decorators[i].name == decoratorName {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
+fun registerFunctionTraitImplDecoratorsImpl(fn: FunctionNode,
+    traitImplRegistryBox: Array<String>,
+    traitImplCountBox: Array<Int>) r: Void {
+
+    if not hasFunctionDecoratorGenImpl(fn, "impl_trait") {
+        return
+    }
+    var itDecIdx = 0
+    while itDecIdx < fn.decorators.length() {
+        if fn.decorators[itDecIdx].name == "impl_trait" {
+            if fn.decorators[itDecIdx].arguments.length() > 0 {
+                let itInfo = fn.decorators[itDecIdx].arguments[0]
+                appendTraitImplEntryImpl(itInfo + ":" + fn.name,
+                    traitImplRegistryBox, traitImplCountBox)
+            }
+        }
+        itDecIdx = itDecIdx + 1
+    }
+}
+
+fun resolveImplementationFunctionNameImpl(fn: FunctionNode,
+    structNames: Array<String>, dynTraitNames: String,
+    structMethodNames: Array<String>, structMethodRetTypes: Array<String>,
+    traitImplRegistryBox: Array<String>,
+    traitImplCountBox: Array<Int>) r: String {
+
+    var implFuncName = fn.name
+    let implFnParams = fn.params
+    if implFnParams.length() > 0 {
+        let implFirstP = implFnParams[0]
+        if implFirstP.name == "this" {
+            let implFirstPTN = implFirstP.paramType.typeName
+            if isClassTypeImpl(implFirstPTN, structNames) == 1 {
+                let implExpectedPrefix = implFirstPTN + "_"
+                if not implFuncName.startsWith(implExpectedPrefix) {
+                    implFuncName = implExpectedPrefix + implFuncName
+                }
+                autoRegisterTraitImplsImpl(fn.name, implFirstPTN,
+                    implFuncName, dynTraitNames, structNames,
+                    structMethodNames, structMethodRetTypes,
+                    traitImplRegistryBox, traitImplCountBox)
+            }
+        }
+    }
+    return implFuncName
+}
+
+fun prepareFunctionGenerationIdentitySnapshotImpl(fn: FunctionNode,
+    structNames: Array<String>, dynTraitNames: String,
+    structMethodNames: Array<String>, structMethodRetTypes: Array<String>,
+    traitImplRegistry: String, traitImplCount: Int,
+    resolvedFunctionReturnType: String,
+    generatedFunctions: Array<String>, funcNames: Array<String>,
+    funcRetTypes: Array<String>) r: FunctionGenerationIdentitySnapshot {
+
+    let snapshot = FunctionGenerationIdentitySnapshot.new()
+    let registryBox = Array<String>()
+    registryBox.push(traitImplRegistry)
+    let countBox = Array<Int>()
+    countBox.push(traitImplCount)
+    snapshot.implFuncName = resolveImplementationFunctionNameImpl(fn,
+        structNames, dynTraitNames, structMethodNames, structMethodRetTypes,
+        registryBox, countBox)
+    snapshot.traitImplRegistry = registryBox[0]
+    snapshot.traitImplCount = countBox[0]
+
+    if hasGeneratedFunctionNameImpl(generatedFunctions, snapshot.implFuncName) {
+        snapshot.alreadyGenerated = 1
+        return snapshot
+    }
+    if shouldSkipRuntimeBuiltinStubImpl(fn, snapshot.implFuncName) {
+        snapshot.skipRuntimeBuiltinStub = 1
+        return snapshot
+    }
+
+    generatedFunctions.push(snapshot.implFuncName)
+    snapshot.resolvedFunctionReturnType = resolvedFunctionReturnType
+    registerFunctionStateImpl(snapshot.implFuncName,
+        snapshot.resolvedFunctionReturnType, funcNames, funcRetTypes)
+    return snapshot
+}
+
+fun emitGpuDispatchWrapperImpl(output: StringBuilder, regBox: Array<Int>,
+    fnName: String) r: Void {
+
+    output.append("define void @" +
+        quoteIdentIfNeededImpl(fnName + "_gpu_dispatch") +
+        "(i64 %gpu_gx, i64 %gpu_gy, i64 %gpu_gz, ptr %gpu_bufs, i64 %gpu_nbufs) nounwind {\n")
+    output.append("entry:\n")
+    let dr = getNextRegFn(regBox)
+    output.append("  " + dr +
+        " = call i64 @seen_gpu_dispatch(i64 0, i64 %gpu_gx, i64 %gpu_gy, i64 %gpu_gz, ptr %gpu_bufs, i64 %gpu_nbufs)\n")
+    output.append("  ret void\n")
+    output.append("}\n\n")
+}
+
+fun tryHandleGpuShaderFunctionGenerationImpl(output: StringBuilder,
+    regBox: Array<Int>, fn: FunctionNode, gpuShaderNamesBox: Array<String>,
+    gpuShaderStagesBox: Array<String>,
+    gpuShaderWorkgroupsBox: Array<String>,
+    gpuShaderBindingsBox: Array<String>,
+    gpuShaderCountBox: Array<Int>) r: Bool {
+
+    if not (hasFunctionDecoratorGenImpl(fn, "compute") or
+        hasFunctionDecoratorGenImpl(fn, "vertex") or
+        hasFunctionDecoratorGenImpl(fn, "fragment")) {
+
+        return false
+    }
+
+    ensureFunctionStringBoxValue(gpuShaderNamesBox)
+    ensureFunctionStringBoxValue(gpuShaderStagesBox)
+    ensureFunctionStringBoxValue(gpuShaderWorkgroupsBox)
+    ensureFunctionStringBoxValue(gpuShaderBindingsBox)
+    ensureFunctionIntBoxValue(gpuShaderCountBox)
+
+    var gpuStage = 0
+    if hasFunctionDecoratorGenImpl(fn, "vertex") {
+        gpuStage = 1
+    }
+    if hasFunctionDecoratorGenImpl(fn, "fragment") {
+        gpuStage = 2
+    }
+    let gpuWgX = 64
+    let gpuWgY = 1
+    let gpuWgZ = 1
+    let gpuBindCount = fn.params.length()
+    if gpuShaderCountBox[0] > 0 {
+        gpuShaderNamesBox[0] = gpuShaderNamesBox[0] + "|"
+        gpuShaderStagesBox[0] = gpuShaderStagesBox[0] + "|"
+        gpuShaderWorkgroupsBox[0] = gpuShaderWorkgroupsBox[0] + "|"
+        gpuShaderBindingsBox[0] = gpuShaderBindingsBox[0] + "|"
+    }
+    gpuShaderNamesBox[0] = gpuShaderNamesBox[0] + fn.name
+    gpuShaderStagesBox[0] = gpuShaderStagesBox[0] + gpuStage.toString()
+    gpuShaderWorkgroupsBox[0] = gpuShaderWorkgroupsBox[0] +
+        gpuWgX.toString() + "," + gpuWgY.toString() + "," +
+        gpuWgZ.toString()
+    gpuShaderBindingsBox[0] = gpuShaderBindingsBox[0] +
+        gpuBindCount.toString()
+    gpuShaderCountBox[0] = gpuShaderCountBox[0] + 1
+    output.append("; GPU shader function: " + fn.name + " (stage=" +
+        gpuStage.toString() + ", bindings=" +
+        gpuBindCount.toString() + ")\n")
+    emitGpuDispatchWrapperImpl(output, regBox, fn.name)
+    return true
+}
+
+fun prepareExternFunctionGenerationImpl(output: StringBuilder,
+    fn: FunctionNode, externSymbolBox: Array<String>) r: Int {
+
+    if not fn.isExtern {
+        return 0
+    }
+    if fn.name.startsWith("__") {
+        output.append("; SKIPPED: " + fn.name +
+            " (extern runtime function - declared by ir_declarations)\n")
+        return 1
+    }
+    var externSymbol = fn.name
+    if externSymbol.startsWith("llvm_coro_") {
+        let suffix = externSymbol.substring(10, externSymbol.length())
+        externSymbol = "llvm.coro." + suffix
+    }
+    ensureFunctionStringBoxValue(externSymbolBox)
+    externSymbolBox[0] = externSymbol
+    return 2
+}
+
+fun shouldSkipFunctionByCfgImpl(output: StringBuilder, fn: FunctionNode,
+    enabledFeatures: String) r: Bool {
+
+    if not hasFunctionDecoratorGenImpl(fn, "cfg") {
+        return false
+    }
+    var cfgMatch = false
+    var cfgIdx = 0
+    while cfgIdx < fn.decorators.length() {
+        if fn.decorators[cfgIdx].name == "cfg" {
+            if fn.decorators[cfgIdx].arguments.length() > 0 {
+                let cfgPred = fn.decorators[cfgIdx].arguments[0]
+                if cfgPred == "linux" or cfgPred == "target_os_linux" {
+                    cfgMatch = true
+                }
+                if cfgPred == "unix" {
+                    cfgMatch = true
+                }
+                if cfgPred == "x86_64" or cfgPred == "target_arch_x86_64" {
+                    cfgMatch = true
+                }
+                if cfgPred == "debug" {
+                    cfgMatch = false
+                }
+                if cfgPred == "release" {
+                    cfgMatch = true
+                }
+                if cfgPred.startsWith("feature:") {
+                    let featureName = cfgPred.substring(8, cfgPred.length())
+                    let featureNameTrimmed = trimSpacesImpl(featureName)
+                    var featureClean = featureNameTrimmed
+                    if featureClean.startsWith("\"") {
+                        featureClean = featureClean.substring(1,
+                            featureClean.length())
+                    }
+                    if featureClean.endsWith("\"") {
+                        featureClean = featureClean.substring(0,
+                            featureClean.length() - 1)
+                    }
+                    if enabledFeatures.contains(featureClean + "|") {
+                        cfgMatch = true
+                    }
+                }
+            }
+        }
+        cfgIdx = cfgIdx + 1
+    }
+    if not cfgMatch {
+        output.append("; SKIPPED: " + fn.name +
+            " (@cfg predicate not met)\n")
+        return true
+    }
+    return false
+}
+
+fun emitFunctionDecoratorMetadataCommentsImpl(output: StringBuilder,
+    fn: FunctionNode, traitImplCount: Int) r: Void {
+
+    if hasFunctionDecoratorGenImpl(fn, "where_constraint") and
+        traitImplCount > 0 {
+
+        var wcIdx = 0
+        while wcIdx < fn.decorators.length() {
+            if fn.decorators[wcIdx].name == "where_constraint" {
+                if fn.decorators[wcIdx].arguments.length() > 0 {
+                    let wcText = fn.decorators[wcIdx].arguments[0]
+                    output.append("; where clause: " + wcText + "\n")
+                }
+            }
+            wcIdx = wcIdx + 1
+        }
+    }
+    if hasFunctionDecoratorGenImpl(fn, "region_bound") {
+        output.append("; @region_bound function: " + fn.name + "\n")
+    }
+}
+
+fun shouldSkipSpecialFunctionBodyImpl(output: StringBuilder,
+    fn: FunctionNode) r: Bool {
+
+    if fn.name == "new" {
+        output.append("; SKIPPED: new (class constructor)\n")
+        return true
+    }
+    if fn.name.startsWith("__") and fn.body.statements.length() == 0 and
+        not fn.isExtern {
+
+        output.append("; SKIPPED: " + fn.name +
+            " (extern C function - declared by runtime)\n")
+        return true
+    }
+    return false
+}
+
+fun prepareFunctionAttributesImpl(output: StringBuilder, fn: FunctionNode,
+    sanitizerMode: String, funcAttrsBox: Array<String>,
+    initFuncNamesBox: Array<String>, initFuncCountBox: Array<Int>,
+    trustedFuncNamesBox: Array<String>,
+    specializationNamesBox: Array<String>,
+    specializationCountBox: Array<Int>) r: Void {
+
+    ensureFunctionStringBoxValue(funcAttrsBox)
+    ensureFunctionStringBoxValue(initFuncNamesBox)
+    ensureFunctionIntBoxValue(initFuncCountBox)
+    ensureFunctionStringBoxValue(trustedFuncNamesBox)
+    ensureFunctionStringBoxValue(specializationNamesBox)
+    ensureFunctionIntBoxValue(specializationCountBox)
+
+    var funcAttrs = ""
+    if fn.isInline {
+        funcAttrs = " alwaysinline"
+    }
+    if hasFunctionDecoratorGenImpl(fn, "noinline") {
+        funcAttrs = " noinline"
+    }
+    if hasFunctionDecoratorGenImpl(fn, "cold") {
+        funcAttrs = funcAttrs + " cold"
+    }
+    if hasFunctionDecoratorGenImpl(fn, "always_inline") {
+        funcAttrs = " alwaysinline"
+    }
+    if hasFunctionDecoratorGenImpl(fn, "hot") {
+        funcAttrs = funcAttrs + " hot"
+    }
+    if hasFunctionDecoratorGenImpl(fn, "pure") {
+        funcAttrs = funcAttrs + " readonly nounwind"
+    }
+    if hasFunctionDecoratorGenImpl(fn, "likely") {
+        funcAttrs = funcAttrs + " hot"
+    }
+    if hasFunctionDecoratorGenImpl(fn, "unlikely") {
+        funcAttrs = funcAttrs + " cold"
+    }
+    if hasFunctionDecoratorGenImpl(fn, "init") {
+        initFuncNamesBox[0] = initFuncNamesBox[0] + fn.name + "|"
+        initFuncCountBox[0] = initFuncCountBox[0] + 1
+    }
+    if hasFunctionDecoratorGenImpl(fn, "trusted") {
+        trustedFuncNamesBox[0] = trustedFuncNamesBox[0] + fn.name + "|"
+        output.append("; @trusted function: " + fn.name + "\n")
+    }
+    if sanitizerMode != "" {
+        if sanitizerMode == "address" {
+            funcAttrs = funcAttrs + " sanitize_address"
+        }
+        if sanitizerMode == "thread" {
+            funcAttrs = funcAttrs + " sanitize_thread"
+        }
+        if sanitizerMode == "memory" {
+            funcAttrs = funcAttrs + " sanitize_memory"
+        }
+    }
+    if hasFunctionDecoratorGenImpl(fn, "specialize") {
+        var specIdx = 0
+        while specIdx < fn.decorators.length() {
+            if fn.decorators[specIdx].name == "specialize" {
+                if fn.decorators[specIdx].arguments.length() > 0 {
+                    let specArg = fn.decorators[specIdx].arguments[0]
+                    specializationNamesBox[0] = specializationNamesBox[0] +
+                        fn.name + ":" + specArg + "|"
+                    specializationCountBox[0] =
+                        specializationCountBox[0] + 1
+                    output.append("; @specialize: " + fn.name + " with " +
+                        specArg + "\n")
+                }
+            }
+            specIdx = specIdx + 1
+        }
+    }
+    if fn.isAsync {
+        funcAttrs = funcAttrs + " presplitcoroutine"
+    }
+    funcAttrsBox[0] = funcAttrs
+}
+
+fun normalizeRecursiveFunctionAttrsImpl(fnName: String, funcAttrs: String,
+    selfCallFuncs: String, selfCallNames: String, selfCallCount: Int)
+    r: String {
+
+    var normalizedAttrs = funcAttrs
+    let isSelfRecursive = selfCallCheck(fnName, selfCallFuncs, selfCallNames,
+        selfCallCount)
+    if isSelfRecursive {
+        normalizedAttrs = normalizedAttrs.replace(" alwaysinline", "")
+        normalizedAttrs = normalizedAttrs.replace(" inlinehint", "")
+        normalizedAttrs = normalizedAttrs + " noinline"
+        return normalizedAttrs
+    }
+    return normalizedAttrs + " norecurse"
+}
+
+fun countFunctionRegisterPressureImpl(fn: FunctionNode) r: Int {
+    var regPressureCount = fn.params.length()
+    var rpIdx = 0
+    while rpIdx < fn.body.statements.length() {
+        let rpStmt = fn.body.statements[rpIdx]
+        if rpStmt.kind == "Let" or rpStmt.kind == "Var" {
+            regPressureCount = regPressureCount + 1
+        }
+        rpIdx = rpIdx + 1
+    }
+    return regPressureCount
+}
+
+fun buildFunctionSignaturePrefixImpl(fn: FunctionNode, fnName: String,
+    returnType: String) r: String {
+
+    var fnRetPrefix = "define "
+    if returnType == "i64" or returnType == "double" or returnType == "i1" {
+        fnRetPrefix = "define noundef "
+    }
+    var actualLlvmReturnType = returnType
+    if fn.isAsync {
+        actualLlvmReturnType = "ptr"
+        fnRetPrefix = "define "
+    }
+    if hasFunctionDecoratorGenImpl(fn, "init") and
+        fn.name == "__seen_internal_module_init__" {
+
+        fnRetPrefix = "define internal "
+    }
+    if hasFunctionDecoratorGenImpl(fn, "export") {
+        fnRetPrefix = fnRetPrefix + "dso_local "
+    }
+    let quotedFnName = quoteIdentIfNeededImpl(fnName)
+    return fnRetPrefix + actualLlvmReturnType + " @" + quotedFnName + "("
+}
+
+fun mapFunctionEntryAllocaTypeImpl(seenType: String, structNames: Array<String>,
+    typeAliasNames: String, typeAliasTargets: String, typeAliasCount: Int,
+    enumTypeNames: String, reprCClassNames: String) r: String {
+
+    if seenType.startsWith("dyn ") {
+        return "i64"
+    }
+    if seenType.startsWith("*") {
+        return "i64"
+    }
+    if reprCClassNames != "" {
+        let baseT = getBaseTypeNameImpl(seenType)
+        if reprCClassNames.contains(baseT + "|") {
+            return "%" + baseT
+        }
+    }
+    return mapTypeImpl(seenType, structNames, typeAliasNames, typeAliasTargets,
+        typeAliasCount, enumTypeNames)
+}
+
+fun emitPreAllocatedAllocasImpl(output: StringBuilder, regBox: Array<Int>,
+    preAllocatedTypes: Array<String>, structNames: Array<String>,
+    typeAliasNames: String, typeAliasTargets: String, typeAliasCount: Int,
+    enumTypeNames: String, reprCClassNames: String) r: Array<String> {
+
+    let regs = Array<String>()
+    var i = 0
+    while i < preAllocatedTypes.length() {
+        let llvmType = mapFunctionEntryAllocaTypeImpl(preAllocatedTypes[i],
+            structNames, typeAliasNames, typeAliasTargets, typeAliasCount,
+            enumTypeNames, reprCClassNames)
+        let reg = getNextRegFn(regBox)
+        if llvmType == "i64" or llvmType == "double" or llvmType == "ptr" {
+            output.append("  " + reg + " = alloca " + llvmType +
+                ", align 8\n")
+        } else {
+            output.append("  " + reg + " = alloca " + llvmType + "\n")
+        }
+        regs.push(reg)
+        i = i + 1
+    }
+    return regs
+}
+
+fun emitFunctionPrefetchHintsImpl(output: StringBuilder, regBox: Array<Int>,
+    fn: FunctionNode, prefetchMode: Int) r: Void {
+
+    if prefetchMode <= 0 {
+        return
+    }
+    var prefetchRW = "0"
+    if prefetchMode == 2 {
+        prefetchRW = "1"
+    }
+    var prefetchModeStr = "read"
+    if prefetchMode == 2 {
+        prefetchModeStr = "write"
+    }
+    output.append("  ; @prefetch(" + prefetchModeStr +
+        ") instrumentation\n")
+    var pi = 0
+    while pi < fn.params.length() {
+        let param = fn.params[pi]
+        let paramTypeName = param.paramType.typeName
+        if paramTypeName == "Array<Int>" or paramTypeName == "Array<Float>" or
+            contains(paramTypeName, "Array") {
+
+            let allocaName = "%" + quoteIdentIfNeededImpl(param.name)
+            let ptrReg = getNextRegFn(regBox)
+            output.append("  " + ptrReg + " = load ptr, ptr " +
+                allocaName + "\n")
+            output.append("  call void @llvm.prefetch.p0(ptr " + ptrReg +
+                ", i32 " + prefetchRW + ", i32 3, i32 1)\n")
+        }
+        pi = pi + 1
+    }
+}
+
+fun emitRegionAllocatorSetupImpl(output: StringBuilder, regBox: Array<Int>,
+    regionSizeBytes: Int) r: Void {
+
+    if regionSizeBytes <= 0 {
+        return
+    }
+    output.append("  ; @preallocate region allocator - create\n")
+    let regionReg = getNextRegFn(regBox)
+    output.append("  " + regionReg +
+        " = call ptr @__seen_region_create(i64 " +
+        regionSizeBytes.toString() + ", i32 1)\n")
+    output.append("  %__region_ptr = alloca ptr\n")
+    output.append("  store ptr " + regionReg + ", ptr %__region_ptr\n")
+}
+
+fun emitFunctionEntrySetupStateImpl(state: CodegenState, fn: FunctionNode,
+    fnName: String, returnType: String, funcAttrs: String,
+    typeAliasNames: String, typeAliasTargets: String, typeAliasCount: Int,
+    enumTypeNames: String, reprCClassNames: String,
+    profiledFlagBox: Array<Int>, profiledNameBox: Array<String>,
+    profileStringIndexBox: Array<Int>, asyncPromiseBox: Array<String>,
+    asyncCoroIdBox: Array<String>, asyncCoroHdlBox: Array<String>,
+    asyncFinalLabelBox: Array<String>, asyncCleanupLabelBox: Array<String>)
+    r: Array<String> {
+
+    ensureFunctionIntBoxValue(profileStringIndexBox)
+
+    let signaturePrefix = buildFunctionSignaturePrefixImpl(fn, fnName,
+        returnType)
+    let paramDecls = buildFunctionParameterDeclsImpl(fn,
+        hasFunctionDecoratorGenImpl(fn, "no_alias"),
+        state.registry.structNames, typeAliasNames, typeAliasTargets,
+        typeAliasCount, enumTypeNames, reprCClassNames)
+    emitFunctionSignatureImpl(state.output, signaturePrefix, paramDecls,
+        funcAttrs)
+
+    if fn.isAsync {
+        let promiseType = mapTypeImpl(state.currentFunctionReturnType,
+            state.registry.structNames, typeAliasNames, typeAliasTargets,
+            typeAliasCount, enumTypeNames)
+        emitAsyncCoroutinePreambleImpl(state.output, state.regBox,
+            state.blockBox, promiseType, asyncPromiseBox, asyncCoroIdBox,
+            asyncCoroHdlBox, asyncFinalLabelBox, asyncCleanupLabelBox)
+    }
+
+    let paramActiveVarCountBox = Array<Int>()
+    paramActiveVarCountBox.push(state.activeVarCount)
+    emitFunctionParameterAllocasImpl(state.output, state.regBox, fn,
+        state.varNames, state.varRegs, state.varTypes,
+        paramActiveVarCountBox, state.registry.structNames, typeAliasNames,
+        typeAliasTargets, typeAliasCount, enumTypeNames, reprCClassNames)
+    state.activeVarCount = paramActiveVarCountBox[0]
+
+    state.preAllocatedRegs = emitPreAllocatedAllocasImpl(state.output,
+        state.regBox, state.preAllocatedTypes, state.registry.structNames,
+        typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames,
+        reprCClassNames)
+
+    profileStringIndexBox[0] = -1
+    if hasFunctionDecoratorGenImpl(fn, "profile") {
+        profileStringIndexBox[0] = addStringConstantTableImpl(
+            state.stringConstants, fnName)
+    }
+    let unusedParams = emitFunctionDiagnosticsAndProfileEntryImpl(
+        state.output, fn, fnName, profileStringIndexBox[0], profiledFlagBox,
+        profiledNameBox)
+
+    configureFunctionLoweringOptionsImpl(fn, state.functionOptions)
+    emitFunctionPrefetchHintsImpl(state.output, state.regBox, fn,
+        state.functionOptions.prefetchMode)
+    emitRegionAllocatorSetupImpl(state.output, state.regBox,
+        state.functionOptions.regionSizeBytes)
+    return unusedParams
+}
+
+fun emitFunctionEntrySetupSnapshotImpl(state: CodegenState, fn: FunctionNode,
+    fnName: String, returnType: String, funcAttrs: String,
+    typeAliasNames: String, typeAliasTargets: String, typeAliasCount: Int,
+    enumTypeNames: String, reprCClassNames: String, asyncPromise: String,
+    asyncCoroId: String, asyncCoroHdl: String, asyncFinalLabel: String,
+    asyncCleanupLabel: String) r: FunctionEntrySetupSnapshot {
+
+    let snapshot = FunctionEntrySetupSnapshot.new()
+    let profiledFlagBox = Array<Int>()
+    profiledFlagBox.push(0)
+    let profiledNameBox = Array<String>()
+    profiledNameBox.push("")
+    let profileStringIndexBox = Array<Int>()
+    profileStringIndexBox.push(-1)
+    let asyncPromiseBox = Array<String>()
+    asyncPromiseBox.push(asyncPromise)
+    let asyncCoroIdBox = Array<String>()
+    asyncCoroIdBox.push(asyncCoroId)
+    let asyncCoroHdlBox = Array<String>()
+    asyncCoroHdlBox.push(asyncCoroHdl)
+    let asyncFinalLabelBox = Array<String>()
+    asyncFinalLabelBox.push(asyncFinalLabel)
+    let asyncCleanupLabelBox = Array<String>()
+    asyncCleanupLabelBox.push(asyncCleanupLabel)
+
+    snapshot.unusedParams = emitFunctionEntrySetupStateImpl(state, fn, fnName,
+        returnType, funcAttrs, typeAliasNames, typeAliasTargets,
+        typeAliasCount, enumTypeNames, reprCClassNames, profiledFlagBox,
+        profiledNameBox, profileStringIndexBox, asyncPromiseBox,
+        asyncCoroIdBox, asyncCoroHdlBox, asyncFinalLabelBox,
+        asyncCleanupLabelBox)
+    snapshot.profiledFlag = profiledFlagBox[0]
+    snapshot.profiledName = profiledNameBox[0]
+    snapshot.asyncPromise = asyncPromiseBox[0]
+    snapshot.asyncCoroId = asyncCoroIdBox[0]
+    snapshot.asyncCoroHdl = asyncCoroHdlBox[0]
+    snapshot.asyncFinalLabel = asyncFinalLabelBox[0]
+    snapshot.asyncCleanupLabel = asyncCleanupLabelBox[0]
+    return snapshot
+}
+
+fun emitFunctionDiagnosticsAndProfileEntryImpl(output: StringBuilder,
+    fn: FunctionNode, fnName: String, profileStringIndex: Int,
+    profiledFlagBox: Array<Int>, profiledNameBox: Array<String>)
+    r: Array<String> {
+
+    ensureFunctionIntBoxValue(profiledFlagBox)
+    ensureFunctionStringBoxValue(profiledNameBox)
+    profiledFlagBox[0] = 0
+    profiledNameBox[0] = ""
+
+    let unusedParams = scanUnusedParametersImpl(fn)
+    var unusedIdx = 0
+    while unusedIdx < unusedParams.length() {
+        output.append("  ; WARNING: unused parameter: " +
+            unusedParams[unusedIdx] + " in " + fnName + "\n")
+        unusedIdx = unusedIdx + 1
+    }
+
+    if hasFunctionDecoratorGenImpl(fn, "profile") {
+        profiledFlagBox[0] = 1
+        profiledNameBox[0] = fnName
+        output.append("  ; @profile instrumentation - enter\n")
+        output.append("  call void @__seen_profile_enter(ptr @.str." +
+            profileStringIndex.toString() + ")\n")
+    }
+    return unusedParams
+}
+
+fun emitFunctionImplicitTerminationImpl(output: StringBuilder,
+    regBox: Array<Int>, blockBox: Array<Int>, blockTerminated: Bool,
+    isAsyncLowering: Bool, emitAsyncEpilogue: Bool, returnType: String,
+    asyncPromiseType: String,
+    asyncPromise: String, asyncFinalLabel: String, asyncCoroId: String,
+    asyncCoroHdl: String, asyncCleanupLabel: String, regionSizeBytes: Int,
+    profiledFlag: Int, profileStringIndex: Int) r: Void {
+
+    if not blockTerminated {
+        if regionSizeBytes > 0 {
+            let regionDefReg = getNextRegFn(regBox)
+            output.append("  " + regionDefReg +
+                " = load ptr, ptr %__region_ptr\n")
+            output.append("  call void @__seen_region_destroy(ptr " +
+                regionDefReg + ") ; @preallocate cleanup\n")
+        }
+        if profiledFlag == 1 {
+            output.append("  ; @profile instrumentation - exit (default return)\n")
+            output.append("  call void @__seen_profile_exit(ptr @.str." +
+                profileStringIndex.toString() + ")\n")
+        }
+        if isAsyncLowering {
+            if asyncPromiseType != "void" {
+                output.append("  store " + asyncPromiseType +
+                    " zeroinitializer, ptr " + asyncPromise + "\n")
+            }
+            output.append("  br label %" + asyncFinalLabel + "\n")
+        }
+        if not emitAsyncEpilogue {
+            emitDefaultReturnValueImpl(output, returnType)
+        }
+    }
+
+    if emitAsyncEpilogue {
+        emitAsyncCoroutineEpilogueImpl(output, regBox, blockBox, asyncCoroId,
+            asyncCoroHdl, asyncFinalLabel, asyncCleanupLabel)
+    }
+}
+
+fun emitFunctionExitAndResetStateImpl(state: CodegenState, fn: FunctionNode,
+    returnType: String, profiledFlagBox: Array<Int>,
+    profiledNameBox: Array<String>, highPressureBox: Array<Int>,
+    asyncCoroIdBox: Array<String>, asyncCoroHdlBox: Array<String>,
+    asyncPromiseBox: Array<String>, asyncFinalLabelBox: Array<String>,
+    asyncCleanupLabelBox: Array<String>, typeAliasNames: String,
+    typeAliasTargets: String, typeAliasCount: Int, enumTypeNames: String)
+    r: Void {
+
+    var implicitProfiledFlag = 0
+    var implicitProfileStringIndex = -1
+    if profiledFlagBox[0] == 1 {
+        implicitProfiledFlag = 1
+        implicitProfileStringIndex = getStringConstantIndexImpl(
+            state.stringConstants, profiledNameBox[0])
+    }
+
+    emitFunctionImplicitTerminationImpl(state.output, state.regBox,
+        state.blockBox, state.blockTerminated == 1,
+        state.functionOptions.isAsync, fn.isAsync, returnType,
+        mapTypeImpl(state.currentFunctionReturnType,
+            state.registry.structNames, typeAliasNames, typeAliasTargets,
+            typeAliasCount, enumTypeNames),
+        asyncPromiseBox[0], asyncFinalLabelBox[0], asyncCoroIdBox[0],
+        asyncCoroHdlBox[0], asyncCleanupLabelBox[0],
+        state.functionOptions.regionSizeBytes, implicitProfiledFlag,
+        implicitProfileStringIndex)
+
+    resetFunctionRuntimeStateImpl(profiledFlagBox, profiledNameBox,
+        highPressureBox, asyncCoroIdBox, asyncCoroHdlBox, asyncPromiseBox,
+        asyncFinalLabelBox, asyncCleanupLabelBox)
+    clearTransientFunctionLoweringOptions(state.functionOptions)
+    state.output.append("}\n\n")
+}
+
+fun emitFunctionExitResetSnapshotImpl(state: CodegenState, fn: FunctionNode,
+    returnType: String, profiledFlag: Int, profiledName: String,
+    highPressure: Int, asyncCoroId: String, asyncCoroHdl: String,
+    asyncPromise: String, asyncFinalLabel: String, asyncCleanupLabel: String,
+    typeAliasNames: String, typeAliasTargets: String, typeAliasCount: Int,
+    enumTypeNames: String) r: FunctionRuntimeStateSnapshot {
+
+    let snapshot = FunctionRuntimeStateSnapshot.new()
+    let profiledFlagBox = Array<Int>()
+    profiledFlagBox.push(profiledFlag)
+    let profiledNameBox = Array<String>()
+    profiledNameBox.push(profiledName)
+    let highPressureBox = Array<Int>()
+    highPressureBox.push(highPressure)
+    let asyncCoroIdBox = Array<String>()
+    asyncCoroIdBox.push(asyncCoroId)
+    let asyncCoroHdlBox = Array<String>()
+    asyncCoroHdlBox.push(asyncCoroHdl)
+    let asyncPromiseBox = Array<String>()
+    asyncPromiseBox.push(asyncPromise)
+    let asyncFinalLabelBox = Array<String>()
+    asyncFinalLabelBox.push(asyncFinalLabel)
+    let asyncCleanupLabelBox = Array<String>()
+    asyncCleanupLabelBox.push(asyncCleanupLabel)
+
+    emitFunctionExitAndResetStateImpl(state, fn, returnType, profiledFlagBox,
+        profiledNameBox, highPressureBox, asyncCoroIdBox, asyncCoroHdlBox,
+        asyncPromiseBox, asyncFinalLabelBox, asyncCleanupLabelBox,
+        typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames)
+    snapshot.profiledFlag = profiledFlagBox[0]
+    snapshot.profiledName = profiledNameBox[0]
+    snapshot.highPressure = highPressureBox[0]
+    snapshot.asyncCoroId = asyncCoroIdBox[0]
+    snapshot.asyncCoroHdl = asyncCoroHdlBox[0]
+    snapshot.asyncPromise = asyncPromiseBox[0]
+    snapshot.asyncFinalLabel = asyncFinalLabelBox[0]
+    snapshot.asyncCleanupLabel = asyncCleanupLabelBox[0]
+    return snapshot
+}
+
+fun resetFunctionRuntimeStateImpl(profiledFlagBox: Array<Int>,
+    profiledNameBox: Array<String>, highPressureBox: Array<Int>,
+    asyncCoroIdBox: Array<String>, asyncCoroHdlBox: Array<String>,
+    asyncPromiseBox: Array<String>, asyncFinalLabelBox: Array<String>,
+    asyncCleanupLabelBox: Array<String>) r: Void {
+
+    ensureFunctionIntBoxValue(profiledFlagBox)
+    ensureFunctionStringBoxValue(profiledNameBox)
+    ensureFunctionIntBoxValue(highPressureBox)
+    ensureFunctionStringBoxValue(asyncCoroIdBox)
+    ensureFunctionStringBoxValue(asyncCoroHdlBox)
+    ensureFunctionStringBoxValue(asyncPromiseBox)
+    ensureFunctionStringBoxValue(asyncFinalLabelBox)
+    ensureFunctionStringBoxValue(asyncCleanupLabelBox)
+
+    profiledFlagBox[0] = 0
+    profiledNameBox[0] = ""
+    highPressureBox[0] = 0
+    asyncCoroIdBox[0] = ""
+    asyncCoroHdlBox[0] = ""
+    asyncPromiseBox[0] = ""
+    asyncFinalLabelBox[0] = ""
+    asyncCleanupLabelBox[0] = ""
+}
+
+// emitFunctionSignatureImpl — emit function header, parameters, and entry label
+fun emitFunctionSignatureImpl(output: StringBuilder, signaturePrefix: String,
+    paramDecls: Array<String>, funcAttrs: String) r: Void {
+
+    output.append(signaturePrefix)
+    var paramIdx = 0
+    while paramIdx < paramDecls.length() {
+        if paramIdx > 0 {
+            output.append(", ")
+        }
+        output.append(paramDecls[paramIdx])
+        paramIdx = paramIdx + 1
+    }
+    output.append(")" + funcAttrs + " #0 {\n")
+    output.append("entry:\n")
+}
+
+// emitDefaultReturnValueImpl — emit the fallback return for a lowered LLVM type
+fun emitDefaultReturnValueImpl(output: StringBuilder, returnType: String) r: Void {
+    if returnType == "void" {
+        output.append("  ret void\n")
+        return
+    }
+    if returnType == "i1" {
+        output.append("  ret i1 false\n")
+        return
+    }
+    if returnType == "i64" {
+        output.append("  ret i64 0\n")
+        return
+    }
+    if returnType == "ptr" {
+        output.append("  ret ptr null\n")
+        return
+    }
+    if returnType == "%SeenString" {
+        output.append("  ret %SeenString zeroinitializer\n")
+        return
+    }
+    if returnType == "%SeenArray" {
+        output.append("  ret %SeenArray zeroinitializer\n")
+        return
+    }
+    if returnType == "i32" {
+        output.append("  ret i32 0\n")
+        return
+    }
+    output.append("  ret " + returnType + " zeroinitializer\n")
+}
+
+// emitAsyncCoroutinePreambleImpl — emit promise/coro.begin setup for async functions
+fun emitAsyncCoroutinePreambleImpl(output: StringBuilder, regBox: Array<Int>, blockBox: Array<Int>,
+    promiseType: String, promiseBox: Array<String>, coroIdBox: Array<String>,
+    coroHdlBox: Array<String>, finalLabelBox: Array<String>, cleanupLabelBox: Array<String>) r: Void {
+
+    ensureFunctionStringBoxValue(promiseBox)
+    ensureFunctionStringBoxValue(coroIdBox)
+    ensureFunctionStringBoxValue(coroHdlBox)
+    ensureFunctionStringBoxValue(finalLabelBox)
+    ensureFunctionStringBoxValue(cleanupLabelBox)
+
+    let promiseReg = getNextRegFn(regBox)
+    if promiseType != "void" {
+        output.append("  " + promiseReg + " = alloca " + promiseType + ", align 8\n")
+    } else {
+        output.append("  " + promiseReg + " = alloca i8, align 1\n")
+    }
+    promiseBox[0] = promiseReg
+
+    let coroIdReg = getNextRegFn(regBox)
+    let coroSizeReg = getNextRegFn(regBox)
+    let coroAllocReg = getNextRegFn(regBox)
+    let coroBeginReg = getNextRegFn(regBox)
+    output.append("  " + coroIdReg + " = call token @llvm.coro.id(i32 0, ptr " + promiseReg + ", ptr null, ptr null)\n")
+    output.append("  " + coroSizeReg + " = call i32 @llvm.coro.size.i32()\n")
+    output.append("  " + coroAllocReg + " = call noalias ptr @malloc(i32 " + coroSizeReg + ")\n")
+    output.append("  " + coroBeginReg + " = call ptr @llvm.coro.begin(token " + coroIdReg + ", ptr " + coroAllocReg + ")\n")
+
+    coroIdBox[0] = coroIdReg
+    coroHdlBox[0] = coroBeginReg
+    finalLabelBox[0] = getNextBlockFn(blockBox)
+    cleanupLabelBox[0] = getNextBlockFn(blockBox)
+}
+
+// emitAsyncCoroutineEpilogueImpl — emit final suspend, cleanup, and coro.end blocks
+fun emitAsyncCoroutineEpilogueImpl(output: StringBuilder, regBox: Array<Int>, blockBox: Array<Int>,
+    coroId: String, coroHdl: String, finalLabel: String, cleanupLabel: String) r: Void {
+
+    output.append("\n" + finalLabel + ":\n")
+    let finalSuspendReg = getNextRegFn(regBox)
+    output.append("  " + finalSuspendReg + " = call i8 @llvm.coro.suspend(token none, i1 true)\n")
+
+    let suspendLabel = getNextBlockFn(blockBox)
+    output.append("  switch i8 " + finalSuspendReg + ", label %" + suspendLabel + " [\n")
+    output.append("    i8 0, label %" + suspendLabel + "\n")
+    output.append("    i8 1, label %" + cleanupLabel + "\n")
+    output.append("  ]\n")
+
+    output.append("\n" + cleanupLabel + ":\n")
+    let coroMemReg = getNextRegFn(regBox)
+    output.append("  " + coroMemReg + " = call ptr @llvm.coro.free(token " + coroId + ", ptr " + coroHdl + ")\n")
+    output.append("  call void @free(ptr " + coroMemReg + ")\n")
+    output.append("  br label %" + suspendLabel + "\n")
+
+    output.append("\n" + suspendLabel + ":\n")
+    let coroEndReg = getNextRegFn(regBox)
+    output.append("  " + coroEndReg + " = call i1 @llvm.coro.end(ptr " + coroHdl + ", i1 false, token none)\n")
+    output.append("  ret ptr " + coroHdl + "\n")
+}
+
+// scanUnusedParametersImpl — conservative unused-parameter scan for warnings
+fun scanUnusedParametersImpl(fn: FunctionNode) r: Array<String> {
+    let unused = Array<String>()
+    if fn.body.statements.length() == 0 {
+        return unused
+    }
+
+    var paramIdx = 0
+    while paramIdx < fn.params.length() {
+        let param = fn.params[paramIdx]
+        var found = false
+        var stmtIdx = 0
+        while stmtIdx < fn.body.statements.length() {
+            let scanStmt = fn.body.statements[stmtIdx]
+            if scanStmt.expression.kind == "Variable" and scanStmt.expression.literalValue == param.name {
+                found = true
+            }
+            if scanStmt.kind == "Return" and scanStmt.expression.kind == "Variable" {
+                if scanStmt.expression.literalValue == param.name {
+                    found = true
+                }
+            }
+            if scanStmt.kind == "Expression" and scanStmt.expression.kind == "Assignment" {
+                if scanStmt.expression.operands.length() > 0 {
+                    if scanStmt.expression.operands[0].kind == "Variable" and scanStmt.expression.operands[0].literalValue == param.name {
+                        found = true
+                    }
+                }
+            }
+            if scanStmt.kind == "Let" or scanStmt.kind == "Var" {
+                if scanStmt.expression.kind == "Variable" and scanStmt.expression.literalValue == param.name {
+                    found = true
+                }
+            }
+            if fn.body.statements.length() > 5 {
+                found = true
+            }
+            stmtIdx = stmtIdx + 1
+        }
+        if not found {
+            unused.push(param.name)
+        }
+        paramIdx = paramIdx + 1
+    }
+    return unused
+}
 
 // emitIntrinsicWrapperImpl — Generate thin wrapper for @intrinsic("llvm.xxx") decorated function
 // Emits LLVM intrinsic declare + Seen wrapper function
@@ -140,19 +1498,13 @@ fun generateLiteralFree(s: CodegenState, expr: ParserExpressionNode) r: String {
     }
     if expr.literalType == "String" {
         // Find string constant index (or add if not pre-registered by collectStringConstants)
-        var idx = 0
-        var found = false
-        while idx < s.stringConstants.length() {
-            if s.stringConstants[idx] == expr.literalValue {
-                found = true
-                break
-            }
-            idx = idx + 1
-        }
-        if not found {
+        var idx = findStringConstantIndexImpl(s.stringConstants,
+            expr.literalValue)
+        if idx < 0 {
             // String was missed by collectStringConstants (e.g., in IfExpression operands).
             // Add it now so the index is correct and emitStringConstantsWithPrefix will emit it.
             s.stringConstants.push(expr.literalValue)
+            cacheStringConstUnchecked(expr.literalValue)
             idx = s.stringConstants.length() - 1
             // Emit the constant definition inline since emitStringConstantsWithPrefix already ran.
             let strLenFallback = expr.literalValue.length() + 1

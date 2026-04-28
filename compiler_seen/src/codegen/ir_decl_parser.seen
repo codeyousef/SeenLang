@@ -9,6 +9,9 @@ fun emitParserDecls(output: StringBuilder, definedFuncs: Array<String>) r: Void 
     if not isFuncDefinedInModule("run_frontend", definedFuncs) {
         output.append("declare i64 @run_frontend(%SeenString, %SeenString, %SeenString) nounwind\n")
     }
+    if not isFuncDefinedInModule("run_frontend_declarations", definedFuncs) {
+        output.append("declare i64 @run_frontend_declarations(%SeenString, %SeenString, %SeenString) nounwind\n")
+    }
     // getDiagnostics returns Array pointer (not a class type itself, stays as ptr)
     if not isFuncDefinedInModule("FrontendResult_getDiagnostics", definedFuncs) {
         output.append("declare ptr @FrontendResult_getDiagnostics(ptr) nounwind\n")
@@ -206,6 +209,9 @@ fun emitParserDecls(output: StringBuilder, definedFuncs: Array<String>) r: Void 
     }
     if not isFuncDefinedInModule("RealParser_parseImportItemInto", definedFuncs) {
         output.append("declare i64 @RealParser_parseImportItemInto(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_parseDeclarationsOnly", definedFuncs) {
+        output.append("declare i64 @RealParser_parseDeclarationsOnly(ptr) nounwind\n")
     }
     // RealParser parse methods returning class types (all AST nodes stored as i64)
     if not isFuncDefinedInModule("RealParser_parseFunctionItem", definedFuncs) {

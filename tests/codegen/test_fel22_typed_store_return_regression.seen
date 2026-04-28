@@ -1,0 +1,55 @@
+// Regression: FEL-22 store and return lowering must use the value's real
+// LLVM type and coerce numeric mismatches before emitting stores/returns.
+
+data Pair {
+    value: Float;
+    flag: Bool;
+}
+
+class Holder {
+    var numbers: Array<Int>
+    var message: String
+    var enabled: Bool
+    var ratio: Float
+    var pair: Pair
+
+    static fun new() r: Holder {
+        return Holder {
+            numbers: Array<Int>(),
+            message: "",
+            enabled: false,
+            ratio: 0.0,
+            pair: Pair { value: 0.0, flag: false }
+        }
+    }
+}
+
+fun intSeven() r: Int {
+    return 7
+}
+
+fun floatFromInt() r: Float {
+    return intSeven()
+}
+
+fun makePair() r: Pair {
+    return Pair { value: intSeven(), flag: intSeven() == 7 }
+}
+
+fun main() r: Int {
+    let holder = Holder.new()
+    holder.numbers = Array<Int>()
+    holder.numbers.push(42)
+    holder.message = "fel22"
+    holder.enabled = holder.numbers.get(0) == 42
+    holder.ratio = intSeven()
+    holder.pair = makePair()
+
+    let total = holder.ratio + holder.pair.value + floatFromInt()
+    if holder.message == "fel22" and holder.enabled and
+        holder.numbers.get(0) == 42 and total > 20.9 and total < 21.1 {
+        return 0
+    }
+
+    return 1
+}

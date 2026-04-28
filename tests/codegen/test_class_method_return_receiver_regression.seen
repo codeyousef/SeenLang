@@ -1,0 +1,41 @@
+// Regression: values returned from class-returning instance methods must keep
+// their semantic receiver type for later method calls.
+
+class Chunk {
+    var voxelHandle: Int
+
+    static fun new() r: Chunk {
+        return Chunk { voxelHandle: 0 }
+    }
+
+    fun setVoxel(x: Int, y: Int, z: Int, voxelType: Int) {
+        if x < 0 {
+            return
+        }
+        this.voxelHandle = voxelType
+    }
+}
+
+class WorldGrid {
+    var chunk: Chunk
+
+    static fun new() r: WorldGrid {
+        return WorldGrid { chunk: Chunk.new() }
+    }
+
+    fun getChunk() r: Chunk {
+        return this.chunk
+    }
+}
+
+fun main() r: Int {
+    let world = WorldGrid.new()
+    let chunk = world.getChunk()
+    chunk.setVoxel(1, 2, 3, 4)
+    if chunk.voxelHandle == 4 {
+        println("PASS: class method return receiver")
+        return 0
+    }
+    println("FAIL: class method return receiver = " + chunk.voxelHandle.toString())
+    return 1
+}

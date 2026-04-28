@@ -1,0 +1,131 @@
+// ir_unary_expr.seen - unary expression classification and emission helpers.
+
+import str.string.{StringBuilder}
+import codegen.ir_optimization.{getNextRegFn}
+
+fun unaryOperatorMethodNameImpl(operator: String) r: String {
+    if operator == "-" {
+        return "operator_neg"
+    }
+    if operator == "not" or operator == "!" {
+        return "operator_not"
+    }
+    return ""
+}
+
+fun shouldSkipUnaryOverloadTypeImpl(unaryType: String) r: Bool {
+    return unaryType == "Int" or unaryType == "Float" or
+        unaryType == "Bool" or unaryType == "String"
+}
+
+fun negatedComparisonPredicateImpl(operator: String) r: String {
+    if operator == "==" { return "ne" }
+    if operator == "!=" { return "eq" }
+    if operator == "<" { return "sge" }
+    if operator == ">" { return "sle" }
+    if operator == "<=" { return "sgt" }
+    if operator == ">=" { return "slt" }
+    return ""
+}
+
+fun shouldEmitNegatedComparisonForTypesImpl(leftType: String,
+    rightType: String) r: Bool {
+
+    return leftType == "Int" or rightType == "Int" or
+        leftType == "Char" or rightType == "Char"
+}
+
+fun emitOverloadedUnaryCallImpl(output: StringBuilder, regBox: Array<Int>,
+    quotedFuncName: String, retLlvmType: String, unaryValueReg: String)
+    r: String {
+
+    let thisReg = getNextRegFn(regBox)
+    output.append("  " + thisReg + " = inttoptr i64 " + unaryValueReg +
+        " to ptr\n")
+    let resultReg = getNextRegFn(regBox)
+    output.append("  " + resultReg + " = call " + retLlvmType + " @" +
+        quotedFuncName + "(ptr " + thisReg + ")\n")
+    return resultReg
+}
+
+fun emitUnaryNegationImpl(output: StringBuilder, regBox: Array<Int>,
+    operandReg: String, operandType: String) r: String {
+
+    let resultReg = getNextRegFn(regBox)
+    if operandType == "Float" {
+        output.append("  " + resultReg + " = fneg fast double " +
+            operandReg + "\n")
+    } else {
+        output.append("  " + resultReg + " = sub nsw i64 0, " +
+            operandReg + "\n")
+    }
+    return resultReg
+}
+
+fun emitNegatedComparisonImpl(output: StringBuilder, regBox: Array<Int>,
+    predicate: String, leftReg: String, rightReg: String) r: String {
+
+    let resultReg = getNextRegFn(regBox)
+    output.append("  " + resultReg + " = icmp " + predicate + " i64 " +
+        leftReg + ", " + rightReg + " ; negated comparison\n")
+    return resultReg
+}
+
+fun emitUnaryLogicalNotImpl(output: StringBuilder, regBox: Array<Int>,
+    operandReg: String, operandType: String) r: String {
+
+    var boolReg = operandReg
+    if operandType != "Bool" and operandType != "Boolean" {
+        boolReg = getNextRegFn(regBox)
+        output.append("  " + boolReg + " = icmp ne i64 " + operandReg +
+            ", 0\n")
+    }
+    let resultReg = getNextRegFn(regBox)
+    output.append("  " + resultReg + " = xor i1 " + boolReg + ", 1\n")
+    return resultReg
+}
+
+fun emitUnaryAddressOfClassValueImpl(output: StringBuilder,
+    regBox: Array<Int>, addrVarReg: String) r: String {
+
+    let resultReg = getNextRegFn(regBox)
+    output.append("  " + resultReg + " = load i64, ptr " + addrVarReg +
+        " ; &class — handle is pointer\n")
+    return resultReg
+}
+
+fun emitUnaryAddressOfVariablePtrImpl(output: StringBuilder,
+    regBox: Array<Int>, addrVarReg: String) r: String {
+
+    let resultReg = getNextRegFn(regBox)
+    output.append("  " + resultReg + " = ptrtoint ptr " + addrVarReg +
+        " to i64 ; &var — address of alloca\n")
+    return resultReg
+}
+
+fun emitUnaryDereferenceImpl(output: StringBuilder, regBox: Array<Int>,
+    derefValueReg: String) r: String {
+
+    let ptrReg = getNextRegFn(regBox)
+    output.append("  " + ptrReg + " = inttoptr i64 " + derefValueReg +
+        " to ptr\n")
+    let resultReg = getNextRegFn(regBox)
+    output.append("  " + resultReg + " = load i64, ptr " + ptrReg +
+        " ; *ptr dereference\n")
+    return resultReg
+}
+
+fun isUnaryBitwiseNotOperatorImpl(operator: String) r: Bool {
+    if operator.length() != 1 {
+        return false
+    }
+    return operator.charAt(0).toInt() == 126
+}
+
+fun emitUnaryBitwiseNotImpl(output: StringBuilder, regBox: Array<Int>,
+    operandReg: String) r: String {
+
+    let resultReg = getNextRegFn(regBox)
+    output.append("  " + resultReg + " = xor i64 " + operandReg + ", -1\n")
+    return resultReg
+}

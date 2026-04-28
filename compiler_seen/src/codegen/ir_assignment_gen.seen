@@ -1,9 +1,562 @@
 // ir_assignment_gen.seen — Assignment GEP+store emission helpers
-// Extracted from llvm_ir_gen.seen to reduce module 5 size
-// Handles field store with nullable types, ptr coercion, and data type loading
+// Extracted from llvm_ir_gen.seen to reduce module 5 size.
+// Handles receiver-pointer prep, field-type resolution, union/bitfield stores,
+// and final field stores.
 
 import codegen.ir_optimization.{getNextRegFn}
+import codegen.ir_string_collect.{getBaseTypeNameImpl}
+import codegen.ir_type_info.{findStructIdx, getSeenFieldTypeImpl}
+import codegen.ir_type_mapping.{isClassTypeImpl, isDataTypeImpl, mapTypeImpl, isClassHandleLikeTypeImpl}
+import codegen.ir_bitfield_access.{findBitfieldWidthImpl}
+import codegen.ir_field_layout.{emitResolvedFieldAccessPtrImpl, emitResolvedFieldAccessLoadImpl}
+import codegen.ir_member_access.{prepareExpressionMemberReceiverImpl, prepareVariableMemberReceiverImpl}
+import codegen.ir_variable_gen.{findActiveVariableIndexImpl}
+import codegen.type_registry.{getFieldInfoReg}
 import str.string.{StringBuilder}
+
+fun getPipeValueAtIndexImpl(values: String, wantedIdx: Int) r: String {
+    var currentIdx = 0
+    var start = 0
+    var pos = 0
+    while pos <= values.length() {
+        if pos == values.length() or (pos < values.length() and values.byteAt(pos) == 124) {
+            if currentIdx == wantedIdx {
+                return values.substring(start, pos)
+            }
+            currentIdx = currentIdx + 1
+            start = pos + 1
+        }
+        pos = pos + 1
+    }
+    return ""
+}
+
+fun mapAssignmentFieldTypeImpl(seenType: String, reprCClassNames: String,
+    structNames: Array<String>, typeAliasNames: String, typeAliasTargets: String,
+    typeAliasCount: Int, enumTypeNames: String) r: String {
+
+    if seenType.startsWith("dyn ") {
+        return "i64"
+    }
+    if seenType.startsWith("*") {
+        return "i64"
+    }
+    if reprCClassNames != "" {
+        let baseType = getBaseTypeNameImpl(seenType)
+        if reprCClassNames.contains(baseType + "|") {
+            return "%" + baseType
+        }
+    }
+    return mapTypeImpl(seenType, structNames, typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames)
+}
+
+fun resolveAssignmentFieldTypesImpl(structType: String, fieldName: String,
+    structNames: Array<String>, structFieldNames: Array<String>, structFieldTypes: Array<String>,
+    structLlvmFieldTypes: Array<String>, reprCClassNames: String, typeAliasNames: String,
+    typeAliasTargets: String, typeAliasCount: Int, enumTypeNames: String) r: Array<String> {
+
+    let fieldTypes = Array<String>()
+    let seenFieldType = getSeenFieldTypeImpl(structType, fieldName, structNames, structFieldNames, structFieldTypes)
+    var llvmFieldType = ""
+
+    let structIdx = findStructIdx(structNames, structType)
+    if structIdx >= 0 {
+        let llvmFieldTypesStr = structLlvmFieldTypes[structIdx]
+        if llvmFieldTypesStr != "" {
+            let fieldIdx = getFieldInfoReg(structType, fieldName, structNames, structFieldNames)
+            if fieldIdx >= 0 {
+                llvmFieldType = getPipeValueAtIndexImpl(llvmFieldTypesStr, fieldIdx)
+            }
+        }
+    }
+
+    if llvmFieldType == "" and seenFieldType != "" {
+        llvmFieldType = mapAssignmentFieldTypeImpl(seenFieldType, reprCClassNames,
+            structNames, typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames)
+    }
+    if llvmFieldType == "" {
+        llvmFieldType = "i64"
+    }
+
+    fieldTypes.push(llvmFieldType)
+    fieldTypes.push(seenFieldType)
+    return fieldTypes
+}
+
+fun emitUnionFieldStoreImpl(output: StringBuilder, llvmFieldType: String,
+    valueReg: String, receiverPtrReg: String) r: Void {
+
+    var storeValueReg = valueReg
+    if llvmFieldType == "%SeenString" and valueReg == "0" {
+        storeValueReg = "zeroinitializer"
+    }
+    output.append("  store " + llvmFieldType + " " + storeValueReg + ", ptr " + receiverPtrReg + " ; union field store\n")
+}
+
+fun tryEmitBitfieldAssignmentStoreImpl(output: StringBuilder, regBox: Array<Int>,
+    fieldPtrReg: String, valueReg: String, bitfieldWidth: Int) r: Int {
+
+    if bitfieldWidth <= 0 or bitfieldWidth >= 64 {
+        return 0
+    }
+
+    var mask = 1
+    var shiftIdx = 0
+    while shiftIdx < bitfieldWidth {
+        mask = mask * 2
+        shiftIdx = shiftIdx + 1
+    }
+    mask = mask - 1
+
+    let oldValueReg = getNextRegFn(regBox)
+    output.append("  " + oldValueReg + " = load i64, ptr " + fieldPtrReg + "\n")
+    let invMask = -1 - mask
+    let clearedReg = getNextRegFn(regBox)
+    output.append("  " + clearedReg + " = and i64 " + oldValueReg + ", " + invMask.toString() + "\n")
+    let maskedNewValueReg = getNextRegFn(regBox)
+    output.append("  " + maskedNewValueReg + " = and i64 " + valueReg + ", " + mask.toString() + "\n")
+    let mergedReg = getNextRegFn(regBox)
+    output.append("  " + mergedReg + " = or i64 " + clearedReg + ", " + maskedNewValueReg + " ; bitfield write(" + bitfieldWidth.toString() + ")\n")
+    output.append("  store i64 " + mergedReg + ", ptr " + fieldPtrReg + "\n")
+    return 1
+}
+
+fun mapAssignmentSourceValueTypeImpl(sourceSeenType: String,
+    structNames: Array<String>) r: String {
+
+    if sourceSeenType == "" or sourceSeenType == "Unknown" {
+        return ""
+    }
+    if sourceSeenType.startsWith("*") {
+        return "ptr"
+    }
+    if sourceSeenType == "String" {
+        return "%SeenString"
+    }
+    if sourceSeenType == "Float" {
+        return "double"
+    }
+    if sourceSeenType == "Bool" or sourceSeenType == "Boolean" {
+        return "i1"
+    }
+    if sourceSeenType == "Int" or sourceSeenType == "Char" or
+        sourceSeenType == "SeenTokenType" {
+        return "i64"
+    }
+    if sourceSeenType.startsWith("Array<") or
+        sourceSeenType.startsWith("List<") {
+        return "ptr"
+    }
+    if isDataTypeImpl(sourceSeenType) == 1 {
+        return "%" + sourceSeenType
+    }
+    if isClassTypeImpl(sourceSeenType, structNames) == 1 {
+        return "i64"
+    }
+    return ""
+}
+
+fun coerceAssignmentStoreValueImpl(output: StringBuilder, regBox: Array<Int>,
+    targetLlvmType: String, sourceSeenType: String, valueReg: String,
+    structNames: Array<String>) r: String {
+
+    let sourceLlvmType = mapAssignmentSourceValueTypeImpl(sourceSeenType,
+        structNames)
+    if sourceLlvmType == "" or sourceLlvmType == targetLlvmType {
+        return valueReg
+    }
+    if targetLlvmType == "double" and sourceLlvmType == "i64" {
+        let coercedReg = getNextRegFn(regBox)
+        output.append("  " + coercedReg + " = sitofp i64 " + valueReg +
+            " to double\n")
+        return coercedReg
+    }
+    if targetLlvmType == "double" and sourceLlvmType == "i1" {
+        let intReg = getNextRegFn(regBox)
+        output.append("  " + intReg + " = zext i1 " + valueReg + " to i64\n")
+        let coercedReg = getNextRegFn(regBox)
+        output.append("  " + coercedReg + " = sitofp i64 " + intReg +
+            " to double\n")
+        return coercedReg
+    }
+    if targetLlvmType == "i64" and sourceLlvmType == "ptr" {
+        let coercedReg = getNextRegFn(regBox)
+        output.append("  " + coercedReg + " = ptrtoint ptr " + valueReg +
+            " to i64\n")
+        return coercedReg
+    }
+    if targetLlvmType == "i64" and sourceLlvmType == "double" {
+        let coercedReg = getNextRegFn(regBox)
+        output.append("  " + coercedReg + " = fptosi double " + valueReg +
+            " to i64\n")
+        return coercedReg
+    }
+    if targetLlvmType == "i64" and sourceLlvmType == "i1" {
+        let coercedReg = getNextRegFn(regBox)
+        output.append("  " + coercedReg + " = zext i1 " + valueReg +
+            " to i64\n")
+        return coercedReg
+    }
+    if targetLlvmType == "ptr" and sourceLlvmType == "i64" {
+        if valueReg == "0" {
+            return "null"
+        }
+        let coercedReg = getNextRegFn(regBox)
+        output.append("  " + coercedReg + " = inttoptr i64 " + valueReg +
+            " to ptr\n")
+        return coercedReg
+    }
+    if targetLlvmType == "i1" and sourceLlvmType == "i64" {
+        let coercedReg = getNextRegFn(regBox)
+        output.append("  " + coercedReg + " = icmp ne i64 " + valueReg +
+            ", 0\n")
+        return coercedReg
+    }
+    if targetLlvmType == "i1" and sourceLlvmType == "double" {
+        let coercedReg = getNextRegFn(regBox)
+        output.append("  " + coercedReg + " = fcmp one double " + valueReg +
+            ", 0.0\n")
+        return coercedReg
+    }
+    return valueReg
+}
+
+fun coerceMethodCallHandleAssignmentImpl(output: StringBuilder,
+    regBox: Array<Int>, targetLlvmType: String, valueSeenType: String,
+    valueReg: String, valueKind: String, alreadyCoercedValueReg: String,
+    structNames: Array<String>) r: String {
+
+    if targetLlvmType != "ptr" {
+        return alreadyCoercedValueReg
+    }
+    if alreadyCoercedValueReg != valueReg {
+        return alreadyCoercedValueReg
+    }
+    if valueKind != "MethodCall" and valueKind != "Call" {
+        return alreadyCoercedValueReg
+    }
+    if valueReg == "0" {
+        return "null"
+    }
+    if isClassHandleLikeTypeImpl(valueSeenType, structNames) != 1 {
+        return alreadyCoercedValueReg
+    }
+
+    let coercedReg = getNextRegFn(regBox)
+    output.append("  " + coercedReg + " = inttoptr i64 " + valueReg +
+        " to ptr\n")
+    return coercedReg
+}
+
+fun emitResolvedMemberAssignmentStoreImpl(output: StringBuilder,
+    regBox: Array<Int>, receiverPtrReg: String, receiverType: String,
+    fieldName: String, valueReg: String, valueKind: String,
+    valueSeenType: String, allowBitfield: Int,
+    structNames: Array<String>, structLayouts: Array<String>,
+    structFieldNames: Array<String>, structFieldTypes: Array<String>,
+    structLlvmFieldTypes: Array<String>, reprCClassNames: String,
+    typeAliasNames: String, typeAliasTargets: String, typeAliasCount: Int,
+    enumTypeNames: String, unionTypes: String, bitfieldCount: Int,
+    bitfieldKeys: String, bitfieldWidths: String) r: Int {
+
+    if receiverPtrReg == "" or receiverType == "" {
+        return 0
+    }
+
+    let fieldTypes = resolveAssignmentFieldTypesImpl(receiverType, fieldName,
+        structNames, structFieldNames, structFieldTypes,
+        structLlvmFieldTypes, reprCClassNames, typeAliasNames,
+        typeAliasTargets, typeAliasCount, enumTypeNames)
+    if fieldTypes.length() < 2 or fieldTypes[1] == "" {
+        return 0
+    }
+
+    if unionTypes != "" and unionTypes.contains(receiverType + "|") {
+        let unionValueReg = coerceAssignmentStoreValueImpl(output, regBox,
+            fieldTypes[0], valueSeenType, valueReg, structNames)
+        emitUnionFieldStoreImpl(output, fieldTypes[0], unionValueReg,
+            receiverPtrReg)
+        return 1
+    }
+
+    let fieldPtrReg = emitResolvedFieldAccessPtrImpl(output, regBox,
+        receiverPtrReg, receiverType, fieldName, structNames, structLayouts,
+        structFieldNames)
+
+    if allowBitfield == 1 and bitfieldCount > 0 and fieldTypes[0] == "i64" {
+        let bitfieldWidth = findBitfieldWidthImpl(receiverType + "." + fieldName,
+            bitfieldKeys, bitfieldWidths)
+        if bitfieldWidth > 0 {
+            let bitfieldValueReg = coerceAssignmentStoreValueImpl(output,
+                regBox, "i64", valueSeenType, valueReg, structNames)
+            if tryEmitBitfieldAssignmentStoreImpl(output, regBox, fieldPtrReg,
+                bitfieldValueReg, bitfieldWidth) == 1 {
+                return 1
+            }
+        }
+    }
+
+    var valueIsStructLit = 0
+    if valueKind == "StructLiteral" {
+        valueIsStructLit = 1
+    }
+    var isDataField = 0
+    if isDataTypeImpl(fieldTypes[1]) == 1 {
+        isDataField = 1
+    }
+    var coercedValueReg = coerceAssignmentStoreValueImpl(output, regBox,
+        fieldTypes[0], valueSeenType, valueReg, structNames)
+    coercedValueReg = coerceMethodCallHandleAssignmentImpl(output, regBox,
+        fieldTypes[0], valueSeenType, valueReg, valueKind,
+        coercedValueReg, structNames)
+    emitFieldStoreImpl(output, regBox, coercedValueReg, fieldTypes[0],
+        fieldPtrReg, valueIsStructLit, isDataField)
+    return 1
+}
+
+fun emitValueReceiverMemberAssignmentImpl(output: StringBuilder,
+    regBox: Array<Int>, receiverReg: String, receiverType: String,
+    fieldName: String, valueReg: String, valueKind: String,
+    valueSeenType: String,
+    structNames: Array<String>, structLayouts: Array<String>,
+    structFieldNames: Array<String>, structFieldTypes: Array<String>,
+    structLlvmFieldTypes: Array<String>, reprCClassNames: String,
+    typeAliasNames: String, typeAliasTargets: String, typeAliasCount: Int,
+    enumTypeNames: String, unionTypes: String, bitfieldCount: Int,
+    bitfieldKeys: String, bitfieldWidths: String) r: Int {
+
+    if receiverType == "" or receiverType == "Unknown" {
+        return 0
+    }
+
+    var isClassReceiver = 0
+    if isClassTypeImpl(receiverType, structNames) == 1 {
+        isClassReceiver = 1
+    }
+    var isDataReceiver = 0
+    if isDataTypeImpl(receiverType) == 1 {
+        isDataReceiver = 1
+    }
+    let receiverPtrReg = prepareExpressionMemberReceiverImpl(output, regBox,
+        receiverReg, receiverType, reprCClassNames, isClassReceiver,
+        isDataReceiver)
+    return emitResolvedMemberAssignmentStoreImpl(output, regBox,
+        receiverPtrReg, receiverType, fieldName, valueReg, valueKind,
+        valueSeenType, 0,
+        structNames, structLayouts, structFieldNames, structFieldTypes,
+        structLlvmFieldTypes, reprCClassNames, typeAliasNames,
+        typeAliasTargets, typeAliasCount, enumTypeNames, unionTypes,
+        bitfieldCount, bitfieldKeys, bitfieldWidths)
+}
+
+fun emitVariableReceiverMemberAssignmentImpl(output: StringBuilder,
+    regBox: Array<Int>, receiverName: String, fieldName: String,
+    valueReg: String, valueKind: String, valueSeenType: String,
+    varNames: Array<String>,
+    activeVarCount: Int, varRegs: Array<String>, varTypes: Array<String>,
+    structNames: Array<String>, structLayouts: Array<String>,
+    structFieldNames: Array<String>, structFieldTypes: Array<String>,
+    structLlvmFieldTypes: Array<String>, reprCClassNames: String,
+    typeAliasNames: String, typeAliasTargets: String, typeAliasCount: Int,
+    enumTypeNames: String, unionTypes: String, bitfieldCount: Int,
+    bitfieldKeys: String, bitfieldWidths: String) r: Int {
+
+    let varIdx = findActiveVariableIndexImpl(varNames, activeVarCount,
+        receiverName)
+    if varIdx < 0 {
+        return 0
+    }
+
+    let varReg = varRegs[varIdx]
+    let varType = varTypes[varIdx]
+    var isClassReceiver = 0
+    if isClassTypeImpl(varType, structNames) == 1 {
+        isClassReceiver = 1
+    }
+    var isDataReceiver = 0
+    if isDataTypeImpl(varType) == 1 {
+        isDataReceiver = 1
+    }
+    let receiverPtrReg = prepareVariableMemberReceiverImpl(output, regBox,
+        varReg, varType, "", isClassReceiver, isDataReceiver)
+    return emitResolvedMemberAssignmentStoreImpl(output, regBox,
+        receiverPtrReg, varType, fieldName, valueReg, valueKind,
+        valueSeenType, 1,
+        structNames, structLayouts, structFieldNames, structFieldTypes,
+        structLlvmFieldTypes, reprCClassNames, typeAliasNames,
+        typeAliasTargets, typeAliasCount, enumTypeNames, unionTypes,
+        bitfieldCount, bitfieldKeys, bitfieldWidths)
+}
+
+fun emitImplicitThisMemberAssignmentImpl(output: StringBuilder,
+    regBox: Array<Int>, receiverName: String, fieldName: String,
+    valueReg: String, valueKind: String, valueSeenType: String,
+    varNames: Array<String>,
+    activeVarCount: Int, varRegs: Array<String>, varTypes: Array<String>,
+    structNames: Array<String>, structLayouts: Array<String>,
+    structFieldNames: Array<String>, structFieldTypes: Array<String>,
+    structLlvmFieldTypes: Array<String>, reprCClassNames: String,
+    typeAliasNames: String, typeAliasTargets: String, typeAliasCount: Int,
+    enumTypeNames: String, unionTypes: String, bitfieldCount: Int,
+    bitfieldKeys: String, bitfieldWidths: String) r: Int {
+
+    let thisIdx = findActiveVariableIndexImpl(varNames, activeVarCount,
+        "this")
+    if thisIdx < 0 {
+        return 0
+    }
+
+    let thisReg = varRegs[thisIdx]
+    let thisType = varTypes[thisIdx]
+    let firstFieldTypes = resolveAssignmentFieldTypesImpl(thisType,
+        receiverName, structNames, structFieldNames, structFieldTypes,
+        structLlvmFieldTypes, reprCClassNames, typeAliasNames,
+        typeAliasTargets, typeAliasCount, enumTypeNames)
+    if firstFieldTypes.length() < 2 or firstFieldTypes[1] == "" {
+        return 0
+    }
+
+    let thisPtrReg = getNextRegFn(regBox)
+    output.append("  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n")
+
+    let firstFieldType = firstFieldTypes[1]
+    var nestedPtrReg = ""
+    if isClassTypeImpl(firstFieldType, structNames) == 1 {
+        let firstFieldValReg = emitResolvedFieldAccessLoadImpl(output, regBox,
+            thisPtrReg, thisType, receiverName, firstFieldTypes[0],
+            structNames, structLayouts, structFieldNames, 0, "", "")
+        let ptrConvReg = getNextRegFn(regBox)
+        output.append("  " + ptrConvReg + " = inttoptr i64 " +
+            firstFieldValReg + " to ptr\n")
+        nestedPtrReg = ptrConvReg
+    } else {
+        nestedPtrReg = emitResolvedFieldAccessPtrImpl(output, regBox,
+            thisPtrReg, thisType, receiverName, structNames, structLayouts,
+            structFieldNames)
+    }
+
+    return emitResolvedMemberAssignmentStoreImpl(output, regBox,
+        nestedPtrReg, firstFieldType, fieldName, valueReg, valueKind,
+        valueSeenType, 0,
+        structNames, structLayouts, structFieldNames, structFieldTypes,
+        structLlvmFieldTypes, reprCClassNames, typeAliasNames,
+        typeAliasTargets, typeAliasCount, enumTypeNames, unionTypes,
+        bitfieldCount, bitfieldKeys, bitfieldWidths)
+}
+
+fun emitIndexAssignmentBoundsCheckImpl(output: StringBuilder, regBox: Array<Int>,
+    arrayReg: String, indexReg: String, failLabel: String, okLabel: String) r: Void {
+
+    let lenPtrReg = getNextRegFn(regBox)
+    output.append("  " + lenPtrReg + " = getelementptr inbounds %SeenArray, ptr " + arrayReg + ", i32 0, i32 0\n")
+    let lenReg = getNextRegFn(regBox)
+    output.append("  " + lenReg + " = load i64, ptr " + lenPtrReg + "\n")
+    let oobReg = getNextRegFn(regBox)
+    output.append("  " + oobReg + " = icmp uge i64 " + indexReg + ", " + lenReg + "\n")
+    output.append("  br i1 " + oobReg + ", label %" + failLabel + ", label %" + okLabel + "\n")
+    output.append(failLabel + ":\n")
+    output.append("  call void @seen_bounds_check(i64 " + indexReg + ", i64 " + lenReg + ")\n")
+    output.append("  unreachable\n")
+    output.append(okLabel + ":\n")
+}
+
+fun emitPreparedIndexAssignmentBoundsCheckImpl(output: StringBuilder,
+    regBox: Array<Int>, arrayReg: String, indexReg: String,
+    failLabel: String, okLabel: String) r: Void {
+
+    emitIndexAssignmentBoundsCheckImpl(output, regBox, arrayReg, indexReg,
+        failLabel, okLabel)
+}
+
+fun emitPrimitiveIndexAssignmentStoreImpl(output: StringBuilder,
+    regBox: Array<Int>, arrayReg: String, indexReg: String, valueReg: String,
+    elementType: String, valueSeenType: String, structNames: Array<String>)
+    r: Int {
+
+    if elementType == "Int" or elementType == "Char" {
+        let storedValueReg = coerceAssignmentStoreValueImpl(output, regBox,
+            "i64", valueSeenType, valueReg, structNames)
+        let dataPtrPtrReg = getNextRegFn(regBox)
+        output.append("  " + dataPtrPtrReg + " = getelementptr inbounds %SeenArray, ptr " + arrayReg + ", i32 0, i32 3\n")
+        let dataPtrReg = getNextRegFn(regBox)
+        output.append("  " + dataPtrReg + " = load ptr, ptr " + dataPtrPtrReg + ", !tbaa !104\n")
+        let elemPtrReg = getNextRegFn(regBox)
+        output.append("  " + elemPtrReg + " = getelementptr inbounds nuw i64, ptr " + dataPtrReg + ", i64 " + indexReg + "\n")
+        output.append("  store i64 " + storedValueReg + ", ptr " + elemPtrReg + ", align 8, !tbaa !105\n")
+        return 1
+    }
+    if elementType == "Float" {
+        let storedValueReg = coerceAssignmentStoreValueImpl(output, regBox,
+            "double", valueSeenType, valueReg, structNames)
+        let dataPtrPtrReg = getNextRegFn(regBox)
+        output.append("  " + dataPtrPtrReg + " = getelementptr inbounds %SeenArray, ptr " + arrayReg + ", i32 0, i32 3\n")
+        let dataPtrReg = getNextRegFn(regBox)
+        output.append("  " + dataPtrReg + " = load ptr, ptr " + dataPtrPtrReg + ", !tbaa !104\n")
+        let elemPtrReg = getNextRegFn(regBox)
+        output.append("  " + elemPtrReg + " = getelementptr inbounds nuw double, ptr " + dataPtrReg + ", i64 " + indexReg + "\n")
+        output.append("  store double " + storedValueReg + ", ptr " + elemPtrReg + ", align 8, !tbaa !106\n")
+        return 1
+    }
+    return 0
+}
+
+fun emitGenericIndexAssignmentStoreImpl(output: StringBuilder, regBox: Array<Int>,
+    arrayReg: String, indexReg: String, valueReg: String, elementType: String,
+    llvmElementType: String, valueIsStructLiteral: Int, valueSeenType: String,
+    structNames: Array<String>) r: Void {
+
+    var valuePtrReg = ""
+    if isClassTypeImpl(elementType, structNames) == 1 {
+        let tmpReg = getNextRegFn(regBox)
+        let storedValueReg = coerceAssignmentStoreValueImpl(output, regBox,
+            "i64", valueSeenType, valueReg, structNames)
+        output.append("  " + tmpReg + " = alloca i64\n")
+        output.append("  store i64 " + storedValueReg + ", ptr " + tmpReg + "\n")
+        valuePtrReg = tmpReg
+    } else if isDataTypeImpl(elementType) == 1 {
+        if valueIsStructLiteral == 1 {
+            valuePtrReg = valueReg
+        } else {
+            let tmpReg = getNextRegFn(regBox)
+            let storedValueReg = coerceAssignmentStoreValueImpl(output,
+                regBox, "%" + elementType, valueSeenType, valueReg,
+                structNames)
+            output.append("  " + tmpReg + " = alloca %" + elementType + "\n")
+            output.append("  store %" + elementType + " " + storedValueReg + ", ptr " + tmpReg + "\n")
+            valuePtrReg = tmpReg
+        }
+    } else if llvmElementType == "ptr" {
+        let tmpReg = getNextRegFn(regBox)
+        var storedValue = coerceAssignmentStoreValueImpl(output, regBox,
+            "ptr", valueSeenType, valueReg, structNames)
+        output.append("  " + tmpReg + " = alloca ptr\n")
+        output.append("  store ptr " + storedValue + ", ptr " + tmpReg + "\n")
+        valuePtrReg = tmpReg
+    } else {
+        let tmpReg = getNextRegFn(regBox)
+        let storedValueReg = coerceAssignmentStoreValueImpl(output, regBox,
+            llvmElementType, valueSeenType, valueReg, structNames)
+        output.append("  " + tmpReg + " = alloca " + llvmElementType + "\n")
+        output.append("  store " + llvmElementType + " " + storedValueReg + ", ptr " + tmpReg + "\n")
+        valuePtrReg = tmpReg
+    }
+    output.append("  call void @Array_set(ptr " + arrayReg + ", i64 " + indexReg + ", ptr " + valuePtrReg + ")\n")
+}
+
+fun emitPreparedIndexAssignmentStoreImpl(output: StringBuilder,
+    regBox: Array<Int>, arrayReg: String, indexReg: String,
+    valueReg: String, elementType: String, llvmElementType: String,
+    valueIsStructLiteral: Int, valueSeenType: String,
+    structNames: Array<String>) r: Void {
+
+    if emitPrimitiveIndexAssignmentStoreImpl(output, regBox, arrayReg,
+        indexReg, valueReg, elementType, valueSeenType, structNames) == 1 {
+        return
+    }
+    emitGenericIndexAssignmentStoreImpl(output, regBox, arrayReg, indexReg,
+        valueReg, elementType, llvmElementType, valueIsStructLiteral,
+        valueSeenType, structNames)
+}
 
 // emitFieldStoreImpl — Store a value into a struct field via GEP
 // Handles nullable String (zeroinitializer), ptr (null/inttoptr), data type struct literal loading

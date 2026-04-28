@@ -1,0 +1,354 @@
+// ir_binary_expr.seen — Shared binary expression IR emitters
+// Extracted from llvm_ir_gen.seen to reduce expression-lowering sprawl.
+
+import str.string.{StringBuilder}
+import codegen.ir_optimization.{getNextRegFn}
+
+// emitPointerArithmeticBinaryImpl — lower pointer +/- integer and pointer - pointer.
+// Returns "" when the caller should fall through.
+fun emitPointerArithmeticBinaryImpl(output: StringBuilder, regBox: Array<Int>,
+    operator: String, leftType: String, rightType: String, leftReg: String, rightReg: String) r: String {
+
+    if not leftType.startsWith("*") {
+        return ""
+    }
+    if operator != "+" and operator != "-" {
+        return ""
+    }
+
+    var offsetReg = rightReg
+    if operator == "-" and not rightType.startsWith("*") {
+        offsetReg = getNextRegFn(regBox)
+        output.append("  " + offsetReg + " = sub i64 0, " + rightReg + "\n")
+    }
+    if rightType.startsWith("*") {
+        let diffReg = getNextRegFn(regBox)
+        output.append("  " + diffReg + " = sub i64 " + leftReg + ", " + rightReg + " ; ptr - ptr\n")
+        return diffReg
+    }
+
+    let resultReg = getNextRegFn(regBox)
+    output.append("  " + resultReg + " = call i64 @seen_ptr_add(i64 " + leftReg + ", i64 " + offsetReg + ", i64 1) ; ptr arithmetic\n")
+    return resultReg
+}
+
+fun simdComparisonPredicateImpl(operator: String, isFloat: Int) r: String {
+    if isFloat == 1 {
+        if operator == "==" { return "oeq" }
+        if operator == "!=" { return "one" }
+        if operator == "<" { return "olt" }
+        if operator == ">" { return "ogt" }
+        if operator == "<=" { return "ole" }
+        if operator == ">=" { return "oge" }
+        return ""
+    }
+    if operator == "==" { return "eq" }
+    if operator == "!=" { return "ne" }
+    if operator == "<" { return "slt" }
+    if operator == ">" { return "sgt" }
+    if operator == "<=" { return "sle" }
+    if operator == ">=" { return "sge" }
+    return ""
+}
+
+// emitSimdBinaryExprImpl — lower SIMD arithmetic and comparison operations.
+// Returns "" when the caller should fall through.
+fun emitSimdBinaryExprImpl(output: StringBuilder, regBox: Array<Int>,
+    operator: String, leftType: String, simdLlvmType: String, leftReg: String, rightReg: String) r: String {
+
+    if not leftType.startsWith("f32") and not leftType.startsWith("f64") and
+        not leftType.startsWith("i32") {
+        return ""
+    }
+
+    let resultReg = getNextRegFn(regBox)
+    var isFloat = 0
+    if leftType.startsWith("f32") or leftType.startsWith("f64") { isFloat = 1 }
+
+    if operator == "+" {
+        if isFloat == 1 {
+            output.append("  " + resultReg + " = fadd " + simdLlvmType + " " + leftReg + ", " + rightReg + "\n")
+        } else {
+            output.append("  " + resultReg + " = add " + simdLlvmType + " " + leftReg + ", " + rightReg + "\n")
+        }
+        return resultReg
+    }
+    if operator == "-" {
+        if isFloat == 1 {
+            output.append("  " + resultReg + " = fsub " + simdLlvmType + " " + leftReg + ", " + rightReg + "\n")
+        } else {
+            output.append("  " + resultReg + " = sub " + simdLlvmType + " " + leftReg + ", " + rightReg + "\n")
+        }
+        return resultReg
+    }
+    if operator == "*" {
+        if isFloat == 1 {
+            output.append("  " + resultReg + " = fmul " + simdLlvmType + " " + leftReg + ", " + rightReg + "\n")
+        } else {
+            output.append("  " + resultReg + " = mul " + simdLlvmType + " " + leftReg + ", " + rightReg + "\n")
+        }
+        return resultReg
+    }
+    if operator == "/" {
+        if isFloat == 1 {
+            output.append("  " + resultReg + " = fdiv " + simdLlvmType + " " + leftReg + ", " + rightReg + "\n")
+        } else {
+            output.append("  " + resultReg + " = sdiv " + simdLlvmType + " " + leftReg + ", " + rightReg + "\n")
+        }
+        return resultReg
+    }
+
+    let predicate = simdComparisonPredicateImpl(operator, isFloat)
+    if predicate != "" {
+        if isFloat == 1 {
+            output.append("  " + resultReg + " = fcmp " + predicate + " " + simdLlvmType + " " + leftReg + ", " + rightReg + "\n")
+        } else {
+            output.append("  " + resultReg + " = icmp " + predicate + " " + simdLlvmType + " " + leftReg + ", " + rightReg + "\n")
+        }
+        return resultReg
+    }
+
+    return ""
+}
+
+fun binaryOperatorMethodSuffixImpl(operator: String) r: String {
+    if operator == "+" { return "operator_add" }
+    if operator == "-" { return "operator_sub" }
+    if operator == "*" { return "operator_mul" }
+    if operator == "/" { return "operator_div" }
+    if operator == "%" { return "operator_mod" }
+    if operator == "==" { return "operator_eq" }
+    if operator == "!=" { return "operator_neq" }
+    if operator == "<" { return "operator_lt" }
+    if operator == ">" { return "operator_gt" }
+    if operator == "<=" { return "operator_lte" }
+    if operator == ">=" { return "operator_gte" }
+    return ""
+}
+
+fun isSimdBinaryOperatorImpl(operator: String) r: Bool {
+    if operator == "+" or operator == "-" or operator == "*" or
+        operator == "/" {
+
+        return true
+    }
+    if operator == "==" or operator == "!=" or operator == "<" or
+        operator == ">" or operator == "<=" or operator == ">=" {
+
+        return true
+    }
+    return false
+}
+
+fun isIntLiteralOperandImpl(exprKind: String, literalType: String) r: Bool {
+    return exprKind == "Literal" and literalType == "Int"
+}
+
+fun isFloatLiteralOperandImpl(exprKind: String, literalType: String) r: Bool {
+    return exprKind == "Literal" and literalType == "Float"
+}
+
+fun isSelfVariableComparisonImpl(leftKind: String, leftValue: String,
+    rightKind: String, rightValue: String) r: Bool {
+
+    return leftKind == "Variable" and rightKind == "Variable" and
+        leftValue == rightValue
+}
+
+fun shouldTryAssociativeIntFoldImpl(operator: String, rightIsIntLit: Bool,
+    leftKind: String, leftOperator: String, leftOperandCount: Int) r: Bool {
+
+    if not rightIsIntLit {
+        return false
+    }
+    if leftKind != "Binary" or leftOperator != operator {
+        return false
+    }
+    if leftOperandCount < 2 {
+        return false
+    }
+    return operator == "+" or operator == "*"
+}
+
+fun associativeIntFoldRewriteCostImpl(operator: String, baseExprCost: Int)
+    r: Int {
+
+    if operator == "+" {
+        return baseExprCost + 3 + 1
+    }
+    if operator == "*" {
+        return baseExprCost + 5 + 1
+    }
+    return baseExprCost
+}
+
+fun emitSelfComparisonConstResultImpl(output: StringBuilder,
+    regBox: Array<Int>, action: String, operator: String) r: String {
+
+    if action == "const:0" {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg +
+            " = add i64 0, 0 ; e-graph: x " + operator + " x -> 0\n")
+        return resultReg
+    }
+    if action == "const:1" {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg +
+            " = add i64 1, 0 ; e-graph: x " + operator + " x -> 1\n")
+        return resultReg
+    }
+    if action == "const_true" {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg +
+            " = add i1 1, 0 ; e-graph: x " + operator + " x -> true\n")
+        return resultReg
+    }
+    if action == "const_false" {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg +
+            " = add i1 0, 0 ; e-graph: x " + operator + " x -> false\n")
+        return resultReg
+    }
+    return ""
+}
+
+fun emitFoldedBoolLiteralBinaryResultImpl(output: StringBuilder,
+    regBox: Array<Int>, foldedValue: String) r: String {
+
+    let resultReg = getNextRegFn(regBox)
+    if foldedValue == "true" {
+        output.append("  " + resultReg +
+            " = add i1 1, 0 ; constant-folded comparison\n")
+    } else {
+        output.append("  " + resultReg +
+            " = add i1 0, 0 ; constant-folded comparison\n")
+    }
+    return resultReg
+}
+
+fun emitFoldedIntLiteralBinaryResultImpl(output: StringBuilder,
+    regBox: Array<Int>, foldedValue: String) r: String {
+
+    let resultReg = getNextRegFn(regBox)
+    output.append("  " + resultReg + " = add i64 " + foldedValue +
+        ", 0 ; constant-folded\n")
+    return resultReg
+}
+
+fun emitAssociativeIntFoldResultImpl(output: StringBuilder,
+    regBox: Array<Int>, operator: String, baseReg: String,
+    combinedValue: String) r: String {
+
+    let resultReg = getNextRegFn(regBox)
+    if operator == "+" {
+        output.append("  " + resultReg + " = add i64 " + baseReg + ", " +
+            combinedValue + " ; e-graph: (a+C1)+C2 -> a+(C1+C2)\n")
+        return resultReg
+    }
+    if operator == "*" {
+        output.append("  " + resultReg + " = mul nsw i64 " + baseReg +
+            ", " + combinedValue +
+            " ; e-graph: (a*C1)*C2 -> a*(C1*C2)\n")
+        return resultReg
+    }
+    return ""
+}
+
+fun shouldUseFmaForOperandTypesImpl(leftType: String, rightType: String)
+    r: Bool {
+
+    return leftType == "Float" or rightType == "Float"
+}
+
+fun emitFmaOperandPromotionImpl(output: StringBuilder, regBox: Array<Int>,
+    valueReg: String, seenType: String) r: String {
+
+    if seenType == "Float" {
+        return valueReg
+    }
+    let promotedReg = getNextRegFn(regBox)
+    output.append("  " + promotedReg + " = sitofp i64 " + valueReg +
+        " to double\n")
+    return promotedReg
+}
+
+fun emitFmaCallImpl(output: StringBuilder, regBox: Array<Int>,
+    aReg: String, bReg: String, cReg: String, comment: String) r: String {
+
+    let resultReg = getNextRegFn(regBox)
+    output.append("  " + resultReg +
+        " = call double @llvm.fmuladd.f64(double " + aReg + ", double " +
+        bReg + ", double " + cReg + ") ; FMA: " + comment + "\n")
+    return resultReg
+}
+
+fun buildBinaryCseKeyImpl(leftReg: String, operator: String,
+    rightReg: String) r: String {
+
+    return leftReg + operator + rightReg
+}
+
+fun shouldLogSelfComparisonConstImpl(action: String) r: Bool {
+    return action == "const:0" or action == "const:1"
+}
+
+fun buildSelfComparisonLogValueImpl(varName: String, operator: String,
+    action: String) r: String {
+
+    return varName + operator + varName + "=" +
+        action.substring(6, action.length())
+}
+
+fun buildBinaryFoldLogValueImpl(leftValue: String, operator: String,
+    rightValue: String, foldedValue: String) r: String {
+
+    return leftValue + operator + rightValue + "=" + foldedValue
+}
+
+// emitOverloadedBinaryCallImpl — lower user-defined operator overload calls.
+fun emitOverloadedBinaryCallImpl(output: StringBuilder, regBox: Array<Int>,
+    quotedFuncName: String, retLlvmType: String, leftReg: String, rightReg: String) r: String {
+
+    let thisPtrReg = getNextRegFn(regBox)
+    output.append("  " + thisPtrReg + " = inttoptr i64 " + leftReg + " to ptr\n")
+    let argPtrReg = getNextRegFn(regBox)
+    output.append("  " + argPtrReg + " = inttoptr i64 " + rightReg + " to ptr\n")
+    let resultReg = getNextRegFn(regBox)
+    output.append("  " + resultReg + " = call " + retLlvmType + " @" + quotedFuncName + "(ptr " + thisPtrReg + ", ptr " + argPtrReg + ")\n")
+    return resultReg
+}
+
+fun exprProducesBoolImpl(exprType: String, operator: String) r: Int {
+    if exprType == "Bool" { return 1 }
+    if operator == "==" { return 1 }
+    if operator == "!=" { return 1 }
+    if operator == "<" { return 1 }
+    if operator == ">" { return 1 }
+    if operator == "<=" { return 1 }
+    if operator == ">=" { return 1 }
+    if operator == "and" { return 1 }
+    if operator == "or" { return 1 }
+    if operator == "not" { return 1 }
+    return 0
+}
+
+// emitBoolCoercionImpl — normalize an expression result to i1 if needed.
+fun emitBoolCoercionImpl(output: StringBuilder, regBox: Array<Int>,
+    valueReg: String, exprType: String, operator: String) r: String {
+    if exprProducesBoolImpl(exprType, operator) == 1 {
+        return valueReg
+    }
+    let boolReg = getNextRegFn(regBox)
+    output.append("  " + boolReg + " = icmp ne i64 " + valueReg + ", 0\n")
+    return boolReg
+}
+
+// emitShortCircuitPhiImpl — emit the merge label and phi for a short-circuit boolean op.
+fun emitShortCircuitPhiImpl(output: StringBuilder, regBox: Array<Int>,
+    mergeLabel: String, shortCircuitValue: String, checkLabel: String,
+    rightBoolReg: String, doneLabel: String) r: String {
+    output.append(mergeLabel + ":\n")
+    let resultReg = getNextRegFn(regBox)
+    output.append("  " + resultReg + " = phi i1 [ " + shortCircuitValue + ", %" + checkLabel + " ], [ " + rightBoolReg + ", %" + doneLabel + " ]\n")
+    return resultReg
+}

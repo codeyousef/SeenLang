@@ -1,0 +1,200 @@
+// ir_type_layout.seen -- Shared LLVM type layout helpers
+// Extracted from llvm_ir_gen.seen to keep size/alignment math thin.
+
+import codegen.ir_string_collect.{trimSpacesImpl, removeSpacesImpl, extractStructFieldTypesImpl, parseArrayLengthImpl, parseArrayElementTypeImpl}
+import codegen.ir_type_info.{findStructIdx}
+
+fun alignUpImpl(value: Int, align: Int) r: Int {
+    if align <= 1 {
+        return value
+    }
+    let rem = value % align
+    if rem == 0 {
+        return value
+    }
+    return value + (align - rem)
+}
+
+fun getLlvmTypeAlignImpl(typeName: String, structNames: Array<String>,
+    structLayouts: Array<String>, structSizes: Array<Int>) r: Int {
+
+    let trimmed = trimSpacesImpl(typeName)
+    let compact = removeSpacesImpl(trimmed)
+    if compact == "i1" or compact == "i8" {
+        return 1
+    }
+    if compact == "i16" {
+        return 2
+    }
+    if compact == "i32" or compact == "float" {
+        return 4
+    }
+    if compact == "i64" or compact == "double" or compact == "ptr" {
+        return 8
+    }
+    if compact == "%SeenString" or compact == "{{i64,ptr}}" {
+        return 8
+    }
+    if compact == "%SeenArray" or compact == "{{i64,i64,i64,ptr}}" {
+        return 8
+    }
+    if compact.startsWith("%") {
+        let name = trimmed.substring(1, trimmed.length())
+        let idx = findStructIdx(structNames, name)
+        if idx >= 0 {
+            let layout = structLayouts[idx]
+            if layout != "" {
+                let fields = extractStructFieldTypesImpl(layout)
+                var maxAlign = 1
+                var i = 0
+                while i < fields.length() {
+                    let a = getLlvmTypeAlignImpl(fields[i], structNames,
+                        structLayouts, structSizes)
+                    if a > maxAlign {
+                        maxAlign = a
+                    }
+                    i = i + 1
+                }
+                return maxAlign
+            }
+        }
+        return 8
+    }
+    if compact.startsWith("{") {
+        let fields = extractStructFieldTypesImpl(trimmed)
+        var maxAlign = 1
+        var i = 0
+        while i < fields.length() {
+            let a = getLlvmTypeAlignImpl(fields[i], structNames,
+                structLayouts, structSizes)
+            if a > maxAlign {
+                maxAlign = a
+            }
+            i = i + 1
+        }
+        return maxAlign
+    }
+    if compact.startsWith("[") {
+        let elemType = parseArrayElementTypeImpl(trimmed)
+        if elemType != "" {
+            return getLlvmTypeAlignImpl(elemType, structNames, structLayouts,
+                structSizes)
+        }
+    }
+    return 8
+}
+
+fun computeStructSizeFromLayoutImpl(layout: String, structNames: Array<String>,
+    structLayouts: Array<String>, structSizes: Array<Int>) r: Int {
+
+    let fields = extractStructFieldTypesImpl(layout)
+    var offset = 0
+    var maxAlign = 1
+    var i = 0
+    while i < fields.length() {
+        let fieldType = fields[i]
+        let align = getLlvmTypeAlignImpl(fieldType, structNames,
+            structLayouts, structSizes)
+        let size = getLlvmTypeSizeImpl(fieldType, structNames, structLayouts,
+            structSizes)
+        if size <= 0 or align <= 0 {
+            return 0
+        }
+        offset = alignUpImpl(offset, align)
+        offset = offset + size
+        if align > maxAlign {
+            maxAlign = align
+        }
+        i = i + 1
+    }
+    return alignUpImpl(offset, maxAlign)
+}
+
+fun computeStructFieldOffsetFromLayoutImpl(layout: String, fieldIndex: Int,
+    structNames: Array<String>, structLayouts: Array<String>,
+    structSizes: Array<Int>) r: Int {
+
+    if fieldIndex < 0 {
+        return -1
+    }
+    let fields = extractStructFieldTypesImpl(layout)
+    var offset = 0
+    var i = 0
+    while i < fields.length() {
+        let fieldType = fields[i]
+        let align = getLlvmTypeAlignImpl(fieldType, structNames,
+            structLayouts, structSizes)
+        let size = getLlvmTypeSizeImpl(fieldType, structNames, structLayouts,
+            structSizes)
+        if size <= 0 or align <= 0 {
+            return -1
+        }
+        offset = alignUpImpl(offset, align)
+        if i == fieldIndex {
+            return offset
+        }
+        offset = offset + size
+        i = i + 1
+    }
+    return -1
+}
+
+fun getLlvmTypeSizeImpl(typeName: String, structNames: Array<String>,
+    structLayouts: Array<String>, structSizes: Array<Int>) r: Int {
+
+    let trimmed = trimSpacesImpl(typeName)
+    let compact = removeSpacesImpl(trimmed)
+    if compact == "i1" or compact == "i8" {
+        return 1
+    }
+    if compact == "i16" {
+        return 2
+    }
+    if compact == "i32" or compact == "float" {
+        return 4
+    }
+    if compact == "i64" or compact == "double" {
+        return 8
+    }
+    if compact == "ptr" {
+        return 8
+    }
+    if compact == "%SeenString" or compact == "{{i64,ptr}}" {
+        return 16
+    }
+    if compact == "%SeenArray" or compact == "{{i64,i64,i64,ptr}}" {
+        return 32
+    }
+    if compact.startsWith("%") {
+        let name = trimmed.substring(1, trimmed.length())
+        let idx = findStructIdx(structNames, name)
+        if idx >= 0 {
+            let sizeVal = structSizes[idx]
+            if sizeVal > 0 {
+                return sizeVal
+            }
+            let layout = structLayouts[idx]
+            if layout != "" {
+                return computeStructSizeFromLayoutImpl(layout, structNames,
+                    structLayouts, structSizes)
+            }
+        }
+        return 0
+    }
+    if compact.startsWith("{") {
+        return computeStructSizeFromLayoutImpl(trimmed, structNames,
+            structLayouts, structSizes)
+    }
+    if compact.startsWith("[") {
+        let len = parseArrayLengthImpl(trimmed)
+        let elemType = parseArrayElementTypeImpl(trimmed)
+        if len >= 0 and elemType != "" {
+            let elemSize = getLlvmTypeSizeImpl(elemType, structNames,
+                structLayouts, structSizes)
+            if elemSize > 0 {
+                return len * elemSize
+            }
+        }
+    }
+    return 0
+}

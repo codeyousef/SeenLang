@@ -1,0 +1,274 @@
+// ir_module_constants.seen — module constant lookup and type helpers
+// Keeps module-constant lookup/promotion state separate from llvm_ir_gen.seen.
+
+import parser.real_parser.{ProgramNode}
+import str.string.{StringBuilder}
+import codegen.ir_optimization.{pipeGet}
+import codegen.ir_module_emit.{isValidCrossModuleConstantEntryImpl, emitGlobalVariablesImpl}
+
+class ModuleConstantRegistryState {
+    var moduleConstMutable: String
+    var moduleConstSeenTypes: String
+
+    static fun new(moduleConstMutable: String, moduleConstSeenTypes: String)
+        r: ModuleConstantRegistryState {
+
+        return ModuleConstantRegistryState{
+            moduleConstMutable: moduleConstMutable,
+            moduleConstSeenTypes: moduleConstSeenTypes
+        }
+    }
+}
+
+fun captureModuleConstantRegistryStateImpl(moduleConstMutable: String,
+    moduleConstSeenTypes: String) r: ModuleConstantRegistryState {
+
+    return ModuleConstantRegistryState.new(moduleConstMutable,
+        moduleConstSeenTypes)
+}
+
+fun isModuleConstMutableImpl(idx: Int, moduleConstMutable: String) r: Bool {
+    if moduleConstMutable == "" { return true }
+    var entryIdx = 0
+    var pos = 0
+    var segStart = 0
+    while pos <= moduleConstMutable.length() {
+        var atEnd = false
+        if pos == moduleConstMutable.length() { atEnd = true }
+        if not atEnd {
+            if moduleConstMutable.charAt(pos) == '|' { atEnd = true }
+        }
+        if atEnd {
+            if entryIdx == idx {
+                if pos > segStart {
+                    let val = moduleConstMutable.substring(segStart, pos)
+                    if val == "1" { return true }
+                    return false
+                }
+                return true
+            }
+            entryIdx = entryIdx + 1
+            segStart = pos + 1
+        }
+        pos = pos + 1
+    }
+    return true
+}
+
+fun getModuleConstSeenTypeImpl(idx: Int, moduleConstSeenTypes: String) r: String {
+    if moduleConstSeenTypes == "" { return "" }
+    var entryIdx = 0
+    var pos = 0
+    var segStart = 0
+    while pos <= moduleConstSeenTypes.length() {
+        var atEnd = false
+        if pos == moduleConstSeenTypes.length() { atEnd = true }
+        if not atEnd {
+            if moduleConstSeenTypes.charAt(pos) == '|' { atEnd = true }
+        }
+        if atEnd {
+            if entryIdx == idx {
+                return moduleConstSeenTypes.substring(segStart, pos)
+            }
+            entryIdx = entryIdx + 1
+            segStart = pos + 1
+        }
+        pos = pos + 1
+    }
+    return ""
+}
+
+fun mapModuleConstLlvmTypeToSeenTypeImpl(llvmType: String) r: String {
+    if llvmType == "i64" {
+        return "Int"
+    }
+    if llvmType == "double" {
+        return "Float"
+    }
+    if llvmType == "i1" {
+        return "Bool"
+    }
+    if llvmType == "%SeenString" {
+        return "String"
+    }
+    if llvmType == "ptr" {
+        return "ptr"
+    }
+    return "Int"
+}
+
+fun appendParsedHeaderModuleConstantImpl(trimmedLine: String,
+    moduleConstantNames: Array<String>, moduleConstantTypes: Array<String>,
+    moduleConstantValues: Array<String>) r: Void {
+
+    if not trimmedLine.startsWith("@") or
+        not trimmedLine.contains("= constant") {
+        return
+    }
+
+    var nameEnd = 1
+    while nameEnd < trimmedLine.length() and trimmedLine.charAt(nameEnd) != ' ' {
+        nameEnd = nameEnd + 1
+    }
+    let constName = trimmedLine.substring(1, nameEnd)
+    if constName == "" {
+        return
+    }
+
+    var constIdx = 0
+    while constIdx < trimmedLine.length() - 9 {
+        if trimmedLine.substring(constIdx, constIdx + 9) == "constant " {
+            let remainder = trimmedLine.substring(constIdx + 9,
+                trimmedLine.length())
+            var spaceIdx = 0
+            while spaceIdx < remainder.length() and
+                remainder.charAt(spaceIdx) != ' ' {
+                spaceIdx = spaceIdx + 1
+            }
+            if spaceIdx >= remainder.length() {
+                return
+            }
+            let constType = remainder.substring(0, spaceIdx)
+            let constValue = remainder.substring(spaceIdx + 1,
+                remainder.length())
+            if constType == "" or constValue == "" {
+                return
+            }
+            moduleConstantNames.push(constName)
+            moduleConstantTypes.push(constType)
+            moduleConstantValues.push(constValue)
+            return
+        }
+        constIdx = constIdx + 1
+    }
+}
+
+fun tryInferModuleConstantVariableTypeIntoStateImpl(name: String,
+    moduleConstantNames: Array<String>, moduleConstantTypes: Array<String>,
+    moduleConstantValues: Array<String>, state: ModuleConstantRegistryState,
+    xmConstNames: String, xmConstTypes: String, xmConstMutable: String,
+    xmConstSeenTypes: String, xmConstCount: Int) r: String {
+
+    var constIdx = moduleConstantNames.length() - 1
+    while constIdx >= 0 {
+        if moduleConstantNames[constIdx] == name {
+            let seenType = getModuleConstSeenTypeImpl(constIdx,
+                state.moduleConstSeenTypes)
+            if seenType != "" {
+                return seenType
+            }
+            return mapModuleConstLlvmTypeToSeenTypeImpl(
+                moduleConstantTypes[constIdx])
+        }
+        constIdx = constIdx - 1
+    }
+
+    if xmConstCount > 0 {
+        var xi = 0
+        while xi < xmConstCount {
+            let xcName = pipeGet(xmConstNames, xi)
+            let xcType = pipeGet(xmConstTypes, xi)
+            if isValidCrossModuleConstantEntryImpl(xcName, xcType) and
+                xcName == name {
+
+                let xcMut = pipeGet(xmConstMutable, xi)
+                let xcSeenType = pipeGet(xmConstSeenTypes, xi)
+                moduleConstantNames.push(name)
+                moduleConstantTypes.push(xcType)
+                moduleConstantValues.push("0")
+                if state.moduleConstMutable == "" {
+                    state.moduleConstMutable = xcMut
+                } else {
+                    state.moduleConstMutable = state.moduleConstMutable +
+                        "|" + xcMut
+                }
+                if state.moduleConstSeenTypes == "" {
+                    state.moduleConstSeenTypes = xcSeenType
+                } else {
+                    state.moduleConstSeenTypes = state.moduleConstSeenTypes +
+                        "|" + xcSeenType
+                }
+                if xcSeenType != "" {
+                    return xcSeenType
+                }
+                return mapModuleConstLlvmTypeToSeenTypeImpl(xcType)
+            }
+            xi = xi + 1
+        }
+    }
+
+    return ""
+}
+
+fun findModuleConstantIntoStateImpl(name: String,
+    moduleConstantNames: Array<String>, moduleConstantTypes: Array<String>,
+    moduleConstantValues: Array<String>, state: ModuleConstantRegistryState,
+    xmConstNames: String, xmConstTypes: String, xmConstMutable: String,
+    xmConstSeenTypes: String, xmConstCount: Int) r: Int {
+
+    var constIdx = moduleConstantNames.length() - 1
+    while constIdx >= 0 {
+        if moduleConstantNames[constIdx] == name {
+            return constIdx
+        }
+        constIdx = constIdx - 1
+    }
+
+    if xmConstCount > 0 {
+        var xi = 0
+        while xi < xmConstCount {
+            let xcName = pipeGet(xmConstNames, xi)
+            let xcType = pipeGet(xmConstTypes, xi)
+            if isValidCrossModuleConstantEntryImpl(xcName, xcType) and
+                xcName == name {
+
+                let xcMut = pipeGet(xmConstMutable, xi)
+                let xcSeenType = pipeGet(xmConstSeenTypes, xi)
+                moduleConstantNames.push(name)
+                moduleConstantTypes.push(xcType)
+                moduleConstantValues.push("0")
+                if state.moduleConstMutable == "" {
+                    state.moduleConstMutable = xcMut
+                } else {
+                    state.moduleConstMutable = state.moduleConstMutable +
+                        "|" + xcMut
+                }
+                if state.moduleConstSeenTypes == "" {
+                    state.moduleConstSeenTypes = xcSeenType
+                } else {
+                    state.moduleConstSeenTypes = state.moduleConstSeenTypes +
+                        "|" + xcSeenType
+                }
+                return moduleConstantNames.length() - 1
+            }
+            xi = xi + 1
+        }
+    }
+
+    return -1
+}
+
+fun emitGlobalVariablesIntoStateImpl(output: StringBuilder, program: ProgramNode,
+    moduleConstantNames: Array<String>, moduleConstantTypes: Array<String>,
+    moduleConstantValues: Array<String>, state: ModuleConstantRegistryState)
+    r: Void {
+
+    let moduleConstMutableBox = Array<String>()
+    moduleConstMutableBox.push(state.moduleConstMutable)
+    let moduleConstSeenTypesBox = Array<String>()
+    moduleConstSeenTypesBox.push(state.moduleConstSeenTypes)
+    emitGlobalVariablesImpl(output, program, moduleConstantNames,
+        moduleConstantTypes, moduleConstantValues, moduleConstMutableBox,
+        moduleConstSeenTypesBox)
+    state.moduleConstMutable = moduleConstMutableBox[0]
+    state.moduleConstSeenTypes = moduleConstSeenTypesBox[0]
+}
+
+fun moduleConstantInvariantLoadSuffixImpl(idx: Int, moduleConstMutable: String)
+    r: String {
+
+    if isModuleConstMutableImpl(idx, moduleConstMutable) {
+        return ""
+    }
+    return ", !invariant.load !190"
+}

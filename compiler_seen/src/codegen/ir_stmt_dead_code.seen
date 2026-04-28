@@ -1,0 +1,194 @@
+// ir_stmt_dead_code.seen - Statement dead-code and dead-store helpers
+
+import parser.real_parser.{StatementNode, ParserExpressionNode, BlockNode}
+import codegen.ir_optimization.{pipeGet}
+import str.string.{StringBuilder}
+
+fun ensureStmtDeadCodeIntBoxValue(box: Array<Int>) r: Void {
+    if box.length() == 0 {
+        box.push(0)
+    }
+}
+
+fun ensureStmtDeadCodeStringBoxValue(box: Array<String>) r: Void {
+    if box.length() == 0 {
+        box.push("")
+    }
+}
+
+fun appendStmtDeadCodePipeEntryImpl(box: Array<String>, entry: String) r: Void {
+    ensureStmtDeadCodeStringBoxValue(box)
+    if box[0] == "" {
+        box[0] = entry
+        return
+    }
+    box[0] = box[0] + "|" + entry
+}
+
+class BlockDeadStoreScanSnapshot {
+    var deadStoresEliminated: Int
+    var deadStoreSkipVars: String
+    var deadStoreLogEntries: String
+
+    static fun new() r: BlockDeadStoreScanSnapshot {
+        return BlockDeadStoreScanSnapshot{
+            deadStoresEliminated: 0,
+            deadStoreSkipVars: "",
+            deadStoreLogEntries: ""
+        }
+    }
+}
+
+class TrailingDeadCodeNoticeSnapshot {
+    var deadStatementsEliminated: Int
+
+    static fun new() r: TrailingDeadCodeNoticeSnapshot {
+        return TrailingDeadCodeNoticeSnapshot{
+            deadStatementsEliminated: 0
+        }
+    }
+}
+
+fun isReadModifyWriteDeadStoreImpl(varName: String,
+    rhsExpr: ParserExpressionNode) r: Bool {
+
+    if rhsExpr.kind == "Variable" or rhsExpr.kind == "VarExpr" {
+        var rhsName = rhsExpr.literalValue
+        if rhsName == "" {
+            rhsName = rhsExpr.variableName
+        }
+        return rhsName == varName
+    }
+    if rhsExpr.kind == "Binary" and rhsExpr.operands.length() > 0 {
+        let lhsOp = rhsExpr.operands[0]
+        var lhsName = lhsOp.literalValue
+        if lhsName == "" {
+            lhsName = lhsOp.variableName
+        }
+        return lhsName == varName
+    }
+    return false
+}
+
+fun tryMarkDeadStoreEliminationImpl(output: StringBuilder, stmt: StatementNode,
+    nextStmt: StatementNode, deadStoresEliminatedBox: Array<Int>,
+    deadStoreSkipVarsBox: Array<String>, deadStoreLogBox: Array<String>)
+    r: Void {
+
+    ensureStmtDeadCodeIntBoxValue(deadStoresEliminatedBox)
+    ensureStmtDeadCodeStringBoxValue(deadStoreSkipVarsBox)
+    ensureStmtDeadCodeStringBoxValue(deadStoreLogBox)
+
+    if (stmt.kind != "Let" and stmt.kind != "Var") or
+        nextStmt.kind != "Expression" {
+
+        return
+    }
+    if nextStmt.expression.kind != "Assignment" or
+        nextStmt.expression.variableName != stmt.variableName {
+
+        return
+    }
+
+    var isReadModWrite = false
+    if nextStmt.expression.operands.length() > 0 {
+        isReadModWrite = isReadModifyWriteDeadStoreImpl(stmt.variableName,
+            nextStmt.expression.operands[0])
+    }
+    if isReadModWrite {
+        return
+    }
+
+    deadStoresEliminatedBox[0] = deadStoresEliminatedBox[0] + 1
+    if stmt.initializer.kind == "Literal" {
+        output.append("  ; dead store eliminated: " + stmt.variableName +
+            " literal init skipped\n")
+        appendStmtDeadCodePipeEntryImpl(deadStoreSkipVarsBox, stmt.variableName)
+        appendStmtDeadCodePipeEntryImpl(deadStoreLogBox,
+            "skip-init:" + stmt.variableName)
+        return
+    }
+
+    output.append("  ; dead store: " + stmt.variableName +
+        " initialized then immediately overwritten\n")
+    appendStmtDeadCodePipeEntryImpl(deadStoreLogBox, "detected:" +
+        stmt.variableName)
+}
+
+fun scanBlockDeadStorePatternsImpl(output: StringBuilder, block: BlockNode,
+    deadStoresEliminatedBox: Array<Int>, deadStoreSkipVarsBox: Array<String>,
+    deadStoreLogBox: Array<String>) r: Void {
+
+    var dsIdx = 0
+    while dsIdx < block.statements.length() - 1 {
+        tryMarkDeadStoreEliminationImpl(output, block.statements[dsIdx],
+            block.statements[dsIdx + 1], deadStoresEliminatedBox,
+            deadStoreSkipVarsBox, deadStoreLogBox)
+        dsIdx = dsIdx + 1
+    }
+}
+
+fun scanBlockDeadStorePatternsSnapshotImpl(output: StringBuilder,
+    block: BlockNode, deadStoresEliminated: Int,
+    deadStoreSkipVars: String) r: BlockDeadStoreScanSnapshot {
+
+    let snapshot = BlockDeadStoreScanSnapshot.new()
+    let deadStoresEliminatedBox = Array<Int>()
+    deadStoresEliminatedBox.push(deadStoresEliminated)
+    let deadStoreSkipVarsBox = Array<String>()
+    deadStoreSkipVarsBox.push(deadStoreSkipVars)
+    let deadStoreLogBox = Array<String>()
+    deadStoreLogBox.push("")
+    scanBlockDeadStorePatternsImpl(output, block, deadStoresEliminatedBox,
+        deadStoreSkipVarsBox, deadStoreLogBox)
+    snapshot.deadStoresEliminated = deadStoresEliminatedBox[0]
+    snapshot.deadStoreSkipVars = deadStoreSkipVarsBox[0]
+    snapshot.deadStoreLogEntries = deadStoreLogBox[0]
+    return snapshot
+}
+
+fun emitTrailingDeadCodeNoticeImpl(output: StringBuilder, blockLength: Int,
+    startIndex: Int, deadStatementsEliminatedBox: Array<Int>) r: Void {
+
+    ensureStmtDeadCodeIntBoxValue(deadStatementsEliminatedBox)
+    let remaining = blockLength - startIndex
+    if remaining > 0 {
+        deadStatementsEliminatedBox[0] =
+            deadStatementsEliminatedBox[0] + remaining
+        output.append("  ; dead code eliminated: " + remaining.toString() +
+            " statements\n")
+    }
+}
+
+fun emitTrailingDeadCodeNoticeSnapshotImpl(output: StringBuilder,
+    block: BlockNode, startIndex: Int,
+    deadStatementsEliminated: Int) r: TrailingDeadCodeNoticeSnapshot {
+
+    let snapshot = TrailingDeadCodeNoticeSnapshot.new()
+    let deadStatementsEliminatedBox = Array<Int>()
+    deadStatementsEliminatedBox.push(deadStatementsEliminated)
+    emitTrailingDeadCodeNoticeImpl(output, block.statements.length(),
+        startIndex, deadStatementsEliminatedBox)
+    snapshot.deadStatementsEliminated = deadStatementsEliminatedBox[0]
+    return snapshot
+}
+
+fun shouldSkipDeadLiteralInitializerImpl(deadStoreSkipVars: String,
+    stmt: StatementNode) r: Bool {
+
+    if deadStoreSkipVars == "" or stmt.initializer.kind != "Literal" {
+        return false
+    }
+    var dsScanIdx = 0
+    while dsScanIdx < deadStoreSkipVars.length() {
+        let dsEntry = pipeGet(deadStoreSkipVars, dsScanIdx)
+        if dsEntry == "" {
+            return false
+        }
+        if dsEntry == stmt.variableName {
+            return true
+        }
+        dsScanIdx = dsScanIdx + 1
+    }
+    return false
+}

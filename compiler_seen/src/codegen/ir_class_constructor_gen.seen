@@ -1,0 +1,181 @@
+// ir_class_constructor_gen.seen - Class constructor allocation and return helpers.
+
+import str.string.{StringBuilder}
+import codegen.ir_optimization.{getNextRegFn}
+import codegen.type_registry.{findStructReg, isDataTypeReg, getDataTypeSizeReg, getTypeSizeReg}
+import codegen.ir_type_layout.{computeStructFieldOffsetFromLayoutImpl, computeStructSizeFromLayoutImpl}
+
+fun resolveClassConstructorStructSizeImpl(structIdx: Int,
+    structNames: Array<String>, structSizes: Array<Int>,
+    structLayouts: Array<String>) r: Int {
+
+    var structSize = 16
+    if structIdx >= 0 {
+        structSize = structSizes[structIdx]
+        let alignedStructSize = computeStructSizeFromLayoutImpl(
+            structLayouts[structIdx], structNames, structLayouts,
+            structSizes)
+        if alignedStructSize > structSize {
+            structSize = alignedStructSize
+        }
+        if structSize == 0 {
+            structSize = 16
+        }
+    }
+    return structSize
+}
+
+fun emitClassHeapAllocationImpl(output: StringBuilder, regBox: Array<Int>,
+    structIdx: Int, structNames: Array<String>, structSizes: Array<Int>,
+    structLayouts: Array<String>) r: String {
+
+    let structSize = resolveClassConstructorStructSizeImpl(structIdx,
+        structNames, structSizes, structLayouts)
+    let allocReg = getNextRegFn(regBox)
+    if structSize <= 80 {
+        output.append("  " + allocReg + " = call ptr @seen_pool_alloc(i64 " +
+            structSize.toString() + ")\n")
+    }
+    if structSize > 80 {
+        output.append("  " + allocReg + " = call ptr @malloc(i64 " +
+            structSize.toString() + ")\n")
+    }
+    output.append("  call void @llvm.memset.p0.i64(ptr " + allocReg +
+        ", i8 0, i64 " + structSize.toString() + ", i1 false)\n")
+    return allocReg
+}
+
+fun resolveClassConstructorFieldOffsetImpl(structIdx: Int, fieldIndex: Int,
+    fallbackOffset: Int, structNames: Array<String>,
+    structLayouts: Array<String>, structSizes: Array<Int>) r: Int {
+
+    if structIdx >= 0 {
+        let alignedOffset = computeStructFieldOffsetFromLayoutImpl(
+            structLayouts[structIdx], fieldIndex, structNames,
+            structLayouts, structSizes)
+        if alignedOffset >= 0 {
+            return alignedOffset
+        }
+    }
+    return fallbackOffset
+}
+
+fun emitClassArrayFieldInitializersImpl(output: StringBuilder,
+    regBox: Array<Int>, ptrReg: String, structIdx: Int,
+    structNames: Array<String>, structSizes: Array<Int>,
+    structLayouts: Array<String>, structFieldNames: Array<String>,
+    structFieldTypes: Array<String>) r: Void {
+
+    if structIdx < 0 {
+        return
+    }
+
+    let fieldNamesStr = structFieldNames[structIdx]
+    let fieldTypesStr = structFieldTypes[structIdx]
+    var byteOffset = 0
+    var namePos = 0
+    var typePos = 0
+    var fieldIndex = 0
+    var iterDone = 0
+    while iterDone == 0 {
+        var nameEnd = namePos
+        while nameEnd < fieldNamesStr.length() and
+            fieldNamesStr.byteAt(nameEnd) != 44 {
+            nameEnd = nameEnd + 1
+        }
+        var typeEnd = typePos
+        while typeEnd < fieldTypesStr.length() and
+            fieldTypesStr.byteAt(typeEnd) != 124 {
+            typeEnd = typeEnd + 1
+        }
+        let fieldSeenType = fieldTypesStr.substring(typePos, typeEnd)
+        var isArrayField = 0
+        if fieldSeenType.startsWith("Array<") {
+            isArrayField = 1
+        }
+        if fieldSeenType.startsWith("List<") {
+            isArrayField = 1
+        }
+        if isArrayField == 1 {
+            let fieldOffset = resolveClassConstructorFieldOffsetImpl(
+                structIdx, fieldIndex, byteOffset, structNames,
+                structLayouts, structSizes)
+            let fieldPtrReg = getNextRegFn(regBox)
+            output.append("  " + fieldPtrReg +
+                " = getelementptr inbounds i8, ptr " + ptrReg + ", i64 " +
+                fieldOffset.toString() + "\n")
+            var elemType = ""
+            if fieldSeenType.startsWith("Array<") {
+                elemType = fieldSeenType.substring(6,
+                    fieldSeenType.length() - 1)
+            }
+            if fieldSeenType.startsWith("List<") {
+                elemType = fieldSeenType.substring(5,
+                    fieldSeenType.length() - 1)
+            }
+            let arrInitReg = getNextRegFn(regBox)
+            if elemType == "String" {
+                output.append("  " + arrInitReg +
+                    " = call ptr @seen_arr_new_str_ptr()\n")
+            }
+            if elemType != "String" {
+                var usedSizeInit = 0
+                if isDataTypeReg(elemType) {
+                    let elemSize = getDataTypeSizeReg(elemType, structNames,
+                        structSizes)
+                    output.append("  " + arrInitReg +
+                        " = call ptr @seen_arr_new_with_size_ptr(i64 " +
+                        elemSize.toString() + ")\n")
+                    usedSizeInit = 1
+                }
+                if usedSizeInit == 0 {
+                    output.append("  " + arrInitReg +
+                        " = call ptr @seen_arr_new_ptr_ptr()\n")
+                }
+            }
+            output.append("  store ptr " + arrInitReg + ", ptr " +
+                fieldPtrReg + "\n")
+        }
+        byteOffset = byteOffset + getTypeSizeReg(fieldSeenType, structNames,
+            structSizes)
+        fieldIndex = fieldIndex + 1
+        if nameEnd < fieldNamesStr.length() {
+            namePos = nameEnd + 1
+            typePos = typeEnd + 1
+        }
+        if nameEnd >= fieldNamesStr.length() {
+            iterDone = 1
+        }
+    }
+}
+
+// emitConstructorAllocationImpl - emit the heap allocation, zero-init, and
+// Array/List field bootstrap for a class constructor. Returns the alloca used
+// to store the constructor's live `this` pointer.
+fun emitConstructorAllocationImpl(output: StringBuilder, regBox: Array<Int>, className: String,
+    structNames: Array<String>, structSizes: Array<Int>,
+    structLayouts: Array<String>, structFieldNames: Array<String>,
+    structFieldTypes: Array<String>) r: String {
+
+    let cStructIdx = findStructReg(className, structNames)
+    let cAllocReg = emitClassHeapAllocationImpl(output, regBox, cStructIdx,
+        structNames, structSizes, structLayouts)
+
+    let cThisReg = getNextRegFn(regBox)
+    output.append("  " + cThisReg + " = alloca ptr\n")
+    output.append("  store ptr " + cAllocReg + ", ptr " + cThisReg + "\n")
+
+    emitClassArrayFieldInitializersImpl(output, regBox, cAllocReg, cStructIdx,
+        structNames, structSizes, structLayouts, structFieldNames,
+        structFieldTypes)
+
+    return cThisReg
+}
+
+fun emitConstructorReturnImpl(output: StringBuilder, regBox: Array<Int>, thisAllocaReg: String) r: Void {
+    let cThisLoad = getNextRegFn(regBox)
+    output.append("  " + cThisLoad + " = load ptr, ptr " + thisAllocaReg + "\n")
+    let cPtrToInt = getNextRegFn(regBox)
+    output.append("  " + cPtrToInt + " = ptrtoint ptr " + cThisLoad + " to i64\n")
+    output.append("  ret i64 " + cPtrToInt + "\n")
+}

@@ -1,0 +1,32 @@
+class Counter {
+    var value: Int
+    var history: Array<Int>
+
+    fun new(seed: Int) r: Counter {
+        value = seed
+        history = []
+        history.push(seed)
+    }
+
+    fun bump(delta: Int) r: Int {
+        let before = value
+        value = value + delta
+        history.push(value)
+        return before + history[1]
+    }
+
+    fun shadowed() r: Int {
+        let value = 7
+        return value + this.value
+    }
+}
+
+fun main() r: Int {
+    let counter = Counter.new(4)
+    let first = counter.bump(3)
+    let second = counter.shadowed()
+    if first == 11 and second == 14 {
+        return 0
+    }
+    return 1
+}

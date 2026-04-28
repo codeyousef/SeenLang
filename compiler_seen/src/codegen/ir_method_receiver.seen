@@ -1,0 +1,164 @@
+// ir_method_receiver.seen — Shared method-receiver helpers
+// Extracted from llvm_ir_gen.seen to keep receiver type lookup and low-level
+// receiver-method emission out of the main method-call lowering pipeline.
+
+import parser.real_parser.{ParserExpressionNode}
+import str.string.{StringBuilder}
+import codegen.ir_optimization.{getNextRegFn}
+import codegen.ir_type_info.{getSeenFieldTypeImpl}
+import codegen.ir_string_collect.{getSeenTokenTypeValueImpl}
+import codegen.ir_type_mapping.{isClassTypeImpl, isClassHandleLikeTypeImpl, mapFieldNameToReceiverType}
+import codegen.ir_path_expr.{splitFirstPathDotImpl, resolveChainedPathSuffixTypeImpl}
+import codegen.type_registry.{findStructReg, getFieldTypeFromListsReg}
+
+fun quoteIdentIfNeededImpl(name: String) r: String {
+    var i = 0
+    while i < name.length() {
+        if name.charAt(i).toInt() >= 128 {
+            return "\"" + name + "\""
+        }
+        i = i + 1
+    }
+    return name
+}
+
+fun inferTypeRegistryFieldTypeImpl(fieldName: String) r: String {
+    if fieldName == "structNames" { return "Array<String>" }
+    if fieldName == "structLayouts" { return "Array<String>" }
+    if fieldName == "structFieldNames" { return "Array<String>" }
+    if fieldName == "structFieldTypes" { return "Array<String>" }
+    if fieldName == "structLlvmFieldTypes" { return "Array<String>" }
+    if fieldName == "structSizes" { return "Array<Int>" }
+    if fieldName == "structMethodNames" { return "Array<String>" }
+    if fieldName == "structMethodRetTypes" { return "Array<String>" }
+    if fieldName == "funcNames" { return "Array<String>" }
+    if fieldName == "funcRetTypes" { return "Array<String>" }
+    if fieldName == "classMethodBaseNames" { return "Array<String>" }
+    if fieldName == "typeHeaderPath" { return "String" }
+    return ""
+}
+
+fun getSemanticFieldTypeImpl(structName: String, fieldName: String,
+    structNames: Array<String>, structFieldNames: Array<String>,
+    structFieldTypes: Array<String>) r: String {
+
+    let structIdx = findStructReg(structName, structNames)
+    if structIdx >= 0 {
+        let fieldNamesStr = structFieldNames[structIdx]
+        let fieldTypesStr = structFieldTypes[structIdx]
+        if fieldNamesStr != "" and fieldTypesStr != "" {
+            let semanticFieldType = getFieldTypeFromListsReg(fieldNamesStr, fieldTypesStr, fieldName)
+            if semanticFieldType != "" {
+                return semanticFieldType
+            }
+        }
+    }
+    if structName == "TypeRegistry" {
+        return inferTypeRegistryFieldTypeImpl(fieldName)
+    }
+    return ""
+}
+
+fun resolveMethodFieldPathTypeImpl(baseType: String, fieldPath: String,
+    structNames: Array<String>, structFieldNames: Array<String>,
+    structFieldTypes: Array<String>, structMethodNames: Array<String>,
+    structMethodRetTypes: Array<String>) r: String {
+
+    if baseType == "" or fieldPath == "" {
+        return ""
+    }
+    if fieldPath.contains(".") {
+        let chainedType = resolveChainedPathSuffixTypeImpl(baseType, fieldPath,
+            structNames, structFieldNames, structFieldTypes,
+            structMethodNames, structMethodRetTypes)
+        if chainedType != "" {
+            return chainedType
+        }
+    }
+    let semanticFieldType = getSemanticFieldTypeImpl(baseType, fieldPath,
+        structNames, structFieldNames, structFieldTypes)
+    if semanticFieldType != "" and semanticFieldType != "Int" {
+        return semanticFieldType
+    }
+    let seenFieldType = getSeenFieldTypeImpl(baseType, fieldPath,
+        structNames, structFieldNames, structFieldTypes)
+    if seenFieldType != "" and seenFieldType != "Int" {
+        return seenFieldType
+    }
+    let mappedType = mapFieldNameToReceiverType(fieldPath)
+    if mappedType != "" {
+        return mappedType
+    }
+    return seenFieldType
+}
+
+fun tryResolveEnumLiteralMethodReceiverImpl(expr: ParserExpressionNode,
+    receiverRegBox: Array<String>, receiverTypeBox: Array<String>) r: Int {
+
+    if expr.literalValue == "" or not expr.literalValue.contains(".") {
+        return 0
+    }
+    let pathParts = splitFirstPathDotImpl(expr.literalValue)
+    if pathParts[0] != "SeenTokenType" {
+        return 0
+    }
+    receiverRegBox[0] = getSeenTokenTypeValueImpl(pathParts[1]).toString()
+    receiverTypeBox[0] = "Int"
+    return 1
+}
+
+fun normalizeExplicitMethodReceiverTypeImpl(methodName: String, receiverType: String) r: String {
+    if receiverType == "String" or receiverType == "" or receiverType == "Unknown" {
+        if methodName == "isSome" or methodName == "isNone" or methodName == "unwrap" {
+            return "Option"
+        }
+    }
+    return receiverType
+}
+
+fun fallbackModuleConstantMethodReceiverTypeImpl(llvmType: String,
+    receiverType: String) r: String {
+
+    if receiverType != "" {
+        return receiverType
+    }
+    if llvmType == "i64" { return "Int" }
+    if llvmType == "double" { return "Float" }
+    if llvmType == "i1" { return "Bool" }
+    if llvmType == "%SeenString" { return "String" }
+    if llvmType == "ptr" { return "ptr" }
+    return receiverType
+}
+
+fun convertReceiverToPtrImpl(output: StringBuilder, regBox: Array<Int>,
+    receiverReg: String, receiverType: String, reprCClassNames: String,
+    structNames: Array<String>) r: String {
+
+    if reprCClassNames != "" {
+        if reprCClassNames.contains(receiverType + "|") {
+            return receiverReg
+        }
+    }
+    var receiverIsHandle = isClassTypeImpl(receiverType, structNames)
+    if receiverIsHandle == 0 {
+        receiverIsHandle = isClassHandleLikeTypeImpl(receiverType, structNames)
+    }
+    if receiverIsHandle == 1 {
+        let ptrConvReg = getNextRegFn(regBox)
+        output.append("  " + ptrConvReg + " = inttoptr i64 " + receiverReg + " to ptr\n")
+        return ptrConvReg
+    }
+    return receiverReg
+}
+
+fun emitSeenLexerKeywordManagerReceiverImpl(output: StringBuilder,
+    regBox: Array<Int>, thisPtrReg: String) r: String {
+
+    let gepReg = getNextRegFn(regBox)
+    output.append("  " + gepReg +
+        " = getelementptr inbounds { %SeenString, i64, %SeenString, i1, ptr, i64, i64, i64, %SeenArray }, ptr " +
+        thisPtrReg + ", i32 0, i32 4\n")
+    let receiverReg = getNextRegFn(regBox)
+    output.append("  " + receiverReg + " = load ptr, ptr " + gepReg + "\n")
+    return receiverReg
+}

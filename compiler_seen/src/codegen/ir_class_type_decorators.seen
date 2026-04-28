@@ -1,0 +1,259 @@
+// ir_class_type_decorators.seen — shared class-type decorator bookkeeping
+// Extracted from llvm_ir_gen.seen so the remaining decorator scan and state
+// updates stay separate from the main class-type emission entry point.
+
+import parser.real_parser.{ClassNode, AnnotationNode}
+import str.string.{StringBuilder}
+import codegen.ir_class_type_special.{tryEmitSpecialClassTypeDecoratorImpl}
+
+class ClassTypeDecoratorState {
+    var reprCClassNames: String
+    var cacheLineClasses: String
+    var sendTypes: String
+    var syncTypes: String
+    var soaClassNames: String
+    var soaClassCount: Int
+    var triviallyCopyableClasses: String
+    var moveOnlyClasses: String
+    var cResourceClasses: String
+    var cResourceDestructors: String
+    var reflectClassNames: String
+    var reflectClassCount: Int
+    var binaryClassNames: String
+    var binaryEndianness: String
+    var binaryVersions: String
+    var binaryClassCount: Int
+    var packetClassNames: String
+    var packetClassIds: String
+    var packetCount: Int
+    var gpuBufferClasses: String
+    var gpuBufferLayouts: String
+    var unionTypes: String
+    var typeAliasNames: String
+    var typeAliasTargets: String
+    var typeAliasCount: Int
+    var enumTypeNames: String
+
+    static fun new(reprCClassNames: String, cacheLineClasses: String,
+        sendTypes: String, syncTypes: String, soaClassNames: String,
+        soaClassCount: Int, triviallyCopyableClasses: String,
+        moveOnlyClasses: String, cResourceClasses: String,
+        cResourceDestructors: String, reflectClassNames: String,
+        reflectClassCount: Int, binaryClassNames: String,
+        binaryEndianness: String, binaryVersions: String,
+        binaryClassCount: Int, packetClassNames: String,
+        packetClassIds: String, packetCount: Int,
+        gpuBufferClasses: String, gpuBufferLayouts: String,
+        unionTypes: String, typeAliasNames: String,
+        typeAliasTargets: String, typeAliasCount: Int,
+        enumTypeNames: String) r: ClassTypeDecoratorState {
+
+        return ClassTypeDecoratorState{
+            reprCClassNames: reprCClassNames,
+            cacheLineClasses: cacheLineClasses,
+            sendTypes: sendTypes,
+            syncTypes: syncTypes,
+            soaClassNames: soaClassNames,
+            soaClassCount: soaClassCount,
+            triviallyCopyableClasses: triviallyCopyableClasses,
+            moveOnlyClasses: moveOnlyClasses,
+            cResourceClasses: cResourceClasses,
+            cResourceDestructors: cResourceDestructors,
+            reflectClassNames: reflectClassNames,
+            reflectClassCount: reflectClassCount,
+            binaryClassNames: binaryClassNames,
+            binaryEndianness: binaryEndianness,
+            binaryVersions: binaryVersions,
+            binaryClassCount: binaryClassCount,
+            packetClassNames: packetClassNames,
+            packetClassIds: packetClassIds,
+            packetCount: packetCount,
+            gpuBufferClasses: gpuBufferClasses,
+            gpuBufferLayouts: gpuBufferLayouts,
+            unionTypes: unionTypes,
+            typeAliasNames: typeAliasNames,
+            typeAliasTargets: typeAliasTargets,
+            typeAliasCount: typeAliasCount,
+            enumTypeNames: enumTypeNames
+        }
+    }
+}
+
+class ClassTypeDecoratorScanSnapshot {
+    var typeFlags: Array<Int>
+    var decoratorState: ClassTypeDecoratorState
+    var emittedSpecialClassType: Int
+
+    static fun new(decoratorState: ClassTypeDecoratorState)
+        r: ClassTypeDecoratorScanSnapshot {
+
+        let typeFlags = Array<Int>()
+        typeFlags.push(0)
+        typeFlags.push(0)
+        typeFlags.push(0)
+        return ClassTypeDecoratorScanSnapshot{
+            typeFlags: typeFlags,
+            decoratorState: decoratorState,
+            emittedSpecialClassType: 0
+        }
+    }
+}
+
+fun registerClassTypeDecoratorMetadataImpl(output: StringBuilder,
+    className: String, decorator: AnnotationNode, typeFlags: Array<Int>,
+    state: ClassTypeDecoratorState) r: Void {
+
+    if decorator.name == "derive" {
+        output.append("; @derive detected on " + className + "\n")
+    }
+    if decorator.name == "repr" {
+        typeFlags[0] = 1
+        state.reprCClassNames = state.reprCClassNames + className + "|"
+    }
+    if decorator.name == "packed" {
+        typeFlags[1] = 1
+    }
+    if decorator.name == "cache_line" {
+        typeFlags[2] = 1
+        state.cacheLineClasses = state.cacheLineClasses + className + "|"
+    }
+    if decorator.name == "send" {
+        state.sendTypes = state.sendTypes + className + "|"
+        output.append("; @send type: " + className + "\n")
+    }
+    if decorator.name == "sync" {
+        state.syncTypes = state.syncTypes + className + "|"
+        output.append("; @sync type: " + className + "\n")
+    }
+    if decorator.name == "layout" {
+        if decorator.arguments.length() > 0 {
+            if decorator.arguments[0] == "soa" {
+                state.soaClassNames = state.soaClassNames + className + "|"
+                state.soaClassCount = state.soaClassCount + 1
+                output.append("; @layout(soa) type: " + className + "\n")
+            }
+            if decorator.arguments[0] == "aos" {
+                output.append("; @layout(aos) type: " + className +
+                    " (default layout)\n")
+            }
+        }
+    }
+    if decorator.name == "trivially_copyable" {
+        state.triviallyCopyableClasses =
+            state.triviallyCopyableClasses + className + "|"
+        output.append("; @trivially_copyable type: " + className + "\n")
+    }
+    if decorator.name == "move" {
+        state.moveOnlyClasses = state.moveOnlyClasses + className + "|"
+        output.append("; @move (non-copyable) type: " + className + "\n")
+    }
+    if decorator.name == "c_resource" {
+        state.cResourceClasses = state.cResourceClasses + className + "|"
+        if decorator.arguments.length() > 0 {
+            state.cResourceDestructors = state.cResourceDestructors +
+                decorator.arguments[0] + "|"
+        } else {
+            state.cResourceDestructors = state.cResourceDestructors + "free|"
+        }
+        output.append("; @c_resource type: " + className + "\n")
+    }
+    if decorator.name == "reflect" {
+        state.reflectClassNames = state.reflectClassNames + className + "|"
+        state.reflectClassCount = state.reflectClassCount + 1
+        output.append("; @reflect type: " + className + "\n")
+    }
+    if decorator.name == "binary" {
+        var binEndian = "le"
+        var binVersion = "1"
+        if decorator.arguments.length() > 0 {
+            binEndian = decorator.arguments[0]
+        }
+        if decorator.arguments.length() > 1 {
+            binVersion = decorator.arguments[1]
+        }
+        state.binaryClassNames = state.binaryClassNames + className + "|"
+        state.binaryEndianness = state.binaryEndianness + binEndian + "|"
+        state.binaryVersions = state.binaryVersions + binVersion + "|"
+        state.binaryClassCount = state.binaryClassCount + 1
+        output.append("; @binary type: " + className + " (endian=" +
+            binEndian + ", version=" + binVersion + ")\n")
+    }
+    if decorator.name == "packet" {
+        var pktId = "0"
+        if decorator.arguments.length() > 0 {
+            pktId = decorator.arguments[0]
+        }
+        state.packetClassNames = state.packetClassNames + className + "|"
+        state.packetClassIds = state.packetClassIds + pktId + "|"
+        state.packetCount = state.packetCount + 1
+        output.append("; @packet type: " + className + " (id=" + pktId +
+            ")\n")
+    }
+}
+
+fun scanClassTypeDecoratorsImpl(output: StringBuilder, classNode: ClassNode,
+    typeFlags: Array<Int>, state: ClassTypeDecoratorState,
+    structNames: Array<String>, structLayouts: Array<String>,
+    structSizes: Array<Int>) r: Bool {
+
+    let className = classNode.name
+    var decoratorIdx = 0
+    while decoratorIdx < classNode.decorators.length() {
+        let decorator = classNode.decorators[decoratorIdx]
+        registerClassTypeDecoratorMetadataImpl(output, className, decorator,
+            typeFlags, state)
+        let gpuBufferClassesBox = Array<String>()
+        gpuBufferClassesBox.push(state.gpuBufferClasses)
+        let gpuBufferLayoutsBox = Array<String>()
+        gpuBufferLayoutsBox.push(state.gpuBufferLayouts)
+        let unionTypesBox = Array<String>()
+        unionTypesBox.push(state.unionTypes)
+        let emittedSpecial = tryEmitSpecialClassTypeDecoratorImpl(output,
+            classNode, decorator, gpuBufferClassesBox, gpuBufferLayoutsBox,
+            unionTypesBox, state.reprCClassNames, structNames, structLayouts,
+            structSizes, state.typeAliasNames, state.typeAliasTargets,
+            state.typeAliasCount, state.enumTypeNames)
+        state.gpuBufferClasses = gpuBufferClassesBox[0]
+        state.gpuBufferLayouts = gpuBufferLayoutsBox[0]
+        state.unionTypes = unionTypesBox[0]
+        if emittedSpecial {
+            return true
+        }
+        decoratorIdx = decoratorIdx + 1
+    }
+    return false
+}
+
+fun prepareClassTypeDecoratorScanSnapshotImpl(output: StringBuilder,
+    classNode: ClassNode, reprCClassNames: String,
+    cacheLineClasses: String, sendTypes: String, syncTypes: String,
+    soaClassNames: String, soaClassCount: Int,
+    triviallyCopyableClasses: String, moveOnlyClasses: String,
+    cResourceClasses: String, cResourceDestructors: String,
+    reflectClassNames: String, reflectClassCount: Int,
+    binaryClassNames: String, binaryEndianness: String,
+    binaryVersions: String, binaryClassCount: Int,
+    packetClassNames: String, packetClassIds: String, packetCount: Int,
+    gpuBufferClasses: String, gpuBufferLayouts: String,
+    unionTypes: String, typeAliasNames: String, typeAliasTargets: String,
+    typeAliasCount: Int, enumTypeNames: String,
+    structNames: Array<String>, structLayouts: Array<String>,
+    structSizes: Array<Int>) r: ClassTypeDecoratorScanSnapshot {
+
+    let decoratorState = ClassTypeDecoratorState.new(reprCClassNames,
+        cacheLineClasses, sendTypes, syncTypes, soaClassNames,
+        soaClassCount, triviallyCopyableClasses, moveOnlyClasses,
+        cResourceClasses, cResourceDestructors, reflectClassNames,
+        reflectClassCount, binaryClassNames, binaryEndianness,
+        binaryVersions, binaryClassCount, packetClassNames,
+        packetClassIds, packetCount, gpuBufferClasses, gpuBufferLayouts,
+        unionTypes, typeAliasNames, typeAliasTargets, typeAliasCount,
+        enumTypeNames)
+    let snapshot = ClassTypeDecoratorScanSnapshot.new(decoratorState)
+    if scanClassTypeDecoratorsImpl(output, classNode, snapshot.typeFlags,
+        snapshot.decoratorState, structNames, structLayouts, structSizes) {
+
+        snapshot.emittedSpecialClassType = 1
+    }
+    return snapshot
+}

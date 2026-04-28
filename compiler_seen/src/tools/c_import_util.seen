@@ -1,0 +1,90 @@
+// Small C-import parsing utilities shared by the generator implementation.
+
+fun findLastIndexOf(haystack: String, needle: String) r: Int {
+    let needleLen = needle.length()
+    if needleLen == 0 {
+        return haystack.length()
+    }
+
+    var lastIdx = -1
+    var searchStart = 0
+
+    while searchStart <= haystack.length() - needleLen {
+        let idx = haystack.indexOf(needle, searchStart)
+        if idx < 0 {
+            break
+        }
+        lastIdx = idx
+        searchStart = idx + 1
+    }
+
+    return lastIdx
+}
+
+fun getClangAstDepth(line: String) r: Int {
+    var depth = 0
+    var idx = 0
+    while idx < line.length() {
+        let code = line.byteAt(idx)
+        if (code >= 65 and code <= 90) or (code >= 97 and code <= 122) {
+            break
+        }
+        if code == 124 or code == 96 {
+            depth = depth + 1
+        }
+        idx = idx + 1
+    }
+    return depth
+}
+
+fun extractClangDeclStartLocation(declLine: String) r: String {
+    let openIdx = declLine.indexOf("<", 0)
+    if openIdx < 0 {
+        return ""
+    }
+
+    let closeIdx = declLine.indexOf(">", openIdx + 1)
+    if closeIdx < 0 {
+        return ""
+    }
+
+    let range = declLine.substring(openIdx + 1, closeIdx).trim()
+    if range == "" {
+        return ""
+    }
+
+    let commaIdx = range.indexOf(",", 0)
+    if commaIdx >= 0 {
+        return range.substring(0, commaIdx).trim()
+    }
+
+    return range
+}
+
+fun resolveClangTypedefType(rawType: String) r: String {
+    let aliasSepIdx = findLastIndexOf(rawType, "':'")
+    if aliasSepIdx >= 0 {
+        return rawType.substring(aliasSepIdx + 3, rawType.length()).trim()
+    }
+    return rawType.trim()
+}
+
+fun repeatPointerPrefix(pointerDepth: Int, typeName: String) r: String {
+    var result = typeName
+    var depth = 0
+    while depth < pointerDepth {
+        result = "*" + result
+        depth = depth + 1
+    }
+    return result
+}
+
+fun parseDecimalInt(text: String) r: Int {
+    var value = 0
+    var idx = 0
+    while idx < text.length() {
+        value = (value * 10) + (text.byteAt(idx) - 48)
+        idx = idx + 1
+    }
+    return value
+}

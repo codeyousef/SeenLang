@@ -1,0 +1,42 @@
+// ir_call_implicit_this_plan.seen - pure implicit-this call routing helpers.
+
+class ImplicitThisCallPlan {
+    var shouldUseMisplacedRealParserMethod: Bool
+    var shouldUseStringBuilderRuntimeMethod: Bool
+    var shouldUseNormalImplicitThisMethod: Bool
+    var hasArg0: Bool
+
+    static fun new() r: ImplicitThisCallPlan {
+        return ImplicitThisCallPlan{
+            shouldUseMisplacedRealParserMethod: false,
+            shouldUseStringBuilderRuntimeMethod: false,
+            shouldUseNormalImplicitThisMethod: false,
+            hasArg0: false
+        }
+    }
+}
+
+fun planImplicitThisCallImpl(thisIndex: Int, thisType: String,
+    misplacedRetType: String, methodRetType: String,
+    isStringBuilderRuntimeMethod: Bool, argCount: Int)
+    r: ImplicitThisCallPlan {
+
+    let plan = ImplicitThisCallPlan.new()
+    plan.shouldUseMisplacedRealParserMethod =
+        thisIndex >= 0 and misplacedRetType != "" and thisType == "RealParser"
+    plan.shouldUseStringBuilderRuntimeMethod =
+        thisIndex >= 0 and methodRetType != "" and
+        thisType == "StringBuilder" and isStringBuilderRuntimeMethod
+    plan.shouldUseNormalImplicitThisMethod =
+        thisIndex >= 0 and methodRetType != "" and
+        not plan.shouldUseStringBuilderRuntimeMethod
+    plan.hasArg0 = argCount > 0
+    return plan
+}
+
+fun implicitThisTailCallFlagImpl(isTailPosition: Bool) r: Int {
+    if isTailPosition {
+        return 1
+    }
+    return 0
+}

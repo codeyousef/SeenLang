@@ -1,0 +1,84 @@
+// ir_nullish_gen.seen — Shared nullish-expression generation helpers
+// Extracted from llvm_ir_gen.seen to keep Elvis/safe-navigation support thin.
+
+import parser.real_parser.{ParserExpressionNode}
+import str.string.{StringBuilder}
+import codegen.ir_optimization.{getNextRegFn, getNextBlockFn}
+import codegen.ir_stmt_gen.{emitPhiMergeValueImpl}
+
+fun emitNullishCheckComparisonImpl(output: StringBuilder, regBox: Array<Int>,
+    valueReg: String, llvmType: String) r: String {
+
+    let cmpReg = getNextRegFn(regBox)
+    if llvmType == "%SeenString" {
+        let lenReg = getNextRegFn(regBox)
+        output.append("  " + lenReg + " = extractvalue %SeenString " +
+            valueReg + ", 0\n")
+        output.append("  " + cmpReg + " = icmp eq i64 " + lenReg + ", 0\n")
+        return cmpReg
+    }
+    if llvmType == "i1" {
+        output.append("  " + cmpReg + " = icmp eq i1 " + valueReg +
+            ", 0\n")
+        return cmpReg
+    }
+    if llvmType == "double" {
+        output.append("  " + cmpReg + " = fcmp oeq double " + valueReg +
+            ", 0.0\n")
+        return cmpReg
+    }
+    output.append("  " + cmpReg + " = icmp eq i64 " + valueReg + ", 0\n")
+    return cmpReg
+}
+
+fun defaultValueForLlvmTypeImpl(llvmType: String) r: String {
+    if llvmType == "%SeenString" {
+        return "zeroinitializer"
+    }
+    if llvmType == "double" {
+        return "0.0"
+    }
+    if llvmType == "i1" {
+        return "false"
+    }
+    return "0"
+}
+
+fun emitNullishBranchingImpl(output: StringBuilder, blockLabelBox: Array<Int>,
+    cmpReg: String) r: String {
+
+    let thenLabel = getNextBlockFn(blockLabelBox)
+    let elseLabel = getNextBlockFn(blockLabelBox)
+    let endLabel = getNextBlockFn(blockLabelBox)
+    output.append("  br i1 " + cmpReg + ", label %" + elseLabel +
+        ", label %" + thenLabel + "\n")
+    output.append(thenLabel + ":\n")
+    return thenLabel + "|" + elseLabel + "|" + endLabel
+}
+
+fun emitNullishBranchToEndImpl(output: StringBuilder, endLabel: String) r: Void {
+    output.append("  br label %" + endLabel + "\n")
+}
+
+fun enterNullishElseBranchImpl(output: StringBuilder, elseLabel: String) r: Void {
+    output.append(elseLabel + ":\n")
+}
+
+fun finalizeNullishMergeImpl(output: StringBuilder, regBox: Array<Int>,
+    endLabel: String, llvmType: String, thenReg: String, thenLabel: String,
+    elseReg: String, elseLabel: String) r: String {
+
+    output.append(endLabel + ":\n")
+    return emitPhiMergeValueImpl(output, regBox, llvmType, thenReg, thenLabel,
+        elseReg, elseLabel)
+}
+
+fun buildSafeNavigationMemberExprImpl(variableName: String,
+    receiverExpr: ParserExpressionNode) r: ParserExpressionNode {
+
+    let memberExpr = ParserExpressionNode.new()
+    memberExpr.kind = "MemberAccess"
+    memberExpr.variableName = variableName
+    memberExpr.operands.push(receiverExpr)
+    return memberExpr
+}

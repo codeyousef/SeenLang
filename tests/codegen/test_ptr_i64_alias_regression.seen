@@ -1,0 +1,16 @@
+extern fun seen_mem_alloc(size: Int) r: Int
+extern fun seen_mem_free(ptr: Int)
+
+fun main() r: Int {
+    let ptr = seen_mem_alloc(8)
+    if ptr == 0 {
+        return 1
+    }
+    ptr_store_i64(ptr, 4242)
+    let value = ptr_deref_i64(ptr)
+    seen_mem_free(ptr)
+    if value == 4242 {
+        return 0
+    }
+    return 1
+}

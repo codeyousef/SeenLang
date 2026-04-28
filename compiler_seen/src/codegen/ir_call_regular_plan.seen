@@ -1,0 +1,29 @@
+// ir_call_regular_plan.seen - pure regular function-call planning helpers.
+
+fun shouldPromoteRegularCallFloatArgsImpl(argRegCount: Int,
+    argTypeCount: Int, floatFuncNameCount: Int, floatParamIndexCount: Int)
+    r: Bool {
+
+    return argRegCount == argTypeCount and floatFuncNameCount > 0 and
+        floatParamIndexCount > 0
+}
+
+fun resolveRegularCallLlvmReturnTypeImpl(mappedReturnType: String,
+    isAsyncCall: Bool) r: String {
+
+    if isAsyncCall {
+        return "ptr"
+    }
+    return mappedReturnType
+}
+
+fun shouldRecordRegularLateDeclareImpl(funcName: String) r: Bool {
+    return funcName != ""
+}
+
+fun regularCallTailFlagImpl(shouldTailCall: Bool) r: Int {
+    if shouldTailCall {
+        return 1
+    }
+    return 0
+}

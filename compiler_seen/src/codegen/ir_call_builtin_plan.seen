@@ -1,0 +1,304 @@
+// ir_call_builtin_plan.seen - pure builtin-call planning helpers.
+
+class IndirectCallPlan {
+    var isIndirect: Bool
+    var varIndex: Int
+
+    static fun new() r: IndirectCallPlan {
+        return IndirectCallPlan{isIndirect: false, varIndex: -1}
+    }
+}
+
+class MetaBuiltinCallPlan {
+    var action: Int
+    var hasArg0: Bool
+    var hasArg1: Bool
+    var targetTypeName: String
+
+    static fun new() r: MetaBuiltinCallPlan {
+        return MetaBuiltinCallPlan{
+            action: 0,
+            hasArg0: false,
+            hasArg1: false,
+            targetTypeName: ""
+        }
+    }
+}
+
+class LowLevelBuiltinCallPlan {
+    var action: Int
+    var hasArg0: Bool
+    var hasArg1: Bool
+    var hasArg2: Bool
+    var indirectVarIndex: Int
+
+    static fun new() r: LowLevelBuiltinCallPlan {
+        return LowLevelBuiltinCallPlan{
+            action: 0,
+            hasArg0: false,
+            hasArg1: false,
+            hasArg2: false,
+            indirectVarIndex: -1
+        }
+    }
+}
+
+class LowLevelBuiltinArgumentPlan {
+    var shouldReadArg0: Bool
+    var shouldReadArg1: Bool
+    var shouldReadArg2: Bool
+    var defaultArg0: String
+    var shouldPrepareSimdArgs: Bool
+    var shouldPrepareIndirectArgs: Bool
+    var shouldUseAsyncYieldState: Bool
+    var shouldGenerateEnumConstructor: Bool
+
+    static fun new() r: LowLevelBuiltinArgumentPlan {
+        return LowLevelBuiltinArgumentPlan{
+            shouldReadArg0: false,
+            shouldReadArg1: false,
+            shouldReadArg2: false,
+            defaultArg0: "",
+            shouldPrepareSimdArgs: false,
+            shouldPrepareIndirectArgs: false,
+            shouldUseAsyncYieldState: false,
+            shouldGenerateEnumConstructor: false
+        }
+    }
+}
+
+fun isSizeofMetaBuiltinImpl(funcName: String) r: Bool {
+    return funcName == "sizeof"
+}
+
+fun isAlignofMetaBuiltinImpl(funcName: String) r: Bool {
+    return funcName == "alignof"
+}
+
+fun isOffsetofMetaBuiltinImpl(funcName: String) r: Bool {
+    return funcName == "offsetof"
+}
+
+fun isTransmuteMetaBuiltinImpl(funcName: String) r: Bool {
+    return funcName.startsWith("transmute<")
+}
+
+fun resolveTransmuteTargetTypeNameImpl(funcName: String) r: String {
+    let lt = funcName.indexOf("<", 0)
+    let gt = funcName.indexOf(">", 0)
+    if lt >= 0 and gt > lt {
+        return funcName.substring(lt + 1, gt)
+    }
+    return "Int"
+}
+
+fun isIncludeStrMetaBuiltinImpl(funcName: String) r: Bool {
+    return funcName == "includeStr"
+}
+
+fun isIncludeBytesMetaBuiltinImpl(funcName: String) r: Bool {
+    return funcName == "includeBytes"
+}
+
+fun planMetaBuiltinCallImpl(funcName: String,
+    argCount: Int) r: MetaBuiltinCallPlan {
+
+    let plan = MetaBuiltinCallPlan.new()
+    plan.hasArg0 = argCount > 0
+    plan.hasArg1 = argCount > 1
+    if isSizeofMetaBuiltinImpl(funcName) {
+        plan.action = 1
+        return plan
+    }
+    if isAlignofMetaBuiltinImpl(funcName) {
+        plan.action = 2
+        return plan
+    }
+    if isOffsetofMetaBuiltinImpl(funcName) {
+        plan.action = 3
+        return plan
+    }
+    if isTransmuteMetaBuiltinImpl(funcName) {
+        plan.action = 4
+        plan.targetTypeName = resolveTransmuteTargetTypeNameImpl(funcName)
+        return plan
+    }
+    if isIncludeStrMetaBuiltinImpl(funcName) {
+        plan.action = 5
+        return plan
+    }
+    if isIncludeBytesMetaBuiltinImpl(funcName) {
+        plan.action = 6
+    }
+    return plan
+}
+
+fun isStackAllocBuiltinImpl(funcName: String) r: Bool {
+    return funcName == "stackAlloc" or funcName.startsWith("stackAlloc<")
+}
+
+fun isDefaultValueBuiltinImpl(funcName: String) r: Bool {
+    return funcName == "__default" or funcName.startsWith("__default<")
+}
+
+fun isAsyncYieldBuiltinImpl(funcName: String) r: Bool {
+    return funcName == "async_yield"
+}
+
+fun shouldReadSimdShuffleConstArgImpl(funcName: String, argIndex: Int)
+    r: Bool {
+
+    return funcName == "simd_shuffle" and argIndex >= 2
+}
+
+fun planIndirectCallImpl(funcName: String, varNames: Array<String>,
+    activeVarCount: Int) r: IndirectCallPlan {
+
+    let plan = IndirectCallPlan.new()
+    var varIdx = 0
+    while varIdx < activeVarCount {
+        if varNames[varIdx] == funcName {
+            plan.isIndirect = true
+            plan.varIndex = varIdx
+            return plan
+        }
+        varIdx = varIdx + 1
+    }
+    return plan
+}
+
+fun shouldLookupEnumVariantCallImpl(enumVariantCount: Int) r: Bool {
+    return enumVariantCount > 0
+}
+
+fun shouldGenerateEnumVariantConstructorImpl(isVariant: Bool,
+    fieldCount: Int) r: Bool {
+
+    return isVariant and fieldCount > 0
+}
+
+fun shouldClearDebugAssertCseImpl(boundsCheckEnabled: Int,
+    condVal: String) r: Bool {
+
+    return boundsCheckEnabled == 1 and condVal != ""
+}
+
+fun planLowLevelBuiltinArgumentReadsImpl(action: Int, hasArg0: Bool,
+    hasArg1: Bool, hasArg2: Bool) r: LowLevelBuiltinArgumentPlan {
+
+    let plan = LowLevelBuiltinArgumentPlan.new()
+    if action == 1 {
+        plan.shouldReadArg0 = hasArg0
+        plan.shouldReadArg1 = hasArg1
+        plan.shouldReadArg2 = hasArg2
+        return plan
+    }
+    if action == 3 {
+        plan.shouldReadArg0 = hasArg0
+        plan.defaultArg0 = "1"
+        return plan
+    }
+    if action == 4 or action == 5 or action == 6 or action == 8 {
+        plan.shouldReadArg0 = hasArg0
+        return plan
+    }
+    if action == 7 {
+        plan.shouldReadArg0 = hasArg0
+        plan.shouldReadArg1 = hasArg1
+        return plan
+    }
+    if action == 10 {
+        plan.shouldUseAsyncYieldState = true
+        return plan
+    }
+    if action == 11 {
+        plan.shouldPrepareSimdArgs = true
+        return plan
+    }
+    if action == 12 {
+        plan.shouldPrepareIndirectArgs = true
+        return plan
+    }
+    if action == 13 {
+        plan.shouldGenerateEnumConstructor = true
+    }
+    return plan
+}
+
+fun shouldClearLowLevelDebugAssertCseImpl(action: Int,
+    boundsCheckEnabled: Int, condVal: String) r: Bool {
+
+    return action == 5 and shouldClearDebugAssertCseImpl(
+        boundsCheckEnabled, condVal)
+}
+
+fun planLowLevelBuiltinCallImpl(funcName: String, argCount: Int,
+    isPtrBuiltin: Int, isSimdBuiltin: Int, varNames: Array<String>,
+    activeVarCount: Int, enumVariantCount: Int, isVariantCall: Bool,
+    variantFieldCount: Int) r: LowLevelBuiltinCallPlan {
+
+    let plan = LowLevelBuiltinCallPlan.new()
+    plan.hasArg0 = argCount > 0
+    plan.hasArg1 = argCount > 1
+    plan.hasArg2 = argCount > 2
+    if isPtrBuiltin == 1 {
+        plan.action = 1
+        return plan
+    }
+    if funcName == "barrier" {
+        plan.action = 2
+        return plan
+    }
+    if isStackAllocBuiltinImpl(funcName) {
+        plan.action = 3
+        return plan
+    }
+    if funcName == "constructAt" {
+        plan.action = 4
+        return plan
+    }
+    if funcName == "debug_assert" {
+        plan.action = 5
+        return plan
+    }
+    if funcName == "str_to_cstr" {
+        plan.action = 6
+        return plan
+    }
+    if funcName == "split" and argCount >= 2 {
+        plan.action = 7
+        return plan
+    }
+    if funcName == "cstr_to_str" {
+        plan.action = 8
+        return plan
+    }
+    if isDefaultValueBuiltinImpl(funcName) {
+        plan.action = 9
+        return plan
+    }
+    if isAsyncYieldBuiltinImpl(funcName) {
+        plan.action = 10
+        return plan
+    }
+    if isSimdBuiltin == 1 {
+        plan.action = 11
+        return plan
+    }
+
+    let indirectPlan = planIndirectCallImpl(funcName, varNames,
+        activeVarCount)
+    if indirectPlan.isIndirect {
+        plan.action = 12
+        plan.indirectVarIndex = indirectPlan.varIndex
+        return plan
+    }
+
+    if shouldLookupEnumVariantCallImpl(enumVariantCount) {
+        if shouldGenerateEnumVariantConstructorImpl(isVariantCall,
+            variantFieldCount) {
+            plan.action = 13
+        }
+    }
+    return plan
+}

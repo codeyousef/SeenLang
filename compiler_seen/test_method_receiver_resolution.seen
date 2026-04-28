@@ -1,0 +1,30 @@
+class Inner {
+    var value: Int
+}
+
+class Wrapper {
+    var inner: Inner
+
+    fun new() r: Wrapper {
+        inner = Inner{ value: 7 }
+    }
+
+    fun viaFieldMethod() r: String {
+        return inner.value.toString()
+    }
+
+    fun viaLocalMethod() r: String {
+        let local = inner
+        return local.value.toString()
+    }
+}
+
+fun main() r: Int {
+    let wrapper = Wrapper.new()
+    let a = wrapper.viaFieldMethod()
+    let b = wrapper.viaLocalMethod()
+    if a.length() == 1 and b.length() == 1 {
+        return 0
+    }
+    return 1
+}

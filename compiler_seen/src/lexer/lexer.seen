@@ -176,7 +176,7 @@ class SeenLexer {
             }
 
             // Handle character literals (single-quoted)
-            if char == '\'' {
+            if char.toInt() == 39 {
                 if traceVerbose {
                     traceLexVerbose("char literal start pos=" + startPos.toString() + " line=" + line.toString() + " col=" + column.toString())
                 }
@@ -356,7 +356,7 @@ class SeenLexer {
     
     fun advance() r: Void {
         if position < source.length() {
-            if source.charAt(position) == '\n' {
+            if source.byteAt(position).toInt() == 10 {
                 line = line + 1
                 column = 1
             } else {
@@ -371,7 +371,12 @@ class SeenLexer {
     }
     
     fun isWhitespace(char: Char) r: Bool {
-        return char == ' ' or char == '\t' or char == '\r' or char == '\n'
+        let code = char.toInt()
+        if code == 32 { return true }
+        if code == 9 { return true }
+        if code == 13 { return true }
+        if code == 10 { return true }
+        return false
     }
     
     fun isDigit(char: Char) r: Bool {
@@ -464,7 +469,7 @@ class SeenLexer {
         if position < source.length() {
             var blen = utf8ByteLen(position)
             var curByte = source.byteAt(position)
-            if curByte == '\n' {
+            if curByte.toInt() == 10 {
                 line = line + 1
                 column = 1
             } else {
@@ -482,7 +487,7 @@ class SeenLexer {
         // Consume ALL bytes until newline, including non-ASCII (UTF-8 sequences, etc.)
         while position < source.length() {
             let c = getCurrentChar()
-            if c == '\n' {
+            if c.toInt() == 10 {
                 break
             }
             advance()
@@ -532,8 +537,9 @@ class SeenLexer {
                 traceLexVerbose("string char pos=" + position.toString() + " char=" + ch.toString() + " code=" + ch.toInt().toString())
             }
 
-            if ch == '\\' {
-                valueBuilder.append(readEscapeSequence(traceVerbose, "Unterminated string literal"))
+            if ch.toInt() == 92 {
+                let escapedValue = readEscapeSequence(traceVerbose, "Unterminated string literal")
+                valueBuilder.append(escapedValue)
                 continue
             }
 
@@ -626,7 +632,7 @@ class SeenLexer {
         var value = ""
         if position < source.length() {
             let ch = getCurrentChar()
-            if ch == '\\' {
+            if ch.toInt() == 92 {
                 // Handle escape sequences
                 value = readEscapeSequence(false, "Unterminated character literal")
             } else {
@@ -637,7 +643,7 @@ class SeenLexer {
 
         // Consume closing single quote
         let closingChar = getCurrentChar()
-        if closingChar == '\'' {
+        if closingChar.toInt() == 39 {
             advance()
         } else {
             throw LexerError.new("Unterminated character literal", getCurrentPosition(), "")
@@ -695,13 +701,14 @@ class SeenLexer {
     }
 
     fun handleEscapeSequence(escaped: Char) r: String {
-        if escaped == 'n' { return "\n" } // n -> newline
-        if escaped == 't' { return "\t" } // t -> tab
-        if escaped == 'r' { return "\r" } // r -> carriage return
-        if escaped == '\\' { return "\\" }  // backslash
-        if escaped == '"' { return "\"" }  // double quote
-        if escaped == '\'' { return "'" }   // single quote
-        if escaped == '0' { return "" }  // null character - simplified for bootstrap
+        let code = escaped.toInt()
+        if code == 110 { return String.fromCharCode(10) } // n -> newline
+        if code == 116 { return String.fromCharCode(9) } // t -> tab
+        if code == 114 { return String.fromCharCode(13) } // r -> carriage return
+        if code == 92 { return String.fromCharCode(92) } // backslash
+        if code == 34 { return String.fromCharCode(34) } // double quote
+        if code == 39 { return String.fromCharCode(39) } // single quote
+        if code == 48 { return "" } // null character - simplified for bootstrap
         return escaped.toString()
     }
     
@@ -738,8 +745,9 @@ class SeenLexer {
                 break
             }
 
-            if not inExpression and ch == '\\' {
-                currentPart = currentPart + readEscapeSequence(false, "Unterminated string literal")
+            if not inExpression and ch.toInt() == 92 {
+                let escapedValue = readEscapeSequence(false, "Unterminated string literal")
+                currentPart = currentPart + escapedValue
                 continue
             }
 

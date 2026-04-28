@@ -1,0 +1,147 @@
+// ir_string_emit.seen -- Shared string escaping and constant emission helpers
+// Extracted from llvm_ir_gen.seen to keep string literal IR emission thin.
+
+import str.string.{StringBuilder}
+import io.file.{readText, exists}
+import codegen.ir_string_collect.{ensureStringConstCache, findCachedStringConstIndex, cacheStringConstUnchecked}
+
+// Escape a string for embedding in LLVM IR constant data. Replaces
+// backslash, double-quote, newline, tab, and carriage-return with their
+// LLVM hex escape sequences (\5C, \22, \0A, \09, \0D). Uses a fast
+// path (byteAt scan) to skip allocation when no escaping is needed.
+fun escapeStringImpl(str: String) r: String {
+    var needsEscape = 0
+    var scanIdx = 0
+    while scanIdx < str.length() {
+        let sb = str.byteAt(scanIdx)
+        if sb == 92 or sb == 34 or sb == 10 or sb == 9 or sb == 13 {
+            needsEscape = 1
+            scanIdx = str.length()
+        }
+        scanIdx = scanIdx + 1
+    }
+    if needsEscape == 0 {
+        return str
+    }
+    var result = ""
+    var i = 0
+    while i < str.length() {
+        let b = str.byteAt(i)
+        var charHandled = false
+        if b == 92 {
+            result = result + "\\\\"
+            charHandled = true
+        }
+        if not charHandled and b == 34 {
+            result = result + "\\22"
+            charHandled = true
+        }
+        if not charHandled and b == 10 {
+            result = result + "\\0A"
+            charHandled = true
+        }
+        if not charHandled and b == 9 {
+            result = result + "\\09"
+            charHandled = true
+        }
+        if not charHandled and b == 13 {
+            result = result + "\\0D"
+            charHandled = true
+        }
+        if not charHandled {
+            result = result + str.substring(i, i + 1)
+        }
+        i = i + 1
+    }
+    return result
+}
+
+fun findStringConstantIndexImpl(stringConstants: Array<String>, str: String) r: Int {
+    ensureStringConstCache(stringConstants)
+    return findCachedStringConstIndex(str)
+}
+
+fun addStringConstantTableImpl(stringConstants: Array<String>, str: String) r: Int {
+    let existingIdx = findStringConstantIndexImpl(stringConstants, str)
+    if existingIdx >= 0 {
+        return existingIdx
+    }
+    stringConstants.push(str)
+    cacheStringConstUnchecked(str)
+    return stringConstants.length() - 1
+}
+
+fun getStringConstantIndexImpl(stringConstants: Array<String>, str: String) r: Int {
+    return addStringConstantTableImpl(stringConstants, str)
+}
+
+fun emitAdditionalGeneratedStringConstantsImpl(output: StringBuilder,
+    stringConstants: Array<String>, stringConstantPrefix: String,
+    startIndex: Int) r: Void {
+
+    if stringConstants.length() <= startIndex {
+        return
+    }
+
+    output.append("\n; Additional string constants from derive/reflect codegen\n")
+    var sci = startIndex
+    while sci < stringConstants.length() {
+        let scStr = stringConstants[sci]
+        let escaped = escapeStringImpl(scStr)
+        let scLen = scStr.length() + 1
+        output.append("@.str." + stringConstantPrefix + sci.toString() +
+            " = private unnamed_addr constant [" + scLen.toString() +
+            " x i8] c\"" + escaped + "\\00\"\n")
+        sci = sci + 1
+    }
+}
+
+fun loadEmbeddedStringConstantInfoImpl(stringConstants: Array<String>,
+    path: String) r: Array<String> {
+
+    let info = Array<String>()
+    if path == "" or not exists(path) {
+        return info
+    }
+
+    let content = readText(path)
+    stringConstants.push(content)
+    info.push(content)
+    info.push(escapeStringImpl(content))
+    info.push((stringConstants.length() - 1).toString())
+    return info
+}
+
+fun emitStringConstantsImpl(output: StringBuilder, stringConstants: Array<String>) r: Void {
+    var i = 0
+    while i < stringConstants.length() {
+        let str = stringConstants[i]
+        let escaped = escapeStringImpl(str)
+        let len = str.length() + 1
+        output.append("@.str." + i.toString() +
+            " = private unnamed_addr constant [" + len.toString() +
+            " x i8] c\"" + escaped + "\\00\"\n")
+        i = i + 1
+    }
+    if stringConstants.length() > 0 {
+        output.append("\n")
+    }
+}
+
+fun emitStringConstantsWithPrefixImpl(output: StringBuilder,
+    stringConstants: Array<String>, moduleIndex: Int) r: Void {
+
+    var i = 0
+    while i < stringConstants.length() {
+        let str = stringConstants[i]
+        let escaped = escapeStringImpl(str)
+        let len = str.length() + 1
+        output.append("@.str.M" + moduleIndex.toString() + "." +
+            i.toString() + " = private unnamed_addr constant [" +
+            len.toString() + " x i8] c\"" + escaped + "\\00\"\n")
+        i = i + 1
+    }
+    if stringConstants.length() > 0 {
+        output.append("\n")
+    }
+}

@@ -1,0 +1,79 @@
+// Async function registry helpers extracted from llvm_ir_gen.seen.
+
+fun ensureAsyncStringBoxValue(box: Array<String>) r: Void {
+    if box.length() == 0 {
+        box.push("")
+    }
+}
+
+fun ensureAsyncIntBoxValue(box: Array<Int>) r: Void {
+    if box.length() == 0 {
+        box.push(0)
+    }
+}
+
+fun registerAsyncFunctionImpl(name: String, declaredRetType: String,
+    asyncFuncNamesBox: Array<String>, asyncFuncRetTypesBox: Array<String>,
+    asyncFuncCountBox: Array<Int>) r: Void {
+
+    ensureAsyncStringBoxValue(asyncFuncNamesBox)
+    ensureAsyncStringBoxValue(asyncFuncRetTypesBox)
+    ensureAsyncIntBoxValue(asyncFuncCountBox)
+
+    if asyncFuncCountBox[0] == 0 {
+        asyncFuncNamesBox[0] = name
+        asyncFuncRetTypesBox[0] = declaredRetType
+    } else {
+        asyncFuncNamesBox[0] = asyncFuncNamesBox[0] + "|" + name
+        asyncFuncRetTypesBox[0] = asyncFuncRetTypesBox[0] + "|" + declaredRetType
+    }
+    asyncFuncCountBox[0] = asyncFuncCountBox[0] + 1
+}
+
+fun isAsyncFunctionImpl(name: String, asyncFuncNames: String, asyncFuncCount: Int) r: Bool {
+    if asyncFuncCount == 0 {
+        return false
+    }
+    let search = "|" + asyncFuncNames + "|"
+    let target = "|" + name + "|"
+    return search.contains(target)
+}
+
+fun getAsyncDeclaredRetTypeImpl(name: String, asyncFuncNames: String,
+    asyncFuncRetTypes: String, asyncFuncCount: Int) r: String {
+
+    if asyncFuncCount == 0 {
+        return ""
+    }
+    let search = "|" + asyncFuncNames + "|"
+    let target = "|" + name + "|"
+    if not search.contains(target) {
+        return ""
+    }
+
+    let prefixEnd = search.indexOf(target)
+    var idx = 0
+    var si = 0
+    while si < prefixEnd {
+        if search.byteAt(si) == 124 {
+            idx = idx + 1
+        }
+        si = si + 1
+    }
+    idx = idx - 1
+
+    let retParts = "|" + asyncFuncRetTypes + "|"
+    var rStart = 1
+    var rIdx = 0
+    while rIdx < idx {
+        if retParts.byteAt(rStart) == 124 {
+            rIdx = rIdx + 1
+        }
+        rStart = rStart + 1
+    }
+    var rEnd = rStart
+    while rEnd < retParts.length() and retParts.byteAt(rEnd) != 124 {
+        rEnd = rEnd + 1
+    }
+    return retParts.substring(rStart, rEnd)
+}

@@ -1,0 +1,89 @@
+import bootstrap.frontend.{run_frontend_declarations}
+
+fun main() r: Int {
+    var source = ""
+    source = source + "extern fun cputs(value: String) r: Int;\n"
+    source = source + "type AliasInt = Int\n"
+    source = source + "var globalWidget = Widget.new()\n"
+    source = source + "class Widget {\n"
+    source = source + "    value: Int\n"
+    source = source + "    static fun new() r: Widget {\n"
+    source = source + "        let tmp = 1\n"
+    source = source + "        return Widget{{value: tmp}}\n"
+    source = source + "    }\n"
+    source = source + "    fun get() r: Int {\n"
+    source = source + "        var total = 0\n"
+    source = source + "        total = total + this.value\n"
+    source = source + "        return total\n"
+    source = source + "    }\n"
+    source = source + "}\n"
+    source = source + "impl Widget {\n"
+    source = source + "    fun bump(this: Widget) r: Int {\n"
+    source = source + "        return this.value + 1\n"
+    source = source + "    }\n"
+    source = source + "}\n"
+    source = source + "fun largeBody() r: Int {\n"
+    source = source + "    var sum = 0\n"
+    source = source + "    sum = sum + 1\n"
+    source = source + "    sum = sum + 2\n"
+    source = source + "    sum = sum + 3\n"
+    source = source + "    sum = sum + 4\n"
+    source = source + "    return sum\n"
+    source = source + "}\n"
+
+    let result = run_frontend_declarations(source, "declaration_frontend_smoke", "en")
+    if not result.success {
+        return 1
+    }
+
+    var sawExtern = false
+    var sawClass = false
+    var sawAlias = false
+    var sawGlobal = false
+    var sawLargeBody = false
+    var sawImplFunction = false
+
+    var idx = 0
+    while idx < result.program.items.length() {
+        let item = result.program.items[idx]
+        if item.itemType == "Function" {
+            if item.name == "cputs" {
+                sawExtern = item.function.isExtern and item.function.body.statements.length() == 0
+            }
+            if item.name == "largeBody" {
+                sawLargeBody = item.function.body.statements.length() == 1
+            }
+            if item.name == "bump" {
+                sawImplFunction = item.function.body.statements.length() == 1
+            }
+        }
+        if item.itemType == "Class" {
+            if item.name == "Widget" {
+                sawClass = item.classNode.fields.length() == 1 and item.classNode.methods.length() == 2
+                if sawClass {
+                    if item.classNode.methods[0].body.statements.length() != 1 {
+                        sawClass = false
+                    }
+                    if item.classNode.methods[1].body.statements.length() != 1 {
+                        sawClass = false
+                    }
+                }
+            }
+            if item.name == "AliasInt" {
+                sawAlias = item.classNode.hasDecorator("type_alias")
+            }
+        }
+        if item.itemType == "GlobalVar" and item.name == "globalWidget" {
+            sawGlobal = item.visibility.contains("Widget")
+        }
+        idx = idx + 1
+    }
+
+    if not sawExtern { return 2 }
+    if not sawClass { return 3 }
+    if not sawAlias { return 4 }
+    if not sawGlobal { return 5 }
+    if not sawLargeBody { return 6 }
+    if not sawImplFunction { return 7 }
+    return 0
+}

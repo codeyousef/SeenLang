@@ -2,7 +2,10 @@
 // Extracted from llvm_ir_gen.seen statement generation functions
 // Each impl function emits IR scaffolding (labels, branches, phi nodes)
 
+import parser.real_parser.{ParserExpressionNode, StatementNode}
 import codegen.ir_optimization.{getNextRegFn, getNextBlockFn}
+import codegen.ir_decl_registry.{getFunctionReturnTypeStateImpl}
+import codegen.ir_variable_gen.{storeActiveVariableBindingImpl}
 import str.string.{StringBuilder}
 
 // emitConditionToI1Impl — convert a condition value to i1 based on its type
@@ -31,19 +34,110 @@ fun emitConditionToI1Impl(output: StringBuilder, regBox: Array<Int>, condReg: St
     return cmpReg
 }
 
-// emitIfBranchingImpl — emit the if/then/else/end label structure
-// Returns: endLabel name (for the caller to continue after)
-// thenTerminated/elseTerminated: 1 if the branch ended with return/break
-fun emitIfBranchingImpl(output: StringBuilder, blockLabelBox: Array<Int>, condBoolReg: String) r: String {
+// emitIfBranchingImpl — emit the if/then/else/end label structure.
+// branchMetadata is appended directly to the `br i1` line (for example
+// `, !prof !197`) and may be "".
+// Returns: thenLabel|elseLabel|endLabel for the caller to continue.
+fun emitIfBranchingImpl(output: StringBuilder, blockLabelBox: Array<Int>, condBoolReg: String, branchMetadata: String) r: String {
     let thenLabel = getNextBlockFn(blockLabelBox)
     let elseLabel = getNextBlockFn(blockLabelBox)
     let endLabel = getNextBlockFn(blockLabelBox)
-    output.append("  br i1 " + condBoolReg + ", label %" + thenLabel + ", label %" + elseLabel + "\n")
+    output.append("  br i1 " + condBoolReg + ", label %" + thenLabel + ", label %" + elseLabel + branchMetadata + "\n")
     output.append(thenLabel + ":\n")
-    // Caller fills in then-block body, then calls emitIfThenEndImpl
-    // Store labels in a known format for the caller
-    // Return endLabel:thenLabel:elseLabel concatenated
-    return endLabel + ":" + thenLabel + ":" + elseLabel
+    return thenLabel + "|" + elseLabel + "|" + endLabel
+}
+
+fun computeIfBranchWeightMetadataImpl(thenStatementCount: Int,
+    lastThenKind: String) r: String {
+
+    if thenStatementCount > 0 and thenStatementCount <= 3 {
+        if lastThenKind == "Return" {
+            return ", !prof !197"
+        }
+    }
+    return ""
+}
+
+fun computeIfBranchWeightMetadataForStatementImpl(stmt: StatementNode)
+    r: String {
+
+    let thenCount = stmt.thenBranch.statements.length()
+    var lastThenKind = ""
+    if thenCount > 0 {
+        lastThenKind = stmt.thenBranch.statements[thenCount - 1].kind
+    }
+    return computeIfBranchWeightMetadataImpl(thenCount, lastThenKind)
+}
+
+fun normalizeIfConditionTypeImpl(expr: ParserExpressionNode,
+    inferredType: String) r: String {
+
+    var condType = inferredType
+    let condKind = expr.kind
+    if condKind == "Binary" {
+        let condOp = expr.operator
+        if condOp == "==" or condOp == "!=" or condOp == "<" or
+            condOp == ">" or condOp == "<=" or condOp == ">=" or
+            condOp == "and" or condOp == "or" {
+
+            condType = "Bool"
+        }
+    }
+    if condKind == "Not" {
+        condType = "Bool"
+    }
+    if condKind == "Literal" {
+        let condLitVal = expr.literalValue
+        if condLitVal == "true" or condLitVal == "false" {
+            condType = "Bool"
+        }
+    }
+    return condType
+}
+
+fun finalizeConditionalEndBlockImpl(output: StringBuilder, endLabel: String,
+    thenTerminated: Bool, elseTerminated: Bool) r: Bool {
+
+    output.append(endLabel + ":\n")
+    if thenTerminated and elseTerminated {
+        output.append("  unreachable\n")
+        return true
+    }
+    return false
+}
+
+fun emitIfExpressionBranchValueImpl(output: StringBuilder, branchReg: String,
+    branchLabelPrefix: String, mergeLabel: String,
+    labelSuffix: String) r: String {
+
+    let phiLabel = branchLabelPrefix + ".end." + labelSuffix
+    output.append("  br label %" + phiLabel + "\n")
+    output.append(phiLabel + ":\n")
+    output.append("  br label %" + mergeLabel + "\n")
+    return branchReg + "|" + phiLabel
+}
+
+fun emitPhiMergeValueImpl(output: StringBuilder, regBox: Array<Int>,
+    llvmType: String, thenReg: String, thenLabel: String, elseReg: String,
+    elseLabel: String) r: String {
+
+    let resultReg = getNextRegFn(regBox)
+    output.append("  " + resultReg + " = phi " + llvmType + " [ " +
+        thenReg + ", %" + thenLabel + " ], [ " + elseReg + ", %" +
+        elseLabel + " ]\n")
+    return resultReg
+}
+
+fun emitIfLetBindingStateImpl(output: StringBuilder, regBox: Array<Int>,
+    varNames: Array<String>, varRegs: Array<String>,
+    varTypes: Array<String>, activeVarCount: Int, bindName: String,
+    exprReg: String) r: Int {
+
+    let bindReg = getNextRegFn(regBox)
+    output.append("  " + bindReg + " = alloca i64, align 8\n")
+    output.append("  store i64 " + exprReg + ", ptr " + bindReg + "\n")
+    return storeActiveVariableBindingImpl(varNames, varRegs, varTypes,
+        activeVarCount, bindName, bindReg, "Int")
 }
 
 // emitRangeForLoopImpl — emit range-based for-in loop scaffolding
@@ -80,6 +174,30 @@ fun emitLoopIncrementImpl(output: StringBuilder, regBox: Array<Int>, indexAlloca
     output.append("  br label %" + condLabel + "\n")
 }
 
+// emitIndexedForLoopHeaderImpl — emit shared header scaffolding for loops that
+// advance an i64 index from an initial value up to an exclusive bound.
+// Returns the register holding the loaded index value in the body block.
+// loopValueAlloca can be "" for array iteration where the loop variable holds
+// the fetched element rather than the numeric index.
+fun emitIndexedForLoopHeaderImpl(output: StringBuilder, regBox: Array<Int>,
+    initialIndexReg: String, boundReg: String, loopValueAlloca: String, indexAlloca: String,
+    condLabel: String, bodyLabel: String, endLabel: String) r: String {
+
+    output.append("  store i64 " + initialIndexReg + ", ptr " + indexAlloca + "\n")
+    output.append("  br label %" + condLabel + "\n")
+    output.append(condLabel + ":\n")
+    let idxReg = getNextRegFn(regBox)
+    output.append("  " + idxReg + " = load i64, ptr " + indexAlloca + ", align 8\n")
+    let cmpReg = getNextRegFn(regBox)
+    output.append("  " + cmpReg + " = icmp slt i64 " + idxReg + ", " + boundReg + "\n")
+    output.append("  br i1 " + cmpReg + ", label %" + bodyLabel + ", label %" + endLabel + ", !prof !196\n")
+    output.append(bodyLabel + ":\n")
+    if loopValueAlloca != "" {
+        output.append("  store i64 " + idxReg + ", ptr " + loopValueAlloca + ", align 8\n")
+    }
+    return idxReg
+}
+
 // emitArrayForLoopHeaderImpl — emit array-based for-in loop header
 // arrPtrReg: pointer to the SeenArray struct
 // Returns: condLabel:bodyLabel:endLabel:idxAlloca:lenReg concatenated
@@ -114,4 +232,94 @@ fun emitPrefetchImpl(output: StringBuilder, regBox: Array<Int>, dataPtrReg: Stri
     let nextElemPtr = getNextRegFn(regBox)
     output.append("  " + nextElemPtr + " = getelementptr inbounds i64, ptr " + dataPtrReg + ", i64 " + nextIdx + "\n")
     output.append("  call void @llvm.prefetch.p0(ptr " + nextElemPtr + ", i32 0, i32 3, i32 1)\n")
+}
+
+fun encodeRegionStrategyImpl(strategy: String) r: String {
+    if strategy == "bump" { return "1" }
+    if strategy == "stack" { return "2" }
+    if strategy == "cxl_near" { return "3" }
+    if strategy == "cxl_far" { return "4" }
+    if strategy == "gpu" { return "5" }
+    return "0"
+}
+
+fun emitRegionStatementPreambleImpl(output: StringBuilder, regBox: Array<Int>,
+    strategy: String, regionName: String) r: String {
+
+    let strategyInt = encodeRegionStrategyImpl(strategy)
+    output.append("  ; region block")
+    if strategy != "" { output.append(" strategy=" + strategy) }
+    if regionName != "" { output.append(" name=" + regionName) }
+    output.append("\n")
+
+    let regionReg = getNextRegFn(regBox)
+    output.append("  " + regionReg +
+        " = call ptr @__seen_region_create(i64 65536, i32 " + strategyInt +
+        ")\n")
+    output.append("  call void @__seen_region_push(ptr " + regionReg + ")\n")
+
+    let regionSlot = getNextRegFn(regBox)
+    output.append("  " + regionSlot + " = alloca ptr\n")
+    output.append("  store ptr " + regionReg + ", ptr " + regionSlot + "\n")
+    return regionSlot
+}
+
+fun emitRegionStatementCleanupImpl(output: StringBuilder, regBox: Array<Int>,
+    regionSlot: String) r: Void {
+
+    let popReg = getNextRegFn(regBox)
+    output.append("  " + popReg + " = call ptr @__seen_region_pop()\n")
+    let loadReg = getNextRegFn(regBox)
+    output.append("  " + loadReg + " = load ptr, ptr " + regionSlot + "\n")
+    output.append("  call void @__seen_region_destroy(ptr " + loadReg + ")\n")
+}
+
+fun classifyParallelForRangeExprImpl(rangeExpr: ParserExpressionNode) r: Int {
+    if rangeExpr.kind == "Binary" and rangeExpr.operator == ".." {
+        return 1
+    }
+    return 0
+}
+
+fun buildParallelForBodyFunctionNameImpl(pforIdx: Int) r: String {
+    return "@__seen_pfor_body_" + pforIdx.toString()
+}
+
+fun emitParallelForBodyHeaderImpl(output: StringBuilder, bodyFuncName: String)
+    r: Void {
+
+    output.append("define i64 " + bodyFuncName + "(i64 %0) nounwind {\n")
+    output.append("entry:\n")
+}
+
+fun finalizeParallelForBodyImpl(output: StringBuilder, blockTerminated: Bool)
+    r: String {
+
+    if not blockTerminated {
+        output.append("  ret i64 0\n")
+    }
+    output.append("}\n\n")
+    return output.toString()
+}
+
+fun emitUnusedResultCallWarningImpl(output: StringBuilder,
+    expr: ParserExpressionNode, warnUnusedResult: Int, tryCatchLabel: String,
+    funcNames: Array<String>, funcRetTypes: Array<String>) r: Void {
+
+    if warnUnusedResult != 1 or expr.kind != "Call" {
+        return
+    }
+    let unusedCallName = expr.callee
+    let unusedRetType = getFunctionReturnTypeStateImpl(unusedCallName,
+        funcNames, funcRetTypes)
+    if not unusedRetType.startsWith("Result<") and
+        not unusedRetType.startsWith("Result ") {
+
+        return
+    }
+    if tryCatchLabel == "" {
+        output.append("; WARNING: unused Result from call to " +
+            unusedCallName + "\n")
+        println("[WARNING] unused error result from '" + unusedCallName + "'")
+    }
 }

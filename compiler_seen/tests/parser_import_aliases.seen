@@ -7,7 +7,9 @@ import macro.expander.{MacroExpander, MacroExpansionResult}
 fun main() r: Int {
     let lb = "{"
     let rb = "}"
-    let source = "import typechecker.typechecker." + lb + "TypeChecker as RealTypeChecker, Helper" + rb + "; " +
+    let source = "import lexer.lexer; " +
+        "import std::sync; " +
+        "import typechecker.typechecker." + lb + "TypeChecker as RealTypeChecker, Helper" + rb + "; " +
         "import std::sync::" + lb + "Arc, Mutex as Lock" + rb + "; " +
         "import parser.main as ParserMain; fun main() r: Int { return 0 }"
 
@@ -22,33 +24,51 @@ fun main() r: Int {
 
     let ast = result.program
 
-    if ast.items.length() < 4 {
-        println("expected at least four items, got {ast.items.length()}")
+    if ast.items.length() < 6 {
+        println("expected at least six items, got {ast.items.length()}")
         return 2
     }
 
-    let importOne = ast.items[0]
-    if not verifySymbol(importOne.importSymbols, 0, "TypeChecker", "RealTypeChecker") {
+    let bareDotImport = ast.items[0]
+    if not verifyNoSymbols(bareDotImport.importSymbols, "bare dot import") {
         return 3
     }
-    if not verifySymbol(importOne.importSymbols, 1, "Helper", "") {
+
+    let bareColonImport = ast.items[1]
+    if not verifyNoSymbols(bareColonImport.importSymbols, "bare colon import") {
         return 4
     }
 
-    let importTwo = ast.items[1]
-    if not verifySymbol(importTwo.importSymbols, 0, "Arc", "") {
+    let importOne = ast.items[2]
+    if not verifySymbol(importOne.importSymbols, 0, "TypeChecker", "RealTypeChecker") {
         return 5
     }
-    if not verifySymbol(importTwo.importSymbols, 1, "Mutex", "Lock") {
+    if not verifySymbol(importOne.importSymbols, 1, "Helper", "") {
         return 6
     }
 
-    let importThree = ast.items[2]
-    if not verifySymbol(importThree.importSymbols, 0, "main", "ParserMain") {
+    let importTwo = ast.items[3]
+    if not verifySymbol(importTwo.importSymbols, 0, "Arc", "") {
         return 7
+    }
+    if not verifySymbol(importTwo.importSymbols, 1, "Mutex", "Lock") {
+        return 8
+    }
+
+    let importThree = ast.items[4]
+    if not verifySymbol(importThree.importSymbols, 0, "main", "ParserMain") {
+        return 9
     }
 
     return 0
+}
+
+fun verifyNoSymbols(symbols: Array<ImportSymbolNode>, label: String) r: Bool {
+    if symbols.length() != 0 {
+        println("expected no symbols for {label}, found {symbols.length()}")
+        return false
+    }
+    return true
 }
 
 fun verifySymbol(symbols: Array<ImportSymbolNode>, index: Int, expectedName: String, expectedAlias: String) r: Bool {

@@ -1,0 +1,148 @@
+// ir_path_expr.seen — Shared chained-path parsing helpers
+// Extracted from llvm_ir_gen.seen for member-access and method-call resolution.
+
+import parser.real_parser.{ParserExpressionNode}
+import codegen.ir_type_info.{getSeenFieldTypeImpl, getMethodReturnTypeImpl}
+import codegen.ir_type_mapping.{isClassTypeImpl}
+import codegen.ir_type_tables.{resolveUnwrapTypeImpl, resolveTryPropagateTypeImpl}
+
+fun splitChainedPathImpl(path: String) r: Array<String> {
+    let segments = Array<String>()
+    var segmentStart = 0
+    var idx = 0
+    while idx <= path.length() {
+        if idx == path.length() or path.byteAt(idx) == 46 {
+            if idx > segmentStart {
+                segments.push(path.substring(segmentStart, idx))
+            }
+            segmentStart = idx + 1
+        }
+        idx = idx + 1
+    }
+    return segments
+}
+
+fun buildChainedPathExprImpl(path: String) r: ParserExpressionNode {
+    let segments = splitChainedPathImpl(path)
+    if segments.length() == 0 {
+        return ParserExpressionNode.new()
+    }
+
+    let baseExpr = ParserExpressionNode.new()
+    baseExpr.kind = "Variable"
+    baseExpr.variableName = segments[0]
+
+    var currentExpr = baseExpr
+    var idx = 1
+    while idx < segments.length() {
+        let segment = segments[idx]
+        let nextExpr = ParserExpressionNode.new()
+        if segment.endsWith("()") {
+            nextExpr.kind = "MethodCall"
+            nextExpr.callee = segment.substring(0, segment.length() - 2)
+            nextExpr.operands.push(currentExpr)
+        } else {
+            nextExpr.kind = "MemberAccess"
+            nextExpr.variableName = segment
+            nextExpr.operands.push(currentExpr)
+        }
+        currentExpr = nextExpr
+        idx = idx + 1
+    }
+
+    return currentExpr
+}
+
+fun splitFirstPathDotImpl(path: String) r: Array<String> {
+    let parts = Array<String>()
+    var dotIdx = -1
+    var idx = 0
+    while idx < path.length() {
+        if path.byteAt(idx) == 46 {
+            dotIdx = idx
+            idx = path.length()
+        }
+        idx = idx + 1
+    }
+    if dotIdx < 0 {
+        parts.push(path)
+        parts.push("")
+        return parts
+    }
+    parts.push(path.substring(0, dotIdx))
+    parts.push(path.substring(dotIdx + 1, path.length()))
+    return parts
+}
+
+fun splitBracketPathImpl(path: String) r: Array<String> {
+    let parts = Array<String>()
+    var bracketIdx = -1
+    var idx = 0
+    while idx < path.length() {
+        if path.byteAt(idx) == 91 {
+            bracketIdx = idx
+            idx = path.length()
+        }
+        idx = idx + 1
+    }
+    if bracketIdx < 0 {
+        return parts
+    }
+    var closeIdx = bracketIdx + 1
+    while closeIdx < path.length() and path.byteAt(closeIdx) != 93 {
+        closeIdx = closeIdx + 1
+    }
+    if closeIdx >= path.length() {
+        return parts
+    }
+    parts.push(path.substring(0, bracketIdx))
+    parts.push(path.substring(bracketIdx + 1, closeIdx))
+    return parts
+}
+
+fun resolveChainedPathSuffixTypeImpl(baseType: String, restPath: String,
+    structNames: Array<String>, structFieldNames: Array<String>, structFieldTypes: Array<String>,
+    structMethodNames: Array<String>, structMethodRetTypes: Array<String>) r: String {
+
+    var currentType = baseType
+    var remainingPath = restPath
+    while remainingPath.length() > 0 {
+        let nextParts = splitFirstPathDotImpl(remainingPath)
+        var segmentName = nextParts[0]
+        remainingPath = nextParts[1]
+
+        var segmentIsMethod = false
+        if segmentName.endsWith("()") {
+            segmentName = segmentName.substring(0, segmentName.length() - 2)
+            segmentIsMethod = true
+        }
+
+        var nextType = ""
+        if not segmentIsMethod {
+            nextType = getSeenFieldTypeImpl(currentType, segmentName, structNames, structFieldNames, structFieldTypes)
+        }
+        if nextType == "" {
+            if segmentName == "unwrap" {
+                var isClassInner = 0
+                if isClassTypeImpl(currentType, structNames) == 1 { isClassInner = 1 }
+                nextType = resolveUnwrapTypeImpl(currentType, isClassInner)
+            }
+            if nextType == "" and segmentName == "tryPropagate" {
+                nextType = resolveTryPropagateTypeImpl(currentType)
+            }
+            if nextType == "" {
+                nextType = getMethodReturnTypeImpl(currentType, segmentName, structNames, structMethodNames, structMethodRetTypes)
+                if nextType == "Unknown" {
+                    nextType = ""
+                }
+            }
+        }
+
+        currentType = nextType
+        if currentType == "" or currentType == "Int" {
+            return currentType
+        }
+    }
+
+    return currentType
+}

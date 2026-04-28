@@ -1,0 +1,130 @@
+// ir_call_runtime_plan.seen - pure runtime-call planning helpers.
+
+class RuntimeBuiltinDispatchPlan {
+    var shouldTryOption: Bool
+    var shouldTrySuper: Bool
+    var shouldTryEmpty: Bool
+    var shouldTryPrint: Bool
+    var shouldTryIo: Bool
+    var ioAction: Int
+    var shouldTryPanic: Bool
+    var shouldTryMath: Bool
+    var shouldReadMathArg0: Bool
+    var shouldReadMathArg1: Bool
+
+    static fun new() r: RuntimeBuiltinDispatchPlan {
+        return RuntimeBuiltinDispatchPlan{
+            shouldTryOption: false,
+            shouldTrySuper: false,
+            shouldTryEmpty: false,
+            shouldTryPrint: false,
+            shouldTryIo: false,
+            ioAction: 0,
+            shouldTryPanic: false,
+            shouldTryMath: false,
+            shouldReadMathArg0: false,
+            shouldReadMathArg1: false
+        }
+    }
+}
+
+fun isOptionRuntimeCallPlanImpl(funcName: String) r: Bool {
+    if funcName == "Some" {
+        return true
+    }
+    return funcName == "None"
+}
+
+fun shouldReadSomeRuntimeArgImpl(funcName: String, argCount: Int) r: Bool {
+    return funcName == "Some" and argCount > 0
+}
+
+fun isSuperRuntimeCallPlanImpl(funcName: String) r: Bool {
+    return funcName == "super"
+}
+
+fun isEmptyRuntimeCalleeImpl(funcName: String) r: Bool {
+    return funcName == ""
+}
+
+fun isPrintRuntimeCallPlanImpl(funcName: String) r: Bool {
+    if funcName == "println" {
+        return true
+    }
+    return funcName == "print"
+}
+
+fun shouldReadPrintRuntimeArgImpl(funcName: String, argCount: Int) r: Bool {
+    return isPrintRuntimeCallPlanImpl(funcName) and argCount > 0
+}
+
+fun runtimeIoCallActionImpl(funcName: String, argCount: Int) r: Int {
+    if funcName == "readText" {
+        if argCount > 0 { return 1 }
+        return 4
+    }
+    if funcName == "writeText" {
+        if argCount >= 2 { return 2 }
+        return 4
+    }
+    if funcName == "args" {
+        return 3
+    }
+    if funcName == "__ReadFileBytes" {
+        if argCount == 1 { return 5 }
+    }
+    return 0
+}
+
+fun isPanicRuntimeCallPlanImpl(funcName: String) r: Bool {
+    return funcName == "panic"
+}
+
+fun shouldReadPanicRuntimeArgImpl(funcName: String, argCount: Int) r: Bool {
+    return isPanicRuntimeCallPlanImpl(funcName) and argCount > 0
+}
+
+fun isMathRuntimeCallPlanImpl(funcName: String) r: Bool {
+    if funcName == "__Sqrt" { return true }
+    if funcName == "__Sin" { return true }
+    if funcName == "__Cos" { return true }
+    if funcName == "__Exp" { return true }
+    if funcName == "__Log" { return true }
+    if funcName == "__Log10" { return true }
+    if funcName == "__Fabs" { return true }
+    if funcName == "__Pow" { return true }
+    if funcName == "__Asin" { return true }
+    if funcName == "__Acos" { return true }
+    if funcName == "__Atan" { return true }
+    if funcName == "__Sinh" { return true }
+    if funcName == "__Cosh" { return true }
+    if funcName == "__Tanh" { return true }
+    if funcName == "__Tan" { return true }
+    if funcName == "__Atan2" { return true }
+    if funcName == "__ExecuteCommand" { return true }
+    if funcName == "absFloat" { return true }
+    if funcName == "absInt" { return true }
+    if funcName == "minInt" { return true }
+    return funcName == "maxInt"
+}
+
+fun shouldReadMathRuntimeArgImpl(argCount: Int, argIndex: Int) r: Bool {
+    return argCount > argIndex
+}
+
+fun planRuntimeBuiltinDispatchImpl(funcName: String, argCount: Int)
+    r: RuntimeBuiltinDispatchPlan {
+
+    let plan = RuntimeBuiltinDispatchPlan.new()
+    plan.shouldTryOption = isOptionRuntimeCallPlanImpl(funcName)
+    plan.shouldTrySuper = isSuperRuntimeCallPlanImpl(funcName)
+    plan.shouldTryEmpty = isEmptyRuntimeCalleeImpl(funcName)
+    plan.shouldTryPrint = isPrintRuntimeCallPlanImpl(funcName)
+    plan.ioAction = runtimeIoCallActionImpl(funcName, argCount)
+    plan.shouldTryIo = plan.ioAction != 0
+    plan.shouldTryPanic = isPanicRuntimeCallPlanImpl(funcName)
+    plan.shouldTryMath = isMathRuntimeCallPlanImpl(funcName)
+    plan.shouldReadMathArg0 = shouldReadMathRuntimeArgImpl(argCount, 0)
+    plan.shouldReadMathArg1 = shouldReadMathRuntimeArgImpl(argCount, 1)
+    return plan
+}

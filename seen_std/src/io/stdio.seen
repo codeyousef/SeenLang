@@ -77,8 +77,8 @@ class ContentLengthReader {
     var lastError: String
 
     // Read a complete LSP message (headers + body)
-    // Returns null on EOF or error
-    fun readMessage() r: String? {
+    // Returns an empty string on EOF or error; lastError carries detail.
+    fun readMessage() r: String {
         // Read headers until we get an empty line
         var contentLength = -1
 
@@ -87,7 +87,7 @@ class ContentLengthReader {
             if line.length() == 0 {
                 // EOF before headers complete
                 this.lastError = "Unexpected EOF while reading headers"
-                return null
+                return ""
             }
 
             // Trim the line (remove \r\n or \n)
@@ -119,14 +119,14 @@ class ContentLengthReader {
 
         if contentLength < 0 {
             this.lastError = "Missing Content-Length header"
-            return null
+            return ""
         }
 
         // Read exactly contentLength bytes
         let body = __ReadStdinBytes(contentLength)
         if body.length() < contentLength {
             this.lastError = "Incomplete message body"
-            return null
+            return ""
         }
 
         return body

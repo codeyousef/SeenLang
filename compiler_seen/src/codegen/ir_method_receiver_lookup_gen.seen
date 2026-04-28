@@ -1,0 +1,54 @@
+// ir_method_receiver_lookup_gen.seen - low-level method receiver load helpers.
+
+import str.string.{StringBuilder}
+import codegen.ir_variable_gen.{emitLocalVariableLoadImpl}
+import codegen.ir_method_fastpath.{prepareModuleConstantMethodReceiverImpl}
+import codegen.ir_method_receiver.{emitSeenLexerKeywordManagerReceiverImpl}
+
+class MethodReceiverLoadResult {
+    var receiverReg: String
+    var receiverType: String
+
+    static fun new(receiverReg: String, receiverType: String)
+        r: MethodReceiverLoadResult {
+
+        return MethodReceiverLoadResult{
+            receiverReg: receiverReg,
+            receiverType: receiverType
+        }
+    }
+}
+
+fun emitLocalMethodReceiverLoadImpl(output: StringBuilder,
+    regBox: Array<Int>, llvmType: String, varReg: String,
+    varType: String) r: MethodReceiverLoadResult {
+
+    let receiverReg = emitLocalVariableLoadImpl(output, regBox, llvmType,
+        varReg)
+    return MethodReceiverLoadResult.new(receiverReg, varType)
+}
+
+fun emitModuleConstantMethodReceiverLoadImpl(output: StringBuilder,
+    regBox: Array<Int>, globalName: String, llvmType: String,
+    invariantSuffix: String, inferredReceiverType: String,
+    currentReceiverReg: String, currentReceiverType: String)
+    r: MethodReceiverLoadResult {
+
+    let receiverRegBox = Array<String>()
+    receiverRegBox.push(currentReceiverReg)
+    let receiverTypeBox = Array<String>()
+    receiverTypeBox.push(currentReceiverType)
+    prepareModuleConstantMethodReceiverImpl(output, regBox, globalName,
+        llvmType, invariantSuffix, inferredReceiverType, receiverRegBox,
+        receiverTypeBox)
+    return MethodReceiverLoadResult.new(receiverRegBox[0],
+        receiverTypeBox[0])
+}
+
+fun emitKeywordManagerMethodReceiverLoadImpl(output: StringBuilder,
+    regBox: Array<Int>, thisPtrReg: String) r: MethodReceiverLoadResult {
+
+    let receiverReg = emitSeenLexerKeywordManagerReceiverImpl(output, regBox,
+        thisPtrReg)
+    return MethodReceiverLoadResult.new(receiverReg, "KeywordManager")
+}

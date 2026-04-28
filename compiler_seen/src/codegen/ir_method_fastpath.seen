@@ -1,0 +1,506 @@
+// ir_method_fastpath.seen — Shared method-call fast-path and fallback helpers
+// Extracted from ir_method_receiver.seen to keep receiver typing separate from
+// prepared dispatch, static-call emission, and unresolved fallback handling.
+
+import str.string.{StringBuilder}
+import codegen.ir_optimization.{getNextRegFn}
+import codegen.ir_type_ops.{emitOptionMethodImpl, emitJsonValueMethodImpl, emitStringMethodImpl, emitStringBuilderMethodImpl}
+import codegen.ir_method_gen.{emitToStringMethodImpl, emitToIntMethodImpl, emitToFloatMethodImpl, emitNumericMethodImpl, emitLengthSizeMethodImpl}
+import codegen.ir_call_dispatch.{emitCStrConversionImpl, emitDynTraitVtableCallImpl, emitGenericStaticCallImpl, emitStringBuilderNewCallImpl, emitStringFromCharCodeCallImpl, emitSimdReductionVarImpl}
+import codegen.ir_call_constructors.{emitStaticCollectionNewImpl, emitArrayWithLengthImpl}
+import codegen.ir_type_dispatch.{dispatchCollectionMethodImpl}
+import codegen.ir_variable_gen.{emitModuleConstantLoadImpl}
+import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, normalizeExplicitMethodReceiverTypeImpl, fallbackModuleConstantMethodReceiverTypeImpl, convertReceiverToPtrImpl}
+import codegen.ir_type_mapping.{isClassTypeImpl}
+import codegen.type_registry.{findStructReg}
+
+fun emitPreparedDynTraitMethodCallImpl(output: StringBuilder, regBox: Array<Int>,
+    receiverReg: String, receiverType: String, methodName: String,
+    structNames: Array<String>, structMethodNames: Array<String>,
+    structMethodRetTypes: Array<String>, argRegs: Array<String>,
+    argTypes: Array<String>, receiverLoadKind: Int) r: String {
+
+    if not receiverType.startsWith("dyn ") {
+        return ""
+    }
+
+    let dynTraitName = receiverType.substring(4, receiverType.length())
+    let dynTraitIdx = findStructReg(dynTraitName, structNames)
+    var dynMethodNames = ""
+    var dynRetTypes = ""
+    if dynTraitIdx >= 0 {
+        dynMethodNames = structMethodNames[dynTraitIdx]
+        dynRetTypes = structMethodRetTypes[dynTraitIdx]
+    }
+
+    return emitDynTraitVtableCallImpl(output, regBox, receiverReg, dynTraitName,
+        methodName, dynMethodNames, dynRetTypes, argRegs, argTypes,
+        receiverLoadKind)
+}
+
+fun tryGeneratePreparedExplicitReceiverFastPathImpl(output: StringBuilder,
+    regBox: Array<Int>, blockLabelBox: Array<Int>, methodName: String,
+    receiverReg: String, receiverTypeBox: Array<String>,
+    structNames: Array<String>, structMethodNames: Array<String>,
+    structMethodRetTypes: Array<String>, dynArgRegs: Array<String>,
+    dynArgTypes: Array<String>, reprCClassNames: String) r: String {
+
+    let dynTraitResult = emitPreparedDynTraitMethodCallImpl(output, regBox,
+        receiverReg, receiverTypeBox[0], methodName, structNames,
+        structMethodNames, structMethodRetTypes, dynArgRegs, dynArgTypes, 0)
+    if dynTraitResult != "" {
+        return dynTraitResult
+    }
+
+    receiverTypeBox[0] = normalizeExplicitMethodReceiverTypeImpl(methodName,
+        receiverTypeBox[0])
+
+    var optDefaultReg = "0"
+    if (methodName == "unwrapOr" or methodName == "UnwrapOr") and
+        dynArgRegs.length() > 0 {
+        optDefaultReg = dynArgRegs[0]
+    }
+    let optionResult = tryGenerateExplicitOptionMethodCallImpl(output, regBox,
+        blockLabelBox, methodName, receiverReg, receiverTypeBox[0],
+        optDefaultReg)
+    if optionResult != "" {
+        return optionResult
+    }
+
+    var hotStateArg = "0"
+    if methodName == "__seen_hot_set_state" and dynArgRegs.length() > 0 {
+        hotStateArg = dynArgRegs[0]
+    }
+    let hotReloadResult = tryGenerateExplicitHotReloadMethodCallImpl(output,
+        regBox, methodName, receiverReg, receiverTypeBox[0], hotStateArg,
+        reprCClassNames, structNames)
+    if hotReloadResult != "" {
+        return hotReloadResult
+    }
+
+    var collArg0 = "0"
+    var collArg1 = "0"
+    if dynArgRegs.length() > 0 {
+        collArg0 = dynArgRegs[0]
+    }
+    if dynArgRegs.length() > 1 {
+        collArg1 = dynArgRegs[1]
+    }
+    return tryGenerateExplicitCollectionMethodCallImpl(output, regBox,
+        methodName, receiverReg, receiverTypeBox[0], collArg0, collArg1)
+}
+
+fun tryGeneratePreparedLocalVariableReceiverFastPathImpl(output: StringBuilder,
+    regBox: Array<Int>, methodName: String, receiverReg: String,
+    receiverType: String, structNames: Array<String>,
+    structMethodNames: Array<String>, structMethodRetTypes: Array<String>,
+    dynArgRegs: Array<String>, dynArgTypes: Array<String>) r: String {
+
+    let dynTraitResult = emitPreparedDynTraitMethodCallImpl(output, regBox,
+        receiverReg, receiverType, methodName, structNames, structMethodNames,
+        structMethodRetTypes, dynArgRegs, dynArgTypes, 1)
+    if dynTraitResult != "" {
+        return dynTraitResult
+    }
+    return emitSimdReductionVarImpl(output, regBox, methodName, receiverReg,
+        receiverType)
+}
+
+fun tryGenerateExplicitOptionMethodCallImpl(output: StringBuilder, regBox: Array<Int>,
+    blockLabelBox: Array<Int>, methodName: String, receiverReg: String,
+    receiverType: String, optDefaultReg: String) r: String {
+
+    let isOptionType = receiverType == "Option" or receiverType.startsWith("Option<")
+    if not isOptionType {
+        return ""
+    }
+    return emitOptionMethodImpl(output, regBox, blockLabelBox, methodName,
+        receiverReg, optDefaultReg)
+}
+
+fun tryGenerateExplicitHotReloadMethodCallImpl(output: StringBuilder,
+    regBox: Array<Int>, methodName: String, receiverReg: String,
+    receiverType: String, hotStateArg: String, reprCClassNames: String,
+    structNames: Array<String>) r: String {
+
+    if methodName == "__seen_hot_get_size" or methodName == "__seen_hot_get_version" or methodName == "__seen_hot_get_state" {
+        let hotRecvPtr = convertReceiverToPtrImpl(output, regBox, receiverReg,
+            receiverType, reprCClassNames, structNames)
+        let hotResultReg = getNextRegFn(regBox)
+        output.append("  " + hotResultReg + " = call i64 @" +
+            quoteIdentIfNeededImpl(receiverType + "_" + methodName) +
+            "(ptr " + hotRecvPtr + ")\n")
+        return hotResultReg
+    }
+    if methodName == "__seen_hot_set_state" {
+        let hotRecvPtr2 = convertReceiverToPtrImpl(output, regBox, receiverReg,
+            receiverType, reprCClassNames, structNames)
+        output.append("  call void @" +
+            quoteIdentIfNeededImpl(receiverType + "_" + methodName) +
+            "(ptr " + hotRecvPtr2 + ", i64 " + hotStateArg + ")\n")
+        return "0"
+    }
+    return ""
+}
+
+fun tryGenerateExplicitCollectionMethodCallImpl(output: StringBuilder,
+    regBox: Array<Int>, methodName: String, receiverReg: String,
+    receiverType: String, collArg0: String, collArg1: String) r: String {
+
+    let isCollectionType = receiverType.startsWith("Vec<") or
+        receiverType == "Vec" or receiverType.startsWith("BTreeMap<") or
+        receiverType == "BTreeMap" or receiverType.startsWith("HashMap<") or
+        receiverType == "HashMap" or
+        receiverType.startsWith("StringHashMap<") or
+        receiverType == "StringHashMap" or
+        receiverType.startsWith("LinkedList<") or receiverType == "LinkedList"
+    if not isCollectionType {
+        return ""
+    }
+    return dispatchCollectionMethodImpl(output, regBox, methodName, receiverReg,
+        receiverType, collArg0, collArg1)
+}
+
+fun tryGenerateLengthLikeMethodCallImpl(output: StringBuilder, regBox: Array<Int>,
+    methodName: String, receiverReg: String, receiverType: String,
+    reprCClassNames: String, structNames: Array<String>) r: String {
+
+    if methodName != "length" and methodName != "len" and methodName != "size" {
+        return ""
+    }
+
+    var effectiveReceiverType = receiverType
+    if effectiveReceiverType == "String?" {
+        effectiveReceiverType = "String"
+    }
+    if effectiveReceiverType == "SeenString" {
+        effectiveReceiverType = "String"
+    }
+    if effectiveReceiverType == "%SeenString" {
+        effectiveReceiverType = "String"
+    }
+
+    let isNonArrayColl = effectiveReceiverType.startsWith("List<") or
+        effectiveReceiverType == "List" or
+        effectiveReceiverType.startsWith("Vec<") or
+        effectiveReceiverType == "Vec" or
+        effectiveReceiverType.startsWith("BTreeMap<") or
+        effectiveReceiverType == "BTreeMap"
+    if isNonArrayColl {
+        let collectionPtrReg = convertReceiverToPtrImpl(output, regBox,
+            receiverReg, effectiveReceiverType, reprCClassNames, structNames)
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg +
+            " = call i64 @seen_arr_length_ptr(ptr " + collectionPtrReg + ")\n")
+        return resultReg
+    }
+    if effectiveReceiverType == "StringBuilder" {
+        let sbPtrReg = convertReceiverToPtrImpl(output, regBox, receiverReg,
+            effectiveReceiverType, reprCClassNames, structNames)
+        return emitStringBuilderMethodImpl(output, regBox, "length", sbPtrReg,
+            "", 0)
+    }
+    return emitLengthSizeMethodImpl(output, regBox, receiverReg,
+        effectiveReceiverType)
+}
+
+fun emitStringBuilderReceiverMethodCallImpl(output: StringBuilder,
+    regBox: Array<Int>, methodName: String, receiverReg: String,
+    receiverType: String, sbArg0: String, isFloatFused: Int,
+    reprCClassNames: String, structNames: Array<String>) r: String {
+
+    if receiverType != "StringBuilder" {
+        return ""
+    }
+    if methodName != "append" and methodName != "appendInt" and
+        methodName != "appendFloat" and methodName != "appendChar" and
+        methodName != "clear" and methodName != "length" and
+        methodName != "toString" {
+        return ""
+    }
+
+    let sbPtrReg = convertReceiverToPtrImpl(output, regBox, receiverReg,
+        receiverType, reprCClassNames, structNames)
+    return emitStringBuilderMethodImpl(output, regBox, methodName, sbPtrReg,
+        sbArg0, isFloatFused)
+}
+
+fun tryGeneratePrimitiveConversionMethodCallImpl(output: StringBuilder,
+    regBox: Array<Int>, methodName: String, receiverReg: String,
+    receiverType: String, structNames: Array<String>) r: String {
+
+    if methodName == "toString" {
+        var isClassReceiver = 0
+        if isClassTypeImpl(receiverType, structNames) == 1 {
+            isClassReceiver = 1
+        }
+        return emitToStringMethodImpl(output, regBox, receiverReg, receiverType,
+            isClassReceiver)
+    }
+    if methodName == "toInt" {
+        return emitToIntMethodImpl(output, regBox, receiverReg, receiverType)
+    }
+    if methodName == "toFloat" {
+        return emitToFloatMethodImpl(output, regBox, receiverReg, receiverType)
+    }
+    return ""
+}
+
+fun tryGenerateNumericReceiverMethodCallImpl(output: StringBuilder,
+    regBox: Array<Int>, methodName: String, receiverReg: String,
+    receiverType: String, numArg0: String, numArg1: String) r: String {
+
+    if methodName != "abs" and methodName != "min" and methodName != "max" and
+        methodName != "clamp" and methodName != "floor" and
+        methodName != "ceil" and methodName != "round" and
+        methodName != "sqrt" and methodName != "isNaN" and
+        methodName != "isInfinite" {
+        return ""
+    }
+    return emitNumericMethodImpl(output, regBox, methodName, receiverReg,
+        receiverType, numArg0, numArg1)
+}
+
+fun tryGenerateStringLikeReceiverMethodCallImpl(output: StringBuilder,
+    regBox: Array<Int>, methodName: String, receiverReg: String,
+    receiverType: String, strArg0: String, strArg1: String, strArgCount: Int,
+    reprCClassNames: String, structNames: Array<String>) r: String {
+
+    let jsonResult = emitJsonValueMethodImpl(output, regBox, methodName,
+        receiverReg, receiverType)
+    if jsonResult != "" {
+        return jsonResult
+    }
+
+    let strResult = emitStringMethodImpl(output, regBox, methodName,
+        receiverReg, receiverType, strArg0, strArg1, strArgCount)
+    if strResult != "" {
+        return strResult
+    }
+    if methodName == "toCString" and receiverType == "String" {
+        return emitCStrConversionImpl(output, regBox, "str_to_cstr", receiverReg)
+    }
+    if methodName == "toSeenString" and receiverType == "Int" {
+        return emitCStrConversionImpl(output, regBox, "cstr_to_str", receiverReg)
+    }
+    if methodName == "trim" {
+        if receiverType != "String" and receiverType != "" {
+            let funcName = receiverType + "_trim"
+            let trimReceiverReg = convertReceiverToPtrImpl(output, regBox,
+                receiverReg, receiverType, reprCClassNames, structNames)
+            let resultReg = getNextRegFn(regBox)
+            output.append("  " + resultReg + " = call %SeenString @" +
+                quoteIdentIfNeededImpl(funcName) + "(ptr " + trimReceiverReg +
+                ", %SeenString " + strArg0 + ")\n")
+            return resultReg
+        }
+    }
+    return ""
+}
+
+fun resolveStaticMethodClassNamesImpl(receiverLiteral: String) r: String {
+    var potentialClassName = receiverLiteral
+    var ltIdx = 0
+    var i = 0
+    while i < potentialClassName.length() {
+        if potentialClassName.byteAt(i) == 60 {
+            ltIdx = i
+            i = potentialClassName.length()
+        }
+        i = i + 1
+    }
+    if ltIdx > 0 {
+        potentialClassName = potentialClassName.substring(0, ltIdx)
+    }
+    return potentialClassName + "|" + receiverLiteral
+}
+
+fun isStaticMethodReceiverReferenceImpl(receiverVarIdx: Int,
+    classVarIdx: Int) r: Bool {
+    return receiverVarIdx < 0 and classVarIdx < 0
+}
+
+fun emitStaticHashMapWithCapacityCallImpl(output: StringBuilder,
+    regBox: Array<Int>, potentialClassName: String, fullClassName: String,
+    capArg: String) r: String {
+
+    var hasStringKey = fullClassName.contains("<String")
+    let hasStringValue = fullClassName.contains(", String>") or
+        fullClassName.contains(",String>") or
+        fullClassName.contains("<String>")
+    if potentialClassName == "StringHashMap" {
+        hasStringKey = true
+    }
+
+    let rawReg = getNextRegFn(regBox)
+    if hasStringKey {
+        if hasStringValue {
+            output.append("  " + rawReg +
+                " = call ptr @HashMap_new_str_str_with_capacity(i64 " +
+                capArg + ")\n")
+        } else {
+            output.append("  " + rawReg +
+                " = call ptr @HashMap_new_str_with_capacity(i64 " +
+                capArg + ")\n")
+        }
+    } else {
+        if hasStringValue {
+            output.append("  " + rawReg +
+                " = call ptr @HashMap_new_int_str_with_capacity(i64 " +
+                capArg + ")\n")
+        } else {
+            output.append("  " + rawReg +
+                " = call ptr @HashMap_new_with_capacity(i64 " +
+                capArg + ")\n")
+        }
+    }
+
+    let resultReg = getNextRegFn(regBox)
+    output.append("  " + resultReg + " = ptrtoint ptr " + rawReg +
+        " to i64\n")
+    return resultReg
+}
+
+fun tryGenerateStaticFactoryMethodCallImpl(output: StringBuilder,
+    regBox: Array<Int>, methodName: String, potentialClassName: String,
+    fullClassName: String, firstArgReg: String, argCount: Int) r: String {
+
+    if methodName == "new" {
+        let collNewResult = emitStaticCollectionNewImpl(output, regBox,
+            potentialClassName, fullClassName)
+        if collNewResult != "" {
+            return collNewResult
+        }
+    }
+
+    if methodName == "withCapacity" and argCount > 0 and
+        (potentialClassName == "HashMap" or
+            potentialClassName == "StringHashMap") {
+        return emitStaticHashMapWithCapacityCallImpl(output, regBox,
+            potentialClassName, fullClassName, firstArgReg)
+    }
+
+    if potentialClassName == "Array" and methodName == "withLength" and
+        argCount > 0 {
+        return emitArrayWithLengthImpl(output, regBox, fullClassName,
+            firstArgReg)
+    }
+
+    return ""
+}
+
+fun resolveStaticMethodReturnTypeImpl(registeredStaticReturnType: String,
+    inferredStaticReturnType: String) r: String {
+
+    var staticReturnType = registeredStaticReturnType
+    if staticReturnType == "" or staticReturnType == "Unknown" {
+        staticReturnType = inferredStaticReturnType
+    }
+    return staticReturnType
+}
+
+fun prepareModuleConstantMethodReceiverImpl(output: StringBuilder,
+    regBox: Array<Int>, globalName: String, llvmType: String,
+    invariantSuffix: String, inferredReceiverType: String,
+    receiverRegBox: Array<String>, receiverTypeBox: Array<String>) r: Void {
+
+    receiverRegBox[0] = emitModuleConstantLoadImpl(output, regBox, globalName,
+        llvmType, invariantSuffix)
+    receiverTypeBox[0] = fallbackModuleConstantMethodReceiverTypeImpl(llvmType,
+        inferredReceiverType)
+}
+
+fun emitPreparedStaticMethodCallImpl(output: StringBuilder, regBox: Array<Int>,
+    methodName: String, potentialClassName: String, staticClassName: String,
+    funcName: String, staticLlvmReturnType: String, isClassRecv: Int,
+    isDataRecv: Int, argRegs: Array<String>, argTypeStrs: Array<String>)
+    r: String {
+
+    if potentialClassName == "StringBuilder" and methodName == "new" {
+        return emitStringBuilderNewCallImpl(output, regBox, funcName, argRegs,
+            argTypeStrs)
+    }
+    if potentialClassName == "String" and methodName == "fromCharCode" {
+        return emitStringFromCharCodeCallImpl(output, regBox, argRegs,
+            argTypeStrs)
+    }
+    if methodName == "new" and staticLlvmReturnType == "ptr" {
+        let rawResultReg = emitGenericStaticCallImpl(output, regBox,
+            quoteIdentIfNeededImpl(funcName), staticLlvmReturnType,
+            staticClassName, argRegs, argTypeStrs, isClassRecv, isDataRecv,
+            0)
+        let classHandleReg = getNextRegFn(regBox)
+        output.append("  " + classHandleReg + " = ptrtoint ptr " +
+            rawResultReg + " to i64\n")
+        return classHandleReg
+    }
+
+    return emitGenericStaticCallImpl(output, regBox,
+        quoteIdentIfNeededImpl(funcName), staticLlvmReturnType,
+        staticClassName, argRegs, argTypeStrs, isClassRecv, isDataRecv,
+        0)
+}
+
+fun tryGenerateUnresolvedReceiverFallbackMethodImpl(output: StringBuilder,
+    regBox: Array<Int>, methodName: String, receiverReg: String,
+    receiverType: String) r: String {
+
+    if methodName == "toString" {
+        let toStrReg = getNextRegFn(regBox)
+        if receiverType == "Float" {
+            output.append("  " + toStrReg +
+                " = call %SeenString @seen_float_to_string(double " +
+                receiverReg + ")\n")
+        } else if receiverType == "Int" or receiverType == "" or
+            receiverType == "Char" {
+            output.append("  " + toStrReg +
+                " = call %SeenString @seen_int_to_string(i64 " +
+                receiverReg + ")\n")
+        } else if receiverType == "Bool" {
+            output.append("  " + toStrReg +
+                " = call %SeenString @seen_bool_to_string(i1 " +
+                receiverReg + ")\n")
+        } else {
+            output.append("  " + toStrReg +
+                " = call %SeenString @seen_int_to_string(i64 0)\n")
+        }
+        return toStrReg
+    }
+
+    if methodName == "toInt" and receiverType == "Float" {
+        let toIntReg = getNextRegFn(regBox)
+        output.append("  " + toIntReg + " = fptosi double " + receiverReg +
+            " to i64\n")
+        return toIntReg
+    }
+
+    if methodName == "toFloat" and receiverType == "Int" {
+        let toFloatReg = getNextRegFn(regBox)
+        output.append("  " + toFloatReg + " = sitofp i64 " + receiverReg +
+            " to double\n")
+        return toFloatReg
+    }
+
+    if methodName == "toString_disabled" and receiverType == "" {
+        let emptyStrReg = getNextRegFn(regBox)
+        output.append("  " + emptyStrReg +
+            " = call %SeenString @seen_int_to_string(i64 0)\n")
+        return emptyStrReg
+    }
+
+    return ""
+}
+
+fun applyUnresolvedReceiverDefaultImpl(receiverRegBox: Array<String>,
+    receiverType: String) r: Void {
+
+    if receiverType == "Int" or receiverType == "" or receiverType == "Char" {
+        receiverRegBox.set(0, "0")
+        return
+    }
+    if receiverType == "Bool" {
+        receiverRegBox.set(0, "false")
+        return
+    }
+    receiverRegBox.set(0, "0")
+}

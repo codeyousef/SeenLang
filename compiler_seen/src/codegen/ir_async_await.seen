@@ -1,0 +1,46 @@
+// ir_async_await.seen - await-expression emission helpers.
+
+import str.string.{StringBuilder}
+import codegen.ir_optimization.{getNextRegFn, getNextBlockFn}
+
+fun emitAwaitPollLoopImpl(output: StringBuilder, regBox: Array<Int>,
+    blockLabelBox: Array<Int>, hdlReg: String) r: Void {
+
+    let pollLabel = getNextBlockFn(blockLabelBox)
+    let resumeLabel = getNextBlockFn(blockLabelBox)
+    let readyLabel = getNextBlockFn(blockLabelBox)
+
+    output.append("  br label %" + pollLabel + "\n")
+    output.append("\n" + pollLabel + ":\n")
+    let doneReg = getNextRegFn(regBox)
+    output.append("  " + doneReg + " = call i1 @llvm.coro.done(ptr " +
+        hdlReg + ")\n")
+    output.append("  br i1 " + doneReg + ", label %" + readyLabel +
+        ", label %" + resumeLabel + "\n")
+
+    output.append("\n" + resumeLabel + ":\n")
+    output.append("  call void @llvm.coro.resume(ptr " + hdlReg + ")\n")
+    output.append("  br label %" + pollLabel + "\n")
+
+    output.append("\n" + readyLabel + ":\n")
+}
+
+fun emitAwaitResultValueImpl(output: StringBuilder, regBox: Array<Int>,
+    hdlReg: String, resultLlvmType: String) r: String {
+
+    if resultLlvmType == "void" {
+        output.append("  call void @llvm.coro.destroy(ptr " + hdlReg +
+            ")\n")
+        return "0"
+    }
+
+    let promisePtrReg = getNextRegFn(regBox)
+    output.append("  " + promisePtrReg +
+        " = call ptr @llvm.coro.promise(ptr " + hdlReg +
+        ", i32 8, i1 false)\n")
+    let resultReg = getNextRegFn(regBox)
+    output.append("  " + resultReg + " = load " + resultLlvmType +
+        ", ptr " + promisePtrReg + "\n")
+    output.append("  call void @llvm.coro.destroy(ptr " + hdlReg + ")\n")
+    return resultReg
+}

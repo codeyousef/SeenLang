@@ -1,0 +1,29 @@
+class Node {
+    var value: Int
+}
+
+class Holder {
+    var node: Node
+    var nodes: Array<Node>
+
+    fun new() r: Holder {
+        node = Node{ value: 4 }
+        nodes = []
+        nodes.push(Node{ value: 9 })
+    }
+
+    fun total() r: Int {
+        let localNode = node
+        let localNodes = nodes
+        let first = localNodes[0]
+        return localNode.value + first.value + localNodes[0].value
+    }
+}
+
+fun main() r: Int {
+    let holder = Holder.new()
+    if holder.total() == 22 {
+        return 0
+    }
+    return 1
+}

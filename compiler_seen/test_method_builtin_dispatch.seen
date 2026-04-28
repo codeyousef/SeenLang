@@ -1,0 +1,15 @@
+fun main() r: Int {
+    let builder = StringBuilder.new()
+    builder.appendInt(12)
+    builder.append("3")
+
+    let text = builder.toString()
+    let trimmed = " 7 ".trim()
+    let number = trimmed.toInt()
+    let floatValue = number.toFloat()
+
+    if text.length() == 3 and number == 7 and floatValue == 7.0 {
+        return 0
+    }
+    return 1
+}

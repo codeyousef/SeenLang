@@ -35,6 +35,17 @@ PROCESSED=0
 FAILED=0
 FAILED_MODULES=""
 
+run_with_opt_limit() {
+    if [ "${SEEN_LOW_MEMORY:-0}" = "1" ] && [ -n "${SEEN_OPT_VMEM_KB:-}" ]; then
+        (
+            ulimit -v "$SEEN_OPT_VMEM_KB" 2>/dev/null || true
+            "$@"
+        )
+    else
+        "$@"
+    fi
+}
+
 # Copy .ll files to a private directory so concurrent compilations
 # (which also write to /tmp/seen_module_*) can't interfere.
 WORK_DIR=$(mktemp -d /tmp/seen_recovery.XXXXXX)
@@ -64,7 +75,7 @@ for llfile in "$WORK_DIR"/seen_module_*.ll; do
     else
         OPT_CMD="$OPT_WRAPPER_DIR/opt"
     fi
-    if ! "$OPT_CMD" \
+    if ! run_with_opt_limit "$OPT_CMD" \
         -passes='function(sroa,instcombine<no-verify-fixpoint>,simplifycfg),default<O1>' \
         -inline-threshold=250 -S "$llfile" -o "$optfile" 2>/dev/null; then
         echo "  ERROR: opt failed for $modname"
@@ -80,7 +91,7 @@ for llfile in "$WORK_DIR"/seen_module_*.ll; do
         FAILED_MODULES="$FAILED_MODULES $modname"
         continue
     fi
-    if ! "$REAL_OPT" --thinlto-bc "$optfile" -o "$objfile" 2>/dev/null; then
+    if ! run_with_opt_limit "$REAL_OPT" --thinlto-bc "$optfile" -o "$objfile" 2>/dev/null; then
         echo "  ERROR: thinlto-bc failed for $modname"
         FAILED=$((FAILED+1))
         FAILED_MODULES="$FAILED_MODULES $modname"

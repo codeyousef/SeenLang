@@ -1,0 +1,44 @@
+extern fun __OpenFile(path: String, mode: String) r: Int
+extern fun __WriteFileBytes(fd: Int, bytes: Array<Int>) r: Int
+extern fun __ReadFileBytes(path: String) r: Array<Int>
+extern fun __CloseFile(fd: Int) r: Int
+extern fun __DeleteFile(path: String) r: Bool
+
+fun main() r: Int {
+    let path = "/tmp/seen_runtime_file_bytes_regression.bin"
+    __DeleteFile(path)
+
+    var bytes = Array<Int>()
+    var i = 0
+    while i < 40 {
+        bytes.push((i * 7 + 3) % 256)
+        i = i + 1
+    }
+
+    let fd = __OpenFile(path, "wb")
+    if fd < 0 {
+        return 1
+    }
+
+    let written = __WriteFileBytes(fd, bytes)
+    __CloseFile(fd)
+    if written != bytes.length() {
+        return 2
+    }
+
+    let read = __ReadFileBytes(path)
+    if read.length() != bytes.length() {
+        return 3
+    }
+
+    i = 0
+    while i < bytes.length() {
+        if read.get(i) != bytes.get(i) {
+            return 4
+        }
+        i = i + 1
+    }
+
+    __DeleteFile(path)
+    return 0
+}

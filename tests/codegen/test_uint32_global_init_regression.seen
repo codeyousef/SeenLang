@@ -1,0 +1,27 @@
+let TOP_LEVEL_U32: UInt32 = 4294967295 as UInt32
+let TOP_LEVEL_MASK: UInt32 = 1 as UInt32
+
+fun consume_u32(value: UInt32) r: Int {
+    return 0
+}
+
+fun consume_int(value: Int) r: Int {
+    return 0
+}
+
+fun bool_identity(value: Bool) r: Bool {
+    return value
+}
+
+fun bool_compare_smoke() r: Int {
+    if bool_identity(true) == false {
+        return 1
+    }
+    return 0
+}
+
+fun main() r: Int {
+    let first = consume_u32(TOP_LEVEL_U32)
+    let second = consume_int(TOP_LEVEL_U32 | TOP_LEVEL_MASK)
+    return first + second + bool_compare_smoke()
+}

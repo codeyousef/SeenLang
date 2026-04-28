@@ -1,0 +1,499 @@
+// ir_decl_scan.seen — Pass 1 declaration-scan helpers
+// Shared registry mutation helpers extracted from llvm_ir_gen.seen registerDeclarations().
+
+import parser.real_parser.{ProgramNode, FunctionNode}
+import str.string.{StringBuilder}
+import codegen.ir_optimization.{parseGlobalVarMutable, parseGlobalVarType, pipeGet}
+import codegen.ir_decl_items.{normalizeDeclaredTypeNodeImpl}
+import codegen.ir_decl_return_types.{resolveMethodReturnTypeImpl}
+import codegen.ir_module_emit.{mapGlobalVarLlvmTypeImpl, isValidCrossModuleConstantEntryImpl}
+import codegen.ir_type_layout.{getLlvmTypeSizeImpl}
+import codegen.ir_type_mapping.{isDataTypeImpl, mapTypeImpl}
+import codegen.type_registry.{getTypeSizeReg}
+
+fun ensureStringBoxValue(box: Array<String>) r: Void {
+    if box.length() == 0 {
+        box.push("")
+    }
+}
+
+fun ensureIntBoxValue(box: Array<Int>) r: Void {
+    if box.length() == 0 {
+        box.push(0)
+    }
+}
+
+fun appendPipeValue(box: Array<String>, value: String) r: Void {
+    ensureStringBoxValue(box)
+    if box[0] == "" {
+        box[0] = value
+    } else {
+        box[0] = box[0] + "|" + value
+    }
+}
+
+fun pipeNameContainsImpl(values: String, count: Int, target: String) r: Bool {
+    var i = 0
+    while i < count {
+        if pipeGet(values, i) == target {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
+fun sanitizeDeclSignaturePartImpl(value: String) r: String {
+    let len = value.length()
+    if len < 0 or len > 4096 {
+        return ""
+    }
+    return value
+}
+
+fun appendDelimitedDeclSignaturePartImpl(current: String, separator: String,
+    value: String, itemIdx: Int) r: String {
+
+    let safeValue = sanitizeDeclSignaturePartImpl(value)
+    if itemIdx == 0 {
+        return safeValue
+    }
+    let currentLen = current.length()
+    if currentLen < 0 or currentLen > 65536 {
+        return current
+    }
+    return current + separator + safeValue
+}
+
+fun recordConstGenericNumericParamsImpl(typeName: String,
+    constGenericNamesBox: Array<String>, constGenericValuesBox: Array<String>)
+    r: Void {
+
+    if not typeName.contains("<") {
+        return
+    }
+    let cgLt = typeName.indexOf("<", 0)
+    let cgGt = typeName.indexOf(">", cgLt)
+    if cgLt <= 0 or cgGt <= cgLt {
+        return
+    }
+    let cgInner = typeName.substring(cgLt + 1, cgGt)
+    var cgPos = 0
+    var cgParamIdx = 0
+    while cgPos <= cgInner.length() {
+        var cgNextComma = cgInner.indexOf(",", cgPos)
+        if cgNextComma < 0 { cgNextComma = cgInner.length() }
+        let cgParam = cgInner.substring(cgPos, cgNextComma)
+        if cgParam.length() > 0 {
+            let cgFirstChar = cgParam.byteAt(0)
+            if cgFirstChar >= 48 and cgFirstChar <= 57 {
+                ensureStringBoxValue(constGenericNamesBox)
+                ensureStringBoxValue(constGenericValuesBox)
+                constGenericNamesBox[0] = constGenericNamesBox[0] +
+                    typeName + ":param" + cgParamIdx.toString() + "|"
+                constGenericValuesBox[0] = constGenericValuesBox[0] +
+                    cgParam + "|"
+            }
+        }
+        cgParamIdx = cgParamIdx + 1
+        cgPos = cgNextComma + 1
+    }
+}
+
+fun appendInheritedStructLayoutPrefixImpl(parentFieldNames: String,
+    parentFieldTypes: String, layoutBox: Array<String>,
+    fieldNamesBox: Array<String>, fieldTypesBox: Array<String>,
+    totalSizeBox: Array<Int>, structNames: Array<String>,
+    structSizes: Array<Int>, typeAliasNames: String,
+    typeAliasTargets: String, typeAliasCount: Int,
+    enumTypeNames: String) r: Int {
+
+    if parentFieldNames == "" {
+        return 0
+    }
+
+    var parentFieldCount = 1
+    var countPos = 0
+    while countPos < parentFieldNames.length() {
+        if parentFieldNames.byteAt(countPos) == 44 {
+            parentFieldCount = parentFieldCount + 1
+        }
+        countPos = countPos + 1
+    }
+
+    var parentFieldIdx = 0
+    var nameStart = 0
+    while parentFieldIdx < parentFieldCount {
+        var nameEnd = parentFieldNames.indexOf(",", nameStart)
+        if nameEnd < 0 {
+            nameEnd = parentFieldNames.length()
+        }
+        let parentFieldName = parentFieldNames.substring(nameStart, nameEnd)
+        let parentFieldType = pipeGet(parentFieldTypes, parentFieldIdx)
+        let parentLlvmType = mapTypeImpl(parentFieldType, structNames,
+            typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames)
+        if parentFieldIdx > 0 {
+            layoutBox[0] = layoutBox[0] + ", "
+            fieldNamesBox[0] = fieldNamesBox[0] + ","
+            fieldTypesBox[0] = fieldTypesBox[0] + "|"
+        }
+        layoutBox[0] = layoutBox[0] + parentLlvmType
+        fieldNamesBox[0] = fieldNamesBox[0] + parentFieldName
+        fieldTypesBox[0] = fieldTypesBox[0] + parentFieldType
+        totalSizeBox[0] = totalSizeBox[0] + getTypeSizeReg(parentFieldType,
+            structNames, structSizes)
+        parentFieldIdx = parentFieldIdx + 1
+        nameStart = nameEnd + 1
+    }
+    return parentFieldCount
+}
+
+fun stripBitfieldLayoutAnnotationImpl(fieldTypeName: String) r: String {
+    if fieldTypeName.contains(":bitfield(") {
+        let bitfieldPos = fieldTypeName.indexOf(":bitfield(", 0)
+        if bitfieldPos >= 0 {
+            return fieldTypeName.substring(0, bitfieldPos)
+        }
+    }
+    return fieldTypeName
+}
+
+fun registerBitfieldLayoutMetadataImpl(ownerTypeName: String, fieldName: String,
+    fieldTypeName: String, bitfieldKeysBox: Array<String>,
+    bitfieldWidthsBox: Array<String>, bitfieldOffsetsBox: Array<String>,
+    bitfieldCountBox: Array<Int>) r: String {
+
+    let strippedFieldType = stripBitfieldLayoutAnnotationImpl(fieldTypeName)
+    if strippedFieldType == fieldTypeName {
+        return fieldTypeName
+    }
+
+    let bitfieldPos = fieldTypeName.indexOf(":bitfield(", 0)
+    if bitfieldPos >= 0 {
+        let widthStart = bitfieldPos + 10
+        let widthEnd = fieldTypeName.indexOf(")", widthStart)
+        if widthEnd > widthStart {
+            let widthStr = fieldTypeName.substring(widthStart, widthEnd)
+            ensureStringBoxValue(bitfieldKeysBox)
+            ensureStringBoxValue(bitfieldWidthsBox)
+            ensureStringBoxValue(bitfieldOffsetsBox)
+            ensureIntBoxValue(bitfieldCountBox)
+            let bitfieldKey = ownerTypeName + "." + fieldName
+            bitfieldKeysBox[0] = bitfieldKeysBox[0] + bitfieldKey + "|"
+            bitfieldWidthsBox[0] = bitfieldWidthsBox[0] + widthStr + "|"
+            bitfieldOffsetsBox[0] = bitfieldOffsetsBox[0] + "0|"
+            bitfieldCountBox[0] = bitfieldCountBox[0] + 1
+        }
+    }
+
+    return strippedFieldType
+}
+
+fun appendOwnStructLayoutFieldImpl(fieldName: String, fieldType: String,
+    fieldIdx: Int, layoutBox: Array<String>, fieldNamesBox: Array<String>,
+    fieldTypesBox: Array<String>, totalSizeBox: Array<Int>,
+    structNames: Array<String>, structLayouts: Array<String>,
+    structSizes: Array<Int>, typeAliasNames: String,
+    typeAliasTargets: String, typeAliasCount: Int,
+    enumTypeNames: String) r: Void {
+
+    if fieldIdx > 0 {
+        layoutBox[0] = layoutBox[0] + ", "
+        fieldNamesBox[0] = fieldNamesBox[0] + ","
+        fieldTypesBox[0] = fieldTypesBox[0] + "|"
+    }
+
+    let llvmType = mapTypeImpl(fieldType, structNames, typeAliasNames,
+        typeAliasTargets, typeAliasCount, enumTypeNames)
+    layoutBox[0] = layoutBox[0] + llvmType
+    fieldNamesBox[0] = fieldNamesBox[0] + fieldName
+    fieldTypesBox[0] = fieldTypesBox[0] + fieldType
+    totalSizeBox[0] = totalSizeBox[0] + getLlvmTypeSizeImpl(llvmType,
+        structNames, structLayouts, structSizes)
+}
+
+fun collectStructMethodSignaturesImpl(className: String,
+    methods: Array<FunctionNode>, methodNamesBox: Array<String>,
+    methodRetTypesBox: Array<String>, classMethodBaseNames: Array<String>)
+    r: Void {
+
+    var methodNames = ""
+    var methodRetTypes = ""
+    var methodIdx = 0
+    while methodIdx < methods.length() {
+        let method = methods[methodIdx]
+        let safeMethodName = sanitizeDeclSignaturePartImpl(method.name)
+        let declaredReturnType = normalizeDeclaredTypeNodeImpl(method.returnType)
+        let safeRetType = sanitizeDeclSignaturePartImpl(
+            resolveMethodReturnTypeImpl(className, method.name,
+                declaredReturnType, ""))
+
+        methodNames = appendDelimitedDeclSignaturePartImpl(methodNames, ",",
+            safeMethodName, methodIdx)
+        methodRetTypes = appendDelimitedDeclSignaturePartImpl(methodRetTypes,
+            "|", safeRetType, methodIdx)
+
+        var alreadyRegistered = false
+        var baseNameIdx = 0
+        while baseNameIdx < classMethodBaseNames.length() {
+            if classMethodBaseNames[baseNameIdx] == safeMethodName {
+                alreadyRegistered = true
+            }
+            baseNameIdx = baseNameIdx + 1
+        }
+        if not alreadyRegistered and safeMethodName != "" {
+            classMethodBaseNames.push(safeMethodName)
+        }
+        methodIdx = methodIdx + 1
+    }
+    methodNamesBox[0] = methodNames
+    methodRetTypesBox[0] = methodRetTypes
+}
+
+fun recordCrossModuleDeclareImpl(symbolName: String, declStr: String, visibility: String,
+    xmDeclareNamesBox: Array<String>, xmDeclareStrsBox: Array<String>,
+    xmDeclareVisBox: Array<String>, xmDeclareCountBox: Array<Int>) r: Void {
+
+    appendPipeValue(xmDeclareNamesBox, symbolName)
+    appendPipeValue(xmDeclareStrsBox, declStr)
+    appendPipeValue(xmDeclareVisBox, visibility)
+    ensureIntBoxValue(xmDeclareCountBox)
+    xmDeclareCountBox[0] = xmDeclareCountBox[0] + 1
+}
+
+fun quoteDeclScanIdentIfNeeded(name: String) r: String {
+    var i = 0
+    while i < name.length() {
+        if name.byteAt(i) >= 128 {
+            return "\"" + name + "\""
+        }
+        i = i + 1
+    }
+    return name
+}
+
+fun pipeContainsValueImpl(value: String, pipeValues: String, valueCount: Int) r: Bool {
+    var i = 0
+    while i < valueCount {
+        if pipeGet(pipeValues, i) == value {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
+fun buildDeclareParamsImpl(paramSeenTypes: Array<String>, paramLlvmTypes: Array<String>,
+    prependImplicitThis: Bool) r: String {
+
+    var declParams = ""
+    if prependImplicitThis {
+        declParams = "ptr"
+    }
+
+    var paramIdx = 0
+    while paramIdx < paramSeenTypes.length() {
+        if declParams != "" {
+            declParams = declParams + ", "
+        }
+        if isDataTypeImpl(paramSeenTypes[paramIdx]) == 1 {
+            declParams = declParams + "ptr"
+        } else {
+            declParams = declParams + paramLlvmTypes[paramIdx]
+        }
+        paramIdx = paramIdx + 1
+    }
+    return declParams
+}
+
+fun buildDeclareStringImpl(quotedSymbolName: String, declRetLlvm: String,
+    declParams: String, useExternMemoryAttrs: Bool) r: String {
+
+    var declStr = "declare " + declRetLlvm + " @" + quotedSymbolName + "(" + declParams + ") nounwind"
+    if useExternMemoryAttrs {
+        declStr = declStr + " memory(inaccessiblemem: readwrite)"
+    }
+    return declStr + "\n"
+}
+
+fun buildLateUserDeclareStringImpl(quotedSymbolName: String, llvmReturnType: String,
+    argTypeStrs: Array<String>, hasImplicitThis: Int) r: String {
+
+    var declRetType = llvmReturnType
+    if declRetType == "" {
+        declRetType = "void"
+    }
+
+    var decl = "declare " + declRetType + " @" + quotedSymbolName + "("
+    if hasImplicitThis == 1 {
+        decl = decl + "ptr"
+    }
+
+    var i = 0
+    while i < argTypeStrs.length() {
+        if i > 0 or hasImplicitThis == 1 {
+            decl = decl + ", "
+        }
+        decl = decl + argTypeStrs[i]
+        i = i + 1
+    }
+    return decl + ") nounwind\n"
+}
+
+fun recordLateUserDeclareImpl(name: String, declStr: String,
+    lateXmDeclareNamesBox: Array<String>, lateXmDeclareStrsBox: Array<String>,
+    lateXmDeclareCountBox: Array<Int>) r: Void {
+
+    ensureStringBoxValue(lateXmDeclareNamesBox)
+    ensureStringBoxValue(lateXmDeclareStrsBox)
+    ensureIntBoxValue(lateXmDeclareCountBox)
+
+    if lateXmDeclareCountBox[0] == 0 {
+        lateXmDeclareNamesBox[0] = name + "|"
+        lateXmDeclareStrsBox[0] = declStr + "|"
+    } else {
+        lateXmDeclareNamesBox[0] = lateXmDeclareNamesBox[0] + name + "|"
+        lateXmDeclareStrsBox[0] = lateXmDeclareStrsBox[0] + declStr + "|"
+    }
+    lateXmDeclareCountBox[0] = lateXmDeclareCountBox[0] + 1
+}
+
+fun shouldSkipStringBuilderMethodDeclImpl(methodName: String) r: Bool {
+    return methodName == "new" or methodName == "append" or methodName == "appendChar" or methodName == "toString" or methodName == "clear" or methodName == "length"
+}
+
+fun shouldRegisterCrossModuleFunctionImpl(funcName: String, isExtern: Bool,
+    bodyStmtCount: Int, isRuntimeStringCompat: Bool) r: Bool {
+
+    var doRegister = bodyStmtCount > 0
+    if isRuntimeStringCompat {
+        doRegister = false
+    }
+    if funcName == "__seen_internal_module_init__" {
+        doRegister = false
+    }
+    if isExtern and bodyStmtCount == 0 {
+        doRegister = true
+        if funcName.startsWith("__") {
+            doRegister = false
+        }
+    }
+    if funcName == "main" {
+        doRegister = false
+    }
+    return doRegister
+}
+
+fun moduleAlreadyDeclaresFunctionImpl(ir: String, name: String) r: Bool {
+    let symbolSig = "@" + quoteDeclScanIdentIfNeeded(name) + "("
+    var lineStart = 0
+    while lineStart < ir.length() {
+        var lineEnd = ir.indexOf("\n", lineStart)
+        if lineEnd < 0 {
+            lineEnd = ir.length()
+        }
+        let line = ir.substring(lineStart, lineEnd)
+        if (line.startsWith("declare ") or line.startsWith("define ")) and line.contains(symbolSig) {
+            return true
+        }
+        lineStart = lineEnd + 1
+    }
+    return false
+}
+
+fun definedFuncListContainsImpl(definedFuncs: Array<String>, name: String) r: Bool {
+    var i = 0
+    while i < definedFuncs.length() {
+        if definedFuncs[i] == name {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
+fun emitLateUserDeclaresImpl(output: StringBuilder, definedFuncs: Array<String>,
+    lateXmDeclareNames: String, lateXmDeclareStrs: String, lateXmDeclareCount: Int) r: Void {
+
+    if lateXmDeclareCount == 0 {
+        return
+    }
+
+    var currentIr = output.toString()
+    output.append("\n; Late-discovered user external declarations\n")
+    var i = 0
+    while i < lateXmDeclareCount {
+        let declName = pipeGet(lateXmDeclareNames, i)
+        if not definedFuncListContainsImpl(definedFuncs, declName) and not moduleAlreadyDeclaresFunctionImpl(currentIr, declName) {
+            let declStr = pipeGet(lateXmDeclareStrs, i)
+            output.append(declStr)
+            currentIr = currentIr + declStr
+            definedFuncs.push(declName)
+        }
+        i = i + 1
+    }
+}
+
+fun registerEnumVariantsImpl(enumName: String, variants: Array<String>,
+    enumTypeNamesBox: Array<String>, enumVariantNamesBox: Array<String>,
+    enumVariantTagsBox: Array<String>, enumVariantFieldTypesBox: Array<String>,
+    enumVariantFieldCountsBox: Array<String>, enumVariantParentBox: Array<String>,
+    enumTypeCountBox: Array<Int>, enumVariantCountBox: Array<Int>) r: Void {
+
+    appendPipeValue(enumTypeNamesBox, enumName)
+    ensureIntBoxValue(enumTypeCountBox)
+    enumTypeCountBox[0] = enumTypeCountBox[0] + 1
+
+    var variantIdx = 0
+    while variantIdx < variants.length() {
+        appendPipeValue(enumVariantNamesBox, variants[variantIdx])
+        appendPipeValue(enumVariantTagsBox, variantIdx.toString())
+        ensureStringBoxValue(enumVariantFieldTypesBox)
+        ensureIntBoxValue(enumVariantCountBox)
+        if enumVariantCountBox[0] > 0 {
+            enumVariantFieldTypesBox[0] = enumVariantFieldTypesBox[0] + "|"
+        }
+        appendPipeValue(enumVariantFieldCountsBox, "0")
+        appendPipeValue(enumVariantParentBox, enumName)
+        enumVariantCountBox[0] = enumVariantCountBox[0] + 1
+        variantIdx = variantIdx + 1
+    }
+}
+
+fun registerCrossModuleConstantsImpl(program: ProgramNode,
+    xmConstNamesBox: Array<String>, xmConstTypesBox: Array<String>,
+    xmConstMutableBox: Array<String>, xmConstSeenTypesBox: Array<String>,
+    xmConstCountBox: Array<Int>) r: Void {
+
+    ensureStringBoxValue(xmConstNamesBox)
+    ensureStringBoxValue(xmConstTypesBox)
+    ensureStringBoxValue(xmConstMutableBox)
+    ensureStringBoxValue(xmConstSeenTypesBox)
+    ensureIntBoxValue(xmConstCountBox)
+
+    var itemIdx = 0
+    while itemIdx < program.items.length() {
+        let item = program.items[itemIdx]
+        if item.itemType == "GlobalVar" {
+            let encoded = item.visibility
+            let seenType = parseGlobalVarType(encoded)
+            let llvmType = mapGlobalVarLlvmTypeImpl(seenType)
+            if isValidCrossModuleConstantEntryImpl(item.name, llvmType) and
+                not pipeNameContainsImpl(xmConstNamesBox[0],
+                    xmConstCountBox[0], item.name) {
+
+                var mutFlag = "0"
+                if parseGlobalVarMutable(encoded) {
+                    mutFlag = "1"
+                }
+                appendPipeValue(xmConstNamesBox, item.name)
+                appendPipeValue(xmConstTypesBox, llvmType)
+                appendPipeValue(xmConstMutableBox, mutFlag)
+                appendPipeValue(xmConstSeenTypesBox, seenType)
+                ensureIntBoxValue(xmConstCountBox)
+                xmConstCountBox[0] = xmConstCountBox[0] + 1
+            }
+        }
+        itemIdx = itemIdx + 1
+    }
+}

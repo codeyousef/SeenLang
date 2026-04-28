@@ -1,0 +1,67 @@
+// ir_index_access_plan.seen - pure index-access routing helpers.
+
+class TypedIndexAccessPlan {
+    var action: Int
+    var elementType: String
+
+    static fun new() r: TypedIndexAccessPlan {
+        return TypedIndexAccessPlan{
+            action: 0,
+            elementType: ""
+        }
+    }
+}
+
+fun shouldUsePointerIndexAccessImpl(baseType: String) r: Bool {
+    return baseType.startsWith("*")
+}
+
+fun shouldTryOperatorIndexAccessImpl(baseType: String) r: Bool {
+    if baseType.startsWith("Array<") { return false }
+    if baseType.startsWith("List<") { return false }
+    if baseType.startsWith("Vec<") { return false }
+    return baseType != "String"
+}
+
+fun shouldEmitIndexBoundsCheckImpl(boundsCheckEnabled: Int) r: Bool {
+    return boundsCheckEnabled == 1
+}
+
+fun resolveIndexAccessElementTypeImpl(arrayType: String) r: String {
+    if arrayType.startsWith("Array<") and arrayType.endsWith(">") {
+        return arrayType.substring(6, arrayType.length() - 1)
+    }
+    return ""
+}
+
+fun planTypedIndexAccessImpl(arrayType: String) r: TypedIndexAccessPlan {
+    let plan = TypedIndexAccessPlan.new()
+    if arrayType == "Array<String>" {
+        plan.action = 1
+        plan.elementType = "String"
+        return plan
+    }
+    if arrayType == "Array<FrontendDiagnostic>" {
+        plan.action = 2
+        plan.elementType = "FrontendDiagnostic"
+        return plan
+    }
+    if arrayType == "Array<Int>" {
+        plan.action = 3
+        plan.elementType = "Int"
+        return plan
+    }
+    if arrayType == "Array<Float>" {
+        plan.action = 4
+        plan.elementType = "Float"
+        return plan
+    }
+    if arrayType == "Array<ProgramNode>" {
+        plan.action = 5
+        plan.elementType = "ProgramNode"
+        return plan
+    }
+    plan.action = 6
+    plan.elementType = resolveIndexAccessElementTypeImpl(arrayType)
+    return plan
+}

@@ -1,0 +1,46 @@
+// ir_call_implicit_this_emit.seen - prepared implicit-this call emit drivers.
+
+import str.string.{StringBuilder}
+import codegen.ir_optimization.{getNextRegFn}
+import codegen.ir_call_dispatch.{emitUserMethodCallImpl}
+import codegen.ir_type_ops.{emitStringBuilderMethodImpl}
+
+fun emitPreparedImplicitThisReceiverLoadImpl(output: StringBuilder,
+    regBox: Array<Int>, thisReg: String) r: String {
+
+    let thisPtrReg = getNextRegFn(regBox)
+    output.append("  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n")
+    return thisPtrReg
+}
+
+fun emitPreparedMisplacedParserImplicitThisCallImpl(output: StringBuilder,
+    regBox: Array<Int>, quotedFuncName: String, returnLlvmType: String,
+    thisReg: String, argRegs: Array<String>, argTypeStrs: Array<String>,
+    tailFlag: Int) r: String {
+
+    let thisPtrReg = emitPreparedImplicitThisReceiverLoadImpl(output, regBox,
+        thisReg)
+    return emitUserMethodCallImpl(output, regBox, quotedFuncName,
+        returnLlvmType, "ptr", thisPtrReg, argRegs, argTypeStrs, tailFlag)
+}
+
+fun emitPreparedStringBuilderImplicitThisCallImpl(output: StringBuilder,
+    regBox: Array<Int>, methodName: String, thisReg: String,
+    arg0: String) r: String {
+
+    let thisPtrReg = emitPreparedImplicitThisReceiverLoadImpl(output, regBox,
+        thisReg)
+    return emitStringBuilderMethodImpl(output, regBox, methodName, thisPtrReg,
+        arg0, 0)
+}
+
+fun emitPreparedNormalImplicitThisCallImpl(output: StringBuilder,
+    regBox: Array<Int>, quotedFuncName: String, returnLlvmType: String,
+    thisReg: String, argRegs: Array<String>, argTypeStrs: Array<String>,
+    tailFlag: Int) r: String {
+
+    let thisPtrReg = emitPreparedImplicitThisReceiverLoadImpl(output, regBox,
+        thisReg)
+    return emitUserMethodCallImpl(output, regBox, quotedFuncName,
+        returnLlvmType, "ptr", thisPtrReg, argRegs, argTypeStrs, tailFlag)
+}

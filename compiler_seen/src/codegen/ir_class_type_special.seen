@@ -1,0 +1,157 @@
+// ir_class_type_special.seen — shared special class-type decorator helpers
+// Extracted from llvm_ir_gen.seen so @gpu_buffer / @union emission lives
+// outside the main class-type decorator scan loop.
+
+import parser.real_parser.{ClassNode, AnnotationNode}
+import str.string.{StringBuilder}
+import codegen.ir_decl_items.{normalizeDeclaredTypeNodeImpl}
+import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
+import codegen.ir_string_collect.{getBaseTypeNameImpl}
+import codegen.ir_type_layout.{getLlvmTypeSizeImpl}
+import codegen.ir_type_mapping.{mapTypeImpl}
+
+fun mapSpecialClassTypeFieldImpl(fieldSeenType: String,
+    reprCClassNames: String, structNames: Array<String>,
+    typeAliasNames: String, typeAliasTargets: String, typeAliasCount: Int,
+    enumTypeNames: String) r: String {
+
+    if fieldSeenType.startsWith("dyn ") {
+        return "i64"
+    }
+    if fieldSeenType.startsWith("*") {
+        return "i64"
+    }
+    if reprCClassNames != "" {
+        let baseType = getBaseTypeNameImpl(fieldSeenType)
+        if reprCClassNames.contains(baseType + "|") {
+            return "%" + baseType
+        }
+    }
+    return mapTypeImpl(fieldSeenType, structNames, typeAliasNames,
+        typeAliasTargets, typeAliasCount, enumTypeNames)
+}
+
+fun tryEmitGpuBufferClassTypeImpl(output: StringBuilder, classNode: ClassNode,
+    decorator: AnnotationNode, gpuBufferClassesBox: Array<String>,
+    gpuBufferLayoutsBox: Array<String>, reprCClassNames: String,
+    structNames: Array<String>, typeAliasNames: String,
+    typeAliasTargets: String, typeAliasCount: Int, enumTypeNames: String)
+    r: Bool {
+
+    if decorator.name != "gpu_buffer" {
+        return false
+    }
+    var gpuLayout = "std140"
+    if decorator.arguments.length() > 0 {
+        gpuLayout = decorator.arguments[0]
+    }
+    gpuBufferClassesBox[0] = gpuBufferClassesBox[0] + classNode.name + "|"
+    gpuBufferLayoutsBox[0] = gpuBufferLayoutsBox[0] + gpuLayout + "|"
+    output.append("; @gpu_buffer(" + gpuLayout + ") type: " + classNode.name +
+        "\n")
+    output.append("%" + quoteIdentIfNeededImpl(classNode.name) + " = type { ")
+    var gpuFi = 0
+    var gpuOffset = 0
+    var gpuFieldIdx = 0
+    while gpuFi < classNode.fields.length() {
+        let gpuField = classNode.fields[gpuFi]
+        let gpuFieldTypeName = normalizeDeclaredTypeNodeImpl(gpuField.paramType)
+        let gpuFieldType = mapSpecialClassTypeFieldImpl(gpuFieldTypeName,
+            reprCClassNames, structNames, typeAliasNames, typeAliasTargets,
+            typeAliasCount, enumTypeNames)
+        var gpuFieldSize = 8
+        var gpuFieldAlign = 8
+        if gpuFieldType == "i32" { gpuFieldSize = 4; gpuFieldAlign = 4 }
+        if gpuFieldType == "float" { gpuFieldSize = 4; gpuFieldAlign = 4 }
+        if gpuFieldType == "double" { gpuFieldSize = 8; gpuFieldAlign = 8 }
+        if gpuFieldType == "i64" { gpuFieldSize = 8; gpuFieldAlign = 8 }
+        if gpuFieldType == "i1" { gpuFieldSize = 4; gpuFieldAlign = 4 }
+        if gpuLayout == "std140" {
+            if gpuFieldAlign < 4 { gpuFieldAlign = 4 }
+        }
+        var gpuPadding = 0
+        if gpuOffset % gpuFieldAlign != 0 {
+            gpuPadding = gpuFieldAlign - (gpuOffset % gpuFieldAlign)
+        }
+        if gpuPadding > 0 {
+            if gpuFieldIdx > 0 { output.append(", ") }
+            output.append("[" + gpuPadding.toString() + " x i8]")
+            gpuFieldIdx = gpuFieldIdx + 1
+            gpuOffset = gpuOffset + gpuPadding
+        }
+        if gpuFieldIdx > 0 { output.append(", ") }
+        output.append(gpuFieldType)
+        gpuFieldIdx = gpuFieldIdx + 1
+        gpuOffset = gpuOffset + gpuFieldSize
+        gpuFi = gpuFi + 1
+    }
+    if gpuLayout == "std140" {
+        if gpuOffset % 16 != 0 {
+            let tailPad = 16 - (gpuOffset % 16)
+            output.append(", [" + tailPad.toString() + " x i8]")
+        }
+    }
+    output.append(" }\n")
+    return true
+}
+
+fun tryEmitUnionClassTypeImpl(output: StringBuilder, classNode: ClassNode,
+    decorator: AnnotationNode, unionTypesBox: Array<String>,
+    reprCClassNames: String, structNames: Array<String>,
+    structLayouts: Array<String>, structSizes: Array<Int>,
+    typeAliasNames: String, typeAliasTargets: String, typeAliasCount: Int,
+    enumTypeNames: String) r: Bool {
+
+    if decorator.name != "union" {
+        return false
+    }
+    var maxFieldSize = 0
+    var maxFieldType = "i8"
+    var fieldIdx = 0
+    while fieldIdx < classNode.fields.length() {
+        let unionField = classNode.fields[fieldIdx]
+        let unionFieldTypeName = normalizeDeclaredTypeNodeImpl(
+            unionField.paramType)
+        let unionFieldType = mapSpecialClassTypeFieldImpl(unionFieldTypeName,
+            reprCClassNames, structNames, typeAliasNames, typeAliasTargets,
+            typeAliasCount, enumTypeNames)
+        let unionFieldSize = getLlvmTypeSizeImpl(unionFieldType, structNames,
+            structLayouts, structSizes)
+        if unionFieldSize > maxFieldSize {
+            maxFieldSize = unionFieldSize
+            maxFieldType = unionFieldType
+        }
+        fieldIdx = fieldIdx + 1
+    }
+    if maxFieldSize == 0 {
+        maxFieldSize = 1
+    }
+    output.append("; @union — overlapping fields, max size = " +
+        maxFieldSize.toString() + " bytes\n")
+    output.append("%" + quoteIdentIfNeededImpl(classNode.name) + " = type { " +
+        maxFieldType + " }\n")
+    unionTypesBox[0] = unionTypesBox[0] + classNode.name + "|"
+    return true
+}
+
+fun tryEmitSpecialClassTypeDecoratorImpl(output: StringBuilder,
+    classNode: ClassNode, decorator: AnnotationNode,
+    gpuBufferClassesBox: Array<String>, gpuBufferLayoutsBox: Array<String>,
+    unionTypesBox: Array<String>, reprCClassNames: String,
+    structNames: Array<String>, structLayouts: Array<String>,
+    structSizes: Array<Int>, typeAliasNames: String,
+    typeAliasTargets: String, typeAliasCount: Int, enumTypeNames: String)
+    r: Bool {
+
+    if tryEmitGpuBufferClassTypeImpl(output, classNode, decorator,
+        gpuBufferClassesBox, gpuBufferLayoutsBox, reprCClassNames, structNames,
+        typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames) {
+        return true
+    }
+    if tryEmitUnionClassTypeImpl(output, classNode, decorator, unionTypesBox,
+        reprCClassNames, structNames, structLayouts, structSizes,
+        typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames) {
+        return true
+    }
+    return false
+}

@@ -1,0 +1,341 @@
+// ir_decl_registry.seen — declaration registry/state helpers
+// Extracted from llvm_ir_gen.seen so declaration plumbing and registry
+// ownership stay separate from the main Pass 1 orchestration.
+
+import parser.real_parser.{ProgramNode}
+import str.string.{StringBuilder}
+import codegen.ir_decl_scan.{registerEnumVariantsImpl, registerCrossModuleConstantsImpl, buildLateUserDeclareStringImpl, recordLateUserDeclareImpl, emitLateUserDeclaresImpl, pipeContainsValueImpl, quoteDeclScanIdentIfNeeded}
+import codegen.ir_async_registry.{isAsyncFunctionImpl, getAsyncDeclaredRetTypeImpl}
+import codegen.type_registry.{ensureStructEntryReg, getFunctionReturnTypeReg}
+
+class DeclarationPassState {
+    var asyncFuncNames: String
+    var asyncFuncRetTypes: String
+    var asyncFuncCount: Int
+    var xmDeclareNames: String
+    var xmDeclareStrs: String
+    var xmDeclareVis: String
+    var xmDeclareNamesArr: Array<String>
+    var xmDeclareStrsArr: Array<String>
+    var xmDeclareVisArr: Array<String>
+    var xmDeclareCount: Int
+    var enumTypeNames: String
+    var enumVariantNames: String
+    var enumVariantTags: String
+    var enumVariantFieldTypes: String
+    var enumVariantFieldCounts: String
+    var enumVariantParent: String
+    var enumTypeCount: Int
+    var enumVariantCount: Int
+    var xmConstNames: String
+    var xmConstTypes: String
+    var xmConstMutable: String
+    var xmConstSeenTypes: String
+    var xmConstCount: Int
+
+    static fun new(asyncFuncNames: String, asyncFuncRetTypes: String,
+        asyncFuncCount: Int, xmDeclareNames: String, xmDeclareStrs: String,
+        xmDeclareVis: String, xmDeclareNamesArr: Array<String>,
+        xmDeclareStrsArr: Array<String>, xmDeclareVisArr: Array<String>,
+        xmDeclareCount: Int, enumTypeNames: String,
+        enumVariantNames: String, enumVariantTags: String,
+        enumVariantFieldTypes: String, enumVariantFieldCounts: String,
+        enumVariantParent: String, enumTypeCount: Int, enumVariantCount: Int,
+        xmConstNames: String, xmConstTypes: String, xmConstMutable: String,
+        xmConstSeenTypes: String, xmConstCount: Int) r: DeclarationPassState {
+
+        return DeclarationPassState{
+            asyncFuncNames: asyncFuncNames,
+            asyncFuncRetTypes: asyncFuncRetTypes,
+            asyncFuncCount: asyncFuncCount,
+            xmDeclareNames: xmDeclareNames,
+            xmDeclareStrs: xmDeclareStrs,
+            xmDeclareVis: xmDeclareVis,
+            xmDeclareNamesArr: xmDeclareNamesArr,
+            xmDeclareStrsArr: xmDeclareStrsArr,
+            xmDeclareVisArr: xmDeclareVisArr,
+            xmDeclareCount: xmDeclareCount,
+            enumTypeNames: enumTypeNames,
+            enumVariantNames: enumVariantNames,
+            enumVariantTags: enumVariantTags,
+            enumVariantFieldTypes: enumVariantFieldTypes,
+            enumVariantFieldCounts: enumVariantFieldCounts,
+            enumVariantParent: enumVariantParent,
+            enumTypeCount: enumTypeCount,
+            enumVariantCount: enumVariantCount,
+            xmConstNames: xmConstNames,
+            xmConstTypes: xmConstTypes,
+            xmConstMutable: xmConstMutable,
+            xmConstSeenTypes: xmConstSeenTypes,
+            xmConstCount: xmConstCount
+        }
+    }
+}
+
+class LateUserDeclareState {
+    var lateXmDeclareNames: String
+    var lateXmDeclareStrs: String
+    var lateXmDeclareCount: Int
+
+    static fun new(lateXmDeclareNames: String, lateXmDeclareStrs: String,
+        lateXmDeclareCount: Int) r: LateUserDeclareState {
+
+        return LateUserDeclareState{
+            lateXmDeclareNames: lateXmDeclareNames,
+            lateXmDeclareStrs: lateXmDeclareStrs,
+            lateXmDeclareCount: lateXmDeclareCount
+        }
+    }
+}
+
+class ParentClassRegistryState {
+    var inheritanceChildNames: String
+    var inheritanceParentNames: String
+    var inheritanceCount: Int
+
+    static fun new(inheritanceChildNames: String,
+        inheritanceParentNames: String, inheritanceCount: Int)
+        r: ParentClassRegistryState {
+
+        return ParentClassRegistryState{
+            inheritanceChildNames: inheritanceChildNames,
+            inheritanceParentNames: inheritanceParentNames,
+            inheritanceCount: inheritanceCount
+        }
+    }
+}
+
+fun captureDeclarationPassStateImpl(asyncFuncNames: String,
+    asyncFuncRetTypes: String, asyncFuncCount: Int,
+    xmDeclareNames: String, xmDeclareStrs: String, xmDeclareVis: String,
+    xmDeclareNamesArr: Array<String>, xmDeclareStrsArr: Array<String>,
+    xmDeclareVisArr: Array<String>, xmDeclareCount: Int,
+    enumTypeNames: String, enumVariantNames: String,
+    enumVariantTags: String, enumVariantFieldTypes: String,
+    enumVariantFieldCounts: String, enumVariantParent: String,
+    enumTypeCount: Int, enumVariantCount: Int, xmConstNames: String,
+    xmConstTypes: String, xmConstMutable: String, xmConstSeenTypes: String,
+    xmConstCount: Int) r: DeclarationPassState {
+
+    return DeclarationPassState.new(asyncFuncNames, asyncFuncRetTypes,
+        asyncFuncCount, xmDeclareNames, xmDeclareStrs, xmDeclareVis,
+        xmDeclareNamesArr, xmDeclareStrsArr, xmDeclareVisArr,
+        xmDeclareCount, enumTypeNames, enumVariantNames, enumVariantTags,
+        enumVariantFieldTypes, enumVariantFieldCounts, enumVariantParent,
+        enumTypeCount, enumVariantCount, xmConstNames, xmConstTypes,
+        xmConstMutable, xmConstSeenTypes, xmConstCount)
+}
+
+fun captureLateUserDeclareStateImpl(lateXmDeclareNames: String,
+    lateXmDeclareStrs: String, lateXmDeclareCount: Int)
+    r: LateUserDeclareState {
+
+    return LateUserDeclareState.new(lateXmDeclareNames, lateXmDeclareStrs,
+        lateXmDeclareCount)
+}
+
+fun captureParentClassRegistryStateImpl(inheritanceChildNames: String,
+    inheritanceParentNames: String, inheritanceCount: Int)
+    r: ParentClassRegistryState {
+
+    return ParentClassRegistryState.new(inheritanceChildNames,
+        inheritanceParentNames, inheritanceCount)
+}
+
+fun preRegisterClassTypesImpl(program: ProgramNode, structNames: Array<String>,
+    structLayouts: Array<String>, structFieldNames: Array<String>,
+    structFieldTypes: Array<String>, structLlvmFieldTypes: Array<String>,
+    structSizes: Array<Int>, structMethodNames: Array<String>,
+    structMethodRetTypes: Array<String>) r: Void {
+
+    var itemIdx = 0
+    while itemIdx < program.items.length() {
+        let item = program.items[itemIdx]
+        if item.itemType == "Class" {
+            ensureStructEntryReg(item.classNode.name, structNames, structLayouts,
+                structFieldNames, structFieldTypes, structLlvmFieldTypes,
+                structSizes, structMethodNames, structMethodRetTypes)
+        }
+        itemIdx = itemIdx + 1
+    }
+}
+
+fun registerFunctionStateImpl(name: String, retType: String,
+    funcNames: Array<String>, funcRetTypes: Array<String>) r: Void {
+    funcNames.push(name)
+    funcRetTypes.push(retType)
+}
+
+fun registerEnumDeclarationStateImpl(enumName: String, variants: Array<String>,
+    state: DeclarationPassState) r: Void {
+
+    let enumTypeNamesBox = Array<String>()
+    enumTypeNamesBox.push(state.enumTypeNames)
+    let enumVariantNamesBox = Array<String>()
+    enumVariantNamesBox.push(state.enumVariantNames)
+    let enumVariantTagsBox = Array<String>()
+    enumVariantTagsBox.push(state.enumVariantTags)
+    let enumVariantFieldTypesBox = Array<String>()
+    enumVariantFieldTypesBox.push(state.enumVariantFieldTypes)
+    let enumVariantFieldCountsBox = Array<String>()
+    enumVariantFieldCountsBox.push(state.enumVariantFieldCounts)
+    let enumVariantParentBox = Array<String>()
+    enumVariantParentBox.push(state.enumVariantParent)
+    let enumTypeCountBox = Array<Int>()
+    enumTypeCountBox.push(state.enumTypeCount)
+    let enumVariantCountBox = Array<Int>()
+    enumVariantCountBox.push(state.enumVariantCount)
+    registerEnumVariantsImpl(enumName, variants, enumTypeNamesBox,
+        enumVariantNamesBox, enumVariantTagsBox, enumVariantFieldTypesBox,
+        enumVariantFieldCountsBox, enumVariantParentBox, enumTypeCountBox,
+        enumVariantCountBox)
+    state.enumTypeNames = enumTypeNamesBox[0]
+    state.enumVariantNames = enumVariantNamesBox[0]
+    state.enumVariantTags = enumVariantTagsBox[0]
+    state.enumVariantFieldTypes = enumVariantFieldTypesBox[0]
+    state.enumVariantFieldCounts = enumVariantFieldCountsBox[0]
+    state.enumVariantParent = enumVariantParentBox[0]
+    state.enumTypeCount = enumTypeCountBox[0]
+    state.enumVariantCount = enumVariantCountBox[0]
+}
+
+fun registerCrossModuleConstantsIntoStateImpl(program: ProgramNode,
+    state: DeclarationPassState) r: Void {
+    let namesBox = Array<String>()
+    namesBox.push(state.xmConstNames)
+    let typesBox = Array<String>()
+    typesBox.push(state.xmConstTypes)
+    let mutableBox = Array<String>()
+    mutableBox.push(state.xmConstMutable)
+    let seenTypesBox = Array<String>()
+    seenTypesBox.push(state.xmConstSeenTypes)
+    let countBox = Array<Int>()
+    countBox.push(state.xmConstCount)
+    registerCrossModuleConstantsImpl(program, namesBox, typesBox, mutableBox,
+        seenTypesBox, countBox)
+    state.xmConstNames = namesBox[0]
+    state.xmConstTypes = typesBox[0]
+    state.xmConstMutable = mutableBox[0]
+    state.xmConstSeenTypes = seenTypesBox[0]
+    state.xmConstCount = countBox[0]
+}
+
+fun registerParentClassIntoStateImpl(childName: String, parentName: String,
+    state: ParentClassRegistryState) r: Void {
+
+    if state.inheritanceCount > 0 {
+        state.inheritanceChildNames = state.inheritanceChildNames + "|"
+        state.inheritanceParentNames = state.inheritanceParentNames + "|"
+    }
+    state.inheritanceChildNames = state.inheritanceChildNames + childName
+    state.inheritanceParentNames = state.inheritanceParentNames + parentName
+    state.inheritanceCount = state.inheritanceCount + 1
+}
+
+fun lookupParentClassStateImpl(childName: String, inheritanceChildNames: String,
+    inheritanceParentNames: String, inheritanceCount: Int) r: String {
+
+    var idx = 0
+    while idx < inheritanceCount {
+        let child = pipeGet(inheritanceChildNames, idx)
+        if child == childName {
+            return pipeGet(inheritanceParentNames, idx)
+        }
+        idx = idx + 1
+    }
+    return ""
+}
+
+fun lookupCResourceDestructorStateImpl(typeName: String,
+    cResourceClasses: String, cResourceDestructors: String) r: String {
+
+    var crSearchPos = 0
+    var crIdx = 0
+    while crSearchPos < cResourceClasses.length() {
+        var crNextPipe = cResourceClasses.indexOf("|", crSearchPos)
+        if crNextPipe < 0 { crNextPipe = cResourceClasses.length() }
+        let crEntry = cResourceClasses.substring(crSearchPos, crNextPipe)
+        if crEntry == typeName {
+            var dSearchPos = 0
+            var dIdx = 0
+            while dSearchPos < cResourceDestructors.length() {
+                var dNextPipe = cResourceDestructors.indexOf("|", dSearchPos)
+                if dNextPipe < 0 { dNextPipe = cResourceDestructors.length() }
+                if dIdx == crIdx {
+                    return cResourceDestructors.substring(dSearchPos, dNextPipe)
+                }
+                dIdx = dIdx + 1
+                dSearchPos = dNextPipe + 1
+            }
+            return "free"
+        }
+        crIdx = crIdx + 1
+        crSearchPos = crNextPipe + 1
+    }
+    return ""
+}
+
+fun isAsyncFunctionStateImpl(name: String, asyncFuncNames: String,
+    asyncFuncCount: Int) r: Bool {
+    return isAsyncFunctionImpl(name, asyncFuncNames, asyncFuncCount)
+}
+
+fun getAsyncDeclaredRetTypeStateImpl(name: String, asyncFuncNames: String,
+    asyncFuncRetTypes: String, asyncFuncCount: Int) r: String {
+    return getAsyncDeclaredRetTypeImpl(name, asyncFuncNames, asyncFuncRetTypes,
+        asyncFuncCount)
+}
+
+fun getFunctionReturnTypeStateImpl(name: String, funcNames: Array<String>,
+    funcRetTypes: Array<String>) r: String {
+    return getFunctionReturnTypeReg(name, funcNames, funcRetTypes)
+}
+
+fun hasCrossModuleDeclareStateImpl(name: String, xmDeclareNames: String,
+    xmDeclareCount: Int) r: Bool {
+    return pipeContainsValueImpl(name, xmDeclareNames, xmDeclareCount)
+}
+
+fun hasLateUserDeclareStateImpl(name: String, lateXmDeclareNames: String,
+    lateXmDeclareCount: Int) r: Bool {
+    return pipeContainsValueImpl(name, lateXmDeclareNames, lateXmDeclareCount)
+}
+
+fun recordLateUserDeclareIntoStateImpl(name: String, llvmReturnType: String,
+    argTypeStrs: Array<String>, hasImplicitThis: Int, funcNames: Array<String>,
+    funcRetTypes: Array<String>, xmDeclareNames: String, xmDeclareCount: Int,
+    state: LateUserDeclareState) r: Void {
+
+    if name == "" {
+        return
+    }
+    if name.startsWith("__") {
+        return
+    }
+    if hasLateUserDeclareStateImpl(name, state.lateXmDeclareNames,
+        state.lateXmDeclareCount) {
+
+        return
+    }
+
+    let decl = buildLateUserDeclareStringImpl(quoteDeclScanIdentIfNeeded(name),
+        llvmReturnType, argTypeStrs,
+        hasImplicitThis)
+    let namesBox = Array<String>()
+    namesBox.push(state.lateXmDeclareNames)
+    let declsBox = Array<String>()
+    declsBox.push(state.lateXmDeclareStrs)
+    let countBox = Array<Int>()
+    countBox.push(state.lateXmDeclareCount)
+    recordLateUserDeclareImpl(name, decl, namesBox, declsBox, countBox)
+    state.lateXmDeclareNames = namesBox[0]
+    state.lateXmDeclareStrs = declsBox[0]
+    state.lateXmDeclareCount = countBox[0]
+}
+
+fun emitLateUserDeclaresStateImpl(output: StringBuilder,
+    definedFuncs: Array<String>, lateXmDeclareNames: String,
+    lateXmDeclareStrs: String, lateXmDeclareCount: Int) r: Void {
+    emitLateUserDeclaresImpl(output, definedFuncs, lateXmDeclareNames,
+        lateXmDeclareStrs, lateXmDeclareCount)
+}

@@ -1,0 +1,48 @@
+// ir_async_return.seen - async return preparation and emission helpers.
+
+import str.string.{StringBuilder}
+
+class AsyncReturnValuePlan {
+    var pendingArrayLiteralType: String
+    var shouldMarkTailCall: Int
+
+    static fun new(pendingArrayLiteralType: String,
+        shouldMarkTailCall: Int) r: AsyncReturnValuePlan {
+
+        return AsyncReturnValuePlan{
+            pendingArrayLiteralType: pendingArrayLiteralType,
+            shouldMarkTailCall: shouldMarkTailCall
+        }
+    }
+}
+
+fun prepareAsyncReturnValuePlanImpl(returnKind: String, returnType: String,
+    savedPendingArrayLiteralType: String) r: AsyncReturnValuePlan {
+
+    var pendingType = savedPendingArrayLiteralType
+    if returnKind == "ArrayLiteral" and
+        (returnType.startsWith("Array") or returnType.startsWith("List")) {
+        pendingType = returnType
+    }
+
+    var markTail = 0
+    if returnKind == "Call" {
+        markTail = 1
+    }
+    return AsyncReturnValuePlan.new(pendingType, markTail)
+}
+
+fun emitAsyncReturnValueBranchImpl(output: StringBuilder,
+    promiseType: String, valueReg: String, promisePtr: String,
+    finalLabel: String) r: Void {
+
+    output.append("  store " + promiseType + " " + valueReg + ", ptr " +
+        promisePtr + "\n")
+    output.append("  br label %" + finalLabel + "\n")
+}
+
+fun emitAsyncReturnVoidBranchImpl(output: StringBuilder,
+    finalLabel: String) r: Void {
+
+    output.append("  br label %" + finalLabel + "\n")
+}
