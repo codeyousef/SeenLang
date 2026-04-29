@@ -24,6 +24,8 @@ STAGE3_RECOVERY="/tmp/stage3_safe_rebuild_recovery"
 PRESERVED_PROD_BUILDER="/tmp/seen_preserved_prod_builder"
 COMPILER_SOURCE="compiler_seen/src/main_compiler.seen"
 MEMORY_GUARD_SCRIPT="$SCRIPT_DIR/memory_guard.sh"
+FORK_SERIALIZER_SOURCE="$SCRIPT_DIR/fork_serializer.c"
+FORK_SERIALIZER_SO=""
 
 # --- Progress monitoring helpers ---
 
@@ -81,6 +83,9 @@ run_guarded_command() {
         if [ -n "${MEMORY_GUARD_CGROUP_STOP_KB:-}" ]; then
             guard_cmd+=(--cgroup-stop-kb "$MEMORY_GUARD_CGROUP_STOP_KB")
         fi
+        if [ "${SEEN_MEMORY_GUARD_KILL_ONLY:-0}" = "1" ]; then
+            guard_cmd+=(--kill-only)
+        fi
         guard_cmd+=(-- "$@")
         "${guard_cmd[@]}"
         return $?
@@ -104,6 +109,32 @@ run_guarded_command() {
         )
     else
         "$@"
+    fi
+}
+
+build_fork_serializer() {
+    if [ "$HOST_OS" = "Darwin" ]; then
+        return 0
+    fi
+    if [ "$LOW_MEMORY_MODE" != "1" ]; then
+        return 0
+    fi
+    if [ ! -f "$FORK_SERIALIZER_SOURCE" ]; then
+        return 0
+    fi
+    if ! command -v clang >/dev/null 2>&1; then
+        echo -e "${YELLOW}WARNING: clang unavailable; legacy frozen fork serialization disabled.${NC}"
+        return 0
+    fi
+
+    FORK_SERIALIZER_SO="/tmp/seen_fork_serializer_$$.so"
+    rm -f "$FORK_SERIALIZER_SO"
+    if run_guarded_command "fork serializer build" 60 "${OPT_VMEM_KB:-}" \
+        clang -shared -fPIC -O2 "$FORK_SERIALIZER_SOURCE" -o "$FORK_SERIALIZER_SO" -ldl; then
+        echo -e "${YELLOW}Legacy frozen fork serialization enabled.${NC}"
+    else
+        echo -e "${YELLOW}WARNING: failed to build fork serializer; continuing without it.${NC}"
+        FORK_SERIALIZER_SO=""
     fi
 }
 
@@ -218,19 +249,35 @@ start_ll_snapshot_watcher() {
         for f in /tmp/seen_module_*.ll; do
             [ -f "$f" ] || continue
             [[ "$f" == *.opt.ll ]] && continue
+            [[ "$f" == *.polly.ll ]] && continue
             local bn=$(basename "$f")
             if [ ! -f "$snapshot_dir/$bn" ] || [ "$f" -nt "$snapshot_dir/$bn" ]; then
                 cp "$f" "$snapshot_dir/$bn" 2>/dev/null || true
             fi
         done
-        sleep 3
+        sleep 1
     done
     # Final sweep after compiler exits
     for f in /tmp/seen_module_*.ll; do
         [ -f "$f" ] || continue
         [[ "$f" == *.opt.ll ]] && continue
+        [[ "$f" == *.polly.ll ]] && continue
         cp "$f" "$snapshot_dir/$(basename "$f")" 2>/dev/null || true
     done
+}
+
+finish_ll_snapshot_watcher() {
+    local watcher_pid=$1
+    local waited=0
+    while kill -0 "$watcher_pid" 2>/dev/null; do
+        if [ "$waited" -ge 10 ]; then
+            kill "$watcher_pid" 2>/dev/null || true
+            break
+        fi
+        sleep 1
+        waited=$((waited+1))
+    done
+    wait "$watcher_pid" 2>/dev/null || true
 }
 
 kill_matching_processes() {
@@ -285,6 +332,7 @@ count_plain_module_lls() {
     for f in "$dir"/seen_module_*.ll; do
         [ -f "$f" ] || continue
         [[ "$f" == *.opt.ll ]] && continue
+        [[ "$f" == *.polly.ll ]] && continue
         count=$((count+1))
     done
     echo "$count"
@@ -306,6 +354,7 @@ list_modules_missing_objects() {
     for llfile in "$dir"/seen_module_*.ll; do
         [ -f "$llfile" ] || continue
         [[ "$llfile" == *.opt.ll ]] && continue
+        [[ "$llfile" == *.polly.ll ]] && continue
         local modname=$(basename "$llfile" .ll)
         if [ ! -f "$dir/${modname}.o" ]; then
             missing="$missing ${modname}"
@@ -320,6 +369,7 @@ find_problem_empty_modules() {
     for llfile in "$dir"/seen_module_*.ll; do
         [ -f "$llfile" ] || continue
         [[ "$llfile" == *.opt.ll ]] && continue
+        [[ "$llfile" == *.polly.ll ]] && continue
         local defines=$(grep -c '^define' "$llfile" 2>/dev/null | tail -1)
         defines=${defines:-0}
         if [ "$defines" -eq 0 ] 2>/dev/null; then
@@ -1084,7 +1134,9 @@ WRAPPER_EOF
     chmod +x "$OPT_WRAPPER_DIR/opt"
 fi  # end platform-specific opt wrapper
 
-if [ "$LOW_MEMORY_MODE" = "1" ] && [ "$HOST_OS" != "Darwin" ]; then
+build_fork_serializer
+
+if [ "$LOW_MEMORY_MODE" = "1" ] && [ "$HOST_OS" != "Darwin" ] && [ "${SEEN_SKIP_LOW_MEMORY_SHORTCUT:-0}" != "1" ]; then
     echo ""
     echo "Low-memory shortcut: trying existing stage builders before frozen bootstrap..."
     if recover_with_existing_stage_builders; then
@@ -1094,6 +1146,9 @@ if [ "$LOW_MEMORY_MODE" = "1" ] && [ "$HOST_OS" != "Darwin" ]; then
     else
         echo -e "${YELLOW}Low-memory shortcut did not complete; continuing with capped frozen bootstrap.${NC}"
     fi
+elif [ "$LOW_MEMORY_MODE" = "1" ] && [ "$HOST_OS" != "Darwin" ]; then
+    echo ""
+    echo -e "${YELLOW}Low-memory shortcut skipped; continuing with capped frozen bootstrap.${NC}"
 fi
 
 if [ -z "${VERIFIED:-}" ]; then
@@ -1137,9 +1192,14 @@ else
     SNAPSHOT_DIR="/tmp/seen_ll_snapshot_$$"
     rm -rf "$SNAPSHOT_DIR"
 
+    FROZEN_COMPILE_ENV=(env "PATH=$OPT_WRAPPER_DIR:$PATH")
+    if [ -n "$FORK_SERIALIZER_SO" ]; then
+        FROZEN_COMPILE_ENV+=("LD_PRELOAD=$FORK_SERIALIZER_SO")
+    fi
+
     # Start compiler in background
-    run_guarded_command "S1->S2" 0 "$MAIN_COMPILER_VMEM_KB" \
-        env PATH="$OPT_WRAPPER_DIR:$PATH" "$FROZEN" compile "$COMPILER_SOURCE" "$STAGE2" \
+    SEEN_MEMORY_GUARD_KILL_ONLY=1 run_guarded_command "S1->S2" 0 "$MAIN_COMPILER_VMEM_KB" \
+        "${FROZEN_COMPILE_ENV[@]}" "$FROZEN" compile "$COMPILER_SOURCE" "$STAGE2" \
             $STAGE2_COMPILE_FLAGS > /tmp/safe_rebuild_stage2.log 2>&1 &
     COMPILE_PID=$!
 
@@ -1156,8 +1216,7 @@ else
     # Stop monitor and watcher
     kill "$MONITOR_PID" 2>/dev/null || true
     wait "$MONITOR_PID" 2>/dev/null || true
-    kill "$WATCHER_PID" 2>/dev/null || true
-    wait "$WATCHER_PID" 2>/dev/null || true
+    finish_ll_snapshot_watcher "$WATCHER_PID"
 
     EXPECTED_STAGE2_MODULES=$(extract_expected_module_count /tmp/safe_rebuild_stage2.log)
     if [ "$EXPECTED_STAGE2_MODULES" -le 0 ]; then
@@ -1280,9 +1339,13 @@ else
 
                     RETRY_SNAPSHOT="/tmp/seen_retry_snapshot_${$}_${RETRY}"
                     rm -rf "$RETRY_SNAPSHOT"
+                    RETRY_COMPILE_ENV=(env "PATH=$OPT_WRAPPER_DIR:$PATH")
+                    if [ -n "$FORK_SERIALIZER_SO" ]; then
+                        RETRY_COMPILE_ENV+=("LD_PRELOAD=$FORK_SERIALIZER_SO")
+                    fi
 
-                    run_guarded_command "Retry$RETRY" 600 "$MAIN_COMPILER_VMEM_KB" \
-                        env PATH="$OPT_WRAPPER_DIR:$PATH" "$FROZEN" compile "$COMPILER_SOURCE" /dev/null \
+                    SEEN_MEMORY_GUARD_KILL_ONLY=1 run_guarded_command "Retry$RETRY" 600 "$MAIN_COMPILER_VMEM_KB" \
+                        "${RETRY_COMPILE_ENV[@]}" "$FROZEN" compile "$COMPILER_SOURCE" /dev/null \
                             $STAGE2_COMPILE_FLAGS > /tmp/retry_${RETRY}.log 2>&1 &
                     RETRY_PID=$!
 
@@ -1292,11 +1355,11 @@ else
                     RETRY_MONITOR=$!
 
                     wait $RETRY_PID 2>/dev/null || true
-                    kill $RETRY_WATCHER 2>/dev/null || true; wait $RETRY_WATCHER 2>/dev/null || true
+                    finish_ll_snapshot_watcher "$RETRY_WATCHER"
                     kill $RETRY_MONITOR 2>/dev/null || true; wait $RETRY_MONITOR 2>/dev/null || true
                     kill_frozen_orphans
 
-                    RETRY_COUNT=$(ls "$RETRY_SNAPSHOT"/seen_module_*.ll 2>/dev/null | wc -l)
+                    RETRY_COUNT=$(count_plain_module_lls "$RETRY_SNAPSHOT")
                     echo ""
                     echo "  Retry $RETRY: captured $RETRY_COUNT .ll files"
 
@@ -1306,6 +1369,7 @@ else
                     for retry_ll in "$RETRY_SNAPSHOT"/seen_module_*.ll; do
                         [ -f "$retry_ll" ] || continue
                         [[ "$retry_ll" == *.opt.ll ]] && continue
+                        [[ "$retry_ll" == *.polly.ll ]] && continue
                         bn=$(basename "$retry_ll")
                         mod=$(basename "$retry_ll" .ll)
                         orig_ll="$RECOVERY_DIR/$bn"
@@ -1332,6 +1396,7 @@ else
                         for llfile in "$RECOVERY_DIR"/seen_module_*.ll; do
                             [ -f "$llfile" ] || continue
                             [[ "$llfile" == *.opt.ll ]] && continue
+                            [[ "$llfile" == *.polly.ll ]] && continue
                             mod=$(basename "$llfile" .ll)
                             objfile="$RECOVERY_DIR/${mod}.o"
                             [ -f "$objfile" ] && continue
@@ -1384,7 +1449,7 @@ else
                     PASS2_SNAPSHOT="/tmp/seen_pass2_snapshot_$$"
                     rm -rf "$PASS2_SNAPSHOT"
 
-                    run_guarded_command "Pass2" 600 "$MAIN_COMPILER_VMEM_KB" \
+                    SEEN_MEMORY_GUARD_KILL_ONLY=1 run_guarded_command "Pass2" 600 "$MAIN_COMPILER_VMEM_KB" \
                         "$PROD_COMPILER" compile "$COMPILER_SOURCE" /dev/null \
                             $PASS2_COMPILE_FLAGS > /tmp/pass2.log 2>&1 &
                     PASS2_PID=$!
@@ -1395,7 +1460,7 @@ else
                     PASS2_MONITOR=$!
 
                     wait $PASS2_PID 2>/dev/null || true
-                    kill $PASS2_WATCHER 2>/dev/null; wait $PASS2_WATCHER 2>/dev/null || true
+                    finish_ll_snapshot_watcher "$PASS2_WATCHER"
                     kill $PASS2_MONITOR 2>/dev/null; wait $PASS2_MONITOR 2>/dev/null || true
                     # Kill any children of the Pass 2 compiler (fork children, opt, clang)
                     for child in $(pgrep -P $PASS2_PID 2>/dev/null); do
@@ -1403,7 +1468,7 @@ else
                     done
                     sleep 2
 
-                    PASS2_COUNT=$(ls "$PASS2_SNAPSHOT"/seen_module_*.ll 2>/dev/null | wc -l)
+                    PASS2_COUNT=$(count_plain_module_lls "$PASS2_SNAPSHOT")
                     echo ""
                     echo "  Pass 2: captured $PASS2_COUNT .ll files"
 
@@ -1412,6 +1477,7 @@ else
                     for pass1_ll in "$RECOVERY_DIR"/seen_module_*.ll; do
                         [ -f "$pass1_ll" ] || continue
                         [[ "$pass1_ll" == *.opt.ll ]] && continue
+                        [[ "$pass1_ll" == *.polly.ll ]] && continue
                         bn=$(basename "$pass1_ll")
                         pass2_ll="$PASS2_SNAPSHOT/$bn"
                         [ -f "$pass2_ll" ] || continue
@@ -1433,6 +1499,7 @@ else
                     for pass2_ll in "$PASS2_SNAPSHOT"/seen_module_*.ll; do
                         [ -f "$pass2_ll" ] || continue
                         [[ "$pass2_ll" == *.opt.ll ]] && continue
+                        [[ "$pass2_ll" == *.polly.ll ]] && continue
                         bn=$(basename "$pass2_ll")
                         if [ ! -f "$RECOVERY_DIR/$bn" ]; then
                             cp "$pass2_ll" "$RECOVERY_DIR/$bn"
@@ -1449,6 +1516,7 @@ else
                         for llfile in "$RECOVERY_DIR"/seen_module_*.ll; do
                             [ -f "$llfile" ] || continue
                             [[ "$llfile" == *.opt.ll ]] && continue
+                            [[ "$llfile" == *.polly.ll ]] && continue
                             modname=$(basename "$llfile" .ll)
                             objfile="$RECOVERY_DIR/${modname}.o"
                             [ -f "$objfile" ] && continue
@@ -1570,7 +1638,7 @@ import re, glob, os
 
 opt_files = sorted(glob.glob('/tmp/seen_module_*.opt.ll'))
 ll_files = sorted(glob.glob('/tmp/seen_module_*.ll'))
-ll_files = [f for f in ll_files if not f.endswith('.opt.ll')]
+ll_files = [f for f in ll_files if not f.endswith('.opt.ll') and not f.endswith('.polly.ll')]
 
 # Collect: which opt files define globals, which declare them external
 defined = {}   # gname -> (file, line)

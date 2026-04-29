@@ -1,7 +1,7 @@
 // ir_decl_scan.seen — Pass 1 declaration-scan helpers
 // Shared registry mutation helpers extracted from llvm_ir_gen.seen registerDeclarations().
 
-import parser.real_parser.{ProgramNode, FunctionNode, BlockNode}
+import parser.real_parser.{ProgramNode, FunctionNode}
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{parseGlobalVarMutable, parseGlobalVarType, pipeGet}
 import codegen.ir_decl_items.{normalizeDeclaredTypeNodeImpl}
@@ -248,33 +248,6 @@ fun collectStructMethodSignaturesImpl(className: String,
     methodRetTypesBox[0] = methodRetTypes
 }
 
-fun blockContainsValueReturnImpl(block: BlockNode) r: Bool {
-    var stmtIdx = 0
-    while stmtIdx < block.statements.length() {
-        let stmt = block.statements[stmtIdx]
-        if stmt.kind == "Return" {
-            if stmt.returnValue.kind != "" and stmt.returnValue.kind != "None" {
-                return true
-            }
-        }
-        if stmt.kind == "If" {
-            if blockContainsValueReturnImpl(stmt.thenBranch) {
-                return true
-            }
-            if blockContainsValueReturnImpl(stmt.elseBranch) {
-                return true
-            }
-        }
-        if stmt.kind == "While" {
-            if blockContainsValueReturnImpl(stmt.loopBody) {
-                return true
-            }
-        }
-        stmtIdx = stmtIdx + 1
-    }
-    return false
-}
-
 fun resolveStructMethodSignatureReturnTypeImpl(className: String,
     method: FunctionNode) r: String {
 
@@ -285,10 +258,9 @@ fun resolveStructMethodSignatureReturnTypeImpl(className: String,
     if method.name == "new" {
         return className
     }
-    if blockContainsValueReturnImpl(method.body) {
-        return resolveMethodReturnTypeImpl(className, method.name,
-            declaredReturnType, "")
-    }
+    // Declaration scanning must not walk method bodies: large self-hosted
+    // classes expose bootstrap AST-copy fragility here. Methods without an
+    // explicit result type are treated as no-value methods for ABI metadata.
     return "Void"
 }
 
