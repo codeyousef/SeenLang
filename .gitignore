@@ -206,6 +206,7 @@ llms-full.txt
 # Binaries have no extension; .seen source files are tracked via the negation rule
 tests/misc_root_tests/test_*
 !tests/misc_root_tests/test_*.seen
+!tests/misc_root_tests/test_release_packaging.sh
 .build_tmp/
 benchmarks/COMPREHENSIVE_BENCHMARK_RESULTS.md
 benchmarks/quick_benchmark.sh

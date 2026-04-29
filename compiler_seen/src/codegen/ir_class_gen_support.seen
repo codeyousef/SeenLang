@@ -83,7 +83,8 @@ fun prepareGeneratedClassDecoratorSnapshotImpl(classNode: ClassNode)
 fun hasHotReloadMarkerMethodImpl(classNode: ClassNode) r: Bool {
     var methodIdx = 0
     while methodIdx < classNode.methods.length() {
-        if classNode.methods[methodIdx].name == "__seen_hot_reload_marker__" {
+        let method = classNode.methods[methodIdx]
+        if method.name == "__seen_hot_reload_marker__" {
             return true
         }
         methodIdx = methodIdx + 1
@@ -170,7 +171,8 @@ fun emitInheritedClassMethodThunksImpl(output: StringBuilder,
         var childHasMethod = 0
         var childMethodIdx = 0
         while childMethodIdx < classNode.methods.length() {
-            if classNode.methods[childMethodIdx].name == parentMethodName {
+            let childMethod = classNode.methods[childMethodIdx]
+            if childMethod.name == parentMethodName {
                 childHasMethod = 1
             }
             childMethodIdx = childMethodIdx + 1

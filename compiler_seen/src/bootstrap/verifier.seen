@@ -4,7 +4,7 @@
 import core.option.{Option, Some, None}
 import core.result.{Result, Ok, Err}
 import io.file.{readText, appendText, exists}
-import process.process.{execCommand, CommandResult, commandWasSuccessful, commandOutput}
+import process.process.{execCommand, CommandResult, commandWasSuccessful}
 import str.string.{replace}
 
 fun FileExists(path: String) r: Bool {
@@ -158,7 +158,7 @@ class BootstrapVerifier {
             }
         } else {
             this.log("   [ERROR] Error: Compilation failed")
-            let output = commandOutput(result)
+            let output = result.output
             this.log("   Output: {output}")
             return Err("Compilation failed: {output}")
         }
@@ -348,7 +348,7 @@ fun getCurrentTime() r: Int {
     // Returns current time in milliseconds since epoch using system clock
     let result = execCommand("date +%s")
     if commandWasSuccessful(result) {
-        let out = commandOutput(result).trim()
+        let out = result.output.trim()
         if out.length() > 0 {
             return out.toInt() * 1000
         }

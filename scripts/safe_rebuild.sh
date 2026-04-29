@@ -51,6 +51,21 @@ format_bytes() {
     fi
 }
 
+release_cpu_baseline_to_march() {
+    case "$1" in
+        "")
+            printf '%s\n' "-march=native"
+            ;;
+        x86-64|x86-64-v3)
+            printf '%s\n' "-march=$1"
+            ;;
+        *)
+            echo -e "${RED}ERROR: SEEN_RELEASE_CPU_BASELINE must be x86-64 or x86-64-v3.${NC}" >&2
+            exit 1
+            ;;
+    esac
+}
+
 memory_guard_enabled() {
     [ "${SEEN_DISABLE_MEMORY_GUARD:-0}" != "1" ] &&
         [ -x "$MEMORY_GUARD_SCRIPT" ] &&
@@ -604,6 +619,9 @@ HOST_ARCH=$(uname -m)
 LOW_MEMORY_MODE=0
 STAGE2_COMPILE_FLAGS="--fast --no-cache"
 PASS2_COMPILE_FLAGS="--fast --no-cache"
+RELEASE_CPU_BASELINE="${SEEN_RELEASE_CPU_BASELINE:-}"
+RELEASE_TARGET_CPU_FLAG=""
+RELEASE_CLANG_MARCH_FLAG="$(release_cpu_baseline_to_march "$RELEASE_CPU_BASELINE")"
 MAIN_COMPILER_VMEM_KB=""
 OPT_VMEM_KB=""
 RECOVERY_TIMEOUT_SECS="${SEEN_RECOVERY_TIMEOUT_SECS:-1800}"
@@ -613,6 +631,14 @@ MEMORY_GUARD_RSS_KB=""
 MEMORY_GUARD_RESERVE_KB=""
 MEMORY_GUARD_TASKS_MAX=""
 MEMORY_GUARD_CGROUP_STOP_KB=""
+
+if [ -n "$RELEASE_CPU_BASELINE" ]; then
+    RELEASE_TARGET_CPU_FLAG="--target-cpu=$RELEASE_CPU_BASELINE"
+    STAGE2_COMPILE_FLAGS="$STAGE2_COMPILE_FLAGS $RELEASE_TARGET_CPU_FLAG"
+    PASS2_COMPILE_FLAGS="$PASS2_COMPILE_FLAGS $RELEASE_TARGET_CPU_FLAG"
+    export SEEN_RELEASE_CPU_BASELINE="$RELEASE_CPU_BASELINE"
+    echo -e "${YELLOW}Release CPU baseline enabled: $RELEASE_CPU_BASELINE.${NC}"
+fi
 
 if [ "${SEEN_DISABLE_MEMORY_GUARD:-0}" != "1" ]; then
     if ! is_positive_integer "$SYSTEM_MEMORY_KB"; then
@@ -817,6 +843,9 @@ smoke_test_compiler() {
         check_cmd+=(--no-fork)
         compile_cmd+=(--no-fork)
     fi
+    if [ -n "${RELEASE_TARGET_CPU_FLAG:-}" ]; then
+        compile_cmd+=("$RELEASE_TARGET_CPU_FLAG")
+    fi
 
     cleanup_smoke_build_state
 
@@ -885,7 +914,7 @@ recover_with_preserved_production_compiler() {
             SEEN_MAIN_VMEM_KB="$MAIN_COMPILER_VMEM_KB" \
             SEEN_OPT_VMEM_KB="$OPT_VMEM_KB" \
             "$PRESERVED_PROD_BUILDER" compile "$COMPILER_SOURCE" "$STAGE3_RECOVERY" \
-            --fast --no-cache --no-fork > /tmp/safe_rebuild_stage3_recovery.log 2>&1 || recovery_exit=$?
+            --fast --no-cache --no-fork $RELEASE_TARGET_CPU_FLAG > /tmp/safe_rebuild_stage3_recovery.log 2>&1 || recovery_exit=$?
     if [ "$recovery_exit" -eq 0 ]; then
         echo -e "${GREEN}Recovery rebuild succeeded.${NC}"
         echo ""
@@ -933,7 +962,7 @@ recover_with_existing_stage_builder() {
             SEEN_MAIN_VMEM_KB="$MAIN_COMPILER_VMEM_KB" \
             SEEN_OPT_VMEM_KB="$OPT_VMEM_KB" \
             "$builder_path" compile "$COMPILER_SOURCE" "$STAGE3_RECOVERY" \
-            --fast --no-cache --no-fork > "$builder_log" 2>&1 || recovery_exit=$?
+            --fast --no-cache --no-fork $RELEASE_TARGET_CPU_FLAG > "$builder_log" 2>&1 || recovery_exit=$?
 
     if [ "$recovery_exit" -eq 0 ]; then
         echo -e "${GREEN}Existing stage builder $builder_name rebuilt the compiler.${NC}"
@@ -1168,7 +1197,7 @@ if [ "$HOST_OS" = "Darwin" ]; then
     # macOS: PATH already set via export above; use --no-cache
     # The frozen compiler may fail at its internal link step (e.g., internal globals
     # eliminated by opt) but still produce a full .opt.ll set we can relink in step 1b.
-    if run_with_progress "S1→S2" /tmp/safe_rebuild_stage2.log $FROZEN compile "$COMPILER_SOURCE" "$STAGE2" --fast --no-cache; then
+    if run_with_progress "S1→S2" /tmp/safe_rebuild_stage2.log $FROZEN compile "$COMPILER_SOURCE" "$STAGE2" $STAGE2_COMPILE_FLAGS; then
         echo -e "${GREEN}Stage2 build succeeded.${NC}"
     else
         EXPECTED_STAGE2_MODULES=$(extract_expected_module_count /tmp/safe_rebuild_stage2.log)
@@ -1568,20 +1597,20 @@ else
             if [ ! -f "$RT_DIR/seen_runtime.o" ] || [ "$RT_DIR/seen_runtime.c" -nt "$RT_DIR/seen_runtime.o" ]; then
                 echo "  Pre-compiling runtime..."
                 run_guarded_command "runtime seen_runtime.c" 300 "$OPT_VMEM_KB" \
-                    clang -O3 -flto=thin -march=native -ffunction-sections -fdata-sections -pthread \
+                    clang -O3 -flto=thin "$RELEASE_CLANG_MARCH_FLAG" -ffunction-sections -fdata-sections -pthread \
                     -c -I "$RT_DIR" "$RT_DIR/seen_runtime.c" -o "$RT_DIR/seen_runtime.o" 2>/dev/null || true
             fi
             if [ -f "$RT_DIR/seen_region.c" ]; then
                 if [ ! -f "$RT_DIR/seen_region.o" ] || [ "$RT_DIR/seen_region.c" -nt "$RT_DIR/seen_region.o" ]; then
                     run_guarded_command "runtime seen_region.c" 300 "$OPT_VMEM_KB" \
-                        clang -O3 -flto=thin -march=native -ffunction-sections -fdata-sections \
+                        clang -O3 -flto=thin "$RELEASE_CLANG_MARCH_FLAG" -ffunction-sections -fdata-sections \
                         -c -I "$RT_DIR" "$RT_DIR/seen_region.c" -o "$RT_DIR/seen_region.o" 2>/dev/null || true
                 fi
             fi
             if [ -f "$RT_DIR/seen_gpu.c" ]; then
                 if [ ! -f "$RT_DIR/seen_gpu.o" ] || [ "$RT_DIR/seen_gpu.c" -nt "$RT_DIR/seen_gpu.o" ]; then
                     run_guarded_command "runtime seen_gpu.c" 300 "$OPT_VMEM_KB" \
-                        clang -O3 -flto=thin -march=native -ffunction-sections -fdata-sections \
+                        clang -O3 -flto=thin "$RELEASE_CLANG_MARCH_FLAG" -ffunction-sections -fdata-sections \
                         -c -I "$RT_DIR" "$RT_DIR/seen_gpu.c" -o "$RT_DIR/seen_gpu.o" 2>/dev/null || true
                 fi
             fi
@@ -1603,7 +1632,7 @@ else
             if run_guarded_command "Stage2 recovery link" 0 "" clang -O1 -flto=thin -fuse-ld=lld \
                 -Wl,--thinlto-cache-dir=/tmp/seen_thinlto_cache \
                 -Wl,--allow-multiple-definition \
-                -march=native -Wl,--gc-sections -Wno-unused-command-line-argument \
+                "$RELEASE_CLANG_MARCH_FLAG" -Wl,--gc-sections -Wno-unused-command-line-argument \
                 $LINK_OBJS $RT_OBJS -o "$STAGE2" $LINK_LIBS 2>/tmp/safe_rebuild_link.log; then
                 echo -e "${GREEN}Stage2 recovery link succeeded ($(wc -c < "$STAGE2" | tr -d ' ') bytes).${NC}"
             else
@@ -1765,7 +1794,7 @@ if [ "$HOST_OS" = "Darwin" ]; then
 
     echo ""
     echo "Step 2: Building stage3 with stage2 (--fast)..."
-    if run_with_progress "S2→S3" /tmp/safe_rebuild_stage3.log $STAGE2 compile "$COMPILER_SOURCE" "$STAGE3" --fast --no-cache; then
+    if run_with_progress "S2→S3" /tmp/safe_rebuild_stage3.log $STAGE2 compile "$COMPILER_SOURCE" "$STAGE3" $STAGE2_COMPILE_FLAGS; then
         echo -e "${GREEN}Stage3 build succeeded.${NC}"
     else
         echo -e "${RED}ERROR: Stage3 build failed!${NC}"
@@ -1858,7 +1887,7 @@ else
     echo -e "${DIM}Timeout: 30 minutes. Falls back to S2 if this fails.${NC}"
 
     if run_guarded_command "S2->S3" 1800 "$MAIN_COMPILER_VMEM_KB" \
-        "$STAGE2" compile "$COMPILER_SOURCE" "$STAGE3" --fast --no-cache --no-fork \
+        "$STAGE2" compile "$COMPILER_SOURCE" "$STAGE3" --fast --no-cache --no-fork $RELEASE_TARGET_CPU_FLAG \
         > /tmp/safe_rebuild_stage3.log 2>&1; then
         echo -e "${GREEN}Stage3 build succeeded.${NC}"
 

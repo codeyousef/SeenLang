@@ -1,13 +1,19 @@
 #!/usr/bin/env bash
 # Build release packages for the Seen language compiler.
 #
-# Usage: ./scripts/build_release.sh --version 1.0.0-alpha [--output-dir dist/]
+# Usage:
+#   ./scripts/build_release.sh --version 0.7.2 \
+#     --cpu-baseline x86-64 --artifact-suffix linux-x64
+#   ./scripts/build_release.sh --version 0.7.2 \
+#     --compiler compiler_seen/target/seen-x86-64-v3 \
+#     --cpu-baseline x86-64-v3 --artifact-suffix linux-x64-v3
 #
 # Outputs:
-#   dist/seen-<version>-linux-x64.tar.gz       (universal tarball)
-#   dist/seen-lang_<version>_amd64.deb          (Debian/Ubuntu)
-#   dist/seen-lang-<version>.x86_64.rpm         (Fedora/RHEL)
-#   dist/SeenLanguage-<version>-x86_64.AppImage (portable)
+#   dist/seen-<version>-linux-x64.tar.gz       (portable x86-64 tarball)
+#   dist/seen-<version>-linux-x64-v3.tar.gz    (x86-64-v3 tarball)
+#   dist/seen-lang_<version>_amd64.deb         (default linux-x64 only)
+#   dist/seen-lang-<version>.x86_64.rpm        (default linux-x64 only)
+#   dist/SeenLanguage-<version>-x86_64.AppImage (default linux-x64 only)
 #   dist/SHA256SUMS
 
 set -euo pipefail
@@ -18,24 +24,34 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 VERSION=""
 OUTPUT_DIR="$ROOT_DIR/dist"
 COMPILER_BIN="$ROOT_DIR/compiler_seen/target/seen"
+CPU_BASELINE="${SEEN_RELEASE_CPU_BASELINE:-x86-64}"
+ARTIFACT_SUFFIX=""
+SKIP_VERIFY="${SEEN_RELEASE_SKIP_VERIFY:-0}"
 
 usage() {
     echo "Usage: $0 --version <version> [--output-dir <dir>] [--compiler <path>]"
+    echo "          [--cpu-baseline <x86-64|x86-64-v3>] [--artifact-suffix <linux-x64|linux-x64-v3>]"
     echo ""
     echo "Options:"
-    echo "  --version     Release version (e.g., 1.0.0-alpha) [required]"
-    echo "  --output-dir  Output directory (default: dist/)"
-    echo "  --compiler    Path to compiler binary (default: compiler_seen/target/seen)"
+    echo "  --version          Release version (e.g., 0.7.2) [required]"
+    echo "  --output-dir       Output directory (default: dist/)"
+    echo "  --compiler         Path to compiler binary (default: compiler_seen/target/seen)"
+    echo "  --cpu-baseline     Packaged binary CPU baseline (default: x86-64)"
+    echo "  --artifact-suffix  Artifact suffix (default derived from CPU baseline)"
+    echo "  --skip-verify      Skip release CPU baseline verifier"
     exit 1
 }
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --version)   VERSION="$2"; shift 2 ;;
+        --version) VERSION="$2"; shift 2 ;;
         --output-dir) OUTPUT_DIR="$2"; shift 2 ;;
-        --compiler)  COMPILER_BIN="$2"; shift 2 ;;
-        -h|--help)   usage ;;
-        *)           echo "Unknown option: $1"; usage ;;
+        --compiler) COMPILER_BIN="$2"; shift 2 ;;
+        --cpu-baseline) CPU_BASELINE="$2"; shift 2 ;;
+        --artifact-suffix) ARTIFACT_SUFFIX="$2"; shift 2 ;;
+        --skip-verify) SKIP_VERIFY=1; shift ;;
+        -h|--help) usage ;;
+        *) echo "Unknown option: $1"; usage ;;
     esac
 done
 
@@ -44,119 +60,184 @@ if [[ -z "$VERSION" ]]; then
     usage
 fi
 
+case "$CPU_BASELINE" in
+    x86-64)
+        : "${ARTIFACT_SUFFIX:=linux-x64}"
+        ;;
+    x86-64-v3)
+        : "${ARTIFACT_SUFFIX:=linux-x64-v3}"
+        ;;
+    *)
+        echo "Error: unsupported CPU baseline: $CPU_BASELINE"
+        echo "Supported baselines: x86-64, x86-64-v3"
+        exit 1
+        ;;
+esac
+
+case "$ARTIFACT_SUFFIX" in
+    linux-x64|linux-x64-v3) ;;
+    *)
+        echo "Error: unsupported artifact suffix: $ARTIFACT_SUFFIX"
+        echo "Supported suffixes: linux-x64, linux-x64-v3"
+        exit 1
+        ;;
+esac
+if [[ "$CPU_BASELINE" == "x86-64" && "$ARTIFACT_SUFFIX" != "linux-x64" ]]; then
+    echo "Error: x86-64 baseline must use artifact suffix linux-x64"
+    exit 1
+fi
+if [[ "$CPU_BASELINE" == "x86-64-v3" && "$ARTIFACT_SUFFIX" != "linux-x64-v3" ]]; then
+    echo "Error: x86-64-v3 baseline must use artifact suffix linux-x64-v3"
+    exit 1
+fi
+
 if [[ ! -x "$COMPILER_BIN" ]]; then
     echo "Error: compiler binary not found at $COMPILER_BIN"
-    echo "Build it first with: ./scripts/safe_rebuild.sh"
+    echo "Build it first with a memory-capped rebuild, for example:"
+    echo "  SEEN_LOW_MEMORY=1 SEEN_MAIN_VMEM_KB=8388608 SEEN_OPT_VMEM_KB=2097152 SEEN_RELEASE_CPU_BASELINE=$CPU_BASELINE ./scripts/safe_rebuild.sh"
     exit 1
 fi
 
 echo "=== Seen Language Release Builder ==="
-echo "Version:  $VERSION"
-echo "Compiler: $COMPILER_BIN"
-echo "Output:   $OUTPUT_DIR"
+echo "Version:       $VERSION"
+echo "Compiler:      $COMPILER_BIN"
+echo "CPU baseline:  $CPU_BASELINE"
+echo "Artifact tier: $ARTIFACT_SUFFIX"
+echo "Output:        $OUTPUT_DIR"
 echo ""
 
-# Create output and staging directories
 mkdir -p "$OUTPUT_DIR"
-STAGING="$OUTPUT_DIR/staging/seen-${VERSION}-linux-x64"
 rm -rf "$OUTPUT_DIR/staging"
+
+PACKAGE_NAME="seen-${VERSION}-${ARTIFACT_SUFFIX}"
+STAGING="$OUTPUT_DIR/staging/$PACKAGE_NAME"
 mkdir -p "$STAGING"/{bin,lib/seen/std,lib/seen/runtime,share/seen/languages,share/doc/seen}
 
-# 1. Copy compiler binary
 echo "[1/6] Copying compiler binary..."
 cp "$COMPILER_BIN" "$STAGING/bin/seen"
 chmod +x "$STAGING/bin/seen"
 strip "$STAGING/bin/seen" 2>/dev/null || true
 
-# 2. Copy standard library
 echo "[2/6] Copying standard library..."
 if [[ -d "$ROOT_DIR/seen_std/src" ]]; then
     cp -r "$ROOT_DIR/seen_std/src/"* "$STAGING/lib/seen/std/"
 fi
 
-# 3. Copy runtime
 echo "[3/6] Copying runtime..."
 if [[ -d "$ROOT_DIR/seen_runtime" ]]; then
     for f in "$ROOT_DIR/seen_runtime"/*.{c,h}; do
         [[ -f "$f" ]] && cp "$f" "$STAGING/lib/seen/runtime/"
     done
-    # Copy pre-compiled runtime object if available
     for f in "$ROOT_DIR/seen_runtime"/*.a "$ROOT_DIR/seen_runtime"/*.o; do
         [[ -f "$f" ]] && cp "$f" "$STAGING/lib/seen/runtime/"
     done
 fi
 
-# 4. Copy language files
 echo "[4/6] Copying language files..."
 if [[ -d "$ROOT_DIR/languages" ]]; then
     cp -r "$ROOT_DIR/languages/"* "$STAGING/share/seen/languages/"
 fi
 
-# 5. Copy documentation
-echo "[5/6] Copying documentation..."
+echo "[5/6] Copying documentation and metadata..."
 cp "$ROOT_DIR/README.md" "$STAGING/share/doc/seen/"
 [[ -f "$ROOT_DIR/LICENSE" ]] && cp "$ROOT_DIR/LICENSE" "$STAGING/share/doc/seen/"
+cat > "$STAGING/share/doc/seen/release-cpu-baseline.txt" << METADATA_EOF
+version=$VERSION
+artifact=$PACKAGE_NAME
+cpu-baseline=$CPU_BASELINE
+METADATA_EOF
 
-# Create install.sh helper
 cat > "$STAGING/install.sh" << 'INSTALL_EOF'
 #!/usr/bin/env bash
-set -e
+set -euo pipefail
+
 PREFIX="${1:-/usr/local}"
+SUDO=()
+if [[ "$EUID" -ne 0 && ( "$PREFIX" == "/usr"* || "$PREFIX" == "/opt"* ) ]]; then
+    SUDO=(sudo)
+fi
+
+run_install() {
+    "${SUDO[@]}" "$@"
+}
+
+install_file_no_follow() {
+    local src="$1"
+    local dest="$2"
+    local mode="${3:-755}"
+    local dest_dir
+    local tmp
+    dest_dir="$(dirname "$dest")"
+    tmp="$dest_dir/.${dest##*/}.tmp.$$"
+
+    run_install mkdir -p "$dest_dir"
+    run_install rm -f "$tmp"
+    run_install cp "$src" "$tmp"
+    run_install chmod "$mode" "$tmp"
+    run_install mv -f "$tmp" "$dest"
+}
+
 echo "Installing Seen Language to $PREFIX ..."
-sudo mkdir -p "$PREFIX/bin" "$PREFIX/lib/seen" "$PREFIX/share/seen" "$PREFIX/share/doc/seen"
-sudo cp bin/seen "$PREFIX/bin/"
-sudo cp -r lib/seen/* "$PREFIX/lib/seen/"
-sudo cp -r share/seen/* "$PREFIX/share/seen/"
-sudo cp -r share/doc/seen/* "$PREFIX/share/doc/seen/"
+run_install mkdir -p "$PREFIX/bin" "$PREFIX/lib/seen" "$PREFIX/share/seen" "$PREFIX/share/doc/seen"
+install_file_no_follow "bin/seen" "$PREFIX/bin/seen" 755
+run_install cp -r lib/seen/* "$PREFIX/lib/seen/"
+run_install cp -r share/seen/* "$PREFIX/share/seen/"
+run_install cp -r share/doc/seen/* "$PREFIX/share/doc/seen/"
 echo "Seen Language installed to $PREFIX"
 echo "Run 'seen --version' to verify."
 INSTALL_EOF
 chmod +x "$STAGING/install.sh"
 
-# 6. Build tarball
 echo "[6/6] Building tarball..."
-TARBALL="seen-${VERSION}-linux-x64.tar.gz"
-(cd "$OUTPUT_DIR/staging" && tar czf "$OUTPUT_DIR/$TARBALL" "seen-${VERSION}-linux-x64")
+TARBALL="$PACKAGE_NAME.tar.gz"
+(cd "$OUTPUT_DIR/staging" && tar czf "$OUTPUT_DIR/$TARBALL" "$PACKAGE_NAME")
 echo "  -> $OUTPUT_DIR/$TARBALL"
 
-# Build DEB package (if dpkg-deb is available)
-if command -v dpkg-deb &>/dev/null; then
+if [[ "$SKIP_VERIFY" != "1" ]]; then
     echo ""
-    echo "Building DEB package..."
-    (cd "$ROOT_DIR/installer/linux" && \
-        SOURCE_DIR="$STAGING/bin" bash build-deb.sh \
-            "$VERSION" amd64 --output-dir "$OUTPUT_DIR" 2>&1 | tail -5) || \
-        echo "  DEB build skipped (build-deb.sh failed)"
+    echo "Verifying release CPU baseline..."
+    "$SCRIPT_DIR/verify_release_cpu_baseline.sh" --cpu-baseline "$CPU_BASELINE" "$OUTPUT_DIR/$TARBALL"
 fi
 
-# Build RPM package (if rpmbuild is available)
-if command -v rpmbuild &>/dev/null; then
+if [[ "$ARTIFACT_SUFFIX" == "linux-x64" ]]; then
+    if command -v dpkg-deb &>/dev/null; then
+        echo ""
+        echo "Building DEB package..."
+        (cd "$ROOT_DIR/installer/linux" && \
+            SOURCE_DIR="$STAGING/bin" bash build-deb.sh \
+                "$VERSION" amd64 --output-dir "$OUTPUT_DIR" 2>&1 | tail -5) || \
+            echo "  DEB build skipped (build-deb.sh failed)"
+    fi
+
+    if command -v rpmbuild &>/dev/null; then
+        echo ""
+        echo "Building RPM package..."
+        (cd "$ROOT_DIR/installer/linux" && \
+            SOURCE_DIR="$STAGING/bin" bash build-rpm.sh \
+                "$VERSION" x86_64 --output-dir "$OUTPUT_DIR" 2>&1 | tail -5) || \
+            echo "  RPM build skipped (build-rpm.sh failed)"
+    fi
+
+    if command -v appimagetool &>/dev/null; then
+        echo ""
+        echo "Building AppImage..."
+        (cd "$ROOT_DIR/installer/linux" && \
+            SOURCE_DIR="$STAGING/bin" bash build-appimage.sh \
+                "$VERSION" x86_64 --output-dir "$OUTPUT_DIR" 2>&1 | tail -5) || \
+            echo "  AppImage build skipped (build-appimage.sh failed)"
+    fi
+else
     echo ""
-    echo "Building RPM package..."
-    (cd "$ROOT_DIR/installer/linux" && \
-        SOURCE_DIR="$STAGING/bin" bash build-rpm.sh \
-            "$VERSION" x86_64 --output-dir "$OUTPUT_DIR" 2>&1 | tail -5) || \
-        echo "  RPM build skipped (build-rpm.sh failed)"
+    echo "Skipping DEB/RPM/AppImage for non-default CPU tier $ARTIFACT_SUFFIX."
 fi
 
-# Build AppImage (if appimagetool is available)
-if command -v appimagetool &>/dev/null; then
-    echo ""
-    echo "Building AppImage..."
-    (cd "$ROOT_DIR/installer/linux" && \
-        SOURCE_DIR="$STAGING/bin" bash build-appimage.sh \
-            "$VERSION" x86_64 --output-dir "$OUTPUT_DIR" 2>&1 | tail -5) || \
-        echo "  AppImage build skipped (build-appimage.sh failed)"
-fi
-
-# Generate checksums
 echo ""
 echo "Generating checksums..."
-(cd "$OUTPUT_DIR" && sha256sum *.tar.gz *.deb *.rpm *.AppImage 2>/dev/null > SHA256SUMS || \
-    sha256sum *.tar.gz > SHA256SUMS)
+(cd "$OUTPUT_DIR" && find . -maxdepth 1 -type f \
+    \( -name '*.tar.gz' -o -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' \) \
+    -printf '%f\n' | sort | xargs -r sha256sum > SHA256SUMS)
 echo "  -> $OUTPUT_DIR/SHA256SUMS"
 
-# Cleanup staging
 rm -rf "$OUTPUT_DIR/staging"
 
 echo ""

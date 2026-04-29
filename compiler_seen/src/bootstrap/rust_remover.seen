@@ -1,6 +1,6 @@
 import str.string.{lines, trim, StringBuilder, startsWith, endsWith}
 import io.file.{readText, writeText, createDirectory, deleteFile}
-import process.process.{execCommand as runCommand, shellQuote, CommandResult, commandWasSuccessful, commandOutput}
+import process.process.{execCommand as runCommand, shellQuote, CommandResult, commandWasSuccessful}
 
 data RemovalResult {
     success: Bool
@@ -113,7 +113,7 @@ class RustRemover {
         if not commandWasSuccessful(result) {
             return Array<String>()
         }
-        return lines(commandOutput(result), true)
+        return lines(result.output, true)
     }
 
     fun backupFile(relativePath: String, absolutePath: String) r: Void {

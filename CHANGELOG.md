@@ -5,6 +5,20 @@ All notable changes to the Seen compiler will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.2] - 2026-04-29
+
+### Fixed
+
+#### Release packaging
+- Fixed Linux x64 release packaging so the default artifact is built and verified against a portable `x86-64` CPU baseline instead of inheriting native build-host ISA features.
+- Added an explicit `linux-x64-v3` release artifact tier for optimized AVX2-class machines.
+- Added release-package verification for CPU baseline metadata, AVX-512 instruction evidence in default x64 binaries, and packaged compiler check/compile smoke tests.
+- Fixed tarball and Unix installer replacement of `bin/seen` so existing symlink destinations are not overwritten unexpectedly.
+
+#### Bootstrap and codegen
+- Fixed S2→S3 self-hosted bootstrap verification by resolving LSP class fields such as `LspError.data` with explicit known field indices and Seen types instead of falling back to the first struct field.
+- Hardened known-struct field layout fallback so it only uses a known layout when the requested field has a valid resolved index, preventing invalid LLVM IR in optional field method calls.
+
 ## [0.7.1] - 2026-04-28
 
 ### Fixed

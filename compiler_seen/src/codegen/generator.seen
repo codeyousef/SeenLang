@@ -2,7 +2,7 @@
 // Implements comprehensive code generation with multiple backends
 
 import ir.{IRModule, IRFunction, IRBasicBlock, IRInstruction, IRValue, IRType}
-import process.process.{execCommand, commandWasSuccessful, commandOutput}
+import process.process.{execCommand, commandWasSuccessful}
 // import codegen.interfaces.{Target, OptLevel, OutputFormat, CodegenResult, CodegenError, CodegenStatistics, Backend, LLVMBackend, CBackend, WASMBackend, CodeOptimizer}
 
 class CodeGenerator {

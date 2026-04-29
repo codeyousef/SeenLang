@@ -5,6 +5,48 @@
 import codegen.ir_optimization.{getNextRegFn}
 import str.string.{StringBuilder}
 
+fun normalizeArrayFloatLiteralImpl(value: String) r: String {
+    if value == "" {
+        return "0.0"
+    }
+    if value.contains(".") or value.contains("e") or value.contains("E") or
+        value.startsWith("0x") or value.startsWith("0X") {
+        return value
+    }
+    return value + ".0"
+}
+
+fun coerceArrayFloatArgImpl(output: StringBuilder, regBox: Array<Int>,
+    argReg: String, argSeenType: String) r: String {
+
+    if argSeenType == "Float" {
+        if argReg.startsWith("%") {
+            return argReg
+        }
+        return normalizeArrayFloatLiteralImpl(argReg)
+    }
+    if argSeenType == "Int" or argSeenType == "Integer" or
+        argSeenType == "Char" or argSeenType == "" {
+        if argReg.startsWith("%") {
+            let promotedReg = getNextRegFn(regBox)
+            output.append("  " + promotedReg + " = sitofp i64 " + argReg +
+                " to double\n")
+            return promotedReg
+        }
+        return normalizeArrayFloatLiteralImpl(argReg)
+    }
+    if argSeenType == "Bool" or argSeenType == "Boolean" {
+        if argReg.startsWith("%") {
+            let promotedReg = getNextRegFn(regBox)
+            output.append("  " + promotedReg + " = uitofp i1 " + argReg +
+                " to double\n")
+            return promotedReg
+        }
+        return normalizeArrayFloatLiteralImpl(argReg)
+    }
+    return argReg
+}
+
 // emitToStringMethodImpl — toString dispatch for Float/Bool/Char/String/Class/Int
 // isClassReceiver: 1 if receiverType is a class type (pre-resolved by wrapper)
 fun emitToStringMethodImpl(output: StringBuilder, regBox: Array<Int>, receiverReg: String, receiverType: String, isClassReceiver: Int) r: String {
@@ -206,7 +248,10 @@ fun emitSmallVecMethodImpl(output: StringBuilder, regBox: Array<Int>, methodName
 
 // emitArrayBasicMethodImpl — Array<T> len/get/push/set for simple variable receivers
 // arg0Reg/arg1Reg: pre-generated argument registers
-fun emitArrayBasicMethodImpl(output: StringBuilder, regBox: Array<Int>, methodName: String, receiverReg: String, receiverType: String, arg0Reg: String, arg1Reg: String) r: String {
+fun emitArrayBasicMethodImpl(output: StringBuilder, regBox: Array<Int>,
+    methodName: String, receiverReg: String, receiverType: String,
+    arg0Reg: String, arg1Reg: String, arg0SeenType: String,
+    arg1SeenType: String) r: String {
     let hasStringElem = receiverType.contains("<String>")
     let hasFloatElem = receiverType.contains("<Float>")
 
@@ -247,7 +292,10 @@ fun emitArrayBasicMethodImpl(output: StringBuilder, regBox: Array<Int>, methodNa
             output.append("  call void @seen_arr_push_str(ptr " + receiverReg + ", %SeenString " + arg0Reg + ")\n")
         } else {
             if hasFloatElem {
-                output.append("  call void @seen_arr_push_f64(ptr " + receiverReg + ", double " + arg0Reg + ")\n")
+                let floatArgReg = coerceArrayFloatArgImpl(output, regBox,
+                    arg0Reg, arg0SeenType)
+                output.append("  call void @seen_arr_push_f64(ptr " +
+                    receiverReg + ", double " + floatArgReg + ")\n")
             } else {
                 output.append("  call void @seen_arr_push_i64(ptr " + receiverReg + ", i64 " + arg0Reg + ")\n")
             }
@@ -260,7 +308,11 @@ fun emitArrayBasicMethodImpl(output: StringBuilder, regBox: Array<Int>, methodNa
             output.append("  call void @seen_arr_set_str(ptr " + receiverReg + ", i64 " + arg0Reg + ", %SeenString " + arg1Reg + ")\n")
         } else {
             if hasFloatElem {
-                output.append("  call void @seen_arr_set_double(ptr " + receiverReg + ", i64 " + arg0Reg + ", double " + arg1Reg + ")\n")
+                let floatArgReg = coerceArrayFloatArgImpl(output, regBox,
+                    arg1Reg, arg1SeenType)
+                output.append("  call void @seen_arr_set_double(ptr " +
+                    receiverReg + ", i64 " + arg0Reg + ", double " +
+                    floatArgReg + ")\n")
             } else {
                 output.append("  call void @seen_arr_set_i64(ptr " + receiverReg + ", i64 " + arg0Reg + ", i64 " + arg1Reg + ")\n")
             }

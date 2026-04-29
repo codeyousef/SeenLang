@@ -38,6 +38,7 @@
 import lexer.interfaces.{Token, Position}
 import lexer.token_type.{SeenTokenType, SeenTokenType2, TestEnum, getA, getLeftParenType, getLeftParenType2, getRightParenType, getSemicolonType, getDotType, getLeftBraceType, getKeywordAsType, getIdentifierType, getColonType, getRightBraceType, getCommaType, getEndOfFileType, getKeywordFunType, getKeywordImportType, getKeywordUseType, getKeywordClassType, getAtType}
 import core.option.{Option}
+import str.string.{StringBuilder}
 import trace.{traceParse, isParserTracingEnabled}
 
 extern fun __Print(s: String)
@@ -556,13 +557,17 @@ class RealParser {
         if values.length() == 0 {
             return ""
         }
-        var result = values[0]
+        let builder = StringBuilder.new()
+        let firstSegment = values[0]
+        builder.append(firstSegment)
         var index = 1
         while index < values.length() {
-            result = result + separator + values[index]
+            let segment = values[index]
+            builder.append(separator)
+            builder.append(segment)
             index = index + 1
         }
-        return result
+        return builder.toString()
     }
 
     // ========== END UTILITY METHODS ==========

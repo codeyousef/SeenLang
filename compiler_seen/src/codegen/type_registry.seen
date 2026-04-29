@@ -12,7 +12,7 @@
 
 import trace.{traceGen}
 import str.string.{StringBuilder}
-import codegen.ir_type_info.{getSeenFieldTypeImpl, getMethodReturnTypeImpl}
+import codegen.ir_type_info.{getSeenFieldTypeImpl, getMethodReturnTypeImpl, getKnownLspFieldIndexImpl}
 import codegen.ir_type_mapping.{isDataTypeImpl, isClassTypeImpl}
 import codegen.ir_type_tables.{registerKnownDataTypesImpl}
 import codegen.ir_string_collect.{trimSpacesImpl, normalizeHeaderTypeImpl, parseDecimalIntImpl, getBaseTypeNameImpl, parseSeenStaticArrayLengthImpl, parseSeenStaticArrayElementTypeImpl, isSeenStaticArrayTypeImpl}
@@ -356,6 +356,11 @@ class TypeRegistry {
             if fieldName == "variableName" { return 5 }
             if fieldName == "callee" { return 6 }
             if fieldName == "arguments" { return 7 }
+        }
+        let lspFieldIdx = getKnownLspFieldIndexImpl(structName, fieldName)
+        if lspFieldIdx >= 0 {
+            cacheFieldIndex(cacheKey, lspFieldIdx)
+            return lspFieldIdx
         }
 
         let idx = findStruct(structName)
@@ -1025,6 +1030,8 @@ fun getFieldInfoReg(structName: String, fieldName: String, structNames: Array<St
         if fieldName == "callee" { return 6 }
         if fieldName == "arguments" { return 7 }
     }
+    let lspFieldIdx = getKnownLspFieldIndexImpl(structName, fieldName)
+    if lspFieldIdx >= 0 { return lspFieldIdx }
     let idx = findStructReg(structName, structNames)
     if idx < 0 { return -1 }
     let fieldNamesStr = structFieldNames[idx]

@@ -149,7 +149,331 @@ fun getKnownFieldIndexPrimaryImpl(structName: String, fieldName: String) r: Int 
         if fieldName == "callee" { return 6 }
         if fieldName == "arguments" { return 7 }
     }
+    let lspFieldIdx = getKnownLspFieldIndexImpl(structName, fieldName)
+    if lspFieldIdx >= 0 { return lspFieldIdx }
     return -1
+}
+
+fun getKnownLspFieldIndexImpl(structName: String, fieldName: String) r: Int {
+    if structName == "LspMessage" {
+        if fieldName == "jsonrpc" { return 0 }
+        if fieldName == "id" { return 1 }
+        if fieldName == "method" { return 2 }
+        if fieldName == "params" { return 3 }
+    }
+    if structName == "LspError" {
+        if fieldName == "code" { return 0 }
+        if fieldName == "message" { return 1 }
+        if fieldName == "data" { return 2 }
+    }
+    if structName == "LspResponse" {
+        if fieldName == "jsonrpc" { return 0 }
+        if fieldName == "id" { return 1 }
+        if fieldName == "result" { return 2 }
+        if fieldName == "error" { return 3 }
+    }
+    if structName == "Document" {
+        if fieldName == "uri" { return 0 }
+        if fieldName == "content" { return 1 }
+        if fieldName == "version" { return 2 }
+        if fieldName == "languageId" { return 3 }
+    }
+    if structName == "LspPosition" {
+        if fieldName == "line" { return 0 }
+        if fieldName == "character" { return 1 }
+    }
+    if structName == "Range" {
+        if fieldName == "start" { return 0 }
+        if fieldName == "end" { return 1 }
+    }
+    if structName == "Diagnostic" {
+        if fieldName == "range" { return 0 }
+        if fieldName == "severity" { return 1 }
+        if fieldName == "code" { return 2 }
+        if fieldName == "source" { return 3 }
+        if fieldName == "message" { return 4 }
+    }
+    if structName == "TextDocumentIdentifier" {
+        if fieldName == "uri" { return 0 }
+    }
+    if structName == "VersionedTextDocumentIdentifier" {
+        if fieldName == "uri" { return 0 }
+        if fieldName == "version" { return 1 }
+    }
+    if structName == "TextDocumentItem" {
+        if fieldName == "uri" { return 0 }
+        if fieldName == "languageId" { return 1 }
+        if fieldName == "version" { return 2 }
+        if fieldName == "text" { return 3 }
+    }
+    if structName == "TextDocumentContentChangeEvent" {
+        if fieldName == "text" { return 0 }
+    }
+    if structName == "TextDocumentPositionParams" {
+        if fieldName == "textDocument" { return 0 }
+        if fieldName == "position" { return 1 }
+    }
+    if structName == "CompletionItem" {
+        if fieldName == "label" { return 0 }
+        if fieldName == "kind" { return 1 }
+        if fieldName == "detail" { return 2 }
+        if fieldName == "documentation" { return 3 }
+        if fieldName == "insertText" { return 4 }
+        if fieldName == "insertTextFormat" { return 5 }
+    }
+    if structName == "CompletionList" {
+        if fieldName == "isIncomplete" { return 0 }
+        if fieldName == "items" { return 1 }
+    }
+    if structName == "Hover" {
+        if fieldName == "contents" { return 0 }
+        if fieldName == "range" { return 1 }
+    }
+    if structName == "MarkupContent" {
+        if fieldName == "kind" { return 0 }
+        if fieldName == "value" { return 1 }
+    }
+    if structName == "TextEdit" {
+        if fieldName == "range" { return 0 }
+        if fieldName == "newText" { return 1 }
+    }
+    if structName == "CodeAction" {
+        if fieldName == "title" { return 0 }
+        if fieldName == "kind" { return 1 }
+        if fieldName == "isPreferred" { return 2 }
+        if fieldName == "diagnostics" { return 3 }
+        if fieldName == "edit" { return 4 }
+    }
+    if structName == "PublishDiagnosticsParams" {
+        if fieldName == "uri" { return 0 }
+        if fieldName == "diagnostics" { return 1 }
+    }
+    if structName == "SeenLspServer" {
+        if fieldName == "rpc" { return 0 }
+        if fieldName == "initialized" { return 1 }
+        if fieldName == "shutdown" { return 2 }
+        if fieldName == "documents" { return 3 }
+        if fieldName == "documentUris" { return 4 }
+    }
+    if structName == "JsonRpcHandler" {
+        if fieldName == "reader" { return 0 }
+        if fieldName == "running" { return 1 }
+        if fieldName == "lastError" { return 2 }
+    }
+    if structName == "ContentLengthReader" {
+        if fieldName == "lastError" { return 0 }
+    }
+    if structName == "DidOpenTextDocumentParams" {
+        if fieldName == "textDocument" { return 0 }
+    }
+    if structName == "DidChangeTextDocumentParams" {
+        if fieldName == "textDocument" { return 0 }
+        if fieldName == "contentChanges" { return 1 }
+    }
+    if structName == "DidCloseTextDocumentParams" {
+        if fieldName == "textDocument" { return 0 }
+    }
+    if structName == "DidSaveTextDocumentParams" {
+        if fieldName == "textDocument" { return 0 }
+        if fieldName == "text" { return 1 }
+    }
+    if structName == "CodeActionContext" {
+        if fieldName == "diagnostics" { return 0 }
+    }
+    if structName == "CodeActionParams" {
+        if fieldName == "textDocument" { return 0 }
+        if fieldName == "range" { return 1 }
+        if fieldName == "context" { return 2 }
+    }
+    if structName == "DocumentFormattingParams" {
+        if fieldName == "textDocument" { return 0 }
+    }
+    if structName == "InitializeParams" {
+        if fieldName == "processId" { return 0 }
+        if fieldName == "rootUri" { return 1 }
+        if fieldName == "capabilities" { return 2 }
+    }
+    if structName == "InitializeResult" {
+        if fieldName == "capabilities" { return 0 }
+        if fieldName == "serverInfo" { return 1 }
+    }
+    if structName == "ServerCapabilities" {
+        if fieldName == "textDocumentSync" { return 0 }
+        if fieldName == "completionProvider" { return 1 }
+        if fieldName == "hoverProvider" { return 2 }
+        if fieldName == "definitionProvider" { return 3 }
+        if fieldName == "referencesProvider" { return 4 }
+        if fieldName == "documentHighlightProvider" { return 5 }
+        if fieldName == "documentSymbolProvider" { return 6 }
+        if fieldName == "codeActionProvider" { return 7 }
+        if fieldName == "documentFormattingProvider" { return 8 }
+    }
+    if structName == "ServerInfo" {
+        if fieldName == "name" { return 0 }
+        if fieldName == "version" { return 1 }
+    }
+    return -1
+}
+
+fun getKnownLspSeenFieldTypeImpl(structName: String, fieldName: String) r: String {
+    if structName == "LspMessage" {
+        if fieldName == "jsonrpc" { return "String" }
+        if fieldName == "id" { return "Int" }
+        if fieldName == "method" { return "String" }
+        if fieldName == "params" { return "JsonValue?" }
+    }
+    if structName == "LspError" {
+        if fieldName == "code" { return "Int" }
+        if fieldName == "message" { return "String" }
+        if fieldName == "data" { return "JsonValue?" }
+    }
+    if structName == "LspResponse" {
+        if fieldName == "jsonrpc" { return "String" }
+        if fieldName == "id" { return "Int" }
+        if fieldName == "result" { return "JsonValue?" }
+        if fieldName == "error" { return "LspError?" }
+    }
+    if structName == "Document" {
+        if fieldName == "uri" { return "String" }
+        if fieldName == "content" { return "String" }
+        if fieldName == "version" { return "Int" }
+        if fieldName == "languageId" { return "String" }
+    }
+    if structName == "LspPosition" {
+        if fieldName == "line" { return "Int" }
+        if fieldName == "character" { return "Int" }
+    }
+    if structName == "Range" {
+        if fieldName == "start" { return "LspPosition" }
+        if fieldName == "end" { return "LspPosition" }
+    }
+    if structName == "Diagnostic" {
+        if fieldName == "range" { return "Range" }
+        if fieldName == "severity" { return "Int" }
+        if fieldName == "code" { return "String" }
+        if fieldName == "source" { return "String" }
+        if fieldName == "message" { return "String" }
+    }
+    if structName == "TextDocumentIdentifier" {
+        if fieldName == "uri" { return "String" }
+    }
+    if structName == "VersionedTextDocumentIdentifier" {
+        if fieldName == "uri" { return "String" }
+        if fieldName == "version" { return "Int" }
+    }
+    if structName == "TextDocumentItem" {
+        if fieldName == "uri" { return "String" }
+        if fieldName == "languageId" { return "String" }
+        if fieldName == "version" { return "Int" }
+        if fieldName == "text" { return "String" }
+    }
+    if structName == "TextDocumentContentChangeEvent" {
+        if fieldName == "text" { return "String" }
+    }
+    if structName == "TextDocumentPositionParams" {
+        if fieldName == "textDocument" { return "TextDocumentIdentifier" }
+        if fieldName == "position" { return "LspPosition" }
+    }
+    if structName == "CompletionItem" {
+        if fieldName == "label" { return "String" }
+        if fieldName == "kind" { return "Int" }
+        if fieldName == "detail" { return "String" }
+        if fieldName == "documentation" { return "String" }
+        if fieldName == "insertText" { return "String" }
+        if fieldName == "insertTextFormat" { return "Int" }
+    }
+    if structName == "CompletionList" {
+        if fieldName == "isIncomplete" { return "Bool" }
+        if fieldName == "items" { return "Array<CompletionItem>" }
+    }
+    if structName == "Hover" {
+        if fieldName == "contents" { return "MarkupContent" }
+        if fieldName == "range" { return "Range?" }
+    }
+    if structName == "MarkupContent" {
+        if fieldName == "kind" { return "String" }
+        if fieldName == "value" { return "String" }
+    }
+    if structName == "TextEdit" {
+        if fieldName == "range" { return "Range" }
+        if fieldName == "newText" { return "String" }
+    }
+    if structName == "CodeAction" {
+        if fieldName == "title" { return "String" }
+        if fieldName == "kind" { return "String" }
+        if fieldName == "isPreferred" { return "Bool" }
+        if fieldName == "diagnostics" { return "Array<Diagnostic>" }
+        if fieldName == "edit" { return "JsonValue?" }
+    }
+    if structName == "PublishDiagnosticsParams" {
+        if fieldName == "uri" { return "String" }
+        if fieldName == "diagnostics" { return "Array<Diagnostic>" }
+    }
+    if structName == "SeenLspServer" {
+        if fieldName == "rpc" { return "JsonRpcHandler" }
+        if fieldName == "initialized" { return "Bool" }
+        if fieldName == "shutdown" { return "Bool" }
+        if fieldName == "documents" { return "Array<Document>" }
+        if fieldName == "documentUris" { return "Array<String>" }
+    }
+    if structName == "JsonRpcHandler" {
+        if fieldName == "reader" { return "ContentLengthReader" }
+        if fieldName == "running" { return "Bool" }
+        if fieldName == "lastError" { return "String" }
+    }
+    if structName == "ContentLengthReader" {
+        if fieldName == "lastError" { return "String" }
+    }
+    if structName == "DidOpenTextDocumentParams" {
+        if fieldName == "textDocument" { return "TextDocumentItem" }
+    }
+    if structName == "DidChangeTextDocumentParams" {
+        if fieldName == "textDocument" { return "VersionedTextDocumentIdentifier" }
+        if fieldName == "contentChanges" { return "Array<TextDocumentContentChangeEvent>" }
+    }
+    if structName == "DidCloseTextDocumentParams" {
+        if fieldName == "textDocument" { return "TextDocumentIdentifier" }
+    }
+    if structName == "DidSaveTextDocumentParams" {
+        if fieldName == "textDocument" { return "TextDocumentIdentifier" }
+        if fieldName == "text" { return "String" }
+    }
+    if structName == "CodeActionContext" {
+        if fieldName == "diagnostics" { return "Array<Diagnostic>" }
+    }
+    if structName == "CodeActionParams" {
+        if fieldName == "textDocument" { return "TextDocumentIdentifier" }
+        if fieldName == "range" { return "Range" }
+        if fieldName == "context" { return "CodeActionContext" }
+    }
+    if structName == "DocumentFormattingParams" {
+        if fieldName == "textDocument" { return "TextDocumentIdentifier" }
+    }
+    if structName == "InitializeParams" {
+        if fieldName == "processId" { return "Int" }
+        if fieldName == "rootUri" { return "String" }
+        if fieldName == "capabilities" { return "JsonValue?" }
+    }
+    if structName == "InitializeResult" {
+        if fieldName == "capabilities" { return "ServerCapabilities" }
+        if fieldName == "serverInfo" { return "ServerInfo" }
+    }
+    if structName == "ServerCapabilities" {
+        if fieldName == "textDocumentSync" { return "Int" }
+        if fieldName == "completionProvider" { return "JsonValue?" }
+        if fieldName == "hoverProvider" { return "Bool" }
+        if fieldName == "definitionProvider" { return "Bool" }
+        if fieldName == "referencesProvider" { return "Bool" }
+        if fieldName == "documentHighlightProvider" { return "Bool" }
+        if fieldName == "documentSymbolProvider" { return "Bool" }
+        if fieldName == "codeActionProvider" { return "Bool" }
+        if fieldName == "documentFormattingProvider" { return "Bool" }
+    }
+    if structName == "ServerInfo" {
+        if fieldName == "name" { return "String" }
+        if fieldName == "version" { return "String" }
+    }
+    return ""
 }
 
 fun getKnownFieldIndexFallbackImpl(structName: String, fieldName: String) r: Int {
@@ -916,6 +1240,12 @@ fun getSeenFieldTypeImpl(structName: String, fieldName: String, structNames: Arr
     }
 
     if not foundField {
+        let knownLspFieldType = getKnownLspSeenFieldTypeImpl(structName,
+            fieldName)
+        if knownLspFieldType != "" {
+            cacheSeenFieldType(cacheKey, structLen, knownLspFieldType)
+            return knownLspFieldType
+        }
         cacheSeenFieldType(cacheKey, structLen, "Int")
         return "Int"
     }
@@ -940,6 +1270,12 @@ fun getSeenFieldTypeImpl(structName: String, fieldName: String, structNames: Arr
             typeStart = pos + 1
         }
         pos = pos + 1
+    }
+    let lateKnownLspFieldType = getKnownLspSeenFieldTypeImpl(structName,
+        fieldName)
+    if lateKnownLspFieldType != "" {
+        cacheSeenFieldType(cacheKey, structLen, lateKnownLspFieldType)
+        return lateKnownLspFieldType
     }
     cacheSeenFieldType(cacheKey, structLen, "Int")
     return "Int"  // Default
