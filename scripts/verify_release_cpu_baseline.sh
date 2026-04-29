@@ -77,13 +77,15 @@ run_smoke_tests() {
     local tmpdir="$2"
     local source="$tmpdir/release_smoke.seen"
     local output="$tmpdir/release_smoke_bin"
+    local startup_output
 
     if "$bin" --version >/dev/null 2>&1; then
         :
     elif "$bin" >/dev/null 2>&1; then
         :
     else
-        if ! "$bin" 2>&1 | grep -qi 'usage'; then
+        startup_output="$("$bin" 2>&1 || true)"
+        if ! grep -qi 'usage' <<<"$startup_output"; then
             echo "Packaged compiler did not start cleanly: $bin" >&2
             return 1
         fi

@@ -98,6 +98,9 @@ if [[ ! -x "$COMPILER_BIN" ]]; then
     exit 1
 fi
 
+mkdir -p "$OUTPUT_DIR"
+OUTPUT_DIR="$(cd "$OUTPUT_DIR" && pwd)"
+
 echo "=== Seen Language Release Builder ==="
 echo "Version:       $VERSION"
 echo "Compiler:      $COMPILER_BIN"
@@ -106,7 +109,6 @@ echo "Artifact tier: $ARTIFACT_SUFFIX"
 echo "Output:        $OUTPUT_DIR"
 echo ""
 
-mkdir -p "$OUTPUT_DIR"
 rm -rf "$OUTPUT_DIR/staging"
 
 PACKAGE_NAME="seen-${VERSION}-${ARTIFACT_SUFFIX}"

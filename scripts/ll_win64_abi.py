@@ -11,6 +11,36 @@ Usage: python3 ll_win64_abi.py input.ll output.ll
 import re
 import sys
 
+LLVM_VALUE = r'%[-\w.$]+'
+
+def parse_function_signature(rest):
+    """Parse `<ret> @name(<params>)<attrs>`, allowing parens in attributes."""
+    m = re.match(r'(.+?)\s+(@[-\w.$]+)\(', rest)
+    if not m:
+        return None
+
+    open_idx = m.end() - 1
+    depth = 0
+    close_idx = -1
+    for idx in range(open_idx, len(rest)):
+        ch = rest[idx]
+        if ch == '(':
+            depth += 1
+        elif ch == ')':
+            depth -= 1
+            if depth == 0:
+                close_idx = idx
+                break
+
+    if close_idx < 0:
+        return None
+
+    ret_type = m.group(1).strip()
+    func_name = m.group(2)
+    params = rest[open_idx + 1:close_idx]
+    attrs = rest[close_idx + 1:]
+    return ret_type, func_name, params, attrs
+
 def transform_ll_for_win64(content):
     # Collect all struct type definitions and their sizes
     struct_types = {}
@@ -95,13 +125,18 @@ def transform_ll_for_win64(content):
             keyword = decl_match.group(1)
             rest = decl_match.group(2)
 
+            signature = parse_function_signature(rest)
+            ret_type = ""
+            func_name = ""
+            params = ""
+            attrs = ""
+            if signature:
+                ret_type, func_name, params, attrs = signature
+
             # Check if return type is a byval struct
-            ret_match = re.match(r'(%\w+)\s+(@[\w.]+)\(([^)]*)\)(.*)', rest)  # @[\w.] matches dots in names
-            if ret_match and ret_match.group(1) in byval_types:
-                ret_type = ret_match.group(1)
-                func_name = ret_match.group(2)
-                params = ret_match.group(3)
-                attrs = ret_match.group(4)
+            ret_struct_type = ret_type.split()[-1] if ret_type else ""
+            if signature and ret_struct_type in byval_types:
+                ret_type = ret_struct_type
                 sret_functions.add(func_name)
 
                 # For define: the sret param needs a name
@@ -125,13 +160,7 @@ def transform_ll_for_win64(content):
                 current_sret_param = None
 
             # Check params for struct types
-            param_match = re.match(r'(\S+)\s+(@[\w.]+)\(([^)]*)\)(.*)', rest)  # @[\w.] matches dots in names
-            if param_match:
-                ret_type = param_match.group(1)
-                func_name = param_match.group(2)
-                params = param_match.group(3)
-                attrs = param_match.group(4)
-
+            if signature:
                 new_params = []
                 for param in split_params(params):
                     new_params.append(transform_param(param, byval_types))
@@ -149,7 +178,7 @@ def transform_ll_for_win64(content):
             else:
                 # Check for "ret %StructType %val"
                 ret_match = re.match(
-                    rf'(\s+)ret {re.escape(current_sret_type)} (%\w+)',
+                    rf'(\s+)ret {re.escape(current_sret_type)} (.+)$',
                     line
                 )
                 if ret_match:
@@ -217,14 +246,16 @@ def transform_param(param, byval_types):
         if re.match(rf'^{escaped}$', param.strip()):
             return f'ptr byval({t})'
         # In define/call: type + variable
-        m = re.match(rf'^{escaped}\s+(%\w+)$', param.strip())
+        m = re.match(rf'^{escaped}\s+({LLVM_VALUE})$', param.strip())
         if m:
             return f'ptr byval({t}) {m.group(1)}'
-        # With attributes like nonnull
-        m = re.match(rf'^{escaped}\s+(nonnull\s+)?(%\w+)$', param.strip())
+        # With attributes like nonnull/noundef/returned. `returned` is invalid
+        # after a struct return is rewritten to an explicit sret pointer.
+        m = re.match(rf'^{escaped}\s+(.+\s+)({LLVM_VALUE})$', param.strip())
         if m:
-            attrs = m.group(1) or ''
-            return f'ptr byval({t}) {attrs}{m.group(2)}'
+            attrs = ' '.join(attr for attr in m.group(1).split() if attr != 'returned')
+            attrs_prefix = f'{attrs} ' if attrs else ''
+            return f'ptr byval({t}) {attrs_prefix}{m.group(2)}'
     return param
 
 
@@ -246,10 +277,11 @@ def transform_call_line(line, byval_types, sret_functions, counter):
 
     # Parse the call
     # Pattern: %result = call %RetType @func(%Type1 %a, %Type2 %b)
+    # or:      %result = tail call %RetType @func(%Type1 %a, %Type2 %b)
     # or: call void @func(%Type1 %a)
 
     # Check for struct return
-    ret_match = re.match(r'\s*(%\w+)\s*=\s*call\s+(%\w+)\s+(@[\w.]+)\(([^)]*)\)', line)
+    ret_match = re.match(rf'\s*({LLVM_VALUE})\s*=\s*(?:tail\s+)?call\s+(%\w+)\s+(@[\w.]+)\(([^)]*)\)', line)
     if ret_match and ret_match.group(2) in byval_types and ret_match.group(3) in sret_functions:
         result_var = ret_match.group(1)
         ret_type = ret_match.group(2)
@@ -265,18 +297,22 @@ def transform_call_line(line, byval_types, sret_functions, counter):
         new_args, extra_lines = transform_call_args(args_str, byval_types, indent, counter)
         lines_out.extend(extra_lines)
 
-        lines_out.append(f'{indent}call void {func_name}(ptr sret({ret_type}) {sret_var}, {new_args})')
+        if new_args:
+            lines_out.append(f'{indent}call void {func_name}(ptr sret({ret_type}) {sret_var}, {new_args})')
+        else:
+            lines_out.append(f'{indent}call void {func_name}(ptr sret({ret_type}) {sret_var})')
         lines_out.append(f'{indent}{result_var} = load {ret_type}, ptr {sret_var}')
         return lines_out
 
     # Check for struct args (no struct return)
-    call_match = re.match(r'(\s*(?:%\w+\s*=\s*)?call\s+\S+\s+@[\w.]+)\(([^)]*)\)', line)
+    call_match = re.match(rf'(\s*(?:{LLVM_VALUE}\s*=\s*)?(?:tail\s+)?call\s+\S+\s+@[\w.]+)\(([^)]*)\)', line)
     if call_match:
         prefix = call_match.group(1)
         args_str = call_match.group(2)
 
         new_args, extra_lines = transform_call_args(args_str, byval_types, indent, counter)
         if extra_lines:
+            prefix = re.sub(r'\btail\s+call\b', 'call', prefix)
             result = extra_lines + [f'{prefix}({new_args})']
             return result
 
@@ -293,7 +329,7 @@ def transform_call_args(args_str, byval_types, indent, counter):
         transformed = False
         for t in byval_types:
             # Match: %Type %var  or  %Type %var (with insertvalue result)
-            m = re.match(rf'^{re.escape(t)}\s+(%\w+)$', arg.strip())
+            m = re.match(rf'^{re.escape(t)}\s+({LLVM_VALUE})$', arg.strip())
             if m:
                 var = m.group(1)
                 tmp_var = f'%_byval_{counter[0]}'
