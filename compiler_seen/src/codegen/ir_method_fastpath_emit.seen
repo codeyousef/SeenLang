@@ -31,8 +31,9 @@ fun emitPreparedCollectionReceiverFastPathImpl(output: StringBuilder,
 
 fun emitPreparedArrayReceiverFastPathImpl(output: StringBuilder,
     regBox: Array<Int>, methodName: String, receiverReg: String,
-    receiverType: String, arg0: String, arg1: String) r: String {
+    receiverType: String, arg0: String, arg1: String, arg0SeenType: String,
+    arg1SeenType: String) r: String {
 
     return emitArrayBasicMethodImpl(output, regBox, methodName, receiverReg,
-        receiverType, arg0, arg1)
+        receiverType, arg0, arg1, arg0SeenType, arg1SeenType)
 }

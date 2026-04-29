@@ -151,12 +151,12 @@ import codegen.ir_function_body.{captureFunctionBodyBlockScopeImpl, scanFunction
 import codegen.ir_function_state.{getCurrentFunctionEmissionStateImpl, resetFunctionEmissionForFunctionImpl, markFunctionEmissionHighPressureImpl, resetFunctionEmissionHighPressureImpl, recordMovedVariableImpl, isMovedVariableImpl, resetFunctionLoweringOptionsStateImpl, resetFunctionHighPressureImpl, markFunctionHighPressureImpl, isFunctionHighPressureImpl, currentFunctionAlignToImpl, currentFunctionRegionSizeBytesImpl, isCurrentFunctionAsyncLoweringImpl, markTailCallPositionImpl, takeTailCallPositionImpl}
 import codegen.ir_function_ml_logs.{applyFunctionPreludeMlLogsImpl, applyFunctionUnusedParamMlLogsImpl}
 import codegen.ir_ml_logging.{mlLogDecision, setupMLLogging, writeMLDecisionLog}
-import process.process.{runCommand, CommandResult, commandWasSuccessful, commandOutput}
+import process.process.{runCommand, CommandResult, commandWasSuccessful}
 
 fun getIrgenTraceTimeSeconds() r: Int {
     let result: CommandResult = runCommand("date +%s")
     if commandWasSuccessful(result) {
-        let out = commandOutput(result).trim()
+        let out = result.output.trim()
         if out.length() > 0 {
             return out.toInt()
         }
@@ -2062,7 +2062,8 @@ class LLVMIRGenerator {
         }
         var methodIdx = 0
         while methodIdx < methods.length() {
-            if methods[methodIdx].name == "__seen_hot_reload_marker__" {
+            let method = methods[methodIdx]
+            if method.name == "__seen_hot_reload_marker__" {
                 return false
             }
             methodIdx = methodIdx + 1
@@ -2095,7 +2096,8 @@ class LLVMIRGenerator {
     fun isTraitClassNode(classNode: ClassNode) r: Bool {
         var decoratorIdx = 0
         while decoratorIdx < classNode.decorators.length() {
-            if classNode.decorators[decoratorIdx].name == "trait" {
+            let decorator = classNode.decorators[decoratorIdx]
+            if decorator.name == "trait" {
                 return true
             }
             decoratorIdx = decoratorIdx + 1
@@ -2214,7 +2216,8 @@ class LLVMIRGenerator {
     fun generateRegularClassMethods(classNode: ClassNode, isStringBuilder: Bool) r: Void {
         var methodIdx = 0
         while methodIdx < classNode.methods.length() {
-            let methodName = classNode.methods[methodIdx].name
+            let method = classNode.methods[methodIdx]
+            let methodName = method.name
             if shouldSkipSourceClassMethodImpl(methodName, isStringBuilder) {
                 methodIdx = methodIdx + 1
                 continue
@@ -2234,7 +2237,8 @@ class LLVMIRGenerator {
 
         var methodIdx = 0
         while methodIdx < methods.length() {
-            let methodName = methods[methodIdx].name
+            let method = methods[methodIdx]
+            let methodName = method.name
             if shouldSkipSourceClassMethodImpl(methodName, isStringBuilder) {
                 methodIdx = methodIdx + 1
                 continue
@@ -2326,24 +2330,26 @@ class LLVMIRGenerator {
     fun prepareClassMethodVariableCollection(className: String, methods: Array<FunctionNode>, methodIdx: Int,
         normalizedMethodParamTypes: Array<String>) r: Void {
 
-        if not methods[methodIdx].isStatic {
+        let method = methods[methodIdx]
+        if not method.isStatic {
             activeVarCount = storeActiveVariableBindingImpl(varNames, varRegs,
                 varTypes, activeVarCount, "this", "", className)
         }
         var paramIdx = 0
-        while paramIdx < methods[methodIdx].params.length() {
-            let param = methods[methodIdx].params[paramIdx]
+        while paramIdx < method.params.length() {
+            let param = method.params[paramIdx]
             activeVarCount = storeActiveVariableBindingImpl(varNames, varRegs,
                 varTypes, activeVarCount, param.name, "",
                 normalizedMethodParamTypes[paramIdx])
             paramIdx = paramIdx + 1
         }
-        collectVariableDeclarations(methods[methodIdx].body)
+        collectVariableDeclarations(method.body)
         clearActiveBindings()
     }
 
     fun generateClassMethodFromList(className: String, parentName: String, methods: Array<FunctionNode>, methodIdx: Int) r: Void {
-        let methodName = methods[methodIdx].name
+        let method = methods[methodIdx]
+        let methodName = method.name
         if tryEmitOptionClassMethodShimImpl(output, className, methodName) == 1 {
             return
         }
@@ -2360,7 +2366,7 @@ class LLVMIRGenerator {
         prepareClassMethodVariableCollection(className, methods, methodIdx, normalizedMethodParamTypes)
 
         let returnType = mapType(currentFunctionReturnType)
-        let isStatic = methods[methodIdx].isStatic or methodName == "new"
+        let isStatic = method.isStatic or methodName == "new"
         let explicitReceiverName = emitClassMethodSignatureStateImpl(output,
             methods, methodIdx, className, methodName, isStatic, returnType,
             mappedMethodParamTypes, quotedMethodArgNames, g_selfCallFuncs,
@@ -2379,11 +2385,11 @@ class LLVMIRGenerator {
             g_reprCClassNames)
         activeVarCount = emitClassMethodConstructorSetupStateImpl(output,
             g_regBox, varNames, varRegs, varTypes, activeVarCount, className,
-            methodName, methods[methodIdx].isStatic, methods, methodIdx,
+            methodName, method.isStatic, methods, methodIdx,
             structNames, structSizes, structLayouts, structFieldNames,
             structFieldTypes)
 
-        generateBlock(methods[methodIdx].body)
+        generateBlock(method.body)
         blockTerminated = tryEmitClassMethodConstructorReturnStateImpl(output,
             g_regBox, varNames, varRegs, activeVarCount, methodName,
             blockTerminated)
@@ -3346,6 +3352,11 @@ class LLVMIRGenerator {
         if llvmType != "i64" and llvmType != "double" {
             return false
         }
+        let thenType = mapType(inferExpressionType(selectPlan.thenRhs))
+        let elseType = mapType(inferExpressionType(selectPlan.elseRhs))
+        if thenType != llvmType or elseType != llvmType {
+            return false
+        }
 
         let condReg = generateExpression(stmt.condition)
         let thenReg = generateExpression(selectPlan.thenRhs)
@@ -3373,6 +3384,10 @@ class LLVMIRGenerator {
         let varType = varTypes[varIdx]
         let llvmType = mapType(varType)
         if llvmType != "i64" and llvmType != "double" {
+            return false
+        }
+        let rhsType = mapType(inferExpressionType(selectPlan.rhsExpr))
+        if rhsType != llvmType {
             return false
         }
 
@@ -5262,7 +5277,7 @@ class LLVMIRGenerator {
             return fieldType + "|" + gepIndex.toString()
         }
         let knownFieldLayout = resolveKnownStructFieldImpl(structName, fieldName)
-        if knownFieldLayout != "" {
+        if knownFieldLayout != "" and g_resolvedFieldIndex >= 0 {
             gepIndex = g_resolvedFieldIndex
             fieldType = decodeFieldTypeCode(g_resolvedFieldTypeCode)
             return fieldType + "|" + gepIndex.toString()
@@ -6740,16 +6755,21 @@ class LLVMIRGenerator {
 
             var arrArg0 = ""
             var arrArg1 = ""
+            var arrArg0Type = ""
+            var arrArg1Type = ""
             if shouldReadReceiverFastPathArgImpl(fastPathPlan.action,
                 expr.arguments.length(), 0) {
                 arrArg0 = generateExpression(expr.arguments[0])
+                arrArg0Type = inferExpressionType(expr.arguments[0])
             }
             if shouldReadReceiverFastPathArgImpl(fastPathPlan.action,
                 expr.arguments.length(), 1) {
                 arrArg1 = generateExpression(expr.arguments[1])
+                arrArg1Type = inferExpressionType(expr.arguments[1])
             }
             return emitPreparedArrayReceiverFastPathImpl(output, g_regBox, methodName,
-                receiverReg, receiverType, arrArg0, arrArg1)
+                receiverReg, receiverType, arrArg0, arrArg1, arrArg0Type,
+                arrArg1Type)
         }
 
         return ""
@@ -6906,7 +6926,8 @@ class LLVMIRGenerator {
             if freeTypePlan.shouldLookupLiteralType {
                 let freeTypeIdx = findActiveVariableIndexImpl(varNames, activeVarCount, expr.literalValue)
                 if freeTypeIdx >= 0 {
-                    freeReceiverType = varTypes[freeTypeIdx]
+                    let resolvedFreeReceiverType = varTypes[freeTypeIdx]
+                    freeReceiverType = resolvedFreeReceiverType
                 }
             }
             let isArrayType = isArrayReceiverTypeImpl(freeReceiverType)

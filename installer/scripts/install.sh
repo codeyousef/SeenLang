@@ -124,6 +124,32 @@ check_permissions() {
     fi
 }
 
+install_file_no_follow() {
+    local src="$1"
+    local dest="$2"
+    local mode="${3:-755}"
+    local use_sudo="${4:-false}"
+    local dest_dir
+    local tmp
+
+    dest_dir="$(dirname "$dest")"
+    tmp="$dest_dir/.${dest##*/}.tmp.$$"
+
+    if [ "$use_sudo" = "true" ]; then
+        sudo mkdir -p "$dest_dir"
+        sudo rm -f "$tmp"
+        sudo cp "$src" "$tmp"
+        sudo chmod "$mode" "$tmp"
+        sudo mv -f "$tmp" "$dest"
+    else
+        mkdir -p "$dest_dir"
+        rm -f "$tmp"
+        cp "$src" "$tmp"
+        chmod "$mode" "$tmp"
+        mv -f "$tmp" "$dest"
+    fi
+}
+
 download_release() {
     local version="$1"
     local os="$2"
@@ -177,20 +203,18 @@ install_seen() {
         sudo mkdir -p "$install_dir/lib/seen"
         sudo mkdir -p "$install_dir/share/seen"
         
-        # Install binaries
-        sudo cp "$temp_dir/seen" "$install_dir/bin/"
-        sudo chmod +x "$install_dir/bin/seen"
+        # Install binaries. Use temp-file rename so an existing destination
+        # symlink is replaced rather than followed by cp.
+        install_file_no_follow "$temp_dir/seen" "$install_dir/bin/seen" 755 true
         
         # Install LSP server if present
         if [ -f "$temp_dir/seen-lsp" ]; then
-            sudo cp "$temp_dir/seen-lsp" "$install_dir/bin/"
-            sudo chmod +x "$install_dir/bin/seen-lsp"
+            install_file_no_follow "$temp_dir/seen-lsp" "$install_dir/bin/seen-lsp" 755 true
         fi
         
         # Install RISC-V cross-compilation tools if present
         if [ -f "$temp_dir/seen-riscv" ]; then
-            sudo cp "$temp_dir/seen-riscv" "$install_dir/bin/"
-            sudo chmod +x "$install_dir/bin/seen-riscv"
+            install_file_no_follow "$temp_dir/seen-riscv" "$install_dir/bin/seen-riscv" 755 true
         fi
         
         # Install standard library
@@ -220,17 +244,14 @@ install_seen() {
         mkdir -p "$install_dir/lib/seen"
         mkdir -p "$install_dir/share/seen"
         
-        cp "$temp_dir/seen" "$install_dir/bin/"
-        chmod +x "$install_dir/bin/seen"
+        install_file_no_follow "$temp_dir/seen" "$install_dir/bin/seen" 755 false
         
         if [ -f "$temp_dir/seen-lsp" ]; then
-            cp "$temp_dir/seen-lsp" "$install_dir/bin/"
-            chmod +x "$install_dir/bin/seen-lsp"
+            install_file_no_follow "$temp_dir/seen-lsp" "$install_dir/bin/seen-lsp" 755 false
         fi
         
         if [ -f "$temp_dir/seen-riscv" ]; then
-            cp "$temp_dir/seen-riscv" "$install_dir/bin/"
-            chmod +x "$install_dir/bin/seen-riscv"
+            install_file_no_follow "$temp_dir/seen-riscv" "$install_dir/bin/seen-riscv" 755 false
         fi
         
         if [ "$INSTALL_STDLIB" = "true" ] && [ -d "$temp_dir/stdlib" ]; then

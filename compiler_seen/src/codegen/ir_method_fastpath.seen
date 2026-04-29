@@ -283,18 +283,6 @@ fun tryGenerateStringLikeReceiverMethodCallImpl(output: StringBuilder,
     if methodName == "toSeenString" and receiverType == "Int" {
         return emitCStrConversionImpl(output, regBox, "cstr_to_str", receiverReg)
     }
-    if methodName == "trim" {
-        if receiverType != "String" and receiverType != "" {
-            let funcName = receiverType + "_trim"
-            let trimReceiverReg = convertReceiverToPtrImpl(output, regBox,
-                receiverReg, receiverType, reprCClassNames, structNames)
-            let resultReg = getNextRegFn(regBox)
-            output.append("  " + resultReg + " = call %SeenString @" +
-                quoteIdentIfNeededImpl(funcName) + "(ptr " + trimReceiverReg +
-                ", %SeenString " + strArg0 + ")\n")
-            return resultReg
-        }
-    }
     return ""
 }
 

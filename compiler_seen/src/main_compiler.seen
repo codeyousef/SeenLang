@@ -23,7 +23,7 @@
 
 import bootstrap.frontend.{FrontendResult, FrontendDiagnostic, run_frontend, run_frontend_declarations, encodeDiagMessage, parseDiagBaseMessage, parseDiagCode, parseDiagSuggestion, parseDiagNote, parseDiagEndColumn}
 import io.file.{readText, writeText, exists}
-import process.process.{runCommand, runProgram, CommandResult, commandWasSuccessful, commandOutput, processFork, waitPid, processExit, shellQuote}
+import process.process.{runCommand, runProgram, CommandResult, commandWasSuccessful, processFork, waitPid, processExit, shellQuote}
 import env.env.{args}
 import codegen.llvm_ir_gen.{LLVMIRGenerator, overrideTargetTriple}
 import parser.real_parser.{ProgramNode, ItemNode, ClassNode, FunctionNode, StatementNode, ParserExpressionNode, BlockNode, EnumNode}
@@ -340,7 +340,7 @@ fun clearCache() r: Void {
 fun getTraceTimeSeconds() r: Int {
     let result: CommandResult = runCommand("date +%s")
     if commandWasSuccessful(result) {
-        let out = commandOutput(result).trim()
+        let out = result.output.trim()
         if out.length() > 0 {
             return out.toInt()
         }
@@ -429,7 +429,7 @@ class PackageRelease {
 fun currentWorkingDir() r: String {
     let pwdResult = runCommand("pwd")
     if commandWasSuccessful(pwdResult) {
-        return commandOutput(pwdResult).trim()
+        return pwdResult.output.trim()
     }
     return ""
 }
@@ -710,7 +710,7 @@ fun readRegistryIndexContent(registryLocation: String, depName: String) r: Strin
         let fetchCmd = "curl -fsSL " + shellQuote(registryLocation + "/index/" + depName + ".toml")
         let result = runCommand(fetchCmd)
         if commandWasSuccessful(result) {
-            return commandOutput(result)
+            return result.output
         }
         return ""
     }
@@ -788,7 +788,7 @@ fun computeFileSha256(path: String) r: String {
     let script = "if command -v sha256sum >/dev/null 2>&1; then sha256sum " + shellQuote(path) + " | cut -d' ' -f1; else shasum -a 256 " + shellQuote(path) + " | cut -d' ' -f1; fi"
     let result = runCommand("sh -c " + shellQuote(script))
     if commandWasSuccessful(result) {
-        return commandOutput(result).trim()
+        return result.output.trim()
     }
     return ""
 }
@@ -5824,9 +5824,16 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         println("    E-graph rewrite rules: 55 (22 integer, 13 self-comparison, 12 float, 8 FMA)")
         println("    Superoptimizer patterns: 10 (strength reduction in codegen)")
         println("    ML heuristics: inline/unroll/vectorize thresholds from config")
-        println("    Architecture: -mcpu=native (auto-detected)")
+        var pipelineTargetCpu = targetCpu
+        if pipelineTargetCpu == "" {
+            pipelineTargetCpu = "native"
+        }
+        if simdPolicy == "none" {
+            pipelineTargetCpu = "x86-64"
+        }
+        println("    Architecture: target-cpu=" + pipelineTargetCpu)
         println("    Memory: LLVM SROA/mem2reg + pool allocator runtime")
-        println("    Backend: opt -O3 -> llc -O3 -> clang -O3 -flto -march=native")
+        println("    Backend: opt -O3 -> llc -O3 -> clang -O3 -flto")
     }
 
     // ============================================================
@@ -6416,6 +6423,79 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         }
     }
 
+    // Detect host platform before any native object emission so release builds
+    // can avoid inheriting unsupported ISA features from the build host.
+    let unameS: CommandResult = runCommand("uname -s")
+    var hostOS = "Linux"
+    if commandWasSuccessful(unameS) {
+        if unameS.output.contains("Darwin") {
+            hostOS = "Darwin"
+        }
+    }
+    let unameM: CommandResult = runCommand("uname -m")
+    var hostArch = "x86_64"
+    if commandWasSuccessful(unameM) {
+        if unameM.output.contains("arm64") {
+            hostArch = "arm64"
+        }
+        if unameM.output.contains("aarch64") {
+            hostArch = "arm64"
+        }
+    }
+
+    // Build CPU flags from --target-cpu / --simd. Developer builds still
+    // default to native; release scripts pass --target-cpu explicitly.
+    var clangMarch = "-march=native"
+    var llvmLlcCpu = "native"
+    if hostArch == "arm64" {
+        if targetCpu == "x86-64-v3" or targetCpu == "x86-64-v4" or targetCpu == "x86-64" {
+            clangMarch = "-march=native"
+        } else {
+            if targetCpu != "" and targetCpu != "native" {
+                clangMarch = "-mcpu=" + targetCpu
+                llvmLlcCpu = targetCpu
+            }
+        }
+        if simdPolicy == "none" {
+            clangMarch = "-mcpu=generic"
+            llvmLlcCpu = "generic"
+        }
+    } else {
+        if targetCpu == "x86-64" {
+            clangMarch = "-march=x86-64"
+            llvmLlcCpu = "x86-64"
+        } else {
+            if targetCpu == "x86-64-v3" {
+                clangMarch = "-march=x86-64-v3"
+                llvmLlcCpu = "x86-64-v3"
+            } else {
+                if targetCpu == "x86-64-v4" {
+                    clangMarch = "-march=x86-64-v4"
+                    llvmLlcCpu = "x86-64-v4"
+                } else {
+                    if targetCpu != "" {
+                        if targetCpu != "native" {
+                            clangMarch = "-march=" + targetCpu
+                            llvmLlcCpu = targetCpu
+                        }
+                    }
+                }
+            }
+        }
+        if simdPolicy == "none" {
+            clangMarch = "-march=x86-64"
+            llvmLlcCpu = "x86-64"
+        }
+    }
+    if normalizedCrossTarget != "" {
+        if effectiveTarget == "linux-x86_64" or effectiveTarget == "macos-x86_64" or effectiveTarget == "windows-x86_64" {
+            clangMarch = "-march=x86-64"
+            llvmLlcCpu = "x86-64"
+        } else {
+            clangMarch = ""
+        }
+    }
+
     // ============================================================
     // RELEASE MODE: Cross-module LTO merge (when --release and multi-module)
     // ============================================================
@@ -6460,7 +6540,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                     if commandWasSuccessful(mergedOptResult) {
                         // Compile merged optimized IR to single object file
                         let mergedObj = "/tmp/seen_merged_release.o"
-                        let mergedLlcCmd = llvmLlcTool + " -filetype=obj -O3 -relocation-model=pic -enable-misched -enable-post-misched -enable-shrink-wrap -fp-contract=fast -mcpu=native " + mergedOpt + " -o " + mergedObj
+                        let mergedLlcCmd = llvmLlcTool + " -filetype=obj -O3 -relocation-model=pic -enable-misched -enable-post-misched -enable-shrink-wrap -fp-contract=fast -mcpu=" + llvmLlcCpu + " " + mergedOpt + " -o " + mergedObj
                         let mergedLlcResult: CommandResult = runCommand(mergedLlcCmd)
                         if commandWasSuccessful(mergedLlcResult) {
                             // Replace all per-module object files with single merged object
@@ -6557,6 +6637,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         pgoClangFlags = " -fprofile-use=" + pgoPath
         println("  PGO: use profile from " + pgoPath)
     }
+
     let needsTeeHardwareRuntime = sourcesNeedTeeHardwareRuntime(modulePaths)
     var teeRuntimeCompileFlags = ""
     var teeRuntimeLinkFlags = ""
@@ -6581,7 +6662,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         let checkRtResult: CommandResult = runCommand("test " + rtPrefix + "/seen_runtime.o -nt " + rtPrefix + "/seen_runtime.c")
         if not commandWasSuccessful(checkRtResult) {
             println("  [3a] Pre-compiling runtime...")
-            let rtCompile: CommandResult = runCommand("clang -O3 -flto=thin -march=native -ffunction-sections -fdata-sections -pthread -c -I " + rtPrefix + " " + rtPrefix + "/seen_runtime.c -o " + rtPrefix + "/seen_runtime.o")
+            let rtCompile: CommandResult = runCommand("clang -O3 -flto=thin " + clangMarch + " -ffunction-sections -fdata-sections -pthread -c -I " + rtPrefix + " " + rtPrefix + "/seen_runtime.c -o " + rtPrefix + "/seen_runtime.o")
             if not commandWasSuccessful(rtCompile) {
                 println("    Warning: Runtime pre-compilation failed, will compile inline")
             }
@@ -6589,7 +6670,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         if hasTeeRuntime {
             let checkTeeRtResult: CommandResult = runCommand("test " + teeRuntimeObj + " -nt " + teeRuntimeSrc)
             if not commandWasSuccessful(checkTeeRtResult) {
-                let teeRtCompile: CommandResult = runCommand("clang -O3 -flto=thin -march=native -ffunction-sections -fdata-sections -pthread -c -I " + rtPrefix + " " + teeRuntimeSrc + " -o " + teeRuntimeObj)
+                let teeRtCompile: CommandResult = runCommand("clang -O3 -flto=thin " + clangMarch + " -ffunction-sections -fdata-sections -pthread -c -I " + rtPrefix + " " + teeRuntimeSrc + " -o " + teeRuntimeObj)
                 if not commandWasSuccessful(teeRtCompile) {
                     println("    Warning: TEE runtime pre-compilation failed, will compile inline")
                 }
@@ -6598,12 +6679,12 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     } else {
         // With sanitizer, recompile runtime with sanitizer flags
         println("  [3a] Compiling runtime with sanitizer...")
-        let rtCompile: CommandResult = runCommand("clang -O3 -march=native -ffunction-sections -fdata-sections -pthread" + sanitizerClangFlags + " -c -I " + rtPrefix + " " + rtPrefix + "/seen_runtime.c -o /tmp/seen_runtime_sanitized.o")
+        let rtCompile: CommandResult = runCommand("clang -O3 " + clangMarch + " -ffunction-sections -fdata-sections -pthread" + sanitizerClangFlags + " -c -I " + rtPrefix + " " + rtPrefix + "/seen_runtime.c -o /tmp/seen_runtime_sanitized.o")
         if not commandWasSuccessful(rtCompile) {
             println("    Warning: Sanitized runtime compilation failed")
         }
         if hasTeeRuntime {
-            let teeRtCompile: CommandResult = runCommand("clang -O3 -march=native -ffunction-sections -fdata-sections -pthread" + sanitizerClangFlags + " -c -I " + rtPrefix + " " + teeRuntimeSrc + " -o /tmp/seen_tee_common_sanitized.o")
+            let teeRtCompile: CommandResult = runCommand("clang -O3 " + clangMarch + " -ffunction-sections -fdata-sections -pthread" + sanitizerClangFlags + " -c -I " + rtPrefix + " " + teeRuntimeSrc + " -o /tmp/seen_tee_common_sanitized.o")
             if not commandWasSuccessful(teeRtCompile) {
                 println("    Warning: Sanitized TEE runtime compilation failed")
             }
@@ -6668,69 +6749,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         }
     }
 
-    // Detect host platform for platform-specific link flags
-    let unameS: CommandResult = runCommand("uname -s")
-    var hostOS = "Linux"
-    if commandWasSuccessful(unameS) {
-        if unameS.output.contains("Darwin") {
-            hostOS = "Darwin"
-        }
-    }
-    let unameM: CommandResult = runCommand("uname -m")
-    var hostArch = "x86_64"
-    if commandWasSuccessful(unameM) {
-        if unameM.output.contains("arm64") {
-            hostArch = "arm64"
-        }
-        if unameM.output.contains("aarch64") {
-            hostArch = "arm64"
-        }
-    }
-
-    // Build clang march flag based on --target-cpu / --simd and host architecture
-    var clangMarch = "-march=native"
-    if hostArch == "arm64" {
-        // ARM64: -march=native works on Apple clang, but x86-specific -march values don't
-        if targetCpu == "x86-64-v3" or targetCpu == "x86-64-v4" or targetCpu == "x86-64" {
-            // Ignore x86-specific target on ARM64, use native
-            clangMarch = "-march=native"
-        } else {
-            if targetCpu != "" and targetCpu != "native" {
-                clangMarch = "-mcpu=" + targetCpu
-            }
-        }
-        if simdPolicy == "none" {
-            clangMarch = "-mcpu=generic"
-        }
-    } else {
-        // x86_64 path (original logic)
-        if targetCpu == "x86-64-v3" {
-            clangMarch = "-march=x86-64-v3"
-        } else {
-            if targetCpu == "x86-64-v4" {
-                clangMarch = "-march=x86-64-v4"
-            } else {
-                if targetCpu != "" {
-                    if targetCpu != "native" {
-                        clangMarch = "-march=" + targetCpu
-                    }
-                }
-            }
-        }
-        if simdPolicy == "none" {
-            clangMarch = "-march=x86-64"
-        }
-    }
-    if normalizedCrossTarget != "" {
-        if effectiveTarget == "linux-x86_64" or effectiveTarget == "macos-x86_64" or effectiveTarget == "windows-x86_64" {
-            clangMarch = "-march=x86-64"
-        } else {
-            clangMarch = ""
-        }
-    }
-
-        // Ensure ThinLTO cache directory exists for persistent cross-build link cache.
-        // Ensure ThinLTO cache directory exists for persistent cross-build link cache.
+    // Ensure ThinLTO cache directory exists for persistent cross-build link cache.
     // This cache is shared across all Seen compilations on the machine, keyed by
     // bitcode content hash. It persists across bootstrap stages and compiler rebuilds.
     let thinltoMkdir: CommandResult = runCommand("mkdir -p /tmp/seen_thinlto_cache")
@@ -6803,7 +6822,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     if not commandWasSuccessful(checkRegionResult) {
         let regionSrcCheck: CommandResult = runCommand("test -f " + rtPrefix + "/seen_region.c")
         if commandWasSuccessful(regionSrcCheck) {
-            let hostRegionCmd = "clang -O3 -flto=thin -march=native -ffunction-sections -fdata-sections -c -I " + rtPrefix + " " + rtPrefix + "/seen_region.c -o " + rtPrefix + "/seen_region.o"
+            let hostRegionCmd = "clang -O3 -flto=thin " + clangMarch + " -ffunction-sections -fdata-sections -c -I " + rtPrefix + " " + rtPrefix + "/seen_region.c -o " + rtPrefix + "/seen_region.o"
             let rtRegion: CommandResult = runCommand(hostRegionCmd)
         }
     }
@@ -6843,10 +6862,10 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                 // Check if vulkan headers are available before trying to compile
                 let vulkanCheck: CommandResult = runCommand("pkg-config --exists vulkan 2>/dev/null")
                 if commandWasSuccessful(vulkanCheck) {
-                    let rtGpu: CommandResult = runCommand("clang -O3 -flto=thin -march=native -ffunction-sections -fdata-sections -c -I " + rtPrefix + " " + rtPrefix + "/seen_gpu.c -o " + rtPrefix + "/seen_gpu.o $(pkg-config --cflags vulkan) 2>&1")
+                    let rtGpu: CommandResult = runCommand("clang -O3 -flto=thin " + clangMarch + " -ffunction-sections -fdata-sections -c -I " + rtPrefix + " " + rtPrefix + "/seen_gpu.c -o " + rtPrefix + "/seen_gpu.o $(pkg-config --cflags vulkan) 2>&1")
                 } else {
                     // Try without pkg-config (headers might be in standard paths)
-                    let rtGpu2: CommandResult = runCommand("clang -O3 -flto=thin -march=native -ffunction-sections -fdata-sections -c -I " + rtPrefix + " " + rtPrefix + "/seen_gpu.c -o " + rtPrefix + "/seen_gpu.o 2>&1")
+                    let rtGpu2: CommandResult = runCommand("clang -O3 -flto=thin " + clangMarch + " -ffunction-sections -fdata-sections -c -I " + rtPrefix + " " + rtPrefix + "/seen_gpu.c -o " + rtPrefix + "/seen_gpu.o 2>&1")
                 }
             }
         }
@@ -6966,7 +6985,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         if sanitizePolicy != "" {
             platformShimOut = "/tmp/seen_platform_shim_" + effectiveTarget + "_" + sanitizePolicy + ".o"
         }
-        var platformShimCmd = "clang -O3 -flto=thin -march=native -ffunction-sections -fdata-sections -fPIC" + sanitizerClangFlags + " -c" + platformShimFlags + " " + platformShimSrc + " -o " + platformShimOut
+        var platformShimCmd = "clang -O3 -flto=thin " + clangMarch + " -ffunction-sections -fdata-sections -fPIC" + sanitizerClangFlags + " -c" + platformShimFlags + " " + platformShimSrc + " -o " + platformShimOut
         if normalizedCrossTarget != "" and targetClangArgs != "" {
             platformShimCmd = targetClangDriver + " -O3 -flto=thin -ffunction-sections -fdata-sections -fPIC" + targetRuntimeFlags + sanitizerClangFlags + " -c " + targetClangArgs + platformShimFlags + " " + platformShimSrc + " -o " + platformShimOut
         }
@@ -7392,7 +7411,7 @@ fun printUsage() r: Void {
     println("  --no-cache               Disable incremental compilation caching")
     println("  --aot                    Use AOT compilation for 'run' (default: JIT via lli)")
     println("  --verbose                Show compiler diagnostics during 'run'")
-    println("  --target-cpu=<cpu>       Target CPU (native, x86-64-v3, x86-64-v4)")
+    println("  --target-cpu=<cpu>       Target CPU (native, x86-64, x86-64-v3, x86-64-v4)")
     println("  --simd=<policy>          SIMD policy (auto, none, sse4.2, avx2, avx512)")
     println("  --simd-report            Show LLVM vectorization report (brief)")
     println("  --simd-report=full       Show detailed per-loop vectorization report")

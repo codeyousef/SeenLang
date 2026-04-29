@@ -25,6 +25,8 @@ fi
 
 TAG="v$VERSION"
 COMPILER="$ROOT_DIR/compiler_seen/target/seen"
+LINUX_X64_COMPILER="${SEEN_LINUX_X64_COMPILER:-$COMPILER}"
+LINUX_X64_V3_COMPILER="${SEEN_LINUX_X64_V3_COMPILER:-$ROOT_DIR/compiler_seen/target/seen-x86-64-v3}"
 DIST_DIR="$ROOT_DIR/dist"  # absolute path required — build_release.sh cd's into subshells
 
 # --- Preflight checks ---
@@ -39,9 +41,10 @@ if ! gh auth status &>/dev/null 2>&1; then
     exit 1
 fi
 
-if [[ ! -x "$COMPILER" ]]; then
-    echo "Error: Compiler not found at $COMPILER"
-    echo "Run ./scripts/safe_rebuild.sh first."
+if [[ ! -x "$LINUX_X64_COMPILER" ]]; then
+    echo "Error: portable Linux x64 compiler not found at $LINUX_X64_COMPILER"
+    echo "Build it first with a memory-capped baseline rebuild, for example:"
+    echo "  SEEN_LOW_MEMORY=1 SEEN_MAIN_VMEM_KB=8388608 SEEN_OPT_VMEM_KB=2097152 SEEN_RELEASE_CPU_BASELINE=x86-64 ./scripts/safe_rebuild.sh"
     exit 1
 fi
 
@@ -49,9 +52,9 @@ fi
 echo "=== Verifying compiler... ==="
 TMPFILE=$(mktemp /tmp/seen_verify_XXXXXX.seen)
 echo 'fun main() { println("release build ok") }' > "$TMPFILE"
-if "$COMPILER" build "$TMPFILE" -o "${TMPFILE%.seen}" &>/dev/null; then
+if "$LINUX_X64_COMPILER" build "$TMPFILE" -o "${TMPFILE%.seen}" &>/dev/null; then
     echo "Compiler OK (full CLI)."
-elif "$COMPILER" compile "$TMPFILE" "${TMPFILE%.seen}" &>/dev/null; then
+elif "$LINUX_X64_COMPILER" compile "$TMPFILE" "${TMPFILE%.seen}" --target-cpu=x86-64 &>/dev/null; then
     echo "Compiler OK (bootstrap-only binary)."
 else
     echo "Error: Compiler failed smoke test."
@@ -65,7 +68,25 @@ rm -f "$TMPFILE" "${TMPFILE%.seen}"
 echo ""
 echo "=== Building Linux release packages (v$VERSION)... ==="
 rm -rf "$DIST_DIR"
-"$SCRIPT_DIR/build_release.sh" --version "$VERSION" --output-dir "$DIST_DIR"
+"$SCRIPT_DIR/build_release.sh" \
+    --version "$VERSION" \
+    --output-dir "$DIST_DIR" \
+    --compiler "$LINUX_X64_COMPILER" \
+    --cpu-baseline x86-64 \
+    --artifact-suffix linux-x64
+
+if [[ -x "$LINUX_X64_V3_COMPILER" ]]; then
+    "$SCRIPT_DIR/build_release.sh" \
+        --version "$VERSION" \
+        --output-dir "$DIST_DIR" \
+        --compiler "$LINUX_X64_V3_COMPILER" \
+        --cpu-baseline x86-64-v3 \
+        --artifact-suffix linux-x64-v3
+else
+    echo ""
+    echo "Skipping linux-x64-v3 tarball: compiler not found at $LINUX_X64_V3_COMPILER"
+    echo "Build it separately with SEEN_RELEASE_CPU_BASELINE=x86-64-v3 and set SEEN_LINUX_X64_V3_COMPILER."
+fi
 
 # --- Windows cross-build ---
 
@@ -199,6 +220,8 @@ curl -sSL https://github.com/codeyousef/SeenLang/releases/download/$TAG/seen-${V
 cd seen-${VERSION}-linux-x64
 sudo ./install.sh
 \`\`\`
+
+\`linux-x64\` is the portable x86-64 baseline. Use \`seen-${VERSION}-linux-x64-v3.tar.gz\` only on x86-64-v3/AVX2-class machines.
 
 **Windows:** Download \`Seen-${VERSION}-windows-x64-setup.exe\` or the ZIP archive. Requires [LLVM](https://releases.llvm.org/) on PATH.
 

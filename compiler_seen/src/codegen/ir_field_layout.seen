@@ -35,12 +35,18 @@ fun resolveFieldAccessLayoutImpl(structType: String, fieldName: String,
             if regFieldIdx >= 0 {
                 return registeredLayout + "|" + regFieldIdx.toString()
             }
+            let knownRegisteredLayout = resolveKnownStructFieldImpl(structType,
+                fieldName)
+            if knownRegisteredLayout != "" and g_resolvedFieldIndex >= 0 {
+                return knownRegisteredLayout + "|" +
+                    g_resolvedFieldIndex.toString()
+            }
             return registeredLayout + "|0"
         }
     }
 
     let knownLayout = resolveKnownStructFieldImpl(structType, fieldName)
-    if knownLayout != "" {
+    if knownLayout != "" and g_resolvedFieldIndex >= 0 {
         return knownLayout + "|" + g_resolvedFieldIndex.toString()
     }
 

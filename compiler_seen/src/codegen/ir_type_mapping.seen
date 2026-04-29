@@ -1064,7 +1064,7 @@ fun mapFieldNameToReceiverType(fieldName: String) r: String {
 fun resolveKnownStructFieldImpl(structType: String, fieldName: String) r: String {
     let lb = "{"
     let rb = "}"
-    g_resolvedFieldIndex = 0
+    g_resolvedFieldIndex = -1
     g_resolvedFieldTypeCode = 0
     if structType == "FrontendResult" {
         g_resolvedFieldTypeCode = 0

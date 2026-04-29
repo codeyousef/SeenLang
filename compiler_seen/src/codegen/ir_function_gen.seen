@@ -1478,6 +1478,17 @@ fun analyzeDeadStoresImpl(block: BlockNode) r: String {
 // no effect on generated IR). They remain in the class method thin wrapper.
 // ==========================================================================
 
+fun normalizeDoubleLiteralForLlvmImpl(value: String) r: String {
+    if value == "" {
+        return "0.0"
+    }
+    if value.contains(".") or value.contains("e") or value.contains("E") or
+        value.startsWith("0x") or value.startsWith("0X") {
+        return value
+    }
+    return value + ".0"
+}
+
 fun generateLiteralFree(s: CodegenState, expr: ParserExpressionNode) r: String {
     if expr.literalType == "Int" or expr.literalType == "Integer" {
         let value = expr.literalValue
@@ -1532,9 +1543,9 @@ fun generateLiteralFree(s: CodegenState, expr: ParserExpressionNode) r: String {
     }
     if expr.literalType == "Float" {
         if expr.literalValue.startsWith("0x") or expr.literalValue.startsWith("0X") or expr.literalValue.startsWith("0b") or expr.literalValue.startsWith("0B") or expr.literalValue.startsWith("0o") or expr.literalValue.startsWith("0O") {
-            return parseIntManual(expr.literalValue).toString()
+            return normalizeDoubleLiteralForLlvmImpl(parseIntManual(expr.literalValue).toString())
         }
-        return expr.literalValue
+        return normalizeDoubleLiteralForLlvmImpl(expr.literalValue)
     }
     return "0"
 }

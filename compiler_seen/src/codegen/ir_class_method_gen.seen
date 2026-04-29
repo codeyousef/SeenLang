@@ -12,9 +12,11 @@ import codegen.ir_variable_gen.{storeActiveVariableBindingImpl, findActiveVariab
 import codegen.ir_class_constructor_gen.{emitConstructorAllocationImpl, emitConstructorReturnImpl}
 
 fun methodHasDecoratorImpl(methods: Array<FunctionNode>, methodIdx: Int, decoratorName: String) r: Int {
+    let method = methods[methodIdx]
     var decoratorIdx = 0
-    while decoratorIdx < methods[methodIdx].decorators.length() {
-        if methods[methodIdx].decorators[decoratorIdx].name == decoratorName {
+    while decoratorIdx < method.decorators.length() {
+        let decorator = method.decorators[decoratorIdx]
+        if decorator.name == decoratorName {
             return 1
         }
         decoratorIdx = decoratorIdx + 1
@@ -27,7 +29,8 @@ fun buildMethodAttrsImpl(methods: Array<FunctionNode>, methodIdx: Int,
     selfCallFuncs: String, selfCallNames: String, selfCallCount: Int) r: String {
 
     var methodAttrs = ""
-    if methods[methodIdx].isInline {
+    let method = methods[methodIdx]
+    if method.isInline {
         methodAttrs = " alwaysinline"
     }
     if methodHasDecoratorImpl(methods, methodIdx, "noinline") == 1 {
@@ -55,7 +58,7 @@ fun buildMethodAttrsImpl(methods: Array<FunctionNode>, methodIdx: Int,
     }
     if not isMethodSelfRecursive {
         methodAttrs = methodAttrs + " norecurse"
-        let methodBodySize = methods[methodIdx].body.statements.length()
+        let methodBodySize = method.body.statements.length()
         if methodBodySize <= 15 and not methodAttrs.contains("noinline") and not methodAttrs.contains("alwaysinline") {
             methodAttrs = methodAttrs + " inlinehint"
         }
@@ -70,11 +73,12 @@ fun detectExplicitReceiverNameImpl(className: String, isStatic: Int,
     if isStatic == 1 {
         return ""
     }
-    if methods[methodIdx].params.length() == 0 {
+    let method = methods[methodIdx]
+    if method.params.length() == 0 {
         return ""
     }
 
-    let firstParam = methods[methodIdx].params[0]
+    let firstParam = method.params[0]
     if firstParam.paramType.typeName != className {
         return ""
     }
@@ -96,9 +100,10 @@ fun emitMethodSignatureParamsImpl(output: StringBuilder,
         emittedCount = 1
     }
 
+    let method = methods[methodIdx]
     var paramIdx = 0
-    while paramIdx < methods[methodIdx].params.length() {
-        let param = methods[methodIdx].params[paramIdx]
+    while paramIdx < method.params.length() {
+        let param = method.params[paramIdx]
         var isExplicitReceiver = 0
         if explicitReceiverName != "" and param.name == explicitReceiverName {
             isExplicitReceiver = 1
@@ -162,9 +167,10 @@ fun collectClassMethodParameterInfoImpl(methods: Array<FunctionNode>,
     typeAliasNames: String, typeAliasTargets: String, typeAliasCount: Int,
     enumTypeNames: String) r: Void {
 
+    let method = methods[methodIdx]
     var paramInfoIdx = 0
-    while paramInfoIdx < methods[methodIdx].params.length() {
-        let methodParam = methods[methodIdx].params[paramInfoIdx]
+    while paramInfoIdx < method.params.length() {
+        let methodParam = method.params[paramInfoIdx]
         let normalizedParamType = normalizeDeclaredTypeNodeImpl(
             methodParam.paramType)
         normalizedMethodParamTypes.push(normalizedParamType)
@@ -251,9 +257,10 @@ fun emitClassMethodParameterBindingsStateImpl(output: StringBuilder,
     enumTypeNames: String) r: Int {
 
     var nextActiveVarCount = activeVarCount
+    let method = methods[methodIdx]
     var paramIdx = 0
-    while paramIdx < methods[methodIdx].params.length() {
-        let param = methods[methodIdx].params[paramIdx]
+    while paramIdx < method.params.length() {
+        let param = method.params[paramIdx]
         var isExplicitReceiver = 0
         if param.name == explicitReceiverName {
             if explicitReceiverName != "" {
@@ -369,10 +376,11 @@ fun classMethodBlockHasExplicitReturnImpl(block: BlockNode) r: Bool {
 fun classMethodNewUsesExplicitFactoryReturnImpl(methods: Array<FunctionNode>,
     methodIdx: Int) r: Bool {
 
-    if not classMethodBlockHasExplicitReturnImpl(methods[methodIdx].body) {
+    let method = methods[methodIdx]
+    if not classMethodBlockHasExplicitReturnImpl(method.body) {
         return false
     }
-    if classMethodBlockReferencesThisImpl(methods[methodIdx].body) {
+    if classMethodBlockReferencesThisImpl(method.body) {
         return false
     }
     return true
