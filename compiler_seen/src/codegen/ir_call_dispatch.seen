@@ -314,7 +314,7 @@ fun emitDebugAssertCallImpl(output: StringBuilder, regBox: Array<Int>, boundsCou
     let count = boundsCountBox[0]
     let failLabel = "assert_fail_" + count.toString()
     let okLabel = "assert_ok_" + count.toString()
-    boundsCountBox.set(0, count + 1)
+    boundsCountBox[0] = count + 1
     let condBool = getNextRegFn(regBox)
     output.append("  " + condBool + " = icmp eq i64 " + condReg + ", 0\n")
     output.append("  br i1 " + condBool + ", label %" + failLabel + ", label %" + okLabel + "\n")
@@ -335,7 +335,7 @@ fun emitAsyncYieldCallImpl(output: StringBuilder, regBox: Array<Int>, yieldCount
     let count = yieldCounterBox[0]
     let unreachLabel = "yield_unreachable_" + count.toString()
     let resumeLabel = "yield_resume_" + count.toString()
-    yieldCounterBox.set(0, count + 1)
+    yieldCounterBox[0] = count + 1
     output.append("  switch i8 " + spVal + ", label %" + unreachLabel + " [\n")
     output.append("    i8 0, label %" + resumeLabel + "\n")
     output.append("    i8 1, label %" + asyncCleanupLabel + "\n")

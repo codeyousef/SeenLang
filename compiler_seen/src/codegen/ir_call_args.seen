@@ -189,8 +189,8 @@ fun promoteFloatArgsImpl(output: StringBuilder, regBox: Array<Int>, funcName: St
             if hasFloatParamFuncImpl(funcName, fpIdx, floatParamFuncNames, floatParamParamIdxs) {
                 let sitofpReg = getNextRegFn(regBox)
                 output.append("  " + sitofpReg + " = sitofp i64 " + argRegs[fpIdx] + " to double\n")
-                argRegs.set(fpIdx, sitofpReg)
-                argTypeStrs.set(fpIdx, "double")
+                argRegs[fpIdx] = sitofpReg
+                argTypeStrs[fpIdx] = "double"
             }
         }
         fpIdx = fpIdx + 1

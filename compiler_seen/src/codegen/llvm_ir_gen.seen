@@ -316,48 +316,19 @@ var g_chainedPathTypeCacheLens: Array<Int> = Array<Int>()
 var g_chainedPathTypeCacheValues: Array<String> = Array<String>()
 
 fun findCachedIrgenFieldIndex(key: String) r: Int {
-    var i = g_irgenFieldInfoCacheKeys.length() - 1
-    while i >= 0 {
-        if g_irgenFieldInfoCacheKeys[i] == key {
-            return g_irgenFieldInfoCacheIdxs[i]
-        }
-        i = i - 1
-    }
     return -1
 }
 
 fun cacheIrgenFieldIndex(key: String, idx: Int) r: Void {
-    if idx < 0 { return }
-    g_irgenFieldInfoCacheKeys.push(key)
-    g_irgenFieldInfoCacheIdxs.push(idx)
+    return
 }
 
 fun findCachedChainedPathTypeRecord(key: String, structLen: Int) r: Int {
-    var i = g_chainedPathTypeCacheKeys.length() - 1
-    while i >= 0 {
-        if g_chainedPathTypeCacheKeys[i] == key and
-            g_chainedPathTypeCacheLens[i] == structLen {
-
-            return i
-        }
-        i = i - 1
-    }
     return -1
 }
 
 fun cacheChainedPathType(key: String, structLen: Int, resultType: String) r: Void {
-    var i = g_chainedPathTypeCacheKeys.length() - 1
-    while i >= 0 {
-        if g_chainedPathTypeCacheKeys[i] == key {
-            g_chainedPathTypeCacheLens[i] = structLen
-            g_chainedPathTypeCacheValues[i] = resultType
-            return
-        }
-        i = i - 1
-    }
-    g_chainedPathTypeCacheKeys.push(key)
-    g_chainedPathTypeCacheLens.push(structLen)
-    g_chainedPathTypeCacheValues.push(resultType)
+    return
 }
 
 // Cache-line aligned classes: pipe-delimited names

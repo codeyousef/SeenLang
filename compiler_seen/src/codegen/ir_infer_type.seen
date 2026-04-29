@@ -9,33 +9,12 @@ var g_methodBoolSuffixCacheLens: Array<Int> = Array<Int>()
 var g_methodBoolSuffixCacheTypes: Array<String> = Array<String>()
 
 fun findMethodBoolSuffixCacheRecord(callee: String, funcLen: Int) r: Int {
-    var i = g_methodBoolSuffixCacheCallees.length() - 1
-    while i >= 0 {
-        if g_methodBoolSuffixCacheCallees[i] == callee and
-            g_methodBoolSuffixCacheLens[i] == funcLen {
-
-            return i
-        }
-        i = i - 1
-    }
     return -1
 }
 
 fun cacheMethodBoolSuffixType(callee: String, funcLen: Int,
     resultType: String) r: Void {
-
-    var i = g_methodBoolSuffixCacheCallees.length() - 1
-    while i >= 0 {
-        if g_methodBoolSuffixCacheCallees[i] == callee {
-            g_methodBoolSuffixCacheLens[i] = funcLen
-            g_methodBoolSuffixCacheTypes[i] = resultType
-            return
-        }
-        i = i - 1
-    }
-    g_methodBoolSuffixCacheCallees.push(callee)
-    g_methodBoolSuffixCacheLens.push(funcLen)
-    g_methodBoolSuffixCacheTypes.push(resultType)
+    return
 }
 
 fun inferBinaryTypeImpl(operator: String, leftType: String, rightType: String) r: String {

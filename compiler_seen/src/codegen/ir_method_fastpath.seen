@@ -495,12 +495,12 @@ fun applyUnresolvedReceiverDefaultImpl(receiverRegBox: Array<String>,
     receiverType: String) r: Void {
 
     if receiverType == "Int" or receiverType == "" or receiverType == "Char" {
-        receiverRegBox.set(0, "0")
+        receiverRegBox[0] = "0"
         return
     }
     if receiverType == "Bool" {
-        receiverRegBox.set(0, "false")
+        receiverRegBox[0] = "false"
         return
     }
-    receiverRegBox.set(0, "0")
+    receiverRegBox[0] = "0"
 }

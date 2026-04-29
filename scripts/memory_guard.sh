@@ -17,6 +17,7 @@ INTERVAL_SECS="${SEEN_MEMORY_GUARD_INTERVAL_SECS:-1}"
 TASKS_MAX="${SEEN_MEMORY_GUARD_TASKS_MAX:-}"
 REQUIRE_KERNEL_SCOPE="${SEEN_MEMORY_GUARD_REQUIRE_KERNEL_SCOPE:-0}"
 CGROUP_STOP_KB="${SEEN_MEMORY_GUARD_CGROUP_STOP_KB:-}"
+KILL_ONLY="${SEEN_MEMORY_GUARD_KILL_ONLY:-0}"
 LABEL="${SEEN_MEMORY_GUARD_LABEL:-command}"
 
 usage() {
@@ -31,6 +32,7 @@ Options:
   --interval-secs N         Poll interval in seconds (default: 1).
   --tasks-max N             In kernel-scope mode, cap total tasks in the command cgroup.
   --cgroup-stop-kb N        In kernel-scope mode, stop when cgroup memory.current reaches N KB.
+  --kill-only               Stop the tree with SIGKILL only, without a SIGTERM grace period.
   --label TEXT              Human-readable label in guard messages.
 EOF
 }
@@ -150,6 +152,10 @@ kill_tree_with_signal() {
 
 stop_tree() {
     local root=$1
+    if [ "$KILL_ONLY" = "1" ]; then
+        kill_tree_with_signal "$root" KILL
+        return
+    fi
     kill_tree_with_signal "$root" TERM
     sleep 2
     kill_tree_with_signal "$root" KILL
@@ -184,6 +190,10 @@ while [ "$#" -gt 0 ]; do
         --cgroup-stop-kb)
             CGROUP_STOP_KB="${2:-}"
             shift 2
+            ;;
+        --kill-only)
+            KILL_ONLY=1
+            shift
             ;;
         --label)
             LABEL="${2:-command}"
@@ -239,6 +249,10 @@ if [ "$TIMEOUT_SECS" != "0" ] && ! is_positive_integer "$TIMEOUT_SECS"; then
     echo "memory_guard: --timeout-secs must be 0 or a positive integer" >&2
     exit 2
 fi
+if [ "$KILL_ONLY" != "0" ] && [ "$KILL_ONLY" != "1" ]; then
+    echo "memory_guard: --kill-only must be unset, 0, or 1" >&2
+    exit 2
+fi
 
 if [ "${SEEN_MEMORY_GUARD_IN_SCOPE:-0}" != "1" ] &&
     [ "$REQUIRE_KERNEL_SCOPE" = "1" ]; then
@@ -280,6 +294,9 @@ if [ "${SEEN_MEMORY_GUARD_IN_SCOPE:-0}" != "1" ] &&
     fi
     if [ -n "$CGROUP_STOP_KB" ]; then
         scoped_args+=(--cgroup-stop-kb "$CGROUP_STOP_KB")
+    fi
+    if [ "$KILL_ONLY" = "1" ]; then
+        scoped_args+=(--kill-only)
     fi
     scoped_args+=(--interval-secs "$INTERVAL_SECS" --label "$LABEL" -- "$@")
 
