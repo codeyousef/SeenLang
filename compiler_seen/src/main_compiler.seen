@@ -92,6 +92,9 @@ import codegen.ir_collection_dispatch.{dispatchCollectionMethodImpl}
 import codegen.ir_type_mapping.{isClassTypeImpl}
 import codegen.ir_comptime_target.{setComptimeTargetName}
 import codegen.ir_type_ops.{emitBinaryOpImpl}
+import codegen.ir_receiver_method_emit.{emitSimdReductionImpl, emitOptionMethodImpl, emitJsonValueMethodImpl, emitStringMethodImpl}
+import codegen.ir_simd_builtin_emit.{emitSimdBuiltinImpl}
+import codegen.ir_string_builder_cast_emit.{emitStringBuilderMethodImpl, emitCastExprImpl}
 import codegen.ir_control_flow.{detectMemcpyPatternImpl}
 import codegen.ir_loop_context.{emitLoopMetadataImpl}
 import codegen.ir_loop_plan.{planMemcpyOptimizedWhileLoopImpl, iteratorProtocolFunctionNameImpl, isRangeForInIterableImpl}

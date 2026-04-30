@@ -6,7 +6,7 @@ import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_call_dispatch.{emitCStrConversionImpl, emitDebugAssertCallImpl, emitAsyncYieldCallImpl}
 import codegen.ir_ptr_ops.{emitPtrOpsImpl, emitStackAllocImpl, emitConstructAtImpl}
-import codegen.ir_type_ops.{emitSimdBuiltinImpl}
+import codegen.ir_simd_builtin_emit.{emitSimdBuiltinImpl}
 
 fun isPtrBuiltinCallImpl(funcName: String) r: Int {
     if funcName == "ptr_deref" or funcName == "ptr_deref_f64" or

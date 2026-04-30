@@ -3,7 +3,7 @@
 import str.string.{StringBuilder}
 import codegen.ir_method_gen.{emitSmallVecMethodImpl, emitArrayBasicMethodImpl}
 import codegen.ir_collection_dispatch.{dispatchCollectionMethodImpl}
-import codegen.ir_type_ops.{emitOptionMethodImpl}
+import codegen.ir_receiver_method_emit.{emitOptionMethodImpl}
 
 fun emitPreparedOptionReceiverFastPathImpl(output: StringBuilder,
     regBox: Array<Int>, blockLabelBox: Array<Int>, methodName: String,

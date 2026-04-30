@@ -1,0 +1,337 @@
+// Receiver method emission helpers
+// Extracted from ir_type_ops.seen
+
+import str.string.{StringBuilder}
+import codegen.ir_optimization.{getNextRegFn}
+import codegen.ir_type_mapping.{mapTypeImpl}
+import codegen.ir_simd_type_helpers.{isSimdVectorTypeImpl, simdScalarTypeImpl, simdLlvmSuffixImpl}
+
+// ============================================================
+// emitSimdReductionImpl — SIMD horizontal reduction ops
+// Returns resultReg or "" if not handled.
+// ============================================================
+
+fun emitSimdReductionImpl(output: StringBuilder, regBox: Array<Int>,
+    methodName: String, receiverReg: String, receiverType: String) r: String {
+    if isSimdVectorTypeImpl(receiverType) == 0 {
+        return ""
+    }
+    let simdMethLT = mapTypeImpl(receiverType, Array<String>(), "", "", 0, "")
+    let simdMethST = simdScalarTypeImpl(receiverType)
+    let simdMethIsFloat = receiverType.startsWith("f32") or receiverType.startsWith("f64")
+
+    if methodName == "reduce_add" {
+        let simdRedReg = getNextRegFn(regBox)
+        if simdMethIsFloat {
+            var initStr = "0.0"
+            if simdMethST == "double" { initStr = "0.000000e+00" }
+            let intrName = "@llvm.vector.reduce.fadd." + simdLlvmSuffixImpl(receiverType)
+            output.append("  " + simdRedReg + " = call " + simdMethST + " " + intrName + "(" + simdMethST + " " + initStr + ", " + simdMethLT + " " + receiverReg + ")\n")
+        } else {
+            let intrName = "@llvm.vector.reduce.add." + simdLlvmSuffixImpl(receiverType)
+            output.append("  " + simdRedReg + " = call " + simdMethST + " " + intrName + "(" + simdMethLT + " " + receiverReg + ")\n")
+        }
+        if simdMethST == "float" {
+            let fpReg = getNextRegFn(regBox)
+            output.append("  " + fpReg + " = fpext float " + simdRedReg + " to double\n")
+            return fpReg
+        }
+        if simdMethST == "i32" {
+            let sReg = getNextRegFn(regBox)
+            output.append("  " + sReg + " = sext i32 " + simdRedReg + " to i64\n")
+            return sReg
+        }
+        return simdRedReg
+    }
+    if methodName == "reduce_min" {
+        let simdRedReg = getNextRegFn(regBox)
+        if simdMethIsFloat {
+            let intrName = "@llvm.vector.reduce.fmin." + simdLlvmSuffixImpl(receiverType)
+            output.append("  " + simdRedReg + " = call " + simdMethST + " " + intrName + "(" + simdMethLT + " " + receiverReg + ")\n")
+        } else {
+            let intrName = "@llvm.vector.reduce.smin." + simdLlvmSuffixImpl(receiverType)
+            output.append("  " + simdRedReg + " = call " + simdMethST + " " + intrName + "(" + simdMethLT + " " + receiverReg + ")\n")
+        }
+        if simdMethST == "float" {
+            let fpReg = getNextRegFn(regBox)
+            output.append("  " + fpReg + " = fpext float " + simdRedReg + " to double\n")
+            return fpReg
+        }
+        if simdMethST == "i32" {
+            let sReg = getNextRegFn(regBox)
+            output.append("  " + sReg + " = sext i32 " + simdRedReg + " to i64\n")
+            return sReg
+        }
+        return simdRedReg
+    }
+    if methodName == "reduce_max" {
+        let simdRedReg = getNextRegFn(regBox)
+        if simdMethIsFloat {
+            let intrName = "@llvm.vector.reduce.fmax." + simdLlvmSuffixImpl(receiverType)
+            output.append("  " + simdRedReg + " = call " + simdMethST + " " + intrName + "(" + simdMethLT + " " + receiverReg + ")\n")
+        } else {
+            let intrName = "@llvm.vector.reduce.smax." + simdLlvmSuffixImpl(receiverType)
+            output.append("  " + simdRedReg + " = call " + simdMethST + " " + intrName + "(" + simdMethLT + " " + receiverReg + ")\n")
+        }
+        if simdMethST == "float" {
+            let fpReg = getNextRegFn(regBox)
+            output.append("  " + fpReg + " = fpext float " + simdRedReg + " to double\n")
+            return fpReg
+        }
+        if simdMethST == "i32" {
+            let sReg = getNextRegFn(regBox)
+            output.append("  " + sReg + " = sext i32 " + simdRedReg + " to i64\n")
+            return sReg
+        }
+        return simdRedReg
+    }
+    return ""
+}
+
+// ============================================================
+// emitJsonValueMethodImpl — JsonValue method dispatch
+// Returns resultReg or "" if not handled.
+// ============================================================
+
+fun emitJsonValueMethodImpl(output: StringBuilder, regBox: Array<Int>,
+    methodName: String, receiverReg: String, receiverType: String) r: String {
+    if receiverType != "JsonValue" and receiverType != "ptr" and receiverType != "" {
+        return ""
+    }
+    if methodName == "getString" {
+        var ptrReg = receiverReg
+        if receiverType == "JsonValue" {
+            ptrReg = getNextRegFn(regBox)
+            output.append("  " + ptrReg + " = inttoptr i64 " + receiverReg + " to ptr\n")
+        }
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call %SeenString @JsonValue_getString(ptr " + ptrReg + ")\n")
+        return resultReg
+    }
+    if methodName == "getInt" {
+        var ptrReg = receiverReg
+        if receiverType == "JsonValue" {
+            ptrReg = getNextRegFn(regBox)
+            output.append("  " + ptrReg + " = inttoptr i64 " + receiverReg + " to ptr\n")
+        }
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call i64 @JsonValue_getInt(ptr " + ptrReg + ")\n")
+        return resultReg
+    }
+    if methodName == "getBool" {
+        var ptrReg = receiverReg
+        if receiverType == "JsonValue" {
+            ptrReg = getNextRegFn(regBox)
+            output.append("  " + ptrReg + " = inttoptr i64 " + receiverReg + " to ptr\n")
+        }
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call i1 @JsonValue_getBool(ptr " + ptrReg + ")\n")
+        return resultReg
+    }
+    if methodName == "getNumber" {
+        var ptrReg = receiverReg
+        if receiverType == "JsonValue" {
+            ptrReg = getNextRegFn(regBox)
+            output.append("  " + ptrReg + " = inttoptr i64 " + receiverReg + " to ptr\n")
+        }
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call double @JsonValue_getNumber(ptr " + ptrReg + ")\n")
+        return resultReg
+    }
+    if methodName == "isObject" or methodName == "isArray" or methodName == "isString" or methodName == "isNumber" or methodName == "isBool" or methodName == "isNull" {
+        var ptrReg = receiverReg
+        if receiverType == "JsonValue" {
+            ptrReg = getNextRegFn(regBox)
+            output.append("  " + ptrReg + " = inttoptr i64 " + receiverReg + " to ptr\n")
+        }
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call i1 @JsonValue_" + methodName + "(ptr " + ptrReg + ")\n")
+        return resultReg
+    }
+    return ""
+}
+
+// ============================================================
+// emitStringMethodImpl — String/Char method dispatch
+// arg0/arg1: pre-generated argument registers from wrapper.
+// Returns resultReg or "" if not handled.
+// ============================================================
+
+fun emitStringMethodImpl(output: StringBuilder, regBox: Array<Int>,
+    methodName: String, receiverReg: String, receiverType: String,
+    arg0: String, arg1: String, argCount: Int) r: String {
+
+    var isStringReceiver = false
+    if receiverType == "String" { isStringReceiver = true }
+    if receiverType == "String?" { isStringReceiver = true }
+    if receiverType == "SeenString" { isStringReceiver = true }
+    if receiverType == "%SeenString" { isStringReceiver = true }
+    if receiverType == "" { isStringReceiver = true }
+
+    if methodName == "startsWith" and isStringReceiver {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call i1 @startsWith(%SeenString " + receiverReg + ", %SeenString " + arg0 + ")\n")
+        return resultReg
+    }
+    if methodName == "endsWith" and isStringReceiver {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call i1 @endsWith(%SeenString " + receiverReg + ", %SeenString " + arg0 + ")\n")
+        return resultReg
+    }
+    if methodName == "contains" and isStringReceiver {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call i1 @contains(%SeenString " + receiverReg + ", %SeenString " + arg0 + ")\n")
+        return resultReg
+    }
+    if methodName == "trim" {
+        if receiverType == "String" or receiverType == "" {
+            let resultReg = getNextRegFn(regBox)
+            output.append("  " + resultReg + " = call %SeenString @trim(%SeenString " + receiverReg + ")\n")
+            return resultReg
+        }
+        return ""
+    }
+    if methodName == "substring" {
+        var receiverStrReg = receiverReg
+        if receiverReg == "0" { receiverStrReg = "zeroinitializer" }
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call %SeenString @seen_substring(%SeenString " + receiverStrReg + ", i64 " + arg0 + ", i64 " + arg1 + ")\n")
+        return resultReg
+    }
+    if methodName == "charAt" {
+        var receiverStrReg = receiverReg
+        if receiverReg == "0" { receiverStrReg = "zeroinitializer" }
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call i64 @seen_char_at(%SeenString " + receiverStrReg + ", i64 " + arg0 + ")\n")
+        return resultReg
+    }
+    if methodName == "charCodeAt" {
+        var receiverStrReg = receiverReg
+        if receiverReg == "0" { receiverStrReg = "zeroinitializer" }
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call i64 @seen_char_at(%SeenString " + receiverStrReg + ", i64 " + arg0 + ")\n")
+        return resultReg
+    }
+    if methodName == "byteAt" {
+        var receiverStrReg = receiverReg
+        if receiverReg == "0" { receiverStrReg = "zeroinitializer" }
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call i64 @seen_byte_at(%SeenString " + receiverStrReg + ", i64 " + arg0 + ")\n")
+        return resultReg
+    }
+    if methodName == "isDigit" or methodName == "isAlpha" or methodName == "isAlphanumeric" or methodName == "isUpperCase" or methodName == "isLowerCase" or methodName == "isWhitespace" {
+        if receiverType == "Char" or receiverType == "" {
+            let callReg = getNextRegFn(regBox)
+            output.append("  " + callReg + " = call i64 @Char_" + methodName + "(i64 " + receiverReg + ")\n")
+            let resultReg = getNextRegFn(regBox)
+            output.append("  " + resultReg + " = trunc i64 " + callReg + " to i1\n")
+            return resultReg
+        }
+    }
+    if methodName == "toUpperCase" or methodName == "toLowerCase" {
+        if receiverType == "Char" {
+            let resultReg = getNextRegFn(regBox)
+            output.append("  " + resultReg + " = call i64 @Char_" + methodName + "(i64 " + receiverReg + ")\n")
+            return resultReg
+        }
+        if receiverType == "String" or receiverType == "" {
+            let resultReg = getNextRegFn(regBox)
+            output.append("  " + resultReg + " = call %SeenString @String_" + methodName + "(%SeenString " + receiverReg + ")\n")
+            return resultReg
+        }
+    }
+    if methodName == "reverse" {
+        if receiverType == "String" or receiverType == "" {
+            let resultReg = getNextRegFn(regBox)
+            output.append("  " + resultReg + " = call %SeenString @String_reverse(%SeenString " + receiverReg + ")\n")
+            return resultReg
+        }
+    }
+    if methodName == "isEmpty" {
+        if receiverType == "String" {
+            let callReg = getNextRegFn(regBox)
+            output.append("  " + callReg + " = call i64 @String_isEmpty(%SeenString " + receiverReg + ")\n")
+            let resultReg = getNextRegFn(regBox)
+            output.append("  " + resultReg + " = trunc i64 " + callReg + " to i1\n")
+            return resultReg
+        }
+    }
+    if methodName == "count" {
+        if receiverType == "String" or receiverType == "" {
+            let resultReg = getNextRegFn(regBox)
+            output.append("  " + resultReg + " = call i64 @String_count(%SeenString " + receiverReg + ", %SeenString " + arg0 + ")\n")
+            return resultReg
+        }
+    }
+    if methodName == "replace" {
+        if receiverType == "String" or receiverType == "" {
+            let resultReg = getNextRegFn(regBox)
+            output.append("  " + resultReg + " = call %SeenString @String_replace(%SeenString " + receiverReg + ", %SeenString " + arg0 + ", %SeenString " + arg1 + ")\n")
+            return resultReg
+        }
+    }
+    if methodName == "split" and argCount > 0 {
+        if receiverType == "String" or receiverType == "" {
+            let resultReg = getNextRegFn(regBox)
+            output.append("  " + resultReg + " = call ptr @String_split(%SeenString " + receiverReg + ", %SeenString " + arg0 + ")\n")
+            return resultReg
+        }
+    }
+    if methodName == "indexOf" {
+        var startIdxReg = "0"
+        if argCount > 1 { startIdxReg = arg1 }
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call i64 @indexOf(%SeenString " + receiverReg + ", %SeenString " + arg0 + ", i64 " + startIdxReg + ")\n")
+        return resultReg
+    }
+    if methodName == "lastIndexOf" {
+        var startIdxReg = "-1"
+        if argCount > 1 { startIdxReg = arg1 }
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call i64 @lastIndexOf(%SeenString " + receiverReg + ", %SeenString " + arg0 + ", i64 " + startIdxReg + ")\n")
+        return resultReg
+    }
+    return ""
+}
+
+// Option method dispatch: isSome, isNone, unwrapOr
+// receiverReg is the i64 pointer-as-int, defaultReg is pre-generated default for unwrapOr
+fun emitOptionMethodImpl(output: StringBuilder, regBox: Array<Int>, blockLabelBox: Array<Int>,
+    methodName: String, receiverReg: String, defaultReg: String) r: String {
+    let optPtrReg = getNextRegFn(regBox)
+    output.append("  " + optPtrReg + " = inttoptr i64 " + receiverReg + " to ptr\n")
+
+    if methodName == "isSome" or methodName == "IsSome" {
+        let hasValuePtrReg = getNextRegFn(regBox)
+        output.append("  " + hasValuePtrReg + " = getelementptr inbounds { i1, i64 }, ptr " + optPtrReg + ", i32 0, i32 0\n")
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = load i1, ptr " + hasValuePtrReg + "\n")
+        return resultReg
+    }
+
+    if methodName == "isNone" or methodName == "IsNone" {
+        let hasValuePtrReg = getNextRegFn(regBox)
+        output.append("  " + hasValuePtrReg + " = getelementptr inbounds { i1, i64 }, ptr " + optPtrReg + ", i32 0, i32 0\n")
+        let hasValueReg = getNextRegFn(regBox)
+        output.append("  " + hasValueReg + " = load i1, ptr " + hasValuePtrReg + "\n")
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = xor i1 " + hasValueReg + ", true\n")
+        return resultReg
+    }
+
+    if methodName == "unwrapOr" or methodName == "UnwrapOr" {
+        let hasValuePtrReg = getNextRegFn(regBox)
+        output.append("  " + hasValuePtrReg + " = getelementptr inbounds { i1, i64 }, ptr " + optPtrReg + ", i32 0, i32 0\n")
+        let hasValueReg = getNextRegFn(regBox)
+        output.append("  " + hasValueReg + " = load i1, ptr " + hasValuePtrReg + "\n")
+        let valuePtrReg = getNextRegFn(regBox)
+        output.append("  " + valuePtrReg + " = getelementptr inbounds { i1, i64 }, ptr " + optPtrReg + ", i32 0, i32 1\n")
+        let someValReg = getNextRegFn(regBox)
+        output.append("  " + someValReg + " = load i64, ptr " + valuePtrReg + "\n")
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = select i1 " + hasValueReg + ", i64 " + someValReg + ", i64 " + defaultReg + "\n")
+        return resultReg
+    }
+
+    return ""
+}
