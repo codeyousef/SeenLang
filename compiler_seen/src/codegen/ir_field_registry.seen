@@ -8,6 +8,56 @@ import codegen.ir_type_mapping.{mapTypeImpl}
 import codegen.ir_type_tables.{getFieldTypeForHeaderStruct, getHardcodedFieldLlvmTypeImpl}
 import codegen.type_registry.{findStructReg}
 
+class FieldLookupCacheState {
+    var fieldInfoCacheKeys: Array<String>
+    var fieldInfoCacheIdxs: Array<Int>
+    var chainedPathTypeCacheKeys: Array<String>
+    var chainedPathTypeCacheLens: Array<Int>
+    var chainedPathTypeCacheValues: Array<String>
+
+    static fun new() r: FieldLookupCacheState {
+        return FieldLookupCacheState{
+            fieldInfoCacheKeys: Array<String>(),
+            fieldInfoCacheIdxs: Array<Int>(),
+            chainedPathTypeCacheKeys: Array<String>(),
+            chainedPathTypeCacheLens: Array<Int>(),
+            chainedPathTypeCacheValues: Array<String>()
+        }
+    }
+}
+
+fun resetFieldLookupCacheStateImpl() r: FieldLookupCacheState {
+    return FieldLookupCacheState.new()
+}
+
+fun findCachedIrgenFieldIndexImpl(key: String,
+    fieldInfoCacheKeys: Array<String>, fieldInfoCacheIdxs: Array<Int>) r: Int {
+
+    return -1
+}
+
+fun cacheIrgenFieldIndexImpl(key: String, idx: Int,
+    fieldInfoCacheKeys: Array<String>,
+    fieldInfoCacheIdxs: Array<Int>) r: Void {
+
+    return
+}
+
+fun findCachedChainedPathTypeRecordImpl(key: String, structLen: Int,
+    chainedPathTypeCacheKeys: Array<String>,
+    chainedPathTypeCacheLens: Array<Int>) r: Int {
+
+    return -1
+}
+
+fun cacheChainedPathTypeImpl(key: String, structLen: Int, resultType: String,
+    chainedPathTypeCacheKeys: Array<String>,
+    chainedPathTypeCacheLens: Array<Int>,
+    chainedPathTypeCacheValues: Array<String>) r: Void {
+
+    return
+}
+
 fun mapRegistryFieldTypeImpl(typeName: String, reprCClassNames: String,
     structNames: Array<String>, typeAliasNames: String,
     typeAliasTargets: String, typeAliasCount: Int, enumTypeNames: String)

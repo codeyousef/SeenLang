@@ -114,7 +114,7 @@ import codegen.ir_class_type_decorators.{prepareClassTypeDecoratorScanSnapshotIm
 import codegen.ir_class_gen_support.{prepareGeneratedClassDecoratorSnapshotImpl, shouldSkipSourceClassMethodImpl, emitInheritedClassMethodThunksImpl}
 import codegen.ir_class_generated_features.{emitGeneratedClassDecoratorMethodsImpl}
 import codegen.ir_class_constructor_gen.{emitClassHeapAllocationImpl, emitClassArrayFieldInitializersImpl, resolveClassConstructorFieldOffsetImpl}
-import codegen.ir_field_registry.{resolveFieldIndexImpl, resolveStructFieldLlvmTypeImpl}
+import codegen.ir_field_registry.{resolveFieldIndexImpl, resolveStructFieldLlvmTypeImpl, findCachedIrgenFieldIndexImpl, cacheIrgenFieldIndexImpl, findCachedChainedPathTypeRecordImpl, cacheChainedPathTypeImpl, resetFieldLookupCacheStateImpl}
 import codegen.ir_module_emit.{mapGlobalVarLlvmTypeImpl, emitCrossModuleConstantDeclaresImpl, emitTraitVtableConstantsImpl, collectProgramDefinedSymbolsImpl, emitGeneratedClosuresImpl, emitOptimizationStatisticsSummaryImpl, shouldSkipStandaloneTopLevelFunctionImpl, resolveSpecialTopLevelFunctionActionImpl, emitGlobalConstructorsImpl}
 import codegen.ir_program_flow_plan.{shouldVisitProgramFlowIndexImpl, shouldEmitProgramClassTypeItemImpl, shouldGenerateProgramClassItemImpl, planProgramTopLevelFunctionStartImpl, planProgramTopLevelFunctionAfterSpecialImpl}
 import codegen.ir_field_layout.{emitSeenArrayLengthLoadImpl, generateFieldAccessImpl, generateFieldAccessPtrImpl, isScalarFieldChainTerminalTypeImpl}
@@ -317,19 +317,33 @@ var g_chainedPathTypeCacheLens: Array<Int> = Array<Int>()
 var g_chainedPathTypeCacheValues: Array<String> = Array<String>()
 
 fun findCachedIrgenFieldIndex(key: String) r: Int {
-    return -1
+    return findCachedIrgenFieldIndexImpl(key, g_irgenFieldInfoCacheKeys,
+        g_irgenFieldInfoCacheIdxs)
 }
 
 fun cacheIrgenFieldIndex(key: String, idx: Int) r: Void {
-    return
+    cacheIrgenFieldIndexImpl(key, idx, g_irgenFieldInfoCacheKeys,
+        g_irgenFieldInfoCacheIdxs)
 }
 
 fun findCachedChainedPathTypeRecord(key: String, structLen: Int) r: Int {
-    return -1
+    return findCachedChainedPathTypeRecordImpl(key, structLen,
+        g_chainedPathTypeCacheKeys, g_chainedPathTypeCacheLens)
 }
 
 fun cacheChainedPathType(key: String, structLen: Int, resultType: String) r: Void {
-    return
+    cacheChainedPathTypeImpl(key, structLen, resultType,
+        g_chainedPathTypeCacheKeys, g_chainedPathTypeCacheLens,
+        g_chainedPathTypeCacheValues)
+}
+
+fun resetIrgenFieldLookupCaches() r: Void {
+    let cacheState = resetFieldLookupCacheStateImpl()
+    g_irgenFieldInfoCacheKeys = cacheState.fieldInfoCacheKeys
+    g_irgenFieldInfoCacheIdxs = cacheState.fieldInfoCacheIdxs
+    g_chainedPathTypeCacheKeys = cacheState.chainedPathTypeCacheKeys
+    g_chainedPathTypeCacheLens = cacheState.chainedPathTypeCacheLens
+    g_chainedPathTypeCacheValues = cacheState.chainedPathTypeCacheValues
 }
 
 // Cache-line aligned classes: pipe-delimited names
@@ -546,8 +560,7 @@ fun initBootstrapFragileGlobalArrays() r: Void {
     g_cseValsArr = Array<String>()
     g_deferExprs = Array<ParserExpressionNode>()
     g_errdeferExprs = Array<ParserExpressionNode>()
-    g_irgenFieldInfoCacheKeys = Array<String>()
-    g_irgenFieldInfoCacheIdxs = Array<Int>()
+    resetIrgenFieldLookupCaches()
     g_regBox = Array<Int>()
     g_blockBox = Array<Int>()
     g_floatParamFuncNames = Array<String>()
@@ -957,8 +970,7 @@ class LLVMIRGenerator {
         resetOptCounters()
         // Reset class method tracking (prevents methods from module 0 affecting module 1)
         classMethodBaseNames = Array<String>()
-        g_irgenFieldInfoCacheKeys = Array<String>()
-        g_irgenFieldInfoCacheIdxs = Array<Int>()
+        resetIrgenFieldLookupCaches()
         // Keep struct/func registries for cross-module references
     }
 
