@@ -1,7 +1,7 @@
 // ir_binary_emit.seen - prepared binary-expression emission drivers.
 
 import str.string.{StringBuilder}
-import codegen.ir_optimization.{emitEgraphPeepholeImpl, emitEgraphFloatPeepholeImpl}
+import codegen.ir_egraph_emit.{emitEgraphPeepholeImpl, emitEgraphFloatPeepholeImpl}
 import codegen.ir_binary_expr.{emitPointerArithmeticBinaryImpl, emitSimdBinaryExprImpl, emitSelfComparisonConstResultImpl, emitFoldedBoolLiteralBinaryResultImpl, emitFoldedIntLiteralBinaryResultImpl, emitAssociativeIntFoldResultImpl, emitFmaOperandPromotionImpl, emitFmaCallImpl, buildBinaryCseKeyImpl, emitOverloadedBinaryCallImpl}
 
 fun emitPreparedPointerArithmeticBinaryImpl(output: StringBuilder,

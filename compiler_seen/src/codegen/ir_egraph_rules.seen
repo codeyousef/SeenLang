@@ -1,0 +1,184 @@
+// ir_egraph_rules.seen - E-graph peephole action selection.
+
+// --- E-graph consolidated peephole lookup ---
+// Returns an action string for integer binary operations:
+//   "" = no optimization
+//   "identity_left" / "identity_right" = return that operand unchanged
+//   "const:N" = emit constant N (as add i64 N, 0)
+//   "shl:N" = emit shl x, N (where x is the non-literal operand)
+//   "shl_add:N" = emit (x << N) + x
+//   "shl_sub:N" = emit (x << N) - x
+//   "neg" = emit sub 0, x
+//   "and:N" = emit and x, N
+//   "ashr:N" = emit ashr x, N
+fun egraphLookup(op: String, leftLitVal: String, rightLitVal: String, leftIsLit: Bool, rightIsLit: Bool) r: String {
+    // Addition identity: x + 0 -> x, 0 + x -> x
+    if op == "+" {
+        if rightIsLit and rightLitVal == "0" { return "identity_left" }
+        if leftIsLit and leftLitVal == "0" { return "identity_right" }
+    }
+    // Subtraction identity: x - 0 -> x
+    if op == "-" {
+        if rightIsLit and rightLitVal == "0" { return "identity_left" }
+    }
+    // Multiplication rules
+    if op == "*" {
+        if rightIsLit and rightLitVal == "1" { return "identity_left" }
+        if leftIsLit and leftLitVal == "1" { return "identity_right" }
+        if rightIsLit and rightLitVal == "0" { return "const:0" }
+        if leftIsLit and leftLitVal == "0" { return "const:0" }
+        if rightIsLit and rightLitVal == "-1" { return "neg" }
+        // Power-of-2 strength reduction: x * 2^N -> shl x, N
+        if rightIsLit and rightLitVal == "2" { return "shl:1" }
+        if rightIsLit and rightLitVal == "4" { return "shl:2" }
+        if rightIsLit and rightLitVal == "8" { return "shl:3" }
+        if rightIsLit and rightLitVal == "16" { return "shl:4" }
+        if rightIsLit and rightLitVal == "32" { return "shl:5" }
+        if rightIsLit and rightLitVal == "64" { return "shl:6" }
+        if rightIsLit and rightLitVal == "128" { return "shl:7" }
+        if rightIsLit and rightLitVal == "256" { return "shl:8" }
+        // Superopt strength reduction: x * (2^N +/- 1)
+        if rightIsLit and rightLitVal == "3" { return "shl_add:1" }
+        if rightIsLit and rightLitVal == "5" { return "shl_add:2" }
+        if rightIsLit and rightLitVal == "9" { return "shl_add:3" }
+        if rightIsLit and rightLitVal == "7" { return "shl_sub:3" }
+        if rightIsLit and rightLitVal == "15" { return "shl_sub:4" }
+        if rightIsLit and rightLitVal == "17" { return "shl_add:4" }
+        if rightIsLit and rightLitVal == "31" { return "shl_sub:5" }
+        if rightIsLit and rightLitVal == "33" { return "shl_add:5" }
+        if rightIsLit and rightLitVal == "63" { return "shl_sub:6" }
+        if rightIsLit and rightLitVal == "65" { return "shl_add:6" }
+        // Two-shift patterns: x * N -> (x<<a) + (x<<b)
+        if rightIsLit and rightLitVal == "10" { return "shl_add2:3,1" }
+        if rightIsLit and rightLitVal == "12" { return "shl_add2:3,2" }
+    }
+    // Division rules
+    if op == "/" {
+        if rightIsLit and rightLitVal == "1" { return "identity_left" }
+        if leftIsLit and leftLitVal == "0" { return "const:0" }
+        if rightIsLit and rightLitVal == "2" { return "ashr:1" }
+        if rightIsLit and rightLitVal == "4" { return "ashr:2" }
+        if rightIsLit and rightLitVal == "8" { return "ashr:3" }
+        if rightIsLit and rightLitVal == "16" { return "ashr:4" }
+        if rightIsLit and rightLitVal == "32" { return "ashr:5" }
+        if rightIsLit and rightLitVal == "64" { return "ashr:6" }
+        if rightIsLit and rightLitVal == "128" { return "ashr:7" }
+        if rightIsLit and rightLitVal == "256" { return "ashr:8" }
+        if rightIsLit and rightLitVal == "512" { return "ashr:9" }
+        if rightIsLit and rightLitVal == "1024" { return "ashr:10" }
+    }
+    // Modulo -> bitwise AND for power-of-2: x % 2^N -> x & (2^N - 1)
+    if op == "%" {
+        if leftIsLit and leftLitVal == "0" { return "const:0" }
+        if rightIsLit and rightLitVal == "2" { return "and:1" }
+        if rightIsLit and rightLitVal == "4" { return "and:3" }
+        if rightIsLit and rightLitVal == "8" { return "and:7" }
+        if rightIsLit and rightLitVal == "16" { return "and:15" }
+        if rightIsLit and rightLitVal == "32" { return "and:31" }
+        if rightIsLit and rightLitVal == "64" { return "and:63" }
+        if rightIsLit and rightLitVal == "128" { return "and:127" }
+        if rightIsLit and rightLitVal == "256" { return "and:255" }
+        if rightIsLit and rightLitVal == "512" { return "and:511" }
+        if rightIsLit and rightLitVal == "1024" { return "and:1023" }
+    }
+    // Bitwise AND rules
+    if op == "&" {
+        if rightIsLit and rightLitVal == "0" { return "const:0" }
+        if leftIsLit and leftLitVal == "0" { return "const:0" }
+        if rightIsLit and rightLitVal == "-1" { return "identity_left" }
+        if leftIsLit and leftLitVal == "-1" { return "identity_right" }
+    }
+    // Bitwise OR rules
+    if op == "|" {
+        if rightIsLit and rightLitVal == "0" { return "identity_left" }
+        if leftIsLit and leftLitVal == "0" { return "identity_right" }
+        if rightIsLit and rightLitVal == "-1" { return "const:-1" }
+        if leftIsLit and leftLitVal == "-1" { return "const:-1" }
+    }
+    // Bitwise XOR rules
+    if op == "^" {
+        if rightIsLit and rightLitVal == "0" { return "identity_left" }
+        if leftIsLit and leftLitVal == "0" { return "identity_right" }
+    }
+    // Boolean logic rules
+    if op == "and" {
+        if rightIsLit and rightLitVal == "true" { return "identity_left" }
+        if rightIsLit and rightLitVal == "false" { return "const:0" }
+        if leftIsLit and leftLitVal == "true" { return "identity_right" }
+        if leftIsLit and leftLitVal == "false" { return "const:0" }
+    }
+    if op == "or" {
+        if rightIsLit and rightLitVal == "false" { return "identity_left" }
+        if rightIsLit and rightLitVal == "true" { return "const:1" }
+        if leftIsLit and leftLitVal == "false" { return "identity_right" }
+        if leftIsLit and leftLitVal == "true" { return "const:1" }
+    }
+    // Shift rules: shl 0, x -> 0, shr 0, x -> 0, x << 0 -> x, x >> 0 -> x
+    if op == "<<" {
+        if leftIsLit and leftLitVal == "0" { return "const:0" }
+        if rightIsLit and rightLitVal == "0" { return "identity_left" }
+    }
+    if op == ">>" {
+        if leftIsLit and leftLitVal == "0" { return "const:0" }
+        if rightIsLit and rightLitVal == "0" { return "identity_left" }
+    }
+    return ""
+}
+
+// E-graph self-comparison detection.
+// When both sides of a binary op are the same variable, many ops simplify.
+// Returns action string: "" = no opt, "const:N" or "identity_left" etc.
+fun egraphSelfComparison(op: String) r: String {
+    if op == "-" { return "const:0" }
+    if op == "/" { return "const:1" }
+    if op == "%" { return "const:0" }
+    if op == "&" { return "identity_left" }
+    if op == "|" { return "identity_left" }
+    if op == "^" { return "const:0" }
+    if op == "==" { return "const_true" }
+    if op == "!=" { return "const_false" }
+    if op == "<" { return "const_false" }
+    if op == ">" { return "const_false" }
+    if op == "<=" { return "const_true" }
+    if op == ">=" { return "const_true" }
+    return ""
+}
+
+// Float-specific e-graph lookup.
+// Returns action string (same convention as egraphLookup).
+fun egraphLookupFloat(op: String, leftLitVal: String, rightLitVal: String, leftIsLit: Bool, rightIsLit: Bool) r: String {
+    if op == "+" {
+        if rightIsLit and (rightLitVal == "0.0" or rightLitVal == "0") { return "identity_left" }
+        if leftIsLit and (leftLitVal == "0.0" or leftLitVal == "0") { return "identity_right" }
+    }
+    if op == "-" {
+        if rightIsLit and (rightLitVal == "0.0" or rightLitVal == "0") { return "identity_left" }
+    }
+    if op == "*" {
+        if rightIsLit and rightLitVal == "1.0" { return "identity_left" }
+        if leftIsLit and leftLitVal == "1.0" { return "identity_right" }
+        if rightIsLit and (rightLitVal == "0.0" or rightLitVal == "0") { return "fconst:0.0" }
+        if leftIsLit and (leftLitVal == "0.0" or leftLitVal == "0") { return "fconst:0.0" }
+        if rightIsLit and rightLitVal == "2.0" { return "fadd_self" }
+    }
+    if op == "/" {
+        if rightIsLit and rightLitVal == "1.0" { return "identity_left" }
+        // x / 2.0 -> x * 0.5 (fmul is faster than fdiv: ~5cy vs ~15cy)
+        if rightIsLit and rightLitVal == "2.0" { return "fmul_half" }
+        if rightIsLit and rightLitVal == "4.0" { return "fmul_quarter" }
+        if rightIsLit and rightLitVal == "8.0" { return "fmul_eighth" }
+        if rightIsLit and rightLitVal == "16.0" { return "fmul_sixteenth" }
+        // x / 0.5 -> x + x (fadd is faster than fdiv)
+        if rightIsLit and rightLitVal == "0.5" { return "fadd_self" }
+    }
+    if op == "-" {
+        // 0.0 - x -> fneg x
+        if leftIsLit and (leftLitVal == "0.0" or leftLitVal == "0") { return "fneg" }
+    }
+    if op == "*" {
+        // x * -1.0 -> fneg x
+        if rightIsLit and rightLitVal == "-1.0" { return "fneg_left" }
+        if leftIsLit and leftLitVal == "-1.0" { return "fneg_right" }
+    }
+    return ""
+}

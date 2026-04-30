@@ -1,0 +1,138 @@
+// ir_egraph_emit.seen - IR emission for selected e-graph peephole actions.
+
+import str.string.{StringBuilder}
+import codegen.ir_optimization.{getNextRegFn}
+
+// ============================================================
+// emitEgraphPeepholeImpl - emit optimized IR for integer e-graph actions
+// action: string from egraphLookup (e.g. "shl:3", "neg", "const:0", "and:7")
+// leftReg/rightReg: pre-generated registers for the operands
+// operator: the original binary operator (for comments)
+// Returns result register, or "" if action is "identity_left"/"identity_right"
+// (caller must handle identity by returning the appropriate sub-expression)
+// ============================================================
+fun emitEgraphPeepholeImpl(output: StringBuilder, regBox: Array<Int>, action: String, leftReg: String, rightReg: String, operator: String) r: String {
+    if action.startsWith("const:") {
+        let constVal = action.substring(6, action.length())
+        let constReg = getNextRegFn(regBox)
+        output.append("  " + constReg + " = add i64 " + constVal + ", 0 ; e-graph: " + operator + " -> " + constVal + "\n")
+        return constReg
+    }
+    if action == "neg" {
+        let negReg = getNextRegFn(regBox)
+        output.append("  " + negReg + " = sub i64 0, " + leftReg + " ; e-graph: x * -1 -> -x\n")
+        return negReg
+    }
+    if action.startsWith("shl:") {
+        let shiftAmt = action.substring(4, action.length())
+        let shlReg = getNextRegFn(regBox)
+        output.append("  " + shlReg + " = shl i64 " + leftReg + ", " + shiftAmt + " ; e-graph: strength reduction\n")
+        return shlReg
+    }
+    if action.startsWith("shl_add:") {
+        let shiftAmt = action.substring(8, action.length())
+        let shlReg = getNextRegFn(regBox)
+        output.append("  " + shlReg + " = shl i64 " + leftReg + ", " + shiftAmt + "\n")
+        let addReg = getNextRegFn(regBox)
+        output.append("  " + addReg + " = add i64 " + shlReg + ", " + leftReg + " ; superopt: (x<<" + shiftAmt + ")+x\n")
+        return addReg
+    }
+    if action.startsWith("shl_sub:") {
+        let shiftAmt = action.substring(8, action.length())
+        let shlReg = getNextRegFn(regBox)
+        output.append("  " + shlReg + " = shl i64 " + leftReg + ", " + shiftAmt + "\n")
+        let subReg = getNextRegFn(regBox)
+        output.append("  " + subReg + " = sub i64 " + shlReg + ", " + leftReg + " ; superopt: (x<<" + shiftAmt + ")-x\n")
+        return subReg
+    }
+    if action.startsWith("shl_add2:") {
+        // Two-shift add: (x<<a) + (x<<b), action format "shl_add2:a,b"
+        let params = action.substring(9, action.length())
+        // Parse "a,b" - find comma position
+        var commaPos = 0
+        var ci = 0
+        while ci < params.length() {
+            if params.byteAt(ci) == 44 { commaPos = ci }
+            ci = ci + 1
+        }
+        let shiftA = params.substring(0, commaPos)
+        let shiftB = params.substring(commaPos + 1, params.length())
+        let shlAReg = getNextRegFn(regBox)
+        output.append("  " + shlAReg + " = shl i64 " + leftReg + ", " + shiftA + "\n")
+        let shlBReg = getNextRegFn(regBox)
+        output.append("  " + shlBReg + " = shl i64 " + leftReg + ", " + shiftB + "\n")
+        let addReg = getNextRegFn(regBox)
+        output.append("  " + addReg + " = add i64 " + shlAReg + ", " + shlBReg + " ; superopt: (x<<" + shiftA + ")+(x<<" + shiftB + ")\n")
+        return addReg
+    }
+    if action.startsWith("and:") {
+        let mask = action.substring(4, action.length())
+        let andReg = getNextRegFn(regBox)
+        output.append("  " + andReg + " = and i64 " + leftReg + ", " + mask + " ; e-graph: mod -> and\n")
+        return andReg
+    }
+    if action.startsWith("ashr:") {
+        let shiftAmt = action.substring(5, action.length())
+        let ashrReg = getNextRegFn(regBox)
+        output.append("  " + ashrReg + " = ashr i64 " + leftReg + ", " + shiftAmt + " ; e-graph: div -> ashr\n")
+        return ashrReg
+    }
+    return ""
+}
+
+// ============================================================
+// emitEgraphFloatPeepholeImpl - emit optimized IR for float e-graph actions
+// action: string from egraphLookupFloat (e.g. "fconst:0.0", "fadd_self", "fmul_half")
+// leftReg/rightReg: pre-generated registers for the operands
+// operator: the original binary operator (for comments)
+// Returns result register, or "" if action is "identity_left"/"identity_right"
+// (caller must handle identity by returning the appropriate sub-expression)
+// ============================================================
+fun emitEgraphFloatPeepholeImpl(output: StringBuilder, regBox: Array<Int>, action: String, leftReg: String, rightReg: String, operator: String) r: String {
+    if action.startsWith("fconst:") {
+        let fConstReg = getNextRegFn(regBox)
+        output.append("  " + fConstReg + " = fadd fast double 0.0, 0.0 ; e-graph: float " + operator + " -> 0.0\n")
+        return fConstReg
+    }
+    if action == "fadd_self" {
+        let faddReg = getNextRegFn(regBox)
+        output.append("  " + faddReg + " = fadd fast double " + leftReg + ", " + leftReg + " ; e-graph: x * 2.0 -> x + x\n")
+        return faddReg
+    }
+    if action == "fmul_half" {
+        let fmulHalfReg = getNextRegFn(regBox)
+        output.append("  " + fmulHalfReg + " = fmul fast double " + leftReg + ", 5.000000e-01 ; e-graph: x / 2.0 -> x * 0.5\n")
+        return fmulHalfReg
+    }
+    if action == "fmul_quarter" {
+        let fmqReg = getNextRegFn(regBox)
+        output.append("  " + fmqReg + " = fmul fast double " + leftReg + ", 2.500000e-01 ; e-graph: x / 4.0 -> x * 0.25\n")
+        return fmqReg
+    }
+    if action == "fmul_eighth" {
+        let fmeReg = getNextRegFn(regBox)
+        output.append("  " + fmeReg + " = fmul fast double " + leftReg + ", 1.250000e-01 ; e-graph: x / 8.0 -> x * 0.125\n")
+        return fmeReg
+    }
+    if action == "fmul_sixteenth" {
+        let fmsReg = getNextRegFn(regBox)
+        output.append("  " + fmsReg + " = fmul fast double " + leftReg + ", 6.250000e-02 ; e-graph: x / 16.0 -> x * 0.0625\n")
+        return fmsReg
+    }
+    if action == "fneg" {
+        let fnegReg = getNextRegFn(regBox)
+        output.append("  " + fnegReg + " = fneg fast double " + rightReg + " ; e-graph: 0.0 - x -> fneg\n")
+        return fnegReg
+    }
+    if action == "fneg_left" {
+        let fnegReg = getNextRegFn(regBox)
+        output.append("  " + fnegReg + " = fneg fast double " + leftReg + " ; e-graph: x * -1.0 -> fneg\n")
+        return fnegReg
+    }
+    if action == "fneg_right" {
+        let fnegReg = getNextRegFn(regBox)
+        output.append("  " + fnegReg + " = fneg fast double " + rightReg + " ; e-graph: -1.0 * x -> fneg\n")
+        return fnegReg
+    }
+    return ""
+}

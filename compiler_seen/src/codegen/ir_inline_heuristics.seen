@@ -1,0 +1,116 @@
+// ir_inline_heuristics.seen - Function inlining and recursion heuristics.
+
+import codegen.ir_optimization.{pipeGet}
+
+// ML-guided inline decision based on body size and call count.
+// Returns: "always", "hint", "noinline", or "" (no opinion).
+fun mlShouldInline(bodySize: Int, callCount: Int) r: String {
+    // Tiny functions: always inline regardless of call count
+    if bodySize < 5 { return "always" }
+    // Small functions (< 10 stmts): always inline - covers GCD, min/max, accumulate patterns
+    if bodySize < 10 { return "always" }
+    // Small hot functions: always inline
+    if bodySize < 20 and callCount >= 3 { return "always" }
+    // Small cold functions: hint
+    if bodySize < 20 { return "hint" }
+    // Medium functions: only hint if hot
+    if bodySize <= 50 and callCount >= 5 { return "hint" }
+    // Medium functions: no opinion if not hot
+    if bodySize <= 50 { return "" }
+    // Large functions: discourage inlining
+    if bodySize > 150 { return "noinline" }
+    return ""
+}
+
+// --- ML weighted inline decision ---
+// Module-level weight variables (loaded from .seen_ml_heuristics)
+var g_inlineW0: Int = 0
+var g_inlineW1: Int = 0
+var g_inlineW2: Int = 0
+var g_inlineW3: Int = 0
+var g_inlineBias: Int = 0
+var g_mlWeightsActive: Bool = false
+
+// Weighted inline decision using trained weights (fixed-point: weights scaled by 100).
+// Falls back to threshold-based mlShouldInline if no weights loaded.
+// hasLoops: 1 if function contains loops, 0 otherwise
+// nestingDepth: max nesting depth of loops
+// hasFloatOps: 1 if function has float operations, 0 otherwise (encourages inlining for FMA)
+fun mlShouldInlineWeighted(bodySize: Int, callCount: Int, hasLoops: Int, nestingDepth: Int) r: String {
+    if not g_mlWeightsActive {
+        // Cost-aware fallback: adjust effective size based on content
+        var effectiveSize = bodySize
+        // Loop-heavy functions: inflate cost (discourage inlining) - loops expand at call site
+        if hasLoops > 0 {
+            effectiveSize = bodySize + bodySize * nestingDepth / 2
+        }
+        return mlShouldInline(effectiveSize, callCount)
+    }
+    // Fixed-point dot product: score = sum(wi * fi) + bias  (all scaled by 100)
+    let score = g_inlineW0 * bodySize + g_inlineW1 * callCount + g_inlineW2 * hasLoops + g_inlineW3 * nestingDepth + g_inlineBias
+    // Logistic model: score > 0 means >50% likely to inline
+    // Thresholds scaled by 100: 150 = strong yes (sigmoid > 0.82), 50 = hint, -100 = noinline
+    if score > 150 { return "always" }
+    if score > 50 { return "hint" }
+    if score < 0 - 100 { return "noinline" }
+    return ""
+}
+
+// Self-call detection: checks if funcName appears in its own call list.
+// Used to determine norecurse attribute.
+// selfCallNames/selfCallFuncs are pipe-delimited parallel arrays:
+//   selfCallFuncs = "foo|foo|bar" (function being defined)
+//   selfCallNames = "bar|foo|baz" (function being called)
+// If any entry has both funcName as the defining function AND as the called function, it's recursive.
+fun selfCallCheck(funcName: String, selfCallFuncs: String, selfCallNames: String, selfCallCount: Int) r: Bool {
+    var i = 0
+    while i < selfCallCount {
+        let defFunc = pipeGet(selfCallFuncs, i)
+        if defFunc == funcName {
+            let calledFunc = pipeGet(selfCallNames, i)
+            if calledFunc == funcName {
+                return true
+            }
+        }
+        i = i + 1
+    }
+    return false
+}
+
+// Parse a float-like string as fixed-point integer (multiplied by 100).
+// Handles "0.5" -> 50, "-1.23" -> -123, "42" -> 4200
+fun parseFixedPoint100(s: String) r: Int {
+    var negative = 0
+    var i = 0
+    if s.length() > 0 {
+        if s.byteAt(0) == 45 {
+            negative = 1
+            i = 1
+        }
+    }
+    var wholePart = 0
+    var fracPart = 0
+    var inFrac = 0
+    var fracDigits = 0
+    while i < s.length() {
+        let b = s.byteAt(i)
+        if b == 46 {
+            inFrac = 1
+        } else {
+            let d = b - 48
+            if inFrac == 1 {
+                if fracDigits == 0 { fracPart = d * 10 }
+                if fracDigits == 1 { fracPart = fracPart + d }
+                fracDigits = fracDigits + 1
+            } else {
+                wholePart = wholePart * 10 + d
+            }
+        }
+        i = i + 1
+    }
+    // If only one fractional digit, multiply by 10
+    if fracDigits == 1 { fracPart = fracPart }
+    var result = wholePart * 100 + fracPart
+    if negative == 1 { result = 0 - result }
+    return result
+}

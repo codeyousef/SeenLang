@@ -3,7 +3,8 @@
 
 import parser.real_parser.{FunctionNode, BlockNode, StatementNode, ParserExpressionNode}
 import str.string.{StringBuilder}
-import codegen.ir_optimization.{selfCallCheck, getNextRegFn}
+import codegen.ir_optimization.{getNextRegFn}
+import codegen.ir_inline_heuristics.{selfCallCheck}
 import codegen.ir_decl_items.{normalizeSeenTypeNameImpl, normalizeDeclaredTypeNodeImpl}
 import codegen.ir_type_mapping.{isDataTypeImpl, mapTypeImpl}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}

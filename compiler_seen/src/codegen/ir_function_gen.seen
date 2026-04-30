@@ -6,7 +6,8 @@
 // Future phases will add generateExpressionFree dispatch + more sub-generators
 
 import parser.real_parser.{FunctionNode, ParserExpressionNode, StatementNode, BlockNode, ParamNode, TypeNode}
-import codegen.ir_optimization.{getNextRegFn, getNextBlockFn, parseIntManual, selfCallCheck, mlShouldInlineWeighted}
+import codegen.ir_optimization.{getNextRegFn, getNextBlockFn, parseIntManual}
+import codegen.ir_inline_heuristics.{selfCallCheck, mlShouldInlineWeighted}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
 import codegen.ir_trait_registry.{appendTraitImplEntryImpl, autoRegisterTraitImplsImpl}
 import codegen.ir_type_mapping.{isClassTypeImpl, mapTypeImpl}

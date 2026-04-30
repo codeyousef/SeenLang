@@ -38,6 +38,10 @@ import codegen.ir_decl_features.{emitFeatureDecls}
 // to their embedded compiler-module list.
 import codegen.ir_decl_late_declares.{pipeContainsValueCoreImpl}
 import codegen.ir_decl_scan.{pipeContainsValueImpl}
+import codegen.ir_egraph_rules.{egraphLookup, egraphLookupFloat, egraphSelfComparison}
+import codegen.ir_egraph_emit.{emitEgraphPeepholeImpl, emitEgraphFloatPeepholeImpl}
+import codegen.ir_inline_heuristics.{mlShouldInlineWeighted, selfCallCheck}
+import codegen.ir_enum_lookup.{lookupEnumVariantTagImpl, lookupEnumParentImpl, lookupEnumFieldTypeImpl, lookupEnumFieldCountImpl, isEnumVariantImpl}
 import codegen.ir_decl_registry.{recordLateUserDeclareIntoStateImpl, captureDeclarationPassStateImpl, captureLateUserDeclareStateImpl, captureParentClassRegistryStateImpl, registerCrossModuleConstantsIntoStateImpl, registerParentClassIntoStateImpl, resetLateUserDeclareStateImpl}
 import codegen.ir_decl_items.{registerPreparedDeclarationItemsIntoStateImpl}
 import codegen.ir_decl_pass_driver.{beginDeclarationRegistrationPassImpl, finishDeclarationRegistrationPassImpl}
@@ -2926,6 +2930,10 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("macro.expander")
         modules.push("bootstrap.frontend")
         modules.push("codegen.ir_optimization")
+        modules.push("codegen.ir_egraph_rules")
+        modules.push("codegen.ir_egraph_emit")
+        modules.push("codegen.ir_inline_heuristics")
+        modules.push("codegen.ir_enum_lookup")
         modules.push("codegen.ir_declarations")
         modules.push("codegen.ir_type_info_generator_layout")
         modules.push("codegen.ir_char_codes")
