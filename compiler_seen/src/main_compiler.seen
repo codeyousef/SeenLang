@@ -101,6 +101,7 @@ import codegen.ir_comptime_eval.{lookupComptimeStrVarImpl}
 import codegen.ir_simd_type_helpers.{isSimdVectorTypeImpl}
 import codegen.ir_struct_field_resolution.{resolveKnownStructFieldImpl}
 import codegen.ir_type_ops.{emitBinaryOpImpl}
+import codegen.ir_type_ops_comparison.{emitComparisonBinaryOpImpl}
 import codegen.ir_receiver_method_emit.{emitSimdReductionImpl, emitOptionMethodImpl, emitJsonValueMethodImpl, emitStringMethodImpl}
 import codegen.ir_simd_builtin_emit.{emitSimdBuiltinImpl}
 import codegen.ir_string_builder_cast_emit.{emitStringBuilderMethodImpl, emitCastExprImpl}
@@ -3026,6 +3027,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_comptime_eval")
         modules.push("codegen.ir_simd_type_helpers")
         modules.push("codegen.ir_struct_field_resolution")
+        modules.push("codegen.ir_type_ops_comparison")
         modules.push("codegen.ir_type_ops")
         modules.push("codegen.ir_receiver_method_emit")
         modules.push("codegen.ir_simd_builtin_emit")
