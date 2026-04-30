@@ -38,11 +38,35 @@ class ModuleConstantRegistrySnapshot {
     }
 }
 
+class ModuleConstantGenerationState {
+    var moduleConstantNames: Array<String>
+    var moduleConstantValues: Array<String>
+    var moduleConstantTypes: Array<String>
+    var moduleConstMutable: String
+    var moduleConstSeenTypes: String
+
+    static fun new() r: ModuleConstantGenerationState {
+        return ModuleConstantGenerationState{
+            moduleConstantNames: Array<String>(),
+            moduleConstantValues: Array<String>(),
+            moduleConstantTypes: Array<String>(),
+            moduleConstMutable: "",
+            moduleConstSeenTypes: ""
+        }
+    }
+}
+
 fun captureModuleConstantRegistryStateImpl(moduleConstMutable: String,
     moduleConstSeenTypes: String) r: ModuleConstantRegistryState {
 
     return ModuleConstantRegistryState.new(moduleConstMutable,
         moduleConstSeenTypes)
+}
+
+fun resetModuleConstantGenerationStateImpl()
+    r: ModuleConstantGenerationState {
+
+    return ModuleConstantGenerationState.new()
 }
 
 fun isModuleConstMutableImpl(idx: Int, moduleConstMutable: String) r: Bool {

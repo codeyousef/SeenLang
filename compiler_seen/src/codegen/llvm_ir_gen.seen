@@ -50,7 +50,7 @@ import codegen.ir_async_return.{prepareAsyncReturnValuePlanImpl, emitAsyncReturn
 import codegen.ir_decl_registry.{DeclarationPassState, LateUserDeclareState, preRegisterClassTypesImpl, registerFunctionStateImpl, registerCrossModuleConstantsIntoStateImpl, lookupCResourceDestructorStateImpl, isAsyncFunctionStateImpl, getAsyncDeclaredRetTypeStateImpl, getFunctionReturnTypeStateImpl, recordLateUserDeclareIntoStateImpl, emitLateUserDeclaresStateImpl, captureDeclarationPassStateImpl, captureLateUserDeclareStateImpl}
 import codegen.ir_decl_items.{DeclarationItemContext, PreparedDeclarationItem, normalizeSeenTypeNameImpl, normalizeDeclaredTypeNodeImpl, prepareDeclarationItemForRegistrationImpl, registerPreparedDeclarationItemsIntoStateImpl}
 import codegen.ir_decl_return_types.{inferReturnExprTypeImpl, resolveMethodReturnTypeImpl, resolveFunctionReturnTypeImpl}
-import codegen.ir_module_constants.{isModuleConstMutableImpl, getModuleConstSeenTypeImpl, tryInferModuleConstantVariableTypeSnapshotImpl, findModuleConstantSnapshotImpl, emitGlobalVariablesSnapshotImpl, moduleConstantInvariantLoadSuffixImpl}
+import codegen.ir_module_constants.{isModuleConstMutableImpl, getModuleConstSeenTypeImpl, tryInferModuleConstantVariableTypeSnapshotImpl, findModuleConstantSnapshotImpl, emitGlobalVariablesSnapshotImpl, moduleConstantInvariantLoadSuffixImpl, resetModuleConstantGenerationStateImpl}
 import codegen.ir_type_header.{tryLoadTypeHeaderIntoOutputImpl, emitBuiltinTypeHeaderImpl}
 import codegen.ir_local_type_fallback.{tryInferLLVMIRGeneratorThisFieldTypeImpl, tryInferStructThisFieldTypeImpl, tryInferImplicitThisVariableTypeImpl, tryInferNamedPrimitiveVariableTypeImpl}
 import codegen.ir_trait_registry.{appendDynTraitNameImpl}
@@ -337,6 +337,15 @@ fun cacheChainedPathType(key: String, structLen: Int, resultType: String) r: Voi
         g_chainedPathTypeCacheValues)
 }
 
+fun resetModuleConstantGenerationState() r: Void {
+    let moduleConstState = resetModuleConstantGenerationStateImpl()
+    moduleConstantNames = moduleConstState.moduleConstantNames
+    moduleConstantValues = moduleConstState.moduleConstantValues
+    moduleConstantTypes = moduleConstState.moduleConstantTypes
+    g_moduleConstMutable = moduleConstState.moduleConstMutable
+    g_moduleConstSeenTypes = moduleConstState.moduleConstSeenTypes
+}
+
 fun resetIrgenFieldLookupCaches() r: Void {
     let cacheState = resetFieldLookupCacheStateImpl()
     g_irgenFieldInfoCacheKeys = cacheState.fieldInfoCacheKeys
@@ -602,9 +611,7 @@ fun initBootstrapFragileGlobalArrays() r: Void {
     typesLoadedFromHeader = false
     runtimeDeclsLoaded = false
     pendingArrayLiteralType = ""
-    moduleConstantNames = Array<String>()
-    moduleConstantValues = Array<String>()
-    moduleConstantTypes = Array<String>()
+    resetModuleConstantGenerationState()
 }
 
 var g_enumVariantNames: String = ""
@@ -967,11 +974,7 @@ class LLVMIRGenerator {
         g_initFuncNames = ""
         g_initFuncCount = 0
         // Reset module-level constants (must clear between modules to prevent stale lookups)
-        moduleConstantNames = Array<String>()
-        moduleConstantValues = Array<String>()
-        moduleConstantTypes = Array<String>()
-        g_moduleConstMutable = ""
-        g_moduleConstSeenTypes = ""
+        resetModuleConstantGenerationState()
         resetFunctionLoweringOptionsStateImpl(getCurrentFunctionOptions())
         indent = 0
         // Reset optimization counters (prevents stale data leaking between modules)
