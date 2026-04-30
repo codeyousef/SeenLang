@@ -1,0 +1,315 @@
+// ir_known_struct_field_types.seen - LLVM field type fallback for known structs.
+
+fun getFieldTypeForKnownStructImpl(structName: String, fieldName: String) r: String {
+    if structName == "FrontendResult" {
+        if fieldName == "success" { return "i1" }
+        if fieldName == "diagnostics" { return "ptr" }
+        if fieldName == "program" { return "i64" }
+    }
+    if structName == "FrontendDiagnostic" {
+        if fieldName == "file" { return "%SeenString" }
+        if fieldName == "line" { return "i64" }
+        if fieldName == "column" { return "i64" }
+        if fieldName == "severity" { return "%SeenString" }
+        if fieldName == "message" { return "%SeenString" }
+    }
+    if structName == "CommandResult" {
+        if fieldName == "success" { return "i1" }
+        if fieldName == "output" { return "%SeenString" }
+    }
+    if structName == "FsFileResult" {
+        if fieldName == "isOk" { return "i1" }
+        if fieldName == "file" { return "i64" }
+        if fieldName == "error" { return "%SeenString" }
+    }
+    if structName == "ProgramNode" {
+        if fieldName == "items" { return "ptr" }
+    }
+    if structName == "ItemNode" {
+        if fieldName == "itemType" { return "%SeenString" }
+        if fieldName == "name" { return "%SeenString" }
+        if fieldName == "visibility" { return "%SeenString" }
+        if fieldName == "importPath" { return "ptr" }
+        if fieldName == "importSymbols" { return "ptr" }
+        if fieldName == "function" { return "i64" }
+        if fieldName == "classNode" { return "i64" }
+        if fieldName == "enumNode" { return "i64" }
+    }
+    if structName == "FunctionNode" {
+        if fieldName == "name" { return "%SeenString" }
+        if fieldName == "params" { return "ptr" }
+        if fieldName == "returnType" { return "%TypeNode" }
+        if fieldName == "body" { return "i64" }
+        if fieldName == "isAsync" { return "i1" }
+        if fieldName == "isInline" { return "i1" }
+        if fieldName == "isStatic" { return "i1" }
+        if fieldName == "isExtern" { return "i1" }
+        if fieldName == "isDeterministic" { return "i1" }
+        if fieldName == "isNondeterministic" { return "i1" }
+        if fieldName == "decorators" { return "ptr" }
+        if fieldName == "line" { return "i64" }
+        if fieldName == "column" { return "i64" }
+        if fieldName == "isOverride" { return "i1" }
+    }
+    if structName == "ClassNode" {
+        if fieldName == "name" { return "%SeenString" }
+        if fieldName == "fields" { return "ptr" }
+        if fieldName == "methods" { return "ptr" }
+        if fieldName == "decorators" { return "ptr" }
+        if fieldName == "isNondeterministic" { return "i1" }
+        if fieldName == "parentName" { return "%SeenString" }
+    }
+    if structName == "TypeInferenceResult" {
+        if fieldName == "success" { return "i1" }
+        if fieldName == "type" { return "i64" }
+        if fieldName == "program" { return "i64" }
+        if fieldName == "errors" { return "ptr" }
+        if fieldName == "warnings" { return "ptr" }
+        if fieldName == "environment" { return "i64" }
+        if fieldName == "typeTable" { return "i64" }
+    }
+    if structName == "Token" {
+        if fieldName == "kind" { return "%SeenString" }
+        if fieldName == "tokenType" { return "i64" }
+        if fieldName == "value" { return "%SeenString" }
+        if fieldName == "line" { return "i64" }
+        if fieldName == "column" { return "i64" }
+        if fieldName == "offset" { return "i64" }
+        if fieldName == "endOffset" { return "i64" }
+        if fieldName == "length" { return "i64" }
+        if fieldName == "fileId" { return "i64" }
+        if fieldName == "pos" { return "%Position" }
+    }
+    if structName == "Position" {
+        if fieldName == "line" { return "i64" }
+        if fieldName == "column" { return "i64" }
+        if fieldName == "offset" { return "i64" }
+        if fieldName == "fileId" { return "i64" }
+    }
+    if structName == "TypeRegistry" {
+        if fieldName == "structNames" { return "ptr" }
+        if fieldName == "structLayouts" { return "ptr" }
+        if fieldName == "structFieldNames" { return "ptr" }
+        if fieldName == "structFieldTypes" { return "ptr" }
+        if fieldName == "structLlvmFieldTypes" { return "ptr" }
+        if fieldName == "structSizes" { return "ptr" }
+        if fieldName == "structMethodNames" { return "ptr" }
+        if fieldName == "structMethodRetTypes" { return "ptr" }
+        if fieldName == "funcNames" { return "ptr" }
+        if fieldName == "funcRetTypes" { return "ptr" }
+        if fieldName == "classMethodBaseNames" { return "ptr" }
+        if fieldName == "typeHeaderPath" { return "%SeenString" }
+    }
+    if structName == "StatementNode" {
+        if fieldName == "kind" { return "%SeenString" }
+        if fieldName == "expression" { return "i64" }
+        if fieldName == "condition" { return "i64" }
+        if fieldName == "thenBlock" { return "i64" }
+        if fieldName == "thenBranch" { return "i64" }
+        if fieldName == "elseBlock" { return "i64" }
+        if fieldName == "elseBranch" { return "i64" }
+        if fieldName == "varName" { return "%SeenString" }
+        if fieldName == "varType" { return "%TypeNode" }
+        if fieldName == "isMutable" { return "i1" }
+        if fieldName == "initializer" { return "i64" }
+        if fieldName == "loopVar" { return "%SeenString" }
+        if fieldName == "iterableExpr" { return "i64" }
+        if fieldName == "loopBody" { return "i64" }
+        if fieldName == "whileCondition" { return "i64" }
+        if fieldName == "whileBody" { return "i64" }
+        if fieldName == "loopCondition" { return "i64" }
+        if fieldName == "matchExpr" { return "i64" }
+        if fieldName == "matchArms" { return "ptr" }
+        if fieldName == "returnExpr" { return "i64" }
+        if fieldName == "returnValue" { return "i64" }
+        if fieldName == "value" { return "i64" }
+        if fieldName == "target" { return "i64" }
+    }
+    if structName == "ParserExpressionNode" {
+        if fieldName == "kind" { return "%SeenString" }
+        if fieldName == "callee" { return "%SeenString" }
+        if fieldName == "literalValue" { return "%SeenString" }
+        if fieldName == "literalType" { return "%SeenString" }
+        if fieldName == "operands" { return "ptr" }
+        if fieldName == "operator" { return "%SeenString" }
+        if fieldName == "arguments" { return "ptr" }
+        if fieldName == "typeArgs" { return "ptr" }
+        if fieldName == "isNullable" { return "i1" }
+        if fieldName == "isSafeAccess" { return "i1" }
+        if fieldName == "receiverType" { return "%SeenString" }
+        if fieldName == "fieldName" { return "%SeenString" }
+        if fieldName == "inferredType" { return "%TypeNode" }
+        if fieldName == "lambdaParams" { return "ptr" }
+        if fieldName == "lambdaBody" { return "i64" }
+        if fieldName == "lambdaReturnType" { return "%TypeNode" }
+    }
+    if structName == "TypeNode" {
+        if fieldName == "typeName" { return "%SeenString" }
+        if fieldName == "isNullable" { return "i1" }
+    }
+    if structName == "ParamNode" {
+        if fieldName == "name" { return "%SeenString" }
+        if fieldName == "paramType" { return "%TypeNode" }
+        if fieldName == "isMutable" { return "i1" }
+    }
+    if structName == "FieldNode" {
+        if fieldName == "name" { return "%SeenString" }
+        if fieldName == "fieldType" { return "%TypeNode" }
+        if fieldName == "isMutable" { return "i1" }
+        if fieldName == "defaultValue" { return "i64" }
+    }
+    if structName == "MatchArm" {
+        if fieldName == "pattern" { return "i64" }
+        if fieldName == "body" { return "i64" }
+    }
+    if structName == "BlockNode" {
+        if fieldName == "statements" { return "ptr" }
+    }
+    if structName == "EnumNode" {
+        if fieldName == "name" { return "%SeenString" }
+        if fieldName == "variants" { return "ptr" }
+    }
+    if structName == "EnumVariant" {
+        if fieldName == "name" { return "%SeenString" }
+        if fieldName == "associatedTypes" { return "ptr" }
+    }
+    if structName == "Location" {
+        if fieldName == "line" { return "i64" }
+        if fieldName == "column" { return "i64" }
+        if fieldName == "file" { return "%SeenString" }
+    }
+    if structName == "TypeError" {
+        if fieldName == "message" { return "%SeenString" }
+        if fieldName == "location" { return "i64" }
+        if fieldName == "expected" { return "i64" }
+        if fieldName == "actual" { return "i64" }
+        if fieldName == "context" { return "%SeenString" }
+    }
+    if structName == "LexerError" {
+        if fieldName == "message" { return "%SeenString" }
+        if fieldName == "line" { return "i64" }
+        if fieldName == "column" { return "i64" }
+    }
+    if structName == "ParseError" {
+        if fieldName == "message" { return "%SeenString" }
+        if fieldName == "line" { return "i64" }
+        if fieldName == "column" { return "i64" }
+    }
+    if structName == "SeenLexer" {
+        if fieldName == "source" { return "%SeenString" }
+        if fieldName == "fileId" { return "i64" }
+        if fieldName == "language" { return "%SeenString" }
+        if fieldName == "errorRecoveryMode" { return "i1" }
+        if fieldName == "keywordManager" { return "i64" }
+        if fieldName == "position" { return "i64" }
+        if fieldName == "line" { return "i64" }
+        if fieldName == "column" { return "i64" }
+        if fieldName == "tokens" { return "ptr" }
+        if fieldName == "pos" { return "i64" }
+        if fieldName == "errors" { return "ptr" }
+    }
+    if structName == "TypeChecker" {
+        if fieldName == "environment" { return "i64" }
+        if fieldName == "env" { return "i64" }
+        if fieldName == "errors" { return "ptr" }
+        if fieldName == "warnings" { return "ptr" }
+        if fieldName == "strictMode" { return "i1" }
+        if fieldName == "currentFunction" { return "i64" }
+        if fieldName == "currentClass" { return "i64" }
+        if fieldName == "classTypes" { return "ptr" }
+        if fieldName == "functionTypes" { return "ptr" }
+        if fieldName == "typeTable" { return "i64" }
+    }
+    if structName == "SeenTypeChecker" {
+        if fieldName == "smartCastContext" { return "i64" }
+        if fieldName == "strictMode" { return "i1" }
+        if fieldName == "environment" { return "i64" }
+        if fieldName == "errors" { return "ptr" }
+        if fieldName == "warnings" { return "ptr" }
+    }
+    if structName == "RealParser" {
+        if fieldName == "tokens" { return "ptr" }
+        if fieldName == "pos" { return "i64" }
+        if fieldName == "current" { return "i64" }
+        if fieldName == "currentProgram" { return "i64" }
+        if fieldName == "currentBlock" { return "i64" }
+        if fieldName == "lastStatement" { return "i64" }
+        if fieldName == "lastParsedBlock" { return "i64" }
+        if fieldName == "lastFunction" { return "i64" }
+        if fieldName == "pendingDecorators" { return "ptr" }
+        if fieldName == "blockStack" { return "ptr" }
+        if fieldName == "statementStack" { return "ptr" }
+        if fieldName == "blockStackDepth" { return "i64" }
+        if fieldName == "lastParsedTypeName" { return "%SeenString" }
+        if fieldName == "lastParsedTypeNullable" { return "i1" }
+        if fieldName == "errors" { return "ptr" }
+        if fieldName == "currentFile" { return "%SeenString" }
+    }
+    if structName == "ImportPathInfo" {
+        if fieldName == "text" { return "%SeenString" }
+        if fieldName == "segments" { return "ptr" }
+    }
+    if structName == "ImportSymbolNode" {
+        if fieldName == "name" { return "%SeenString" }
+        if fieldName == "alias" { return "%SeenString" }
+    }
+    if structName == "FsFile" {
+        if fieldName == "fd" { return "i64" }
+        if fieldName == "path" { return "%SeenString" }
+    }
+    if structName == "StringHashMap" {
+        if fieldName == "entries" { return "ptr" }
+        if fieldName == "count" { return "i64" }
+        if fieldName == "capacity" { return "i64" }
+    }
+    if structName == "HashEntry" {
+        if fieldName == "key" { return "%SeenString" }
+        if fieldName == "value" { return "i64" }
+    }
+    if structName == "KeywordManager" {
+        if fieldName == "language" { return "%SeenString" }
+        if fieldName == "keywords" { return "i64" }
+        if fieldName == "tokenNameMap" { return "i64" }
+        if fieldName == "stdlibAliases" { return "i64" }
+        if fieldName == "sources" { return "ptr" }
+    }
+    if structName == "Environment" {
+        if fieldName == "parent" { return "i64" }
+        if fieldName == "variables" { return "i64" }
+        if fieldName == "types" { return "i64" }
+    }
+    if structName == "TypeTable" {
+        if fieldName == "types" { return "i64" }
+        if fieldName == "parent" { return "i64" }
+    }
+    if structName == "Type" {
+        if fieldName == "name" { return "%SeenString" }
+        if fieldName == "isNullable" { return "i1" }
+    }
+    if structName == "FunctionType" {
+        if fieldName == "parameters" { return "ptr" }
+        if fieldName == "returnType" { return "i64" }
+        if fieldName == "isAsync" { return "i1" }
+    }
+    if structName == "ClassType" {
+        if fieldName == "name" { return "%SeenString" }
+        if fieldName == "fields" { return "ptr" }
+        if fieldName == "methods" { return "ptr" }
+    }
+    if structName == "InterfaceType" {
+        if fieldName == "name" { return "%SeenString" }
+        if fieldName == "methods" { return "ptr" }
+    }
+    if structName == "StringBuilder" {
+        if fieldName == "data" { return "ptr" }
+        if fieldName == "length" { return "i64" }
+        if fieldName == "capacity" { return "i64" }
+    }
+    if structName == "SeenArray" {
+        if fieldName == "len" { return "i64" }
+        if fieldName == "cap" { return "i64" }
+        if fieldName == "element_size" { return "i64" }
+        if fieldName == "data" { return "ptr" }
+    }
+    return ""
+}
