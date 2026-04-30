@@ -104,6 +104,33 @@ class FunctionBodyLoopVariableStorage {
     }
 }
 
+class FunctionBodyMemcpyLoopEmitResult {
+    var didEmit: Bool
+    var loopsOptimizedDelta: Int
+    var mlCategory: String
+    var mlAction: String
+    var mlDetail: String
+
+    static fun new(didEmit: Bool, loopsOptimizedDelta: Int,
+        mlCategory: String, mlAction: String, mlDetail: String)
+        r: FunctionBodyMemcpyLoopEmitResult {
+
+        return FunctionBodyMemcpyLoopEmitResult{
+            didEmit: didEmit,
+            loopsOptimizedDelta: loopsOptimizedDelta,
+            mlCategory: mlCategory,
+            mlAction: mlAction,
+            mlDetail: mlDetail
+        }
+    }
+}
+
+fun invalidFunctionBodyMemcpyLoopEmitResultImpl()
+    r: FunctionBodyMemcpyLoopEmitResult {
+
+    return FunctionBodyMemcpyLoopEmitResult.new(false, 0, "", "", "")
+}
+
 fun captureFunctionBodyBlockScopeImpl(currentDeferCount: Int,
     deadStoreSkipVars: String, activeVarCount: Int)
     r: FunctionBodyBlockScopeState {
@@ -364,4 +391,81 @@ fun resolveFunctionBodyForInIndexAllocaImpl(output: StringBuilder,
         output.append("  " + idxReg + " = alloca i64, align 8\n")
     }
     return idxReg
+}
+
+fun emitFunctionBodyArrayDataLoadImpl(output: StringBuilder,
+    regBox: Array<Int>, arrayStorageReg: String) r: String {
+
+    let arrayPtrReg = getNextRegFn(regBox)
+    output.append("  " + arrayPtrReg + " = load ptr, ptr " +
+        arrayStorageReg + "\n")
+    let dataPtrPtrReg = getNextRegFn(regBox)
+    output.append("  " + dataPtrPtrReg +
+        " = getelementptr inbounds %SeenArray, ptr " + arrayPtrReg +
+        ", i32 0, i32 3\n")
+    let dataReg = getNextRegFn(regBox)
+    output.append("  " + dataReg + " = load ptr, ptr " +
+        dataPtrPtrReg + ", !tbaa !104\n")
+    return dataReg
+}
+
+fun emitFunctionBodyMemcpyOptimizedLoopImpl(output: StringBuilder,
+    regBox: Array<Int>, memcpyKind: Int, lhsArrayName: String,
+    rhsArrayName: String, incrementVarName: String, boundReg: String,
+    lhsArrayType: String, rhsArrayType: String, lhsArrayReg: String,
+    rhsArrayReg: String, incrementVarReg: String)
+    r: FunctionBodyMemcpyLoopEmitResult {
+
+    if memcpyKind == 1 {
+        if lhsArrayType != "Array<Int>" or rhsArrayType != "Array<Int>" or
+            lhsArrayReg == "" or rhsArrayReg == "" {
+
+            return invalidFunctionBodyMemcpyLoopEmitResultImpl()
+        }
+        let dstDataReg = emitFunctionBodyArrayDataLoadImpl(output, regBox,
+            lhsArrayReg)
+        let srcDataReg = emitFunctionBodyArrayDataLoadImpl(output, regBox,
+            rhsArrayReg)
+        let byteCountReg = getNextRegFn(regBox)
+        output.append("  " + byteCountReg + " = shl nsw i64 " + boundReg +
+            ", 3\n")
+        output.append("  call void @llvm.memcpy.p0.p0.i64(ptr " +
+            dstDataReg + ", ptr " + srcDataReg + ", i64 " + byteCountReg +
+            ", i1 false)\n")
+        if incrementVarReg != "" {
+            output.append("  store i64 " + boundReg + ", ptr " +
+                incrementVarReg + "\n")
+        }
+        output.append("  ; memcpy optimization: " + lhsArrayName +
+            "[i] = " + rhsArrayName + "[i] -> llvm.memcpy\n")
+        return FunctionBodyMemcpyLoopEmitResult.new(true, 1, "memcpy",
+            "applied", lhsArrayName + "<-" + rhsArrayName)
+    }
+
+    if memcpyKind == 2 {
+        if lhsArrayType != "Array<Int>" or lhsArrayReg == "" {
+            return invalidFunctionBodyMemcpyLoopEmitResultImpl()
+        }
+        let dataReg = emitFunctionBodyArrayDataLoadImpl(output, regBox,
+            lhsArrayReg)
+        let srcReg = getNextRegFn(regBox)
+        output.append("  " + srcReg + " = getelementptr i64, ptr " +
+            dataReg + ", i64 1\n")
+        let byteCountReg = getNextRegFn(regBox)
+        output.append("  " + byteCountReg + " = shl nsw i64 " + boundReg +
+            ", 3\n")
+        output.append("  call void @llvm.memmove.p0.p0.i64(ptr " +
+            dataReg + ", ptr " + srcReg + ", i64 " + byteCountReg +
+            ", i1 false)\n")
+        if incrementVarReg != "" {
+            output.append("  store i64 " + boundReg + ", ptr " +
+                incrementVarReg + "\n")
+        }
+        output.append("  ; memmove optimization: " + lhsArrayName +
+            "[i] = " + lhsArrayName + "[i+1] -> llvm.memmove\n")
+        return FunctionBodyMemcpyLoopEmitResult.new(true, 1, "memmove",
+            "applied", lhsArrayName + "[i]<-[i+1]")
+    }
+
+    return invalidFunctionBodyMemcpyLoopEmitResultImpl()
 }

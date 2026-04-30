@@ -147,7 +147,7 @@ import codegen.ir_function_decorators.{hasFunctionDecoratorImpl, shouldSkipFunct
 import codegen.ir_function_lifecycle.{planFunctionIntrinsicFlowImpl, shouldReturnAfterFunctionDecoratorPreflightImpl, planFunctionIdentityFlowImpl, planFunctionHighPressureImpl, planFunctionEntryExitFlowImpl, applyFunctionEntrySetupToEmissionImpl, currentFunctionProfileFlagIntImpl, currentFunctionHighPressureIntImpl, applyFunctionExitStateToEmissionImpl}
 import codegen.ir_function_usage.{scanUnusedTopLevelFunctionNamesImpl}
 import codegen.ir_function_prebody.{isMainFunctionNameImpl, prepareFunctionPreBodyStateSnapshotImpl, mapFunctionPreBodyReturnTypeImpl, emitMainFunctionEntrySnapshotImpl, emitMainFunctionExitImpl}
-import codegen.ir_function_body.{captureFunctionBodyBlockScopeImpl, scanFunctionBodyDeadStorePatternsSnapshotImpl, emitFunctionBodyTrailingDeadCodeNoticeSnapshotImpl, beginFunctionBodyBlockDeferredCleanupImpl, beginFunctionBodyReturnDeferCleanupImpl, beginFunctionBodyVoidErrdeferCleanupImpl, beginFunctionBodyValueErrdeferCleanupImpl, finishFunctionBodyValueErrdeferCleanupImpl, bindFunctionBodyCatchVariableImpl, planFunctionBodyExpressionStatementImpl, emitFunctionBodyPairedSelectStoreImpl, emitFunctionBodySingleArmSelectStoreImpl, planFunctionBodyConstantIfImpl, emitFunctionBodyConstantIfNoteImpl, emitFunctionBodyIfBranchingImpl, beginFunctionBodyLoopContextImpl, restoreFunctionBodyLoopContextImpl, emitFunctionBodyLoopEndLabelImpl, resolveFunctionBodyForInLoopVariableStorageImpl, resolveFunctionBodyForInIndexAllocaImpl}
+import codegen.ir_function_body.{captureFunctionBodyBlockScopeImpl, scanFunctionBodyDeadStorePatternsSnapshotImpl, emitFunctionBodyTrailingDeadCodeNoticeSnapshotImpl, beginFunctionBodyBlockDeferredCleanupImpl, beginFunctionBodyReturnDeferCleanupImpl, beginFunctionBodyVoidErrdeferCleanupImpl, beginFunctionBodyValueErrdeferCleanupImpl, finishFunctionBodyValueErrdeferCleanupImpl, bindFunctionBodyCatchVariableImpl, planFunctionBodyExpressionStatementImpl, emitFunctionBodyPairedSelectStoreImpl, emitFunctionBodySingleArmSelectStoreImpl, planFunctionBodyConstantIfImpl, emitFunctionBodyConstantIfNoteImpl, emitFunctionBodyIfBranchingImpl, beginFunctionBodyLoopContextImpl, restoreFunctionBodyLoopContextImpl, emitFunctionBodyLoopEndLabelImpl, resolveFunctionBodyForInLoopVariableStorageImpl, resolveFunctionBodyForInIndexAllocaImpl, emitFunctionBodyMemcpyOptimizedLoopImpl}
 import codegen.ir_function_state.{getCurrentFunctionEmissionStateImpl, resetFunctionEmissionForFunctionImpl, markFunctionEmissionHighPressureImpl, resetFunctionEmissionHighPressureImpl, recordMovedVariableImpl, isMovedVariableImpl, resetFunctionLoweringOptionsStateImpl, resetFunctionHighPressureImpl, markFunctionHighPressureImpl, isFunctionHighPressureImpl, currentFunctionAlignToImpl, currentFunctionRegionSizeBytesImpl, isCurrentFunctionAsyncLoweringImpl, markTailCallPositionImpl, takeTailCallPositionImpl}
 import codegen.ir_function_ml_logs.{applyFunctionPreludeMlLogsImpl, applyFunctionUnusedParamMlLogsImpl}
 import codegen.ir_ml_logging.{mlLogDecision, setupMLLogging, writeMLDecisionLog}
@@ -3588,69 +3588,46 @@ class LLVMIRGenerator {
         }
         let mcBoundReg = generateExpression(memcpyPlan.boundExpr)
 
+        let lhsArrayType = findVarType(memcpyPlan.lhsArrayName)
+        var rhsArrayType = ""
         if memcpyPlan.kind == 1 {
-            let mcDstType = findVarType(memcpyPlan.lhsArrayName)
-            let mcSrcType = findVarType(memcpyPlan.rhsArrayName)
-            let mcDstIdx = findActiveVariableIndexImpl(varNames,
-                activeVarCount, memcpyPlan.lhsArrayName)
-            let mcSrcIdx = findActiveVariableIndexImpl(varNames,
+            rhsArrayType = findVarType(memcpyPlan.rhsArrayName)
+        }
+        var lhsArrayReg = ""
+        let lhsArrayIdx = findActiveVariableIndexImpl(varNames,
+            activeVarCount, memcpyPlan.lhsArrayName)
+        if lhsArrayIdx >= 0 {
+            lhsArrayReg = varRegs[lhsArrayIdx]
+        }
+        var rhsArrayReg = ""
+        if memcpyPlan.kind == 1 {
+            let rhsArrayIdx = findActiveVariableIndexImpl(varNames,
                 activeVarCount, memcpyPlan.rhsArrayName)
-            if mcDstType != "Array<Int>" or mcSrcType != "Array<Int>" or mcDstIdx < 0 or mcSrcIdx < 0 {
-                return false
+            if rhsArrayIdx >= 0 {
+                rhsArrayReg = varRegs[rhsArrayIdx]
             }
-            let mcDstPtr = getNextReg()
-            output.append("  " + mcDstPtr + " = load ptr, ptr " + varRegs[mcDstIdx] + "\n")
-            let mcSrcPtr = getNextReg()
-            output.append("  " + mcSrcPtr + " = load ptr, ptr " + varRegs[mcSrcIdx] + "\n")
-            let mcDstPP = getNextReg()
-            output.append("  " + mcDstPP + " = getelementptr inbounds %SeenArray, ptr " + mcDstPtr + ", i32 0, i32 3\n")
-            let mcDstData = getNextReg()
-            output.append("  " + mcDstData + " = load ptr, ptr " + mcDstPP + ", !tbaa !104\n")
-            let mcSrcPP = getNextReg()
-            output.append("  " + mcSrcPP + " = getelementptr inbounds %SeenArray, ptr " + mcSrcPtr + ", i32 0, i32 3\n")
-            let mcSrcData = getNextReg()
-            output.append("  " + mcSrcData + " = load ptr, ptr " + mcSrcPP + ", !tbaa !104\n")
-            let mcByteCount = getNextReg()
-            output.append("  " + mcByteCount + " = shl nsw i64 " + mcBoundReg + ", 3\n")
-            output.append("  call void @llvm.memcpy.p0.p0.i64(ptr " + mcDstData + ", ptr " + mcSrcData + ", i64 " + mcByteCount + ", i1 false)\n")
-            let mcLoopVarIdx = findActiveVariableIndexImpl(varNames,
-                activeVarCount, memcpyPlan.incrementVarName)
-            if mcLoopVarIdx >= 0 {
-                output.append("  store i64 " + mcBoundReg + ", ptr " + varRegs[mcLoopVarIdx] + "\n")
-            }
-            output.append("  ; memcpy optimization: " + memcpyPlan.lhsArrayName + "[i] = " + memcpyPlan.rhsArrayName + "[i] → llvm.memcpy\n")
-            mlLogDecision("memcpy", "applied",
-                memcpyPlan.lhsArrayName + "<-" + memcpyPlan.rhsArrayName)
-            g_loopsOptimized = g_loopsOptimized + 1
         }
-        if memcpyPlan.kind == 2 {
-            let mcArrType = findVarType(memcpyPlan.lhsArrayName)
-            let mcArrIdx = findActiveVariableIndexImpl(varNames,
-                activeVarCount, memcpyPlan.lhsArrayName)
-            if mcArrType != "Array<Int>" or mcArrIdx < 0 {
-                return false
-            }
-            let mcArrPtr = getNextReg()
-            output.append("  " + mcArrPtr + " = load ptr, ptr " + varRegs[mcArrIdx] + "\n")
-            let mcDataPtrPtr = getNextReg()
-            output.append("  " + mcDataPtrPtr + " = getelementptr inbounds %SeenArray, ptr " + mcArrPtr + ", i32 0, i32 3\n")
-            let mcData = getNextReg()
-            output.append("  " + mcData + " = load ptr, ptr " + mcDataPtrPtr + ", !tbaa !104\n")
-            let mcSrc = getNextReg()
-            output.append("  " + mcSrc + " = getelementptr i64, ptr " + mcData + ", i64 1\n")
-            let mcByteCount = getNextReg()
-            output.append("  " + mcByteCount + " = shl nsw i64 " + mcBoundReg + ", 3\n")
-            output.append("  call void @llvm.memmove.p0.p0.i64(ptr " + mcData + ", ptr " + mcSrc + ", i64 " + mcByteCount + ", i1 false)\n")
-            let mcLoopVarIdx = findActiveVariableIndexImpl(varNames,
-                activeVarCount, memcpyPlan.incrementVarName)
-            if mcLoopVarIdx >= 0 {
-                output.append("  store i64 " + mcBoundReg + ", ptr " + varRegs[mcLoopVarIdx] + "\n")
-            }
-            output.append("  ; memmove optimization: " + memcpyPlan.lhsArrayName + "[i] = " + memcpyPlan.lhsArrayName + "[i+1] → llvm.memmove\n")
-            mlLogDecision("memmove", "applied",
-                memcpyPlan.lhsArrayName + "[i]<-[i+1]")
-            g_loopsOptimized = g_loopsOptimized + 1
+        var incrementVarReg = ""
+        let incrementVarIdx = findActiveVariableIndexImpl(varNames,
+            activeVarCount, memcpyPlan.incrementVarName)
+        if incrementVarIdx >= 0 {
+            incrementVarReg = varRegs[incrementVarIdx]
         }
+
+        let memcpyEmitResult = emitFunctionBodyMemcpyOptimizedLoopImpl(
+            output, g_regBox, memcpyPlan.kind, memcpyPlan.lhsArrayName,
+            memcpyPlan.rhsArrayName, memcpyPlan.incrementVarName, mcBoundReg,
+            lhsArrayType, rhsArrayType, lhsArrayReg, rhsArrayReg,
+            incrementVarReg)
+        if not memcpyEmitResult.didEmit {
+            return false
+        }
+        if memcpyEmitResult.mlCategory != "" {
+            mlLogDecision(memcpyEmitResult.mlCategory,
+                memcpyEmitResult.mlAction, memcpyEmitResult.mlDetail)
+        }
+        g_loopsOptimized = g_loopsOptimized +
+            memcpyEmitResult.loopsOptimizedDelta
         emitMemcpyLoopExitBlocksImpl(output, condLabel, bodyLabel, endLabel)
         let restoredLoopContext = restoreFunctionBodyLoopContextImpl(
             currentLoopCondLabel, currentLoopEndLabel, savedCondLabel,
