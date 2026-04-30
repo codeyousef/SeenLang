@@ -1,0 +1,132 @@
+// ir_assignment_coerce.seen - Assignment value type mapping and store coercion.
+
+import codegen.ir_optimization.{getNextRegFn}
+import codegen.ir_type_mapping.{isClassTypeImpl, isDataTypeImpl, isClassHandleLikeTypeImpl}
+import str.string.{StringBuilder}
+
+fun mapAssignmentSourceValueTypeCoreImpl(sourceSeenType: String,
+    structNames: Array<String>) r: String {
+
+    if sourceSeenType == "" or sourceSeenType == "Unknown" {
+        return ""
+    }
+    if sourceSeenType.startsWith("*") {
+        return "ptr"
+    }
+    if sourceSeenType == "String" {
+        return "%SeenString"
+    }
+    if sourceSeenType == "Float" {
+        return "double"
+    }
+    if sourceSeenType == "Bool" or sourceSeenType == "Boolean" {
+        return "i1"
+    }
+    if sourceSeenType == "Int" or sourceSeenType == "Char" or
+        sourceSeenType == "SeenTokenType" {
+        return "i64"
+    }
+    if sourceSeenType.startsWith("Array<") or
+        sourceSeenType.startsWith("List<") {
+        return "ptr"
+    }
+    if isDataTypeImpl(sourceSeenType) == 1 {
+        return "%" + sourceSeenType
+    }
+    if isClassTypeImpl(sourceSeenType, structNames) == 1 {
+        return "i64"
+    }
+    return ""
+}
+
+fun coerceAssignmentStoreValueCoreImpl(output: StringBuilder, regBox: Array<Int>,
+    targetLlvmType: String, sourceSeenType: String, valueReg: String,
+    structNames: Array<String>) r: String {
+
+    let sourceLlvmType = mapAssignmentSourceValueTypeCoreImpl(sourceSeenType,
+        structNames)
+    if sourceLlvmType == "" or sourceLlvmType == targetLlvmType {
+        return valueReg
+    }
+    if targetLlvmType == "double" and sourceLlvmType == "i64" {
+        let coercedReg = getNextRegFn(regBox)
+        output.append("  " + coercedReg + " = sitofp i64 " + valueReg +
+            " to double\n")
+        return coercedReg
+    }
+    if targetLlvmType == "double" and sourceLlvmType == "i1" {
+        let intReg = getNextRegFn(regBox)
+        output.append("  " + intReg + " = zext i1 " + valueReg + " to i64\n")
+        let coercedReg = getNextRegFn(regBox)
+        output.append("  " + coercedReg + " = sitofp i64 " + intReg +
+            " to double\n")
+        return coercedReg
+    }
+    if targetLlvmType == "i64" and sourceLlvmType == "ptr" {
+        let coercedReg = getNextRegFn(regBox)
+        output.append("  " + coercedReg + " = ptrtoint ptr " + valueReg +
+            " to i64\n")
+        return coercedReg
+    }
+    if targetLlvmType == "i64" and sourceLlvmType == "double" {
+        let coercedReg = getNextRegFn(regBox)
+        output.append("  " + coercedReg + " = fptosi double " + valueReg +
+            " to i64\n")
+        return coercedReg
+    }
+    if targetLlvmType == "i64" and sourceLlvmType == "i1" {
+        let coercedReg = getNextRegFn(regBox)
+        output.append("  " + coercedReg + " = zext i1 " + valueReg +
+            " to i64\n")
+        return coercedReg
+    }
+    if targetLlvmType == "ptr" and sourceLlvmType == "i64" {
+        if valueReg == "0" {
+            return "null"
+        }
+        let coercedReg = getNextRegFn(regBox)
+        output.append("  " + coercedReg + " = inttoptr i64 " + valueReg +
+            " to ptr\n")
+        return coercedReg
+    }
+    if targetLlvmType == "i1" and sourceLlvmType == "i64" {
+        let coercedReg = getNextRegFn(regBox)
+        output.append("  " + coercedReg + " = icmp ne i64 " + valueReg +
+            ", 0\n")
+        return coercedReg
+    }
+    if targetLlvmType == "i1" and sourceLlvmType == "double" {
+        let coercedReg = getNextRegFn(regBox)
+        output.append("  " + coercedReg + " = fcmp one double " + valueReg +
+            ", 0.0\n")
+        return coercedReg
+    }
+    return valueReg
+}
+
+fun coerceMethodCallHandleAssignmentCoreImpl(output: StringBuilder,
+    regBox: Array<Int>, targetLlvmType: String, valueSeenType: String,
+    valueReg: String, valueKind: String, alreadyCoercedValueReg: String,
+    structNames: Array<String>) r: String {
+
+    if targetLlvmType != "ptr" {
+        return alreadyCoercedValueReg
+    }
+    if alreadyCoercedValueReg != valueReg {
+        return alreadyCoercedValueReg
+    }
+    if valueKind != "MethodCall" and valueKind != "Call" {
+        return alreadyCoercedValueReg
+    }
+    if valueReg == "0" {
+        return "null"
+    }
+    if isClassHandleLikeTypeImpl(valueSeenType, structNames) != 1 {
+        return alreadyCoercedValueReg
+    }
+
+    let coercedReg = getNextRegFn(regBox)
+    output.append("  " + coercedReg + " = inttoptr i64 " + valueReg +
+        " to ptr\n")
+    return coercedReg
+}

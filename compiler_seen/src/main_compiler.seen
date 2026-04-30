@@ -132,6 +132,7 @@ import codegen.ir_class_type_special.{tryEmitSpecialClassTypeDecoratorImpl}
 import codegen.ir_class_gen_support.{scanGeneratedClassDecoratorsImpl}
 import codegen.ir_class_generated_features.{emitGeneratedClassDecoratorMethodsImpl}
 import codegen.ir_field_registry.{resolveFieldIndexImpl, findCachedIrgenFieldIndexImpl, cacheIrgenFieldIndexImpl, findCachedChainedPathTypeRecordImpl, cacheChainedPathTypeImpl, resetFieldLookupCacheStateImpl}
+import codegen.ir_assignment_coerce.{coerceAssignmentStoreValueCoreImpl}
 import codegen.ir_assignment_gen.{emitFieldStoreImpl, emitPreparedIndexAssignmentBoundsCheckImpl, emitPreparedIndexAssignmentStoreImpl}
 import codegen.ir_variable_gen.{getExprVariableNameImpl, shouldNullifyMovedArgumentSourceImpl, resolveMovedArgumentSourceNameImpl}
 import codegen.ir_field_layout.{resolveFieldAccessLayoutImpl}
@@ -3014,6 +3015,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_class_gen_support")
         modules.push("codegen.ir_class_generated_features")
         modules.push("codegen.ir_field_registry")
+        modules.push("codegen.ir_assignment_coerce")
         modules.push("codegen.ir_assignment_gen")
         modules.push("codegen.ir_variable_gen")
         modules.push("codegen.ir_field_layout")

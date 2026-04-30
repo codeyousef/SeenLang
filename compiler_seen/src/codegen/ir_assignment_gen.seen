@@ -6,11 +6,12 @@
 import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_string_collect.{getBaseTypeNameImpl}
 import codegen.ir_type_info.{findStructIdx, getSeenFieldTypeImpl}
-import codegen.ir_type_mapping.{isClassTypeImpl, isDataTypeImpl, mapTypeImpl, isClassHandleLikeTypeImpl}
+import codegen.ir_type_mapping.{isClassTypeImpl, isDataTypeImpl, mapTypeImpl}
 import codegen.ir_bitfield_access.{findBitfieldWidthImpl}
 import codegen.ir_field_layout.{emitResolvedFieldAccessPtrImpl, emitResolvedFieldAccessLoadImpl}
 import codegen.ir_member_access.{prepareExpressionMemberReceiverImpl, prepareVariableMemberReceiverImpl}
 import codegen.ir_variable_gen.{findActiveVariableIndexImpl}
+import codegen.ir_assignment_coerce.{coerceAssignmentStoreValueCoreImpl, coerceMethodCallHandleAssignmentCoreImpl}
 import codegen.type_registry.{getFieldInfoReg}
 import str.string.{StringBuilder}
 
@@ -121,131 +122,14 @@ fun tryEmitBitfieldAssignmentStoreImpl(output: StringBuilder, regBox: Array<Int>
     return 1
 }
 
-fun mapAssignmentSourceValueTypeImpl(sourceSeenType: String,
-    structNames: Array<String>) r: String {
-
-    if sourceSeenType == "" or sourceSeenType == "Unknown" {
-        return ""
-    }
-    if sourceSeenType.startsWith("*") {
-        return "ptr"
-    }
-    if sourceSeenType == "String" {
-        return "%SeenString"
-    }
-    if sourceSeenType == "Float" {
-        return "double"
-    }
-    if sourceSeenType == "Bool" or sourceSeenType == "Boolean" {
-        return "i1"
-    }
-    if sourceSeenType == "Int" or sourceSeenType == "Char" or
-        sourceSeenType == "SeenTokenType" {
-        return "i64"
-    }
-    if sourceSeenType.startsWith("Array<") or
-        sourceSeenType.startsWith("List<") {
-        return "ptr"
-    }
-    if isDataTypeImpl(sourceSeenType) == 1 {
-        return "%" + sourceSeenType
-    }
-    if isClassTypeImpl(sourceSeenType, structNames) == 1 {
-        return "i64"
-    }
-    return ""
-}
-
-fun coerceAssignmentStoreValueImpl(output: StringBuilder, regBox: Array<Int>,
-    targetLlvmType: String, sourceSeenType: String, valueReg: String,
-    structNames: Array<String>) r: String {
-
-    let sourceLlvmType = mapAssignmentSourceValueTypeImpl(sourceSeenType,
-        structNames)
-    if sourceLlvmType == "" or sourceLlvmType == targetLlvmType {
-        return valueReg
-    }
-    if targetLlvmType == "double" and sourceLlvmType == "i64" {
-        let coercedReg = getNextRegFn(regBox)
-        output.append("  " + coercedReg + " = sitofp i64 " + valueReg +
-            " to double\n")
-        return coercedReg
-    }
-    if targetLlvmType == "double" and sourceLlvmType == "i1" {
-        let intReg = getNextRegFn(regBox)
-        output.append("  " + intReg + " = zext i1 " + valueReg + " to i64\n")
-        let coercedReg = getNextRegFn(regBox)
-        output.append("  " + coercedReg + " = sitofp i64 " + intReg +
-            " to double\n")
-        return coercedReg
-    }
-    if targetLlvmType == "i64" and sourceLlvmType == "ptr" {
-        let coercedReg = getNextRegFn(regBox)
-        output.append("  " + coercedReg + " = ptrtoint ptr " + valueReg +
-            " to i64\n")
-        return coercedReg
-    }
-    if targetLlvmType == "i64" and sourceLlvmType == "double" {
-        let coercedReg = getNextRegFn(regBox)
-        output.append("  " + coercedReg + " = fptosi double " + valueReg +
-            " to i64\n")
-        return coercedReg
-    }
-    if targetLlvmType == "i64" and sourceLlvmType == "i1" {
-        let coercedReg = getNextRegFn(regBox)
-        output.append("  " + coercedReg + " = zext i1 " + valueReg +
-            " to i64\n")
-        return coercedReg
-    }
-    if targetLlvmType == "ptr" and sourceLlvmType == "i64" {
-        if valueReg == "0" {
-            return "null"
-        }
-        let coercedReg = getNextRegFn(regBox)
-        output.append("  " + coercedReg + " = inttoptr i64 " + valueReg +
-            " to ptr\n")
-        return coercedReg
-    }
-    if targetLlvmType == "i1" and sourceLlvmType == "i64" {
-        let coercedReg = getNextRegFn(regBox)
-        output.append("  " + coercedReg + " = icmp ne i64 " + valueReg +
-            ", 0\n")
-        return coercedReg
-    }
-    if targetLlvmType == "i1" and sourceLlvmType == "double" {
-        let coercedReg = getNextRegFn(regBox)
-        output.append("  " + coercedReg + " = fcmp one double " + valueReg +
-            ", 0.0\n")
-        return coercedReg
-    }
-    return valueReg
-}
-
 fun coerceMethodCallHandleAssignmentImpl(output: StringBuilder,
     regBox: Array<Int>, targetLlvmType: String, valueSeenType: String,
     valueReg: String, valueKind: String, alreadyCoercedValueReg: String,
     structNames: Array<String>) r: String {
 
-    if targetLlvmType != "ptr" {
-        return alreadyCoercedValueReg
-    }
-    if alreadyCoercedValueReg != valueReg {
-        return alreadyCoercedValueReg
-    }
-    if valueKind != "MethodCall" and valueKind != "Call" {
-        return alreadyCoercedValueReg
-    }
-    if valueReg == "0" {
-        return "null"
-    }
-    if isClassHandleLikeTypeImpl(valueSeenType, structNames) != 1 {
-        return alreadyCoercedValueReg
-    }
-
-    let coercedReg = getNextRegFn(regBox)
-    output.append("  " + coercedReg + " = inttoptr i64 " + valueReg +
-        " to ptr\n")
-    return coercedReg
+    return coerceMethodCallHandleAssignmentCoreImpl(output, regBox,
+        targetLlvmType, valueSeenType, valueReg, valueKind,
+        alreadyCoercedValueReg, structNames)
 }
 
 fun emitResolvedMemberAssignmentStoreImpl(output: StringBuilder,
@@ -272,7 +156,7 @@ fun emitResolvedMemberAssignmentStoreImpl(output: StringBuilder,
     }
 
     if unionTypes != "" and unionTypes.contains(receiverType + "|") {
-        let unionValueReg = coerceAssignmentStoreValueImpl(output, regBox,
+        let unionValueReg = coerceAssignmentStoreValueCoreImpl(output, regBox,
             fieldTypes[0], valueSeenType, valueReg, structNames)
         emitUnionFieldStoreImpl(output, fieldTypes[0], unionValueReg,
             receiverPtrReg)
@@ -287,7 +171,7 @@ fun emitResolvedMemberAssignmentStoreImpl(output: StringBuilder,
         let bitfieldWidth = findBitfieldWidthImpl(receiverType + "." + fieldName,
             bitfieldKeys, bitfieldWidths)
         if bitfieldWidth > 0 {
-            let bitfieldValueReg = coerceAssignmentStoreValueImpl(output,
+            let bitfieldValueReg = coerceAssignmentStoreValueCoreImpl(output,
                 regBox, "i64", valueSeenType, valueReg, structNames)
             if tryEmitBitfieldAssignmentStoreImpl(output, regBox, fieldPtrReg,
                 bitfieldValueReg, bitfieldWidth) == 1 {
@@ -304,7 +188,7 @@ fun emitResolvedMemberAssignmentStoreImpl(output: StringBuilder,
     if isDataTypeImpl(fieldTypes[1]) == 1 {
         isDataField = 1
     }
-    var coercedValueReg = coerceAssignmentStoreValueImpl(output, regBox,
+    var coercedValueReg = coerceAssignmentStoreValueCoreImpl(output, regBox,
         fieldTypes[0], valueSeenType, valueReg, structNames)
     coercedValueReg = coerceMethodCallHandleAssignmentImpl(output, regBox,
         fieldTypes[0], valueSeenType, valueReg, valueKind,
@@ -474,7 +358,7 @@ fun emitPrimitiveIndexAssignmentStoreImpl(output: StringBuilder,
     r: Int {
 
     if elementType == "Int" or elementType == "Char" {
-        let storedValueReg = coerceAssignmentStoreValueImpl(output, regBox,
+        let storedValueReg = coerceAssignmentStoreValueCoreImpl(output, regBox,
             "i64", valueSeenType, valueReg, structNames)
         let dataPtrPtrReg = getNextRegFn(regBox)
         output.append("  " + dataPtrPtrReg + " = getelementptr inbounds %SeenArray, ptr " + arrayReg + ", i32 0, i32 3\n")
@@ -486,7 +370,7 @@ fun emitPrimitiveIndexAssignmentStoreImpl(output: StringBuilder,
         return 1
     }
     if elementType == "Float" {
-        let storedValueReg = coerceAssignmentStoreValueImpl(output, regBox,
+        let storedValueReg = coerceAssignmentStoreValueCoreImpl(output, regBox,
             "double", valueSeenType, valueReg, structNames)
         let dataPtrPtrReg = getNextRegFn(regBox)
         output.append("  " + dataPtrPtrReg + " = getelementptr inbounds %SeenArray, ptr " + arrayReg + ", i32 0, i32 3\n")
@@ -508,7 +392,7 @@ fun emitGenericIndexAssignmentStoreImpl(output: StringBuilder, regBox: Array<Int
     var valuePtrReg = ""
     if isClassTypeImpl(elementType, structNames) == 1 {
         let tmpReg = getNextRegFn(regBox)
-        let storedValueReg = coerceAssignmentStoreValueImpl(output, regBox,
+        let storedValueReg = coerceAssignmentStoreValueCoreImpl(output, regBox,
             "i64", valueSeenType, valueReg, structNames)
         output.append("  " + tmpReg + " = alloca i64\n")
         output.append("  store i64 " + storedValueReg + ", ptr " + tmpReg + "\n")
@@ -518,7 +402,7 @@ fun emitGenericIndexAssignmentStoreImpl(output: StringBuilder, regBox: Array<Int
             valuePtrReg = valueReg
         } else {
             let tmpReg = getNextRegFn(regBox)
-            let storedValueReg = coerceAssignmentStoreValueImpl(output,
+            let storedValueReg = coerceAssignmentStoreValueCoreImpl(output,
                 regBox, "%" + elementType, valueSeenType, valueReg,
                 structNames)
             output.append("  " + tmpReg + " = alloca %" + elementType + "\n")
@@ -527,14 +411,14 @@ fun emitGenericIndexAssignmentStoreImpl(output: StringBuilder, regBox: Array<Int
         }
     } else if llvmElementType == "ptr" {
         let tmpReg = getNextRegFn(regBox)
-        var storedValue = coerceAssignmentStoreValueImpl(output, regBox,
+        var storedValue = coerceAssignmentStoreValueCoreImpl(output, regBox,
             "ptr", valueSeenType, valueReg, structNames)
         output.append("  " + tmpReg + " = alloca ptr\n")
         output.append("  store ptr " + storedValue + ", ptr " + tmpReg + "\n")
         valuePtrReg = tmpReg
     } else {
         let tmpReg = getNextRegFn(regBox)
-        let storedValueReg = coerceAssignmentStoreValueImpl(output, regBox,
+        let storedValueReg = coerceAssignmentStoreValueCoreImpl(output, regBox,
             llvmElementType, valueSeenType, valueReg, structNames)
         output.append("  " + tmpReg + " = alloca " + llvmElementType + "\n")
         output.append("  store " + llvmElementType + " " + storedValueReg + ", ptr " + tmpReg + "\n")
