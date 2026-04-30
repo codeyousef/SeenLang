@@ -1,7 +1,7 @@
 // ir_codegen_state_bridge.seen - CodegenState sync/writeback packing helpers.
 
 import str.string.{StringBuilder}
-import codegen.type_registry.{CodegenState, FunctionLoweringOptions}
+import codegen.ir_codegen_state.{CodegenState, FunctionLoweringOptions}
 import codegen.ir_string_collect.{resetStringConstCache}
 
 class CodegenStateBridgeSnapshot {

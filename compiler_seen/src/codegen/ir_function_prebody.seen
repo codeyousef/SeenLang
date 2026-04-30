@@ -1,7 +1,7 @@
 // ir_function_prebody.seen - top-level function pre-body state preparation.
 
 import parser.real_parser.{FunctionNode}
-import codegen.type_registry.{CodegenState, resetFunctionLoweringOptions}
+import codegen.ir_codegen_state.{CodegenState, resetFunctionLoweringOptions}
 import codegen.ir_function_gen.{resetLocalCodegenStateImpl, emitPreAllocatedAllocasImpl}
 import codegen.ir_function_signature_emit.{emitDefaultReturnValueImpl}
 import codegen.ir_function_param_meta.{preRegisterFunctionParametersImpl}

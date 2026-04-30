@@ -1,0 +1,249 @@
+// ir_type_header_registry.seen - Type-header registration helpers.
+
+import trace.{traceGen}
+import codegen.ir_string_collect.{trimSpacesImpl, normalizeHeaderTypeImpl, parseDecimalIntImpl}
+import codegen.ir_type_layout.{computeStructSizeFromLayoutImpl}
+import codegen.type_registry.{findStructReg, ensureStructEntryReg, isDataTypeReg}
+
+fun updateStructLayoutFromHeaderReg(structName: String, structLayout: String,
+    structNames: Array<String>, structLayouts: Array<String>,
+    structFieldNames: Array<String>, structFieldTypes: Array<String>,
+    structLlvmFieldTypes: Array<String>, structSizes: Array<Int>,
+    structMethodNames: Array<String>, structMethodRetTypes: Array<String>)
+    r: Void {
+
+    var idx = findStructReg(structName, structNames)
+    if idx < 0 {
+        idx = ensureStructEntryReg(structName, structNames, structLayouts,
+            structFieldNames, structFieldTypes, structLlvmFieldTypes,
+            structSizes, structMethodNames, structMethodRetTypes)
+    }
+    if structLayout != "" {
+        structLayouts[idx] = structLayout + ""
+        structSizes[idx] = 0
+    }
+}
+
+fun updateStructFieldsFromHeaderReg(structName: String, fieldsStr: String,
+    structNames: Array<String>, structLayouts: Array<String>,
+    structFieldNames: Array<String>, structFieldTypes: Array<String>,
+    structLlvmFieldTypes: Array<String>, structSizes: Array<Int>,
+    structMethodNames: Array<String>, structMethodRetTypes: Array<String>)
+    r: Void {
+
+    var idx = findStructReg(structName, structNames)
+    if idx < 0 {
+        idx = ensureStructEntryReg(structName, structNames, structLayouts,
+            structFieldNames, structFieldTypes, structLlvmFieldTypes,
+            structSizes, structMethodNames, structMethodRetTypes)
+    }
+    let existingNames = structFieldNames[idx]
+    let existingTypes = structFieldTypes[idx]
+    let trimmedFields = trimSpacesImpl(fieldsStr)
+    if trimmedFields == "" { return }
+    var namesOut = ""
+    var llvmTypesOut = ""
+    var entryStart = 0
+    var pos = 0
+    var nesting = 0
+    while pos <= trimmedFields.length() {
+        var c = '\0'
+        if pos < trimmedFields.length() { c = trimmedFields.charAt(pos) }
+        if c == '{' or c == '[' or c == '<' { nesting = nesting + 1 }
+        if c == '}' or c == ']' or c == '>' {
+            if nesting > 0 { nesting = nesting - 1 }
+        }
+        if pos == trimmedFields.length() or (c == ',' and nesting == 0) {
+            let entry = trimmedFields.substring(entryStart, pos)
+            var colonIdx = -1
+            var scan = 0
+            while scan < entry.length() {
+                if entry.charAt(scan) == ':' { colonIdx = scan; break }
+                scan = scan + 1
+            }
+            if colonIdx >= 0 {
+                let rawName = trimSpacesImpl(entry.substring(0, colonIdx))
+                let rawType = trimSpacesImpl(entry.substring(colonIdx + 1,
+                    entry.length()))
+                let normalizedType = normalizeHeaderTypeImpl(rawType)
+                if rawName != "" {
+                    if namesOut != "" {
+                        namesOut = namesOut + ","
+                        llvmTypesOut = llvmTypesOut + "|"
+                    }
+                    namesOut = namesOut + rawName
+                    llvmTypesOut = llvmTypesOut + normalizedType
+                }
+            }
+            entryStart = pos + 1
+        }
+        pos = pos + 1
+    }
+    if namesOut == "" { return }
+    structFieldNames[idx] = namesOut
+    structLlvmFieldTypes[idx] = llvmTypesOut
+    if existingNames != "" and existingTypes != "" {
+        let reordered = reorderFieldTypesReg(existingNames, existingTypes,
+            namesOut)
+        if reordered != "" { structFieldTypes[idx] = reordered }
+    }
+}
+
+fun updateStructSizeFromHeaderReg(structName: String, sizeStr: String,
+    structNames: Array<String>, structLayouts: Array<String>,
+    structFieldNames: Array<String>, structFieldTypes: Array<String>,
+    structLlvmFieldTypes: Array<String>, structSizes: Array<Int>,
+    structMethodNames: Array<String>, structMethodRetTypes: Array<String>)
+    r: Void {
+
+    var idx = findStructReg(structName, structNames)
+    if idx < 0 {
+        idx = ensureStructEntryReg(structName, structNames, structLayouts,
+            structFieldNames, structFieldTypes, structLlvmFieldTypes,
+            structSizes, structMethodNames, structMethodRetTypes)
+    }
+    let trimmed = trimSpacesImpl(sizeStr)
+    if trimmed == "" { return }
+    let sizeVal = parseDecimalIntImpl(trimmed)
+    if sizeVal > 0 { structSizes[idx] = sizeVal }
+}
+
+fun applyTypeHeaderStructLineReg(trimmedLine: String, currentStruct: String,
+    structNames: Array<String>, structLayouts: Array<String>,
+    structFieldNames: Array<String>, structFieldTypes: Array<String>,
+    structLlvmFieldTypes: Array<String>, structSizes: Array<Int>,
+    structMethodNames: Array<String>, structMethodRetTypes: Array<String>)
+    r: String {
+
+    var nextStruct = currentStruct
+    if trimmedLine.startsWith("%") and trimmedLine.contains("= type") {
+        var parseIdx = 1
+        var foundName = ""
+        var foundLayout = ""
+        while parseIdx < trimmedLine.length() - 7 {
+            if trimmedLine.substring(parseIdx, parseIdx + 9) ==
+                " = type {" {
+                foundName = trimmedLine.substring(1, parseIdx)
+                foundLayout = trimmedLine.substring(parseIdx + 8,
+                    trimmedLine.length())
+                parseIdx = trimmedLine.length()
+            }
+            parseIdx = parseIdx + 1
+        }
+        if foundName != "" {
+            nextStruct = foundName
+            updateStructLayoutFromHeaderReg(foundName, foundLayout,
+                structNames, structLayouts, structFieldNames, structFieldTypes,
+                structLlvmFieldTypes, structSizes, structMethodNames,
+                structMethodRetTypes)
+        }
+    }
+    if trimmedLine.startsWith("; Size:") and nextStruct != "" {
+        let sizePart = trimmedLine.substring(7, trimmedLine.length())
+        updateStructSizeFromHeaderReg(nextStruct, sizePart, structNames,
+            structLayouts, structFieldNames, structFieldTypes,
+            structLlvmFieldTypes, structSizes, structMethodNames,
+            structMethodRetTypes)
+    }
+    if trimmedLine.startsWith("; Fields:") and nextStruct != "" {
+        let fieldsPart = trimmedLine.substring(9, trimmedLine.length())
+        updateStructFieldsFromHeaderReg(nextStruct, fieldsPart, structNames,
+            structLayouts, structFieldNames, structFieldTypes,
+            structLlvmFieldTypes, structSizes, structMethodNames,
+            structMethodRetTypes)
+    }
+    return nextStruct
+}
+
+fun getFieldTypeFromListsReg(fieldNamesStr: String, fieldTypesStr: String,
+    fieldName: String) r: String {
+
+    var fieldIdx = 0
+    var nameStart = 0
+    var pos = 0
+    var foundField = false
+    while pos <= fieldNamesStr.length() and not foundField {
+        if pos == fieldNamesStr.length() or
+            (pos < fieldNamesStr.length() and
+            fieldNamesStr.byteAt(pos) == 44) {
+            let name = fieldNamesStr.substring(nameStart, pos)
+            if name == fieldName { foundField = true } else {
+                fieldIdx = fieldIdx + 1
+                nameStart = pos + 1
+            }
+        }
+        pos = pos + 1
+    }
+    if not foundField { return "" }
+    var typeIdx = 0
+    var typeStart = 0
+    pos = 0
+    while pos <= fieldTypesStr.length() {
+        if pos == fieldTypesStr.length() or
+            (pos < fieldTypesStr.length() and
+            fieldTypesStr.byteAt(pos) == 124) {
+            if typeIdx == fieldIdx {
+                return fieldTypesStr.substring(typeStart, pos)
+            }
+            typeIdx = typeIdx + 1
+            typeStart = pos + 1
+        }
+        pos = pos + 1
+    }
+    return ""
+}
+
+fun reorderFieldTypesReg(existingNames: String, existingTypes: String,
+    newNames: String) r: String {
+
+    var result = ""
+    var start = 0
+    var pos = 0
+    while pos <= newNames.length() {
+        var c = '\0'
+        if pos < newNames.length() { c = newNames.charAt(pos) }
+        if c == ',' or pos == newNames.length() {
+            let name = newNames.substring(start, pos)
+            var mappedType = getFieldTypeFromListsReg(existingNames,
+                existingTypes, name)
+            if mappedType == "" { mappedType = "Int" }
+            if result != "" { result = result + "|" }
+            result = result + mappedType
+            start = pos + 1
+        }
+        pos = pos + 1
+    }
+    return result
+}
+
+fun computeMissingStructSizesReg(structNames: Array<String>,
+    structLayouts: Array<String>, structSizes: Array<Int>) r: Void {
+
+    var changed = true
+    var pass = 0
+    while changed and pass < 8 {
+        changed = false
+        var i = 0
+        while i < structNames.length() {
+            if structSizes[i] == 0 {
+                let structName = structNames[i]
+                if not isDataTypeReg(structName) {
+                    i = i + 1
+                    continue
+                }
+                traceGen("computeMissingStructSizes: " + structName)
+                let layout = structLayouts[i]
+                if layout != "" {
+                    let sizeVal = computeStructSizeFromLayoutImpl(layout,
+                        structNames, structLayouts, structSizes)
+                    if sizeVal > 0 {
+                        structSizes[i] = sizeVal
+                        changed = true
+                    }
+                }
+            }
+            i = i + 1
+        }
+        pass = pass + 1
+    }
+}

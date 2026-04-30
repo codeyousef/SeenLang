@@ -186,6 +186,8 @@ import codegen.ir_stmt_comptime.{ComptimeRegistryStateSnapshot, classifyComptime
 import codegen.ir_stmt_return.{emitErrdeferTempReturnLoadImpl, emitProfileExitOnReturnImpl, emitReturnRegionAndProfileCleanupImpl, emitFinalReturnStatementValueImpl}
 import codegen.ir_stmt_scope.{recordDeferredStatementSnapshotImpl, beginTryCatchStatementSnapshotImpl}
 import codegen.type_registry.{findStructReg}
+import codegen.ir_codegen_state.{CodegenState}
+import codegen.ir_type_header_registry.{applyTypeHeaderStructLineReg}
 import codegen.ir_type_header.{emitBuiltinTypeHeaderImpl}
 import tools.translator.{translateSource}
 import tools.c_import_gen.{CImportGenerator, CImportResult}
@@ -3060,6 +3062,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_function_param_meta")
         modules.push("codegen.ir_function_prebody")
         modules.push("codegen.ir_function_body")
+        modules.push("codegen.ir_codegen_state")
         modules.push("codegen.ir_codegen_state_bridge")
         modules.push("codegen.ir_function_ml_logs")
         modules.push("codegen.ir_ml_logging")
@@ -3109,6 +3112,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_stmt_comptime")
         modules.push("codegen.ir_stmt_return")
         modules.push("codegen.type_registry")
+        modules.push("codegen.ir_type_header_registry")
         modules.push("codegen.ir_type_header")
         // Scan the main generator after extracted helpers so their
         // declarations are available during bootstrap registration.

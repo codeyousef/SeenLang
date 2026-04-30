@@ -4,7 +4,7 @@
 
 import parser.real_parser.{FunctionNode}
 import str.string.{StringBuilder}
-import codegen.type_registry.{FunctionLoweringOptions, resetFunctionLoweringOptions}
+import codegen.ir_codegen_state.{FunctionLoweringOptions, resetFunctionLoweringOptions}
 
 fun hasFunctionLoweringDecoratorImpl(fn: FunctionNode, decoratorName: String)
     r: Bool {

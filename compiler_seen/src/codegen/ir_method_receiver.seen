@@ -9,7 +9,8 @@ import codegen.ir_seen_field_type_lookup.{getSeenFieldTypeImpl}
 import codegen.ir_seen_token_types.{getSeenTokenTypeValueImpl}
 import codegen.ir_type_mapping.{isClassTypeImpl, isClassHandleLikeTypeImpl, mapFieldNameToReceiverType}
 import codegen.ir_path_expr.{splitFirstPathDotImpl, resolveChainedPathSuffixTypeImpl}
-import codegen.type_registry.{findStructReg, getFieldTypeFromListsReg}
+import codegen.type_registry.{findStructReg}
+import codegen.ir_type_header_registry.{getFieldTypeFromListsReg}
 
 fun quoteIdentIfNeededImpl(name: String) r: String {
     var i = 0

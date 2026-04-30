@@ -2,7 +2,7 @@
 // Extracted from ir_function_gen.seen
 
 import parser.real_parser.{ParserExpressionNode}
-import codegen.type_registry.{CodegenState, csGetNextReg}
+import codegen.ir_codegen_state.{CodegenState, csGetNextReg}
 import codegen.ir_optimization.{parseIntManual}
 import codegen.ir_type_info.{charToCodeStr}
 import codegen.ir_string_collect.{hexToDecimalImpl, cacheStringConstUnchecked}

@@ -3,7 +3,7 @@
 
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{parseIntManual, selectSimdWidth}
-import codegen.type_registry.{FunctionLoweringOptions}
+import codegen.ir_codegen_state.{FunctionLoweringOptions}
 
 fun ensureLoopContextStringBoxValue(box: Array<String>) r: Void {
     if box.length() == 0 {
