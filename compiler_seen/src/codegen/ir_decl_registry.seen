@@ -134,6 +134,10 @@ fun captureLateUserDeclareStateImpl(lateXmDeclareNames: String,
         lateXmDeclareCount)
 }
 
+fun resetLateUserDeclareStateImpl() r: LateUserDeclareState {
+    return LateUserDeclareState.new("", "", 0)
+}
+
 fun captureParentClassRegistryStateImpl(inheritanceChildNames: String,
     inheritanceParentNames: String, inheritanceCount: Int)
     r: ParentClassRegistryState {

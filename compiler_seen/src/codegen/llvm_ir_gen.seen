@@ -47,7 +47,7 @@ import codegen.ir_decl_scan.{collectStructMethodSignaturesImpl}
 import codegen.ir_async_registry.{registerAsyncFunctionImpl, isAsyncFunctionImpl, getAsyncDeclaredRetTypeImpl}
 import codegen.ir_async_await.{emitAwaitPollLoopImpl, emitAwaitResultValueImpl}
 import codegen.ir_async_return.{prepareAsyncReturnValuePlanImpl, emitAsyncReturnValueBranchImpl, emitAsyncReturnVoidBranchImpl}
-import codegen.ir_decl_registry.{DeclarationPassState, LateUserDeclareState, preRegisterClassTypesImpl, registerFunctionStateImpl, registerCrossModuleConstantsIntoStateImpl, lookupCResourceDestructorStateImpl, isAsyncFunctionStateImpl, getAsyncDeclaredRetTypeStateImpl, getFunctionReturnTypeStateImpl, recordLateUserDeclareIntoStateImpl, emitLateUserDeclaresStateImpl, captureDeclarationPassStateImpl, captureLateUserDeclareStateImpl}
+import codegen.ir_decl_registry.{DeclarationPassState, LateUserDeclareState, preRegisterClassTypesImpl, registerFunctionStateImpl, registerCrossModuleConstantsIntoStateImpl, lookupCResourceDestructorStateImpl, isAsyncFunctionStateImpl, getAsyncDeclaredRetTypeStateImpl, getFunctionReturnTypeStateImpl, recordLateUserDeclareIntoStateImpl, emitLateUserDeclaresStateImpl, captureDeclarationPassStateImpl, captureLateUserDeclareStateImpl, resetLateUserDeclareStateImpl}
 import codegen.ir_decl_items.{DeclarationItemContext, PreparedDeclarationItem, normalizeSeenTypeNameImpl, normalizeDeclaredTypeNodeImpl, prepareDeclarationItemForRegistrationImpl, registerPreparedDeclarationItemsIntoStateImpl}
 import codegen.ir_decl_return_types.{inferReturnExprTypeImpl, resolveMethodReturnTypeImpl, resolveFunctionReturnTypeImpl}
 import codegen.ir_module_constants.{isModuleConstMutableImpl, getModuleConstSeenTypeImpl, tryInferModuleConstantVariableTypeSnapshotImpl, findModuleConstantSnapshotImpl, emitGlobalVariablesSnapshotImpl, moduleConstantInvariantLoadSuffixImpl, resetModuleConstantGenerationStateImpl}
@@ -344,6 +344,13 @@ fun resetModuleConstantGenerationState() r: Void {
     moduleConstantTypes = moduleConstState.moduleConstantTypes
     g_moduleConstMutable = moduleConstState.moduleConstMutable
     g_moduleConstSeenTypes = moduleConstState.moduleConstSeenTypes
+}
+
+fun resetLateUserDeclareState() r: Void {
+    let lateState = resetLateUserDeclareStateImpl()
+    g_lateXmDeclareNames = lateState.lateXmDeclareNames
+    g_lateXmDeclareStrs = lateState.lateXmDeclareStrs
+    g_lateXmDeclareCount = lateState.lateXmDeclareCount
 }
 
 fun resetIrgenFieldLookupCaches() r: Void {
@@ -968,9 +975,7 @@ class LLVMIRGenerator {
         typesLoadedFromHeader = false
         runtimeDeclsLoaded = false
         pendingArrayLiteralType = ""
-        g_lateXmDeclareNames = ""
-        g_lateXmDeclareStrs = ""
-        g_lateXmDeclareCount = 0
+        resetLateUserDeclareState()
         g_initFuncNames = ""
         g_initFuncCount = 0
         // Reset module-level constants (must clear between modules to prevent stale lookups)
