@@ -1,0 +1,658 @@
+// Struct method return type lookup helpers
+// Extracted from ir_type_info.seen
+
+import codegen.ir_type_info.{g_methodReturnCacheTypes, findMethodReturnCacheRecordImpl, cacheMethodReturnTypeImpl, findStructIdx}
+
+fun getMethodReturnTypeImpl(structName: String, methodName: String,
+    structNames: Array<String>, structMethodNames: Array<String>,
+    structMethodRetTypes: Array<String>) r: String {
+
+    let cached = findMethodReturnCacheRecordImpl(structName, methodName,
+        structNames, structMethodNames, structMethodRetTypes)
+    if cached >= 0 {
+        return g_methodReturnCacheTypes[cached]
+    }
+
+    let resultType = computeMethodReturnTypeUncachedImpl(structName,
+        methodName, structNames, structMethodNames, structMethodRetTypes)
+    cacheMethodReturnTypeImpl(structName, methodName, resultType, structNames,
+        structMethodNames, structMethodRetTypes)
+    return resultType
+}
+
+fun computeMethodReturnTypeUncachedImpl(structName: String, methodName: String,
+    structNames: Array<String>, structMethodNames: Array<String>,
+    structMethodRetTypes: Array<String>) r: String {
+
+    // Fallback for well-known types that may not have methods registered
+    if structName == "Environment" {
+        if methodName == "lookup" { return "Type" }
+        if methodName == "lookupFunction" { return "FunctionType" }
+        if methodName == "lookupClass" { return "ClassType" }
+        if methodName == "define" or methodName == "defineFunction" or methodName == "defineClass" { return "Void" }
+    }
+    if structName == "Type" {
+        if methodName == "getName" or methodName == "toString" { return "String" }
+    }
+    if structName == "TypeInferenceResult" {
+        if methodName == "getVariableType" { return "Type" }
+    }
+    // Type checker
+    if structName == "TypeChecker" {
+        if methodName == "check" { return "TypeInferenceResult" }
+    }
+    // IR classes from ir/interfaces.seen
+    if structName == "IRBuilder" {
+        if methodName == "createBlock" { return "IRBasicBlock" }
+        if methodName == "createFunction" { return "IRFunction" }
+        if methodName == "createAlloca" or methodName == "createLoad" or methodName == "createStore" or methodName == "createCall" or methodName == "createBinaryOp" or methodName == "createUnaryOp" or methodName == "createGEP" or methodName == "createCast" or methodName == "createICmp" or methodName == "createFCmp" or methodName == "createSelect" or methodName == "createPhi" { return "IRValue" }
+        if methodName == "createRet" or methodName == "createBr" or methodName == "createCondBr" or methodName == "setInsertPoint" or methodName == "appendInstruction" { return "Void" }
+        if methodName == "getCurrentBlock" { return "IRBasicBlock?" }
+    }
+    if structName == "IRFunction" {
+        if methodName == "addBlock" or methodName == "addParameter" { return "Void" }
+        if methodName == "getEntryBlock" { return "IRBasicBlock?" }
+        if methodName == "getAllInstructions" { return "Array<IRInstruction>" }
+        if methodName == "toString" { return "String" }
+    }
+    if structName == "IRBasicBlock" {
+        if methodName == "addInstruction" or methodName == "addPredecessor" or methodName == "addSuccessor" { return "Void" }
+        if methodName == "toString" { return "String" }
+    }
+    if structName == "IRModule" {
+        if methodName == "addFunction" or methodName == "addGlobal" or methodName == "addType" or methodName == "addStringConstant" or methodName == "addError" { return "Void" }
+        if methodName == "getFunction" { return "IRFunction?" }
+        if methodName == "toString" or methodName == "emitLLVM" or methodName == "escapeString" { return "String" }
+        if methodName == "hasErrors" or methodName == "isSuccess" { return "Bool" }
+    }
+    if structName == "IRValue" {
+        if methodName == "getName" or methodName == "toString" { return "String" }
+        if methodName == "getType" { return "IRType" }
+        if methodName == "isConstant" { return "Bool" }
+    }
+    if structName == "IRType" {
+        if methodName == "getName" or methodName == "toString" { return "String" }
+        if methodName == "getSize" { return "Int" }
+        if methodName == "isPointer" or methodName == "isStruct" { return "Bool" }
+    }
+    if structName == "IRInstruction" {
+        if methodName == "addOperand" or methodName == "setMetadata" { return "Void" }
+        if methodName == "toString" { return "String" }
+    }
+    if structName == "IRError" {
+        if methodName == "getMessage" or methodName == "toString" { return "String" }
+        if methodName == "getLine" or methodName == "getColumn" { return "Int" }
+    }
+    // Macro system classes
+    if structName == "MacroExpander" {
+        if methodName == "expandProgram" { return "MacroExpansionResult" }
+        if methodName == "getErrors" { return "Array<String>" }
+    }
+    if structName == "MacroExpansionResult" {
+        if methodName == "hasErrors" { return "Bool" }
+        if methodName == "addError" { return "Void" }
+    }
+    if structName == "ComptimeInterpreter" {
+        if methodName == "evaluate" { return "ComptimeValue" }
+        if methodName == "getErrors" { return "Array<String>" }
+    }
+    // String class methods
+    if structName == "String" {
+        if methodName == "charAt" { return "Char" }
+        if methodName == "charCodeAt" or methodName == "byteAt" { return "Int" }
+        if methodName == "fromCharCode" { return "String" }
+        if methodName == "toCString" { return "Int" }
+        if methodName == "replace" { return "String" }
+        if methodName == "repeat" { return "String" }
+        if methodName == "trim" { return "String" }
+        if methodName == "toLowerCase" { return "String" }
+        if methodName == "toUpperCase" { return "String" }
+        if methodName == "reverse" { return "String" }
+        if methodName == "split" { return "Array<String>" }
+        if methodName == "isEmpty" { return "Bool" }
+        if methodName == "startsWith" or methodName == "endsWith" or methodName == "contains" { return "Bool" }
+    }
+    if structName == "Int" {
+        if methodName == "toSeenString" { return "String" }
+    }
+    // Option/Optional class methods (generic type - handles both Option and Optional names)
+    if structName == "Option" or structName == "Optional" or structName.startsWith("Option<") or structName.startsWith("Optional<") {
+        if methodName == "isSome" or methodName == "IsSome" or methodName == "isNone" or methodName == "IsNone" { return "Bool" }
+        if methodName == "unwrapOr" or methodName == "UnwrapOr" {
+            if structName.startsWith("Option<") and structName.endsWith(">") {
+                let elemType = structName.substring(7, structName.length() - 1)
+                return elemType
+            }
+            return "Int"
+        }
+        // Note: unwrap/expect return the generic type T - handled by generic type inference elsewhere
+        if methodName == "Store" or methodName == "Clear" { return "Void" }
+    }
+    // Vec<T> class methods
+    if structName == "Vec" or structName.startsWith("Vec<") {
+        if methodName == "len" or methodName == "length" or methodName == "indexOf" { return "Int" }
+        if methodName == "isEmpty" or methodName == "contains" { return "Bool" }
+        if methodName == "push" or methodName == "set" or methodName == "clear" or methodName == "free" or methodName == "reverse" or methodName == "insert" or methodName == "sort" { return "Void" }
+        if methodName == "get" or methodName == "pop" or methodName == "remove" or methodName == "first" or methodName == "last" {
+            // Extract element type T from Vec<T> and return it
+            if structName.startsWith("Vec<") and structName.endsWith(">") {
+                // Vec<T> -> T
+                let elementType = structName.substring(4, structName.length() - 1)
+                return elementType
+            }
+            return "Int"  // Fallback for unparameterized Vec
+        }
+    }
+    // VDOM classes
+    if structName == "VNode" {
+        if methodName == "hasKey" or methodName == "isSameType" { return "Bool" }
+        if methodName == "clone" { return "VNode" }
+        if methodName == "addChild" or methodName == "setAttribute" or methodName == "addEventHandler" { return "Void" }
+        if methodName == "getAttribute" { return "Option<String>" }
+    }
+    if structName == "Patch" {
+        if methodName == "replace" or methodName == "updateAttrs" or methodName == "updateText" or methodName == "insertChild" or methodName == "removeChild" or methodName == "moveChild" { return "Patch" }
+    }
+    if structName == "VDOMDiffer" {
+        if methodName == "diff" or methodName == "diffNodes" or methodName == "diffChildren" or methodName == "diffUnkeyedChildren" or methodName == "diffKeyedChildren" { return "Vec<Patch>" }
+        if methodName == "diffTextNodes" or methodName == "diffElementNodes" or methodName == "diffAttributes" { return "Void" }
+    }
+    if structName == "VDOMPatcher" {
+        if methodName == "applyPatches" or methodName == "applyPatch" or methodName == "applyAtPath" or methodName == "applyPatchToNode" { return "VNode" }
+    }
+    if structName == "VDOMEngine" {
+        if methodName == "mount" or methodName == "unmount" { return "Void" }
+        if methodName == "update" { return "Vec<Patch>" }
+        if methodName == "getTree" { return "Option<VNode>" }
+        if methodName == "getPatchCount" { return "Int" }
+    }
+    // Array<T> class methods
+    if structName == "Array" or structName.startsWith("Array<") {
+        if methodName == "length" or methodName == "len" { return "Int" }
+        if methodName == "push" or methodName == "set" or methodName == "clear" or methodName == "free" or methodName == "swap" { return "Void" }
+    }
+    // BTreeMap<K,V> class methods
+    if structName == "BTreeMap" or structName.startsWith("BTreeMap<") {
+        if methodName == "size" or methodName == "len" { return "Int" }
+        if methodName == "isEmpty" or methodName == "containsKey" { return "Bool" }
+        if methodName == "insert" { return "Bool" }
+        if methodName == "get" or methodName == "remove" {
+            // Extract value type from BTreeMap<K, V> to return Option<V>
+            if structName.startsWith("BTreeMap<") and structName.endsWith(">") {
+                // Find the comma that separates K and V
+                let inner = structName.substring(9, structName.length() - 1)  // "K, V"
+                var commaIdx = 0
+                var depth = 0
+                var i = 0
+                while i < inner.length() {
+                    let ch = inner.substring(i, i + 1)
+                    if ch == "<" { depth = depth + 1 }
+                    if ch == ">" { depth = depth - 1 }
+                    if ch == "," and depth == 0 {
+                        commaIdx = i
+                        i = inner.length()  // break
+                    }
+                    i = i + 1
+                }
+                if commaIdx > 0 {
+                    // Skip ", " to get value type
+                    var valueType = inner.substring(commaIdx + 1, inner.length())
+                    // Trim leading space
+                    if valueType.startsWith(" ") {
+                        valueType = valueType.substring(1, valueType.length())
+                    }
+                    return "Option<" + valueType + ">"
+                }
+            }
+            return "Option"
+        }
+        if methodName == "keys" {
+            // Extract key type from BTreeMap<K, V> to return Vec<K>
+            if structName.startsWith("BTreeMap<") and structName.endsWith(">") {
+                let inner = structName.substring(9, structName.length() - 1)  // "K, V"
+                var commaIdx = 0
+                var depth = 0
+                var i = 0
+                while i < inner.length() {
+                    let ch = inner.substring(i, i + 1)
+                    if ch == "<" { depth = depth + 1 }
+                    if ch == ">" { depth = depth - 1 }
+                    if ch == "," and depth == 0 {
+                        commaIdx = i
+                        i = inner.length()  // break
+                    }
+                    i = i + 1
+                }
+                if commaIdx > 0 {
+                    let keyType = inner.substring(0, commaIdx)
+                    return "Vec<" + keyType + ">"
+                }
+            }
+            return "Vec"
+        }
+        if methodName == "clear" or methodName == "free" { return "Void" }
+        if methodName == "values" {
+            if structName.startsWith("BTreeMap<") and structName.endsWith(">") {
+                let inner = structName.substring(9, structName.length() - 1)
+                var commaIdx = 0
+                var depth = 0
+                var i = 0
+                while i < inner.length() {
+                    let ch = inner.substring(i, i + 1)
+                    if ch == "<" { depth = depth + 1 }
+                    if ch == ">" { depth = depth - 1 }
+                    if ch == "," and depth == 0 {
+                        commaIdx = i
+                        i = inner.length()
+                    }
+                    i = i + 1
+                }
+                if commaIdx > 0 {
+                    var valueType = inner.substring(commaIdx + 1, inner.length())
+                    if valueType.startsWith(" ") {
+                        valueType = valueType.substring(1, valueType.length())
+                    }
+                    return "Vec<" + valueType + ">"
+                }
+            }
+            return "Vec"
+        }
+    }
+    // HashMap<K,V> class methods
+    if structName == "HashMap" or structName.startsWith("HashMap<") {
+        if methodName == "size" or methodName == "len" { return "Int" }
+        if methodName == "isEmpty" or methodName == "containsKey" { return "Bool" }
+        if methodName == "insert" { return "Bool" }
+        if methodName == "get" or methodName == "remove" {
+            // Extract value type from HashMap<K, V> to return Option<V>
+            if structName.startsWith("HashMap<") and structName.endsWith(">") {
+                let inner = structName.substring(8, structName.length() - 1)
+                var commaIdx = 0
+                var depth = 0
+                var i = 0
+                while i < inner.length() {
+                    let ch = inner.substring(i, i + 1)
+                    if ch == "<" { depth = depth + 1 }
+                    if ch == ">" { depth = depth - 1 }
+                    if ch == "," and depth == 0 {
+                        commaIdx = i
+                        i = inner.length()
+                    }
+                    i = i + 1
+                }
+                if commaIdx > 0 {
+                    var valueType = inner.substring(commaIdx + 1, inner.length())
+                    if valueType.startsWith(" ") {
+                        valueType = valueType.substring(1, valueType.length())
+                    }
+                    return "Option<" + valueType + ">"
+                }
+            }
+            return "Option"
+        }
+        if methodName == "getOrDefault" {
+            // Extract value type from HashMap<K, V> to return V directly (not Option<V>)
+            if structName.startsWith("HashMap<") and structName.endsWith(">") {
+                let inner = structName.substring(8, structName.length() - 1)
+                var commaIdx = 0
+                var depth = 0
+                var i = 0
+                while i < inner.length() {
+                    let ch = inner.substring(i, i + 1)
+                    if ch == "<" { depth = depth + 1 }
+                    if ch == ">" { depth = depth - 1 }
+                    if ch == "," and depth == 0 {
+                        commaIdx = i
+                        i = inner.length()
+                    }
+                    i = i + 1
+                }
+                if commaIdx > 0 {
+                    var valueType = inner.substring(commaIdx + 1, inner.length())
+                    if valueType.startsWith(" ") {
+                        valueType = valueType.substring(1, valueType.length())
+                    }
+                    return valueType
+                }
+            }
+            return "Int"
+        }
+        if methodName == "keys" {
+            if structName.startsWith("HashMap<") and structName.endsWith(">") {
+                let inner = structName.substring(8, structName.length() - 1)
+                var commaIdx = 0
+                var depth = 0
+                var i = 0
+                while i < inner.length() {
+                    let ch = inner.substring(i, i + 1)
+                    if ch == "<" { depth = depth + 1 }
+                    if ch == ">" { depth = depth - 1 }
+                    if ch == "," and depth == 0 {
+                        commaIdx = i
+                        i = inner.length()
+                    }
+                    i = i + 1
+                }
+                if commaIdx > 0 {
+                    let keyType = inner.substring(0, commaIdx)
+                    return "Vec<" + keyType + ">"
+                }
+            }
+            return "Vec"
+        }
+        if methodName == "clear" { return "Void" }
+        if methodName == "values" {
+            if structName.startsWith("HashMap<") and structName.endsWith(">") {
+                let inner = structName.substring(8, structName.length() - 1)
+                var commaIdx = 0
+                var depth = 0
+                var i = 0
+                while i < inner.length() {
+                    let ch = inner.substring(i, i + 1)
+                    if ch == "<" { depth = depth + 1 }
+                    if ch == ">" { depth = depth - 1 }
+                    if ch == "," and depth == 0 {
+                        commaIdx = i
+                        i = inner.length()
+                    }
+                    i = i + 1
+                }
+                if commaIdx > 0 {
+                    var valueType = inner.substring(commaIdx + 1, inner.length())
+                    if valueType.startsWith(" ") {
+                        valueType = valueType.substring(1, valueType.length())
+                    }
+                    return "Vec<" + valueType + ">"
+                }
+            }
+            return "Vec"
+        }
+    }
+    // StringHashMap<V> class methods
+    if structName == "StringHashMap" or structName.startsWith("StringHashMap<") {
+        if methodName == "len" or methodName == "capacity" or methodName == "loadFactorPercent" { return "Int" }
+        if methodName == "isEmpty" or methodName == "contains" or methodName == "remove" { return "Bool" }
+        if methodName == "insert" or methodName == "clear" or methodName == "resize" or methodName == "insertInternal" or methodName == "ensureCapacityFor" { return "Void" }
+        if methodName == "get" {
+            if structName.startsWith("StringHashMap<") and structName.endsWith(">") {
+                let valueType = structName.substring(14, structName.length() - 1)
+                return "Option<" + valueType + ">"
+            }
+            return "Option"
+        }
+        if methodName == "getOrDefault" {
+            if structName.startsWith("StringHashMap<") and structName.endsWith(">") {
+                return structName.substring(14, structName.length() - 1)
+            }
+            return "Int"
+        }
+        if methodName == "keys" { return "Array<String>" }
+    }
+    // LinkedList<T> class methods
+    if structName == "LinkedList" or structName.startsWith("LinkedList<") {
+        if methodName == "size" or methodName == "len" { return "Int" }
+        if methodName == "isEmpty" { return "Bool" }
+        if methodName == "pushFront" or methodName == "pushBack" or methodName == "clear" { return "Void" }
+        if methodName == "popFront" or methodName == "popBack" or methodName == "peekFront" or methodName == "peekBack" {
+            if structName.startsWith("LinkedList<") and structName.endsWith(">") {
+                let elemType = structName.substring(11, structName.length() - 1)
+                return "Option<" + elemType + ">"
+            }
+            return "Option"
+        }
+    }
+    // JsonValue class methods
+    if structName == "JsonValue" {
+        if methodName == "emptyObject" or methodName == "emptyArray" { return "JsonValue" }
+        if methodName == "number" or methodName == "string" or methodName == "object" or methodName == "array" or methodName == "bool" or methodName == "null" or methodName == "nullValue" or methodName == "numberFloat" or methodName == "fromBool" { return "JsonValue" }
+        if methodName == "get" or methodName == "getAt" { return "JsonValue?" }
+        if methodName == "getArray" { return "Array<JsonValue>" }
+        if methodName == "keys" { return "Array<String>" }
+        if methodName == "getString" or methodName == "stringify" or methodName == "toString" { return "String" }
+        if methodName == "getInt" or methodName == "length" { return "Int" }
+        if methodName == "getBool" or methodName == "hasKey" { return "Bool" }
+        if methodName == "getNumber" { return "Float" }
+        if methodName == "isObject" or methodName == "isArray" or methodName == "isString" or methodName == "isNumber" or methodName == "isBool" or methodName == "isNull" { return "Bool" }
+        if methodName == "set" or methodName == "push" { return "Void" }
+    }
+    // JSON-RPC classes
+    if structName == "JsonRpcHandler" {
+        if methodName == "new" { return "JsonRpcHandler" }
+        if methodName == "readMessage" { return "LspMessage?" }
+        if methodName == "sendResponse" or methodName == "sendNotification" or methodName == "sendRaw" or methodName == "sendError" or methodName == "stop" { return "Void" }
+        if methodName == "getLastError" { return "String" }
+        if methodName == "isRunning" { return "Bool" }
+    }
+    if structName == "LspMessage" {
+        if methodName == "isNotification" { return "Bool" }
+        if methodName == "fromJson" { return "LspMessage?" }
+    }
+    if structName == "LspError" {
+        if methodName == "new" { return "LspError" }
+        if methodName == "toJson" { return "JsonValue" }
+    }
+    if structName == "LspResponse" {
+        if methodName == "success" or methodName == "failure" { return "LspResponse" }
+        if methodName == "toJson" { return "JsonValue" }
+    }
+    if structName == "MessageDispatcher" {
+        if methodName == "new" { return "MessageDispatcher" }
+        if methodName == "register" { return "Void" }
+        if methodName == "hasMethod" { return "Bool" }
+    }
+    if structName == "MessageHandler" {
+        if methodName == "new" { return "MessageHandler" }
+    }
+    // LSP types
+    if structName == "LspPosition" {
+        if methodName == "new" { return "LspPosition" }
+        if methodName == "fromJson" { return "LspPosition?" }
+        if methodName == "toJson" { return "JsonValue" }
+    }
+    if structName == "Range" {
+        if methodName == "new" { return "Range" }
+        if methodName == "fromJson" { return "Range?" }
+        if methodName == "toJson" { return "JsonValue" }
+    }
+    if structName == "Location" or structName == "SourceLocation" {
+        if methodName == "new" { return structName }
+        if methodName == "toJson" { return "JsonValue" }
+    }
+    if structName == "TextDocumentIdentifier" {
+        if methodName == "new" { return "TextDocumentIdentifier" }
+        if methodName == "fromJson" { return "TextDocumentIdentifier?" }
+    }
+    if structName == "VersionedTextDocumentIdentifier" {
+        if methodName == "fromJson" { return "VersionedTextDocumentIdentifier?" }
+    }
+    if structName == "TextDocumentItem" {
+        if methodName == "fromJson" { return "TextDocumentItem?" }
+    }
+    if structName == "TextDocumentContentChangeEvent" {
+        if methodName == "fromJson" { return "TextDocumentContentChangeEvent?" }
+    }
+    if structName == "Diagnostic" {
+        if methodName == "new" { return "Diagnostic" }
+        if methodName == "toJson" { return "JsonValue" }
+    }
+    if structName == "CompletionItem" {
+        if methodName == "new" { return "CompletionItem" }
+        if methodName == "toJson" { return "JsonValue" }
+    }
+    if structName == "CompletionList" {
+        if methodName == "new" { return "CompletionList" }
+        if methodName == "toJson" { return "JsonValue" }
+    }
+    if structName == "MarkupContent" {
+        if methodName == "markdown" or methodName == "plaintext" { return "MarkupContent" }
+        if methodName == "toJson" { return "JsonValue" }
+    }
+    if structName == "Hover" {
+        if methodName == "new" { return "Hover" }
+        if methodName == "toJson" { return "JsonValue" }
+    }
+    if structName == "TextEdit" {
+        if methodName == "new" { return "TextEdit" }
+        if methodName == "toJson" { return "JsonValue" }
+    }
+    if structName == "CodeAction" {
+        if methodName == "new" { return "CodeAction" }
+        if methodName == "toJson" { return "JsonValue" }
+    }
+    if structName == "ClientCapabilities" {
+        if methodName == "fromJson" { return "ClientCapabilities" }
+    }
+    if structName == "InitializeParams" {
+        if methodName == "fromJson" { return "InitializeParams?" }
+    }
+    if structName == "ServerCapabilities" {
+        if methodName == "toJson" { return "JsonValue" }
+    }
+    if structName == "ServerInfo" {
+        if methodName == "toJson" { return "JsonValue" }
+    }
+    if structName == "InitializeResult" {
+        if methodName == "new" { return "InitializeResult" }
+        if methodName == "toJson" { return "JsonValue" }
+    }
+    if structName == "DidOpenTextDocumentParams" {
+        if methodName == "fromJson" { return "DidOpenTextDocumentParams?" }
+    }
+    if structName == "DidChangeTextDocumentParams" {
+        if methodName == "fromJson" { return "DidChangeTextDocumentParams?" }
+    }
+    if structName == "DidCloseTextDocumentParams" {
+        if methodName == "fromJson" { return "DidCloseTextDocumentParams?" }
+    }
+    if structName == "DidSaveTextDocumentParams" {
+        if methodName == "fromJson" { return "DidSaveTextDocumentParams?" }
+    }
+    if structName == "TextDocumentPositionParams" {
+        if methodName == "fromJson" { return "TextDocumentPositionParams?" }
+    }
+    if structName == "CodeActionContext" {
+        if methodName == "fromJson" { return "CodeActionContext" }
+    }
+    if structName == "CodeActionParams" {
+        if methodName == "fromJson" { return "CodeActionParams?" }
+    }
+    if structName == "DocumentFormattingParams" {
+        if methodName == "fromJson" { return "DocumentFormattingParams?" }
+    }
+    if structName == "PublishDiagnosticsParams" {
+        if methodName == "new" { return "PublishDiagnosticsParams" }
+        if methodName == "toJson" { return "JsonValue" }
+    }
+    // LSP Server classes
+    if structName == "Document" {
+        if methodName == "new" { return "Document" }
+    }
+    if structName == "SeenLspServer" {
+        if methodName == "new" { return "SeenLspServer" }
+        if methodName == "isWordChar" { return "Bool" }
+        if methodName == "storeDocument" or methodName == "removeDocument" or methodName == "log" { return "Void" }
+        if methodName == "getDocument" { return "Document?" }
+        if methodName == "getTypeInfo" { return "String" }
+    }
+    // IO/stdio classes
+    if structName == "ContentLengthReader" {
+        if methodName == "new" { return "ContentLengthReader" }
+        if methodName == "readMessage" { return "String" }
+        if methodName == "getLastError" { return "String" }
+    }
+    if structName == "StdinReader" {
+        if methodName == "new" { return "StdinReader" }
+        if methodName == "readLine" { return "String" }
+    }
+
+    // LLVMIRGenerator methods - needed for self-compilation type inference
+    if structName == "LLVMIRGenerator" {
+        if methodName == "getNextReg" or methodName == "getNextBlockLabel" or methodName == "mapType" or methodName == "mapTypeForParameter" { return "String" }
+        if methodName == "getSeenFieldType" or methodName == "getMethodReturnType" or methodName == "getFunctionReturnType" { return "String" }
+        if methodName == "trimSpaces" or methodName == "getBaseTypeName" or methodName == "findVarType" { return "String" }
+        if methodName == "inferExpressionType" or methodName == "generateExpression" or methodName == "hexToDecimal" { return "String" }
+        if methodName == "getStringConstantIndex" or methodName == "findPreAllocated" or methodName == "findStruct" or methodName == "getFieldInfo" { return "Int" }
+        if methodName == "findVar" or methodName == "findModuleConstant" or methodName == "addStringConstant" { return "Int" }
+        if methodName == "isDataType" or methodName == "isClassType" or methodName == "isEnumType" or methodName == "isEnumVariant" { return "Bool" }
+        if methodName == "hasDecorator" { return "Bool" }
+        if methodName == "generateSingle" { return "String" }
+    }
+
+    // Generic .free() for any class type
+    if methodName == "free" {
+        return "Void"
+    }
+
+    // VDOM class method return types
+    if structName == "VDOMDiffer" {
+        if methodName == "diffAttributes" { return "AttrDiffResult" }
+        if methodName == "diff" { return "Vec<Patch>" }
+        if methodName == "clonePath" { return "Vec<Int>" }
+    }
+    if structName == "VDOMPatcher" {
+        if methodName == "patch" { return "VNode" }
+    }
+    if structName == "VDOMEngine" {
+        if methodName == "render" { return "VNode" }
+        if methodName == "diff" { return "Vec<Patch>" }
+    }
+
+    let idx = findStructIdx(structNames, structName)
+    if idx < 0 {
+        return ""  // Not found
+    }
+
+    let methodNamesStr = structMethodNames[idx]
+    let methodRetTypesStr = structMethodRetTypes[idx]
+
+    // Find method index from comma-separated names
+    var methodIdx = -1
+    var nameStart = 0
+    var namePos = 0
+    var idxPos = 0
+    while namePos <= methodNamesStr.length() {
+        var nc = ""
+        if namePos < methodNamesStr.length() {
+            nc = methodNamesStr.substring(namePos, namePos + 1)
+        }
+        if nc == "," or namePos == methodNamesStr.length() {
+            let name = methodNamesStr.substring(nameStart, namePos)
+            if name == methodName {
+                methodIdx = idxPos
+                namePos = methodNamesStr.length() + 1
+            }
+            if name != methodName {
+                idxPos = idxPos + 1
+                nameStart = namePos + 1
+            }
+        }
+        namePos = namePos + 1
+    }
+    if methodIdx < 0 {
+        return ""
+    }
+
+    // Return type list uses '|' separator to avoid commas in generic types
+    var typeIdx = 0
+    var typeStart = 0
+    var typePos = 0
+    while typePos <= methodRetTypesStr.length() {
+        var tc = ""
+        if typePos < methodRetTypesStr.length() {
+            tc = methodRetTypesStr.substring(typePos, typePos + 1)
+        }
+        if tc == "|" or typePos == methodRetTypesStr.length() {
+            if typeIdx == methodIdx {
+                return methodRetTypesStr.substring(typeStart, typePos)
+            }
+            typeIdx = typeIdx + 1
+            typeStart = typePos + 1
+        }
+        typePos = typePos + 1
+    }
+    return ""  // Not found
+}
+
+// --- Comptime evaluation utilities (extracted from LLVMIRGenerator) ---
+
+// Simple integer parser for comptime

@@ -1,0 +1,651 @@
+// Seen-level struct field type lookup helpers
+// Extracted from ir_type_info.seen
+
+import codegen.ir_type_info.{g_seenFieldTypeCacheValues, findSeenFieldTypeCacheRecord, cacheSeenFieldType, findStructIdx, getKnownLspSeenFieldTypeImpl}
+
+fun getSeenFieldTypeImpl(structName: String, fieldName: String, structNames: Array<String>, structFieldNames: Array<String>, structFieldTypes: Array<String>) r: String {
+    let cacheKey = structName + "." + fieldName
+    let structLen = structNames.length()
+    let cachedFieldType = findSeenFieldTypeCacheRecord(cacheKey, structLen)
+    if cachedFieldType >= 0 {
+        return g_seenFieldTypeCacheValues[cachedFieldType]
+    }
+    if structName == "LLVMIRGenerator" {
+        if fieldName == "output" { cacheSeenFieldType(cacheKey, structLen, "StringBuilder"); return "StringBuilder" }
+        if fieldName == "stringConstants" { cacheSeenFieldType(cacheKey, structLen, "Array<String>"); return "Array<String>" }
+        if fieldName == "nextReg" { cacheSeenFieldType(cacheKey, structLen, "Int"); return "Int" }
+        if fieldName == "nextBlock" { cacheSeenFieldType(cacheKey, structLen, "Int"); return "Int" }
+        if fieldName == "varNames" { cacheSeenFieldType(cacheKey, structLen, "Array<String>"); return "Array<String>" }
+        if fieldName == "varRegs" { cacheSeenFieldType(cacheKey, structLen, "Array<String>"); return "Array<String>" }
+        if fieldName == "varTypes" { cacheSeenFieldType(cacheKey, structLen, "Array<String>"); return "Array<String>" }
+        if fieldName == "indent" { cacheSeenFieldType(cacheKey, structLen, "Int"); return "Int" }
+    }
+    let idx = findStructIdx(structNames, structName)
+    if idx < 0 {
+        // Fallback for well-known types not in registry
+        if structName == "FrontendResult" {
+            if fieldName == "success" { return "Bool" }
+            if fieldName == "diagnostics" { return "Array<FrontendDiagnostic>" }
+            if fieldName == "program" { return "ProgramNode" }
+        }
+        if structName == "ProgramNode" {
+            if fieldName == "items" { return "Array<ItemNode>" }
+        }
+        if structName == "ItemNode" {
+            if fieldName == "itemType" { return "String" }
+            if fieldName == "function" { return "FunctionNode" }
+            if fieldName == "classNode" { return "ClassNode" }
+            if fieldName == "importPath" { return "Array<String>" }
+        }
+        if structName == "FrontendDiagnostic" {
+            if fieldName == "severity" { return "String" }
+            if fieldName == "file" { return "String" }
+            if fieldName == "line" { return "Int" }
+            if fieldName == "column" { return "Int" }
+            if fieldName == "message" { return "String" }
+        }
+        if structName == "CommandResult" {
+            if fieldName == "success" { return "Bool" }
+            if fieldName == "output" { return "String" }
+        }
+        if structName == "TypeInferenceResult" {
+            if fieldName == "success" { return "Bool" }
+            if fieldName == "type" { return "Type" }
+            if fieldName == "errors" { return "Array<TypeError>" }
+            if fieldName == "warnings" { return "Array<String>" }
+            if fieldName == "environment" { return "Environment" }
+        }
+        if structName == "MacroExpansionResult" {
+            if fieldName == "success" { return "Bool" }
+            if fieldName == "errors" { return "Array<String>" }
+            if fieldName == "program" { return "ProgramNode" }
+        }
+        if structName == "FsFileResult" {
+            if fieldName == "isOk" { return "Bool" }
+            if fieldName == "file" { return "FsFile" }
+            if fieldName == "error" { return "String" }
+        }
+        if structName == "FsFile" {
+            if fieldName == "fd" { return "Int" }
+            if fieldName == "path" { return "String" }
+        }
+        if structName == "FunctionNode" {
+            if fieldName == "name" { return "String" }
+            if fieldName == "params" { return "Array<ParamNode>" }
+            if fieldName == "returnType" { return "TypeNode" }
+            if fieldName == "body" { return "BlockNode" }
+            if fieldName == "isAsync" { return "Bool" }
+            if fieldName == "isInline" { return "Bool" }
+            if fieldName == "isStatic" { return "Bool" }
+            if fieldName == "isExtern" { return "Bool" }
+            if fieldName == "isDeterministic" { return "Bool" }
+            if fieldName == "isNondeterministic" { return "Bool" }
+            if fieldName == "decorators" { return "Array<AnnotationNode>" }
+            if fieldName == "line" { return "Int" }
+            if fieldName == "column" { return "Int" }
+        }
+        if structName == "ClassNode" {
+            if fieldName == "name" { return "String" }
+            if fieldName == "fields" { return "Array<ParamNode>" }
+            if fieldName == "methods" { return "Array<FunctionNode>" }
+            if fieldName == "decorators" { return "Array<AnnotationNode>" }
+            if fieldName == "isNondeterministic" { return "Bool" }
+        }
+        if structName == "TypeNode" {
+            if fieldName == "typeName" { return "String" }
+        }
+        if structName == "ParamNode" {
+            if fieldName == "name" { return "String" }
+            if fieldName == "paramType" { return "TypeNode" }
+        }
+        if structName == "FieldNode" {
+            if fieldName == "name" { return "String" }
+            if fieldName == "paramType" { return "TypeNode" }
+        }
+        if structName == "BlockNode" {
+            if fieldName == "statements" { return "Array<StatementNode>" }
+        }
+        if structName == "ImportPathInfo" {
+            if fieldName == "text" { return "String" }
+            if fieldName == "segments" { return "Array<String>" }
+        }
+        if structName == "AnnotationNode" {
+            if fieldName == "name" { return "String" }
+            if fieldName == "arguments" { return "Array<String>" }
+        }
+        if structName == "StatementNode" {
+            if fieldName == "kind" { return "String" }
+            if fieldName == "variableName" { return "String" }
+            if fieldName == "variableType" { return "TypeNode" }
+            if fieldName == "initializer" { return "ParserExpressionNode" }
+            if fieldName == "returnValue" { return "ParserExpressionNode" }
+            if fieldName == "condition" { return "ParserExpressionNode" }
+            if fieldName == "thenBody" { return "BlockNode" }
+            if fieldName == "elseBody" { return "BlockNode" }
+            if fieldName == "loopBody" { return "BlockNode" }
+        }
+        if structName == "ParserExpressionNode" {
+            if fieldName == "kind" { return "String" }
+            if fieldName == "variableName" { return "String" }
+            if fieldName == "callee" { return "String" }
+            if fieldName == "operator" { return "String" }
+            if fieldName == "literalValue" { return "String" }
+            if fieldName == "literalType" { return "String" }
+            if fieldName == "operands" { return "Array<ParserExpressionNode>" }
+            if fieldName == "arguments" { return "Array<ParserExpressionNode>" }
+        }
+        if structName == "Type" {
+            if fieldName == "name" { return "String" }
+            if fieldName == "isNullable" { return "Bool" }
+        }
+        if structName == "FunctionType" {
+            if fieldName == "parameters" { return "Array<Type>" }
+            if fieldName == "returnType" { return "Type" }
+            if fieldName == "isAsync" { return "Bool" }
+        }
+        if structName == "ClassType" {
+            if fieldName == "name" { return "String" }
+        }
+        if structName == "InterfaceType" {
+            if fieldName == "name" { return "String" }
+        }
+        if structName == "Location" or structName == "SourceLocation" {
+            if fieldName == "line" { return "Int" }
+            if fieldName == "column" { return "Int" }
+            if fieldName == "file" { return "String" }
+        }
+        if structName == "TypeError" {
+            if fieldName == "message" { return "String" }
+            if fieldName == "location" { return "SourceLocation" }
+            if fieldName == "expected" { return "Type" }
+            if fieldName == "actual" { return "Type" }
+            if fieldName == "context" { return "String" }
+        }
+        if structName == "Environment" {
+            if fieldName == "parent" { return "Environment" }
+        }
+        // Macro system classes
+        if structName == "ComptimeValue" {
+            if fieldName == "kind" { return "String" }
+            if fieldName == "intValue" { return "Int" }
+            if fieldName == "stringValue" { return "String" }
+            if fieldName == "boolValue" { return "Bool" }
+            if fieldName == "astValue" { return "AstNode" }
+            if fieldName == "arrayValue" { return "Array<ComptimeValue>" }
+            if fieldName == "errorMessage" { return "String" }
+        }
+        if structName == "ComptimeVariable" {
+            if fieldName == "name" { return "String" }
+            if fieldName == "value" { return "ComptimeValue" }
+        }
+        if structName == "ComptimeInterpreter" {
+            if fieldName == "variables" { return "Array<ComptimeVariable>" }
+            if fieldName == "nodeLimit" { return "Int" }
+            if fieldName == "nodesProcessed" { return "Int" }
+            if fieldName == "recursionLimit" { return "Int" }
+            if fieldName == "currentDepth" { return "Int" }
+            if fieldName == "errors" { return "Array<String>" }
+        }
+        if structName == "AstNode" {
+            if fieldName == "nodeType" { return "String" }
+            if fieldName == "functionNode" { return "FunctionNode" }
+            if fieldName == "classNode" { return "ClassNode" }
+            if fieldName == "statementNode" { return "StatementNode" }
+            if fieldName == "expressionNode" { return "ParserExpressionNode" }
+            if fieldName == "blockNode" { return "BlockNode" }
+            if fieldName == "errorMessage" { return "String" }
+            if fieldName == "hasFunction" { return "Bool" }
+            if fieldName == "hasClass" { return "Bool" }
+            if fieldName == "hasStatement" { return "Bool" }
+            if fieldName == "hasExpression" { return "Bool" }
+            if fieldName == "hasBlock" { return "Bool" }
+            if fieldName == "isError" { return "Bool" }
+        }
+        // IR classes from ir/interfaces.seen
+        if structName == "IRGenerator" {
+            if fieldName == "builder" { return "IRBuilder" }
+            if fieldName == "module" { return "IRModule" }
+            if fieldName == "currentFunction" { return "IRFunction?" }
+            if fieldName == "variables" { return "Map<String, IRValue>" }
+            if fieldName == "environment" { return "Environment" }
+        }
+        if structName == "IRBuilder" {
+            if fieldName == "currentBlock" { return "IRBasicBlock?" }
+        }
+        if structName == "IRFunction" {
+            if fieldName == "name" { return "String" }
+            if fieldName == "returnType" { return "IRType" }
+            if fieldName == "parameters" { return "Array<IRValue>" }
+            if fieldName == "blocks" { return "Array<IRBasicBlock>" }
+            if fieldName == "isVarArgs" { return "Bool" }
+            if fieldName == "attributes" { return "Array<String>" }
+        }
+        if structName == "IRBasicBlock" {
+            if fieldName == "name" { return "String" }
+            if fieldName == "instructions" { return "Array<IRInstruction>" }
+            if fieldName == "predecessors" { return "Array<IRBasicBlock>" }
+            if fieldName == "successors" { return "Array<IRBasicBlock>" }
+        }
+        if structName == "IRModule" {
+            if fieldName == "name" { return "String" }
+            if fieldName == "functions" { return "Map<String, IRFunction>" }
+            if fieldName == "globalVariables" { return "Map<String, IRValue>" }
+            if fieldName == "types" { return "Map<String, IRType>" }
+            if fieldName == "stringConstants" { return "Array<String>" }
+            if fieldName == "errors" { return "Array<IRError>" }
+            if fieldName == "success" { return "Bool" }
+            if fieldName == "targetTriple" { return "String" }
+        }
+        if structName == "IRValue" {
+            if fieldName == "name" { return "String" }
+            if fieldName == "type" { return "IRType" }
+            if fieldName == "isConstant" { return "Bool" }
+            if fieldName == "value" { return "String?" }
+        }
+        if structName == "IRType" {
+            if fieldName == "name" { return "String" }
+            if fieldName == "size" { return "Int" }
+            if fieldName == "isPointer" { return "Bool" }
+            if fieldName == "elementType" { return "IRType?" }
+        }
+        if structName == "IRInstruction" {
+            if fieldName == "opcode" { return "String" }
+            if fieldName == "result" { return "IRValue?" }
+            if fieldName == "operands" { return "Array<IRValue>" }
+            if fieldName == "metadata" { return "Map<String, String>" }
+        }
+        if structName == "IRError" {
+            if fieldName == "message" { return "String" }
+            if fieldName == "line" { return "Int" }
+            if fieldName == "column" { return "Int" }
+        }
+        // VDOM types
+        if structName == "VNode" {
+            if fieldName == "nodeType" { return "VNodeType" }
+            if fieldName == "tag" { return "String" }
+            if fieldName == "text" { return "String" }
+            if fieldName == "key" { return "String" }
+            if fieldName == "attributes" { return "BTreeMap<String,String>" }
+            if fieldName == "children" { return "Vec<VNode>" }
+            if fieldName == "eventHandlers" { return "Vec<String>" }
+        }
+        if structName == "Patch" {
+            if fieldName == "patchType" { return "PatchType" }
+            if fieldName == "path" { return "Array<Int>" }
+            if fieldName == "node" { return "VNode" }
+            if fieldName == "attributes" { return "BTreeMap<String,String>" }
+            if fieldName == "removedAttrs" { return "Vec<String>" }
+            if fieldName == "text" { return "String" }
+            if fieldName == "fromIndex" { return "Int" }
+            if fieldName == "toIndex" { return "Int" }
+        }
+        if structName == "VDOMDiffer" {
+            if fieldName == "patches" { return "Vec<Patch>" }
+        }
+        if structName == "VDOMPatcher" {
+            if fieldName == "patchCount" { return "Int" }
+        }
+        if structName == "VDOMEngine" {
+            if fieldName == "tree" { return "Option<VNode>" }
+            if fieldName == "differ" { return "VDOMDiffer" }
+            if fieldName == "patcher" { return "VDOMPatcher" }
+            if fieldName == "patchCount" { return "Int" }
+        }
+        if structName == "AttrDiffResult" {
+            if fieldName == "attributes" { return "BTreeMap<String,String>" }
+            if fieldName == "removedAttrs" { return "Vec<String>" }
+        }
+        // LSP types
+        if structName == "SeenLspServer" {
+            if fieldName == "rpc" { return "JsonRpcHandler" }
+            if fieldName == "initialized" { return "Bool" }
+            if fieldName == "shutdown" { return "Bool" }
+            if fieldName == "documents" { return "Array<Document>" }
+            if fieldName == "documentUris" { return "Array<String>" }
+        }
+        if structName == "JsonRpcHandler" {
+            if fieldName == "reader" { return "ContentLengthReader" }
+            if fieldName == "running" { return "Bool" }
+            if fieldName == "lastError" { return "String" }
+        }
+        if structName == "ContentLengthReader" {
+            if fieldName == "lastError" { return "String" }
+        }
+        if structName == "LspMessage" {
+            if fieldName == "jsonrpc" { return "String" }
+            if fieldName == "id" { return "Int" }
+            if fieldName == "method" { return "String" }
+            if fieldName == "params" { return "JsonValue?" }
+        }
+        if structName == "LspError" {
+            if fieldName == "code" { return "Int" }
+            if fieldName == "message" { return "String" }
+            if fieldName == "data" { return "JsonValue?" }
+        }
+        if structName == "LspResponse" {
+            if fieldName == "jsonrpc" { return "String" }
+            if fieldName == "id" { return "Int" }
+            if fieldName == "result" { return "JsonValue?" }
+            if fieldName == "error" { return "LspError?" }
+        }
+        if structName == "Document" {
+            if fieldName == "uri" { return "String" }
+            if fieldName == "content" { return "String" }
+            if fieldName == "version" { return "Int" }
+            if fieldName == "languageId" { return "String" }
+        }
+        if structName == "LspPosition" {
+            if fieldName == "line" { return "Int" }
+            if fieldName == "character" { return "Int" }
+        }
+        if structName == "Range" {
+            if fieldName == "start" { return "LspPosition" }
+            if fieldName == "end" { return "LspPosition" }
+        }
+        if structName == "Location" {
+            if fieldName == "uri" { return "String" }
+            if fieldName == "range" { return "Range" }
+        }
+        if structName == "Diagnostic" {
+            if fieldName == "range" { return "Range" }
+            if fieldName == "severity" { return "Int" }
+            if fieldName == "code" { return "String" }
+            if fieldName == "source" { return "String" }
+            if fieldName == "message" { return "String" }
+        }
+        if structName == "TextDocumentIdentifier" {
+            if fieldName == "uri" { return "String" }
+        }
+        if structName == "VersionedTextDocumentIdentifier" {
+            if fieldName == "uri" { return "String" }
+            if fieldName == "version" { return "Int" }
+        }
+        if structName == "TextDocumentItem" {
+            if fieldName == "uri" { return "String" }
+            if fieldName == "languageId" { return "String" }
+            if fieldName == "version" { return "Int" }
+            if fieldName == "text" { return "String" }
+        }
+        if structName == "TextDocumentContentChangeEvent" {
+            if fieldName == "text" { return "String" }
+        }
+        if structName == "TextDocumentPositionParams" {
+            if fieldName == "textDocument" { return "TextDocumentIdentifier" }
+            if fieldName == "position" { return "LspPosition" }
+        }
+        if structName == "DidOpenTextDocumentParams" {
+            if fieldName == "textDocument" { return "TextDocumentItem" }
+        }
+        if structName == "DidChangeTextDocumentParams" {
+            if fieldName == "textDocument" { return "VersionedTextDocumentIdentifier" }
+            if fieldName == "contentChanges" { return "Array<TextDocumentContentChangeEvent>" }
+        }
+        if structName == "DidCloseTextDocumentParams" {
+            if fieldName == "textDocument" { return "TextDocumentIdentifier" }
+        }
+        if structName == "InitializeParams" {
+            if fieldName == "processId" { return "Int" }
+            if fieldName == "rootUri" { return "String" }
+            if fieldName == "capabilities" { return "ClientCapabilities" }
+        }
+        if structName == "InitializeResult" {
+            if fieldName == "capabilities" { return "ServerCapabilities" }
+            if fieldName == "serverInfo" { return "ServerInfo" }
+        }
+        if structName == "ServerInfo" {
+            if fieldName == "name" { return "String" }
+            if fieldName == "version" { return "String" }
+        }
+        if structName == "PublishDiagnosticsParams" {
+            if fieldName == "uri" { return "String" }
+            if fieldName == "diagnostics" { return "Array<Diagnostic>" }
+        }
+        if structName == "CompletionItem" {
+            if fieldName == "label" { return "String" }
+            if fieldName == "kind" { return "Int" }
+            if fieldName == "detail" { return "String" }
+            if fieldName == "documentation" { return "String" }
+            if fieldName == "insertText" { return "String" }
+            if fieldName == "insertTextFormat" { return "Int" }
+        }
+        if structName == "CompletionList" {
+            if fieldName == "isIncomplete" { return "Bool" }
+            if fieldName == "items" { return "Array<CompletionItem>" }
+        }
+        if structName == "MarkupContent" {
+            if fieldName == "kind" { return "String" }
+            if fieldName == "value" { return "String" }
+        }
+        if structName == "Hover" {
+            if fieldName == "contents" { return "MarkupContent" }
+            if fieldName == "range" { return "Range?" }
+        }
+        if structName == "TextEdit" {
+            if fieldName == "range" { return "Range" }
+            if fieldName == "newText" { return "String" }
+        }
+        if structName == "MessageDispatcher" {
+            if fieldName == "handlers" { return "Array<String>" }
+            if fieldName == "rpc" { return "JsonRpcHandler" }
+        }
+        // JSON types
+        if structName == "JsonValue" {
+            if fieldName == "kind" { return "Int" }
+            if fieldName == "boolValue" { return "Bool" }
+            if fieldName == "numberValue" { return "Float" }
+            if fieldName == "stringValue" { return "String" }
+            if fieldName == "arrayValue" { return "Array<JsonValue>" }
+            if fieldName == "objectKeys" { return "Array<String>" }
+            if fieldName == "objectValues" { return "Array<JsonValue>" }
+        }
+        cacheSeenFieldType(cacheKey, structLen, "Int")
+        return "Int"  // Default
+    }
+
+    let fieldNamesStr = structFieldNames[idx]
+    let fieldTypesStr = structFieldTypes[idx]
+
+    // If struct was loaded from header but has no Seen field types, use hardcoded fallbacks
+    if fieldTypesStr == "" {
+        if structName == "FunctionNode" {
+            if fieldName == "name" { return "String" }
+            if fieldName == "params" { return "Array<ParamNode>" }
+            if fieldName == "returnType" { return "TypeNode" }
+            if fieldName == "body" { return "BlockNode" }
+            if fieldName == "isAsync" { return "Bool" }
+            if fieldName == "isInline" { return "Bool" }
+            if fieldName == "isStatic" { return "Bool" }
+        }
+        if structName == "ClassNode" {
+            if fieldName == "name" { return "String" }
+            if fieldName == "fields" { return "Array<ParamNode>" }
+            if fieldName == "methods" { return "Array<FunctionNode>" }
+        }
+        if structName == "TypeNode" {
+            if fieldName == "typeName" { return "String" }
+            if fieldName == "isNullable" { return "Bool" }
+        }
+        if structName == "ParamNode" {
+            if fieldName == "name" { return "String" }
+            if fieldName == "paramType" { return "TypeNode" }
+            if fieldName == "defaultValue" { return "ParserExpressionNode" }
+        }
+        if structName == "ItemNode" {
+            if fieldName == "itemType" { return "String" }
+            if fieldName == "function" { return "FunctionNode" }
+            if fieldName == "classNode" { return "ClassNode" }
+            if fieldName == "enumNode" { return "EnumNode" }
+            if fieldName == "importNode" { return "ImportNode" }
+            if fieldName == "importPath" { return "Array<String>" }
+        }
+        if structName == "ProgramNode" {
+            if fieldName == "items" { return "Array<ItemNode>" }
+        }
+        if structName == "BlockNode" {
+            if fieldName == "statements" { return "Array<StatementNode>" }
+        }
+        if structName == "StatementNode" {
+            if fieldName == "kind" { return "String" }
+            if fieldName == "variableName" { return "String" }
+            if fieldName == "variableType" { return "TypeNode" }
+            if fieldName == "initializer" { return "ParserExpressionNode" }
+            if fieldName == "condition" { return "ParserExpressionNode" }
+            if fieldName == "thenBranch" { return "BlockNode" }
+            if fieldName == "elseBranch" { return "BlockNode" }
+            if fieldName == "loopBody" { return "BlockNode" }
+            if fieldName == "loopVariable" { return "String" }
+            if fieldName == "loopIterable" { return "ParserExpressionNode" }
+            if fieldName == "returnValue" { return "ParserExpressionNode" }
+            if fieldName == "expression" { return "ParserExpressionNode" }
+        }
+        if structName == "ParserExpressionNode" {
+            if fieldName == "kind" { return "String" }
+            if fieldName == "variableName" { return "String" }
+            if fieldName == "literalValue" { return "String" }
+            if fieldName == "literalType" { return "String" }
+            if fieldName == "operator" { return "String" }
+            if fieldName == "operands" { return "Array<ParserExpressionNode>" }
+            if fieldName == "arguments" { return "Array<ParserExpressionNode>" }
+            if fieldName == "callee" { return "String" }
+        }
+        if structName == "FrontendResult" {
+            if fieldName == "success" { return "Bool" }
+            if fieldName == "diagnostics" { return "Array<FrontendDiagnostic>" }
+            if fieldName == "program" { return "ProgramNode" }
+        }
+        if structName == "FrontendDiagnostic" {
+            if fieldName == "severity" { return "String" }
+            if fieldName == "file" { return "String" }
+            if fieldName == "line" { return "Int" }
+            if fieldName == "column" { return "Int" }
+            if fieldName == "message" { return "String" }
+        }
+        if structName == "Token" {
+            if fieldName == "tokenType" { return "Int" }
+            if fieldName == "value" { return "String" }
+            if fieldName == "line" { return "Int" }
+            if fieldName == "column" { return "Int" }
+        }
+        // LSP types (when field types string is empty)
+        if structName == "SeenLspServer" {
+            if fieldName == "rpc" { return "JsonRpcHandler" }
+            if fieldName == "initialized" { return "Bool" }
+            if fieldName == "shutdown" { return "Bool" }
+            if fieldName == "documents" { return "Array<Document>" }
+            if fieldName == "documentUris" { return "Array<String>" }
+        }
+        if structName == "JsonRpcHandler" {
+            if fieldName == "reader" { return "ContentLengthReader" }
+            if fieldName == "running" { return "Bool" }
+            if fieldName == "lastError" { return "String" }
+        }
+        if structName == "ContentLengthReader" {
+            if fieldName == "lastError" { return "String" }
+        }
+        if structName == "LspMessage" {
+            if fieldName == "jsonrpc" { return "String" }
+            if fieldName == "id" { return "Int" }
+            if fieldName == "method" { return "String" }
+            if fieldName == "params" { return "JsonValue?" }
+        }
+        if structName == "LspError" {
+            if fieldName == "code" { return "Int" }
+            if fieldName == "message" { return "String" }
+            if fieldName == "data" { return "JsonValue?" }
+        }
+        if structName == "LspResponse" {
+            if fieldName == "jsonrpc" { return "String" }
+            if fieldName == "id" { return "Int" }
+            if fieldName == "result" { return "JsonValue?" }
+            if fieldName == "error" { return "LspError?" }
+        }
+        if structName == "Document" {
+            if fieldName == "uri" { return "String" }
+            if fieldName == "content" { return "String" }
+            if fieldName == "version" { return "Int" }
+            if fieldName == "languageId" { return "String" }
+        }
+        if structName == "JsonValue" {
+            if fieldName == "kind" { return "Int" }
+            if fieldName == "boolValue" { return "Bool" }
+            if fieldName == "numberValue" { return "Float" }
+            if fieldName == "stringValue" { return "String" }
+            if fieldName == "arrayValue" { return "Array<JsonValue>" }
+            if fieldName == "objectKeys" { return "Array<String>" }
+            if fieldName == "objectValues" { return "Array<JsonValue>" }
+        }
+        if structName == "MessageDispatcher" {
+            if fieldName == "handlers" { return "Array<String>" }
+            if fieldName == "rpc" { return "JsonRpcHandler" }
+        }
+    }
+
+    // Parse to find matching field by index
+    var fieldIdx = 0
+    var nameStart = 0
+
+    // Find field index from names string (comma-separated)
+    var foundField = false
+    var pos = 0
+    while pos <= fieldNamesStr.length() and not foundField {
+        var atComma = 0
+        if pos == fieldNamesStr.length() { atComma = 1 }
+        if atComma == 0 {
+            if fieldNamesStr.byteAt(pos) == 44 { atComma = 1 }
+        }
+        if atComma == 1 {
+            let name = fieldNamesStr.substring(nameStart, pos)
+            if name == fieldName {
+                foundField = true
+            }
+            if name != fieldName {
+                fieldIdx = fieldIdx + 1
+                nameStart = pos + 1
+            }
+        }
+        pos = pos + 1
+    }
+
+    if not foundField {
+        let knownLspFieldType = getKnownLspSeenFieldTypeImpl(structName,
+            fieldName)
+        if knownLspFieldType != "" {
+            cacheSeenFieldType(cacheKey, structLen, knownLspFieldType)
+            return knownLspFieldType
+        }
+        cacheSeenFieldType(cacheKey, structLen, "Int")
+        return "Int"
+    }
+
+    // Now find the type at fieldIdx (pipe-separated, 124='|')
+    var typeIdx = 0
+    var typeStart = 0
+    pos = 0
+    while pos <= fieldTypesStr.length() {
+        var atPipe = 0
+        if pos == fieldTypesStr.length() { atPipe = 1 }
+        if atPipe == 0 {
+            if fieldTypesStr.byteAt(pos) == 124 { atPipe = 1 }
+        }
+        if atPipe == 1 {
+            if typeIdx == fieldIdx {
+                let typeName = fieldTypesStr.substring(typeStart, pos)
+                cacheSeenFieldType(cacheKey, structLen, typeName)
+                return typeName
+            }
+            typeIdx = typeIdx + 1
+            typeStart = pos + 1
+        }
+        pos = pos + 1
+    }
+    let lateKnownLspFieldType = getKnownLspSeenFieldTypeImpl(structName,
+        fieldName)
+    if lateKnownLspFieldType != "" {
+        cacheSeenFieldType(cacheKey, structLen, lateKnownLspFieldType)
+        return lateKnownLspFieldType
+    }
+    cacheSeenFieldType(cacheKey, structLen, "Int")
+    return "Int"  // Default
+}
+
+// Get return type for a struct method (hardcoded + dynamic registry lookup)

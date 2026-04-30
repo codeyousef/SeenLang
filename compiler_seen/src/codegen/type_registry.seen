@@ -12,7 +12,9 @@
 
 import trace.{traceGen}
 import str.string.{StringBuilder}
-import codegen.ir_type_info.{getSeenFieldTypeImpl, getMethodReturnTypeImpl, getKnownLspFieldIndexImpl}
+import codegen.ir_type_info.{getKnownLspFieldIndexImpl}
+import codegen.ir_seen_field_type_lookup.{getSeenFieldTypeImpl}
+import codegen.ir_method_return_type_lookup.{getMethodReturnTypeImpl}
 import codegen.ir_type_mapping.{isDataTypeImpl, isClassTypeImpl}
 import codegen.ir_type_tables.{registerKnownDataTypesImpl}
 import codegen.ir_string_collect.{trimSpacesImpl, normalizeHeaderTypeImpl, parseDecimalIntImpl, getBaseTypeNameImpl, parseSeenStaticArrayLengthImpl, parseSeenStaticArrayElementTypeImpl, isSeenStaticArrayTypeImpl}

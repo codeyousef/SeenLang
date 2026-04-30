@@ -58,7 +58,9 @@ import codegen.ir_module_constants.{isModuleConstMutableImpl, getModuleConstSeen
 import codegen.ir_type_header.{tryLoadTypeHeaderIntoOutputImpl, emitBuiltinTypeHeaderImpl}
 import codegen.ir_local_type_fallback.{tryInferLLVMIRGeneratorThisFieldTypeImpl, tryInferStructThisFieldTypeImpl, tryInferImplicitThisVariableTypeImpl, tryInferNamedPrimitiveVariableTypeImpl}
 import codegen.ir_trait_registry.{appendDynTraitNameImpl}
-import codegen.ir_type_info.{charToCodeStr, getSeenFieldTypeImpl, getMethodReturnTypeImpl, g_resolvedFieldIndex, g_resolvedFieldTypeCode, decodeFieldTypeCode, findStructIdx, getLLVMIRGeneratorFieldIndexImpl}
+import codegen.ir_type_info.{charToCodeStr, g_resolvedFieldIndex, g_resolvedFieldTypeCode, decodeFieldTypeCode, findStructIdx, getLLVMIRGeneratorFieldIndexImpl}
+import codegen.ir_seen_field_type_lookup.{getSeenFieldTypeImpl}
+import codegen.ir_method_return_type_lookup.{getMethodReturnTypeImpl}
 
 import codegen.ir_string_collect.{getBaseTypeNameImpl, normalizeHeaderTypeImpl, parseArrayElementTypeImpl, extractArrayLiteralElementTypeImpl, parseDecimalIntImpl}
 import codegen.ir_seen_token_types.{getSeenTokenTypeValueImpl}

@@ -5,7 +5,8 @@
 
 import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_string_collect.{getBaseTypeNameImpl}
-import codegen.ir_type_info.{findStructIdx, getSeenFieldTypeImpl}
+import codegen.ir_type_info.{findStructIdx}
+import codegen.ir_seen_field_type_lookup.{getSeenFieldTypeImpl}
 import codegen.ir_type_mapping.{isClassTypeImpl, isDataTypeImpl, mapTypeImpl}
 import codegen.ir_bitfield_access.{findBitfieldWidthImpl}
 import codegen.ir_field_layout.{emitResolvedFieldAccessPtrImpl, emitResolvedFieldAccessLoadImpl}

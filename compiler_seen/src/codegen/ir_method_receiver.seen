@@ -5,7 +5,7 @@
 import parser.real_parser.{ParserExpressionNode}
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn}
-import codegen.ir_type_info.{getSeenFieldTypeImpl}
+import codegen.ir_seen_field_type_lookup.{getSeenFieldTypeImpl}
 import codegen.ir_seen_token_types.{getSeenTokenTypeValueImpl}
 import codegen.ir_type_mapping.{isClassTypeImpl, isClassHandleLikeTypeImpl, mapFieldNameToReceiverType}
 import codegen.ir_path_expr.{splitFirstPathDotImpl, resolveChainedPathSuffixTypeImpl}

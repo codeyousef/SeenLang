@@ -1,7 +1,7 @@
 // ir_local_type_fallback.seen — local variable/type fallback helpers
 // Keeps local `this` and primitive fallback inference out of llvm_ir_gen.seen.
 
-import codegen.ir_type_info.{getSeenFieldTypeImpl}
+import codegen.ir_seen_field_type_lookup.{getSeenFieldTypeImpl}
 import codegen.type_registry.{findStructReg, getFieldInfoReg}
 
 fun tryInferLLVMIRGeneratorThisFieldTypeImpl(thisType: String, varName: String,

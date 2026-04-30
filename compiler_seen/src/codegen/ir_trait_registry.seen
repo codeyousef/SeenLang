@@ -1,6 +1,6 @@
 // Trait registry helpers extracted from llvm_ir_gen.seen.
 
-import codegen.ir_type_info.{getMethodReturnTypeImpl}
+import codegen.ir_method_return_type_lookup.{getMethodReturnTypeImpl}
 
 fun ensureTraitStringBoxValue(box: Array<String>) r: Void {
     if box.length() == 0 {
