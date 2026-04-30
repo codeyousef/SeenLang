@@ -8947,3 +8947,4 @@ class LLVMIRGenerator {
             enumCtorPlan.fieldCount)
         return objReg
     }
+}
