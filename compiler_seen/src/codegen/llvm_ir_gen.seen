@@ -147,7 +147,7 @@ import codegen.ir_function_decorators.{hasFunctionDecoratorImpl, shouldSkipFunct
 import codegen.ir_function_lifecycle.{planFunctionIntrinsicFlowImpl, shouldReturnAfterFunctionDecoratorPreflightImpl, planFunctionIdentityFlowImpl, planFunctionHighPressureImpl, planFunctionEntryExitFlowImpl, applyFunctionEntrySetupToEmissionImpl, currentFunctionProfileFlagIntImpl, currentFunctionHighPressureIntImpl, applyFunctionExitStateToEmissionImpl}
 import codegen.ir_function_usage.{scanUnusedTopLevelFunctionNamesImpl}
 import codegen.ir_function_prebody.{isMainFunctionNameImpl, prepareFunctionPreBodyStateSnapshotImpl, mapFunctionPreBodyReturnTypeImpl, emitMainFunctionEntrySnapshotImpl, emitMainFunctionExitImpl}
-import codegen.ir_function_body.{captureFunctionBodyBlockScopeImpl, scanFunctionBodyDeadStorePatternsSnapshotImpl, emitFunctionBodyTrailingDeadCodeNoticeSnapshotImpl, beginFunctionBodyBlockDeferredCleanupImpl, beginFunctionBodyReturnDeferCleanupImpl, beginFunctionBodyVoidErrdeferCleanupImpl, beginFunctionBodyValueErrdeferCleanupImpl, finishFunctionBodyValueErrdeferCleanupImpl}
+import codegen.ir_function_body.{captureFunctionBodyBlockScopeImpl, scanFunctionBodyDeadStorePatternsSnapshotImpl, emitFunctionBodyTrailingDeadCodeNoticeSnapshotImpl, beginFunctionBodyBlockDeferredCleanupImpl, beginFunctionBodyReturnDeferCleanupImpl, beginFunctionBodyVoidErrdeferCleanupImpl, beginFunctionBodyValueErrdeferCleanupImpl, finishFunctionBodyValueErrdeferCleanupImpl, bindFunctionBodyCatchVariableImpl, planFunctionBodyExpressionStatementImpl, emitFunctionBodyPairedSelectStoreImpl, emitFunctionBodySingleArmSelectStoreImpl, planFunctionBodyConstantIfImpl, emitFunctionBodyConstantIfNoteImpl}
 import codegen.ir_function_state.{getCurrentFunctionEmissionStateImpl, resetFunctionEmissionForFunctionImpl, markFunctionEmissionHighPressureImpl, resetFunctionEmissionHighPressureImpl, recordMovedVariableImpl, isMovedVariableImpl, resetFunctionLoweringOptionsStateImpl, resetFunctionHighPressureImpl, markFunctionHighPressureImpl, isFunctionHighPressureImpl, currentFunctionAlignToImpl, currentFunctionRegionSizeBytesImpl, isCurrentFunctionAsyncLoweringImpl, markTailCallPositionImpl, takeTailCallPositionImpl}
 import codegen.ir_function_ml_logs.{applyFunctionPreludeMlLogsImpl, applyFunctionUnusedParamMlLogsImpl}
 import codegen.ir_ml_logging.{mlLogDecision, setupMLLogging, writeMLDecisionLog}
@@ -2693,29 +2693,24 @@ class LLVMIRGenerator {
         activeVarCount = blockScope.savedActiveVarCount
     }
 
-    fun tryGenerateAssignmentLikeExpression(expr: ParserExpressionNode) r: Bool {
-        if expr.kind == "Assignment" {
-            generateAssignmentExpr(expr)
-            return true
-        }
-        if expr.kind == "MemberAssignment" {
-            generateMemberAssignment(expr)
-            return true
-        }
-        if expr.kind == "IndexAssignment" {
-            generateIndexAssignment(expr)
-            return true
-        }
-        return false
-    }
-
     fun warnUnusedResultCall(expr: ParserExpressionNode) r: Void {
         emitUnusedResultCallWarningImpl(output, expr, g_warnUnusedResult,
             g_tryCatchLabel, funcNames, funcRetTypes)
     }
 
     fun generateExpressionStatement(stmt: StatementNode) r: Void {
-        if tryGenerateAssignmentLikeExpression(stmt.expression) {
+        let exprStmtAction = planFunctionBodyExpressionStatementImpl(
+            stmt.expression)
+        if exprStmtAction == 1 {
+            generateAssignmentExpr(stmt.expression)
+            return
+        }
+        if exprStmtAction == 2 {
+            generateMemberAssignment(stmt.expression)
+            return
+        }
+        if exprStmtAction == 3 {
+            generateIndexAssignment(stmt.expression)
             return
         }
         warnUnusedResultCall(stmt.expression)
@@ -2755,13 +2750,8 @@ class LLVMIRGenerator {
 
         emitTryCatchCatchHeaderImpl(output, tryCatchContext.tryCatchLabel)
         let savedCatchVarCount = activeVarCount
-        if stmt.variableName != "" {
-            let catchVarReg = getNextReg()
-            activeVarCount = storeActiveVariableBindingImpl(varNames, varRegs,
-                varTypes, activeVarCount, stmt.variableName, catchVarReg,
-                "Int")
-            output.append("  " + catchVarReg + " = add i64 0, 0 ; catch binding\n")
-        }
+        activeVarCount = bindFunctionBodyCatchVariableImpl(output, g_regBox,
+            varNames, varRegs, varTypes, activeVarCount, stmt.variableName)
         if stmt.elseBranch.statements.length() > 0 {
             generateBlock(stmt.elseBranch)
         }
@@ -3313,20 +3303,21 @@ class LLVMIRGenerator {
     }
 
     fun tryEmitConstantIfStatement(stmt: StatementNode) r: Bool {
-        if stmt.condition.kind != "BoolLiteral" {
+        let constantIfAction = planFunctionBodyConstantIfImpl(stmt.condition)
+        if constantIfAction == 0 {
             return false
         }
-        if stmt.condition.literalValue == "true" {
+        if constantIfAction == 1 {
             g_branchesEliminated = g_branchesEliminated + 1
             mlLogDecision("branch-elim", "folded", "if-true")
-            output.append("  ; branch eliminated: if true\n")
+            emitFunctionBodyConstantIfNoteImpl(output, constantIfAction)
             generateBlock(stmt.thenBranch)
             return true
         }
-        if stmt.condition.literalValue == "false" {
+        if constantIfAction == 2 {
             g_branchesEliminated = g_branchesEliminated + 1
             mlLogDecision("branch-elim", "folded", "if-false")
-            output.append("  ; branch eliminated: if false\n")
+            emitFunctionBodyConstantIfNoteImpl(output, constantIfAction)
             if stmt.elseBranch.statements.length() > 0 {
                 generateBlock(stmt.elseBranch)
             }
@@ -3361,9 +3352,8 @@ class LLVMIRGenerator {
         let condReg = generateExpression(stmt.condition)
         let thenReg = generateExpression(selectPlan.thenRhs)
         let elseReg = generateExpression(selectPlan.elseRhs)
-        let resultReg = getNextReg()
-        output.append("  " + resultReg + " = select i1 " + condReg + ", " + llvmType + " " + thenReg + ", " + llvmType + " " + elseReg + " ; branchless if/else\n")
-        output.append("  store " + llvmType + " " + resultReg + ", ptr " + varRegs[varIdx] + "\n")
+        emitFunctionBodyPairedSelectStoreImpl(output, g_regBox, condReg,
+            llvmType, thenReg, elseReg, varRegs[varIdx])
         g_branchesEliminated = g_branchesEliminated + 1
         mlLogDecision("select", "if-else", selectPlan.assignName)
         return true
@@ -3393,11 +3383,8 @@ class LLVMIRGenerator {
 
         let condReg = generateExpression(stmt.condition)
         let newValueReg = generateExpression(selectPlan.rhsExpr)
-        let oldValueReg = getNextReg()
-        output.append("  " + oldValueReg + " = load " + llvmType + ", ptr " + varRegs[varIdx] + "\n")
-        let selectedValueReg = getNextReg()
-        output.append("  " + selectedValueReg + " = select i1 " + condReg + ", " + llvmType + " " + newValueReg + ", " + llvmType + " " + oldValueReg + " ; branchless max/min\n")
-        output.append("  store " + llvmType + " " + selectedValueReg + ", ptr " + varRegs[varIdx] + "\n")
+        emitFunctionBodySingleArmSelectStoreImpl(output, g_regBox, condReg,
+            llvmType, newValueReg, varRegs[varIdx])
         g_branchesEliminated = g_branchesEliminated + 1
         mlLogDecision("select", "max-min", selectPlan.assignName)
         return true

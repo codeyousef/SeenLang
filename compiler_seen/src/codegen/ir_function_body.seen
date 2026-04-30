@@ -1,12 +1,13 @@
 // ir_function_body.seen - function body and block-scope emission helpers.
 
-import parser.real_parser.{BlockNode}
+import parser.real_parser.{BlockNode, ParserExpressionNode}
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn, getNextBlockFn}
 import codegen.ir_stmt_dead_code.{BlockDeadStoreScanSnapshot, TrailingDeadCodeNoticeSnapshot, scanBlockDeadStorePatternsSnapshotImpl, emitTrailingDeadCodeNoticeSnapshotImpl}
 import codegen.ir_stmt_scope.{beginBlockDeferredCleanupImpl}
 import codegen.ir_stmt_return.{emitErrdeferVoidCleanupIntroImpl, emitErrdeferValueSetupImpl, emitErrdeferErrorBranchImpl, emitErrdeferErrorPathIntroImpl, emitErrdeferResumeLabelImpl}
 import codegen.ir_function_ml_logs.{applyDeadStoreMlLogsImpl}
+import codegen.ir_variable_gen.{storeActiveVariableBindingImpl}
 
 class FunctionBodyBlockScopeState {
     var savedDeferCount: Int
@@ -122,4 +123,83 @@ fun finishFunctionBodyValueErrdeferCleanupImpl(output: StringBuilder,
         return
     }
     emitErrdeferResumeLabelImpl(output, okLabel)
+}
+
+fun bindFunctionBodyCatchVariableImpl(output: StringBuilder,
+    regBox: Array<Int>, varNames: Array<String>, varRegs: Array<String>,
+    varTypes: Array<String>, activeVarCount: Int, catchVarName: String)
+    r: Int {
+
+    if catchVarName == "" {
+        return activeVarCount
+    }
+    let catchVarReg = getNextRegFn(regBox)
+    let nextActiveVarCount = storeActiveVariableBindingImpl(varNames, varRegs,
+        varTypes, activeVarCount, catchVarName, catchVarReg, "Int")
+    output.append("  " + catchVarReg + " = add i64 0, 0 ; catch binding\n")
+    return nextActiveVarCount
+}
+
+fun planFunctionBodyExpressionStatementImpl(expr: ParserExpressionNode) r: Int {
+    if expr.kind == "Assignment" {
+        return 1
+    }
+    if expr.kind == "MemberAssignment" {
+        return 2
+    }
+    if expr.kind == "IndexAssignment" {
+        return 3
+    }
+    return 4
+}
+
+fun emitFunctionBodyPairedSelectStoreImpl(output: StringBuilder,
+    regBox: Array<Int>, condReg: String, llvmType: String, thenReg: String,
+    elseReg: String, targetPtrReg: String) r: Void {
+
+    let resultReg = getNextRegFn(regBox)
+    output.append("  " + resultReg + " = select i1 " + condReg + ", " +
+        llvmType + " " + thenReg + ", " + llvmType + " " + elseReg +
+        " ; branchless if/else\n")
+    output.append("  store " + llvmType + " " + resultReg + ", ptr " +
+        targetPtrReg + "\n")
+}
+
+fun emitFunctionBodySingleArmSelectStoreImpl(output: StringBuilder,
+    regBox: Array<Int>, condReg: String, llvmType: String,
+    newValueReg: String, targetPtrReg: String) r: Void {
+
+    let oldValueReg = getNextRegFn(regBox)
+    output.append("  " + oldValueReg + " = load " + llvmType + ", ptr " +
+        targetPtrReg + "\n")
+    let selectedValueReg = getNextRegFn(regBox)
+    output.append("  " + selectedValueReg + " = select i1 " + condReg +
+        ", " + llvmType + " " + newValueReg + ", " + llvmType + " " +
+        oldValueReg + " ; branchless max/min\n")
+    output.append("  store " + llvmType + " " + selectedValueReg +
+        ", ptr " + targetPtrReg + "\n")
+}
+
+fun planFunctionBodyConstantIfImpl(expr: ParserExpressionNode) r: Int {
+    if expr.kind != "BoolLiteral" {
+        return 0
+    }
+    if expr.literalValue == "true" {
+        return 1
+    }
+    if expr.literalValue == "false" {
+        return 2
+    }
+    return 0
+}
+
+fun emitFunctionBodyConstantIfNoteImpl(output: StringBuilder,
+    constantIfAction: Int) r: Void {
+
+    if constantIfAction == 1 {
+        output.append("  ; branch eliminated: if true\n")
+    }
+    if constantIfAction == 2 {
+        output.append("  ; branch eliminated: if false\n")
+    }
 }
