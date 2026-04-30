@@ -131,7 +131,7 @@ import codegen.ir_binary_short_circuit.{allocateShortCircuitBinaryLabelsImpl, em
 import codegen.ir_unary_expr.{unaryOperatorMethodNameImpl, shouldSkipUnaryOverloadTypeImpl, negatedComparisonPredicateImpl, shouldEmitNegatedComparisonForTypesImpl, emitOverloadedUnaryCallImpl, emitUnaryNegationImpl, emitNegatedComparisonImpl, emitUnaryLogicalNotImpl, emitUnaryAddressOfClassValueImpl, emitUnaryAddressOfVariablePtrImpl, emitUnaryDereferenceImpl, isUnaryBitwiseNotOperatorImpl, emitUnaryBitwiseNotImpl}
 import codegen.ir_class_method_gen.{tryEmitOptionClassMethodShimImpl, collectClassMethodParameterInfoImpl, emitClassMethodSignatureStateImpl, emitClassMethodReceiverBindingStateImpl, emitClassMethodParameterBindingsStateImpl, emitClassMethodConstructorSetupStateImpl, tryEmitClassMethodConstructorReturnStateImpl, emitClassMethodDefaultReturnStateImpl}
 import codegen.ir_stmt_decl.{shouldInferDeclarationInitializerTypeImpl, resolveDeclarationBaseTypeImpl, resolveLetStatementTypeImpl, resolveLetStatementAllocaImpl, prepareLetStatementPlanImpl, resolveLetPreAllocatedRegImpl, findPreAllocatedOccurrenceImpl, nextDeclarationOrdinalImpl, classifyCollectedStatementKindImpl, shouldTraceCollectedDeclarationTypeImpl, appendCollectedDeclarationImpl, resolveCollectedForInElementTypeImpl, buildForInIndexNameImpl, shouldSeedDeclarationPendingArrayLiteralTypeImpl, emitDeadLiteralInitializerSkipNoteImpl, emitDeclarationInitializerStoreImpl}
-import codegen.ir_stmt_gen.{emitConditionToI1Impl, emitIfBranchingImpl, computeIfBranchWeightMetadataForStatementImpl, normalizeIfConditionTypeImpl, finalizeConditionalEndBlockImpl, emitIfExpressionBranchValueImpl, emitPhiMergeValueImpl, emitIfLetBindingStateImpl, emitIndexedForLoopHeaderImpl, emitRegionStatementPreambleImpl, emitRegionStatementCleanupImpl, classifyParallelForRangeExprImpl, buildParallelForBodyFunctionNameImpl, emitParallelForBodyHeaderImpl, finalizeParallelForBodyImpl, emitUnusedResultCallWarningImpl}
+import codegen.ir_stmt_gen.{emitConditionToI1Impl, computeIfBranchWeightMetadataForStatementImpl, normalizeIfConditionTypeImpl, finalizeConditionalEndBlockImpl, emitIfExpressionBranchValueImpl, emitPhiMergeValueImpl, emitIfLetBindingStateImpl, emitIndexedForLoopHeaderImpl, emitRegionStatementPreambleImpl, emitRegionStatementCleanupImpl, classifyParallelForRangeExprImpl, buildParallelForBodyFunctionNameImpl, emitParallelForBodyHeaderImpl, finalizeParallelForBodyImpl, emitUnusedResultCallWarningImpl}
 import codegen.ir_stmt_select_plan.{planPairedAssignmentSelectIfImpl, planSingleArmSelectIfImpl}
 import codegen.ir_stmt_dispatch_plan.{planStatementDispatchImpl}
 import codegen.ir_stmt_dead_code.{shouldSkipDeadLiteralInitializerImpl}
@@ -147,7 +147,7 @@ import codegen.ir_function_decorators.{hasFunctionDecoratorImpl, shouldSkipFunct
 import codegen.ir_function_lifecycle.{planFunctionIntrinsicFlowImpl, shouldReturnAfterFunctionDecoratorPreflightImpl, planFunctionIdentityFlowImpl, planFunctionHighPressureImpl, planFunctionEntryExitFlowImpl, applyFunctionEntrySetupToEmissionImpl, currentFunctionProfileFlagIntImpl, currentFunctionHighPressureIntImpl, applyFunctionExitStateToEmissionImpl}
 import codegen.ir_function_usage.{scanUnusedTopLevelFunctionNamesImpl}
 import codegen.ir_function_prebody.{isMainFunctionNameImpl, prepareFunctionPreBodyStateSnapshotImpl, mapFunctionPreBodyReturnTypeImpl, emitMainFunctionEntrySnapshotImpl, emitMainFunctionExitImpl}
-import codegen.ir_function_body.{captureFunctionBodyBlockScopeImpl, scanFunctionBodyDeadStorePatternsSnapshotImpl, emitFunctionBodyTrailingDeadCodeNoticeSnapshotImpl, beginFunctionBodyBlockDeferredCleanupImpl, beginFunctionBodyReturnDeferCleanupImpl, beginFunctionBodyVoidErrdeferCleanupImpl, beginFunctionBodyValueErrdeferCleanupImpl, finishFunctionBodyValueErrdeferCleanupImpl, bindFunctionBodyCatchVariableImpl, planFunctionBodyExpressionStatementImpl, emitFunctionBodyPairedSelectStoreImpl, emitFunctionBodySingleArmSelectStoreImpl, planFunctionBodyConstantIfImpl, emitFunctionBodyConstantIfNoteImpl}
+import codegen.ir_function_body.{captureFunctionBodyBlockScopeImpl, scanFunctionBodyDeadStorePatternsSnapshotImpl, emitFunctionBodyTrailingDeadCodeNoticeSnapshotImpl, beginFunctionBodyBlockDeferredCleanupImpl, beginFunctionBodyReturnDeferCleanupImpl, beginFunctionBodyVoidErrdeferCleanupImpl, beginFunctionBodyValueErrdeferCleanupImpl, finishFunctionBodyValueErrdeferCleanupImpl, bindFunctionBodyCatchVariableImpl, planFunctionBodyExpressionStatementImpl, emitFunctionBodyPairedSelectStoreImpl, emitFunctionBodySingleArmSelectStoreImpl, planFunctionBodyConstantIfImpl, emitFunctionBodyConstantIfNoteImpl, emitFunctionBodyIfBranchingImpl}
 import codegen.ir_function_state.{getCurrentFunctionEmissionStateImpl, resetFunctionEmissionForFunctionImpl, markFunctionEmissionHighPressureImpl, resetFunctionEmissionHighPressureImpl, recordMovedVariableImpl, isMovedVariableImpl, resetFunctionLoweringOptionsStateImpl, resetFunctionHighPressureImpl, markFunctionHighPressureImpl, isFunctionHighPressureImpl, currentFunctionAlignToImpl, currentFunctionRegionSizeBytesImpl, isCurrentFunctionAsyncLoweringImpl, markTailCallPositionImpl, takeTailCallPositionImpl}
 import codegen.ir_function_ml_logs.{applyFunctionPreludeMlLogsImpl, applyFunctionUnusedParamMlLogsImpl}
 import codegen.ir_ml_logging.{mlLogDecision, setupMLLogging, writeMLDecisionLog}
@@ -3420,11 +3420,11 @@ class LLVMIRGenerator {
         let condType = normalizeIfConditionTypeImpl(stmt.condition,
             inferExpressionType(stmt.condition))
         let condBool = emitConditionToI1Impl(output, g_regBox, condReg, condType)
-        let branchInfo = emitIfBranchingImpl(output, g_blockBox, condBool,
+        let branchLabels = emitFunctionBodyIfBranchingImpl(output, g_blockBox,
+            condBool,
             computeIfBranchWeightMetadataForStatementImpl(stmt))
-        let branchLabels = splitPipe(branchInfo)
-        let elseLabel = branchLabels[1]
-        let endLabel = branchLabels[2]
+        let elseLabel = branchLabels.elseLabel
+        let endLabel = branchLabels.endLabel
 
         cseClear()
         blockTerminated = false
@@ -3454,10 +3454,10 @@ class LLVMIRGenerator {
     fun generateIfLetStatement(stmt: StatementNode) r: Void {
         let exprReg = generateExpression(stmt.condition)
         let cmpReg = emitConditionToI1Impl(output, g_regBox, exprReg, "Int")
-        let branchInfo = emitIfBranchingImpl(output, g_blockBox, cmpReg, "")
-        let branchLabels = splitPipe(branchInfo)
-        let elseLabel = branchLabels[1]
-        let endLabel = branchLabels[2]
+        let branchLabels = emitFunctionBodyIfBranchingImpl(output, g_blockBox,
+            cmpReg, "")
+        let elseLabel = branchLabels.elseLabel
+        let endLabel = branchLabels.endLabel
 
         cseClear()
         blockTerminated = false

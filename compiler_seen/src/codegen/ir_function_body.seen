@@ -2,8 +2,9 @@
 
 import parser.real_parser.{BlockNode, ParserExpressionNode}
 import str.string.{StringBuilder}
-import codegen.ir_optimization.{getNextRegFn, getNextBlockFn}
+import codegen.ir_optimization.{getNextRegFn, getNextBlockFn, splitPipe}
 import codegen.ir_stmt_dead_code.{BlockDeadStoreScanSnapshot, TrailingDeadCodeNoticeSnapshot, scanBlockDeadStorePatternsSnapshotImpl, emitTrailingDeadCodeNoticeSnapshotImpl}
+import codegen.ir_stmt_gen.{emitIfBranchingImpl}
 import codegen.ir_stmt_scope.{beginBlockDeferredCleanupImpl}
 import codegen.ir_stmt_return.{emitErrdeferVoidCleanupIntroImpl, emitErrdeferValueSetupImpl, emitErrdeferErrorBranchImpl, emitErrdeferErrorPathIntroImpl, emitErrdeferResumeLabelImpl}
 import codegen.ir_function_ml_logs.{applyDeadStoreMlLogsImpl}
@@ -38,6 +39,20 @@ class FunctionBodyErrdeferValueCleanupPlan {
             tempAllocaReg: tempAllocaReg,
             okLabel: okLabel,
             cleanupStartIndex: cleanupStartIndex
+        }
+    }
+}
+
+class FunctionBodyIfBranchLabels {
+    var elseLabel: String
+    var endLabel: String
+
+    static fun new(elseLabel: String, endLabel: String)
+        r: FunctionBodyIfBranchLabels {
+
+        return FunctionBodyIfBranchLabels{
+            elseLabel: elseLabel,
+            endLabel: endLabel
         }
     }
 }
@@ -202,4 +217,14 @@ fun emitFunctionBodyConstantIfNoteImpl(output: StringBuilder,
     if constantIfAction == 2 {
         output.append("  ; branch eliminated: if false\n")
     }
+}
+
+fun emitFunctionBodyIfBranchingImpl(output: StringBuilder,
+    blockLabelBox: Array<Int>, condBoolReg: String,
+    branchMetadata: String) r: FunctionBodyIfBranchLabels {
+
+    let branchInfo = emitIfBranchingImpl(output, blockLabelBox, condBoolReg,
+        branchMetadata)
+    let branchLabels = splitPipe(branchInfo)
+    return FunctionBodyIfBranchLabels.new(branchLabels[1], branchLabels[2])
 }
