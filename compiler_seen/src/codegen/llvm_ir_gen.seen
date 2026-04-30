@@ -50,7 +50,7 @@ import codegen.ir_async_return.{prepareAsyncReturnValuePlanImpl, emitAsyncReturn
 import codegen.ir_decl_registry.{DeclarationPassState, LateUserDeclareState, preRegisterClassTypesImpl, registerFunctionStateImpl, registerCrossModuleConstantsIntoStateImpl, lookupCResourceDestructorStateImpl, isAsyncFunctionStateImpl, getAsyncDeclaredRetTypeStateImpl, getFunctionReturnTypeStateImpl, recordLateUserDeclareIntoStateImpl, emitLateUserDeclaresStateImpl, captureDeclarationPassStateImpl, captureLateUserDeclareStateImpl}
 import codegen.ir_decl_items.{DeclarationItemContext, PreparedDeclarationItem, normalizeSeenTypeNameImpl, normalizeDeclaredTypeNodeImpl, prepareDeclarationItemForRegistrationImpl, registerPreparedDeclarationItemsIntoStateImpl}
 import codegen.ir_decl_return_types.{inferReturnExprTypeImpl, resolveMethodReturnTypeImpl, resolveFunctionReturnTypeImpl}
-import codegen.ir_module_constants.{isModuleConstMutableImpl, getModuleConstSeenTypeImpl, tryInferModuleConstantVariableTypeIntoStateImpl, findModuleConstantIntoStateImpl, emitGlobalVariablesIntoStateImpl, moduleConstantInvariantLoadSuffixImpl, captureModuleConstantRegistryStateImpl}
+import codegen.ir_module_constants.{isModuleConstMutableImpl, getModuleConstSeenTypeImpl, tryInferModuleConstantVariableTypeSnapshotImpl, findModuleConstantSnapshotImpl, emitGlobalVariablesSnapshotImpl, moduleConstantInvariantLoadSuffixImpl}
 import codegen.ir_type_header.{tryLoadTypeHeaderIntoOutputImpl, emitBuiltinTypeHeaderImpl}
 import codegen.ir_local_type_fallback.{tryInferLLVMIRGeneratorThisFieldTypeImpl, tryInferStructThisFieldTypeImpl, tryInferImplicitThisVariableTypeImpl, tryInferNamedPrimitiveVariableTypeImpl}
 import codegen.ir_trait_registry.{appendDynTraitNameImpl}
@@ -1185,16 +1185,15 @@ class LLVMIRGenerator {
         if moduleConstantNames.length() == 0 and g_xmConstCount <= 0 {
             return ""
         }
-        let moduleConstState = captureModuleConstantRegistryStateImpl(
-            g_moduleConstMutable, g_moduleConstSeenTypes)
-        let moduleConstType = tryInferModuleConstantVariableTypeIntoStateImpl(
-            name, moduleConstantNames, moduleConstantTypes, moduleConstantValues,
-            moduleConstState, g_xmConstNames, g_xmConstTypes, g_xmConstMutable,
-            g_xmConstSeenTypes, g_xmConstCount)
-        g_moduleConstMutable = moduleConstState.moduleConstMutable
-        g_moduleConstSeenTypes = moduleConstState.moduleConstSeenTypes
-        if moduleConstType != "" {
-            return moduleConstType
+        let moduleConstLookup = tryInferModuleConstantVariableTypeSnapshotImpl(
+            name, moduleConstantNames, moduleConstantTypes,
+            moduleConstantValues, g_moduleConstMutable,
+            g_moduleConstSeenTypes, g_xmConstNames, g_xmConstTypes,
+            g_xmConstMutable, g_xmConstSeenTypes, g_xmConstCount)
+        g_moduleConstMutable = moduleConstLookup.moduleConstMutable
+        g_moduleConstSeenTypes = moduleConstLookup.moduleConstSeenTypes
+        if moduleConstLookup.seenType != "" {
+            return moduleConstLookup.seenType
         }
         return ""
     }
@@ -1202,15 +1201,14 @@ class LLVMIRGenerator {
     // Helper to find module constant by name. Searches backwards.
     // Falls back to cross-module constant registry if not found in current module.
     fun findModuleConstant(name: String) r: Int {
-        let moduleConstState = captureModuleConstantRegistryStateImpl(
-            g_moduleConstMutable, g_moduleConstSeenTypes)
-        let constIdx = findModuleConstantIntoStateImpl(name, moduleConstantNames,
-            moduleConstantTypes, moduleConstantValues, moduleConstState,
-            g_xmConstNames, g_xmConstTypes, g_xmConstMutable,
-            g_xmConstSeenTypes, g_xmConstCount)
-        g_moduleConstMutable = moduleConstState.moduleConstMutable
-        g_moduleConstSeenTypes = moduleConstState.moduleConstSeenTypes
-        return constIdx
+        let moduleConstLookup = findModuleConstantSnapshotImpl(name,
+            moduleConstantNames, moduleConstantTypes, moduleConstantValues,
+            g_moduleConstMutable, g_moduleConstSeenTypes, g_xmConstNames,
+            g_xmConstTypes, g_xmConstMutable, g_xmConstSeenTypes,
+            g_xmConstCount)
+        g_moduleConstMutable = moduleConstLookup.moduleConstMutable
+        g_moduleConstSeenTypes = moduleConstLookup.moduleConstSeenTypes
+        return moduleConstLookup.constIndex
     }
 
     // Pre-scan a function's block to collect all variable declarations.
@@ -1664,13 +1662,13 @@ class LLVMIRGenerator {
         // Emit global variable declarations from all programs
         var globalPi = 0
         while shouldVisitProgramFlowIndexImpl(globalPi, programs.length()) {
-            let moduleConstState = captureModuleConstantRegistryStateImpl(
-                g_moduleConstMutable, g_moduleConstSeenTypes)
-            emitGlobalVariablesIntoStateImpl(output, programs[globalPi],
+            let moduleConstSnapshot = emitGlobalVariablesSnapshotImpl(output,
+                programs[globalPi],
                 moduleConstantNames, moduleConstantTypes,
-                moduleConstantValues, moduleConstState)
-            g_moduleConstMutable = moduleConstState.moduleConstMutable
-            g_moduleConstSeenTypes = moduleConstState.moduleConstSeenTypes
+                moduleConstantValues, g_moduleConstMutable,
+                g_moduleConstSeenTypes)
+            g_moduleConstMutable = moduleConstSnapshot.moduleConstMutable
+            g_moduleConstSeenTypes = moduleConstSnapshot.moduleConstSeenTypes
             globalPi = globalPi + 1
         }
 
@@ -1775,13 +1773,12 @@ class LLVMIRGenerator {
         // because g_traitImplRegistry is populated during generateFunction's impl detection.
 
         // Emit global variable declarations for THIS module
-        let moduleConstState = captureModuleConstantRegistryStateImpl(
-            g_moduleConstMutable, g_moduleConstSeenTypes)
-        emitGlobalVariablesIntoStateImpl(output, program,
-            moduleConstantNames, moduleConstantTypes, moduleConstantValues,
-            moduleConstState)
-        g_moduleConstMutable = moduleConstState.moduleConstMutable
-        g_moduleConstSeenTypes = moduleConstState.moduleConstSeenTypes
+        let moduleConstSnapshot = emitGlobalVariablesSnapshotImpl(output,
+            program, moduleConstantNames, moduleConstantTypes,
+            moduleConstantValues, g_moduleConstMutable,
+            g_moduleConstSeenTypes)
+        g_moduleConstMutable = moduleConstSnapshot.moduleConstMutable
+        g_moduleConstSeenTypes = moduleConstSnapshot.moduleConstSeenTypes
 
         // Emit external declarations for cross-module constants not defined in this module
         emitCrossModuleConstantDeclaresImpl(output, moduleConstantNames,

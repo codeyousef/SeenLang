@@ -20,6 +20,24 @@ class ModuleConstantRegistryState {
     }
 }
 
+class ModuleConstantRegistrySnapshot {
+    var moduleConstMutable: String
+    var moduleConstSeenTypes: String
+    var seenType: String
+    var constIndex: Int
+
+    static fun new(moduleConstMutable: String, moduleConstSeenTypes: String,
+        seenType: String, constIndex: Int) r: ModuleConstantRegistrySnapshot {
+
+        return ModuleConstantRegistrySnapshot{
+            moduleConstMutable: moduleConstMutable,
+            moduleConstSeenTypes: moduleConstSeenTypes,
+            seenType: seenType,
+            constIndex: constIndex
+        }
+    }
+}
+
 fun captureModuleConstantRegistryStateImpl(moduleConstMutable: String,
     moduleConstSeenTypes: String) r: ModuleConstantRegistryState {
 
@@ -200,6 +218,23 @@ fun tryInferModuleConstantVariableTypeIntoStateImpl(name: String,
     return ""
 }
 
+fun tryInferModuleConstantVariableTypeSnapshotImpl(name: String,
+    moduleConstantNames: Array<String>, moduleConstantTypes: Array<String>,
+    moduleConstantValues: Array<String>, moduleConstMutable: String,
+    moduleConstSeenTypes: String, xmConstNames: String, xmConstTypes: String,
+    xmConstMutable: String, xmConstSeenTypes: String, xmConstCount: Int)
+    r: ModuleConstantRegistrySnapshot {
+
+    let state = captureModuleConstantRegistryStateImpl(moduleConstMutable,
+        moduleConstSeenTypes)
+    let seenType = tryInferModuleConstantVariableTypeIntoStateImpl(name,
+        moduleConstantNames, moduleConstantTypes, moduleConstantValues, state,
+        xmConstNames, xmConstTypes, xmConstMutable, xmConstSeenTypes,
+        xmConstCount)
+    return ModuleConstantRegistrySnapshot.new(state.moduleConstMutable,
+        state.moduleConstSeenTypes, seenType, -1)
+}
+
 fun findModuleConstantIntoStateImpl(name: String,
     moduleConstantNames: Array<String>, moduleConstantTypes: Array<String>,
     moduleConstantValues: Array<String>, state: ModuleConstantRegistryState,
@@ -248,6 +283,22 @@ fun findModuleConstantIntoStateImpl(name: String,
     return -1
 }
 
+fun findModuleConstantSnapshotImpl(name: String,
+    moduleConstantNames: Array<String>, moduleConstantTypes: Array<String>,
+    moduleConstantValues: Array<String>, moduleConstMutable: String,
+    moduleConstSeenTypes: String, xmConstNames: String, xmConstTypes: String,
+    xmConstMutable: String, xmConstSeenTypes: String, xmConstCount: Int)
+    r: ModuleConstantRegistrySnapshot {
+
+    let state = captureModuleConstantRegistryStateImpl(moduleConstMutable,
+        moduleConstSeenTypes)
+    let constIdx = findModuleConstantIntoStateImpl(name, moduleConstantNames,
+        moduleConstantTypes, moduleConstantValues, state, xmConstNames,
+        xmConstTypes, xmConstMutable, xmConstSeenTypes, xmConstCount)
+    return ModuleConstantRegistrySnapshot.new(state.moduleConstMutable,
+        state.moduleConstSeenTypes, "", constIdx)
+}
+
 fun emitGlobalVariablesIntoStateImpl(output: StringBuilder, program: ProgramNode,
     moduleConstantNames: Array<String>, moduleConstantTypes: Array<String>,
     moduleConstantValues: Array<String>, state: ModuleConstantRegistryState)
@@ -262,6 +313,20 @@ fun emitGlobalVariablesIntoStateImpl(output: StringBuilder, program: ProgramNode
         moduleConstSeenTypesBox)
     state.moduleConstMutable = moduleConstMutableBox[0]
     state.moduleConstSeenTypes = moduleConstSeenTypesBox[0]
+}
+
+fun emitGlobalVariablesSnapshotImpl(output: StringBuilder,
+    program: ProgramNode, moduleConstantNames: Array<String>,
+    moduleConstantTypes: Array<String>, moduleConstantValues: Array<String>,
+    moduleConstMutable: String, moduleConstSeenTypes: String)
+    r: ModuleConstantRegistrySnapshot {
+
+    let state = captureModuleConstantRegistryStateImpl(moduleConstMutable,
+        moduleConstSeenTypes)
+    emitGlobalVariablesIntoStateImpl(output, program, moduleConstantNames,
+        moduleConstantTypes, moduleConstantValues, state)
+    return ModuleConstantRegistrySnapshot.new(state.moduleConstMutable,
+        state.moduleConstSeenTypes, "", -1)
 }
 
 fun moduleConstantInvariantLoadSuffixImpl(idx: Int, moduleConstMutable: String)
