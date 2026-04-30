@@ -35,6 +35,7 @@ import codegen.ir_decl_features.{emitFeatureDecls}
 // Seed newer helper modules through direct imports so older bootstrap
 // compilers discover them from the main-file import scan before falling back
 // to their embedded compiler-module list.
+import codegen.ir_decl_late_declares.{pipeContainsValueCoreImpl}
 import codegen.ir_decl_scan.{pipeContainsValueImpl}
 import codegen.ir_decl_registry.{recordLateUserDeclareIntoStateImpl, captureDeclarationPassStateImpl, captureLateUserDeclareStateImpl, captureParentClassRegistryStateImpl, registerCrossModuleConstantsIntoStateImpl, registerParentClassIntoStateImpl, resetLateUserDeclareStateImpl}
 import codegen.ir_decl_items.{registerPreparedDeclarationItemsIntoStateImpl}
@@ -2937,6 +2938,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_decl_runtime")
         modules.push("codegen.ir_decl_parser")
         modules.push("codegen.ir_decl_features")
+        modules.push("codegen.ir_decl_late_declares")
         modules.push("codegen.ir_decl_scan")
         modules.push("codegen.ir_decl_registry")
         modules.push("codegen.ir_decl_items")

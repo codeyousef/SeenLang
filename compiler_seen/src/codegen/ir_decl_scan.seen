@@ -10,6 +10,7 @@ import codegen.ir_module_emit.{mapGlobalVarLlvmTypeImpl, isValidCrossModuleConst
 import codegen.ir_type_layout.{getLlvmTypeSizeImpl}
 import codegen.ir_type_mapping.{isDataTypeImpl, mapTypeImpl}
 import codegen.type_registry.{getTypeSizeReg}
+import codegen.ir_decl_late_declares.{quoteDeclScanIdentIfNeededCore, pipeContainsValueCoreImpl, buildLateUserDeclareStringCoreImpl, recordLateUserDeclareCoreImpl, emitLateUserDeclaresCoreImpl}
 
 fun ensureStringBoxValue(box: Array<String>) r: Void {
     if box.length() == 0 {
@@ -276,25 +277,11 @@ fun recordCrossModuleDeclareImpl(symbolName: String, declStr: String, visibility
 }
 
 fun quoteDeclScanIdentIfNeeded(name: String) r: String {
-    var i = 0
-    while i < name.length() {
-        if name.byteAt(i) >= 128 {
-            return "\"" + name + "\""
-        }
-        i = i + 1
-    }
-    return name
+    return quoteDeclScanIdentIfNeededCore(name)
 }
 
 fun pipeContainsValueImpl(value: String, pipeValues: String, valueCount: Int) r: Bool {
-    var i = 0
-    while i < valueCount {
-        if pipeGet(pipeValues, i) == value {
-            return true
-        }
-        i = i + 1
-    }
-    return false
+    return pipeContainsValueCoreImpl(value, pipeValues, valueCount)
 }
 
 fun buildDeclareParamsImpl(paramSeenTypes: Array<String>, paramLlvmTypes: Array<String>,
@@ -333,43 +320,16 @@ fun buildDeclareStringImpl(quotedSymbolName: String, declRetLlvm: String,
 fun buildLateUserDeclareStringImpl(quotedSymbolName: String, llvmReturnType: String,
     argTypeStrs: Array<String>, hasImplicitThis: Int) r: String {
 
-    var declRetType = llvmReturnType
-    if declRetType == "" {
-        declRetType = "void"
-    }
-
-    var decl = "declare " + declRetType + " @" + quotedSymbolName + "("
-    if hasImplicitThis == 1 {
-        decl = decl + "ptr"
-    }
-
-    var i = 0
-    while i < argTypeStrs.length() {
-        if i > 0 or hasImplicitThis == 1 {
-            decl = decl + ", "
-        }
-        decl = decl + argTypeStrs[i]
-        i = i + 1
-    }
-    return decl + ") nounwind\n"
+    return buildLateUserDeclareStringCoreImpl(quotedSymbolName, llvmReturnType,
+        argTypeStrs, hasImplicitThis)
 }
 
 fun recordLateUserDeclareImpl(name: String, declStr: String,
     lateXmDeclareNamesBox: Array<String>, lateXmDeclareStrsBox: Array<String>,
     lateXmDeclareCountBox: Array<Int>) r: Void {
 
-    ensureStringBoxValue(lateXmDeclareNamesBox)
-    ensureStringBoxValue(lateXmDeclareStrsBox)
-    ensureIntBoxValue(lateXmDeclareCountBox)
-
-    if lateXmDeclareCountBox[0] == 0 {
-        lateXmDeclareNamesBox[0] = name + "|"
-        lateXmDeclareStrsBox[0] = declStr + "|"
-    } else {
-        lateXmDeclareNamesBox[0] = lateXmDeclareNamesBox[0] + name + "|"
-        lateXmDeclareStrsBox[0] = lateXmDeclareStrsBox[0] + declStr + "|"
-    }
-    lateXmDeclareCountBox[0] = lateXmDeclareCountBox[0] + 1
+    recordLateUserDeclareCoreImpl(name, declStr, lateXmDeclareNamesBox,
+        lateXmDeclareStrsBox, lateXmDeclareCountBox)
 }
 
 fun shouldSkipStringBuilderMethodDeclImpl(methodName: String) r: Bool {
@@ -398,54 +358,11 @@ fun shouldRegisterCrossModuleFunctionImpl(funcName: String, isExtern: Bool,
     return doRegister
 }
 
-fun moduleAlreadyDeclaresFunctionImpl(ir: String, name: String) r: Bool {
-    let symbolSig = "@" + quoteDeclScanIdentIfNeeded(name) + "("
-    var lineStart = 0
-    while lineStart < ir.length() {
-        var lineEnd = ir.indexOf("\n", lineStart)
-        if lineEnd < 0 {
-            lineEnd = ir.length()
-        }
-        let line = ir.substring(lineStart, lineEnd)
-        if (line.startsWith("declare ") or line.startsWith("define ")) and line.contains(symbolSig) {
-            return true
-        }
-        lineStart = lineEnd + 1
-    }
-    return false
-}
-
-fun definedFuncListContainsImpl(definedFuncs: Array<String>, name: String) r: Bool {
-    var i = 0
-    while i < definedFuncs.length() {
-        if definedFuncs[i] == name {
-            return true
-        }
-        i = i + 1
-    }
-    return false
-}
-
 fun emitLateUserDeclaresImpl(output: StringBuilder, definedFuncs: Array<String>,
     lateXmDeclareNames: String, lateXmDeclareStrs: String, lateXmDeclareCount: Int) r: Void {
 
-    if lateXmDeclareCount == 0 {
-        return
-    }
-
-    var currentIr = output.toString()
-    output.append("\n; Late-discovered user external declarations\n")
-    var i = 0
-    while i < lateXmDeclareCount {
-        let declName = pipeGet(lateXmDeclareNames, i)
-        if not definedFuncListContainsImpl(definedFuncs, declName) and not moduleAlreadyDeclaresFunctionImpl(currentIr, declName) {
-            let declStr = pipeGet(lateXmDeclareStrs, i)
-            output.append(declStr)
-            currentIr = currentIr + declStr
-            definedFuncs.push(declName)
-        }
-        i = i + 1
-    }
+    emitLateUserDeclaresCoreImpl(output, definedFuncs, lateXmDeclareNames,
+        lateXmDeclareStrs, lateXmDeclareCount)
 }
 
 fun registerEnumVariantsImpl(enumName: String, variants: Array<String>,

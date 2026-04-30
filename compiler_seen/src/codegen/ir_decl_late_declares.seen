@@ -1,0 +1,132 @@
+// ir_decl_late_declares.seen - Late-discovered user declaration helpers.
+
+import str.string.{StringBuilder}
+import codegen.ir_optimization.{pipeGet}
+
+fun ensureLateDeclareStringBoxValue(box: Array<String>) r: Void {
+    if box.length() == 0 {
+        box.push("")
+    }
+}
+
+fun ensureLateDeclareIntBoxValue(box: Array<Int>) r: Void {
+    if box.length() == 0 {
+        box.push(0)
+    }
+}
+
+fun quoteDeclScanIdentIfNeededCore(name: String) r: String {
+    var i = 0
+    while i < name.length() {
+        if name.byteAt(i) >= 128 {
+            return "\"" + name + "\""
+        }
+        i = i + 1
+    }
+    return name
+}
+
+fun pipeContainsValueCoreImpl(value: String, pipeValues: String, valueCount: Int) r: Bool {
+    var i = 0
+    while i < valueCount {
+        if pipeGet(pipeValues, i) == value {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
+fun buildLateUserDeclareStringCoreImpl(quotedSymbolName: String, llvmReturnType: String,
+    argTypeStrs: Array<String>, hasImplicitThis: Int) r: String {
+
+    var declRetType = llvmReturnType
+    if declRetType == "" {
+        declRetType = "void"
+    }
+
+    var decl = "declare " + declRetType + " @" + quotedSymbolName + "("
+    if hasImplicitThis == 1 {
+        decl = decl + "ptr"
+    }
+
+    var i = 0
+    while i < argTypeStrs.length() {
+        if i > 0 or hasImplicitThis == 1 {
+            decl = decl + ", "
+        }
+        decl = decl + argTypeStrs[i]
+        i = i + 1
+    }
+    return decl + ") nounwind\n"
+}
+
+fun recordLateUserDeclareCoreImpl(name: String, declStr: String,
+    lateXmDeclareNamesBox: Array<String>, lateXmDeclareStrsBox: Array<String>,
+    lateXmDeclareCountBox: Array<Int>) r: Void {
+
+    ensureLateDeclareStringBoxValue(lateXmDeclareNamesBox)
+    ensureLateDeclareStringBoxValue(lateXmDeclareStrsBox)
+    ensureLateDeclareIntBoxValue(lateXmDeclareCountBox)
+
+    if lateXmDeclareCountBox[0] == 0 {
+        lateXmDeclareNamesBox[0] = name + "|"
+        lateXmDeclareStrsBox[0] = declStr + "|"
+    } else {
+        lateXmDeclareNamesBox[0] = lateXmDeclareNamesBox[0] + name + "|"
+        lateXmDeclareStrsBox[0] = lateXmDeclareStrsBox[0] + declStr + "|"
+    }
+    lateXmDeclareCountBox[0] = lateXmDeclareCountBox[0] + 1
+}
+
+fun moduleAlreadyDeclaresFunctionCoreImpl(ir: String, name: String) r: Bool {
+    let symbolSig = "@" + quoteDeclScanIdentIfNeededCore(name) + "("
+    var lineStart = 0
+    while lineStart < ir.length() {
+        var lineEnd = ir.indexOf("\n", lineStart)
+        if lineEnd < 0 {
+            lineEnd = ir.length()
+        }
+        let line = ir.substring(lineStart, lineEnd)
+        if (line.startsWith("declare ") or line.startsWith("define ")) and line.contains(symbolSig) {
+            return true
+        }
+        lineStart = lineEnd + 1
+    }
+    return false
+}
+
+fun definedFuncListContainsCoreImpl(definedFuncs: Array<String>, name: String) r: Bool {
+    var i = 0
+    while i < definedFuncs.length() {
+        if definedFuncs[i] == name {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
+fun emitLateUserDeclaresCoreImpl(output: StringBuilder, definedFuncs: Array<String>,
+    lateXmDeclareNames: String, lateXmDeclareStrs: String, lateXmDeclareCount: Int) r: Void {
+
+    if lateXmDeclareCount == 0 {
+        return
+    }
+
+    var currentIr = output.toString()
+    output.append("\n; Late-discovered user external declarations\n")
+    var i = 0
+    while i < lateXmDeclareCount {
+        let declName = pipeGet(lateXmDeclareNames, i)
+        if not definedFuncListContainsCoreImpl(definedFuncs, declName) and
+            not moduleAlreadyDeclaresFunctionCoreImpl(currentIr, declName) {
+
+            let declStr = pipeGet(lateXmDeclareStrs, i)
+            output.append(declStr)
+            currentIr = currentIr + declStr
+            definedFuncs.push(declName)
+        }
+        i = i + 1
+    }
+}
