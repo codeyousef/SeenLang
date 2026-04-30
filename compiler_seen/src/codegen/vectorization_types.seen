@@ -1,0 +1,94 @@
+// vectorization_types.seen - Support types for SIMD vectorization analysis.
+
+// Supporting classes for vectorization analysis
+class MemoryAccess {
+    let baseArray: String
+    let accessType: String  // "read" or "write"
+    let indexExpression: Expression
+
+    fun new(arrayAccess: Expression, accessType: String) r: MemoryAccess {
+        baseArray = extractArrayName(arrayAccess)
+        accessType = accessType
+        indexExpression = extractIndexExpression(arrayAccess)
+    }
+
+    fun extractArrayName(expr: Expression) r: String {
+        if expr is ArrayAccessExpression {
+            let arrayAccess = expr as ArrayAccessExpression
+            if arrayAccess.array is IdentifierExpression {
+                return (arrayAccess.array as IdentifierExpression).name
+            }
+        }
+        return "unknown"
+    }
+
+    fun extractIndexExpression(expr: Expression) r: Expression {
+        if expr is ArrayAccessExpression {
+            return (expr as ArrayAccessExpression).index
+        }
+        return LiteralExpression.new("0", TokenType.IntegerLiteral, 0, 0)
+    }
+}
+
+// Additional AST nodes needed for vectorization analysis
+class AssignmentExpression extends Expression {
+    let left: Expression
+    let operator: String
+    let right: Expression
+
+    fun new(left: Expression, operator: String, right: Expression) r: AssignmentExpression {
+        super(left.line, left.column)
+        left = left
+        operator = operator
+        right = right
+    }
+}
+
+class ArrayAccessExpression extends Expression {
+    let array: Expression
+    let index: Expression
+
+    fun new(array: Expression, index: Expression) r: ArrayAccessExpression {
+        super(array.line, array.column)
+        array = array
+        index = index
+    }
+}
+
+class BreakStatement extends Statement {
+    fun new(line: Int, column: Int) r: BreakStatement {
+        super(line, column)
+    }
+}
+
+class ContinueStatement extends Statement {
+    fun new(line: Int, column: Int) r: ContinueStatement {
+        super(line, column)
+    }
+}
+
+class ForStatement extends Statement {
+    let init: Expression?
+    let condition: Expression?
+    let increment: Expression?
+    let body: Block
+
+    fun new(init: Expression?, condition: Expression?, increment: Expression?, body: Block) r: ForStatement {
+        super(0, 0)
+        init = init
+        condition = condition
+        increment = increment
+        body = body
+    }
+}
+
+class WhileStatement extends Statement {
+    let condition: Expression
+    let body: Block
+
+    fun new(condition: Expression, body: Block) r: WhileStatement {
+        super(0, 0)
+        condition = condition
+        body = body
+    }
+}
