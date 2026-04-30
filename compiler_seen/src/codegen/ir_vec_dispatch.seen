@@ -1,0 +1,178 @@
+// ir_vec_dispatch.seen - Vec runtime method emission helpers.
+
+import str.string.{StringBuilder}
+import codegen.ir_optimization.{getNextRegFn}
+
+// Vec runtime function suffix based on element type
+fun vecSuffixImpl(hasStr: Bool, hasFloat: Bool) r: String {
+    if hasStr { return "_str" }
+    if hasFloat { return "_float" }
+    return ""
+}
+
+// Vec LLVM arg/return type based on element type
+fun vecArgTypeImpl(hasStr: Bool, hasFloat: Bool) r: String {
+    if hasStr { return "%SeenString" }
+    if hasFloat { return "double" }
+    return "i64"
+}
+
+// Emit LLVM IR for Vec method calls
+// vecPtrReg must already be a ptr (inttoptr done by caller)
+// arg0/arg1 are pre-generated argument registers ("0" if unused)
+fun emitVecMethodCoreImpl(output: StringBuilder, regBox: Array<Int>,
+    methodName: String, vecPtrReg: String, arg0: String, arg1: String,
+    hasStr: Bool, hasFloat: Bool) r: String {
+
+    let suffix = vecSuffixImpl(hasStr, hasFloat)
+    let argType = vecArgTypeImpl(hasStr, hasFloat)
+
+    // len/length
+    if methodName == "len" or methodName == "length" {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call i64 @Vec_len" + suffix + "(ptr " + vecPtrReg + ")\n")
+        return resultReg
+    }
+
+    // capacity
+    if methodName == "capacity" {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call i64 @Vec_capacity" + suffix + "(ptr " + vecPtrReg + ")\n")
+        return resultReg
+    }
+
+    // isEmpty
+    if methodName == "isEmpty" {
+        let lenReg = getNextRegFn(regBox)
+        output.append("  " + lenReg + " = call i64 @Vec_len" + suffix + "(ptr " + vecPtrReg + ")\n")
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = icmp eq i64 " + lenReg + ", 0\n")
+        return resultReg
+    }
+
+    // push
+    if methodName == "push" {
+        output.append("  call void @Vec_push" + suffix + "(ptr " + vecPtrReg + ", " + argType + " " + arg0 + ")\n")
+        return "0"
+    }
+
+    // get
+    if methodName == "get" {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call " + argType + " @Vec_get" + suffix + "(ptr " + vecPtrReg + ", i64 " + arg0 + ")\n")
+        return resultReg
+    }
+
+    // set
+    if methodName == "set" {
+        output.append("  call void @Vec_set" + suffix + "(ptr " + vecPtrReg + ", i64 " + arg0 + ", " + argType + " " + arg1 + ")\n")
+        return "0"
+    }
+
+    // pop
+    if methodName == "pop" {
+        let resultReg = getNextRegFn(regBox)
+        if hasStr {
+            output.append("  " + resultReg + " = call %SeenString @Vec_pop_str(ptr " + vecPtrReg + ")\n")
+        } else {
+            if hasFloat {
+                output.append("  " + resultReg + " = call double @Vec_pop_float(ptr " + vecPtrReg + ")\n")
+            } else {
+                output.append("  " + resultReg + " = call i64 @Vec_pop(ptr " + vecPtrReg + ")\n")
+            }
+        }
+        return resultReg
+    }
+
+    // clear
+    if methodName == "clear" {
+        output.append("  call void @Vec_clear" + suffix + "(ptr " + vecPtrReg + ")\n")
+        return "0"
+    }
+
+    // reserve/ensureCapacity
+    if methodName == "reserve" or methodName == "ensureCapacity" {
+        output.append("  call void @Vec_ensureCapacity" + suffix + "(ptr " + vecPtrReg + ", i64 " + arg0 + ")\n")
+        return "0"
+    }
+
+    // contains
+    if methodName == "contains" {
+        let rawReg = getNextRegFn(regBox)
+        output.append("  " + rawReg + " = call i64 @Vec_contains" + suffix + "(ptr " + vecPtrReg + ", " + argType + " " + arg0 + ")\n")
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = trunc i64 " + rawReg + " to i1\n")
+        return resultReg
+    }
+
+    // indexOf
+    if methodName == "indexOf" {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call i64 @Vec_indexOf" + suffix + "(ptr " + vecPtrReg + ", " + argType + " " + arg0 + ")\n")
+        return resultReg
+    }
+
+    // reverse
+    if methodName == "reverse" {
+        output.append("  call void @Vec_reverse" + suffix + "(ptr " + vecPtrReg + ")\n")
+        return "0"
+    }
+
+    // remove
+    if methodName == "remove" {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call " + argType + " @Vec_remove" + suffix + "(ptr " + vecPtrReg + ", i64 " + arg0 + ")\n")
+        return resultReg
+    }
+
+    // insert
+    if methodName == "insert" {
+        output.append("  call void @Vec_insert" + suffix + "(ptr " + vecPtrReg + ", i64 " + arg0 + ", " + argType + " " + arg1 + ")\n")
+        return "0"
+    }
+
+    // first
+    if methodName == "first" {
+        let resultReg = getNextRegFn(regBox)
+        if hasStr {
+            output.append("  " + resultReg + " = call %SeenString @Vec_first_str(ptr " + vecPtrReg + ")\n")
+        } else {
+            if hasFloat {
+                output.append("  " + resultReg + " = call double @Vec_first_float(ptr " + vecPtrReg + ")\n")
+            } else {
+                output.append("  " + resultReg + " = call i64 @Vec_first(ptr " + vecPtrReg + ")\n")
+            }
+        }
+        return resultReg
+    }
+
+    // last
+    if methodName == "last" {
+        let resultReg = getNextRegFn(regBox)
+        if hasStr {
+            output.append("  " + resultReg + " = call %SeenString @Vec_last_str(ptr " + vecPtrReg + ")\n")
+        } else {
+            if hasFloat {
+                output.append("  " + resultReg + " = call double @Vec_last_float(ptr " + vecPtrReg + ")\n")
+            } else {
+                output.append("  " + resultReg + " = call i64 @Vec_last(ptr " + vecPtrReg + ")\n")
+            }
+        }
+        return resultReg
+    }
+
+    // sort (Int and Float only)
+    if methodName == "sort" {
+        if hasFloat {
+            output.append("  call void @Vec_sort_float(ptr " + vecPtrReg + ")\n")
+        } else {
+            if not hasStr {
+                output.append("  call void @Vec_sort(ptr " + vecPtrReg + ")\n")
+            }
+        }
+        return "0"
+    }
+
+    // Unhandled method - return empty to signal fallthrough
+    return ""
+}
