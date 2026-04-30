@@ -55,6 +55,7 @@ import codegen.ir_type_info_generator_layout.{getLLVMIRGeneratorFieldIndexTableI
 import codegen.ir_seen_field_type_lookup.{getSeenFieldTypeImpl}
 import codegen.ir_seen_field_type_registered.{getSeenFieldTypeEmptyRegistryFallbackImpl}
 import codegen.ir_method_return_type_lookup.{getMethodReturnTypeImpl}
+import codegen.ir_method_return_type_collections.{getCollectionMethodReturnTypeImpl}
 import codegen.ir_char_codes.{charToCodeStrImpl}
 import codegen.ir_field_indices.{getKnownFieldIndexPrimaryTableImpl, getKnownLspFieldIndexTableImpl, getKnownFieldIndexFallbackTableImpl}
 import codegen.ir_lsp_field_types.{getKnownLspSeenFieldTypeTableImpl}
@@ -2965,6 +2966,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_type_info")
         modules.push("codegen.ir_seen_field_type_registered")
         modules.push("codegen.ir_seen_field_type_lookup")
+        modules.push("codegen.ir_method_return_type_collections")
         modules.push("codegen.ir_method_return_type_lookup")
         modules.push("codegen.ir_method_call_type_table")
         modules.push("codegen.ir_call_type_table")
