@@ -8,6 +8,7 @@ import codegen.ir_type_info.{getLLVMIRGeneratorFieldLlvmTypeImpl}
 import codegen.ir_method_call_type_table.{inferMethodCallTypeTableImpl}
 import codegen.ir_call_type_table.{inferCallTypeTableImpl}
 import codegen.ir_field_type_fallback.{inferFieldTypeFallbackImpl}
+import codegen.ir_header_field_types.{getFieldTypeForHeaderStructImpl}
 // Note: getNextRegFn, getNextBlockFn, charToCodeStr, mapTypeImpl, SIMD helpers
 // moved to ir_type_dispatch.seen and ir_type_ops.seen
 
@@ -79,98 +80,7 @@ fun inferIndexElementType(arrayType: String) r: String {
 
 // LLVM type fallback when fieldNamesStr is empty (header-loaded structs)
 fun getFieldTypeForHeaderStruct(structName: String, fieldName: String) r: String {
-    if structName == "FunctionNode" {
-        if fieldName == "name" { return "%SeenString" }
-        if fieldName == "params" { return "ptr" }
-        if fieldName == "returnType" { return "%TypeNode" }
-        if fieldName == "body" { return "i64" }
-        if fieldName == "isAsync" { return "i1" }
-        if fieldName == "isInline" { return "i1" }
-        if fieldName == "isStatic" { return "i1" }
-        if fieldName == "isExtern" { return "i1" }
-        if fieldName == "isDeterministic" { return "i1" }
-        if fieldName == "isNondeterministic" { return "i1" }
-        if fieldName == "decorators" { return "ptr" }
-        if fieldName == "line" { return "i64" }
-        if fieldName == "column" { return "i64" }
-        if fieldName == "isOverride" { return "i1" }
-    }
-    if structName == "ClassNode" {
-        if fieldName == "name" { return "%SeenString" }
-        if fieldName == "fields" { return "ptr" }
-        if fieldName == "methods" { return "ptr" }
-        if fieldName == "decorators" { return "ptr" }
-        if fieldName == "isNondeterministic" { return "i1" }
-        if fieldName == "parentName" { return "%SeenString" }
-    }
-    if structName == "TypeNode" {
-        if fieldName == "typeName" { return "%SeenString" }
-        if fieldName == "isNullable" { return "i1" }
-    }
-    if structName == "ParamNode" {
-        if fieldName == "name" { return "%SeenString" }
-        if fieldName == "paramType" { return "%TypeNode" }
-        if fieldName == "defaultValue" { return "i64" }
-    }
-    if structName == "ItemNode" {
-        if fieldName == "itemType" { return "%SeenString" }
-        if fieldName == "name" { return "%SeenString" }
-        if fieldName == "visibility" { return "%SeenString" }
-        if fieldName == "importPath" { return "ptr" }
-        if fieldName == "importSymbols" { return "ptr" }
-        if fieldName == "function" { return "i64" }
-        if fieldName == "classNode" { return "i64" }
-        if fieldName == "enumNode" { return "i64" }
-    }
-    if structName == "ProgramNode" {
-        if fieldName == "items" { return "ptr" }
-    }
-    if structName == "BlockNode" {
-        if fieldName == "statements" { return "ptr" }
-    }
-    if structName == "FrontendResult" {
-        if fieldName == "success" { return "i1" }
-        if fieldName == "diagnostics" { return "ptr" }
-        if fieldName == "program" { return "i64" }
-    }
-    if structName == "FrontendDiagnostic" {
-        if fieldName == "file" { return "%SeenString" }
-        if fieldName == "line" { return "i64" }
-        if fieldName == "column" { return "i64" }
-        if fieldName == "severity" { return "%SeenString" }
-        if fieldName == "message" { return "%SeenString" }
-    }
-    if structName == "Token" {
-        if fieldName == "tokenType" { return "i64" }
-        if fieldName == "value" { return "%SeenString" }
-        if fieldName == "line" { return "i64" }
-        if fieldName == "column" { return "i64" }
-    }
-    if structName == "StatementNode" {
-        if fieldName == "kind" { return "%SeenString" }
-        if fieldName == "variableName" { return "%SeenString" }
-        if fieldName == "variableType" { return "%TypeNode" }
-        if fieldName == "initializer" { return "i64" }
-        if fieldName == "condition" { return "i64" }
-        if fieldName == "thenBranch" { return "i64" }
-        if fieldName == "elseBranch" { return "i64" }
-        if fieldName == "loopBody" { return "i64" }
-        if fieldName == "loopVariable" { return "%SeenString" }
-        if fieldName == "loopIterable" { return "i64" }
-        if fieldName == "returnValue" { return "i64" }
-        if fieldName == "expression" { return "i64" }
-    }
-    if structName == "ParserExpressionNode" {
-        if fieldName == "kind" { return "%SeenString" }
-        if fieldName == "variableName" { return "%SeenString" }
-        if fieldName == "literalValue" { return "%SeenString" }
-        if fieldName == "literalType" { return "%SeenString" }
-        if fieldName == "operator" { return "%SeenString" }
-        if fieldName == "operands" { return "ptr" }
-        if fieldName == "arguments" { return "ptr" }
-        if fieldName == "callee" { return "%SeenString" }
-    }
-    return ""
+    return getFieldTypeForHeaderStructImpl(structName, fieldName)
 }
 
 // Comprehensive LLVM type tables for all known structs

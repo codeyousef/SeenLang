@@ -49,6 +49,7 @@ import codegen.ir_lsp_field_types.{getKnownLspSeenFieldTypeTableImpl}
 import codegen.ir_method_call_type_table.{inferMethodCallTypeTableImpl}
 import codegen.ir_call_type_table.{inferCallTypeTableImpl}
 import codegen.ir_field_type_fallback.{inferFieldTypeFallbackImpl}
+import codegen.ir_header_field_types.{getFieldTypeForHeaderStructImpl}
 import codegen.ir_local_type_fallback.{tryInferImplicitThisVariableTypeImpl}
 import codegen.ir_async_registry.{registerAsyncFunctionImpl}
 import codegen.ir_async_await.{emitAwaitPollLoopImpl, emitAwaitResultValueImpl}
@@ -2926,6 +2927,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_method_call_type_table")
         modules.push("codegen.ir_call_type_table")
         modules.push("codegen.ir_field_type_fallback")
+        modules.push("codegen.ir_header_field_types")
         modules.push("codegen.ir_type_tables")
         // Extracted codegen helper modules
         modules.push("codegen.ir_decl_runtime")
