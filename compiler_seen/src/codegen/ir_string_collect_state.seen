@@ -5,6 +5,79 @@ import parser.real_parser.{ProgramNode, ParserExpressionNode}
 import codegen.ir_string_collect.{collectStringConstantsImpl, collectStringConstantsFromExprImpl}
 import codegen.ir_decl_default_params.{collectDefaultParamStringConstantsImpl}
 
+class StringCollectionBoxState {
+    var selfCallBox: Array<String>
+    var selfCallCountBox: Array<Int>
+    var callCountNamesBox: Array<String>
+    var callCountEntriesBox: Array<Int>
+
+    static fun new(selfCallBox: Array<String>,
+        selfCallCountBox: Array<Int>, callCountNamesBox: Array<String>,
+        callCountEntriesBox: Array<Int>) r: StringCollectionBoxState {
+
+        return StringCollectionBoxState{
+            selfCallBox: selfCallBox,
+            selfCallCountBox: selfCallCountBox,
+            callCountNamesBox: callCountNamesBox,
+            callCountEntriesBox: callCountEntriesBox
+        }
+    }
+}
+
+class StringCollectionBoxWritebackState {
+    var selfCallFuncs: String
+    var selfCallNames: String
+    var selfCallCount: Int
+    var callCountNames: String
+    var callCountEntries: Int
+
+    static fun new(selfCallFuncs: String, selfCallNames: String,
+        selfCallCount: Int, callCountNames: String,
+        callCountEntries: Int) r: StringCollectionBoxWritebackState {
+
+        return StringCollectionBoxWritebackState{
+            selfCallFuncs: selfCallFuncs,
+            selfCallNames: selfCallNames,
+            selfCallCount: selfCallCount,
+            callCountNames: callCountNames,
+            callCountEntries: callCountEntries
+        }
+    }
+}
+
+fun initStringCollectionBoxesStateImpl(selfCallFuncs: String,
+    selfCallNames: String, selfCallCount: Int, callCountNames: String,
+    callCountEntries: Int) r: StringCollectionBoxState {
+
+    let selfCallBox = Array<String>()
+    selfCallBox.push(selfCallFuncs)
+    selfCallBox.push(selfCallNames)
+
+    let selfCallCountBox = Array<Int>()
+    selfCallCountBox.push(selfCallCount)
+
+    let callCountNamesBox = Array<String>()
+    callCountNamesBox.push(callCountNames)
+
+    let callCountEntriesBox = Array<Int>()
+    callCountEntriesBox.push(callCountEntries)
+
+    return StringCollectionBoxState.new(selfCallBox, selfCallCountBox,
+        callCountNamesBox, callCountEntriesBox)
+}
+
+fun syncStringCollectionBoxesStateImpl(selfCallBox: Array<String>,
+    selfCallCountBox: Array<Int>, callCountNamesBox: Array<String>,
+    callCountEntriesBox: Array<Int>) r: StringCollectionBoxWritebackState {
+
+    return StringCollectionBoxWritebackState.new(
+        selfCallBox[selfCallBox.length() - 2],
+        selfCallBox[selfCallBox.length() - 1],
+        selfCallCountBox[selfCallCountBox.length() - 1],
+        callCountNamesBox[callCountNamesBox.length() - 1],
+        callCountEntriesBox[callCountEntriesBox.length() - 1])
+}
+
 fun collectStringConstantsStateImpl(program: ProgramNode,
     stringConstants: Array<String>, selfCallBox: Array<String>,
     selfCallCountBox: Array<Int>, callCountNamesBox: Array<String>,
