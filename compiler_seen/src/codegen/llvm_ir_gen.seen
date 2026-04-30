@@ -59,7 +59,8 @@ import codegen.ir_local_type_fallback.{tryInferLLVMIRGeneratorThisFieldTypeImpl,
 import codegen.ir_trait_registry.{appendDynTraitNameImpl}
 import codegen.ir_type_info.{charToCodeStr, getSeenFieldTypeImpl, getMethodReturnTypeImpl, g_resolvedFieldIndex, g_resolvedFieldTypeCode, decodeFieldTypeCode, findStructIdx, getLLVMIRGeneratorFieldIndexImpl}
 
-import codegen.ir_string_collect.{getBaseTypeNameImpl, normalizeHeaderTypeImpl, parseArrayElementTypeImpl, extractArrayLiteralElementTypeImpl, parseDecimalIntImpl, getSeenTokenTypeValueImpl}
+import codegen.ir_string_collect.{getBaseTypeNameImpl, normalizeHeaderTypeImpl, parseArrayElementTypeImpl, extractArrayLiteralElementTypeImpl, parseDecimalIntImpl}
+import codegen.ir_seen_token_types.{getSeenTokenTypeValueImpl}
 import codegen.ir_string_collect_state.{collectStringConstantsStateImpl, collectStringConstantsFromExprStateImpl, initStringCollectionBoxesStateImpl, syncStringCollectionBoxesStateImpl, resetCallCountTrackingStateImpl, resetSelfCallTrackingStateImpl}
 import codegen.ir_string_interp_gen.{generateStringInterpolationFromPartsImpl}
 import codegen.ir_string_interp_infer.{inferStringInterpolationExprTypeStateImpl}
@@ -8642,7 +8643,7 @@ class LLVMIRGenerator {
     // These are emitted as LLVM global constants before any function bodies.
     // Also piggybacks call counting for ML inline decisions and self-call
     // detection (for the norecurse attribute). Delegates to
-    // collectStringConstantsImpl in ir_string_collect.seen.
+    // collectStringConstantsImpl in ir_string_collect_scan.seen.
     fun collectStringConstants(program: ProgramNode) r: Void {
         initCollectionBoxes()
         collectStringConstantsStateImpl(program, stringConstants, g_selfCallBox,

@@ -1,0 +1,318 @@
+// ir_string_collect_scan.seen - AST walks for string constants and self-calls.
+
+import parser.real_parser.{ParserExpressionNode, ProgramNode, BlockNode, StatementNode}
+import codegen.ir_string_collect.{ensureStringConstCache, hasCachedStringConst, cacheStringConstUnchecked}
+
+// Record a call to funcName (piggybacked during string collection).
+// callCountNamesBox[0] = g_callCountNames, callCountEntriesBox[0] = g_callCountEntries
+fun callCountRecordImpl(funcName: String, callCountNamesBox: Array<String>, callCountEntriesBox: Array<Int>) r: Void {
+    return
+}
+
+// Collect self-call info: scan function body for Call exprs that call funcName
+// selfCallBox[0] = g_selfCallFuncs, selfCallBox[1] = g_selfCallNames
+// selfCallCountBox[0] = g_selfCallCount
+fun collectSelfCallsImpl(funcName: String, body: BlockNode, selfCallBox: Array<String>, selfCallCountBox: Array<Int>) r: Void {
+    var i = 0
+    while i < body.statements.length() {
+        collectSelfCallsFromStmtImpl(funcName, body.statements[i], selfCallBox, selfCallCountBox)
+        i = i + 1
+    }
+}
+
+fun collectSelfCallsFromStmtImpl(funcName: String, stmt: StatementNode, selfCallBox: Array<String>, selfCallCountBox: Array<Int>) r: Void {
+    if stmt.kind == "Let" or stmt.kind == "Var" {
+        collectSelfCallsFromExprImpl(funcName, stmt.initializer, selfCallBox, selfCallCountBox)
+    }
+    if stmt.kind == "Return" {
+        collectSelfCallsFromExprImpl(funcName, stmt.returnValue, selfCallBox, selfCallCountBox)
+    }
+    if stmt.kind == "Expression" {
+        collectSelfCallsFromExprImpl(funcName, stmt.expression, selfCallBox, selfCallCountBox)
+    }
+    if stmt.kind == "If" {
+        collectSelfCallsFromExprImpl(funcName, stmt.condition, selfCallBox, selfCallCountBox)
+        var tsi = 0
+        while tsi < stmt.thenBranch.statements.length() {
+            collectSelfCallsFromStmtImpl(funcName, stmt.thenBranch.statements[tsi], selfCallBox, selfCallCountBox)
+            tsi = tsi + 1
+        }
+        var esi = 0
+        while esi < stmt.elseBranch.statements.length() {
+            collectSelfCallsFromStmtImpl(funcName, stmt.elseBranch.statements[esi], selfCallBox, selfCallCountBox)
+            esi = esi + 1
+        }
+    }
+    if stmt.kind == "While" {
+        collectSelfCallsFromExprImpl(funcName, stmt.loopCondition, selfCallBox, selfCallCountBox)
+        var wsi = 0
+        while wsi < stmt.loopBody.statements.length() {
+            collectSelfCallsFromStmtImpl(funcName, stmt.loopBody.statements[wsi], selfCallBox, selfCallCountBox)
+            wsi = wsi + 1
+        }
+    }
+}
+
+fun collectSelfCallsFromExprImpl(funcName: String, expr: ParserExpressionNode, selfCallBox: Array<String>, selfCallCountBox: Array<Int>) r: Void {
+    if expr.kind == "" { return }
+    if expr.kind == "Call" {
+        if expr.callee == funcName {
+            let countIdx = selfCallCountBox.length() - 1
+            let count = selfCallCountBox[countIdx]
+            let funcsIdx = selfCallBox.length() - 2
+            let namesIdx = selfCallBox.length() - 1
+            if count == 0 {
+                selfCallBox.push(funcName)
+                selfCallBox.push(funcName)
+            } else {
+                selfCallBox.push(selfCallBox[funcsIdx] + "|" + funcName)
+                selfCallBox.push(selfCallBox[namesIdx] + "|" + funcName)
+            }
+            selfCallCountBox.push(count + 1)
+            return
+        }
+    }
+    var ai = 0
+    while ai < expr.arguments.length() {
+        collectSelfCallsFromExprImpl(funcName, expr.arguments[ai], selfCallBox, selfCallCountBox)
+        ai = ai + 1
+    }
+    var oi = 0
+    while oi < expr.operands.length() {
+        collectSelfCallsFromExprImpl(funcName, expr.operands[oi], selfCallBox, selfCallCountBox)
+        oi = oi + 1
+    }
+}
+
+fun collectStringConstantsFromBlockImpl(block: BlockNode, stringConstants: Array<String>, callCountNamesBox: Array<String>, callCountEntriesBox: Array<Int>) r: Void {
+    var i = 0
+    while i < block.statements.length() {
+        collectStringConstantsFromStatementImpl(block.statements[i], stringConstants, callCountNamesBox, callCountEntriesBox)
+        i = i + 1
+    }
+}
+
+fun collectStringConstantsFromStatementImpl(stmt: StatementNode, stringConstants: Array<String>, callCountNamesBox: Array<String>, callCountEntriesBox: Array<Int>) r: Void {
+    if stmt.kind == "Let" or stmt.kind == "Var" {
+        collectStringConstantsFromExprImpl(stmt.initializer, stringConstants, callCountNamesBox, callCountEntriesBox)
+    }
+    if stmt.kind == "Return" {
+        collectStringConstantsFromExprImpl(stmt.returnValue, stringConstants, callCountNamesBox, callCountEntriesBox)
+    }
+    if stmt.kind == "Expression" {
+        collectStringConstantsFromExprImpl(stmt.expression, stringConstants, callCountNamesBox, callCountEntriesBox)
+    }
+    if stmt.kind == "If" {
+        collectStringConstantsFromExprImpl(stmt.condition, stringConstants, callCountNamesBox, callCountEntriesBox)
+        collectStringConstantsFromBlockImpl(stmt.thenBranch, stringConstants, callCountNamesBox, callCountEntriesBox)
+        collectStringConstantsFromBlockImpl(stmt.elseBranch, stringConstants, callCountNamesBox, callCountEntriesBox)
+    }
+    if stmt.kind == "While" {
+        collectStringConstantsFromExprImpl(stmt.loopCondition, stringConstants, callCountNamesBox, callCountEntriesBox)
+        collectStringConstantsFromBlockImpl(stmt.loopBody, stringConstants, callCountNamesBox, callCountEntriesBox)
+    }
+    if stmt.kind == "ForIn" {
+        collectStringConstantsFromExprImpl(stmt.expression, stringConstants, callCountNamesBox, callCountEntriesBox)
+        collectStringConstantsFromBlockImpl(stmt.loopBody, stringConstants, callCountNamesBox, callCountEntriesBox)
+    }
+    if stmt.kind == "Assignment" {
+        collectStringConstantsFromExprImpl(stmt.initializer, stringConstants, callCountNamesBox, callCountEntriesBox)
+    }
+    if stmt.kind == "Region" {
+        collectStringConstantsFromBlockImpl(stmt.thenBranch, stringConstants, callCountNamesBox, callCountEntriesBox)
+    }
+    if stmt.kind == "Unsafe" {
+        collectStringConstantsFromBlockImpl(stmt.thenBranch, stringConstants, callCountNamesBox, callCountEntriesBox)
+    }
+    if stmt.kind == "Block" {
+        collectStringConstantsFromBlockImpl(stmt.thenBranch, stringConstants, callCountNamesBox, callCountEntriesBox)
+    }
+    if stmt.kind == "Defer" or stmt.kind == "Errdefer" {
+        collectStringConstantsFromExprImpl(stmt.expression, stringConstants, callCountNamesBox, callCountEntriesBox)
+    }
+    if stmt.kind == "TryCatch" {
+        collectStringConstantsFromBlockImpl(stmt.thenBranch, stringConstants, callCountNamesBox, callCountEntriesBox)
+        collectStringConstantsFromBlockImpl(stmt.elseBranch, stringConstants, callCountNamesBox, callCountEntriesBox)
+    }
+    if stmt.kind == "ComptimeIf" {
+        collectStringConstantsFromBlockImpl(stmt.thenBranch, stringConstants, callCountNamesBox, callCountEntriesBox)
+        collectStringConstantsFromBlockImpl(stmt.elseBranch, stringConstants, callCountNamesBox, callCountEntriesBox)
+    }
+    if stmt.kind == "ComptimeBlock" {
+        collectStringConstantsFromBlockImpl(stmt.thenBranch, stringConstants, callCountNamesBox, callCountEntriesBox)
+    }
+    if stmt.kind == "ParallelFor" {
+        collectStringConstantsFromBlockImpl(stmt.loopBody, stringConstants, callCountNamesBox, callCountEntriesBox)
+    }
+    // Also check the expression for MemberAssignment/IndexAssignment
+    if stmt.expression.kind != "" {
+        collectStringConstantsFromExprImpl(stmt.expression, stringConstants, callCountNamesBox, callCountEntriesBox)
+    }
+}
+
+fun collectStringConstantsFromExprImpl(expr: ParserExpressionNode, stringConstants: Array<String>, callCountNamesBox: Array<String>, callCountEntriesBox: Array<Int>) r: Void {
+    if expr.kind == "" { return }
+    if expr.kind == "Literal" and expr.literalType == "String" {
+        ensureStringConstCache(stringConstants)
+        if not hasCachedStringConst(expr.literalValue) {
+            stringConstants.push(expr.literalValue)
+            cacheStringConstUnchecked(expr.literalValue)
+        }
+    }
+    if expr.kind == "Binary" {
+        var i = 0
+        while i < expr.operands.length() {
+            collectStringConstantsFromExprImpl(expr.operands[i], stringConstants, callCountNamesBox, callCountEntriesBox)
+            i = i + 1
+        }
+    }
+    if expr.kind == "Call" or expr.kind == "MethodCall" {
+        // Piggyback call counting for ML inline decisions (capped at 200)
+        if expr.kind == "Call" {
+            callCountRecordImpl(expr.callee, callCountNamesBox, callCountEntriesBox)
+        }
+        var i = 0
+        while i < expr.arguments.length() {
+            collectStringConstantsFromExprImpl(expr.arguments[i], stringConstants, callCountNamesBox, callCountEntriesBox)
+            i = i + 1
+        }
+        // Also check operands for chained method calls
+        i = 0
+        while i < expr.operands.length() {
+            collectStringConstantsFromExprImpl(expr.operands[i], stringConstants, callCountNamesBox, callCountEntriesBox)
+            i = i + 1
+        }
+    }
+    if expr.kind == "StructLiteral" {
+        // Collect strings from struct field initializers
+        var i = 0
+        while i < expr.arguments.length() {
+            let fieldExpr = expr.arguments[i]
+            if fieldExpr.operands.length() > 0 {
+                collectStringConstantsFromExprImpl(fieldExpr.operands[0], stringConstants, callCountNamesBox, callCountEntriesBox)
+            }
+            i = i + 1
+        }
+    }
+    if expr.kind == "Unary" {
+        if expr.operands.length() > 0 {
+            collectStringConstantsFromExprImpl(expr.operands[0], stringConstants, callCountNamesBox, callCountEntriesBox)
+        }
+    }
+    if expr.kind == "Await" {
+        if expr.operands.length() > 0 {
+            collectStringConstantsFromExprImpl(expr.operands[0], stringConstants, callCountNamesBox, callCountEntriesBox)
+        }
+    }
+    if expr.kind == "Assignment" {
+        // Handle assignment expressions - collect from the right-hand side value
+        // Parser stores: variableName = target, operands[0] = value
+        if expr.operands.length() > 0 {
+            collectStringConstantsFromExprImpl(expr.operands[0], stringConstants, callCountNamesBox, callCountEntriesBox)
+        }
+    }
+    if expr.kind == "MemberAssignment" or expr.kind == "IndexAssignment" {
+        // MemberAssignment: operands[0] = lhs (MemberAccess), operands[1] = rhs value
+        // IndexAssignment: operands[0] = lhs (IndexAccess), operands[1] = rhs value
+        var i = 0
+        while i < expr.operands.length() {
+            collectStringConstantsFromExprImpl(expr.operands[i], stringConstants, callCountNamesBox, callCountEntriesBox)
+            i = i + 1
+        }
+    }
+    if expr.kind == "MemberAccess" or expr.kind == "IndexAccess" {
+        // Recursively handle operands for chained access
+        var i = 0
+        while i < expr.operands.length() {
+            collectStringConstantsFromExprImpl(expr.operands[i], stringConstants, callCountNamesBox, callCountEntriesBox)
+            i = i + 1
+        }
+    }
+    if expr.kind == "ArrayLiteral" {
+        // Collect strings from array literal elements
+        var i = 0
+        while i < expr.arguments.length() {
+            collectStringConstantsFromExprImpl(expr.arguments[i], stringConstants, callCountNamesBox, callCountEntriesBox)
+            i = i + 1
+        }
+    }
+    if expr.kind == "StringInterpolation" {
+        var i = 0
+        while i < expr.arguments.length() {
+            collectStringConstantsFromExprImpl(expr.arguments[i], stringConstants, callCountNamesBox, callCountEntriesBox)
+            i = i + 1
+        }
+        i = 0
+        while i < expr.operands.length() {
+            collectStringConstantsFromExprImpl(expr.operands[i], stringConstants, callCountNamesBox, callCountEntriesBox)
+            i = i + 1
+        }
+    }
+    if expr.kind == "Elvis" or expr.kind == "NullCoalesce" or expr.kind == "SafeNavigation" {
+        var i = 0
+        while i < expr.operands.length() {
+            collectStringConstantsFromExprImpl(expr.operands[i], stringConstants, callCountNamesBox, callCountEntriesBox)
+            i = i + 1
+        }
+    }
+    if expr.kind == "IfExpression" {
+        // condition, then-expr, else-expr (operands[0..2])
+        var i = 0
+        while i < expr.operands.length() {
+            collectStringConstantsFromExprImpl(expr.operands[i], stringConstants, callCountNamesBox, callCountEntriesBox)
+            i = i + 1
+        }
+    }
+    if expr.kind == "WhenExpression" {
+        // Collect from subject
+        var i = 0
+        while i < expr.operands.length() {
+            collectStringConstantsFromExprImpl(expr.operands[i], stringConstants, callCountNamesBox, callCountEntriesBox)
+            i = i + 1
+        }
+        // Collect from arms
+        i = 0
+        while i < expr.arguments.length() {
+            let arm = expr.arguments[i]
+            var j = 0
+            while j < arm.operands.length() {
+                collectStringConstantsFromExprImpl(arm.operands[j], stringConstants, callCountNamesBox, callCountEntriesBox)
+                j = j + 1
+            }
+            i = i + 1
+        }
+    }
+
+    if expr.kind == "ReturnExpr" {
+        var rei = 0
+        while rei < expr.operands.length() {
+            collectStringConstantsFromExprImpl(expr.operands[rei], stringConstants, callCountNamesBox, callCountEntriesBox)
+            rei = rei + 1
+        }
+    }
+}
+
+// Top-level string constant collection: iterates program items, collects self-calls and string constants
+fun collectStringConstantsImpl(program: ProgramNode, stringConstants: Array<String>, selfCallBox: Array<String>, selfCallCountBox: Array<Int>, callCountNamesBox: Array<String>, callCountEntriesBox: Array<Int>) r: Void {
+    var i = 0
+    while i < program.items.length() {
+        let item = program.items[i]
+        if item.itemType == "Function" {
+            // Record self-calls for norecurse detection
+            collectSelfCallsImpl(item.function.name, item.function.body, selfCallBox, selfCallCountBox)
+            collectStringConstantsFromBlockImpl(item.function.body, stringConstants, callCountNamesBox, callCountEntriesBox)
+        }
+        if item.itemType == "Class" {
+            // Collect strings from class method bodies
+            var mi = 0
+            while mi < item.classNode.methods.length() {
+                let methodFn = item.classNode.methods[mi]
+                let qualName = item.classNode.name + "_" + methodFn.name
+                collectSelfCallsImpl(qualName, methodFn.body, selfCallBox, selfCallCountBox)
+                collectStringConstantsFromBlockImpl(methodFn.body, stringConstants, callCountNamesBox, callCountEntriesBox)
+                mi = mi + 1
+            }
+        }
+        i = i + 1
+    }
+}

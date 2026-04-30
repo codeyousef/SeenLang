@@ -2,7 +2,7 @@
 // Extracted from llvm_ir_gen.seen to keep special-expression inference thin.
 
 import parser.real_parser.{ParserExpressionNode}
-import codegen.ir_string_collect.{collectStringConstantsFromExprImpl}
+import codegen.ir_string_collect_scan.{collectStringConstantsFromExprImpl}
 
 fun collectStringConstantsFromExprListImpl(exprs: Array<ParserExpressionNode>,
     stringConstants: Array<String>, callCountNamesBox: Array<String>,

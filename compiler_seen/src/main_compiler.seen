@@ -68,6 +68,8 @@ import codegen.ir_program_flow_plan.{shouldVisitProgramFlowIndexImpl, shouldEmit
 import codegen.ir_method_gen.{emitToStringMethodImpl}
 import codegen.ir_ptr_ops.{emitPtrOpsImpl}
 import codegen.ir_string_collect.{hexToDecimalImpl}
+import codegen.ir_seen_token_types.{getSeenTokenTypeValueImpl}
+import codegen.ir_string_collect_scan.{collectStringConstantsImpl, collectStringConstantsFromExprImpl}
 import codegen.ir_string_collect_state.{collectStringConstantsStateImpl, initStringCollectionBoxesStateImpl, syncStringCollectionBoxesStateImpl, resetCallCountTrackingStateImpl, resetSelfCallTrackingStateImpl}
 import codegen.ir_string_interp_gen.{generateStringInterpolationFromPartsImpl}
 import codegen.ir_string_interp_infer.{inferStringInterpolationExprTypeStateImpl}
@@ -2970,6 +2972,8 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_method_gen")
         modules.push("codegen.ir_ptr_ops")
         modules.push("codegen.ir_string_collect")
+        modules.push("codegen.ir_seen_token_types")
+        modules.push("codegen.ir_string_collect_scan")
         modules.push("codegen.ir_string_collect_state")
         modules.push("codegen.ir_string_interp_gen")
         modules.push("codegen.ir_string_interp_infer")

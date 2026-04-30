@@ -2,7 +2,7 @@
 // Extracted from llvm_ir_gen.seen to keep collection orchestration thin.
 
 import parser.real_parser.{ProgramNode, ParserExpressionNode}
-import codegen.ir_string_collect.{collectStringConstantsImpl, collectStringConstantsFromExprImpl}
+import codegen.ir_string_collect_scan.{collectStringConstantsImpl, collectStringConstantsFromExprImpl}
 import codegen.ir_decl_default_params.{collectDefaultParamStringConstantsImpl}
 
 class StringCollectionBoxState {
