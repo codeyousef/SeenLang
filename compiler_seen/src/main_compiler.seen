@@ -53,6 +53,7 @@ import codegen.ir_decl_return_types.{resolveMethodReturnTypeImpl}
 import codegen.ir_module_constants.{findModuleConstantIntoStateImpl, captureModuleConstantRegistryStateImpl, tryInferModuleConstantVariableTypeSnapshotImpl, findModuleConstantSnapshotImpl, emitGlobalVariablesSnapshotImpl, resetModuleConstantGenerationStateImpl}
 import codegen.ir_type_info_generator_layout.{getLLVMIRGeneratorFieldIndexTableImpl, getLLVMIRGeneratorFieldLlvmTypeTableImpl, getLLVMIRGeneratorStructLayoutTableImpl}
 import codegen.ir_seen_field_type_lookup.{getSeenFieldTypeImpl}
+import codegen.ir_seen_field_type_registered.{getSeenFieldTypeEmptyRegistryFallbackImpl}
 import codegen.ir_method_return_type_lookup.{getMethodReturnTypeImpl}
 import codegen.ir_char_codes.{charToCodeStrImpl}
 import codegen.ir_field_indices.{getKnownFieldIndexPrimaryTableImpl, getKnownLspFieldIndexTableImpl, getKnownFieldIndexFallbackTableImpl}
@@ -2962,6 +2963,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_field_indices")
         modules.push("codegen.ir_lsp_field_types")
         modules.push("codegen.ir_type_info")
+        modules.push("codegen.ir_seen_field_type_registered")
         modules.push("codegen.ir_seen_field_type_lookup")
         modules.push("codegen.ir_method_return_type_lookup")
         modules.push("codegen.ir_method_call_type_table")
