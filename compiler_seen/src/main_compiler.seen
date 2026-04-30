@@ -38,6 +38,7 @@ import codegen.ir_decl_features.{emitFeatureDecls}
 import codegen.ir_decl_scan.{pipeContainsValueImpl}
 import codegen.ir_decl_registry.{recordLateUserDeclareIntoStateImpl, captureDeclarationPassStateImpl, captureLateUserDeclareStateImpl, captureParentClassRegistryStateImpl, registerCrossModuleConstantsIntoStateImpl, registerParentClassIntoStateImpl, resetLateUserDeclareStateImpl}
 import codegen.ir_decl_items.{registerPreparedDeclarationItemsIntoStateImpl}
+import codegen.ir_decl_pass_driver.{beginDeclarationRegistrationPassImpl, finishDeclarationRegistrationPassImpl}
 import codegen.ir_decl_default_params.{collectDefaultParamStringConstantsImpl}
 import codegen.ir_decl_return_types.{resolveMethodReturnTypeImpl}
 import codegen.ir_module_constants.{findModuleConstantIntoStateImpl, captureModuleConstantRegistryStateImpl, tryInferModuleConstantVariableTypeSnapshotImpl, findModuleConstantSnapshotImpl, emitGlobalVariablesSnapshotImpl, resetModuleConstantGenerationStateImpl}
@@ -2919,6 +2920,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_decl_scan")
         modules.push("codegen.ir_decl_registry")
         modules.push("codegen.ir_decl_items")
+        modules.push("codegen.ir_decl_pass_driver")
         modules.push("codegen.ir_decl_default_params")
         modules.push("codegen.ir_decl_return_types")
         modules.push("codegen.ir_module_constants")

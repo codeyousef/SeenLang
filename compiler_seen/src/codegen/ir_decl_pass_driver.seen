@@ -1,0 +1,33 @@
+// ir_decl_pass_driver.seen - declaration pass orchestration helpers.
+// Keeps pass-level registry setup/finish steps out of llvm_ir_gen.seen while
+// leaving source-local declaration preparation in the facade.
+
+import parser.real_parser.{ProgramNode}
+import codegen.ir_decl_registry.{DeclarationPassState, preRegisterClassTypesImpl, registerCrossModuleConstantsIntoStateImpl}
+import codegen.ir_decl_items.{DeclarationItemContext, PreparedDeclarationItem, registerPreparedDeclarationItemsIntoStateImpl}
+import codegen.type_registry.{registerKnownDataTypesReg}
+
+fun beginDeclarationRegistrationPassImpl(program: ProgramNode,
+    structNames: Array<String>, structLayouts: Array<String>,
+    structFieldNames: Array<String>, structFieldTypes: Array<String>,
+    structLlvmFieldTypes: Array<String>, structSizes: Array<Int>,
+    structMethodNames: Array<String>, structMethodRetTypes: Array<String>)
+    r: Void {
+
+    registerKnownDataTypesReg(structNames, structLayouts, structFieldNames,
+        structFieldTypes, structLlvmFieldTypes, structSizes,
+        structMethodNames, structMethodRetTypes)
+    preRegisterClassTypesImpl(program, structNames, structLayouts,
+        structFieldNames, structFieldTypes, structLlvmFieldTypes,
+        structSizes, structMethodNames, structMethodRetTypes)
+}
+
+fun finishDeclarationRegistrationPassImpl(program: ProgramNode,
+    preparedItems: Array<PreparedDeclarationItem>,
+    declItemContext: DeclarationItemContext,
+    declState: DeclarationPassState) r: Void {
+
+    registerPreparedDeclarationItemsIntoStateImpl(preparedItems,
+        declItemContext)
+    registerCrossModuleConstantsIntoStateImpl(program, declState)
+}

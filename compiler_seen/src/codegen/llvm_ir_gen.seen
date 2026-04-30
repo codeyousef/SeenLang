@@ -47,8 +47,9 @@ import codegen.ir_decl_scan.{collectStructMethodSignaturesImpl}
 import codegen.ir_async_registry.{registerAsyncFunctionImpl, isAsyncFunctionImpl, getAsyncDeclaredRetTypeImpl}
 import codegen.ir_async_await.{emitAwaitPollLoopImpl, emitAwaitResultValueImpl}
 import codegen.ir_async_return.{prepareAsyncReturnValuePlanImpl, emitAsyncReturnValueBranchImpl, emitAsyncReturnVoidBranchImpl}
-import codegen.ir_decl_registry.{DeclarationPassState, LateUserDeclareState, preRegisterClassTypesImpl, registerFunctionStateImpl, registerCrossModuleConstantsIntoStateImpl, lookupCResourceDestructorStateImpl, isAsyncFunctionStateImpl, getAsyncDeclaredRetTypeStateImpl, getFunctionReturnTypeStateImpl, recordLateUserDeclareIntoStateImpl, emitLateUserDeclaresStateImpl, captureDeclarationPassStateImpl, captureLateUserDeclareStateImpl, resetLateUserDeclareStateImpl}
-import codegen.ir_decl_items.{DeclarationItemContext, PreparedDeclarationItem, normalizeSeenTypeNameImpl, normalizeDeclaredTypeNodeImpl, prepareDeclarationItemForRegistrationImpl, registerPreparedDeclarationItemsIntoStateImpl}
+import codegen.ir_decl_registry.{DeclarationPassState, LateUserDeclareState, registerFunctionStateImpl, lookupCResourceDestructorStateImpl, isAsyncFunctionStateImpl, getAsyncDeclaredRetTypeStateImpl, getFunctionReturnTypeStateImpl, recordLateUserDeclareIntoStateImpl, emitLateUserDeclaresStateImpl, captureDeclarationPassStateImpl, captureLateUserDeclareStateImpl, resetLateUserDeclareStateImpl}
+import codegen.ir_decl_items.{DeclarationItemContext, PreparedDeclarationItem, normalizeSeenTypeNameImpl, normalizeDeclaredTypeNodeImpl, prepareDeclarationItemForRegistrationImpl}
+import codegen.ir_decl_pass_driver.{beginDeclarationRegistrationPassImpl, finishDeclarationRegistrationPassImpl}
 import codegen.ir_decl_return_types.{inferReturnExprTypeImpl, resolveMethodReturnTypeImpl, resolveFunctionReturnTypeImpl}
 import codegen.ir_module_constants.{isModuleConstMutableImpl, getModuleConstSeenTypeImpl, tryInferModuleConstantVariableTypeSnapshotImpl, findModuleConstantSnapshotImpl, emitGlobalVariablesSnapshotImpl, moduleConstantInvariantLoadSuffixImpl, resetModuleConstantGenerationStateImpl}
 import codegen.ir_type_header.{tryLoadTypeHeaderIntoOutputImpl, emitBuiltinTypeHeaderImpl}
@@ -140,7 +141,7 @@ import codegen.ir_stmt_return.{emitErrdeferTempReturnLoadImpl, emitReturnRegionA
 import codegen.ir_stmt_scope.{recordDeferredStatementSnapshotImpl, enterUnsafeStatementImpl, exitUnsafeStatementImpl, beginTryCatchStatementSnapshotImpl, finalizeTryCatchArmImpl, emitTryCatchCatchHeaderImpl, emitTryCatchFooterImpl}
 import codegen.ir_assignment_gen.{emitFieldStoreImpl, emitValueReceiverMemberAssignmentImpl, emitVariableReceiverMemberAssignmentImpl, emitImplicitThisMemberAssignmentImpl, emitPreparedIndexAssignmentBoundsCheckImpl, emitPreparedIndexAssignmentStoreImpl, coerceMethodCallHandleAssignmentImpl}
 import codegen.ir_variable_gen.{getExprVariableNameImpl, findActiveVariableIndexImpl, findVisibleVariableTypeImpl, storeActiveVariableBindingImpl, emitMovedVariableUseTrapImpl, emitComptimeVariableLoadImpl, emitModuleConstantLoadImpl, emitFunctionPointerInteropLoadImpl, emitLocalVariableLoadImpl, emitStoreValueToPtrImpl, emitDistinctTypeMismatchWarningImpl, emitImplicitThisPointerLoadImpl, emitImplicitThisFieldStoreImpl, emitMoveSourceNullifyImpl, shouldNullifyMovedArgumentSourceImpl, resolveMovedArgumentSourceNameImpl, shouldRecordMovedArgumentSourceImpl, emitTriviallyCopyableAssignmentNoteImpl}
-import codegen.type_registry.{findStructReg, ensureStructEntryReg, registerStructMethodReg, registerKnownDataTypesReg, getFunctionReturnTypeReg, isClassTypeReg, isDataTypeReg, getTypeSizeReg, getPoolEligibleClassSizeReg, getDataTypeSizeReg, getFieldInfoReg, applyStructLayoutRegistrationReg}
+import codegen.type_registry.{findStructReg, ensureStructEntryReg, registerStructMethodReg, getFunctionReturnTypeReg, isClassTypeReg, isDataTypeReg, getTypeSizeReg, getPoolEligibleClassSizeReg, getDataTypeSizeReg, getFieldInfoReg, applyStructLayoutRegistrationReg}
 import codegen.type_registry.{TypeRegistry, CodegenState, FunctionLoweringOptions, getSharedCodegenState}
 import codegen.ir_function_gen.{generateLiteralFree, NestedScratchStateSnapshot, emitAsyncCoroutineEpilogueImpl, snapshotNestedScratchStateImpl, resetLocalCodegenStateImpl, clearActiveBindingsImpl, beginNestedScratchStateImpl, restoreNestedScratchStateImpl, emitParallelForCallImpl, emitPreAllocatedAllocasImpl, emitFunctionEntrySetupSnapshotImpl, emitFunctionExitResetSnapshotImpl, prepareFunctionPreludeAnalysisSnapshotImpl, prepareFunctionGenerationIdentitySnapshotImpl}
 import codegen.ir_function_decorators.{hasFunctionDecoratorImpl, shouldSkipFunctionByCfgStateImpl, emitFunctionDecoratorMetadataCommentsStateImpl, tryHandleIntrinsicFunctionGenerationStateImpl, shouldSkipSpecialFunctionBodyStateImpl, prepareFunctionAttributeStateSnapshotImpl, prepareFunctionDecoratorPreflightSnapshotImpl, tryHandleExternFunctionGenerationStateImpl}
@@ -1092,10 +1093,10 @@ class LLVMIRGenerator {
     // The registries built here form the declarationsHash component of the
     // content-addressed IR cache key.
     fun registerDeclarations(program: ProgramNode) r: Void {
-        // First, register known data types
-        registerKnownDataTypesReg(structNames, structLayouts, structFieldNames,
-            structFieldTypes, structLlvmFieldTypes, structSizes,
-            structMethodNames, structMethodRetTypes)
+        beginDeclarationRegistrationPassImpl(program, structNames,
+            structLayouts, structFieldNames, structFieldTypes,
+            structLlvmFieldTypes, structSizes, structMethodNames,
+            structMethodRetTypes)
 
         let declState = captureDeclarationPassStateImpl(g_asyncFuncNames,
             g_asyncFuncRetTypes, g_asyncFuncCount, g_xmDeclareNames,
@@ -1110,13 +1111,9 @@ class LLVMIRGenerator {
             g_typeAliasNames, g_typeAliasTargets, g_typeAliasCount,
             g_reprCClassNames, g_floatParamFuncNames, g_floatParamParamIdxs,
             funcNames, funcRetTypes, declState)
-        preRegisterClassTypesImpl(program, structNames, structLayouts,
-            structFieldNames, structFieldTypes, structLlvmFieldTypes,
-            structSizes, structMethodNames, structMethodRetTypes)
         let preparedItems = collectPreparedDeclarationItems(program)
-        registerPreparedDeclarationItemsIntoStateImpl(preparedItems,
-            declItemContext)
-        registerCrossModuleConstantsIntoStateImpl(program, declState)
+        finishDeclarationRegistrationPassImpl(program, preparedItems,
+            declItemContext, declState)
         applyDeclarationPassState(declState)
     }
 
