@@ -1,0 +1,30 @@
+// ir_type_info_generator_layout.seen - LLVMIRGenerator self-layout tables.
+// Keeps generator-specific field layout metadata out of generic type info.
+
+fun getLLVMIRGeneratorFieldIndexTableImpl(fieldName: String) r: Int {
+    if fieldName == "output" { return 0 }
+    if fieldName == "stringConstants" { return 1 }
+    if fieldName == "nextReg" { return 2 }
+    if fieldName == "nextBlock" { return 3 }
+    if fieldName == "varNames" { return 4 }
+    if fieldName == "varRegs" { return 5 }
+    if fieldName == "varTypes" { return 6 }
+    if fieldName == "indent" { return 7 }
+    return -1
+}
+
+fun getLLVMIRGeneratorFieldLlvmTypeTableImpl(fieldName: String) r: String {
+    if fieldName == "output" { return "i64" }
+    if fieldName == "stringConstants" { return "ptr" }
+    if fieldName == "nextReg" { return "i64" }
+    if fieldName == "nextBlock" { return "i64" }
+    if fieldName == "varNames" { return "ptr" }
+    if fieldName == "varRegs" { return "ptr" }
+    if fieldName == "varTypes" { return "ptr" }
+    if fieldName == "indent" { return "i64" }
+    return ""
+}
+
+fun getLLVMIRGeneratorStructLayoutTableImpl() r: String {
+    return "{ i64, ptr, i64, i64, ptr, ptr, ptr, i64 }"
+}

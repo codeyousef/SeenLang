@@ -4,6 +4,8 @@
 // Note: comptime/SIMD/type-mapping functions moved to ir_type_mapping.seen
 // String utilities and collection functions moved to ir_string_collect.seen
 
+import codegen.ir_type_info_generator_layout.{getLLVMIRGeneratorFieldIndexTableImpl, getLLVMIRGeneratorFieldLlvmTypeTableImpl, getLLVMIRGeneratorStructLayoutTableImpl}
+
 // Out-parameters for resolveKnownStructFieldImpl
 var g_resolvedFieldIndex = 0
 // Field type encoded as int to avoid module-level String var codegen bug:
@@ -501,31 +503,15 @@ fun getKnownFieldIndexFallbackImpl(structName: String, fieldName: String) r: Int
 }
 
 fun getLLVMIRGeneratorFieldIndexImpl(fieldName: String) r: Int {
-    if fieldName == "output" { return 0 }
-    if fieldName == "stringConstants" { return 1 }
-    if fieldName == "nextReg" { return 2 }
-    if fieldName == "nextBlock" { return 3 }
-    if fieldName == "varNames" { return 4 }
-    if fieldName == "varRegs" { return 5 }
-    if fieldName == "varTypes" { return 6 }
-    if fieldName == "indent" { return 7 }
-    return -1
+    return getLLVMIRGeneratorFieldIndexTableImpl(fieldName)
 }
 
 fun getLLVMIRGeneratorFieldLlvmTypeImpl(fieldName: String) r: String {
-    if fieldName == "output" { return "i64" }
-    if fieldName == "stringConstants" { return "ptr" }
-    if fieldName == "nextReg" { return "i64" }
-    if fieldName == "nextBlock" { return "i64" }
-    if fieldName == "varNames" { return "ptr" }
-    if fieldName == "varRegs" { return "ptr" }
-    if fieldName == "varTypes" { return "ptr" }
-    if fieldName == "indent" { return "i64" }
-    return ""
+    return getLLVMIRGeneratorFieldLlvmTypeTableImpl(fieldName)
 }
 
 fun getLLVMIRGeneratorStructLayoutImpl() r: String {
-    return "{ i64, ptr, i64, i64, ptr, ptr, ptr, i64 }"
+    return getLLVMIRGeneratorStructLayoutTableImpl()
 }
 
 // Character to ASCII code string conversion

@@ -42,6 +42,7 @@ import codegen.ir_decl_pass_driver.{beginDeclarationRegistrationPassImpl, finish
 import codegen.ir_decl_default_params.{collectDefaultParamStringConstantsImpl}
 import codegen.ir_decl_return_types.{resolveMethodReturnTypeImpl}
 import codegen.ir_module_constants.{findModuleConstantIntoStateImpl, captureModuleConstantRegistryStateImpl, tryInferModuleConstantVariableTypeSnapshotImpl, findModuleConstantSnapshotImpl, emitGlobalVariablesSnapshotImpl, resetModuleConstantGenerationStateImpl}
+import codegen.ir_type_info_generator_layout.{getLLVMIRGeneratorFieldIndexTableImpl, getLLVMIRGeneratorFieldLlvmTypeTableImpl, getLLVMIRGeneratorStructLayoutTableImpl}
 import codegen.ir_local_type_fallback.{tryInferImplicitThisVariableTypeImpl}
 import codegen.ir_async_registry.{registerAsyncFunctionImpl}
 import codegen.ir_async_await.{emitAwaitPollLoopImpl, emitAwaitResultValueImpl}
@@ -2911,6 +2912,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("bootstrap.frontend")
         modules.push("codegen.ir_optimization")
         modules.push("codegen.ir_declarations")
+        modules.push("codegen.ir_type_info_generator_layout")
         modules.push("codegen.ir_type_info")
         modules.push("codegen.ir_type_tables")
         // Extracted codegen helper modules
