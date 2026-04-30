@@ -45,6 +45,40 @@ class StringCollectionBoxWritebackState {
     }
 }
 
+class CallCountTrackingState {
+    var callCountNamesArr: Array<String>
+    var callCountEntries: Int
+
+    static fun new() r: CallCountTrackingState {
+        return CallCountTrackingState{
+            callCountNamesArr: Array<String>(),
+            callCountEntries: 0
+        }
+    }
+}
+
+class SelfCallTrackingState {
+    var selfCallFuncs: String
+    var selfCallNames: String
+    var selfCallCount: Int
+
+    static fun new() r: SelfCallTrackingState {
+        return SelfCallTrackingState{
+            selfCallFuncs: "",
+            selfCallNames: "",
+            selfCallCount: 0
+        }
+    }
+}
+
+fun resetCallCountTrackingStateImpl() r: CallCountTrackingState {
+    return CallCountTrackingState.new()
+}
+
+fun resetSelfCallTrackingStateImpl() r: SelfCallTrackingState {
+    return SelfCallTrackingState.new()
+}
+
 fun initStringCollectionBoxesStateImpl(selfCallFuncs: String,
     selfCallNames: String, selfCallCount: Int, callCountNames: String,
     callCountEntries: Int) r: StringCollectionBoxState {

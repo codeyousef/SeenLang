@@ -57,7 +57,7 @@ import codegen.ir_trait_registry.{appendDynTraitNameImpl}
 import codegen.ir_type_info.{charToCodeStr, getSeenFieldTypeImpl, getMethodReturnTypeImpl, g_resolvedFieldIndex, g_resolvedFieldTypeCode, decodeFieldTypeCode, findStructIdx, getLLVMIRGeneratorFieldIndexImpl}
 
 import codegen.ir_string_collect.{getBaseTypeNameImpl, normalizeHeaderTypeImpl, parseArrayElementTypeImpl, extractArrayLiteralElementTypeImpl, parseDecimalIntImpl, getSeenTokenTypeValueImpl}
-import codegen.ir_string_collect_state.{collectStringConstantsStateImpl, collectStringConstantsFromExprStateImpl, initStringCollectionBoxesStateImpl, syncStringCollectionBoxesStateImpl}
+import codegen.ir_string_collect_state.{collectStringConstantsStateImpl, collectStringConstantsFromExprStateImpl, initStringCollectionBoxesStateImpl, syncStringCollectionBoxesStateImpl, resetCallCountTrackingStateImpl, resetSelfCallTrackingStateImpl}
 import codegen.ir_string_interp_gen.{generateStringInterpolationFromPartsImpl}
 import codegen.ir_string_interp_infer.{inferStringInterpolationExprTypeStateImpl}
 import codegen.ir_string_emit.{escapeStringImpl, addStringConstantTableImpl, getStringConstantIndexImpl, emitAdditionalGeneratedStringConstantsImpl, loadEmbeddedStringConstantInfoImpl, emitStringConstantsImpl, emitStringConstantsWithPrefixImpl}
@@ -662,8 +662,16 @@ fun callCountRecord(funcName: String) r: Void {
 }
 
 fun callCountClear() r: Void {
-    g_callCountNamesArr = Array<String>()
-    g_callCountEntries = 0
+    let callState = resetCallCountTrackingStateImpl()
+    g_callCountNamesArr = callState.callCountNamesArr
+    g_callCountEntries = callState.callCountEntries
+}
+
+fun selfCallClear() r: Void {
+    let selfCallState = resetSelfCallTrackingStateImpl()
+    g_selfCallFuncs = selfCallState.selfCallFuncs
+    g_selfCallNames = selfCallState.selfCallNames
+    g_selfCallCount = selfCallState.selfCallCount
 }
 
 // Initialize boxing arrays for cross-module string collection functions.
@@ -1770,9 +1778,7 @@ class LLVMIRGenerator {
         // Collect string constants for THIS module only
         // Also piggybacks call counting for ML inline decisions + self-call detection
         callCountClear()
-        g_selfCallFuncs = ""
-        g_selfCallNames = ""
-        g_selfCallCount = 0
+        selfCallClear()
         collectStringConstants(program)
 
         // Emit module header
