@@ -1,0 +1,190 @@
+// ir_codegen_state_bridge.seen - CodegenState sync/writeback packing helpers.
+
+import str.string.{StringBuilder}
+import codegen.type_registry.{CodegenState, FunctionLoweringOptions}
+
+class CodegenStateBridgeSnapshot {
+    var output: StringBuilder
+    var stringConstants: Array<String>
+    var varNames: Array<String>
+    var varRegs: Array<String>
+    var varTypes: Array<String>
+    var structNames: Array<String>
+    var structLayouts: Array<String>
+    var structFieldNames: Array<String>
+    var structFieldTypes: Array<String>
+    var structLlvmFieldTypes: Array<String>
+    var structSizes: Array<Int>
+    var structMethodNames: Array<String>
+    var structMethodRetTypes: Array<String>
+    var funcNames: Array<String>
+    var funcRetTypes: Array<String>
+    var classMethodBaseNames: Array<String>
+    var typeHeaderPath: String
+    var currentFunctionReturnType: String
+    var currentClassName: String
+    var blockTerminated: Bool
+    var currentLoopCondLabel: String
+    var currentLoopEndLabel: String
+    var preAllocatedVars: Array<String>
+    var preAllocatedTypes: Array<String>
+    var preAllocatedRegs: Array<String>
+    var declOrdinalNames: Array<String>
+    var declOrdinalCounts: Array<Int>
+    var activeVarCount: Int
+    var stringConstantPrefix: String
+    var generatedFunctions: Array<String>
+    var generatedClasses: Array<String>
+    var pendingArrayLiteralType: String
+    var moduleConstantNames: Array<String>
+    var moduleConstantValues: Array<String>
+    var moduleConstantTypes: Array<String>
+
+    static fun new() r: CodegenStateBridgeSnapshot {
+        return CodegenStateBridgeSnapshot{
+            output: StringBuilder.new(),
+            stringConstants: Array<String>(),
+            varNames: Array<String>(),
+            varRegs: Array<String>(),
+            varTypes: Array<String>(),
+            structNames: Array<String>(),
+            structLayouts: Array<String>(),
+            structFieldNames: Array<String>(),
+            structFieldTypes: Array<String>(),
+            structLlvmFieldTypes: Array<String>(),
+            structSizes: Array<Int>(),
+            structMethodNames: Array<String>(),
+            structMethodRetTypes: Array<String>(),
+            funcNames: Array<String>(),
+            funcRetTypes: Array<String>(),
+            classMethodBaseNames: Array<String>(),
+            typeHeaderPath: "",
+            currentFunctionReturnType: "",
+            currentClassName: "",
+            blockTerminated: false,
+            currentLoopCondLabel: "",
+            currentLoopEndLabel: "",
+            preAllocatedVars: Array<String>(),
+            preAllocatedTypes: Array<String>(),
+            preAllocatedRegs: Array<String>(),
+            declOrdinalNames: Array<String>(),
+            declOrdinalCounts: Array<Int>(),
+            activeVarCount: 0,
+            stringConstantPrefix: "",
+            generatedFunctions: Array<String>(),
+            generatedClasses: Array<String>(),
+            pendingArrayLiteralType: "",
+            moduleConstantNames: Array<String>(),
+            moduleConstantValues: Array<String>(),
+            moduleConstantTypes: Array<String>()
+        }
+    }
+}
+
+fun syncCodegenStateBridgeImpl(state: CodegenState,
+    output: StringBuilder, stringConstants: Array<String>,
+    regBox: Array<Int>, blockBox: Array<Int>, varNames: Array<String>,
+    varRegs: Array<String>, varTypes: Array<String>,
+    functionOptions: FunctionLoweringOptions, structNames: Array<String>,
+    structLayouts: Array<String>, structFieldNames: Array<String>,
+    structFieldTypes: Array<String>, structLlvmFieldTypes: Array<String>,
+    structSizes: Array<Int>, structMethodNames: Array<String>,
+    structMethodRetTypes: Array<String>, funcNames: Array<String>,
+    funcRetTypes: Array<String>, classMethodBaseNames: Array<String>,
+    typeHeaderPath: String, currentFunctionReturnType: String,
+    currentClassName: String, blockTerminated: Bool,
+    currentLoopCondLabel: String, currentLoopEndLabel: String,
+    preAllocatedVars: Array<String>, preAllocatedTypes: Array<String>,
+    preAllocatedRegs: Array<String>, declOrdinalNames: Array<String>,
+    declOrdinalCounts: Array<Int>, activeVarCount: Int,
+    stringConstantPrefix: String, generatedFunctions: Array<String>,
+    generatedClasses: Array<String>, pendingArrayLiteralType: String,
+    moduleConstantNames: Array<String>, moduleConstantValues: Array<String>,
+    moduleConstantTypes: Array<String>) r: Void {
+
+    state.output = output
+    state.stringConstants = stringConstants
+    state.regBox = regBox
+    state.blockBox = blockBox
+    state.varNames = varNames
+    state.varRegs = varRegs
+    state.varTypes = varTypes
+    state.indent = 0
+    state.functionOptions = functionOptions
+    state.registry.structNames = structNames
+    state.registry.structLayouts = structLayouts
+    state.registry.structFieldNames = structFieldNames
+    state.registry.structFieldTypes = structFieldTypes
+    state.registry.structLlvmFieldTypes = structLlvmFieldTypes
+    state.registry.structSizes = structSizes
+    state.registry.structMethodNames = structMethodNames
+    state.registry.structMethodRetTypes = structMethodRetTypes
+    state.registry.funcNames = funcNames
+    state.registry.funcRetTypes = funcRetTypes
+    state.registry.classMethodBaseNames = classMethodBaseNames
+    state.registry.typeHeaderPath = typeHeaderPath
+    state.currentFunctionReturnType = currentFunctionReturnType
+    state.currentClassName = currentClassName
+    if blockTerminated {
+        state.blockTerminated = 1
+    } else {
+        state.blockTerminated = 0
+    }
+    state.currentLoopCondLabel = currentLoopCondLabel
+    state.currentLoopEndLabel = currentLoopEndLabel
+    state.preAllocatedVars = preAllocatedVars
+    state.preAllocatedTypes = preAllocatedTypes
+    state.preAllocatedRegs = preAllocatedRegs
+    state.declOrdinalNames = declOrdinalNames
+    state.declOrdinalCounts = declOrdinalCounts
+    state.activeVarCount = activeVarCount
+    state.stringConstantPrefix = stringConstantPrefix
+    state.generatedFunctions = generatedFunctions
+    state.generatedClasses = generatedClasses
+    state.pendingArrayLiteralType = pendingArrayLiteralType
+    state.moduleConstantNames = moduleConstantNames
+    state.moduleConstantValues = moduleConstantValues
+    state.moduleConstantTypes = moduleConstantTypes
+}
+
+fun captureCodegenStateBridgeSnapshotImpl(state: CodegenState)
+    r: CodegenStateBridgeSnapshot {
+
+    let snapshot = CodegenStateBridgeSnapshot.new()
+    snapshot.output = state.output
+    snapshot.stringConstants = state.stringConstants
+    snapshot.varNames = state.varNames
+    snapshot.varRegs = state.varRegs
+    snapshot.varTypes = state.varTypes
+    snapshot.structNames = state.registry.structNames
+    snapshot.structLayouts = state.registry.structLayouts
+    snapshot.structFieldNames = state.registry.structFieldNames
+    snapshot.structFieldTypes = state.registry.structFieldTypes
+    snapshot.structLlvmFieldTypes = state.registry.structLlvmFieldTypes
+    snapshot.structSizes = state.registry.structSizes
+    snapshot.structMethodNames = state.registry.structMethodNames
+    snapshot.structMethodRetTypes = state.registry.structMethodRetTypes
+    snapshot.funcNames = state.registry.funcNames
+    snapshot.funcRetTypes = state.registry.funcRetTypes
+    snapshot.classMethodBaseNames = state.registry.classMethodBaseNames
+    snapshot.typeHeaderPath = state.registry.typeHeaderPath
+    snapshot.currentFunctionReturnType = state.currentFunctionReturnType
+    snapshot.currentClassName = state.currentClassName
+    snapshot.blockTerminated = state.blockTerminated > 0
+    snapshot.currentLoopCondLabel = state.currentLoopCondLabel
+    snapshot.currentLoopEndLabel = state.currentLoopEndLabel
+    snapshot.preAllocatedVars = state.preAllocatedVars
+    snapshot.preAllocatedTypes = state.preAllocatedTypes
+    snapshot.preAllocatedRegs = state.preAllocatedRegs
+    snapshot.declOrdinalNames = state.declOrdinalNames
+    snapshot.declOrdinalCounts = state.declOrdinalCounts
+    snapshot.activeVarCount = state.activeVarCount
+    snapshot.stringConstantPrefix = state.stringConstantPrefix
+    snapshot.generatedFunctions = state.generatedFunctions
+    snapshot.generatedClasses = state.generatedClasses
+    snapshot.pendingArrayLiteralType = state.pendingArrayLiteralType
+    snapshot.moduleConstantNames = state.moduleConstantNames
+    snapshot.moduleConstantValues = state.moduleConstantValues
+    snapshot.moduleConstantTypes = state.moduleConstantTypes
+    return snapshot
+}

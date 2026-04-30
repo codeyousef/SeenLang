@@ -151,6 +151,7 @@ import codegen.ir_function_body.{captureFunctionBodyBlockScopeImpl, scanFunction
 import codegen.ir_function_state.{getCurrentFunctionEmissionStateImpl, resetFunctionEmissionForFunctionImpl, markFunctionEmissionHighPressureImpl, resetFunctionEmissionHighPressureImpl, recordMovedVariableImpl, isMovedVariableImpl, resetFunctionLoweringOptionsStateImpl, resetFunctionHighPressureImpl, markFunctionHighPressureImpl, isFunctionHighPressureImpl, currentFunctionAlignToImpl, currentFunctionRegionSizeBytesImpl, isCurrentFunctionAsyncLoweringImpl, markTailCallPositionImpl, takeTailCallPositionImpl}
 import codegen.ir_function_ml_logs.{applyFunctionPreludeMlLogsImpl, applyFunctionUnusedParamMlLogsImpl}
 import codegen.ir_ml_logging.{mlLogDecision, setupMLLogging, writeMLDecisionLog}
+import codegen.ir_codegen_state_bridge.{syncCodegenStateBridgeImpl, captureCodegenStateBridgeSnapshotImpl}
 import process.process.{runCommand, CommandResult, commandWasSuccessful}
 
 fun getIrgenTraceTimeSeconds() r: Int {
@@ -997,88 +998,58 @@ class LLVMIRGenerator {
         let state = getSharedCodegenState()
         // Legacy layout field only. FunctionLoweringOptions is the source of truth.
         indent = 0
-        state.output = output
-        state.stringConstants = stringConstants
-        state.regBox = g_regBox
-        state.blockBox = g_blockBox
-        state.varNames = varNames
-        state.varRegs = varRegs
-        state.varTypes = varTypes
-        state.indent = indent
-        state.functionOptions = getCurrentFunctionOptions()
-        state.registry.structNames = structNames
-        state.registry.structLayouts = structLayouts
-        state.registry.structFieldNames = structFieldNames
-        state.registry.structFieldTypes = structFieldTypes
-        state.registry.structLlvmFieldTypes = structLlvmFieldTypes
-        state.registry.structSizes = structSizes
-        state.registry.structMethodNames = structMethodNames
-        state.registry.structMethodRetTypes = structMethodRetTypes
-        state.registry.funcNames = funcNames
-        state.registry.funcRetTypes = funcRetTypes
-        state.registry.classMethodBaseNames = classMethodBaseNames
-        state.registry.typeHeaderPath = typeHeaderPath
-        state.currentFunctionReturnType = currentFunctionReturnType
-        state.currentClassName = currentClassName
-        if blockTerminated {
-            state.blockTerminated = 1
-        } else {
-            state.blockTerminated = 0
-        }
-        state.currentLoopCondLabel = currentLoopCondLabel
-        state.currentLoopEndLabel = currentLoopEndLabel
-        state.preAllocatedVars = preAllocatedVars
-        state.preAllocatedTypes = preAllocatedTypes
-        state.preAllocatedRegs = preAllocatedRegs
-        state.declOrdinalNames = declOrdinalNames
-        state.declOrdinalCounts = declOrdinalCounts
-        state.activeVarCount = activeVarCount
-        state.stringConstantPrefix = stringConstantPrefix
-        state.generatedFunctions = generatedFunctions
-        state.generatedClasses = generatedClasses
-        state.pendingArrayLiteralType = pendingArrayLiteralType
-        state.moduleConstantNames = moduleConstantNames
-        state.moduleConstantValues = moduleConstantValues
-        state.moduleConstantTypes = moduleConstantTypes
+        syncCodegenStateBridgeImpl(state, output, stringConstants, g_regBox,
+            g_blockBox, varNames, varRegs, varTypes,
+            getCurrentFunctionOptions(), structNames, structLayouts,
+            structFieldNames, structFieldTypes, structLlvmFieldTypes,
+            structSizes, structMethodNames, structMethodRetTypes, funcNames,
+            funcRetTypes, classMethodBaseNames, typeHeaderPath,
+            currentFunctionReturnType, currentClassName, blockTerminated,
+            currentLoopCondLabel, currentLoopEndLabel, preAllocatedVars,
+            preAllocatedTypes, preAllocatedRegs, declOrdinalNames,
+            declOrdinalCounts, activeVarCount, stringConstantPrefix,
+            generatedFunctions, generatedClasses, pendingArrayLiteralType,
+            moduleConstantNames, moduleConstantValues, moduleConstantTypes)
     }
 
     fun writeBackState() r: Void {
         let state = getSharedCodegenState()
-        output = state.output
-        stringConstants = state.stringConstants
-        varNames = state.varNames
-        varRegs = state.varRegs
-        varTypes = state.varTypes
-        structNames = state.registry.structNames
-        structLayouts = state.registry.structLayouts
-        structFieldNames = state.registry.structFieldNames
-        structFieldTypes = state.registry.structFieldTypes
-        structLlvmFieldTypes = state.registry.structLlvmFieldTypes
-        structSizes = state.registry.structSizes
-        structMethodNames = state.registry.structMethodNames
-        structMethodRetTypes = state.registry.structMethodRetTypes
-        funcNames = state.registry.funcNames
-        funcRetTypes = state.registry.funcRetTypes
-        classMethodBaseNames = state.registry.classMethodBaseNames
-        typeHeaderPath = state.registry.typeHeaderPath
-        currentFunctionReturnType = state.currentFunctionReturnType
-        currentClassName = state.currentClassName
-        blockTerminated = state.blockTerminated > 0
-        currentLoopCondLabel = state.currentLoopCondLabel
-        currentLoopEndLabel = state.currentLoopEndLabel
-        preAllocatedVars = state.preAllocatedVars
-        preAllocatedTypes = state.preAllocatedTypes
-        preAllocatedRegs = state.preAllocatedRegs
-        declOrdinalNames = state.declOrdinalNames
-        declOrdinalCounts = state.declOrdinalCounts
-        activeVarCount = state.activeVarCount
-        stringConstantPrefix = state.stringConstantPrefix
-        generatedFunctions = state.generatedFunctions
-        generatedClasses = state.generatedClasses
-        pendingArrayLiteralType = state.pendingArrayLiteralType
-        moduleConstantNames = state.moduleConstantNames
-        moduleConstantValues = state.moduleConstantValues
-        moduleConstantTypes = state.moduleConstantTypes
+        let snapshot = captureCodegenStateBridgeSnapshotImpl(state)
+        output = snapshot.output
+        stringConstants = snapshot.stringConstants
+        varNames = snapshot.varNames
+        varRegs = snapshot.varRegs
+        varTypes = snapshot.varTypes
+        structNames = snapshot.structNames
+        structLayouts = snapshot.structLayouts
+        structFieldNames = snapshot.structFieldNames
+        structFieldTypes = snapshot.structFieldTypes
+        structLlvmFieldTypes = snapshot.structLlvmFieldTypes
+        structSizes = snapshot.structSizes
+        structMethodNames = snapshot.structMethodNames
+        structMethodRetTypes = snapshot.structMethodRetTypes
+        funcNames = snapshot.funcNames
+        funcRetTypes = snapshot.funcRetTypes
+        classMethodBaseNames = snapshot.classMethodBaseNames
+        typeHeaderPath = snapshot.typeHeaderPath
+        currentFunctionReturnType = snapshot.currentFunctionReturnType
+        currentClassName = snapshot.currentClassName
+        blockTerminated = snapshot.blockTerminated
+        currentLoopCondLabel = snapshot.currentLoopCondLabel
+        currentLoopEndLabel = snapshot.currentLoopEndLabel
+        preAllocatedVars = snapshot.preAllocatedVars
+        preAllocatedTypes = snapshot.preAllocatedTypes
+        preAllocatedRegs = snapshot.preAllocatedRegs
+        declOrdinalNames = snapshot.declOrdinalNames
+        declOrdinalCounts = snapshot.declOrdinalCounts
+        activeVarCount = snapshot.activeVarCount
+        stringConstantPrefix = snapshot.stringConstantPrefix
+        generatedFunctions = snapshot.generatedFunctions
+        generatedClasses = snapshot.generatedClasses
+        pendingArrayLiteralType = snapshot.pendingArrayLiteralType
+        moduleConstantNames = snapshot.moduleConstantNames
+        moduleConstantValues = snapshot.moduleConstantValues
+        moduleConstantTypes = snapshot.moduleConstantTypes
         indent = 0
     }
 
