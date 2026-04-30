@@ -2,7 +2,7 @@
 
 import parser.real_parser.{ParserExpressionNode}
 import str.string.{StringBuilder}
-import codegen.ir_type_mapping.{registerComptimeVarStateImpl, updateComptimeVarStateImpl, registerComptimeStrVarStateImpl}
+import codegen.ir_comptime_eval.{registerComptimeVarStateImpl, updateComptimeVarStateImpl, registerComptimeStrVarStateImpl}
 
 class ComptimeRegistryStateSnapshot {
     var comptimeNames: String

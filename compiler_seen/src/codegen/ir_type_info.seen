@@ -1,7 +1,7 @@
 // Type information utilities extracted from llvm_ir_gen.seen
 // Pure lookup functions with no class state dependencies.
 
-// Note: comptime/SIMD/type-mapping functions moved to ir_type_mapping.seen
+// Note: comptime, SIMD, and type-mapping functions live in focused codegen helper modules
 // String utilities and collection functions moved to ir_string_collect.seen
 
 import codegen.ir_type_info_generator_layout.{getLLVMIRGeneratorFieldIndexTableImpl, getLLVMIRGeneratorFieldLlvmTypeTableImpl, getLLVMIRGeneratorStructLayoutTableImpl}

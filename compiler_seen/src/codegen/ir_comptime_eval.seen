@@ -1,0 +1,472 @@
+// Compile-time expression evaluation helpers
+// Extracted from ir_type_mapping.seen
+
+import parser.real_parser.{ParserExpressionNode}
+import codegen.ir_type_info.{findStructIdx}
+import codegen.ir_comptime_target.{getComptimeTargetName, comptimeTargetIsX86_64, comptimeTargetIsAarch64}
+
+fun parseSimpleIntImpl(s: String) r: Int {
+    if s == "" { return -9999999 }
+    var result = 0
+    var neg = false
+    var i = 0
+    if s.length() > 0 and s.charAt(0) == '-' {
+        neg = true
+        i = 1
+    }
+    while i < s.length() {
+        let c = s.byteAt(i)
+        if c >= 48 and c <= 57 {
+            result = result * 10 + (c - 48)
+        } else {
+            return -9999999
+        }
+        i = i + 1
+    }
+    if neg { return 0 - result }
+    return result
+}
+
+// Look up a comptime variable value from pipe-delimited parallel arrays
+fun lookupComptimeVarImpl(name: String, comptimeNames: String, comptimeValues: String, comptimeCount: Int) r: Int {
+    if comptimeCount == 0 or name == "" { return -9999999 }
+    var searchPos = 0
+    var idx = 0
+    while idx < comptimeCount {
+        var ctName = ""
+        var nextPipe = comptimeNames.indexOf("|", searchPos)
+        if nextPipe < 0 {
+            ctName = comptimeNames.substring(searchPos, comptimeNames.length())
+        } else {
+            ctName = comptimeNames.substring(searchPos, nextPipe)
+            searchPos = nextPipe + 1
+        }
+        if ctName == name {
+            // Found — extract value at same index
+            var valSearchPos = 0
+            var valIdx = 0
+            while valIdx < idx {
+                var vp = comptimeValues.indexOf("|", valSearchPos)
+                if vp >= 0 { valSearchPos = vp + 1 }
+                valIdx = valIdx + 1
+            }
+            var valStr = ""
+            var valEnd = comptimeValues.indexOf("|", valSearchPos)
+            if valEnd < 0 {
+                valStr = comptimeValues.substring(valSearchPos, comptimeValues.length())
+            } else {
+                valStr = comptimeValues.substring(valSearchPos, valEnd)
+            }
+            return parseSimpleIntImpl(valStr)
+        }
+        idx = idx + 1
+    }
+    return -9999999
+}
+
+// Look up a comptime string variable
+fun lookupComptimeStrVarImpl(name: String, comptimeStrNames: String, comptimeStrValues: String, comptimeStrCount: Int) r: String {
+    if comptimeStrCount == 0 or name == "" { return "__EVAL_FAIL__" }
+    var searchPos = 0
+    var valPos = 0
+    var idx = 0
+    while idx < comptimeStrCount {
+        var curName = ""
+        var nextPipe = comptimeStrNames.indexOf("|", searchPos)
+        if nextPipe < 0 {
+            curName = comptimeStrNames.substring(searchPos, comptimeStrNames.length())
+        } else {
+            curName = comptimeStrNames.substring(searchPos, nextPipe)
+            searchPos = nextPipe + 1
+        }
+        var curVal = ""
+        var nextValPipe = comptimeStrValues.indexOf("|", valPos)
+        if nextValPipe < 0 {
+            curVal = comptimeStrValues.substring(valPos, comptimeStrValues.length())
+        } else {
+            curVal = comptimeStrValues.substring(valPos, nextValPipe)
+            valPos = nextValPipe + 1
+        }
+        if curName == name {
+            return curVal
+        }
+        idx = idx + 1
+    }
+    return "__EVAL_FAIL__"
+}
+
+fun ensureComptimeStringBoxValue(box: Array<String>) r: Void {
+    if box.length() == 0 {
+        box.push("")
+    }
+}
+
+fun ensureComptimeIntBoxValue(box: Array<Int>) r: Void {
+    if box.length() == 0 {
+        box.push(0)
+    }
+}
+
+fun updateComptimeVarStateImpl(name: String, value: Int, comptimeNames: String,
+    comptimeValuesBox: Array<String>, comptimeCount: Int) r: Void {
+
+    ensureComptimeStringBoxValue(comptimeValuesBox)
+    if comptimeCount == 0 {
+        return
+    }
+    var newValues = ""
+    var searchPos = 0
+    var valPos = 0
+    var idx = 0
+    while idx < comptimeCount {
+        var curName = ""
+        var nextPipe = comptimeNames.indexOf("|", searchPos)
+        if nextPipe < 0 {
+            curName = comptimeNames.substring(searchPos, comptimeNames.length())
+        } else {
+            curName = comptimeNames.substring(searchPos, nextPipe)
+            searchPos = nextPipe + 1
+        }
+        var curVal = ""
+        var nextValPipe = comptimeValuesBox[0].indexOf("|", valPos)
+        if nextValPipe < 0 {
+            curVal = comptimeValuesBox[0].substring(valPos,
+                comptimeValuesBox[0].length())
+        } else {
+            curVal = comptimeValuesBox[0].substring(valPos, nextValPipe)
+            valPos = nextValPipe + 1
+        }
+        if idx > 0 {
+            newValues = newValues + "|"
+        }
+        if curName == name {
+            newValues = newValues + value.toString()
+        } else {
+            newValues = newValues + curVal
+        }
+        idx = idx + 1
+    }
+    comptimeValuesBox[0] = newValues
+}
+
+fun registerComptimeVarStateImpl(name: String, value: Int,
+    comptimeNamesBox: Array<String>, comptimeValuesBox: Array<String>,
+    comptimeCountBox: Array<Int>) r: Void {
+
+    ensureComptimeStringBoxValue(comptimeNamesBox)
+    ensureComptimeStringBoxValue(comptimeValuesBox)
+    ensureComptimeIntBoxValue(comptimeCountBox)
+
+    let existingVal = lookupComptimeVarImpl(name, comptimeNamesBox[0],
+        comptimeValuesBox[0], comptimeCountBox[0])
+    if existingVal != -9999999 {
+        updateComptimeVarStateImpl(name, value, comptimeNamesBox[0],
+            comptimeValuesBox, comptimeCountBox[0])
+        return
+    }
+    if comptimeCountBox[0] > 0 {
+        comptimeNamesBox[0] = comptimeNamesBox[0] + "|"
+        comptimeValuesBox[0] = comptimeValuesBox[0] + "|"
+    }
+    comptimeNamesBox[0] = comptimeNamesBox[0] + name
+    comptimeValuesBox[0] = comptimeValuesBox[0] + value.toString()
+    comptimeCountBox[0] = comptimeCountBox[0] + 1
+}
+
+fun registerComptimeStrVarStateImpl(name: String, value: String,
+    comptimeStrNamesBox: Array<String>, comptimeStrValuesBox: Array<String>,
+    comptimeStrCountBox: Array<Int>) r: Void {
+
+    ensureComptimeStringBoxValue(comptimeStrNamesBox)
+    ensureComptimeStringBoxValue(comptimeStrValuesBox)
+    ensureComptimeIntBoxValue(comptimeStrCountBox)
+
+    if comptimeStrCountBox[0] > 0 {
+        comptimeStrNamesBox[0] = comptimeStrNamesBox[0] + "|"
+        comptimeStrValuesBox[0] = comptimeStrValuesBox[0] + "|"
+    }
+    comptimeStrNamesBox[0] = comptimeStrNamesBox[0] + name
+    comptimeStrValuesBox[0] = comptimeStrValuesBox[0] + value
+    comptimeStrCountBox[0] = comptimeStrCountBox[0] + 1
+}
+
+// Comptime sizeof for common types
+fun comptimeSizeofImpl(typeName: String) r: Int {
+    if typeName == "Int" { return 8 }
+    if typeName == "Float" { return 8 }
+    if typeName == "String" { return 8 }
+    if typeName == "Bool" { return 1 }
+    if typeName == "Char" { return 8 }
+    if typeName == "Int8" { return 1 }
+    if typeName == "UInt8" { return 1 }
+    if typeName == "Int16" { return 2 }
+    if typeName == "UInt16" { return 2 }
+    if typeName == "Int32" { return 4 }
+    if typeName == "UInt32" { return 4 }
+    if typeName == "Float32" { return 4 }
+    if typeName == "Int64" { return 8 }
+    if typeName == "UInt64" { return 8 }
+    if typeName == "f32x4" { return 16 }
+    if typeName == "i32x4" { return 16 }
+    if typeName == "f32x8" { return 32 }
+    if typeName == "i32x8" { return 32 }
+    if typeName == "f64x2" { return 16 }
+    if typeName == "f64x4" { return 32 }
+    return -9999999
+}
+
+// Comptime type field count — look up struct by name, count comma-separated fields
+fun comptimeTypeFieldCountImpl(typeName: String, structNames: Array<String>, structFieldNames: Array<String>) r: Int {
+    let sIdx = findStructIdx(structNames, typeName)
+    if sIdx < 0 { return -9999999 }
+    let fieldsCsv = structFieldNames[sIdx]
+    if fieldsCsv == "" { return 0 }
+    var count = 1
+    var fci = 0
+    while fci < fieldsCsv.length() {
+        if fieldsCsv.byteAt(fci) == 44 {
+            count = count + 1
+        }
+        fci = fci + 1
+    }
+    return count
+}
+
+// Comptime type field name — get Nth field name from struct
+fun comptimeTypeFieldNameImpl(typeName: String, fieldIdx: Int, structNames: Array<String>, structFieldNames: Array<String>) r: String {
+    let sIdx = findStructIdx(structNames, typeName)
+    if sIdx < 0 { return "__EVAL_FAIL__" }
+    let fieldsCsv = structFieldNames[sIdx]
+    var pos = 0
+    var curIdx = 0
+    while pos < fieldsCsv.length() {
+        var nextComma = fieldsCsv.indexOf(",", pos)
+        if nextComma < 0 { nextComma = fieldsCsv.length() }
+        if curIdx == fieldIdx {
+            return fieldsCsv.substring(pos, nextComma)
+        }
+        pos = nextComma + 1
+        curIdx = curIdx + 1
+    }
+    return "__EVAL_FAIL__"
+}
+
+// Comptime type field type — get Nth field type from struct
+fun comptimeTypeFieldTypeImpl(typeName: String, fieldIdx: Int, structNames: Array<String>, structFieldTypes: Array<String>) r: String {
+    let sIdx = findStructIdx(structNames, typeName)
+    if sIdx < 0 { return "__EVAL_FAIL__" }
+    let typesCsv = structFieldTypes[sIdx]
+    var pos = 0
+    var curIdx = 0
+    while pos < typesCsv.length() {
+        var nextComma = typesCsv.indexOf(",", pos)
+        if nextComma < 0 { nextComma = typesCsv.length() }
+        if curIdx == fieldIdx {
+            return typesCsv.substring(pos, nextComma)
+        }
+        pos = nextComma + 1
+        curIdx = curIdx + 1
+    }
+    return "__EVAL_FAIL__"
+}
+
+// Evaluate a constant expression as a string at compile time
+fun evaluateConstExprStrImpl(expr: ParserExpressionNode, comptimeNames: String, comptimeValues: String, comptimeCount: Int, comptimeStrNames: String, comptimeStrValues: String, comptimeStrCount: Int, structNames: Array<String>, structFieldNames: Array<String>, structFieldTypes: Array<String>) r: String {
+    if expr.kind == "Literal" {
+        if expr.literalType == "String" {
+            return expr.literalValue
+        }
+    }
+    if expr.kind == "Variable" {
+        let ctStrName = expr.literalValue
+        if ctStrName == "" {
+            return lookupComptimeStrVarImpl(expr.variableName, comptimeStrNames, comptimeStrValues, comptimeStrCount)
+        }
+        return lookupComptimeStrVarImpl(ctStrName, comptimeStrNames, comptimeStrValues, comptimeStrCount)
+    }
+    if expr.kind == "Binary" {
+        if expr.operator == "+" {
+            let leftStr = evaluateConstExprStrImpl(expr.operands[0], comptimeNames, comptimeValues, comptimeCount, comptimeStrNames, comptimeStrValues, comptimeStrCount, structNames, structFieldNames, structFieldTypes)
+            let rightStr = evaluateConstExprStrImpl(expr.operands[1], comptimeNames, comptimeValues, comptimeCount, comptimeStrNames, comptimeStrValues, comptimeStrCount, structNames, structFieldNames, structFieldTypes)
+            if leftStr != "__EVAL_FAIL__" and rightStr != "__EVAL_FAIL__" {
+                return leftStr + rightStr
+            }
+        }
+    }
+    if expr.kind == "Call" {
+        if expr.callee == "toString" and expr.arguments.length() > 0 {
+            let intVal = evaluateConstExprImpl(expr.arguments[0], comptimeNames, comptimeValues, comptimeCount, comptimeStrNames, comptimeStrValues, comptimeStrCount, structNames, structFieldNames, structFieldTypes)
+            if intVal != -9999999 {
+                return intVal.toString()
+            }
+        }
+        if expr.callee == "typeFieldName" and expr.arguments.length() >= 2 {
+            let tyName = evaluateConstExprStrImpl(expr.arguments[0], comptimeNames, comptimeValues, comptimeCount, comptimeStrNames, comptimeStrValues, comptimeStrCount, structNames, structFieldNames, structFieldTypes)
+            let tyIdx = evaluateConstExprImpl(expr.arguments[1], comptimeNames, comptimeValues, comptimeCount, comptimeStrNames, comptimeStrValues, comptimeStrCount, structNames, structFieldNames, structFieldTypes)
+            if tyName != "__EVAL_FAIL__" and tyIdx != -9999999 {
+                return comptimeTypeFieldNameImpl(tyName, tyIdx, structNames, structFieldNames)
+            }
+        }
+        if expr.callee == "typeFieldType" and expr.arguments.length() >= 2 {
+            let tyName = evaluateConstExprStrImpl(expr.arguments[0], comptimeNames, comptimeValues, comptimeCount, comptimeStrNames, comptimeStrValues, comptimeStrCount, structNames, structFieldNames, structFieldTypes)
+            let tyIdx = evaluateConstExprImpl(expr.arguments[1], comptimeNames, comptimeValues, comptimeCount, comptimeStrNames, comptimeStrValues, comptimeStrCount, structNames, structFieldNames, structFieldTypes)
+            if tyName != "__EVAL_FAIL__" and tyIdx != -9999999 {
+                return comptimeTypeFieldTypeImpl(tyName, tyIdx, structNames, structFieldTypes)
+            }
+        }
+    }
+    return "__EVAL_FAIL__"
+}
+
+// Evaluate a constant expression at compile time
+fun evaluateConstExprImpl(expr: ParserExpressionNode, comptimeNames: String, comptimeValues: String, comptimeCount: Int, comptimeStrNames: String, comptimeStrValues: String, comptimeStrCount: Int, structNames: Array<String>, structFieldNames: Array<String>, structFieldTypes: Array<String>) r: Int {
+    if expr.kind == "Literal" {
+        if expr.literalType == "Int" {
+            return parseSimpleIntImpl(expr.literalValue)
+        }
+        if expr.literalType == "Bool" {
+            if expr.literalValue == "true" { return 1 }
+            return 0
+        }
+    }
+    if expr.kind == "Variable" {
+        let ctName = expr.literalValue
+        if ctName == "" {
+            let ctName2 = expr.variableName
+            return lookupComptimeVarImpl(ctName2, comptimeNames, comptimeValues, comptimeCount)
+        }
+        return lookupComptimeVarImpl(ctName, comptimeNames, comptimeValues, comptimeCount)
+    }
+    // Comptime platform/feature detection
+    if expr.kind == "MemberAccess" {
+        if expr.literalValue == "target" {
+            let activeTarget = getComptimeTargetName()
+            let isX86_64 = comptimeTargetIsX86_64(activeTarget)
+            let isAarch64 = comptimeTargetIsAarch64(activeTarget)
+            if expr.variableName == "isLinux" {
+                if activeTarget == "linux-x86_64" or activeTarget == "linux-arm64" { return 1 }
+                return 0
+            }
+            if expr.variableName == "isMacos" {
+                if activeTarget == "macos-arm64" or activeTarget == "macos-x86_64" { return 1 }
+                return 0
+            }
+            if expr.variableName == "isIos" {
+                if activeTarget == "ios-arm64" or activeTarget == "ios-sim-arm64" { return 1 }
+                return 0
+            }
+            if expr.variableName == "isWindows" {
+                if activeTarget == "windows-x86_64" { return 1 }
+                return 0
+            }
+            if expr.variableName == "isSimulator" {
+                if activeTarget == "ios-sim-arm64" { return 1 }
+                return 0
+            }
+            if expr.variableName == "isX86_64" {
+                if isX86_64 { return 1 }
+                return 0
+            }
+            if expr.variableName == "isAarch64" {
+                if isAarch64 { return 1 }
+                return 0
+            }
+            if expr.variableName == "hasSSE2" {
+                if isX86_64 { return 1 }
+                return 0
+            }
+            if expr.variableName == "hasAVX2" { return 0 }
+            if expr.variableName == "hasAVX512" { return 0 }
+            if expr.variableName == "hasFMA" { return 0 }
+            if expr.variableName == "hasNeon" {
+                if isAarch64 { return 1 }
+                return 0
+            }
+            if expr.variableName == "pointerSize" { return 8 }
+        }
+    }
+    if expr.kind == "Binary" {
+        let leftVal = evaluateConstExprImpl(expr.operands[0], comptimeNames, comptimeValues, comptimeCount, comptimeStrNames, comptimeStrValues, comptimeStrCount, structNames, structFieldNames, structFieldTypes)
+        let rightVal = evaluateConstExprImpl(expr.operands[1], comptimeNames, comptimeValues, comptimeCount, comptimeStrNames, comptimeStrValues, comptimeStrCount, structNames, structFieldNames, structFieldTypes)
+        if leftVal == -9999999 or rightVal == -9999999 {
+            return -9999999
+        }
+        if expr.operator == "+" { return leftVal + rightVal }
+        if expr.operator == "-" { return leftVal - rightVal }
+        if expr.operator == "*" { return leftVal * rightVal }
+        if expr.operator == "/" {
+            if rightVal != 0 { return leftVal / rightVal }
+            return -9999999
+        }
+        if expr.operator == "==" {
+            if leftVal == rightVal { return 1 }
+            return 0
+        }
+        if expr.operator == "!=" {
+            if leftVal != rightVal { return 1 }
+            return 0
+        }
+        if expr.operator == "<" {
+            if leftVal < rightVal { return 1 }
+            return 0
+        }
+        if expr.operator == ">" {
+            if leftVal > rightVal { return 1 }
+            return 0
+        }
+        if expr.operator == "<=" {
+            if leftVal <= rightVal { return 1 }
+            return 0
+        }
+        if expr.operator == ">=" {
+            if leftVal >= rightVal { return 1 }
+            return 0
+        }
+    }
+    if expr.kind == "Unary" {
+        if expr.operator == "-" {
+            let val = evaluateConstExprImpl(expr.operands[0], comptimeNames, comptimeValues, comptimeCount, comptimeStrNames, comptimeStrValues, comptimeStrCount, structNames, structFieldNames, structFieldTypes)
+            if val != -9999999 { return 0 - val }
+        }
+        if expr.operator == "not" or expr.operator == "!" {
+            let val = evaluateConstExprImpl(expr.operands[0], comptimeNames, comptimeValues, comptimeCount, comptimeStrNames, comptimeStrValues, comptimeStrCount, structNames, structFieldNames, structFieldTypes)
+            if val != -9999999 {
+                if val == 0 { return 1 }
+                return 0
+            }
+        }
+    }
+    if expr.kind == "Call" {
+        if expr.callee == "sizeof" and expr.arguments.length() > 0 {
+            let typeName = expr.arguments[0].literalValue
+            if typeName == "" and expr.arguments[0].kind == "Variable" {
+                let tn2 = expr.arguments[0].variableName
+                return comptimeSizeofImpl(tn2)
+            }
+            return comptimeSizeofImpl(typeName)
+        }
+        if expr.callee == "typeFields" or expr.callee == "typeFieldCount" {
+            if expr.arguments.length() > 0 {
+                var tiTypeName = expr.arguments[0].literalValue
+                if tiTypeName == "" {
+                    tiTypeName = evaluateConstExprStrImpl(expr.arguments[0], comptimeNames, comptimeValues, comptimeCount, comptimeStrNames, comptimeStrValues, comptimeStrCount, structNames, structFieldNames, structFieldTypes)
+                }
+                if tiTypeName != "" and tiTypeName != "__EVAL_FAIL__" {
+                    return comptimeTypeFieldCountImpl(tiTypeName, structNames, structFieldNames)
+                }
+            }
+        }
+        if expr.callee == "typeFieldSize" {
+            if expr.arguments.length() > 0 {
+                var tiTypeName = expr.arguments[0].literalValue
+                if tiTypeName == "" {
+                    tiTypeName = evaluateConstExprStrImpl(expr.arguments[0], comptimeNames, comptimeValues, comptimeCount, comptimeStrNames, comptimeStrValues, comptimeStrCount, structNames, structFieldNames, structFieldTypes)
+                }
+                if tiTypeName != "" and tiTypeName != "__EVAL_FAIL__" {
+                    return comptimeTypeFieldCountImpl(tiTypeName, structNames, structFieldNames)
+                }
+            }
+        }
+    }
+    return -9999999  // cannot evaluate
+}

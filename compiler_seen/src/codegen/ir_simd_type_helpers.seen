@@ -1,0 +1,100 @@
+// SIMD type and swizzle helper functions
+// Extracted from ir_type_mapping.seen
+
+fun isSimdVectorTypeImpl(t: String) r: Int {
+    if t == "f32x4" { return 1 }
+    if t == "f32x8" { return 1 }
+    if t == "i32x4" { return 1 }
+    if t == "i32x8" { return 1 }
+    if t == "f64x2" { return 1 }
+    if t == "f64x4" { return 1 }
+    return 0
+}
+
+fun simdScalarTypeImpl(t: String) r: String {
+    if t == "f32x4" { return "float" }
+    if t == "f32x8" { return "float" }
+    if t == "f64x2" { return "double" }
+    if t == "f64x4" { return "double" }
+    if t == "i32x4" { return "i32" }
+    if t == "i32x8" { return "i32" }
+    return "i64"
+}
+
+fun simdLaneCountImpl(t: String) r: Int {
+    if t == "f32x4" { return 4 }
+    if t == "i32x4" { return 4 }
+    if t == "f32x8" { return 8 }
+    if t == "i32x8" { return 8 }
+    if t == "f64x2" { return 2 }
+    if t == "f64x4" { return 4 }
+    return 0
+}
+
+fun isSwizzlePatternImpl(s: String, lanes: Int) r: Int {
+    if s.length() == 0 { return 0 }
+    if s.length() > lanes { return 0 }
+    var swzI = 0
+    while swzI < s.length() {
+        let swzC = s.substring(swzI, swzI + 1)
+        var swzOk = false
+        if lanes <= 4 {
+            if swzC == "x" {
+                swzOk = true
+            } else if swzC == "y" {
+                swzOk = true
+            } else if swzC == "z" {
+                swzOk = true
+            } else if swzC == "w" {
+                swzOk = true
+            }
+        } else {
+            if swzC == "a" {
+                swzOk = true
+            } else if swzC == "b" {
+                swzOk = true
+            } else if swzC == "c" {
+                swzOk = true
+            } else if swzC == "d" {
+                swzOk = true
+            } else if swzC == "e" {
+                swzOk = true
+            } else if swzC == "f" {
+                swzOk = true
+            } else if swzC == "g" {
+                swzOk = true
+            } else if swzC == "h" {
+                swzOk = true
+            }
+        }
+        if not swzOk { return 0 }
+        swzI = swzI + 1
+    }
+    return 1
+}
+
+fun swizzleLaneIndexImpl(c: String) r: Int {
+    if c == "x" { return 0 }
+    if c == "a" { return 0 }
+    if c == "y" { return 1 }
+    if c == "b" { return 1 }
+    if c == "z" { return 2 }
+    if c == "c" { return 2 }
+    if c == "w" { return 3 }
+    if c == "d" { return 3 }
+    if c == "e" { return 4 }
+    if c == "f" { return 5 }
+    if c == "g" { return 6 }
+    if c == "h" { return 7 }
+    return 0
+}
+
+fun simdLlvmSuffixImpl(t: String) r: String {
+    if t == "f32x4" { return "v4f32" }
+    if t == "f32x8" { return "v8f32" }
+    if t == "i32x4" { return "v4i32" }
+    if t == "i32x8" { return "v8i32" }
+    if t == "f64x2" { return "v2f64" }
+    if t == "f64x4" { return "v4f64" }
+    return "v4f32"
+}

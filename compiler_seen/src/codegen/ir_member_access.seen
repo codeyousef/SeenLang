@@ -4,7 +4,7 @@
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_type_info.{getSeenFieldTypeImpl}
-import codegen.ir_type_mapping.{swizzleLaneIndexImpl, simdLaneCountImpl, isSwizzlePatternImpl}
+import codegen.ir_simd_type_helpers.{swizzleLaneIndexImpl, simdLaneCountImpl, isSwizzlePatternImpl}
 import codegen.ir_method_receiver.{getSemanticFieldTypeImpl}
 
 // emitSimdSwizzleMemberAccessImpl — emit vec.x / vec.xy / vec.xzyw swizzles.

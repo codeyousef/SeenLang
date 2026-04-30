@@ -5,7 +5,7 @@
 // Each impl function returns a result register string, or "" for fallthrough.
 
 import codegen.ir_optimization.{getNextRegFn}
-import codegen.ir_type_mapping.{simdScalarTypeImpl, simdLlvmSuffixImpl, isSimdVectorTypeImpl, simdLaneCountImpl}
+import codegen.ir_simd_type_helpers.{simdScalarTypeImpl, simdLlvmSuffixImpl, isSimdVectorTypeImpl, simdLaneCountImpl}
 import str.string.{StringBuilder}
 
 // Simple LLVM type mapping for common Seen types (no struct registry needed)

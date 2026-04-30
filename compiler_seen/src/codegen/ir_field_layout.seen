@@ -6,7 +6,8 @@ import codegen.ir_optimization.{parseIntManual, splitPipe, getNextRegFn}
 import codegen.ir_bitfield_access.{findBitfieldWidthImpl}
 import codegen.ir_member_access.{emitFieldAccessPtrImpl, emitFieldAccessLoadImpl, emitBitfieldMaskLoadImpl}
 import codegen.ir_type_info.{findStructIdx, g_resolvedFieldIndex, getLLVMIRGeneratorFieldIndexImpl, getLLVMIRGeneratorStructLayoutImpl, getSeenFieldTypeImpl}
-import codegen.ir_type_mapping.{resolveKnownStructFieldImpl, mapTypeImpl, isClassHandleLikeTypeImpl}
+import codegen.ir_type_mapping.{mapTypeImpl, isClassHandleLikeTypeImpl}
+import codegen.ir_struct_field_resolution.{resolveKnownStructFieldImpl}
 import codegen.ir_path_expr.{splitFirstPathDotImpl, splitChainedPathImpl}
 import codegen.type_registry.{getFieldInfoReg, isClassTypeReg}
 

@@ -2,7 +2,7 @@
 // Extracted from assignment/member-access paths so multiple helpers can share
 // lookup logic without introducing module cycles.
 
-import codegen.ir_type_mapping.{parseSimpleIntImpl}
+import codegen.ir_comptime_eval.{parseSimpleIntImpl}
 
 fun findBitfieldWidthImpl(bitfieldKey: String, bitfieldKeys: String,
     bitfieldWidths: String) r: Int {

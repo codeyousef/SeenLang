@@ -4,7 +4,8 @@
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn, getNextBlockFn}
 import codegen.ir_type_info.{charToCodeStr}
-import codegen.ir_type_mapping.{mapTypeImpl, isSimdVectorTypeImpl, simdScalarTypeImpl, simdLlvmSuffixImpl, simdLaneCountImpl}
+import codegen.ir_type_mapping.{mapTypeImpl}
+import codegen.ir_simd_type_helpers.{isSimdVectorTypeImpl, simdScalarTypeImpl, simdLlvmSuffixImpl, simdLaneCountImpl}
 
 // ============================================================
 // emitBinaryOpImpl — binary operator IR emission

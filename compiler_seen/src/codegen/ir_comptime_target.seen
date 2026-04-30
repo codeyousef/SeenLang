@@ -1,0 +1,109 @@
+// Compile-time target normalization and host target detection
+// Extracted from ir_type_mapping.seen
+
+import process.process.{runCommand, CommandResult, commandWasSuccessful}
+
+var g_comptimeTargetName: String = ""
+
+fun normalizeComptimeTargetName(target: String) r: String {
+    if target == "" { return "" }
+    if target == "linux-x86_64" { return "linux-x86_64" }
+    if target == "x86_64-unknown-linux-gnu" { return "linux-x86_64" }
+    if target == "linux-arm64" { return "linux-arm64" }
+    if target == "aarch64-unknown-linux-gnu" { return "linux-arm64" }
+    if target == "arm64-unknown-linux-gnu" { return "linux-arm64" }
+    if target == "windows-x86_64" { return "windows-x86_64" }
+    if target == "x86_64-w64-windows-gnu" { return "windows-x86_64" }
+    if target == "macos-arm64" { return "macos-arm64" }
+    if target == "arm64-apple-darwin" { return "macos-arm64" }
+    if target == "aarch64-apple-darwin" { return "macos-arm64" }
+    if target.startsWith("arm64-apple-macosx") { return "macos-arm64" }
+    if target.startsWith("aarch64-apple-macosx") { return "macos-arm64" }
+    if target == "macos-x86_64" { return "macos-x86_64" }
+    if target == "x86_64-apple-darwin" { return "macos-x86_64" }
+    if target.startsWith("x86_64-apple-macosx") { return "macos-x86_64" }
+    if target == "ios-sim-arm64" { return "ios-sim-arm64" }
+    if target == "arm64-apple-ios-simulator" { return "ios-sim-arm64" }
+    if target == "aarch64-apple-ios-simulator" { return "ios-sim-arm64" }
+    if target.startsWith("arm64-apple-ios") {
+        if target.contains("simulator") { return "ios-sim-arm64" }
+        return "ios-arm64"
+    }
+    if target.startsWith("aarch64-apple-ios") {
+        if target.contains("simulator") { return "ios-sim-arm64" }
+        return "ios-arm64"
+    }
+    if target == "ios-arm64" { return "ios-arm64" }
+    if target == "arm64-apple-ios" { return "ios-arm64" }
+    if target == "aarch64-apple-ios" { return "ios-arm64" }
+    if target == "android-arm64" { return "android-arm64" }
+    if target.startsWith("aarch64-linux-android") { return "android-arm64" }
+    if target.startsWith("arm64-linux-android") { return "android-arm64" }
+    return target
+}
+
+fun detectHostComptimeTargetName() r: String {
+    let unameS: CommandResult = runCommand("uname -s")
+    let unameM: CommandResult = runCommand("uname -m")
+    var os = "linux"
+    var arch = "x86_64"
+    if commandWasSuccessful(unameS) {
+        if unameS.output.contains("Darwin") {
+            os = "darwin"
+        } else {
+            if unameS.output.contains("Windows") or unameS.output.contains("MINGW") or unameS.output.contains("MSYS") {
+                os = "windows"
+            }
+        }
+    }
+    if commandWasSuccessful(unameM) {
+        if unameM.output.contains("arm64") or unameM.output.contains("aarch64") {
+            arch = "arm64"
+        }
+    }
+    if os == "darwin" {
+        if arch == "arm64" {
+            return "macos-arm64"
+        }
+        return "macos-x86_64"
+    }
+    if os == "windows" {
+        return "windows-x86_64"
+    }
+    if arch == "arm64" {
+        return "linux-arm64"
+    }
+    return "linux-x86_64"
+}
+
+fun setComptimeTargetName(target: String) r: Void {
+    let normalized = normalizeComptimeTargetName(target)
+    if normalized == "" {
+        g_comptimeTargetName = detectHostComptimeTargetName()
+        return
+    }
+    g_comptimeTargetName = normalized
+}
+
+fun getComptimeTargetName() r: String {
+    if g_comptimeTargetName == "" {
+        g_comptimeTargetName = detectHostComptimeTargetName()
+    }
+    return g_comptimeTargetName
+}
+
+fun comptimeTargetIsX86_64(target: String) r: Bool {
+    if target == "linux-x86_64" { return true }
+    if target == "windows-x86_64" { return true }
+    if target == "macos-x86_64" { return true }
+    return false
+}
+
+fun comptimeTargetIsAarch64(target: String) r: Bool {
+    if target == "linux-arm64" { return true }
+    if target == "macos-arm64" { return true }
+    if target == "ios-arm64" { return true }
+    if target == "ios-sim-arm64" { return true }
+    if target == "android-arm64" { return true }
+    return false
+}
