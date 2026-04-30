@@ -4,7 +4,7 @@
 
 import codegen.ir_call_dispatch.{emitOffsetofImpl}
 import codegen.ir_type_layout.{getLlvmTypeSizeImpl, getLlvmTypeAlignImpl}
-import codegen.type_registry.{findStructReg}
+import codegen.type_registry_core.{findStructReg}
 
 fun resolveSizeofBuiltinValueImpl(llvmType: String, structNames: Array<String>,
     structLayouts: Array<String>, structSizes: Array<Int>) r: String {

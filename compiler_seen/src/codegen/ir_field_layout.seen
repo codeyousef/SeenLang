@@ -10,7 +10,7 @@ import codegen.ir_seen_field_type_lookup.{getSeenFieldTypeImpl}
 import codegen.ir_type_mapping.{mapTypeImpl, isClassHandleLikeTypeImpl}
 import codegen.ir_struct_field_resolution.{resolveKnownStructFieldImpl}
 import codegen.ir_path_expr.{splitFirstPathDotImpl, splitChainedPathImpl}
-import codegen.type_registry.{getFieldInfoReg, isClassTypeReg}
+import codegen.type_registry_core.{getFieldInfoReg, isClassTypeReg}
 
 // resolveFieldAccessLayoutImpl — resolve the LLVM layout string plus field index
 // for a struct field access. Returns "layout|fieldIndex".

@@ -8,7 +8,7 @@ import codegen.ir_decl_scan.{recordConstGenericNumericParamsImpl, appendInherite
 import codegen.ir_decl_registry.{captureParentClassRegistryStateImpl, registerParentClassIntoStateImpl}
 import codegen.ir_class_type_layout.{prepareClassTypeAliasStateSnapshotImpl}
 import codegen.ir_type_layout.{computeStructSizeFromLayoutImpl}
-import codegen.type_registry.{findStructReg}
+import codegen.type_registry_core.{findStructReg}
 
 class StructLayoutBuildState {
     var layout: String

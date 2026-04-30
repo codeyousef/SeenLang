@@ -13,7 +13,7 @@ import codegen.ir_field_layout.{emitResolvedFieldAccessPtrImpl, emitResolvedFiel
 import codegen.ir_member_access.{prepareExpressionMemberReceiverImpl, prepareVariableMemberReceiverImpl}
 import codegen.ir_variable_gen.{findActiveVariableIndexImpl}
 import codegen.ir_assignment_coerce.{coerceAssignmentStoreValueCoreImpl, coerceMethodCallHandleAssignmentCoreImpl}
-import codegen.type_registry.{getFieldInfoReg}
+import codegen.type_registry_core.{getFieldInfoReg}
 import str.string.{StringBuilder}
 
 fun getPipeValueAtIndexImpl(values: String, wantedIdx: Int) r: String {

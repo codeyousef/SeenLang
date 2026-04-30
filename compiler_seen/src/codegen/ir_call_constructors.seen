@@ -3,7 +3,7 @@
 // lowering separate from general call dispatch and argument preparation.
 
 import codegen.ir_optimization.{getNextRegFn, getNextBlockFn}
-import codegen.type_registry.{isDataTypeReg, getDataTypeSizeReg}
+import codegen.type_registry_core.{isDataTypeReg, getDataTypeSizeReg}
 import str.string.{StringBuilder}
 
 fun isArrayConstructorNameImpl(funcName: String) r: Bool {

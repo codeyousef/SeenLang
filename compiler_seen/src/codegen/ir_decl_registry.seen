@@ -6,7 +6,7 @@ import parser.real_parser.{ProgramNode}
 import str.string.{StringBuilder}
 import codegen.ir_decl_scan.{registerEnumVariantsImpl, registerCrossModuleConstantsImpl, buildLateUserDeclareStringImpl, recordLateUserDeclareImpl, emitLateUserDeclaresImpl, pipeContainsValueImpl, quoteDeclScanIdentIfNeeded}
 import codegen.ir_async_registry.{isAsyncFunctionImpl, getAsyncDeclaredRetTypeImpl}
-import codegen.type_registry.{ensureStructEntryReg, getFunctionReturnTypeReg}
+import codegen.type_registry_core.{ensureStructEntryReg, getFunctionReturnTypeReg}
 
 class DeclarationPassState {
     var asyncFuncNames: String

@@ -185,7 +185,8 @@ import codegen.ir_stmt_dead_code.{scanBlockDeadStorePatternsSnapshotImpl, emitTr
 import codegen.ir_stmt_comptime.{ComptimeRegistryStateSnapshot, classifyComptimeStatementKindImpl, shouldProcessComptimeLetImpl, shouldContinueComptimeWhileImpl, classifyComptimeAssertResultImpl, registerComptimeVarSnapshotImpl, updateComptimeVarSnapshotImpl, registerComptimeStrVarSnapshotImpl}
 import codegen.ir_stmt_return.{emitErrdeferTempReturnLoadImpl, emitProfileExitOnReturnImpl, emitReturnRegionAndProfileCleanupImpl, emitFinalReturnStatementValueImpl}
 import codegen.ir_stmt_scope.{recordDeferredStatementSnapshotImpl, beginTryCatchStatementSnapshotImpl}
-import codegen.type_registry.{findStructReg}
+import codegen.type_registry_cache.{cachedStructNameMatches}
+import codegen.type_registry_core.{findStructReg}
 import codegen.ir_codegen_state.{CodegenState}
 import codegen.ir_type_header_registry.{applyTypeHeaderStructLineReg}
 import codegen.ir_type_header.{emitBuiltinTypeHeaderImpl}
@@ -3111,8 +3112,10 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_stmt_dead_code")
         modules.push("codegen.ir_stmt_comptime")
         modules.push("codegen.ir_stmt_return")
-        modules.push("codegen.type_registry")
+        modules.push("codegen.type_registry_cache")
+        modules.push("codegen.type_registry_core")
         modules.push("codegen.ir_type_header_registry")
+        modules.push("codegen.type_registry")
         modules.push("codegen.ir_type_header")
         // Scan the main generator after extracted helpers so their
         // declarations are available during bootstrap registration.

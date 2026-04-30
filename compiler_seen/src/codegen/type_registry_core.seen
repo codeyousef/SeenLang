@@ -1,0 +1,337 @@
+// type_registry_core.seen - Array-backed type-registry operations.
+
+import trace.{traceGen}
+import codegen.ir_type_info.{getKnownLspFieldIndexImpl}
+import codegen.ir_type_mapping.{isDataTypeImpl, isClassTypeImpl}
+import codegen.ir_type_tables.{registerKnownDataTypesImpl}
+import codegen.ir_string_collect.{getBaseTypeNameImpl, parseSeenStaticArrayLengthImpl, parseSeenStaticArrayElementTypeImpl, isSeenStaticArrayTypeImpl}
+import codegen.type_registry_cache.{findCachedStructIndex, cacheStructIndex, findCachedFunctionReturnIndex, cacheFunctionReturnIndex, findCachedFieldIndex, cacheFieldIndex}
+
+fun findStructReg(name: String, structNames: Array<String>) r: Int {
+    let cached = findCachedStructIndex(name, structNames)
+    if cached >= 0 {
+        return cached
+    }
+    var i = structNames.length() - 1
+    while i >= 0 {
+        if structNames[i] == name {
+            cacheStructIndex(name, i, structNames)
+            return i
+        }
+        i = i - 1
+    }
+    if name.contains("<") {
+        let ltIdx = name.indexOf("<", 0)
+        if ltIdx > 0 {
+            let baseName = name.substring(0, ltIdx)
+            var j = structNames.length() - 1
+            while j >= 0 {
+                if structNames[j] == baseName {
+                    cacheStructIndex(name, j, structNames)
+                    return j
+                }
+                j = j - 1
+            }
+        }
+    }
+    return -1
+}
+
+fun ensureStructEntryReg(name: String, structNames: Array<String>, structLayouts: Array<String>, structFieldNames: Array<String>, structFieldTypes: Array<String>, structLlvmFieldTypes: Array<String>, structSizes: Array<Int>, structMethodNames: Array<String>, structMethodRetTypes: Array<String>) r: Int {
+    let existing = findStructReg(name, structNames)
+    if existing >= 0 { return existing }
+    structNames.push(name)
+    structLayouts.push("")
+    structFieldNames.push("")
+    structFieldTypes.push("")
+    structLlvmFieldTypes.push("")
+    structSizes.push(0)
+    structMethodNames.push("")
+    structMethodRetTypes.push("")
+    return structNames.length() - 1
+}
+
+fun registerStructMethodReg(className: String, methodName: String, retType: String, structNames: Array<String>, structMethodNames: Array<String>, structMethodRetTypes: Array<String>, funcNames: Array<String>, funcRetTypes: Array<String>) r: Void {
+    let idx = findStructReg(className, structNames)
+    if idx >= 0 {
+        let existing = structMethodNames[idx]
+        let existingRet = structMethodRetTypes[idx]
+        if existing.length() > 0 {
+            structMethodNames[idx] = existing + "," + methodName
+            structMethodRetTypes[idx] = existingRet + "|" + retType
+        } else {
+            structMethodNames[idx] = methodName
+            structMethodRetTypes[idx] = retType
+        }
+    }
+    funcNames.push(className + "_" + methodName)
+    funcRetTypes.push(retType)
+}
+
+fun applyStructLayoutRegistrationReg(structIdx: Int, className: String,
+    layout: String, fieldNames: String, fieldTypes: String, totalSize: Int,
+    methodNames: String, methodRetTypes: String, structLayouts: Array<String>,
+    structFieldNames: Array<String>, structFieldTypes: Array<String>,
+    structSizes: Array<Int>, structMethodNames: Array<String>,
+    structMethodRetTypes: Array<String>) r: Void {
+
+    structLayouts[structIdx] = layout
+    structFieldNames[structIdx] = fieldNames
+    structFieldTypes[structIdx] = fieldTypes
+    if structSizes[structIdx] == 0 or isDataTypeImpl(className) == 0 or
+        totalSize > structSizes[structIdx] {
+        structSizes[structIdx] = totalSize
+    }
+    structMethodNames[structIdx] = methodNames
+    structMethodRetTypes[structIdx] = methodRetTypes
+}
+
+fun registerKnownDataTypesReg(structNames: Array<String>, structLayouts: Array<String>, structFieldNames: Array<String>, structFieldTypes: Array<String>, structLlvmFieldTypes: Array<String>, structSizes: Array<Int>, structMethodNames: Array<String>, structMethodRetTypes: Array<String>) r: Void {
+    traceGen("registerKnownDataTypes: start structNames len=" + structNames.length().toString())
+    if structNames.length() > 0 {
+        traceGen("registerKnownDataTypes: end structNames len=" + structNames.length().toString())
+        return
+    }
+    registerKnownDataTypesImpl(structNames, structLayouts, structFieldNames, structFieldTypes, structLlvmFieldTypes, structSizes, structMethodNames, structMethodRetTypes)
+    traceGen("registerKnownDataTypes: end structNames len=" + structNames.length().toString())
+}
+
+fun getFunctionReturnTypeReg(name: String, funcNames: Array<String>, funcRetTypes: Array<String>) r: String {
+    let cached = findCachedFunctionReturnIndex(name, funcNames)
+    if cached >= 0 {
+        return funcRetTypes[cached]
+    }
+    if cached == -1 {
+        return ""
+    }
+    var i = funcNames.length() - 1
+    while i >= 0 {
+        if funcNames[i] == name {
+            cacheFunctionReturnIndex(name, i, funcNames)
+            return funcRetTypes[i]
+        }
+        i = i - 1
+    }
+    cacheFunctionReturnIndex(name, -1, funcNames)
+    return ""
+}
+
+fun isClassTypeReg(seenType: String, structNames: Array<String>) r: Bool {
+    if isClassTypeImpl(seenType, structNames) == 1 { return true }
+    return false
+}
+
+fun isDataTypeReg(seenType: String) r: Bool {
+    if isDataTypeImpl(seenType) == 1 { return true }
+    return false
+}
+
+fun getTypeSizeReg(typeName: String, structNames: Array<String>, structSizes: Array<Int>) r: Int {
+    if isSeenStaticArrayTypeImpl(typeName) {
+        let arrayLen = parseSeenStaticArrayLengthImpl(typeName)
+        let elementSeenType = parseSeenStaticArrayElementTypeImpl(typeName)
+        if arrayLen > 0 and elementSeenType != "" {
+            let elementSize = getTypeSizeReg(elementSeenType, structNames,
+                structSizes)
+            if elementSize > 0 {
+                return arrayLen * elementSize
+            }
+        }
+    }
+    if typeName == "Int" { return 8 }
+    if typeName == "Bool" or typeName == "Boolean" { return 8 }
+    if typeName == "Float" { return 8 }
+    if typeName == "String" { return 16 }
+    if typeName.startsWith("Array<") or typeName.startsWith("List<") { return 8 }
+    if isDataTypeReg(typeName) {
+        return getDataTypeSizeReg(typeName, structNames, structSizes)
+    }
+    return 8
+}
+
+fun getPoolEligibleClassSizeReg(typeName: String, reprCClassNames: String,
+    structNames: Array<String>, structSizes: Array<Int>) r: Int {
+
+    if not isClassTypeReg(typeName, structNames) {
+        return 0
+    }
+    var reprCPos = 0
+    while reprCPos < reprCClassNames.length() {
+        var reprCNextPipe = reprCClassNames.indexOf("|", reprCPos)
+        if reprCNextPipe < 0 { reprCNextPipe = reprCClassNames.length() }
+        let reprCEntry = reprCClassNames.substring(reprCPos, reprCNextPipe)
+        if reprCEntry == typeName {
+            return 0
+        }
+        reprCPos = reprCNextPipe + 1
+    }
+    let baseType = getBaseTypeNameImpl(typeName)
+    let idx = findStructReg(baseType, structNames)
+    if idx >= 0 {
+        let sizeVal = structSizes[idx]
+        if sizeVal > 0 and sizeVal <= 80 {
+            return sizeVal
+        }
+    }
+    return 0
+}
+
+fun getDataTypeSizeReg(seenType: String, structNames: Array<String>, structSizes: Array<Int>) r: Int {
+    let baseType = getBaseTypeNameImpl(seenType)
+    let idx = findStructReg(baseType, structNames)
+    if idx >= 0 {
+        let sizeVal = structSizes[idx]
+        if sizeVal > 0 { return sizeVal }
+    }
+    if baseType == "TypeNode" { return 24 }
+    if baseType == "ParamNode" { return 48 }
+    if baseType == "CommandResult" { return 24 }
+    if baseType == "ItemNode" { return 88 }
+    if baseType == "ImportPathInfo" { return 24 }
+    if baseType == "ImportSymbolNode" { return 32 }
+    if baseType == "FrontendDiagnostic" { return 72 }
+    if baseType == "CompilerInfo" { return 40 }
+    if baseType == "FunctionSummary" { return 32 }
+    if baseType == "ModuleMetadata" { return 32 }
+    if baseType == "StageArtifact" { return 48 }
+    if baseType == "AnnotationNode" { return 24 }
+    return 8
+}
+
+fun getFieldInfoReg(structName: String, fieldName: String, structNames: Array<String>, structFieldNames: Array<String>) r: Int {
+    traceGen("getFieldInfo: " + structName + "." + fieldName)
+    let cacheKey = structName + "." + fieldName
+    let cached = findCachedFieldIndex(cacheKey)
+    if cached >= 0 {
+        return cached
+    }
+
+    if structName == "FunctionNode" {
+        if fieldName == "name" { cacheFieldIndex(cacheKey, 0); return 0 }
+        if fieldName == "params" { cacheFieldIndex(cacheKey, 1); return 1 }
+        if fieldName == "returnType" { cacheFieldIndex(cacheKey, 2); return 2 }
+        if fieldName == "body" { cacheFieldIndex(cacheKey, 3); return 3 }
+        if fieldName == "isAsync" { cacheFieldIndex(cacheKey, 4); return 4 }
+        if fieldName == "isInline" { cacheFieldIndex(cacheKey, 5); return 5 }
+        if fieldName == "isStatic" { cacheFieldIndex(cacheKey, 6); return 6 }
+        if fieldName == "isExtern" { cacheFieldIndex(cacheKey, 7); return 7 }
+        if fieldName == "isDeterministic" { cacheFieldIndex(cacheKey, 8); return 8 }
+        if fieldName == "isNondeterministic" { cacheFieldIndex(cacheKey, 9); return 9 }
+        if fieldName == "decorators" { cacheFieldIndex(cacheKey, 10); return 10 }
+        if fieldName == "line" { cacheFieldIndex(cacheKey, 11); return 11 }
+        if fieldName == "column" { cacheFieldIndex(cacheKey, 12); return 12 }
+        if fieldName == "isOverride" { cacheFieldIndex(cacheKey, 13); return 13 }
+    }
+    if structName == "ClassNode" {
+        if fieldName == "name" { cacheFieldIndex(cacheKey, 0); return 0 }
+        if fieldName == "fields" { cacheFieldIndex(cacheKey, 1); return 1 }
+        if fieldName == "methods" { cacheFieldIndex(cacheKey, 2); return 2 }
+        if fieldName == "decorators" { cacheFieldIndex(cacheKey, 3); return 3 }
+        if fieldName == "isNondeterministic" { cacheFieldIndex(cacheKey, 4); return 4 }
+        if fieldName == "parentName" { cacheFieldIndex(cacheKey, 5); return 5 }
+    }
+    if structName == "TypeNode" {
+        if fieldName == "typeName" { cacheFieldIndex(cacheKey, 0); return 0 }
+        if fieldName == "isNullable" { cacheFieldIndex(cacheKey, 1); return 1 }
+    }
+    if structName == "ParamNode" {
+        if fieldName == "name" { cacheFieldIndex(cacheKey, 0); return 0 }
+        if fieldName == "paramType" { cacheFieldIndex(cacheKey, 1); return 1 }
+        if fieldName == "isMutable" { cacheFieldIndex(cacheKey, 2); return 2 }
+    }
+    if structName == "ItemNode" {
+        if fieldName == "itemType" { cacheFieldIndex(cacheKey, 0); return 0 }
+        if fieldName == "name" { cacheFieldIndex(cacheKey, 1); return 1 }
+        if fieldName == "visibility" { cacheFieldIndex(cacheKey, 2); return 2 }
+        if fieldName == "importPath" { cacheFieldIndex(cacheKey, 3); return 3 }
+        if fieldName == "importSymbols" { cacheFieldIndex(cacheKey, 4); return 4 }
+        if fieldName == "function" { cacheFieldIndex(cacheKey, 5); return 5 }
+        if fieldName == "classNode" { cacheFieldIndex(cacheKey, 6); return 6 }
+        if fieldName == "enumNode" { cacheFieldIndex(cacheKey, 7); return 7 }
+    }
+    if structName == "ProgramNode" {
+        if fieldName == "items" { cacheFieldIndex(cacheKey, 0); return 0 }
+    }
+    if structName == "BlockNode" {
+        if fieldName == "statements" { cacheFieldIndex(cacheKey, 0); return 0 }
+    }
+    if structName == "FrontendResult" {
+        if fieldName == "success" { cacheFieldIndex(cacheKey, 0); return 0 }
+        if fieldName == "diagnostics" { cacheFieldIndex(cacheKey, 1); return 1 }
+        if fieldName == "program" { cacheFieldIndex(cacheKey, 2); return 2 }
+    }
+    if structName == "StatementNode" {
+        if fieldName == "kind" { cacheFieldIndex(cacheKey, 0); return 0 }
+        if fieldName == "variableName" { cacheFieldIndex(cacheKey, 1); return 1 }
+        if fieldName == "variableType" { cacheFieldIndex(cacheKey, 2); return 2 }
+        if fieldName == "initializer" { cacheFieldIndex(cacheKey, 3); return 3 }
+        if fieldName == "expression" { cacheFieldIndex(cacheKey, 4); return 4 }
+        if fieldName == "condition" { cacheFieldIndex(cacheKey, 5); return 5 }
+        if fieldName == "thenBranch" { cacheFieldIndex(cacheKey, 6); return 6 }
+        if fieldName == "elseBranch" { cacheFieldIndex(cacheKey, 7); return 7 }
+        if fieldName == "loopCondition" { cacheFieldIndex(cacheKey, 8); return 8 }
+        if fieldName == "loopBody" { cacheFieldIndex(cacheKey, 9); return 9 }
+        if fieldName == "returnValue" { cacheFieldIndex(cacheKey, 10); return 10 }
+    }
+    if structName == "ParserExpressionNode" {
+        if fieldName == "kind" { cacheFieldIndex(cacheKey, 0); return 0 }
+        if fieldName == "operands" { cacheFieldIndex(cacheKey, 1); return 1 }
+        if fieldName == "operator" { cacheFieldIndex(cacheKey, 2); return 2 }
+        if fieldName == "literalValue" { cacheFieldIndex(cacheKey, 3); return 3 }
+        if fieldName == "literalType" { cacheFieldIndex(cacheKey, 4); return 4 }
+        if fieldName == "variableName" { cacheFieldIndex(cacheKey, 5); return 5 }
+        if fieldName == "callee" { cacheFieldIndex(cacheKey, 6); return 6 }
+        if fieldName == "arguments" { cacheFieldIndex(cacheKey, 7); return 7 }
+    }
+    let lspFieldIdx = getKnownLspFieldIndexImpl(structName, fieldName)
+    if lspFieldIdx >= 0 {
+        cacheFieldIndex(cacheKey, lspFieldIdx)
+        return lspFieldIdx
+    }
+
+    let idx = findStructReg(structName, structNames)
+    if idx < 0 { return -1 }
+
+    let fieldNamesStr = structFieldNames[idx]
+    var fieldIdx = 0
+    var start = 0
+    var pos = 0
+    while pos <= fieldNamesStr.length() {
+        var byteVal = 0
+        if pos < fieldNamesStr.length() {
+            byteVal = fieldNamesStr.byteAt(pos)
+        }
+        if byteVal == 44 or pos == fieldNamesStr.length() {
+            let name = fieldNamesStr.substring(start, pos)
+            if name == fieldName {
+                cacheFieldIndex(cacheKey, fieldIdx)
+                return fieldIdx
+            }
+            fieldIdx = fieldIdx + 1
+            start = pos + 1
+        }
+        pos = pos + 1
+    }
+
+    if structName == "FrontendDiagnostic" {
+        if fieldName == "file" { cacheFieldIndex(cacheKey, 0); return 0 }
+        if fieldName == "line" { cacheFieldIndex(cacheKey, 1); return 1 }
+        if fieldName == "column" { cacheFieldIndex(cacheKey, 2); return 2 }
+        if fieldName == "severity" { cacheFieldIndex(cacheKey, 3); return 3 }
+        if fieldName == "message" { cacheFieldIndex(cacheKey, 4); return 4 }
+    }
+    if structName == "Token" {
+        if fieldName == "tokenType" { cacheFieldIndex(cacheKey, 0); return 0 }
+        if fieldName == "value" { cacheFieldIndex(cacheKey, 1); return 1 }
+        if fieldName == "line" { cacheFieldIndex(cacheKey, 2); return 2 }
+        if fieldName == "column" { cacheFieldIndex(cacheKey, 3); return 3 }
+    }
+    if structName == "FieldNode" {
+        if fieldName == "name" { cacheFieldIndex(cacheKey, 0); return 0 }
+        if fieldName == "fieldType" { cacheFieldIndex(cacheKey, 1); return 1 }
+        if fieldName == "isMutable" { cacheFieldIndex(cacheKey, 2); return 2 }
+        if fieldName == "defaultValue" { cacheFieldIndex(cacheKey, 3); return 3 }
+        if fieldName == "visibility" { cacheFieldIndex(cacheKey, 4); return 4 }
+    }
+    return -1
+}

@@ -7,7 +7,7 @@ import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn, pipeGet}
 import codegen.ir_field_registry.{mapRegistryFieldTypeImpl}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
-import codegen.type_registry.{findStructReg}
+import codegen.type_registry_core.{findStructReg}
 
 class GeneratedClassDecoratorSnapshot {
     var decoratorFlags: Array<Int>

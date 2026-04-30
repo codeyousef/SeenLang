@@ -6,7 +6,7 @@ import codegen.ir_type_mapping.{isDataTypeImpl}
 import codegen.ir_field_layout.{generateFieldAccessImpl, resolveMemberAccessFieldReceiverPtrImpl, isScalarFieldChainTerminalTypeImpl}
 import codegen.ir_member_access.{emitMemberArrayElementPtrImpl, prepareExpressionMemberReceiverImpl, prepareVariableMemberReceiverImpl, prepareModuleConstMemberReceiverImpl}
 import codegen.ir_variable_gen.{emitImplicitThisPointerLoadImpl}
-import codegen.type_registry.{isClassTypeReg}
+import codegen.type_registry_core.{isClassTypeReg}
 
 fun fallbackMemberAccessValueImpl(fieldLlvmType: String) r: String {
     if fieldLlvmType == "i1" { return "false" }

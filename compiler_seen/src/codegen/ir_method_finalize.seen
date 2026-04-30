@@ -7,7 +7,7 @@ import codegen.ir_optimization.{getNextRegFn, getNextBlockFn}
 import codegen.ir_call_dispatch.{emitOptionUnwrapSpecializedImpl}
 import codegen.ir_string_collect.{getBaseTypeNameImpl}
 import codegen.ir_type_mapping.{isClassTypeImpl, isDataTypeImpl, mapTypeImpl, isClassHandleLikeTypeImpl}
-import codegen.type_registry.{isDataTypeReg}
+import codegen.type_registry_core.{isDataTypeReg}
 import str.string.{StringBuilder}
 
 fun stripMethodGenericSuffixImpl(typeName: String) r: String {

@@ -2,7 +2,7 @@
 
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn}
-import codegen.type_registry.{findStructReg, isDataTypeReg, getDataTypeSizeReg, getTypeSizeReg}
+import codegen.type_registry_core.{findStructReg, isDataTypeReg, getDataTypeSizeReg, getTypeSizeReg}
 import codegen.ir_type_layout.{computeStructFieldOffsetFromLayoutImpl, computeStructSizeFromLayoutImpl}
 
 fun resolveClassConstructorStructSizeImpl(structIdx: Int,
