@@ -243,3 +243,28 @@ fun getKnownLspFieldIndexTableImpl(structName: String, fieldName: String)
     }
     return -1
 }
+
+fun getKnownFieldIndexFallbackTableImpl(structName: String, fieldName: String)
+    r: Int {
+    if structName == "FrontendDiagnostic" {
+        if fieldName == "file" { return 0 }
+        if fieldName == "line" { return 1 }
+        if fieldName == "column" { return 2 }
+        if fieldName == "severity" { return 3 }
+        if fieldName == "message" { return 4 }
+    }
+    if structName == "Token" {
+        if fieldName == "tokenType" { return 0 }
+        if fieldName == "value" { return 1 }
+        if fieldName == "line" { return 2 }
+        if fieldName == "column" { return 3 }
+    }
+    if structName == "FieldNode" {
+        if fieldName == "name" { return 0 }
+        if fieldName == "fieldType" { return 1 }
+        if fieldName == "isMutable" { return 2 }
+        if fieldName == "defaultValue" { return 3 }
+        if fieldName == "visibility" { return 4 }
+    }
+    return -1
+}
