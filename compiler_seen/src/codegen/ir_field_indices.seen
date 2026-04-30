@@ -1,0 +1,83 @@
+// ir_field_indices.seen - known primary AST/frontend field index tables.
+
+fun getKnownFieldIndexPrimaryTableImpl(structName: String, fieldName: String)
+    r: Int {
+    if structName == "FunctionNode" {
+        if fieldName == "name" { return 0 }
+        if fieldName == "params" { return 1 }
+        if fieldName == "returnType" { return 2 }
+        if fieldName == "body" { return 3 }
+        if fieldName == "isAsync" { return 4 }
+        if fieldName == "isInline" { return 5 }
+        if fieldName == "isStatic" { return 6 }
+        if fieldName == "isExtern" { return 7 }
+        if fieldName == "isDeterministic" { return 8 }
+        if fieldName == "isNondeterministic" { return 9 }
+        if fieldName == "decorators" { return 10 }
+        if fieldName == "line" { return 11 }
+        if fieldName == "column" { return 12 }
+        if fieldName == "isOverride" { return 13 }
+    }
+    if structName == "ClassNode" {
+        if fieldName == "name" { return 0 }
+        if fieldName == "fields" { return 1 }
+        if fieldName == "methods" { return 2 }
+        if fieldName == "decorators" { return 3 }
+        if fieldName == "isNondeterministic" { return 4 }
+        if fieldName == "parentName" { return 5 }
+    }
+    if structName == "TypeNode" {
+        if fieldName == "typeName" { return 0 }
+        if fieldName == "isNullable" { return 1 }
+    }
+    if structName == "ParamNode" {
+        if fieldName == "name" { return 0 }
+        if fieldName == "paramType" { return 1 }
+        if fieldName == "isMutable" { return 2 }
+    }
+    if structName == "ItemNode" {
+        if fieldName == "itemType" { return 0 }
+        if fieldName == "name" { return 1 }
+        if fieldName == "visibility" { return 2 }
+        if fieldName == "importPath" { return 3 }
+        if fieldName == "importSymbols" { return 4 }
+        if fieldName == "function" { return 5 }
+        if fieldName == "classNode" { return 6 }
+        if fieldName == "enumNode" { return 7 }
+    }
+    if structName == "ProgramNode" {
+        if fieldName == "items" { return 0 }
+    }
+    if structName == "BlockNode" {
+        if fieldName == "statements" { return 0 }
+    }
+    if structName == "FrontendResult" {
+        if fieldName == "success" { return 0 }
+        if fieldName == "diagnostics" { return 1 }
+        if fieldName == "program" { return 2 }
+    }
+    if structName == "StatementNode" {
+        if fieldName == "kind" { return 0 }
+        if fieldName == "variableName" { return 1 }
+        if fieldName == "variableType" { return 2 }
+        if fieldName == "initializer" { return 3 }
+        if fieldName == "expression" { return 4 }
+        if fieldName == "condition" { return 5 }
+        if fieldName == "thenBranch" { return 6 }
+        if fieldName == "elseBranch" { return 7 }
+        if fieldName == "loopCondition" { return 8 }
+        if fieldName == "loopBody" { return 9 }
+        if fieldName == "returnValue" { return 10 }
+    }
+    if structName == "ParserExpressionNode" {
+        if fieldName == "kind" { return 0 }
+        if fieldName == "operands" { return 1 }
+        if fieldName == "operator" { return 2 }
+        if fieldName == "literalValue" { return 3 }
+        if fieldName == "literalType" { return 4 }
+        if fieldName == "variableName" { return 5 }
+        if fieldName == "callee" { return 6 }
+        if fieldName == "arguments" { return 7 }
+    }
+    return -1
+}
