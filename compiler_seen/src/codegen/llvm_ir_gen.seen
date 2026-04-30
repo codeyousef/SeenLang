@@ -56,7 +56,7 @@ import codegen.ir_local_type_fallback.{tryInferLLVMIRGeneratorThisFieldTypeImpl,
 import codegen.ir_trait_registry.{appendDynTraitNameImpl}
 import codegen.ir_type_info.{charToCodeStr, getSeenFieldTypeImpl, getMethodReturnTypeImpl, g_resolvedFieldIndex, g_resolvedFieldTypeCode, decodeFieldTypeCode, findStructIdx, getLLVMIRGeneratorFieldIndexImpl}
 
-import codegen.ir_string_collect.{getBaseTypeNameImpl, normalizeHeaderTypeImpl, parseArrayElementTypeImpl, extractArrayLiteralElementTypeImpl, parseDecimalIntImpl, getSeenTokenTypeValueImpl, resetStringConstCache}
+import codegen.ir_string_collect.{getBaseTypeNameImpl, normalizeHeaderTypeImpl, parseArrayElementTypeImpl, extractArrayLiteralElementTypeImpl, parseDecimalIntImpl, getSeenTokenTypeValueImpl}
 import codegen.ir_string_collect_state.{collectStringConstantsStateImpl, collectStringConstantsFromExprStateImpl}
 import codegen.ir_string_interp_gen.{generateStringInterpolationFromPartsImpl}
 import codegen.ir_string_interp_infer.{inferStringInterpolationExprTypeStateImpl}
@@ -151,7 +151,7 @@ import codegen.ir_function_body.{captureFunctionBodyBlockScopeImpl, scanFunction
 import codegen.ir_function_state.{getCurrentFunctionEmissionStateImpl, resetFunctionEmissionForFunctionImpl, markFunctionEmissionHighPressureImpl, resetFunctionEmissionHighPressureImpl, recordMovedVariableImpl, isMovedVariableImpl, resetFunctionLoweringOptionsStateImpl, resetFunctionHighPressureImpl, markFunctionHighPressureImpl, isFunctionHighPressureImpl, currentFunctionAlignToImpl, currentFunctionRegionSizeBytesImpl, isCurrentFunctionAsyncLoweringImpl, markTailCallPositionImpl, takeTailCallPositionImpl}
 import codegen.ir_function_ml_logs.{applyFunctionPreludeMlLogsImpl, applyFunctionUnusedParamMlLogsImpl}
 import codegen.ir_ml_logging.{mlLogDecision, setupMLLogging, writeMLDecisionLog}
-import codegen.ir_codegen_state_bridge.{syncCodegenStateBridgeImpl, captureCodegenStateBridgeSnapshotImpl}
+import codegen.ir_codegen_state_bridge.{syncCodegenStateBridgeImpl, captureCodegenStateBridgeSnapshotImpl, resetSharedModuleGenerationScratchStateImpl}
 import process.process.{runCommand, CommandResult, commandWasSuccessful}
 
 fun getIrgenTraceTimeSeconds() r: Int {
@@ -1551,20 +1551,20 @@ class LLVMIRGenerator {
     }
 
     fun resetSharedModuleGenerationScratchState() r: Void {
-        output = StringBuilder.new()
-        stringConstants = Array<String>()
-        resetStringConstCache()
-        g_closureCount = 0
-        g_closureDefs = ""
-        g_pforCount = 0
-        g_comptimeNames = ""
-        g_comptimeValues = ""
-        g_comptimeCount = 0
-        g_intrinsicFuncNames = ""
-        g_intrinsicLlvmNames = ""
-        g_intrinsicCount = 0
-        g_sendTypes = ""
-        g_syncTypes = ""
+        let scratchState = resetSharedModuleGenerationScratchStateImpl()
+        output = scratchState.output
+        stringConstants = scratchState.stringConstants
+        g_closureCount = scratchState.closureCount
+        g_closureDefs = scratchState.closureDefs
+        g_pforCount = scratchState.pforCount
+        g_comptimeNames = scratchState.comptimeNames
+        g_comptimeValues = scratchState.comptimeValues
+        g_comptimeCount = scratchState.comptimeCount
+        g_intrinsicFuncNames = scratchState.intrinsicFuncNames
+        g_intrinsicLlvmNames = scratchState.intrinsicLlvmNames
+        g_intrinsicCount = scratchState.intrinsicCount
+        g_sendTypes = scratchState.sendTypes
+        g_syncTypes = scratchState.syncTypes
     }
 
     fun emitProgramClassTypes(program: ProgramNode) r: Void {

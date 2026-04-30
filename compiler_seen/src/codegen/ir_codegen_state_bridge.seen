@@ -2,6 +2,7 @@
 
 import str.string.{StringBuilder}
 import codegen.type_registry.{CodegenState, FunctionLoweringOptions}
+import codegen.ir_string_collect.{resetStringConstCache}
 
 class CodegenStateBridgeSnapshot {
     var output: StringBuilder
@@ -79,6 +80,47 @@ class CodegenStateBridgeSnapshot {
             moduleConstantTypes: Array<String>()
         }
     }
+}
+
+class SharedModuleGenerationScratchState {
+    var output: StringBuilder
+    var stringConstants: Array<String>
+    var closureCount: Int
+    var closureDefs: String
+    var pforCount: Int
+    var comptimeNames: String
+    var comptimeValues: String
+    var comptimeCount: Int
+    var intrinsicFuncNames: String
+    var intrinsicLlvmNames: String
+    var intrinsicCount: Int
+    var sendTypes: String
+    var syncTypes: String
+
+    static fun new() r: SharedModuleGenerationScratchState {
+        return SharedModuleGenerationScratchState{
+            output: StringBuilder.new(),
+            stringConstants: Array<String>(),
+            closureCount: 0,
+            closureDefs: "",
+            pforCount: 0,
+            comptimeNames: "",
+            comptimeValues: "",
+            comptimeCount: 0,
+            intrinsicFuncNames: "",
+            intrinsicLlvmNames: "",
+            intrinsicCount: 0,
+            sendTypes: "",
+            syncTypes: ""
+        }
+    }
+}
+
+fun resetSharedModuleGenerationScratchStateImpl()
+    r: SharedModuleGenerationScratchState {
+
+    resetStringConstCache()
+    return SharedModuleGenerationScratchState.new()
 }
 
 fun syncCodegenStateBridgeImpl(state: CodegenState,
