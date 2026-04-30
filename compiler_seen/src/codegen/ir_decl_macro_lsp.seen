@@ -1,0 +1,199 @@
+// Macro and LSP declarations for LLVM IR generation
+// Extracted from ir_decl_runtime.seen
+
+import str.string.{StringBuilder}
+import codegen.ir_declarations.{isFuncDefinedInModule}
+
+fun emitMacroAndLspDecls(output: StringBuilder, definedFuncs: Array<String>) r: Void {
+    // Macro module functions (from macro.ast_node, macro.registry, macro.expander, macro.interpreter)
+    // AstNode class methods
+    if not isFuncDefinedInModule("AstNode_new", definedFuncs) {
+        output.append("declare i64 @AstNode_new() nounwind\n")
+    }
+    if not isFuncDefinedInModule("AstNode_error", definedFuncs) {
+        output.append("declare i64 @AstNode_error(%SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("AstNode_fromFunction", definedFuncs) {
+        output.append("declare i64 @AstNode_fromFunction(i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("AstNode_fromClass", definedFuncs) {
+        output.append("declare i64 @AstNode_fromClass(i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("AstNode_fromStatement", definedFuncs) {
+        output.append("declare i64 @AstNode_fromStatement(i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("AstNode_fromExpression", definedFuncs) {
+        output.append("declare i64 @AstNode_fromExpression(i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("AstNode_fromBlock", definedFuncs) {
+        output.append("declare i64 @AstNode_fromBlock(i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("AstNode_kind", definedFuncs) {
+        output.append("declare %SeenString @AstNode_kind(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("AstNode_name", definedFuncs) {
+        output.append("declare %SeenString @AstNode_name(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("AstNode_body", definedFuncs) {
+        output.append("declare ptr @AstNode_body(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("AstNode_params", definedFuncs) {
+        output.append("declare ptr @AstNode_params(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("AstNode_fields", definedFuncs) {
+        output.append("declare ptr @AstNode_fields(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("AstNode_methods", definedFuncs) {
+        output.append("declare ptr @AstNode_methods(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("AstNode_hasMethod", definedFuncs) {
+        output.append("declare i1 @AstNode_hasMethod(ptr, %SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("AstNode_hasField", definedFuncs) {
+        output.append("declare i1 @AstNode_hasField(ptr, %SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("AstNode_getAnnotations", definedFuncs) {
+        output.append("declare ptr @AstNode_getAnnotations(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("AstNode_returnType", definedFuncs) {
+        output.append("declare %SeenString @AstNode_returnType(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("AstNode_newCall", definedFuncs) {
+        output.append("declare i64 @AstNode_newCall(%SeenString, ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("AstNode_newStatement", definedFuncs) {
+        output.append("declare i64 @AstNode_newStatement(%SeenString, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("AstNode_newReturn", definedFuncs) {
+        output.append("declare i64 @AstNode_newReturn(i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("AstNode_newStringLiteral", definedFuncs) {
+        output.append("declare i64 @AstNode_newStringLiteral(%SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("AstNode_newIntLiteral", definedFuncs) {
+        output.append("declare i64 @AstNode_newIntLiteral(i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("AstNode_newVariable", definedFuncs) {
+        output.append("declare i64 @AstNode_newVariable(%SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("AstNode_withName", definedFuncs) {
+        output.append("declare i64 @AstNode_withName(ptr, %SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("AstNode_withBody", definedFuncs) {
+        output.append("declare i64 @AstNode_withBody(ptr, ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("AstNode_wrapBody", definedFuncs) {
+        output.append("declare i64 @AstNode_wrapBody(ptr, i64, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("AstNode_addMethod", definedFuncs) {
+        output.append("declare i64 @AstNode_addMethod(ptr, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("AstNode_addField", definedFuncs) {
+        output.append("declare i64 @AstNode_addField(ptr, %SeenString, %SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("AstNode_toFunction", definedFuncs) {
+        output.append("declare i64 @AstNode_toFunction(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("AstNode_toClass", definedFuncs) {
+        output.append("declare i64 @AstNode_toClass(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("AstNode_toStatement", definedFuncs) {
+        output.append("declare i64 @AstNode_toStatement(ptr) nounwind\n")
+    }
+    // Helper functions from ast_node module
+    if not isFuncDefinedInModule("copyFunction", definedFuncs) {
+        output.append("declare i64 @copyFunction(i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("copyBlock", definedFuncs) {
+        output.append("declare i64 @copyBlock(i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("copyClass", definedFuncs) {
+        output.append("declare i64 @copyClass(i64) nounwind\n")
+    }
+    // ParamInfo and FieldInfo classes
+    if not isFuncDefinedInModule("ParamInfo_new", definedFuncs) {
+        output.append("declare i64 @ParamInfo_new(%SeenString, %SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("FieldInfo_new", definedFuncs) {
+        output.append("declare i64 @FieldInfo_new(%SeenString, %SeenString, i1) nounwind\n")
+    }
+    // MacroRegistry class methods
+    if not isFuncDefinedInModule("MacroRegistry_new", definedFuncs) {
+        output.append("declare ptr @MacroRegistry_new() nounwind\n")
+    }
+    if not isFuncDefinedInModule("MacroRegistry_register", definedFuncs) {
+        output.append("declare void @MacroRegistry_register(ptr, %SeenString, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("MacroRegistry_lookup", definedFuncs) {
+        output.append("declare i64 @MacroRegistry_lookup(ptr, %SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("MacroRegistry_lookupExists", definedFuncs) {
+        output.append("declare i1 @MacroRegistry_lookupExists(ptr, %SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("MacroRegistry_count", definedFuncs) {
+        output.append("declare i64 @MacroRegistry_count(ptr) nounwind\n")
+    }
+    // MacroExpander class methods
+    if not isFuncDefinedInModule("MacroExpander_new", definedFuncs) {
+        output.append("declare ptr @MacroExpander_new() nounwind\n")
+    }
+    if not isFuncDefinedInModule("MacroExpander_expandProgram", definedFuncs) {
+        output.append("declare i64 @MacroExpander_expandProgram(ptr, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("MacroExpander_getErrors", definedFuncs) {
+        output.append("declare ptr @MacroExpander_getErrors(ptr) nounwind\n")
+    }
+    // MacroExpansionResult class methods
+    if not isFuncDefinedInModule("MacroExpansionResult_new", definedFuncs) {
+        output.append("declare i64 @MacroExpansionResult_new() nounwind\n")
+    }
+    if not isFuncDefinedInModule("MacroExpansionResult_addError", definedFuncs) {
+        output.append("declare void @MacroExpansionResult_addError(ptr, %SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("MacroExpansionResult_hasErrors", definedFuncs) {
+        output.append("declare i1 @MacroExpansionResult_hasErrors(ptr) nounwind\n")
+    }
+    // ComptimeInterpreter class methods
+    if not isFuncDefinedInModule("ComptimeInterpreter_new", definedFuncs) {
+        output.append("declare ptr @ComptimeInterpreter_new() nounwind\n")
+    }
+    if not isFuncDefinedInModule("ComptimeInterpreter_evaluate", definedFuncs) {
+        output.append("declare i64 @ComptimeInterpreter_evaluate(ptr, i64, i64) nounwind\n")
+    }
+    // ComptimeValue class methods
+    if not isFuncDefinedInModule("ComptimeValue_new", definedFuncs) {
+        output.append("declare i64 @ComptimeValue_new() nounwind\n")
+    }
+    if not isFuncDefinedInModule("ComptimeValue_fromInt", definedFuncs) {
+        output.append("declare i64 @ComptimeValue_fromInt(i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("ComptimeValue_fromString", definedFuncs) {
+        output.append("declare i64 @ComptimeValue_fromString(%SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("ComptimeValue_fromBool", definedFuncs) {
+        output.append("declare i64 @ComptimeValue_fromBool(i1) nounwind\n")
+    }
+    if not isFuncDefinedInModule("ComptimeValue_fromAst", definedFuncs) {
+        output.append("declare i64 @ComptimeValue_fromAst(i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("ComptimeValue_fromArray", definedFuncs) {
+        output.append("declare i64 @ComptimeValue_fromArray(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("ComptimeValue_error", definedFuncs) {
+        output.append("declare i64 @ComptimeValue_error(%SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("ComptimeValue_isError", definedFuncs) {
+        output.append("declare i1 @ComptimeValue_isError(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("ComptimeValue_toString", definedFuncs) {
+        output.append("declare %SeenString @ComptimeValue_toString(ptr) nounwind\n")
+    }
+    // ComptimeVariable class methods
+    if not isFuncDefinedInModule("ComptimeVariable_new", definedFuncs) {
+        output.append("declare i64 @ComptimeVariable_new(%SeenString, i64) nounwind\n")
+    }
+    // Helper function from interpreter module
+    if not isFuncDefinedInModule("parseIntLiteral", definedFuncs) {
+        output.append("declare i64 @parseIntLiteral(%SeenString) nounwind\n")
+    }
+}

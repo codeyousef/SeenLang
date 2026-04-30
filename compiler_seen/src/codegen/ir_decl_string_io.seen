@@ -1,0 +1,108 @@
+// String, IO, tracing, and environment declarations for LLVM IR generation
+// Extracted from ir_decl_runtime.seen
+
+import str.string.{StringBuilder}
+import codegen.ir_declarations.{isFuncDefinedInModule}
+
+fun emitStringAndIODecls(output: StringBuilder, definedFuncs: Array<String>) r: Void {
+    // Char classification & conversion (always emit - not in type header)
+    output.append("declare i64 @Char_isDigit(i64) nounwind readonly\n")
+    output.append("declare i64 @Char_isAlpha(i64) nounwind readonly\n")
+    output.append("declare i64 @Char_isAlphanumeric(i64) nounwind readonly\n")
+    output.append("declare i64 @Char_isUpperCase(i64) nounwind readonly\n")
+    output.append("declare i64 @Char_isLowerCase(i64) nounwind readonly\n")
+    output.append("declare i64 @Char_isWhitespace(i64) nounwind readonly\n")
+    output.append("declare i64 @Char_toUpperCase(i64) nounwind readonly\n")
+    output.append("declare i64 @Char_toLowerCase(i64) nounwind readonly\n")
+    // String case conversion, parsing & utilities (always emit)
+    output.append("declare %SeenString @String_toUpperCase(%SeenString) nounwind\n")
+    output.append("declare %SeenString @String_toLowerCase(%SeenString) nounwind\n")
+    output.append("declare i64 @String_toInt(%SeenString) nounwind readonly\n")
+    output.append("declare double @String_toFloat(%SeenString) nounwind readonly\n")
+    output.append("declare %SeenString @String_reverse(%SeenString) nounwind\n")
+    output.append("declare i64 @String_isEmpty(%SeenString) nounwind readonly\n")
+    output.append("declare i64 @String_count(%SeenString, %SeenString) nounwind readonly\n")
+    output.append("declare %SeenString @String_replace(%SeenString, %SeenString, %SeenString) nounwind\n")
+
+    // Tracing helpers (compiler-only module functions)
+    if not isFuncDefinedInModule("traceLex", definedFuncs) {
+        output.append("declare void @traceLex(%SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("traceLexVerbose", definedFuncs) {
+        output.append("declare void @traceLexVerbose(%SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("traceParse", definedFuncs) {
+        output.append("declare void @traceParse(%SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("traceParseVerbose", definedFuncs) {
+        output.append("declare void @traceParseVerbose(%SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("traceGen", definedFuncs) {
+        output.append("declare void @traceGen(%SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("traceGenVerbose", definedFuncs) {
+        output.append("declare void @traceGenVerbose(%SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("trace", definedFuncs) {
+        output.append("declare void @trace(%SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("isLexerTracingEnabled", definedFuncs) {
+        output.append("declare i1 @isLexerTracingEnabled() nounwind\n")
+    }
+    if not isFuncDefinedInModule("isLexerTraceVerboseEnabled", definedFuncs) {
+        output.append("declare i1 @isLexerTraceVerboseEnabled() nounwind\n")
+    }
+    if not isFuncDefinedInModule("isParserTracingEnabled", definedFuncs) {
+        output.append("declare i1 @isParserTracingEnabled() nounwind\n")
+    }
+    if not isFuncDefinedInModule("isCodegenTracingEnabled", definedFuncs) {
+        output.append("declare i1 @isCodegenTracingEnabled() nounwind\n")
+    }
+
+    // Env helper wrappers (stdlib functions defined in env.env)
+    if not isFuncDefinedInModule("has", definedFuncs) {
+        output.append("declare i1 @has(%SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("get", definedFuncs) {
+        output.append("declare %SeenString @get(%SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("getOrDefault", definedFuncs) {
+        output.append("declare %SeenString @getOrDefault(%SeenString, %SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("tryGet", definedFuncs) {
+        output.append("declare i64 @tryGet(%SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("set", definedFuncs) {
+        output.append("declare i1 @set(%SeenString, %SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("removeEnv", definedFuncs) {
+        output.append("declare i1 @removeEnv(%SeenString) nounwind\n")
+    }
+
+    // Stdlib functions that may be defined in user code - always check conditionally
+    // These need to be outside the runtimeDeclsLoaded check because they're Seen functions, not C runtime
+    if not isFuncDefinedInModule("indexOf", definedFuncs) {
+        output.append("declare i64 @indexOf(%SeenString, %SeenString, i64) nounwind readonly\n")
+    }
+    if not isFuncDefinedInModule("lastIndexOf", definedFuncs) {
+        output.append("declare i64 @lastIndexOf(%SeenString, %SeenString, i64) nounwind readonly\n")
+    }
+    if not isFuncDefinedInModule("readText", definedFuncs) {
+        output.append("declare %SeenString @readText(%SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("writeText", definedFuncs) {
+        output.append("declare i1 @writeText(%SeenString, %SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("exists", definedFuncs) {
+        output.append("declare i1 @exists(%SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("args", definedFuncs) {
+        output.append("declare ptr @args() nounwind\n")
+    }
+    if not isFuncDefinedInModule("runCommand", definedFuncs) {
+        output.append("declare %CommandResult @runCommand(%SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("commandWasSuccessful", definedFuncs) {
+        output.append("declare i1 @commandWasSuccessful(ptr) nounwind readonly\n")
+    }
+}
