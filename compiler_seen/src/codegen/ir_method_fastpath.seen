@@ -8,7 +8,7 @@ import codegen.ir_type_ops.{emitOptionMethodImpl, emitJsonValueMethodImpl, emitS
 import codegen.ir_method_gen.{emitToStringMethodImpl, emitToIntMethodImpl, emitToFloatMethodImpl, emitNumericMethodImpl, emitLengthSizeMethodImpl}
 import codegen.ir_call_dispatch.{emitCStrConversionImpl, emitDynTraitVtableCallImpl, emitGenericStaticCallImpl, emitStringBuilderNewCallImpl, emitStringFromCharCodeCallImpl, emitSimdReductionVarImpl}
 import codegen.ir_call_constructors.{emitStaticCollectionNewImpl, emitArrayWithLengthImpl}
-import codegen.ir_type_dispatch.{dispatchCollectionMethodImpl}
+import codegen.ir_collection_dispatch.{dispatchCollectionMethodImpl}
 import codegen.ir_variable_gen.{emitModuleConstantLoadImpl}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, normalizeExplicitMethodReceiverTypeImpl, fallbackModuleConstantMethodReceiverTypeImpl, convertReceiverToPtrImpl}
 import codegen.ir_type_mapping.{isClassTypeImpl}
