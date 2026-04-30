@@ -7,6 +7,8 @@ import codegen.ir_stmt_dead_code.{BlockDeadStoreScanSnapshot, TrailingDeadCodeNo
 import codegen.ir_stmt_gen.{emitIfBranchingImpl}
 import codegen.ir_stmt_scope.{beginBlockDeferredCleanupImpl}
 import codegen.ir_stmt_return.{emitErrdeferVoidCleanupIntroImpl, emitErrdeferValueSetupImpl, emitErrdeferErrorBranchImpl, emitErrdeferErrorPathIntroImpl, emitErrdeferResumeLabelImpl}
+import codegen.ir_loop_context.{enterLoopContextImpl, restoreLoopContextImpl, emitLoopEndLabelImpl}
+import codegen.ir_stmt_decl.{findPreAllocatedOccurrenceImpl, nextDeclarationOrdinalImpl}
 import codegen.ir_function_ml_logs.{applyDeadStoreMlLogsImpl}
 import codegen.ir_variable_gen.{storeActiveVariableBindingImpl}
 
@@ -53,6 +55,51 @@ class FunctionBodyIfBranchLabels {
         return FunctionBodyIfBranchLabels{
             elseLabel: elseLabel,
             endLabel: endLabel
+        }
+    }
+}
+
+class FunctionBodyLoopContextState {
+    var loopMetaId: Int
+    var loopMetaIdStr: String
+    var condLabel: String
+    var bodyLabel: String
+    var endLabel: String
+    var savedCondLabel: String
+    var savedEndLabel: String
+    var currentCondLabel: String
+    var currentEndLabel: String
+
+    static fun new(loopMetaId: Int, loopMetaIdStr: String,
+        condLabel: String, bodyLabel: String, endLabel: String,
+        savedCondLabel: String, savedEndLabel: String,
+        currentCondLabel: String, currentEndLabel: String)
+        r: FunctionBodyLoopContextState {
+
+        return FunctionBodyLoopContextState{
+            loopMetaId: loopMetaId,
+            loopMetaIdStr: loopMetaIdStr,
+            condLabel: condLabel,
+            bodyLabel: bodyLabel,
+            endLabel: endLabel,
+            savedCondLabel: savedCondLabel,
+            savedEndLabel: savedEndLabel,
+            currentCondLabel: currentCondLabel,
+            currentEndLabel: currentEndLabel
+        }
+    }
+}
+
+class FunctionBodyLoopVariableStorage {
+    var seenType: String
+    var storageReg: String
+
+    static fun new(seenType: String, storageReg: String)
+        r: FunctionBodyLoopVariableStorage {
+
+        return FunctionBodyLoopVariableStorage{
+            seenType: seenType,
+            storageReg: storageReg
         }
     }
 }
@@ -227,4 +274,94 @@ fun emitFunctionBodyIfBranchingImpl(output: StringBuilder,
         branchMetadata)
     let branchLabels = splitPipe(branchInfo)
     return FunctionBodyIfBranchLabels.new(branchLabels[1], branchLabels[2])
+}
+
+fun beginFunctionBodyLoopContextImpl(blockLabelBox: Array<Int>,
+    currentLoopCondLabel: String, currentLoopEndLabel: String)
+    r: FunctionBodyLoopContextState {
+
+    let loopMetaId = blockLabelBox[0] + 202
+    let loopMetaIdStr = loopMetaId.toString()
+    let condLabel = getNextBlockFn(blockLabelBox)
+    let bodyLabel = getNextBlockFn(blockLabelBox)
+    let endLabel = getNextBlockFn(blockLabelBox)
+
+    let currentCondBox = Array<String>()
+    currentCondBox.push(currentLoopCondLabel)
+    let currentEndBox = Array<String>()
+    currentEndBox.push(currentLoopEndLabel)
+    let savedCondBox = Array<String>()
+    let savedEndBox = Array<String>()
+    enterLoopContextImpl(currentCondBox, currentEndBox, savedCondBox,
+        savedEndBox, condLabel, endLabel, loopMetaIdStr)
+
+    return FunctionBodyLoopContextState.new(loopMetaId, loopMetaIdStr,
+        condLabel, bodyLabel, endLabel, savedCondBox[0], savedEndBox[0],
+        currentCondBox[0], currentEndBox[0])
+}
+
+fun restoreFunctionBodyLoopContextImpl(currentLoopCondLabel: String,
+    currentLoopEndLabel: String, savedCondLabel: String,
+    savedEndLabel: String) r: FunctionBodyLoopContextState {
+
+    let currentCondBox = Array<String>()
+    currentCondBox.push(currentLoopCondLabel)
+    let currentEndBox = Array<String>()
+    currentEndBox.push(currentLoopEndLabel)
+    restoreLoopContextImpl(currentCondBox, currentEndBox, savedCondLabel,
+        savedEndLabel)
+    return FunctionBodyLoopContextState.new(0, "", "", "", "",
+        savedCondLabel, savedEndLabel, currentCondBox[0], currentEndBox[0])
+}
+
+fun emitFunctionBodyLoopEndLabelImpl(output: StringBuilder,
+    endLabel: String) r: Void {
+
+    emitLoopEndLabelImpl(output, endLabel)
+}
+
+fun resolveFunctionBodyForInLoopVariableStorageImpl(output: StringBuilder,
+    regBox: Array<Int>, loopVarName: String, loopVarType: String,
+    loopVarLlvmType: String, declOrdinalNames: Array<String>,
+    declOrdinalCounts: Array<Int>, preAllocatedVars: Array<String>,
+    preAllocatedRegs: Array<String>) r: FunctionBodyLoopVariableStorage {
+
+    let loopVarOrdinal = nextDeclarationOrdinalImpl(declOrdinalNames,
+        declOrdinalCounts, loopVarName)
+    let loopVarPreIdx = findPreAllocatedOccurrenceImpl(preAllocatedVars,
+        loopVarName, loopVarOrdinal)
+    var loopVarReg = ""
+    if loopVarPreIdx >= 0 and loopVarPreIdx < preAllocatedRegs.length() {
+        loopVarReg = preAllocatedRegs[loopVarPreIdx]
+    }
+    if loopVarReg == "" {
+        loopVarReg = getNextRegFn(regBox)
+        if loopVarLlvmType == "i64" or loopVarLlvmType == "double" or
+            loopVarLlvmType == "ptr" {
+
+            output.append("  " + loopVarReg + " = alloca " +
+                loopVarLlvmType + ", align 8\n")
+        } else {
+            output.append("  " + loopVarReg + " = alloca " +
+                loopVarLlvmType + "\n")
+        }
+    }
+    return FunctionBodyLoopVariableStorage.new(loopVarType, loopVarReg)
+}
+
+fun resolveFunctionBodyForInIndexAllocaImpl(output: StringBuilder,
+    regBox: Array<Int>, preAllocatedVars: Array<String>,
+    preAllocatedRegs: Array<String>, idxName: String) r: String {
+
+    var idxReg = ""
+    let idxPreIdx = findPreAllocatedOccurrenceImpl(preAllocatedVars,
+        idxName, 1)
+    if idxPreIdx >= 0 and idxPreIdx < preAllocatedRegs.length() {
+        idxReg = preAllocatedRegs[idxPreIdx]
+    }
+    if idxReg == "" {
+        idxReg = getNextRegFn(regBox)
+        output.append("  " + idxReg + " = alloca i64, align 8\n")
+    }
+    return idxReg
 }

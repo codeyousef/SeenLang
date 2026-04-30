@@ -74,7 +74,7 @@ import codegen.ir_type_layout.{getLlvmTypeAlignImpl, getLlvmTypeSizeImpl, comput
 import codegen.ir_type_mapping.{parseSimpleIntImpl, lookupComptimeVarImpl, lookupComptimeStrVarImpl, comptimeSizeofImpl, comptimeTypeFieldCountImpl, comptimeTypeFieldNameImpl, comptimeTypeFieldTypeImpl, evaluateConstExprStrImpl, evaluateConstExprImpl}
 import codegen.ir_type_tables.{inferMethodCallTypeTable, inferCallTypeTable, inferFieldTypeFallback, inferIndexElementType, registerKnownDataTypesImpl, resolveCollectionGetTypeImpl, resolveUnwrapTypeImpl, resolvePopElementTypeImpl, resolveTryPropagateTypeImpl}
 import codegen.ir_control_flow.{emitForInElementFetchImpl, emitForInPrefetchImpl, emitForInIncrementImpl, detectLoopBoundImpl, computeLoopTileSizeImpl, detectReductionPatternImpl, detectInductionVarImpl, detectBreakOnFlagImpl, detectNestedLoopImpl, detectGcdPatternImpl, emitWhileConditionBranchImpl, emitStringForInElementImpl, emitMemcpyLoopExitBlocksImpl}
-import codegen.ir_loop_context.{appendLoopTileHintImpl, appendLoopMetadataIdImpl, emitLoopMetadataImpl, enterLoopContextImpl, restoreLoopContextImpl, emitLoopEndLabelImpl, emitContinueStatementImpl, emitBreakStatementImpl}
+import codegen.ir_loop_context.{appendLoopTileHintImpl, appendLoopMetadataIdImpl, emitLoopMetadataImpl, emitContinueStatementImpl, emitBreakStatementImpl}
 import codegen.ir_loop_plan.{planMemcpyOptimizedWhileLoopImpl, iteratorProtocolFunctionNameImpl, planIteratorProtocolForInLoopImpl, isRangeForInIterableImpl}
 import codegen.ir_infer_type.{inferBinaryTypeImpl, inferLiteralTypeImpl, inferOperatorOverloadSuffix, inferExplicitThisMethodCallTypeImpl, inferBareMethodOrFunctionCallTypeImpl, inferDeclaredStaticMethodCallTypeImpl, inferStaticFactoryMethodTypeImpl, inferStaticFromJsonMethodTypeImpl, inferLateMethodCallFallbackTypeImpl, inferGeneratedCallTypeImpl, inferBuiltinCallExprTypeStateImpl, inferResolvedCallExprTypeImpl, inferSimdReduceMethodTypeImpl, inferReceiverRegistryMethodCallTypeImpl, inferMethodCallBoolSuffixImpl, inferReceiverMethodTypeImpl, inferCallExprTypeImpl}
 import codegen.ir_special_expr_infer.{inferIndexAccessExprTypeImpl, inferKnownArrayLiteralTypeImpl, inferArrayLiteralExprTypeImpl, inferUnaryExprTypeImpl, inferAwaitExprTypeImpl, inferTryPropagateExprTypeImpl, inferNullishSpecialExprTypeImpl, inferBranchingSpecialExprTypeImpl, inferFixedSpecialExprTypeImpl, inferSpecialExprTypeImpl}
@@ -130,7 +130,7 @@ import codegen.ir_binary_fold_plan.{planBinaryOperandLiteralFactsImpl, isBinaryI
 import codegen.ir_binary_short_circuit.{allocateShortCircuitBinaryLabelsImpl, emitShortCircuitCheckBridgeImpl, emitShortCircuitAndDecisionImpl, emitShortCircuitOrDecisionImpl, emitShortCircuitRightLabelImpl, emitShortCircuitDoneBridgeImpl, emitShortCircuitMergeJumpImpl}
 import codegen.ir_unary_expr.{unaryOperatorMethodNameImpl, shouldSkipUnaryOverloadTypeImpl, negatedComparisonPredicateImpl, shouldEmitNegatedComparisonForTypesImpl, emitOverloadedUnaryCallImpl, emitUnaryNegationImpl, emitNegatedComparisonImpl, emitUnaryLogicalNotImpl, emitUnaryAddressOfClassValueImpl, emitUnaryAddressOfVariablePtrImpl, emitUnaryDereferenceImpl, isUnaryBitwiseNotOperatorImpl, emitUnaryBitwiseNotImpl}
 import codegen.ir_class_method_gen.{tryEmitOptionClassMethodShimImpl, collectClassMethodParameterInfoImpl, emitClassMethodSignatureStateImpl, emitClassMethodReceiverBindingStateImpl, emitClassMethodParameterBindingsStateImpl, emitClassMethodConstructorSetupStateImpl, tryEmitClassMethodConstructorReturnStateImpl, emitClassMethodDefaultReturnStateImpl}
-import codegen.ir_stmt_decl.{shouldInferDeclarationInitializerTypeImpl, resolveDeclarationBaseTypeImpl, resolveLetStatementTypeImpl, resolveLetStatementAllocaImpl, prepareLetStatementPlanImpl, resolveLetPreAllocatedRegImpl, findPreAllocatedOccurrenceImpl, nextDeclarationOrdinalImpl, classifyCollectedStatementKindImpl, shouldTraceCollectedDeclarationTypeImpl, appendCollectedDeclarationImpl, resolveCollectedForInElementTypeImpl, buildForInIndexNameImpl, shouldSeedDeclarationPendingArrayLiteralTypeImpl, emitDeadLiteralInitializerSkipNoteImpl, emitDeclarationInitializerStoreImpl}
+import codegen.ir_stmt_decl.{shouldInferDeclarationInitializerTypeImpl, resolveDeclarationBaseTypeImpl, resolveLetStatementTypeImpl, resolveLetStatementAllocaImpl, prepareLetStatementPlanImpl, resolveLetPreAllocatedRegImpl, classifyCollectedStatementKindImpl, shouldTraceCollectedDeclarationTypeImpl, appendCollectedDeclarationImpl, resolveCollectedForInElementTypeImpl, buildForInIndexNameImpl, shouldSeedDeclarationPendingArrayLiteralTypeImpl, emitDeadLiteralInitializerSkipNoteImpl, emitDeclarationInitializerStoreImpl}
 import codegen.ir_stmt_gen.{emitConditionToI1Impl, computeIfBranchWeightMetadataForStatementImpl, normalizeIfConditionTypeImpl, finalizeConditionalEndBlockImpl, emitIfExpressionBranchValueImpl, emitPhiMergeValueImpl, emitIfLetBindingStateImpl, emitIndexedForLoopHeaderImpl, emitRegionStatementPreambleImpl, emitRegionStatementCleanupImpl, classifyParallelForRangeExprImpl, buildParallelForBodyFunctionNameImpl, emitParallelForBodyHeaderImpl, finalizeParallelForBodyImpl, emitUnusedResultCallWarningImpl}
 import codegen.ir_stmt_select_plan.{planPairedAssignmentSelectIfImpl, planSingleArmSelectIfImpl}
 import codegen.ir_stmt_dispatch_plan.{planStatementDispatchImpl}
@@ -147,7 +147,7 @@ import codegen.ir_function_decorators.{hasFunctionDecoratorImpl, shouldSkipFunct
 import codegen.ir_function_lifecycle.{planFunctionIntrinsicFlowImpl, shouldReturnAfterFunctionDecoratorPreflightImpl, planFunctionIdentityFlowImpl, planFunctionHighPressureImpl, planFunctionEntryExitFlowImpl, applyFunctionEntrySetupToEmissionImpl, currentFunctionProfileFlagIntImpl, currentFunctionHighPressureIntImpl, applyFunctionExitStateToEmissionImpl}
 import codegen.ir_function_usage.{scanUnusedTopLevelFunctionNamesImpl}
 import codegen.ir_function_prebody.{isMainFunctionNameImpl, prepareFunctionPreBodyStateSnapshotImpl, mapFunctionPreBodyReturnTypeImpl, emitMainFunctionEntrySnapshotImpl, emitMainFunctionExitImpl}
-import codegen.ir_function_body.{captureFunctionBodyBlockScopeImpl, scanFunctionBodyDeadStorePatternsSnapshotImpl, emitFunctionBodyTrailingDeadCodeNoticeSnapshotImpl, beginFunctionBodyBlockDeferredCleanupImpl, beginFunctionBodyReturnDeferCleanupImpl, beginFunctionBodyVoidErrdeferCleanupImpl, beginFunctionBodyValueErrdeferCleanupImpl, finishFunctionBodyValueErrdeferCleanupImpl, bindFunctionBodyCatchVariableImpl, planFunctionBodyExpressionStatementImpl, emitFunctionBodyPairedSelectStoreImpl, emitFunctionBodySingleArmSelectStoreImpl, planFunctionBodyConstantIfImpl, emitFunctionBodyConstantIfNoteImpl, emitFunctionBodyIfBranchingImpl}
+import codegen.ir_function_body.{captureFunctionBodyBlockScopeImpl, scanFunctionBodyDeadStorePatternsSnapshotImpl, emitFunctionBodyTrailingDeadCodeNoticeSnapshotImpl, beginFunctionBodyBlockDeferredCleanupImpl, beginFunctionBodyReturnDeferCleanupImpl, beginFunctionBodyVoidErrdeferCleanupImpl, beginFunctionBodyValueErrdeferCleanupImpl, finishFunctionBodyValueErrdeferCleanupImpl, bindFunctionBodyCatchVariableImpl, planFunctionBodyExpressionStatementImpl, emitFunctionBodyPairedSelectStoreImpl, emitFunctionBodySingleArmSelectStoreImpl, planFunctionBodyConstantIfImpl, emitFunctionBodyConstantIfNoteImpl, emitFunctionBodyIfBranchingImpl, beginFunctionBodyLoopContextImpl, restoreFunctionBodyLoopContextImpl, emitFunctionBodyLoopEndLabelImpl, resolveFunctionBodyForInLoopVariableStorageImpl, resolveFunctionBodyForInIndexAllocaImpl}
 import codegen.ir_function_state.{getCurrentFunctionEmissionStateImpl, resetFunctionEmissionForFunctionImpl, markFunctionEmissionHighPressureImpl, resetFunctionEmissionHighPressureImpl, recordMovedVariableImpl, isMovedVariableImpl, resetFunctionLoweringOptionsStateImpl, resetFunctionHighPressureImpl, markFunctionHighPressureImpl, isFunctionHighPressureImpl, currentFunctionAlignToImpl, currentFunctionRegionSizeBytesImpl, isCurrentFunctionAsyncLoweringImpl, markTailCallPositionImpl, takeTailCallPositionImpl}
 import codegen.ir_function_ml_logs.{applyFunctionPreludeMlLogsImpl, applyFunctionUnusedParamMlLogsImpl}
 import codegen.ir_ml_logging.{mlLogDecision, setupMLLogging, writeMLDecisionLog}
@@ -3508,35 +3508,6 @@ class LLVMIRGenerator {
         g_reductionLoopIds = reductionLoopIdsBox[0]
     }
 
-    fun enterLoopContext(condLabel: String, endLabel: String, loopMetaIdStr: String,
-        savedCondBox: Array<String>, savedEndBox: Array<String>) r: Void {
-        let currentCondBox = Array<String>()
-        currentCondBox.push(currentLoopCondLabel)
-        let currentEndBox = Array<String>()
-        currentEndBox.push(currentLoopEndLabel)
-        enterLoopContextImpl(currentCondBox, currentEndBox, savedCondBox,
-            savedEndBox, condLabel, endLabel, loopMetaIdStr)
-        currentLoopCondLabel = currentCondBox[0]
-        currentLoopEndLabel = currentEndBox[0]
-    }
-
-    fun restoreLoopContext(savedCondLabel: String, savedEndLabel: String) r: Void {
-        let currentCondBox = Array<String>()
-        currentCondBox.push(currentLoopCondLabel)
-        let currentEndBox = Array<String>()
-        currentEndBox.push(currentLoopEndLabel)
-        restoreLoopContextImpl(currentCondBox, currentEndBox, savedCondLabel,
-            savedEndLabel)
-        currentLoopCondLabel = currentCondBox[0]
-        currentLoopEndLabel = currentEndBox[0]
-    }
-
-    fun emitLoopEndBlock(endLabel: String) r: Void {
-        emitLoopEndLabelImpl(output, endLabel)
-        cseClear()
-        blockTerminated = false
-    }
-
     fun emitLiteralBoundWhileHints(stmt: StatementNode, loopMetaId: Int, loopBoundLiteral: Int) r: Void {
         let tileSize = computeLoopTileSizeImpl(loopBoundLiteral, g_mlUnrollThreshold)
         if tileSize > 0 {
@@ -3681,7 +3652,11 @@ class LLVMIRGenerator {
             g_loopsOptimized = g_loopsOptimized + 1
         }
         emitMemcpyLoopExitBlocksImpl(output, condLabel, bodyLabel, endLabel)
-        restoreLoopContext(savedCondLabel, savedEndLabel)
+        let restoredLoopContext = restoreFunctionBodyLoopContextImpl(
+            currentLoopCondLabel, currentLoopEndLabel, savedCondLabel,
+            savedEndLabel)
+        currentLoopCondLabel = restoredLoopContext.currentCondLabel
+        currentLoopEndLabel = restoredLoopContext.currentEndLabel
         return true
     }
 
@@ -3737,51 +3712,14 @@ class LLVMIRGenerator {
         }
     }
 
-    fun resolveForInLoopVariableStorage(loopVarName: String) r: String {
-        var loopVarType = findVarType(loopVarName)
-        if loopVarType == "" {
-            loopVarType = "Int"
-        }
-        let loopVarOrdinal = nextDeclarationOrdinalImpl(declOrdinalNames,
-            declOrdinalCounts, loopVarName)
-        let loopVarPreIdx = findPreAllocatedOccurrenceImpl(preAllocatedVars,
-            loopVarName, loopVarOrdinal)
-        var loopVarReg = ""
-        if loopVarPreIdx >= 0 and loopVarPreIdx < preAllocatedRegs.length() {
-            loopVarReg = preAllocatedRegs[loopVarPreIdx]
-        }
-        if loopVarReg == "" {
-            let loopVarLlvmType = mapType(loopVarType)
-            loopVarReg = getNextReg()
-            if loopVarLlvmType == "i64" or loopVarLlvmType == "double" or loopVarLlvmType == "ptr" {
-                output.append("  " + loopVarReg + " = alloca " + loopVarLlvmType + ", align 8\n")
-            } else {
-                output.append("  " + loopVarReg + " = alloca " + loopVarLlvmType + "\n")
-            }
-        }
-        return loopVarType + "|" + loopVarReg
-    }
-
-    fun resolveForInIndexAlloca(idxName: String) r: String {
-        var idxReg = ""
-        let idxPreIdx = findPreAllocatedOccurrenceImpl(preAllocatedVars,
-            idxName, 1)
-        if idxPreIdx >= 0 and idxPreIdx < preAllocatedRegs.length() {
-            idxReg = preAllocatedRegs[idxPreIdx]
-        }
-        if idxReg == "" {
-            idxReg = getNextReg()
-            output.append("  " + idxReg + " = alloca i64, align 8\n")
-        }
-        return idxReg
-    }
-
     fun emitRangeForInLoop(stmt: StatementNode, loopVarName: String, loopVarType: String, loopVarReg: String,
         forInIterable: ParserExpressionNode, condLabel: String, bodyLabel: String,
         endLabel: String, loopMetaIdStr: String) r: Void {
         let startReg = generateExpression(forInIterable.operands[0])
         let endReg = generateExpression(forInIterable.operands[1])
-        let idxReg = resolveForInIndexAlloca("__forin_idx_" + loopVarName)
+        let idxReg = resolveFunctionBodyForInIndexAllocaImpl(output,
+            g_regBox, preAllocatedVars, preAllocatedRegs,
+            "__forin_idx_" + loopVarName)
         activeVarCount = storeActiveVariableBindingImpl(varNames, varRegs,
             varTypes, activeVarCount, loopVarName, loopVarReg, loopVarType)
         cseClear()
@@ -3885,7 +3823,9 @@ class LLVMIRGenerator {
                 ", !tbaa !108, !range !188")
         }
 
-        let idxReg = resolveForInIndexAlloca("__forin_idx_" + loopVarName)
+        let idxReg = resolveFunctionBodyForInIndexAllocaImpl(output,
+            g_regBox, preAllocatedVars, preAllocatedRegs,
+            "__forin_idx_" + loopVarName)
         activeVarCount = storeActiveVariableBindingImpl(varNames, varRegs,
             varTypes, activeVarCount, loopVarName, loopVarReg, loopVarType)
         cseClear()
@@ -3912,9 +3852,15 @@ class LLVMIRGenerator {
     }
 
     fun finalizeForInLoop(endLabel: String, savedForInVarCount: Int, savedCondLabel: String, savedEndLabel: String) r: Void {
-        emitLoopEndBlock(endLabel)
+        emitFunctionBodyLoopEndLabelImpl(output, endLabel)
+        cseClear()
+        blockTerminated = false
         activeVarCount = savedForInVarCount
-        restoreLoopContext(savedCondLabel, savedEndLabel)
+        let restoredLoopContext = restoreFunctionBodyLoopContextImpl(
+            currentLoopCondLabel, currentLoopEndLabel, savedCondLabel,
+            savedEndLabel)
+        currentLoopCondLabel = restoredLoopContext.currentCondLabel
+        currentLoopEndLabel = restoredLoopContext.currentEndLabel
     }
 
     // Generate IR for a while loop. Emits cond/body/end blocks with
@@ -3927,30 +3873,33 @@ class LLVMIRGenerator {
     // Saves/restores outer loop context (currentLoopCondLabel/EndLabel)
     // for nested loop support. Break jumps to endLabel, continue to condLabel.
     fun generateWhileStatement(stmt: StatementNode) r: Void {
-        let loopMetaId = g_blockBox[0] + 202
-        let loopMetaIdStr = loopMetaId.toString()
-        let condLabel = getNextBlockLabel()
-        let bodyLabel = getNextBlockLabel()
-        let endLabel = getNextBlockLabel()
+        let loopContext = beginFunctionBodyLoopContextImpl(g_blockBox,
+            currentLoopCondLabel, currentLoopEndLabel)
+        currentLoopCondLabel = loopContext.currentCondLabel
+        currentLoopEndLabel = loopContext.currentEndLabel
 
-        let savedCondBox = Array<String>()
-        let savedEndBox = Array<String>()
-        enterLoopContext(condLabel, endLabel, loopMetaIdStr, savedCondBox, savedEndBox)
-        let savedCondLabel = savedCondBox[0]
-        let savedEndLabel = savedEndBox[0]
-
-        if tryEmitMemcpyOptimizedWhileLoop(stmt, condLabel, bodyLabel, endLabel, savedCondLabel, savedEndLabel) {
+        if tryEmitMemcpyOptimizedWhileLoop(stmt, loopContext.condLabel,
+            loopContext.bodyLabel, loopContext.endLabel,
+            loopContext.savedCondLabel, loopContext.savedEndLabel) {
             return
         }
 
         let breakFlagBox = Array<String>()
         let savedInductionVarBox = Array<String>()
-        emitWhileLoopAnalyses(stmt, loopMetaId, breakFlagBox, savedInductionVarBox)
-        emitWhileLoopBody(stmt, condLabel, bodyLabel, endLabel, breakFlagBox[0], loopMetaIdStr)
-        emitLoopEndBlock(endLabel)
+        emitWhileLoopAnalyses(stmt, loopContext.loopMetaId, breakFlagBox,
+            savedInductionVarBox)
+        emitWhileLoopBody(stmt, loopContext.condLabel, loopContext.bodyLabel,
+            loopContext.endLabel, breakFlagBox[0], loopContext.loopMetaIdStr)
+        emitFunctionBodyLoopEndLabelImpl(output, loopContext.endLabel)
+        cseClear()
+        blockTerminated = false
 
         g_inductionVarName = savedInductionVarBox[0]
-        restoreLoopContext(savedCondLabel, savedEndLabel)
+        let restoredLoopContext = restoreFunctionBodyLoopContextImpl(
+            currentLoopCondLabel, currentLoopEndLabel,
+            loopContext.savedCondLabel, loopContext.savedEndLabel)
+        currentLoopCondLabel = restoredLoopContext.currentCondLabel
+        currentLoopEndLabel = restoredLoopContext.currentEndLabel
     }
 
     // Generate IR for a for-in loop over a range or array.
@@ -3959,36 +3908,40 @@ class LLVMIRGenerator {
     // element load per iteration. Attaches the same loop metadata as
     // generateWhileStatement for vectorization/unrolling hints.
     fun generateForInStatement(stmt: StatementNode) r: Void {
-        let loopMetaId = g_blockBox[0] + 202
-        let loopMetaIdStr = loopMetaId.toString()
-        let condLabel = getNextBlockLabel()
-        let bodyLabel = getNextBlockLabel()
-        let endLabel = getNextBlockLabel()
-
-        let savedCondBox = Array<String>()
-        let savedEndBox = Array<String>()
-        enterLoopContext(condLabel, endLabel, loopMetaIdStr, savedCondBox, savedEndBox)
-        let savedCondLabel = savedCondBox[0]
-        let savedEndLabel = savedEndBox[0]
+        let loopContext = beginFunctionBodyLoopContextImpl(g_blockBox,
+            currentLoopCondLabel, currentLoopEndLabel)
+        currentLoopCondLabel = loopContext.currentCondLabel
+        currentLoopEndLabel = loopContext.currentEndLabel
         let savedForInVarCount = activeVarCount
 
         let loopVarName = stmt.variableName
-        let loopVarInfo = splitPipe(resolveForInLoopVariableStorage(loopVarName))
-        let loopVarType = loopVarInfo[0]
-        let loopVarReg = loopVarInfo[1]
+        var resolvedLoopVarType = findVarType(loopVarName)
+        if resolvedLoopVarType == "" {
+            resolvedLoopVarType = "Int"
+        }
+        let loopVarStorage = resolveFunctionBodyForInLoopVariableStorageImpl(
+            output, g_regBox, loopVarName, resolvedLoopVarType,
+            mapType(resolvedLoopVarType), declOrdinalNames, declOrdinalCounts,
+            preAllocatedVars, preAllocatedRegs)
+        let loopVarType = loopVarStorage.seenType
+        let loopVarReg = loopVarStorage.storageReg
         let forInIterable = stmt.expression
         if isRangeForInIterableImpl(forInIterable.kind) {
             emitRangeForInLoop(stmt, loopVarName, loopVarType, loopVarReg, forInIterable,
-                condLabel, bodyLabel, endLabel, loopMetaIdStr)
+                loopContext.condLabel, loopContext.bodyLabel,
+                loopContext.endLabel, loopContext.loopMetaIdStr)
         } else {
             let iterableType = inferExpressionType(forInIterable)
             if not tryEmitIteratorProtocolForInLoop(stmt, loopVarName, loopVarType, loopVarReg,
-                forInIterable, iterableType, condLabel, bodyLabel, endLabel) {
+                forInIterable, iterableType, loopContext.condLabel,
+                loopContext.bodyLabel, loopContext.endLabel) {
                 emitArrayLikeForInLoop(stmt, loopVarName, loopVarType, loopVarReg, forInIterable,
-                    condLabel, bodyLabel, endLabel, loopMetaIdStr)
+                    loopContext.condLabel, loopContext.bodyLabel,
+                    loopContext.endLabel, loopContext.loopMetaIdStr)
             }
         }
-        finalizeForInLoop(endLabel, savedForInVarCount, savedCondLabel, savedEndLabel)
+        finalizeForInLoop(loopContext.endLabel, savedForInVarCount,
+            loopContext.savedCondLabel, loopContext.savedEndLabel)
     }
 
     fun generateAssignmentValuePreservingPendingType(valueExpr: ParserExpressionNode) r: String {
