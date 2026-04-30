@@ -3,13 +3,13 @@
 // Returns "" when no match found; callers fall through to dynamic logic.
 
 import str.string.{StringBuilder}
-import codegen.ir_string_collect.{parseSeenStaticArrayElementTypeImpl}
 import codegen.ir_type_info.{getLLVMIRGeneratorFieldLlvmTypeImpl}
 import codegen.ir_method_call_type_table.{inferMethodCallTypeTableImpl}
 import codegen.ir_call_type_table.{inferCallTypeTableImpl}
 import codegen.ir_field_type_fallback.{inferFieldTypeFallbackImpl}
 import codegen.ir_header_field_types.{getFieldTypeForHeaderStructImpl}
 import codegen.ir_known_struct_field_types.{getFieldTypeForKnownStructImpl}
+import codegen.ir_index_element_types.{inferIndexElementTypeImpl}
 // Note: getNextRegFn, getNextBlockFn, charToCodeStr, mapTypeImpl, SIMD helpers
 // moved to ir_type_dispatch.seen and ir_type_ops.seen
 
@@ -30,53 +30,7 @@ fun inferFieldTypeFallback(fieldName: String) r: String {
 
 // Array type -> element type for IndexAccess expressions
 fun inferIndexElementType(arrayType: String) r: String {
-    let staticArrayElementType = parseSeenStaticArrayElementTypeImpl(arrayType)
-    if staticArrayElementType != "" {
-        return staticArrayElementType
-    }
-    if arrayType == "Array<FrontendDiagnostic>" {
-        return "FrontendDiagnostic"
-    }
-    if arrayType == "Array<String>" {
-        return "String"
-    }
-    if arrayType == "Array<Int>" {
-        return "Int"
-    }
-    if arrayType == "Array<Float>" {
-        return "Float"
-    }
-    if arrayType == "Array<ItemNode>" {
-        return "ItemNode"
-    }
-    if arrayType == "Array<ProgramNode>" {
-        return "ProgramNode"
-    }
-    if arrayType == "Array<FunctionNode>" {
-        return "FunctionNode"
-    }
-    if arrayType == "Array<ParamNode>" {
-        return "ParamNode"
-    }
-    if arrayType == "Array<StatementNode>" {
-        return "StatementNode"
-    }
-    if arrayType == "Array<ParserExpressionNode>" {
-        return "ParserExpressionNode"
-    }
-    if arrayType == "Array<TypeError>" {
-        return "TypeError"
-    }
-    if arrayType == "Array<ClassNode>" {
-        return "ClassNode"
-    }
-    if arrayType == "Array<BlockNode>" {
-        return "BlockNode"
-    }
-    if arrayType == "Array<AnnotationNode>" {
-        return "AnnotationNode"
-    }
-    return ""
+    return inferIndexElementTypeImpl(arrayType)
 }
 
 // LLVM type fallback when fieldNamesStr is empty (header-loaded structs)
