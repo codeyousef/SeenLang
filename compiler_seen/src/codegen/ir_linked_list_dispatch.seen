@@ -1,0 +1,114 @@
+// ir_linked_list_dispatch.seen - LinkedList runtime method emission helpers.
+
+import str.string.{StringBuilder}
+import codegen.ir_optimization.{getNextRegFn}
+
+// Emit LLVM IR for LinkedList method calls
+// llPtrReg must already be a ptr (inttoptr done by caller)
+fun emitLinkedListMethodImpl(output: StringBuilder, regBox: Array<Int>,
+    methodName: String, llPtrReg: String, arg0: String,
+    hasStr: Bool) r: String {
+
+    let suffix = ""
+    if hasStr {
+        let suffix = "_str"
+    }
+
+    // size/len
+    if methodName == "size" or methodName == "len" {
+        let resultReg = getNextRegFn(regBox)
+        if hasStr {
+            output.append("  " + resultReg + " = call i64 @LinkedList_size_str(ptr " + llPtrReg + ")\n")
+        } else {
+            output.append("  " + resultReg + " = call i64 @LinkedList_size(ptr " + llPtrReg + ")\n")
+        }
+        return resultReg
+    }
+
+    // isEmpty
+    if methodName == "isEmpty" {
+        let resultReg = getNextRegFn(regBox)
+        if hasStr {
+            output.append("  " + resultReg + " = call i1 @LinkedList_isEmpty_str(ptr " + llPtrReg + ")\n")
+        } else {
+            output.append("  " + resultReg + " = call i1 @LinkedList_isEmpty(ptr " + llPtrReg + ")\n")
+        }
+        return resultReg
+    }
+
+    // pushFront
+    if methodName == "pushFront" {
+        if hasStr {
+            output.append("  call void @LinkedList_pushFront_str(ptr " + llPtrReg + ", %SeenString " + arg0 + ")\n")
+        } else {
+            output.append("  call void @LinkedList_pushFront(ptr " + llPtrReg + ", i64 " + arg0 + ")\n")
+        }
+        return "0"
+    }
+
+    // pushBack
+    if methodName == "pushBack" {
+        if hasStr {
+            output.append("  call void @LinkedList_pushBack_str(ptr " + llPtrReg + ", %SeenString " + arg0 + ")\n")
+        } else {
+            output.append("  call void @LinkedList_pushBack(ptr " + llPtrReg + ", i64 " + arg0 + ")\n")
+        }
+        return "0"
+    }
+
+    // popFront
+    if methodName == "popFront" {
+        let resultReg = getNextRegFn(regBox)
+        if hasStr {
+            output.append("  " + resultReg + " = call i64 @LinkedList_popFront_str(ptr " + llPtrReg + ")\n")
+        } else {
+            output.append("  " + resultReg + " = call i64 @LinkedList_popFront(ptr " + llPtrReg + ")\n")
+        }
+        return resultReg
+    }
+
+    // popBack
+    if methodName == "popBack" {
+        let resultReg = getNextRegFn(regBox)
+        if hasStr {
+            output.append("  " + resultReg + " = call i64 @LinkedList_popBack_str(ptr " + llPtrReg + ")\n")
+        } else {
+            output.append("  " + resultReg + " = call i64 @LinkedList_popBack(ptr " + llPtrReg + ")\n")
+        }
+        return resultReg
+    }
+
+    // peekFront
+    if methodName == "peekFront" {
+        let resultReg = getNextRegFn(regBox)
+        if hasStr {
+            output.append("  " + resultReg + " = call i64 @LinkedList_peekFront_str(ptr " + llPtrReg + ")\n")
+        } else {
+            output.append("  " + resultReg + " = call i64 @LinkedList_peekFront(ptr " + llPtrReg + ")\n")
+        }
+        return resultReg
+    }
+
+    // peekBack
+    if methodName == "peekBack" {
+        let resultReg = getNextRegFn(regBox)
+        if hasStr {
+            output.append("  " + resultReg + " = call i64 @LinkedList_peekBack_str(ptr " + llPtrReg + ")\n")
+        } else {
+            output.append("  " + resultReg + " = call i64 @LinkedList_peekBack(ptr " + llPtrReg + ")\n")
+        }
+        return resultReg
+    }
+
+    // clear
+    if methodName == "clear" {
+        if hasStr {
+            output.append("  call void @LinkedList_clear_str(ptr " + llPtrReg + ")\n")
+        } else {
+            output.append("  call void @LinkedList_clear(ptr " + llPtrReg + ")\n")
+        }
+        return "0"
+    }
+
+    return ""
+}

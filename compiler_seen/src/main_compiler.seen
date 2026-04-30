@@ -80,6 +80,7 @@ import codegen.ir_special_top_level_emit.{tryHandleSpecialTopLevelFunctionImpl}
 import codegen.ir_type_layout.{alignUpImpl}
 import codegen.ir_type_dispatch.{emitVecMethodImpl}
 import codegen.ir_vec_dispatch.{emitVecMethodCoreImpl}
+import codegen.ir_linked_list_dispatch.{emitLinkedListMethodImpl}
 import codegen.ir_type_mapping.{isClassTypeImpl, setComptimeTargetName}
 import codegen.ir_type_ops.{emitBinaryOpImpl}
 import codegen.ir_control_flow.{detectMemcpyPatternImpl}
@@ -2974,6 +2975,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_special_top_level_emit")
         modules.push("codegen.ir_type_layout")
         modules.push("codegen.ir_vec_dispatch")
+        modules.push("codegen.ir_linked_list_dispatch")
         modules.push("codegen.ir_type_dispatch")
         modules.push("codegen.ir_type_mapping")
         modules.push("codegen.ir_type_ops")
