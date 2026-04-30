@@ -95,6 +95,9 @@ import codegen.ir_linked_list_dispatch.{emitLinkedListMethodImpl}
 import codegen.ir_collection_dispatch.{dispatchCollectionMethodImpl}
 import codegen.ir_type_mapping.{isClassTypeImpl}
 import codegen.ir_comptime_target.{setComptimeTargetName}
+import codegen.ir_comptime_eval.{lookupComptimeStrVarImpl}
+import codegen.ir_simd_type_helpers.{isSimdVectorTypeImpl}
+import codegen.ir_struct_field_resolution.{resolveKnownStructFieldImpl}
 import codegen.ir_type_ops.{emitBinaryOpImpl}
 import codegen.ir_receiver_method_emit.{emitSimdReductionImpl, emitOptionMethodImpl, emitJsonValueMethodImpl, emitStringMethodImpl}
 import codegen.ir_simd_builtin_emit.{emitSimdBuiltinImpl}
@@ -2956,6 +2959,8 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_field_indices")
         modules.push("codegen.ir_lsp_field_types")
         modules.push("codegen.ir_type_info")
+        modules.push("codegen.ir_seen_field_type_lookup")
+        modules.push("codegen.ir_method_return_type_lookup")
         modules.push("codegen.ir_method_call_type_table")
         modules.push("codegen.ir_call_type_table")
         modules.push("codegen.ir_field_type_fallback")
@@ -2965,6 +2970,8 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_type_tables")
         // Extracted codegen helper modules
         modules.push("codegen.ir_decl_runtime")
+        modules.push("codegen.ir_decl_string_io")
+        modules.push("codegen.ir_decl_macro_lsp")
         modules.push("codegen.ir_decl_typechecker")
         modules.push("codegen.ir_decl_parser")
         modules.push("codegen.ir_decl_feature_runtime")
@@ -3008,7 +3015,14 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_type_dispatch")
         modules.push("codegen.ir_collection_dispatch")
         modules.push("codegen.ir_type_mapping")
+        modules.push("codegen.ir_comptime_target")
+        modules.push("codegen.ir_comptime_eval")
+        modules.push("codegen.ir_simd_type_helpers")
+        modules.push("codegen.ir_struct_field_resolution")
         modules.push("codegen.ir_type_ops")
+        modules.push("codegen.ir_receiver_method_emit")
+        modules.push("codegen.ir_simd_builtin_emit")
+        modules.push("codegen.ir_string_builder_cast_emit")
         modules.push("codegen.ir_loop_context")
         modules.push("codegen.ir_control_flow")
         modules.push("codegen.ir_loop_plan")
@@ -3032,6 +3046,12 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_special_expr_infer")
         modules.push("codegen.ir_expr_infer_plan")
         modules.push("codegen.ir_function_gen")
+        modules.push("codegen.ir_function_box_utils")
+        modules.push("codegen.ir_function_dead_store")
+        modules.push("codegen.ir_function_intrinsic_emit")
+        modules.push("codegen.ir_function_param_scan")
+        modules.push("codegen.ir_function_signature_emit")
+        modules.push("codegen.ir_literal_gen")
         modules.push("codegen.ir_function_decorators")
         modules.push("codegen.ir_function_lowering")
         modules.push("codegen.ir_function_state")
