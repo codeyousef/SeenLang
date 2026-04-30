@@ -1,0 +1,116 @@
+// Function signature, default return, and async coroutine emission helpers
+// Extracted from ir_function_gen.seen
+
+import str.string.{StringBuilder}
+import codegen.ir_optimization.{getNextRegFn, getNextBlockFn}
+import codegen.ir_function_box_utils.{ensureFunctionStringBoxValue}
+
+// emitFunctionSignatureImpl — emit function header, parameters, and entry label
+fun emitFunctionSignatureImpl(output: StringBuilder, signaturePrefix: String,
+    paramDecls: Array<String>, funcAttrs: String) r: Void {
+
+    output.append(signaturePrefix)
+    var paramIdx = 0
+    while paramIdx < paramDecls.length() {
+        if paramIdx > 0 {
+            output.append(", ")
+        }
+        output.append(paramDecls[paramIdx])
+        paramIdx = paramIdx + 1
+    }
+    output.append(")" + funcAttrs + " #0 {\n")
+    output.append("entry:\n")
+}
+
+// emitDefaultReturnValueImpl — emit the fallback return for a lowered LLVM type
+fun emitDefaultReturnValueImpl(output: StringBuilder, returnType: String) r: Void {
+    if returnType == "void" {
+        output.append("  ret void\n")
+        return
+    }
+    if returnType == "i1" {
+        output.append("  ret i1 false\n")
+        return
+    }
+    if returnType == "i64" {
+        output.append("  ret i64 0\n")
+        return
+    }
+    if returnType == "ptr" {
+        output.append("  ret ptr null\n")
+        return
+    }
+    if returnType == "%SeenString" {
+        output.append("  ret %SeenString zeroinitializer\n")
+        return
+    }
+    if returnType == "%SeenArray" {
+        output.append("  ret %SeenArray zeroinitializer\n")
+        return
+    }
+    if returnType == "i32" {
+        output.append("  ret i32 0\n")
+        return
+    }
+    output.append("  ret " + returnType + " zeroinitializer\n")
+}
+
+// emitAsyncCoroutinePreambleImpl — emit promise/coro.begin setup for async functions
+fun emitAsyncCoroutinePreambleImpl(output: StringBuilder, regBox: Array<Int>, blockBox: Array<Int>,
+    promiseType: String, promiseBox: Array<String>, coroIdBox: Array<String>,
+    coroHdlBox: Array<String>, finalLabelBox: Array<String>, cleanupLabelBox: Array<String>) r: Void {
+
+    ensureFunctionStringBoxValue(promiseBox)
+    ensureFunctionStringBoxValue(coroIdBox)
+    ensureFunctionStringBoxValue(coroHdlBox)
+    ensureFunctionStringBoxValue(finalLabelBox)
+    ensureFunctionStringBoxValue(cleanupLabelBox)
+
+    let promiseReg = getNextRegFn(regBox)
+    if promiseType != "void" {
+        output.append("  " + promiseReg + " = alloca " + promiseType + ", align 8\n")
+    } else {
+        output.append("  " + promiseReg + " = alloca i8, align 1\n")
+    }
+    promiseBox[0] = promiseReg
+
+    let coroIdReg = getNextRegFn(regBox)
+    let coroSizeReg = getNextRegFn(regBox)
+    let coroAllocReg = getNextRegFn(regBox)
+    let coroBeginReg = getNextRegFn(regBox)
+    output.append("  " + coroIdReg + " = call token @llvm.coro.id(i32 0, ptr " + promiseReg + ", ptr null, ptr null)\n")
+    output.append("  " + coroSizeReg + " = call i32 @llvm.coro.size.i32()\n")
+    output.append("  " + coroAllocReg + " = call noalias ptr @malloc(i32 " + coroSizeReg + ")\n")
+    output.append("  " + coroBeginReg + " = call ptr @llvm.coro.begin(token " + coroIdReg + ", ptr " + coroAllocReg + ")\n")
+
+    coroIdBox[0] = coroIdReg
+    coroHdlBox[0] = coroBeginReg
+    finalLabelBox[0] = getNextBlockFn(blockBox)
+    cleanupLabelBox[0] = getNextBlockFn(blockBox)
+}
+
+// emitAsyncCoroutineEpilogueImpl — emit final suspend, cleanup, and coro.end blocks
+fun emitAsyncCoroutineEpilogueImpl(output: StringBuilder, regBox: Array<Int>, blockBox: Array<Int>,
+    coroId: String, coroHdl: String, finalLabel: String, cleanupLabel: String) r: Void {
+
+    output.append("\n" + finalLabel + ":\n")
+    let finalSuspendReg = getNextRegFn(regBox)
+    output.append("  " + finalSuspendReg + " = call i8 @llvm.coro.suspend(token none, i1 true)\n")
+
+    let suspendLabel = getNextBlockFn(blockBox)
+    output.append("  switch i8 " + finalSuspendReg + ", label %" + suspendLabel + " [\n")
+    output.append("    i8 0, label %" + suspendLabel + "\n")
+    output.append("    i8 1, label %" + cleanupLabel + "\n")
+    output.append("  ]\n")
+
+    output.append("\n" + cleanupLabel + ":\n")
+    let coroMemReg = getNextRegFn(regBox)
+    output.append("  " + coroMemReg + " = call ptr @llvm.coro.free(token " + coroId + ", ptr " + coroHdl + ")\n")
+    output.append("  call void @free(ptr " + coroMemReg + ")\n")
+    output.append("  br label %" + suspendLabel + "\n")
+
+    output.append("\n" + suspendLabel + ":\n")
+    let coroEndReg = getNextRegFn(regBox)
+    output.append("  " + coroEndReg + " = call i1 @llvm.coro.end(ptr " + coroHdl + ", i1 false, token none)\n")
+    output.append("  ret ptr " + coroHdl + "\n")
+}

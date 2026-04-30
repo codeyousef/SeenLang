@@ -4,7 +4,8 @@
 
 import parser.real_parser.{FunctionNode}
 import str.string.{StringBuilder}
-import codegen.ir_function_gen.{emitIntrinsicWrapperImpl, shouldSkipFunctionByCfgImpl, emitFunctionDecoratorMetadataCommentsImpl, shouldSkipSpecialFunctionBodyImpl, registerFunctionTraitImplDecoratorsImpl, tryHandleGpuShaderFunctionGenerationImpl, prepareFunctionAttributesImpl, prepareExternFunctionGenerationImpl}
+import codegen.ir_function_gen.{shouldSkipFunctionByCfgImpl, emitFunctionDecoratorMetadataCommentsImpl, shouldSkipSpecialFunctionBodyImpl, registerFunctionTraitImplDecoratorsImpl, tryHandleGpuShaderFunctionGenerationImpl, prepareFunctionAttributesImpl, prepareExternFunctionGenerationImpl}
+import codegen.ir_function_intrinsic_emit.{emitIntrinsicWrapperImpl}
 import codegen.ir_type_mapping.{mapTypeImpl}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
 import codegen.ir_decl_items.{normalizeDeclaredTypeNodeImpl, mapDeclaredTypeImpl}

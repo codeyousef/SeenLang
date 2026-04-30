@@ -1,0 +1,14 @@
+// Function helper box initialization utilities
+// Extracted from ir_function_gen.seen
+
+fun ensureFunctionStringBoxValue(box: Array<String>) r: Void {
+    if box.length() == 0 {
+        box.push("")
+    }
+}
+
+fun ensureFunctionIntBoxValue(box: Array<Int>) r: Void {
+    if box.length() == 0 {
+        box.push(0)
+    }
+}

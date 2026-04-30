@@ -1,6 +1,6 @@
 // ir_stmt_return.seen - return statement helper utilities
 
-import codegen.ir_function_gen.{emitDefaultReturnValueImpl}
+import codegen.ir_function_signature_emit.{emitDefaultReturnValueImpl}
 import codegen.ir_type_info.{charToCodeStr}
 import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_stmt_gen.{emitConditionToI1Impl}

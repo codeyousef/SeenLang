@@ -1,0 +1,51 @@
+// Function parameter usage scanning helpers
+// Extracted from ir_function_gen.seen
+
+import parser.real_parser.{FunctionNode}
+
+// scanUnusedParametersImpl — conservative unused-parameter scan for warnings
+fun scanUnusedParametersImpl(fn: FunctionNode) r: Array<String> {
+    let unused = Array<String>()
+    if fn.body.statements.length() == 0 {
+        return unused
+    }
+
+    var paramIdx = 0
+    while paramIdx < fn.params.length() {
+        let param = fn.params[paramIdx]
+        var found = false
+        var stmtIdx = 0
+        while stmtIdx < fn.body.statements.length() {
+            let scanStmt = fn.body.statements[stmtIdx]
+            if scanStmt.expression.kind == "Variable" and scanStmt.expression.literalValue == param.name {
+                found = true
+            }
+            if scanStmt.kind == "Return" and scanStmt.expression.kind == "Variable" {
+                if scanStmt.expression.literalValue == param.name {
+                    found = true
+                }
+            }
+            if scanStmt.kind == "Expression" and scanStmt.expression.kind == "Assignment" {
+                if scanStmt.expression.operands.length() > 0 {
+                    if scanStmt.expression.operands[0].kind == "Variable" and scanStmt.expression.operands[0].literalValue == param.name {
+                        found = true
+                    }
+                }
+            }
+            if scanStmt.kind == "Let" or scanStmt.kind == "Var" {
+                if scanStmt.expression.kind == "Variable" and scanStmt.expression.literalValue == param.name {
+                    found = true
+                }
+            }
+            if fn.body.statements.length() > 5 {
+                found = true
+            }
+            stmtIdx = stmtIdx + 1
+        }
+        if not found {
+            unused.push(param.name)
+        }
+        paramIdx = paramIdx + 1
+    }
+    return unused
+}

@@ -151,7 +151,9 @@ import codegen.ir_assignment_gen.{emitFieldStoreImpl, emitValueReceiverMemberAss
 import codegen.ir_variable_gen.{getExprVariableNameImpl, findActiveVariableIndexImpl, findVisibleVariableTypeImpl, storeActiveVariableBindingImpl, emitMovedVariableUseTrapImpl, emitComptimeVariableLoadImpl, emitModuleConstantLoadImpl, emitFunctionPointerInteropLoadImpl, emitLocalVariableLoadImpl, emitStoreValueToPtrImpl, emitDistinctTypeMismatchWarningImpl, emitImplicitThisPointerLoadImpl, emitImplicitThisFieldStoreImpl, emitMoveSourceNullifyImpl, shouldNullifyMovedArgumentSourceImpl, resolveMovedArgumentSourceNameImpl, shouldRecordMovedArgumentSourceImpl, emitTriviallyCopyableAssignmentNoteImpl}
 import codegen.type_registry.{findStructReg, ensureStructEntryReg, registerStructMethodReg, getFunctionReturnTypeReg, isClassTypeReg, isDataTypeReg, getTypeSizeReg, getPoolEligibleClassSizeReg, getDataTypeSizeReg, getFieldInfoReg, applyStructLayoutRegistrationReg}
 import codegen.type_registry.{TypeRegistry, CodegenState, FunctionLoweringOptions, getSharedCodegenState}
-import codegen.ir_function_gen.{generateLiteralFree, NestedScratchStateSnapshot, emitAsyncCoroutineEpilogueImpl, snapshotNestedScratchStateImpl, resetLocalCodegenStateImpl, clearActiveBindingsImpl, beginNestedScratchStateImpl, restoreNestedScratchStateImpl, emitParallelForCallImpl, emitPreAllocatedAllocasImpl, emitFunctionEntrySetupSnapshotImpl, emitFunctionExitResetSnapshotImpl, prepareFunctionPreludeAnalysisSnapshotImpl, prepareFunctionGenerationIdentitySnapshotImpl}
+import codegen.ir_function_gen.{NestedScratchStateSnapshot, snapshotNestedScratchStateImpl, resetLocalCodegenStateImpl, clearActiveBindingsImpl, beginNestedScratchStateImpl, restoreNestedScratchStateImpl, emitParallelForCallImpl, emitPreAllocatedAllocasImpl, emitFunctionEntrySetupSnapshotImpl, emitFunctionExitResetSnapshotImpl, prepareFunctionPreludeAnalysisSnapshotImpl, prepareFunctionGenerationIdentitySnapshotImpl}
+import codegen.ir_function_signature_emit.{emitAsyncCoroutineEpilogueImpl}
+import codegen.ir_literal_gen.{generateLiteralFree}
 import codegen.ir_function_decorators.{hasFunctionDecoratorImpl, shouldSkipFunctionByCfgStateImpl, emitFunctionDecoratorMetadataCommentsStateImpl, tryHandleIntrinsicFunctionGenerationStateImpl, shouldSkipSpecialFunctionBodyStateImpl, prepareFunctionAttributeStateSnapshotImpl, prepareFunctionDecoratorPreflightSnapshotImpl, tryHandleExternFunctionGenerationStateImpl}
 import codegen.ir_function_lifecycle.{planFunctionIntrinsicFlowImpl, shouldReturnAfterFunctionDecoratorPreflightImpl, planFunctionIdentityFlowImpl, planFunctionHighPressureImpl, planFunctionEntryExitFlowImpl, applyFunctionEntrySetupToEmissionImpl, currentFunctionProfileFlagIntImpl, currentFunctionHighPressureIntImpl, applyFunctionExitStateToEmissionImpl}
 import codegen.ir_function_usage.{scanUnusedTopLevelFunctionNamesImpl}
@@ -5270,7 +5272,7 @@ class LLVMIRGenerator {
         return mallocReg
     }
 
-    // Thin wrapper: delegates to generateLiteralFree in ir_function_gen.seen,
+    // Thin wrapper: delegates to generateLiteralFree in ir_literal_gen.seen,
     // then updates stats counters that aren't accessible from satellite modules.
     fun generateLiteral(expr: ParserExpressionNode) r: String {
         syncState()

@@ -1,0 +1,41 @@
+// Intrinsic wrapper emission helpers
+// Extracted from ir_function_gen.seen
+
+import codegen.ir_optimization.{getNextRegFn}
+
+// emitIntrinsicWrapperImpl — Generate thin wrapper for @intrinsic("llvm.xxx") decorated function
+// Emits LLVM intrinsic declare + Seen wrapper function
+// intrinsicRegistryOut: [0]=funcName, [1]=llvmName appended
+// Returns true if intrinsic was emitted
+fun emitIntrinsicWrapperImpl(output: Array<String>, regBox: Array<Int>,
+    fnName: String, intrLlvmName: String,
+    paramTypes: Array<String>, paramCount: Int,
+    retType: String, quotedFnName: String) r: Bool {
+    if intrLlvmName == "" {
+        return false
+    }
+    // Build parameter type/arg strings
+    var intrParamTypes = ""
+    var intrParamArgs = ""
+    var pIdx = 0
+    while pIdx < paramCount {
+        if pIdx > 0 {
+            intrParamTypes = intrParamTypes + ", "
+            intrParamArgs = intrParamArgs + ", "
+        }
+        let pt = paramTypes[pIdx]
+        intrParamTypes = intrParamTypes + pt
+        intrParamArgs = intrParamArgs + pt + " %" + pIdx.toString()
+        pIdx = pIdx + 1
+    }
+    // Emit declare for the LLVM intrinsic
+    output.push("declare " + retType + " @" + intrLlvmName + "(" + intrParamTypes + ") nounwind readnone\n")
+    // Emit thin wrapper function
+    output.push("define " + retType + " @" + quotedFnName + "(" + intrParamArgs + ") nounwind {\n")
+    output.push("entry:\n")
+    let callReg = getNextRegFn(regBox)
+    output.push("  " + callReg + " = call " + retType + " @" + intrLlvmName + "(" + intrParamArgs + ")\n")
+    output.push("  ret " + retType + " " + callReg + "\n")
+    output.push("}\n\n")
+    return true
+}

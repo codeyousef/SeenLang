@@ -8,7 +8,7 @@ import codegen.ir_inline_heuristics.{selfCallCheck}
 import codegen.ir_decl_items.{normalizeSeenTypeNameImpl, normalizeDeclaredTypeNodeImpl}
 import codegen.ir_type_mapping.{isDataTypeImpl, mapTypeImpl}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
-import codegen.ir_function_gen.{emitDefaultReturnValueImpl}
+import codegen.ir_function_signature_emit.{emitDefaultReturnValueImpl}
 import codegen.ir_variable_gen.{storeActiveVariableBindingImpl, findActiveVariableIndexImpl}
 import codegen.ir_class_constructor_gen.{emitConstructorAllocationImpl, emitConstructorReturnImpl}
 
