@@ -1,0 +1,89 @@
+// ir_field_type_fallback.seen - unknown receiver field-name type fallback table.
+
+fun inferFieldTypeFallbackImpl(fieldName: String) r: String {
+    if fieldName == "success" {
+        return "Bool"
+    }
+    if fieldName == "program" {
+        return "ProgramNode"
+    }
+    if fieldName == "diagnostics" {
+        return "Array<FrontendDiagnostic>"
+    }
+    if fieldName == "output" {
+        return "String"
+    }
+    if fieldName == "severity" { return "String" }
+    if fieldName == "message" { return "String" }
+    if fieldName == "file" { return "String" }
+    if fieldName == "name" { return "String" }
+    if fieldName == "typeName" { return "String" }
+    if fieldName == "variableName" { return "String" }
+    if fieldName == "callee" { return "String" }
+    if fieldName == "operator" { return "String" }
+    if fieldName == "kind" { return "String" }
+    if fieldName == "literalValue" { return "String" }
+    if fieldName == "literalType" { return "String" }
+    if fieldName == "line" { return "Int" }
+    if fieldName == "column" { return "Int" }
+    if fieldName == "x" { return "Int" }
+    if fieldName == "y" { return "Int" }
+    if fieldName == "items" {
+        return "Array<ItemNode>"
+    }
+    if fieldName == "itemType" {
+        return "String"
+    }
+    if fieldName == "function" {
+        return "FunctionNode"
+    }
+    if fieldName == "classNode" {
+        return "ClassNode"
+    }
+    if fieldName == "importPath" {
+        return "Array<String>"
+    }
+    if fieldName == "methods" {
+        return "Array<FunctionNode>"
+    }
+    if fieldName == "params" {
+        return "Array<ParamNode>"
+    }
+    if fieldName == "fields" {
+        return "Array<ParamNode>"
+    }
+    if fieldName == "statements" {
+        return "Array<StatementNode>"
+    }
+    if fieldName == "operands" {
+        return "Array<ParserExpressionNode>"
+    }
+    if fieldName == "decorators" {
+        return "Array<AnnotationNode>"
+    }
+    // Note: "arguments" is context-dependent:
+    // - ParserExpressionNode.arguments is Array<ParserExpressionNode>
+    // - AnnotationNode.arguments is Array<String>
+    // The receiver-type lookup will handle this correctly
+    if fieldName == "body" {
+        return "BlockNode"
+    }
+    if fieldName == "returnType" { return "TypeNode" }
+    if fieldName == "variableType" { return "TypeNode" }
+    if fieldName == "paramType" { return "TypeNode" }
+    // NOTE: "errors" and "warnings" are context-dependent fields:
+    // - TypeInferenceResult.errors is Array<TypeError>
+    // - MacroExpansionResult.errors is Array<String>
+    // - TypeInferenceResult.warnings is Array<String>
+    // We must NOT have generic mappings here - let the receiver-based lookup
+    // call getSeenFieldType() which has correct struct-specific mappings
+    if fieldName == "initializer" { return "ParserExpressionNode" }
+    if fieldName == "returnValue" { return "ParserExpressionNode" }
+    if fieldName == "condition" { return "ParserExpressionNode" }
+    if fieldName == "loopVariable" { return "ParserExpressionNode" }
+    if fieldName == "loopIterable" { return "ParserExpressionNode" }
+    if fieldName == "loopBody" { return "BlockNode" }
+    if fieldName == "elseBody" { return "BlockNode" }
+    if fieldName == "thenBody" { return "BlockNode" }
+    return ""
+}
