@@ -4,7 +4,8 @@
 
 import parser.real_parser.{ClassNode}
 import str.string.{StringBuilder}
-import codegen.ir_decl_features.{generateDeriveSerializeImpl, generateDeriveDeserializeImpl, generateDeriveCloneImpl, generateDeriveHashImpl, generateDeriveEqImpl, generateDeriveDebugImpl, generateReflectImpl, generateBinarySerializerImpl, generateBinaryDeserializerImpl, generateJsonSerializeImpl, generateJsonDeserializeImpl, generatePacketWriterImpl, generatePacketReaderImpl}
+import codegen.ir_decl_features.{generateDeriveSerializeImpl, generateDeriveDeserializeImpl, generateDeriveCloneImpl, generateDeriveHashImpl, generateDeriveEqImpl, generateDeriveDebugImpl, generateReflectImpl}
+import codegen.ir_decl_feature_serialization.{generateBinarySerializerImpl, generateBinaryDeserializerImpl, generateJsonSerializeImpl, generateJsonDeserializeImpl, generatePacketWriterImpl, generatePacketReaderImpl}
 
 fun emitGeneratedClassDecoratorMethodsImpl(output: StringBuilder,
     classNode: ClassNode, decoratorFlags: Array<Int>, packetIdStr: String,

@@ -32,7 +32,8 @@ import typechecker.determinism.{DeterminismChecker, checkDeterminismWithProfile,
 import codegen.ir_decl_runtime.{emitCoreRuntimeDecls}
 import codegen.ir_decl_typechecker.{emitTypecheckerDeclsImpl}
 import codegen.ir_decl_parser.{emitParserDecls}
-import codegen.ir_decl_features.{emitFeatureDecls}
+import codegen.ir_decl_feature_runtime.{emitFeatureDecls}
+import codegen.ir_decl_feature_serialization.{generateBinarySerializerImpl}
 // Seed newer helper modules through direct imports so older bootstrap
 // compilers discover them from the main-file import scan before falling back
 // to their embedded compiler-module list.
@@ -2953,7 +2954,9 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_decl_runtime")
         modules.push("codegen.ir_decl_typechecker")
         modules.push("codegen.ir_decl_parser")
+        modules.push("codegen.ir_decl_feature_runtime")
         modules.push("codegen.ir_decl_features")
+        modules.push("codegen.ir_decl_feature_serialization")
         modules.push("codegen.ir_decl_late_declares")
         modules.push("codegen.ir_decl_scan")
         modules.push("codegen.ir_decl_registry")

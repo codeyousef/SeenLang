@@ -44,7 +44,8 @@ import codegen.ir_egraph_rules.{egraphLookup, egraphLookupFloat, egraphSelfCompa
 import codegen.ir_inline_heuristics.{selfCallCheck, parseFixedPoint100, g_inlineW0, g_inlineW1, g_inlineW2, g_inlineW3, g_inlineBias, g_mlWeightsActive}
 import codegen.ir_decl_runtime.{emitCoreRuntimeDecls, emitStringAndIODecls, emitMacroAndLspDecls}
 import codegen.ir_decl_parser.{emitParserDecls, emitTypecheckerDecls}
-import codegen.ir_decl_features.{emitFeatureDecls, generateHotReloadMethodsImpl}
+import codegen.ir_decl_feature_runtime.{emitFeatureDecls}
+import codegen.ir_decl_features.{generateHotReloadMethodsImpl}
 import codegen.ir_decl_scan.{collectStructMethodSignaturesImpl}
 import codegen.ir_async_registry.{registerAsyncFunctionImpl, isAsyncFunctionImpl, getAsyncDeclaredRetTypeImpl}
 import codegen.ir_async_await.{emitAwaitPollLoopImpl, emitAwaitResultValueImpl}
