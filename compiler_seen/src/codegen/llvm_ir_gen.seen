@@ -233,13 +233,6 @@ fun initBootstrapFragileGlobalArrays() r: Void {
     resetModuleConstantGenerationState()
 }
 
-// Quote LLVM IR identifiers that contain non-ASCII bytes.
-// LLVM requires @"name" / %"name" syntax for identifiers with non-ASCII chars.
-// ASCII-only names pass through unchanged (zero overhead for common case).
-fun quoteIdentIfNeeded(name: String) r: String {
-    return quoteIdentIfNeededImpl(name)
-}
-
 fun getCurrentFunctionOptions() r: FunctionLoweringOptions {
     return getSharedCodegenState().functionOptions
 }
@@ -683,7 +676,7 @@ class LLVMIRGenerator {
                 }
             }
             if receiverType != "" and receiverType != "Unknown" {
-                let receiverReturnType = getMethodReturnType(receiverType,
+                let receiverReturnType = getMethodReturnTypeState(receiverType,
                     expr.callee)
                 if receiverReturnType != "" {
                     return receiverReturnType
@@ -691,7 +684,7 @@ class LLVMIRGenerator {
             }
             if receiverName != "" {
                 if receiverType == "" or receiverType == "Unknown" {
-                    let staticReturnType = getMethodReturnType(receiverName,
+                    let staticReturnType = getMethodReturnTypeState(receiverName,
                         expr.callee)
                     if staticReturnType != "" {
                         return staticReturnType
@@ -787,38 +780,6 @@ class LLVMIRGenerator {
 
     // Get field index and type from registered struct
     // Resolve the GEP (getelementptr) index for a struct field access.
-    // Returns the 0-based field index within the LLVM struct type.
-    // Hardcodes indices for known AST types (FunctionNode, ClassNode, etc.)
-    // to ensure correctness even when the registry is only partially populated
-    // (e.g., when a type header is loaded but source hasn't been fully parsed).
-    // For user-defined types, falls back to the struct registry.
-    // WARNING: Cross-module GEP is unsafe — `getelementptr %ClassName` in
-    // module X fails if %ClassName is defined in module Y. Use byte-offset
-    // i8 GEP or memset zero-init instead.
-    fun getFieldInfo(structName: String, fieldName: String) r: Int {
-        return getFieldInfoState(structName, fieldName)
-    }
-
-    // Get field type from registered struct
-    // Note: fieldTypes uses | as separator (not comma) to handle generic types like Map<K,V>
-    fun getFieldType(structName: String, fieldName: String) r: String {
-        return getFieldTypeState(structName, fieldName)
-    }
-
-    fun getSeenTokenTypeValue(memberName: String) r: Int { return getSeenTokenTypeValueImpl(memberName) }
-
-    // Delegates to free function in ir_type_info.seen
-    fun getSeenFieldType(structName: String, fieldName: String) r: String {
-        return getSeenFieldTypeState(structName, fieldName)
-    }
-
-    fun inferTypeRegistryFieldType(fieldName: String) r: String {
-        return inferTypeRegistryFieldTypeState(fieldName)
-    }
-
-    fun getSemanticFieldType(structName: String, fieldName: String) r: String {
-        return getSemanticFieldTypeState(structName, fieldName)
-    }
     // Resolve the type of a chained path like "item.function.returnType"
     // Returns the type of the final field in the chain
     fun resolveChainedPathType(path: String) r: String {
@@ -852,11 +813,6 @@ class LLVMIRGenerator {
             structMethodNames, structMethodRetTypes)
         cacheChainedPathType(cacheKey, structLen, resolvedType)
         return resolvedType
-    }
-
-    // Delegates to free function in ir_type_info.seen
-    fun getMethodReturnType(structName: String, methodName: String) r: String {
-        return getMethodReturnTypeState(structName, methodName)
     }
 
     // Single-module entry point: wraps generateMultiple with one program.
@@ -1358,7 +1314,7 @@ class LLVMIRGenerator {
             }
             let defaultParam = traitMethod.params[paramIdx]
             let defaultParamType = mapTypeState(normalizeDeclaredTypeNodeImpl(defaultParam.paramType))
-            let defaultParamReg = "%" + quoteIdentIfNeeded(defaultParam.name)
+            let defaultParamReg = "%" + quoteIdentIfNeededImpl(defaultParam.name)
             defaultParamStr = defaultParamStr + defaultParamType + " " + defaultParamReg
             activeVarCount = storeActiveVariableBindingImpl(varNames, varRegs,
                 varTypes, activeVarCount, defaultParam.name, defaultParamReg,
@@ -1366,7 +1322,7 @@ class LLVMIRGenerator {
             paramIdx = paramIdx + 1
         }
         let defaultRetType = mapTypeState(traitRetTypeName)
-        output.append("define " + defaultRetType + " @" + quoteIdentIfNeeded(defaultFuncName) + "(" + defaultParamStr + ") {\n")
+        output.append("define " + defaultRetType + " @" + quoteIdentIfNeededImpl(defaultFuncName) + "(" + defaultParamStr + ") {\n")
         output.append("entry:\n")
         generateBlock(traitMethod.body)
         if not blockTerminated {
@@ -2856,7 +2812,7 @@ class LLVMIRGenerator {
         output.append("  " + iterThisReg + " = inttoptr i64 " + iterableReg + " to ptr\n")
         let iterObjReg = getNextRegFn(g_regBox)
         let iterRetLlvm = mapTypeState(iterPlan.iterReturnType)
-        output.append("  " + iterObjReg + " = call " + iterRetLlvm + " @" + quoteIdentIfNeeded(iterPlan.iterFuncName) + "(ptr " + iterThisReg + ")\n")
+        output.append("  " + iterObjReg + " = call " + iterRetLlvm + " @" + quoteIdentIfNeededImpl(iterPlan.iterFuncName) + "(ptr " + iterThisReg + ")\n")
         let iterStoreReg = getNextRegFn(g_regBox)
         output.append("  " + iterStoreReg + " = alloca i64, align 8\n")
         output.append("  store i64 " + iterObjReg + ", ptr " + iterStoreReg + "\n")
@@ -2871,7 +2827,7 @@ class LLVMIRGenerator {
         let iterPtrReg = getNextRegFn(g_regBox)
         output.append("  " + iterPtrReg + " = inttoptr i64 " + iterLoadReg + " to ptr\n")
         let hasNextReg = getNextRegFn(g_regBox)
-        output.append("  " + hasNextReg + " = call i1 @" + quoteIdentIfNeeded(iterPlan.hasNextFuncName) + "(ptr " + iterPtrReg + ")\n")
+        output.append("  " + hasNextReg + " = call i1 @" + quoteIdentIfNeededImpl(iterPlan.hasNextFuncName) + "(ptr " + iterPtrReg + ")\n")
         output.append("  br i1 " + hasNextReg + ", label %" + bodyLabel + ", label %" + endLabel + "\n")
 
         output.append(bodyLabel + ":\n")
@@ -2884,7 +2840,7 @@ class LLVMIRGenerator {
             nextRetLlvm = mapTypeState(nextRetType)
         }
         let nextReg = getNextRegFn(g_regBox)
-        output.append("  " + nextReg + " = call " + nextRetLlvm + " @" + quoteIdentIfNeeded(iterPlan.nextFuncName) + "(ptr " + iterPtrReg + ")\n")
+        output.append("  " + nextReg + " = call " + nextRetLlvm + " @" + quoteIdentIfNeededImpl(iterPlan.nextFuncName) + "(ptr " + iterPtrReg + ")\n")
         if loopVarReg != "" {
             output.append("  store " + nextRetLlvm + " " + nextReg + ", ptr " + loopVarReg + "\n")
         }
@@ -3096,14 +3052,14 @@ class LLVMIRGenerator {
             return 0
         }
 
-        let fieldIdx = getFieldInfo(thisType, varName)
+        let fieldIdx = getFieldInfoState(thisType, varName)
         if fieldIdx < 0 {
             return 0
         }
 
-        let fieldSeenType = getSeenFieldType(thisType, varName)
+        let fieldSeenType = getSeenFieldTypeState(thisType, varName)
         let valueReg = generateAssignmentValueForSeenType(valueExpr, fieldSeenType)
-        let fieldType = getFieldType(thisType, varName)
+        let fieldType = getFieldTypeState(thisType, varName)
         let valueSeenType = inferExpressionType(valueExpr)
         let storedValueReg = coerceValueForLlvmTarget(fieldType,
             valueSeenType, valueReg)
@@ -3601,7 +3557,7 @@ class LLVMIRGenerator {
 
         let clSavedState = beginNestedScratchState("Int")
 
-        output.append("define i64 @" + quoteIdentIfNeeded(closureName) + "(" + paramList + ") {\n")
+        output.append("define i64 @" + quoteIdentIfNeededImpl(closureName) + "(" + paramList + ") {\n")
         output.append("entry:\n")
 
         // Bind params as local variables
@@ -3762,7 +3718,7 @@ class LLVMIRGenerator {
                 let idxRetLlvm = mapTypeState(idxOpRet)
                 return emitPreparedOperatorIndexAccessCallImpl(output, g_regBox,
                     idxBaseReg, idxIdxReg, idxRetLlvm,
-                    quoteIdentIfNeeded(idxOpFunc))
+                    quoteIdentIfNeededImpl(idxOpFunc))
             }
         }
 
@@ -3849,7 +3805,7 @@ class LLVMIRGenerator {
             }
         }
         if receiverName == "SeenTokenType" {
-            return getSeenTokenTypeValue(fieldName).toString()
+            return getSeenTokenTypeValueImpl(fieldName).toString()
         }
         return ""
     }
@@ -3875,7 +3831,7 @@ class LLVMIRGenerator {
         let receiverType = inferExpressionType(receiverExpr)
         return emitPreparedExpressionReceiverMemberAccessImpl(output, g_regBox,
             receiverReg, receiverType, fieldName,
-            getFieldType(receiverType, fieldName), structNames, structLayouts,
+            getFieldTypeState(receiverType, fieldName), structNames, structLayouts,
             structFieldNames, structFieldTypes, g_reprCClassNames,
             g_unionTypes, g_typeAliasNames, g_typeAliasTargets,
             g_typeAliasCount, g_enumTypeNames, g_bitfieldCount,
@@ -3889,7 +3845,7 @@ class LLVMIRGenerator {
         }
         let varType = varTypes[idx]
         return emitPreparedVariableReceiverMemberAccessImpl(output, g_regBox,
-            varRegs[idx], varType, fieldName, getFieldType(varType, fieldName),
+            varRegs[idx], varType, fieldName, getFieldTypeState(varType, fieldName),
             structNames, structLayouts, structFieldNames, structFieldTypes,
             g_reprCClassNames, g_unionTypes, g_typeAliasNames,
             g_typeAliasTargets, g_typeAliasCount, g_enumTypeNames,
@@ -3910,8 +3866,8 @@ class LLVMIRGenerator {
         let invSuffix = moduleConstantInvariantLoadSuffixImpl(constIdx,
             g_moduleConstMutable)
         return emitPreparedModuleConstReceiverMemberAccessImpl(output, g_regBox,
-            "@" + quoteIdentIfNeeded(receiverName), constType, constSeenType,
-            invSuffix, fieldName, getFieldType(constSeenType, fieldName),
+            "@" + quoteIdentIfNeededImpl(receiverName), constType, constSeenType,
+            invSuffix, fieldName, getFieldTypeState(constSeenType, fieldName),
             structNames, structLayouts, structFieldNames, structFieldTypes,
             g_reprCClassNames, g_unionTypes, g_typeAliasNames,
             g_typeAliasTargets, g_typeAliasCount, g_enumTypeNames,
@@ -3942,15 +3898,15 @@ class LLVMIRGenerator {
         }
 
         let baseType = varTypes[baseIdx]
-        let arrayType = getSeenFieldType(baseType, arrayField)
+        let arrayType = getSeenFieldTypeState(baseType, arrayField)
         var elementType = parseArrayElementTypeImpl(arrayType)
         if elementType == "" and arrayType.startsWith("Array<") and arrayType.endsWith(">") {
             elementType = arrayType.substring(6, arrayType.length() - 1)
         }
         return emitPreparedBracketPathMemberAccessImpl(output, g_regBox, receiverName,
             fieldName, baseVar, varRegs[baseIdx], baseType, arrayField,
-            getFieldType(baseType, arrayField), indexStr, elementType,
-            getFieldType(elementType, fieldName), structNames, structLayouts,
+            getFieldTypeState(baseType, arrayField), indexStr, elementType,
+            getFieldTypeState(elementType, fieldName), structNames, structLayouts,
             structFieldNames, structFieldTypes, g_reprCClassNames,
             g_unionTypes, g_typeAliasNames, g_typeAliasTargets,
             g_typeAliasCount, g_enumTypeNames, g_bitfieldCount,
@@ -3980,7 +3936,7 @@ class LLVMIRGenerator {
         }
         return emitPreparedChainedReceiverMemberAccessImpl(output, g_regBox,
             fieldName, varRegs[baseIdx], baseType, restPath, intermediateType,
-            getFieldType(intermediateType, fieldName), structNames,
+            getFieldTypeState(intermediateType, fieldName), structNames,
             structLayouts, structFieldNames, structFieldTypes,
             g_reprCClassNames, g_unionTypes, g_typeAliasNames,
             g_typeAliasTargets, g_typeAliasCount, g_enumTypeNames,
@@ -3999,18 +3955,18 @@ class LLVMIRGenerator {
                 receiverName, structNames, structFieldNames, structFieldTypes,
                 structMethodNames, structMethodRetTypes)
         } else {
-            let fieldIdx = getFieldInfo(thisType, receiverName)
+            let fieldIdx = getFieldInfoState(thisType, receiverName)
             if fieldIdx < 0 {
                 return ""
             }
-            intermediateType = getSeenFieldType(thisType, receiverName)
+            intermediateType = getSeenFieldTypeState(thisType, receiverName)
         }
         if intermediateType == "" {
             return ""
         }
         return emitPreparedImplicitThisReceiverMemberAccessImpl(output, g_regBox,
             receiverName, fieldName, varRegs[thisIdx], thisType,
-            intermediateType, getFieldType(intermediateType, fieldName),
+            intermediateType, getFieldTypeState(intermediateType, fieldName),
             structNames, structLayouts, structFieldNames, structFieldTypes,
             g_reprCClassNames, g_unionTypes, g_typeAliasNames,
             g_typeAliasTargets, g_typeAliasCount, g_enumTypeNames,
@@ -4119,7 +4075,7 @@ class LLVMIRGenerator {
     // incorrect and could cause LLVM to cache stale pointers.
     fun generateFieldAccess(ptrReg: String, structType: String, fieldName: String) r: String {
         return generateFieldAccessImpl(output, g_regBox, ptrReg, structType,
-            fieldName, getFieldType(structType, fieldName), structNames,
+            fieldName, getFieldTypeState(structType, fieldName), structNames,
             structLayouts, structFieldNames, structFieldTypes,
             g_reprCClassNames, g_unionTypes, g_typeAliasNames,
             g_typeAliasTargets, g_typeAliasCount, g_enumTypeNames,
@@ -4142,13 +4098,13 @@ class LLVMIRGenerator {
     fun inferStructLiteralFieldTypeFromValueExpr(valueExpr: ParserExpressionNode, sizeOut: Array<Int>) r: String {
         if valueExpr.kind == "StructLiteral" and valueExpr.literalType != "" {
             sizeOut[0] = 24
-            return "%" + quoteIdentIfNeeded(valueExpr.literalType)
+            return "%" + quoteIdentIfNeededImpl(valueExpr.literalType)
         }
         var fieldType = inferStructFieldTypeFromExpr(valueExpr, sizeOut)
         if valueExpr.kind == "MethodCall" {
             let calleeType = inferExpressionType(valueExpr)
             if isDataTypeState(calleeType) {
-                fieldType = "%" + quoteIdentIfNeeded(calleeType)
+                fieldType = "%" + quoteIdentIfNeededImpl(calleeType)
             }
         }
         return fieldType
@@ -4232,7 +4188,7 @@ class LLVMIRGenerator {
         let savedPendingType = pendingArrayLiteralType
         var fieldSeenType = ""
         if structIdx >= 0 {
-            fieldSeenType = getSeenFieldType(structName, fieldName)
+            fieldSeenType = getSeenFieldTypeState(structName, fieldName)
         }
         if fieldExpr.operands[0].kind == "ArrayLiteral" and (fieldSeenType.startsWith("Array") or fieldSeenType.startsWith("List")) {
             pendingArrayLiteralType = fieldSeenType
@@ -4246,10 +4202,10 @@ class LLVMIRGenerator {
         var gepIndex = defaultGepIndex
         var fieldType = "i64"
         if structIdx >= 0 {
-            let regFieldIdx = getFieldInfo(structName, fieldName)
+            let regFieldIdx = getFieldInfoState(structName, fieldName)
             if regFieldIdx >= 0 {
                 gepIndex = regFieldIdx
-                fieldType = getFieldType(structName, fieldName)
+                fieldType = getFieldTypeState(structName, fieldName)
             }
             return fieldType + "|" + gepIndex.toString()
         }
@@ -4397,7 +4353,7 @@ class LLVMIRGenerator {
             return ""
         }
 
-        let fieldIdx = getFieldInfo(thisType, varName)
+        let fieldIdx = getFieldInfoState(thisType, varName)
         if fieldIdx < 0 {
             return ""
         }
@@ -4429,7 +4385,7 @@ class LLVMIRGenerator {
             funcRetTypes)
         if fpRetType != "" {
             return emitFunctionPointerInteropLoadImpl(output, g_regBox,
-                "@" + quoteIdentIfNeeded(varName))
+                "@" + quoteIdentIfNeededImpl(varName))
         }
         return ""
     }
@@ -4735,7 +4691,7 @@ class LLVMIRGenerator {
             if opRetType != "" {
                 let opRetLlvm = mapTypeState(opRetType)
                 return emitPreparedOverloadedBinaryCallImpl(output, g_regBox,
-                    quoteIdentIfNeeded(opFuncName), opRetLlvm, leftReg, rightReg)
+                    quoteIdentIfNeededImpl(opFuncName), opRetLlvm, leftReg, rightReg)
             }
         }
         // --- End operator overloading ---
@@ -5339,7 +5295,7 @@ class LLVMIRGenerator {
                 let thisIdx = findActiveVariableIndexImpl(varNames, activeVarCount, "this")
                 if thisIdx >= 0 {
                     return emitSuperRuntimeBuiltinCallImpl(output, g_regBox,
-                        quoteIdentIfNeeded(g_currentClassParentName + "_init"),
+                        quoteIdentIfNeededImpl(g_currentClassParentName + "_init"),
                         varRegs[thisIdx])
                 }
             }
@@ -5482,11 +5438,11 @@ class LLVMIRGenerator {
             let mpTailCall = implicitThisTailCallFlagImpl(
                 takeTailCallPositionImpl(getCurrentFunctionOptions()))
             return emitPreparedMisplacedParserImplicitThisCallImpl(output,
-                g_regBox, quoteIdentIfNeeded(methodFuncName),
+                g_regBox, quoteIdentIfNeededImpl(methodFuncName),
                 misplacedRetType, thisReg, argRegs, argTypeStrs, mpTailCall)
         }
 
-        let methodRetType = getMethodReturnType(thisType, funcName)
+        let methodRetType = getMethodReturnTypeState(thisType, funcName)
         if methodRetType == "" {
             return ""
         }
@@ -5519,7 +5475,7 @@ class LLVMIRGenerator {
         let selfTailCall = implicitThisTailCallFlagImpl(
             takeTailCallPositionImpl(getCurrentFunctionOptions()))
         return emitPreparedNormalImplicitThisCallImpl(output, g_regBox,
-            quoteIdentIfNeeded(methodFuncName), llvmReturnType, thisReg,
+            quoteIdentIfNeededImpl(methodFuncName), llvmReturnType, thisReg,
             argRegs, argTypeStrs, selfTailCall)
     }
 
@@ -5619,7 +5575,7 @@ class LLVMIRGenerator {
         }
         let freeCallTail = regularCallTailFlagImpl(
             takeTailCallPositionImpl(getCurrentFunctionOptions()))
-        return emitUserFunctionCallImpl(output, g_regBox, quoteIdentIfNeeded(funcName), llvmReturnType, argRegs, argTypeStrs, freeCallTail)
+        return emitUserFunctionCallImpl(output, g_regBox, quoteIdentIfNeededImpl(funcName), llvmReturnType, argRegs, argTypeStrs, freeCallTail)
     }
 
     fun tryGenerateResolvedReceiverFastPathMethodCall(expr: ParserExpressionNode,
@@ -5746,7 +5702,7 @@ class LLVMIRGenerator {
         let argTypeStrs = g_defaultFillArgTypeStrs
 
         let registeredStaticReturnType =
-            getMethodReturnType(staticClassName, methodName)
+            getMethodReturnTypeState(staticClassName, methodName)
         var inferredStaticReturnType = ""
         if registeredStaticReturnType == "" or
             registeredStaticReturnType == "Unknown" {
@@ -6165,7 +6121,7 @@ class LLVMIRGenerator {
                                 structNames)
                             var fieldIdx = -1
                             if structIdx >= 0 {
-                                fieldIdx = getFieldInfo(thisType,
+                                fieldIdx = getFieldInfoState(thisType,
                                     varName)
                             }
                             let implicitLookupPlan =
@@ -6219,7 +6175,7 @@ class LLVMIRGenerator {
 
             var implicitMethodRetType = ""
             if unresolvedStartPlan.shouldLookupImplicitReturn {
-                implicitMethodRetType = getMethodReturnType(currentClassName,
+                implicitMethodRetType = getMethodReturnTypeState(currentClassName,
                     methodName)
             }
             let unresolvedFunctionRetType = getFunctionReturnTypeStateImpl(
@@ -6393,7 +6349,7 @@ class LLVMIRGenerator {
         if postResolutionPhase.shouldTryLowering and lowerPlan.shouldTryHotReload {
             let hotReloadResult =
                 emitPreparedHotReloadMethodLowerImpl(
-                output, g_regBox, methodName, quoteIdentIfNeeded(funcName),
+                output, g_regBox, methodName, quoteIdentIfNeededImpl(funcName),
                 receiverReg, receiverType, hotStateArg, structNames)
             if hotReloadResult != "" {
                 return hotReloadResult
@@ -6419,7 +6375,7 @@ class LLVMIRGenerator {
         let argRegs = g_defaultFillArgRegs
         let argTypeStrs = g_defaultFillArgTypeStrs
 
-        let registeredMethodReturnType = getMethodReturnType(instanceTypeName,
+        let registeredMethodReturnType = getMethodReturnTypeState(instanceTypeName,
             methodName)
         var inferredMethodReturnType = ""
         if registeredMethodReturnType == "" or
@@ -6465,7 +6421,7 @@ class LLVMIRGenerator {
 
         if finalDispatchPlan.shouldEmitUserMethod {
             return emitPreparedUserMethodLowerImpl(output, g_regBox,
-                quoteIdentIfNeeded(funcName), llvmReturnType, receiverLlvmType,
+                quoteIdentIfNeededImpl(funcName), llvmReturnType, receiverLlvmType,
                 normalizedReceiverReg, argRegs, argTypeStrs, 0)
         }
         return ""
@@ -6520,7 +6476,7 @@ class LLVMIRGenerator {
         let unaryValReg = generateExpression(expr.operands[0])
         let unaryRetLlvm = mapTypeState(unaryOpRetType)
         return emitOverloadedUnaryCallImpl(output, g_regBox,
-            quoteIdentIfNeeded(unaryOpFuncName), unaryRetLlvm, unaryValReg)
+            quoteIdentIfNeededImpl(unaryOpFuncName), unaryRetLlvm, unaryValReg)
     }
 
     fun emitUnaryNegation(expr: ParserExpressionNode) r: String {
@@ -6832,7 +6788,7 @@ class LLVMIRGenerator {
     fun tryInferExplicitThisMethodCallType(expr: ParserExpressionNode) r: String {
         var implicitMethodRetType = ""
         if currentClassName != "" {
-            implicitMethodRetType = getMethodReturnType(currentClassName,
+            implicitMethodRetType = getMethodReturnTypeState(currentClassName,
                 expr.callee)
         }
         return inferExplicitThisMethodCallTypeImpl(currentClassName,
@@ -6842,7 +6798,7 @@ class LLVMIRGenerator {
     fun tryInferBareMethodOrFunctionCallType(expr: ParserExpressionNode) r: String {
         var implicitMethodRetType = ""
         if currentClassName != "" {
-            implicitMethodRetType = getMethodReturnType(currentClassName,
+            implicitMethodRetType = getMethodReturnTypeState(currentClassName,
                 expr.callee)
         }
         let freeFuncRetType = getFunctionReturnTypeStateImpl(expr.callee,
@@ -6872,11 +6828,11 @@ class LLVMIRGenerator {
         if expr.literalValue != "" and expr.literalValue != "this" {
             receiverVarType = findVarType(expr.literalValue)
             if receiverVarType == "" {
-                receiverMethodRetType = getMethodReturnType(expr.literalValue,
+                receiverMethodRetType = getMethodReturnTypeState(expr.literalValue,
                     expr.callee)
                 let staticOwnerType = getBaseTypeNameImpl(expr.literalValue)
                 if staticOwnerType != expr.literalValue {
-                    baseOwnerMethodRetType = getMethodReturnType(
+                    baseOwnerMethodRetType = getMethodReturnTypeState(
                         staticOwnerType, expr.callee)
                 }
             }
@@ -6894,7 +6850,7 @@ class LLVMIRGenerator {
         var staticRetType = ""
         if expr.callee == "fromJson" and expr.literalValue != "" and
             expr.literalValue != "this" {
-            staticRetType = getMethodReturnType(expr.literalValue, "fromJson")
+            staticRetType = getMethodReturnTypeState(expr.literalValue, "fromJson")
         }
         return inferStaticFromJsonMethodTypeImpl(expr.callee,
             expr.literalValue, staticRetType)
@@ -6931,7 +6887,7 @@ class LLVMIRGenerator {
         if isSimdVectorTypeImpl(receiverType) == 1 {
             simdFlag = 1
         }
-        let registeredMethodRetType = getMethodReturnType(receiverType,
+        let registeredMethodRetType = getMethodReturnTypeState(receiverType,
             expr.callee)
         return inferReceiverRegistryMethodCallTypeImpl(expr.callee,
             receiverType, simdFlag, registeredMethodRetType)
@@ -6941,7 +6897,7 @@ class LLVMIRGenerator {
         let mcTable = inferMethodCallTypeTable(expr.callee)
         var implicitMethodRetType = ""
         if currentClassName != "" {
-            implicitMethodRetType = getMethodReturnType(currentClassName,
+            implicitMethodRetType = getMethodReturnTypeState(currentClassName,
                 expr.callee)
         }
         let freeFuncRetType = getFunctionReturnTypeStateImpl(expr.callee,
@@ -7016,7 +6972,7 @@ class LLVMIRGenerator {
         var fromJsonBaseTypeKnown = 0
         if generatedPlan.action == 3 {
             fromJsonBaseType = generatedPlan.baseType
-            fromJsonRet = getMethodReturnType(fromJsonBaseType, "fromJson")
+            fromJsonRet = getMethodReturnTypeState(fromJsonBaseType, "fromJson")
             if isClassTypeState(fromJsonBaseType) or isDataTypeState(fromJsonBaseType) or
                 findStructReg(fromJsonBaseType, structNames) >= 0 {
                 fromJsonBaseTypeKnown = 1
@@ -7067,7 +7023,7 @@ class LLVMIRGenerator {
         }
         var implicitMethodRetType = ""
         if resolvedPlan.shouldLookupImplicitMethodReturn {
-            implicitMethodRetType = getMethodReturnType(currentClassName,
+            implicitMethodRetType = getMethodReturnTypeState(currentClassName,
                 expr.callee)
         }
         return inferResolvedCallExprTypeImpl(expr.callee, userRetType,
