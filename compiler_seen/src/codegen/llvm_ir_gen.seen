@@ -83,11 +83,11 @@ import codegen.ir_type_layout.{getLlvmTypeAlignImpl, getLlvmTypeSizeImpl, comput
 import codegen.ir_comptime_eval.{parseSimpleIntImpl, lookupComptimeVarImpl, lookupComptimeStrVarImpl, comptimeSizeofImpl, comptimeTypeFieldCountImpl, comptimeTypeFieldNameImpl, comptimeTypeFieldTypeImpl, evaluateConstExprStrImpl, evaluateConstExprImpl}
 import codegen.ir_simd_type_helpers.{isSimdVectorTypeImpl, simdScalarTypeImpl, simdLaneCountImpl, isSwizzlePatternImpl, swizzleLaneIndexImpl, simdLlvmSuffixImpl}
 import codegen.ir_struct_field_resolution.{resolveKnownStructFieldImpl}
-import codegen.ir_type_tables.{inferMethodCallTypeTable, inferCallTypeTable, inferFieldTypeFallback, inferIndexElementType, registerKnownDataTypesImpl, resolveCollectionGetTypeImpl, resolveUnwrapTypeImpl, resolvePopElementTypeImpl, resolveTryPropagateTypeImpl}
+import codegen.ir_type_tables.{inferMethodCallTypeTable, inferCallTypeTable, inferFieldTypeFallback, inferIndexElementType, registerKnownDataTypesImpl, resolvePopElementTypeImpl, resolveTryPropagateTypeImpl}
 import codegen.ir_control_flow.{emitForInElementFetchImpl, emitForInPrefetchImpl, emitForInIncrementImpl, detectLoopBoundImpl, computeLoopTileSizeImpl, detectReductionPatternImpl, detectInductionVarImpl, detectBreakOnFlagImpl, detectNestedLoopImpl, detectGcdPatternImpl, emitWhileConditionBranchImpl, emitStringForInElementImpl, emitMemcpyLoopExitBlocksImpl}
 import codegen.ir_loop_context.{appendLoopTileHintImpl, appendLoopMetadataIdImpl, emitLoopMetadataImpl, emitContinueStatementImpl, emitBreakStatementImpl}
 import codegen.ir_loop_plan.{planMemcpyOptimizedWhileLoopImpl, iteratorProtocolFunctionNameImpl, planIteratorProtocolForInLoopImpl, isRangeForInIterableImpl}
-import codegen.ir_infer_type.{inferBinaryTypeImpl, inferLiteralTypeImpl, inferOperatorOverloadSuffix, inferExplicitThisMethodCallTypeImpl, inferBareMethodOrFunctionCallTypeImpl, inferDeclaredStaticMethodCallTypeImpl, inferStaticFactoryMethodTypeImpl, inferStaticFromJsonMethodTypeImpl, inferLateMethodCallFallbackTypeImpl, inferGeneratedCallTypeImpl, inferBuiltinCallExprTypeStateImpl, inferResolvedCallExprTypeImpl, inferSimdReduceMethodTypeImpl, inferReceiverRegistryMethodCallTypeImpl, inferMethodCallBoolSuffixImpl, inferReceiverMethodTypeImpl, inferCallExprTypeImpl}
+import codegen.ir_infer_type.{inferBinaryTypeImpl, inferLiteralTypeImpl, inferOperatorOverloadSuffix, inferExplicitThisMethodCallTypeImpl, inferBareMethodOrFunctionCallTypeImpl, inferDeclaredStaticMethodCallTypeImpl, inferStaticFactoryMethodTypeImpl, inferStaticFromJsonMethodTypeImpl, inferLateMethodCallFallbackTypeImpl, inferGeneratedCallTypeImpl, inferBuiltinCallExprTypeStateImpl, inferResolvedCallExprTypeImpl, inferSimdReduceMethodTypeImpl, inferReceiverRegistryMethodCallTypeImpl, inferMethodCallBoolSuffixImpl, inferCallExprTypeImpl}
 import codegen.ir_special_expr_infer.{inferIndexAccessExprTypeImpl, inferKnownArrayLiteralTypeImpl, inferArrayLiteralExprTypeImpl, inferUnaryExprTypeImpl, inferAwaitExprTypeImpl, inferTryPropagateExprTypeImpl, inferNullishSpecialExprTypeImpl, inferBranchingSpecialExprTypeImpl, inferFixedSpecialExprTypeImpl, inferSpecialExprTypeImpl}
 import codegen.ir_expr_infer_plan.{planExprInferenceDispatchImpl, planMethodCallInferenceImpl, planGeneratedCallInferenceImpl, planBuiltinCallInferenceImpl, planResolvedCallInferenceImpl, planMemberAccessInferenceImpl, planSpecialExprInferenceImpl}
 import codegen.ir_type_ops.{emitBinaryOpImpl}
@@ -120,6 +120,7 @@ import codegen.ir_method_lower_emit.{emitPreparedLengthLikeMethodLowerImpl, emit
 import codegen.ir_method_final_plan.{planMethodUnresolvedReceiverStartImpl, planMethodUnresolvedReceiverFinalImpl, planMethodFinalDispatchImpl}
 import codegen.ir_method_receiver_lookup_plan.{planMethodReceiverInitialPhaseImpl, planMethodReceiverPostLookupPhaseImpl, planMethodReceiverPostResolutionPhaseImpl, planDottedReceiverStageImpl, planDottedReceiverFallbackStageImpl, planImplicitThisDottedReceiverStageImpl, planSimpleLiteralReceiverStageImpl, planImplicitThisReceiverStageImpl}
 import codegen.ir_method_receiver_lookup_gen.{emitLocalMethodReceiverLoadImpl, emitModuleConstantMethodReceiverLoadImpl, emitKeywordManagerMethodReceiverLoadImpl}
+import codegen.ir_method_builtin_type_infer.{tryInferBuiltinReceiverMethodCallTypeState}
 import codegen.ir_struct_gen.{emitStructFieldStoresImpl, resolveStructLiteralFieldFallback, inferStructFieldTypeFromExpr}
 import codegen.ir_struct_layout_build.{prepareStructLayoutRegistrationSnapshotImpl}
 import codegen.ir_class_type_layout.{emitClassTypeFieldsImpl, emitClassTypeHeaderImpl, emitClassTypeFooterImpl, prepareClassTypeAliasStateSnapshotImpl}
@@ -7448,85 +7449,18 @@ class LLVMIRGenerator {
         return tryInferStaticFromJsonMethodType(expr)
     }
 
-    fun tryInferSimpleBuiltinReceiverMethodType(methodName: String,
-        receiverType: String) r: String {
-
-        if methodName == "toUpperCase" or methodName == "toLowerCase" or
-            methodName == "abs" or methodName == "min" or methodName == "max" or
-            methodName == "clamp" or methodName == "floor" or
-            methodName == "ceil" or methodName == "round" or
-            methodName == "sqrt" or methodName == "first" or
-            methodName == "last" or methodName == "remove" {
-            return inferReceiverMethodTypeImpl(methodName, receiverType)
-        }
-        return ""
-    }
-
-    fun tryInferCollectionGetMethodType(expr: ParserExpressionNode,
-        receiverType: String) r: String {
-
+    fun tryInferBuiltinReceiverMethodCallType(expr: ParserExpressionNode, receiverType: String) r: String {
         if expr.callee == "get" {
-            traceGen("inferExpressionType: get() recType=" + receiverType + " literalValue=" + expr.literalValue + " operands=" + expr.operands.length().toString())
-            let isCollectionGet = receiverType.startsWith("Array<") or receiverType.startsWith("Vec<") or
-                receiverType.startsWith("HashMap<") or receiverType.startsWith("StringHashMap<") or
-                receiverType.startsWith("BTreeMap<") or receiverType.startsWith("Map<")
-            if isCollectionGet {
-                let collGetType = resolveCollectionGetTypeImpl(receiverType)
-                if collGetType != "" {
-                    return collGetType
-                }
-                return "Option<Int>"
-            }
-        }
-        return ""
-    }
-
-    fun tryInferPopMethodType(methodName: String, receiverType: String) r: String {
-        if methodName != "pop" {
-            return ""
-        }
-        let popResult = resolvePopElementTypeImpl(receiverType)
-        if popResult != "" {
-            return popResult
-        }
-        return "Int"
-    }
-
-    fun tryInferUnwrapMethodType(methodName: String, receiverType: String) r: String {
-        if methodName != "unwrap" {
-            return ""
+            traceGen("inferExpressionType: get() recType=" + receiverType +
+                " literalValue=" + expr.literalValue + " operands=" +
+                expr.operands.length().toString())
         }
         var isClassInner = 0
         if isClassType(receiverType) {
             isClassInner = 1
         }
-        let unwrapResult = resolveUnwrapTypeImpl(receiverType, isClassInner)
-        if unwrapResult != "" {
-            return unwrapResult
-        }
-        return "ptr"
-    }
-
-    fun tryInferBuiltinReceiverMethodCallType(expr: ParserExpressionNode, receiverType: String) r: String {
-        let simpleBuiltinType = tryInferSimpleBuiltinReceiverMethodType(
-            expr.callee, receiverType)
-        if simpleBuiltinType != "" {
-            return simpleBuiltinType
-        }
-        let collectionGetType = tryInferCollectionGetMethodType(expr,
-            receiverType)
-        if collectionGetType != "" {
-            return collectionGetType
-        }
-        let popType = tryInferPopMethodType(expr.callee, receiverType)
-        if popType != "" {
-            return popType
-        }
-        let unwrapType = tryInferUnwrapMethodType(expr.callee, receiverType)
-        if unwrapType != "" {
-            return unwrapType
-        }
-        return ""
+        return tryInferBuiltinReceiverMethodCallTypeState(expr.callee,
+            receiverType, isClassInner)
     }
 
     fun tryInferReceiverRegistryMethodCallType(expr: ParserExpressionNode, receiverType: String) r: String {

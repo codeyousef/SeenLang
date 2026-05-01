@@ -54,6 +54,7 @@ import codegen.ir_codegen_global_state.{preAllocatedRegs, activeVarCount, struct
 import codegen.ir_codegen_module_state.{g_xmDeclareNames, g_xmDeclareCount, resetModuleConstantGenerationState, resetLateUserDeclareState, resetIrgenFieldLookupCaches}
 import codegen.ir_codegen_feature_state.{g_panicOnOverflow, g_asyncFuncNames, g_regBox, g_blockBox, g_reprCClassNames, g_typeAliasNames, g_enumTypeNames}
 import codegen.ir_codegen_type_state.{mapTypeState, isClassTypeState, isDataTypeState, mapTypeForParameterState}
+import codegen.ir_method_builtin_type_infer.{tryInferBuiltinReceiverMethodCallTypeState}
 import codegen.ir_enum_lookup.{lookupEnumVariantTagImpl, lookupEnumParentImpl, lookupEnumFieldTypeImpl, lookupEnumFieldCountImpl, isEnumVariantImpl}
 import codegen.ir_decl_registry.{recordLateUserDeclareIntoStateImpl, captureDeclarationPassStateImpl, captureLateUserDeclareStateImpl, captureParentClassRegistryStateImpl, registerCrossModuleConstantsIntoStateImpl, registerParentClassIntoStateImpl, resetLateUserDeclareStateImpl}
 import codegen.ir_decl_items.{registerPreparedDeclarationItemsIntoStateImpl}
@@ -3101,6 +3102,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_codegen_module_state")
         modules.push("codegen.ir_codegen_feature_state")
         modules.push("codegen.ir_codegen_type_state")
+        modules.push("codegen.ir_method_builtin_type_infer")
         modules.push("codegen.ir_struct_gen")
         modules.push("codegen.ir_struct_layout_build")
         modules.push("codegen.ir_class_type_layout")
