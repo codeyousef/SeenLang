@@ -49,25 +49,50 @@ class TrailingDeadCodeNoticeSnapshot {
     }
 }
 
+fun expressionReadsDeadStoreVarImpl(varName: String,
+    expr: ParserExpressionNode) r: Bool {
+
+    if expr.kind == "Variable" or expr.kind == "VarExpr" {
+        var exprName = expr.literalValue
+        if exprName == "" {
+            exprName = expr.variableName
+        }
+        return exprName == varName
+    }
+
+    if expr.kind == "MemberAccess" or expr.kind == "MethodCall" {
+        if expr.literalValue == varName or
+            expr.literalValue.startsWith(varName + ".") {
+
+            return true
+        }
+    }
+
+    var operandIdx = 0
+    while operandIdx < expr.operands.length() {
+        if expressionReadsDeadStoreVarImpl(varName,
+            expr.operands[operandIdx]) {
+
+            return true
+        }
+        operandIdx = operandIdx + 1
+    }
+
+    var argIdx = 0
+    while argIdx < expr.arguments.length() {
+        if expressionReadsDeadStoreVarImpl(varName, expr.arguments[argIdx]) {
+            return true
+        }
+        argIdx = argIdx + 1
+    }
+
+    return false
+}
+
 fun isReadModifyWriteDeadStoreImpl(varName: String,
     rhsExpr: ParserExpressionNode) r: Bool {
 
-    if rhsExpr.kind == "Variable" or rhsExpr.kind == "VarExpr" {
-        var rhsName = rhsExpr.literalValue
-        if rhsName == "" {
-            rhsName = rhsExpr.variableName
-        }
-        return rhsName == varName
-    }
-    if rhsExpr.kind == "Binary" and rhsExpr.operands.length() > 0 {
-        let lhsOp = rhsExpr.operands[0]
-        var lhsName = lhsOp.literalValue
-        if lhsName == "" {
-            lhsName = lhsOp.variableName
-        }
-        return lhsName == varName
-    }
-    return false
+    return expressionReadsDeadStoreVarImpl(varName, rhsExpr)
 }
 
 fun tryMarkDeadStoreEliminationImpl(output: StringBuilder, stmt: StatementNode,

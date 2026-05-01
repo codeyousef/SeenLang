@@ -1,0 +1,16 @@
+// Regression FEL-52: a bare string local initializer must remain live when the
+// following assignment concatenates from the same local through a nested binary.
+
+fun main() r: Int {
+    let frame = 0
+    var line = "render_distance_bench"
+    line = line + " frame=" + frame.toString()
+
+    if line == "render_distance_bench frame=0" {
+        println("PASS: string var initializer survives concat")
+        return 0
+    }
+
+    println("FAIL: string var initializer became " + line)
+    return 1
+}
