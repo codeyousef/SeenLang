@@ -1,0 +1,65 @@
+// ir_string_concat_emit.seen - string concatenation planning and coercion.
+
+import str.string.{StringBuilder}
+import parser.real_parser.{ParserExpressionNode}
+import codegen.ir_optimization.{getNextRegFn}
+
+fun isStringConcatTypePairImpl(leftType: String, rightType: String) r: Bool {
+    return leftType == "String" or rightType == "String" or
+        leftType == "Char" or rightType == "Char"
+}
+
+fun exprHasStringConcatMarkerImpl(expr: ParserExpressionNode) r: Bool {
+    if expr.kind == "Literal" {
+        return expr.literalType == "String" or expr.literalType == "Char"
+    }
+    if expr.kind == "StringInterpolation" {
+        return true
+    }
+    if expr.kind == "MethodCall" and expr.callee == "toString" {
+        return true
+    }
+    if expr.kind == "Binary" and expr.operator == "+" {
+        var markerIdx = 0
+        while markerIdx < expr.operands.length() {
+            if exprHasStringConcatMarkerImpl(expr.operands[markerIdx]) {
+                return true
+            }
+            markerIdx = markerIdx + 1
+        }
+    }
+    return false
+}
+
+fun coerceStringConcatPieceRegImpl(output: StringBuilder,
+    regBox: Array<Int>, valueReg: String, valueType: String) r: String {
+
+    if valueType == "String" {
+        return valueReg
+    }
+    if valueType == "Char" {
+        let charStrReg = getNextRegFn(regBox)
+        output.append("  " + charStrReg +
+            " = call %SeenString @seen_char_to_str(i64 " + valueReg + ")\n")
+        return charStrReg
+    }
+    if valueType == "Int" {
+        let intStrReg = getNextRegFn(regBox)
+        output.append("  " + intStrReg +
+            " = call %SeenString @seen_int_to_string(i64 " + valueReg + ")\n")
+        return intStrReg
+    }
+    if valueType == "Float" {
+        let floatStrReg = getNextRegFn(regBox)
+        output.append("  " + floatStrReg +
+            " = call %SeenString @seen_float_to_string(double " + valueReg + ")\n")
+        return floatStrReg
+    }
+    if valueType == "Bool" or valueType == "Boolean" {
+        let boolStrReg = getNextRegFn(regBox)
+        output.append("  " + boolStrReg +
+            " = call %SeenString @seen_bool_to_string(i1 " + valueReg + ")\n")
+        return boolStrReg
+    }
+    return valueReg
+}

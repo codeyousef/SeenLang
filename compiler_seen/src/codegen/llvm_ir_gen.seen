@@ -122,6 +122,7 @@ import codegen.ir_method_receiver_lookup_plan.{planMethodReceiverInitialPhaseImp
 import codegen.ir_method_receiver_lookup_gen.{emitLocalMethodReceiverLoadImpl, emitModuleConstantMethodReceiverLoadImpl, emitKeywordManagerMethodReceiverLoadImpl}
 import codegen.ir_method_builtin_type_infer.{tryInferBuiltinReceiverMethodCallTypeState}
 import codegen.ir_value_coercion.{coerceValueForLlvmTargetImpl}
+import codegen.ir_string_concat_emit.{isStringConcatTypePairImpl, exprHasStringConcatMarkerImpl, coerceStringConcatPieceRegImpl}
 import codegen.ir_struct_gen.{emitStructFieldStoresImpl, resolveStructLiteralFieldFallback, inferStructFieldTypeFromExpr}
 import codegen.ir_struct_layout_build.{prepareStructLayoutRegistrationSnapshotImpl}
 import codegen.ir_class_type_layout.{emitClassTypeFieldsImpl, emitClassTypeHeaderImpl, emitClassTypeFooterImpl, prepareClassTypeAliasStateSnapshotImpl}
@@ -3660,44 +3661,6 @@ class LLVMIRGenerator {
         return "0"
     }
 
-    fun isStringConcatTypePair(leftType: String, rightType: String) r: Bool {
-        return leftType == "String" or rightType == "String" or
-            leftType == "Char" or rightType == "Char"
-    }
-
-    fun isStringConcatBinaryExpr(expr: ParserExpressionNode) r: Bool {
-        if expr.kind != "Binary" or expr.operator != "+" or
-            expr.operands.length() < 2 {
-
-            return false
-        }
-        let leftType = inferExpressionType(expr.operands[0])
-        let rightType = inferExpressionType(expr.operands[1])
-        return isStringConcatTypePair(leftType, rightType)
-    }
-
-    fun exprHasStringConcatMarker(expr: ParserExpressionNode) r: Bool {
-        if expr.kind == "Literal" {
-            return expr.literalType == "String" or expr.literalType == "Char"
-        }
-        if expr.kind == "StringInterpolation" {
-            return true
-        }
-        if expr.kind == "MethodCall" and expr.callee == "toString" {
-            return true
-        }
-        if expr.kind == "Binary" and expr.operator == "+" {
-            var markerIdx = 0
-            while markerIdx < expr.operands.length() {
-                if exprHasStringConcatMarker(expr.operands[markerIdx]) {
-                    return true
-                }
-                markerIdx = markerIdx + 1
-            }
-        }
-        return false
-    }
-
     fun collectStringConcatPieces(expr: ParserExpressionNode,
         pieces: Array<ParserExpressionNode>, pieceTypes: Array<String>,
         forceFlatten: Bool) r: Void {
@@ -3707,7 +3670,7 @@ class LLVMIRGenerator {
 
             var shouldFlatten = forceFlatten
             if not shouldFlatten {
-                shouldFlatten = exprHasStringConcatMarker(expr)
+                shouldFlatten = exprHasStringConcatMarkerImpl(expr)
             }
             if shouldFlatten {
                 collectStringConcatPieces(expr.operands[0], pieces, pieceTypes,
@@ -3719,37 +3682,6 @@ class LLVMIRGenerator {
         }
         pieces.push(expr)
         pieceTypes.push(inferExpressionType(expr))
-    }
-
-    fun coerceStringConcatPieceReg(valueReg: String, valueType: String) r: String {
-        if valueType == "String" {
-            return valueReg
-        }
-        if valueType == "Char" {
-            let charStrReg = getNextReg()
-            output.append("  " + charStrReg +
-                " = call %SeenString @seen_char_to_str(i64 " + valueReg + ")\n")
-            return charStrReg
-        }
-        if valueType == "Int" {
-            let intStrReg = getNextReg()
-            output.append("  " + intStrReg +
-                " = call %SeenString @seen_int_to_string(i64 " + valueReg + ")\n")
-            return intStrReg
-        }
-        if valueType == "Float" {
-            let floatStrReg = getNextReg()
-            output.append("  " + floatStrReg +
-                " = call %SeenString @seen_float_to_string(double " + valueReg + ")\n")
-            return floatStrReg
-        }
-        if valueType == "Bool" or valueType == "Boolean" {
-            let boolStrReg = getNextReg()
-            output.append("  " + boolStrReg +
-                " = call %SeenString @seen_bool_to_string(i1 " + valueReg + ")\n")
-            return boolStrReg
-        }
-        return valueReg
     }
 
     fun generateFlattenedStringConcat(expr: ParserExpressionNode) r: String {
@@ -3764,8 +3696,8 @@ class LLVMIRGenerator {
         var resultReg = ""
         while pieceIdx < pieces.length() {
             let pieceReg = generateExpression(pieces[pieceIdx])
-            let pieceStrReg = coerceStringConcatPieceReg(pieceReg,
-                pieceTypes[pieceIdx])
+            let pieceStrReg = coerceStringConcatPieceRegImpl(output,
+                g_regBox, pieceReg, pieceTypes[pieceIdx])
             if pieceIdx == 0 {
                 resultReg = pieceStrReg
             } else {
@@ -4795,7 +4727,7 @@ class LLVMIRGenerator {
         let leftType = inferExpressionType(leftExpr)
         let rightType = inferExpressionType(rightExpr)
 
-        if expr.operator == "+" and isStringConcatTypePair(leftType, rightType) {
+        if expr.operator == "+" and isStringConcatTypePairImpl(leftType, rightType) {
             let flattenedStringConcat = generateFlattenedStringConcat(expr)
             if flattenedStringConcat != "" {
                 return flattenedStringConcat
