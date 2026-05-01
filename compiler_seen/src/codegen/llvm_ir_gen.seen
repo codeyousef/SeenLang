@@ -172,64 +172,11 @@ import codegen.ir_function_state.{getCurrentFunctionEmissionStateImpl, resetFunc
 import codegen.ir_function_ml_logs.{applyFunctionPreludeMlLogsImpl, applyFunctionUnusedParamMlLogsImpl}
 import codegen.ir_ml_logging.{mlLogDecision, setupMLLogging, writeMLDecisionLog}
 import codegen.ir_codegen_state_bridge.{syncCodegenStateBridgeImpl, captureCodegenStateBridgeSnapshotImpl, resetSharedModuleGenerationScratchStateImpl}
-import process.process.{runCommand, CommandResult, commandWasSuccessful}
-
-fun getIrgenTraceTimeSeconds() r: Int {
-    let result: CommandResult = runCommand("date +%s")
-    if commandWasSuccessful(result) {
-        let out = result.output.trim()
-        if out.length() > 0 {
-            return out.toInt()
-        }
-    }
-    return 0
-}
-
-// Host platform detection (cached, detected once)
-var g_hostTargetTriple: String = ""
-var g_hostDataLayout: String = ""
-
-fun detectHostPlatform() r: Void {
-    if g_hostTargetTriple != "" {
-        return
-    }
-    let unameS: CommandResult = runCommand("uname -s")
-    let unameM: CommandResult = runCommand("uname -m")
-    var os = "linux"
-    var arch = "x86_64"
-    if commandWasSuccessful(unameS) {
-        if unameS.output.contains("Darwin") {
-            os = "darwin"
-        }
-    }
-    if commandWasSuccessful(unameM) {
-        if unameM.output.contains("arm64") or unameM.output.contains("aarch64") {
-            arch = "arm64"
-        }
-    }
-    if os == "darwin" {
-        if arch == "arm64" {
-            g_hostTargetTriple = "arm64-apple-macosx14.0"
-            g_hostDataLayout = "e-m:o-i64:64-i128:128-n32:64-S128"
-        } else {
-            g_hostTargetTriple = "x86_64-apple-macosx14.0"
-            g_hostDataLayout = "e-m:o-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128"
-        }
-    } else {
-        if arch == "arm64" {
-            g_hostTargetTriple = "aarch64-unknown-linux-gnu"
-            g_hostDataLayout = "e-m:e-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128"
-        } else {
-            g_hostTargetTriple = "x86_64-unknown-linux-gnu"
-            g_hostDataLayout = "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128"
-        }
-    }
-}
+import codegen.ir_codegen_target_state.{g_hostTargetTriple, g_hostDataLayout, detectHostPlatform, overrideTargetTripleImpl}
 
 // Override host target triple and data layout for cross-compilation
 fun overrideTargetTriple(triple: String, layout: String) r: Void {
-    g_hostTargetTriple = triple
-    g_hostDataLayout = layout
+    overrideTargetTripleImpl(triple, layout)
 }
 
 // Panic on overflow flag - module-level to avoid changing class struct layout during bootstrap
