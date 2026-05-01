@@ -113,7 +113,7 @@ rm -rf "$OUTPUT_DIR/staging"
 
 PACKAGE_NAME="seen-${VERSION}-${ARTIFACT_SUFFIX}"
 STAGING="$OUTPUT_DIR/staging/$PACKAGE_NAME"
-mkdir -p "$STAGING"/{bin,lib/seen/std,lib/seen/runtime,share/seen/languages,share/doc/seen}
+mkdir -p "$STAGING"/{bin,lib/seen/std,lib/seen/runtime,lib/seen/toolchain,share/seen/languages,share/doc/seen}
 
 echo "[1/6] Copying compiler binary..."
 cp "$COMPILER_BIN" "$STAGING/bin/seen"
@@ -148,6 +148,53 @@ version=$VERSION
 artifact=$PACKAGE_NAME
 cpu-baseline=$CPU_BASELINE
 METADATA_EOF
+
+TOOLCHAIN_DIR="$STAGING/lib/seen/toolchain"
+TOOLCHAIN_BUNDLE_MODE="external"
+cp "$ROOT_DIR/scripts/seen_toolchain.sh" "$TOOLCHAIN_DIR/seen-toolchain.sh"
+chmod +x "$TOOLCHAIN_DIR/seen-toolchain.sh"
+
+if [[ -n "${SEEN_LLVM_BUNDLE_DIR:-}" ]]; then
+    if [[ ! -d "$SEEN_LLVM_BUNDLE_DIR" ]]; then
+        echo "Error: SEEN_LLVM_BUNDLE_DIR does not exist: $SEEN_LLVM_BUNDLE_DIR"
+        exit 1
+    fi
+    echo "Bundling LLVM toolchain from $SEEN_LLVM_BUNDLE_DIR"
+    rm -rf "$TOOLCHAIN_DIR/llvm"
+    if [[ -d "$SEEN_LLVM_BUNDLE_DIR/bin" ]]; then
+        cp -a "$SEEN_LLVM_BUNDLE_DIR" "$TOOLCHAIN_DIR/llvm"
+    else
+        mkdir -p "$TOOLCHAIN_DIR/llvm/bin"
+        cp -a "$SEEN_LLVM_BUNDLE_DIR"/. "$TOOLCHAIN_DIR/llvm/bin/"
+    fi
+    TOOLCHAIN_BUNDLE_MODE="bundled"
+fi
+
+cat > "$TOOLCHAIN_DIR/manifest.env" << TOOLCHAIN_EOF
+seen_toolchain_manifest_version=1
+llvm_min_version=18
+llvm_preferred_version=18
+required_tools=clang,opt,llc,llvm-as,ld.lld
+bundle_mode=$TOOLCHAIN_BUNDLE_MODE
+managed_install=use SEEN_MANAGED_TOOLCHAIN=1 with install.sh, or run lib/seen/toolchain/seen-toolchain.sh --install
+TOOLCHAIN_EOF
+
+cat > "$STAGING/share/doc/seen/toolchain-dependencies.txt" << TOOLCHAIN_DOC_EOF
+Seen native builds require LLVM 18 or newer with these tools:
+  clang, opt, llc, llvm-as, ld.lld or lld
+
+Package toolchain mode: $TOOLCHAIN_BUNDLE_MODE
+
+If this package was built with SEEN_LLVM_BUNDLE_DIR, bundled tools are under:
+  lib/seen/toolchain/llvm/bin
+
+Otherwise install LLVM with your platform package manager, or run:
+  SEEN_MANAGED_TOOLCHAIN=1 ./install.sh <prefix>
+
+The helper script can be run directly:
+  <prefix>/lib/seen/toolchain/seen-toolchain.sh --check
+  <prefix>/lib/seen/toolchain/seen-toolchain.sh --install
+TOOLCHAIN_DOC_EOF
 
 cat > "$STAGING/install.sh" << 'INSTALL_EOF'
 #!/usr/bin/env bash
@@ -185,6 +232,17 @@ install_file_no_follow "bin/seen" "$PREFIX/bin/seen" 755
 run_install cp -r lib/seen/* "$PREFIX/lib/seen/"
 run_install cp -r share/seen/* "$PREFIX/share/seen/"
 run_install cp -r share/doc/seen/* "$PREFIX/share/doc/seen/"
+TOOLCHAIN_HELPER="$PREFIX/lib/seen/toolchain/seen-toolchain.sh"
+if [[ -x "$TOOLCHAIN_HELPER" ]]; then
+    if [[ "${SEEN_SKIP_TOOLCHAIN:-0}" == "1" ]]; then
+        echo "LLVM toolchain check skipped."
+    elif [[ "${SEEN_MANAGED_TOOLCHAIN:-0}" == "1" ]]; then
+        "$TOOLCHAIN_HELPER" --install --prefix "$PREFIX"
+    elif ! "$TOOLCHAIN_HELPER" --check --prefix "$PREFIX"; then
+        echo "Seen installed, but LLVM 18+ tools are not ready." >&2
+        echo "Install clang, opt, llc, llvm-as, and lld, or rerun with SEEN_MANAGED_TOOLCHAIN=1." >&2
+    fi
+fi
 echo "Seen Language installed to $PREFIX"
 echo "Run 'seen --version' to verify."
 INSTALL_EOF

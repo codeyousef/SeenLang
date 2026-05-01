@@ -312,7 +312,7 @@ seen ipa <executable> <AppName> [--bundle-id=...] [--version=...] [--provisionin
 | `SEEN_TRACE_CODEGEN` | `1` | Code generation tracing |
 | `SEEN_TRACE_ALL` | `1` | Enable all tracing |
 | `SEEN_TRACE_VERBOSE` | `1` | Extra verbose trace output |
-| `SEEN_LLVM_BIN` | path to LLVM `bin` dir | Override LLVM tool lookup for `opt`, `llc`, and `llvm-link` when they are not on `PATH` |
+| `SEEN_LLVM_BIN` | path to LLVM `bin` dir | Override LLVM tool lookup for `clang`, `opt`, `llc`, `llvm-as`, and `lld` when they are not on `PATH` |
 
 ### Tracing Examples
 

@@ -23,7 +23,7 @@ fun cacheMethodBoolSuffixType(callee: String, funcLen: Int,
 
 fun inferBinaryTypeImpl(operator: String, leftType: String, rightType: String) r: String {
     // Comparison and logical operators always return Bool
-    if operator == "==" or operator == "!=" or operator == "<" or operator == ">" or operator == "<=" or operator == ">=" or operator == "and" or operator == "or" or operator == "&&" or operator == "||" {
+    if operator == "==" or operator == "!=" or operator == "<" or operator == ">" or operator == "<=" or operator == ">=" or operator == "in" or operator == "and" or operator == "or" or operator == "&&" or operator == "||" {
         return "Bool"
     }
     if (operator == "&" or operator == "|") and

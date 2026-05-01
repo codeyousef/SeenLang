@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- **LLVM 18+** with `clang`, `opt`, and `lld`
+- **LLVM 18+** with `clang`, `opt`, `llc`, `llvm-as`, and `lld`
 - **GCC** (for runtime compilation)
 - **Git**
 

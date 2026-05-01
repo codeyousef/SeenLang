@@ -1664,6 +1664,7 @@ class RealParser {
             if op == ">" { return "Bool" }
             if op == "<=" { return "Bool" }
             if op == ">=" { return "Bool" }
+            if op == "in" { return "Bool" }
             if op == "and" { return "Bool" }
             if op == "or" { return "Bool" }
             if initExpr.operands.length() > 0 {
@@ -4913,8 +4914,16 @@ class RealParser {
                     matched = true
                 }
             }
+            if not matched {
+                if matchTokenStr(SeenTokenType.KeywordIn) {
+                    matched = true
+                }
+            }
             if matched {
-                let operator = previous().getValue()
+                var operator = previous().getValue()
+                if previous().getType() == SeenTokenType.KeywordIn {
+                    operator = "in"
+                }
                 let right = parseRange()
                 let newExpr = ParserExpressionNode.new()
                 newExpr.kind = "Binary"

@@ -66,7 +66,7 @@ SYMLINK_TARGET="$TMP_DIR/original-target"
 printf 'original target content\n' > "$SYMLINK_TARGET"
 ln -s "$SYMLINK_TARGET" "$PREFIX/bin/seen"
 
-(cd "$PACKAGE_DIR" && ./install.sh "$PREFIX" >/dev/null)
+(cd "$PACKAGE_DIR" && SEEN_SKIP_TOOLCHAIN=1 ./install.sh "$PREFIX" >/dev/null)
 
 if [[ "$(cat "$SYMLINK_TARGET")" != "original target content" ]]; then
     echo "install.sh followed the existing seen symlink and overwrote its target" >&2
@@ -84,5 +84,9 @@ if ! "$PREFIX/bin/seen" --version | grep -q '0.7.2'; then
 fi
 
 grep -qx 'cpu-baseline=x86-64' "$PACKAGE_DIR/share/doc/seen/release-cpu-baseline.txt"
+grep -qx 'llvm_min_version=18' "$PACKAGE_DIR/lib/seen/toolchain/manifest.env"
+test -x "$PACKAGE_DIR/lib/seen/toolchain/seen-toolchain.sh"
+test -f "$PACKAGE_DIR/share/doc/seen/toolchain-dependencies.txt"
+test -x "$PREFIX/lib/seen/toolchain/seen-toolchain.sh"
 
 echo "release packaging symlink replacement test passed"

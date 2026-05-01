@@ -343,6 +343,9 @@ fun mapTypeImpl(seenType: String, structNames: Array<String>,
             return "i64"
         }
     }
+    if isClassHandleLikeTypeImpl(trimmed, structNames) == 1 {
+        return "i64"
+    }
     return "ptr"
 }
 

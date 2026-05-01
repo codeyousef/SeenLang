@@ -120,6 +120,8 @@ static inline bool seen_str_eq(SeenString a, const char* b) {
 // String equality (SeenString == SeenString) - exported for LLVM backend
 bool seen_str_eq_ss(SeenString a, SeenString b);
 bool seen_str_ne_ss(SeenString a, SeenString b);
+bool seen_arr_contains_str(SeenArray* arr, SeenString needle);
+bool seen_arr_contains_i64(SeenArray* arr, int64_t needle);
 
 // Check if string ends with suffix
 static inline bool seen_ends_with(SeenString s, const char* suffix) {

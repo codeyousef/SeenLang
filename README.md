@@ -75,7 +75,7 @@ And in Chinese:
 
 ### Prerequisites
 
-- **LLVM 18+** (clang, opt, lld)
+- **LLVM 18+** (`clang`, `opt`, `llc`, `llvm-as`, `lld`)
 - **GCC** (for runtime compilation)
 - **Git**
 

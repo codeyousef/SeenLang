@@ -937,7 +937,7 @@ class CGenerator {
             return "SeenString"
         }
         if init.kind == "Binary" {
-            if init.operator == "==" or init.operator == "!=" or init.operator == "<" or init.operator == ">" or init.operator == "<=" or init.operator == ">=" or init.operator == "and" or init.operator == "or" {
+            if init.operator == "==" or init.operator == "!=" or init.operator == "<" or init.operator == ">" or init.operator == "<=" or init.operator == ">=" or init.operator == "in" or init.operator == "and" or init.operator == "or" {
                 return "bool"
             }
             if init.operator == "+" {

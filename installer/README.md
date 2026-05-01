@@ -124,6 +124,13 @@ installer/
 
 ### Build Commands
 
+Release tarballs include `lib/seen/toolchain/manifest.env` and
+`lib/seen/toolchain/seen-toolchain.sh`. Set `SEEN_LLVM_BUNDLE_DIR` while
+building a release to bundle a prepared LLVM tree, or install/check LLVM
+explicitly with `SEEN_MANAGED_TOOLCHAIN=1 ./install.sh <prefix>` after
+extracting a package. The required tools are LLVM 18+ `clang`, `opt`, `llc`,
+`llvm-as`, and `lld`.
+
 **Windows MSI:**
 ```powershell
 cd installer/windows

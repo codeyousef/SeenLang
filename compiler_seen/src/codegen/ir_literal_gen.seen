@@ -58,15 +58,14 @@ fun generateLiteralFree(s: CodegenState, expr: ParserExpressionNode) r: String {
             expr.literalValue)
         if idx < 0 {
             ///
-            String was missed by collectStringConstants (e.g., in IfExpression operands).
-            Add it now so the index is correct and emitStringConstantsWithPrefix will emit it.
+            String was missed by collectStringConstants. Register it now so
+            the late string-constant emission pass writes a module-level global
+            after function generation, instead of placing a global definition
+            inside the current function body.
             ///
             s.stringConstants.push(expr.literalValue)
             cacheStringConstUnchecked(expr.literalValue)
             idx = s.stringConstants.length() - 1
-            // Emit the constant definition inline since emitStringConstantsWithPrefix already ran.
-            let strLenFallback = expr.literalValue.length() + 1
-            s.output.append("@.str." + s.stringConstantPrefix + idx.toString() + " = private unnamed_addr constant [" + strLenFallback.toString() + " x i8] c\"" + expr.literalValue + "\\00\"\n")
         }
 
         // Convert to SeenString

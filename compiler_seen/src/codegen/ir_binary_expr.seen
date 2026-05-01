@@ -365,6 +365,7 @@ fun exprProducesBoolImpl(exprType: String, operator: String) r: Int {
     if operator == ">" { return 1 }
     if operator == "<=" { return 1 }
     if operator == ">=" { return 1 }
+    if operator == "in" { return 1 }
     if operator == "and" { return 1 }
     if operator == "or" { return 1 }
     if operator == "&&" { return 1 }

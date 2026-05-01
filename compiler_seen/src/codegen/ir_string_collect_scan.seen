@@ -203,6 +203,11 @@ fun collectStringConstantsFromExprImpl(expr: ParserExpressionNode, stringConstan
             collectStringConstantsFromExprImpl(expr.operands[0], stringConstants, callCountNamesBox, callCountEntriesBox)
         }
     }
+    if expr.kind == "Cast" {
+        if expr.operands.length() > 0 {
+            collectStringConstantsFromExprImpl(expr.operands[0], stringConstants, callCountNamesBox, callCountEntriesBox)
+        }
+    }
     if expr.kind == "Await" {
         if expr.operands.length() > 0 {
             collectStringConstantsFromExprImpl(expr.operands[0], stringConstants, callCountNamesBox, callCountEntriesBox)

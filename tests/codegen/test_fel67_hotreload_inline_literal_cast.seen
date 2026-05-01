@@ -1,0 +1,13 @@
+import framework::hotreload
+
+fun main() r: Int {
+    let loaded = HotModule.loadNamed("/tmp/plugin.so", "probe")
+    if loaded.isNone() {
+        return 0
+    }
+
+    let module = loaded.unwrap()
+    let state = module.callInt("plugin_create") as *Void
+    println(module.callIntPtr("plugin_frame", state).toString())
+    return 0
+}

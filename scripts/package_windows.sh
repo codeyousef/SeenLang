@@ -87,7 +87,7 @@ Quick Start:
        hello.exe
 
 Requirements:
-  LLVM 18+ (clang, opt, lld-link) must be installed and in PATH.
+  LLVM 18+ (clang, opt, llc, llvm-as, lld-link) must be installed and in PATH.
   Install: winget install LLVM.LLVM
   Or download from: https://github.com/llvm/llvm-project/releases
 

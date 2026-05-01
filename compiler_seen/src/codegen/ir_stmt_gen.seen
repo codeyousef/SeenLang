@@ -84,7 +84,7 @@ fun normalizeIfConditionTypeImpl(expr: ParserExpressionNode,
         let condOp = expr.operator
         if condOp == "==" or condOp == "!=" or condOp == "<" or
             condOp == ">" or condOp == "<=" or condOp == ">=" or
-            condOp == "and" or condOp == "or" {
+            condOp == "in" or condOp == "and" or condOp == "or" {
 
             condType = "Bool"
         }

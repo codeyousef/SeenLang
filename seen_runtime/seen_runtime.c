@@ -1826,6 +1826,29 @@ bool seen_str_ne_ss(SeenString a, SeenString b) {
     return !seen_str_eq_ss(a, b);
 }
 
+bool seen_arr_contains_str(SeenArray* arr, SeenString needle) {
+    if (!arr) return false;
+    for (int64_t i = 0; i < arr->len; i++) {
+        SeenString current = ((SeenString*)arr->data)[i];
+        if (seen_str_eq_ss(current, needle)) return true;
+    }
+    return false;
+}
+
+bool seen_arr_contains_i64(SeenArray* arr, int64_t needle) {
+    if (!arr) return false;
+    for (int64_t i = 0; i < arr->len; i++) {
+        int64_t current = 0;
+        if (arr->element_size == (int64_t)sizeof(int64_t)) {
+            current = ((int64_t*)arr->data)[i];
+        } else {
+            current = ((int64_t*)((char*)arr->data + i * arr->element_size))[0];
+        }
+        if (current == needle) return true;
+    }
+    return false;
+}
+
 // ============================================================================
 // Print Functions
 // ============================================================================

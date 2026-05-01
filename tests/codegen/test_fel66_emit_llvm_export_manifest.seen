@@ -1,0 +1,9 @@
+@export
+fun plugin_answer() r: Int {
+    return 42
+}
+
+fun main() r: Int {
+    println(plugin_answer().toString())
+    return 0
+}

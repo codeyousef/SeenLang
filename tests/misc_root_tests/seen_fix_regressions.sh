@@ -46,6 +46,9 @@ RUNTIME_FILE_BYTES_SRC="$ROOT_DIR/tests/codegen/test_runtime_file_bytes_regressi
 UINT32_GLOBAL_INIT_SRC="$ROOT_DIR/tests/codegen/test_uint32_global_init_regression.seen"
 HIGH_ARITY_PARAMS_SRC="$ROOT_DIR/tests/codegen/test_high_arity_params_regression.seen"
 NESTED_CONTINUE_HIGH_ARITY_SRC="$ROOT_DIR/tests/codegen/test_nested_continue_high_arity_regression.seen"
+FEL66_EMIT_LLVM_MANIFEST_SRC="$ROOT_DIR/tests/codegen/test_fel66_emit_llvm_export_manifest.seen"
+FEL67_HOTRELOAD_INLINE_CAST_SRC="$ROOT_DIR/tests/codegen/test_fel67_hotreload_inline_literal_cast.seen"
+FEL68_STATIC_NEW_HANDLE_SRC="$ROOT_DIR/tests/codegen/test_fel68_static_new_handle_regression.seen"
 
 cleanup_seen_artifacts() {
     rm -rf "$ROOT_DIR/.seen_cache" /tmp/seen_ir_cache "$TMP_ROOT"
@@ -424,6 +427,83 @@ run_real_compiler_failure_case() {
     fi
 
     echo "PASS: $label"
+}
+
+run_emit_llvm_object_manifest_case() {
+    local output_file="$TMP_ROOT/fel66_emit_llvm_manifest"
+    local manifest_file="$TMP_ROOT/fel66_emit_llvm_manifest.objects.tsv"
+    local log_file="$TMP_ROOT/fel66_emit_llvm_manifest.log"
+    local emitted_ir="${output_file}.module0.ll"
+
+    cleanup_seen_artifacts
+
+    if ! timeout 120 "$COMPILER" compile "$FEL66_EMIT_LLVM_MANIFEST_SRC" "$output_file" \
+        --pic --no-cache --no-fork --object-manifest "$manifest_file" --emit-llvm \
+        >"$log_file" 2>&1; then
+        echo "FAIL: FEL-66 emit-llvm object manifest compile failed"
+        cat "$log_file"
+        exit 1
+    fi
+
+    if [[ ! -s "$emitted_ir" ]]; then
+        echo "FAIL: FEL-66 did not emit raw module LLVM IR"
+        cat "$log_file"
+        exit 1
+    fi
+
+    if [[ ! -s "$manifest_file" ]]; then
+        echo "FAIL: FEL-66 did not write an object manifest"
+        cat "$log_file"
+        exit 1
+    fi
+
+    local object_file
+    object_file="$(awk 'NF >= 1 { print $1; exit }' "$manifest_file")"
+    if [[ -z "$object_file" || ! -s "$object_file" ]]; then
+        echo "FAIL: FEL-66 manifest object was not produced"
+        cat "$log_file"
+        cat "$manifest_file"
+        exit 1
+    fi
+
+    echo "PASS: FEL-66 emit-llvm object manifests keep object emission"
+}
+
+run_static_new_handle_regression_case() {
+    local output_file="$TMP_ROOT/fel68_static_new_handle"
+    local manifest_file="$TMP_ROOT/fel68_static_new_handle.objects.tsv"
+    local log_file="$TMP_ROOT/fel68_static_new_handle.log"
+    local emitted_ir="${output_file}.module0.ll"
+
+    cleanup_seen_artifacts
+
+    if ! timeout 120 "$COMPILER" compile "$FEL68_STATIC_NEW_HANDLE_SRC" "$output_file" \
+        --pic --no-cache --no-fork --object-manifest "$manifest_file" --emit-llvm \
+        >"$log_file" 2>&1; then
+        echo "FAIL: FEL-68 static new handle compile failed"
+        cat "$log_file"
+        exit 1
+    fi
+
+    if [[ ! -s "$emitted_ir" ]]; then
+        echo "FAIL: FEL-68 did not emit raw module LLVM IR"
+        cat "$log_file"
+        exit 1
+    fi
+
+    if ! grep -q 'call i64 @VoxelTypeCountWork_new' "$emitted_ir"; then
+        echo "FAIL: FEL-68 did not lower PascalCase static new as an i64 class handle"
+        grep -n 'VoxelTypeCountWork_new' "$emitted_ir" || true
+        exit 1
+    fi
+
+    if grep -q 'ptrtoint ptr .*VoxelTypeCountWork_new' "$emitted_ir"; then
+        echo "FAIL: FEL-68 still converts static new pointer result before local storage"
+        grep -n 'VoxelTypeCountWork_new\\|ptrtoint ptr' "$emitted_ir" || true
+        exit 1
+    fi
+
+    echo "PASS: FEL-68 PascalCase static new locals use class-handle storage"
 }
 
 run_toml_project_modules_case() {
@@ -1690,6 +1770,9 @@ run_success_case "UInt32 top-level globals extend into module init stores" "$UIN
 run_scalar_get_guard_case
 run_success_case "9+ parameter functions parse without corruption" "$HIGH_ARITY_PARAMS_SRC" "$TMP_ROOT/high_arity_params" "$TMP_ROOT/high_arity_params.log"
 run_success_case "nested continue high-arity functions compile" "$NESTED_CONTINUE_HIGH_ARITY_SRC" "$TMP_ROOT/nested_continue_high_arity" "$TMP_ROOT/nested_continue_high_arity.log"
+run_emit_llvm_object_manifest_case
+run_success_case "FEL-67 hotreload inline string cast stays verifier-clean" "$FEL67_HOTRELOAD_INLINE_CAST_SRC" "$TMP_ROOT/fel67_hotreload_inline_cast" "$TMP_ROOT/fel67_hotreload_inline_cast.log"
+run_static_new_handle_regression_case
 run_c12_case
 run_recovery_partial_failure_case
 run_toml_project_modules_case

@@ -4390,6 +4390,69 @@ class LLVMIRGenerator {
             mapTypeState(this.varTypes[idx]), this.varRegs[idx])
     }
 
+    fun inferMembershipElementType(rightExpr: ParserExpressionNode,
+        rightType: String) r: String {
+
+        let declaredElementType = extractArrayLiteralElementTypeImpl(rightType)
+        if declaredElementType != "" {
+            return declaredElementType
+        }
+        if rightExpr.kind == "ArrayLiteral" and
+            rightExpr.arguments.length() > 0 {
+
+            return inferExpressionType(rightExpr.arguments[0])
+        }
+        return ""
+    }
+
+    fun generateMembershipArrayReg(rightExpr: ParserExpressionNode,
+        elementType: String) r: String {
+
+        let savedPendingType = pendingArrayLiteralType
+        if rightExpr.kind == "ArrayLiteral" {
+            if elementType == "String" {
+                pendingArrayLiteralType = "Array<String>"
+            }
+            if elementType == "Int" {
+                pendingArrayLiteralType = "Array<Int>"
+            }
+        }
+        let rightReg = generateExpression(rightExpr)
+        pendingArrayLiteralType = savedPendingType
+        return rightReg
+    }
+
+    fun generateMembershipExpression(leftExpr: ParserExpressionNode,
+        rightExpr: ParserExpressionNode, leftType: String, rightType: String)
+        r: String {
+
+        let elementType = inferMembershipElementType(rightExpr, rightType)
+        if elementType == "String" {
+            if leftType != "String" {
+                this.output.append("  ; WARNING: 'in' requires a String needle for Array<String>\n")
+                return "false"
+            }
+            let leftReg = generateExpression(leftExpr)
+            let rightReg = generateMembershipArrayReg(rightExpr, elementType)
+            let resultReg = getNextRegFn(g_regBox)
+            this.output.append("  " + resultReg + " = call i1 @seen_arr_contains_str(ptr " + rightReg + ", %SeenString " + leftReg + ")\n")
+            return resultReg
+        }
+        if elementType == "Int" {
+            if leftType != "Int" {
+                this.output.append("  ; WARNING: 'in' requires an Int needle for Array<Int>\n")
+                return "false"
+            }
+            let leftReg = generateExpression(leftExpr)
+            let rightReg = generateMembershipArrayReg(rightExpr, elementType)
+            let resultReg = getNextRegFn(g_regBox)
+            this.output.append("  " + resultReg + " = call i1 @seen_arr_contains_i64(ptr " + rightReg + ", i64 " + leftReg + ")\n")
+            return resultReg
+        }
+        this.output.append("  ; WARNING: unsupported 'in' set type " + rightType + "\n")
+        return "false"
+    }
+
     ///
     Generate IR for a binary expression (+, -, *, /, %, ==, !=, <, >, etc.).
     Type-dispatches: SIMD vector arithmetic, float operations (fadd/fsub/...),
@@ -4406,6 +4469,11 @@ class LLVMIRGenerator {
 
         let leftType = inferExpressionType(leftExpr)
         let rightType = inferExpressionType(rightExpr)
+
+        if expr.operator == "in" {
+            return generateMembershipExpression(leftExpr, rightExpr,
+                leftType, rightType)
+        }
 
         if expr.operator == "+" and isStringConcatTypePairImpl(leftType, rightType) {
             let flattenedStringConcat = generateFlattenedStringConcat(expr)

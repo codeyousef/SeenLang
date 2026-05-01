@@ -415,16 +415,6 @@ fun emitPreparedStaticMethodCallImpl(output: StringBuilder, regBox: Array<Int>,
         return emitStringFromCharCodeCallImpl(output, regBox, argRegs,
             argTypeStrs)
     }
-    if methodName == "new" and staticLlvmReturnType == "ptr" {
-        let rawResultReg = emitGenericStaticCallImpl(output, regBox,
-            quoteIdentIfNeededImpl(funcName), staticLlvmReturnType,
-            staticClassName, argRegs, argTypeStrs, isClassRecv, isDataRecv,
-            0)
-        let classHandleReg = getNextRegFn(regBox)
-        output.append("  " + classHandleReg + " = ptrtoint ptr " +
-            rawResultReg + " to i64\n")
-        return classHandleReg
-    }
 
     return emitGenericStaticCallImpl(output, regBox,
         quoteIdentIfNeededImpl(funcName), staticLlvmReturnType,

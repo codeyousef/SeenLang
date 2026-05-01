@@ -18,6 +18,8 @@ fun emitPrimitiveRuntimeDecls(output: StringBuilder,
     }
     output.append("declare i1 @seen_str_eq_ss(%SeenString, %SeenString) nounwind readonly\n")
     output.append("declare i1 @seen_str_ne_ss(%SeenString, %SeenString) nounwind readonly\n")
+    output.append("declare i1 @seen_arr_contains_str(ptr, %SeenString) nounwind readonly\n")
+    output.append("declare i1 @seen_arr_contains_i64(ptr, i64) nounwind readonly\n")
 
     ///
     Array functions - pass SeenArray by value (matches C ABI: SeenArray a, not ptr)

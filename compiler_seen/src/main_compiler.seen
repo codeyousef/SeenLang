@@ -6282,13 +6282,17 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             let llvmIR = generator.generateSingle(frontend.program, moduleIndex)
             let codegenEndTime = getTraceTimeSeconds()
             println("    [" + moduleIndex.toString() + "] Codegen done in " + (codegenEndTime - codegenStartTime).toString() + "s")
-            if g_emitLlvm {
-                let emitDst = outputFile + ".module" + moduleIndex.toString() + ".ll"
-                let emitCp: CommandResult = runCommand("cp " + llFile + " " + emitDst)
-            }
             if not writeText(llFile, llvmIR) {
                 println("[irgen] Failed to write IR: " + llFile)
                 return 1
+            }
+            if g_emitLlvm {
+                let emitDst = outputFile + ".module" + moduleIndex.toString() + ".ll"
+                let emitCp: CommandResult = runCommand("cp " + llFile + " " + emitDst)
+                if not commandWasSuccessful(emitCp) {
+                    println("[irgen] Failed to emit LLVM IR: " + emitDst)
+                    return 1
+                }
             }
             let moduleEndTime = getTraceTimeSeconds()
             println("    [" + moduleIndex.toString() + "] Module IR ready in " + (moduleEndTime - moduleStartTime).toString() + "s")
@@ -6332,17 +6336,24 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                     if g_generatedTestMainMode == 0 {
                         writeText(statusFile, "codegen_done\n" + path)
                     }
-                    // --emit-llvm: save IR alongside output for debugging
-                    if g_emitLlvm {
-                        let emitDst = outputFile + ".module" + moduleIndex.toString() + ".ll"
-                        let emitCp: CommandResult = runCommand("cp " + llFile + " " + emitDst)
-                    }
                     if not writeText(llFile, llvmIR) {
                         if g_generatedTestMainMode == 0 {
                             writeText(statusFile, "write_failed\n" + llFile)
                         }
                         println("[irgen child] Failed to write IR: " + llFile)
                         processExit(1)
+                    }
+                    // --emit-llvm: save IR alongside output for debugging
+                    if g_emitLlvm {
+                        let emitDst = outputFile + ".module" + moduleIndex.toString() + ".ll"
+                        let emitCp: CommandResult = runCommand("cp " + llFile + " " + emitDst)
+                        if not commandWasSuccessful(emitCp) {
+                            if g_generatedTestMainMode == 0 {
+                                writeText(statusFile, "emit_failed\n" + emitDst)
+                            }
+                            println("[irgen child] Failed to emit LLVM IR: " + emitDst)
+                            processExit(1)
+                        }
                     }
                     if g_generatedTestMainMode == 1 and normalizedCrossTarget != "android-arm64" {
                         let objFile = "/tmp/seen_module_" + moduleIndex.toString() + ".o"

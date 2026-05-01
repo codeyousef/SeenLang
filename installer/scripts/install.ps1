@@ -8,6 +8,8 @@ param(
     [string]$Arch = $null,
     [switch]$NoPath = $false,
     [switch]$NoStdlib = $false,
+    [switch]$SkipToolchain = $false,
+    [switch]$InstallToolchain = $false,
     [switch]$Help = $false,
     [switch]$System = $false
 )
@@ -65,6 +67,8 @@ function Show-Help {
     Write-Host "  -Arch ARCH           Target architecture (default: auto-detect)"
     Write-Host "  -NoPath              Don't modify PATH"
     Write-Host "  -NoStdlib            Don't install standard library"
+    Write-Host "  -SkipToolchain       Don't check LLVM toolchain dependencies"
+    Write-Host "  -InstallToolchain    Attempt managed LLVM installation with winget"
     Write-Host "  -System              Install system-wide (requires admin privileges)"
     Write-Host "  -Help                Show this help message"
     Write-Host ""
@@ -477,30 +481,37 @@ function Install-SeenLanguage {
         New-StartMenuShortcuts -InstallDir $InstallDir
         
         # Check for LLVM (required dependency for compilation)
-        Write-Info "Checking for LLVM toolchain..."
-        $llvmClang = Get-Command clang -ErrorAction SilentlyContinue
-        $llvmOpt = Get-Command opt -ErrorAction SilentlyContinue
-        if (-not $llvmClang -or -not $llvmOpt) {
-            Write-Host ""
-            Write-Warning-Custom "LLVM is not installed or not in PATH."
-            Write-Host "  The Seen compiler requires LLVM (clang, opt) to generate native binaries." -ForegroundColor Yellow
-            Write-Host ""
-            Write-Host "  Install LLVM using one of these methods:" -ForegroundColor White
-            Write-Host "    winget install LLVM.LLVM" -ForegroundColor Gray
-            Write-Host "    Or download from: https://github.com/llvm/llvm-project/releases" -ForegroundColor Gray
-            Write-Host ""
-            Write-Host "  A helper script is available at:" -ForegroundColor White
-            Write-Host "    $InstallDir\share\seen\install-llvm.ps1" -ForegroundColor Gray
-            Write-Host ""
-
-            # Copy the LLVM installer helper if available
-            $llvmHelper = Join-Path $InstallDir "share\seen\install-llvm.ps1"
-            $shareSeenDir = Join-Path $InstallDir "share\seen"
-            if (-not (Test-Path $shareSeenDir)) {
-                New-Item -ItemType Directory -Path $shareSeenDir -Force | Out-Null
+        if (-not $SkipToolchain) {
+            Write-Info "Checking for LLVM toolchain..."
+            $llvmClang = Get-Command clang -ErrorAction SilentlyContinue
+            $llvmOpt = Get-Command opt -ErrorAction SilentlyContinue
+            $llvmLlc = Get-Command llc -ErrorAction SilentlyContinue
+            $llvmAs = Get-Command llvm-as -ErrorAction SilentlyContinue
+            $llvmLld = Get-Command lld-link -ErrorAction SilentlyContinue
+            if (-not $llvmLld) {
+                $llvmLld = Get-Command ld.lld -ErrorAction SilentlyContinue
             }
-            # Create inline LLVM helper
-            @'
+            if (-not $llvmClang -or -not $llvmOpt -or -not $llvmLlc -or -not $llvmAs -or -not $llvmLld) {
+                Write-Host ""
+                Write-Warning-Custom "LLVM is not installed or not in PATH."
+                Write-Host "  The Seen compiler requires LLVM 18+ (clang, opt, llc, llvm-as, lld) to generate native binaries." -ForegroundColor Yellow
+                Write-Host ""
+                Write-Host "  Install LLVM using one of these methods:" -ForegroundColor White
+                Write-Host "    winget install LLVM.LLVM" -ForegroundColor Gray
+                Write-Host "    Or download from: https://github.com/llvm/llvm-project/releases" -ForegroundColor Gray
+                Write-Host ""
+                Write-Host "  A helper script is available at:" -ForegroundColor White
+                Write-Host "    $InstallDir\share\seen\install-llvm.ps1" -ForegroundColor Gray
+                Write-Host ""
+
+                # Copy the LLVM installer helper if available
+                $llvmHelper = Join-Path $InstallDir "share\seen\install-llvm.ps1"
+                $shareSeenDir = Join-Path $InstallDir "share\seen"
+                if (-not (Test-Path $shareSeenDir)) {
+                    New-Item -ItemType Directory -Path $shareSeenDir -Force | Out-Null
+                }
+                # Create inline LLVM helper
+                @'
 # Install LLVM for Seen Language - run: powershell -ExecutionPolicy Bypass -File install-llvm.ps1
 $winget = Get-Command winget -ErrorAction SilentlyContinue
 if ($winget) {
@@ -510,9 +521,21 @@ if ($winget) {
     Write-Host "Please install LLVM from: https://github.com/llvm/llvm-project/releases" -ForegroundColor Yellow
 }
 '@ | Set-Content -Path $llvmHelper
+                if ($InstallToolchain) {
+                    $winget = Get-Command winget -ErrorAction SilentlyContinue
+                    if ($winget) {
+                        Write-Info "Installing LLVM via winget..."
+                        winget install LLVM.LLVM --accept-package-agreements --accept-source-agreements
+                    } else {
+                        Write-Warning-Custom "winget not found; install LLVM manually."
+                    }
+                }
+            } else {
+                $clangVer = & clang --version 2>&1 | Select-Object -First 1
+                Write-Success "LLVM found: $clangVer"
+            }
         } else {
-            $clangVer = & clang --version 2>&1 | Select-Object -First 1
-            Write-Success "LLVM found: $clangVer"
+            Write-Info "Skipping LLVM toolchain check."
         }
 
         # Verify and complete

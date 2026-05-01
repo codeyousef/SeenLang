@@ -20,6 +20,7 @@ INSTALL_DIR="${INSTALL_DIR:-/usr/local}"
 ARCH="${ARCH:-$(uname -m)}"
 ADD_TO_PATH="${ADD_TO_PATH:-true}"
 INSTALL_STDLIB="${INSTALL_STDLIB:-true}"
+INSTALL_TOOLCHAIN="${INSTALL_TOOLCHAIN:-check}"
 
 # Colors for output
 RED='\033[0;31m'
@@ -194,6 +195,21 @@ install_seen() {
     
     info "Extracting files..."
     tar -xzf "$temp_dir/seen.tar.gz" -C "$temp_dir"
+
+    local package_dir="$temp_dir"
+    local seen_bin="$temp_dir/seen"
+    if [ ! -f "$seen_bin" ]; then
+        for candidate in "$temp_dir"/*/bin/seen; do
+            if [ -f "$candidate" ]; then
+                package_dir="$(dirname "$(dirname "$candidate")")"
+                seen_bin="$candidate"
+                break
+            fi
+        done
+    fi
+    if [ ! -f "$seen_bin" ]; then
+        error "Release archive does not contain a Seen compiler binary"
+    fi
     
     info "Installing Seen to $install_dir..."
     
@@ -202,33 +218,44 @@ install_seen() {
         sudo mkdir -p "$install_dir/bin"
         sudo mkdir -p "$install_dir/lib/seen"
         sudo mkdir -p "$install_dir/share/seen"
+        sudo mkdir -p "$install_dir/share/doc/seen"
         
         # Install binaries. Use temp-file rename so an existing destination
         # symlink is replaced rather than followed by cp.
-        install_file_no_follow "$temp_dir/seen" "$install_dir/bin/seen" 755 true
+        install_file_no_follow "$seen_bin" "$install_dir/bin/seen" 755 true
         
         # Install LSP server if present
-        if [ -f "$temp_dir/seen-lsp" ]; then
+        if [ -f "$package_dir/bin/seen-lsp" ]; then
+            install_file_no_follow "$package_dir/bin/seen-lsp" "$install_dir/bin/seen-lsp" 755 true
+        elif [ -f "$temp_dir/seen-lsp" ]; then
             install_file_no_follow "$temp_dir/seen-lsp" "$install_dir/bin/seen-lsp" 755 true
         fi
         
         # Install RISC-V cross-compilation tools if present
-        if [ -f "$temp_dir/seen-riscv" ]; then
+        if [ -f "$package_dir/bin/seen-riscv" ]; then
+            install_file_no_follow "$package_dir/bin/seen-riscv" "$install_dir/bin/seen-riscv" 755 true
+        elif [ -f "$temp_dir/seen-riscv" ]; then
             install_file_no_follow "$temp_dir/seen-riscv" "$install_dir/bin/seen-riscv" 755 true
         fi
         
-        # Install standard library
-        if [ "$INSTALL_STDLIB" = "true" ] && [ -d "$temp_dir/stdlib" ]; then
+        # Install standard library/runtime/toolchain
+        if [ -d "$package_dir/lib/seen" ]; then
+            sudo cp -r "$package_dir/lib/seen/"* "$install_dir/lib/seen/"
+        elif [ "$INSTALL_STDLIB" = "true" ] && [ -d "$temp_dir/stdlib" ]; then
             sudo cp -r "$temp_dir/stdlib" "$install_dir/lib/seen/"
         fi
         
         # Install language configurations
-        if [ -d "$temp_dir/languages" ]; then
+        if [ -d "$package_dir/share/seen" ]; then
+            sudo cp -r "$package_dir/share/seen/"* "$install_dir/share/seen/"
+        elif [ -d "$temp_dir/languages" ]; then
             sudo cp -r "$temp_dir/languages" "$install_dir/share/seen/"
         fi
         
         # Install documentation
-        if [ -d "$temp_dir/docs" ]; then
+        if [ -d "$package_dir/share/doc/seen" ]; then
+            sudo cp -r "$package_dir/share/doc/seen/"* "$install_dir/share/doc/seen/"
+        elif [ -d "$temp_dir/docs" ]; then
             sudo cp -r "$temp_dir/docs" "$install_dir/share/seen/"
         fi
         
@@ -243,26 +270,37 @@ install_seen() {
         mkdir -p "$install_dir/bin"
         mkdir -p "$install_dir/lib/seen"
         mkdir -p "$install_dir/share/seen"
+        mkdir -p "$install_dir/share/doc/seen"
         
-        install_file_no_follow "$temp_dir/seen" "$install_dir/bin/seen" 755 false
+        install_file_no_follow "$seen_bin" "$install_dir/bin/seen" 755 false
         
-        if [ -f "$temp_dir/seen-lsp" ]; then
+        if [ -f "$package_dir/bin/seen-lsp" ]; then
+            install_file_no_follow "$package_dir/bin/seen-lsp" "$install_dir/bin/seen-lsp" 755 false
+        elif [ -f "$temp_dir/seen-lsp" ]; then
             install_file_no_follow "$temp_dir/seen-lsp" "$install_dir/bin/seen-lsp" 755 false
         fi
         
-        if [ -f "$temp_dir/seen-riscv" ]; then
+        if [ -f "$package_dir/bin/seen-riscv" ]; then
+            install_file_no_follow "$package_dir/bin/seen-riscv" "$install_dir/bin/seen-riscv" 755 false
+        elif [ -f "$temp_dir/seen-riscv" ]; then
             install_file_no_follow "$temp_dir/seen-riscv" "$install_dir/bin/seen-riscv" 755 false
         fi
         
-        if [ "$INSTALL_STDLIB" = "true" ] && [ -d "$temp_dir/stdlib" ]; then
+        if [ -d "$package_dir/lib/seen" ]; then
+            cp -r "$package_dir/lib/seen/"* "$install_dir/lib/seen/"
+        elif [ "$INSTALL_STDLIB" = "true" ] && [ -d "$temp_dir/stdlib" ]; then
             cp -r "$temp_dir/stdlib" "$install_dir/lib/seen/"
         fi
         
-        if [ -d "$temp_dir/languages" ]; then
+        if [ -d "$package_dir/share/seen" ]; then
+            cp -r "$package_dir/share/seen/"* "$install_dir/share/seen/"
+        elif [ -d "$temp_dir/languages" ]; then
             cp -r "$temp_dir/languages" "$install_dir/share/seen/"
         fi
         
-        if [ -d "$temp_dir/docs" ]; then
+        if [ -d "$package_dir/share/doc/seen" ]; then
+            cp -r "$package_dir/share/doc/seen/"* "$install_dir/share/doc/seen/"
+        elif [ -d "$temp_dir/docs" ]; then
             cp -r "$temp_dir/docs" "$install_dir/share/seen/"
         fi
     fi
@@ -326,6 +364,42 @@ create_symlinks() {
             sudo ln -sf "$install_dir/bin/seen" "/usr/local/bin/seen" 2>/dev/null || true
             sudo ln -sf "$install_dir/bin/seen-lsp" "/usr/local/bin/seen-lsp" 2>/dev/null || true
         fi
+    fi
+}
+
+ensure_toolchain() {
+    local install_dir="$1"
+    local helper="$install_dir/lib/seen/toolchain/seen-toolchain.sh"
+
+    if [ "$INSTALL_TOOLCHAIN" = "skip" ] || [ "${SEEN_SKIP_TOOLCHAIN:-0}" = "1" ]; then
+        info "Skipping LLVM toolchain check."
+        return
+    fi
+
+    info "Checking LLVM toolchain..."
+    if [ -x "$helper" ]; then
+        if [ "$INSTALL_TOOLCHAIN" = "install" ] || [ "${SEEN_MANAGED_TOOLCHAIN:-0}" = "1" ]; then
+            if ! "$helper" --install --prefix "$install_dir"; then
+                warning "Managed LLVM installation failed. Install LLVM 18+ manually."
+            fi
+        elif ! "$helper" --check --prefix "$install_dir"; then
+            warning "LLVM 18+ tools are not ready. Install clang, opt, llc, llvm-as, and lld."
+            warning "Rerun with --install-toolchain or SEEN_MANAGED_TOOLCHAIN=1 for a managed install attempt."
+        fi
+        return
+    fi
+
+    local missing=()
+    for tool in clang opt llc; do
+        if ! command -v "$tool" >/dev/null 2>&1; then
+            missing+=("$tool")
+        fi
+    done
+    if [ ${#missing[@]} -gt 0 ]; then
+        warning "Missing LLVM tools: ${missing[*]}"
+        warning "Install LLVM 18+ before building native Seen programs."
+    else
+        success "LLVM toolchain found"
     fi
 }
 
@@ -401,6 +475,7 @@ main() {
     install_seen "$temp_dir" "$INSTALL_DIR"
     setup_path "$INSTALL_DIR"
     create_symlinks "$INSTALL_DIR"
+    ensure_toolchain "$INSTALL_DIR"
     
     # Verify and complete
     verify_installation
@@ -430,6 +505,14 @@ while [[ $# -gt 0 ]]; do
             INSTALL_STDLIB="false"
             shift
             ;;
+        --skip-toolchain)
+            INSTALL_TOOLCHAIN="skip"
+            shift
+            ;;
+        --install-toolchain)
+            INSTALL_TOOLCHAIN="install"
+            shift
+            ;;
         --help)
             echo "Seen Language Installer"
             echo ""
@@ -441,6 +524,8 @@ while [[ $# -gt 0 ]]; do
             echo "  --arch ARCH           Target architecture (default: auto-detect)"
             echo "  --no-path             Don't modify PATH"
             echo "  --no-stdlib           Don't install standard library"
+            echo "  --skip-toolchain      Don't check LLVM toolchain dependencies"
+            echo "  --install-toolchain   Attempt managed LLVM installation"
             echo "  --help                Show this help message"
             echo ""
             echo "Environment variables:"
@@ -449,6 +534,9 @@ while [[ $# -gt 0 ]]; do
             echo "  ARCH                 Target architecture"
             echo "  ADD_TO_PATH          Add to PATH (true/false)"
             echo "  INSTALL_STDLIB       Install stdlib (true/false)"
+            echo "  INSTALL_TOOLCHAIN    check, install, or skip"
+            echo "  SEEN_MANAGED_TOOLCHAIN=1 attempts managed LLVM installation"
+            echo "  SEEN_SKIP_TOOLCHAIN=1 skips LLVM checks"
             echo ""
             exit 0
             ;;
