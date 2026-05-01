@@ -1,12 +1,12 @@
-/**
- * PipeWire audio FFI bindings for Linux.
- *
- * Low-level bindings to PipeWire via libseen_platform.so shim.
- * Provides audio streaming with low latency and automatic device routing.
- * Prefer the higher-level AudioDevice from audio.audio module.
- *
- * Link with: -lseen_platform (which wraps libpipewire-0.3.so)
- */
+///
+PipeWire audio FFI bindings for Linux.
+
+Low-level bindings to PipeWire via libseen_platform.so shim.
+Provides audio streaming with low latency and automatic device routing.
+Prefer the higher-level AudioDevice from audio.audio module.
+
+Link with: -lseen_platform (which wraps libpipewire-0.3.so)
+///
 
 import core.result.{Result, Ok, Err}
 import core.unit.{Unit}
@@ -100,9 +100,9 @@ fun parsePwStreamState(state: Int) r: PwStreamState {
     return PwStreamState.Error
 }
 
-/**
- * PipeWire audio format configuration.
- */
+///
+PipeWire audio format configuration.
+///
 class PwAudioFormat {
     var format: Int
     var channels: Int
@@ -137,12 +137,12 @@ class PwAudioFormat {
     }
 }
 
-/**
- * PipeWire thread loop for async audio processing.
- *
- * Runs PipeWire's event loop in a separate thread. Use lock()/unlock()
- * when accessing PipeWire objects from the main thread.
- */
+///
+PipeWire thread loop for async audio processing.
+
+Runs PipeWire's event loop in a separate thread. Use lock()/unlock()
+when accessing PipeWire objects from the main thread.
+///
 class PwThreadLoop {
     var nativeHandle: *Void
 
@@ -186,9 +186,9 @@ class PwThreadLoop {
     }
 }
 
-/**
- * Check if PipeWire is available on the system.
- */
+///
+Check if PipeWire is available on the system.
+///
 fun pw_is_available() r: Bool {
     seen_pw_init()
     let version = seen_pw_get_library_version()

@@ -1,8 +1,8 @@
-/**
- * E2E tests for Linux platform constant values.
- * Verifies all constants defined in platform bindings have correct values.
- * This is a self-contained test that doesn't rely on cross-module imports.
- */
+///
+E2E tests for Linux platform constant values.
+Verifies all constants defined in platform bindings have correct values.
+This is a self-contained test that doesn't rely on cross-module imports.
+///
 
 fun expectEq(actual: Int, expected: Int, name: String) -> Int {
     if actual == expected {

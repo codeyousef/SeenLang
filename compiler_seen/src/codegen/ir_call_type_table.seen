@@ -54,6 +54,22 @@ fun inferCallTypeTableImpl(callee: String) r: String {
     if callee == "FrontendDiagnostic" { return callee }
     if callee == "TypeInferenceResult" { return callee }
     if callee == "TypeError" { return callee }
+    if callee == "FunctionLoweringOptions" { return callee }
+    if callee == "CodegenState" { return callee }
+    if callee == "CodegenStateBridgeSnapshot" { return callee }
+    if callee == "FunctionAttributeStateSnapshot" { return callee }
+    if callee == "FunctionDecoratorPreflightSnapshot" { return callee }
+    if callee == "NestedScratchStateSnapshot" { return callee }
+    if callee == "FunctionGenerationIdentitySnapshot" { return callee }
+    if callee == "FunctionEntrySetupSnapshot" { return callee }
+    if callee == "FunctionRuntimeStateSnapshot" { return callee }
+    if callee == "FunctionPreludeAnalysisSnapshot" { return callee }
+    if callee == "FunctionPreBodyStateSnapshot" { return callee }
+    if callee == "FunctionMainEntrySnapshot" { return callee }
+    if callee == "FunctionIntrinsicFlowPlan" { return callee }
+    if callee == "FunctionIdentityFlowPlan" { return callee }
+    if callee == "FunctionHighPressurePlan" { return callee }
+    if callee == "FunctionEntryExitFlowPlan" { return callee }
     // Data/utility types
     if callee == "Token" { return callee }
     if callee == "StringBuilder" { return callee }
@@ -237,6 +253,69 @@ fun inferCallTypeTableImpl(callee: String) r: String {
     }
     if callee == "inferExpressionType" {
         return "String"
+    }
+    if callee == "getSharedCodegenState" { return "CodegenState" }
+    if callee == "getCurrentFunctionOptions" {
+        return "FunctionLoweringOptions"
+    }
+    if callee == "captureCodegenStateBridgeSnapshotImpl" {
+        return "CodegenStateBridgeSnapshot"
+    }
+    if callee == "snapshotNestedScratchStateImpl" {
+        return "NestedScratchStateSnapshot"
+    }
+    if callee == "prepareFunctionGenerationIdentitySnapshotImpl" {
+        return "FunctionGenerationIdentitySnapshot"
+    }
+    if callee == "prepareFunctionPreBodyStateSnapshotImpl" {
+        return "FunctionPreBodyStateSnapshot"
+    }
+    if callee == "emitMainFunctionEntrySnapshotImpl" {
+        return "FunctionMainEntrySnapshot"
+    }
+    if callee == "prepareFunctionAttributeStateSnapshotImpl" {
+        return "FunctionAttributeStateSnapshot"
+    }
+    if callee == "prepareFunctionDecoratorPreflightSnapshotImpl" {
+        return "FunctionDecoratorPreflightSnapshot"
+    }
+    if callee == "prepareFunctionPreludeAnalysisSnapshotImpl" {
+        return "FunctionPreludeAnalysisSnapshot"
+    }
+    if callee == "emitFunctionEntrySetupSnapshotImpl" {
+        return "FunctionEntrySetupSnapshot"
+    }
+    if callee == "emitFunctionExitResetSnapshotImpl" {
+        return "FunctionRuntimeStateSnapshot"
+    }
+    if callee == "planFunctionIntrinsicFlowImpl" {
+        return "FunctionIntrinsicFlowPlan"
+    }
+    if callee == "planFunctionIdentityFlowImpl" {
+        return "FunctionIdentityFlowPlan"
+    }
+    if callee == "planFunctionHighPressureImpl" {
+        return "FunctionHighPressurePlan"
+    }
+    if callee == "planFunctionEntryExitFlowImpl" {
+        return "FunctionEntryExitFlowPlan"
+    }
+    if callee == "shouldSkipFunctionByCfgImpl" { return "Bool" }
+    if callee == "tryHandleGpuShaderFunctionGenerationImpl" {
+        return "Bool"
+    }
+    if callee == "shouldSkipSpecialFunctionBodyImpl" { return "Bool" }
+    if callee == "tryHandleIntrinsicFunctionGenerationStateImpl" {
+        return "Bool"
+    }
+    if callee == "shouldSkipFunctionByCfgStateImpl" { return "Bool" }
+    if callee == "shouldSkipSpecialFunctionBodyStateImpl" { return "Bool" }
+    if callee == "tryHandleExternFunctionGenerationStateImpl" {
+        return "Bool"
+    }
+    if callee == "hasFunctionDecoratorImpl" { return "Bool" }
+    if callee == "shouldReturnAfterFunctionDecoratorPreflightImpl" {
+        return "Bool"
     }
     // RealParser utility methods (when called without explicit receiver)
     if callee == "consume" { return "Token" }

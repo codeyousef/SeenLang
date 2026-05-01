@@ -1,12 +1,12 @@
-/**
- * Safe window abstraction over SDL3.
- *
- * Provides a Window class and event handling for Linux applications.
- * This module wraps SDL3's low-level API with type-safe Seen classes
- * for window management, input handling, and Vulkan surface creation.
- *
- * Link with: -lSDL3
- */
+///
+Safe window abstraction over SDL3.
+
+Provides a Window class and event handling for Linux applications.
+This module wraps SDL3's low-level API with type-safe Seen classes
+for window management, input handling, and Vulkan surface creation.
+
+Link with: -lSDL3
+///
 
 import core.result.{Result, Ok, Err}
 import core.unit.{Unit}
@@ -29,12 +29,12 @@ import platform.linux.sdl3.{
     cstr_to_string
 }
 
-/**
- * Event types for the window event system.
- *
- * Maps SDL3 event types to a type-safe enum for use with
- * Window.pollEvent() and Window.pollEvents().
- */
+///
+Event types for the window event system.
+
+Maps SDL3 event types to a type-safe enum for use with
+Window.pollEvent() and Window.pollEvents().
+///
 enum EventType {
     Quit
     KeyDown
@@ -51,12 +51,12 @@ enum EventType {
     Unknown
 }
 
-/**
- * Keyboard event data.
- *
- * Contains scancode, keycode, modifier state, and repeat flag
- * for keyboard press/release events.
- */
+///
+Keyboard event data.
+
+Contains scancode, keycode, modifier state, and repeat flag
+for keyboard press/release events.
+///
 class KeyEvent {
     var scancode: Int
     var keycode: Int
@@ -85,12 +85,12 @@ class KeyEvent {
     }
 }
 
-/**
- * Mouse event data.
- *
- * Contains position, button, click count, and delta movement
- * for mouse motion and button events.
- */
+///
+Mouse event data.
+
+Contains position, button, click count, and delta movement
+for mouse motion and button events.
+///
 class MouseEvent {
     var x: Int
     var y: Int
@@ -111,12 +111,12 @@ class MouseEvent {
     }
 }
 
-/**
- * Mouse wheel/scroll event data.
- *
- * Contains position and scroll delta in both axes.
- * Positive deltaY indicates scrolling up/forward.
- */
+///
+Mouse wheel/scroll event data.
+
+Contains position and scroll delta in both axes.
+Positive deltaY indicates scrolling up/forward.
+///
 class WheelEvent {
     var x: Int
     var y: Int
@@ -133,12 +133,12 @@ class WheelEvent {
     }
 }
 
-/**
- * Window resize event data.
- *
- * Contains the new width and height after a window resize.
- * Also used for querying window and drawable dimensions.
- */
+///
+Window resize event data.
+
+Contains the new width and height after a window resize.
+Also used for querying window and drawable dimensions.
+///
 class ResizeEvent {
     var width: Int
     var height: Int
@@ -148,12 +148,12 @@ class ResizeEvent {
     }
 }
 
-/**
- * Gamepad event data.
- *
- * Contains gamepad ID, button/axis info, and value for
- * controller input events received through SDL3.
- */
+///
+Gamepad event data.
+
+Contains gamepad ID, button/axis info, and value for
+controller input events received through SDL3.
+///
 class GamepadEvent {
     var gamepadId: Int
     var button: Int
@@ -170,12 +170,12 @@ class GamepadEvent {
     }
 }
 
-/**
- * Unified event structure.
- *
- * Contains an event type and data for all supported event kinds.
- * Only the data corresponding to eventType is valid.
- */
+///
+Unified event structure.
+
+Contains an event type and data for all supported event kinds.
+Only the data corresponding to eventType is valid.
+///
 class Event {
     var eventType: EventType
     var keyEvent: KeyEvent
@@ -288,12 +288,12 @@ class Event {
     }
 }
 
-/**
- * Window configuration using a builder pattern.
- *
- * Create with WindowConfig.new() then chain methods like
- * withVulkan(), withFullscreen(), etc. Pass to Window.create().
- */
+///
+Window configuration using a builder pattern.
+
+Create with WindowConfig.new() then chain methods like
+withVulkan(), withFullscreen(), etc. Pass to Window.create().
+///
 class WindowConfig {
     var title: String
     var width: Int
@@ -378,20 +378,20 @@ fun getEventBuffer() r: Array<UInt8> {
     return Array<UInt8>.withCapacity(128)
 }
 
-/**
- * Main window class for creating and managing application windows.
- *
- * Wraps SDL3 window functionality with a safe, object-oriented API.
- * Handles initialization, event polling, and Vulkan surface creation.
- *
- * Example:
- *   let window = Window.new("My App", 800, 600).unwrap()
- *   while not window.shouldClose() {
- *       let events = window.pollEvents()
- *       // nativeHandle events...
- *   }
- *   window.destroy()
- */
+///
+Main window class for creating and managing application windows.
+
+Wraps SDL3 window functionality with a safe, object-oriented API.
+Handles initialization, event polling, and Vulkan surface creation.
+
+Example:
+  let window = Window.new("My App", 800, 600).unwrap()
+  while not window.shouldClose() {
+      let events = window.pollEvents()
+      // nativeHandle events...
+  }
+  window.destroy()
+///
 class Window {
     var nativeHandle: *Void
     var width: Int
@@ -399,12 +399,12 @@ class Window {
     var title: String
     var shouldCloseFlag: Bool
 
-    /**
-     * Create a window with the specified configuration.
-     *
-     * Initializes SDL3 with video, events, and gamepad subsystems.
-     * Returns an error if SDL initialization or window creation fails.
-     */
+    ///
+    Create a window with the specified configuration.
+
+    Initializes SDL3 with video, events, and gamepad subsystems.
+    Returns an error if SDL initialization or window creation fails.
+    ///
     static fun create(config: WindowConfig) r: Result<Window, String> {
         // Initialize SDL with video and events
         let initFlags = (SDL_INIT_VIDEO | SDL_INIT_EVENTS | SDL_INIT_GAMEPAD) as UInt32
@@ -429,27 +429,27 @@ class Window {
         })
     }
 
-    /**
-     * Create a basic resizable window with default settings.
-     */
+    ///
+    Create a basic resizable window with default settings.
+    ///
     static fun new(title: String, width: Int, height: Int) r: Result<Window, String> {
         let config = WindowConfig.new(title, width, height)
         return Window.create(config)
     }
 
-    /**
-     * Create a window with Vulkan rendering support enabled.
-     */
+    ///
+    Create a window with Vulkan rendering support enabled.
+    ///
     static fun newVulkan(title: String, width: Int, height: Int) r: Result<Window, String> {
         let config = WindowConfig.new(title, width, height).withVulkan()
         return Window.create(config)
     }
 
-    /**
-     * Poll for a single event (non-blocking).
-     *
-     * Returns Err("No event") if no events are pending.
-     */
+    ///
+    Poll for a single event (non-blocking).
+
+    Returns Err("No event") if no events are pending.
+    ///
     fun pollEvent() r: Result<Event, String> {
         // SDL_Event is 128 bytes, use raw memory for it
         let eventPtr = getEventBuffer().data() as *Void
@@ -464,12 +464,12 @@ class Window {
         return Ok(this.parseEvent(eventType, eventPtr))
     }
 
-    /**
-     * Poll and return all pending events.
-     *
-     * Automatically sets shouldCloseFlag when quit/close events
-     * are received. Call this once per frame in your game loop.
-     */
+    ///
+    Poll and return all pending events.
+
+    Automatically sets shouldCloseFlag when quit/close events
+    are received. Call this once per frame in your game loop.
+    ///
     fun pollEvents() r: Array<Event> {
         var events = Array<Event>()
         let eventPtr = getEventBuffer().data() as *Void
@@ -635,12 +635,12 @@ class Window {
         return Ok(Unit{})
     }
 
-    /**
-     * Create a Vulkan surface for this window.
-     *
-     * Requires the window to be created with withVulkan().
-     * The surface must be destroyed before the Vulkan instance.
-     */
+    ///
+    Create a Vulkan surface for this window.
+
+    Requires the window to be created with withVulkan().
+    The surface must be destroyed before the Vulkan instance.
+    ///
     fun getVulkanSurface(vkInstance: *Void) r: Result<UInt64, String> {
         var surface: UInt64 = 0
         let result = SDL_Vulkan_CreateSurface(this.nativeHandle, vkInstance, null, &surface)
@@ -650,12 +650,12 @@ class Window {
         return Ok(surface)
     }
 
-    /**
-     * Get the Vulkan drawable size in pixels.
-     *
-     * May differ from window size on high-DPI displays.
-     * Use this for swapchain extent and framebuffer dimensions.
-     */
+    ///
+    Get the Vulkan drawable size in pixels.
+
+    May differ from window size on high-DPI displays.
+    Use this for swapchain extent and framebuffer dimensions.
+    ///
     fun getVulkanDrawableSize() r: ResizeEvent {
         var w: Int = 0
         var h: Int = 0
@@ -663,28 +663,28 @@ class Window {
         return ResizeEvent.new(w, h)
     }
 
-    /**
-     * Destroy the window and cleanup SDL resources.
-     *
-     * Must be called when done with the window. After calling,
-     * the Window object should not be used.
-     */
+    ///
+    Destroy the window and cleanup SDL resources.
+
+    Must be called when done with the window. After calling,
+    the Window object should not be used.
+    ///
     fun destroy() r: Void {
         SDL_DestroyWindow(this.nativeHandle)
         SDL_Quit()
     }
 }
 
-/**
- * Get elapsed time since SDL initialization in milliseconds.
- */
+///
+Get elapsed time since SDL initialization in milliseconds.
+///
 fun getTicksMs() r: UInt64 {
     return SDL_GetTicks()
 }
 
-/**
- * Delay execution for the specified number of milliseconds.
- */
+///
+Delay execution for the specified number of milliseconds.
+///
 fun delay(ms: Int) r: Void {
     SDL_Delay(ms as UInt32)
 }

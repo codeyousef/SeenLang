@@ -91,6 +91,13 @@ void* __seen_hotreload_get_function(SeenHotModule* module, SeenStringHR name);
 // Register a function in a module's function table
 int __seen_hotreload_register_function(SeenHotModule* module, SeenStringHR name, void* fn_ptr);
 
+/*
+ * Typed dlsym trampolines for hosts that cannot safely call raw function
+ * pointers from Seen code.
+ */
+int64_t __seen_hotreload_call_i64(SeenHotModule* module, SeenStringHR name);
+int64_t __seen_hotreload_call_i64_ptr(SeenHotModule* module, SeenStringHR name, void* arg0);
+
 // ============================================================================
 // State Serialization
 // ============================================================================

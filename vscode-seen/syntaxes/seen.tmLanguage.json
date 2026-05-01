@@ -275,9 +275,9 @@
     "comments": {
       "patterns": [
         {
-          "name": "comment.line.double-slash.seen",
-          "begin": "//",
-          "end": "$",
+          "name": "comment.block.seen",
+          "begin": "^\\s*///\\s*$",
+          "end": "^\\s*///\\s*$",
           "patterns": [
             {
               "name": "meta.tag.todo.seen",
@@ -286,9 +286,9 @@
           ]
         },
         {
-          "name": "comment.block.seen",
-          "begin": "/\\*",
-          "end": "\\*/",
+          "name": "comment.line.double-slash.seen",
+          "begin": "//",
+          "end": "$",
           "patterns": [
             {
               "name": "meta.tag.todo.seen",

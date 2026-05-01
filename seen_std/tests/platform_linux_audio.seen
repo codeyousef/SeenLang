@@ -1,7 +1,7 @@
-/**
- * E2E tests for PipeWire and ALSA audio FFI bindings.
- * Tests constants, enums, and configuration classes.
- */
+///
+E2E tests for PipeWire and ALSA audio FFI bindings.
+Tests constants, enums, and configuration classes.
+///
 
 import platform.linux.pipewire.{
     PW_STREAM_STATE_ERROR, PW_STREAM_STATE_UNCONNECTED, PW_STREAM_STATE_CONNECTING,

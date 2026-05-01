@@ -86,7 +86,10 @@ fun resolveIntrinsicDecoratorNameImpl(fn: FunctionNode) r: String {
 fun shouldSkipFunctionByCfgStateImpl(output: StringBuilder, fn: FunctionNode,
     enabledFeatures: String) r: Bool {
 
-    return shouldSkipFunctionByCfgImpl(output, fn, enabledFeatures)
+    if shouldSkipFunctionByCfgImpl(output, fn, enabledFeatures) {
+        return true
+    }
+    return false
 }
 
 fun emitFunctionDecoratorMetadataCommentsStateImpl(output: StringBuilder,
@@ -158,15 +161,22 @@ fun tryHandleGpuShaderFunctionGenerationStateImpl(output: StringBuilder,
     gpuStagesBox: Array<String>, gpuWorkgroupsBox: Array<String>,
     gpuBindingsBox: Array<String>, gpuCountBox: Array<Int>) r: Bool {
 
-    return tryHandleGpuShaderFunctionGenerationImpl(output, regBox, fn,
+    if tryHandleGpuShaderFunctionGenerationImpl(output, regBox, fn,
         gpuNamesBox, gpuStagesBox, gpuWorkgroupsBox, gpuBindingsBox,
-        gpuCountBox)
+        gpuCountBox) {
+
+        return true
+    }
+    return false
 }
 
 fun shouldSkipSpecialFunctionBodyStateImpl(output: StringBuilder,
     fn: FunctionNode) r: Bool {
 
-    return shouldSkipSpecialFunctionBodyImpl(output, fn)
+    if shouldSkipSpecialFunctionBodyImpl(output, fn) {
+        return true
+    }
+    return false
 }
 
 fun prepareFunctionAttributesStateImpl(output: StringBuilder, fn: FunctionNode,

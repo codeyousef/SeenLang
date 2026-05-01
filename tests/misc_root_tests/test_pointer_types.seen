@@ -1,8 +1,8 @@
-/**
- * Test file for pointer type parsing and compilation.
- *
- * Tests basic pointer type syntax: *Void, *Int, *Char
- */
+///
+Test file for pointer type parsing and compilation.
+
+Tests basic pointer type syntax: *Void, *Int, *Char
+///
 
 // ============================================
 // Class with pointer fields

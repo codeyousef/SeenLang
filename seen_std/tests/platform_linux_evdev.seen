@@ -1,7 +1,7 @@
-/**
- * E2E tests for evdev FFI bindings.
- * Tests constants, event types, key codes, and helper classes.
- */
+///
+E2E tests for evdev FFI bindings.
+Tests constants, event types, key codes, and helper classes.
+///
 
 import platform.linux.evdev.{
     EV_SYN, EV_KEY, EV_REL, EV_ABS, EV_MSC, EV_SW, EV_LED, EV_FF,

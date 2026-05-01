@@ -1,12 +1,12 @@
-/**
- * Metal GPU FFI bindings for macOS/iOS.
- *
- * Low-level bindings to Apple Metal via libseen_platform.dylib shim.
- * Provides constants, function declarations, and helper utilities
- * for GPU compute and rendering on Apple platforms.
- *
- * Link with: -lseen_platform (which wraps Metal.framework)
- */
+///
+Metal GPU FFI bindings for macOS/iOS.
+
+Low-level bindings to Apple Metal via libseen_platform.dylib shim.
+Provides constants, function declarations, and helper utilities
+for GPU compute and rendering on Apple platforms.
+
+Link with: -lseen_platform (which wraps Metal.framework)
+///
 
 import core.result.{Result, Ok, Err}
 import core.unit.{Unit}

@@ -1,12 +1,12 @@
-/**
- * ALSA audio FFI bindings for Linux.
- *
- * Low-level bindings to ALSA (Advanced Linux Sound Architecture) via
- * libseen_platform.so shim. Provides PCM audio playback and capture.
- * Prefer the higher-level AudioDevice from audio.audio module.
- *
- * Link with: -lseen_platform (which wraps libasound.so.2)
- */
+///
+ALSA audio FFI bindings for Linux.
+
+Low-level bindings to ALSA (Advanced Linux Sound Architecture) via
+libseen_platform.so shim. Provides PCM audio playback and capture.
+Prefer the higher-level AudioDevice from audio.audio module.
+
+Link with: -lseen_platform (which wraps libasound.so.2)
+///
 
 import core.result.{Result, Ok, Err}
 import core.unit.{Unit}
@@ -123,9 +123,9 @@ fun parseAlsaPcmState(state: Int) r: AlsaPcmState {
     return AlsaPcmState.Unknown
 }
 
-/**
- * ALSA audio format configuration.
- */
+///
+ALSA audio format configuration.
+///
 class AlsaAudioFormat {
     var format: Int
     var access: Int
@@ -178,9 +178,9 @@ class AlsaAudioFormat {
     }
 }
 
-/**
- * ALSA PCM device wrapper for audio playback and capture.
- */
+///
+ALSA PCM device wrapper for audio playback and capture.
+///
 class AlsaPcm {
     var pcmHandle: *Void
     var deviceName: String
@@ -301,9 +301,9 @@ class AlsaPcm {
     }
 }
 
-/**
- * Check if ALSA is available on the system.
- */
+///
+Check if ALSA is available on the system.
+///
 fun alsa_is_available() r: Bool {
     var pcmHandle: *Void = null
     let result = seen_alsa_open(&pcmHandle, "null".toCString(), SND_PCM_STREAM_PLAYBACK as Int32, SND_PCM_NONBLOCK as Int32)

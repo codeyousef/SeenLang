@@ -1,7 +1,7 @@
-/**
- * E2E tests for SDL3 FFI bindings.
- * Tests constants, flags, and helper functions.
- */
+///
+E2E tests for SDL3 FFI bindings.
+Tests constants, flags, and helper functions.
+///
 
 import platform.linux.sdl3.{
     SDL_INIT_VIDEO, SDL_INIT_AUDIO, SDL_INIT_EVENTS, SDL_INIT_GAMEPAD,

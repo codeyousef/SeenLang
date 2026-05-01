@@ -1,12 +1,12 @@
-/**
- * Wayland client protocol FFI bindings for Linux.
- *
- * Provides low-level access to the Wayland compositor via libwayland-client,
- * including display connection, surface management, XDG shell toplevel windows,
- * and Vulkan surface creation for rendering.
- *
- * Link with: -lwayland-client
- */
+///
+Wayland client protocol FFI bindings for Linux.
+
+Provides low-level access to the Wayland compositor via libwayland-client,
+including display connection, surface management, XDG shell toplevel windows,
+and Vulkan surface creation for rendering.
+
+Link with: -lwayland-client
+///
 
 // ============================================================================
 // Wayland pointer event types
@@ -123,23 +123,23 @@ extern fun seen_wl_get_event_state(event: Int) r: Int
 // WaylandWindow - high-level window wrapper
 // ============================================================================
 
-/**
- * High-level Wayland window abstraction.
- *
- * Manages a wl_display connection, wl_surface, xdg_surface, and
- * xdg_toplevel to provide a simple windowing API. Uses Int handles
- * for all Wayland objects.
- *
- * Example:
- *   let win = WaylandWindow.create("My App", 800, 600)
- *   if win.isValid() == 1 {
- *       win.show()
- *       while win.isRunning() == 1 {
- *           win.pollEvents()
- *       }
- *       win.close()
- *   }
- */
+///
+High-level Wayland window abstraction.
+
+Manages a wl_display connection, wl_surface, xdg_surface, and
+xdg_toplevel to provide a simple windowing API. Uses Int handles
+for all Wayland objects.
+
+Example:
+  let win = WaylandWindow.create("My App", 800, 600)
+  if win.isValid() == 1 {
+      win.show()
+      while win.isRunning() == 1 {
+          win.pollEvents()
+      }
+      win.close()
+  }
+///
 class WaylandWindow {
     var handle: Int
     var display: Int
@@ -150,11 +150,11 @@ class WaylandWindow {
     var height: Int
     var running: Int
 
-    /**
-     * Create a new Wayland window with the given title and dimensions.
-     * Connects to the default Wayland display (name = "").
-     * Returns a window with handle=0 and running=0 on failure.
-     */
+    ///
+    Create a new Wayland window with the given title and dimensions.
+    Connects to the default Wayland display (name = "").
+    Returns a window with handle=0 and running=0 on failure.
+    ///
     static fun create(title: String, w: Int, h: Int) r: WaylandWindow {
         let disp = seen_wl_display_connect("")
         if disp == 0 {
@@ -192,10 +192,10 @@ class WaylandWindow {
         }
     }
 
-    /**
-     * Check if the window was created successfully.
-     * Returns 1 if valid, 0 otherwise.
-     */
+    ///
+    Check if the window was created successfully.
+    Returns 1 if valid, 0 otherwise.
+    ///
     fun isValid() r: Int {
         if this.display != 0 {
             return 1
@@ -203,18 +203,18 @@ class WaylandWindow {
         return 0
     }
 
-    /**
-     * Show the window by committing the surface.
-     */
+    ///
+    Show the window by committing the surface.
+    ///
     fun show() r: Void {
         seen_wl_surface_commit(this.surface)
         seen_wl_display_flush(this.display)
     }
 
-    /**
-     * Poll and dispatch pending Wayland events.
-     * Returns the number of events dispatched, or -1 on error.
-     */
+    ///
+    Poll and dispatch pending Wayland events.
+    Returns the number of events dispatched, or -1 on error.
+    ///
     fun pollEvents() r: Int {
         let result = seen_wl_display_dispatch(this.display)
         if result < 0 {
@@ -223,24 +223,24 @@ class WaylandWindow {
         return result
     }
 
-    /**
-     * Check if the window is still running.
-     * Returns 1 if running, 0 if closed or error.
-     */
+    ///
+    Check if the window is still running.
+    Returns 1 if running, 0 if closed or error.
+    ///
     fun isRunning() r: Int {
         return this.running
     }
 
-    /**
-     * Set the window title.
-     */
+    ///
+    Set the window title.
+    ///
     fun setTitle(title: String) r: Void {
         seen_xdg_toplevel_set_title(this.toplevel, title)
     }
 
-    /**
-     * Resize the window to the given dimensions.
-     */
+    ///
+    Resize the window to the given dimensions.
+    ///
     fun resize(w: Int, h: Int) r: Void {
         this.width = w
         this.height = h
@@ -248,17 +248,17 @@ class WaylandWindow {
         seen_wl_surface_commit(this.surface)
     }
 
-    /**
-     * Create a Vulkan surface (VkSurfaceKHR) for this window.
-     * Returns the Vulkan surface handle, or 0 on failure.
-     */
+    ///
+    Create a Vulkan surface (VkSurfaceKHR) for this window.
+    Returns the Vulkan surface handle, or 0 on failure.
+    ///
     fun createVulkanSurface(vkInstance: Int) r: Int {
         return seen_wl_vk_surface_create(this.display, this.surface, vkInstance)
     }
 
-    /**
-     * Close the window and release all Wayland resources.
-     */
+    ///
+    Close the window and release all Wayland resources.
+    ///
     fun close() r: Void {
         this.running = 0
         if this.toplevel != 0 {
@@ -279,10 +279,10 @@ class WaylandWindow {
         }
     }
 
-    /**
-     * Get the file descriptor for the Wayland display connection.
-     * Useful for integrating with external event loops (epoll/poll).
-     */
+    ///
+    Get the file descriptor for the Wayland display connection.
+    Useful for integrating with external event loops (epoll/poll).
+    ///
     fun getFd() r: Int {
         return seen_wl_display_get_fd(this.display)
     }

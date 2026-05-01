@@ -76,7 +76,10 @@ fun inferMethodCallTypeTableImpl(callee: String) r: String {
     if callee == "advance" { return "Token" }
     if callee == "handleWhitespace" { return "Void" }
     if callee == "handleSingleLineComment" { return "Void" }
-    if callee == "handleMultiLineComment" { return "Void" }
+    if callee == "handleTripleSlashBlockComment" { return "Void" }
+    if callee == "handleLegacyBlockCommentError" { return "Void" }
+    if callee == "consumeCurrentLine" { return "Void" }
+    if callee == "isTripleSlashBlockDelimiterLine" { return "Bool" }
     if callee == "handleStringLiteral" { return "Void" }
     if callee == "handleCharLiteral" { return "Void" }
     if callee == "handleNumericLiteral" { return "Void" }

@@ -1,12 +1,12 @@
-/**
- * Vulkan 1.3+ FFI bindings for Linux.
- *
- * Low-level bindings to Vulkan via libseen_platform.so shim.
- * Provides constants, function declarations, and helper utilities.
- * Prefer the higher-level VulkanRenderer from graphics.renderer.
- *
- * Link with: -lseen_platform (which wraps libvulkan.so.1)
- */
+///
+Vulkan 1.3+ FFI bindings for Linux.
+
+Low-level bindings to Vulkan via libseen_platform.so shim.
+Provides constants, function declarations, and helper utilities.
+Prefer the higher-level VulkanRenderer from graphics.renderer.
+
+Link with: -lseen_platform (which wraps libvulkan.so.1)
+///
 
 import core.result.{Result, Ok, Err}
 import core.unit.{Unit}
@@ -404,9 +404,9 @@ extern "C" fun seen_vk_queue_present(queue: UInt64, waitSemaphore: UInt64, swapc
 // Helper Functions
 // ============================================================================
 
-/**
- * Convert a Vulkan result code to a human-readable string.
- */
+///
+Convert a Vulkan result code to a human-readable string.
+///
 fun vk_result_string(result: Int) r: String {
     // Inline constants to work around negative value module constant issues
     // Success codes (0-5)

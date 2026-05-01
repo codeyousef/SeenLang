@@ -21,6 +21,7 @@ The standard library is written in Seen and provides high-level abstractions.
 | [JSON](json.md) | JSON derive, parsing, generation |
 | [Reflection](reflect.md) | @reflect RTTI, field introspection |
 | [GPU](gpu.md) | Buffer, Uniform, Image types; Vulkan runtime |
+| [Hot Reload](hotreload.md) | Dynamic shared-module loading and typed entrypoint calls |
 
 ## Runtime Library (`seen_runtime/`)
 

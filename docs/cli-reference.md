@@ -183,9 +183,26 @@ seen build source.seen --sanitize=memory     # MemorySanitizer
 | `--emit-llvm` | Save LLVM IR alongside output |
 | `--emit-glsl` | Emit GLSL shader code (GPU) |
 | `--emit-compile-db` | Generate `compile_commands.json` |
+| `--pic` | Emit PIC module/runtime objects suitable for shared-library links |
+| `--object-manifest <path>` | Write a TSV manifest of object path to Seen module path |
 | `--trace-llvm` | Trace LLVM IR generation |
 | `--dump-struct-layouts` | Print struct field layouts |
 | `--runtime-debug` | Enable runtime debug output |
+
+### Shared-Library Object Output
+
+```bash
+seen compile plugin.seen plugin_host --pic --no-cache --no-fork \
+  --object-manifest /tmp/plugin.objects.tsv
+```
+
+The manifest contains one tab-separated row per emitted module object:
+
+```text
+/tmp/seen_module_0.o	src/plugin.seen
+```
+
+Use the listed objects with your platform linker to produce a `.so` or other shared library. Without `--pic`, the default executable-oriented object pipeline is unchanged.
 
 ## Profile-Guided Optimization (PGO)
 

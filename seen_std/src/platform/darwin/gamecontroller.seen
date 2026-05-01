@@ -1,11 +1,11 @@
-/**
- * Game Controller framework FFI bindings for macOS/iOS.
- *
- * Bindings to Apple's Game Controller framework via libseen_platform.dylib shim.
- * Provides controller detection, button/axis input, haptics, and motion data.
- *
- * Link with: -lseen_platform (which wraps GameController.framework)
- */
+///
+Game Controller framework FFI bindings for macOS/iOS.
+
+Bindings to Apple's Game Controller framework via libseen_platform.dylib shim.
+Provides controller detection, button/axis input, haptics, and motion data.
+
+Link with: -lseen_platform (which wraps GameController.framework)
+///
 
 import core.result.{Result, Ok, Err}
 import core.unit.{Unit}

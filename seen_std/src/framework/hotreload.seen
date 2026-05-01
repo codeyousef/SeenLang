@@ -21,6 +21,12 @@ extern fun __seen_hotreload_find(name: String) r: *Void
 extern fun __seen_hotreload_get_function(module: *Void, name: String) r: *Void
 
 @extern
+extern fun __seen_hotreload_call_i64(module: *Void, name: String) r: Int
+
+@extern
+extern fun __seen_hotreload_call_i64_ptr(module: *Void, name: String, arg0: *Void) r: Int
+
+@extern
 extern fun __seen_hotreload_get_version(module: *Void) r: Int
 
 @extern
@@ -146,6 +152,22 @@ class HotModule {
             return null
         }
         return __seen_hotreload_get_function(handle, name)
+    }
+
+    // Call a loaded shared-module entrypoint with signature: fun name() r: Int
+    fun callInt(name: String) r: Int {
+        if not isLoaded or handle == null {
+            return 0
+        }
+        return __seen_hotreload_call_i64(handle, name)
+    }
+
+    // Call a loaded shared-module entrypoint with signature: fun name(arg0: *Void) r: Int
+    fun callIntPtr(name: String, arg0: *Void) r: Int {
+        if not isLoaded or handle == null {
+            return 0
+        }
+        return __seen_hotreload_call_i64_ptr(handle, name, arg0)
     }
 
     // Get the current version (reload count)
@@ -300,4 +322,12 @@ class HotState<T> {
 // Get the last hot reload error message
 fun getHotReloadError() r: String {
     return __seen_hotreload_get_error()
+}
+
+fun callHotReloadInt(module: HotModule, name: String) r: Int {
+    return module.callInt(name)
+}
+
+fun callHotReloadIntPtr(module: HotModule, name: String, arg0: *Void) r: Int {
+    return module.callIntPtr(name, arg0)
 }

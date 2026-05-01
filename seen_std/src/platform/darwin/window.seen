@@ -1,20 +1,20 @@
-/**
- * Safe window abstraction for macOS.
- *
- * Provides a Window class and event handling for macOS applications
- * using SDL3 (cross-platform) or native AppKit via the platform shim.
- * This module wraps SDL3's API with type-safe Seen classes
- * for window management, input handling, and Metal surface creation.
- *
- * Link with: -lSDL3
- */
+///
+Safe window abstraction for macOS.
+
+Provides a Window class and event handling for macOS applications
+using SDL3 (cross-platform) or native AppKit via the platform shim.
+This module wraps SDL3's API with type-safe Seen classes
+for window management, input handling, and Metal surface creation.
+
+Link with: -lSDL3
+///
 
 import core.result.{Result, Ok, Err}
 import core.unit.{Unit}
 
-/**
- * Event types for the window event system.
- */
+///
+Event types for the window event system.
+///
 enum EventType {
     Quit
     KeyDown
@@ -31,9 +31,9 @@ enum EventType {
     Unknown
 }
 
-/**
- * Window event data.
- */
+///
+Window event data.
+///
 class WindowEvent {
     let eventType: EventType
     let keyCode: Int
@@ -56,9 +56,9 @@ class WindowEvent {
     }
 }
 
-/**
- * Window configuration.
- */
+///
+Window configuration.
+///
 class WindowConfig {
     let title: String
     let width: Int

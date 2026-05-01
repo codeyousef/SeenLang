@@ -1,0 +1,55 @@
+import lexer.lexer.{SeenLexer}
+import lexer.interfaces.{Token}
+import lexer.token_type.{SeenTokenType}
+
+fun countTokens(tokens: Array<Token>, tokenType: SeenTokenType, value: String) r: Int {
+    var count = 0
+    var i = 0
+    while i < tokens.length() {
+        if tokens[i].tokenType == tokenType {
+            if value == "" or tokens[i].value == value {
+                count = count + 1
+            }
+        }
+        i = i + 1
+    }
+    return count
+}
+
+fun main() r: Int {
+    let source = "let before = 1\n///\nthis is ignored, even with /* legacy markers */\nfun skipped() r: Int { return 99 }\n///\nlet after = 2\n/// trailing line comment\n"
+    let lexer = SeenLexer.new(source, 1, "en")
+    let tokens = lexer.tokenize()
+
+    if countTokens(tokens, SeenTokenType.Error, "") != 0 {
+        println("unexpected lexer error inside /// block")
+        return 1
+    }
+    if countTokens(tokens, SeenTokenType.Identifier, "before") != 1 {
+        println("missing identifier before block comment")
+        return 2
+    }
+    if countTokens(tokens, SeenTokenType.Identifier, "after") != 1 {
+        println("missing identifier after block comment")
+        return 3
+    }
+    if countTokens(tokens, SeenTokenType.Identifier, "skipped") != 0 {
+        println("block comment body was tokenized")
+        return 4
+    }
+
+    let legacyLexer = SeenLexer.new("/* old block */\nlet x = 1\n", 2, "en")
+    let legacyTokens = legacyLexer.tokenize()
+    if legacyTokens.length() == 0 or legacyTokens[0].tokenType != SeenTokenType.Error {
+        println("legacy block comment did not emit an error token")
+        return 5
+    }
+    if not legacyTokens[0].value.contains("///") {
+        println("legacy block comment error did not mention ///")
+        return 6
+    }
+
+    return 0
+}
+
+main();

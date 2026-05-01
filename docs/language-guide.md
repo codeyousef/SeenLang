@@ -2,6 +2,21 @@
 
 This is the reference for Seen's syntax and semantics.
 
+## Comments
+
+Seen supports `//` line comments and block comments delimited by standalone `///` lines:
+
+```seen
+// Single-line comment
+
+///
+Anything between standalone delimiter lines is ignored by the lexer.
+Use this for longer notes without prefixing every line.
+///
+```
+
+`/// text` is still treated as a line comment; block delimiters must be the only non-whitespace text on the line.
+
 ## Variables
 
 ### Immutable (`let`)

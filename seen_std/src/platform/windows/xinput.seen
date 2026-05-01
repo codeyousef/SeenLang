@@ -1,12 +1,12 @@
-/**
- * XInput gamepad bindings for Windows.
- *
- * Low-level bindings to the XInput API via seen_xinput_* shim functions.
- * Provides gamepad state polling, vibration control, and capability queries
- * for up to 4 Xbox-compatible controllers.
- *
- * Link with: -lxinput
- */
+///
+XInput gamepad bindings for Windows.
+
+Low-level bindings to the XInput API via seen_xinput_* shim functions.
+Provides gamepad state polling, vibration control, and capability queries
+for up to 4 Xbox-compatible controllers.
+
+Link with: -lxinput
+///
 
 // ============================================================================
 // Button bitmask constants (XINPUT_GAMEPAD_*)
@@ -79,23 +79,23 @@ extern fun seen_xinput_get_capabilities(userIndex: Int) r: Int
 // XInputGamepad wrapper class
 // ============================================================================
 
-/**
- * High-level wrapper around XInput for a single gamepad.
- *
- * Polls state, applies deadzones, and provides button/axis queries.
- * Uses var connected (0/1) instead of Bool due to codegen constraints.
- *
- * Example:
- *   var pad = XInputGamepad.create(0)
- *   pad.poll()
- *   if pad.isConnected() == 1 {
- *       if pad.isButtonDown(XINPUT_GAMEPAD_A) == 1 {
- *           println("A pressed")
- *       }
- *       let lx = pad.getLeftThumbX()
- *       let ly = pad.getLeftThumbY()
- *   }
- */
+///
+High-level wrapper around XInput for a single gamepad.
+
+Polls state, applies deadzones, and provides button/axis queries.
+Uses var connected (0/1) instead of Bool due to codegen constraints.
+
+Example:
+  var pad = XInputGamepad.create(0)
+  pad.poll()
+  if pad.isConnected() == 1 {
+      if pad.isButtonDown(XINPUT_GAMEPAD_A) == 1 {
+          println("A pressed")
+      }
+      let lx = pad.getLeftThumbX()
+      let ly = pad.getLeftThumbY()
+  }
+///
 class XInputGamepad {
     var userIndex: Int
     var connected: Int
@@ -107,9 +107,9 @@ class XInputGamepad {
     var leftTrigger: Int
     var rightTrigger: Int
 
-    /**
-     * Create a gamepad wrapper for the given user index (0-3).
-     */
+    ///
+    Create a gamepad wrapper for the given user index (0-3).
+    ///
     static fun create(userIndex: Int) r: XInputGamepad {
         return XInputGamepad {
             userIndex: userIndex,
@@ -124,10 +124,10 @@ class XInputGamepad {
         }
     }
 
-    /**
-     * Poll the current state from XInput.
-     * Updates all fields including connection status.
-     */
+    ///
+    Poll the current state from XInput.
+    Updates all fields including connection status.
+    ///
     fun poll(this) r: Void {
         let result = seen_xinput_get_state(this.userIndex)
         if result == 0 {
@@ -151,17 +151,17 @@ class XInputGamepad {
         }
     }
 
-    /**
-     * Returns 1 if the controller is connected, 0 otherwise.
-     */
+    ///
+    Returns 1 if the controller is connected, 0 otherwise.
+    ///
     fun isConnected(this) r: Int {
         return this.connected
     }
 
-    /**
-     * Check if a button (bitmask constant) is currently held.
-     * Returns 1 if down, 0 if up.
-     */
+    ///
+    Check if a button (bitmask constant) is currently held.
+    Returns 1 if down, 0 if up.
+    ///
     fun isButtonDown(this, button: Int) r: Int {
         if (this.buttons & button) != 0 {
             return 1
@@ -169,10 +169,10 @@ class XInputGamepad {
         return 0
     }
 
-    /**
-     * Get left thumbstick X with deadzone applied.
-     * Returns 0 if inside the deadzone, raw value otherwise.
-     */
+    ///
+    Get left thumbstick X with deadzone applied.
+    Returns 0 if inside the deadzone, raw value otherwise.
+    ///
     fun getLeftThumbX(this) r: Int {
         if this.leftThumbX > (0 - XINPUT_LEFT_THUMB_DEADZONE) and this.leftThumbX < XINPUT_LEFT_THUMB_DEADZONE {
             return 0
@@ -180,9 +180,9 @@ class XInputGamepad {
         return this.leftThumbX
     }
 
-    /**
-     * Get left thumbstick Y with deadzone applied.
-     */
+    ///
+    Get left thumbstick Y with deadzone applied.
+    ///
     fun getLeftThumbY(this) r: Int {
         if this.leftThumbY > (0 - XINPUT_LEFT_THUMB_DEADZONE) and this.leftThumbY < XINPUT_LEFT_THUMB_DEADZONE {
             return 0
@@ -190,9 +190,9 @@ class XInputGamepad {
         return this.leftThumbY
     }
 
-    /**
-     * Get right thumbstick X with deadzone applied.
-     */
+    ///
+    Get right thumbstick X with deadzone applied.
+    ///
     fun getRightThumbX(this) r: Int {
         if this.rightThumbX > (0 - XINPUT_RIGHT_THUMB_DEADZONE) and this.rightThumbX < XINPUT_RIGHT_THUMB_DEADZONE {
             return 0
@@ -200,9 +200,9 @@ class XInputGamepad {
         return this.rightThumbX
     }
 
-    /**
-     * Get right thumbstick Y with deadzone applied.
-     */
+    ///
+    Get right thumbstick Y with deadzone applied.
+    ///
     fun getRightThumbY(this) r: Int {
         if this.rightThumbY > (0 - XINPUT_RIGHT_THUMB_DEADZONE) and this.rightThumbY < XINPUT_RIGHT_THUMB_DEADZONE {
             return 0
@@ -210,9 +210,9 @@ class XInputGamepad {
         return this.rightThumbY
     }
 
-    /**
-     * Get left trigger value (0..255), 0 if below threshold.
-     */
+    ///
+    Get left trigger value (0..255), 0 if below threshold.
+    ///
     fun getLeftTrigger(this) r: Int {
         if this.leftTrigger < XINPUT_TRIGGER_THRESHOLD {
             return 0
@@ -220,9 +220,9 @@ class XInputGamepad {
         return this.leftTrigger
     }
 
-    /**
-     * Get right trigger value (0..255), 0 if below threshold.
-     */
+    ///
+    Get right trigger value (0..255), 0 if below threshold.
+    ///
     fun getRightTrigger(this) r: Int {
         if this.rightTrigger < XINPUT_TRIGGER_THRESHOLD {
             return 0
@@ -230,17 +230,17 @@ class XInputGamepad {
         return this.rightTrigger
     }
 
-    /**
-     * Set vibration for both motors (0..65535 each).
-     * Returns 0 on success.
-     */
+    ///
+    Set vibration for both motors (0..65535 each).
+    Returns 0 on success.
+    ///
     fun setVibration(this, leftMotor: Int, rightMotor: Int) r: Int {
         return seen_xinput_set_vibration(this.userIndex, leftMotor, rightMotor)
     }
 
-    /**
-     * Stop all vibration on this controller.
-     */
+    ///
+    Stop all vibration on this controller.
+    ///
     fun stopVibration(this) r: Void {
         seen_xinput_set_vibration(this.userIndex, 0, 0)
     }

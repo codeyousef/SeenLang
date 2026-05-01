@@ -200,7 +200,7 @@ fun benchmark_spsc(count: Int) -> Int {
 }
 
 // Usage example (commented out - requires full concurrency support):
-/*
+///
 fun main() {
     // Create queue for Int values
     let queue = SPSCQueue::new(256)
@@ -230,4 +230,4 @@ fun main() {
         }
     })
 }
-*/
+///

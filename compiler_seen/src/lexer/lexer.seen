@@ -138,6 +138,21 @@ class SeenLexer {
             }
 
             // Handle comments
+            if char == '/' and peekChar(1) == '/' and peekChar(2) == '/' and
+                isTripleSlashBlockDelimiterLine() {
+
+                if traceVerbose {
+                    traceLexVerbose("triple-slash block comment pos=" +
+                        startPos.toString() + " line=" + line.toString() +
+                        " col=" + column.toString())
+                }
+                handleTripleSlashBlockComment()
+                if position == startPos {
+                    position = position + 1
+                }
+                continue
+            }
+
             if char == '/' and peekChar(1) == '/' {
                 if traceVerbose {
                     traceLexVerbose("single-line comment pos=" + startPos.toString() + " line=" + line.toString() + " col=" + column.toString())
@@ -151,9 +166,9 @@ class SeenLexer {
 
             if char == '/' and peekChar(1) == '*' {
                 if traceVerbose {
-                    traceLexVerbose("multi-line comment pos=" + startPos.toString() + " line=" + line.toString() + " col=" + column.toString())
+                    traceLexVerbose("legacy block comment pos=" + startPos.toString() + " line=" + line.toString() + " col=" + column.toString())
                 }
-                handleMultiLineComment()
+                handleLegacyBlockCommentError()
                 if position == startPos {
                     position = position + 1
                 }
@@ -321,7 +336,7 @@ class SeenLexer {
         let token = seenMakeToken(tokenType, tokenValue, tokenLine, tokenColumn, tokenLength, tokenFileId)
         tokens.push(token)
     }
-    
+
     // Helper methods for tokenization
     
     fun getCurrentChar() r: Char {
@@ -493,12 +508,75 @@ class SeenLexer {
             advance()
         }
     }
+
+    fun isTripleSlashBlockDelimiterLine() r: Bool {
+        if getCurrentChar() != '/' or peekChar(1) != '/' or
+            peekChar(2) != '/' {
+
+            return false
+        }
+
+        var left = position - column + 1
+        if left < 0 {
+            left = 0
+        }
+        while left < position {
+            let leftByte = source.byteAt(left)
+            if leftByte != 32 and leftByte != 9 and leftByte != 13 {
+                return false
+            }
+            left = left + 1
+        }
+
+        var right = position + 3
+        while right < source.length() {
+            let rightByte = source.byteAt(right)
+            if rightByte == 10 {
+                return true
+            }
+            if rightByte != 32 and rightByte != 9 and rightByte != 13 {
+                return false
+            }
+            right = right + 1
+        }
+
+        return true
+    }
+
+    fun consumeCurrentLine() r: Void {
+        while position < source.length() {
+            let c = getCurrentChar()
+            advance()
+            if c.toInt() == 10 {
+                break
+            }
+        }
+    }
+
+    fun handleTripleSlashBlockComment() r: Void {
+        consumeCurrentLine()
+        while position < source.length() {
+            if getCurrentChar() == '/' and peekChar(1) == '/' and
+                peekChar(2) == '/' and isTripleSlashBlockDelimiterLine() {
+
+                consumeCurrentLine()
+                return
+            }
+            advance()
+        }
+
+        emitToken(SeenTokenType.Error, "Unterminated /// block comment", 3)
+    }
     
-    fun handleMultiLineComment() r: Void {
+    fun handleLegacyBlockCommentError() r: Void {
+        emitToken(SeenTokenType.Error,
+            "Use /// block comments; /* */ block comments are no longer supported",
+            2)
+
         advance() // Skip '/'
         advance() // Skip '*'
 
-        // Consume ALL bytes until '*/', including non-ASCII (UTF-8 sequences, etc.)
+        // Consume the old block body to avoid cascading parser diagnostics.
         while position < source.length() - 1 {
             if getCurrentChar() == '*' and peekChar(1) == '/' {
                 advance() // Skip '*'

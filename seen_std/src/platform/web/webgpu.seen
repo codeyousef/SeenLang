@@ -1,15 +1,15 @@
-/**
- * WebGPU API bindings for browser WASM target.
- *
- * Low-level bindings to the WebGPU API via JavaScript host imports.
- * Provides GPU device management, buffer/texture creation, shader
- * compilation, render and compute pipeline construction, and
- * command encoding for GPU workloads in the browser.
- *
- * These functions are imported from the JavaScript host environment
- * when compiling to WASM. The runtime shim is provided by the
- * Seen WASM runtime (seen_wasm_runtime.js).
- */
+///
+WebGPU API bindings for browser WASM target.
+
+Low-level bindings to the WebGPU API via JavaScript host imports.
+Provides GPU device management, buffer/texture creation, shader
+compilation, render and compute pipeline construction, and
+command encoding for GPU workloads in the browser.
+
+These functions are imported from the JavaScript host environment
+when compiling to WASM. The runtime shim is provided by the
+Seen WASM runtime (seen_wasm_runtime.js).
+///
 
 import core.result.{Result, Ok, Err}
 import core.unit.{Unit}
@@ -176,35 +176,35 @@ extern fun seen_wgpu_context_get_current_texture(ctx: Int) r: Int
 // GPUBuffer wrapper class
 // ============================================================
 
-/**
- * Wrapper around a WebGPU buffer handle.
- *
- * Tracks the device, size, and usage for convenience. Provides
- * write/read/destroy lifecycle methods.
- */
+///
+Wrapper around a WebGPU buffer handle.
+
+Tracks the device, size, and usage for convenience. Provides
+write/read/destroy lifecycle methods.
+///
 class GPUBuffer {
     var handle: Int
     var deviceHandle: Int
     var size: Int
     var usage: Int
 
-    /**
-     * Write data into the buffer from a host pointer.
-     */
+    ///
+    Write data into the buffer from a host pointer.
+    ///
     fun write(data: Int, dataSize: Int) r: Void {
         seen_wgpu_buffer_write(this.handle, data, dataSize)
     }
 
-    /**
-     * Read data from the buffer into a host pointer.
-     */
+    ///
+    Read data from the buffer into a host pointer.
+    ///
     fun read(dest: Int, dataSize: Int) r: Void {
         seen_wgpu_buffer_read(this.handle, dest, dataSize)
     }
 
-    /**
-     * Destroy the buffer and release GPU memory.
-     */
+    ///
+    Destroy the buffer and release GPU memory.
+    ///
     fun destroy() r: Void {
         seen_wgpu_buffer_destroy(this.handle)
         this.handle = 0
@@ -215,37 +215,37 @@ class GPUBuffer {
 // GPUDevice wrapper class
 // ============================================================
 
-/**
- * High-level wrapper around a WebGPU device.
- *
- * Manages adapter selection, device creation, and provides
- * factory methods for buffers, shaders, pipelines, and
- * command encoding.
- *
- * Example:
- *   let gpu = GPUDevice.init(GPU_POWER_HIGH)
- *   let buf = gpu.createBuffer(1024, GPU_BUFFER_USAGE_STORAGE | GPU_BUFFER_USAGE_COPY_DST)
- *   let shader = gpu.createShader(wgslCode)
- *   let layout = gpu.createPipelineLayout(1)
- *   let pipeline = gpu.createComputePipeline(shader, layout)
- *   let encoder = gpu.createCommandEncoder()
- *   let pass = seen_wgpu_encoder_begin_compute_pass(encoder)
- *   seen_wgpu_compute_pass_set_pipeline(pass, pipeline)
- *   seen_wgpu_compute_pass_dispatch(pass, 64, 1, 1)
- *   seen_wgpu_pass_end(pass)
- *   let cmd = seen_wgpu_encoder_finish(encoder)
- *   gpu.submit(cmd)
- *   gpu.destroy()
- */
+///
+High-level wrapper around a WebGPU device.
+
+Manages adapter selection, device creation, and provides
+factory methods for buffers, shaders, pipelines, and
+command encoding.
+
+Example:
+  let gpu = GPUDevice.init(GPU_POWER_HIGH)
+  let buf = gpu.createBuffer(1024, GPU_BUFFER_USAGE_STORAGE | GPU_BUFFER_USAGE_COPY_DST)
+  let shader = gpu.createShader(wgslCode)
+  let layout = gpu.createPipelineLayout(1)
+  let pipeline = gpu.createComputePipeline(shader, layout)
+  let encoder = gpu.createCommandEncoder()
+  let pass = seen_wgpu_encoder_begin_compute_pass(encoder)
+  seen_wgpu_compute_pass_set_pipeline(pass, pipeline)
+  seen_wgpu_compute_pass_dispatch(pass, 64, 1, 1)
+  seen_wgpu_pass_end(pass)
+  let cmd = seen_wgpu_encoder_finish(encoder)
+  gpu.submit(cmd)
+  gpu.destroy()
+///
 class GPUDevice {
     var adapterHandle: Int
     var deviceHandle: Int
     var valid: Int   // 1 = valid, 0 = invalid (avoid Bool)
 
-    /**
-     * Request an adapter and device with the given power preference.
-     * Returns a GPUDevice with valid=1 on success, valid=0 on failure.
-     */
+    ///
+    Request an adapter and device with the given power preference.
+    Returns a GPUDevice with valid=1 on success, valid=0 on failure.
+    ///
     static fun init(powerPref: Int) r: GPUDevice {
         let adapter = seen_wgpu_request_adapter(powerPref)
         if adapter == 0 {
@@ -267,9 +267,9 @@ class GPUDevice {
         }
     }
 
-    /**
-     * Create a GPU buffer with the specified size and usage flags.
-     */
+    ///
+    Create a GPU buffer with the specified size and usage flags.
+    ///
     fun createBuffer(size: Int, usage: Int) r: GPUBuffer {
         let handle = seen_wgpu_device_create_buffer(this.deviceHandle, size, usage)
         return GPUBuffer {
@@ -280,52 +280,52 @@ class GPUDevice {
         }
     }
 
-    /**
-     * Compile a WGSL shader module from source code.
-     * Returns the shader module handle, or 0 on failure.
-     */
+    ///
+    Compile a WGSL shader module from source code.
+    Returns the shader module handle, or 0 on failure.
+    ///
     fun createShader(code: String) r: Int {
         return seen_wgpu_device_create_shader(this.deviceHandle, code)
     }
 
-    /**
-     * Create a pipeline layout with the given number of bind group layouts.
-     */
+    ///
+    Create a pipeline layout with the given number of bind group layouts.
+    ///
     fun createPipelineLayout(bglCount: Int) r: Int {
         return seen_wgpu_device_create_pipeline_layout(this.deviceHandle, bglCount)
     }
 
-    /**
-     * Create a render pipeline from a shader module and pipeline layout.
-     */
+    ///
+    Create a render pipeline from a shader module and pipeline layout.
+    ///
     fun createRenderPipeline(shader: Int, layout: Int) r: Int {
         return seen_wgpu_device_create_render_pipeline(this.deviceHandle, shader, layout)
     }
 
-    /**
-     * Create a compute pipeline from a shader module and pipeline layout.
-     */
+    ///
+    Create a compute pipeline from a shader module and pipeline layout.
+    ///
     fun createComputePipeline(shader: Int, layout: Int) r: Int {
         return seen_wgpu_device_create_compute_pipeline(this.deviceHandle, shader, layout)
     }
 
-    /**
-     * Create a command encoder for recording GPU commands.
-     */
+    ///
+    Create a command encoder for recording GPU commands.
+    ///
     fun createCommandEncoder() r: Int {
         return seen_wgpu_device_create_command_encoder(this.deviceHandle)
     }
 
-    /**
-     * Submit a finished command buffer to the device queue.
-     */
+    ///
+    Submit a finished command buffer to the device queue.
+    ///
     fun submit(cmdBuffer: Int) r: Void {
         seen_wgpu_queue_submit(this.deviceHandle, cmdBuffer)
     }
 
-    /**
-     * Destroy the device and release all GPU resources.
-     */
+    ///
+    Destroy the device and release all GPU resources.
+    ///
     fun destroy() r: Void {
         if this.valid == 1 {
             seen_wgpu_device_destroy(this.deviceHandle)

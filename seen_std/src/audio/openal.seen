@@ -1,13 +1,13 @@
-/**
- * OpenAL 3D audio FFI bindings.
- *
- * Low-level bindings to OpenAL for positional 3D audio playback.
- * Provides device/context management, buffer loading, source
- * control, and listener positioning for spatial audio in games
- * and interactive applications.
- *
- * Link with: -lopenal
- */
+///
+OpenAL 3D audio FFI bindings.
+
+Low-level bindings to OpenAL for positional 3D audio playback.
+Provides device/context management, buffer loading, source
+control, and listener positioning for spatial audio in games
+and interactive applications.
+
+Link with: -lopenal
+///
 
 import core.result.{Result, Ok, Err}
 import core.unit.{Unit}
@@ -134,38 +134,38 @@ extern fun seen_al_distance_model(model: Int) r: Void
 // OpenALDevice wrapper class
 // ============================================================
 
-/**
- * High-level wrapper around an OpenAL device and context.
- *
- * Manages the audio device lifecycle and provides factory methods
- * for creating buffers and sources. All positional parameters use
- * fixed-point integers (multiply by AL_FIXED_POINT_SCALE).
- *
- * Example:
- *   let audio = OpenALDevice.init("")
- *   if audio.ready == 1 {
- *       let buf = audio.createBuffer()
- *       seen_al_buffer_data(buf, AL_FORMAT_MONO16, pcmData, dataSize, 44100)
- *       let src = audio.createSource()
- *       seen_al_source_set_buffer(src, buf)
- *       seen_al_source_set_pos(src, 0, 0, 0)
- *       seen_al_source_play(src)
- *       // ... wait for playback ...
- *       seen_al_delete_source(src)
- *       seen_al_delete_buffer(buf)
- *       audio.shutdown()
- *   }
- */
+///
+High-level wrapper around an OpenAL device and context.
+
+Manages the audio device lifecycle and provides factory methods
+for creating buffers and sources. All positional parameters use
+fixed-point integers (multiply by AL_FIXED_POINT_SCALE).
+
+Example:
+  let audio = OpenALDevice.init("")
+  if audio.ready == 1 {
+      let buf = audio.createBuffer()
+      seen_al_buffer_data(buf, AL_FORMAT_MONO16, pcmData, dataSize, 44100)
+      let src = audio.createSource()
+      seen_al_source_set_buffer(src, buf)
+      seen_al_source_set_pos(src, 0, 0, 0)
+      seen_al_source_play(src)
+      // ... wait for playback ...
+      seen_al_delete_source(src)
+      seen_al_delete_buffer(buf)
+      audio.shutdown()
+  }
+///
 class OpenALDevice {
     var deviceHandle: Int
     var contextHandle: Int
     var ready: Int   // 1 = initialized, 0 = not (avoid Bool)
 
-    /**
-     * Initialize OpenAL with the given device name.
-     * Pass an empty string "" to use the default device.
-     * Sets ready=1 on success, ready=0 on failure.
-     */
+    ///
+    Initialize OpenAL with the given device name.
+    Pass an empty string "" to use the default device.
+    Sets ready=1 on success, ready=0 on failure.
+    ///
     static fun init(deviceName: String) r: OpenALDevice {
         let dev = seen_al_open_device(deviceName)
         if dev == 0 {
@@ -204,56 +204,56 @@ class OpenALDevice {
         }
     }
 
-    /**
-     * Generate a new audio buffer.
-     * Returns the buffer handle, or 0 on failure.
-     */
+    ///
+    Generate a new audio buffer.
+    Returns the buffer handle, or 0 on failure.
+    ///
     fun createBuffer() r: Int {
         return seen_al_gen_buffer()
     }
 
-    /**
-     * Generate a new audio source.
-     * Returns the source handle, or 0 on failure.
-     */
+    ///
+    Generate a new audio source.
+    Returns the source handle, or 0 on failure.
+    ///
     fun createSource() r: Int {
         return seen_al_gen_source()
     }
 
-    /**
-     * Set the listener position (fixed-point integers).
-     */
+    ///
+    Set the listener position (fixed-point integers).
+    ///
     fun setListenerPos(x: Int, y: Int, z: Int) r: Void {
         seen_al_listener_set_pos(x, y, z)
     }
 
-    /**
-     * Set the listener orientation.
-     * fx/fy/fz = forward direction, ux/uy/uz = up direction.
-     * All values are fixed-point integers.
-     */
+    ///
+    Set the listener orientation.
+    fx/fy/fz = forward direction, ux/uy/uz = up direction.
+    All values are fixed-point integers.
+    ///
     fun setListenerOrientation(fx: Int, fy: Int, fz: Int, ux: Int, uy: Int, uz: Int) r: Void {
         seen_al_listener_set_orientation(fx, fy, fz, ux, uy, uz)
     }
 
-    /**
-     * Set the distance attenuation model.
-     * Use one of the AL_*_DISTANCE constants.
-     */
+    ///
+    Set the distance attenuation model.
+    Use one of the AL_*_DISTANCE constants.
+    ///
     fun setDistanceModel(model: Int) r: Void {
         seen_al_distance_model(model)
     }
 
-    /**
-     * Set the master listener gain (fixed-point integer).
-     */
+    ///
+    Set the master listener gain (fixed-point integer).
+    ///
     fun setMasterGain(gain: Int) r: Void {
         seen_al_listener_set_gain(gain)
     }
 
-    /**
-     * Shut down OpenAL: destroy context and close device.
-     */
+    ///
+    Shut down OpenAL: destroy context and close device.
+    ///
     fun shutdown() r: Void {
         if this.ready == 1 {
             seen_al_make_current(0)

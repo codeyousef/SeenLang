@@ -1,12 +1,12 @@
-/**
- * Cocoa/AppKit FFI bindings for macOS.
- *
- * Low-level bindings to Apple Cocoa via libseen_platform.dylib shim.
- * Provides NSApplication, NSWindow, NSEvent handling, and Metal layer
- * integration for native macOS windowing and input.
- *
- * Link with: -framework Cocoa -framework Metal
- */
+///
+Cocoa/AppKit FFI bindings for macOS.
+
+Low-level bindings to Apple Cocoa via libseen_platform.dylib shim.
+Provides NSApplication, NSWindow, NSEvent handling, and Metal layer
+integration for native macOS windowing and input.
+
+Link with: -framework Cocoa -framework Metal
+///
 
 import core.result.{Result, Ok, Err}
 import core.unit.{Unit}
@@ -119,27 +119,27 @@ extern fun seen_cocoa_cursor_set_position(x: Int, y: Int) r: Void
 // CocoaWindow wrapper class
 // ============================================================
 
-/**
- * High-level wrapper around an NSWindow with event polling.
- *
- * Manages an NSApplication and a single NSWindow. Provides
- * a poll-based event loop suitable for game engines and
- * real-time applications.
- *
- * Example:
- *   let win = CocoaWindow.create("My App", 800, 600)
- *   while win.isOpen() {
- *       let evt = win.pollEvent()
- *       if evt == NS_EVENT_TYPE_KEY_DOWN {
- *           let key = win.lastKeyCode()
- *           if key == KEY_CODE_ESCAPE {
- *               win.close()
- *           }
- *       }
- *       // render frame ...
- *   }
- *   win.destroy()
- */
+///
+High-level wrapper around an NSWindow with event polling.
+
+Manages an NSApplication and a single NSWindow. Provides
+a poll-based event loop suitable for game engines and
+real-time applications.
+
+Example:
+  let win = CocoaWindow.create("My App", 800, 600)
+  while win.isOpen() {
+      let evt = win.pollEvent()
+      if evt == NS_EVENT_TYPE_KEY_DOWN {
+          let key = win.lastKeyCode()
+          if key == KEY_CODE_ESCAPE {
+              win.close()
+          }
+      }
+      // render frame ...
+  }
+  win.destroy()
+///
 class CocoaWindow {
     var appHandle: Int
     var windowHandle: Int
@@ -151,9 +151,9 @@ class CocoaWindow {
     var lastEvent: Int
     var lastKey: Int
 
-    /**
-     * Create a new Cocoa window centered on screen.
-     */
+    ///
+    Create a new Cocoa window centered on screen.
+    ///
     static fun create(title: String, w: Int, h: Int) r: CocoaWindow {
         let app = seen_cocoa_app_init()
         let style = NS_WINDOW_STYLE_MASK_DEFAULT
@@ -174,19 +174,19 @@ class CocoaWindow {
         }
     }
 
-    /**
-     * Attach a CAMetalLayer to the content view for GPU rendering.
-     * Returns the Metal layer handle, or 0 on failure.
-     */
+    ///
+    Attach a CAMetalLayer to the content view for GPU rendering.
+    Returns the Metal layer handle, or 0 on failure.
+    ///
     fun attachMetalLayer() r: Int {
         let layer = seen_cocoa_metal_layer_create(this.viewHandle)
         this.metalLayerHandle = layer
         return layer
     }
 
-    /**
-     * Poll for the next event. Returns the event type, or 0 if none.
-     */
+    ///
+    Poll for the next event. Returns the event type, or 0 if none.
+    ///
     fun pollEvent() r: Int {
         let evt = seen_cocoa_app_poll_event(this.appHandle)
         this.lastEvent = evt
@@ -199,16 +199,16 @@ class CocoaWindow {
         return evt
     }
 
-    /**
-     * Get the key code from the last key event.
-     */
+    ///
+    Get the key code from the last key event.
+    ///
     fun lastKeyCode() r: Int {
         return this.lastKey
     }
 
-    /**
-     * Get current mouse position relative to the window.
-     */
+    ///
+    Get current mouse position relative to the window.
+    ///
     fun mouseX() r: Int {
         return seen_cocoa_get_mouse_x()
     }
@@ -217,31 +217,31 @@ class CocoaWindow {
         return seen_cocoa_get_mouse_y()
     }
 
-    /**
-     * Check whether the window is still open.
-     */
+    ///
+    Check whether the window is still open.
+    ///
     fun isOpen() r: Int {
         return this.open
     }
 
-    /**
-     * Set the window title.
-     */
+    ///
+    Set the window title.
+    ///
     fun setTitle(title: String) r: Void {
         seen_cocoa_window_set_title(this.windowHandle, title)
     }
 
-    /**
-     * Close the window and mark it as no longer open.
-     */
+    ///
+    Close the window and mark it as no longer open.
+    ///
     fun close() r: Void {
         seen_cocoa_window_close(this.windowHandle)
         this.open = 0
     }
 
-    /**
-     * Destroy the window and terminate the application.
-     */
+    ///
+    Destroy the window and terminate the application.
+    ///
     fun destroy() r: Void {
         if this.open == 1 {
             seen_cocoa_window_close(this.windowHandle)

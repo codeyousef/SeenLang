@@ -1,12 +1,12 @@
-/**
- * libinput FFI bindings for Linux.
- *
- * Higher-level input handling with gesture support for trackpads.
- * Provides keyboard, pointer, touch, and multi-finger gesture events.
- * Useful for desktop applications needing scroll, pinch, and swipe.
- *
- * Link with: -linput (libinput.so.10)
- */
+///
+libinput FFI bindings for Linux.
+
+Higher-level input handling with gesture support for trackpads.
+Provides keyboard, pointer, touch, and multi-finger gesture events.
+Useful for desktop applications needing scroll, pinch, and swipe.
+
+Link with: -linput (libinput.so.10)
+///
 
 import core.result.{Result, Ok, Err}
 import core.unit.{Unit}
@@ -155,9 +155,9 @@ extern "C" fun libinput_event_gesture_get_time(event: *Void) r: UInt32
 // Safe Wrapper Types
 // ============================================================================
 
-/**
- * Types of input events from libinput.
- */
+///
+Types of input events from libinput.
+///
 enum LibinputEventType {
     None
     DeviceAdded
@@ -214,9 +214,9 @@ fun parseEventType(eventType: Int) r: LibinputEventType {
     return LibinputEventType.Unknown
 }
 
-/**
- * Keyboard key press/release event data.
- */
+///
+Keyboard key press/release event data.
+///
 class KeyboardEvent {
     var key: Int
     var pressed: Bool
@@ -234,9 +234,9 @@ class KeyboardEvent {
     }
 }
 
-/**
- * Pointer (mouse/trackpad) motion event with acceleration data.
- */
+///
+Pointer (mouse/trackpad) motion event with acceleration data.
+///
 class PointerMotionEvent {
     var dx: Float
     var dy: Float
@@ -299,9 +299,9 @@ class TouchEvent {
     }
 }
 
-/**
- * Multi-finger gesture event (swipe, pinch, hold).
- */
+///
+Multi-finger gesture event (swipe, pinch, hold).
+///
 class GestureEvent {
     var fingerCount: Int
     var dx: Float
@@ -332,11 +332,11 @@ class GestureEvent {
     }
 }
 
-/**
- * Wrapper for a libinput input device.
- *
- * Provides device info and configuration (tap, scroll, acceleration).
- */
+///
+Wrapper for a libinput input device.
+
+Provides device info and configuration (tap, scroll, acceleration).
+///
 class LibinputDevice {
     var nativeHandle: *Void
     var name: String
@@ -405,12 +405,12 @@ class LibinputDevice {
     }
 }
 
-/**
- * libinput context for managing input devices and events.
- *
- * Create with createPath() and add devices manually, or use
- * a udev-based context for automatic device discovery.
- */
+///
+libinput context for managing input devices and events.
+
+Create with createPath() and add devices manually, or use
+a udev-based context for automatic device discovery.
+///
 class LibinputContext {
     var nativeHandle: *Void
     var fd: Int

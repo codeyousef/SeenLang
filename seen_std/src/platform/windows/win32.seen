@@ -1,12 +1,12 @@
-/**
- * Win32 FFI bindings for the Seen language.
- *
- * Low-level bindings to the Windows API via seen_win32_* shim functions.
- * Provides constants, function declarations, and a Win32Window helper class
- * for window creation, message pumping, input polling, and timing.
- *
- * Link with: -luser32 -lgdi32 -lkernel32
- */
+///
+Win32 FFI bindings for the Seen language.
+
+Low-level bindings to the Windows API via seen_win32_* shim functions.
+Provides constants, function declarations, and a Win32Window helper class
+for window creation, message pumping, input polling, and timing.
+
+Link with: -luser32 -lgdi32 -lkernel32
+///
 
 // ============================================================================
 // Window style constants
@@ -186,38 +186,38 @@ extern fun seen_win32_sleep(ms: Int) r: Void
 // Helper functions
 // ============================================================================
 
-/**
- * Unpack width from a packed width<<32|height value.
- */
+///
+Unpack width from a packed width<<32|height value.
+///
 fun win32_unpack_width(packed: Int) r: Int {
     return (packed >> 32) & 0xFFFFFFFF
 }
 
-/**
- * Unpack height from a packed width<<32|height value.
- */
+///
+Unpack height from a packed width<<32|height value.
+///
 fun win32_unpack_height(packed: Int) r: Int {
     return packed & 0xFFFFFFFF
 }
 
-/**
- * Unpack X from a packed x<<32|y cursor position.
- */
+///
+Unpack X from a packed x<<32|y cursor position.
+///
 fun win32_unpack_x(packed: Int) r: Int {
     return (packed >> 32) & 0xFFFFFFFF
 }
 
-/**
- * Unpack Y from a packed x<<32|y cursor position.
- */
+///
+Unpack Y from a packed x<<32|y cursor position.
+///
 fun win32_unpack_y(packed: Int) r: Int {
     return packed & 0xFFFFFFFF
 }
 
-/**
- * Check if a key is currently pressed using GetAsyncKeyState.
- * Returns 1 if the key is down, 0 otherwise.
- */
+///
+Check if a key is currently pressed using GetAsyncKeyState.
+Returns 1 if the key is down, 0 otherwise.
+///
 fun win32_is_key_down(vk: Int) r: Int {
     let state = seen_win32_get_async_key_state(vk)
     if (state & 0x8000) != 0 {
@@ -230,22 +230,22 @@ fun win32_is_key_down(vk: Int) r: Int {
 // Win32Window wrapper class
 // ============================================================================
 
-/**
- * High-level Win32 window wrapper.
- *
- * Manages a native HWND handle with a simple create/show/poll/close lifecycle.
- * Uses var running (0/1) instead of Bool due to stage1 limitations.
- *
- * Example:
- *   var wnd = Win32Window.create("My App", 800, 600)
- *   wnd.show()
- *   while wnd.isRunning() == 1 {
- *       let msg = wnd.pollEvents()
- *       if msg == WM_QUIT {
- *           wnd.close()
- *       }
- *   }
- */
+///
+High-level Win32 window wrapper.
+
+Manages a native HWND handle with a simple create/show/poll/close lifecycle.
+Uses var running (0/1) instead of Bool due to stage1 limitations.
+
+Example:
+  var wnd = Win32Window.create("My App", 800, 600)
+  wnd.show()
+  while wnd.isRunning() == 1 {
+      let msg = wnd.pollEvents()
+      if msg == WM_QUIT {
+          wnd.close()
+      }
+  }
+///
 class Win32Window {
     var handle: Int
     var className: String
@@ -254,11 +254,11 @@ class Win32Window {
     var height: Int
     var running: Int
 
-    /**
-     * Create a new Win32 window with an overlapped window style.
-     * Registers a window class, creates the window, and marks it as running.
-     * Returns a Win32Window with handle set to 0 on failure.
-     */
+    ///
+    Create a new Win32 window with an overlapped window style.
+    Registers a window class, creates the window, and marks it as running.
+    Returns a Win32Window with handle set to 0 on failure.
+    ///
     fun create(title: String, w: Int, h: Int) r: Win32Window {
         let cls = "SeenWindowClass"
         let regResult = seen_win32_register_class(cls)
@@ -278,18 +278,18 @@ class Win32Window {
         }
     }
 
-    /**
-     * Show the window using SW_SHOW.
-     */
+    ///
+    Show the window using SW_SHOW.
+    ///
     fun show(this) r: Void {
         seen_win32_show_window(this.handle, SW_SHOW)
     }
 
-    /**
-     * Poll for pending window messages (non-blocking).
-     * Returns the message ID of the most recent message, or 0 if none.
-     * Automatically sets running to 0 when WM_QUIT is received.
-     */
+    ///
+    Poll for pending window messages (non-blocking).
+    Returns the message ID of the most recent message, or 0 if none.
+    Automatically sets running to 0 when WM_QUIT is received.
+    ///
     fun pollEvents(this) r: Int {
         let msg = seen_win32_peek_message(this.handle)
         if msg == 0 {
@@ -304,9 +304,9 @@ class Win32Window {
         return msgId
     }
 
-    /**
-     * Close and destroy the window.
-     */
+    ///
+    Close and destroy the window.
+    ///
     fun close(this) r: Void {
         this.running = 0
         if this.handle != 0 {
@@ -315,18 +315,18 @@ class Win32Window {
         }
     }
 
-    /**
-     * Check if the window is still running.
-     * Returns 1 if running, 0 if closed or quit.
-     */
+    ///
+    Check if the window is still running.
+    Returns 1 if running, 0 if closed or quit.
+    ///
     fun isRunning(this) r: Int {
         return this.running
     }
 
-    /**
-     * Get the current client area dimensions.
-     * Updates width and height fields from the native window.
-     */
+    ///
+    Get the current client area dimensions.
+    Updates width and height fields from the native window.
+    ///
     fun updateSize(this) r: Void {
         if this.handle != 0 {
             let packed = seen_win32_get_client_rect(this.handle)
@@ -335,10 +335,10 @@ class Win32Window {
         }
     }
 
-    /**
-     * Check if a virtual key is currently pressed.
-     * Returns 1 if down, 0 if up.
-     */
+    ///
+    Check if a virtual key is currently pressed.
+    Returns 1 if down, 0 if up.
+    ///
     fun isKeyDown(this, vk: Int) r: Int {
         return win32_is_key_down(vk)
     }

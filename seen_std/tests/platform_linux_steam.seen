@@ -1,7 +1,7 @@
-/**
- * E2E tests for Steam FFI bindings.
- * Tests constants for Steamworks SDK integration.
- */
+///
+E2E tests for Steam FFI bindings.
+Tests constants for Steamworks SDK integration.
+///
 
 import platform.linux.steam.{
     k_iSteamUserCallbacks, k_iSteamGameServerCallbacks, k_iSteamFriendsCallbacks,

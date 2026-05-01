@@ -1,12 +1,12 @@
-/**
- * Steamworks SDK FFI bindings for Linux.
- *
- * Low-level bindings to the Steamworks API for achievements, stats,
- * cloud saves, friends, and overlay integration. Prefer the higher-level
- * Steam class from platform.linux.steam_wrapper for most use cases.
- *
- * Link with: -lsteam_api
- */
+///
+Steamworks SDK FFI bindings for Linux.
+
+Low-level bindings to the Steamworks API for achievements, stats,
+cloud saves, friends, and overlay integration. Prefer the higher-level
+Steam class from platform.linux.steam_wrapper for most use cases.
+
+Link with: -lsteam_api
+///
 
 import core.result.{Result, Ok, Err}
 import core.unit.{Unit}

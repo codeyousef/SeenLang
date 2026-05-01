@@ -315,6 +315,11 @@ fun buildCacheSignature(profile: String, language: String, targetCpu: String, si
     } else {
         signature = signature + "|fast=0"
     }
+    if g_picMode == 1 {
+        signature = signature + "|pic=1"
+    } else {
+        signature = signature + "|pic=0"
+    }
     if g_boundsCheckCli == 1 {
         signature = signature + "|bounds=1"
     } else {
@@ -5112,6 +5117,24 @@ fun sourcesNeedGpuRuntime(modulePaths: Array<String>) r: Bool {
     return false
 }
 
+fun sourcesNeedHotReloadRuntime(modulePaths: Array<String>) r: Bool {
+    var mi = 0
+    while mi < modulePaths.length() {
+        let modulePath = modulePaths[mi]
+        if modulePath.endsWith("/seen_std/src/framework/hotreload.seen") or
+            modulePath.endsWith("seen_std/src/framework/hotreload.seen") {
+
+            return true
+        }
+        let sourceText = readText(modulePath)
+        if sourceText.contains("__seen_hotreload_") {
+            return true
+        }
+        mi = mi + 1
+    }
+    return false
+}
+
 fun targetNeedsPthreadCompileFlag(target: String) r: Bool {
     if target == "windows-x86_64" {
         return false
@@ -5120,6 +5143,12 @@ fun targetNeedsPthreadCompileFlag(target: String) r: Bool {
 }
 
 fun targetNeedsPicCompileFlag(target: String) r: Bool {
+    if target == "windows-x86_64" {
+        return false
+    }
+    if g_picMode == 1 {
+        return true
+    }
     if target == "android-arm64" {
         return true
     }
@@ -5316,6 +5345,34 @@ fun buildTargetLinkLibraries(target: String, hasGpuRuntime: Bool) r: String {
     return libs
 }
 
+fun writeObjectManifest(manifestPath: String, objectFiles: Array<String>,
+    sourcePaths: Array<String>) r: Bool {
+
+    if manifestPath == "" {
+        return true
+    }
+    if objectFiles.length() != sourcePaths.length() {
+        return false
+    }
+
+    let manifestDir = getSourceDir(manifestPath)
+    if manifestDir != "" {
+        let mkdirResult: CommandResult =
+            runCommand("mkdir -p " + shellQuote(manifestDir))
+        if not commandWasSuccessful(mkdirResult) {
+            return false
+        }
+    }
+
+    var content = ""
+    var i = 0
+    while i < objectFiles.length() {
+        content = content + objectFiles[i] + "\t" + sourcePaths[i] + "\n"
+        i = i + 1
+    }
+    return writeText(manifestPath, content)
+}
+
 fun buildTargetClangArgs(target: String) r: String {
     if target == "" {
         return ""
@@ -5476,6 +5533,10 @@ var g_sanitizerModeCli = 0
 var g_enabledFeaturesCli: String = ""
 // Compilation database output
 var g_emitCompileDb = 0
+// Emit per-module object files that are safe to link into shared libraries.
+var g_picMode = 0
+// Optional TSV manifest: object path<TAB>Seen module path.
+var g_objectManifestPath: String = ""
 // Disable fork-parallel IR generation (use sequential in-process generation)
 var g_noFork = 0
 // HeartOn validation passes this legacy project-prefix hint together with
@@ -5532,6 +5593,9 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     }
     if g_fastMode == 1 {
         println("  Fast mode: lightweight optimization for bootstrap")
+    }
+    if g_picMode == 1 {
+        println("  PIC object emission: enabled")
     }
     if g_O2Mode == 1 {
         println("  O2 mode: moderate optimization for bootstrap stages")
@@ -6023,6 +6087,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         println("  [Pass 2] Compiling modules...")
     }
     var objectFiles = Array<String>()
+    var objectSourcePaths = Array<String>()
     var llFiles = Array<String>()
     var expectedLinkObjects = modulePaths.length()
     var moduleIndex = 0
@@ -6065,6 +6130,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             if tryCopyGeneratedTestObjectFromCache(generatedTestObjectCacheKey, moduleIndex) {
                 let cachedTestObj = "/tmp/seen_module_" + moduleIndex.toString() + ".o"
                 objectFiles.push(cachedTestObj)
+                objectSourcePaths.push(path)
                 moduleIndex = moduleIndex + 1
                 continue
             }
@@ -6081,6 +6147,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             if storedHash == sourceHash and exists(cachedObjFile) {
                 println("    [" + moduleIndex.toString() + "] Cached: " + path)
                 objectFiles.push(cachedObjFile)
+                objectSourcePaths.push(path)
                 cachedCount = cachedCount + 1
                 moduleIndex = moduleIndex + 1
                 continue
@@ -6110,6 +6177,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             let irCacheObj = "/tmp/seen_module_" + moduleIndex.toString() + ".o"
             let irCopy: CommandResult = runCommand("cp " + irCacheFile + " " + irCacheObj)
             objectFiles.push(irCacheObj)
+            objectSourcePaths.push(path)
             println("    [" + moduleIndex.toString() + "] IR cache hit: " + path)
             // Promote to source-level cache to speed up next build within same stage
             if useCache {
@@ -6303,6 +6371,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                 return 1
             }
             objectFiles.push(objFile)
+            objectSourcePaths.push(forkSrcPaths[forkReg])
         } else {
             llFiles.push(llFile)
             uncachedIdxStrs.push(midxStr)
@@ -6420,6 +6489,19 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                 pollyStep = "    (" + llvmOptTool + " -passes='polly-canonicalize,polly' -S " + optFile + " -o " + pollyFile + " >>" + logFile + " 2>&1 && mv " + pollyFile + " " + optFile + ") || true\n"
             }
             var moduleObjCmd = llvmOptTool + " --thinlto-bc " + optFile + " -o " + objFile
+            if g_picMode == 1 and normalizedCrossTarget != "android-arm64" {
+                var picLlcOptLevel = "-O3"
+                if g_fastMode == 1 {
+                    picLlcOptLevel = "-O1"
+                } else {
+                    if g_O2Mode == 1 {
+                        picLlcOptLevel = "-O2"
+                    }
+                }
+                moduleObjCmd = llvmLlcTool + " -filetype=obj " +
+                    picLlcOptLevel + " -relocation-model=pic " + optFile +
+                    " -o " + objFile
+            }
             if g_fastMode == 1 and normalizedCrossTarget != "android-arm64" {
                 moduleObjCmd = llvmLlcTool + " -filetype=obj -O1 -relocation-model=pic " + optFile + " -o " + objFile
             }
@@ -6427,7 +6509,11 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                 moduleObjCmd = llvmLlcTool + " -filetype=obj -O0 -relocation-model=pic " + optFile + " -o " + objFile
             }
             if normalizedCrossTarget == "android-arm64" {
-                moduleObjCmd = targetClangDriver + " " + androidClangOptLevel + " -flto=thin -ffunction-sections -fdata-sections -Wno-unused-command-line-argument -c -x ir " + targetClangArgs + " " + optFile + " -o " + objFile
+                var modulePicFlag = ""
+                if g_picMode == 1 {
+                    modulePicFlag = " -fPIC"
+                }
+                moduleObjCmd = targetClangDriver + " " + androidClangOptLevel + " -flto=thin -ffunction-sections -fdata-sections" + modulePicFlag + " -Wno-unused-command-line-argument -c -x ir " + targetClangArgs + " " + optFile + " -o " + objFile
             }
             if pass2bRunsParallel and boundedLargeProjectOptWorkers > 0 {
                 script = script + "while [ \"$(jobs -p | wc -l | tr -d ' ')\" -ge " + boundedLargeProjectOptWorkers.toString() + " ]; do sleep 0.05; done\n"
@@ -6517,6 +6603,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             let midx = uncachedIdxStrs[ci]
             let objFile = "/tmp/seen_module_" + midx + ".o"
             objectFiles.push(objFile)
+            objectSourcePaths.push(uncachedSrcPaths[ci])
 
             // --emit-llvm: save optimized IR alongside output
             if g_emitLlvm {
@@ -6645,7 +6732,9 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     // (dead code elimination, cross-module inlining with threshold=2000) at the
     // cost of higher memory usage and slower compilation. The merged object is
     // compiled via llc rather than ThinLTO.
-    if g_releaseMode and modulePaths.length() > 1 and normalizedCrossTarget == "" {
+    if g_releaseMode and modulePaths.length() > 1 and normalizedCrossTarget == "" and
+        g_objectManifestPath == "" {
+
         if llFiles.length() != modulePaths.length() {
             println("  [2.5] Skipping merged release path: only " + llFiles.length().toString() + "/" + modulePaths.length().toString() + " modules have raw IR available")
         } else {
@@ -6719,6 +6808,16 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         println("    Error: refusing to link partial module set (" + objectFiles.length().toString() + "/" + expectedLinkObjects.toString() + " link objects)")
         return 1
     }
+    if g_objectManifestPath != "" {
+        if not writeObjectManifest(g_objectManifestPath, objectFiles,
+            objectSourcePaths) {
+
+            println("    Error: failed to write object manifest: " +
+                g_objectManifestPath)
+            return 1
+        }
+        println("  Wrote object manifest: " + g_objectManifestPath)
+    }
     if g_generatedTestMainMode == 1 {
         storeGeneratedTestObjectSetCache(resolvedInput, modulePaths, cacheSignature, normalizedCrossTarget)
         println("  [3] Skipping final link for generated test main; module objects are ready")
@@ -6737,9 +6836,19 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     if compRoot != "" {
         rtPrefix = compRoot + "/seen_runtime"
     }
-    let runtimeObj = rtPrefix + "/seen_runtime.o"
+    var picCompileFlag = ""
+    if g_picMode == 1 {
+        picCompileFlag = " -fPIC"
+    }
+    var runtimeObj = rtPrefix + "/seen_runtime.o"
+    if g_picMode == 1 {
+        runtimeObj = rtPrefix + "/seen_runtime_pic.o"
+    }
     let runtimeSrc = rtPrefix + "/seen_runtime.c"
-    let teeRuntimeObj = rtPrefix + "/seen_tee_common.o"
+    var teeRuntimeObj = rtPrefix + "/seen_tee_common.o"
+    if g_picMode == 1 {
+        teeRuntimeObj = rtPrefix + "/seen_tee_common_pic.o"
+    }
     let teeRuntimeSrc = rtPrefix + "/seen_tee_common.c"
     let teeSgxRuntimeSrc = rtPrefix + "/seen_tee_sgx.c"
     let teeSevRuntimeSrc = rtPrefix + "/seen_tee_sev.c"
@@ -6798,10 +6907,15 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         }
     }
     if sanitizePolicy == "" {
-        let checkRtResult: CommandResult = runCommand("test " + rtPrefix + "/seen_runtime.o -nt " + rtPrefix + "/seen_runtime.c")
+        let checkRtResult: CommandResult =
+            runCommand("test " + runtimeObj + " -nt " + runtimeSrc)
         if not commandWasSuccessful(checkRtResult) {
             println("  [3a] Pre-compiling runtime...")
-            let rtCompile: CommandResult = runCommand("clang -O3 -flto=thin " + clangMarch + " -ffunction-sections -fdata-sections -pthread -c -I " + rtPrefix + " " + rtPrefix + "/seen_runtime.c -o " + rtPrefix + "/seen_runtime.o")
+            let rtCompile: CommandResult =
+                runCommand("clang -O3 -flto=thin " + clangMarch +
+                    " -ffunction-sections -fdata-sections -pthread" +
+                    picCompileFlag + " -c -I " + rtPrefix + " " +
+                    runtimeSrc + " -o " + runtimeObj)
             if not commandWasSuccessful(rtCompile) {
                 println("    Warning: Runtime pre-compilation failed, will compile inline")
             }
@@ -6809,7 +6923,11 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         if hasTeeRuntime {
             let checkTeeRtResult: CommandResult = runCommand("test " + teeRuntimeObj + " -nt " + teeRuntimeSrc)
             if not commandWasSuccessful(checkTeeRtResult) {
-                let teeRtCompile: CommandResult = runCommand("clang -O3 -flto=thin " + clangMarch + " -ffunction-sections -fdata-sections -pthread -c -I " + rtPrefix + " " + teeRuntimeSrc + " -o " + teeRuntimeObj)
+                let teeRtCompile: CommandResult =
+                    runCommand("clang -O3 -flto=thin " + clangMarch +
+                        " -ffunction-sections -fdata-sections -pthread" +
+                        picCompileFlag + " -c -I " + rtPrefix + " " +
+                        teeRuntimeSrc + " -o " + teeRuntimeObj)
                 if not commandWasSuccessful(teeRtCompile) {
                     println("    Warning: TEE runtime pre-compilation failed, will compile inline")
                 }
@@ -6818,12 +6936,29 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     } else {
         // With sanitizer, recompile runtime with sanitizer flags
         println("  [3a] Compiling runtime with sanitizer...")
-        let rtCompile: CommandResult = runCommand("clang -O3 " + clangMarch + " -ffunction-sections -fdata-sections -pthread" + sanitizerClangFlags + " -c -I " + rtPrefix + " " + rtPrefix + "/seen_runtime.c -o /tmp/seen_runtime_sanitized.o")
+        var sanitizedRuntimeObj = "/tmp/seen_runtime_sanitized.o"
+        if g_picMode == 1 {
+            sanitizedRuntimeObj = "/tmp/seen_runtime_sanitized_pic.o"
+        }
+        let rtCompile: CommandResult =
+            runCommand("clang -O3 " + clangMarch +
+                " -ffunction-sections -fdata-sections -pthread" +
+                sanitizerClangFlags + picCompileFlag + " -c -I " + rtPrefix +
+                " " + runtimeSrc + " -o " + sanitizedRuntimeObj)
         if not commandWasSuccessful(rtCompile) {
             println("    Warning: Sanitized runtime compilation failed")
         }
         if hasTeeRuntime {
-            let teeRtCompile: CommandResult = runCommand("clang -O3 " + clangMarch + " -ffunction-sections -fdata-sections -pthread" + sanitizerClangFlags + " -c -I " + rtPrefix + " " + teeRuntimeSrc + " -o /tmp/seen_tee_common_sanitized.o")
+            var sanitizedTeeRuntimeObj = "/tmp/seen_tee_common_sanitized.o"
+            if g_picMode == 1 {
+                sanitizedTeeRuntimeObj = "/tmp/seen_tee_common_sanitized_pic.o"
+            }
+            let teeRtCompile: CommandResult =
+                runCommand("clang -O3 " + clangMarch +
+                    " -ffunction-sections -fdata-sections -pthread" +
+                    sanitizerClangFlags + picCompileFlag + " -c -I " +
+                    rtPrefix + " " + teeRuntimeSrc + " -o " +
+                    sanitizedTeeRuntimeObj)
             if not commandWasSuccessful(teeRtCompile) {
                 println("    Warning: Sanitized TEE runtime compilation failed")
             }
@@ -6844,7 +6979,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     }
     var teeInlineArg = ""
     if teeRuntimeSourceArg != "" {
-        teeInlineArg = " -I " + rtPrefix
+        teeInlineArg = " -I " + rtPrefix + picCompileFlag
         if teeRuntimeCompileFlags != "" {
             teeInlineArg = teeInlineArg + teeRuntimeCompileFlags
         }
@@ -6855,18 +6990,27 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     }
     if sanitizePolicy != "" {
         // Use sanitized runtime object
-        let useSanitizedRt: CommandResult = runCommand("test -f /tmp/seen_runtime_sanitized.o")
+        var sanitizedRuntimeObj2 = "/tmp/seen_runtime_sanitized.o"
+        if g_picMode == 1 {
+            sanitizedRuntimeObj2 = "/tmp/seen_runtime_sanitized_pic.o"
+        }
+        let useSanitizedRt: CommandResult =
+            runCommand("test -f " + sanitizedRuntimeObj2)
         if commandWasSuccessful(useSanitizedRt) {
-            runtimeArg = "/tmp/seen_runtime_sanitized.o" + teeInlineArg
+            runtimeArg = sanitizedRuntimeObj2 + teeInlineArg
         } else {
-            runtimeArg = "-I " + rtPrefix + sanitizerClangFlags + teeRuntimeCompileFlags + " " + rtPrefix + "/seen_runtime.c" + teeRuntimeSourceArg
+            runtimeArg = "-I " + rtPrefix + sanitizerClangFlags +
+                picCompileFlag + teeRuntimeCompileFlags + " " + runtimeSrc +
+                teeRuntimeSourceArg
         }
     } else {
-        let usePrecompiledRt: CommandResult = runCommand("test -f " + rtPrefix + "/seen_runtime.o")
+        let usePrecompiledRt: CommandResult = runCommand("test -f " + runtimeObj)
         if commandWasSuccessful(usePrecompiledRt) {
-            runtimeArg = rtPrefix + "/seen_runtime.o" + teeInlineArg
+            runtimeArg = runtimeObj + teeInlineArg
         } else {
-            runtimeArg = "-I " + rtPrefix + teeRuntimeCompileFlags + " " + rtPrefix + "/seen_runtime.c" + teeRuntimeSourceArg
+            runtimeArg = "-I " + rtPrefix + picCompileFlag +
+                teeRuntimeCompileFlags + " " + runtimeSrc +
+                teeRuntimeSourceArg
         }
     }
 
@@ -6956,12 +7100,18 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         oi = oi + 1
     }
     // Pre-compile region allocator if not already built
-    let regionObj = rtPrefix + "/seen_region.o"
-    let checkRegionResult: CommandResult = runCommand("test " + rtPrefix + "/seen_region.o -nt " + rtPrefix + "/seen_region.c")
+    var regionObj = rtPrefix + "/seen_region.o"
+    if g_picMode == 1 {
+        regionObj = rtPrefix + "/seen_region_pic.o"
+    }
+    let checkRegionResult: CommandResult = runCommand("test " + regionObj + " -nt " + rtPrefix + "/seen_region.c")
     if not commandWasSuccessful(checkRegionResult) {
         let regionSrcCheck: CommandResult = runCommand("test -f " + rtPrefix + "/seen_region.c")
         if commandWasSuccessful(regionSrcCheck) {
-            let hostRegionCmd = "clang -O3 -flto=thin " + clangMarch + " -ffunction-sections -fdata-sections -c -I " + rtPrefix + " " + rtPrefix + "/seen_region.c -o " + rtPrefix + "/seen_region.o"
+            let hostRegionCmd = "clang -O3 -flto=thin " + clangMarch +
+                " -ffunction-sections -fdata-sections" + picCompileFlag +
+                " -c -I " + rtPrefix + " " + rtPrefix +
+                "/seen_region.c -o " + regionObj
             let rtRegion: CommandResult = runCommand(hostRegionCmd)
         }
     }
@@ -6985,33 +7135,47 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             println("    Skipping region runtime for " + effectiveTarget + " (no supported target-specific implementation yet)")
         }
     } else {
-        let useRegionObj: CommandResult = runCommand("test -f " + rtPrefix + "/seen_region.o")
+        let useRegionObj: CommandResult = runCommand("test -f " + regionObj)
         if commandWasSuccessful(useRegionObj) {
-            regionArg = " " + rtPrefix + "/seen_region.o"
+            regionArg = " " + regionObj
         }
     }
     // Pre-compile GPU runtime if not already built
     var gpuArg = ""
     let needsGpuRuntime = sourcesNeedGpuRuntime(modulePaths)
     if needsGpuRuntime {
-        let checkGpuResult: CommandResult = runCommand("test " + rtPrefix + "/seen_gpu.o -nt " + rtPrefix + "/seen_gpu.c")
+        var hostGpuObj = rtPrefix + "/seen_gpu.o"
+        if g_picMode == 1 {
+            hostGpuObj = rtPrefix + "/seen_gpu_pic.o"
+        }
+        let checkGpuResult: CommandResult = runCommand("test " + hostGpuObj + " -nt " + rtPrefix + "/seen_gpu.c")
         if not commandWasSuccessful(checkGpuResult) {
             let gpuSrcCheck: CommandResult = runCommand("test -f " + rtPrefix + "/seen_gpu.c")
             if commandWasSuccessful(gpuSrcCheck) {
                 // Check if vulkan headers are available before trying to compile
                 let vulkanCheck: CommandResult = runCommand("pkg-config --exists vulkan 2>/dev/null")
                 if commandWasSuccessful(vulkanCheck) {
-                    let rtGpu: CommandResult = runCommand("clang -O3 -flto=thin " + clangMarch + " -ffunction-sections -fdata-sections -c -I " + rtPrefix + " " + rtPrefix + "/seen_gpu.c -o " + rtPrefix + "/seen_gpu.o $(pkg-config --cflags vulkan) 2>&1")
+                    let rtGpu: CommandResult =
+                        runCommand("clang -O3 -flto=thin " + clangMarch +
+                            " -ffunction-sections -fdata-sections" +
+                            picCompileFlag + " -c -I " + rtPrefix + " " +
+                            rtPrefix + "/seen_gpu.c -o " + hostGpuObj +
+                            " $(pkg-config --cflags vulkan) 2>&1")
                 } else {
                     // Try without pkg-config (headers might be in standard paths)
-                    let rtGpu2: CommandResult = runCommand("clang -O3 -flto=thin " + clangMarch + " -ffunction-sections -fdata-sections -c -I " + rtPrefix + " " + rtPrefix + "/seen_gpu.c -o " + rtPrefix + "/seen_gpu.o 2>&1")
+                    let rtGpu2: CommandResult =
+                        runCommand("clang -O3 -flto=thin " + clangMarch +
+                            " -ffunction-sections -fdata-sections" +
+                            picCompileFlag + " -c -I " + rtPrefix + " " +
+                            rtPrefix + "/seen_gpu.c -o " + hostGpuObj +
+                            " 2>&1")
                 }
             }
         }
         if normalizedCrossTarget == "" {
-            let useGpuObj: CommandResult = runCommand("test -f " + rtPrefix + "/seen_gpu.o")
+            let useGpuObj: CommandResult = runCommand("test -f " + hostGpuObj)
             if commandWasSuccessful(useGpuObj) {
-                gpuArg = " " + rtPrefix + "/seen_gpu.o"
+                gpuArg = " " + hostGpuObj
             }
         } else {
             if targetSupportsGpuRuntime(effectiveTarget) and targetClangArgs != "" {
@@ -7036,6 +7200,66 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     var hasGpuRuntime = false
     if gpuArg != "" {
         hasGpuRuntime = true
+    }
+    var hotReloadArg = ""
+    let needsHotReloadRuntime = sourcesNeedHotReloadRuntime(modulePaths)
+    if needsHotReloadRuntime {
+        if effectiveTarget == "windows-x86_64" {
+            println("    Error: hotreload runtime is not implemented for Windows targets yet")
+            return 1
+        }
+        let hotReloadSrc = rtPrefix + "/seen_hotreload.c"
+        let hotReloadSrcCheck: CommandResult =
+            runCommand("test -f " + hotReloadSrc)
+        if not commandWasSuccessful(hotReloadSrcCheck) {
+            println("    Error: missing hotreload runtime source: " + hotReloadSrc)
+            return 1
+        }
+        if normalizedCrossTarget != "" {
+            let targetHotReloadOut = "/tmp/seen_hotreload_" +
+                effectiveTarget + ".o"
+            let targetHotReloadCmd = targetClangDriver +
+                " -O3 -flto=thin -ffunction-sections -fdata-sections" +
+                targetRuntimeFlags + " -c " + targetClangArgs + " -I " +
+                rtPrefix + " " + hotReloadSrc + " -o " +
+                targetHotReloadOut
+            let targetHotReloadResult: CommandResult =
+                runCommand(targetHotReloadCmd)
+            if commandWasSuccessful(targetHotReloadResult) {
+                hotReloadArg = " " + targetHotReloadOut
+            } else {
+                println("    Error: hotreload runtime compilation failed for " +
+                    effectiveTarget)
+                println(targetHotReloadResult.output)
+                return 1
+            }
+        } else {
+            var hotReloadObj = rtPrefix + "/seen_hotreload.o"
+            if g_picMode == 1 {
+                hotReloadObj = rtPrefix + "/seen_hotreload_pic.o"
+            }
+            let checkHotReloadResult: CommandResult =
+                runCommand("test " + hotReloadObj + " -nt " +
+                    hotReloadSrc)
+            if not commandWasSuccessful(checkHotReloadResult) {
+                let hotReloadCmd = "clang -O3 -flto=thin " + clangMarch +
+                    " -ffunction-sections -fdata-sections" +
+                    picCompileFlag + " -c -I " + rtPrefix + " " +
+                    hotReloadSrc + " -o " + hotReloadObj
+                let hotReloadResult: CommandResult =
+                    runCommand(hotReloadCmd)
+                if not commandWasSuccessful(hotReloadResult) {
+                    println("    Error: hotreload runtime compilation failed")
+                    println(hotReloadResult.output)
+                    return 1
+                }
+            }
+            let useHotReloadObj: CommandResult =
+                runCommand("test -f " + hotReloadObj)
+            if commandWasSuccessful(useHotReloadObj) {
+                hotReloadArg = " " + hotReloadObj
+            }
+        }
     }
     var platformShimArg = ""
     var platformShimLinkFlags = ""
@@ -7137,6 +7361,16 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         platformShimArg = " " + platformShimOut
     }
     var linkLibs = buildTargetLinkLibraries(effectiveTarget, hasGpuRuntime)
+    if needsHotReloadRuntime {
+        if effectiveTarget == "linux-x86_64" or
+            effectiveTarget == "linux-arm64" or
+            effectiveTarget == "android-arm64" {
+
+            if not linkLibs.contains("-ldl") {
+                linkLibs = linkLibs + " -ldl"
+            }
+        }
+    }
     if normalizedCrossTarget == "" {
         if sourcesNeedRawVulkanLink(modulePaths) and not linkLibs.contains("vulkan") {
             linkLibs = appendHostPkgOrFallbackLinkFlag(linkLibs, "vulkan",
@@ -7150,7 +7384,10 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                 "-lSDL3")
         }
     }
-    linkCmd = linkCmd + runtimeArg + regionArg + gpuArg + platformShimArg + " -o " + outputFile + linkLibs + teeRuntimeLinkFlags + platformShimLinkFlags + tomlExtraLinkFlags + " 2>&1"
+    linkCmd = linkCmd + runtimeArg + regionArg + gpuArg + hotReloadArg +
+        platformShimArg + " -o " + outputFile + linkLibs +
+        teeRuntimeLinkFlags + platformShimLinkFlags + tomlExtraLinkFlags +
+        " 2>&1"
 
     let linkResult: CommandResult = runCommand(linkCmd)
     if commandWasSuccessful(linkResult) {
@@ -7567,6 +7804,8 @@ fun printUsage() r: Void {
     println("                           linux-x86_64, linux-arm64, windows-x86_64,")
     println("                           macos-x86_64, macos-arm64, ios-arm64,")
     println("                           ios-sim-arm64, android-arm64")
+    println("  --pic                    Emit PIC module/runtime objects for shared libraries")
+    println("  --object-manifest <path> Write object-to-module TSV manifest")
     println("  --fast                   Lightweight optimization (for bootstrap verification)")
     println("  --no-fork                Disable parallel IR/opt bootstrap steps (sequential)")
     println("  --projectprefix <n>      Large-project validation prefix hint")
@@ -7806,6 +8045,15 @@ fun main() r: Int {
                                                                                     g_stackCheckCli = 1
                                                                                 } else if argv[argIdx] == "--emit-compile-db" {
                                                                                     g_emitCompileDb = 1
+                                                                                } else if argv[argIdx] == "--pic" {
+                                                                                    g_picMode = 1
+                                                                                } else if argv[argIdx] == "--object-manifest" {
+                                                                                    if argIdx + 1 < argv.length() {
+                                                                                        argIdx = argIdx + 1
+                                                                                        g_objectManifestPath = argv[argIdx]
+                                                                                    }
+                                                                                } else if startsWith(argv[argIdx], "--object-manifest=") {
+                                                                                    g_objectManifestPath = extractFlagValue(argv[argIdx], 18)
                                                                                 } else if argv[argIdx] == "--no-fork" {
                                                                                     g_noFork = 1
                                                                                 } else if argv[argIdx] == "--projectprefix" {

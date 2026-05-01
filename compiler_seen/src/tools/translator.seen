@@ -273,6 +273,71 @@ fun isAlphaNumOrUnderscore(b: Int) r: Int {
     return 0
 }
 
+fun isTripleSlashBlockDelimiterLine(source: String, pos: Int) r: Bool {
+    let len = source.length()
+    if pos + 2 >= len { return false }
+    if source.byteAt(pos) != 47 or source.byteAt(pos + 1) != 47 or
+        source.byteAt(pos + 2) != 47 {
+
+        return false
+    }
+
+    var left = pos
+    while left > 0 and source.byteAt(left - 1) != 10 {
+        left = left - 1
+    }
+    while left < pos {
+        let b = source.byteAt(left)
+        if b != 32 and b != 9 and b != 13 {
+            return false
+        }
+        left = left + 1
+    }
+
+    var right = pos + 3
+    while right < len {
+        let b = source.byteAt(right)
+        if b == 10 { return true }
+        if b != 32 and b != 9 and b != 13 {
+            return false
+        }
+        right = right + 1
+    }
+
+    return true
+}
+
+fun consumeTripleSlashBlockComment(source: String, pos: Int) r: Int {
+    let len = source.length()
+    var end = pos
+    while end < len {
+        if source.byteAt(end) == 10 {
+            end = end + 1
+            break
+        }
+        end = end + 1
+    }
+
+    while end < len {
+        if end + 2 < len and source.byteAt(end) == 47 and
+            source.byteAt(end + 1) == 47 and source.byteAt(end + 2) == 47 and
+            isTripleSlashBlockDelimiterLine(source, end) {
+
+            while end < len {
+                if source.byteAt(end) == 10 {
+                    end = end + 1
+                    return end
+                }
+                end = end + 1
+            }
+            return end
+        }
+        end = end + 1
+    }
+
+    return len
+}
+
 // Translate Seen source code from one language to another.
 // Preserves all formatting, comments, and string contents.
 fun translateSource(source: String, fromLang: String, toLang: String) r: String {
@@ -334,27 +399,18 @@ fun translateSource(source: String, fromLang: String, toLang: String) r: String 
             }
             result = result + source.substring(pos, end)
             pos = end
+        } else if b == 47 and pos + 2 < len and source.byteAt(pos + 1) == 47 and
+            source.byteAt(pos + 2) == 47 and isTripleSlashBlockDelimiterLine(source, pos) {
+
+            let end = consumeTripleSlashBlockComment(source, pos)
+            result = result + source.substring(pos, end)
+            pos = end
         } else if b == 47 and pos + 1 < len and source.byteAt(pos + 1) == 47 {
             // Single-line comment: copy to end of line
             var end = pos
             while end < len {
                 if source.byteAt(end) == 10 { break }
                 end = end + 1
-            }
-            result = result + source.substring(pos, end)
-            pos = end
-        } else if b == 47 and pos + 1 < len and source.byteAt(pos + 1) == 42 {
-            // Multi-line comment: copy to */
-            var end = pos + 2
-            while end + 1 < len {
-                if source.byteAt(end) == 42 and source.byteAt(end + 1) == 47 {
-                    end = end + 2
-                    break
-                }
-                end = end + 1
-            }
-            if end >= len {
-                end = len
             }
             result = result + source.substring(pos, end)
             pos = end
