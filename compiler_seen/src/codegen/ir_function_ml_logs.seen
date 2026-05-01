@@ -1,6 +1,6 @@
 // ir_function_ml_logs.seen - function-pipeline ML log helpers.
 
-import codegen.ir_function_gen.{FunctionPreludeAnalysisSnapshot}
+import codegen.ir_function_snapshots.{FunctionPreludeAnalysisSnapshot}
 import codegen.ir_ml_logging.{mlLogDecision, mlLogFeatures}
 import codegen.ir_optimization.{pipeGet}
 

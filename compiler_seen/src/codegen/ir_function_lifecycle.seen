@@ -1,6 +1,6 @@
 // ir_function_lifecycle.seen - function emission lifecycle writeback helpers.
 
-import codegen.ir_function_gen.{FunctionEntrySetupSnapshot, FunctionRuntimeStateSnapshot}
+import codegen.ir_function_snapshots.{FunctionEntrySetupSnapshot, FunctionRuntimeStateSnapshot}
 import codegen.ir_function_state.{FunctionEmissionState}
 
 class FunctionIntrinsicFlowPlan {

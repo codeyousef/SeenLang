@@ -2,7 +2,8 @@
 
 import parser.real_parser.{FunctionNode}
 import codegen.ir_codegen_state.{CodegenState, resetFunctionLoweringOptions}
-import codegen.ir_function_gen.{resetLocalCodegenStateImpl, emitPreAllocatedAllocasImpl}
+import codegen.ir_function_scratch.{resetLocalCodegenStateImpl}
+import codegen.ir_function_gen.{emitPreAllocatedAllocasImpl}
 import codegen.ir_function_signature_emit.{emitDefaultReturnValueImpl}
 import codegen.ir_function_param_meta.{preRegisterFunctionParametersImpl}
 import codegen.ir_string_collect.{getBaseTypeNameImpl}
