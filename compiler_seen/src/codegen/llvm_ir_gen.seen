@@ -121,6 +121,7 @@ import codegen.ir_method_final_plan.{planMethodUnresolvedReceiverStartImpl, plan
 import codegen.ir_method_receiver_lookup_plan.{planMethodReceiverInitialPhaseImpl, planMethodReceiverPostLookupPhaseImpl, planMethodReceiverPostResolutionPhaseImpl, planDottedReceiverStageImpl, planDottedReceiverFallbackStageImpl, planImplicitThisDottedReceiverStageImpl, planSimpleLiteralReceiverStageImpl, planImplicitThisReceiverStageImpl}
 import codegen.ir_method_receiver_lookup_gen.{emitLocalMethodReceiverLoadImpl, emitModuleConstantMethodReceiverLoadImpl, emitKeywordManagerMethodReceiverLoadImpl}
 import codegen.ir_method_builtin_type_infer.{tryInferBuiltinReceiverMethodCallTypeState}
+import codegen.ir_value_coercion.{coerceValueForLlvmTargetImpl}
 import codegen.ir_struct_gen.{emitStructFieldStoresImpl, resolveStructLiteralFieldFallback, inferStructFieldTypeFromExpr}
 import codegen.ir_struct_layout_build.{prepareStructLayoutRegistrationSnapshotImpl}
 import codegen.ir_class_type_layout.{emitClassTypeFieldsImpl, emitClassTypeHeaderImpl, emitClassTypeFooterImpl, prepareClassTypeAliasStateSnapshotImpl}
@@ -2443,79 +2444,8 @@ class LLVMIRGenerator {
         if sourceSeenType != "" and sourceSeenType != "Unknown" {
             sourceLlvmType = mapType(sourceSeenType)
         }
-        if sourceLlvmType == "" or sourceLlvmType == targetLlvmType {
-            return valueReg
-        }
-        if targetLlvmType == "double" and sourceLlvmType == "i64" {
-            let coercedReg = getNextReg()
-            output.append("  " + coercedReg + " = sitofp i64 " + valueReg +
-                " to double\n")
-            return coercedReg
-        }
-        if targetLlvmType == "double" and sourceLlvmType == "i1" {
-            let intReg = getNextReg()
-            output.append("  " + intReg + " = zext i1 " + valueReg +
-                " to i64\n")
-            let coercedReg = getNextReg()
-            output.append("  " + coercedReg + " = sitofp i64 " + intReg +
-                " to double\n")
-            return coercedReg
-        }
-        if targetLlvmType == "i64" and sourceLlvmType == "double" {
-            let coercedReg = getNextReg()
-            output.append("  " + coercedReg + " = fptosi double " + valueReg +
-                " to i64\n")
-            return coercedReg
-        }
-        if targetLlvmType == "i64" and sourceLlvmType == "i1" {
-            let coercedReg = getNextReg()
-            output.append("  " + coercedReg + " = zext i1 " + valueReg +
-                " to i64\n")
-            return coercedReg
-        }
-        if targetLlvmType == "i64" and
-            (sourceLlvmType == "i8" or sourceLlvmType == "i16" or
-                sourceLlvmType == "i32") {
-
-            let coercedReg = getNextReg()
-            var extendOp = "sext"
-            if sourceSeenType == "UInt8" or sourceSeenType == "UInt16" or
-                sourceSeenType == "UInt32" {
-
-                extendOp = "zext"
-            }
-            output.append("  " + coercedReg + " = " + extendOp + " " +
-                sourceLlvmType + " " + valueReg + " to i64\n")
-            return coercedReg
-        }
-        if targetLlvmType == "i64" and sourceLlvmType == "ptr" {
-            let coercedReg = getNextReg()
-            output.append("  " + coercedReg + " = ptrtoint ptr " + valueReg +
-                " to i64\n")
-            return coercedReg
-        }
-        if targetLlvmType == "ptr" and sourceLlvmType == "i64" {
-            if valueReg == "0" {
-                return "null"
-            }
-            let coercedReg = getNextReg()
-            output.append("  " + coercedReg + " = inttoptr i64 " + valueReg +
-                " to ptr\n")
-            return coercedReg
-        }
-        if targetLlvmType == "i1" and sourceLlvmType == "i64" {
-            let coercedReg = getNextReg()
-            output.append("  " + coercedReg + " = icmp ne i64 " + valueReg +
-                ", 0\n")
-            return coercedReg
-        }
-        if targetLlvmType == "i1" and sourceLlvmType == "double" {
-            let coercedReg = getNextReg()
-            output.append("  " + coercedReg + " = fcmp one double " +
-                valueReg + ", 0.0\n")
-            return coercedReg
-        }
-        return valueReg
+        return coerceValueForLlvmTargetImpl(output, g_regBox,
+            targetLlvmType, sourceSeenType, sourceLlvmType, valueReg)
     }
 
     fun emitLetStatementInitializer(stmt: StatementNode, reg: String, varType: String, llvmType: String) r: Void {
