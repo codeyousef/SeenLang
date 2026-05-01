@@ -93,6 +93,42 @@ fun resolveMethodFieldPathTypeImpl(baseType: String, fieldPath: String,
     return seenFieldType
 }
 
+fun resolveLiteralMethodReceiverTypeImpl(literalValue: String,
+    chainedType: String, directVarType: String, thisIndex: Int,
+    thisType: String, structNames: Array<String>,
+    structFieldNames: Array<String>, structFieldTypes: Array<String>,
+    structMethodNames: Array<String>, structMethodRetTypes: Array<String>)
+    r: String {
+
+    if literalValue == "" {
+        return ""
+    }
+    if literalValue.startsWith("SeenTokenType.") {
+        return "Int"
+    }
+    if chainedType != "" {
+        return chainedType
+    }
+    if directVarType != "" {
+        return directVarType
+    }
+    if thisIndex < 0 {
+        return ""
+    }
+    if literalValue.contains(".") {
+        let pathParts = splitFirstPathDotImpl(literalValue)
+        let firstFieldType = resolveMethodFieldPathTypeImpl(thisType,
+            pathParts[0], structNames, structFieldNames, structFieldTypes,
+            structMethodNames, structMethodRetTypes)
+        return resolveMethodFieldPathTypeImpl(firstFieldType, pathParts[1],
+            structNames, structFieldNames, structFieldTypes,
+            structMethodNames, structMethodRetTypes)
+    }
+    return resolveMethodFieldPathTypeImpl(thisType, literalValue,
+        structNames, structFieldNames, structFieldTypes, structMethodNames,
+        structMethodRetTypes)
+}
+
 fun tryResolveEnumLiteralMethodReceiverImpl(expr: ParserExpressionNode,
     receiverRegBox: Array<String>, receiverTypeBox: Array<String>) r: Int {
 

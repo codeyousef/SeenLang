@@ -56,6 +56,13 @@ fun shouldReadReceiverFastPathArgImpl(action: Int, argCount: Int,
     return action > 0 and argCount > argIndex
 }
 
+fun shouldPrepareEarlyMethodFastPathArgsImpl(receiverType: String) r: Bool {
+    if receiverType == "Array" or receiverType.startsWith("Array<") {
+        return false
+    }
+    return true
+}
+
 fun shouldTryStaticMethodCallImpl(receiverReg: String,
     literalValue: String) r: Bool {
 

@@ -74,3 +74,24 @@ fun shouldUseMethodLowerUnwrapTraceSourceImpl(exprKind: String,
     return exprKind == "MethodCall" and callee == "unwrap" and
         operandCount > 0
 }
+
+fun shouldWarnUnresolvedCollectionGetImpl(methodName: String,
+    receiverIsArray: Bool, receiverIsCollection: Bool) r: Bool {
+
+    return methodName == "get" and not receiverIsArray and
+        not receiverIsCollection
+}
+
+fun shouldUseScalarReceiverFallbackImpl(methodName: String,
+    isNumericReceiverMethod: Bool) r: Bool {
+
+    if isNumericReceiverMethod {
+        return false
+    }
+    if methodName == "toString" or methodName == "toInt" or
+        methodName == "toFloat" {
+
+        return false
+    }
+    return true
+}

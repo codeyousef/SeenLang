@@ -108,11 +108,11 @@ import codegen.ir_call_fixups.{resolveRealParserMisplacedMethodReturnTypeImpl, i
 import codegen.ir_method_finalize.{resolveMethodCallInstanceTypeNameImpl, resolveMethodCallReturnTypeImpl, prepareMethodCallReceiverAbiImpl}
 import codegen.ir_method_fastpath.{tryGeneratePreparedExplicitReceiverFastPathImpl, tryGeneratePreparedLocalVariableReceiverFastPathImpl, resolveStaticMethodClassNamesImpl, isStaticMethodReceiverReferenceImpl, tryGenerateStaticFactoryMethodCallImpl, resolveStaticMethodReturnTypeImpl, emitPreparedStaticMethodCallImpl, tryGenerateUnresolvedReceiverFallbackMethodImpl, applyUnresolvedReceiverDefaultImpl}
 import codegen.ir_method_receiver_predicates.{isOptionReceiverTypeImpl, isSmallVecReceiverTypeImpl, isCollectionReceiverTypeImpl, isArrayReceiverTypeImpl, isStringBuilderRuntimeMethodImpl, isNumericReceiverMethodImpl, needsStaticFactoryArgumentImpl}
-import codegen.ir_method_call_plan.{planResolvedReceiverFastPathImpl, shouldReadOptionDefaultFastPathArgImpl, shouldReadSmallVecFastPathArgImpl, shouldReadReceiverFastPathArgImpl, shouldTryStaticMethodCallImpl, isPascalStaticReceiverNameImpl, shouldTryNoArgStaticFactoryImpl, shouldTryArgStaticFactoryImpl, resolveStaticCallClassNameImpl, shouldPromoteStaticMethodFloatArgsImpl, staticMethodFunctionNameImpl, shouldRecordStaticMethodLateDeclareImpl, isSeenLexerKeywordManagerReceiverImpl, hasGeneratorFieldReceiverImpl, hasStructFieldReceiverImpl, shouldResolveImplicitThisDottedFieldReceiverImpl, planArrayMutatorMethodImpl, planArrayMutatorFreeTypeImpl, planArrayMutatorFreeEmitImpl, planArrayMutatorPushPointerImpl, planArrayMutatorFallbackPointerImpl, isDottedArrayMutatorLiteralImpl, shouldResolveChainedArrayMutatorReceiverImpl, shouldLoadLocalArrayMutatorPointerImpl, shouldUseImplicitThisArrayMutatorPointerImpl, resolveArrayMutatorVariableNameImpl, resolveArrayReceiverElementTypeImpl, resolveArrayPushElementTypeImpl}
+import codegen.ir_method_call_plan.{planResolvedReceiverFastPathImpl, shouldReadOptionDefaultFastPathArgImpl, shouldReadSmallVecFastPathArgImpl, shouldReadReceiverFastPathArgImpl, shouldPrepareEarlyMethodFastPathArgsImpl, shouldTryStaticMethodCallImpl, isPascalStaticReceiverNameImpl, shouldTryNoArgStaticFactoryImpl, shouldTryArgStaticFactoryImpl, resolveStaticCallClassNameImpl, shouldPromoteStaticMethodFloatArgsImpl, staticMethodFunctionNameImpl, shouldRecordStaticMethodLateDeclareImpl, isSeenLexerKeywordManagerReceiverImpl, hasGeneratorFieldReceiverImpl, hasStructFieldReceiverImpl, shouldResolveImplicitThisDottedFieldReceiverImpl, planArrayMutatorMethodImpl, planArrayMutatorFreeTypeImpl, planArrayMutatorFreeEmitImpl, planArrayMutatorPushPointerImpl, planArrayMutatorFallbackPointerImpl, isDottedArrayMutatorLiteralImpl, shouldResolveChainedArrayMutatorReceiverImpl, shouldLoadLocalArrayMutatorPointerImpl, shouldUseImplicitThisArrayMutatorPointerImpl, resolveArrayMutatorVariableNameImpl, resolveArrayReceiverElementTypeImpl, resolveArrayPushElementTypeImpl}
 import codegen.ir_method_fastpath_emit.{emitPreparedOptionReceiverFastPathImpl, emitPreparedSmallVecReceiverFastPathImpl, emitPreparedCollectionReceiverFastPathImpl, emitPreparedArrayReceiverFastPathImpl}
 import codegen.ir_method_array_mutator_emit.{emitPreparedArrayFreeMutatorImpl, emitPreparedArrayPushMutatorImpl, emitPreparedArrayPopMutatorImpl, emitPreparedArraySwapMutatorImpl, emitPreparedClassFreeMutatorImpl}
-import codegen.ir_method_lower_plan.{planMethodLowerCallImpl, methodLowerStringBuilderArgActionImpl, shouldUseMethodLowerUnwrapTraceSourceImpl}
-import codegen.ir_method_lower_emit.{emitPreparedLengthLikeMethodLowerImpl, emitPreparedStringBuilderMethodLowerImpl, emitPreparedPrimitiveConversionMethodLowerImpl, emitPreparedNumericMethodLowerImpl, emitPreparedStringLikeMethodLowerImpl, emitPreparedHotReloadMethodLowerImpl, emitPreparedSpecializedMethodLowerImpl, emitPreparedUserMethodLowerImpl}
+import codegen.ir_method_lower_plan.{planMethodLowerCallImpl, methodLowerStringBuilderArgActionImpl, shouldUseMethodLowerUnwrapTraceSourceImpl, shouldWarnUnresolvedCollectionGetImpl, shouldUseScalarReceiverFallbackImpl}
+import codegen.ir_method_lower_emit.{emitPreparedLengthLikeMethodLowerImpl, emitPreparedStringBuilderMethodLowerImpl, emitPreparedPrimitiveConversionMethodLowerImpl, emitPreparedNumericMethodLowerImpl, emitPreparedStringLikeMethodLowerImpl, emitPreparedUnresolvedCollectionGetWarningImpl, emitPreparedHotReloadMethodLowerImpl, emitPreparedScalarReceiverFallbackImpl, emitPreparedSpecializedMethodLowerImpl, emitPreparedUserMethodLowerImpl}
 import codegen.ir_method_final_plan.{planMethodUnresolvedReceiverStartImpl, planMethodUnresolvedReceiverFinalImpl, planMethodFinalDispatchImpl}
 import codegen.ir_method_receiver_lookup_plan.{planMethodReceiverInitialPhaseImpl, planMethodReceiverPostLookupPhaseImpl, planMethodReceiverPostResolutionPhaseImpl, planDottedReceiverStageImpl, planDottedReceiverFallbackStageImpl, planImplicitThisDottedReceiverStageImpl, planSimpleLiteralReceiverStageImpl, planImplicitThisReceiverStageImpl}
 import codegen.ir_method_receiver_lookup_gen.{emitLocalMethodReceiverLoadImpl, emitModuleConstantMethodReceiverLoadImpl, emitKeywordManagerMethodReceiverLoadImpl}
@@ -136,10 +136,10 @@ import codegen.ir_path_expr.{splitChainedPathImpl, buildChainedPathExprImpl, spl
 import codegen.ir_member_access.{emitSimdSwizzleMemberAccessImpl, inferSimdSwizzleMemberTypeImpl, inferJsonValueMemberAccessTypeImpl, inferLiteralReceiverMemberAccessTypeImpl, inferDirectMemberAccessTypeImpl, extractLastMemberFieldSegmentImpl}
 import codegen.ir_member_access_plan.{planMemberAccessRouteImpl}
 import codegen.ir_member_access_gen.{emitPreparedExpressionReceiverMemberAccessImpl, emitPreparedVariableReceiverMemberAccessImpl, emitPreparedModuleConstReceiverMemberAccessImpl, emitPreparedBracketPathMemberAccessImpl, emitPreparedChainedReceiverMemberAccessImpl, emitPreparedImplicitThisReceiverMemberAccessImpl}
-import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, resolveMethodFieldPathTypeImpl, tryResolveEnumLiteralMethodReceiverImpl, convertReceiverToPtrImpl}
+import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, resolveMethodFieldPathTypeImpl, resolveLiteralMethodReceiverTypeImpl, tryResolveEnumLiteralMethodReceiverImpl, convertReceiverToPtrImpl}
 import codegen.ir_binary_expr.{binaryOperatorMethodSuffixImpl, isSimdBinaryOperatorImpl, shouldUseFmaForOperandTypesImpl, buildSelfComparisonLogValueImpl, buildBinaryFoldLogValueImpl, exprProducesBoolImpl, emitBoolCoercionImpl, emitShortCircuitPhiImpl}
 import codegen.ir_binary_emit.{emitPreparedPointerArithmeticBinaryImpl, emitPreparedSimdBinaryExprImpl, emitPreparedSelfComparisonConstResultImpl, emitPreparedIntPeepholeBinaryActionImpl, emitPreparedAssociativeIntFoldResultImpl, emitPreparedFoldedBoolLiteralBinaryResultImpl, emitPreparedFoldedIntLiteralBinaryResultImpl, emitPreparedFloatPeepholeBinaryActionImpl, emitPreparedFmaTripleCallImpl, emitPreparedOverloadedBinaryCallImpl, buildPreparedBinaryCseKeyImpl}
-import codegen.ir_binary_plan.{shouldTryPointerArithmeticBinaryImpl, shouldTrySimdBinaryGateImpl, shouldUseIntPeepholeGateImpl, shouldUseFloatPeepholeGateImpl, shortCircuitBinaryActionImpl, shouldTryBinaryOverloadImpl}
+import codegen.ir_binary_plan.{shouldTryPointerArithmeticBinaryImpl, shouldTrySimdBinaryGateImpl, shouldUseIntPeepholeGateImpl, shouldUseFloatPeepholeGateImpl, shortCircuitBinaryActionImpl, shouldWidenIntegerBinaryOperandsForI64Impl, shouldTryBinaryOverloadImpl}
 import codegen.ir_binary_fold_plan.{planBinaryOperandLiteralFactsImpl, isBinaryIntLiteralOperandImpl, planBinaryFoldActionImpl, shouldTryBinaryAssociativeIntFoldImpl, binaryAssociativeIntFoldRewriteCostImpl, shouldApplyBinaryAssociativeIntFoldImpl, planBinaryLiteralComparisonFoldImpl, planBinaryLiteralConstantFoldImpl, planBinaryFloatPeepholeImpl, planBinaryFoldFmaImpl, planBinaryFoldCseImpl}
 import codegen.ir_binary_short_circuit.{allocateShortCircuitBinaryLabelsImpl, emitShortCircuitCheckBridgeImpl, emitShortCircuitAndDecisionImpl, emitShortCircuitOrDecisionImpl, emitShortCircuitRightLabelImpl, emitShortCircuitDoneBridgeImpl, emitShortCircuitMergeJumpImpl}
 import codegen.ir_unary_expr.{unaryOperatorMethodNameImpl, shouldSkipUnaryOverloadTypeImpl, negatedComparisonPredicateImpl, shouldEmitNegatedComparisonForTypesImpl, emitOverloadedUnaryCallImpl, emitUnaryNegationImpl, emitNegatedComparisonImpl, emitUnaryLogicalNotImpl, emitUnaryAddressOfClassValueImpl, emitUnaryAddressOfVariablePtrImpl, emitUnaryDereferenceImpl, isUnaryBitwiseNotOperatorImpl, emitUnaryBitwiseNotImpl}
@@ -4430,33 +4430,6 @@ class LLVMIRGenerator {
         return narrowedReg
     }
 
-    fun shouldWidenIntegerBinaryOperandsForI64(operator: String,
-        leftType: String, rightType: String, leftMappedType: String) r: Bool {
-
-        if leftType == "Float" or rightType == "Float" {
-            return false
-        }
-        if leftType == "String" or rightType == "String" {
-            return false
-        }
-        if leftType == "Bool" or rightType == "Bool" {
-            return false
-        }
-        if leftMappedType == "ptr" {
-            return false
-        }
-        if operator == "+" or operator == "-" or operator == "*" or
-            operator == "/" or operator == "%" or operator == "==" or
-            operator == "!=" or operator == "<" or operator == "<=" or
-            operator == ">" or operator == ">=" or operator == "<<" or
-            operator == ">>" or operator == "&" or operator == "|" or
-            operator == "^" {
-
-            return true
-        }
-        return false
-    }
-
     fun tryGenerateFallbackVariable(varName: String) r: String {
         let constIdx = findModuleConstant(varName)
         if constIdx >= 0 {
@@ -4800,7 +4773,7 @@ class LLVMIRGenerator {
         let leftMT = mapType(leftType)
         var emitLeftReg = leftReg
         var emitRightReg = rightReg
-        if shouldWidenIntegerBinaryOperandsForI64(expr.operator, leftType,
+        if shouldWidenIntegerBinaryOperandsForI64Impl(expr.operator, leftType,
             rightType, leftMT) {
 
             emitLeftReg = coerceValueForLlvmTarget("i64", leftType, leftReg)
@@ -6004,40 +5977,18 @@ class LLVMIRGenerator {
     }
 
     fun resolveLiteralMethodReceiverType(literalValue: String) r: String {
-        if literalValue == "" {
-            return ""
-        }
-        if literalValue.startsWith("SeenTokenType.") {
-            return "Int"
-        }
-
+        var chainedType = ""
         if literalValue.contains(".") {
-            let chainedType = resolveChainedPathType(literalValue)
-            if chainedType != "" {
-                return chainedType
-            }
+            chainedType = resolveChainedPathType(literalValue)
         }
-
         let directVarType = findVarType(literalValue)
-        if directVarType != "" {
-            return directVarType
-        }
-
         let thisIdx = findActiveVariableIndexImpl(varNames, activeVarCount, "this")
-        if thisIdx < 0 {
-            return ""
+        var thisType = ""
+        if thisIdx >= 0 {
+            thisType = varTypes[thisIdx]
         }
-        let thisType = varTypes[thisIdx]
-        if literalValue.contains(".") {
-            let pathParts = splitFirstPathDotImpl(literalValue)
-            let firstFieldType = resolveMethodFieldPathTypeImpl(thisType,
-                pathParts[0], structNames, structFieldNames,
-                structFieldTypes, structMethodNames, structMethodRetTypes)
-            return resolveMethodFieldPathTypeImpl(firstFieldType, pathParts[1],
-                structNames, structFieldNames, structFieldTypes,
-                structMethodNames, structMethodRetTypes)
-        }
-        return resolveMethodFieldPathTypeImpl(thisType, literalValue,
+        return resolveLiteralMethodReceiverTypeImpl(literalValue, chainedType,
+            directVarType, thisIdx, thisType,
             structNames, structFieldNames, structFieldTypes,
             structMethodNames, structMethodRetTypes)
     }
@@ -6053,13 +6004,6 @@ class LLVMIRGenerator {
             argTypes.push(mapType(argType))
             argIdx = argIdx + 1
         }
-    }
-
-    fun shouldPrepareEarlyMethodFastPathArgs(receiverType: String) r: Bool {
-        if receiverType == "Array" or receiverType.startsWith("Array<") {
-            return false
-        }
-        return true
     }
 
     // Generate IR for a method call (receiver.method(args)). The largest and
@@ -6121,7 +6065,7 @@ class LLVMIRGenerator {
 
             var dynArgRegs = Array<String>()
             var dynArgTypes = Array<String>()
-            if shouldPrepareEarlyMethodFastPathArgs(receiverType) {
+            if shouldPrepareEarlyMethodFastPathArgsImpl(receiverType) {
                 prepareMethodCallArgRegsAndTypes(expr.arguments, dynArgRegs,
                     dynArgTypes)
             }
@@ -6216,7 +6160,7 @@ class LLVMIRGenerator {
 
                     var svDynArgRegs = Array<String>()
                     var svDynArgTypes = Array<String>()
-                    if shouldPrepareEarlyMethodFastPathArgs(varType) {
+                    if shouldPrepareEarlyMethodFastPathArgsImpl(varType) {
                         prepareMethodCallArgRegsAndTypes(expr.arguments,
                             svDynArgRegs, svDynArgTypes)
                     }
@@ -6480,17 +6424,12 @@ class LLVMIRGenerator {
                     receiverExpr.operands[0])
             }
         }
-        var getReceiverResolved = false
-        if isArrayReceiverTypeImpl(receiverType) {
-            getReceiverResolved = true
-        }
-        if isCollectionReceiverTypeImpl(receiverType) {
-            getReceiverResolved = true
-        }
-        if methodName == "get" and not getReceiverResolved {
-            output.append("; WARNING: get() receiver not resolved as a collection, receiverType='" +
-                receiverType + "', literal='" + expr.literalValue + "'\n")
-            return "0"
+        if shouldWarnUnresolvedCollectionGetImpl(methodName,
+            isArrayReceiverTypeImpl(receiverType),
+            isCollectionReceiverTypeImpl(receiverType)) {
+
+            return emitPreparedUnresolvedCollectionGetWarningImpl(output,
+                receiverType, expr.literalValue)
         }
         let instanceTypeName = resolveMethodCallInstanceTypeNameImpl(expr,
             methodName, receiverType, tracedUnwrapSourceType)
@@ -6513,27 +6452,12 @@ class LLVMIRGenerator {
         }
 
         if isScalarFieldChainTerminalTypeImpl(receiverType) and
-            not isNumericReceiverMethodImpl(methodName) and
-            methodName != "toString" and methodName != "toInt" and
-            methodName != "toFloat" {
+            shouldUseScalarReceiverFallbackImpl(methodName,
+                isNumericReceiverMethodImpl(methodName)) {
 
-            output.append("; WARNING: scalar receiver method not resolved, receiverType='" +
-                receiverType + "', methodName='" + methodName +
-                "', literal='" + expr.literalValue + "', using default\n")
-            let scalarFallbackType = inferExpressionType(expr)
-            if scalarFallbackType == "Bool" or scalarFallbackType == "Boolean" {
-                return "false"
-            }
-            if scalarFallbackType == "Float" {
-                return "0.0"
-            }
-            if scalarFallbackType == "String" {
-                return "zeroinitializer"
-            }
-            if scalarFallbackType == "Void" {
-                return "0"
-            }
-            return "0"
+            return emitPreparedScalarReceiverFallbackImpl(output,
+                receiverType, methodName, expr.literalValue,
+                inferExpressionType(expr))
         }
 
         let finalDispatchPlan = planMethodFinalDispatchImpl(

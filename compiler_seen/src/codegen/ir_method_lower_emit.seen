@@ -61,6 +61,36 @@ fun emitPreparedHotReloadMethodLowerImpl(output: StringBuilder,
         structNames)
 }
 
+fun emitPreparedUnresolvedCollectionGetWarningImpl(output: StringBuilder,
+    receiverType: String, literalValue: String) r: String {
+
+    output.append("; WARNING: get() receiver not resolved as a collection, receiverType='" +
+        receiverType + "', literal='" + literalValue + "'\n")
+    return "0"
+}
+
+fun emitPreparedScalarReceiverFallbackImpl(output: StringBuilder,
+    receiverType: String, methodName: String, literalValue: String,
+    fallbackType: String) r: String {
+
+    output.append("; WARNING: scalar receiver method not resolved, receiverType='" +
+        receiverType + "', methodName='" + methodName +
+        "', literal='" + literalValue + "', using default\n")
+    if fallbackType == "Bool" or fallbackType == "Boolean" {
+        return "false"
+    }
+    if fallbackType == "Float" {
+        return "0.0"
+    }
+    if fallbackType == "String" {
+        return "zeroinitializer"
+    }
+    if fallbackType == "Void" {
+        return "0"
+    }
+    return "0"
+}
+
 fun emitPreparedSpecializedMethodLowerImpl(output: StringBuilder,
     regBox: Array<Int>, methodName: String, instanceTypeName: String,
     receiverType: String, returnTypeStr: String, receiverLlvmType: String,
