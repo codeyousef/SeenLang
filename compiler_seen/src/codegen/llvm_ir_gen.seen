@@ -69,9 +69,9 @@ import codegen.ir_string_emit.{getStringConstantIndexImpl, emitAdditionalGenerat
 import codegen.ir_nullish_gen.{emitNullishCheckComparisonImpl, defaultValueForLlvmTypeImpl, emitNullishBranchingImpl, emitNullishBranchToEndImpl, enterNullishElseBranchImpl, finalizeNullishMergeImpl, buildSafeNavigationMemberExprImpl}
 import codegen.ir_enum_ctor_gen.{lookupEnumVariantTagStateImpl, lookupEnumParentStateImpl, lookupEnumFieldTypeStateImpl, lookupEnumFieldCountStateImpl, isEnumVariantStateImpl, planEnumConstructorImpl, shouldCollectEnumConstructorFieldImpl, allocateEnumConstructorObjectImpl, emitEnumConstructorFieldStoresImpl}
 import codegen.ir_when_arm_gen.{emitWhenArmGuardImpl, ensureWhenPatternDestructPtrImpl, emitWhenPatternBindingStoreImpl, normalizeWhenArmStoreValueImpl}
-import codegen.ir_when_pattern_gen.{emitWhenLiteralPatternBranchImpl, emitWhenIsPatternBranchImpl, emitWhenPatternBranchImpl}
+import codegen.ir_when_pattern_gen.{emitWhenPatternBranchState}
 import codegen.ir_when_result_gen.{allocateWhenResultSlotImpl, emitWhenArmReturnImpl, emitWhenArmStoreImpl, finalizeWhenResultImpl}
-import codegen.ir_when_expr_plan.{planWhenSubjectImpl, planWhenPatternBranchImpl, shouldEmitWhenArmGuardImpl, shouldEmitWhenPatternBindingsImpl, shouldBindWhenPatternFieldImpl, planWhenArmResultImpl, shouldStoreWhenArmResultImpl, shouldBranchWhenArmToEndImpl, shouldEmitWhenFinalFallthroughImpl}
+import codegen.ir_when_expr_plan.{planWhenSubjectImpl, shouldEmitWhenArmGuardImpl, shouldEmitWhenPatternBindingsImpl, shouldBindWhenPatternFieldImpl, planWhenArmResultImpl, shouldStoreWhenArmResultImpl, shouldBranchWhenArmToEndImpl, shouldEmitWhenFinalFallthroughImpl}
 import codegen.ir_index_access_plan.{shouldUsePointerIndexAccessImpl, shouldTryOperatorIndexAccessImpl, shouldEmitIndexBoundsCheckImpl, planTypedIndexAccessImpl}
 import codegen.ir_index_access_gen.{emitPreparedPointerIndexAccessImpl, emitPreparedOperatorIndexAccessCallImpl, emitPreparedIndexBoundsCheckImpl, emitPreparedIndexElementAccessImpl}
 import codegen.ir_special_top_level_emit.{tryHandleSpecialTopLevelFunctionImpl}
@@ -7290,47 +7290,6 @@ class LLVMIRGenerator {
             memberLlvm, memberReg, thenLabel, defaultVal, elseLabel)
     }
 
-    // When expression (pattern matching)
-    // Generate IR for a when (match) expression. Evaluates the subject once,
-    // then emits a chain of comparisons against each arm's pattern value.
-    // Each arm branches to its body block or falls through to the next
-    // comparison. All arms merge into a phi node that produces the result.
-    // Supports integer, string, and enum variant patterns.
-    fun emitWhenLiteralPatternBranch(subjectReg: String, patternExpr: ParserExpressionNode, armBodyLabel: String, nextCheckLabel: String) r: Void {
-        var stringConstantIdx = -1
-        if patternExpr.literalType == "String" {
-            stringConstantIdx = getStringConstantIndexImpl(stringConstants, patternExpr.literalValue)
-        }
-        emitWhenLiteralPatternBranchImpl(output, g_regBox, subjectReg,
-            patternExpr.literalValue, patternExpr.literalType, armBodyLabel,
-            nextCheckLabel, stringConstantIdx)
-    }
-
-    fun emitWhenIsPatternBranch(subjectReg: String, subjectLlvm: String, patternExpr: ParserExpressionNode, armBodyLabel: String, nextCheckLabel: String) r: Void {
-        let variantTagIdx = lookupEnumVariantTagStateImpl(
-            patternExpr.literalValue, g_enumVariantNames, g_enumVariantTags,
-            g_enumVariantCount)
-        emitWhenIsPatternBranchImpl(output, g_regBox, subjectReg, subjectLlvm,
-            armBodyLabel, nextCheckLabel, variantTagIdx)
-    }
-
-    fun emitWhenPatternBranch(subjectReg: String, subjectLlvm: String, patternExpr: ParserExpressionNode, armBodyLabel: String, nextCheckLabel: String) r: Void {
-        let patternKind = patternExpr.variableName
-        let patternPlan = planWhenPatternBranchImpl(patternKind)
-        if patternPlan.branchAction == 1 {
-            emitWhenLiteralPatternBranch(subjectReg, patternExpr, armBodyLabel,
-                nextCheckLabel)
-            return
-        }
-        if patternPlan.branchAction == 2 {
-            emitWhenIsPatternBranch(subjectReg, subjectLlvm, patternExpr,
-                armBodyLabel, nextCheckLabel)
-            return
-        }
-        emitWhenPatternBranchImpl(output, patternKind, armBodyLabel,
-            nextCheckLabel)
-    }
-
     fun emitWhenArmGuard(arm: ParserExpressionNode, armBodyLabel: String, nextCheckLabel: String) r: Void {
         if not shouldEmitWhenArmGuardImpl(arm.operands.length()) {
             return
@@ -7375,11 +7334,6 @@ class LLVMIRGenerator {
         }
     }
 
-    fun normalizeWhenArmStoreValue(valueReg: String, valueType: String) r: String {
-        return normalizeWhenArmStoreValueImpl(output, g_regBox, valueReg,
-            valueType)
-    }
-
     fun emitWhenArmResult(arm: ParserExpressionNode, resultAlloca: String) r: Void {
         let resultPlanSeed = planWhenArmResultImpl(arm.operands.length(),
             "", 0)
@@ -7406,7 +7360,8 @@ class LLVMIRGenerator {
         let armResultReg = generateExpression(armResult)
         if shouldStoreWhenArmResultImpl(blockTerminated) {
             let armResultType = inferExpressionType(armResult)
-            let armStoreReg = normalizeWhenArmStoreValue(armResultReg, armResultType)
+            let armStoreReg = normalizeWhenArmStoreValueImpl(output,
+                g_regBox, armResultReg, armResultType)
             emitWhenArmStoreImpl(output, resultAlloca, armStoreReg)
         }
     }
@@ -7438,7 +7393,10 @@ class LLVMIRGenerator {
             let armBodyLabel = getNextBlockFn(g_blockBox)
             let nextCheckLabel = getNextBlockFn(g_blockBox)
 
-            emitWhenPatternBranch(subjectReg, subjectLlvm, patternExpr, armBodyLabel, nextCheckLabel)
+            emitWhenPatternBranchState(output, g_regBox, stringConstants,
+                subjectReg, subjectLlvm, patternExpr, armBodyLabel,
+                nextCheckLabel, g_enumVariantNames, g_enumVariantTags,
+                g_enumVariantCount)
 
             // Arm body
             output.append(armBodyLabel + ":\n")

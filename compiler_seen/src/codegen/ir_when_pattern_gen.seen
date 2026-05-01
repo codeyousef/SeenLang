@@ -2,7 +2,11 @@
 // Extracted from llvm_ir_gen.seen to keep pattern dispatch thin.
 
 import str.string.{StringBuilder}
+import parser.real_parser.{ParserExpressionNode}
 import codegen.ir_optimization.{getNextRegFn}
+import codegen.ir_string_emit.{getStringConstantIndexImpl}
+import codegen.ir_enum_ctor_gen.{lookupEnumVariantTagStateImpl}
+import codegen.ir_when_expr_plan.{planWhenPatternBranchImpl}
 
 fun emitWhenLiteralPatternBranchImpl(output: StringBuilder, regBox: Array<Int>,
     subjectReg: String, literalValue: String, literalType: String,
@@ -68,4 +72,35 @@ fun emitWhenPatternBranchImpl(output: StringBuilder, patternKind: String,
         return
     }
     output.append("  br label %" + nextCheckLabel + "\n")
+}
+
+fun emitWhenPatternBranchState(output: StringBuilder, regBox: Array<Int>,
+    stringConstants: Array<String>, subjectReg: String, subjectLlvm: String,
+    patternExpr: ParserExpressionNode, armBodyLabel: String,
+    nextCheckLabel: String, enumVariantNames: String,
+    enumVariantTags: String, enumVariantCount: Int) r: Void {
+
+    let patternKind = patternExpr.variableName
+    let patternPlan = planWhenPatternBranchImpl(patternKind)
+    if patternPlan.branchAction == 1 {
+        var stringConstantIdx = -1
+        if patternExpr.literalType == "String" {
+            stringConstantIdx = getStringConstantIndexImpl(stringConstants,
+                patternExpr.literalValue)
+        }
+        emitWhenLiteralPatternBranchImpl(output, regBox, subjectReg,
+            patternExpr.literalValue, patternExpr.literalType, armBodyLabel,
+            nextCheckLabel, stringConstantIdx)
+        return
+    }
+    if patternPlan.branchAction == 2 {
+        let variantTagIdx = lookupEnumVariantTagStateImpl(
+            patternExpr.literalValue, enumVariantNames, enumVariantTags,
+            enumVariantCount)
+        emitWhenIsPatternBranchImpl(output, regBox, subjectReg, subjectLlvm,
+            armBodyLabel, nextCheckLabel, variantTagIdx)
+        return
+    }
+    emitWhenPatternBranchImpl(output, patternKind, armBodyLabel,
+        nextCheckLabel)
 }
