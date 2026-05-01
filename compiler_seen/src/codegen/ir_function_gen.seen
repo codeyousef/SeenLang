@@ -317,6 +317,13 @@ fun prepareFunctionAttributesImpl(output: StringBuilder, fn: FunctionNode,
     if hasFunctionDecoratorGenImpl(fn, "always_inline") {
         funcAttrs = " alwaysinline"
     }
+    if hasFunctionDecoratorGenImpl(fn, "export") {
+        funcAttrs = funcAttrs.replace(" alwaysinline", "")
+        funcAttrs = funcAttrs.replace(" inlinehint", "")
+        if not funcAttrs.contains("noinline") {
+            funcAttrs = funcAttrs + " noinline"
+        }
+    }
     if hasFunctionDecoratorGenImpl(fn, "hot") {
         funcAttrs = funcAttrs + " hot"
     }

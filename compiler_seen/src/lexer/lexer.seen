@@ -107,38 +107,38 @@ class SeenLexer {
     ///
     fun tokenize() r: Array<Token> {
         // Reset state
-        position = 0
-        line = 1
-        column = 1
-        tokens = Array<Token>()
+        this.position = 0
+        this.line = 1
+        this.column = 1
+        this.tokens = Array<Token>()
         let traceEnabled = isLexerTracingEnabled()
         let traceVerbose = isLexerTraceVerboseEnabled()
         if traceEnabled {
-            traceLex("tokenize start fileId=" + fileId.toString() + " len=" + source.length().toString())
+            traceLex("tokenize start fileId=" + this.fileId.toString() + " len=" + this.source.length().toString())
         }
 
         // Main tokenization loop
         var loopIter = 0
-        while position < source.length() {
+        while this.position < this.source.length() {
             loopIter = loopIter + 1
             if loopIter > 500000 {
                 break
             }
 
             let char = getCurrentChar()
-            let startPos = position
+            let startPos = this.position
             if traceVerbose {
-                traceLexVerbose("loop pos=" + position.toString() + " line=" + line.toString() + " col=" + column.toString() + " char=" + char.toString() + " code=" + char.toInt().toString())
+                traceLexVerbose("loop pos=" + this.position.toString() + " line=" + this.line.toString() + " col=" + this.column.toString() + " char=" + char.toString() + " code=" + char.toInt().toString())
             }
 
-            // Skip whitespace (except newlines for position tracking)
+            // Skip whitespace (except newlines for this.position tracking)
             if isWhitespace(char) {
                 if traceVerbose {
-                    traceLexVerbose("whitespace pos=" + startPos.toString() + " line=" + line.toString() + " col=" + column.toString() + " char=" + char.toString())
+                    traceLexVerbose("whitespace pos=" + startPos.toString() + " line=" + this.line.toString() + " col=" + this.column.toString() + " char=" + char.toString())
                 }
                 handleWhitespace(char)
-                if position == startPos {
-                    position = position + 1
+                if this.position == startPos {
+                    this.position = this.position + 1
                 }
                 continue
             }
@@ -149,34 +149,34 @@ class SeenLexer {
 
                 if traceVerbose {
                     traceLexVerbose("triple-slash block comment pos=" +
-                        startPos.toString() + " line=" + line.toString() +
-                        " col=" + column.toString())
+                        startPos.toString() + " line=" + this.line.toString() +
+                        " col=" + this.column.toString())
                 }
                 handleTripleSlashBlockComment()
-                if position == startPos {
-                    position = position + 1
+                if this.position == startPos {
+                    this.position = this.position + 1
                 }
                 continue
             }
 
             if char == '/' and peekChar(1) == '/' {
                 if traceVerbose {
-                    traceLexVerbose("single-line comment pos=" + startPos.toString() + " line=" + line.toString() + " col=" + column.toString())
+                    traceLexVerbose("single-line comment pos=" + startPos.toString() + " line=" + this.line.toString() + " col=" + this.column.toString())
                 }
                 handleSingleLineComment()
-                if position == startPos {
-                    position = position + 1
+                if this.position == startPos {
+                    this.position = this.position + 1
                 }
                 continue
             }
 
             if char == '/' and peekChar(1) == '*' {
                 if traceVerbose {
-                    traceLexVerbose("legacy block comment pos=" + startPos.toString() + " line=" + line.toString() + " col=" + column.toString())
+                    traceLexVerbose("legacy block comment pos=" + startPos.toString() + " line=" + this.line.toString() + " col=" + this.column.toString())
                 }
                 handleLegacyBlockCommentError()
-                if position == startPos {
-                    position = position + 1
+                if this.position == startPos {
+                    this.position = this.position + 1
                 }
                 continue
             }
@@ -184,14 +184,14 @@ class SeenLexer {
             // Handle string literals
             if char == '"' {
                 if traceVerbose {
-                    traceLexVerbose("string literal start pos=" + startPos.toString() + " line=" + line.toString() + " col=" + column.toString())
+                    traceLexVerbose("string literal start pos=" + startPos.toString() + " line=" + this.line.toString() + " col=" + this.column.toString())
                 }
                 handleStringLiteral()
                 if traceVerbose {
-                    traceLexVerbose("string literal end pos=" + position.toString() + " line=" + line.toString() + " col=" + column.toString())
+                    traceLexVerbose("string literal end pos=" + this.position.toString() + " line=" + this.line.toString() + " col=" + this.column.toString())
                 }
-                if position == startPos {
-                    position = position + 1
+                if this.position == startPos {
+                    this.position = this.position + 1
                 }
                 continue
             }
@@ -199,14 +199,14 @@ class SeenLexer {
             // Handle character literals (single-quoted)
             if char.toInt() == 39 {
                 if traceVerbose {
-                    traceLexVerbose("char literal start pos=" + startPos.toString() + " line=" + line.toString() + " col=" + column.toString())
+                    traceLexVerbose("char literal start pos=" + startPos.toString() + " line=" + this.line.toString() + " col=" + this.column.toString())
                 }
                 handleCharLiteral()
                 if traceVerbose {
-                    traceLexVerbose("char literal end pos=" + position.toString() + " line=" + line.toString() + " col=" + column.toString())
+                    traceLexVerbose("char literal end pos=" + this.position.toString() + " line=" + this.line.toString() + " col=" + this.column.toString())
                 }
-                if position == startPos {
-                    position = position + 1
+                if this.position == startPos {
+                    this.position = this.position + 1
                 }
                 continue
             }
@@ -214,14 +214,14 @@ class SeenLexer {
             // Handle numeric literals
             if isDigit(char) {
                 if traceVerbose {
-                    traceLexVerbose("number literal start pos=" + startPos.toString() + " line=" + line.toString() + " col=" + column.toString())
+                    traceLexVerbose("number literal start pos=" + startPos.toString() + " line=" + this.line.toString() + " col=" + this.column.toString())
                 }
                 handleNumericLiteral()
                 if traceVerbose {
-                    traceLexVerbose("number literal end pos=" + position.toString() + " line=" + line.toString() + " col=" + column.toString())
+                    traceLexVerbose("number literal end pos=" + this.position.toString() + " line=" + this.line.toString() + " col=" + this.column.toString())
                 }
-                if position == startPos {
-                    position = position + 1
+                if this.position == startPos {
+                    this.position = this.position + 1
                 }
                 continue
             }
@@ -229,21 +229,21 @@ class SeenLexer {
             // Handle identifiers and keywords (ASCII or multi-byte UTF-8)
             var isIdentStart = isAlpha(char) or char == '_'
             if char.toInt() >= 128 {
-                let cp = decodeUtf8At(position)
+                let cp = decodeUtf8At(this.position)
                 if isUnicodeAlphaCodePoint(cp) {
                     isIdentStart = true
                 }
             }
             if isIdentStart {
                 if traceVerbose {
-                    traceLexVerbose("identifier start pos=" + startPos.toString() + " line=" + line.toString() + " col=" + column.toString() + " char=" + char.toString())
+                    traceLexVerbose("identifier start pos=" + startPos.toString() + " line=" + this.line.toString() + " col=" + this.column.toString() + " char=" + char.toString())
                 }
                 handleIdentifierOrKeyword()
                 if traceVerbose {
-                    traceLexVerbose("identifier end pos=" + position.toString() + " line=" + line.toString() + " col=" + column.toString())
+                    traceLexVerbose("identifier end pos=" + this.position.toString() + " line=" + this.line.toString() + " col=" + this.column.toString())
                 }
-                if position == startPos {
-                    position = position + 1
+                if this.position == startPos {
+                    this.position = this.position + 1
                 }
                 continue
             }
@@ -251,144 +251,144 @@ class SeenLexer {
             // Handle operators and punctuation
             if handleOperator() {
                 if traceVerbose {
-                    traceLexVerbose("operator handled pos=" + startPos.toString() + " line=" + line.toString() + " col=" + column.toString() + " char=" + char.toString())
+                    traceLexVerbose("operator handled pos=" + startPos.toString() + " line=" + this.line.toString() + " col=" + this.column.toString() + " char=" + char.toString())
                 }
-                if position == startPos {
-                    position = position + 1
+                if this.position == startPos {
+                    this.position = this.position + 1
                 }
                 continue
             }
 
-            // Handle single-character tokens
+            // Handle single-character this.tokens
             if handleSingleCharToken() {
                 if traceVerbose {
-                    traceLexVerbose("single-char token handled pos=" + startPos.toString() + " line=" + line.toString() + " col=" + column.toString() + " char=" + char.toString())
+                    traceLexVerbose("single-char token handled pos=" + startPos.toString() + " line=" + this.line.toString() + " col=" + this.column.toString() + " char=" + char.toString())
                 }
-                if position == startPos {
-                    position = position + 1
+                if this.position == startPos {
+                    this.position = this.position + 1
                 }
                 continue
             }
 
             // Unknown character — skip full UTF-8 sequence to avoid stuck-on-byte loops
-            if errorRecoveryMode {
+            if this.errorRecoveryMode {
                 emitToken(SeenTokenType.Error, char.toString(), 1)
-                let skipLen = utf8ByteLen(position)
-                column = column + 1
-                position = position + skipLen
+                let skipLen = utf8ByteLen(this.position)
+                this.column = this.column + 1
+                this.position = this.position + skipLen
             } else {
-                let errLine = line
-                let errCol = column
-                var start = position - 16
+                let errLine = this.line
+                let errCol = this.column
+                var start = this.position - 16
                 if start < 0 {
                     start = 0
                 }
-                var end = position + 16
-                if end > source.length() {
-                    end = source.length()
+                var end = this.position + 16
+                if end > this.source.length() {
+                    end = this.source.length()
                 }
-                let snippet = source.substring(start, end)
+                let snippet = this.source.substring(start, end)
                 println("Fatal Lexer Error: Unexpected character: " + char + " at " + errLine.toString() + ":" + errCol.toString())
                 println("  context: " + snippet)
                 emitToken(SeenTokenType.Error, char.toString(), 1)
-                return tokens
+                return this.tokens
             }
         }
         
         // Add EOF token
         emitToken(SeenTokenType.EndOfFile, "", 0)
         if traceEnabled {
-            traceLex("tokenize end tokens=" + tokens.length().toString())
+            traceLex("tokenize end tokens=" + this.tokens.length().toString())
         }
-        return tokens
+        return this.tokens
     }
     
     fun setErrorRecoveryMode(enabled: Bool) r: Void {
-        errorRecoveryMode = enabled
+        this.errorRecoveryMode = enabled
     }
     
     fun isKeywordSourceDynamic() r: Bool {
-        return keywordManager.isDynamic()
+        return this.keywordManager.isDynamic()
     }
     
     fun getKeywordSources() r: Array<String> {
-        return keywordManager.getSources()
+        return this.keywordManager.getSources()
     }
     
     fun getKeywordCount() r: Int {
-        return keywordManager.getKeywordCount()
+        return this.keywordManager.getKeywordCount()
     }
     
     fun hasKeyword(keyword: String) r: Bool {
-        return keywordManager.isKeyword(keyword)
+        return this.keywordManager.isKeyword(keyword)
     }
     
     fun hasTranslatedKeyword(keyword: String) r: Bool {
-        return keywordManager.hasTranslation(keyword)
+        return this.keywordManager.hasTranslation(keyword)
     }
     
     fun getMemoryUsage() r: Int {
-        // Estimate memory usage: source + tokens + internal structures
-        let sourceSize = source.length() * 2  // Assume 2 bytes per char
-        let tokensSize = tokens.length() * 64  // Estimate 64 bytes per token
+        // Estimate memory usage: this.source + this.tokens + internal structures
+        let sourceSize = this.source.length() * 2  // Assume 2 bytes per char
+        let tokensSize = this.tokens.length() * 64  // Estimate 64 bytes per token
         let internalSize = 1024  // Estimate for internal structures
         return sourceSize + tokensSize + internalSize
     }
 
     fun emitToken(tokenType: SeenTokenType, tokenValue: String, tokenLength: Int) r: Void {
-        let tokenLine = line
-        let tokenColumn = column - tokenLength
-        let tokenFileId = fileId
+        let tokenLine = this.line
+        let tokenColumn = this.column - tokenLength
+        let tokenFileId = this.fileId
         let token = seenMakeToken(tokenType, tokenValue, tokenLine, tokenColumn, tokenLength, tokenFileId)
-        tokens.push(token)
+        this.tokens.push(token)
     }
 
     // Helper methods for tokenization
     
     fun getCurrentChar() r: Char {
-        if position >= source.length() {
+        if this.position >= this.source.length() {
             return ' '
         }
-        return source.byteAt(position)
+        return this.source.byteAt(this.position)
     }
 
     fun peekChar(offset: Int = 1) r: Char {
-        let peekPos = position + offset
-        if peekPos >= source.length() {
+        let peekPos = this.position + offset
+        if peekPos >= this.source.length() {
             return ' '
         }
-        return source.byteAt(peekPos)
+        return this.source.byteAt(peekPos)
     }
 
     fun getCurrentCharString() r: String {
-        if position >= source.length() {
+        if this.position >= this.source.length() {
             return ""
         }
-        return source.substring(position, position + 1)
+        return this.source.substring(this.position, this.position + 1)
     }
 
     fun peekCharString(offset: Int = 1) r: String {
-        let peekPos = position + offset
-        if peekPos >= source.length() {
+        let peekPos = this.position + offset
+        if peekPos >= this.source.length() {
             return ""
         }
-        return source.substring(peekPos, peekPos + 1)
+        return this.source.substring(peekPos, peekPos + 1)
     }
     
     fun advance() r: Void {
-        if position < source.length() {
-            if source.byteAt(position).toInt() == 10 {
-                line = line + 1
-                column = 1
+        if this.position < this.source.length() {
+            if this.source.byteAt(this.position).toInt() == 10 {
+                this.line = this.line + 1
+                this.column = 1
             } else {
-                column = column + 1
+                this.column = this.column + 1
             }
-            position = position + 1
+            this.position = this.position + 1
         }
     }
     
     fun getCurrentPosition() r: Position {
-        return Position.new(line, column, fileId)
+        return Position.new(this.line, this.column, this.fileId)
     }
     
     fun isWhitespace(char: Char) r: Bool {
@@ -430,16 +430,16 @@ class SeenLexer {
     Used by handleIdentifierOrKeyword() to support non-ASCII identifier chars.
     ///
     fun decodeUtf8At(pos: Int) r: Int {
-        var slen = source.length()
+        var slen = this.source.length()
         if pos >= slen { return 0 }
-        var ch0 = source.byteAt(pos)
+        var ch0 = this.source.byteAt(pos)
         var b0 = ch0.toInt()
         if b0 < 128 { return b0 }
         // 2-byte sequence
         if b0 >= 192 and b0 <= 223 {
             var p1 = pos + 1
             if p1 < slen {
-                var ch1 = source.byteAt(p1)
+                var ch1 = this.source.byteAt(p1)
                 var b1 = ch1.toInt()
                 return ((b0 - 192) * 64) + (b1 - 128)
             }
@@ -450,9 +450,9 @@ class SeenLexer {
             var p2 = pos + 2
             if p2 < slen {
                 var p1 = pos + 1
-                var ch1 = source.byteAt(p1)
+                var ch1 = this.source.byteAt(p1)
                 var b1 = ch1.toInt()
-                var ch2 = source.byteAt(p2)
+                var ch2 = this.source.byteAt(p2)
                 var b2 = ch2.toInt()
                 return ((b0 - 224) * 4096) + ((b1 - 128) * 64) + (b2 - 128)
             }
@@ -463,12 +463,12 @@ class SeenLexer {
             var p3 = pos + 3
             if p3 < slen {
                 var p1 = pos + 1
-                var ch1 = source.byteAt(p1)
+                var ch1 = this.source.byteAt(p1)
                 var b1 = ch1.toInt()
                 var p2 = pos + 2
-                var ch2 = source.byteAt(p2)
+                var ch2 = this.source.byteAt(p2)
                 var b2 = ch2.toInt()
-                var ch3 = source.byteAt(p3)
+                var ch3 = this.source.byteAt(p3)
                 var b3 = ch3.toInt()
                 return ((b0 - 240) * 262144) + ((b1 - 128) * 4096) + ((b2 - 128) * 64) + (b3 - 128)
             }
@@ -478,8 +478,8 @@ class SeenLexer {
     }
 
     fun utf8ByteLen(pos: Int) r: Int {
-        if pos >= source.length() { return 1 }
-        var ch0 = source.byteAt(pos)
+        if pos >= this.source.length() { return 1 }
+        var ch0 = this.source.byteAt(pos)
         var b0 = ch0.toInt()
         if b0 < 128 { return 1 }
         if b0 >= 192 and b0 <= 223 { return 2 }
@@ -489,16 +489,16 @@ class SeenLexer {
     }
 
     fun advanceUtf8() r: Void {
-        if position < source.length() {
-            var blen = utf8ByteLen(position)
-            var curByte = source.byteAt(position)
+        if this.position < this.source.length() {
+            var blen = utf8ByteLen(this.position)
+            var curByte = this.source.byteAt(this.position)
             if curByte.toInt() == 10 {
-                line = line + 1
-                column = 1
+                this.line = this.line + 1
+                this.column = 1
             } else {
-                column = column + 1
+                this.column = this.column + 1
             }
-            position = position + blen
+            this.position = this.position + blen
         }
     }
     
@@ -508,7 +508,7 @@ class SeenLexer {
     
     fun handleSingleLineComment() r: Void {
         // Consume ALL bytes until newline, including non-ASCII (UTF-8 sequences, etc.)
-        while position < source.length() {
+        while this.position < this.source.length() {
             let c = getCurrentChar()
             if c.toInt() == 10 {
                 break
@@ -524,21 +524,21 @@ class SeenLexer {
             return false
         }
 
-        var left = position - column + 1
+        var left = this.position - this.column + 1
         if left < 0 {
             left = 0
         }
-        while left < position {
-            let leftByte = source.byteAt(left)
+        while left < this.position {
+            let leftByte = this.source.byteAt(left)
             if leftByte != 32 and leftByte != 9 and leftByte != 13 {
                 return false
             }
             left = left + 1
         }
 
-        var right = position + 3
-        while right < source.length() {
-            let rightByte = source.byteAt(right)
+        var right = this.position + 3
+        while right < this.source.length() {
+            let rightByte = this.source.byteAt(right)
             if rightByte == 10 {
                 return true
             }
@@ -552,7 +552,7 @@ class SeenLexer {
     }
 
     fun consumeCurrentLine() r: Void {
-        while position < source.length() {
+        while this.position < this.source.length() {
             let c = getCurrentChar()
             advance()
             if c.toInt() == 10 {
@@ -563,7 +563,7 @@ class SeenLexer {
 
     fun handleTripleSlashBlockComment() r: Void {
         consumeCurrentLine()
-        while position < source.length() {
+        while this.position < this.source.length() {
             if getCurrentChar() == '/' and peekChar(1) == '/' and
                 peekChar(2) == '/' and isTripleSlashBlockDelimiterLine() {
 
@@ -585,7 +585,7 @@ class SeenLexer {
         advance() // Skip '*'
 
         // Consume the old block body to avoid cascading parser diagnostics.
-        while position < source.length() - 1 {
+        while this.position < this.source.length() - 1 {
             if getCurrentChar() == '*' and peekChar(1) == '/' {
                 advance() // Skip '*'
                 advance() // Skip '/'
@@ -604,9 +604,9 @@ class SeenLexer {
     "{" followed by space (e.g. "{ i64, ptr }") also stays literal.
     ///
     fun handleStringLiteral() r: Void {
-        let startPos = position
-        let startLine = line
-        let startCol = column
+        let startPos = this.position
+        let startLine = this.line
+        let startCol = this.column
         let traceVerbose = isLexerTraceVerboseEnabled()
         if traceVerbose {
             traceLexVerbose("handleStringLiteral enter pos=" + startPos.toString() + " line=" + startLine.toString() + " col=" + startCol.toString())
@@ -616,13 +616,13 @@ class SeenLexer {
         let valueBuilder = StringBuilder.new()
         var hasInterpolation = false
 
-        while position < source.length() {
+        while this.position < this.source.length() {
             let ch = getCurrentChar()
             if ch == '"' {
                 break
             }
             if traceVerbose {
-                traceLexVerbose("string char pos=" + position.toString() + " char=" + ch.toString() + " code=" + ch.toInt().toString())
+                traceLexVerbose("string char pos=" + this.position.toString() + " char=" + ch.toString() + " code=" + ch.toInt().toString())
             }
 
             if ch.toInt() == 92 {
@@ -634,11 +634,11 @@ class SeenLexer {
             if ch == '{' and !isInInterpolation() {
                 // Check for escaped brace {{ -> { OR single { followed by non-identifier
                 advance()
-                if position < source.length() and getCurrentChar() == '{' {
+                if this.position < this.source.length() and getCurrentChar() == '{' {
                     // Escaped brace - add single { to value
                     valueBuilder.append("{")
                     advance()
-                } else if position >= source.length() or getCurrentChar() == '"' {
+                } else if this.position >= this.source.length() or getCurrentChar() == '"' {
                     // Single { at end of string - just add it
                     valueBuilder.append("{")
                 } else {
@@ -678,7 +678,7 @@ class SeenLexer {
             } else if ch == '}' {
                 // Check for escaped brace }} -> }
                 advance()
-                if position < source.length() and getCurrentChar() == '}' {
+                if this.position < this.source.length() and getCurrentChar() == '}' {
                     // Escaped brace - add single } to value
                     valueBuilder.append("}")
                     advance()
@@ -687,7 +687,7 @@ class SeenLexer {
                     valueBuilder.append("}")
                 }
             } else {
-                valueBuilder.append(source.substring(position, position + 1))
+                valueBuilder.append(this.source.substring(this.position, this.position + 1))
                 advance()
             }
         }
@@ -703,24 +703,24 @@ class SeenLexer {
             throw LexerError.new("Unterminated string literal", getCurrentPosition(), "")
         }
 
-        let length = position - startPos
+        let length = this.position - startPos
         let value = valueBuilder.toString()
         emitToken(SeenTokenType.StringLiteral, value, length)
         if traceVerbose {
-            traceLexVerbose("handleStringLiteral exit pos=" + position.toString() + " len=" + length.toString())
+            traceLexVerbose("handleStringLiteral exit pos=" + this.position.toString() + " len=" + length.toString())
         }
     }
 
     fun handleCharLiteral() r: Void {
-        let startPos = position
+        let startPos = this.position
         let traceVerbose = isLexerTraceVerboseEnabled()
         if traceVerbose {
-            traceLexVerbose("handleCharLiteral enter pos=" + startPos.toString() + " line=" + line.toString() + " col=" + column.toString())
+            traceLexVerbose("handleCharLiteral enter pos=" + startPos.toString() + " line=" + this.line.toString() + " col=" + this.column.toString())
         }
         advance() // Skip opening single quote
 
         var value = ""
-        if position < source.length() {
+        if this.position < this.source.length() {
             let ch = getCurrentChar()
             if ch.toInt() == 92 {
                 // Handle escape sequences
@@ -739,26 +739,26 @@ class SeenLexer {
             throw LexerError.new("Unterminated character literal", getCurrentPosition(), "")
         }
 
-        let length = position - startPos
+        let length = this.position - startPos
         // Emit as a character literal
         emitToken(SeenTokenType.CharLiteral, value, length)
         if traceVerbose {
-            traceLexVerbose("handleCharLiteral exit pos=" + position.toString() + " len=" + length.toString())
+            traceLexVerbose("handleCharLiteral exit pos=" + this.position.toString() + " len=" + length.toString())
         }
     }
 
     fun readEscapeSequence(traceVerbose: Bool, unterminatedMessage: String) r: String {
-        if position + 1 >= source.length() {
+        if this.position + 1 >= this.source.length() {
             throw LexerError.new(unterminatedMessage, getCurrentPosition(), "")
         }
 
         let escaped = peekChar(1)
         if traceVerbose {
-            traceLexVerbose("string escape pos=" + position.toString() + " escaped=" + escaped.toString() + " code=" + escaped.toInt().toString())
+            traceLexVerbose("string escape pos=" + this.position.toString() + " escaped=" + escaped.toString() + " code=" + escaped.toInt().toString())
         }
 
         if escaped == 'u' {
-            if position + 5 >= source.length() {
+            if this.position + 5 >= this.source.length() {
                 throw LexerError.new("Incomplete unicode escape sequence", getCurrentPosition(), "")
             }
 
@@ -820,20 +820,20 @@ class SeenLexer {
     fun handleInterpolatedString(startPos: Int) r: Void {
         
         // Reset to start and re-parse with interpolation awareness
-        position = startPos
+        this.position = startPos
         advance() // Skip opening quote
         
         emitToken(SeenTokenType.InterpolatedStringStart, "", 1)
         
         let traceVerbose = isLexerTraceVerboseEnabled()
         if traceVerbose {
-            traceLexVerbose("handleInterpolatedString enter pos=" + startPos.toString() + " line=" + line.toString() + " col=" + column.toString())
+            traceLexVerbose("handleInterpolatedString enter pos=" + startPos.toString() + " line=" + this.line.toString() + " col=" + this.column.toString())
         }
         var currentPart = ""
         var inExpression = false
         var braceLevel = 0
         
-        while position < source.length() {
+        while this.position < this.source.length() {
             let ch = getCurrentChar()
             if ch == '"' {
                 break
@@ -888,7 +888,7 @@ class SeenLexer {
         
         emitToken(SeenTokenType.InterpolatedStringEnd, "", 1)
         if traceVerbose {
-            traceLexVerbose("handleInterpolatedString exit pos=" + position.toString() + " line=" + line.toString() + " col=" + column.toString())
+            traceLexVerbose("handleInterpolatedString exit pos=" + this.position.toString() + " line=" + this.line.toString() + " col=" + this.column.toString())
         }
     }
     
@@ -899,7 +899,7 @@ class SeenLexer {
         IMPORTANT: Do NOT emit tokens for {} as they are handled by caller
         ///
 
-        while position < source.length() {
+        while this.position < this.source.length() {
             let ch = getCurrentChar()
             if ch == '}' or ch == '"' {
                 break
@@ -918,7 +918,7 @@ class SeenLexer {
                 continue
             } else if ch == '(' or ch == ')' or ch == '[' or ch == ']' or
                       ch == ',' or ch == ';' or ch == ':' or ch == '.' {
-                // Single char tokens that ARE allowed in expressions
+                // Single char this.tokens that ARE allowed in expressions
                 emitSingleCharToken(ch)
                 advance()
             } else {
@@ -960,10 +960,10 @@ class SeenLexer {
     notation (1e-3). Emits IntegerLiteral or FloatLiteral token.
     ///
     fun handleNumericLiteral() r: Void {
-        let startPos = position
+        let startPos = this.position
         let traceVerbose = isLexerTraceVerboseEnabled()
         if traceVerbose {
-            traceLexVerbose("handleNumericLiteral enter pos=" + startPos.toString() + " line=" + line.toString() + " col=" + column.toString())
+            traceLexVerbose("handleNumericLiteral enter pos=" + startPos.toString() + " line=" + this.line.toString() + " col=" + this.column.toString())
         }
         let valueBuilder = StringBuilder.new()
         var isFloat = false
@@ -1030,7 +1030,7 @@ class SeenLexer {
             }
         }
 
-        let length = position - startPos
+        let length = this.position - startPos
         var tokenType = SeenTokenType.IntegerLiteral
         if isFloat {
             tokenType = SeenTokenType.FloatLiteral
@@ -1038,7 +1038,7 @@ class SeenLexer {
         let value = valueBuilder.toString()
         emitToken(tokenType, value, length)
         if traceVerbose {
-            traceLexVerbose("handleNumericLiteral exit pos=" + position.toString() + " len=" + length.toString() + " value=" + value)
+            traceLexVerbose("handleNumericLiteral exit pos=" + this.position.toString() + " len=" + length.toString() + " value=" + value)
         }
     }
     
@@ -1067,45 +1067,45 @@ class SeenLexer {
     if it maps to a keyword token type in the current language.
     ///
     fun handleIdentifierOrKeyword() r: Void {
-        let startPos = position
+        let startPos = this.position
         let valueBuilder = StringBuilder.new()
         let traceVerbose = isLexerTraceVerboseEnabled()
 
         // First character (already validated as alpha, underscore, or UTF-8 lead byte)
         let c1 = getCurrentChar()
         if traceVerbose {
-            traceLexVerbose("handleIdentifier enter pos=" + startPos.toString() + " line=" + line.toString() + " col=" + column.toString() + " char=" + c1.toString())
+            traceLexVerbose("handleIdentifier enter pos=" + startPos.toString() + " line=" + this.line.toString() + " col=" + this.column.toString() + " char=" + c1.toString())
         }
-        let blen1 = utf8ByteLen(position)
+        let blen1 = utf8ByteLen(this.position)
         if blen1 > 1 {
-            valueBuilder.append(source.substring(position, position + blen1))
+            valueBuilder.append(this.source.substring(this.position, this.position + blen1))
         } else {
             valueBuilder.append(c1.toString())
         }
         if blen1 > 1 {
-            column = column + 1
-            position = position + blen1
+            this.column = this.column + 1
+            this.position = this.position + blen1
         } else {
             advance()
         }
 
         // Subsequent characters
-        while position < source.length() {
+        while this.position < this.source.length() {
             let c = getCurrentChar()
             let cInt = c.toInt()
             var isIdentChar = isAlphaNumeric(c) or c == '_'
             if cInt >= 128 {
-                let cp = decodeUtf8At(position)
+                let cp = decodeUtf8At(this.position)
                 if isUnicodeAlphaCodePoint(cp) {
                     isIdentChar = true
                 }
             }
             if isIdentChar {
-                let blen = utf8ByteLen(position)
+                let blen = utf8ByteLen(this.position)
                 if blen > 1 {
-                    valueBuilder.append(source.substring(position, position + blen))
-                    column = column + 1
-                    position = position + blen
+                    valueBuilder.append(this.source.substring(this.position, this.position + blen))
+                    this.column = this.column + 1
+                    this.position = this.position + blen
                 } else {
                     valueBuilder.append(c.toString())
                     advance()
@@ -1115,18 +1115,18 @@ class SeenLexer {
             }
         }
 
-        let length = position - startPos
+        let length = this.position - startPos
         let value = valueBuilder.toString()
         if traceVerbose {
             traceLexVerbose("handleIdentifier value=" + value + " len=" + length.toString())
         }
 
         // Check if it's a keyword
-        if keywordManager.isKeyword(value) {
-            let keywordType = keywordManager.getKeywordTypeDirect(value)
+        if this.keywordManager.isKeyword(value) {
+            let keywordType = this.keywordManager.getKeywordTypeDirect(value)
             emitToken(keywordType, value, length)
         } else {
-            if value == "r" and position < source.length() and getCurrentChar() == ':' {
+            if value == "r" and this.position < this.source.length() and getCurrentChar() == ':' {
                 emitToken(SeenTokenType.Identifier, value, length)
                 if traceVerbose {
                     traceLexVerbose("handleIdentifier preserved return label r before colon")
@@ -1134,7 +1134,7 @@ class SeenLexer {
                 return
             }
             // Check for stdlib alias (localized name -> English name)
-            let aliasedName = keywordManager.resolveStdlibAlias(value)
+            let aliasedName = this.keywordManager.resolveStdlibAlias(value)
             if aliasedName != "" {
                 emitToken(SeenTokenType.Identifier, aliasedName, length)
             } else {
@@ -1142,7 +1142,7 @@ class SeenLexer {
             }
         }
         if traceVerbose {
-            traceLexVerbose("handleIdentifier exit pos=" + position.toString())
+            traceLexVerbose("handleIdentifier exit pos=" + this.position.toString())
         }
     }
     

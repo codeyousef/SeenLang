@@ -158,6 +158,53 @@ export function setupCommands(context: vscode.ExtensionContext, client: Language
         })
     );
 
+    // Compile current file as PIC objects for downstream shared-library linking
+    context.subscriptions.push(
+        vscode.commands.registerCommand('seen.compileSharedModule', async () => {
+            const editor = vscode.window.activeTextEditor;
+            if (!editor || editor.document.languageId !== 'seen') {
+                vscode.window.showWarningMessage('Open a Seen file to compile shared module objects.');
+                return;
+            }
+
+            if (editor.document.isDirty) {
+                await editor.document.save();
+            }
+
+            const seenPath = vscode.workspace.getConfiguration('seen').get<string>('compiler.path', 'seen');
+            const compileConfig = vscode.workspace.getConfiguration('seen.compile');
+            const filePath = editor.document.fileName;
+            const parsed = path.parse(filePath);
+            const outputBase = path.join(parsed.dir, parsed.name);
+            const configuredManifest = compileConfig.get<string>('objectManifest', '');
+            const manifestPath = configuredManifest && configuredManifest.length > 0
+                ? configuredManifest
+                : outputBase + '.objects.tsv';
+
+            const args = [
+                'compile',
+                filePath,
+                outputBase,
+                '--pic',
+                '--object-manifest',
+                manifestPath,
+                '--no-cache',
+                '--no-fork'
+            ];
+
+            const task = new vscode.Task(
+                { type: 'seen', task: 'compile-shared' },
+                vscode.TaskScope.Workspace,
+                'Seen Shared Module Objects',
+                'seen',
+                new vscode.ShellExecution(seenPath, args),
+                '$seen'
+            );
+            task.presentationOptions = { reveal: vscode.TaskRevealKind.Always, clear: true };
+            await vscode.tasks.executeTask(task);
+        })
+    );
+
     // Clean command
     context.subscriptions.push(
         vscode.commands.registerCommand('seen.clean', async () => {

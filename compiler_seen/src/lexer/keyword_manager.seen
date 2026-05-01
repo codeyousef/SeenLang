@@ -150,96 +150,96 @@ class KeywordManager {
 
     fun initTokenNameMap() r: Void {
         // Control flow
-        tokenNameMap.put("KeywordFun", SeenTokenType.KeywordFun)
-        tokenNameMap.put("KeywordIf", SeenTokenType.KeywordIf)
-        tokenNameMap.put("KeywordElse", SeenTokenType.KeywordElse)
-        tokenNameMap.put("KeywordWhile", SeenTokenType.KeywordWhile)
-        tokenNameMap.put("KeywordFor", SeenTokenType.KeywordFor)
-        tokenNameMap.put("KeywordIn", SeenTokenType.KeywordIn)
-        tokenNameMap.put("KeywordMatch", SeenTokenType.KeywordMatch)
-        tokenNameMap.put("KeywordBreak", SeenTokenType.KeywordBreak)
-        tokenNameMap.put("KeywordContinue", SeenTokenType.KeywordContinue)
-        tokenNameMap.put("KeywordLoop", SeenTokenType.KeywordLoop)
-        tokenNameMap.put("KeywordReturn", SeenTokenType.KeywordReturn)
-        tokenNameMap.put("KeywordTry", SeenTokenType.KeywordTry)
-        tokenNameMap.put("KeywordCatch", SeenTokenType.KeywordCatch)
-        tokenNameMap.put("KeywordFinally", SeenTokenType.KeywordFinally)
-        tokenNameMap.put("KeywordThrow", SeenTokenType.KeywordThrow)
+        this.tokenNameMap.put("KeywordFun", SeenTokenType.KeywordFun)
+        this.tokenNameMap.put("KeywordIf", SeenTokenType.KeywordIf)
+        this.tokenNameMap.put("KeywordElse", SeenTokenType.KeywordElse)
+        this.tokenNameMap.put("KeywordWhile", SeenTokenType.KeywordWhile)
+        this.tokenNameMap.put("KeywordFor", SeenTokenType.KeywordFor)
+        this.tokenNameMap.put("KeywordIn", SeenTokenType.KeywordIn)
+        this.tokenNameMap.put("KeywordMatch", SeenTokenType.KeywordMatch)
+        this.tokenNameMap.put("KeywordBreak", SeenTokenType.KeywordBreak)
+        this.tokenNameMap.put("KeywordContinue", SeenTokenType.KeywordContinue)
+        this.tokenNameMap.put("KeywordLoop", SeenTokenType.KeywordLoop)
+        this.tokenNameMap.put("KeywordReturn", SeenTokenType.KeywordReturn)
+        this.tokenNameMap.put("KeywordTry", SeenTokenType.KeywordTry)
+        this.tokenNameMap.put("KeywordCatch", SeenTokenType.KeywordCatch)
+        this.tokenNameMap.put("KeywordFinally", SeenTokenType.KeywordFinally)
+        this.tokenNameMap.put("KeywordThrow", SeenTokenType.KeywordThrow)
 
         // Variable declarations
-        tokenNameMap.put("KeywordLet", SeenTokenType.KeywordLet)
-        tokenNameMap.put("KeywordVar", SeenTokenType.KeywordVar)
+        this.tokenNameMap.put("KeywordLet", SeenTokenType.KeywordLet)
+        this.tokenNameMap.put("KeywordVar", SeenTokenType.KeywordVar)
 
         // Type definitions
-        tokenNameMap.put("KeywordClass", SeenTokenType.KeywordClass)
-        tokenNameMap.put("KeywordInterface", SeenTokenType.KeywordInterface)
-        tokenNameMap.put("KeywordEnum", SeenTokenType.KeywordEnum)
-        tokenNameMap.put("KeywordExtends", SeenTokenType.KeywordExtends)
-        tokenNameMap.put("KeywordImplements", SeenTokenType.KeywordImplements)
+        this.tokenNameMap.put("KeywordClass", SeenTokenType.KeywordClass)
+        this.tokenNameMap.put("KeywordInterface", SeenTokenType.KeywordInterface)
+        this.tokenNameMap.put("KeywordEnum", SeenTokenType.KeywordEnum)
+        this.tokenNameMap.put("KeywordExtends", SeenTokenType.KeywordExtends)
+        this.tokenNameMap.put("KeywordImplements", SeenTokenType.KeywordImplements)
 
         // Async
-        tokenNameMap.put("KeywordAsync", SeenTokenType.KeywordAsync)
-        tokenNameMap.put("KeywordAwait", SeenTokenType.KeywordAwait)
-        tokenNameMap.put("KeywordSpawn", SeenTokenType.KeywordSpawn)
+        this.tokenNameMap.put("KeywordAsync", SeenTokenType.KeywordAsync)
+        this.tokenNameMap.put("KeywordAwait", SeenTokenType.KeywordAwait)
+        this.tokenNameMap.put("KeywordSpawn", SeenTokenType.KeywordSpawn)
 
         // Module
-        tokenNameMap.put("KeywordImport", SeenTokenType.KeywordImport)
-        tokenNameMap.put("KeywordExport", SeenTokenType.KeywordExport)
-        tokenNameMap.put("KeywordUse", SeenTokenType.KeywordUse)
+        this.tokenNameMap.put("KeywordImport", SeenTokenType.KeywordImport)
+        this.tokenNameMap.put("KeywordExport", SeenTokenType.KeywordExport)
+        this.tokenNameMap.put("KeywordUse", SeenTokenType.KeywordUse)
 
         // Misc
-        tokenNameMap.put("KeywordAs", SeenTokenType.KeywordAs)
-        tokenNameMap.put("KeywordIs", SeenTokenType.KeywordIs)
-        tokenNameMap.put("KeywordNull", SeenTokenType.KeywordNull)
-        tokenNameMap.put("KeywordTrue", SeenTokenType.KeywordTrue)
-        tokenNameMap.put("KeywordFalse", SeenTokenType.KeywordFalse)
-        tokenNameMap.put("KeywordThis", SeenTokenType.KeywordThis)
-        tokenNameMap.put("KeywordSuper", SeenTokenType.KeywordSuper)
+        this.tokenNameMap.put("KeywordAs", SeenTokenType.KeywordAs)
+        this.tokenNameMap.put("KeywordIs", SeenTokenType.KeywordIs)
+        this.tokenNameMap.put("KeywordNull", SeenTokenType.KeywordNull)
+        this.tokenNameMap.put("KeywordTrue", SeenTokenType.KeywordTrue)
+        this.tokenNameMap.put("KeywordFalse", SeenTokenType.KeywordFalse)
+        this.tokenNameMap.put("KeywordThis", SeenTokenType.KeywordThis)
+        this.tokenNameMap.put("KeywordSuper", SeenTokenType.KeywordSuper)
 
         // Memory
-        tokenNameMap.put("KeywordMove", SeenTokenType.KeywordMove)
-        tokenNameMap.put("KeywordBorrow", SeenTokenType.KeywordBorrow)
-        tokenNameMap.put("KeywordRef", SeenTokenType.KeywordRef)
-        tokenNameMap.put("KeywordOwn", SeenTokenType.KeywordOwn)
+        this.tokenNameMap.put("KeywordMove", SeenTokenType.KeywordMove)
+        this.tokenNameMap.put("KeywordBorrow", SeenTokenType.KeywordBorrow)
+        this.tokenNameMap.put("KeywordRef", SeenTokenType.KeywordRef)
+        this.tokenNameMap.put("KeywordOwn", SeenTokenType.KeywordOwn)
 
         // New keywords
-        tokenNameMap.put("KeywordDefer", SeenTokenType.KeywordDefer)
-        tokenNameMap.put("KeywordModule", SeenTokenType.KeywordModule)
-        tokenNameMap.put("KeywordImpl", SeenTokenType.KeywordImpl)
-        tokenNameMap.put("KeywordExtension", SeenTokenType.KeywordExtension)
-        tokenNameMap.put("KeywordSealed", SeenTokenType.KeywordSealed)
-        tokenNameMap.put("KeywordTrait", SeenTokenType.KeywordTrait)
-        tokenNameMap.put("KeywordUnsafe", SeenTokenType.KeywordUnsafe)
+        this.tokenNameMap.put("KeywordDefer", SeenTokenType.KeywordDefer)
+        this.tokenNameMap.put("KeywordModule", SeenTokenType.KeywordModule)
+        this.tokenNameMap.put("KeywordImpl", SeenTokenType.KeywordImpl)
+        this.tokenNameMap.put("KeywordExtension", SeenTokenType.KeywordExtension)
+        this.tokenNameMap.put("KeywordSealed", SeenTokenType.KeywordSealed)
+        this.tokenNameMap.put("KeywordTrait", SeenTokenType.KeywordTrait)
+        this.tokenNameMap.put("KeywordUnsafe", SeenTokenType.KeywordUnsafe)
 
         // Syntax completeness keywords
-        tokenNameMap.put("KeywordPub", SeenTokenType.KeywordPub)
-        tokenNameMap.put("KeywordStruct", SeenTokenType.KeywordStruct)
-        tokenNameMap.put("KeywordMut", SeenTokenType.KeywordMut)
-        tokenNameMap.put("KeywordConst", SeenTokenType.KeywordConst)
-        tokenNameMap.put("KeywordStatic", SeenTokenType.KeywordStatic)
-        tokenNameMap.put("KeywordOverride", SeenTokenType.KeywordOverride)
-        tokenNameMap.put("KeywordData", SeenTokenType.KeywordData)
+        this.tokenNameMap.put("KeywordPub", SeenTokenType.KeywordPub)
+        this.tokenNameMap.put("KeywordStruct", SeenTokenType.KeywordStruct)
+        this.tokenNameMap.put("KeywordMut", SeenTokenType.KeywordMut)
+        this.tokenNameMap.put("KeywordConst", SeenTokenType.KeywordConst)
+        this.tokenNameMap.put("KeywordStatic", SeenTokenType.KeywordStatic)
+        this.tokenNameMap.put("KeywordOverride", SeenTokenType.KeywordOverride)
+        this.tokenNameMap.put("KeywordData", SeenTokenType.KeywordData)
 
         // Word operators
-        tokenNameMap.put("LogicalAnd", SeenTokenType.LogicalAnd)
-        tokenNameMap.put("LogicalOr", SeenTokenType.LogicalOr)
-        tokenNameMap.put("LogicalNot", SeenTokenType.LogicalNot)
+        this.tokenNameMap.put("LogicalAnd", SeenTokenType.LogicalAnd)
+        this.tokenNameMap.put("LogicalOr", SeenTokenType.LogicalOr)
+        this.tokenNameMap.put("LogicalNot", SeenTokenType.LogicalNot)
 
         // Type keyword
-        tokenNameMap.put("KeywordType", SeenTokenType.KeywordType)
+        this.tokenNameMap.put("KeywordType", SeenTokenType.KeywordType)
 
         // New P0 keywords
-        tokenNameMap.put("KeywordErrdefer", SeenTokenType.KeywordErrdefer)
-        tokenNameMap.put("KeywordDistinct", SeenTokenType.KeywordDistinct)
-        tokenNameMap.put("KeywordUnion", SeenTokenType.KeywordUnion)
-        tokenNameMap.put("KeywordComptime", SeenTokenType.KeywordComptime)
+        this.tokenNameMap.put("KeywordErrdefer", SeenTokenType.KeywordErrdefer)
+        this.tokenNameMap.put("KeywordDistinct", SeenTokenType.KeywordDistinct)
+        this.tokenNameMap.put("KeywordUnion", SeenTokenType.KeywordUnion)
+        this.tokenNameMap.put("KeywordComptime", SeenTokenType.KeywordComptime)
 
         // P1 keywords
-        tokenNameMap.put("KeywordParallelFor", SeenTokenType.KeywordParallelFor)
+        this.tokenNameMap.put("KeywordParallelFor", SeenTokenType.KeywordParallelFor)
 
         // P0 Deferred: Game engine keywords
-        tokenNameMap.put("KeywordTransmute", SeenTokenType.KeywordTransmute)
-        tokenNameMap.put("KeywordGpu", SeenTokenType.KeywordGpu)
+        this.tokenNameMap.put("KeywordTransmute", SeenTokenType.KeywordTransmute)
+        this.tokenNameMap.put("KeywordGpu", SeenTokenType.KeywordGpu)
 
         ///
         Activated game engine keywords
@@ -247,15 +247,15 @@ class KeywordManager {
         a field name and 'assert' as a function name in compiler source. Activating
         them would break bootstrap. Enum variants + codegen values exist for future use.
         ///
-        tokenNameMap.put("KeywordRegion", SeenTokenType.KeywordRegion)
-        tokenNameMap.put("KeywordWhen", SeenTokenType.KeywordWhen)
-        tokenNameMap.put("KeywordInline", SeenTokenType.KeywordInline)
-        tokenNameMap.put("KeywordEffect", SeenTokenType.KeywordEffect)
+        this.tokenNameMap.put("KeywordRegion", SeenTokenType.KeywordRegion)
+        this.tokenNameMap.put("KeywordWhen", SeenTokenType.KeywordWhen)
+        this.tokenNameMap.put("KeywordInline", SeenTokenType.KeywordInline)
+        this.tokenNameMap.put("KeywordEffect", SeenTokenType.KeywordEffect)
 
         // Aliases from misc keywords that map to word operators
-        tokenNameMap.put("KeywordAnd", SeenTokenType.LogicalAnd)
-        tokenNameMap.put("KeywordOr", SeenTokenType.LogicalOr)
-        tokenNameMap.put("KeywordNot", SeenTokenType.LogicalNot)
+        this.tokenNameMap.put("KeywordAnd", SeenTokenType.LogicalAnd)
+        this.tokenNameMap.put("KeywordOr", SeenTokenType.LogicalOr)
+        this.tokenNameMap.put("KeywordNot", SeenTokenType.LogicalNot)
     }
 
     fun resolveTokenName(name: String) r: SeenTokenType {
@@ -333,8 +333,8 @@ class KeywordManager {
     fun findKeywordSourceEntry(text: String) r: String {
         let prefix = "KW:" + text + "="
         var idx = 0
-        while idx < sources.length() {
-            let entry = sources[idx]
+        while idx < this.sources.length() {
+            let entry = this.sources[idx]
             if entry.startsWith(prefix) {
                 return entry.substring(prefix.length(), entry.length())
             }
@@ -348,7 +348,7 @@ class KeywordManager {
     Uses character scanning to avoid dependency on split().
     ///
     fun loadFromToml(path: String) r: Void {
-        sources.push(path)
+        this.sources.push(path)
         let content = readText(path)
         let len = content.length()
         var pos = 0
@@ -427,8 +427,8 @@ class KeywordManager {
 
                     let resolvedToken = resolveTokenName(value)
                     if resolvedToken != SeenTokenType.Identifier {
-                        keywords.put(key, resolvedToken)
-                        sources.push("KW:" + key + "=" + value)
+                        this.keywords.put(key, resolvedToken)
+                        this.sources.push("KW:" + key + "=" + value)
                     }
                 }
                 // Skip unquoted lines (name = ..., description = ...) and non-keyword sections
@@ -631,14 +631,14 @@ class KeywordManager {
             var found = 0
             while j < enNames.length() {
                 if enPaths[j] == localCanonical {
-                    sources.push("ALIAS:" + localNames[i] + "=" + enNames[j])
+                    this.sources.push("ALIAS:" + localNames[i] + "=" + enNames[j])
                     found = 1
                     j = enNames.length()
                 }
                 j = j + 1
             }
             if found == 0 {
-                sources.push("ALIAS:" + localNames[i] + "=" + localCanonical)
+                this.sources.push("ALIAS:" + localNames[i] + "=" + localCanonical)
             }
             i = i + 1
         }
@@ -656,8 +656,8 @@ class KeywordManager {
         ///
         let prefix = "ALIAS:" + name + "="
         var idx = 0
-        while idx < sources.length() {
-            var entry = sources[idx]
+        while idx < this.sources.length() {
+            var entry = this.sources[idx]
             if entry.startsWith(prefix) {
                 return entry.substring(prefix.length(), entry.length())
             }
@@ -687,7 +687,7 @@ class KeywordManager {
     }
 
     fun getAllKeywords() r: Array<String> {
-        return keywords.keys()
+        return this.keywords.keys()
     }
 
     fun isDynamic() r: Bool {
@@ -695,14 +695,14 @@ class KeywordManager {
     }
 
     fun getSources() r: Array<String> {
-        return sources
+        return this.sources
     }
 
     fun getKeywordCount() r: Int {
-        return keywords.size()
+        return this.keywords.size()
     }
 
     fun hasTranslation(keyword: String) r: Bool {
-        return keywords.containsKey(keyword)
+        return this.keywords.containsKey(keyword)
     }
 }

@@ -12,7 +12,7 @@
 
 ## Features
 
-- **Syntax Highlighting** -- TextMate grammar for `.seen` files with support for SIMD types, GPU annotations, async/await, and all 6 keyword languages
+- **Syntax Highlighting** -- TextMate grammar for `.seen` files with support for `///` block comments, `@export`, SIMD types, GPU annotations, async/await, and all 6 keyword languages
 - **IntelliSense** -- Code completion and type information via the built-in LSP
 - **Error Diagnostics** -- Real-time error checking as you type
 - **Go to Definition / Find References** -- Navigate your codebase
@@ -20,6 +20,7 @@
 - **Debugging** -- Breakpoints, stepping, variable inspection
 - **REPL** -- Interactive Seen session in the terminal
 - **Build Integration** -- Build, run, and test from the editor
+- **Shared Module Builds** -- Compile PIC objects and object manifests for hot-reload/shared-library workflows
 - **Multi-Language Keywords** -- Switch between English, Arabic, Spanish, Russian, Chinese, and Japanese keywords
 
 ## Quick Start
@@ -37,6 +38,7 @@
 | Seen: Run Tests | -- | Run all test functions |
 | Seen: Format Document | `Shift+Alt+F` | Format the current file |
 | Seen: Check Project | -- | Type-check without compiling |
+| Seen: Compile Shared Module Objects | -- | Emit PIC objects plus an object manifest |
 | Seen: Initialize New Project | -- | Scaffold a new Seen project |
 | Seen: Open REPL | -- | Launch interactive REPL |
 | Seen: Switch Project Language | -- | Change keyword language |
@@ -58,6 +60,9 @@
 | `let` / `var` | Variable bindings |
 | `test` | Test function with `@test` |
 | `extern` | External function (FFI) |
+| `export` | Exported function with a stable native symbol |
+| `comment` | `///` multi-line block comment |
+| `hotreload` / `hotmodule` / `hotcall` | Hot reload import, load, and Int-call helpers |
 | `closure` | Closure expression `\|x\| expr` |
 | `parallel_for` | Parallel for loop |
 | `compute` | GPU compute kernel with `@compute` |
@@ -77,6 +82,8 @@
   "seen.lsp.enabled": true,
   "seen.formatting.enable": true,
   "seen.target.default": "native",
+  "seen.compile.pic": false,
+  "seen.compile.objectManifest": "",
   "seen.language.default": "en"
 }
 ```
@@ -88,6 +95,8 @@
 | `seen.lsp.trace.server` | `"off"` | LSP tracing (`off`, `messages`, `verbose`) |
 | `seen.formatting.enable` | `true` | Enable code formatting |
 | `seen.target.default` | `"native"` | Compilation target |
+| `seen.compile.pic` | `false` | Emit PIC objects for shared-library builds |
+| `seen.compile.objectManifest` | `""` | Optional manifest path for shared-module object builds |
 | `seen.language.default` | `"en"` | Keyword language (`en`, `ar`, `es`, `ru`, `zh`, `ja`) |
 
 ## Troubleshooting

@@ -199,14 +199,10 @@ class HotModule {
 
 // File watcher for automatic reload
 class HotReloadWatcher {
-    var watchedModules: Array<HotModule>
-    var watchIds: Array<Int>
     var autoReload: Bool
 
     static fun new() r: HotReloadWatcher {
         return HotReloadWatcher{
-            watchedModules: Array<HotModule>(),
-            watchIds: Array<Int>(),
             autoReload: true
         }
     }
@@ -216,29 +212,12 @@ class HotReloadWatcher {
         if module.modulePath == "" {
             return false
         }
-
-        ///
-        Note: In a full implementation, we'd register a callback
-        For now, we just track the module for manual polling
-        ///
-        watchedModules.push(module)
-        watchIds.push(-1)  // No actual file watch for now
-
         return true
     }
 
     // Stop watching a module
     fun unwatch(module: HotModule) r: Void {
-        var i = 0
-        while i < watchedModules.length() {
-            if watchedModules[i].moduleName == module.moduleName {
-                if watchIds[i] >= 0 {
-                    __seen_hotreload_stop_watch(watchIds[i])
-                }
-                // Remove from arrays (simplified - would need proper removal)
-            }
-            i = i + 1
-        }
+        // Watch registrations are runtime-owned in the current wrapper.
     }
 
     // Poll for changes and reload if needed
@@ -249,19 +228,7 @@ class HotReloadWatcher {
 
     // Check all watched modules and reload if changed
     fun checkAndReload() r: Int {
-        var reloadCount = 0
-        var i = 0
-        while i < watchedModules.length() {
-            let module = watchedModules[i]
-            if module.isActive() {
-                ///
-                Check if file has changed (would use poll in full impl)
-                For now, just provide the reload API
-                ///
-            }
-            i = i + 1
-        }
-        return reloadCount
+        return __seen_hotreload_poll()
     }
 }
 
@@ -302,16 +269,15 @@ class HotState<T> {
             data: __seen_hotreload_serialize_state(current, size),
             size: size
         }
-        snapshots.push(snap)
+        let stateSnapshots = snapshots
+        stateSnapshots.push(snap)
     }
 
     // Restore from latest snapshot
     fun restore() r: Bool {
-        if snapshots.length() == 0 {
-            return false
-        }
-        // Would deserialize and copy back
-        return true
+        // State restoration is runtime-managed by callers until generic array-field
+        // access is safe in compiler codegen.
+        return false
     }
 
     // Get current value

@@ -75,29 +75,29 @@ class ComptimeValue {
     }
 
     fun isError() r: Bool {
-        return kind == "Error"
+        return this.kind == "Error"
     }
 
     // Convert to string for debugging
     fun toString() r: String {
-        if kind == "Int" {
-            return intValue.toString()
+        if this.kind == "Int" {
+            return this.intValue.toString()
         }
-        if kind == "String" {
-            return stringValue
+        if this.kind == "String" {
+            return this.stringValue
         }
-        if kind == "Bool" {
-            if boolValue { return "true" } else { return "false" }
+        if this.kind == "Bool" {
+            if this.boolValue { return "true" } else { return "false" }
         }
-        if kind == "AstNode" {
-            return "<AstNode:" + astValue.kind() + ">"
+        if this.kind == "AstNode" {
+            return "<AstNode:" + this.astValue.kind() + ">"
         }
-        if kind == "Array" {
-            let arrLen = arrayValue.length()
+        if this.kind == "Array" {
+            let arrLen = this.arrayValue.length()
             return "<Array[" + arrLen.toString() + "]>"
         }
-        if kind == "Error" {
-            return "<Error:" + errorMessage + ">"
+        if this.kind == "Error" {
+            return "<Error:" + this.errorMessage + ">"
         }
         return "<Void>"
     }
@@ -125,10 +125,10 @@ class ComptimeInterpreter {
 
     // Reset interpreter state for a new macro invocation
     fun reset() r: Void {
-        variables = Array<ComptimeVariable>()
-        nodesProcessed = 0
-        currentDepth = 0
-        errors = Array<String>()
+        this.variables = Array<ComptimeVariable>()
+        this.nodesProcessed = 0
+        this.currentDepth = 0
+        this.errors = Array<String>()
     }
 
     // Execute a macro function with a target AST node
@@ -136,10 +136,10 @@ class ComptimeInterpreter {
         reset()
 
         // Check recursion limit
-        if currentDepth > recursionLimit {
-            return ComptimeValue.error("Macro recursion limit exceeded (" + recursionLimit.toString() + ")")
+        if this.currentDepth > this.recursionLimit {
+            return ComptimeValue.error("Macro recursion limit exceeded (" + this.recursionLimit.toString() + ")")
         }
-        currentDepth = currentDepth + 1
+        this.currentDepth = this.currentDepth + 1
 
         // Validate macro function has exactly one parameter
         if fn.params.length() != 1 {
@@ -153,7 +153,7 @@ class ComptimeInterpreter {
         // Interpret the function body
         let result = interpretBlock(fn.body)
 
-        currentDepth = currentDepth - 1
+        this.currentDepth = this.currentDepth - 1
         return result
     }
 
@@ -162,9 +162,9 @@ class ComptimeInterpreter {
         var lastValue = ComptimeValue.voidValue()
         var i = 0
         while i < block.statements.length() {
-            nodesProcessed = nodesProcessed + 1
-            if nodesProcessed > nodeLimit {
-                return ComptimeValue.error("Macro node limit exceeded (" + nodeLimit.toString() + ")")
+            this.nodesProcessed = this.nodesProcessed + 1
+            if this.nodesProcessed > this.nodeLimit {
+                return ComptimeValue.error("Macro node limit exceeded (" + this.nodeLimit.toString() + ")")
             }
 
             let stmt = block.statements[i]
@@ -255,9 +255,9 @@ class ComptimeInterpreter {
 
     // Interpret an expression
     fun interpretExpression(expr: ParserExpressionNode) r: ComptimeValue {
-        nodesProcessed = nodesProcessed + 1
-        if nodesProcessed > nodeLimit {
-            return ComptimeValue.error("Macro node limit exceeded (" + nodeLimit.toString() + ")")
+        this.nodesProcessed = this.nodesProcessed + 1
+        if this.nodesProcessed > this.nodeLimit {
+            return ComptimeValue.error("Macro node limit exceeded (" + this.nodeLimit.toString() + ")")
         }
 
         if expr.kind == "None" {
@@ -849,23 +849,23 @@ class ComptimeInterpreter {
     fun setVariable(name: String, value: ComptimeValue) r: Void {
         // Update existing variable
         var i = 0
-        while i < variables.length() {
-            if variables[i].name == name {
-                variables[i].value = value
+        while i < this.variables.length() {
+            if this.variables[i].name == name {
+                this.variables[i].value = value
                 return
             }
             i = i + 1
         }
         // Add new variable
         let v = ComptimeVariable.new(name, value)
-        variables.push(v)
+        this.variables.push(v)
     }
 
     fun getVariable(name: String) r: ComptimeValue {
         var i = 0
-        while i < variables.length() {
-            if variables[i].name == name {
-                return variables[i].value
+        while i < this.variables.length() {
+            if this.variables[i].name == name {
+                return this.variables[i].value
             }
             i = i + 1
         }

@@ -167,6 +167,50 @@
     ],
     "description": "External function declaration (FFI)"
   },
+  "Export Function": {
+    "prefix": "export",
+    "body": [
+      "@export",
+      "fun ${1:functionName}(${2:params}) r: ${3:Int} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Exported function with a stable native symbol"
+  },
+  "Block Comment": {
+    "prefix": "comment",
+    "body": [
+      "///",
+      "${1:comment}",
+      "///"
+    ],
+    "description": "Triple-slash multi-line block comment"
+  },
+  "Hot Reload Import": {
+    "prefix": "hotreload",
+    "body": [
+      "import framework::hotreload"
+    ],
+    "description": "Import the hot reload framework helpers"
+  },
+  "Hot Reload Module Load": {
+    "prefix": "hotmodule",
+    "body": [
+      "let ${1:moduleResult} = HotModule.loadNamed(${2:\"./module.so\"}, ${3:\"module\"})",
+      "if ${1:moduleResult}.isSome() {",
+      "\tlet ${4:module} = ${1:moduleResult}.unwrap()",
+      "\t$0",
+      "}"
+    ],
+    "description": "Load a hot-reloadable shared module"
+  },
+  "Hot Reload Int Call": {
+    "prefix": "hotcall",
+    "body": [
+      "let ${1:result} = callHotReloadInt(${2:module}, ${3:\"entrypoint\"})"
+    ],
+    "description": "Call an Int-returning hot reload entrypoint"
+  },
   "Test": {
     "prefix": "test",
     "body": [

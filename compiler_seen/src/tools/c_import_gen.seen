@@ -27,44 +27,44 @@ class CImportResult {
     }
 
     fun addError(msg: String) r: Void {
-        errors.push(msg)
-        success = false
+        this.errors.push(msg)
+        this.success = false
     }
 
     fun addWarning(msg: String) r: Void {
-        warnings.push(msg)
+        this.warnings.push(msg)
     }
 
     fun isSuccessful() r: Bool {
-        return success
+        return this.success
     }
 
     fun errorCount() r: Int {
-        return errors.length()
+        return this.errors.length()
     }
 
     fun errorAt(index: Int) r: String {
-        return errors[index]
+        return this.errors[index]
     }
 
     fun warningCount() r: Int {
-        return warnings.length()
+        return this.warnings.length()
     }
 
     fun warningAt(index: Int) r: String {
-        return warnings[index]
+        return this.warnings[index]
     }
 
     fun functionCount() r: Int {
-        return functions.length()
+        return this.functions.length()
     }
 
     fun typedefCount() r: Int {
-        return typedefs.length()
+        return this.typedefs.length()
     }
 
     fun constantCount() r: Int {
-        return constants.length()
+        return this.constants.length()
     }
 }
 
@@ -226,7 +226,7 @@ class CImportGenerator {
     }
 
     fun addIncludePath(path: String) r: Void {
-        includePaths.push(path)
+        this.includePaths.push(path)
     }
 
     fun buildClangCommand(extraFlags: String) r: String {
@@ -237,12 +237,12 @@ class CImportGenerator {
         cmd = cmd + " -fsyntax-only"
 
         var i = 0
-        while i < includePaths.length() {
-            cmd = cmd + " -I" + includePaths[i]
+        while i < this.includePaths.length() {
+            cmd = cmd + " -I" + this.includePaths[i]
             i = i + 1
         }
 
-        return cmd + " " + headerPath + " 2>&1"
+        return cmd + " " + this.headerPath + " 2>&1"
     }
 
     // Parse the C header using clang's AST dump

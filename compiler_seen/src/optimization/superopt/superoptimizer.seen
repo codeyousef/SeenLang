@@ -46,14 +46,14 @@ class Superoptimizer {
     }
 
     fun Optimize() r: Void {
-        println("[superopt] Peephole superoptimizer (maxLength=" + maxLength.toString() + ")")
+        println("[superopt] Peephole superoptimizer (maxLength=" + this.maxLength.toString() + ")")
         // Phase 1: Generate test vectors
         generateTestVectors()
         // Phase 2: Load known peephole patterns
         loadKnownPatterns()
         // Phase 3: Apply verified patterns
         applyPatterns()
-        println("[superopt] Applied " + optimizationsApplied.toString() + " optimizations, saved " + totalCostSaved.toString() + " cycles")
+        println("[superopt] Applied " + this.optimizationsApplied.toString() + " optimizations, saved " + this.totalCostSaved.toString() + " cycles")
     }
 
     // Generate random test vectors for equivalence checking
@@ -74,10 +74,10 @@ class Superoptimizer {
         while i < seeds.length() {
             var inputs = Array<Int>()
             inputs.push(seeds[i])
-            testVectors.push(TestVector.new(inputs, 0))
+            this.testVectors.push(TestVector.new(inputs, 0))
             i = i + 1
         }
-        println("[superopt] Generated " + testVectors.length().toString() + " test vectors")
+        println("[superopt] Generated " + this.testVectors.length().toString() + " test vectors")
     }
 
     // Load well-known peephole optimization patterns
@@ -90,7 +90,7 @@ class Superoptimizer {
         p1.replacementOps.push("self")
         p1.costSaving = 2
         p1.verified = true
-        candidates.push(p1)
+        this.candidates.push(p1)
 
         // Pattern: x * 3 -> (x << 1) + x (avoid multiply)
         let p2 = PeepholeCandidate.new()
@@ -99,7 +99,7 @@ class Superoptimizer {
         p2.replacementOps.push("shl_1_add_self")
         p2.costSaving = 2
         p2.verified = true
-        candidates.push(p2)
+        this.candidates.push(p2)
 
         // Pattern: x * 5 -> (x << 2) + x
         let p3 = PeepholeCandidate.new()
@@ -108,7 +108,7 @@ class Superoptimizer {
         p3.replacementOps.push("shl_2_add_self")
         p3.costSaving = 2
         p3.verified = true
-        candidates.push(p3)
+        this.candidates.push(p3)
 
         // Pattern: x * 7 -> (x << 3) - x
         let p4 = PeepholeCandidate.new()
@@ -117,7 +117,7 @@ class Superoptimizer {
         p4.replacementOps.push("shl_3_sub_self")
         p4.costSaving = 2
         p4.verified = true
-        candidates.push(p4)
+        this.candidates.push(p4)
 
         // Pattern: x / 2 (unsigned) -> x >> 1
         let p5 = PeepholeCandidate.new()
@@ -126,7 +126,7 @@ class Superoptimizer {
         p5.replacementOps.push("lshr_1")
         p5.costSaving = 18
         p5.verified = true
-        candidates.push(p5)
+        this.candidates.push(p5)
 
         // Pattern: x % 2 -> x & 1
         let p6 = PeepholeCandidate.new()
@@ -135,7 +135,7 @@ class Superoptimizer {
         p6.replacementOps.push("and_1")
         p6.costSaving = 18
         p6.verified = true
-        candidates.push(p6)
+        this.candidates.push(p6)
 
         // Pattern: -x -> ~x + 1 (two's complement, sometimes cheaper)
         let p7 = PeepholeCandidate.new()
@@ -143,7 +143,7 @@ class Superoptimizer {
         p7.replacementOps.push("not_add_1")
         p7.costSaving = 0
         p7.verified = true
-        candidates.push(p7)
+        this.candidates.push(p7)
 
         // Pattern: abs(x) -> (x ^ (x >> 31)) - (x >> 31) (branchless)
         let p8 = PeepholeCandidate.new()
@@ -151,7 +151,7 @@ class Superoptimizer {
         p8.replacementOps.push("xor_shift_sub")
         p8.costSaving = 5
         p8.verified = true
-        candidates.push(p8)
+        this.candidates.push(p8)
 
         // Pattern: min(x, y) -> y ^ ((x ^ y) & -(x < y)) (branchless)
         let p9 = PeepholeCandidate.new()
@@ -159,7 +159,7 @@ class Superoptimizer {
         p9.replacementOps.push("branchless_min")
         p9.costSaving = 3
         p9.verified = true
-        candidates.push(p9)
+        this.candidates.push(p9)
 
         // Pattern: max(x, y) -> x ^ ((x ^ y) & -(x < y)) (branchless)
         let p10 = PeepholeCandidate.new()
@@ -167,19 +167,19 @@ class Superoptimizer {
         p10.replacementOps.push("branchless_max")
         p10.costSaving = 3
         p10.verified = true
-        candidates.push(p10)
+        this.candidates.push(p10)
 
-        println("[superopt] Loaded " + candidates.length().toString() + " known peephole patterns")
+        println("[superopt] Loaded " + this.candidates.length().toString() + " known peephole patterns")
     }
 
     // Apply verified patterns to IR lines
     fun applyPatterns() r: Void {
         var i = 0
-        while i < candidates.length() {
-            let candidate = candidates[i]
+        while i < this.candidates.length() {
+            let candidate = this.candidates[i]
             if candidate.verified and candidate.costSaving > 0 {
-                optimizationsApplied = optimizationsApplied + 1
-                totalCostSaved = totalCostSaved + candidate.costSaving
+                this.optimizationsApplied = this.optimizationsApplied + 1
+                this.totalCostSaved = this.totalCostSaved + candidate.costSaving
             }
             i = i + 1
         }
@@ -188,8 +188,8 @@ class Superoptimizer {
     // Check if a given op+const matches any known pattern
     fun matchPattern(op: String, constVal: String) r: String {
         var i = 0
-        while i < candidates.length() {
-            let c = candidates[i]
+        while i < this.candidates.length() {
+            let c = this.candidates[i]
             if c.originalOps.length() >= 2 {
                 if c.originalOps[0] == op and c.originalOps[1] == constVal {
                     if c.replacementOps.length() > 0 {
@@ -205,8 +205,8 @@ class Superoptimizer {
     // Verify a candidate pattern by testing against all test vectors
     fun verifyCandidate(candidate: PeepholeCandidate) r: Bool {
         var i = 0
-        while i < testVectors.length() {
-            let tv = testVectors[i]
+        while i < this.testVectors.length() {
+            let tv = this.testVectors[i]
             i = i + 1
         }
         return true
@@ -214,6 +214,6 @@ class Superoptimizer {
 
     // Get summary of optimizations
     fun getSummary() r: String {
-        return "[superopt] " + optimizationsApplied.toString() + " patterns applied, " + totalCostSaved.toString() + " cycles saved"
+        return "[superopt] " + this.optimizationsApplied.toString() + " patterns applied, " + this.totalCostSaved.toString() + " cycles saved"
     }
 }

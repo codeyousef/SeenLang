@@ -3,7 +3,7 @@
 The `framework.hotreload` module wraps dynamic shared-module loading and reload bookkeeping.
 
 ```seen
-import framework.hotreload.{HotModule, getHotReloadError}
+import framework::hotreload
 ```
 
 ## HotModule

@@ -64,10 +64,10 @@ class Z3Solver {
     originalOp + originalOperand vs replacementOp + replacementOperand
     ///
     fun solveEquivalence(origOp: String, origOperand: Int, replOp: String, replOperand: Int) r: Bool {
-        queriesRun = queriesRun + 1
+        this.queriesRun = this.queriesRun + 1
         var i = 0
-        while i < testInputs.length() {
-            let input = testInputs[i]
+        while i < this.testInputs.length() {
+            let input = this.testInputs[i]
             let origResult = evalOp(origOp, input, origOperand)
             let replResult = evalOp(replOp, input, replOperand)
             if origResult != replResult {
@@ -75,7 +75,7 @@ class Z3Solver {
             }
             i = i + 1
         }
-        equivalencesFound = equivalencesFound + 1
+        this.equivalencesFound = this.equivalencesFound + 1
         return true
     }
 
@@ -84,7 +84,7 @@ class Z3Solver {
     Returns true if the replacement is semantically equivalent
     ///
     fun verifyPattern(origOps: Array<String>, replOps: Array<String>) r: Bool {
-        queriesRun = queriesRun + 1
+        this.queriesRun = this.queriesRun + 1
         // For single-op patterns, compare directly
         if origOps.length() >= 2 and replOps.length() >= 1 {
             let mainOp = origOps[0]
@@ -100,8 +100,8 @@ class Z3Solver {
 
             // Test equivalence over all test inputs
             var i = 0
-            while i < testInputs.length() {
-                let input = testInputs[i]
+            while i < this.testInputs.length() {
+                let input = this.testInputs[i]
                 let origResult = evalOp(mainOp, input, constVal)
 
                 // Evaluate replacement
@@ -133,7 +133,7 @@ class Z3Solver {
                 }
                 i = i + 1
             }
-            equivalencesFound = equivalencesFound + 1
+            this.equivalencesFound = this.equivalencesFound + 1
             return true
         }
         return false
@@ -141,7 +141,7 @@ class Z3Solver {
 
     // Legacy API: solve a formula (returns true if satisfiable)
     fun solve(formulaType: Int) r: Bool {
-        queriesRun = queriesRun + 1
+        this.queriesRun = this.queriesRun + 1
         ///
         Simple tautology checker for basic arithmetic identities
         formulaType: 1 = x+0==x, 2 = x*1==x, 3 = x*0==0, 4 = x-x==0
@@ -166,10 +166,10 @@ class Z3Solver {
     }
 
     fun getQueriesRun() r: Int {
-        return queriesRun
+        return this.queriesRun
     }
 
     fun getEquivalencesFound() r: Int {
-        return equivalencesFound
+        return this.equivalencesFound
     }
 }

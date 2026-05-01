@@ -68,16 +68,16 @@ class DeterminismCheckResult {
     }
 
     fun addError(error: DeterminismError) r: Void {
-        errors.push(error)
-        success = false
+        this.errors.push(error)
+        this.success = false
     }
 
     fun addWarning(warning: String) r: Void {
-        warnings.push(warning)
+        this.warnings.push(warning)
     }
 
     fun hasErrors() r: Bool {
-        return errors.length() > 0
+        return this.errors.length() > 0
     }
 }
 
@@ -100,26 +100,26 @@ class DeterminismError {
     }
 
     fun toString() r: String {
-        var result = "Determinism Error: " + message
-        if functionName != "" {
-            result = result + " in function '" + functionName + "'"
+        var result = "Determinism Error: " + this.message
+        if this.functionName != "" {
+            result = result + " in function '" + this.functionName + "'"
         }
-        if calledFunction != "" {
-            result = result + " when calling '" + calledFunction + "'"
+        if this.calledFunction != "" {
+            result = result + " when calling '" + this.calledFunction + "'"
         }
         return result
     }
 
     fun getMessage() r: String {
-        return message
+        return this.message
     }
 
     fun getFunctionName() r: String {
-        return functionName
+        return this.functionName
     }
 
     fun getCalledFunction() r: String {
-        return calledFunction
+        return this.calledFunction
     }
 }
 
@@ -156,16 +156,16 @@ class DeterminismChecker {
     }
 
     fun setUWWMode(enabled: Bool) r: Void {
-        uwwMode = enabled
+        this.uwwMode = enabled
     }
 
     fun setDeterministicProfile(enabled: Bool) r: Void {
-        deterministicProfile = enabled
+        this.deterministicProfile = enabled
     }
 
     // Check a program for determinism violations
     fun check(program: ProgramNode) r: DeterminismCheckResult {
-        result = DeterminismCheckResult.new()
+        this.result = DeterminismCheckResult.new()
 
         // First pass: register all function and class determinism annotations
         registerFunctionAnnotations(program)
@@ -175,14 +175,14 @@ class DeterminismChecker {
         checkDeterministicFunctions(program)
 
         // Third pass: if in deterministic profile, check for nondeterministic type usage
-        if deterministicProfile {
+        if this.deterministicProfile {
             checkAllTypeUsages(program)
         }
 
         // Fourth pass: validate @syscall decorators against whitelist
         validateSyscallDecorators(program)
 
-        return result
+        return this.result
     }
 
     // Validate @syscall decorators against the UWW syscall whitelist
@@ -204,7 +204,7 @@ class DeterminismChecker {
                                     func.name,
                                     ""
                                 )
-                                result.addError(error)
+                                this.result.addError(error)
                             }
                         }
                     }
@@ -247,7 +247,7 @@ class DeterminismChecker {
             if item.itemType == "Class" {
                 let cls = item.classNode
                 if cls.isNondeterministic {
-                    classNondeterministic.put(cls.name, true)
+                    this.classNondeterministic.put(cls.name, true)
                 }
             }
             i = i + 1
@@ -276,7 +276,7 @@ class DeterminismChecker {
 
     // Check type usage and report error if nondeterministic in deterministic profile
     fun checkTypeUsage(typeName: String, context: String, isContextNondeterministic: Bool) r: Void {
-        if not deterministicProfile {
+        if not this.deterministicProfile {
             return
         }
 
@@ -297,7 +297,7 @@ class DeterminismChecker {
                 context,
                 typeName
             )
-            result.addError(error)
+            this.result.addError(error)
         }
     }
 
@@ -308,14 +308,14 @@ class DeterminismChecker {
             let item = program.items[i]
             if item.itemType == "Function" {
                 let func = item.function
-                currentContext = func.name
-                currentContextIsNondeterministic = func.isNondeterministic
+                this.currentContext = func.name
+                this.currentContextIsNondeterministic = func.isNondeterministic
                 checkFunctionTypeUsages(func)
             }
             if item.itemType == "Class" {
                 let cls = item.classNode
-                currentContext = cls.name
-                currentContextIsNondeterministic = cls.isNondeterministic
+                this.currentContext = cls.name
+                this.currentContextIsNondeterministic = cls.isNondeterministic
                 checkClassTypeUsages(cls)
             }
             i = i + 1
@@ -463,13 +463,13 @@ class DeterminismChecker {
 
         // Check for @deterministic
         if func.isDeterministic {
-            functionDeterminism.put(name, true)
+            this.functionDeterminism.put(name, true)
         }
 
         // Check for @nondeterministic
         if func.isNondeterministic {
-            explicitNondeterministic.put(name, true)
-            functionDeterminism.put(name, false)
+            this.explicitNondeterministic.put(name, true)
+            this.functionDeterminism.put(name, false)
         }
 
         // Default: unspecified functions are assumed deterministic unless they call nondeterministic code
@@ -550,7 +550,7 @@ class DeterminismChecker {
                     currentFuncName,
                     calledName
                 )
-                result.addError(error)
+                this.result.addError(error)
             }
 
             // Check arguments
@@ -580,7 +580,7 @@ class DeterminismChecker {
                     currentFuncName,
                     methodName
                 )
-                result.addError(error)
+                this.result.addError(error)
             }
         }
     }
@@ -588,7 +588,7 @@ class DeterminismChecker {
     // Check if a function is nondeterministic
     fun isNondeterministic(funcName: String) r: Bool {
         // Check explicit annotations
-        let explicit = explicitNondeterministic.get(funcName)
+        let explicit = this.explicitNondeterministic.get(funcName)
         if explicit != null {
             return explicit.unwrap()
         }
@@ -599,7 +599,7 @@ class DeterminismChecker {
         }
 
         // Check if it's registered as deterministic
-        let registered = functionDeterminism.get(funcName)
+        let registered = this.functionDeterminism.get(funcName)
         if registered != null {
             return not registered.unwrap()
         }

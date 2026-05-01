@@ -29,6 +29,7 @@ suite('Extension Test Suite', () => {
             'seen.benchmark.compare',
             'seen.format',
             'seen.check',
+            'seen.compileSharedModule',
             'seen.clean',
             'seen.init',
             'seen.repl',
@@ -62,6 +63,8 @@ suite('Extension Test Suite', () => {
         assert.strictEqual(config.get('reactive.marbleDiagrams'), true);
         assert.strictEqual(config.get('benchmark.showInline'), true);
         assert.strictEqual(config.get('target.default'), 'native');
+        assert.strictEqual(config.get('compile.pic'), false);
+        assert.strictEqual(config.get('compile.objectManifest'), '');
         assert.strictEqual(config.get('language.default'), 'en');
     });
 });

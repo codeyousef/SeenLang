@@ -23,12 +23,12 @@ class MacroExpansionResult {
     }
 
     fun addError(msg: String) r: Void {
-        errors.push(msg)
-        success = false
+        this.errors.push(msg)
+        this.success = false
     }
 
     fun hasErrors() r: Bool {
-        return errors.length() > 0
+        return this.errors.length() > 0
     }
 }
 
@@ -49,13 +49,13 @@ class MacroExpander {
     // Main entry point: expand all macros in a program
     fun expandProgram(program: ProgramNode) r: MacroExpansionResult {
         let result = MacroExpansionResult.new()
-        errors = Array<String>()
+        this.errors = Array<String>()
 
         // Pass 1: Collect all macro definitions
         collectMacros(program)
 
         // If no macros defined, return program unchanged
-        if registry.count() == 0 {
+        if this.registry.count() == 0 {
             result.program = program
             return result
         }
@@ -65,8 +65,8 @@ class MacroExpander {
 
         // Copy errors to result
         var i = 0
-        while i < errors.length() {
-            result.addError(errors[i])
+        while i < this.errors.length() {
+            result.addError(this.errors[i])
             i = i + 1
         }
 
@@ -84,10 +84,10 @@ class MacroExpander {
                 if fn.hasDecorator("macro") {
                     // Validate macro function signature
                     if fn.params.length() != 1 {
-                        errors.push("Macro '" + fn.name + "' must have exactly one parameter (target: AstNode)")
+                        this.errors.push("Macro '" + fn.name + "' must have exactly one parameter (target: AstNode)")
                     } else {
                         // Register the macro
-                        registry.register(fn.name, fn)
+                        this.registry.register(fn.name, fn)
                     }
                 }
             }
@@ -147,27 +147,27 @@ class MacroExpander {
             }
 
             // Check if this decorator is a user-defined macro
-            if registry.lookupExists(decorator.name) {
-                let macroFn = registry.lookup(decorator.name)
+            if this.registry.lookupExists(decorator.name) {
+                let macroFn = this.registry.lookup(decorator.name)
 
                 // Execute the macro
                 let target = AstNode.fromFunction(currentFunction)
-                let result = interpreter.evaluate(macroFn, target)
+                let result = this.interpreter.evaluate(macroFn, target)
 
                 if result.isError() {
-                    errors.push("Macro '" + decorator.name + "' failed: " + result.errorMessage)
+                    this.errors.push("Macro '" + decorator.name + "' failed: " + result.errorMessage)
                 } else if result.kind == "AstNode" {
                     // Check if the result is an error node
                     if result.astValue.isError {
-                        errors.push("Macro '" + decorator.name + "' error: " + result.astValue.errorMessage)
+                        this.errors.push("Macro '" + decorator.name + "' error: " + result.astValue.errorMessage)
                     } else if result.astValue.hasFunction {
                         // Replace the function with the transformed version
                         currentFunction = result.astValue.toFunction()
                     } else {
-                        errors.push("Macro '" + decorator.name + "' must return an AstNode of kind Function")
+                        this.errors.push("Macro '" + decorator.name + "' must return an AstNode of kind Function")
                     }
                 } else {
-                    errors.push("Macro '" + decorator.name + "' must return an AstNode, got " + result.kind)
+                    this.errors.push("Macro '" + decorator.name + "' must return an AstNode, got " + result.kind)
                 }
             }
 
@@ -202,25 +202,25 @@ class MacroExpander {
             }
 
             // Check if this decorator is a user-defined macro
-            if registry.lookupExists(decorator.name) {
-                let macroFn = registry.lookup(decorator.name)
+            if this.registry.lookupExists(decorator.name) {
+                let macroFn = this.registry.lookup(decorator.name)
 
                 // Execute the macro
                 let target = AstNode.fromClass(currentClass)
-                let result = interpreter.evaluate(macroFn, target)
+                let result = this.interpreter.evaluate(macroFn, target)
 
                 if result.isError() {
-                    errors.push("Macro '" + decorator.name + "' failed: " + result.errorMessage)
+                    this.errors.push("Macro '" + decorator.name + "' failed: " + result.errorMessage)
                 } else if result.kind == "AstNode" {
                     if result.astValue.isError {
-                        errors.push("Macro '" + decorator.name + "' error: " + result.astValue.errorMessage)
+                        this.errors.push("Macro '" + decorator.name + "' error: " + result.astValue.errorMessage)
                     } else if result.astValue.hasClass {
                         currentClass = result.astValue.toClass()
                     } else {
-                        errors.push("Macro '" + decorator.name + "' must return an AstNode of kind Class")
+                        this.errors.push("Macro '" + decorator.name + "' must return an AstNode of kind Class")
                     }
                 } else {
-                    errors.push("Macro '" + decorator.name + "' must return an AstNode, got " + result.kind)
+                    this.errors.push("Macro '" + decorator.name + "' must return an AstNode, got " + result.kind)
                 }
             }
 
@@ -304,6 +304,6 @@ class MacroExpander {
 
     // Get all errors
     fun getErrors() r: Array<String> {
-        return errors
+        return this.errors
     }
 }

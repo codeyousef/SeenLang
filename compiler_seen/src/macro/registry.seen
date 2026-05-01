@@ -26,15 +26,15 @@ class MacroRegistry {
     // Register a new macro
     fun register(name: String, fn: FunctionNode) r: Void {
         let def = MacroDefinition.new(name, fn)
-        macros.push(def)
+        this.macros.push(def)
     }
 
     // Look up a macro by name
     fun lookup(name: String) r: FunctionNode {
         var i = 0
-        while i < macros.length() {
-            if macros[i].name == name {
-                return macros[i].function
+        while i < this.macros.length() {
+            if this.macros[i].name == name {
+                return this.macros[i].function
             }
             i = i + 1
         }
@@ -45,8 +45,8 @@ class MacroRegistry {
     // Check if a macro exists
     fun isMacro(name: String) r: Bool {
         var i = 0
-        while i < macros.length() {
-            if macros[i].name == name {
+        while i < this.macros.length() {
+            if this.macros[i].name == name {
                 return true
             }
             i = i + 1
@@ -57,8 +57,8 @@ class MacroRegistry {
     // Check if the lookup found a valid macro (non-empty function)
     fun lookupExists(name: String) r: Bool {
         var i = 0
-        while i < macros.length() {
-            if macros[i].name == name {
+        while i < this.macros.length() {
+            if this.macros[i].name == name {
                 return true
             }
             i = i + 1
@@ -70,8 +70,8 @@ class MacroRegistry {
     fun getNames() r: Array<String> {
         var names = Array<String>()
         var i = 0
-        while i < macros.length() {
-            names.push(macros[i].name)
+        while i < this.macros.length() {
+            names.push(this.macros[i].name)
             i = i + 1
         }
         return names
@@ -79,6 +79,6 @@ class MacroRegistry {
 
     // Get count of registered macros
     fun count() r: Int {
-        return macros.length()
+        return this.macros.length()
     }
 }

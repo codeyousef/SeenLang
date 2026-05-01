@@ -95,7 +95,8 @@ fun configureFunctionLoweringOptionsImpl(fn: FunctionNode,
 
 fun shouldApplyFunctionInlineHeuristicsImpl(fn: FunctionNode) r: Bool {
     return not fn.isInline and
-        not hasFunctionLoweringDecoratorImpl(fn, "noinline")
+        not hasFunctionLoweringDecoratorImpl(fn, "noinline") and
+        not hasFunctionLoweringDecoratorImpl(fn, "export")
 }
 
 fun countFunctionInlineLoopKindsImpl(fn: FunctionNode) r: Int {

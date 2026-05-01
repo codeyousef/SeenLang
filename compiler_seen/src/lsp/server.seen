@@ -1668,7 +1668,7 @@ class SeenLspServer {
                         "try", "catch", "errdefer", "defer",
                         "async", "await", "spawn",
                         "unsafe", "distinct", "union",
-                        "this", "extends",
+                        "this", "extends", "export",
                         "mut", "const", "static", "override", "type"]
 
         var i = 0
@@ -1689,7 +1689,8 @@ class SeenLspServer {
                      "Vec", "HashMap", "LinkedList", "BTreeMap",
                      "Channel", "Mutex", "RwLock", "AtomicInt", "Barrier", "ThreadLocal",
                      "Buffer", "Uniform", "Image",
-                     "Result", "Option", "SmallVec"]
+                     "Result", "Option", "SmallVec",
+                     "HotModule", "HotReloadWatcher", "StateSnapshot"]
 
         var i = 0
         while i < types.length() {
@@ -1774,6 +1775,26 @@ class SeenLspServer {
         asyncItem.insertText = "async fun ${1:name}(${2:params}) r: ${3:Type} {\n\t$0\n}"
         asyncItem.insertTextFormat = 2
         completions.push(asyncItem)
+
+        let blockCommentItem = CompletionItem_new("/// block comment",
+            COMPLETION_SNIPPET)
+        blockCommentItem.detail = "multi-line block comment"
+        blockCommentItem.insertText = "///\n${1:comment}\n///"
+        blockCommentItem.insertTextFormat = 2
+        completions.push(blockCommentItem)
+
+        let exportItem = CompletionItem_new("@export", COMPLETION_SNIPPET)
+        exportItem.detail = "exported function"
+        exportItem.insertText = "@export\nfun ${1:name}(${2:params}) r: ${3:Int} {\n\t$0\n}"
+        exportItem.insertTextFormat = 2
+        completions.push(exportItem)
+
+        let hotReloadImportItem = CompletionItem_new("hotreload import",
+            COMPLETION_SNIPPET)
+        hotReloadImportItem.detail = "import framework hotreload helpers"
+        hotReloadImportItem.insertText = "import framework::hotreload"
+        hotReloadImportItem.insertTextFormat = 2
+        completions.push(hotReloadImportItem)
 
         return completions
     }
@@ -2004,6 +2025,15 @@ class SeenLspServer {
         }
         if word == "extern" {
             return "Declares an external function (FFI).\n\n```seen\nextern fun c_function(arg: Int) r: Int\n```"
+        }
+        if word == "export" {
+            return "Exports a function with a stable native symbol for shared-library and dlsym workflows.\n\n```seen\n@export\nfun plugin_answer() r: Int {\n    return 42\n}\n```"
+        }
+        if word == "HotModule" {
+            return "High-level wrapper around a loaded hot-reload module from `framework::hotreload`."
+        }
+        if word == "HotReloadWatcher" {
+            return "Tracks hot-reload module paths and polls for reload events."
         }
         if word == "pub" {
             return "Makes a declaration public (visible outside the module)."

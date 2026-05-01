@@ -34,3 +34,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Semantic highlighting
 - Code actions and refactoring support
 - Enhanced completion with context-aware suggestions
+
+## [1.4.1] - 2026-05-01
+
+### Added
+- Syntax and snippets for `///` block comments and `@export` functions.
+- Hot reload snippets for importing, loading, and calling shared modules.
+- Shared-module compile command for PIC object and object-manifest workflows.
+
+### Changed
+- Documented PIC/object-manifest extension settings for shared-library builds.

@@ -18,15 +18,15 @@ class ENode {
 
     // Check if two e-nodes are structurally equal
     fun equals(other: ENode) r: Bool {
-        if op != other.op {
+        if this.op != other.op {
             return false
         }
-        if children.length() != other.children.length() {
+        if this.children.length() != other.children.length() {
             return false
         }
         var i = 0
-        while i < children.length() {
-            if children[i] != other.children[i] {
+        while i < this.children.length() {
+            if this.children[i] != other.children[i] {
                 return false
             }
             i = i + 1
@@ -73,20 +73,20 @@ class EGraph {
         if id < 0 {
             return id
         }
-        if id >= parents.length() {
+        if id >= this.parents.length() {
             return id
         }
         var current = id
         // Walk up to root
-        while parents[current] != current {
-            current = parents[current]
+        while this.parents[current] != current {
+            current = this.parents[current]
         }
         let root = current
         // Path compression: set all nodes on path to point directly to root
         current = id
-        while parents[current] != root {
-            let next = parents[current]
-            parents[current] = root
+        while this.parents[current] != root {
+            let next = this.parents[current]
+            this.parents[current] = root
             current = next
         }
         return root
@@ -107,23 +107,23 @@ class EGraph {
 
         // Check if equivalent node already exists (deduplication)
         var ni = 0
-        while ni < numNodes {
-            if nodeOps[ni] == op {
+        while ni < this.numNodes {
+            if this.nodeOps[ni] == op {
                 // Check if children match
-                let offset = nodeChildrenOffsets[ni]
-                let numKids = nodeChildrenFlat[offset]
+                let offset = this.nodeChildrenOffsets[ni]
+                let numKids = this.nodeChildrenFlat[offset]
                 if numKids == canonChildren.length() {
                     var matchInt = 1
                     var ki = 0
                     while ki < numKids {
-                        if find(nodeChildrenFlat[offset + 1 + ki]) != canonChildren[ki] {
+                        if find(this.nodeChildrenFlat[offset + 1 + ki]) != canonChildren[ki] {
                             matchInt = 0
                             ki = numKids  // break
                         }
                         ki = ki + 1
                     }
                     if matchInt == 1 {
-                        return find(nodeClassId[ni])
+                        return find(this.nodeClassId[ni])
                     }
                 }
             }
@@ -131,24 +131,24 @@ class EGraph {
         }
 
         // Create new e-class
-        let classId = numClasses
-        parents.push(classId)
-        ranks.push(0)
-        numClasses = numClasses + 1
+        let classId = this.numClasses
+        this.parents.push(classId)
+        this.ranks.push(0)
+        this.numClasses = this.numClasses + 1
 
         // Create new e-node
-        let nodeIdx = numNodes
-        nodeOps.push(op)
-        nodeClassId.push(classId)
-        let flatOffset = nodeChildrenFlat.length()
-        nodeChildrenOffsets.push(flatOffset)
-        nodeChildrenFlat.push(canonChildren.length())
+        let nodeIdx = this.numNodes
+        this.nodeOps.push(op)
+        this.nodeClassId.push(classId)
+        let flatOffset = this.nodeChildrenFlat.length()
+        this.nodeChildrenOffsets.push(flatOffset)
+        this.nodeChildrenFlat.push(canonChildren.length())
         var cj = 0
         while cj < canonChildren.length() {
-            nodeChildrenFlat.push(canonChildren[cj])
+            this.nodeChildrenFlat.push(canonChildren[cj])
             cj = cj + 1
         }
-        numNodes = numNodes + 1
+        this.numNodes = this.numNodes + 1
 
         return classId
     }
@@ -162,43 +162,43 @@ class EGraph {
         }
 
         // Union by rank
-        if ranks[root1] < ranks[root2] {
-            parents[root1] = root2
-            dirty = true
+        if this.ranks[root1] < this.ranks[root2] {
+            this.parents[root1] = root2
+            this.dirty = true
             return root2
         }
-        if ranks[root1] > ranks[root2] {
-            parents[root2] = root1
-            dirty = true
+        if this.ranks[root1] > this.ranks[root2] {
+            this.parents[root2] = root1
+            this.dirty = true
             return root1
         }
         // Equal rank: pick root1 as new root, increment rank
-        parents[root2] = root1
-        ranks[root1] = ranks[root1] + 1
-        dirty = true
+        this.parents[root2] = root1
+        this.ranks[root1] = this.ranks[root1] + 1
+        this.dirty = true
         return root1
     }
 
     // Rebuild: re-canonicalize all e-nodes after merges
     fun rebuild() r: Bool {
-        if not dirty {
+        if not this.dirty {
             return false
         }
         // Re-canonicalize children of all nodes
         var ni = 0
-        while ni < numNodes {
-            let offset = nodeChildrenOffsets[ni]
-            let numKids = nodeChildrenFlat[offset]
+        while ni < this.numNodes {
+            let offset = this.nodeChildrenOffsets[ni]
+            let numKids = this.nodeChildrenFlat[offset]
             var ki = 0
             while ki < numKids {
-                nodeChildrenFlat[offset + 1 + ki] = find(nodeChildrenFlat[offset + 1 + ki])
+                this.nodeChildrenFlat[offset + 1 + ki] = find(this.nodeChildrenFlat[offset + 1 + ki])
                 ki = ki + 1
             }
             // Re-canonicalize the node's class
-            nodeClassId[ni] = find(nodeClassId[ni])
+            this.nodeClassId[ni] = find(this.nodeClassId[ni])
             ni = ni + 1
         }
-        dirty = false
+        this.dirty = false
         return true
     }
 
@@ -207,10 +207,10 @@ class EGraph {
         if nodeIdx < 0 {
             return ""
         }
-        if nodeIdx >= numNodes {
+        if nodeIdx >= this.numNodes {
             return ""
         }
-        return nodeOps[nodeIdx]
+        return this.nodeOps[nodeIdx]
     }
 
     // Get the children e-class ids of a node
@@ -219,14 +219,14 @@ class EGraph {
         if nodeIdx < 0 {
             return result
         }
-        if nodeIdx >= numNodes {
+        if nodeIdx >= this.numNodes {
             return result
         }
-        let offset = nodeChildrenOffsets[nodeIdx]
-        let numKids = nodeChildrenFlat[offset]
+        let offset = this.nodeChildrenOffsets[nodeIdx]
+        let numKids = this.nodeChildrenFlat[offset]
         var ki = 0
         while ki < numKids {
-            result.push(find(nodeChildrenFlat[offset + 1 + ki]))
+            result.push(find(this.nodeChildrenFlat[offset + 1 + ki]))
             ki = ki + 1
         }
         return result
@@ -237,8 +237,8 @@ class EGraph {
         let canon = find(classId)
         var result = Array<Int>()
         var ni = 0
-        while ni < numNodes {
-            if find(nodeClassId[ni]) == canon {
+        while ni < this.numNodes {
+            if find(this.nodeClassId[ni]) == canon {
                 result.push(ni)
             }
             ni = ni + 1
@@ -251,7 +251,7 @@ class EGraph {
         // Count unique canonical representatives
         var count = 0
         var i = 0
-        while i < numClasses {
+        while i < this.numClasses {
             if find(i) == i {
                 count = count + 1
             }

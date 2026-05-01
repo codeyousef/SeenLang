@@ -30,6 +30,13 @@
   },
   "onEnterRules": [
     {
+      "beforeText": "^\\s*///\\s*$",
+      "action": {
+        "indent": "none",
+        "appendText": ""
+      }
+    },
+    {
       "beforeText": "^\\s*.*\\{\\s*$",
       "afterText": "^\\s*\\}",
       "action": {

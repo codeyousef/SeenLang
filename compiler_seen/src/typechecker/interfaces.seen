@@ -53,13 +53,13 @@ class Type {
         return Type{ name: name, isNullable: isNullable }
     }
 
-    fun getName() r: String { return name }
+    fun getName() r: String { return this.name }
 
     fun toString() r: String {
-        if isNullable {
-            return name + "?"
+        if this.isNullable {
+            return this.name + "?"
         }
-        return name
+        return this.name
     }
 }
 
@@ -191,12 +191,12 @@ class TypeInferenceResult {
     }
 
     fun addError(error: TypeError) r: Void {
-        errors.push(error)
-        success = false
+        this.errors.push(error)
+        this.success = false
     }
 
-    fun addWarning(warning: String) r: Void { warnings.push(warning) }
-    fun getVariableType(name: String) r: Type? { return environment.lookup(name) }
+    fun addWarning(warning: String) r: Void { this.warnings.push(warning) }
+    fun getVariableType(name: String) r: Type? { return this.environment.lookup(name) }
 }
 
 ///
@@ -221,7 +221,7 @@ class TypeChecker {
         }
     }
 
-    fun check(ast: ProgramNode) r: TypeInferenceResult { return TypeInferenceResult.new(true, typeVoid(), environment) }
+    fun check(ast: ProgramNode) r: TypeInferenceResult { return TypeInferenceResult.new(true, typeVoid(), this.environment) }
     fun checkFunction(function: Function) r: Type { return typeVoid() }
     fun checkExpression(expression: Expression) r: Type { return typeUnknown() }
     fun checkStatement(statement: Statement) r: Void { return }
@@ -232,10 +232,10 @@ class TypeChecker {
     fun isAssignableFrom(target: Type, source: Type) r: Bool { return target.name == source.name or target.name == typeAny().name }
     fun resolveMethod(className: String, methodName: String, args: Array<Type>) r: FunctionType { return FunctionType.new(Array<Type>(), typeUnknown()) }
     fun performSmartCast(variable: String, type: Type, condition: String) r: Void { return }
-    fun setStrictMode(enabled: Bool) r: Void { strictMode = enabled }
-    fun getErrors() r: Array<TypeError> { return errors }
-    fun getWarnings() r: Array<String> { return warnings }
-    fun clearErrors() r: Void { errors = Array<TypeError>(); warnings = Array<String>() }
+    fun setStrictMode(enabled: Bool) r: Void { this.strictMode = enabled }
+    fun getErrors() r: Array<TypeError> { return this.errors }
+    fun getWarnings() r: Array<String> { return this.warnings }
+    fun clearErrors() r: Void { this.errors = Array<TypeError>(); this.warnings = Array<String>() }
 }
 
 fun typeCheckSource(source: String, language: String = "en") r: TypeInferenceResult {

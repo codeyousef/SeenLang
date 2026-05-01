@@ -184,7 +184,7 @@ seen build source.seen --sanitize=memory     # MemorySanitizer
 | `--emit-glsl` | Emit GLSL shader code (GPU) |
 | `--emit-compile-db` | Generate `compile_commands.json` |
 | `--pic` | Emit PIC module/runtime objects suitable for shared-library links |
-| `--object-manifest <path>` | Write a TSV manifest of object path to Seen module path |
+| `--object-manifest <path>` | Write a TSV manifest of object path to Seen module path and skip final link |
 | `--trace-llvm` | Trace LLVM IR generation |
 | `--dump-struct-layouts` | Print struct field layouts |
 | `--runtime-debug` | Enable runtime debug output |
@@ -202,7 +202,7 @@ The manifest contains one tab-separated row per emitted module object:
 /tmp/seen_module_0.o	src/plugin.seen
 ```
 
-Use the listed objects with your platform linker to produce a `.so` or other shared library. Without `--pic`, the default executable-oriented object pipeline is unchanged.
+Use the listed objects with your platform linker to produce a `.so` or other shared library. When `--object-manifest` is present, `seen compile` stops after object emission and does not run its internal executable link. Without `--pic`, the default executable-oriented object pipeline is unchanged.
 
 ## Profile-Guided Optimization (PGO)
 

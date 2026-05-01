@@ -123,16 +123,16 @@ class AstNode {
 
     // Get the node kind
     fun kind() r: String {
-        return nodeType
+        return this.nodeType
     }
 
     // Get the name of the function/class
     fun name() r: String {
-        if hasFunction {
-            return functionNode.name
+        if this.hasFunction {
+            return this.functionNode.name
         }
-        if hasClass {
-            return classNode.name
+        if this.hasClass {
+            return this.classNode.name
         }
         return ""
     }
@@ -140,8 +140,8 @@ class AstNode {
     // Get the body statements as AstNode array
     fun body() r: Array<AstNode> {
         var result = Array<AstNode>()
-        if hasFunction {
-            let fnBody = functionNode.body
+        if this.hasFunction {
+            let fnBody = this.functionNode.body
             let stmts = fnBody.statements
             var i = 0
             while i < stmts.length() {
@@ -149,8 +149,8 @@ class AstNode {
                 i = i + 1
             }
         }
-        if hasBlock {
-            let blkStmts = blockNode.statements
+        if this.hasBlock {
+            let blkStmts = this.blockNode.statements
             var i = 0
             while i < blkStmts.length() {
                 result.push(AstNode.fromStatement(blkStmts[i]))
@@ -163,10 +163,10 @@ class AstNode {
     // Get parameters for function
     fun params() r: Array<ParamInfo> {
         var result = Array<ParamInfo>()
-        if hasFunction {
+        if this.hasFunction {
             var i = 0
-            while i < functionNode.params.length() {
-                let param = functionNode.params[i]
+            while i < this.functionNode.params.length() {
+                let param = this.functionNode.params[i]
                 result.push(ParamInfo.new(param.name, param.paramType.typeName))
                 i = i + 1
             }
@@ -177,10 +177,10 @@ class AstNode {
     // Get fields for class
     fun fields() r: Array<FieldInfo> {
         var result = Array<FieldInfo>()
-        if hasClass {
+        if this.hasClass {
             var i = 0
-            while i < classNode.fields.length() {
-                let field = classNode.fields[i]
+            while i < this.classNode.fields.length() {
+                let field = this.classNode.fields[i]
                 result.push(FieldInfo.new(field.name, field.paramType.typeName, field.isMutable))
                 i = i + 1
             }
@@ -191,10 +191,10 @@ class AstNode {
     // Get methods for class
     fun methods() r: Array<AstNode> {
         var result = Array<AstNode>()
-        if hasClass {
+        if this.hasClass {
             var i = 0
-            while i < classNode.methods.length() {
-                result.push(AstNode.fromFunction(classNode.methods[i]))
+            while i < this.classNode.methods.length() {
+                result.push(AstNode.fromFunction(this.classNode.methods[i]))
                 i = i + 1
             }
         }
@@ -203,10 +203,10 @@ class AstNode {
 
     // Check if class has a method
     fun hasMethod(methodName: String) r: Bool {
-        if hasClass {
+        if this.hasClass {
             var i = 0
-            while i < classNode.methods.length() {
-                if classNode.methods[i].name == methodName {
+            while i < this.classNode.methods.length() {
+                if this.classNode.methods[i].name == methodName {
                     return true
                 }
                 i = i + 1
@@ -217,10 +217,10 @@ class AstNode {
 
     // Check if class has a field
     fun hasField(fieldName: String) r: Bool {
-        if hasClass {
+        if this.hasClass {
             var i = 0
-            while i < classNode.fields.length() {
-                if classNode.fields[i].name == fieldName {
+            while i < this.classNode.fields.length() {
+                if this.classNode.fields[i].name == fieldName {
                     return true
                 }
                 i = i + 1
@@ -231,19 +231,19 @@ class AstNode {
 
     // Get annotations/decorators
     fun getAnnotations() r: Array<AnnotationNode> {
-        if hasFunction {
-            return functionNode.decorators
+        if this.hasFunction {
+            return this.functionNode.decorators
         }
-        if hasClass {
-            return classNode.decorators
+        if this.hasClass {
+            return this.classNode.decorators
         }
         return Array<AnnotationNode>()
     }
 
     // Get return type for function
     fun returnType() r: String {
-        if hasFunction {
-            return functionNode.returnType.typeName
+        if this.hasFunction {
+            return this.functionNode.returnType.typeName
         }
         return "Void"
     }
@@ -325,13 +325,13 @@ class AstNode {
 
     // Create a copy of this node with a different name
     fun withName(newName: String) r: AstNode {
-        if hasFunction {
-            let newFn = copyFunction(functionNode)
+        if this.hasFunction {
+            let newFn = copyFunction(this.functionNode)
             newFn.name = newName
             return AstNode.fromFunction(newFn)
         }
-        if hasClass {
-            let newCls = copyClass(classNode)
+        if this.hasClass {
+            let newCls = copyClass(this.classNode)
             newCls.name = newName
             return AstNode.fromClass(newCls)
         }
@@ -340,8 +340,8 @@ class AstNode {
 
     // Create a copy with new body statements
     fun withBody(stmts: Array<AstNode>) r: AstNode {
-        if hasFunction {
-            let newFn = copyFunction(functionNode)
+        if this.hasFunction {
+            let newFn = copyFunction(this.functionNode)
             newFn.body = BlockNode.new()
             var i = 0
             while i < stmts.length() {
@@ -357,8 +357,8 @@ class AstNode {
 
     // Wrap function body with before/after statements
     fun wrapBody(before: AstNode, after: AstNode) r: AstNode {
-        if hasFunction {
-            let newFn = copyFunction(functionNode)
+        if this.hasFunction {
+            let newFn = copyFunction(this.functionNode)
             let newBody = BlockNode.new()
 
             // Add before statement
@@ -367,7 +367,7 @@ class AstNode {
             }
 
             // Add original body statements
-            let fnBody = functionNode.body
+            let fnBody = this.functionNode.body
             let origStmts = fnBody.statements
             var i = 0
             while i < origStmts.length() {
@@ -388,8 +388,8 @@ class AstNode {
 
     // Add a method to a class
     fun addMethod(method: AstNode) r: AstNode {
-        if hasClass and method.hasFunction {
-            let newCls = copyClass(classNode)
+        if this.hasClass and method.hasFunction {
+            let newCls = copyClass(this.classNode)
             newCls.methods.push(method.functionNode)
             return AstNode.fromClass(newCls)
         }
@@ -398,8 +398,8 @@ class AstNode {
 
     // Add a field to a class
     fun addField(fieldName: String, fieldType: String) r: AstNode {
-        if hasClass {
-            let newCls = copyClass(classNode)
+        if this.hasClass {
+            let newCls = copyClass(this.classNode)
             let field = ParamNode.new()
             field.name = fieldName
             field.paramType.typeName = fieldType
@@ -414,24 +414,24 @@ class AstNode {
 
     // Convert back to FunctionNode
     fun toFunction() r: FunctionNode {
-        if hasFunction {
-            return functionNode
+        if this.hasFunction {
+            return this.functionNode
         }
         return FunctionNode.new()
     }
 
     // Convert back to ClassNode
     fun toClass() r: ClassNode {
-        if hasClass {
-            return classNode
+        if this.hasClass {
+            return this.classNode
         }
         return ClassNode.new()
     }
 
     // Convert back to StatementNode
     fun toStatement() r: StatementNode {
-        if hasStatement {
-            return statementNode
+        if this.hasStatement {
+            return this.statementNode
         }
         return StatementNode.new()
     }

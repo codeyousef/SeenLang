@@ -302,7 +302,7 @@
       "patterns": [
         {
           "name": "storage.type.annotation.seen",
-          "match": "@(benchmark|test|inline|noinline|norecurse|tailrec|reactive|suspend|throws|override|deprecated|experimental|volatile|transient|synchronized|suppress|compute|vertex|fragment|derive|reflect|binary|packet|repr|packed|cache_line|send|sync|layout|trivially_copyable|move|c_resource|gpu_buffer|union|intrinsic|specialize|variadic_generic|cfg|shared|cImport|deterministic|nondeterministic|hot_reload|async|extern|static|trait|type_alias|distinct|always_inline|include)"
+          "match": "@(benchmark|test|inline|noinline|norecurse|tailrec|reactive|suspend|throws|override|deprecated|experimental|volatile|transient|synchronized|suppress|compute|vertex|fragment|derive|reflect|binary|packet|repr|packed|cache_line|send|sync|layout|trivially_copyable|move|c_resource|gpu_buffer|union|intrinsic|specialize|variadic_generic|cfg|shared|cImport|deterministic|nondeterministic|hot_reload|async|extern|export|static|trait|type_alias|distinct|always_inline|include)"
         },
         {
           "name": "meta.annotation.seen",

@@ -351,11 +351,11 @@ class LLVMIRGenerator {
     "undefined reference" linker errors from missing definitions.
     ///
     fun reset() r: Void {
-        output = StringBuilder.new()
-        stringConstants = Array<String>()
-        varNames = Array<String>()
-        varRegs = Array<String>()
-        varTypes = Array<String>()
+        this.output = StringBuilder.new()
+        this.stringConstants = Array<String>()
+        this.varNames = Array<String>()
+        this.varRegs = Array<String>()
+        this.varTypes = Array<String>()
         nextReg = 1
         nextBlock = 0
         // Initialize boxed counters (unconditional re-init to handle null module-level arrays)
@@ -388,7 +388,7 @@ class LLVMIRGenerator {
         // Reset module-level constants (must clear between modules to prevent stale lookups)
         resetModuleConstantGenerationState()
         resetFunctionLoweringOptionsStateImpl(getCurrentFunctionOptions())
-        indent = 0
+        this.indent = 0
         // Reset optimization counters (prevents stale data leaking between modules)
         resetOptCounters()
         // Reset class method tracking (prevents methods from module 0 affecting module 1)
@@ -432,9 +432,9 @@ class LLVMIRGenerator {
     fun syncState() r: Void {
         let state = getSharedCodegenState()
         // Legacy layout field only. FunctionLoweringOptions is the source of truth.
-        indent = 0
-        syncCodegenStateBridgeImpl(state, output, stringConstants, g_regBox,
-            g_blockBox, varNames, varRegs, varTypes,
+        this.indent = 0
+        syncCodegenStateBridgeImpl(state, this.output, this.stringConstants, g_regBox,
+            g_blockBox, this.varNames, this.varRegs, this.varTypes,
             getCurrentFunctionOptions(), structNames, structLayouts,
             structFieldNames, structFieldTypes, structLlvmFieldTypes,
             structSizes, structMethodNames, structMethodRetTypes, funcNames,
@@ -450,11 +450,11 @@ class LLVMIRGenerator {
     fun writeBackState() r: Void {
         let state = getSharedCodegenState()
         let snapshot = captureCodegenStateBridgeSnapshotImpl(state)
-        output = snapshot.output
-        stringConstants = snapshot.stringConstants
-        varNames = snapshot.varNames
-        varRegs = snapshot.varRegs
-        varTypes = snapshot.varTypes
+        this.output = snapshot.output
+        this.stringConstants = snapshot.stringConstants
+        this.varNames = snapshot.varNames
+        this.varRegs = snapshot.varRegs
+        this.varTypes = snapshot.varTypes
         structNames = snapshot.structNames
         structLayouts = snapshot.structLayouts
         structFieldNames = snapshot.structFieldNames
@@ -485,7 +485,7 @@ class LLVMIRGenerator {
         moduleConstantNames = snapshot.moduleConstantNames
         moduleConstantValues = snapshot.moduleConstantValues
         moduleConstantTypes = snapshot.moduleConstantTypes
-        indent = 0
+        this.indent = 0
     }
 
     ///
@@ -608,11 +608,11 @@ class LLVMIRGenerator {
     }
 
     ///
-    Helper to find variable type (checks both varTypes and preAllocatedTypes)
+    Helper to find variable type (checks both this.varTypes and preAllocatedTypes)
     Searches backwards for speed.
     ///
     fun findVarType(name: String) r: String {
-        let visibleVarType = findVisibleVariableTypeImpl(varNames, varTypes,
+        let visibleVarType = findVisibleVariableTypeImpl(this.varNames, this.varTypes,
             activeVarCount, preAllocatedVars, preAllocatedTypes, name)
         if visibleVarType != "" {
             return visibleVarType
@@ -817,8 +817,8 @@ class LLVMIRGenerator {
 
     fun resetSharedModuleGenerationScratchState() r: Void {
         let scratchState = resetSharedModuleGenerationScratchStateImpl()
-        output = scratchState.output
-        stringConstants = scratchState.stringConstants
+        this.output = scratchState.output
+        this.stringConstants = scratchState.stringConstants
         g_closureCount = scratchState.closureCount
         g_closureDefs = scratchState.closureDefs
         g_pforCount = scratchState.pforCount
@@ -878,7 +878,7 @@ class LLVMIRGenerator {
                     continue
                 }
                 let handledSpecial = tryHandleSpecialTopLevelFunctionImpl(
-                    item.function, output, funcNames, funcRetTypes)
+                    item.function, this.output, funcNames, funcRetTypes)
                 let afterSpecialPlan =
                     planProgramTopLevelFunctionAfterSpecialImpl(traceModule,
                         fnPlan.shouldTrySpecialHandler, handledSpecial)
@@ -929,7 +929,7 @@ class LLVMIRGenerator {
         // Emit global variable declarations from all programs
         var globalPi = 0
         while shouldVisitProgramFlowIndexImpl(globalPi, programs.length()) {
-            let moduleConstSnapshot = emitGlobalVariablesSnapshotImpl(output,
+            let moduleConstSnapshot = emitGlobalVariablesSnapshotImpl(this.output,
                 programs[globalPi],
                 moduleConstantNames, moduleConstantTypes,
                 moduleConstantValues, g_moduleConstMutable,
@@ -940,8 +940,8 @@ class LLVMIRGenerator {
         }
 
         // Emit string constants
-        emitStringConstantsImpl(output, stringConstants)
-        let stringConstCountBeforeGen = stringConstants.length()
+        emitStringConstantsImpl(this.output, this.stringConstants)
+        let stringConstCountBeforeGen = this.stringConstants.length()
 
         // Emit runtime declarations
         let definedFuncs = Array<String>()
@@ -973,20 +973,20 @@ class LLVMIRGenerator {
         }
 
         // Emit vtable constants for trait implementations
-        emitTraitVtableConstantsImpl(output, g_traitImplRegistry,
+        emitTraitVtableConstantsImpl(this.output, g_traitImplRegistry,
             g_traitImplCount, g_dynTraitNames)
 
-        emitAdditionalGeneratedStringConstantsImpl(output, stringConstants,
+        emitAdditionalGeneratedStringConstantsImpl(this.output, this.stringConstants,
             stringConstantPrefix, stringConstCountBeforeGen)
-        emitGeneratedClosuresImpl(output, g_closureDefs)
+        emitGeneratedClosuresImpl(this.output, g_closureDefs)
 
-        emitOptimizationStatisticsSummaryImpl(output, 0, false,
+        emitOptimizationStatisticsSummaryImpl(this.output, 0, false,
             g_branchesEliminated, g_deadStatementsEliminated,
             g_constantsFolded, g_cseHits, g_loopsOptimized,
             g_deadStoresEliminated, g_reductionChainsDetected)
 
         // Emit @llvm.global_ctors for @init functions
-        emitGlobalConstructorsImpl(output, g_initFuncCount, g_initFuncNames)
+        emitGlobalConstructorsImpl(this.output, g_initFuncCount, g_initFuncNames)
 
         // Emit TBAA metadata at end of module
         emitTBAAMetadata()
@@ -995,7 +995,7 @@ class LLVMIRGenerator {
         // Write ML decision log and print stats (single-module path)
         writeMLDecisionLog()
 
-        return output.toString()
+        return this.output.toString()
     }
 
     ///
@@ -1048,7 +1048,7 @@ class LLVMIRGenerator {
         ///
 
         // Emit global variable declarations for THIS module
-        let moduleConstSnapshot = emitGlobalVariablesSnapshotImpl(output,
+        let moduleConstSnapshot = emitGlobalVariablesSnapshotImpl(this.output,
             program, moduleConstantNames, moduleConstantTypes,
             moduleConstantValues, g_moduleConstMutable,
             g_moduleConstSeenTypes)
@@ -1056,17 +1056,17 @@ class LLVMIRGenerator {
         g_moduleConstSeenTypes = moduleConstSnapshot.moduleConstSeenTypes
 
         // Emit external declarations for cross-module constants not defined in this module
-        emitCrossModuleConstantDeclaresImpl(output, moduleConstantNames,
+        emitCrossModuleConstantDeclaresImpl(this.output, moduleConstantNames,
             g_xmConstNames, g_xmConstTypes, g_xmConstCount)
 
         // Emit string constants with module prefix
-        emitStringConstantsWithPrefixImpl(output, stringConstants,
+        emitStringConstantsWithPrefixImpl(this.output, this.stringConstants,
             moduleIndex)
         ///
         Track how many string constants exist before class/function generation
         (derive/reflect/json codegen may add new constants that need separate emission)
         ///
-        var stringConstCountBeforeGen = stringConstants.length()
+        var stringConstCountBeforeGen = this.stringConstants.length()
 
         // Collect function names defined in this module (to skip their declarations)
         let definedFuncs = collectProgramDefinedSymbolsImpl(program)
@@ -1097,20 +1097,20 @@ class LLVMIRGenerator {
         // Emit functions (top-level) for THIS module
         emitProgramTopLevelFunctions(program, moduleIndex, false)
 
-        emitLateUserDeclaresStateImpl(output, definedFuncs,
+        emitLateUserDeclaresStateImpl(this.output, definedFuncs,
             g_lateXmDeclareNames, g_lateXmDeclareStrs, g_lateXmDeclareCount)
 
         ///
         Emit vtable constants for trait implementations found in this module
         Must be AFTER generateFunction so g_traitImplRegistry is populated
         ///
-        emitTraitVtableConstantsImpl(output, g_traitImplRegistry,
+        emitTraitVtableConstantsImpl(this.output, g_traitImplRegistry,
             g_traitImplCount, g_dynTraitNames)
 
-        emitAdditionalGeneratedStringConstantsImpl(output, stringConstants,
+        emitAdditionalGeneratedStringConstantsImpl(this.output, this.stringConstants,
             stringConstantPrefix, stringConstCountBeforeGen)
 
-        emitGeneratedClosuresImpl(output, g_closureDefs)
+        emitGeneratedClosuresImpl(this.output, g_closureDefs)
 
         // Unused function pruning warnings (9.10c)
         let unusedTopLevelFunctions = scanUnusedTopLevelFunctionNamesImpl(
@@ -1118,12 +1118,12 @@ class LLVMIRGenerator {
         var unusedIdx = 0
         while unusedIdx < unusedTopLevelFunctions.length() {
             let unusedName = unusedTopLevelFunctions[unusedIdx]
-            output.append("; WARNING: unused function: " + unusedName + "\n")
+            this.output.append("; WARNING: unused function: " + unusedName + "\n")
             mlLogDecision("dead-func", "unused", unusedName)
             unusedIdx = unusedIdx + 1
         }
 
-        emitOptimizationStatisticsSummaryImpl(output, moduleIndex, false,
+        emitOptimizationStatisticsSummaryImpl(this.output, moduleIndex, false,
             g_branchesEliminated, g_deadStatementsEliminated,
             g_constantsFolded, g_cseHits, g_loopsOptimized,
             g_deadStoresEliminated, g_reductionChainsDetected)
@@ -1135,13 +1135,13 @@ class LLVMIRGenerator {
         writeMLDecisionLog()
 
         // Emit @llvm.global_ctors for @init functions (multi-module path)
-        emitGlobalConstructorsImpl(output, g_initFuncCount, g_initFuncNames)
+        emitGlobalConstructorsImpl(this.output, g_initFuncCount, g_initFuncNames)
 
         // Emit TBAA metadata at end of module
         emitTBAAMetadata()
         emitLoopMetadata()
 
-        return output.toString()
+        return this.output.toString()
     }
 
     ///
@@ -1151,15 +1151,15 @@ class LLVMIRGenerator {
     ///
     fun emitPrologue() r: Void {
         detectHostPlatform()
-        output.append("; Generated by Seen Stage1 Compiler (LLVM backend)\n")
-        output.append("target datalayout = \"" + g_hostDataLayout + "\"\n")
-        output.append("target triple = \"" + g_hostTargetTriple + "\"\n\n")
+        this.output.append("; Generated by Seen Stage1 Compiler (LLVM backend)\n")
+        this.output.append("target datalayout = \"" + g_hostDataLayout + "\"\n")
+        this.output.append("target triple = \"" + g_hostTargetTriple + "\"\n\n")
 
         ///
         Try to read type declarations from header file (generated by Rust bootstrap compiler)
         This ensures ABI compatibility between Rust and Seen compilers
         ///
-        let headerLoadResult = tryLoadTypeHeaderIntoOutputImpl(output,
+        let headerLoadResult = tryLoadTypeHeaderIntoOutputImpl(this.output,
             typeHeaderPath, structNames, structLayouts, structFieldNames,
             structFieldTypes, structLlvmFieldTypes, structSizes,
             structMethodNames, structMethodRetTypes, moduleConstantNames,
@@ -1170,11 +1170,11 @@ class LLVMIRGenerator {
             return
         }
 
-        emitBuiltinTypeHeaderImpl(output, generatedClasses)
+        emitBuiltinTypeHeaderImpl(this.output, generatedClasses)
     }
 
     fun emitTBAAMetadata() r: Void {
-        output.append("\n; Function attributes\n")
+        this.output.append("\n; Function attributes\n")
         var attrStr = "mustprogress nounwind"
         if g_sanitizerMode == "address" {
             attrStr = attrStr + " sanitize_address"
@@ -1182,21 +1182,21 @@ class LLVMIRGenerator {
         if g_sanitizerMode == "thread" {
             attrStr = attrStr + " sanitize_thread"
         }
-        output.append("attributes #0 = { " + attrStr + " }\n")
-        output.append("\n; TBAA metadata for alias analysis\n")
-        output.append("!100 = !{!\"SeenTBAA\"}\n")
-        output.append("!101 = !{!\"pointer\", !100, i64 0}\n")
-        output.append("!102 = !{!\"integer\", !100, i64 0}\n")
-        output.append("!103 = !{!\"float\", !100, i64 0}\n")
-        output.append("!104 = !{!101, !101, i64 0}\n")
-        output.append("!105 = !{!102, !102, i64 0}\n")
-        output.append("!106 = !{!103, !103, i64 0}\n")
-        output.append("!107 = !{!\"struct_field\", !100, i64 0}\n")
-        output.append("!108 = !{!107, !107, i64 0}\n")
+        this.output.append("attributes #0 = { " + attrStr + " }\n")
+        this.output.append("\n; TBAA metadata for alias analysis\n")
+        this.output.append("!100 = !{!\"SeenTBAA\"}\n")
+        this.output.append("!101 = !{!\"pointer\", !100, i64 0}\n")
+        this.output.append("!102 = !{!\"integer\", !100, i64 0}\n")
+        this.output.append("!103 = !{!\"float\", !100, i64 0}\n")
+        this.output.append("!104 = !{!101, !101, i64 0}\n")
+        this.output.append("!105 = !{!102, !102, i64 0}\n")
+        this.output.append("!106 = !{!103, !103, i64 0}\n")
+        this.output.append("!107 = !{!\"struct_field\", !100, i64 0}\n")
+        this.output.append("!108 = !{!107, !107, i64 0}\n")
     }
 
     fun emitLoopMetadata() r: Void {
-        emitLoopMetadataImpl(output, getCurrentFunctionOptions(), g_blockBox, g_reductionLoopIds, g_nestedLoopIds, g_loopTileHints)
+        emitLoopMetadataImpl(this.output, getCurrentFunctionOptions(), g_blockBox, g_reductionLoopIds, g_nestedLoopIds, g_loopTileHints)
     }
 
     fun hasGeneratedClassType(className: String) r: Bool {
@@ -1249,7 +1249,7 @@ class LLVMIRGenerator {
         registerStructLayoutState(classNode)
 
         let decoratorSnapshot = prepareClassTypeDecoratorScanSnapshotImpl(
-            output, classNode, g_reprCClassNames,
+            this.output, classNode, g_reprCClassNames,
             g_cacheLineClasses, g_sendTypes, g_syncTypes, g_soaClassNames,
             g_soaClassCount, g_triviallyCopyableClasses, g_moveOnlyClasses,
             g_cResourceClasses, g_cResourceDestructors, g_reflectClassNames,
@@ -1288,7 +1288,7 @@ class LLVMIRGenerator {
             return
         }
 
-        emitClassTypeHeaderImpl(output, className, typeFlags)
+        emitClassTypeHeaderImpl(this.output, className, typeFlags)
         let typeAliasState = prepareClassTypeAliasStateSnapshotImpl(classNode,
             g_typeAliasNames, g_typeAliasTargets, g_typeAliasCount)
         let realFieldCount = typeAliasState.realFieldCount
@@ -1296,18 +1296,18 @@ class LLVMIRGenerator {
         g_typeAliasTargets = typeAliasState.typeAliasTargets
         g_typeAliasCount = typeAliasState.typeAliasCount
         if realFieldCount == 0 {
-            output.append("i8")
+            this.output.append("i8")
         } else {
-            emitClassTypeFieldsImpl(output, classNode, g_reprCClassNames,
+            emitClassTypeFieldsImpl(this.output, classNode, g_reprCClassNames,
                 structNames, g_typeAliasNames, g_typeAliasTargets,
                 g_typeAliasCount, g_enumTypeNames)
         }
-        emitClassTypeFooterImpl(output, typeFlags)
+        emitClassTypeFooterImpl(this.output, typeFlags)
     }
 
     fun emitTraitDefaultMethod(className: String, traitMethod: FunctionNode, traitRetTypeName: String) r: Void {
         let defaultFuncName = className + "_" + traitMethod.name + "_default"
-        output.append("; trait default method: " + defaultFuncName + "\n")
+        this.output.append("; trait default method: " + defaultFuncName + "\n")
         let savedNestedState = beginNestedScratchState(traitRetTypeName)
         cseClear()
         var defaultParamStr = ""
@@ -1320,23 +1320,23 @@ class LLVMIRGenerator {
             let defaultParamType = mapTypeState(normalizeDeclaredTypeNodeImpl(defaultParam.paramType))
             let defaultParamReg = "%" + quoteIdentIfNeededImpl(defaultParam.name)
             defaultParamStr = defaultParamStr + defaultParamType + " " + defaultParamReg
-            activeVarCount = storeActiveVariableBindingImpl(varNames, varRegs,
-                varTypes, activeVarCount, defaultParam.name, defaultParamReg,
+            activeVarCount = storeActiveVariableBindingImpl(this.varNames, this.varRegs,
+                this.varTypes, activeVarCount, defaultParam.name, defaultParamReg,
                 normalizeDeclaredTypeNodeImpl(defaultParam.paramType))
             paramIdx = paramIdx + 1
         }
         let defaultRetType = mapTypeState(traitRetTypeName)
-        output.append("define " + defaultRetType + " @" + quoteIdentIfNeededImpl(defaultFuncName) + "(" + defaultParamStr + ") {\n")
-        output.append("entry:\n")
+        this.output.append("define " + defaultRetType + " @" + quoteIdentIfNeededImpl(defaultFuncName) + "(" + defaultParamStr + ") {\n")
+        this.output.append("entry:\n")
         generateBlock(traitMethod.body)
         if not blockTerminated {
             if defaultRetType == "void" {
-                output.append("  ret void\n")
+                this.output.append("  ret void\n")
             } else {
-                output.append("  ret " + defaultRetType + " zeroinitializer\n")
+                this.output.append("  ret " + defaultRetType + " zeroinitializer\n")
             }
         }
-        output.append("}\n\n")
+        this.output.append("}\n\n")
         restoreNestedScratchState(savedNestedState)
         registerFunctionStateImpl(defaultFuncName, traitRetTypeName, funcNames,
             funcRetTypes)
@@ -1348,7 +1348,7 @@ class LLVMIRGenerator {
         }
 
         let className = classNode.name
-        output.append("; trait " + className + " (method signatures + default impls)\n")
+        this.output.append("; trait " + className + " (method signatures + default impls)\n")
         var traitMethodIdx = 0
         while traitMethodIdx < classNode.methods.length() {
             let traitMethod = classNode.methods[traitMethodIdx]
@@ -1365,12 +1365,12 @@ class LLVMIRGenerator {
             traitMethodIdx = traitMethodIdx + 1
         }
 
-        emitTraitVtableTypeState(output, classNode)
+        emitTraitVtableTypeState(this.output, classNode)
         return true
     }
 
     fun tryHandleTypeAliasClass(classNode: ClassNode) r: Bool {
-        return tryHandleTypeAliasClassState(output, classNode)
+        return tryHandleTypeAliasClassState(this.output, classNode)
     }
 
     fun generateRegularClassMethods(classNode: ClassNode, isStringBuilder: Bool) r: Void {
@@ -1450,16 +1450,16 @@ class LLVMIRGenerator {
 
         // Generate @hot_reload synthesized methods if class has the decorator
         if decoratorSnapshot.isHotReload == 1 {
-            generateHotReloadMethodsImpl(output, classNode)
+            generateHotReloadMethodsImpl(this.output, classNode)
         }
 
-        emitGeneratedClassDecoratorMethodsImpl(output, classNode,
+        emitGeneratedClassDecoratorMethodsImpl(this.output, classNode,
             decoratorSnapshot.decoratorFlags, decoratorSnapshot.packetId,
             structNames, structSizes,
             structMethodNames, structMethodRetTypes, funcNames, funcRetTypes,
-            stringConstants, stringConstantPrefix, g_binaryClassNames,
+            this.stringConstants, stringConstantPrefix, g_binaryClassNames,
             g_binaryVersions, g_binaryEndianness, g_binaryClassCount)
-        emitInheritedClassMethodThunksImpl(output, g_regBox, classNode,
+        emitInheritedClassMethodThunksImpl(this.output, g_regBox, classNode,
             structNames, structMethodNames, structMethodRetTypes,
             g_reprCClassNames, g_typeAliasNames, g_typeAliasTargets,
             g_typeAliasCount, g_enumTypeNames)
@@ -1498,14 +1498,14 @@ class LLVMIRGenerator {
 
         let method = methods[methodIdx]
         if not method.isStatic {
-            activeVarCount = storeActiveVariableBindingImpl(varNames, varRegs,
-                varTypes, activeVarCount, "this", "", className)
+            activeVarCount = storeActiveVariableBindingImpl(this.varNames, this.varRegs,
+                this.varTypes, activeVarCount, "this", "", className)
         }
         var paramIdx = 0
         while paramIdx < method.params.length() {
             let param = method.params[paramIdx]
-            activeVarCount = storeActiveVariableBindingImpl(varNames, varRegs,
-                varTypes, activeVarCount, param.name, "",
+            activeVarCount = storeActiveVariableBindingImpl(this.varNames, this.varRegs,
+                this.varTypes, activeVarCount, param.name, "",
                 normalizedMethodParamTypes[paramIdx])
             paramIdx = paramIdx + 1
         }
@@ -1516,7 +1516,7 @@ class LLVMIRGenerator {
     fun generateClassMethodFromList(className: String, parentName: String, methods: Array<FunctionNode>, methodIdx: Int) r: Void {
         let method = methods[methodIdx]
         let methodName = method.name
-        if tryEmitOptionClassMethodShimImpl(output, className, methodName) == 1 {
+        if tryEmitOptionClassMethodShimImpl(this.output, className, methodName) == 1 {
             return
         }
 
@@ -1533,35 +1533,35 @@ class LLVMIRGenerator {
 
         let returnType = mapTypeState(currentFunctionReturnType)
         let isStatic = method.isStatic or methodName == "new"
-        let explicitReceiverName = emitClassMethodSignatureStateImpl(output,
+        let explicitReceiverName = emitClassMethodSignatureStateImpl(this.output,
             methods, methodIdx, className, methodName, isStatic, returnType,
             mappedMethodParamTypes, quotedMethodArgNames, g_selfCallFuncs,
             g_selfCallNames, g_selfCallCount)
-        activeVarCount = emitClassMethodReceiverBindingStateImpl(output,
-            g_regBox, varNames, varRegs, varTypes, activeVarCount, className,
+        activeVarCount = emitClassMethodReceiverBindingStateImpl(this.output,
+            g_regBox, this.varNames, this.varRegs, this.varTypes, activeVarCount, className,
             isStatic, explicitReceiverName)
-        activeVarCount = emitClassMethodParameterBindingsStateImpl(output,
-            g_regBox, varNames, varRegs, varTypes, activeVarCount, methods,
+        activeVarCount = emitClassMethodParameterBindingsStateImpl(this.output,
+            g_regBox, this.varNames, this.varRegs, this.varTypes, activeVarCount, methods,
             methodIdx, explicitReceiverName, normalizedMethodParamTypes,
             quotedMethodArgNames, structNames, g_typeAliasNames,
             g_typeAliasTargets, g_typeAliasCount, g_enumTypeNames)
-        preAllocatedRegs = emitPreAllocatedAllocasImpl(output, g_regBox,
+        preAllocatedRegs = emitPreAllocatedAllocasImpl(this.output, g_regBox,
             preAllocatedTypes, structNames, g_typeAliasNames,
             g_typeAliasTargets, g_typeAliasCount, g_enumTypeNames,
             g_reprCClassNames)
-        activeVarCount = emitClassMethodConstructorSetupStateImpl(output,
-            g_regBox, varNames, varRegs, varTypes, activeVarCount, className,
+        activeVarCount = emitClassMethodConstructorSetupStateImpl(this.output,
+            g_regBox, this.varNames, this.varRegs, this.varTypes, activeVarCount, className,
             methodName, method.isStatic, methods, methodIdx,
             structNames, structSizes, structLayouts, structFieldNames,
             structFieldTypes)
 
         generateBlock(method.body)
-        blockTerminated = tryEmitClassMethodConstructorReturnStateImpl(output,
-            g_regBox, varNames, varRegs, activeVarCount, methodName,
+        blockTerminated = tryEmitClassMethodConstructorReturnStateImpl(this.output,
+            g_regBox, this.varNames, this.varRegs, activeVarCount, methodName,
             blockTerminated)
-        emitClassMethodDefaultReturnStateImpl(output, returnType,
+        emitClassMethodDefaultReturnStateImpl(this.output, returnType,
             blockTerminated)
-        output.append("}\n\n")
+        this.output.append("}\n\n")
     }
 
     ///
@@ -1573,13 +1573,13 @@ class LLVMIRGenerator {
     emitters in ir_decl_runtime, ir_decl_parser, ir_decl_features.
     ///
     fun emitRuntimeDeclarations(definedFuncs: Array<String>) r: Void {
-        emitCoreRuntimeDecls(output, runtimeDeclsLoaded, definedFuncs)
+        emitCoreRuntimeDecls(this.output, runtimeDeclsLoaded, definedFuncs)
         runtimeDeclsLoaded = true
-        emitStringAndIODecls(output, definedFuncs)
-        emitParserDecls(output, definedFuncs)
-        emitTypecheckerDecls(output, runtimeDeclsLoaded, definedFuncs)
-        emitMacroAndLspDecls(output, definedFuncs)
-        emitFeatureDecls(output, definedFuncs)
+        emitStringAndIODecls(this.output, definedFuncs)
+        emitParserDecls(this.output, definedFuncs)
+        emitTypecheckerDecls(this.output, runtimeDeclsLoaded, definedFuncs)
+        emitMacroAndLspDecls(this.output, definedFuncs)
+        emitFeatureDecls(this.output, definedFuncs)
     }
 
     ///
@@ -1638,24 +1638,24 @@ class LLVMIRGenerator {
             return false
         }
         functionEmission.isMainFunc = 1
-        let mainEntry = emitMainFunctionEntrySnapshotImpl(output, g_regBox,
+        let mainEntry = emitMainFunctionEntrySnapshotImpl(this.output, g_regBox,
             returnTypeBox[0], preAllocatedTypes, structNames, g_typeAliasNames,
             g_typeAliasTargets, g_typeAliasCount, g_enumTypeNames,
             g_reprCClassNames)
         preAllocatedRegs = mainEntry.preAllocatedRegs
         generateBlock(fn.body)
-        emitMainFunctionExitImpl(output, blockTerminated,
+        emitMainFunctionExitImpl(this.output, blockTerminated,
             mainEntry.mainReturnType)
         functionEmission.isMainFunc = 0
         return true
     }
 
     fun generateFunction(fn: FunctionNode) r: Void {
-        if shouldSkipFunctionByCfgStateImpl(output, fn, g_enabledFeatures) {
+        if shouldSkipFunctionByCfgStateImpl(this.output, fn, g_enabledFeatures) {
             return
         }
 
-        emitFunctionDecoratorMetadataCommentsStateImpl(output, fn,
+        emitFunctionDecoratorMetadataCommentsStateImpl(this.output, fn,
             g_traitImplCount)
 
         let intrinsicFuncNamesBox = Array<String>()
@@ -1665,7 +1665,7 @@ class LLVMIRGenerator {
         let intrinsicCountBox = Array<Int>()
         intrinsicCountBox.push(g_intrinsicCount)
         let handledIntrinsic =
-            tryHandleIntrinsicFunctionGenerationStateImpl(output, g_regBox, fn,
+            tryHandleIntrinsicFunctionGenerationStateImpl(this.output, g_regBox, fn,
             structNames, g_typeAliasNames, g_typeAliasTargets,
             g_typeAliasCount, g_enumTypeNames, intrinsicFuncNamesBox,
             intrinsicLlvmNamesBox, intrinsicCountBox)
@@ -1680,7 +1680,7 @@ class LLVMIRGenerator {
         }
 
         let decoratorPreflight = prepareFunctionDecoratorPreflightSnapshotImpl(
-            output, g_regBox, fn, g_traitImplRegistry, g_traitImplCount,
+            this.output, g_regBox, fn, g_traitImplRegistry, g_traitImplCount,
             g_gpuShaderNames, g_gpuShaderStages, g_gpuShaderWorkgroups,
             g_gpuShaderBindings, g_gpuShaderCount)
         g_traitImplRegistry = decoratorPreflight.traitImplRegistry
@@ -1695,11 +1695,11 @@ class LLVMIRGenerator {
             return
         }
 
-        if shouldSkipSpecialFunctionBodyStateImpl(output, fn) {
+        if shouldSkipSpecialFunctionBodyStateImpl(this.output, fn) {
             return
         }
 
-        if tryHandleExternFunctionGenerationStateImpl(output, fn, structNames,
+        if tryHandleExternFunctionGenerationStateImpl(this.output, fn, structNames,
             g_typeAliasNames, g_typeAliasTargets, g_typeAliasCount,
             g_enumTypeNames, g_reprCClassNames, funcNames, funcRetTypes) {
             return
@@ -1716,7 +1716,7 @@ class LLVMIRGenerator {
             functionIdentity.alreadyGenerated,
             functionIdentity.skipRuntimeBuiltinStub)
         if identityFlow.shouldEmitRuntimeSkipNote {
-            output.append("; skipped user stub for runtime builtin: " +
+            this.output.append("; skipped user stub for runtime builtin: " +
                 functionIdentity.implFuncName + "\n")
         }
         if identityFlow.shouldReturn {
@@ -1734,7 +1734,7 @@ class LLVMIRGenerator {
         let returnType = returnTypeBox[0]
 
         // Build function attributes
-        let funcAttrState = prepareFunctionAttributeStateSnapshotImpl(output,
+        let funcAttrState = prepareFunctionAttributeStateSnapshotImpl(this.output,
             fn, g_sanitizerMode, g_initFuncNames, g_initFuncCount,
             g_trustedFuncNames, g_specializationNames,
             g_specializationCount)
@@ -1747,7 +1747,7 @@ class LLVMIRGenerator {
 
         // ML-guided inline decision
         let preludeAnalysis = prepareFunctionPreludeAnalysisSnapshotImpl(
-            output, fn, fnName, funcAttrs, g_mlReplayEnabled,
+            this.output, fn, fnName, funcAttrs, g_mlReplayEnabled,
             g_mlReplayLog, g_callCountNamesArr, g_selfCallFuncs,
             g_selfCallNames, g_selfCallCount)
         funcAttrs = preludeAnalysis.funcAttrs
@@ -1824,7 +1824,7 @@ class LLVMIRGenerator {
         Only skip literal initializers (Int, Float, Bool, String) to preserve side effects
         ///
         let deadStoreScan = scanFunctionBodyDeadStorePatternsSnapshotImpl(
-            output, block, g_deadStoresEliminated, g_deadStoreSkipVars)
+            this.output, block, g_deadStoresEliminated, g_deadStoreSkipVars)
         g_deadStoresEliminated = deadStoreScan.deadStoresEliminated
         g_deadStoreSkipVars = deadStoreScan.deadStoreSkipVars
 
@@ -1832,7 +1832,7 @@ class LLVMIRGenerator {
         while i < block.statements.length() {
             if blockTerminated {
                 let deadCodeNotice =
-                    emitFunctionBodyTrailingDeadCodeNoticeSnapshotImpl(output,
+                    emitFunctionBodyTrailingDeadCodeNoticeSnapshotImpl(this.output,
                         block, i, g_deadStatementsEliminated)
                 g_deadStatementsEliminated =
                     deadCodeNotice.deadStatementsEliminated
@@ -1842,7 +1842,7 @@ class LLVMIRGenerator {
             i = i + 1
         }
 
-        var deferCleanupIdx = beginFunctionBodyBlockDeferredCleanupImpl(output,
+        var deferCleanupIdx = beginFunctionBodyBlockDeferredCleanupImpl(this.output,
             blockScope.savedDeferCount, g_deferCount, blockTerminated)
         while deferCleanupIdx >= blockScope.savedDeferCount {
             generateExpression(g_deferExprs[deferCleanupIdx])
@@ -1857,7 +1857,7 @@ class LLVMIRGenerator {
     }
 
     fun warnUnusedResultCall(expr: ParserExpressionNode) r: Void {
-        emitUnusedResultCallWarningImpl(output, expr, g_warnUnusedResult,
+        emitUnusedResultCallWarningImpl(this.output, expr, g_warnUnusedResult,
             g_tryCatchLabel, funcNames, funcRetTypes)
     }
 
@@ -1881,13 +1881,13 @@ class LLVMIRGenerator {
     }
 
     fun emitContinueStatement() r: Void {
-        if emitContinueStatementImpl(output, currentLoopCondLabel) == 1 {
+        if emitContinueStatementImpl(this.output, currentLoopCondLabel) == 1 {
             blockTerminated = true
         }
     }
 
     fun emitBreakStatement() r: Void {
-        if emitBreakStatementImpl(output, currentLoopEndLabel) == 1 {
+        if emitBreakStatementImpl(this.output, currentLoopEndLabel) == 1 {
             blockTerminated = true
         }
     }
@@ -1901,27 +1901,27 @@ class LLVMIRGenerator {
     }
 
     fun generateTryCatchStatement(stmt: StatementNode) r: Void {
-        let tryCatchContext = beginTryCatchStatementSnapshotImpl(output,
+        let tryCatchContext = beginTryCatchStatementSnapshotImpl(this.output,
             g_blockBox, g_tryCatchLabel, g_tryCatchEndLabel)
         g_tryCatchLabel = tryCatchContext.currentTryCatchLabel
         g_tryCatchEndLabel = tryCatchContext.currentTryCatchEndLabel
         if stmt.thenBranch.statements.length() > 0 {
             generateBlock(stmt.thenBranch)
         }
-        blockTerminated = finalizeTryCatchArmImpl(output, blockTerminated,
+        blockTerminated = finalizeTryCatchArmImpl(this.output, blockTerminated,
             tryCatchContext.tryEndLabel)
 
-        emitTryCatchCatchHeaderImpl(output, tryCatchContext.tryCatchLabel)
+        emitTryCatchCatchHeaderImpl(this.output, tryCatchContext.tryCatchLabel)
         let savedCatchVarCount = activeVarCount
-        activeVarCount = bindFunctionBodyCatchVariableImpl(output, g_regBox,
-            varNames, varRegs, varTypes, activeVarCount, stmt.variableName)
+        activeVarCount = bindFunctionBodyCatchVariableImpl(this.output, g_regBox,
+            this.varNames, this.varRegs, this.varTypes, activeVarCount, stmt.variableName)
         if stmt.elseBranch.statements.length() > 0 {
             generateBlock(stmt.elseBranch)
         }
         activeVarCount = savedCatchVarCount
-        blockTerminated = finalizeTryCatchArmImpl(output, blockTerminated,
+        blockTerminated = finalizeTryCatchArmImpl(this.output, blockTerminated,
             tryCatchContext.tryEndLabel)
-        emitTryCatchFooterImpl(output, tryCatchContext.tryEndLabel)
+        emitTryCatchFooterImpl(this.output, tryCatchContext.tryEndLabel)
 
         g_tryCatchLabel = tryCatchContext.savedTryCatchLabel
         g_tryCatchEndLabel = tryCatchContext.savedTryCatchEndLabel
@@ -1956,13 +1956,13 @@ class LLVMIRGenerator {
         if dispatchAction == 15 {
             let insideUnsafeBox = Array<Int>()
             insideUnsafeBox.push(g_insideUnsafe)
-            enterUnsafeStatementImpl(output, insideUnsafeBox)
+            enterUnsafeStatementImpl(this.output, insideUnsafeBox)
             g_insideUnsafe = insideUnsafeBox[0]
             if stmt.thenBranch.statements.length() > 0 {
                 generateBlock(stmt.thenBranch)
             }
             insideUnsafeBox[0] = g_insideUnsafe
-            exitUnsafeStatementImpl(output, insideUnsafeBox)
+            exitUnsafeStatementImpl(this.output, insideUnsafeBox)
             g_insideUnsafe = insideUnsafeBox[0]
         }
         if dispatchAction == 16 { generateTryCatchStatement(stmt) }
@@ -1976,12 +1976,12 @@ class LLVMIRGenerator {
         // region [strategy] [name] { body }
         let strategy = normalizeDeclaredTypeNodeImpl(stmt.variableType)
         let regionName = stmt.variableName
-        let regionSlot = emitRegionStatementPreambleImpl(output, g_regBox,
+        let regionSlot = emitRegionStatementPreambleImpl(this.output, g_regBox,
             strategy, regionName)
         // Generate body
         generateBlock(stmt.thenBranch)
         // Pop and destroy region
-        emitRegionStatementCleanupImpl(output, g_regBox, regionSlot)
+        emitRegionStatementCleanupImpl(this.output, g_regBox, regionSlot)
     }
 
     // parallel_for i in start..end { body } → extract closure, call seen_parallel_for
@@ -2007,25 +2007,25 @@ class LLVMIRGenerator {
 
         let savedNestedState = beginNestedScratchState(pforReturnType)
 
-        emitParallelForBodyHeaderImpl(output, bodyFuncName)
+        emitParallelForBodyHeaderImpl(this.output, bodyFuncName)
         // Bind loop variable to %0
-        activeVarCount = storeActiveVariableBindingImpl(varNames, varRegs,
-            varTypes, activeVarCount, stmt.variableName, "%0", "Int")
+        activeVarCount = storeActiveVariableBindingImpl(this.varNames, this.varRegs,
+            this.varTypes, activeVarCount, stmt.variableName, "%0", "Int")
         // Generate body block
         generateBlock(stmt.loopBody)
 
         // Store generated body function in closures list
-        let bodyFuncIR = finalizeParallelForBodyImpl(output, blockTerminated)
+        let bodyFuncIR = finalizeParallelForBodyImpl(this.output, blockTerminated)
         g_closureDefs = g_closureDefs + bodyFuncIR
 
         restoreNestedScratchState(savedNestedState)
-        emitParallelForCallImpl(output, stmt.variableName, startReg, endReg,
+        emitParallelForCallImpl(this.output, stmt.variableName, startReg, endReg,
             bodyFuncName)
     }
 
     // comptime { block } — evaluate let bindings at compile time, store in comptime registry
     fun generateComptimeBlock(stmt: StatementNode) r: Void {
-        output.append("  ; comptime block\n")
+        this.output.append("  ; comptime block\n")
         processComptimeStatements(stmt.thenBranch)
     }
 
@@ -2040,14 +2040,14 @@ class LLVMIRGenerator {
                 let ctVal = evaluateConstExprState(ctStmt.initializer)
                 if shouldRegisterComptimeIntValueImpl(ctVal) {
                     registerComptimeVarState(ctStmt.variableName, ctVal)
-                    emitComptimeIntNoteImpl(output, "let ",
+                    emitComptimeIntNoteImpl(this.output, "let ",
                         ctStmt.variableName, ctVal)
                 } else {
                     // Try string evaluation
                     let ctStrVal = evaluateConstExprStrState(ctStmt.initializer)
                     if shouldRegisterComptimeStringValueImpl(ctStrVal) {
                         registerComptimeStrVarState(ctStmt.variableName, ctStrVal)
-                        emitComptimeStringNoteImpl(output, "let ",
+                        emitComptimeStringNoteImpl(this.output, "let ",
                             ctStmt.variableName, ctStrVal)
                     }
                 }
@@ -2063,7 +2063,7 @@ class LLVMIRGenerator {
                     if shouldApplyComptimeAssignmentUpdateImpl(ctAssignName,
                         ctNewVal) {
                         updateComptimeVarState(ctAssignName, ctNewVal)
-                        emitComptimeIntNoteImpl(output, "",
+                        emitComptimeIntNoteImpl(this.output, "",
                             ctAssignName, ctNewVal)
                     }
                 }
@@ -2078,7 +2078,7 @@ class LLVMIRGenerator {
                     processComptimeStatements(ctStmt.thenBranch)
                     ctWhileIter = ctWhileIter + 1
                 }
-                emitComptimeWhileUnrolledNoteImpl(output, ctWhileIter)
+                emitComptimeWhileUnrolledNoteImpl(this.output, ctWhileIter)
             }
             // Other statement kinds: emit as runtime code (code generation use case)
             if shouldEmitRuntimeComptimeStatementImpl(ctAction) {
@@ -2095,12 +2095,12 @@ class LLVMIRGenerator {
         if assertAction == 1 {
             // Assertion failed
             let msg = resolveComptimeAssertMessageImpl(stmt.condition)
-            emitComptimeAssertFailureNoteImpl(output, msg)
+            emitComptimeAssertFailureNoteImpl(this.output, msg)
             // Emit compile error via runtime abort
             let msgReg = getNextRegFn(g_regBox)
-            emitComptimeAssertAbortImpl(output, msgReg)
+            emitComptimeAssertAbortImpl(this.output, msgReg)
         } else {
-            emitComptimeAssertPassedNoteImpl(output)
+            emitComptimeAssertPassedNoteImpl(this.output)
         }
     }
 
@@ -2111,15 +2111,15 @@ class LLVMIRGenerator {
             stmt.elseBranch.statements.length())
         if shouldGenerateComptimeIfThenImpl(branchAction) {
             // Condition is true - generate then branch only
-            emitComptimeIfBranchNoteImpl(output, branchAction)
+            emitComptimeIfBranchNoteImpl(this.output, branchAction)
             generateBlock(stmt.thenBranch)
         } else {
             // Condition is false - generate else branch only (if present)
             if shouldGenerateComptimeIfElseImpl(branchAction) {
-                emitComptimeIfBranchNoteImpl(output, branchAction)
+                emitComptimeIfBranchNoteImpl(this.output, branchAction)
                 generateBlock(stmt.elseBranch)
             } else {
-                emitComptimeIfBranchNoteImpl(output, branchAction)
+                emitComptimeIfBranchNoteImpl(this.output, branchAction)
             }
         }
     }
@@ -2131,7 +2131,7 @@ class LLVMIRGenerator {
         if sourceSeenType != "" and sourceSeenType != "Unknown" {
             sourceLlvmType = mapTypeState(sourceSeenType)
         }
-        return coerceValueForLlvmTargetImpl(output, g_regBox,
+        return coerceValueForLlvmTargetImpl(this.output, g_regBox,
             targetLlvmType, sourceSeenType, sourceLlvmType, valueReg)
     }
 
@@ -2140,7 +2140,7 @@ class LLVMIRGenerator {
             return
         }
         if shouldSkipDeadLiteralInitializerImpl(g_deadStoreSkipVars, stmt) {
-            emitDeadLiteralInitializerSkipNoteImpl(output, stmt.variableName)
+            emitDeadLiteralInitializerSkipNoteImpl(this.output, stmt.variableName)
             return
         }
         let savedPendingType = pendingArrayLiteralType
@@ -2153,7 +2153,7 @@ class LLVMIRGenerator {
         let initializerType = inferExpressionType(stmt.initializer)
         let storedValueReg = coerceValueForLlvmTarget(llvmType,
             initializerType, valueReg)
-        emitDeclarationInitializerStoreImpl(output, llvmType, storedValueReg,
+        emitDeclarationInitializerStoreImpl(this.output, llvmType, storedValueReg,
             reg)
     }
 
@@ -2175,15 +2175,15 @@ class LLVMIRGenerator {
         if preAllocatedReg != "" {
             preAllocatedLlvmType = mapTypeState(letPlan.preAllocatedType)
         }
-        let reg = resolveLetStatementAllocaImpl(output, g_regBox,
+        let reg = resolveLetStatementAllocaImpl(this.output, g_regBox,
             preAllocatedReg, preAllocatedLlvmType, llvmType)
-        activeVarCount = storeActiveVariableBindingImpl(varNames, varRegs,
-            varTypes, activeVarCount, stmt.variableName, reg, varType)
+        activeVarCount = storeActiveVariableBindingImpl(this.varNames, this.varRegs,
+            this.varTypes, activeVarCount, stmt.variableName, reg, varType)
         emitLetStatementInitializer(stmt, reg, varType, llvmType)
     }
 
     fun emitPendingReturnDefers() r: Void {
-        var deferIdx = beginFunctionBodyReturnDeferCleanupImpl(output,
+        var deferIdx = beginFunctionBodyReturnDeferCleanupImpl(this.output,
             g_deferCount)
         while deferIdx >= 0 {
             generateExpression(g_deferExprs[deferIdx])
@@ -2197,7 +2197,7 @@ class LLVMIRGenerator {
         }
         if stmt.returnValue.kind == "None" {
             var voidErrdeferIdx = beginFunctionBodyVoidErrdeferCleanupImpl(
-                output, g_errdeferCount)
+                this.output, g_errdeferCount)
             while voidErrdeferIdx >= 0 {
                 generateExpression(g_errdeferExprs[voidErrdeferIdx])
                 voidErrdeferIdx = voidErrdeferIdx - 1
@@ -2206,14 +2206,14 @@ class LLVMIRGenerator {
         }
 
         let returnValueReg = generateExpression(stmt.returnValue)
-        let errdeferPlan = beginFunctionBodyValueErrdeferCleanupImpl(output,
+        let errdeferPlan = beginFunctionBodyValueErrdeferCleanupImpl(this.output,
             g_regBox, g_blockBox, returnValueReg, g_errdeferCount)
         var errdeferIdx = errdeferPlan.cleanupStartIndex
         while errdeferIdx >= 0 {
             generateExpression(g_errdeferExprs[errdeferIdx])
             errdeferIdx = errdeferIdx - 1
         }
-        finishFunctionBodyValueErrdeferCleanupImpl(output,
+        finishFunctionBodyValueErrdeferCleanupImpl(this.output,
             errdeferPlan.okLabel)
         g_errdeferTempAlloca = errdeferPlan.tempAllocaReg
     }
@@ -2236,12 +2236,12 @@ class LLVMIRGenerator {
             let valueReg = generateExpression(stmt.returnValue)
             pendingArrayLiteralType = savedPendingType
             let promiseType = mapTypeState(currentFunctionReturnType)
-            emitAsyncReturnValueBranchImpl(output, promiseType, valueReg,
+            emitAsyncReturnValueBranchImpl(this.output, promiseType, valueReg,
                 functionEmission.asyncPromise, functionEmission.asyncFinalLabel)
             blockTerminated = true
             return true
         }
-        emitAsyncReturnVoidBranchImpl(output, functionEmission.asyncFinalLabel)
+        emitAsyncReturnVoidBranchImpl(this.output, functionEmission.asyncFinalLabel)
         blockTerminated = true
         return true
     }
@@ -2249,7 +2249,7 @@ class LLVMIRGenerator {
     fun resolveReturnStatementValueReg(stmt: StatementNode) r: String {
         if g_errdeferTempAlloca != "" {
             let loadReg = getNextRegFn(g_regBox)
-            emitErrdeferTempReturnLoadImpl(output, loadReg,
+            emitErrdeferTempReturnLoadImpl(this.output, loadReg,
                 g_errdeferTempAlloca)
             g_errdeferTempAlloca = ""
             return loadReg
@@ -2278,10 +2278,10 @@ class LLVMIRGenerator {
         var profileStringIndex = -1
         let functionEmission = getCurrentFunctionEmissionStateImpl()
         if functionEmission.profiledFlag {
-            profileStringIndex = getStringConstantIndexImpl(stringConstants,
+            profileStringIndex = getStringConstantIndexImpl(this.stringConstants,
                 functionEmission.profiledName)
         }
-        emitReturnRegionAndProfileCleanupImpl(output, g_regBox,
+        emitReturnRegionAndProfileCleanupImpl(this.output, g_regBox,
             currentFunctionRegionSizeBytesImpl(getCurrentFunctionOptions()),
             functionEmission.profiledFlag, profileStringIndex)
 
@@ -2291,7 +2291,7 @@ class LLVMIRGenerator {
 
         if stmt.returnValue.kind == "None" {
             let emptyReturnType = mapTypeState(currentFunctionReturnType)
-            emitDefaultEmptyReturnStatementImpl(output, emptyReturnType,
+            emitDefaultEmptyReturnStatementImpl(this.output, emptyReturnType,
                 functionEmission.isMainFunc)
             blockTerminated = true
             return
@@ -2304,7 +2304,7 @@ class LLVMIRGenerator {
             currentFunctionReturnType, stmt.returnValue.kind,
             stmt.returnValue.literalType, stmt.returnValue.literalValue)
         if charValue != "" {
-            emitCharLiteralReturnImpl(output, charValue)
+            emitCharLiteralReturnImpl(this.output, charValue)
             blockTerminated = true
             return
         }
@@ -2315,7 +2315,7 @@ class LLVMIRGenerator {
         let returnExprType = normalizeIfConditionTypeImpl(stmt.returnValue,
             inferredReturnExprType)
         let returnExprLlvmType = mapTypeState(returnExprType)
-        emitFinalReturnStatementValueImpl(output, g_regBox,
+        emitFinalReturnStatementValueImpl(this.output, g_regBox,
             isDataTypeState(currentFunctionReturnType), stmt.returnValue.kind,
             returnExprType, returnExprLlvmType, llvmType, rawValueReg)
         blockTerminated = true
@@ -2329,14 +2329,14 @@ class LLVMIRGenerator {
         if constantIfAction == 1 {
             g_branchesEliminated = g_branchesEliminated + 1
             mlLogDecision("branch-elim", "folded", "if-true")
-            emitFunctionBodyConstantIfNoteImpl(output, constantIfAction)
+            emitFunctionBodyConstantIfNoteImpl(this.output, constantIfAction)
             generateBlock(stmt.thenBranch)
             return true
         }
         if constantIfAction == 2 {
             g_branchesEliminated = g_branchesEliminated + 1
             mlLogDecision("branch-elim", "folded", "if-false")
-            emitFunctionBodyConstantIfNoteImpl(output, constantIfAction)
+            emitFunctionBodyConstantIfNoteImpl(this.output, constantIfAction)
             if stmt.elseBranch.statements.length() > 0 {
                 generateBlock(stmt.elseBranch)
             }
@@ -2351,13 +2351,13 @@ class LLVMIRGenerator {
             return false
         }
 
-        let varIdx = findActiveVariableIndexImpl(varNames, activeVarCount,
+        let varIdx = findActiveVariableIndexImpl(this.varNames, activeVarCount,
             selectPlan.assignName)
         if varIdx < 0 {
             return false
         }
 
-        let varType = varTypes[varIdx]
+        let varType = this.varTypes[varIdx]
         let llvmType = mapTypeState(varType)
         if llvmType != "i64" and llvmType != "double" {
             return false
@@ -2371,8 +2371,8 @@ class LLVMIRGenerator {
         let condReg = generateExpression(stmt.condition)
         let thenReg = generateExpression(selectPlan.thenRhs)
         let elseReg = generateExpression(selectPlan.elseRhs)
-        emitFunctionBodyPairedSelectStoreImpl(output, g_regBox, condReg,
-            llvmType, thenReg, elseReg, varRegs[varIdx])
+        emitFunctionBodyPairedSelectStoreImpl(this.output, g_regBox, condReg,
+            llvmType, thenReg, elseReg, this.varRegs[varIdx])
         g_branchesEliminated = g_branchesEliminated + 1
         mlLogDecision("select", "if-else", selectPlan.assignName)
         return true
@@ -2384,13 +2384,13 @@ class LLVMIRGenerator {
             return false
         }
 
-        let varIdx = findActiveVariableIndexImpl(varNames, activeVarCount,
+        let varIdx = findActiveVariableIndexImpl(this.varNames, activeVarCount,
             selectPlan.assignName)
         if varIdx < 0 {
             return false
         }
 
-        let varType = varTypes[varIdx]
+        let varType = this.varTypes[varIdx]
         let llvmType = mapTypeState(varType)
         if llvmType != "i64" and llvmType != "double" {
             return false
@@ -2402,8 +2402,8 @@ class LLVMIRGenerator {
 
         let condReg = generateExpression(stmt.condition)
         let newValueReg = generateExpression(selectPlan.rhsExpr)
-        emitFunctionBodySingleArmSelectStoreImpl(output, g_regBox, condReg,
-            llvmType, newValueReg, varRegs[varIdx])
+        emitFunctionBodySingleArmSelectStoreImpl(this.output, g_regBox, condReg,
+            llvmType, newValueReg, this.varRegs[varIdx])
         g_branchesEliminated = g_branchesEliminated + 1
         mlLogDecision("select", "max-min", selectPlan.assignName)
         return true
@@ -2418,7 +2418,7 @@ class LLVMIRGenerator {
 
     fun finalizeConditionalEndBlock(endLabel: String, thenTerminated: Bool, elseTerminated: Bool) r: Void {
         cseClear()
-        blockTerminated = finalizeConditionalEndBlockImpl(output, endLabel,
+        blockTerminated = finalizeConditionalEndBlockImpl(this.output, endLabel,
             thenTerminated, elseTerminated)
     }
 
@@ -2440,8 +2440,8 @@ class LLVMIRGenerator {
         let condReg = generateExpression(stmt.condition)
         let condType = normalizeIfConditionTypeImpl(stmt.condition,
             inferExpressionType(stmt.condition))
-        let condBool = emitConditionToI1Impl(output, g_regBox, condReg, condType)
-        let branchLabels = emitFunctionBodyIfBranchingImpl(output, g_blockBox,
+        let condBool = emitConditionToI1Impl(this.output, g_regBox, condReg, condType)
+        let branchLabels = emitFunctionBodyIfBranchingImpl(this.output, g_blockBox,
             condBool,
             computeIfBranchWeightMetadataForStatementImpl(stmt))
         let elseLabel = branchLabels.elseLabel
@@ -2452,11 +2452,11 @@ class LLVMIRGenerator {
         generateBlock(stmt.thenBranch)
         let thenTerminated = blockTerminated
         if not thenTerminated {
-            output.append("  br label %" + endLabel + "\n")
+            this.output.append("  br label %" + endLabel + "\n")
         }
 
         // Else block
-        output.append(elseLabel + ":\n")
+        this.output.append(elseLabel + ":\n")
         cseClear()  // CSE cache invalid across basic block boundaries
         blockTerminated = false
         if stmt.elseBranch.statements.length() > 0 {
@@ -2464,7 +2464,7 @@ class LLVMIRGenerator {
         }
         let elseTerminated = blockTerminated
         if not elseTerminated {
-            output.append("  br label %" + endLabel + "\n")
+            this.output.append("  br label %" + endLabel + "\n")
         }
 
         finalizeConditionalEndBlock(endLabel, thenTerminated, elseTerminated)
@@ -2476,8 +2476,8 @@ class LLVMIRGenerator {
     ///
     fun generateIfLetStatement(stmt: StatementNode) r: Void {
         let exprReg = generateExpression(stmt.condition)
-        let cmpReg = emitConditionToI1Impl(output, g_regBox, exprReg, "Int")
-        let branchLabels = emitFunctionBodyIfBranchingImpl(output, g_blockBox,
+        let cmpReg = emitConditionToI1Impl(this.output, g_regBox, exprReg, "Int")
+        let branchLabels = emitFunctionBodyIfBranchingImpl(this.output, g_blockBox,
             cmpReg, "")
         let elseLabel = branchLabels.elseLabel
         let endLabel = branchLabels.endLabel
@@ -2485,18 +2485,18 @@ class LLVMIRGenerator {
         cseClear()
         blockTerminated = false
         let savedIfLetVarCount = activeVarCount
-        activeVarCount = emitIfLetBindingStateImpl(output, g_regBox,
-            varNames, varRegs, varTypes, activeVarCount, stmt.variableName,
+        activeVarCount = emitIfLetBindingStateImpl(this.output, g_regBox,
+            this.varNames, this.varRegs, this.varTypes, activeVarCount, stmt.variableName,
             exprReg)
         generateBlock(stmt.thenBranch)
         activeVarCount = savedIfLetVarCount
         let thenTerminated = blockTerminated
         if not thenTerminated {
-            output.append("  br label %" + endLabel + "\n")
+            this.output.append("  br label %" + endLabel + "\n")
         }
 
         // Else block
-        output.append(elseLabel + ":\n")
+        this.output.append(elseLabel + ":\n")
         cseClear()
         blockTerminated = false
         if stmt.elseBranch.statements.length() > 0 {
@@ -2504,7 +2504,7 @@ class LLVMIRGenerator {
         }
         let elseTerminated = blockTerminated
         if not elseTerminated {
-            output.append("  br label %" + endLabel + "\n")
+            this.output.append("  br label %" + endLabel + "\n")
         }
 
         finalizeConditionalEndBlock(endLabel, thenTerminated, elseTerminated)
@@ -2534,19 +2534,19 @@ class LLVMIRGenerator {
     fun emitLiteralBoundWhileHints(stmt: StatementNode, loopMetaId: Int, loopBoundLiteral: Int) r: Void {
         let tileSize = computeLoopTileSizeImpl(loopBoundLiteral, g_mlUnrollThreshold)
         if tileSize > 0 {
-            output.append("  ; loop tiling: bound=" + loopBoundLiteral.toString() + " → unroll.count=" + tileSize.toString() + "\n")
+            this.output.append("  ; loop tiling: bound=" + loopBoundLiteral.toString() + " → unroll.count=" + tileSize.toString() + "\n")
             g_loopsOptimized = g_loopsOptimized + 1
             appendLoopTileHint(loopMetaId, tileSize)
             mlLogDecision("loop-tile", "unroll", "bound:" + loopBoundLiteral.toString() + ",tile:" + tileSize.toString())
         }
         if loopBoundLiteral < g_mlVectorizeThreshold and loopBoundLiteral > 0 {
-            output.append("  ; ML: loop bound " + loopBoundLiteral.toString() + " < vectorize threshold " + g_mlVectorizeThreshold.toString() + " → skip vectorize\n")
+            this.output.append("  ; ML: loop bound " + loopBoundLiteral.toString() + " < vectorize threshold " + g_mlVectorizeThreshold.toString() + " → skip vectorize\n")
             appendLoopTileHint(loopMetaId, -1)
             mlLogDecision("ml-vec", "skip", "bound:" + loopBoundLiteral.toString() + "<threshold:" + g_mlVectorizeThreshold.toString())
         }
         if loopBoundLiteral > 0 and loopBoundLiteral <= 32 and not detectNestedLoopImpl(stmt.loopBody) and stmt.loopBody.statements.length() <= 8 {
             appendLoopTileHint(loopMetaId, -2)
-            output.append("  ; small loop (bound=" + loopBoundLiteral.toString() + ", " + stmt.loopBody.statements.length().toString() + " stmts) → full unroll hint\n")
+            this.output.append("  ; small loop (bound=" + loopBoundLiteral.toString() + ", " + stmt.loopBody.statements.length().toString() + " stmts) → full unroll hint\n")
         }
     }
 
@@ -2564,10 +2564,10 @@ class LLVMIRGenerator {
                         if isModuleConstMutableImpl(mcIdx,
                             g_moduleConstMutable) { licmImmutable = false }
                         if licmImmutable {
-                            output.append("  ; LICM: " + licmVarName + " is immutable module constant (!invariant.load applied)\n")
+                            this.output.append("  ; LICM: " + licmVarName + " is immutable module constant (!invariant.load applied)\n")
                             mlLogDecision("licm", "applied", licmVarName)
                         } else {
-                            output.append("  ; LICM candidate: " + licmVarName + " is mutable (var), skipped\n")
+                            this.output.append("  ; LICM candidate: " + licmVarName + " is mutable (var), skipped\n")
                             mlLogDecision("licm", "skipped-mutable", licmVarName)
                         }
                         g_loopsOptimized = g_loopsOptimized + 1
@@ -2578,7 +2578,7 @@ class LLVMIRGenerator {
         }
 
         if detectNestedLoopImpl(stmt.loopBody) {
-            output.append("  ; nested loop detected - interchange candidate\n")
+            this.output.append("  ; nested loop detected - interchange candidate\n")
             g_loopsOptimized = g_loopsOptimized + 1
             mlLogDecision("loop-interchange", "candidate", "nested-loop")
             appendNestedLoopMetadataId(loopMetaId)
@@ -2588,19 +2588,19 @@ class LLVMIRGenerator {
     fun emitGcdPatternWhileHint(stmt: StatementNode, loopMetaId: Int) r: Void {
         if detectGcdPatternImpl(stmt.loopCondition, stmt.loopBody) {
             appendLoopTileHint(loopMetaId, 8)
-            output.append("  ; GCD-pattern loop → unroll.count=8\n")
+            this.output.append("  ; GCD-pattern loop → unroll.count=8\n")
         }
     }
 
     fun emitWhileConditionBranch(condReg: String, breakFlagVar: String, bodyLabel: String, endLabel: String) r: Void {
         var breakFlagPtrReg = ""
         if breakFlagVar != "" {
-            let bfVarIdx = findActiveVariableIndexImpl(varNames, activeVarCount, breakFlagVar)
+            let bfVarIdx = findActiveVariableIndexImpl(this.varNames, activeVarCount, breakFlagVar)
             if bfVarIdx >= 0 {
-                breakFlagPtrReg = varRegs[bfVarIdx]
+                breakFlagPtrReg = this.varRegs[bfVarIdx]
             }
         }
-        emitWhileConditionBranchImpl(output, g_regBox, condReg,
+        emitWhileConditionBranchImpl(this.output, g_regBox, condReg,
             breakFlagPtrReg, bodyLabel, endLabel)
     }
 
@@ -2617,28 +2617,28 @@ class LLVMIRGenerator {
             rhsArrayType = findVarType(memcpyPlan.rhsArrayName)
         }
         var lhsArrayReg = ""
-        let lhsArrayIdx = findActiveVariableIndexImpl(varNames,
+        let lhsArrayIdx = findActiveVariableIndexImpl(this.varNames,
             activeVarCount, memcpyPlan.lhsArrayName)
         if lhsArrayIdx >= 0 {
-            lhsArrayReg = varRegs[lhsArrayIdx]
+            lhsArrayReg = this.varRegs[lhsArrayIdx]
         }
         var rhsArrayReg = ""
         if memcpyPlan.kind == 1 {
-            let rhsArrayIdx = findActiveVariableIndexImpl(varNames,
+            let rhsArrayIdx = findActiveVariableIndexImpl(this.varNames,
                 activeVarCount, memcpyPlan.rhsArrayName)
             if rhsArrayIdx >= 0 {
-                rhsArrayReg = varRegs[rhsArrayIdx]
+                rhsArrayReg = this.varRegs[rhsArrayIdx]
             }
         }
         var incrementVarReg = ""
-        let incrementVarIdx = findActiveVariableIndexImpl(varNames,
+        let incrementVarIdx = findActiveVariableIndexImpl(this.varNames,
             activeVarCount, memcpyPlan.incrementVarName)
         if incrementVarIdx >= 0 {
-            incrementVarReg = varRegs[incrementVarIdx]
+            incrementVarReg = this.varRegs[incrementVarIdx]
         }
 
         let memcpyEmitResult = emitFunctionBodyMemcpyOptimizedLoopImpl(
-            output, g_regBox, memcpyPlan.kind, memcpyPlan.lhsArrayName,
+            this.output, g_regBox, memcpyPlan.kind, memcpyPlan.lhsArrayName,
             memcpyPlan.rhsArrayName, memcpyPlan.incrementVarName, mcBoundReg,
             lhsArrayType, rhsArrayType, lhsArrayReg, rhsArrayReg,
             incrementVarReg)
@@ -2651,7 +2651,7 @@ class LLVMIRGenerator {
         }
         g_loopsOptimized = g_loopsOptimized +
             memcpyEmitResult.loopsOptimizedDelta
-        emitMemcpyLoopExitBlocksImpl(output, condLabel, bodyLabel, endLabel)
+        emitMemcpyLoopExitBlocksImpl(this.output, condLabel, bodyLabel, endLabel)
         let restoredLoopContext = restoreFunctionBodyLoopContextImpl(
             currentLoopCondLabel, currentLoopEndLabel, savedCondLabel,
             savedEndLabel)
@@ -2672,7 +2672,7 @@ class LLVMIRGenerator {
         let reductionVar = detectReductionPatternImpl(stmt.loopBody)
         if reductionVar != "" {
             let reductionType = "sum"
-            output.append("  ; reduction chain detected: " + reductionType + " on " + reductionVar + " → 2x vectorize width\n")
+            this.output.append("  ; reduction chain detected: " + reductionType + " on " + reductionVar + " → 2x vectorize width\n")
             g_reductionChainsDetected = g_reductionChainsDetected + 1
             appendReductionLoopMetadataId(loopMetaId)
             mlLogDecision("reduction", reductionType, reductionVar)
@@ -2681,34 +2681,34 @@ class LLVMIRGenerator {
         savedInductionVarBox.push(g_inductionVarName)
         let inductionVarName = detectInductionVarImpl(stmt.loopBody)
         if inductionVarName != "" {
-            output.append("  ; induction variable: " + inductionVarName + " → nsw\n")
+            this.output.append("  ; induction variable: " + inductionVarName + " → nsw\n")
             g_inductionVarName = inductionVarName
         }
 
         let breakFlagVar = detectBreakOnFlagImpl(stmt.loopBody)
         breakFlagBox.push(breakFlagVar)
         if breakFlagVar != "" {
-            output.append("  ; break-on-flag: " + breakFlagVar + " → early loop exit\n")
+            this.output.append("  ; break-on-flag: " + breakFlagVar + " → early loop exit\n")
             mlLogDecision("break-flag", "early-exit", breakFlagVar)
         }
     }
 
     fun emitWhileLoopBody(stmt: StatementNode, condLabel: String, bodyLabel: String,
         endLabel: String, breakFlagVar: String, loopMetaIdStr: String) r: Void {
-        output.append("  br label %" + condLabel + "\n")
+        this.output.append("  br label %" + condLabel + "\n")
 
-        output.append(condLabel + ":\n")
+        this.output.append(condLabel + ":\n")
         cseClear()
         let condReg = generateExpression(stmt.loopCondition)
         emitWhileConditionBranch(condReg, breakFlagVar, bodyLabel, endLabel)
 
-        output.append(bodyLabel + ":\n")
+        this.output.append(bodyLabel + ":\n")
         cseClear()
         blockTerminated = false
         generateBlock(stmt.loopBody)
         let bodyTerminated = blockTerminated
         if not bodyTerminated {
-            output.append("  br label %" + condLabel + ", !llvm.loop !" + loopMetaIdStr + "\n")
+            this.output.append("  br label %" + condLabel + ", !llvm.loop !" + loopMetaIdStr + "\n")
         }
     }
 
@@ -2717,19 +2717,19 @@ class LLVMIRGenerator {
         endLabel: String, loopMetaIdStr: String) r: Void {
         let startReg = generateExpression(forInIterable.operands[0])
         let endReg = generateExpression(forInIterable.operands[1])
-        let idxReg = resolveFunctionBodyForInIndexAllocaImpl(output,
+        let idxReg = resolveFunctionBodyForInIndexAllocaImpl(this.output,
             g_regBox, preAllocatedVars, preAllocatedRegs,
             "__forin_idx_" + loopVarName)
-        activeVarCount = storeActiveVariableBindingImpl(varNames, varRegs,
-            varTypes, activeVarCount, loopVarName, loopVarReg, loopVarType)
+        activeVarCount = storeActiveVariableBindingImpl(this.varNames, this.varRegs,
+            this.varTypes, activeVarCount, loopVarName, loopVarReg, loopVarType)
         cseClear()
-        emitIndexedForLoopHeaderImpl(output, g_regBox, startReg, endReg, loopVarReg, idxReg, condLabel, bodyLabel, endLabel)
+        emitIndexedForLoopHeaderImpl(this.output, g_regBox, startReg, endReg, loopVarReg, idxReg, condLabel, bodyLabel, endLabel)
         cseClear()
         blockTerminated = false
         generateBlock(stmt.loopBody)
         let bodyTerminated = blockTerminated
         if not bodyTerminated {
-            emitForInIncrementImpl(output, g_regBox, idxReg, condLabel, loopMetaIdStr)
+            emitForInIncrementImpl(this.output, g_regBox, idxReg, condLabel, loopMetaIdStr)
         }
     }
 
@@ -2747,28 +2747,28 @@ class LLVMIRGenerator {
 
         let iterableReg = generateExpression(forInIterable)
         let iterThisReg = getNextRegFn(g_regBox)
-        output.append("  " + iterThisReg + " = inttoptr i64 " + iterableReg + " to ptr\n")
+        this.output.append("  " + iterThisReg + " = inttoptr i64 " + iterableReg + " to ptr\n")
         let iterObjReg = getNextRegFn(g_regBox)
         let iterRetLlvm = mapTypeState(iterPlan.iterReturnType)
-        output.append("  " + iterObjReg + " = call " + iterRetLlvm + " @" + quoteIdentIfNeededImpl(iterPlan.iterFuncName) + "(ptr " + iterThisReg + ")\n")
+        this.output.append("  " + iterObjReg + " = call " + iterRetLlvm + " @" + quoteIdentIfNeededImpl(iterPlan.iterFuncName) + "(ptr " + iterThisReg + ")\n")
         let iterStoreReg = getNextRegFn(g_regBox)
-        output.append("  " + iterStoreReg + " = alloca i64, align 8\n")
-        output.append("  store i64 " + iterObjReg + ", ptr " + iterStoreReg + "\n")
-        activeVarCount = storeActiveVariableBindingImpl(varNames, varRegs,
-            varTypes, activeVarCount, loopVarName, loopVarReg, loopVarType)
+        this.output.append("  " + iterStoreReg + " = alloca i64, align 8\n")
+        this.output.append("  store i64 " + iterObjReg + ", ptr " + iterStoreReg + "\n")
+        activeVarCount = storeActiveVariableBindingImpl(this.varNames, this.varRegs,
+            this.varTypes, activeVarCount, loopVarName, loopVarReg, loopVarType)
 
-        output.append("  br label %" + condLabel + "\n")
-        output.append(condLabel + ":\n")
+        this.output.append("  br label %" + condLabel + "\n")
+        this.output.append(condLabel + ":\n")
         cseClear()
         let iterLoadReg = getNextRegFn(g_regBox)
-        output.append("  " + iterLoadReg + " = load i64, ptr " + iterStoreReg + "\n")
+        this.output.append("  " + iterLoadReg + " = load i64, ptr " + iterStoreReg + "\n")
         let iterPtrReg = getNextRegFn(g_regBox)
-        output.append("  " + iterPtrReg + " = inttoptr i64 " + iterLoadReg + " to ptr\n")
+        this.output.append("  " + iterPtrReg + " = inttoptr i64 " + iterLoadReg + " to ptr\n")
         let hasNextReg = getNextRegFn(g_regBox)
-        output.append("  " + hasNextReg + " = call i1 @" + quoteIdentIfNeededImpl(iterPlan.hasNextFuncName) + "(ptr " + iterPtrReg + ")\n")
-        output.append("  br i1 " + hasNextReg + ", label %" + bodyLabel + ", label %" + endLabel + "\n")
+        this.output.append("  " + hasNextReg + " = call i1 @" + quoteIdentIfNeededImpl(iterPlan.hasNextFuncName) + "(ptr " + iterPtrReg + ")\n")
+        this.output.append("  br i1 " + hasNextReg + ", label %" + bodyLabel + ", label %" + endLabel + "\n")
 
-        output.append(bodyLabel + ":\n")
+        this.output.append(bodyLabel + ":\n")
         cseClear()
         blockTerminated = false
         let nextRetType = getFunctionReturnTypeStateImpl(
@@ -2778,20 +2778,20 @@ class LLVMIRGenerator {
             nextRetLlvm = mapTypeState(nextRetType)
         }
         let nextReg = getNextRegFn(g_regBox)
-        output.append("  " + nextReg + " = call " + nextRetLlvm + " @" + quoteIdentIfNeededImpl(iterPlan.nextFuncName) + "(ptr " + iterPtrReg + ")\n")
+        this.output.append("  " + nextReg + " = call " + nextRetLlvm + " @" + quoteIdentIfNeededImpl(iterPlan.nextFuncName) + "(ptr " + iterPtrReg + ")\n")
         if loopVarReg != "" {
-            output.append("  store " + nextRetLlvm + " " + nextReg + ", ptr " + loopVarReg + "\n")
+            this.output.append("  store " + nextRetLlvm + " " + nextReg + ", ptr " + loopVarReg + "\n")
         }
         generateBlock(stmt.loopBody)
         let bodyTerminated = blockTerminated
         if not bodyTerminated {
-            output.append("  br label %" + condLabel + "\n")
+            this.output.append("  br label %" + condLabel + "\n")
         }
         return true
     }
 
     fun emitStringForInElement(arrReg: String, loadIdx: String, loopVarReg: String) r: Void {
-        emitStringForInElementImpl(output, g_regBox, arrReg, loadIdx,
+        emitStringForInElementImpl(this.output, g_regBox, arrReg, loadIdx,
             loopVarReg)
     }
 
@@ -2817,19 +2817,19 @@ class LLVMIRGenerator {
             if arrReg == "0" {
                 arrStrReg = "zeroinitializer"
             }
-            output.append("  " + lenReg + " = call i64 @seen_length(%SeenString " + arrStrReg + ")\n")
+            this.output.append("  " + lenReg + " = call i64 @seen_length(%SeenString " + arrStrReg + ")\n")
         } else {
-            lenReg = emitSeenArrayLengthLoadImpl(output, g_regBox, arrReg,
+            lenReg = emitSeenArrayLengthLoadImpl(this.output, g_regBox, arrReg,
                 ", !tbaa !108, !range !188")
         }
 
-        let idxReg = resolveFunctionBodyForInIndexAllocaImpl(output,
+        let idxReg = resolveFunctionBodyForInIndexAllocaImpl(this.output,
             g_regBox, preAllocatedVars, preAllocatedRegs,
             "__forin_idx_" + loopVarName)
-        activeVarCount = storeActiveVariableBindingImpl(varNames, varRegs,
-            varTypes, activeVarCount, loopVarName, loopVarReg, loopVarType)
+        activeVarCount = storeActiveVariableBindingImpl(this.varNames, this.varRegs,
+            this.varTypes, activeVarCount, loopVarName, loopVarReg, loopVarType)
         cseClear()
-        let loadIdx = emitIndexedForLoopHeaderImpl(output, g_regBox, "0", lenReg, "", idxReg, condLabel, bodyLabel, endLabel)
+        let loadIdx = emitIndexedForLoopHeaderImpl(this.output, g_regBox, "0", lenReg, "", idxReg, condLabel, bodyLabel, endLabel)
         cseClear()
         blockTerminated = false
 
@@ -2840,19 +2840,19 @@ class LLVMIRGenerator {
             var isFloat = 0
             if elementType == "String" { isString = 1 }
             if elementType == "Float" { isFloat = 1 }
-            emitForInElementFetchImpl(output, g_regBox, arrReg, loadIdx, loopVarReg, elementType, isString, isFloat)
-            emitForInPrefetchImpl(output, g_regBox, g_blockBox, arrReg, loadIdx, lenReg, elementType)
+            emitForInElementFetchImpl(this.output, g_regBox, arrReg, loadIdx, loopVarReg, elementType, isString, isFloat)
+            emitForInPrefetchImpl(this.output, g_regBox, g_blockBox, arrReg, loadIdx, lenReg, elementType)
         }
 
         generateBlock(stmt.loopBody)
         let bodyTerminated = blockTerminated
         if not bodyTerminated {
-            emitForInIncrementImpl(output, g_regBox, idxReg, condLabel, loopMetaIdStr)
+            emitForInIncrementImpl(this.output, g_regBox, idxReg, condLabel, loopMetaIdStr)
         }
     }
 
     fun finalizeForInLoop(endLabel: String, savedForInVarCount: Int, savedCondLabel: String, savedEndLabel: String) r: Void {
-        emitFunctionBodyLoopEndLabelImpl(output, endLabel)
+        emitFunctionBodyLoopEndLabelImpl(this.output, endLabel)
         cseClear()
         blockTerminated = false
         activeVarCount = savedForInVarCount
@@ -2892,7 +2892,7 @@ class LLVMIRGenerator {
             savedInductionVarBox)
         emitWhileLoopBody(stmt, loopContext.condLabel, loopContext.bodyLabel,
             loopContext.endLabel, breakFlagBox[0], loopContext.loopMetaIdStr)
-        emitFunctionBodyLoopEndLabelImpl(output, loopContext.endLabel)
+        emitFunctionBodyLoopEndLabelImpl(this.output, loopContext.endLabel)
         cseClear()
         blockTerminated = false
 
@@ -2924,7 +2924,7 @@ class LLVMIRGenerator {
             resolvedLoopVarType = "Int"
         }
         let loopVarStorage = resolveFunctionBodyForInLoopVariableStorageImpl(
-            output, g_regBox, loopVarName, resolvedLoopVarType,
+            this.output, g_regBox, loopVarName, resolvedLoopVarType,
             mapTypeState(resolvedLoopVarType), declOrdinalNames, declOrdinalCounts,
             preAllocatedVars, preAllocatedRegs)
         let loopVarType = loopVarStorage.seenType
@@ -2977,18 +2977,18 @@ class LLVMIRGenerator {
         let valueSeenType = inferExpressionType(valueExpr)
         let storedValueReg = coerceValueForLlvmTarget(constType,
             valueSeenType, valueReg)
-        emitStoreValueToPtrImpl(output, constType, storedValueReg,
+        emitStoreValueToPtrImpl(this.output, constType, storedValueReg,
             "@" + varName)
         return 1
     }
 
     fun tryGenerateImplicitThisFieldAssignment(varName: String, valueExpr: ParserExpressionNode) r: Int {
-        let thisIdx = findActiveVariableIndexImpl(varNames, activeVarCount, "this")
+        let thisIdx = findActiveVariableIndexImpl(this.varNames, activeVarCount, "this")
         if thisIdx < 0 {
             return 0
         }
 
-        let thisType = varTypes[thisIdx]
+        let thisType = this.varTypes[thisIdx]
         let structIdx = findStructReg(thisType, structNames)
         if structIdx < 0 {
             return 0
@@ -3005,8 +3005,8 @@ class LLVMIRGenerator {
         let valueSeenType = inferExpressionType(valueExpr)
         let storedValueReg = coerceValueForLlvmTarget(fieldType,
             valueSeenType, valueReg)
-        emitImplicitThisFieldStoreImpl(output, g_regBox,
-            varRegs[thisIdx], structLayouts[structIdx], fieldIdx, fieldType,
+        emitImplicitThisFieldStoreImpl(this.output, g_regBox,
+            this.varRegs[thisIdx], structLayouts[structIdx], fieldIdx, fieldType,
             storedValueReg)
         return 1
     }
@@ -3024,18 +3024,18 @@ class LLVMIRGenerator {
         }
         let rhsType = inferExpressionType(valueExpr)
         if rhsType != "" and rhsType != varType {
-            emitDistinctTypeMismatchWarningImpl(output, rhsType, varType)
+            emitDistinctTypeMismatchWarningImpl(this.output, rhsType, varType)
         }
     }
 
     fun emitLocalVariableAssignment(idx: Int, valueExpr: ParserExpressionNode) r: String {
-        let varType = varTypes[idx]
+        let varType = this.varTypes[idx]
         let valueReg = generateAssignmentValueForSeenType(valueExpr, varType)
         let llvmType = mapTypeState(varType)
         let valueSeenType = inferExpressionType(valueExpr)
         let storedValueReg = coerceValueForLlvmTarget(llvmType,
             valueSeenType, valueReg)
-        emitStoreValueToPtrImpl(output, llvmType, storedValueReg, varRegs[idx])
+        emitStoreValueToPtrImpl(this.output, llvmType, storedValueReg, this.varRegs[idx])
         return varType
     }
 
@@ -3052,31 +3052,31 @@ class LLVMIRGenerator {
             return
         }
 
-        let rhsIdx = findActiveVariableIndexImpl(varNames, activeVarCount, rhsVarName)
+        let rhsIdx = findActiveVariableIndexImpl(this.varNames, activeVarCount, rhsVarName)
         if rhsIdx < 0 {
             return
         }
 
-        let rhsType = varTypes[rhsIdx]
+        let rhsType = this.varTypes[rhsIdx]
         if not g_moveOnlyClasses.contains(rhsType + "|") {
             return
         }
 
-        emitMoveSourceNullifyImpl(output, varRegs[rhsIdx])
+        emitMoveSourceNullifyImpl(this.output, this.varRegs[rhsIdx])
         recordMovedVariableImpl(getCurrentFunctionEmissionStateImpl(),
             rhsVarName)
     }
 
     fun emitTriviallyCopyableAssignmentNote(varType: String) r: Void {
         if g_triviallyCopyableClasses != "" and g_triviallyCopyableClasses.contains(varType + "|") {
-            emitTriviallyCopyableAssignmentNoteImpl(output, varType)
+            emitTriviallyCopyableAssignmentNoteImpl(this.output, varType)
         }
     }
 
     // Handle assignment expression (from parser)
     fun generateAssignmentExpr(expr: ParserExpressionNode) r: Void {
         let varName = expr.variableName
-        let idx = findActiveVariableIndexImpl(varNames, activeVarCount, varName)
+        let idx = findActiveVariableIndexImpl(this.varNames, activeVarCount, varName)
 
         if idx < 0 {
             tryGenerateFallbackAssignmentTarget(varName, expr.operands[0])
@@ -3094,14 +3094,14 @@ class LLVMIRGenerator {
     ///
     fun generateAssignment(stmt: StatementNode) r: Void {
         let varName = stmt.variableName
-        let idx = findActiveVariableIndexImpl(varNames, activeVarCount, varName)
+        let idx = findActiveVariableIndexImpl(this.varNames, activeVarCount, varName)
 
         if idx < 0 {
             tryGenerateFallbackAssignmentTarget(varName, stmt.initializer)
             return
         }
 
-        let varType = varTypes[idx]
+        let varType = this.varTypes[idx]
         emitDistinctAssignmentTypeWarning(varType, stmt.initializer)
         emitLocalVariableAssignment(idx, stmt.initializer)
         applyMoveAssignmentSemantics(stmt.initializer)
@@ -3121,7 +3121,7 @@ class LLVMIRGenerator {
             let receiverExpr = memberAccess.operands[0]
             let receiverReg = generateExpression(receiverExpr)
             let receiverType = inferExpressionType(receiverExpr)
-            if emitValueReceiverMemberAssignmentImpl(output, g_regBox,
+            if emitValueReceiverMemberAssignmentImpl(this.output, g_regBox,
                 receiverReg, receiverType, fieldName, valueReg, value.kind,
                 valueSeenType, structNames, structLayouts, structFieldNames,
                 structFieldTypes, structLlvmFieldTypes, g_reprCClassNames,
@@ -3138,7 +3138,7 @@ class LLVMIRGenerator {
             if receiverExpr.kind != "" {
                 let receiverReg = generateExpression(receiverExpr)
                 let receiverType = inferExpressionType(receiverExpr)
-                if emitValueReceiverMemberAssignmentImpl(output, g_regBox,
+                if emitValueReceiverMemberAssignmentImpl(this.output, g_regBox,
                     receiverReg, receiverType, fieldName, valueReg,
                     value.kind, valueSeenType, structNames, structLayouts,
                     structFieldNames, structFieldTypes,
@@ -3151,20 +3151,20 @@ class LLVMIRGenerator {
             }
         }
 
-        if emitVariableReceiverMemberAssignmentImpl(output, g_regBox,
+        if emitVariableReceiverMemberAssignmentImpl(this.output, g_regBox,
             receiverName, fieldName, valueReg, value.kind, valueSeenType,
-            varNames,
-            activeVarCount, varRegs, varTypes, structNames, structLayouts,
+            this.varNames,
+            activeVarCount, this.varRegs, this.varTypes, structNames, structLayouts,
             structFieldNames, structFieldTypes, structLlvmFieldTypes,
             g_reprCClassNames, g_typeAliasNames, g_typeAliasTargets,
             g_typeAliasCount, g_enumTypeNames, g_unionTypes,
             g_bitfieldCount, g_bitfieldKeys, g_bitfieldWidths) == 1 {
             return
         }
-        emitImplicitThisMemberAssignmentImpl(output, g_regBox, receiverName,
-            fieldName, valueReg, value.kind, valueSeenType, varNames,
+        emitImplicitThisMemberAssignmentImpl(this.output, g_regBox, receiverName,
+            fieldName, valueReg, value.kind, valueSeenType, this.varNames,
             activeVarCount,
-            varRegs, varTypes, structNames, structLayouts, structFieldNames,
+            this.varRegs, this.varTypes, structNames, structLayouts, structFieldNames,
             structFieldTypes, structLlvmFieldTypes, g_reprCClassNames,
             g_typeAliasNames, g_typeAliasTargets, g_typeAliasCount,
             g_enumTypeNames, g_unionTypes, g_bitfieldCount, g_bitfieldKeys,
@@ -3190,7 +3190,7 @@ class LLVMIRGenerator {
         if g_boundsCheckEnabled == 1 {
             let labelSuffix = g_boundsCheckLabelCount.toString()
             g_boundsCheckLabelCount = g_boundsCheckLabelCount + 1
-            emitPreparedIndexAssignmentBoundsCheckImpl(output, g_regBox,
+            emitPreparedIndexAssignmentBoundsCheckImpl(this.output, g_regBox,
                 arrayReg, indexReg,
                 "bounds_fail_" + labelSuffix, "bounds_ok_" + labelSuffix)
             cseClear()
@@ -3208,7 +3208,7 @@ class LLVMIRGenerator {
             valueIsStructLiteral = 1
         }
         let valueSeenType = inferExpressionType(value)
-        emitPreparedIndexAssignmentStoreImpl(output, g_regBox, arrayReg,
+        emitPreparedIndexAssignmentStoreImpl(this.output, g_regBox, arrayReg,
             indexReg, valueReg, elementType, llvmElementType,
             valueIsStructLiteral, valueSeenType, structNames)
     }
@@ -3255,7 +3255,7 @@ class LLVMIRGenerator {
         let cSrcReg = generateExpression(expr.operands[0])
         let cSrcType = inferExpressionType(expr.operands[0])
         let cTgtType = expr.literalValue
-        return emitCastExprImpl(output, g_regBox, cSrcReg, cSrcType, cTgtType)
+        return emitCastExprImpl(this.output, g_regBox, cSrcReg, cSrcType, cTgtType)
     }
 
     fun emitIsExpressionTest(expr: ParserExpressionNode) r: String {
@@ -3265,9 +3265,9 @@ class LLVMIRGenerator {
             g_enumVariantNames, g_enumVariantTags, g_enumVariantCount)
         if isTagIdx >= 0 {
             let isTagLoad = getNextRegFn(g_regBox)
-            output.append("  " + isTagLoad + " = load i64, ptr " + isSubjectReg + "\n")
+            this.output.append("  " + isTagLoad + " = load i64, ptr " + isSubjectReg + "\n")
             let isCmpReg = getNextRegFn(g_regBox)
-            output.append("  " + isCmpReg + " = icmp eq i64 " + isTagLoad + ", " + isTagIdx.toString() + "\n")
+            this.output.append("  " + isCmpReg + " = icmp eq i64 " + isTagLoad + ", " + isTagIdx.toString() + "\n")
             return isCmpReg
         }
         let isSubjectType = inferExpressionType(expr.operands[0])
@@ -3282,23 +3282,23 @@ class LLVMIRGenerator {
         let tryInnerType = inferExpressionType(expr.operands[0])
         if tryInnerType.startsWith("Result") {
             let tryIsOkReg = getNextRegFn(g_regBox)
-            output.append("  " + tryIsOkReg + " = icmp ne i64 " + tryInnerReg + ", 0\n")
+            this.output.append("  " + tryIsOkReg + " = icmp ne i64 " + tryInnerReg + ", 0\n")
 
             let tryLabelSuffix = g_regBox[0].toString()
             let tryOkLabel = "try.ok." + tryLabelSuffix
             let tryErrLabel = "try.err." + tryLabelSuffix
 
-            output.append("  br i1 " + tryIsOkReg + ", label %" + tryOkLabel + ", label %" + tryErrLabel + "\n")
+            this.output.append("  br i1 " + tryIsOkReg + ", label %" + tryOkLabel + ", label %" + tryErrLabel + "\n")
 
-            output.append(tryErrLabel + ":\n")
+            this.output.append(tryErrLabel + ":\n")
             let tryRetType = mapTypeState(currentFunctionReturnType)
             if tryRetType == "void" {
-                output.append("  ret void\n")
+                this.output.append("  ret void\n")
             } else {
-                output.append("  ret " + tryRetType + " 0\n")
+                this.output.append("  ret " + tryRetType + " 0\n")
             }
 
-            output.append(tryOkLabel + ":\n")
+            this.output.append(tryOkLabel + ":\n")
             return tryInnerReg
         }
         return tryInnerReg
@@ -3398,13 +3398,13 @@ class LLVMIRGenerator {
         var resultReg = ""
         while pieceIdx < pieces.length() {
             let pieceReg = generateExpression(pieces[pieceIdx])
-            let pieceStrReg = coerceStringConcatPieceRegImpl(output,
+            let pieceStrReg = coerceStringConcatPieceRegImpl(this.output,
                 g_regBox, pieceReg, pieceTypes[pieceIdx])
             if pieceIdx == 0 {
                 resultReg = pieceStrReg
             } else {
                 let concatReg = getNextRegFn(g_regBox)
-                output.append("  " + concatReg +
+                this.output.append("  " + concatReg +
                     " = call %SeenString @seen_str_concat_ss(%SeenString " +
                     resultReg + ", %SeenString " + pieceStrReg + ")\n")
                 resultReg = concatReg
@@ -3435,12 +3435,12 @@ class LLVMIRGenerator {
 
     fun emitIfExpressionBranchValue(branchExpr: ParserExpressionNode, branchLabelPrefix: String, mergeLabel: String) r: String {
         let branchReg = generateExpression(branchExpr)
-        return emitIfExpressionBranchValueImpl(output, branchReg,
+        return emitIfExpressionBranchValueImpl(this.output, branchReg,
             branchLabelPrefix, mergeLabel, g_regBox[0].toString())
     }
 
     fun emitPhiMergeValue(llvmType: String, thenReg: String, thenLabel: String, elseReg: String, elseLabel: String) r: String {
-        return emitPhiMergeValueImpl(output, g_regBox, llvmType, thenReg,
+        return emitPhiMergeValueImpl(this.output, g_regBox, llvmType, thenReg,
             thenLabel, elseReg, elseLabel)
     }
 
@@ -3456,7 +3456,7 @@ class LLVMIRGenerator {
         let condReg = generateExpression(condExpr)
         let condExprType = normalizeIfConditionTypeImpl(condExpr,
             inferExpressionType(condExpr))
-        let condBool = emitConditionToI1Impl(output, g_regBox, condReg,
+        let condBool = emitConditionToI1Impl(this.output, g_regBox, condReg,
             condExprType)
 
         let labelSuffix = g_regBox[0].toString()
@@ -3464,24 +3464,24 @@ class LLVMIRGenerator {
         let elseLabel = "if.expr.else." + labelSuffix
         let mergeLabel = "if.expr.merge." + labelSuffix
 
-        output.append("  br i1 " + condBool + ", label %" + thenLabel + ", label %" + elseLabel + "\n")
+        this.output.append("  br i1 " + condBool + ", label %" + thenLabel + ", label %" + elseLabel + "\n")
 
         // Generate then-branch side-effect expressions (before the value expression)
-        output.append(thenLabel + ":\n")
+        this.output.append(thenLabel + ":\n")
         var ifSideIdx = emitIfExpressionSideEffects(expr, 0, true)
         let thenInfo = splitPipe(emitIfExpressionBranchValue(thenExpr, "if.expr.then", mergeLabel))
         let thenReg = thenInfo[0]
         let thenPhiLabel = thenInfo[1]
 
         // Generate else-branch side-effect expressions
-        output.append(elseLabel + ":\n")
+        this.output.append(elseLabel + ":\n")
         emitIfExpressionSideEffects(expr, ifSideIdx, false)
         let elseInfo = splitPipe(emitIfExpressionBranchValue(elseExpr, "if.expr.else", mergeLabel))
         let elseReg = elseInfo[0]
         let elsePhiLabel = elseInfo[1]
 
         // Merge with phi
-        output.append(mergeLabel + ":\n")
+        this.output.append(mergeLabel + ":\n")
         let resultType = inferExpressionType(thenExpr)
         let irType = mapTypeState(resultType)
         return emitPhiMergeValue(irType, thenReg, thenPhiLabel, elseReg, elsePhiLabel)
@@ -3511,8 +3511,8 @@ class LLVMIRGenerator {
 
         let clSavedState = beginNestedScratchState("Int")
 
-        output.append("define i64 @" + quoteIdentIfNeededImpl(closureName) + "(" + paramList + ") {\n")
-        output.append("entry:\n")
+        this.output.append("define i64 @" + quoteIdentIfNeededImpl(closureName) + "(" + paramList + ") {\n")
+        this.output.append("entry:\n")
 
         // Bind params as local variables
         paramIdx = 0
@@ -3520,28 +3520,28 @@ class LLVMIRGenerator {
             let cpName = expr.arguments[paramIdx].literalValue
             let cpReg = "%__cp" + paramIdx.toString()
             let cpLocal = getNextRegFn(g_regBox)
-            output.append("  " + cpLocal + " = alloca i64\n")
-            output.append("  store i64 " + cpReg + ", ptr " + cpLocal + "\n")
-            activeVarCount = storeActiveVariableBindingImpl(varNames, varRegs,
-                varTypes, activeVarCount, cpName, cpLocal, "Int")
+            this.output.append("  " + cpLocal + " = alloca i64\n")
+            this.output.append("  store i64 " + cpReg + ", ptr " + cpLocal + "\n")
+            activeVarCount = storeActiveVariableBindingImpl(this.varNames, this.varRegs,
+                this.varTypes, activeVarCount, cpName, cpLocal, "Int")
             paramIdx = paramIdx + 1
         }
 
         // Generate body expression
         let clBodyReg = generateExpression(expr.operands[0])
         if not blockTerminated {
-            output.append("  ret i64 " + clBodyReg + "\n")
+            this.output.append("  ret i64 " + clBodyReg + "\n")
         }
-        output.append("}\n\n")
+        this.output.append("}\n\n")
 
-        let closureDef = output.toString()
+        let closureDef = this.output.toString()
         g_closureDefs = g_closureDefs + closureDef
 
         restoreNestedScratchState(clSavedState)
 
         // Return function pointer as i64
         let clResultReg = getNextRegFn(g_regBox)
-        output.append("  " + clResultReg + " = ptrtoint ptr @" + closureName + " to i64\n")
+        this.output.append("  " + clResultReg + " = ptrtoint ptr @" + closureName + " to i64\n")
         return clResultReg
     }
 
@@ -3579,12 +3579,12 @@ class LLVMIRGenerator {
     fun emitArrayLiteralAllocation(elementType: String) r: String {
         let arrReg = getNextRegFn(g_regBox)
         if elementType == "String" {
-            output.append("  " + arrReg + " = call ptr @seen_arr_new_str_ptr()\n")
+            this.output.append("  " + arrReg + " = call ptr @seen_arr_new_str_ptr()\n")
         } else if isDataTypeState(elementType) {
             let elementSize = getDataTypeSizeState(elementType)
-            output.append("  " + arrReg + " = call ptr @seen_arr_new_with_size_ptr(i64 " + elementSize.toString() + ")\n")
+            this.output.append("  " + arrReg + " = call ptr @seen_arr_new_with_size_ptr(i64 " + elementSize.toString() + ")\n")
         } else {
-            output.append("  " + arrReg + " = call ptr @seen_arr_new_ptr_ptr()\n")
+            this.output.append("  " + arrReg + " = call ptr @seen_arr_new_ptr_ptr()\n")
         }
         return arrReg
     }
@@ -3602,11 +3602,11 @@ class LLVMIRGenerator {
 
     fun emitArrayLiteralElementPush(arrReg: String, argReg: String, argType: String, argIsStructLiteral: Bool) r: Void {
         if argType == "String" {
-            output.append("  call void @seen_arr_push_str(ptr " + arrReg + ", %SeenString " + argReg + ")\n")
+            this.output.append("  call void @seen_arr_push_str(ptr " + arrReg + ", %SeenString " + argReg + ")\n")
             return
         }
         if argType == "Int" {
-            output.append("  call void @seen_arr_push_i64(ptr " + arrReg + ", i64 " + argReg + ")\n")
+            this.output.append("  call void @seen_arr_push_i64(ptr " + arrReg + ", i64 " + argReg + ")\n")
             return
         }
 
@@ -3616,18 +3616,18 @@ class LLVMIRGenerator {
         }
         if isClassTypeState(argType) {
             let tmpClassReg = getNextRegFn(g_regBox)
-            output.append("  " + tmpClassReg + " = alloca i64\n")
-            output.append("  store i64 " + argReg + ", ptr " + tmpClassReg + "\n")
+            this.output.append("  " + tmpClassReg + " = alloca i64\n")
+            this.output.append("  store i64 " + argReg + ", ptr " + tmpClassReg + "\n")
             ptrArgReg = tmpClassReg
         }
         if isDataTypeState(argType) and not argIsStructLiteral {
             let tmpDataReg = getNextRegFn(g_regBox)
-            output.append("  " + tmpDataReg + " = alloca %" + argType + "\n")
-            output.append("  store %" + argType + " " + argReg + ", ptr " + tmpDataReg + "\n")
+            this.output.append("  " + tmpDataReg + " = alloca %" + argType + "\n")
+            this.output.append("  store %" + argType + " " + argReg + ", ptr " + tmpDataReg + "\n")
             ptrArgReg = tmpDataReg
         }
         let pushReg = getNextRegFn(g_regBox)
-        output.append("  " + pushReg + " = call i64 @Array_push(ptr " + arrReg + ", ptr " + ptrArgReg + ")\n")
+        this.output.append("  " + pushReg + " = call i64 @Array_push(ptr " + arrReg + ", ptr " + ptrArgReg + ")\n")
     }
 
     fun generateArrayLiteral(expr: ParserExpressionNode) r: String {
@@ -3662,7 +3662,7 @@ class LLVMIRGenerator {
         if shouldUsePointerIndexAccessImpl(idxBaseType) {
             let piaBaseReg = generateExpression(expr.operands[0])
             let piaIdxReg = generateExpression(expr.operands[1])
-            return emitPreparedPointerIndexAccessImpl(output, g_regBox, piaBaseReg,
+            return emitPreparedPointerIndexAccessImpl(this.output, g_regBox, piaBaseReg,
                 piaIdxReg)
         }
 
@@ -3674,7 +3674,7 @@ class LLVMIRGenerator {
                 let idxBaseReg = generateExpression(expr.operands[0])
                 let idxIdxReg = generateExpression(expr.operands[1])
                 let idxRetLlvm = mapTypeState(idxOpRet)
-                return emitPreparedOperatorIndexAccessCallImpl(output, g_regBox,
+                return emitPreparedOperatorIndexAccessCallImpl(this.output, g_regBox,
                     idxBaseReg, idxIdxReg, idxRetLlvm,
                     quoteIdentIfNeededImpl(idxOpFunc))
             }
@@ -3690,15 +3690,15 @@ class LLVMIRGenerator {
         if arrayReg == "0" and expr.operands[0].variableName == "statements" {
             // Look for any local variable of type BlockNode
             var blockIdx = 0
-            while blockIdx < varTypes.length() {
-                if varTypes[blockIdx] == "BlockNode" {
-                    let blockVarReg = varRegs[blockIdx]
+            while blockIdx < this.varTypes.length() {
+                if this.varTypes[blockIdx] == "BlockNode" {
+                    let blockVarReg = this.varRegs[blockIdx]
                     // Load the block pointer
                     let blockPtrReg = getNextRegFn(g_regBox)
-                    output.append("  " + blockPtrReg + " = load ptr, ptr " + blockVarReg + "\n")
+                    this.output.append("  " + blockPtrReg + " = load ptr, ptr " + blockVarReg + "\n")
                     // Access the statements field
                     arrayReg = generateFieldAccess(blockPtrReg, "BlockNode", "statements")
-                    blockIdx = varTypes.length()  // break
+                    blockIdx = this.varTypes.length()  // break
                 }
                 blockIdx = blockIdx + 1
             }
@@ -3707,7 +3707,7 @@ class LLVMIRGenerator {
         if shouldEmitIndexBoundsCheckImpl(g_boundsCheckEnabled) {
             var boundsCountBox = Array<Int>()
             boundsCountBox.push(g_boundsCheckLabelCount)
-            emitPreparedIndexBoundsCheckImpl(output, g_regBox, arrayReg, indexReg,
+            emitPreparedIndexBoundsCheckImpl(this.output, g_regBox, arrayReg, indexReg,
                 boundsCountBox)
             g_boundsCheckLabelCount = boundsCountBox[0]
             cseClear()
@@ -3723,7 +3723,7 @@ class LLVMIRGenerator {
         if isClassTypeState(typedIndexPlan.elementType) {
             isClassElement = 1
         }
-        return emitPreparedIndexElementAccessImpl(output, g_regBox,
+        return emitPreparedIndexElementAccessImpl(this.output, g_regBox,
             typedIndexPlan.action, arrayReg, indexReg,
             typedIndexPlan.elementType, isDataElement, isClassElement)
     }
@@ -3779,17 +3779,17 @@ class LLVMIRGenerator {
         if swizzleType == "" {
             return ""
         }
-        let swzIdx = findActiveVariableIndexImpl(varNames, activeVarCount, receiverName)
+        let swzIdx = findActiveVariableIndexImpl(this.varNames, activeVarCount, receiverName)
         if swzIdx < 0 {
             return ""
         }
-        return emitSimdSwizzleMemberAccessImpl(output, g_regBox, fieldName, mapTypeState(swzVarType), varRegs[swzIdx])
+        return emitSimdSwizzleMemberAccessImpl(this.output, g_regBox, fieldName, mapTypeState(swzVarType), this.varRegs[swzIdx])
     }
 
     fun tryGenerateExpressionReceiverMemberAccess(receiverExpr: ParserExpressionNode, fieldName: String) r: String {
         let receiverReg = generateExpression(receiverExpr)
         let receiverType = inferExpressionType(receiverExpr)
-        return emitPreparedExpressionReceiverMemberAccessImpl(output, g_regBox,
+        return emitPreparedExpressionReceiverMemberAccessImpl(this.output, g_regBox,
             receiverReg, receiverType, fieldName,
             getFieldTypeState(receiverType, fieldName), structNames, structLayouts,
             structFieldNames, structFieldTypes, g_reprCClassNames,
@@ -3799,13 +3799,13 @@ class LLVMIRGenerator {
     }
 
     fun tryGenerateVariableReceiverMemberAccess(receiverName: String, fieldName: String) r: String {
-        let idx = findActiveVariableIndexImpl(varNames, activeVarCount, receiverName)
+        let idx = findActiveVariableIndexImpl(this.varNames, activeVarCount, receiverName)
         if idx < 0 {
             return ""
         }
-        let varType = varTypes[idx]
-        return emitPreparedVariableReceiverMemberAccessImpl(output, g_regBox,
-            varRegs[idx], varType, fieldName, getFieldTypeState(varType, fieldName),
+        let varType = this.varTypes[idx]
+        return emitPreparedVariableReceiverMemberAccessImpl(this.output, g_regBox,
+            this.varRegs[idx], varType, fieldName, getFieldTypeState(varType, fieldName),
             structNames, structLayouts, structFieldNames, structFieldTypes,
             g_reprCClassNames, g_unionTypes, g_typeAliasNames,
             g_typeAliasTargets, g_typeAliasCount, g_enumTypeNames,
@@ -3825,7 +3825,7 @@ class LLVMIRGenerator {
         }
         let invSuffix = moduleConstantInvariantLoadSuffixImpl(constIdx,
             g_moduleConstMutable)
-        return emitPreparedModuleConstReceiverMemberAccessImpl(output, g_regBox,
+        return emitPreparedModuleConstReceiverMemberAccessImpl(this.output, g_regBox,
             "@" + quoteIdentIfNeededImpl(receiverName), constType, constSeenType,
             invSuffix, fieldName, getFieldTypeState(constSeenType, fieldName),
             structNames, structLayouts, structFieldNames, structFieldTypes,
@@ -3852,19 +3852,19 @@ class LLVMIRGenerator {
         let baseVar = pathParts[0]
         let arrayField = pathParts[1]
 
-        let baseIdx = findActiveVariableIndexImpl(varNames, activeVarCount, baseVar)
+        let baseIdx = findActiveVariableIndexImpl(this.varNames, activeVarCount, baseVar)
         if baseIdx < 0 {
             return ""
         }
 
-        let baseType = varTypes[baseIdx]
+        let baseType = this.varTypes[baseIdx]
         let arrayType = getSeenFieldTypeState(baseType, arrayField)
         var elementType = parseArrayElementTypeImpl(arrayType)
         if elementType == "" and arrayType.startsWith("Array<") and arrayType.endsWith(">") {
             elementType = arrayType.substring(6, arrayType.length() - 1)
         }
-        return emitPreparedBracketPathMemberAccessImpl(output, g_regBox, receiverName,
-            fieldName, baseVar, varRegs[baseIdx], baseType, arrayField,
+        return emitPreparedBracketPathMemberAccessImpl(this.output, g_regBox, receiverName,
+            fieldName, baseVar, this.varRegs[baseIdx], baseType, arrayField,
             getFieldTypeState(baseType, arrayField), indexStr, elementType,
             getFieldTypeState(elementType, fieldName), structNames, structLayouts,
             structFieldNames, structFieldTypes, g_reprCClassNames,
@@ -3884,18 +3884,18 @@ class LLVMIRGenerator {
             return ""
         }
 
-        let baseIdx = findActiveVariableIndexImpl(varNames, activeVarCount, baseVarName)
+        let baseIdx = findActiveVariableIndexImpl(this.varNames, activeVarCount, baseVarName)
         if baseIdx < 0 {
             return ""
         }
-        let baseType = varTypes[baseIdx]
+        let baseType = this.varTypes[baseIdx]
         var intermediateType = resolveChainedPathSuffixTypeImpl(baseType, restPath,
             structNames, structFieldNames, structFieldTypes, structMethodNames, structMethodRetTypes)
         if intermediateType == "" {
             intermediateType = "ProgramNode"
         }
-        return emitPreparedChainedReceiverMemberAccessImpl(output, g_regBox,
-            fieldName, varRegs[baseIdx], baseType, restPath, intermediateType,
+        return emitPreparedChainedReceiverMemberAccessImpl(this.output, g_regBox,
+            fieldName, this.varRegs[baseIdx], baseType, restPath, intermediateType,
             getFieldTypeState(intermediateType, fieldName), structNames,
             structLayouts, structFieldNames, structFieldTypes,
             g_reprCClassNames, g_unionTypes, g_typeAliasNames,
@@ -3904,11 +3904,11 @@ class LLVMIRGenerator {
     }
 
     fun tryGenerateImplicitThisReceiverMemberAccess(receiverName: String, fieldName: String) r: String {
-        let thisIdx = findActiveVariableIndexImpl(varNames, activeVarCount, "this")
+        let thisIdx = findActiveVariableIndexImpl(this.varNames, activeVarCount, "this")
         if thisIdx < 0 {
             return ""
         }
-        let thisType = varTypes[thisIdx]
+        let thisType = this.varTypes[thisIdx]
         var intermediateType = ""
         if receiverName.contains(".") {
             intermediateType = resolveMethodFieldPathTypeImpl(thisType,
@@ -3924,8 +3924,8 @@ class LLVMIRGenerator {
         if intermediateType == "" {
             return ""
         }
-        return emitPreparedImplicitThisReceiverMemberAccessImpl(output, g_regBox,
-            receiverName, fieldName, varRegs[thisIdx], thisType,
+        return emitPreparedImplicitThisReceiverMemberAccessImpl(this.output, g_regBox,
+            receiverName, fieldName, this.varRegs[thisIdx], thisType,
             intermediateType, getFieldTypeState(intermediateType, fieldName),
             structNames, structLayouts, structFieldNames, structFieldTypes,
             g_reprCClassNames, g_unionTypes, g_typeAliasNames,
@@ -4038,7 +4038,7 @@ class LLVMIRGenerator {
     incorrect and could cause LLVM to cache stale pointers.
     ///
     fun generateFieldAccess(ptrReg: String, structType: String, fieldName: String) r: String {
-        return generateFieldAccessImpl(output, g_regBox, ptrReg, structType,
+        return generateFieldAccessImpl(this.output, g_regBox, ptrReg, structType,
             fieldName, getFieldTypeState(structType, fieldName), structNames,
             structLayouts, structFieldNames, structFieldTypes,
             g_reprCClassNames, g_unionTypes, g_typeAliasNames,
@@ -4051,7 +4051,7 @@ class LLVMIRGenerator {
     Used for methods like push that need to modify the field in place
     ///
     fun generateFieldAccessPtr(ptrReg: String, structType: String, fieldName: String) r: String {
-        return generateFieldAccessPtrImpl(output, g_regBox, ptrReg,
+        return generateFieldAccessPtrImpl(this.output, g_regBox, ptrReg,
             structType, fieldName, structNames, structLayouts,
             structFieldNames, g_unionTypes)
     }
@@ -4140,12 +4140,12 @@ class LLVMIRGenerator {
     fun allocateStructLiteralStorage(structSize: Int) r: String {
         let mallocReg = getNextRegFn(g_regBox)
         if structSize <= 80 {
-            output.append("  " + mallocReg + " = call ptr @seen_pool_alloc(i64 " + structSize.toString() + ")\n")
+            this.output.append("  " + mallocReg + " = call ptr @seen_pool_alloc(i64 " + structSize.toString() + ")\n")
         }
         if structSize > 80 {
-            output.append("  " + mallocReg + " = call ptr @malloc(i64 " + structSize.toString() + ")\n")
+            this.output.append("  " + mallocReg + " = call ptr @malloc(i64 " + structSize.toString() + ")\n")
         }
-        output.append("  ; escape-analysis: heap-to-stack candidate (" + structSize.toString() + " bytes)\n")
+        this.output.append("  ; escape-analysis: heap-to-stack candidate (" + structSize.toString() + " bytes)\n")
         return mallocReg
     }
 
@@ -4225,7 +4225,7 @@ class LLVMIRGenerator {
                     fieldType.startsWith("%") {
 
                     let loadedFieldReg = getNextRegFn(g_regBox)
-                    output.append("  " + loadedFieldReg + " = load " +
+                    this.output.append("  " + loadedFieldReg + " = load " +
                         fieldType + ", ptr " + fieldReg + "\n")
                     fieldReg = loadedFieldReg
                 } else {
@@ -4233,7 +4233,7 @@ class LLVMIRGenerator {
                     let rawFieldReg = fieldReg
                     fieldReg = coerceValueForLlvmTarget(fieldType,
                         fieldValueSeenType, fieldReg)
-                    fieldReg = coerceMethodCallHandleAssignmentImpl(output,
+                    fieldReg = coerceMethodCallHandleAssignmentImpl(this.output,
                         g_regBox, fieldType, fieldValueSeenType, rawFieldReg,
                         fieldValueExpr.kind, fieldReg, structNames)
                 }
@@ -4244,11 +4244,11 @@ class LLVMIRGenerator {
             fieldIdx = fieldIdx + 1
         }
 
-        emitStructFieldStoresImpl(output, g_regBox, structLayout, mallocReg, slFieldRegs, slFieldTypes, slGepIndices)
+        emitStructFieldStoresImpl(this.output, g_regBox, structLayout, mallocReg, slFieldRegs, slFieldTypes, slGepIndices)
 
         if isClassTypeState(structName) {
             let i64Reg = getNextRegFn(g_regBox)
-            output.append("  " + i64Reg + " = ptrtoint ptr " + mallocReg + " to i64\n")
+            this.output.append("  " + i64Reg + " = ptrtoint ptr " + mallocReg + " to i64\n")
             return i64Reg
         }
 
@@ -4276,7 +4276,7 @@ class LLVMIRGenerator {
 
     ///
     Generate IR for a variable reference. Looks up the variable in
-    varNames[] (via findVar, searching backwards for shadowing), then
+    this.varNames[] (via findVar, searching backwards for shadowing), then
     emits a load from the alloca register. Falls back to module constants
     (@global_name), enum variant tags (i64 constants), and 'this' field
     access if the bare name matches a struct field on the current class.
@@ -4288,7 +4288,7 @@ class LLVMIRGenerator {
     fun tryEmitMovedVariableRead(varName: String) r: Int {
         if isMovedVariableImpl(getCurrentFunctionEmissionStateImpl(),
             varName) == 1 {
-            emitMovedVariableUseTrapImpl(output, varName)
+            emitMovedVariableUseTrapImpl(this.output, varName)
             return 1
         }
         return 0
@@ -4298,24 +4298,24 @@ class LLVMIRGenerator {
         if g_comptimeCount > 0 {
             let ctVal = lookupComptimeVarState(varName)
             if ctVal != -9999999 {
-                return emitComptimeVariableLoadImpl(output, g_regBox, ctVal)
+                return emitComptimeVariableLoadImpl(this.output, g_regBox, ctVal)
             }
         }
         return ""
     }
 
     fun tryGenerateImplicitThisVariable(varName: String) r: String {
-        let thisIdx = findActiveVariableIndexImpl(varNames, activeVarCount, "this")
+        let thisIdx = findActiveVariableIndexImpl(this.varNames, activeVarCount, "this")
         if thisIdx < 0 {
             return ""
         }
 
-        let thisReg = varRegs[thisIdx]
-        let thisType = varTypes[thisIdx]
+        let thisReg = this.varRegs[thisIdx]
+        let thisType = this.varTypes[thisIdx]
         if thisType == "LLVMIRGenerator" {
             let idxCheck = getLLVMIRGeneratorFieldIndexImpl(varName)
             if idxCheck >= 0 {
-                let thisPtrReg = emitImplicitThisPointerLoadImpl(output, g_regBox, thisReg)
+                let thisPtrReg = emitImplicitThisPointerLoadImpl(this.output, g_regBox, thisReg)
                 return generateFieldAccess(thisPtrReg, thisType, varName)
             }
         }
@@ -4330,7 +4330,7 @@ class LLVMIRGenerator {
             return ""
         }
 
-        let thisPtrReg = emitImplicitThisPointerLoadImpl(output, g_regBox, thisReg)
+        let thisPtrReg = emitImplicitThisPointerLoadImpl(this.output, g_regBox, thisReg)
         return generateFieldAccess(thisPtrReg, thisType, varName)
     }
 
@@ -4340,11 +4340,11 @@ class LLVMIRGenerator {
             let invSuffix = moduleConstantInvariantLoadSuffixImpl(constIdx,
                 g_moduleConstMutable)
             let constType = moduleConstantTypes[constIdx]
-            let loadReg = emitModuleConstantLoadImpl(output, g_regBox,
+            let loadReg = emitModuleConstantLoadImpl(this.output, g_regBox,
                 "@" + varName, moduleConstantTypes[constIdx], invSuffix)
             let seenType = getModuleConstSeenTypeImpl(constIdx,
                 g_moduleConstSeenTypes)
-            return narrowModuleConstantLoadIfNeededImpl(output, g_regBox,
+            return narrowModuleConstantLoadIfNeededImpl(this.output, g_regBox,
                 constType, loadReg, seenType, mapTypeState(seenType))
         }
 
@@ -4356,7 +4356,7 @@ class LLVMIRGenerator {
         let fpRetType = getFunctionReturnTypeStateImpl(varName, funcNames,
             funcRetTypes)
         if fpRetType != "" {
-            return emitFunctionPointerInteropLoadImpl(output, g_regBox,
+            return emitFunctionPointerInteropLoadImpl(this.output, g_regBox,
                 "@" + quoteIdentIfNeededImpl(varName))
         }
         return ""
@@ -4377,7 +4377,7 @@ class LLVMIRGenerator {
             return ctReg
         }
 
-        let idx = findActiveVariableIndexImpl(varNames, activeVarCount, varName)
+        let idx = findActiveVariableIndexImpl(this.varNames, activeVarCount, varName)
         if idx < 0 {
             let fallbackReg = tryGenerateFallbackVariable(varName)
             if fallbackReg != "" {
@@ -4386,8 +4386,8 @@ class LLVMIRGenerator {
             return "0"
         }
 
-        return emitLocalVariableLoadImpl(output, g_regBox,
-            mapTypeState(varTypes[idx]), varRegs[idx])
+        return emitLocalVariableLoadImpl(this.output, g_regBox,
+            mapTypeState(this.varTypes[idx]), this.varRegs[idx])
     }
 
     ///
@@ -4418,7 +4418,7 @@ class LLVMIRGenerator {
         if shouldTryPointerArithmeticBinaryImpl(leftType, expr.operator) {
             let paLeftReg = generateExpression(leftExpr)
             let paRightReg = generateExpression(rightExpr)
-            let paResult = emitPreparedPointerArithmeticBinaryImpl(output, g_regBox,
+            let paResult = emitPreparedPointerArithmeticBinaryImpl(this.output, g_regBox,
                 expr.operator, leftType, rightType, paLeftReg, paRightReg)
             if paResult != "" {
                 return paResult
@@ -4432,7 +4432,7 @@ class LLVMIRGenerator {
             let simdLlvmType = mapTypeState(leftType)
             let simdLeftReg = generateExpression(leftExpr)
             let simdRightReg = generateExpression(rightExpr)
-            let simdResult = emitPreparedSimdBinaryExprImpl(output, g_regBox,
+            let simdResult = emitPreparedSimdBinaryExprImpl(this.output, g_regBox,
                 expr.operator, leftType, simdLlvmType, simdLeftReg, simdRightReg)
             if simdResult != "" {
                 return simdResult
@@ -4457,7 +4457,7 @@ class LLVMIRGenerator {
                 if selfPlan.returnLeft {
                     return generateExpression(leftExpr)
                 }
-                let selfFoldReg = emitPreparedSelfComparisonConstResultImpl(output,
+                let selfFoldReg = emitPreparedSelfComparisonConstResultImpl(this.output,
                     g_regBox, selfAction, expr.operator)
                 if selfFoldReg != "" {
                     g_constantsFolded = g_constantsFolded + 1
@@ -4490,7 +4490,7 @@ class LLVMIRGenerator {
                 if actionPlan.shouldGenerateLeftReg {
                     egLeftReg = generateExpression(leftExpr)
                 }
-                let egResult = emitPreparedIntPeepholeBinaryActionImpl(output, g_regBox, action, egLeftReg, expr.operator)
+                let egResult = emitPreparedIntPeepholeBinaryActionImpl(this.output, g_regBox, action, egLeftReg, expr.operator)
                 if egResult != "" {
                     return egResult
                 }
@@ -4517,7 +4517,7 @@ class LLVMIRGenerator {
                         let innerLeftReg =
                             generateExpression(leftExpr.operands[0])
                         let assocResultReg =
-                            emitPreparedAssociativeIntFoldResultImpl(output,
+                            emitPreparedAssociativeIntFoldResultImpl(this.output,
                                 g_regBox, expr.operator, innerLeftReg,
                                 combinedVal)
                         if assocResultReg != "" {
@@ -4542,7 +4542,7 @@ class LLVMIRGenerator {
                 mlLogDecision("const-fold", "cmp-folded",
                     buildBinaryFoldLogValueImpl(leftLitVal,
                     expr.operator, rightLitVal, cmpResult))
-                return emitPreparedFoldedBoolLiteralBinaryResultImpl(output,
+                return emitPreparedFoldedBoolLiteralBinaryResultImpl(this.output,
                     g_regBox, cmpResult)
             }
             // Constant folding: both operands are IntLiteral → compute at compile time
@@ -4558,7 +4558,7 @@ class LLVMIRGenerator {
                 mlLogDecision("const-fold", "folded",
                     buildBinaryFoldLogValueImpl(leftLitVal,
                     expr.operator, rightLitVal, folded))
-                return emitPreparedFoldedIntLiteralBinaryResultImpl(output,
+                return emitPreparedFoldedIntLiteralBinaryResultImpl(this.output,
                     g_regBox, folded)
             }
         }
@@ -4589,7 +4589,7 @@ class LLVMIRGenerator {
                 if fActionPlan.shouldGenerateLeftReg {
                     fgLeftReg = generateExpression(leftExpr)
                 }
-                let fResult = emitPreparedFloatPeepholeBinaryActionImpl(output, g_regBox, fAction, fgLeftReg, fgRightReg, expr.operator)
+                let fResult = emitPreparedFloatPeepholeBinaryActionImpl(this.output, g_regBox, fAction, fgLeftReg, fgRightReg, expr.operator)
                 if fResult != "" {
                     return fResult
                 }
@@ -4611,7 +4611,7 @@ class LLVMIRGenerator {
                     let fmaAReg = generateExpression(rightExpr.operands[0])
                     let fmaBReg = generateExpression(rightExpr.operands[1])
                     let fmaCReg = generateExpression(leftExpr)
-                    return emitPreparedFmaTripleCallImpl(output, g_regBox,
+                    return emitPreparedFmaTripleCallImpl(this.output, g_regBox,
                         fmaAReg, rLeftType, fmaBReg, rRightType, fmaCReg,
                         leftType, "c + a*b")
                 }
@@ -4624,7 +4624,7 @@ class LLVMIRGenerator {
                     let fmaAReg = generateExpression(leftExpr.operands[0])
                     let fmaBReg = generateExpression(leftExpr.operands[1])
                     let fmaCReg = generateExpression(rightExpr)
-                    return emitPreparedFmaTripleCallImpl(output, g_regBox,
+                    return emitPreparedFmaTripleCallImpl(this.output, g_regBox,
                         fmaAReg, lLeftType, fmaBReg, lRightType, fmaCReg,
                         rightType, "a*b + c")
                 }
@@ -4666,14 +4666,14 @@ class LLVMIRGenerator {
         let overloadedBinaryPlan = planOverloadedBinaryState(expr.operator,
             leftType, funcNames, funcRetTypes)
         if overloadedBinaryPlan.funcName != "" {
-            return emitPreparedOverloadedBinaryCallImpl(output, g_regBox,
+            return emitPreparedOverloadedBinaryCallImpl(this.output, g_regBox,
                 quoteIdentIfNeededImpl(overloadedBinaryPlan.funcName),
                 overloadedBinaryPlan.retLlvmType, leftReg, rightReg)
         }
         // --- End operator overloading ---
 
         // Delegate to extracted binary op impl
-        let coreBinaryResult = emitPreparedCoreBinaryOpState(output, g_regBox,
+        let coreBinaryResult = emitPreparedCoreBinaryOpState(this.output, g_regBox,
             g_boundsCheckLabelCount, expr.operator, leftReg, rightReg,
             leftType, rightType, leftExpr.kind, leftExpr.literalValue,
             leftExpr.variableName, rightExpr.kind, rightExpr.literalValue,
@@ -4715,33 +4715,33 @@ class LLVMIRGenerator {
         let leftReg = generateExpression(leftExpr)
 
         // Bridge to known block for phi correctness
-        emitShortCircuitCheckBridgeImpl(output, labels.checkLabel)
+        emitShortCircuitCheckBridgeImpl(this.output, labels.checkLabel)
         cseClear()
 
         // Convert left to i1 if needed
-        let leftBool = emitBoolCoercionImpl(output, g_regBox, leftReg, leftType, leftExpr.operator)
+        let leftBool = emitBoolCoercionImpl(this.output, g_regBox, leftReg, leftType, leftExpr.operator)
 
         // If left is true, evaluate right; otherwise skip to merge with false
-        emitShortCircuitAndDecisionImpl(output, leftBool,
+        emitShortCircuitAndDecisionImpl(this.output, leftBool,
             labels.rightLabel, labels.mergeLabel)
 
         // Right side block
-        emitShortCircuitRightLabelImpl(output, labels.rightLabel)
+        emitShortCircuitRightLabelImpl(this.output, labels.rightLabel)
         cseClear()
         let rightReg = generateExpression(rightExpr)
 
         // Bridge to known block after right evaluation
-        emitShortCircuitDoneBridgeImpl(output, labels.doneLabel)
+        emitShortCircuitDoneBridgeImpl(this.output, labels.doneLabel)
         cseClear()
 
         // Convert right to i1 if needed
-        let rightBool = emitBoolCoercionImpl(output, g_regBox, rightReg, rightType, rightExpr.operator)
+        let rightBool = emitBoolCoercionImpl(this.output, g_regBox, rightReg, rightType, rightExpr.operator)
 
-        emitShortCircuitMergeJumpImpl(output, labels.mergeLabel)
+        emitShortCircuitMergeJumpImpl(this.output, labels.mergeLabel)
 
         // Merge block with phi
         cseClear()
-        return emitShortCircuitPhiImpl(output, g_regBox, labels.mergeLabel,
+        return emitShortCircuitPhiImpl(this.output, g_regBox, labels.mergeLabel,
             "false", labels.checkLabel, rightBool, labels.doneLabel)
     }
 
@@ -4763,33 +4763,33 @@ class LLVMIRGenerator {
         let leftReg = generateExpression(leftExpr)
 
         // Bridge to known block for phi correctness
-        emitShortCircuitCheckBridgeImpl(output, labels.checkLabel)
+        emitShortCircuitCheckBridgeImpl(this.output, labels.checkLabel)
         cseClear()
 
         // Convert left to i1 if needed
-        let leftBool = emitBoolCoercionImpl(output, g_regBox, leftReg, leftType, leftExpr.operator)
+        let leftBool = emitBoolCoercionImpl(this.output, g_regBox, leftReg, leftType, leftExpr.operator)
 
         // If left is true, skip to merge with true; otherwise evaluate right
-        emitShortCircuitOrDecisionImpl(output, leftBool,
+        emitShortCircuitOrDecisionImpl(this.output, leftBool,
             labels.rightLabel, labels.mergeLabel)
 
         // Right side block
-        emitShortCircuitRightLabelImpl(output, labels.rightLabel)
+        emitShortCircuitRightLabelImpl(this.output, labels.rightLabel)
         cseClear()
         let rightReg = generateExpression(rightExpr)
 
         // Bridge to known block after right evaluation
-        emitShortCircuitDoneBridgeImpl(output, labels.doneLabel)
+        emitShortCircuitDoneBridgeImpl(this.output, labels.doneLabel)
         cseClear()
 
         // Convert right to i1 if needed
-        let rightBool = emitBoolCoercionImpl(output, g_regBox, rightReg, rightType, rightExpr.operator)
+        let rightBool = emitBoolCoercionImpl(this.output, g_regBox, rightReg, rightType, rightExpr.operator)
 
-        emitShortCircuitMergeJumpImpl(output, labels.mergeLabel)
+        emitShortCircuitMergeJumpImpl(this.output, labels.mergeLabel)
 
         // Merge block with phi
         cseClear()
-        return emitShortCircuitPhiImpl(output, g_regBox, labels.mergeLabel,
+        return emitShortCircuitPhiImpl(this.output, g_regBox, labels.mergeLabel,
             "true", labels.checkLabel, rightBool, labels.doneLabel)
     }
 
@@ -4818,7 +4818,7 @@ class LLVMIRGenerator {
                             let ctpVal = evaluateConstExprState(expr.arguments[ctpParamIdx])
                             if ctpVal != -9999999 {
                                 registerComptimeVarState(ctpParamName, ctpVal)
-                                output.append("  ; comptime param " + ctpParamName + " = " + ctpVal.toString() + "\n")
+                                this.output.append("  ; comptime param " + ctpParamName + " = " + ctpVal.toString() + "\n")
                             }
                         }
                     }
@@ -4867,13 +4867,13 @@ class LLVMIRGenerator {
 
         if metaPlan.action == 4 {
             if g_insideUnsafe == 0 {
-                output.append("  ; ERROR: transmute requires unsafe block\n")
+                this.output.append("  ; ERROR: transmute requires unsafe block\n")
                 return "0"
             }
             if metaPlan.hasArg0 {
                 let tmSrcReg = generateExpression(expr.arguments[0])
                 let tmSrcType = inferExpressionType(expr.arguments[0])
-                return emitTransmuteImpl(output, g_regBox, tmSrcReg,
+                return emitTransmuteImpl(this.output, g_regBox, tmSrcReg,
                     mapTypeState(tmSrcType), mapTypeState(metaPlan.targetTypeName))
             }
             return "0"
@@ -4883,16 +4883,16 @@ class LLVMIRGenerator {
             if metaPlan.hasArg0 {
                 let inclPath = expr.arguments[0].literalValue
                 let inclInfo = loadEmbeddedStringConstantInfoImpl(
-                    stringConstants, inclPath)
+                    this.stringConstants, inclPath)
                 if inclInfo.length() >= 3 {
-                    return emitIncludeStrImpl(output, g_regBox, inclInfo[0],
+                    return emitIncludeStrImpl(this.output, g_regBox, inclInfo[0],
                         inclInfo[1], stringConstantPrefix,
                         parseIntManual(inclInfo[2]))
                 }
-                output.append("  ; WARNING: includeStr file not found: " + inclPath + "\n")
+                this.output.append("  ; WARNING: includeStr file not found: " + inclPath + "\n")
             }
             let inclEmptyReg = getNextRegFn(g_regBox)
-            output.append("  " + inclEmptyReg + " = insertvalue %SeenString undef, i64 0, 0\n")
+            this.output.append("  " + inclEmptyReg + " = insertvalue %SeenString undef, i64 0, 0\n")
             return inclEmptyReg
         }
 
@@ -4900,9 +4900,9 @@ class LLVMIRGenerator {
             if metaPlan.hasArg0 {
                 let inclBPath = expr.arguments[0].literalValue
                 let inclBInfo = loadEmbeddedStringConstantInfoImpl(
-                    stringConstants, inclBPath)
+                    this.stringConstants, inclBPath)
                 if inclBInfo.length() >= 3 {
-                    return emitIncludeBytesImpl(output, g_regBox,
+                    return emitIncludeBytesImpl(this.output, g_regBox,
                         inclBInfo[0], inclBInfo[1], stringConstantPrefix,
                         parseIntManual(inclBInfo[2]))
                 }
@@ -4928,7 +4928,7 @@ class LLVMIRGenerator {
         let lowPlan = planLowLevelBuiltinCallImpl(funcName,
             expr.arguments.length(), isPtrBuiltinCallImpl(funcName),
             isSimdBuiltinCallImpl(funcName, isSimdVectorTypeImpl(funcName)),
-            varNames, activeVarCount, g_enumVariantCount, lowIsVariantCall,
+            this.varNames, activeVarCount, g_enumVariantCount, lowIsVariantCall,
             lowVariantFieldCount)
         let lowArgPlan = planLowLevelBuiltinArgumentReadsImpl(lowPlan.action,
             lowPlan.hasArg0, lowPlan.hasArg1, lowPlan.hasArg2)
@@ -4949,7 +4949,7 @@ class LLVMIRGenerator {
         if lowPlan.action >= 1 and lowPlan.action <= 9 {
             var boundsCountBox = Array<Int>()
             boundsCountBox.push(g_boundsCheckLabelCount)
-            let lowResult = emitPreparedLowLevelBuiltinActionImpl(output,
+            let lowResult = emitPreparedLowLevelBuiltinActionImpl(this.output,
                 g_regBox, lowPlan.action, funcName, g_insideUnsafe,
                 g_boundsCheckEnabled, lowArg0, lowArg1, lowArg2, "", "",
                 Array<Int>(), Array<String>(), Array<String>(), Array<Int>(),
@@ -4968,7 +4968,7 @@ class LLVMIRGenerator {
                 var yieldCounterBox = Array<Int>()
                 let functionEmission = getCurrentFunctionEmissionStateImpl()
                 yieldCounterBox.push(functionEmission.yieldCounter)
-                let yieldResult = emitPreparedLowLevelBuiltinActionImpl(output,
+                let yieldResult = emitPreparedLowLevelBuiltinActionImpl(this.output,
                     g_regBox, lowPlan.action, funcName, g_insideUnsafe,
                     g_boundsCheckEnabled, lowArg0, lowArg1, lowArg2,
                     functionEmission.asyncCoroHdl,
@@ -4999,7 +4999,7 @@ class LLVMIRGenerator {
                 }
                 simdPreArgIdx = simdPreArgIdx + 1
             }
-            let simdResult = emitPreparedLowLevelBuiltinActionImpl(output,
+            let simdResult = emitPreparedLowLevelBuiltinActionImpl(this.output,
                 g_regBox, lowPlan.action, funcName, g_insideUnsafe,
                 g_boundsCheckEnabled, lowArg0, lowArg1, lowArg2, "", "",
                 Array<Int>(), simdArgs, simdArgTypes, simdConstIndices, "",
@@ -5017,11 +5017,11 @@ class LLVMIRGenerator {
                 icArgRegs.push(icArgReg)
                 icArgIdx = icArgIdx + 1
             }
-            return emitPreparedLowLevelBuiltinActionImpl(output, g_regBox,
+            return emitPreparedLowLevelBuiltinActionImpl(this.output, g_regBox,
                 lowPlan.action, funcName, g_insideUnsafe, g_boundsCheckEnabled,
                 lowArg0, lowArg1, lowArg2, "", "", Array<Int>(),
                 Array<String>(), Array<String>(), Array<Int>(),
-                varRegs[lowPlan.indirectVarIndex], icArgRegs, Array<Int>())
+                this.varRegs[lowPlan.indirectVarIndex], icArgRegs, Array<Int>())
         }
 
         if lowArgPlan.shouldGenerateEnumConstructor {
@@ -5053,7 +5053,7 @@ class LLVMIRGenerator {
         if arrayCtorPlan.mode == 1 {
             let countReg = generateExpression(expr.arguments[0])
             let valueReg = generateExpression(expr.arguments[1])
-            return emitArrayBulkInitImpl(output, g_regBox, g_blockBox, countReg, valueReg,
+            return emitArrayBulkInitImpl(this.output, g_regBox, g_blockBox, countReg, valueReg,
                 arrayCtorPlan.elementType, arrayCtorPlan.isZeroFill,
                 currentFunctionAlignToImpl(getCurrentFunctionOptions()))
         }
@@ -5062,12 +5062,12 @@ class LLVMIRGenerator {
             let capReg = generateExpression(expr.arguments[0])
             let elemSz = resolveArrayConstructorElementSizeImpl(funcName,
                 arrayCtorPlan.elementType, structNames, structSizes)
-            return emitArrayPreallocImpl(output, g_regBox, capReg, elemSz)
+            return emitArrayPreallocImpl(this.output, g_regBox, capReg, elemSz)
         }
 
         let elemSize = resolveArrayConstructorElementSizeImpl(funcName,
             arrayCtorPlan.elementType, structNames, structSizes)
-        return emitArrayInlineImpl(output, g_regBox, elemSize,
+        return emitArrayInlineImpl(this.output, g_regBox, elemSize,
             currentFunctionAlignToImpl(getCurrentFunctionOptions()))
     }
 
@@ -5080,7 +5080,7 @@ class LLVMIRGenerator {
         if shouldReadFirstConstructorArgImpl(expr.arguments.length()) {
             svCapArgReg = generateExpression(expr.arguments[0])
         }
-        return emitSmallVecConstructorImpl(output, g_regBox, funcName, svCapArgReg)
+        return emitSmallVecConstructorImpl(this.output, g_regBox, funcName, svCapArgReg)
     }
 
     fun tryGenerateCollectionConstructorCall(expr: ParserExpressionNode, funcName: String) r: String {
@@ -5092,7 +5092,7 @@ class LLVMIRGenerator {
         if shouldReadFirstConstructorArgImpl(expr.arguments.length()) {
             colCapArg = generateExpression(expr.arguments[0])
         }
-        return emitCollectionConstructorImpl(output, g_regBox, funcName, colCapArg, expr.arguments.length())
+        return emitCollectionConstructorImpl(this.output, g_regBox, funcName, colCapArg, expr.arguments.length())
     }
 
     fun isReprCConstructorType(funcName: String) r: Bool {
@@ -5127,7 +5127,7 @@ class LLVMIRGenerator {
             reprCArgIdx = reprCArgIdx + 1
             typePos = reprCFieldPlan.nextTypePos
         }
-        return emitPreparedReprCConstructorImpl(output, g_regBox, funcName,
+        return emitPreparedReprCConstructorImpl(this.output, g_regBox, funcName,
             reprCArgRegs, reprCFieldTypes)
     }
 
@@ -5169,7 +5169,7 @@ class LLVMIRGenerator {
                 ctorStoreReg = coerceValueForLlvmTarget(ctorStoreLlvmType,
                     ctorArgSeenType, ctorArgReg)
             }
-            emitPreparedClassConstructorFieldStoreImpl(output, ctorFieldPtrReg,
+            emitPreparedClassConstructorFieldStoreImpl(this.output, ctorFieldPtrReg,
                 ptrReg, ctorStorePlan.fieldOffset, ctorStoreLlvmType,
                 ctorStoreReg,
                 ctorArgExpr.kind == "StructLiteral", ctorIsDataField,
@@ -5185,14 +5185,14 @@ class LLVMIRGenerator {
             return ""
         }
 
-        let ptrReg = emitClassHeapAllocationImpl(output, g_regBox, structIdx,
+        let ptrReg = emitClassHeapAllocationImpl(this.output, g_regBox, structIdx,
             structNames, structSizes, structLayouts)
-        emitClassArrayFieldInitializersImpl(output, g_regBox, ptrReg,
+        emitClassArrayFieldInitializersImpl(this.output, g_regBox, ptrReg,
             structIdx, structNames, structSizes, structLayouts,
             structFieldNames, structFieldTypes)
         emitClassConstructorArgumentStores(expr, ptrReg, structIdx)
         let intReg = getNextRegFn(g_regBox)
-        output.append("  " + intReg + " = ptrtoint ptr " + ptrReg + " to i64\n")
+        this.output.append("  " + intReg + " = ptrtoint ptr " + ptrReg + " to i64\n")
         return intReg
     }
 
@@ -5240,18 +5240,18 @@ class LLVMIRGenerator {
         }
         var isClassArg = 0
         if isClassTypeState(argType) { isClassArg = 1 }
-        return emitOptionRuntimeBuiltinCallImpl(output, g_regBox, funcName,
+        return emitOptionRuntimeBuiltinCallImpl(this.output, g_regBox, funcName,
             argReg, argType, isClassArg)
     }
 
     fun tryGenerateSuperRuntimeBuiltinCall(funcName: String) r: String {
         if isSuperRuntimeCallPlanImpl(funcName) {
             if g_currentClassParentName != "" {
-                let thisIdx = findActiveVariableIndexImpl(varNames, activeVarCount, "this")
+                let thisIdx = findActiveVariableIndexImpl(this.varNames, activeVarCount, "this")
                 if thisIdx >= 0 {
-                    return emitSuperRuntimeBuiltinCallImpl(output, g_regBox,
+                    return emitSuperRuntimeBuiltinCallImpl(this.output, g_regBox,
                         quoteIdentIfNeededImpl(g_currentClassParentName + "_init"),
-                        varRegs[thisIdx])
+                        this.varRegs[thisIdx])
                 }
             }
             return "0"
@@ -5278,7 +5278,7 @@ class LLVMIRGenerator {
         if shouldReadPrintRuntimeArgImpl(funcName, expr.arguments.length()) {
             let argType = inferExpressionType(expr.arguments[0])
             let argReg = generateExpression(expr.arguments[0])
-            return emitPrintLikeCallImpl(output, g_regBox, funcName, argReg,
+            return emitPrintLikeCallImpl(this.output, g_regBox, funcName, argReg,
                 argType)
         }
         return "0"
@@ -5293,22 +5293,22 @@ class LLVMIRGenerator {
 
         if ioAction == 1 {
             let argReg = generateExpression(expr.arguments[0])
-            return emitReadTextRuntimeCallImpl(output, g_regBox, argReg)
+            return emitReadTextRuntimeCallImpl(this.output, g_regBox, argReg)
         }
 
         if ioAction == 2 {
             let pathReg = generateExpression(expr.arguments[0])
             let contentReg = generateExpression(expr.arguments[1])
-            return emitWriteTextRuntimeCallImpl(output, g_regBox, pathReg, contentReg)
+            return emitWriteTextRuntimeCallImpl(this.output, g_regBox, pathReg, contentReg)
         }
 
         if ioAction == 3 {
-            return emitArgsRuntimeCallImpl(output, g_regBox)
+            return emitArgsRuntimeCallImpl(this.output, g_regBox)
         }
 
         if ioAction == 5 {
             let pathReg = generateExpression(expr.arguments[0])
-            return emitReadFileBytesPathRuntimeCallImpl(output, g_regBox,
+            return emitReadFileBytesPathRuntimeCallImpl(this.output, g_regBox,
                 pathReg)
         }
         return "0"
@@ -5320,7 +5320,7 @@ class LLVMIRGenerator {
         }
         if shouldReadPanicRuntimeArgImpl(funcName, expr.arguments.length()) {
             let argReg = generateExpression(expr.arguments[0])
-            return emitPanicRuntimeCallImpl(output, g_regBox, argReg)
+            return emitPanicRuntimeCallImpl(this.output, g_regBox, argReg)
         }
         return "0"
     }
@@ -5373,17 +5373,17 @@ class LLVMIRGenerator {
     }
 
     fun tryGenerateImplicitThisCall(expr: ParserExpressionNode, funcName: String) r: String {
-        let thisIdx = findActiveVariableIndexImpl(varNames, activeVarCount, "this")
+        let thisIdx = findActiveVariableIndexImpl(this.varNames, activeVarCount, "this")
         if thisIdx < 0 {
             return ""
         }
 
-        let thisType = varTypes[thisIdx]
+        let thisType = this.varTypes[thisIdx]
         let misplacedRetType = resolveRealParserMisplacedMethodReturnTypeImpl(funcName)
         let misplacedPlan = planImplicitThisCallImpl(thisIdx, thisType,
             misplacedRetType, "", false, expr.arguments.length())
         if misplacedPlan.shouldUseMisplacedRealParserMethod {
-            let thisReg = varRegs[thisIdx]
+            let thisReg = this.varRegs[thisIdx]
             let methodFuncName = thisType + "_" + funcName
             prepareCallArgumentsWithDefaults(methodFuncName, expr.arguments,
                 false, false, false, "")
@@ -5392,7 +5392,7 @@ class LLVMIRGenerator {
 
             let mpTailCall = implicitThisTailCallFlagImpl(
                 takeTailCallPositionImpl(getCurrentFunctionOptions()))
-            return emitPreparedMisplacedParserImplicitThisCallImpl(output,
+            return emitPreparedMisplacedParserImplicitThisCallImpl(this.output,
                 g_regBox, quoteIdentIfNeededImpl(methodFuncName),
                 misplacedRetType, thisReg, argRegs, argTypeStrs, mpTailCall)
         }
@@ -5405,7 +5405,7 @@ class LLVMIRGenerator {
             misplacedRetType, methodRetType,
             isStringBuilderRuntimeMethodImpl(funcName), expr.arguments.length())
 
-        let thisReg = varRegs[thisIdx]
+        let thisReg = this.varRegs[thisIdx]
         let methodFuncName = thisType + "_" + funcName
         prepareCallArgumentsWithDefaults(methodFuncName, expr.arguments, false,
             true, false, "")
@@ -5417,7 +5417,7 @@ class LLVMIRGenerator {
             if implicitThisPlan.hasArg0 {
                 sbArg0 = argRegs[0]
             }
-            return emitPreparedStringBuilderImplicitThisCallImpl(output,
+            return emitPreparedStringBuilderImplicitThisCallImpl(this.output,
                 g_regBox, funcName, thisReg, sbArg0)
         }
 
@@ -5429,7 +5429,7 @@ class LLVMIRGenerator {
 
         let selfTailCall = implicitThisTailCallFlagImpl(
             takeTailCallPositionImpl(getCurrentFunctionOptions()))
-        return emitPreparedNormalImplicitThisCallImpl(output, g_regBox,
+        return emitPreparedNormalImplicitThisCallImpl(this.output, g_regBox,
             quoteIdentIfNeededImpl(methodFuncName), llvmReturnType, thisReg,
             argRegs, argTypeStrs, selfTailCall)
     }
@@ -5448,7 +5448,7 @@ class LLVMIRGenerator {
         if runtimePlan.shouldReadMathArg1 {
             mArg1 = generateExpression(expr.arguments[1])
         }
-        let mResult = emitMathBuiltinCallImpl(output, g_regBox, funcName,
+        let mResult = emitMathBuiltinCallImpl(this.output, g_regBox, funcName,
             mArg0, mArg1)
         if mResult != "" { return mResult }
         return ""
@@ -5462,7 +5462,7 @@ class LLVMIRGenerator {
       3. Print/println (variadic, type-dispatched formatting)
       4. Type constructors: Array/Vec/HashMap/BTreeMap/LinkedList/Option/etc.
       5. Enum variant constructors (checked via isEnumVariant)
-      6. Closure/indirect calls (varNames match before enum/array check)
+      6. Closure/indirect calls (this.varNames match before enum/array check)
       7. Class constructors (malloc + memset + field init)
       8. Async function calls (return coroutine handle ptr)
       9. Regular function calls with ABI-correct parameter passing
@@ -5512,7 +5512,7 @@ class LLVMIRGenerator {
         var argRegs = g_defaultFillArgRegs
         var argTypeStrs = g_defaultFillArgTypeStrs
 
-        promoteRegularCallFloatArgsIfNeededState(output, g_regBox, funcName,
+        promoteRegularCallFloatArgsIfNeededState(this.output, g_regBox, funcName,
             argRegs, argTypeStrs, g_floatParamFuncNames,
             g_floatParamParamIdxs)
 
@@ -5528,7 +5528,7 @@ class LLVMIRGenerator {
 
             applyLateUserDeclareState(lateState)
         }
-        return emitPreparedRegularFunctionCallState(output, g_regBox,
+        return emitPreparedRegularFunctionCallState(this.output, g_regBox,
             funcName, llvmReturnType, argRegs, argTypeStrs,
             takeTailCallPositionImpl(getCurrentFunctionOptions()))
     }
@@ -5549,7 +5549,7 @@ class LLVMIRGenerator {
                 methodName, expr.arguments.length()) {
                 optDefaultRegS = generateExpression(expr.arguments[0])
             }
-            return emitPreparedOptionReceiverFastPathImpl(output, g_regBox,
+            return emitPreparedOptionReceiverFastPathImpl(this.output, g_regBox,
                 g_blockLabelBox,
                 methodName, receiverReg, optDefaultRegS)
         }
@@ -5561,7 +5561,7 @@ class LLVMIRGenerator {
                 methodName, expr.arguments.length()) {
                 svArgReg = generateExpression(expr.arguments[0])
             }
-            return emitPreparedSmallVecReceiverFastPathImpl(output, g_regBox, methodName,
+            return emitPreparedSmallVecReceiverFastPathImpl(this.output, g_regBox, methodName,
                 receiverReg, receiverType, svArgReg)
         }
 
@@ -5577,7 +5577,7 @@ class LLVMIRGenerator {
                 expr.arguments.length(), 1) {
                 collArg1s = generateExpression(expr.arguments[1])
             }
-            return emitPreparedCollectionReceiverFastPathImpl(output, g_regBox, methodName,
+            return emitPreparedCollectionReceiverFastPathImpl(this.output, g_regBox, methodName,
                 receiverReg, receiverType, collArg0s, collArg1s)
         }
 
@@ -5597,7 +5597,7 @@ class LLVMIRGenerator {
                 arrArg1 = generateExpression(expr.arguments[1])
                 arrArg1Type = inferExpressionType(expr.arguments[1])
             }
-            return emitPreparedArrayReceiverFastPathImpl(output, g_regBox, methodName,
+            return emitPreparedArrayReceiverFastPathImpl(this.output, g_regBox, methodName,
                 receiverReg, receiverType, arrArg0, arrArg1, arrArg0Type,
                 arrArg1Type)
         }
@@ -5615,15 +5615,15 @@ class LLVMIRGenerator {
         let classNames = splitPipe(resolveStaticMethodClassNamesImpl(expr.literalValue))
         let potentialClassName = classNames[0]
         let fullClassName = classNames[1]
-        if not isStaticMethodReceiverReferenceImpl(findActiveVariableIndexImpl(varNames, activeVarCount, expr.literalValue),
-            findActiveVariableIndexImpl(varNames, activeVarCount, potentialClassName)) {
+        if not isStaticMethodReceiverReferenceImpl(findActiveVariableIndexImpl(this.varNames, activeVarCount, expr.literalValue),
+            findActiveVariableIndexImpl(this.varNames, activeVarCount, potentialClassName)) {
             return ""
         }
 
         let isUppercase = isPascalStaticReceiverNameImpl(potentialClassName)
         if shouldTryNoArgStaticFactoryImpl(isUppercase, methodName) {
             let staticFactoryResult: String = tryGenerateStaticFactoryMethodCallImpl(
-                output, g_regBox, methodName, potentialClassName,
+                this.output, g_regBox, methodName, potentialClassName,
                 fullClassName, "", 0)
             if staticFactoryResult != "" {
                 return staticFactoryResult
@@ -5635,7 +5635,7 @@ class LLVMIRGenerator {
                 potentialClassName) {
                 let staticFactoryArg0 = generateExpression(expr.arguments[0])
                 let staticFactoryResult: String = tryGenerateStaticFactoryMethodCallImpl(
-                    output, g_regBox, methodName, potentialClassName,
+                    this.output, g_regBox, methodName, potentialClassName,
                     fullClassName, staticFactoryArg0,
                     expr.arguments.length())
                 if staticFactoryResult != "" {
@@ -5679,7 +5679,7 @@ class LLVMIRGenerator {
                 g_xmDeclareCount, staticLateState)
             applyLateUserDeclareState(staticLateState)
         }
-        return emitPreparedStaticMethodCallImpl(output, g_regBox, methodName,
+        return emitPreparedStaticMethodCallImpl(this.output, g_regBox, methodName,
             potentialClassName, staticClassName, funcName,
             staticLlvmReturnType, isClassRecv, isDataRecv,
             argRegs, argTypeStrs)
@@ -5724,10 +5724,10 @@ class LLVMIRGenerator {
             return ""
         }
 
-        let varIdx = findActiveVariableIndexImpl(varNames, activeVarCount, varName)
+        let varIdx = findActiveVariableIndexImpl(this.varNames, activeVarCount, varName)
         if shouldLoadLocalArrayMutatorPointerImpl(varIdx) {
-            return emitLocalVariableLoadImpl(output, g_regBox, "ptr",
-                varRegs[varIdx])
+            return emitLocalVariableLoadImpl(this.output, g_regBox, "ptr",
+                this.varRegs[varIdx])
         }
 
         let implicitThisArrayPtr = tryGenerateImplicitThisVariable(varName)
@@ -5737,7 +5737,7 @@ class LLVMIRGenerator {
         }
 
         let loadReg = getNextRegFn(g_regBox)
-        output.append("  " + loadReg + " = load ptr, ptr @" + varName +
+        this.output.append("  " + loadReg + " = load ptr, ptr @" + varName +
             "\n")
         return loadReg
     }
@@ -5754,9 +5754,9 @@ class LLVMIRGenerator {
             let freeTypePlan = planArrayMutatorFreeTypeImpl(
                 freeReceiverType, expr.literalValue)
             if freeTypePlan.shouldLookupLiteralType {
-                let freeTypeIdx = findActiveVariableIndexImpl(varNames, activeVarCount, expr.literalValue)
+                let freeTypeIdx = findActiveVariableIndexImpl(this.varNames, activeVarCount, expr.literalValue)
                 if freeTypeIdx >= 0 {
-                    let resolvedFreeReceiverType = varTypes[freeTypeIdx]
+                    let resolvedFreeReceiverType = this.varTypes[freeTypeIdx]
                     freeReceiverType = resolvedFreeReceiverType
                 }
             }
@@ -5773,7 +5773,7 @@ class LLVMIRGenerator {
                     isArrayType, freePtrReg, expr.literalValue,
                     isClassTypeState(freeReceiverType))
                 if resolvedFreeEmitPlan.shouldEmitArrayFree {
-                    return emitPreparedArrayFreeMutatorImpl(output, g_regBox,
+                    return emitPreparedArrayFreeMutatorImpl(this.output, g_regBox,
                         freePtrReg)
                 }
             }
@@ -5782,7 +5782,7 @@ class LLVMIRGenerator {
             if classFreePlan.shouldEmitClassFree {
                 let freeVarName = resolveArrayMutatorVariableNameImpl(
                     expr.literalValue, expr.variableName)
-                let freeVarIdx = findActiveVariableIndexImpl(varNames, activeVarCount, freeVarName)
+                let freeVarIdx = findActiveVariableIndexImpl(this.varNames, activeVarCount, freeVarName)
                 if freeVarIdx >= 0 {
                     let baseType = getBaseTypeNameImpl(freeReceiverType)
                     let sIdx = findStructReg(baseType, structNames)
@@ -5790,8 +5790,8 @@ class LLVMIRGenerator {
                     if sIdx >= 0 {
                         sSize = structSizes[sIdx]
                     }
-                    return emitPreparedClassFreeMutatorImpl(output, g_regBox,
-                        varRegs[freeVarIdx], sSize)
+                    return emitPreparedClassFreeMutatorImpl(this.output, g_regBox,
+                        this.varRegs[freeVarIdx], sSize)
                 }
             }
         }
@@ -5815,7 +5815,7 @@ class LLVMIRGenerator {
             }
 
             if pushPointerPlan.shouldEmitWithPointer {
-                let pushResult = emitPreparedArrayPushMutatorImpl(output, g_regBox,
+                let pushResult = emitPreparedArrayPushMutatorImpl(this.output, g_regBox,
                     g_blockLabelBox, arrayPtrReg, argReg, pushElemType,
                     receiverType, argIsStructLiteral, structNames)
                 if pushResult != "" {
@@ -5831,7 +5831,7 @@ class LLVMIRGenerator {
                 arrayPtrReg, receiverReg)
             if popPointerPlan.shouldUseReceiverReg { arrayPtrReg = receiverReg }
             if popPointerPlan.shouldEmitWithPointer {
-                return emitPreparedArrayPopMutatorImpl(output, g_regBox,
+                return emitPreparedArrayPopMutatorImpl(this.output, g_regBox,
                     arrayPtrReg, resolvePopElementTypeImpl(receiverType))
             }
         }
@@ -5847,7 +5847,7 @@ class LLVMIRGenerator {
                 arrayPtrReg = receiverReg
             }
             if swapPointerPlan.shouldEmitWithPointer {
-                return emitPreparedArraySwapMutatorImpl(output, g_regBox,
+                return emitPreparedArraySwapMutatorImpl(this.output, g_regBox,
                     arrayPtrReg, idxAReg, idxBReg)
             }
         }
@@ -5861,10 +5861,10 @@ class LLVMIRGenerator {
             chainedType = resolveChainedPathType(literalValue)
         }
         let directVarType = findVarType(literalValue)
-        let thisIdx = findActiveVariableIndexImpl(varNames, activeVarCount, "this")
+        let thisIdx = findActiveVariableIndexImpl(this.varNames, activeVarCount, "this")
         var thisType = ""
         if thisIdx >= 0 {
-            thisType = varTypes[thisIdx]
+            thisType = this.varTypes[thisIdx]
         }
         return resolveLiteralMethodReceiverTypeImpl(literalValue, chainedType,
             directVarType, thisIdx, thisType,
@@ -5938,7 +5938,7 @@ class LLVMIRGenerator {
             receiverReg = generateExpression(expr.operands[0])
             receiverType = inferExpressionType(expr.operands[0])
 
-            let simdRedResult = emitSimdReductionImpl(output, g_regBox,
+            let simdRedResult = emitSimdReductionImpl(this.output, g_regBox,
                 methodName, receiverReg, receiverType)
             if simdRedResult != "" {
                 return simdRedResult
@@ -5953,7 +5953,7 @@ class LLVMIRGenerator {
             let explicitReceiverTypeBox = Array<String>()
             explicitReceiverTypeBox.push(receiverType)
             let explicitFastPath =
-                tryGeneratePreparedExplicitReceiverFastPathImpl(output,
+                tryGeneratePreparedExplicitReceiverFastPathImpl(this.output,
                     g_regBox, g_blockLabelBox, methodName, receiverReg,
                     explicitReceiverTypeBox, structNames, structMethodNames,
                     structMethodRetTypes, dynArgRegs, dynArgTypes,
@@ -5981,9 +5981,9 @@ class LLVMIRGenerator {
                 receiverType = enumReceiverTypeBox[0]
             } else {
                 let pathParts = splitFirstPathDotImpl(expr.literalValue)
-                let thisIdx = findActiveVariableIndexImpl(varNames, activeVarCount, "this")
+                let thisIdx = findActiveVariableIndexImpl(this.varNames, activeVarCount, "this")
                 if thisIdx >= 0 {
-                    let thisType = varTypes[thisIdx]
+                    let thisType = this.varTypes[thisIdx]
                     let firstFieldType = resolveMethodFieldPathTypeImpl(
                         thisType, pathParts[0], structNames,
                         structFieldNames, structFieldTypes,
@@ -5993,8 +5993,8 @@ class LLVMIRGenerator {
                             firstFieldType)
                     if implicitDottedPlan.shouldResolveImplicitThisDotted {
                         let implicitDottedReceiver =
-                            emitImplicitDottedMethodReceiverLoadImpl(output,
-                            g_regBox, varRegs[thisIdx], thisType,
+                            emitImplicitDottedMethodReceiverLoadImpl(this.output,
+                            g_regBox, this.varRegs[thisIdx], thisType,
                             pathParts[0], pathParts[1], firstFieldType,
                             isClassTypeState(firstFieldType),
                             resolveMethodFieldPathTypeImpl(
@@ -6018,23 +6018,23 @@ class LLVMIRGenerator {
         } else {
             if postLookupPhase.shouldTrySimpleLiteral {
                 let varName = expr.literalValue
-                let idx = findActiveVariableIndexImpl(varNames, activeVarCount, varName)
+                let idx = findActiveVariableIndexImpl(this.varNames, activeVarCount, varName)
                 var gvMcIdx = -1
                 if idx < 0 {
                     gvMcIdx = findModuleConstant(varName)
                 }
-                let thisIdx = findActiveVariableIndexImpl(varNames,
+                let thisIdx = findActiveVariableIndexImpl(this.varNames,
                     activeVarCount, "this")
                 let simpleLiteralPlan =
                     planSimpleLiteralReceiverStageImpl(hasDottedReceiver,
                         expr.literalValue, idx, gvMcIdx, receiverReg,
                         thisIdx)
                 if simpleLiteralPlan.shouldUseLocalLiteral {
-                    let varReg = varRegs[idx]
-                    let varType = varTypes[idx]
+                    let varReg = this.varRegs[idx]
+                    let varType = this.varTypes[idx]
                     let llvmType = mapTypeState(varType)
                     let localReceiver = emitLocalMethodReceiverLoadImpl(
-                        output, g_regBox, llvmType, varReg, varType)
+                        this.output, g_regBox, llvmType, varReg, varType)
                     receiverReg = localReceiver.receiverReg
                     receiverType = localReceiver.receiverType
 
@@ -6046,7 +6046,7 @@ class LLVMIRGenerator {
                     }
                     let localVarFastPath =
                         tryGeneratePreparedLocalVariableReceiverFastPathImpl(
-                            output, g_regBox, methodName, receiverReg,
+                            this.output, g_regBox, methodName, receiverReg,
                             varType, structNames, structMethodNames,
                             structMethodRetTypes, svDynArgRegs,
                             svDynArgTypes)
@@ -6060,7 +6060,7 @@ class LLVMIRGenerator {
                             moduleConstantInvariantLoadSuffixImpl(gvMcIdx,
                             g_moduleConstMutable)
                         let moduleConstReceiver =
-                            emitModuleConstantMethodReceiverLoadImpl(output,
+                            emitModuleConstantMethodReceiverLoadImpl(this.output,
                                 g_regBox, "@" + varName, gvMcType,
                                 gvMcInvSuffix,
                                 resolveLiteralMethodReceiverType(varName),
@@ -6070,8 +6070,8 @@ class LLVMIRGenerator {
                     }
                     if receiverReg == "" {
                         if simpleLiteralPlan.shouldTryImplicitThisLiteral {
-                            let thisReg = varRegs[thisIdx]
-                            let thisType = varTypes[thisIdx]
+                            let thisReg = this.varRegs[thisIdx]
+                            let thisType = this.varTypes[thisIdx]
                             let idxCheck =
                                 getLLVMIRGeneratorFieldIndexImpl(varName)
                             let structIdx = findStructReg(thisType,
@@ -6086,7 +6086,7 @@ class LLVMIRGenerator {
                                 thisType, varName, idxCheck, structIdx,
                                 fieldIdx)
                             let implicitThisReceiver =
-                                emitImplicitThisMethodReceiverLoadImpl(output,
+                                emitImplicitThisMethodReceiverLoadImpl(this.output,
                                 g_regBox, implicitLookupPlan.lookupAction,
                                 thisReg, thisType, varName,
                                 resolveLiteralMethodReceiverType(varName),
@@ -6150,19 +6150,19 @@ class LLVMIRGenerator {
             if unresolvedFinalPlan.shouldUseStandaloneParserWorkaround {
                 prepareCallArgumentsWithDefaults(methodName, expr.arguments,
                     false, false, false, "")
-                return emitStandaloneParserWorkaroundCallImpl(output,
+                return emitStandaloneParserWorkaroundCallImpl(this.output,
                     g_regBox, methodName, g_defaultFillArgRegs,
                     g_defaultFillArgTypeStrs)
             }
 
             if unresolvedFinalPlan.shouldWarnAndApplyDefault {
-                output.append("; WARNING: receiver not resolved for " + methodName +
+                this.output.append("; WARNING: receiver not resolved for " + methodName +
                     ", receiverType='" + receiverType + "', currentClass='" +
                     currentClassName + "', literal='" + expr.literalValue +
                     "', operands=" + expr.operands.length().toString() +
                     ", using default\n")
                 let unresolvedFallback =
-                    tryGenerateUnresolvedReceiverFallbackMethodImpl(output,
+                    tryGenerateUnresolvedReceiverFallbackMethodImpl(this.output,
                         g_regBox, methodName, receiverReg, receiverType)
                 if unresolvedFallback != "" {
                     return unresolvedFallback
@@ -6189,7 +6189,7 @@ class LLVMIRGenerator {
             isNumericReceiverMethodImpl(methodName))
 
         if postResolutionPhase.shouldTryLowering and lowerPlan.shouldTryLengthLike {
-            let lengthLikeResult = emitPreparedLengthLikeMethodLowerImpl(output,
+            let lengthLikeResult = emitPreparedLengthLikeMethodLowerImpl(this.output,
                 g_regBox, methodName, receiverReg, receiverType,
                 g_reprCClassNames, structNames)
             if lengthLikeResult != "" {
@@ -6223,7 +6223,7 @@ class LLVMIRGenerator {
                 sbArg0 = generateExpression(expr.arguments[0])
             }
             let stringBuilderResult =
-                emitPreparedStringBuilderMethodLowerImpl(output, g_regBox,
+                emitPreparedStringBuilderMethodLowerImpl(this.output, g_regBox,
                     methodName, receiverReg, receiverType, sbArg0,
                     isFloatFused, g_reprCClassNames, structNames)
             if stringBuilderResult != "" {
@@ -6235,7 +6235,7 @@ class LLVMIRGenerator {
             lowerPlan.shouldTryPrimitiveConversion {
 
             let conversionResult = emitPreparedPrimitiveConversionMethodLowerImpl(
-                output, g_regBox, methodName, receiverReg, receiverType,
+                this.output, g_regBox, methodName, receiverReg, receiverType,
                 structNames)
             if conversionResult != "" {
                 return conversionResult
@@ -6252,7 +6252,7 @@ class LLVMIRGenerator {
                 numArg1 = generateExpression(expr.arguments[1])
             }
             let numericResult = emitPreparedNumericMethodLowerImpl(
-                output, g_regBox, methodName, receiverReg, receiverType,
+                this.output, g_regBox, methodName, receiverReg, receiverType,
                 numArg0, numArg1)
             if numericResult != "" {
                 return numericResult
@@ -6270,7 +6270,7 @@ class LLVMIRGenerator {
                 strArg1 = generateExpression(expr.arguments[1])
             }
             let stringLikeResult = emitPreparedStringLikeMethodLowerImpl(
-                output, g_regBox, methodName, receiverReg, receiverType, strArg0,
+                this.output, g_regBox, methodName, receiverReg, receiverType, strArg0,
                 strArg1, strArgCount, g_reprCClassNames, structNames)
             if stringLikeResult != "" {
                 return stringLikeResult
@@ -6292,7 +6292,7 @@ class LLVMIRGenerator {
             isArrayReceiverTypeImpl(receiverType),
             isCollectionReceiverTypeImpl(receiverType)) {
 
-            return emitPreparedUnresolvedCollectionGetWarningImpl(output,
+            return emitPreparedUnresolvedCollectionGetWarningImpl(this.output,
                 receiverType, expr.literalValue)
         }
         let instanceTypeName = resolveMethodCallInstanceTypeNameImpl(expr,
@@ -6308,7 +6308,7 @@ class LLVMIRGenerator {
         if postResolutionPhase.shouldTryLowering and lowerPlan.shouldTryHotReload {
             let hotReloadResult =
                 emitPreparedHotReloadMethodLowerImpl(
-                output, g_regBox, methodName, quoteIdentIfNeededImpl(funcName),
+                this.output, g_regBox, methodName, quoteIdentIfNeededImpl(funcName),
                 receiverReg, receiverType, hotStateArg, structNames)
             if hotReloadResult != "" {
                 return hotReloadResult
@@ -6319,7 +6319,7 @@ class LLVMIRGenerator {
             shouldUseScalarReceiverFallbackImpl(methodName,
                 isNumericReceiverMethodImpl(methodName)) {
 
-            return emitPreparedScalarReceiverFallbackImpl(output,
+            return emitPreparedScalarReceiverFallbackImpl(this.output,
                 receiverType, methodName, expr.literalValue,
                 inferExpressionType(expr))
         }
@@ -6351,7 +6351,7 @@ class LLVMIRGenerator {
         let receiverLlvmTypeBox = Array<String>()
         receiverLlvmTypeBox.push("ptr")
         if finalDispatchPlan.shouldPrepareReceiverAbi {
-            prepareMethodCallReceiverAbiImpl(output, g_regBox, instanceTypeName,
+            prepareMethodCallReceiverAbiImpl(this.output, g_regBox, instanceTypeName,
                 receiverRegBox, receiverType, receiverLlvmTypeBox, structNames,
                 g_reprCClassNames, g_typeAliasNames, g_typeAliasTargets,
                 g_typeAliasCount, g_enumTypeNames)
@@ -6370,7 +6370,7 @@ class LLVMIRGenerator {
 
         if finalDispatchPlan.shouldTrySpecialized {
             let specializedResult = emitPreparedSpecializedMethodLowerImpl(
-                output, g_regBox, methodName, instanceTypeName, receiverType,
+                this.output, g_regBox, methodName, instanceTypeName, receiverType,
                 returnTypeStr, receiverLlvmType, normalizedReceiverReg,
                 structNames)
             if specializedResult != "" {
@@ -6379,7 +6379,7 @@ class LLVMIRGenerator {
         }
 
         if finalDispatchPlan.shouldEmitUserMethod {
-            return emitPreparedUserMethodLowerImpl(output, g_regBox,
+            return emitPreparedUserMethodLowerImpl(this.output, g_regBox,
                 quoteIdentIfNeededImpl(funcName), llvmReturnType, receiverLlvmType,
                 normalizedReceiverReg, argRegs, argTypeStrs, 0)
         }
@@ -6398,8 +6398,8 @@ class LLVMIRGenerator {
         let hdlReg = generateExpression(futureExpr)
         let resultLlvmType = resolveAwaitExpressionResultLlvmTypeState(
             futureExpr, g_asyncFuncNames, g_asyncFuncRetTypes, g_asyncFuncCount)
-        emitAwaitPollLoopImpl(output, g_regBox, g_blockLabelBox, hdlReg)
-        return emitAwaitResultValueImpl(output, g_regBox, hdlReg,
+        emitAwaitPollLoopImpl(this.output, g_regBox, g_blockLabelBox, hdlReg)
+        return emitAwaitResultValueImpl(this.output, g_regBox, hdlReg,
             resultLlvmType)
     }
 
@@ -6418,7 +6418,7 @@ class LLVMIRGenerator {
             return ""
         }
         let unaryValReg = generateExpression(expr.operands[0])
-        return emitOverloadedUnaryCallImpl(output, g_regBox,
+        return emitOverloadedUnaryCallImpl(this.output, g_regBox,
             quoteIdentIfNeededImpl(unaryPlan.funcName), unaryPlan.retLlvmType,
             unaryValReg)
     }
@@ -6426,7 +6426,7 @@ class LLVMIRGenerator {
     fun emitUnaryNegation(expr: ParserExpressionNode) r: String {
         let operandReg = generateExpression(expr.operands[0])
         let operandType = inferExpressionType(expr.operands[0])
-        return emitUnaryNegationImpl(output, g_regBox, operandReg, operandType)
+        return emitUnaryNegationImpl(this.output, g_regBox, operandReg, operandType)
     }
 
     fun tryEmitNegatedComparison(innerExpr: ParserExpressionNode) r: String {
@@ -6446,7 +6446,7 @@ class LLVMIRGenerator {
         }
         let aReg = generateExpression(innerExpr.operands[0])
         let bReg = generateExpression(innerExpr.operands[1])
-        return emitNegatedComparisonImpl(output, g_regBox, flippedOp, aReg,
+        return emitNegatedComparisonImpl(this.output, g_regBox, flippedOp, aReg,
             bReg)
     }
 
@@ -6458,27 +6458,27 @@ class LLVMIRGenerator {
         }
         let operandReg = generateExpression(innerExpr)
         let operandType = inferExpressionType(innerExpr)
-        return emitUnaryLogicalNotImpl(output, g_regBox, operandReg,
+        return emitUnaryLogicalNotImpl(this.output, g_regBox, operandReg,
             operandType)
     }
 
     fun emitUnaryAddressOf(expr: ParserExpressionNode) r: String {
         if g_insideUnsafe == 0 {
-            output.append("  ; WARNING: address-of (&) requires unsafe block\n")
+            this.output.append("  ; WARNING: address-of (&) requires unsafe block\n")
         }
         let addrOperand = expr.operands[0]
         let addrType = inferExpressionType(addrOperand)
         if addrOperand.kind == "Variable" or addrOperand.kind == "VarExpr" {
             var addrVarName = addrOperand.variableName
             if addrVarName == "" { addrVarName = addrOperand.literalValue }
-            let addrIdx = findActiveVariableIndexImpl(varNames, activeVarCount, addrVarName)
+            let addrIdx = findActiveVariableIndexImpl(this.varNames, activeVarCount, addrVarName)
             if addrIdx >= 0 {
-                let addrVarReg = varRegs[addrIdx]
+                let addrVarReg = this.varRegs[addrIdx]
                 if isClassTypeState(addrType) {
-                    return emitUnaryAddressOfClassValueImpl(output, g_regBox,
+                    return emitUnaryAddressOfClassValueImpl(this.output, g_regBox,
                         addrVarReg)
                 }
-                return emitUnaryAddressOfVariablePtrImpl(output, g_regBox,
+                return emitUnaryAddressOfVariablePtrImpl(this.output, g_regBox,
                     addrVarReg)
             }
         }
@@ -6487,15 +6487,15 @@ class LLVMIRGenerator {
 
     fun emitUnaryDereference(expr: ParserExpressionNode) r: String {
         if g_insideUnsafe == 0 {
-            output.append("  ; WARNING: pointer dereference (*) requires unsafe block\n")
+            this.output.append("  ; WARNING: pointer dereference (*) requires unsafe block\n")
         }
         let derefValReg = generateExpression(expr.operands[0])
-        return emitUnaryDereferenceImpl(output, g_regBox, derefValReg)
+        return emitUnaryDereferenceImpl(this.output, g_regBox, derefValReg)
     }
 
     fun emitUnaryBitwiseNot(expr: ParserExpressionNode) r: String {
         let operandReg = generateExpression(expr.operands[0])
-        return emitUnaryBitwiseNotImpl(output, g_regBox, operandReg)
+        return emitUnaryBitwiseNotImpl(this.output, g_regBox, operandReg)
     }
 
     fun generateUnary(expr: ParserExpressionNode) r: String {
@@ -6534,7 +6534,7 @@ class LLVMIRGenerator {
             let argReg = generateExpression(argExpr)
             let argType = inferExpressionType(argExpr)
             let argLlvmType = mapTypeState(argType)
-            appendPreparedCallArgImpl(output, g_regBox, funcName, argReg, argType, argLlvmType, argIdx, argRegs, argTypeStrs, g_dynParamFuncs, enableDynBoxing, enableFloatPromotion, g_floatParamFuncNames, g_floatParamParamIdxs)
+            appendPreparedCallArgImpl(this.output, g_regBox, funcName, argReg, argType, argLlvmType, argIdx, argRegs, argTypeStrs, g_dynParamFuncs, enableDynBoxing, enableFloatPromotion, g_floatParamFuncNames, g_floatParamParamIdxs)
 
             if shouldNullifyMovedArgumentSourceImpl(nullifyMovedSources,
                 g_moveOnlyClasses, argType) {
@@ -6542,12 +6542,12 @@ class LLVMIRGenerator {
                 let moveVarName = resolveMovedArgumentSourceNameImpl(
                     argExpr.kind, argExpr.variableName, argExpr.literalValue)
                 if moveVarName != "" {
-                    let moveVarIdx = findActiveVariableIndexImpl(varNames,
+                    let moveVarIdx = findActiveVariableIndexImpl(this.varNames,
                         activeVarCount, moveVarName)
                     if shouldRecordMovedArgumentSourceImpl(moveVarName,
                         moveVarIdx) {
-                        let moveSrcReg = varRegs[moveVarIdx]
-                        output.append("  store i64 0, ptr " + moveSrcReg + " ; @move: nullify source (" + moveContext + ")\n")
+                        let moveSrcReg = this.varRegs[moveVarIdx]
+                        this.output.append("  store i64 0, ptr " + moveSrcReg + " ; @move: nullify source (" + moveContext + ")\n")
                         recordMovedVariableImpl(
                             getCurrentFunctionEmissionStateImpl(),
                             moveVarName)
@@ -6574,9 +6574,9 @@ class LLVMIRGenerator {
     fun fillDefaultParamsLocal(funcName: String, argRegs: Array<String>, argTypeStrs: Array<String>) r: Void {
         g_defaultFillArgRegs = argRegs
         g_defaultFillArgTypeStrs = argTypeStrs
-        fillDefaultParamsImpl(output, g_regBox, funcName, g_defaultFillArgRegs,
+        fillDefaultParamsImpl(this.output, g_regBox, funcName, g_defaultFillArgRegs,
             g_defaultFillArgTypeStrs, g_funcParamCountArr, g_funcDefaultsArr,
-            stringConstantPrefix, stringConstants)
+            stringConstantPrefix, this.stringConstants)
     }
 
     fun inferReturnExprType(className: String, expr: ParserExpressionNode) r: String {
@@ -6648,11 +6648,11 @@ class LLVMIRGenerator {
     }
 
     fun tryInferImplicitThisVariableType(varName: String) r: String {
-        let thisIdx = findActiveVariableIndexImpl(varNames, activeVarCount, "this")
+        let thisIdx = findActiveVariableIndexImpl(this.varNames, activeVarCount, "this")
         if thisIdx < 0 {
             return ""
         }
-        return tryInferImplicitThisVariableTypeImpl(varName, varTypes[thisIdx],
+        return tryInferImplicitThisVariableTypeImpl(varName, this.varTypes[thisIdx],
             structNames, structFieldNames, structFieldTypes)
     }
 
@@ -7026,9 +7026,9 @@ class LLVMIRGenerator {
         if memberPlan.shouldTryLiteralReceiver {
             var chainedPathType = ""
             var thisType = ""
-            let thisIdx = findActiveVariableIndexImpl(varNames, activeVarCount, "this")
+            let thisIdx = findActiveVariableIndexImpl(this.varNames, activeVarCount, "this")
             if thisIdx >= 0 {
-                thisType = varTypes[thisIdx]
+                thisType = this.varTypes[thisIdx]
             }
             if expr.literalValue.contains(".") {
                 chainedPathType = resolveChainedPathType(expr.literalValue)
@@ -7090,7 +7090,7 @@ class LLVMIRGenerator {
         }
         initCollectionBoxes()
         let inferredType = inferStringInterpolationExprTypeStateImpl(
-            expr.kind, expr.arguments, expr.operands, stringConstants,
+            expr.kind, expr.arguments, expr.operands, this.stringConstants,
             g_callCountNamesBox, g_callCountEntriesBox)
         syncCollectionBoxes()
         return inferredType
@@ -7282,7 +7282,7 @@ class LLVMIRGenerator {
     ///
     fun collectStringConstants(program: ProgramNode) r: Void {
         initCollectionBoxes()
-        collectStringConstantsStateImpl(program, stringConstants, g_selfCallBox,
+        collectStringConstantsStateImpl(program, this.stringConstants, g_selfCallBox,
             g_selfCallCountBox, g_callCountNamesBox, g_callCountEntriesBox)
         syncCollectionBoxes()
     }
@@ -7303,7 +7303,7 @@ class LLVMIRGenerator {
             }
             i = i + 1
         }
-        return generateStringInterpolationFromPartsImpl(output, g_regBox,
+        return generateStringInterpolationFromPartsImpl(this.output, g_regBox,
             partRegs, exprRegs, exprTypes)
     }
 
@@ -7317,24 +7317,24 @@ class LLVMIRGenerator {
         let leftReg = generateExpression(expr.operands[0])
         let leftType = inferExpressionType(expr.operands[0])
         let llvmType = mapTypeState(leftType)
-        let cmpReg = emitNullishCheckComparisonImpl(output, g_regBox, leftReg,
+        let cmpReg = emitNullishCheckComparisonImpl(this.output, g_regBox, leftReg,
             llvmType)
-        let branchLabels = splitPipe(emitNullishBranchingImpl(output,
+        let branchLabels = splitPipe(emitNullishBranchingImpl(this.output,
             g_blockBox, cmpReg))
         let thenLabel = branchLabels[0]
         let elseLabel = branchLabels[1]
         let endLabel = branchLabels[2]
 
         // Then: left is non-null, use left
-        emitNullishBranchToEndImpl(output, endLabel)
+        emitNullishBranchToEndImpl(this.output, endLabel)
 
         // Else: left is null, compute right
-        enterNullishElseBranchImpl(output, elseLabel)
+        enterNullishElseBranchImpl(this.output, elseLabel)
         let rightReg = generateExpression(expr.operands[1])
-        emitNullishBranchToEndImpl(output, endLabel)
+        emitNullishBranchToEndImpl(this.output, endLabel)
 
         // Merge with phi
-        return finalizeNullishMergeImpl(output, g_regBox, endLabel, llvmType,
+        return finalizeNullishMergeImpl(this.output, g_regBox, endLabel, llvmType,
             leftReg, thenLabel, rightReg, elseLabel)
     }
 
@@ -7347,9 +7347,9 @@ class LLVMIRGenerator {
     fun generateSafeNavigation(expr: ParserExpressionNode) r: String {
         let recvReg = generateExpression(expr.operands[0])
         let recvType = inferExpressionType(expr.operands[0])
-        let cmpReg = emitNullishCheckComparisonImpl(output, g_regBox, recvReg,
+        let cmpReg = emitNullishCheckComparisonImpl(this.output, g_regBox, recvReg,
             mapTypeState(recvType))
-        let branchLabels = splitPipe(emitNullishBranchingImpl(output,
+        let branchLabels = splitPipe(emitNullishBranchingImpl(this.output,
             g_blockBox, cmpReg))
         let thenLabel = branchLabels[0]
         let elseLabel = branchLabels[1]
@@ -7361,15 +7361,15 @@ class LLVMIRGenerator {
         let memberReg = generateMemberAccess(memberExpr)
         let memberType = inferExpressionType(memberExpr)
         let memberLlvm = mapTypeState(memberType)
-        emitNullishBranchToEndImpl(output, endLabel)
+        emitNullishBranchToEndImpl(this.output, endLabel)
 
         // Else: null, use default
-        enterNullishElseBranchImpl(output, elseLabel)
+        enterNullishElseBranchImpl(this.output, elseLabel)
         let defaultVal = defaultValueForLlvmTypeImpl(memberLlvm)
-        emitNullishBranchToEndImpl(output, endLabel)
+        emitNullishBranchToEndImpl(this.output, endLabel)
 
         // Merge
-        return finalizeNullishMergeImpl(output, g_regBox, endLabel,
+        return finalizeNullishMergeImpl(this.output, g_regBox, endLabel,
             memberLlvm, memberReg, thenLabel, defaultVal, elseLabel)
     }
 
@@ -7379,14 +7379,14 @@ class LLVMIRGenerator {
         }
         let guardReg = generateExpression(arm.operands[2])
         let guardType = inferExpressionType(arm.operands[2])
-        emitWhenArmGuardImpl(output, g_regBox, guardReg, guardType,
+        emitWhenArmGuardImpl(this.output, g_regBox, guardReg, guardType,
             armBodyLabel, nextCheckLabel)
         cseClear()
     }
 
     fun emitWhenPatternBindings(subjectReg: String, subjectLlvm: String, patternExpr: ParserExpressionNode) r: Void {
-        emitWhenPatternBindingsState(output, g_regBox, subjectReg, subjectLlvm,
-            patternExpr, varNames, varRegs, activeVarCount,
+        emitWhenPatternBindingsState(this.output, g_regBox, subjectReg, subjectLlvm,
+            patternExpr, this.varNames, this.varRegs, activeVarCount,
             g_enumVariantNames, g_enumVariantFieldTypes, g_enumVariantCount)
     }
 
@@ -7403,9 +7403,9 @@ class LLVMIRGenerator {
             let retType = mapTypeState(currentFunctionReturnType)
             if resultPlan.shouldReadReturnValue {
                 let retValReg = generateExpression(armResult.operands[0])
-                emitWhenArmReturnImpl(output, retType, retValReg, true)
+                emitWhenArmReturnImpl(this.output, retType, retValReg, true)
             } else {
-                emitWhenArmReturnImpl(output, retType, "", false)
+                emitWhenArmReturnImpl(this.output, retType, "", false)
             }
             blockTerminated = true
             return
@@ -7416,9 +7416,9 @@ class LLVMIRGenerator {
         let armResultReg = generateExpression(armResult)
         if shouldStoreWhenArmResultImpl(blockTerminated) {
             let armResultType = inferExpressionType(armResult)
-            let armStoreReg = normalizeWhenArmStoreValueImpl(output,
+            let armStoreReg = normalizeWhenArmStoreValueImpl(this.output,
                 g_regBox, armResultReg, armResultType)
-            emitWhenArmStoreImpl(output, resultAlloca, armStoreReg)
+            emitWhenArmStoreImpl(this.output, resultAlloca, armStoreReg)
         }
     }
 
@@ -7434,7 +7434,7 @@ class LLVMIRGenerator {
         let subjectLlvm = mapTypeState(subjectType)
 
         let endLabel = getNextBlockFn(g_blockBox)
-        let resultAlloca = allocateWhenResultSlotImpl(output, g_regBox)
+        let resultAlloca = allocateWhenResultSlotImpl(this.output, g_regBox)
 
         // Generate each arm
         var armIdx = 0
@@ -7451,36 +7451,36 @@ class LLVMIRGenerator {
             let armBodyLabel = getNextBlockFn(g_blockBox)
             let nextCheckLabel = getNextBlockFn(g_blockBox)
 
-            emitWhenPatternBranchState(output, g_regBox, stringConstants,
+            emitWhenPatternBranchState(this.output, g_regBox, this.stringConstants,
                 subjectReg, subjectLlvm, patternExpr, armBodyLabel,
                 nextCheckLabel, g_enumVariantNames, g_enumVariantTags,
                 g_enumVariantCount)
 
             // Arm body
-            output.append(armBodyLabel + ":\n")
+            this.output.append(armBodyLabel + ":\n")
             cseClear()
 
             emitWhenArmGuard(arm, armBodyLabel, nextCheckLabel)
             emitWhenPatternBindings(subjectReg, subjectLlvm, patternExpr)
             emitWhenArmResult(arm, resultAlloca)
             if shouldBranchWhenArmToEndImpl(blockTerminated) {
-                output.append("  br label %" + endLabel + "\n")
+                this.output.append("  br label %" + endLabel + "\n")
             }
             blockTerminated = false
 
             // Next check
-            output.append(nextCheckLabel + ":\n")
+            this.output.append(nextCheckLabel + ":\n")
             cseClear()
             armIdx = armIdx + 1
         }
 
         // After all arms, branch to end (fallthrough if no match)
         if shouldEmitWhenFinalFallthroughImpl(expr.arguments.length()) {
-            output.append("  br label %" + endLabel + "\n")
+            this.output.append("  br label %" + endLabel + "\n")
         }
 
         cseClear()
-        let resultReg = finalizeWhenResultImpl(output, g_regBox, endLabel,
+        let resultReg = finalizeWhenResultImpl(this.output, g_regBox, endLabel,
             resultAlloca)
         return resultReg
     }
@@ -7494,7 +7494,7 @@ class LLVMIRGenerator {
             fieldRegs.push(generateExpression(expr.arguments[fi]))
             fi = fi + 1
         }
-        emitEnumConstructorPreparedFieldStoresState(output, g_regBox,
+        emitEnumConstructorPreparedFieldStoresState(this.output, g_regBox,
             variantName, objReg, fieldRegs, g_enumVariantNames,
             g_enumVariantFieldTypes, g_enumVariantCount)
     }
@@ -7506,7 +7506,7 @@ class LLVMIRGenerator {
         if enumCtorPlan.isSimple {
             return enumCtorPlan.tag.toString()
         }
-        let objReg = allocateEnumConstructorObjectImpl(output, g_regBox,
+        let objReg = allocateEnumConstructorObjectImpl(this.output, g_regBox,
             enumCtorPlan.tag, enumCtorPlan.fieldCount)
         emitEnumConstructorFieldStores(variantName, expr, objReg,
             enumCtorPlan.fieldCount)

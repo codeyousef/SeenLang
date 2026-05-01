@@ -2,7 +2,7 @@
   "name": "seen-vscode",
   "displayName": "Seen Language",
   "description": "Official Seen language support with syntax highlighting, LSP, debugging, and multi-language keywords",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "publisher": "yousefcodes",
   "icon": "images/icon.png",
   "repository": {
@@ -95,6 +95,16 @@
           "default": "native",
           "description": "Default compilation target"
         },
+        "seen.compile.pic": {
+          "type": "boolean",
+          "default": false,
+          "description": "Emit PIC objects for shared-library builds"
+        },
+        "seen.compile.objectManifest": {
+          "type": "string",
+          "default": "",
+          "description": "Optional path for seen compile --object-manifest"
+        },
         "seen.language.default": {
           "type": "string",
           "enum": ["en", "ar", "es", "ru", "zh", "fr"],
@@ -127,6 +137,10 @@
       {
         "command": "seen.check",
         "title": "Seen: Check Project"
+      },
+      {
+        "command": "seen.compileSharedModule",
+        "title": "Seen: Compile Shared Module Objects"
       },
       {
         "command": "seen.clean",
@@ -219,7 +233,7 @@
         "properties": {
           "task": {
             "type": "string",
-            "enum": ["build", "run", "test", "benchmark", "check", "clean"]
+            "enum": ["build", "run", "test", "benchmark", "check", "compile-shared", "clean"]
           },
           "args": {
             "type": "array",

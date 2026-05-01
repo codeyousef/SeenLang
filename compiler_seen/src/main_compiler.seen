@@ -5169,6 +5169,18 @@ fun sourcesNeedHotReloadRuntime(modulePaths: Array<String>) r: Bool {
     return false
 }
 
+fun sourcesContainExportDecorator(modulePaths: Array<String>) r: Bool {
+    var mi = 0
+    while mi < modulePaths.length() {
+        let sourceText = readText(modulePaths[mi])
+        if sourceText.contains("@export") {
+            return true
+        }
+        mi = mi + 1
+    }
+    return false
+}
+
 fun targetNeedsPthreadCompileFlag(target: String) r: Bool {
     if target == "windows-x86_64" {
         return false
@@ -6474,6 +6486,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         println("  [Pass 2b] Optimizing " + uncachedIdxStrs.length().toString() + " modules (" + optExecutionMode + ")...")
 
         // Build opt passes and threshold based on mode
+        let hasExportDecorators = sourcesContainExportDecorator(modulePaths)
         var optPasses = ""
         var optThreshold = ""
         var optInternalize = ""
@@ -6494,7 +6507,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                 optPasses = "function(sroa,instcombine<no-verify-fixpoint>,simplifycfg)," + pgoPasses + "default<O2>"
                 optThreshold = "500"
             } else {
-                if modulePaths.length() == 1 {
+                if modulePaths.length() == 1 and not hasExportDecorators {
                     optPasses = "function(sroa,instcombine<no-verify-fixpoint>,simplifycfg)," + pgoPasses + "internalize,default<O3>,function(loop-unroll-and-jam)"
                     optThreshold = "1500"
                     optInternalize = " -internalize-public-api-list=main"
@@ -6807,7 +6820,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     compiled via llc rather than ThinLTO.
     ///
     if g_releaseMode and modulePaths.length() > 1 and normalizedCrossTarget == "" and
-        g_objectManifestPath == "" {
+        g_objectManifestPath == "" and not sourcesContainExportDecorator(modulePaths) {
 
         if llFiles.length() != modulePaths.length() {
             println("  [2.5] Skipping merged release path: only " + llFiles.length().toString() + "/" + modulePaths.length().toString() + " modules have raw IR available")
@@ -6893,6 +6906,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             return 1
         }
         println("  Wrote object manifest: " + g_objectManifestPath)
+        println("  [3] Skipping final link because object manifest mode leaves module objects for downstream linking")
+        return 0
     }
     if g_generatedTestMainMode == 1 {
         storeGeneratedTestObjectSetCache(resolvedInput, modulePaths, cacheSignature, normalizedCrossTarget)
@@ -7891,7 +7906,7 @@ fun printUsage() r: Void {
     println("                           macos-x86_64, macos-arm64, ios-arm64,")
     println("                           ios-sim-arm64, android-arm64")
     println("  --pic                    Emit PIC module/runtime objects for shared libraries")
-    println("  --object-manifest <path> Write object-to-module TSV manifest")
+    println("  --object-manifest <path> Write object-to-module TSV manifest and skip final link")
     println("  --fast                   Lightweight optimization (for bootstrap verification)")
     println("  --no-fork                Disable parallel IR/opt bootstrap steps (sequential)")
     println("  --projectprefix <n>      Large-project validation prefix hint")

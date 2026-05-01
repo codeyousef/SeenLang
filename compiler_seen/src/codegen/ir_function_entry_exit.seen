@@ -19,25 +19,27 @@ import str.string.{StringBuilder}
 fun buildFunctionSignaturePrefixImpl(fn: FunctionNode, fnName: String,
     returnType: String) r: String {
 
-    var fnRetPrefix = "define "
+    var fnLinkagePrefix = "define "
+    var fnRetAttrs = ""
     if returnType == "i64" or returnType == "double" or returnType == "i1" {
-        fnRetPrefix = "define noundef "
+        fnRetAttrs = "noundef "
     }
     var actualLlvmReturnType = returnType
     if fn.isAsync {
         actualLlvmReturnType = "ptr"
-        fnRetPrefix = "define "
+        fnRetAttrs = ""
     }
     if hasFunctionDecoratorGenImpl(fn, "init") and
         fn.name == "__seen_internal_module_init__" {
 
-        fnRetPrefix = "define internal "
+        fnLinkagePrefix = "define internal "
     }
     if hasFunctionDecoratorGenImpl(fn, "export") {
-        fnRetPrefix = fnRetPrefix + "dso_local "
+        fnLinkagePrefix = "define dso_local "
     }
     let quotedFnName = quoteIdentIfNeededImpl(fnName)
-    return fnRetPrefix + actualLlvmReturnType + " @" + quotedFnName + "("
+    return fnLinkagePrefix + fnRetAttrs + actualLlvmReturnType + " @" +
+        quotedFnName + "("
 }
 
 fun mapFunctionEntryAllocaTypeImpl(seenType: String, structNames: Array<String>,
