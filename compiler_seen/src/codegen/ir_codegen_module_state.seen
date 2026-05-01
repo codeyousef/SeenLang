@@ -1,0 +1,80 @@
+// ir_codegen_module_state.seen - module constants, cross-module declares,
+// late declare state, and local lookup caches used by LLVM IR generation.
+
+import codegen.ir_codegen_global_state.{moduleConstantNames, moduleConstantValues, moduleConstantTypes}
+import codegen.ir_decl_registry.{resetLateUserDeclareStateImpl}
+import codegen.ir_module_constants.{resetModuleConstantGenerationStateImpl}
+import codegen.ir_field_registry.{findCachedIrgenFieldIndexImpl, cacheIrgenFieldIndexImpl, findCachedChainedPathTypeRecordImpl, cacheChainedPathTypeImpl, resetFieldLookupCacheStateImpl}
+
+var g_moduleConstMutable: String = ""
+var g_moduleConstSeenTypes: String = ""
+
+var g_xmDeclareNames: String = ""
+var g_xmDeclareStrs: String = ""
+var g_xmDeclareCount: Int = 0
+var g_xmDeclareVis: String = ""
+var g_xmDeclareNamesArr: Array<String> = Array<String>()
+var g_xmDeclareStrsArr: Array<String> = Array<String>()
+var g_xmDeclareVisArr: Array<String> = Array<String>()
+
+var g_lateXmDeclareNames: String = ""
+var g_lateXmDeclareStrs: String = ""
+var g_lateXmDeclareCount: Int = 0
+
+var g_xmConstNames: String = ""
+var g_xmConstTypes: String = ""
+var g_xmConstMutable: String = ""
+var g_xmConstSeenTypes: String = ""
+var g_xmConstCount: Int = 0
+
+var g_irgenFieldInfoCacheKeys: Array<String> = Array<String>()
+var g_irgenFieldInfoCacheIdxs: Array<Int> = Array<Int>()
+var g_chainedPathTypeCacheKeys: Array<String> = Array<String>()
+var g_chainedPathTypeCacheLens: Array<Int> = Array<Int>()
+var g_chainedPathTypeCacheValues: Array<String> = Array<String>()
+
+fun findCachedIrgenFieldIndex(key: String) r: Int {
+    return findCachedIrgenFieldIndexImpl(key, g_irgenFieldInfoCacheKeys,
+        g_irgenFieldInfoCacheIdxs)
+}
+
+fun cacheIrgenFieldIndex(key: String, idx: Int) r: Void {
+    cacheIrgenFieldIndexImpl(key, idx, g_irgenFieldInfoCacheKeys,
+        g_irgenFieldInfoCacheIdxs)
+}
+
+fun findCachedChainedPathTypeRecord(key: String, structLen: Int) r: Int {
+    return findCachedChainedPathTypeRecordImpl(key, structLen,
+        g_chainedPathTypeCacheKeys, g_chainedPathTypeCacheLens)
+}
+
+fun cacheChainedPathType(key: String, structLen: Int, resultType: String) r: Void {
+    cacheChainedPathTypeImpl(key, structLen, resultType,
+        g_chainedPathTypeCacheKeys, g_chainedPathTypeCacheLens,
+        g_chainedPathTypeCacheValues)
+}
+
+fun resetModuleConstantGenerationState() r: Void {
+    let moduleConstState = resetModuleConstantGenerationStateImpl()
+    moduleConstantNames = moduleConstState.moduleConstantNames
+    moduleConstantValues = moduleConstState.moduleConstantValues
+    moduleConstantTypes = moduleConstState.moduleConstantTypes
+    g_moduleConstMutable = moduleConstState.moduleConstMutable
+    g_moduleConstSeenTypes = moduleConstState.moduleConstSeenTypes
+}
+
+fun resetLateUserDeclareState() r: Void {
+    let lateState = resetLateUserDeclareStateImpl()
+    g_lateXmDeclareNames = lateState.lateXmDeclareNames
+    g_lateXmDeclareStrs = lateState.lateXmDeclareStrs
+    g_lateXmDeclareCount = lateState.lateXmDeclareCount
+}
+
+fun resetIrgenFieldLookupCaches() r: Void {
+    let cacheState = resetFieldLookupCacheStateImpl()
+    g_irgenFieldInfoCacheKeys = cacheState.fieldInfoCacheKeys
+    g_irgenFieldInfoCacheIdxs = cacheState.fieldInfoCacheIdxs
+    g_chainedPathTypeCacheKeys = cacheState.chainedPathTypeCacheKeys
+    g_chainedPathTypeCacheLens = cacheState.chainedPathTypeCacheLens
+    g_chainedPathTypeCacheValues = cacheState.chainedPathTypeCacheValues
+}

@@ -52,11 +52,11 @@ import codegen.ir_decl_scan.{collectStructMethodSignaturesImpl}
 import codegen.ir_async_registry.{registerAsyncFunctionImpl, isAsyncFunctionImpl, getAsyncDeclaredRetTypeImpl}
 import codegen.ir_async_await.{emitAwaitPollLoopImpl, emitAwaitResultValueImpl}
 import codegen.ir_async_return.{prepareAsyncReturnValuePlanImpl, emitAsyncReturnValueBranchImpl, emitAsyncReturnVoidBranchImpl}
-import codegen.ir_decl_registry.{DeclarationPassState, LateUserDeclareState, registerFunctionStateImpl, lookupCResourceDestructorStateImpl, isAsyncFunctionStateImpl, getAsyncDeclaredRetTypeStateImpl, getFunctionReturnTypeStateImpl, recordLateUserDeclareIntoStateImpl, emitLateUserDeclaresStateImpl, captureDeclarationPassStateImpl, captureLateUserDeclareStateImpl, resetLateUserDeclareStateImpl}
+import codegen.ir_decl_registry.{DeclarationPassState, LateUserDeclareState, registerFunctionStateImpl, lookupCResourceDestructorStateImpl, isAsyncFunctionStateImpl, getAsyncDeclaredRetTypeStateImpl, getFunctionReturnTypeStateImpl, recordLateUserDeclareIntoStateImpl, emitLateUserDeclaresStateImpl, captureDeclarationPassStateImpl, captureLateUserDeclareStateImpl}
 import codegen.ir_decl_items.{DeclarationItemContext, PreparedDeclarationItem, normalizeSeenTypeNameImpl, normalizeDeclaredTypeNodeImpl, prepareDeclarationItemForRegistrationImpl}
 import codegen.ir_decl_pass_driver.{beginDeclarationRegistrationPassImpl, finishDeclarationRegistrationPassImpl}
 import codegen.ir_decl_return_types.{inferReturnExprTypeImpl, resolveMethodReturnTypeImpl, resolveFunctionReturnTypeImpl}
-import codegen.ir_module_constants.{isModuleConstMutableImpl, getModuleConstSeenTypeImpl, tryInferModuleConstantVariableTypeSnapshotImpl, findModuleConstantSnapshotImpl, emitGlobalVariablesSnapshotImpl, moduleConstantInvariantLoadSuffixImpl, resetModuleConstantGenerationStateImpl}
+import codegen.ir_module_constants.{isModuleConstMutableImpl, getModuleConstSeenTypeImpl, tryInferModuleConstantVariableTypeSnapshotImpl, findModuleConstantSnapshotImpl, emitGlobalVariablesSnapshotImpl, moduleConstantInvariantLoadSuffixImpl}
 import codegen.ir_type_header.{tryLoadTypeHeaderIntoOutputImpl, emitBuiltinTypeHeaderImpl}
 import codegen.ir_local_type_fallback.{tryInferLLVMIRGeneratorThisFieldTypeImpl, tryInferStructThisFieldTypeImpl, tryInferImplicitThisVariableTypeImpl, tryInferNamedPrimitiveVariableTypeImpl}
 import codegen.ir_trait_registry.{appendDynTraitNameImpl}
@@ -127,7 +127,7 @@ import codegen.ir_class_type_decorators.{prepareClassTypeDecoratorScanSnapshotIm
 import codegen.ir_class_gen_support.{prepareGeneratedClassDecoratorSnapshotImpl, shouldSkipSourceClassMethodImpl, emitInheritedClassMethodThunksImpl}
 import codegen.ir_class_generated_features.{emitGeneratedClassDecoratorMethodsImpl}
 import codegen.ir_class_constructor_gen.{emitClassHeapAllocationImpl, emitClassArrayFieldInitializersImpl, resolveClassConstructorFieldOffsetImpl}
-import codegen.ir_field_registry.{resolveFieldIndexImpl, resolveStructFieldLlvmTypeImpl, findCachedIrgenFieldIndexImpl, cacheIrgenFieldIndexImpl, findCachedChainedPathTypeRecordImpl, cacheChainedPathTypeImpl, resetFieldLookupCacheStateImpl}
+import codegen.ir_field_registry.{resolveFieldIndexImpl, resolveStructFieldLlvmTypeImpl}
 import codegen.ir_module_emit.{mapGlobalVarLlvmTypeImpl, emitCrossModuleConstantDeclaresImpl, emitTraitVtableConstantsImpl, collectProgramDefinedSymbolsImpl, emitGeneratedClosuresImpl, emitOptimizationStatisticsSummaryImpl, shouldSkipStandaloneTopLevelFunctionImpl, resolveSpecialTopLevelFunctionActionImpl, emitGlobalConstructorsImpl}
 import codegen.ir_program_flow_plan.{shouldVisitProgramFlowIndexImpl, shouldEmitProgramClassTypeItemImpl, shouldGenerateProgramClassItemImpl, planProgramTopLevelFunctionStartImpl, planProgramTopLevelFunctionAfterSpecialImpl}
 import codegen.ir_field_layout.{emitSeenArrayLengthLoadImpl, generateFieldAccessImpl, generateFieldAccessPtrImpl, isScalarFieldChainTerminalTypeImpl}
@@ -174,6 +174,7 @@ import codegen.ir_ml_logging.{mlLogDecision, setupMLLogging, writeMLDecisionLog}
 import codegen.ir_codegen_state_bridge.{syncCodegenStateBridgeImpl, captureCodegenStateBridgeSnapshotImpl, resetSharedModuleGenerationScratchStateImpl}
 import codegen.ir_codegen_target_state.{g_hostTargetTriple, g_hostDataLayout, detectHostPlatform, overrideTargetTripleImpl}
 import codegen.ir_codegen_global_state.{preAllocatedRegs, preAllocatedVars, preAllocatedTypes, activeVarCount, structNames, structLayouts, structFieldNames, structFieldTypes, structLlvmFieldTypes, structSizes, structMethodNames, structMethodRetTypes, funcNames, funcRetTypes, classMethodBaseNames, typeHeaderPath, currentFunctionReturnType, currentClassName, blockTerminated, currentLoopCondLabel, currentLoopEndLabel, declOrdinalNames, declOrdinalCounts, stringConstantPrefix, generatedFunctions, generatedClasses, typesLoadedFromHeader, runtimeDeclsLoaded, pendingArrayLiteralType, moduleConstantNames, moduleConstantValues, moduleConstantTypes}
+import codegen.ir_codegen_module_state.{g_moduleConstMutable, g_moduleConstSeenTypes, g_xmDeclareNames, g_xmDeclareStrs, g_xmDeclareCount, g_xmDeclareVis, g_xmDeclareNamesArr, g_xmDeclareStrsArr, g_xmDeclareVisArr, g_lateXmDeclareNames, g_lateXmDeclareStrs, g_lateXmDeclareCount, g_xmConstNames, g_xmConstTypes, g_xmConstMutable, g_xmConstSeenTypes, g_xmConstCount, g_chainedPathTypeCacheValues, findCachedIrgenFieldIndex, cacheIrgenFieldIndex, findCachedChainedPathTypeRecord, cacheChainedPathType, resetModuleConstantGenerationState, resetLateUserDeclareState, resetIrgenFieldLookupCaches}
 
 // Override host target triple and data layout for cross-compilation
 fun overrideTargetTriple(triple: String, layout: String) r: Void {
@@ -198,35 +199,6 @@ var g_currentClassParentName: String = ""
 var g_closureCount: Int = 0
 var g_closureDefs: String = ""
 
-// Module constant mutability: pipe-delimited "0"/"1" entries parallel to moduleConstantNames
-// "0" = immutable (let), "1" = mutable (var). Reset per-module.
-var g_moduleConstMutable: String = ""
-// Module constant Seen types: pipe-delimited full Seen types parallel to moduleConstantNames
-var g_moduleConstSeenTypes: String = ""
-// Cross-module function declares: pipe-delimited parallel arrays
-// Populated during registerDeclarations (Pass 1), emitted in generateSingle (Pass 2)
-var g_xmDeclareNames: String = ""
-var g_xmDeclareStrs: String = ""
-var g_xmDeclareCount: Int = 0
-// Visibility tracking: pipe-delimited "public" or "private" parallel to g_xmDeclareNames
-var g_xmDeclareVis: String = ""
-var g_xmDeclareNamesArr: Array<String> = Array<String>()
-var g_xmDeclareStrsArr: Array<String> = Array<String>()
-var g_xmDeclareVisArr: Array<String> = Array<String>()
-// Late-discovered user declares are found during Pass 2 when a direct-entry
-// build references symbols that never appeared in Pass 1 declarations.
-var g_lateXmDeclareNames: String = ""
-var g_lateXmDeclareStrs: String = ""
-var g_lateXmDeclareCount: Int = 0
-// Cross-module constant registry: pipe-delimited parallel arrays
-// Populated during registerDeclarations (Pass 1), used for external global stubs in generateSingle (Pass 2)
-// NOT reset per-module — must persist across all modules like g_xmDeclareNames
-var g_xmConstNames: String = ""
-var g_xmConstTypes: String = ""
-var g_xmConstMutable: String = ""
-var g_xmConstSeenTypes: String = ""
-var g_xmConstCount: Int = 0
-
 // Defer statement tracking: array of deferred statement expressions per block scope
 var g_deferCount: Int = 0
 var g_deferExprs: Array<ParserExpressionNode> = Array<ParserExpressionNode>()
@@ -235,57 +207,6 @@ var g_deferExprs: Array<ParserExpressionNode> = Array<ParserExpressionNode>()
 var g_errdeferCount: Int = 0
 var g_errdeferExprs: Array<ParserExpressionNode> = Array<ParserExpressionNode>()
 var g_errdeferTempAlloca: String = ""
-var g_irgenFieldInfoCacheKeys: Array<String> = Array<String>()
-var g_irgenFieldInfoCacheIdxs: Array<Int> = Array<Int>()
-var g_chainedPathTypeCacheKeys: Array<String> = Array<String>()
-var g_chainedPathTypeCacheLens: Array<Int> = Array<Int>()
-var g_chainedPathTypeCacheValues: Array<String> = Array<String>()
-
-fun findCachedIrgenFieldIndex(key: String) r: Int {
-    return findCachedIrgenFieldIndexImpl(key, g_irgenFieldInfoCacheKeys,
-        g_irgenFieldInfoCacheIdxs)
-}
-
-fun cacheIrgenFieldIndex(key: String, idx: Int) r: Void {
-    cacheIrgenFieldIndexImpl(key, idx, g_irgenFieldInfoCacheKeys,
-        g_irgenFieldInfoCacheIdxs)
-}
-
-fun findCachedChainedPathTypeRecord(key: String, structLen: Int) r: Int {
-    return findCachedChainedPathTypeRecordImpl(key, structLen,
-        g_chainedPathTypeCacheKeys, g_chainedPathTypeCacheLens)
-}
-
-fun cacheChainedPathType(key: String, structLen: Int, resultType: String) r: Void {
-    cacheChainedPathTypeImpl(key, structLen, resultType,
-        g_chainedPathTypeCacheKeys, g_chainedPathTypeCacheLens,
-        g_chainedPathTypeCacheValues)
-}
-
-fun resetModuleConstantGenerationState() r: Void {
-    let moduleConstState = resetModuleConstantGenerationStateImpl()
-    moduleConstantNames = moduleConstState.moduleConstantNames
-    moduleConstantValues = moduleConstState.moduleConstantValues
-    moduleConstantTypes = moduleConstState.moduleConstantTypes
-    g_moduleConstMutable = moduleConstState.moduleConstMutable
-    g_moduleConstSeenTypes = moduleConstState.moduleConstSeenTypes
-}
-
-fun resetLateUserDeclareState() r: Void {
-    let lateState = resetLateUserDeclareStateImpl()
-    g_lateXmDeclareNames = lateState.lateXmDeclareNames
-    g_lateXmDeclareStrs = lateState.lateXmDeclareStrs
-    g_lateXmDeclareCount = lateState.lateXmDeclareCount
-}
-
-fun resetIrgenFieldLookupCaches() r: Void {
-    let cacheState = resetFieldLookupCacheStateImpl()
-    g_irgenFieldInfoCacheKeys = cacheState.fieldInfoCacheKeys
-    g_irgenFieldInfoCacheIdxs = cacheState.fieldInfoCacheIdxs
-    g_chainedPathTypeCacheKeys = cacheState.chainedPathTypeCacheKeys
-    g_chainedPathTypeCacheLens = cacheState.chainedPathTypeCacheLens
-    g_chainedPathTypeCacheValues = cacheState.chainedPathTypeCacheValues
-}
 
 // Cache-line aligned classes: pipe-delimited names
 var g_cacheLineClasses: String = ""
