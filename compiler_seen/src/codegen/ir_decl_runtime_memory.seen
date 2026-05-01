@@ -1,0 +1,103 @@
+// Memory, synchronization, and LLVM intrinsic runtime declarations.
+
+import str.string.{StringBuilder}
+
+fun emitMemoryRuntimeDecls(output: StringBuilder) r: Void {
+    // Memory allocation — allockind attributes enable heap-to-stack promotion and DSE
+    output.append("declare noalias ptr @malloc(i64) nounwind allockind(\"alloc,uninitialized\") allocsize(0)\n")
+    output.append("declare void @free(ptr nocapture) nounwind allockind(\"free\")\n")
+    output.append("declare noalias ptr @realloc(ptr nocapture, i64) nounwind allockind(\"realloc\") allocsize(1)\n")
+    output.append("declare noalias ptr @aligned_alloc(i64, i64) nounwind allockind(\"alloc,uninitialized,aligned\") allocsize(1)\n")
+    // Pool allocator for class instances — allockind enables LLVM to treat as allocator/deallocator pair
+    output.append("declare noalias ptr @seen_pool_alloc(i64) nounwind allockind(\"alloc,uninitialized\") allocsize(0)\n")
+    output.append("declare void @seen_pool_free(ptr nocapture, i64) nounwind allockind(\"free\")\n")
+    // Region allocator
+    output.append("declare ptr @__seen_region_create(i64, i32) nounwind\n")
+    output.append("declare ptr @__seen_region_alloc(ptr, i64, i64) nounwind\n")
+    output.append("declare void @__seen_region_destroy(ptr) nounwind\n")
+    output.append("declare void @__seen_region_reset(ptr) nounwind\n")
+    output.append("declare void @__seen_region_push(ptr) nounwind\n")
+    output.append("declare ptr @__seen_region_pop() nounwind\n")
+    output.append("declare ptr @__seen_region_current() nounwind\n")
+    // Generational handles for Vale-style safety
+    output.append("declare i64 @__seen_region_alloc_handle(ptr, ptr) nounwind\n")
+    output.append("declare ptr @__seen_region_deref_handle(ptr, i64) nounwind\n")
+    output.append("declare i64 @__seen_region_handle_valid(ptr, i64) nounwind readonly\n")
+    // TEE / enclave runtime functions
+    output.append("declare i64 @__seen_tee_init() nounwind\n")
+    output.append("declare i64 @__seen_tee_get_type() nounwind readonly\n")
+    output.append("declare i64 @__seen_tee_is_active() nounwind readonly\n")
+    output.append("declare i64 @__seen_enclave_enter(i64) nounwind\n")
+    output.append("declare i64 @__seen_enclave_exit() nounwind\n")
+    output.append("declare i64 @__seen_in_enclave() nounwind readonly\n")
+    output.append("declare i64 @__seen_enclave_create(%SeenString, i64, i64) nounwind\n")
+    output.append("declare i64 @__seen_enclave_destroy(i64) nounwind\n")
+    output.append("declare %SeenString @__seen_seal_string(%SeenString, %SeenString, i64) nounwind\n")
+    output.append("declare %SeenString @__seen_unseal_string(%SeenString, %SeenString) nounwind\n")
+    output.append("declare %SeenString @__seen_unseal_string_ex(%SeenString, %SeenString, i64, i64) nounwind\n")
+    output.append("declare %SeenString @__seen_get_attestation_json(%SeenString, i64) nounwind\n")
+    output.append("declare %SeenString @__seen_attestation_measurement_json(%SeenString) nounwind\n")
+    output.append("declare i64 @__seen_verify_attestation_json(%SeenString, %SeenString) nounwind\n")
+    // : GPU region runtime functions
+    output.append("declare void @__seen_region_gpu_sync(ptr) nounwind\n")
+    output.append("declare void @__seen_region_gpu_map(ptr) nounwind\n")
+    output.append("declare void @__seen_region_gpu_unmap(ptr) nounwind\n")
+    // Stack region allocator
+    output.append("declare i64 @seen_stack_region_new(i64) nounwind\n")
+    output.append("declare i64 @seen_stack_region_alloc(i64, i64) nounwind\n")
+    output.append("declare void @seen_stack_region_pop(i64, i64) nounwind\n")
+    output.append("declare void @seen_stack_region_reset(i64) nounwind\n")
+    output.append("declare void @seen_stack_region_destroy(i64) nounwind\n")
+    output.append("declare i64 @seen_stack_region_remaining(i64) nounwind readonly\n")
+    // Pool region allocator
+    output.append("declare i64 @seen_pool_region_new(i64, i64) nounwind\n")
+    output.append("declare i64 @seen_pool_region_alloc(i64) nounwind\n")
+    output.append("declare void @seen_pool_region_free(i64, i64) nounwind\n")
+    output.append("declare void @seen_pool_region_destroy(i64) nounwind\n")
+    output.append("declare void @seen_pool_region_reset(i64) nounwind\n")
+    output.append("declare i64 @seen_pool_region_available(i64) nounwind readonly\n")
+    // Memory-mapped region
+    output.append("declare i64 @seen_mapped_new(i64, ptr, i64, i64) nounwind\n")
+    output.append("declare i64 @seen_mapped_data(i64) nounwind\n")
+    output.append("declare void @seen_mapped_sync(i64) nounwind\n")
+    output.append("declare void @seen_mapped_free(i64) nounwind\n")
+    output.append("declare i64 @seen_mapped_length(i64) nounwind readonly\n")
+    // RwLock (reader-writer lock)
+    output.append("declare i64 @seen_rwlock_new() nounwind\n")
+    output.append("declare void @seen_rwlock_read_lock(i64) nounwind\n")
+    output.append("declare void @seen_rwlock_read_unlock(i64) nounwind\n")
+    output.append("declare void @seen_rwlock_write_lock(i64) nounwind\n")
+    output.append("declare void @seen_rwlock_write_unlock(i64) nounwind\n")
+    output.append("declare void @seen_rwlock_destroy(i64) nounwind\n")
+    // Barrier
+    output.append("declare i64 @seen_barrier_new(i64) nounwind\n")
+    output.append("declare i64 @seen_barrier_wait(i64) nounwind\n")
+    output.append("declare void @seen_barrier_destroy(i64) nounwind\n")
+    // Thread-local storage
+    output.append("declare i64 @seen_tls_new() nounwind\n")
+    output.append("declare void @seen_tls_set(i64, i64) nounwind\n")
+    output.append("declare i64 @seen_tls_get(i64) nounwind\n")
+    output.append("declare void @seen_tls_destroy(i64) nounwind\n")
+    output.append("declare void @llvm.memcpy.p0.p0.i64(ptr noalias, ptr noalias, i64, i1) nounwind\n")
+    output.append("declare void @llvm.memmove.p0.p0.i64(ptr, ptr, i64, i1) nounwind\n")
+    output.append("declare void @llvm.memset.p0.i64(ptr, i8, i64, i1) nounwind\n")
+
+    // LLVM Coroutine intrinsics for async/await
+    output.append("declare token @llvm.coro.id(i32, ptr, ptr, ptr)\n")
+    output.append("declare i1 @llvm.coro.alloc(token)\n")
+    output.append("declare i32 @llvm.coro.size.i32()\n")
+    output.append("declare i64 @llvm.coro.size.i64()\n")
+    output.append("declare ptr @llvm.coro.begin(token, ptr)\n")
+    output.append("declare token @llvm.coro.save(ptr)\n")
+    output.append("declare i8 @llvm.coro.suspend(token, i1)\n")
+    output.append("declare i1 @llvm.coro.end(ptr, i1, token)\n")
+    output.append("declare ptr @llvm.coro.free(token, ptr)\n")
+    output.append("declare void @llvm.coro.resume(ptr)\n")
+    output.append("declare void @llvm.coro.destroy(ptr)\n")
+    output.append("declare i1 @llvm.coro.done(ptr)\n")
+    output.append("declare ptr @llvm.coro.promise(ptr, i32, i1)\n")
+
+    output.append("declare i64 @abort(i64) nounwind\n")
+    // Branch prediction hint intrinsic (for @likely/@unlikely)
+    output.append("declare i1 @llvm.expect.i1(i1, i1) nounwind readnone\n")
+}
