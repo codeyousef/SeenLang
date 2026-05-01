@@ -1,0 +1,207 @@
+// ir_function_prelude_analysis.seen - pre-body inline and register pressure analysis.
+
+import parser.real_parser.{FunctionNode}
+import codegen.ir_inline_heuristics.{selfCallCheck, mlShouldInlineWeighted}
+import codegen.ir_function_lowering.{shouldApplyFunctionInlineHeuristicsImpl, countFunctionInlineLoopKindsImpl, appendInlineDecisionAttrImpl, isHighRegisterPressureImpl, emitHighRegisterPressureNoteImpl}
+import codegen.ir_function_snapshots.{FunctionInlineHeuristicsAnalysis, FunctionRegisterPressureAnalysis, FunctionPreludeAnalysisSnapshot}
+import codegen.ir_function_gen.{hasFunctionDecoratorGenImpl}
+import str.string.{StringBuilder}
+
+fun analyzeFunctionInlineHeuristicsImpl(fn: FunctionNode, funcAttrs: String,
+    replayInline: String, fnCallCount: Int)
+    r: FunctionInlineHeuristicsAnalysis {
+
+    let analysis = FunctionInlineHeuristicsAnalysis.new()
+    analysis.funcAttrs = funcAttrs
+    analysis.bodySize = fn.body.statements.length()
+    analysis.nestDepth = fn.params.length()
+
+    if not shouldApplyFunctionInlineHeuristicsImpl(fn) {
+        return analysis
+    }
+    analysis.applied = 1
+
+    if replayInline == "yes" {
+        analysis.inlineDecision = "always"
+        analysis.funcAttrs = appendInlineDecisionAttrImpl(funcAttrs,
+            analysis.inlineDecision)
+        return analysis
+    }
+
+    if replayInline == "" {
+        if countFunctionInlineLoopKindsImpl(fn) > 0 {
+            analysis.hasLoopsFlag = 1
+        }
+        analysis.inlineDecision = mlShouldInlineWeighted(
+            analysis.bodySize, fnCallCount, analysis.hasLoopsFlag,
+            analysis.nestDepth)
+        analysis.funcAttrs = appendInlineDecisionAttrImpl(funcAttrs,
+            analysis.inlineDecision)
+    }
+    return analysis
+}
+
+fun analyzeFunctionRegisterPressureImpl(output: StringBuilder,
+    fn: FunctionNode) r: FunctionRegisterPressureAnalysis {
+
+    let analysis = FunctionRegisterPressureAnalysis.new()
+    analysis.regPressureCount = countFunctionRegisterPressureImpl(fn)
+    if isHighRegisterPressureImpl(analysis.regPressureCount) {
+        emitHighRegisterPressureNoteImpl(output, analysis.regPressureCount)
+        analysis.highPressure = 1
+    }
+    return analysis
+}
+
+fun lookupFunctionCallCountImpl(callCountNamesArr: Array<String>,
+    funcName: String) r: Int {
+
+    var count = 0
+    var i = 0
+    while i < callCountNamesArr.length() {
+        if callCountNamesArr[i] == funcName {
+            count = count + 1
+        }
+        i = i + 1
+    }
+    return count
+}
+
+fun lookupFunctionReplayDecisionImpl(mlReplayEnabled: Bool,
+    mlReplayLog: String, category: String, detail: String) r: String {
+
+    if not mlReplayEnabled or mlReplayLog.length() == 0 {
+        return ""
+    }
+
+    var pos = 0
+    var lineStart = 0
+    while pos < mlReplayLog.length() {
+        if mlReplayLog.charAt(pos) == '\n' {
+            let line = mlReplayLog.substring(lineStart, pos)
+            let catPrefix = category + "\t"
+            if line.startsWith(catPrefix) {
+                var tabCount = 0
+                var secondTabPos = 0
+                var scanPos = 0
+                while scanPos < line.length() {
+                    if line.charAt(scanPos) == '\t' {
+                        tabCount = tabCount + 1
+                        if tabCount == 2 {
+                            secondTabPos = scanPos
+                        }
+                    }
+                    scanPos = scanPos + 1
+                }
+                if tabCount >= 2 {
+                    let lineDetail = line.substring(secondTabPos + 1,
+                        line.length())
+                    if lineDetail == detail {
+                        var firstTabPos = 0
+                        var ftScan = 0
+                        while ftScan < line.length() {
+                            if line.charAt(ftScan) == '\t' {
+                                firstTabPos = ftScan
+                                break
+                            }
+                            ftScan = ftScan + 1
+                        }
+                        return line.substring(firstTabPos + 1, secondTabPos)
+                    }
+                }
+            }
+            lineStart = pos + 1
+        }
+        pos = pos + 1
+    }
+    return ""
+}
+
+fun prepareFunctionPreludeAnalysisSnapshotImpl(output: StringBuilder,
+    fn: FunctionNode, fnName: String, funcAttrs: String,
+    mlReplayEnabled: Bool, mlReplayLog: String,
+    callCountNamesArr: Array<String>, selfCallFuncs: String,
+    selfCallNames: String, selfCallCount: Int)
+    r: FunctionPreludeAnalysisSnapshot {
+
+    let snapshot = FunctionPreludeAnalysisSnapshot.new()
+    snapshot.funcAttrs = funcAttrs
+    var replayInline = ""
+    var fnCallCount = 0
+    if not fn.isInline and not hasFunctionDecoratorGenImpl(fn, "noinline") {
+        replayInline = lookupFunctionReplayDecisionImpl(mlReplayEnabled,
+            mlReplayLog, "inline", fnName)
+        if replayInline == "" {
+            fnCallCount = lookupFunctionCallCountImpl(callCountNamesArr,
+                fnName)
+        }
+    }
+
+    let inlineAnalysis = analyzeFunctionInlineHeuristicsImpl(fn, funcAttrs,
+        replayInline, fnCallCount)
+    snapshot.funcAttrs = inlineAnalysis.funcAttrs
+    snapshot.inlineBodySize = inlineAnalysis.bodySize
+    snapshot.inlineCallCount = fnCallCount
+    snapshot.inlineHasLoopsFlag = inlineAnalysis.hasLoopsFlag
+    snapshot.inlineNestDepth = inlineAnalysis.nestDepth
+    if inlineAnalysis.applied == 1 and replayInline == "yes" {
+        snapshot.inlineReplayDecision = 1
+    }
+    if inlineAnalysis.applied == 1 and replayInline == "" {
+        snapshot.inlineFeatureLog = 1
+        if inlineAnalysis.inlineDecision == "always" {
+            snapshot.inlineDecisionAction = "yes"
+        }
+        if inlineAnalysis.inlineDecision == "hint" {
+            snapshot.inlineDecisionAction = "hint"
+        }
+        if inlineAnalysis.inlineDecision == "noinline" {
+            snapshot.inlineDecisionAction = "no"
+        }
+        if snapshot.inlineDecisionAction != "" {
+            snapshot.inlineDecisionDetail = fnName + ":sz=" +
+                inlineAnalysis.bodySize.toString()
+        }
+    }
+
+    snapshot.funcAttrs = normalizeRecursiveFunctionAttrsImpl(fnName,
+        snapshot.funcAttrs, selfCallFuncs, selfCallNames, selfCallCount)
+
+    let regPressureAnalysis = analyzeFunctionRegisterPressureImpl(output, fn)
+    snapshot.regPressureCount = regPressureAnalysis.regPressureCount
+    if regPressureAnalysis.highPressure == 1 {
+        snapshot.highPressure = 1
+        snapshot.regPressureDetail = fnName + ":" +
+            regPressureAnalysis.regPressureCount.toString()
+    }
+    return snapshot
+}
+
+fun normalizeRecursiveFunctionAttrsImpl(fnName: String, funcAttrs: String,
+    selfCallFuncs: String, selfCallNames: String, selfCallCount: Int)
+    r: String {
+
+    var normalizedAttrs = funcAttrs
+    let isSelfRecursive = selfCallCheck(fnName, selfCallFuncs, selfCallNames,
+        selfCallCount)
+    if isSelfRecursive {
+        normalizedAttrs = normalizedAttrs.replace(" alwaysinline", "")
+        normalizedAttrs = normalizedAttrs.replace(" inlinehint", "")
+        normalizedAttrs = normalizedAttrs + " noinline"
+        return normalizedAttrs
+    }
+    return normalizedAttrs + " norecurse"
+}
+
+fun countFunctionRegisterPressureImpl(fn: FunctionNode) r: Int {
+    var regPressureCount = fn.params.length()
+    var rpIdx = 0
+    while rpIdx < fn.body.statements.length() {
+        let rpStmt = fn.body.statements[rpIdx]
+        if rpStmt.kind == "Let" or rpStmt.kind == "Var" {
+            regPressureCount = regPressureCount + 1
+        }
+        rpIdx = rpIdx + 1
+    }
+    return regPressureCount
+}

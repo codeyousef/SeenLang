@@ -158,7 +158,8 @@ import codegen.type_registry.{TypeRegistry}
 import codegen.ir_codegen_state.{CodegenState, FunctionLoweringOptions, getSharedCodegenState}
 import codegen.ir_function_snapshots.{NestedScratchStateSnapshot}
 import codegen.ir_function_scratch.{snapshotNestedScratchStateImpl, resetLocalCodegenStateImpl, clearActiveBindingsImpl, beginNestedScratchStateImpl, restoreNestedScratchStateImpl, emitParallelForCallImpl}
-import codegen.ir_function_gen.{prepareFunctionPreludeAnalysisSnapshotImpl, prepareFunctionGenerationIdentitySnapshotImpl}
+import codegen.ir_function_gen.{prepareFunctionGenerationIdentitySnapshotImpl}
+import codegen.ir_function_prelude_analysis.{prepareFunctionPreludeAnalysisSnapshotImpl}
 import codegen.ir_function_entry_exit.{emitPreAllocatedAllocasImpl, emitFunctionEntrySetupSnapshotImpl, emitFunctionExitResetSnapshotImpl}
 import codegen.ir_function_signature_emit.{emitAsyncCoroutineEpilogueImpl}
 import codegen.ir_literal_gen.{generateLiteralFree}
