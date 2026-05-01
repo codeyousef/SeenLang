@@ -148,6 +148,7 @@ import codegen.ir_function_lowering.{configureFunctionLoweringOptionsImpl}
 import codegen.ir_function_state.{getCurrentFunctionEmissionStateImpl, resetFunctionEmissionForFunctionImpl, markFunctionEmissionHighPressureImpl, resetFunctionEmissionHighPressureImpl, recordMovedVariableImpl, isMovedVariableImpl, resetFunctionLoweringOptionsStateImpl, resetFunctionHighPressureImpl, markFunctionHighPressureImpl, isFunctionHighPressureImpl, currentFunctionAlignToImpl, currentFunctionRegionSizeBytesImpl, isCurrentFunctionAsyncLoweringImpl, markTailCallPositionImpl, takeTailCallPositionImpl}
 import codegen.ir_function_snapshots.{NestedScratchStateSnapshot, FunctionInlineHeuristicsAnalysis, FunctionRegisterPressureAnalysis, FunctionGenerationIdentitySnapshot, FunctionEntrySetupSnapshot, FunctionRuntimeStateSnapshot, FunctionPreludeAnalysisSnapshot}
 import codegen.ir_function_scratch.{snapshotNestedScratchStateImpl}
+import codegen.ir_function_entry_exit.{emitFunctionEntrySetupSnapshotImpl, emitFunctionExitResetSnapshotImpl}
 import codegen.ir_function_lifecycle.{planFunctionIntrinsicFlowImpl, shouldReturnAfterFunctionDecoratorPreflightImpl, planFunctionIdentityFlowImpl, planFunctionHighPressureImpl, planFunctionEntryExitFlowImpl, applyFunctionEntrySetupToEmissionImpl, currentFunctionProfileFlagIntImpl, currentFunctionHighPressureIntImpl, applyFunctionExitStateToEmissionImpl}
 import codegen.ir_function_param_meta.{preRegisterFunctionParametersImpl}
 import codegen.ir_function_prebody.{isMainFunctionNameImpl, prepareFunctionPreBodyStateSnapshotImpl, mapFunctionPreBodyReturnTypeImpl}
@@ -3059,6 +3060,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_function_snapshots")
         modules.push("codegen.ir_function_scratch")
         modules.push("codegen.ir_function_gen")
+        modules.push("codegen.ir_function_entry_exit")
         modules.push("codegen.ir_function_box_utils")
         modules.push("codegen.ir_function_dead_store")
         modules.push("codegen.ir_function_intrinsic_emit")

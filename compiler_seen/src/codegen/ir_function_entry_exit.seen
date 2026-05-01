@@ -1,0 +1,402 @@
+// ir_function_entry_exit.seen - function entry, alloca, profile, and exit helpers.
+
+import parser.real_parser.{FunctionNode}
+import codegen.ir_optimization.{getNextRegFn}
+import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
+import codegen.ir_type_mapping.{mapTypeImpl}
+import codegen.ir_codegen_state.{CodegenState, clearTransientFunctionLoweringOptions}
+import codegen.ir_string_collect.{getBaseTypeNameImpl}
+import codegen.ir_string_emit.{addStringConstantTableImpl, getStringConstantIndexImpl}
+import codegen.ir_function_param_meta.{buildFunctionParameterDeclsImpl, emitFunctionParameterAllocasImpl}
+import codegen.ir_function_lowering.{configureFunctionLoweringOptionsImpl}
+import codegen.ir_function_box_utils.{ensureFunctionStringBoxValue, ensureFunctionIntBoxValue}
+import codegen.ir_function_signature_emit.{emitFunctionSignatureImpl, emitDefaultReturnValueImpl, emitAsyncCoroutinePreambleImpl, emitAsyncCoroutineEpilogueImpl}
+import codegen.ir_function_param_scan.{scanUnusedParametersImpl}
+import codegen.ir_function_snapshots.{FunctionEntrySetupSnapshot, FunctionRuntimeStateSnapshot}
+import codegen.ir_function_gen.{hasFunctionDecoratorGenImpl}
+import str.string.{StringBuilder}
+
+fun buildFunctionSignaturePrefixImpl(fn: FunctionNode, fnName: String,
+    returnType: String) r: String {
+
+    var fnRetPrefix = "define "
+    if returnType == "i64" or returnType == "double" or returnType == "i1" {
+        fnRetPrefix = "define noundef "
+    }
+    var actualLlvmReturnType = returnType
+    if fn.isAsync {
+        actualLlvmReturnType = "ptr"
+        fnRetPrefix = "define "
+    }
+    if hasFunctionDecoratorGenImpl(fn, "init") and
+        fn.name == "__seen_internal_module_init__" {
+
+        fnRetPrefix = "define internal "
+    }
+    if hasFunctionDecoratorGenImpl(fn, "export") {
+        fnRetPrefix = fnRetPrefix + "dso_local "
+    }
+    let quotedFnName = quoteIdentIfNeededImpl(fnName)
+    return fnRetPrefix + actualLlvmReturnType + " @" + quotedFnName + "("
+}
+
+fun mapFunctionEntryAllocaTypeImpl(seenType: String, structNames: Array<String>,
+    typeAliasNames: String, typeAliasTargets: String, typeAliasCount: Int,
+    enumTypeNames: String, reprCClassNames: String) r: String {
+
+    if seenType.startsWith("dyn ") {
+        return "i64"
+    }
+    if seenType.startsWith("*") {
+        return "i64"
+    }
+    if reprCClassNames != "" {
+        let baseT = getBaseTypeNameImpl(seenType)
+        if reprCClassNames.contains(baseT + "|") {
+            return "%" + baseT
+        }
+    }
+    return mapTypeImpl(seenType, structNames, typeAliasNames, typeAliasTargets,
+        typeAliasCount, enumTypeNames)
+}
+
+fun emitPreAllocatedAllocasImpl(output: StringBuilder, regBox: Array<Int>,
+    preAllocatedTypes: Array<String>, structNames: Array<String>,
+    typeAliasNames: String, typeAliasTargets: String, typeAliasCount: Int,
+    enumTypeNames: String, reprCClassNames: String) r: Array<String> {
+
+    let regs = Array<String>()
+    var i = 0
+    while i < preAllocatedTypes.length() {
+        let llvmType = mapFunctionEntryAllocaTypeImpl(preAllocatedTypes[i],
+            structNames, typeAliasNames, typeAliasTargets, typeAliasCount,
+            enumTypeNames, reprCClassNames)
+        let reg = getNextRegFn(regBox)
+        if llvmType == "i64" or llvmType == "double" or llvmType == "ptr" {
+            output.append("  " + reg + " = alloca " + llvmType +
+                ", align 8\n")
+        } else {
+            output.append("  " + reg + " = alloca " + llvmType + "\n")
+        }
+        regs.push(reg)
+        i = i + 1
+    }
+    return regs
+}
+
+fun emitFunctionPrefetchHintsImpl(output: StringBuilder, regBox: Array<Int>,
+    fn: FunctionNode, prefetchMode: Int) r: Void {
+
+    if prefetchMode <= 0 {
+        return
+    }
+    var prefetchRW = "0"
+    if prefetchMode == 2 {
+        prefetchRW = "1"
+    }
+    var prefetchModeStr = "read"
+    if prefetchMode == 2 {
+        prefetchModeStr = "write"
+    }
+    output.append("  ; @prefetch(" + prefetchModeStr +
+        ") instrumentation\n")
+    var pi = 0
+    while pi < fn.params.length() {
+        let param = fn.params[pi]
+        let paramTypeName = param.paramType.typeName
+        if paramTypeName == "Array<Int>" or paramTypeName == "Array<Float>" or
+            contains(paramTypeName, "Array") {
+
+            let allocaName = "%" + quoteIdentIfNeededImpl(param.name)
+            let ptrReg = getNextRegFn(regBox)
+            output.append("  " + ptrReg + " = load ptr, ptr " +
+                allocaName + "\n")
+            output.append("  call void @llvm.prefetch.p0(ptr " + ptrReg +
+                ", i32 " + prefetchRW + ", i32 3, i32 1)\n")
+        }
+        pi = pi + 1
+    }
+}
+
+fun emitRegionAllocatorSetupImpl(output: StringBuilder, regBox: Array<Int>,
+    regionSizeBytes: Int) r: Void {
+
+    if regionSizeBytes <= 0 {
+        return
+    }
+    output.append("  ; @preallocate region allocator - create\n")
+    let regionReg = getNextRegFn(regBox)
+    output.append("  " + regionReg +
+        " = call ptr @__seen_region_create(i64 " +
+        regionSizeBytes.toString() + ", i32 1)\n")
+    output.append("  %__region_ptr = alloca ptr\n")
+    output.append("  store ptr " + regionReg + ", ptr %__region_ptr\n")
+}
+
+fun emitFunctionEntrySetupStateImpl(state: CodegenState, fn: FunctionNode,
+    fnName: String, returnType: String, funcAttrs: String,
+    typeAliasNames: String, typeAliasTargets: String, typeAliasCount: Int,
+    enumTypeNames: String, reprCClassNames: String,
+    profiledFlagBox: Array<Int>, profiledNameBox: Array<String>,
+    profileStringIndexBox: Array<Int>, asyncPromiseBox: Array<String>,
+    asyncCoroIdBox: Array<String>, asyncCoroHdlBox: Array<String>,
+    asyncFinalLabelBox: Array<String>, asyncCleanupLabelBox: Array<String>)
+    r: Array<String> {
+
+    ensureFunctionIntBoxValue(profileStringIndexBox)
+
+    let signaturePrefix = buildFunctionSignaturePrefixImpl(fn, fnName,
+        returnType)
+    let paramDecls = buildFunctionParameterDeclsImpl(fn,
+        hasFunctionDecoratorGenImpl(fn, "no_alias"),
+        state.registry.structNames, typeAliasNames, typeAliasTargets,
+        typeAliasCount, enumTypeNames, reprCClassNames)
+    emitFunctionSignatureImpl(state.output, signaturePrefix, paramDecls,
+        funcAttrs)
+
+    if fn.isAsync {
+        let promiseType = mapTypeImpl(state.currentFunctionReturnType,
+            state.registry.structNames, typeAliasNames, typeAliasTargets,
+            typeAliasCount, enumTypeNames)
+        emitAsyncCoroutinePreambleImpl(state.output, state.regBox,
+            state.blockBox, promiseType, asyncPromiseBox, asyncCoroIdBox,
+            asyncCoroHdlBox, asyncFinalLabelBox, asyncCleanupLabelBox)
+    }
+
+    let paramActiveVarCountBox = Array<Int>()
+    paramActiveVarCountBox.push(state.activeVarCount)
+    emitFunctionParameterAllocasImpl(state.output, state.regBox, fn,
+        state.varNames, state.varRegs, state.varTypes,
+        paramActiveVarCountBox, state.registry.structNames, typeAliasNames,
+        typeAliasTargets, typeAliasCount, enumTypeNames, reprCClassNames)
+    state.activeVarCount = paramActiveVarCountBox[0]
+
+    state.preAllocatedRegs = emitPreAllocatedAllocasImpl(state.output,
+        state.regBox, state.preAllocatedTypes, state.registry.structNames,
+        typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames,
+        reprCClassNames)
+
+    profileStringIndexBox[0] = -1
+    if hasFunctionDecoratorGenImpl(fn, "profile") {
+        profileStringIndexBox[0] = addStringConstantTableImpl(
+            state.stringConstants, fnName)
+    }
+    let unusedParams = emitFunctionDiagnosticsAndProfileEntryImpl(
+        state.output, fn, fnName, profileStringIndexBox[0], profiledFlagBox,
+        profiledNameBox)
+
+    configureFunctionLoweringOptionsImpl(fn, state.functionOptions)
+    emitFunctionPrefetchHintsImpl(state.output, state.regBox, fn,
+        state.functionOptions.prefetchMode)
+    emitRegionAllocatorSetupImpl(state.output, state.regBox,
+        state.functionOptions.regionSizeBytes)
+    return unusedParams
+}
+
+fun emitFunctionEntrySetupSnapshotImpl(state: CodegenState, fn: FunctionNode,
+    fnName: String, returnType: String, funcAttrs: String,
+    typeAliasNames: String, typeAliasTargets: String, typeAliasCount: Int,
+    enumTypeNames: String, reprCClassNames: String, asyncPromise: String,
+    asyncCoroId: String, asyncCoroHdl: String, asyncFinalLabel: String,
+    asyncCleanupLabel: String) r: FunctionEntrySetupSnapshot {
+
+    let snapshot = FunctionEntrySetupSnapshot.new()
+    let profiledFlagBox = Array<Int>()
+    profiledFlagBox.push(0)
+    let profiledNameBox = Array<String>()
+    profiledNameBox.push("")
+    let profileStringIndexBox = Array<Int>()
+    profileStringIndexBox.push(-1)
+    let asyncPromiseBox = Array<String>()
+    asyncPromiseBox.push(asyncPromise)
+    let asyncCoroIdBox = Array<String>()
+    asyncCoroIdBox.push(asyncCoroId)
+    let asyncCoroHdlBox = Array<String>()
+    asyncCoroHdlBox.push(asyncCoroHdl)
+    let asyncFinalLabelBox = Array<String>()
+    asyncFinalLabelBox.push(asyncFinalLabel)
+    let asyncCleanupLabelBox = Array<String>()
+    asyncCleanupLabelBox.push(asyncCleanupLabel)
+
+    snapshot.unusedParams = emitFunctionEntrySetupStateImpl(state, fn, fnName,
+        returnType, funcAttrs, typeAliasNames, typeAliasTargets,
+        typeAliasCount, enumTypeNames, reprCClassNames, profiledFlagBox,
+        profiledNameBox, profileStringIndexBox, asyncPromiseBox,
+        asyncCoroIdBox, asyncCoroHdlBox, asyncFinalLabelBox,
+        asyncCleanupLabelBox)
+    snapshot.profiledFlag = profiledFlagBox[0]
+    snapshot.profiledName = profiledNameBox[0]
+    snapshot.asyncPromise = asyncPromiseBox[0]
+    snapshot.asyncCoroId = asyncCoroIdBox[0]
+    snapshot.asyncCoroHdl = asyncCoroHdlBox[0]
+    snapshot.asyncFinalLabel = asyncFinalLabelBox[0]
+    snapshot.asyncCleanupLabel = asyncCleanupLabelBox[0]
+    return snapshot
+}
+
+fun emitFunctionDiagnosticsAndProfileEntryImpl(output: StringBuilder,
+    fn: FunctionNode, fnName: String, profileStringIndex: Int,
+    profiledFlagBox: Array<Int>, profiledNameBox: Array<String>)
+    r: Array<String> {
+
+    ensureFunctionIntBoxValue(profiledFlagBox)
+    ensureFunctionStringBoxValue(profiledNameBox)
+    profiledFlagBox[0] = 0
+    profiledNameBox[0] = ""
+
+    let unusedParams = scanUnusedParametersImpl(fn)
+    var unusedIdx = 0
+    while unusedIdx < unusedParams.length() {
+        output.append("  ; WARNING: unused parameter: " +
+            unusedParams[unusedIdx] + " in " + fnName + "\n")
+        unusedIdx = unusedIdx + 1
+    }
+
+    if hasFunctionDecoratorGenImpl(fn, "profile") {
+        profiledFlagBox[0] = 1
+        profiledNameBox[0] = fnName
+        output.append("  ; @profile instrumentation - enter\n")
+        output.append("  call void @__seen_profile_enter(ptr @.str." +
+            profileStringIndex.toString() + ")\n")
+    }
+    return unusedParams
+}
+
+fun emitFunctionImplicitTerminationImpl(output: StringBuilder,
+    regBox: Array<Int>, blockBox: Array<Int>, blockTerminated: Bool,
+    isAsyncLowering: Bool, emitAsyncEpilogue: Bool, returnType: String,
+    asyncPromiseType: String,
+    asyncPromise: String, asyncFinalLabel: String, asyncCoroId: String,
+    asyncCoroHdl: String, asyncCleanupLabel: String, regionSizeBytes: Int,
+    profiledFlag: Int, profileStringIndex: Int) r: Void {
+
+    if not blockTerminated {
+        if regionSizeBytes > 0 {
+            let regionDefReg = getNextRegFn(regBox)
+            output.append("  " + regionDefReg +
+                " = load ptr, ptr %__region_ptr\n")
+            output.append("  call void @__seen_region_destroy(ptr " +
+                regionDefReg + ") ; @preallocate cleanup\n")
+        }
+        if profiledFlag == 1 {
+            output.append("  ; @profile instrumentation - exit (default return)\n")
+            output.append("  call void @__seen_profile_exit(ptr @.str." +
+                profileStringIndex.toString() + ")\n")
+        }
+        if isAsyncLowering {
+            if asyncPromiseType != "void" {
+                output.append("  store " + asyncPromiseType +
+                    " zeroinitializer, ptr " + asyncPromise + "\n")
+            }
+            output.append("  br label %" + asyncFinalLabel + "\n")
+        }
+        if not emitAsyncEpilogue {
+            emitDefaultReturnValueImpl(output, returnType)
+        }
+    }
+
+    if emitAsyncEpilogue {
+        emitAsyncCoroutineEpilogueImpl(output, regBox, blockBox, asyncCoroId,
+            asyncCoroHdl, asyncFinalLabel, asyncCleanupLabel)
+    }
+}
+
+fun emitFunctionExitAndResetStateImpl(state: CodegenState, fn: FunctionNode,
+    returnType: String, profiledFlagBox: Array<Int>,
+    profiledNameBox: Array<String>, highPressureBox: Array<Int>,
+    asyncCoroIdBox: Array<String>, asyncCoroHdlBox: Array<String>,
+    asyncPromiseBox: Array<String>, asyncFinalLabelBox: Array<String>,
+    asyncCleanupLabelBox: Array<String>, typeAliasNames: String,
+    typeAliasTargets: String, typeAliasCount: Int, enumTypeNames: String)
+    r: Void {
+
+    var implicitProfiledFlag = 0
+    var implicitProfileStringIndex = -1
+    if profiledFlagBox[0] == 1 {
+        implicitProfiledFlag = 1
+        implicitProfileStringIndex = getStringConstantIndexImpl(
+            state.stringConstants, profiledNameBox[0])
+    }
+
+    emitFunctionImplicitTerminationImpl(state.output, state.regBox,
+        state.blockBox, state.blockTerminated == 1,
+        state.functionOptions.isAsync, fn.isAsync, returnType,
+        mapTypeImpl(state.currentFunctionReturnType,
+            state.registry.structNames, typeAliasNames, typeAliasTargets,
+            typeAliasCount, enumTypeNames),
+        asyncPromiseBox[0], asyncFinalLabelBox[0], asyncCoroIdBox[0],
+        asyncCoroHdlBox[0], asyncCleanupLabelBox[0],
+        state.functionOptions.regionSizeBytes, implicitProfiledFlag,
+        implicitProfileStringIndex)
+
+    resetFunctionRuntimeStateImpl(profiledFlagBox, profiledNameBox,
+        highPressureBox, asyncCoroIdBox, asyncCoroHdlBox, asyncPromiseBox,
+        asyncFinalLabelBox, asyncCleanupLabelBox)
+    clearTransientFunctionLoweringOptions(state.functionOptions)
+    state.output.append("}\n\n")
+}
+
+fun emitFunctionExitResetSnapshotImpl(state: CodegenState, fn: FunctionNode,
+    returnType: String, profiledFlag: Int, profiledName: String,
+    highPressure: Int, asyncCoroId: String, asyncCoroHdl: String,
+    asyncPromise: String, asyncFinalLabel: String, asyncCleanupLabel: String,
+    typeAliasNames: String, typeAliasTargets: String, typeAliasCount: Int,
+    enumTypeNames: String) r: FunctionRuntimeStateSnapshot {
+
+    let snapshot = FunctionRuntimeStateSnapshot.new()
+    let profiledFlagBox = Array<Int>()
+    profiledFlagBox.push(profiledFlag)
+    let profiledNameBox = Array<String>()
+    profiledNameBox.push(profiledName)
+    let highPressureBox = Array<Int>()
+    highPressureBox.push(highPressure)
+    let asyncCoroIdBox = Array<String>()
+    asyncCoroIdBox.push(asyncCoroId)
+    let asyncCoroHdlBox = Array<String>()
+    asyncCoroHdlBox.push(asyncCoroHdl)
+    let asyncPromiseBox = Array<String>()
+    asyncPromiseBox.push(asyncPromise)
+    let asyncFinalLabelBox = Array<String>()
+    asyncFinalLabelBox.push(asyncFinalLabel)
+    let asyncCleanupLabelBox = Array<String>()
+    asyncCleanupLabelBox.push(asyncCleanupLabel)
+
+    emitFunctionExitAndResetStateImpl(state, fn, returnType, profiledFlagBox,
+        profiledNameBox, highPressureBox, asyncCoroIdBox, asyncCoroHdlBox,
+        asyncPromiseBox, asyncFinalLabelBox, asyncCleanupLabelBox,
+        typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames)
+    snapshot.profiledFlag = profiledFlagBox[0]
+    snapshot.profiledName = profiledNameBox[0]
+    snapshot.highPressure = highPressureBox[0]
+    snapshot.asyncCoroId = asyncCoroIdBox[0]
+    snapshot.asyncCoroHdl = asyncCoroHdlBox[0]
+    snapshot.asyncPromise = asyncPromiseBox[0]
+    snapshot.asyncFinalLabel = asyncFinalLabelBox[0]
+    snapshot.asyncCleanupLabel = asyncCleanupLabelBox[0]
+    return snapshot
+}
+
+fun resetFunctionRuntimeStateImpl(profiledFlagBox: Array<Int>,
+    profiledNameBox: Array<String>, highPressureBox: Array<Int>,
+    asyncCoroIdBox: Array<String>, asyncCoroHdlBox: Array<String>,
+    asyncPromiseBox: Array<String>, asyncFinalLabelBox: Array<String>,
+    asyncCleanupLabelBox: Array<String>) r: Void {
+
+    ensureFunctionIntBoxValue(profiledFlagBox)
+    ensureFunctionStringBoxValue(profiledNameBox)
+    ensureFunctionIntBoxValue(highPressureBox)
+    ensureFunctionStringBoxValue(asyncCoroIdBox)
+    ensureFunctionStringBoxValue(asyncCoroHdlBox)
+    ensureFunctionStringBoxValue(asyncPromiseBox)
+    ensureFunctionStringBoxValue(asyncFinalLabelBox)
+    ensureFunctionStringBoxValue(asyncCleanupLabelBox)
+
+    profiledFlagBox[0] = 0
+    profiledNameBox[0] = ""
+    highPressureBox[0] = 0
+    asyncCoroIdBox[0] = ""
+    asyncCoroHdlBox[0] = ""
+    asyncPromiseBox[0] = ""
+    asyncFinalLabelBox[0] = ""
+    asyncCleanupLabelBox[0] = ""
+}
