@@ -88,17 +88,18 @@ import codegen.ir_expr_infer_plan.{planExprInferenceDispatchImpl, planMethodCall
 import codegen.ir_receiver_method_emit.{emitSimdReductionImpl}
 import codegen.ir_string_builder_cast_emit.{emitCastExprImpl}
 import codegen.ir_method_gen.{emitTransmuteImpl}
-import codegen.ir_call_dispatch.{emitUserMethodCallImpl, emitUserFunctionCallImpl, emitIncludeStrImpl, emitIncludeBytesImpl}
+import codegen.ir_call_dispatch.{emitIncludeStrImpl, emitIncludeBytesImpl}
 import codegen.ir_call_constructors.{emitArrayBulkInitImpl, emitArrayPreallocImpl, emitArrayInlineImpl, emitSmallVecConstructorImpl, isArrayConstructorNameImpl, resolveArrayConstructorElementTypeImpl, resolveArrayConstructorElementSizeImpl, isSmallVecConstructorNameImpl, isCollectionConstructorNameImpl, emitCollectionConstructorImpl}
 import codegen.ir_constructor_call_plan.{planArrayConstructorCallImpl, shouldEmitSmallVecConstructorImpl, shouldEmitCollectionConstructorImpl, shouldReadFirstConstructorArgImpl, isReprCConstructorTypeImpl, shouldEmitReprCZeroInitializerImpl, shouldEmitHeapClassConstructorImpl}
 import codegen.ir_constructor_field_plan.{planNextConstructorFieldTypeImpl, planConstructorFieldStoreImpl}
 import codegen.ir_constructor_field_emit.{emitPreparedReprCConstructorImpl, emitPreparedClassConstructorFieldStoreImpl}
-import codegen.ir_call_args.{fillDefaultParamsImpl, appendPreparedCallArgImpl, promoteFloatArgsImpl}
+import codegen.ir_call_args.{fillDefaultParamsImpl, appendPreparedCallArgImpl}
 import codegen.ir_call_runtime.{emitPrintLikeCallImpl, emitOptionRuntimeBuiltinCallImpl, emitSuperRuntimeBuiltinCallImpl, emitReadTextRuntimeCallImpl, emitWriteTextRuntimeCallImpl, emitArgsRuntimeCallImpl, emitReadFileBytesPathRuntimeCallImpl, emitPanicRuntimeCallImpl, emitMathBuiltinCallImpl}
 import codegen.ir_call_runtime_plan.{isOptionRuntimeCallPlanImpl, shouldReadSomeRuntimeArgImpl, isSuperRuntimeCallPlanImpl, isEmptyRuntimeCalleeImpl, isPrintRuntimeCallPlanImpl, shouldReadPrintRuntimeArgImpl, runtimeIoCallActionImpl, isPanicRuntimeCallPlanImpl, shouldReadPanicRuntimeArgImpl, planRuntimeBuiltinDispatchImpl}
 import codegen.ir_call_implicit_this_plan.{planImplicitThisCallImpl, implicitThisTailCallFlagImpl}
 import codegen.ir_call_implicit_this_emit.{emitPreparedMisplacedParserImplicitThisCallImpl, emitPreparedStringBuilderImplicitThisCallImpl, emitPreparedNormalImplicitThisCallImpl}
-import codegen.ir_call_regular_plan.{stripGenericCalleeNameImpl, shouldPromoteRegularCallFloatArgsImpl, resolveRegularCallLlvmReturnTypeImpl, shouldRecordRegularLateDeclareImpl, regularCallTailFlagImpl}
+import codegen.ir_call_regular_plan.{stripGenericCalleeNameImpl, resolveRegularCallLlvmReturnTypeImpl}
+import codegen.ir_call_regular_emit.{promoteRegularCallFloatArgsIfNeededState, recordRegularLateDeclareIfNeededState, emitPreparedRegularFunctionCallState}
 import codegen.ir_call_meta.{resolveSizeofBuiltinValueImpl, resolveAlignofBuiltinValueImpl, resolveOffsetofBuiltinValueImpl}
 import codegen.ir_call_low_level.{isPtrBuiltinCallImpl, isSimdBuiltinCallImpl, emitPreparedLowLevelBuiltinActionImpl}
 import codegen.ir_call_builtin_plan.{planMetaBuiltinCallImpl, planLowLevelBuiltinCallImpl, shouldReadSimdShuffleConstArgImpl, planLowLevelBuiltinArgumentReadsImpl, shouldClearLowLevelDebugAssertCseImpl}
@@ -135,7 +136,7 @@ import codegen.ir_member_access_plan.{planMemberAccessRouteImpl}
 import codegen.ir_member_access_gen.{emitPreparedExpressionReceiverMemberAccessImpl, emitPreparedVariableReceiverMemberAccessImpl, emitPreparedModuleConstReceiverMemberAccessImpl, emitPreparedBracketPathMemberAccessImpl, emitPreparedChainedReceiverMemberAccessImpl, emitPreparedImplicitThisReceiverMemberAccessImpl}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, resolveMethodFieldPathTypeImpl, resolveLiteralMethodReceiverTypeImpl, tryResolveEnumLiteralMethodReceiverImpl}
 import codegen.ir_binary_expr.{planOverloadedBinaryState, isSimdBinaryOperatorImpl, shouldUseFmaForOperandTypesImpl, buildSelfComparisonLogValueImpl, buildBinaryFoldLogValueImpl, exprProducesBoolImpl, emitBoolCoercionImpl, emitShortCircuitPhiImpl}
-import codegen.ir_binary_emit.{emitPreparedPointerArithmeticBinaryImpl, emitPreparedSimdBinaryExprImpl, emitPreparedSelfComparisonConstResultImpl, emitPreparedIntPeepholeBinaryActionImpl, emitPreparedAssociativeIntFoldResultImpl, emitPreparedFoldedBoolLiteralBinaryResultImpl, emitPreparedFoldedIntLiteralBinaryResultImpl, emitPreparedFloatPeepholeBinaryActionImpl, emitPreparedFmaTripleCallImpl, emitPreparedOverloadedBinaryCallImpl, emitPreparedCoreBinaryOpImpl, tryLookupPreparedBinaryCseImpl, recordPreparedBinaryCseImpl}
+import codegen.ir_binary_emit.{emitPreparedPointerArithmeticBinaryImpl, emitPreparedSimdBinaryExprImpl, emitPreparedSelfComparisonConstResultImpl, emitPreparedIntPeepholeBinaryActionImpl, emitPreparedAssociativeIntFoldResultImpl, emitPreparedFoldedBoolLiteralBinaryResultImpl, emitPreparedFoldedIntLiteralBinaryResultImpl, emitPreparedFloatPeepholeBinaryActionImpl, emitPreparedFmaTripleCallImpl, emitPreparedOverloadedBinaryCallImpl, emitPreparedCoreBinaryOpState, tryLookupPreparedBinaryCseImpl, recordPreparedBinaryCseImpl}
 import codegen.ir_binary_plan.{shouldTryPointerArithmeticBinaryImpl, shouldTrySimdBinaryGateImpl, shouldUseIntPeepholeGateImpl, shouldUseFloatPeepholeGateImpl, shortCircuitBinaryActionImpl}
 import codegen.ir_binary_fold_plan.{planBinaryOperandLiteralFactsImpl, isBinaryIntLiteralOperandImpl, planBinaryFoldActionImpl, shouldTryBinaryAssociativeIntFoldImpl, binaryAssociativeIntFoldRewriteCostImpl, shouldApplyBinaryAssociativeIntFoldImpl, planBinaryLiteralComparisonFoldImpl, planBinaryLiteralConstantFoldImpl, planBinaryFloatPeepholeImpl, planBinaryFoldFmaImpl, planBinaryFoldCseImpl}
 import codegen.ir_binary_short_circuit.{allocateShortCircuitBinaryLabelsImpl, emitShortCircuitCheckBridgeImpl, emitShortCircuitAndDecisionImpl, emitShortCircuitOrDecisionImpl, emitShortCircuitRightLabelImpl, emitShortCircuitDoneBridgeImpl, emitShortCircuitMergeJumpImpl}
@@ -4562,21 +4563,14 @@ class LLVMIRGenerator {
         // --- End operator overloading ---
 
         // Delegate to extracted binary op impl
-        var boundsBox = Array<Int>()
-        boundsBox.push(g_boundsCheckLabelCount)
-        var cseSig = Array<Int>()
-        cseSig.push(0)
-        var panicFlag = 0
-        if g_panicOnOverflow { panicFlag = 1 }
-        let leftMT = mapTypeState(leftType)
-        let rightMT = mapTypeState(rightType)
-        let resultReg = emitPreparedCoreBinaryOpImpl(output, g_regBox,
-            boundsBox, cseSig, expr.operator, leftReg, rightReg, leftType,
-            rightType, leftExpr.kind, leftExpr.literalValue,
+        let coreBinaryResult = emitPreparedCoreBinaryOpState(output, g_regBox,
+            g_boundsCheckLabelCount, expr.operator, leftReg, rightReg,
+            leftType, rightType, leftExpr.kind, leftExpr.literalValue,
             leftExpr.variableName, rightExpr.kind, rightExpr.literalValue,
-            panicFlag, g_inductionVarName, leftMT, rightMT)
-        g_boundsCheckLabelCount = boundsBox[0]
-        if cseSig[0] == 1 { cseClear() }
+            g_panicOnOverflow, g_inductionVarName)
+        let resultReg = coreBinaryResult.resultReg
+        g_boundsCheckLabelCount = coreBinaryResult.boundsCheckLabelCount
+        if coreBinaryResult.shouldClearCse { cseClear() }
 
         // CSE recording for pure int/float binary ops (within function scope only)
         if csePlan.shouldRecord {
@@ -5402,27 +5396,25 @@ class LLVMIRGenerator {
         var argRegs = g_defaultFillArgRegs
         var argTypeStrs = g_defaultFillArgTypeStrs
 
-        if shouldPromoteRegularCallFloatArgsImpl(argRegs.length(),
-            argTypeStrs.length(), g_floatParamFuncNames.length(),
-            g_floatParamParamIdxs.length()) {
-            promoteFloatArgsImpl(output, g_regBox, funcName, argRegs, argTypeStrs, g_floatParamFuncNames, g_floatParamParamIdxs)
-        }
+        promoteRegularCallFloatArgsIfNeededState(output, g_regBox, funcName,
+            argRegs, argTypeStrs, g_floatParamFuncNames,
+            g_floatParamParamIdxs)
 
         let returnType = inferExpressionType(expr)
         let llvmReturnType = resolveRegularCallLlvmReturnTypeImpl(
             mapTypeState(returnType), isAsyncFunctionStateImpl(funcName,
             g_asyncFuncNames, g_asyncFuncCount))
 
-        if shouldRecordRegularLateDeclareImpl(funcName) {
-            let lateState = captureLateUserDeclareState()
-            recordLateUserDeclareIntoStateImpl(funcName, llvmReturnType,
-                argTypeStrs, 0, funcNames, funcRetTypes, g_xmDeclareNames,
-                g_xmDeclareCount, lateState)
+        let lateState = captureLateUserDeclareState()
+        if recordRegularLateDeclareIfNeededState(funcName, llvmReturnType,
+            argTypeStrs, funcNames, funcRetTypes, g_xmDeclareNames,
+            g_xmDeclareCount, lateState) {
+
             applyLateUserDeclareState(lateState)
         }
-        let freeCallTail = regularCallTailFlagImpl(
+        return emitPreparedRegularFunctionCallState(output, g_regBox,
+            funcName, llvmReturnType, argRegs, argTypeStrs,
             takeTailCallPositionImpl(getCurrentFunctionOptions()))
-        return emitUserFunctionCallImpl(output, g_regBox, quoteIdentIfNeededImpl(funcName), llvmReturnType, argRegs, argTypeStrs, freeCallTail)
     }
 
     fun tryGenerateResolvedReceiverFastPathMethodCall(expr: ParserExpressionNode,

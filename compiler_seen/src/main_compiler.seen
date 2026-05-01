@@ -129,6 +129,7 @@ import codegen.ir_call_runtime_plan.{isOptionRuntimeCallPlanImpl, isPrintRuntime
 import codegen.ir_call_implicit_this_plan.{planImplicitThisCallImpl, implicitThisTailCallFlagImpl}
 import codegen.ir_call_implicit_this_emit.{emitPreparedMisplacedParserImplicitThisCallImpl, emitPreparedStringBuilderImplicitThisCallImpl, emitPreparedNormalImplicitThisCallImpl}
 import codegen.ir_call_regular_plan.{shouldPromoteRegularCallFloatArgsImpl, resolveRegularCallLlvmReturnTypeImpl, regularCallTailFlagImpl}
+import codegen.ir_call_regular_emit.{promoteRegularCallFloatArgsIfNeededState, recordRegularLateDeclareIfNeededState, emitPreparedRegularFunctionCallState}
 import codegen.ir_call_meta.{resolveSizeofBuiltinValueImpl}
 import codegen.ir_call_low_level.{isPtrBuiltinCallImpl, isSimdBuiltinCallImpl, emitPreparedLowLevelBuiltinActionImpl}
 import codegen.ir_call_builtin_plan.{planMetaBuiltinCallImpl, planLowLevelBuiltinCallImpl, planLowLevelBuiltinArgumentReadsImpl, shouldClearLowLevelDebugAssertCseImpl}
@@ -3065,6 +3066,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_call_implicit_this_plan")
         modules.push("codegen.ir_call_implicit_this_emit")
         modules.push("codegen.ir_call_regular_plan")
+        modules.push("codegen.ir_call_regular_emit")
         modules.push("codegen.ir_call_meta")
         modules.push("codegen.ir_call_low_level")
         modules.push("codegen.ir_call_builtin_plan")

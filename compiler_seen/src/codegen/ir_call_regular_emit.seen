@@ -1,0 +1,46 @@
+// ir_call_regular_emit.seen - prepared regular function-call emission helpers.
+
+import str.string.{StringBuilder}
+import codegen.ir_call_args.{promoteFloatArgsImpl}
+import codegen.ir_call_dispatch.{emitUserFunctionCallImpl}
+import codegen.ir_call_regular_plan.{shouldPromoteRegularCallFloatArgsImpl, shouldRecordRegularLateDeclareImpl, regularCallTailFlagImpl}
+import codegen.ir_decl_registry.{LateUserDeclareState, recordLateUserDeclareIntoStateImpl}
+import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
+
+fun promoteRegularCallFloatArgsIfNeededState(output: StringBuilder,
+    regBox: Array<Int>, funcName: String, argRegs: Array<String>,
+    argTypeStrs: Array<String>, floatParamFuncNames: Array<String>,
+    floatParamParamIdxs: Array<Int>) r: Void {
+
+    if shouldPromoteRegularCallFloatArgsImpl(argRegs.length(),
+        argTypeStrs.length(), floatParamFuncNames.length(),
+        floatParamParamIdxs.length()) {
+
+        promoteFloatArgsImpl(output, regBox, funcName, argRegs, argTypeStrs,
+            floatParamFuncNames, floatParamParamIdxs)
+    }
+}
+
+fun recordRegularLateDeclareIfNeededState(funcName: String,
+    llvmReturnType: String, argTypeStrs: Array<String>, funcNames: String,
+    funcRetTypes: String, xmDeclareNames: String, xmDeclareCount: Int,
+    lateState: LateUserDeclareState) r: Bool {
+
+    if not shouldRecordRegularLateDeclareImpl(funcName) {
+        return false
+    }
+    recordLateUserDeclareIntoStateImpl(funcName, llvmReturnType, argTypeStrs,
+        0, funcNames, funcRetTypes, xmDeclareNames, xmDeclareCount, lateState)
+    return true
+}
+
+fun emitPreparedRegularFunctionCallState(output: StringBuilder,
+    regBox: Array<Int>, funcName: String, llvmReturnType: String,
+    argRegs: Array<String>, argTypeStrs: Array<String>,
+    shouldTailCall: Bool) r: String {
+
+    let tailFlag = regularCallTailFlagImpl(shouldTailCall)
+    return emitUserFunctionCallImpl(output, regBox,
+        quoteIdentIfNeededImpl(funcName), llvmReturnType, argRegs,
+        argTypeStrs, tailFlag)
+}
