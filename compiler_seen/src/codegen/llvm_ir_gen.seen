@@ -53,7 +53,7 @@ import codegen.ir_async_registry.{registerAsyncFunctionImpl, isAsyncFunctionImpl
 import codegen.ir_async_await.{emitAwaitPollLoopImpl, emitAwaitResultValueImpl}
 import codegen.ir_async_return.{prepareAsyncReturnValuePlanImpl, emitAsyncReturnValueBranchImpl, emitAsyncReturnVoidBranchImpl}
 import codegen.ir_decl_registry.{DeclarationPassState, LateUserDeclareState, registerFunctionStateImpl, lookupCResourceDestructorStateImpl, isAsyncFunctionStateImpl, getAsyncDeclaredRetTypeStateImpl, getFunctionReturnTypeStateImpl, recordLateUserDeclareIntoStateImpl, emitLateUserDeclaresStateImpl, captureDeclarationPassStateImpl, captureLateUserDeclareStateImpl}
-import codegen.ir_decl_items.{DeclarationItemContext, PreparedDeclarationItem, normalizeSeenTypeNameImpl, normalizeDeclaredTypeNodeImpl, prepareDeclarationItemForRegistrationImpl}
+import codegen.ir_decl_items.{DeclarationItemContext, PreparedDeclarationItem, normalizeDeclaredTypeNodeImpl, prepareDeclarationItemForRegistrationImpl}
 import codegen.ir_decl_pass_driver.{beginDeclarationRegistrationPassImpl, finishDeclarationRegistrationPassImpl}
 import codegen.ir_decl_return_types.{inferReturnExprTypeImpl, resolveMethodReturnTypeImpl, resolveFunctionReturnTypeImpl}
 import codegen.ir_module_constants.{isModuleConstMutableImpl, getModuleConstSeenTypeImpl, tryInferModuleConstantVariableTypeSnapshotImpl, findModuleConstantSnapshotImpl, emitGlobalVariablesSnapshotImpl, moduleConstantInvariantLoadSuffixImpl}
@@ -176,6 +176,7 @@ import codegen.ir_codegen_target_state.{g_hostTargetTriple, g_hostDataLayout, de
 import codegen.ir_codegen_global_state.{preAllocatedRegs, preAllocatedVars, preAllocatedTypes, activeVarCount, structNames, structLayouts, structFieldNames, structFieldTypes, structLlvmFieldTypes, structSizes, structMethodNames, structMethodRetTypes, funcNames, funcRetTypes, classMethodBaseNames, typeHeaderPath, currentFunctionReturnType, currentClassName, blockTerminated, currentLoopCondLabel, currentLoopEndLabel, declOrdinalNames, declOrdinalCounts, stringConstantPrefix, generatedFunctions, generatedClasses, typesLoadedFromHeader, runtimeDeclsLoaded, pendingArrayLiteralType, moduleConstantNames, moduleConstantValues, moduleConstantTypes}
 import codegen.ir_codegen_module_state.{g_moduleConstMutable, g_moduleConstSeenTypes, g_xmDeclareNames, g_xmDeclareStrs, g_xmDeclareCount, g_xmDeclareVis, g_xmDeclareNamesArr, g_xmDeclareStrsArr, g_xmDeclareVisArr, g_lateXmDeclareNames, g_lateXmDeclareStrs, g_lateXmDeclareCount, g_xmConstNames, g_xmConstTypes, g_xmConstMutable, g_xmConstSeenTypes, g_xmConstCount, g_chainedPathTypeCacheValues, findCachedIrgenFieldIndex, cacheIrgenFieldIndex, findCachedChainedPathTypeRecord, cacheChainedPathType, resetModuleConstantGenerationState, resetLateUserDeclareState, resetIrgenFieldLookupCaches}
 import codegen.ir_codegen_feature_state.{g_panicOnOverflow, g_asyncFuncNames, g_asyncFuncRetTypes, g_asyncFuncCount, g_inheritanceChildNames, g_inheritanceParentNames, g_inheritanceCount, g_currentClassParentName, g_closureCount, g_closureDefs, g_deferCount, g_deferExprs, g_errdeferCount, g_errdeferExprs, g_errdeferTempAlloca, g_cacheLineClasses, g_insideUnsafe, g_regBox, g_blockBox, g_tryCatchLabel, g_tryCatchEndLabel, g_distinctTypeNames, g_unionTypes, g_initFuncNames, g_initFuncCount, g_pforCount, g_comptimeNames, g_comptimeValues, g_comptimeCount, g_intrinsicFuncNames, g_intrinsicLlvmNames, g_intrinsicCount, g_sendTypes, g_syncTypes, g_boundsCheckEnabled, g_boundsCheckLabelCount, g_warnUnusedResult, g_soaClassNames, g_soaClassCount, g_trustedFuncNames, g_triviallyCopyableClasses, g_moveOnlyClasses, g_reprCClassNames, g_cResourceClasses, g_cResourceDestructors, g_funcDefaultsArr, g_funcParamCountArr, g_defaultFillArgRegs, g_defaultFillArgTypeStrs, g_dynTraitNames, g_vtableClassImpls, g_dynParamFuncs, g_floatParamFuncNames, g_floatParamParamIdxs, g_constGenericNames, g_constGenericValues, g_bitfieldKeys, g_bitfieldWidths, g_bitfieldOffsets, g_bitfieldCount, g_gpuBufferClasses, g_gpuBufferLayouts, g_comptimeStrNames, g_comptimeStrValues, g_comptimeStrCount, g_comptimeParamFuncNames, g_comptimeParamCount, g_gpuShaderNames, g_gpuShaderStages, g_gpuShaderCount, g_gpuShaderWorkgroups, g_gpuShaderBindings, g_deriveTraits, g_deriveClassCount, g_reflectClassNames, g_reflectClassCount, g_specializationNames, g_specializationCount, g_traitImplRegistry, g_traitImplCount, g_customDeriveNames, g_customDeriveFuncNames, g_customDeriveCount, g_nullSafetyEnabled, g_uninitCheckEnabled, g_uninitVarNames, g_uninitVarStatus, g_uninitVarCount, g_stackCheckEnabled, g_sanitizerMode, g_enabledFeatures, g_enabledFeatureCount, g_binaryClassNames, g_binaryEndianness, g_binaryVersions, g_binaryClassCount, g_packetClassNames, g_packetClassIds, g_packetCount, g_typeAliasNames, g_typeAliasTargets, g_typeAliasCount, g_enumVariantNames, g_enumVariantTags, g_enumVariantFieldTypes, g_enumVariantFieldCounts, g_enumTypeNames, g_enumVariantParent, g_enumVariantCount, g_enumTypeCount}
+import codegen.ir_codegen_type_state.{mapTypeState, isClassTypeState, isDataTypeState, getDataTypeSizeState, mapTypeForParameterState, mapStorageTypeForParameterState, normalizeSeenTypeNameState}
 
 // Override host target triple and data layout for cross-compilation
 fun overrideTargetTriple(triple: String, layout: String) r: Void {
@@ -7118,41 +7119,13 @@ class LLVMIRGenerator {
     fun swizzleLaneIndex(c: String) r: Int { return swizzleLaneIndexImpl(c) }
     fun simdLlvmSuffix(t: String) r: String { return simdLlvmSuffixImpl(t) }
 
-    // Map a Seen type name to its LLVM IR type representation.
-    // Core mappings: Int->i64, Float->double, Bool->i1, String->%SeenString,
-    // Char->i64, Void->void, Array<T>/Vec<T>->ptr, HashMap/BTreeMap->ptr.
-    // Class types map to i64 (they are heap pointers stored as integers —
-    // inttoptr converts when field access is needed). Simple enums map to
-    // i64 (tag value). Data enums and Option map to ptr (heap-allocated).
-    // SIMD vector types (i32x4, f32x4, etc.) map to LLVM vector types.
-    // Buffer<T>/Uniform<T>/Image<T> (GPU) map to i64 (opaque handles).
-    // Delegates to mapTypeImpl in ir_type_mapping.seen.
     fun mapType(seenType: String) r: String {
-        // dyn Trait: fat pointer stored as i64 (ptr to { ptr data, ptr vtable })
-        if seenType.startsWith("dyn ") {
-            return "i64"
-        }
-        // Pointer types: *T → i64 (pointer stored as integer)
-        if seenType.startsWith("*") {
-            return "i64"
-        }
-        // @repr(C) classes are value types (stack-allocated struct), not heap handles
-        if g_reprCClassNames != "" {
-            let baseT = getBaseTypeNameImpl(seenType)
-            if g_reprCClassNames.contains(baseT + "|") {
-                return "%" + baseT
-            }
-        }
-        return mapTypeImpl(seenType, structNames, g_typeAliasNames, g_typeAliasTargets, g_typeAliasCount, g_enumTypeNames)
+        return mapTypeState(seenType)
     }
 
-    // Check whether a Seen type is a heap-allocated class (as opposed to a
-    // value type or data struct). Class types are stored as i64 handles
-    // (heap pointers cast to integer) and need inttoptr for field access.
     fun isClassType(seenType: String) r: Bool {
-        return isClassTypeReg(seenType, structNames)
+        return isClassTypeState(seenType)
     }
-
 
     // Convert a method receiver register to a pointer. Class types are stored
     // as i64 (heap pointer cast to integer), so method calls need inttoptr
@@ -7163,62 +7136,24 @@ class LLVMIRGenerator {
             receiverType, g_reprCClassNames, structNames)
     }
 
-    // Check whether a Seen type is a data type (value semantics, passed by
-    // pointer in function calls). Data types differ from class types: they
-    // are stack-allocated or embedded inline in parent structs, not heap-
-    // allocated with an i64 handle.
     fun isDataType(seenType: String) r: Bool {
-        if isDataTypeImpl(seenType) == 1 { return true }
-        return false
+        return isDataTypeState(seenType)
     }
 
-    // Get the byte size of a data type, used for Array<T> element_size.
-    // First checks the struct registry (structSizes), then falls back to
-    // hardcoded sizes for known AST types (TypeNode=24, ParamNode=48, etc.).
-    // These sizes MUST match the LLVM struct layouts — a mismatch causes
-    // array element access to read/write at wrong offsets.
     fun getDataTypeSize(seenType: String) r: Int {
-        return getDataTypeSizeReg(seenType, structNames, structSizes)
+        return getDataTypeSizeState(seenType)
     }
 
-
-    // Map a Seen type to its LLVM IR type for use as a function parameter.
-    // Data types (value-semantic structs) are passed as "ptr noalias nonnull"
-    // for ABI compatibility — Rust and C both pass structs by pointer.
-    // The noalias attribute enables LLVM's alias analysis optimizations.
-    // Strips the "comptime:" qualifier prefix from compile-time parameters.
     fun mapTypeForParameter(seenType: String) r: String {
-        var cleanType = seenType
-        // Strip comptime: qualifier
-        if cleanType.startsWith("comptime:") {
-            cleanType = cleanType.substring(9, cleanType.length())
-        }
-        // Strip default value suffix
-        if cleanType.contains("~default~") {
-            let mtpDefPos = cleanType.indexOf("~default~", 0)
-            cleanType = cleanType.substring(0, mtpDefPos)
-        }
-        // Data types passed as pointers for ABI compatibility with Rust backend
-        if isDataType(cleanType) {
-            return "ptr noalias nonnull"
-        }
-        let mapped = mapType(cleanType)
-        if mapped == "ptr" {
-            return "ptr noalias nonnull"
-        }
-        return mapped
+        return mapTypeForParameterState(seenType)
     }
 
     fun mapStorageTypeForParameter(seenType: String) r: String {
-        let mapped = mapTypeForParameter(seenType)
-        if mapped == "ptr noalias nonnull" {
-            return "ptr"
-        }
-        return mapped
+        return mapStorageTypeForParameterState(seenType)
     }
 
     fun normalizeSeenTypeName(seenType: String) r: String {
-        return normalizeSeenTypeNameImpl(seenType)
+        return normalizeSeenTypeNameState(seenType)
     }
 
     fun normalizeDeclaredTypeNode(typeNode: TypeNode) r: String {

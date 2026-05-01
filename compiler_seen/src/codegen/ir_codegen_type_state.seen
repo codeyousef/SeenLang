@@ -1,0 +1,69 @@
+// ir_codegen_type_state.seen - state-aware type mapping helpers for LLVM IR.
+
+import codegen.ir_string_collect.{getBaseTypeNameImpl}
+import codegen.ir_type_mapping.{mapTypeImpl, isDataTypeImpl}
+import codegen.ir_decl_items.{normalizeSeenTypeNameImpl}
+import codegen.ir_codegen_global_state.{structNames, structSizes}
+import codegen.ir_codegen_feature_state.{g_reprCClassNames, g_typeAliasNames, g_typeAliasTargets, g_typeAliasCount, g_enumTypeNames}
+import codegen.type_registry_core.{isClassTypeReg, getDataTypeSizeReg}
+
+fun mapTypeState(seenType: String) r: String {
+    if seenType.startsWith("dyn ") {
+        return "i64"
+    }
+    if seenType.startsWith("*") {
+        return "i64"
+    }
+    if g_reprCClassNames != "" {
+        let baseT = getBaseTypeNameImpl(seenType)
+        if g_reprCClassNames.contains(baseT + "|") {
+            return "%" + baseT
+        }
+    }
+    return mapTypeImpl(seenType, structNames, g_typeAliasNames,
+        g_typeAliasTargets, g_typeAliasCount, g_enumTypeNames)
+}
+
+fun isClassTypeState(seenType: String) r: Bool {
+    return isClassTypeReg(seenType, structNames)
+}
+
+fun isDataTypeState(seenType: String) r: Bool {
+    if isDataTypeImpl(seenType) == 1 { return true }
+    return false
+}
+
+fun getDataTypeSizeState(seenType: String) r: Int {
+    return getDataTypeSizeReg(seenType, structNames, structSizes)
+}
+
+fun mapTypeForParameterState(seenType: String) r: String {
+    var cleanType = seenType
+    if cleanType.startsWith("comptime:") {
+        cleanType = cleanType.substring(9, cleanType.length())
+    }
+    if cleanType.contains("~default~") {
+        let mtpDefPos = cleanType.indexOf("~default~", 0)
+        cleanType = cleanType.substring(0, mtpDefPos)
+    }
+    if isDataTypeState(cleanType) {
+        return "ptr noalias nonnull"
+    }
+    let mapped = mapTypeState(cleanType)
+    if mapped == "ptr" {
+        return "ptr noalias nonnull"
+    }
+    return mapped
+}
+
+fun mapStorageTypeForParameterState(seenType: String) r: String {
+    let mapped = mapTypeForParameterState(seenType)
+    if mapped == "ptr noalias nonnull" {
+        return "ptr"
+    }
+    return mapped
+}
+
+fun normalizeSeenTypeNameState(seenType: String) r: String {
+    return normalizeSeenTypeNameImpl(seenType)
+}
