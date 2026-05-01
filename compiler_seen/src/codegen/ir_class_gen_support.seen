@@ -2,7 +2,7 @@
 // Extracted from llvm_ir_gen.seen to keep decorator scanning, source-method
 // skip rules, and inherited thunk emission out of the main class generator.
 
-import parser.real_parser.{ClassNode}
+import parser.real_parser.{AnnotationNode, ClassNode, FunctionNode}
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn, pipeGet}
 import codegen.ir_field_registry.{mapRegistryFieldTypeImpl}
@@ -88,6 +88,41 @@ fun hasHotReloadMarkerMethodImpl(classNode: ClassNode) r: Bool {
             return true
         }
         methodIdx = methodIdx + 1
+    }
+    return false
+}
+
+fun canUseLargePlainClassPathImpl(parentName: String,
+    decorators: Array<AnnotationNode>, methods: Array<FunctionNode>) r: Bool {
+
+    if parentName != "" {
+        return false
+    }
+    if decorators.length() > 0 {
+        return false
+    }
+    if methods.length() < 128 {
+        return false
+    }
+    var methodIdx = 0
+    while methodIdx < methods.length() {
+        let method = methods[methodIdx]
+        if method.name == "__seen_hot_reload_marker__" {
+            return false
+        }
+        methodIdx = methodIdx + 1
+    }
+    return true
+}
+
+fun isTraitClassNodeImpl(classNode: ClassNode) r: Bool {
+    var decoratorIdx = 0
+    while decoratorIdx < classNode.decorators.length() {
+        let decorator = classNode.decorators[decoratorIdx]
+        if decorator.name == "trait" {
+            return true
+        }
+        decoratorIdx = decoratorIdx + 1
     }
     return false
 }

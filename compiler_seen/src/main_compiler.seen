@@ -85,7 +85,6 @@ import codegen.ir_local_type_fallback.{tryInferImplicitThisVariableTypeImpl}
 import codegen.ir_async_registry.{registerAsyncFunctionImpl}
 import codegen.ir_async_await.{emitAwaitPollLoopImpl, emitAwaitResultValueImpl}
 import codegen.ir_async_return.{prepareAsyncReturnValuePlanImpl, emitAsyncReturnValueBranchImpl, emitAsyncReturnVoidBranchImpl}
-import codegen.ir_trait_registry.{appendDynTraitNameImpl}
 import codegen.ir_module_emit.{mapGlobalVarLlvmTypeImpl}
 import codegen.ir_program_flow_plan.{shouldVisitProgramFlowIndexImpl, shouldEmitProgramClassTypeItemImpl, shouldGenerateProgramClassItemImpl, planProgramTopLevelFunctionStartImpl, planProgramTopLevelFunctionAfterSpecialImpl}
 import codegen.ir_method_gen.{emitToStringMethodImpl}
@@ -180,6 +179,7 @@ import codegen.ir_class_type_layout.{countRealClassTypeFieldsImpl}
 import codegen.ir_class_type_decorators.{ClassTypeDecoratorState}
 import codegen.ir_class_type_special.{tryEmitSpecialClassTypeDecoratorImpl}
 import codegen.ir_class_gen_support.{scanGeneratedClassDecoratorsImpl}
+import codegen.ir_class_type_alias_state.{emitTraitVtableTypeState, tryHandleTypeAliasClassState}
 import codegen.ir_class_generated_features.{emitGeneratedClassDecoratorMethodsImpl}
 import codegen.ir_field_registry.{resolveFieldIndexImpl, findCachedIrgenFieldIndexImpl, cacheIrgenFieldIndexImpl, findCachedChainedPathTypeRecordImpl, cacheChainedPathTypeImpl, resetFieldLookupCacheStateImpl}
 import codegen.ir_assignment_coerce.{coerceAssignmentStoreValueCoreImpl}
@@ -3119,6 +3119,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_class_type_decorators")
         modules.push("codegen.ir_class_type_special")
         modules.push("codegen.ir_class_gen_support")
+        modules.push("codegen.ir_class_type_alias_state")
         modules.push("codegen.ir_class_generated_features")
         modules.push("codegen.ir_field_registry")
         modules.push("codegen.ir_assignment_coerce")

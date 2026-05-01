@@ -58,7 +58,6 @@ import codegen.ir_decl_return_types.{inferReturnExprTypeImpl, resolveMethodRetur
 import codegen.ir_module_constants.{isModuleConstMutableImpl, getModuleConstSeenTypeImpl, tryInferModuleConstantVariableTypeSnapshotImpl, findModuleConstantSnapshotImpl, emitGlobalVariablesSnapshotImpl, moduleConstantInvariantLoadSuffixImpl}
 import codegen.ir_type_header.{tryLoadTypeHeaderIntoOutputImpl, emitBuiltinTypeHeaderImpl}
 import codegen.ir_local_type_fallback.{tryInferLLVMIRGeneratorThisFieldTypeImpl, tryInferStructThisFieldTypeImpl, tryInferImplicitThisVariableTypeImpl, tryInferNamedPrimitiveVariableTypeImpl}
-import codegen.ir_trait_registry.{appendDynTraitNameImpl}
 import codegen.ir_type_info.{charToCodeStr, g_resolvedFieldIndex, g_resolvedFieldTypeCode, decodeFieldTypeCode, findStructIdx, getLLVMIRGeneratorFieldIndexImpl}
 
 import codegen.ir_string_collect.{getBaseTypeNameImpl, normalizeHeaderTypeImpl, parseArrayElementTypeImpl, extractArrayLiteralElementTypeImpl, parseDecimalIntImpl}
@@ -126,7 +125,8 @@ import codegen.ir_autofree_state.{emitAutoFreeLocalsState}
 import codegen.ir_field_lookup_state.{getFieldInfoState, getFieldTypeState, getSeenFieldTypeState, inferTypeRegistryFieldTypeState, getSemanticFieldTypeState, getMethodReturnTypeState}
 import codegen.ir_class_type_layout.{emitClassTypeFieldsImpl, emitClassTypeHeaderImpl, emitClassTypeFooterImpl, prepareClassTypeAliasStateSnapshotImpl}
 import codegen.ir_class_type_decorators.{prepareClassTypeDecoratorScanSnapshotImpl}
-import codegen.ir_class_gen_support.{prepareGeneratedClassDecoratorSnapshotImpl, shouldSkipSourceClassMethodImpl, emitInheritedClassMethodThunksImpl}
+import codegen.ir_class_gen_support.{prepareGeneratedClassDecoratorSnapshotImpl, canUseLargePlainClassPathImpl, isTraitClassNodeImpl, shouldSkipSourceClassMethodImpl, emitInheritedClassMethodThunksImpl}
+import codegen.ir_class_type_alias_state.{emitTraitVtableTypeState, tryHandleTypeAliasClassState}
 import codegen.ir_class_generated_features.{emitGeneratedClassDecoratorMethodsImpl}
 import codegen.ir_class_constructor_gen.{emitClassHeapAllocationImpl, emitClassArrayFieldInitializersImpl, resolveClassConstructorFieldOffsetImpl}
 import codegen.ir_module_emit.{mapGlobalVarLlvmTypeImpl, emitCrossModuleConstantDeclaresImpl, emitTraitVtableConstantsImpl, collectProgramDefinedSymbolsImpl, emitGeneratedClosuresImpl, emitOptimizationStatisticsSummaryImpl, shouldSkipStandaloneTopLevelFunctionImpl, resolveSpecialTopLevelFunctionActionImpl, emitGlobalConstructorsImpl}
@@ -1335,58 +1335,15 @@ class LLVMIRGenerator {
     }
 
     fun canUseLargePlainClassPath(parentName: String, decorators: Array<AnnotationNode>, methods: Array<FunctionNode>) r: Bool {
-        if parentName != "" {
-            return false
-        }
-        if decorators.length() > 0 {
-            return false
-        }
-        if methods.length() < 128 {
-            return false
-        }
-        var methodIdx = 0
-        while methodIdx < methods.length() {
-            let method = methods[methodIdx]
-            if method.name == "__seen_hot_reload_marker__" {
-                return false
-            }
-            methodIdx = methodIdx + 1
-        }
-        return true
+        return canUseLargePlainClassPathImpl(parentName, decorators, methods)
     }
 
     fun emitTraitVtableType(classNode: ClassNode) r: Void {
-        let className = classNode.name
-        let dynTraitNamesBox = Array<String>()
-        dynTraitNamesBox.push(g_dynTraitNames)
-        appendDynTraitNameImpl(className, dynTraitNamesBox)
-        g_dynTraitNames = dynTraitNamesBox[0]
-        output.append("; dyn " + className + " vtable type\n")
-        output.append("%" + quoteIdentIfNeeded(className + "_vtable") + " = type { ")
-        var methodIdx = 0
-        while methodIdx < classNode.methods.length() {
-            if methodIdx > 0 {
-                output.append(", ")
-            }
-            output.append("ptr")
-            methodIdx = methodIdx + 1
-        }
-        if classNode.methods.length() == 0 {
-            output.append("i8")
-        }
-        output.append(" }\n\n")
+        emitTraitVtableTypeState(output, classNode)
     }
 
     fun isTraitClassNode(classNode: ClassNode) r: Bool {
-        var decoratorIdx = 0
-        while decoratorIdx < classNode.decorators.length() {
-            let decorator = classNode.decorators[decoratorIdx]
-            if decorator.name == "trait" {
-                return true
-            }
-            decoratorIdx = decoratorIdx + 1
-        }
-        return false
+        return isTraitClassNodeImpl(classNode)
     }
 
     fun emitTraitDefaultMethod(className: String, traitMethod: FunctionNode, traitRetTypeName: String) r: Void {
@@ -1453,48 +1410,8 @@ class LLVMIRGenerator {
         return true
     }
 
-    fun registerTopLevelTypeAlias(className: String, aliasTarget: String) r: Void {
-        output.append("; type " + className + " = " + aliasTarget + "\n")
-        if g_typeAliasCount > 0 {
-            g_typeAliasNames = g_typeAliasNames + "|" + className
-            g_typeAliasTargets = g_typeAliasTargets + "|" + aliasTarget
-        } else {
-            g_typeAliasNames = className
-            g_typeAliasTargets = aliasTarget
-        }
-        g_typeAliasCount = g_typeAliasCount + 1
-    }
-
     fun tryHandleTypeAliasClass(classNode: ClassNode) r: Bool {
-        let className = classNode.name
-        var isTypeAlias = false
-        var decoratorIdx = 0
-        while decoratorIdx < classNode.decorators.length() {
-            let decorator = classNode.decorators[decoratorIdx]
-            if decorator.name == "type_alias" {
-                isTypeAlias = true
-                if decorator.arguments.length() > 0 {
-                    registerTopLevelTypeAlias(className, decorator.arguments[0])
-                }
-            }
-            decoratorIdx = decoratorIdx + 1
-        }
-        if not isTypeAlias {
-            return false
-        }
-
-        decoratorIdx = 0
-        while decoratorIdx < classNode.decorators.length() {
-            let decorator = classNode.decorators[decoratorIdx]
-            if decorator.name == "distinct" {
-                if decorator.arguments.length() > 0 {
-                    output.append("; distinct " + className + " = " + decorator.arguments[0] + " (no implicit conversion)\n")
-                    g_distinctTypeNames = g_distinctTypeNames + className + "|"
-                }
-            }
-            decoratorIdx = decoratorIdx + 1
-        }
-        return true
+        return tryHandleTypeAliasClassState(output, classNode)
     }
 
     fun generateRegularClassMethods(classNode: ClassNode, isStringBuilder: Bool) r: Void {
