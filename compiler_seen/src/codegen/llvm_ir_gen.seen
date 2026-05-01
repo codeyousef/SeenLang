@@ -49,7 +49,7 @@ import codegen.ir_decl_parser.{emitParserDecls, emitTypecheckerDecls}
 import codegen.ir_decl_feature_runtime.{emitFeatureDecls}
 import codegen.ir_decl_features.{generateHotReloadMethodsImpl}
 import codegen.ir_async_registry.{registerAsyncFunctionImpl, isAsyncFunctionImpl, getAsyncDeclaredRetTypeImpl}
-import codegen.ir_async_await.{emitAwaitPollLoopImpl, emitAwaitResultValueImpl}
+import codegen.ir_async_await.{resolveAwaitExpressionResultLlvmTypeState, emitAwaitPollLoopImpl, emitAwaitResultValueImpl}
 import codegen.ir_async_return.{prepareAsyncReturnValuePlanImpl, emitAsyncReturnValueBranchImpl, emitAsyncReturnVoidBranchImpl}
 import codegen.ir_decl_registry.{DeclarationPassState, LateUserDeclareState, registerFunctionStateImpl, isAsyncFunctionStateImpl, getAsyncDeclaredRetTypeStateImpl, getFunctionReturnTypeStateImpl, recordLateUserDeclareIntoStateImpl, emitLateUserDeclaresStateImpl, captureDeclarationPassStateImpl, captureLateUserDeclareStateImpl}
 import codegen.ir_decl_items.{DeclarationItemContext, PreparedDeclarationItem, normalizeDeclaredTypeNodeImpl, prepareDeclarationItemForRegistrationImpl}
@@ -68,10 +68,10 @@ import codegen.ir_string_interp_infer.{inferStringInterpolationExprTypeStateImpl
 import codegen.ir_string_emit.{getStringConstantIndexImpl, emitAdditionalGeneratedStringConstantsImpl, loadEmbeddedStringConstantInfoImpl, emitStringConstantsImpl, emitStringConstantsWithPrefixImpl}
 import codegen.ir_nullish_gen.{emitNullishCheckComparisonImpl, defaultValueForLlvmTypeImpl, emitNullishBranchingImpl, emitNullishBranchToEndImpl, enterNullishElseBranchImpl, finalizeNullishMergeImpl, buildSafeNavigationMemberExprImpl}
 import codegen.ir_enum_ctor_gen.{lookupEnumVariantTagStateImpl, lookupEnumParentStateImpl, lookupEnumFieldTypeStateImpl, lookupEnumFieldCountStateImpl, isEnumVariantStateImpl, planEnumConstructorImpl, shouldCollectEnumConstructorFieldImpl, allocateEnumConstructorObjectImpl, emitEnumConstructorFieldStoresImpl}
-import codegen.ir_when_arm_gen.{emitWhenArmGuardImpl, ensureWhenPatternDestructPtrImpl, emitWhenPatternBindingStoreImpl, normalizeWhenArmStoreValueImpl}
+import codegen.ir_when_arm_gen.{emitWhenArmGuardImpl, emitWhenPatternBindingsState, normalizeWhenArmStoreValueImpl}
 import codegen.ir_when_pattern_gen.{emitWhenPatternBranchState}
 import codegen.ir_when_result_gen.{allocateWhenResultSlotImpl, emitWhenArmReturnImpl, emitWhenArmStoreImpl, finalizeWhenResultImpl}
-import codegen.ir_when_expr_plan.{planWhenSubjectImpl, shouldEmitWhenArmGuardImpl, shouldEmitWhenPatternBindingsImpl, shouldBindWhenPatternFieldImpl, planWhenArmResultImpl, shouldStoreWhenArmResultImpl, shouldBranchWhenArmToEndImpl, shouldEmitWhenFinalFallthroughImpl}
+import codegen.ir_when_expr_plan.{planWhenSubjectImpl, shouldEmitWhenArmGuardImpl, planWhenArmResultImpl, shouldStoreWhenArmResultImpl, shouldBranchWhenArmToEndImpl, shouldEmitWhenFinalFallthroughImpl}
 import codegen.ir_index_access_plan.{shouldUsePointerIndexAccessImpl, shouldTryOperatorIndexAccessImpl, shouldEmitIndexBoundsCheckImpl, planTypedIndexAccessImpl}
 import codegen.ir_index_access_gen.{emitPreparedPointerIndexAccessImpl, emitPreparedOperatorIndexAccessCallImpl, emitPreparedIndexBoundsCheckImpl, emitPreparedIndexElementAccessImpl}
 import codegen.ir_special_top_level_emit.{tryHandleSpecialTopLevelFunctionImpl}
@@ -98,7 +98,7 @@ import codegen.ir_call_runtime.{emitPrintLikeCallImpl, emitOptionRuntimeBuiltinC
 import codegen.ir_call_runtime_plan.{isOptionRuntimeCallPlanImpl, shouldReadSomeRuntimeArgImpl, isSuperRuntimeCallPlanImpl, isEmptyRuntimeCalleeImpl, isPrintRuntimeCallPlanImpl, shouldReadPrintRuntimeArgImpl, runtimeIoCallActionImpl, isPanicRuntimeCallPlanImpl, shouldReadPanicRuntimeArgImpl, planRuntimeBuiltinDispatchImpl}
 import codegen.ir_call_implicit_this_plan.{planImplicitThisCallImpl, implicitThisTailCallFlagImpl}
 import codegen.ir_call_implicit_this_emit.{emitPreparedMisplacedParserImplicitThisCallImpl, emitPreparedStringBuilderImplicitThisCallImpl, emitPreparedNormalImplicitThisCallImpl}
-import codegen.ir_call_regular_plan.{shouldPromoteRegularCallFloatArgsImpl, resolveRegularCallLlvmReturnTypeImpl, shouldRecordRegularLateDeclareImpl, regularCallTailFlagImpl}
+import codegen.ir_call_regular_plan.{stripGenericCalleeNameImpl, shouldPromoteRegularCallFloatArgsImpl, resolveRegularCallLlvmReturnTypeImpl, shouldRecordRegularLateDeclareImpl, regularCallTailFlagImpl}
 import codegen.ir_call_meta.{resolveSizeofBuiltinValueImpl, resolveAlignofBuiltinValueImpl, resolveOffsetofBuiltinValueImpl}
 import codegen.ir_call_low_level.{isPtrBuiltinCallImpl, isSimdBuiltinCallImpl, emitPreparedLowLevelBuiltinActionImpl}
 import codegen.ir_call_builtin_plan.{planMetaBuiltinCallImpl, planLowLevelBuiltinCallImpl, shouldReadSimdShuffleConstArgImpl, planLowLevelBuiltinArgumentReadsImpl, shouldClearLowLevelDebugAssertCseImpl}
@@ -5124,24 +5124,6 @@ class LLVMIRGenerator {
         return tryGenerateClassConstructorCall(expr, funcName)
     }
 
-    fun stripGenericCalleeName(funcName: String) r: String {
-        if funcName.contains("<") {
-            var ltIdx = 0
-            var scanIdx = 0
-            while scanIdx < funcName.length() {
-                if funcName.byteAt(scanIdx) == 60 {
-                    ltIdx = scanIdx
-                    scanIdx = funcName.length()
-                }
-                scanIdx = scanIdx + 1
-            }
-            if ltIdx > 0 {
-                return funcName.substring(0, ltIdx)
-            }
-        }
-        return funcName
-    }
-
     fun tryGenerateOptionRuntimeBuiltinCall(expr: ParserExpressionNode, funcName: String) r: String {
         if not isOptionRuntimeCallPlanImpl(funcName) {
             return ""
@@ -5402,7 +5384,7 @@ class LLVMIRGenerator {
             return constructorResult
         }
 
-        funcName = stripGenericCalleeName(funcName)
+        funcName = stripGenericCalleeNameImpl(funcName)
 
         let runtimeBuiltinResult = tryGenerateRuntimeBuiltinCall(expr, funcName)
         if runtimeBuiltinResult != "" {
@@ -6301,22 +6283,11 @@ class LLVMIRGenerator {
     // extract promise value, no: coro.resume and loop. Uses LLVM coroutine
     // intrinsics (coro.done, coro.resume, coro.destroy) directly — C wrapper
     // functions CRASH due to calling convention mismatch (fastcc vs ccc).
-    fun resolveAwaitExpressionResultLlvmType(futureExpr: ParserExpressionNode) r: String {
-        if futureExpr.kind == "Call" {
-            let declType = getAsyncDeclaredRetTypeStateImpl(
-                futureExpr.callee, g_asyncFuncNames, g_asyncFuncRetTypes,
-                g_asyncFuncCount)
-            if declType != "" {
-                return mapTypeState(declType)
-            }
-        }
-        return "i64"
-    }
-
     fun generateAwaitExpression(expr: ParserExpressionNode) r: String {
         let futureExpr = expr.operands[0]
         let hdlReg = generateExpression(futureExpr)
-        let resultLlvmType = resolveAwaitExpressionResultLlvmType(futureExpr)
+        let resultLlvmType = resolveAwaitExpressionResultLlvmTypeState(
+            futureExpr, g_asyncFuncNames, g_asyncFuncRetTypes, g_asyncFuncCount)
         emitAwaitPollLoopImpl(output, g_regBox, g_blockLabelBox, hdlReg)
         return emitAwaitResultValueImpl(output, g_regBox, hdlReg,
             resultLlvmType)
@@ -7302,36 +7273,9 @@ class LLVMIRGenerator {
     }
 
     fun emitWhenPatternBindings(subjectReg: String, subjectLlvm: String, patternExpr: ParserExpressionNode) r: Void {
-        if not shouldEmitWhenPatternBindingsImpl(patternExpr.variableName,
-            patternExpr.operands.length()) {
-            return
-        }
-        let destructPtrReg = ensureWhenPatternDestructPtrImpl(output, g_regBox,
-            subjectReg, subjectLlvm)
-        var fieldIdx = 0
-        let variantName = patternExpr.literalValue
-        while fieldIdx < patternExpr.operands.length() {
-            let fieldBind = patternExpr.operands[fieldIdx]
-            if fieldBind.kind == "PatternField" {
-                let bindingName = fieldBind.literalValue
-                if not shouldBindWhenPatternFieldImpl(fieldBind.kind,
-                    bindingName) {
-                    fieldIdx = fieldIdx + 1
-                    continue
-                }
-                let fieldOffset = 8 + fieldIdx * 8
-                let fType = lookupEnumFieldTypeStateImpl(variantName,
-                    fieldIdx, g_enumVariantNames, g_enumVariantFieldTypes,
-                    g_enumVariantCount)
-                let fLlvm = mapTypeState(fType)
-                let bindIdx = findActiveVariableIndexImpl(varNames, activeVarCount, bindingName)
-                if bindIdx >= 0 {
-                    emitWhenPatternBindingStoreImpl(output, g_regBox,
-                        destructPtrReg, fieldOffset, fLlvm, varRegs[bindIdx])
-                }
-            }
-            fieldIdx = fieldIdx + 1
-        }
+        emitWhenPatternBindingsState(output, g_regBox, subjectReg, subjectLlvm,
+            patternExpr, varNames, varRegs, activeVarCount,
+            g_enumVariantNames, g_enumVariantFieldTypes, g_enumVariantCount)
     }
 
     fun emitWhenArmResult(arm: ParserExpressionNode, resultAlloca: String) r: Void {

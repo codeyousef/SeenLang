@@ -2,7 +2,12 @@
 // Extracted from llvm_ir_gen.seen to keep when-arm lowering thin.
 
 import str.string.{StringBuilder}
+import parser.real_parser.{ParserExpressionNode}
 import codegen.ir_optimization.{getNextRegFn}
+import codegen.ir_codegen_type_state.{mapTypeState}
+import codegen.ir_enum_ctor_gen.{lookupEnumFieldTypeStateImpl}
+import codegen.ir_variable_gen.{findActiveVariableIndexImpl}
+import codegen.ir_when_expr_plan.{shouldEmitWhenPatternBindingsImpl, shouldBindWhenPatternFieldImpl}
 
 fun emitWhenArmGuardImpl(output: StringBuilder, regBox: Array<Int>,
     guardReg: String, guardType: String, armBodyLabel: String,
@@ -44,6 +49,44 @@ fun emitWhenPatternBindingStoreImpl(output: StringBuilder, regBox: Array<Int>,
         fieldPtrReg + "\n")
     output.append("  store " + fieldLlvm + " " + fieldLoadReg + ", ptr " +
         bindPtrReg + "\n")
+}
+
+fun emitWhenPatternBindingsState(output: StringBuilder, regBox: Array<Int>,
+    subjectReg: String, subjectLlvm: String, patternExpr: ParserExpressionNode,
+    varNames: Array<String>, varRegs: Array<String>, activeVarCount: Int,
+    enumVariantNames: String, enumVariantFieldTypes: String,
+    enumVariantCount: Int) r: Void {
+
+    if not shouldEmitWhenPatternBindingsImpl(patternExpr.variableName,
+        patternExpr.operands.length()) {
+        return
+    }
+    let destructPtrReg = ensureWhenPatternDestructPtrImpl(output, regBox,
+        subjectReg, subjectLlvm)
+    var fieldIdx = 0
+    let variantName = patternExpr.literalValue
+    while fieldIdx < patternExpr.operands.length() {
+        let fieldBind = patternExpr.operands[fieldIdx]
+        if fieldBind.kind == "PatternField" {
+            let bindingName = fieldBind.literalValue
+            if not shouldBindWhenPatternFieldImpl(fieldBind.kind,
+                bindingName) {
+                fieldIdx = fieldIdx + 1
+                continue
+            }
+            let fieldOffset = 8 + fieldIdx * 8
+            let fType = lookupEnumFieldTypeStateImpl(variantName, fieldIdx,
+                enumVariantNames, enumVariantFieldTypes, enumVariantCount)
+            let fLlvm = mapTypeState(fType)
+            let bindIdx = findActiveVariableIndexImpl(varNames,
+                activeVarCount, bindingName)
+            if bindIdx >= 0 {
+                emitWhenPatternBindingStoreImpl(output, regBox, destructPtrReg,
+                    fieldOffset, fLlvm, varRegs[bindIdx])
+            }
+        }
+        fieldIdx = fieldIdx + 1
+    }
 }
 
 fun normalizeWhenArmStoreValueImpl(output: StringBuilder, regBox: Array<Int>,
