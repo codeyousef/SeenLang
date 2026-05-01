@@ -76,7 +76,6 @@ import codegen.ir_index_access_plan.{shouldUsePointerIndexAccessImpl, shouldTryO
 import codegen.ir_index_access_gen.{emitPreparedPointerIndexAccessImpl, emitPreparedOperatorIndexAccessCallImpl, emitPreparedIndexBoundsCheckImpl, emitPreparedIndexElementAccessImpl}
 import codegen.ir_special_top_level_emit.{tryHandleSpecialTopLevelFunctionImpl}
 import codegen.ir_type_layout.{getLlvmTypeAlignImpl, getLlvmTypeSizeImpl, computeStructSizeFromLayoutImpl}
-import codegen.ir_comptime_eval.{parseSimpleIntImpl, lookupComptimeVarImpl, lookupComptimeStrVarImpl, comptimeSizeofImpl, comptimeTypeFieldCountImpl, comptimeTypeFieldNameImpl, comptimeTypeFieldTypeImpl, evaluateConstExprStrImpl, evaluateConstExprImpl}
 import codegen.ir_simd_type_helpers.{isSimdVectorTypeImpl}
 import codegen.ir_struct_field_resolution.{resolveKnownStructFieldImpl}
 import codegen.ir_type_tables.{inferMethodCallTypeTable, inferCallTypeTable, inferFieldTypeFallback, inferIndexElementType, registerKnownDataTypesImpl, resolvePopElementTypeImpl, resolveTryPropagateTypeImpl}
@@ -148,7 +147,7 @@ import codegen.ir_stmt_gen.{emitConditionToI1Impl, computeIfBranchWeightMetadata
 import codegen.ir_stmt_select_plan.{planPairedAssignmentSelectIfImpl, planSingleArmSelectIfImpl}
 import codegen.ir_stmt_dispatch_plan.{planStatementDispatchImpl}
 import codegen.ir_stmt_dead_code.{shouldSkipDeadLiteralInitializerImpl}
-import codegen.ir_stmt_comptime.{ComptimeRegistryStateSnapshot, classifyComptimeStatementKindImpl, shouldProcessComptimeLetImpl, shouldRegisterComptimeIntValueImpl, shouldRegisterComptimeStringValueImpl, shouldProcessComptimeAssignmentImpl, shouldApplyComptimeAssignmentUpdateImpl, shouldProcessComptimeWhileImpl, shouldContinueComptimeWhileImpl, shouldEmitRuntimeComptimeStatementImpl, resolveComptimeAssignmentTargetImpl, emitComptimeIntNoteImpl, emitComptimeStringNoteImpl, emitComptimeWhileUnrolledNoteImpl, resolveComptimeAssertMessageImpl, emitComptimeAssertFailureNoteImpl, emitComptimeAssertAbortImpl, emitComptimeAssertPassedNoteImpl, classifyComptimeAssertResultImpl, classifyComptimeIfBranchImpl, shouldGenerateComptimeIfThenImpl, shouldGenerateComptimeIfElseImpl, emitComptimeIfBranchNoteImpl, registerComptimeVarSnapshotImpl, updateComptimeVarSnapshotImpl, registerComptimeStrVarSnapshotImpl}
+import codegen.ir_stmt_comptime.{classifyComptimeStatementKindImpl, shouldProcessComptimeLetImpl, shouldRegisterComptimeIntValueImpl, shouldRegisterComptimeStringValueImpl, shouldProcessComptimeAssignmentImpl, shouldApplyComptimeAssignmentUpdateImpl, shouldProcessComptimeWhileImpl, shouldContinueComptimeWhileImpl, shouldEmitRuntimeComptimeStatementImpl, resolveComptimeAssignmentTargetImpl, emitComptimeIntNoteImpl, emitComptimeStringNoteImpl, emitComptimeWhileUnrolledNoteImpl, resolveComptimeAssertMessageImpl, emitComptimeAssertFailureNoteImpl, emitComptimeAssertAbortImpl, emitComptimeAssertPassedNoteImpl, classifyComptimeAssertResultImpl, classifyComptimeIfBranchImpl, shouldGenerateComptimeIfThenImpl, shouldGenerateComptimeIfElseImpl, emitComptimeIfBranchNoteImpl, registerComptimeVarState, updateComptimeVarState, registerComptimeStrVarState, evaluateConstExprStrState, evaluateConstExprState, lookupComptimeVarState, parseSimpleIntState}
 import codegen.ir_stmt_return.{emitErrdeferTempReturnLoadImpl, emitReturnRegionAndProfileCleanupImpl, emitDefaultEmptyReturnStatementImpl, emitCharLiteralReturnImpl, shouldSeedReturnPendingArrayLiteralTypeImpl, shouldMarkReturnTailCallImpl, resolveCharLiteralReturnValueImpl, emitFinalReturnStatementValueImpl}
 import codegen.ir_stmt_scope.{recordDeferredStatementSnapshotImpl, enterUnsafeStatementImpl, exitUnsafeStatementImpl, beginTryCatchStatementSnapshotImpl, finalizeTryCatchArmImpl, emitTryCatchCatchHeaderImpl, emitTryCatchFooterImpl}
 import codegen.ir_assignment_gen.{emitFieldStoreImpl, emitValueReceiverMemberAssignmentImpl, emitVariableReceiverMemberAssignmentImpl, emitImplicitThisMemberAssignmentImpl, emitPreparedIndexAssignmentBoundsCheckImpl, emitPreparedIndexAssignmentStoreImpl, coerceMethodCallHandleAssignmentImpl}
@@ -2028,16 +2027,16 @@ class LLVMIRGenerator {
             let ctAction = classifyComptimeStatementKindImpl(ctStmt.kind)
             if shouldProcessComptimeLetImpl(ctAction) {
                 // Try integer evaluation first
-                let ctVal = evaluateConstExpr(ctStmt.initializer)
+                let ctVal = evaluateConstExprState(ctStmt.initializer)
                 if shouldRegisterComptimeIntValueImpl(ctVal) {
-                    registerComptimeVar(ctStmt.variableName, ctVal)
+                    registerComptimeVarState(ctStmt.variableName, ctVal)
                     emitComptimeIntNoteImpl(output, "let ",
                         ctStmt.variableName, ctVal)
                 } else {
                     // Try string evaluation
-                    let ctStrVal = evaluateConstExprStr(ctStmt.initializer)
+                    let ctStrVal = evaluateConstExprStrState(ctStmt.initializer)
                     if shouldRegisterComptimeStringValueImpl(ctStrVal) {
-                        registerComptimeStrVar(ctStmt.variableName, ctStrVal)
+                        registerComptimeStrVarState(ctStmt.variableName, ctStrVal)
                         emitComptimeStringNoteImpl(output, "let ",
                             ctStmt.variableName, ctStrVal)
                     }
@@ -2050,10 +2049,10 @@ class LLVMIRGenerator {
                 let ctAssignName = resolveComptimeAssignmentTargetImpl(
                     ctStmt.expression)
                 if ctAssignName != "" {
-                    let ctNewVal = evaluateConstExpr(ctStmt.expression.operands[0])
+                    let ctNewVal = evaluateConstExprState(ctStmt.expression.operands[0])
                     if shouldApplyComptimeAssignmentUpdateImpl(ctAssignName,
                         ctNewVal) {
-                        updateComptimeVar(ctAssignName, ctNewVal)
+                        updateComptimeVarState(ctAssignName, ctNewVal)
                         emitComptimeIntNoteImpl(output, "",
                             ctAssignName, ctNewVal)
                     }
@@ -2063,7 +2062,7 @@ class LLVMIRGenerator {
             if shouldProcessComptimeWhileImpl(ctAction) {
                 var ctWhileIter = 0
                 while ctWhileIter < 1000 {
-                    let ctWhileCond = evaluateConstExpr(ctStmt.expression)
+                    let ctWhileCond = evaluateConstExprState(ctStmt.expression)
                     if not shouldContinueComptimeWhileImpl(ctWhileCond) { break }
                     // Process body: comptime statements update vars, runtime statements get emitted
                     processComptimeStatements(ctStmt.thenBranch)
@@ -2079,51 +2078,9 @@ class LLVMIRGenerator {
         }
     }
 
-    fun syncComptimeRegistryState(state: ComptimeRegistryStateSnapshot)
-        r: Void {
-
-        g_comptimeNames = state.comptimeNames
-        g_comptimeValues = state.comptimeValues
-        g_comptimeCount = state.comptimeCount
-        g_comptimeStrNames = state.comptimeStrNames
-        g_comptimeStrValues = state.comptimeStrValues
-        g_comptimeStrCount = state.comptimeStrCount
-    }
-
-    // Register a new comptime integer variable
-    fun registerComptimeVar(name: String, value: Int) r: Void {
-        syncComptimeRegistryState(registerComptimeVarSnapshotImpl(name, value,
-            g_comptimeNames, g_comptimeValues, g_comptimeCount,
-            g_comptimeStrNames, g_comptimeStrValues, g_comptimeStrCount))
-    }
-
-    // Update an existing comptime integer variable
-    fun updateComptimeVar(name: String, value: Int) r: Void {
-        syncComptimeRegistryState(updateComptimeVarSnapshotImpl(name, value,
-            g_comptimeNames, g_comptimeValues, g_comptimeCount,
-            g_comptimeStrNames, g_comptimeStrValues, g_comptimeStrCount))
-    }
-
-    // Register a comptime string variable
-    fun registerComptimeStrVar(name: String, value: String) r: Void {
-        syncComptimeRegistryState(registerComptimeStrVarSnapshotImpl(name,
-            value, g_comptimeNames, g_comptimeValues, g_comptimeCount,
-            g_comptimeStrNames, g_comptimeStrValues, g_comptimeStrCount))
-    }
-
-    // Look up a comptime string variable
-    fun lookupComptimeStrVar(name: String) r: String {
-        return lookupComptimeStrVarImpl(name, g_comptimeStrNames, g_comptimeStrValues, g_comptimeStrCount)
-    }
-
-    // Evaluate a constant expression as a string at compile time
-    fun evaluateConstExprStr(expr: ParserExpressionNode) r: String {
-        return evaluateConstExprStrImpl(expr, g_comptimeNames, g_comptimeValues, g_comptimeCount, g_comptimeStrNames, g_comptimeStrValues, g_comptimeStrCount, structNames, structFieldNames, structFieldTypes)
-    }
-
     // comptime assert(cond, "msg") — compile-time assertion
     fun generateComptimeAssert(stmt: StatementNode) r: Void {
-        let condVal = evaluateConstExpr(stmt.expression)
+        let condVal = evaluateConstExprState(stmt.expression)
         let assertAction = classifyComptimeAssertResultImpl(condVal)
         if assertAction == 1 {
             // Assertion failed
@@ -2139,7 +2096,7 @@ class LLVMIRGenerator {
 
     // comptime if (cond) { then } else { else } - dead code elimination
     fun generateComptimeIf(stmt: StatementNode) r: Void {
-        let condVal = evaluateConstExpr(stmt.expression)
+        let condVal = evaluateConstExprState(stmt.expression)
         let branchAction = classifyComptimeIfBranchImpl(condVal,
             stmt.elseBranch.statements.length())
         if shouldGenerateComptimeIfThenImpl(branchAction) {
@@ -2155,41 +2112,6 @@ class LLVMIRGenerator {
                 emitComptimeIfBranchNoteImpl(output, branchAction)
             }
         }
-    }
-
-    // Evaluate a constant expression at compile time
-    fun evaluateConstExpr(expr: ParserExpressionNode) r: Int {
-        return evaluateConstExprImpl(expr, g_comptimeNames, g_comptimeValues, g_comptimeCount, g_comptimeStrNames, g_comptimeStrValues, g_comptimeStrCount, structNames, structFieldNames, structFieldTypes)
-    }
-
-    // Look up a comptime variable value
-    fun lookupComptimeVar(name: String) r: Int {
-        return lookupComptimeVarImpl(name, g_comptimeNames, g_comptimeValues, g_comptimeCount)
-    }
-
-    // Comptime sizeof for common types
-    fun comptimeSizeof(typeName: String) r: Int {
-        return comptimeSizeofImpl(typeName)
-    }
-
-    // Comptime type field count — look up struct by name, count comma-separated fields
-    fun comptimeTypeFieldCount(typeName: String) r: Int {
-        return comptimeTypeFieldCountImpl(typeName, structNames, structFieldNames)
-    }
-
-    // Comptime type field name — get Nth field name from struct
-    fun comptimeTypeFieldName(typeName: String, fieldIdx: Int) r: String {
-        return comptimeTypeFieldNameImpl(typeName, fieldIdx, structNames, structFieldNames)
-    }
-
-    // Comptime type field type — get Nth field type from struct
-    fun comptimeTypeFieldType(typeName: String, fieldIdx: Int) r: String {
-        return comptimeTypeFieldTypeImpl(typeName, fieldIdx, structNames, structFieldTypes)
-    }
-
-    // Simple integer parser for comptime
-    fun parseSimpleInt(s: String) r: Int {
-        return parseSimpleIntImpl(s)
     }
 
     fun coerceValueForLlvmTarget(targetLlvmType: String,
@@ -4324,7 +4246,7 @@ class LLVMIRGenerator {
 
     fun tryGenerateComptimeVariable(varName: String) r: String {
         if g_comptimeCount > 0 {
-            let ctVal = lookupComptimeVar(varName)
+            let ctVal = lookupComptimeVarState(varName)
             if ctVal != -9999999 {
                 return emitComptimeVariableLoadImpl(output, g_regBox, ctVal)
             }
@@ -4840,11 +4762,11 @@ class LLVMIRGenerator {
                     if ctpColon2 > ctpColon1 {
                         let ctpIdxStr = ctpEntry.substring(ctpColon1 + 1, ctpColon2)
                         let ctpParamName = ctpEntry.substring(ctpColon2 + 1, ctpEntry.length())
-                        let ctpParamIdx = parseSimpleInt(ctpIdxStr)
+                        let ctpParamIdx = parseSimpleIntState(ctpIdxStr)
                         if ctpParamIdx >= 0 and ctpParamIdx < expr.arguments.length() {
-                            let ctpVal = evaluateConstExpr(expr.arguments[ctpParamIdx])
+                            let ctpVal = evaluateConstExprState(expr.arguments[ctpParamIdx])
                             if ctpVal != -9999999 {
-                                registerComptimeVar(ctpParamName, ctpVal)
+                                registerComptimeVarState(ctpParamName, ctpVal)
                                 output.append("  ; comptime param " + ctpParamName + " = " + ctpVal.toString() + "\n")
                             }
                         }
@@ -4861,7 +4783,7 @@ class LLVMIRGenerator {
         if metaPlan.action == 1 {
             if metaPlan.hasArg0 {
                 // Try comptime evaluator first (handles bare type names like Int32)
-                let ctSize = evaluateConstExpr(expr)
+                let ctSize = evaluateConstExprState(expr)
                 if ctSize > 0 {
                     return ctSize.toString()
                 }
@@ -5016,7 +4938,7 @@ class LLVMIRGenerator {
             while simdPreArgIdx < expr.arguments.length() {
                 if shouldReadSimdShuffleConstArgImpl(funcName,
                     simdPreArgIdx) {
-                    let shufConstIdx = evaluateConstExpr(expr.arguments[simdPreArgIdx])
+                    let shufConstIdx = evaluateConstExprState(expr.arguments[simdPreArgIdx])
                     simdConstIndices.push(shufConstIdx)
                 } else {
                     let simdArgReg = generateExpression(expr.arguments[simdPreArgIdx])

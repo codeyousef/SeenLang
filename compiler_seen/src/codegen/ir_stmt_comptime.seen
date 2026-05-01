@@ -2,7 +2,9 @@
 
 import parser.real_parser.{ParserExpressionNode}
 import str.string.{StringBuilder}
-import codegen.ir_comptime_eval.{registerComptimeVarStateImpl, updateComptimeVarStateImpl, registerComptimeStrVarStateImpl}
+import codegen.ir_comptime_eval.{registerComptimeVarStateImpl, updateComptimeVarStateImpl, registerComptimeStrVarStateImpl, lookupComptimeVarImpl, evaluateConstExprStrImpl, evaluateConstExprImpl, parseSimpleIntImpl}
+import codegen.ir_codegen_feature_state.{g_comptimeNames, g_comptimeValues, g_comptimeCount, g_comptimeStrNames, g_comptimeStrValues, g_comptimeStrCount}
+import codegen.ir_codegen_global_state.{structNames, structFieldNames, structFieldTypes}
 
 class ComptimeRegistryStateSnapshot {
     var comptimeNames: String
@@ -87,6 +89,56 @@ fun registerComptimeStrVarSnapshotImpl(name: String, value: String,
     return captureComptimeRegistryStateImpl(comptimeNames, comptimeValues,
         comptimeCount, comptimeStrNamesBox[0], comptimeStrValuesBox[0],
         comptimeStrCountBox[0])
+}
+
+fun applyComptimeRegistryStateSnapshotImpl(state: ComptimeRegistryStateSnapshot)
+    r: Void {
+
+    g_comptimeNames = state.comptimeNames
+    g_comptimeValues = state.comptimeValues
+    g_comptimeCount = state.comptimeCount
+    g_comptimeStrNames = state.comptimeStrNames
+    g_comptimeStrValues = state.comptimeStrValues
+    g_comptimeStrCount = state.comptimeStrCount
+}
+
+fun registerComptimeVarState(name: String, value: Int) r: Void {
+    applyComptimeRegistryStateSnapshotImpl(registerComptimeVarSnapshotImpl(
+        name, value, g_comptimeNames, g_comptimeValues, g_comptimeCount,
+        g_comptimeStrNames, g_comptimeStrValues, g_comptimeStrCount))
+}
+
+fun updateComptimeVarState(name: String, value: Int) r: Void {
+    applyComptimeRegistryStateSnapshotImpl(updateComptimeVarSnapshotImpl(
+        name, value, g_comptimeNames, g_comptimeValues, g_comptimeCount,
+        g_comptimeStrNames, g_comptimeStrValues, g_comptimeStrCount))
+}
+
+fun registerComptimeStrVarState(name: String, value: String) r: Void {
+    applyComptimeRegistryStateSnapshotImpl(registerComptimeStrVarSnapshotImpl(
+        name, value, g_comptimeNames, g_comptimeValues, g_comptimeCount,
+        g_comptimeStrNames, g_comptimeStrValues, g_comptimeStrCount))
+}
+
+fun evaluateConstExprStrState(expr: ParserExpressionNode) r: String {
+    return evaluateConstExprStrImpl(expr, g_comptimeNames, g_comptimeValues,
+        g_comptimeCount, g_comptimeStrNames, g_comptimeStrValues,
+        g_comptimeStrCount, structNames, structFieldNames, structFieldTypes)
+}
+
+fun evaluateConstExprState(expr: ParserExpressionNode) r: Int {
+    return evaluateConstExprImpl(expr, g_comptimeNames, g_comptimeValues,
+        g_comptimeCount, g_comptimeStrNames, g_comptimeStrValues,
+        g_comptimeStrCount, structNames, structFieldNames, structFieldTypes)
+}
+
+fun lookupComptimeVarState(name: String) r: Int {
+    return lookupComptimeVarImpl(name, g_comptimeNames, g_comptimeValues,
+        g_comptimeCount)
+}
+
+fun parseSimpleIntState(s: String) r: Int {
+    return parseSimpleIntImpl(s)
 }
 
 fun classifyComptimeStatementKindImpl(stmtKind: String) r: Int {
