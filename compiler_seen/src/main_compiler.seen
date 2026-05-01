@@ -30,6 +30,7 @@ import parser.real_parser.{ProgramNode, ItemNode, ClassNode, FunctionNode, State
 import lsp.server.{runLspServer}
 import typechecker.determinism.{DeterminismChecker, checkDeterminismWithProfile, printDeterminismErrors}
 import codegen.ir_decl_runtime.{emitCoreRuntimeDecls}
+import codegen.ir_decl_runtime_lsp_json.{emitLspJsonRuntimeDecls}
 import codegen.ir_decl_string_io.{emitStringAndIODecls}
 import codegen.ir_decl_macro_lsp.{emitMacroAndLspDecls}
 import codegen.ir_decl_typechecker.{emitTypecheckerDeclsImpl}
@@ -2982,6 +2983,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_type_tables")
         // Extracted codegen helper modules
         modules.push("codegen.ir_decl_runtime")
+        modules.push("codegen.ir_decl_runtime_lsp_json")
         modules.push("codegen.ir_decl_string_io")
         modules.push("codegen.ir_decl_macro_lsp")
         modules.push("codegen.ir_decl_typechecker")
