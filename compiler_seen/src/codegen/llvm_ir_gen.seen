@@ -114,7 +114,7 @@ import codegen.ir_method_lower_plan.{planMethodLowerCallImpl, methodLowerStringB
 import codegen.ir_method_lower_emit.{emitPreparedLengthLikeMethodLowerImpl, emitPreparedStringBuilderMethodLowerImpl, emitPreparedPrimitiveConversionMethodLowerImpl, emitPreparedNumericMethodLowerImpl, emitPreparedStringLikeMethodLowerImpl, emitPreparedUnresolvedCollectionGetWarningImpl, emitPreparedHotReloadMethodLowerImpl, emitPreparedScalarReceiverFallbackImpl, emitPreparedSpecializedMethodLowerImpl, emitPreparedUserMethodLowerImpl}
 import codegen.ir_method_final_plan.{planMethodUnresolvedReceiverStartImpl, planMethodUnresolvedReceiverFinalImpl, planMethodFinalDispatchImpl}
 import codegen.ir_method_receiver_lookup_plan.{planMethodReceiverInitialPhaseImpl, planMethodReceiverPostLookupPhaseImpl, planMethodReceiverPostResolutionPhaseImpl, planDottedReceiverStageImpl, planDottedReceiverFallbackStageImpl, planImplicitThisDottedReceiverStageImpl, planSimpleLiteralReceiverStageImpl, planImplicitThisReceiverStageImpl}
-import codegen.ir_method_receiver_lookup_gen.{emitLocalMethodReceiverLoadImpl, emitModuleConstantMethodReceiverLoadImpl, emitKeywordManagerMethodReceiverLoadImpl}
+import codegen.ir_method_receiver_lookup_gen.{emitLocalMethodReceiverLoadImpl, emitModuleConstantMethodReceiverLoadImpl, emitImplicitDottedMethodReceiverLoadImpl, emitImplicitThisMethodReceiverLoadImpl}
 import codegen.ir_method_builtin_type_infer.{tryInferBuiltinReceiverMethodCallTypeState}
 import codegen.ir_value_coercion.{coerceValueForLlvmTargetImpl}
 import codegen.ir_string_concat_emit.{isStringConcatTypePairImpl, exprHasStringConcatMarkerImpl, coerceStringConcatPieceRegImpl}
@@ -6079,23 +6079,22 @@ class LLVMIRGenerator {
                         planImplicitThisDottedReceiverStageImpl(thisIdx,
                             firstFieldType)
                     if implicitDottedPlan.shouldResolveImplicitThisDotted {
-                        let thisPtrReg = emitImplicitThisPointerLoadImpl(
-                            output, g_regBox, varRegs[thisIdx])
-                        var accessFieldReg = ""
-                        if isClassType(firstFieldType) {
-                            let firstFieldReg = generateFieldAccess(
-                                thisPtrReg, thisType, pathParts[0])
-                            let ptrConvReg = getNextReg()
-                            output.append("  " + ptrConvReg +
-                                " = inttoptr i64 " + firstFieldReg +
-                                " to ptr\n")
-                            accessFieldReg = ptrConvReg
-                        } else {
-                            accessFieldReg = generateFieldAccessPtr(
-                                thisPtrReg, thisType, pathParts[0])
-                        }
-                        receiverReg = generateFieldAccess(accessFieldReg,
-                            firstFieldType, pathParts[1])
+                        let implicitDottedReceiver =
+                            emitImplicitDottedMethodReceiverLoadImpl(output,
+                            g_regBox, varRegs[thisIdx], thisType,
+                            pathParts[0], pathParts[1], firstFieldType,
+                            isClassType(firstFieldType),
+                            resolveMethodFieldPathTypeImpl(
+                            firstFieldType, pathParts[1], structNames,
+                            structFieldNames, structFieldTypes,
+                            structMethodNames, structMethodRetTypes),
+                            structNames, structLayouts, structFieldNames,
+                            structFieldTypes, g_reprCClassNames, g_unionTypes,
+                            g_typeAliasNames, g_typeAliasTargets,
+                            g_typeAliasCount, g_enumTypeNames,
+                            g_bitfieldCount, g_bitfieldKeys,
+                            g_bitfieldWidths)
+                        receiverReg = implicitDottedReceiver.receiverReg
                         receiverType = resolveMethodFieldPathTypeImpl(
                             firstFieldType, pathParts[1], structNames,
                             structFieldNames, structFieldTypes,
@@ -6173,38 +6172,20 @@ class LLVMIRGenerator {
                                 planImplicitThisReceiverStageImpl(
                                 thisType, varName, idxCheck, structIdx,
                                 fieldIdx)
-                            if implicitLookupPlan.lookupAction == 1 {
-                                    let thisPtrReg =
-                                        emitImplicitThisPointerLoadImpl(
-                                            output, g_regBox, thisReg)
-                                    receiverReg = generateFieldAccess(
-                                        thisPtrReg, "LLVMIRGenerator",
-                                        varName)
-                                    receiverType =
-                                        resolveLiteralMethodReceiverType(
-                                            varName)
-                            }
-                            if implicitLookupPlan.lookupAction == 2 {
-                                    let thisPtrReg =
-                                        emitImplicitThisPointerLoadImpl(
-                                            output, g_regBox, thisReg)
-                                    receiverReg = generateFieldAccess(
-                                        thisPtrReg, thisType, varName)
-                                    receiverType =
-                                        resolveLiteralMethodReceiverType(
-                                            varName)
-                            }
-                            if implicitLookupPlan.lookupAction == 3 {
-                                        let thisPtrReg =
-                                            emitImplicitThisPointerLoadImpl(
-                                            output, g_regBox, thisReg)
-                                        let keywordReceiver =
-                                            emitKeywordManagerMethodReceiverLoadImpl(
-                                                output, g_regBox, thisPtrReg)
-                                        receiverReg =
-                                            keywordReceiver.receiverReg
-                                        receiverType =
-                                            keywordReceiver.receiverType
+                            let implicitThisReceiver =
+                                emitImplicitThisMethodReceiverLoadImpl(output,
+                                g_regBox, implicitLookupPlan.lookupAction,
+                                thisReg, thisType, varName,
+                                resolveLiteralMethodReceiverType(varName),
+                                structNames, structLayouts, structFieldNames,
+                                structFieldTypes, g_reprCClassNames,
+                                g_unionTypes, g_typeAliasNames,
+                                g_typeAliasTargets, g_typeAliasCount,
+                                g_enumTypeNames, g_bitfieldCount,
+                                g_bitfieldKeys, g_bitfieldWidths)
+                            if implicitThisReceiver.receiverReg != "" {
+                                receiverReg = implicitThisReceiver.receiverReg
+                                receiverType = implicitThisReceiver.receiverType
                             }
                         }
                     }
