@@ -3,6 +3,20 @@
 
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn}
+import codegen.ir_decl_registry.{getFunctionReturnTypeStateImpl}
+import codegen.ir_codegen_type_state.{mapTypeState}
+
+class OverloadedBinaryPlan {
+    var funcName: String
+    var retLlvmType: String
+
+    static fun new() r: OverloadedBinaryPlan {
+        return OverloadedBinaryPlan{
+            funcName: "",
+            retLlvmType: ""
+        }
+    }
+}
 
 // emitPointerArithmeticBinaryImpl — lower pointer +/- integer and pointer - pointer.
 // Returns "" when the caller should fall through.
@@ -124,6 +138,25 @@ fun binaryOperatorMethodSuffixImpl(operator: String) r: String {
     if operator == "<=" { return "operator_lte" }
     if operator == ">=" { return "operator_gte" }
     return ""
+}
+
+fun planOverloadedBinaryState(operator: String, leftType: String,
+    funcNames: String, funcRetTypes: String) r: OverloadedBinaryPlan {
+
+    let plan = OverloadedBinaryPlan.new()
+    let opMethodSuffix = binaryOperatorMethodSuffixImpl(operator)
+    if opMethodSuffix == "" {
+        return plan
+    }
+    let opFuncName = leftType + "_" + opMethodSuffix
+    let opRetType = getFunctionReturnTypeStateImpl(opFuncName,
+        funcNames, funcRetTypes)
+    if opRetType == "" {
+        return plan
+    }
+    plan.funcName = opFuncName
+    plan.retLlvmType = mapTypeState(opRetType)
+    return plan
 }
 
 fun isSimdBinaryOperatorImpl(operator: String) r: Bool {

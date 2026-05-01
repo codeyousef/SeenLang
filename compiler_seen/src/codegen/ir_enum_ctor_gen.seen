@@ -4,6 +4,7 @@
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_enum_lookup.{lookupEnumVariantTagImpl, lookupEnumParentImpl, lookupEnumFieldTypeImpl, lookupEnumFieldCountImpl, isEnumVariantImpl}
+import codegen.ir_codegen_type_state.{mapTypeState}
 
 class EnumConstructorPlan {
     var tag: Int
@@ -101,4 +102,21 @@ fun emitEnumConstructorFieldStoresImpl(output: StringBuilder,
             fieldRegs[fieldIdx] + ", ptr " + fieldPtrReg + "\n")
         fieldIdx = fieldIdx + 1
     }
+}
+
+fun emitEnumConstructorPreparedFieldStoresState(output: StringBuilder,
+    regBox: Array<Int>, variantName: String, objReg: String,
+    fieldRegs: Array<String>, enumVariantNames: String,
+    enumVariantFieldTypes: String, enumVariantCount: Int) r: Void {
+
+    let fieldLlvmTypes = Array<String>()
+    var fieldIdx = 0
+    while fieldIdx < fieldRegs.length() {
+        let fieldType = lookupEnumFieldTypeStateImpl(variantName, fieldIdx,
+            enumVariantNames, enumVariantFieldTypes, enumVariantCount)
+        fieldLlvmTypes.push(mapTypeState(fieldType))
+        fieldIdx = fieldIdx + 1
+    }
+    emitEnumConstructorFieldStoresImpl(output, regBox, objReg, fieldRegs,
+        fieldLlvmTypes)
 }

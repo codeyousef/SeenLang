@@ -2,6 +2,20 @@
 
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn}
+import codegen.ir_decl_registry.{getFunctionReturnTypeStateImpl}
+import codegen.ir_codegen_type_state.{mapTypeState}
+
+class OverloadedUnaryPlan {
+    var funcName: String
+    var retLlvmType: String
+
+    static fun new() r: OverloadedUnaryPlan {
+        return OverloadedUnaryPlan{
+            funcName: "",
+            retLlvmType: ""
+        }
+    }
+}
 
 fun unaryOperatorMethodNameImpl(operator: String) r: String {
     if operator == "-" {
@@ -16,6 +30,28 @@ fun unaryOperatorMethodNameImpl(operator: String) r: String {
 fun shouldSkipUnaryOverloadTypeImpl(unaryType: String) r: Bool {
     return unaryType == "Int" or unaryType == "Float" or
         unaryType == "Bool" or unaryType == "String"
+}
+
+fun planOverloadedUnaryState(operator: String, unaryOpType: String,
+    funcNames: String, funcRetTypes: String) r: OverloadedUnaryPlan {
+
+    let plan = OverloadedUnaryPlan.new()
+    let unaryOpMethod = unaryOperatorMethodNameImpl(operator)
+    if unaryOpMethod == "" {
+        return plan
+    }
+    if shouldSkipUnaryOverloadTypeImpl(unaryOpType) {
+        return plan
+    }
+    let unaryOpFuncName = unaryOpType + "_" + unaryOpMethod
+    let unaryOpRetType = getFunctionReturnTypeStateImpl(unaryOpFuncName,
+        funcNames, funcRetTypes)
+    if unaryOpRetType == "" {
+        return plan
+    }
+    plan.funcName = unaryOpFuncName
+    plan.retLlvmType = mapTypeState(unaryOpRetType)
+    return plan
 }
 
 fun negatedComparisonPredicateImpl(operator: String) r: String {

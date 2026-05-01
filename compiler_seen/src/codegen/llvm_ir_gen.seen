@@ -67,7 +67,7 @@ import codegen.ir_string_interp_gen.{generateStringInterpolationFromPartsImpl}
 import codegen.ir_string_interp_infer.{inferStringInterpolationExprTypeStateImpl}
 import codegen.ir_string_emit.{getStringConstantIndexImpl, emitAdditionalGeneratedStringConstantsImpl, loadEmbeddedStringConstantInfoImpl, emitStringConstantsImpl, emitStringConstantsWithPrefixImpl}
 import codegen.ir_nullish_gen.{emitNullishCheckComparisonImpl, defaultValueForLlvmTypeImpl, emitNullishBranchingImpl, emitNullishBranchToEndImpl, enterNullishElseBranchImpl, finalizeNullishMergeImpl, buildSafeNavigationMemberExprImpl}
-import codegen.ir_enum_ctor_gen.{lookupEnumVariantTagStateImpl, lookupEnumParentStateImpl, lookupEnumFieldTypeStateImpl, lookupEnumFieldCountStateImpl, isEnumVariantStateImpl, planEnumConstructorImpl, shouldCollectEnumConstructorFieldImpl, allocateEnumConstructorObjectImpl, emitEnumConstructorFieldStoresImpl}
+import codegen.ir_enum_ctor_gen.{lookupEnumVariantTagStateImpl, lookupEnumParentStateImpl, lookupEnumFieldCountStateImpl, isEnumVariantStateImpl, planEnumConstructorImpl, shouldCollectEnumConstructorFieldImpl, allocateEnumConstructorObjectImpl, emitEnumConstructorPreparedFieldStoresState}
 import codegen.ir_when_arm_gen.{emitWhenArmGuardImpl, emitWhenPatternBindingsState, normalizeWhenArmStoreValueImpl}
 import codegen.ir_when_pattern_gen.{emitWhenPatternBranchState}
 import codegen.ir_when_result_gen.{allocateWhenResultSlotImpl, emitWhenArmReturnImpl, emitWhenArmStoreImpl, finalizeWhenResultImpl}
@@ -134,12 +134,12 @@ import codegen.ir_member_access.{emitSimdSwizzleMemberAccessImpl, inferSimdSwizz
 import codegen.ir_member_access_plan.{planMemberAccessRouteImpl}
 import codegen.ir_member_access_gen.{emitPreparedExpressionReceiverMemberAccessImpl, emitPreparedVariableReceiverMemberAccessImpl, emitPreparedModuleConstReceiverMemberAccessImpl, emitPreparedBracketPathMemberAccessImpl, emitPreparedChainedReceiverMemberAccessImpl, emitPreparedImplicitThisReceiverMemberAccessImpl}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, resolveMethodFieldPathTypeImpl, resolveLiteralMethodReceiverTypeImpl, tryResolveEnumLiteralMethodReceiverImpl}
-import codegen.ir_binary_expr.{binaryOperatorMethodSuffixImpl, isSimdBinaryOperatorImpl, shouldUseFmaForOperandTypesImpl, buildSelfComparisonLogValueImpl, buildBinaryFoldLogValueImpl, exprProducesBoolImpl, emitBoolCoercionImpl, emitShortCircuitPhiImpl}
+import codegen.ir_binary_expr.{planOverloadedBinaryState, isSimdBinaryOperatorImpl, shouldUseFmaForOperandTypesImpl, buildSelfComparisonLogValueImpl, buildBinaryFoldLogValueImpl, exprProducesBoolImpl, emitBoolCoercionImpl, emitShortCircuitPhiImpl}
 import codegen.ir_binary_emit.{emitPreparedPointerArithmeticBinaryImpl, emitPreparedSimdBinaryExprImpl, emitPreparedSelfComparisonConstResultImpl, emitPreparedIntPeepholeBinaryActionImpl, emitPreparedAssociativeIntFoldResultImpl, emitPreparedFoldedBoolLiteralBinaryResultImpl, emitPreparedFoldedIntLiteralBinaryResultImpl, emitPreparedFloatPeepholeBinaryActionImpl, emitPreparedFmaTripleCallImpl, emitPreparedOverloadedBinaryCallImpl, emitPreparedCoreBinaryOpImpl, tryLookupPreparedBinaryCseImpl, recordPreparedBinaryCseImpl}
-import codegen.ir_binary_plan.{shouldTryPointerArithmeticBinaryImpl, shouldTrySimdBinaryGateImpl, shouldUseIntPeepholeGateImpl, shouldUseFloatPeepholeGateImpl, shortCircuitBinaryActionImpl, shouldTryBinaryOverloadImpl}
+import codegen.ir_binary_plan.{shouldTryPointerArithmeticBinaryImpl, shouldTrySimdBinaryGateImpl, shouldUseIntPeepholeGateImpl, shouldUseFloatPeepholeGateImpl, shortCircuitBinaryActionImpl}
 import codegen.ir_binary_fold_plan.{planBinaryOperandLiteralFactsImpl, isBinaryIntLiteralOperandImpl, planBinaryFoldActionImpl, shouldTryBinaryAssociativeIntFoldImpl, binaryAssociativeIntFoldRewriteCostImpl, shouldApplyBinaryAssociativeIntFoldImpl, planBinaryLiteralComparisonFoldImpl, planBinaryLiteralConstantFoldImpl, planBinaryFloatPeepholeImpl, planBinaryFoldFmaImpl, planBinaryFoldCseImpl}
 import codegen.ir_binary_short_circuit.{allocateShortCircuitBinaryLabelsImpl, emitShortCircuitCheckBridgeImpl, emitShortCircuitAndDecisionImpl, emitShortCircuitOrDecisionImpl, emitShortCircuitRightLabelImpl, emitShortCircuitDoneBridgeImpl, emitShortCircuitMergeJumpImpl}
-import codegen.ir_unary_expr.{unaryOperatorMethodNameImpl, shouldSkipUnaryOverloadTypeImpl, negatedComparisonPredicateImpl, shouldEmitNegatedComparisonForTypesImpl, emitOverloadedUnaryCallImpl, emitUnaryNegationImpl, emitNegatedComparisonImpl, emitUnaryLogicalNotImpl, emitUnaryAddressOfClassValueImpl, emitUnaryAddressOfVariablePtrImpl, emitUnaryDereferenceImpl, isUnaryBitwiseNotOperatorImpl, emitUnaryBitwiseNotImpl}
+import codegen.ir_unary_expr.{planOverloadedUnaryState, negatedComparisonPredicateImpl, shouldEmitNegatedComparisonForTypesImpl, emitOverloadedUnaryCallImpl, emitUnaryNegationImpl, emitNegatedComparisonImpl, emitUnaryLogicalNotImpl, emitUnaryAddressOfClassValueImpl, emitUnaryAddressOfVariablePtrImpl, emitUnaryDereferenceImpl, isUnaryBitwiseNotOperatorImpl, emitUnaryBitwiseNotImpl}
 import codegen.ir_class_method_gen.{tryEmitOptionClassMethodShimImpl, collectClassMethodParameterInfoImpl, emitClassMethodSignatureStateImpl, emitClassMethodReceiverBindingStateImpl, emitClassMethodParameterBindingsStateImpl, emitClassMethodConstructorSetupStateImpl, tryEmitClassMethodConstructorReturnStateImpl, emitClassMethodDefaultReturnStateImpl}
 import codegen.ir_stmt_decl.{shouldInferDeclarationInitializerTypeImpl, resolveDeclarationBaseTypeImpl, resolveLetStatementTypeImpl, resolveLetStatementAllocaImpl, prepareLetStatementPlanImpl, resolveLetPreAllocatedRegImpl, classifyCollectedStatementKindImpl, shouldTraceCollectedDeclarationTypeImpl, appendCollectedDeclarationImpl, resolveCollectedForInElementTypeImpl, buildForInIndexNameImpl, shouldSeedDeclarationPendingArrayLiteralTypeImpl, emitDeadLiteralInitializerSkipNoteImpl, emitDeclarationInitializerStoreImpl}
 import codegen.ir_stmt_gen.{emitConditionToI1Impl, computeIfBranchWeightMetadataForStatementImpl, normalizeIfConditionTypeImpl, finalizeConditionalEndBlockImpl, emitIfExpressionBranchValueImpl, emitPhiMergeValueImpl, emitIfLetBindingStateImpl, emitIndexedForLoopHeaderImpl, emitRegionStatementPreambleImpl, emitRegionStatementCleanupImpl, classifyParallelForRangeExprImpl, buildParallelForBodyFunctionNameImpl, emitParallelForBodyHeaderImpl, finalizeParallelForBodyImpl, emitUnusedResultCallWarningImpl}
@@ -4552,16 +4552,12 @@ class LLVMIRGenerator {
         // to maintain SSA sequential numbering
 
         // --- Operator overloading dispatch ---
-        let opMethodSuffix = binaryOperatorMethodSuffixImpl(expr.operator)
-        if shouldTryBinaryOverloadImpl(opMethodSuffix) {
-            let opFuncName = leftType + "_" + opMethodSuffix
-            let opRetType = getFunctionReturnTypeStateImpl(opFuncName,
-                funcNames, funcRetTypes)
-            if opRetType != "" {
-                let opRetLlvm = mapTypeState(opRetType)
-                return emitPreparedOverloadedBinaryCallImpl(output, g_regBox,
-                    quoteIdentIfNeededImpl(opFuncName), opRetLlvm, leftReg, rightReg)
-            }
+        let overloadedBinaryPlan = planOverloadedBinaryState(expr.operator,
+            leftType, funcNames, funcRetTypes)
+        if overloadedBinaryPlan.funcName != "" {
+            return emitPreparedOverloadedBinaryCallImpl(output, g_regBox,
+                quoteIdentIfNeededImpl(overloadedBinaryPlan.funcName),
+                overloadedBinaryPlan.retLlvmType, leftReg, rightReg)
         }
         // --- End operator overloading ---
 
@@ -6300,23 +6296,15 @@ class LLVMIRGenerator {
             return ""
         }
         let unaryOpType = inferExpressionType(expr.operands[0])
-        let unaryOpMethod = unaryOperatorMethodNameImpl(expr.operator)
-        if unaryOpMethod == "" {
-            return ""
-        }
-        if shouldSkipUnaryOverloadTypeImpl(unaryOpType) {
-            return ""
-        }
-        let unaryOpFuncName = unaryOpType + "_" + unaryOpMethod
-        let unaryOpRetType = getFunctionReturnTypeStateImpl(unaryOpFuncName,
+        let unaryPlan = planOverloadedUnaryState(expr.operator, unaryOpType,
             funcNames, funcRetTypes)
-        if unaryOpRetType == "" {
+        if unaryPlan.funcName == "" {
             return ""
         }
         let unaryValReg = generateExpression(expr.operands[0])
-        let unaryRetLlvm = mapTypeState(unaryOpRetType)
         return emitOverloadedUnaryCallImpl(output, g_regBox,
-            quoteIdentIfNeededImpl(unaryOpFuncName), unaryRetLlvm, unaryValReg)
+            quoteIdentIfNeededImpl(unaryPlan.funcName), unaryPlan.retLlvmType,
+            unaryValReg)
     }
 
     fun emitUnaryNegation(expr: ParserExpressionNode) r: String {
@@ -7373,20 +7361,16 @@ class LLVMIRGenerator {
 
     fun emitEnumConstructorFieldStores(variantName: String, expr: ParserExpressionNode, objReg: String, fieldCount: Int) r: Void {
         let fieldRegs = Array<String>()
-        let fieldLlvmTypes = Array<String>()
         var fi = 0
         while shouldCollectEnumConstructorFieldImpl(fi, fieldCount,
             expr.arguments.length()) {
 
             fieldRegs.push(generateExpression(expr.arguments[fi]))
-            let fieldType = lookupEnumFieldTypeStateImpl(variantName, fi,
-                g_enumVariantNames, g_enumVariantFieldTypes,
-                g_enumVariantCount)
-            fieldLlvmTypes.push(mapTypeState(fieldType))
             fi = fi + 1
         }
-        emitEnumConstructorFieldStoresImpl(output, g_regBox, objReg, fieldRegs,
-            fieldLlvmTypes)
+        emitEnumConstructorPreparedFieldStoresState(output, g_regBox,
+            variantName, objReg, fieldRegs, g_enumVariantNames,
+            g_enumVariantFieldTypes, g_enumVariantCount)
     }
 
     fun generateEnumConstructor(variantName: String, expr: ParserExpressionNode) r: String {
