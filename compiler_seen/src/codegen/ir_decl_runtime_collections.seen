@@ -1,0 +1,308 @@
+// Map, Vec, and BTreeMap runtime declarations.
+
+import str.string.{StringBuilder}
+import codegen.ir_declarations.{isFuncDefinedInModule}
+
+fun emitMapVecBTreeRuntimeDecls(output: StringBuilder,
+    definedFuncs: Array<String>) r: Void {
+
+    // Map functions (generic key-value store) - guarded to allow standalone stdlib compilation
+    if not isFuncDefinedInModule("Map_new", definedFuncs) {
+        output.append("declare i64 @Map_new() nounwind\n")
+    }
+    if not isFuncDefinedInModule("Map_set", definedFuncs) {
+        output.append("declare i64 @Map_set(i64, %SeenString, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("Map_put", definedFuncs) {
+        output.append("declare i64 @Map_put(i64, %SeenString, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("Map_get", definedFuncs) {
+        output.append("declare i64 @Map_get(i64, %SeenString) nounwind readonly\n")
+    }
+    if not isFuncDefinedInModule("Map_size", definedFuncs) {
+        output.append("declare i64 @Map_size(i64) nounwind readonly\n")
+    }
+    if not isFuncDefinedInModule("Map_containsKey", definedFuncs) {
+        output.append("declare i1 @Map_containsKey(i64, %SeenString) nounwind readonly\n")
+    }
+    if not isFuncDefinedInModule("Map_containsValue", definedFuncs) {
+        output.append("declare i1 @Map_containsValue(i64, i64) nounwind readonly\n")
+    }
+    if not isFuncDefinedInModule("Map_keys", definedFuncs) {
+        output.append("declare %SeenArray @Map_keys(i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("Map_values", definedFuncs) {
+        output.append("declare %SeenArray @Map_values(i64) nounwind\n")
+    }
+
+    // Vec<T> runtime helpers
+    if not isFuncDefinedInModule("Vec_new", definedFuncs) {
+        output.append("declare noalias ptr @Vec_new() nounwind\n")
+    }
+    if not isFuncDefinedInModule("Vec_push", definedFuncs) {
+        output.append("declare void @Vec_push(ptr, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("Vec_get", definedFuncs) {
+        output.append("declare i64 @Vec_get(ptr, i64) nounwind readonly\n")
+    }
+    if not isFuncDefinedInModule("Vec_set", definedFuncs) {
+        output.append("declare void @Vec_set(ptr, i64, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("Vec_pop", definedFuncs) {
+        output.append("declare i64 @Vec_pop(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("Vec_clear", definedFuncs) {
+        output.append("declare void @Vec_clear(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("Vec_len", definedFuncs) {
+        output.append("declare i64 @Vec_len(ptr) nounwind readonly\n")
+    }
+    if not isFuncDefinedInModule("Vec_capacity", definedFuncs) {
+        output.append("declare i64 @Vec_capacity(ptr) nounwind readonly\n")
+    }
+    if not isFuncDefinedInModule("Vec_ensureCapacity", definedFuncs) {
+        output.append("declare void @Vec_ensureCapacity(ptr, i64) nounwind\n")
+    }
+    // Vec<Int> utility methods
+    if not isFuncDefinedInModule("Vec_contains", definedFuncs) {
+        output.append("declare i64 @Vec_contains(ptr, i64) nounwind readonly\n")
+    }
+    if not isFuncDefinedInModule("Vec_indexOf", definedFuncs) {
+        output.append("declare i64 @Vec_indexOf(ptr, i64) nounwind readonly\n")
+    }
+    if not isFuncDefinedInModule("Vec_reverse", definedFuncs) {
+        output.append("declare void @Vec_reverse(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("Vec_remove", definedFuncs) {
+        output.append("declare i64 @Vec_remove(ptr, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("Vec_insert", definedFuncs) {
+        output.append("declare void @Vec_insert(ptr, i64, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("Vec_first", definedFuncs) {
+        output.append("declare i64 @Vec_first(ptr) nounwind readonly\n")
+    }
+    if not isFuncDefinedInModule("Vec_last", definedFuncs) {
+        output.append("declare i64 @Vec_last(ptr) nounwind readonly\n")
+    }
+    if not isFuncDefinedInModule("Vec_sort", definedFuncs) {
+        output.append("declare void @Vec_sort(ptr) nounwind\n")
+    }
+
+    // BTreeMap<K,V> runtime helpers
+    if not isFuncDefinedInModule("BTreeMap_new", definedFuncs) {
+        output.append("declare noalias dereferenceable(64) ptr @BTreeMap_new() nounwind\n")
+    }
+    if not isFuncDefinedInModule("BTreeMap_insert", definedFuncs) {
+        output.append("declare i1 @BTreeMap_insert(ptr, i64, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("BTreeMap_get", definedFuncs) {
+        output.append("declare i64 @BTreeMap_get(ptr, i64) nounwind readonly\n")
+    }
+    if not isFuncDefinedInModule("BTreeMap_containsKey", definedFuncs) {
+        output.append("declare i1 @BTreeMap_containsKey(ptr, i64) nounwind readonly\n")
+    }
+    if not isFuncDefinedInModule("BTreeMap_keys", definedFuncs) {
+        output.append("declare ptr @BTreeMap_keys(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("BTreeMap_remove", definedFuncs) {
+        output.append("declare i64 @BTreeMap_remove(ptr, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("BTreeMap_values", definedFuncs) {
+        output.append("declare ptr @BTreeMap_values(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("BTreeMap_clear", definedFuncs) {
+        output.append("declare void @BTreeMap_clear(ptr) nounwind\n")
+    }
+
+    // Vec<String> runtime helpers (String elements)
+    if not isFuncDefinedInModule("Vec_new_str", definedFuncs) {
+        output.append("declare noalias dereferenceable(32) ptr @Vec_new_str() nounwind\n")
+    }
+    if not isFuncDefinedInModule("Vec_push_str", definedFuncs) {
+        output.append("declare void @Vec_push_str(ptr, %SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("Vec_get_str", definedFuncs) {
+        output.append("declare %SeenString @Vec_get_str(ptr, i64) nounwind readonly\n")
+    }
+    if not isFuncDefinedInModule("Vec_len_str", definedFuncs) {
+        output.append("declare i64 @Vec_len_str(ptr) nounwind readonly\n")
+    }
+    if not isFuncDefinedInModule("Vec_capacity_str", definedFuncs) {
+        output.append("declare i64 @Vec_capacity_str(ptr) nounwind readonly\n")
+    }
+    if not isFuncDefinedInModule("Vec_ensureCapacity_str", definedFuncs) {
+        output.append("declare void @Vec_ensureCapacity_str(ptr, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("Vec_set_str", definedFuncs) {
+        output.append("declare void @Vec_set_str(ptr, i64, %SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("Vec_pop_str", definedFuncs) {
+        output.append("declare %SeenString @Vec_pop_str(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("Vec_clear_str", definedFuncs) {
+        output.append("declare void @Vec_clear_str(ptr) nounwind\n")
+    }
+    // Vec<String> utility methods
+    if not isFuncDefinedInModule("Vec_contains_str", definedFuncs) {
+        output.append("declare i64 @Vec_contains_str(ptr, %SeenString) nounwind readonly\n")
+    }
+    if not isFuncDefinedInModule("Vec_indexOf_str", definedFuncs) {
+        output.append("declare i64 @Vec_indexOf_str(ptr, %SeenString) nounwind readonly\n")
+    }
+    if not isFuncDefinedInModule("Vec_reverse_str", definedFuncs) {
+        output.append("declare void @Vec_reverse_str(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("Vec_remove_str", definedFuncs) {
+        output.append("declare %SeenString @Vec_remove_str(ptr, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("Vec_insert_str", definedFuncs) {
+        output.append("declare void @Vec_insert_str(ptr, i64, %SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("Vec_first_str", definedFuncs) {
+        output.append("declare %SeenString @Vec_first_str(ptr) nounwind readonly\n")
+    }
+    if not isFuncDefinedInModule("Vec_last_str", definedFuncs) {
+        output.append("declare %SeenString @Vec_last_str(ptr) nounwind readonly\n")
+    }
+    // Vec<Float> runtime helpers
+    if not isFuncDefinedInModule("Vec_new_float", definedFuncs) {
+        output.append("declare noalias ptr @Vec_new_float() nounwind\n")
+    }
+    if not isFuncDefinedInModule("Vec_push_float", definedFuncs) {
+        output.append("declare void @Vec_push_float(ptr, double) nounwind\n")
+    }
+    if not isFuncDefinedInModule("Vec_get_float", definedFuncs) {
+        output.append("declare double @Vec_get_float(ptr, i64) nounwind readonly\n")
+    }
+    if not isFuncDefinedInModule("Vec_set_float", definedFuncs) {
+        output.append("declare void @Vec_set_float(ptr, i64, double) nounwind\n")
+    }
+    if not isFuncDefinedInModule("Vec_pop_float", definedFuncs) {
+        output.append("declare double @Vec_pop_float(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("Vec_clear_float", definedFuncs) {
+        output.append("declare void @Vec_clear_float(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("Vec_len_float", definedFuncs) {
+        output.append("declare i64 @Vec_len_float(ptr) nounwind readonly\n")
+    }
+    if not isFuncDefinedInModule("Vec_capacity_float", definedFuncs) {
+        output.append("declare i64 @Vec_capacity_float(ptr) nounwind readonly\n")
+    }
+    if not isFuncDefinedInModule("Vec_ensureCapacity_float", definedFuncs) {
+        output.append("declare void @Vec_ensureCapacity_float(ptr, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("Vec_contains_float", definedFuncs) {
+        output.append("declare i64 @Vec_contains_float(ptr, double) nounwind readonly\n")
+    }
+    if not isFuncDefinedInModule("Vec_indexOf_float", definedFuncs) {
+        output.append("declare i64 @Vec_indexOf_float(ptr, double) nounwind readonly\n")
+    }
+    if not isFuncDefinedInModule("Vec_reverse_float", definedFuncs) {
+        output.append("declare void @Vec_reverse_float(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("Vec_remove_float", definedFuncs) {
+        output.append("declare double @Vec_remove_float(ptr, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("Vec_insert_float", definedFuncs) {
+        output.append("declare void @Vec_insert_float(ptr, i64, double) nounwind\n")
+    }
+    if not isFuncDefinedInModule("Vec_first_float", definedFuncs) {
+        output.append("declare double @Vec_first_float(ptr) nounwind readonly\n")
+    }
+    if not isFuncDefinedInModule("Vec_last_float", definedFuncs) {
+        output.append("declare double @Vec_last_float(ptr) nounwind readonly\n")
+    }
+    if not isFuncDefinedInModule("Vec_sort_float", definedFuncs) {
+        output.append("declare void @Vec_sort_float(ptr) nounwind\n")
+    }
+    // String.split() wrapper
+    if not isFuncDefinedInModule("String_split", definedFuncs) {
+        output.append("declare ptr @String_split(%SeenString, %SeenString) nounwind\n")
+    }
+
+    // BTreeMap<String, i64> runtime helpers (String keys, i64 values)
+    if not isFuncDefinedInModule("BTreeMap_new_str", definedFuncs) {
+        output.append("declare noalias dereferenceable(64) ptr @BTreeMap_new_str() nounwind\n")
+    }
+    if not isFuncDefinedInModule("BTreeMap_insert_str", definedFuncs) {
+        output.append("declare i1 @BTreeMap_insert_str(ptr, %SeenString, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("BTreeMap_get_str", definedFuncs) {
+        output.append("declare i64 @BTreeMap_get_str(ptr, %SeenString) nounwind readonly\n")
+    }
+    if not isFuncDefinedInModule("BTreeMap_containsKey_str", definedFuncs) {
+        output.append("declare i1 @BTreeMap_containsKey_str(ptr, %SeenString) nounwind readonly\n")
+    }
+    if not isFuncDefinedInModule("BTreeMap_keys_str", definedFuncs) {
+        output.append("declare ptr @BTreeMap_keys_str(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("BTreeMap_remove_str", definedFuncs) {
+        output.append("declare i64 @BTreeMap_remove_str(ptr, %SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("BTreeMap_values_str", definedFuncs) {
+        output.append("declare ptr @BTreeMap_values_str(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("BTreeMap_clear_str", definedFuncs) {
+        output.append("declare void @BTreeMap_clear_str(ptr) nounwind\n")
+    }
+
+    // BTreeMap<String, String> runtime helpers (String keys AND values)
+    if not isFuncDefinedInModule("BTreeMap_new_str_str", definedFuncs) {
+        output.append("declare noalias dereferenceable(64) ptr @BTreeMap_new_str_str() nounwind\n")
+    }
+    if not isFuncDefinedInModule("BTreeMap_insert_str_str", definedFuncs) {
+        output.append("declare i1 @BTreeMap_insert_str_str(ptr, %SeenString, %SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("BTreeMap_get_str_str", definedFuncs) {
+        output.append("declare i64 @BTreeMap_get_str_str(ptr, %SeenString) nounwind readonly\n")
+    }
+    if not isFuncDefinedInModule("BTreeMap_containsKey_str_str", definedFuncs) {
+        output.append("declare i1 @BTreeMap_containsKey_str_str(ptr, %SeenString) nounwind readonly\n")
+    }
+    if not isFuncDefinedInModule("BTreeMap_keys_str_str", definedFuncs) {
+        output.append("declare ptr @BTreeMap_keys_str_str(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("BTreeMap_remove_str_str", definedFuncs) {
+        output.append("declare i64 @BTreeMap_remove_str_str(ptr, %SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("BTreeMap_size_str_str", definedFuncs) {
+        output.append("declare i64 @BTreeMap_size_str_str(ptr) nounwind readonly\n")
+    }
+    if not isFuncDefinedInModule("BTreeMap_values_str_str", definedFuncs) {
+        output.append("declare ptr @BTreeMap_values_str_str(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("BTreeMap_clear_str_str", definedFuncs) {
+        output.append("declare void @BTreeMap_clear_str_str(ptr) nounwind\n")
+    }
+
+    // BTreeMap<Int, String> runtime helpers (Int keys, String values)
+    if not isFuncDefinedInModule("BTreeMap_new_int_str", definedFuncs) {
+        output.append("declare noalias dereferenceable(64) ptr @BTreeMap_new_int_str() nounwind\n")
+    }
+    if not isFuncDefinedInModule("BTreeMap_insert_int_str", definedFuncs) {
+        output.append("declare i1 @BTreeMap_insert_int_str(ptr, i64, %SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("BTreeMap_get_int_str", definedFuncs) {
+        output.append("declare i64 @BTreeMap_get_int_str(ptr, i64) nounwind readonly\n")
+    }
+    if not isFuncDefinedInModule("BTreeMap_containsKey_int_str", definedFuncs) {
+        output.append("declare i1 @BTreeMap_containsKey_int_str(ptr, i64) nounwind readonly\n")
+    }
+    if not isFuncDefinedInModule("BTreeMap_keys_int_str", definedFuncs) {
+        output.append("declare ptr @BTreeMap_keys_int_str(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("BTreeMap_remove_int_str", definedFuncs) {
+        output.append("declare i64 @BTreeMap_remove_int_str(ptr, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("BTreeMap_size_int_str", definedFuncs) {
+        output.append("declare i64 @BTreeMap_size_int_str(ptr) nounwind readonly\n")
+    }
+    if not isFuncDefinedInModule("BTreeMap_values_int_str", definedFuncs) {
+        output.append("declare ptr @BTreeMap_values_int_str(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("BTreeMap_clear_int_str", definedFuncs) {
+        output.append("declare void @BTreeMap_clear_int_str(ptr) nounwind\n")
+    }
+}
