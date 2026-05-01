@@ -1,0 +1,217 @@
+// ir_codegen_metrics_state.seen - optimization counters, CSE, and
+// collection bookkeeping shared by the LLVM IR generator facade.
+
+import codegen.ir_optimization.{parseIntManual}
+import codegen.ir_inline_heuristics.{parseFixedPoint100, g_inlineW0, g_inlineW1, g_inlineW2, g_inlineW3, g_inlineBias, g_mlWeightsActive}
+import codegen.ir_string_collect_state.{initStringCollectionBoxesStateImpl, syncStringCollectionBoxesStateImpl, resetCallCountTrackingStateImpl, resetSelfCallTrackingStateImpl}
+import codegen.ir_codegen_state.{getSharedCodegenState}
+import codegen.ir_function_state.{getCurrentFunctionEmissionStateImpl, resetFunctionEmissionHighPressureImpl, resetFunctionHighPressureImpl}
+import codegen.ir_ml_logging.{mlLogDecision}
+
+var g_deadStatementsEliminated: Int = 0
+var g_branchesEliminated: Int = 0
+var g_constantsFolded: Int = 0
+var g_cseHits: Int = 0
+var g_cseCount: Int = 0
+var g_cseKeys: String = ""
+var g_cseValues: String = ""
+var g_cseKeysArr: Array<String> = Array<String>()
+var g_cseValsArr: Array<String> = Array<String>()
+
+var g_loopsOptimized: Int = 0
+var g_deadStoresEliminated: Int = 0
+var g_stringsDeduped: Int = 0
+var g_allocsSunk: Int = 0
+var g_escapedAllocsPromoted: Int = 0
+var g_reductionChainsDetected: Int = 0
+
+var g_mlWeightsLoaded: Bool = false
+var g_mlInlineThreshold: Int = 50
+var g_mlUnrollThreshold: Int = 4
+var g_mlVectorizeThreshold: Int = 8
+var g_mlReplayEnabled: Bool = false
+var g_mlReplayLog: String = ""
+var g_mlReplayIdx: Int = 0
+
+var g_lastStoreVars: String = ""
+var g_lastStoreCount: Int = 0
+var g_inductionVarName: String = ""
+var g_deadStoreSkipVars: String = ""
+var g_loopTileHints: String = ""
+var g_reductionLoopIds: String = ""
+var g_nestedLoopIds: String = ""
+
+var g_callCountNames: String = ""
+var g_callCountEntries: Int = 0
+var g_callCountNamesArr: Array<String> = Array<String>()
+var g_selfCallFuncs: String = ""
+var g_selfCallNames: String = ""
+var g_selfCallCount: Int = 0
+var g_selfCallBox: Array<String> = Array<String>()
+var g_selfCallCountBox: Array<Int> = Array<Int>()
+var g_callCountNamesBox: Array<String> = Array<String>()
+var g_callCountEntriesBox: Array<Int> = Array<Int>()
+
+fun cseLookup(key: String) r: String {
+    var i = g_cseKeysArr.length() - 1
+    while i >= 0 {
+        if g_cseKeysArr[i] == key {
+            g_cseHits = g_cseHits + 1
+            return g_cseValsArr[i]
+        }
+        i = i - 1
+    }
+    return ""
+}
+
+fun cseRecord(key: String, value: String) r: Void {
+    g_cseKeysArr.push(key)
+    g_cseValsArr.push(value)
+    g_cseCount = g_cseCount + 1
+}
+
+fun cseClear() r: Void {
+    g_cseKeysArr = Array<String>()
+    g_cseValsArr = Array<String>()
+    g_cseCount = 0
+}
+
+fun callCountRecord(funcName: String) r: Void {
+    if g_callCountEntries >= 200 { return }
+    g_callCountNamesArr.push(funcName)
+    g_callCountEntries = g_callCountEntries + 1
+}
+
+fun callCountClear() r: Void {
+    let callState = resetCallCountTrackingStateImpl()
+    g_callCountNamesArr = callState.callCountNamesArr
+    g_callCountEntries = callState.callCountEntries
+}
+
+fun selfCallClear() r: Void {
+    let selfCallState = resetSelfCallTrackingStateImpl()
+    g_selfCallFuncs = selfCallState.selfCallFuncs
+    g_selfCallNames = selfCallState.selfCallNames
+    g_selfCallCount = selfCallState.selfCallCount
+}
+
+fun initCollectionBoxes() r: Void {
+    let boxes = initStringCollectionBoxesStateImpl(g_selfCallFuncs,
+        g_selfCallNames, g_selfCallCount, g_callCountNames,
+        g_callCountEntries)
+    g_selfCallBox = boxes.selfCallBox
+    g_selfCallCountBox = boxes.selfCallCountBox
+    g_callCountNamesBox = boxes.callCountNamesBox
+    g_callCountEntriesBox = boxes.callCountEntriesBox
+}
+
+fun syncCollectionBoxes() r: Void {
+    let synced = syncStringCollectionBoxesStateImpl(g_selfCallBox,
+        g_selfCallCountBox, g_callCountNamesBox, g_callCountEntriesBox)
+    g_selfCallFuncs = synced.selfCallFuncs
+    g_selfCallNames = synced.selfCallNames
+    g_selfCallCount = synced.selfCallCount
+    g_callCountNames = synced.callCountNames
+    g_callCountEntries = synced.callCountEntries
+}
+
+fun getOptStats() r: String {
+    var stats = ""
+    if g_branchesEliminated > 0 {
+        stats = stats + "  Branches eliminated: " + g_branchesEliminated.toString() + "\n"
+    }
+    if g_deadStatementsEliminated > 0 {
+        stats = stats + "  Dead statements eliminated: " + g_deadStatementsEliminated.toString() + "\n"
+    }
+    if g_constantsFolded > 0 {
+        stats = stats + "  Constants folded: " + g_constantsFolded.toString() + "\n"
+    }
+    if g_cseHits > 0 {
+        stats = stats + "  CSE hits: " + g_cseHits.toString() + "\n"
+    }
+    if g_loopsOptimized > 0 {
+        stats = stats + "  Loops optimized: " + g_loopsOptimized.toString() + "\n"
+    }
+    if g_deadStoresEliminated > 0 {
+        stats = stats + "  Dead stores eliminated: " + g_deadStoresEliminated.toString() + "\n"
+    }
+    if g_reductionChainsDetected > 0 {
+        stats = stats + "  Reduction chains detected: " + g_reductionChainsDetected.toString() + "\n"
+    }
+    return stats
+}
+
+fun resetOptCounters() r: Void {
+    g_deadStatementsEliminated = 0
+    g_branchesEliminated = 0
+    g_constantsFolded = 0
+    g_cseHits = 0
+    g_loopsOptimized = 0
+    g_deadStoresEliminated = 0
+    g_stringsDeduped = 0
+    g_allocsSunk = 0
+    g_escapedAllocsPromoted = 0
+    g_reductionChainsDetected = 0
+    cseClear()
+    g_lastStoreVars = ""
+    g_lastStoreCount = 0
+    g_inductionVarName = ""
+    g_deadStoreSkipVars = ""
+    g_loopTileHints = ""
+    g_reductionLoopIds = ""
+    g_nestedLoopIds = ""
+    resetFunctionEmissionHighPressureImpl(
+        getCurrentFunctionEmissionStateImpl())
+    let fnOptions = getSharedCodegenState().functionOptions
+    resetFunctionHighPressureImpl(fnOptions)
+    fnOptions.laneWidth = 0
+}
+
+fun loadMLWeights() r: Void {
+    if g_mlWeightsLoaded { return }
+    g_mlWeightsLoaded = true
+    let mlConfigPath = ".seen_ml_heuristics"
+    if not exists(mlConfigPath) { return }
+    let mlContent = readText(mlConfigPath)
+    if mlContent.length() == 0 { return }
+    var lineStart = 0
+    var pos = 0
+    while pos <= mlContent.length() {
+        var isEnd = false
+        if pos == mlContent.length() { isEnd = true }
+        if not isEnd {
+            if mlContent.charAt(pos) == '\n' { isEnd = true }
+        }
+        if isEnd {
+            if pos > lineStart {
+                let line = mlContent.substring(lineStart, pos)
+                var eqPos = -1
+                var eqScan = 0
+                while eqScan < line.length() {
+                    if line.charAt(eqScan) == '=' {
+                        eqPos = eqScan
+                        break
+                    }
+                    eqScan = eqScan + 1
+                }
+                if eqPos > 0 {
+                    let key = line.substring(0, eqPos)
+                    let val = line.substring(eqPos + 1, line.length())
+                    let intVal = parseIntManual(val)
+                    if key == "inline_threshold" { g_mlInlineThreshold = intVal }
+                    if key == "unroll_threshold" { g_mlUnrollThreshold = intVal }
+                    if key == "vectorize_threshold" { g_mlVectorizeThreshold = intVal }
+                    if key == "inline_w0" { g_inlineW0 = parseFixedPoint100(val) }
+                    if key == "inline_w1" { g_inlineW1 = parseFixedPoint100(val) }
+                    if key == "inline_w2" { g_inlineW2 = parseFixedPoint100(val) }
+                    if key == "inline_w3" { g_inlineW3 = parseFixedPoint100(val) }
+                    if key == "inline_bias" { g_inlineBias = parseFixedPoint100(val) }
+                    if key == "weights_active" { g_mlWeightsActive = true }
+                }
+            }
+            lineStart = pos + 1
+        }
+        pos = pos + 1
+    }
+    mlLogDecision("ml-weights", "loaded", "inline:" + g_mlInlineThreshold.toString() + ",unroll:" + g_mlUnrollThreshold.toString() + ",vec:" + g_mlVectorizeThreshold.toString())
+}

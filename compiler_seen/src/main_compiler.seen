@@ -48,6 +48,7 @@ import codegen.ir_decl_scan.{pipeContainsValueImpl}
 import codegen.ir_egraph_rules.{egraphLookup, egraphLookupFloat, egraphSelfComparison}
 import codegen.ir_egraph_emit.{emitEgraphPeepholeImpl, emitEgraphFloatPeepholeImpl}
 import codegen.ir_inline_heuristics.{mlShouldInlineWeighted, selfCallCheck}
+import codegen.ir_codegen_metrics_state.{cseLookup, cseRecord, cseClear, callCountRecord, callCountClear, selfCallClear, initCollectionBoxes, syncCollectionBoxes, getOptStats, resetOptCounters, loadMLWeights}
 import codegen.ir_enum_lookup.{lookupEnumVariantTagImpl, lookupEnumParentImpl, lookupEnumFieldTypeImpl, lookupEnumFieldCountImpl, isEnumVariantImpl}
 import codegen.ir_decl_registry.{recordLateUserDeclareIntoStateImpl, captureDeclarationPassStateImpl, captureLateUserDeclareStateImpl, captureParentClassRegistryStateImpl, registerCrossModuleConstantsIntoStateImpl, registerParentClassIntoStateImpl, resetLateUserDeclareStateImpl}
 import codegen.ir_decl_items.{registerPreparedDeclarationItemsIntoStateImpl}
@@ -3089,6 +3090,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_codegen_state_bridge")
         modules.push("codegen.ir_function_ml_logs")
         modules.push("codegen.ir_ml_logging")
+        modules.push("codegen.ir_codegen_metrics_state")
         modules.push("codegen.ir_struct_gen")
         modules.push("codegen.ir_struct_layout_build")
         modules.push("codegen.ir_class_type_layout")

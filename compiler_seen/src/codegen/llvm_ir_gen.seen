@@ -41,7 +41,7 @@ import parser.real_parser.{ProgramNode, ItemNode, FunctionNode, ClassNode, Block
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{parseGlobalVarMutable, parseGlobalVarType, parseGlobalVarValue, parseIntManual, foldIntConstants, foldIntComparison, selectSimdWidth, pipeGet, exprCost, pipeContains, splitPipe, simpleHash, getNextRegFn, getNextBlockFn}
 import codegen.ir_egraph_rules.{egraphLookup, egraphLookupFloat, egraphSelfComparison}
-import codegen.ir_inline_heuristics.{selfCallCheck, parseFixedPoint100, g_inlineW0, g_inlineW1, g_inlineW2, g_inlineW3, g_inlineBias, g_mlWeightsActive}
+import codegen.ir_codegen_metrics_state.{g_deadStatementsEliminated, g_branchesEliminated, g_constantsFolded, g_cseHits, g_cseCount, g_cseKeysArr, g_cseValsArr, g_loopsOptimized, g_deadStoresEliminated, g_stringsDeduped, g_allocsSunk, g_escapedAllocsPromoted, g_reductionChainsDetected, g_mlInlineThreshold, g_mlUnrollThreshold, g_mlVectorizeThreshold, g_mlReplayEnabled, g_mlReplayLog, g_lastStoreVars, g_lastStoreCount, g_inductionVarName, g_deadStoreSkipVars, g_loopTileHints, g_reductionLoopIds, g_nestedLoopIds, g_callCountNamesArr, g_selfCallFuncs, g_selfCallNames, g_selfCallCount, g_selfCallBox, g_selfCallCountBox, g_callCountNamesBox, g_callCountEntriesBox, cseLookup, cseRecord, cseClear, callCountRecord, callCountClear, selfCallClear, initCollectionBoxes, syncCollectionBoxes, getOptStats, resetOptCounters, loadMLWeights}
 import codegen.ir_decl_runtime.{emitCoreRuntimeDecls}
 import codegen.ir_decl_string_io.{emitStringAndIODecls}
 import codegen.ir_decl_macro_lsp.{emitMacroAndLspDecls}
@@ -66,7 +66,7 @@ import codegen.ir_method_return_type_lookup.{getMethodReturnTypeImpl}
 
 import codegen.ir_string_collect.{getBaseTypeNameImpl, normalizeHeaderTypeImpl, parseArrayElementTypeImpl, extractArrayLiteralElementTypeImpl, parseDecimalIntImpl}
 import codegen.ir_seen_token_types.{getSeenTokenTypeValueImpl}
-import codegen.ir_string_collect_state.{collectStringConstantsStateImpl, collectStringConstantsFromExprStateImpl, initStringCollectionBoxesStateImpl, syncStringCollectionBoxesStateImpl, resetCallCountTrackingStateImpl, resetSelfCallTrackingStateImpl}
+import codegen.ir_string_collect_state.{collectStringConstantsStateImpl, collectStringConstantsFromExprStateImpl}
 import codegen.ir_string_interp_gen.{generateStringInterpolationFromPartsImpl}
 import codegen.ir_string_interp_infer.{inferStringInterpolationExprTypeStateImpl}
 import codegen.ir_string_emit.{escapeStringImpl, addStringConstantTableImpl, getStringConstantIndexImpl, emitAdditionalGeneratedStringConstantsImpl, loadEmbeddedStringConstantInfoImpl, emitStringConstantsImpl, emitStringConstantsWithPrefixImpl}
@@ -250,49 +250,6 @@ var g_currentClassParentName: String = ""
 var g_closureCount: Int = 0
 var g_closureDefs: String = ""
 
-// --- Phase 9 Tier 4: Optimization Counters ---
-var g_deadStatementsEliminated: Int = 0
-var g_branchesEliminated: Int = 0
-var g_constantsFolded: Int = 0
-var g_cseHits: Int = 0
-var g_cseCount: Int = 0
-// String module-level vars (requires stage2+ compiler):
-var g_cseKeys: String = ""
-var g_cseValues: String = ""
-// Fast CSE arrays — initialized in cseClear(), used instead of pipe strings
-var g_cseKeysArr: Array<String> = Array<String>()
-var g_cseValsArr: Array<String> = Array<String>()
-
-// --- Phase 9 Tier 4: Additional Optimization Counters ---
-var g_loopsOptimized: Int = 0
-var g_deadStoresEliminated: Int = 0
-var g_stringsDeduped: Int = 0
-var g_allocsSunk: Int = 0
-var g_escapedAllocsPromoted: Int = 0
-var g_reductionChainsDetected: Int = 0
-// ML heuristic weights (loaded from SEEN_ML_HEURISTICS env var)
-var g_mlWeightsLoaded: Bool = false
-var g_mlInlineThreshold: Int = 50
-var g_mlUnrollThreshold: Int = 4
-var g_mlVectorizeThreshold: Int = 8
-// ML deterministic replay
-var g_mlReplayEnabled: Bool = false
-var g_mlReplayLog: String = ""
-var g_mlReplayIdx: Int = 0
-// Dead store tracking (pipe-delimited, per-block)
-var g_lastStoreVars: String = ""
-var g_lastStoreCount: Int = 0
-// --- Phase 10: Activated optimization state ---
-// Induction variable name set in generateWhileStatement, read in generateBinary for nuw flag
-var g_inductionVarName: String = ""
-// Dead store skip vars: pipe-delimited names of vars whose literal initializers should be skipped
-var g_deadStoreSkipVars: String = ""
-// Loop tile hints: "metaIdx:tileSize|metaIdx:tileSize|..." for per-loop unroll metadata
-var g_loopTileHints: String = ""
-// Reduction loop IDs: "metaIdx|metaIdx|..." for wider vectorize width
-var g_reductionLoopIds: String = ""
-// Nested loop IDs: "metaIdx|metaIdx|..." for loop distribute enable
-var g_nestedLoopIds: String = ""
 // Module constant mutability: pipe-delimited "0"/"1" entries parallel to moduleConstantNames
 // "0" = immutable (let), "1" = mutable (var). Reset per-module.
 var g_moduleConstMutable: String = ""
@@ -540,21 +497,6 @@ var g_typeAliasCount: Int = 0
 // g_enumVariantFieldCounts: "0|0|0|1|2|..." (field count per variant)
 // g_enumTypeNames: "Color|Shape|..." (enum type names for variant-to-type lookup)
 // g_enumVariantParent: "Color|Color|Color|Shape|Shape|..." (parent enum for each variant)
-// Call count tracking: pipe-delimited names (duplicates allowed, counted at lookup)
-var g_callCountNames: String = ""
-var g_callCountEntries: Int = 0
-// Fast call count array — initialized in callCountClear()
-var g_callCountNamesArr: Array<String> = Array<String>()
-// Self-call tracking for norecurse: parallel pipe-delimited arrays
-// g_selfCallFuncs = defining function name, g_selfCallNames = called function name
-var g_selfCallFuncs: String = ""
-var g_selfCallNames: String = ""
-var g_selfCallCount: Int = 0
-// Boxing arrays for cross-module string collection (Array is reference type, Int/String are value types)
-var g_selfCallBox: Array<String> = Array<String>()
-var g_selfCallCountBox: Array<Int> = Array<Int>()
-var g_callCountNamesBox: Array<String> = Array<String>()
-var g_callCountEntriesBox: Array<Int> = Array<Int>()
 // Bootstrap-sensitive transient scope state. Keep this out of the
 // LLVMIRGenerator object layout so the frozen compiler never has to lower
 // self-hosted field stores for it.
@@ -649,200 +591,6 @@ var g_enumTypeNames: String = ""
 var g_enumVariantParent: String = ""
 var g_enumVariantCount: Int = 0
 var g_enumTypeCount: Int = 0
-
-// Uses Array<String> for O(1) indexed access. Searches backwards (most recent first).
-// CSE (Common Subexpression Elimination) cache lookup.
-// Searches backwards through g_cseKeysArr so the most recent entry wins,
-// which is critical for correctness when the same expression key appears
-// at multiple scope levels (inner scope must shadow outer).
-fun cseLookup(key: String) r: String {
-    var i = g_cseKeysArr.length() - 1
-    while i >= 0 {
-        if g_cseKeysArr[i] == key {
-            g_cseHits = g_cseHits + 1
-            return g_cseValsArr[i]
-        }
-        i = i - 1
-    }
-    return ""
-}
-
-// O(1) amortized via Array.push().
-fun cseRecord(key: String, value: String) r: Void {
-    g_cseKeysArr.push(key)
-    g_cseValsArr.push(value)
-    g_cseCount = g_cseCount + 1
-}
-
-// Clear the CSE cache. Called at function/method boundaries to prevent
-// stale register references from leaking across functions. The cross-method
-// CSE bug (Feb 23 2026) was caused by forgetting cseClear() at the start
-// of generateClassMethod: a key like "%4*%7" in method A could match the
-// same register numbers in method B, producing self-referential IR.
-fun cseClear() r: Void {
-    g_cseKeysArr = Array<String>()
-    g_cseValsArr = Array<String>()
-    g_cseCount = 0
-}
-
-// --- Call Count Tracking ---
-// Record a call to funcName. Appends entry (duplicates allowed, summed at lookup).
-// Capped at 200 entries to avoid O(N^2) string growth on large codebases.
-// Uses Array<String>.push() for O(1) amortized. Capped at 200 entries.
-fun callCountRecord(funcName: String) r: Void {
-    if g_callCountEntries >= 200 { return }
-    g_callCountNamesArr.push(funcName)
-    g_callCountEntries = g_callCountEntries + 1
-}
-
-fun callCountClear() r: Void {
-    let callState = resetCallCountTrackingStateImpl()
-    g_callCountNamesArr = callState.callCountNamesArr
-    g_callCountEntries = callState.callCountEntries
-}
-
-fun selfCallClear() r: Void {
-    let selfCallState = resetSelfCallTrackingStateImpl()
-    g_selfCallFuncs = selfCallState.selfCallFuncs
-    g_selfCallNames = selfCallState.selfCallNames
-    g_selfCallCount = selfCallState.selfCallCount
-}
-
-// Initialize boxing arrays for cross-module string collection functions.
-// Must be called before collectStringConstantsImpl.
-// Creates fresh arrays each time (avoids Array_pop declaration issue in frozen compiler).
-fun initCollectionBoxes() r: Void {
-    let boxes = initStringCollectionBoxesStateImpl(g_selfCallFuncs,
-        g_selfCallNames, g_selfCallCount, g_callCountNames,
-        g_callCountEntries)
-    g_selfCallBox = boxes.selfCallBox
-    g_selfCallCountBox = boxes.selfCallCountBox
-    g_callCountNamesBox = boxes.callCountNamesBox
-    g_callCountEntriesBox = boxes.callCountEntriesBox
-}
-
-// Copy box values back to module-level variables after collection.
-fun syncCollectionBoxes() r: Void {
-    let synced = syncStringCollectionBoxesStateImpl(g_selfCallBox,
-        g_selfCallCountBox, g_callCountNamesBox, g_callCountEntriesBox)
-    g_selfCallFuncs = synced.selfCallFuncs
-    g_selfCallNames = synced.selfCallNames
-    g_selfCallCount = synced.selfCallCount
-    g_callCountNames = synced.callCountNames
-    g_callCountEntries = synced.callCountEntries
-}
-
-// Get optimization statistics as a formatted string.
-fun getOptStats() r: String {
-    var stats = ""
-    if g_branchesEliminated > 0 {
-        stats = stats + "  Branches eliminated: " + g_branchesEliminated.toString() + "\n"
-    }
-    if g_deadStatementsEliminated > 0 {
-        stats = stats + "  Dead statements eliminated: " + g_deadStatementsEliminated.toString() + "\n"
-    }
-    if g_constantsFolded > 0 {
-        stats = stats + "  Constants folded: " + g_constantsFolded.toString() + "\n"
-    }
-    if g_cseHits > 0 {
-        stats = stats + "  CSE hits: " + g_cseHits.toString() + "\n"
-    }
-    if g_loopsOptimized > 0 {
-        stats = stats + "  Loops optimized: " + g_loopsOptimized.toString() + "\n"
-    }
-    if g_deadStoresEliminated > 0 {
-        stats = stats + "  Dead stores eliminated: " + g_deadStoresEliminated.toString() + "\n"
-    }
-    if g_reductionChainsDetected > 0 {
-        stats = stats + "  Reduction chains detected: " + g_reductionChainsDetected.toString() + "\n"
-    }
-    return stats
-}
-
-// Reset all optimization counters (for fresh compilation).
-fun resetOptCounters() r: Void {
-    g_deadStatementsEliminated = 0
-    g_branchesEliminated = 0
-    g_constantsFolded = 0
-    g_cseHits = 0
-    g_loopsOptimized = 0
-    g_deadStoresEliminated = 0
-    g_stringsDeduped = 0
-    g_allocsSunk = 0
-    g_escapedAllocsPromoted = 0
-    g_reductionChainsDetected = 0
-    cseClear()
-    // NOTE: g_mlDecisionLog intentionally NOT cleared — accumulates across modules
-    g_lastStoreVars = ""
-    g_lastStoreCount = 0
-    g_inductionVarName = ""
-    g_deadStoreSkipVars = ""
-    g_loopTileHints = ""
-    g_reductionLoopIds = ""
-    g_nestedLoopIds = ""
-    resetFunctionEmissionHighPressureImpl(
-        getCurrentFunctionEmissionStateImpl())
-    let fnOptions = getCurrentFunctionOptions()
-    resetFunctionHighPressureImpl(fnOptions)
-    fnOptions.laneWidth = 0
-}
-
-// --- Section 9.6: E-Graph expression cost model ---
-// --- Section 9.7: ML weight loading ---
-// Load heuristic weights from .seen_ml_heuristics config file.
-// Format: one "key=value" per line. Supported keys:
-//   inline_threshold, unroll_threshold, vectorize_threshold
-fun loadMLWeights() r: Void {
-    if g_mlWeightsLoaded { return }
-    g_mlWeightsLoaded = true
-    let mlConfigPath = ".seen_ml_heuristics"
-    if not exists(mlConfigPath) { return }
-    let mlContent = readText(mlConfigPath)
-    if mlContent.length() == 0 { return }
-    // Parse line by line: scan for newlines
-    var lineStart = 0
-    var pos = 0
-    while pos <= mlContent.length() {
-        var isEnd = false
-        if pos == mlContent.length() { isEnd = true }
-        if not isEnd {
-            if mlContent.charAt(pos) == '\n' { isEnd = true }
-        }
-        if isEnd {
-            if pos > lineStart {
-                let line = mlContent.substring(lineStart, pos)
-                // Parse "key=value" — find '='
-                var eqPos = -1
-                var eqScan = 0
-                while eqScan < line.length() {
-                    if line.charAt(eqScan) == '=' {
-                        eqPos = eqScan
-                        break
-                    }
-                    eqScan = eqScan + 1
-                }
-                if eqPos > 0 {
-                    let key = line.substring(0, eqPos)
-                    let val = line.substring(eqPos + 1, line.length())
-                    let intVal = parseIntManual(val)
-                    if key == "inline_threshold" { g_mlInlineThreshold = intVal }
-                    if key == "unroll_threshold" { g_mlUnrollThreshold = intVal }
-                    if key == "vectorize_threshold" { g_mlVectorizeThreshold = intVal }
-                    // ML trained weights (fixed-point scaled by 100)
-                    if key == "inline_w0" { g_inlineW0 = parseFixedPoint100(val) }
-                    if key == "inline_w1" { g_inlineW1 = parseFixedPoint100(val) }
-                    if key == "inline_w2" { g_inlineW2 = parseFixedPoint100(val) }
-                    if key == "inline_w3" { g_inlineW3 = parseFixedPoint100(val) }
-                    if key == "inline_bias" { g_inlineBias = parseFixedPoint100(val) }
-                    if key == "weights_active" { g_mlWeightsActive = true }
-                }
-            }
-            lineStart = pos + 1
-        }
-        pos = pos + 1
-    }
-    mlLogDecision("ml-weights", "loaded", "inline:" + g_mlInlineThreshold.toString() + ",unroll:" + g_mlUnrollThreshold.toString() + ",vec:" + g_mlVectorizeThreshold.toString())
-}
 
 // Quote LLVM IR identifiers that contain non-ASCII bytes.
 // LLVM requires @"name" / %"name" syntax for identifiers with non-ASCII chars.
