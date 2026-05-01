@@ -1,0 +1,41 @@
+// ir_codegen_global_state.seen - bootstrap-sensitive generator globals.
+// These remain module globals instead of LLVMIRGenerator fields so older
+// bootstrap compilers do not need to lower self-hosted field stores for them.
+
+var preAllocatedRegs: Array<String> = Array<String>()
+var preAllocatedVars: Array<String> = Array<String>()
+var preAllocatedTypes: Array<String> = Array<String>()
+var activeVarCount: Int = 0
+
+var structNames: Array<String> = Array<String>()
+var structLayouts: Array<String> = Array<String>()
+var structFieldNames: Array<String> = Array<String>()
+var structFieldTypes: Array<String> = Array<String>()
+var structLlvmFieldTypes: Array<String> = Array<String>()
+var structSizes: Array<Int> = Array<Int>()
+var structMethodNames: Array<String> = Array<String>()
+var structMethodRetTypes: Array<String> = Array<String>()
+
+var funcNames: Array<String> = Array<String>()
+var funcRetTypes: Array<String> = Array<String>()
+var classMethodBaseNames: Array<String> = Array<String>()
+
+var typeHeaderPath: String = ""
+var currentFunctionReturnType: String = ""
+var currentClassName: String = ""
+var blockTerminated: Bool = false
+var currentLoopCondLabel: String = ""
+var currentLoopEndLabel: String = ""
+
+var declOrdinalNames: Array<String> = Array<String>()
+var declOrdinalCounts: Array<Int> = Array<Int>()
+var stringConstantPrefix: String = ""
+var generatedFunctions: Array<String> = Array<String>()
+var generatedClasses: Array<String> = Array<String>()
+var typesLoadedFromHeader: Bool = false
+var runtimeDeclsLoaded: Bool = false
+var pendingArrayLiteralType: String = ""
+
+var moduleConstantNames: Array<String> = Array<String>()
+var moduleConstantValues: Array<String> = Array<String>()
+var moduleConstantTypes: Array<String> = Array<String>()

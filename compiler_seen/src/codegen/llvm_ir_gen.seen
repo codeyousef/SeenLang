@@ -173,6 +173,7 @@ import codegen.ir_function_ml_logs.{applyFunctionPreludeMlLogsImpl, applyFunctio
 import codegen.ir_ml_logging.{mlLogDecision, setupMLLogging, writeMLDecisionLog}
 import codegen.ir_codegen_state_bridge.{syncCodegenStateBridgeImpl, captureCodegenStateBridgeSnapshotImpl, resetSharedModuleGenerationScratchStateImpl}
 import codegen.ir_codegen_target_state.{g_hostTargetTriple, g_hostDataLayout, detectHostPlatform, overrideTargetTripleImpl}
+import codegen.ir_codegen_global_state.{preAllocatedRegs, preAllocatedVars, preAllocatedTypes, activeVarCount, structNames, structLayouts, structFieldNames, structFieldTypes, structLlvmFieldTypes, structSizes, structMethodNames, structMethodRetTypes, funcNames, funcRetTypes, classMethodBaseNames, typeHeaderPath, currentFunctionReturnType, currentClassName, blockTerminated, currentLoopCondLabel, currentLoopEndLabel, declOrdinalNames, declOrdinalCounts, stringConstantPrefix, generatedFunctions, generatedClasses, typesLoadedFromHeader, runtimeDeclsLoaded, pendingArrayLiteralType, moduleConstantNames, moduleConstantValues, moduleConstantTypes}
 
 // Override host target triple and data layout for cross-compilation
 fun overrideTargetTriple(triple: String, layout: String) r: Void {
@@ -444,42 +445,6 @@ var g_typeAliasCount: Int = 0
 // g_enumVariantFieldCounts: "0|0|0|1|2|..." (field count per variant)
 // g_enumTypeNames: "Color|Shape|..." (enum type names for variant-to-type lookup)
 // g_enumVariantParent: "Color|Color|Color|Shape|Shape|..." (parent enum for each variant)
-// Bootstrap-sensitive transient scope state. Keep this out of the
-// LLVMIRGenerator object layout so the frozen compiler never has to lower
-// self-hosted field stores for it.
-var preAllocatedRegs: Array<String> = Array<String>()
-var preAllocatedVars: Array<String> = Array<String>()
-var preAllocatedTypes: Array<String> = Array<String>()
-var activeVarCount: Int = 0
-var structNames: Array<String> = Array<String>()
-var structLayouts: Array<String> = Array<String>()
-var structFieldNames: Array<String> = Array<String>()
-var structFieldTypes: Array<String> = Array<String>()
-var structLlvmFieldTypes: Array<String> = Array<String>()
-var structSizes: Array<Int> = Array<Int>()
-var structMethodNames: Array<String> = Array<String>()
-var structMethodRetTypes: Array<String> = Array<String>()
-var funcNames: Array<String> = Array<String>()
-var funcRetTypes: Array<String> = Array<String>()
-var classMethodBaseNames: Array<String> = Array<String>()
-var typeHeaderPath: String = ""
-var currentFunctionReturnType: String = ""
-var currentClassName: String = ""
-var blockTerminated: Bool = false
-var currentLoopCondLabel: String = ""
-var currentLoopEndLabel: String = ""
-var declOrdinalNames: Array<String> = Array<String>()
-var declOrdinalCounts: Array<Int> = Array<Int>()
-var stringConstantPrefix: String = ""
-var generatedFunctions: Array<String> = Array<String>()
-var generatedClasses: Array<String> = Array<String>()
-var typesLoadedFromHeader: Bool = false
-var runtimeDeclsLoaded: Bool = false
-var pendingArrayLiteralType: String = ""
-var moduleConstantNames: Array<String> = Array<String>()
-var moduleConstantValues: Array<String> = Array<String>()
-var moduleConstantTypes: Array<String> = Array<String>()
-
 fun initBootstrapFragileGlobalArrays() r: Void {
     g_cseKeysArr = Array<String>()
     g_cseValsArr = Array<String>()
