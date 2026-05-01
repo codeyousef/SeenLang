@@ -802,6 +802,7 @@ cleanup_smoke_build_state() {
     rm -f /tmp/seen_module_*.ll /tmp/seen_module_*.o /tmp/seen_module_*.opt.ll
     rm -f /tmp/seen_module_*.polly.ll /tmp/seen_module_*.opt.status /tmp/seen_module_*.opt.log
     rm -f /tmp/seen_module_*.relink.o /tmp/safe_rebuild_smoke_bin
+    rm -f /tmp/safe_rebuild_*_hello_english.seen
 }
 
 preserve_existing_production_compiler() {
@@ -823,7 +824,8 @@ smoke_test_compiler() {
     local compiler_path=$1
     local stage_label=$2
     local stage_slug=$3
-    local smoke_source="$REPO_ROOT/examples/hello_world/hello_english.seen"
+    local smoke_fixture="$REPO_ROOT/examples/hello_world/hello_english.seen"
+    local smoke_source="/tmp/safe_rebuild_${stage_slug}_hello_english.seen"
     local smoke_bin="/tmp/safe_rebuild_smoke_bin"
     local check_log="/tmp/safe_rebuild_${stage_slug}_hello_check.log"
     local compile_log="/tmp/safe_rebuild_${stage_slug}_hello_compile.log"
@@ -848,6 +850,10 @@ smoke_test_compiler() {
     fi
 
     cleanup_smoke_build_state
+    if ! cp "$smoke_fixture" "$smoke_source"; then
+        echo -e "${YELLOW}${stage_label} could not prepare hello-world smoke source.${NC}"
+        return 1
+    fi
 
     if ! (
         cd "$REPO_ROOT" &&
@@ -861,6 +867,10 @@ smoke_test_compiler() {
     fi
 
     cleanup_smoke_build_state
+    if ! cp "$smoke_fixture" "$smoke_source"; then
+        echo -e "${YELLOW}${stage_label} could not prepare hello-world smoke source.${NC}"
+        return 1
+    fi
 
     if ! (
         cd "$REPO_ROOT" &&
