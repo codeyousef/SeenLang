@@ -37,7 +37,7 @@
 //     cache mapping expression keys to register names. Searched backwards
 //     for most-recent-scope-first semantics.
 
-import parser.real_parser.{ProgramNode, ItemNode, FunctionNode, ClassNode, BlockNode, StatementNode, ParserExpressionNode, AnnotationNode}
+import parser.real_parser.{ProgramNode, ItemNode, FunctionNode, ClassNode, BlockNode, StatementNode, ParserExpressionNode}
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{parseGlobalVarMutable, parseGlobalVarType, parseGlobalVarValue, parseIntManual, foldIntConstants, foldIntComparison, selectSimdWidth, pipeGet, exprCost, pipeContains, splitPipe, simpleHash, getNextRegFn, getNextBlockFn}
 import codegen.ir_egraph_rules.{egraphLookup, egraphLookupFloat, egraphSelfComparison}
@@ -119,7 +119,6 @@ import codegen.ir_value_coercion.{coerceValueForLlvmTargetImpl}
 import codegen.ir_string_concat_emit.{isStringConcatTypePairImpl, exprHasStringConcatMarkerImpl, coerceStringConcatPieceRegImpl}
 import codegen.ir_struct_gen.{emitStructFieldStoresImpl, resolveStructLiteralFieldFallback, inferStructFieldTypeFromExpr}
 import codegen.ir_struct_layout_state.{registerStructLayoutState}
-import codegen.ir_autofree_state.{emitAutoFreeLocalsState}
 import codegen.ir_field_lookup_state.{getFieldInfoState, getFieldTypeState, getSeenFieldTypeState, inferTypeRegistryFieldTypeState, getSemanticFieldTypeState, getMethodReturnTypeState}
 import codegen.ir_class_type_layout.{emitClassTypeFieldsImpl, emitClassTypeHeaderImpl, emitClassTypeFooterImpl, prepareClassTypeAliasStateSnapshotImpl}
 import codegen.ir_class_type_decorators.{prepareClassTypeDecoratorScanSnapshotImpl}
@@ -591,7 +590,7 @@ class LLVMIRGenerator {
         while itemIdx < program.items.length() {
             let item = program.items[itemIdx]
             if item.itemType == "Class" or item.itemType == "Data" {
-                registerStructLayout(item.classNode)
+                registerStructLayoutState(item.classNode)
             }
             preparedItems.push(prepareDeclarationItemForRegistration(item))
             itemIdx = itemIdx + 1
@@ -754,31 +753,6 @@ class LLVMIRGenerator {
         return
     }
 
-    // Emit pool_free calls for all local class-type variables before a return
-    // skipVar: name of the variable being returned (should not be freed)
-    // Emit free calls for all heap-allocated local variables at function exit.
-    // Implements automatic memory management: class-type and Array-type locals
-    // are freed. The skipVar parameter excludes the return value variable
-    // (which is transferred to the caller, not freed).
-    fun emitAutoFreeLocals(skipVar: String) r: Void {
-        emitAutoFreeLocalsState(output, varNames, varRegs, skipVar)
-    }
-
-    // Register a struct layout from a ClassNode
-    // Build and register the LLVM struct layout for a class/data type.
-    // Computes the layout string (e.g., "{ %SeenString, i64, ptr }"), field
-    // name/type lists, and byte size. If the class extends a parent, parent
-    // fields are prepended (inheritance uses composition, not vtables).
-    // Also registers class methods into structMethodNames/structMethodRetTypes
-    // and builds classMethodBaseNames for skipping standalone function duplicates.
-    // WARNING: field order must exactly match struct_layouts.seen — a GEP index
-    // mismatch causes "out of bounds" crashes at runtime.
-    fun registerStructLayout(classNode: ClassNode) r: Void {
-        registerStructLayoutState(classNode)
-    }
-
-    // Get field index and type from registered struct
-    // Resolve the GEP (getelementptr) index for a struct field access.
     // Resolve the type of a chained path like "item.function.returnType"
     // Returns the type of the final field in the chain
     fun resolveChainedPathType(path: String) r: String {
@@ -855,7 +829,7 @@ class LLVMIRGenerator {
         while shouldVisitProgramFlowIndexImpl(i, program.items.length()) {
             let item = program.items[i]
             if shouldGenerateProgramClassItemImpl(item.itemType) {
-                if canUseLargePlainClassPath(item.classNode.parentName, item.classNode.decorators, item.classNode.methods) {
+                if canUseLargePlainClassPathImpl(item.classNode.parentName, item.classNode.decorators, item.classNode.methods) {
                     generatePlainLargeClass(item.classNode.name, item.classNode.parentName, item.classNode.methods)
                 } else {
                     generateClass(item.classNode)
@@ -1203,7 +1177,7 @@ class LLVMIRGenerator {
         let usesInlineSeenString = existingLayout.contains("{ i64, ptr }")
         let usesNamedSeenString = existingLayout.contains("%SeenString")
         if existingLayout != "" and (usesInlineSeenString or not usesNamedSeenString) {
-            registerStructLayout(classNode)
+            registerStructLayoutState(classNode)
             generatedClasses.push(classNode.name)
             return true
         }
@@ -1225,7 +1199,7 @@ class LLVMIRGenerator {
         }
 
         generatedClasses.push(className)
-        registerStructLayout(classNode)
+        registerStructLayoutState(classNode)
 
         let decoratorSnapshot = prepareClassTypeDecoratorScanSnapshotImpl(
             output, classNode, g_reprCClassNames,
@@ -1284,22 +1258,6 @@ class LLVMIRGenerator {
         emitClassTypeFooterImpl(output, typeFlags)
     }
 
-    fun generateHotReloadMethods(classNode: ClassNode) r: Void {
-        generateHotReloadMethodsImpl(output, classNode)
-    }
-
-    fun canUseLargePlainClassPath(parentName: String, decorators: Array<AnnotationNode>, methods: Array<FunctionNode>) r: Bool {
-        return canUseLargePlainClassPathImpl(parentName, decorators, methods)
-    }
-
-    fun emitTraitVtableType(classNode: ClassNode) r: Void {
-        emitTraitVtableTypeState(output, classNode)
-    }
-
-    fun isTraitClassNode(classNode: ClassNode) r: Bool {
-        return isTraitClassNodeImpl(classNode)
-    }
-
     fun emitTraitDefaultMethod(className: String, traitMethod: FunctionNode, traitRetTypeName: String) r: Void {
         let defaultFuncName = className + "_" + traitMethod.name + "_default"
         output.append("; trait default method: " + defaultFuncName + "\n")
@@ -1338,7 +1296,7 @@ class LLVMIRGenerator {
     }
 
     fun tryGenerateTraitClass(classNode: ClassNode) r: Bool {
-        if not isTraitClassNode(classNode) {
+        if not isTraitClassNodeImpl(classNode) {
             return false
         }
 
@@ -1360,7 +1318,7 @@ class LLVMIRGenerator {
             traitMethodIdx = traitMethodIdx + 1
         }
 
-        emitTraitVtableType(classNode)
+        emitTraitVtableTypeState(output, classNode)
         return true
     }
 
@@ -1441,7 +1399,7 @@ class LLVMIRGenerator {
 
         // Generate @hot_reload synthesized methods if class has the decorator
         if decoratorSnapshot.isHotReload == 1 {
-            generateHotReloadMethods(classNode)
+            generateHotReloadMethodsImpl(output, classNode)
         }
 
         emitGeneratedClassDecoratorMethodsImpl(output, classNode,
