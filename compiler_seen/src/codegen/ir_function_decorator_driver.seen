@@ -1,0 +1,85 @@
+// ir_function_decorator_driver.seen - function decorator preflight driver.
+
+import parser.real_parser.{FunctionNode}
+import str.string.{StringBuilder}
+import codegen.ir_function_decorators.{prepareFunctionAttributeStateSnapshotImpl, prepareFunctionDecoratorPreflightSnapshotImpl}
+import codegen.ir_function_lifecycle.{shouldReturnAfterFunctionDecoratorPreflightImpl}
+import codegen.ir_codegen_feature_state.{g_sanitizerMode, g_initFuncNames, g_initFuncCount, g_trustedFuncNames, g_specializationNames, g_specializationCount, g_traitImplRegistry, g_traitImplCount, g_gpuShaderNames, g_gpuShaderStages, g_gpuShaderWorkgroups, g_gpuShaderBindings, g_gpuShaderCount}
+
+class FunctionDecoratorPreflightDriverState {
+    var traitImplRegistry: String
+    var traitImplCount: Int
+    var gpuShaderNames: String
+    var gpuShaderStages: String
+    var gpuShaderWorkgroups: String
+    var gpuShaderBindings: String
+    var gpuShaderCount: Int
+    var shouldReturn: Bool
+
+    static fun new() r: FunctionDecoratorPreflightDriverState {
+        return FunctionDecoratorPreflightDriverState{
+            traitImplRegistry: "",
+            traitImplCount: 0,
+            gpuShaderNames: "",
+            gpuShaderStages: "",
+            gpuShaderWorkgroups: "",
+            gpuShaderBindings: "",
+            gpuShaderCount: 0,
+            shouldReturn: false
+        }
+    }
+}
+
+fun prepareFunctionDecoratorPreflightDriverStateImpl(output: StringBuilder,
+    regBox: Array<Int>, fn: FunctionNode, traitImplRegistry: String,
+    traitImplCount: Int, gpuShaderNames: String, gpuShaderStages: String,
+    gpuShaderWorkgroups: String, gpuShaderBindings: String,
+    gpuShaderCount: Int) r: FunctionDecoratorPreflightDriverState {
+
+    let state = FunctionDecoratorPreflightDriverState.new()
+    let decoratorPreflight = prepareFunctionDecoratorPreflightSnapshotImpl(
+        output, regBox, fn, traitImplRegistry, traitImplCount,
+        gpuShaderNames, gpuShaderStages, gpuShaderWorkgroups,
+        gpuShaderBindings, gpuShaderCount)
+    state.traitImplRegistry = decoratorPreflight.traitImplRegistry
+    state.traitImplCount = decoratorPreflight.traitImplCount
+    state.gpuShaderNames = decoratorPreflight.gpuShaderNames
+    state.gpuShaderStages = decoratorPreflight.gpuShaderStages
+    state.gpuShaderWorkgroups = decoratorPreflight.gpuShaderWorkgroups
+    state.gpuShaderBindings = decoratorPreflight.gpuShaderBindings
+    state.gpuShaderCount = decoratorPreflight.gpuShaderCount
+    state.shouldReturn = shouldReturnAfterFunctionDecoratorPreflightImpl(
+        decoratorPreflight.handledByDecorator)
+    return state
+}
+
+fun prepareFunctionDecoratorPreflightGlobalStateImpl(output: StringBuilder,
+    regBox: Array<Int>, fn: FunctionNode) r: Bool {
+
+    let state = prepareFunctionDecoratorPreflightDriverStateImpl(output,
+        regBox, fn, g_traitImplRegistry, g_traitImplCount,
+        g_gpuShaderNames, g_gpuShaderStages, g_gpuShaderWorkgroups,
+        g_gpuShaderBindings, g_gpuShaderCount)
+    g_traitImplRegistry = state.traitImplRegistry
+    g_traitImplCount = state.traitImplCount
+    g_gpuShaderNames = state.gpuShaderNames
+    g_gpuShaderStages = state.gpuShaderStages
+    g_gpuShaderWorkgroups = state.gpuShaderWorkgroups
+    g_gpuShaderBindings = state.gpuShaderBindings
+    g_gpuShaderCount = state.gpuShaderCount
+    return state.shouldReturn
+}
+
+fun prepareFunctionAttributeGlobalStateImpl(output: StringBuilder,
+    fn: FunctionNode) r: String {
+
+    let funcAttrState = prepareFunctionAttributeStateSnapshotImpl(output,
+        fn, g_sanitizerMode, g_initFuncNames, g_initFuncCount,
+        g_trustedFuncNames, g_specializationNames, g_specializationCount)
+    g_initFuncNames = funcAttrState.initFuncNames
+    g_initFuncCount = funcAttrState.initFuncCount
+    g_trustedFuncNames = funcAttrState.trustedFuncNames
+    g_specializationNames = funcAttrState.specializationNames
+    g_specializationCount = funcAttrState.specializationCount
+    return funcAttrState.funcAttrs
+}

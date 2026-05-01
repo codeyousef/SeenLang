@@ -5,6 +5,8 @@ from the main IR generation orchestration.
 ///
 
 import parser.real_parser.{ProgramNode, ItemNode, FunctionNode, StatementNode, ParserExpressionNode}
+import str.string.{StringBuilder}
+import codegen.ir_ml_logging.{mlLogDecision}
 
 fun shouldTrackUnusedTopLevelFunctionImpl(item: ItemNode) r: Bool {
     if item.itemType != "Function" {
@@ -84,6 +86,20 @@ fun scanUnusedTopLevelFunctionNamesImpl(program: ProgramNode)
         itemIdx = itemIdx + 1
     }
     return unusedNames
+}
+
+fun emitUnusedTopLevelFunctionWarningsImpl(output: StringBuilder,
+    program: ProgramNode) r: Void {
+
+    let unusedTopLevelFunctions = scanUnusedTopLevelFunctionNamesImpl(
+        program)
+    var unusedIdx = 0
+    while unusedIdx < unusedTopLevelFunctions.length() {
+        let unusedName = unusedTopLevelFunctions[unusedIdx]
+        output.append("; WARNING: unused function: " + unusedName + "\n")
+        mlLogDecision("dead-func", "unused", unusedName)
+        unusedIdx = unusedIdx + 1
+    }
 }
 
 fun hasGeneratedFunctionNameImpl(generatedFunctions: Array<String>,

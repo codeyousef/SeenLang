@@ -89,7 +89,7 @@ import codegen.ir_local_type_fallback.{tryInferImplicitThisVariableTypeImpl}
 import codegen.ir_async_registry.{registerAsyncFunctionImpl}
 import codegen.ir_async_await.{emitAwaitPollLoopImpl, emitAwaitResultValueImpl}
 import codegen.ir_async_return.{prepareAsyncReturnValuePlanImpl, emitAsyncReturnValueBranchImpl, emitAsyncReturnVoidBranchImpl}
-import codegen.ir_module_emit.{mapGlobalVarLlvmTypeImpl}
+import codegen.ir_module_emit.{mapGlobalVarLlvmTypeImpl, emitTBAAMetadataImpl}
 import codegen.ir_program_flow_plan.{shouldVisitProgramFlowIndexImpl, shouldEmitProgramClassTypeItemImpl, shouldGenerateProgramClassItemImpl, planProgramTopLevelFunctionStartImpl, planProgramTopLevelFunctionAfterSpecialImpl}
 import codegen.ir_method_gen.{emitToStringMethodImpl}
 import codegen.ir_ptr_ops.{emitPtrOpsImpl}
@@ -137,22 +137,24 @@ import codegen.ir_call_regular_emit.{promoteRegularCallFloatArgsIfNeededState, r
 import codegen.ir_call_meta.{resolveSizeofBuiltinValueImpl}
 import codegen.ir_call_low_level.{isPtrBuiltinCallImpl, isSimdBuiltinCallImpl, emitPreparedLowLevelBuiltinActionImpl}
 import codegen.ir_call_builtin_plan.{planMetaBuiltinCallImpl, planLowLevelBuiltinCallImpl, planLowLevelBuiltinArgumentReadsImpl, shouldClearLowLevelDebugAssertCseImpl}
+import codegen.ir_call_comptime_param.{applyComptimeParamSpecializationState}
 import codegen.ir_call_dispatch.{emitUserFunctionCallImpl}
 import codegen.ir_call_fixups.{isStandaloneParserWorkaroundImpl}
 import codegen.ir_constructor_call_plan.{planArrayConstructorCallImpl, shouldEmitSmallVecConstructorImpl, isReprCConstructorTypeImpl}
 import codegen.ir_constructor_field_plan.{planNextConstructorFieldTypeImpl, planConstructorFieldStoreImpl}
 import codegen.ir_constructor_field_emit.{emitPreparedReprCConstructorImpl, emitPreparedClassConstructorFieldStoreImpl}
-import codegen.ir_method_finalize.{normalizeInstanceMethodTypeNameImpl}
+import codegen.ir_method_finalize.{normalizeInstanceMethodTypeNameImpl, emitPreparedFinalMethodDispatchState}
 import codegen.ir_method_fastpath.{resolveStaticMethodClassNamesImpl}
 import codegen.ir_method_receiver_predicates.{isOptionReceiverTypeImpl, isSmallVecReceiverTypeImpl, isCollectionReceiverTypeImpl, isArrayReceiverTypeImpl, isStringBuilderRuntimeMethodImpl, isNumericReceiverMethodImpl, needsStaticFactoryArgumentImpl}
-import codegen.ir_method_call_plan.{planResolvedReceiverFastPathImpl, shouldReadOptionDefaultFastPathArgImpl, shouldReadSmallVecFastPathArgImpl, shouldReadReceiverFastPathArgImpl, shouldTryStaticMethodCallImpl, isPascalStaticReceiverNameImpl, planArrayMutatorMethodImpl, planArrayMutatorFreeTypeImpl, planArrayMutatorFreeEmitImpl, planArrayMutatorPushPointerImpl, planArrayMutatorFallbackPointerImpl, hasGeneratorFieldReceiverImpl, hasStructFieldReceiverImpl}
-import codegen.ir_method_fastpath_emit.{emitPreparedOptionReceiverFastPathImpl, emitPreparedSmallVecReceiverFastPathImpl, emitPreparedCollectionReceiverFastPathImpl, emitPreparedArrayReceiverFastPathImpl}
-import codegen.ir_method_array_mutator_emit.{emitPreparedArrayFreeMutatorImpl, emitPreparedArrayPushMutatorImpl, emitPreparedArrayPopMutatorImpl, emitPreparedArraySwapMutatorImpl, emitPreparedClassFreeMutatorImpl}
-import codegen.ir_method_lower_plan.{planMethodLowerCallImpl, methodLowerStringBuilderArgActionImpl, shouldUseMethodLowerUnwrapTraceSourceImpl}
-import codegen.ir_method_lower_emit.{emitPreparedLengthLikeMethodLowerImpl, emitPreparedStringBuilderMethodLowerImpl, emitPreparedPrimitiveConversionMethodLowerImpl, emitPreparedNumericMethodLowerImpl, emitPreparedStringLikeMethodLowerImpl, emitPreparedHotReloadMethodLowerImpl, emitPreparedSpecializedMethodLowerImpl, emitPreparedUserMethodLowerImpl}
+import codegen.ir_method_call_plan.{planResolvedReceiverFastPathImpl, shouldReadOptionDefaultFastPathArgImpl, shouldReadSmallVecFastPathArgImpl, shouldReadReceiverFastPathArgImpl, shouldTryStaticMethodCallImpl, isPascalStaticReceiverNameImpl, planArrayMutatorMethodImpl, hasGeneratorFieldReceiverImpl, hasStructFieldReceiverImpl}
+import codegen.ir_method_fastpath_emit.{emitPreparedOptionReceiverFastPathImpl, emitPreparedSmallVecReceiverFastPathImpl, emitPreparedCollectionReceiverFastPathImpl, emitPreparedArrayReceiverFastPathImpl, emitResolvedReceiverFastPathActionImpl}
+import codegen.ir_method_static_dispatch.{emitPreparedStaticMethodDispatchState}
+import codegen.ir_method_array_mutator_emit.{resolveArrayFreeReceiverTypeStateImpl, shouldResolveArrayFreeMutatorPointerStateImpl, emitPreparedArrayFreeMutatorMethodStateImpl, emitPreparedArrayPushMutatorMethodStateImpl, emitPreparedArrayPopMutatorMethodStateImpl, emitPreparedArraySwapMutatorMethodStateImpl}
+import codegen.ir_method_lower_plan.{planMethodLowerCallImpl, methodLowerStringBuilderArgActionForArgsImpl, shouldUseMethodLowerUnwrapTraceSourceImpl}
+import codegen.ir_method_lower_emit.{emitPreparedUnresolvedReceiverDefaultImpl, emitPreparedNonArgMethodLowerDispatchImpl, emitPreparedStringBuilderMethodLowerImpl, emitPreparedNumericMethodLowerImpl, emitPreparedStringLikeMethodLowerImpl, emitPreparedHotReloadMethodLowerImpl, emitPreparedSpecializedMethodLowerImpl, emitPreparedUserMethodLowerImpl}
 import codegen.ir_method_final_plan.{planMethodUnresolvedReceiverStartImpl, planMethodUnresolvedReceiverFinalImpl, planMethodFinalDispatchImpl}
-import codegen.ir_method_receiver_lookup_plan.{planMethodReceiverInitialPhaseImpl, planMethodReceiverPostLookupPhaseImpl, planMethodReceiverPostResolutionPhaseImpl, planDottedReceiverStageImpl, planDottedReceiverFallbackStageImpl, planImplicitThisDottedReceiverStageImpl, planSimpleLiteralReceiverStageImpl, planImplicitThisReceiverStageImpl}
-import codegen.ir_method_receiver_lookup_gen.{emitLocalMethodReceiverLoadImpl, emitModuleConstantMethodReceiverLoadImpl, emitImplicitDottedMethodReceiverLoadImpl, emitImplicitThisMethodReceiverLoadImpl}
+import codegen.ir_method_receiver_lookup_plan.{planMethodReceiverInitialPhaseImpl, planMethodReceiverPostLookupPhaseImpl, planMethodReceiverPostResolutionPhaseImpl, planDottedReceiverStageImpl, planDottedReceiverFallbackStageImpl, planSimpleLiteralReceiverStageImpl}
+import codegen.ir_method_receiver_lookup_gen.{emitLocalMethodReceiverLoadImpl, emitModuleConstantMethodReceiverLoadImpl, tryResolveImplicitThisDottedMethodReceiverStateImpl, tryResolveImplicitThisLiteralMethodReceiverStateImpl}
 import codegen.ir_infer_type.{inferCallExprTypeImpl}
 import codegen.ir_special_expr_infer.{inferSpecialExprTypeImpl}
 import codegen.ir_expr_infer_plan.{planExprInferenceDispatchImpl, planMethodCallInferenceImpl, planGeneratedCallInferenceImpl, planBuiltinCallInferenceImpl, planResolvedCallInferenceImpl, planMemberAccessInferenceImpl, planSpecialExprInferenceImpl}
@@ -169,14 +171,16 @@ import codegen.ir_function_snapshots.{NestedScratchStateSnapshot, FunctionInline
 import codegen.ir_function_scratch.{snapshotNestedScratchStateImpl}
 import codegen.ir_function_prelude_analysis.{prepareFunctionPreludeAnalysisSnapshotImpl}
 import codegen.ir_function_entry_exit.{emitFunctionEntrySetupSnapshotImpl, emitFunctionExitResetSnapshotImpl}
-import codegen.ir_function_lifecycle.{planFunctionIntrinsicFlowImpl, shouldReturnAfterFunctionDecoratorPreflightImpl, planFunctionIdentityFlowImpl, planFunctionHighPressureImpl, planFunctionEntryExitFlowImpl, applyFunctionEntrySetupToEmissionImpl, currentFunctionProfileFlagIntImpl, currentFunctionHighPressureIntImpl, applyFunctionExitStateToEmissionImpl}
+import codegen.ir_function_lifecycle.{shouldReturnAfterFunctionDecoratorPreflightImpl, planFunctionIdentityFlowImpl, planFunctionHighPressureImpl, planFunctionEntryExitFlowImpl, applyFunctionEntrySetupToEmissionImpl, currentFunctionProfileFlagIntImpl, currentFunctionHighPressureIntImpl, applyFunctionExitStateToEmissionImpl}
+import codegen.ir_function_intrinsic_driver.{tryHandleFunctionIntrinsicDriverGlobalStateImpl}
+import codegen.ir_function_decorator_driver.{prepareFunctionAttributeGlobalStateImpl, prepareFunctionDecoratorPreflightGlobalStateImpl}
 import codegen.ir_function_param_meta.{preRegisterFunctionParametersImpl}
 import codegen.ir_function_prebody.{isMainFunctionNameImpl, prepareFunctionPreBodyStateSnapshotImpl, mapFunctionPreBodyReturnTypeImpl}
 import codegen.ir_function_body.{captureFunctionBodyBlockScopeImpl, scanFunctionBodyDeadStorePatternsSnapshotImpl, emitFunctionBodyTrailingDeadCodeNoticeSnapshotImpl, beginFunctionBodyBlockDeferredCleanupImpl, beginFunctionBodyReturnDeferCleanupImpl, beginFunctionBodyVoidErrdeferCleanupImpl, beginFunctionBodyValueErrdeferCleanupImpl, finishFunctionBodyValueErrdeferCleanupImpl, bindFunctionBodyCatchVariableImpl, planFunctionBodyExpressionStatementImpl, emitFunctionBodyPairedSelectStoreImpl, emitFunctionBodySingleArmSelectStoreImpl, planFunctionBodyConstantIfImpl, emitFunctionBodyConstantIfNoteImpl, emitFunctionBodyIfBranchingImpl, beginFunctionBodyLoopContextImpl, restoreFunctionBodyLoopContextImpl, emitFunctionBodyLoopEndLabelImpl, resolveFunctionBodyForInLoopVariableStorageImpl, resolveFunctionBodyForInIndexAllocaImpl, emitFunctionBodyMemcpyOptimizedLoopImpl}
 import codegen.ir_codegen_state_bridge.{syncCodegenStateBridgeImpl, captureCodegenStateBridgeSnapshotImpl, resetSharedModuleGenerationScratchStateImpl}
 import codegen.ir_function_ml_logs.{applyFunctionPreludeMlLogsImpl}
 import codegen.ir_ml_logging.{mlLogDecision}
-import codegen.ir_function_usage.{scanUnusedTopLevelFunctionNamesImpl}
+import codegen.ir_function_usage.{emitUnusedTopLevelFunctionWarningsImpl}
 import codegen.ir_struct_gen.{resolveStructLiteralFieldFallback, emitStructFieldStoresImpl}
 import codegen.ir_struct_layout_build.{StructLayoutBuildState}
 import codegen.ir_class_type_layout.{countRealClassTypeFieldsImpl}
@@ -201,6 +205,7 @@ import codegen.ir_binary_emit.{emitPreparedPointerArithmeticBinaryImpl, emitPrep
 import codegen.ir_binary_plan.{shouldTryPointerArithmeticBinaryImpl, shouldTrySimdBinaryGateImpl, shouldUseIntPeepholeGateImpl, shouldUseFloatPeepholeGateImpl, shortCircuitBinaryActionImpl, shouldTryBinaryOverloadImpl}
 import codegen.ir_binary_fold_plan.{planBinaryOperandLiteralFactsImpl, isBinaryIntLiteralOperandImpl, planBinaryFoldActionImpl, shouldTryBinaryAssociativeIntFoldImpl, binaryAssociativeIntFoldRewriteCostImpl, shouldApplyBinaryAssociativeIntFoldImpl, planBinaryLiteralComparisonFoldImpl, planBinaryLiteralConstantFoldImpl, planBinaryFloatPeepholeImpl, planBinaryFoldFmaImpl, planBinaryFoldCseImpl}
 import codegen.ir_binary_short_circuit.{allocateShortCircuitBinaryLabelsImpl, emitShortCircuitCheckBridgeImpl, emitShortCircuitAndDecisionImpl, emitShortCircuitOrDecisionImpl}
+import codegen.ir_binary_membership.{membershipPendingArrayLiteralTypeImpl, emitPreparedMembershipContainsImpl}
 import codegen.ir_unary_expr.{unaryOperatorMethodNameImpl, shouldSkipUnaryOverloadTypeImpl, negatedComparisonPredicateImpl, shouldEmitNegatedComparisonForTypesImpl, emitOverloadedUnaryCallImpl, emitUnaryNegationImpl, emitNegatedComparisonImpl, emitUnaryLogicalNotImpl, emitUnaryAddressOfClassValueImpl, emitUnaryAddressOfVariablePtrImpl, emitUnaryDereferenceImpl, isUnaryBitwiseNotOperatorImpl, emitUnaryBitwiseNotImpl}
 import codegen.ir_class_constructor_gen.{emitConstructorAllocationImpl, emitConstructorReturnImpl, emitClassHeapAllocationImpl, emitClassArrayFieldInitializersImpl, resolveClassConstructorFieldOffsetImpl}
 import codegen.ir_class_method_gen.{buildMethodAttrsImpl}
@@ -2018,6 +2023,27 @@ fun inputBelongsToProject(projectRoot: String, inputFile: String, projectModules
     return false
 }
 
+fun isGeneratedRootProjectEntrypoint(projectRoot: String, inputFile: String,
+    inputDeclaresMain: Bool, inputIsProjectMember: Bool) r: Bool {
+
+    if not inputDeclaresMain {
+        return false
+    }
+    if inputIsProjectMember {
+        return false
+    }
+    if getSourceDir(inputFile) != projectRoot {
+        return false
+    }
+
+    let fileName = getLastSegment(inputFile)
+    if fileName.startsWith(".") and fileName.contains(".generated.") and
+        fileName.endsWith(".seen") {
+        return true
+    }
+    return false
+}
+
 // Check if a path is in the array (handles absolute vs relative paths)
 fun containsPath(paths: Array<String>, path: String) r: Bool {
     var i = 0
@@ -2912,7 +2938,10 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
             let projectModules = extractTomlProjectModules(tomlContent)
             let buildEntry = extractTomlBuildEntry(tomlContent)
             let inputIsProjectMember = inputBelongsToProject(projectRoot, inputFile, projectModules, buildEntry)
-            if inputIsProjectMember {
+            let inputDeclaresMain = moduleDeclaresMain(inputFile)
+            let inputIsGeneratedRootEntry = isGeneratedRootProjectEntrypoint(
+                projectRoot, inputFile, inputDeclaresMain, inputIsProjectMember)
+            if inputIsProjectMember or inputIsGeneratedRootEntry {
                 if not quiet and projectModules.length() > 0 {
                     println("    Adding " + projectModules.length().toString() + " modules from Seen.toml...")
                 }
@@ -2924,8 +2953,9 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
                 }
             }
             if buildEntry != "" {
-                let inputDeclaresMain = moduleDeclaresMain(inputFile)
-                let rootStandaloneMain = inputDeclaresMain and getSourceDir(inputFile) == projectRoot and not inputIsProjectMember
+                let rootStandaloneMain = inputDeclaresMain and
+                    getSourceDir(inputFile) == projectRoot and
+                    not inputIsProjectMember and not inputIsGeneratedRootEntry
                 let resolvedBuildEntry = resolveProjectPath(projectRoot, buildEntry)
                 ///
                 Keep root-level scratch entrypoints standalone even when a project build
@@ -3097,6 +3127,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_call_meta")
         modules.push("codegen.ir_call_low_level")
         modules.push("codegen.ir_call_builtin_plan")
+        modules.push("codegen.ir_call_comptime_param")
         modules.push("codegen.ir_call_dispatch")
         modules.push("codegen.ir_call_fixups")
         modules.push("codegen.ir_constructor_call_plan")
@@ -3121,6 +3152,8 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_function_lowering")
         modules.push("codegen.ir_function_state")
         modules.push("codegen.ir_function_lifecycle")
+        modules.push("codegen.ir_function_intrinsic_driver")
+        modules.push("codegen.ir_function_decorator_driver")
         modules.push("codegen.ir_function_usage")
         modules.push("codegen.ir_function_param_meta")
         modules.push("codegen.ir_function_prebody")
@@ -3164,6 +3197,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_method_receiver_predicates")
         modules.push("codegen.ir_method_call_plan")
         modules.push("codegen.ir_method_fastpath_emit")
+        modules.push("codegen.ir_method_static_dispatch")
         modules.push("codegen.ir_method_array_mutator_emit")
         modules.push("codegen.ir_method_lower_plan")
         modules.push("codegen.ir_method_final_plan")
@@ -3176,6 +3210,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_binary_plan")
         modules.push("codegen.ir_binary_fold_plan")
         modules.push("codegen.ir_binary_short_circuit")
+        modules.push("codegen.ir_binary_membership")
         modules.push("codegen.ir_unary_expr")
         modules.push("codegen.ir_class_constructor_gen")
         modules.push("codegen.ir_class_method_gen")
@@ -5410,10 +5445,19 @@ fun writeObjectManifest(manifestPath: String, objectFiles: Array<String>,
         }
     }
 
+    let cwd = currentWorkingDir()
     var content = ""
     var i = 0
     while i < objectFiles.length() {
-        content = content + objectFiles[i] + "\t" + sourcePaths[i] + "\n"
+        var objectPath = objectFiles[i]
+        if not isAbsolutePath(objectPath) and cwd != "" {
+            objectPath = resolveProjectPath(cwd, objectPath)
+        }
+        var sourcePath = sourcePaths[i]
+        if not isAbsolutePath(sourcePath) and cwd != "" {
+            sourcePath = resolveProjectPath(cwd, sourcePath)
+        }
+        content = content + objectPath + "\t" + sourcePath + "\n"
         i = i + 1
     }
     return writeText(manifestPath, content)

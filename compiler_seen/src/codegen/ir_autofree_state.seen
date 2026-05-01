@@ -2,7 +2,7 @@
 
 import str.string.{StringBuilder}
 import codegen.ir_decl_registry.{lookupCResourceDestructorStateImpl}
-import codegen.ir_method_finalize.{emitPoolFreeFromValueSlotImpl}
+import codegen.ir_method_array_mutator_emit.{emitPoolFreeFromValueSlotImpl}
 import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_variable_gen.{findActiveVariableIndexImpl}
 import codegen.type_registry_core.{getPoolEligibleClassSizeReg}

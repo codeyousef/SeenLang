@@ -4,7 +4,7 @@ Extracted from llvm_ir_gen.seen to keep receiver staging out of the facade.
 ///
 
 import str.string.{StringBuilder}
-import codegen.ir_type_mapping.{isDataTypeImpl}
+import codegen.ir_type_mapping.{isClassHandleLikeTypeImpl, isDataTypeImpl}
 import codegen.ir_field_layout.{generateFieldAccessImpl, resolveMemberAccessFieldReceiverPtrImpl, isScalarFieldChainTerminalTypeImpl}
 import codegen.ir_member_access.{emitMemberArrayElementPtrImpl, prepareExpressionMemberReceiverImpl, prepareVariableMemberReceiverImpl, prepareModuleConstMemberReceiverImpl}
 import codegen.ir_variable_gen.{emitImplicitThisPointerLoadImpl}
@@ -48,7 +48,10 @@ fun emitExpressionReceiverMemberAccessImpl(output: StringBuilder,
     bitfieldKeys: String, bitfieldWidths: String) r: String {
 
     var exprIsClass = 0
-    if isClassTypeReg(receiverType, structNames) { exprIsClass = 1 }
+    if isClassTypeReg(receiverType, structNames) or
+        isClassHandleLikeTypeImpl(receiverType, structNames) == 1 {
+        exprIsClass = 1
+    }
     var exprIsData = 0
     if isDataTypeImpl(receiverType) == 1 { exprIsData = 1 }
     let actualReceiverReg = prepareExpressionMemberReceiverImpl(output, regBox,
@@ -71,7 +74,10 @@ fun emitVariableReceiverMemberAccessImpl(output: StringBuilder,
     bitfieldKeys: String, bitfieldWidths: String) r: String {
 
     var varIsClass = 0
-    if isClassTypeReg(varType, structNames) { varIsClass = 1 }
+    if isClassTypeReg(varType, structNames) or
+        isClassHandleLikeTypeImpl(varType, structNames) == 1 {
+        varIsClass = 1
+    }
     var varIsData = 0
     if isDataTypeImpl(varType) == 1 { varIsData = 1 }
     let actualVarReg = prepareVariableMemberReceiverImpl(output, regBox,
@@ -94,7 +100,8 @@ fun emitModuleConstReceiverMemberAccessImpl(output: StringBuilder,
     bitfieldKeys: String, bitfieldWidths: String) r: String {
 
     var constIsClass = 0
-    if constSeenType != "" and isClassTypeReg(constSeenType, structNames) {
+    if constSeenType != "" and (isClassTypeReg(constSeenType, structNames) or
+        isClassHandleLikeTypeImpl(constSeenType, structNames) == 1) {
         constIsClass = 1
     }
     var constIsData = 0
@@ -126,7 +133,10 @@ fun emitBracketPathMemberAccessImpl(output: StringBuilder, regBox: Array<Int>,
     bitfieldKeys: String, bitfieldWidths: String) r: String {
 
     var baseIsClass = 0
-    if isClassTypeReg(baseType, structNames) { baseIsClass = 1 }
+    if isClassTypeReg(baseType, structNames) or
+        isClassHandleLikeTypeImpl(baseType, structNames) == 1 {
+        baseIsClass = 1
+    }
     var baseIsData = 0
     if isDataTypeImpl(baseType) == 1 { baseIsData = 1 }
     let basePtrReg = prepareVariableMemberReceiverImpl(output, regBox,
@@ -157,7 +167,10 @@ fun emitChainedReceiverMemberAccessImpl(output: StringBuilder,
     bitfieldKeys: String, bitfieldWidths: String) r: String {
 
     var baseIsClass = 0
-    if isClassTypeReg(baseType, structNames) { baseIsClass = 1 }
+    if isClassTypeReg(baseType, structNames) or
+        isClassHandleLikeTypeImpl(baseType, structNames) == 1 {
+        baseIsClass = 1
+    }
     var baseIsData = 0
     if isDataTypeImpl(baseType) == 1 { baseIsData = 1 }
     let basePtrReg = prepareVariableMemberReceiverImpl(output, regBox,

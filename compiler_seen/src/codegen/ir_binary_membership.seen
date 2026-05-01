@@ -1,0 +1,68 @@
+// ir_binary_membership.seen - binary `in` membership planning/emission.
+
+import str.string.{StringBuilder}
+import codegen.ir_optimization.{getNextRegFn}
+import codegen.ir_string_collect.{extractArrayLiteralElementTypeImpl}
+
+fun inferDeclaredMembershipElementTypeImpl(rightType: String) r: String {
+    return extractArrayLiteralElementTypeImpl(rightType)
+}
+
+fun shouldInferMembershipArrayLiteralElementImpl(rightKind: String,
+    argCount: Int) r: Bool {
+
+    return rightKind == "ArrayLiteral" and argCount > 0
+}
+
+fun membershipPendingArrayLiteralTypeImpl(rightKind: String,
+    elementType: String) r: String {
+
+    if rightKind != "ArrayLiteral" {
+        return ""
+    }
+    if elementType == "String" {
+        return "Array<String>"
+    }
+    if elementType == "Int" {
+        return "Array<Int>"
+    }
+    return ""
+}
+
+fun membershipNeedleWarningImpl(elementType: String,
+    leftType: String) r: String {
+
+    if elementType == "String" and leftType != "String" {
+        return "  ; WARNING: 'in' requires a String needle for Array<String>\n"
+    }
+    if elementType == "Int" and leftType != "Int" {
+        return "  ; WARNING: 'in' requires an Int needle for Array<Int>\n"
+    }
+    return ""
+}
+
+fun membershipUnsupportedSetWarningImpl(elementType: String,
+    rightType: String) r: String {
+
+    if elementType != "String" and elementType != "Int" {
+        return "  ; WARNING: unsupported 'in' set type " + rightType + "\n"
+    }
+    return ""
+}
+
+fun emitPreparedMembershipContainsImpl(output: StringBuilder,
+    regBox: Array<Int>, elementType: String, leftReg: String,
+    rightReg: String) r: String {
+
+    let resultReg = getNextRegFn(regBox)
+    if elementType == "String" {
+        output.append("  " + resultReg +
+            " = call i1 @seen_arr_contains_str(ptr " + rightReg +
+            ", %SeenString " + leftReg + ")\n")
+        return resultReg
+    }
+    output.append("  " + resultReg +
+        " = call i1 @seen_arr_contains_i64(ptr " + rightReg +
+        ", i64 " + leftReg + ")\n")
+    return resultReg
+}

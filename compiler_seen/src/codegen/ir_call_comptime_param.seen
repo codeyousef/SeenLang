@@ -1,0 +1,51 @@
+// ir_call_comptime_param.seen - comptime call-parameter specialization.
+
+import parser.real_parser.{ParserExpressionNode}
+import str.string.{StringBuilder}
+import codegen.ir_stmt_comptime.{evaluateConstExprState, registerComptimeVarState, parseSimpleIntState}
+
+fun applyComptimeParamSpecializationState(output: StringBuilder,
+    comptimeParamCount: Int, comptimeParamFuncNames: String,
+    funcName: String, expr: ParserExpressionNode) r: Void {
+
+    if comptimeParamCount <= 0 {
+        return
+    }
+
+    var ctpSearchPos = 0
+    while ctpSearchPos < comptimeParamFuncNames.length() {
+        var ctpNextPipe = comptimeParamFuncNames.indexOf("|", ctpSearchPos)
+        if ctpNextPipe < 0 {
+            ctpNextPipe = comptimeParamFuncNames.length()
+        }
+        let ctpEntry = comptimeParamFuncNames.substring(ctpSearchPos,
+            ctpNextPipe)
+        let ctpColon1 = ctpEntry.indexOf(":", 0)
+        if ctpColon1 > 0 {
+            let ctpFuncName = ctpEntry.substring(0, ctpColon1)
+            if ctpFuncName == funcName {
+                let ctpColon2 = ctpEntry.indexOf(":", ctpColon1 + 1)
+                if ctpColon2 > ctpColon1 {
+                    let ctpIdxStr = ctpEntry.substring(ctpColon1 + 1,
+                        ctpColon2)
+                    let ctpParamName = ctpEntry.substring(ctpColon2 + 1,
+                        ctpEntry.length())
+                    let ctpParamIdx = parseSimpleIntState(ctpIdxStr)
+                    if ctpParamIdx >= 0 and
+                        ctpParamIdx < expr.arguments.length() {
+
+                        let ctpVal =
+                            evaluateConstExprState(expr.arguments[ctpParamIdx])
+                        if ctpVal != -9999999 {
+                            registerComptimeVarState(ctpParamName, ctpVal)
+                            output.append("  ; comptime param " +
+                                ctpParamName + " = " + ctpVal.toString() +
+                                "\n")
+                        }
+                    }
+                }
+            }
+        }
+        ctpSearchPos = ctpNextPipe + 1
+    }
+}

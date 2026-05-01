@@ -80,7 +80,7 @@ import codegen.ir_special_top_level_emit.{tryHandleSpecialTopLevelFunctionImpl}
 import codegen.ir_type_layout.{getLlvmTypeAlignImpl, getLlvmTypeSizeImpl, computeStructSizeFromLayoutImpl}
 import codegen.ir_simd_type_helpers.{isSimdVectorTypeImpl}
 import codegen.ir_struct_field_resolution.{resolveKnownStructFieldImpl}
-import codegen.ir_type_tables.{inferMethodCallTypeTable, inferCallTypeTable, inferFieldTypeFallback, inferIndexElementType, registerKnownDataTypesImpl, resolvePopElementTypeImpl, resolveTryPropagateTypeImpl}
+import codegen.ir_type_tables.{inferMethodCallTypeTable, inferCallTypeTable, inferFieldTypeFallback, inferIndexElementType, registerKnownDataTypesImpl, resolveTryPropagateTypeImpl}
 import codegen.ir_control_flow.{emitForInElementFetchImpl, emitForInPrefetchImpl, emitForInIncrementImpl, detectLoopBoundImpl, computeLoopTileSizeImpl, detectReductionPatternImpl, detectInductionVarImpl, detectBreakOnFlagImpl, detectNestedLoopImpl, detectGcdPatternImpl, emitWhileConditionBranchImpl, emitStringForInElementImpl, emitMemcpyLoopExitBlocksImpl}
 import codegen.ir_loop_context.{appendLoopTileHintImpl, appendLoopMetadataIdImpl, emitLoopMetadataImpl, emitContinueStatementImpl, emitBreakStatementImpl}
 import codegen.ir_loop_plan.{planMemcpyOptimizedWhileLoopImpl, iteratorProtocolFunctionNameImpl, planIteratorProtocolForInLoopImpl, isRangeForInIterableImpl}
@@ -105,18 +105,20 @@ import codegen.ir_call_regular_emit.{promoteRegularCallFloatArgsIfNeededState, r
 import codegen.ir_call_meta.{resolveSizeofBuiltinValueImpl, resolveAlignofBuiltinValueImpl, resolveOffsetofBuiltinValueImpl}
 import codegen.ir_call_low_level.{isPtrBuiltinCallImpl, isSimdBuiltinCallImpl, emitPreparedLowLevelBuiltinActionImpl}
 import codegen.ir_call_builtin_plan.{planMetaBuiltinCallImpl, planLowLevelBuiltinCallImpl, shouldReadSimdShuffleConstArgImpl, planLowLevelBuiltinArgumentReadsImpl, shouldClearLowLevelDebugAssertCseImpl}
+import codegen.ir_call_comptime_param.{applyComptimeParamSpecializationState}
 import codegen.ir_call_fixups.{resolveRealParserMisplacedMethodReturnTypeImpl, isStandaloneParserWorkaroundImpl, emitStandaloneParserWorkaroundCallImpl}
-import codegen.ir_method_finalize.{resolveMethodCallInstanceTypeNameImpl, resolveMethodCallReturnTypeImpl, prepareMethodCallReceiverAbiImpl}
-import codegen.ir_method_fastpath.{tryGeneratePreparedExplicitReceiverFastPathImpl, tryGeneratePreparedLocalVariableReceiverFastPathImpl, resolveStaticMethodClassNamesImpl, isStaticMethodReceiverReferenceImpl, tryGenerateStaticFactoryMethodCallImpl, resolveStaticMethodReturnTypeImpl, emitPreparedStaticMethodCallImpl, tryGenerateUnresolvedReceiverFallbackMethodImpl, applyUnresolvedReceiverDefaultImpl}
+import codegen.ir_method_finalize.{resolveMethodCallInstanceTypeNameImpl, emitPreparedFinalMethodDispatchState}
+import codegen.ir_method_fastpath.{tryGeneratePreparedExplicitReceiverFastPathImpl, tryGeneratePreparedLocalVariableReceiverFastPathImpl, resolveStaticMethodClassNamesImpl, isStaticMethodReceiverReferenceImpl, tryGenerateStaticFactoryMethodCallImpl}
 import codegen.ir_method_receiver_predicates.{isOptionReceiverTypeImpl, isSmallVecReceiverTypeImpl, isCollectionReceiverTypeImpl, isArrayReceiverTypeImpl, isStringBuilderRuntimeMethodImpl, isNumericReceiverMethodImpl, needsStaticFactoryArgumentImpl}
-import codegen.ir_method_call_plan.{planResolvedReceiverFastPathImpl, shouldReadOptionDefaultFastPathArgImpl, shouldReadSmallVecFastPathArgImpl, shouldReadReceiverFastPathArgImpl, shouldPrepareEarlyMethodFastPathArgsImpl, shouldTryStaticMethodCallImpl, isPascalStaticReceiverNameImpl, shouldTryNoArgStaticFactoryImpl, shouldTryArgStaticFactoryImpl, resolveStaticCallClassNameImpl, shouldPromoteStaticMethodFloatArgsImpl, staticMethodFunctionNameImpl, shouldRecordStaticMethodLateDeclareImpl, isSeenLexerKeywordManagerReceiverImpl, hasGeneratorFieldReceiverImpl, hasStructFieldReceiverImpl, shouldResolveImplicitThisDottedFieldReceiverImpl, planArrayMutatorMethodImpl, planArrayMutatorFreeTypeImpl, planArrayMutatorFreeEmitImpl, planArrayMutatorPushPointerImpl, planArrayMutatorFallbackPointerImpl, isDottedArrayMutatorLiteralImpl, shouldResolveChainedArrayMutatorReceiverImpl, shouldLoadLocalArrayMutatorPointerImpl, shouldUseImplicitThisArrayMutatorPointerImpl, resolveArrayMutatorVariableNameImpl, resolveArrayReceiverElementTypeImpl, resolveArrayPushElementTypeImpl}
-import codegen.ir_method_fastpath_emit.{emitPreparedOptionReceiverFastPathImpl, emitPreparedSmallVecReceiverFastPathImpl, emitPreparedCollectionReceiverFastPathImpl, emitPreparedArrayReceiverFastPathImpl}
-import codegen.ir_method_array_mutator_emit.{emitPreparedArrayFreeMutatorImpl, emitPreparedArrayPushMutatorImpl, emitPreparedArrayPopMutatorImpl, emitPreparedArraySwapMutatorImpl, emitPreparedClassFreeMutatorImpl}
-import codegen.ir_method_lower_plan.{planMethodLowerCallImpl, methodLowerStringBuilderArgActionImpl, shouldUseMethodLowerUnwrapTraceSourceImpl, shouldWarnUnresolvedCollectionGetImpl, shouldUseScalarReceiverFallbackImpl}
-import codegen.ir_method_lower_emit.{emitPreparedLengthLikeMethodLowerImpl, emitPreparedStringBuilderMethodLowerImpl, emitPreparedPrimitiveConversionMethodLowerImpl, emitPreparedNumericMethodLowerImpl, emitPreparedStringLikeMethodLowerImpl, emitPreparedUnresolvedCollectionGetWarningImpl, emitPreparedHotReloadMethodLowerImpl, emitPreparedScalarReceiverFallbackImpl, emitPreparedSpecializedMethodLowerImpl, emitPreparedUserMethodLowerImpl}
+import codegen.ir_method_call_plan.{planResolvedReceiverFastPathImpl, shouldReadOptionDefaultFastPathArgImpl, shouldReadSmallVecFastPathArgImpl, shouldReadReceiverFastPathArgImpl, shouldPrepareEarlyMethodFastPathArgsImpl, shouldTryStaticMethodCallImpl, isPascalStaticReceiverNameImpl, shouldTryNoArgStaticFactoryImpl, shouldTryArgStaticFactoryImpl, resolveStaticCallClassNameImpl, shouldPromoteStaticMethodFloatArgsImpl, staticMethodFunctionNameImpl, isSeenLexerKeywordManagerReceiverImpl, hasGeneratorFieldReceiverImpl, hasStructFieldReceiverImpl, shouldResolveImplicitThisDottedFieldReceiverImpl, planArrayMutatorMethodImpl, isDottedArrayMutatorLiteralImpl, shouldResolveChainedArrayMutatorReceiverImpl, shouldLoadLocalArrayMutatorPointerImpl, shouldUseImplicitThisArrayMutatorPointerImpl}
+import codegen.ir_method_fastpath_emit.{emitResolvedReceiverFastPathActionImpl}
+import codegen.ir_method_static_dispatch.{emitPreparedStaticMethodDispatchState}
+import codegen.ir_method_array_mutator_emit.{resolveArrayFreeReceiverTypeStateImpl, shouldResolveArrayFreeMutatorPointerStateImpl, emitPreparedArrayFreeMutatorMethodStateImpl, emitPreparedArrayPushMutatorMethodStateImpl, emitPreparedArrayPopMutatorMethodStateImpl, emitPreparedArraySwapMutatorMethodStateImpl}
+import codegen.ir_method_lower_plan.{planMethodLowerCallImpl, methodLowerStringBuilderArgActionForArgsImpl, shouldUseMethodLowerUnwrapTraceSourceImpl, shouldWarnUnresolvedCollectionGetImpl, shouldUseScalarReceiverFallbackImpl}
+import codegen.ir_method_lower_emit.{emitPreparedUnresolvedReceiverDefaultImpl, emitPreparedNonArgMethodLowerDispatchImpl, emitPreparedStringBuilderMethodLowerImpl, emitPreparedNumericMethodLowerImpl, emitPreparedStringLikeMethodLowerImpl, emitPreparedUnresolvedCollectionGetWarningImpl, emitPreparedHotReloadMethodLowerImpl, emitPreparedScalarReceiverFallbackImpl}
 import codegen.ir_method_final_plan.{planMethodUnresolvedReceiverStartImpl, planMethodUnresolvedReceiverFinalImpl, planMethodFinalDispatchImpl}
-import codegen.ir_method_receiver_lookup_plan.{planMethodReceiverInitialPhaseImpl, planMethodReceiverPostLookupPhaseImpl, planMethodReceiverPostResolutionPhaseImpl, planDottedReceiverStageImpl, planDottedReceiverFallbackStageImpl, planImplicitThisDottedReceiverStageImpl, planSimpleLiteralReceiverStageImpl, planImplicitThisReceiverStageImpl}
-import codegen.ir_method_receiver_lookup_gen.{emitLocalMethodReceiverLoadImpl, emitModuleConstantMethodReceiverLoadImpl, emitImplicitDottedMethodReceiverLoadImpl, emitImplicitThisMethodReceiverLoadImpl}
+import codegen.ir_method_receiver_lookup_plan.{planMethodReceiverInitialPhaseImpl, planMethodReceiverPostLookupPhaseImpl, planMethodReceiverPostResolutionPhaseImpl, planDottedReceiverStageImpl, planDottedReceiverFallbackStageImpl, planSimpleLiteralReceiverStageImpl}
+import codegen.ir_method_receiver_lookup_gen.{emitLocalMethodReceiverLoadImpl, emitModuleConstantMethodReceiverLoadImpl, tryResolveImplicitThisDottedMethodReceiverStateImpl, tryResolveImplicitThisLiteralMethodReceiverStateImpl}
 import codegen.ir_method_builtin_type_infer.{tryInferBuiltinReceiverMethodCallTypeState}
 import codegen.ir_value_coercion.{coerceValueForLlvmTargetImpl}
 import codegen.ir_string_concat_emit.{isStringConcatTypePairImpl, exprHasStringConcatMarkerImpl, coerceStringConcatPieceRegImpl}
@@ -129,7 +131,7 @@ import codegen.ir_class_gen_support.{prepareGeneratedClassDecoratorSnapshotImpl,
 import codegen.ir_class_type_alias_state.{emitTraitVtableTypeState, tryHandleTypeAliasClassState}
 import codegen.ir_class_generated_features.{emitGeneratedClassDecoratorMethodsImpl}
 import codegen.ir_class_constructor_gen.{emitClassHeapAllocationImpl, emitClassArrayFieldInitializersImpl, resolveClassConstructorFieldOffsetImpl}
-import codegen.ir_module_emit.{mapGlobalVarLlvmTypeImpl, emitCrossModuleConstantDeclaresImpl, emitTraitVtableConstantsImpl, collectProgramDefinedSymbolsImpl, emitGeneratedClosuresImpl, emitOptimizationStatisticsSummaryImpl, shouldSkipStandaloneTopLevelFunctionImpl, resolveSpecialTopLevelFunctionActionImpl, emitGlobalConstructorsImpl}
+import codegen.ir_module_emit.{mapGlobalVarLlvmTypeImpl, emitCrossModuleConstantDeclaresImpl, emitTraitVtableConstantsImpl, collectProgramDefinedSymbolsImpl, emitGeneratedClosuresImpl, emitOptimizationStatisticsSummaryImpl, shouldSkipStandaloneTopLevelFunctionImpl, resolveSpecialTopLevelFunctionActionImpl, emitGlobalConstructorsImpl, emitTBAAMetadataImpl}
 import codegen.ir_program_flow_plan.{shouldVisitProgramFlowIndexImpl, shouldEmitProgramClassTypeItemImpl, shouldGenerateProgramClassItemImpl, planProgramTopLevelFunctionStartImpl, planProgramTopLevelFunctionAfterSpecialImpl}
 import codegen.ir_field_layout.{emitSeenArrayLengthLoadImpl, generateFieldAccessImpl, generateFieldAccessPtrImpl, isScalarFieldChainTerminalTypeImpl}
 import codegen.ir_path_expr.{splitChainedPathImpl, buildChainedPathExprImpl, splitFirstPathDotImpl, splitBracketPathImpl, resolveChainedPathSuffixTypeImpl}
@@ -142,6 +144,7 @@ import codegen.ir_binary_emit.{emitPreparedPointerArithmeticBinaryImpl, emitPrep
 import codegen.ir_binary_plan.{shouldTryPointerArithmeticBinaryImpl, shouldTrySimdBinaryGateImpl, shouldUseIntPeepholeGateImpl, shouldUseFloatPeepholeGateImpl, shortCircuitBinaryActionImpl}
 import codegen.ir_binary_fold_plan.{planBinaryOperandLiteralFactsImpl, isBinaryIntLiteralOperandImpl, planBinaryFoldActionImpl, shouldTryBinaryAssociativeIntFoldImpl, binaryAssociativeIntFoldRewriteCostImpl, shouldApplyBinaryAssociativeIntFoldImpl, planBinaryLiteralComparisonFoldImpl, planBinaryLiteralConstantFoldImpl, planBinaryFloatPeepholeImpl, planBinaryFoldFmaImpl, planBinaryFoldCseImpl}
 import codegen.ir_binary_short_circuit.{allocateShortCircuitBinaryLabelsImpl, emitShortCircuitCheckBridgeImpl, emitShortCircuitAndDecisionImpl, emitShortCircuitOrDecisionImpl, emitShortCircuitRightLabelImpl, emitShortCircuitDoneBridgeImpl, emitShortCircuitMergeJumpImpl}
+import codegen.ir_binary_membership.{inferDeclaredMembershipElementTypeImpl, shouldInferMembershipArrayLiteralElementImpl, membershipPendingArrayLiteralTypeImpl, membershipNeedleWarningImpl, membershipUnsupportedSetWarningImpl, emitPreparedMembershipContainsImpl}
 import codegen.ir_unary_expr.{planOverloadedUnaryState, negatedComparisonPredicateImpl, shouldEmitNegatedComparisonForTypesImpl, emitOverloadedUnaryCallImpl, emitUnaryNegationImpl, emitNegatedComparisonImpl, emitUnaryLogicalNotImpl, emitUnaryAddressOfClassValueImpl, emitUnaryAddressOfVariablePtrImpl, emitUnaryDereferenceImpl, isUnaryBitwiseNotOperatorImpl, emitUnaryBitwiseNotImpl}
 import codegen.ir_class_method_gen.{tryEmitOptionClassMethodShimImpl, collectClassMethodParameterInfoImpl, emitClassMethodSignatureStateImpl, emitClassMethodReceiverBindingStateImpl, emitClassMethodParameterBindingsStateImpl, emitClassMethodConstructorSetupStateImpl, tryEmitClassMethodConstructorReturnStateImpl, emitClassMethodDefaultReturnStateImpl}
 import codegen.ir_stmt_decl.{shouldInferDeclarationInitializerTypeImpl, resolveDeclarationBaseTypeImpl, resolveLetStatementTypeImpl, resolveLetStatementAllocaImpl, prepareLetStatementPlanImpl, resolveLetPreAllocatedRegImpl, classifyCollectedStatementKindImpl, shouldTraceCollectedDeclarationTypeImpl, appendCollectedDeclarationImpl, resolveCollectedForInElementTypeImpl, buildForInIndexNameImpl, shouldSeedDeclarationPendingArrayLiteralTypeImpl, emitDeadLiteralInitializerSkipNoteImpl, emitDeclarationInitializerStoreImpl}
@@ -164,9 +167,11 @@ import codegen.ir_function_prelude_analysis.{prepareFunctionPreludeAnalysisSnaps
 import codegen.ir_function_entry_exit.{emitPreAllocatedAllocasImpl, emitFunctionEntrySetupSnapshotImpl, emitFunctionExitResetSnapshotImpl}
 import codegen.ir_function_signature_emit.{emitAsyncCoroutineEpilogueImpl}
 import codegen.ir_literal_gen.{generateLiteralFree}
-import codegen.ir_function_decorators.{hasFunctionDecoratorImpl, shouldSkipFunctionByCfgStateImpl, emitFunctionDecoratorMetadataCommentsStateImpl, tryHandleIntrinsicFunctionGenerationStateImpl, shouldSkipSpecialFunctionBodyStateImpl, prepareFunctionAttributeStateSnapshotImpl, prepareFunctionDecoratorPreflightSnapshotImpl, tryHandleExternFunctionGenerationStateImpl}
-import codegen.ir_function_lifecycle.{planFunctionIntrinsicFlowImpl, shouldReturnAfterFunctionDecoratorPreflightImpl, planFunctionIdentityFlowImpl, planFunctionHighPressureImpl, planFunctionEntryExitFlowImpl, applyFunctionEntrySetupToEmissionImpl, currentFunctionProfileFlagIntImpl, currentFunctionHighPressureIntImpl, applyFunctionExitStateToEmissionImpl}
-import codegen.ir_function_usage.{scanUnusedTopLevelFunctionNamesImpl}
+import codegen.ir_function_decorators.{hasFunctionDecoratorImpl, shouldSkipFunctionByCfgStateImpl, emitFunctionDecoratorMetadataCommentsStateImpl, shouldSkipSpecialFunctionBodyStateImpl, tryHandleExternFunctionGenerationStateImpl}
+import codegen.ir_function_lifecycle.{planFunctionIdentityFlowImpl, planFunctionHighPressureImpl, planFunctionEntryExitFlowImpl, applyFunctionEntrySetupToEmissionImpl, currentFunctionProfileFlagIntImpl, currentFunctionHighPressureIntImpl, applyFunctionExitStateToEmissionImpl}
+import codegen.ir_function_intrinsic_driver.{tryHandleFunctionIntrinsicDriverGlobalStateImpl}
+import codegen.ir_function_decorator_driver.{prepareFunctionAttributeGlobalStateImpl, prepareFunctionDecoratorPreflightGlobalStateImpl}
+import codegen.ir_function_usage.{emitUnusedTopLevelFunctionWarningsImpl}
 import codegen.ir_function_prebody.{isMainFunctionNameImpl, prepareFunctionPreBodyStateSnapshotImpl, mapFunctionPreBodyReturnTypeImpl, emitMainFunctionEntrySnapshotImpl, emitMainFunctionExitImpl}
 import codegen.ir_function_body.{captureFunctionBodyBlockScopeImpl, scanFunctionBodyDeadStorePatternsSnapshotImpl, emitFunctionBodyTrailingDeadCodeNoticeSnapshotImpl, beginFunctionBodyBlockDeferredCleanupImpl, beginFunctionBodyReturnDeferCleanupImpl, beginFunctionBodyVoidErrdeferCleanupImpl, beginFunctionBodyValueErrdeferCleanupImpl, finishFunctionBodyValueErrdeferCleanupImpl, bindFunctionBodyCatchVariableImpl, planFunctionBodyExpressionStatementImpl, emitFunctionBodyPairedSelectStoreImpl, emitFunctionBodySingleArmSelectStoreImpl, planFunctionBodyConstantIfImpl, emitFunctionBodyConstantIfNoteImpl, emitFunctionBodyIfBranchingImpl, beginFunctionBodyLoopContextImpl, restoreFunctionBodyLoopContextImpl, emitFunctionBodyLoopEndLabelImpl, resolveFunctionBodyForInLoopVariableStorageImpl, resolveFunctionBodyForInIndexAllocaImpl, emitFunctionBodyMemcpyOptimizedLoopImpl}
 import codegen.ir_function_state.{getCurrentFunctionEmissionStateImpl, resetFunctionEmissionForFunctionImpl, markFunctionEmissionHighPressureImpl, resetFunctionEmissionHighPressureImpl, recordMovedVariableImpl, isMovedVariableImpl, resetFunctionLoweringOptionsStateImpl, resetFunctionHighPressureImpl, markFunctionHighPressureImpl, isFunctionHighPressureImpl, currentFunctionAlignToImpl, currentFunctionRegionSizeBytesImpl, isCurrentFunctionAsyncLoweringImpl, markTailCallPositionImpl, takeTailCallPositionImpl}
@@ -1112,16 +1117,7 @@ class LLVMIRGenerator {
 
         emitGeneratedClosuresImpl(this.output, g_closureDefs)
 
-        // Unused function pruning warnings (9.10c)
-        let unusedTopLevelFunctions = scanUnusedTopLevelFunctionNamesImpl(
-            program)
-        var unusedIdx = 0
-        while unusedIdx < unusedTopLevelFunctions.length() {
-            let unusedName = unusedTopLevelFunctions[unusedIdx]
-            this.output.append("; WARNING: unused function: " + unusedName + "\n")
-            mlLogDecision("dead-func", "unused", unusedName)
-            unusedIdx = unusedIdx + 1
-        }
+        emitUnusedTopLevelFunctionWarningsImpl(this.output, program)
 
         emitOptimizationStatisticsSummaryImpl(this.output, moduleIndex, false,
             g_branchesEliminated, g_deadStatementsEliminated,
@@ -1174,25 +1170,7 @@ class LLVMIRGenerator {
     }
 
     fun emitTBAAMetadata() r: Void {
-        this.output.append("\n; Function attributes\n")
-        var attrStr = "mustprogress nounwind"
-        if g_sanitizerMode == "address" {
-            attrStr = attrStr + " sanitize_address"
-        }
-        if g_sanitizerMode == "thread" {
-            attrStr = attrStr + " sanitize_thread"
-        }
-        this.output.append("attributes #0 = { " + attrStr + " }\n")
-        this.output.append("\n; TBAA metadata for alias analysis\n")
-        this.output.append("!100 = !{!\"SeenTBAA\"}\n")
-        this.output.append("!101 = !{!\"pointer\", !100, i64 0}\n")
-        this.output.append("!102 = !{!\"integer\", !100, i64 0}\n")
-        this.output.append("!103 = !{!\"float\", !100, i64 0}\n")
-        this.output.append("!104 = !{!101, !101, i64 0}\n")
-        this.output.append("!105 = !{!102, !102, i64 0}\n")
-        this.output.append("!106 = !{!103, !103, i64 0}\n")
-        this.output.append("!107 = !{!\"struct_field\", !100, i64 0}\n")
-        this.output.append("!108 = !{!107, !107, i64 0}\n")
+        emitTBAAMetadataImpl(this.output, g_sanitizerMode)
     }
 
     fun emitLoopMetadata() r: Void {
@@ -1658,40 +1636,16 @@ class LLVMIRGenerator {
         emitFunctionDecoratorMetadataCommentsStateImpl(this.output, fn,
             g_traitImplCount)
 
-        let intrinsicFuncNamesBox = Array<String>()
-        intrinsicFuncNamesBox.push(g_intrinsicFuncNames)
-        let intrinsicLlvmNamesBox = Array<String>()
-        intrinsicLlvmNamesBox.push(g_intrinsicLlvmNames)
-        let intrinsicCountBox = Array<Int>()
-        intrinsicCountBox.push(g_intrinsicCount)
-        let handledIntrinsic =
-            tryHandleIntrinsicFunctionGenerationStateImpl(this.output, g_regBox, fn,
-            structNames, g_typeAliasNames, g_typeAliasTargets,
-            g_typeAliasCount, g_enumTypeNames, intrinsicFuncNamesBox,
-            intrinsicLlvmNamesBox, intrinsicCountBox)
-        let intrinsicFlow = planFunctionIntrinsicFlowImpl(handledIntrinsic)
-        if intrinsicFlow.shouldWriteBackRegistry {
-            g_intrinsicFuncNames = intrinsicFuncNamesBox[0]
-            g_intrinsicLlvmNames = intrinsicLlvmNamesBox[0]
-            g_intrinsicCount = intrinsicCountBox[0]
-        }
-        if intrinsicFlow.shouldReturn {
+        if tryHandleFunctionIntrinsicDriverGlobalStateImpl(this.output,
+            g_regBox, fn, structNames, g_typeAliasNames, g_typeAliasTargets,
+            g_typeAliasCount, g_enumTypeNames) {
+
             return
         }
 
-        let decoratorPreflight = prepareFunctionDecoratorPreflightSnapshotImpl(
-            this.output, g_regBox, fn, g_traitImplRegistry, g_traitImplCount,
-            g_gpuShaderNames, g_gpuShaderStages, g_gpuShaderWorkgroups,
-            g_gpuShaderBindings, g_gpuShaderCount)
-        g_traitImplRegistry = decoratorPreflight.traitImplRegistry
-        g_traitImplCount = decoratorPreflight.traitImplCount
-        g_gpuShaderNames = decoratorPreflight.gpuShaderNames
-        g_gpuShaderStages = decoratorPreflight.gpuShaderStages
-        g_gpuShaderWorkgroups = decoratorPreflight.gpuShaderWorkgroups
-        g_gpuShaderBindings = decoratorPreflight.gpuShaderBindings
-        g_gpuShaderCount = decoratorPreflight.gpuShaderCount
-        if shouldReturnAfterFunctionDecoratorPreflightImpl(
-            decoratorPreflight.handledByDecorator) {
+        if prepareFunctionDecoratorPreflightGlobalStateImpl(this.output,
+            g_regBox, fn) {
+
             return
         }
 
@@ -1734,16 +1688,8 @@ class LLVMIRGenerator {
         let returnType = returnTypeBox[0]
 
         // Build function attributes
-        let funcAttrState = prepareFunctionAttributeStateSnapshotImpl(this.output,
-            fn, g_sanitizerMode, g_initFuncNames, g_initFuncCount,
-            g_trustedFuncNames, g_specializationNames,
-            g_specializationCount)
-        var funcAttrs = funcAttrState.funcAttrs
-        g_initFuncNames = funcAttrState.initFuncNames
-        g_initFuncCount = funcAttrState.initFuncCount
-        g_trustedFuncNames = funcAttrState.trustedFuncNames
-        g_specializationNames = funcAttrState.specializationNames
-        g_specializationCount = funcAttrState.specializationCount
+        var funcAttrs = prepareFunctionAttributeGlobalStateImpl(this.output,
+            fn)
 
         // ML-guided inline decision
         let preludeAnalysis = prepareFunctionPreludeAnalysisSnapshotImpl(
@@ -4393,12 +4339,13 @@ class LLVMIRGenerator {
     fun inferMembershipElementType(rightExpr: ParserExpressionNode,
         rightType: String) r: String {
 
-        let declaredElementType = extractArrayLiteralElementTypeImpl(rightType)
+        let declaredElementType = inferDeclaredMembershipElementTypeImpl(
+            rightType)
         if declaredElementType != "" {
             return declaredElementType
         }
-        if rightExpr.kind == "ArrayLiteral" and
-            rightExpr.arguments.length() > 0 {
+        if shouldInferMembershipArrayLiteralElementImpl(rightExpr.kind,
+            rightExpr.arguments.length()) {
 
             return inferExpressionType(rightExpr.arguments[0])
         }
@@ -4409,13 +4356,10 @@ class LLVMIRGenerator {
         elementType: String) r: String {
 
         let savedPendingType = pendingArrayLiteralType
-        if rightExpr.kind == "ArrayLiteral" {
-            if elementType == "String" {
-                pendingArrayLiteralType = "Array<String>"
-            }
-            if elementType == "Int" {
-                pendingArrayLiteralType = "Array<Int>"
-            }
+        let pendingMembershipType = membershipPendingArrayLiteralTypeImpl(
+            rightExpr.kind, elementType)
+        if pendingMembershipType != "" {
+            pendingArrayLiteralType = pendingMembershipType
         }
         let rightReg = generateExpression(rightExpr)
         pendingArrayLiteralType = savedPendingType
@@ -4427,30 +4371,21 @@ class LLVMIRGenerator {
         r: String {
 
         let elementType = inferMembershipElementType(rightExpr, rightType)
-        if elementType == "String" {
-            if leftType != "String" {
-                this.output.append("  ; WARNING: 'in' requires a String needle for Array<String>\n")
-                return "false"
-            }
-            let leftReg = generateExpression(leftExpr)
-            let rightReg = generateMembershipArrayReg(rightExpr, elementType)
-            let resultReg = getNextRegFn(g_regBox)
-            this.output.append("  " + resultReg + " = call i1 @seen_arr_contains_str(ptr " + rightReg + ", %SeenString " + leftReg + ")\n")
-            return resultReg
+        let needleWarning = membershipNeedleWarningImpl(elementType, leftType)
+        if needleWarning != "" {
+            this.output.append(needleWarning)
+            return "false"
         }
-        if elementType == "Int" {
-            if leftType != "Int" {
-                this.output.append("  ; WARNING: 'in' requires an Int needle for Array<Int>\n")
-                return "false"
-            }
-            let leftReg = generateExpression(leftExpr)
-            let rightReg = generateMembershipArrayReg(rightExpr, elementType)
-            let resultReg = getNextRegFn(g_regBox)
-            this.output.append("  " + resultReg + " = call i1 @seen_arr_contains_i64(ptr " + rightReg + ", i64 " + leftReg + ")\n")
-            return resultReg
+        let unsupportedWarning = membershipUnsupportedSetWarningImpl(
+            elementType, rightType)
+        if unsupportedWarning != "" {
+            this.output.append(unsupportedWarning)
+            return "false"
         }
-        this.output.append("  ; WARNING: unsupported 'in' set type " + rightType + "\n")
-        return "false"
+        let leftReg = generateExpression(leftExpr)
+        let rightReg = generateMembershipArrayReg(rightExpr, elementType)
+        return emitPreparedMembershipContainsImpl(this.output, g_regBox,
+            elementType, leftReg, rightReg)
     }
 
     ///
@@ -4859,41 +4794,6 @@ class LLVMIRGenerator {
         cseClear()
         return emitShortCircuitPhiImpl(this.output, g_regBox, labels.mergeLabel,
             "true", labels.checkLabel, rightBool, labels.doneLabel)
-    }
-
-    fun applyComptimeParamSpecialization(funcName: String, expr: ParserExpressionNode) r: Void {
-        if g_comptimeParamCount <= 0 {
-            return
-        }
-
-        // Check if this function has comptime params
-        var ctpSearchPos = 0
-        while ctpSearchPos < g_comptimeParamFuncNames.length() {
-            var ctpNextPipe = g_comptimeParamFuncNames.indexOf("|", ctpSearchPos)
-            if ctpNextPipe < 0 { ctpNextPipe = g_comptimeParamFuncNames.length() }
-            let ctpEntry = g_comptimeParamFuncNames.substring(ctpSearchPos, ctpNextPipe)
-            // Entry format: "funcName:paramIdx:paramName"
-            let ctpColon1 = ctpEntry.indexOf(":", 0)
-            if ctpColon1 > 0 {
-                let ctpFuncName = ctpEntry.substring(0, ctpColon1)
-                if ctpFuncName == funcName {
-                    let ctpColon2 = ctpEntry.indexOf(":", ctpColon1 + 1)
-                    if ctpColon2 > ctpColon1 {
-                        let ctpIdxStr = ctpEntry.substring(ctpColon1 + 1, ctpColon2)
-                        let ctpParamName = ctpEntry.substring(ctpColon2 + 1, ctpEntry.length())
-                        let ctpParamIdx = parseSimpleIntState(ctpIdxStr)
-                        if ctpParamIdx >= 0 and ctpParamIdx < expr.arguments.length() {
-                            let ctpVal = evaluateConstExprState(expr.arguments[ctpParamIdx])
-                            if ctpVal != -9999999 {
-                                registerComptimeVarState(ctpParamName, ctpVal)
-                                this.output.append("  ; comptime param " + ctpParamName + " = " + ctpVal.toString() + "\n")
-                            }
-                        }
-                    }
-                }
-            }
-            ctpSearchPos = ctpNextPipe + 1
-        }
     }
 
     fun tryGenerateMetaBuiltinCall(expr: ParserExpressionNode, funcName: String) r: String {
@@ -5541,7 +5441,8 @@ class LLVMIRGenerator {
     fun generateCall(expr: ParserExpressionNode) r: String {
         var funcName = expr.callee
 
-        applyComptimeParamSpecialization(funcName, expr)
+        applyComptimeParamSpecializationState(this.output,
+            g_comptimeParamCount, g_comptimeParamFuncNames, funcName, expr)
 
         let metaBuiltinResult = tryGenerateMetaBuiltinCall(expr, funcName)
         if metaBuiltinResult != "" {
@@ -5610,67 +5511,50 @@ class LLVMIRGenerator {
             isCollectionReceiverTypeImpl(receiverType),
             isArrayReceiverTypeImpl(receiverType))
 
-        if fastPathPlan.action == 1 {
+        var optDefaultRegS = "0"
+        var svArgReg = ""
+        var collArg0s = "0"
+        var collArg1s = "0"
+        var arrArg0 = ""
+        var arrArg1 = ""
+        var arrArg0Type = ""
+        var arrArg1Type = ""
 
-            var optDefaultRegS = "0"
-            if shouldReadOptionDefaultFastPathArgImpl(fastPathPlan.action,
-                methodName, expr.arguments.length()) {
-                optDefaultRegS = generateExpression(expr.arguments[0])
-            }
-            return emitPreparedOptionReceiverFastPathImpl(this.output, g_regBox,
-                g_blockLabelBox,
-                methodName, receiverReg, optDefaultRegS)
+        if shouldReadOptionDefaultFastPathArgImpl(fastPathPlan.action,
+            methodName, expr.arguments.length()) {
+            optDefaultRegS = generateExpression(expr.arguments[0])
+        }
+        if shouldReadSmallVecFastPathArgImpl(fastPathPlan.action,
+            methodName, expr.arguments.length()) {
+            svArgReg = generateExpression(expr.arguments[0])
+        }
+        if fastPathPlan.action == 3 and
+            shouldReadReceiverFastPathArgImpl(fastPathPlan.action,
+            expr.arguments.length(), 0) {
+            collArg0s = generateExpression(expr.arguments[0])
+        }
+        if fastPathPlan.action == 3 and
+            shouldReadReceiverFastPathArgImpl(fastPathPlan.action,
+            expr.arguments.length(), 1) {
+            collArg1s = generateExpression(expr.arguments[1])
+        }
+        if fastPathPlan.action == 4 and
+            shouldReadReceiverFastPathArgImpl(fastPathPlan.action,
+            expr.arguments.length(), 0) {
+            arrArg0 = generateExpression(expr.arguments[0])
+            arrArg0Type = inferExpressionType(expr.arguments[0])
+        }
+        if fastPathPlan.action == 4 and
+            shouldReadReceiverFastPathArgImpl(fastPathPlan.action,
+            expr.arguments.length(), 1) {
+            arrArg1 = generateExpression(expr.arguments[1])
+            arrArg1Type = inferExpressionType(expr.arguments[1])
         }
 
-        if fastPathPlan.action == 2 {
-
-            var svArgReg = ""
-            if shouldReadSmallVecFastPathArgImpl(fastPathPlan.action,
-                methodName, expr.arguments.length()) {
-                svArgReg = generateExpression(expr.arguments[0])
-            }
-            return emitPreparedSmallVecReceiverFastPathImpl(this.output, g_regBox, methodName,
-                receiverReg, receiverType, svArgReg)
-        }
-
-        if fastPathPlan.action == 3 {
-
-            var collArg0s = "0"
-            var collArg1s = "0"
-            if shouldReadReceiverFastPathArgImpl(fastPathPlan.action,
-                expr.arguments.length(), 0) {
-                collArg0s = generateExpression(expr.arguments[0])
-            }
-            if shouldReadReceiverFastPathArgImpl(fastPathPlan.action,
-                expr.arguments.length(), 1) {
-                collArg1s = generateExpression(expr.arguments[1])
-            }
-            return emitPreparedCollectionReceiverFastPathImpl(this.output, g_regBox, methodName,
-                receiverReg, receiverType, collArg0s, collArg1s)
-        }
-
-        if fastPathPlan.action == 4 {
-
-            var arrArg0 = ""
-            var arrArg1 = ""
-            var arrArg0Type = ""
-            var arrArg1Type = ""
-            if shouldReadReceiverFastPathArgImpl(fastPathPlan.action,
-                expr.arguments.length(), 0) {
-                arrArg0 = generateExpression(expr.arguments[0])
-                arrArg0Type = inferExpressionType(expr.arguments[0])
-            }
-            if shouldReadReceiverFastPathArgImpl(fastPathPlan.action,
-                expr.arguments.length(), 1) {
-                arrArg1 = generateExpression(expr.arguments[1])
-                arrArg1Type = inferExpressionType(expr.arguments[1])
-            }
-            return emitPreparedArrayReceiverFastPathImpl(this.output, g_regBox, methodName,
-                receiverReg, receiverType, arrArg0, arrArg1, arrArg0Type,
-                arrArg1Type)
-        }
-
-        return ""
+        return emitResolvedReceiverFastPathActionImpl(this.output, g_regBox,
+            g_blockLabelBox, fastPathPlan.action, methodName, receiverReg,
+            receiverType, optDefaultRegS, svArgReg, collArg0s, collArg1s,
+            arrArg0, arrArg1, arrArg0Type, arrArg1Type)
     }
 
     fun tryGenerateStaticMethodCall(expr: ParserExpressionNode, methodName: String,
@@ -5732,25 +5616,16 @@ class LLVMIRGenerator {
 
             inferredStaticReturnType = tryInferStaticMethodCallType(expr)
         }
-        let staticReturnType = resolveStaticMethodReturnTypeImpl(
-            registeredStaticReturnType, inferredStaticReturnType)
-        let staticLlvmReturnType = mapTypeState(staticReturnType)
-        var isClassRecv = 0
-        if isClassTypeState(staticClassName) { isClassRecv = 1 }
-        var isDataRecv = 0
-        if isDataTypeState(staticClassName) { isDataRecv = 1 }
-        if shouldRecordStaticMethodLateDeclareImpl(potentialClassName,
-            methodName) {
-            let staticLateState = captureLateUserDeclareState()
-            recordLateUserDeclareIntoStateImpl(funcName, staticLlvmReturnType,
-                argTypeStrs, 0, funcNames, funcRetTypes, g_xmDeclareNames,
-                g_xmDeclareCount, staticLateState)
-            applyLateUserDeclareState(staticLateState)
-        }
-        return emitPreparedStaticMethodCallImpl(this.output, g_regBox, methodName,
-            potentialClassName, staticClassName, funcName,
-            staticLlvmReturnType, isClassRecv, isDataRecv,
-            argRegs, argTypeStrs)
+        let staticLateState = captureLateUserDeclareState()
+        let staticResult = emitPreparedStaticMethodDispatchState(
+            this.output, g_regBox, methodName, potentialClassName,
+            staticClassName, funcName, registeredStaticReturnType,
+            inferredStaticReturnType, argRegs, argTypeStrs, structNames,
+            g_reprCClassNames, g_typeAliasNames, g_typeAliasTargets,
+            g_typeAliasCount, g_enumTypeNames, funcNames, funcRetTypes,
+            g_xmDeclareNames, g_xmDeclareCount, staticLateState)
+        applyLateUserDeclareState(staticLateState)
+        return staticResult
     }
 
     fun tryResolveArrayMutatorPointerFromLiteral(varName: String) r: String {
@@ -5818,50 +5693,20 @@ class LLVMIRGenerator {
             receiverIsArray, expr.arguments.length())
 
         if mutatorPlan.action == 1 {
-            var freeReceiverType = receiverType
-            let freeTypePlan = planArrayMutatorFreeTypeImpl(
-                freeReceiverType, expr.literalValue)
-            if freeTypePlan.shouldLookupLiteralType {
-                let freeTypeIdx = findActiveVariableIndexImpl(this.varNames, activeVarCount, expr.literalValue)
-                if freeTypeIdx >= 0 {
-                    let resolvedFreeReceiverType = this.varTypes[freeTypeIdx]
-                    freeReceiverType = resolvedFreeReceiverType
-                }
+            let freeReceiverType = resolveArrayFreeReceiverTypeStateImpl(
+                receiverType, expr.literalValue, this.varNames, this.varTypes,
+                activeVarCount)
+            var freePtrReg = receiverReg
+            if shouldResolveArrayFreeMutatorPointerStateImpl(
+                freeReceiverType, freePtrReg, expr.literalValue, structNames) {
+
+                freePtrReg = tryResolveArrayMutatorPointerFromLiteral(
+                    expr.literalValue)
             }
-            let isArrayType = isArrayReceiverTypeImpl(freeReceiverType)
-            if isArrayType {
-                var freePtrReg = receiverReg
-                let freeEmitPlan = planArrayMutatorFreeEmitImpl(isArrayType,
-                    freePtrReg, expr.literalValue, isClassTypeState(freeReceiverType))
-                if freeEmitPlan.shouldResolvePointerFromLiteral {
-                    freePtrReg = tryResolveArrayMutatorPointerFromLiteral(
-                        expr.literalValue)
-                }
-                let resolvedFreeEmitPlan = planArrayMutatorFreeEmitImpl(
-                    isArrayType, freePtrReg, expr.literalValue,
-                    isClassTypeState(freeReceiverType))
-                if resolvedFreeEmitPlan.shouldEmitArrayFree {
-                    return emitPreparedArrayFreeMutatorImpl(this.output, g_regBox,
-                        freePtrReg)
-                }
-            }
-            let classFreePlan = planArrayMutatorFreeEmitImpl(isArrayType, "",
-                expr.literalValue, isClassTypeState(freeReceiverType))
-            if classFreePlan.shouldEmitClassFree {
-                let freeVarName = resolveArrayMutatorVariableNameImpl(
-                    expr.literalValue, expr.variableName)
-                let freeVarIdx = findActiveVariableIndexImpl(this.varNames, activeVarCount, freeVarName)
-                if freeVarIdx >= 0 {
-                    let baseType = getBaseTypeNameImpl(freeReceiverType)
-                    let sIdx = findStructReg(baseType, structNames)
-                    var sSize = 0
-                    if sIdx >= 0 {
-                        sSize = structSizes[sIdx]
-                    }
-                    return emitPreparedClassFreeMutatorImpl(this.output, g_regBox,
-                        this.varRegs[freeVarIdx], sSize)
-                }
-            }
+            return emitPreparedArrayFreeMutatorMethodStateImpl(this.output,
+                g_regBox, freeReceiverType, expr.literalValue,
+                expr.variableName, freePtrReg, this.varNames, this.varRegs,
+                activeVarCount, structNames, structSizes)
         }
 
         if mutatorPlan.action == 2 {
@@ -5869,54 +5714,37 @@ class LLVMIRGenerator {
             let argReg = generateExpression(argExpr)
             let argType = inferExpressionType(argExpr)
             let argIsStructLiteral = argExpr.kind == "StructLiteral"
-            let elemType = resolveArrayReceiverElementTypeImpl(receiverType)
-            let pushElemType = resolveArrayPushElementTypeImpl(argType,
-                elemType)
-
             let varName = expr.literalValue
-            var arrayPtrReg = tryResolveArrayMutatorPointerFromLiteral(varName)
-
-            let pushPointerPlan = planArrayMutatorPushPointerImpl(
-                arrayPtrReg, receiverReg, receiverIsArray)
-            if pushPointerPlan.shouldUseReceiverReg {
-                arrayPtrReg = receiverReg
-            }
-
-            if pushPointerPlan.shouldEmitWithPointer {
-                let pushResult = emitPreparedArrayPushMutatorImpl(this.output, g_regBox,
-                    g_blockLabelBox, arrayPtrReg, argReg, pushElemType,
-                    receiverType, argIsStructLiteral, structNames)
-                if pushResult != "" {
-                    return pushResult
-                }
+            let arrayPtrReg = tryResolveArrayMutatorPointerFromLiteral(varName)
+            let pushResult = emitPreparedArrayPushMutatorMethodStateImpl(
+                this.output, g_regBox, g_blockLabelBox, arrayPtrReg,
+                receiverReg, receiverIsArray, argReg, argType,
+                argIsStructLiteral, receiverType, structNames)
+            if pushResult != "" {
+                return pushResult
             }
         }
 
         if mutatorPlan.action == 3 {
-            var arrayPtrReg =
+            let arrayPtrReg =
                 tryResolveArrayMutatorPointerFromLiteral(expr.literalValue)
-            let popPointerPlan = planArrayMutatorFallbackPointerImpl(
-                arrayPtrReg, receiverReg)
-            if popPointerPlan.shouldUseReceiverReg { arrayPtrReg = receiverReg }
-            if popPointerPlan.shouldEmitWithPointer {
-                return emitPreparedArrayPopMutatorImpl(this.output, g_regBox,
-                    arrayPtrReg, resolvePopElementTypeImpl(receiverType))
+            let popResult = emitPreparedArrayPopMutatorMethodStateImpl(
+                this.output, g_regBox, arrayPtrReg, receiverReg, receiverType)
+            if popResult != "" {
+                return popResult
             }
         }
 
         if mutatorPlan.action == 4 {
             let idxAReg = generateExpression(expr.arguments[0])
             let idxBReg = generateExpression(expr.arguments[1])
-            var arrayPtrReg =
+            let arrayPtrReg =
                 tryResolveArrayMutatorPointerFromLiteral(expr.literalValue)
-            let swapPointerPlan = planArrayMutatorFallbackPointerImpl(
-                arrayPtrReg, receiverReg)
-            if swapPointerPlan.shouldUseReceiverReg {
-                arrayPtrReg = receiverReg
-            }
-            if swapPointerPlan.shouldEmitWithPointer {
-                return emitPreparedArraySwapMutatorImpl(this.output, g_regBox,
-                    arrayPtrReg, idxAReg, idxBReg)
+            let swapResult = emitPreparedArraySwapMutatorMethodStateImpl(
+                this.output, g_regBox, arrayPtrReg, receiverReg, idxAReg,
+                idxBReg)
+            if swapResult != "" {
+                return swapResult
             }
         }
 
@@ -6048,39 +5876,18 @@ class LLVMIRGenerator {
                 receiverReg = enumReceiverRegBox[0]
                 receiverType = enumReceiverTypeBox[0]
             } else {
-                let pathParts = splitFirstPathDotImpl(expr.literalValue)
-                let thisIdx = findActiveVariableIndexImpl(this.varNames, activeVarCount, "this")
-                if thisIdx >= 0 {
-                    let thisType = this.varTypes[thisIdx]
-                    let firstFieldType = resolveMethodFieldPathTypeImpl(
-                        thisType, pathParts[0], structNames,
-                        structFieldNames, structFieldTypes,
-                        structMethodNames, structMethodRetTypes)
-                    let implicitDottedPlan =
-                        planImplicitThisDottedReceiverStageImpl(thisIdx,
-                            firstFieldType)
-                    if implicitDottedPlan.shouldResolveImplicitThisDotted {
-                        let implicitDottedReceiver =
-                            emitImplicitDottedMethodReceiverLoadImpl(this.output,
-                            g_regBox, this.varRegs[thisIdx], thisType,
-                            pathParts[0], pathParts[1], firstFieldType,
-                            isClassTypeState(firstFieldType),
-                            resolveMethodFieldPathTypeImpl(
-                            firstFieldType, pathParts[1], structNames,
-                            structFieldNames, structFieldTypes,
-                            structMethodNames, structMethodRetTypes),
-                            structNames, structLayouts, structFieldNames,
-                            structFieldTypes, g_reprCClassNames, g_unionTypes,
-                            g_typeAliasNames, g_typeAliasTargets,
-                            g_typeAliasCount, g_enumTypeNames,
-                            g_bitfieldCount, g_bitfieldKeys,
-                            g_bitfieldWidths)
-                        receiverReg = implicitDottedReceiver.receiverReg
-                        receiverType = resolveMethodFieldPathTypeImpl(
-                            firstFieldType, pathParts[1], structNames,
-                            structFieldNames, structFieldTypes,
-                            structMethodNames, structMethodRetTypes)
-                    }
+                let implicitDottedReceiver =
+                    tryResolveImplicitThisDottedMethodReceiverStateImpl(
+                    this.output, g_regBox, expr.literalValue, this.varNames,
+                    this.varRegs, this.varTypes, activeVarCount, structNames,
+                    structLayouts, structFieldNames, structFieldTypes,
+                    structMethodNames, structMethodRetTypes,
+                    g_reprCClassNames, g_unionTypes, g_typeAliasNames,
+                    g_typeAliasTargets, g_typeAliasCount, g_enumTypeNames,
+                    g_bitfieldCount, g_bitfieldKeys, g_bitfieldWidths)
+                if implicitDottedReceiver.receiverReg != "" {
+                    receiverReg = implicitDottedReceiver.receiverReg
+                    receiverType = implicitDottedReceiver.receiverType
                 }
             }
         } else {
@@ -6138,32 +5945,18 @@ class LLVMIRGenerator {
                     }
                     if receiverReg == "" {
                         if simpleLiteralPlan.shouldTryImplicitThisLiteral {
-                            let thisReg = this.varRegs[thisIdx]
-                            let thisType = this.varTypes[thisIdx]
-                            let idxCheck =
-                                getLLVMIRGeneratorFieldIndexImpl(varName)
-                            let structIdx = findStructReg(thisType,
-                                structNames)
-                            var fieldIdx = -1
-                            if structIdx >= 0 {
-                                fieldIdx = getFieldInfoState(thisType,
-                                    varName)
-                            }
-                            let implicitLookupPlan =
-                                planImplicitThisReceiverStageImpl(
-                                thisType, varName, idxCheck, structIdx,
-                                fieldIdx)
                             let implicitThisReceiver =
-                                emitImplicitThisMethodReceiverLoadImpl(this.output,
-                                g_regBox, implicitLookupPlan.lookupAction,
-                                thisReg, thisType, varName,
+                                tryResolveImplicitThisLiteralMethodReceiverStateImpl(
+                                this.output, g_regBox, varName,
                                 resolveLiteralMethodReceiverType(varName),
-                                structNames, structLayouts, structFieldNames,
-                                structFieldTypes, g_reprCClassNames,
-                                g_unionTypes, g_typeAliasNames,
-                                g_typeAliasTargets, g_typeAliasCount,
-                                g_enumTypeNames, g_bitfieldCount,
-                                g_bitfieldKeys, g_bitfieldWidths)
+                                this.varNames, this.varRegs, this.varTypes,
+                                activeVarCount, structNames, structLayouts,
+                                structFieldNames, structFieldTypes,
+                                g_reprCClassNames, g_unionTypes,
+                                g_typeAliasNames, g_typeAliasTargets,
+                                g_typeAliasCount, g_enumTypeNames,
+                                g_bitfieldCount, g_bitfieldKeys,
+                                g_bitfieldWidths)
                             if implicitThisReceiver.receiverReg != "" {
                                 receiverReg = implicitThisReceiver.receiverReg
                                 receiverType = implicitThisReceiver.receiverType
@@ -6224,22 +6017,15 @@ class LLVMIRGenerator {
             }
 
             if unresolvedFinalPlan.shouldWarnAndApplyDefault {
-                this.output.append("; WARNING: receiver not resolved for " + methodName +
-                    ", receiverType='" + receiverType + "', currentClass='" +
-                    currentClassName + "', literal='" + expr.literalValue +
-                    "', operands=" + expr.operands.length().toString() +
-                    ", using default\n")
-                let unresolvedFallback =
-                    tryGenerateUnresolvedReceiverFallbackMethodImpl(this.output,
-                        g_regBox, methodName, receiverReg, receiverType)
-                if unresolvedFallback != "" {
-                    return unresolvedFallback
+                let unresolvedDefault =
+                    emitPreparedUnresolvedReceiverDefaultImpl(this.output,
+                    g_regBox, methodName, receiverReg, receiverType,
+                    currentClassName, expr.literalValue,
+                    expr.operands.length())
+                if unresolvedDefault.resultReg != "" {
+                    return unresolvedDefault.resultReg
                 }
-                let unresolvedReceiverRegBox = Array<String>()
-                unresolvedReceiverRegBox.push(receiverReg)
-                applyUnresolvedReceiverDefaultImpl(unresolvedReceiverRegBox,
-                    receiverType)
-                receiverReg = unresolvedReceiverRegBox[0]
+                receiverReg = unresolvedDefault.receiverReg
             }
         }
 
@@ -6256,12 +6042,13 @@ class LLVMIRGenerator {
             isStringBuilderRuntimeMethodImpl(methodName),
             isNumericReceiverMethodImpl(methodName))
 
-        if postResolutionPhase.shouldTryLowering and lowerPlan.shouldTryLengthLike {
-            let lengthLikeResult = emitPreparedLengthLikeMethodLowerImpl(this.output,
-                g_regBox, methodName, receiverReg, receiverType,
+        if postResolutionPhase.shouldTryLowering {
+            let nonArgLowerResult = emitPreparedNonArgMethodLowerDispatchImpl(
+                this.output, g_regBox, lowerPlan.shouldTryLengthLike,
+                false, methodName, receiverReg, receiverType,
                 g_reprCClassNames, structNames)
-            if lengthLikeResult != "" {
-                return lengthLikeResult
+            if nonArgLowerResult != "" {
+                return nonArgLowerResult
             }
         }
 
@@ -6270,18 +6057,8 @@ class LLVMIRGenerator {
 
             var sbArg0 = ""
             var isFloatFused = 0
-            var sbArgKind = ""
-            var sbArgCallee = ""
-            var sbNestedArgCount = 0
-            if lowerPlan.hasArg0 {
-                let appendArgExpr = expr.arguments[0]
-                sbArgKind = appendArgExpr.kind
-                sbArgCallee = appendArgExpr.callee
-                sbNestedArgCount = appendArgExpr.arguments.length()
-            }
-            let sbArgAction = methodLowerStringBuilderArgActionImpl(
-                receiverType, methodName, expr.arguments.length(),
-                sbArgKind, sbArgCallee, sbNestedArgCount)
+            let sbArgAction = methodLowerStringBuilderArgActionForArgsImpl(
+                receiverType, methodName, expr.arguments)
             if sbArgAction == 2 {
                 let appendArgExpr = expr.arguments[0]
                 sbArg0 = generateExpression(appendArgExpr.arguments[0])
@@ -6302,9 +6079,10 @@ class LLVMIRGenerator {
         if postResolutionPhase.shouldTryLowering and
             lowerPlan.shouldTryPrimitiveConversion {
 
-            let conversionResult = emitPreparedPrimitiveConversionMethodLowerImpl(
-                this.output, g_regBox, methodName, receiverReg, receiverType,
-                structNames)
+            let conversionResult = emitPreparedNonArgMethodLowerDispatchImpl(
+                this.output, g_regBox, false,
+                lowerPlan.shouldTryPrimitiveConversion, methodName,
+                receiverReg, receiverType, g_reprCClassNames, structNames)
             if conversionResult != "" {
                 return conversionResult
             }
@@ -6410,48 +6188,19 @@ class LLVMIRGenerator {
 
             inferredMethodReturnType = inferExpressionType(expr)
         }
-        let returnTypeStr = resolveMethodCallReturnTypeImpl(
-            inferredMethodReturnType, registeredMethodReturnType)
-        let llvmReturnType = mapTypeState(returnTypeStr)
-
-        let receiverRegBox = Array<String>()
-        receiverRegBox.push(receiverReg)
-        let receiverLlvmTypeBox = Array<String>()
-        receiverLlvmTypeBox.push("ptr")
-        if finalDispatchPlan.shouldPrepareReceiverAbi {
-            prepareMethodCallReceiverAbiImpl(this.output, g_regBox, instanceTypeName,
-                receiverRegBox, receiverType, receiverLlvmTypeBox, structNames,
-                g_reprCClassNames, g_typeAliasNames, g_typeAliasTargets,
-                g_typeAliasCount, g_enumTypeNames)
-        }
-
-        let normalizedReceiverReg = receiverRegBox[0]
-        let receiverLlvmType = receiverLlvmTypeBox[0]
-
-        if finalDispatchPlan.shouldEmitUserMethod and receiverLlvmType == "ptr" {
-            let methodLateState = captureLateUserDeclareState()
-            recordLateUserDeclareIntoStateImpl(funcName, llvmReturnType,
-                argTypeStrs, 1, funcNames, funcRetTypes, g_xmDeclareNames,
-                g_xmDeclareCount, methodLateState)
-            applyLateUserDeclareState(methodLateState)
-        }
-
-        if finalDispatchPlan.shouldTrySpecialized {
-            let specializedResult = emitPreparedSpecializedMethodLowerImpl(
-                this.output, g_regBox, methodName, instanceTypeName, receiverType,
-                returnTypeStr, receiverLlvmType, normalizedReceiverReg,
-                structNames)
-            if specializedResult != "" {
-                return specializedResult
-            }
-        }
-
-        if finalDispatchPlan.shouldEmitUserMethod {
-            return emitPreparedUserMethodLowerImpl(this.output, g_regBox,
-                quoteIdentIfNeededImpl(funcName), llvmReturnType, receiverLlvmType,
-                normalizedReceiverReg, argRegs, argTypeStrs, 0)
-        }
-        return ""
+        let methodLateState = captureLateUserDeclareState()
+        let finalMethodResult = emitPreparedFinalMethodDispatchState(
+            this.output, g_regBox, methodName, instanceTypeName, funcName,
+            receiverReg, receiverType, registeredMethodReturnType,
+            inferredMethodReturnType, argRegs, argTypeStrs,
+            finalDispatchPlan.shouldPrepareReceiverAbi,
+            finalDispatchPlan.shouldTrySpecialized,
+            finalDispatchPlan.shouldEmitUserMethod, structNames,
+            g_reprCClassNames, g_typeAliasNames, g_typeAliasTargets,
+            g_typeAliasCount, g_enumTypeNames, funcNames, funcRetTypes,
+            g_xmDeclareNames, g_xmDeclareCount, methodLateState)
+        applyLateUserDeclareState(methodLateState)
+        return finalMethodResult
     }
 
     ///

@@ -37,3 +37,31 @@ fun emitPreparedArrayReceiverFastPathImpl(output: StringBuilder,
     return emitArrayBasicMethodImpl(output, regBox, methodName, receiverReg,
         receiverType, arg0, arg1, arg0SeenType, arg1SeenType)
 }
+
+fun emitResolvedReceiverFastPathActionImpl(output: StringBuilder,
+    regBox: Array<Int>, blockLabelBox: Array<Int>, action: Int,
+    methodName: String, receiverReg: String, receiverType: String,
+    optDefaultReg: String, smallVecArg: String, collectionArg0: String,
+    collectionArg1: String, arrayArg0: String, arrayArg1: String,
+    arrayArg0Type: String, arrayArg1Type: String) r: String {
+
+    if action == 1 {
+        return emitPreparedOptionReceiverFastPathImpl(output, regBox,
+            blockLabelBox, methodName, receiverReg, optDefaultReg)
+    }
+    if action == 2 {
+        return emitPreparedSmallVecReceiverFastPathImpl(output, regBox,
+            methodName, receiverReg, receiverType, smallVecArg)
+    }
+    if action == 3 {
+        return emitPreparedCollectionReceiverFastPathImpl(output, regBox,
+            methodName, receiverReg, receiverType, collectionArg0,
+            collectionArg1)
+    }
+    if action == 4 {
+        return emitPreparedArrayReceiverFastPathImpl(output, regBox,
+            methodName, receiverReg, receiverType, arrayArg0, arrayArg1,
+            arrayArg0Type, arrayArg1Type)
+    }
+    return ""
+}

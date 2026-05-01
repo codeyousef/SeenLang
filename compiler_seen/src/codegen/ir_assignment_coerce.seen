@@ -36,6 +36,9 @@ fun mapAssignmentSourceValueTypeCoreImpl(sourceSeenType: String,
     if isClassTypeImpl(sourceSeenType, structNames) == 1 {
         return "i64"
     }
+    if isClassHandleLikeTypeImpl(sourceSeenType, structNames) == 1 {
+        return "i64"
+    }
     return ""
 }
 

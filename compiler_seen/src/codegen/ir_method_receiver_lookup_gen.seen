@@ -2,10 +2,16 @@
 
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn}
-import codegen.ir_variable_gen.{emitLocalVariableLoadImpl, emitImplicitThisPointerLoadImpl}
+import codegen.ir_variable_gen.{findActiveVariableIndexImpl, emitLocalVariableLoadImpl, emitImplicitThisPointerLoadImpl}
 import codegen.ir_method_fastpath.{prepareModuleConstantMethodReceiverImpl}
-import codegen.ir_method_receiver.{emitSeenLexerKeywordManagerReceiverImpl}
+import codegen.ir_method_receiver.{emitSeenLexerKeywordManagerReceiverImpl, resolveMethodFieldPathTypeImpl}
+import codegen.ir_method_receiver_lookup_plan.{planImplicitThisDottedReceiverStageImpl, planImplicitThisReceiverStageImpl}
 import codegen.ir_field_layout.{generateFieldAccessImpl, generateFieldAccessPtrImpl}
+import codegen.ir_path_expr.{splitFirstPathDotImpl}
+import codegen.ir_type_info.{getLLVMIRGeneratorFieldIndexImpl}
+import codegen.ir_type_mapping.{isClassHandleLikeTypeImpl, isClassTypeImpl}
+import codegen.ir_field_lookup_state.{getFieldInfoState}
+import codegen.type_registry_core.{findStructReg}
 
 class MethodReceiverLoadResult {
     var receiverReg: String
@@ -92,6 +98,47 @@ fun emitImplicitDottedMethodReceiverLoadImpl(output: StringBuilder,
     return MethodReceiverLoadResult.new(receiverReg, receiverType)
 }
 
+fun tryResolveImplicitThisDottedMethodReceiverStateImpl(output: StringBuilder,
+    regBox: Array<Int>, literalValue: String, varNames: Array<String>,
+    varRegs: Array<String>, varTypes: Array<String>, activeVarCount: Int,
+    structNames: Array<String>, structLayouts: Array<String>,
+    structFieldNames: Array<String>, structFieldTypes: Array<String>,
+    structMethodNames: Array<String>, structMethodRetTypes: Array<String>,
+    reprCClassNames: String, unionTypes: String, typeAliasNames: String,
+    typeAliasTargets: String, typeAliasCount: Int, enumTypeNames: String,
+    bitfieldCount: Int, bitfieldKeys: String, bitfieldWidths: String)
+    r: MethodReceiverLoadResult {
+
+    let pathParts = splitFirstPathDotImpl(literalValue)
+    let thisIdx = findActiveVariableIndexImpl(varNames, activeVarCount,
+        "this")
+    if thisIdx < 0 {
+        return MethodReceiverLoadResult.new("", "")
+    }
+
+    let thisType = varTypes[thisIdx]
+    let firstFieldType = resolveMethodFieldPathTypeImpl(thisType,
+        pathParts[0], structNames, structFieldNames, structFieldTypes,
+        structMethodNames, structMethodRetTypes)
+    let implicitDottedPlan = planImplicitThisDottedReceiverStageImpl(
+        thisIdx, firstFieldType)
+    if not implicitDottedPlan.shouldResolveImplicitThisDotted {
+        return MethodReceiverLoadResult.new("", "")
+    }
+
+    let receiverType = resolveMethodFieldPathTypeImpl(firstFieldType,
+        pathParts[1], structNames, structFieldNames, structFieldTypes,
+        structMethodNames, structMethodRetTypes)
+    let firstFieldIsClass = isClassTypeImpl(firstFieldType, structNames) == 1 or
+        isClassHandleLikeTypeImpl(firstFieldType, structNames) == 1
+    return emitImplicitDottedMethodReceiverLoadImpl(output, regBox,
+        varRegs[thisIdx], thisType, pathParts[0], pathParts[1],
+        firstFieldType, firstFieldIsClass, receiverType, structNames,
+        structLayouts, structFieldNames, structFieldTypes, reprCClassNames,
+        unionTypes, typeAliasNames, typeAliasTargets, typeAliasCount,
+        enumTypeNames, bitfieldCount, bitfieldKeys, bitfieldWidths)
+}
+
 fun emitImplicitThisMethodReceiverLoadImpl(output: StringBuilder,
     regBox: Array<Int>, lookupAction: Int, thisReg: String,
     thisType: String, varName: String, receiverType: String,
@@ -130,4 +177,38 @@ fun emitImplicitThisMethodReceiverLoadImpl(output: StringBuilder,
             thisPtrReg)
     }
     return MethodReceiverLoadResult.new("", "")
+}
+
+fun tryResolveImplicitThisLiteralMethodReceiverStateImpl(output: StringBuilder,
+    regBox: Array<Int>, varName: String, receiverType: String,
+    varNames: Array<String>, varRegs: Array<String>,
+    varTypes: Array<String>, activeVarCount: Int,
+    structNames: Array<String>, structLayouts: Array<String>,
+    structFieldNames: Array<String>, structFieldTypes: Array<String>,
+    reprCClassNames: String, unionTypes: String, typeAliasNames: String,
+    typeAliasTargets: String, typeAliasCount: Int, enumTypeNames: String,
+    bitfieldCount: Int, bitfieldKeys: String, bitfieldWidths: String)
+    r: MethodReceiverLoadResult {
+
+    let thisIdx = findActiveVariableIndexImpl(varNames, activeVarCount,
+        "this")
+    if thisIdx < 0 {
+        return MethodReceiverLoadResult.new("", "")
+    }
+
+    let thisType = varTypes[thisIdx]
+    let idxCheck = getLLVMIRGeneratorFieldIndexImpl(varName)
+    let structIdx = findStructReg(thisType, structNames)
+    var fieldIdx = -1
+    if structIdx >= 0 {
+        fieldIdx = getFieldInfoState(thisType, varName)
+    }
+    let implicitLookupPlan = planImplicitThisReceiverStageImpl(
+        thisType, varName, idxCheck, structIdx, fieldIdx)
+    return emitImplicitThisMethodReceiverLoadImpl(output, regBox,
+        implicitLookupPlan.lookupAction, varRegs[thisIdx], thisType,
+        varName, receiverType, structNames, structLayouts, structFieldNames,
+        structFieldTypes, reprCClassNames, unionTypes, typeAliasNames,
+        typeAliasTargets, typeAliasCount, enumTypeNames, bitfieldCount,
+        bitfieldKeys, bitfieldWidths)
 }

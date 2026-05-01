@@ -1,0 +1,72 @@
+// ir_function_intrinsic_driver.seen - intrinsic function generation driver.
+
+import parser.real_parser.{FunctionNode}
+import str.string.{StringBuilder}
+import codegen.ir_function_decorators.{tryHandleIntrinsicFunctionGenerationStateImpl}
+import codegen.ir_function_lifecycle.{planFunctionIntrinsicFlowImpl}
+import codegen.ir_codegen_feature_state.{g_intrinsicFuncNames, g_intrinsicLlvmNames, g_intrinsicCount}
+
+class FunctionIntrinsicDriverState {
+    var intrinsicFuncNames: String
+    var intrinsicLlvmNames: String
+    var intrinsicCount: Int
+    var shouldReturn: Bool
+
+    static fun new() r: FunctionIntrinsicDriverState {
+        return FunctionIntrinsicDriverState{
+            intrinsicFuncNames: "",
+            intrinsicLlvmNames: "",
+            intrinsicCount: 0,
+            shouldReturn: false
+        }
+    }
+}
+
+fun tryHandleFunctionIntrinsicDriverStateImpl(output: StringBuilder,
+    regBox: Array<Int>, fn: FunctionNode, structNames: Array<String>,
+    typeAliasNames: String, typeAliasTargets: String, typeAliasCount: Int,
+    enumTypeNames: String, currentIntrinsicFuncNames: String,
+    currentIntrinsicLlvmNames: String, currentIntrinsicCount: Int)
+    r: FunctionIntrinsicDriverState {
+
+    let state = FunctionIntrinsicDriverState.new()
+    let intrinsicFuncNamesBox = Array<String>()
+    intrinsicFuncNamesBox.push(currentIntrinsicFuncNames)
+    let intrinsicLlvmNamesBox = Array<String>()
+    intrinsicLlvmNamesBox.push(currentIntrinsicLlvmNames)
+    let intrinsicCountBox = Array<Int>()
+    intrinsicCountBox.push(currentIntrinsicCount)
+
+    let handledIntrinsic =
+        tryHandleIntrinsicFunctionGenerationStateImpl(output, regBox, fn,
+        structNames, typeAliasNames, typeAliasTargets, typeAliasCount,
+        enumTypeNames, intrinsicFuncNamesBox, intrinsicLlvmNamesBox,
+        intrinsicCountBox)
+    let intrinsicFlow = planFunctionIntrinsicFlowImpl(handledIntrinsic)
+    if intrinsicFlow.shouldWriteBackRegistry {
+        state.intrinsicFuncNames = intrinsicFuncNamesBox[0]
+        state.intrinsicLlvmNames = intrinsicLlvmNamesBox[0]
+        state.intrinsicCount = intrinsicCountBox[0]
+    } else {
+        state.intrinsicFuncNames = currentIntrinsicFuncNames
+        state.intrinsicLlvmNames = currentIntrinsicLlvmNames
+        state.intrinsicCount = currentIntrinsicCount
+    }
+    state.shouldReturn = intrinsicFlow.shouldReturn
+    return state
+}
+
+fun tryHandleFunctionIntrinsicDriverGlobalStateImpl(output: StringBuilder,
+    regBox: Array<Int>, fn: FunctionNode, structNames: Array<String>,
+    typeAliasNames: String, typeAliasTargets: String, typeAliasCount: Int,
+    enumTypeNames: String) r: Bool {
+
+    let state = tryHandleFunctionIntrinsicDriverStateImpl(output, regBox,
+        fn, structNames, typeAliasNames, typeAliasTargets, typeAliasCount,
+        enumTypeNames, g_intrinsicFuncNames, g_intrinsicLlvmNames,
+        g_intrinsicCount)
+    g_intrinsicFuncNames = state.intrinsicFuncNames
+    g_intrinsicLlvmNames = state.intrinsicLlvmNames
+    g_intrinsicCount = state.intrinsicCount
+    return state.shouldReturn
+}

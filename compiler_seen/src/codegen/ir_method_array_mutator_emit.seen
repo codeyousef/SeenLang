@@ -1,7 +1,261 @@
-// ir_method_array_mutator_emit.seen - prepared array mutator emit drivers.
+// ir_method_array_mutator_emit.seen - array mutator emission helpers.
 
 import str.string.{StringBuilder}
-import codegen.ir_method_finalize.{emitArrayFreeMutationImpl, emitArrayPushMutationImpl, emitArrayPopMutationImpl, emitArraySwapMutationImpl, emitClassFreeMutationImpl}
+import codegen.ir_optimization.{getNextRegFn, getNextBlockFn}
+import codegen.ir_method_call_plan.{planArrayMutatorFreeTypeImpl, planArrayMutatorFreeEmitImpl, planArrayMutatorPushPointerImpl, planArrayMutatorFallbackPointerImpl, resolveArrayMutatorVariableNameImpl, resolveArrayReceiverElementTypeImpl, resolveArrayPushElementTypeImpl}
+import codegen.ir_method_receiver_predicates.{isArrayReceiverTypeImpl}
+import codegen.ir_string_collect.{getBaseTypeNameImpl}
+import codegen.ir_type_mapping.{isClassTypeImpl}
+import codegen.ir_type_tables.{resolvePopElementTypeImpl}
+import codegen.ir_variable_gen.{findActiveVariableIndexImpl}
+import codegen.type_registry_core.{findStructReg, isDataTypeReg}
+
+fun emitArrayFreeMutationImpl(output: StringBuilder, regBox: Array<Int>,
+    arrayPtrReg: String) r: String {
+
+    if arrayPtrReg == "" {
+        return ""
+    }
+    let dataPtrPtrReg = getNextRegFn(regBox)
+    output.append("  " + dataPtrPtrReg +
+        " = getelementptr inbounds %SeenArray, ptr " + arrayPtrReg +
+        ", i32 0, i32 3\n")
+    let dataPtrReg = getNextRegFn(regBox)
+    output.append("  " + dataPtrReg + " = load ptr, ptr " + dataPtrPtrReg +
+        "\n")
+    output.append("  call void @free(ptr " + dataPtrReg + ")\n")
+    output.append("  call void @free(ptr " + arrayPtrReg + ")\n")
+    return "0"
+}
+
+fun emitArrayPushMutationImpl(output: StringBuilder, regBox: Array<Int>,
+    blockLabelBox: Array<Int>, arrayPtrReg: String, argReg: String,
+    pushElemType: String, receiverType: String, argIsStructLiteral: Bool,
+    structNames: Array<String>) r: String {
+
+    if arrayPtrReg == "" {
+        return ""
+    }
+
+    if pushElemType == "String" {
+        output.append("  call void @seen_arr_push_str(ptr " + arrayPtrReg +
+            ", %SeenString " + argReg + ")\n")
+        return "0"
+    }
+    if pushElemType == "Int" or pushElemType == "Char" or
+        receiverType == "Array<Int>" {
+        let lenPtrReg = getNextRegFn(regBox)
+        let lenReg = getNextRegFn(regBox)
+        let capPtrReg = getNextRegFn(regBox)
+        let capReg = getNextRegFn(regBox)
+        let needsGrowReg = getNextRegFn(regBox)
+        let slowLabel = getNextBlockFn(blockLabelBox)
+        let fastLabel = getNextBlockFn(blockLabelBox)
+        let doneLabel = getNextBlockFn(blockLabelBox)
+
+        output.append("  " + lenPtrReg +
+            " = getelementptr inbounds %SeenArray, ptr " + arrayPtrReg +
+            ", i32 0, i32 0\n")
+        output.append("  " + lenReg + " = load i64, ptr " + lenPtrReg +
+            ", !tbaa !108, !range !188\n")
+        output.append("  " + capPtrReg +
+            " = getelementptr inbounds %SeenArray, ptr " + arrayPtrReg +
+            ", i32 0, i32 1\n")
+        output.append("  " + capReg + " = load i64, ptr " + capPtrReg +
+            ", !tbaa !108, !range !188\n")
+        output.append("  " + needsGrowReg + " = icmp sge i64 " + lenReg +
+            ", " + capReg + "\n")
+        output.append("  br i1 " + needsGrowReg + ", label %" + slowLabel +
+            ", label %" + fastLabel + ", !prof !197\n")
+
+        output.append(slowLabel + ":\n")
+        let newCapReg = getNextRegFn(regBox)
+        output.append("  " + newCapReg + " = shl i64 " + capReg + ", 1\n")
+        output.append("  store i64 " + newCapReg + ", ptr " + capPtrReg +
+            ", !tbaa !108\n")
+        let newByteSizeReg = getNextRegFn(regBox)
+        output.append("  " + newByteSizeReg + " = shl i64 " + newCapReg +
+            ", 3\n")
+        let slowDataPtrPtrReg = getNextRegFn(regBox)
+        output.append("  " + slowDataPtrPtrReg +
+            " = getelementptr inbounds %SeenArray, ptr " + arrayPtrReg +
+            ", i32 0, i32 3\n")
+        let slowOldDataReg = getNextRegFn(regBox)
+        output.append("  " + slowOldDataReg + " = load ptr, ptr " +
+            slowDataPtrPtrReg + ", !tbaa !104\n")
+        let slowNewDataReg = getNextRegFn(regBox)
+        output.append("  " + slowNewDataReg + " = call ptr @realloc(ptr " +
+            slowOldDataReg + ", i64 " + newByteSizeReg + ")\n")
+        output.append("  store ptr " + slowNewDataReg + ", ptr " +
+            slowDataPtrPtrReg + ", !tbaa !104\n")
+        let slowElemPtrReg = getNextRegFn(regBox)
+        output.append("  " + slowElemPtrReg +
+            " = getelementptr inbounds i64, ptr " + slowNewDataReg +
+            ", i64 " + lenReg + "\n")
+        output.append("  store i64 " + argReg + ", ptr " + slowElemPtrReg +
+            ", !tbaa !105\n")
+        let slowNewLenReg = getNextRegFn(regBox)
+        output.append("  " + slowNewLenReg + " = add nsw i64 " + lenReg +
+            ", 1\n")
+        output.append("  store i64 " + slowNewLenReg + ", ptr " + lenPtrReg +
+            ", !tbaa !108\n")
+        output.append("  br label %" + doneLabel + "\n")
+
+        output.append(fastLabel + ":\n")
+        let dataPtrPtrReg = getNextRegFn(regBox)
+        let dataPtrReg = getNextRegFn(regBox)
+        let elemPtrReg = getNextRegFn(regBox)
+        let newLenReg = getNextRegFn(regBox)
+        output.append("  " + dataPtrPtrReg +
+            " = getelementptr inbounds %SeenArray, ptr " + arrayPtrReg +
+            ", i32 0, i32 3\n")
+        output.append("  " + dataPtrReg + " = load ptr, ptr " +
+            dataPtrPtrReg + ", !tbaa !104\n")
+        output.append("  " + elemPtrReg + " = getelementptr inbounds i64, ptr "
+            + dataPtrReg + ", i64 " + lenReg + "\n")
+        output.append("  store i64 " + argReg + ", ptr " + elemPtrReg +
+            ", !tbaa !105\n")
+        output.append("  " + newLenReg + " = add nsw i64 " + lenReg +
+            ", 1\n")
+        output.append("  store i64 " + newLenReg + ", ptr " + lenPtrReg +
+            ", !tbaa !108\n")
+        output.append("  br label %" + doneLabel + "\n")
+
+        output.append(doneLabel + ":\n")
+        return "0"
+    }
+    if pushElemType == "Float" or receiverType == "Array<Float>" {
+        let castReg = getNextRegFn(regBox)
+        output.append("  " + castReg + " = bitcast double " + argReg +
+            " to i64\n")
+        output.append("  call void @seen_arr_push_i64(ptr " + arrayPtrReg +
+            ", i64 " + castReg + ")\n")
+        return "0"
+    }
+    if pushElemType != "String" and pushElemType != "Int" and
+        pushElemType != "Float" and receiverType != "Array<Int>" and
+        receiverType != "Array<Float>" {
+        if isDataTypeReg(pushElemType) {
+            var ptrArgReg = argReg
+            if isClassTypeImpl(pushElemType, structNames) == 1 {
+                let tmpReg = getNextRegFn(regBox)
+                output.append("  " + tmpReg + " = alloca i64\n")
+                output.append("  store i64 " + argReg + ", ptr " + tmpReg +
+                    "\n")
+                ptrArgReg = tmpReg
+            }
+            if not argIsStructLiteral {
+                let tmpReg = getNextRegFn(regBox)
+                output.append("  " + tmpReg + " = alloca %" + pushElemType +
+                    "\n")
+                output.append("  store %" + pushElemType + " " + argReg +
+                    ", ptr " + tmpReg + "\n")
+                ptrArgReg = tmpReg
+            }
+            let resultReg = getNextRegFn(regBox)
+            output.append("  " + resultReg + " = call i64 @Array_push(ptr " +
+                arrayPtrReg + ", ptr " + ptrArgReg + ")\n")
+            return resultReg
+        }
+        var ptrArgReg = argReg
+        if isClassTypeImpl(pushElemType, structNames) == 1 {
+            let ptrReg = getNextRegFn(regBox)
+            output.append("  " + ptrReg + " = inttoptr i64 " + argReg +
+                " to ptr\n")
+            ptrArgReg = ptrReg
+        }
+        if ptrArgReg == "0" {
+            ptrArgReg = "null"
+        }
+        output.append("  call void @seen_arr_push_ptr(ptr " + arrayPtrReg +
+            ", ptr " + ptrArgReg + ")\n")
+        return "0"
+    }
+
+    return ""
+}
+
+fun emitArrayPopMutationImpl(output: StringBuilder, regBox: Array<Int>,
+    arrayPtrReg: String, elemType: String) r: String {
+
+    if arrayPtrReg == "" {
+        return ""
+    }
+    let popResultReg = getNextRegFn(regBox)
+    if elemType == "Float" {
+        output.append("  " + popResultReg +
+            " = call double @seen_arr_pop_f64(ptr " + arrayPtrReg + ")\n")
+        return popResultReg
+    }
+    if elemType == "String" {
+        output.append("  " + popResultReg +
+            " = call %SeenString @seen_arr_pop_str(ptr " + arrayPtrReg +
+            ")\n")
+        return popResultReg
+    }
+    output.append("  " + popResultReg + " = call i64 @seen_arr_pop_i64(ptr "
+        + arrayPtrReg + ")\n")
+    return popResultReg
+}
+
+fun emitArraySwapMutationImpl(output: StringBuilder, regBox: Array<Int>,
+    arrayPtrReg: String, idxAReg: String, idxBReg: String) r: String {
+
+    if arrayPtrReg == "" {
+        return ""
+    }
+    let dataPPReg = getNextRegFn(regBox)
+    output.append("  " + dataPPReg +
+        " = getelementptr inbounds %SeenArray, ptr " + arrayPtrReg +
+        ", i32 0, i32 3\n")
+    let dataPReg = getNextRegFn(regBox)
+    output.append("  " + dataPReg + " = load ptr, ptr " + dataPPReg +
+        ", !tbaa !104\n")
+    let elemAPtrReg = getNextRegFn(regBox)
+    output.append("  " + elemAPtrReg + " = getelementptr inbounds i64, ptr "
+        + dataPReg + ", i64 " + idxAReg + "\n")
+    let elemBPtrReg = getNextRegFn(regBox)
+    output.append("  " + elemBPtrReg + " = getelementptr inbounds i64, ptr "
+        + dataPReg + ", i64 " + idxBReg + "\n")
+    let valAReg = getNextRegFn(regBox)
+    output.append("  " + valAReg + " = load i64, ptr " + elemAPtrReg +
+        ", align 8, !tbaa !105\n")
+    let valBReg = getNextRegFn(regBox)
+    output.append("  " + valBReg + " = load i64, ptr " + elemBPtrReg +
+        ", align 8, !tbaa !105\n")
+    output.append("  store i64 " + valBReg + ", ptr " + elemAPtrReg +
+        ", align 8, !tbaa !105\n")
+    output.append("  store i64 " + valAReg + ", ptr " + elemBPtrReg +
+        ", align 8, !tbaa !105\n")
+    return "0"
+}
+
+fun emitPoolFreeFromValueSlotImpl(output: StringBuilder, regBox: Array<Int>,
+    valueSlotReg: String, classSize: Int) r: Void {
+
+    let valReg = getNextRegFn(regBox)
+    output.append("  " + valReg + " = load i64, ptr " + valueSlotReg + "\n")
+    let ptrReg = getNextRegFn(regBox)
+    output.append("  " + ptrReg + " = inttoptr i64 " + valReg + " to ptr\n")
+    output.append("  call void @seen_pool_free(ptr " + ptrReg + ", i64 " +
+        classSize.toString() + ")\n")
+}
+
+fun emitClassFreeMutationImpl(output: StringBuilder, regBox: Array<Int>,
+    valueSlotReg: String, classSize: Int) r: String {
+
+    if classSize > 0 and classSize <= 80 {
+        emitPoolFreeFromValueSlotImpl(output, regBox, valueSlotReg, classSize)
+    }
+    if classSize == 0 or classSize > 80 {
+        let valReg = getNextRegFn(regBox)
+        output.append("  " + valReg + " = load i64, ptr " + valueSlotReg + "\n")
+        let ptrReg = getNextRegFn(regBox)
+        output.append("  " + ptrReg + " = inttoptr i64 " + valReg + " to ptr\n")
+        output.append("  call void @free(ptr " + ptrReg + ")\n")
+    }
+    return "0"
+}
 
 fun emitPreparedArrayFreeMutatorImpl(output: StringBuilder,
     regBox: Array<Int>, arrayPtrReg: String) r: String {
@@ -37,4 +291,129 @@ fun emitPreparedClassFreeMutatorImpl(output: StringBuilder,
     regBox: Array<Int>, valueSlotReg: String, classSize: Int) r: String {
 
     return emitClassFreeMutationImpl(output, regBox, valueSlotReg, classSize)
+}
+
+fun resolveArrayFreeReceiverTypeStateImpl(receiverType: String,
+    literalValue: String, varNames: Array<String>, varTypes: Array<String>,
+    activeVarCount: Int) r: String {
+
+    var freeReceiverType = receiverType
+    let freeTypePlan = planArrayMutatorFreeTypeImpl(freeReceiverType,
+        literalValue)
+    if freeTypePlan.shouldLookupLiteralType {
+        let freeTypeIdx = findActiveVariableIndexImpl(varNames,
+            activeVarCount, literalValue)
+        if freeTypeIdx >= 0 {
+            freeReceiverType = varTypes[freeTypeIdx]
+        }
+    }
+    return freeReceiverType
+}
+
+fun shouldResolveArrayFreeMutatorPointerStateImpl(freeReceiverType: String,
+    receiverReg: String, literalValue: String,
+    structNames: Array<String>) r: Bool {
+
+    let isArrayType = isArrayReceiverTypeImpl(freeReceiverType)
+    if not isArrayType {
+        return false
+    }
+    let freeEmitPlan = planArrayMutatorFreeEmitImpl(isArrayType,
+        receiverReg, literalValue,
+        isClassTypeImpl(freeReceiverType, structNames) == 1)
+    return freeEmitPlan.shouldResolvePointerFromLiteral
+}
+
+fun emitPreparedArrayFreeMutatorMethodStateImpl(output: StringBuilder,
+    regBox: Array<Int>, freeReceiverType: String, literalValue: String,
+    variableName: String, freePtrReg: String, varNames: Array<String>,
+    varRegs: Array<String>, activeVarCount: Int, structNames: Array<String>,
+    structSizes: Array<Int>) r: String {
+
+    let isArrayType = isArrayReceiverTypeImpl(freeReceiverType)
+    if isArrayType {
+        let resolvedFreeEmitPlan = planArrayMutatorFreeEmitImpl(
+            isArrayType, freePtrReg, literalValue,
+            isClassTypeImpl(freeReceiverType, structNames) == 1)
+        if resolvedFreeEmitPlan.shouldEmitArrayFree {
+            return emitPreparedArrayFreeMutatorImpl(output, regBox,
+                freePtrReg)
+        }
+    }
+
+    let classFreePlan = planArrayMutatorFreeEmitImpl(isArrayType, "",
+        literalValue, isClassTypeImpl(freeReceiverType, structNames) == 1)
+    if classFreePlan.shouldEmitClassFree {
+        let freeVarName = resolveArrayMutatorVariableNameImpl(literalValue,
+            variableName)
+        let freeVarIdx = findActiveVariableIndexImpl(varNames,
+            activeVarCount, freeVarName)
+        if freeVarIdx >= 0 {
+            let baseType = getBaseTypeNameImpl(freeReceiverType)
+            let sIdx = findStructReg(baseType, structNames)
+            var sSize = 0
+            if sIdx >= 0 {
+                sSize = structSizes[sIdx]
+            }
+            return emitPreparedClassFreeMutatorImpl(output, regBox,
+                varRegs[freeVarIdx], sSize)
+        }
+    }
+    return ""
+}
+
+fun emitPreparedArrayPushMutatorMethodStateImpl(output: StringBuilder,
+    regBox: Array<Int>, blockLabelBox: Array<Int>, arrayPtrReg: String,
+    receiverReg: String, receiverIsArray: Bool, argReg: String,
+    argType: String, argIsStructLiteral: Bool, receiverType: String,
+    structNames: Array<String>) r: String {
+
+    let elemType = resolveArrayReceiverElementTypeImpl(receiverType)
+    let pushElemType = resolveArrayPushElementTypeImpl(argType, elemType)
+    var resolvedArrayPtrReg = arrayPtrReg
+    let pushPointerPlan = planArrayMutatorPushPointerImpl(
+        resolvedArrayPtrReg, receiverReg, receiverIsArray)
+    if pushPointerPlan.shouldUseReceiverReg {
+        resolvedArrayPtrReg = receiverReg
+    }
+    if pushPointerPlan.shouldEmitWithPointer {
+        return emitPreparedArrayPushMutatorImpl(output, regBox,
+            blockLabelBox, resolvedArrayPtrReg, argReg, pushElemType,
+            receiverType, argIsStructLiteral, structNames)
+    }
+    return ""
+}
+
+fun emitPreparedArrayPopMutatorMethodStateImpl(output: StringBuilder,
+    regBox: Array<Int>, arrayPtrReg: String, receiverReg: String,
+    receiverType: String) r: String {
+
+    var resolvedArrayPtrReg = arrayPtrReg
+    let popPointerPlan = planArrayMutatorFallbackPointerImpl(
+        resolvedArrayPtrReg, receiverReg)
+    if popPointerPlan.shouldUseReceiverReg {
+        resolvedArrayPtrReg = receiverReg
+    }
+    if popPointerPlan.shouldEmitWithPointer {
+        return emitPreparedArrayPopMutatorImpl(output, regBox,
+            resolvedArrayPtrReg, resolvePopElementTypeImpl(receiverType))
+    }
+    return ""
+}
+
+fun emitPreparedArraySwapMutatorMethodStateImpl(output: StringBuilder,
+    regBox: Array<Int>, arrayPtrReg: String, receiverReg: String,
+    idxAReg: String, idxBReg: String) r: String {
+
+    var resolvedArrayPtrReg = arrayPtrReg
+    let swapPointerPlan = planArrayMutatorFallbackPointerImpl(
+        resolvedArrayPtrReg, receiverReg)
+    if swapPointerPlan.shouldUseReceiverReg {
+        resolvedArrayPtrReg = receiverReg
+    }
+    if swapPointerPlan.shouldEmitWithPointer {
+        return emitPreparedArraySwapMutatorImpl(output, regBox,
+            resolvedArrayPtrReg, idxAReg, idxBReg)
+    }
+    return ""
 }

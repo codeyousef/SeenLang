@@ -9,7 +9,7 @@ import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_string_collect.{getBaseTypeNameImpl}
 import codegen.ir_type_info.{findStructIdx}
 import codegen.ir_seen_field_type_lookup.{getSeenFieldTypeImpl}
-import codegen.ir_type_mapping.{isClassTypeImpl, isDataTypeImpl, mapTypeImpl}
+import codegen.ir_type_mapping.{isClassHandleLikeTypeImpl, isClassTypeImpl, isDataTypeImpl, mapTypeImpl}
 import codegen.ir_bitfield_access.{findBitfieldWidthImpl}
 import codegen.ir_field_layout.{emitResolvedFieldAccessPtrImpl, emitResolvedFieldAccessLoadImpl}
 import codegen.ir_member_access.{prepareExpressionMemberReceiverImpl, prepareVariableMemberReceiverImpl}
@@ -217,7 +217,8 @@ fun emitValueReceiverMemberAssignmentImpl(output: StringBuilder,
     }
 
     var isClassReceiver = 0
-    if isClassTypeImpl(receiverType, structNames) == 1 {
+    if isClassTypeImpl(receiverType, structNames) == 1 or
+        isClassHandleLikeTypeImpl(receiverType, structNames) == 1 {
         isClassReceiver = 1
     }
     var isDataReceiver = 0
@@ -257,7 +258,8 @@ fun emitVariableReceiverMemberAssignmentImpl(output: StringBuilder,
     let varReg = varRegs[varIdx]
     let varType = varTypes[varIdx]
     var isClassReceiver = 0
-    if isClassTypeImpl(varType, structNames) == 1 {
+    if isClassTypeImpl(varType, structNames) == 1 or
+        isClassHandleLikeTypeImpl(varType, structNames) == 1 {
         isClassReceiver = 1
     }
     var isDataReceiver = 0
@@ -308,7 +310,8 @@ fun emitImplicitThisMemberAssignmentImpl(output: StringBuilder,
 
     let firstFieldType = firstFieldTypes[1]
     var nestedPtrReg = ""
-    if isClassTypeImpl(firstFieldType, structNames) == 1 {
+    if isClassTypeImpl(firstFieldType, structNames) == 1 or
+        isClassHandleLikeTypeImpl(firstFieldType, structNames) == 1 {
         let firstFieldValReg = emitResolvedFieldAccessLoadImpl(output, regBox,
             thisPtrReg, thisType, receiverName, firstFieldTypes[0],
             structNames, structLayouts, structFieldNames, 0, "", "")
@@ -393,7 +396,8 @@ fun emitGenericIndexAssignmentStoreImpl(output: StringBuilder, regBox: Array<Int
     structNames: Array<String>) r: Void {
 
     var valuePtrReg = ""
-    if isClassTypeImpl(elementType, structNames) == 1 {
+    if isClassTypeImpl(elementType, structNames) == 1 or
+        isClassHandleLikeTypeImpl(elementType, structNames) == 1 {
         let tmpReg = getNextRegFn(regBox)
         let storedValueReg = coerceAssignmentStoreValueCoreImpl(output, regBox,
             "i64", valueSeenType, valueReg, structNames)

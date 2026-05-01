@@ -400,3 +400,27 @@ fun emitGlobalConstructorsImpl(output: StringBuilder, initFuncCount: Int, initFu
     }
     output.append("\n]\n")
 }
+
+fun emitTBAAMetadataImpl(output: StringBuilder, sanitizerMode: String)
+    r: Void {
+
+    output.append("\n; Function attributes\n")
+    var attrStr = "mustprogress nounwind"
+    if sanitizerMode == "address" {
+        attrStr = attrStr + " sanitize_address"
+    }
+    if sanitizerMode == "thread" {
+        attrStr = attrStr + " sanitize_thread"
+    }
+    output.append("attributes #0 = { " + attrStr + " }\n")
+    output.append("\n; TBAA metadata for alias analysis\n")
+    output.append("!100 = !{!\"SeenTBAA\"}\n")
+    output.append("!101 = !{!\"pointer\", !100, i64 0}\n")
+    output.append("!102 = !{!\"integer\", !100, i64 0}\n")
+    output.append("!103 = !{!\"float\", !100, i64 0}\n")
+    output.append("!104 = !{!101, !101, i64 0}\n")
+    output.append("!105 = !{!102, !102, i64 0}\n")
+    output.append("!106 = !{!103, !103, i64 0}\n")
+    output.append("!107 = !{!\"struct_field\", !100, i64 0}\n")
+    output.append("!108 = !{!107, !107, i64 0}\n")
+}
