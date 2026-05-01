@@ -1,5 +1,7 @@
-// ComptimeInterpreter - Compile-time interpreter for executing macros
-// Executes macro functions at compile time to transform AST nodes
+///
+ComptimeInterpreter - Compile-time interpreter for executing macros
+Executes macro functions at compile time to transform AST nodes
+///
 
 import parser.real_parser.{FunctionNode, ClassNode, StatementNode, ParserExpressionNode, BlockNode, ParamNode, TypeNode}
 import macro.ast_node.{AstNode, ParamInfo, FieldInfo}
@@ -276,8 +278,10 @@ class ComptimeInterpreter {
         }
 
         if expr.kind == "Variable" or expr.kind == "VarExpr" {
-            // Parser may use either Variable or VarExpr for variable references
-            // The variable name can be in variableName or literalValue
+            ///
+            Parser may use either Variable or VarExpr for variable references
+            The variable name can be in variableName or literalValue
+            ///
             var varName = expr.variableName
             if varName == "" {
                 varName = expr.literalValue
@@ -306,8 +310,10 @@ class ComptimeInterpreter {
         }
 
         if expr.kind == "ArrayLiteral" {
-            // Array literal like ["item1", "item2"]
-            // Elements are stored in arguments array
+            ///
+            Array literal like ["item1", "item2"]
+            Elements are stored in arguments array
+            ///
             var result = Array<ComptimeValue>()
             var i = 0
             while i < expr.arguments.length() {
@@ -501,8 +507,10 @@ class ComptimeInterpreter {
 
     // Interpret method call (e.g., target.name())
     fun interpretMethodCall(expr: ParserExpressionNode) r: ComptimeValue {
-        // Check for static method calls (e.g., AstNode.newCall)
-        // These have the type name in literalValue and aren't variable references
+        ///
+        Check for static method calls (e.g., AstNode.newCall)
+        These have the type name in literalValue and aren't variable references
+        ///
         if expr.literalValue == "AstNode" {
             // Static AstNode method call - route to builtins
             let methodName = expr.callee
@@ -520,8 +528,10 @@ class ComptimeInterpreter {
             return interpretBuiltin("AstNode." + methodName, args)
         }
 
-        // Get the object - parser stores receiver in literalValue for simple cases,
-        // in operands[0] for chained cases
+        ///
+        Get the object - parser stores receiver in literalValue for simple cases,
+        in operands[0] for chained cases
+        ///
         var obj = ComptimeValue.new()
         obj.kind = "Error"
 

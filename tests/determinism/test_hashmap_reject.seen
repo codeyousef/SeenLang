@@ -1,12 +1,16 @@
-// Test: HashMap should be rejected in deterministic profile
-// Expected: FAIL with --profile deterministic
-// Expected: PASS without --profile flag
+///
+Test: HashMap should be rejected in deterministic profile
+Expected: FAIL with --profile deterministic
+Expected: PASS without --profile flag
+///
 
 import collections.hash_map.{HashMap}
 
 fun main() r: Int {
-    // This should be rejected in deterministic profile
-    // because HashMap has nondeterministic iteration order
+    ///
+    This should be rejected in deterministic profile
+    because HashMap has nondeterministic iteration order
+    ///
     let map = HashMap<String, Int>.new()
     map.insert("key1", 1)
     map.insert("key2", 2)

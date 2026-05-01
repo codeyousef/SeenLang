@@ -1,6 +1,8 @@
-// ir_class_type_decorators.seen — shared class-type decorator bookkeeping
-// Extracted from llvm_ir_gen.seen so the remaining decorator scan and state
-// updates stay separate from the main class-type emission entry point.
+///
+ir_class_type_decorators.seen — shared class-type decorator bookkeeping
+Extracted from llvm_ir_gen.seen so the remaining decorator scan and state
+updates stay separate from the main class-type emission entry point.
+///
 
 import parser.real_parser.{ClassNode, AnnotationNode}
 import str.string.{StringBuilder}

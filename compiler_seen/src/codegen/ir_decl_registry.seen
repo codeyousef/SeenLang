@@ -1,6 +1,8 @@
-// ir_decl_registry.seen — declaration registry/state helpers
-// Extracted from llvm_ir_gen.seen so declaration plumbing and registry
-// ownership stay separate from the main Pass 1 orchestration.
+///
+ir_decl_registry.seen — declaration registry/state helpers
+Extracted from llvm_ir_gen.seen so declaration plumbing and registry
+ownership stay separate from the main Pass 1 orchestration.
+///
 
 import parser.real_parser.{ProgramNode}
 import str.string.{StringBuilder}

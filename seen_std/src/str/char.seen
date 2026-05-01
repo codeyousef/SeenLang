@@ -1,6 +1,8 @@
-// seen_std.str.char
-// Char classification and conversion utilities.
-// These are thin wrappers around C runtime functions (Char_*).
+///
+seen_std.str.char
+Char classification and conversion utilities.
+These are thin wrappers around C runtime functions (Char_*).
+///
 
 fun isDigit(ch: Char) r: Bool {
     let code = ch.toInt()

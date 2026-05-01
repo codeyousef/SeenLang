@@ -1,5 +1,7 @@
-// Test E-graph with union-find and rewrite rules
-// Verifies the core equality saturation data structure and optimization rules
+///
+Test E-graph with union-find and rewrite rules
+Verifies the core equality saturation data structure and optimization rules
+///
 
 fun main() r: Int {
     println("=== E-Graph Unit Tests ===")
@@ -62,8 +64,10 @@ fun main() r: Int {
     println("Test 5: Class count...")
     let classCount = g.classCount()
     println("  Class count: " + classCount.toString())
-    // We have: const_0, var_x (merged with x+0), const_1
-    // Plus the add node got merged with x, so should be ~3 canonical classes
+    ///
+    We have: const_0, var_x (merged with x+0), const_1
+    Plus the add node got merged with x, so should be ~3 canonical classes
+    ///
     if classCount < 2 {
         println("FAIL: should have at least 2 classes")
         return 1

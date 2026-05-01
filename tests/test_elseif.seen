@@ -1,5 +1,7 @@
-// Test else-if chain parsing and codegen
-// Verifies the recursive else-if parser fix at real_parser.seen:2761-2836
+///
+Test else-if chain parsing and codegen
+Verifies the recursive else-if parser fix at real_parser.seen:2761-2836
+///
 
 fun classify(x: Int) r: String {
     if x < 0 {

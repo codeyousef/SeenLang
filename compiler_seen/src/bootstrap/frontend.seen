@@ -1,22 +1,24 @@
-// frontend.seen — Frontend pipeline orchestrator
-//
-// Pipeline stage: Stage 4 (frontend integration)
-// Input: Raw source code string + file label + language code
-// Output: FrontendResult containing AST (ProgramNode), diagnostics, success flag
-//
-// Orchestrates the first three compiler stages in sequence:
-//   1. Lexer (SeenLexer.tokenize) → Array<Token>
-//   2. Parser (RealParser.parse) → ProgramNode (AST)
-//   3. Type Checker (TypeChecker.check) → TypeInferenceResult
-//   4. Macro Expander (MacroExpander.expandProgram) → transformed AST
-//
-// Errors from any stage are collected into FrontendDiagnostic objects with
-// source locations. The pipeline short-circuits on type errors (returns
-// before macro expansion) but does NOT short-circuit on warnings.
-//
-// Used by both the user-facing CLI (main.seen) and the bootstrap driver
-// (main_compiler.seen). The FrontendResult.program field carries the AST
-// through to IR generation.
+///
+frontend.seen — Frontend pipeline orchestrator
+
+Pipeline stage: Stage 4 (frontend integration)
+Input: Raw source code string + file label + language code
+Output: FrontendResult containing AST (ProgramNode), diagnostics, success flag
+
+Orchestrates the first three compiler stages in sequence:
+  1. Lexer (SeenLexer.tokenize) → Array<Token>
+  2. Parser (RealParser.parse) → ProgramNode (AST)
+  3. Type Checker (TypeChecker.check) → TypeInferenceResult
+  4. Macro Expander (MacroExpander.expandProgram) → transformed AST
+
+Errors from any stage are collected into FrontendDiagnostic objects with
+source locations. The pipeline short-circuits on type errors (returns
+before macro expansion) but does NOT short-circuit on warnings.
+
+Used by both the user-facing CLI (main.seen) and the bootstrap driver
+(main_compiler.seen). The FrontendResult.program field carries the AST
+through to IR generation.
+///
 
 import lexer.{SeenLexer, LexerError}
 import parser.real_parser.{RealParser, ProgramNode, FunctionNode, ClassNode, StatementNode, ParserExpressionNode, BlockNode}
@@ -42,9 +44,11 @@ class FrontendDiagnostic {
     }
 }
 
-// Result container for the frontend pipeline. Carries the parsed AST,
-// accumulated diagnostics (errors + warnings), and a success flag.
-// Consumed by buildCommandWithOptions() to decide whether to proceed to codegen.
+///
+Result container for the frontend pipeline. Carries the parsed AST,
+accumulated diagnostics (errors + warnings), and a success flag.
+Consumed by buildCommandWithOptions() to decide whether to proceed to codegen.
+///
 class FrontendResult {
     var success: Bool
     var diagnostics: Array<FrontendDiagnostic>
@@ -81,10 +85,12 @@ class FrontendResult {
         return false
     }
 
-    // BOOTSTRAP CONSTRAINT: new() must be the LAST method in this class.
-    // Stage2's parser may exit the class body after parsing new() because the
-    // generic constructor Array<FrontendDiagnostic>() causes a brace mismatch
-    // cascade in older compilers. Any methods after new() would be silently lost.
+    ///
+    BOOTSTRAP CONSTRAINT: new() must be the LAST method in this class.
+    Stage2's parser may exit the class body after parsing new() because the
+    generic constructor Array<FrontendDiagnostic>() causes a brace mismatch
+    cascade in older compilers. Any methods after new() would be silently lost.
+    ///
     static fun new() r: FrontendResult {
         return FrontendResult{
             success: false,
@@ -94,14 +100,18 @@ class FrontendResult {
     }
 }
 
-// Main frontend entry point. Runs lexer → parser → type checker → macro expansion.
-// Returns a FrontendResult with success=true if all stages pass, or with
-// diagnostics populated on failure. The resulting AST is in result.program.
+///
+Main frontend entry point. Runs lexer → parser → type checker → macro expansion.
+Returns a FrontendResult with success=true if all stages pass, or with
+diagnostics populated on failure. The resulting AST is in result.program.
+///
 fun run_frontend(source: String, fileLabel: String, language: String = "en") r: FrontendResult {
     let result = FrontendResult.new()
 
-    // Without try/catch, we assume the pipeline succeeds.
-    // Error handling is done via result types from the lexer/parser/checker.
+    ///
+    Without try/catch, we assume the pipeline succeeds.
+    Error handling is done via result types from the lexer/parser/checker.
+    ///
     let lexer = SeenLexer.new(source, 1, language)
     let tokens = lexer.tokenize()
 
@@ -180,9 +190,11 @@ fun run_frontend(source: String, fileLabel: String, language: String = "en") r: 
     return result
 }
 
-// Lightweight frontend for declaration registration. It intentionally skips
-// typechecking, macro expansion, and capability validation because Pass 1 only
-// needs declaration shapes for cross-module signatures.
+///
+Lightweight frontend for declaration registration. It intentionally skips
+typechecking, macro expansion, and capability validation because Pass 1 only
+needs declaration shapes for cross-module signatures.
+///
 fun run_frontend_declarations(source: String, fileLabel: String, language: String = "en") r: FrontendResult {
     let result = FrontendResult.new()
 
@@ -259,8 +271,10 @@ fun programUsesClassDecorator(program: ProgramNode, decoratorName: String) r: Bo
     return false
 }
 
-// Keep capability validation local to the frontend so bootstrap does not depend
-// on extra modules that the frozen compiler does not add to its curated list.
+///
+Keep capability validation local to the frontend so bootstrap does not depend
+on extra modules that the frozen compiler does not add to its curated list.
+///
 fun frontendFunctionHasCapabilityToken(func: FunctionNode, token: String) r: Bool {
     var di = 0
     while di < func.decorators.length() {
@@ -660,10 +674,12 @@ fun validateDecoratorClosedClasses(result: FrontendResult, fileLabel: String, pr
     }
 }
 
-// --- Diagnostic extras encoding ---
-// Encodes extra metadata into the message field using \x01 separator.
-// Format: "base message\x01code\x01suggestion\x01note\x01endColumn"
-// This avoids changing the FrontendDiagnostic struct layout (no bootstrap risk).
+///
+--- Diagnostic extras encoding ---
+Encodes extra metadata into the message field using \x01 separator.
+Format: "base message\x01code\x01suggestion\x01note\x01endColumn"
+This avoids changing the FrontendDiagnostic struct layout (no bootstrap risk).
+///
 
 fun diagSeparator() r: String {
     return String.fromCharCode(1)

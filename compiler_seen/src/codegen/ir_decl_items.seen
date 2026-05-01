@@ -1,6 +1,8 @@
-// ir_decl_items.seen — declaration-item registration helpers
-// Keeps Pass 1 declaration-item plumbing out of llvm_ir_gen.seen while
-// preserving the existing registry and cross-module declare behavior.
+///
+ir_decl_items.seen — declaration-item registration helpers
+Keeps Pass 1 declaration-item plumbing out of llvm_ir_gen.seen while
+preserving the existing registry and cross-module declare behavior.
+///
 
 import parser.real_parser.{FunctionNode, ItemNode, ParamNode, TypeNode}
 import codegen.ir_string_collect.{getBaseTypeNameImpl}

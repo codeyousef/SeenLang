@@ -1,5 +1,7 @@
-// E-graph Optimizer - Equality Saturation Pass
-// Builds an e-graph, applies rewrite rules iteratively, then extracts optimal code
+///
+E-graph Optimizer - Equality Saturation Pass
+Builds an e-graph, applies rewrite rules iteratively, then extracts optimal code
+///
 
 class EGraphOptimizer {
     let iterationLimit: Int
@@ -16,8 +18,10 @@ class EGraphOptimizer {
         }
     }
 
-    // Run one iteration of equality saturation on the e-graph
-    // Returns number of new rules applied
+    ///
+    Run one iteration of equality saturation on the e-graph
+    Returns number of new rules applied
+    ///
     fun saturateOnce(rules: Array<RewriteRule>) r: Int {
         var applied = 0
         let numNodes = graph.numNodes

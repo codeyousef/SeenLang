@@ -1,5 +1,7 @@
-// Test: Shader permutations via @cfg(feature:)
-// Verifies GLSL generator produces multiple SPIR-V variants
+///
+Test: Shader permutations via @cfg(feature:)
+Verifies GLSL generator produces multiple SPIR-V variants
+///
 
 @compute(workgroup: 64)
 fun particleUpdate(particles: Buffer<Float>, dt: Float) {
@@ -8,8 +10,10 @@ fun particleUpdate(particles: Buffer<Float>, dt: Float) {
     // Base update
     particles[idx] = particles[idx] + dt
 
-    // @cfg(feature: "gravity") — generates variant with gravity enabled
-    // @cfg(feature: "wind") — generates variant with wind enabled
+    ///
+    @cfg(feature: "gravity") — generates variant with gravity enabled
+    @cfg(feature: "wind") — generates variant with wind enabled
+    ///
 }
 
 fun main() r: Int {

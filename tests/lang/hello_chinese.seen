@@ -1,5 +1,7 @@
-// Chinese language test
-// Compile with: --language zh
+///
+Chinese language test
+Compile with: --language zh
+///
 
 函数 main() -> 整数 {
     打印("你好来自Seen!")

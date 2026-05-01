@@ -1,5 +1,7 @@
-// Test Runner for All Optimization Tests
-// Runs all test suites to verify implementation correctness
+///
+Test Runner for All Optimization Tests
+Runs all test suites to verify implementation correctness
+///
 
 import tests.egraph_optimization_test.{runAllEGraphTests}
 import tests.ml_optimization_test.{runAllMLOptimizationTests}

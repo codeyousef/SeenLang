@@ -1,5 +1,7 @@
-// ir_type_info_generator_layout.seen - LLVMIRGenerator self-layout tables.
-// Keeps generator-specific field layout metadata out of generic type info.
+///
+ir_type_info_generator_layout.seen - LLVMIRGenerator self-layout tables.
+Keeps generator-specific field layout metadata out of generic type info.
+///
 
 fun getLLVMIRGeneratorFieldIndexTableImpl(fieldName: String) r: Int {
     if fieldName == "output" { return 0 }

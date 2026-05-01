@@ -1,6 +1,8 @@
-// ir_class_gen_support.seen — shared class-generation support helpers
-// Extracted from llvm_ir_gen.seen to keep decorator scanning, source-method
-// skip rules, and inherited thunk emission out of the main class generator.
+///
+ir_class_gen_support.seen — shared class-generation support helpers
+Extracted from llvm_ir_gen.seen to keep decorator scanning, source-method
+skip rules, and inherited thunk emission out of the main class generator.
+///
 
 import parser.real_parser.{AnnotationNode, ClassNode, FunctionNode}
 import str.string.{StringBuilder}

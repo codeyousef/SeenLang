@@ -1,6 +1,8 @@
-// seen_std.collections.bit_set
-// Bit-packed boolean array for memory-efficient boolean storage.
-// Used for Sieve of Eratosthenes and other algorithms requiring dense bit storage.
+///
+seen_std.collections.bit_set
+Bit-packed boolean array for memory-efficient boolean storage.
+Used for Sieve of Eratosthenes and other algorithms requiring dense bit storage.
+///
 
 import collections.vec.{Vec}
 

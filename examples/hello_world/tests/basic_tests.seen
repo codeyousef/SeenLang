@@ -1,5 +1,7 @@
-// Basic test cases for the hello world example
-// This demonstrates the Seen testing framework
+///
+Basic test cases for the hello world example
+This demonstrates the Seen testing framework
+///
 
 func test_arithmetic() {
     let result = 2 + 2;

@@ -5,30 +5,34 @@ import lexer.interfaces.{TokenType, LexerError}
 
 fun main() -> Int {
     println("Testing Bitwise Operators...")
-    
+
     let source = "& | ^ ~ << >>"
     let lexer = SeenLexer.new(source, 1, "en")
-    
+
     try {
         let tokens = lexer.tokenize()
-        
-        // Expected tokens:
-        // 0: BitwiseAnd "&"
-        // 1: BitwiseOr "|"
-        // 2: BitwiseXor "^"
-        // 3: BitwiseNot "~"
-        // 4: LeftShift "<<"
-        // 5: RightShift ">>"
-        // 6: EndOfFile
-        
+
+        ///
+        Expected tokens:
+        0: BitwiseAnd "&"
+        1: BitwiseOr "|"
+        2: BitwiseXor "^"
+        3: BitwiseNot "~"
+        4: LeftShift "<<"
+        5: RightShift ">>"
+        6: EndOfFile
+        ///
+
         if tokens.length() != 7 {
             println("❌ Expected 7 tokens, got {tokens.length()}")
             return 1
         }
-        
-        // Check types (using string representation for now if enum variants don't exist, 
-        // but for TDD we should try to use the variants)
-        
+
+        ///
+        Check types (using string representation for now if enum variants don't exist,
+        but for TDD we should try to use the variants)
+        ///
+
         // Note: This will fail to compile until we add the variants to TokenType
         let t0 = tokens[0].tokenType == TokenType.BitwiseAnd
         let t1 = tokens[1].tokenType == TokenType.BitwiseOr
@@ -36,7 +40,7 @@ fun main() -> Int {
         let t3 = tokens[3].tokenType == TokenType.BitwiseNot
         let t4 = tokens[4].tokenType == TokenType.LeftShift
         let t5 = tokens[5].tokenType == TokenType.RightShift
-        
+
         if t0 and t1 and t2 and t3 and t4 and t5 {
             println("✅ Bitwise operators recognized correctly")
             return 0
@@ -44,7 +48,7 @@ fun main() -> Int {
             println("❌ Incorrect token types")
             return 1
         }
-        
+
     } catch (e: LexerError) {
         println("❌ Exception during tokenization: {e.message}")
         return 1

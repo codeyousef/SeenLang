@@ -1,6 +1,8 @@
-// BTreeSet - Ordered set using BTreeMap for deterministic iteration
-// Unlike HashSet, BTreeSet always iterates in sorted order.
-// This is the RECOMMENDED set type for deterministic mode.
+///
+BTreeSet - Ordered set using BTreeMap for deterministic iteration
+Unlike HashSet, BTreeSet always iterates in sorted order.
+This is the RECOMMENDED set type for deterministic mode.
+///
 
 import collections.btree_map.{BTreeMap}
 import collections.vec.{Vec}
@@ -51,5 +53,7 @@ class BTreeSet<T> {
     }
 }
 
-// Convenience type alias
-// type SortedSet<T> = BTreeSet<T>
+///
+Convenience type alias
+type SortedSet<T> = BTreeSet<T>
+///

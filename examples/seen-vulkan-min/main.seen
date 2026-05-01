@@ -1,5 +1,7 @@
-// Minimal Vulkan-style Graphics Example
-// This simulates a graphics pipeline without actual Vulkan calls
+///
+Minimal Vulkan-style Graphics Example
+This simulates a graphics pipeline without actual Vulkan calls
+///
 
 data Vec3 {
     x: Float

@@ -1,6 +1,8 @@
-// Mandelbrot Set Benchmark
-// Fractal generation with escape-time algorithm
-// Optimized: inline checksum accumulation, no array allocation
+///
+Mandelbrot Set Benchmark
+Fractal generation with escape-time algorithm
+Optimized: inline checksum accumulation, no array allocation
+///
 
 fun mandelbrot_pixel(cx: Float, cy: Float, max_iter: Int) -> Int {
     var zx = 0.0

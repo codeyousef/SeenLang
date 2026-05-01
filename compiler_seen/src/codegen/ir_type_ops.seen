@@ -1,15 +1,19 @@
-// Binary operator emission helpers
-// Extracted from ir_type_tables.seen
+///
+Binary operator emission helpers
+Extracted from ir_type_tables.seen
+///
 
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_type_ops_comparison.{emitComparisonBinaryOpImpl}
 
-// ============================================================
-// emitBinaryOpImpl — binary operator IR emission
-// Extracted from LLVMIRGenerator.generateBinary
-// Returns resultReg. cseClearSignal[0] set to 1 when cseClear needed.
-// ============================================================
+///
+============================================================
+emitBinaryOpImpl — binary operator IR emission
+Extracted from LLVMIRGenerator.generateBinary
+Returns resultReg. cseClearSignal[0] set to 1 when cseClear needed.
+============================================================
+///
 
 fun emitBinaryOpImpl(output: StringBuilder, regBox: Array<Int>, boundsLabelBox: Array<Int>,
     cseClearSignal: Array<Int>,

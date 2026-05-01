@@ -1,5 +1,7 @@
-// ir_codegen_module_state.seen - module constants, cross-module declares,
-// late declare state, and local lookup caches used by LLVM IR generation.
+///
+ir_codegen_module_state.seen - module constants, cross-module declares,
+late declare state, and local lookup caches used by LLVM IR generation.
+///
 
 import codegen.ir_codegen_global_state.{moduleConstantNames, moduleConstantValues, moduleConstantTypes}
 import codegen.ir_decl_registry.{resetLateUserDeclareStateImpl}

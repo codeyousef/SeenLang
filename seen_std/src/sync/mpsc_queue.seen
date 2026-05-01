@@ -1,10 +1,12 @@
-// MPSC (Multi-Producer Single-Consumer) queue using a mutex-protected Array<Int>.
-// Uses raw __Mutex* externs (no Mutex class import needed).
-//
-// Usage:
-//   var q = new_mpsc_queue()
-//   mpsc_push(q, item)          // safe from multiple threads
-//   let items = mpsc_drain(q)   // consumer only
+///
+MPSC (Multi-Producer Single-Consumer) queue using a mutex-protected Array<Int>.
+Uses raw __Mutex* externs (no Mutex class import needed).
+
+Usage:
+  var q = new_mpsc_queue()
+  mpsc_push(q, item)          // safe from multiple threads
+  let items = mpsc_drain(q)   // consumer only
+///
 
 extern fun __MutexCreate() -> Int
 extern fun __MutexLock(handle: Int) -> Void

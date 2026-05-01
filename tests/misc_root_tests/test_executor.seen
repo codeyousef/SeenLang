@@ -1,6 +1,8 @@
-// Test for @executor decorator
-// Tests single-threaded async task execution with FIFO ordering
-// NOTE: Uses simple types to work around parser bug with Array<CustomClass>
+///
+Test for @executor decorator
+Tests single-threaded async task execution with FIFO ordering
+NOTE: Uses simple types to work around parser bug with Array<CustomClass>
+///
 
 @executor
 class TaskExecutor {

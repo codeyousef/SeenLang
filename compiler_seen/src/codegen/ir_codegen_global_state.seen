@@ -1,6 +1,8 @@
-// ir_codegen_global_state.seen - bootstrap-sensitive generator globals.
-// These remain module globals instead of LLVMIRGenerator fields so older
-// bootstrap compilers do not need to lower self-hosted field stores for them.
+///
+ir_codegen_global_state.seen - bootstrap-sensitive generator globals.
+These remain module globals instead of LLVMIRGenerator fields so older
+bootstrap compilers do not need to lower self-hosted field stores for them.
+///
 
 var preAllocatedRegs: Array<String> = Array<String>()
 var preAllocatedVars: Array<String> = Array<String>()

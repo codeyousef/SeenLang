@@ -1,7 +1,9 @@
-// Routing Framework for Seen Language
-// Provides deterministic route registration and resolution
-// Uses BTreeMap<String, Int> for sorted path storage (deterministic iteration)
-// Used with the @router decorator
+///
+Routing Framework for Seen Language
+Provides deterministic route registration and resolution
+Uses BTreeMap<String, Int> for sorted path storage (deterministic iteration)
+Used with the @router decorator
+///
 
 import collections.btree_map.{BTreeMap}
 
@@ -168,9 +170,11 @@ class Router {
     }
 }
 
-// ============================================================================
-// Route Pattern Utilities
-// ============================================================================
+///
+============================================================================
+Route Pattern Utilities
+============================================================================
+///
 
 // Check if a path has no dynamic segments
 fun isStaticPath(path: String) r: Bool {
@@ -360,9 +364,11 @@ fun isAlpha(ch: String) r: Bool {
     return false
 }
 
-// ============================================================================
-// Global Router API
-// ============================================================================
+///
+============================================================================
+Global Router API
+============================================================================
+///
 
 var g_router: Router = Router.new()
 

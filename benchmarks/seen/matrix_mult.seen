@@ -1,5 +1,7 @@
-// Matrix Multiplication (SGEMM) Benchmark
-// Tiled matrix multiplication with cache optimization
+///
+Matrix Multiplication (SGEMM) Benchmark
+Tiled matrix multiplication with cache optimization
+///
 
 import seen_std.collections.vec { Vec }
 

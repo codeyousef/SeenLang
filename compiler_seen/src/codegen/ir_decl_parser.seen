@@ -5,8 +5,10 @@ import codegen.ir_declarations.{isFuncDefinedInModule}
 import codegen.ir_decl_typechecker.{emitTypecheckerDeclsImpl}
 
 fun emitParserDecls(output: StringBuilder, definedFuncs: Array<String>) r: Void {
-    // Frontend functions (from imported modules - conditionally declared)
-    // run_frontend returns FrontendResult (class type stored as i64)
+    ///
+    Frontend functions (from imported modules - conditionally declared)
+    run_frontend returns FrontendResult (class type stored as i64)
+    ///
     if not isFuncDefinedInModule("run_frontend", definedFuncs) {
         output.append("declare i64 @run_frontend(%SeenString, %SeenString, %SeenString) nounwind\n")
     }
@@ -119,8 +121,10 @@ fun emitParserDecls(output: StringBuilder, definedFuncs: Array<String>) r: Void 
     if not isFuncDefinedInModule("RealParser_parse", definedFuncs) {
         output.append("declare i64 @RealParser_parse(ptr) nounwind\n")
     }
-    // RealParser utility methods (may be in different module)
-    // These return Token which is a class type, so return i64
+    ///
+    RealParser utility methods (may be in different module)
+    These return Token which is a class type, so return i64
+    ///
     if not isFuncDefinedInModule("RealParser_advance", definedFuncs) {
         output.append("declare i64 @RealParser_advance(ptr) nounwind\n")
     }

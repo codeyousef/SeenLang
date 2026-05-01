@@ -1,8 +1,10 @@
-// Prueba E2E: Palabras clave de tipos (Espanol)
-// Palabras probadas: clase, enumeracion
-// NOTA: rasgo+implementar tiene bug de codegen (falta parametro this) -- omitido
-// NOTA: herencia (extiende) tiene bug en asignacion de campos heredados -- omitido
-// NOTA: campos multiples con nombres no-ASCII tienen bug structIdx -- usar un solo campo Int
+///
+Prueba E2E: Palabras clave de tipos (Espanol)
+Palabras probadas: clase, enumeracion
+NOTA: rasgo+implementar tiene bug de codegen (falta parametro this) -- omitido
+NOTA: herencia (extiende) tiene bug en asignacion de campos heredados -- omitido
+NOTA: campos multiples con nombres no-ASCII tienen bug structIdx -- usar un solo campo Int
+///
 
 enumeración Color {
     Rojo,

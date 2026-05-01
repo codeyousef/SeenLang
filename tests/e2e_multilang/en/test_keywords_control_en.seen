@@ -1,5 +1,7 @@
-// E2E Test: Control Flow Keywords (English)
-// Keywords tested: fun, if, else, while, break, continue, return, loop
+///
+E2E Test: Control Flow Keywords (English)
+Keywords tested: fun, if, else, while, break, continue, return, loop
+///
 
 fun helper_add(a: Int, b: Int) r: Int {
     return a + b

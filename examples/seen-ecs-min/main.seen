@@ -1,5 +1,7 @@
-// Minimal ECS (Entity Component System) Example
-// This demonstrates basic ECS patterns in Seen without external dependencies
+///
+Minimal ECS (Entity Component System) Example
+This demonstrates basic ECS patterns in Seen without external dependencies
+///
 
 data Entity {
     id: Int

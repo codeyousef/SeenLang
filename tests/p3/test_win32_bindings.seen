@@ -1,5 +1,7 @@
-// : Win32 bindings — compile-only (no Windows runtime in CI)
-// Verifies Win32 constants and API shape
+///
+: Win32 bindings — compile-only (no Windows runtime in CI)
+Verifies Win32 constants and API shape
+///
 
 fun main() r: Int {
     let WS_OVERLAPPEDWINDOW = 13565952

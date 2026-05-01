@@ -1,6 +1,8 @@
-// Test: @compute basic vector add — verify GLSL generation and SPIR-V compilation
-// Tier 1: compile-only (GLSL output + glslc)
-// Tier 2: runtime dispatch with data verification (if GPU available)
+///
+Test: @compute basic vector add — verify GLSL generation and SPIR-V compilation
+Tier 1: compile-only (GLSL output + glslc)
+Tier 2: runtime dispatch with data verification (if GPU available)
+///
 
 @gpu_buffer
 class FloatBuffer {

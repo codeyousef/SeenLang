@@ -1,5 +1,7 @@
-// C Import Generator - Parses C headers for @_c_import decorator
-// Uses clang to parse C headers and generates Seen extern declarations
+///
+C Import Generator - Parses C headers for @_c_import decorator
+Uses clang to parse C headers and generates Seen extern declarations
+///
 
 import tools.c_import_frontend.{cImportParseHeader}
 import tools.c_import_emit.{cImportGenerateExternDeclarations}

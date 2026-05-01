@@ -1,5 +1,7 @@
-// Neural Network Implementation for ML-Guided Compiler Optimization
-// Feedforward network with backpropagation training
+///
+Neural Network Implementation for ML-Guided Compiler Optimization
+Feedforward network with backpropagation training
+///
 
 import math.math.{exp, tanh, max, min, abs}
 import io.file.{readText, writeText}
@@ -145,8 +147,10 @@ class NeuralLayer {
         return lastActivation
     }
 
-    // Backward pass - compute gradients and update weights
-    // Returns gradient with respect to input (for previous layer)
+    ///
+    Backward pass - compute gradients and update weights
+    Returns gradient with respect to input (for previous layer)
+    ///
     fun backward(outputGradients: Array<Float>, learningRate: Float) r: Array<Float> {
         let inputGradients = Array<Float>()
         var j = 0
@@ -439,8 +443,10 @@ class NeuralNetwork {
         if content == "" {
             return false
         }
-        // Note: Would need JSON parser here; for now, return false
-        // In real implementation, parse JSON string to JsonValue
+        ///
+        Note: Would need JSON parser here; for now, return false
+        In real implementation, parse JSON string to JsonValue
+        ///
         return false
     }
 

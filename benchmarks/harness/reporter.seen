@@ -1,5 +1,7 @@
-// Comprehensive Benchmark Reporting Framework
-// Generates detailed reports in multiple formats (JSON, Markdown, HTML, CSV)
+///
+Comprehensive Benchmark Reporting Framework
+Generates detailed reports in multiple formats (JSON, Markdown, HTML, CSV)
+///
 
 import std::collections::Vec
 import std::collections::HashMap
@@ -709,8 +711,10 @@ class BenchmarkReporter {
     
     // Generate Chart.js JavaScript for performance visualization
     fun generate_chart_javascript(results: ComprehensiveResults, comparisons: Vec<StatisticalComparison>) -> String {
-        // This would generate Chart.js code for visualizing performance data
-        // Implementation would create bar charts, line charts, etc. based on the results
+        ///
+        This would generate Chart.js code for visualizing performance data
+        Implementation would create bar charts, line charts, etc. based on the results
+        ///
         format!(r#"
         const ctx = document.getElementById('performanceChart').getContext('2d');
         const chart = new Chart(ctx, {{

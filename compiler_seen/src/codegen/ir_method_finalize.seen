@@ -1,6 +1,8 @@
-// ir_method_finalize.seen — final instance-method call helpers
-// Extracted from llvm_ir_gen.seen to keep generateMethodCall() focused on
-// receiver discovery and dispatch rather than ABI normalization details.
+///
+ir_method_finalize.seen — final instance-method call helpers
+Extracted from llvm_ir_gen.seen to keep generateMethodCall() focused on
+receiver discovery and dispatch rather than ABI normalization details.
+///
 
 import parser.real_parser.{ParserExpressionNode}
 import codegen.ir_optimization.{getNextRegFn, getNextBlockFn}
@@ -32,8 +34,10 @@ fun stripMethodGenericSuffixImpl(typeName: String) r: String {
     return prefix
 }
 
-// normalizeInstanceMethodTypeNameImpl — clean receiver type for user-method dispatch.
-// tracedUnwrapType is only used for ptr.toJson() on unwrap() results.
+///
+normalizeInstanceMethodTypeNameImpl — clean receiver type for user-method dispatch.
+tracedUnwrapType is only used for ptr.toJson() on unwrap() results.
+///
 fun normalizeInstanceMethodTypeNameImpl(receiverType: String, methodName: String, tracedUnwrapType: String) r: String {
     var instanceTypeName = receiverType
     if instanceTypeName == "ptr" and methodName == "toJson" and tracedUnwrapType != "" {
@@ -69,8 +73,10 @@ fun isHotReloadGetterMethodImpl(methodName: String) r: Bool {
     return methodName == "__seen_hot_get_size" or methodName == "__seen_hot_get_version" or methodName == "__seen_hot_get_state"
 }
 
-// emitHotReloadMethodCallImpl — emit synthesized @hot_reload method call if applicable.
-// Returns "" when the method is not a hot-reload helper.
+///
+emitHotReloadMethodCallImpl — emit synthesized @hot_reload method call if applicable.
+Returns "" when the method is not a hot-reload helper.
+///
 fun emitHotReloadMethodCallImpl(output: StringBuilder, regBox: Array<Int>, methodName: String,
     quotedFuncName: String, receiverReg: String, receiverNeedsPtrLift: Int, stateArg: String) r: String {
 
@@ -122,8 +128,10 @@ fun resolveMethodCallReturnTypeImpl(inferredReturnType: String,
     return returnTypeStr
 }
 
-// resolveMethodReceiverAbiImpl — lower receiver storage to the ABI expected by
-// the final instance-method call.
+///
+resolveMethodReceiverAbiImpl — lower receiver storage to the ABI expected by
+the final instance-method call.
+///
 fun resolveMethodReceiverAbiImpl(output: StringBuilder, regBox: Array<Int>,
     instanceTypeName: String, receiverStorageLlvmType: String,
     receiverRegBox: Array<String>, receiverLlvmTypeBox: Array<String>,

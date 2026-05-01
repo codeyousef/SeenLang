@@ -61,8 +61,10 @@ fun emitLspJsonRuntimeDecls(output: StringBuilder,
     if not isFuncDefinedInModule("Range_new", definedFuncs) {
         output.append("declare i64 @Range_new(ptr, ptr) nounwind\n")
     }
-    // Note: Position_new has 3 args (line, column, fileId) from lexer/interfaces.seen
-    // LspPosition_new has 2 args (line, character) from lsp/types.seen
+    ///
+    Note: Position_new has 3 args (line, column, fileId) from lexer/interfaces.seen
+    LspPosition_new has 2 args (line, character) from lsp/types.seen
+    ///
     if not isFuncDefinedInModule("LspPosition_new", definedFuncs) {
         output.append("declare i64 @LspPosition_new(i64, i64) nounwind\n")
     }
@@ -99,8 +101,10 @@ fun emitLspJsonRuntimeDecls(output: StringBuilder,
     if not isFuncDefinedInModule("ServerInfo_new", definedFuncs) {
         output.append("declare i64 @ServerInfo_new() nounwind\n")
     }
-    // JsonRpc classes
-    // io.stdio function declarations
+    ///
+    JsonRpc classes
+    io.stdio function declarations
+    ///
     if not isFuncDefinedInModule("printRaw", definedFuncs) {
         output.append("declare void @printRaw(%SeenString) nounwind\n")
     }

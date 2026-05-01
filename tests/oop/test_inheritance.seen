@@ -1,6 +1,8 @@
-// OOP Inheritance Test
-// Tests: class extension, method override, super calls, virtual dispatch
-// Expected: Inheritance features work correctly
+///
+OOP Inheritance Test
+Tests: class extension, method override, super calls, virtual dispatch
+Expected: Inheritance features work correctly
+///
 
 class Animal {
     var name: String

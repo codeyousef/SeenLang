@@ -1,7 +1,9 @@
-// Lock-Free Treiber Atomic Stack — CAS linked list
-// Usage: let s = AtomicStack.new()
-//        s.push(42)
-//        let v = s.pop()  // returns value or 0 if empty
+///
+Lock-Free Treiber Atomic Stack — CAS linked list
+Usage: let s = AtomicStack.new()
+       s.push(42)
+       let v = s.pop()  // returns value or 0 if empty
+///
 
 class AtomicStack {
     var handle: Int

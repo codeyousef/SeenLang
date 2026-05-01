@@ -1,5 +1,7 @@
-// Test for @middleware_stack decorator
-// Tests composable middleware chains with FIFO execution
+///
+Test for @middleware_stack decorator
+Tests composable middleware chains with FIFO execution
+///
 
 // A simple middleware stack for request processing
 @middleware_stack

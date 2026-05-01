@@ -14,16 +14,20 @@ Seen WASM runtime (seen_wasm_runtime.js).
 import core.result.{Result, Ok, Err}
 import core.unit.{Unit}
 
-// ============================================================
-// Power preference constants
-// ============================================================
+///
+============================================================
+Power preference constants
+============================================================
+///
 
 let GPU_POWER_LOW: Int = 0
 let GPU_POWER_HIGH: Int = 1
 
-// ============================================================
-// Buffer usage flags (combinable with bitwise OR)
-// ============================================================
+///
+============================================================
+Buffer usage flags (combinable with bitwise OR)
+============================================================
+///
 
 let GPU_BUFFER_USAGE_MAP_READ: Int = 1
 let GPU_BUFFER_USAGE_MAP_WRITE: Int = 2
@@ -36,9 +40,11 @@ let GPU_BUFFER_USAGE_STORAGE: Int = 128
 let GPU_BUFFER_USAGE_INDIRECT: Int = 256
 let GPU_BUFFER_USAGE_QUERY_RESOLVE: Int = 512
 
-// ============================================================
-// Texture format constants
-// ============================================================
+///
+============================================================
+Texture format constants
+============================================================
+///
 
 let GPU_TEXTURE_FORMAT_RGBA8_UNORM: Int = 1
 let GPU_TEXTURE_FORMAT_RGBA8_SNORM: Int = 2
@@ -53,9 +59,11 @@ let GPU_TEXTURE_FORMAT_DEPTH32_FLOAT: Int = 10
 let GPU_TEXTURE_FORMAT_R8_UNORM: Int = 11
 let GPU_TEXTURE_FORMAT_RG8_UNORM: Int = 12
 
-// ============================================================
-// Texture usage flags (combinable with bitwise OR)
-// ============================================================
+///
+============================================================
+Texture usage flags (combinable with bitwise OR)
+============================================================
+///
 
 let GPU_TEXTURE_USAGE_COPY_SRC: Int = 1
 let GPU_TEXTURE_USAGE_COPY_DST: Int = 2
@@ -63,17 +71,21 @@ let GPU_TEXTURE_USAGE_TEXTURE_BINDING: Int = 4
 let GPU_TEXTURE_USAGE_STORAGE_BINDING: Int = 8
 let GPU_TEXTURE_USAGE_RENDER_ATTACHMENT: Int = 16
 
-// ============================================================
-// Shader stage visibility flags (combinable with bitwise OR)
-// ============================================================
+///
+============================================================
+Shader stage visibility flags (combinable with bitwise OR)
+============================================================
+///
 
 let GPU_SHADER_VERTEX: Int = 1
 let GPU_SHADER_FRAGMENT: Int = 2
 let GPU_SHADER_COMPUTE: Int = 4
 
-// ============================================================
-// Primitive topology constants
-// ============================================================
+///
+============================================================
+Primitive topology constants
+============================================================
+///
 
 let GPU_PRIMITIVE_POINT_LIST: Int = 0
 let GPU_PRIMITIVE_LINE_LIST: Int = 1
@@ -81,18 +93,22 @@ let GPU_PRIMITIVE_LINE_STRIP: Int = 2
 let GPU_PRIMITIVE_TRIANGLE_LIST: Int = 3
 let GPU_PRIMITIVE_TRIANGLE_STRIP: Int = 4
 
-// ============================================================
-// Load/store operations for render passes
-// ============================================================
+///
+============================================================
+Load/store operations for render passes
+============================================================
+///
 
 let GPU_LOAD_OP_CLEAR: Int = 0
 let GPU_LOAD_OP_LOAD: Int = 1
 let GPU_STORE_OP_STORE: Int = 0
 let GPU_STORE_OP_DISCARD: Int = 1
 
-// ============================================================
-// Vertex format constants
-// ============================================================
+///
+============================================================
+Vertex format constants
+============================================================
+///
 
 let GPU_VERTEX_FORMAT_FLOAT32: Int = 1
 let GPU_VERTEX_FORMAT_FLOAT32X2: Int = 2
@@ -101,9 +117,11 @@ let GPU_VERTEX_FORMAT_FLOAT32X4: Int = 4
 let GPU_VERTEX_FORMAT_UINT32: Int = 5
 let GPU_VERTEX_FORMAT_SINT32: Int = 6
 
-// ============================================================
-// FFI declarations (imported from JS host via WASM imports)
-// ============================================================
+///
+============================================================
+FFI declarations (imported from JS host via WASM imports)
+============================================================
+///
 
 // Adapter and device creation
 extern fun seen_wgpu_request_adapter(powerPref: Int) r: Int
@@ -172,9 +190,11 @@ extern fun seen_wgpu_queue_write_buffer(device: Int, buffer: Int, offset: Int, d
 extern fun seen_wgpu_canvas_get_context(canvasId: String) r: Int
 extern fun seen_wgpu_context_get_current_texture(ctx: Int) r: Int
 
-// ============================================================
-// GPUBuffer wrapper class
-// ============================================================
+///
+============================================================
+GPUBuffer wrapper class
+============================================================
+///
 
 ///
 Wrapper around a WebGPU buffer handle.
@@ -211,9 +231,11 @@ class GPUBuffer {
     }
 }
 
-// ============================================================
-// GPUDevice wrapper class
-// ============================================================
+///
+============================================================
+GPUDevice wrapper class
+============================================================
+///
 
 ///
 High-level wrapper around a WebGPU device.

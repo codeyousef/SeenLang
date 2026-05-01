@@ -1,6 +1,8 @@
-// Module System Test
-// Tests: import statements, symbol resolution, module access
-// Expected: Import system works correctly
+///
+Module System Test
+Tests: import statements, symbol resolution, module access
+Expected: Import system works correctly
+///
 
 // Test importing from stdlib
 import testing.assert { assertEquals, assertTrue }

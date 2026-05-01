@@ -1,6 +1,8 @@
-// ir_method_receiver_predicates.seen -- method receiver classification helpers
-// Keeps method-call classifier logic separate from receiver resolution,
-// expression generation, and final call emission.
+///
+ir_method_receiver_predicates.seen -- method receiver classification helpers
+Keeps method-call classifier logic separate from receiver resolution,
+expression generation, and final call emission.
+///
 
 fun isOptionReceiverTypeImpl(receiverType: String) r: Bool {
     if receiverType == "Option" {

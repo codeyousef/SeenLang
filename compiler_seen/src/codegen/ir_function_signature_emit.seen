@@ -1,5 +1,7 @@
-// Function signature, default return, and async coroutine emission helpers
-// Extracted from ir_function_gen.seen
+///
+Function signature, default return, and async coroutine emission helpers
+Extracted from ir_function_gen.seen
+///
 
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn, getNextBlockFn}

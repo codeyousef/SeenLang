@@ -5,8 +5,10 @@ import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_type_dispatch.{emitVecMethodImpl, emitBTreeMapMethodImpl, emitHashMapMethodImpl, emitStringHashMapMethodImpl}
 import codegen.ir_linked_list_dispatch.{emitLinkedListMethodImpl}
 
-// Collection method dispatch: Vec, BTreeMap, HashMap, StringHashMap, LinkedList
-// Consolidates duplicated dispatch logic from complex and simple receiver paths
+///
+Collection method dispatch: Vec, BTreeMap, HashMap, StringHashMap, LinkedList
+Consolidates duplicated dispatch logic from complex and simple receiver paths
+///
 fun dispatchCollectionMethodImpl(output: StringBuilder, regBox: Array<Int>,
     methodName: String, receiverReg: String, receiverType: String,
     arg0: String, arg1: String) r: String {

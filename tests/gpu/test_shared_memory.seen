@@ -1,5 +1,7 @@
-// Test: @shared workgroup memory with barrier()
-// Verifies GLSL generator emits shared memory declarations and barrier() calls
+///
+Test: @shared workgroup memory with barrier()
+Verifies GLSL generator emits shared memory declarations and barrier() calls
+///
 
 @compute(workgroup: 256)
 fun reductionSum(input: Buffer<Float>, output: Buffer<Float>) {

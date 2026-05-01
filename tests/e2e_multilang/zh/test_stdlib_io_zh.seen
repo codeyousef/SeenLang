@@ -1,10 +1,12 @@
-// 端到端测试: 输入输出标准库 (中文)
-// 注意: 高级封装函数 (写文本, 读文本, 存在, 删除文件) 在单文件编译中不可用
-// 改用__前缀的运行时函数: __OpenFile, __WriteFile, __CloseFile, __FileSize,
-//   __FileExists, __DeleteFile
-// 注意: __FileExists/__DeleteFile返回布尔值, 直接在如果条件中使用
-// 注意: __ReadFile返回SeenString但代码生成当作i64处理, 无法使用返回的字符串内容
-//       改用__FileSize验证
+///
+端到端测试: 输入输出标准库 (中文)
+注意: 高级封装函数 (写文本, 读文本, 存在, 删除文件) 在单文件编译中不可用
+改用__前缀的运行时函数: __OpenFile, __WriteFile, __CloseFile, __FileSize,
+  __FileExists, __DeleteFile
+注意: __FileExists/__DeleteFile返回布尔值, 直接在如果条件中使用
+注意: __ReadFile返回SeenString但代码生成当作i64处理, 无法使用返回的字符串内容
+      改用__FileSize验证
+///
 
 函数 主函数() r: 整数 {
     让 路径 = "/tmp/seen_e2e_test_zh.txt"
@@ -36,8 +38,10 @@
         返回 1
     }
 
-    // 测试4: 读取并验证文件大小
-    // (由于__ReadFile返回类型缺陷, 无法比较字符串内容)
+    ///
+    测试4: 读取并验证文件大小
+    (由于__ReadFile返回类型缺陷, 无法比较字符串内容)
+    ///
     让 文件描述符二 = __OpenFile(路径, "r")
     如果 文件描述符二 < 0 {
         打印("失败: 打开文件读取")

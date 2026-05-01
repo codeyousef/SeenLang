@@ -3,15 +3,19 @@
 import parser.real_parser.{ParserExpressionNode, ProgramNode, BlockNode, StatementNode}
 import codegen.ir_string_collect.{ensureStringConstCache, hasCachedStringConst, cacheStringConstUnchecked}
 
-// Record a call to funcName (piggybacked during string collection).
-// callCountNamesBox[0] = g_callCountNames, callCountEntriesBox[0] = g_callCountEntries
+///
+Record a call to funcName (piggybacked during string collection).
+callCountNamesBox[0] = g_callCountNames, callCountEntriesBox[0] = g_callCountEntries
+///
 fun callCountRecordImpl(funcName: String, callCountNamesBox: Array<String>, callCountEntriesBox: Array<Int>) r: Void {
     return
 }
 
-// Collect self-call info: scan function body for Call exprs that call funcName
-// selfCallBox[0] = g_selfCallFuncs, selfCallBox[1] = g_selfCallNames
-// selfCallCountBox[0] = g_selfCallCount
+///
+Collect self-call info: scan function body for Call exprs that call funcName
+selfCallBox[0] = g_selfCallFuncs, selfCallBox[1] = g_selfCallNames
+selfCallCountBox[0] = g_selfCallCount
+///
 fun collectSelfCallsImpl(funcName: String, body: BlockNode, selfCallBox: Array<String>, selfCallCountBox: Array<Int>) r: Void {
     var i = 0
     while i < body.statements.length() {
@@ -205,15 +209,19 @@ fun collectStringConstantsFromExprImpl(expr: ParserExpressionNode, stringConstan
         }
     }
     if expr.kind == "Assignment" {
-        // Handle assignment expressions - collect from the right-hand side value
-        // Parser stores: variableName = target, operands[0] = value
+        ///
+        Handle assignment expressions - collect from the right-hand side value
+        Parser stores: variableName = target, operands[0] = value
+        ///
         if expr.operands.length() > 0 {
             collectStringConstantsFromExprImpl(expr.operands[0], stringConstants, callCountNamesBox, callCountEntriesBox)
         }
     }
     if expr.kind == "MemberAssignment" or expr.kind == "IndexAssignment" {
-        // MemberAssignment: operands[0] = lhs (MemberAccess), operands[1] = rhs value
-        // IndexAssignment: operands[0] = lhs (IndexAccess), operands[1] = rhs value
+        ///
+        MemberAssignment: operands[0] = lhs (MemberAccess), operands[1] = rhs value
+        IndexAssignment: operands[0] = lhs (IndexAccess), operands[1] = rhs value
+        ///
         var i = 0
         while i < expr.operands.length() {
             collectStringConstantsFromExprImpl(expr.operands[i], stringConstants, callCountNamesBox, callCountEntriesBox)

@@ -1,6 +1,8 @@
-// Seen Standard Library - GPU Compute API
-// Provides type-safe wrappers around seen_gpu_* runtime functions
-// Usage: import graphics.gpu.{GpuBuffer, GpuPipeline, gpuInit, gpuShutdown}
+///
+Seen Standard Library - GPU Compute API
+Provides type-safe wrappers around seen_gpu_* runtime functions
+Usage: import graphics.gpu.{GpuBuffer, GpuPipeline, gpuInit, gpuShutdown}
+///
 
 // --- External Runtime Functions ---
 

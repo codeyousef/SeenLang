@@ -1,5 +1,7 @@
-// IR Generation Module - Real Implementation Entry Point
-// Exports the actual working implementations for TDD
+///
+IR Generation Module - Real Implementation Entry Point
+Exports the actual working implementations for TDD
+///
 
 // Import all the interfaces and types
 import interfaces.{IRModule, IRFunction, IRBasicBlock, IRInstruction, IRValue, IRType, IRError, IRBuilder}

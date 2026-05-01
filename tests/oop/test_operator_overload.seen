@@ -1,6 +1,8 @@
-// OOP Operator Overloading Test
-// Tests: arithmetic operators, comparison operators on custom types
-// Expected: Operator overloading works correctly
+///
+OOP Operator Overloading Test
+Tests: arithmetic operators, comparison operators on custom types
+Expected: Operator overloading works correctly
+///
 
 class Vector2D {
     var x: Int

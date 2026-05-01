@@ -1,13 +1,17 @@
-// LSP Protocol Types
-// Defines all the types needed for Language Server Protocol communication
+///
+LSP Protocol Types
+Defines all the types needed for Language Server Protocol communication
+///
 
 import json.value.{JsonValue, JsonValue_emptyObject, JsonValue_string, JsonValue_number, JsonValue_bool, JsonValue_emptyArray, JsonValue_array, JsonValue_nullValue}
 import json.parser.{parseJson}
 import json.builder.{jsonToString}
 
-// ============================================================================
-// Core LspPosition Types
-// ============================================================================
+///
+============================================================================
+Core LspPosition Types
+============================================================================
+///
 
 // LspPosition in a text document (zero-based line and character)
 class LspPosition {
@@ -110,9 +114,11 @@ fun Location_new(uri: String, range: Range) r: Location {
     return loc
 }
 
-// ============================================================================
-// Text Document Types
-// ============================================================================
+///
+============================================================================
+Text Document Types
+============================================================================
+///
 
 class TextDocumentIdentifier {
     var uri: String
@@ -222,9 +228,11 @@ fun TextDocumentContentChangeEvent_fromJson(json: JsonValue) r: TextDocumentCont
     return event
 }
 
-// ============================================================================
-// Diagnostic Types
-// ============================================================================
+///
+============================================================================
+Diagnostic Types
+============================================================================
+///
 
 // Diagnostic severity constants
 let DIAGNOSTIC_ERROR = 1
@@ -264,9 +272,11 @@ fun Diagnostic_new(range: Range, severity: Int, message: String) r: Diagnostic {
     return diag
 }
 
-// ============================================================================
-// Completion Types
-// ============================================================================
+///
+============================================================================
+Completion Types
+============================================================================
+///
 
 // Completion item kinds
 let COMPLETION_TEXT = 1
@@ -365,9 +375,11 @@ fun CompletionList_new(items: Array<CompletionItem>) r: CompletionList {
     return list
 }
 
-// ============================================================================
-// Hover Types
-// ============================================================================
+///
+============================================================================
+Hover Types
+============================================================================
+///
 
 class MarkupContent {
     var kind: String  // "plaintext" or "markdown"
@@ -421,9 +433,11 @@ fun Hover_new(contents: MarkupContent) r: Hover {
     return hover
 }
 
-// ============================================================================
-// Code Action Types
-// ============================================================================
+///
+============================================================================
+Code Action Types
+============================================================================
+///
 
 class TextEdit {
     var range: Range
@@ -478,9 +492,11 @@ fun CodeAction_new(title: String, kind: String) r: CodeAction {
     return action
 }
 
-// ============================================================================
-// Initialize Request/Response Types
-// ============================================================================
+///
+============================================================================
+Initialize Request/Response Types
+============================================================================
+///
 
 class ClientCapabilities {
     // Simplified - we'll expand as needed
@@ -634,9 +650,11 @@ fun InitializeResult_new() r: InitializeResult {
     return result
 }
 
-// ============================================================================
-// Document Sync Params
-// ============================================================================
+///
+============================================================================
+Document Sync Params
+============================================================================
+///
 
 class DidOpenTextDocumentParams {
     var textDocument: TextDocumentItem
@@ -765,9 +783,11 @@ fun DidSaveTextDocumentParams_fromJson(json: JsonValue) r: DidSaveTextDocumentPa
     return params
 }
 
-// ============================================================================
-// Request Params
-// ============================================================================
+///
+============================================================================
+Request Params
+============================================================================
+///
 
 class TextDocumentPositionParams {
     var textDocument: TextDocumentIdentifier
@@ -886,9 +906,11 @@ fun DocumentFormattingParams_fromJson(json: JsonValue) r: DocumentFormattingPara
     return params
 }
 
-// ============================================================================
-// Publish Diagnostics
-// ============================================================================
+///
+============================================================================
+Publish Diagnostics
+============================================================================
+///
 
 class PublishDiagnosticsParams {
     var uri: String

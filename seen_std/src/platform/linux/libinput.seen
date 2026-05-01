@@ -81,9 +81,11 @@ let LIBINPUT_CONFIG_ACCEL_PROFILE_NONE: Int = 0
 let LIBINPUT_CONFIG_ACCEL_PROFILE_FLAT: Int = 1
 let LIBINPUT_CONFIG_ACCEL_PROFILE_ADAPTIVE: Int = 2
 
-// ============================================================================
-// Direct C FFI Declarations - Link to libinput.so.10
-// ============================================================================
+///
+============================================================================
+Direct C FFI Declarations - Link to libinput.so.10
+============================================================================
+///
 
 // Core libinput functions
 extern "C" fun libinput_path_create_context(interface: *Void, userData: *Void) r: *Void
@@ -151,9 +153,11 @@ extern "C" fun libinput_event_gesture_get_scale(event: *Void) r: Float64
 extern "C" fun libinput_event_gesture_get_angle_delta(event: *Void) r: Float64
 extern "C" fun libinput_event_gesture_get_time(event: *Void) r: UInt32
 
-// ============================================================================
-// Safe Wrapper Types
-// ============================================================================
+///
+============================================================================
+Safe Wrapper Types
+============================================================================
+///
 
 ///
 Types of input events from libinput.

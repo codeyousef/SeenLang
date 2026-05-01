@@ -1,6 +1,8 @@
-// Minimal Generic Test
-// Tests: Can we even declare a generic class?
-// Expected: At minimum, generic class syntax should parse
+///
+Minimal Generic Test
+Tests: Can we even declare a generic class?
+Expected: At minimum, generic class syntax should parse
+///
 
 class Box<T> {
     var value: T

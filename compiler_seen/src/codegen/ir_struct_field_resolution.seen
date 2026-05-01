@@ -1,11 +1,15 @@
-// Known struct field layout resolution helpers
-// Extracted from ir_type_mapping.seen
+///
+Known struct field layout resolution helpers
+Extracted from ir_type_mapping.seen
+///
 
 import codegen.ir_type_info.{g_resolvedFieldIndex, g_resolvedFieldTypeCode}
 
-// Unified struct field lookup: resolves (layout, fieldIndex, fieldType) for known struct types.
-// Returns the LLVM struct layout string. Sets g_resolvedFieldIndex and g_resolvedFieldType.
-// Used by generateFieldAccess and generateFieldAccessPtr in llvm_ir_gen.seen.
+///
+Unified struct field lookup: resolves (layout, fieldIndex, fieldType) for known struct types.
+Returns the LLVM struct layout string. Sets g_resolvedFieldIndex and g_resolvedFieldType.
+Used by generateFieldAccess and generateFieldAccessPtr in llvm_ir_gen.seen.
+///
 fun resolveKnownStructFieldImpl(structType: String, fieldName: String) r: String {
     let lb = "{"
     let rb = "}"

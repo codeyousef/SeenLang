@@ -1,5 +1,7 @@
-// Channel for thread communication - simplified
-// Note: Full channel support requires more advanced features
+///
+Channel for thread communication - simplified
+Note: Full channel support requires more advanced features
+///
 
 class Channel {
     var id: Int

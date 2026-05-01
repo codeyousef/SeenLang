@@ -1,6 +1,8 @@
-// Region Memory Safety Test
-// Tests generational handles and use-after-free prevention
-// Expected: Safety mechanisms prevent invalid memory access
+///
+Region Memory Safety Test
+Tests generational handles and use-after-free prevention
+Expected: Safety mechanisms prevent invalid memory access
+///
 
 fun main() r: Int {
     var passed = 0

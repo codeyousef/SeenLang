@@ -1,5 +1,7 @@
-// : Test region lifetime annotations (valid case)
-// Region-local variables used only within scope — should compile
+///
+: Test region lifetime annotations (valid case)
+Region-local variables used only within scope — should compile
+///
 
 fun main() {
     region bump {

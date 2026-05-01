@@ -1,6 +1,8 @@
-// OOP Inheritance Test (Simplified to avoid String bug)
-// Tests: class extension, method override, virtual dispatch with Int returns
-// Expected: Inheritance features work correctly
+///
+OOP Inheritance Test (Simplified to avoid String bug)
+Tests: class extension, method override, virtual dispatch with Int returns
+Expected: Inheritance features work correctly
+///
 
 class Shape {
     var x: Int

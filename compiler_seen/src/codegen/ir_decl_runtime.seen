@@ -1,5 +1,7 @@
-// Core runtime declarations for LLVM IR generation
-// Extracted from ir_declarations.seen to reduce file size
+///
+Core runtime declarations for LLVM IR generation
+Extracted from ir_declarations.seen to reduce file size
+///
 
 import str.string.{StringBuilder}
 import codegen.ir_declarations.{isFuncDefinedInModule}
@@ -9,8 +11,10 @@ import codegen.ir_decl_runtime_memory.{emitMemoryRuntimeDecls}
 import codegen.ir_decl_runtime_collections.{emitMapVecBTreeRuntimeDecls}
 
 fun emitCoreRuntimeDecls(output: StringBuilder, runtimeDeclsLoaded: Bool, definedFuncs: Array<String>) r: Void {
-    // If runtime declarations were loaded from header file, skip core declarations
-    // They are already included in the header, only emit compiler-specific ones below
+    ///
+    If runtime declarations were loaded from header file, skip core declarations
+    They are already included in the header, only emit compiler-specific ones below
+    ///
     if runtimeDeclsLoaded {
         output.append("; Core runtime declarations loaded from type header file\n")
     } else {
@@ -75,17 +79,21 @@ fun emitCoreRuntimeDecls(output: StringBuilder, runtimeDeclsLoaded: Bool, define
         if not isFuncDefinedInModule("Option_IsNone", definedFuncs) {
             output.append("declare i1 @Option_IsNone(ptr) nounwind readonly\n")
         }
-        // Option<T>.unwrap() - for primitive inner types, we need specific unwrap functions
-        // The generic version returns ptr (matching C runtime semantics)
+        ///
+        Option<T>.unwrap() - for primitive inner types, we need specific unwrap functions
+        The generic version returns ptr (matching C runtime semantics)
+        ///
         output.append("declare i1 @Option_unwrap_bool(ptr) nounwind\n")
         output.append("declare i64 @Option_unwrap_int(ptr) nounwind\n")
         output.append("declare %SeenString @Option_unwrap_string(ptr) nounwind\n")
         output.append("declare double @Option_unwrap_float(ptr) nounwind\n")
         output.append("declare i64 @Option_unwrap_boxed(ptr) nounwind\n")
-        // Option_unwrap/Unwrap: return i64 to match cross-module declare from registerDeclarations
-        // (mapType("T") = "i64", so the cross-module declare emits i64; must agree here)
-        // Guard with isFuncDefinedInModule — cross-module declare system pre-pushes these names
-        // to definedFuncs, so this prevents duplicate declarations when option.seen is imported.
+        ///
+        Option_unwrap/Unwrap: return i64 to match cross-module declare from registerDeclarations
+        (mapType("T") = "i64", so the cross-module declare emits i64; must agree here)
+        Guard with isFuncDefinedInModule — cross-module declare system pre-pushes these names
+        to definedFuncs, so this prevents duplicate declarations when option.seen is imported.
+        ///
         if not isFuncDefinedInModule("Option_unwrap", definedFuncs) {
             output.append("declare i64 @Option_unwrap(ptr) nounwind\n")
         }
@@ -311,8 +319,10 @@ fun emitCoreRuntimeDecls(output: StringBuilder, runtimeDeclsLoaded: Bool, define
             output.append("declare void @LinkedList_clear_str(ptr) nounwind\n")
         }
 
-        // VDOM factory functions (return VNode/VDOMDiffer/VDOMPatcher which are class types → ptr)
-        // Signatures from seen_std/src/framework/vdom.seen
+        ///
+        VDOM factory functions (return VNode/VDOMDiffer/VDOMPatcher which are class types → ptr)
+        Signatures from seen_std/src/framework/vdom.seen
+        ///
         if not isFuncDefinedInModule("createElement", definedFuncs) {
             output.append("declare ptr @createElement(%SeenString, ptr, ptr) nounwind\n")
         }

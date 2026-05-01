@@ -1,6 +1,8 @@
-// Type table lookup functions extracted from llvm_ir_gen.seen
-// Pure lookup functions with no class state dependencies.
-// Returns "" when no match found; callers fall through to dynamic logic.
+///
+Type table lookup functions extracted from llvm_ir_gen.seen
+Pure lookup functions with no class state dependencies.
+Returns "" when no match found; callers fall through to dynamic logic.
+///
 
 import str.string.{StringBuilder}
 import codegen.ir_type_info.{getLLVMIRGeneratorFieldLlvmTypeImpl}
@@ -10,8 +12,10 @@ import codegen.ir_field_type_fallback.{inferFieldTypeFallbackImpl}
 import codegen.ir_header_field_types.{getFieldTypeForHeaderStructImpl}
 import codegen.ir_known_struct_field_types.{getFieldTypeForKnownStructImpl}
 import codegen.ir_index_element_types.{inferIndexElementTypeImpl}
-// Note: getNextRegFn, getNextBlockFn, charToCodeStr, mapTypeImpl, SIMD helpers
-// moved to ir_type_dispatch.seen and ir_type_ops.seen
+///
+Note: getNextRegFn, getNextBlockFn, charToCodeStr, mapTypeImpl, SIMD helpers
+moved to ir_type_dispatch.seen and ir_type_ops.seen
+///
 
 // Method name -> return type for MethodCall expressions
 fun inferMethodCallTypeTable(callee: String) r: String {
@@ -53,13 +57,17 @@ fun getHardcodedFieldLlvmTypeImpl(structName: String, fieldName: String) r: Stri
 
 // Register all known data types - populates struct arrays with hardcoded layouts
 fun registerKnownDataTypesImpl(structNames: Array<String>, structLayouts: Array<String>, structFieldNames: Array<String>, structFieldTypes: Array<String>, structLlvmFieldTypes: Array<String>, structSizes: Array<Int>, structMethodNames: Array<String>, structMethodRetTypes: Array<String>) r: Void {
-    // ItemNode { itemType: String, name: String, visibility: String, importPath: Array<String>, importSymbols: Array<ImportSymbolNode>, function: FunctionNode, classNode: ClassNode, enumNode: EnumNode }
-    // Arrays are stored as ptr (8 bytes each, pointer to heap-allocated SeenArray), class types stored as i64
+    ///
+    ItemNode { itemType: String, name: String, visibility: String, importPath: Array<String>, importSymbols: Array<ImportSymbolNode>, function: FunctionNode, classNode: ClassNode, enumNode: EnumNode }
+    Arrays are stored as ptr (8 bytes each, pointer to heap-allocated SeenArray), class types stored as i64
+    ///
     structNames.push("ItemNode")
     structLayouts.push("{ %SeenString, %SeenString, %SeenString, ptr, ptr, i64, i64, i64 }")
     structFieldNames.push("itemType,name,visibility,importPath,importSymbols,function,classNode,enumNode")
-    // Use Seen types (not LLVM types) for getSeenFieldType to work correctly
-    // Field types are pipe-separated per getSeenFieldType parsing
+    ///
+    Use Seen types (not LLVM types) for getSeenFieldType to work correctly
+    Field types are pipe-separated per getSeenFieldType parsing
+    ///
     structFieldTypes.push("String|String|String|Array<String>|Array<ImportSymbolNode>|FunctionNode|ClassNode|EnumNode")
     structLlvmFieldTypes.push("")
     structSizes.push(88)
@@ -112,12 +120,14 @@ fun registerKnownDataTypesImpl(structNames: Array<String>, structLayouts: Array<
     structSizes.push(24)
     structMethodNames.push("")
     structMethodRetTypes.push("")
-    // FunctionNode { name: String, params: Array<ParamNode>, returnType: TypeNode (inline data), body: BlockNode (class, i64),
-    //                isAsync: Bool, isInline: Bool, isStatic: Bool, isExtern: Bool,
-    //                isDeterministic: Bool, isNondeterministic: Bool, decorators: Array<AnnotationNode>, line: Int, column: Int,
-    //                isOverride: Bool }
-    // Actual layout from source: { %SeenString, ptr, %TypeNode, i64, i1, i1, i1, i1, i1, i1, ptr, i64, i64, i1 }
-    // Where %TypeNode = { %SeenString, i1 }
+    ///
+    FunctionNode { name: String, params: Array<ParamNode>, returnType: TypeNode (inline data), body: BlockNode (class, i64),
+                   isAsync: Bool, isInline: Bool, isStatic: Bool, isExtern: Bool,
+                   isDeterministic: Bool, isNondeterministic: Bool, decorators: Array<AnnotationNode>, line: Int, column: Int,
+                   isOverride: Bool }
+    Actual layout from source: { %SeenString, ptr, %TypeNode, i64, i1, i1, i1, i1, i1, i1, ptr, i64, i64, i1 }
+    Where %TypeNode = { %SeenString, i1 }
+    ///
     structNames.push("FunctionNode")
     // Note: TypeNode is inline (data type), BlockNode is i64 (class type)
     structLayouts.push("{ %SeenString, ptr, %TypeNode, i64, i1, i1, i1, i1, i1, i1, ptr, i64, i64, i1 }")
@@ -256,8 +266,10 @@ fun registerKnownDataTypesImpl(structNames: Array<String>, structLayouts: Array<
     structSizes.push(24)
     structMethodNames.push("")
     structMethodRetTypes.push("")
-    // FrontendResult { success: Bool, diagnostics: Array<FrontendDiagnostic>, program: ProgramNode }
-    // Rust backend stores arrays as ptr, class types as i64 (pointer-as-int)
+    ///
+    FrontendResult { success: Bool, diagnostics: Array<FrontendDiagnostic>, program: ProgramNode }
+    Rust backend stores arrays as ptr, class types as i64 (pointer-as-int)
+    ///
     structNames.push("FrontendResult")
     structLayouts.push("{ i1, ptr, i64 }")
     structFieldNames.push("success,diagnostics,program")
@@ -311,8 +323,10 @@ fun registerKnownDataTypesImpl(structNames: Array<String>, structLayouts: Array<
     structSizes.push(24)
     structMethodNames.push("")
     structMethodRetTypes.push("")
-    // Vec<T> { chunks: ptr, capacities: ptr, usage: ptr, length: i64, totalCapacity: i64, nextChunkSize: i64 }
-    // For simplicity, we use a simpler layout: { data: ptr, length: i64, capacity: i64 }
+    ///
+    Vec<T> { chunks: ptr, capacities: ptr, usage: ptr, length: i64, totalCapacity: i64, nextChunkSize: i64 }
+    For simplicity, we use a simpler layout: { data: ptr, length: i64, capacity: i64 }
+    ///
     structNames.push("Vec")
     structLayouts.push("{ ptr, i64, i64 }")
     structFieldNames.push("data,length,capacity")
@@ -321,8 +335,10 @@ fun registerKnownDataTypesImpl(structNames: Array<String>, structLayouts: Array<
     structSizes.push(24)
     structMethodNames.push("push,get,len,length,isEmpty,set,pop,clear,contains,indexOf,reverse,remove,insert,first,last,sort")
     structMethodRetTypes.push("Void|T|Int|Int|Bool|Void|T|Void|Bool|Int|Void|T|Void|T|T|Void")
-    // BTreeMap<K,V> { root: i64 (Option<BTreeNode>), length: i64 }
-    // For simplicity, we use a linear implementation: { entries: ptr, capacity: i64, length: i64 }
+    ///
+    BTreeMap<K,V> { root: i64 (Option<BTreeNode>), length: i64 }
+    For simplicity, we use a linear implementation: { entries: ptr, capacity: i64, length: i64 }
+    ///
     structNames.push("BTreeMap")
     structLayouts.push("{ ptr, i64, i64 }")
     structFieldNames.push("entries,capacity,length")
@@ -363,8 +379,10 @@ fun registerKnownDataTypesImpl(structNames: Array<String>, structLayouts: Array<
     structMethodRetTypes.push("Bool|Bool|Bool|Bool|T|T|T|T|T|T|Void|Option<T>|Void")
 }
 
-// resolveCollectionGetTypeImpl — Resolve return type for .get() on collection types
-// Extracted from llvm_ir_gen.seen inferExpressionType() MethodCall branch
+///
+resolveCollectionGetTypeImpl — Resolve return type for .get() on collection types
+Extracted from llvm_ir_gen.seen inferExpressionType() MethodCall branch
+///
 fun resolveCollectionGetTypeImpl(recType: String) r: String {
     if recType.startsWith("Vec<") and recType.endsWith(">") {
         return recType.substring(4, recType.length() - 1)

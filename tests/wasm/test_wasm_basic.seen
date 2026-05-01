@@ -1,5 +1,7 @@
-// Test basic WASM code generation
-// This file tests the WASM backend capabilities
+///
+Test basic WASM code generation
+This file tests the WASM backend capabilities
+///
 
 fun add(a: Int, b: Int) r: Int {
     return a + b

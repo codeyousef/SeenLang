@@ -1,16 +1,18 @@
 // ir_egraph_rules.seen - E-graph peephole action selection.
 
-// --- E-graph consolidated peephole lookup ---
-// Returns an action string for integer binary operations:
-//   "" = no optimization
-//   "identity_left" / "identity_right" = return that operand unchanged
-//   "const:N" = emit constant N (as add i64 N, 0)
-//   "shl:N" = emit shl x, N (where x is the non-literal operand)
-//   "shl_add:N" = emit (x << N) + x
-//   "shl_sub:N" = emit (x << N) - x
-//   "neg" = emit sub 0, x
-//   "and:N" = emit and x, N
-//   "ashr:N" = emit ashr x, N
+///
+--- E-graph consolidated peephole lookup ---
+Returns an action string for integer binary operations:
+  "" = no optimization
+  "identity_left" / "identity_right" = return that operand unchanged
+  "const:N" = emit constant N (as add i64 N, 0)
+  "shl:N" = emit shl x, N (where x is the non-literal operand)
+  "shl_add:N" = emit (x << N) + x
+  "shl_sub:N" = emit (x << N) - x
+  "neg" = emit sub 0, x
+  "and:N" = emit and x, N
+  "ashr:N" = emit ashr x, N
+///
 fun egraphLookup(op: String, leftLitVal: String, rightLitVal: String, leftIsLit: Bool, rightIsLit: Bool) r: String {
     // Addition identity: x + 0 -> x, 0 + x -> x
     if op == "+" {
@@ -125,9 +127,11 @@ fun egraphLookup(op: String, leftLitVal: String, rightLitVal: String, leftIsLit:
     return ""
 }
 
-// E-graph self-comparison detection.
-// When both sides of a binary op are the same variable, many ops simplify.
-// Returns action string: "" = no opt, "const:N" or "identity_left" etc.
+///
+E-graph self-comparison detection.
+When both sides of a binary op are the same variable, many ops simplify.
+Returns action string: "" = no opt, "const:N" or "identity_left" etc.
+///
 fun egraphSelfComparison(op: String) r: String {
     if op == "-" { return "const:0" }
     if op == "/" { return "const:1" }
@@ -144,8 +148,10 @@ fun egraphSelfComparison(op: String) r: String {
     return ""
 }
 
-// Float-specific e-graph lookup.
-// Returns action string (same convention as egraphLookup).
+///
+Float-specific e-graph lookup.
+Returns action string (same convention as egraphLookup).
+///
 fun egraphLookupFloat(op: String, leftLitVal: String, rightLitVal: String, leftIsLit: Bool, rightIsLit: Bool) r: String {
     if op == "+" {
         if rightIsLit and (rightLitVal == "0.0" or rightLitVal == "0") { return "identity_left" }

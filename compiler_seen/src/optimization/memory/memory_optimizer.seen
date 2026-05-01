@@ -1,5 +1,7 @@
-// Memory Optimizer
-// Escape analysis, stack promotion, lifetime annotations, layout optimization
+///
+Memory Optimizer
+Escape analysis, stack promotion, lifetime annotations, layout optimization
+///
 
 class EscapeInfo {
     var variableName: String
@@ -66,8 +68,10 @@ class MemoryOptimizer {
 
     // Run full optimization pass on IR line count
     fun optimizeIR(lineCount: Int, allocCount: Int, structCount: Int) r: Void {
-        // Escape analysis: estimate based on allocation patterns
-        // Typically ~30% of allocations don't escape their defining function
+        ///
+        Escape analysis: estimate based on allocation patterns
+        Typically ~30% of allocations don't escape their defining function
+        ///
         nonEscapedCount = allocCount * 3 / 10
         escapedCount = allocCount - nonEscapedCount
 

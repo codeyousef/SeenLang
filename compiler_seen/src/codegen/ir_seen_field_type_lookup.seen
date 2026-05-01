@@ -1,5 +1,7 @@
-// Seen-level struct field type lookup helpers
-// Extracted from ir_type_info.seen
+///
+Seen-level struct field type lookup helpers
+Extracted from ir_type_info.seen
+///
 
 import codegen.ir_type_info.{g_seenFieldTypeCacheValues, findSeenFieldTypeCacheRecord, cacheSeenFieldType, findStructIdx}
 import codegen.ir_seen_field_type_registered.{getSeenFieldTypeEmptyRegistryFallbackImpl, resolveSeenFieldTypeFromRegisteredListsImpl}

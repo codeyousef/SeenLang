@@ -1,5 +1,7 @@
-// Binary Trees Benchmark
-// Memory allocation stress test with tree creation
+///
+Binary Trees Benchmark
+Memory allocation stress test with tree creation
+///
 
 class TreeNode {
     var item: Int

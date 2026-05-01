@@ -8,9 +8,11 @@ for X11-based display servers and XWayland compatibility.
 Link with: -lxcb
 ///
 
-// ============================================================================
-// XCB event type constants
-// ============================================================================
+///
+============================================================================
+XCB event type constants
+============================================================================
+///
 
 let XCB_KEY_PRESS: Int = 2
 let XCB_KEY_RELEASE: Int = 3
@@ -35,9 +37,11 @@ let XCB_SELECTION_NOTIFY: Int = 31
 let XCB_CLIENT_MESSAGE: Int = 33
 let XCB_MAPPING_NOTIFY: Int = 34
 
-// ============================================================================
-// XCB event mask constants
-// ============================================================================
+///
+============================================================================
+XCB event mask constants
+============================================================================
+///
 
 let XCB_EVENT_MASK_NO_EVENT: Int = 0
 let XCB_EVENT_MASK_KEY_PRESS: Int = 0x00000001
@@ -57,16 +61,20 @@ let XCB_EVENT_MASK_PROPERTY_CHANGE: Int = 0x00400000
 // Combined mask for typical game/application windows
 let XCB_EVENT_MASK_DEFAULT: Int = 0x006280FF
 
-// ============================================================================
-// XCB window class constants
-// ============================================================================
+///
+============================================================================
+XCB window class constants
+============================================================================
+///
 
 let XCB_WINDOW_CLASS_INPUT_OUTPUT: Int = 1
 let XCB_WINDOW_CLASS_INPUT_ONLY: Int = 2
 
-// ============================================================================
-// XCB mouse button codes
-// ============================================================================
+///
+============================================================================
+XCB mouse button codes
+============================================================================
+///
 
 let XCB_BUTTON_LEFT: Int = 1
 let XCB_BUTTON_MIDDLE: Int = 2
@@ -74,9 +82,11 @@ let XCB_BUTTON_RIGHT: Int = 3
 let XCB_BUTTON_SCROLL_UP: Int = 4
 let XCB_BUTTON_SCROLL_DOWN: Int = 5
 
-// ============================================================================
-// XCB config window value masks
-// ============================================================================
+///
+============================================================================
+XCB config window value masks
+============================================================================
+///
 
 let XCB_CONFIG_WINDOW_X: Int = 0x01
 let XCB_CONFIG_WINDOW_Y: Int = 0x02
@@ -86,9 +96,11 @@ let XCB_CONFIG_WINDOW_BORDER_WIDTH: Int = 0x10
 let XCB_CONFIG_WINDOW_SIBLING: Int = 0x20
 let XCB_CONFIG_WINDOW_STACK_MODE: Int = 0x40
 
-// ============================================================================
-// FFI Declarations - seen_xcb_* functions
-// ============================================================================
+///
+============================================================================
+FFI Declarations - seen_xcb_* functions
+============================================================================
+///
 
 // Connection management
 extern fun seen_xcb_connect(display: String) r: Int
@@ -129,9 +141,11 @@ extern fun seen_xcb_is_close_event(event: Int, closeAtom: Int) r: Int
 // Vulkan integration
 extern fun seen_xcb_vk_surface_create(conn: Int, window: Int, vkInstance: Int) r: Int
 
-// ============================================================================
-// X11Window - high-level window wrapper
-// ============================================================================
+///
+============================================================================
+X11Window - high-level window wrapper
+============================================================================
+///
 
 ///
 High-level X11/XCB window abstraction.

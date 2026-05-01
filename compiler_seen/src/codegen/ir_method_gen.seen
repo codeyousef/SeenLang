@@ -1,6 +1,8 @@
-// ir_method_gen.seen — Method call codegen for primitive/built-in receiver types
-// Extracted from llvm_ir_gen.seen generateMethodCall() to follow SRP
-// Each impl function returns a result register string, or "" for fallthrough
+///
+ir_method_gen.seen — Method call codegen for primitive/built-in receiver types
+Extracted from llvm_ir_gen.seen generateMethodCall() to follow SRP
+Each impl function returns a result register string, or "" for fallthrough
+///
 
 import codegen.ir_optimization.{getNextRegFn}
 import str.string.{StringBuilder}
@@ -47,8 +49,10 @@ fun coerceArrayFloatArgImpl(output: StringBuilder, regBox: Array<Int>,
     return argReg
 }
 
-// emitToStringMethodImpl — toString dispatch for Float/Bool/Char/String/Class/Int
-// isClassReceiver: 1 if receiverType is a class type (pre-resolved by wrapper)
+///
+emitToStringMethodImpl — toString dispatch for Float/Bool/Char/String/Class/Int
+isClassReceiver: 1 if receiverType is a class type (pre-resolved by wrapper)
+///
 fun emitToStringMethodImpl(output: StringBuilder, regBox: Array<Int>, receiverReg: String, receiverType: String, isClassReceiver: Int) r: String {
     if receiverType == "Float" {
         let resultReg = getNextRegFn(regBox)
@@ -81,8 +85,10 @@ fun emitToStringMethodImpl(output: StringBuilder, regBox: Array<Int>, receiverRe
     return resultReg
 }
 
-// emitToIntMethodImpl — toInt dispatch for Float/String/Int/Char
-// Returns "" for user-defined class types (fallthrough to class method call)
+///
+emitToIntMethodImpl — toInt dispatch for Float/String/Int/Char
+Returns "" for user-defined class types (fallthrough to class method call)
+///
 fun emitToIntMethodImpl(output: StringBuilder, regBox: Array<Int>, receiverReg: String, receiverType: String) r: String {
     if receiverType == "Float" {
         let resultReg = getNextRegFn(regBox)
@@ -115,8 +121,10 @@ fun emitToFloatMethodImpl(output: StringBuilder, regBox: Array<Int>, receiverReg
     return receiverReg
 }
 
-// emitNumericMethodImpl — abs/min/max/clamp/floor/ceil/round/sqrt/isNaN/isInfinite
-// arg0Reg/arg1Reg: pre-generated argument registers (for min/max/clamp)
+///
+emitNumericMethodImpl — abs/min/max/clamp/floor/ceil/round/sqrt/isNaN/isInfinite
+arg0Reg/arg1Reg: pre-generated argument registers (for min/max/clamp)
+///
 fun emitNumericMethodImpl(output: StringBuilder, regBox: Array<Int>, methodName: String, receiverReg: String, receiverType: String, arg0Reg: String, arg1Reg: String) r: String {
     // Int.abs() - branchless absolute value
     if methodName == "abs" and (receiverType == "Int" or receiverType == "") {
@@ -215,8 +223,10 @@ fun emitNumericMethodImpl(output: StringBuilder, regBox: Array<Int>, methodName:
     return ""
 }
 
-// emitSmallVecMethodImpl — SmallVec push/get/length/clear
-// argReg: pre-generated argument register (for push/get)
+///
+emitSmallVecMethodImpl — SmallVec push/get/length/clear
+argReg: pre-generated argument register (for push/get)
+///
 fun emitSmallVecMethodImpl(output: StringBuilder, regBox: Array<Int>, methodName: String, receiverReg: String, receiverType: String, argReg: String) r: String {
     var svElemSuffix = "_i64"
     if receiverType.contains("String") {
@@ -246,8 +256,10 @@ fun emitSmallVecMethodImpl(output: StringBuilder, regBox: Array<Int>, methodName
     return ""
 }
 
-// emitArrayBasicMethodImpl — Array<T> len/get/push/set for simple variable receivers
-// arg0Reg/arg1Reg: pre-generated argument registers
+///
+emitArrayBasicMethodImpl — Array<T> len/get/push/set for simple variable receivers
+arg0Reg/arg1Reg: pre-generated argument registers
+///
 fun emitArrayBasicMethodImpl(output: StringBuilder, regBox: Array<Int>,
     methodName: String, receiverReg: String, receiverType: String,
     arg0Reg: String, arg1Reg: String, arg0SeenType: String,
@@ -345,9 +357,11 @@ fun emitArrayBasicMethodImpl(output: StringBuilder, regBox: Array<Int>,
     return ""
 }
 
-// emitLengthSizeMethodImpl — length/len/size dispatch for HashMap/LinkedList/Array/String
-// Handles types that don't need convertReceiverToPtr class method
-// Returns "" for types that need class method dispatch (Vec, Map, BTreeMap, List, StringBuilder)
+///
+emitLengthSizeMethodImpl — length/len/size dispatch for HashMap/LinkedList/Array/String
+Handles types that don't need convertReceiverToPtr class method
+Returns "" for types that need class method dispatch (Vec, Map, BTreeMap, List, StringBuilder)
+///
 fun emitLengthSizeMethodImpl(output: StringBuilder, regBox: Array<Int>, receiverReg: String, receiverType: String) r: String {
     // HashMap size
     let isHashMapType = receiverType == "HashMap" or receiverType.startsWith("HashMap<")
@@ -408,8 +422,10 @@ fun emitLengthSizeMethodImpl(output: StringBuilder, regBox: Array<Int>, receiver
     return ""
 }
 
-// emitTransmuteImpl — zero-cost type punning (bitcast / alloca+load)
-// srcLlvmType/dstLlvmType: pre-resolved LLVM types from mapType()
+///
+emitTransmuteImpl — zero-cost type punning (bitcast / alloca+load)
+srcLlvmType/dstLlvmType: pre-resolved LLVM types from mapType()
+///
 fun emitTransmuteImpl(output: StringBuilder, regBox: Array<Int>, srcReg: String, srcLlvmType: String, dstLlvmType: String) r: String {
     let tmResultReg = getNextRegFn(regBox)
     // Same width reinterpret: use bitcast

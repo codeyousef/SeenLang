@@ -1,5 +1,7 @@
-// seen_std.math.math
-// Scalar math utilities (abs/trig/sqrt + integer helpers) for bootstrap code.
+///
+seen_std.math.math
+Scalar math utilities (abs/trig/sqrt + integer helpers) for bootstrap code.
+///
 
 const PI: Float = 3.14159265358979323846
 const TAU: Float = 6.28318530717958647692

@@ -8,9 +8,11 @@ for up to 4 Xbox-compatible controllers.
 Link with: -lxinput
 ///
 
-// ============================================================================
-// Button bitmask constants (XINPUT_GAMEPAD_*)
-// ============================================================================
+///
+============================================================================
+Button bitmask constants (XINPUT_GAMEPAD_*)
+============================================================================
+///
 
 let XINPUT_GAMEPAD_DPAD_UP: Int = 0x0001
 let XINPUT_GAMEPAD_DPAD_DOWN: Int = 0x0002
@@ -27,23 +29,29 @@ let XINPUT_GAMEPAD_B: Int = 0x2000
 let XINPUT_GAMEPAD_X: Int = 0x4000
 let XINPUT_GAMEPAD_Y: Int = 0x8000
 
-// ============================================================================
-// Deadzone constants
-// ============================================================================
+///
+============================================================================
+Deadzone constants
+============================================================================
+///
 
 let XINPUT_LEFT_THUMB_DEADZONE: Int = 7849
 let XINPUT_RIGHT_THUMB_DEADZONE: Int = 8689
 let XINPUT_TRIGGER_THRESHOLD: Int = 30
 
-// ============================================================================
-// Max controllers
-// ============================================================================
+///
+============================================================================
+Max controllers
+============================================================================
+///
 
 let XINPUT_MAX_CONTROLLERS: Int = 4
 
-// ============================================================================
-// XInput shim FFI declarations
-// ============================================================================
+///
+============================================================================
+XInput shim FFI declarations
+============================================================================
+///
 
 // Get state for a user index (0-3). Returns 0 if connected, error code otherwise.
 extern fun seen_xinput_get_state(userIndex: Int) r: Int
@@ -75,9 +83,11 @@ extern fun seen_xinput_set_vibration(userIndex: Int, leftMotor: Int, rightMotor:
 // Get device capabilities. Returns 0 if controller is present.
 extern fun seen_xinput_get_capabilities(userIndex: Int) r: Int
 
-// ============================================================================
-// XInputGamepad wrapper class
-// ============================================================================
+///
+============================================================================
+XInputGamepad wrapper class
+============================================================================
+///
 
 ///
 High-level wrapper around XInput for a single gamepad.

@@ -1,5 +1,7 @@
-// Test @unroll(N) loop decorator
-// Verify: compile with --emit-llvm, grep for 'llvm.loop.unroll.count'
+///
+Test @unroll(N) loop decorator
+Verify: compile with --emit-llvm, grep for 'llvm.loop.unroll.count'
+///
 
 @unroll(4)
 fun sumArray(arr: Array<Int>) r: Int {

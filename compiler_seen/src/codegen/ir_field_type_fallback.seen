@@ -61,22 +61,26 @@ fun inferFieldTypeFallbackImpl(fieldName: String) r: String {
     if fieldName == "decorators" {
         return "Array<AnnotationNode>"
     }
-    // Note: "arguments" is context-dependent:
-    // - ParserExpressionNode.arguments is Array<ParserExpressionNode>
-    // - AnnotationNode.arguments is Array<String>
-    // The receiver-type lookup will handle this correctly
+    ///
+    Note: "arguments" is context-dependent:
+    - ParserExpressionNode.arguments is Array<ParserExpressionNode>
+    - AnnotationNode.arguments is Array<String>
+    The receiver-type lookup will handle this correctly
+    ///
     if fieldName == "body" {
         return "BlockNode"
     }
     if fieldName == "returnType" { return "TypeNode" }
     if fieldName == "variableType" { return "TypeNode" }
     if fieldName == "paramType" { return "TypeNode" }
-    // NOTE: "errors" and "warnings" are context-dependent fields:
-    // - TypeInferenceResult.errors is Array<TypeError>
-    // - MacroExpansionResult.errors is Array<String>
-    // - TypeInferenceResult.warnings is Array<String>
-    // We must NOT have generic mappings here - let the receiver-based lookup
-    // call getSeenFieldType() which has correct struct-specific mappings
+    ///
+    NOTE: "errors" and "warnings" are context-dependent fields:
+    - TypeInferenceResult.errors is Array<TypeError>
+    - MacroExpansionResult.errors is Array<String>
+    - TypeInferenceResult.warnings is Array<String>
+    We must NOT have generic mappings here - let the receiver-based lookup
+    call getSeenFieldType() which has correct struct-specific mappings
+    ///
     if fieldName == "initializer" { return "ParserExpressionNode" }
     if fieldName == "returnValue" { return "ParserExpressionNode" }
     if fieldName == "condition" { return "ParserExpressionNode" }

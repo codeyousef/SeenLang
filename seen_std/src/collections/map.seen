@@ -1,6 +1,8 @@
-// seen_std.collections.map
-// Simple Map<K, V> implementation using parallel arrays.
-// This is a basic linear probe hash map optimized for simplicity.
+///
+seen_std.collections.map
+Simple Map<K, V> implementation using parallel arrays.
+This is a basic linear probe hash map optimized for simplicity.
+///
 
 import collections.vec.{Vec}
 import core.option.{Option, Some, None}

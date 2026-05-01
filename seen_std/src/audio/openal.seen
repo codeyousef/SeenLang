@@ -12,27 +12,33 @@ Link with: -lopenal
 import core.result.{Result, Ok, Err}
 import core.unit.{Unit}
 
-// ============================================================
-// Audio format constants
-// ============================================================
+///
+============================================================
+Audio format constants
+============================================================
+///
 
 let AL_FORMAT_MONO8: Int = 4352       // 0x1100
 let AL_FORMAT_MONO16: Int = 4353      // 0x1101
 let AL_FORMAT_STEREO8: Int = 4354     // 0x1102
 let AL_FORMAT_STEREO16: Int = 4355    // 0x1103
 
-// ============================================================
-// Source state constants
-// ============================================================
+///
+============================================================
+Source state constants
+============================================================
+///
 
 let AL_INITIAL: Int = 4113            // 0x1011
 let AL_PLAYING: Int = 4114            // 0x1012
 let AL_PAUSED: Int = 4115             // 0x1013
 let AL_STOPPED: Int = 4116            // 0x1014
 
-// ============================================================
-// Distance model constants
-// ============================================================
+///
+============================================================
+Distance model constants
+============================================================
+///
 
 let AL_NONE: Int = 0
 let AL_INVERSE_DISTANCE: Int = 53249           // 0xD001
@@ -42,9 +48,11 @@ let AL_LINEAR_DISTANCE_CLAMPED: Int = 53252    // 0xD004
 let AL_EXPONENT_DISTANCE: Int = 53253          // 0xD005
 let AL_EXPONENT_DISTANCE_CLAMPED: Int = 53254  // 0xD006
 
-// ============================================================
-// Source property constants (for integer-based setters)
-// ============================================================
+///
+============================================================
+Source property constants (for integer-based setters)
+============================================================
+///
 
 let AL_PITCH: Int = 4099              // 0x1003
 let AL_GAIN: Int = 4106               // 0x100A
@@ -55,16 +63,20 @@ let AL_MIN_GAIN: Int = 4109           // 0x100D
 let AL_MAX_GAIN: Int = 4110           // 0x100E
 let AL_CONE_OUTER_GAIN: Int = 4130    // 0x1022
 
-// ============================================================
-// Boolean constants
-// ============================================================
+///
+============================================================
+Boolean constants
+============================================================
+///
 
 let AL_FALSE: Int = 0
 let AL_TRUE: Int = 1
 
-// ============================================================
-// Error code constants
-// ============================================================
+///
+============================================================
+Error code constants
+============================================================
+///
 
 let AL_NO_ERROR: Int = 0
 let AL_INVALID_NAME: Int = 40961      // 0xA001
@@ -73,17 +85,21 @@ let AL_INVALID_VALUE: Int = 40963     // 0xA003
 let AL_INVALID_OPERATION: Int = 40964 // 0xA004
 let AL_OUT_OF_MEMORY: Int = 40965     // 0xA005
 
-// ============================================================
-// Fixed-point scale factor for float-like parameters
-// Multiply float values by this before passing as Int.
-// e.g., gain 0.5 -> 500, position 3.14 -> 3140
-// ============================================================
+///
+============================================================
+Fixed-point scale factor for float-like parameters
+Multiply float values by this before passing as Int.
+e.g., gain 0.5 -> 500, position 3.14 -> 3140
+============================================================
+///
 
 let AL_FIXED_POINT_SCALE: Int = 1000
 
-// ============================================================
-// FFI declarations (provided by libseen_openal shim)
-// ============================================================
+///
+============================================================
+FFI declarations (provided by libseen_openal shim)
+============================================================
+///
 
 // Device and context lifecycle
 extern fun seen_al_open_device(name: String) r: Int
@@ -130,9 +146,11 @@ extern fun seen_al_listener_set_gain(gain: Int) r: Void
 // Distance model
 extern fun seen_al_distance_model(model: Int) r: Void
 
-// ============================================================
-// OpenALDevice wrapper class
-// ============================================================
+///
+============================================================
+OpenALDevice wrapper class
+============================================================
+///
 
 ///
 High-level wrapper around an OpenAL device and context.

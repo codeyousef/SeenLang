@@ -1,5 +1,7 @@
-// Compile-time expression evaluation helpers
-// Extracted from ir_type_mapping.seen
+///
+Compile-time expression evaluation helpers
+Extracted from ir_type_mapping.seen
+///
 
 import parser.real_parser.{ParserExpressionNode}
 import codegen.ir_type_info.{findStructIdx}

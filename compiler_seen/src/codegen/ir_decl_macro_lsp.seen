@@ -1,12 +1,16 @@
-// Macro and LSP declarations for LLVM IR generation
-// Extracted from ir_decl_runtime.seen
+///
+Macro and LSP declarations for LLVM IR generation
+Extracted from ir_decl_runtime.seen
+///
 
 import str.string.{StringBuilder}
 import codegen.ir_declarations.{isFuncDefinedInModule}
 
 fun emitMacroAndLspDecls(output: StringBuilder, definedFuncs: Array<String>) r: Void {
-    // Macro module functions (from macro.ast_node, macro.registry, macro.expander, macro.interpreter)
-    // AstNode class methods
+    ///
+    Macro module functions (from macro.ast_node, macro.registry, macro.expander, macro.interpreter)
+    AstNode class methods
+    ///
     if not isFuncDefinedInModule("AstNode_new", definedFuncs) {
         output.append("declare i64 @AstNode_new() nounwind\n")
     }

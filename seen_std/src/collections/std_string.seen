@@ -1,5 +1,7 @@
-// seen_std.collections.std_string
-// Allocator-backed string type built atop the high-performance Vec implementation.
+///
+seen_std.collections.std_string
+Allocator-backed string type built atop the high-performance Vec implementation.
+///
 
 import collections.vec.{Vec}
 import str.string.{StringBuilder}

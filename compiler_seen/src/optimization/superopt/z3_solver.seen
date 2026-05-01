@@ -1,6 +1,8 @@
-// Z3-style SMT Solver for Superoptimization
-// Implements exhaustive equivalence checking via concrete testing (STOKE-style)
-// No external Z3 dependency — uses brute-force verification over test vectors
+///
+Z3-style SMT Solver for Superoptimization
+Implements exhaustive equivalence checking via concrete testing (STOKE-style)
+No external Z3 dependency — uses brute-force verification over test vectors
+///
 
 class Z3Solver {
     var testInputs: Array<Int>
@@ -33,9 +35,11 @@ class Z3Solver {
         }
     }
 
-    // Evaluate a simple expression on a concrete input
-    // op: "mul", "add", "sub", "shl", "lshr", "and", "or", "neg"
-    // Returns result of applying op(input, operand)
+    ///
+    Evaluate a simple expression on a concrete input
+    op: "mul", "add", "sub", "shl", "lshr", "and", "or", "neg"
+    Returns result of applying op(input, operand)
+    ///
     fun evalOp(op: String, input: Int, operand: Int) r: Int {
         if op == "add" { return input + operand }
         if op == "sub" { return input - operand }
@@ -55,8 +59,10 @@ class Z3Solver {
         return 0
     }
 
-    // Check if two expression sequences produce the same output for all test inputs
-    // originalOp + originalOperand vs replacementOp + replacementOperand
+    ///
+    Check if two expression sequences produce the same output for all test inputs
+    originalOp + originalOperand vs replacementOp + replacementOperand
+    ///
     fun solveEquivalence(origOp: String, origOperand: Int, replOp: String, replOperand: Int) r: Bool {
         queriesRun = queriesRun + 1
         var i = 0
@@ -73,8 +79,10 @@ class Z3Solver {
         return true
     }
 
-    // Verify a specific superoptimizer pattern
-    // Returns true if the replacement is semantically equivalent
+    ///
+    Verify a specific superoptimizer pattern
+    Returns true if the replacement is semantically equivalent
+    ///
     fun verifyPattern(origOps: Array<String>, replOps: Array<String>) r: Bool {
         queriesRun = queriesRun + 1
         // For single-op patterns, compare directly
@@ -134,8 +142,10 @@ class Z3Solver {
     // Legacy API: solve a formula (returns true if satisfiable)
     fun solve(formulaType: Int) r: Bool {
         queriesRun = queriesRun + 1
-        // Simple tautology checker for basic arithmetic identities
-        // formulaType: 1 = x+0==x, 2 = x*1==x, 3 = x*0==0, 4 = x-x==0
+        ///
+        Simple tautology checker for basic arithmetic identities
+        formulaType: 1 = x+0==x, 2 = x*1==x, 3 = x*0==0, 4 = x-x==0
+        ///
         if formulaType == 1 {
             // x + 0 == x: always true
             return true

@@ -1,6 +1,8 @@
-// Test: @prefetch(read) decorator
-// Verify: compiles correctly with prefetch intrinsic emission
-// The prefetch is a performance hint and does not affect correctness
+///
+Test: @prefetch(read) decorator
+Verify: compiles correctly with prefetch intrinsic emission
+The prefetch is a performance hint and does not affect correctness
+///
 
 @prefetch(read)
 fun processArray(data: Array<Int>, n: Int) r: Int {

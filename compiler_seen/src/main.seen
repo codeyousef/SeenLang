@@ -1,25 +1,27 @@
-// main.seen — User-facing CLI entry point for the Seen compiler
-//
-// Pipeline stage: Entry point (before all compilation stages)
-// Input: Command-line arguments (subcommand + flags)
-// Output: Dispatches to the appropriate compilation pipeline
-//
-// This is the production compiler binary's main(). It parses CLI arguments and
-// routes to one of several compilation paths:
-//   - "build"  → LLVM backend (default) or C backend via main_compiler.seen
-//   - "run"    → Compile to temp file + execute
-//   - "check"  → Frontend only (lexer → parser → typechecker), no codegen
-//   - "fmt"    → Basic source formatter (indent normalization)
-//   - "init"   → Project scaffolding
-//   - "import-c" → Generate Seen extern bindings from C headers
-//   - "pkg"    → Package workflow for fetch/pack/publish
-//
-// The LLVM backend path delegates to StageCompileSeenProgram (main_compiler.seen),
-// which handles multi-module IR generation, optimization, and linking.
-// The C backend path uses CGenerator for a simpler gcc-based pipeline.
-//
-// Multi-language support: --language flag selects keyword set (en/ar/es/ru/zh/ja),
-// passed through to the lexer's KeywordManager.
+///
+main.seen — User-facing CLI entry point for the Seen compiler
+
+Pipeline stage: Entry point (before all compilation stages)
+Input: Command-line arguments (subcommand + flags)
+Output: Dispatches to the appropriate compilation pipeline
+
+This is the production compiler binary's main(). It parses CLI arguments and
+routes to one of several compilation paths:
+  - "build"  → LLVM backend (default) or C backend via main_compiler.seen
+  - "run"    → Compile to temp file + execute
+  - "check"  → Frontend only (lexer → parser → typechecker), no codegen
+  - "fmt"    → Basic source formatter (indent normalization)
+  - "init"   → Project scaffolding
+  - "import-c" → Generate Seen extern bindings from C headers
+  - "pkg"    → Package workflow for fetch/pack/publish
+
+The LLVM backend path delegates to StageCompileSeenProgram (main_compiler.seen),
+which handles multi-module IR generation, optimization, and linking.
+The C backend path uses CGenerator for a simpler gcc-based pipeline.
+
+Multi-language support: --language flag selects keyword set (en/ar/es/ru/zh/ja),
+passed through to the lexer's KeywordManager.
+///
 
 import bootstrap.frontend.{FrontendResult, FrontendDiagnostic, run_frontend, parseDiagBaseMessage, parseDiagCode, parseDiagSuggestion, parseDiagNote}
 import main_compiler.{compileCommand as StageCompileSeenProgram, compileCommandWithLanguage as StageCompileWithLang, compileCommandWithFullTargeting as StageCompileWithFullTargeting, readNearestSeenTomlForInput, pkgCommand as StagePkgCommand}
@@ -38,9 +40,11 @@ import codegen.interfaces.{Target, parseTarget, isWASMTarget}
 import typechecker.determinism.{DeterminismChecker, checkDeterminismWithProfile, printDeterminismErrors}
 
 
-// Wrapper to avoid symbol collision with the runtime's built-in println.
-// Uses println() directly rather than writing to /dev/stdout to avoid
-// file descriptor quirks in the runtime.
+///
+Wrapper to avoid symbol collision with the runtime's built-in println.
+Uses println() directly rather than writing to /dev/stdout to avoid
+file descriptor quirks in the runtime.
+///
 fun printLn(text: String) r: Void {
     println(text)
     return
@@ -68,9 +72,11 @@ fun myWriteText(path: String, content: String) r: Bool {
     return written >= 0
 }
 
-// Aggregated compiler settings from CLI flag parsing.
-// Constructed by parseCompilerOptions() from positional args and flags,
-// then consumed by buildCommandWithOptions() to select backend and target.
+///
+Aggregated compiler settings from CLI flag parsing.
+Constructed by parseCompilerOptions() from positional args and flags,
+then consumed by buildCommandWithOptions() to select backend and target.
+///
 class CompilerOptions {
     var sourceFile: String
     var outputFile: String
@@ -390,8 +396,10 @@ fun printUsage() r: Void {
     return
 }
 
-// Legacy C-backend compilation path: frontend → CGenerator → gcc.
-// Used when --backend=c is specified. Slower than LLVM but more portable.
+///
+Legacy C-backend compilation path: frontend → CGenerator → gcc.
+Used when --backend=c is specified. Slower than LLVM but more portable.
+///
 fun CompileSeenProgram(sourceCode: String, outputPath: String, language: String) r: Bool {
     printLn("[trace] CompileSeenProgram: calling run_frontend...")
     let result = run_frontend(sourceCode, "<memory>", language)
@@ -418,8 +426,10 @@ fun CompileSeenProgram(sourceCode: String, outputPath: String, language: String)
     let compileCommand = "gcc -std=c99 -O2 -o " + outputPath + " " + cFilePath + " 2>&1"
     printLn("[trace] Running GCC: " + compileCommand)
     
-    // Fallback direct invocation while process module linking finalizes
-    // Use standard process API
+    ///
+    Fallback direct invocation while process module linking finalizes
+    Use standard process API
+    ///
     let compileResult: CommandResult = runCommand(compileCommand)
     printLn("[trace] GCC finished. Success: " + compileResult.success.toString())
     if not compileResult.success {
@@ -529,10 +539,12 @@ fun extractTomlLanguage(content: String) r: String {
     return ""
 }
 
-// Main build dispatch: validates language, runs frontend, selects backend.
-// For native targets with LLVM backend (the default), delegates to
-// StageCompileWithLang in main_compiler.seen which handles the full
-// multi-module IR generation → opt → link pipeline.
+///
+Main build dispatch: validates language, runs frontend, selects backend.
+For native targets with LLVM backend (the default), delegates to
+StageCompileWithLang in main_compiler.seen which handles the full
+multi-module IR generation → opt → link pipeline.
+///
 fun buildCommandWithOptions(options: CompilerOptions) r: Int {
     let sourceFile = options.sourceFile
     let outputFile = options.outputFile
@@ -607,9 +619,11 @@ fun buildCommandWithOptions(options: CompilerOptions) r: Int {
     return result
 }
 
-// WASM/UWW compilation path: frontend → WAT text generation → wat2wasm → wasm-validate.
-// UWW (Universal World Wide) mode enforces determinism: no floats, no WASI, SHA-256 hashed output.
-// Currently generates a minimal WAT scaffold; full AST→IR→WASM is planned.
+///
+WASM/UWW compilation path: frontend → WAT text generation → wat2wasm → wasm-validate.
+UWW (Universal World Wide) mode enforces determinism: no floats, no WASI, SHA-256 hashed output.
+Currently generates a minimal WAT scaffold; full AST→IR→WASM is planned.
+///
 fun buildWASM(sourceCode: String, outputFile: String, options: CompilerOptions) r: Int {
     printLn("[wasm] Running frontend...")
 
@@ -636,13 +650,17 @@ fun buildWASM(sourceCode: String, outputFile: String, options: CompilerOptions) 
     // Configure generator
     wasmGen.debugMode = options.debugMode
 
-    // Generate IR from AST first (we need to adapt this)
-    // For now, we'll generate a simple WAT output
-    // In full implementation, this would go through IR generation
+    ///
+    Generate IR from AST first (we need to adapt this)
+    For now, we'll generate a simple WAT output
+    In full implementation, this would go through IR generation
+    ///
 
-    // Generate WAT code
-    // Note: Full implementation requires AST -> IR -> WASM conversion
-    // For now, generate a placeholder that demonstrates the pipeline
+    ///
+    Generate WAT code
+    Note: Full implementation requires AST -> IR -> WASM conversion
+    For now, generate a placeholder that demonstrates the pipeline
+    ///
     let watCode = generateWATFromAST(result.program, wasmGen, options.target == Target.UWW)
 
     // Write WAT file
@@ -694,8 +712,10 @@ fun buildWASM(sourceCode: String, outputFile: String, options: CompilerOptions) 
     return 0
 }
 
-// Generate WAT code from AST
-// This is a simplified version - full implementation would use IR generation
+///
+Generate WAT code from AST
+This is a simplified version - full implementation would use IR generation
+///
 fun generateWATFromAST(program: ProgramNode, wasmGen: WASMGenerator, isUWW: Bool) r: String {
     let output = StringBuilder.new()
 
@@ -719,8 +739,10 @@ fun generateWATFromAST(program: ProgramNode, wasmGen: WASMGenerator, isUWW: Bool
 
     output.append("\n  ;; Functions\n")
 
-    // Generate main function if present
-    // This is simplified - real implementation iterates over program.functions
+    ///
+    Generate main function if present
+    This is simplified - real implementation iterates over program.functions
+    ///
     output.append("  (func $main (export \"main\") (export \"_start\") (result i32)\n")
     output.append("    ;; Generated from Seen source\n")
     output.append("    i32.const 0\n")
@@ -812,9 +834,11 @@ fun formatCommand(sourceFile: String) r: Int {
     return 0
 }
 
-// Basic brace-counting formatter. Tracks indent depth by counting lines
-// ending with '{' (increase) and starting with '}' (decrease).
-// Does NOT parse the language — will misformat braces inside string literals.
+///
+Basic brace-counting formatter. Tracks indent depth by counting lines
+ending with '{' (increase) and starting with '}' (decrease).
+Does NOT parse the language — will misformat braces inside string literals.
+///
 fun formatSource(source: String) r: String {
     let lines = source.split("\n")
     let output = StringBuilder.new()
@@ -858,8 +882,10 @@ fun formatSource(source: String) r: String {
 }
 
 
-// JIT-like "run" command: compiles to /tmp/seen_run_temp via LLVM backend,
-// executes the binary, prints output, then cleans up temp files.
+///
+JIT-like "run" command: compiles to /tmp/seen_run_temp via LLVM backend,
+executes the binary, prints output, then cleans up temp files.
+///
 fun runCommand_seen(sourceFile: String, language: String) r: Int {
     // Validate language
     if not validateLanguage(language) {
@@ -1090,8 +1116,10 @@ fun requireArg(args: List<String>, index: Int, message: String) r: String {
     return ""
 }
 
-// Translate source code between Seen's supported languages.
-// Usage: seen translate <file> --from <lang> --to <lang> [-o <output>]
+///
+Translate source code between Seen's supported languages.
+Usage: seen translate <file> --from <lang> --to <lang> [-o <output>]
+///
 fun translateCommand(args: List<String>) r: Int {
     if args.size() < 3 {
         printLn("Error: translate command requires a source file")
@@ -1173,8 +1201,10 @@ fun translateCommand(args: List<String>) r: Int {
     }
 }
 
-// FFI binding generator: parses a C header file and emits Seen bindings for
-// imported functions and enum constants. Uses CImportGenerator from tools/.
+///
+FFI binding generator: parses a C header file and emits Seen bindings for
+imported functions and enum constants. Uses CImportGenerator from tools/.
+///
 fun importCCommand(headerFile: String) r: Int {
     printLn("Generating Seen bindings for: " + headerFile)
 

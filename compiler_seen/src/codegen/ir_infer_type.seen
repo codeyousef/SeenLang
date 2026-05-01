@@ -1,9 +1,13 @@
-// ir_infer_type.seen — Type inference helpers for inferExpressionType
-// Extracted from llvm_ir_gen.seen to follow SRP
-// Each impl function returns a Seen type string, or "" for fallthrough
+///
+ir_infer_type.seen — Type inference helpers for inferExpressionType
+Extracted from llvm_ir_gen.seen to follow SRP
+Each impl function returns a Seen type string, or "" for fallthrough
+///
 
-// inferBinaryTypeImpl — infer result type from binary operator and operand types
-// Returns "" if neither operand type constrains the result (fallthrough to "Int")
+///
+inferBinaryTypeImpl — infer result type from binary operator and operand types
+Returns "" if neither operand type constrains the result (fallthrough to "Int")
+///
 var g_methodBoolSuffixCacheCallees: Array<String> = Array<String>()
 var g_methodBoolSuffixCacheLens: Array<Int> = Array<Int>()
 var g_methodBoolSuffixCacheTypes: Array<String> = Array<String>()
@@ -70,8 +74,10 @@ fun inferLiteralTypeImpl(literalType: String, literalValue: String) r: String {
     return "Int"
 }
 
-// inferSimpleExprTypeImpl — infer type for non-recursive expression kinds
-// Returns "" for expression kinds that need recursive inference
+///
+inferSimpleExprTypeImpl — infer type for non-recursive expression kinds
+Returns "" for expression kinds that need recursive inference
+///
 fun inferSimpleExprTypeImpl(exprKind: String, literalType: String, literalValue: String) r: String {
     if exprKind == "StructLiteral" {
         if literalType != "" {
@@ -323,10 +329,12 @@ fun inferMethodCallBoolSuffixImpl(callee: String, funcNames: Array<String>,
     return ""
 }
 
-// inferReceiverMethodTypeImpl — Infer return type of receiver-sensitive methods
-// Returns the inferred type, or "" for fallthrough to other dispatch
-// callee: method name (e.g., "toUpperCase", "abs", "floor", "first")
-// receiverType: already-resolved Seen type of the receiver (e.g., "String", "Float", "Vec<Int>")
+///
+inferReceiverMethodTypeImpl — Infer return type of receiver-sensitive methods
+Returns the inferred type, or "" for fallthrough to other dispatch
+callee: method name (e.g., "toUpperCase", "abs", "floor", "first")
+receiverType: already-resolved Seen type of the receiver (e.g., "String", "Float", "Vec<Int>")
+///
 fun inferReceiverMethodTypeImpl(callee: String, receiverType: String) r: String {
     // toUpperCase/toLowerCase: returns Char on Char receiver, String on String
     if callee == "toUpperCase" or callee == "toLowerCase" {
@@ -359,10 +367,12 @@ fun inferReceiverMethodTypeImpl(callee: String, receiverType: String) r: String 
     return ""
 }
 
-// inferCallExprTypeImpl — Infer return type from pure callee-name lookups for Call expressions
-// Handles SIMD gather types, includeStr/Bytes, ptr_deref types, cstr conversions,
-// Array/SmallVec/HashMap/BTreeMap/LinkedList constructors, Result constructors
-// Returns "" for callee names that require runtime lookup (getFunctionReturnType, isClassType, etc.)
+///
+inferCallExprTypeImpl — Infer return type from pure callee-name lookups for Call expressions
+Handles SIMD gather types, includeStr/Bytes, ptr_deref types, cstr conversions,
+Array/SmallVec/HashMap/BTreeMap/LinkedList constructors, Result constructors
+Returns "" for callee names that require runtime lookup (getFunctionReturnType, isClassType, etc.)
+///
 fun inferCallExprTypeImpl(callee: String) r: String {
     // SIMD gather return types
     if callee == "simd_gather_f32x4" { return "f32x4" }
@@ -413,8 +423,10 @@ fun inferCallExprTypeImpl(callee: String) r: String {
     return ""
 }
 
-// extractResultInnerType — extract T from "Result<T, E>" type string
-// Returns "" if the type doesn't match Result<T, E> pattern
+///
+extractResultInnerType — extract T from "Result<T, E>" type string
+Returns "" if the type doesn't match Result<T, E> pattern
+///
 fun extractResultInnerType(resultType: String) r: String {
     if not resultType.startsWith("Result<") {
         return ""

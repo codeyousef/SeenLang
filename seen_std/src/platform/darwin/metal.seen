@@ -49,8 +49,10 @@ let MTL_COMMAND_BUFFER_STATUS_SCHEDULED: Int = 3
 let MTL_COMMAND_BUFFER_STATUS_COMPLETED: Int = 4
 let MTL_COMMAND_BUFFER_STATUS_ERROR: Int = 5
 
-// Opaque handle types (pointers to Objective-C objects)
-// These are passed through the C shim as void*
+///
+Opaque handle types (pointers to Objective-C objects)
+These are passed through the C shim as void*
+///
 
 // FFI declarations (provided by libseen_platform.dylib)
 extern fun seen_mtl_create_system_default_device() r: Int  // Returns MTLDevice handle

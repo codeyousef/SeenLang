@@ -1,5 +1,7 @@
-// Test WAT (WebAssembly Text) structure generation
-// Validates that the WASM backend produces correct WAT format
+///
+Test WAT (WebAssembly Text) structure generation
+Validates that the WASM backend produces correct WAT format
+///
 
 fun main() r: Int {
     println("=================================")

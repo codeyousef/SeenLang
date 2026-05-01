@@ -1,6 +1,8 @@
-// Test for deterministic routing framework
-// Tests route registration, resolution, parameterized routes, and pattern validation
-// Stage1-compatible: no imports, uses inline codegen for BTreeMap<String, Int>
+///
+Test for deterministic routing framework
+Tests route registration, resolution, parameterized routes, and pattern validation
+Stage1-compatible: no imports, uses inline codegen for BTreeMap<String, Int>
+///
 
 // A single route definition
 class Route {

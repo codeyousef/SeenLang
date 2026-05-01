@@ -1,6 +1,8 @@
-// Test: E-graph peephole optimizations (compile-time algebraic simplification)
-// Verify: x+0, x*1, x*0, x-0, x/1, x*2 are optimized
-// Check LLVM IR with --emit-llvm to verify strength reduction
+///
+Test: E-graph peephole optimizations (compile-time algebraic simplification)
+Verify: x+0, x*1, x*0, x-0, x/1, x*2 are optimized
+Check LLVM IR with --emit-llvm to verify strength reduction
+///
 
 fun testAddZero(x: Int) r: Int {
     return x + 0

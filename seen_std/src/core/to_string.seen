@@ -1,5 +1,7 @@
-// ToString / FromString conversion utilities
-// Complements the From/Into pattern in convert.seen
+///
+ToString / FromString conversion utilities
+Complements the From/Into pattern in convert.seen
+///
 
 @trait
 class ToString {

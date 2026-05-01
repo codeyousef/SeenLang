@@ -1,5 +1,7 @@
-// JSON Module
-// Provides JSON parsing, building, and value manipulation
+///
+JSON Module
+Provides JSON parsing, building, and value manipulation
+///
 
 // Re-export core types and functions
 pub import json.value.{

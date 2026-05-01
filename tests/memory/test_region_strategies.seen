@@ -1,6 +1,8 @@
-// Region Allocation Strategy Test
-// Tests different allocation strategies (AUTO, BUMP, STACK)
-// Expected: All strategies work correctly
+///
+Region Allocation Strategy Test
+Tests different allocation strategies (AUTO, BUMP, STACK)
+Expected: All strategies work correctly
+///
 
 fun main() r: Int {
     var passed = 0

@@ -1,13 +1,17 @@
-// SIMD builtin emission helpers
-// Extracted from ir_type_ops.seen
+///
+SIMD builtin emission helpers
+Extracted from ir_type_ops.seen
+///
 
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_type_mapping.{mapTypeImpl}
 import codegen.ir_simd_type_helpers.{isSimdVectorTypeImpl, simdScalarTypeImpl, simdLaneCountImpl}
 
-// SIMD builtin dispatch: vector constructors, load/store, select, shuffle, gather, scatter
-// args/argTypes are pre-generated registers/types, constIndices for shuffle lane indices
+///
+SIMD builtin dispatch: vector constructors, load/store, select, shuffle, gather, scatter
+args/argTypes are pre-generated registers/types, constIndices for shuffle lane indices
+///
 fun emitSimdBuiltinImpl(output: StringBuilder, regBox: Array<Int>,
     funcName: String, args: Array<String>, argCount: Int,
     argTypes: Array<String>, constIndices: Array<Int>, constIndexCount: Int) r: String {

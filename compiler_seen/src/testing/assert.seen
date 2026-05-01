@@ -1,5 +1,7 @@
-// Test Assertion Library for Seen
-// Provides assertion functions for testing
+///
+Test Assertion Library for Seen
+Provides assertion functions for testing
+///
 
 class TestResult {
     var passed: Bool
@@ -198,8 +200,10 @@ fun abs(value: Float) r: Float {
 }
 
 fun panic(message: String) {
-    // Terminate test execution with error code
-    // Throws exception to unwind stack and cleanup resources
+    ///
+    Terminate test execution with error code
+    Throws exception to unwind stack and cleanup resources
+    ///
     println("!!! PANIC: {message} !!!")
     throw TestPanicException(message)
     exit(1)

@@ -1,5 +1,7 @@
-// : Test zero-cost type punning (transmute)
-// Verify transmute between same-width types
+///
+: Test zero-cost type punning (transmute)
+Verify transmute between same-width types
+///
 
 fun main() {
     // transmute Int -> Float (reinterpret bits)

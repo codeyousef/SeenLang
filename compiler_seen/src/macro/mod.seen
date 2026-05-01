@@ -1,5 +1,7 @@
-// Macro system module
-// Provides user-defined decorator (macro) support for Seen
+///
+Macro system module
+Provides user-defined decorator (macro) support for Seen
+///
 
 // Export macro system components
 pub use ast_node.{AstNode, ParamInfo, FieldInfo}

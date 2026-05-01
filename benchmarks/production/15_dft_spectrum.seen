@@ -1,7 +1,9 @@
-// Discrete Fourier Transform (Power Spectrum) Benchmark
-// Computes DFT of synthetic signal, then power spectrum in dB
-// Math functions: sin, cos, sqrt, atan2, log10
-// O(N^2) naive DFT — extremely trig-heavy
+///
+Discrete Fourier Transform (Power Spectrum) Benchmark
+Computes DFT of synthetic signal, then power spectrum in dB
+Math functions: sin, cos, sqrt, atan2, log10
+O(N^2) naive DFT — extremely trig-heavy
+///
 
 // log10 via LLVM intrinsic
 fun seen_log10(x: Float) -> Float {
@@ -21,9 +23,11 @@ fun run_dft(n: Int) -> Float {
         i = i + 1
     }
 
-    // Compute DFT: X[k] = sum_{n=0}^{N-1} x[n] * exp(-j*2pi*k*n/N)
-    // Real part: sum x[n] * cos(2pi*k*n/N)
-    // Imag part: -sum x[n] * sin(2pi*k*n/N)
+    ///
+    Compute DFT: X[k] = sum_{n=0}^{N-1} x[n] * exp(-j*2pi*k*n/N)
+    Real part: sum x[n] * cos(2pi*k*n/N)
+    Imag part: -sum x[n] * sin(2pi*k*n/N)
+    ///
     let half_n = n / 2
     let dft_re = Array<Float>(half_n, 0.0)
     let dft_im = Array<Float>(half_n, 0.0)

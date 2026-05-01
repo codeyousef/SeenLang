@@ -1,5 +1,7 @@
-// Debug test for sqrt function
-// Expected: sqrt(25.0) = 5.0
+///
+Debug test for sqrt function
+Expected: sqrt(25.0) = 5.0
+///
 
 extern fun sqrt(x: Float) r: Float
 

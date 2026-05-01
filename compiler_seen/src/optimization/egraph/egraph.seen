@@ -1,6 +1,8 @@
-// E-graph Core Data Structure with Union-Find
-// Based on "egg: Fast and Extensible Equality Saturation" (Willsey et al.)
-// Uses integer-indexed arrays for stage1 compatibility
+///
+E-graph Core Data Structure with Union-Find
+Based on "egg: Fast and Extensible Equality Saturation" (Willsey et al.)
+Uses integer-indexed arrays for stage1 compatibility
+///
 
 // An e-node: operation + children (e-class ids)
 class ENode {
@@ -39,9 +41,11 @@ class EGraph {
     var parents: Array<Int>
     // Union-find rank array (for union by rank)
     var ranks: Array<Int>
-    // E-class id -> list of e-node indices in this class
-    // Stored as flattened: classNodes[id*maxNodesPerClass .. (id+1)*maxNodesPerClass]
-    // We use a simpler approach: one Array<Int> per class mapped by nodeClassMap
+    ///
+    E-class id -> list of e-node indices in this class
+    Stored as flattened: classNodes[id*maxNodesPerClass .. (id+1)*maxNodesPerClass]
+    We use a simpler approach: one Array<Int> per class mapped by nodeClassMap
+    ///
     var nodeOps: Array<String>        // e-node operation at index i
     var nodeChildrenFlat: Array<Int>  // flattened children: [numChildren, child0, child1, ...]
     var nodeChildrenOffsets: Array<Int> // offset into nodeChildrenFlat for node i
@@ -88,8 +92,10 @@ class EGraph {
         return root
     }
 
-    // Add an e-node to the graph, returning its e-class id
-    // If an equivalent node already exists, returns its class
+    ///
+    Add an e-node to the graph, returning its e-class id
+    If an equivalent node already exists, returns its class
+    ///
     fun add(op: String, children: Array<Int>) r: Int {
         // Canonicalize children
         var canonChildren = Array<Int>()

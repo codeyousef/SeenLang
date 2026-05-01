@@ -1,5 +1,7 @@
-// Sieve of Eratosthenes Benchmark
-// Segmented sieve with wheel factorization
+///
+Sieve of Eratosthenes Benchmark
+Segmented sieve with wheel factorization
+///
 
 import seen_std.collections.vec { Vec }
 

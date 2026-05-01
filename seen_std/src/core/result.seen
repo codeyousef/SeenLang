@@ -1,5 +1,7 @@
-// seen_std.core.result
-// Deterministic Result<T, E> container compatible with the bootstrap type checker.
+///
+seen_std.core.result
+Deterministic Result<T, E> container compatible with the bootstrap type checker.
+///
 
 class Result<T, E> {
     var isOk: Bool

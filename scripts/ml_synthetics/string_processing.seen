@@ -1,5 +1,7 @@
-// Synthetic: String-heavy workload (parsing, building, searching)
-// Represents: CLI tools, compilers, text processors
+///
+Synthetic: String-heavy workload (parsing, building, searching)
+Represents: CLI tools, compilers, text processors
+///
 
 fun countLines(text: String) r: Int {
     var count = 0

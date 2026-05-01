@@ -1,5 +1,7 @@
-// ir_when_pattern_gen.seen -- Shared when-pattern branch emission helpers
-// Extracted from llvm_ir_gen.seen to keep pattern dispatch thin.
+///
+ir_when_pattern_gen.seen -- Shared when-pattern branch emission helpers
+Extracted from llvm_ir_gen.seen to keep pattern dispatch thin.
+///
 
 import str.string.{StringBuilder}
 import parser.real_parser.{ParserExpressionNode}

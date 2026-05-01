@@ -1,5 +1,7 @@
-// Z3 Solver Demo - Demonstrates SMT-based superoptimization
-// This file shows how to use the Z3 solver for equivalence checking
+///
+Z3 Solver Demo - Demonstrates SMT-based superoptimization
+This file shows how to use the Z3 solver for equivalence checking
+///
 
 import z3_solver.{
     Z3Solver, SMTExpression, SMTVariableFactory, InstructionEncoder,
@@ -8,9 +10,11 @@ import z3_solver.{
 }
 import ffi.z3_ffi.{Z3Result}
 
-// ============================================================================
-// Demo: Basic SMT Operations
-// ============================================================================
+///
+============================================================================
+Demo: Basic SMT Operations
+============================================================================
+///
 
 fun demoBasicOperations() r: Void {
     println("=== Z3 SMT Solver Demo: Basic Operations ===")
@@ -39,9 +43,11 @@ fun demoBasicOperations() r: Void {
     println("Basic operations demo complete.")
 }
 
-// ============================================================================
-// Demo: Equivalence Checking
-// ============================================================================
+///
+============================================================================
+Demo: Equivalence Checking
+============================================================================
+///
 
 fun demoEquivalenceChecking() r: Void {
     println("\n=== Z3 SMT Solver Demo: Equivalence Checking ===")
@@ -93,9 +99,11 @@ fun demoEquivalenceChecking() r: Void {
     println("Equivalence checking demo complete.")
 }
 
-// ============================================================================
-// Demo: Superoptimization
-// ============================================================================
+///
+============================================================================
+Demo: Superoptimization
+============================================================================
+///
 
 fun demoSuperoptimization() r: Void {
     println("\n=== Z3 SMT Solver Demo: Superoptimization ===")
@@ -134,9 +142,11 @@ fun demoSuperoptimization() r: Void {
     println("Superoptimization demo complete.")
 }
 
-// ============================================================================
-// Demo: Bit-Vector Operations
-// ============================================================================
+///
+============================================================================
+Demo: Bit-Vector Operations
+============================================================================
+///
 
 fun demoBitvectorOperations() r: Void {
     println("\n=== Z3 SMT Solver Demo: Bit-Vector Operations ===")
@@ -169,9 +179,11 @@ fun demoBitvectorOperations() r: Void {
     println("Bit-vector operations demo complete.")
 }
 
-// ============================================================================
-// Demo: Optimization Rule Verification
-// ============================================================================
+///
+============================================================================
+Demo: Optimization Rule Verification
+============================================================================
+///
 
 fun demoRuleVerification() r: Void {
     println("\n=== Z3 SMT Solver Demo: Optimization Rule Verification ===")
@@ -223,9 +235,11 @@ fun demoRuleVerification() r: Void {
     println("Optimization rule verification demo complete.")
 }
 
-// ============================================================================
-// Main Demo Entry Point
-// ============================================================================
+///
+============================================================================
+Main Demo Entry Point
+============================================================================
+///
 
 fun runZ3Demos() r: Void {
     println("╔══════════════════════════════════════════════════════════════╗")

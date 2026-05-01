@@ -1,5 +1,7 @@
-// Statistical Analysis Framework for Performance Benchmarks
-// Provides comprehensive statistical analysis with confidence intervals, significance testing, and effect sizes
+///
+Statistical Analysis Framework for Performance Benchmarks
+Provides comprehensive statistical analysis with confidence intervals, significance testing, and effect sizes
+///
 
 import std::collections::Vec
 import std::collections::HashMap
@@ -271,8 +273,10 @@ class StatisticalAnalyzer {
     
     // Approximate t-distribution inverse (simplified implementation)
     fun t_distribution_inverse(alpha: f64, df: f64) -> f64 {
-        // Simplified approximation for common cases
-        // In a full implementation, this would use a proper statistical library
+        ///
+        Simplified approximation for common cases
+        In a full implementation, this would use a proper statistical library
+        ///
         if df >= 30.0 {
             // Use normal approximation for large df
             return self.normal_inverse(alpha)
@@ -392,8 +396,10 @@ class StatisticalAnalyzer {
     
     // Approximate p-value for t-test (simplified)
     fun approximate_t_test_p_value(t_abs: f64, df: f64) -> f64 {
-        // Very simplified approximation
-        // In practice, you'd use a proper statistical library or table lookup
+        ///
+        Very simplified approximation
+        In practice, you'd use a proper statistical library or table lookup
+        ///
         if df >= 30.0 {
             // Use normal approximation
             if t_abs >= 2.58 { return 0.01 }

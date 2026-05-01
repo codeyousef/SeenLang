@@ -1,7 +1,9 @@
 // ir_seen_token_types.seen - SeenTokenType ordinal lookup helpers.
 
-// Get the ordinal value for SeenTokenType enum members
-// Enum values are 0-indexed based on declaration order in token_type.seen
+///
+Get the ordinal value for SeenTokenType enum members
+Enum values are 0-indexed based on declaration order in token_type.seen
+///
 fun getSeenTokenTypeValueImpl(memberName: String) r: Int {
     if memberName == "IntegerLiteral" { return 0 }
     if memberName == "FloatLiteral" { return 1 }

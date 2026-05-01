@@ -1,8 +1,12 @@
-// seen_std.str.string
-// UTF-8 friendly helpers and CString bridges used by bootstrap tooling.
+///
+seen_std.str.string
+UTF-8 friendly helpers and CString bridges used by bootstrap tooling.
+///
 
-// Disabled during bootstrap - FFI not needed for core functionality
-// import ffi.cinterop.{CString, toCString, fromCString}
+///
+Disabled during bootstrap - FFI not needed for core functionality
+import ffi.cinterop.{CString, toCString, fromCString}
+///
 
 class StringBuilder {
     var parts: Array<String>
@@ -517,14 +521,18 @@ fun Array<String>.join(separator: String) r: String {
     return join(this, separator)
 }
 
-// Extension methods for FFI - disabled during bootstrap due to extension method limitations
-// fun String.toCString() r: CString {
-//     return toCString(this)
-// }
+///
+Extension methods for FFI - disabled during bootstrap due to extension method limitations
+fun String.toCString() r: CString {
+    return toCString(this)
+}
+///
 
-// fun CString.toSeenString() r: String {
-//     return fromCString(this)
-// }
+///
+fun CString.toSeenString() r: String {
+    return fromCString(this)
+}
+///
 
 fun isWhitespace(ch: Char) r: Bool {
     if ch == ' ' or ch == '\t' or ch == '\n' or ch == '\r' {
@@ -544,9 +552,11 @@ fun String.trim() r: String {
     return trim(this)
 }
 
-// Note: String_fromCharCode is provided by the runtime (seen_runtime.c)
-// It creates a string from an integer character code (Unicode code point)
-// The implementation uses seen_char_to_str which handles UTF-8 encoding
+///
+Note: String_fromCharCode is provided by the runtime (seen_runtime.c)
+It creates a string from an integer character code (Unicode code point)
+The implementation uses seen_char_to_str which handles UTF-8 encoding
+///
 
 // C-style wrapper for replace
 fun String_replace(text: String, target: String, replacement: String) r: String {
@@ -562,9 +572,11 @@ fun String_endsWith(text: String, suffix: String) r: Bool {
     return endsWith(text, suffix)
 }
 
-// String case conversion & utility extension methods
-// These call C runtime functions (String_*) via codegen builtins.
-// The Seen wrappers below are for user programs that import this module.
+///
+String case conversion & utility extension methods
+These call C runtime functions (String_*) via codegen builtins.
+The Seen wrappers below are for user programs that import this module.
+///
 
 fun String_toUpperCase(text: String) r: String {
     let builder = StringBuilder.new()

@@ -1,5 +1,7 @@
-// ir_special_expr_infer.seen — Shared special-expression inference helpers
-// Extracted from llvm_ir_gen.seen to keep inferExpressionType dispatch thin.
+///
+ir_special_expr_infer.seen — Shared special-expression inference helpers
+Extracted from llvm_ir_gen.seen to keep inferExpressionType dispatch thin.
+///
 
 fun inferIndexAccessExprTypeImpl(arrayType: String, indexedElementType: String) r: String {
     if indexedElementType != "" {

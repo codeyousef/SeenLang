@@ -1,5 +1,7 @@
-// Math Utilities Module for E2E Testing
-// Provides mathematical operations for testing multi-module compilation
+///
+Math Utilities Module for E2E Testing
+Provides mathematical operations for testing multi-module compilation
+///
 
 fun factorial(n: Int) r: Int {
     if n <= 1 {

@@ -1,6 +1,8 @@
-// /: Explicit copy vs move distinction at type level
-// Tests that @move types enforce move semantics and @trivially_copyable
-// types allow bitwise copy
+///
+/: Explicit copy vs move distinction at type level
+Tests that @move types enforce move semantics and @trivially_copyable
+types allow bitwise copy
+///
 
 @trivially_copyable
 class Point {

@@ -1,5 +1,7 @@
-// N-Body Simulation Benchmark
-// Double-precision gravitational simulation
+///
+N-Body Simulation Benchmark
+Double-precision gravitational simulation
+///
 
 fun PI() -> Float { return 3.141592653589793; }
 fun SOLAR_MASS() -> Float { return 39.47841760435743; }

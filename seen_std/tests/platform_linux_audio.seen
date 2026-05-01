@@ -41,9 +41,11 @@ fun expect(condition: Bool, message: String) -> Void {
     }
 }
 
-// ============================================================================
-// PipeWire Tests
-// ============================================================================
+///
+============================================================================
+PipeWire Tests
+============================================================================
+///
 
 fun testPipeWireStreamStates() -> Void {
     println("Testing PipeWire stream state constants...")
@@ -139,9 +141,11 @@ fun testPwAudioFormatClass() -> Void {
     expect(defaultFormat.sampleRate == SAMPLE_RATE_48000, "default sample rate should be 48000")
 }
 
-// ============================================================================
-// ALSA Tests
-// ============================================================================
+///
+============================================================================
+ALSA Tests
+============================================================================
+///
 
 fun testAlsaStreamDirection() -> Void {
     println("Testing ALSA stream direction constants...")

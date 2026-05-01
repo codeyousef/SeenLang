@@ -1,15 +1,19 @@
-// Receiver method emission helpers
-// Extracted from ir_type_ops.seen
+///
+Receiver method emission helpers
+Extracted from ir_type_ops.seen
+///
 
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_type_mapping.{mapTypeImpl}
 import codegen.ir_simd_type_helpers.{isSimdVectorTypeImpl, simdScalarTypeImpl, simdLlvmSuffixImpl}
 
-// ============================================================
-// emitSimdReductionImpl — SIMD horizontal reduction ops
-// Returns resultReg or "" if not handled.
-// ============================================================
+///
+============================================================
+emitSimdReductionImpl — SIMD horizontal reduction ops
+Returns resultReg or "" if not handled.
+============================================================
+///
 
 fun emitSimdReductionImpl(output: StringBuilder, regBox: Array<Int>,
     methodName: String, receiverReg: String, receiverType: String) r: String {
@@ -88,10 +92,12 @@ fun emitSimdReductionImpl(output: StringBuilder, regBox: Array<Int>,
     return ""
 }
 
-// ============================================================
-// emitJsonValueMethodImpl — JsonValue method dispatch
-// Returns resultReg or "" if not handled.
-// ============================================================
+///
+============================================================
+emitJsonValueMethodImpl — JsonValue method dispatch
+Returns resultReg or "" if not handled.
+============================================================
+///
 
 fun emitJsonValueMethodImpl(output: StringBuilder, regBox: Array<Int>,
     methodName: String, receiverReg: String, receiverType: String) r: String {
@@ -151,11 +157,13 @@ fun emitJsonValueMethodImpl(output: StringBuilder, regBox: Array<Int>,
     return ""
 }
 
-// ============================================================
-// emitStringMethodImpl — String/Char method dispatch
-// arg0/arg1: pre-generated argument registers from wrapper.
-// Returns resultReg or "" if not handled.
-// ============================================================
+///
+============================================================
+emitStringMethodImpl — String/Char method dispatch
+arg0/arg1: pre-generated argument registers from wrapper.
+Returns resultReg or "" if not handled.
+============================================================
+///
 
 fun emitStringMethodImpl(output: StringBuilder, regBox: Array<Int>,
     methodName: String, receiverReg: String, receiverType: String,
@@ -294,8 +302,10 @@ fun emitStringMethodImpl(output: StringBuilder, regBox: Array<Int>,
     return ""
 }
 
-// Option method dispatch: isSome, isNone, unwrapOr
-// receiverReg is the i64 pointer-as-int, defaultReg is pre-generated default for unwrapOr
+///
+Option method dispatch: isSome, isNone, unwrapOr
+receiverReg is the i64 pointer-as-int, defaultReg is pre-generated default for unwrapOr
+///
 fun emitOptionMethodImpl(output: StringBuilder, regBox: Array<Int>, blockLabelBox: Array<Int>,
     methodName: String, receiverReg: String, defaultReg: String) r: String {
     let optPtrReg = getNextRegFn(regBox)

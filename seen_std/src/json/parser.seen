@@ -1,5 +1,7 @@
-// JSON Parser
-// Parses JSON strings into JsonValue objects
+///
+JSON Parser
+Parses JSON strings into JsonValue objects
+///
 
 import json.value.{JsonValue, JSON_NULL, JSON_BOOL, JSON_NUMBER, JSON_STRING, JSON_ARRAY, JSON_OBJECT, JsonValue_nullValue, JsonValue_bool, JsonValue_string, JsonValue_numberFloat, JsonValue_array, JsonValue_object}
 

@@ -1,5 +1,7 @@
-// Collection method dispatch: Vec, BTreeMap, HashMap, LinkedList
-// Extracted from ir_type_tables.seen
+///
+Collection method dispatch: Vec, BTreeMap, HashMap, LinkedList
+Extracted from ir_type_tables.seen
+///
 
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn}
@@ -8,9 +10,11 @@ import codegen.ir_linked_list_dispatch.{emitLinkedListMethodImpl}
 
 // --- Collection method helpers ---
 
-// Emit LLVM IR for Vec method calls
-// vecPtrReg must already be a ptr (inttoptr done by caller)
-// arg0/arg1 are pre-generated argument registers ("0" if unused)
+///
+Emit LLVM IR for Vec method calls
+vecPtrReg must already be a ptr (inttoptr done by caller)
+arg0/arg1 are pre-generated argument registers ("0" if unused)
+///
 fun emitVecMethodImpl(output: StringBuilder, regBox: Array<Int>,
     methodName: String, vecPtrReg: String, arg0: String, arg1: String,
     hasStr: Bool, hasFloat: Bool) r: String {
@@ -41,10 +45,12 @@ fun mapValType(hasStrVal: Bool) r: String {
     return "i64"
 }
 
-// Emit LLVM IR for BTreeMap method calls
-// mapPtrReg must already be a ptr (inttoptr done by caller)
-// arg0/arg1 are pre-generated argument registers ("0" if unused)
-// For size/len and isEmpty: uses runtime calls for str variants, GEP for int/int
+///
+Emit LLVM IR for BTreeMap method calls
+mapPtrReg must already be a ptr (inttoptr done by caller)
+arg0/arg1 are pre-generated argument registers ("0" if unused)
+For size/len and isEmpty: uses runtime calls for str variants, GEP for int/int
+///
 fun emitBTreeMapMethodImpl(output: StringBuilder, regBox: Array<Int>, methodName: String, mapPtrReg: String, arg0: String, arg1: String, hasStrKey: Bool, hasStrVal: Bool) r: String {
     let suffix = mapSuffix4Way(hasStrKey, hasStrVal)
     let keyType = mapKeyType(hasStrKey)
@@ -192,8 +198,10 @@ fun emitBTreeMapMethodImpl(output: StringBuilder, regBox: Array<Int>, methodName
     return ""
 }
 
-// Emit LLVM IR for HashMap method calls
-// mapPtrReg must already be a ptr (inttoptr done by caller)
+///
+Emit LLVM IR for HashMap method calls
+mapPtrReg must already be a ptr (inttoptr done by caller)
+///
 fun emitHashMapMethodImpl(output: StringBuilder, regBox: Array<Int>, methodName: String, mapPtrReg: String, arg0: String, arg1: String, hasStrKey: Bool, hasStrVal: Bool) r: String {
     let suffix = mapSuffix4Way(hasStrKey, hasStrVal)
     let keyType = mapKeyType(hasStrKey)
@@ -333,9 +341,11 @@ fun emitHashMapMethodImpl(output: StringBuilder, regBox: Array<Int>, methodName:
     return ""
 }
 
-// Emit LLVM IR for StringHashMap<V> method calls using the string-keyed HashMap runtime.
-// This specialized path covers the currently supported value layouts: i64 ABI slot
-// values and SeenString values.
+///
+Emit LLVM IR for StringHashMap<V> method calls using the string-keyed HashMap runtime.
+This specialized path covers the currently supported value layouts: i64 ABI slot
+values and SeenString values.
+///
 fun emitStringHashMapMethodImpl(output: StringBuilder, regBox: Array<Int>, methodName: String, mapPtrReg: String, arg0: String, arg1: String, hasStrVal: Bool) r: String {
     if methodName == "len" or methodName == "length" {
         let resultReg = getNextRegFn(regBox)

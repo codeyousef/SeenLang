@@ -1,25 +1,27 @@
-// =============================================================================
-// main_compiler.seen -- Bootstrap compiler driver (Stage 5 orchestrator)
-// =============================================================================
-//
-// This is the entry point for the "compile" subcommand used during bootstrap
-// and production builds. It orchestrates the full compilation pipeline:
-//
-//   Source (.seen) -> Frontend (lex/parse/typecheck) -> Multi-module IR gen
-//     -> opt -O3 (per-module, parallel) -> opt --thinlto-bc -> clang -flto=thin
-//
-// Key design decisions:
-//   - Fork-parallel IR generation: each uncached module is compiled in a forked
-//     child process. The child inherits a copy-on-write snapshot of the parent's
-//     Pass 1 declaration registry, avoiding costly serialization.
-//   - Content-addressed IR cache (v3 key = declarationsHash + moduleSourceHash):
-//     deterministic IR means the same source + declarations always produce the
-//     same optimized object file, enabling cross-stage cache reuse.
-//   - ThinLTO linking: per-module bitcode with summaries enables LLD to perform
-//     cross-module inlining at link time without the memory cost of full LTO.
-//
-// Module-level global flags use Int instead of Bool due to a Stage1 codegen
-// limitation where boolean variables generate invalid IR.
+///
+=============================================================================
+main_compiler.seen -- Bootstrap compiler driver (Stage 5 orchestrator)
+=============================================================================
+
+This is the entry point for the "compile" subcommand used during bootstrap
+and production builds. It orchestrates the full compilation pipeline:
+
+  Source (.seen) -> Frontend (lex/parse/typecheck) -> Multi-module IR gen
+    -> opt -O3 (per-module, parallel) -> opt --thinlto-bc -> clang -flto=thin
+
+Key design decisions:
+  - Fork-parallel IR generation: each uncached module is compiled in a forked
+    child process. The child inherits a copy-on-write snapshot of the parent's
+    Pass 1 declaration registry, avoiding costly serialization.
+  - Content-addressed IR cache (v3 key = declarationsHash + moduleSourceHash):
+    deterministic IR means the same source + declarations always produce the
+    same optimized object file, enabling cross-stage cache reuse.
+  - ThinLTO linking: per-module bitcode with summaries enables LLD to perform
+    cross-module inlining at link time without the memory cost of full LTO.
+
+Module-level global flags use Int instead of Bool due to a Stage1 codegen
+limitation where boolean variables generate invalid IR.
+///
 
 import bootstrap.frontend.{FrontendResult, FrontendDiagnostic, run_frontend, run_frontend_declarations, encodeDiagMessage, parseDiagBaseMessage, parseDiagCode, parseDiagSuggestion, parseDiagNote, parseDiagEndColumn}
 import io.file.{readText, writeText, exists}
@@ -40,9 +42,11 @@ import codegen.ir_decl_typechecker.{emitTypecheckerDeclsImpl}
 import codegen.ir_decl_parser.{emitParserDecls}
 import codegen.ir_decl_feature_runtime.{emitFeatureDecls}
 import codegen.ir_decl_feature_serialization.{generateBinarySerializerImpl}
-// Seed newer helper modules through direct imports so older bootstrap
-// compilers discover them from the main-file import scan before falling back
-// to their embedded compiler-module list.
+///
+Seed newer helper modules through direct imports so older bootstrap
+compilers discover them from the main-file import scan before falling back
+to their embedded compiler-module list.
+///
 import codegen.ir_decl_late_declares.{pipeContainsValueCoreImpl}
 import codegen.ir_decl_scan.{pipeContainsValueImpl}
 import codegen.ir_egraph_rules.{egraphLookup, egraphLookupFloat, egraphSelfComparison}
@@ -235,8 +239,10 @@ fun clearValidationModuleCache() r: Void {
     g_validationFrontends = Array<FrontendResult>()
 }
 
-// DJB2 hash of a string, returned as 8-char hex
-// Uses byteAt() to avoid per-char string allocation
+///
+DJB2 hash of a string, returned as 8-char hex
+Uses byteAt() to avoid per-char string allocation
+///
 fun hashString(data: String) r: String {
     var hash = 5381
     var index = 0
@@ -1586,11 +1592,13 @@ fun getLastSegment(path: String) r: String {
     return path.substring(lastSlash + 1, path.length())
 }
 
-// Compute compiler installation root from the binary's absolute path.
-// Uses /proc/self/exe (Linux) to get the real path regardless of how the
-// binary was invoked (PATH lookup, symlink, relative path, etc.).
-// Binary is at <root>/compiler_seen/target/seen, so root = 3 levels up.
-// Falls back to args()[0] if /proc/self/exe is unavailable (e.g. macOS).
+///
+Compute compiler installation root from the binary's absolute path.
+Uses /proc/self/exe (Linux) to get the real path regardless of how the
+binary was invoked (PATH lookup, symlink, relative path, etc.).
+Binary is at <root>/compiler_seen/target/seen, so root = 3 levels up.
+Falls back to args()[0] if /proc/self/exe is unavailable (e.g. macOS).
+///
 fun getCompilerRoot() r: String {
     // Try /proc/$PPID/exe — $PPID is the compiler process (parent of the shell spawned by runCommand)
     let exeResult = runCommand("readlink -f /proc/$PPID/exe")
@@ -1635,12 +1643,14 @@ fun getCompilerRoot() r: String {
     return ""
 }
 
-// Resolve an import path (e.g., ["codegen", "llvm_ir_gen"]) to a filesystem path.
-// Stdlib imports (str, io, env, process, etc.) resolve under seen_std/src/.
-// Compiler imports resolve relative to sourceDir, with deduplication: if the first
-// path segment matches the last directory segment, it is skipped to avoid paths
-// like "lexer/lexer/token.seen". Tries module-style (foo/mod.seen) before direct
-// (foo.seen).
+///
+Resolve an import path (e.g., ["codegen", "llvm_ir_gen"]) to a filesystem path.
+Stdlib imports (str, io, env, process, etc.) resolve under seen_std/src/.
+Compiler imports resolve relative to sourceDir, with deduplication: if the first
+path segment matches the last directory segment, it is skipped to avoid paths
+like "lexer/lexer/token.seen". Tries module-style (foo/mod.seen) before direct
+(foo.seen).
+///
 fun tryExistingRelativeImportPath(importPath: Array<String>, sourceDir: String) r: String {
     var filePath = sourceDir
     if filePath != "" and not filePath.endsWith("/") {
@@ -1770,15 +1780,19 @@ fun resolveImportPath(importPath: Array<String>, sourceDir: String) r: String {
         }
     }
 
-    // Handle module-style imports: if first segment matches last segment of sourceDir,
-    // skip it to avoid duplication (e.g., in lexer/, "lexer.interfaces" -> "interfaces.seen")
+    ///
+    Handle module-style imports: if first segment matches last segment of sourceDir,
+    skip it to avoid duplication (e.g., in lexer/, "lexer.interfaces" -> "interfaces.seen")
+    ///
     var filePath = sourceDir
     if filePath != "" and not filePath.endsWith("/") {
         filePath = filePath + "/"
     }
 
-    // Check if first import segment duplicates the source layout or the project
-    // package prefix. Only skip if the resulting file actually exists.
+    ///
+    Check if first import segment duplicates the source layout or the project
+    package prefix. Only skip if the resulting file actually exists.
+    ///
     var startIdx = 0
     if importPath.length() > 1 {
         let lastDirSegment = getLastSegment(sourceDir)
@@ -2874,12 +2888,14 @@ fun effectiveLargeProjectWorkerLimit(moduleCount: Int, isBootstrap: Bool) r: Int
     return g_largeProjectWorkerLimit
 }
 
-// Collect all module paths needed for compilation (without storing ASTs).
-// For regular compilations this walks imports recursively so standalone builds
-// include transitive dependencies. For bootstrap compilation we keep the older
-// behavior of parsing only the main file, then appending the curated compiler
-// module list below. Returns paths in discovery order with duplicates removed.
-// The AST from import discovery is released before returning to bound memory.
+///
+Collect all module paths needed for compilation (without storing ASTs).
+For regular compilations this walks imports recursively so standalone builds
+include transitive dependencies. For bootstrap compilation we keep the older
+behavior of parsing only the main file, then appending the curated compiler
+module list below. Returns paths in discovery order with duplicates removed.
+The AST from import discovery is released before returning to bound memory.
+///
 fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
     var paths = Array<String>()
     var processedPaths = Array<String>()
@@ -2911,8 +2927,10 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
                 let inputDeclaresMain = moduleDeclaresMain(inputFile)
                 let rootStandaloneMain = inputDeclaresMain and getSourceDir(inputFile) == projectRoot and not inputIsProjectMember
                 let resolvedBuildEntry = resolveProjectPath(projectRoot, buildEntry)
-                // Keep root-level scratch entrypoints standalone even when a project build
-                // entry exists; nested project files still inherit build-entry imports.
+                ///
+                Keep root-level scratch entrypoints standalone even when a project build
+                entry exists; nested project files still inherit build-entry imports.
+                ///
                 if not rootStandaloneMain {
                     if not inputDeclaresMain {
                         if not quiet {
@@ -2929,8 +2947,10 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         }
     }
 
-    // Parse imports into a worklist. Non-bootstrap builds recurse through the
-    // full import graph; bootstrap still uses the curated module list below.
+    ///
+    Parse imports into a worklist. Non-bootstrap builds recurse through the
+    full import graph; bootstrap still uses the curated module list below.
+    ///
     if not quiet {
         println("    Discovering imports from main file...")
     }
@@ -2957,8 +2977,10 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
             println("    Bootstrap mode: adding compiler modules...")
         }
         let modules = Array<String>()
-        // Keep direct stdlib dependencies explicit for bootstrap binaries run
-        // outside compiler_seen/target, where root-based import discovery is fragile.
+        ///
+        Keep direct stdlib dependencies explicit for bootstrap binaries run
+        outside compiler_seen/target, where root-based import discovery is fragile.
+        ///
         modules.push("io.file")
         modules.push("process.process")
         modules.push("env.env")
@@ -3170,8 +3192,10 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_type_header_registry")
         modules.push("codegen.type_registry")
         modules.push("codegen.ir_type_header")
-        // Scan the main generator after extracted helpers so their
-        // declarations are available during bootstrap registration.
+        ///
+        Scan the main generator after extracted helpers so their
+        declarations are available during bootstrap registration.
+        ///
         modules.push("codegen.llvm_ir_gen")
         // JSON module (required by LSP)
         modules.push("json.value")
@@ -3179,11 +3203,13 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("json.builder")
         // IO module (required by LSP for stdio)
         modules.push("io.stdio")
-        // String utilities - disabled during bootstrap due to conflicts with C runtime functions
-        // (split, trim, startsWith, endsWith, contains, indexOf, lastIndexOf, StringBuilder_length)
-        // These functions are provided by seen_runtime.c instead
-        // modules.push("str.string")
-        // Optimization pipeline modules
+        ///
+        String utilities - disabled during bootstrap due to conflicts with C runtime functions
+        (split, trim, startsWith, endsWith, contains, indexOf, lastIndexOf, StringBuilder_length)
+        These functions are provided by seen_runtime.c instead
+        modules.push("str.string")
+        Optimization pipeline modules
+        ///
         modules.push("optimization.egraph.egraph")
         modules.push("optimization.egraph.rewrite_rules")
         modules.push("optimization.egraph.cost_model")
@@ -4724,18 +4750,22 @@ fun validateSealedModules(modulePaths: Array<String>, language: String) r: Front
     return result
 }
 
-// Collect ML training data from LLVM optimization remarks YAML file.
-// Parses the YAML line-by-line extracting Pass/Name/Function fields from
-// each remark block (delimited by "---" or "..."), and appends tab-separated
-// records to outputPath. Used with --ml-log to build training datasets for
-// the ML-guided optimization heuristics.
+///
+Collect ML training data from LLVM optimization remarks YAML file.
+Parses the YAML line-by-line extracting Pass/Name/Function fields from
+each remark block (delimited by "---" or "..."), and appends tab-separated
+records to outputPath. Used with --ml-log to build training datasets for
+the ML-guided optimization heuristics.
+///
 fun collectMLTrainingData(remarksFile: String, outputPath: String) r: Void {
     let content = readText(remarksFile)
     if content.length() == 0 {
         return
     }
-    // Parse YAML remarks line-by-line, extracting Pass/Name/Function/Args fields
-    // LLVM remarks YAML format: key-value lines like "Pass: loop-vectorize"
+    ///
+    Parse YAML remarks line-by-line, extracting Pass/Name/Function/Args fields
+    LLVM remarks YAML format: key-value lines like "Pass: loop-vectorize"
+    ///
     var mlData = ""
     var lineStart = 0
     var i = 0
@@ -4822,8 +4852,10 @@ fun collectMLTrainingData(remarksFile: String, outputPath: String) r: Void {
     }
 }
 
-// Format LLVM vectorization remarks into a structured report
-// Uses contains() which is available in stage1 from C runtime
+///
+Format LLVM vectorization remarks into a structured report
+Uses contains() which is available in stage1 from C runtime
+///
 fun formatSimdReport(output: String) r: String {
     // Count vectorized and missed loops by scanning for known substrings
     var vectorizedCount = 0
@@ -4852,10 +4884,12 @@ fun formatSimdReport(output: String) r: String {
     return result
 }
 
-// Convenience entry points for compilation. All delegate to compileCommandWithAllOptions
-// which contains the full pipeline. These exist because the bootstrap compiler cannot
-// handle default parameter values, so each call site uses the variant with the fewest
-// parameters it needs.
+///
+Convenience entry points for compilation. All delegate to compileCommandWithAllOptions
+which contains the full pipeline. These exist because the bootstrap compiler cannot
+handle default parameter values, so each call site uses the variant with the fewest
+parameters it needs.
+///
 fun compileCommand(inputFile: String, outputFile: String) r: Int {
     return compileCommandWithOptions(inputFile, outputFile, "default", false, true)
 }
@@ -5539,39 +5573,47 @@ var g_picMode = 0
 var g_objectManifestPath: String = ""
 // Disable fork-parallel IR generation (use sequential in-process generation)
 var g_noFork = 0
-// HeartOn validation passes this legacy project-prefix hint together with
-// --no-fork. Keep bootstrap builds serial, but allow a bounded worker pool for
-// large project graphs that explicitly opt into this path.
+///
+HeartOn validation passes this legacy project-prefix hint together with
+--no-fork. Keep bootstrap builds serial, but allow a bounded worker pool for
+large project graphs that explicitly opt into this path.
+///
 var g_projectPrefixLimit = 0
 var g_largeProjectWorkerLimit = 16
 var g_largeProjectOptWorkerLimit = 24
-// ThinLTO cache path (/tmp/seen_thinlto_cache) and IR cache path (/tmp/seen_ir_cache)
-// are inlined as string literals at each use site. Module-level String variables
-// generate invalid IR (`store %SeenString 0`) in the production compiler, so we
-// cannot store these as `var g_thinltoCachePath = "/tmp/..."` at module scope.
+///
+ThinLTO cache path (/tmp/seen_thinlto_cache) and IR cache path (/tmp/seen_ir_cache)
+are inlined as string literals at each use site. Module-level String variables
+generate invalid IR (`store %SeenString 0`) in the production compiler, so we
+cannot store these as `var g_thinltoCachePath = "/tmp/..."` at module scope.
+///
 
-// Core compilation pipeline: the single function that implements the entire
-// compile subcommand. Orchestrates a two-pass architecture:
-//
-//   Pass 1: Parse all modules, register declarations into a shared registry.
-//           This builds the cross-module symbol table needed for type resolution.
-//
-//   Pass 2: For each module, check caches (source-level, then IR-level).
-//           Uncached modules are compiled via fork() for parallelism -- each
-//           child inherits a CoW copy of the Pass 1 registry. Children write
-//           .ll files to /tmp and exit; the parent waits for all to complete.
-//
-//   Pass 2b: Run LLVM opt + ThinLTO-bc in parallel via a generated shell script.
-//            Each module: opt -O3 -> Polly (best-effort) -> opt --thinlto-bc -> .o
-//
-//   Pass 3: Link all .o files with clang -flto=thin using LLD (Linux) or ld64
-//           (macOS). The ThinLTO cache at /tmp/seen_thinlto_cache persists
-//           across builds for fast incremental links.
-//
-// Returns 0 on success, 1 on any compilation or linking failure.
+///
+Core compilation pipeline: the single function that implements the entire
+compile subcommand. Orchestrates a two-pass architecture:
+
+  Pass 1: Parse all modules, register declarations into a shared registry.
+          This builds the cross-module symbol table needed for type resolution.
+
+  Pass 2: For each module, check caches (source-level, then IR-level).
+          Uncached modules are compiled via fork() for parallelism -- each
+          child inherits a CoW copy of the Pass 1 registry. Children write
+          .ll files to /tmp and exit; the parent waits for all to complete.
+
+  Pass 2b: Run LLVM opt + ThinLTO-bc in parallel via a generated shell script.
+           Each module: opt -O3 -> Polly (best-effort) -> opt --thinlto-bc -> .o
+
+  Pass 3: Link all .o files with clang -flto=thin using LLD (Linux) or ld64
+          (macOS). The ThinLTO cache at /tmp/seen_thinlto_cache persists
+          across builds for fast incremental links.
+
+Returns 0 on success, 1 on any compilation or linking failure.
+///
 fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile: String, panicOnOverflow: Bool, useCache: Bool, language: String, targetCpu: String, simdPolicy: String, simdReport: Bool, sanitizePolicy: String, pgoMode: String, pgoPath: String, mlLogPath: String, crossTarget: String) r: Int {
-    // Canonicalize the entry path so symlinked workspaces behave the same as
-    // the real source tree during module discovery.
+    ///
+    Canonicalize the entry path so symlinked workspaces behave the same as
+    the real source tree during module discovery.
+    ///
     let resolvedInput = resolveRealInputPath(inputFile)
     if not ensureProjectPackageDependenciesForInput(resolvedInput, true) {
         return 1
@@ -5721,21 +5763,25 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         splitIdx = splitIdx + 1
     }
 
-    // Set type header path for ABI compatibility with Rust bootstrap compiler
-    // Also encode ML decision log path via "|ml:" delimiter (bootstrap-safe channel)
+    ///
+    Set type header path for ABI compatibility with Rust bootstrap compiler
+    Also encode ML decision log path via "|ml:" delimiter (bootstrap-safe channel)
+    ///
     var headerArg = "seen_types.ll"
     if mlDecisionLogPath.length() > 0 {
         headerArg = headerArg + "|ml:" + mlDecisionLogPath
     }
     generator.setTypeHeaderPath(headerArg)
 
-    // ============================================================
-    // : Dependency management -- parse Seen.toml if present
-    // ============================================================
-    // Reads [native.dependencies] (and legacy system=true entries inside
-    // [dependencies]) for native library link flags, [features] for
-    // compile-time feature flags, and [assets] for shader files to compile
-    // with glslc before linking.
+    ///
+    ============================================================
+    : Dependency management -- parse Seen.toml if present
+    ============================================================
+    Reads [native.dependencies] (and legacy system=true entries inside
+    [dependencies]) for native library link flags, [features] for
+    compile-time feature flags, and [assets] for shader files to compile
+    with glslc before linking.
+    ///
     var tomlExtraLinkFlags = ""
     var tomlAssetShaders = ""
     let tomlPath = findNearestSeenTomlForInput(resolvedInput)
@@ -5845,13 +5891,15 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         return 0
     }
 
-    // ============================================================
-    // Circular dependency detection
-    // ============================================================
-    // Build import graph and run DFS cycle detection before committing to
-    // compilation. Circular imports would cause the module collector to loop
-    // and the IR generator to emit incomplete forward references. Catching
-    // this early gives a clear diagnostic instead of a cryptic linker error.
+    ///
+    ============================================================
+    Circular dependency detection
+    ============================================================
+    Build import graph and run DFS cycle detection before committing to
+    compilation. Circular imports would cause the module collector to loop
+    and the IR generator to emit incomplete forward references. Catching
+    this early gives a clear diagnostic instead of a cryptic linker error.
+    ///
     println("  [Pass 0] Discovering module graph...")
     let modulePaths = collectModulePaths(resolvedInput, false)
     println("    Found " + modulePaths.length().toString() + " modules")
@@ -5909,8 +5957,10 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             depColors.push(0)
             depIdx = depIdx + 1
         }
-        // Simple O(V+E) DFS; sufficient for small and medium module graphs.
-        // Use manual stack via Array<Int> + stackTop counter (no .pop() in runtime)
+        ///
+        Simple O(V+E) DFS; sufficient for small and medium module graphs.
+        Use manual stack via Array<Int> + stackTop counter (no .pop() in runtime)
+        ///
         var dfsStack = Array<Int>()
         var dfsStackTop = 0
         depIdx = 0
@@ -5978,16 +6028,18 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         println("  [Pass 0] Compiler-internal module graph: deferring whole-project validation to streaming passes")
     }
 
-    // ============================================================
-    // PASS 1: Collect module paths and register all declarations
-    // ============================================================
-    // Why a separate declaration pass? The IR generator uses a three-pass approach
-    // (signatures -> types -> implementations). Pass 1 here feeds all module ASTs
-    // into registerDeclarations() so every function signature, class layout, and
-    // enum variant is known before any IR is generated. Without this, cross-module
-    // references (e.g., calling a function defined in a different module) would
-    // produce "undefined value" errors during IR generation.
-    // Each AST is released after registration to bound memory usage.
+    ///
+    ============================================================
+    PASS 1: Collect module paths and register all declarations
+    ============================================================
+    Why a separate declaration pass? The IR generator uses a three-pass approach
+    (signatures -> types -> implementations). Pass 1 here feeds all module ASTs
+    into registerDeclarations() so every function signature, class layout, and
+    enum variant is known before any IR is generated. Without this, cross-module
+    references (e.g., calling a function defined in a different module) would
+    produce "undefined value" errors during IR generation.
+    Each AST is released after registration to bound memory usage.
+    ///
     println("  [Pass 1] Scanning declarations...")
 
     var passIdx = 0
@@ -6039,17 +6091,19 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         println("    Backend: opt -O3 -> llc -O3 -> clang -O3 -flto")
     }
 
-    // ============================================================
-    // CACHE: Compute global hash for incremental compilation
-    // ============================================================
-    // The source-level cache (.seen_cache/) uses a global registryHash to detect
-    // when ANY module's declarations change. When the hash changes, all cached .o
-    // files are invalidated because cross-module type resolution may have changed.
-    // Cache entries are namespaced by the effective compilation signature so cross-
-    // target and cross-profile builds never reuse incompatible object files.
-    // The IR cache (/tmp/seen_ir_cache/) uses per-module keys (signature + registryHash + path)
-    // for finer granularity -- a body-only change in module A does not invalidate
-    // module B's IR cache since declarations are unchanged.
+    ///
+    ============================================================
+    CACHE: Compute global hash for incremental compilation
+    ============================================================
+    The source-level cache (.seen_cache/) uses a global registryHash to detect
+    when ANY module's declarations change. When the hash changes, all cached .o
+    files are invalidated because cross-module type resolution may have changed.
+    Cache entries are namespaced by the effective compilation signature so cross-
+    target and cross-profile builds never reuse incompatible object files.
+    The IR cache (/tmp/seen_ir_cache/) uses per-module keys (signature + registryHash + path)
+    for finer granularity -- a body-only change in module A does not invalidate
+    module B's IR cache since declarations are unchanged.
+    ///
     var registryHash = ""
     var cacheValid = false
     if useCache {
@@ -6075,11 +6129,13 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         }
     }
 
-    // ============================================================
-    // PASS 2: Stream compile each module (one AST at a time)
-    // ============================================================
-    // Clean stale per-module LLVM temp files so later invocations cannot
-    // accidentally reuse or inspect IR/object artifacts from previous builds.
+    ///
+    ============================================================
+    PASS 2: Stream compile each module (one AST at a time)
+    ============================================================
+    Clean stale per-module LLVM temp files so later invocations cannot
+    accidentally reuse or inspect IR/object artifacts from previous builds.
+    ///
     let cleanCmd = "rm -f /tmp/seen_module_*.ll /tmp/seen_module_*.o /tmp/seen_module_*.opt.ll /tmp/seen_module_*.polly.ll /tmp/seen_module_*.opt.status /tmp/seen_module_*.opt.log /tmp/seen_parallel_opt.sh"
     __ExecuteProgram(cleanCmd)
 
@@ -6096,18 +6152,20 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     var uncachedSrcPaths = Array<String>()
     var uncachedIrKeys = Array<String>()
 
-    // Fork-parallel IR generation: each uncached module gets its own child process.
-    // Why fork instead of threads? Fork gives each child a copy-on-write snapshot of
-    // the parent's entire Pass 1 registry (all declaration tables, type info, struct
-    // layouts) without any serialization or shared-memory coordination. The child
-    // writes a .ll file to /tmp and exits. The parent waits for all children, then
-    // collects the .ll files for the optimization pass.
-    //
-    // When --no-fork is set, modules compile serially in-process and Pass 2b
-    // runs opt/object emission serially too, which lowers bootstrap memory use.
-    // Generated test mains are short-lived validation compiles; letting them use
-    // the parallel path keeps HeartOn's strict test-run timeout attainable while
-    // the outer memory guard still bounds the process tree.
+    ///
+    Fork-parallel IR generation: each uncached module gets its own child process.
+    Why fork instead of threads? Fork gives each child a copy-on-write snapshot of
+    the parent's entire Pass 1 registry (all declaration tables, type info, struct
+    layouts) without any serialization or shared-memory coordination. The child
+    writes a .ll file to /tmp and exits. The parent waits for all children, then
+    collects the .ll files for the optimization pass.
+
+    When --no-fork is set, modules compile serially in-process and Pass 2b
+    runs opt/object emission serially too, which lowers bootstrap memory use.
+    Generated test mains are short-lived validation compiles; letting them use
+    the parallel path keeps HeartOn's strict test-run timeout attainable while
+    the outer memory guard still bounds the process tree.
+    ///
     var pass2IrRunsParallel = g_noFork == 0
     if boundedLargeProjectWorkers > 0 {
         pass2IrRunsParallel = true
@@ -6154,13 +6212,15 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             }
         }
 
-        // IR content-addressed cache: deterministic codegen means identical source +
-        // identical declarations always produce identical optimized .o files. This cache
-        // persists across bootstrap stages (stage2 can reuse stage1's cached objects),
-        // which is critical for keeping bootstrap verification fast.
-        // Key = hash("v3:" + cacheSignature + ":" + registryHash + ":" + path).
-        // The "v3" prefix forces a one-time cache miss after broadening the cache key.
-        // one-time cache miss when the pipeline changes (e.g., llvm-as -> opt --thinlto-bc).
+        ///
+        IR content-addressed cache: deterministic codegen means identical source +
+        identical declarations always produce identical optimized .o files. This cache
+        persists across bootstrap stages (stage2 can reuse stage1's cached objects),
+        which is critical for keeping bootstrap verification fast.
+        Key = hash("v3:" + cacheSignature + ":" + registryHash + ":" + path).
+        The "v3" prefix forces a one-time cache miss after broadening the cache key.
+        one-time cache miss when the pipeline changes (e.g., llvm-as -> opt --thinlto-bc).
+        ///
         var irCacheKey = ""
         var irCacheHit = 0
         if useCache and registryHash != "" {
@@ -6225,8 +6285,10 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             uncachedSrcPaths.push(path)
             uncachedIrKeys.push(irCacheKey)
         } else {
-            // Fork a child to generate IR for this module in parallel.
-            // Child gets a copy-on-write snapshot of the parent's registry from Pass 1.
+            ///
+            Fork a child to generate IR for this module in parallel.
+            Child gets a copy-on-write snapshot of the parent's registry from Pass 1.
+            ///
             if g_generatedTestMainMode == 0 {
                 println("    [" + moduleIndex.toString() + "] Forking IR gen: " + path)
             }
@@ -6381,17 +6443,19 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         forkReg = forkReg + 1
     }
 
-    // ============================================================
-    // PASS 2B: Run opt + object emission for all uncached modules
-    // ============================================================
-    // Why a generated shell script? LLVM opt is an external process, and we need
-    // to run N instances with either backgrounded jobs (default) or serially when
-    // --no-fork requests the lower-memory bootstrap path. Generating a shell script
-    // is simpler and more portable than managing N fork+exec pairs from Seen code.
-    // Each module goes through:
-    //   1. opt -O3 (main optimization) -- hard-fail the module on any error
-    //   2. Polly polyhedral optimization (best-effort, skipped in --fast mode)
-    //   3. object emission (ThinLTO bitcode normally, native llc objects in fast mode)
+    ///
+    ============================================================
+    PASS 2B: Run opt + object emission for all uncached modules
+    ============================================================
+    Why a generated shell script? LLVM opt is an external process, and we need
+    to run N instances with either backgrounded jobs (default) or serially when
+    --no-fork requests the lower-memory bootstrap path. Generating a shell script
+    is simpler and more portable than managing N fork+exec pairs from Seen code.
+    Each module goes through:
+      1. opt -O3 (main optimization) -- hard-fail the module on any error
+      2. Polly polyhedral optimization (best-effort, skipped in --fast mode)
+      3. object emission (ThinLTO bitcode normally, native llc objects in fast mode)
+    ///
     if uncachedIdxStrs.length() > 0 {
         var pass2bRunsParallel = g_noFork == 0
         if boundedLargeProjectOptWorkers > 0 {
@@ -6475,12 +6539,14 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
 
             let statusFile = "/tmp/seen_module_" + midx + ".opt.status"
             let logFile = "/tmp/seen_module_" + midx + ".opt.log"
-            // Each module writes a status file and log so the parent can stop the
-            // build on the first optimization/object-emission failure instead of
-            // silently falling back to raw IR and continuing toward link.
-            // Normal mode keeps ThinLTO summaries for LLD's cache. Fast mode
-            // emits native objects directly so generated test binaries avoid
-            // ThinLTO link overhead.
+            ///
+            Each module writes a status file and log so the parent can stop the
+            build on the first optimization/object-emission failure instead of
+            silently falling back to raw IR and continuing toward link.
+            Normal mode keeps ThinLTO summaries for LLD's cache. Fast mode
+            emits native objects directly so generated test binaries avoid
+            ThinLTO link overhead.
+            ///
             var pollyStep = ""
             if g_fastMode == 0 and normalizedCrossTarget != "android-arm64" and
                 boundedLargeProjectOptWorkers == 0 {
@@ -6555,8 +6621,10 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         }
         let parallelResult: CommandResult = runCommand("/tmp/seen_parallel_opt.sh")
 
-        // Verify all modules reported successful optimization/object emission
-        // before collecting any objects for the final link.
+        ///
+        Verify all modules reported successful optimization/object emission
+        before collecting any objects for the final link.
+        ///
         var vi = 0
         while vi < uncachedIdxStrs.length() {
             let midx = uncachedIdxStrs[vi]
@@ -6649,8 +6717,10 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         }
     }
 
-    // Detect host platform before any native object emission so release builds
-    // can avoid inheriting unsupported ISA features from the build host.
+    ///
+    Detect host platform before any native object emission so release builds
+    can avoid inheriting unsupported ISA features from the build host.
+    ///
     let unameS: CommandResult = runCommand("uname -s")
     var hostOS = "Linux"
     if commandWasSuccessful(unameS) {
@@ -6669,8 +6739,10 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         }
     }
 
-    // Build CPU flags from --target-cpu / --simd. Developer builds still
-    // default to native; release scripts pass --target-cpu explicitly.
+    ///
+    Build CPU flags from --target-cpu / --simd. Developer builds still
+    default to native; release scripts pass --target-cpu explicitly.
+    ///
     var clangMarch = "-march=native"
     var llvmLlcCpu = "native"
     if hostArch == "arm64" {
@@ -6722,16 +6794,18 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         }
     }
 
-    // ============================================================
-    // RELEASE MODE: Cross-module LTO merge (when --release and multi-module)
-    // ============================================================
-    // Why a separate release path? The normal pipeline uses ThinLTO (per-module
-    // bitcode + link-time cross-module inlining). --release instead merges ALL
-    // modules into a single LLVM IR file via llvm-link, then runs internalize +
-    // O3 on the whole program. This enables aggressive whole-program optimization
-    // (dead code elimination, cross-module inlining with threshold=2000) at the
-    // cost of higher memory usage and slower compilation. The merged object is
-    // compiled via llc rather than ThinLTO.
+    ///
+    ============================================================
+    RELEASE MODE: Cross-module LTO merge (when --release and multi-module)
+    ============================================================
+    Why a separate release path? The normal pipeline uses ThinLTO (per-module
+    bitcode + link-time cross-module inlining). --release instead merges ALL
+    modules into a single LLVM IR file via llvm-link, then runs internalize +
+    O3 on the whole program. This enables aggressive whole-program optimization
+    (dead code elimination, cross-module inlining with threshold=2000) at the
+    cost of higher memory usage and slower compilation. The merged object is
+    compiled via llc rather than ThinLTO.
+    ///
     if g_releaseMode and modulePaths.length() > 1 and normalizedCrossTarget == "" and
         g_objectManifestPath == "" {
 
@@ -6795,15 +6869,17 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         }
     }
 
-    // ============================================================
-    // LINKING: Combine all object files
-    // ============================================================
-    // Why ThinLTO (not full LTO)? Full LTO loads all bitcode into one module,
-    // requiring O(total IR) memory. ThinLTO reads only summaries, then performs
-    // cross-module inlining on a per-function basis. For the 50-module compiler,
-    // full LTO would require 5+ GB RAM; ThinLTO stays under 1 GB while still
-    // enabling cross-module inlining. The ThinLTO cache at /tmp/seen_thinlto_cache
-    // means unchanged modules skip link-time optimization entirely on rebuilds.
+    ///
+    ============================================================
+    LINKING: Combine all object files
+    ============================================================
+    Why ThinLTO (not full LTO)? Full LTO loads all bitcode into one module,
+    requiring O(total IR) memory. ThinLTO reads only summaries, then performs
+    cross-module inlining on a per-function basis. For the 50-module compiler,
+    full LTO would require 5+ GB RAM; ThinLTO stays under 1 GB while still
+    enabling cross-module inlining. The ThinLTO cache at /tmp/seen_thinlto_cache
+    means unchanged modules skip link-time optimization entirely on rebuilds.
+    ///
     if objectFiles.length() != expectedLinkObjects {
         println("    Error: refusing to link partial module set (" + objectFiles.length().toString() + "/" + expectedLinkObjects.toString() + " link objects)")
         return 1
@@ -6825,12 +6901,14 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     }
     println("  [3] Linking " + objectFiles.length().toString() + " object files...")
 
-    // Pre-compile the C runtime to a ThinLTO-compatible .o file. This is done once
-    // and reused across builds (checked via timestamp: .o newer than .c).
-    // Why ThinLTO for the runtime? Using -flto=thin here matches the linker's ThinLTO
-    // mode, enabling cross-module inlining of hot runtime functions (e.g., seen_str_concat,
-    // seen_arr_push) into user code at link time.
-    // When sanitizer is enabled, the runtime must be recompiled with sanitizer flags.
+    ///
+    Pre-compile the C runtime to a ThinLTO-compatible .o file. This is done once
+    and reused across builds (checked via timestamp: .o newer than .c).
+    Why ThinLTO for the runtime? Using -flto=thin here matches the linker's ThinLTO
+    mode, enabling cross-module inlining of hot runtime functions (e.g., seen_str_concat,
+    seen_arr_push) into user code at link time.
+    When sanitizer is enabled, the runtime must be recompiled with sanitizer flags.
+    ///
     let compRoot = getCompilerRoot()
     var rtPrefix = "seen_runtime"
     if compRoot != "" {
@@ -7032,9 +7110,11 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         }
     }
 
-    // Ensure ThinLTO cache directory exists for persistent cross-build link cache.
-    // This cache is shared across all Seen compilations on the machine, keyed by
-    // bitcode content hash. It persists across bootstrap stages and compiler rebuilds.
+    ///
+    Ensure ThinLTO cache directory exists for persistent cross-build link cache.
+    This cache is shared across all Seen compilations on the machine, keyed by
+    bitcode content hash. It persists across bootstrap stages and compiler rebuilds.
+    ///
     let thinltoMkdir: CommandResult = runCommand("mkdir -p /tmp/seen_thinlto_cache")
     var linkCmd = ""
     if normalizedCrossTarget != "" {
@@ -7435,9 +7515,11 @@ fun checkCommand(inputFile: String) r: Int {
     return checkCommandWithProfile(inputFile, "default", "en")
 }
 
-// Type-check a source file without generating code. Runs the full frontend
-// pipeline (lex -> parse -> typecheck) and optionally the determinism checker.
-// Returns 0 if all checks pass, 1 on any error.
+///
+Type-check a source file without generating code. Runs the full frontend
+pipeline (lex -> parse -> typecheck) and optionally the determinism checker.
+Returns 0 if all checks pass, 1 on any error.
+///
 fun checkCommandWithProfile(inputFile: String, profile: String, language: String) r: Int {
     let resolvedInput = resolveRealInputPath(inputFile)
     if not ensureProjectPackageDependenciesForInput(resolvedInput, true) {
@@ -7610,11 +7692,13 @@ fun ensureJitRuntime() r: String {
     return jitObj
 }
 
-// JIT execution path: generates LLVM IR for all modules, merges them with
-// llvm-link into a single .ll, then executes via lli's ORC JIT engine.
-// Uses a non-LTO runtime object (seen_runtime_jit.o) since lli cannot
-// consume ThinLTO bitcode. Falls back to AOT compilation if lli is not
-// available or if JIT runtime build fails.
+///
+JIT execution path: generates LLVM IR for all modules, merges them with
+llvm-link into a single .ll, then executes via lli's ORC JIT engine.
+Uses a non-LTO runtime object (seen_runtime_jit.o) since lli cannot
+consume ThinLTO bitcode. Falls back to AOT compilation if lli is not
+available or if JIT runtime build fails.
+///
 fun jitRunCommand(inputFile: String, verbose: Bool, language: String) r: Int {
     let jitInput = resolveRealInputPath(inputFile)
     if verbose {
@@ -7731,9 +7815,11 @@ fun jitRunCommand(inputFile: String, verbose: Bool, language: String) r: Int {
     return 0
 }
 
-// AOT execution path: compiles the source to a temporary binary at
-// /tmp/seen_run_script using the full compile pipeline, then executes it.
-// This is the fallback when JIT is unavailable and the explicit path for --aot.
+///
+AOT execution path: compiles the source to a temporary binary at
+/tmp/seen_run_script using the full compile pipeline, then executes it.
+This is the fallback when JIT is unavailable and the explicit path for --aot.
+///
 fun aotRunCommand(inputFile: String, verbose: Bool, language: String) r: Int {
     if verbose {
         println("[run] Compiling " + inputFile + "...")
@@ -7818,8 +7904,10 @@ fun printUsage() r: Void {
     return
 }
 
-// Extract value after = in a flag like "--target-cpu=native"
-// Uses .substring() method instead of free function to avoid stage1 codegen issue
+///
+Extract value after = in a flag like "--target-cpu=native"
+Uses .substring() method instead of free function to avoid stage1 codegen issue
+///
 fun extractFlagValue(flag: String, prefixLen: Int) r: String {
     return flag.substring(prefixLen, flag.length())
 }
@@ -7920,9 +8008,11 @@ fun parseLanguage(argv: Array<String>, startIndex: Int) r: String {
     return "en"
 }
 
-// CLI entry point. Dispatches to subcommands: compile, check, run, lsp,
-// bundle, sign, notarize, lipo, ipa, translate, import-c. The compile subcommand does its own
-// extensive flag parsing here before delegating to compileCommandWithFullTargeting.
+///
+CLI entry point. Dispatches to subcommands: compile, check, run, lsp,
+bundle, sign, notarize, lipo, ipa, translate, import-c. The compile subcommand does its own
+extensive flag parsing here before delegating to compileCommandWithFullTargeting.
+///
 fun main() r: Int {
     let argv = args()
     if argv.length() < 2 {
@@ -8260,12 +8350,16 @@ fun main() r: Int {
     return 1
 }
 
-// ============================================================================
-// macOS App Bundle / Code Signing / Notarization Commands
-// ============================================================================
+///
+============================================================================
+macOS App Bundle / Code Signing / Notarization Commands
+============================================================================
+///
 
-// Create a macOS .app bundle from a compiled executable. Generates the standard
-// Contents/MacOS + Contents/Resources directory structure and writes Info.plist.
+///
+Create a macOS .app bundle from a compiled executable. Generates the standard
+Contents/MacOS + Contents/Resources directory structure and writes Info.plist.
+///
 fun bundleCommand(argv: Array<String>) r: Int {
     let executable = argv[2]
     let appName = argv[3]
@@ -8412,13 +8506,17 @@ fun notarizeCommand(argv: Array<String>) r: Int {
     return 1
 }
 
-// ============================================================================
-// Universal Binary (lipo) Command
-// ============================================================================
+///
+============================================================================
+Universal Binary (lipo) Command
+============================================================================
+///
 
-// Create a macOS universal binary (fat binary) containing both x86_64 and arm64
-// slices. Two modes: (A) merge two pre-built binaries, or (B) --from-source
-// compiles the same source for both architectures and merges the results.
+///
+Create a macOS universal binary (fat binary) containing both x86_64 and arm64
+slices. Two modes: (A) merge two pre-built binaries, or (B) --from-source
+compiles the same source for both architectures and merges the results.
+///
 fun lipoCommand(argv: Array<String>) r: Int {
     var outputPath = ""
     var fromSource = false
@@ -8534,13 +8632,17 @@ fun lipoCommand(argv: Array<String>) r: Int {
     return 0
 }
 
-// ============================================================================
-// iOS IPA Builder Command
-// ============================================================================
+///
+============================================================================
+iOS IPA Builder Command
+============================================================================
+///
 
-// Build an iOS .ipa archive from a pre-built arm64 executable or from source.
-// Creates the Payload/AppName.app directory structure, generates Info.plist,
-// embeds provisioning profile, code-signs, and packages into a .zip renamed .ipa.
+///
+Build an iOS .ipa archive from a pre-built arm64 executable or from source.
+Creates the Payload/AppName.app directory structure, generates Info.plist,
+embeds provisioning profile, code-signs, and packages into a .zip renamed .ipa.
+///
 fun ipaCommand(argv: Array<String>) r: Int {
     var fromSource = false
     var sourceFile = ""
@@ -8764,9 +8866,11 @@ fun ipaCommand(argv: Array<String>) r: Int {
     return 0
 }
 
-// ============================================================================
-// Translate Command
-// ============================================================================
+///
+============================================================================
+Translate Command
+============================================================================
+///
 
 // Check if a language code is supported. Returns 1 for valid, 0 for invalid.
 fun isValidTranslateLanguage(lang: String) r: Int {

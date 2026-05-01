@@ -1,6 +1,8 @@
-// Synthetic: OOP-like workload with many small functions
-// Represents: game engines, simulations, business logic
-// Avoids class-field-from-free-function pattern (stage1 limitation)
+///
+Synthetic: OOP-like workload with many small functions
+Represents: game engines, simulations, business logic
+Avoids class-field-from-free-function pattern (stage1 limitation)
+///
 
 fun newEntity(entities_x: Array<Float>, entities_y: Array<Float>, entities_hp: Array<Int>, entities_active: Array<Int>, x: Float, y: Float) r: Int {
     let id = entities_x.length()

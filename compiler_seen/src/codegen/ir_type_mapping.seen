@@ -1,12 +1,16 @@
-// Type mapping and class/data type classification helpers
-// Extracted from ir_type_info.seen
+///
+Type mapping and class/data type classification helpers
+Extracted from ir_type_info.seen
+///
 
 import codegen.ir_type_info.{findStructIdx}
 import codegen.ir_string_collect.{trimSpacesImpl, getBaseTypeNameImpl, parseSeenStaticArrayLengthImpl, parseSeenStaticArrayElementTypeImpl, isSeenStaticArrayTypeImpl}
 
-// ============================================================
-// isDataType — check if a Seen type is a data type (inline struct)
-// ============================================================
+///
+============================================================
+isDataType — check if a Seen type is a data type (inline struct)
+============================================================
+///
 
 fun isDataTypeImpl(seenType: String) r: Int {
     let baseType = getBaseTypeNameImpl(seenType)
@@ -22,9 +26,11 @@ fun isDataTypeImpl(seenType: String) r: Int {
     if baseType == "ModuleMetadata" { return 1 }
     return 0
 }
-// ============================================================
-// isClassType — check if a Seen type is a class type (heap-allocated, i64)
-// ============================================================
+///
+============================================================
+isClassType — check if a Seen type is a class type (heap-allocated, i64)
+============================================================
+///
 
 fun isClassTypeImpl(name: String, structNames: Array<String>) r: Int {
     let baseType = getBaseTypeNameImpl(name)
@@ -197,9 +203,11 @@ fun isClassHandleLikeTypeImpl(name: String, structNames: Array<String>) r: Int {
     return 0
 }
 
-// ============================================================
-// mapType — map Seen type name to LLVM IR type
-// ============================================================
+///
+============================================================
+mapType — map Seen type name to LLVM IR type
+============================================================
+///
 
 fun mapTypeImpl(seenType: String, structNames: Array<String>,
     typeAliasNames: String, typeAliasTargets: String, typeAliasCount: Int,
@@ -338,8 +346,10 @@ fun mapTypeImpl(seenType: String, structNames: Array<String>,
     return "ptr"
 }
 
-// Map a field name (possibly chained like "program.items") to its Seen receiver type.
-// Returns empty string if unknown. Used by generateMethodCall for type inference.
+///
+Map a field name (possibly chained like "program.items") to its Seen receiver type.
+Returns empty string if unknown. Used by generateMethodCall for type inference.
+///
 fun mapFieldNameToReceiverType(fieldName: String) r: String {
     if fieldName.endsWith(".items") { return "Array<ItemNode>" }
     if fieldName == "items" { return "Array<ItemNode>" }

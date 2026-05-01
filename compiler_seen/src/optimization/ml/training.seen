@@ -1,5 +1,7 @@
-// Lightweight training loop placeholder so the bootstrap build has something to call.
-// The real implementation will land once the optimizer is ported from Kotlin.
+///
+Lightweight training loop placeholder so the bootstrap build has something to call.
+The real implementation will land once the optimizer is ported from Kotlin.
+///
 
 import optimization.ml.model.{MLModel}
 

@@ -1,5 +1,7 @@
-// MacroExpander - Transforms AST by expanding user-defined macros
-// This is the main entry point for the macro expansion phase
+///
+MacroExpander - Transforms AST by expanding user-defined macros
+This is the main entry point for the macro expansion phase
+///
 
 import parser.real_parser.{ProgramNode, ItemNode, FunctionNode, ClassNode, AnnotationNode}
 import macro.registry.{MacroRegistry}

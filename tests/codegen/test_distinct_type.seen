@@ -1,5 +1,7 @@
-// Test: Distinct type enforcement
-// Distinct types should not be implicitly convertible
+///
+Test: Distinct type enforcement
+Distinct types should not be implicitly convertible
+///
 
 @distinct("Int")
 class UserId {

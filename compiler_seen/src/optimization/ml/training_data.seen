@@ -1,5 +1,7 @@
-// Training Data Collection for ML-Guided Optimization
-// Collects optimization decisions and outcomes for training neural networks
+///
+Training Data Collection for ML-Guided Optimization
+Collects optimization decisions and outcomes for training neural networks
+///
 
 import io.file.{readText, writeText, appendText}
 import json.value.{JsonValue, JsonValue_emptyObject, JsonValue_string, JsonValue_number, JsonValue_numberFloat, JsonValue_bool, JsonValue_emptyArray}
@@ -387,8 +389,10 @@ class TrainingData {
         while i < lines.length() {
             let line = trim(lines[i])
             if line.length() > 0 {
-                // Parse JSON line (simplified - would need full JSON parser)
-                // For now, just count valid lines
+                ///
+                Parse JSON line (simplified - would need full JSON parser)
+                For now, just count valid lines
+                ///
                 loaded = loaded + 1
             }
             i = i + 1

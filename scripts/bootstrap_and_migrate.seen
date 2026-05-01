@@ -1,6 +1,8 @@
 #!/usr/bin/env seen
-// Bootstrap Verification and Migration Script
-// Runs the complete self-hosting verification and Rust removal process
+///
+Bootstrap Verification and Migration Script
+Runs the complete self-hosting verification and Rust removal process
+///
 
 import std.io.{println, stderr};
 import std.process.{exit, Command};

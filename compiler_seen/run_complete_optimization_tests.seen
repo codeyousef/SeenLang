@@ -1,5 +1,7 @@
-// Complete Optimization Test Runner
-// Tests all optimization components (Steps 17-22)
+///
+Complete Optimization Test Runner
+Tests all optimization components (Steps 17-22)
+///
 
 import testing.runner
 import tests.pgo_tests.{createPGOTestSuite}

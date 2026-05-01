@@ -1,10 +1,14 @@
-// Function dead-store scanning helpers
-// Extracted from ir_function_gen.seen
+///
+Function dead-store scanning helpers
+Extracted from ir_function_gen.seen
+///
 
 import parser.real_parser.{BlockNode}
 
-// analyzeDeadStoresImpl — Scan block for var x = literal; x = expr2 pattern (DSE 9.10b)
-// Returns pipe-delimited list of variable names whose literal initializers should be skipped
+///
+analyzeDeadStoresImpl — Scan block for var x = literal; x = expr2 pattern (DSE 9.10b)
+Returns pipe-delimited list of variable names whose literal initializers should be skipped
+///
 fun analyzeDeadStoresImpl(block: BlockNode) r: String {
     var result = ""
     var dsIdx = 0

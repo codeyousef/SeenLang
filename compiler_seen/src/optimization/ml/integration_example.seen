@@ -1,7 +1,9 @@
-// Integration Example: Using Neural Network ML Optimizer in Seen Compiler
-// 
-// This file demonstrates how to integrate the ML optimizer into the
-// compilation pipeline for intelligent optimization decisions.
+///
+Integration Example: Using Neural Network ML Optimizer in Seen Compiler
+
+This file demonstrates how to integrate the ML optimizer into the
+compilation pipeline for intelligent optimization decisions.
+///
 
 import optimization.ml.{MLOptimizerNN, LoopFeaturesNN, InlineFeaturesNN}
 import optimization.ml.training_data.{OptimizationDecision}
@@ -134,11 +136,13 @@ class MLOptimizationPass {
     
     // Apply vectorization transformation
     fun applyVectorization(loop: LoopInfo) r: Void {
-        // Implementation would:
-        // 1. Check legality of vectorization
-        // 2. Generate vectorized version of loop body
-        // 3. Add runtime checks if needed
-        // 4. Replace original loop with vectorized version
+        ///
+        Implementation would:
+        1. Check legality of vectorization
+        2. Generate vectorized version of loop body
+        3. Add runtime checks if needed
+        4. Replace original loop with vectorized version
+        ///
         
         // Mark loop as vectorized for LLVM
         loop.addMetadata("llvm.loop.vectorize.enable", "true")
@@ -147,10 +151,12 @@ class MLOptimizationPass {
     
     // Apply unrolling transformation
     fun applyUnrolling(loop: LoopInfo) r: Void {
-        // Implementation would:
-        // 1. Determine unroll factor based on trip count
-        // 2. Duplicate loop body
-        // 3. Adjust loop bounds and induction variables
+        ///
+        Implementation would:
+        1. Determine unroll factor based on trip count
+        2. Duplicate loop body
+        3. Adjust loop bounds and induction variables
+        ///
         
         let unrollFactor = calculateUnrollFactor(loop)
         loop.addMetadata("llvm.loop.unroll.count", unrollFactor.toString())
@@ -158,19 +164,23 @@ class MLOptimizationPass {
     
     // Apply inlining transformation
     fun applyInlining(call: CallSiteInfo) r: Void {
-        // Implementation would:
-        // 1. Copy callee body to call site
-        // 2. Map parameters to arguments
-        // 3. Replace return with branch to continuation
-        // 4. Update debug info
+        ///
+        Implementation would:
+        1. Copy callee body to call site
+        2. Map parameters to arguments
+        3. Replace return with branch to continuation
+        4. Update debug info
+        ///
         
         call.shouldInline = true
     }
     
     // Record decision for training
     fun recordDecision(features: LoopFeaturesNN, decision: OptimizationDecision) r: Void {
-        // This records the decision with the training data
-        // The outcome will be updated later from LLVM remarks
+        ///
+        This records the decision with the training data
+        The outcome will be updated later from LLVM remarks
+        ///
         optimizer.trainingData.addLoopExample(
             features.toLegacyFeatures(),
             decision,
@@ -365,12 +375,16 @@ fun exampleCompilerIntegration() {
     // Run ML-guided optimization
     let optimizedModule = mlPass.run(module)
     
-    // Compile to LLVM IR (this would generate remarks)
-    // compileToLLVM(optimizedModule)
+    ///
+    Compile to LLVM IR (this would generate remarks)
+    compileToLLVM(optimizedModule)
+    ///
     
-    // Process LLVM remarks to update training data
-    // let remarks = collectLLVMRemarksFromFile()
-    // mlPass.processRemarks(remarks)
+    ///
+    Process LLVM remarks to update training data
+    let remarks = collectLLVMRemarksFromFile()
+    mlPass.processRemarks(remarks)
+    ///
     
     // Periodically train models
     if mlPass.needsRetraining() {

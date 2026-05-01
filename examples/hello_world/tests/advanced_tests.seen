@@ -1,5 +1,7 @@
-// Advanced test cases demonstrating more complex Seen features
-// Tests arrays, loops, and control flow
+///
+Advanced test cases demonstrating more complex Seen features
+Tests arrays, loops, and control flow
+///
 
 func test_arrays() {
     let numbers = [1, 2, 3, 4, 5];

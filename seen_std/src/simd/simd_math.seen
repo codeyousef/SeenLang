@@ -1,15 +1,21 @@
-// SIMD Numerics Utilities
-// Common array operations that auto-dispatch via C runtime SIMD functions
-// Uses AVX2 when available, falls back to scalar
+///
+SIMD Numerics Utilities
+Common array operations that auto-dispatch via C runtime SIMD functions
+Uses AVX2 when available, falls back to scalar
+///
 
-// Reduce-sum: sum all elements in a float array
-// Dispatches to AVX2 SIMD when available
+///
+Reduce-sum: sum all elements in a float array
+Dispatches to AVX2 SIMD when available
+///
 fun simd_reduce_sum(arr: Array<Float>, len: Int) r: Float {
     return __simd_reduce_sum(arr, len)
 }
 
-// Prefix-sum: in-place prefix sum of a float array
-// arr[i] = arr[0] + arr[1] + ... + arr[i]
+///
+Prefix-sum: in-place prefix sum of a float array
+arr[i] = arr[0] + arr[1] + ... + arr[i]
+///
 fun simd_prefix_sum(arr: Array<Float>, len: Int) r: Void {
     __simd_prefix_sum(arr, len)
 }
@@ -24,8 +30,10 @@ fun simd_max(arr: Array<Float>, len: Int) r: Float {
     return __simd_reduce_max(arr, len)
 }
 
-// Dot product: sum of element-wise products of two float arrays
-// Dispatches to AVX2 FMA when available
+///
+Dot product: sum of element-wise products of two float arrays
+Dispatches to AVX2 FMA when available
+///
 fun simd_dot_product(a: Array<Float>, b: Array<Float>, len: Int) r: Float {
     return __simd_dot_product(a, b, len)
 }

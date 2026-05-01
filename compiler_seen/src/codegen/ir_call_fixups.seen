@@ -1,6 +1,8 @@
-// ir_call_fixups.seen — bootstrap and parser-specific call fixups
-// Extracted from llvm_ir_gen.seen to keep generateCall() focused on lowering
-// instead of carrying special-case bootstrap tables inline.
+///
+ir_call_fixups.seen — bootstrap and parser-specific call fixups
+Extracted from llvm_ir_gen.seen to keep generateCall() focused on lowering
+instead of carrying special-case bootstrap tables inline.
+///
 
 import str.string.{StringBuilder}
 import codegen.ir_call_dispatch.{emitUserFunctionCallImpl}
@@ -14,9 +16,11 @@ fun pipeContainsCallFixupImpl(entries: String, name: String) r: Bool {
     return wrappedEntries.indexOf(wrappedName, 0) >= 0
 }
 
-// resolveRealParserMisplacedMethodReturnTypeImpl — bootstrap workaround for
-// RealParser methods that were parsed as standalone functions in older stages.
-// Returns the lowered LLVM return type string, or "" if no fixup applies.
+///
+resolveRealParserMisplacedMethodReturnTypeImpl — bootstrap workaround for
+RealParser methods that were parsed as standalone functions in older stages.
+Returns the lowered LLVM return type string, or "" if no fixup applies.
+///
 fun resolveRealParserMisplacedMethodReturnTypeImpl(funcName: String) r: String {
     if pipeContainsCallFixupImpl("isAtEnd|checkToken|matchTokenStr", funcName) {
         return "i1"

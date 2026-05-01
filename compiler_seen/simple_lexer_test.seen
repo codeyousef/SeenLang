@@ -1,5 +1,7 @@
-// Simple Lexer Test - Manual Test for TDD Verification
-// Tests our real lexer implementation
+///
+Simple Lexer Test - Manual Test for TDD Verification
+Tests our real lexer implementation
+///
 
 import lexer.lexer.{SeenLexer}
 import lexer.keyword_manager.{KeywordManager}

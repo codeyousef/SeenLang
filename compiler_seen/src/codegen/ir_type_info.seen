@@ -1,8 +1,12 @@
-// Type information utilities extracted from llvm_ir_gen.seen
-// Pure lookup functions with no class state dependencies.
+///
+Type information utilities extracted from llvm_ir_gen.seen
+Pure lookup functions with no class state dependencies.
+///
 
-// Note: comptime, SIMD, type-mapping, and large lookup bodies live in focused codegen helper modules
-// String utilities and collection functions moved to ir_string_collect.seen
+///
+Note: comptime, SIMD, type-mapping, and large lookup bodies live in focused codegen helper modules
+String utilities and collection functions moved to ir_string_collect.seen
+///
 
 import codegen.ir_type_info_generator_layout.{getLLVMIRGeneratorFieldIndexTableImpl, getLLVMIRGeneratorFieldLlvmTypeTableImpl, getLLVMIRGeneratorStructLayoutTableImpl}
 import codegen.ir_char_codes.{charToCodeStrImpl}
@@ -11,8 +15,10 @@ import codegen.ir_lsp_field_types.{getKnownLspSeenFieldTypeTableImpl}
 
 // Out-parameters for resolveKnownStructFieldImpl
 var g_resolvedFieldIndex = 0
-// Field type encoded as int to avoid module-level String var codegen bug:
-// 0=i64, 1=i1, 2=ptr, 3=%SeenString, 4=%TypeNode, 5=%SeenArray, 6=%Range, 7=%LspPosition
+///
+Field type encoded as int to avoid module-level String var codegen bug:
+0=i64, 1=i1, 2=ptr, 3=%SeenString, 4=%TypeNode, 5=%SeenArray, 6=%Range, 7=%LspPosition
+///
 var g_resolvedFieldTypeCode = 0
 var g_typeInfoFindStructCacheNames: Array<String> = Array<String>()
 var g_typeInfoFindStructCacheIdxs: Array<Int> = Array<Int>()

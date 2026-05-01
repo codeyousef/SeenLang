@@ -1,5 +1,7 @@
-// MacroRegistry - Stores user-defined macro definitions
-// Macros are functions decorated with @macro that transform AST at compile time
+///
+MacroRegistry - Stores user-defined macro definitions
+Macros are functions decorated with @macro that transform AST at compile time
+///
 
 import parser.real_parser.{FunctionNode}
 

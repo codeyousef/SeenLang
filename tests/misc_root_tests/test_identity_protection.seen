@@ -1,8 +1,12 @@
-// Test suite for Identity Protection (Task 5.2)
-// Tests generational handle masking with XOR secrets
+///
+Test suite for Identity Protection (Task 5.2)
+Tests generational handle masking with XOR secrets
+///
 
-// Note: This test exercises the identity protection concepts at the Seen level.
-// The actual XOR masking happens in the C runtime (seen_identity.c).
+///
+Note: This test exercises the identity protection concepts at the Seen level.
+The actual XOR masking happens in the C runtime (seen_identity.c).
+///
 
 // Class definitions at top level
 class SecureData {
@@ -46,12 +50,16 @@ class Node {
 fun testBasicHandleOperations() r: Int {
     println("Testing basic handle operations with identity protection...")
 
-    // The identity protection system works transparently at the runtime level.
-    // When handles are created and dereferenced, they are automatically
-    // masked/unmasked using region-specific secrets.
+    ///
+    The identity protection system works transparently at the runtime level.
+    When handles are created and dereferenced, they are automatically
+    masked/unmasked using region-specific secrets.
+    ///
 
-    // This test verifies that normal operations work correctly with
-    // identity protection enabled.
+    ///
+    This test verifies that normal operations work correctly with
+    identity protection enabled.
+    ///
 
     // Create some data
     var values = Array<Int>()
@@ -183,12 +191,16 @@ fun testHandleReuse() r: Int {
 fun testDeterministicMode() r: Int {
     println("Testing deterministic mode concept...")
 
-    // In deterministic mode (used during bootstrap), the identity protection
-    // system uses a fixed seed to generate predictable secrets.
-    // This ensures reproducible builds.
+    ///
+    In deterministic mode (used during bootstrap), the identity protection
+    system uses a fixed seed to generate predictable secrets.
+    This ensures reproducible builds.
+    ///
 
-    // This test just verifies that operations work correctly, as the
-    // deterministic mode is configured at the runtime level.
+    ///
+    This test just verifies that operations work correctly, as the
+    deterministic mode is configured at the runtime level.
+    ///
 
     var values = Array<String>()
     values.push("alpha")

@@ -1,5 +1,7 @@
-// ir_string_interp_infer.seen — Shared string-interpolation inference helpers
-// Extracted from llvm_ir_gen.seen to keep special-expression inference thin.
+///
+ir_string_interp_infer.seen — Shared string-interpolation inference helpers
+Extracted from llvm_ir_gen.seen to keep special-expression inference thin.
+///
 
 import parser.real_parser.{ParserExpressionNode}
 import codegen.ir_string_collect_scan.{collectStringConstantsFromExprImpl}

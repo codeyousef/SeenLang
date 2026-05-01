@@ -1,6 +1,8 @@
-// GLSL Code Generator - Generates GLSL #version 450 from @compute/@vertex/@fragment AST nodes
-// Pipeline: Seen AST -> GLSL text -> glslc -> SPIR-V binary
-// Follows the same pattern as c_gen.seen
+///
+GLSL Code Generator - Generates GLSL #version 450 from @compute/@vertex/@fragment AST nodes
+Pipeline: Seen AST -> GLSL text -> glslc -> SPIR-V binary
+Follows the same pattern as c_gen.seen
+///
 
 import parser.real_parser.{ProgramNode, ItemNode, FunctionNode, ClassNode, BlockNode, StatementNode, ParserExpressionNode, ParamNode, TypeNode}
 import str.string.{StringBuilder}
@@ -1494,8 +1496,10 @@ class GLSLGenerator {
     // --- Layout Validation ---
 
     fun validateCpuGpuLayout(cls: ClassNode) r: Bool {
-        // Compare field order and types between CPU struct and GLSL struct
-        // std430 rules: scalars align to own size, vec2 aligns to 8, vec3/vec4 align to 16
+        ///
+        Compare field order and types between CPU struct and GLSL struct
+        std430 rules: scalars align to own size, vec2 aligns to 8, vec3/vec4 align to 16
+        ///
         var offset = 0
         var valid = true
         var fi = 0

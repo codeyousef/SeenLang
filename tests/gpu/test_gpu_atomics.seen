@@ -1,5 +1,7 @@
-// Test: Atomic operations on GPU buffers
-// Verifies GLSL generator maps atomicAdd/Min/Max/And/Or/Xor
+///
+Test: Atomic operations on GPU buffers
+Verifies GLSL generator maps atomicAdd/Min/Max/And/Or/Xor
+///
 
 @compute(workgroup: 64)
 fun atomicTest(data: Buffer<Int>, counters: Buffer<Int>) {

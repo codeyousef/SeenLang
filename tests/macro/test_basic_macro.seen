@@ -1,5 +1,7 @@
-// Test basic macro functionality
-// This test verifies that user-defined macros can transform functions at compile time
+///
+Test basic macro functionality
+This test verifies that user-defined macros can transform functions at compile time
+///
 
 // Define a macro that wraps a function body with logging
 @macro
@@ -24,10 +26,12 @@ fun normalFunction() r: Void {
 fun main() r: Int {
     myFunction()
     normalFunction()
-    // Expected output:
-    // Entering: myFunction
-    // Inside function
-    // Exiting: myFunction
-    // Normal function
+    ///
+    Expected output:
+    Entering: myFunction
+    Inside function
+    Exiting: myFunction
+    Normal function
+    ///
     return 0
 }

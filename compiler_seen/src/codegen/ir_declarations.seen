@@ -1,6 +1,8 @@
-// Runtime declarations for LLVM IR generation
-// Extracted from llvm_ir_gen.seen to reduce file size
-// Sub-functions split into ir_decl_runtime.seen, ir_decl_parser.seen, ir_decl_features.seen
+///
+Runtime declarations for LLVM IR generation
+Extracted from llvm_ir_gen.seen to reduce file size
+Sub-functions split into ir_decl_runtime.seen, ir_decl_parser.seen, ir_decl_features.seen
+///
 
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn}
@@ -49,9 +51,11 @@ fun registerStructMethodImpl(className: String, methodName: String, retType: Str
     funcRetTypes.push(retType)
 }
 
-// ============================================================
-// Math Builtin IR Emission (extracted from generateCall)
-// ============================================================
+///
+============================================================
+Math Builtin IR Emission (extracted from generateCall)
+============================================================
+///
 
 fun emitMathBuiltinImpl(output: StringBuilder, regBox: Array<Int>,
     funcName: String, arg0: String, arg1: String) r: String {
@@ -154,9 +158,11 @@ fun emitMathBuiltinImpl(output: StringBuilder, regBox: Array<Int>,
     return ""
 }
 
-// ============================================================
-// Some/None Constructor IR Emission (extracted from generateCall)
-// ============================================================
+///
+============================================================
+Some/None Constructor IR Emission (extracted from generateCall)
+============================================================
+///
 
 fun emitSomeConstructorImpl(output: StringBuilder, regBox: Array<Int>,
     argReg: String, argType: String, isClassArg: Int) r: String {
@@ -219,9 +225,11 @@ fun emitNoneConstructorImpl(output: StringBuilder, regBox: Array<Int>) r: String
     return resultReg
 }
 
-// ============================================================
-// @extern Function Declaration (extracted from generateFunction)
-// ============================================================
+///
+============================================================
+@extern Function Declaration (extracted from generateFunction)
+============================================================
+///
 
 fun emitExternDeclImpl(output: StringBuilder,
     funcName: String, externSymbol: String,

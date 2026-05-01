@@ -1,14 +1,22 @@
-// Error Demo — run: seen check examples/error_demo.seen
-// Uncomment ONE section at a time to see each error category.
+///
+Error Demo — run: seen check examples/error_demo.seen
+Uncomment ONE section at a time to see each error category.
+///
 
-// DEFAULT: no main function → triggers "missing main" error
-// (leave the file with only comments to see the error)
+///
+DEFAULT: no main function → triggers "missing main" error
+(leave the file with only comments to see the error)
+///
 
-// ERROR 1: Missing main
-// fun notMain() r: Int { return 0 }
+///
+ERROR 1: Missing main
+fun notMain() r: Int { return 0 }
+///
 
-// ERROR 2: Working program (no errors)
-// fun main() r: Int {
-//     println("Hello, world!")
-//     return 0
-// }
+///
+ERROR 2: Working program (no errors)
+fun main() r: Int {
+    println("Hello, world!")
+    return 0
+}
+///

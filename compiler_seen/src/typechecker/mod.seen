@@ -1,8 +1,12 @@
-// Type Checker Module - Real Implementation Entry Point
-// Exports the actual working implementations for TDD
+///
+Type Checker Module - Real Implementation Entry Point
+Exports the actual working implementations for TDD
+///
 
-// Import all the interfaces and types
-// import interfaces.{Type, TypeKind, TypeError, Location, Environment, TypeInferenceResult, FunctionType, ClassType, InterfaceType, SmartCastContext}
+///
+Import all the interfaces and types
+import interfaces.{Type, TypeKind, TypeError, Location, Environment, TypeInferenceResult, FunctionType, ClassType, InterfaceType, SmartCastContext}
+///
 
 // Import the real implementation
 import typechecker.interfaces.{TypeChecker}

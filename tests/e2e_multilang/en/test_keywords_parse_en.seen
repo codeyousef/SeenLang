@@ -1,12 +1,16 @@
-// E2E Test: Parser-Only Keywords (English)
-// COMPILE-ONLY
-// Keywords tested: async, await, spawn, try, catch, when, unsafe, comptime,
-//   module/import/use/external, inline/pub/pure, move/borrow/region/arena/ref/own/transmute/gpu,
-//   sealed/object/interface/open/final/abstract/override/lateinit/companion/extension,
-//   distinct/union, macro, errdefer, by/to/from/effect
+///
+E2E Test: Parser-Only Keywords (English)
+COMPILE-ONLY
+Keywords tested: async, await, spawn, try, catch, when, unsafe, comptime,
+  module/import/use/external, inline/pub/pure, move/borrow/region/arena/ref/own/transmute/gpu,
+  sealed/object/interface/open/final/abstract/override/lateinit/companion/extension,
+  distinct/union, macro, errdefer, by/to/from/effect
+///
 
-// Top-level: module keyword (comment-tested since module declaration may conflict)
-// import and use are tested via comment since we don't have real modules to import
+///
+Top-level: module keyword (comment-tested since module declaration may conflict)
+import and use are tested via comment since we don't have real modules to import
+///
 
 // Modifier keywords on a class
 class SimpleBox {
@@ -21,9 +25,11 @@ class SimpleBox {
     }
 }
 
-// Test that various type keywords parse correctly
-// sealed, abstract, open, final, interface, object, companion, extension
-// These are parsed but may not have full codegen
+///
+Test that various type keywords parse correctly
+sealed, abstract, open, final, interface, object, companion, extension
+These are parsed but may not have full codegen
+///
 
 fun main() r: Int {
     let box = SimpleBox.new(42)

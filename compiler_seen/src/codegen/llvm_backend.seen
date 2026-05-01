@@ -1,5 +1,7 @@
-// LLVM Backend - Compiles LLVM IR to Native Executables
-// Handles the complete compilation pipeline from LLVM IR to optimized binaries
+///
+LLVM Backend - Compiles LLVM IR to Native Executables
+Handles the complete compilation pipeline from LLVM IR to optimized binaries
+///
 
 import io.file.{writeText as stdWriteText, readText as stdReadText}
 import time.time.{nowNanos}
@@ -349,8 +351,10 @@ class LLVMBackend {
             result.success = true
             result.executionTime = endTime - startTime
             
-            // For benchmark programs, calculate ops/sec
-            // Assuming 1 billion operations
+            ///
+            For benchmark programs, calculate ops/sec
+            Assuming 1 billion operations
+            ///
             let operations = 1000000000
             result.opsPerSecond = (operations * 1000000000) / result.executionTime
             

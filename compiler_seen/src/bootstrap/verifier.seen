@@ -1,5 +1,7 @@
-// Bootstrap Verifier Module - Real Implementation
-// Verifies that each stage of bootstrap produces identical output
+///
+Bootstrap Verifier Module - Real Implementation
+Verifies that each stage of bootstrap produces identical output
+///
 
 import core.option.{Option, Some, None}
 import core.result.{Result, Ok, Err}

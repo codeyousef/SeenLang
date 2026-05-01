@@ -1,6 +1,8 @@
-// ir_class_generated_features.seen — generated class decorator feature helpers
-// Extracted from llvm_ir_gen.seen to keep @derive/@reflect/@binary/@packet
-// feature emission separate from the main class generator.
+///
+ir_class_generated_features.seen — generated class decorator feature helpers
+Extracted from llvm_ir_gen.seen to keep @derive/@reflect/@binary/@packet
+feature emission separate from the main class generator.
+///
 
 import parser.real_parser.{ClassNode}
 import str.string.{StringBuilder}

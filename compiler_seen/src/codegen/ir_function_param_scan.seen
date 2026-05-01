@@ -1,5 +1,7 @@
-// Function parameter usage scanning helpers
-// Extracted from ir_function_gen.seen
+///
+Function parameter usage scanning helpers
+Extracted from ir_function_gen.seen
+///
 
 import parser.real_parser.{FunctionNode}
 

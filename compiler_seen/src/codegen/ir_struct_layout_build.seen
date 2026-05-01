@@ -1,6 +1,8 @@
-// ir_struct_layout_build.seen — shared struct-layout build helpers
-// Extracted from llvm_ir_gen.seen so layout assembly stays separate from
-// registry orchestration.
+///
+ir_struct_layout_build.seen — shared struct-layout build helpers
+Extracted from llvm_ir_gen.seen so layout assembly stays separate from
+registry orchestration.
+///
 
 import parser.real_parser.{ClassNode}
 import codegen.ir_decl_items.{normalizeDeclaredTypeNodeImpl}

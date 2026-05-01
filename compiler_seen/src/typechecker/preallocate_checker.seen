@@ -1,5 +1,7 @@
-// Preallocate Checker - Validates @preallocate decorator usage
-// Part of Seen's region-based memory management system
+///
+Preallocate Checker - Validates @preallocate decorator usage
+Part of Seen's region-based memory management system
+///
 
 import compiler_seen.src.parser.real_parser.FunctionNode
 import compiler_seen.src.parser.real_parser.AnnotationNode
@@ -95,9 +97,11 @@ class PreallocateChecker {
             result.strategy = strategyArg
         }
 
-        // ==================================================================
-        // VSD Pinning attributes (Task 5.5)
-        // ==================================================================
+        ///
+        ==================================================================
+        VSD Pinning attributes (Task 5.5)
+        ==================================================================
+        ///
 
         // Parse pinned argument
         let pinnedArg = decorator.getNamedArg("pinned")
@@ -169,9 +173,11 @@ class PreallocateChecker {
             }
         }
 
-        // ==================================================================
-        // General warnings
-        // ==================================================================
+        ///
+        ==================================================================
+        General warnings
+        ==================================================================
+        ///
 
         // Warn about potential issues
         if fn.isAsync {

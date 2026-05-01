@@ -76,9 +76,11 @@ let k_EPositionTopRight: Int = 1
 let k_EPositionBottomLeft: Int = 2
 let k_EPositionBottomRight: Int = 3
 
-// ============================================================================
-// Direct C FFI Declarations - Link to libsteam_api.so
-// ============================================================================
+///
+============================================================================
+Direct C FFI Declarations - Link to libsteam_api.so
+============================================================================
+///
 
 // Core Steam API initialization
 extern "C" fun SteamAPI_Init() r: Int32
@@ -180,9 +182,11 @@ extern "C" fun SteamAPI_ISteamInput_RunFrame(input: *Void, reserved: Int32) r: V
 extern "C" fun SteamAPI_ISteamInput_GetConnectedControllers(input: *Void, handles: *UInt64) r: Int32
 extern "C" fun SteamAPI_ISteamInput_TriggerVibration(input: *Void, handle: UInt64, leftSpeed: UInt16, rightSpeed: UInt16) r: Void
 
-// ============================================================================
-// Safe Wrapper Functions
-// ============================================================================
+///
+============================================================================
+Safe Wrapper Functions
+============================================================================
+///
 
 // Convert C string to Seen String
 fun cstr_to_string(cstr: *Char) r: String {

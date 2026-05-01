@@ -1,6 +1,8 @@
-// ML-Guided Optimization Pipeline
-// Extracts features from IR, makes heuristic decisions, logs to JSONL for future training.
-// No ML framework dependency — uses threshold-based heuristics as default strategy.
+///
+ML-Guided Optimization Pipeline
+Extracts features from IR, makes heuristic decisions, logs to JSONL for future training.
+No ML framework dependency — uses threshold-based heuristics as default strategy.
+///
 
 class MLOptimizer {
     var targetHardware: String

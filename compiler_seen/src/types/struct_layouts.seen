@@ -1,18 +1,22 @@
-// Struct Layout Definitions for Bootstrap Safety
-//
-// This file provides canonical struct layouts that ensure consistency between:
-// - Parser struct definitions (real_parser.seen)
-// - LLVM codegen field access (llvm_ir_gen.seen)
-// - Runtime memory layouts
-//
-// CRITICAL: When adding fields to AST structs, update this file FIRST,
-// then update the struct definition and codegen together.
-//
-// Field indices are 0-based and must match the declaration order exactly.
+///
+Struct Layout Definitions for Bootstrap Safety
 
-// ============================================================================
-// Layout Information Classes
-// ============================================================================
+This file provides canonical struct layouts that ensure consistency between:
+- Parser struct definitions (real_parser.seen)
+- LLVM codegen field access (llvm_ir_gen.seen)
+- Runtime memory layouts
+
+CRITICAL: When adding fields to AST structs, update this file FIRST,
+then update the struct definition and codegen together.
+
+Field indices are 0-based and must match the declaration order exactly.
+///
+
+///
+============================================================================
+Layout Information Classes
+============================================================================
+///
 
 class FieldLayout {
     var name: String
@@ -83,12 +87,16 @@ class StructLayout {
     }
 }
 
-// ============================================================================
-// AST Node Layouts
-// ============================================================================
+///
+============================================================================
+AST Node Layouts
+============================================================================
+///
 
-// FunctionNode layout - matches real_parser.seen class FunctionNode
-// IMPORTANT: Field order MUST match the class definition exactly
+///
+FunctionNode layout - matches real_parser.seen class FunctionNode
+IMPORTANT: Field order MUST match the class definition exactly
+///
 fun getFunctionNodeLayout() r: StructLayout {
     let layout = StructLayout.new("FunctionNode")
 
@@ -201,9 +209,11 @@ fun getParamNodeLayout() r: StructLayout {
     return layout
 }
 
-// ============================================================================
-// Compiler Infrastructure Layouts
-// ============================================================================
+///
+============================================================================
+Compiler Infrastructure Layouts
+============================================================================
+///
 
 // FrontendResult layout - from bootstrap/frontend.seen
 fun getFrontendResultLayout() r: StructLayout {
@@ -217,16 +227,20 @@ fun getFrontendResultLayout() r: StructLayout {
 // LLVMIRGenerator layout - simplified for reference
 fun getLLVMIRGeneratorLayout() r: StructLayout {
     let layout = StructLayout.new("LLVMIRGenerator")
-    // Note: Full layout is complex - see llvm_ir_gen.seen for details
-    // This is a placeholder showing the approach
+    ///
+    Note: Full layout is complex - see llvm_ir_gen.seen for details
+    This is a placeholder showing the approach
+    ///
     layout.addField("output", "StringBuilder", "ptr")                          // 0
     // ... many more fields
     return layout
 }
 
-// ============================================================================
-// Layout Registry
-// ============================================================================
+///
+============================================================================
+Layout Registry
+============================================================================
+///
 
 var layoutRegistry: Array<StructLayout>
 var layoutRegistryInitialized: Bool = false
@@ -264,9 +278,11 @@ fun getLayout(structName: String) r: StructLayout? {
     return null
 }
 
-// ============================================================================
-// Verification Utilities
-// ============================================================================
+///
+============================================================================
+Verification Utilities
+============================================================================
+///
 
 // Verify that a field access is valid and return the expected index
 fun verifyFieldAccess(structName: String, fieldName: String) r: Int {

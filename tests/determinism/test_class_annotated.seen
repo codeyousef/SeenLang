@@ -1,10 +1,14 @@
-// Test: HashMap in @nondeterministic class should be accepted
-// Expected: PASS with --profile deterministic
+///
+Test: HashMap in @nondeterministic class should be accepted
+Expected: PASS with --profile deterministic
+///
 
 import collections.hash_map.{HashMap}
 
-// This class is marked as nondeterministic, so it's allowed
-// to have HashMap fields even in deterministic profile
+///
+This class is marked as nondeterministic, so it's allowed
+to have HashMap fields even in deterministic profile
+///
 @nondeterministic
 class CacheManager {
     var cache: HashMap<String, String>

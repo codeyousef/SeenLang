@@ -1,8 +1,10 @@
-// Prueba E2E: Biblioteca estandar de cadenas (Espanol)
-// Funciones probadas: contiene, empiezaCon, terminaCon, indiceDe, longitud, concatenacion
-// NOTA: contiene/empiezaCon/terminaCon retornan bool -- usar directamente en si,
-//       no asignar a variable y comparar con == 1 (incompatibilidad i1 vs i64)
-// NOTA: indiceDe toma 3 argumentos: (texto, aguja, indiceInicio)
+///
+Prueba E2E: Biblioteca estandar de cadenas (Espanol)
+Funciones probadas: contiene, empiezaCon, terminaCon, indiceDe, longitud, concatenacion
+NOTA: contiene/empiezaCon/terminaCon retornan bool -- usar directamente en si,
+      no asignar a variable y comparar con == 1 (incompatibilidad i1 vs i64)
+NOTA: indiceDe toma 3 argumentos: (texto, aguja, indiceInicio)
+///
 
 función principal() r: entero {
     sea texto = "hello world"

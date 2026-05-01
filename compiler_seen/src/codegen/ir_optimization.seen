@@ -1,5 +1,7 @@
-// Pure optimization utility functions extracted from llvm_ir_gen.seen
-// These functions have no module-level state dependencies.
+///
+Pure optimization utility functions extracted from llvm_ir_gen.seen
+These functions have no module-level state dependencies.
+///
 
 import parser.real_parser.{ParserExpressionNode}
 
@@ -11,8 +13,10 @@ fun parseGlobalVarMutable(encoded: String) r: Bool {
     return false
 }
 
-// Helper to extract type from "[L|V]Type:Value" encoding used by GlobalVar items
-// Skips the 1-char mutability prefix (L or V) if present
+///
+Helper to extract type from "[L|V]Type:Value" encoding used by GlobalVar items
+Skips the 1-char mutability prefix (L or V) if present
+///
 fun parseGlobalVarType(encoded: String) r: String {
     var start = 0
     if encoded.length() > 0 {
@@ -43,8 +47,10 @@ fun parseGlobalVarValue(encoded: String) r: String {
     return ""
 }
 
-// Constant folding: parse int literal string without .toInt() (stage1-safe)
-// Uses byteAt() to avoid per-character string allocations
+///
+Constant folding: parse int literal string without .toInt() (stage1-safe)
+Uses byteAt() to avoid per-character string allocations
+///
 fun parseIntManual(s: String) r: Int {
     var result = 0
     var i = 0
@@ -133,8 +139,10 @@ fun selectSimdWidth(hasFloat: Bool, isDouble: Bool) r: Int {
     return 8
 }
 
-// Find Nth pipe-delimited entry in a string. Returns "" if not found.
-// Uses byteAt() to avoid per-byte string allocation (124 = '|')
+///
+Find Nth pipe-delimited entry in a string. Returns "" if not found.
+Uses byteAt() to avoid per-byte string allocation (124 = '|')
+///
 fun pipeGet(data: String, idx: Int) r: String {
     var pos = 0
     var count = 0
@@ -199,8 +207,10 @@ fun foldIntComparison(leftVal: String, rightVal: String, op: String) r: String {
     return ""
 }
 
-// Check if a pipe-delimited string contains the given needle as an entry
-// Uses byteAt() to avoid per-byte string allocation (124 = '|')
+///
+Check if a pipe-delimited string contains the given needle as an entry
+Uses byteAt() to avoid per-byte string allocation (124 = '|')
+///
 fun pipeContains(data: String, needle: String) r: Bool {
     if data == "" { return false }
     var pos = 0
@@ -222,9 +232,11 @@ fun pipeContains(data: String, needle: String) r: Bool {
     return false
 }
 
-// NOTE: splitPipe() and simpleHash() are defined here but NOT exported in Phase 1 bootstrap
-// to avoid changing declarationsHash. They will be enabled in Phase 2 after stage2 is built.
-// Split a pipe-delimited string into an Array<String> (one-time O(n) scan).
+///
+NOTE: splitPipe() and simpleHash() are defined here but NOT exported in Phase 1 bootstrap
+to avoid changing declarationsHash. They will be enabled in Phase 2 after stage2 is built.
+Split a pipe-delimited string into an Array<String> (one-time O(n) scan).
+///
 fun splitPipe(data: String) r: Array<String> {
     var result = Array<String>()
     if data == "" { return result }
@@ -254,9 +266,11 @@ fun simpleHash(name: String, bucketCount: Int) r: Int {
     return h - (h / bucketCount) * bucketCount
 }
 
-// --- Boxed counter helpers ---
-// These allow extracted free functions to allocate registers and block labels
-// via reference-type Array<Int> params (mutations visible to caller)
+///
+--- Boxed counter helpers ---
+These allow extracted free functions to allocate registers and block labels
+via reference-type Array<Int> params (mutations visible to caller)
+///
 
 fun getNextRegFn(box: Array<Int>) r: String {
     let reg = "%" + box[0].toString()

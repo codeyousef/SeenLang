@@ -1,5 +1,7 @@
-// Regression: values returned from class-returning instance methods must keep
-// their semantic receiver type for later method calls.
+///
+Regression: values returned from class-returning instance methods must keep
+their semantic receiver type for later method calls.
+///
 
 class Chunk {
     var voxelHandle: Int

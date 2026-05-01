@@ -1,5 +1,7 @@
-// ir_class_method_gen.seen — Shared class-method lowering helpers
-// Extracted from llvm_ir_gen.seen to reduce class-method boilerplate.
+///
+ir_class_method_gen.seen — Shared class-method lowering helpers
+Extracted from llvm_ir_gen.seen to reduce class-method boilerplate.
+///
 
 import parser.real_parser.{FunctionNode, BlockNode, StatementNode, ParserExpressionNode}
 import str.string.{StringBuilder}
@@ -441,8 +443,10 @@ fun emitClassMethodDefaultReturnStateImpl(output: StringBuilder,
     emitDefaultReturnValueImpl(output, returnType)
 }
 
-// tryEmitOptionClassMethodShimImpl — emit builtin Option method shims.
-// Returns 1 when a shim or skip marker was emitted, otherwise 0.
+///
+tryEmitOptionClassMethodShimImpl — emit builtin Option method shims.
+Returns 1 when a shim or skip marker was emitted, otherwise 0.
+///
 fun tryEmitOptionClassMethodShimImpl(output: StringBuilder, className: String, methodName: String) r: Int {
     if className != "Option" and not className.startsWith("Option<") {
         return 0

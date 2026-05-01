@@ -1,9 +1,11 @@
-// E2E Test: Environment Standard Library (English)
-// NOTE: args() function is not defined in the runtime - causes linker error.
-// Testing environment-related features that DO work:
-//   - String conversion (toString)
-//   - Integer parsing and basic program setup
-//   - Command line program entry and exit codes
+///
+E2E Test: Environment Standard Library (English)
+NOTE: args() function is not defined in the runtime - causes linker error.
+Testing environment-related features that DO work:
+  - String conversion (toString)
+  - Integer parsing and basic program setup
+  - Command line program entry and exit codes
+///
 
 fun main() r: Int {
     // Test 1: program runs and can return exit code

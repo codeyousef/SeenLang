@@ -1,5 +1,7 @@
-// Test VNode type resolution without importing complex stdlib
-// VNode struct is defined inline to avoid stdlib generic class issues
+///
+Test VNode type resolution without importing complex stdlib
+VNode struct is defined inline to avoid stdlib generic class issues
+///
 
 // Define a minimal VNode-like class inline
 class InlineVNode {

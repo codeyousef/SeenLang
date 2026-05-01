@@ -1,5 +1,7 @@
-// ir_function_param_meta.seen — parameter metadata helpers extracted from
-// llvm_ir_gen.seen to keep function pre-registration bookkeeping localized.
+///
+ir_function_param_meta.seen — parameter metadata helpers extracted from
+llvm_ir_gen.seen to keep function pre-registration bookkeeping localized.
+///
 
 import parser.real_parser.{FunctionNode}
 import str.string.{StringBuilder}

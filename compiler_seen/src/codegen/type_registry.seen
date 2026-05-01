@@ -1,12 +1,14 @@
-// =============================================================================
-// TypeRegistry - Struct/Function Type Registry
-// =============================================================================
-//
-// Owns the parallel arrays that track struct layouts, field names/types,
-// method signatures, and function return types. Array-backed operations live in
-// focused helper modules so this file stays as the state container and method
-// compatibility facade.
-// =============================================================================
+///
+=============================================================================
+TypeRegistry - Struct/Function Type Registry
+=============================================================================
+
+Owns the parallel arrays that track struct layouts, field names/types,
+method signatures, and function return types. Array-backed operations live in
+focused helper modules so this file stays as the state container and method
+compatibility facade.
+=============================================================================
+///
 
 import codegen.ir_seen_field_type_lookup.{getSeenFieldTypeImpl}
 import codegen.type_registry_core.{findStructReg, ensureStructEntryReg, registerStructMethodReg, registerKnownDataTypesReg, getFunctionReturnTypeReg, isClassTypeReg, isDataTypeReg, getTypeSizeReg, getDataTypeSizeReg, getFieldInfoReg}

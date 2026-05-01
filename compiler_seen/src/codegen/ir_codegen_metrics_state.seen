@@ -1,5 +1,7 @@
-// ir_codegen_metrics_state.seen - optimization counters, CSE, and
-// collection bookkeeping shared by the LLVM IR generator facade.
+///
+ir_codegen_metrics_state.seen - optimization counters, CSE, and
+collection bookkeeping shared by the LLVM IR generator facade.
+///
 
 import codegen.ir_optimization.{parseIntManual}
 import codegen.ir_inline_heuristics.{parseFixedPoint100, g_inlineW0, g_inlineW1, g_inlineW2, g_inlineW3, g_inlineBias, g_mlWeightsActive}

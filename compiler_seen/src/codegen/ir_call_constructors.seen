@@ -1,6 +1,8 @@
-// ir_call_constructors.seen — constructor/static call helpers
-// Extracted from ir_call_dispatch.seen to keep constructor/allocation
-// lowering separate from general call dispatch and argument preparation.
+///
+ir_call_constructors.seen — constructor/static call helpers
+Extracted from ir_call_dispatch.seen to keep constructor/allocation
+lowering separate from general call dispatch and argument preparation.
+///
 
 import codegen.ir_optimization.{getNextRegFn, getNextBlockFn}
 import codegen.type_registry_core.{isDataTypeReg, getDataTypeSizeReg}
@@ -160,8 +162,10 @@ fun emitCollectionConstructorImpl(output: StringBuilder, regBox: Array<Int>,
     return ""
 }
 
-// emitStaticCollectionNewImpl — Vec/BTreeMap/HashMap/StringHashMap/LinkedList .new() static calls
-// Returns result register (ptrtoint'd ptr), or "" if className not matched
+///
+emitStaticCollectionNewImpl — Vec/BTreeMap/HashMap/StringHashMap/LinkedList .new() static calls
+Returns result register (ptrtoint'd ptr), or "" if className not matched
+///
 fun emitStaticCollectionNewImpl(output: StringBuilder, regBox: Array<Int>, className: String, fullClassName: String) r: String {
     if className == "Vec" {
         let hasStringElem = fullClassName.contains("<String>")
@@ -259,9 +263,11 @@ fun emitArrayWithLengthImpl(output: StringBuilder, regBox: Array<Int>, fullClass
     return arrReg
 }
 
-// emitArrayBulkInitImpl — Array<T>(count, value) inline bulk initialization
-// isZeroFill: 1 if value is literal 0 (use memset optimization)
-// alignToVal: alignment from @align_to decorator (0 = default)
+///
+emitArrayBulkInitImpl — Array<T>(count, value) inline bulk initialization
+isZeroFill: 1 if value is literal 0 (use memset optimization)
+alignToVal: alignment from @align_to decorator (0 = default)
+///
 fun emitArrayBulkInitImpl(output: StringBuilder, regBox: Array<Int>, blockLabelBox: Array<Int>, countReg: String, valueReg: String, elementType: String, isZeroFill: Int, alignToVal: Int) r: String {
     if elementType == "Float" {
         let arrReg = getNextRegFn(regBox)
@@ -325,8 +331,10 @@ fun emitArrayBulkInitImpl(output: StringBuilder, regBox: Array<Int>, blockLabelB
     return arrReg
 }
 
-// emitArrayPreallocImpl — Array<T>(capacity) pre-allocation with given capacity
-// elemSize: pre-computed element size (8 for Int, 16 for String, etc.)
+///
+emitArrayPreallocImpl — Array<T>(capacity) pre-allocation with given capacity
+elemSize: pre-computed element size (8 for Int, 16 for String, etc.)
+///
 fun emitArrayPreallocImpl(output: StringBuilder, regBox: Array<Int>, capReg: String, elemSize: Int) r: String {
     let arrReg = getNextRegFn(regBox)
     output.append("  " + arrReg + " = call noalias ptr @malloc(i64 32)\n")
@@ -353,9 +361,11 @@ fun emitArrayPreallocImpl(output: StringBuilder, regBox: Array<Int>, capReg: Str
     return arrReg
 }
 
-// emitArrayInlineImpl — Array<T>() empty inline constructor
-// elemSize: pre-computed element size (8 for Int, 16 for String, etc.)
-// alignToVal: alignment from @align_to decorator (0 = default)
+///
+emitArrayInlineImpl — Array<T>() empty inline constructor
+elemSize: pre-computed element size (8 for Int, 16 for String, etc.)
+alignToVal: alignment from @align_to decorator (0 = default)
+///
 fun emitArrayInlineImpl(output: StringBuilder, regBox: Array<Int>, elemSize: Int, alignToVal: Int) r: String {
     let initCap = 8
     let initBytes = initCap * elemSize
@@ -382,8 +392,10 @@ fun emitArrayInlineImpl(output: StringBuilder, regBox: Array<Int>, elemSize: Int
     return arrReg
 }
 
-// emitSmallVecConstructorImpl — SmallVec<T, N>() constructor
-// capArgReg: pre-generated capacity arg ("" if no arg, parse from funcName)
+///
+emitSmallVecConstructorImpl — SmallVec<T, N>() constructor
+capArgReg: pre-generated capacity arg ("" if no arg, parse from funcName)
+///
 fun emitSmallVecConstructorImpl(output: StringBuilder, regBox: Array<Int>, funcName: String, capArgReg: String) r: String {
     if capArgReg != "" {
         let svCallReg = getNextRegFn(regBox)
@@ -415,9 +427,11 @@ fun emitSmallVecConstructorImpl(output: StringBuilder, regBox: Array<Int>, funcN
     return svCallReg
 }
 
-// emitReprCConstructorImpl — @repr(C) class constructor via insertvalue chain
-// argRegs: pre-generated argument registers
-// fieldLlvmTypes: pre-mapped LLVM types for each field (from wrapper's mapType)
+///
+emitReprCConstructorImpl — @repr(C) class constructor via insertvalue chain
+argRegs: pre-generated argument registers
+fieldLlvmTypes: pre-mapped LLVM types for each field (from wrapper's mapType)
+///
 fun emitReprCConstructorImpl(output: StringBuilder, regBox: Array<Int>, className: String, argRegs: Array<String>, fieldLlvmTypes: Array<String>) r: String {
     if argRegs.length() == 0 {
         return "zeroinitializer"

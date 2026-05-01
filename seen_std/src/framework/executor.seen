@@ -1,6 +1,8 @@
-// Executor Framework for Seen Language
-// Provides single-threaded async task execution with FIFO ordering
-// Used with the @executor decorator
+///
+Executor Framework for Seen Language
+Provides single-threaded async task execution with FIFO ordering
+Used with the @executor decorator
+///
 
 // Task state
 data TaskState {

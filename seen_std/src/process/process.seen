@@ -1,5 +1,7 @@
-// seen_std.process.process
-// Deterministic process helpers backed by __ExecuteProgram / __ExecuteCommand.
+///
+seen_std.process.process
+Deterministic process helpers backed by __ExecuteProgram / __ExecuteCommand.
+///
 
 import str.string.{StringBuilder}
 
@@ -49,30 +51,38 @@ fun isSuccess(status: Int) r: Bool {
     return status == 0
 }
 
-// External C runtime functions for process-level parallelism.
-// Use __ prefix to match runtime convention and avoid linker conflicts.
-// NOTE: These are SKIPPED by the codegen (name starts with __ and have empty bodies).
-// Declares come from ir_declarations.seen.
+///
+External C runtime functions for process-level parallelism.
+Use __ prefix to match runtime convention and avoid linker conflicts.
+NOTE: These are SKIPPED by the codegen (name starts with __ and have empty bodies).
+Declares come from ir_declarations.seen.
+///
 extern fun __seen_fork() r: Int
 extern fun __seen_waitpid(pid: Int, flags: Int) r: Int
 extern fun __seen_exit(code: Int) r: Void
 extern fun __seen_getpid() r: Int
 
-// Fork the current process.
-// Returns: child PID in parent, 0 in child, -1 on error.
-// Named "processFork" (not "fork") to avoid shadowing the POSIX fork() symbol at link time.
+///
+Fork the current process.
+Returns: child PID in parent, 0 in child, -1 on error.
+Named "processFork" (not "fork") to avoid shadowing the POSIX fork() symbol at link time.
+///
 fun processFork() r: Int {
     return __seen_fork()
 }
 
-// Wait for a child process to exit (blocking).
-// Returns the child's exit code, or -1 on error.
+///
+Wait for a child process to exit (blocking).
+Returns the child's exit code, or -1 on error.
+///
 fun waitPid(pid: Int) r: Int {
     return __seen_waitpid(pid, 0)
 }
 
-// Terminate the current process with the given exit code.
-// Uses _exit() - bypasses C atexit handlers (safe for forked children).
+///
+Terminate the current process with the given exit code.
+Uses _exit() - bypasses C atexit handlers (safe for forked children).
+///
 fun processExit(code: Int) r: Void {
     __seen_exit(code)
 }

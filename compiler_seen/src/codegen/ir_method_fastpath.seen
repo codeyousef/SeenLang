@@ -1,6 +1,8 @@
-// ir_method_fastpath.seen — Shared method-call fast-path and fallback helpers
-// Extracted from ir_method_receiver.seen to keep receiver typing separate from
-// prepared dispatch, static-call emission, and unresolved fallback handling.
+///
+ir_method_fastpath.seen — Shared method-call fast-path and fallback helpers
+Extracted from ir_method_receiver.seen to keep receiver typing separate from
+prepared dispatch, static-call emission, and unresolved fallback handling.
+///
 
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn}

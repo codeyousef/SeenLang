@@ -1,6 +1,8 @@
-// Async runtime test — manual coroutine manipulation
-// done/promise use C wrappers (safe — just read memory)
-// resume/destroy use LLVM intrinsics via name mapping (required for fastcc)
+///
+Async runtime test — manual coroutine manipulation
+done/promise use C wrappers (safe — just read memory)
+resume/destroy use LLVM intrinsics via name mapping (required for fastcc)
+///
 
 extern fun seen_coro_done(handle: ptr) -> Int
 extern fun llvm_coro_resume(handle: ptr) -> Void
@@ -18,8 +20,10 @@ fun greet(n: Int) -> Int {
 }
 
 fun main() {
-    // Test 1: Manual coroutine manipulation via C runtime wrappers
-    // spawn a coroutine (returns handle)
+    ///
+    Test 1: Manual coroutine manipulation via C runtime wrappers
+    spawn a coroutine (returns handle)
+    ///
     let handle = compute(7)
 
     // Resume until done

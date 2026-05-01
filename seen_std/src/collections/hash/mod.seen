@@ -1,5 +1,7 @@
-// seen_std.collections.hash.mod
-// Compatibility hashing helpers for collections.hash_map import paths.
+///
+seen_std.collections.hash.mod
+Compatibility hashing helpers for collections.hash_map import paths.
+///
 
 fun hashInt(value: Int) r: Int {
     var h = value

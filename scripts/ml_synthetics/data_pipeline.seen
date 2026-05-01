@@ -1,5 +1,7 @@
-// Synthetic: Data transformation pipeline
-// Represents: ETL tools, log processors, data science scripts
+///
+Synthetic: Data transformation pipeline
+Represents: ETL tools, log processors, data science scripts
+///
 
 fun generateData(n: Int) r: Array<Int> {
     var data = Array<Int>()

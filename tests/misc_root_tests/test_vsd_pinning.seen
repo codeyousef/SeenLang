@@ -1,5 +1,7 @@
-// Test suite for VSD Pointer Pinning (Task 5.5)
-// Tests the @preallocate pinning extensions
+///
+Test suite for VSD Pointer Pinning (Task 5.5)
+Tests the @preallocate pinning extensions
+///
 
 // Test basic @preallocate with pinning attributes
 @preallocate(size = 65536, strategy = "bump", pinned = true)

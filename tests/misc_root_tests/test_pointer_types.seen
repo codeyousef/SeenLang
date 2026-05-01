@@ -4,34 +4,42 @@ Test file for pointer type parsing and compilation.
 Tests basic pointer type syntax: *Void, *Int, *Char
 ///
 
-// ============================================
-// Class with pointer fields
-// ============================================
+///
+============================================
+Class with pointer fields
+============================================
+///
 class PointerExample {
     var handle: *Void
     var intPtr: *Int
     var charPtr: *Char
 }
 
-// ============================================
-// External C functions with pointer parameters
-// ============================================
+///
+============================================
+External C functions with pointer parameters
+============================================
+///
 
 // Memory allocation - basic FFI with pointer types
 extern "C" fun malloc(size: UInt64) r: *Void
 extern "C" fun free(ptr: *Void) r: Void
 extern "C" fun memset(ptr: *Void, value: Int, size: UInt64) r: *Void
 
-// ============================================
-// Function with pointer parameter
-// ============================================
+///
+============================================
+Function with pointer parameter
+============================================
+///
 fun processData(data: *Void) r: Bool {
     return true
 }
 
-// ============================================
-// Main function using pointers
-// ============================================
+///
+============================================
+Main function using pointers
+============================================
+///
 fun main() r: Int {
     // Test basic allocation
     let size: UInt64 = 1024 as UInt64

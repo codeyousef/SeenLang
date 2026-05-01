@@ -286,8 +286,10 @@ class WASMBackend extends Backend {
     }
 
     fun generateWASMBinary(textFormat: String) r: Array<Byte> {
-        // Convert WAT (WebAssembly Text) to WASM binary
-        // This would use a WAT to WASM compiler
+        ///
+        Convert WAT (WebAssembly Text) to WASM binary
+        This would use a WAT to WASM compiler
+        ///
         return Array<Byte>()  // Stub implementation
     }
 

@@ -1,5 +1,7 @@
-// Main Test Runner
-// Executes all test suites and reports results
+///
+Main Test Runner
+Executes all test suites and reports results
+///
 
 import testing.runner
 import test.unit.compiler.compiler_tests.{createCompilerTestSuite}

@@ -33,8 +33,10 @@ fun inferCallTypeTableImpl(callee: String) r: String {
     if callee == "__PrintFloat" { return "Void" }
     if callee == "__PrintRaw" { return "Void" }
     if callee == "__FlushStdout" { return "Void" }
-    // Explicit class constructor detection (hardcoded for reliability)
-    // AST node types
+    ///
+    Explicit class constructor detection (hardcoded for reliability)
+    AST node types
+    ///
     if callee == "FunctionNode" { return callee }
     if callee == "ClassNode" { return callee }
     if callee == "EnumNode" { return callee }

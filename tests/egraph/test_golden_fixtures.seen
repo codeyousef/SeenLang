@@ -1,10 +1,14 @@
-// E-Graph Golden Fixture Tests (self-contained)
-// Verifies algebraic simplification rules
-// Tests: x+0->x, x*1->x, x*2->x<<1, x-x->0, x/1->x, x*0->0, x==x->true
+///
+E-Graph Golden Fixture Tests (self-contained)
+Verifies algebraic simplification rules
+Tests: x+0->x, x*1->x, x*2->x<<1, x-x->0, x/1->x, x*0->0, x==x->true
+///
 
-// Encode node ops as integers to keep the golden fixtures compact
-// var_x=1, const_0=2, const_1=3, const_2=4, const_true=5
-// add=10, mul=11, sub=12, div=13, shl=14, eq=15
+///
+Encode node ops as integers to keep the golden fixtures compact
+var_x=1, const_0=2, const_1=3, const_2=4, const_true=5
+add=10, mul=11, sub=12, div=13, shl=14, eq=15
+///
 
 fun opCost(op: Int) r: Int {
     if op >= 1 and op <= 5 { return 0 }  // constants/vars
@@ -31,8 +35,10 @@ fun opName(op: Int) r: String {
     return "unknown"
 }
 
-// Apply rewrite rules: given (op, left, right), return simplified op
-// Returns the op of the best (cheapest) equivalent expression
+///
+Apply rewrite rules: given (op, left, right), return simplified op
+Returns the op of the best (cheapest) equivalent expression
+///
 fun rewrite(op: Int, left: Int, right: Int) r: Int {
     // x + 0 -> x (left)
     if op == 10 and right == 2 { return left }
@@ -70,8 +76,10 @@ fun main() r: Int {
     var passed = 0
     var total = 8
 
-    // var_x=1, const_0=2, const_1=3, const_2=4, const_true=5
-    // add=10, mul=11, sub=12, div=13, shl=14, eq=15
+    ///
+    var_x=1, const_0=2, const_1=3, const_2=4, const_true=5
+    add=10, mul=11, sub=12, div=13, shl=14, eq=15
+    ///
 
     // x + 0 -> x
     if testRule("x + 0 -> x", 10, 1, 2, 1) { passed = passed + 1 }

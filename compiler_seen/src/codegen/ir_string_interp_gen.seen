@@ -1,5 +1,7 @@
-// ir_string_interp_gen.seen — Shared string-interpolation emission helpers
-// Extracted from llvm_ir_gen.seen to keep string-interpolation codegen thin.
+///
+ir_string_interp_gen.seen — Shared string-interpolation emission helpers
+Extracted from llvm_ir_gen.seen to keep string-interpolation codegen thin.
+///
 
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn}

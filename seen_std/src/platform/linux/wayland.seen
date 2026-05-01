@@ -8,9 +8,11 @@ and Vulkan surface creation for rendering.
 Link with: -lwayland-client
 ///
 
-// ============================================================================
-// Wayland pointer event types
-// ============================================================================
+///
+============================================================================
+Wayland pointer event types
+============================================================================
+///
 
 let WL_POINTER_ENTER: Int = 1
 let WL_POINTER_LEAVE: Int = 2
@@ -22,9 +24,11 @@ let WL_POINTER_AXIS_SOURCE: Int = 7
 let WL_POINTER_AXIS_STOP: Int = 8
 let WL_POINTER_AXIS_DISCRETE: Int = 9
 
-// ============================================================================
-// Wayland keyboard event types
-// ============================================================================
+///
+============================================================================
+Wayland keyboard event types
+============================================================================
+///
 
 let WL_KEYBOARD_KEYMAP: Int = 10
 let WL_KEYBOARD_ENTER: Int = 11
@@ -33,9 +37,11 @@ let WL_KEYBOARD_KEY: Int = 13
 let WL_KEYBOARD_MODIFIERS: Int = 14
 let WL_KEYBOARD_REPEAT_INFO: Int = 15
 
-// ============================================================================
-// Wayland touch event types
-// ============================================================================
+///
+============================================================================
+Wayland touch event types
+============================================================================
+///
 
 let WL_TOUCH_DOWN: Int = 20
 let WL_TOUCH_UP: Int = 21
@@ -43,9 +49,11 @@ let WL_TOUCH_MOTION: Int = 22
 let WL_TOUCH_FRAME: Int = 23
 let WL_TOUCH_CANCEL: Int = 24
 
-// ============================================================================
-// XDG toplevel state constants
-// ============================================================================
+///
+============================================================================
+XDG toplevel state constants
+============================================================================
+///
 
 let XDG_TOPLEVEL_STATE_MAXIMIZED: Int = 1
 let XDG_TOPLEVEL_STATE_FULLSCREEN: Int = 2
@@ -56,26 +64,32 @@ let XDG_TOPLEVEL_STATE_TILED_RIGHT: Int = 6
 let XDG_TOPLEVEL_STATE_TILED_TOP: Int = 7
 let XDG_TOPLEVEL_STATE_TILED_BOTTOM: Int = 8
 
-// ============================================================================
-// Wayland button codes (matching linux/input-event-codes.h)
-// ============================================================================
+///
+============================================================================
+Wayland button codes (matching linux/input-event-codes.h)
+============================================================================
+///
 
 let WL_BTN_LEFT: Int = 0x110
 let WL_BTN_RIGHT: Int = 0x111
 let WL_BTN_MIDDLE: Int = 0x112
 
-// ============================================================================
-// Pointer axis sources
-// ============================================================================
+///
+============================================================================
+Pointer axis sources
+============================================================================
+///
 
 let WL_POINTER_AXIS_SOURCE_WHEEL: Int = 0
 let WL_POINTER_AXIS_SOURCE_FINGER: Int = 1
 let WL_POINTER_AXIS_SOURCE_CONTINUOUS: Int = 2
 let WL_POINTER_AXIS_SOURCE_WHEEL_TILT: Int = 3
 
-// ============================================================================
-// FFI Declarations - seen_wl_* functions
-// ============================================================================
+///
+============================================================================
+FFI Declarations - seen_wl_* functions
+============================================================================
+///
 
 // Display connection
 extern fun seen_wl_display_connect(name: String) r: Int
@@ -119,9 +133,11 @@ extern fun seen_wl_get_event_button(event: Int) r: Int
 extern fun seen_wl_get_event_key(event: Int) r: Int
 extern fun seen_wl_get_event_state(event: Int) r: Int
 
-// ============================================================================
-// WaylandWindow - high-level window wrapper
-// ============================================================================
+///
+============================================================================
+WaylandWindow - high-level window wrapper
+============================================================================
+///
 
 ///
 High-level Wayland window abstraction.

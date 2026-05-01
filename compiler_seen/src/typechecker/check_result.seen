@@ -1,5 +1,7 @@
-// Shared CheckResult class for typechecker modules
-// Provides common result type for checker utilities
+///
+Shared CheckResult class for typechecker modules
+Provides common result type for checker utilities
+///
 
 import parser.real_parser.{ClassNode, FunctionNode, FieldNode, AnnotationNode}
 

@@ -1,8 +1,12 @@
-// seen_std.random.rng
-// Fast deterministic random number generators for benchmarks and simulations.
+///
+seen_std.random.rng
+Fast deterministic random number generators for benchmarks and simulations.
+///
 
-// Linear Congruential Generator (LCG) - fast and simple
-// Used in FASTA benchmark with IM=139968, IA=3877
+///
+Linear Congruential Generator (LCG) - fast and simple
+Used in FASTA benchmark with IM=139968, IA=3877
+///
 class LCG {
     var seed: Int
     var modulus: Int

@@ -1,5 +1,7 @@
-// Regression FEL-52: a bare string local initializer must remain live when the
-// following assignment concatenates from the same local through a nested binary.
+///
+Regression FEL-52: a bare string local initializer must remain live when the
+following assignment concatenates from the same local through a nested binary.
+///
 
 fun main() r: Int {
     let frame = 0

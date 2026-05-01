@@ -1,6 +1,8 @@
-// Basic Region Memory Management Test
-// Tests Vale-style region allocation and deallocation
-// Expected: All region operations work correctly
+///
+Basic Region Memory Management Test
+Tests Vale-style region allocation and deallocation
+Expected: All region operations work correctly
+///
 
 fun main() r: Int {
     var passed = 0

@@ -23,8 +23,10 @@ fun main() r: Int {
     let obj = SimpleInt.new(42)
     println("Created object")
 
-    // Test direct field access (if allowed)
-    // let directVal = obj.value  // may not work
+    ///
+    Test direct field access (if allowed)
+    let directVal = obj.value  // may not work
+    ///
 
     // Test method call
     let gotVal = obj.get()

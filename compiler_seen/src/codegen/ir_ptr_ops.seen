@@ -1,11 +1,15 @@
-// ir_ptr_ops.seen — Low-level pointer builtin codegen helpers
-// Extracted from ir_method_gen.seen for FEL-5 SRP.
+///
+ir_ptr_ops.seen — Low-level pointer builtin codegen helpers
+Extracted from ir_method_gen.seen for FEL-5 SRP.
+///
 
 import codegen.ir_optimization.{getNextRegFn}
 import str.string.{StringBuilder}
 
-// emitPtrOpsImpl — pointer operation builtins (ptr_deref/store/add/is_null)
-// arg0/arg1/arg2: pre-generated argument registers
+///
+emitPtrOpsImpl — pointer operation builtins (ptr_deref/store/add/is_null)
+arg0/arg1/arg2: pre-generated argument registers
+///
 fun emitPtrOpsImpl(output: StringBuilder, regBox: Array<Int>, funcName: String, arg0: String, arg1: String, arg2: String) r: String {
     if funcName == "ptr_deref" or funcName == "ptr_deref_i64" {
         let loadedReg = getNextRegFn(regBox)

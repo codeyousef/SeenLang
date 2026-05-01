@@ -1,6 +1,8 @@
-// Synthetic: Complex control flow patterns
-// Represents: state machines, protocol parsers, interpreters, validators
-// Tests: branch prediction, code layout, unlikely paths
+///
+Synthetic: Complex control flow patterns
+Represents: state machines, protocol parsers, interpreters, validators
+Tests: branch prediction, code layout, unlikely paths
+///
 
 fun parseNumber(input: String, pos: Int) r: Int {
     var result = 0

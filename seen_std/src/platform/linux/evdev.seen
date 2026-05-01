@@ -208,9 +208,11 @@ let DEVICE_TYPE_TOUCHSCREEN: Int = 8
 let DEVICE_TYPE_TABLET: Int = 16
 let DEVICE_TYPE_TOUCHPAD: Int = 32
 
-// ============================================================================
-// Shim FFI Declarations - Link to libseen_platform.so
-// ============================================================================
+///
+============================================================================
+Shim FFI Declarations - Link to libseen_platform.so
+============================================================================
+///
 
 extern "C" fun seen_evdev_new() r: *Void
 extern "C" fun seen_evdev_free(dev: *Void) r: Void
@@ -224,9 +226,11 @@ extern "C" fun seen_evdev_next_event(dev: *Void, flags: Int32, eventType: *Int32
 extern "C" fun seen_evdev_open_device(path: *Char) r: Int32
 extern "C" fun seen_evdev_close_device(fd: Int32) r: Int32
 
-// ============================================================================
-// Safe Wrapper Classes
-// ============================================================================
+///
+============================================================================
+Safe Wrapper Classes
+============================================================================
+///
 
 ///
 Raw input event from an evdev device.

@@ -1,8 +1,12 @@
-// Unit test for WASM backend components
-// Tests Fixed64 arithmetic which is core to UWW determinism
+///
+Unit test for WASM backend components
+Tests Fixed64 arithmetic which is core to UWW determinism
+///
 
-// Fixed64 - simplified inline version for testing
-// Uses 32.32 format: value = raw / 4294967296
+///
+Fixed64 - simplified inline version for testing
+Uses 32.32 format: value = raw / 4294967296
+///
 
 class Fixed64Test {
     let raw: Int

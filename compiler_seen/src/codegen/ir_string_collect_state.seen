@@ -1,5 +1,7 @@
-// ir_string_collect_state.seen — Shared stateful string-collection helpers
-// Extracted from llvm_ir_gen.seen to keep collection orchestration thin.
+///
+ir_string_collect_state.seen — Shared stateful string-collection helpers
+Extracted from llvm_ir_gen.seen to keep collection orchestration thin.
+///
 
 import parser.real_parser.{ProgramNode, ParserExpressionNode}
 import codegen.ir_string_collect_scan.{collectStringConstantsImpl, collectStringConstantsFromExprImpl}

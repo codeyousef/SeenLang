@@ -1,5 +1,7 @@
-// AstNode API for User-Defined Macros
-// Provides a safe wrapper for AST manipulation in compile-time macros
+///
+AstNode API for User-Defined Macros
+Provides a safe wrapper for AST manipulation in compile-time macros
+///
 
 import parser.real_parser.{FunctionNode, ClassNode, StatementNode, ParserExpressionNode, BlockNode, ParamNode, TypeNode, AnnotationNode}
 
@@ -24,9 +26,11 @@ class FieldInfo {
     }
 }
 
-// Safe wrapper for AST manipulation in macros
-// This class provides a stable interface for macro authors while
-// allowing the internal AST representation to evolve
+///
+Safe wrapper for AST manipulation in macros
+This class provides a stable interface for macro authors while
+allowing the internal AST representation to evolve
+///
 class AstNode {
     var nodeType: String  // "Function", "Class", "Statement", "Expression", "Block", "Error"
     var functionNode: FunctionNode

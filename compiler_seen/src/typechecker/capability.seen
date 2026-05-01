@@ -1,16 +1,20 @@
-// Capability Checker for Seen Language
-// Validates @using(Token) annotations for function-level security constraints
-// Functions calling restricted operations must declare required capability tokens
+///
+Capability Checker for Seen Language
+Validates @using(Token) annotations for function-level security constraints
+Functions calling restricted operations must declare required capability tokens
+///
 
 import parser.real_parser.{ProgramNode, FunctionNode, ItemNode, StatementNode, ParserExpressionNode, BlockNode, ClassNode, AnnotationNode}
 
-// Capability tokens - each controls access to a set of restricted operations
-// FileToken - File I/O operations
-// NetToken - Network operations
-// ProcessToken - Process execution
-// EnvToken - Environment access
-// DynLoadToken - Dynamic loading
-// AllToken - All capabilities (legacy/trusted code)
+///
+Capability tokens - each controls access to a set of restricted operations
+FileToken - File I/O operations
+NetToken - Network operations
+ProcessToken - Process execution
+EnvToken - Environment access
+DynLoadToken - Dynamic loading
+AllToken - All capabilities (legacy/trusted code)
+///
 
 // Result of capability checking
 class CapabilityCheckResult {

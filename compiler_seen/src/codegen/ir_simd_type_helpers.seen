@@ -1,5 +1,7 @@
-// SIMD type and swizzle helper functions
-// Extracted from ir_type_mapping.seen
+///
+SIMD type and swizzle helper functions
+Extracted from ir_type_mapping.seen
+///
 
 fun isSimdVectorTypeImpl(t: String) r: Int {
     if t == "f32x4" { return 1 }

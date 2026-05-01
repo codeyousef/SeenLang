@@ -1,5 +1,7 @@
-// ir_nullish_gen.seen — Shared nullish-expression generation helpers
-// Extracted from llvm_ir_gen.seen to keep Elvis/safe-navigation support thin.
+///
+ir_nullish_gen.seen — Shared nullish-expression generation helpers
+Extracted from llvm_ir_gen.seen to keep Elvis/safe-navigation support thin.
+///
 
 import parser.real_parser.{ParserExpressionNode}
 import str.string.{StringBuilder}

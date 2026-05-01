@@ -1,5 +1,7 @@
-// Sieve of Eratosthenes Benchmark
-// Simple boolean array implementation
+///
+Sieve of Eratosthenes Benchmark
+Simple boolean array implementation
+///
 
 fun sieve_of_eratosthenes(limit: Int) -> Array<Int> {
     let is_prime: Array<Int> = Array<Int>(limit + 1, 1)

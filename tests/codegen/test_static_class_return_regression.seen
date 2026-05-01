@@ -1,5 +1,7 @@
-// Regression: receiver-free static class calls must keep matching their
-// emitted ClassName_method signature when they return class instances.
+///
+Regression: receiver-free static class calls must keep matching their
+emitted ClassName_method signature when they return class instances.
+///
 
 class Counter {
     var value: Int

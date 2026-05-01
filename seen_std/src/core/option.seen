@@ -1,5 +1,7 @@
-// seen_std.core.option
-// Direct-value Option<T> matching the runtime unwrap helpers.
+///
+seen_std.core.option
+Direct-value Option<T> matching the runtime unwrap helpers.
+///
 
 extern fun __default<T>() r: T
 

@@ -1,5 +1,7 @@
-// Advanced Vectorization Support - SIMD Code Generation
-// Automatically vectorizes loops and arithmetic operations
+///
+Advanced Vectorization Support - SIMD Code Generation
+Automatically vectorizes loops and arithmetic operations
+///
 
 import codegen.vectorization_types.{MemoryAccess, AssignmentExpression, ArrayAccessExpression, BreakStatement, ContinueStatement, ForStatement, WhileStatement}
 
@@ -470,8 +472,10 @@ class VectorizationEngine {
     }
     
     fun hasCPUID(feature: String) r: Bool {
-        // Check CPU features via CPUID instruction
-        // In real implementation, would use inline assembly
+        ///
+        Check CPU features via CPUID instruction
+        In real implementation, would use inline assembly
+        ///
         match feature {
             "sse2" -> return true;    // Assume SSE2 is always available
             "avx" -> return true;     // Assume AVX is available

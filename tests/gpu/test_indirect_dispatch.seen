@@ -1,5 +1,7 @@
-// Test: Indirect dispatch — GPU buffer specifying dispatch dimensions
-// Verifies seen_gpu_dispatch_indirect runtime function
+///
+Test: Indirect dispatch — GPU buffer specifying dispatch dimensions
+Verifies seen_gpu_dispatch_indirect runtime function
+///
 
 @compute(workgroup: 64)
 fun indirectWork(data: Buffer<Float>) {

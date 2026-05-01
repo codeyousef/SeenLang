@@ -1,5 +1,7 @@
-// VecDeque - Double-ended queue with O(1) push/pop at both ends
-// Deterministic FIFO/LIFO operations for async task scheduling
+///
+VecDeque - Double-ended queue with O(1) push/pop at both ends
+Deterministic FIFO/LIFO operations for async task scheduling
+///
 
 // VecDeque implementation using a circular buffer
 class VecDeque<T> {
@@ -54,8 +56,10 @@ class VecDeque<T> {
 
     // Push to front
     fun pushFront(value: T) r: Void {
-        // For simplicity, we implement this by shifting
-        // A full circular buffer would be more efficient
+        ///
+        For simplicity, we implement this by shifting
+        A full circular buffer would be more efficient
+        ///
         var newData = Array<T>()
         newData.push(value)
         var i = 0

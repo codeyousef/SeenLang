@@ -1,12 +1,14 @@
-// Region Lifetime Checker + Thread Safety
-// Validates that region-allocated references don't escape their region scope.
-// Also validates @thread_bound regions are not shared across threads.
-// This is a pragmatic MVP — not full Rust-style lifetimes.
-// Checks:
-//   1. Variables declared inside region blocks don't get assigned to outer-scope variables
-//   2. Return statements don't escape region-local references
-//   3. @region_bound parameter annotations are validated
-//   4. @thread_bound region variables are not captured by parallel_for/async closures
+///
+Region Lifetime Checker + Thread Safety
+Validates that region-allocated references don't escape their region scope.
+Also validates @thread_bound regions are not shared across threads.
+This is a pragmatic MVP — not full Rust-style lifetimes.
+Checks:
+  1. Variables declared inside region blocks don't get assigned to outer-scope variables
+  2. Return statements don't escape region-local references
+  3. @region_bound parameter annotations are validated
+  4. @thread_bound region variables are not captured by parallel_for/async closures
+///
 
 import parser.real_parser.{StatementNode, BlockNode, ParserExpressionNode}
 
@@ -91,8 +93,10 @@ class RegionChecker {
         if stmt.kind == "Assignment" or stmt.kind == "Expression" {
             if stmt.expression.kind == "Assignment" {
                 let target = stmt.expression.variableName
-                // Check if the source is a region-local variable being assigned to
-                // a non-region-local target
+                ///
+                Check if the source is a region-local variable being assigned to
+                a non-region-local target
+                ///
                 if regionDepth == 0 and isRegionLocal(target) {
                     // This is fine — assigning from outer scope
                 }

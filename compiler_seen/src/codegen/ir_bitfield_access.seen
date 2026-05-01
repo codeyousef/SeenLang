@@ -1,6 +1,8 @@
-// ir_bitfield_access.seen — Shared bitfield metadata helpers
-// Extracted from assignment/member-access paths so multiple helpers can share
-// lookup logic without introducing module cycles.
+///
+ir_bitfield_access.seen — Shared bitfield metadata helpers
+Extracted from assignment/member-access paths so multiple helpers can share
+lookup logic without introducing module cycles.
+///
 
 import codegen.ir_comptime_eval.{parseSimpleIntImpl}
 

@@ -1,6 +1,8 @@
-// ir_field_registry.seen — shared field registry lookup helpers
-// Extracted from llvm_ir_gen.seen so pure field-index / field-type lookup
-// logic stays separate from the local cache and trace hooks.
+///
+ir_field_registry.seen — shared field registry lookup helpers
+Extracted from llvm_ir_gen.seen so pure field-index / field-type lookup
+logic stays separate from the local cache and trace hooks.
+///
 
 import codegen.ir_string_collect.{getBaseTypeNameImpl}
 import codegen.ir_type_info.{getKnownFieldIndexPrimaryImpl, getKnownFieldIndexFallbackImpl}

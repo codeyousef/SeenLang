@@ -1,39 +1,41 @@
-// =============================================================================
-// Stage 2: Recursive-Descent Parser for the Seen Programming Language
-// =============================================================================
-//
-// Input:  Array<Token> produced by the lexer (Stage 1).
-// Output: ProgramNode AST consumed by the type-checker (Stage 3) and codegen.
-//
-// The parser is a single-pass, recursive-descent design.  All AST nodes are
-// allocated eagerly as the token stream is consumed; there is no separate
-// declaration-collection pass inside this file (the two-pass strategy lives
-// in the IR generator, which walks the finished AST twice).
-//
-// Key AST node types emitted:
-//   ProgramNode           -- root; holds an Array<ItemNode>
-//   ItemNode              -- top-level declaration (Function, Class, Enum, Import, GlobalVar)
-//   FunctionNode          -- function/method with params, return type, body
-//   ClassNode             -- class/struct/trait/union with fields and methods
-//   StatementNode         -- control flow (If, While, For, Return, Let, Var, ...)
-//   ParserExpressionNode  -- expressions (Binary, Call, MemberAccess, Literal, ...)
-//
-// Operator precedence is implemented via a Pratt-style chain of mutually
-// recursive functions:
-//   parseExpression -> parseAssignment -> parseOr -> parseAnd -> parseElvis
-//   -> parseEquality -> parseComparison -> parseRange -> parseTerm
-//   -> parseFactor -> parseShift -> parseBitwise -> parseUnary -> parseCall
-//   -> parsePrimary
-//
-// Multi-language keyword support is achieved by comparing against the
-// SeenTokenType enum (populated from TOML keyword files by the lexer),
-// never by raw string matching on token values.
-//
-// IMPORTANT — bootstrap compatibility constraint:
-//   checkToken(SeenTokenType.X) is used everywhere instead of calling
-//   .getTokenType() on tokens.  The latter triggers a cross-module codegen
-//   issue where the returned SeenTokenType enum value is miscompiled.
-// =============================================================================
+///
+=============================================================================
+Stage 2: Recursive-Descent Parser for the Seen Programming Language
+=============================================================================
+
+Input:  Array<Token> produced by the lexer (Stage 1).
+Output: ProgramNode AST consumed by the type-checker (Stage 3) and codegen.
+
+The parser is a single-pass, recursive-descent design.  All AST nodes are
+allocated eagerly as the token stream is consumed; there is no separate
+declaration-collection pass inside this file (the two-pass strategy lives
+in the IR generator, which walks the finished AST twice).
+
+Key AST node types emitted:
+  ProgramNode           -- root; holds an Array<ItemNode>
+  ItemNode              -- top-level declaration (Function, Class, Enum, Import, GlobalVar)
+  FunctionNode          -- function/method with params, return type, body
+  ClassNode             -- class/struct/trait/union with fields and methods
+  StatementNode         -- control flow (If, While, For, Return, Let, Var, ...)
+  ParserExpressionNode  -- expressions (Binary, Call, MemberAccess, Literal, ...)
+
+Operator precedence is implemented via a Pratt-style chain of mutually
+recursive functions:
+  parseExpression -> parseAssignment -> parseOr -> parseAnd -> parseElvis
+  -> parseEquality -> parseComparison -> parseRange -> parseTerm
+  -> parseFactor -> parseShift -> parseBitwise -> parseUnary -> parseCall
+  -> parsePrimary
+
+Multi-language keyword support is achieved by comparing against the
+SeenTokenType enum (populated from TOML keyword files by the lexer),
+never by raw string matching on token values.
+
+IMPORTANT — bootstrap compatibility constraint:
+  checkToken(SeenTokenType.X) is used everywhere instead of calling
+  .getTokenType() on tokens.  The latter triggers a cross-module codegen
+  issue where the returned SeenTokenType enum value is miscompiled.
+=============================================================================
+///
 
 import lexer.interfaces.{Token, Position}
 import lexer.token_type.{SeenTokenType, SeenTokenType2, TestEnum, getA, getLeftParenType, getLeftParenType2, getRightParenType, getSemicolonType, getDotType, getLeftBraceType, getKeywordAsType, getIdentifierType, getColonType, getRightBraceType, getCommaType, getEndOfFileType, getKeywordFunType, getKeywordImportType, getKeywordUseType, getKeywordClassType, getAtType}
@@ -229,8 +231,10 @@ class ParserExpressionNode {
     // Call
     var callee: String
     var arguments: Array<ParserExpressionNode>
-    // Index access: obj[index] - object is variableName, index in operands[0]
-    // Member access: obj.field - object is variableName, member is callee
+    ///
+    Index access: obj[index] - object is variableName, index in operands[0]
+    Member access: obj.field - object is variableName, member is callee
+    ///
 
     static fun new() r: ParserExpressionNode {
         return ParserExpressionNode{
@@ -299,8 +303,10 @@ fun rewriteEffectTokens(rawTokens: Array<Token>) r: Array<Token> {
     var i = 0
     while i < rawTokens.length() {
         let tok = rawTokens[i]
-        // Do not inspect token enum values here: bootstrap can miscompile
-        // cross-module SeenTokenType reads from Token objects.
+        ///
+        Do not inspect token enum values here: bootstrap can miscompile
+        cross-module SeenTokenType reads from Token objects.
+        ///
         if tokenStartsEffectModifier(rawTokens, i) {
             rewritten.push(Token.new(getAtType(), "@", tok.getLine(), tok.getColumn(), 1, tok.getFileId()))
             rewritten.push(Token.new(SeenTokenType.Identifier, "using", tok.getLine(), tok.getColumn(), 5, tok.getFileId()))
@@ -312,18 +318,20 @@ fun rewriteEffectTokens(rawTokens: Array<Token>) r: Array<Token> {
     return rewritten
 }
 
-// Recursive-descent parser that converts a flat token stream into a ProgramNode AST.
-//
-// Key fields:
-//   tokens             -- immutable input token array from the lexer
-//   current            -- cursor index into `tokens`; advanced by advance()/matchTokenStr()
-//   currentProgram     -- accumulates top-level ItemNode declarations during parse()
-//   currentBlock       -- the innermost BlockNode being filled; saved/restored on nesting
-//   lastStatement      -- scratch StatementNode written to by the *Field() helpers, then
-//                         pushed into currentBlock (avoids returning large structs by value,
-//                         which triggers memory corruption in the stage1 bootstrap compiler)
-//   lastFunction       -- same workaround for FunctionNode
-//   pendingDecorators  -- decorators (@name) collected before the next declaration
+///
+Recursive-descent parser that converts a flat token stream into a ProgramNode AST.
+
+Key fields:
+  tokens             -- immutable input token array from the lexer
+  current            -- cursor index into `tokens`; advanced by advance()/matchTokenStr()
+  currentProgram     -- accumulates top-level ItemNode declarations during parse()
+  currentBlock       -- the innermost BlockNode being filled; saved/restored on nesting
+  lastStatement      -- scratch StatementNode written to by the *Field() helpers, then
+                        pushed into currentBlock (avoids returning large structs by value,
+                        which triggers memory corruption in the stage1 bootstrap compiler)
+  lastFunction       -- same workaround for FunctionNode
+  pendingDecorators  -- decorators (@name) collected before the next declaration
+///
 class RealParser {
     var tokens: Array<Token>
     var current: Int
@@ -354,9 +362,11 @@ class RealParser {
         return false
     }
 
-    // Seen keeps several declaration keywords contextual so existing code can
-    // still use names like `data`, `type`, `module`, and `operator` in places
-    // where an identifier is expected.
+    ///
+    Seen keeps several declaration keywords contextual so existing code can
+    still use names like `data`, `type`, `module`, and `operator` in places
+    where an identifier is expected.
+    ///
     fun isContextualIdentifierTokenType(tokenTypeStr: String) r: Bool {
         if tokenTypeStr == SeenTokenType.KeywordData.toString() { return true }
         if tokenTypeStr == SeenTokenType.KeywordType.toString() { return true }
@@ -451,13 +461,15 @@ class RealParser {
         return tokenValue.contains(".") or tokenValue.contains("e") or tokenValue.contains("E")
     }
 
-    // Check whether the current token matches the given type WITHOUT advancing.
-    //
-    // WHY string comparison instead of enum equality:
-    //   Calling `.getTokenType()` on a Token and comparing the returned
-    //   SeenTokenType directly triggers a cross-module codegen bug in the
-    //   stage1 bootstrap compiler (the returned enum i64 gets miscompiled).
-    //   Comparing .toString() strings is safe across all compiler versions.
+    ///
+    Check whether the current token matches the given type WITHOUT advancing.
+
+    WHY string comparison instead of enum equality:
+      Calling `.getTokenType()` on a Token and comparing the returned
+      SeenTokenType directly triggers a cross-module codegen bug in the
+      stage1 bootstrap compiler (the returned enum i64 gets miscompiled).
+      Comparing .toString() strings is safe across all compiler versions.
+    ///
     fun checkToken(tokenType: SeenTokenType) r: Bool {
         if isAtEnd() {
             return false
@@ -572,13 +584,15 @@ class RealParser {
 
     // ========== END UTILITY METHODS ==========
 
-    // Main entry point.  Consumes all tokens and returns a ProgramNode whose
-    // `items` array contains every top-level declaration (imports, functions,
-    // classes, enums, global variables, type aliases, impl blocks, etc.).
-    //
-    // The loop dispatches on the current token type to the appropriate
-    // parseXxxItemInto() helper.  Decorators (@name) are collected into
-    // `pendingDecorators` and attached to the next declaration that follows.
+    ///
+    Main entry point.  Consumes all tokens and returns a ProgramNode whose
+    `items` array contains every top-level declaration (imports, functions,
+    classes, enums, global variables, type aliases, impl blocks, etc.).
+
+    The loop dispatches on the current token type to the appropriate
+    parseXxxItemInto() helper.  Decorators (@name) are collected into
+    `pendingDecorators` and attached to the next declaration that follows.
+    ///
     fun parse() r: ProgramNode {
         currentProgram = ProgramNode.new()
         pendingDecorators = Array<AnnotationNode>()
@@ -833,8 +847,10 @@ class RealParser {
 
             // 'impl' blocks — parse methods and attach to target class
             if matchTokenStr(SeenTokenType.KeywordImpl) {
-                // Parse: impl TraitName for ClassName { methods... }
-                // or:    impl ClassName { methods... }
+                ///
+                Parse: impl TraitName for ClassName { methods... }
+                or:    impl ClassName { methods... }
+                ///
                 var implTraitName = ""
                 var implTargetName = ""
                 if checkToken(SeenTokenType.Identifier) {
@@ -886,8 +902,10 @@ class RealParser {
                         if matchTokenStr(SeenTokenType.KeywordStatic) { continue }
                         if matchTokenStr(SeenTokenType.KeywordOverride) { continue }
 
-                        // Parse function via parseFunctionItemInto (auto-pushes with raw name)
-                        // The codegen detects 'this: ClassName' param and generates ClassName_method
+                        ///
+                        Parse function via parseFunctionItemInto (auto-pushes with raw name)
+                        The codegen detects 'this: ClassName' param and generates ClassName_method
+                        ///
                         if matchTokenStr(getKeywordFunType()) {
                             parseFunctionItemInto()
                             continue
@@ -961,9 +979,11 @@ class RealParser {
         return currentProgram
     }
 
-    // Declaration-only parse used by compiler Pass 1. It preserves top-level
-    // declaration shape and skips function bodies so large modules do not build
-    // full statement/expression trees just to register signatures.
+    ///
+    Declaration-only parse used by compiler Pass 1. It preserves top-level
+    declaration shape and skips function bodies so large modules do not build
+    full statement/expression trees just to register signatures.
+    ///
     fun parseDeclarationsOnly() r: ProgramNode {
         currentProgram = ProgramNode.new()
         pendingDecorators = Array<AnnotationNode>()
@@ -1933,8 +1953,10 @@ class RealParser {
             funcBodyParsed = true
         }
         if not funcBodyParsed {
-            // trace
-            // Abstract function or declaration
+            ///
+            trace
+            Abstract function or declaration
+            ///
             func.body = BlockNode.new()
             if matchTokenStr(SeenTokenType.Semicolon) {
                 // Consumed
@@ -1958,14 +1980,16 @@ class RealParser {
         return item
     }
 
-    // Parse a complete function declaration and push it as an ItemNode directly
-    // into currentProgram.  Handles generic type parameters, decorators,
-    // parameter lists (including the `r: Type` return-type syntax), fat-arrow
-    // bodies (`=> expr`), and data-type method syntax (`fun Type.method()`).
-    //
-    // Uses lastFunction class field instead of a local FunctionNode variable
-    // to work around a stage1 bootstrap codegen bug where returning or
-    // locally copying large struct values corrupts memory.
+    ///
+    Parse a complete function declaration and push it as an ItemNode directly
+    into currentProgram.  Handles generic type parameters, decorators,
+    parameter lists (including the `r: Type` return-type syntax), fat-arrow
+    bodies (`=> expr`), and data-type method syntax (`fun Type.method()`).
+
+    Uses lastFunction class field instead of a local FunctionNode variable
+    to work around a stage1 bootstrap codegen bug where returning or
+    locally copying large struct values corrupts memory.
+    ///
     fun parseFunctionItemInto() r: Void {
         if isAtEnd() {
             return
@@ -1984,8 +2008,10 @@ class RealParser {
         }
         lastFunction.name = funcName
 
-        // Skip generic type parameters: fun name<T: Ord + Clone>(...)
-        // : Detect variadic generic ...Ts syntax
+        ///
+        Skip generic type parameters: fun name<T: Ord + Clone>(...)
+        : Detect variadic generic ...Ts syntax
+        ///
         if checkToken(SeenTokenType.LessThan) {
             advance()
             var gd = 1
@@ -2059,9 +2085,11 @@ class RealParser {
 
         traceParsedFunctionShape("parseFunctionItemInto", lastFunction)
 
-        // Push directly to currentProgram instead of returning
-        // Use separate allocations to avoid heap corruption from struct literal
-        // trace
+        ///
+        Push directly to currentProgram instead of returning
+        Use separate allocations to avoid heap corruption from struct literal
+        trace
+        ///
         let item = ItemNode.new()
         item.itemType = "Function"
         item.name = lastFunction.name
@@ -2191,9 +2219,11 @@ class RealParser {
                 classNode.isNondeterministic = true
             }
 
-            // For @hot_reload: add sentinel method so IR generator can detect it
-            // without accessing classNode.decorators (which is at a broken GEP index
-            // due to the static fun phantom field bug in ClassNode).
+            ///
+            For @hot_reload: add sentinel method so IR generator can detect it
+            without accessing classNode.decorators (which is at a broken GEP index
+            due to the static fun phantom field bug in ClassNode).
+            ///
             if decorator.name == "hot_reload" {
                 let sentinel = FunctionNode.new()
                 sentinel.name = "__seen_hot_reload_marker__"
@@ -2250,8 +2280,10 @@ class RealParser {
                     wasReturnParam = true
                     continue
                 }
-                // comptime parameter modifier
-                // If identifier is "comptime", consume the next identifier as the real param name
+                ///
+                comptime parameter modifier
+                If identifier is "comptime", consume the next identifier as the real param name
+                ///
                 var isComptimeParam = false
                 if not wasReturnParam and prevTok.getValue() == "comptime" {
                     isComptimeParam = true
@@ -2354,8 +2386,10 @@ class RealParser {
                 let curTok = peek()
                 let curType = curTok.getType().toString()
                 let rbStr = SeenTokenType.RightBrace.toString()
-                // trace + " rbCheck=(" + curType + "==" + rbStr + ")")
-                // Consume optional 'pub' modifier
+                ///
+                trace + " rbCheck=(" + curType + "==" + rbStr + ")")
+                Consume optional 'pub' modifier
+                ///
                 if matchTokenStr(SeenTokenType.KeywordPub) {
                     // fall through
                 }
@@ -2439,12 +2473,16 @@ class RealParser {
                         classTokenHandled = true
                     }
                 }
-                // Check for 'fun' (instance method)
-                // NOTE: Use nested if instead of 'and' to ensure short-circuit (Stage1 bug workaround)
+                ///
+                Check for 'fun' (instance method)
+                NOTE: Use nested if instead of 'and' to ensure short-circuit (Stage1 bug workaround)
+                ///
                 if not classTokenHandled {
                     if matchTokenStr(SeenTokenType.KeywordFun) {
-                        // Inline parse using lastFunction field to avoid memory corruption
-                        // Handle 'operator' keyword or normal identifier as method name
+                        ///
+                        Inline parse using lastFunction field to avoid memory corruption
+                        Handle 'operator' keyword or normal identifier as method name
+                        ///
                         var methodNameStr2 = ""
                         if checkToken(SeenTokenType.KeywordOperator) {
                             advance()
@@ -2571,14 +2609,16 @@ class RealParser {
         return item
     }
 
-    // Parse a class, struct, trait, or data declaration and push it into
-    // currentProgram.  Also used for `data` and `struct` keywords (aliases).
-    // Parses: generic params, `extends` clause, decorators, braced body
-    // containing fields (var/let/bare), static methods, instance methods
-    // (including operator overloads), and associated type declarations.
-    //
-    // NOTE: `if/else if` chains are written as nested `if not handled { if ... }`
-    // because the stage1 bootstrap compiler does not short-circuit `and`/`or`.
+    ///
+    Parse a class, struct, trait, or data declaration and push it into
+    currentProgram.  Also used for `data` and `struct` keywords (aliases).
+    Parses: generic params, `extends` clause, decorators, braced body
+    containing fields (var/let/bare), static methods, instance methods
+    (including operator overloads), and associated type declarations.
+
+    NOTE: `if/else if` chains are written as nested `if not handled { if ... }`
+    because the stage1 bootstrap compiler does not short-circuit `and`/`or`.
+    ///
     fun parseClassItemInto() r: Void {
         if isAtEnd() {
             return
@@ -2717,12 +2757,16 @@ class RealParser {
                         sawAsyncInto = 1
                     }
                 }
-                // Check for 'fun' (instance method)
-                // NOTE: Use nested if instead of 'and' to ensure short-circuit (Stage1 bug workaround)
+                ///
+                Check for 'fun' (instance method)
+                NOTE: Use nested if instead of 'and' to ensure short-circuit (Stage1 bug workaround)
+                ///
                 if not classIntoTokenHandled {
                     if matchTokenStr(SeenTokenType.KeywordFun) {
-                        // Inline parse using lastFunction field to avoid memory corruption
-                        // Handle 'operator' keyword or normal identifier as method name
+                        ///
+                        Inline parse using lastFunction field to avoid memory corruption
+                        Handle 'operator' keyword or normal identifier as method name
+                        ///
                         var methodNameStr = ""
                         if checkToken(SeenTokenType.KeywordOperator) {
                             advance()
@@ -3140,9 +3184,11 @@ class RealParser {
         return item
     }
 
-    // Parse an enum declaration (enum Name { Variant1, Variant2, ... }) and
-    // push it into currentProgram.  Variants are plain identifiers collected
-    // into EnumNode.variants.
+    ///
+    Parse an enum declaration (enum Name { Variant1, Variant2, ... }) and
+    push it into currentProgram.  Variants are plain identifiers collected
+    into EnumNode.variants.
+    ///
     fun parseEnumItemInto() r: Void {
         if isAtEnd() {
             return
@@ -3289,8 +3335,10 @@ class RealParser {
     }
 
     fun parseOptionalReturnTypeIntoScratch() r: Void {
-        // Seen uses "r: Type" syntax for return types
-        // Check for identifier "r" followed by colon
+        ///
+        Seen uses "r: Type" syntax for return types
+        Check for identifier "r" followed by colon
+        ///
         if checkToken(SeenTokenType.Identifier) {
             let tok = peek()
             if tok.getValue() == "r" or tok.getValue() == "seen_std.builtins.r" {
@@ -3584,8 +3632,10 @@ class RealParser {
                         }
                     }
                 }
-                // : Buffer[T], Uniform[T], Image[T] — GPU types with square bracket syntax
-                // : SmallVec[T, N] — inline storage with square bracket syntax
+                ///
+                : Buffer[T], Uniform[T], Image[T] — GPU types with square bracket syntax
+                : SmallVec[T, N] — inline storage with square bracket syntax
+                ///
                 if (name == "Buffer" or name == "Uniform" or name == "Image" or name == "SmallVec") and checkToken(SeenTokenType.LeftBracket) {
                     advance()
                     parseTypeNodeIntoScratch()
@@ -3652,22 +3702,26 @@ class RealParser {
         lastParsedTypeName = typeName
     }
 
-    // Parse a type annotation and return a TypeNode.
-    // Handles: simple names, qualified names (A.B), generic parameters (Map<K,V>),
-    // raw pointers (*T, *const T), nullable (T?), Result sugar (T ! E),
-    // ErrorUnion (A | B), dyn Trait, const generics, fixed-size arrays
-    // (T[N]), and GPU types with square-bracket syntax (Buffer[T], SmallVec[T, N]).
+    ///
+    Parse a type annotation and return a TypeNode.
+    Handles: simple names, qualified names (A.B), generic parameters (Map<K,V>),
+    raw pointers (*T, *const T), nullable (T?), Result sugar (T ! E),
+    ErrorUnion (A | B), dyn Trait, const generics, fixed-size arrays
+    (T[N]), and GPU types with square-bracket syntax (Buffer[T], SmallVec[T, N]).
+    ///
     fun parseTypeNode() r: TypeNode {
         parseTypeNodeIntoScratch()
         return parsedScratchTypeNode()
     }
 
-    // Parse a brace-delimited block of statements.  The opening `{` has
-    // already been consumed by the caller; this method consumes statements
-    // until `}` and returns the populated BlockNode.
-    //
-    // Saves and restores `currentBlock` and `lastStatement` so that nested
-    // blocks (e.g. if-inside-while) do not clobber the outer parse state.
+    ///
+    Parse a brace-delimited block of statements.  The opening `{` has
+    already been consumed by the caller; this method consumes statements
+    until `}` and returns the populated BlockNode.
+
+    Saves and restores `currentBlock` and `lastStatement` so that nested
+    blocks (e.g. if-inside-while) do not clobber the outer parse state.
+    ///
     fun parseBlockIntoField() r: Void {
         if blockStackDepth >= blockStack.length() {
             blockStack.push(currentBlock)
@@ -3701,13 +3755,15 @@ class RealParser {
         return lastParsedBlock
     }
 
-    // Parse one statement and push it into `currentBlock`.
-    // Dispatches on the leading keyword token to the appropriate handler.
-    // Falls through to parseExpressionStatementField() if no keyword matches.
-    //
-    // Uses the lastStatement class field as a scratch buffer (filled in by
-    // the *Field() helpers) to avoid returning StatementNode by value, which
-    // the stage1 bootstrap compiler miscompiles.
+    ///
+    Parse one statement and push it into `currentBlock`.
+    Dispatches on the leading keyword token to the appropriate handler.
+    Falls through to parseExpressionStatementField() if no keyword matches.
+
+    Uses the lastStatement class field as a scratch buffer (filled in by
+    the *Field() helpers) to avoid returning StatementNode by value, which
+    the stage1 bootstrap compiler miscompiles.
+    ///
     fun parseStatementInto() r: Void {
         lastStatement = StatementNode.new()
 
@@ -4035,8 +4091,10 @@ class RealParser {
     fun parseRegionStatement() r: StatementNode {
         let stmt = StatementNode.new()
         stmt.kind = "Region"
-        // Optional strategy: bump, stack, cxl_near, cxl_far, auto, gpu
-        // : gpu keyword — also accept KeywordGpu token
+        ///
+        Optional strategy: bump, stack, cxl_near, cxl_far, auto, gpu
+        : gpu keyword — also accept KeywordGpu token
+        ///
         if checkToken(SeenTokenType.KeywordGpu) {
             advance()
             stmt.variableType = TypeNode.new()
@@ -4252,33 +4310,45 @@ class RealParser {
         return
     }
 
-    // Fill expression directly into a ParserExpressionNode field
-    // NOTE: Moved before parseIfStatementField to avoid being skipped by parser bug
+    ///
+    Fill expression directly into a ParserExpressionNode field
+    NOTE: Moved before parseIfStatementField to avoid being skipped by parser bug
+    ///
     fun parseExpressionIntoField(expr: ParserExpressionNode) r: Void {
         // trace
         let result = parseExpression()
-        // trace
-        // Copy all scalar fields
+        ///
+        trace
+        Copy all scalar fields
+        ///
         expr.kind = result.kind
         expr.operator = result.operator
         expr.literalValue = result.literalValue
         expr.literalType = result.literalType
         expr.variableName = result.variableName
         expr.callee = result.callee
-        // Don't copy arrays to avoid memory corruption
-        // Copy arrays by iterating (avoids shared data pointer issues)
-        // Actually skip this - most expressions don't need array data
-        // trace
+        ///
+        Don't copy arrays to avoid memory corruption
+        Copy arrays by iterating (avoids shared data pointer issues)
+        Actually skip this - most expressions don't need array data
+        trace
+        ///
     }
 
-    // Fills a ParserExpressionNode directly with parsed expression data
-    // NOTE: Moved before parseIfStatementField to avoid being merged
+    ///
+    Fills a ParserExpressionNode directly with parsed expression data
+    NOTE: Moved before parseIfStatementField to avoid being merged
+    ///
     fun parseExpressionInto(expr: ParserExpressionNode) r: Void {
-        // trace
-        // Parse the expression and copy its fields
+        ///
+        trace
+        Parse the expression and copy its fields
+        ///
         let result = parseExpression()
-        // trace
-        // Copy all scalar fields
+        ///
+        trace
+        Copy all scalar fields
+        ///
         expr.kind = result.kind
         expr.operator = result.operator
         expr.literalValue = result.literalValue
@@ -4393,21 +4463,27 @@ class RealParser {
         let stmt = StatementNode.new()
         // trace
         stmt.kind = "Return"
-        // trace
-        // Avoid storing peek() result to prevent Token copy corruption
+        ///
+        trace
+        Avoid storing peek() result to prevent Token copy corruption
+        ///
         if not checkToken(SeenTokenType.Semicolon) and not checkToken(SeenTokenType.RightBrace) {
             // trace
             let exprResult = parseExpression()
-            // trace
-            // Copy fields individually to avoid struct assignment corruption
-            // For VarExpr, we only need kind and variableName
-            // Avoid copying all fields as String assignment might corrupt memory
-            // trace
+            ///
+            trace
+            Copy fields individually to avoid struct assignment corruption
+            For VarExpr, we only need kind and variableName
+            Avoid copying all fields as String assignment might corrupt memory
+            trace
+            ///
             stmt.returnValue.kind = exprResult.kind
             // trace
             stmt.returnValue.variableName = exprResult.variableName
-            // trace
-            // Only copy other fields if needed for this expression type
+            ///
+            trace
+            Only copy other fields if needed for this expression type
+            ///
             if exprResult.kind == "Literal" {
                 stmt.returnValue.literalValue = exprResult.literalValue
                 stmt.returnValue.literalType = exprResult.literalType
@@ -4417,8 +4493,10 @@ class RealParser {
             }
             if exprResult.kind == "Binary" {
                 stmt.returnValue.operator = exprResult.operator
-                // Binary expressions need operands for OR/AND to work
-                // Copy element by element to avoid array reference issues
+                ///
+                Binary expressions need operands for OR/AND to work
+                Copy element by element to avoid array reference issues
+                ///
                 var opIdx = 0
                 while opIdx < exprResult.operands.length() {
                     stmt.returnValue.operands.push(exprResult.operands[opIdx])
@@ -4433,8 +4511,10 @@ class RealParser {
                     opIdx = opIdx + 1
                 }
             }
-            // trace
-            // Copy arguments for calls
+            ///
+            trace
+            Copy arguments for calls
+            ///
             if exprResult.kind == "Call" or exprResult.kind == "MethodCall" {
                 stmt.returnValue.arguments = exprResult.arguments
             }
@@ -4444,8 +4524,10 @@ class RealParser {
         return stmt
     }
 
-    // Parse `while condition { body }`.  Condition is any expression;
-    // body is a brace-delimited block.
+    ///
+    Parse `while condition { body }`.  Condition is any expression;
+    body is a brace-delimited block.
+    ///
     fun parseWhileStatement() r: StatementNode {
         let stmt = StatementNode.new()
         stmt.kind = "While"
@@ -4480,22 +4562,26 @@ class RealParser {
 
     // NOTE: parseIfStatement moved to end of class to avoid method merging bug
 
-    // Top of the expression-parsing precedence chain.
-    // Delegates to parseAssignment, which in turn cascades down through
-    // parseOr -> parseAnd -> ... -> parsePrimary.
-    // Returns a fully constructed ParserExpressionNode tree.
+    ///
+    Top of the expression-parsing precedence chain.
+    Delegates to parseAssignment, which in turn cascades down through
+    parseOr -> parseAnd -> ... -> parsePrimary.
+    Returns a fully constructed ParserExpressionNode tree.
+    ///
     fun parseExpression() r: ParserExpressionNode {
         return parseAssignment()
     }
 
-    // Lowest precedence: simple assignment (=), compound arithmetic assigns
-    // (+=, -=, *=, /=), compound bitwise assigns (%=, &=, |=, ^=, <<=, >>=),
-    // and the postfix `as` type-cast operator.
-    //
-    // Compound bitwise assigns use a save/restore cursor pattern because
-    // the operators (&, |, ^, <<, >>) are the SAME tokens used by
-    // parseBitwise/parseShift.  We must peek ahead for a following `=`
-    // to disambiguate, and backtrack if it is absent.
+    ///
+    Lowest precedence: simple assignment (=), compound arithmetic assigns
+    (+=, -=, *=, /=), compound bitwise assigns (%=, &=, |=, ^=, <<=, >>=),
+    and the postfix `as` type-cast operator.
+
+    Compound bitwise assigns use a save/restore cursor pattern because
+    the operators (&, |, ^, <<, >>) are the SAME tokens used by
+    parseBitwise/parseShift.  We must peek ahead for a following `=`
+    to disambiguate, and backtrack if it is absent.
+    ///
     fun parseAssignment() r: ParserExpressionNode {
         let expr = parseOr()
 
@@ -4579,8 +4665,10 @@ class RealParser {
             }
         }
 
-        // Compound modulo + bitwise assigns: %= &= |= ^= <<= >>=
-        // Detect as value-based two-token sequences (op followed by =)
+        ///
+        Compound modulo + bitwise assigns: %= &= |= ^= <<= >>=
+        Detect as value-based two-token sequences (op followed by =)
+        ///
         var bwOp = ""
         var bwSet = 0
         if bwSet == 0 {
@@ -4712,8 +4800,10 @@ class RealParser {
         return expr
     }
 
-    // Parse Elvis operator: left ?: right
-    // Parse null-coalescing: left ?? right
+    ///
+    Parse Elvis operator: left ?: right
+    Parse null-coalescing: left ?? right
+    ///
     fun parseElvis() r: ParserExpressionNode {
         var expr = parseEquality()
         if matchTokenStr(SeenTokenType.Elvis) {
@@ -4724,9 +4814,11 @@ class RealParser {
             elvisExpr.operands.push(right)  // [1] = right (default value)
             return elvisExpr
         }
-        // Bootstrap workaround: DoubleQuestion (value 107) is outside stage1_frozen's
-        // 0-99 range, so in stage2 it has type 0 (IntegerLiteral collision).
-        // Guard with string-value check to prevent integer literals being consumed as ??.
+        ///
+        Bootstrap workaround: DoubleQuestion (value 107) is outside stage1_frozen's
+        0-99 range, so in stage2 it has type 0 (IntegerLiteral collision).
+        Guard with string-value check to prevent integer literals being consumed as ??.
+        ///
         if peek().getValue() == "??" {
             if matchTokenStr(SeenTokenType.DoubleQuestion) {
                 let right = parseEquality()
@@ -4740,13 +4832,15 @@ class RealParser {
         return expr
     }
 
-    // WHY sequential `if` instead of `or`:
-    // The stage1 frozen bootstrap compiler does not short-circuit `or`
-    // expressions.  Writing `if matchTokenStr(A) or matchTokenStr(B)` would
-    // execute BOTH matchTokenStr calls even when A already matched, silently
-    // consuming an extra token.  All precedence-level methods below therefore
-    // use nested `if not matched { if matchTokenStr(...) { ... } }` to
-    // guarantee only one token type is consumed per iteration.
+    ///
+    WHY sequential `if` instead of `or`:
+    The stage1 frozen bootstrap compiler does not short-circuit `or`
+    expressions.  Writing `if matchTokenStr(A) or matchTokenStr(B)` would
+    execute BOTH matchTokenStr calls even when A already matched, silently
+    consuming an extra token.  All precedence-level methods below therefore
+    use nested `if not matched { if matchTokenStr(...) { ... } }` to
+    guarantee only one token type is consumed per iteration.
+    ///
 
     fun parseEquality() r: ParserExpressionNode {
         var expr = parseComparison()
@@ -4772,8 +4866,10 @@ class RealParser {
                 expr = newExpr
             }
         }
-        // 'is' type test: expr is TypeName
-        // Skip if this looks like a when/match pattern arm (is Ident -> or is Ident . or is Ident =>)
+        ///
+        'is' type test: expr is TypeName
+        Skip if this looks like a when/match pattern arm (is Ident -> or is Ident . or is Ident =>)
+        ///
         if checkToken(SeenTokenType.KeywordIs) {
             let isP2 = peekAt(2)
             let isP2v = isP2.getValue()
@@ -4831,8 +4927,10 @@ class RealParser {
         return expr
     }
 
-    // Parse range expressions: start..end
-    // Since there is no DotDot token, detect two consecutive Dot tokens
+    ///
+    Parse range expressions: start..end
+    Since there is no DotDot token, detect two consecutive Dot tokens
+    ///
     fun parseRange() r: ParserExpressionNode {
         var expr = parseTerm()
         // Check for '..' by looking for Dot followed by another Dot (without identifier in between)
@@ -4920,17 +5018,19 @@ class RealParser {
         return expr
     }
 
-    // Parse left-shift (<<) and right-shift (>>) binary operators.
-    // Tighter than *, /, % but looser than bitwise &, |, ^.
-    //
-    // Uses value-based string checks (peek().getValue() == "<<") instead of
-    // SeenTokenType enum matching for bootstrap compatibility -- the frozen
-    // bootstrap compiler may not have enum constants for shift tokens.
-    //
-    // The lookahead for `=` after the operator is critical: without it,
-    // compound assigns like `x <<= 1` would be misparsed as a shift `x << (= 1)`.
-    // If the next token after << or >> is `=`, we leave the tokens unconsumed
-    // so parseAssignment() handles the compound assign instead.
+    ///
+    Parse left-shift (<<) and right-shift (>>) binary operators.
+    Tighter than *, /, % but looser than bitwise &, |, ^.
+
+    Uses value-based string checks (peek().getValue() == "<<") instead of
+    SeenTokenType enum matching for bootstrap compatibility -- the frozen
+    bootstrap compiler may not have enum constants for shift tokens.
+
+    The lookahead for `=` after the operator is critical: without it,
+    compound assigns like `x <<= 1` would be misparsed as a shift `x << (= 1)`.
+    If the next token after << or >> is `=`, we leave the tokens unconsumed
+    so parseAssignment() handles the compound assign instead.
+    ///
     fun parseShift() r: ParserExpressionNode {
         var expr = parseBitwise()
         var cont = true
@@ -4974,15 +5074,17 @@ class RealParser {
         return expr
     }
 
-    // Parse bitwise AND (&), OR (|), and XOR (^) binary operators.
-    // Tightest binary precedence level (looser only than unary operators).
-    //
-    // Same lookahead-for-`=` discipline as parseShift: each operator check
-    // peeks at the next token to ensure we do not consume `&=`, `|=`, or `^=`
-    // which belong to the compound-assign handling in parseAssignment().
-    //
-    // Uses value-based string checks for the same bootstrap compatibility
-    // reason as parseShift.
+    ///
+    Parse bitwise AND (&), OR (|), and XOR (^) binary operators.
+    Tightest binary precedence level (looser only than unary operators).
+
+    Same lookahead-for-`=` discipline as parseShift: each operator check
+    peeks at the next token to ensure we do not consume `&=`, `|=`, or `^=`
+    which belong to the compound-assign handling in parseAssignment().
+
+    Uses value-based string checks for the same bootstrap compatibility
+    reason as parseShift.
+    ///
     fun parseBitwise() r: ParserExpressionNode {
         var expr = parseUnary()
         var cont = true
@@ -5044,8 +5146,10 @@ class RealParser {
         return expr
     }
     fun parseUnary() r: ParserExpressionNode {
-        // Handle bitwise NOT ~ using token type check (avoids "~" string literal issue
-        // with stage1_frozen/production compiler which miscompiles "~" string comparisons)
+        ///
+        Handle bitwise NOT ~ using token type check (avoids "~" string literal issue
+        with stage1_frozen/production compiler which miscompiles "~" string comparisons)
+        ///
         if checkToken(SeenTokenType.BitwiseNot) {
             advance()
             let operand = parseUnary()
@@ -5115,20 +5219,22 @@ class RealParser {
         // Check for 'not' keyword (would need to add this as a token type)
         return parseCall()
     }
-    // Parse postfix operators: function calls `(args)`, member access `.field`,
-    // method calls `.method(args)`, index access `[expr]`, optional chaining `?.`,
-    // static method `::method`, and postfix `?` error propagation.
-    //
-    // Runs in a loop to handle chains like `a.b[0].c(x).d`.
-    //
-    // Member access handling:
-    //   When a `.identifier` is followed by `(`, the MemberAccess node is
-    //   converted in-place to a MethodCall node.  The receiver expression is
-    //   stored in literalValue (simple name) or operands[0] (complex expr).
-    //
-    //   Literal, Unary, and Binary expressions are explicitly allowed as method
-    //   receivers (e.g. `'~'.toInt()`, `(a+b).abs()`).  Without the operands
-    //   push for these kinds, the receiver would be lost.
+    ///
+    Parse postfix operators: function calls `(args)`, member access `.field`,
+    method calls `.method(args)`, index access `[expr]`, optional chaining `?.`,
+    static method `::method`, and postfix `?` error propagation.
+
+    Runs in a loop to handle chains like `a.b[0].c(x).d`.
+
+    Member access handling:
+      When a `.identifier` is followed by `(`, the MemberAccess node is
+      converted in-place to a MethodCall node.  The receiver expression is
+      stored in literalValue (simple name) or operands[0] (complex expr).
+
+      Literal, Unary, and Binary expressions are explicitly allowed as method
+      receivers (e.g. `'~'.toInt()`, `(a+b).abs()`).  Without the operands
+      push for these kinds, the receiver would be lost.
+    ///
     fun parseCall() r: ParserExpressionNode {
         var expr = parsePrimary()
 
@@ -5141,14 +5247,20 @@ class RealParser {
                 // Check if this is a method call (expr.method())
                 var wasMemberAccess = false
                 if expr.kind == "MemberAccess" {
-                    // trace
-                    // Convert MemberAccess to MethodCall in-place to avoid memory corruption
+                    ///
+                    trace
+                    Convert MemberAccess to MethodCall in-place to avoid memory corruption
+                    ///
                     expr.kind = "MethodCall"
-                    // trace
-                    // literalValue already has the receiver name from MemberAccess
+                    ///
+                    trace
+                    literalValue already has the receiver name from MemberAccess
+                    ///
                     expr.callee = expr.variableName  // method name
-                    // trace
-                    // arguments array already exists from MemberAccess creation
+                    ///
+                    trace
+                    arguments array already exists from MemberAccess creation
+                    ///
                     wasMemberAccess = true
                 }
                 if not wasMemberAccess {
@@ -5159,8 +5271,10 @@ class RealParser {
                     expr = callExpr
                 }
 
-                // Parse arguments into the current expr
-                // trace
+                ///
+                Parse arguments into the current expr
+                trace
+                ///
                 let emptyArgs = checkToken(getRightParenType())
                 if not emptyArgs {
                     // trace
@@ -5222,8 +5336,10 @@ class RealParser {
                     // Build full receiver path for chained access like diag.line.field
                     var memberLitSet = false
                     if expr.kind == "MemberAccess" {
-                        // Preserve complex receivers like call().field.next so later
-                        // stages still see the nested member access tree.
+                        ///
+                        Preserve complex receivers like call().field.next so later
+                        stages still see the nested member access tree.
+                        ///
                         if expr.literalValue != "" {
                             memberExpr.literalValue = expr.literalValue + "." + expr.variableName
                         } else {
@@ -5313,27 +5429,31 @@ class RealParser {
         return expr
     }
 
-    // Parse a primary (atomic) expression: literals, identifiers, struct
-    // literals, array literals, parenthesized expressions, if-expressions,
-    // when/match expressions, closures, interpolated strings, and keywords
-    // like `this`, `super`, `spawn`, `transmute`, `gpu`.
-    //
-    // CRITICAL ORDERING CONSTRAINT (bootstrap compatibility):
-    //   Integer, Float, String, Char, and Bool literal checks MUST come
-    //   BEFORE any keyword checks (KeywordWhen, KeywordMatch, etc.).
-    //
-    //   Reason: the pre-refactoring bootstrap compiler's getSeenTokenTypeValue()
-    //   returns 0 for any token type it does not recognize.  Since
-    //   IntegerLiteral has value 0, a checkToken(KeywordWhen) call in that
-    //   compiler actually matches integer tokens.  If we checked keywords
-    //   first, integer literals would be incorrectly consumed as `when`
-    //   expressions, causing all integer return values to become 0.
-    //   Checking literals first ensures they are consumed before any keyword
-    //   match can misfire.
+    ///
+    Parse a primary (atomic) expression: literals, identifiers, struct
+    literals, array literals, parenthesized expressions, if-expressions,
+    when/match expressions, closures, interpolated strings, and keywords
+    like `this`, `super`, `spawn`, `transmute`, `gpu`.
+
+    CRITICAL ORDERING CONSTRAINT (bootstrap compatibility):
+      Integer, Float, String, Char, and Bool literal checks MUST come
+      BEFORE any keyword checks (KeywordWhen, KeywordMatch, etc.).
+
+      Reason: the pre-refactoring bootstrap compiler's getSeenTokenTypeValue()
+      returns 0 for any token type it does not recognize.  Since
+      IntegerLiteral has value 0, a checkToken(KeywordWhen) call in that
+      compiler actually matches integer tokens.  If we checked keywords
+      first, integer literals would be incorrectly consumed as `when`
+      expressions, causing all integer return values to become 0.
+      Checking literals first ensures they are consumed before any keyword
+      match can misfire.
+    ///
     fun parsePrimary() r: ParserExpressionNode {
-        // Literal checks FIRST — must come before keyword checks because
-        // older bootstrap compilers may assign value 0 to unknown token types
-        // (e.g. KeywordWhen), causing them to collide with IntegerLiteral=0.
+        ///
+        Literal checks FIRST — must come before keyword checks because
+        older bootstrap compilers may assign value 0 to unknown token types
+        (e.g. KeywordWhen), causing them to collide with IntegerLiteral=0.
+        ///
 
         // Integer literal
         let currentValue = peek().getValue()
@@ -5349,9 +5469,11 @@ class RealParser {
             return makeLiteral(token.getValue(), "Float")
         }
 
-        // StringLiteral tokens already carry the unquoted payload from the lexer.
-        // Do not re-check for surrounding quotes here or they fall through into
-        // the name-like path and become VarExpr nodes.
+        ///
+        StringLiteral tokens already carry the unquoted payload from the lexer.
+        Do not re-check for surrounding quotes here or they fall through into
+        the name-like path and become VarExpr nodes.
+        ///
         if checkToken(SeenTokenType.StringLiteral) {
             let token = advance()
             let rawValue = token.getValue()
@@ -5381,10 +5503,12 @@ class RealParser {
             return makeLiteral("false", "Bool")
         }
 
-        // `data` is a contextual declaration keyword, but in expression
-        // position it must behave like a plain identifier. Handle it before
-        // the expression-keyword branches below so bootstrap enum/string
-        // mismatches cannot route it into `if`/`when`/`match` parsing.
+        ///
+        `data` is a contextual declaration keyword, but in expression
+        position it must behave like a plain identifier. Handle it before
+        the expression-keyword branches below so bootstrap enum/string
+        mismatches cannot route it into `if`/`when`/`match` parsing.
+        ///
         if checkNameLikeToken() {
             if peek().getValue() == "data" {
                 advance()
@@ -5428,8 +5552,10 @@ class RealParser {
             } else {
                 ifExpr.operands.push(ParserExpressionNode.new())
             }
-            // Stash side-effect exprs in arguments[] for codegen
-            // Format: [thenSideEffects..., sentinel, elseSideEffects...]
+            ///
+            Stash side-effect exprs in arguments[] for codegen
+            Format: [thenSideEffects..., sentinel, elseSideEffects...]
+            ///
             var thi = 0
             while thi < thenExprs.length() - 1 {
                 ifExpr.arguments.push(thenExprs[thi])
@@ -5452,8 +5578,10 @@ class RealParser {
             return parseWhenExpression()
         }
 
-        // match keyword: match expr { Pattern -> result ... }
-        // Subject is unparenthesised (unlike 'when (expr) {}')
+        ///
+        match keyword: match expr { Pattern -> result ... }
+        Subject is unparenthesised (unlike 'when (expr) {}')
+        ///
         if checkToken(SeenTokenType.KeywordMatch) {
             return parseMatchExpression()
         }
@@ -5566,12 +5694,16 @@ class RealParser {
             // Remap 'self' to 'this' (alias for this-pointer)
             if name == "self" { name = "this" }
 
-            // Check for generic type syntax: Array<Type>() or Map<K,V>{}
-            // This needs to be handled before struct literal check
+            ///
+            Check for generic type syntax: Array<Type>() or Map<K,V>{}
+            This needs to be handled before struct literal check
+            ///
             if checkToken(SeenTokenType.LessThan) {
-                // Look ahead to see if this is a generic type or a comparison
-                // Generic type pattern: Identifier<Type>() or Identifier<Type>{}
-                // We save position, try to parse generic, then decide
+                ///
+                Look ahead to see if this is a generic type or a comparison
+                Generic type pattern: Identifier<Type>() or Identifier<Type>{}
+                We save position, try to parse generic, then decide
+                ///
                 let savedPos = current
                 advance() // consume <
                 var genericParsed = false
@@ -5616,8 +5748,10 @@ class RealParser {
                         advance() // consume >
                         foundClosingGt = true
 
-                        // Now check if followed by (), {}, or . to confirm generic type
-                        // NOTE: Use nested ifs instead of 'or' to ensure short-circuit (Stage1 bug workaround)
+                        ///
+                        Now check if followed by (), {}, or . to confirm generic type
+                        NOTE: Use nested ifs instead of 'or' to ensure short-circuit (Stage1 bug workaround)
+                        ///
                         var isGenericType = false
                         if checkToken(SeenTokenType.LeftParen) {
                             isGenericType = true
@@ -5656,15 +5790,19 @@ class RealParser {
                 }
             }
 
-            // Check for struct literal: TypeName{ field: value, ... }
-            // Only treat as struct literal if identifier starts with uppercase (type name convention)
-            // This prevents `if myVar { ... }` from being parsed as struct literal
+            ///
+            Check for struct literal: TypeName{ field: value, ... }
+            Only treat as struct literal if identifier starts with uppercase (type name convention)
+            This prevents `if myVar { ... }` from being parsed as struct literal
+            ///
             let firstChar = name.charAt(0)
             let isUppercase = firstChar >= "A" and firstChar <= "Z"
             var isStructLiteral = false
             if isUppercase and checkToken(SeenTokenType.LeftBrace) {
-                // Lookahead: struct literal requires { IDENTIFIER : pattern
-                // This prevents `if X >= MAX_ITEMS { ... }` from treating MAX_ITEMS as struct type
+                ///
+                Lookahead: struct literal requires { IDENTIFIER : pattern
+                This prevents `if X >= MAX_ITEMS { ... }` from treating MAX_ITEMS as struct type
+                ///
                 let savedCurrent = current
                 advance() // skip {
                 var looksLikeStruct = false
@@ -5723,8 +5861,10 @@ class RealParser {
                 return structExpr
             }
 
-            // Regular identifier/variable - use the same pattern as makeLiteral
-            // trace
+            ///
+            Regular identifier/variable - use the same pattern as makeLiteral
+            trace
+            ///
             return makeVariable(name)
         }
 
@@ -5764,10 +5904,12 @@ class RealParser {
         }
     }
 
-    // Create a variable-reference expression node.
-    // The kind is "VarExpr" (not "Variable") because the stage1 bootstrap
-    // compiler has a memory-corruption bug triggered by the exact 8-byte
-    // string "Variable" when stored in a struct field.
+    ///
+    Create a variable-reference expression node.
+    The kind is "VarExpr" (not "Variable") because the stage1 bootstrap
+    compiler has a memory-corruption bug triggered by the exact 8-byte
+    string "Variable" when stored in a struct field.
+    ///
     fun getVariableExprName(expr: ParserExpressionNode) r: String {
         if expr.variableName != "" {
             return expr.variableName
@@ -5788,19 +5930,23 @@ class RealParser {
         return expr
     }
 
-    // Parse an interpolated string like `"Hello {name}!"`.
-    // The lexer emits only non-empty InterpolatedStringMiddle tokens, so the
-    // parser must synthesize empty leading/trailing parts to preserve ordering.
-    // arguments[] always stores string-literal parts with length = exprs + 1,
-    // while operands[] stores the embedded expressions between those parts.
+    ///
+    Parse an interpolated string like `"Hello {name}!"`.
+    The lexer emits only non-empty InterpolatedStringMiddle tokens, so the
+    parser must synthesize empty leading/trailing parts to preserve ordering.
+    arguments[] always stores string-literal parts with length = exprs + 1,
+    while operands[] stores the embedded expressions between those parts.
+    ///
     fun parseInterpolatedString() r: ParserExpressionNode {
         // Consume InterpolatedStringStart
         advance()
 
         let result = ParserExpressionNode.new()
         result.kind = "StringInterpolation"
-        // arguments holds the string literal parts, including empty separators.
-        // operands holds the expressions to interpolate.
+        ///
+        arguments holds the string literal parts, including empty separators.
+        operands holds the expressions to interpolate.
+        ///
 
         while not checkToken(SeenTokenType.InterpolatedStringEnd) {
             if isAtEnd() {
@@ -5808,8 +5954,10 @@ class RealParser {
                 break
             }
 
-            // The lexer omits empty middle tokens, so preserve missing separators
-            // explicitly to keep parts ordered around each expression.
+            ///
+            The lexer omits empty middle tokens, so preserve missing separators
+            explicitly to keep parts ordered around each expression.
+            ///
             if checkToken(SeenTokenType.InterpolatedStringMiddle) {
                 let token = advance()
                 let strPart = token.getValue()
@@ -5852,9 +6000,11 @@ class RealParser {
         return item
     }
 
-    // Parse an import declaration (import path.to.module.{Symbol1, Symbol2})
-    // and push it into currentProgram.  Supports dot-separated paths,
-    // Rust-style :: paths, `as` aliases, and braced symbol lists.
+    ///
+    Parse an import declaration (import path.to.module.{Symbol1, Symbol2})
+    and push it into currentProgram.  Supports dot-separated paths,
+    Rust-style :: paths, `as` aliases, and braced symbol lists.
+    ///
     fun parseImportItemInto() r: Void {
         let importSegments = Array<String>()
 
@@ -6029,20 +6179,24 @@ class RealParser {
         return symbol
     }
 
-    // ========== If-related methods (placed at end of class) ===================
-    //
-    // WHY these are at the end:
-    //   The stage1 frozen bootstrap compiler has a codegen bug where methods
-    //   with similar signatures that appear adjacent in source get "merged" --
-    //   the body of one overwrites another.  Moving parseIfStatementField,
-    //   parseIfStatementInto, and parseIfStatement to the bottom of the class
-    //   (far from each other and from similar parse*Statement methods) avoids
-    //   the collision.
-    // ========================================================================
+    ///
+    ========== If-related methods (placed at end of class) ===================
 
-    // Stable while parsers kept near the bottom of the file to avoid a
-    // stage1 bootstrap method-merging bug observed with adjacent parse*Field
-    // loop parsers.
+    WHY these are at the end:
+      The stage1 frozen bootstrap compiler has a codegen bug where methods
+      with similar signatures that appear adjacent in source get "merged" --
+      the body of one overwrites another.  Moving parseIfStatementField,
+      parseIfStatementInto, and parseIfStatement to the bottom of the class
+      (far from each other and from similar parse*Statement methods) avoids
+      the collision.
+    ========================================================================
+    ///
+
+    ///
+    Stable while parsers kept near the bottom of the file to avoid a
+    stage1 bootstrap method-merging bug observed with adjacent parse*Field
+    loop parsers.
+    ///
     fun parseStableWhileStatementField() r: Void {
         lastStatement.kind = "While"
         parseExpressionInto(lastStatement.loopCondition)
@@ -6083,8 +6237,10 @@ class RealParser {
             advance() // consume 'else'
             if checkToken(SeenTokenType.KeywordIf) {
                 advance() // consume 'if'
-                // Parse else-if as a nested if in the else branch
-                // Uses parseIfStatement() which handles full else-if chains recursively
+                ///
+                Parse else-if as a nested if in the else branch
+                Uses parseIfStatement() which handles full else-if chains recursively
+                ///
                 let elseBlock = BlockNode.new()
                 let nestedIf = parseIfStatement()
                 elseBlock.statements.push(nestedIf)
@@ -6127,13 +6283,15 @@ class RealParser {
         return
     }
 
-    // Parse an if statement, including `if let` bindings and chained else-if.
-    // Else-if is handled by recursively calling parseIfStatement() and
-    // wrapping the result in a single-statement else BlockNode.
-    //
-    // This method is intentionally placed at the END of the class to work
-    // around a stage1 bootstrap codegen bug where adjacent methods with
-    // similar signatures get "merged" (their bodies are conflated).
+    ///
+    Parse an if statement, including `if let` bindings and chained else-if.
+    Else-if is handled by recursively calling parseIfStatement() and
+    wrapping the result in a single-statement else BlockNode.
+
+    This method is intentionally placed at the END of the class to work
+    around a stage1 bootstrap codegen bug where adjacent methods with
+    similar signatures get "merged" (their bodies are conflated).
+    ///
     fun parseIfStatement() r: StatementNode {
         let stmt = StatementNode.new()
         // if let pattern: if let name = expr { ... } else { ... }
@@ -6187,10 +6345,12 @@ class RealParser {
 
     // -- When / Match expression parsing ------------------------------------
 
-    // Parse a when expression: `when (subject) { is Pattern -> expr, ... }`.
-    // The subject is optional and wrapped in parentheses.
-    // Returns a WhenExpression node with operands[0] = subject (if present)
-    // and arguments[] = array of PatternArm nodes.
+    ///
+    Parse a when expression: `when (subject) { is Pattern -> expr, ... }`.
+    The subject is optional and wrapped in parentheses.
+    Returns a WhenExpression node with operands[0] = subject (if present)
+    and arguments[] = array of PatternArm nodes.
+    ///
     fun parseWhenExpression() r: ParserExpressionNode {
         // Consume 'when' keyword
         advance()
@@ -6237,9 +6397,11 @@ class RealParser {
         return whenExpr
     }
 
-    // Parse `match subject { Pattern -> result, ... }`.
-    // Identical to when-expression semantics but the subject is NOT
-    // parenthesized.  Both produce the same WhenExpression AST node.
+    ///
+    Parse `match subject { Pattern -> result, ... }`.
+    Identical to when-expression semantics but the subject is NOT
+    parenthesized.  Both produce the same WhenExpression AST node.
+    ///
     fun parseMatchExpression() r: ParserExpressionNode {
         advance() // consume 'match' keyword
 
@@ -6264,9 +6426,11 @@ class RealParser {
         return matchExpr
     }
 
-    // Parse a single pattern arm directly into ParserExpressionNode
-    // Returns: kind="PatternArm", variableName=pattern kind, literalValue=type/literal value,
-    //          operands[0]=pattern expr, operands[1]=arm result expr
+    ///
+    Parse a single pattern arm directly into ParserExpressionNode
+    Returns: kind="PatternArm", variableName=pattern kind, literalValue=type/literal value,
+             operands[0]=pattern expr, operands[1]=arm result expr
+    ///
     fun parsePatternArmExpr() r: ParserExpressionNode {
         let armExpr = ParserExpressionNode.new()
         armExpr.kind = "PatternArm"
@@ -6323,9 +6487,11 @@ class RealParser {
         return armExpr
     }
 
-    // Parse a pattern directly into ParserExpressionNode
-    // Returns: kind="Pattern", variableName=pattern kind, literalValue=type/literal value,
-    //          literalType=type for literals, operands=field bindings
+    ///
+    Parse a pattern directly into ParserExpressionNode
+    Returns: kind="Pattern", variableName=pattern kind, literalValue=type/literal value,
+             literalType=type for literals, operands=field bindings
+    ///
     fun parsePatternExpr() r: ParserExpressionNode {
         let expr = ParserExpressionNode.new()
         expr.kind = "Pattern"
@@ -6475,8 +6641,10 @@ class RealParser {
         return expr
     }
 
-    // Parse a single field binding into ParserExpressionNode
-    // Returns: kind="PatternField", variableName=field name, literalValue=binding name
+    ///
+    Parse a single field binding into ParserExpressionNode
+    Returns: kind="PatternField", variableName=field name, literalValue=binding name
+    ///
     fun parsePatternFieldExpr() r: ParserExpressionNode {
         let fieldExpr = ParserExpressionNode.new()
         fieldExpr.kind = "PatternField"
@@ -6511,14 +6679,18 @@ class RealParser {
         return "private"
     }
 
-    // BOOTSTRAP CONSTRAINT: keep new() at the end of the class. Older bootstrap
-    // compilers can silently drop later RealParser methods after parsing the
-    // generic Array<...>() initializers in this constructor.
+    ///
+    BOOTSTRAP CONSTRAINT: keep new() at the end of the class. Older bootstrap
+    compilers can silently drop later RealParser methods after parsing the
+    generic Array<...>() initializers in this constructor.
+    ///
     static fun new(rawTokens: Array<Token>) r: RealParser {
         return RealParser{
-            // parseEffectModifierInto() handles KeywordEffect directly, so avoid
-            // rebuilding Array<Token> here. Older bootstrap compilers can
-            // miscompile rewriteEffectTokens() and drop every token.
+            ///
+            parseEffectModifierInto() handles KeywordEffect directly, so avoid
+            rebuilding Array<Token> here. Older bootstrap compilers can
+            miscompile rewriteEffectTokens() and drop every token.
+            ///
             tokens: rawTokens,
             current: 0,
             currentProgram: ProgramNode.new(),

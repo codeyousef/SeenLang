@@ -1,5 +1,7 @@
-// Simplified Seen Code Generator - Parser Compatible Version
-// High-performance code generation with production-ready LLVM IR output
+///
+Simplified Seen Code Generator - Parser Compatible Version
+High-performance code generation with production-ready LLVM IR output
+///
 
 import process.process.{runCommand, CommandResult, commandWasSuccessful}
 

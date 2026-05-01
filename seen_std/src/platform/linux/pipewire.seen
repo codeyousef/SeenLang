@@ -43,9 +43,11 @@ let SAMPLE_RATE_44100: Int = 44100
 let SAMPLE_RATE_48000: Int = 48000
 let SAMPLE_RATE_96000: Int = 96000
 
-// ============================================================================
-// Shim FFI Declarations - Link to libseen_platform.so
-// ============================================================================
+///
+============================================================================
+Shim FFI Declarations - Link to libseen_platform.so
+============================================================================
+///
 
 // Core PipeWire initialization
 extern "C" fun seen_pw_init() r: Void
@@ -61,9 +63,11 @@ extern "C" fun seen_pw_thread_loop_lock(loop: *Void) r: Void
 extern "C" fun seen_pw_thread_loop_unlock(loop: *Void) r: Void
 extern "C" fun seen_pw_thread_loop_get_loop(threadLoop: *Void) r: *Void
 
-// ============================================================================
-// Safe Wrapper Functions
-// ============================================================================
+///
+============================================================================
+Safe Wrapper Functions
+============================================================================
+///
 
 fun pw_init() r: Void {
     seen_pw_init()

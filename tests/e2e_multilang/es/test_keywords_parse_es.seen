@@ -1,8 +1,10 @@
-// Prueba E2E: Analisis sintactico de palabras clave (Espanol)
-// COMPILE-ONLY
-// NOTA: estático función agrega campos fantasma void -- usar funciones libres
-// NOTA: Literales de constructor de clase ClassName { campo: val } retornan i64 no ptr
-//       -- usar asignacion de campos despues de ClassName()
+///
+Prueba E2E: Analisis sintactico de palabras clave (Espanol)
+COMPILE-ONLY
+NOTA: estático función agrega campos fantasma void -- usar funciones libres
+NOTA: Literales de constructor de clase ClassName { campo: val } retornan i64 no ptr
+      -- usar asignacion de campos despues de ClassName()
+///
 
 clase CajaSimple {
     variable valor: entero

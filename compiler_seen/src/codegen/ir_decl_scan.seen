@@ -1,5 +1,7 @@
-// ir_decl_scan.seen — Pass 1 declaration-scan helpers
-// Shared registry mutation helpers extracted from llvm_ir_gen.seen registerDeclarations().
+///
+ir_decl_scan.seen — Pass 1 declaration-scan helpers
+Shared registry mutation helpers extracted from llvm_ir_gen.seen registerDeclarations().
+///
 
 import parser.real_parser.{ProgramNode, FunctionNode}
 import str.string.{StringBuilder}
@@ -259,9 +261,11 @@ fun resolveStructMethodSignatureReturnTypeImpl(className: String,
     if method.name == "new" {
         return className
     }
-    // Declaration scanning must not walk method bodies: large self-hosted
-    // classes expose bootstrap AST-copy fragility here. Methods without an
-    // explicit result type are treated as no-value methods for ABI metadata.
+    ///
+    Declaration scanning must not walk method bodies: large self-hosted
+    classes expose bootstrap AST-copy fragility here. Methods without an
+    explicit result type are treated as no-value methods for ABI metadata.
+    ///
     return "Void"
 }
 

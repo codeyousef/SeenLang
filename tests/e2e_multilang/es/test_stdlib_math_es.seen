@@ -1,7 +1,9 @@
-// Prueba E2E: Operaciones matematicas (Espanol)
-// NOTA: Las funciones de stdlib de Float (raiz, seno, coseno, absoluto, piso, techo, potencia)
-// retornan i64 en vez de double por bug de codegen. Probando solo matematicas de enteros.
-// Modulo (%) esta roto, usando alternativa: a - (a/b)*b
+///
+Prueba E2E: Operaciones matematicas (Espanol)
+NOTA: Las funciones de stdlib de Float (raiz, seno, coseno, absoluto, piso, techo, potencia)
+retornan i64 en vez de double por bug de codegen. Probando solo matematicas de enteros.
+Modulo (%) esta roto, usando alternativa: a - (a/b)*b
+///
 
 función principal() r: entero {
     // Prueba 1: valor absoluto de entero via condicional

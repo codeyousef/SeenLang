@@ -1,5 +1,7 @@
-// ir_enum_ctor_gen.seen -- Shared enum-constructor emission helpers
-// Extracted from llvm_ir_gen.seen to keep enum allocation/store IR thin.
+///
+ir_enum_ctor_gen.seen -- Shared enum-constructor emission helpers
+Extracted from llvm_ir_gen.seen to keep enum allocation/store IR thin.
+///
 
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn}

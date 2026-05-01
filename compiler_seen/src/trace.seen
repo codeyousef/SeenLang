@@ -1,13 +1,15 @@
-// compiler_seen.trace
-// Debug tracing infrastructure for the self-hosted compiler.
-// Controlled via environment variables, similar to the Rust compiler.
-//
-// Environment variables:
-//   SEEN_TRACE_LEXER=1     - Trace lexer operations (tokenize, advance, etc.)
-//   SEEN_TRACE_PARSER=1    - Trace parser operations
-//   SEEN_TRACE_CODEGEN=1   - Trace code generation
-//   SEEN_TRACE_ALL=1       - Enable all tracing
-//   SEEN_TRACE_VERBOSE=1   - Extra verbose output
+///
+compiler_seen.trace
+Debug tracing infrastructure for the self-hosted compiler.
+Controlled via environment variables, similar to the Rust compiler.
+
+Environment variables:
+  SEEN_TRACE_LEXER=1     - Trace lexer operations (tokenize, advance, etc.)
+  SEEN_TRACE_PARSER=1    - Trace parser operations
+  SEEN_TRACE_CODEGEN=1   - Trace code generation
+  SEEN_TRACE_ALL=1       - Enable all tracing
+  SEEN_TRACE_VERBOSE=1   - Extra verbose output
+///
 
 import env.env.{has}
 

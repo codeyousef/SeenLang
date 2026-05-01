@@ -1,5 +1,7 @@
-// Test @hot_reload decorator
-// This test verifies hot reload state serialization
+///
+Test @hot_reload decorator
+This test verifies hot reload state serialization
+///
 
 // A simple class marked for hot reload
 @hot_reload
@@ -82,8 +84,10 @@ fun main() r: Int {
     game.takeDamage(25)
     println("Modified: " + game.toString())
 
-    // Test state serialization (would be used during hot reload)
-    // In a real scenario, we'd save this before reload and restore after
+    ///
+    Test state serialization (would be used during hot reload)
+    In a real scenario, we'd save this before reload and restore after
+    ///
     let stateSize = game.__seen_hot_get_size()
     println("State size: " + stateSize.toString() + " bytes")
 

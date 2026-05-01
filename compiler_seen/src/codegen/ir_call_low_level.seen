@@ -1,6 +1,8 @@
-// ir_call_low_level.seen — low-level builtin call helpers
-// Extracted from llvm_ir_gen.seen to keep low-level call emission separate
-// from the higher-level builtin dispatcher.
+///
+ir_call_low_level.seen — low-level builtin call helpers
+Extracted from llvm_ir_gen.seen to keep low-level call emission separate
+from the higher-level builtin dispatcher.
+///
 
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn}

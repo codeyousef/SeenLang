@@ -1,6 +1,8 @@
-// ir_function_usage.seen — top-level function usage analysis helpers
-// Extracted from llvm_ir_gen.seen to keep module-level warning scans separate
-// from the main IR generation orchestration.
+///
+ir_function_usage.seen — top-level function usage analysis helpers
+Extracted from llvm_ir_gen.seen to keep module-level warning scans separate
+from the main IR generation orchestration.
+///
 
 import parser.real_parser.{ProgramNode, ItemNode, FunctionNode, StatementNode, ParserExpressionNode}
 

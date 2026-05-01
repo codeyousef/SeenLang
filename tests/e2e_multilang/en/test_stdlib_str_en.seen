@@ -1,8 +1,10 @@
-// E2E Test: String Standard Library (English)
-// Functions tested: contains, startsWith, endsWith, indexOf, length, concat
-// NOTE: contains/startsWith/endsWith return bool - must use directly in if,
-//       not assign to var and compare with == 1 (i1 vs i64 mismatch)
-// NOTE: indexOf takes 3 args: (text, needle, startIndex)
+///
+E2E Test: String Standard Library (English)
+Functions tested: contains, startsWith, endsWith, indexOf, length, concat
+NOTE: contains/startsWith/endsWith return bool - must use directly in if,
+      not assign to var and compare with == 1 (i1 vs i64 mismatch)
+NOTE: indexOf takes 3 args: (text, needle, startIndex)
+///
 
 fun main() r: Int {
     let text = "hello world"

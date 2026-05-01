@@ -1,5 +1,7 @@
-// ThreadLocal — Per-thread storage via pthread TLS.
-// Each thread sees its own independent value.
+///
+ThreadLocal — Per-thread storage via pthread TLS.
+Each thread sees its own independent value.
+///
 
 extern fun seen_tls_new() r: Int
 extern fun seen_tls_set(key: Int, value: Int) r: Void

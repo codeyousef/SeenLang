@@ -1,6 +1,8 @@
-// Matrix Multiplication Benchmark (SGEMM)
-// High-performance matrix multiplication with cache blocking
-// Uses flat Array<Float> for matrix data (no class wrapper for stage1 compat)
+///
+Matrix Multiplication Benchmark (SGEMM)
+High-performance matrix multiplication with cache blocking
+Uses flat Array<Float> for matrix data (no class wrapper for stage1 compat)
+///
 
 fun matrix_new(size: Int) -> Array<Float> {
     let total = size * size

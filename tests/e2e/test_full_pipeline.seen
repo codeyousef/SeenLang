@@ -1,6 +1,8 @@
-// End-to-End Full Compilation Pipeline Test
-// Tests: multi-module compilation, imports, classes, functions, control flow
-// Expected: Complete toolchain works from source to executable
+///
+End-to-End Full Compilation Pipeline Test
+Tests: multi-module compilation, imports, classes, functions, control flow
+Expected: Complete toolchain works from source to executable
+///
 
 import math_utils.{factorial, fibonacci, isPrime, sumRange}
 import geometry.{Point, Rectangle}
@@ -103,22 +105,26 @@ fun main() r: Int {
         failed = failed + 1
     }
 
-    // Test 9: Rectangle scaling - SKIPPED (method removed due to IR bug)
-    // println("\nTest 9: Rectangle scaling")
-    // let scaled = rect.scale(3)
-    // if scaled.width == 15 and scaled.height == 30 {
-    //     println("  PASS: Rectangle(5, 10).scale(3) = Rectangle(15, 30)")
-    //     passed = passed + 1
-    // } else {
-    //     println("  FAIL: Rectangle scaling incorrect")
-    //     failed = failed + 1
-    // }
+    ///
+    Test 9: Rectangle scaling - SKIPPED (method removed due to IR bug)
+    println("\nTest 9: Rectangle scaling")
+    let scaled = rect.scale(3)
+    if scaled.width == 15 and scaled.height == 30 {
+        println("  PASS: Rectangle(5, 10).scale(3) = Rectangle(15, 30)")
+        passed = passed + 1
+    } else {
+        println("  FAIL: Rectangle scaling incorrect")
+        failed = failed + 1
+    }
+    ///
 
     // Test 10: Complex expression combining modules
     println("\nTest 10: Complex multi-module expression")
-    // Calculate: factorial(fibonacci(5)) % (Point(6, 8).distanceSquared())
-    // fib(5) = 5, fact(5) = 120, Point(6,8).distSq = 100
-    // 120 % 100 = 20
+    ///
+    Calculate: factorial(fibonacci(5)) % (Point(6, 8).distanceSquared())
+    fib(5) = 5, fact(5) = 120, Point(6,8).distSq = 100
+    120 % 100 = 20
+    ///
     let fib5 = fibonacci(5)
     let factFib = factorial(fib5)
     let point = Point.new(6, 8)

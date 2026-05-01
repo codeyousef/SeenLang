@@ -1,8 +1,10 @@
-// Prueba E2E: Biblioteca estandar de colecciones (Espanol)
-// Tipos probados: Array<entero>, Array<cadena>, HashMap<cadena, entero>
-// NOTA: HashMap.poner() (put) no existe en runtime -- usar insert()
-// NOTA: HashMap.obtener() (get) genera IR invalido -- usar getOrDefault()
-// NOTA: HashMap.containsKey() retorna bool, usar directamente en si
+///
+Prueba E2E: Biblioteca estandar de colecciones (Espanol)
+Tipos probados: Array<entero>, Array<cadena>, HashMap<cadena, entero>
+NOTA: HashMap.poner() (put) no existe en runtime -- usar insert()
+NOTA: HashMap.obtener() (get) genera IR invalido -- usar getOrDefault()
+NOTA: HashMap.containsKey() retorna bool, usar directamente en si
+///
 
 función principal() r: entero {
     // Prueba 1: Array<entero> agregar y obtener

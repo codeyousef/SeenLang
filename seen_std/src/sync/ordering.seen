@@ -1,22 +1,26 @@
-// Memory ordering for atomic operations
-// Maps to LLVM atomic ordering semantics
+///
+Memory ordering for atomic operations
+Maps to LLVM atomic ordering semantics
+///
 
-// Memory ordering determines synchronization guarantees between threads
-// Choosing the right ordering is critical for performance:
-//
-// - Relaxed: No synchronization, fastest (use for counters without sync requirements)
-// - Acquire: Synchronizes with Release stores (use for loads in consumer)
-// - Release: Synchronizes with Acquire loads (use for stores in producer)
-// - AcqRel: Both Acquire and Release (use for read-modify-write operations)
-// - SeqCst: Sequentially consistent, strongest guarantee, slowest (avoid unless necessary)
-//
-// Performance tip (x86-64):
-// - Acquire is free on x86-64 due to TSO memory model
-// - Prefer Acquire/Release over SeqCst when possible
-//
-// Performance tip (ARM):
-// - Acquire/Release require explicit barriers
-// - Minimize fence instructions by using weakest sufficient ordering
+///
+Memory ordering determines synchronization guarantees between threads
+Choosing the right ordering is critical for performance:
+
+- Relaxed: No synchronization, fastest (use for counters without sync requirements)
+- Acquire: Synchronizes with Release stores (use for loads in consumer)
+- Release: Synchronizes with Acquire loads (use for stores in producer)
+- AcqRel: Both Acquire and Release (use for read-modify-write operations)
+- SeqCst: Sequentially consistent, strongest guarantee, slowest (avoid unless necessary)
+
+Performance tip (x86-64):
+- Acquire is free on x86-64 due to TSO memory model
+- Prefer Acquire/Release over SeqCst when possible
+
+Performance tip (ARM):
+- Acquire/Release require explicit barriers
+- Minimize fence instructions by using weakest sufficient ordering
+///
 
 data Ordering {
     Relaxed,   // No synchronization (fastest - ~1 cycle overhead)

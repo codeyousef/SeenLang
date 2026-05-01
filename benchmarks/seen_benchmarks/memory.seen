@@ -1,5 +1,7 @@
-// Seen Memory Benchmark
-// Tests memory allocation and access patterns
+///
+Seen Memory Benchmark
+Tests memory allocation and access patterns
+///
 
 fun benchmark_allocation(size: i32) -> f64 {
     let iterations = 10000

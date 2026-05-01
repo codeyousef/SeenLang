@@ -1,5 +1,7 @@
-// Rewrite Rules System for E-graph Equality Saturation
-// Implements algebraic, bitwise, comparison, and strength-reduction rules
+///
+Rewrite Rules System for E-graph Equality Saturation
+Implements algebraic, bitwise, comparison, and strength-reduction rules
+///
 
 // A rewrite rule: if lhsOp matches, replace with rhsOp
 class RewriteRule {
@@ -33,8 +35,10 @@ class RewriteRuleEngine {
     }
 }
 
-// Attempt to apply a rewrite rule to a node in the e-graph.
-// Returns the e-class id of the rewritten result, or -1 if rule doesn't apply.
+///
+Attempt to apply a rewrite rule to a node in the e-graph.
+Returns the e-class id of the rewritten result, or -1 if rule doesn't apply.
+///
 fun applyRule(graph: EGraph, rule: RewriteRule, nodeIdx: Int) r: Int {
     let op = graph.nodeOp(nodeIdx)
     if op != rule.lhsOp {

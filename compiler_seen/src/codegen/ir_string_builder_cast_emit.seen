@@ -1,13 +1,17 @@
-// StringBuilder method and cast emission helpers
-// Extracted from ir_type_ops.seen
+///
+StringBuilder method and cast emission helpers
+Extracted from ir_type_ops.seen
+///
 
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn}
 
-// StringBuilder method dispatch: append, appendInt, appendFloat, appendChar, clear, length, toString
-// receiverPtrReg must be pre-converted via convertReceiverToPtr
-// arg0 is pre-generated argument (or "" if none)
-// isFloatAppendFused: 1 if detected sb.append(__FloatToString(x)) pattern
+///
+StringBuilder method dispatch: append, appendInt, appendFloat, appendChar, clear, length, toString
+receiverPtrReg must be pre-converted via convertReceiverToPtr
+arg0 is pre-generated argument (or "" if none)
+isFloatAppendFused: 1 if detected sb.append(__FloatToString(x)) pattern
+///
 fun emitStringBuilderMethodImpl(output: StringBuilder, regBox: Array<Int>,
     methodName: String, receiverPtrReg: String, arg0: String,
     isFloatAppendFused: Int) r: String {
@@ -53,14 +57,16 @@ fun emitStringBuilderMethodImpl(output: StringBuilder, regBox: Array<Int>,
     return ""
 }
 
-// ============================================================
-// emitCastExprImpl — type cast dispatch table
-// Extracted from LLVMIRGenerator.generateExpression "Cast" handler.
-// innerReg: register holding the evaluated inner expression
-// innerType: Seen type of the inner expression (e.g. "Int", "Float")
-// castTarget: target Seen type (e.g. "Float", "Bool", "Int32")
-// Returns the result register (may be innerReg for no-op casts).
-// ============================================================
+///
+============================================================
+emitCastExprImpl — type cast dispatch table
+Extracted from LLVMIRGenerator.generateExpression "Cast" handler.
+innerReg: register holding the evaluated inner expression
+innerType: Seen type of the inner expression (e.g. "Int", "Float")
+castTarget: target Seen type (e.g. "Float", "Bool", "Int32")
+Returns the result register (may be innerReg for no-op casts).
+============================================================
+///
 fun emitCastExprImpl(output: StringBuilder, regBox: Array<Int>, innerReg: String, innerType: String, castTarget: String) r: String {
     let cReg = getNextRegFn(regBox)
     // Use flag-based pattern (no early returns from nested ifs — stage1 safe)

@@ -1,5 +1,7 @@
-// Ordering utilities for comparable types
-// Used by BTreeMap, BTreeSet, and other sorted collections
+///
+Ordering utilities for comparable types
+Used by BTreeMap, BTreeSet, and other sorted collections
+///
 
 // Ordering represents the result of a comparison
 enum Ordering {

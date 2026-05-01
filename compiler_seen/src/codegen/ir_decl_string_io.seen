@@ -1,5 +1,7 @@
-// String, IO, tracing, and environment declarations for LLVM IR generation
-// Extracted from ir_decl_runtime.seen
+///
+String, IO, tracing, and environment declarations for LLVM IR generation
+Extracted from ir_decl_runtime.seen
+///
 
 import str.string.{StringBuilder}
 import codegen.ir_declarations.{isFuncDefinedInModule}
@@ -79,8 +81,10 @@ fun emitStringAndIODecls(output: StringBuilder, definedFuncs: Array<String>) r: 
         output.append("declare i1 @removeEnv(%SeenString) nounwind\n")
     }
 
-    // Stdlib functions that may be defined in user code - always check conditionally
-    // These need to be outside the runtimeDeclsLoaded check because they're Seen functions, not C runtime
+    ///
+    Stdlib functions that may be defined in user code - always check conditionally
+    These need to be outside the runtimeDeclsLoaded check because they're Seen functions, not C runtime
+    ///
     if not isFuncDefinedInModule("indexOf", definedFuncs) {
         output.append("declare i64 @indexOf(%SeenString, %SeenString, i64) nounwind readonly\n")
     }

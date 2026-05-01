@@ -1,7 +1,9 @@
-// Atomic operations — handle-based pattern.
-// AtomicInt/AtomicBool allocate a heap int64_t via __AtomicAlloc and store
-// the pointer-as-int as `handle`. All operations pass the handle to the C
-// runtime which dereferences it, enabling true cross-thread atomic semantics.
+///
+Atomic operations — handle-based pattern.
+AtomicInt/AtomicBool allocate a heap int64_t via __AtomicAlloc and store
+the pointer-as-int as `handle`. All operations pass the handle to the C
+runtime which dereferences it, enabling true cross-thread atomic semantics.
+///
 
 class AtomicInt {
     var handle: Int

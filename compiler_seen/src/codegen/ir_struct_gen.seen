@@ -1,13 +1,17 @@
-// ir_struct_gen.seen — Struct literal layout inference and field store helpers
-// Extracted from llvm_ir_gen.seen generateStructLiteral() to reduce module 5 size
-// Pure analysis functions that determine struct field layouts from expressions
+///
+ir_struct_gen.seen — Struct literal layout inference and field store helpers
+Extracted from llvm_ir_gen.seen generateStructLiteral() to reduce module 5 size
+Pure analysis functions that determine struct field layouts from expressions
+///
 
 import parser.real_parser.{ParserExpressionNode}
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn}
 
-// inferStructFieldTypeFromExpr — Infer LLVM field type from a struct literal field value expression
-// Returns inferred LLVM type and estimated size via sizeOut[0]
+///
+inferStructFieldTypeFromExpr — Infer LLVM field type from a struct literal field value expression
+Returns inferred LLVM type and estimated size via sizeOut[0]
+///
 fun inferStructFieldTypeFromExpr(valueExpr: ParserExpressionNode, sizeOut: Array<Int>) r: String {
     if valueExpr.kind == "Literal" and valueExpr.literalType == "String" {
         sizeOut[0] = 16
@@ -33,9 +37,11 @@ fun inferStructFieldTypeFromExpr(valueExpr: ParserExpressionNode, sizeOut: Array
     return "i64"
 }
 
-// resolveStructLiteralFieldFallback — Hardcoded field index/type mappings for known struct types
-// Used when struct is not in the registry
-// Returns field type string, or "" if not resolved. Sets gepIndexOut[0] to GEP index.
+///
+resolveStructLiteralFieldFallback — Hardcoded field index/type mappings for known struct types
+Used when struct is not in the registry
+Returns field type string, or "" if not resolved. Sets gepIndexOut[0] to GEP index.
+///
 fun resolveStructLiteralFieldFallback(structName: String, fieldName: String, gepIndexOut: Array<Int>) r: String {
     if structName == "FrontendDiagnostic" and fieldName == "file" {
         gepIndexOut[0] = 0
@@ -128,8 +134,10 @@ fun resolveStructLiteralFieldFallback(structName: String, fieldName: String, gep
     return ""
 }
 
-// inferStructLayoutFromExpressions — Infer struct layout when type is not in registry
-// Returns layout string like "{ i64, %SeenString, ptr }" and sets sizeOut[0] to total size
+///
+inferStructLayoutFromExpressions — Infer struct layout when type is not in registry
+Returns layout string like "{ i64, %SeenString, ptr }" and sets sizeOut[0] to total size
+///
 fun inferStructLayoutFromExpressions(arguments: Array<ParserExpressionNode>, sizeOut: Array<Int>) r: String {
     let fieldCount = arguments.length()
     var totalSize = 0
@@ -161,12 +169,14 @@ fun inferStructLayoutFromExpressions(arguments: Array<ParserExpressionNode>, siz
     return lb + " " + layoutFields + " " + rb
 }
 
-// emitStructFieldStoresImpl — Emit GEP + store for each struct literal field
-// fieldRegs: pre-generated value registers for each field
-// fieldLlvmTypes: pre-resolved LLVM types for each field (e.g., "i64", "%SeenString", "ptr")
-// gepIndices: pre-resolved GEP field indices
-// structLayout: the LLVM struct layout string (e.g., "{ i64, %SeenString }")
-// objPtrReg: the malloc'd struct pointer register
+///
+emitStructFieldStoresImpl — Emit GEP + store for each struct literal field
+fieldRegs: pre-generated value registers for each field
+fieldLlvmTypes: pre-resolved LLVM types for each field (e.g., "i64", "%SeenString", "ptr")
+gepIndices: pre-resolved GEP field indices
+structLayout: the LLVM struct layout string (e.g., "{ i64, %SeenString }")
+objPtrReg: the malloc'd struct pointer register
+///
 fun emitStructFieldStoresImpl(output: StringBuilder, regBox: Array<Int>, structLayout: String, objPtrReg: String, fieldRegs: Array<String>, fieldLlvmTypes: Array<String>, gepIndices: Array<Int>) r: Void {
     var i = 0
     while i < fieldRegs.length() {

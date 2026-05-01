@@ -1,5 +1,7 @@
-// Cost Model for E-graph Extraction
-// Assigns real instruction costs for optimal code selection
+///
+Cost Model for E-graph Extraction
+Assigns real instruction costs for optimal code selection
+///
 
 class CostModel {
     fun new() r: CostModel {

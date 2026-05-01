@@ -1,6 +1,8 @@
-// Route Checker for Seen Language
-// Validates @router decorator usage for deterministic routing
-// Ensures routes use deterministic collections and valid patterns
+///
+Route Checker for Seen Language
+Validates @router decorator usage for deterministic routing
+Ensures routes use deterministic collections and valid patterns
+///
 
 import parser.real_parser.{ClassNode, FunctionNode, ProgramNode, FieldNode}
 import typechecker.checker_utils.{hasFieldNamed, getFieldType, hasMethod, hasDecorator, isDeterministicCollectionType}
@@ -119,10 +121,12 @@ class RouteChecker {
 
     // Check for potential duplicate route patterns in string literals
     fun checkForDuplicateRoutes(cls: ClassNode) r: Void {
-        // This is a best-effort static check. Full duplicate detection
-        // happens at runtime via BTreeMap key insertion.
-        // Here we warn if the class has no routeCount/routeIndex field
-        // which would be needed for runtime deduplication.
+        ///
+        This is a best-effort static check. Full duplicate detection
+        happens at runtime via BTreeMap key insertion.
+        Here we warn if the class has no routeCount/routeIndex field
+        which would be needed for runtime deduplication.
+        ///
         if not hasFieldNamed(cls, "routeIndex") and not hasFieldNamed(cls, "routeCount") {
             result.addWarning("@router class '" + cls.name + "' has no route index - consider adding a BTreeMap field for O(1) dedup and sorted iteration")
         }

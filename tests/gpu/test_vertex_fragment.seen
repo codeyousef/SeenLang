@@ -1,5 +1,7 @@
-// Test: @vertex + @fragment shader pair
-// Verifies GLSL generator handles vertex inputs/outputs and fragment outputs
+///
+Test: @vertex + @fragment shader pair
+Verifies GLSL generator handles vertex inputs/outputs and fragment outputs
+///
 
 @gpu_buffer
 class VertexOutput {

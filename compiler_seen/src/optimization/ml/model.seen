@@ -1,5 +1,7 @@
-// Minimal ML model skeleton used during bootstrap.
-// Keeps book-keeping counters so higher level optimizers can compile.
+///
+Minimal ML model skeleton used during bootstrap.
+Keeps book-keeping counters so higher level optimizers can compile.
+///
 
 class MLModel {
     var version: String

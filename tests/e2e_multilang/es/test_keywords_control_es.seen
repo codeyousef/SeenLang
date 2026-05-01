@@ -1,5 +1,7 @@
-// Prueba E2E: Palabras clave de flujo de control (Espanol)
-// Palabras probadas: función, si, sino, mientras, romper, continuar, retornar, bucle
+///
+Prueba E2E: Palabras clave de flujo de control (Espanol)
+Palabras probadas: función, si, sino, mientras, romper, continuar, retornar, bucle
+///
 
 función ayudante_sumar(a: entero, b: entero) r: entero {
     retornar a + b

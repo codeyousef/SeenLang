@@ -1,5 +1,7 @@
-// Real Arithmetic Benchmarks - Actual performance measurements
-// Replaces hardcoded benchmark results with real measurements
+///
+Real Arithmetic Benchmarks - Actual performance measurements
+Replaces hardcoded benchmark results with real measurements
+///
 
 import runtime.runtime_intrinsics
 fun main() -> Int {

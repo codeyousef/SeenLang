@@ -1,5 +1,7 @@
-// Matrix Multiplication Benchmark
-// Multiplies two NxN matrices
+///
+Matrix Multiplication Benchmark
+Multiplies two NxN matrices
+///
 
 fun matrixMultiply(n: Int) -> Int {
     // Create matrices

@@ -1,5 +1,7 @@
-// C Import Checker - Validates @_c_import decorator usage
-// Ensures C header imports are valid and warns about potential issues
+///
+C Import Checker - Validates @_c_import decorator usage
+Ensures C header imports are valid and warns about potential issues
+///
 
 import compiler_seen.src.parser.real_parser.AnnotationNode
 import io.file.{exists}

@@ -1,5 +1,7 @@
-// Synthetic: Tree/graph traversal workload
-// Represents: compilers (AST), databases (B-trees), DOM processing
+///
+Synthetic: Tree/graph traversal workload
+Represents: compilers (AST), databases (B-trees), DOM processing
+///
 
 class TreeNode {
     var value: Int

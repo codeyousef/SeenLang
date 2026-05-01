@@ -1,5 +1,7 @@
-// String escape/unescape utilities for JSON and other formats
-// Production-quality implementation
+///
+String escape/unescape utilities for JSON and other formats
+Production-quality implementation
+///
 
 class StringEscape {
     // Escape a string for JSON output

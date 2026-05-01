@@ -1,5 +1,7 @@
-// RwLock — Reader-writer lock backed by pthread_rwlock_t.
-// Multiple readers OR one writer at a time.
+///
+RwLock — Reader-writer lock backed by pthread_rwlock_t.
+Multiple readers OR one writer at a time.
+///
 
 extern fun seen_rwlock_new() r: Int
 extern fun seen_rwlock_read_lock(handle: Int) r: Void

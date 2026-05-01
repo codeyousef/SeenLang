@@ -1,6 +1,8 @@
-// Test --panic-on-overflow flag
-// When compiled with --panic-on-overflow, arithmetic operations that overflow
-// will cause a panic at runtime instead of silently wrapping
+///
+Test --panic-on-overflow flag
+When compiled with --panic-on-overflow, arithmetic operations that overflow
+will cause a panic at runtime instead of silently wrapping
+///
 
 fun safeArithmetic() r: Void {
     // These operations won't overflow

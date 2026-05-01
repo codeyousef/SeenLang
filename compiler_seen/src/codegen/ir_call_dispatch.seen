@@ -1,8 +1,10 @@
-// ir_call_dispatch.seen — general call dispatch and non-constructor helpers
-// Extracted from llvm_ir_gen.seen to follow SRP.
-// Constructor/static-allocation helpers now live in ir_call_constructors.seen
-// and shared argument/default-parameter lowering lives in ir_call_args.seen.
-// Each impl function returns a result register string, or "" for fallthrough.
+///
+ir_call_dispatch.seen — general call dispatch and non-constructor helpers
+Extracted from llvm_ir_gen.seen to follow SRP.
+Constructor/static-allocation helpers now live in ir_call_constructors.seen
+and shared argument/default-parameter lowering lives in ir_call_args.seen.
+Each impl function returns a result register string, or "" for fallthrough.
+///
 
 import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_simd_type_helpers.{simdScalarTypeImpl, simdLlvmSuffixImpl, isSimdVectorTypeImpl, simdLaneCountImpl}
@@ -75,10 +77,12 @@ fun emitStringFromCharCodeCallImpl(output: StringBuilder, regBox: Array<Int>, ar
     return strResultReg
 }
 
-// emitGenericStaticCallImpl — general ClassName.method() static call
-// llvmReturnType: explicit lowered return type when known; falls back to
-// receiver-kind heuristics only for legacy callers.
-// hasImplicitThis: 1 if non-new method (pass ptr null as first arg)
+///
+emitGenericStaticCallImpl — general ClassName.method() static call
+llvmReturnType: explicit lowered return type when known; falls back to
+receiver-kind heuristics only for legacy callers.
+hasImplicitThis: 1 if non-new method (pass ptr null as first arg)
+///
 fun emitGenericStaticCallImpl(output: StringBuilder, regBox: Array<Int>, quotedFuncName: String, llvmReturnType: String, className: String, argRegs: Array<String>, argTypeStrs: Array<String>, isClassRecv: Int, isDataRecv: Int, hasImplicitThis: Int) r: String {
     var callReturnType = llvmReturnType
     if callReturnType == "" {
@@ -115,11 +119,13 @@ fun emitGenericStaticCallImpl(output: StringBuilder, regBox: Array<Int>, quotedF
     return resultReg
 }
 
-// emitDynTraitVtableCallImpl — dyn Trait vtable dispatch (both complex/simple receivers)
-// receiverI64Reg: i64 value of the fat pointer handle
-// traitMethodNames: comma-separated method names (for index lookup)
-// traitMethodRetTypes: pipe-separated return type names (Seen types, for return type)
-// useI64DataArg: 1 = pass data as i64 (simple receivers), 0 = pass as ptr (complex receivers)
+///
+emitDynTraitVtableCallImpl — dyn Trait vtable dispatch (both complex/simple receivers)
+receiverI64Reg: i64 value of the fat pointer handle
+traitMethodNames: comma-separated method names (for index lookup)
+traitMethodRetTypes: pipe-separated return type names (Seen types, for return type)
+useI64DataArg: 1 = pass data as i64 (simple receivers), 0 = pass as ptr (complex receivers)
+///
 fun emitDynTraitVtableCallImpl(output: StringBuilder, regBox: Array<Int>, receiverI64Reg: String, dynTraitName: String, methodName: String, traitMethodNames: String, traitMethodRetTypes: String, argRegs: Array<String>, argTypes: Array<String>, useI64DataArg: Int) r: String {
     // Convert receiver i64 to fat pointer ptr
     let fatPtrReg = getNextRegFn(regBox)
@@ -190,8 +196,10 @@ fun emitDynTraitVtableCallImpl(output: StringBuilder, regBox: Array<Int>, receiv
     return resultReg
 }
 
-// emitSimdReductionVarImpl — SIMD horizontal reduction for simple variable receivers
-// Returns "" if not a SIMD type or method not recognized
+///
+emitSimdReductionVarImpl — SIMD horizontal reduction for simple variable receivers
+Returns "" if not a SIMD type or method not recognized
+///
 fun emitSimdReductionVarImpl(output: StringBuilder, regBox: Array<Int>, methodName: String, receiverReg: String, varType: String) r: String {
     if isSimdVectorTypeImpl(varType) != 1 { return "" }
     let scalarType = simdScalarTypeImpl(varType)
@@ -233,8 +241,10 @@ fun emitSimdReductionVarImpl(output: StringBuilder, regBox: Array<Int>, methodNa
     return ""
 }
 
-// emitUserFunctionCallImpl — final function call emission (void and non-void)
-// isTailCall: 1 if this is a tail call position
+///
+emitUserFunctionCallImpl — final function call emission (void and non-void)
+isTailCall: 1 if this is a tail call position
+///
 fun emitUserFunctionCallImpl(output: StringBuilder, regBox: Array<Int>, quotedFuncName: String, llvmReturnType: String, argRegs: Array<String>, argTypeStrs: Array<String>, isTailCall: Int) r: String {
     if llvmReturnType == "void" {
         output.append("  call void @" + quotedFuncName + "(")
@@ -261,8 +271,10 @@ fun emitUserFunctionCallImpl(output: StringBuilder, regBox: Array<Int>, quotedFu
     return resultReg
 }
 
-// emitUserMethodCallImpl — final instance method call emission (void and non-void)
-// isTailCall: 1 if the non-void call is in tail position
+///
+emitUserMethodCallImpl — final instance method call emission (void and non-void)
+isTailCall: 1 if the non-void call is in tail position
+///
 fun emitUserMethodCallImpl(output: StringBuilder, regBox: Array<Int>, quotedFuncName: String, llvmReturnType: String, receiverLlvmType: String, receiverReg: String, argRegs: Array<String>, argTypeStrs: Array<String>, isTailCall: Int) r: String {
     if llvmReturnType == "void" {
         output.append("  call void @" + quotedFuncName + "(" + receiverLlvmType + " " + receiverReg)
@@ -308,8 +320,10 @@ fun emitCStrConversionImpl(output: StringBuilder, regBox: Array<Int>, funcName: 
     return ""
 }
 
-// emitDebugAssertCallImpl — debug_assert(condition) with branching
-// boundsCountBox: [0] = current label count, incremented on use
+///
+emitDebugAssertCallImpl — debug_assert(condition) with branching
+boundsCountBox: [0] = current label count, incremented on use
+///
 fun emitDebugAssertCallImpl(output: StringBuilder, regBox: Array<Int>, boundsCountBox: Array<Int>, condReg: String) r: String {
     let count = boundsCountBox[0]
     let failLabel = "assert_fail_" + count.toString()
@@ -325,8 +339,10 @@ fun emitDebugAssertCallImpl(output: StringBuilder, regBox: Array<Int>, boundsCou
     return "0"
 }
 
-// emitAsyncYieldCallImpl — async_yield() cooperative suspend point
-// yieldCounterBox: [0] = current yield counter, incremented on use
+///
+emitAsyncYieldCallImpl — async_yield() cooperative suspend point
+yieldCounterBox: [0] = current yield counter, incremented on use
+///
 fun emitAsyncYieldCallImpl(output: StringBuilder, regBox: Array<Int>, yieldCounterBox: Array<Int>, asyncCleanupLabel: String) r: String {
     let saveTok = getNextRegFn(regBox)
     output.append("  " + saveTok + " = call token @llvm.coro.save(ptr null)\n")
@@ -346,10 +362,12 @@ fun emitAsyncYieldCallImpl(output: StringBuilder, regBox: Array<Int>, yieldCount
     return "0"
 }
 
-// emitOptionUnwrapSpecializedImpl — Option<T>.unwrap() type-specialized calls
-// innerType: the T in Option<T> (Seen type name)
-// isClassInner: 1 if innerType is a class type
-// Returns "" for fallthrough to generic unwrap
+///
+emitOptionUnwrapSpecializedImpl — Option<T>.unwrap() type-specialized calls
+innerType: the T in Option<T> (Seen type name)
+isClassInner: 1 if innerType is a class type
+Returns "" for fallthrough to generic unwrap
+///
 fun emitOptionUnwrapSpecializedImpl(output: StringBuilder, regBox: Array<Int>, innerType: String, receiverLlvmType: String, receiverReg: String, isClassInner: Int) r: String {
     let resultReg = getNextRegFn(regBox)
     if innerType == "Bool" {
@@ -375,12 +393,14 @@ fun emitOptionUnwrapSpecializedImpl(output: StringBuilder, regBox: Array<Int>, i
     return ""
 }
 
-// ============================================================
-// emitOffsetofImpl — compute byte offset of a field within a struct
-// fieldNames/fieldAligns/fieldSizes: parallel arrays, one entry per struct field
-// targetFieldName: name of the field to compute the offset for
-// Returns the byte offset (>= 0), or -1 if field not found
-// ============================================================
+///
+============================================================
+emitOffsetofImpl — compute byte offset of a field within a struct
+fieldNames/fieldAligns/fieldSizes: parallel arrays, one entry per struct field
+targetFieldName: name of the field to compute the offset for
+Returns the byte offset (>= 0), or -1 if field not found
+============================================================
+///
 fun emitOffsetofImpl(fieldNames: Array<String>, fieldAligns: Array<Int>, fieldSizes: Array<Int>, targetFieldName: String) r: Int {
     var accum = 0
     var i = 0
@@ -403,13 +423,15 @@ fun emitOffsetofImpl(fieldNames: Array<String>, fieldAligns: Array<Int>, fieldSi
     return -1
 }
 
-// ============================================================
-// emitIncludeStrImpl — includeStr("path") compile-time file embed
-// content: the file content to embed
-// strConstPrefix: string constant prefix for this module
-// strConstIndex: index to use for the string constant
-// Returns result register (SeenString)
-// ============================================================
+///
+============================================================
+emitIncludeStrImpl — includeStr("path") compile-time file embed
+content: the file content to embed
+strConstPrefix: string constant prefix for this module
+strConstIndex: index to use for the string constant
+Returns result register (SeenString)
+============================================================
+///
 fun emitIncludeStrImpl(output: StringBuilder, regBox: Array<Int>, content: String, escapedContent: String, strConstPrefix: String, strConstIndex: Int) r: String {
     let inclLen = content.length() + 1
     let idxStr = strConstIndex.toString()
@@ -421,13 +443,15 @@ fun emitIncludeStrImpl(output: StringBuilder, regBox: Array<Int>, content: Strin
     return inclStrReg
 }
 
-// ============================================================
-// emitIncludeBytesImpl — includeBytes("path") compile-time raw byte embed
-// content: the file content to embed
-// strConstPrefix: string constant prefix for this module
-// strConstIndex: index to use for the string constant
-// Returns result register (ptr as i64)
-// ============================================================
+///
+============================================================
+emitIncludeBytesImpl — includeBytes("path") compile-time raw byte embed
+content: the file content to embed
+strConstPrefix: string constant prefix for this module
+strConstIndex: index to use for the string constant
+Returns result register (ptr as i64)
+============================================================
+///
 fun emitIncludeBytesImpl(output: StringBuilder, regBox: Array<Int>, content: String, escapedContent: String, strConstPrefix: String, strConstIndex: Int) r: String {
     let inclBLen = content.length() + 1
     let idxStr = strConstIndex.toString()

@@ -1,5 +1,7 @@
-// Test tail call optimization
-// Verify: compile with --emit-llvm, grep for 'tail call' in .ll file
+///
+Test tail call optimization
+Verify: compile with --emit-llvm, grep for 'tail call' in .ll file
+///
 
 fun factorial(n: Int, acc: Int) r: Int {
     if n <= 1 {

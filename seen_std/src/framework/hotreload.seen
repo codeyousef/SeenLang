@@ -1,5 +1,7 @@
-// Hot Reload Framework - High-level API for @hot_reload decorator
-// Provides module loading, function lookup, and state preservation
+///
+Hot Reload Framework - High-level API for @hot_reload decorator
+Provides module loading, function lookup, and state preservation
+///
 
 // External runtime functions
 @extern
@@ -215,8 +217,10 @@ class HotReloadWatcher {
             return false
         }
 
-        // Note: In a full implementation, we'd register a callback
-        // For now, we just track the module for manual polling
+        ///
+        Note: In a full implementation, we'd register a callback
+        For now, we just track the module for manual polling
+        ///
         watchedModules.push(module)
         watchIds.push(-1)  // No actual file watch for now
 
@@ -250,8 +254,10 @@ class HotReloadWatcher {
         while i < watchedModules.length() {
             let module = watchedModules[i]
             if module.isActive() {
-                // Check if file has changed (would use poll in full impl)
-                // For now, just provide the reload API
+                ///
+                Check if file has changed (would use poll in full impl)
+                For now, just provide the reload API
+                ///
             }
             i = i + 1
         }

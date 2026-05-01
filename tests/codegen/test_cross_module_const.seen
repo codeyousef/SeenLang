@@ -1,6 +1,8 @@
-// Test: cross-module let constants should not resolve as 0
-// This tests that module-level let/var constants from other modules
-// are accessible via external global declarations
+///
+Test: cross-module let constants should not resolve as 0
+This tests that module-level let/var constants from other modules
+are accessible via external global declarations
+///
 
 let MY_CONST = 42
 let MY_FLOAT_CONST: Float = 3.14

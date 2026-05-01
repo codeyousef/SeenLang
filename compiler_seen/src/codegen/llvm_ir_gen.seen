@@ -1,41 +1,43 @@
-// =============================================================================
-// LLVM IR Generator — Stage 5 of the Seen Compiler Pipeline
-// =============================================================================
-//
-// Converts the typed AST (ProgramNode) into LLVM IR text (.ll files).
-// This is the final stage before LLVM's own optimization and machine code
-// generation (opt -> llc -> clang link, or ThinLTO pipeline).
-//
-// Generation follows a three-pass architecture:
-//   Pass 1 — registerDeclarations(): collect all function signatures, struct
-//            layouts, enum variants, and cross-module declares without
-//            generating any IR. Populates the registries that Pass 2/3 need.
-//   Pass 2 — emitClassType() + emitPrologue(): emit LLVM struct type
-//            definitions, global variables, string constants, and runtime
-//            function declarations.
-//   Pass 3 — generateClass() + generateFunction(): emit IR for class methods
-//            (BEFORE top-level functions, so registerStructMethod runs before
-//            main's type resolution) and then top-level function bodies.
-//
-// Output is LLVM IR in SSA form with strictly ascending register numbers
-// (%1, %2, %3, ...). Each function resets the register counter. Block labels
-// accumulate across functions within a module for unique loop metadata IDs.
-//
-// In multi-module mode (generateSingle), one .ll file is produced per source
-// module. Cross-module references use `declare` stubs built during Pass 1.
-// Fork-parallel generation compiles uncached modules in child processes with
-// CoW memory snapshots of the registry state.
-//
-// Key data structures:
-//   - varNames[]/varRegs[]/varTypes[]: parallel arrays tracking in-scope
-//     variables, their alloca registers, and Seen types. Searched backwards
-//     so inner scopes shadow outer ones.
-//   - structFieldNames[]/structFieldTypes[]/structLayouts[]: parallel arrays
-//     for struct layout registry (field names are comma-separated, field
-//     types are pipe-separated).
-//   - g_cseKeysArr/g_cseValsArr: CSE (Common Subexpression Elimination)
-//     cache mapping expression keys to register names. Searched backwards
-//     for most-recent-scope-first semantics.
+///
+=============================================================================
+LLVM IR Generator — Stage 5 of the Seen Compiler Pipeline
+=============================================================================
+
+Converts the typed AST (ProgramNode) into LLVM IR text (.ll files).
+This is the final stage before LLVM's own optimization and machine code
+generation (opt -> llc -> clang link, or ThinLTO pipeline).
+
+Generation follows a three-pass architecture:
+  Pass 1 — registerDeclarations(): collect all function signatures, struct
+           layouts, enum variants, and cross-module declares without
+           generating any IR. Populates the registries that Pass 2/3 need.
+  Pass 2 — emitClassType() + emitPrologue(): emit LLVM struct type
+           definitions, global variables, string constants, and runtime
+           function declarations.
+  Pass 3 — generateClass() + generateFunction(): emit IR for class methods
+           (BEFORE top-level functions, so registerStructMethod runs before
+           main's type resolution) and then top-level function bodies.
+
+Output is LLVM IR in SSA form with strictly ascending register numbers
+(%1, %2, %3, ...). Each function resets the register counter. Block labels
+accumulate across functions within a module for unique loop metadata IDs.
+
+In multi-module mode (generateSingle), one .ll file is produced per source
+module. Cross-module references use `declare` stubs built during Pass 1.
+Fork-parallel generation compiles uncached modules in child processes with
+CoW memory snapshots of the registry state.
+
+Key data structures:
+  - varNames[]/varRegs[]/varTypes[]: parallel arrays tracking in-scope
+    variables, their alloca registers, and Seen types. Searched backwards
+    so inner scopes shadow outer ones.
+  - structFieldNames[]/structFieldTypes[]/structLayouts[]: parallel arrays
+    for struct layout registry (field names are comma-separated, field
+    types are pipe-separated).
+  - g_cseKeysArr/g_cseValsArr: CSE (Common Subexpression Elimination)
+    cache mapping expression keys to register names. Searched backwards
+    for most-recent-scope-first semantics.
+///
 
 import parser.real_parser.{ProgramNode, ItemNode, FunctionNode, ClassNode, BlockNode, StatementNode, ParserExpressionNode}
 import str.string.{StringBuilder}
@@ -236,23 +238,25 @@ fun getCurrentFunctionOptions() r: FunctionLoweringOptions {
     return getSharedCodegenState().functionOptions
 }
 
-// The main code generator class. One instance is created in main_compiler.seen
-// and reused across modules (reset() clears per-module state between modules,
-// but struct/function registries persist for cross-module type resolution).
-//
-// Key field groups:
-//   Output buffer:       output (StringBuilder), stringConstants (Array<String>)
-//   Register state:      nextReg, nextBlock (SSA counter; boxed in g_regBox/g_blockBox
-//                        for mutation by extracted free functions)
-//   Variable tracking:   varNames/varRegs/varTypes (parallel arrays, scoped by push,
-//                        never popped — findVar searches backwards for shadowing)
-//   Struct registry:     structNames/structLayouts/structFieldNames/structFieldTypes/
-//                        structSizes/structMethodNames/structMethodRetTypes
-//   Function registry:   funcNames/funcRetTypes (return type lookup for call codegen)
-//   Per-function state:  currentFunctionReturnType, currentClassName, blockTerminated,
-//                        currentLoopCondLabel/EndLabel, preAllocatedVars/Types
-//   Dedup tracking:      generatedFunctions/generatedClasses (DO NOT remove reset()
-//                        of these — causes "undefined reference" linker errors)
+///
+The main code generator class. One instance is created in main_compiler.seen
+and reused across modules (reset() clears per-module state between modules,
+but struct/function registries persist for cross-module type resolution).
+
+Key field groups:
+  Output buffer:       output (StringBuilder), stringConstants (Array<String>)
+  Register state:      nextReg, nextBlock (SSA counter; boxed in g_regBox/g_blockBox
+                       for mutation by extracted free functions)
+  Variable tracking:   varNames/varRegs/varTypes (parallel arrays, scoped by push,
+                       never popped — findVar searches backwards for shadowing)
+  Struct registry:     structNames/structLayouts/structFieldNames/structFieldTypes/
+                       structSizes/structMethodNames/structMethodRetTypes
+  Function registry:   funcNames/funcRetTypes (return type lookup for call codegen)
+  Per-function state:  currentFunctionReturnType, currentClassName, blockTerminated,
+                       currentLoopCondLabel/EndLabel, preAllocatedVars/Types
+  Dedup tracking:      generatedFunctions/generatedClasses (DO NOT remove reset()
+                       of these — causes "undefined reference" linker errors)
+///
 class LLVMIRGenerator {
     var output: StringBuilder
     var stringConstants: Array<String>
@@ -336,14 +340,16 @@ class LLVMIRGenerator {
         g_enabledFeatures = features
     }
 
-    // Reset generator state for per-module compilation (keeps struct/func registries)
-    // Reset all per-module state for generating a new module's IR.
-    // Clears output buffer, variable tracking, string constants, dedup lists,
-    // optimization counters, and module constants. Keeps struct/function
-    // registries intact (needed for cross-module type resolution).
-    // WARNING: DO NOT remove the reset of generatedFunctions/generatedClasses —
-    // they track deduplication within a module and removing them causes
-    // "undefined reference" linker errors from missing definitions.
+    ///
+    Reset generator state for per-module compilation (keeps struct/func registries)
+    Reset all per-module state for generating a new module's IR.
+    Clears output buffer, variable tracking, string constants, dedup lists,
+    optimization counters, and module constants. Keeps struct/function
+    registries intact (needed for cross-module type resolution).
+    WARNING: DO NOT remove the reset of generatedFunctions/generatedClasses —
+    they track deduplication within a module and removing them causes
+    "undefined reference" linker errors from missing definitions.
+    ///
     fun reset() r: Void {
         output = StringBuilder.new()
         stringConstants = Array<String>()
@@ -482,16 +488,18 @@ class LLVMIRGenerator {
         indent = 0
     }
 
-    // Pass 1 entry point: scan a ProgramNode and register all declarations
-    // without generating any IR. This populates:
-    //   - Struct layouts (structFieldNames/Types/Layouts via registerStructLayout)
-    //   - Function signatures (funcNames/funcRetTypes via registerFunction)
-    //   - Async function registry (g_asyncFuncNames/RetTypes)
-    //   - Enum variant registry (g_enumVariantNames/Tags/FieldTypes)
-    //   - Cross-module declare strings (g_xmDeclareNames/Strs for `declare` stubs)
-    // Called once per module by main_compiler.seen before any generateSingle().
-    // The registries built here form the declarationsHash component of the
-    // content-addressed IR cache key.
+    ///
+    Pass 1 entry point: scan a ProgramNode and register all declarations
+    without generating any IR. This populates:
+      - Struct layouts (structFieldNames/Types/Layouts via registerStructLayout)
+      - Function signatures (funcNames/funcRetTypes via registerFunction)
+      - Async function registry (g_asyncFuncNames/RetTypes)
+      - Enum variant registry (g_enumVariantNames/Tags/FieldTypes)
+      - Cross-module declare strings (g_xmDeclareNames/Strs for `declare` stubs)
+    Called once per module by main_compiler.seen before any generateSingle().
+    The registries built here form the declarationsHash component of the
+    content-addressed IR cache key.
+    ///
     fun registerDeclarations(program: ProgramNode) r: Void {
         beginDeclarationRegistrationPassImpl(program, structNames,
             structLayouts, structFieldNames, structFieldTypes,
@@ -599,8 +607,10 @@ class LLVMIRGenerator {
         return preparedItems
     }
 
-    // Helper to find variable type (checks both varTypes and preAllocatedTypes)
-    // Searches backwards for speed.
+    ///
+    Helper to find variable type (checks both varTypes and preAllocatedTypes)
+    Searches backwards for speed.
+    ///
     fun findVarType(name: String) r: String {
         let visibleVarType = findVisibleVariableTypeImpl(varNames, varTypes,
             activeVarCount, preAllocatedVars, preAllocatedTypes, name)
@@ -623,8 +633,10 @@ class LLVMIRGenerator {
         return ""
     }
 
-    // Helper to find module constant by name. Searches backwards.
-    // Falls back to cross-module constant registry if not found in current module.
+    ///
+    Helper to find module constant by name. Searches backwards.
+    Falls back to cross-module constant registry if not found in current module.
+    ///
     fun findModuleConstant(name: String) r: Int {
         let moduleConstLookup = findModuleConstantSnapshotImpl(name,
             moduleConstantNames, moduleConstantTypes, moduleConstantValues,
@@ -636,12 +648,14 @@ class LLVMIRGenerator {
         return moduleConstLookup.constIndex
     }
 
-    // Pre-scan a function's block to collect all variable declarations.
-    // This enables alloca hoisting: all allocas are emitted in the entry
-    // block (before any branches), which is required by LLVM for correct
-    // mem2reg promotion to SSA registers. Without hoisting, allocas inside
-    // loops would create new stack slots per iteration.
-    // Stores names and types in preAllocatedVars/preAllocatedTypes.
+    ///
+    Pre-scan a function's block to collect all variable declarations.
+    This enables alloca hoisting: all allocas are emitted in the entry
+    block (before any branches), which is required by LLVM for correct
+    mem2reg promotion to SSA registers. Without hoisting, allocas inside
+    loops would create new stack slots per iteration.
+    Stores names and types in preAllocatedVars/preAllocatedTypes.
+    ///
     fun collectVariableDeclarations(block: BlockNode) r: Void {
         var i = 0
         while i < block.statements.length() {
@@ -651,8 +665,10 @@ class LLVMIRGenerator {
         }
     }
 
-    // Infer a declaration initializer type with an extra fast path for
-    // static method calls like Counter.new() and Foo.fromJson(...).
+    ///
+    Infer a declaration initializer type with an extra fast path for
+    static method calls like Counter.new() and Foo.fromJson(...).
+    ///
     fun inferDeclarationInitializerType(expr: ParserExpressionNode) r: String {
         if expr.kind == "MethodCall" {
             var receiverName = expr.literalValue
@@ -754,8 +770,10 @@ class LLVMIRGenerator {
         return
     }
 
-    // Resolve the type of a chained path like "item.function.returnType"
-    // Returns the type of the final field in the chain
+    ///
+    Resolve the type of a chained path like "item.function.returnType"
+    Returns the type of the final field in the chain
+    ///
     fun resolveChainedPathType(path: String) r: String {
         if path.contains("()") {
             let chainExpr = buildChainedPathExprImpl(path)
@@ -874,17 +892,19 @@ class LLVMIRGenerator {
         }
     }
 
-    // Multi-module monolithic entry point: generates a single .ll file
-    // containing IR for ALL programs. Used by the `--release` path and
-    // single-file compilation. Follows the three-pass architecture:
-    //   1. Collect string constants from all programs
-    //   2. Emit prologue, struct types, globals, string constants, runtime decls
-    //   3. Generate class methods (BEFORE top-level functions — see ordering
-    //      note below), then top-level functions, then closures
-    // Class methods are generated before top-level functions so that
-    // registerStructMethod() calls from @derive/@reflect/@binary/@packet
-    // decorators complete before generateFunction(main) tries to resolve
-    // method return types.
+    ///
+    Multi-module monolithic entry point: generates a single .ll file
+    containing IR for ALL programs. Used by the `--release` path and
+    single-file compilation. Follows the three-pass architecture:
+      1. Collect string constants from all programs
+      2. Emit prologue, struct types, globals, string constants, runtime decls
+      3. Generate class methods (BEFORE top-level functions — see ordering
+         note below), then top-level functions, then closures
+    Class methods are generated before top-level functions so that
+    registerStructMethod() calls from @derive/@reflect/@binary/@packet
+    decorators complete before generateFunction(main) tries to resolve
+    method return types.
+    ///
     fun generateMultiple(programs: Array<ProgramNode>) r: String {
         resetSharedModuleGenerationScratchState()
         stringConstantPrefix = ""  // No prefix for multi-module
@@ -930,13 +950,15 @@ class LLVMIRGenerator {
         // Sync class fields → CodegenState before code generation begins.
         syncState()
 
-        // WHY class methods BEFORE top-level functions:
-        // @derive/@reflect/@binary/@packet decorators on classes call
-        // registerStructMethod() during generateClass(), which populates
-        // structMethodNames/structMethodRetTypes. If generateFunction(main)
-        // runs first, it calls inferExpressionType on method calls like
-        // obj.serialize(), but the method return type isn't registered yet,
-        // causing type inference to fail and generate incorrect IR.
+        ///
+        WHY class methods BEFORE top-level functions:
+        @derive/@reflect/@binary/@packet decorators on classes call
+        registerStructMethod() during generateClass(), which populates
+        structMethodNames/structMethodRetTypes. If generateFunction(main)
+        runs first, it calls inferExpressionType on method calls like
+        obj.serialize(), but the method return type isn't registered yet,
+        causing type inference to fail and generate incorrect IR.
+        ///
         var classPi = 0
         while shouldVisitProgramFlowIndexImpl(classPi, programs.length()) {
             generateProgramClasses(programs[classPi])
@@ -976,23 +998,27 @@ class LLVMIRGenerator {
         return output.toString()
     }
 
-    // Per-module entry point: generates one .ll file for a single source
-    // module, identified by moduleIndex. This is the hot path used by the
-    // ThinLTO build pipeline and fork-parallel IR generation.
-    //
-    // Resets all per-module state (reset()), then:
-    //   1. Collects string constants and call counts for ML inline decisions
-    //   2. Emits prologue with module-specific string constant prefix (M0., M1., ...)
-    //   3. Emits struct types, globals, cross-module declares, runtime decls
-    //   4. Generates class methods BEFORE top-level functions (same ordering
-    //      rationale as generateMultiple — registerStructMethod must run first)
-    //   5. Emits closures, optimization stats, @init constructors, TBAA metadata
-    //
-    // The struct/function registries are NOT reset — they persist from Pass 1
-    // (registerDeclarations) and are shared across all modules.
+    ///
+    Per-module entry point: generates one .ll file for a single source
+    module, identified by moduleIndex. This is the hot path used by the
+    ThinLTO build pipeline and fork-parallel IR generation.
+
+    Resets all per-module state (reset()), then:
+      1. Collects string constants and call counts for ML inline decisions
+      2. Emits prologue with module-specific string constant prefix (M0., M1., ...)
+      3. Emits struct types, globals, cross-module declares, runtime decls
+      4. Generates class methods BEFORE top-level functions (same ordering
+         rationale as generateMultiple — registerStructMethod must run first)
+      5. Emits closures, optimization stats, @init constructors, TBAA metadata
+
+    The struct/function registries are NOT reset — they persist from Pass 1
+    (registerDeclarations) and are shared across all modules.
+    ///
     fun generateSingle(program: ProgramNode, moduleIndex: Int) r: String {
-        // Reset ALL per-module codegen state (generatedFunctions, generatedClasses,
-        // nextReg, nextBlock, currentFunctionReturnType, loop labels, opt counters, etc.)
+        ///
+        Reset ALL per-module codegen state (generatedFunctions, generatedClasses,
+        nextReg, nextBlock, currentFunctionReturnType, loop labels, opt counters, etc.)
+        ///
         reset()
         // Module-specific state not covered by reset()
         resetSharedModuleGenerationScratchState()
@@ -1002,8 +1028,10 @@ class LLVMIRGenerator {
         // Load ML heuristic weights (once per compilation)
         loadMLWeights()
 
-        // Collect string constants for THIS module only
-        // Also piggybacks call counting for ML inline decisions + self-call detection
+        ///
+        Collect string constants for THIS module only
+        Also piggybacks call counting for ML inline decisions + self-call detection
+        ///
         callCountClear()
         selfCallClear()
         collectStringConstants(program)
@@ -1014,8 +1042,10 @@ class LLVMIRGenerator {
         // Emit class struct type definitions for THIS module
         emitProgramClassTypes(program)
 
-        // NOTE: vtable constants are emitted AFTER function generation (see below)
-        // because g_traitImplRegistry is populated during generateFunction's impl detection.
+        ///
+        NOTE: vtable constants are emitted AFTER function generation (see below)
+        because g_traitImplRegistry is populated during generateFunction's impl detection.
+        ///
 
         // Emit global variable declarations for THIS module
         let moduleConstSnapshot = emitGlobalVariablesSnapshotImpl(output,
@@ -1032,28 +1062,36 @@ class LLVMIRGenerator {
         // Emit string constants with module prefix
         emitStringConstantsWithPrefixImpl(output, stringConstants,
             moduleIndex)
-        // Track how many string constants exist before class/function generation
-        // (derive/reflect/json codegen may add new constants that need separate emission)
+        ///
+        Track how many string constants exist before class/function generation
+        (derive/reflect/json codegen may add new constants that need separate emission)
+        ///
         var stringConstCountBeforeGen = stringConstants.length()
 
         // Collect function names defined in this module (to skip their declarations)
         let definedFuncs = collectProgramDefinedSymbolsImpl(program)
 
-	        // Cross-module user declarations are emitted lazily after codegen.
-	        // Large projects can register thousands of functions; eagerly copying
-	        // every declare into every module turns Pass 2 into O(modules * decls)
-	        // string growth. Call emission records the actually referenced symbols.
+	        ///
+	        Cross-module user declarations are emitted lazily after codegen.
+	        Large projects can register thousands of functions; eagerly copying
+	        every declare into every module turns Pass 2 into O(modules * decls)
+	        string growth. Call emission records the actually referenced symbols.
+	        ///
 
         // Emit runtime declarations (skip functions defined in this module)
         emitRuntimeDeclarations(definedFuncs)
 
-        // Sync class fields → CodegenState before code generation begins.
-        // Free functions in satellite modules use state.* for shared access.
+        ///
+        Sync class fields → CodegenState before code generation begins.
+        Free functions in satellite modules use state.* for shared access.
+        ///
         syncState()
 
-        // WHY class methods BEFORE top-level functions: see generateMultiple.
-        // registerStructMethod() must populate method return types before
-        // generateFunction(main) calls inferExpressionType on method calls.
+        ///
+        WHY class methods BEFORE top-level functions: see generateMultiple.
+        registerStructMethod() must populate method return types before
+        generateFunction(main) calls inferExpressionType on method calls.
+        ///
         generateProgramClasses(program)
 
         // Emit functions (top-level) for THIS module
@@ -1062,8 +1100,10 @@ class LLVMIRGenerator {
         emitLateUserDeclaresStateImpl(output, definedFuncs,
             g_lateXmDeclareNames, g_lateXmDeclareStrs, g_lateXmDeclareCount)
 
-        // Emit vtable constants for trait implementations found in this module
-        // Must be AFTER generateFunction so g_traitImplRegistry is populated
+        ///
+        Emit vtable constants for trait implementations found in this module
+        Must be AFTER generateFunction so g_traitImplRegistry is populated
+        ///
         emitTraitVtableConstantsImpl(output, g_traitImplRegistry,
             g_traitImplCount, g_dynTraitNames)
 
@@ -1104,17 +1144,21 @@ class LLVMIRGenerator {
         return output.toString()
     }
 
-    // Emit the LLVM IR module header: target datalayout, target triple,
-    // and the %SeenString / %SeenArray struct type definitions that are
-    // used by all generated code.
+    ///
+    Emit the LLVM IR module header: target datalayout, target triple,
+    and the %SeenString / %SeenArray struct type definitions that are
+    used by all generated code.
+    ///
     fun emitPrologue() r: Void {
         detectHostPlatform()
         output.append("; Generated by Seen Stage1 Compiler (LLVM backend)\n")
         output.append("target datalayout = \"" + g_hostDataLayout + "\"\n")
         output.append("target triple = \"" + g_hostTargetTriple + "\"\n\n")
 
-        // Try to read type declarations from header file (generated by Rust bootstrap compiler)
-        // This ensures ABI compatibility between Rust and Seen compilers
+        ///
+        Try to read type declarations from header file (generated by Rust bootstrap compiler)
+        This ensures ABI compatibility between Rust and Seen compilers
+        ///
         let headerLoadResult = tryLoadTypeHeaderIntoOutputImpl(output,
             typeHeaderPath, structNames, structLayouts, structFieldNames,
             structFieldTypes, structLlvmFieldTypes, structSizes,
@@ -1185,11 +1229,13 @@ class LLVMIRGenerator {
         return false
     }
 
-    // Emit a named LLVM struct type definition (e.g., %MyClass = type { i64, ptr }).
-    // Deduplicates by tracking emitted classes in generatedClasses[].
-    // If types were loaded from a header file (typesLoadedFromHeader), skips
-    // emission for types that already have a header-sourced layout (detected by
-    // the presence of inline "{ i64, ptr }" for SeenString rather than "%SeenString").
+    ///
+    Emit a named LLVM struct type definition (e.g., %MyClass = type { i64, ptr }).
+    Deduplicates by tracking emitted classes in generatedClasses[].
+    If types were loaded from a header file (typesLoadedFromHeader), skips
+    emission for types that already have a header-sourced layout (detected by
+    the presence of inline "{ i64, ptr }" for SeenString rather than "%SeenString").
+    ///
     fun emitClassType(classNode: ClassNode) r: Void {
         let className = classNode.name
         if hasGeneratedClassType(className) {
@@ -1364,16 +1410,18 @@ class LLVMIRGenerator {
         g_currentClassParentName = ""
     }
 
-    // Generate IR for all methods of a class, plus derived implementations
-    // (@derive, @reflect, @binary, @packet decorators). Skips @trait
-    // definitions (which only generate default method implementations).
-    // Handles the `new` constructor specially: emits malloc + memset zero-init
-    // followed by field initialization. For classes with Array<T> fields,
-    // post-constructor code emits seen_arr_new_* calls using byte-offset
-    // i8 GEP to initialize array headers (fixes null-ptr-after-constructor bug).
-    // NOTE: Uses memset zero-init instead of per-field GEP to avoid the
-    // cross-module GEP bug where %ClassName from module Y is not available in
-    // module X.
+    ///
+    Generate IR for all methods of a class, plus derived implementations
+    (@derive, @reflect, @binary, @packet decorators). Skips @trait
+    definitions (which only generate default method implementations).
+    Handles the `new` constructor specially: emits malloc + memset zero-init
+    followed by field initialization. For classes with Array<T> fields,
+    post-constructor code emits seen_arr_new_* calls using byte-offset
+    i8 GEP to initialize array headers (fixes null-ptr-after-constructor bug).
+    NOTE: Uses memset zero-init instead of per-field GEP to avoid the
+    cross-module GEP bug where %ClassName from module Y is not available in
+    module X.
+    ///
     fun generateClass(classNode: ClassNode) r: Void {
         // Skip classes with parsing issues
         let className = classNode.name
@@ -1390,8 +1438,10 @@ class LLVMIRGenerator {
             return
         }
 
-        // For StringBuilder, the runtime-backed methods should not be emitted from
-        // the source class because call sites already dispatch to the C runtime ABI.
+        ///
+        For StringBuilder, the runtime-backed methods should not be emitted from
+        the source class because call sites already dispatch to the C runtime ABI.
+        ///
         let isStringBuilder = className == "StringBuilder"
 
         let decoratorSnapshot =
@@ -1417,19 +1467,21 @@ class LLVMIRGenerator {
         g_currentClassParentName = ""
     }
 
-    // Generate IR for a single class method. The method name is mangled as
-    // ClassName_methodName. Non-static methods receive an implicit `ptr %this`
-    // first parameter pointing to the heap-allocated struct.
-    //
-    // Option class methods (isSome, isNone) are inlined against the direct-value
-    // option object layout used by runtime unwrap helpers.
-    // rather than delegated to the C runtime.
-    //
-    // CRITICAL: cseClear() is called at method entry to prevent the cross-method
-    // CSE bug. Without it, a CSE key like "%4*%7->%8" cached from method A
-    // could match the same register numbers in method B (since each method
-    // resets nextReg to 1), producing self-referential IR that causes LLVM
-    // verification failures.
+    ///
+    Generate IR for a single class method. The method name is mangled as
+    ClassName_methodName. Non-static methods receive an implicit `ptr %this`
+    first parameter pointing to the heap-allocated struct.
+
+    Option class methods (isSome, isNone) are inlined against the direct-value
+    option object layout used by runtime unwrap helpers.
+    rather than delegated to the C runtime.
+
+    CRITICAL: cseClear() is called at method entry to prevent the cross-method
+    CSE bug. Without it, a CSE key like "%4*%7->%8" cached from method A
+    could match the same register numbers in method B (since each method
+    resets nextReg to 1), producing self-referential IR that causes LLVM
+    verification failures.
+    ///
     fun resetClassMethodGenerationState(className: String, parentName: String, methods: Array<FunctionNode>, methodIdx: Int) r: Void {
         resetLocalCodegenState()
         currentFunctionReturnType = resolveMethodReturnTypeFromList(className, methods, methodIdx)
@@ -1512,12 +1564,14 @@ class LLVMIRGenerator {
         output.append("}\n\n")
     }
 
-    // Delegates to free functions in ir_decl_runtime/parser/features.seen
-    // Emit `declare` statements for all runtime C functions (seen_runtime.c)
-    // and standard library functions that might be called from user code.
-    // Skips functions that are defined in this module (definedFuncs) to
-    // avoid "invalid redefinition" LLVM errors. Delegates to specialized
-    // emitters in ir_decl_runtime, ir_decl_parser, ir_decl_features.
+    ///
+    Delegates to free functions in ir_decl_runtime/parser/features.seen
+    Emit `declare` statements for all runtime C functions (seen_runtime.c)
+    and standard library functions that might be called from user code.
+    Skips functions that are defined in this module (definedFuncs) to
+    avoid "invalid redefinition" LLVM errors. Delegates to specialized
+    emitters in ir_decl_runtime, ir_decl_parser, ir_decl_features.
+    ///
     fun emitRuntimeDeclarations(definedFuncs: Array<String>) r: Void {
         emitCoreRuntimeDecls(output, runtimeDeclsLoaded, definedFuncs)
         runtimeDeclsLoaded = true
@@ -1528,21 +1582,23 @@ class LLVMIRGenerator {
         emitFeatureDecls(output, definedFuncs)
     }
 
-    // Generate IR for a top-level (free) function. Handles decorators:
-    //   @cfg — conditional compilation (skip if predicate doesn't match)
-    //   @intrinsic — emit thin wrapper calling an LLVM intrinsic
-    //   @inline/@noinline — LLVM inlining hints (alwaysinline/noinline)
-    //   @compute — GPU shader (skip IR, handled by GLSL codegen)
-    //   @async — LLVM coroutine-based async function
-    //   @profile — instrumentation profiling (call enter/exit hooks)
-    //   @vectorize/@no_vectorize/@unroll/@prefetch — loop optimization hints
-    //
-    // Extern functions (body has no statements, name starts with "__") are
-    // skipped — they must have explicit `declare` in ir_declarations.seen.
-    //
-    // Function bodies are wrapped in: entry block -> alloca hoisting ->
-    // parameter stores -> body generation -> implicit void return.
-    // ML-guided inlining decisions are logged when g_mlLogEnabled is set.
+    ///
+    Generate IR for a top-level (free) function. Handles decorators:
+      @cfg — conditional compilation (skip if predicate doesn't match)
+      @intrinsic — emit thin wrapper calling an LLVM intrinsic
+      @inline/@noinline — LLVM inlining hints (alwaysinline/noinline)
+      @compute — GPU shader (skip IR, handled by GLSL codegen)
+      @async — LLVM coroutine-based async function
+      @profile — instrumentation profiling (call enter/exit hooks)
+      @vectorize/@no_vectorize/@unroll/@prefetch — loop optimization hints
+
+    Extern functions (body has no statements, name starts with "__") are
+    skipped — they must have explicit `declare` in ir_declarations.seen.
+
+    Function bodies are wrapped in: entry block -> alloca hoisting ->
+    parameter stores -> body generation -> implicit void return.
+    ML-guided inlining decisions are logged when g_mlLogEnabled is set.
+    ///
     fun prepareFunctionPreBodyAndTryEmitMain(fn: FunctionNode,
         implFuncName: String, resolvedFunctionReturnType: String,
         returnTypeBox: Array<String>) r: Bool {
@@ -1751,18 +1807,22 @@ class LLVMIRGenerator {
         }
     }
 
-    // Generate IR for a block of statements. Manages the defer stack depth
-    // (saves on entry, emits deferred expressions in LIFO order on exit).
-    // Performs dead store elimination: scans for "var x = literal; x = expr"
-    // patterns where x is not read between the two stores, and skips the
-    // first literal initialization.
+    ///
+    Generate IR for a block of statements. Manages the defer stack depth
+    (saves on entry, emits deferred expressions in LIFO order on exit).
+    Performs dead store elimination: scans for "var x = literal; x = expr"
+    patterns where x is not read between the two stores, and skips the
+    first literal initialization.
+    ///
     fun generateBlock(block: BlockNode) r: Void {
         // Save defer stack depth for this block scope
         let blockScope = captureFunctionBodyBlockScopeImpl(g_deferCount,
             g_deadStoreSkipVars, activeVarCount)
 
-        // Dead store elimination (9.10b): scan for var x = literal; x = expr2 with no read of x
-        // Only skip literal initializers (Int, Float, Bool, String) to preserve side effects
+        ///
+        Dead store elimination (9.10b): scan for var x = literal; x = expr2 with no read of x
+        Only skip literal initializers (Int, Float, Bool, String) to preserve side effects
+        ///
         let deadStoreScan = scanFunctionBodyDeadStorePatternsSnapshotImpl(
             output, block, g_deadStoresEliminated, g_deadStoreSkipVars)
         g_deadStoresEliminated = deadStoreScan.deadStoresEliminated
@@ -1867,12 +1927,14 @@ class LLVMIRGenerator {
         g_tryCatchEndLabel = tryCatchContext.savedTryCatchEndLabel
     }
 
-    // Top-level statement dispatch. Routes each statement kind to its
-    // specialized generator: Let/Var, Return, If, IfLet, While, ForIn,
-    // Match, Expression (which may be Assignment, MemberAssignment,
-    // IndexAssignment, or a general expression), Defer, Errdefer,
-    // TryCatch, UnsafeBlock, Region, ComptimeIf/Block, ParallelFor.
-    // Uses fixed action ids from ir_stmt_dispatch_plan to keep routing stable.
+    ///
+    Top-level statement dispatch. Routes each statement kind to its
+    specialized generator: Let/Var, Return, If, IfLet, While, ForIn,
+    Match, Expression (which may be Assignment, MemberAssignment,
+    IndexAssignment, or a general expression), Defer, Errdefer,
+    TryCatch, UnsafeBlock, Region, ComptimeIf/Block, ParallelFor.
+    Uses fixed action ids from ir_stmt_dispatch_plan to keep routing stable.
+    ///
     fun generateStatement(stmt: StatementNode) r: Void {
         let dispatchAction = planStatementDispatchImpl(stmt.kind)
         if dispatchAction == 1 { generateLetStatement(stmt) }
@@ -2203,11 +2265,13 @@ class LLVMIRGenerator {
         return valueReg
     }
 
-    // Generate IR for a return statement. Emits pending defer expressions
-    // in LIFO order before the return. For async functions, stores the return
-    // value into the coroutine promise and branches to the async cleanup label.
-    // Handles type coercion (int-to-float, class-to-ptr, data-type-to-ptr).
-    // Sets blockTerminated=true to prevent unreachable instructions after ret.
+    ///
+    Generate IR for a return statement. Emits pending defer expressions
+    in LIFO order before the return. For async functions, stores the return
+    value into the coroutine promise and branches to the async cleanup label.
+    Handles type coercion (int-to-float, class-to-ptr, data-type-to-ptr).
+    Sets blockTerminated=true to prevent unreachable instructions after ret.
+    ///
     fun generateReturnStatement(stmt: StatementNode) r: Void {
         emitPendingReturnDefers()
         prepareErrdeferReturnStatement(stmt)
@@ -2358,11 +2422,13 @@ class LLVMIRGenerator {
             thenTerminated, elseTerminated)
     }
 
-    // Generate IR for an if/else statement. Performs branch elimination at
-    // compile time for constant conditions (BoolLiteral true/false).
-    // Emits conditional branch (br i1 %cond, label %then, label %else),
-    // generates then/else blocks, and emits a merge block if neither branch
-    // terminates (both have a path to the merge point).
+    ///
+    Generate IR for an if/else statement. Performs branch elimination at
+    compile time for constant conditions (BoolLiteral true/false).
+    Emits conditional branch (br i1 %cond, label %then, label %else),
+    generates then/else blocks, and emits a merge block if neither branch
+    terminates (both have a path to the merge point).
+    ///
     fun generateIfStatement(stmt: StatementNode) r: Void {
         if tryEmitConstantIfStatement(stmt) {
             return
@@ -2404,8 +2470,10 @@ class LLVMIRGenerator {
         finalizeConditionalEndBlock(endLabel, thenTerminated, elseTerminated)
     }
 
-    // if let name = expr { ... } else { ... }
-    // Evaluate expr, if non-null bind name to value and run then-block
+    ///
+    if let name = expr { ... } else { ... }
+    Evaluate expr, if non-null bind name to value and run then-block
+    ///
     fun generateIfLetStatement(stmt: StatementNode) r: Void {
         let exprReg = generateExpression(stmt.condition)
         let cmpReg = emitConditionToI1Impl(output, g_regBox, exprReg, "Int")
@@ -2795,15 +2863,17 @@ class LLVMIRGenerator {
         currentLoopEndLabel = restoredLoopContext.currentEndLabel
     }
 
-    // Generate IR for a while loop. Emits cond/body/end blocks with
-    // back-edge from body to cond. Attaches LLVM loop metadata for:
-    //   - !llvm.loop.vectorize.enable/width (from @vectorize decorator)
-    //   - !llvm.loop.unroll.count (from @unroll decorator or tile hints)
-    //   - !llvm.loop.distribute.enable (for nested loops)
-    // Performs pattern detection for memcpy/memmove idioms and replaces
-    // them with llvm.memcpy/memmove intrinsics.
-    // Saves/restores outer loop context (currentLoopCondLabel/EndLabel)
-    // for nested loop support. Break jumps to endLabel, continue to condLabel.
+    ///
+    Generate IR for a while loop. Emits cond/body/end blocks with
+    back-edge from body to cond. Attaches LLVM loop metadata for:
+      - !llvm.loop.vectorize.enable/width (from @vectorize decorator)
+      - !llvm.loop.unroll.count (from @unroll decorator or tile hints)
+      - !llvm.loop.distribute.enable (for nested loops)
+    Performs pattern detection for memcpy/memmove idioms and replaces
+    them with llvm.memcpy/memmove intrinsics.
+    Saves/restores outer loop context (currentLoopCondLabel/EndLabel)
+    for nested loop support. Break jumps to endLabel, continue to condLabel.
+    ///
     fun generateWhileStatement(stmt: StatementNode) r: Void {
         let loopContext = beginFunctionBodyLoopContextImpl(g_blockBox,
             currentLoopCondLabel, currentLoopEndLabel)
@@ -2834,11 +2904,13 @@ class LLVMIRGenerator {
         currentLoopEndLabel = restoredLoopContext.currentEndLabel
     }
 
-    // Generate IR for a for-in loop over a range or array.
-    // Range loops (for i in 0..n) emit a simple counter-based loop.
-    // Array loops (for item in arr) emit index-based iteration with
-    // element load per iteration. Attaches the same loop metadata as
-    // generateWhileStatement for vectorization/unrolling hints.
+    ///
+    Generate IR for a for-in loop over a range or array.
+    Range loops (for i in 0..n) emit a simple counter-based loop.
+    Array loops (for item in arr) emit index-based iteration with
+    element load per iteration. Attaches the same loop metadata as
+    generateWhileStatement for vectorization/unrolling hints.
+    ///
     fun generateForInStatement(stmt: StatementNode) r: Void {
         let loopContext = beginFunctionBodyLoopContextImpl(g_blockBox,
             currentLoopCondLabel, currentLoopEndLabel)
@@ -3014,10 +3086,12 @@ class LLVMIRGenerator {
         emitLocalVariableAssignment(idx, expr.operands[0])
     }
 
-    // Generate IR for a variable assignment statement (x = expr).
-    // Finds the variable's alloca register via findVar and emits a store.
-    // Handles compound assignments (+=, -=, *=, /=, %=, &=, |=, ^=, <<=, >>=)
-    // by loading the current value, performing the operation, and storing back.
+    ///
+    Generate IR for a variable assignment statement (x = expr).
+    Finds the variable's alloca register via findVar and emits a store.
+    Handles compound assignments (+=, -=, *=, /=, %=, &=, |=, ^=, <<=, >>=)
+    by loading the current value, performing the operation, and storing back.
+    ///
     fun generateAssignment(stmt: StatementNode) r: Void {
         let varName = stmt.variableName
         let idx = findActiveVariableIndexImpl(varNames, activeVarCount, varName)
@@ -3097,10 +3171,12 @@ class LLVMIRGenerator {
             g_bitfieldWidths)
     }
 
-    // Generate index assignment: a[i] = value
-    // Generate IR for an index assignment (arr[idx] = expr). Dispatches to
-    // runtime helpers based on element type: seen_arr_set_str, seen_arr_set,
-    // or type-specific variants. Also handles HashMap index assignment.
+    ///
+    Generate index assignment: a[i] = value
+    Generate IR for an index assignment (arr[idx] = expr). Dispatches to
+    runtime helpers based on element type: seen_arr_set_str, seen_arr_set,
+    or type-specific variants. Also handles HashMap index assignment.
+    ///
     fun generateIndexAssignment(expr: ParserExpressionNode) r: Void {
         let indexAccess = expr.operands[0]
         let value = expr.operands[1]
@@ -3137,13 +3213,15 @@ class LLVMIRGenerator {
             valueIsStructLiteral, valueSeenType, structNames)
     }
 
-    // Main expression codegen dispatcher. Returns the SSA register (or
-    // immediate constant string) holding the expression's value.
-    // Dispatches on expr.kind to specialized generators: Literal, Variable,
-    // Binary, Call, MethodCall, Unary, Await, MemberAccess, IndexAccess,
-    // StructLiteral, ArrayLiteral, StringInterpolation, Elvis/NullCoalesce,
-    // SafeNavigation, WhenExpression, IfExpression, Cast, Closure, Lambda,
-    // EnumVariant constructors, Result ? operator, etc.
+    ///
+    Main expression codegen dispatcher. Returns the SSA register (or
+    immediate constant string) holding the expression's value.
+    Dispatches on expr.kind to specialized generators: Literal, Variable,
+    Binary, Call, MethodCall, Unary, Await, MemberAccess, IndexAccess,
+    StructLiteral, ArrayLiteral, StringInterpolation, Elvis/NullCoalesce,
+    SafeNavigation, WhenExpression, IfExpression, Cast, Closure, Lambda,
+    EnumVariant constructors, Result ? operator, etc.
+    ///
     fun tryGenerateConstructionExpression(expr: ParserExpressionNode) r: String {
         if expr.kind == "StructLiteral" {
             return generateStructLiteral(expr)
@@ -3336,10 +3414,12 @@ class LLVMIRGenerator {
         return resultReg
     }
 
-    // Generate IR for an if-expression (if cond { a } else { b } used as a
-    // value). Emits then/else blocks and a phi node to merge the result.
-    // Supports multi-expression blocks separated by semicolons, where side
-    // effects execute before the final expression provides the block value.
+    ///
+    Generate IR for an if-expression (if cond { a } else { b } used as a
+    value). Emits then/else blocks and a phi node to merge the result.
+    Supports multi-expression blocks separated by semicolons, where side
+    effects execute before the final expression provides the block value.
+    ///
     fun emitIfExpressionSideEffects(expr: ParserExpressionNode, startIdx: Int, stopOnSentinel: Bool) r: Int {
         var sideIdx = startIdx
         while sideIdx < expr.arguments.length() {
@@ -3365,8 +3445,10 @@ class LLVMIRGenerator {
     }
 
     fun generateIfExpression(expr: ParserExpressionNode) r: String {
-        // if-as-expression: if cond { thenExpr } else { elseExpr }
-        // Generates SSA with phi node
+        ///
+        if-as-expression: if cond { thenExpr } else { elseExpr }
+        Generates SSA with phi node
+        ///
         let condExpr = expr.operands[0]
         let thenExpr = expr.operands[1]
         let elseExpr = expr.operands[2]
@@ -3405,12 +3487,14 @@ class LLVMIRGenerator {
         return emitPhiMergeValue(irType, thenReg, thenPhiLabel, elseReg, elsePhiLabel)
     }
 
-    // Generate IR for a closure expression (|x| expr or |x, y| { ... }).
-    // No-capture MVP: emits an anonymous `define` function, converts its
-    // function pointer to i64 via ptrtoint, and returns the i64 handle.
-    // Callers use inttoptr to convert back to a function pointer for indirect
-    // calls. Closure definitions are accumulated in g_closureDefs and emitted
-    // after all regular functions (to avoid forward-reference issues).
+    ///
+    Generate IR for a closure expression (|x| expr or |x, y| { ... }).
+    No-capture MVP: emits an anonymous `define` function, converts its
+    function pointer to i64 via ptrtoint, and returns the i64 handle.
+    Callers use inttoptr to convert back to a function pointer for indirect
+    calls. Closure definitions are accumulated in g_closureDefs and emitted
+    after all regular functions (to avoid forward-reference issues).
+    ///
     fun generateClosure(expr: ParserExpressionNode) r: String {
         let closureId = g_closureCount
         g_closureCount = g_closureCount + 1
@@ -3461,11 +3545,13 @@ class LLVMIRGenerator {
         return clResultReg
     }
 
-    // Generate IR for an array literal [a, b, c]. Creates the array via
-    // runtime helpers (seen_arr_new_str/int/float) to ensure element_size
-    // is set correctly, then pushes each element. The element type is
-    // resolved from pendingArrayLiteralType (set by the enclosing let/var
-    // statement) or inferred from the first element.
+    ///
+    Generate IR for an array literal [a, b, c]. Creates the array via
+    runtime helpers (seen_arr_new_str/int/float) to ensure element_size
+    is set correctly, then pushes each element. The element type is
+    resolved from pendingArrayLiteralType (set by the enclosing let/var
+    statement) or inferred from the first element.
+    ///
     fun resolveArrayLiteralElementSeenType(elemExpr: ParserExpressionNode, defaultType: String) r: String {
         if defaultType != "" {
             return defaultType
@@ -3564,11 +3650,13 @@ class LLVMIRGenerator {
         return arrReg
     }
 
-    // Generate IR for index access (arr[idx]). Dispatches to runtime helpers
-    // based on element type: seen_arr_get_str for String arrays, seen_arr_get
-    // for Int arrays (with bitcast i64->double for Float arrays). Supports
-    // bounds checking when g_boundsCheckEnabled is set. Also handles HashMap
-    // index access (hash_get_*) and String character access (seen_str_char_at).
+    ///
+    Generate IR for index access (arr[idx]). Dispatches to runtime helpers
+    based on element type: seen_arr_get_str for String arrays, seen_arr_get
+    for Int arrays (with bitcast i64->double for Float arrays). Supports
+    bounds checking when g_boundsCheckEnabled is set. Also handles HashMap
+    index access (hash_get_*) and String character access (seen_str_char_at).
+    ///
     fun generateIndexAccess(expr: ParserExpressionNode) r: String {
         let idxBaseType = inferExpressionType(expr.operands[0])
         if shouldUsePointerIndexAccessImpl(idxBaseType) {
@@ -3595,8 +3683,10 @@ class LLVMIRGenerator {
         var arrayReg = generateExpression(expr.operands[0])
         let indexReg = generateExpression(expr.operands[1])
 
-        // Workaround: if arrayReg is 0 and the variable name is 'statements',
-        // try to find a BlockNode variable with that field
+        ///
+        Workaround: if arrayReg is 0 and the variable name is 'statements',
+        try to find a BlockNode variable with that field
+        ///
         if arrayReg == "0" and expr.operands[0].variableName == "statements" {
             // Look for any local variable of type BlockNode
             var blockIdx = 0
@@ -3843,12 +3933,14 @@ class LLVMIRGenerator {
             g_bitfieldCount, g_bitfieldKeys, g_bitfieldWidths)
     }
 
-    // Generate IR for member access (expr.field). Handles:
-    //   - Array/String .length() — inline load from SeenArray.len field
-    //   - Enum variant field access — load from heap offset (tag + fieldIdx*8)
-    //   - Class field access — inttoptr receiver i64->ptr, then GEP + load
-    //   - Data type field access — direct GEP on pointer
-    //   - Chained access (a.b.c) — recursive resolution via generateFieldAccess
+    ///
+    Generate IR for member access (expr.field). Handles:
+      - Array/String .length() — inline load from SeenArray.len field
+      - Enum variant field access — load from heap offset (tag + fieldIdx*8)
+      - Class field access — inttoptr receiver i64->ptr, then GEP + load
+      - Data type field access — direct GEP on pointer
+      - Chained access (a.b.c) — recursive resolution via generateFieldAccess
+    ///
     fun generateMemberAccess(expr: ParserExpressionNode) r: String {
         let receiverName = expr.literalValue
         let fieldName = expr.variableName
@@ -3934,15 +4026,17 @@ class LLVMIRGenerator {
         return "0"
     }
 
-    // Generate a struct field load via GEP (getelementptr). For simple fields,
-    // emits: getelementptr %StructType, ptr %ptrReg, i32 0, i32 <fieldIdx>
-    // followed by a load. For chained field access (e.g., "a.b.c"), recursively
-    // resolves each segment, converting class-type intermediates from i64 to
-    // ptr via inttoptr. For inline data types, uses generateFieldAccessPtr to
-    // get a pointer without loading (avoids copying the entire struct).
-    // WARNING: DO NOT use `!invariant.load` on array data pointers — array
-    // data changes on push/resize, so the invariant annotation would be
-    // incorrect and could cause LLVM to cache stale pointers.
+    ///
+    Generate a struct field load via GEP (getelementptr). For simple fields,
+    emits: getelementptr %StructType, ptr %ptrReg, i32 0, i32 <fieldIdx>
+    followed by a load. For chained field access (e.g., "a.b.c"), recursively
+    resolves each segment, converting class-type intermediates from i64 to
+    ptr via inttoptr. For inline data types, uses generateFieldAccessPtr to
+    get a pointer without loading (avoids copying the entire struct).
+    WARNING: DO NOT use `!invariant.load` on array data pointers — array
+    data changes on push/resize, so the invariant annotation would be
+    incorrect and could cause LLVM to cache stale pointers.
+    ///
     fun generateFieldAccess(ptrReg: String, structType: String, fieldName: String) r: String {
         return generateFieldAccessImpl(output, g_regBox, ptrReg, structType,
             fieldName, getFieldTypeState(structType, fieldName), structNames,
@@ -3952,19 +4046,23 @@ class LLVMIRGenerator {
             g_bitfieldCount, g_bitfieldKeys, g_bitfieldWidths)
     }
 
-    // Same as generateFieldAccess but returns the GEP pointer without loading
-    // Used for methods like push that need to modify the field in place
+    ///
+    Same as generateFieldAccess but returns the GEP pointer without loading
+    Used for methods like push that need to modify the field in place
+    ///
     fun generateFieldAccessPtr(ptrReg: String, structType: String, fieldName: String) r: String {
         return generateFieldAccessPtrImpl(output, g_regBox, ptrReg,
             structType, fieldName, structNames, structLayouts,
             structFieldNames, g_unionTypes)
     }
 
-    // Generate IR for a struct literal expression (StructName { field: val, ... }).
-    // Allocates the struct on the heap via malloc, memsets to zero, then stores
-    // each field at its GEP offset. Data types use value semantics and return
-    // the allocated pointer directly. Class values follow the current ABI and
-    // are represented as pointer-as-i64 in expression results.
+    ///
+    Generate IR for a struct literal expression (StructName { field: val, ... }).
+    Allocates the struct on the heap via malloc, memsets to zero, then stores
+    each field at its GEP offset. Data types use value semantics and return
+    the allocated pointer directly. Class values follow the current ABI and
+    are represented as pointer-as-i64 in expression results.
+    ///
     fun inferStructLiteralFieldTypeFromValueExpr(valueExpr: ParserExpressionNode, sizeOut: Array<Int>) r: String {
         if valueExpr.kind == "StructLiteral" and valueExpr.literalType != "" {
             sizeOut[0] = 24
@@ -4157,8 +4255,10 @@ class LLVMIRGenerator {
         return mallocReg
     }
 
-    // Thin wrapper: delegates to generateLiteralFree in ir_literal_gen.seen,
-    // then updates stats counters that aren't accessible from satellite modules.
+    ///
+    Thin wrapper: delegates to generateLiteralFree in ir_literal_gen.seen,
+    then updates stats counters that aren't accessible from satellite modules.
+    ///
     fun generateLiteral(expr: ParserExpressionNode) r: String {
         syncState()
         let litState = getSharedCodegenState()
@@ -4174,11 +4274,13 @@ class LLVMIRGenerator {
         return litResult
     }
 
-    // Generate IR for a variable reference. Looks up the variable in
-    // varNames[] (via findVar, searching backwards for shadowing), then
-    // emits a load from the alloca register. Falls back to module constants
-    // (@global_name), enum variant tags (i64 constants), and 'this' field
-    // access if the bare name matches a struct field on the current class.
+    ///
+    Generate IR for a variable reference. Looks up the variable in
+    varNames[] (via findVar, searching backwards for shadowing), then
+    emits a load from the alloca register. Falls back to module constants
+    (@global_name), enum variant tags (i64 constants), and 'this' field
+    access if the bare name matches a struct field on the current class.
+    ///
     fun getExprVariableName(expr: ParserExpressionNode) r: String {
         return getExprVariableNameImpl(expr.variableName, expr.literalValue)
     }
@@ -4288,14 +4390,16 @@ class LLVMIRGenerator {
             mapTypeState(varTypes[idx]), varRegs[idx])
     }
 
-    // Generate IR for a binary expression (+, -, *, /, %, ==, !=, <, >, etc.).
-    // Type-dispatches: SIMD vector arithmetic, float operations (fadd/fsub/...),
-    // string concatenation (seen_str_concat_ss), integer arithmetic, comparison
-    // operators, bitwise ops, and short-circuit &&/||.
-    // Includes constant folding for integer-literal operands via foldIntConstants.
-    // Supports overflow-checked arithmetic when g_panicOnOverflow is set
-    // (uses llvm.sadd.with.overflow intrinsics). Delegates to prepared helpers
-    // for the core LLVM instruction emission.
+    ///
+    Generate IR for a binary expression (+, -, *, /, %, ==, !=, <, >, etc.).
+    Type-dispatches: SIMD vector arithmetic, float operations (fadd/fsub/...),
+    string concatenation (seen_str_concat_ss), integer arithmetic, comparison
+    operators, bitwise ops, and short-circuit &&/||.
+    Includes constant folding for integer-literal operands via foldIntConstants.
+    Supports overflow-checked arithmetic when g_panicOnOverflow is set
+    (uses llvm.sadd.with.overflow intrinsics). Delegates to prepared helpers
+    for the core LLVM instruction emission.
+    ///
     fun generateBinary(expr: ParserExpressionNode) r: String {
         let leftExpr = expr.operands[0]
         let rightExpr = expr.operands[1]
@@ -4491,8 +4595,10 @@ class LLVMIRGenerator {
                 }
             }
         }
-        // FMA detection: a + (b * c) or (a * b) + c → llvm.fmuladd.f64
-        // NOTE: Int operands must be promoted to double via sitofp before use.
+        ///
+        FMA detection: a + (b * c) or (a * b) + c → llvm.fmuladd.f64
+        NOTE: Int operands must be promoted to double via sitofp before use.
+        ///
         let fmaSides = planBinaryFoldFmaImpl(expr.operator, leftType,
             rightType, leftExpr.kind, leftExpr.operator, rightExpr.kind,
             rightExpr.operator)
@@ -4538,8 +4644,10 @@ class LLVMIRGenerator {
         let leftReg = generateExpression(leftExpr)
         let rightReg = generateExpression(rightExpr)
 
-        // CSE within function scope: re-enabled for pure int/float binary ops.
-        // Cache is cleared at function entry and block boundaries (safe with dominance).
+        ///
+        CSE within function scope: re-enabled for pure int/float binary ops.
+        Cache is cleared at function entry and block boundaries (safe with dominance).
+        ///
         let csePlan = planBinaryFoldCseImpl(leftType, rightType, expr.operator)
         if csePlan.shouldLookup {
             let cseCached = tryLookupPreparedBinaryCseImpl(leftReg,
@@ -4549,8 +4657,10 @@ class LLVMIRGenerator {
             }
         }
 
-        // Note: resultReg must be allocated AFTER any intermediate conversion registers
-        // to maintain SSA sequential numbering
+        ///
+        Note: resultReg must be allocated AFTER any intermediate conversion registers
+        to maintain SSA sequential numbering
+        ///
 
         // --- Operator overloading dispatch ---
         let overloadedBinaryPlan = planOverloadedBinaryState(expr.operator,
@@ -4586,11 +4696,13 @@ class LLVMIRGenerator {
         return exprProducesBoolImpl(eType, e.operator)
     }
 
-    // Short-circuit AND: left ? right : false
-    // Uses bridge blocks so phi predecessors are always correct even with nested and/or
-    // Generate short-circuit evaluation for logical AND (&&).
-    // If the left operand is false, skips evaluating the right operand
-    // entirely. Uses a phi node to merge the boolean result from both paths.
+    ///
+    Short-circuit AND: left ? right : false
+    Uses bridge blocks so phi predecessors are always correct even with nested and/or
+    Generate short-circuit evaluation for logical AND (&&).
+    If the left operand is false, skips evaluating the right operand
+    entirely. Uses a phi node to merge the boolean result from both paths.
+    ///
     fun generateShortCircuitAnd(expr: ParserExpressionNode) r: String {
         let leftExpr = expr.operands[0]
         let rightExpr = expr.operands[1]
@@ -4633,10 +4745,12 @@ class LLVMIRGenerator {
             "false", labels.checkLabel, rightBool, labels.doneLabel)
     }
 
-    // Short-circuit OR: left ? true : right
-    // Uses bridge blocks so phi predecessors are always correct even with nested and/or
-    // Generate short-circuit evaluation for logical OR (||).
-    // If the left operand is true, skips evaluating the right operand.
+    ///
+    Short-circuit OR: left ? true : right
+    Uses bridge blocks so phi predecessors are always correct even with nested and/or
+    Generate short-circuit evaluation for logical OR (||).
+    If the left operand is true, skips evaluating the right operand.
+    ///
     fun generateShortCircuitOr(expr: ParserExpressionNode) r: String {
         let leftExpr = expr.operands[0]
         let rightExpr = expr.operands[1]
@@ -5340,20 +5454,22 @@ class LLVMIRGenerator {
         return ""
     }
 
-    // Generate IR for a function call expression. Handles a wide variety of
-    // call types in priority order:
-    //   1. Comptime parameter specialization (evaluate compile-time args)
-    //   2. Builtins: sizeof/alignof/offsetof (compile-time constants)
-    //   3. Print/println (variadic, type-dispatched formatting)
-    //   4. Type constructors: Array/Vec/HashMap/BTreeMap/LinkedList/Option/etc.
-    //   5. Enum variant constructors (checked via isEnumVariant)
-    //   6. Closure/indirect calls (varNames match before enum/array check)
-    //   7. Class constructors (malloc + memset + field init)
-    //   8. Async function calls (return coroutine handle ptr)
-    //   9. Regular function calls with ABI-correct parameter passing
-    // Data types are passed as pointers (ptr) for ABI compatibility.
-    // Collection constructors (HashMap_new_str_int, etc.) dispatch to
-    // type-specialized runtime functions.
+    ///
+    Generate IR for a function call expression. Handles a wide variety of
+    call types in priority order:
+      1. Comptime parameter specialization (evaluate compile-time args)
+      2. Builtins: sizeof/alignof/offsetof (compile-time constants)
+      3. Print/println (variadic, type-dispatched formatting)
+      4. Type constructors: Array/Vec/HashMap/BTreeMap/LinkedList/Option/etc.
+      5. Enum variant constructors (checked via isEnumVariant)
+      6. Closure/indirect calls (varNames match before enum/array check)
+      7. Class constructors (malloc + memset + field init)
+      8. Async function calls (return coroutine handle ptr)
+      9. Regular function calls with ABI-correct parameter passing
+    Data types are passed as pointers (ptr) for ABI compatibility.
+    Collection constructors (HashMap_new_str_int, etc.) dispatch to
+    type-specialized runtime functions.
+    ///
     fun generateCall(expr: ParserExpressionNode) r: String {
         var funcName = expr.callee
 
@@ -5769,25 +5885,27 @@ class LLVMIRGenerator {
         }
     }
 
-    // Generate IR for a method call (receiver.method(args)). The largest and
-    // most complex dispatch in the codegen — handles:
-    //   - SIMD horizontal reductions (reduce_add/min/max)
-    //   - Option methods (isSome/isNone/unwrap — inlined as null checks)
-    //   - Hot-reload synthesized methods (__seen_hot_get_size etc.)
-    //   - Collection methods: Vec, HashMap, BTreeMap, LinkedList (dispatched
-    //     to type-specialized runtime functions via dispatchCollectionMethodImpl)
-    //   - String methods (length, contains, indexOf, split, trim, etc.)
-    //   - StringBuilder methods (append, toString)
-    //   - Array methods (push, get, set, length, pop, etc. with type dispatch
-    //     for Int/String/Float/Bool/data-type element types)
-    //   - SmallVec/JsonValue methods
-    //   - Numeric methods (toString, toFloat, abs, etc.)
-    //   - User-defined class methods (ClassName_methodName mangling)
-    //   - Simple variable receivers (separate handling path when operands is
-    //     empty but callee contains the receiver)
-    // NOTE: HashMap/BTreeMap methods must be handled in TWO locations — inside
-    // the "operands.length() > 0" path AND the "simple variable receivers"
-    // fallback section.
+    ///
+    Generate IR for a method call (receiver.method(args)). The largest and
+    most complex dispatch in the codegen — handles:
+      - SIMD horizontal reductions (reduce_add/min/max)
+      - Option methods (isSome/isNone/unwrap — inlined as null checks)
+      - Hot-reload synthesized methods (__seen_hot_get_size etc.)
+      - Collection methods: Vec, HashMap, BTreeMap, LinkedList (dispatched
+        to type-specialized runtime functions via dispatchCollectionMethodImpl)
+      - String methods (length, contains, indexOf, split, trim, etc.)
+      - StringBuilder methods (append, toString)
+      - Array methods (push, get, set, length, pop, etc. with type dispatch
+        for Int/String/Float/Bool/data-type element types)
+      - SmallVec/JsonValue methods
+      - Numeric methods (toString, toFloat, abs, etc.)
+      - User-defined class methods (ClassName_methodName mangling)
+      - Simple variable receivers (separate handling path when operands is
+        empty but callee contains the receiver)
+    NOTE: HashMap/BTreeMap methods must be handled in TWO locations — inside
+    the "operands.length() > 0" path AND the "simple variable receivers"
+    fallback section.
+    ///
     fun generateMethodCall(expr: ParserExpressionNode) r: String {
         let methodName = expr.callee
         var receiverReg = ""
@@ -5997,9 +6115,11 @@ class LLVMIRGenerator {
             }
         }
 
-        // Check if this is a static method call BEFORE setting receiver fallback
-        // Static method call: ClassName.method() where ClassName is not a variable
-        // Class names use PascalCase (start with uppercase letter)
+        ///
+        Check if this is a static method call BEFORE setting receiver fallback
+        Static method call: ClassName.method() where ClassName is not a variable
+        Class names use PascalCase (start with uppercase letter)
+        ///
         if postResolutionPhase.shouldTryStaticCall {
             let staticCallResult = tryGenerateStaticMethodCall(expr, methodName, receiverReg)
             if staticCallResult != "" {
@@ -6266,11 +6386,13 @@ class LLVMIRGenerator {
         return ""
     }
 
-    // Generate IR for an await expression. Calls the async function to get
-    // a coroutine handle (ptr), then emits a poll loop: coro.done? -> yes:
-    // extract promise value, no: coro.resume and loop. Uses LLVM coroutine
-    // intrinsics (coro.done, coro.resume, coro.destroy) directly — C wrapper
-    // functions CRASH due to calling convention mismatch (fastcc vs ccc).
+    ///
+    Generate IR for an await expression. Calls the async function to get
+    a coroutine handle (ptr), then emits a poll loop: coro.done? -> yes:
+    extract promise value, no: coro.resume and loop. Uses LLVM coroutine
+    intrinsics (coro.done, coro.resume, coro.destroy) directly — C wrapper
+    functions CRASH due to calling convention mismatch (fastcc vs ccc).
+    ///
     fun generateAwaitExpression(expr: ParserExpressionNode) r: String {
         let futureExpr = expr.operands[0]
         let hdlReg = generateExpression(futureExpr)
@@ -6281,8 +6403,10 @@ class LLVMIRGenerator {
             resultLlvmType)
     }
 
-    // Generate IR for a unary expression: negation (-x), logical not (!x),
-    // bitwise not (~x), address-of (&x), dereference (*x).
+    ///
+    Generate IR for a unary expression: negation (-x), logical not (!x),
+    bitwise not (~x), address-of (&x), dereference (*x).
+    ///
     fun tryEmitOverloadedUnary(expr: ParserExpressionNode) r: String {
         if expr.operands.length() == 0 {
             return ""
@@ -7095,17 +7219,19 @@ class LLVMIRGenerator {
             fixedSpecialType)
     }
 
-    // Infer the Seen type of an expression for codegen decisions (operator
-    // selection, ABI, field access type, etc.). This is NOT the typechecker —
-    // it operates during codegen and uses the variable/function/struct registries
-    // built during Pass 1. Handles: literals (by literalType), variables (via
-    // findVarType + module constants), calls (via getFunctionReturnType +
-    // special cases for constructors and builtins), method calls (via
-    // inferMethodCallTypeTable), binary ops (type promotion rules), member
-    // access (struct field type lookup), index access (element type inference),
-    // array literals, struct literals, casts, string interpolation, etc.
-    // Returns the Seen type name (e.g., "Int", "String", "MyClass") or ""
-    // if inference fails.
+    ///
+    Infer the Seen type of an expression for codegen decisions (operator
+    selection, ABI, field access type, etc.). This is NOT the typechecker —
+    it operates during codegen and uses the variable/function/struct registries
+    built during Pass 1. Handles: literals (by literalType), variables (via
+    findVarType + module constants), calls (via getFunctionReturnType +
+    special cases for constructors and builtins), method calls (via
+    inferMethodCallTypeTable), binary ops (type promotion rules), member
+    access (struct field type lookup), index access (element type inference),
+    array literals, struct literals, casts, string interpolation, etc.
+    Returns the Seen type name (e.g., "Int", "String", "MyClass") or ""
+    if inference fails.
+    ///
     fun inferExpressionType(expr: ParserExpressionNode) r: String {
         let dispatchPlan = planExprInferenceDispatchImpl(expr.kind)
         if dispatchPlan.action == 1 {
@@ -7147,11 +7273,13 @@ class LLVMIRGenerator {
         return "Int"
     }
 
-    // Pre-scan all expressions in a program to collect string literal constants.
-    // These are emitted as LLVM global constants before any function bodies.
-    // Also piggybacks call counting for ML inline decisions and self-call
-    // detection (for the norecurse attribute). Delegates to
-    // collectStringConstantsImpl in ir_string_collect_scan.seen.
+    ///
+    Pre-scan all expressions in a program to collect string literal constants.
+    These are emitted as LLVM global constants before any function bodies.
+    Also piggybacks call counting for ML inline decisions and self-call
+    detection (for the norecurse attribute). Delegates to
+    collectStringConstantsImpl in ir_string_collect_scan.seen.
+    ///
     fun collectStringConstants(program: ProgramNode) r: Void {
         initCollectionBoxes()
         collectStringConstantsStateImpl(program, stringConstants, g_selfCallBox,
@@ -7179,10 +7307,12 @@ class LLVMIRGenerator {
             partRegs, exprRegs, exprTypes)
     }
 
-    // Elvis operator: a ?: b — returns a if non-zero/non-null, otherwise b
-    // Generate IR for the elvis/null-coalesce operator (a ?? b).
-    // Evaluates 'a', checks if null (icmp eq ptr, null), and returns 'b'
-    // if null, otherwise 'a'. Uses a phi node to merge the two paths.
+    ///
+    Elvis operator: a ?: b — returns a if non-zero/non-null, otherwise b
+    Generate IR for the elvis/null-coalesce operator (a ?? b).
+    Evaluates 'a', checks if null (icmp eq ptr, null), and returns 'b'
+    if null, otherwise 'a'. Uses a phi node to merge the two paths.
+    ///
     fun generateElvis(expr: ParserExpressionNode) r: String {
         let leftReg = generateExpression(expr.operands[0])
         let leftType = inferExpressionType(expr.operands[0])
@@ -7208,10 +7338,12 @@ class LLVMIRGenerator {
             leftReg, thenLabel, rightReg, elseLabel)
     }
 
-    // Safe navigation: obj?.member — returns member if obj is non-null, else default
-    // Generate IR for the safe navigation operator (a?.b).
-    // Checks if 'a' is null — if so, short-circuits to null/0 without
-    // accessing the field. Otherwise, proceeds with normal field access.
+    ///
+    Safe navigation: obj?.member — returns member if obj is non-null, else default
+    Generate IR for the safe navigation operator (a?.b).
+    Checks if 'a' is null — if so, short-circuits to null/0 without
+    accessing the field. Otherwise, proceeds with normal field access.
+    ///
     fun generateSafeNavigation(expr: ParserExpressionNode) r: String {
         let recvReg = generateExpression(expr.operands[0])
         let recvType = inferExpressionType(expr.operands[0])
@@ -7308,10 +7440,12 @@ class LLVMIRGenerator {
         var armIdx = 0
         while armIdx < expr.arguments.length() {
             let arm = expr.arguments[armIdx]
-            // arm.variableName = pattern kind ("Is", "Literal", "Wildcard", "Variable")
-            // arm.literalValue = type/constructor name or literal value
-            // arm.operands[0] = Pattern expression
-            // arm.operands[1] = arm result expression
+            ///
+            arm.variableName = pattern kind ("Is", "Literal", "Wildcard", "Variable")
+            arm.literalValue = type/constructor name or literal value
+            arm.operands[0] = Pattern expression
+            arm.operands[1] = arm result expression
+            ///
             let patternExpr = arm.operands[0]
 
             let armBodyLabel = getNextBlockFn(g_blockBox)

@@ -1,5 +1,7 @@
-// LRU Cache Benchmark
-// Hash table and linked list performance
+///
+LRU Cache Benchmark
+Hash table and linked list performance
+///
 
 import seen_std.collections.vec { Vec }
 

@@ -1,7 +1,9 @@
-// E2E Test: Type Keywords (English)
-// Keywords tested: class, enum, extends, type
-// NOTE: trait+impl has codegen bug (missing this parameter) -- skipped
-// NOTE: multi-field class methods have structIdx bug for non-ASCII -- use single Int field
+///
+E2E Test: Type Keywords (English)
+Keywords tested: class, enum, extends, type
+NOTE: trait+impl has codegen bug (missing this parameter) -- skipped
+NOTE: multi-field class methods have structIdx bug for non-ASCII -- use single Int field
+///
 
 enum Color {
     Red,

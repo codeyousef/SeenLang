@@ -3,14 +3,16 @@
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn}
 
-// ============================================================
-// emitEgraphPeepholeImpl - emit optimized IR for integer e-graph actions
-// action: string from egraphLookup (e.g. "shl:3", "neg", "const:0", "and:7")
-// leftReg/rightReg: pre-generated registers for the operands
-// operator: the original binary operator (for comments)
-// Returns result register, or "" if action is "identity_left"/"identity_right"
-// (caller must handle identity by returning the appropriate sub-expression)
-// ============================================================
+///
+============================================================
+emitEgraphPeepholeImpl - emit optimized IR for integer e-graph actions
+action: string from egraphLookup (e.g. "shl:3", "neg", "const:0", "and:7")
+leftReg/rightReg: pre-generated registers for the operands
+operator: the original binary operator (for comments)
+Returns result register, or "" if action is "identity_left"/"identity_right"
+(caller must handle identity by returning the appropriate sub-expression)
+============================================================
+///
 fun emitEgraphPeepholeImpl(output: StringBuilder, regBox: Array<Int>, action: String, leftReg: String, rightReg: String, operator: String) r: String {
     if action.startsWith("const:") {
         let constVal = action.substring(6, action.length())
@@ -80,14 +82,16 @@ fun emitEgraphPeepholeImpl(output: StringBuilder, regBox: Array<Int>, action: St
     return ""
 }
 
-// ============================================================
-// emitEgraphFloatPeepholeImpl - emit optimized IR for float e-graph actions
-// action: string from egraphLookupFloat (e.g. "fconst:0.0", "fadd_self", "fmul_half")
-// leftReg/rightReg: pre-generated registers for the operands
-// operator: the original binary operator (for comments)
-// Returns result register, or "" if action is "identity_left"/"identity_right"
-// (caller must handle identity by returning the appropriate sub-expression)
-// ============================================================
+///
+============================================================
+emitEgraphFloatPeepholeImpl - emit optimized IR for float e-graph actions
+action: string from egraphLookupFloat (e.g. "fconst:0.0", "fadd_self", "fmul_half")
+leftReg/rightReg: pre-generated registers for the operands
+operator: the original binary operator (for comments)
+Returns result register, or "" if action is "identity_left"/"identity_right"
+(caller must handle identity by returning the appropriate sub-expression)
+============================================================
+///
 fun emitEgraphFloatPeepholeImpl(output: StringBuilder, regBox: Array<Int>, action: String, leftReg: String, rightReg: String, operator: String) r: String {
     if action.startsWith("fconst:") {
         let fConstReg = getNextRegFn(regBox)

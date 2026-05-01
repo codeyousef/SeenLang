@@ -1,5 +1,7 @@
-// Barrier — Synchronization point for N threads.
-// All threads block until count threads have called wait().
+///
+Barrier — Synchronization point for N threads.
+All threads block until count threads have called wait().
+///
 
 extern fun seen_barrier_new(count: Int) r: Int
 extern fun seen_barrier_wait(handle: Int) r: Int

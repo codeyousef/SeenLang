@@ -1,26 +1,28 @@
-// lexer.seen — Tokenizer for the Seen programming language
-//
-// Pipeline stage: Stage 1 (first stage of compilation)
-// Input: Raw source code string + language code (e.g. "en", "ar", "zh")
-// Output: Array<Token> — flat sequence of tokens with position info
-//
-// The lexer scans source bytes left-to-right, producing tokens for:
-//   - Keywords (multi-language via KeywordManager + TOML files in languages/)
-//   - Identifiers, numeric literals (int, float, hex 0x, binary 0b, octal 0o)
-//   - String literals with interpolation ("hello {name}"), char literals
-//   - Operators (single-char, two-char like ==, >=, compound-assign like +=)
-//   - Punctuation (braces, parens, brackets, semicolons, commas, etc.)
-//
-// Key design decisions:
-//   - Uses byteAt() for scanning (byte-indexed), not charAt() (char-indexed),
-//     for performance on large files. UTF-8 multi-byte sequences handled via
-//     decodeUtf8At() and advanceUtf8() for identifier characters.
-//   - String interpolation: "{expr}" inside double-quoted strings emits
-//     InterpolationStart/InterpolationEnd tokens around the expression.
-//   - Error recovery mode: on unexpected characters, emits Error tokens and
-//     continues rather than aborting, so the parser gets a complete token stream.
-//   - Safety: main loop has a 500K iteration cap to prevent infinite loops on
-//     malformed input.
+///
+lexer.seen — Tokenizer for the Seen programming language
+
+Pipeline stage: Stage 1 (first stage of compilation)
+Input: Raw source code string + language code (e.g. "en", "ar", "zh")
+Output: Array<Token> — flat sequence of tokens with position info
+
+The lexer scans source bytes left-to-right, producing tokens for:
+  - Keywords (multi-language via KeywordManager + TOML files in languages/)
+  - Identifiers, numeric literals (int, float, hex 0x, binary 0b, octal 0o)
+  - String literals with interpolation ("hello {name}"), char literals
+  - Operators (single-char, two-char like ==, >=, compound-assign like +=)
+  - Punctuation (braces, parens, brackets, semicolons, commas, etc.)
+
+Key design decisions:
+  - Uses byteAt() for scanning (byte-indexed), not charAt() (char-indexed),
+    for performance on large files. UTF-8 multi-byte sequences handled via
+    decodeUtf8At() and advanceUtf8() for identifier characters.
+  - String interpolation: "{expr}" inside double-quoted strings emits
+    InterpolationStart/InterpolationEnd tokens around the expression.
+  - Error recovery mode: on unexpected characters, emits Error tokens and
+    continues rather than aborting, so the parser gets a complete token stream.
+  - Safety: main loop has a 500K iteration cap to prevent infinite loops on
+    malformed input.
+///
 
 import lexer.interfaces.{Token, Position, LexerError}
 import lexer.token_type.{SeenTokenType}
@@ -60,17 +62,19 @@ fun seenMakeToken(tokenType: SeenTokenType, value: String, line: Int, column: In
     }
 }
 
-// Main lexer class. Holds the source text, cursor state (position/line/column),
-// and the accumulated token array. One instance per source file.
-//
-// Fields:
-//   source      — immutable source text to tokenize
-//   fileId      — numeric ID for this file (used in position tracking)
-//   language    — language code for keyword lookup ("en", "ar", "es", etc.)
-//   keywordManager — maps identifiers to keyword token types for the selected language
-//   position    — current byte offset into source
-//   line/column — current source location (1-based) for error reporting
-//   tokens      — output: accumulated token array built during tokenize()
+///
+Main lexer class. Holds the source text, cursor state (position/line/column),
+and the accumulated token array. One instance per source file.
+
+Fields:
+  source      — immutable source text to tokenize
+  fileId      — numeric ID for this file (used in position tracking)
+  language    — language code for keyword lookup ("en", "ar", "es", etc.)
+  keywordManager — maps identifiers to keyword token types for the selected language
+  position    — current byte offset into source
+  line/column — current source location (1-based) for error reporting
+  tokens      — output: accumulated token array built during tokenize()
+///
 class SeenLexer {
     let source: String
     let fileId: Int
@@ -96,9 +100,11 @@ class SeenLexer {
         }
     }
     
-    // Main entry point. Scans the entire source and returns all tokens.
-    // Resets cursor state so a single SeenLexer can be re-used (though
-    // this is not typical — one lexer per file is the norm).
+    ///
+    Main entry point. Scans the entire source and returns all tokens.
+    Resets cursor state so a single SeenLexer can be re-used (though
+    this is not typical — one lexer per file is the norm).
+    ///
     fun tokenize() r: Array<Token> {
         // Reset state
         position = 0
@@ -418,9 +424,11 @@ class SeenLexer {
         return seenIsUnicodeAlphaCodePoint(cp)
     }
 
-    // Decodes a single Unicode code point from the UTF-8 byte sequence at pos.
-    // Returns the code point as an Int, or 65533 (U+FFFD replacement char) on error.
-    // Used by handleIdentifierOrKeyword() to support non-ASCII identifier chars.
+    ///
+    Decodes a single Unicode code point from the UTF-8 byte sequence at pos.
+    Returns the code point as an Int, or 65533 (U+FFFD replacement char) on error.
+    Used by handleIdentifierOrKeyword() to support non-ASCII identifier chars.
+    ///
     fun decodeUtf8At(pos: Int) r: Int {
         var slen = source.length()
         if pos >= slen { return 0 }
@@ -587,12 +595,14 @@ class SeenLexer {
         }
     }
     
-    // Scans a double-quoted string literal, handling escape sequences (\n, \t, etc.)
-    // and string interpolation ("{expr}"). Interpolation detection uses lookahead:
-    // a lone '{' followed by an identifier-start char AND a matching '}' before the
-    // closing '"' triggers interpolation mode. "{{" is an escaped literal '{'.
-    // CAVEAT: "{identifier" without closing "}" is treated as literal text, but
-    // "{" followed by space (e.g. "{ i64, ptr }") also stays literal.
+    ///
+    Scans a double-quoted string literal, handling escape sequences (\n, \t, etc.)
+    and string interpolation ("{expr}"). Interpolation detection uses lookahead:
+    a lone '{' followed by an identifier-start char AND a matching '}' before the
+    closing '"' triggers interpolation mode. "{{" is an escaped literal '{'.
+    CAVEAT: "{identifier" without closing "}" is treated as literal text, but
+    "{" followed by space (e.g. "{ i64, ptr }") also stays literal.
+    ///
     fun handleStringLiteral() r: Void {
         let startPos = position
         let startLine = line
@@ -636,8 +646,10 @@ class SeenLexer {
                     let nextChar = getCurrentChar()
                     let isIdentStart = isAlpha(nextChar) or nextChar == '_'
                     if isIdentStart {
-                        // Look ahead for closing } before next "
-                        // If no } found before ", treat { as literal (not interpolation)
+                        ///
+                        Look ahead for closing } before next "
+                        If no } found before ", treat { as literal (not interpolation)
+                        ///
                         var scanOff = 0
                         var scanFoundClose = 0
                         var scanDone = 0
@@ -791,16 +803,20 @@ class SeenLexer {
     }
     
     fun isInInterpolation() r: Bool {
-        // Check if we're currently inside an interpolation expression
-        // This would need more sophisticated tracking
+        ///
+        Check if we're currently inside an interpolation expression
+        This would need more sophisticated tracking
+        ///
         return false
     }
     
-    // Handles "text {expr} more text" by emitting a sequence of tokens:
-    //   InterpolatedStringStart → StringLiteral("text ") → InterpolationStart →
-    //   <expression tokens> → InterpolationEnd → StringLiteral(" more text") →
-    //   InterpolatedStringEnd
-    // Called when handleStringLiteral detects a valid interpolation pattern.
+    ///
+    Handles "text {expr} more text" by emitting a sequence of tokens:
+      InterpolatedStringStart → StringLiteral("text ") → InterpolationStart →
+      <expression tokens> → InterpolationEnd → StringLiteral(" more text") →
+      InterpolatedStringEnd
+    Called when handleStringLiteral detects a valid interpolation pattern.
+    ///
     fun handleInterpolatedString(startPos: Int) r: Void {
         
         // Reset to start and re-parse with interpolation awareness
@@ -877,9 +893,11 @@ class SeenLexer {
     }
     
     fun parseInterpolationExpression() r: Void {
-        // Parse the expression inside {} - this is a mini-parser
-        // For now, tokenize it as regular tokens
-        // IMPORTANT: Do NOT emit tokens for {} as they are handled by caller
+        ///
+        Parse the expression inside {} - this is a mini-parser
+        For now, tokenize it as regular tokens
+        IMPORTANT: Do NOT emit tokens for {} as they are handled by caller
+        ///
 
         while position < source.length() {
             let ch = getCurrentChar()
@@ -889,8 +907,10 @@ class SeenLexer {
             // Recursively tokenize the expression
             if isAlpha(ch) or ch == '_' {
                 handleIdentifierOrKeyword()
-                // After handleIdentifierOrKeyword, continue immediately
-                // to avoid falling through to else branch
+                ///
+                After handleIdentifierOrKeyword, continue immediately
+                to avoid falling through to else branch
+                ///
                 continue
             } else if isDigit(ch) {
                 handleNumericLiteral()
@@ -934,9 +954,11 @@ class SeenLexer {
         }
     }
     
-    // Scans integer and float literals: decimal, hex (0x), binary (0b),
-    // with underscore separators (1_000_000), decimal points, and scientific
-    // notation (1e-3). Emits IntegerLiteral or FloatLiteral token.
+    ///
+    Scans integer and float literals: decimal, hex (0x), binary (0b),
+    with underscore separators (1_000_000), decimal points, and scientific
+    notation (1e-3). Emits IntegerLiteral or FloatLiteral token.
+    ///
     fun handleNumericLiteral() r: Void {
         let startPos = position
         let traceVerbose = isLexerTraceVerboseEnabled()
@@ -1038,10 +1060,12 @@ class SeenLexer {
         return char == '0' or char == '1'
     }
     
-    // Scans an identifier or keyword. Supports UTF-8 multi-byte characters
-    // (Arabic, Chinese, etc.) in identifiers via decodeUtf8At(). After
-    // collecting the full identifier string, checks keywordManager to see
-    // if it maps to a keyword token type in the current language.
+    ///
+    Scans an identifier or keyword. Supports UTF-8 multi-byte characters
+    (Arabic, Chinese, etc.) in identifiers via decodeUtf8At(). After
+    collecting the full identifier string, checks keywordManager to see
+    if it maps to a keyword token type in the current language.
+    ///
     fun handleIdentifierOrKeyword() r: Void {
         let startPos = position
         let valueBuilder = StringBuilder.new()
@@ -1122,17 +1146,21 @@ class SeenLexer {
         }
     }
     
-    // Attempts to match the current position as an operator token.
-    // Tries two-character operators first (==, !=, <=, >=, <<, >>, ->, +=, etc.)
-    // then falls back to single-character operators (+, -, *, /, etc.).
-    // Returns true if an operator was consumed, false otherwise.
+    ///
+    Attempts to match the current position as an operator token.
+    Tries two-character operators first (==, !=, <=, >=, <<, >>, ->, +=, etc.)
+    then falls back to single-character operators (+, -, *, /, etc.).
+    Returns true if an operator was consumed, false otherwise.
+    ///
     fun handleOperator() r: Bool {
         let char = getCurrentChar()
         let nextChar = peekChar(1)
         let traceVerbose = isLexerTraceVerboseEnabled()
 
-        // Two-character operators - check specific combinations directly
-        // This avoids potential string concatenation issues
+        ///
+        Two-character operators - check specific combinations directly
+        This avoids potential string concatenation issues
+        ///
         if char == '=' and nextChar == '=' {
             if traceVerbose { traceLexVerbose("handleOperator matched ==") }
             advance()

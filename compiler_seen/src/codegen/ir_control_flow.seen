@@ -1,6 +1,8 @@
-// ir_control_flow.seen — Loop analysis and control flow helpers
-// Extracted from llvm_ir_gen.seen generateWhileStatement() to reduce module 5 size
-// These are pure AST analysis functions (no generateExpression callbacks needed)
+///
+ir_control_flow.seen — Loop analysis and control flow helpers
+Extracted from llvm_ir_gen.seen generateWhileStatement() to reduce module 5 size
+These are pure AST analysis functions (no generateExpression callbacks needed)
+///
 
 import parser.real_parser.{StatementNode, ParserExpressionNode, BlockNode}
 import codegen.ir_optimization.{parseIntManual, getNextRegFn, getNextBlockFn}
@@ -54,9 +56,11 @@ fun emitMemcpyLoopExitBlocksImpl(output: StringBuilder, condLabel: String,
     output.append(endLabel + ":\n")
 }
 
-// detectMemcpyPattern — Check if a while loop is a memcpy or memmove pattern
-// Returns: 0 = no pattern, 1 = memcpy (dest[i]=src[i]), 2 = memmove (arr[i]=arr[i+1])
-// mcLHSArrName/mcRHSArrName/mcIncrVarName: output parameters (pipe-delimited single entry)
+///
+detectMemcpyPattern — Check if a while loop is a memcpy or memmove pattern
+Returns: 0 = no pattern, 1 = memcpy (dest[i]=src[i]), 2 = memmove (arr[i]=arr[i+1])
+mcLHSArrName/mcRHSArrName/mcIncrVarName: output parameters (pipe-delimited single entry)
+///
 fun detectMemcpyPatternImpl(condition: ParserExpressionNode, body: BlockNode,
     infoOut: Array<String>) r: Int {
     // Check condition is i < N with large literal bound
@@ -173,8 +177,10 @@ fun detectMemcpyPatternImpl(condition: ParserExpressionNode, body: BlockNode,
     return 0
 }
 
-// detectLoopBound — Extract literal loop bound from condition
-// Returns -1 if no literal bound
+///
+detectLoopBound — Extract literal loop bound from condition
+Returns -1 if no literal bound
+///
 fun detectLoopBoundImpl(condition: ParserExpressionNode) r: Int {
     if condition.kind == "Binary" {
         if condition.operator == "<" or condition.operator == "<=" {
@@ -189,8 +195,10 @@ fun detectLoopBoundImpl(condition: ParserExpressionNode) r: Int {
     return -1
 }
 
-// computeLoopTileSize — Compute tiling unroll count for a loop with given bound
-// Returns 0 if no tiling needed (bound too small)
+///
+computeLoopTileSize — Compute tiling unroll count for a loop with given bound
+Returns 0 if no tiling needed (bound too small)
+///
 fun computeLoopTileSizeImpl(loopBoundLiteral: Int, mlUnrollThreshold: Int) r: Int {
     if loopBoundLiteral <= 64 {
         return 0
@@ -201,8 +209,10 @@ fun computeLoopTileSizeImpl(loopBoundLiteral: Int, mlUnrollThreshold: Int) r: In
     return tileSize
 }
 
-// detectReductionPattern — Check if loop body contains a reduction (acc = acc + x)
-// Returns reduction variable name, or "" if none
+///
+detectReductionPattern — Check if loop body contains a reduction (acc = acc + x)
+Returns reduction variable name, or "" if none
+///
 fun detectReductionPatternImpl(body: BlockNode) r: String {
     var riIdx = 0
     while riIdx < body.statements.length() {
@@ -230,8 +240,10 @@ fun detectReductionPatternImpl(body: BlockNode) r: String {
     return ""
 }
 
-// detectInductionVar — Check if loop body contains i = i + 1 or i = i - 1
-// Returns induction variable name, or "" if none
+///
+detectInductionVar — Check if loop body contains i = i + 1 or i = i - 1
+Returns induction variable name, or "" if none
+///
 fun detectInductionVarImpl(body: BlockNode) r: String {
     var ivIdx = 0
     while ivIdx < body.statements.length() {
@@ -260,9 +272,11 @@ fun detectInductionVarImpl(body: BlockNode) r: String {
     return ""
 }
 
-// detectBreakOnFlag — Check for break-on-flag pattern in loop body
-// Pattern: if flag == 0 { ... flag = 1 } inside a while loop
-// Returns flag variable name, or "" if none
+///
+detectBreakOnFlag — Check for break-on-flag pattern in loop body
+Pattern: if flag == 0 { ... flag = 1 } inside a while loop
+Returns flag variable name, or "" if none
+///
 fun detectBreakOnFlagImpl(body: BlockNode) r: String {
     if body.statements.length() < 2 {
         return ""
@@ -311,8 +325,10 @@ fun detectBreakOnFlagImpl(body: BlockNode) r: String {
     return ""
 }
 
-// detectNestedLoop — Check if loop body contains a nested while/for loop
-// Returns true if nested loop found
+///
+detectNestedLoop — Check if loop body contains a nested while/for loop
+Returns true if nested loop found
+///
 fun detectNestedLoopImpl(body: BlockNode) r: Bool {
     var idx = 0
     while idx < body.statements.length() {
@@ -325,8 +341,10 @@ fun detectNestedLoopImpl(body: BlockNode) r: Bool {
     return false
 }
 
-// detectGcdPattern — Check for GCD loop pattern: while Y > 0 with modulo in body
-// Returns true if GCD pattern detected
+///
+detectGcdPattern — Check for GCD loop pattern: while Y > 0 with modulo in body
+Returns true if GCD pattern detected
+///
 fun detectGcdPatternImpl(condition: ParserExpressionNode, body: BlockNode) r: Bool {
     if condition.kind != "Binary" or condition.operator != ">" {
         return false
@@ -355,8 +373,10 @@ fun detectGcdPatternImpl(condition: ParserExpressionNode, body: BlockNode) r: Bo
     return hasModuloAssign and body.statements.length() <= 5
 }
 
-// evaluateCfgPredicateImpl — Evaluate @cfg predicate for conditional compilation
-// Returns true if the function should be included
+///
+evaluateCfgPredicateImpl — Evaluate @cfg predicate for conditional compilation
+Returns true if the function should be included
+///
 fun evaluateCfgPredicateImpl(cfgPred: String, enabledFeatures: String) r: Bool {
     if cfgPred == "linux" or cfgPred == "target_os_linux" {
         return true
@@ -396,13 +416,15 @@ fun evaluateCfgPredicateImpl(cfgPred: String, enabledFeatures: String) r: Bool {
     return false
 }
 
-// emitForInElementFetchImpl — Emit element load for array-based for-in loop
-// Handles Int/Char (i64), Float (double), String (runtime call), and generic (i64) element types.
-// arrReg: register holding the SeenArray pointer
-// loadIdxReg: register holding the current loop index
-// loopVarReg: alloca register for the loop variable (where element is stored)
-// elementType: Seen type name of the array element
-// isString: 1 if elementType == "String", isFloat: 1 if elementType == "Float"
+///
+emitForInElementFetchImpl — Emit element load for array-based for-in loop
+Handles Int/Char (i64), Float (double), String (runtime call), and generic (i64) element types.
+arrReg: register holding the SeenArray pointer
+loadIdxReg: register holding the current loop index
+loopVarReg: alloca register for the loop variable (where element is stored)
+elementType: Seen type name of the array element
+isString: 1 if elementType == "String", isFloat: 1 if elementType == "Float"
+///
 fun emitForInElementFetchImpl(output: StringBuilder, regBox: Array<Int>,
     arrReg: String, loadIdxReg: String, loopVarReg: String,
     elementType: String, isString: Int, isFloat: Int) r: Void {
@@ -451,8 +473,10 @@ fun emitForInElementFetchImpl(output: StringBuilder, regBox: Array<Int>,
     output.append("  store i64 " + elemReg + ", ptr " + loopVarReg + ", align 8\n")
 }
 
-// emitForInPrefetchImpl — Emit software prefetch for array-based for-in loop
-// Prefetches element at i+8 for sequential array traversals (non-String types only)
+///
+emitForInPrefetchImpl — Emit software prefetch for array-based for-in loop
+Prefetches element at i+8 for sequential array traversals (non-String types only)
+///
 fun emitForInPrefetchImpl(output: StringBuilder, regBox: Array<Int>, blockBox: Array<Int>,
     arrReg: String, loadIdxReg: String, lenReg: String, elementType: String) r: Void {
     if elementType == "String" {

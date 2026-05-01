@@ -134,15 +134,21 @@ class CGenerator {
 
     // Access items via currentProgram field - no parameter passing to avoid memory corruption
     fun generateFunctionByIdx(idx: Int) r: Void {
-        // trace removed
-        // trace removed
+        ///
+        trace removed
+        trace removed
+        ///
         let itemCount = currentProgram.items.length()
-        // trace removed)
-        // Access function.name via chained indexing to avoid intermediate copies
-        // trace removed
+        ///
+        trace removed)
+        Access function.name via chained indexing to avoid intermediate copies
+        trace removed
+        ///
         let funcName = currentProgram.items[idx].function.name
-        // trace removed
-        // C main() must return int and take argc/argv
+        ///
+        trace removed
+        C main() must return int and take argc/argv
+        ///
         if cGenIsMainFunctionName(funcName) {
             sb.append("int main(int _argc, char** _argv")
         } else {
@@ -363,8 +369,10 @@ class CGenerator {
     }
 
     fun generateFunction(func: FunctionNode) r: Void {
-        // trace removed
-        // C main() must return int and take argc/argv (use _argc/_argv to avoid conflicts)
+        ///
+        trace removed
+        C main() must return int and take argc/argv (use _argc/_argv to avoid conflicts)
+        ///
         if cGenIsMainFunctionName(func.name) {
             sb.append("int main(int _argc, char** _argv")
         } else {
@@ -902,8 +910,10 @@ class CGenerator {
             return inferCallReturnType(init.callee)
         }
         if init.kind == "MethodCall" {
-            // For "new" method calls, return the class name (mapped through mapType)
-            // Receiver class name is stored in literalValue (not operands)
+            ///
+            For "new" method calls, return the class name (mapped through mapType)
+            Receiver class name is stored in literalValue (not operands)
+            ///
             if init.callee == "new" {
                 let receiverClassName = init.literalValue
                 if receiverClassName != "" {

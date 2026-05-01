@@ -1,17 +1,23 @@
-// Determinism Checker for Seen Language
-// Validates @deterministic and @nondeterministic annotations
-// Ensures deterministic functions don't call nondeterministic functions
+///
+Determinism Checker for Seen Language
+Validates @deterministic and @nondeterministic annotations
+Ensures deterministic functions don't call nondeterministic functions
+///
 
 import parser.real_parser.{ProgramNode, FunctionNode, ItemNode, StatementNode, ParserExpressionNode, BlockNode, ClassNode}
 
-// Known nondeterministic TYPES from stdlib - require @nondeterministic annotation
-// to use in deterministic profile
+///
+Known nondeterministic TYPES from stdlib - require @nondeterministic annotation
+to use in deterministic profile
+///
 let NONDETERMINISTIC_TYPES: Array<String> = [
     "HashMap",
     "HashSet",
-    // Floating-point types are nondeterministic due to IEEE 754 implementation differences
-    // across platforms (rounding modes, extended precision, etc.)
-    // Use Fixed64/Fixed128 for deterministic numerics
+    ///
+    Floating-point types are nondeterministic due to IEEE 754 implementation differences
+    across platforms (rounding modes, extended precision, etc.)
+    Use Fixed64/Fixed128 for deterministic numerics
+    ///
     "Float",
     "f32",
     "f64"
@@ -257,9 +263,11 @@ class DeterminismChecker {
         if typeName == "HashSet" or typeName.startsWith("HashSet<") {
             return true
         }
-        // Floating-point types are nondeterministic due to IEEE 754 implementation
-        // differences (rounding modes, extended precision, FMA differences, etc.)
-        // Use Fixed64/Fixed128 for deterministic numerics
+        ///
+        Floating-point types are nondeterministic due to IEEE 754 implementation
+        differences (rounding modes, extended precision, FMA differences, etc.)
+        Use Fixed64/Fixed128 for deterministic numerics
+        ///
         if typeName == "Float" or typeName == "f32" or typeName == "f64" {
             return true
         }

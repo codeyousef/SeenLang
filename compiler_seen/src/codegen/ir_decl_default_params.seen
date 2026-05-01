@@ -1,5 +1,7 @@
-// ir_decl_default_params.seen — declaration default-parameter helpers
-// Keeps default-parameter string-constant collection out of llvm_ir_gen.seen.
+///
+ir_decl_default_params.seen — declaration default-parameter helpers
+Keeps default-parameter string-constant collection out of llvm_ir_gen.seen.
+///
 
 import parser.real_parser.{ProgramNode, FunctionNode}
 import codegen.ir_decl_items.{normalizeSeenTypeNameImpl}

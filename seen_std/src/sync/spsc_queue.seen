@@ -1,22 +1,26 @@
-// Lock-Free Single Producer Single Consumer Queue
-// Optimized for high-throughput one-to-one communication
-//
-// Performance characteristics:
-// - Push/Pop: O(1) with minimal atomic operations
-// - Throughput: 10M+ messages/sec on modern CPUs
-// - Cache-friendly: Producer and consumer use separate cache lines
-//
-// Key optimizations:
-// - Head/tail caching reduces atomic loads by ~50%
-// - Relaxed ordering for local operations (owner doesn't need sync with itself)
-// - Acquire/Release for cross-thread synchronization
-// - Ring buffer for cache locality
+///
+Lock-Free Single Producer Single Consumer Queue
+Optimized for high-throughput one-to-one communication
+
+Performance characteristics:
+- Push/Pop: O(1) with minimal atomic operations
+- Throughput: 10M+ messages/sec on modern CPUs
+- Cache-friendly: Producer and consumer use separate cache lines
+
+Key optimizations:
+- Head/tail caching reduces atomic loads by ~50%
+- Relaxed ordering for local operations (owner doesn't need sync with itself)
+- Acquire/Release for cross-thread synchronization
+- Ring buffer for cache locality
+///
 
 import sync.atomic.{AtomicInt}
 import core.option.{Option}
 
-// Single Producer Single Consumer Queue
-// Generic over element type T
+///
+Single Producer Single Consumer Queue
+Generic over element type T
+///
 class SPSCQueue<T> {
     var buffer: Array<Option<T>>  // Ring buffer storage
     var capacity: Int              // Fixed capacity (power of 2 for fast modulo)
@@ -25,8 +29,10 @@ class SPSCQueue<T> {
     var cache_head: Int            // Cached head for consumer (reduces atomic reads)
     var cache_tail: Int            // Cached tail for producer (reduces atomic reads)
 
-    // Create new SPSC queue with given capacity
-    // capacity should be power of 2 for optimal performance
+    ///
+    Create new SPSC queue with given capacity
+    capacity should be power of 2 for optimal performance
+    ///
     static fun new(capacity: Int) -> SPSCQueue<T> {
         // Ensure capacity is at least 2
         var cap = capacity
@@ -57,11 +63,13 @@ class SPSCQueue<T> {
         return SPSCQueue::new(256)
     }
 
-    // Producer: Push element to queue
-    // Returns true if successful, false if queue is full
-    //
-    // Performance: Uses Relaxed ordering for local head load,
-    // Release ordering for publishing to consumer
+    ///
+    Producer: Push element to queue
+    Returns true if successful, false if queue is full
+
+    Performance: Uses Relaxed ordering for local head load,
+    Release ordering for publishing to consumer
+    ///
     fun push(value: T) -> Bool {
         // Load current head (producer-local, use Relaxed)
         let current_head = this.head.load_relaxed()
@@ -87,11 +95,13 @@ class SPSCQueue<T> {
         return true
     }
 
-    // Consumer: Pop element from queue
-    // Returns Some(value) if available, None if queue is empty
-    //
-    // Performance: Uses Relaxed ordering for local tail load,
-    // Acquire ordering for reading from producer
+    ///
+    Consumer: Pop element from queue
+    Returns Some(value) if available, None if queue is empty
+
+    Performance: Uses Relaxed ordering for local tail load,
+    Acquire ordering for reading from producer
+    ///
     fun pop() -> Option<T> {
         // Load current tail (consumer-local, use Relaxed)
         let current_tail = this.tail.load_relaxed()
@@ -120,16 +130,20 @@ class SPSCQueue<T> {
         return value
     }
 
-    // Check if queue is empty (approximate - not linearizable)
-    // May return false negative due to concurrent push
+    ///
+    Check if queue is empty (approximate - not linearizable)
+    May return false negative due to concurrent push
+    ///
     fun is_empty() -> Bool {
         let head_val = this.head.load()
         let tail_val = this.tail.load()
         return head_val == tail_val
     }
 
-    // Check if queue is full (approximate - not linearizable)
-    // May return false positive due to concurrent pop
+    ///
+    Check if queue is full (approximate - not linearizable)
+    May return false positive due to concurrent pop
+    ///
     fun is_full() -> Bool {
         let head_val = this.head.load()
         let tail_val = this.tail.load()
@@ -161,9 +175,11 @@ class SPSCQueue<T> {
     }
 }
 
-// Benchmarking helper: Measure SPSC throughput
-// Pushes count messages from producer thread, pops from consumer thread
-// Returns throughput in messages/second
+///
+Benchmarking helper: Measure SPSC throughput
+Pushes count messages from producer thread, pops from consumer thread
+Returns throughput in messages/second
+///
 fun benchmark_spsc(count: Int) -> Int {
     let queue = SPSCQueue::new(1024)
 
@@ -184,16 +200,20 @@ fun benchmark_spsc(count: Int) -> Int {
         var received = 0
         while received < count {
             let maybe_val = q.pop()
-            // Match on Option would be better here, but using simple check
-            // if maybe_val.is_some() {
-            //     received = received + 1
-            // }
+            ///
+            Match on Option would be better here, but using simple check
+            if maybe_val.is_some() {
+                received = received + 1
+            }
+            ///
             received = received + 1
         }
     }
 
-    // TODO: Spawn producer and consumer threads, measure time
-    // For now, this is a placeholder showing the intended API
+    ///
+    TODO: Spawn producer and consumer threads, measure time
+    For now, this is a placeholder showing the intended API
+    ///
 
     // Throughput calculation would be: count / elapsed_seconds
     return count

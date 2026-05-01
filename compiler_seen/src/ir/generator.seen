@@ -1,5 +1,7 @@
-// Real IR Generator Implementation - Following TDD
-// Implements comprehensive IR generation for LLVM backend
+///
+Real IR Generator Implementation - Following TDD
+Implements comprehensive IR generation for LLVM backend
+///
 
 import lexer.{TokenType}
 import parser.{AST, Expression, Statement, Block, ReturnStatement, VariableDeclaration, IfStatement, BinaryExpression, Literal, IdentifierExpression, Type as ASTType}
@@ -691,8 +693,10 @@ class IRGenerator {
     }
     
     fun calculateFieldPointer(structPtr: IRValue?, fieldIndex: Int) r: IRValue {
-        // Simplified field pointer calculation
-        // In real implementation, would use getelementptr
+        ///
+        Simplified field pointer calculation
+        In real implementation, would use getelementptr
+        ///
         let result = IRValue.new(builder.getNextRegister(), IRType.Ptr)
         let instruction = IRInstruction.new("getelementptr", result)
         if structPtr != null {

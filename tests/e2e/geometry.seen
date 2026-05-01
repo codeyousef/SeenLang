@@ -1,5 +1,7 @@
-// Geometry Module for E2E Testing
-// Provides geometric classes and operations
+///
+Geometry Module for E2E Testing
+Provides geometric classes and operations
+///
 
 class Point {
     var x: Int
@@ -41,8 +43,10 @@ class Rectangle {
         return result
     }
 
-    // Commented out due to IR generation bug
-    // fun scale(factor: Int) r: Rectangle {
-    //     return Rectangle.new(width * factor, height * factor)
-    // }
+    ///
+    Commented out due to IR generation bug
+    fun scale(factor: Int) r: Rectangle {
+        return Rectangle.new(width * factor, height * factor)
+    }
+    ///
 }

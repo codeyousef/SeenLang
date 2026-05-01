@@ -1,5 +1,7 @@
-// FFI Module - Foreign Function Interface bindings
-// Provides low-level C library access for the Seen compiler
+///
+FFI Module - Foreign Function Interface bindings
+Provides low-level C library access for the Seen compiler
+///
 
 // Z3 SMT Solver FFI bindings
 import z3_ffi.{

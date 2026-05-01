@@ -1,5 +1,7 @@
-// Mandelbrot Set Benchmark
-// Complex arithmetic and iteration
+///
+Mandelbrot Set Benchmark
+Complex arithmetic and iteration
+///
 
 import seen_std.collections.vec { Vec }
 

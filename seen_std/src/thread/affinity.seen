@@ -1,6 +1,8 @@
-// CPU Affinity — pin threads to specific cores
-// Usage: let cores = CpuAffinity.getNumCores()
-//        CpuAffinity.setThreadAffinity(0)  // pin to core 0
+///
+CPU Affinity — pin threads to specific cores
+Usage: let cores = CpuAffinity.getNumCores()
+       CpuAffinity.setThreadAffinity(0)  // pin to core 0
+///
 
 class CpuAffinity {
     fun setThreadAffinity(core_id: Int) r: Int {

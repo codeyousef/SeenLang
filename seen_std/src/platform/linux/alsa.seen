@@ -70,9 +70,11 @@ let ALSA_DEFAULT_DEVICE: String = "default"
 let ALSA_PLUGHW_DEVICE: String = "plughw:0,0"
 let ALSA_HW_DEVICE: String = "hw:0,0"
 
-// ============================================================================
-// Shim FFI Declarations - Link to libseen_platform.so
-// ============================================================================
+///
+============================================================================
+Shim FFI Declarations - Link to libseen_platform.so
+============================================================================
+///
 
 extern "C" fun seen_alsa_open(pcm: **Void, name: *Char, stream: Int32, mode: Int32) r: Int32
 extern "C" fun seen_alsa_close(pcm: *Void) r: Int32
@@ -83,9 +85,11 @@ extern "C" fun seen_alsa_drain(pcm: *Void) r: Int32
 extern "C" fun seen_alsa_recover(pcm: *Void, err: Int32, silent: Int32) r: Int32
 extern "C" fun seen_alsa_strerror(errnum: Int32) r: *Char
 
-// ============================================================================
-// Safe Wrapper Functions
-// ============================================================================
+///
+============================================================================
+Safe Wrapper Functions
+============================================================================
+///
 
 // Get error string
 fun alsa_strerror(err: Int) r: String {

@@ -1,6 +1,8 @@
-// : Move-only enforcement and @trivially_copyable
-// This test verifies that @move types null the source after assignment
-// and @trivially_copyable types are annotated in IR
+///
+: Move-only enforcement and @trivially_copyable
+This test verifies that @move types null the source after assignment
+and @trivially_copyable types are annotated in IR
+///
 
 @move
 class GpuHandle {

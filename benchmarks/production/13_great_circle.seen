@@ -1,6 +1,8 @@
-// Great-Circle Distance (Haversine) Benchmark
-// Computes distances between lat/lon coordinate pairs using trig functions
-// Math functions: sin, cos, asin, sqrt (via LLVM intrinsic builtins)
+///
+Great-Circle Distance (Haversine) Benchmark
+Computes distances between lat/lon coordinate pairs using trig functions
+Math functions: sin, cos, asin, sqrt (via LLVM intrinsic builtins)
+///
 
 fun haversine(lat1: Float, lon1: Float, lat2: Float, lon2: Float) -> Float {
     let earth_radius = 6371.0

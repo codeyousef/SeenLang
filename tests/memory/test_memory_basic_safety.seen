@@ -1,6 +1,8 @@
-// Basic Memory Safety Test
-// Tests fundamental memory safety without triggering compiler bugs
-// Verifies: allocation, access, no corruption
+///
+Basic Memory Safety Test
+Tests fundamental memory safety without triggering compiler bugs
+Verifies: allocation, access, no corruption
+///
 
 fun testSimpleArraySafety() r: Bool {
     println("Test 1: Simple Array Safety")

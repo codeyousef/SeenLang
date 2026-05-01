@@ -283,8 +283,10 @@ fun emitTypecheckerDeclsImpl(output: StringBuilder, runtimeDeclsLoaded: Bool,
         output.append("declare i64 @Environment() nounwind\n")
     }
 
-    // AST node constructors
-    // Class types (heap-allocated, stored as i64)
+    ///
+    AST node constructors
+    Class types (heap-allocated, stored as i64)
+    ///
     if not isFuncDefinedInModule("FunctionNode_new", definedFuncs) {
         output.append("declare i64 @FunctionNode_new() nounwind\n")
     }
@@ -324,10 +326,12 @@ fun emitTypecheckerDeclsImpl(output: StringBuilder, runtimeDeclsLoaded: Bool,
         output.append("declare %TypeNode @TypeNode_new() nounwind\n")
     }
 
-    // TypeError, Location, Type, and Result methods - also included in runtime header
-    // Note: TypeError method declarations (getMessage, getLocation, etc.) are NOT emitted here.
-    // The g_xmDeclareNames mechanism auto-generates them for modules that call them.
-    // Emitting them here would cause duplicate declarations (redefinition errors).
+    ///
+    TypeError, Location, Type, and Result methods - also included in runtime header
+    Note: TypeError method declarations (getMessage, getLocation, etc.) are NOT emitted here.
+    The g_xmDeclareNames mechanism auto-generates them for modules that call them.
+    Emitting them here would cause duplicate declarations (redefinition errors).
+    ///
     if not runtimeDeclsLoaded {
         // Location/Type field accessors
         output.append("declare i64 @Location_line(ptr) nounwind\n")

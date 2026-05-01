@@ -1,14 +1,18 @@
-// E-graph Optimization Module
-// Based on "egg: Fast and Extensible Equality Saturation" (Willsey et al.)
-//
-// Components:
-//   egraph.seen        - Core e-graph data structure with union-find
-//   rewrite_rules.seen - Algebraic rewrite rules (~12 rules)
-//   cost_model.seen    - Instruction cost model for extraction
-//   optimizer.seen     - Equality saturation optimizer
+///
+E-graph Optimization Module
+Based on "egg: Fast and Extensible Equality Saturation" (Willsey et al.)
 
-// Public API: run the e-graph optimization pass on expression nodes
-// Returns the optimizer with applied rule stats
+Components:
+  egraph.seen        - Core e-graph data structure with union-find
+  rewrite_rules.seen - Algebraic rewrite rules (~12 rules)
+  cost_model.seen    - Instruction cost model for extraction
+  optimizer.seen     - Equality saturation optimizer
+///
+
+///
+Public API: run the e-graph optimization pass on expression nodes
+Returns the optimizer with applied rule stats
+///
 fun runEGraphPass(ops: Array<String>, childrenFlat: Array<Int>, childrenOffsets: Array<Int>) r: EGraphOptimizer {
     var opt = EGraphOptimizer.new()
 

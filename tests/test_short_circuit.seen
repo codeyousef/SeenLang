@@ -1,5 +1,7 @@
-// Test short-circuit evaluation of and/or operators
-// If short-circuit works correctly, side effects are only executed when needed
+///
+Test short-circuit evaluation of and/or operators
+If short-circuit works correctly, side effects are only executed when needed
+///
 
 var sideEffectCount = 0
 
@@ -154,8 +156,10 @@ fun main() r: Int {
     // Test 10: Guard pattern - null-safe via short-circuit
     sideEffectCount = 0
     let r10 = false and sideEffectFalse() or sideEffect()
-    // false and sideEffectFalse() => false (sideEffectFalse not called)
-    // false or sideEffect() => true (sideEffect called once)
+    ///
+    false and sideEffectFalse() => false (sideEffectFalse not called)
+    false or sideEffect() => true (sideEffect called once)
+    ///
     if sideEffectCount == 1 {
         println("PASS: (false and f1()) or f2() calls only f2")
         passed = passed + 1

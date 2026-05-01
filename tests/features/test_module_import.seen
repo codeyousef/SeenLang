@@ -1,6 +1,8 @@
-// Module Import Test
-// Tests: import from local module
-// Expected: Can import and use functions from another file
+///
+Module Import Test
+Tests: import from local module
+Expected: Can import and use functions from another file
+///
 
 import helper_math.{add, multiply, square}
 

@@ -1,6 +1,8 @@
-// ir_stmt_gen.seen — Statement generation helpers
-// Extracted from llvm_ir_gen.seen statement generation functions
-// Each impl function emits IR scaffolding (labels, branches, phi nodes)
+///
+ir_stmt_gen.seen — Statement generation helpers
+Extracted from llvm_ir_gen.seen statement generation functions
+Each impl function emits IR scaffolding (labels, branches, phi nodes)
+///
 
 import parser.real_parser.{ParserExpressionNode, StatementNode}
 import codegen.ir_optimization.{getNextRegFn, getNextBlockFn}
@@ -8,9 +10,11 @@ import codegen.ir_decl_registry.{getFunctionReturnTypeStateImpl}
 import codegen.ir_variable_gen.{storeActiveVariableBindingImpl}
 import str.string.{StringBuilder}
 
-// emitConditionToI1Impl — convert a condition value to i1 based on its type
-// condType: "Bool"/"Int"/"Float"/"String"/""
-// Returns the i1 register name
+///
+emitConditionToI1Impl — convert a condition value to i1 based on its type
+condType: "Bool"/"Int"/"Float"/"String"/""
+Returns the i1 register name
+///
 fun emitConditionToI1Impl(output: StringBuilder, regBox: Array<Int>, condReg: String, condType: String) r: String {
     if condType == "Float" {
         let cmpReg = getNextRegFn(regBox)
@@ -34,10 +38,12 @@ fun emitConditionToI1Impl(output: StringBuilder, regBox: Array<Int>, condReg: St
     return cmpReg
 }
 
-// emitIfBranchingImpl — emit the if/then/else/end label structure.
-// branchMetadata is appended directly to the `br i1` line (for example
-// `, !prof !197`) and may be "".
-// Returns: thenLabel|elseLabel|endLabel for the caller to continue.
+///
+emitIfBranchingImpl — emit the if/then/else/end label structure.
+branchMetadata is appended directly to the `br i1` line (for example
+`, !prof !197`) and may be "".
+Returns: thenLabel|elseLabel|endLabel for the caller to continue.
+///
 fun emitIfBranchingImpl(output: StringBuilder, blockLabelBox: Array<Int>, condBoolReg: String, branchMetadata: String) r: String {
     let thenLabel = getNextBlockFn(blockLabelBox)
     let elseLabel = getNextBlockFn(blockLabelBox)
@@ -140,11 +146,13 @@ fun emitIfLetBindingStateImpl(output: StringBuilder, regBox: Array<Int>,
         activeVarCount, bindName, bindReg, "Int")
 }
 
-// emitRangeForLoopImpl — emit range-based for-in loop scaffolding
-// startReg/endReg: pre-generated range bound registers
-// loopVarAlloca: alloca register for the loop variable
-// indexAlloca: alloca register for the loop index
-// Returns: condLabel:bodyLabel:endLabel concatenated
+///
+emitRangeForLoopImpl — emit range-based for-in loop scaffolding
+startReg/endReg: pre-generated range bound registers
+loopVarAlloca: alloca register for the loop variable
+indexAlloca: alloca register for the loop index
+Returns: condLabel:bodyLabel:endLabel concatenated
+///
 fun emitRangeForLoopImpl(output: StringBuilder, regBox: Array<Int>, blockLabelBox: Array<Int>, startReg: String, endReg: String, loopVarAlloca: String, indexAlloca: String) r: String {
     // Initialize index to start value
     output.append("  store i64 " + startReg + ", ptr " + indexAlloca + "\n")
@@ -174,11 +182,13 @@ fun emitLoopIncrementImpl(output: StringBuilder, regBox: Array<Int>, indexAlloca
     output.append("  br label %" + condLabel + "\n")
 }
 
-// emitIndexedForLoopHeaderImpl — emit shared header scaffolding for loops that
-// advance an i64 index from an initial value up to an exclusive bound.
-// Returns the register holding the loaded index value in the body block.
-// loopValueAlloca can be "" for array iteration where the loop variable holds
-// the fetched element rather than the numeric index.
+///
+emitIndexedForLoopHeaderImpl — emit shared header scaffolding for loops that
+advance an i64 index from an initial value up to an exclusive bound.
+Returns the register holding the loaded index value in the body block.
+loopValueAlloca can be "" for array iteration where the loop variable holds
+the fetched element rather than the numeric index.
+///
 fun emitIndexedForLoopHeaderImpl(output: StringBuilder, regBox: Array<Int>,
     initialIndexReg: String, boundReg: String, loopValueAlloca: String, indexAlloca: String,
     condLabel: String, bodyLabel: String, endLabel: String) r: String {
@@ -198,9 +208,11 @@ fun emitIndexedForLoopHeaderImpl(output: StringBuilder, regBox: Array<Int>,
     return idxReg
 }
 
-// emitArrayForLoopHeaderImpl — emit array-based for-in loop header
-// arrPtrReg: pointer to the SeenArray struct
-// Returns: condLabel:bodyLabel:endLabel:idxAlloca:lenReg concatenated
+///
+emitArrayForLoopHeaderImpl — emit array-based for-in loop header
+arrPtrReg: pointer to the SeenArray struct
+Returns: condLabel:bodyLabel:endLabel:idxAlloca:lenReg concatenated
+///
 fun emitArrayForLoopHeaderImpl(output: StringBuilder, regBox: Array<Int>, blockLabelBox: Array<Int>, arrPtrReg: String) r: String {
     // Get array length
     let lenPtrReg = getNextRegFn(regBox)

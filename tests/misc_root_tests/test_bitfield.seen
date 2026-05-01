@@ -1,10 +1,14 @@
-// Test suite for Bitfield types (Task 5.4: Deterministic Bit-Fields)
-// Self-contained test with inline class definition
-// NOTE: Uses arithmetic operations since Seen doesn't have bitwise operators
+///
+Test suite for Bitfield types (Task 5.4: Deterministic Bit-Fields)
+Self-contained test with inline class definition
+NOTE: Uses arithmetic operations since Seen doesn't have bitwise operators
+///
 
-// ============================================================================
-// Helper functions for bit manipulation using arithmetic
-// ============================================================================
+///
+============================================================================
+Helper functions for bit manipulation using arithmetic
+============================================================================
+///
 
 // Calculate 2^n using multiplication
 fun pow2(n: Int) r: Int {
@@ -17,9 +21,11 @@ fun pow2(n: Int) r: Int {
     return result
 }
 
-// ============================================================================
-// Bitfield8 - Inline Definition for Testing
-// ============================================================================
+///
+============================================================================
+Bitfield8 - Inline Definition for Testing
+============================================================================
+///
 class Bitfield8 {
     var raw: Int
 
@@ -44,8 +50,10 @@ class Bitfield8 {
         if pos < 0 or pos > 7 {
             return false
         }
-        // Check if bit at position pos is set
-        // (raw / 2^pos) % 2 == 1
+        ///
+        Check if bit at position pos is set
+        (raw / 2^pos) % 2 == 1
+        ///
         let divisor = pow2(pos)
         let shifted = raw / divisor
         let bit = shifted % 2
@@ -161,9 +169,11 @@ class Bitfield8 {
     }
 }
 
-// ============================================================================
-// Tests
-// ============================================================================
+///
+============================================================================
+Tests
+============================================================================
+///
 
 fun testBitfield8Basic() r: Int {
     println("Testing Bitfield8 basic operations...")
@@ -184,8 +194,10 @@ fun testBitfield8Basic() r: Int {
         return 1
     }
 
-    // Test getBit
-    // 165 = 10100101 in binary
+    ///
+    Test getBit
+    165 = 10100101 in binary
+    ///
     let bit0 = bf.getBit(0)  // Should be 1 (true)
     if not bit0 {
         println("FAIL: getBit(0) should be true")
@@ -324,9 +336,11 @@ fun testBitfield8Count() r: Int {
     return 0
 }
 
-// ============================================================================
-// Main Test Runner
-// ============================================================================
+///
+============================================================================
+Main Test Runner
+============================================================================
+///
 
 fun main() r: Int {
     println("=== Bitfield Test Suite ===")

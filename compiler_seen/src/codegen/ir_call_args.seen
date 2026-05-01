@@ -1,18 +1,22 @@
-// ir_call_args.seen — shared call argument/default-parameter lowering helpers
-// Extracted from ir_call_dispatch.seen to keep argument preparation separate
-// from constructor/static dispatch and final call emission.
+///
+ir_call_args.seen — shared call argument/default-parameter lowering helpers
+Extracted from ir_call_dispatch.seen to keep argument preparation separate
+from constructor/static dispatch and final call emission.
+///
 
 import codegen.ir_optimization.{getNextRegFn, parseIntManual}
 import codegen.ir_type_mapping.{isDataTypeImpl}
 import str.string.{StringBuilder}
 
-// fillDefaultParamsImpl — Fill missing arguments with registered default values
-// Mutates argRegs/argTypeStrs to append default values for params beyond argRegs.length()
-// funcName: the function being called
-// funcParamCountArr: pipe-delimited "funcName:count|" registry
-// funcDefaultsArr: pipe-delimited "funcName:paramIdx:value:type|" registry
-// strConstPrefix: string constant prefix for this module (for String defaults)
-// stringConstants: the module's string constant table (for looking up String default indices)
+///
+fillDefaultParamsImpl — Fill missing arguments with registered default values
+Mutates argRegs/argTypeStrs to append default values for params beyond argRegs.length()
+funcName: the function being called
+funcParamCountArr: pipe-delimited "funcName:count|" registry
+funcDefaultsArr: pipe-delimited "funcName:paramIdx:value:type|" registry
+strConstPrefix: string constant prefix for this module (for String defaults)
+stringConstants: the module's string constant table (for looking up String default indices)
+///
 fun fillDefaultParamsImpl(output: StringBuilder, regBox: Array<Int>, funcName: String, argRegs: Array<String>, argTypeStrs: Array<String>, funcParamCountArr: String, funcDefaultsArr: String, strConstPrefix: String, stringConstants: Array<String>) r: Void {
     if funcDefaultsArr == "" { return }
     var dfFuncLookup = funcName + ":"
@@ -119,10 +123,12 @@ fun lookupDynParamTraitImpl(funcName: String, paramIdx: Int, dynParamFuncs: Stri
     return dynParamFuncs.substring(dynTraitStart, dynTraitEnd)
 }
 
-// appendPreparedCallArgImpl — Shared argument lowering for call sites
-// Handles by-pointer data-type passing, dyn-trait boxing, and optional
-// Int-to-Float promotion. Appends the lowered argument directly to the
-// output argRegs/argTypeStrs arrays.
+///
+appendPreparedCallArgImpl — Shared argument lowering for call sites
+Handles by-pointer data-type passing, dyn-trait boxing, and optional
+Int-to-Float promotion. Appends the lowered argument directly to the
+output argRegs/argTypeStrs arrays.
+///
 fun appendPreparedCallArgImpl(output: StringBuilder, regBox: Array<Int>,
     funcName: String, argReg: String, argType: String, argLlvmType: String, argIdx: Int,
     argRegs: Array<String>, argTypeStrs: Array<String>, dynParamFuncs: String,
@@ -172,9 +178,11 @@ fun appendPreparedCallArgImpl(output: StringBuilder, regBox: Array<Int>,
     argTypeStrs.push(argLlvmType)
 }
 
-// promoteFloatArgsImpl — Int-to-Float promotion for function call arguments
-// Converts matching i64 args to double using the float parameter registry.
-// Mutates argRegs/argTypeStrs in-place to replace promoted args.
+///
+promoteFloatArgsImpl — Int-to-Float promotion for function call arguments
+Converts matching i64 args to double using the float parameter registry.
+Mutates argRegs/argTypeStrs in-place to replace promoted args.
+///
 fun promoteFloatArgsImpl(output: StringBuilder, regBox: Array<Int>, funcName: String, argRegs: Array<String>, argTypeStrs: Array<String>, floatParamFuncNames: Array<String>, floatParamParamIdxs: Array<Int>) r: Void {
     var promoteLen = argRegs.length()
     if argTypeStrs.length() < promoteLen {

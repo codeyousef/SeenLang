@@ -1,6 +1,8 @@
-// Memory Boundary Safety Test
-// Tests edge cases and boundary conditions
-// Verifies: proper bounds, overflow prevention, edge case handling
+///
+Memory Boundary Safety Test
+Tests edge cases and boundary conditions
+Verifies: proper bounds, overflow prevention, edge case handling
+///
 
 fun testEmptyArray() r: Bool {
     println("Test 1: Empty Array Safety")

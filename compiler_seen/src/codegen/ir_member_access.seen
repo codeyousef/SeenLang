@@ -1,5 +1,7 @@
-// ir_member_access.seen — Shared member-access helpers
-// Extracted from llvm_ir_gen.seen expression lowering.
+///
+ir_member_access.seen — Shared member-access helpers
+Extracted from llvm_ir_gen.seen expression lowering.
+///
 
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn}
@@ -7,8 +9,10 @@ import codegen.ir_seen_field_type_lookup.{getSeenFieldTypeImpl}
 import codegen.ir_simd_type_helpers.{swizzleLaneIndexImpl, simdLaneCountImpl, isSwizzlePatternImpl}
 import codegen.ir_method_receiver.{getSemanticFieldTypeImpl}
 
-// emitSimdSwizzleMemberAccessImpl — emit vec.x / vec.xy / vec.xzyw swizzles.
-// Returns "" when the caller should fall through.
+///
+emitSimdSwizzleMemberAccessImpl — emit vec.x / vec.xy / vec.xzyw swizzles.
+Returns "" when the caller should fall through.
+///
 fun emitSimdSwizzleMemberAccessImpl(output: StringBuilder, regBox: Array<Int>,
     fieldName: String, vectorLlvmType: String, vectorPtrReg: String) r: String {
 
@@ -202,8 +206,10 @@ fun emitBitfieldMaskLoadImpl(output: StringBuilder, regBox: Array<Int>,
     return maskedReg
 }
 
-// prepareExpressionMemberReceiverImpl — normalize an expression-result receiver
-// into the register form expected by generateFieldAccess.
+///
+prepareExpressionMemberReceiverImpl — normalize an expression-result receiver
+into the register form expected by generateFieldAccess.
+///
 fun prepareExpressionMemberReceiverImpl(output: StringBuilder, regBox: Array<Int>,
     receiverReg: String, receiverType: String, reprCClassNames: String,
     isClassReceiver: Int, isDataReceiver: Int) r: String {
@@ -227,8 +233,10 @@ fun prepareExpressionMemberReceiverImpl(output: StringBuilder, regBox: Array<Int
     return receiverReg
 }
 
-// prepareVariableMemberReceiverImpl — load a local variable into the register
-// form expected by generateFieldAccess.
+///
+prepareVariableMemberReceiverImpl — load a local variable into the register
+form expected by generateFieldAccess.
+///
 fun prepareVariableMemberReceiverImpl(output: StringBuilder, regBox: Array<Int>,
     varReg: String, varType: String, reprCClassNames: String,
     isClassReceiver: Int, isDataReceiver: Int) r: String {
@@ -255,8 +263,10 @@ fun prepareVariableMemberReceiverImpl(output: StringBuilder, regBox: Array<Int>,
     return ptrReg
 }
 
-// prepareModuleConstMemberReceiverImpl — load a module constant into the
-// register form expected by generateFieldAccess.
+///
+prepareModuleConstMemberReceiverImpl — load a module constant into the
+register form expected by generateFieldAccess.
+///
 fun prepareModuleConstMemberReceiverImpl(output: StringBuilder, regBox: Array<Int>,
     quotedGlobalName: String, constType: String, constSeenType: String, invariantSuffix: String,
     isClassReceiver: Int, isDataReceiver: Int) r: String {

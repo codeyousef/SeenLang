@@ -3,8 +3,10 @@
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn}
 
-// Emit LLVM IR for LinkedList method calls
-// llPtrReg must already be a ptr (inttoptr done by caller)
+///
+Emit LLVM IR for LinkedList method calls
+llPtrReg must already be a ptr (inttoptr done by caller)
+///
 fun emitLinkedListMethodImpl(output: StringBuilder, regBox: Array<Int>,
     methodName: String, llPtrReg: String, arg0: String,
     hasStr: Bool) r: String {

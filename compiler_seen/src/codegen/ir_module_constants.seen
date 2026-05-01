@@ -1,5 +1,7 @@
-// ir_module_constants.seen — module constant lookup and type helpers
-// Keeps module-constant lookup/promotion state separate from llvm_ir_gen.seen.
+///
+ir_module_constants.seen — module constant lookup and type helpers
+Keeps module-constant lookup/promotion state separate from llvm_ir_gen.seen.
+///
 
 import parser.real_parser.{ProgramNode}
 import str.string.{StringBuilder}

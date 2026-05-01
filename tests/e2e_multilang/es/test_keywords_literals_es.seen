@@ -1,5 +1,7 @@
-// Prueba E2E: Palabras clave de literales (Espanol)
-// Palabras probadas: verdadero, falso, nulo
+///
+Prueba E2E: Palabras clave de literales (Espanol)
+Palabras probadas: verdadero, falso, nulo
+///
 
 función esPositivo(n: entero) r: entero {
     si n > 0 {

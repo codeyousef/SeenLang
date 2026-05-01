@@ -1,10 +1,14 @@
-// Z3 SMT Solver FFI Bindings for Seen
-// Provides low-level C FFI interface to the Z3 theorem prover library
-// Used for SMT-based superoptimization and equivalence checking
+///
+Z3 SMT Solver FFI Bindings for Seen
+Provides low-level C FFI interface to the Z3 theorem prover library
+Used for SMT-based superoptimization and equivalence checking
+///
 
-// ============================================================================
-// Z3 Context Management
-// ============================================================================
+///
+============================================================================
+Z3 Context Management
+============================================================================
+///
 
 // Opaque pointer types for Z3 objects
 type Z3Context = Ptr
@@ -26,9 +30,11 @@ extern fun Z3_del_context(c: Z3Context) r: Void
 extern fun Z3_inc_ref(c: Z3Context, a: Z3Ast) r: Void
 extern fun Z3_dec_ref(c: Z3Context, a: Z3Ast) r: Void
 
-// ============================================================================
-// Z3 Solver Interface
-// ============================================================================
+///
+============================================================================
+Z3 Solver Interface
+============================================================================
+///
 
 // Solver creation and configuration
 extern fun Z3_mk_solver(c: Z3Context) r: Z3Solver
@@ -40,8 +46,10 @@ extern fun Z3_solver_pop(c: Z3Context, s: Z3Solver, n: Int) r: Void
 extern fun Z3_solver_reset(c: Z3Context, s: Z3Solver) r: Void
 extern fun Z3_solver_assert(c: Z3Context, s: Z3Solver, a: Z3Ast) r: Void
 
-// Solver check and results
-// Z3_lbool: -1 = undef, 0 = false (unsat), 1 = true (sat)
+///
+Solver check and results
+Z3_lbool: -1 = undef, 0 = false (unsat), 1 = true (sat)
+///
 extern fun Z3_solver_check(c: Z3Context, s: Z3Solver) r: Int
 extern fun Z3_solver_get_model(c: Z3Context, s: Z3Solver) r: Z3Model
 extern fun Z3_solver_get_reason_unknown(c: Z3Context, s: Z3Solver) r: String
@@ -55,9 +63,11 @@ extern fun Z3_model_to_string(c: Z3Context, m: Z3Model) r: String
 extern fun Z3_model_get_num_consts(c: Z3Context, m: Z3Model) r: Int
 extern fun Z3_model_get_const_decl(c: Z3Context, m: Z3Model, i: Int) r: Ptr
 
-// ============================================================================
-// Sorts (Types)
-// ============================================================================
+///
+============================================================================
+Sorts (Types)
+============================================================================
+///
 
 // Bit-vector sorts for machine integer representation
 extern fun Z3_mk_bv_sort(c: Z3Context, sz: Int) r: Z3Sort
@@ -68,16 +78,20 @@ extern fun Z3_mk_int_sort(c: Z3Context) r: Z3Sort
 extern fun Z3_get_bv_sort_size(c: Z3Context, s: Z3Sort) r: Int
 extern fun Z3_sort_to_string(c: Z3Context, s: Z3Sort) r: String
 
-// ============================================================================
-// Symbols (for variable naming)
-// ============================================================================
+///
+============================================================================
+Symbols (for variable naming)
+============================================================================
+///
 
 extern fun Z3_mk_int_symbol(c: Z3Context, i: Int) r: Z3Symbol
 extern fun Z3_mk_string_symbol(c: Z3Context, s: String) r: Z3Symbol
 
-// ============================================================================
-// Constants and Values
-// ============================================================================
+///
+============================================================================
+Constants and Values
+============================================================================
+///
 
 // Boolean constants
 extern fun Z3_mk_true(c: Z3Context) r: Z3Ast
@@ -96,9 +110,11 @@ extern fun Z3_mk_numeral(c: Z3Context, numeral: String, ty: Z3Sort) r: Z3Ast
 // Constants (variables)
 extern fun Z3_mk_const(c: Z3Context, s: Z3Symbol, ty: Z3Sort) r: Z3Ast
 
-// ============================================================================
-// Bit-Vector Arithmetic Operations
-// ============================================================================
+///
+============================================================================
+Bit-Vector Arithmetic Operations
+============================================================================
+///
 
 // Basic arithmetic
 extern fun Z3_mk_bvadd(c: Z3Context, t1: Z3Ast, t2: Z3Ast) r: Z3Ast
@@ -113,9 +129,11 @@ extern fun Z3_mk_bvsmod(c: Z3Context, t1: Z3Ast, t2: Z3Ast) r: Z3Ast
 // Negation
 extern fun Z3_mk_bvneg(c: Z3Context, t1: Z3Ast) r: Z3Ast
 
-// ============================================================================
-// Bit-Vector Bitwise Operations
-// ============================================================================
+///
+============================================================================
+Bit-Vector Bitwise Operations
+============================================================================
+///
 
 extern fun Z3_mk_bvand(c: Z3Context, t1: Z3Ast, t2: Z3Ast) r: Z3Ast
 extern fun Z3_mk_bvor(c: Z3Context, t1: Z3Ast, t2: Z3Ast) r: Z3Ast
@@ -125,9 +143,11 @@ extern fun Z3_mk_bvnand(c: Z3Context, t1: Z3Ast, t2: Z3Ast) r: Z3Ast
 extern fun Z3_mk_bvnor(c: Z3Context, t1: Z3Ast, t2: Z3Ast) r: Z3Ast
 extern fun Z3_mk_bvxnor(c: Z3Context, t1: Z3Ast, t2: Z3Ast) r: Z3Ast
 
-// ============================================================================
-// Bit-Vector Shift and Rotate Operations
-// ============================================================================
+///
+============================================================================
+Bit-Vector Shift and Rotate Operations
+============================================================================
+///
 
 extern fun Z3_mk_bvshl(c: Z3Context, t1: Z3Ast, t2: Z3Ast) r: Z3Ast
 extern fun Z3_mk_bvlshr(c: Z3Context, t1: Z3Ast, t2: Z3Ast) r: Z3Ast
@@ -137,9 +157,11 @@ extern fun Z3_mk_bvashr(c: Z3Context, t1: Z3Ast, t2: Z3Ast) r: Z3Ast
 extern fun Z3_mk_ext_rotate_left(c: Z3Context, t1: Z3Ast, t2: Z3Ast) r: Z3Ast
 extern fun Z3_mk_ext_rotate_right(c: Z3Context, t1: Z3Ast, t2: Z3Ast) r: Z3Ast
 
-// ============================================================================
-// Bit-Vector Comparison Operations
-// ============================================================================
+///
+============================================================================
+Bit-Vector Comparison Operations
+============================================================================
+///
 
 // Signed comparisons
 extern fun Z3_mk_bvslt(c: Z3Context, t1: Z3Ast, t2: Z3Ast) r: Z3Ast
@@ -157,9 +179,11 @@ extern fun Z3_mk_bvuge(c: Z3Context, t1: Z3Ast, t2: Z3Ast) r: Z3Ast
 extern fun Z3_mk_eq(c: Z3Context, t1: Z3Ast, t2: Z3Ast) r: Z3Ast
 extern fun Z3_mk_distinct(c: Z3Context, num_args: Int, args: Ptr) r: Z3Ast
 
-// ============================================================================
-// Bit-Vector Extension and Extraction
-// ============================================================================
+///
+============================================================================
+Bit-Vector Extension and Extraction
+============================================================================
+///
 
 // Extension
 extern fun Z3_mk_sign_ext(c: Z3Context, i: Int, t1: Z3Ast) r: Z3Ast
@@ -171,9 +195,11 @@ extern fun Z3_mk_extract(c: Z3Context, high: Int, low: Int, t1: Z3Ast) r: Z3Ast
 // Concatenation
 extern fun Z3_mk_concat(c: Z3Context, t1: Z3Ast, t2: Z3Ast) r: Z3Ast
 
-// ============================================================================
-// Boolean Logic Operations
-// ============================================================================
+///
+============================================================================
+Boolean Logic Operations
+============================================================================
+///
 
 extern fun Z3_mk_not(c: Z3Context, a: Z3Ast) r: Z3Ast
 extern fun Z3_mk_and(c: Z3Context, num_args: Int, args: Ptr) r: Z3Ast
@@ -185,9 +211,11 @@ extern fun Z3_mk_iff(c: Z3Context, t1: Z3Ast, t2: Z3Ast) r: Z3Ast
 // If-then-else
 extern fun Z3_mk_ite(c: Z3Context, t1: Z3Ast, t2: Z3Ast, t3: Z3Ast) r: Z3Ast
 
-// ============================================================================
-// Quantifiers (for synthesis)
-// ============================================================================
+///
+============================================================================
+Quantifiers (for synthesis)
+============================================================================
+///
 
 extern fun Z3_mk_forall_const(
     c: Z3Context,
@@ -209,9 +237,11 @@ extern fun Z3_mk_exists_const(
     body: Z3Ast
 ) r: Z3Ast
 
-// ============================================================================
-// String Conversion and Debugging
-// ============================================================================
+///
+============================================================================
+String Conversion and Debugging
+============================================================================
+///
 
 extern fun Z3_ast_to_string(c: Z3Context, a: Z3Ast) r: String
 extern fun Z3_sort_to_string(c: Z3Context, s: Z3Sort) r: String
@@ -220,24 +250,30 @@ extern fun Z3_get_numeral_string(c: Z3Context, a: Z3Ast) r: String
 extern fun Z3_get_numeral_int64(c: Z3Context, a: Z3Ast, v: Ptr) r: Bool
 extern fun Z3_get_numeral_uint64(c: Z3Context, a: Z3Ast, v: Ptr) r: Bool
 
-// ============================================================================
-// Error Handling
-// ============================================================================
+///
+============================================================================
+Error Handling
+============================================================================
+///
 
 extern fun Z3_get_error_msg(c: Z3Context, err: Int) r: String
 extern fun Z3_get_error_code(c: Z3Context) r: Int
 extern fun Z3_reset_memory() r: Void
 
-// ============================================================================
-// Version Information
-// ============================================================================
+///
+============================================================================
+Version Information
+============================================================================
+///
 
 extern fun Z3_get_full_version() r: String
 extern fun Z3_get_version(major: Ptr, minor: Ptr, build: Ptr, revision: Ptr) r: Void
 
-// ============================================================================
-// Constants
-// ============================================================================
+///
+============================================================================
+Constants
+============================================================================
+///
 
 // Solver result constants
 class Z3Result {

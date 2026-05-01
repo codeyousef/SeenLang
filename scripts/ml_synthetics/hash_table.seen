@@ -1,6 +1,8 @@
-// Synthetic: Hash table / key-value workload (int keys)
-// Represents: symbol tables, caches, config systems, databases
-// Uses integer keys to avoid String-in-array codegen limitations
+///
+Synthetic: Hash table / key-value workload (int keys)
+Represents: symbol tables, caches, config systems, databases
+Uses integer keys to avoid String-in-array codegen limitations
+///
 
 fun hashInt(key: Int) r: Int {
     // Murmur-like integer hash

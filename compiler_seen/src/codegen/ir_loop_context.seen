@@ -1,5 +1,7 @@
-// ir_loop_context.seen — Loop metadata and loop-control context helpers
-// Extracted from ir_control_flow.seen / ir_optimization.seen for FEL-5 SRP.
+///
+ir_loop_context.seen — Loop metadata and loop-control context helpers
+Extracted from ir_control_flow.seen / ir_optimization.seen for FEL-5 SRP.
+///
 
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{parseIntManual, selectSimdWidth}
@@ -93,9 +95,11 @@ fun emitBreakStatementImpl(output: StringBuilder,
     return 1
 }
 
-// emitLoopMetadataImpl — Emit loop vectorization/unroll/distribute metadata nodes
-// options: explicit per-function lowering options (replaces indent bit-packing)
-// blockBox: [0] = next block label counter (determines how many metadata nodes to emit)
+///
+emitLoopMetadataImpl — Emit loop vectorization/unroll/distribute metadata nodes
+options: explicit per-function lowering options (replaces indent bit-packing)
+blockBox: [0] = next block label counter (determines how many metadata nodes to emit)
+///
 fun emitLoopMetadataImpl(output: StringBuilder, options: FunctionLoweringOptions, blockBox: Array<Int>, reductionLoopIds: String, nestedLoopIds: String, loopTileHints: String) r: Void {
     output.append("\n; Loop vectorization metadata\n")
     var noVecFlag = 0

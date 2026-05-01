@@ -2,8 +2,10 @@
 
 import codegen.ir_optimization.{pipeGet}
 
-// ML-guided inline decision based on body size and call count.
-// Returns: "always", "hint", "noinline", or "" (no opinion).
+///
+ML-guided inline decision based on body size and call count.
+Returns: "always", "hint", "noinline", or "" (no opinion).
+///
 fun mlShouldInline(bodySize: Int, callCount: Int) r: String {
     // Tiny functions: always inline regardless of call count
     if bodySize < 5 { return "always" }
@@ -22,8 +24,10 @@ fun mlShouldInline(bodySize: Int, callCount: Int) r: String {
     return ""
 }
 
-// --- ML weighted inline decision ---
-// Module-level weight variables (loaded from .seen_ml_heuristics)
+///
+--- ML weighted inline decision ---
+Module-level weight variables (loaded from .seen_ml_heuristics)
+///
 var g_inlineW0: Int = 0
 var g_inlineW1: Int = 0
 var g_inlineW2: Int = 0
@@ -31,11 +35,13 @@ var g_inlineW3: Int = 0
 var g_inlineBias: Int = 0
 var g_mlWeightsActive: Bool = false
 
-// Weighted inline decision using trained weights (fixed-point: weights scaled by 100).
-// Falls back to threshold-based mlShouldInline if no weights loaded.
-// hasLoops: 1 if function contains loops, 0 otherwise
-// nestingDepth: max nesting depth of loops
-// hasFloatOps: 1 if function has float operations, 0 otherwise (encourages inlining for FMA)
+///
+Weighted inline decision using trained weights (fixed-point: weights scaled by 100).
+Falls back to threshold-based mlShouldInline if no weights loaded.
+hasLoops: 1 if function contains loops, 0 otherwise
+nestingDepth: max nesting depth of loops
+hasFloatOps: 1 if function has float operations, 0 otherwise (encourages inlining for FMA)
+///
 fun mlShouldInlineWeighted(bodySize: Int, callCount: Int, hasLoops: Int, nestingDepth: Int) r: String {
     if not g_mlWeightsActive {
         // Cost-aware fallback: adjust effective size based on content
@@ -48,20 +54,24 @@ fun mlShouldInlineWeighted(bodySize: Int, callCount: Int, hasLoops: Int, nesting
     }
     // Fixed-point dot product: score = sum(wi * fi) + bias  (all scaled by 100)
     let score = g_inlineW0 * bodySize + g_inlineW1 * callCount + g_inlineW2 * hasLoops + g_inlineW3 * nestingDepth + g_inlineBias
-    // Logistic model: score > 0 means >50% likely to inline
-    // Thresholds scaled by 100: 150 = strong yes (sigmoid > 0.82), 50 = hint, -100 = noinline
+    ///
+    Logistic model: score > 0 means >50% likely to inline
+    Thresholds scaled by 100: 150 = strong yes (sigmoid > 0.82), 50 = hint, -100 = noinline
+    ///
     if score > 150 { return "always" }
     if score > 50 { return "hint" }
     if score < 0 - 100 { return "noinline" }
     return ""
 }
 
-// Self-call detection: checks if funcName appears in its own call list.
-// Used to determine norecurse attribute.
-// selfCallNames/selfCallFuncs are pipe-delimited parallel arrays:
-//   selfCallFuncs = "foo|foo|bar" (function being defined)
-//   selfCallNames = "bar|foo|baz" (function being called)
-// If any entry has both funcName as the defining function AND as the called function, it's recursive.
+///
+Self-call detection: checks if funcName appears in its own call list.
+Used to determine norecurse attribute.
+selfCallNames/selfCallFuncs are pipe-delimited parallel arrays:
+  selfCallFuncs = "foo|foo|bar" (function being defined)
+  selfCallNames = "bar|foo|baz" (function being called)
+If any entry has both funcName as the defining function AND as the called function, it's recursive.
+///
 fun selfCallCheck(funcName: String, selfCallFuncs: String, selfCallNames: String, selfCallCount: Int) r: Bool {
     var i = 0
     while i < selfCallCount {
@@ -77,8 +87,10 @@ fun selfCallCheck(funcName: String, selfCallFuncs: String, selfCallNames: String
     return false
 }
 
-// Parse a float-like string as fixed-point integer (multiplied by 100).
-// Handles "0.5" -> 50, "-1.23" -> -123, "42" -> 4200
+///
+Parse a float-like string as fixed-point integer (multiplied by 100).
+Handles "0.5" -> 50, "-1.23" -> -123, "42" -> 4200
+///
 fun parseFixedPoint100(s: String) r: Int {
     var negative = 0
     var i = 0

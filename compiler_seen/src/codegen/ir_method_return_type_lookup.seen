@@ -1,5 +1,7 @@
-// Struct method return type lookup helpers
-// Extracted from ir_type_info.seen
+///
+Struct method return type lookup helpers
+Extracted from ir_type_info.seen
+///
 
 import codegen.ir_type_info.{g_methodReturnCacheTypes, findMethodReturnCacheRecordImpl, cacheMethodReturnTypeImpl, findStructIdx}
 import codegen.ir_method_return_type_collections.{getCollectionMethodReturnTypeImpl}

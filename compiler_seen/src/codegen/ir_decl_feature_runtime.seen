@@ -188,9 +188,11 @@ fun emitFeatureDecls(output: StringBuilder, definedFuncs: Array<String>) r: Void
         output.append("declare void @seen_barrier() nounwind\n")
     }
 
-    // ============================================================
-    // Derive Helpers
-    // ============================================================
+    ///
+    ============================================================
+    Derive Helpers
+    ============================================================
+    ///
     if not isFuncDefinedInModule("seen_arr_clone", definedFuncs) {
         output.append("declare i64 @seen_arr_clone(i64) nounwind\n")
     }
@@ -210,9 +212,11 @@ fun emitFeatureDecls(output: StringBuilder, definedFuncs: Array<String>) r: Void
         output.append("declare i64 @seen_str_eq_derive(%SeenString, %SeenString) nounwind\n")
     }
 
-    // ============================================================
-    // Binary Serialization
-    // ============================================================
+    ///
+    ============================================================
+    Binary Serialization
+    ============================================================
+    ///
     if not isFuncDefinedInModule("seen_binary_buffer_new", definedFuncs) {
         output.append("declare i64 @seen_binary_buffer_new(i64) nounwind\n")
     }
@@ -259,9 +263,11 @@ fun emitFeatureDecls(output: StringBuilder, definedFuncs: Array<String>) r: Void
         output.append("declare double @seen_binary_read_f64_be(i64, i64) nounwind\n")
     }
 
-    // ============================================================
-    // Compression
-    // ============================================================
+    ///
+    ============================================================
+    Compression
+    ============================================================
+    ///
     if not isFuncDefinedInModule("seen_compress_rle", definedFuncs) {
         output.append("declare i64 @seen_compress_rle(i64, i64, i64, i64) nounwind\n")
     }
@@ -269,9 +275,11 @@ fun emitFeatureDecls(output: StringBuilder, definedFuncs: Array<String>) r: Void
         output.append("declare i64 @seen_decompress_rle(i64, i64, i64, i64) nounwind\n")
     }
 
-    // ============================================================
-    // JSON Serialization
-    // ============================================================
+    ///
+    ============================================================
+    JSON Serialization
+    ============================================================
+    ///
     if not isFuncDefinedInModule("seen_json_start_object", definedFuncs) {
         output.append("declare i64 @seen_json_start_object(i64) nounwind\n")
     }
@@ -309,9 +317,11 @@ fun emitFeatureDecls(output: StringBuilder, definedFuncs: Array<String>) r: Void
         output.append("declare i64 @seen_json_decode_bool(%SeenString) nounwind\n")
     }
 
-    // ============================================================
-    // Packet Runtime
-    // ============================================================
+    ///
+    ============================================================
+    Packet Runtime
+    ============================================================
+    ///
     if not isFuncDefinedInModule("seen_packet_write_header", definedFuncs) {
         output.append("declare void @seen_packet_write_header(i64, i32, i32) nounwind\n")
     }
@@ -319,9 +329,11 @@ fun emitFeatureDecls(output: StringBuilder, definedFuncs: Array<String>) r: Void
         output.append("declare i64 @seen_packet_read_header(i64, i64) nounwind\n")
     }
 
-    // ============================================================
-    // Safety Runtime
-    // ============================================================
+    ///
+    ============================================================
+    Safety Runtime
+    ============================================================
+    ///
     if not isFuncDefinedInModule("seen_null_assign_warning", definedFuncs) {
         output.append("declare void @seen_null_assign_warning(%SeenString, i64) nounwind\n")
     }
@@ -349,9 +361,11 @@ fun emitFeatureDecls(output: StringBuilder, definedFuncs: Array<String>) r: Void
     output.append("%SeenTuple7 = type { i64, i64, i64, i64, i64, i64, i64 }\n")
     output.append("%SeenTuple8 = type { i64, i64, i64, i64, i64, i64, i64, i64 }\n")
 
-    // ============================================================
-    // SmallVec runtime functions
-    // ============================================================
+    ///
+    ============================================================
+    SmallVec runtime functions
+    ============================================================
+    ///
     if not isFuncDefinedInModule("seen_small_vec_new", definedFuncs) {
         output.append("declare i64 @seen_small_vec_new(i64) nounwind\n")
     }

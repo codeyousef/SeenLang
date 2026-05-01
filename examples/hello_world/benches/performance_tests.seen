@@ -1,5 +1,7 @@
-// Performance benchmarks for basic Seen operations
-// These benchmarks help validate performance targets
+///
+Performance benchmarks for basic Seen operations
+These benchmarks help validate performance targets
+///
 
 func bench_arithmetic_operations() {
     // Benchmark basic arithmetic

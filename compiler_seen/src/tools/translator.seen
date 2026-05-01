@@ -1,13 +1,17 @@
-// translator.seen — Source-to-source translation between Seen's supported languages
-//
-// Hybrid scanner approach: scans source byte-by-byte, copies strings/comments
-// verbatim, and only translates identifier/keyword tokens that match the source
-// language's keyword or stdlib mappings.
+///
+translator.seen — Source-to-source translation between Seen's supported languages
+
+Hybrid scanner approach: scans source byte-by-byte, copies strings/comments
+verbatim, and only translates identifier/keyword tokens that match the source
+language's keyword or stdlib mappings.
+///
 
 import io.file.{readText}
 
-// Load keyword pairs from a TOML file's [keywords] section into parallel arrays.
-// keys[] gets the text (e.g. "fun"), values[] gets the token type (e.g. "KeywordFun").
+///
+Load keyword pairs from a TOML file's [keywords] section into parallel arrays.
+keys[] gets the text (e.g. "fun"), values[] gets the token type (e.g. "KeywordFun").
+///
 fun loadKeywordTomlPairs(path: String, keys: Array<String>, values: Array<String>) r: Void {
     let content = readText(path)
     let len = content.length()
@@ -77,8 +81,10 @@ fun loadKeywordTomlPairs(path: String, keys: Array<String>, values: Array<String
     }
 }
 
-// Load stdlib pairs from a TOML file's [std_lib] section into parallel arrays.
-// keys[] gets the text (e.g. "println"), values[] gets the canonical path.
+///
+Load stdlib pairs from a TOML file's [std_lib] section into parallel arrays.
+keys[] gets the text (e.g. "println"), values[] gets the canonical path.
+///
 fun loadStdlibTomlPairs(path: String, keys: Array<String>, values: Array<String>) r: Void {
     let content = readText(path)
     let len = content.length()
@@ -178,8 +184,10 @@ fun loadAllStdlib(lang: String, names: Array<String>, paths: Array<String>) r: V
     loadStdlibTomlPairs(langDir + prefix + "str.toml", names, paths)
 }
 
-// Look up a source keyword text, find its token type, then find the target text
-// for that same token type. Returns "" if not found.
+///
+Look up a source keyword text, find its token type, then find the target text
+for that same token type. Returns "" if not found.
+///
 fun translateKeyword(word: String, srcTexts: Array<String>, srcTypes: Array<String>, tgtTexts: Array<String>, tgtTypes: Array<String>) r: String {
     // Find the token type for this word in source language
     var srcTokenType = ""
@@ -208,8 +216,10 @@ fun translateKeyword(word: String, srcTexts: Array<String>, srcTypes: Array<Stri
     return ""
 }
 
-// Look up a source stdlib name, find its canonical path, then find the target name
-// for that same canonical path. Returns "" if not found.
+///
+Look up a source stdlib name, find its canonical path, then find the target name
+for that same canonical path. Returns "" if not found.
+///
 fun translateStdlib(word: String, srcNames: Array<String>, srcPaths: Array<String>, tgtNames: Array<String>, tgtPaths: Array<String>) r: String {
     // Find the canonical path for this name in source language
     var srcPath = ""
@@ -338,8 +348,10 @@ fun consumeTripleSlashBlockComment(source: String, pos: Int) r: Int {
     return len
 }
 
-// Translate Seen source code from one language to another.
-// Preserves all formatting, comments, and string contents.
+///
+Translate Seen source code from one language to another.
+Preserves all formatting, comments, and string contents.
+///
 fun translateSource(source: String, fromLang: String, toLang: String) r: String {
     // Load source language tables
     var srcKwTexts = Array<String>()

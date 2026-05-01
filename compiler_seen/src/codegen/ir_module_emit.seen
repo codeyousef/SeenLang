@@ -1,5 +1,7 @@
-// Shared LLVM IR module-emission helpers.
-// Extracted from llvm_ir_gen.seen to deduplicate single- and multi-module paths.
+///
+Shared LLVM IR module-emission helpers.
+Extracted from llvm_ir_gen.seen to deduplicate single- and multi-module paths.
+///
 
 import parser.real_parser.{ProgramNode, FunctionNode}
 import str.string.{StringBuilder}

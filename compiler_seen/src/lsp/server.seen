@@ -1,5 +1,7 @@
-// Seen Language Server Protocol Implementation
-// Full LSP server with JSON-RPC over stdio
+///
+Seen Language Server Protocol Implementation
+Full LSP server with JSON-RPC over stdio
+///
 
 import json.value.{JsonValue, JsonValue_emptyObject, JsonValue_emptyArray, JsonValue_array, JsonValue_string, JsonValue_number, JsonValue_bool, JsonValue_nullValue}
 import json.parser.{parseJson}
@@ -46,9 +48,11 @@ import parser.real_parser.{RealParser, ProgramNode}
 import typechecker.typechecker.{SeenTypeChecker}
 import bootstrap.frontend.{run_frontend, FrontendResult, FrontendDiagnostic, encodeDiagMessage, parseDiagBaseMessage, parseDiagCode, parseDiagSuggestion, parseDiagNote, parseDiagEndColumn}
 
-// ============================================================================
-// Document Storage
-// ============================================================================
+///
+============================================================================
+Document Storage
+============================================================================
+///
 
 class Document {
     var uri: String
@@ -68,9 +72,11 @@ fun Document_new(uri: String, content: String, version: Int) r: Document {
     return doc
 }
 
-// ============================================================================
-// LSP Server
-// ============================================================================
+///
+============================================================================
+LSP Server
+============================================================================
+///
 
 class SeenLspServer {
     var rpc: JsonRpcHandler
@@ -81,9 +87,11 @@ class SeenLspServer {
     var lastDiagUris: Array<String>       // URIs for last diagnostics
     var lastDiagMessages: Array<String>   // Pipe-delimited encoded messages per URI
 
-    // ========================================================================
-    // Helper Methods (moved early to avoid parser limit)
-    // ========================================================================
+    ///
+    ========================================================================
+    Helper Methods (moved early to avoid parser limit)
+    ========================================================================
+    ///
 
     fun checkWordChar(ch: Int) r: Bool {
         // a-z, A-Z, 0-9, _
@@ -135,8 +143,10 @@ class SeenLspServer {
     }
 
     fun log(message: String) r: Void {
-        // Note: In a real implementation, we'd write to stderr
-        // For now, we can use sendNotification for window/logMessage
+        ///
+        Note: In a real implementation, we'd write to stderr
+        For now, we can use sendNotification for window/logMessage
+        ///
         let params = JsonValue_emptyObject()
         params.set("type", JsonValue_number(3))  // Info
         params.set("message", JsonValue_string("[seen-lsp] " + message))
@@ -555,9 +565,11 @@ class SeenLspServer {
         return -1
     }
 
-    // ========================================================================
-    // Main Message Loop
-    // ========================================================================
+    ///
+    ========================================================================
+    Main Message Loop
+    ========================================================================
+    ///
 
     fun run() r: Int {
         // Log startup to stderr (visible in output channel)
@@ -637,9 +649,11 @@ class SeenLspServer {
         }
     }
 
-    // ========================================================================
-    // Lifecycle Methods
-    // ========================================================================
+    ///
+    ========================================================================
+    Lifecycle Methods
+    ========================================================================
+    ///
 
     fun handleInitialize(msg: LspMessage) r: Void {
         this.log("Handling initialize request")
@@ -670,9 +684,11 @@ class SeenLspServer {
         this.rpc.stop()
     }
 
-    // ========================================================================
-    // Document Synchronization
-    // ========================================================================
+    ///
+    ========================================================================
+    Document Synchronization
+    ========================================================================
+    ///
 
     fun handleDidOpen(msg: LspMessage) r: Void {
         if msg.params == null {
@@ -756,9 +772,11 @@ class SeenLspServer {
         // Just trigger re-analysis of the document
     }
 
-    // ========================================================================
-    // Language Features
-    // ========================================================================
+    ///
+    ========================================================================
+    Language Features
+    ========================================================================
+    ///
 
     fun handleCompletion(msg: LspMessage) r: Void {
         if msg.params == null {
@@ -1030,9 +1048,11 @@ class SeenLspServer {
         this.rpc.sendResponse(response)
     }
 
-    // ========================================================================
-    // Find References
-    // ========================================================================
+    ///
+    ========================================================================
+    Find References
+    ========================================================================
+    ///
 
     fun findAllOccurrences(uri: String, content: String, word: String) r: Array<JsonValue> {
         let results = Array<JsonValue>()
@@ -1167,9 +1187,11 @@ class SeenLspServer {
         this.rpc.sendResponse(response)
     }
 
-    // ========================================================================
-    // Rename
-    // ========================================================================
+    ///
+    ========================================================================
+    Rename
+    ========================================================================
+    ///
 
     fun handleRename(msg: LspMessage) r: Void {
         if msg.params == null {
@@ -1247,9 +1269,11 @@ class SeenLspServer {
         this.rpc.sendResponse(response)
     }
 
-    // ========================================================================
-    // Document Symbols
-    // ========================================================================
+    ///
+    ========================================================================
+    Document Symbols
+    ========================================================================
+    ///
 
     fun extractDocumentSymbols(uri: String, content: String) r: Array<JsonValue> {
         let symbols = Array<JsonValue>()
@@ -1416,9 +1440,11 @@ class SeenLspServer {
         this.rpc.sendResponse(response)
     }
 
-    // ========================================================================
-    // Document Analysis
-    // ========================================================================
+    ///
+    ========================================================================
+    Document Analysis
+    ========================================================================
+    ///
 
     fun analyzeDocument(uri: String, content: String) r: Void {
         let diagnostics = Array<Diagnostic>()
@@ -1532,9 +1558,11 @@ class SeenLspServer {
         return result
     }
 
-    // ========================================================================
-    // Completion Generation
-    // ========================================================================
+    ///
+    ========================================================================
+    Completion Generation
+    ========================================================================
+    ///
 
     fun generateCompletions(uri: String, content: String, position: LspPosition) r: Array<CompletionItem> {
         let completions = Array<CompletionItem>()
@@ -1805,9 +1833,11 @@ class SeenLspServer {
         return completions
     }
 
-    // ========================================================================
-    // Hover Generation
-    // ========================================================================
+    ///
+    ========================================================================
+    Hover Generation
+    ========================================================================
+    ///
 
     fun generateHover(uri: String, content: String, position: LspPosition) r: Hover? {
         // Get the word at the cursor position
@@ -2002,9 +2032,11 @@ fun SeenLspServer_new() r: SeenLspServer {
     return server
 }
 
-// ============================================================================
-// Entry Point
-// ============================================================================
+///
+============================================================================
+Entry Point
+============================================================================
+///
 
 fun runLspServer() r: Int {
     let server = SeenLspServer_new()

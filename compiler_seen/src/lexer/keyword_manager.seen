@@ -1,5 +1,7 @@
-// Keyword Manager - TOML-Driven Keyword Loading
-// Loads keywords and stdlib aliases from TOML files based on language
+///
+Keyword Manager - TOML-Driven Keyword Loading
+Loads keywords and stdlib aliases from TOML files based on language
+///
 
 import lexer.token_type.{SeenTokenType}
 import collections.map.{Map}
@@ -31,8 +33,10 @@ fun parentDir(path: String) r: String {
 }
 
 fun resolveLanguagesRootFromCompilerSource(language: String) r: String {
-    // Detached bootstrap workspaces often omit languages/ but keep compiler_seen/
-    // symlinked back to the source checkout, so resolve through that real path.
+    ///
+    Detached bootstrap workspaces often omit languages/ but keep compiler_seen/
+    symlinked back to the source checkout, so resolve through that real path.
+    ///
     let sourceResult = runCommand("readlink -f \"compiler_seen/src/main_compiler.seen\"")
     if commandWasSuccessful(sourceResult) {
         let sourcePath = trimTrailingNewline(sourceResult.output)
@@ -52,8 +56,10 @@ fun resolveLanguagesRootFromCompilerSource(language: String) r: String {
     return ""
 }
 
-// Resolve the languages/ directory. Tries CWD-relative first, then uses
-// /proc/self/exe to find the compiler root (works from any CWD on Linux).
+///
+Resolve the languages/ directory. Tries CWD-relative first, then uses
+/proc/self/exe to find the compiler root (works from any CWD on Linux).
+///
 fun resolveLanguagesRoot(language: String) r: String {
     // Fast path: check if languages/ exists relative to CWD
     let testFile = "languages/" + language + "/" + language + "-keywords-control.toml"
@@ -235,10 +241,12 @@ class KeywordManager {
         tokenNameMap.put("KeywordTransmute", SeenTokenType.KeywordTransmute)
         tokenNameMap.put("KeywordGpu", SeenTokenType.KeywordGpu)
 
-        // Activated game engine keywords
-        // NOTE: KeywordOperator and KeywordAssert NOT activated — 'operator' is used as
-        // a field name and 'assert' as a function name in compiler source. Activating
-        // them would break bootstrap. Enum variants + codegen values exist for future use.
+        ///
+        Activated game engine keywords
+        NOTE: KeywordOperator and KeywordAssert NOT activated — 'operator' is used as
+        a field name and 'assert' as a function name in compiler source. Activating
+        them would break bootstrap. Enum variants + codegen values exist for future use.
+        ///
         tokenNameMap.put("KeywordRegion", SeenTokenType.KeywordRegion)
         tokenNameMap.put("KeywordWhen", SeenTokenType.KeywordWhen)
         tokenNameMap.put("KeywordInline", SeenTokenType.KeywordInline)
@@ -335,8 +343,10 @@ class KeywordManager {
         return ""
     }
 
-    // Parse a TOML file and load [keywords] entries into the keywords map.
-    // Uses character scanning to avoid dependency on split().
+    ///
+    Parse a TOML file and load [keywords] entries into the keywords map.
+    Uses character scanning to avoid dependency on split().
+    ///
     fun loadFromToml(path: String) r: Void {
         sources.push(path)
         let content = readText(path)
@@ -390,9 +400,11 @@ class KeywordManager {
                     }
                     currentSection = content.substring(ls + 1, secEnd)
                 } else if firstChar == '"' and currentSection == "keywords" {
-                    // Quoted key-value in [keywords] section
-                    // Format: "key" = "TokenName"
-                    // Find the 4 quote characters (byte-based: all delimiters are ASCII)
+                    ///
+                    Quoted key-value in [keywords] section
+                    Format: "key" = "TokenName"
+                    Find the 4 quote characters (byte-based: all delimiters are ASCII)
+                    ///
                     let q1 = ls
                     var q2 = q1 + 1
                     while q2 < le {
@@ -495,8 +507,10 @@ class KeywordManager {
         }
     }
 
-    // Load stdlib entries from TOML into parallel arrays (key, value).
-    // Avoids Map entirely to sidestep the Map.keys()/Map.put() runtime crash bugs.
+    ///
+    Load stdlib entries from TOML into parallel arrays (key, value).
+    Avoids Map entirely to sidestep the Map.keys()/Map.put() runtime crash bugs.
+    ///
     fun loadStdlibToArrays(path: String, keys: Array<String>, values: Array<String>) r: Void {
         let content = readText(path)
         let len = content.length()
@@ -566,10 +580,12 @@ class KeywordManager {
         }
     }
 
-    // Build stdlib alias map: localized name -> English short name.
-    // For non-English languages, loads both English and target language stdlib
-    // TOMLs, then resolves localized_name -> canonical_path -> english_name.
-    // Uses parallel arrays instead of Map to avoid Map runtime crash bugs.
+    ///
+    Build stdlib alias map: localized name -> English short name.
+    For non-English languages, loads both English and target language stdlib
+    TOMLs, then resolves localized_name -> canonical_path -> english_name.
+    Uses parallel arrays instead of Map to avoid Map runtime crash bugs.
+    ///
     fun loadStdlibAliases(language: String) r: Void {
         if language == "en" {
             return
@@ -602,10 +618,12 @@ class KeywordManager {
         loadStdlibToArrays(langDir + prefix + "str.toml", localNames, localPaths)
         loadStdlibToArrays(langDir + prefix + "builtins.toml", localNames, localPaths)
 
-        // Resolve: for each local entry, find the English name that shares
-        // the same canonical path, then store as "ALIAS:localName=englishName"
-        // in the sources array. Avoids Map<String,String>.get() which returns
-        // only first 8 bytes of SeenString (len field), losing the data ptr.
+        ///
+        Resolve: for each local entry, find the English name that shares
+        the same canonical path, then store as "ALIAS:localName=englishName"
+        in the sources array. Avoids Map<String,String>.get() which returns
+        only first 8 bytes of SeenString (len field), losing the data ptr.
+        ///
         var i = 0
         while i < localNames.length() {
             var localCanonical = localPaths[i]
@@ -626,12 +644,16 @@ class KeywordManager {
         }
     }
 
-    // Resolve a stdlib alias to its English name.
-    // Returns empty string if no alias exists.
+    ///
+    Resolve a stdlib alias to its English name.
+    Returns empty string if no alias exists.
+    ///
     fun resolveStdlibAlias(name: String) r: String {
-        // Search sources array for "ALIAS:name=value" entries.
-        // Cannot use Map<String,String>.get() — it returns only len field (8 bytes),
-        // losing the data pointer, causing SIGSEGV on dereference.
+        ///
+        Search sources array for "ALIAS:name=value" entries.
+        Cannot use Map<String,String>.get() — it returns only len field (8 bytes),
+        losing the data pointer, causing SIGSEGV on dereference.
+        ///
         let prefix = "ALIAS:" + name + "="
         var idx = 0
         while idx < sources.length() {

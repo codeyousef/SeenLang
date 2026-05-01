@@ -1,5 +1,7 @@
-// Architecture-Aware Optimizer
-// CPU detection, ISA feature targeting, vector width selection
+///
+Architecture-Aware Optimizer
+CPU detection, ISA feature targeting, vector width selection
+///
 
 class Architecture {
     let name: String

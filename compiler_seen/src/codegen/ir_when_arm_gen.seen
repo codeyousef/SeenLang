@@ -1,5 +1,7 @@
-// ir_when_arm_gen.seen -- Shared when-arm emission helpers
-// Extracted from llvm_ir_gen.seen to keep when-arm lowering thin.
+///
+ir_when_arm_gen.seen -- Shared when-arm emission helpers
+Extracted from llvm_ir_gen.seen to keep when-arm lowering thin.
+///
 
 import str.string.{StringBuilder}
 import parser.real_parser.{ParserExpressionNode}

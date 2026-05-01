@@ -297,9 +297,11 @@ let VK_INDEX_TYPE_UINT32: Int = 1
 let VK_COMMAND_POOL_CREATE_TRANSIENT_BIT: Int = 0x00000001
 let VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT: Int = 0x00000002
 
-// ============================================================================
-// Shim FFI Declarations - Link to libseen_platform.so
-// ============================================================================
+///
+============================================================================
+Shim FFI Declarations - Link to libseen_platform.so
+============================================================================
+///
 
 // Instance management
 extern "C" fun seen_vk_create_instance(
@@ -400,16 +402,20 @@ extern "C" fun seen_vk_reset_fences(device: UInt64, count: UInt32, fences: *UInt
 extern "C" fun seen_vk_queue_submit(queue: UInt64, waitSemaphore: UInt64, waitStage: UInt32, commandBuffer: UInt64, signalSemaphore: UInt64, fence: UInt64) r: Int32
 extern "C" fun seen_vk_queue_present(queue: UInt64, waitSemaphore: UInt64, swapchain: UInt64, imageIndex: UInt32) r: Int32
 
-// ============================================================================
-// Helper Functions
-// ============================================================================
+///
+============================================================================
+Helper Functions
+============================================================================
+///
 
 ///
 Convert a Vulkan result code to a human-readable string.
 ///
 fun vk_result_string(result: Int) r: String {
-    // Inline constants to work around negative value module constant issues
-    // Success codes (0-5)
+    ///
+    Inline constants to work around negative value module constant issues
+    Success codes (0-5)
+    ///
     if result == 0 { return "VK_SUCCESS" }
     if result == 1 { return "VK_NOT_READY" }
     if result == 2 { return "VK_TIMEOUT" }

@@ -1,6 +1,8 @@
-// ir_method_receiver.seen — Shared method-receiver helpers
-// Extracted from llvm_ir_gen.seen to keep receiver type lookup and low-level
-// receiver-method emission out of the main method-call lowering pipeline.
+///
+ir_method_receiver.seen — Shared method-receiver helpers
+Extracted from llvm_ir_gen.seen to keep receiver type lookup and low-level
+receiver-method emission out of the main method-call lowering pipeline.
+///
 
 import parser.real_parser.{ParserExpressionNode}
 import str.string.{StringBuilder}

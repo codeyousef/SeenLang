@@ -149,9 +149,11 @@ fun emitClassArrayFieldInitializersImpl(output: StringBuilder,
     }
 }
 
-// emitConstructorAllocationImpl - emit the heap allocation, zero-init, and
-// Array/List field bootstrap for a class constructor. Returns the alloca used
-// to store the constructor's live `this` pointer.
+///
+emitConstructorAllocationImpl - emit the heap allocation, zero-init, and
+Array/List field bootstrap for a class constructor. Returns the alloca used
+to store the constructor's live `this` pointer.
+///
 fun emitConstructorAllocationImpl(output: StringBuilder, regBox: Array<Int>, className: String,
     structNames: Array<String>, structSizes: Array<Int>,
     structLayouts: Array<String>, structFieldNames: Array<String>,

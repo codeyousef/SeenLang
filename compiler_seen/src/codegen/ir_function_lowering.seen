@@ -1,6 +1,8 @@
-// ir_function_lowering.seen — function lowering option helpers
-// Extracted from llvm_ir_gen.seen to keep per-function decorator scans
-// separate from the main IR generation orchestration.
+///
+ir_function_lowering.seen — function lowering option helpers
+Extracted from llvm_ir_gen.seen to keep per-function decorator scans
+separate from the main IR generation orchestration.
+///
 
 import parser.real_parser.{FunctionNode}
 import str.string.{StringBuilder}

@@ -1,6 +1,8 @@
-// Hyperbolic PDE Solver Benchmark
-// 1D catenary/cable equation with hyperbolic function evaluation
-// Math functions: sinh, cosh, tanh, exp, sqrt, ln (via LLVM intrinsic builtins)
+///
+Hyperbolic PDE Solver Benchmark
+1D catenary/cable equation with hyperbolic function evaluation
+Math functions: sinh, cosh, tanh, exp, sqrt, ln (via LLVM intrinsic builtins)
+///
 
 fun run_hyperbolic_pde(grid_size: Int, timesteps: Int) -> Float {
     // Initialize grid: catenary initial shape y = cosh(x) - 1

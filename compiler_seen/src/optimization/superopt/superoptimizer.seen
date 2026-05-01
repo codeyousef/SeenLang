@@ -1,5 +1,7 @@
-// Peephole Superoptimizer (STOKE-style)
-// Enumerates small instruction sequences and finds cheaper equivalents via concrete testing
+///
+Peephole Superoptimizer (STOKE-style)
+Enumerates small instruction sequences and finds cheaper equivalents via concrete testing
+///
 
 class PeepholeCandidate {
     var originalOps: Array<String>

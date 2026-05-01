@@ -9,8 +9,10 @@ fun inferMethodCallTypeTableImpl(callee: String) r: String {
     }
     if callee == "charCodeAt" { return "Int" }
     if callee == "byteAt" { return "Int" }
-    // Note: 'getValue' must be hardcoded because Token class methods aren't registered
-    // before parser module methods are compiled (module load order issue)
+    ///
+    Note: 'getValue' must be hardcoded because Token class methods aren't registered
+    before parser module methods are compiled (module load order issue)
+    ///
     if callee == "toString" { return "String" }
     if callee == "substring" { return "String" }
     if callee == "trim" { return "String" }

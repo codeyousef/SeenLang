@@ -1,5 +1,7 @@
-// Optimization Tests Runner
-// Tests for E-graph, ML, and Superoptimization
+///
+Optimization Tests Runner
+Tests for E-graph, ML, and Superoptimization
+///
 
 import optimization.egraph.egraph_optimizer.{EGraphOptimizer}
 import optimization.ml.ml_optimizer.{MLOptimizer}

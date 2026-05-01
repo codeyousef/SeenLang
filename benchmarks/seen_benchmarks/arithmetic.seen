@@ -1,5 +1,7 @@
-// Seen Arithmetic Benchmark
-// Equivalent to Rust/C++ arithmetic benchmarks for fair comparison
+///
+Seen Arithmetic Benchmark
+Equivalent to Rust/C++ arithmetic benchmarks for fair comparison
+///
 
 fun benchmark_i32_addition(iterations: i32) -> f64 {
     let start = std::time::now()

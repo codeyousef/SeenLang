@@ -1,6 +1,8 @@
-// Test UWW float rejection
-// This file should FAIL to compile with --target uww
-// because it uses floating-point types which are non-deterministic
+///
+Test UWW float rejection
+This file should FAIL to compile with --target uww
+because it uses floating-point types which are non-deterministic
+///
 
 fun calculateDistance(x1: Float, y1: Float, x2: Float, y2: Float) r: Float {
     let dx = x2 - x1

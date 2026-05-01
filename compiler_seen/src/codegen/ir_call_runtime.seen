@@ -1,6 +1,8 @@
-// ir_call_runtime.seen — runtime/builtin call emission helpers
-// Extracted from llvm_ir_gen.seen so runtime call lowering stays separate
-// from higher-level call orchestration and AST dispatch.
+///
+ir_call_runtime.seen — runtime/builtin call emission helpers
+Extracted from llvm_ir_gen.seen so runtime call lowering stays separate
+from higher-level call orchestration and AST dispatch.
+///
 
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn}

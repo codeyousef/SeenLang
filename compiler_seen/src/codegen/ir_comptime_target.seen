@@ -1,5 +1,7 @@
-// Compile-time target normalization and host target detection
-// Extracted from ir_type_mapping.seen
+///
+Compile-time target normalization and host target detection
+Extracted from ir_type_mapping.seen
+///
 
 import process.process.{runCommand, CommandResult, commandWasSuccessful}
 

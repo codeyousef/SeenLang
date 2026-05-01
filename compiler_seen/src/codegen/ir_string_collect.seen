@@ -1,5 +1,7 @@
-// String utilities and string constant collection
-// Extracted from ir_type_info.seen
+///
+String utilities and string constant collection
+Extracted from ir_type_info.seen
+///
 
 import codegen.ir_optimization.{simpleHash}
 
@@ -393,8 +395,10 @@ fun extractArrayLiteralElementTypeImpl(arrayType: String) r: String {
     return ""
 }
 
-// Parse a decimal integer from a string (ignores non-digit characters)
-// Uses byteAt() to avoid per-char string allocation. ASCII '0'=48, '9'=57.
+///
+Parse a decimal integer from a string (ignores non-digit characters)
+Uses byteAt() to avoid per-char string allocation. ASCII '0'=48, '9'=57.
+///
 fun parseDecimalIntImpl(value: String) r: Int {
     var result = 0
     var i = 0

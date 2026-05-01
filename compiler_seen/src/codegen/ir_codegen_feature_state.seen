@@ -1,5 +1,7 @@
-// ir_codegen_feature_state.seen - feature flags and registry globals used
-// by LLVM IR lowering.
+///
+ir_codegen_feature_state.seen - feature flags and registry globals used
+by LLVM IR lowering.
+///
 
 import parser.real_parser.{ParserExpressionNode}
 

@@ -1,5 +1,7 @@
-// ir_binary_expr.seen — Shared binary expression IR emitters
-// Extracted from llvm_ir_gen.seen to reduce expression-lowering sprawl.
+///
+ir_binary_expr.seen — Shared binary expression IR emitters
+Extracted from llvm_ir_gen.seen to reduce expression-lowering sprawl.
+///
 
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn}
@@ -18,8 +20,10 @@ class OverloadedBinaryPlan {
     }
 }
 
-// emitPointerArithmeticBinaryImpl — lower pointer +/- integer and pointer - pointer.
-// Returns "" when the caller should fall through.
+///
+emitPointerArithmeticBinaryImpl — lower pointer +/- integer and pointer - pointer.
+Returns "" when the caller should fall through.
+///
 fun emitPointerArithmeticBinaryImpl(output: StringBuilder, regBox: Array<Int>,
     operator: String, leftType: String, rightType: String, leftReg: String, rightReg: String) r: String {
 
@@ -65,8 +69,10 @@ fun simdComparisonPredicateImpl(operator: String, isFloat: Int) r: String {
     return ""
 }
 
-// emitSimdBinaryExprImpl — lower SIMD arithmetic and comparison operations.
-// Returns "" when the caller should fall through.
+///
+emitSimdBinaryExprImpl — lower SIMD arithmetic and comparison operations.
+Returns "" when the caller should fall through.
+///
 fun emitSimdBinaryExprImpl(output: StringBuilder, regBox: Array<Int>,
     operator: String, leftType: String, simdLlvmType: String, leftReg: String, rightReg: String) r: String {
 

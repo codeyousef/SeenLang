@@ -1,6 +1,8 @@
-// Executor Checker for Seen Language
-// Validates @executor decorator usage for single-threaded async execution
-// Ensures FIFO task ordering and WASM compatibility
+///
+Executor Checker for Seen Language
+Validates @executor decorator usage for single-threaded async execution
+Ensures FIFO task ordering and WASM compatibility
+///
 
 import parser.real_parser.{ClassNode, FunctionNode, ProgramNode, FieldNode}
 

@@ -1,6 +1,8 @@
-// ir_function_gen.seen — function lifecycle state, decorator analysis, and
-// preamble/exit coordination extracted from llvm_ir_gen.seen.
-// Literal, signature, intrinsic, and dead-store helpers live in focused modules.
+///
+ir_function_gen.seen — function lifecycle state, decorator analysis, and
+preamble/exit coordination extracted from llvm_ir_gen.seen.
+Literal, signature, intrinsic, and dead-store helpers live in focused modules.
+///
 
 import parser.real_parser.{FunctionNode}
 import codegen.ir_optimization.{getNextRegFn}

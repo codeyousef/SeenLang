@@ -1,5 +1,7 @@
-// ir_type_header.seen — type-header loading and registry scan helpers
-// Keeps imported LLVM type-header parsing out of llvm_ir_gen.seen.
+///
+ir_type_header.seen — type-header loading and registry scan helpers
+Keeps imported LLVM type-header parsing out of llvm_ir_gen.seen.
+///
 
 import str.string.{StringBuilder}
 import io.file.{readText, exists}

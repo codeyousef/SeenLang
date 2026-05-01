@@ -21,9 +21,11 @@ Example:
   mgr.shutdown()
 ///
 
-// ============================================================================
-// Standardized button constants (Xbox-style naming)
-// ============================================================================
+///
+============================================================================
+Standardized button constants (Xbox-style naming)
+============================================================================
+///
 
 let GAMEPAD_A: Int = 0
 let GAMEPAD_B: Int = 1
@@ -41,9 +43,11 @@ let GAMEPAD_DPAD_LEFT: Int = 12
 let GAMEPAD_DPAD_RIGHT: Int = 13
 let GAMEPAD_BUTTON_COUNT: Int = 14
 
-// ============================================================================
-// Standardized axis constants
-// ============================================================================
+///
+============================================================================
+Standardized axis constants
+============================================================================
+///
 
 let GAMEPAD_AXIS_LEFT_X: Int = 0
 let GAMEPAD_AXIS_LEFT_Y: Int = 1
@@ -53,9 +57,11 @@ let GAMEPAD_AXIS_LEFT_TRIGGER: Int = 4
 let GAMEPAD_AXIS_RIGHT_TRIGGER: Int = 5
 let GAMEPAD_AXIS_COUNT: Int = 6
 
-// ============================================================================
-// Cross-platform shim FFI declarations
-// ============================================================================
+///
+============================================================================
+Cross-platform shim FFI declarations
+============================================================================
+///
 
 // Initialize the gamepad subsystem. Returns 0 on success.
 extern fun seen_gamepad_init() r: Int
@@ -93,9 +99,11 @@ extern fun seen_gamepad_set_vibration(index: Int, left: Int, right: Int) r: Void
 // Set the deadzone threshold for a gamepad's analog sticks.
 extern fun seen_gamepad_set_deadzone(index: Int, deadzone: Int) r: Void
 
-// ============================================================================
-// GamepadState - snapshot of a single gamepad's inputs
-// ============================================================================
+///
+============================================================================
+GamepadState - snapshot of a single gamepad's inputs
+============================================================================
+///
 
 ///
 Snapshot of a single gamepad's input state at a point in time.
@@ -154,9 +162,11 @@ class GamepadState {
     }
 }
 
-// ============================================================================
-// GamepadManager - high-level cross-platform gamepad manager
-// ============================================================================
+///
+============================================================================
+GamepadManager - high-level cross-platform gamepad manager
+============================================================================
+///
 
 ///
 Cross-platform gamepad manager.

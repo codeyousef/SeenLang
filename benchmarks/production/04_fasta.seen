@@ -1,7 +1,9 @@
-// FASTA Generation Benchmark
-// DNA sequence generation with optimized random number generation
-// Uses parallel arrays instead of Array<Freq> for stage1 compat
-// Optimized: pre-allocated arrays, early-break in frequency search, cached lengths
+///
+FASTA Generation Benchmark
+DNA sequence generation with optimized random number generation
+Uses parallel arrays instead of Array<Freq> for stage1 compat
+Optimized: pre-allocated arrays, early-break in frequency search, cached lengths
+///
 
 class Random {
     var seed: Int

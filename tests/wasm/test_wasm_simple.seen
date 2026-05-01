@@ -1,5 +1,7 @@
-// Simple unit test for WASM backend components
-// Tests core deterministic operations
+///
+Simple unit test for WASM backend components
+Tests core deterministic operations
+///
 
 fun main() r: Int {
     println("=================================")

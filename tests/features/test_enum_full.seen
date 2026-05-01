@@ -1,6 +1,8 @@
-// Enum Feature Test
-// Tests: enum declaration, value access, comparison
-// Expected: Enum features work correctly
+///
+Enum Feature Test
+Tests: enum declaration, value access, comparison
+Expected: Enum features work correctly
+///
 
 enum Color {
     Red,

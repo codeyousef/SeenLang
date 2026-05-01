@@ -17,9 +17,11 @@ fun vecArgTypeImpl(hasStr: Bool, hasFloat: Bool) r: String {
     return "i64"
 }
 
-// Emit LLVM IR for Vec method calls
-// vecPtrReg must already be a ptr (inttoptr done by caller)
-// arg0/arg1 are pre-generated argument registers ("0" if unused)
+///
+Emit LLVM IR for Vec method calls
+vecPtrReg must already be a ptr (inttoptr done by caller)
+arg0/arg1 are pre-generated argument registers ("0" if unused)
+///
 fun emitVecMethodCoreImpl(output: StringBuilder, regBox: Array<Int>,
     methodName: String, vecPtrReg: String, arg0: String, arg1: String,
     hasStr: Bool, hasFloat: Bool) r: String {

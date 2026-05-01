@@ -1,5 +1,7 @@
-// ir_variable_gen.seen — Shared variable load/store helpers
-// Extracted from llvm_ir_gen.seen expression and assignment lowering.
+///
+ir_variable_gen.seen — Shared variable load/store helpers
+Extracted from llvm_ir_gen.seen expression and assignment lowering.
+///
 
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn}

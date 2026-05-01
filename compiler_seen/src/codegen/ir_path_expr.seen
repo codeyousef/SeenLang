@@ -1,5 +1,7 @@
-// ir_path_expr.seen — Shared chained-path parsing helpers
-// Extracted from llvm_ir_gen.seen for member-access and method-call resolution.
+///
+ir_path_expr.seen — Shared chained-path parsing helpers
+Extracted from llvm_ir_gen.seen for member-access and method-call resolution.
+///
 
 import parser.real_parser.{ParserExpressionNode}
 import codegen.ir_seen_field_type_lookup.{getSeenFieldTypeImpl}

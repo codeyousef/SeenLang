@@ -1,5 +1,7 @@
-// Test for @component decorator
-// Tests lifecycle management and component hierarchy
+///
+Test for @component decorator
+Tests lifecycle management and component hierarchy
+///
 
 // A simple counter component
 @component

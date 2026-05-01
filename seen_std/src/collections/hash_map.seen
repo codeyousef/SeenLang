@@ -1,5 +1,7 @@
-// seen_std.collections.hash_map
-// Generic HashMap<K, V> with robin-hood hashing for excellent performance.
+///
+seen_std.collections.hash_map
+Generic HashMap<K, V> with robin-hood hashing for excellent performance.
+///
 
 import collections.vec.{Vec}
 import core.option.{Option, Some, None}

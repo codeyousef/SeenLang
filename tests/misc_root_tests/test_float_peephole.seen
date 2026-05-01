@@ -1,5 +1,7 @@
-// Test Float peephole identity rules
-// x + 0.0 → x, x - 0.0 → x, x * 1.0 → x, x / 1.0 → x
+///
+Test Float peephole identity rules
+x + 0.0 → x, x - 0.0 → x, x * 1.0 → x, x / 1.0 → x
+///
 
 fun main() r: Int {
     let x = 3.14

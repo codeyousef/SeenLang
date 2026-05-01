@@ -1,7 +1,9 @@
-// ir_assignment_gen.seen — Assignment GEP+store emission helpers
-// Extracted from llvm_ir_gen.seen to reduce module 5 size.
-// Handles receiver-pointer prep, field-type resolution, union/bitfield stores,
-// and final field stores.
+///
+ir_assignment_gen.seen — Assignment GEP+store emission helpers
+Extracted from llvm_ir_gen.seen to reduce module 5 size.
+Handles receiver-pointer prep, field-type resolution, union/bitfield stores,
+and final field stores.
+///
 
 import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_string_collect.{getBaseTypeNameImpl}
@@ -443,14 +445,16 @@ fun emitPreparedIndexAssignmentStoreImpl(output: StringBuilder,
         valueSeenType, structNames)
 }
 
-// emitFieldStoreImpl — Store a value into a struct field via GEP
-// Handles nullable String (zeroinitializer), ptr (null/inttoptr), data type struct literal loading
-// valueReg: the register holding the value to store
-// llvmFieldType: LLVM type of the field (e.g., "%SeenString", "ptr", "i64")
-// fieldPtrReg: GEP result pointing to the field
-// valueIsStructLiteral: 1 if the value expression was a StructLiteral (may need ptr load)
-// seenFieldType: Seen type name (used with isDataType check in caller)
-// isDataField: 1 if the field's Seen type is a data type (needs load from ptr for struct literals)
+///
+emitFieldStoreImpl — Store a value into a struct field via GEP
+Handles nullable String (zeroinitializer), ptr (null/inttoptr), data type struct literal loading
+valueReg: the register holding the value to store
+llvmFieldType: LLVM type of the field (e.g., "%SeenString", "ptr", "i64")
+fieldPtrReg: GEP result pointing to the field
+valueIsStructLiteral: 1 if the value expression was a StructLiteral (may need ptr load)
+seenFieldType: Seen type name (used with isDataType check in caller)
+isDataField: 1 if the field's Seen type is a data type (needs load from ptr for struct literals)
+///
 fun emitFieldStoreImpl(output: StringBuilder, regBox: Array<Int>,
     valueReg: String, llvmFieldType: String, fieldPtrReg: String,
     valueIsStructLiteral: Int, isDataField: Int) r: Void {

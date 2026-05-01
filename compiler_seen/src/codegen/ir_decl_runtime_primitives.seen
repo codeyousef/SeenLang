@@ -6,8 +6,10 @@ import codegen.ir_declarations.{isFuncDefinedInModule}
 fun emitPrimitiveRuntimeDecls(output: StringBuilder,
     definedFuncs: Array<String>) r: Void {
 
-    // Some and None return Optional which is a class type (stored as i64)
-    // Guarded for standalone stdlib compilation
+    ///
+    Some and None return Optional which is a class type (stored as i64)
+    Guarded for standalone stdlib compilation
+    ///
     if not isFuncDefinedInModule("Some", definedFuncs) {
         output.append("declare i64 @Some(ptr) nounwind\n")
     }
@@ -17,8 +19,10 @@ fun emitPrimitiveRuntimeDecls(output: StringBuilder,
     output.append("declare i1 @seen_str_eq_ss(%SeenString, %SeenString) nounwind readonly\n")
     output.append("declare i1 @seen_str_ne_ss(%SeenString, %SeenString) nounwind readonly\n")
 
-    // Array functions - pass SeenArray by value (matches C ABI: SeenArray a, not ptr)
-    // Array creation functions - return ptr to heap-allocated SeenArray
+    ///
+    Array functions - pass SeenArray by value (matches C ABI: SeenArray a, not ptr)
+    Array creation functions - return ptr to heap-allocated SeenArray
+    ///
     output.append("declare noalias dereferenceable(32) ptr @seen_arr_new_str_ptr() nounwind willreturn memory(inaccessiblemem: readwrite)\n")
     output.append("declare noalias dereferenceable(32) ptr @seen_arr_new_ptr_ptr() nounwind willreturn memory(inaccessiblemem: readwrite)\n")
     output.append("declare noalias dereferenceable(32) ptr @seen_arr_new_with_size_ptr(i64) nounwind willreturn memory(inaccessiblemem: readwrite)\n")
@@ -50,8 +54,10 @@ fun emitPrimitiveRuntimeDecls(output: StringBuilder,
     output.append("declare %SeenString @seen_arr_pop_str(ptr nonnull) nounwind willreturn memory(argmem: readwrite)\n")
     output.append("declare void @seen_arr_clear(ptr nonnull) nounwind willreturn memory(argmem: readwrite)\n")
 
-    // C runtime primitive functions (extern fun __*) for stdlib
-    // File I/O primitives
+    ///
+    C runtime primitive functions (extern fun __*) for stdlib
+    File I/O primitives
+    ///
     output.append("declare i64 @__OpenFile(%SeenString, %SeenString) nounwind\n")
     output.append("declare %SeenString @__ReadFile(i64) nounwind\n")
     output.append("declare ptr @__ReadFileBytes(i64, i64) nounwind\n")

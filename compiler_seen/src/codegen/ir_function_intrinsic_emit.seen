@@ -1,12 +1,16 @@
-// Intrinsic wrapper emission helpers
-// Extracted from ir_function_gen.seen
+///
+Intrinsic wrapper emission helpers
+Extracted from ir_function_gen.seen
+///
 
 import codegen.ir_optimization.{getNextRegFn}
 
-// emitIntrinsicWrapperImpl — Generate thin wrapper for @intrinsic("llvm.xxx") decorated function
-// Emits LLVM intrinsic declare + Seen wrapper function
-// intrinsicRegistryOut: [0]=funcName, [1]=llvmName appended
-// Returns true if intrinsic was emitted
+///
+emitIntrinsicWrapperImpl — Generate thin wrapper for @intrinsic("llvm.xxx") decorated function
+Emits LLVM intrinsic declare + Seen wrapper function
+intrinsicRegistryOut: [0]=funcName, [1]=llvmName appended
+Returns true if intrinsic was emitted
+///
 fun emitIntrinsicWrapperImpl(output: Array<String>, regBox: Array<Int>,
     fnName: String, intrLlvmName: String,
     paramTypes: Array<String>, paramCount: Int,

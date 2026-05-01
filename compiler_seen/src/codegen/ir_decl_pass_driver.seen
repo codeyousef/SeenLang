@@ -1,6 +1,8 @@
-// ir_decl_pass_driver.seen - declaration pass orchestration helpers.
-// Keeps pass-level registry setup/finish steps out of llvm_ir_gen.seen while
-// leaving source-local declaration preparation in the facade.
+///
+ir_decl_pass_driver.seen - declaration pass orchestration helpers.
+Keeps pass-level registry setup/finish steps out of llvm_ir_gen.seen while
+leaving source-local declaration preparation in the facade.
+///
 
 import parser.real_parser.{ProgramNode}
 import codegen.ir_decl_registry.{DeclarationPassState, preRegisterClassTypesImpl, registerCrossModuleConstantsIntoStateImpl}

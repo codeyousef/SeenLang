@@ -1,5 +1,7 @@
-// ir_member_access_gen.seen — Shared member-access emission helpers
-// Extracted from llvm_ir_gen.seen to keep receiver staging out of the facade.
+///
+ir_member_access_gen.seen — Shared member-access emission helpers
+Extracted from llvm_ir_gen.seen to keep receiver staging out of the facade.
+///
 
 import str.string.{StringBuilder}
 import codegen.ir_type_mapping.{isDataTypeImpl}
