@@ -59,6 +59,7 @@ import codegen.ir_value_coercion.{coerceValueForLlvmTargetImpl}
 import codegen.ir_string_concat_emit.{coerceStringConcatPieceRegImpl}
 import codegen.ir_struct_layout_state.{registerStructLayoutState}
 import codegen.ir_autofree_state.{emitAutoFreeLocalsState}
+import codegen.ir_field_lookup_state.{getFieldInfoState, getFieldTypeState, getMethodReturnTypeState}
 import codegen.ir_enum_lookup.{lookupEnumVariantTagImpl, lookupEnumParentImpl, lookupEnumFieldTypeImpl, lookupEnumFieldCountImpl, isEnumVariantImpl}
 import codegen.ir_decl_registry.{recordLateUserDeclareIntoStateImpl, captureDeclarationPassStateImpl, captureLateUserDeclareStateImpl, captureParentClassRegistryStateImpl, registerCrossModuleConstantsIntoStateImpl, registerParentClassIntoStateImpl, resetLateUserDeclareStateImpl}
 import codegen.ir_decl_items.{registerPreparedDeclarationItemsIntoStateImpl}
@@ -3111,6 +3112,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_string_concat_emit")
         modules.push("codegen.ir_struct_layout_state")
         modules.push("codegen.ir_autofree_state")
+        modules.push("codegen.ir_field_lookup_state")
         modules.push("codegen.ir_struct_gen")
         modules.push("codegen.ir_struct_layout_build")
         modules.push("codegen.ir_class_type_layout")

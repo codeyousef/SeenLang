@@ -60,8 +60,6 @@ import codegen.ir_type_header.{tryLoadTypeHeaderIntoOutputImpl, emitBuiltinTypeH
 import codegen.ir_local_type_fallback.{tryInferLLVMIRGeneratorThisFieldTypeImpl, tryInferStructThisFieldTypeImpl, tryInferImplicitThisVariableTypeImpl, tryInferNamedPrimitiveVariableTypeImpl}
 import codegen.ir_trait_registry.{appendDynTraitNameImpl}
 import codegen.ir_type_info.{charToCodeStr, g_resolvedFieldIndex, g_resolvedFieldTypeCode, decodeFieldTypeCode, findStructIdx, getLLVMIRGeneratorFieldIndexImpl}
-import codegen.ir_seen_field_type_lookup.{getSeenFieldTypeImpl}
-import codegen.ir_method_return_type_lookup.{getMethodReturnTypeImpl}
 
 import codegen.ir_string_collect.{getBaseTypeNameImpl, normalizeHeaderTypeImpl, parseArrayElementTypeImpl, extractArrayLiteralElementTypeImpl, parseDecimalIntImpl}
 import codegen.ir_seen_token_types.{getSeenTokenTypeValueImpl}
@@ -125,12 +123,12 @@ import codegen.ir_string_concat_emit.{isStringConcatTypePairImpl, exprHasStringC
 import codegen.ir_struct_gen.{emitStructFieldStoresImpl, resolveStructLiteralFieldFallback, inferStructFieldTypeFromExpr}
 import codegen.ir_struct_layout_state.{registerStructLayoutState}
 import codegen.ir_autofree_state.{emitAutoFreeLocalsState}
+import codegen.ir_field_lookup_state.{getFieldInfoState, getFieldTypeState, getSeenFieldTypeState, inferTypeRegistryFieldTypeState, getSemanticFieldTypeState, getMethodReturnTypeState}
 import codegen.ir_class_type_layout.{emitClassTypeFieldsImpl, emitClassTypeHeaderImpl, emitClassTypeFooterImpl, prepareClassTypeAliasStateSnapshotImpl}
 import codegen.ir_class_type_decorators.{prepareClassTypeDecoratorScanSnapshotImpl}
 import codegen.ir_class_gen_support.{prepareGeneratedClassDecoratorSnapshotImpl, shouldSkipSourceClassMethodImpl, emitInheritedClassMethodThunksImpl}
 import codegen.ir_class_generated_features.{emitGeneratedClassDecoratorMethodsImpl}
 import codegen.ir_class_constructor_gen.{emitClassHeapAllocationImpl, emitClassArrayFieldInitializersImpl, resolveClassConstructorFieldOffsetImpl}
-import codegen.ir_field_registry.{resolveFieldIndexImpl, resolveStructFieldLlvmTypeImpl}
 import codegen.ir_module_emit.{mapGlobalVarLlvmTypeImpl, emitCrossModuleConstantDeclaresImpl, emitTraitVtableConstantsImpl, collectProgramDefinedSymbolsImpl, emitGeneratedClosuresImpl, emitOptimizationStatisticsSummaryImpl, shouldSkipStandaloneTopLevelFunctionImpl, resolveSpecialTopLevelFunctionActionImpl, emitGlobalConstructorsImpl}
 import codegen.ir_program_flow_plan.{shouldVisitProgramFlowIndexImpl, shouldEmitProgramClassTypeItemImpl, shouldGenerateProgramClassItemImpl, planProgramTopLevelFunctionStartImpl, planProgramTopLevelFunctionAfterSpecialImpl}
 import codegen.ir_field_layout.{emitSeenArrayLengthLoadImpl, generateFieldAccessImpl, generateFieldAccessPtrImpl, isScalarFieldChainTerminalTypeImpl}
@@ -138,7 +136,7 @@ import codegen.ir_path_expr.{splitChainedPathImpl, buildChainedPathExprImpl, spl
 import codegen.ir_member_access.{emitSimdSwizzleMemberAccessImpl, inferSimdSwizzleMemberTypeImpl, inferJsonValueMemberAccessTypeImpl, inferLiteralReceiverMemberAccessTypeImpl, inferDirectMemberAccessTypeImpl, extractLastMemberFieldSegmentImpl}
 import codegen.ir_member_access_plan.{planMemberAccessRouteImpl}
 import codegen.ir_member_access_gen.{emitPreparedExpressionReceiverMemberAccessImpl, emitPreparedVariableReceiverMemberAccessImpl, emitPreparedModuleConstReceiverMemberAccessImpl, emitPreparedBracketPathMemberAccessImpl, emitPreparedChainedReceiverMemberAccessImpl, emitPreparedImplicitThisReceiverMemberAccessImpl}
-import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, inferTypeRegistryFieldTypeImpl, getSemanticFieldTypeImpl, resolveMethodFieldPathTypeImpl, tryResolveEnumLiteralMethodReceiverImpl, convertReceiverToPtrImpl}
+import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, resolveMethodFieldPathTypeImpl, tryResolveEnumLiteralMethodReceiverImpl, convertReceiverToPtrImpl}
 import codegen.ir_binary_expr.{binaryOperatorMethodSuffixImpl, isSimdBinaryOperatorImpl, shouldUseFmaForOperandTypesImpl, buildSelfComparisonLogValueImpl, buildBinaryFoldLogValueImpl, exprProducesBoolImpl, emitBoolCoercionImpl, emitShortCircuitPhiImpl}
 import codegen.ir_binary_emit.{emitPreparedPointerArithmeticBinaryImpl, emitPreparedSimdBinaryExprImpl, emitPreparedSelfComparisonConstResultImpl, emitPreparedIntPeepholeBinaryActionImpl, emitPreparedAssociativeIntFoldResultImpl, emitPreparedFoldedBoolLiteralBinaryResultImpl, emitPreparedFoldedIntLiteralBinaryResultImpl, emitPreparedFloatPeepholeBinaryActionImpl, emitPreparedFmaTripleCallImpl, emitPreparedOverloadedBinaryCallImpl, buildPreparedBinaryCseKeyImpl}
 import codegen.ir_binary_plan.{shouldTryPointerArithmeticBinaryImpl, shouldTrySimdBinaryGateImpl, shouldUseIntPeepholeGateImpl, shouldUseFloatPeepholeGateImpl, shortCircuitBinaryActionImpl, shouldTryBinaryOverloadImpl}
@@ -799,49 +797,28 @@ class LLVMIRGenerator {
     // module X fails if %ClassName is defined in module Y. Use byte-offset
     // i8 GEP or memset zero-init instead.
     fun getFieldInfo(structName: String, fieldName: String) r: Int {
-        let cacheKey = structName + "." + fieldName
-        let cached = findCachedIrgenFieldIndex(cacheKey)
-        if cached >= 0 {
-            return cached
-        }
-        traceGen("getFieldInfo: " + structName + "." + fieldName)
-        if structName == "FrontendResult" {
-            let idxCheck = findStructReg(structName, structNames)
-            if idxCheck >= 0 {
-                traceGen("FrontendResult fields=" + structFieldNames[idxCheck])
-            }
-        }
-        let fieldIdx = resolveFieldIndexImpl(structName, fieldName,
-            structNames, structFieldNames)
-        if fieldIdx >= 0 {
-            cacheIrgenFieldIndex(cacheKey, fieldIdx)
-        }
-        return fieldIdx
+        return getFieldInfoState(structName, fieldName)
     }
 
     // Get field type from registered struct
     // Note: fieldTypes uses | as separator (not comma) to handle generic types like Map<K,V>
     fun getFieldType(structName: String, fieldName: String) r: String {
-        return resolveStructFieldLlvmTypeImpl(structName, fieldName,
-            structNames, structFieldNames, structFieldTypes,
-            structLlvmFieldTypes, g_reprCClassNames, g_typeAliasNames,
-            g_typeAliasTargets, g_typeAliasCount, g_enumTypeNames)
+        return getFieldTypeState(structName, fieldName)
     }
 
     fun getSeenTokenTypeValue(memberName: String) r: Int { return getSeenTokenTypeValueImpl(memberName) }
 
     // Delegates to free function in ir_type_info.seen
     fun getSeenFieldType(structName: String, fieldName: String) r: String {
-        return getSeenFieldTypeImpl(structName, fieldName, structNames, structFieldNames, structFieldTypes)
+        return getSeenFieldTypeState(structName, fieldName)
     }
 
     fun inferTypeRegistryFieldType(fieldName: String) r: String {
-        return inferTypeRegistryFieldTypeImpl(fieldName)
+        return inferTypeRegistryFieldTypeState(fieldName)
     }
 
     fun getSemanticFieldType(structName: String, fieldName: String) r: String {
-        return getSemanticFieldTypeImpl(structName, fieldName, structNames,
-            structFieldNames, structFieldTypes)
+        return getSemanticFieldTypeState(structName, fieldName)
     }
     // Resolve the type of a chained path like "item.function.returnType"
     // Returns the type of the final field in the chain
@@ -880,11 +857,7 @@ class LLVMIRGenerator {
 
     // Delegates to free function in ir_type_info.seen
     fun getMethodReturnType(structName: String, methodName: String) r: String {
-        let retType = getMethodReturnTypeImpl(structName, methodName, structNames, structMethodNames, structMethodRetTypes)
-        if retType == "Unknown" {
-            return ""
-        }
-        return retType
+        return getMethodReturnTypeState(structName, methodName)
     }
 
     // Single-module entry point: wraps generateMultiple with one program.

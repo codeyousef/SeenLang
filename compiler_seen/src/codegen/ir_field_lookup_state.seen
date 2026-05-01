@@ -1,0 +1,65 @@
+// ir_field_lookup_state.seen - field and method lookup helpers over codegen state.
+
+import codegen.ir_field_registry.{resolveFieldIndexImpl, resolveStructFieldLlvmTypeImpl}
+import codegen.ir_seen_field_type_lookup.{getSeenFieldTypeImpl}
+import codegen.ir_method_return_type_lookup.{getMethodReturnTypeImpl}
+import codegen.ir_method_receiver.{inferTypeRegistryFieldTypeImpl, getSemanticFieldTypeImpl}
+import codegen.type_registry_core.{findStructReg}
+import codegen.ir_codegen_global_state.{structNames, structFieldNames, structFieldTypes, structLlvmFieldTypes, structMethodNames, structMethodRetTypes}
+import codegen.ir_codegen_feature_state.{g_reprCClassNames, g_typeAliasNames, g_typeAliasTargets, g_typeAliasCount, g_enumTypeNames}
+import codegen.ir_codegen_module_state.{findCachedIrgenFieldIndex, cacheIrgenFieldIndex}
+
+fun getFieldInfoState(structName: String, fieldName: String) r: Int {
+    let cacheKey = structName + "." + fieldName
+    let cached = findCachedIrgenFieldIndex(cacheKey)
+    if cached >= 0 {
+        return cached
+    }
+    traceGen("getFieldInfo: " + structName + "." + fieldName)
+    if structName == "FrontendResult" {
+        let idxCheck = findStructReg(structName, structNames)
+        if idxCheck >= 0 {
+            traceGen("FrontendResult fields=" + structFieldNames[idxCheck])
+        }
+    }
+    let fieldIdx = resolveFieldIndexImpl(structName, fieldName,
+        structNames, structFieldNames)
+    if fieldIdx >= 0 {
+        cacheIrgenFieldIndex(cacheKey, fieldIdx)
+    }
+    return fieldIdx
+}
+
+fun getFieldTypeState(structName: String, fieldName: String) r: String {
+    return resolveStructFieldLlvmTypeImpl(structName, fieldName,
+        structNames, structFieldNames, structFieldTypes,
+        structLlvmFieldTypes, g_reprCClassNames, g_typeAliasNames,
+        g_typeAliasTargets, g_typeAliasCount, g_enumTypeNames)
+}
+
+fun getSeenFieldTypeState(structName: String, fieldName: String) r: String {
+    return getSeenFieldTypeImpl(structName, fieldName, structNames,
+        structFieldNames, structFieldTypes)
+}
+
+fun inferTypeRegistryFieldTypeState(fieldName: String) r: String {
+    return inferTypeRegistryFieldTypeImpl(fieldName)
+}
+
+fun getSemanticFieldTypeState(structName: String, fieldName: String)
+    r: String {
+
+    return getSemanticFieldTypeImpl(structName, fieldName, structNames,
+        structFieldNames, structFieldTypes)
+}
+
+fun getMethodReturnTypeState(structName: String, methodName: String)
+    r: String {
+
+    let retType = getMethodReturnTypeImpl(structName, methodName, structNames,
+        structMethodNames, structMethodRetTypes)
+    if retType == "Unknown" {
+        return ""
+    }
+    return retType
+}
