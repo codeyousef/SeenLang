@@ -55,7 +55,7 @@ import codegen.ir_decl_registry.{DeclarationPassState, LateUserDeclareState, reg
 import codegen.ir_decl_items.{DeclarationItemContext, PreparedDeclarationItem, normalizeDeclaredTypeNodeImpl, prepareDeclarationItemForRegistrationImpl}
 import codegen.ir_decl_pass_driver.{beginDeclarationRegistrationPassImpl, finishDeclarationRegistrationPassImpl}
 import codegen.ir_decl_return_types.{inferReturnExprTypeImpl, resolveMethodReturnTypeImpl, resolveFunctionReturnTypeImpl}
-import codegen.ir_module_constants.{isModuleConstMutableImpl, getModuleConstSeenTypeImpl, tryInferModuleConstantVariableTypeSnapshotImpl, findModuleConstantSnapshotImpl, emitGlobalVariablesSnapshotImpl, moduleConstantInvariantLoadSuffixImpl}
+import codegen.ir_module_constants.{isModuleConstMutableImpl, getModuleConstSeenTypeImpl, narrowModuleConstantLoadIfNeededImpl, tryInferModuleConstantVariableTypeSnapshotImpl, findModuleConstantSnapshotImpl, emitGlobalVariablesSnapshotImpl, moduleConstantInvariantLoadSuffixImpl}
 import codegen.ir_type_header.{tryLoadTypeHeaderIntoOutputImpl, emitBuiltinTypeHeaderImpl}
 import codegen.ir_local_type_fallback.{tryInferLLVMIRGeneratorThisFieldTypeImpl, tryInferStructThisFieldTypeImpl, tryInferImplicitThisVariableTypeImpl, tryInferNamedPrimitiveVariableTypeImpl}
 import codegen.ir_type_info.{charToCodeStr, g_resolvedFieldIndex, g_resolvedFieldTypeCode, decodeFieldTypeCode, findStructIdx, getLLVMIRGeneratorFieldIndexImpl}
@@ -86,7 +86,6 @@ import codegen.ir_loop_plan.{planMemcpyOptimizedWhileLoopImpl, iteratorProtocolF
 import codegen.ir_infer_type.{inferBinaryTypeImpl, inferLiteralTypeImpl, inferOperatorOverloadSuffix, inferExplicitThisMethodCallTypeImpl, inferBareMethodOrFunctionCallTypeImpl, inferDeclaredStaticMethodCallTypeImpl, inferStaticFactoryMethodTypeImpl, inferStaticFromJsonMethodTypeImpl, inferLateMethodCallFallbackTypeImpl, inferGeneratedCallTypeImpl, inferBuiltinCallExprTypeStateImpl, inferResolvedCallExprTypeImpl, inferSimdReduceMethodTypeImpl, inferReceiverRegistryMethodCallTypeImpl, inferMethodCallBoolSuffixImpl, inferCallExprTypeImpl}
 import codegen.ir_special_expr_infer.{inferIndexAccessExprTypeImpl, inferKnownArrayLiteralTypeImpl, inferArrayLiteralExprTypeImpl, inferUnaryExprTypeImpl, inferAwaitExprTypeImpl, inferTryPropagateExprTypeImpl, inferNullishSpecialExprTypeImpl, inferBranchingSpecialExprTypeImpl, inferFixedSpecialExprTypeImpl, inferSpecialExprTypeImpl}
 import codegen.ir_expr_infer_plan.{planExprInferenceDispatchImpl, planMethodCallInferenceImpl, planGeneratedCallInferenceImpl, planBuiltinCallInferenceImpl, planResolvedCallInferenceImpl, planMemberAccessInferenceImpl, planSpecialExprInferenceImpl}
-import codegen.ir_type_ops.{emitBinaryOpImpl}
 import codegen.ir_receiver_method_emit.{emitSimdReductionImpl}
 import codegen.ir_string_builder_cast_emit.{emitCastExprImpl}
 import codegen.ir_method_gen.{emitTransmuteImpl}
@@ -138,8 +137,8 @@ import codegen.ir_member_access_plan.{planMemberAccessRouteImpl}
 import codegen.ir_member_access_gen.{emitPreparedExpressionReceiverMemberAccessImpl, emitPreparedVariableReceiverMemberAccessImpl, emitPreparedModuleConstReceiverMemberAccessImpl, emitPreparedBracketPathMemberAccessImpl, emitPreparedChainedReceiverMemberAccessImpl, emitPreparedImplicitThisReceiverMemberAccessImpl}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, resolveMethodFieldPathTypeImpl, resolveLiteralMethodReceiverTypeImpl, tryResolveEnumLiteralMethodReceiverImpl, convertReceiverToPtrImpl}
 import codegen.ir_binary_expr.{binaryOperatorMethodSuffixImpl, isSimdBinaryOperatorImpl, shouldUseFmaForOperandTypesImpl, buildSelfComparisonLogValueImpl, buildBinaryFoldLogValueImpl, exprProducesBoolImpl, emitBoolCoercionImpl, emitShortCircuitPhiImpl}
-import codegen.ir_binary_emit.{emitPreparedPointerArithmeticBinaryImpl, emitPreparedSimdBinaryExprImpl, emitPreparedSelfComparisonConstResultImpl, emitPreparedIntPeepholeBinaryActionImpl, emitPreparedAssociativeIntFoldResultImpl, emitPreparedFoldedBoolLiteralBinaryResultImpl, emitPreparedFoldedIntLiteralBinaryResultImpl, emitPreparedFloatPeepholeBinaryActionImpl, emitPreparedFmaTripleCallImpl, emitPreparedOverloadedBinaryCallImpl, buildPreparedBinaryCseKeyImpl}
-import codegen.ir_binary_plan.{shouldTryPointerArithmeticBinaryImpl, shouldTrySimdBinaryGateImpl, shouldUseIntPeepholeGateImpl, shouldUseFloatPeepholeGateImpl, shortCircuitBinaryActionImpl, shouldWidenIntegerBinaryOperandsForI64Impl, shouldTryBinaryOverloadImpl}
+import codegen.ir_binary_emit.{emitPreparedPointerArithmeticBinaryImpl, emitPreparedSimdBinaryExprImpl, emitPreparedSelfComparisonConstResultImpl, emitPreparedIntPeepholeBinaryActionImpl, emitPreparedAssociativeIntFoldResultImpl, emitPreparedFoldedBoolLiteralBinaryResultImpl, emitPreparedFoldedIntLiteralBinaryResultImpl, emitPreparedFloatPeepholeBinaryActionImpl, emitPreparedFmaTripleCallImpl, emitPreparedOverloadedBinaryCallImpl, emitPreparedCoreBinaryOpImpl, tryLookupPreparedBinaryCseImpl, recordPreparedBinaryCseImpl}
+import codegen.ir_binary_plan.{shouldTryPointerArithmeticBinaryImpl, shouldTrySimdBinaryGateImpl, shouldUseIntPeepholeGateImpl, shouldUseFloatPeepholeGateImpl, shortCircuitBinaryActionImpl, shouldTryBinaryOverloadImpl}
 import codegen.ir_binary_fold_plan.{planBinaryOperandLiteralFactsImpl, isBinaryIntLiteralOperandImpl, planBinaryFoldActionImpl, shouldTryBinaryAssociativeIntFoldImpl, binaryAssociativeIntFoldRewriteCostImpl, shouldApplyBinaryAssociativeIntFoldImpl, planBinaryLiteralComparisonFoldImpl, planBinaryLiteralConstantFoldImpl, planBinaryFloatPeepholeImpl, planBinaryFoldFmaImpl, planBinaryFoldCseImpl}
 import codegen.ir_binary_short_circuit.{allocateShortCircuitBinaryLabelsImpl, emitShortCircuitCheckBridgeImpl, emitShortCircuitAndDecisionImpl, emitShortCircuitOrDecisionImpl, emitShortCircuitRightLabelImpl, emitShortCircuitDoneBridgeImpl, emitShortCircuitMergeJumpImpl}
 import codegen.ir_unary_expr.{unaryOperatorMethodNameImpl, shouldSkipUnaryOverloadTypeImpl, negatedComparisonPredicateImpl, shouldEmitNegatedComparisonForTypesImpl, emitOverloadedUnaryCallImpl, emitUnaryNegationImpl, emitNegatedComparisonImpl, emitUnaryLogicalNotImpl, emitUnaryAddressOfClassValueImpl, emitUnaryAddressOfVariablePtrImpl, emitUnaryDereferenceImpl, isUnaryBitwiseNotOperatorImpl, emitUnaryBitwiseNotImpl}
@@ -4407,29 +4406,6 @@ class LLVMIRGenerator {
         return generateFieldAccess(thisPtrReg, thisType, varName)
     }
 
-    fun narrowModuleConstantLoadIfNeeded(constIdx: Int, constType: String,
-        loadReg: String) r: String {
-
-        if constType != "i64" {
-            return loadReg
-        }
-        let seenType = getModuleConstSeenTypeImpl(constIdx,
-            g_moduleConstSeenTypes)
-        if seenType == "" {
-            return loadReg
-        }
-        let exprLlvmType = mapType(seenType)
-        if exprLlvmType != "i8" and exprLlvmType != "i16" and
-            exprLlvmType != "i32" {
-
-            return loadReg
-        }
-        let narrowedReg = getNextReg()
-        output.append("  " + narrowedReg + " = trunc i64 " + loadReg +
-            " to " + exprLlvmType + "\n")
-        return narrowedReg
-    }
-
     fun tryGenerateFallbackVariable(varName: String) r: String {
         let constIdx = findModuleConstant(varName)
         if constIdx >= 0 {
@@ -4438,8 +4414,10 @@ class LLVMIRGenerator {
             let constType = moduleConstantTypes[constIdx]
             let loadReg = emitModuleConstantLoadImpl(output, g_regBox,
                 "@" + varName, moduleConstantTypes[constIdx], invSuffix)
-            return narrowModuleConstantLoadIfNeeded(constIdx, constType,
-                loadReg)
+            let seenType = getModuleConstSeenTypeImpl(constIdx,
+                g_moduleConstSeenTypes)
+            return narrowModuleConstantLoadIfNeededImpl(output, g_regBox,
+                constType, loadReg, seenType, mapType(seenType))
         }
 
         let implicitThisReg = tryGenerateImplicitThisVariable(varName)
@@ -4490,7 +4468,7 @@ class LLVMIRGenerator {
     // operators, bitwise ops, and short-circuit &&/||.
     // Includes constant folding for integer-literal operands via foldIntConstants.
     // Supports overflow-checked arithmetic when g_panicOnOverflow is set
-    // (uses llvm.sadd.with.overflow intrinsics). Delegates to emitBinaryOpImpl
+    // (uses llvm.sadd.with.overflow intrinsics). Delegates to prepared helpers
     // for the core LLVM instruction emission.
     fun generateBinary(expr: ParserExpressionNode) r: String {
         let leftExpr = expr.operands[0]
@@ -4738,10 +4716,9 @@ class LLVMIRGenerator {
         // Cache is cleared at function entry and block boundaries (safe with dominance).
         let csePlan = planBinaryFoldCseImpl(leftType, rightType, expr.operator)
         if csePlan.shouldLookup {
-            let cseKey = buildPreparedBinaryCseKeyImpl(leftReg, expr.operator, rightReg)
-            let cseCached = cseLookup(cseKey)
+            let cseCached = tryLookupPreparedBinaryCseImpl(leftReg,
+                expr.operator, rightReg)
             if cseCached != "" {
-                mlLogDecision("cse", "hit", cseKey)
                 return cseCached
             }
         }
@@ -4771,28 +4748,19 @@ class LLVMIRGenerator {
         var panicFlag = 0
         if g_panicOnOverflow { panicFlag = 1 }
         let leftMT = mapType(leftType)
-        var emitLeftReg = leftReg
-        var emitRightReg = rightReg
-        if shouldWidenIntegerBinaryOperandsForI64Impl(expr.operator, leftType,
-            rightType, leftMT) {
-
-            emitLeftReg = coerceValueForLlvmTarget("i64", leftType, leftReg)
-            emitRightReg = coerceValueForLlvmTarget("i64", rightType,
-                rightReg)
-        }
-        let resultReg = emitBinaryOpImpl(output, g_regBox, boundsBox, cseSig,
-            expr.operator, emitLeftReg, emitRightReg, leftType, rightType,
-            leftExpr.kind, leftExpr.literalValue, leftExpr.variableName,
-            rightExpr.kind, rightExpr.literalValue,
-            panicFlag, g_inductionVarName, leftMT)
+        let rightMT = mapType(rightType)
+        let resultReg = emitPreparedCoreBinaryOpImpl(output, g_regBox,
+            boundsBox, cseSig, expr.operator, leftReg, rightReg, leftType,
+            rightType, leftExpr.kind, leftExpr.literalValue,
+            leftExpr.variableName, rightExpr.kind, rightExpr.literalValue,
+            panicFlag, g_inductionVarName, leftMT, rightMT)
         g_boundsCheckLabelCount = boundsBox[0]
         if cseSig[0] == 1 { cseClear() }
 
         // CSE recording for pure int/float binary ops (within function scope only)
         if csePlan.shouldRecord {
-            let cseKey2 = buildPreparedBinaryCseKeyImpl(leftReg, expr.operator,
-                rightReg)
-            cseRecord(cseKey2, resultReg)
+            recordPreparedBinaryCseImpl(leftReg, expr.operator, rightReg,
+                resultReg)
         }
 
         return resultReg

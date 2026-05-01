@@ -1,8 +1,13 @@
 // ir_binary_emit.seen - prepared binary-expression emission drivers.
 
 import str.string.{StringBuilder}
+import codegen.ir_codegen_metrics_state.{cseLookup, cseRecord}
 import codegen.ir_egraph_emit.{emitEgraphPeepholeImpl, emitEgraphFloatPeepholeImpl}
 import codegen.ir_binary_expr.{emitPointerArithmeticBinaryImpl, emitSimdBinaryExprImpl, emitSelfComparisonConstResultImpl, emitFoldedBoolLiteralBinaryResultImpl, emitFoldedIntLiteralBinaryResultImpl, emitAssociativeIntFoldResultImpl, emitFmaOperandPromotionImpl, emitFmaCallImpl, buildBinaryCseKeyImpl, emitOverloadedBinaryCallImpl}
+import codegen.ir_binary_plan.{shouldWidenIntegerBinaryOperandsForI64Impl}
+import codegen.ir_type_ops.{emitBinaryOpImpl}
+import codegen.ir_value_coercion.{coerceValueForLlvmTargetImpl}
+import codegen.ir_ml_logging.{mlLogDecision}
 
 fun emitPreparedPointerArithmeticBinaryImpl(output: StringBuilder,
     regBox: Array<Int>, operator: String, leftType: String,
@@ -82,8 +87,49 @@ fun emitPreparedOverloadedBinaryCallImpl(output: StringBuilder,
         retLlvmType, leftReg, rightReg)
 }
 
+fun emitPreparedCoreBinaryOpImpl(output: StringBuilder, regBox: Array<Int>,
+    boundsBox: Array<Int>, cseSig: Array<Int>, operator: String,
+    leftReg: String, rightReg: String, leftType: String, rightType: String,
+    leftKind: String, leftLiteralValue: String, leftVariableName: String,
+    rightKind: String, rightLiteralValue: String, panicFlag: Int,
+    inductionVarName: String, leftMappedType: String,
+    rightMappedType: String) r: String {
+
+    var emitLeftReg = leftReg
+    var emitRightReg = rightReg
+    if shouldWidenIntegerBinaryOperandsForI64Impl(operator, leftType,
+        rightType, leftMappedType) {
+
+        emitLeftReg = coerceValueForLlvmTargetImpl(output, regBox, "i64",
+            leftType, leftMappedType, leftReg)
+        emitRightReg = coerceValueForLlvmTargetImpl(output, regBox, "i64",
+            rightType, rightMappedType, rightReg)
+    }
+    return emitBinaryOpImpl(output, regBox, boundsBox, cseSig, operator,
+        emitLeftReg, emitRightReg, leftType, rightType, leftKind,
+        leftLiteralValue, leftVariableName, rightKind, rightLiteralValue,
+        panicFlag, inductionVarName, leftMappedType)
+}
+
 fun buildPreparedBinaryCseKeyImpl(leftReg: String, operator: String,
     rightReg: String) r: String {
 
     return buildBinaryCseKeyImpl(leftReg, operator, rightReg)
+}
+
+fun tryLookupPreparedBinaryCseImpl(leftReg: String, operator: String,
+    rightReg: String) r: String {
+
+    let cseKey = buildBinaryCseKeyImpl(leftReg, operator, rightReg)
+    let cseCached = cseLookup(cseKey)
+    if cseCached != "" {
+        mlLogDecision("cse", "hit", cseKey)
+    }
+    return cseCached
+}
+
+fun recordPreparedBinaryCseImpl(leftReg: String, operator: String,
+    rightReg: String, resultReg: String) r: Void {
+
+    cseRecord(buildBinaryCseKeyImpl(leftReg, operator, rightReg), resultReg)
 }

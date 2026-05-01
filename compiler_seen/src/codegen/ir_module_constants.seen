@@ -3,7 +3,7 @@
 
 import parser.real_parser.{ProgramNode}
 import str.string.{StringBuilder}
-import codegen.ir_optimization.{pipeGet}
+import codegen.ir_optimization.{pipeGet, getNextRegFn}
 import codegen.ir_module_emit.{isValidCrossModuleConstantEntryImpl, emitGlobalVariablesImpl}
 
 class ModuleConstantRegistryState {
@@ -118,6 +118,27 @@ fun getModuleConstSeenTypeImpl(idx: Int, moduleConstSeenTypes: String) r: String
         pos = pos + 1
     }
     return ""
+}
+
+fun narrowModuleConstantLoadIfNeededImpl(output: StringBuilder,
+    regBox: Array<Int>, constType: String, loadReg: String,
+    seenType: String, exprLlvmType: String) r: String {
+
+    if constType != "i64" {
+        return loadReg
+    }
+    if seenType == "" {
+        return loadReg
+    }
+    if exprLlvmType != "i8" and exprLlvmType != "i16" and
+        exprLlvmType != "i32" {
+
+        return loadReg
+    }
+    let narrowedReg = getNextRegFn(regBox)
+    output.append("  " + narrowedReg + " = trunc i64 " + loadReg +
+        " to " + exprLlvmType + "\n")
+    return narrowedReg
 }
 
 fun mapModuleConstLlvmTypeToSeenTypeImpl(llvmType: String) r: String {
