@@ -51,7 +51,7 @@ import codegen.ir_decl_features.{generateHotReloadMethodsImpl}
 import codegen.ir_async_registry.{registerAsyncFunctionImpl, isAsyncFunctionImpl, getAsyncDeclaredRetTypeImpl}
 import codegen.ir_async_await.{emitAwaitPollLoopImpl, emitAwaitResultValueImpl}
 import codegen.ir_async_return.{prepareAsyncReturnValuePlanImpl, emitAsyncReturnValueBranchImpl, emitAsyncReturnVoidBranchImpl}
-import codegen.ir_decl_registry.{DeclarationPassState, LateUserDeclareState, registerFunctionStateImpl, lookupCResourceDestructorStateImpl, isAsyncFunctionStateImpl, getAsyncDeclaredRetTypeStateImpl, getFunctionReturnTypeStateImpl, recordLateUserDeclareIntoStateImpl, emitLateUserDeclaresStateImpl, captureDeclarationPassStateImpl, captureLateUserDeclareStateImpl}
+import codegen.ir_decl_registry.{DeclarationPassState, LateUserDeclareState, registerFunctionStateImpl, isAsyncFunctionStateImpl, getAsyncDeclaredRetTypeStateImpl, getFunctionReturnTypeStateImpl, recordLateUserDeclareIntoStateImpl, emitLateUserDeclaresStateImpl, captureDeclarationPassStateImpl, captureLateUserDeclareStateImpl}
 import codegen.ir_decl_items.{DeclarationItemContext, PreparedDeclarationItem, normalizeDeclaredTypeNodeImpl, prepareDeclarationItemForRegistrationImpl}
 import codegen.ir_decl_pass_driver.{beginDeclarationRegistrationPassImpl, finishDeclarationRegistrationPassImpl}
 import codegen.ir_decl_return_types.{inferReturnExprTypeImpl, resolveMethodReturnTypeImpl, resolveFunctionReturnTypeImpl}
@@ -108,7 +108,7 @@ import codegen.ir_call_meta.{resolveSizeofBuiltinValueImpl, resolveAlignofBuilti
 import codegen.ir_call_low_level.{isPtrBuiltinCallImpl, isSimdBuiltinCallImpl, emitPreparedLowLevelBuiltinActionImpl}
 import codegen.ir_call_builtin_plan.{planMetaBuiltinCallImpl, planLowLevelBuiltinCallImpl, shouldReadSimdShuffleConstArgImpl, planLowLevelBuiltinArgumentReadsImpl, shouldClearLowLevelDebugAssertCseImpl}
 import codegen.ir_call_fixups.{resolveRealParserMisplacedMethodReturnTypeImpl, isStandaloneParserWorkaroundImpl, emitStandaloneParserWorkaroundCallImpl}
-import codegen.ir_method_finalize.{resolveMethodCallInstanceTypeNameImpl, resolveMethodCallReturnTypeImpl, prepareMethodCallReceiverAbiImpl, emitPoolFreeFromValueSlotImpl}
+import codegen.ir_method_finalize.{resolveMethodCallInstanceTypeNameImpl, resolveMethodCallReturnTypeImpl, prepareMethodCallReceiverAbiImpl}
 import codegen.ir_method_fastpath.{tryGeneratePreparedExplicitReceiverFastPathImpl, tryGeneratePreparedLocalVariableReceiverFastPathImpl, resolveStaticMethodClassNamesImpl, isStaticMethodReceiverReferenceImpl, tryGenerateStaticFactoryMethodCallImpl, resolveStaticMethodReturnTypeImpl, emitPreparedStaticMethodCallImpl, tryGenerateUnresolvedReceiverFallbackMethodImpl, applyUnresolvedReceiverDefaultImpl}
 import codegen.ir_method_receiver_predicates.{isOptionReceiverTypeImpl, isSmallVecReceiverTypeImpl, isCollectionReceiverTypeImpl, isArrayReceiverTypeImpl, isStringBuilderRuntimeMethodImpl, isNumericReceiverMethodImpl, needsStaticFactoryArgumentImpl}
 import codegen.ir_method_call_plan.{planResolvedReceiverFastPathImpl, shouldReadOptionDefaultFastPathArgImpl, shouldReadSmallVecFastPathArgImpl, shouldReadReceiverFastPathArgImpl, shouldTryStaticMethodCallImpl, isPascalStaticReceiverNameImpl, shouldTryNoArgStaticFactoryImpl, shouldTryArgStaticFactoryImpl, resolveStaticCallClassNameImpl, shouldPromoteStaticMethodFloatArgsImpl, staticMethodFunctionNameImpl, shouldRecordStaticMethodLateDeclareImpl, isSeenLexerKeywordManagerReceiverImpl, hasGeneratorFieldReceiverImpl, hasStructFieldReceiverImpl, shouldResolveImplicitThisDottedFieldReceiverImpl, planArrayMutatorMethodImpl, planArrayMutatorFreeTypeImpl, planArrayMutatorFreeEmitImpl, planArrayMutatorPushPointerImpl, planArrayMutatorFallbackPointerImpl, isDottedArrayMutatorLiteralImpl, shouldResolveChainedArrayMutatorReceiverImpl, shouldLoadLocalArrayMutatorPointerImpl, shouldUseImplicitThisArrayMutatorPointerImpl, resolveArrayMutatorVariableNameImpl, resolveArrayReceiverElementTypeImpl, resolveArrayPushElementTypeImpl}
@@ -124,6 +124,7 @@ import codegen.ir_value_coercion.{coerceValueForLlvmTargetImpl}
 import codegen.ir_string_concat_emit.{isStringConcatTypePairImpl, exprHasStringConcatMarkerImpl, coerceStringConcatPieceRegImpl}
 import codegen.ir_struct_gen.{emitStructFieldStoresImpl, resolveStructLiteralFieldFallback, inferStructFieldTypeFromExpr}
 import codegen.ir_struct_layout_state.{registerStructLayoutState}
+import codegen.ir_autofree_state.{emitAutoFreeLocalsState}
 import codegen.ir_class_type_layout.{emitClassTypeFieldsImpl, emitClassTypeHeaderImpl, emitClassTypeFooterImpl, prepareClassTypeAliasStateSnapshotImpl}
 import codegen.ir_class_type_decorators.{prepareClassTypeDecoratorScanSnapshotImpl}
 import codegen.ir_class_gen_support.{prepareGeneratedClassDecoratorSnapshotImpl, shouldSkipSourceClassMethodImpl, emitInheritedClassMethodThunksImpl}
@@ -155,7 +156,7 @@ import codegen.ir_stmt_return.{emitErrdeferTempReturnLoadImpl, emitReturnRegionA
 import codegen.ir_stmt_scope.{recordDeferredStatementSnapshotImpl, enterUnsafeStatementImpl, exitUnsafeStatementImpl, beginTryCatchStatementSnapshotImpl, finalizeTryCatchArmImpl, emitTryCatchCatchHeaderImpl, emitTryCatchFooterImpl}
 import codegen.ir_assignment_gen.{emitFieldStoreImpl, emitValueReceiverMemberAssignmentImpl, emitVariableReceiverMemberAssignmentImpl, emitImplicitThisMemberAssignmentImpl, emitPreparedIndexAssignmentBoundsCheckImpl, emitPreparedIndexAssignmentStoreImpl, coerceMethodCallHandleAssignmentImpl}
 import codegen.ir_variable_gen.{getExprVariableNameImpl, findActiveVariableIndexImpl, findVisibleVariableTypeImpl, storeActiveVariableBindingImpl, emitMovedVariableUseTrapImpl, emitComptimeVariableLoadImpl, emitModuleConstantLoadImpl, emitFunctionPointerInteropLoadImpl, emitLocalVariableLoadImpl, emitStoreValueToPtrImpl, emitDistinctTypeMismatchWarningImpl, emitImplicitThisPointerLoadImpl, emitImplicitThisFieldStoreImpl, emitMoveSourceNullifyImpl, shouldNullifyMovedArgumentSourceImpl, resolveMovedArgumentSourceNameImpl, shouldRecordMovedArgumentSourceImpl, emitTriviallyCopyableAssignmentNoteImpl}
-import codegen.type_registry_core.{findStructReg, registerStructMethodReg, getFunctionReturnTypeReg, isClassTypeReg, isDataTypeReg, getTypeSizeReg, getPoolEligibleClassSizeReg, getDataTypeSizeReg, getFieldInfoReg}
+import codegen.type_registry_core.{findStructReg, registerStructMethodReg, getFunctionReturnTypeReg, isClassTypeReg, isDataTypeReg, getTypeSizeReg, getDataTypeSizeReg, getFieldInfoReg}
 import codegen.type_registry.{TypeRegistry}
 import codegen.ir_codegen_state.{CodegenState, FunctionLoweringOptions, getSharedCodegenState}
 import codegen.ir_function_snapshots.{NestedScratchStateSnapshot}
@@ -771,45 +772,7 @@ class LLVMIRGenerator {
     // are freed. The skipVar parameter excludes the return value variable
     // (which is transferred to the caller, not freed).
     fun emitAutoFreeLocals(skipVar: String) r: Void {
-        var i = 0
-        while i < preAllocatedVars.length() {
-            let varName = preAllocatedVars[i]
-            let varType = preAllocatedTypes[i]
-            if varName != skipVar {
-                let sSize = getPoolEligibleClassSizeReg(varType,
-                    g_reprCClassNames, structNames, structSizes)
-                if sSize > 0 {
-                    let vidx = findActiveVariableIndexImpl(varNames, activeVarCount, varName)
-                    if vidx >= 0 {
-                        emitPoolFreeFromValueSlotImpl(output, g_regBox,
-                            varRegs[vidx], sSize)
-                    }
-                }
-            }
-            i = i + 1
-        }
-        // @c_resource scope-exit destructor: call registered destructor for each local
-        if g_cResourceClasses != "" {
-            i = 0
-            while i < preAllocatedVars.length() {
-                let crVarName = preAllocatedVars[i]
-                let crVarType = preAllocatedTypes[i]
-                if crVarName != skipVar {
-                    let crDestructor = lookupCResourceDestructorStateImpl(
-                        crVarType, g_cResourceClasses, g_cResourceDestructors)
-                    if crDestructor != "" {
-                        let crVarIdx = findActiveVariableIndexImpl(varNames, activeVarCount, crVarName)
-                        if crVarIdx >= 0 {
-                            let crVarReg = varRegs[crVarIdx]
-                            let crLoadReg = getNextReg()
-                            output.append("  " + crLoadReg + " = load i64, ptr " + crVarReg + "\n")
-                            output.append("  call void @" + crDestructor + "(i64 " + crLoadReg + ") ; @c_resource destructor\n")
-                        }
-                    }
-                }
-                i = i + 1
-            }
-        }
+        emitAutoFreeLocalsState(output, varNames, varRegs, skipVar)
     }
 
     // Register a struct layout from a ClassNode

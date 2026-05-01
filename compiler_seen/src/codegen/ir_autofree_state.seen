@@ -1,0 +1,59 @@
+// ir_autofree_state.seen - local automatic cleanup emission.
+
+import str.string.{StringBuilder}
+import codegen.ir_decl_registry.{lookupCResourceDestructorStateImpl}
+import codegen.ir_method_finalize.{emitPoolFreeFromValueSlotImpl}
+import codegen.ir_optimization.{getNextRegFn}
+import codegen.ir_variable_gen.{findActiveVariableIndexImpl}
+import codegen.type_registry_core.{getPoolEligibleClassSizeReg}
+import codegen.ir_codegen_global_state.{preAllocatedVars, preAllocatedTypes, structNames, structSizes, activeVarCount}
+import codegen.ir_codegen_feature_state.{g_reprCClassNames, g_cResourceClasses, g_cResourceDestructors, g_regBox}
+
+fun emitAutoFreeLocalsState(output: StringBuilder, varNames: Array<String>,
+    varRegs: Array<String>, skipVar: String) r: Void {
+
+    var i = 0
+    while i < preAllocatedVars.length() {
+        let varName = preAllocatedVars[i]
+        let varType = preAllocatedTypes[i]
+        if varName != skipVar {
+            let sSize = getPoolEligibleClassSizeReg(varType,
+                g_reprCClassNames, structNames, structSizes)
+            if sSize > 0 {
+                let vidx = findActiveVariableIndexImpl(varNames,
+                    activeVarCount, varName)
+                if vidx >= 0 {
+                    emitPoolFreeFromValueSlotImpl(output, g_regBox,
+                        varRegs[vidx], sSize)
+                }
+            }
+        }
+        i = i + 1
+    }
+
+    if g_cResourceClasses != "" {
+        i = 0
+        while i < preAllocatedVars.length() {
+            let crVarName = preAllocatedVars[i]
+            let crVarType = preAllocatedTypes[i]
+            if crVarName != skipVar {
+                let crDestructor = lookupCResourceDestructorStateImpl(
+                    crVarType, g_cResourceClasses, g_cResourceDestructors)
+                if crDestructor != "" {
+                    let crVarIdx = findActiveVariableIndexImpl(varNames,
+                        activeVarCount, crVarName)
+                    if crVarIdx >= 0 {
+                        let crVarReg = varRegs[crVarIdx]
+                        let crLoadReg = getNextRegFn(g_regBox)
+                        output.append("  " + crLoadReg +
+                            " = load i64, ptr " + crVarReg + "\n")
+                        output.append("  call void @" + crDestructor +
+                            "(i64 " + crLoadReg +
+                            ") ; @c_resource destructor\n")
+                    }
+                }
+            }
+            i = i + 1
+        }
+    }
+}
