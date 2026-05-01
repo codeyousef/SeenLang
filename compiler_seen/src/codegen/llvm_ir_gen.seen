@@ -77,7 +77,7 @@ import codegen.ir_index_access_gen.{emitPreparedPointerIndexAccessImpl, emitPrep
 import codegen.ir_special_top_level_emit.{tryHandleSpecialTopLevelFunctionImpl}
 import codegen.ir_type_layout.{getLlvmTypeAlignImpl, getLlvmTypeSizeImpl, computeStructSizeFromLayoutImpl}
 import codegen.ir_comptime_eval.{parseSimpleIntImpl, lookupComptimeVarImpl, lookupComptimeStrVarImpl, comptimeSizeofImpl, comptimeTypeFieldCountImpl, comptimeTypeFieldNameImpl, comptimeTypeFieldTypeImpl, evaluateConstExprStrImpl, evaluateConstExprImpl}
-import codegen.ir_simd_type_helpers.{isSimdVectorTypeImpl, simdScalarTypeImpl, simdLaneCountImpl, isSwizzlePatternImpl, swizzleLaneIndexImpl, simdLlvmSuffixImpl}
+import codegen.ir_simd_type_helpers.{isSimdVectorTypeImpl}
 import codegen.ir_struct_field_resolution.{resolveKnownStructFieldImpl}
 import codegen.ir_type_tables.{inferMethodCallTypeTable, inferCallTypeTable, inferFieldTypeFallback, inferIndexElementType, registerKnownDataTypesImpl, resolvePopElementTypeImpl, resolveTryPropagateTypeImpl}
 import codegen.ir_control_flow.{emitForInElementFetchImpl, emitForInPrefetchImpl, emitForInIncrementImpl, detectLoopBoundImpl, computeLoopTileSizeImpl, detectReductionPatternImpl, detectInductionVarImpl, detectBreakOnFlagImpl, detectNestedLoopImpl, detectGcdPatternImpl, emitWhileConditionBranchImpl, emitStringForInElementImpl, emitMemcpyLoopExitBlocksImpl}
@@ -2174,7 +2174,7 @@ class LLVMIRGenerator {
             let msg = resolveComptimeAssertMessageImpl(stmt.condition)
             emitComptimeAssertFailureNoteImpl(output, msg)
             // Emit compile error via runtime abort
-            let msgReg = getNextReg()
+            let msgReg = getNextRegFn(g_regBox)
             emitComptimeAssertAbortImpl(output, msgReg)
         } else {
             emitComptimeAssertPassedNoteImpl(output)
@@ -2360,7 +2360,7 @@ class LLVMIRGenerator {
 
     fun resolveReturnStatementValueReg(stmt: StatementNode) r: String {
         if g_errdeferTempAlloca != "" {
-            let loadReg = getNextReg()
+            let loadReg = getNextRegFn(g_regBox)
             emitErrdeferTempReturnLoadImpl(output, loadReg,
                 g_errdeferTempAlloca)
             g_errdeferTempAlloca = ""
@@ -2852,12 +2852,12 @@ class LLVMIRGenerator {
         }
 
         let iterableReg = generateExpression(forInIterable)
-        let iterThisReg = getNextReg()
+        let iterThisReg = getNextRegFn(g_regBox)
         output.append("  " + iterThisReg + " = inttoptr i64 " + iterableReg + " to ptr\n")
-        let iterObjReg = getNextReg()
+        let iterObjReg = getNextRegFn(g_regBox)
         let iterRetLlvm = mapTypeState(iterPlan.iterReturnType)
         output.append("  " + iterObjReg + " = call " + iterRetLlvm + " @" + quoteIdentIfNeeded(iterPlan.iterFuncName) + "(ptr " + iterThisReg + ")\n")
-        let iterStoreReg = getNextReg()
+        let iterStoreReg = getNextRegFn(g_regBox)
         output.append("  " + iterStoreReg + " = alloca i64, align 8\n")
         output.append("  store i64 " + iterObjReg + ", ptr " + iterStoreReg + "\n")
         activeVarCount = storeActiveVariableBindingImpl(varNames, varRegs,
@@ -2866,11 +2866,11 @@ class LLVMIRGenerator {
         output.append("  br label %" + condLabel + "\n")
         output.append(condLabel + ":\n")
         cseClear()
-        let iterLoadReg = getNextReg()
+        let iterLoadReg = getNextRegFn(g_regBox)
         output.append("  " + iterLoadReg + " = load i64, ptr " + iterStoreReg + "\n")
-        let iterPtrReg = getNextReg()
+        let iterPtrReg = getNextRegFn(g_regBox)
         output.append("  " + iterPtrReg + " = inttoptr i64 " + iterLoadReg + " to ptr\n")
-        let hasNextReg = getNextReg()
+        let hasNextReg = getNextRegFn(g_regBox)
         output.append("  " + hasNextReg + " = call i1 @" + quoteIdentIfNeeded(iterPlan.hasNextFuncName) + "(ptr " + iterPtrReg + ")\n")
         output.append("  br i1 " + hasNextReg + ", label %" + bodyLabel + ", label %" + endLabel + "\n")
 
@@ -2883,7 +2883,7 @@ class LLVMIRGenerator {
         if nextRetType != "" {
             nextRetLlvm = mapTypeState(nextRetType)
         }
-        let nextReg = getNextReg()
+        let nextReg = getNextRegFn(g_regBox)
         output.append("  " + nextReg + " = call " + nextRetLlvm + " @" + quoteIdentIfNeeded(iterPlan.nextFuncName) + "(ptr " + iterPtrReg + ")\n")
         if loopVarReg != "" {
             output.append("  store " + nextRetLlvm + " " + nextReg + ", ptr " + loopVarReg + "\n")
@@ -2918,7 +2918,7 @@ class LLVMIRGenerator {
         }
         var lenReg = ""
         if isStringIterable == 1 {
-            lenReg = getNextReg()
+            lenReg = getNextRegFn(g_regBox)
             var arrStrReg = arrReg
             if arrReg == "0" {
                 arrStrReg = "zeroinitializer"
@@ -3360,9 +3360,9 @@ class LLVMIRGenerator {
         let isTagIdx = lookupEnumVariantTagStateImpl(isTypeName,
             g_enumVariantNames, g_enumVariantTags, g_enumVariantCount)
         if isTagIdx >= 0 {
-            let isTagLoad = getNextReg()
+            let isTagLoad = getNextRegFn(g_regBox)
             output.append("  " + isTagLoad + " = load i64, ptr " + isSubjectReg + "\n")
-            let isCmpReg = getNextReg()
+            let isCmpReg = getNextRegFn(g_regBox)
             output.append("  " + isCmpReg + " = icmp eq i64 " + isTagLoad + ", " + isTagIdx.toString() + "\n")
             return isCmpReg
         }
@@ -3377,7 +3377,7 @@ class LLVMIRGenerator {
         let tryInnerReg = generateExpression(expr.operands[0])
         let tryInnerType = inferExpressionType(expr.operands[0])
         if tryInnerType.startsWith("Result") {
-            let tryIsOkReg = getNextReg()
+            let tryIsOkReg = getNextRegFn(g_regBox)
             output.append("  " + tryIsOkReg + " = icmp ne i64 " + tryInnerReg + ", 0\n")
 
             let tryLabelSuffix = g_regBox[0].toString()
@@ -3499,7 +3499,7 @@ class LLVMIRGenerator {
             if pieceIdx == 0 {
                 resultReg = pieceStrReg
             } else {
-                let concatReg = getNextReg()
+                let concatReg = getNextRegFn(g_regBox)
                 output.append("  " + concatReg +
                     " = call %SeenString @seen_str_concat_ss(%SeenString " +
                     resultReg + ", %SeenString " + pieceStrReg + ")\n")
@@ -3609,7 +3609,7 @@ class LLVMIRGenerator {
         while paramIdx < expr.arguments.length() {
             let cpName = expr.arguments[paramIdx].literalValue
             let cpReg = "%__cp" + paramIdx.toString()
-            let cpLocal = getNextReg()
+            let cpLocal = getNextRegFn(g_regBox)
             output.append("  " + cpLocal + " = alloca i64\n")
             output.append("  store i64 " + cpReg + ", ptr " + cpLocal + "\n")
             activeVarCount = storeActiveVariableBindingImpl(varNames, varRegs,
@@ -3630,7 +3630,7 @@ class LLVMIRGenerator {
         restoreNestedScratchState(clSavedState)
 
         // Return function pointer as i64
-        let clResultReg = getNextReg()
+        let clResultReg = getNextRegFn(g_regBox)
         output.append("  " + clResultReg + " = ptrtoint ptr @" + closureName + " to i64\n")
         return clResultReg
     }
@@ -3665,7 +3665,7 @@ class LLVMIRGenerator {
     }
 
     fun emitArrayLiteralAllocation(elementType: String) r: String {
-        let arrReg = getNextReg()
+        let arrReg = getNextRegFn(g_regBox)
         if elementType == "String" {
             output.append("  " + arrReg + " = call ptr @seen_arr_new_str_ptr()\n")
         } else if isDataTypeState(elementType) {
@@ -3703,18 +3703,18 @@ class LLVMIRGenerator {
             ptrArgReg = "null"
         }
         if isClassTypeState(argType) {
-            let tmpClassReg = getNextReg()
+            let tmpClassReg = getNextRegFn(g_regBox)
             output.append("  " + tmpClassReg + " = alloca i64\n")
             output.append("  store i64 " + argReg + ", ptr " + tmpClassReg + "\n")
             ptrArgReg = tmpClassReg
         }
         if isDataTypeState(argType) and not argIsStructLiteral {
-            let tmpDataReg = getNextReg()
+            let tmpDataReg = getNextRegFn(g_regBox)
             output.append("  " + tmpDataReg + " = alloca %" + argType + "\n")
             output.append("  store %" + argType + " " + argReg + ", ptr " + tmpDataReg + "\n")
             ptrArgReg = tmpDataReg
         }
-        let pushReg = getNextReg()
+        let pushReg = getNextRegFn(g_regBox)
         output.append("  " + pushReg + " = call i64 @Array_push(ptr " + arrReg + ", ptr " + ptrArgReg + ")\n")
     }
 
@@ -3778,7 +3778,7 @@ class LLVMIRGenerator {
                 if varTypes[blockIdx] == "BlockNode" {
                     let blockVarReg = varRegs[blockIdx]
                     // Load the block pointer
-                    let blockPtrReg = getNextReg()
+                    let blockPtrReg = getNextRegFn(g_regBox)
                     output.append("  " + blockPtrReg + " = load ptr, ptr " + blockVarReg + "\n")
                     // Access the statements field
                     arrayReg = generateFieldAccess(blockPtrReg, "BlockNode", "statements")
@@ -4214,7 +4214,7 @@ class LLVMIRGenerator {
     }
 
     fun allocateStructLiteralStorage(structSize: Int) r: String {
-        let mallocReg = getNextReg()
+        let mallocReg = getNextRegFn(g_regBox)
         if structSize <= 80 {
             output.append("  " + mallocReg + " = call ptr @seen_pool_alloc(i64 " + structSize.toString() + ")\n")
         }
@@ -4300,7 +4300,7 @@ class LLVMIRGenerator {
                 if fieldValueExpr.kind == "StructLiteral" and
                     fieldType.startsWith("%") {
 
-                    let loadedFieldReg = getNextReg()
+                    let loadedFieldReg = getNextRegFn(g_regBox)
                     output.append("  " + loadedFieldReg + " = load " +
                         fieldType + ", ptr " + fieldReg + "\n")
                     fieldReg = loadedFieldReg
@@ -4323,7 +4323,7 @@ class LLVMIRGenerator {
         emitStructFieldStoresImpl(output, g_regBox, structLayout, mallocReg, slFieldRegs, slFieldTypes, slGepIndices)
 
         if isClassTypeState(structName) {
-            let i64Reg = getNextReg()
+            let i64Reg = getNextRegFn(g_regBox)
             output.append("  " + i64Reg + " = ptrtoint ptr " + mallocReg + " to i64\n")
             return i64Reg
         }
@@ -4497,7 +4497,7 @@ class LLVMIRGenerator {
 
         // --- SIMD vector arithmetic ---
         let simdBinaryOp = isSimdBinaryOperatorImpl(expr.operator)
-        if shouldTrySimdBinaryGateImpl(isSimdVectorType(leftType),
+        if shouldTrySimdBinaryGateImpl(isSimdVectorTypeImpl(leftType),
             simdBinaryOp) {
             let simdLlvmType = mapTypeState(leftType)
             let simdLeftReg = generateExpression(leftExpr)
@@ -4962,7 +4962,7 @@ class LLVMIRGenerator {
                 }
                 output.append("  ; WARNING: includeStr file not found: " + inclPath + "\n")
             }
-            let inclEmptyReg = getNextReg()
+            let inclEmptyReg = getNextRegFn(g_regBox)
             output.append("  " + inclEmptyReg + " = insertvalue %SeenString undef, i64 0, 0\n")
             return inclEmptyReg
         }
@@ -4998,7 +4998,7 @@ class LLVMIRGenerator {
         }
         let lowPlan = planLowLevelBuiltinCallImpl(funcName,
             expr.arguments.length(), isPtrBuiltinCallImpl(funcName),
-            isSimdBuiltinCallImpl(funcName, isSimdVectorType(funcName)),
+            isSimdBuiltinCallImpl(funcName, isSimdVectorTypeImpl(funcName)),
             varNames, activeVarCount, g_enumVariantCount, lowIsVariantCall,
             lowVariantFieldCount)
         let lowArgPlan = planLowLevelBuiltinArgumentReadsImpl(lowPlan.action,
@@ -5216,7 +5216,7 @@ class LLVMIRGenerator {
                 ctorFieldTypesStr, ctorTypePos)
             let ctorArgExpr = expr.arguments[ctorArgIdx]
             let ctorArgReg = generateExpression(ctorArgExpr)
-            let ctorFieldPtrReg = getNextReg()
+            let ctorFieldPtrReg = getNextRegFn(g_regBox)
             let ctorFieldOffset = resolveClassConstructorFieldOffsetImpl(
                 structIdx, ctorArgIdx, ctorByteOffset, structNames,
                 structLayouts, structSizes)
@@ -5262,7 +5262,7 @@ class LLVMIRGenerator {
             structIdx, structNames, structSizes, structLayouts,
             structFieldNames, structFieldTypes)
         emitClassConstructorArgumentStores(expr, ptrReg, structIdx)
-        let intReg = getNextReg()
+        let intReg = getNextRegFn(g_regBox)
         output.append("  " + intReg + " = ptrtoint ptr " + ptrReg + " to i64\n")
         return intReg
     }
@@ -5825,7 +5825,7 @@ class LLVMIRGenerator {
             return implicitThisArrayPtr
         }
 
-        let loadReg = getNextReg()
+        let loadReg = getNextRegFn(g_regBox)
         output.append("  " + loadReg + " = load ptr, ptr @" + varName +
             "\n")
         return loadReg
@@ -6620,39 +6620,9 @@ class LLVMIRGenerator {
             return emitUnaryBitwiseNot(expr)
         }
         let operandReg = generateExpression(expr.operands[0])
-        let resultReg = getNextReg()
+        let resultReg = getNextRegFn(g_regBox)
         return resultReg
     }
-
-    // Helper functions
-
-    // Allocate the next SSA register (%1, %2, %3, ...). Registers are
-    // strictly ascending within a function — using a pre-allocated register
-    // for the FIRST instruction of a sequence is required to maintain order.
-    // The counter is stored in g_regBox[0] (a boxed Array<Int>) so that
-    // extracted free functions can mutate it by reference.
-    fun getNextReg() r: String {
-        let reg = "%" + g_regBox[0].toString()
-        g_regBox[0] = g_regBox[0] + 1
-        return reg
-    }
-
-    // Allocate the next block label (block0, block1, ...). Unlike registers,
-    // block labels accumulate across functions within a module to ensure
-    // unique loop metadata IDs (loopMetaId = blockCount + 202).
-    fun getNextBlockLabel() r: String {
-        let label = "bb" + g_blockBox[0].toString()
-        g_blockBox[0] = g_blockBox[0] + 1
-        return label
-    }
-
-    // SIMD type helpers delegated to ir_simd_type_helpers.seen
-    fun isSimdVectorType(t: String) r: Int { return isSimdVectorTypeImpl(t) }
-    fun simdScalarType(t: String) r: String { return simdScalarTypeImpl(t) }
-    fun simdLaneCount(t: String) r: Int { return simdLaneCountImpl(t) }
-    fun isSwizzlePattern(s: String, lanes: Int) r: Int { return isSwizzlePatternImpl(s, lanes) }
-    fun swizzleLaneIndex(c: String) r: Int { return swizzleLaneIndexImpl(c) }
-    fun simdLlvmSuffix(t: String) r: String { return simdLlvmSuffixImpl(t) }
 
     fun prepareCallArguments(funcName: String, arguments: Array<ParserExpressionNode>,
         argRegs: Array<String>, argTypeStrs: Array<String>, enableDynBoxing: Bool,
@@ -6806,7 +6776,7 @@ class LLVMIRGenerator {
     fun tryInferSimdBinaryExprType(expr: ParserExpressionNode) r: String {
         if expr.operands.length() >= 2 {
             let binLeftType = inferExpressionType(expr.operands[0])
-            if isSimdVectorType(binLeftType) == 1 {
+            if isSimdVectorTypeImpl(binLeftType) == 1 {
                 return binLeftType
             }
         }
@@ -6829,7 +6799,7 @@ class LLVMIRGenerator {
         if expr.operands.length() > 0 {
             leftType = inferExpressionType(expr.operands[0])
         }
-        if isSimdVectorType(leftType) == 1 {
+        if isSimdVectorTypeImpl(leftType) == 1 {
             return leftType
         }
         if expr.operands.length() > 1 {
@@ -6958,7 +6928,7 @@ class LLVMIRGenerator {
 
     fun tryInferReceiverRegistryMethodCallType(expr: ParserExpressionNode, receiverType: String) r: String {
         var simdFlag = 0
-        if isSimdVectorType(receiverType) == 1 {
+        if isSimdVectorTypeImpl(receiverType) == 1 {
             simdFlag = 1
         }
         let registeredMethodRetType = getMethodReturnType(receiverType,
@@ -7031,7 +7001,7 @@ class LLVMIRGenerator {
 
     fun tryInferGeneratedCallType(expr: ParserExpressionNode) r: String {
         let generatedPlan = planGeneratedCallInferenceImpl(expr.callee,
-            isSimdVectorType(expr.callee))
+            isSimdVectorTypeImpl(expr.callee))
         var newBaseType = ""
         var newBaseTypeKnown = 0
         if generatedPlan.action == 2 {
@@ -7638,7 +7608,7 @@ class LLVMIRGenerator {
         }
         let subjectLlvm = mapTypeState(subjectType)
 
-        let endLabel = getNextBlockLabel()
+        let endLabel = getNextBlockFn(g_blockBox)
         let resultAlloca = allocateWhenResultSlotImpl(output, g_regBox)
 
         // Generate each arm
@@ -7651,8 +7621,8 @@ class LLVMIRGenerator {
             // arm.operands[1] = arm result expression
             let patternExpr = arm.operands[0]
 
-            let armBodyLabel = getNextBlockLabel()
-            let nextCheckLabel = getNextBlockLabel()
+            let armBodyLabel = getNextBlockFn(g_blockBox)
+            let nextCheckLabel = getNextBlockFn(g_blockBox)
 
             emitWhenPatternBranch(subjectReg, subjectLlvm, patternExpr, armBodyLabel, nextCheckLabel)
 
