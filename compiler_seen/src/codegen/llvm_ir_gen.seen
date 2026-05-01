@@ -62,10 +62,10 @@ import codegen.ir_type_info.{charToCodeStr, g_resolvedFieldIndex, g_resolvedFiel
 
 import codegen.ir_string_collect.{getBaseTypeNameImpl, normalizeHeaderTypeImpl, parseArrayElementTypeImpl, extractArrayLiteralElementTypeImpl, parseDecimalIntImpl}
 import codegen.ir_seen_token_types.{getSeenTokenTypeValueImpl}
-import codegen.ir_string_collect_state.{collectStringConstantsStateImpl, collectStringConstantsFromExprStateImpl}
+import codegen.ir_string_collect_state.{collectStringConstantsStateImpl}
 import codegen.ir_string_interp_gen.{generateStringInterpolationFromPartsImpl}
 import codegen.ir_string_interp_infer.{inferStringInterpolationExprTypeStateImpl}
-import codegen.ir_string_emit.{escapeStringImpl, addStringConstantTableImpl, getStringConstantIndexImpl, emitAdditionalGeneratedStringConstantsImpl, loadEmbeddedStringConstantInfoImpl, emitStringConstantsImpl, emitStringConstantsWithPrefixImpl}
+import codegen.ir_string_emit.{getStringConstantIndexImpl, emitAdditionalGeneratedStringConstantsImpl, loadEmbeddedStringConstantInfoImpl, emitStringConstantsImpl, emitStringConstantsWithPrefixImpl}
 import codegen.ir_nullish_gen.{emitNullishCheckComparisonImpl, defaultValueForLlvmTypeImpl, emitNullishBranchingImpl, emitNullishBranchToEndImpl, enterNullishElseBranchImpl, finalizeNullishMergeImpl, buildSafeNavigationMemberExprImpl}
 import codegen.ir_enum_ctor_gen.{lookupEnumVariantTagStateImpl, lookupEnumParentStateImpl, lookupEnumFieldTypeStateImpl, lookupEnumFieldCountStateImpl, isEnumVariantStateImpl, planEnumConstructorImpl, shouldCollectEnumConstructorFieldImpl, allocateEnumConstructorObjectImpl, emitEnumConstructorFieldStoresImpl}
 import codegen.ir_when_arm_gen.{emitWhenArmGuardImpl, ensureWhenPatternDestructPtrImpl, emitWhenPatternBindingStoreImpl, normalizeWhenArmStoreValueImpl}
@@ -1527,17 +1527,6 @@ class LLVMIRGenerator {
         emitFeatureDecls(output, definedFuncs)
     }
 
-    // Add a string constant to the string constant table (deduplicating).
-    // Returns the index, used to reference the global @.str.PREFIX.INDEX.
-    fun addStringConstant(str: String) r: Int {
-        return addStringConstantTableImpl(stringConstants, str)
-    }
-
-    // Get the index of an existing string constant
-    fun getStringConstantIndex(str: String) r: Int {
-        return getStringConstantIndexImpl(stringConstants, str)
-    }
-
     // Generate IR for a top-level (free) function. Handles decorators:
     //   @cfg — conditional compilation (skip if predicate doesn't match)
     //   @intrinsic — emit thin wrapper calling an LLVM intrinsic
@@ -2224,7 +2213,7 @@ class LLVMIRGenerator {
         var profileStringIndex = -1
         let functionEmission = getCurrentFunctionEmissionStateImpl()
         if functionEmission.profiledFlag {
-            profileStringIndex = getStringConstantIndex(
+            profileStringIndex = getStringConstantIndexImpl(stringConstants,
                 functionEmission.profiledName)
         }
         emitReturnRegionAndProfileCleanupImpl(output, g_regBox,
@@ -7207,10 +7196,6 @@ class LLVMIRGenerator {
         return "Int"
     }
 
-    fun escapeString(str: String) r: String {
-        return escapeStringImpl(str)
-    }
-
     // Pre-scan all expressions in a program to collect string literal constants.
     // These are emitted as LLVM global constants before any function bodies.
     // Also piggybacks call counting for ML inline decisions and self-call
@@ -7223,13 +7208,6 @@ class LLVMIRGenerator {
         syncCollectionBoxes()
     }
 
-    // Thin wrapper for collectStringConstantsFromExpr (called from inferExpressionType)
-    fun collectStringConstantsFromExpr(expr: ParserExpressionNode) r: Void {
-        initCollectionBoxes()
-        collectStringConstantsFromExprStateImpl(expr, stringConstants,
-            g_callCountNamesBox, g_callCountEntriesBox)
-        syncCollectionBoxes()
-    }
     fun generateStringInterpolation(expr: ParserExpressionNode) r: String {
         let numParts = expr.arguments.length()
         let numExprs = expr.operands.length()
@@ -7321,7 +7299,7 @@ class LLVMIRGenerator {
     fun emitWhenLiteralPatternBranch(subjectReg: String, patternExpr: ParserExpressionNode, armBodyLabel: String, nextCheckLabel: String) r: Void {
         var stringConstantIdx = -1
         if patternExpr.literalType == "String" {
-            stringConstantIdx = getStringConstantIndex(patternExpr.literalValue)
+            stringConstantIdx = getStringConstantIndexImpl(stringConstants, patternExpr.literalValue)
         }
         emitWhenLiteralPatternBranchImpl(output, g_regBox, subjectReg,
             patternExpr.literalValue, patternExpr.literalType, armBodyLabel,
