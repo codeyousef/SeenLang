@@ -103,6 +103,40 @@ If your hosting setup serves `/path/to/site/public/packages` at
 `https://seen.yousef.codes/packages`, the package is ready for consumers after
 you deploy the site.
 
+## Prebuilt Package Artifacts
+
+Local builds can also consume a prebuilt package artifact instead of compiling
+the package implementation modules again. Build the package once:
+
+```bash
+seen pkg prebuild ./path/to/package ./dist/mathx-0.1.0.seenpkg
+```
+
+The artifact directory contains:
+
+```text
+mathx-0.1.0.seenpkg/
+├── Seen.pkg.toml
+├── objects.tsv
+├── objects/
+│   └── module_0.o
+└── src/
+    └── ...
+```
+
+Downstream projects reference it from `Seen.toml`:
+
+```toml
+[dependencies]
+mathx = { artifact = "../dist/mathx-0.1.0.seenpkg" }
+```
+
+The compiler scans the artifact `src/` tree for declarations and imports, links
+the objects from `objects.tsv`, and skips code generation for modules provided by
+that artifact. `seen pkg prebuild` emits PIC objects through the same
+`--object-manifest` path used by external link workflows, so the artifact can be
+linked into executables or shared-library builds.
+
 ## Deploying To `seen.yousef.codes`
 
 One simple flow is:
@@ -118,7 +152,8 @@ One simple flow is:
 - Registry versions are exact-only for now. `^`, `~`, and `*` are rejected.
 - `seen pkg publish` writes to local directories; it does not upload over HTTP.
 - Package name, dependency key, and import root are the same in this MVP.
-- Packages are source archives only; there are no prebuilt binaries yet.
+- Prebuilt package artifacts are local path dependencies; registry publication
+  still serves source archives.
 
 ## Related
 

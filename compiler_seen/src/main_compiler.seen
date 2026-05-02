@@ -493,6 +493,7 @@ class PackageDependency {
     var source: String
     var version: String
     var path: String
+    var artifactPath: String
     var registry: String
 
     static fun new() r: PackageDependency {
@@ -501,6 +502,7 @@ class PackageDependency {
             source: "",
             version: "",
             path: "",
+            artifactPath: "",
             registry: "default"
         }
     }
@@ -680,10 +682,16 @@ fun parsePackageDependencyEntry(depName: String, depValue: String) r: PackageDep
     }
     if trimmedValue.startsWith("{") {
         let depPath = extractTomlInlineQuotedField(trimmedValue, "path")
+        let depArtifact = extractTomlInlineQuotedField(trimmedValue, "artifact")
         let depVersion = extractTomlInlineQuotedField(trimmedValue, "version")
         let depRegistry = extractTomlInlineQuotedField(trimmedValue, "registry")
         if depRegistry != "" {
             dep.registry = depRegistry
+        }
+        if depArtifact != "" {
+            dep.source = "artifact"
+            dep.artifactPath = depArtifact
+            return dep
         }
         if depPath != "" {
             dep.source = "path"
@@ -776,6 +784,262 @@ fun countRegistryPackageDependencies(deps: Array<PackageDependency>) r: Int {
 
 fun packageInstallRoot(projectRoot: String, depName: String, version: String) r: String {
     return projectRoot + "/.seen/packages/" + depName + "/" + version
+}
+
+fun prebuiltPackageManifestPath(artifactRoot: String) r: String {
+    if artifactRoot == "" {
+        return ""
+    }
+    let canonicalManifest = artifactRoot + "/Seen.pkg.toml"
+    if loadFileContent(canonicalManifest) != "" {
+        return canonicalManifest
+    }
+    let fallbackManifest = artifactRoot + "/seenpkg.toml"
+    if loadFileContent(fallbackManifest) != "" {
+        return fallbackManifest
+    }
+    return ""
+}
+
+fun extractTomlSimpleField(content: String, fieldName: String) r: String {
+    var lineStart = 0
+    var pos = 0
+    while pos <= content.length() {
+        var atEnd = 0
+        if pos == content.length() {
+            atEnd = 1
+        }
+        var isNewline = 0
+        if atEnd == 0 {
+            if content.byteAt(pos) == 10 {
+                isNewline = 1
+            }
+        }
+        if isNewline == 1 or atEnd == 1 {
+            let line = content.substring(lineStart, pos).trim()
+            if line != "" and not line.startsWith("#") and
+                not line.startsWith("[") {
+
+                let eqPos = line.indexOf("=", 0)
+                if eqPos > 0 {
+                    let key = stripTomlQuotedValue(
+                        line.substring(0, eqPos).trim())
+                    if key == fieldName {
+                        return stripTomlQuotedValue(
+                            line.substring(eqPos + 1, line.length()).trim())
+                    }
+                }
+            }
+            lineStart = pos + 1
+        }
+        pos = pos + 1
+    }
+    return ""
+}
+
+fun prebuiltPackageManifestField(artifactRoot: String,
+    fieldName: String) r: String {
+
+    let manifestPath = prebuiltPackageManifestPath(artifactRoot)
+    if manifestPath == "" {
+        return ""
+    }
+    return extractTomlSimpleField(loadFileContent(manifestPath), fieldName)
+}
+
+fun prebuiltPackageInterfaceRoot(artifactRoot: String) r: String {
+    var interfacePath = prebuiltPackageManifestField(artifactRoot,
+        "interface_path")
+    if interfacePath == "" {
+        interfacePath = "src"
+    }
+    return resolveProjectPath(artifactRoot, interfacePath)
+}
+
+fun prebuiltPackageObjectManifestPath(artifactRoot: String) r: String {
+    var objectManifest = prebuiltPackageManifestField(artifactRoot,
+        "object_manifest")
+    if objectManifest == "" {
+        objectManifest = "objects.tsv"
+    }
+    return resolveProjectPath(artifactRoot, objectManifest)
+}
+
+fun resolvePrebuiltPackageArtifactRoot(projectRoot: String,
+    dep: PackageDependency) r: String {
+
+    if dep.source != "artifact" {
+        return ""
+    }
+    let artifactRoot = resolveProjectPath(projectRoot, dep.artifactPath)
+    if prebuiltPackageManifestPath(artifactRoot) == "" {
+        return ""
+    }
+    return artifactRoot
+}
+
+fun isPrebuiltPackageModulePathForManifest(manifestPath: String,
+    modulePath: String) r: Bool {
+
+    let tomlContent = loadFileContent(manifestPath)
+    if tomlContent == "" {
+        return false
+    }
+    let projectRoot = getSourceDir(manifestPath)
+    let deps = extractTomlPackageDependencies(tomlContent)
+    var idx = 0
+    while idx < deps.length() {
+        let dep = deps[idx]
+        if dep.source == "artifact" {
+            let artifactRoot = resolvePrebuiltPackageArtifactRoot(projectRoot,
+                dep)
+            if artifactRoot != "" {
+                let interfaceRoot = prebuiltPackageInterfaceRoot(artifactRoot)
+                if modulePath.startsWith(interfaceRoot + "/") {
+                    return true
+                }
+                if modulePath == interfaceRoot {
+                    return true
+                }
+            }
+        }
+        idx = idx + 1
+    }
+    return false
+}
+
+fun isPrebuiltPackageModulePathForInput(inputFile: String,
+    modulePath: String) r: Bool {
+
+    let manifestPath = findNearestSeenTomlForInput(inputFile)
+    if manifestPath == "" {
+        return false
+    }
+    return isPrebuiltPackageModulePathForManifest(manifestPath, modulePath)
+}
+
+fun countPrebuiltPackageModulesForInput(inputFile: String,
+    modulePaths: Array<String>) r: Int {
+
+    var count = 0
+    var idx = 0
+    while idx < modulePaths.length() {
+        if isPrebuiltPackageModulePathForInput(inputFile, modulePaths[idx]) {
+            count = count + 1
+        }
+        idx = idx + 1
+    }
+    return count
+}
+
+fun appendPrebuiltObjectManifest(artifactRoot: String, manifestPath: String,
+    objectFiles: Array<String>, objectSourcePaths: Array<String>) r: Int {
+
+    let manifestContent = loadFileContent(manifestPath)
+    if manifestContent == "" {
+        return 0
+    }
+    var count = 0
+    var lineStart = 0
+    var pos = 0
+    while pos <= manifestContent.length() {
+        var atEnd = 0
+        if pos == manifestContent.length() {
+            atEnd = 1
+        }
+        var isNewline = 0
+        if atEnd == 0 {
+            if manifestContent.byteAt(pos) == 10 {
+                isNewline = 1
+            }
+        }
+        if isNewline == 1 or atEnd == 1 {
+            let line = manifestContent.substring(lineStart, pos).trim()
+            if line != "" and not line.startsWith("#") {
+                let tab = String.fromCharCode(9)
+                let tabPos = line.indexOf(tab, 0)
+                if tabPos > 0 {
+                    var objectPath = line.substring(0, tabPos).trim()
+                    let sourcePath = line.substring(tabPos + 1,
+                        line.length()).trim()
+                    if not isAbsolutePath(objectPath) {
+                        objectPath = resolveProjectPath(artifactRoot,
+                            objectPath)
+                    }
+                    if exists(objectPath) {
+                        objectFiles.push(objectPath)
+                        objectSourcePaths.push(sourcePath)
+                        count = count + 1
+                    }
+                }
+            }
+            lineStart = pos + 1
+        }
+        pos = pos + 1
+    }
+    return count
+}
+
+fun appendPrebuiltPackageObjectsForInput(inputFile: String,
+    objectFiles: Array<String>, objectSourcePaths: Array<String>) r: Int {
+
+    let manifestPath = findNearestSeenTomlForInput(inputFile)
+    let tomlContent = loadFileContent(manifestPath)
+    if tomlContent == "" {
+        return 0
+    }
+    let projectRoot = getSourceDir(manifestPath)
+    let deps = extractTomlPackageDependencies(tomlContent)
+    var total = 0
+    var idx = 0
+    while idx < deps.length() {
+        let dep = deps[idx]
+        if dep.source == "artifact" {
+            let artifactRoot = resolvePrebuiltPackageArtifactRoot(projectRoot,
+                dep)
+            if artifactRoot != "" {
+                let objectManifest =
+                    prebuiltPackageObjectManifestPath(artifactRoot)
+                let added = appendPrebuiltObjectManifest(artifactRoot,
+                    objectManifest, objectFiles, objectSourcePaths)
+                if added > 0 {
+                    println("    prebuilt package: " + dep.name + " (" +
+                        added.toString() + " objects)")
+                }
+                total = total + added
+            }
+        }
+        idx = idx + 1
+    }
+    return total
+}
+
+fun prebuiltPackageGraphSignatureForInput(inputFile: String) r: String {
+    let manifestPath = findNearestSeenTomlForInput(inputFile)
+    let tomlContent = loadFileContent(manifestPath)
+    if tomlContent == "" {
+        return ""
+    }
+    let projectRoot = getSourceDir(manifestPath)
+    let deps = extractTomlPackageDependencies(tomlContent)
+    var signature = ""
+    var idx = 0
+    while idx < deps.length() {
+        let dep = deps[idx]
+        if dep.source == "artifact" {
+            let artifactRoot = resolvePrebuiltPackageArtifactRoot(projectRoot,
+                dep)
+            if artifactRoot != "" {
+                let pkgManifest = prebuiltPackageManifestPath(artifactRoot)
+                let objManifest = prebuiltPackageObjectManifestPath(artifactRoot)
+                signature = signature + dep.name + ":" +
+                    hashString(loadFileContent(pkgManifest)) + ":" +
+                    hashString(loadFileContent(objManifest)) + "\n"
+            }
+        }
+        idx = idx + 1
+    }
+    return signature
 }
 
 fun resolveProjectManifestPath(target: String) r: String {
@@ -1039,6 +1303,30 @@ fun ensureProjectPackageDependenciesForManifest(manifestPath: String, quiet: Boo
                 println("Error: dependency `" + dep.name + "` path `" + resolvedPath + "` does not contain a Seen.toml package manifest")
                 return false
             }
+        } else if dep.source == "artifact" {
+            let artifactRoot = resolvePrebuiltPackageArtifactRoot(projectRoot,
+                dep)
+            if artifactRoot == "" {
+                println("Error: dependency `" + dep.name +
+                    "` artifact `" + resolveProjectPath(projectRoot,
+                    dep.artifactPath) + "` is missing Seen.pkg.toml")
+                return false
+            }
+            let objectManifest = prebuiltPackageObjectManifestPath(artifactRoot)
+            if loadFileContent(objectManifest) == "" {
+                println("Error: dependency `" + dep.name +
+                    "` artifact is missing object manifest `" +
+                    objectManifest + "`")
+                return false
+            }
+            let interfaceRoot = prebuiltPackageInterfaceRoot(artifactRoot)
+            if not directoryExists(interfaceRoot) {
+
+                println("Error: dependency `" + dep.name +
+                    "` artifact is missing interface sources under `" +
+                    interfaceRoot + "`")
+                return false
+            }
         } else if dep.source == "registry" {
             let installedRoot = ensureRegistryPackageInstalled(projectRoot, tomlContent, dep, quiet)
             if installedRoot == "" {
@@ -1081,6 +1369,9 @@ fun resolvePackageDependencyProjectRoot(sourceDir: String, depName: String) r: S
             }
             if dep.source == "registry" {
                 return ensureRegistryPackageInstalled(projectRoot, tomlContent, dep, true)
+            }
+            if dep.source == "artifact" {
+                return resolvePrebuiltPackageArtifactRoot(projectRoot, dep)
             }
         }
         idx = idx + 1
@@ -1144,12 +1435,176 @@ fun packageArchiveFileName(projectName: String, version: String) r: String {
     return projectName + "-" + version + ".seenpkg.tgz"
 }
 
+fun packagePrebuiltArtifactDirName(projectName: String, version: String) r: String {
+    return projectName + "-" + version + ".seenpkg"
+}
+
+fun computeSeenSourceTreeDigest(projectRoot: String) r: String {
+    let script = "cd " + shellQuote(projectRoot) +
+        " && if [ -d src ]; then find src -type f -name '*.seen' -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1; fi"
+    let result = runCommand("sh -c " + shellQuote(script))
+    if commandWasSuccessful(result) {
+        return result.output.trim()
+    }
+    return ""
+}
+
+fun resolvePackagePrebuildEntry(manifestPath: String,
+    tomlContent: String, projectName: String) r: String {
+
+    let projectRoot = getSourceDir(manifestPath)
+    let buildEntry = extractTomlBuildEntry(tomlContent)
+    if buildEntry != "" {
+        return resolveProjectPath(projectRoot, buildEntry)
+    }
+    let projectModules = extractTomlProjectModules(tomlContent)
+    if projectModules.length() > 0 {
+        return resolveProjectPath(projectRoot, projectModules[0])
+    }
+    let modEntry = projectRoot + "/src/mod.seen"
+    if loadFileContent(modEntry) != "" {
+        return modEntry
+    }
+    let namedEntry = projectRoot + "/src/" + projectName + ".seen"
+    if loadFileContent(namedEntry) != "" {
+        return namedEntry
+    }
+    return ""
+}
+
+fun rewritePrebuiltObjectManifest(rawManifestPath: String,
+    artifactRoot: String) r: Bool {
+
+    let objectDir = artifactRoot + "/objects"
+    let dstManifest = artifactRoot + "/objects.tsv"
+    if not ensureDirectory(objectDir) {
+        return false
+    }
+    let manifestContent = loadFileContent(rawManifestPath)
+    if manifestContent == "" {
+        return false
+    }
+    let tab = String.fromCharCode(9)
+    var rewritten = ""
+    var count = 0
+    var lineStart = 0
+    var pos = 0
+    while pos <= manifestContent.length() {
+        var atEnd = 0
+        if pos == manifestContent.length() {
+            atEnd = 1
+        }
+        var isNewline = 0
+        if atEnd == 0 {
+            if manifestContent.byteAt(pos) == 10 {
+                isNewline = 1
+            }
+        }
+        if isNewline == 1 or atEnd == 1 {
+            let line = manifestContent.substring(lineStart, pos).trim()
+            if line != "" and not line.startsWith("#") {
+                let tabPos = line.indexOf(tab, 0)
+                if tabPos > 0 {
+                    let objectPath = line.substring(0, tabPos).trim()
+                    let sourcePath = line.substring(tabPos + 1,
+                        line.length()).trim()
+                    let relObjectPath = "objects/module_" +
+                        count.toString() + ".o"
+                    let dstObjectPath = artifactRoot + "/" + relObjectPath
+                    let copyResult = runCommand("cp " +
+                        shellQuote(objectPath) + " " +
+                        shellQuote(dstObjectPath))
+                    if not commandWasSuccessful(copyResult) {
+                        return false
+                    }
+                    rewritten = rewritten + relObjectPath + tab +
+                        sourcePath + "\n"
+                    count = count + 1
+                }
+            }
+            lineStart = pos + 1
+        }
+        pos = pos + 1
+    }
+    if count == 0 {
+        return false
+    }
+    return writeText(dstManifest, rewritten)
+}
+
+fun createPrebuiltPackageArtifact(manifestPath: String,
+    outputRoot: String) r: Bool {
+
+    let projectRoot = getSourceDir(manifestPath)
+    let tomlContent = loadFileContent(manifestPath)
+    let projectName = extractTomlProjectName(tomlContent)
+    let version = extractTomlProjectVersion(tomlContent)
+    if projectName == "" or version == "" {
+        println("Error: package project must define [project].name and [project].version")
+        return false
+    }
+    let entryPath = resolvePackagePrebuildEntry(manifestPath, tomlContent,
+        projectName)
+    if entryPath == "" {
+        println("Error: package project needs [build].entry, [project].modules, or src/mod.seen for prebuild")
+        return false
+    }
+    if not ensureDirectory(outputRoot) {
+        return false
+    }
+    removePathIfExists(outputRoot + "/src")
+    removePathIfExists(outputRoot + "/objects")
+    removePathIfExists(outputRoot + "/objects.raw.tsv")
+    let copySource = runCommand("cp -R " + shellQuote(projectRoot + "/src") +
+        " " + shellQuote(outputRoot + "/src"))
+    if not commandWasSuccessful(copySource) {
+        println("Error: failed to copy package interface sources")
+        return false
+    }
+
+    let rawManifest = outputRoot + "/objects.raw.tsv"
+    let savedPicMode = g_picMode
+    let savedObjectManifestPath = g_objectManifestPath
+    g_picMode = 1
+    g_objectManifestPath = rawManifest
+    let compileStatus = compileCommandWithAllOptions(entryPath,
+        outputRoot + "/prebuilt", "default", false, false, "en", "",
+        "auto", false, "none", "", "", "", "")
+    g_picMode = savedPicMode
+    g_objectManifestPath = savedObjectManifestPath
+    if compileStatus != 0 {
+        println("Error: failed to compile prebuilt package artifact")
+        return false
+    }
+    if not rewritePrebuiltObjectManifest(rawManifest, outputRoot) {
+        println("Error: failed to copy prebuilt package objects")
+        return false
+    }
+    removePathIfExists(rawManifest)
+
+    let declDigest = computeSeenSourceTreeDigest(projectRoot)
+    let buildSig = "target=" + detectHostTargetName() + "|pic=1"
+    var manifest = "version = 1\n"
+    manifest = manifest + "name = \"" + projectName + "\"\n"
+    manifest = manifest + "package_version = \"" + version + "\"\n"
+    manifest = manifest + "kind = \"prebuilt\"\n"
+    manifest = manifest + "interface_path = \"src\"\n"
+    manifest = manifest + "object_manifest = \"objects.tsv\"\n"
+    manifest = manifest + "declaration_digest = \"" + declDigest + "\"\n"
+    manifest = manifest + "build_signature = \"" + buildSig + "\"\n"
+    if not writeText(outputRoot + "/Seen.pkg.toml", manifest) {
+        return false
+    }
+    return true
+}
+
 fun printPkgUsage() r: Void {
     println("Usage: seen pkg fetch [project-dir-or-manifest]")
     println("       seen pkg pack [project-dir-or-manifest] [output]")
+    println("       seen pkg prebuild [project-dir-or-manifest] [output-dir]")
     println("       seen pkg publish <registry-dir> [project-dir-or-manifest]")
     println("")
-    println("Registry packages currently use exact versions and source archives.")
+    println("Registry packages currently use exact versions; local prebuilt artifacts are supported with { artifact = \"...\" } dependencies.")
     println("Published registry roots are static directories with index/*.toml and archives/*.")
     return
 }
@@ -1204,6 +1659,37 @@ fun pkgCommand(argv: Array<String>) r: Int {
             return 1
         }
         println("Package archive created: " + outputPath)
+        return 0
+    }
+
+    if subcommand == "prebuild" {
+        var manifestPath = resolveProjectManifestPath("")
+        var outputPath = ""
+        if argv.length() >= 4 {
+            manifestPath = resolveProjectManifestPath(argv[3])
+        }
+        if manifestPath == "" {
+            println("Error: could not find Seen.toml for pkg prebuild")
+            return 1
+        }
+        let tomlContent = loadFileContent(manifestPath)
+        let projectName = extractTomlProjectName(tomlContent)
+        let version = extractTomlProjectVersion(tomlContent)
+        if projectName == "" or version == "" {
+            println("Error: package project must define [project].name and [project].version")
+            return 1
+        }
+        if argv.length() >= 5 {
+            outputPath = resolveProjectPath(currentWorkingDir(), argv[4])
+        } else {
+            outputPath = getSourceDir(manifestPath) + "/dist/" +
+                packagePrebuiltArtifactDirName(projectName, version)
+        }
+        if not createPrebuiltPackageArtifact(manifestPath, outputPath) {
+            println("Error: failed to create prebuilt package artifact")
+            return 1
+        }
+        println("Prebuilt package artifact created: " + outputPath)
         return 0
     }
 
@@ -6190,6 +6676,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             globalData = globalData + gpath + ":" + gsrcHash + "\n"
             gi = gi + 1
         }
+        globalData = globalData + prebuiltPackageGraphSignatureForInput(
+            resolvedInput)
         registryHash = hashString(cacheSignature + "\n" + globalData)
         ensureCacheDir()
         let cachedRegHash = loadFileContent(".seen_cache/registry.hash")
@@ -6219,7 +6707,12 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     var objectFiles = Array<String>()
     var objectSourcePaths = Array<String>()
     var llFiles = Array<String>()
-    var expectedLinkObjects = modulePaths.length()
+    let prebuiltPackageModuleCount =
+        countPrebuiltPackageModulesForInput(resolvedInput, modulePaths)
+    let prebuiltPackageObjectCount = appendPrebuiltPackageObjectsForInput(
+        resolvedInput, objectFiles, objectSourcePaths)
+    var expectedLinkObjects = modulePaths.length() - prebuiltPackageModuleCount +
+        prebuiltPackageObjectCount
     var moduleIndex = 0
     var cachedCount = 0
     var uncachedIdxStrs = Array<String>()
@@ -6256,6 +6749,14 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
 
     while moduleIndex < modulePaths.length() {
         let path = modulePaths[moduleIndex]
+        if isPrebuiltPackageModulePathForInput(resolvedInput, path) {
+            if g_generatedTestMainMode == 0 {
+                println("    [" + moduleIndex.toString() +
+                    "] Prebuilt declarations only: " + path)
+            }
+            moduleIndex = moduleIndex + 1
+            continue
+        }
         var generatedTestObjectCacheKey = ""
         if useCache and g_generatedTestMainMode == 1 and normalizedCrossTarget != "android-arm64" {
             generatedTestObjectCacheKey = generatedTestObjectCacheKeyForModule(path, cacheSignature)
@@ -6582,7 +7083,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                 optPasses = "function(sroa,instcombine<no-verify-fixpoint>,simplifycfg)," + pgoPasses + "default<O2>"
                 optThreshold = "500"
             } else {
-                if modulePaths.length() == 1 and not hasExportDecorators {
+                if modulePaths.length() == 1 and not hasExportDecorators and
+                    g_objectManifestPath == "" {
                     optPasses = "function(sroa,instcombine<no-verify-fixpoint>,simplifycfg)," + pgoPasses + "internalize,default<O3>,function(loop-unroll-and-jam)"
                     optThreshold = "1500"
                     optInternalize = " -internalize-public-api-list=main"
@@ -7957,7 +8459,7 @@ fun printUsage() r: Void {
     println("       seen ipa <executable> <AppName> [--bundle-id=...] [--version=...] [--provisioning-profile=...]")
     println("       seen translate <file> --from <lang> --to <lang> [-o <output>]")
     println("       seen import-c <header.h>")
-    println("       seen pkg <fetch|pack|publish> ...")
+    println("       seen pkg <fetch|pack|prebuild|publish> ...")
     println("       seen lsp")
     println("")
     println("Options:")
