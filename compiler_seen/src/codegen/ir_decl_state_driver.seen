@@ -1,0 +1,42 @@
+// ir_decl_state_driver.seen - declaration pass state writeback helpers.
+
+import codegen.ir_decl_registry.{DeclarationPassState, LateUserDeclareState, captureLateUserDeclareStateImpl}
+import codegen.ir_codegen_feature_state.{g_asyncFuncNames, g_asyncFuncRetTypes, g_asyncFuncCount, g_enumTypeNames, g_enumVariantNames, g_enumVariantTags, g_enumVariantFieldTypes, g_enumVariantFieldCounts, g_enumVariantParent, g_enumTypeCount, g_enumVariantCount}
+import codegen.ir_codegen_module_state.{g_xmDeclareNames, g_xmDeclareStrs, g_xmDeclareVis, g_xmDeclareNamesArr, g_xmDeclareStrsArr, g_xmDeclareVisArr, g_xmDeclareCount, g_lateXmDeclareNames, g_lateXmDeclareStrs, g_lateXmDeclareCount, g_xmConstNames, g_xmConstTypes, g_xmConstMutable, g_xmConstSeenTypes, g_xmConstCount}
+
+fun applyDeclarationPassState(declState: DeclarationPassState) r: Void {
+    g_asyncFuncNames = declState.asyncFuncNames
+    g_asyncFuncRetTypes = declState.asyncFuncRetTypes
+    g_asyncFuncCount = declState.asyncFuncCount
+    g_xmDeclareNames = declState.xmDeclareNames
+    g_xmDeclareStrs = declState.xmDeclareStrs
+    g_xmDeclareVis = declState.xmDeclareVis
+    g_xmDeclareNamesArr = declState.xmDeclareNamesArr
+    g_xmDeclareStrsArr = declState.xmDeclareStrsArr
+    g_xmDeclareVisArr = declState.xmDeclareVisArr
+    g_xmDeclareCount = declState.xmDeclareCount
+    g_enumTypeNames = declState.enumTypeNames
+    g_enumVariantNames = declState.enumVariantNames
+    g_enumVariantTags = declState.enumVariantTags
+    g_enumVariantFieldTypes = declState.enumVariantFieldTypes
+    g_enumVariantFieldCounts = declState.enumVariantFieldCounts
+    g_enumVariantParent = declState.enumVariantParent
+    g_enumTypeCount = declState.enumTypeCount
+    g_enumVariantCount = declState.enumVariantCount
+    g_xmConstNames = declState.xmConstNames
+    g_xmConstTypes = declState.xmConstTypes
+    g_xmConstMutable = declState.xmConstMutable
+    g_xmConstSeenTypes = declState.xmConstSeenTypes
+    g_xmConstCount = declState.xmConstCount
+}
+
+fun captureLateUserDeclareState() r: LateUserDeclareState {
+    return captureLateUserDeclareStateImpl(g_lateXmDeclareNames,
+        g_lateXmDeclareStrs, g_lateXmDeclareCount)
+}
+
+fun applyLateUserDeclareState(lateState: LateUserDeclareState) r: Void {
+    g_lateXmDeclareNames = lateState.lateXmDeclareNames
+    g_lateXmDeclareStrs = lateState.lateXmDeclareStrs
+    g_lateXmDeclareCount = lateState.lateXmDeclareCount
+}

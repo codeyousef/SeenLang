@@ -1,0 +1,73 @@
+// ir_local_type_leaf_driver.seen - local type fallback leaves.
+
+import parser.real_parser.{ParserExpressionNode}
+import codegen.ir_codegen_global_state.{preAllocatedVars, preAllocatedTypes, activeVarCount, structNames, structFieldNames, structFieldTypes, moduleConstantNames, moduleConstantValues, moduleConstantTypes}
+import codegen.ir_codegen_module_state.{g_moduleConstMutable, g_moduleConstSeenTypes, g_xmConstNames, g_xmConstTypes, g_xmConstMutable, g_xmConstSeenTypes, g_xmConstCount}
+import codegen.ir_local_type_fallback.{tryInferLLVMIRGeneratorThisFieldTypeImpl, tryInferStructThisFieldTypeImpl, tryInferImplicitThisVariableTypeImpl, tryInferNamedPrimitiveVariableTypeImpl}
+import codegen.ir_module_constants.{tryInferModuleConstantVariableTypeSnapshotImpl}
+import codegen.ir_variable_gen.{getExprVariableNameImpl, findActiveVariableIndexImpl, findVisibleVariableTypeImpl}
+
+fun findVarTypeState(varNames: Array<String>, varTypes: Array<String>,
+    name: String) r: String {
+
+    let visibleVarType = findVisibleVariableTypeImpl(varNames, varTypes,
+        activeVarCount, preAllocatedVars, preAllocatedTypes, name)
+    if visibleVarType != "" {
+        return visibleVarType
+    }
+    if moduleConstantNames.length() == 0 and g_xmConstCount <= 0 {
+        return ""
+    }
+    let moduleConstLookup = tryInferModuleConstantVariableTypeSnapshotImpl(
+        name, moduleConstantNames, moduleConstantTypes,
+        moduleConstantValues, g_moduleConstMutable,
+        g_moduleConstSeenTypes, g_xmConstNames, g_xmConstTypes,
+        g_xmConstMutable, g_xmConstSeenTypes, g_xmConstCount)
+    g_moduleConstMutable = moduleConstLookup.moduleConstMutable
+    g_moduleConstSeenTypes = moduleConstLookup.moduleConstSeenTypes
+    if moduleConstLookup.seenType != "" {
+        return moduleConstLookup.seenType
+    }
+    return ""
+}
+
+fun tryInferLLVMIRGeneratorThisFieldType(thisType: String, varName: String) r: String {
+    return tryInferLLVMIRGeneratorThisFieldTypeImpl(thisType, varName,
+        structNames, structFieldNames, structFieldTypes)
+}
+
+fun tryInferStructThisFieldType(thisType: String, varName: String) r: String {
+    return tryInferStructThisFieldTypeImpl(thisType, varName, structNames,
+        structFieldNames, structFieldTypes)
+}
+
+fun tryInferNamedPrimitiveVariableType(varName: String) r: String {
+    return tryInferNamedPrimitiveVariableTypeImpl(varName)
+}
+
+fun tryInferImplicitThisVariableTypeState(varNames: Array<String>,
+    varTypes: Array<String>, varName: String) r: String {
+
+    let thisIdx = findActiveVariableIndexImpl(varNames, activeVarCount, "this")
+    if thisIdx < 0 {
+        return ""
+    }
+    return tryInferImplicitThisVariableTypeImpl(varName, varTypes[thisIdx],
+        structNames, structFieldNames, structFieldTypes)
+}
+
+fun inferVariableExprTypeLocalState(expr: ParserExpressionNode,
+    varNames: Array<String>, varTypes: Array<String>) r: String {
+
+    let varName = getExprVariableNameImpl(expr.variableName, expr.literalValue)
+    let varType = findVarTypeState(varNames, varTypes, varName)
+    if varType != "" {
+        return varType
+    }
+    let implicitThisType = tryInferImplicitThisVariableTypeState(varNames,
+        varTypes, varName)
+    if implicitThisType != "" {
+        return implicitThisType
+    }
+    return tryInferNamedPrimitiveVariableType(varName)
+}

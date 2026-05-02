@@ -1,0 +1,24 @@
+// ir_expr_leaf_driver.seen - expression leaf helpers without generator callbacks.
+
+import parser.real_parser.{ParserExpressionNode}
+import codegen.ir_binary_expr.{exprProducesBoolImpl}
+import codegen.ir_constructor_call_plan.{isReprCConstructorTypeImpl}
+import codegen.ir_codegen_feature_state.{g_reprCClassNames}
+import codegen.ir_infer_type.{inferLiteralTypeImpl}
+import codegen.ir_variable_gen.{getExprVariableNameImpl}
+
+fun getExprVariableName(expr: ParserExpressionNode) r: String {
+    return getExprVariableNameImpl(expr.variableName, expr.literalValue)
+}
+
+fun isExprBool(e: ParserExpressionNode, eType: String) r: Int {
+    return exprProducesBoolImpl(eType, e.operator)
+}
+
+fun isReprCConstructorType(funcName: String) r: Bool {
+    return isReprCConstructorTypeImpl(funcName, g_reprCClassNames)
+}
+
+fun inferLiteralExprTypeLocal(expr: ParserExpressionNode) r: String {
+    return inferLiteralTypeImpl(expr.literalType, expr.literalValue)
+}

@@ -1,0 +1,25 @@
+// ir_loop_metadata_driver.seen - loop metadata state helpers.
+
+import codegen.ir_loop_context.{appendLoopTileHintImpl, appendLoopMetadataIdImpl}
+import codegen.ir_codegen_metrics_state.{g_loopTileHints, g_nestedLoopIds, g_reductionLoopIds}
+
+fun appendLoopTileHint(loopMetaId: Int, hintValue: Int) r: Void {
+    let loopTileHintsBox = Array<String>()
+    loopTileHintsBox.push(g_loopTileHints)
+    appendLoopTileHintImpl(loopTileHintsBox, loopMetaId, hintValue)
+    g_loopTileHints = loopTileHintsBox[0]
+}
+
+fun appendNestedLoopMetadataId(loopMetaId: Int) r: Void {
+    let nestedLoopIdsBox = Array<String>()
+    nestedLoopIdsBox.push(g_nestedLoopIds)
+    appendLoopMetadataIdImpl(nestedLoopIdsBox, loopMetaId)
+    g_nestedLoopIds = nestedLoopIdsBox[0]
+}
+
+fun appendReductionLoopMetadataId(loopMetaId: Int) r: Void {
+    let reductionLoopIdsBox = Array<String>()
+    reductionLoopIdsBox.push(g_reductionLoopIds)
+    appendLoopMetadataIdImpl(reductionLoopIdsBox, loopMetaId)
+    g_reductionLoopIds = reductionLoopIdsBox[0]
+}

@@ -1,0 +1,204 @@
+// ir_infer_method_leaf_driver.seen - method/call inference leaves.
+
+import parser.real_parser.{ParserExpressionNode}
+import trace.{traceGen}
+import codegen.ir_codegen_global_state.{currentClassName, structNames, funcNames, funcRetTypes}
+import codegen.ir_codegen_feature_state.{g_asyncFuncNames, g_asyncFuncCount}
+import codegen.ir_decl_registry.{isAsyncFunctionStateImpl, getFunctionReturnTypeStateImpl}
+import codegen.ir_expr_infer_plan.{planGeneratedCallInferenceImpl, planResolvedCallInferenceImpl}
+import codegen.ir_field_lookup_state.{getMethodReturnTypeState}
+import codegen.ir_infer_type.{inferExplicitThisMethodCallTypeImpl, inferBareMethodOrFunctionCallTypeImpl, inferDeclaredStaticMethodCallTypeImpl, inferStaticFactoryMethodTypeImpl, inferStaticFromJsonMethodTypeImpl, inferReceiverRegistryMethodCallTypeImpl, inferLateMethodCallFallbackTypeImpl, inferGeneratedCallTypeImpl, inferResolvedCallExprTypeImpl, inferMethodCallBoolSuffixImpl}
+import codegen.ir_local_type_leaf_driver.{findVarTypeState}
+import codegen.ir_method_builtin_type_infer.{tryInferBuiltinReceiverMethodCallTypeState}
+import codegen.ir_type_tables.{inferMethodCallTypeTable, inferCallTypeTable}
+import codegen.ir_simd_type_helpers.{isSimdVectorTypeImpl}
+import codegen.ir_codegen_type_state.{isClassTypeState, isDataTypeState}
+import codegen.ir_string_collect.{getBaseTypeNameImpl}
+import codegen.type_registry_core.{findStructReg}
+
+fun tryInferExplicitThisMethodCallType(expr: ParserExpressionNode) r: String {
+    var implicitMethodRetType = ""
+    if currentClassName != "" {
+        implicitMethodRetType = getMethodReturnTypeState(currentClassName,
+            expr.callee)
+    }
+    return inferExplicitThisMethodCallTypeImpl(currentClassName,
+        expr.literalValue, implicitMethodRetType)
+}
+
+fun tryInferBareMethodOrFunctionCallType(expr: ParserExpressionNode) r: String {
+    var implicitMethodRetType = ""
+    if currentClassName != "" {
+        implicitMethodRetType = getMethodReturnTypeState(currentClassName,
+            expr.callee)
+    }
+    let freeFuncRetType = getFunctionReturnTypeStateImpl(expr.callee,
+        funcNames, funcRetTypes)
+    var asyncFlag = 0
+    if isAsyncFunctionStateImpl(expr.callee, g_asyncFuncNames,
+        g_asyncFuncCount) {
+        asyncFlag = 1
+    }
+    return inferBareMethodOrFunctionCallTypeImpl(expr.literalValue,
+        expr.operands.length(), implicitMethodRetType, freeFuncRetType,
+        asyncFlag)
+}
+
+fun tryInferImplicitOrFreeMethodCallType(expr: ParserExpressionNode) r: String {
+    let explicitThisType = tryInferExplicitThisMethodCallType(expr)
+    if explicitThisType != "" {
+        return explicitThisType
+    }
+    return tryInferBareMethodOrFunctionCallType(expr)
+}
+
+fun tryInferStaticFactoryMethodType(expr: ParserExpressionNode) r: String {
+    return inferStaticFactoryMethodTypeImpl(expr.callee,
+        expr.literalValue, getBaseTypeNameImpl(expr.literalValue))
+}
+
+fun tryInferStaticFromJsonMethodType(expr: ParserExpressionNode) r: String {
+    var staticRetType = ""
+    if expr.callee == "fromJson" and expr.literalValue != "" and
+        expr.literalValue != "this" {
+        staticRetType = getMethodReturnTypeState(expr.literalValue, "fromJson")
+    }
+    return inferStaticFromJsonMethodTypeImpl(expr.callee,
+        expr.literalValue, staticRetType)
+}
+
+fun tryInferDeclaredStaticMethodCallTypeState(expr: ParserExpressionNode,
+    varNames: Array<String>, varTypes: Array<String>) r: String {
+
+    var receiverVarType = ""
+    var receiverMethodRetType = ""
+    var baseOwnerMethodRetType = ""
+    if expr.literalValue != "" and expr.literalValue != "this" {
+        receiverVarType = findVarTypeState(varNames, varTypes,
+            expr.literalValue)
+        if receiverVarType == "" {
+            receiverMethodRetType = getMethodReturnTypeState(expr.literalValue,
+                expr.callee)
+            let staticOwnerType = getBaseTypeNameImpl(expr.literalValue)
+            if staticOwnerType != expr.literalValue {
+                baseOwnerMethodRetType = getMethodReturnTypeState(
+                    staticOwnerType, expr.callee)
+            }
+        }
+    }
+    return inferDeclaredStaticMethodCallTypeImpl(expr.literalValue,
+        receiverVarType, receiverMethodRetType, baseOwnerMethodRetType)
+}
+
+fun tryInferStaticMethodCallTypeState(expr: ParserExpressionNode,
+    varNames: Array<String>, varTypes: Array<String>) r: String {
+
+    let declaredStaticType = tryInferDeclaredStaticMethodCallTypeState(expr,
+        varNames, varTypes)
+    if declaredStaticType != "" {
+        return declaredStaticType
+    }
+    let staticFactoryType = tryInferStaticFactoryMethodType(expr)
+    if staticFactoryType != "" {
+        return staticFactoryType
+    }
+    return tryInferStaticFromJsonMethodType(expr)
+}
+
+fun tryInferBuiltinReceiverMethodCallType(expr: ParserExpressionNode, receiverType: String) r: String {
+    if expr.callee == "get" {
+        traceGen("inferExpressionType: get() recType=" + receiverType +
+            " literalValue=" + expr.literalValue + " operands=" +
+            expr.operands.length().toString())
+    }
+    var isClassInner = 0
+    if isClassTypeState(receiverType) {
+        isClassInner = 1
+    }
+    return tryInferBuiltinReceiverMethodCallTypeState(expr.callee,
+        receiverType, isClassInner)
+}
+
+fun tryInferReceiverRegistryMethodCallType(expr: ParserExpressionNode, receiverType: String) r: String {
+    var simdFlag = 0
+    if isSimdVectorTypeImpl(receiverType) == 1 {
+        simdFlag = 1
+    }
+    let registeredMethodRetType = getMethodReturnTypeState(receiverType,
+        expr.callee)
+    return inferReceiverRegistryMethodCallTypeImpl(expr.callee,
+        receiverType, simdFlag, registeredMethodRetType)
+}
+
+fun tryInferLateMethodCallFallbackType(expr: ParserExpressionNode) r: String {
+    let mcTable = inferMethodCallTypeTable(expr.callee)
+    var implicitMethodRetType = ""
+    if currentClassName != "" {
+        implicitMethodRetType = getMethodReturnTypeState(currentClassName,
+            expr.callee)
+    }
+    let freeFuncRetType = getFunctionReturnTypeStateImpl(expr.callee,
+        funcNames, funcRetTypes)
+    var asyncFlag = 0
+    if isAsyncFunctionStateImpl(expr.callee, g_asyncFuncNames,
+        g_asyncFuncCount) {
+        asyncFlag = 1
+    }
+    let boolSuffixType = inferMethodCallBoolSuffixImpl(expr.callee,
+        funcNames, funcRetTypes)
+    return inferLateMethodCallFallbackTypeImpl(mcTable,
+        implicitMethodRetType, freeFuncRetType, asyncFlag,
+        boolSuffixType)
+}
+
+fun tryInferGeneratedCallType(expr: ParserExpressionNode) r: String {
+    let generatedPlan = planGeneratedCallInferenceImpl(expr.callee,
+        isSimdVectorTypeImpl(expr.callee))
+    var newBaseType = ""
+    var newBaseTypeKnown = 0
+    if generatedPlan.action == 2 {
+        newBaseType = generatedPlan.baseType
+        if isClassTypeState(newBaseType) or isDataTypeState(newBaseType) or
+            findStructReg(newBaseType, structNames) >= 0 {
+            newBaseTypeKnown = 1
+        }
+    }
+    var fromJsonBaseType = ""
+    var fromJsonRet = ""
+    var fromJsonBaseTypeKnown = 0
+    if generatedPlan.action == 3 {
+        fromJsonBaseType = generatedPlan.baseType
+        fromJsonRet = getMethodReturnTypeState(fromJsonBaseType, "fromJson")
+        if isClassTypeState(fromJsonBaseType) or isDataTypeState(fromJsonBaseType) or
+            findStructReg(fromJsonBaseType, structNames) >= 0 {
+            fromJsonBaseTypeKnown = 1
+        }
+    }
+    return inferGeneratedCallTypeImpl(expr.callee,
+        generatedPlan.isSimdCallee, newBaseType, newBaseTypeKnown,
+        fromJsonBaseType, fromJsonRet,
+        fromJsonBaseTypeKnown)
+}
+
+fun tryInferResolvedCallExprType(expr: ParserExpressionNode) r: String {
+    let resolvedPlan = planResolvedCallInferenceImpl(currentClassName)
+    let userRetType = getFunctionReturnTypeStateImpl(expr.callee,
+        funcNames, funcRetTypes)
+    var asyncFlag = 0
+    if isAsyncFunctionStateImpl(expr.callee, g_asyncFuncNames,
+        g_asyncFuncCount) {
+        asyncFlag = 1
+    }
+    let callTable = inferCallTypeTable(expr.callee)
+    var classCall = 0
+    if isClassTypeState(expr.callee) {
+        classCall = 1
+    }
+    var implicitMethodRetType = ""
+    if resolvedPlan.shouldLookupImplicitMethodReturn {
+        implicitMethodRetType = getMethodReturnTypeState(currentClassName,
+            expr.callee)
+    }
+    return inferResolvedCallExprTypeImpl(expr.callee, userRetType,
+        asyncFlag, callTable, classCall, implicitMethodRetType)
+}

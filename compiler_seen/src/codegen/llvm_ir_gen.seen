@@ -59,14 +59,12 @@ import codegen.ir_decl_pass_driver.{beginDeclarationRegistrationPassImpl, finish
 import codegen.ir_decl_return_types.{inferReturnExprTypeImpl, resolveMethodReturnTypeImpl, resolveFunctionReturnTypeImpl}
 import codegen.ir_module_constants.{isModuleConstMutableImpl, getModuleConstSeenTypeImpl, narrowModuleConstantLoadIfNeededImpl, tryInferModuleConstantVariableTypeSnapshotImpl, findModuleConstantSnapshotImpl, emitGlobalVariablesSnapshotImpl, moduleConstantInvariantLoadSuffixImpl}
 import codegen.ir_type_header.{tryLoadTypeHeaderIntoOutputImpl, emitBuiltinTypeHeaderImpl}
-import codegen.ir_local_type_fallback.{tryInferLLVMIRGeneratorThisFieldTypeImpl, tryInferStructThisFieldTypeImpl, tryInferImplicitThisVariableTypeImpl, tryInferNamedPrimitiveVariableTypeImpl}
 import codegen.ir_type_info.{charToCodeStr, g_resolvedFieldIndex, g_resolvedFieldTypeCode, decodeFieldTypeCode, findStructIdx, getLLVMIRGeneratorFieldIndexImpl}
 
 import codegen.ir_string_collect.{getBaseTypeNameImpl, normalizeHeaderTypeImpl, parseArrayElementTypeImpl, extractArrayLiteralElementTypeImpl, parseDecimalIntImpl}
 import codegen.ir_seen_token_types.{getSeenTokenTypeValueImpl}
 import codegen.ir_string_collect_state.{collectStringConstantsStateImpl}
 import codegen.ir_string_interp_gen.{generateStringInterpolationFromPartsImpl}
-import codegen.ir_string_interp_infer.{inferStringInterpolationExprTypeStateImpl}
 import codegen.ir_string_emit.{getStringConstantIndexImpl, emitAdditionalGeneratedStringConstantsImpl, loadEmbeddedStringConstantInfoImpl, emitStringConstantsImpl, emitStringConstantsWithPrefixImpl}
 import codegen.ir_nullish_gen.{emitNullishCheckComparisonImpl, defaultValueForLlvmTypeImpl, emitNullishBranchingImpl, emitNullishBranchToEndImpl, enterNullishElseBranchImpl, finalizeNullishMergeImpl, buildSafeNavigationMemberExprImpl}
 import codegen.ir_enum_ctor_gen.{lookupEnumVariantTagStateImpl, lookupEnumParentStateImpl, lookupEnumFieldCountStateImpl, isEnumVariantStateImpl, planEnumConstructorImpl, shouldCollectEnumConstructorFieldImpl, allocateEnumConstructorObjectImpl, emitEnumConstructorPreparedFieldStoresState}
@@ -80,13 +78,9 @@ import codegen.ir_special_top_level_emit.{tryHandleSpecialTopLevelFunctionImpl}
 import codegen.ir_type_layout.{getLlvmTypeAlignImpl, getLlvmTypeSizeImpl, computeStructSizeFromLayoutImpl}
 import codegen.ir_simd_type_helpers.{isSimdVectorTypeImpl}
 import codegen.ir_struct_field_resolution.{resolveKnownStructFieldImpl}
-import codegen.ir_type_tables.{inferMethodCallTypeTable, inferCallTypeTable, inferFieldTypeFallback, inferIndexElementType, registerKnownDataTypesImpl, resolveTryPropagateTypeImpl}
 import codegen.ir_control_flow.{emitForInElementFetchImpl, emitForInPrefetchImpl, emitForInIncrementImpl, detectLoopBoundImpl, computeLoopTileSizeImpl, detectReductionPatternImpl, detectInductionVarImpl, detectBreakOnFlagImpl, detectNestedLoopImpl, detectGcdPatternImpl, emitWhileConditionBranchImpl, emitStringForInElementImpl, emitMemcpyLoopExitBlocksImpl}
 import codegen.ir_loop_context.{appendLoopTileHintImpl, appendLoopMetadataIdImpl, emitLoopMetadataImpl, emitContinueStatementImpl, emitBreakStatementImpl}
 import codegen.ir_loop_plan.{planMemcpyOptimizedWhileLoopImpl, iteratorProtocolFunctionNameImpl, planIteratorProtocolForInLoopImpl, isRangeForInIterableImpl}
-import codegen.ir_infer_type.{inferBinaryTypeImpl, inferLiteralTypeImpl, inferOperatorOverloadSuffix, inferExplicitThisMethodCallTypeImpl, inferBareMethodOrFunctionCallTypeImpl, inferDeclaredStaticMethodCallTypeImpl, inferStaticFactoryMethodTypeImpl, inferStaticFromJsonMethodTypeImpl, inferLateMethodCallFallbackTypeImpl, inferGeneratedCallTypeImpl, inferBuiltinCallExprTypeStateImpl, inferResolvedCallExprTypeImpl, inferSimdReduceMethodTypeImpl, inferReceiverRegistryMethodCallTypeImpl, inferMethodCallBoolSuffixImpl, inferCallExprTypeImpl}
-import codegen.ir_special_expr_infer.{inferIndexAccessExprTypeImpl, inferKnownArrayLiteralTypeImpl, inferArrayLiteralExprTypeImpl, inferUnaryExprTypeImpl, inferAwaitExprTypeImpl, inferTryPropagateExprTypeImpl, inferNullishSpecialExprTypeImpl, inferBranchingSpecialExprTypeImpl, inferFixedSpecialExprTypeImpl, inferSpecialExprTypeImpl}
-import codegen.ir_expr_infer_plan.{planExprInferenceDispatchImpl, planMethodCallInferenceImpl, planGeneratedCallInferenceImpl, planBuiltinCallInferenceImpl, planResolvedCallInferenceImpl, planMemberAccessInferenceImpl, planSpecialExprInferenceImpl}
 import codegen.ir_receiver_method_emit.{emitSimdReductionImpl}
 import codegen.ir_string_builder_cast_emit.{emitCastExprImpl}
 import codegen.ir_method_gen.{emitTransmuteImpl}
@@ -119,7 +113,6 @@ import codegen.ir_method_lower_emit.{emitPreparedUnresolvedReceiverDefaultImpl, 
 import codegen.ir_method_final_plan.{planMethodUnresolvedReceiverStartImpl, planMethodUnresolvedReceiverFinalImpl, planMethodFinalDispatchImpl}
 import codegen.ir_method_receiver_lookup_plan.{planMethodReceiverInitialPhaseImpl, planMethodReceiverPostLookupPhaseImpl, planMethodReceiverPostResolutionPhaseImpl, planDottedReceiverStageImpl, planDottedReceiverFallbackStageImpl, planSimpleLiteralReceiverStageImpl}
 import codegen.ir_method_receiver_lookup_gen.{emitLocalMethodReceiverLoadImpl, emitModuleConstantMethodReceiverLoadImpl, tryResolveImplicitThisDottedMethodReceiverStateImpl, tryResolveImplicitThisLiteralMethodReceiverStateImpl}
-import codegen.ir_method_builtin_type_infer.{tryInferBuiltinReceiverMethodCallTypeState}
 import codegen.ir_value_coercion.{coerceValueForLlvmTargetImpl}
 import codegen.ir_string_concat_emit.{isStringConcatTypePairImpl, exprHasStringConcatMarkerImpl, coerceStringConcatPieceRegImpl}
 import codegen.ir_struct_gen.{emitStructFieldStoresImpl, resolveStructLiteralFieldFallback, inferStructFieldTypeFromExpr}
@@ -183,6 +176,16 @@ import codegen.ir_codegen_global_state.{preAllocatedRegs, preAllocatedVars, preA
 import codegen.ir_codegen_module_state.{g_moduleConstMutable, g_moduleConstSeenTypes, g_xmDeclareNames, g_xmDeclareStrs, g_xmDeclareCount, g_xmDeclareVis, g_xmDeclareNamesArr, g_xmDeclareStrsArr, g_xmDeclareVisArr, g_lateXmDeclareNames, g_lateXmDeclareStrs, g_lateXmDeclareCount, g_xmConstNames, g_xmConstTypes, g_xmConstMutable, g_xmConstSeenTypes, g_xmConstCount, g_chainedPathTypeCacheValues, findCachedIrgenFieldIndex, cacheIrgenFieldIndex, findCachedChainedPathTypeRecord, cacheChainedPathType, resetModuleConstantGenerationState, resetLateUserDeclareState, resetIrgenFieldLookupCaches}
 import codegen.ir_codegen_feature_state.{g_panicOnOverflow, g_asyncFuncNames, g_asyncFuncRetTypes, g_asyncFuncCount, g_inheritanceChildNames, g_inheritanceParentNames, g_inheritanceCount, g_currentClassParentName, g_closureCount, g_closureDefs, g_deferCount, g_deferExprs, g_errdeferCount, g_errdeferExprs, g_errdeferTempAlloca, g_cacheLineClasses, g_insideUnsafe, g_regBox, g_blockBox, g_tryCatchLabel, g_tryCatchEndLabel, g_distinctTypeNames, g_unionTypes, g_initFuncNames, g_initFuncCount, g_pforCount, g_comptimeNames, g_comptimeValues, g_comptimeCount, g_intrinsicFuncNames, g_intrinsicLlvmNames, g_intrinsicCount, g_sendTypes, g_syncTypes, g_boundsCheckEnabled, g_boundsCheckLabelCount, g_warnUnusedResult, g_soaClassNames, g_soaClassCount, g_trustedFuncNames, g_triviallyCopyableClasses, g_moveOnlyClasses, g_reprCClassNames, g_cResourceClasses, g_cResourceDestructors, g_funcDefaultsArr, g_funcParamCountArr, g_defaultFillArgRegs, g_defaultFillArgTypeStrs, g_dynTraitNames, g_vtableClassImpls, g_dynParamFuncs, g_floatParamFuncNames, g_floatParamParamIdxs, g_constGenericNames, g_constGenericValues, g_bitfieldKeys, g_bitfieldWidths, g_bitfieldOffsets, g_bitfieldCount, g_gpuBufferClasses, g_gpuBufferLayouts, g_comptimeStrNames, g_comptimeStrValues, g_comptimeStrCount, g_comptimeParamFuncNames, g_comptimeParamCount, g_gpuShaderNames, g_gpuShaderStages, g_gpuShaderCount, g_gpuShaderWorkgroups, g_gpuShaderBindings, g_deriveTraits, g_deriveClassCount, g_reflectClassNames, g_reflectClassCount, g_specializationNames, g_specializationCount, g_traitImplRegistry, g_traitImplCount, g_customDeriveNames, g_customDeriveFuncNames, g_customDeriveCount, g_nullSafetyEnabled, g_uninitCheckEnabled, g_uninitVarNames, g_uninitVarStatus, g_uninitVarCount, g_stackCheckEnabled, g_sanitizerMode, g_enabledFeatures, g_enabledFeatureCount, g_binaryClassNames, g_binaryEndianness, g_binaryVersions, g_binaryClassCount, g_packetClassNames, g_packetClassIds, g_packetCount, g_typeAliasNames, g_typeAliasTargets, g_typeAliasCount, g_enumVariantNames, g_enumVariantTags, g_enumVariantFieldTypes, g_enumVariantFieldCounts, g_enumTypeNames, g_enumVariantParent, g_enumVariantCount, g_enumTypeCount}
 import codegen.ir_codegen_type_state.{mapTypeState, isClassTypeState, isDataTypeState, getDataTypeSizeState}
+import codegen.ir_decl_state_driver.{applyDeclarationPassState, captureLateUserDeclareState, applyLateUserDeclareState}
+import codegen.ir_class_type_guard_driver.{hasGeneratedClassType, tryReuseHeaderLoadedClassType}
+import codegen.ir_loop_metadata_driver.{appendLoopTileHint, appendNestedLoopMetadataId, appendReductionLoopMetadataId}
+import codegen.ir_expr_leaf_driver.{getExprVariableName, isExprBool, isReprCConstructorType}
+import codegen.ir_infer_method_leaf_driver.{tryInferStaticMethodCallTypeState}
+import codegen.ir_local_type_leaf_driver.{findVarTypeState}
+import codegen.ir_stmt_defer_driver.{generateDeferredStatement}
+import codegen.ir_method_lower_driver.{tryEmitMethodLowerNoArgDriver, tryEmitMethodPrimitiveConversionDriver, tryEmitMethodUnresolvedCollectionGetWarningDriver, tryEmitMethodHotReloadLoweringDriver}
+import codegen.ir_expr_type_driver.{resolveChainedPathTypeState, resolveLiteralMethodReceiverTypeState, inferExpressionTypeState}
+import codegen.ir_class_type_driver.{emitClassTypeState}
 
 // Override host target triple and data layout for cross-compilation
 fun overrideTargetTriple(triple: String, layout: String) r: Void {
@@ -530,43 +533,6 @@ class LLVMIRGenerator {
         applyDeclarationPassState(declState)
     }
 
-    fun applyDeclarationPassState(declState: DeclarationPassState) r: Void {
-        g_asyncFuncNames = declState.asyncFuncNames
-        g_asyncFuncRetTypes = declState.asyncFuncRetTypes
-        g_asyncFuncCount = declState.asyncFuncCount
-        g_xmDeclareNames = declState.xmDeclareNames
-        g_xmDeclareStrs = declState.xmDeclareStrs
-        g_xmDeclareVis = declState.xmDeclareVis
-        g_xmDeclareNamesArr = declState.xmDeclareNamesArr
-        g_xmDeclareStrsArr = declState.xmDeclareStrsArr
-        g_xmDeclareVisArr = declState.xmDeclareVisArr
-        g_xmDeclareCount = declState.xmDeclareCount
-        g_enumTypeNames = declState.enumTypeNames
-        g_enumVariantNames = declState.enumVariantNames
-        g_enumVariantTags = declState.enumVariantTags
-        g_enumVariantFieldTypes = declState.enumVariantFieldTypes
-        g_enumVariantFieldCounts = declState.enumVariantFieldCounts
-        g_enumVariantParent = declState.enumVariantParent
-        g_enumTypeCount = declState.enumTypeCount
-        g_enumVariantCount = declState.enumVariantCount
-        g_xmConstNames = declState.xmConstNames
-        g_xmConstTypes = declState.xmConstTypes
-        g_xmConstMutable = declState.xmConstMutable
-        g_xmConstSeenTypes = declState.xmConstSeenTypes
-        g_xmConstCount = declState.xmConstCount
-    }
-
-    fun captureLateUserDeclareState() r: LateUserDeclareState {
-        return captureLateUserDeclareStateImpl(g_lateXmDeclareNames,
-            g_lateXmDeclareStrs, g_lateXmDeclareCount)
-    }
-
-    fun applyLateUserDeclareState(lateState: LateUserDeclareState) r: Void {
-        g_lateXmDeclareNames = lateState.lateXmDeclareNames
-        g_lateXmDeclareStrs = lateState.lateXmDeclareStrs
-        g_lateXmDeclareCount = lateState.lateXmDeclareCount
-    }
-
     fun collectClassMethodDeclarationReturnTypes(classNode: ClassNode)
         r: Array<String> {
 
@@ -617,25 +583,7 @@ class LLVMIRGenerator {
     Searches backwards for speed.
     ///
     fun findVarType(name: String) r: String {
-        let visibleVarType = findVisibleVariableTypeImpl(this.varNames, this.varTypes,
-            activeVarCount, preAllocatedVars, preAllocatedTypes, name)
-        if visibleVarType != "" {
-            return visibleVarType
-        }
-        if moduleConstantNames.length() == 0 and g_xmConstCount <= 0 {
-            return ""
-        }
-        let moduleConstLookup = tryInferModuleConstantVariableTypeSnapshotImpl(
-            name, moduleConstantNames, moduleConstantTypes,
-            moduleConstantValues, g_moduleConstMutable,
-            g_moduleConstSeenTypes, g_xmConstNames, g_xmConstTypes,
-            g_xmConstMutable, g_xmConstSeenTypes, g_xmConstCount)
-        g_moduleConstMutable = moduleConstLookup.moduleConstMutable
-        g_moduleConstSeenTypes = moduleConstLookup.moduleConstSeenTypes
-        if moduleConstLookup.seenType != "" {
-            return moduleConstLookup.seenType
-        }
-        return ""
+        return findVarTypeState(this.varNames, this.varTypes, name)
     }
 
     ///
@@ -655,11 +603,6 @@ class LLVMIRGenerator {
 
     ///
     Pre-scan a function's block to collect all variable declarations.
-    This enables alloca hoisting: all allocas are emitted in the entry
-    block (before any branches), which is required by LLVM for correct
-    mem2reg promotion to SSA registers. Without hoisting, allocas inside
-    loops would create new stack slots per iteration.
-    Stores names and types in preAllocatedVars/preAllocatedTypes.
     ///
     fun collectVariableDeclarations(block: BlockNode) r: Void {
         var i = 0
@@ -780,36 +723,8 @@ class LLVMIRGenerator {
     Returns the type of the final field in the chain
     ///
     fun resolveChainedPathType(path: String) r: String {
-        if path.contains("()") {
-            let chainExpr = buildChainedPathExprImpl(path)
-            if chainExpr.kind != "None" {
-                return inferExpressionType(chainExpr)
-            }
-        }
-        let pathParts = splitFirstPathDotImpl(path)
-        let baseName = pathParts[0]
-        let restPath = pathParts[1]
-        if restPath == "" {
-            // No dot - simple variable name
-            return findVarType(path)
-        }
-
-        // Get base type
-        var currentType = findVarType(baseName)
-        if currentType == "" {
-            return ""
-        }
-        let cacheKey = currentType + "|" + restPath
-        let structLen = structNames.length()
-        let cached = findCachedChainedPathTypeRecord(cacheKey, structLen)
-        if cached >= 0 {
-            return g_chainedPathTypeCacheValues[cached]
-        }
-        let resolvedType = resolveChainedPathSuffixTypeImpl(currentType, restPath,
-            structNames, structFieldNames, structFieldTypes,
-            structMethodNames, structMethodRetTypes)
-        cacheChainedPathType(cacheKey, structLen, resolvedType)
-        return resolvedType
+        return resolveChainedPathTypeState(path, this.varNames, this.varTypes,
+            this.stringConstants)
     }
 
     // Single-module entry point: wraps generateMultiple with one program.
@@ -1177,110 +1092,8 @@ class LLVMIRGenerator {
         emitLoopMetadataImpl(this.output, getCurrentFunctionOptions(), g_blockBox, g_reductionLoopIds, g_nestedLoopIds, g_loopTileHints)
     }
 
-    fun hasGeneratedClassType(className: String) r: Bool {
-        var classIdx = 0
-        while classIdx < generatedClasses.length() {
-            if generatedClasses[classIdx] == className {
-                return true
-            }
-            classIdx = classIdx + 1
-        }
-        return false
-    }
-
-    fun tryReuseHeaderLoadedClassType(classNode: ClassNode) r: Bool {
-        if not typesLoadedFromHeader {
-            return false
-        }
-        let structIdx = findStructReg(classNode.name, structNames)
-        if structIdx < 0 {
-            return false
-        }
-        let existingLayout = structLayouts[structIdx]
-        let usesInlineSeenString = existingLayout.contains("{ i64, ptr }")
-        let usesNamedSeenString = existingLayout.contains("%SeenString")
-        if existingLayout != "" and (usesInlineSeenString or not usesNamedSeenString) {
-            registerStructLayoutState(classNode)
-            generatedClasses.push(classNode.name)
-            return true
-        }
-        return false
-    }
-
-    ///
-    Emit a named LLVM struct type definition (e.g., %MyClass = type { i64, ptr }).
-    Deduplicates by tracking emitted classes in generatedClasses[].
-    If types were loaded from a header file (typesLoadedFromHeader), skips
-    emission for types that already have a header-sourced layout (detected by
-    the presence of inline "{ i64, ptr }" for SeenString rather than "%SeenString").
-    ///
     fun emitClassType(classNode: ClassNode) r: Void {
-        let className = classNode.name
-        if hasGeneratedClassType(className) {
-            return
-        }
-        if tryReuseHeaderLoadedClassType(classNode) {
-            return
-        }
-
-        generatedClasses.push(className)
-        registerStructLayoutState(classNode)
-
-        let decoratorSnapshot = prepareClassTypeDecoratorScanSnapshotImpl(
-            this.output, classNode, g_reprCClassNames,
-            g_cacheLineClasses, g_sendTypes, g_syncTypes, g_soaClassNames,
-            g_soaClassCount, g_triviallyCopyableClasses, g_moveOnlyClasses,
-            g_cResourceClasses, g_cResourceDestructors, g_reflectClassNames,
-            g_reflectClassCount, g_binaryClassNames, g_binaryEndianness,
-            g_binaryVersions, g_binaryClassCount, g_packetClassNames,
-            g_packetClassIds, g_packetCount, g_gpuBufferClasses,
-            g_gpuBufferLayouts, g_unionTypes, g_typeAliasNames,
-            g_typeAliasTargets, g_typeAliasCount, g_enumTypeNames,
-            structNames, structLayouts, structSizes)
-        let typeFlags = decoratorSnapshot.typeFlags
-        let decoratorState = decoratorSnapshot.decoratorState
-        g_reprCClassNames = decoratorState.reprCClassNames
-        g_cacheLineClasses = decoratorState.cacheLineClasses
-        g_sendTypes = decoratorState.sendTypes
-        g_syncTypes = decoratorState.syncTypes
-        g_soaClassNames = decoratorState.soaClassNames
-        g_soaClassCount = decoratorState.soaClassCount
-        g_triviallyCopyableClasses =
-            decoratorState.triviallyCopyableClasses
-        g_moveOnlyClasses = decoratorState.moveOnlyClasses
-        g_cResourceClasses = decoratorState.cResourceClasses
-        g_cResourceDestructors = decoratorState.cResourceDestructors
-        g_reflectClassNames = decoratorState.reflectClassNames
-        g_reflectClassCount = decoratorState.reflectClassCount
-        g_binaryClassNames = decoratorState.binaryClassNames
-        g_binaryEndianness = decoratorState.binaryEndianness
-        g_binaryVersions = decoratorState.binaryVersions
-        g_binaryClassCount = decoratorState.binaryClassCount
-        g_packetClassNames = decoratorState.packetClassNames
-        g_packetClassIds = decoratorState.packetClassIds
-        g_packetCount = decoratorState.packetCount
-        g_gpuBufferClasses = decoratorState.gpuBufferClasses
-        g_gpuBufferLayouts = decoratorState.gpuBufferLayouts
-        g_unionTypes = decoratorState.unionTypes
-        if decoratorSnapshot.emittedSpecialClassType == 1 {
-            return
-        }
-
-        emitClassTypeHeaderImpl(this.output, className, typeFlags)
-        let typeAliasState = prepareClassTypeAliasStateSnapshotImpl(classNode,
-            g_typeAliasNames, g_typeAliasTargets, g_typeAliasCount)
-        let realFieldCount = typeAliasState.realFieldCount
-        g_typeAliasNames = typeAliasState.typeAliasNames
-        g_typeAliasTargets = typeAliasState.typeAliasTargets
-        g_typeAliasCount = typeAliasState.typeAliasCount
-        if realFieldCount == 0 {
-            this.output.append("i8")
-        } else {
-            emitClassTypeFieldsImpl(this.output, classNode, g_reprCClassNames,
-                structNames, g_typeAliasNames, g_typeAliasTargets,
-                g_typeAliasCount, g_enumTypeNames)
-        }
-        emitClassTypeFooterImpl(this.output, typeFlags)
+        emitClassTypeState(this.output, classNode)
     }
 
     fun emitTraitDefaultMethod(className: String, traitMethod: FunctionNode, traitRetTypeName: String) r: Void {
@@ -1836,14 +1649,6 @@ class LLVMIRGenerator {
         if emitBreakStatementImpl(this.output, currentLoopEndLabel) == 1 {
             blockTerminated = true
         }
-    }
-
-    fun generateDeferredStatement(stmt: StatementNode, isErrdefer: Bool) r: Void {
-        let deferredRecord = recordDeferredStatementSnapshotImpl(stmt,
-            isErrdefer, g_deferExprs, g_deferCount, g_errdeferExprs,
-            g_errdeferCount)
-        g_deferCount = deferredRecord.deferCount
-        g_errdeferCount = deferredRecord.errdeferCount
     }
 
     fun generateTryCatchStatement(stmt: StatementNode) r: Void {
@@ -2454,27 +2259,6 @@ class LLVMIRGenerator {
         }
 
         finalizeConditionalEndBlock(endLabel, thenTerminated, elseTerminated)
-    }
-
-    fun appendLoopTileHint(loopMetaId: Int, hintValue: Int) r: Void {
-        let loopTileHintsBox = Array<String>()
-        loopTileHintsBox.push(g_loopTileHints)
-        appendLoopTileHintImpl(loopTileHintsBox, loopMetaId, hintValue)
-        g_loopTileHints = loopTileHintsBox[0]
-    }
-
-    fun appendNestedLoopMetadataId(loopMetaId: Int) r: Void {
-        let nestedLoopIdsBox = Array<String>()
-        nestedLoopIdsBox.push(g_nestedLoopIds)
-        appendLoopMetadataIdImpl(nestedLoopIdsBox, loopMetaId)
-        g_nestedLoopIds = nestedLoopIdsBox[0]
-    }
-
-    fun appendReductionLoopMetadataId(loopMetaId: Int) r: Void {
-        let reductionLoopIdsBox = Array<String>()
-        reductionLoopIdsBox.push(g_reductionLoopIds)
-        appendLoopMetadataIdImpl(reductionLoopIdsBox, loopMetaId)
-        g_reductionLoopIds = reductionLoopIdsBox[0]
     }
 
     fun emitLiteralBoundWhileHints(stmt: StatementNode, loopMetaId: Int, loopBoundLiteral: Int) r: Void {
@@ -4227,10 +4011,6 @@ class LLVMIRGenerator {
     (@global_name), enum variant tags (i64 constants), and 'this' field
     access if the bare name matches a struct field on the current class.
     ///
-    fun getExprVariableName(expr: ParserExpressionNode) r: String {
-        return getExprVariableNameImpl(expr.variableName, expr.literalValue)
-    }
-
     fun tryEmitMovedVariableRead(varName: String) r: Int {
         if isMovedVariableImpl(getCurrentFunctionEmissionStateImpl(),
             varName) == 1 {
@@ -4695,17 +4475,6 @@ class LLVMIRGenerator {
     }
 
     // Helper: check if an expression produces i1 (bool) rather than i64
-    fun isExprBool(e: ParserExpressionNode, eType: String) r: Int {
-        return exprProducesBoolImpl(eType, e.operator)
-    }
-
-    ///
-    Short-circuit AND: left ? right : false
-    Uses bridge blocks so phi predecessors are always correct even with nested and/or
-    Generate short-circuit evaluation for logical AND (&&).
-    If the left operand is false, skips evaluating the right operand
-    entirely. Uses a phi node to merge the boolean result from both paths.
-    ///
     fun generateShortCircuitAnd(expr: ParserExpressionNode) r: String {
         let leftExpr = expr.operands[0]
         let rightExpr = expr.operands[1]
@@ -5061,10 +4830,6 @@ class LLVMIRGenerator {
             colCapArg = generateExpression(expr.arguments[0])
         }
         return emitCollectionConstructorImpl(this.output, g_regBox, funcName, colCapArg, expr.arguments.length())
-    }
-
-    fun isReprCConstructorType(funcName: String) r: Bool {
-        return isReprCConstructorTypeImpl(funcName, g_reprCClassNames)
     }
 
     fun tryGenerateReprCClassConstructorCall(expr: ParserExpressionNode, funcName: String, structIdx: Int) r: String {
@@ -5614,7 +5379,8 @@ class LLVMIRGenerator {
         if registeredStaticReturnType == "" or
             registeredStaticReturnType == "Unknown" {
 
-            inferredStaticReturnType = tryInferStaticMethodCallType(expr)
+            inferredStaticReturnType = tryInferStaticMethodCallTypeState(expr,
+                this.varNames, this.varTypes)
         }
         let staticLateState = captureLateUserDeclareState()
         let staticResult = emitPreparedStaticMethodDispatchState(
@@ -5752,20 +5518,8 @@ class LLVMIRGenerator {
     }
 
     fun resolveLiteralMethodReceiverType(literalValue: String) r: String {
-        var chainedType = ""
-        if literalValue.contains(".") {
-            chainedType = resolveChainedPathType(literalValue)
-        }
-        let directVarType = findVarType(literalValue)
-        let thisIdx = findActiveVariableIndexImpl(this.varNames, activeVarCount, "this")
-        var thisType = ""
-        if thisIdx >= 0 {
-            thisType = this.varTypes[thisIdx]
-        }
-        return resolveLiteralMethodReceiverTypeImpl(literalValue, chainedType,
-            directVarType, thisIdx, thisType,
-            structNames, structFieldNames, structFieldTypes,
-            structMethodNames, structMethodRetTypes)
+        return resolveLiteralMethodReceiverTypeState(literalValue,
+            this.varNames, this.varTypes, this.stringConstants)
     }
 
     fun prepareMethodCallArgRegsAndTypes(args: Array<ParserExpressionNode>,
@@ -6043,12 +5797,11 @@ class LLVMIRGenerator {
             isNumericReceiverMethodImpl(methodName))
 
         if postResolutionPhase.shouldTryLowering {
-            let nonArgLowerResult = emitPreparedNonArgMethodLowerDispatchImpl(
-                this.output, g_regBox, lowerPlan.shouldTryLengthLike,
-                false, methodName, receiverReg, receiverType,
-                g_reprCClassNames, structNames)
-            if nonArgLowerResult != "" {
-                return nonArgLowerResult
+            let noArgLower =
+                tryEmitMethodLowerNoArgDriver(this.output,
+                methodName, receiverReg, receiverType, lowerPlan)
+            if noArgLower != "" {
+                return noArgLower
             }
         }
 
@@ -6079,10 +5832,9 @@ class LLVMIRGenerator {
         if postResolutionPhase.shouldTryLowering and
             lowerPlan.shouldTryPrimitiveConversion {
 
-            let conversionResult = emitPreparedNonArgMethodLowerDispatchImpl(
-                this.output, g_regBox, false,
-                lowerPlan.shouldTryPrimitiveConversion, methodName,
-                receiverReg, receiverType, g_reprCClassNames, structNames)
+            let conversionResult = tryEmitMethodPrimitiveConversionDriver(
+                this.output, methodName, receiverReg, receiverType,
+                lowerPlan)
             if conversionResult != "" {
                 return conversionResult
             }
@@ -6134,12 +5886,10 @@ class LLVMIRGenerator {
                     receiverExpr.operands[0])
             }
         }
-        if shouldWarnUnresolvedCollectionGetImpl(methodName,
-            isArrayReceiverTypeImpl(receiverType),
-            isCollectionReceiverTypeImpl(receiverType)) {
-
-            return emitPreparedUnresolvedCollectionGetWarningImpl(this.output,
-                receiverType, expr.literalValue)
+        let collectionGetWarning = tryEmitMethodUnresolvedCollectionGetWarningDriver(
+            this.output, methodName, receiverType, expr.literalValue)
+        if collectionGetWarning != "" {
+            return collectionGetWarning
         }
         let instanceTypeName = resolveMethodCallInstanceTypeNameImpl(expr,
             methodName, receiverType, tracedUnwrapSourceType)
@@ -6153,9 +5903,8 @@ class LLVMIRGenerator {
         }
         if postResolutionPhase.shouldTryLowering and lowerPlan.shouldTryHotReload {
             let hotReloadResult =
-                emitPreparedHotReloadMethodLowerImpl(
-                this.output, g_regBox, methodName, quoteIdentIfNeededImpl(funcName),
-                receiverReg, receiverType, hotStateArg, structNames)
+                tryEmitMethodHotReloadLoweringDriver(this.output, methodName,
+                funcName, receiverReg, receiverType, hotStateArg)
             if hotReloadResult != "" {
                 return hotReloadResult
             }
@@ -6454,640 +6203,9 @@ class LLVMIRGenerator {
         return resolveFunctionReturnTypeImpl(declaredType, inferredType)
     }
 
-    fun tryInferLLVMIRGeneratorThisFieldType(thisType: String, varName: String) r: String {
-        return tryInferLLVMIRGeneratorThisFieldTypeImpl(thisType, varName,
-            structNames, structFieldNames, structFieldTypes)
-    }
-
-    fun tryInferStructThisFieldType(thisType: String, varName: String) r: String {
-        return tryInferStructThisFieldTypeImpl(thisType, varName, structNames,
-            structFieldNames, structFieldTypes)
-    }
-
-    fun tryInferImplicitThisVariableType(varName: String) r: String {
-        let thisIdx = findActiveVariableIndexImpl(this.varNames, activeVarCount, "this")
-        if thisIdx < 0 {
-            return ""
-        }
-        return tryInferImplicitThisVariableTypeImpl(varName, this.varTypes[thisIdx],
-            structNames, structFieldNames, structFieldTypes)
-    }
-
-    fun tryInferNamedPrimitiveVariableType(varName: String) r: String {
-        return tryInferNamedPrimitiveVariableTypeImpl(varName)
-    }
-
-    fun inferVariableExprTypeLocal(expr: ParserExpressionNode) r: String {
-        let varName = getExprVariableName(expr)
-        let varType = findVarType(varName)
-        if varType != "" {
-            return varType
-        }
-        let implicitThisType = tryInferImplicitThisVariableType(varName)
-        if implicitThisType != "" {
-            return implicitThisType
-        }
-        return tryInferNamedPrimitiveVariableType(varName)
-    }
-
-    fun tryInferSimdBinaryExprType(expr: ParserExpressionNode) r: String {
-        if expr.operands.length() >= 2 {
-            let binLeftType = inferExpressionType(expr.operands[0])
-            if isSimdVectorTypeImpl(binLeftType) == 1 {
-                return binLeftType
-            }
-        }
-        return ""
-    }
-
-    fun tryInferOverloadedBinaryExprType(expr: ParserExpressionNode) r: String {
-        let opSuffix = inferOperatorOverloadSuffix(expr.operator)
-        if opSuffix == "" or expr.operands.length() < 1 {
-            return ""
-        }
-        let leftOpType = inferExpressionType(expr.operands[0])
-        let opFuncN = leftOpType + "_" + opSuffix
-        return getFunctionReturnTypeStateImpl(opFuncN, funcNames, funcRetTypes)
-    }
-
-    fun inferBinaryExprTypeLocal(expr: ParserExpressionNode) r: String {
-        var leftType = ""
-        var rightType = ""
-        if expr.operands.length() > 0 {
-            leftType = inferExpressionType(expr.operands[0])
-        }
-        if isSimdVectorTypeImpl(leftType) == 1 {
-            return leftType
-        }
-        if expr.operands.length() > 1 {
-            rightType = inferExpressionType(expr.operands[1])
-        }
-        let inferredType = inferBinaryTypeImpl(expr.operator, leftType,
-            rightType)
-        if inferredType != "" {
-            return inferredType
-        }
-        let opSuffix = inferOperatorOverloadSuffix(expr.operator)
-        if opSuffix != "" and expr.operands.length() > 0 {
-            let opFuncN = leftType + "_" + opSuffix
-            let overloadType = getFunctionReturnTypeStateImpl(opFuncN,
-                funcNames, funcRetTypes)
-            if overloadType != "" {
-                return overloadType
-            }
-        }
-        return "Int"
-    }
-
-    fun resolveMethodCallReceiverType(expr: ParserExpressionNode) r: String {
-        if expr.operands.length() > 0 {
-            return inferExpressionType(expr.operands[0])
-        }
-        return resolveLiteralMethodReceiverType(expr.literalValue)
-    }
-
-    fun tryInferExplicitThisMethodCallType(expr: ParserExpressionNode) r: String {
-        var implicitMethodRetType = ""
-        if currentClassName != "" {
-            implicitMethodRetType = getMethodReturnTypeState(currentClassName,
-                expr.callee)
-        }
-        return inferExplicitThisMethodCallTypeImpl(currentClassName,
-            expr.literalValue, implicitMethodRetType)
-    }
-
-    fun tryInferBareMethodOrFunctionCallType(expr: ParserExpressionNode) r: String {
-        var implicitMethodRetType = ""
-        if currentClassName != "" {
-            implicitMethodRetType = getMethodReturnTypeState(currentClassName,
-                expr.callee)
-        }
-        let freeFuncRetType = getFunctionReturnTypeStateImpl(expr.callee,
-            funcNames, funcRetTypes)
-        var asyncFlag = 0
-        if isAsyncFunctionStateImpl(expr.callee, g_asyncFuncNames,
-            g_asyncFuncCount) {
-            asyncFlag = 1
-        }
-        return inferBareMethodOrFunctionCallTypeImpl(expr.literalValue,
-            expr.operands.length(), implicitMethodRetType, freeFuncRetType,
-            asyncFlag)
-    }
-
-    fun tryInferImplicitOrFreeMethodCallType(expr: ParserExpressionNode) r: String {
-        let explicitThisType = tryInferExplicitThisMethodCallType(expr)
-        if explicitThisType != "" {
-            return explicitThisType
-        }
-        return tryInferBareMethodOrFunctionCallType(expr)
-    }
-
-    fun tryInferDeclaredStaticMethodCallType(expr: ParserExpressionNode) r: String {
-        var receiverVarType = ""
-        var receiverMethodRetType = ""
-        var baseOwnerMethodRetType = ""
-        if expr.literalValue != "" and expr.literalValue != "this" {
-            receiverVarType = findVarType(expr.literalValue)
-            if receiverVarType == "" {
-                receiverMethodRetType = getMethodReturnTypeState(expr.literalValue,
-                    expr.callee)
-                let staticOwnerType = getBaseTypeNameImpl(expr.literalValue)
-                if staticOwnerType != expr.literalValue {
-                    baseOwnerMethodRetType = getMethodReturnTypeState(
-                        staticOwnerType, expr.callee)
-                }
-            }
-        }
-        return inferDeclaredStaticMethodCallTypeImpl(expr.literalValue,
-            receiverVarType, receiverMethodRetType, baseOwnerMethodRetType)
-    }
-
-    fun tryInferStaticFactoryMethodType(expr: ParserExpressionNode) r: String {
-        return inferStaticFactoryMethodTypeImpl(expr.callee,
-            expr.literalValue, getBaseTypeNameImpl(expr.literalValue))
-    }
-
-    fun tryInferStaticFromJsonMethodType(expr: ParserExpressionNode) r: String {
-        var staticRetType = ""
-        if expr.callee == "fromJson" and expr.literalValue != "" and
-            expr.literalValue != "this" {
-            staticRetType = getMethodReturnTypeState(expr.literalValue, "fromJson")
-        }
-        return inferStaticFromJsonMethodTypeImpl(expr.callee,
-            expr.literalValue, staticRetType)
-    }
-
-    fun tryInferStaticMethodCallType(expr: ParserExpressionNode) r: String {
-        let declaredStaticType = tryInferDeclaredStaticMethodCallType(expr)
-        if declaredStaticType != "" {
-            return declaredStaticType
-        }
-        let staticFactoryType = tryInferStaticFactoryMethodType(expr)
-        if staticFactoryType != "" {
-            return staticFactoryType
-        }
-        return tryInferStaticFromJsonMethodType(expr)
-    }
-
-    fun tryInferBuiltinReceiverMethodCallType(expr: ParserExpressionNode, receiverType: String) r: String {
-        if expr.callee == "get" {
-            traceGen("inferExpressionType: get() recType=" + receiverType +
-                " literalValue=" + expr.literalValue + " operands=" +
-                expr.operands.length().toString())
-        }
-        var isClassInner = 0
-        if isClassTypeState(receiverType) {
-            isClassInner = 1
-        }
-        return tryInferBuiltinReceiverMethodCallTypeState(expr.callee,
-            receiverType, isClassInner)
-    }
-
-    fun tryInferReceiverRegistryMethodCallType(expr: ParserExpressionNode, receiverType: String) r: String {
-        var simdFlag = 0
-        if isSimdVectorTypeImpl(receiverType) == 1 {
-            simdFlag = 1
-        }
-        let registeredMethodRetType = getMethodReturnTypeState(receiverType,
-            expr.callee)
-        return inferReceiverRegistryMethodCallTypeImpl(expr.callee,
-            receiverType, simdFlag, registeredMethodRetType)
-    }
-
-    fun tryInferLateMethodCallFallbackType(expr: ParserExpressionNode) r: String {
-        let mcTable = inferMethodCallTypeTable(expr.callee)
-        var implicitMethodRetType = ""
-        if currentClassName != "" {
-            implicitMethodRetType = getMethodReturnTypeState(currentClassName,
-                expr.callee)
-        }
-        let freeFuncRetType = getFunctionReturnTypeStateImpl(expr.callee,
-            funcNames, funcRetTypes)
-        var asyncFlag = 0
-        if isAsyncFunctionStateImpl(expr.callee, g_asyncFuncNames,
-            g_asyncFuncCount) {
-            asyncFlag = 1
-        }
-        let boolSuffixType = inferMethodCallBoolSuffixImpl(expr.callee,
-            funcNames, funcRetTypes)
-        return inferLateMethodCallFallbackTypeImpl(mcTable,
-            implicitMethodRetType, freeFuncRetType, asyncFlag,
-            boolSuffixType)
-    }
-
-    fun inferMethodCallExprTypeLocal(expr: ParserExpressionNode) r: String {
-        let methodInferPlan = planMethodCallInferenceImpl()
-        if methodInferPlan.shouldTryImplicitOrFree {
-            let implicitOrFreeResult = tryInferImplicitOrFreeMethodCallType(expr)
-            if implicitOrFreeResult != "" {
-                return implicitOrFreeResult
-            }
-        }
-
-        var receiverType = ""
-        if methodInferPlan.shouldResolveReceiverType {
-            receiverType = resolveMethodCallReceiverType(expr)
-        }
-        if methodInferPlan.shouldTryReceiverRegistry {
-            let receiverRegistryType =
-                tryInferReceiverRegistryMethodCallType(expr, receiverType)
-            if receiverRegistryType != "" {
-                return receiverRegistryType
-            }
-        }
-
-        if methodInferPlan.shouldTryStatic {
-            let staticResult = tryInferStaticMethodCallType(expr)
-            if staticResult != "" {
-                return staticResult
-            }
-        }
-
-        if methodInferPlan.shouldTryBuiltinReceiver {
-            let builtinReceiverResult =
-                tryInferBuiltinReceiverMethodCallType(expr, receiverType)
-            if builtinReceiverResult != "" {
-                return builtinReceiverResult
-            }
-        }
-        if methodInferPlan.shouldTryLateFallback {
-            return tryInferLateMethodCallFallbackType(expr)
-        }
-        return ""
-    }
-
-    fun tryInferGeneratedCallType(expr: ParserExpressionNode) r: String {
-        let generatedPlan = planGeneratedCallInferenceImpl(expr.callee,
-            isSimdVectorTypeImpl(expr.callee))
-        var newBaseType = ""
-        var newBaseTypeKnown = 0
-        if generatedPlan.action == 2 {
-            newBaseType = generatedPlan.baseType
-            if isClassTypeState(newBaseType) or isDataTypeState(newBaseType) or
-                findStructReg(newBaseType, structNames) >= 0 {
-                newBaseTypeKnown = 1
-            }
-        }
-        var fromJsonBaseType = ""
-        var fromJsonRet = ""
-        var fromJsonBaseTypeKnown = 0
-        if generatedPlan.action == 3 {
-            fromJsonBaseType = generatedPlan.baseType
-            fromJsonRet = getMethodReturnTypeState(fromJsonBaseType, "fromJson")
-            if isClassTypeState(fromJsonBaseType) or isDataTypeState(fromJsonBaseType) or
-                findStructReg(fromJsonBaseType, structNames) >= 0 {
-                fromJsonBaseTypeKnown = 1
-            }
-        }
-        return inferGeneratedCallTypeImpl(expr.callee,
-            generatedPlan.isSimdCallee, newBaseType, newBaseTypeKnown,
-            fromJsonBaseType, fromJsonRet,
-            fromJsonBaseTypeKnown)
-    }
-
-    fun tryInferBuiltinCallExprType(expr: ParserExpressionNode) r: String {
-        var isVariantCall = false
-        if g_enumVariantCount > 0 {
-            isVariantCall = isEnumVariantStateImpl(expr.callee,
-                g_enumVariantNames, g_enumVariantCount)
-        }
-        let builtinPlan = planBuiltinCallInferenceImpl(expr.callee,
-            expr.arguments.length(), g_enumVariantCount, isVariantCall)
-        var selectedArgType = ""
-        if builtinPlan.shouldInferSelectedArg {
-            selectedArgType =
-                inferExpressionType(expr.arguments[builtinPlan.selectedArgIndex])
-        }
-        let builtinType = inferCallExprTypeImpl(expr.callee)
-        var enumParentType = ""
-        if builtinPlan.shouldLookupEnumParent {
-            enumParentType = lookupEnumParentStateImpl(expr.callee,
-                g_enumVariantNames, g_enumVariantParent, g_enumVariantCount)
-        }
-        return inferBuiltinCallExprTypeStateImpl(expr.callee, selectedArgType,
-            builtinType, enumParentType)
-    }
-
-    fun tryInferResolvedCallExprType(expr: ParserExpressionNode) r: String {
-        let resolvedPlan = planResolvedCallInferenceImpl(currentClassName)
-        let userRetType = getFunctionReturnTypeStateImpl(expr.callee,
-            funcNames, funcRetTypes)
-        var asyncFlag = 0
-        if isAsyncFunctionStateImpl(expr.callee, g_asyncFuncNames,
-            g_asyncFuncCount) {
-            asyncFlag = 1
-        }
-        let callTable = inferCallTypeTable(expr.callee)
-        var classCall = 0
-        if isClassTypeState(expr.callee) {
-            classCall = 1
-        }
-        var implicitMethodRetType = ""
-        if resolvedPlan.shouldLookupImplicitMethodReturn {
-            implicitMethodRetType = getMethodReturnTypeState(currentClassName,
-                expr.callee)
-        }
-        return inferResolvedCallExprTypeImpl(expr.callee, userRetType,
-            asyncFlag, callTable, classCall, implicitMethodRetType)
-    }
-
-    fun inferCallExprTypeLocal(expr: ParserExpressionNode) r: String {
-        let generatedCallType = tryInferGeneratedCallType(expr)
-        if generatedCallType != "" {
-            return generatedCallType
-        }
-        let builtinCallType = tryInferBuiltinCallExprType(expr)
-        if builtinCallType != "" {
-            return builtinCallType
-        }
-        return tryInferResolvedCallExprType(expr)
-    }
-
-    fun inferMemberAccessExprTypeLocal(expr: ParserExpressionNode) r: String {
-        let memberPlan = planMemberAccessInferenceImpl(expr.literalValue,
-            expr.operands.length(), g_enumVariantCount)
-        if memberPlan.shouldTrySimdSwizzle {
-            let swizzleType = inferSimdSwizzleMemberTypeImpl(
-                findVarType(expr.literalValue), expr.variableName)
-            if swizzleType != "" {
-                return swizzleType
-            }
-        }
-        if memberPlan.shouldTryEnumVariant {
-            if isEnumVariantStateImpl(expr.variableName, g_enumVariantNames,
-                g_enumVariantCount) {
-                let enumParent = lookupEnumParentStateImpl(expr.variableName,
-                    g_enumVariantNames, g_enumVariantParent,
-                    g_enumVariantCount)
-                if enumParent != "" and enumParent == expr.literalValue {
-                    return enumParent
-                }
-            }
-        }
-        let fieldName = extractLastMemberFieldSegmentImpl(expr.variableName)
-        var operandReceiverType = ""
-        if memberPlan.shouldInferOperandReceiver {
-            operandReceiverType = inferExpressionType(expr.operands[0])
-        }
-        var literalValueType = ""
-        if memberPlan.shouldFindLiteralValueType {
-            literalValueType = findVarType(expr.literalValue)
-        }
-        let jsonFieldType = inferJsonValueMemberAccessTypeImpl(fieldName,
-            operandReceiverType, expr.literalValue, currentClassName,
-            literalValueType, structNames, structFieldNames, structFieldTypes)
-        if jsonFieldType != "" {
-            return jsonFieldType
-        }
-        var literalReceiverFieldType = ""
-        if memberPlan.shouldTryLiteralReceiver {
-            var chainedPathType = ""
-            var thisType = ""
-            let thisIdx = findActiveVariableIndexImpl(this.varNames, activeVarCount, "this")
-            if thisIdx >= 0 {
-                thisType = this.varTypes[thisIdx]
-            }
-            if expr.literalValue.contains(".") {
-                chainedPathType = resolveChainedPathType(expr.literalValue)
-                if chainedPathType == "" and thisType != "" {
-                    chainedPathType = resolveMethodFieldPathTypeImpl(thisType,
-                        expr.literalValue, structNames, structFieldNames,
-                        structFieldTypes, structMethodNames,
-                        structMethodRetTypes)
-                }
-            }
-            literalReceiverFieldType = inferLiteralReceiverMemberAccessTypeImpl(
-                expr.literalValue, fieldName, chainedPathType, literalValueType,
-                thisType, structNames, structFieldNames, structFieldTypes)
-        }
-        let directFieldType = inferDirectMemberAccessTypeImpl(fieldName,
-            expr.literalValue, currentClassName, operandReceiverType,
-            literalReceiverFieldType, structNames, structFieldNames,
-            structFieldTypes)
-        if directFieldType != "" {
-            return directFieldType
-        }
-        let fieldFallback = inferFieldTypeFallback(fieldName)
-        if fieldFallback != "" { return fieldFallback }
-        return ""
-    }
-
-    fun inferLiteralExprTypeLocal(expr: ParserExpressionNode) r: String {
-        return inferLiteralTypeImpl(expr.literalType, expr.literalValue)
-    }
-
-    fun inferIndexAccessExprTypeLocal(expr: ParserExpressionNode) r: String {
-        if expr.kind != "IndexAccess" {
-            return ""
-        }
-        if expr.operands.length() == 0 {
-            return "ptr"
-        }
-        let arrayType = inferExpressionType(expr.operands[0])
-        let indexedElementType = inferIndexElementType(arrayType)
-        return inferIndexAccessExprTypeImpl(arrayType, indexedElementType)
-    }
-
-    fun inferArrayLiteralExprTypeLocal(expr: ParserExpressionNode) r: String {
-        if expr.kind != "ArrayLiteral" {
-            return ""
-        }
-        var knownArrayType = ""
-        if expr.arguments.length() > 0 {
-            let firstElemType = inferExpressionType(expr.arguments[0])
-            knownArrayType = inferKnownArrayLiteralTypeImpl(firstElemType)
-        }
-        return inferArrayLiteralExprTypeImpl(expr.arguments.length(),
-            knownArrayType)
-    }
-
-    fun inferStringInterpolationExprTypeLocal(expr: ParserExpressionNode) r: String {
-        if expr.kind != "StringInterpolation" {
-            return ""
-        }
-        initCollectionBoxes()
-        let inferredType = inferStringInterpolationExprTypeStateImpl(
-            expr.kind, expr.arguments, expr.operands, this.stringConstants,
-            g_callCountNamesBox, g_callCountEntriesBox)
-        syncCollectionBoxes()
-        return inferredType
-    }
-
-    fun inferUnaryExprTypeLocal(expr: ParserExpressionNode) r: String {
-        if expr.kind != "Unary" {
-            return ""
-        }
-        var operandType = ""
-        if expr.operands.length() > 0 {
-            operandType = inferExpressionType(expr.operands[0])
-        }
-        return inferUnaryExprTypeImpl(expr.operator, expr.operands.length(),
-            operandType)
-    }
-
-    fun inferAwaitExprTypeLocal(expr: ParserExpressionNode) r: String {
-        if expr.kind != "Await" {
-            return ""
-        }
-        var innerKind = ""
-        var innerType = ""
-        var asyncRetType = ""
-        var functionRetType = ""
-        if expr.operands.length() > 0 {
-            let inner = expr.operands[0]
-            innerKind = inner.kind
-            innerType = inferExpressionType(inner)
-            if inner.kind == "Call" {
-                asyncRetType = getAsyncDeclaredRetTypeStateImpl(inner.callee,
-                    g_asyncFuncNames, g_asyncFuncRetTypes,
-                    g_asyncFuncCount)
-                functionRetType = getFunctionReturnTypeStateImpl(inner.callee,
-                    funcNames, funcRetTypes)
-            }
-        }
-        return inferAwaitExprTypeImpl(expr.operands.length(), innerKind,
-            asyncRetType, functionRetType, innerType)
-    }
-
-    fun inferTryPropagateExprTypeLocal(expr: ParserExpressionNode) r: String {
-        if expr.kind != "TryPropagate" {
-            return ""
-        }
-        var tryInnerType = ""
-        var tryResultType = ""
-        if expr.operands.length() > 0 {
-            tryInnerType = inferExpressionType(expr.operands[0])
-            tryResultType = resolveTryPropagateTypeImpl(tryInnerType)
-        }
-        return inferTryPropagateExprTypeImpl(expr.operands.length(),
-            tryResultType, tryInnerType)
-    }
-
-    fun tryInferNullishSpecialExprType(expr: ParserExpressionNode) r: String {
-        var operandType = ""
-        if (expr.kind == "Elvis" or expr.kind == "NullCoalesce") and
-            expr.operands.length() > 0 {
-            operandType = inferExpressionType(expr.operands[0])
-        }
-        return inferNullishSpecialExprTypeImpl(expr.kind, operandType)
-    }
-
-    fun tryInferBranchingSpecialExprType(expr: ParserExpressionNode) r: String {
-        var firstBranchType = ""
-        if expr.kind == "WhenExpression" {
-            if expr.arguments.length() > 0 {
-                let firstArm = expr.arguments[0]
-                if firstArm.operands.length() > 1 {
-                    firstBranchType = inferExpressionType(firstArm.operands[1])
-                }
-            }
-        }
-        if expr.kind == "IfExpression" {
-            if expr.operands.length() > 1 {
-                firstBranchType = inferExpressionType(expr.operands[1])
-            }
-        }
-        return inferBranchingSpecialExprTypeImpl(expr.kind, firstBranchType)
-    }
-
-    fun tryInferFixedSpecialExprType(expr: ParserExpressionNode) r: String {
-        let tryPropagateType = inferTryPropagateExprTypeLocal(expr)
-        return inferFixedSpecialExprTypeImpl(expr.kind, expr.literalValue,
-            tryPropagateType)
-    }
-
-    fun inferSpecialExprTypeLocal(expr: ParserExpressionNode) r: String {
-        let specialPlan = planSpecialExprInferenceImpl(expr.kind)
-        var indexType = ""
-        if specialPlan.shouldTryIndexAccess {
-            indexType = inferIndexAccessExprTypeLocal(expr)
-        }
-        var arrayLiteralType = ""
-        if specialPlan.shouldTryArrayLiteral {
-            arrayLiteralType = inferArrayLiteralExprTypeLocal(expr)
-        }
-        var stringInterpolationType = ""
-        if specialPlan.shouldTryStringInterpolation {
-            stringInterpolationType = inferStringInterpolationExprTypeLocal(expr)
-        }
-        var unaryType = ""
-        if specialPlan.shouldTryUnary {
-            unaryType = inferUnaryExprTypeLocal(expr)
-        }
-        var awaitType = ""
-        if specialPlan.shouldTryAwait {
-            awaitType = inferAwaitExprTypeLocal(expr)
-        }
-        var nullishSpecialType = ""
-        if specialPlan.shouldTryNullish {
-            nullishSpecialType = tryInferNullishSpecialExprType(expr)
-        }
-        var branchingSpecialType = ""
-        if specialPlan.shouldTryBranching {
-            branchingSpecialType = tryInferBranchingSpecialExprType(expr)
-        }
-        var fixedSpecialType = ""
-        if specialPlan.shouldTryFixed {
-            fixedSpecialType = tryInferFixedSpecialExprType(expr)
-        }
-        return inferSpecialExprTypeImpl(expr.kind, expr.literalType,
-            indexType, arrayLiteralType, stringInterpolationType, unaryType,
-            awaitType, nullishSpecialType, branchingSpecialType,
-            fixedSpecialType)
-    }
-
-    ///
-    Infer the Seen type of an expression for codegen decisions (operator
-    selection, ABI, field access type, etc.). This is NOT the typechecker —
-    it operates during codegen and uses the variable/function/struct registries
-    built during Pass 1. Handles: literals (by literalType), variables (via
-    findVarType + module constants), calls (via getFunctionReturnType +
-    special cases for constructors and builtins), method calls (via
-    inferMethodCallTypeTable), binary ops (type promotion rules), member
-    access (struct field type lookup), index access (element type inference),
-    array literals, struct literals, casts, string interpolation, etc.
-    Returns the Seen type name (e.g., "Int", "String", "MyClass") or ""
-    if inference fails.
-    ///
     fun inferExpressionType(expr: ParserExpressionNode) r: String {
-        let dispatchPlan = planExprInferenceDispatchImpl(expr.kind)
-        if dispatchPlan.action == 1 {
-            return inferLiteralExprTypeLocal(expr)
-        }
-        if dispatchPlan.action == 2 {
-            let variableResult = inferVariableExprTypeLocal(expr)
-            if variableResult != "" {
-                return variableResult
-            }
-        }
-        if dispatchPlan.action == 3 {
-            return inferBinaryExprTypeLocal(expr)
-        }
-        if dispatchPlan.action == 4 {
-            let methodCallResult = inferMethodCallExprTypeLocal(expr)
-            if methodCallResult != "" {
-                return methodCallResult
-            }
-        }
-        if dispatchPlan.action == 5 {
-            let callResult = inferCallExprTypeLocal(expr)
-            if callResult != "" {
-                return callResult
-            }
-        }
-        if dispatchPlan.action == 6 {
-            let memberAccessResult = inferMemberAccessExprTypeLocal(expr)
-            if memberAccessResult != "" {
-                return memberAccessResult
-            }
-        }
-        if dispatchPlan.action == 7 {
-            let specialExprResult = inferSpecialExprTypeLocal(expr)
-            if specialExprResult != "" {
-                return specialExprResult
-            }
-        }
-        return "Int"
+        return inferExpressionTypeState(expr, this.varNames, this.varTypes,
+            this.stringConstants)
     }
 
     ///

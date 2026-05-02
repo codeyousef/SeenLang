@@ -1,0 +1,57 @@
+// ir_method_lower_driver.seen - prepared lower-half method-call emitters.
+
+import str.string.{StringBuilder}
+import codegen.ir_codegen_feature_state.{g_regBox, g_reprCClassNames}
+import codegen.ir_codegen_global_state.{structNames}
+import codegen.ir_method_lower_plan.{MethodLowerCallPlan, shouldWarnUnresolvedCollectionGetImpl}
+import codegen.ir_method_receiver_predicates.{isArrayReceiverTypeImpl, isCollectionReceiverTypeImpl}
+import codegen.ir_method_lower_emit.{emitPreparedNonArgMethodLowerDispatchImpl, emitPreparedHotReloadMethodLowerImpl, emitPreparedUnresolvedCollectionGetWarningImpl}
+import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
+
+fun tryEmitMethodLowerNoArgDriver(output: StringBuilder,
+    methodName: String, receiverReg: String, receiverType: String,
+    lowerPlan: MethodLowerCallPlan) r: String {
+
+    let nonArgLowerResult = emitPreparedNonArgMethodLowerDispatchImpl(
+        output, g_regBox, lowerPlan.shouldTryLengthLike, false, methodName,
+        receiverReg, receiverType, g_reprCClassNames, structNames)
+    if nonArgLowerResult != "" {
+        return nonArgLowerResult
+    }
+    return ""
+}
+
+fun tryEmitMethodPrimitiveConversionDriver(output: StringBuilder,
+    methodName: String, receiverReg: String, receiverType: String,
+    lowerPlan: MethodLowerCallPlan) r: String {
+
+    let conversionResult = emitPreparedNonArgMethodLowerDispatchImpl(
+        output, g_regBox, false, lowerPlan.shouldTryPrimitiveConversion,
+        methodName, receiverReg, receiverType, g_reprCClassNames, structNames)
+    if conversionResult != "" {
+        return conversionResult
+    }
+    return ""
+}
+
+fun tryEmitMethodUnresolvedCollectionGetWarningDriver(output: StringBuilder,
+    methodName: String, receiverType: String, literalValue: String) r: String {
+
+    if shouldWarnUnresolvedCollectionGetImpl(methodName,
+        isArrayReceiverTypeImpl(receiverType),
+        isCollectionReceiverTypeImpl(receiverType)) {
+
+        return emitPreparedUnresolvedCollectionGetWarningImpl(output,
+            receiverType, literalValue)
+    }
+    return ""
+}
+
+fun tryEmitMethodHotReloadLoweringDriver(output: StringBuilder,
+    methodName: String, funcName: String, receiverReg: String,
+    receiverType: String, hotStateArg: String) r: String {
+
+    return emitPreparedHotReloadMethodLowerImpl(output, g_regBox, methodName,
+        quoteIdentIfNeededImpl(funcName), receiverReg, receiverType,
+        hotStateArg, structNames)
+}

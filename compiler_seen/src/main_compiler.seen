@@ -68,9 +68,11 @@ import codegen.ir_enum_lookup.{lookupEnumVariantTagImpl, lookupEnumParentImpl, l
 import codegen.ir_decl_registry.{recordLateUserDeclareIntoStateImpl, captureDeclarationPassStateImpl, captureLateUserDeclareStateImpl, captureParentClassRegistryStateImpl, registerCrossModuleConstantsIntoStateImpl, registerParentClassIntoStateImpl, resetLateUserDeclareStateImpl}
 import codegen.ir_decl_items.{registerPreparedDeclarationItemsIntoStateImpl}
 import codegen.ir_decl_pass_driver.{beginDeclarationRegistrationPassImpl, finishDeclarationRegistrationPassImpl}
+import codegen.ir_decl_state_driver.{applyDeclarationPassState, captureLateUserDeclareState, applyLateUserDeclareState}
 import codegen.ir_decl_default_params.{collectDefaultParamStringConstantsImpl}
 import codegen.ir_decl_return_types.{resolveMethodReturnTypeImpl}
 import codegen.ir_module_constants.{findModuleConstantIntoStateImpl, captureModuleConstantRegistryStateImpl, narrowModuleConstantLoadIfNeededImpl, tryInferModuleConstantVariableTypeSnapshotImpl, findModuleConstantSnapshotImpl, emitGlobalVariablesSnapshotImpl, resetModuleConstantGenerationStateImpl}
+import codegen.ir_module_lookup_driver.{findModuleConstant}
 import codegen.ir_type_info_generator_layout.{getLLVMIRGeneratorFieldIndexTableImpl, getLLVMIRGeneratorFieldLlvmTypeTableImpl, getLLVMIRGeneratorStructLayoutTableImpl}
 import codegen.ir_seen_field_type_lookup.{getSeenFieldTypeImpl}
 import codegen.ir_seen_field_type_registered.{getSeenFieldTypeEmptyRegistryFallbackImpl}
@@ -86,6 +88,7 @@ import codegen.ir_header_field_types.{getFieldTypeForHeaderStructImpl}
 import codegen.ir_known_struct_field_types.{getFieldTypeForKnownStructImpl}
 import codegen.ir_index_element_types.{inferIndexElementTypeImpl}
 import codegen.ir_local_type_fallback.{tryInferImplicitThisVariableTypeImpl}
+import codegen.ir_local_type_leaf_driver.{findVarTypeState, inferVariableExprTypeLocalState, tryInferLLVMIRGeneratorThisFieldType, tryInferStructThisFieldType, tryInferNamedPrimitiveVariableType}
 import codegen.ir_async_registry.{registerAsyncFunctionImpl}
 import codegen.ir_async_await.{emitAwaitPollLoopImpl, emitAwaitResultValueImpl}
 import codegen.ir_async_return.{prepareAsyncReturnValuePlanImpl, emitAsyncReturnValueBranchImpl, emitAsyncReturnVoidBranchImpl}
@@ -125,6 +128,7 @@ import codegen.ir_simd_builtin_emit.{emitSimdBuiltinImpl}
 import codegen.ir_string_builder_cast_emit.{emitStringBuilderMethodImpl, emitCastExprImpl}
 import codegen.ir_control_flow.{detectMemcpyPatternImpl}
 import codegen.ir_loop_context.{emitLoopMetadataImpl}
+import codegen.ir_loop_metadata_driver.{appendLoopTileHint, appendNestedLoopMetadataId, appendReductionLoopMetadataId}
 import codegen.ir_loop_plan.{planMemcpyOptimizedWhileLoopImpl, iteratorProtocolFunctionNameImpl, isRangeForInIterableImpl}
 import codegen.ir_call_constructors.{emitStaticCollectionNewImpl, isArrayConstructorNameImpl, resolveArrayConstructorElementTypeImpl, resolveArrayConstructorElementSizeImpl, isSmallVecConstructorNameImpl, isCollectionConstructorNameImpl, emitCollectionConstructorImpl}
 import codegen.ir_call_args.{fillDefaultParamsImpl}
@@ -141,6 +145,8 @@ import codegen.ir_call_comptime_param.{applyComptimeParamSpecializationState}
 import codegen.ir_call_dispatch.{emitUserFunctionCallImpl}
 import codegen.ir_call_fixups.{isStandaloneParserWorkaroundImpl}
 import codegen.ir_constructor_call_plan.{planArrayConstructorCallImpl, shouldEmitSmallVecConstructorImpl, isReprCConstructorTypeImpl}
+import codegen.ir_expr_leaf_driver.{getExprVariableName, isExprBool, isReprCConstructorType, inferLiteralExprTypeLocal}
+import codegen.ir_expr_type_driver.{resolveChainedPathTypeState, resolveLiteralMethodReceiverTypeState, inferExpressionTypeState}
 import codegen.ir_constructor_field_plan.{planNextConstructorFieldTypeImpl, planConstructorFieldStoreImpl}
 import codegen.ir_constructor_field_emit.{emitPreparedReprCConstructorImpl, emitPreparedClassConstructorFieldStoreImpl}
 import codegen.ir_method_finalize.{normalizeInstanceMethodTypeNameImpl, emitPreparedFinalMethodDispatchState}
@@ -151,10 +157,12 @@ import codegen.ir_method_fastpath_emit.{emitPreparedOptionReceiverFastPathImpl, 
 import codegen.ir_method_static_dispatch.{emitPreparedStaticMethodDispatchState}
 import codegen.ir_method_array_mutator_emit.{resolveArrayFreeReceiverTypeStateImpl, shouldResolveArrayFreeMutatorPointerStateImpl, emitPreparedArrayFreeMutatorMethodStateImpl, emitPreparedArrayPushMutatorMethodStateImpl, emitPreparedArrayPopMutatorMethodStateImpl, emitPreparedArraySwapMutatorMethodStateImpl}
 import codegen.ir_method_lower_plan.{planMethodLowerCallImpl, methodLowerStringBuilderArgActionForArgsImpl, shouldUseMethodLowerUnwrapTraceSourceImpl}
+import codegen.ir_method_lower_driver.{tryEmitMethodLowerNoArgDriver, tryEmitMethodPrimitiveConversionDriver, tryEmitMethodUnresolvedCollectionGetWarningDriver, tryEmitMethodHotReloadLoweringDriver}
 import codegen.ir_method_lower_emit.{emitPreparedUnresolvedReceiverDefaultImpl, emitPreparedNonArgMethodLowerDispatchImpl, emitPreparedStringBuilderMethodLowerImpl, emitPreparedNumericMethodLowerImpl, emitPreparedStringLikeMethodLowerImpl, emitPreparedHotReloadMethodLowerImpl, emitPreparedSpecializedMethodLowerImpl, emitPreparedUserMethodLowerImpl}
 import codegen.ir_method_final_plan.{planMethodUnresolvedReceiverStartImpl, planMethodUnresolvedReceiverFinalImpl, planMethodFinalDispatchImpl}
 import codegen.ir_method_receiver_lookup_plan.{planMethodReceiverInitialPhaseImpl, planMethodReceiverPostLookupPhaseImpl, planMethodReceiverPostResolutionPhaseImpl, planDottedReceiverStageImpl, planDottedReceiverFallbackStageImpl, planSimpleLiteralReceiverStageImpl}
 import codegen.ir_method_receiver_lookup_gen.{emitLocalMethodReceiverLoadImpl, emitModuleConstantMethodReceiverLoadImpl, tryResolveImplicitThisDottedMethodReceiverStateImpl, tryResolveImplicitThisLiteralMethodReceiverStateImpl}
+import codegen.ir_infer_method_leaf_driver.{tryInferExplicitThisMethodCallType, tryInferBareMethodOrFunctionCallType, tryInferImplicitOrFreeMethodCallType, tryInferStaticFactoryMethodType, tryInferStaticFromJsonMethodType, tryInferStaticMethodCallTypeState, tryInferBuiltinReceiverMethodCallType, tryInferReceiverRegistryMethodCallType, tryInferLateMethodCallFallbackType, tryInferGeneratedCallType, tryInferResolvedCallExprType}
 import codegen.ir_infer_type.{inferCallExprTypeImpl}
 import codegen.ir_special_expr_infer.{inferSpecialExprTypeImpl}
 import codegen.ir_expr_infer_plan.{planExprInferenceDispatchImpl, planMethodCallInferenceImpl, planGeneratedCallInferenceImpl, planBuiltinCallInferenceImpl, planResolvedCallInferenceImpl, planMemberAccessInferenceImpl, planSpecialExprInferenceImpl}
@@ -188,6 +196,8 @@ import codegen.ir_class_type_decorators.{ClassTypeDecoratorState}
 import codegen.ir_class_type_special.{tryEmitSpecialClassTypeDecoratorImpl}
 import codegen.ir_class_gen_support.{scanGeneratedClassDecoratorsImpl}
 import codegen.ir_class_type_alias_state.{emitTraitVtableTypeState, tryHandleTypeAliasClassState}
+import codegen.ir_class_type_guard_driver.{hasGeneratedClassType, tryReuseHeaderLoadedClassType}
+import codegen.ir_class_type_driver.{emitClassTypeState}
 import codegen.ir_class_generated_features.{emitGeneratedClassDecoratorMethodsImpl}
 import codegen.ir_field_registry.{resolveFieldIndexImpl, findCachedIrgenFieldIndexImpl, cacheIrgenFieldIndexImpl, findCachedChainedPathTypeRecordImpl, cacheChainedPathTypeImpl, resetFieldLookupCacheStateImpl}
 import codegen.ir_assignment_coerce.{coerceAssignmentStoreValueCoreImpl}
@@ -217,6 +227,7 @@ import codegen.ir_stmt_dead_code.{scanBlockDeadStorePatternsSnapshotImpl, emitTr
 import codegen.ir_stmt_comptime.{ComptimeRegistryStateSnapshot, classifyComptimeStatementKindImpl, shouldProcessComptimeLetImpl, shouldContinueComptimeWhileImpl, classifyComptimeAssertResultImpl, registerComptimeVarSnapshotImpl, updateComptimeVarSnapshotImpl, registerComptimeStrVarSnapshotImpl, registerComptimeVarState, updateComptimeVarState, registerComptimeStrVarState, evaluateConstExprStrState, evaluateConstExprState, lookupComptimeVarState, parseSimpleIntState}
 import codegen.ir_stmt_return.{emitErrdeferTempReturnLoadImpl, emitProfileExitOnReturnImpl, emitReturnRegionAndProfileCleanupImpl, emitFinalReturnStatementValueImpl}
 import codegen.ir_stmt_scope.{recordDeferredStatementSnapshotImpl, beginTryCatchStatementSnapshotImpl}
+import codegen.ir_stmt_defer_driver.{generateDeferredStatement}
 import codegen.type_registry_cache.{cachedStructNameMatches}
 import codegen.type_registry_core.{findStructReg}
 import codegen.ir_codegen_state.{CodegenState}
@@ -3071,10 +3082,13 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_decl_registry")
         modules.push("codegen.ir_decl_items")
         modules.push("codegen.ir_decl_pass_driver")
+        modules.push("codegen.ir_decl_state_driver")
         modules.push("codegen.ir_decl_default_params")
         modules.push("codegen.ir_decl_return_types")
         modules.push("codegen.ir_module_constants")
+        modules.push("codegen.ir_module_lookup_driver")
         modules.push("codegen.ir_local_type_fallback")
+        modules.push("codegen.ir_local_type_leaf_driver")
         modules.push("codegen.ir_async_registry")
         modules.push("codegen.ir_async_await")
         modules.push("codegen.ir_async_return")
@@ -3114,6 +3128,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_simd_builtin_emit")
         modules.push("codegen.ir_string_builder_cast_emit")
         modules.push("codegen.ir_loop_context")
+        modules.push("codegen.ir_loop_metadata_driver")
         modules.push("codegen.ir_control_flow")
         modules.push("codegen.ir_loop_plan")
         modules.push("codegen.ir_call_constructors")
@@ -3131,6 +3146,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_call_dispatch")
         modules.push("codegen.ir_call_fixups")
         modules.push("codegen.ir_constructor_call_plan")
+        modules.push("codegen.ir_expr_leaf_driver")
         modules.push("codegen.ir_constructor_field_plan")
         modules.push("codegen.ir_constructor_field_emit")
         modules.push("codegen.ir_method_finalize")
@@ -3181,6 +3197,8 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_class_type_special")
         modules.push("codegen.ir_class_gen_support")
         modules.push("codegen.ir_class_type_alias_state")
+        modules.push("codegen.ir_class_type_guard_driver")
+        modules.push("codegen.ir_class_type_driver")
         modules.push("codegen.ir_class_generated_features")
         modules.push("codegen.ir_field_registry")
         modules.push("codegen.ir_assignment_coerce")
@@ -3200,11 +3218,14 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_method_static_dispatch")
         modules.push("codegen.ir_method_array_mutator_emit")
         modules.push("codegen.ir_method_lower_plan")
+        modules.push("codegen.ir_method_lower_driver")
         modules.push("codegen.ir_method_final_plan")
         modules.push("codegen.ir_method_receiver_lookup_plan")
         modules.push("codegen.ir_method_fastpath")
         modules.push("codegen.ir_method_lower_emit")
         modules.push("codegen.ir_method_receiver_lookup_gen")
+        modules.push("codegen.ir_infer_method_leaf_driver")
+        modules.push("codegen.ir_expr_type_driver")
         modules.push("codegen.ir_binary_expr")
         modules.push("codegen.ir_binary_emit")
         modules.push("codegen.ir_binary_plan")
@@ -3215,6 +3236,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_class_constructor_gen")
         modules.push("codegen.ir_class_method_gen")
         modules.push("codegen.ir_stmt_scope")
+        modules.push("codegen.ir_stmt_defer_driver")
         modules.push("codegen.ir_stmt_decl")
         modules.push("codegen.ir_stmt_gen")
         modules.push("codegen.ir_stmt_select_plan")
@@ -5943,10 +5965,6 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         }
     }
 
-    if tryUseGeneratedTestObjectSetCacheForInput(resolvedInput, cacheSignature, normalizedCrossTarget) {
-        return 0
-    }
-
     ///
     ============================================================
     Circular dependency detection
@@ -5970,7 +5988,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             boundedLargeProjectWorkers.toString() + " jobs, opt " +
             boundedLargeProjectOptWorkers.toString() + " jobs")
     }
-    if tryUseCompleteGeneratedTestObjectCache(modulePaths, cacheSignature, normalizedCrossTarget) {
+    if useCache and tryUseCompleteGeneratedTestObjectCache(modulePaths, cacheSignature, normalizedCrossTarget) {
         storeGeneratedTestObjectSetCache(resolvedInput, modulePaths, cacheSignature, normalizedCrossTarget)
         return 0
     }
@@ -6239,7 +6257,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     while moduleIndex < modulePaths.length() {
         let path = modulePaths[moduleIndex]
         var generatedTestObjectCacheKey = ""
-        if g_generatedTestMainMode == 1 and normalizedCrossTarget != "android-arm64" {
+        if useCache and g_generatedTestMainMode == 1 and normalizedCrossTarget != "android-arm64" {
             generatedTestObjectCacheKey = generatedTestObjectCacheKeyForModule(path, cacheSignature)
             if tryCopyGeneratedTestObjectFromCache(generatedTestObjectCacheKey, moduleIndex) {
                 let cachedTestObj = "/tmp/seen_module_" + moduleIndex.toString() + ".o"
@@ -6410,7 +6428,9 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                             println("    Error: object emission failed for module " + moduleIndex.toString())
                             processExit(1)
                         }
-                        storeGeneratedTestObjectInCache(generatedTestObjectCacheKey, objFile)
+                        if useCache and generatedTestObjectCacheKey != "" {
+                            storeGeneratedTestObjectInCache(generatedTestObjectCacheKey, objFile)
+                        }
                     }
                     if g_generatedTestMainMode == 0 {
                         writeText(statusFile, "wrote_ir\n" + llFile)
@@ -6965,7 +6985,9 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         return 0
     }
     if g_generatedTestMainMode == 1 {
-        storeGeneratedTestObjectSetCache(resolvedInput, modulePaths, cacheSignature, normalizedCrossTarget)
+        if useCache {
+            storeGeneratedTestObjectSetCache(resolvedInput, modulePaths, cacheSignature, normalizedCrossTarget)
+        }
         println("  [3] Skipping final link for generated test main; module objects are ready")
         return 0
     }
