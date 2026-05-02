@@ -1,0 +1,78 @@
+// ir_return_type_driver.seen - declaration return-type AST traversal.
+
+import parser.real_parser.{BlockNode, FunctionNode, ParserExpressionNode}
+import codegen.ir_decl_items.{normalizeDeclaredTypeNodeImpl}
+import codegen.ir_decl_return_types.{inferReturnExprTypeImpl, resolveMethodReturnTypeImpl, resolveFunctionReturnTypeImpl}
+import codegen.ir_expr_type_driver.{inferExpressionTypeState}
+
+fun inferReturnExprTypeState(className: String, expr: ParserExpressionNode,
+    varNames: Array<String>, varTypes: Array<String>,
+    stringConstants: Array<String>) r: String {
+
+    let inferred = inferExpressionTypeState(expr, varNames, varTypes,
+        stringConstants)
+    return inferReturnExprTypeImpl(className, expr.kind, expr.literalType,
+        expr.literalValue, expr.callee, inferred)
+}
+
+fun inferBlockReturnTypeState(className: String, block: BlockNode,
+    varNames: Array<String>, varTypes: Array<String>,
+    stringConstants: Array<String>) r: String {
+
+    var stmtIdx = 0
+    var sawReturn = false
+    while stmtIdx < block.statements.length() {
+        let stmt = block.statements[stmtIdx]
+        if stmt.kind == "Return" {
+            sawReturn = true
+            let retType = inferReturnExprTypeState(className, stmt.returnValue,
+                varNames, varTypes, stringConstants)
+            if retType != "" {
+                return retType
+            }
+        }
+        if stmt.kind == "If" {
+            let thenType = inferBlockReturnTypeState(className,
+                stmt.thenBranch, varNames, varTypes, stringConstants)
+            let elseType = inferBlockReturnTypeState(className,
+                stmt.elseBranch, varNames, varTypes, stringConstants)
+            if thenType != "" and elseType != "" and thenType == elseType {
+                return thenType
+            }
+        }
+        stmtIdx = stmtIdx + 1
+    }
+    if not sawReturn {
+        return "Void"
+    }
+    return ""
+}
+
+fun resolveMethodReturnTypeState(className: String, method: FunctionNode,
+    varNames: Array<String>, varTypes: Array<String>,
+    stringConstants: Array<String>) r: String {
+
+    let declaredType = normalizeDeclaredTypeNodeImpl(method.returnType)
+    let inferredType = inferBlockReturnTypeState(className, method.body,
+        varNames, varTypes, stringConstants)
+    return resolveMethodReturnTypeImpl(className, method.name, declaredType,
+        inferredType)
+}
+
+fun resolveMethodReturnTypeFromListState(className: String,
+    methods: Array<FunctionNode>, methodIdx: Int, varNames: Array<String>,
+    varTypes: Array<String>, stringConstants: Array<String>) r: String {
+
+    let method = methods[methodIdx]
+    return resolveMethodReturnTypeState(className, method, varNames, varTypes,
+        stringConstants)
+}
+
+fun resolveFunctionReturnTypeState(fn: FunctionNode, varNames: Array<String>,
+    varTypes: Array<String>, stringConstants: Array<String>) r: String {
+
+    let declaredType = normalizeDeclaredTypeNodeImpl(fn.returnType)
+    let inferredType = inferBlockReturnTypeState("", fn.body, varNames,
+        varTypes, stringConstants)
+    return resolveFunctionReturnTypeImpl(declaredType, inferredType)
+}

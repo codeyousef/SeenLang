@@ -71,6 +71,7 @@ import codegen.ir_decl_pass_driver.{beginDeclarationRegistrationPassImpl, finish
 import codegen.ir_decl_state_driver.{applyDeclarationPassState, captureLateUserDeclareState, applyLateUserDeclareState}
 import codegen.ir_decl_default_params.{collectDefaultParamStringConstantsImpl}
 import codegen.ir_decl_return_types.{resolveMethodReturnTypeImpl}
+import codegen.ir_return_type_driver.{resolveFunctionReturnTypeState}
 import codegen.ir_module_constants.{findModuleConstantIntoStateImpl, captureModuleConstantRegistryStateImpl, narrowModuleConstantLoadIfNeededImpl, tryInferModuleConstantVariableTypeSnapshotImpl, findModuleConstantSnapshotImpl, emitGlobalVariablesSnapshotImpl, resetModuleConstantGenerationStateImpl}
 import codegen.ir_module_lookup_driver.{findModuleConstant}
 import codegen.ir_type_info_generator_layout.{getLLVMIRGeneratorFieldIndexTableImpl, getLLVMIRGeneratorFieldLlvmTypeTableImpl, getLLVMIRGeneratorStructLayoutTableImpl}
@@ -93,6 +94,8 @@ import codegen.ir_async_registry.{registerAsyncFunctionImpl}
 import codegen.ir_async_await.{emitAwaitPollLoopImpl, emitAwaitResultValueImpl}
 import codegen.ir_async_return.{prepareAsyncReturnValuePlanImpl, emitAsyncReturnValueBranchImpl, emitAsyncReturnVoidBranchImpl}
 import codegen.ir_module_emit.{mapGlobalVarLlvmTypeImpl, emitTBAAMetadataImpl}
+import codegen.ir_module_header_driver.{emitModulePrologueState}
+import codegen.ir_module_program_driver.{emitProgramClassTypesState}
 import codegen.ir_program_flow_plan.{shouldVisitProgramFlowIndexImpl, shouldEmitProgramClassTypeItemImpl, shouldGenerateProgramClassItemImpl, planProgramTopLevelFunctionStartImpl, planProgramTopLevelFunctionAfterSpecialImpl}
 import codegen.ir_method_gen.{emitToStringMethodImpl}
 import codegen.ir_ptr_ops.{emitPtrOpsImpl}
@@ -186,6 +189,8 @@ import codegen.ir_function_param_meta.{preRegisterFunctionParametersImpl}
 import codegen.ir_function_prebody.{isMainFunctionNameImpl, prepareFunctionPreBodyStateSnapshotImpl, mapFunctionPreBodyReturnTypeImpl}
 import codegen.ir_function_body.{captureFunctionBodyBlockScopeImpl, scanFunctionBodyDeadStorePatternsSnapshotImpl, emitFunctionBodyTrailingDeadCodeNoticeSnapshotImpl, beginFunctionBodyBlockDeferredCleanupImpl, beginFunctionBodyReturnDeferCleanupImpl, beginFunctionBodyVoidErrdeferCleanupImpl, beginFunctionBodyValueErrdeferCleanupImpl, finishFunctionBodyValueErrdeferCleanupImpl, bindFunctionBodyCatchVariableImpl, planFunctionBodyExpressionStatementImpl, emitFunctionBodyPairedSelectStoreImpl, emitFunctionBodySingleArmSelectStoreImpl, planFunctionBodyConstantIfImpl, emitFunctionBodyConstantIfNoteImpl, emitFunctionBodyIfBranchingImpl, beginFunctionBodyLoopContextImpl, restoreFunctionBodyLoopContextImpl, emitFunctionBodyLoopEndLabelImpl, resolveFunctionBodyForInLoopVariableStorageImpl, resolveFunctionBodyForInIndexAllocaImpl, emitFunctionBodyMemcpyOptimizedLoopImpl}
 import codegen.ir_codegen_state_bridge.{syncCodegenStateBridgeImpl, captureCodegenStateBridgeSnapshotImpl, resetSharedModuleGenerationScratchStateImpl}
+import codegen.ir_codegen_bootstrap_state.{initBootstrapFragileGlobalArrays}
+import codegen.ir_codegen_reset_state.{resetLLVMIRGeneratorModuleStateImpl}
 import codegen.ir_function_ml_logs.{applyFunctionPreludeMlLogsImpl}
 import codegen.ir_ml_logging.{mlLogDecision}
 import codegen.ir_function_usage.{emitUnusedTopLevelFunctionWarningsImpl}
@@ -220,6 +225,7 @@ import codegen.ir_unary_expr.{unaryOperatorMethodNameImpl, shouldSkipUnaryOverlo
 import codegen.ir_class_constructor_gen.{emitConstructorAllocationImpl, emitConstructorReturnImpl, emitClassHeapAllocationImpl, emitClassArrayFieldInitializersImpl, resolveClassConstructorFieldOffsetImpl}
 import codegen.ir_class_method_gen.{buildMethodAttrsImpl}
 import codegen.ir_stmt_decl.{resolveLetStatementTypeImpl, prepareLetStatementPlanImpl, resolveLetPreAllocatedRegImpl}
+import codegen.ir_stmt_var_collect_driver.{collectVariableDeclarationsState}
 import codegen.ir_stmt_gen.{emitConditionToI1Impl, computeIfBranchWeightMetadataForStatementImpl, normalizeIfConditionTypeImpl, emitIfLetBindingStateImpl, emitUnusedResultCallWarningImpl}
 import codegen.ir_stmt_select_plan.{planPairedAssignmentSelectIfImpl, planSingleArmSelectIfImpl}
 import codegen.ir_stmt_dispatch_plan.{planStatementDispatchImpl}
@@ -3670,6 +3676,8 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_codegen_module_state")
         modules.push("codegen.ir_codegen_feature_state")
         modules.push("codegen.ir_codegen_type_state")
+        modules.push("codegen.ir_codegen_bootstrap_state")
+        modules.push("codegen.ir_codegen_reset_state")
         modules.push("codegen.ir_method_builtin_type_infer")
         modules.push("codegen.ir_value_coercion")
         modules.push("codegen.ir_string_concat_emit")
@@ -3685,6 +3693,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_class_type_alias_state")
         modules.push("codegen.ir_class_type_guard_driver")
         modules.push("codegen.ir_class_type_driver")
+        modules.push("codegen.ir_module_program_driver")
         modules.push("codegen.ir_class_generated_features")
         modules.push("codegen.ir_field_registry")
         modules.push("codegen.ir_assignment_coerce")
@@ -3712,6 +3721,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_method_receiver_lookup_gen")
         modules.push("codegen.ir_infer_method_leaf_driver")
         modules.push("codegen.ir_expr_type_driver")
+        modules.push("codegen.ir_return_type_driver")
         modules.push("codegen.ir_binary_expr")
         modules.push("codegen.ir_binary_emit")
         modules.push("codegen.ir_binary_plan")
@@ -3724,6 +3734,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_stmt_scope")
         modules.push("codegen.ir_stmt_defer_driver")
         modules.push("codegen.ir_stmt_decl")
+        modules.push("codegen.ir_stmt_var_collect_driver")
         modules.push("codegen.ir_stmt_gen")
         modules.push("codegen.ir_stmt_select_plan")
         modules.push("codegen.ir_stmt_dispatch_plan")
@@ -3735,6 +3746,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_type_header_registry")
         modules.push("codegen.type_registry")
         modules.push("codegen.ir_type_header")
+        modules.push("codegen.ir_module_header_driver")
         ///
         Scan the main generator after extracted helpers so their
         declarations are available during bootstrap registration.

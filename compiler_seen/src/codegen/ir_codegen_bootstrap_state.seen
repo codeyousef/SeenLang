@@ -1,0 +1,57 @@
+// ir_codegen_bootstrap_state.seen - bootstrap-sensitive global array init.
+
+import parser.real_parser.{ParserExpressionNode}
+import codegen.ir_codegen_metrics_state.{g_cseKeysArr, g_cseValsArr, g_callCountNamesArr, g_selfCallBox, g_selfCallCountBox, g_callCountNamesBox, g_callCountEntriesBox}
+import codegen.ir_codegen_feature_state.{g_deferExprs, g_errdeferExprs, g_regBox, g_blockBox, g_floatParamFuncNames, g_floatParamParamIdxs}
+import codegen.ir_codegen_global_state.{preAllocatedRegs, preAllocatedVars, preAllocatedTypes, activeVarCount, structNames, structLayouts, structFieldNames, structFieldTypes, structLlvmFieldTypes, structSizes, structMethodNames, structMethodRetTypes, funcNames, funcRetTypes, classMethodBaseNames, typeHeaderPath, currentFunctionReturnType, currentClassName, blockTerminated, currentLoopCondLabel, currentLoopEndLabel, declOrdinalNames, declOrdinalCounts, stringConstantPrefix, generatedFunctions, generatedClasses, typesLoadedFromHeader, runtimeDeclsLoaded, pendingArrayLiteralType}
+import codegen.ir_codegen_module_state.{g_xmDeclareNamesArr, g_xmDeclareStrsArr, g_xmDeclareVisArr, resetModuleConstantGenerationState, resetIrgenFieldLookupCaches}
+
+fun initBootstrapFragileGlobalArrays() r: Void {
+    g_cseKeysArr = Array<String>()
+    g_cseValsArr = Array<String>()
+    g_deferExprs = Array<ParserExpressionNode>()
+    g_errdeferExprs = Array<ParserExpressionNode>()
+    resetIrgenFieldLookupCaches()
+    g_regBox = Array<Int>()
+    g_blockBox = Array<Int>()
+    g_floatParamFuncNames = Array<String>()
+    g_floatParamParamIdxs = Array<Int>()
+    g_xmDeclareNamesArr = Array<String>()
+    g_xmDeclareStrsArr = Array<String>()
+    g_xmDeclareVisArr = Array<String>()
+    g_callCountNamesArr = Array<String>()
+    g_selfCallBox = Array<String>()
+    g_selfCallCountBox = Array<Int>()
+    g_callCountNamesBox = Array<String>()
+    g_callCountEntriesBox = Array<Int>()
+    preAllocatedRegs = Array<String>()
+    preAllocatedVars = Array<String>()
+    preAllocatedTypes = Array<String>()
+    activeVarCount = 0
+    structNames = Array<String>()
+    structLayouts = Array<String>()
+    structFieldNames = Array<String>()
+    structFieldTypes = Array<String>()
+    structLlvmFieldTypes = Array<String>()
+    structSizes = Array<Int>()
+    structMethodNames = Array<String>()
+    structMethodRetTypes = Array<String>()
+    funcNames = Array<String>()
+    funcRetTypes = Array<String>()
+    classMethodBaseNames = Array<String>()
+    typeHeaderPath = ""
+    currentFunctionReturnType = ""
+    currentClassName = ""
+    blockTerminated = false
+    currentLoopCondLabel = ""
+    currentLoopEndLabel = ""
+    declOrdinalNames = Array<String>()
+    declOrdinalCounts = Array<Int>()
+    stringConstantPrefix = ""
+    generatedFunctions = Array<String>()
+    generatedClasses = Array<String>()
+    typesLoadedFromHeader = false
+    runtimeDeclsLoaded = false
+    pendingArrayLiteralType = ""
+    resetModuleConstantGenerationState()
+}

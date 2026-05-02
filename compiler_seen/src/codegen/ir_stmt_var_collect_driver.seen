@@ -1,0 +1,133 @@
+// ir_stmt_var_collect_driver.seen - pre-body declaration collection driver.
+
+import parser.real_parser.{BlockNode, StatementNode, ParserExpressionNode}
+import trace.{traceGen}
+import codegen.ir_codegen_global_state.{preAllocatedVars, preAllocatedTypes, structNames}
+import codegen.ir_decl_items.{normalizeDeclaredTypeNodeImpl}
+import codegen.ir_expr_type_driver.{inferExpressionTypeState, resolveLiteralMethodReceiverTypeState}
+import codegen.ir_field_lookup_state.{getMethodReturnTypeState}
+import codegen.ir_local_type_leaf_driver.{findVarTypeState}
+import codegen.ir_stmt_decl.{shouldInferDeclarationInitializerTypeImpl, resolveDeclarationBaseTypeImpl, resolveLetStatementTypeImpl, classifyCollectedStatementKindImpl, shouldTraceCollectedDeclarationTypeImpl, appendCollectedDeclarationImpl, resolveCollectedForInElementTypeImpl, buildForInIndexNameImpl}
+import codegen.type_registry_core.{findStructReg}
+
+fun inferDeclarationInitializerTypeState(expr: ParserExpressionNode,
+    varNames: Array<String>, varTypes: Array<String>,
+    stringConstants: Array<String>) r: String {
+
+    if expr.kind == "MethodCall" {
+        var receiverName = expr.literalValue
+        var receiverType = ""
+        if receiverName != "" {
+            receiverType = resolveLiteralMethodReceiverTypeState(receiverName,
+                varNames, varTypes, stringConstants)
+        }
+        if receiverName == "" and expr.operands.length() > 0 {
+            let receiverExpr = expr.operands[0]
+            if receiverExpr.kind == "Variable" or receiverExpr.kind == "VarExpr" {
+                receiverName = receiverExpr.variableName
+                if receiverName == "" {
+                    receiverName = receiverExpr.literalValue
+                }
+                if receiverName != "" {
+                    receiverType = findVarTypeState(varNames, varTypes,
+                        receiverName)
+                }
+            } else {
+                receiverType = inferExpressionTypeState(receiverExpr, varNames,
+                    varTypes, stringConstants)
+            }
+        }
+        if receiverType != "" and receiverType != "Unknown" {
+            let receiverReturnType = getMethodReturnTypeState(receiverType,
+                expr.callee)
+            if receiverReturnType != "" {
+                return receiverReturnType
+            }
+        }
+        if receiverName != "" {
+            if receiverType == "" or receiverType == "Unknown" {
+                let staticReturnType = getMethodReturnTypeState(receiverName,
+                    expr.callee)
+                if staticReturnType != "" {
+                    return staticReturnType
+                }
+                if expr.callee == "new" and findStructReg(receiverName,
+                    structNames) >= 0 {
+                    return receiverName
+                }
+            }
+        }
+    }
+    return inferExpressionTypeState(expr, varNames, varTypes, stringConstants)
+}
+
+fun collectVariableDeclarationsState(block: BlockNode, varNames: Array<String>,
+    varTypes: Array<String>, stringConstants: Array<String>) r: Void {
+
+    var i = 0
+    while i < block.statements.length() {
+        let stmt = block.statements[i]
+        collectStmtVarsState(stmt, varNames, varTypes, stringConstants)
+        i = i + 1
+    }
+}
+
+fun collectStmtVarsState(stmt: StatementNode, varNames: Array<String>,
+    varTypes: Array<String>, stringConstants: Array<String>) r: Void {
+
+    let collectedStmtKind = classifyCollectedStatementKindImpl(stmt.kind)
+    if collectedStmtKind == 1 {
+        let declaredType = normalizeDeclaredTypeNodeImpl(stmt.variableType)
+        var initializerType = ""
+        if shouldInferDeclarationInitializerTypeImpl(declaredType,
+            stmt.initializer.kind) != 0 {
+            initializerType = inferDeclarationInitializerTypeState(
+                stmt.initializer, varNames, varTypes, stringConstants)
+        }
+        let varType = resolveLetStatementTypeImpl(
+            resolveDeclarationBaseTypeImpl(declaredType, initializerType),
+            "")
+        if shouldTraceCollectedDeclarationTypeImpl(varType,
+            stmt.variableName) != 0 {
+            traceGen("collectStmtVars: " + stmt.variableName + " -> " + varType)
+        }
+        appendCollectedDeclarationImpl(preAllocatedVars, preAllocatedTypes,
+            stmt.variableName, varType)
+    }
+    if collectedStmtKind == 2 {
+        collectVariableDeclarationsState(stmt.thenBranch, varNames, varTypes,
+            stringConstants)
+        collectVariableDeclarationsState(stmt.elseBranch, varNames, varTypes,
+            stringConstants)
+    }
+    if collectedStmtKind == 3 {
+        collectVariableDeclarationsState(stmt.loopBody, varNames, varTypes,
+            stringConstants)
+    }
+    if collectedStmtKind == 4 {
+        if stmt.variableName != "" {
+            let forInExprKind = stmt.expression.kind
+            var forInIterType = ""
+            var forInFirstElementType = ""
+            if forInExprKind != "Range" {
+                forInIterType = inferExpressionTypeState(stmt.expression,
+                    varNames, varTypes, stringConstants)
+                if forInExprKind == "ArrayLiteral" and
+                    stmt.expression.arguments.length() > 0 {
+                    forInFirstElementType = inferExpressionTypeState(
+                        stmt.expression.arguments[0], varNames, varTypes,
+                        stringConstants)
+                }
+            }
+            let forInElemType = resolveCollectedForInElementTypeImpl(
+                forInExprKind, forInIterType, forInFirstElementType)
+            appendCollectedDeclarationImpl(preAllocatedVars, preAllocatedTypes,
+                stmt.variableName, forInElemType)
+            let forInIdxName = buildForInIndexNameImpl(stmt.variableName)
+            appendCollectedDeclarationImpl(preAllocatedVars, preAllocatedTypes,
+                forInIdxName, "Int")
+        }
+        collectVariableDeclarationsState(stmt.loopBody, varNames, varTypes,
+            stringConstants)
+    }
+}
