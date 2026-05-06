@@ -16,6 +16,8 @@ cat >"$IR_FILE" <<'IR'
 
 declare void @takes_i64(i64)
 declare void @takes_ptr(ptr)
+declare void @takes_float(float)
+declare %SeenString @seen_float_to_string(double)
 
 If no } found before this leaked parser diagnostic should be a comment
 
@@ -41,6 +43,13 @@ define void @scalar_literal_repairs(ptr %0) {
 entry:
   store ptr 8, ptr %0
   %1 = fcmp olt double 0, 1.0
+  ret void
+}
+
+define void @float_call_literal_repairs() {
+entry:
+  %1 = call %SeenString @seen_float_to_string(double 0)
+  call void @takes_float(float 0)
   ret void
 }
 
@@ -81,6 +90,8 @@ grep -q 'getelementptr i8, ptr null' "$IR_FILE"
 grep -q 'insertvalue %SeenString zeroinitializer' "$IR_FILE"
 grep -q 'store i64 8, ptr' "$IR_FILE"
 grep -q 'fcmp olt double 0.0, 1.0' "$IR_FILE"
+grep -q 'call %SeenString @seen_float_to_string(double 0.0)' "$IR_FILE"
+grep -q 'call void @takes_float(float 0.0)' "$IR_FILE"
 grep -q '= zext i1 %1 to i64' "$IR_FILE"
 grep -q '= inttoptr i64 %2 to ptr' "$IR_FILE"
 grep -q '= load %TypeNode, ptr' "$IR_FILE"

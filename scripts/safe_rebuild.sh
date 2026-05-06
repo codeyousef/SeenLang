@@ -947,6 +947,21 @@ cleanup_smoke_build_state() {
     rm -f /tmp/safe_rebuild_*_hello_english.seen
 }
 
+preserve_smoke_failure_artifacts() {
+    local stage_slug=$1
+    local artifact_dir="/tmp/seen_smoke_failure_${stage_slug}_$(date +%s)"
+    mkdir -p "$artifact_dir" 2>/dev/null || return 0
+    for f in /tmp/seen_module_*.ll /tmp/seen_module_*.opt.ll \
+        /tmp/seen_module_*.opt.log /tmp/seen_module_*.opt.status \
+        /tmp/safe_rebuild_"$stage_slug"_hello_*.log \
+        /tmp/safe_rebuild_"$stage_slug"_hello_english.seen; do
+        if [ -e "$f" ]; then
+            cp "$f" "$artifact_dir/" 2>/dev/null || true
+        fi
+    done
+    echo -e "${YELLOW}Preserved smoke failure artifacts: $artifact_dir${NC}"
+}
+
 preserve_existing_production_compiler() {
     rm -f "$PRESERVED_PROD_BUILDER"
     if [ -x compiler_seen/target/seen ]; then
@@ -1004,6 +1019,7 @@ smoke_test_compiler() {
     ); then
         echo -e "${YELLOW}${stage_label} failed hello-world check smoke test.${NC}"
         tail -20 "$check_log" 2>/dev/null || true
+        preserve_smoke_failure_artifacts "$stage_slug"
         cleanup_smoke_build_state
         return 1
     fi
@@ -1021,12 +1037,14 @@ smoke_test_compiler() {
     ); then
         echo -e "${YELLOW}${stage_label} failed hello-world compile smoke test.${NC}"
         tail -20 "$compile_log" 2>/dev/null || true
+        preserve_smoke_failure_artifacts "$stage_slug"
         cleanup_smoke_build_state
         return 1
     fi
 
     if [ ! -x "$smoke_bin" ]; then
         echo -e "${YELLOW}${stage_label} compile smoke test did not produce $smoke_bin.${NC}"
+        preserve_smoke_failure_artifacts "$stage_slug"
         cleanup_smoke_build_state
         return 1
     fi
@@ -1034,6 +1052,7 @@ smoke_test_compiler() {
     if ! "$smoke_bin" > "$run_log" 2>&1; then
         echo -e "${YELLOW}${stage_label} failed hello-world run smoke test.${NC}"
         tail -20 "$run_log" 2>/dev/null || true
+        preserve_smoke_failure_artifacts "$stage_slug"
         cleanup_smoke_build_state
         return 1
     fi
@@ -1173,11 +1192,11 @@ preserve_existing_production_compiler >/dev/null 2>&1 || true
 prepare_bootstrap_source_overlay
 FROZEN_ABS="$REPO_ROOT/$FROZEN"
 
-if [ "${SEEN_SKIP_CODEGEN_ABI_PREFLIGHT:-0}" != "1" ]; then
-    echo "Running codegen ABI boundary preflight..."
-    python3 "$SCRIPT_DIR/check_codegen_abi_boundaries.py" "$REPO_ROOT"
+if [ "${SEEN_SKIP_PREBUILD_GATES:-0}" != "1" ]; then
+    echo "Running prebuild gates..."
+    bash "$SCRIPT_DIR/seen_prebuild_gates.sh"
 else
-    echo -e "${YELLOW}Codegen ABI boundary preflight skipped by SEEN_SKIP_CODEGEN_ABI_PREFLIGHT=1.${NC}"
+    echo -e "${YELLOW}Prebuild gates skipped by SEEN_SKIP_PREBUILD_GATES=1.${NC}"
 fi
 
 # Kill any leftover compilation processes that might write to /tmp/seen_module_*

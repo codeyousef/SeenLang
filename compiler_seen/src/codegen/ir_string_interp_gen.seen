@@ -5,6 +5,7 @@ Extracted from llvm_ir_gen.seen to keep string-interpolation codegen thin.
 
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn}
+import codegen.ir_literal_gen.{normalizeDoubleLiteralForLlvmImpl}
 
 fun normalizeSeenStringValueRegImpl(valueReg: String) r: String {
     if valueReg == "0" {
@@ -38,8 +39,10 @@ fun convertInterpolatedValueToStringImpl(output: StringBuilder,
     }
     if exprType == "Float" {
         let strExprReg = getNextRegFn(regBox)
+        let doubleExprReg = normalizeDoubleLiteralForLlvmImpl(exprReg)
         output.append("  " + strExprReg +
-            " = call %SeenString @seen_float_to_string(double " + exprReg +
+            " = call %SeenString @seen_float_to_string(double " +
+            doubleExprReg +
             ")\n")
         return strExprReg
     }

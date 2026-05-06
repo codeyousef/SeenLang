@@ -27,6 +27,9 @@ fun normalizeDoubleLiteralForLlvmImpl(value: String) r: String {
     if value == "" {
         return "0.0"
     }
+    if value.startsWith("%") or value == "undef" {
+        return value
+    }
     if value.contains(".") or value.contains("e") or value.contains("E") or
         value.startsWith("0x") or value.startsWith("0X") {
         return value

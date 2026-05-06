@@ -168,6 +168,7 @@ var blockTerminated: Bool = false
 var declOrdinalNames: Array<String> = Array<String>()
 var declOrdinalCounts: Array<Int> = Array<Int>()
 var moduleConstantTypes: Array<String> = Array<String>()
+var stringConstantPrefix: String = ""
 
 fun prepareFunctionGenerationIdentityWithGlobalStateImpl(fn: FunctionNode,
     resolvedFunctionReturnType: String) r: FunctionGenerationIdentitySnapshot {
@@ -192,6 +193,14 @@ fun getFunctionReturnTypeWithGlobalStateImpl(name: String) r: String {
 
 fun setBlockTerminatedWithGlobalStateImpl(value: Bool) r: Void {
     blockTerminated = value
+}
+
+fun setStringConstantPrefixWithGlobalStateImpl(prefix: String) r: Void {
+    stringConstantPrefix = prefix
+}
+
+fun getStringConstantPrefixWithGlobalStateImpl() r: String {
+    return stringConstantPrefix
 }
 
 fun prepareLetStatementPlanWithGlobalStateImpl(stmt: StatementNode,
@@ -359,6 +368,23 @@ fun bad() r: Void {
 }
 SEEN
 expect_fail block_terminated_direct_facade_import
+
+write_owner_modules
+cat > "$TMP_DIR/compiler_seen/src/codegen/llvm_ir_gen.seen" <<'SEEN'
+fun bad() r: Void {
+    stringConstantPrefix = "M0."
+}
+SEEN
+expect_fail string_prefix_direct_facade_write
+
+write_owner_modules
+cat > "$TMP_DIR/compiler_seen/src/codegen/llvm_ir_gen.seen" <<'SEEN'
+fun bad(output: StringBuilder) r: Void {
+    emitAdditionalGeneratedStringConstantsImpl(output, strings,
+        stringConstantPrefix, 0)
+}
+SEEN
+expect_fail string_prefix_direct_facade_read
 
 write_owner_modules
 cat > "$TMP_DIR/compiler_seen/src/codegen/llvm_ir_gen.seen" <<'SEEN'

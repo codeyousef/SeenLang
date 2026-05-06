@@ -3,6 +3,7 @@
 import str.string.{StringBuilder}
 import parser.real_parser.{ParserExpressionNode}
 import codegen.ir_optimization.{getNextRegFn}
+import codegen.ir_literal_gen.{normalizeDoubleLiteralForLlvmImpl}
 
 fun isStringConcatTypePairImpl(leftType: String, rightType: String) r: Bool {
     return leftType == "String" or rightType == "String" or
@@ -51,8 +52,10 @@ fun coerceStringConcatPieceRegImpl(output: StringBuilder,
     }
     if valueType == "Float" {
         let floatStrReg = getNextRegFn(regBox)
+        let doubleValueReg = normalizeDoubleLiteralForLlvmImpl(valueReg)
         output.append("  " + floatStrReg +
-            " = call %SeenString @seen_float_to_string(double " + valueReg + ")\n")
+            " = call %SeenString @seen_float_to_string(double " +
+            doubleValueReg + ")\n")
         return floatStrReg
     }
     if valueType == "Bool" or valueType == "Boolean" {

@@ -167,7 +167,7 @@ import codegen.ir_codegen_state_bridge.{captureCodegenStateBridgeSnapshotImpl, r
 import codegen.ir_codegen_bootstrap_state.{initBootstrapFragileGlobalArrays}
 import codegen.ir_codegen_reset_state.{resetLLVMIRGeneratorModuleStateImpl}
 import codegen.ir_codegen_target_state.{overrideTargetTripleImpl}
-import codegen.ir_codegen_global_state.{preAllocatedRegs, preAllocatedVars, preAllocatedTypes, activeVarCount, structNames, structLayouts, structFieldNames, structFieldTypes, structLlvmFieldTypes, structSizes, structMethodNames, structMethodRetTypes, classMethodBaseNames, typeHeaderPath, currentFunctionReturnType, currentClassName, currentLoopCondLabel, currentLoopEndLabel, stringConstantPrefix, generatedFunctions, generatedClasses, typesLoadedFromHeader, runtimeDeclsLoaded, pendingArrayLiteralType, setGlobalTypeHeaderPathImpl, getBlockTerminatedWithGlobalStateImpl, setBlockTerminatedWithGlobalStateImpl, prepareLetStatementPlanWithGlobalStateImpl, resolveLetPreAllocatedRegWithGlobalStateImpl, resolveFunctionBodyForInLoopVariableStorageWithGlobalStateImpl, resolveFunctionBodyForInIndexAllocaWithGlobalStateImpl, syncCodegenStateFromGlobalStateImpl, applyGlobalCodegenStateBridgeSnapshotImpl, emitModulePrologueWithGlobalStateImpl, emitRuntimeDeclarationsWithGlobalStateImpl, prepareFunctionGenerationIdentityWithGlobalStateImpl, emitMainFunctionEntryWithGlobalStateImpl, getGlobalFuncNamesImpl, getGlobalFuncRetTypesImpl, getFunctionReturnTypeWithGlobalStateImpl}
+import codegen.ir_codegen_global_state.{preAllocatedRegs, preAllocatedVars, preAllocatedTypes, activeVarCount, structNames, structLayouts, structFieldNames, structFieldTypes, structLlvmFieldTypes, structSizes, structMethodNames, structMethodRetTypes, classMethodBaseNames, typeHeaderPath, currentFunctionReturnType, currentClassName, currentLoopCondLabel, currentLoopEndLabel, generatedFunctions, generatedClasses, typesLoadedFromHeader, runtimeDeclsLoaded, pendingArrayLiteralType, setGlobalTypeHeaderPathImpl, setStringConstantPrefixWithGlobalStateImpl, getStringConstantPrefixWithGlobalStateImpl, getBlockTerminatedWithGlobalStateImpl, setBlockTerminatedWithGlobalStateImpl, prepareLetStatementPlanWithGlobalStateImpl, resolveLetPreAllocatedRegWithGlobalStateImpl, resolveFunctionBodyForInLoopVariableStorageWithGlobalStateImpl, resolveFunctionBodyForInIndexAllocaWithGlobalStateImpl, syncCodegenStateFromGlobalStateImpl, applyGlobalCodegenStateBridgeSnapshotImpl, emitModulePrologueWithGlobalStateImpl, emitRuntimeDeclarationsWithGlobalStateImpl, prepareFunctionGenerationIdentityWithGlobalStateImpl, emitMainFunctionEntryWithGlobalStateImpl, getGlobalFuncNamesImpl, getGlobalFuncRetTypesImpl, getFunctionReturnTypeWithGlobalStateImpl}
 import codegen.ir_codegen_module_state.{g_xmDeclareNames, g_xmDeclareStrs, g_xmDeclareCount, g_xmDeclareVis, g_xmDeclareNamesArr, g_xmDeclareStrsArr, g_xmDeclareVisArr, g_chainedPathTypeCacheValues, findCachedIrgenFieldIndex, cacheIrgenFieldIndex, findCachedChainedPathTypeRecord, cacheChainedPathType, resetModuleConstantGenerationState, resetLateUserDeclareState, resetIrgenFieldLookupCaches, findModuleConstantWithModuleStateImpl, getModuleConstantTypeWithModuleStateImpl, getModuleConstSeenTypeWithModuleStateImpl, isModuleConstMutableWithModuleStateImpl, moduleConstantInvariantLoadSuffixWithModuleStateImpl, emitCrossModuleConstantDeclaresWithModuleStateImpl, emitLateUserDeclaresWithModuleStateImpl}
 import codegen.ir_codegen_feature_state.{g_panicOnOverflow, g_asyncFuncNames, g_asyncFuncRetTypes, g_asyncFuncCount, g_inheritanceChildNames, g_inheritanceParentNames, g_inheritanceCount, g_currentClassParentName, g_closureCount, g_closureDefs, g_deferCount, g_deferExprs, g_errdeferCount, g_errdeferExprs, g_errdeferTempAlloca, g_cacheLineClasses, g_insideUnsafe, g_tryCatchLabel, g_tryCatchEndLabel, g_distinctTypeNames, g_unionTypes, g_initFuncNames, g_initFuncCount, g_pforCount, g_comptimeNames, g_comptimeValues, g_comptimeCount, g_intrinsicFuncNames, g_intrinsicLlvmNames, g_intrinsicCount, g_sendTypes, g_syncTypes, g_boundsCheckEnabled, g_boundsCheckLabelCount, g_warnUnusedResult, g_soaClassNames, g_soaClassCount, g_trustedFuncNames, g_triviallyCopyableClasses, g_moveOnlyClasses, g_reprCClassNames, g_cResourceClasses, g_cResourceDestructors, g_funcDefaultsArr, g_funcParamCountArr, g_dynTraitNames, g_vtableClassImpls, g_dynParamFuncs, g_floatParamFuncNames, g_floatParamParamIdxs, g_constGenericNames, g_constGenericValues, g_bitfieldKeys, g_bitfieldWidths, g_bitfieldOffsets, g_bitfieldCount, g_gpuBufferClasses, g_gpuBufferLayouts, g_comptimeStrNames, g_comptimeStrValues, g_comptimeStrCount, g_comptimeParamFuncNames, g_comptimeParamCount, g_gpuShaderNames, g_gpuShaderStages, g_gpuShaderCount, g_gpuShaderWorkgroups, g_gpuShaderBindings, g_deriveTraits, g_deriveClassCount, g_reflectClassNames, g_reflectClassCount, g_specializationNames, g_specializationCount, g_traitImplRegistry, g_traitImplCount, g_customDeriveNames, g_customDeriveFuncNames, g_customDeriveCount, g_nullSafetyEnabled, g_uninitCheckEnabled, g_uninitVarNames, g_uninitVarStatus, g_uninitVarCount, g_stackCheckEnabled, g_sanitizerMode, g_enabledFeatures, g_enabledFeatureCount, g_binaryClassNames, g_binaryEndianness, g_binaryVersions, g_binaryClassCount, g_packetClassNames, g_packetClassIds, g_packetCount, g_typeAliasNames, g_typeAliasTargets, g_typeAliasCount, g_enumVariantNames, g_enumVariantTags, g_enumVariantFieldTypes, g_enumVariantFieldCounts, g_enumTypeNames, g_enumVariantParent, g_enumVariantCount, g_enumTypeCount, setPanicOnOverflowStateImpl, setBoundsCheckEnabledStateImpl, setWarnUnusedResultStateImpl, setNullSafetyEnabledStateImpl, setUninitCheckEnabledStateImpl, setStackCheckEnabledStateImpl, setSanitizerModeStateImpl, setEnabledFeaturesStateImpl, getFeatureRegBoxImpl, getFeatureBlockBoxImpl, setDefaultFillArgsImpl, getDefaultFillArgRegsImpl, getDefaultFillArgTypeStrsImpl, prepareFunctionPreBodyWithFeatureStateImpl, emitTraitVtableConstantsWithFeatureStateImpl, emitGeneratedClosuresWithFeatureStateImpl, emitGlobalConstructorsWithFeatureStateImpl, emitTBAAMetadataWithFeatureStateImpl}
 import codegen.ir_codegen_type_state.{mapTypeState, isClassTypeState, isDataTypeState, getDataTypeSizeState}
@@ -589,7 +589,7 @@ class LLVMIRGenerator {
     ///
     fun generateMultiple(programs: Array<ProgramNode>) r: String {
         resetSharedModuleGenerationScratchState()
-        stringConstantPrefix = ""  // No prefix for multi-module
+        setStringConstantPrefixWithGlobalStateImpl("")  // No prefix for multi-module
 
         collectProgramsStringConstantsState(programs, this.stringConstants)
 
@@ -637,7 +637,8 @@ class LLVMIRGenerator {
         emitTraitVtableConstantsWithFeatureStateImpl(this.output)
 
         emitAdditionalGeneratedStringConstantsImpl(this.output, this.stringConstants,
-            stringConstantPrefix, stringConstCountBeforeGen)
+            getStringConstantPrefixWithGlobalStateImpl(),
+            stringConstCountBeforeGen)
         emitGeneratedClosuresWithFeatureStateImpl(this.output)
 
         emitOptimizationStatisticsSummaryImpl(this.output, 0, false,
@@ -683,7 +684,8 @@ class LLVMIRGenerator {
         // Module-specific state not covered by reset()
         resetSharedModuleGenerationScratchState()
         // Set module prefix for string constants (e.g., "M0.", "M1.", etc.)
-        stringConstantPrefix = "M" + moduleIndex.toString() + "."
+        setStringConstantPrefixWithGlobalStateImpl(
+            "M" + moduleIndex.toString() + ".")
 
         // Load ML heuristic weights (once per compilation)
         loadMLWeights()
@@ -760,7 +762,8 @@ class LLVMIRGenerator {
         emitTraitVtableConstantsWithFeatureStateImpl(this.output)
 
         emitAdditionalGeneratedStringConstantsImpl(this.output, this.stringConstants,
-            stringConstantPrefix, stringConstCountBeforeGen)
+            getStringConstantPrefixWithGlobalStateImpl(),
+            stringConstCountBeforeGen)
 
         emitGeneratedClosuresWithFeatureStateImpl(this.output)
 
@@ -962,7 +965,8 @@ class LLVMIRGenerator {
             structNames, structSizes,
             structMethodNames, structMethodRetTypes, getGlobalFuncNamesImpl(),
             getGlobalFuncRetTypesImpl(),
-            this.stringConstants, stringConstantPrefix, g_binaryClassNames,
+            this.stringConstants, getStringConstantPrefixWithGlobalStateImpl(),
+            g_binaryClassNames,
             g_binaryVersions, g_binaryEndianness, g_binaryClassCount)
         emitInheritedClassMethodThunksImpl(this.output, getFeatureRegBoxImpl(), classNode,
             structNames, structMethodNames, structMethodRetTypes,
@@ -4295,7 +4299,7 @@ class LLVMIRGenerator {
                     this.stringConstants, inclPath)
                 if inclInfo.length() >= 3 {
                     return emitIncludeStrImpl(this.output, getFeatureRegBoxImpl(), inclInfo[0],
-                        inclInfo[1], stringConstantPrefix,
+                        inclInfo[1], getStringConstantPrefixWithGlobalStateImpl(),
                         parseIntManual(inclInfo[2]))
                 }
                 this.output.append("  ; WARNING: includeStr file not found: " + inclPath + "\n")
@@ -4312,7 +4316,8 @@ class LLVMIRGenerator {
                     this.stringConstants, inclBPath)
                 if inclBInfo.length() >= 3 {
                     return emitIncludeBytesImpl(this.output, getFeatureRegBoxImpl(),
-                        inclBInfo[0], inclBInfo[1], stringConstantPrefix,
+                        inclBInfo[0], inclBInfo[1],
+                        getStringConstantPrefixWithGlobalStateImpl(),
                         parseIntManual(inclBInfo[2]))
                 }
             }
@@ -5813,7 +5818,7 @@ class LLVMIRGenerator {
         fillDefaultParamsImpl(this.output, getFeatureRegBoxImpl(), funcName,
             getDefaultFillArgRegsImpl(), getDefaultFillArgTypeStrsImpl(),
             g_funcParamCountArr, g_funcDefaultsArr,
-            stringConstantPrefix, this.stringConstants)
+            getStringConstantPrefixWithGlobalStateImpl(), this.stringConstants)
     }
 
     fun inferReturnExprType(className: String, expr: ParserExpressionNode) r: String {

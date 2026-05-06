@@ -75,6 +75,14 @@ fun setGlobalTypeHeaderPathImpl(path: String) r: Void {
     typeHeaderPath = path
 }
 
+fun setStringConstantPrefixWithGlobalStateImpl(prefix: String) r: Void {
+    stringConstantPrefix = prefix
+}
+
+fun getStringConstantPrefixWithGlobalStateImpl() r: String {
+    return stringConstantPrefix
+}
+
 fun getBlockTerminatedWithGlobalStateImpl() r: Bool {
     return blockTerminated
 }

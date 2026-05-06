@@ -16,6 +16,7 @@ import codegen.ir_variable_gen.{emitModuleConstantLoadImpl}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, normalizeExplicitMethodReceiverTypeImpl, fallbackModuleConstantMethodReceiverTypeImpl, convertReceiverToPtrImpl}
 import codegen.ir_type_mapping.{isClassTypeImpl}
 import codegen.type_registry_core.{findStructReg}
+import codegen.ir_literal_gen.{normalizeDoubleLiteralForLlvmImpl}
 
 fun emitPreparedDynTraitMethodCallImpl(output: StringBuilder, regBox: Array<Int>,
     receiverReg: String, receiverType: String, methodName: String,
@@ -429,9 +430,10 @@ fun tryGenerateUnresolvedReceiverFallbackMethodImpl(output: StringBuilder,
     if methodName == "toString" {
         let toStrReg = getNextRegFn(regBox)
         if receiverType == "Float" {
+            let doubleReceiverReg = normalizeDoubleLiteralForLlvmImpl(receiverReg)
             output.append("  " + toStrReg +
                 " = call %SeenString @seen_float_to_string(double " +
-                receiverReg + ")\n")
+                doubleReceiverReg + ")\n")
         } else if receiverType == "Int" or receiverType == "" or
             receiverType == "Char" {
             output.append("  " + toStrReg +

@@ -322,6 +322,12 @@ def fix_scalar_literal_and_text_repairs(content):
                        if re.search(r'\bfcmp\s+\w+\s+(?:float|double)\b', fixed[:m.start()])
                        else m.group(0),
                        fixed)
+        if 'call ' in fixed:
+            fixed = re.sub(
+                r'\b(float|double)\s+(-?(?:0|[1-9][0-9]*))(?=\s*[,)])',
+                r'\1 \2.0',
+                fixed,
+            )
         lines.append(fixed)
     return '\n'.join(lines)
 

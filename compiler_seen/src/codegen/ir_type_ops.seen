@@ -6,6 +6,7 @@ Extracted from ir_type_tables.seen
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_type_ops_comparison.{emitComparisonBinaryOpImpl}
+import codegen.ir_literal_gen.{normalizeDoubleLiteralForLlvmImpl}
 
 ///
 ============================================================
@@ -38,7 +39,8 @@ fun emitBinaryOpImpl(output: StringBuilder, regBox: Array<Int>, boundsLabelBox: 
             }
             if leftType == "Float" {
                 leftStrReg = getNextRegFn(regBox)
-                output.append("  " + leftStrReg + " = call %SeenString @seen_float_to_string(double " + leftReg + ")\n")
+                let doubleLeftReg = normalizeDoubleLiteralForLlvmImpl(leftReg)
+                output.append("  " + leftStrReg + " = call %SeenString @seen_float_to_string(double " + doubleLeftReg + ")\n")
             }
             if rightType == "Char" {
                 rightStrReg = getNextRegFn(regBox)
@@ -50,7 +52,8 @@ fun emitBinaryOpImpl(output: StringBuilder, regBox: Array<Int>, boundsLabelBox: 
             }
             if rightType == "Float" {
                 rightStrReg = getNextRegFn(regBox)
-                output.append("  " + rightStrReg + " = call %SeenString @seen_float_to_string(double " + rightReg + ")\n")
+                let doubleRightReg = normalizeDoubleLiteralForLlvmImpl(rightReg)
+                output.append("  " + rightStrReg + " = call %SeenString @seen_float_to_string(double " + doubleRightReg + ")\n")
             }
             let resultReg = getNextRegFn(regBox)
             output.append("  " + resultReg + " = call %SeenString @seen_str_concat_ss(%SeenString " + leftStrReg + ", %SeenString " + rightStrReg + ")\n")

@@ -287,6 +287,44 @@ CALL_KEYWORDS = {
     "new",
 }
 
+COMPILER_IMPORT_ROOTS = {
+    "bootstrap",
+    "codegen",
+    "errors",
+    "ffi",
+    "ir",
+    "lexer",
+    "lsp",
+    "macro",
+    "main_compiler",
+    "optimization",
+    "parser",
+    "reactive",
+    "runtime",
+    "testing",
+    "tools",
+    "typechecker",
+    "types",
+}
+MAX_IMPORT_CYCLE_FINDINGS = 20
+KNOWN_LEGACY_IMPORT_CYCLE_SETS = {
+    frozenset(
+        {
+            "codegen.ir_decl_items",
+            "codegen.ir_decl_registry",
+            "codegen.ir_decl_scan",
+        }
+    ),
+    frozenset(
+        {
+            "codegen.ir_decl_items",
+            "codegen.ir_decl_registry",
+            "codegen.ir_decl_scan",
+            "codegen.ir_module_emit",
+        }
+    ),
+}
+
 
 class Finding:
     def __init__(self, path: Path, line: int, message: str) -> None:
@@ -338,6 +376,200 @@ def strip_line_comment(line: str) -> str:
 def source_lines(path: Path) -> list[str]:
     text = strip_triple_slash_blocks(path.read_text(errors="ignore"))
     return [strip_line_comment(line) for line in text.splitlines()]
+
+
+def compiler_src_root(root: Path) -> Path:
+    return root / "compiler_seen" / "src"
+
+
+def normalize_import_module(module: str) -> str:
+    module = module.strip().rstrip(".")
+    prefix = "compiler_seen.src."
+    if module.startswith(prefix):
+        module = module[len(prefix) :]
+    return module
+
+
+def compiler_module_path(root: Path, module: str) -> Path | None:
+    module = normalize_import_module(module)
+    if not module:
+        return None
+    parts = module.split(".")
+    if parts[0] not in COMPILER_IMPORT_ROOTS:
+        return None
+    src_root = compiler_src_root(root)
+    for end in range(len(parts), 0, -1):
+        candidate = src_root.joinpath(*parts[:end]).with_suffix(".seen")
+        if candidate.exists():
+            return candidate
+        candidate_dir = src_root.joinpath(*parts[:end])
+        if candidate_dir.is_dir():
+            mod_file = candidate_dir / "mod.seen"
+            if mod_file.exists():
+                return mod_file
+            package_file = candidate_dir / f"{parts[end - 1]}.seen"
+            if package_file.exists():
+                return package_file
+            return candidate_dir
+    return None
+
+
+def expected_compiler_module_path(root: Path, module: str) -> Path:
+    module = normalize_import_module(module)
+    parts = module.split(".")
+    candidate_dir = compiler_src_root(root).joinpath(*parts)
+    if candidate_dir.is_dir():
+        return candidate_dir / "mod.seen"
+    return candidate_dir.with_suffix(".seen")
+
+
+def compiler_module_id(root: Path, path: Path) -> str:
+    rel = path.relative_to(compiler_src_root(root)).with_suffix("")
+    return ".".join(rel.parts)
+
+
+def import_statements(path: Path) -> list[tuple[int, str]]:
+    imports: list[tuple[int, str]] = []
+    for line_no, line in enumerate(source_lines(path), 1):
+        match = re.match(r"\s*import\s+([A-Za-z_][A-Za-z0-9_.]*)", line)
+        if match:
+            imports.append((line_no, match.group(1)))
+    return imports
+
+
+def compiler_import_integrity_findings(root: Path) -> list[Finding]:
+    findings: list[Finding] = []
+    src_root = compiler_src_root(root)
+    if not src_root.exists():
+        findings.append(Finding(src_root, 1, "missing compiler source root"))
+        return findings
+    for path in sorted(src_root.rglob("*.seen")):
+        for line_no, module in import_statements(path):
+            normalized = normalize_import_module(module)
+            top = normalized.split(".", 1)[0]
+            if top not in COMPILER_IMPORT_ROOTS:
+                continue
+            if compiler_module_path(root, normalized) is None:
+                findings.append(
+                    Finding(
+                        path,
+                        line_no,
+                        "missing imported compiler module "
+                        f"`{module}`; expected {expected_compiler_module_path(root, normalized)}",
+                    )
+                )
+    return findings
+
+
+def compiler_import_cycle_findings(root: Path) -> list[Finding]:
+    findings: list[Finding] = []
+    src_root = compiler_src_root(root)
+    graph: dict[str, set[str]] = {}
+    paths: dict[str, Path] = {}
+    for path in sorted(src_root.rglob("*.seen")):
+        module_id = compiler_module_id(root, path)
+        paths[module_id] = path
+        deps: set[str] = set()
+        for _, imported in import_statements(path):
+            imported_path = compiler_module_path(root, imported)
+            if imported_path is None:
+                continue
+            if imported_path.is_dir():
+                continue
+            try:
+                dep_id = compiler_module_id(root, imported_path)
+            except ValueError:
+                continue
+            if dep_id != module_id:
+                deps.add(dep_id)
+        graph[module_id] = deps
+
+    visiting: list[str] = []
+    visited: set[str] = set()
+    reported: set[tuple[str, ...]] = set()
+
+    def is_known_legacy_cycle(cycle: list[str]) -> bool:
+        cycle_set = frozenset(cycle[:-1] if cycle and cycle[0] == cycle[-1] else cycle)
+        if any(module_id.startswith("tools.c_import_") for module_id in cycle_set):
+            return True
+        return cycle_set in KNOWN_LEGACY_IMPORT_CYCLE_SETS
+
+    def visit(module_id: str) -> None:
+        if len(findings) >= MAX_IMPORT_CYCLE_FINDINGS:
+            return
+        if module_id in visiting:
+            cycle = visiting[visiting.index(module_id) :] + [module_id]
+            if is_known_legacy_cycle(cycle):
+                return
+            key = tuple(cycle)
+            if key not in reported:
+                reported.add(key)
+                findings.append(
+                    Finding(
+                        paths.get(module_id, src_root),
+                        1,
+                        "compiler import cycle: " + " -> ".join(cycle),
+                    )
+                )
+            return
+        if module_id in visited:
+            return
+        visiting.append(module_id)
+        for dep_id in sorted(graph.get(module_id, ())):
+            visit(dep_id)
+        visiting.pop()
+        visited.add(module_id)
+
+    for module_id in sorted(graph):
+        visit(module_id)
+        if len(findings) >= MAX_IMPORT_CYCLE_FINDINGS:
+            break
+    return findings
+
+
+def raw_float_literal_source_findings(root: Path) -> list[Finding]:
+    findings: list[Finding] = []
+    codegen_dir = root / "compiler_seen" / "src" / "codegen"
+    malformed_literal = re.compile(r"\b(?:float|double)\s+0(?=\s*[,)\"])")
+    raw_float_to_string = re.compile(
+        r"@seen_float_to_string\(double\s+\"\s*\+\s*([A-Za-z_][A-Za-z0-9_]*)"
+    )
+    for path in sorted(codegen_dir.rglob("*.seen")):
+        lines = source_lines(path)
+        for line_no, line in enumerate(lines, 1):
+            if malformed_literal.search(line):
+                findings.append(
+                    Finding(
+                        path,
+                        line_no,
+                        "raw LLVM float/double zero literal in source; emit 0.0",
+                    )
+                )
+        for index, line in enumerate(lines):
+            snippet = " ".join(lines[index : index + 4])
+            match = raw_float_to_string.search(snippet)
+            if not match:
+                continue
+            context = " ".join(lines[max(0, index - 3) : index + 4])
+            if "normalizeDoubleLiteralForLlvmImpl" in context or (
+                "normalizeRuntimeDoubleOperandImpl" in context
+            ):
+                continue
+            if "declare %SeenString @seen_float_to_string(double)" in context:
+                continue
+            findings.append(
+                Finding(
+                    path,
+                    index + 1,
+                    "seen_float_to_string call appends a raw double operand; "
+                    "normalize literal operands before emission",
+                )
+            )
+            if len(findings) >= 50:
+                break
+        if len(findings) >= 50:
+            break
+    return findings
 
 
 def owner_vars(root: Path, module: str) -> set[str]:
@@ -1665,6 +1897,33 @@ def facade_owner_call_findings(root: Path) -> list[Finding]:
     return findings
 
 
+def facade_string_prefix_owner_findings(root: Path) -> list[Finding]:
+    path = root / "compiler_seen" / "src" / "codegen" / "llvm_ir_gen.seen"
+    findings: list[Finding] = []
+    for line_no, line in enumerate(source_lines(path), 1):
+        if re.search(r"\bstringConstantPrefix\s*=", line):
+            findings.append(
+                Finding(
+                    path,
+                    line_no,
+                    "facade writes stringConstantPrefix directly; use "
+                    "setStringConstantPrefixWithGlobalStateImpl() so "
+                    "state-based literal lowering sees the module prefix",
+                )
+            )
+        if re.search(r"[, (]stringConstantPrefix[, )]", line):
+            findings.append(
+                Finding(
+                    path,
+                    line_no,
+                    "facade reads stringConstantPrefix directly; use "
+                    "getStringConstantPrefixWithGlobalStateImpl() so "
+                    "prefixed string constants and literal uses stay aligned",
+                )
+            )
+    return findings
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -1677,6 +1936,9 @@ def main() -> int:
     root = Path(args.root).resolve()
 
     findings: list[Finding] = []
+    findings.extend(compiler_import_integrity_findings(root))
+    findings.extend(compiler_import_cycle_findings(root))
+    findings.extend(raw_float_literal_source_findings(root))
     findings.extend(find_owner_import_violations(root))
     findings.extend(identity_boundary_findings(root))
     findings.extend(prebody_boundary_findings(root))
@@ -1694,6 +1956,7 @@ def main() -> int:
     findings.extend(late_declare_stack_api_findings(root))
     findings.extend(ast_layout_boundary_findings(root))
     findings.extend(facade_owner_call_findings(root))
+    findings.extend(facade_string_prefix_owner_findings(root))
 
     if findings:
         print("codegen ABI boundary preflight failed:", file=sys.stderr)

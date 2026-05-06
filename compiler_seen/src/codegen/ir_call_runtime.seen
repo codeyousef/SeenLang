@@ -7,6 +7,17 @@ from higher-level call orchestration and AST dispatch.
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_declarations.{emitMathBuiltinImpl, emitSomeConstructorImpl, emitNoneConstructorImpl}
+import codegen.ir_literal_gen.{normalizeDoubleLiteralForLlvmImpl}
+
+fun normalizeRuntimeDoubleOperandImpl(argReg: String) r: String {
+    if argReg.startsWith("%") {
+        return argReg
+    }
+    if argReg == "undef" {
+        return argReg
+    }
+    return normalizeDoubleLiteralForLlvmImpl(argReg)
+}
 
 fun emitPrintLikeCallImpl(output: StringBuilder, regBox: Array<Int>, printName: String, argReg: String, argType: String) r: String {
     var strReg = argReg
@@ -16,7 +27,8 @@ fun emitPrintLikeCallImpl(output: StringBuilder, regBox: Array<Int>, printName: 
     } else {
         if argType == "Float" {
             strReg = getNextRegFn(regBox)
-            output.append("  " + strReg + " = call %SeenString @seen_float_to_string(double " + argReg + ")\n")
+            let doubleArg = normalizeRuntimeDoubleOperandImpl(argReg)
+            output.append("  " + strReg + " = call %SeenString @seen_float_to_string(double " + doubleArg + ")\n")
         } else {
             if argType == "Bool" {
                 strReg = getNextRegFn(regBox)

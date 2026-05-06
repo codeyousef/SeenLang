@@ -6,6 +6,7 @@ Each impl function returns a result register string, or "" for fallthrough
 
 import codegen.ir_optimization.{getNextRegFn}
 import str.string.{StringBuilder}
+import codegen.ir_literal_gen.{normalizeDoubleLiteralForLlvmImpl}
 
 fun normalizeArrayFloatLiteralImpl(value: String) r: String {
     if value == "" {
@@ -56,7 +57,8 @@ isClassReceiver: 1 if receiverType is a class type (pre-resolved by wrapper)
 fun emitToStringMethodImpl(output: StringBuilder, regBox: Array<Int>, receiverReg: String, receiverType: String, isClassReceiver: Int) r: String {
     if receiverType == "Float" {
         let resultReg = getNextRegFn(regBox)
-        output.append("  " + resultReg + " = call %SeenString @seen_float_to_string(double " + receiverReg + ")\n")
+        let doubleReceiverReg = normalizeDoubleLiteralForLlvmImpl(receiverReg)
+        output.append("  " + resultReg + " = call %SeenString @seen_float_to_string(double " + doubleReceiverReg + ")\n")
         return resultReg
     }
     if receiverType == "Bool" {
