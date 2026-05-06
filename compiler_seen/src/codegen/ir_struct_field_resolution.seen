@@ -206,13 +206,13 @@ fun resolveKnownStructFieldImpl(structType: String, fieldName: String) r: String
         if fieldName == "variableName" { g_resolvedFieldIndex = 1; g_resolvedFieldTypeCode = 3 }
         if fieldName == "variableType" { g_resolvedFieldIndex = 2; g_resolvedFieldTypeCode = 4 }
         if fieldName == "initializer" { g_resolvedFieldIndex = 3; g_resolvedFieldTypeCode = 0 }
-        if fieldName == "expression" { g_resolvedFieldIndex = 4; g_resolvedFieldTypeCode = 0 }
-        if fieldName == "condition" { g_resolvedFieldIndex = 5; g_resolvedFieldTypeCode = 0 }
-        if fieldName == "thenBranch" { g_resolvedFieldIndex = 6; g_resolvedFieldTypeCode = 0 }
-        if fieldName == "elseBranch" { g_resolvedFieldIndex = 7; g_resolvedFieldTypeCode = 0 }
-        if fieldName == "loopCondition" { g_resolvedFieldIndex = 8; g_resolvedFieldTypeCode = 0 }
-        if fieldName == "loopBody" { g_resolvedFieldIndex = 9; g_resolvedFieldTypeCode = 0 }
-        if fieldName == "returnValue" { g_resolvedFieldIndex = 10; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "returnValue" { g_resolvedFieldIndex = 4; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "expression" { g_resolvedFieldIndex = 5; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "condition" { g_resolvedFieldIndex = 6; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "thenBranch" { g_resolvedFieldIndex = 7; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "elseBranch" { g_resolvedFieldIndex = 8; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "loopCondition" { g_resolvedFieldIndex = 9; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "loopBody" { g_resolvedFieldIndex = 10; g_resolvedFieldTypeCode = 0 }
         return lb + " %SeenString, %SeenString, %TypeNode, i64, i64, i64, i64, i64, i64, i64, i64 " + rb
     }
     // LSP types

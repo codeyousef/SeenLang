@@ -2,13 +2,12 @@
 
 import parser.real_parser.{BlockNode, StatementNode, ParserExpressionNode}
 import trace.{traceGen}
-import codegen.ir_codegen_global_state.{preAllocatedVars, preAllocatedTypes, structNames}
+import codegen.ir_codegen_global_state.{findStructWithGlobalStateImpl, appendCollectedDeclarationWithGlobalStateImpl}
 import codegen.ir_decl_items.{normalizeDeclaredTypeNodeImpl}
 import codegen.ir_expr_type_driver.{inferExpressionTypeState, resolveLiteralMethodReceiverTypeState}
 import codegen.ir_field_lookup_state.{getMethodReturnTypeState}
 import codegen.ir_local_type_leaf_driver.{findVarTypeState}
-import codegen.ir_stmt_decl.{shouldInferDeclarationInitializerTypeImpl, resolveDeclarationBaseTypeImpl, resolveLetStatementTypeImpl, classifyCollectedStatementKindImpl, shouldTraceCollectedDeclarationTypeImpl, appendCollectedDeclarationImpl, resolveCollectedForInElementTypeImpl, buildForInIndexNameImpl}
-import codegen.type_registry_core.{findStructReg}
+import codegen.ir_stmt_decl.{shouldInferDeclarationInitializerTypeImpl, resolveDeclarationBaseTypeImpl, resolveLetStatementTypeImpl, classifyCollectedStatementKindImpl, shouldTraceCollectedDeclarationTypeImpl, resolveCollectedForInElementTypeImpl, buildForInIndexNameImpl}
 
 fun inferDeclarationInitializerTypeState(expr: ParserExpressionNode,
     varNames: Array<String>, varTypes: Array<String>,
@@ -51,8 +50,8 @@ fun inferDeclarationInitializerTypeState(expr: ParserExpressionNode,
                 if staticReturnType != "" {
                     return staticReturnType
                 }
-                if expr.callee == "new" and findStructReg(receiverName,
-                    structNames) >= 0 {
+                if expr.callee == "new" and
+                    findStructWithGlobalStateImpl(receiverName) >= 0 {
                     return receiverName
                 }
             }
@@ -91,8 +90,8 @@ fun collectStmtVarsState(stmt: StatementNode, varNames: Array<String>,
             stmt.variableName) != 0 {
             traceGen("collectStmtVars: " + stmt.variableName + " -> " + varType)
         }
-        appendCollectedDeclarationImpl(preAllocatedVars, preAllocatedTypes,
-            stmt.variableName, varType)
+        appendCollectedDeclarationWithGlobalStateImpl(stmt.variableName,
+            varType)
     }
     if collectedStmtKind == 2 {
         collectVariableDeclarationsState(stmt.thenBranch, varNames, varTypes,
@@ -121,11 +120,10 @@ fun collectStmtVarsState(stmt: StatementNode, varNames: Array<String>,
             }
             let forInElemType = resolveCollectedForInElementTypeImpl(
                 forInExprKind, forInIterType, forInFirstElementType)
-            appendCollectedDeclarationImpl(preAllocatedVars, preAllocatedTypes,
-                stmt.variableName, forInElemType)
+            appendCollectedDeclarationWithGlobalStateImpl(stmt.variableName,
+                forInElemType)
             let forInIdxName = buildForInIndexNameImpl(stmt.variableName)
-            appendCollectedDeclarationImpl(preAllocatedVars, preAllocatedTypes,
-                forInIdxName, "Int")
+            appendCollectedDeclarationWithGlobalStateImpl(forInIdxName, "Int")
         }
         collectVariableDeclarationsState(stmt.loopBody, varNames, varTypes,
             stringConstants)

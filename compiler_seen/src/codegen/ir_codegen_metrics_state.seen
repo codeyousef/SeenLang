@@ -5,9 +5,16 @@ collection bookkeeping shared by the LLVM IR generator facade.
 
 import codegen.ir_optimization.{parseIntManual}
 import codegen.ir_inline_heuristics.{parseFixedPoint100, g_inlineW0, g_inlineW1, g_inlineW2, g_inlineW3, g_inlineBias, g_mlWeightsActive}
-import codegen.ir_string_collect_state.{initStringCollectionBoxesStateImpl, syncStringCollectionBoxesStateImpl, resetCallCountTrackingStateImpl, resetSelfCallTrackingStateImpl}
-import codegen.ir_codegen_state.{getSharedCodegenState}
+import parser.real_parser.{ProgramNode, ParserExpressionNode, FunctionNode}
+import str.string.{StringBuilder}
+import codegen.ir_string_collect_state.{collectStringConstantsStateImpl, initStringCollectionBoxesStateImpl, syncStringCollectionBoxesStateImpl, resetCallCountTrackingStateImpl, resetSelfCallTrackingStateImpl}
+import codegen.ir_loop_context.{appendLoopTileHintImpl, appendLoopMetadataIdImpl, emitLoopMetadataImpl}
+import codegen.ir_string_interp_infer.{inferStringInterpolationExprTypeStateImpl}
+import codegen.ir_codegen_state.{getSharedCodegenState, FunctionLoweringOptions}
+import codegen.ir_codegen_feature_state.{getFeatureBlockBoxImpl}
 import codegen.ir_function_state.{getCurrentFunctionEmissionStateImpl, resetFunctionEmissionHighPressureImpl, resetFunctionHighPressureImpl}
+import codegen.ir_function_snapshots.{FunctionPreludeAnalysisSnapshot}
+import codegen.ir_function_prelude_analysis.{prepareFunctionPreludeAnalysisSnapshotImpl}
 import codegen.ir_ml_logging.{mlLogDecision}
 
 var g_deadStatementsEliminated: Int = 0
@@ -54,6 +61,16 @@ var g_selfCallCountBox: Array<Int> = Array<Int>()
 var g_callCountNamesBox: Array<String> = Array<String>()
 var g_callCountEntriesBox: Array<Int> = Array<Int>()
 
+fun initMetricsBootstrapArraysImpl() r: Void {
+    g_cseKeysArr = Array<String>()
+    g_cseValsArr = Array<String>()
+    g_callCountNamesArr = Array<String>()
+    g_selfCallBox = Array<String>()
+    g_selfCallCountBox = Array<Int>()
+    g_callCountNamesBox = Array<String>()
+    g_callCountEntriesBox = Array<Int>()
+}
+
 fun cseLookup(key: String) r: String {
     var i = g_cseKeysArr.length() - 1
     while i >= 0 {
@@ -97,6 +114,27 @@ fun selfCallClear() r: Void {
     g_selfCallCount = selfCallState.selfCallCount
 }
 
+fun prepareFunctionPreludeAnalysisWithMetricsStateImpl(output: StringBuilder,
+    fn: FunctionNode, fnName: String, funcAttrs: String)
+    r: FunctionPreludeAnalysisSnapshot {
+
+    return prepareFunctionPreludeAnalysisSnapshotImpl(output, fn, fnName,
+        funcAttrs, g_mlReplayEnabled, g_mlReplayLog, g_callCountNamesArr,
+        g_selfCallFuncs, g_selfCallNames, g_selfCallCount)
+}
+
+fun getMetricsSelfCallFuncsImpl() r: String {
+    return g_selfCallFuncs
+}
+
+fun getMetricsSelfCallNamesImpl() r: String {
+    return g_selfCallNames
+}
+
+fun getMetricsSelfCallCountImpl() r: Int {
+    return g_selfCallCount
+}
+
 fun initCollectionBoxes() r: Void {
     let boxes = initStringCollectionBoxesStateImpl(g_selfCallFuncs,
         g_selfCallNames, g_selfCallCount, g_callCountNames,
@@ -115,6 +153,60 @@ fun syncCollectionBoxes() r: Void {
     g_selfCallCount = synced.selfCallCount
     g_callCountNames = synced.callCountNames
     g_callCountEntries = synced.callCountEntries
+}
+
+fun collectProgramStringConstantsWithMetricsStateImpl(program: ProgramNode,
+    stringConstants: Array<String>) r: Void {
+
+    initCollectionBoxes()
+    collectStringConstantsStateImpl(program, stringConstants, g_selfCallBox,
+        g_selfCallCountBox, g_callCountNamesBox, g_callCountEntriesBox)
+    syncCollectionBoxes()
+}
+
+fun appendLoopTileHintWithMetricsStateImpl(loopMetaId: Int,
+    hintValue: Int) r: Void {
+
+    let loopTileHintsBox = Array<String>()
+    loopTileHintsBox.push(g_loopTileHints)
+    appendLoopTileHintImpl(loopTileHintsBox, loopMetaId, hintValue)
+    g_loopTileHints = loopTileHintsBox[0]
+}
+
+fun appendNestedLoopMetadataIdWithMetricsStateImpl(
+    loopMetaId: Int) r: Void {
+
+    let nestedLoopIdsBox = Array<String>()
+    nestedLoopIdsBox.push(g_nestedLoopIds)
+    appendLoopMetadataIdImpl(nestedLoopIdsBox, loopMetaId)
+    g_nestedLoopIds = nestedLoopIdsBox[0]
+}
+
+fun appendReductionLoopMetadataIdWithMetricsStateImpl(
+    loopMetaId: Int) r: Void {
+
+    let reductionLoopIdsBox = Array<String>()
+    reductionLoopIdsBox.push(g_reductionLoopIds)
+    appendLoopMetadataIdImpl(reductionLoopIdsBox, loopMetaId)
+    g_reductionLoopIds = reductionLoopIdsBox[0]
+}
+
+fun emitLoopMetadataWithMetricsStateImpl(output: StringBuilder,
+    options: FunctionLoweringOptions) r: Void {
+
+    emitLoopMetadataImpl(output, options, getFeatureBlockBoxImpl(),
+        g_reductionLoopIds, g_nestedLoopIds, g_loopTileHints)
+}
+
+fun inferStringInterpolationExprTypeWithMetricsStateImpl(
+    expr: ParserExpressionNode, stringConstants: Array<String>) r: String {
+
+    initCollectionBoxes()
+    let inferredType = inferStringInterpolationExprTypeStateImpl(
+        expr.kind, expr.arguments, expr.operands, stringConstants,
+        g_callCountNamesBox, g_callCountEntriesBox)
+    syncCollectionBoxes()
+    return inferredType
 }
 
 fun getOptStats() r: String {

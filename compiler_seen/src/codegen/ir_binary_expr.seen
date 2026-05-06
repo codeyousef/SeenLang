@@ -147,7 +147,8 @@ fun binaryOperatorMethodSuffixImpl(operator: String) r: String {
 }
 
 fun planOverloadedBinaryState(operator: String, leftType: String,
-    funcNames: String, funcRetTypes: String) r: OverloadedBinaryPlan {
+    funcNames: Array<String>, funcRetTypes: Array<String>)
+    r: OverloadedBinaryPlan {
 
     let plan = OverloadedBinaryPlan.new()
     let opMethodSuffix = binaryOperatorMethodSuffixImpl(operator)

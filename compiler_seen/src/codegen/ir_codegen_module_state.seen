@@ -3,9 +3,11 @@ ir_codegen_module_state.seen - module constants, cross-module declares,
 late declare state, and local lookup caches used by LLVM IR generation.
 ///
 
-import codegen.ir_codegen_global_state.{moduleConstantNames, moduleConstantValues, moduleConstantTypes}
-import codegen.ir_decl_registry.{resetLateUserDeclareStateImpl}
-import codegen.ir_module_constants.{resetModuleConstantGenerationStateImpl}
+import parser.real_parser.{ProgramNode}
+import str.string.{StringBuilder}
+import codegen.ir_codegen_global_state.{resetGlobalModuleConstantsImpl, emitGlobalVariablesWithGlobalStateImpl, emitCrossModuleConstantDeclaresWithGlobalStateImpl, findModuleConstantWithGlobalStateImpl, getModuleConstantTypeWithGlobalStateImpl, tryInferModuleConstantVariableTypeWithGlobalStateImpl}
+import codegen.ir_decl_registry.{DeclarationPassState, LateUserDeclareState, captureLateUserDeclareStateImpl, resetLateUserDeclareStateImpl, emitLateUserDeclaresStateImpl}
+import codegen.ir_module_constants.{isModuleConstMutableImpl, getModuleConstSeenTypeImpl, resetModuleConstantGenerationStateImpl, moduleConstantInvariantLoadSuffixImpl}
 import codegen.ir_field_registry.{findCachedIrgenFieldIndexImpl, cacheIrgenFieldIndexImpl, findCachedChainedPathTypeRecordImpl, cacheChainedPathTypeImpl, resetFieldLookupCacheStateImpl}
 
 var g_moduleConstMutable: String = ""
@@ -35,6 +37,13 @@ var g_chainedPathTypeCacheKeys: Array<String> = Array<String>()
 var g_chainedPathTypeCacheLens: Array<Int> = Array<Int>()
 var g_chainedPathTypeCacheValues: Array<String> = Array<String>()
 
+fun resetModuleBootstrapArraysImpl() r: Void {
+    g_xmDeclareNamesArr = Array<String>()
+    g_xmDeclareStrsArr = Array<String>()
+    g_xmDeclareVisArr = Array<String>()
+    resetIrgenFieldLookupCaches()
+}
+
 fun findCachedIrgenFieldIndex(key: String) r: Int {
     return findCachedIrgenFieldIndexImpl(key, g_irgenFieldInfoCacheKeys,
         g_irgenFieldInfoCacheIdxs)
@@ -56,13 +65,70 @@ fun cacheChainedPathType(key: String, structLen: Int, resultType: String) r: Voi
         g_chainedPathTypeCacheValues)
 }
 
+fun getCachedChainedPathTypeValue(index: Int) r: String {
+    return g_chainedPathTypeCacheValues[index]
+}
+
 fun resetModuleConstantGenerationState() r: Void {
     let moduleConstState = resetModuleConstantGenerationStateImpl()
-    moduleConstantNames = moduleConstState.moduleConstantNames
-    moduleConstantValues = moduleConstState.moduleConstantValues
-    moduleConstantTypes = moduleConstState.moduleConstantTypes
+    resetGlobalModuleConstantsImpl()
     g_moduleConstMutable = moduleConstState.moduleConstMutable
     g_moduleConstSeenTypes = moduleConstState.moduleConstSeenTypes
+}
+
+fun emitProgramGlobalVariablesWithModuleStateImpl(output: StringBuilder,
+    program: ProgramNode) r: Void {
+
+    let moduleConstSnapshot = emitGlobalVariablesWithGlobalStateImpl(output,
+        program, g_moduleConstMutable, g_moduleConstSeenTypes)
+    g_moduleConstMutable = moduleConstSnapshot.moduleConstMutable
+    g_moduleConstSeenTypes = moduleConstSnapshot.moduleConstSeenTypes
+}
+
+fun emitCrossModuleConstantDeclaresWithModuleStateImpl(
+    output: StringBuilder) r: Void {
+
+    emitCrossModuleConstantDeclaresWithGlobalStateImpl(output,
+        g_xmConstNames, g_xmConstTypes, g_xmConstCount)
+}
+
+fun findModuleConstantWithModuleStateImpl(name: String) r: Int {
+    let moduleConstLookup = findModuleConstantWithGlobalStateImpl(name,
+        g_moduleConstMutable, g_moduleConstSeenTypes, g_xmConstNames,
+        g_xmConstTypes, g_xmConstMutable, g_xmConstSeenTypes,
+        g_xmConstCount)
+    g_moduleConstMutable = moduleConstLookup.moduleConstMutable
+    g_moduleConstSeenTypes = moduleConstLookup.moduleConstSeenTypes
+    return moduleConstLookup.constIndex
+}
+
+fun getModuleConstantTypeWithModuleStateImpl(idx: Int) r: String {
+    return getModuleConstantTypeWithGlobalStateImpl(idx)
+}
+
+fun getModuleConstSeenTypeWithModuleStateImpl(idx: Int) r: String {
+    return getModuleConstSeenTypeImpl(idx, g_moduleConstSeenTypes)
+}
+
+fun isModuleConstMutableWithModuleStateImpl(idx: Int) r: Bool {
+    return isModuleConstMutableImpl(idx, g_moduleConstMutable)
+}
+
+fun moduleConstantInvariantLoadSuffixWithModuleStateImpl(idx: Int) r: String {
+    return moduleConstantInvariantLoadSuffixImpl(idx, g_moduleConstMutable)
+}
+
+fun tryInferModuleConstantVariableTypeWithModuleStateImpl(
+    name: String) r: String {
+
+    let moduleConstLookup =
+        tryInferModuleConstantVariableTypeWithGlobalStateImpl(name,
+            g_moduleConstMutable, g_moduleConstSeenTypes, g_xmConstNames,
+            g_xmConstTypes, g_xmConstMutable, g_xmConstSeenTypes,
+            g_xmConstCount)
+    g_moduleConstMutable = moduleConstLookup.moduleConstMutable
+    g_moduleConstSeenTypes = moduleConstLookup.moduleConstSeenTypes
+    return moduleConstLookup.seenType
 }
 
 fun resetLateUserDeclareState() r: Void {
@@ -70,6 +136,58 @@ fun resetLateUserDeclareState() r: Void {
     g_lateXmDeclareNames = lateState.lateXmDeclareNames
     g_lateXmDeclareStrs = lateState.lateXmDeclareStrs
     g_lateXmDeclareCount = lateState.lateXmDeclareCount
+}
+
+fun captureModuleLateUserDeclareState() r: LateUserDeclareState {
+    return captureLateUserDeclareStateImpl(g_lateXmDeclareNames,
+        g_lateXmDeclareStrs, g_lateXmDeclareCount)
+}
+
+fun applyModuleLateUserDeclareState(lateState: LateUserDeclareState) r: Void {
+    g_lateXmDeclareNames = lateState.lateXmDeclareNames
+    g_lateXmDeclareStrs = lateState.lateXmDeclareStrs
+    g_lateXmDeclareCount = lateState.lateXmDeclareCount
+}
+
+fun emitLateUserDeclaresWithModuleStateImpl(output: StringBuilder,
+    definedFuncs: Array<String>) r: Void {
+
+    emitLateUserDeclaresStateImpl(output, definedFuncs, g_lateXmDeclareNames,
+        g_lateXmDeclareStrs, g_lateXmDeclareCount)
+}
+
+fun populateModuleDeclarationPassStateImpl(
+    declState: DeclarationPassState) r: Void {
+
+    declState.xmDeclareNames = g_xmDeclareNames
+    declState.xmDeclareStrs = g_xmDeclareStrs
+    declState.xmDeclareVis = g_xmDeclareVis
+    declState.xmDeclareNamesArr = g_xmDeclareNamesArr
+    declState.xmDeclareStrsArr = g_xmDeclareStrsArr
+    declState.xmDeclareVisArr = g_xmDeclareVisArr
+    declState.xmDeclareCount = g_xmDeclareCount
+    declState.xmConstNames = g_xmConstNames
+    declState.xmConstTypes = g_xmConstTypes
+    declState.xmConstMutable = g_xmConstMutable
+    declState.xmConstSeenTypes = g_xmConstSeenTypes
+    declState.xmConstCount = g_xmConstCount
+}
+
+fun applyModuleDeclarationPassStateImpl(
+    declState: DeclarationPassState) r: Void {
+
+    g_xmDeclareNames = declState.xmDeclareNames
+    g_xmDeclareStrs = declState.xmDeclareStrs
+    g_xmDeclareVis = declState.xmDeclareVis
+    g_xmDeclareNamesArr = declState.xmDeclareNamesArr
+    g_xmDeclareStrsArr = declState.xmDeclareStrsArr
+    g_xmDeclareVisArr = declState.xmDeclareVisArr
+    g_xmDeclareCount = declState.xmDeclareCount
+    g_xmConstNames = declState.xmConstNames
+    g_xmConstTypes = declState.xmConstTypes
+    g_xmConstMutable = declState.xmConstMutable
+    g_xmConstSeenTypes = declState.xmConstSeenTypes
+    g_xmConstCount = declState.xmConstCount
 }
 
 fun resetIrgenFieldLookupCaches() r: Void {

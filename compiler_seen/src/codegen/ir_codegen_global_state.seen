@@ -4,6 +4,35 @@ These remain module globals instead of LLVMIRGenerator fields so older
 bootstrap compilers do not need to lower self-hosted field stores for them.
 ///
 
+import parser.real_parser.{ProgramNode, ClassNode, FunctionNode, StatementNode}
+import str.string.{StringBuilder}
+import codegen.ir_codegen_state.{CodegenState, FunctionLoweringOptions}
+import codegen.ir_codegen_state_bridge.{CodegenStateBridgeSnapshot, syncCodegenStateBridgeImpl}
+import codegen.ir_decl_registry.{DeclarationPassState, getFunctionReturnTypeStateImpl, registerFunctionStateImpl}
+import codegen.ir_decl_scan.{collectStructMethodSignaturesImpl}
+import codegen.ir_decl_items.{DeclarationItemContext}
+import codegen.ir_decl_pass_driver.{beginDeclarationRegistrationPassImpl}
+import codegen.ir_function_gen.{resolveImplementationFunctionNameImpl}
+import codegen.ir_function_snapshots.{FunctionGenerationIdentitySnapshot}
+import codegen.ir_function_usage.{hasGeneratedFunctionNameImpl, shouldSkipRuntimeBuiltinStubImpl}
+import codegen.ir_codegen_feature_state.{getDynTraitNamesStateImpl, getTraitImplRegistryStateImpl, getTraitImplCountStateImpl, applyTraitImplStateImpl, getFeatureTypeAliasNamesImpl, getFeatureTypeAliasTargetsImpl, getFeatureTypeAliasCountImpl, getFeatureEnumTypeNamesImpl, getFeatureReprCClassNamesImpl}
+import codegen.ir_codegen_target_state.{emitTargetModuleHeaderImpl}
+import codegen.ir_decl_feature_runtime.{emitFeatureDecls}
+import codegen.ir_decl_macro_lsp.{emitMacroAndLspDecls}
+import codegen.ir_decl_parser.{emitParserDecls, emitTypecheckerDecls}
+import codegen.ir_decl_runtime.{emitCoreRuntimeDecls}
+import codegen.ir_decl_string_io.{emitStringAndIODecls}
+import codegen.ir_function_entry_exit.{emitPreAllocatedAllocasImpl}
+import codegen.ir_type_header.{tryLoadTypeHeaderIntoOutputImpl, emitBuiltinTypeHeaderImpl}
+import codegen.ir_module_constants.{ModuleConstantRegistrySnapshot, emitGlobalVariablesSnapshotImpl, findModuleConstantSnapshotImpl, tryInferModuleConstantVariableTypeSnapshotImpl}
+import codegen.ir_module_emit.{emitCrossModuleConstantDeclaresImpl}
+import codegen.ir_variable_gen.{findActiveVariableIndexImpl, findVisibleVariableTypeImpl}
+import codegen.ir_local_type_fallback.{tryInferLLVMIRGeneratorThisFieldTypeImpl, tryInferStructThisFieldTypeImpl, tryInferImplicitThisVariableTypeImpl}
+import codegen.ir_stmt_decl.{LetStatementPlan, appendCollectedDeclarationImpl, prepareLetStatementPlanImpl, resolveLetPreAllocatedRegImpl}
+import codegen.ir_function_body.{FunctionBodyLoopVariableStorage, resolveFunctionBodyForInLoopVariableStorageImpl, resolveFunctionBodyForInIndexAllocaImpl}
+import codegen.type_registry_core.{findStructReg, ensureStructEntryReg, applyStructLayoutRegistrationReg}
+import codegen.ir_infer_type.{inferMethodCallBoolSuffixImpl}
+
 var preAllocatedRegs: Array<String> = Array<String>()
 var preAllocatedVars: Array<String> = Array<String>()
 var preAllocatedTypes: Array<String> = Array<String>()
@@ -41,3 +70,467 @@ var pendingArrayLiteralType: String = ""
 var moduleConstantNames: Array<String> = Array<String>()
 var moduleConstantValues: Array<String> = Array<String>()
 var moduleConstantTypes: Array<String> = Array<String>()
+
+fun setGlobalTypeHeaderPathImpl(path: String) r: Void {
+    typeHeaderPath = path
+}
+
+fun getBlockTerminatedWithGlobalStateImpl() r: Bool {
+    return blockTerminated
+}
+
+fun setBlockTerminatedWithGlobalStateImpl(value: Bool) r: Void {
+    blockTerminated = value
+}
+
+fun prepareLetStatementPlanWithGlobalStateImpl(stmt: StatementNode,
+    declaredType: String, initializerType: String) r: LetStatementPlan {
+
+    return prepareLetStatementPlanImpl(stmt, declOrdinalNames,
+        declOrdinalCounts, preAllocatedVars, preAllocatedTypes,
+        declaredType, initializerType)
+}
+
+fun resolveLetPreAllocatedRegWithGlobalStateImpl(preIdx: Int) r: String {
+    return resolveLetPreAllocatedRegImpl(preIdx, preAllocatedRegs)
+}
+
+fun resolveFunctionBodyForInLoopVariableStorageWithGlobalStateImpl(
+    output: StringBuilder, regBox: Array<Int>, loopVarName: String,
+    loopVarType: String, loopVarLlvmType: String)
+    r: FunctionBodyLoopVariableStorage {
+
+    return resolveFunctionBodyForInLoopVariableStorageImpl(output, regBox,
+        loopVarName, loopVarType, loopVarLlvmType, declOrdinalNames,
+        declOrdinalCounts, preAllocatedVars, preAllocatedRegs)
+}
+
+fun resolveFunctionBodyForInIndexAllocaWithGlobalStateImpl(
+    output: StringBuilder, regBox: Array<Int>, idxName: String) r: String {
+
+    return resolveFunctionBodyForInIndexAllocaImpl(output, regBox,
+        preAllocatedVars, preAllocatedRegs, idxName)
+}
+
+fun resetGlobalModuleConstantsImpl() r: Void {
+    moduleConstantNames = Array<String>()
+    moduleConstantValues = Array<String>()
+    moduleConstantTypes = Array<String>()
+}
+
+fun resetGlobalModuleScratchStateImpl() r: Void {
+    currentFunctionReturnType = ""
+    currentClassName = ""
+    blockTerminated = false
+    currentLoopCondLabel = ""
+    currentLoopEndLabel = ""
+    preAllocatedVars = Array<String>()
+    preAllocatedTypes = Array<String>()
+    preAllocatedRegs = Array<String>()
+    activeVarCount = 0
+    declOrdinalNames = Array<String>()
+    declOrdinalCounts = Array<Int>()
+    stringConstantPrefix = ""
+    generatedFunctions = Array<String>()
+    generatedClasses = Array<String>()
+    typesLoadedFromHeader = false
+    runtimeDeclsLoaded = false
+    pendingArrayLiteralType = ""
+    classMethodBaseNames = Array<String>()
+}
+
+fun emitModulePrologueWithGlobalStateImpl(output: StringBuilder) r: Void {
+    emitTargetModuleHeaderImpl(output)
+
+    let headerLoadResult = tryLoadTypeHeaderIntoOutputImpl(output,
+        typeHeaderPath, structNames, structLayouts, structFieldNames,
+        structFieldTypes, structLlvmFieldTypes, structSizes,
+        structMethodNames, structMethodRetTypes, moduleConstantNames,
+        moduleConstantTypes, moduleConstantValues)
+    if headerLoadResult.loaded {
+        typesLoadedFromHeader = true
+        runtimeDeclsLoaded = headerLoadResult.runtimeDeclsLoaded
+        return
+    }
+
+    emitBuiltinTypeHeaderImpl(output, generatedClasses)
+}
+
+fun emitRuntimeDeclarationsWithGlobalStateImpl(output: StringBuilder,
+    definedFuncs: Array<String>) r: Void {
+
+    emitCoreRuntimeDecls(output, runtimeDeclsLoaded, definedFuncs)
+    runtimeDeclsLoaded = true
+    emitStringAndIODecls(output, definedFuncs)
+    emitParserDecls(output, definedFuncs)
+    emitTypecheckerDecls(output, runtimeDeclsLoaded, definedFuncs)
+    emitMacroAndLspDecls(output, definedFuncs)
+    emitFeatureDecls(output, definedFuncs)
+}
+
+fun emitGlobalVariablesWithGlobalStateImpl(output: StringBuilder,
+    program: ProgramNode, moduleConstMutable: String,
+    moduleConstSeenTypes: String) r: ModuleConstantRegistrySnapshot {
+
+    return emitGlobalVariablesSnapshotImpl(output, program,
+        moduleConstantNames, moduleConstantTypes, moduleConstantValues,
+        moduleConstMutable, moduleConstSeenTypes)
+}
+
+fun emitCrossModuleConstantDeclaresWithGlobalStateImpl(output: StringBuilder,
+    xmConstNames: String, xmConstTypes: String, xmConstCount: Int) r: Void {
+
+    emitCrossModuleConstantDeclaresImpl(output, moduleConstantNames,
+        xmConstNames, xmConstTypes, xmConstCount)
+}
+
+fun findModuleConstantWithGlobalStateImpl(name: String,
+    moduleConstMutable: String, moduleConstSeenTypes: String,
+    xmConstNames: String, xmConstTypes: String, xmConstMutable: String,
+    xmConstSeenTypes: String, xmConstCount: Int)
+    r: ModuleConstantRegistrySnapshot {
+
+    return findModuleConstantSnapshotImpl(name, moduleConstantNames,
+        moduleConstantTypes, moduleConstantValues, moduleConstMutable,
+        moduleConstSeenTypes, xmConstNames, xmConstTypes, xmConstMutable,
+        xmConstSeenTypes, xmConstCount)
+}
+
+fun getModuleConstantTypeWithGlobalStateImpl(idx: Int) r: String {
+    if idx < 0 or idx >= moduleConstantTypes.length() {
+        return ""
+    }
+    return moduleConstantTypes[idx]
+}
+
+fun tryInferModuleConstantVariableTypeWithGlobalStateImpl(name: String,
+    moduleConstMutable: String, moduleConstSeenTypes: String,
+    xmConstNames: String, xmConstTypes: String, xmConstMutable: String,
+    xmConstSeenTypes: String, xmConstCount: Int)
+    r: ModuleConstantRegistrySnapshot {
+
+    if moduleConstantNames.length() == 0 and xmConstCount <= 0 {
+        return ModuleConstantRegistrySnapshot.new(moduleConstMutable,
+            moduleConstSeenTypes, "", -1)
+    }
+    return tryInferModuleConstantVariableTypeSnapshotImpl(name,
+        moduleConstantNames, moduleConstantTypes, moduleConstantValues,
+        moduleConstMutable, moduleConstSeenTypes, xmConstNames,
+        xmConstTypes, xmConstMutable, xmConstSeenTypes, xmConstCount)
+}
+
+fun getGlobalStructNamesImpl() r: Array<String> {
+    return structNames
+}
+
+fun getGlobalStructLayoutsImpl() r: Array<String> {
+    return structLayouts
+}
+
+fun getGlobalStructFieldNamesImpl() r: Array<String> {
+    return structFieldNames
+}
+
+fun getGlobalStructFieldTypesImpl() r: Array<String> {
+    return structFieldTypes
+}
+
+fun getGlobalStructLlvmFieldTypesImpl() r: Array<String> {
+    return structLlvmFieldTypes
+}
+
+fun getGlobalStructSizesImpl() r: Array<Int> {
+    return structSizes
+}
+
+fun getGlobalTypesLoadedFromHeaderImpl() r: Bool {
+    return typesLoadedFromHeader
+}
+
+fun getGlobalStructLayoutAtImpl(index: Int) r: String {
+    return structLayouts[index]
+}
+
+fun hasGeneratedClassWithGlobalStateImpl(className: String) r: Bool {
+    var classIdx = 0
+    while classIdx < generatedClasses.length() {
+        if generatedClasses[classIdx] == className {
+            return true
+        }
+        classIdx = classIdx + 1
+    }
+    return false
+}
+
+fun pushGeneratedClassWithGlobalStateImpl(className: String) r: Void {
+    generatedClasses.push(className)
+}
+
+fun getGlobalStructMethodNamesImpl() r: Array<String> {
+    return structMethodNames
+}
+
+fun getGlobalStructMethodRetTypesImpl() r: Array<String> {
+    return structMethodRetTypes
+}
+
+fun getGlobalCurrentClassNameImpl() r: String {
+    return currentClassName
+}
+
+fun getGlobalFuncNamesImpl() r: Array<String> {
+    return funcNames
+}
+
+fun getGlobalFuncRetTypesImpl() r: Array<String> {
+    return funcRetTypes
+}
+
+fun getFunctionReturnTypeWithGlobalStateImpl(name: String) r: String {
+    return getFunctionReturnTypeStateImpl(name, funcNames, funcRetTypes)
+}
+
+fun inferMethodCallBoolSuffixWithGlobalStateImpl(callee: String) r: String {
+    return inferMethodCallBoolSuffixImpl(callee, funcNames, funcRetTypes)
+}
+
+fun prepareFunctionGenerationIdentityWithGlobalStateImpl(fn: FunctionNode,
+    resolvedFunctionReturnType: String)
+    r: FunctionGenerationIdentitySnapshot {
+
+    let snapshot = FunctionGenerationIdentitySnapshot.new()
+    let registryBox = Array<String>()
+    registryBox.push(getTraitImplRegistryStateImpl())
+    let countBox = Array<Int>()
+    countBox.push(getTraitImplCountStateImpl())
+    snapshot.implFuncName = resolveImplementationFunctionNameImpl(fn,
+        structNames, getDynTraitNamesStateImpl(), structMethodNames,
+        structMethodRetTypes, registryBox, countBox)
+    applyTraitImplStateImpl(registryBox[0], countBox[0])
+    snapshot.traitImplRegistry = registryBox[0]
+    snapshot.traitImplCount = countBox[0]
+
+    if hasGeneratedFunctionNameImpl(generatedFunctions, snapshot.implFuncName) {
+        snapshot.alreadyGenerated = 1
+        return snapshot
+    }
+    if shouldSkipRuntimeBuiltinStubImpl(fn, snapshot.implFuncName) {
+        snapshot.skipRuntimeBuiltinStub = 1
+        return snapshot
+    }
+
+    generatedFunctions.push(snapshot.implFuncName)
+    snapshot.resolvedFunctionReturnType = resolvedFunctionReturnType
+    registerFunctionStateImpl(snapshot.implFuncName,
+        snapshot.resolvedFunctionReturnType, funcNames, funcRetTypes)
+    return snapshot
+}
+
+fun findVisibleVariableTypeWithGlobalStateImpl(varNames: Array<String>,
+    varTypes: Array<String>, name: String) r: String {
+
+    return findVisibleVariableTypeImpl(varNames, varTypes, activeVarCount,
+        preAllocatedVars, preAllocatedTypes, name)
+}
+
+fun findActiveVariableIndexWithGlobalStateImpl(varNames: Array<String>,
+    name: String) r: Int {
+
+    return findActiveVariableIndexImpl(varNames, activeVarCount, name)
+}
+
+fun getPreAllocatedVarCountWithGlobalStateImpl() r: Int {
+    return preAllocatedVars.length()
+}
+
+fun getPreAllocatedVarNameWithGlobalStateImpl(index: Int) r: String {
+    return preAllocatedVars[index]
+}
+
+fun getPreAllocatedVarTypeWithGlobalStateImpl(index: Int) r: String {
+    return preAllocatedTypes[index]
+}
+
+fun tryInferLLVMIRGeneratorThisFieldTypeWithGlobalStateImpl(
+    thisType: String, varName: String) r: String {
+
+    return tryInferLLVMIRGeneratorThisFieldTypeImpl(thisType, varName,
+        structNames, structFieldNames, structFieldTypes)
+}
+
+fun tryInferStructThisFieldTypeWithGlobalStateImpl(thisType: String,
+    varName: String) r: String {
+
+    return tryInferStructThisFieldTypeImpl(thisType, varName, structNames,
+        structFieldNames, structFieldTypes)
+}
+
+fun tryInferImplicitThisVariableTypeWithGlobalStateImpl(
+    varNames: Array<String>, varTypes: Array<String>, varName: String)
+    r: String {
+
+    let thisIdx = findActiveVariableIndexImpl(varNames, activeVarCount, "this")
+    if thisIdx < 0 {
+        return ""
+    }
+    return tryInferImplicitThisVariableTypeImpl(varName, varTypes[thisIdx],
+        structNames, structFieldNames, structFieldTypes)
+}
+
+fun findStructWithGlobalStateImpl(name: String) r: Int {
+    return findStructReg(name, structNames)
+}
+
+fun appendCollectedDeclarationWithGlobalStateImpl(name: String,
+    declaredType: String) r: Void {
+
+    appendCollectedDeclarationImpl(preAllocatedVars, preAllocatedTypes, name,
+        declaredType)
+}
+
+fun ensureStructEntryWithGlobalStateImpl(name: String) r: Int {
+    return ensureStructEntryReg(name, structNames, structLayouts,
+        structFieldNames, structFieldTypes, structLlvmFieldTypes,
+        structSizes, structMethodNames, structMethodRetTypes)
+}
+
+fun collectStructMethodSignaturesWithGlobalStateImpl(classNode: ClassNode,
+    methodNamesBox: Array<String>, methodRetTypesBox: Array<String>) r: Void {
+
+    collectStructMethodSignaturesImpl(classNode.name, classNode.methods,
+        methodNamesBox, methodRetTypesBox, classMethodBaseNames)
+}
+
+fun applyStructLayoutRegistrationWithGlobalStateImpl(structIdx: Int,
+    className: String, layout: String, fieldNames: String,
+    fieldTypes: String, totalSize: Int, methodNames: String,
+    methodRetTypes: String) r: Void {
+
+    applyStructLayoutRegistrationReg(structIdx, className, layout,
+        fieldNames, fieldTypes, totalSize, methodNames, methodRetTypes,
+        structLayouts, structFieldNames, structFieldTypes, structSizes,
+        structMethodNames, structMethodRetTypes)
+}
+
+fun syncCodegenStateFromGlobalStateImpl(state: CodegenState,
+    output: StringBuilder, stringConstants: Array<String>,
+    regBox: Array<Int>, blockBox: Array<Int>, varNames: Array<String>,
+    varRegs: Array<String>, varTypes: Array<String>,
+    functionOptions: FunctionLoweringOptions) r: Void {
+
+    syncCodegenStateBridgeImpl(state, output, stringConstants, regBox,
+        blockBox, varNames, varRegs, varTypes, functionOptions,
+        structNames, structLayouts, structFieldNames, structFieldTypes,
+        structLlvmFieldTypes, structSizes, structMethodNames,
+        structMethodRetTypes, funcNames, funcRetTypes,
+        classMethodBaseNames, typeHeaderPath, currentFunctionReturnType,
+        currentClassName, blockTerminated, currentLoopCondLabel,
+        currentLoopEndLabel, preAllocatedVars, preAllocatedTypes,
+        preAllocatedRegs, declOrdinalNames, declOrdinalCounts,
+        activeVarCount, stringConstantPrefix, generatedFunctions,
+        generatedClasses, pendingArrayLiteralType, moduleConstantNames,
+        moduleConstantValues, moduleConstantTypes)
+}
+
+fun applyGlobalCodegenStateBridgeSnapshotImpl(
+    snapshot: CodegenStateBridgeSnapshot) r: Void {
+
+    structNames = snapshot.structNames
+    structLayouts = snapshot.structLayouts
+    structFieldNames = snapshot.structFieldNames
+    structFieldTypes = snapshot.structFieldTypes
+    structLlvmFieldTypes = snapshot.structLlvmFieldTypes
+    structSizes = snapshot.structSizes
+    structMethodNames = snapshot.structMethodNames
+    structMethodRetTypes = snapshot.structMethodRetTypes
+    funcNames = snapshot.funcNames
+    funcRetTypes = snapshot.funcRetTypes
+    classMethodBaseNames = snapshot.classMethodBaseNames
+    typeHeaderPath = snapshot.typeHeaderPath
+    currentFunctionReturnType = snapshot.currentFunctionReturnType
+    currentClassName = snapshot.currentClassName
+    blockTerminated = snapshot.blockTerminated
+    currentLoopCondLabel = snapshot.currentLoopCondLabel
+    currentLoopEndLabel = snapshot.currentLoopEndLabel
+    preAllocatedVars = snapshot.preAllocatedVars
+    preAllocatedTypes = snapshot.preAllocatedTypes
+    preAllocatedRegs = snapshot.preAllocatedRegs
+    declOrdinalNames = snapshot.declOrdinalNames
+    declOrdinalCounts = snapshot.declOrdinalCounts
+    activeVarCount = snapshot.activeVarCount
+    stringConstantPrefix = snapshot.stringConstantPrefix
+    generatedFunctions = snapshot.generatedFunctions
+    generatedClasses = snapshot.generatedClasses
+    pendingArrayLiteralType = snapshot.pendingArrayLiteralType
+    moduleConstantNames = snapshot.moduleConstantNames
+    moduleConstantValues = snapshot.moduleConstantValues
+    moduleConstantTypes = snapshot.moduleConstantTypes
+}
+
+fun emitMainFunctionEntryWithGlobalStateImpl(output: StringBuilder,
+    regBox: Array<Int>, returnType: String) r: String {
+
+    var mainReturnType = returnType
+    if mainReturnType == "void" {
+        mainReturnType = "i32"
+    }
+
+    var mainRetPrefix = "define "
+    if mainReturnType == "i64" or mainReturnType == "double" or
+        mainReturnType == "i1" {
+
+        mainRetPrefix = "define noundef "
+    }
+    output.append(mainRetPrefix + mainReturnType +
+        " @main(i32 %argc, ptr %argv) #0 {\n")
+    output.append("entry:\n")
+    output.append("  call void @seen_runtime_init(i32 %argc, ptr %argv)\n")
+
+    preAllocatedRegs = emitPreAllocatedAllocasImpl(output, regBox,
+        preAllocatedTypes, structNames, getFeatureTypeAliasNamesImpl(),
+        getFeatureTypeAliasTargetsImpl(), getFeatureTypeAliasCountImpl(),
+        getFeatureEnumTypeNamesImpl(), getFeatureReprCClassNamesImpl())
+    return mainReturnType
+}
+
+fun beginDeclarationRegistrationWithGlobalStateImpl(
+    program: ProgramNode) r: Void {
+
+    beginDeclarationRegistrationPassImpl(program, structNames,
+        structLayouts, structFieldNames, structFieldTypes,
+        structLlvmFieldTypes, structSizes, structMethodNames,
+        structMethodRetTypes)
+}
+
+fun createDeclarationItemContextWithGlobalStateImpl(
+    typeAliasNames: String, typeAliasTargets: String,
+    typeAliasCount: Int, reprCClassNames: String,
+    floatParamFuncNames: Array<String>, floatParamParamIdxs: Array<Int>,
+    declState: DeclarationPassState) r: DeclarationItemContext {
+
+    return DeclarationItemContext.new(structNames, typeAliasNames,
+        typeAliasTargets, typeAliasCount, reprCClassNames,
+        floatParamFuncNames, floatParamParamIdxs, funcNames, funcRetTypes,
+        declState)
+}
+
+fun initGlobalBootstrapStateImpl() r: Void {
+    preAllocatedRegs = Array<String>()
+    preAllocatedVars = Array<String>()
+    preAllocatedTypes = Array<String>()
+    activeVarCount = 0
+    structNames = Array<String>()
+    structLayouts = Array<String>()
+    structFieldNames = Array<String>()
+    structFieldTypes = Array<String>()
+    structLlvmFieldTypes = Array<String>()
+    structSizes = Array<Int>()
+    structMethodNames = Array<String>()
+    structMethodRetTypes = Array<String>()
+    funcNames = Array<String>()
+    funcRetTypes = Array<String>()
+    classMethodBaseNames = Array<String>()
+    typeHeaderPath = ""
+    resetGlobalModuleScratchStateImpl()
+    resetGlobalModuleConstantsImpl()
+}

@@ -4,7 +4,7 @@ import parser.real_parser.{FunctionNode}
 import str.string.{StringBuilder}
 import codegen.ir_function_decorators.{tryHandleIntrinsicFunctionGenerationStateImpl}
 import codegen.ir_function_lifecycle.{planFunctionIntrinsicFlowImpl}
-import codegen.ir_codegen_feature_state.{g_intrinsicFuncNames, g_intrinsicLlvmNames, g_intrinsicCount}
+import codegen.ir_codegen_feature_state.{tryHandleFunctionIntrinsicWithFeatureStateImpl}
 
 class FunctionIntrinsicDriverState {
     var intrinsicFuncNames: String
@@ -61,12 +61,7 @@ fun tryHandleFunctionIntrinsicDriverGlobalStateImpl(output: StringBuilder,
     typeAliasNames: String, typeAliasTargets: String, typeAliasCount: Int,
     enumTypeNames: String) r: Bool {
 
-    let state = tryHandleFunctionIntrinsicDriverStateImpl(output, regBox,
+    return tryHandleFunctionIntrinsicWithFeatureStateImpl(output, regBox,
         fn, structNames, typeAliasNames, typeAliasTargets, typeAliasCount,
-        enumTypeNames, g_intrinsicFuncNames, g_intrinsicLlvmNames,
-        g_intrinsicCount)
-    g_intrinsicFuncNames = state.intrinsicFuncNames
-    g_intrinsicLlvmNames = state.intrinsicLlvmNames
-    g_intrinsicCount = state.intrinsicCount
-    return state.shouldReturn
+        enumTypeNames)
 }

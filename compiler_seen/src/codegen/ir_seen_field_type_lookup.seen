@@ -122,9 +122,11 @@ fun getSeenFieldTypeImpl(structName: String, fieldName: String, structNames: Arr
             if fieldName == "variableType" { return "TypeNode" }
             if fieldName == "initializer" { return "ParserExpressionNode" }
             if fieldName == "returnValue" { return "ParserExpressionNode" }
+            if fieldName == "expression" { return "ParserExpressionNode" }
             if fieldName == "condition" { return "ParserExpressionNode" }
-            if fieldName == "thenBody" { return "BlockNode" }
-            if fieldName == "elseBody" { return "BlockNode" }
+            if fieldName == "thenBranch" { return "BlockNode" }
+            if fieldName == "elseBranch" { return "BlockNode" }
+            if fieldName == "loopCondition" { return "ParserExpressionNode" }
             if fieldName == "loopBody" { return "BlockNode" }
         }
         if structName == "ParserExpressionNode" {

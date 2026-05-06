@@ -102,46 +102,26 @@ fun getFieldTypeForKnownStructImpl(structName: String, fieldName: String) r: Str
     }
     if structName == "StatementNode" {
         if fieldName == "kind" { return "%SeenString" }
+        if fieldName == "variableName" { return "%SeenString" }
+        if fieldName == "variableType" { return "%TypeNode" }
+        if fieldName == "initializer" { return "i64" }
+        if fieldName == "returnValue" { return "i64" }
         if fieldName == "expression" { return "i64" }
         if fieldName == "condition" { return "i64" }
-        if fieldName == "thenBlock" { return "i64" }
         if fieldName == "thenBranch" { return "i64" }
-        if fieldName == "elseBlock" { return "i64" }
         if fieldName == "elseBranch" { return "i64" }
-        if fieldName == "varName" { return "%SeenString" }
-        if fieldName == "varType" { return "%TypeNode" }
-        if fieldName == "isMutable" { return "i1" }
-        if fieldName == "initializer" { return "i64" }
-        if fieldName == "loopVar" { return "%SeenString" }
-        if fieldName == "iterableExpr" { return "i64" }
-        if fieldName == "loopBody" { return "i64" }
-        if fieldName == "whileCondition" { return "i64" }
-        if fieldName == "whileBody" { return "i64" }
         if fieldName == "loopCondition" { return "i64" }
-        if fieldName == "matchExpr" { return "i64" }
-        if fieldName == "matchArms" { return "ptr" }
-        if fieldName == "returnExpr" { return "i64" }
-        if fieldName == "returnValue" { return "i64" }
-        if fieldName == "value" { return "i64" }
-        if fieldName == "target" { return "i64" }
+        if fieldName == "loopBody" { return "i64" }
     }
     if structName == "ParserExpressionNode" {
         if fieldName == "kind" { return "%SeenString" }
-        if fieldName == "callee" { return "%SeenString" }
-        if fieldName == "literalValue" { return "%SeenString" }
-        if fieldName == "literalType" { return "%SeenString" }
         if fieldName == "operands" { return "ptr" }
         if fieldName == "operator" { return "%SeenString" }
+        if fieldName == "literalValue" { return "%SeenString" }
+        if fieldName == "literalType" { return "%SeenString" }
+        if fieldName == "variableName" { return "%SeenString" }
+        if fieldName == "callee" { return "%SeenString" }
         if fieldName == "arguments" { return "ptr" }
-        if fieldName == "typeArgs" { return "ptr" }
-        if fieldName == "isNullable" { return "i1" }
-        if fieldName == "isSafeAccess" { return "i1" }
-        if fieldName == "receiverType" { return "%SeenString" }
-        if fieldName == "fieldName" { return "%SeenString" }
-        if fieldName == "inferredType" { return "%TypeNode" }
-        if fieldName == "lambdaParams" { return "ptr" }
-        if fieldName == "lambdaBody" { return "i64" }
-        if fieldName == "lambdaReturnType" { return "%TypeNode" }
     }
     if structName == "TypeNode" {
         if fieldName == "typeName" { return "%SeenString" }

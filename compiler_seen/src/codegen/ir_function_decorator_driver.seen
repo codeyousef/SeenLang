@@ -4,7 +4,7 @@ import parser.real_parser.{FunctionNode}
 import str.string.{StringBuilder}
 import codegen.ir_function_decorators.{prepareFunctionAttributeStateSnapshotImpl, prepareFunctionDecoratorPreflightSnapshotImpl}
 import codegen.ir_function_lifecycle.{shouldReturnAfterFunctionDecoratorPreflightImpl}
-import codegen.ir_codegen_feature_state.{g_sanitizerMode, g_initFuncNames, g_initFuncCount, g_trustedFuncNames, g_specializationNames, g_specializationCount, g_traitImplRegistry, g_traitImplCount, g_gpuShaderNames, g_gpuShaderStages, g_gpuShaderWorkgroups, g_gpuShaderBindings, g_gpuShaderCount}
+import codegen.ir_codegen_feature_state.{prepareFunctionDecoratorPreflightWithFeatureStateImpl, prepareFunctionAttributeWithFeatureStateImpl}
 
 class FunctionDecoratorPreflightDriverState {
     var traitImplRegistry: String
@@ -56,30 +56,12 @@ fun prepareFunctionDecoratorPreflightDriverStateImpl(output: StringBuilder,
 fun prepareFunctionDecoratorPreflightGlobalStateImpl(output: StringBuilder,
     regBox: Array<Int>, fn: FunctionNode) r: Bool {
 
-    let state = prepareFunctionDecoratorPreflightDriverStateImpl(output,
-        regBox, fn, g_traitImplRegistry, g_traitImplCount,
-        g_gpuShaderNames, g_gpuShaderStages, g_gpuShaderWorkgroups,
-        g_gpuShaderBindings, g_gpuShaderCount)
-    g_traitImplRegistry = state.traitImplRegistry
-    g_traitImplCount = state.traitImplCount
-    g_gpuShaderNames = state.gpuShaderNames
-    g_gpuShaderStages = state.gpuShaderStages
-    g_gpuShaderWorkgroups = state.gpuShaderWorkgroups
-    g_gpuShaderBindings = state.gpuShaderBindings
-    g_gpuShaderCount = state.gpuShaderCount
-    return state.shouldReturn
+    return prepareFunctionDecoratorPreflightWithFeatureStateImpl(output,
+        regBox, fn)
 }
 
 fun prepareFunctionAttributeGlobalStateImpl(output: StringBuilder,
     fn: FunctionNode) r: String {
 
-    let funcAttrState = prepareFunctionAttributeStateSnapshotImpl(output,
-        fn, g_sanitizerMode, g_initFuncNames, g_initFuncCount,
-        g_trustedFuncNames, g_specializationNames, g_specializationCount)
-    g_initFuncNames = funcAttrState.initFuncNames
-    g_initFuncCount = funcAttrState.initFuncCount
-    g_trustedFuncNames = funcAttrState.trustedFuncNames
-    g_specializationNames = funcAttrState.specializationNames
-    g_specializationCount = funcAttrState.specializationCount
-    return funcAttrState.funcAttrs
+    return prepareFunctionAttributeWithFeatureStateImpl(output, fn)
 }

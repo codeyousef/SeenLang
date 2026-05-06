@@ -1420,16 +1420,16 @@ language = "en"
 EOF
 
     cat >"$package_dir/src/platform/linux/sdl3.seen" <<'EOF'
-fun audioPlatformValue() r: Int {
+fun AudioPlatformValue() r: Int {
     return 41
 }
 EOF
 
-    cat >"$package_dir/src/runtime.seen" <<'EOF'
-import platform.linux.sdl3.{audioPlatformValue}
+cat >"$package_dir/src/runtime.seen" <<'EOF'
+import platform.linux.sdl3.{AudioPlatformValue}
 
-fun runtimeValue() r: Int {
-    return audioPlatformValue() + 1
+fun RuntimeValue() r: Int {
+    return AudioPlatformValue() + 1
 }
 EOF
 
@@ -1444,10 +1444,10 @@ seen_audio = { path = "../seen_audio" }
 EOF
 
     cat >"$project_dir/main.seen" <<'EOF'
-import seen_audio::src::runtime.{runtimeValue}
+import seen_audio::src::runtime.{RuntimeValue}
 
 fun main() r: Int {
-    if runtimeValue() == 42 {
+    if RuntimeValue() == 42 {
         return 0
     }
     return 1
@@ -1636,7 +1636,7 @@ fun facadeHelper(value: Int) r: Int {
 EOF
 
     cat >"$package_dir/src/facade.seen" <<'EOF'
-fun facadeValue() r: Int {
+fun FacadeValue() r: Int {
     return facadeHelper(SharedType.answer())
 }
 EOF
@@ -1652,10 +1652,10 @@ seen_facade = { path = "../seen_facade" }
 EOF
 
     cat >"$project_dir/main.seen" <<'EOF'
-import seen_facade::src::facade.{facadeValue}
+import seen_facade::src::facade.{FacadeValue}
 
 fun main() r: Int {
-    if facadeValue() == 42 {
+    if FacadeValue() == 42 {
         return 0
     }
     return 1
@@ -1675,6 +1675,285 @@ EOF
     fi
 
     echo "PASS: manifest companion modules keep facade helper symbols visible"
+}
+
+run_package_root_manifest_modules_case() {
+    local package_dir="$TMP_ROOT/seen_root_pkg"
+    local project_dir="$TMP_ROOT/package_root_manifest_modules"
+    local output_file="$project_dir/package_root_manifest_modules"
+    local log_file="$project_dir/package_root_manifest_modules.log"
+
+    cleanup_seen_artifacts
+    mkdir -p "$package_dir/src" "$project_dir"
+
+    cat >"$package_dir/Seen.toml" <<'EOF'
+[project]
+name = "seen_root_pkg"
+version = "0.1.0"
+language = "en"
+
+modules = [
+    "src/value.seen",
+    "src/api.seen",
+]
+EOF
+
+    cat >"$package_dir/src/value.seen" <<'EOF'
+fun RootPackageValue() r: Int {
+    return 42
+}
+EOF
+
+    cat >"$package_dir/src/api.seen" <<'EOF'
+fun RootPackageApi() r: Int {
+    return RootPackageValue()
+}
+EOF
+
+    cat >"$project_dir/Seen.toml" <<'EOF'
+[project]
+name = "package_root_manifest_modules"
+version = "0.1.0"
+language = "en"
+
+[dependencies]
+seen_root_pkg = { path = "../seen_root_pkg" }
+EOF
+
+    cat >"$project_dir/main.seen" <<'EOF'
+import seen_root_pkg.{RootPackageApi}
+
+fun main() r: Int {
+    if RootPackageApi() == 42 {
+        return 0
+    }
+    return 1
+}
+EOF
+
+    if ! run_compile_in_dir "$project_dir" "main.seen" "$output_file" "$log_file"; then
+        echo "FAIL: package-root manifest module import did not compile"
+        cat "$log_file"
+        exit 1
+    fi
+
+    if grep -q 'src/mod.seen' "$log_file"; then
+        echo "FAIL: package-root import still required src/mod.seen"
+        cat "$log_file"
+        exit 1
+    fi
+
+    if ! "$output_file" >/dev/null 2>&1; then
+        echo "FAIL: package-root manifest module binary exited non-zero"
+        cat "$log_file"
+        exit 1
+    fi
+
+    echo "PASS: package-root imports use manifest modules without src/mod.seen"
+}
+
+run_package_private_visibility_failure_case() {
+    local package_dir="$TMP_ROOT/seen_hidden"
+    local project_dir="$TMP_ROOT/package_private_visibility"
+    local log_file="$project_dir/package_private_visibility.log"
+
+    cleanup_seen_artifacts
+    mkdir -p "$package_dir/src" "$project_dir"
+
+    cat >"$package_dir/Seen.toml" <<'EOF'
+[project]
+name = "seen_hidden"
+version = "0.1.0"
+language = "en"
+
+modules = [
+    "src/internal.seen",
+]
+EOF
+
+    cat >"$package_dir/src/internal.seen" <<'EOF'
+fun hiddenValue() r: Int {
+    return 42
+}
+EOF
+
+    cat >"$project_dir/Seen.toml" <<'EOF'
+[project]
+name = "package_private_visibility"
+version = "0.1.0"
+language = "en"
+
+[dependencies]
+seen_hidden = { path = "../seen_hidden" }
+EOF
+
+    cat >"$project_dir/main.seen" <<'EOF'
+import seen_hidden::src::internal.{hiddenValue}
+
+fun main() r: Int {
+    return hiddenValue()
+}
+EOF
+
+    set +e
+    run_check "$project_dir/main.seen" "$log_file"
+    local status=$?
+    set -e
+
+    if [[ "$status" -eq 0 ]]; then
+        echo "FAIL: package-private import unexpectedly passed"
+        cat "$log_file"
+        exit 1
+    fi
+
+    if ! grep -Eq 'package-private declaration `hiddenValue`' "$log_file"; then
+        echo "FAIL: package-private import did not report the expected diagnostic"
+        cat "$log_file"
+        exit 1
+    fi
+
+    echo "PASS: package-private imports are rejected across package boundaries"
+}
+
+run_triple_slash_raw_scanner_case() {
+    local project_dir="$TMP_ROOT/triple_slash_raw_scanner"
+    local output_file="$project_dir/triple_slash_raw_scanner"
+    local log_file="$project_dir/triple_slash_raw_scanner.log"
+
+    cleanup_seen_artifacts
+    mkdir -p "$project_dir"
+
+    cat >"$project_dir/main.seen" <<'EOF'
+///
+import definitely_missing_package::src::ghost.{Ghost}
+class Ghost {
+    If no } found before this line, the lexer or raw scanners leaked comment text.
+    fun broken( r: Void {
+}
+seen_mem_fake_runtime_probe()
+@export
+extern fun vkFake() r: Int
+///
+
+fun main() r: Int {
+    return 0
+}
+EOF
+
+    if ! run_compile_in_dir "$project_dir" "main.seen" "$output_file" "$log_file"; then
+        echo "FAIL: triple-slash raw scanner case did not compile"
+        cat "$log_file"
+        exit 1
+    fi
+
+    if ! "$output_file" >/dev/null 2>&1; then
+        echo "FAIL: triple-slash raw scanner binary exited non-zero"
+        cat "$log_file"
+        exit 1
+    fi
+
+    echo "PASS: triple-slash block bodies stay invisible to raw scanners"
+}
+
+run_prebuilt_artifact_interface_index_case() {
+    local package_dir="$TMP_ROOT/seen_artifact_pkg"
+    local project_dir="$TMP_ROOT/prebuilt_artifact_interface_index"
+    local artifact_dir="$TMP_ROOT/seen_artifact_pkg_prebuilt"
+    local output_file="$project_dir/prebuilt_artifact_interface_index"
+    local manifest_file="$project_dir/objects.tsv"
+    local prebuild_log="$TMP_ROOT/prebuilt_artifact_prebuild.log"
+    local compile_log="$project_dir/prebuilt_artifact_interface_index.log"
+
+    cleanup_seen_artifacts
+    mkdir -p "$package_dir/src" "$project_dir"
+
+    cat >"$package_dir/Seen.toml" <<'EOF'
+[project]
+name = "seen_artifact_pkg"
+version = "0.1.0"
+language = "en"
+
+modules = [
+    "src/value.seen",
+    "src/api.seen",
+]
+EOF
+
+    cat >"$package_dir/src/value.seen" <<'EOF'
+fun ArtifactValue() r: Int {
+    return 42
+}
+EOF
+
+    cat >"$package_dir/src/api.seen" <<'EOF'
+fun ArtifactApi() r: Int {
+    return ArtifactValue()
+}
+EOF
+
+    if ! timeout 180 "$COMPILER" pkg prebuild "$package_dir" "$artifact_dir" >"$prebuild_log" 2>&1; then
+        echo "FAIL: package prebuild for artifact interface index case failed"
+        cat "$prebuild_log"
+        exit 1
+    fi
+
+    if [[ ! -s "$artifact_dir/interface.index.tsv" ]]; then
+        echo "FAIL: package prebuild did not emit interface.index.tsv"
+        cat "$prebuild_log"
+        exit 1
+    fi
+
+    cat >"$project_dir/Seen.toml" <<EOF
+[project]
+name = "prebuilt_artifact_interface_index"
+version = "0.1.0"
+language = "en"
+
+[dependencies]
+seen_artifact_pkg = { artifact = "$artifact_dir" }
+EOF
+
+    cat >"$project_dir/main.seen" <<'EOF'
+import seen_artifact_pkg.{ArtifactApi}
+
+fun main() r: Int {
+    if ArtifactApi() == 42 {
+        return 0
+    }
+    return 1
+}
+EOF
+
+    if ! (
+        cd "$project_dir" &&
+        timeout 180 "$COMPILER" compile main.seen "$output_file" \
+            --pic --no-cache --no-fork --object-manifest "$manifest_file" \
+            >"$compile_log" 2>&1
+    ); then
+        echo "FAIL: artifact dependency object-manifest compile failed"
+        cat "$compile_log"
+        exit 1
+    fi
+
+    if grep -q 'Generating IR (serial): .*/seen_artifact_pkg_prebuilt/src/' "$compile_log"; then
+        echo "FAIL: artifact interface modules were still sent through IR/codegen"
+        cat "$compile_log"
+        exit 1
+    fi
+
+    if ! grep -q 'prebuilt package: seen_artifact_pkg' "$compile_log"; then
+        echo "FAIL: artifact object manifest was not appended"
+        cat "$compile_log"
+        exit 1
+    fi
+
+    if ! grep -q "$artifact_dir/objects/" "$manifest_file"; then
+        echo "FAIL: downstream object manifest did not include prebuilt package objects"
+        cat "$manifest_file"
+        exit 1
+    fi
+
+    echo "PASS: artifact dependencies use interface indexes and skip dependency codegen"
 }
 
 run_missing_import_failure_case() {
@@ -1789,6 +2068,10 @@ run_package_local_dotted_import_case
 run_manifest_sibling_runtime_memory_case
 run_package_whole_module_visibility_case
 run_manifest_companion_module_visibility_case
+run_package_root_manifest_modules_case
+run_package_private_visibility_failure_case
+run_triple_slash_raw_scanner_case
+run_prebuilt_artifact_interface_index_case
 run_missing_import_failure_case
 
 cleanup_seen_artifacts

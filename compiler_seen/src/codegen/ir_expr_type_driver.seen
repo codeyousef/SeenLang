@@ -1,11 +1,8 @@
 import parser.real_parser.{ParserExpressionNode}
-import codegen.ir_async_registry.{getAsyncDeclaredRetTypeStateImpl}
-import codegen.ir_codegen_feature_state.{g_asyncFuncNames, g_asyncFuncRetTypes, g_asyncFuncCount, g_enumVariantNames, g_enumVariantParent, g_enumVariantCount}
-import codegen.ir_codegen_global_state.{activeVarCount, structNames, structFieldNames, structFieldTypes, structMethodNames, structMethodRetTypes, funcNames, funcRetTypes, currentClassName}
-import codegen.ir_codegen_metrics_state.{g_callCountNamesBox, g_callCountEntriesBox, initCollectionBoxes, syncCollectionBoxes}
-import codegen.ir_codegen_module_state.{g_chainedPathTypeCacheValues, findCachedChainedPathTypeRecord, cacheChainedPathType}
-import codegen.ir_decl_registry.{getFunctionReturnTypeStateImpl}
-import codegen.ir_enum_ctor_gen.{lookupEnumParentStateImpl, isEnumVariantStateImpl}
+import codegen.ir_codegen_feature_state.{getAsyncDeclaredRetTypeWithFeatureStateImpl, getEnumVariantCountWithFeatureStateImpl, isEnumVariantWithFeatureStateImpl, lookupEnumParentWithFeatureStateImpl}
+import codegen.ir_codegen_global_state.{getGlobalStructNamesImpl, getGlobalStructFieldNamesImpl, getGlobalStructFieldTypesImpl, getGlobalStructMethodNamesImpl, getGlobalStructMethodRetTypesImpl, getGlobalCurrentClassNameImpl, getFunctionReturnTypeWithGlobalStateImpl, findActiveVariableIndexWithGlobalStateImpl}
+import codegen.ir_codegen_metrics_state.{inferStringInterpolationExprTypeWithMetricsStateImpl}
+import codegen.ir_codegen_module_state.{findCachedChainedPathTypeRecord, cacheChainedPathType, getCachedChainedPathTypeValue}
 import codegen.ir_expr_infer_plan.{planExprInferenceDispatchImpl, planMethodCallInferenceImpl, planGeneratedCallInferenceImpl, planBuiltinCallInferenceImpl, planResolvedCallInferenceImpl, planMemberAccessInferenceImpl, planSpecialExprInferenceImpl}
 import codegen.ir_expr_leaf_driver.{inferLiteralExprTypeLocal}
 import codegen.ir_infer_method_leaf_driver.{tryInferImplicitOrFreeMethodCallType, tryInferStaticMethodCallTypeState, tryInferBuiltinReceiverMethodCallType, tryInferReceiverRegistryMethodCallType, tryInferLateMethodCallFallbackType, tryInferGeneratedCallType, tryInferResolvedCallExprType}
@@ -16,9 +13,7 @@ import codegen.ir_method_receiver.{resolveLiteralMethodReceiverTypeImpl, resolve
 import codegen.ir_path_expr.{buildChainedPathExprImpl, splitFirstPathDotImpl, resolveChainedPathSuffixTypeImpl}
 import codegen.ir_simd_type_helpers.{isSimdVectorTypeImpl}
 import codegen.ir_special_expr_infer.{inferIndexAccessExprTypeImpl, inferKnownArrayLiteralTypeImpl, inferArrayLiteralExprTypeImpl, inferUnaryExprTypeImpl, inferAwaitExprTypeImpl, inferTryPropagateExprTypeImpl, inferNullishSpecialExprTypeImpl, inferBranchingSpecialExprTypeImpl, inferFixedSpecialExprTypeImpl, inferSpecialExprTypeImpl}
-import codegen.ir_string_interp_infer.{inferStringInterpolationExprTypeStateImpl}
 import codegen.ir_type_tables.{inferFieldTypeFallback, inferIndexElementType, resolveTryPropagateTypeImpl}
-import codegen.ir_variable_gen.{findActiveVariableIndexImpl}
 fun resolveChainedPathTypeState(path: String, varNames: Array<String>,
     varTypes: Array<String>, stringConstants: Array<String>) r: String {
     if path.contains("()") {
@@ -39,14 +34,15 @@ fun resolveChainedPathTypeState(path: String, varNames: Array<String>,
         return ""
     }
     let cacheKey = currentType + "|" + restPath
-    let structLen = structNames.length()
+    let structLen = getGlobalStructNamesImpl().length()
     let cached = findCachedChainedPathTypeRecord(cacheKey, structLen)
     if cached >= 0 {
-        return g_chainedPathTypeCacheValues[cached]
+        return getCachedChainedPathTypeValue(cached)
     }
     let resolvedType = resolveChainedPathSuffixTypeImpl(currentType, restPath,
-        structNames, structFieldNames, structFieldTypes,
-        structMethodNames, structMethodRetTypes)
+        getGlobalStructNamesImpl(), getGlobalStructFieldNamesImpl(),
+        getGlobalStructFieldTypesImpl(), getGlobalStructMethodNamesImpl(),
+        getGlobalStructMethodRetTypesImpl())
     cacheChainedPathType(cacheKey, structLen, resolvedType)
     return resolvedType
 }
@@ -59,14 +55,16 @@ fun resolveLiteralMethodReceiverTypeState(literalValue: String,
             varTypes, stringConstants)
     }
     let directVarType = findVarTypeState(varNames, varTypes, literalValue)
-    let thisIdx = findActiveVariableIndexImpl(varNames, activeVarCount, "this")
+    let thisIdx = findActiveVariableIndexWithGlobalStateImpl(varNames,
+        "this")
     var thisType = ""
     if thisIdx >= 0 {
         thisType = varTypes[thisIdx]
     }
     return resolveLiteralMethodReceiverTypeImpl(literalValue, chainedType,
-        directVarType, thisIdx, thisType, structNames, structFieldNames,
-        structFieldTypes, structMethodNames, structMethodRetTypes)
+        directVarType, thisIdx, thisType, getGlobalStructNamesImpl(),
+        getGlobalStructFieldNamesImpl(), getGlobalStructFieldTypesImpl(),
+        getGlobalStructMethodNamesImpl(), getGlobalStructMethodRetTypesImpl())
 }
 fun inferBinaryExprTypeLocalState(expr: ParserExpressionNode,
     varNames: Array<String>, varTypes: Array<String>,
@@ -91,8 +89,7 @@ fun inferBinaryExprTypeLocalState(expr: ParserExpressionNode,
     let opSuffix = inferOperatorOverloadSuffix(expr.operator)
     if opSuffix != "" and expr.operands.length() > 0 {
         let opFuncN = leftType + "_" + opSuffix
-        let overloadType = getFunctionReturnTypeStateImpl(opFuncN,
-            funcNames, funcRetTypes)
+        let overloadType = getFunctionReturnTypeWithGlobalStateImpl(opFuncN)
         if overloadType != "" {
             return overloadType
         }
@@ -154,12 +151,12 @@ fun tryInferBuiltinCallExprTypeState(expr: ParserExpressionNode,
     varNames: Array<String>, varTypes: Array<String>,
     stringConstants: Array<String>) r: String {
     var isVariantCall = false
-    if g_enumVariantCount > 0 {
-        isVariantCall = isEnumVariantStateImpl(expr.callee,
-            g_enumVariantNames, g_enumVariantCount)
+    let enumVariantCount = getEnumVariantCountWithFeatureStateImpl()
+    if enumVariantCount > 0 {
+        isVariantCall = isEnumVariantWithFeatureStateImpl(expr.callee)
     }
     let builtinPlan = planBuiltinCallInferenceImpl(expr.callee,
-        expr.arguments.length(), g_enumVariantCount, isVariantCall)
+        expr.arguments.length(), enumVariantCount, isVariantCall)
     var selectedArgType = ""
     if builtinPlan.shouldInferSelectedArg {
         selectedArgType = inferExpressionTypeState(
@@ -169,8 +166,7 @@ fun tryInferBuiltinCallExprTypeState(expr: ParserExpressionNode,
     let builtinType = inferCallExprTypeImpl(expr.callee)
     var enumParentType = ""
     if builtinPlan.shouldLookupEnumParent {
-        enumParentType = lookupEnumParentStateImpl(expr.callee,
-            g_enumVariantNames, g_enumVariantParent, g_enumVariantCount)
+        enumParentType = lookupEnumParentWithFeatureStateImpl(expr.callee)
     }
     return inferBuiltinCallExprTypeStateImpl(expr.callee, selectedArgType,
         builtinType, enumParentType)
@@ -193,7 +189,7 @@ fun inferMemberAccessExprTypeLocalState(expr: ParserExpressionNode,
     varNames: Array<String>, varTypes: Array<String>,
     stringConstants: Array<String>) r: String {
     let memberPlan = planMemberAccessInferenceImpl(expr.literalValue,
-        expr.operands.length(), g_enumVariantCount)
+        expr.operands.length(), getEnumVariantCountWithFeatureStateImpl())
     if memberPlan.shouldTrySimdSwizzle {
         let swizzleType = inferSimdSwizzleMemberTypeImpl(
             findVarTypeState(varNames, varTypes, expr.literalValue),
@@ -203,11 +199,9 @@ fun inferMemberAccessExprTypeLocalState(expr: ParserExpressionNode,
         }
     }
     if memberPlan.shouldTryEnumVariant {
-        if isEnumVariantStateImpl(expr.variableName, g_enumVariantNames,
-            g_enumVariantCount) {
-            let enumParent = lookupEnumParentStateImpl(expr.variableName,
-                g_enumVariantNames, g_enumVariantParent,
-                g_enumVariantCount)
+        if isEnumVariantWithFeatureStateImpl(expr.variableName) {
+            let enumParent = lookupEnumParentWithFeatureStateImpl(
+                expr.variableName)
             if enumParent != "" and enumParent == expr.literalValue {
                 return enumParent
             }
@@ -225,8 +219,10 @@ fun inferMemberAccessExprTypeLocalState(expr: ParserExpressionNode,
             expr.literalValue)
     }
     let jsonFieldType = inferJsonValueMemberAccessTypeImpl(fieldName,
-        operandReceiverType, expr.literalValue, currentClassName,
-        literalValueType, structNames, structFieldNames, structFieldTypes)
+        operandReceiverType, expr.literalValue,
+        getGlobalCurrentClassNameImpl(), literalValueType,
+        getGlobalStructNamesImpl(), getGlobalStructFieldNamesImpl(),
+        getGlobalStructFieldTypesImpl())
     if jsonFieldType != "" {
         return jsonFieldType
     }
@@ -234,7 +230,7 @@ fun inferMemberAccessExprTypeLocalState(expr: ParserExpressionNode,
     if memberPlan.shouldTryLiteralReceiver {
         var chainedPathType = ""
         var thisType = ""
-        let thisIdx = findActiveVariableIndexImpl(varNames, activeVarCount,
+        let thisIdx = findActiveVariableIndexWithGlobalStateImpl(varNames,
             "this")
         if thisIdx >= 0 {
             thisType = varTypes[thisIdx]
@@ -244,19 +240,23 @@ fun inferMemberAccessExprTypeLocalState(expr: ParserExpressionNode,
                 varNames, varTypes, stringConstants)
             if chainedPathType == "" and thisType != "" {
                 chainedPathType = resolveMethodFieldPathTypeImpl(thisType,
-                    expr.literalValue, structNames, structFieldNames,
-                    structFieldTypes, structMethodNames,
-                    structMethodRetTypes)
+                    expr.literalValue, getGlobalStructNamesImpl(),
+                    getGlobalStructFieldNamesImpl(),
+                    getGlobalStructFieldTypesImpl(),
+                    getGlobalStructMethodNamesImpl(),
+                    getGlobalStructMethodRetTypesImpl())
             }
         }
         literalReceiverFieldType = inferLiteralReceiverMemberAccessTypeImpl(
             expr.literalValue, fieldName, chainedPathType, literalValueType,
-            thisType, structNames, structFieldNames, structFieldTypes)
+            thisType, getGlobalStructNamesImpl(),
+            getGlobalStructFieldNamesImpl(), getGlobalStructFieldTypesImpl())
     }
     let directFieldType = inferDirectMemberAccessTypeImpl(fieldName,
-        expr.literalValue, currentClassName, operandReceiverType,
-        literalReceiverFieldType, structNames, structFieldNames,
-        structFieldTypes)
+        expr.literalValue, getGlobalCurrentClassNameImpl(),
+        operandReceiverType, literalReceiverFieldType,
+        getGlobalStructNamesImpl(), getGlobalStructFieldNamesImpl(),
+        getGlobalStructFieldTypesImpl())
     if directFieldType != "" {
         return directFieldType
     }
@@ -298,12 +298,8 @@ fun inferStringInterpolationExprTypeLocalState(expr: ParserExpressionNode,
     if expr.kind != "StringInterpolation" {
         return ""
     }
-    initCollectionBoxes()
-    let inferredType = inferStringInterpolationExprTypeStateImpl(
-        expr.kind, expr.arguments, expr.operands, stringConstants,
-        g_callCountNamesBox, g_callCountEntriesBox)
-    syncCollectionBoxes()
-    return inferredType
+    return inferStringInterpolationExprTypeWithMetricsStateImpl(expr,
+        stringConstants)
 }
 fun inferUnaryExprTypeLocalState(expr: ParserExpressionNode,
     varNames: Array<String>, varTypes: Array<String>,
@@ -335,10 +331,10 @@ fun inferAwaitExprTypeLocalState(expr: ParserExpressionNode,
         innerType = inferExpressionTypeState(inner, varNames, varTypes,
             stringConstants)
         if inner.kind == "Call" {
-            asyncRetType = getAsyncDeclaredRetTypeStateImpl(inner.callee,
-                g_asyncFuncNames, g_asyncFuncRetTypes, g_asyncFuncCount)
-            functionRetType = getFunctionReturnTypeStateImpl(inner.callee,
-                funcNames, funcRetTypes)
+            asyncRetType = getAsyncDeclaredRetTypeWithFeatureStateImpl(
+                inner.callee)
+            functionRetType = getFunctionReturnTypeWithGlobalStateImpl(
+                inner.callee)
         }
     }
     return inferAwaitExprTypeImpl(expr.operands.length(), innerKind,

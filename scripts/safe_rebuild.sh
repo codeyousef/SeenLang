@@ -26,6 +26,7 @@ COMPILER_SOURCE="compiler_seen/src/main_compiler.seen"
 MEMORY_GUARD_SCRIPT="$SCRIPT_DIR/memory_guard.sh"
 FORK_SERIALIZER_SOURCE="$SCRIPT_DIR/fork_serializer.c"
 FORK_SERIALIZER_SO=""
+BOOTSTRAP_SOURCE_ROOT=""
 
 # --- Progress monitoring helpers ---
 
@@ -125,6 +126,36 @@ run_guarded_command() {
     else
         "$@"
     fi
+}
+
+run_guarded_command_to_log() {
+    local label=$1
+    local timeout_secs=$2
+    local vmem_kb=$3
+    local log_file=$4
+    shift 4
+
+    local guard_log="${log_file%.log}.guard.log"
+    : > "$log_file"
+    : > "$guard_log"
+
+    local status=0
+    run_guarded_command "$label" "$timeout_secs" "$vmem_kb" \
+        bash -c '
+            log_file=$1
+            shift
+            exec "$@" > "$log_file" 2>&1
+        ' bash "$log_file" "$@" > "$guard_log" 2>&1 || status=$?
+
+    if [ -s "$guard_log" ]; then
+        {
+            echo ""
+            echo "[memory guard]"
+            cat "$guard_log"
+        } >> "$log_file" 2>/dev/null || true
+    fi
+
+    return "$status"
 }
 
 build_fork_serializer() {
@@ -235,7 +266,7 @@ run_with_progress() {
 
     # Start compilation in background, logging to file. The guard watches the
     # entire child process tree, so forked opt/link children count toward the cap.
-    run_guarded_command "$label" 0 "${MAIN_COMPILER_VMEM_KB:-}" "$@" > "$logfile" 2>&1 &
+    run_guarded_command_to_log "$label" 0 "${MAIN_COMPILER_VMEM_KB:-}" "$logfile" "$@" &
     local compile_pid=$!
 
     # Start progress monitor
@@ -253,17 +284,20 @@ run_with_progress() {
     return $exit_code
 }
 
-# Snapshot watcher: periodically copies .ll files to a safe directory so they
-# survive the frozen compiler's exit cleanup (which deletes ALL /tmp/seen_module_*).
+# Snapshot watcher: periodically copies Stage2 module artifacts to a safe
+# directory so they survive frozen compiler cleanup (which deletes
+# /tmp/seen_module_*). Plain .ll files are used for recovery; opt logs/statuses
+# are kept so the first concrete failure can be inspected without another
+# rebuild.
 # Usage: start_ll_snapshot_watcher <compiler_pid> <snapshot_dir>
 start_ll_snapshot_watcher() {
     local watch_pid=$1
     local snapshot_dir=$2
     mkdir -p "$snapshot_dir"
     while kill -0 "$watch_pid" 2>/dev/null; do
-        for f in /tmp/seen_module_*.ll; do
+        for f in /tmp/seen_module_*.ll /tmp/seen_module_*.opt.ll \
+            /tmp/seen_module_*.opt.log /tmp/seen_module_*.opt.status; do
             [ -f "$f" ] || continue
-            [[ "$f" == *.opt.ll ]] && continue
             [[ "$f" == *.polly.ll ]] && continue
             local bn=$(basename "$f")
             if [ ! -f "$snapshot_dir/$bn" ] || [ "$f" -nt "$snapshot_dir/$bn" ]; then
@@ -273,9 +307,9 @@ start_ll_snapshot_watcher() {
         sleep 1
     done
     # Final sweep after compiler exits
-    for f in /tmp/seen_module_*.ll; do
+    for f in /tmp/seen_module_*.ll /tmp/seen_module_*.opt.ll \
+        /tmp/seen_module_*.opt.log /tmp/seen_module_*.opt.status; do
         [ -f "$f" ] || continue
-        [[ "$f" == *.opt.ll ]] && continue
         [[ "$f" == *.polly.ll ]] && continue
         cp "$f" "$snapshot_dir/$(basename "$f")" 2>/dev/null || true
     done
@@ -318,6 +352,90 @@ kill_frozen_orphans() {
     sleep 2
 }
 
+copy_bootstrap_seen_tree() {
+    local src_dir=$1
+    local dst_dir=$2
+    mkdir -p "$dst_dir"
+
+    (cd "$src_dir" && find . -type d -print) | while IFS= read -r dir; do
+        mkdir -p "$dst_dir/$dir"
+    done
+
+    (cd "$src_dir" && find . -type f -print) | while IFS= read -r file; do
+        local src_file="$src_dir/$file"
+        local dst_file="$dst_dir/$file"
+        mkdir -p "$(dirname "$dst_file")"
+        case "$file" in
+            *.seen)
+                awk '
+                    /^[ \t]*\/\/\/[ \t]*$/ {
+                        in_triple = !in_triple
+                        print "//"
+                        next
+                    }
+                    in_triple {
+                        print "//"
+                        next
+                    }
+                    { print }
+                ' "$src_file" > "$dst_file"
+                ;;
+            *)
+                cp -a "$src_file" "$dst_file"
+                ;;
+        esac
+    done
+}
+
+prepare_bootstrap_source_overlay() {
+    if [ "${SEEN_DISABLE_BOOTSTRAP_SOURCE_OVERLAY:-0}" = "1" ]; then
+        BOOTSTRAP_SOURCE_ROOT="$REPO_ROOT"
+        return 0
+    fi
+
+    BOOTSTRAP_SOURCE_ROOT=$(mktemp -d /tmp/seen_bootstrap_source.XXXXXX)
+    for entry in "$REPO_ROOT"/*; do
+        local base
+        base=$(basename "$entry")
+        case "$base" in
+            compiler_seen|seen_std)
+                ;;
+            *)
+                ln -s "$entry" "$BOOTSTRAP_SOURCE_ROOT/$base"
+                ;;
+        esac
+    done
+
+    mkdir -p "$BOOTSTRAP_SOURCE_ROOT/compiler_seen" "$BOOTSTRAP_SOURCE_ROOT/seen_std"
+    for entry in "$REPO_ROOT/compiler_seen"/*; do
+        local base
+        base=$(basename "$entry")
+        if [ "$base" = "src" ]; then
+            copy_bootstrap_seen_tree "$entry" "$BOOTSTRAP_SOURCE_ROOT/compiler_seen/src"
+        else
+            ln -s "$entry" "$BOOTSTRAP_SOURCE_ROOT/compiler_seen/$base"
+        fi
+    done
+    for entry in "$REPO_ROOT/seen_std"/*; do
+        local base
+        base=$(basename "$entry")
+        if [ "$base" = "src" ]; then
+            copy_bootstrap_seen_tree "$entry" "$BOOTSTRAP_SOURCE_ROOT/seen_std/src"
+        else
+            ln -s "$entry" "$BOOTSTRAP_SOURCE_ROOT/seen_std/$base"
+        fi
+    done
+    echo -e "${YELLOW}Bootstrap source overlay enabled: temporary /// bodies stripped for older bootstrap compilers.${NC}"
+}
+
+cleanup_bootstrap_source_overlay() {
+    if [ -n "$BOOTSTRAP_SOURCE_ROOT" ] && [ "$BOOTSTRAP_SOURCE_ROOT" != "$REPO_ROOT" ]; then
+        rm -rf "$BOOTSTRAP_SOURCE_ROOT"
+    fi
+}
+
+trap cleanup_bootstrap_source_overlay EXIT
+
 extract_expected_module_count() {
     local log_file=$1
     local count=""
@@ -328,6 +446,16 @@ extract_expected_module_count() {
         echo 0
     else
         echo "$count"
+    fi
+}
+
+tail_log_if_exists() {
+    local log_file=$1
+    local lines=${2:-30}
+    if [ -f "$log_file" ]; then
+        tail -"$lines" "$log_file" 2>/dev/null || true
+    else
+        echo "(missing log: $log_file)"
     fi
 }
 
@@ -419,6 +547,20 @@ stage2_failure_looks_oom() {
         return 0
     fi
     return 1
+}
+
+preserve_stage2_failure_artifacts() {
+    local snapshot_dir=$1
+    local preserve_dir="/tmp/seen_stage2_failure_$$"
+    rm -rf "$preserve_dir"
+    mkdir -p "$preserve_dir"
+    cp /tmp/safe_rebuild_stage2.log "$preserve_dir/" 2>/dev/null || true
+    cp /tmp/safe_rebuild_stage2.guard.log "$preserve_dir/" 2>/dev/null || true
+    if [ -d "$snapshot_dir" ]; then
+        cp "$snapshot_dir"/seen_module_* "$preserve_dir/" 2>/dev/null || true
+    fi
+    cp /tmp/seen_module_* "$preserve_dir/" 2>/dev/null || true
+    echo -e "${YELLOW}Preserved Stage2 failure artifacts: $preserve_dir${NC}"
 }
 
 is_positive_integer() {
@@ -917,14 +1059,15 @@ recover_with_preserved_production_compiler() {
     rm -f "$STAGE3_RECOVERY"
 
     local recovery_exit=0
-    run_guarded_command "preserved compiler recovery" "$RECOVERY_TIMEOUT_SECS" "$MAIN_COMPILER_VMEM_KB" \
+    run_guarded_command_to_log "preserved compiler recovery" "$RECOVERY_TIMEOUT_SECS" "$MAIN_COMPILER_VMEM_KB" /tmp/safe_rebuild_stage3_recovery.log \
+        bash -c 'cd "$1" || exit 1; shift; exec "$@"' bash "$BOOTSTRAP_SOURCE_ROOT" \
         env PATH="$OPT_WRAPPER_DIR:$PATH" \
             SEEN_LOW_MEMORY="${SEEN_LOW_MEMORY:-0}" \
             SEEN_SKIP_IR_FIXUPS=1 \
             SEEN_MAIN_VMEM_KB="$MAIN_COMPILER_VMEM_KB" \
             SEEN_OPT_VMEM_KB="$OPT_VMEM_KB" \
             "$PRESERVED_PROD_BUILDER" compile "$COMPILER_SOURCE" "$STAGE3_RECOVERY" \
-            --fast --no-cache --no-fork $RELEASE_TARGET_CPU_FLAG > /tmp/safe_rebuild_stage3_recovery.log 2>&1 || recovery_exit=$?
+            --fast --no-cache --no-fork $RELEASE_TARGET_CPU_FLAG || recovery_exit=$?
     if [ "$recovery_exit" -eq 0 ]; then
         echo -e "${GREEN}Recovery rebuild succeeded.${NC}"
         echo ""
@@ -939,7 +1082,7 @@ recover_with_preserved_production_compiler() {
 
     echo -e "${YELLOW}Recovery rebuild failed or timed out (exit=$recovery_exit).${NC}"
     if [ "$recovery_exit" != "124" ]; then
-        tail -10 /tmp/safe_rebuild_stage3_recovery.log 2>/dev/null || true
+        tail_log_if_exists /tmp/safe_rebuild_stage3_recovery.log 10
     fi
     return 1
 }
@@ -966,13 +1109,14 @@ recover_with_existing_stage_builder() {
     rm -f "$STAGE3_RECOVERY"
 
     local recovery_exit=0
-    run_guarded_command "existing stage builder $builder_name recovery" "$RECOVERY_TIMEOUT_SECS" "$MAIN_COMPILER_VMEM_KB" \
+    run_guarded_command_to_log "existing stage builder $builder_name recovery" "$RECOVERY_TIMEOUT_SECS" "$MAIN_COMPILER_VMEM_KB" "$builder_log" \
+        bash -c 'cd "$1" || exit 1; shift; exec "$@"' bash "$BOOTSTRAP_SOURCE_ROOT" \
         env PATH="$OPT_WRAPPER_DIR:$PATH" \
             SEEN_LOW_MEMORY="${SEEN_LOW_MEMORY:-0}" \
             SEEN_MAIN_VMEM_KB="$MAIN_COMPILER_VMEM_KB" \
             SEEN_OPT_VMEM_KB="$OPT_VMEM_KB" \
             "$builder_path" compile "$COMPILER_SOURCE" "$STAGE3_RECOVERY" \
-            --fast --no-cache --no-fork $RELEASE_TARGET_CPU_FLAG > "$builder_log" 2>&1 || recovery_exit=$?
+            --fast --no-cache --no-fork $RELEASE_TARGET_CPU_FLAG || recovery_exit=$?
 
     if [ "$recovery_exit" -eq 0 ]; then
         echo -e "${GREEN}Existing stage builder $builder_name rebuilt the compiler.${NC}"
@@ -988,7 +1132,7 @@ recover_with_existing_stage_builder() {
 
     echo -e "${YELLOW}Existing stage builder $builder_name failed or timed out (exit=$recovery_exit).${NC}"
     if [ "$recovery_exit" != "124" ]; then
-        tail -10 "$builder_log" 2>/dev/null || true
+        tail_log_if_exists "$builder_log" 10
     fi
     return 1
 }
@@ -1026,6 +1170,15 @@ else
 fi
 
 preserve_existing_production_compiler >/dev/null 2>&1 || true
+prepare_bootstrap_source_overlay
+FROZEN_ABS="$REPO_ROOT/$FROZEN"
+
+if [ "${SEEN_SKIP_CODEGEN_ABI_PREFLIGHT:-0}" != "1" ]; then
+    echo "Running codegen ABI boundary preflight..."
+    python3 "$SCRIPT_DIR/check_codegen_abi_boundaries.py" "$REPO_ROOT"
+else
+    echo -e "${YELLOW}Codegen ABI boundary preflight skipped by SEEN_SKIP_CODEGEN_ABI_PREFLIGHT=1.${NC}"
+fi
 
 # Kill any leftover compilation processes that might write to /tmp/seen_module_*
 # and interfere with this build (race condition causes duplicate symbols)
@@ -1080,11 +1233,51 @@ if [ "\${SEEN_LOW_MEMORY:-0}" = "1" ] && [ -n "\${SEEN_OPT_VMEM_KB:-}" ]; then
     # Cap the whole wrapper so fix_ir.py and llvm-as stay within the low-memory budget too.
     ulimit -v "\$SEEN_OPT_VMEM_KB" 2>/dev/null || true
 fi
+SEEN_OPT_LOCK_HELD=0
+acquire_seen_low_memory_opt_lock() {
+    if [ "\${SEEN_LOW_MEMORY:-0}" != "1" ] || [ "\$SEEN_OPT_LOCK_HELD" = "1" ]; then
+        return
+    fi
+    if command -v flock >/dev/null 2>&1; then
+        exec 9>/tmp/seen_opt_low_memory.lock
+        flock 9
+    else
+        while ! mkdir /tmp/seen_opt_low_memory.lockdir 2>/dev/null; do
+            sleep 1
+        done
+        trap 'rmdir /tmp/seen_opt_low_memory.lockdir 2>/dev/null || true' EXIT
+    fi
+    SEEN_OPT_LOCK_HELD=1
+}
+wait_for_stable_ir_file() {
+    local file="\$1"
+    local prev_size=""
+    local cur_size=""
+    local stable_count=0
+    local attempts=0
+    while [ "\$attempts" -lt 50 ]; do
+        cur_size=\$(stat -c%s "\$file" 2>/dev/null || stat -f%z "\$file" 2>/dev/null || echo "")
+        if [ -n "\$cur_size" ] && [ "\$cur_size" = "\$prev_size" ]; then
+            stable_count=\$((stable_count + 1))
+            if [ "\$stable_count" -ge 2 ]; then
+                return
+            fi
+        else
+            stable_count=0
+            prev_size="\$cur_size"
+        fi
+        attempts=\$((attempts + 1))
+        sleep 0.1
+    done
+}
 if [ "\${SEEN_SKIP_IR_FIXUPS:-0}" = "1" ]; then
+    acquire_seen_low_memory_opt_lock
     exec "$REAL_OPT" "\$@"
 fi
+acquire_seen_low_memory_opt_lock
 for arg in "\${ARGS[@]}"; do
     if [[ "\$arg" == *.ll && "\$arg" != *.opt.ll && -f "\$arg" ]]; then
+        wait_for_stable_ir_file "\$arg"
         awk '
         # Pass 1: count declarations per function name
         NR == FNR {
@@ -1129,7 +1322,9 @@ if count > 0:
 " "\$arg" 2>&1 || true
 
         # Apply comprehensive IR fixups (declare dedup, type mismatches, SSA, etc.)
-        python3 "$SCRIPT_DIR/fix_ir.py" "\$arg" 2>&1 || true
+        if ! python3 "$SCRIPT_DIR/fix_ir.py" "\$arg" 2>&1; then
+            echo "IR FIXUP WARNING: fix_ir.py failed for \$arg (continuing)" >&2
+        fi
 
         # Fix bare 0 as type in declare params (e.g. (i64, 0) → (i64, i64))
         # This is a belt-and-suspenders fix in case fix_ir.py doesn't catch it
@@ -1146,8 +1341,17 @@ if count > 0:
 
         # IR Validation: run llvm-as structural check on the fixed .ll file
         if ! llvm-as "\$arg" -o /dev/null 2>/tmp/seen_verify_err.txt; then
-            echo "IR VERIFY WARNING: \$arg (continuing)" >&2
+            echo "IR VERIFY WARNING: \$arg (retrying fixups)" >&2
             head -2 /tmp/seen_verify_err.txt >&2
+            if python3 "$SCRIPT_DIR/fix_ir.py" "\$arg" 2>&1 && \
+               llvm-as "\$arg" -o /dev/null 2>/tmp/seen_verify_err.txt; then
+                echo "IR VERIFY RECOVERED: \$arg" >&2
+            else
+                echo "IR VERIFY ERROR: \$arg still invalid after retry" >&2
+                head -2 /tmp/seen_verify_err.txt >&2
+                rm -f /tmp/seen_verify_err.txt
+                exit 1
+            fi
             rm -f /tmp/seen_verify_err.txt
         fi
         rm -f /tmp/seen_verify_err.txt
@@ -1158,15 +1362,7 @@ if count > 0:
     fi
 done
 if [ "\${SEEN_LOW_MEMORY:-0}" = "1" ]; then
-    if command -v flock >/dev/null 2>&1; then
-        exec 9>/tmp/seen_opt_low_memory.lock
-        flock 9
-    else
-        while ! mkdir /tmp/seen_opt_low_memory.lockdir 2>/dev/null; do
-            sleep 1
-        done
-        trap 'rmdir /tmp/seen_opt_low_memory.lockdir 2>/dev/null || true' EXIT
-    fi
+    acquire_seen_low_memory_opt_lock
 fi
 exec "$REAL_OPT" "\$@"
 WRAPPER_EOF
@@ -1207,7 +1403,9 @@ if [ "$HOST_OS" = "Darwin" ]; then
     # macOS: PATH already set via export above; use --no-cache
     # The frozen compiler may fail at its internal link step (e.g., internal globals
     # eliminated by opt) but still produce a full .opt.ll set we can relink in step 1b.
-    if run_with_progress "S1→S2" /tmp/safe_rebuild_stage2.log $FROZEN compile "$COMPILER_SOURCE" "$STAGE2" $STAGE2_COMPILE_FLAGS; then
+    if run_with_progress "S1→S2" /tmp/safe_rebuild_stage2.log \
+        bash -c 'cd "$1" || exit 1; shift; exec "$@"' bash "$BOOTSTRAP_SOURCE_ROOT" \
+        "$FROZEN_ABS" compile "$COMPILER_SOURCE" "$STAGE2" $STAGE2_COMPILE_FLAGS; then
         echo -e "${GREEN}Stage2 build succeeded.${NC}"
     else
         EXPECTED_STAGE2_MODULES=$(extract_expected_module_count /tmp/safe_rebuild_stage2.log)
@@ -1220,7 +1418,7 @@ if [ "$HOST_OS" = "Darwin" ]; then
                 echo "Expected $EXPECTED_STAGE2_MODULES optimized modules, found $OPT_LL_COUNT."
             fi
             echo "Check /tmp/safe_rebuild_stage2.log for details."
-            tail -30 /tmp/safe_rebuild_stage2.log
+            tail_log_if_exists /tmp/safe_rebuild_stage2.log 30
             exit 1
         fi
     fi
@@ -1237,9 +1435,10 @@ else
     fi
 
     # Start compiler in background
-    SEEN_MEMORY_GUARD_KILL_ONLY=1 run_guarded_command "S1->S2" 0 "$MAIN_COMPILER_VMEM_KB" \
-        "${FROZEN_COMPILE_ENV[@]}" "$FROZEN" compile "$COMPILER_SOURCE" "$STAGE2" \
-            $STAGE2_COMPILE_FLAGS > /tmp/safe_rebuild_stage2.log 2>&1 &
+    SEEN_MEMORY_GUARD_KILL_ONLY=1 run_guarded_command_to_log "S1->S2" 0 "$MAIN_COMPILER_VMEM_KB" /tmp/safe_rebuild_stage2.log \
+        bash -c 'cd "$1" || exit 1; shift; exec "$@"' bash "$BOOTSTRAP_SOURCE_ROOT" \
+        "${FROZEN_COMPILE_ENV[@]}" "$FROZEN_ABS" compile "$COMPILER_SOURCE" "$STAGE2" \
+            $STAGE2_COMPILE_FLAGS &
     COMPILE_PID=$!
 
     # Start progress monitor and snapshot watcher
@@ -1261,7 +1460,8 @@ else
     if [ "$EXPECTED_STAGE2_MODULES" -le 0 ]; then
         echo -e "${RED}ERROR: Could not determine expected module count for Stage2.${NC}"
         echo "Check /tmp/safe_rebuild_stage2.log for details."
-        tail -30 /tmp/safe_rebuild_stage2.log
+        tail_log_if_exists /tmp/safe_rebuild_stage2.log 30
+        preserve_stage2_failure_artifacts "$SNAPSHOT_DIR"
         rm -rf "$SNAPSHOT_DIR"
         exit 1
     fi
@@ -1271,7 +1471,8 @@ else
         if [ "$STAGE2_OBJ_COUNT" -ne "$EXPECTED_STAGE2_MODULES" ]; then
             echo -e "${RED}ERROR: Stage2 reported success but produced only $STAGE2_OBJ_COUNT/$EXPECTED_STAGE2_MODULES module objects.${NC}"
             echo "Check /tmp/safe_rebuild_stage2.log for details."
-            tail -30 /tmp/safe_rebuild_stage2.log
+            tail_log_if_exists /tmp/safe_rebuild_stage2.log 30
+            preserve_stage2_failure_artifacts "$SNAPSHOT_DIR"
             rm -rf "$SNAPSHOT_DIR"
             exit 1
         fi
@@ -1287,11 +1488,18 @@ else
         # Kill orphaned fork children before recovery (SIGKILL to avoid cleanup handlers)
         echo -e "${YELLOW}Stage2 compilation failed (exit=$COMPILE_EXIT), killing orphans...${NC}"
         kill_frozen_orphans
+        preserve_stage2_failure_artifacts "$SNAPSHOT_DIR"
+        if [ "${SEEN_STOP_AFTER_FROZEN_STAGE2_FAILURE:-0}" = "1" ]; then
+            echo -e "${RED}Stopping after frozen Stage2 failure as requested.${NC}"
+            rm -rf "$SNAPSHOT_DIR"
+            exit "$COMPILE_EXIT"
+        fi
 
         # Check how many .ll files we have: first from snapshot, fallback to live /tmp
         SNAP_COUNT=$(count_plain_module_lls "$SNAPSHOT_DIR")
         LIVE_COUNT=$(count_plain_module_lls /tmp)
 
+        LL_RECOVERY_SOURCE_DIR=""
         if [ "$SNAP_COUNT" -gt "$LIVE_COUNT" ]; then
             LL_COUNT=$SNAP_COUNT
             LL_SOURCE="snapshot"
@@ -1300,16 +1508,29 @@ else
             rm -f /tmp/seen_module_*.ll /tmp/seen_module_*.o /tmp/seen_module_*.opt.ll
             rm -f /tmp/seen_module_*.opt.status /tmp/seen_module_*.opt.log
             cp "$SNAPSHOT_DIR"/seen_module_*.ll /tmp/ 2>/dev/null || true
+            LL_RECOVERY_SOURCE_DIR="$SNAPSHOT_DIR"
         else
             LL_COUNT=$LIVE_COUNT
             LL_SOURCE="live"
             echo -e "${YELLOW}Using $LIVE_COUNT live .ll files from /tmp.${NC}"
+            LL_RECOVERY_SOURCE_DIR="/tmp"
         fi
 
         SKIP_PRESERVED_RECOVERY=0
-        if [ "$STAGE2_OOM_LIKE" -eq 1 ] && [ "$LL_COUNT" -eq "$EXPECTED_STAGE2_MODULES" ]; then
+        if [ "$LL_COUNT" -eq "$EXPECTED_STAGE2_MODULES" ]; then
             SKIP_PRESERVED_RECOVERY=1
             echo -e "${YELLOW}Captured a full $LL_COUNT/$EXPECTED_STAGE2_MODULES .ll set; skipping preserved-compiler rebuild and recovering directly from IR.${NC}"
+            FULL_LL_RECOVERY_DIR="/tmp/seen_full_ll_recovery_$$"
+            rm -rf "$FULL_LL_RECOVERY_DIR"
+            mkdir -p "$FULL_LL_RECOVERY_DIR"
+            cp "$LL_RECOVERY_SOURCE_DIR"/seen_module_*.ll "$FULL_LL_RECOVERY_DIR/" 2>/dev/null || true
+            FULL_LL_COUNT=$(count_plain_module_lls "$FULL_LL_RECOVERY_DIR")
+            if [ "$FULL_LL_COUNT" -ne "$EXPECTED_STAGE2_MODULES" ]; then
+                echo -e "${RED}ERROR: failed to preserve complete .ll recovery set ($FULL_LL_COUNT/$EXPECTED_STAGE2_MODULES).${NC}"
+                rm -rf "$SNAPSHOT_DIR" "$FULL_LL_RECOVERY_DIR"
+                exit 1
+            fi
+            LL_RECOVERY_SOURCE_DIR="$FULL_LL_RECOVERY_DIR"
         fi
 
         if [ "$SKIP_PRESERVED_RECOVERY" -eq 0 ] && recover_with_preserved_production_compiler; then
@@ -1327,19 +1548,19 @@ else
             # concurrent compilations. It outputs RECOVERY_DIR=<path> on success.
             RECOVERY_EXIT=0
             RECOVERY_OUTPUT=$(run_guarded_command "Stage2 IR recovery" "$RECOVERY_TIMEOUT_SECS" "$OPT_VMEM_KB" \
-                bash "$SCRIPT_DIR/recovery_opt.sh" "$OPT_WRAPPER_DIR" "$SCRIPT_DIR" 2>&1) || RECOVERY_EXIT=$?
+                bash "$SCRIPT_DIR/recovery_opt.sh" "$OPT_WRAPPER_DIR" "$SCRIPT_DIR" "$LL_RECOVERY_SOURCE_DIR" 2>&1) || RECOVERY_EXIT=$?
             echo "$RECOVERY_OUTPUT" | grep -v '^RECOVERY_DIR=' || true
 
             if [ "$RECOVERY_EXIT" -ne 0 ]; then
                 echo -e "${RED}ERROR: Recovery failed.${NC}"
-                rm -rf "$SNAPSHOT_DIR"
+                rm -rf "$SNAPSHOT_DIR" "$FULL_LL_RECOVERY_DIR"
                 exit 1
             fi
 
             RECOVERY_DIR=$(echo "$RECOVERY_OUTPUT" | grep '^RECOVERY_DIR=' | tail -1 | cut -d= -f2)
             if [ -z "$RECOVERY_DIR" ] || [ ! -d "$RECOVERY_DIR" ]; then
                 echo -e "${RED}ERROR: Recovery failed — no output directory.${NC}"
-                rm -rf "$SNAPSHOT_DIR"
+                rm -rf "$SNAPSHOT_DIR" "$FULL_LL_RECOVERY_DIR"
                 exit 1
             fi
 
@@ -1350,7 +1571,7 @@ else
                 if [ -n "$MISSING_MODULES" ]; then
                     echo "Missing objects:$MISSING_MODULES"
                 fi
-                rm -rf "$SNAPSHOT_DIR" "$RECOVERY_DIR"
+                rm -rf "$SNAPSHOT_DIR" "$FULL_LL_RECOVERY_DIR" "$RECOVERY_DIR"
                 exit 1
             fi
             echo "  Recovery: $OBJ_COUNT/$EXPECTED_STAGE2_MODULES .o files ready."
@@ -1383,9 +1604,10 @@ else
                         RETRY_COMPILE_ENV+=("LD_PRELOAD=$FORK_SERIALIZER_SO")
                     fi
 
-                    SEEN_MEMORY_GUARD_KILL_ONLY=1 run_guarded_command "Retry$RETRY" 600 "$MAIN_COMPILER_VMEM_KB" \
-                        "${RETRY_COMPILE_ENV[@]}" "$FROZEN" compile "$COMPILER_SOURCE" /dev/null \
-                            $STAGE2_COMPILE_FLAGS > /tmp/retry_${RETRY}.log 2>&1 &
+                    SEEN_MEMORY_GUARD_KILL_ONLY=1 run_guarded_command_to_log "Retry$RETRY" 600 "$MAIN_COMPILER_VMEM_KB" /tmp/retry_${RETRY}.log \
+                        bash -c 'cd "$1" || exit 1; shift; exec "$@"' bash "$BOOTSTRAP_SOURCE_ROOT" \
+                        "${RETRY_COMPILE_ENV[@]}" "$FROZEN_ABS" compile "$COMPILER_SOURCE" /dev/null \
+                            $STAGE2_COMPILE_FLAGS &
                     RETRY_PID=$!
 
                     start_ll_snapshot_watcher "$RETRY_PID" "$RETRY_SNAPSHOT" &
@@ -1488,9 +1710,10 @@ else
                     PASS2_SNAPSHOT="/tmp/seen_pass2_snapshot_$$"
                     rm -rf "$PASS2_SNAPSHOT"
 
-                    SEEN_MEMORY_GUARD_KILL_ONLY=1 run_guarded_command "Pass2" 600 "$MAIN_COMPILER_VMEM_KB" \
+                    SEEN_MEMORY_GUARD_KILL_ONLY=1 run_guarded_command_to_log "Pass2" 600 "$MAIN_COMPILER_VMEM_KB" /tmp/pass2.log \
+                        bash -c 'cd "$1" || exit 1; shift; exec "$@"' bash "$BOOTSTRAP_SOURCE_ROOT" \
                         "$PROD_COMPILER" compile "$COMPILER_SOURCE" /dev/null \
-                            $PASS2_COMPILE_FLAGS > /tmp/pass2.log 2>&1 &
+                            $PASS2_COMPILE_FLAGS &
                     PASS2_PID=$!
 
                     start_ll_snapshot_watcher "$PASS2_PID" "$PASS2_SNAPSHOT" &
@@ -1587,7 +1810,7 @@ else
             EMPTY_COUNT=$(echo "$EMPTY_MODULES" | wc -w)
             if [ "$EMPTY_COUNT" -gt 0 ]; then
                 echo -e "${RED}ERROR: Recovery left $EMPTY_COUNT module(s) with missing function bodies:${EMPTY_MODULES}${NC}"
-                rm -rf "$SNAPSHOT_DIR" "$RECOVERY_DIR"
+                rm -rf "$SNAPSHOT_DIR" "$FULL_LL_RECOVERY_DIR" "$RECOVERY_DIR"
                 exit 1
             fi
 
@@ -1598,7 +1821,7 @@ else
                 if [ -n "$MISSING_MODULES" ]; then
                     echo "Missing objects:$MISSING_MODULES"
                 fi
-                rm -rf "$SNAPSHOT_DIR" "$RECOVERY_DIR"
+                rm -rf "$SNAPSHOT_DIR" "$FULL_LL_RECOVERY_DIR" "$RECOVERY_DIR"
                 exit 1
             fi
 
@@ -1648,17 +1871,17 @@ else
             else
                 echo -e "${RED}ERROR: Stage2 recovery link failed.${NC}"
                 grep -E 'undefined|error' /tmp/safe_rebuild_link.log | head -10
-                rm -rf "$SNAPSHOT_DIR" "$RECOVERY_DIR"
+                rm -rf "$SNAPSHOT_DIR" "$FULL_LL_RECOVERY_DIR" "$RECOVERY_DIR"
                 exit 1
             fi
-            rm -rf "$RECOVERY_DIR"
+            rm -rf "$FULL_LL_RECOVERY_DIR" "$RECOVERY_DIR"
         else
             echo -e "${RED}ERROR: Stage2 build failed after generating only $LL_COUNT/$EXPECTED_STAGE2_MODULES .ll files from $LL_SOURCE.${NC}"
             echo "Check /tmp/safe_rebuild_stage2.log for details."
-            tail -30 /tmp/safe_rebuild_stage2.log
+            tail_log_if_exists /tmp/safe_rebuild_stage2.log 30
             exit 1
         fi
-        rm -rf "$SNAPSHOT_DIR"
+        rm -rf "$SNAPSHOT_DIR" "$FULL_LL_RECOVERY_DIR"
     fi
 fi
 
@@ -1795,6 +2018,11 @@ if ! smoke_test_compiler "$STAGE2" "Stage2" "stage2"; then
     echo -e "${RED}Refusing to continue with an unusable bootstrap compiler.${NC}"
     exit 1
 fi
+if [ "${SEEN_STOP_AFTER_STAGE2_SMOKE:-0}" = "1" ]; then
+    echo -e "${YELLOW}Stopping after Stage2 smoke as requested.${NC}"
+    echo "Stage2 binary preserved at $STAGE2"
+    exit 0
+fi
 
 if [ "$HOST_OS" = "Darwin" ]; then
     # macOS: full S2→S3 bootstrap verification works
@@ -1809,7 +2037,7 @@ if [ "$HOST_OS" = "Darwin" ]; then
     else
         echo -e "${RED}ERROR: Stage3 build failed!${NC}"
         echo "Check /tmp/safe_rebuild_stage3.log for details."
-        tail -30 /tmp/safe_rebuild_stage3.log
+        tail_log_if_exists /tmp/safe_rebuild_stage3.log 30
         rm -f "$STAGE2"
         exit 1
     fi
@@ -1896,9 +2124,9 @@ else
     echo "Step 2: Attempting S2→S3 bootstrap verification (Linux)..."
     echo -e "${DIM}Timeout: 30 minutes. Falls back to S2 if this fails.${NC}"
 
-    if run_guarded_command "S2->S3" 1800 "$MAIN_COMPILER_VMEM_KB" \
+    if run_guarded_command_to_log "S2->S3" 1800 "$MAIN_COMPILER_VMEM_KB" /tmp/safe_rebuild_stage3.log \
         "$STAGE2" compile "$COMPILER_SOURCE" "$STAGE3" --fast --no-cache --no-fork $RELEASE_TARGET_CPU_FLAG \
-        > /tmp/safe_rebuild_stage3.log 2>&1; then
+        ; then
         echo -e "${GREEN}Stage3 build succeeded.${NC}"
 
         echo ""
@@ -1915,6 +2143,10 @@ else
             VERIFIED="$STAGE3"
         else
             echo -e "${YELLOW}Stage3 build completed but failed hello-world smoke; falling back to Stage2.${NC}"
+            if [ "${SEEN_REQUIRE_STAGE3:-0}" = "1" ]; then
+                echo -e "${RED}ERROR: SEEN_REQUIRE_STAGE3=1 and Stage3 smoke failed.${NC}"
+                exit 1
+            fi
             if recover_with_preserved_production_compiler; then
                 echo -e "${GREEN}Using recovered stage3 as production compiler.${NC}"
             else
@@ -1929,7 +2161,11 @@ else
             echo -e "${YELLOW}Timeout reached — cold-compile hang likely still present.${NC}"
         else
             echo "Check /tmp/safe_rebuild_stage3.log for details."
-            tail -10 /tmp/safe_rebuild_stage3.log 2>/dev/null
+            tail_log_if_exists /tmp/safe_rebuild_stage3.log 10
+        fi
+        if [ "${SEEN_REQUIRE_STAGE3:-0}" = "1" ]; then
+            echo -e "${RED}ERROR: SEEN_REQUIRE_STAGE3=1 and S2→S3 failed.${NC}"
+            exit "$S3_EXIT"
         fi
         if recover_with_preserved_production_compiler; then
             echo -e "${GREEN}Using recovered stage3 as production compiler.${NC}"

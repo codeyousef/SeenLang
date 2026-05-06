@@ -3,17 +3,13 @@
 import parser.real_parser.{ClassNode}
 import str.string.{StringBuilder}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
-import codegen.ir_trait_registry.{appendDynTraitNameImpl}
-import codegen.ir_codegen_feature_state.{g_dynTraitNames, g_typeAliasNames, g_typeAliasTargets, g_typeAliasCount, g_distinctTypeNames}
+import codegen.ir_codegen_feature_state.{appendDynTraitNameWithFeatureStateImpl, registerTopLevelTypeAliasWithFeatureStateImpl, appendDistinctTypeNameWithFeatureStateImpl}
 
 fun emitTraitVtableTypeState(output: StringBuilder,
     classNode: ClassNode) r: Void {
 
     let className = classNode.name
-    let dynTraitNamesBox = Array<String>()
-    dynTraitNamesBox.push(g_dynTraitNames)
-    appendDynTraitNameImpl(className, dynTraitNamesBox)
-    g_dynTraitNames = dynTraitNamesBox[0]
+    appendDynTraitNameWithFeatureStateImpl(className)
     output.append("; dyn " + className + " vtable type\n")
     output.append("%" + quoteIdentIfNeededImpl(className + "_vtable") +
         " = type { ")
@@ -35,14 +31,7 @@ fun registerTopLevelTypeAliasState(output: StringBuilder,
     className: String, aliasTarget: String) r: Void {
 
     output.append("; type " + className + " = " + aliasTarget + "\n")
-    if g_typeAliasCount > 0 {
-        g_typeAliasNames = g_typeAliasNames + "|" + className
-        g_typeAliasTargets = g_typeAliasTargets + "|" + aliasTarget
-    } else {
-        g_typeAliasNames = className
-        g_typeAliasTargets = aliasTarget
-    }
-    g_typeAliasCount = g_typeAliasCount + 1
+    registerTopLevelTypeAliasWithFeatureStateImpl(className, aliasTarget)
 }
 
 fun tryHandleTypeAliasClassState(output: StringBuilder,
@@ -73,7 +62,7 @@ fun tryHandleTypeAliasClassState(output: StringBuilder,
             if decorator.arguments.length() > 0 {
                 output.append("; distinct " + className + " = " +
                     decorator.arguments[0] + " (no implicit conversion)\n")
-                g_distinctTypeNames = g_distinctTypeNames + className + "|"
+                appendDistinctTypeNameWithFeatureStateImpl(className)
             }
         }
         decoratorIdx = decoratorIdx + 1

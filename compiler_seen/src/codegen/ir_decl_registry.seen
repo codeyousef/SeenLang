@@ -308,8 +308,7 @@ fun hasLateUserDeclareStateImpl(name: String, lateXmDeclareNames: String,
 }
 
 fun recordLateUserDeclareIntoStateImpl(name: String, llvmReturnType: String,
-    argTypeStrs: Array<String>, hasImplicitThis: Int, funcNames: Array<String>,
-    funcRetTypes: Array<String>, xmDeclareNames: String, xmDeclareCount: Int,
+    argTypeStrs: Array<String>, hasImplicitThis: Int,
     state: LateUserDeclareState) r: Void {
 
     if name == "" {

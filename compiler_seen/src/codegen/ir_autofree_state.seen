@@ -4,26 +4,26 @@ import str.string.{StringBuilder}
 import codegen.ir_decl_registry.{lookupCResourceDestructorStateImpl}
 import codegen.ir_method_array_mutator_emit.{emitPoolFreeFromValueSlotImpl}
 import codegen.ir_optimization.{getNextRegFn}
-import codegen.ir_variable_gen.{findActiveVariableIndexImpl}
 import codegen.type_registry_core.{getPoolEligibleClassSizeReg}
-import codegen.ir_codegen_global_state.{preAllocatedVars, preAllocatedTypes, structNames, structSizes, activeVarCount}
-import codegen.ir_codegen_feature_state.{g_reprCClassNames, g_cResourceClasses, g_cResourceDestructors, g_regBox}
+import codegen.ir_codegen_global_state.{getPreAllocatedVarCountWithGlobalStateImpl, getPreAllocatedVarNameWithGlobalStateImpl, getPreAllocatedVarTypeWithGlobalStateImpl, findActiveVariableIndexWithGlobalStateImpl, getGlobalStructNamesImpl, getGlobalStructSizesImpl}
+import codegen.ir_codegen_feature_state.{getFeatureReprCClassNamesImpl, getFeatureCResourceClassesImpl, getFeatureCResourceDestructorsImpl, getFeatureRegBoxImpl}
 
 fun emitAutoFreeLocalsState(output: StringBuilder, varNames: Array<String>,
     varRegs: Array<String>, skipVar: String) r: Void {
 
     var i = 0
-    while i < preAllocatedVars.length() {
-        let varName = preAllocatedVars[i]
-        let varType = preAllocatedTypes[i]
+    while i < getPreAllocatedVarCountWithGlobalStateImpl() {
+        let varName = getPreAllocatedVarNameWithGlobalStateImpl(i)
+        let varType = getPreAllocatedVarTypeWithGlobalStateImpl(i)
         if varName != skipVar {
             let sSize = getPoolEligibleClassSizeReg(varType,
-                g_reprCClassNames, structNames, structSizes)
+                getFeatureReprCClassNamesImpl(), getGlobalStructNamesImpl(),
+                getGlobalStructSizesImpl())
             if sSize > 0 {
-                let vidx = findActiveVariableIndexImpl(varNames,
-                    activeVarCount, varName)
+                let vidx = findActiveVariableIndexWithGlobalStateImpl(
+                    varNames, varName)
                 if vidx >= 0 {
-                    emitPoolFreeFromValueSlotImpl(output, g_regBox,
+                    emitPoolFreeFromValueSlotImpl(output, getFeatureRegBoxImpl(),
                         varRegs[vidx], sSize)
                 }
             }
@@ -31,20 +31,22 @@ fun emitAutoFreeLocalsState(output: StringBuilder, varNames: Array<String>,
         i = i + 1
     }
 
-    if g_cResourceClasses != "" {
+    let cResourceClasses = getFeatureCResourceClassesImpl()
+    if cResourceClasses != "" {
         i = 0
-        while i < preAllocatedVars.length() {
-            let crVarName = preAllocatedVars[i]
-            let crVarType = preAllocatedTypes[i]
+        while i < getPreAllocatedVarCountWithGlobalStateImpl() {
+            let crVarName = getPreAllocatedVarNameWithGlobalStateImpl(i)
+            let crVarType = getPreAllocatedVarTypeWithGlobalStateImpl(i)
             if crVarName != skipVar {
                 let crDestructor = lookupCResourceDestructorStateImpl(
-                    crVarType, g_cResourceClasses, g_cResourceDestructors)
+                    crVarType, cResourceClasses,
+                    getFeatureCResourceDestructorsImpl())
                 if crDestructor != "" {
-                    let crVarIdx = findActiveVariableIndexImpl(varNames,
-                        activeVarCount, crVarName)
+                    let crVarIdx = findActiveVariableIndexWithGlobalStateImpl(
+                        varNames, crVarName)
                     if crVarIdx >= 0 {
                         let crVarReg = varRegs[crVarIdx]
-                        let crLoadReg = getNextRegFn(g_regBox)
+                        let crLoadReg = getNextRegFn(getFeatureRegBoxImpl())
                         output.append("  " + crLoadReg +
                             " = load i64, ptr " + crVarReg + "\n")
                         output.append("  call void @" + crDestructor +

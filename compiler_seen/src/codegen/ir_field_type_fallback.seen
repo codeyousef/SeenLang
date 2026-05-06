@@ -83,10 +83,14 @@ fun inferFieldTypeFallbackImpl(fieldName: String) r: String {
     ///
     if fieldName == "initializer" { return "ParserExpressionNode" }
     if fieldName == "returnValue" { return "ParserExpressionNode" }
+    if fieldName == "expression" { return "ParserExpressionNode" }
     if fieldName == "condition" { return "ParserExpressionNode" }
+    if fieldName == "loopCondition" { return "ParserExpressionNode" }
     if fieldName == "loopVariable" { return "ParserExpressionNode" }
     if fieldName == "loopIterable" { return "ParserExpressionNode" }
     if fieldName == "loopBody" { return "BlockNode" }
+    if fieldName == "thenBranch" { return "BlockNode" }
+    if fieldName == "elseBranch" { return "BlockNode" }
     if fieldName == "elseBody" { return "BlockNode" }
     if fieldName == "thenBody" { return "BlockNode" }
     return ""

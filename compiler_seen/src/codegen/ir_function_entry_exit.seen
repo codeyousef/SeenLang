@@ -14,6 +14,8 @@ import codegen.ir_function_signature_emit.{emitFunctionSignatureImpl, emitDefaul
 import codegen.ir_function_param_scan.{scanUnusedParametersImpl}
 import codegen.ir_function_snapshots.{FunctionEntrySetupSnapshot, FunctionRuntimeStateSnapshot}
 import codegen.ir_function_gen.{hasFunctionDecoratorGenImpl}
+import codegen.ir_function_state.{getCurrentFunctionEmissionStateImpl}
+import codegen.ir_codegen_feature_state.{getFeatureTypeAliasNamesImpl, getFeatureTypeAliasTargetsImpl, getFeatureTypeAliasCountImpl, getFeatureEnumTypeNamesImpl, getFeatureReprCClassNamesImpl}
 import str.string.{StringBuilder}
 
 fun buildFunctionSignaturePrefixImpl(fn: FunctionNode, fnName: String,
@@ -137,8 +139,6 @@ fun emitRegionAllocatorSetupImpl(output: StringBuilder, regBox: Array<Int>,
 
 fun emitFunctionEntrySetupStateImpl(state: CodegenState, fn: FunctionNode,
     fnName: String, returnType: String, funcAttrs: String,
-    typeAliasNames: String, typeAliasTargets: String, typeAliasCount: Int,
-    enumTypeNames: String, reprCClassNames: String,
     profiledFlagBox: Array<Int>, profiledNameBox: Array<String>,
     profileStringIndexBox: Array<Int>, asyncPromiseBox: Array<String>,
     asyncCoroIdBox: Array<String>, asyncCoroHdlBox: Array<String>,
@@ -146,6 +146,11 @@ fun emitFunctionEntrySetupStateImpl(state: CodegenState, fn: FunctionNode,
     r: Array<String> {
 
     ensureFunctionIntBoxValue(profileStringIndexBox)
+    let typeAliasNames = getFeatureTypeAliasNamesImpl()
+    let typeAliasTargets = getFeatureTypeAliasTargetsImpl()
+    let typeAliasCount = getFeatureTypeAliasCountImpl()
+    let enumTypeNames = getFeatureEnumTypeNamesImpl()
+    let reprCClassNames = getFeatureReprCClassNamesImpl()
 
     let signaturePrefix = buildFunctionSignaturePrefixImpl(fn, fnName,
         returnType)
@@ -196,13 +201,11 @@ fun emitFunctionEntrySetupStateImpl(state: CodegenState, fn: FunctionNode,
 }
 
 fun emitFunctionEntrySetupSnapshotImpl(state: CodegenState, fn: FunctionNode,
-    fnName: String, returnType: String, funcAttrs: String,
-    typeAliasNames: String, typeAliasTargets: String, typeAliasCount: Int,
-    enumTypeNames: String, reprCClassNames: String, asyncPromise: String,
-    asyncCoroId: String, asyncCoroHdl: String, asyncFinalLabel: String,
-    asyncCleanupLabel: String) r: FunctionEntrySetupSnapshot {
+    fnName: String, returnType: String, funcAttrs: String)
+    r: FunctionEntrySetupSnapshot {
 
     let snapshot = FunctionEntrySetupSnapshot.new()
+    let functionEmission = getCurrentFunctionEmissionStateImpl()
     let profiledFlagBox = Array<Int>()
     profiledFlagBox.push(0)
     let profiledNameBox = Array<String>()
@@ -210,22 +213,20 @@ fun emitFunctionEntrySetupSnapshotImpl(state: CodegenState, fn: FunctionNode,
     let profileStringIndexBox = Array<Int>()
     profileStringIndexBox.push(-1)
     let asyncPromiseBox = Array<String>()
-    asyncPromiseBox.push(asyncPromise)
+    asyncPromiseBox.push(functionEmission.asyncPromise)
     let asyncCoroIdBox = Array<String>()
-    asyncCoroIdBox.push(asyncCoroId)
+    asyncCoroIdBox.push(functionEmission.asyncCoroId)
     let asyncCoroHdlBox = Array<String>()
-    asyncCoroHdlBox.push(asyncCoroHdl)
+    asyncCoroHdlBox.push(functionEmission.asyncCoroHdl)
     let asyncFinalLabelBox = Array<String>()
-    asyncFinalLabelBox.push(asyncFinalLabel)
+    asyncFinalLabelBox.push(functionEmission.asyncFinalLabel)
     let asyncCleanupLabelBox = Array<String>()
-    asyncCleanupLabelBox.push(asyncCleanupLabel)
+    asyncCleanupLabelBox.push(functionEmission.asyncCleanupLabel)
 
     snapshot.unusedParams = emitFunctionEntrySetupStateImpl(state, fn, fnName,
-        returnType, funcAttrs, typeAliasNames, typeAliasTargets,
-        typeAliasCount, enumTypeNames, reprCClassNames, profiledFlagBox,
-        profiledNameBox, profileStringIndexBox, asyncPromiseBox,
-        asyncCoroIdBox, asyncCoroHdlBox, asyncFinalLabelBox,
-        asyncCleanupLabelBox)
+        returnType, funcAttrs, profiledFlagBox, profiledNameBox,
+        profileStringIndexBox, asyncPromiseBox, asyncCoroIdBox,
+        asyncCoroHdlBox, asyncFinalLabelBox, asyncCleanupLabelBox)
     snapshot.profiledFlag = profiledFlagBox[0]
     snapshot.profiledName = profiledNameBox[0]
     snapshot.asyncPromise = asyncPromiseBox[0]
@@ -308,10 +309,13 @@ fun emitFunctionExitAndResetStateImpl(state: CodegenState, fn: FunctionNode,
     profiledNameBox: Array<String>, highPressureBox: Array<Int>,
     asyncCoroIdBox: Array<String>, asyncCoroHdlBox: Array<String>,
     asyncPromiseBox: Array<String>, asyncFinalLabelBox: Array<String>,
-    asyncCleanupLabelBox: Array<String>, typeAliasNames: String,
-    typeAliasTargets: String, typeAliasCount: Int, enumTypeNames: String)
+    asyncCleanupLabelBox: Array<String>)
     r: Void {
 
+    let typeAliasNames = getFeatureTypeAliasNamesImpl()
+    let typeAliasTargets = getFeatureTypeAliasTargetsImpl()
+    let typeAliasCount = getFeatureTypeAliasCountImpl()
+    let enumTypeNames = getFeatureEnumTypeNamesImpl()
     var implicitProfiledFlag = 0
     var implicitProfileStringIndex = -1
     if profiledFlagBox[0] == 1 {
@@ -339,34 +343,38 @@ fun emitFunctionExitAndResetStateImpl(state: CodegenState, fn: FunctionNode,
 }
 
 fun emitFunctionExitResetSnapshotImpl(state: CodegenState, fn: FunctionNode,
-    returnType: String, profiledFlag: Int, profiledName: String,
-    highPressure: Int, asyncCoroId: String, asyncCoroHdl: String,
-    asyncPromise: String, asyncFinalLabel: String, asyncCleanupLabel: String,
-    typeAliasNames: String, typeAliasTargets: String, typeAliasCount: Int,
-    enumTypeNames: String) r: FunctionRuntimeStateSnapshot {
+    returnType: String) r: FunctionRuntimeStateSnapshot {
 
     let snapshot = FunctionRuntimeStateSnapshot.new()
+    let functionEmission = getCurrentFunctionEmissionStateImpl()
+    var profiledFlag = 0
+    if functionEmission.profiledFlag {
+        profiledFlag = 1
+    }
+    var highPressure = 0
+    if functionEmission.highPressureFlag or state.functionOptions.highPressure {
+        highPressure = 1
+    }
     let profiledFlagBox = Array<Int>()
     profiledFlagBox.push(profiledFlag)
     let profiledNameBox = Array<String>()
-    profiledNameBox.push(profiledName)
+    profiledNameBox.push(functionEmission.profiledName)
     let highPressureBox = Array<Int>()
     highPressureBox.push(highPressure)
     let asyncCoroIdBox = Array<String>()
-    asyncCoroIdBox.push(asyncCoroId)
+    asyncCoroIdBox.push(functionEmission.asyncCoroId)
     let asyncCoroHdlBox = Array<String>()
-    asyncCoroHdlBox.push(asyncCoroHdl)
+    asyncCoroHdlBox.push(functionEmission.asyncCoroHdl)
     let asyncPromiseBox = Array<String>()
-    asyncPromiseBox.push(asyncPromise)
+    asyncPromiseBox.push(functionEmission.asyncPromise)
     let asyncFinalLabelBox = Array<String>()
-    asyncFinalLabelBox.push(asyncFinalLabel)
+    asyncFinalLabelBox.push(functionEmission.asyncFinalLabel)
     let asyncCleanupLabelBox = Array<String>()
-    asyncCleanupLabelBox.push(asyncCleanupLabel)
+    asyncCleanupLabelBox.push(functionEmission.asyncCleanupLabel)
 
     emitFunctionExitAndResetStateImpl(state, fn, returnType, profiledFlagBox,
         profiledNameBox, highPressureBox, asyncCoroIdBox, asyncCoroHdlBox,
-        asyncPromiseBox, asyncFinalLabelBox, asyncCleanupLabelBox,
-        typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames)
+        asyncPromiseBox, asyncFinalLabelBox, asyncCleanupLabelBox)
     snapshot.profiledFlag = profiledFlagBox[0]
     snapshot.profiledName = profiledNameBox[0]
     snapshot.highPressure = highPressureBox[0]

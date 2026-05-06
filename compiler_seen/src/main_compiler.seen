@@ -41,6 +41,7 @@ import codegen.ir_decl_macro_lsp.{emitMacroAndLspDecls}
 import codegen.ir_decl_typechecker.{emitTypecheckerDeclsImpl}
 import codegen.ir_decl_parser.{emitParserDecls}
 import codegen.ir_decl_feature_runtime.{emitFeatureDecls}
+import codegen.ir_decl_features.{generateHotReloadMethodsImpl, generateDeriveSerializeImpl, generateDeriveDeserializeImpl, generateDeriveCloneImpl, generateDeriveHashImpl, generateDeriveEqImpl, generateDeriveDebugImpl, generateReflectImpl}
 import codegen.ir_decl_feature_serialization.{generateBinarySerializerImpl}
 ///
 Seed newer helper modules through direct imports so older bootstrap
@@ -54,9 +55,9 @@ import codegen.ir_egraph_emit.{emitEgraphPeepholeImpl, emitEgraphFloatPeepholeIm
 import codegen.ir_inline_heuristics.{mlShouldInlineWeighted, selfCallCheck}
 import codegen.ir_codegen_metrics_state.{cseLookup, cseRecord, cseClear, callCountRecord, callCountClear, selfCallClear, initCollectionBoxes, syncCollectionBoxes, getOptStats, resetOptCounters, loadMLWeights}
 import codegen.ir_codegen_target_state.{detectHostPlatform, overrideTargetTripleImpl}
-import codegen.ir_codegen_global_state.{preAllocatedRegs, activeVarCount, structNames, structLayouts, structFieldNames, structFieldTypes, funcNames, funcRetTypes, currentClassName, moduleConstantNames, moduleConstantTypes}
-import codegen.ir_codegen_module_state.{g_xmDeclareNames, g_xmDeclareCount, resetModuleConstantGenerationState, resetLateUserDeclareState, resetIrgenFieldLookupCaches}
-import codegen.ir_codegen_feature_state.{g_panicOnOverflow, g_asyncFuncNames, g_regBox, g_blockBox, g_reprCClassNames, g_typeAliasNames, g_enumTypeNames}
+import codegen.ir_codegen_global_state.{preAllocatedRegs, activeVarCount, structNames, structLayouts, structFieldNames, structFieldTypes, funcNames, funcRetTypes, currentClassName, moduleConstantNames, moduleConstantTypes, getModuleConstantTypeWithGlobalStateImpl}
+import codegen.ir_codegen_module_state.{g_xmDeclareNames, g_xmDeclareCount, resetModuleConstantGenerationState, resetLateUserDeclareState, resetIrgenFieldLookupCaches, findModuleConstantWithModuleStateImpl, getModuleConstantTypeWithModuleStateImpl, getModuleConstSeenTypeWithModuleStateImpl, isModuleConstMutableWithModuleStateImpl, moduleConstantInvariantLoadSuffixWithModuleStateImpl}
+import codegen.ir_codegen_feature_state.{g_panicOnOverflow, g_asyncFuncNames, g_regBox, g_blockBox, g_reprCClassNames, g_typeAliasNames, g_enumTypeNames, prepareFunctionPreBodyWithFeatureStateImpl}
 import codegen.ir_codegen_type_state.{mapTypeState, isClassTypeState, isDataTypeState, mapTypeForParameterState}
 import codegen.ir_method_builtin_type_infer.{tryInferBuiltinReceiverMethodCallTypeState}
 import codegen.ir_value_coercion.{coerceValueForLlvmTargetImpl}
@@ -126,6 +127,7 @@ import codegen.ir_comptime_eval.{lookupComptimeStrVarImpl}
 import codegen.ir_simd_type_helpers.{isSimdVectorTypeImpl}
 import codegen.ir_struct_field_resolution.{resolveKnownStructFieldImpl}
 import codegen.ir_type_ops_comparison.{emitComparisonBinaryOpImpl}
+import codegen.ir_type_ops.{emitBinaryOpImpl}
 import codegen.ir_receiver_method_emit.{emitSimdReductionImpl, emitOptionMethodImpl, emitJsonValueMethodImpl, emitStringMethodImpl}
 import codegen.ir_simd_builtin_emit.{emitSimdBuiltinImpl}
 import codegen.ir_string_builder_cast_emit.{emitStringBuilderMethodImpl, emitCastExprImpl}
@@ -176,6 +178,7 @@ import codegen.ir_literal_gen.{generateLiteralFree}
 import codegen.ir_function_box_utils.{ensureFunctionStringBoxValue, ensureFunctionIntBoxValue}
 import codegen.ir_function_param_scan.{scanUnusedParametersImpl}
 import codegen.ir_function_decorators.{shouldSkipFunctionByCfgStateImpl}
+import codegen.ir_function_gen.{hasFunctionDecoratorGenImpl, shouldSkipFunctionByCfgImpl, emitFunctionDecoratorMetadataCommentsImpl, shouldSkipSpecialFunctionBodyImpl, registerFunctionTraitImplDecoratorsImpl, tryHandleGpuShaderFunctionGenerationImpl, prepareFunctionAttributesImpl, prepareExternFunctionGenerationImpl, prepareFunctionGenerationIdentitySnapshotImpl}
 import codegen.ir_function_lowering.{configureFunctionLoweringOptionsImpl}
 import codegen.ir_function_state.{getCurrentFunctionEmissionStateImpl, resetFunctionEmissionForFunctionImpl, markFunctionEmissionHighPressureImpl, resetFunctionEmissionHighPressureImpl, recordMovedVariableImpl, isMovedVariableImpl, resetFunctionLoweringOptionsStateImpl, resetFunctionHighPressureImpl, markFunctionHighPressureImpl, isFunctionHighPressureImpl, currentFunctionAlignToImpl, currentFunctionRegionSizeBytesImpl, isCurrentFunctionAsyncLoweringImpl, markTailCallPositionImpl, takeTailCallPositionImpl}
 import codegen.ir_function_snapshots.{NestedScratchStateSnapshot, FunctionInlineHeuristicsAnalysis, FunctionRegisterPressureAnalysis, FunctionGenerationIdentitySnapshot, FunctionEntrySetupSnapshot, FunctionRuntimeStateSnapshot, FunctionPreludeAnalysisSnapshot}
@@ -201,6 +204,7 @@ import codegen.ir_class_type_decorators.{ClassTypeDecoratorState}
 import codegen.ir_class_type_special.{tryEmitSpecialClassTypeDecoratorImpl}
 import codegen.ir_class_gen_support.{scanGeneratedClassDecoratorsImpl}
 import codegen.ir_class_type_alias_state.{emitTraitVtableTypeState, tryHandleTypeAliasClassState}
+import codegen.ir_trait_registry.{appendDynTraitNameImpl}
 import codegen.ir_class_type_guard_driver.{hasGeneratedClassType, tryReuseHeaderLoadedClassType}
 import codegen.ir_class_type_driver.{emitClassTypeState}
 import codegen.ir_class_generated_features.{emitGeneratedClassDecoratorMethodsImpl}
@@ -236,6 +240,7 @@ import codegen.ir_stmt_scope.{recordDeferredStatementSnapshotImpl, beginTryCatch
 import codegen.ir_stmt_defer_driver.{generateDeferredStatement}
 import codegen.type_registry_cache.{cachedStructNameMatches}
 import codegen.type_registry_core.{findStructReg}
+import codegen.type_registry.{TypeRegistry}
 import codegen.ir_codegen_state.{CodegenState}
 import codegen.ir_type_header_registry.{applyTypeHeaderStructLineReg}
 import codegen.ir_type_header.{emitBuiltinTypeHeaderImpl}
@@ -871,6 +876,15 @@ fun prebuiltPackageObjectManifestPath(artifactRoot: String) r: String {
     return resolveProjectPath(artifactRoot, objectManifest)
 }
 
+fun prebuiltPackageInterfaceIndexPath(artifactRoot: String) r: String {
+    var interfaceIndex = prebuiltPackageManifestField(artifactRoot,
+        "interface_index")
+    if interfaceIndex == "" {
+        interfaceIndex = "interface.index.tsv"
+    }
+    return resolveProjectPath(artifactRoot, interfaceIndex)
+}
+
 fun resolvePrebuiltPackageArtifactRoot(projectRoot: String,
     dep: PackageDependency) r: String {
 
@@ -882,6 +896,34 @@ fun resolvePrebuiltPackageArtifactRoot(projectRoot: String,
         return ""
     }
     return artifactRoot
+}
+
+fun resolvePrebuiltRuntimeMemoryImportPathForManifest(
+    manifestPath: String) r: String {
+
+    let tomlContent = loadFileContent(manifestPath)
+    if tomlContent == "" {
+        return ""
+    }
+    let projectRoot = getSourceDir(manifestPath)
+    let deps = extractTomlPackageDependencies(tomlContent)
+    var idx = 0
+    while idx < deps.length() {
+        let dep = deps[idx]
+        if dep.source == "artifact" and dep.name == "seen_runtime" {
+            let artifactRoot = resolvePrebuiltPackageArtifactRoot(projectRoot,
+                dep)
+            if artifactRoot != "" {
+                let memoryPath = prebuiltPackageInterfaceRoot(artifactRoot) +
+                    "/memory.seen"
+                if loadFileContent(memoryPath) != "" {
+                    return memoryPath
+                }
+            }
+        }
+        idx = idx + 1
+    }
+    return ""
 }
 
 fun isPrebuiltPackageModulePathForManifest(manifestPath: String,
@@ -901,10 +943,20 @@ fun isPrebuiltPackageModulePathForManifest(manifestPath: String,
                 dep)
             if artifactRoot != "" {
                 let interfaceRoot = prebuiltPackageInterfaceRoot(artifactRoot)
+                let interfaceRootReal = resolveRealInputPath(interfaceRoot)
+                let modulePathReal = resolveRealInputPath(modulePath)
                 if modulePath.startsWith(interfaceRoot + "/") {
                     return true
                 }
+                if interfaceRootReal != "" and
+                    modulePathReal.startsWith(interfaceRootReal + "/") {
+
+                    return true
+                }
                 if modulePath == interfaceRoot {
+                    return true
+                }
+                if interfaceRootReal != "" and modulePathReal == interfaceRootReal {
                     return true
                 }
             }
@@ -1038,14 +1090,93 @@ fun prebuiltPackageGraphSignatureForInput(inputFile: String) r: String {
             if artifactRoot != "" {
                 let pkgManifest = prebuiltPackageManifestPath(artifactRoot)
                 let objManifest = prebuiltPackageObjectManifestPath(artifactRoot)
+                let interfaceIndex =
+                    prebuiltPackageInterfaceIndexPath(artifactRoot)
                 signature = signature + dep.name + ":" +
                     hashString(loadFileContent(pkgManifest)) + ":" +
-                    hashString(loadFileContent(objManifest)) + "\n"
+                    hashString(loadFileContent(objManifest)) + ":" +
+                    hashString(loadFileContent(interfaceIndex)) + "\n"
             }
         }
         idx = idx + 1
     }
     return signature
+}
+
+fun extractPackageInterfaceIndexModules(artifactRoot: String) r: Array<String> {
+    let modules = Array<String>()
+    let indexPath = prebuiltPackageInterfaceIndexPath(artifactRoot)
+    let content = loadFileContent(indexPath)
+    if content == "" {
+        return modules
+    }
+
+    let tab = String.fromCharCode(9)
+    var lineStart = 0
+    var pos = 0
+    while pos <= content.length() {
+        var atEnd = 0
+        if pos == content.length() {
+            atEnd = 1
+        }
+        var isNewline = 0
+        if atEnd == 0 {
+            if content.byteAt(pos) == 10 {
+                isNewline = 1
+            }
+        }
+        if isNewline == 1 or atEnd == 1 {
+            let line = content.substring(lineStart, pos).trim()
+            if line.startsWith("module" + tab) {
+                let rest = line.substring(7, line.length())
+                let nextTab = rest.indexOf(tab, 0)
+                var moduleRel = rest
+                if nextTab >= 0 {
+                    moduleRel = rest.substring(0, nextTab)
+                }
+                if moduleRel != "" and not containsPath(modules, moduleRel) {
+                    modules.push(moduleRel)
+                }
+            }
+            lineStart = pos + 1
+        }
+        pos = pos + 1
+    }
+    return modules
+}
+
+fun queueArtifactPackageInterfaceModules(paths: Array<String>,
+    processedPaths: Array<String>, artifactRoot: String) r: Int {
+
+    let modules = extractPackageInterfaceIndexModules(artifactRoot)
+    let interfaceRoot = prebuiltPackageInterfaceRoot(artifactRoot)
+    var count = 0
+    var idx = 0
+    while idx < modules.length() {
+        let modulePath = resolveProjectPath(artifactRoot, modules[idx])
+        if loadFileContent(modulePath) != "" {
+            pushUniquePath(paths, processedPaths, modulePath)
+            count = count + 1
+        } else {
+            let interfacePath = resolveProjectPath(interfaceRoot,
+                modules[idx])
+            if loadFileContent(interfacePath) != "" {
+                pushUniquePath(paths, processedPaths, interfacePath)
+                count = count + 1
+            }
+        }
+        idx = idx + 1
+    }
+    if count > 0 {
+        return count
+    }
+
+    let modPath = interfaceRoot + "/mod.seen"
+    if loadFileContent(modPath) != "" {
+        pushUniquePath(paths, processedPaths, modPath)
+        return 1
+    }
+    return 0
 }
 
 fun resolveProjectManifestPath(target: String) r: String {
@@ -1385,6 +1516,77 @@ fun resolvePackageDependencyProjectRoot(sourceDir: String, depName: String) r: S
     return ""
 }
 
+fun queueSourcePackageRootModules(paths: Array<String>,
+    processedPaths: Array<String>, packageRoot: String,
+    packageName: String) r: Int {
+
+    let manifestPath = packageRoot + "/Seen.toml"
+    let tomlContent = loadFileContent(manifestPath)
+    let modules = extractTomlProjectModules(tomlContent)
+    var count = 0
+    var idx = 0
+    while idx < modules.length() {
+        let modulePath = resolveProjectPath(packageRoot, modules[idx])
+        if loadFileContent(modulePath) != "" {
+            pushUniquePath(paths, processedPaths, modulePath)
+            count = count + 1
+        }
+        idx = idx + 1
+    }
+    if count > 0 {
+        return count
+    }
+
+    let modPath = packageRoot + "/src/mod.seen"
+    if loadFileContent(modPath) != "" {
+        pushUniquePath(paths, processedPaths, modPath)
+        return 1
+    }
+    let namedPath = packageRoot + "/src/" + packageName + ".seen"
+    if loadFileContent(namedPath) != "" {
+        pushUniquePath(paths, processedPaths, namedPath)
+        return 1
+    }
+    return 0
+}
+
+fun queuePackageRootImportPaths(paths: Array<String>,
+    processedPaths: Array<String>, sourceDir: String,
+    packageName: String) r: Int {
+
+    let tomlPath = findNearestSeenTomlFromDir(sourceDir)
+    let tomlContent = loadFileContent(tomlPath)
+    if tomlContent == "" {
+        return 0
+    }
+    let deps = extractTomlPackageDependencies(tomlContent)
+    let projectRoot = getSourceDir(tomlPath)
+    var idx = 0
+    while idx < deps.length() {
+        let dep = deps[idx]
+        if dep.name == packageName {
+            if dep.source == "artifact" {
+                let artifactRoot = resolvePrebuiltPackageArtifactRoot(
+                    projectRoot, dep)
+                if artifactRoot != "" {
+                    return queueArtifactPackageInterfaceModules(paths,
+                        processedPaths, artifactRoot)
+                }
+                return 0
+            }
+            let packageRoot = resolvePackageDependencyProjectRoot(sourceDir,
+                packageName)
+            if packageRoot != "" {
+                return queueSourcePackageRootModules(paths, processedPaths,
+                    packageRoot, packageName)
+            }
+            return 0
+        }
+        idx = idx + 1
+    }
+    return 0
+}
+
 fun resolvePackageImportPath(importPath: Array<String>, sourceDir: String) r: String {
     if importPath.length() == 0 {
         return ""
@@ -1392,6 +1594,26 @@ fun resolvePackageImportPath(importPath: Array<String>, sourceDir: String) r: St
     let packageRoot = resolvePackageDependencyProjectRoot(sourceDir, importPath[0])
     if packageRoot == "" {
         return ""
+    }
+    if importPath.length() == 1 {
+        let manifestPath = packageRoot + "/Seen.toml"
+        let tomlContent = loadFileContent(manifestPath)
+        let modules = extractTomlProjectModules(tomlContent)
+        if modules.length() > 0 {
+            let firstModulePath = resolveProjectPath(packageRoot, modules[0])
+            if loadFileContent(firstModulePath) != "" {
+                return firstModulePath
+            }
+        }
+        let artifactIndexModules = extractPackageInterfaceIndexModules(
+            packageRoot)
+        if artifactIndexModules.length() > 0 {
+            let artifactModulePath = resolveProjectPath(packageRoot,
+                artifactIndexModules[0])
+            if loadFileContent(artifactModulePath) != "" {
+                return artifactModulePath
+            }
+        }
     }
     var packageBase = packageRoot + "/src"
     var idx = 1
@@ -1538,6 +1760,133 @@ fun rewritePrebuiltObjectManifest(rawManifestPath: String,
     return writeText(dstManifest, rewritten)
 }
 
+fun packageInterfaceIndexSymbolName(text: String) r: String {
+    var name = ""
+    var idx = 0
+    while idx < text.length() {
+        let b = text.byteAt(idx)
+        var isNameChar = false
+        if b >= 48 and b <= 57 { isNameChar = true }
+        if b >= 65 and b <= 90 { isNameChar = true }
+        if b >= 97 and b <= 122 { isNameChar = true }
+        if b == 95 { isNameChar = true }
+        if isNameChar {
+            name = name + text.substring(idx, idx + 1)
+        } else {
+            return name
+        }
+        idx = idx + 1
+    }
+    return name
+}
+
+fun appendPackageInterfaceIndexDeclaration(indexText: String,
+    moduleRel: String, sourceLine: String) r: String {
+
+    let tab = String.fromCharCode(9)
+    var line = stripSourceLineComment(sourceLine).trim()
+    var visibility = "package"
+    if line.startsWith("pub ") {
+        visibility = "public"
+        line = line.substring(4, line.length()).trim()
+    }
+
+    let importText = sourceImportBodyFromLine(line)
+    if importText != "" {
+        return indexText + "import" + tab + moduleRel + tab +
+            visibility + tab + normalizeSourceImportText(importText) + "\n"
+    }
+    if line.startsWith("class ") {
+        let name = packageInterfaceIndexSymbolName(
+            line.substring(6, line.length()).trim())
+        if name != "" {
+            return indexText + "class" + tab + moduleRel + tab +
+                visibility + tab + name + "\n"
+        }
+    }
+    if line.startsWith("fun ") {
+        let name = packageInterfaceIndexSymbolName(
+            line.substring(4, line.length()).trim())
+        if name != "" {
+            return indexText + "function" + tab + moduleRel + tab +
+                visibility + tab + name + "\n"
+        }
+    }
+    if line.startsWith("enum ") {
+        let name = packageInterfaceIndexSymbolName(
+            line.substring(5, line.length()).trim())
+        if name != "" {
+            return indexText + "enum" + tab + moduleRel + tab +
+                visibility + tab + name + "\n"
+        }
+    }
+    return indexText
+}
+
+fun appendPackageInterfaceIndexDeclarations(indexText: String,
+    projectRoot: String, moduleRel: String) r: String {
+
+    var result = indexText
+    let sourcePath = resolveProjectPath(projectRoot, moduleRel)
+    let content = stripTripleSlashBlockBodiesForRawScan(readText(sourcePath))
+    var lineStart = 0
+    var pos = 0
+    while pos <= content.length() {
+        var atEnd = 0
+        if pos == content.length() {
+            atEnd = 1
+        }
+        var isNewline = 0
+        if atEnd == 0 {
+            if content.byteAt(pos) == 10 {
+                isNewline = 1
+            }
+        }
+        if isNewline == 1 or atEnd == 1 {
+            result = appendPackageInterfaceIndexDeclaration(result,
+                moduleRel, content.substring(lineStart, pos))
+            lineStart = pos + 1
+        }
+        pos = pos + 1
+    }
+    return result
+}
+
+fun createPackageInterfaceIndex(manifestPath: String, tomlContent: String,
+    outputRoot: String, entryPath: String) r: Bool {
+
+    let projectRoot = getSourceDir(manifestPath)
+    let projectRootReal = resolveRealInputPath(projectRoot)
+    let tab = String.fromCharCode(9)
+    let modules = extractTomlProjectModules(tomlContent)
+    if modules.length() == 0 and entryPath != "" {
+        let entryReal = resolveRealInputPath(entryPath)
+        let entryRel = pathRelativeToProjectRoot(entryReal, projectRootReal)
+        if entryRel != "" {
+            modules.push(entryRel)
+        }
+    }
+    if modules.length() == 0 {
+        return false
+    }
+
+    var indexText = "version" + tab + "1\n"
+    var idx = 0
+    while idx < modules.length() {
+        let moduleRel = modules[idx]
+        let modulePath = resolveProjectPath(projectRoot, moduleRel)
+        if loadFileContent(modulePath) != "" {
+            indexText = indexText + "module" + tab + moduleRel + tab +
+                "package" + tab + stripSeenExtension(
+                getLastSegment(moduleRel)) + "\n"
+            indexText = appendPackageInterfaceIndexDeclarations(indexText,
+                projectRoot, moduleRel)
+        }
+        idx = idx + 1
+    }
+    return writeText(outputRoot + "/interface.index.tsv", indexText)
+}
+
 fun createPrebuiltPackageArtifact(manifestPath: String,
     outputRoot: String) r: Bool {
 
@@ -1565,6 +1914,11 @@ fun createPrebuiltPackageArtifact(manifestPath: String,
         " " + shellQuote(outputRoot + "/src"))
     if not commandWasSuccessful(copySource) {
         println("Error: failed to copy package interface sources")
+        return false
+    }
+    if not createPackageInterfaceIndex(manifestPath, tomlContent, outputRoot,
+        entryPath) {
+        println("Error: failed to create package interface index")
         return false
     }
 
@@ -1595,6 +1949,7 @@ fun createPrebuiltPackageArtifact(manifestPath: String,
     manifest = manifest + "package_version = \"" + version + "\"\n"
     manifest = manifest + "kind = \"prebuilt\"\n"
     manifest = manifest + "interface_path = \"src\"\n"
+    manifest = manifest + "interface_index = \"interface.index.tsv\"\n"
     manifest = manifest + "object_manifest = \"objects.tsv\"\n"
     manifest = manifest + "declaration_digest = \"" + declDigest + "\"\n"
     manifest = manifest + "build_signature = \"" + buildSig + "\"\n"
@@ -2902,6 +3257,108 @@ fun normalizeSourceImportText(importText: String) r: String {
     return text
 }
 
+fun stripSourceLineComment(line: String) r: String {
+    let commentStart = line.indexOf("//", 0)
+    if commentStart >= 0 {
+        return line.substring(0, commentStart)
+    }
+    return line
+}
+
+fun reduceRawScanTextParts(parts: Array<String>, start: Int, end: Int)
+    r: String {
+
+    let count = end - start
+    if count <= 0 {
+        return ""
+    }
+    if count == 1 {
+        return parts[start]
+    }
+    if count == 2 {
+        return parts[start] + parts[start + 1]
+    }
+    let mid = start + count / 2
+    return reduceRawScanTextParts(parts, start, mid) +
+        reduceRawScanTextParts(parts, mid, end)
+}
+
+fun mainCompilerRawScanIsTripleSlashDelimiterLine(line: String) r: Bool {
+    return line.trim() == "///"
+}
+
+fun stripTripleSlashBlockBodiesForRawScan(source: String) r: String {
+    let parts = Array<String>()
+    var insideBlock = false
+    var lineStart = 0
+    var pos = 0
+    while pos <= source.length() {
+        var atEnd = 0
+        if pos == source.length() {
+            atEnd = 1
+        }
+        var isNewline = 0
+        if atEnd == 0 {
+            if source.byteAt(pos) == 10 {
+                isNewline = 1
+            }
+        }
+        if isNewline == 1 or atEnd == 1 {
+            let line = source.substring(lineStart, pos)
+            if mainCompilerRawScanIsTripleSlashDelimiterLine(line) {
+                insideBlock = not insideBlock
+                parts.push("\n")
+            } else {
+                if insideBlock {
+                    parts.push("\n")
+                } else {
+                    parts.push(line)
+                    parts.push("\n")
+                }
+            }
+            lineStart = pos + 1
+        }
+        pos = pos + 1
+    }
+    return reduceRawScanTextParts(parts, 0, parts.length())
+}
+
+fun sourceContainsOutsideTripleSlashBlockBodies(source: String,
+    needle: String) r: Bool {
+
+    if needle == "" {
+        return true
+    }
+    var insideBlock = false
+    var lineStart = 0
+    var pos = 0
+    while pos <= source.length() {
+        var atEnd = 0
+        if pos == source.length() {
+            atEnd = 1
+        }
+        var isNewline = 0
+        if atEnd == 0 {
+            if source.byteAt(pos) == 10 {
+                isNewline = 1
+            }
+        }
+        if isNewline == 1 or atEnd == 1 {
+            let line = source.substring(lineStart, pos)
+            if mainCompilerRawScanIsTripleSlashDelimiterLine(line) {
+                insideBlock = not insideBlock
+            } else {
+                if not insideBlock and line.contains(needle) {
+                    return true
+                }
+            }
+            lineStart = pos + 1
+        }
+        pos = pos + 1
+    }
+    return false
+}
+
 fun sourceImportBodyFromLine(line: String) r: String {
     let trimmed = line.trim()
     if trimmed.startsWith("pub import ") {
@@ -2994,10 +3451,11 @@ fun resolveSourceTextImportedSymbolName(importText: String, symbolName: String) 
 
 fun appendSourceTextImportEdges(edges: String, modulePath: String) r: String {
     var result = edges
-    let content = readText(modulePath)
-    if content == "" {
+    let rawContent = readText(modulePath)
+    if rawContent == "" {
         return result
     }
+    let content = stripTripleSlashBlockBodiesForRawScan(rawContent)
     let sourceDir = getSourceDir(modulePath)
     var lineStart = 0
     var pos = 0
@@ -3030,6 +3488,14 @@ fun appendSourceTextImportEdges(edges: String, modulePath: String) r: String {
 }
 
 fun queueImportTextPath(paths: Array<String>, processedPaths: Array<String>, inputFile: String, currentPath: String, sourceDir: String, isBootstrap: Bool, importText: String) r: Void {
+    let importSegments = parseImportTextSegments(importText)
+    if importSegments.length() == 1 {
+        let queuedPackageModules = queuePackageRootImportPaths(paths,
+            processedPaths, sourceDir, importSegments[0])
+        if queuedPackageModules > 0 {
+            return
+        }
+    }
     let importFilePath = sourceTextImportPath(importText, sourceDir)
     if shouldQueueDiscoveredImport(inputFile, currentPath, isBootstrap, importFilePath) {
         pushUniquePath(paths, processedPaths, importFilePath)
@@ -3038,7 +3504,7 @@ fun queueImportTextPath(paths: Array<String>, processedPaths: Array<String>, inp
 }
 
 fun sourceTextUsesRuntimeMemory(content: String) r: Bool {
-    if content.contains("seen_mem_") {
+    if sourceContainsOutsideTripleSlashBlockBodies(content, "seen_mem_") {
         return true
     }
     return false
@@ -3047,6 +3513,11 @@ fun sourceTextUsesRuntimeMemory(content: String) r: Bool {
 fun resolveImplicitRuntimeMemoryImportPath(sourceDir: String) r: String {
     let tomlPath = findNearestSeenTomlFromDir(sourceDir)
     if tomlPath != "" {
+        let prebuiltRuntimePath =
+            resolvePrebuiltRuntimeMemoryImportPathForManifest(tomlPath)
+        if prebuiltRuntimePath != "" {
+            return prebuiltRuntimePath
+        }
         let projectRoot = getSourceDir(tomlPath)
         let projectRuntimePath = projectRoot + "/seen_runtime/src/memory.seen"
         if loadFileContent(projectRuntimePath) != "" {
@@ -3345,10 +3816,11 @@ fun storeGeneratedTestObjectSetCache(inputFile: String, modulePaths: Array<Strin
 }
 
 fun discoverImportsFromSourceText(paths: Array<String>, processedPaths: Array<String>, inputFile: String, currentPath: String, isBootstrap: Bool) r: Void {
-    let content = readText(currentPath)
-    if content == "" {
+    let rawContent = readText(currentPath)
+    if rawContent == "" {
         return
     }
+    let content = stripTripleSlashBlockBodiesForRawScan(rawContent)
     let sourceDir = getSourceDir(currentPath)
     var lineStart = 0
     var pos = 0
@@ -3876,10 +4348,11 @@ fun findSourceTextImportedClassInModules(modulePath: String,
     modulePaths: Array<String>, frontends: Array<FrontendResult>,
     className: String) r: ClassNode {
 
-    let content = readText(modulePath)
-    if content == "" {
+    let rawContent = readText(modulePath)
+    if rawContent == "" {
         return ClassNode.new()
     }
+    let content = stripTripleSlashBlockBodiesForRawScan(rawContent)
 
     let sourceDir = getSourceDir(modulePath)
     var lineStart = 0
@@ -3992,10 +4465,11 @@ fun findSourceTextImportedFunctionInModules(modulePath: String,
     modulePaths: Array<String>, frontends: Array<FrontendResult>,
     functionName: String) r: FunctionNode {
 
-    let content = readText(modulePath)
-    if content == "" {
+    let rawContent = readText(modulePath)
+    if rawContent == "" {
         return FunctionNode.new()
     }
+    let content = stripTripleSlashBlockBodiesForRawScan(rawContent)
 
     let sourceDir = getSourceDir(modulePath)
     var lineStart = 0
@@ -4348,10 +4822,11 @@ fun findSourceTextImportedSealedParentModule(modulePath: String,
     modulePaths: Array<String>, frontends: Array<FrontendResult>,
     parentName: String) r: String {
 
-    let content = readText(modulePath)
-    if content == "" {
+    let rawContent = readText(modulePath)
+    if rawContent == "" {
         return ""
     }
+    let content = stripTripleSlashBlockBodiesForRawScan(rawContent)
 
     let sourceDir = getSourceDir(modulePath)
     var lineStart = 0
@@ -4450,10 +4925,11 @@ fun findSourceTextImportedEnumInModules(modulePath: String,
     modulePaths: Array<String>, frontends: Array<FrontendResult>,
     enumName: String) r: EnumNode {
 
-    let content = readText(modulePath)
-    if content == "" {
+    let rawContent = readText(modulePath)
+    if rawContent == "" {
         return EnumNode.new()
     }
+    let content = stripTripleSlashBlockBodiesForRawScan(rawContent)
 
     let sourceDir = getSourceDir(modulePath)
     var lineStart = 0
@@ -5043,10 +5519,11 @@ fun addUnresolvedFreeCallDiagnostic(result: FrontendResult,
 fun sourceTextImportMentionsResolvableSymbol(modulePath: String,
     symbolName: String) r: Bool {
 
-    let content = readText(modulePath)
-    if content == "" {
+    let rawContent = readText(modulePath)
+    if rawContent == "" {
         return false
     }
+    let content = stripTripleSlashBlockBodiesForRawScan(rawContent)
 
     let sourceDir = getSourceDir(modulePath)
     var lineStart = 0
@@ -5194,6 +5671,101 @@ fun checkUnresolvedFreeCallsInFunction(result: FrontendResult,
         boundNames, boundTypes, ownerClassName, func.line)
 }
 
+fun modulesBelongToSamePackage(leftPath: String, rightPath: String) r: Bool {
+    let leftManifest = resolveRealInputPath(findNearestSeenTomlForInput(leftPath))
+    let rightManifest = resolveRealInputPath(findNearestSeenTomlForInput(rightPath))
+    if leftManifest == "" or rightManifest == "" {
+        return false
+    }
+    return leftManifest == rightManifest
+}
+
+fun findProgramItemVisibility(program: ProgramNode, symbolName: String)
+    r: String {
+
+    var itemIdx = 0
+    while itemIdx < program.items.length() {
+        let item = program.items[itemIdx]
+        if item.itemType == "Class" and item.classNode.name == symbolName {
+            return item.visibility
+        }
+        if item.itemType == "Function" and item.function.name == symbolName {
+            return item.visibility
+        }
+        if item.itemType == "Enum" and item.enumNode.name == symbolName {
+            return item.visibility
+        }
+        itemIdx = itemIdx + 1
+    }
+    return ""
+}
+
+fun addPackagePrivateImportDiagnostic(result: FrontendResult,
+    modulePath: String, symbolName: String, importedPath: String) r: Void {
+
+    let message = encodeDiagMessage(
+        "package-private declaration `" + symbolName +
+            "` is not visible outside its package",
+        "E010",
+        "Mark `" + symbolName + "` public or move the importing module into `" +
+            getSourceDir(findNearestSeenTomlForInput(importedPath)) + "`.",
+        "",
+        0
+    )
+    result.addDiagnostic(FrontendDiagnostic.new(modulePath, 0, 0, "error",
+        message))
+}
+
+fun checkPackagePrivateImportsForModule(result: FrontendResult,
+    modulePath: String, program: ProgramNode, modulePaths: Array<String>,
+    frontends: Array<FrontendResult>, language: String) r: Void {
+
+    let sourceDir = getSourceDir(modulePath)
+    var itemIdx = 0
+    while itemIdx < program.items.length() {
+        let item = program.items[itemIdx]
+        if item.itemType == "Import" and item.importSymbols.length() > 0 {
+            let importedPath = resolveAstImportItemPath(item, sourceDir)
+            if importedPath != "" and
+                not isCompilerSourceDir(getSourceDir(importedPath)) and
+                not isStdlibSourceDir(getSourceDir(importedPath)) and
+                not modulesBelongToSamePackage(modulePath, importedPath) {
+
+                var importedFrontend = FrontendResult.new()
+                var foundFrontend = false
+                var moduleIdx = 0
+                while moduleIdx < modulePaths.length() {
+                    if resolveRealInputPath(modulePaths[moduleIdx]) ==
+                        resolveRealInputPath(importedPath) {
+
+                        importedFrontend = frontends[moduleIdx]
+                        foundFrontend = true
+                    }
+                    moduleIdx = moduleIdx + 1
+                }
+                if not foundFrontend and exists(importedPath) {
+                    importedFrontend = parseModule(importedPath, language)
+                    foundFrontend = importedFrontend.success
+                }
+                if foundFrontend {
+                    var symIdx = 0
+                    while symIdx < item.importSymbols.length() {
+                        let symbolName = item.importSymbols[symIdx].name
+                        let visibility = findProgramItemVisibility(
+                            importedFrontend.program, symbolName)
+                        if visibility != "" and visibility != "public" {
+                            addPackagePrivateImportDiagnostic(result,
+                                modulePath, symbolName, importedPath)
+                        }
+                        symIdx = symIdx + 1
+                    }
+                }
+            }
+        }
+        itemIdx = itemIdx + 1
+    }
+}
+
 fun validateSealedModules(modulePaths: Array<String>, language: String) r: FrontendResult {
     clearValidationModuleCache()
     let result = FrontendResult.new()
@@ -5217,6 +5789,8 @@ fun validateSealedModules(modulePaths: Array<String>, language: String) r: Front
     while i < modulePaths.length() {
         let modulePath = modulePaths[i]
         let program = frontends[i].program
+        checkPackagePrivateImportsForModule(result, modulePath, program,
+            modulePaths, frontends, language)
 
         var itemIdx = 0
         while itemIdx < program.items.length() {
@@ -5695,10 +6269,18 @@ fun sourcesNeedGpuRuntime(modulePaths: Array<String>) r: Bool {
     var mi = 0
     while mi < modulePaths.length() {
         let sourceText = readText(modulePaths[mi])
-        if sourceText.contains("@compute") or sourceText.contains("@vertex") or sourceText.contains("@fragment") {
+        if sourceContainsOutsideTripleSlashBlockBodies(sourceText,
+            "@compute") or sourceContainsOutsideTripleSlashBlockBodies(
+            sourceText, "@vertex") or sourceContainsOutsideTripleSlashBlockBodies(
+            sourceText, "@fragment") {
+
             return true
         }
-        if sourceText.contains("Buffer<") or sourceText.contains("Uniform<") or sourceText.contains("Image<") {
+        if sourceContainsOutsideTripleSlashBlockBodies(sourceText,
+            "Buffer<") or sourceContainsOutsideTripleSlashBlockBodies(
+            sourceText, "Uniform<") or sourceContainsOutsideTripleSlashBlockBodies(
+            sourceText, "Image<") {
+
             return true
         }
         mi = mi + 1
@@ -5716,7 +6298,9 @@ fun sourcesNeedHotReloadRuntime(modulePaths: Array<String>) r: Bool {
             return true
         }
         let sourceText = readText(modulePath)
-        if sourceText.contains("__seen_hotreload_") {
+        if sourceContainsOutsideTripleSlashBlockBodies(sourceText,
+            "__seen_hotreload_") {
+
             return true
         }
         mi = mi + 1
@@ -5728,7 +6312,7 @@ fun sourcesContainExportDecorator(modulePaths: Array<String>) r: Bool {
     var mi = 0
     while mi < modulePaths.length() {
         let sourceText = readText(modulePaths[mi])
-        if sourceText.contains("@export") {
+        if sourceContainsOutsideTripleSlashBlockBodies(sourceText, "@export") {
             return true
         }
         mi = mi + 1
@@ -5864,8 +6448,10 @@ fun sourcesNeedRawVulkanLink(modulePaths: Array<String>) r: Bool {
             return true
         }
         let sourceText = readText(modulePath)
-        if sourceText.contains("extern fun vk") or
-            sourceText.contains("extern \"C\" fun vk") {
+        if sourceContainsOutsideTripleSlashBlockBodies(sourceText,
+            "extern fun vk") or sourceContainsOutsideTripleSlashBlockBodies(
+            sourceText, "extern \"C\" fun vk") {
+
             return true
         }
         mi = mi + 1
@@ -5881,8 +6467,10 @@ fun sourcesNeedSdl3Link(modulePaths: Array<String>) r: Bool {
             return true
         }
         let sourceText = readText(modulePath)
-        if sourceText.contains("extern fun SDL_") or
-            sourceText.contains("extern \"C\" fun SDL_") {
+        if sourceContainsOutsideTripleSlashBlockBodies(sourceText,
+            "extern fun SDL_") or sourceContainsOutsideTripleSlashBlockBodies(
+            sourceText, "extern \"C\" fun SDL_") {
+
             return true
         }
         mi = mi + 1
@@ -5908,7 +6496,11 @@ fun sourcesNeedTeeHardwareRuntime(modulePaths: Array<String>) r: Bool {
             return true
         }
         let sourceText = readText(modulePath)
-        if sourceText.contains("@enclave") or sourceText.contains("@seal(") or sourceText.contains("@attestation(") {
+        if sourceContainsOutsideTripleSlashBlockBodies(sourceText,
+            "@enclave") or sourceContainsOutsideTripleSlashBlockBodies(
+            sourceText, "@seal(") or sourceContainsOutsideTripleSlashBlockBodies(
+            sourceText, "@attestation(") {
+
             return true
         }
         mi = mi + 1

@@ -1,8 +1,8 @@
 // ir_method_lower_driver.seen - prepared lower-half method-call emitters.
 
 import str.string.{StringBuilder}
-import codegen.ir_codegen_feature_state.{g_regBox, g_reprCClassNames}
-import codegen.ir_codegen_global_state.{structNames}
+import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl, getFeatureReprCClassNamesImpl}
+import codegen.ir_codegen_global_state.{getGlobalStructNamesImpl}
 import codegen.ir_method_lower_plan.{MethodLowerCallPlan, shouldWarnUnresolvedCollectionGetImpl}
 import codegen.ir_method_receiver_predicates.{isArrayReceiverTypeImpl, isCollectionReceiverTypeImpl}
 import codegen.ir_method_lower_emit.{emitPreparedNonArgMethodLowerDispatchImpl, emitPreparedHotReloadMethodLowerImpl, emitPreparedUnresolvedCollectionGetWarningImpl}
@@ -13,8 +13,9 @@ fun tryEmitMethodLowerNoArgDriver(output: StringBuilder,
     lowerPlan: MethodLowerCallPlan) r: String {
 
     let nonArgLowerResult = emitPreparedNonArgMethodLowerDispatchImpl(
-        output, g_regBox, lowerPlan.shouldTryLengthLike, false, methodName,
-        receiverReg, receiverType, g_reprCClassNames, structNames)
+        output, getFeatureRegBoxImpl(), lowerPlan.shouldTryLengthLike, false,
+        methodName, receiverReg, receiverType,
+        getFeatureReprCClassNamesImpl(), getGlobalStructNamesImpl())
     if nonArgLowerResult != "" {
         return nonArgLowerResult
     }
@@ -26,8 +27,10 @@ fun tryEmitMethodPrimitiveConversionDriver(output: StringBuilder,
     lowerPlan: MethodLowerCallPlan) r: String {
 
     let conversionResult = emitPreparedNonArgMethodLowerDispatchImpl(
-        output, g_regBox, false, lowerPlan.shouldTryPrimitiveConversion,
-        methodName, receiverReg, receiverType, g_reprCClassNames, structNames)
+        output, getFeatureRegBoxImpl(), false,
+        lowerPlan.shouldTryPrimitiveConversion, methodName, receiverReg,
+        receiverType, getFeatureReprCClassNamesImpl(),
+        getGlobalStructNamesImpl())
     if conversionResult != "" {
         return conversionResult
     }
@@ -51,7 +54,7 @@ fun tryEmitMethodHotReloadLoweringDriver(output: StringBuilder,
     methodName: String, funcName: String, receiverReg: String,
     receiverType: String, hotStateArg: String) r: String {
 
-    return emitPreparedHotReloadMethodLowerImpl(output, g_regBox, methodName,
-        quoteIdentIfNeededImpl(funcName), receiverReg, receiverType,
-        hotStateArg, structNames)
+    return emitPreparedHotReloadMethodLowerImpl(output, getFeatureRegBoxImpl(),
+        methodName, quoteIdentIfNeededImpl(funcName), receiverReg,
+        receiverType, hotStateArg, getGlobalStructNamesImpl())
 }

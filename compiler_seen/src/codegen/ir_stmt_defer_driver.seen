@@ -1,13 +1,8 @@
 // ir_stmt_defer_driver.seen - defer and errdefer statement state updates.
 
 import parser.real_parser.{StatementNode}
-import codegen.ir_codegen_feature_state.{g_deferExprs, g_deferCount, g_errdeferExprs, g_errdeferCount}
-import codegen.ir_stmt_scope.{recordDeferredStatementSnapshotImpl}
+import codegen.ir_codegen_feature_state.{generateDeferredStatementWithFeatureStateImpl}
 
 fun generateDeferredStatement(stmt: StatementNode, isErrdefer: Bool) r: Void {
-    let deferredRecord = recordDeferredStatementSnapshotImpl(stmt,
-        isErrdefer, g_deferExprs, g_deferCount, g_errdeferExprs,
-        g_errdeferCount)
-    g_deferCount = deferredRecord.deferCount
-    g_errdeferCount = deferredRecord.errdeferCount
+    generateDeferredStatementWithFeatureStateImpl(stmt, isErrdefer)
 }

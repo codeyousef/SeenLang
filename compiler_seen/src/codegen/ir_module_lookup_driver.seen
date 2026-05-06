@@ -1,16 +1,7 @@
 // ir_module_lookup_driver.seen - module constant lookup helpers.
 
-import codegen.ir_module_constants.{findModuleConstantSnapshotImpl}
-import codegen.ir_codegen_global_state.{moduleConstantNames, moduleConstantValues, moduleConstantTypes}
-import codegen.ir_codegen_module_state.{g_moduleConstMutable, g_moduleConstSeenTypes, g_xmConstNames, g_xmConstTypes, g_xmConstMutable, g_xmConstSeenTypes, g_xmConstCount}
+import codegen.ir_codegen_module_state.{findModuleConstantWithModuleStateImpl}
 
 fun findModuleConstant(name: String) r: Int {
-    let moduleConstLookup = findModuleConstantSnapshotImpl(name,
-        moduleConstantNames, moduleConstantTypes, moduleConstantValues,
-        g_moduleConstMutable, g_moduleConstSeenTypes, g_xmConstNames,
-        g_xmConstTypes, g_xmConstMutable, g_xmConstSeenTypes,
-        g_xmConstCount)
-    g_moduleConstMutable = moduleConstLookup.moduleConstMutable
-    g_moduleConstSeenTypes = moduleConstLookup.moduleConstSeenTypes
-    return moduleConstLookup.constIndex
+    return findModuleConstantWithModuleStateImpl(name)
 }

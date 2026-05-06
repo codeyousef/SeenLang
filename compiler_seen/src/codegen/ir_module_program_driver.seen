@@ -3,20 +3,14 @@
 import parser.real_parser.{ProgramNode}
 import str.string.{StringBuilder}
 import codegen.ir_class_type_driver.{emitClassTypeState}
-import codegen.ir_codegen_metrics_state.{g_selfCallBox, g_selfCallCountBox, g_callCountNamesBox, g_callCountEntriesBox, initCollectionBoxes, syncCollectionBoxes}
-import codegen.ir_codegen_global_state.{moduleConstantNames, moduleConstantTypes, moduleConstantValues}
-import codegen.ir_codegen_module_state.{g_moduleConstMutable, g_moduleConstSeenTypes}
-import codegen.ir_module_constants.{emitGlobalVariablesSnapshotImpl}
+import codegen.ir_codegen_metrics_state.{collectProgramStringConstantsWithMetricsStateImpl}
+import codegen.ir_codegen_module_state.{emitProgramGlobalVariablesWithModuleStateImpl}
 import codegen.ir_program_flow_plan.{shouldVisitProgramFlowIndexImpl, shouldEmitProgramClassTypeItemImpl}
-import codegen.ir_string_collect_state.{collectStringConstantsStateImpl}
 
 fun collectProgramStringConstantsState(program: ProgramNode,
     stringConstants: Array<String>) r: Void {
 
-    initCollectionBoxes()
-    collectStringConstantsStateImpl(program, stringConstants, g_selfCallBox,
-        g_selfCallCountBox, g_callCountNamesBox, g_callCountEntriesBox)
-    syncCollectionBoxes()
+    collectProgramStringConstantsWithMetricsStateImpl(program, stringConstants)
 }
 
 fun collectProgramsStringConstantsState(programs: Array<ProgramNode>,
@@ -55,11 +49,7 @@ fun emitProgramsClassTypesState(output: StringBuilder,
 fun emitProgramGlobalVariablesState(output: StringBuilder,
     program: ProgramNode) r: Void {
 
-    let moduleConstSnapshot = emitGlobalVariablesSnapshotImpl(output, program,
-        moduleConstantNames, moduleConstantTypes, moduleConstantValues,
-        g_moduleConstMutable, g_moduleConstSeenTypes)
-    g_moduleConstMutable = moduleConstSnapshot.moduleConstMutable
-    g_moduleConstSeenTypes = moduleConstSnapshot.moduleConstSeenTypes
+    emitProgramGlobalVariablesWithModuleStateImpl(output, program)
 }
 
 fun emitProgramsGlobalVariablesState(output: StringBuilder,

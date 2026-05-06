@@ -2,11 +2,10 @@
 
 import parser.real_parser.{ClassNode}
 import str.string.{StringBuilder}
-import codegen.ir_class_type_decorators.{prepareClassTypeDecoratorScanSnapshotImpl}
 import codegen.ir_class_type_guard_driver.{hasGeneratedClassType, tryReuseHeaderLoadedClassType}
-import codegen.ir_class_type_layout.{emitClassTypeHeaderImpl, emitClassTypeFieldsImpl, emitClassTypeFooterImpl, prepareClassTypeAliasStateSnapshotImpl}
-import codegen.ir_codegen_feature_state.{g_reprCClassNames, g_cacheLineClasses, g_sendTypes, g_syncTypes, g_soaClassNames, g_soaClassCount, g_triviallyCopyableClasses, g_moveOnlyClasses, g_cResourceClasses, g_cResourceDestructors, g_reflectClassNames, g_reflectClassCount, g_binaryClassNames, g_binaryEndianness, g_binaryVersions, g_binaryClassCount, g_packetClassNames, g_packetClassIds, g_packetCount, g_gpuBufferClasses, g_gpuBufferLayouts, g_unionTypes, g_typeAliasNames, g_typeAliasTargets, g_typeAliasCount, g_enumTypeNames}
-import codegen.ir_codegen_global_state.{generatedClasses, structNames, structLayouts, structSizes}
+import codegen.ir_class_type_layout.{emitClassTypeHeaderImpl, emitClassTypeFooterImpl}
+import codegen.ir_codegen_feature_state.{prepareClassTypeDecoratorScanWithFeatureStateImpl, prepareClassTypeAliasWithFeatureStateImpl, emitClassTypeFieldsWithFeatureStateImpl}
+import codegen.ir_codegen_global_state.{getGlobalStructNamesImpl, getGlobalStructLayoutsImpl, getGlobalStructSizesImpl, pushGeneratedClassWithGlobalStateImpl}
 import codegen.ir_struct_layout_state.{registerStructLayoutState}
 
 fun emitClassTypeState(output: StringBuilder, classNode: ClassNode) r: Void {
@@ -18,60 +17,25 @@ fun emitClassTypeState(output: StringBuilder, classNode: ClassNode) r: Void {
         return
     }
 
-    generatedClasses.push(className)
+    pushGeneratedClassWithGlobalStateImpl(className)
     registerStructLayoutState(classNode)
 
-    let decoratorSnapshot = prepareClassTypeDecoratorScanSnapshotImpl(
-        output, classNode, g_reprCClassNames, g_cacheLineClasses,
-        g_sendTypes, g_syncTypes, g_soaClassNames, g_soaClassCount,
-        g_triviallyCopyableClasses, g_moveOnlyClasses, g_cResourceClasses,
-        g_cResourceDestructors, g_reflectClassNames, g_reflectClassCount,
-        g_binaryClassNames, g_binaryEndianness, g_binaryVersions,
-        g_binaryClassCount, g_packetClassNames, g_packetClassIds,
-        g_packetCount, g_gpuBufferClasses, g_gpuBufferLayouts, g_unionTypes,
-        g_typeAliasNames, g_typeAliasTargets, g_typeAliasCount,
-        g_enumTypeNames, structNames, structLayouts, structSizes)
+    let decoratorSnapshot = prepareClassTypeDecoratorScanWithFeatureStateImpl(
+        output, classNode, getGlobalStructNamesImpl(),
+        getGlobalStructLayoutsImpl(), getGlobalStructSizesImpl())
     let typeFlags = decoratorSnapshot.typeFlags
-    let decoratorState = decoratorSnapshot.decoratorState
-    g_reprCClassNames = decoratorState.reprCClassNames
-    g_cacheLineClasses = decoratorState.cacheLineClasses
-    g_sendTypes = decoratorState.sendTypes
-    g_syncTypes = decoratorState.syncTypes
-    g_soaClassNames = decoratorState.soaClassNames
-    g_soaClassCount = decoratorState.soaClassCount
-    g_triviallyCopyableClasses = decoratorState.triviallyCopyableClasses
-    g_moveOnlyClasses = decoratorState.moveOnlyClasses
-    g_cResourceClasses = decoratorState.cResourceClasses
-    g_cResourceDestructors = decoratorState.cResourceDestructors
-    g_reflectClassNames = decoratorState.reflectClassNames
-    g_reflectClassCount = decoratorState.reflectClassCount
-    g_binaryClassNames = decoratorState.binaryClassNames
-    g_binaryEndianness = decoratorState.binaryEndianness
-    g_binaryVersions = decoratorState.binaryVersions
-    g_binaryClassCount = decoratorState.binaryClassCount
-    g_packetClassNames = decoratorState.packetClassNames
-    g_packetClassIds = decoratorState.packetClassIds
-    g_packetCount = decoratorState.packetCount
-    g_gpuBufferClasses = decoratorState.gpuBufferClasses
-    g_gpuBufferLayouts = decoratorState.gpuBufferLayouts
-    g_unionTypes = decoratorState.unionTypes
     if decoratorSnapshot.emittedSpecialClassType == 1 {
         return
     }
 
     emitClassTypeHeaderImpl(output, className, typeFlags)
-    let typeAliasState = prepareClassTypeAliasStateSnapshotImpl(classNode,
-        g_typeAliasNames, g_typeAliasTargets, g_typeAliasCount)
+    let typeAliasState = prepareClassTypeAliasWithFeatureStateImpl(classNode)
     let realFieldCount = typeAliasState.realFieldCount
-    g_typeAliasNames = typeAliasState.typeAliasNames
-    g_typeAliasTargets = typeAliasState.typeAliasTargets
-    g_typeAliasCount = typeAliasState.typeAliasCount
     if realFieldCount == 0 {
         output.append("i8")
     } else {
-        emitClassTypeFieldsImpl(output, classNode, g_reprCClassNames,
-            structNames, g_typeAliasNames, g_typeAliasTargets,
-            g_typeAliasCount, g_enumTypeNames)
+        emitClassTypeFieldsWithFeatureStateImpl(output, classNode,
+            getGlobalStructNamesImpl())
     }
     emitClassTypeFooterImpl(output, typeFlags)
 }

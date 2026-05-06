@@ -35,9 +35,7 @@ fun emitPreparedStaticMethodDispatchState(output: StringBuilder,
     argRegs: Array<String>, argTypeStrs: Array<String>,
     structNames: Array<String>, reprCClassNames: String,
     typeAliasNames: String, typeAliasTargets: String, typeAliasCount: Int,
-    enumTypeNames: String, funcNames: Array<String>,
-    funcRetTypes: Array<String>, xmDeclareNames: String,
-    xmDeclareCount: Int, lateState: LateUserDeclareState) r: String {
+    enumTypeNames: String, lateState: LateUserDeclareState) r: String {
 
     let staticReturnType = resolveStaticMethodReturnTypeImpl(
         registeredStaticReturnType, inferredStaticReturnType)
@@ -56,8 +54,7 @@ fun emitPreparedStaticMethodDispatchState(output: StringBuilder,
     if shouldRecordStaticMethodLateDeclareImpl(potentialClassName,
         methodName) {
         recordLateUserDeclareIntoStateImpl(funcName, staticLlvmReturnType,
-            argTypeStrs, 0, funcNames, funcRetTypes, xmDeclareNames,
-            xmDeclareCount, lateState)
+            argTypeStrs, 0, lateState)
     }
     return emitPreparedStaticMethodCallImpl(output, regBox, methodName,
         potentialClassName, staticClassName, funcName, staticLlvmReturnType,

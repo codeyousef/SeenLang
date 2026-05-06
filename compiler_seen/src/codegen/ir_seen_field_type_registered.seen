@@ -47,14 +47,13 @@ fun getSeenFieldTypeEmptyRegistryFallbackImpl(structName: String,
         if fieldName == "variableName" { return "String" }
         if fieldName == "variableType" { return "TypeNode" }
         if fieldName == "initializer" { return "ParserExpressionNode" }
+        if fieldName == "returnValue" { return "ParserExpressionNode" }
+        if fieldName == "expression" { return "ParserExpressionNode" }
         if fieldName == "condition" { return "ParserExpressionNode" }
         if fieldName == "thenBranch" { return "BlockNode" }
         if fieldName == "elseBranch" { return "BlockNode" }
+        if fieldName == "loopCondition" { return "ParserExpressionNode" }
         if fieldName == "loopBody" { return "BlockNode" }
-        if fieldName == "loopVariable" { return "String" }
-        if fieldName == "loopIterable" { return "ParserExpressionNode" }
-        if fieldName == "returnValue" { return "ParserExpressionNode" }
-        if fieldName == "expression" { return "ParserExpressionNode" }
     }
     if structName == "ParserExpressionNode" {
         if fieldName == "kind" { return "String" }

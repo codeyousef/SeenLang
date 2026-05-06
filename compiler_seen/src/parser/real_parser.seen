@@ -699,7 +699,7 @@ class RealParser {
                 continue
             }
 
-            if checkToken(SeenTokenType.KeywordEffect) {
+            if checkEffectModifierToken() {
                 parseEffectModifierInto()
                 continue
             }
@@ -1044,7 +1044,7 @@ class RealParser {
                 continue
             }
 
-            if checkToken(SeenTokenType.KeywordEffect) {
+            if checkEffectModifierToken() {
                 parseEffectModifierInto()
                 continue
             }
@@ -1873,8 +1873,34 @@ class RealParser {
         this.pendingDecorators.push(annotation)
     }
 
-    fun parseEffectModifierInto() r: Void {
+    fun checkEffectModifierToken() r: Bool {
+        if checkToken(SeenTokenType.KeywordEffect) {
+            return true
+        }
+        if checkToken(SeenTokenType.Identifier) {
+            if peek().getValue() == "effect" {
+                return peekAt(1).getType() == SeenTokenType.LeftParen
+            }
+        }
+        return false
+    }
+
+    fun consumeEffectModifierToken() r: Void {
+        if checkToken(SeenTokenType.KeywordEffect) {
+            advance()
+            return
+        }
+        if checkToken(SeenTokenType.Identifier) {
+            if peek().getValue() == "effect" {
+                advance()
+                return
+            }
+        }
         consume(SeenTokenType.KeywordEffect, "Expected 'effect'")
+    }
+
+    fun parseEffectModifierInto() r: Void {
+        consumeEffectModifierToken()
         this.pendingDecorators.push(AnnotationNode.new("effect"))
         let effectIndex = this.pendingDecorators.length() - 1
 
@@ -2401,7 +2427,7 @@ class RealParser {
                     classTokenHandled = true
                 }
                 if not classTokenHandled {
-                    if checkToken(SeenTokenType.KeywordEffect) {
+                    if checkEffectModifierToken() {
                         parseEffectModifierInto()
                         classTokenHandled = true
                     }
@@ -2672,7 +2698,7 @@ class RealParser {
                     classIntoTokenHandled = true
                 }
                 if not classIntoTokenHandled {
-                    if checkToken(SeenTokenType.KeywordEffect) {
+                    if checkEffectModifierToken() {
                         parseEffectModifierInto()
                         classIntoTokenHandled = true
                     }
@@ -3006,7 +3032,7 @@ class RealParser {
                 }
 
                 if not handled {
-                    if checkToken(SeenTokenType.KeywordEffect) {
+                    if checkEffectModifierToken() {
                         parseEffectModifierInto()
                         handled = true
                     }

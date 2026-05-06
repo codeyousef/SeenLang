@@ -1,35 +1,27 @@
 // ir_class_type_guard_driver.seen - class type emission guard helpers.
 
 import parser.real_parser.{ClassNode}
-import codegen.ir_codegen_global_state.{generatedClasses, typesLoadedFromHeader, structNames, structLayouts}
+import codegen.ir_codegen_global_state.{hasGeneratedClassWithGlobalStateImpl, getGlobalTypesLoadedFromHeaderImpl, findStructWithGlobalStateImpl, getGlobalStructLayoutAtImpl, pushGeneratedClassWithGlobalStateImpl}
 import codegen.ir_struct_layout_state.{registerStructLayoutState}
-import codegen.type_registry_core.{findStructReg}
 
 fun hasGeneratedClassType(className: String) r: Bool {
-    var classIdx = 0
-    while classIdx < generatedClasses.length() {
-        if generatedClasses[classIdx] == className {
-            return true
-        }
-        classIdx = classIdx + 1
-    }
-    return false
+    return hasGeneratedClassWithGlobalStateImpl(className)
 }
 
 fun tryReuseHeaderLoadedClassType(classNode: ClassNode) r: Bool {
-    if not typesLoadedFromHeader {
+    if not getGlobalTypesLoadedFromHeaderImpl() {
         return false
     }
-    let structIdx = findStructReg(classNode.name, structNames)
+    let structIdx = findStructWithGlobalStateImpl(classNode.name)
     if structIdx < 0 {
         return false
     }
-    let existingLayout = structLayouts[structIdx]
+    let existingLayout = getGlobalStructLayoutAtImpl(structIdx)
     let usesInlineSeenString = existingLayout.contains("{ i64, ptr }")
     let usesNamedSeenString = existingLayout.contains("%SeenString")
     if existingLayout != "" and (usesInlineSeenString or not usesNamedSeenString) {
         registerStructLayoutState(classNode)
-        generatedClasses.push(classNode.name)
+        pushGeneratedClassWithGlobalStateImpl(classNode.name)
         return true
     }
     return false

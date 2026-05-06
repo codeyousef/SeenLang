@@ -1,10 +1,9 @@
 // ir_codegen_reset_state.seen - per-module LLVM generator reset helper.
 
-import parser.real_parser.{ParserExpressionNode}
 import str.string.{StringBuilder}
 import codegen.ir_codegen_state.{FunctionLoweringOptions}
-import codegen.ir_codegen_feature_state.{g_regBox, g_blockBox, g_deferExprs, g_errdeferExprs, g_initFuncNames, g_initFuncCount}
-import codegen.ir_codegen_global_state.{preAllocatedVars, preAllocatedTypes, preAllocatedRegs, activeVarCount, currentFunctionReturnType, currentClassName, blockTerminated, currentLoopCondLabel, currentLoopEndLabel, declOrdinalNames, declOrdinalCounts, stringConstantPrefix, generatedFunctions, generatedClasses, typesLoadedFromHeader, runtimeDeclsLoaded, pendingArrayLiteralType, classMethodBaseNames}
+import codegen.ir_codegen_feature_state.{resetFeatureModuleScratchStateImpl}
+import codegen.ir_codegen_global_state.{resetGlobalModuleScratchStateImpl}
 import codegen.ir_codegen_module_state.{resetLateUserDeclareState, resetModuleConstantGenerationState, resetIrgenFieldLookupCaches}
 import codegen.ir_codegen_metrics_state.{resetOptCounters}
 import codegen.ir_function_state.{resetFunctionLoweringOptionsStateImpl}
@@ -38,36 +37,12 @@ fun resetLLVMIRGeneratorModuleStateImpl(
     r: LLVMIRGeneratorLocalResetState {
 
     let resetState = LLVMIRGeneratorLocalResetState.new()
-    g_regBox = Array<Int>()
-    g_regBox.push(1)
-    g_blockBox = Array<Int>()
-    g_blockBox.push(0)
-    g_deferExprs = Array<ParserExpressionNode>()
-    g_errdeferExprs = Array<ParserExpressionNode>()
-    currentFunctionReturnType = ""
-    currentClassName = ""
-    blockTerminated = false
-    currentLoopCondLabel = ""
-    currentLoopEndLabel = ""
-    preAllocatedVars = Array<String>()
-    preAllocatedTypes = Array<String>()
-    preAllocatedRegs = Array<String>()
-    activeVarCount = 0
-    declOrdinalNames = Array<String>()
-    declOrdinalCounts = Array<Int>()
-    stringConstantPrefix = ""
-    generatedFunctions = Array<String>()
-    generatedClasses = Array<String>()
-    typesLoadedFromHeader = false
-    runtimeDeclsLoaded = false
-    pendingArrayLiteralType = ""
+    resetFeatureModuleScratchStateImpl()
+    resetGlobalModuleScratchStateImpl()
     resetLateUserDeclareState()
-    g_initFuncNames = ""
-    g_initFuncCount = 0
     resetModuleConstantGenerationState()
     resetFunctionLoweringOptionsStateImpl(functionOptions)
     resetOptCounters()
-    classMethodBaseNames = Array<String>()
     resetIrgenFieldLookupCaches()
     return resetState
 }

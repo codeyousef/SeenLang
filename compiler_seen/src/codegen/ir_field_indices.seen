@@ -61,13 +61,13 @@ fun getKnownFieldIndexPrimaryTableImpl(structName: String, fieldName: String)
         if fieldName == "variableName" { return 1 }
         if fieldName == "variableType" { return 2 }
         if fieldName == "initializer" { return 3 }
-        if fieldName == "expression" { return 4 }
-        if fieldName == "condition" { return 5 }
-        if fieldName == "thenBranch" { return 6 }
-        if fieldName == "elseBranch" { return 7 }
-        if fieldName == "loopCondition" { return 8 }
-        if fieldName == "loopBody" { return 9 }
-        if fieldName == "returnValue" { return 10 }
+        if fieldName == "returnValue" { return 4 }
+        if fieldName == "expression" { return 5 }
+        if fieldName == "condition" { return 6 }
+        if fieldName == "thenBranch" { return 7 }
+        if fieldName == "elseBranch" { return 8 }
+        if fieldName == "loopCondition" { return 9 }
+        if fieldName == "loopBody" { return 10 }
     }
     if structName == "ParserExpressionNode" {
         if fieldName == "kind" { return 0 }

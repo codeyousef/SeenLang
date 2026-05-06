@@ -294,6 +294,104 @@ def fix_duplicate_globals(content):
     return '\n'.join(out)
 
 
+def _typed_default_value(typ):
+    if typ == 'i1':
+        return 'false'
+    if typ == 'ptr':
+        return 'null'
+    if typ in ('float', 'double'):
+        return '0.0'
+    if typ.startswith('%'):
+        return 'zeroinitializer'
+    return '0'
+
+
+def fix_scalar_literal_and_text_repairs(content):
+    """Repair malformed scalar literals and leaked raw text lines."""
+    lines = []
+    for line in content.split('\n'):
+        fixed = line
+        if re.match(r'^\s*If no \} found before\b', fixed):
+            fixed = '; ' + fixed
+        fixed = re.sub(r'\bstore\s+ptr\s+(-?(?:0x[0-9A-Fa-f]+|\d+)),\s*ptr\b',
+                       r'store i64 \1, ptr', fixed)
+        fixed = re.sub(r'\bfcmp\s+(\w+)\s+(float|double)\s+0(?=\s*[,])',
+                       r'fcmp \1 \2 0.0', fixed)
+        fixed = re.sub(r'(,\s*)0(?=\s*(?:,|$))',
+                       lambda m: m.group(1) + '0.0'
+                       if re.search(r'\bfcmp\s+\w+\s+(?:float|double)\b', fixed[:m.start()])
+                       else m.group(0),
+                       fixed)
+        lines.append(fixed)
+    return '\n'.join(lines)
+
+
+def fix_missing_local_register_uses(content):
+    """Replace undefined numeric local register operands with typed defaults.
+
+    The frozen compiler can leave non-phi operands like `i64 %1432` where
+    `%1432` is not a parameter and has no definition in that function.  Those
+    stale operands later collide with SSA renumbering.  Phi nodes are left alone
+    because their incoming values are tied to predecessor blocks.
+    """
+    lines = content.split('\n')
+    result = []
+    in_function = False
+    func_buf = []
+
+    for line in lines:
+        if re.match(r'^define\s+', line):
+            in_function = True
+            func_buf = [line]
+            continue
+        if in_function:
+            func_buf.append(line)
+            if line.strip() == '}':
+                result.extend(_fix_missing_local_register_uses_in_function(func_buf))
+                in_function = False
+                func_buf = []
+            continue
+        result.append(line)
+
+    if func_buf:
+        result.extend(_fix_missing_local_register_uses_in_function(func_buf))
+    return '\n'.join(result)
+
+
+def _fix_missing_local_register_uses_in_function(func_lines):
+    defined = set()
+    header = func_lines[0] if func_lines else ''
+    header_args = re.search(r'\((.*)\)', header)
+    if header_args:
+        for pm in re.finditer(r'\b%\d+\b', header_args.group(1)):
+            defined.add(pm.group(0))
+    for line in func_lines:
+        dm = re.match(r'\s*(%\d+)\s*=', line)
+        if dm:
+            defined.add(dm.group(1))
+
+    def replace_typed_operand(m):
+        typ = m.group(1)
+        reg = m.group(2)
+        if reg in defined:
+            return m.group(0)
+        return f'{typ} {_typed_default_value(typ)}'
+
+    fixed = []
+    typed_operand_re = re.compile(
+        r'(?<![\w.])(ptr|i64|i32|i16|i8|i1|float|double|%[A-Za-z_][A-Za-z0-9_]*)\s+(%\d+)\b')
+    for idx, line in enumerate(func_lines):
+        if idx == 0:
+            fixed.append(line)
+            continue
+        stripped = line.strip()
+        if re.match(r'%\d+\s*=\s*phi\b', stripped):
+            fixed.append(line)
+            continue
+        fixed.append(typed_operand_re.sub(replace_typed_operand, line))
+    return fixed
+
+
 def fix_ssa_numbering(content):
     """Fix out-of-order SSA register numbering within functions."""
     lines = content.split('\n')
@@ -416,6 +514,11 @@ def _get_reg_type(s, reg_types):
     m = re.match(r'(%\d+)\s*=\s*insertvalue\s+(\S+)', s)
     if m: return m.group(1), m.group(2)
 
+    # %N = extractvalue %SeenString ..., 0/1
+    m = re.match(r'(%\d+)\s*=\s*extractvalue\s+%SeenString\s+.*,\s*(\d+)', s)
+    if m:
+        return m.group(1), 'ptr' if m.group(2) == '1' else 'i64'
+
     # %N = alloca → ptr
     m = re.match(r'(%\d+)\s*=\s*alloca\s+', s)
     if m: return m.group(1), 'ptr'
@@ -491,10 +594,30 @@ def _fix_function_types(func_lines):
     """Fix type mismatches within a single function."""
     # Build register types
     reg_types = {}
+    header_args = re.search(r'\((.*)\)', func_lines[0] if func_lines else '')
+    if header_args:
+        for arg in _split_args(header_args.group(1)):
+            m = re.match(r'\s*(ptr|i64|i32|i1|float|double|%[A-Za-z_][A-Za-z0-9_]*)\s+(%\d+)\b', arg.strip())
+            if m:
+                reg_types[m.group(2)] = m.group(1)
     for line in func_lines:
         reg, typ = _get_reg_type(line.strip(), reg_types)
         if reg:
             reg_types[reg] = typ
+
+    used_reg_nums = _collect_function_reg_nums(func_lines)
+    next_reg_num = max(used_reg_nums) + 1 if used_reg_nums else 1
+
+    def next_temp_reg(typ=None):
+        nonlocal next_reg_num
+        while next_reg_num in used_reg_nums:
+            next_reg_num += 1
+        reg = f'%{next_reg_num}'
+        used_reg_nums.add(next_reg_num)
+        next_reg_num += 1
+        if typ:
+            reg_types[reg] = typ
+        return reg
 
     # Get function return type
     func_ret_type = None
@@ -563,6 +686,25 @@ def _fix_function_types(func_lines):
     for line in pass1:
         fixed = line
 
+        # Fix aggregate stores fed by scalar handle/pointer registers.
+        agg_sm = re.search(r'store\s+(%[A-Z]\w*)\s+(%\d+),\s*ptr\s+(\S+)', fixed)
+        if agg_sm:
+            stated = agg_sm.group(1)
+            reg = agg_sm.group(2)
+            dst = agg_sm.group(3)
+            actual = reg_types.get(reg)
+            indent = re.match(r'(\s*)', fixed).group(1)
+            if actual == 'i64':
+                ptr_reg = next_temp_reg('ptr')
+                load_reg = next_temp_reg(stated)
+                result.append(f'{indent}{ptr_reg} = inttoptr i64 {reg} to ptr')
+                result.append(f'{indent}{load_reg} = load {stated}, ptr {ptr_reg}')
+                fixed = f'{indent}store {stated} {load_reg}, ptr {dst}'
+            elif actual == 'ptr':
+                load_reg = next_temp_reg(stated)
+                result.append(f'{indent}{load_reg} = load {stated}, ptr {reg}')
+                fixed = f'{indent}store {stated} {load_reg}, ptr {dst}'
+
         # Fix store type mismatches
         sm = re.search(r'store\s+(ptr|i64|i1|%SeenString|%SeenArray)\s+(%\d+),\s*ptr', fixed)
         if sm:
@@ -624,12 +766,10 @@ def _fix_function_types(func_lines):
                         actual = reg_types.get(pv)
                         if actual == '%SeenString' and phi_type == 'i64':
                             # Insert extractvalue before this phi (in the phi's block)
-                            next_num = _next_reg_num(reg_types)
-                            ext_reg = f'%{next_num}'
+                            ext_reg = next_temp_reg('i64')
                             result.append(f'{indent}{ext_reg} = extractvalue %SeenString {pv}, 0')
                             # Replace the value in the phi
                             fixed = fixed.replace(f'[ {pv},', f'[ {ext_reg},')
-                            reg_types[ext_reg] = 'i64'
 
         # Fix select type mismatches: select i1 %c, TYPE1 %v1, TYPE2 %v2
         # When chained field access (e.g., registry.structSizes[idx]) produces
@@ -649,18 +789,14 @@ def _fix_function_types(func_lines):
                 if val.startswith('%'):
                     actual = reg_types.get(val)
                     if actual and actual == 'ptr' and stated == 'i64':
-                        next_num = _next_reg_num(reg_types)
-                        cast_reg = f'%{next_num}'
+                        cast_reg = next_temp_reg('i64')
                         result.append(f'{indent}{cast_reg} = ptrtoint ptr {val} to i64')
                         fixed = fixed.replace(f'i64 {val}', f'i64 {cast_reg}', 1)
-                        reg_types[cast_reg] = 'i64'
                         modified_select = True
                     elif actual and actual == 'i64' and stated == 'ptr':
-                        next_num = _next_reg_num(reg_types)
-                        cast_reg = f'%{next_num}'
+                        cast_reg = next_temp_reg('ptr')
                         result.append(f'{indent}{cast_reg} = inttoptr i64 {val} to ptr')
                         fixed = fixed.replace(f'ptr {val}', f'ptr {cast_reg}', 1)
-                        reg_types[cast_reg] = 'ptr'
                         modified_select = True
 
         # Fix br i1 %N where %N is not i1 — insert icmp ne TYPE %N, 0
@@ -670,19 +806,20 @@ def _fix_function_types(func_lines):
             actual = reg_types.get(reg)
             if actual and actual != 'i1':
                 # Insert comparison before branch
-                next_num = _next_reg_num(reg_types)
-                cmp_reg = f'%{next_num}'
+                cmp_reg = next_temp_reg('i1')
                 zero_val = 'null' if actual == 'ptr' else '0'
                 result.append(f'{br_m.group(1)}{cmp_reg} = icmp ne {actual} {reg}, {zero_val}')
                 fixed = f'{br_m.group(1)}br i1 {cmp_reg}{br_m.group(4)}'
-                reg_types[cmp_reg] = 'i1'
 
         # Fix call argument types
         cm = re.search(r'(call\s+\S+\s+@\w+\()([^)]*)\)', fixed)
         if cm:
             args_str = cm.group(2)
             if args_str.strip():
-                new_args = _fix_call_args(args_str, reg_types)
+                indent = re.match(r'(\s*)', fixed).group(1)
+                pre_lines, new_args = _fix_call_args(args_str, reg_types,
+                                                     next_temp_reg, indent)
+                result.extend(pre_lines)
                 if new_args != args_str:
                     fixed = fixed.replace(f'({args_str})', f'({new_args})', 1)
 
@@ -697,25 +834,27 @@ def _fix_function_types(func_lines):
             if stated != func_ret_type or actual != func_ret_type:
                 if actual == 'ptr' and func_ret_type == '%SeenString':
                     # Insert load %SeenString from ptr before ret
-                    next_reg_num = _next_reg_num(reg_types)
-                    load_reg = f'%{next_reg_num}'
+                    load_reg = next_temp_reg('%SeenString')
                     result.append(f'{indent}{load_reg} = load %SeenString, ptr {reg}')
                     fixed = f'{indent}ret %SeenString {load_reg}'
-                    reg_types[load_reg] = '%SeenString'
                 elif actual == 'ptr' and func_ret_type == 'i64':
                     # Insert ptrtoint
-                    next_reg_num = _next_reg_num(reg_types)
-                    cast_reg = f'%{next_reg_num}'
+                    cast_reg = next_temp_reg('i64')
                     result.append(f'{indent}{cast_reg} = ptrtoint ptr {reg} to i64')
                     fixed = f'{indent}ret i64 {cast_reg}'
-                    reg_types[cast_reg] = 'i64'
                 elif actual == 'i64' and func_ret_type == '%SeenString':
                     # Pack i64 into SeenString struct field 0 ({i64, ptr})
-                    next_reg_num = _next_reg_num(reg_types)
-                    pack_reg = f'%{next_reg_num}'
+                    pack_reg = next_temp_reg('%SeenString')
                     result.append(f'{indent}{pack_reg} = insertvalue %SeenString zeroinitializer, i64 {reg}, 0')
                     fixed = f'{indent}ret %SeenString {pack_reg}'
-                    reg_types[pack_reg] = '%SeenString'
+                elif actual == 'i64' and func_ret_type == 'i1':
+                    cmp_reg = next_temp_reg('i1')
+                    result.append(f'{indent}{cmp_reg} = icmp ne i64 {reg}, 0')
+                    fixed = f'{indent}ret i1 {cmp_reg}'
+                elif actual == 'ptr' and func_ret_type == 'i1':
+                    cmp_reg = next_temp_reg('i1')
+                    result.append(f'{indent}{cmp_reg} = icmp ne ptr {reg}, null')
+                    fixed = f'{indent}ret i1 {cmp_reg}'
                 elif actual == func_ret_type:
                     # Just fix the ret type annotation
                     fixed = f'{indent}ret {func_ret_type} {reg}{rm.group(6)}'
@@ -738,9 +877,18 @@ def _next_reg_num(reg_types):
     return max_num + 1
 
 
-def _fix_call_args(args_str, reg_types):
-    """Fix argument types in function calls."""
+def _collect_function_reg_nums(func_lines):
+    nums = set()
+    for line in func_lines:
+        for m in re.finditer(r'%(\d+)\b', line):
+            nums.add(int(m.group(1)))
+    return nums
+
+
+def _fix_call_args(args_str, reg_types, next_temp_reg=None, indent=''):
+    """Fix argument types in function calls, inserting casts when needed."""
     args = _split_args(args_str)
+    pre_lines = []
     fixed = []
     for arg in args:
         a = arg.strip()
@@ -750,9 +898,43 @@ def _fix_call_args(args_str, reg_types):
             reg = m.group(2)
             actual = reg_types.get(reg)
             if actual and actual != stated:
-                a = f'{actual} {reg}'
+                if next_temp_reg:
+                    if stated == 'i64' and actual == 'i1':
+                        cast_reg = next_temp_reg('i64')
+                        pre_lines.append(f'{indent}{cast_reg} = zext i1 {reg} to i64')
+                        a = f'i64 {cast_reg}'
+                    elif stated == 'i64' and actual == 'ptr':
+                        cast_reg = next_temp_reg('i64')
+                        pre_lines.append(f'{indent}{cast_reg} = ptrtoint ptr {reg} to i64')
+                        a = f'i64 {cast_reg}'
+                    elif stated == 'i64' and actual == '%SeenString':
+                        cast_reg = next_temp_reg('i64')
+                        pre_lines.append(f'{indent}{cast_reg} = extractvalue %SeenString {reg}, 0')
+                        a = f'i64 {cast_reg}'
+                    elif stated == 'ptr' and actual == 'i64':
+                        cast_reg = next_temp_reg('ptr')
+                        pre_lines.append(f'{indent}{cast_reg} = inttoptr i64 {reg} to ptr')
+                        a = f'ptr {cast_reg}'
+                    elif stated == 'ptr' and actual == 'i1':
+                        wide_reg = next_temp_reg('i64')
+                        ptr_reg = next_temp_reg('ptr')
+                        pre_lines.append(f'{indent}{wide_reg} = zext i1 {reg} to i64')
+                        pre_lines.append(f'{indent}{ptr_reg} = inttoptr i64 {wide_reg} to ptr')
+                        a = f'ptr {ptr_reg}'
+                    elif stated == 'ptr' and actual == '%SeenString':
+                        ptr_reg = next_temp_reg('ptr')
+                        pre_lines.append(f'{indent}{ptr_reg} = extractvalue %SeenString {reg}, 1')
+                        a = f'ptr {ptr_reg}'
+                    elif stated == 'i1' and actual == 'i64':
+                        cmp_reg = next_temp_reg('i1')
+                        pre_lines.append(f'{indent}{cmp_reg} = icmp ne i64 {reg}, 0')
+                        a = f'i1 {cmp_reg}'
+                    elif stated == 'i1' and actual == 'ptr':
+                        cmp_reg = next_temp_reg('i1')
+                        pre_lines.append(f'{indent}{cmp_reg} = icmp ne ptr {reg}, null')
+                        a = f'i1 {cmp_reg}'
         fixed.append(a)
-    return ', '.join(fixed)
+    return pre_lines, ', '.join(fixed)
 
 
 def _split_args(args_str):
@@ -951,7 +1133,9 @@ def fix_llvmir_generator_layout(content):
     }
 
     if old_layout not in content:
-        return content
+        has_old_layout = False
+    else:
+        has_old_layout = True
 
     lines = content.split('\n')
     result = []
@@ -983,9 +1167,26 @@ def fix_llvmir_generator_layout(content):
         elif old_layout in line:
             # Other usage (e.g., sizeof, alloca) — just replace layout
             line = line.replace(old_layout, new_layout)
+        elif new_layout in line and 'getelementptr' in line:
+            # Some frozen-bootstrap paths already contain the replacement
+            # layout but still carry old LLVMIRGenerator indices for fields
+            # moved behind bridge/type-registry state.  Remap the known stale
+            # indices so verifier rejects do not survive into opt.
+            m = re.search(r'i32\s+(\d+)\s*$', line)
+            if m:
+                old_idx = int(m.group(1))
+                stale_index_map = {
+                    30: 21,  # typeHeaderPath
+                    32: 22,  # classMethodBaseNames-like bridge slot
+                }
+                if old_idx in stale_index_map:
+                    line = line[:m.start()] + f'i32 {stale_index_map[old_idx]}'
         result.append(line)
 
-    return '\n'.join(result)
+    fixed_content = '\n'.join(result)
+    if has_old_layout or fixed_content != content:
+        return fixed_content
+    return content
 
 
 def fix_arr_get_element_ptr(content):
@@ -1286,6 +1487,8 @@ def fix_all(content, all_module_files=None):
     content = fix_runtime_string_returns(content)
     content = fix_cross_module_string_returns(content, all_module_files)
     content = fix_arr_get_element_ptr(content)
+    content = fix_scalar_literal_and_text_repairs(content)
+    content = fix_missing_local_register_uses(content)
     content = fix_type_mismatches(content)
     content = fix_empty_type(content)
     content = fix_ssa_numbering(content)

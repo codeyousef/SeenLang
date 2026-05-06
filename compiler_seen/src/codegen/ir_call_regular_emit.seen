@@ -22,15 +22,14 @@ fun promoteRegularCallFloatArgsIfNeededState(output: StringBuilder,
 }
 
 fun recordRegularLateDeclareIfNeededState(funcName: String,
-    llvmReturnType: String, argTypeStrs: Array<String>, funcNames: String,
-    funcRetTypes: String, xmDeclareNames: String, xmDeclareCount: Int,
+    llvmReturnType: String, argTypeStrs: Array<String>,
     lateState: LateUserDeclareState) r: Bool {
 
     if not shouldRecordRegularLateDeclareImpl(funcName) {
         return false
     }
     recordLateUserDeclareIntoStateImpl(funcName, llvmReturnType, argTypeStrs,
-        0, funcNames, funcRetTypes, xmDeclareNames, xmDeclareCount, lateState)
+        0, lateState)
     return true
 }
 

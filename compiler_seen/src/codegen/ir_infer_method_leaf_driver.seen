@@ -2,41 +2,37 @@
 
 import parser.real_parser.{ParserExpressionNode}
 import trace.{traceGen}
-import codegen.ir_codegen_global_state.{currentClassName, structNames, funcNames, funcRetTypes}
-import codegen.ir_codegen_feature_state.{g_asyncFuncNames, g_asyncFuncCount}
-import codegen.ir_decl_registry.{isAsyncFunctionStateImpl, getFunctionReturnTypeStateImpl}
+import codegen.ir_codegen_global_state.{getGlobalCurrentClassNameImpl, getFunctionReturnTypeWithGlobalStateImpl, findStructWithGlobalStateImpl, inferMethodCallBoolSuffixWithGlobalStateImpl}
+import codegen.ir_codegen_feature_state.{isAsyncFunctionWithFeatureStateImpl}
 import codegen.ir_expr_infer_plan.{planGeneratedCallInferenceImpl, planResolvedCallInferenceImpl}
 import codegen.ir_field_lookup_state.{getMethodReturnTypeState}
-import codegen.ir_infer_type.{inferExplicitThisMethodCallTypeImpl, inferBareMethodOrFunctionCallTypeImpl, inferDeclaredStaticMethodCallTypeImpl, inferStaticFactoryMethodTypeImpl, inferStaticFromJsonMethodTypeImpl, inferReceiverRegistryMethodCallTypeImpl, inferLateMethodCallFallbackTypeImpl, inferGeneratedCallTypeImpl, inferResolvedCallExprTypeImpl, inferMethodCallBoolSuffixImpl}
+import codegen.ir_infer_type.{inferExplicitThisMethodCallTypeImpl, inferBareMethodOrFunctionCallTypeImpl, inferDeclaredStaticMethodCallTypeImpl, inferStaticFactoryMethodTypeImpl, inferStaticFromJsonMethodTypeImpl, inferReceiverRegistryMethodCallTypeImpl, inferLateMethodCallFallbackTypeImpl, inferGeneratedCallTypeImpl, inferResolvedCallExprTypeImpl}
 import codegen.ir_local_type_leaf_driver.{findVarTypeState}
 import codegen.ir_method_builtin_type_infer.{tryInferBuiltinReceiverMethodCallTypeState}
 import codegen.ir_type_tables.{inferMethodCallTypeTable, inferCallTypeTable}
 import codegen.ir_simd_type_helpers.{isSimdVectorTypeImpl}
 import codegen.ir_codegen_type_state.{isClassTypeState, isDataTypeState}
 import codegen.ir_string_collect.{getBaseTypeNameImpl}
-import codegen.type_registry_core.{findStructReg}
 
 fun tryInferExplicitThisMethodCallType(expr: ParserExpressionNode) r: String {
     var implicitMethodRetType = ""
-    if currentClassName != "" {
-        implicitMethodRetType = getMethodReturnTypeState(currentClassName,
+    if getGlobalCurrentClassNameImpl() != "" {
+        implicitMethodRetType = getMethodReturnTypeState(getGlobalCurrentClassNameImpl(),
             expr.callee)
     }
-    return inferExplicitThisMethodCallTypeImpl(currentClassName,
+    return inferExplicitThisMethodCallTypeImpl(getGlobalCurrentClassNameImpl(),
         expr.literalValue, implicitMethodRetType)
 }
 
 fun tryInferBareMethodOrFunctionCallType(expr: ParserExpressionNode) r: String {
     var implicitMethodRetType = ""
-    if currentClassName != "" {
-        implicitMethodRetType = getMethodReturnTypeState(currentClassName,
+    if getGlobalCurrentClassNameImpl() != "" {
+        implicitMethodRetType = getMethodReturnTypeState(getGlobalCurrentClassNameImpl(),
             expr.callee)
     }
-    let freeFuncRetType = getFunctionReturnTypeStateImpl(expr.callee,
-        funcNames, funcRetTypes)
+    let freeFuncRetType = getFunctionReturnTypeWithGlobalStateImpl(expr.callee)
     var asyncFlag = 0
-    if isAsyncFunctionStateImpl(expr.callee, g_asyncFuncNames,
-        g_asyncFuncCount) {
+    if isAsyncFunctionWithFeatureStateImpl(expr.callee) {
         asyncFlag = 1
     }
     return inferBareMethodOrFunctionCallTypeImpl(expr.literalValue,
@@ -133,19 +129,16 @@ fun tryInferReceiverRegistryMethodCallType(expr: ParserExpressionNode, receiverT
 fun tryInferLateMethodCallFallbackType(expr: ParserExpressionNode) r: String {
     let mcTable = inferMethodCallTypeTable(expr.callee)
     var implicitMethodRetType = ""
-    if currentClassName != "" {
-        implicitMethodRetType = getMethodReturnTypeState(currentClassName,
+    if getGlobalCurrentClassNameImpl() != "" {
+        implicitMethodRetType = getMethodReturnTypeState(getGlobalCurrentClassNameImpl(),
             expr.callee)
     }
-    let freeFuncRetType = getFunctionReturnTypeStateImpl(expr.callee,
-        funcNames, funcRetTypes)
+    let freeFuncRetType = getFunctionReturnTypeWithGlobalStateImpl(expr.callee)
     var asyncFlag = 0
-    if isAsyncFunctionStateImpl(expr.callee, g_asyncFuncNames,
-        g_asyncFuncCount) {
+    if isAsyncFunctionWithFeatureStateImpl(expr.callee) {
         asyncFlag = 1
     }
-    let boolSuffixType = inferMethodCallBoolSuffixImpl(expr.callee,
-        funcNames, funcRetTypes)
+    let boolSuffixType = inferMethodCallBoolSuffixWithGlobalStateImpl(expr.callee)
     return inferLateMethodCallFallbackTypeImpl(mcTable,
         implicitMethodRetType, freeFuncRetType, asyncFlag,
         boolSuffixType)
@@ -159,7 +152,7 @@ fun tryInferGeneratedCallType(expr: ParserExpressionNode) r: String {
     if generatedPlan.action == 2 {
         newBaseType = generatedPlan.baseType
         if isClassTypeState(newBaseType) or isDataTypeState(newBaseType) or
-            findStructReg(newBaseType, structNames) >= 0 {
+            findStructWithGlobalStateImpl(newBaseType) >= 0 {
             newBaseTypeKnown = 1
         }
     }
@@ -170,7 +163,7 @@ fun tryInferGeneratedCallType(expr: ParserExpressionNode) r: String {
         fromJsonBaseType = generatedPlan.baseType
         fromJsonRet = getMethodReturnTypeState(fromJsonBaseType, "fromJson")
         if isClassTypeState(fromJsonBaseType) or isDataTypeState(fromJsonBaseType) or
-            findStructReg(fromJsonBaseType, structNames) >= 0 {
+            findStructWithGlobalStateImpl(fromJsonBaseType) >= 0 {
             fromJsonBaseTypeKnown = 1
         }
     }
@@ -181,12 +174,10 @@ fun tryInferGeneratedCallType(expr: ParserExpressionNode) r: String {
 }
 
 fun tryInferResolvedCallExprType(expr: ParserExpressionNode) r: String {
-    let resolvedPlan = planResolvedCallInferenceImpl(currentClassName)
-    let userRetType = getFunctionReturnTypeStateImpl(expr.callee,
-        funcNames, funcRetTypes)
+    let resolvedPlan = planResolvedCallInferenceImpl(getGlobalCurrentClassNameImpl())
+    let userRetType = getFunctionReturnTypeWithGlobalStateImpl(expr.callee)
     var asyncFlag = 0
-    if isAsyncFunctionStateImpl(expr.callee, g_asyncFuncNames,
-        g_asyncFuncCount) {
+    if isAsyncFunctionWithFeatureStateImpl(expr.callee) {
         asyncFlag = 1
     }
     let callTable = inferCallTypeTable(expr.callee)
@@ -196,7 +187,7 @@ fun tryInferResolvedCallExprType(expr: ParserExpressionNode) r: String {
     }
     var implicitMethodRetType = ""
     if resolvedPlan.shouldLookupImplicitMethodReturn {
-        implicitMethodRetType = getMethodReturnTypeState(currentClassName,
+        implicitMethodRetType = getMethodReturnTypeState(getGlobalCurrentClassNameImpl(),
             expr.callee)
     }
     return inferResolvedCallExprTypeImpl(expr.callee, userRetType,

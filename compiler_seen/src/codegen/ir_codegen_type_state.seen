@@ -3,8 +3,8 @@
 import codegen.ir_string_collect.{getBaseTypeNameImpl}
 import codegen.ir_type_mapping.{mapTypeImpl, isDataTypeImpl}
 import codegen.ir_decl_items.{normalizeSeenTypeNameImpl}
-import codegen.ir_codegen_global_state.{structNames, structSizes}
-import codegen.ir_codegen_feature_state.{g_reprCClassNames, g_typeAliasNames, g_typeAliasTargets, g_typeAliasCount, g_enumTypeNames}
+import codegen.ir_codegen_global_state.{getGlobalStructNamesImpl, getGlobalStructSizesImpl}
+import codegen.ir_codegen_feature_state.{getFeatureReprCClassNamesImpl, getFeatureTypeAliasNamesImpl, getFeatureTypeAliasTargetsImpl, getFeatureTypeAliasCountImpl, getFeatureEnumTypeNamesImpl}
 import codegen.type_registry_core.{isClassTypeReg, getDataTypeSizeReg}
 
 fun mapTypeState(seenType: String) r: String {
@@ -14,18 +14,20 @@ fun mapTypeState(seenType: String) r: String {
     if seenType.startsWith("*") {
         return "i64"
     }
-    if g_reprCClassNames != "" {
+    let reprCClassNames = getFeatureReprCClassNamesImpl()
+    if reprCClassNames != "" {
         let baseT = getBaseTypeNameImpl(seenType)
-        if g_reprCClassNames.contains(baseT + "|") {
+        if reprCClassNames.contains(baseT + "|") {
             return "%" + baseT
         }
     }
-    return mapTypeImpl(seenType, structNames, g_typeAliasNames,
-        g_typeAliasTargets, g_typeAliasCount, g_enumTypeNames)
+    return mapTypeImpl(seenType, getGlobalStructNamesImpl(),
+        getFeatureTypeAliasNamesImpl(), getFeatureTypeAliasTargetsImpl(),
+        getFeatureTypeAliasCountImpl(), getFeatureEnumTypeNamesImpl())
 }
 
 fun isClassTypeState(seenType: String) r: Bool {
-    return isClassTypeReg(seenType, structNames)
+    return isClassTypeReg(seenType, getGlobalStructNamesImpl())
 }
 
 fun isDataTypeState(seenType: String) r: Bool {
@@ -34,7 +36,8 @@ fun isDataTypeState(seenType: String) r: Bool {
 }
 
 fun getDataTypeSizeState(seenType: String) r: Int {
-    return getDataTypeSizeReg(seenType, structNames, structSizes)
+    return getDataTypeSizeReg(seenType, getGlobalStructNamesImpl(),
+        getGlobalStructSizesImpl())
 }
 
 fun mapTypeForParameterState(seenType: String) r: String {

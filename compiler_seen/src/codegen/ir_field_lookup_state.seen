@@ -5,8 +5,8 @@ import codegen.ir_seen_field_type_lookup.{getSeenFieldTypeImpl}
 import codegen.ir_method_return_type_lookup.{getMethodReturnTypeImpl}
 import codegen.ir_method_receiver.{inferTypeRegistryFieldTypeImpl, getSemanticFieldTypeImpl}
 import codegen.type_registry_core.{findStructReg}
-import codegen.ir_codegen_global_state.{structNames, structFieldNames, structFieldTypes, structLlvmFieldTypes, structMethodNames, structMethodRetTypes}
-import codegen.ir_codegen_feature_state.{g_reprCClassNames, g_typeAliasNames, g_typeAliasTargets, g_typeAliasCount, g_enumTypeNames}
+import codegen.ir_codegen_global_state.{getGlobalStructNamesImpl, getGlobalStructFieldNamesImpl, getGlobalStructFieldTypesImpl, getGlobalStructLlvmFieldTypesImpl, getGlobalStructMethodNamesImpl, getGlobalStructMethodRetTypesImpl}
+import codegen.ir_codegen_feature_state.{getFeatureReprCClassNamesImpl, getFeatureTypeAliasNamesImpl, getFeatureTypeAliasTargetsImpl, getFeatureTypeAliasCountImpl, getFeatureEnumTypeNamesImpl}
 import codegen.ir_codegen_module_state.{findCachedIrgenFieldIndex, cacheIrgenFieldIndex}
 
 fun getFieldInfoState(structName: String, fieldName: String) r: Int {
@@ -17,13 +17,14 @@ fun getFieldInfoState(structName: String, fieldName: String) r: Int {
     }
     traceGen("getFieldInfo: " + structName + "." + fieldName)
     if structName == "FrontendResult" {
-        let idxCheck = findStructReg(structName, structNames)
+        let idxCheck = findStructReg(structName, getGlobalStructNamesImpl())
         if idxCheck >= 0 {
-            traceGen("FrontendResult fields=" + structFieldNames[idxCheck])
+            traceGen("FrontendResult fields=" +
+                getGlobalStructFieldNamesImpl()[idxCheck])
         }
     }
     let fieldIdx = resolveFieldIndexImpl(structName, fieldName,
-        structNames, structFieldNames)
+        getGlobalStructNamesImpl(), getGlobalStructFieldNamesImpl())
     if fieldIdx >= 0 {
         cacheIrgenFieldIndex(cacheKey, fieldIdx)
     }
@@ -32,14 +33,17 @@ fun getFieldInfoState(structName: String, fieldName: String) r: Int {
 
 fun getFieldTypeState(structName: String, fieldName: String) r: String {
     return resolveStructFieldLlvmTypeImpl(structName, fieldName,
-        structNames, structFieldNames, structFieldTypes,
-        structLlvmFieldTypes, g_reprCClassNames, g_typeAliasNames,
-        g_typeAliasTargets, g_typeAliasCount, g_enumTypeNames)
+        getGlobalStructNamesImpl(), getGlobalStructFieldNamesImpl(),
+        getGlobalStructFieldTypesImpl(), getGlobalStructLlvmFieldTypesImpl(),
+        getFeatureReprCClassNamesImpl(), getFeatureTypeAliasNamesImpl(),
+        getFeatureTypeAliasTargetsImpl(), getFeatureTypeAliasCountImpl(),
+        getFeatureEnumTypeNamesImpl())
 }
 
 fun getSeenFieldTypeState(structName: String, fieldName: String) r: String {
-    return getSeenFieldTypeImpl(structName, fieldName, structNames,
-        structFieldNames, structFieldTypes)
+    return getSeenFieldTypeImpl(structName, fieldName,
+        getGlobalStructNamesImpl(), getGlobalStructFieldNamesImpl(),
+        getGlobalStructFieldTypesImpl())
 }
 
 fun inferTypeRegistryFieldTypeState(fieldName: String) r: String {
@@ -49,15 +53,17 @@ fun inferTypeRegistryFieldTypeState(fieldName: String) r: String {
 fun getSemanticFieldTypeState(structName: String, fieldName: String)
     r: String {
 
-    return getSemanticFieldTypeImpl(structName, fieldName, structNames,
-        structFieldNames, structFieldTypes)
+    return getSemanticFieldTypeImpl(structName, fieldName,
+        getGlobalStructNamesImpl(), getGlobalStructFieldNamesImpl(),
+        getGlobalStructFieldTypesImpl())
 }
 
 fun getMethodReturnTypeState(structName: String, methodName: String)
     r: String {
 
-    let retType = getMethodReturnTypeImpl(structName, methodName, structNames,
-        structMethodNames, structMethodRetTypes)
+    let retType = getMethodReturnTypeImpl(structName, methodName,
+        getGlobalStructNamesImpl(), getGlobalStructMethodNamesImpl(),
+        getGlobalStructMethodRetTypesImpl())
     if retType == "Unknown" {
         return ""
     }

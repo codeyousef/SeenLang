@@ -9,19 +9,30 @@
 # On success, prints "RECOVERY_DIR=<path>" as the LAST line of output.
 # The caller should link .o files from that directory instead of /tmp.
 #
-# Usage: recovery_opt.sh <opt_wrapper_dir> <script_dir>
+# Usage: recovery_opt.sh <opt_wrapper_dir> <script_dir> [source_ll_dir] [--skip-fixups]
 #   opt_wrapper_dir: directory containing the opt wrapper script
 #   script_dir:      directory containing fix_ir.py and other helpers
+#   source_ll_dir:   directory containing seen_module_*.ll (default: $SEEN_RECOVERY_LL_DIR or /tmp)
 
 OPT_WRAPPER_DIR="$1"
 SCRIPT_DIR="$2"
 SKIP_FIXUPS=0
-if [ "$3" = "--skip-fixups" ]; then
+SOURCE_LL_DIR="${SEEN_RECOVERY_LL_DIR:-/tmp}"
+if [ "${3:-}" = "--skip-fixups" ]; then
+    SKIP_FIXUPS=1
+elif [ -n "${3:-}" ]; then
+    SOURCE_LL_DIR="$3"
+fi
+if [ "${4:-}" = "--skip-fixups" ]; then
     SKIP_FIXUPS=1
 fi
 
 if [ -z "$OPT_WRAPPER_DIR" ] || [ -z "$SCRIPT_DIR" ]; then
     echo "  ERROR: recovery_opt.sh requires <opt_wrapper_dir> <script_dir>"
+    exit 1
+fi
+if [ ! -d "$SOURCE_LL_DIR" ]; then
+    echo "  ERROR: recovery source directory not found: $SOURCE_LL_DIR"
     exit 1
 fi
 
@@ -50,12 +61,12 @@ run_with_opt_limit() {
 # (which also write to /tmp/seen_module_*) can't interfere.
 WORK_DIR=$(mktemp -d /tmp/seen_recovery.XXXXXX)
 LL_COUNT=0
-for f in /tmp/seen_module_*.ll; do
+for f in "$SOURCE_LL_DIR"/seen_module_*.ll; do
     [ -f "$f" ] || continue
     [[ "$f" == *.opt.ll ]] && continue
     cp "$f" "$WORK_DIR/" 2>/dev/null && LL_COUNT=$((LL_COUNT+1))
 done
-echo "  Recovery: $LL_COUNT .ll files copied to $WORK_DIR"
+echo "  Recovery: $LL_COUNT .ll files copied from $SOURCE_LL_DIR to $WORK_DIR"
 
 if [ "$LL_COUNT" -eq 0 ]; then
     echo "  ERROR: no .ll files to process"

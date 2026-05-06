@@ -281,8 +281,7 @@ fun emitPreparedFinalMethodDispatchState(output: StringBuilder,
     shouldEmitUserMethod: Bool, structNames: Array<String>,
     reprCClassNames: String, typeAliasNames: String,
     typeAliasTargets: String, typeAliasCount: Int, enumTypeNames: String,
-    funcNames: String, funcRetTypes: String, xmDeclareNames: String,
-    xmDeclareCount: Int, lateState: LateUserDeclareState) r: String {
+    lateState: LateUserDeclareState) r: String {
 
     let returnTypeStr = resolveMethodCallReturnTypeImpl(
         inferredMethodReturnType, registeredMethodReturnType)
@@ -306,8 +305,7 @@ fun emitPreparedFinalMethodDispatchState(output: StringBuilder,
 
     if shouldEmitUserMethod and receiverLlvmType == "ptr" {
         recordLateUserDeclareIntoStateImpl(funcName, llvmReturnType,
-            argTypeStrs, 1, funcNames, funcRetTypes, xmDeclareNames,
-            xmDeclareCount, lateState)
+            argTypeStrs, 1, lateState)
     }
 
     if shouldTrySpecialized {

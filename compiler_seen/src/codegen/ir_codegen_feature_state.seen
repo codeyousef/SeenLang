@@ -3,7 +3,23 @@ ir_codegen_feature_state.seen - feature flags and registry globals used
 by LLVM IR lowering.
 ///
 
-import parser.real_parser.{ParserExpressionNode}
+import parser.real_parser.{ParserExpressionNode, FunctionNode, StatementNode, ClassNode}
+import str.string.{StringBuilder}
+import codegen.ir_codegen_state.{CodegenState, resetFunctionLoweringOptions}
+import codegen.ir_decl_registry.{DeclarationPassState, isAsyncFunctionStateImpl, getAsyncDeclaredRetTypeStateImpl}
+import codegen.ir_function_decorators.{prepareFunctionAttributeStateSnapshotImpl, prepareFunctionDecoratorPreflightSnapshotImpl, tryHandleIntrinsicFunctionGenerationStateImpl}
+import codegen.ir_function_lifecycle.{shouldReturnAfterFunctionDecoratorPreflightImpl, planFunctionIntrinsicFlowImpl}
+import codegen.ir_function_scratch.{resetLocalCodegenStateImpl}
+import codegen.ir_function_param_meta.{preRegisterFunctionParametersImpl}
+import codegen.ir_stmt_scope.{recordDeferredStatementSnapshotImpl}
+import codegen.ir_constructor_call_plan.{isReprCConstructorTypeImpl}
+import codegen.ir_enum_lookup.{lookupEnumParentImpl, isEnumVariantImpl}
+import codegen.ir_trait_registry.{appendDynTraitNameImpl}
+import codegen.ir_class_type_decorators.{ClassTypeDecoratorScanSnapshot, prepareClassTypeDecoratorScanSnapshotImpl}
+import codegen.ir_class_type_layout.{ClassTypeAliasStateSnapshot, prepareClassTypeAliasStateSnapshotImpl, emitClassTypeFieldsImpl}
+import codegen.ir_struct_layout_build.{StructLayoutRegistrationSnapshot, prepareStructLayoutRegistrationSnapshotImpl}
+import codegen.ir_comptime_eval.{registerComptimeVarStateImpl, updateComptimeVarStateImpl, registerComptimeStrVarStateImpl, lookupComptimeVarImpl, evaluateConstExprStrImpl, evaluateConstExprImpl}
+import codegen.ir_module_emit.{emitTraitVtableConstantsImpl, emitGeneratedClosuresImpl, emitGlobalConstructorsImpl, emitTBAAMetadataImpl}
 
 var g_panicOnOverflow: Bool = false
 
@@ -71,6 +87,21 @@ var g_funcDefaultsArr: String = ""
 var g_funcParamCountArr: String = ""
 var g_defaultFillArgRegs: Array<String> = Array<String>()
 var g_defaultFillArgTypeStrs: Array<String> = Array<String>()
+
+fun setDefaultFillArgsImpl(argRegs: Array<String>,
+    argTypeStrs: Array<String>) r: Void {
+
+    g_defaultFillArgRegs = argRegs
+    g_defaultFillArgTypeStrs = argTypeStrs
+}
+
+fun getDefaultFillArgRegsImpl() r: Array<String> {
+    return g_defaultFillArgRegs
+}
+
+fun getDefaultFillArgTypeStrsImpl() r: Array<String> {
+    return g_defaultFillArgTypeStrs
+}
 
 var g_dynTraitNames: String = ""
 var g_vtableClassImpls: String = ""
@@ -146,3 +177,471 @@ var g_enumTypeNames: String = ""
 var g_enumVariantParent: String = ""
 var g_enumVariantCount: Int = 0
 var g_enumTypeCount: Int = 0
+
+fun prepareFunctionDecoratorPreflightWithFeatureStateImpl(output: StringBuilder,
+    regBox: Array<Int>, fn: FunctionNode) r: Bool {
+
+    let decoratorPreflight = prepareFunctionDecoratorPreflightSnapshotImpl(
+        output, regBox, fn, g_traitImplRegistry, g_traitImplCount,
+        g_gpuShaderNames, g_gpuShaderStages, g_gpuShaderWorkgroups,
+        g_gpuShaderBindings, g_gpuShaderCount)
+    g_traitImplRegistry = decoratorPreflight.traitImplRegistry
+    g_traitImplCount = decoratorPreflight.traitImplCount
+    g_gpuShaderNames = decoratorPreflight.gpuShaderNames
+    g_gpuShaderStages = decoratorPreflight.gpuShaderStages
+    g_gpuShaderWorkgroups = decoratorPreflight.gpuShaderWorkgroups
+    g_gpuShaderBindings = decoratorPreflight.gpuShaderBindings
+    g_gpuShaderCount = decoratorPreflight.gpuShaderCount
+    return shouldReturnAfterFunctionDecoratorPreflightImpl(
+        decoratorPreflight.handledByDecorator)
+}
+
+fun prepareFunctionAttributeWithFeatureStateImpl(output: StringBuilder,
+    fn: FunctionNode) r: String {
+
+    let funcAttrState = prepareFunctionAttributeStateSnapshotImpl(output,
+        fn, g_sanitizerMode, g_initFuncNames, g_initFuncCount,
+        g_trustedFuncNames, g_specializationNames, g_specializationCount)
+    g_initFuncNames = funcAttrState.initFuncNames
+    g_initFuncCount = funcAttrState.initFuncCount
+    g_trustedFuncNames = funcAttrState.trustedFuncNames
+    g_specializationNames = funcAttrState.specializationNames
+    g_specializationCount = funcAttrState.specializationCount
+    return funcAttrState.funcAttrs
+}
+
+fun tryHandleFunctionIntrinsicWithFeatureStateImpl(output: StringBuilder,
+    regBox: Array<Int>, fn: FunctionNode, structNames: Array<String>,
+    typeAliasNames: String, typeAliasTargets: String, typeAliasCount: Int,
+    enumTypeNames: String) r: Bool {
+
+    let intrinsicFuncNamesBox = Array<String>()
+    intrinsicFuncNamesBox.push(g_intrinsicFuncNames)
+    let intrinsicLlvmNamesBox = Array<String>()
+    intrinsicLlvmNamesBox.push(g_intrinsicLlvmNames)
+    let intrinsicCountBox = Array<Int>()
+    intrinsicCountBox.push(g_intrinsicCount)
+
+    let handledIntrinsic =
+        tryHandleIntrinsicFunctionGenerationStateImpl(output, regBox, fn,
+        structNames, typeAliasNames, typeAliasTargets, typeAliasCount,
+        enumTypeNames, intrinsicFuncNamesBox, intrinsicLlvmNamesBox,
+        intrinsicCountBox)
+    let intrinsicFlow = planFunctionIntrinsicFlowImpl(handledIntrinsic)
+    if intrinsicFlow.shouldWriteBackRegistry {
+        g_intrinsicFuncNames = intrinsicFuncNamesBox[0]
+        g_intrinsicLlvmNames = intrinsicLlvmNamesBox[0]
+        g_intrinsicCount = intrinsicCountBox[0]
+    }
+    return intrinsicFlow.shouldReturn
+}
+
+fun generateDeferredStatementWithFeatureStateImpl(stmt: StatementNode,
+    isErrdefer: Bool) r: Void {
+
+    let deferredRecord = recordDeferredStatementSnapshotImpl(stmt,
+        isErrdefer, g_deferExprs, g_deferCount, g_errdeferExprs,
+        g_errdeferCount)
+    g_deferCount = deferredRecord.deferCount
+    g_errdeferCount = deferredRecord.errdeferCount
+}
+
+fun isReprCConstructorTypeWithFeatureStateImpl(funcName: String) r: Bool {
+    return isReprCConstructorTypeImpl(funcName, g_reprCClassNames)
+}
+
+fun isAsyncFunctionWithFeatureStateImpl(name: String) r: Bool {
+    return isAsyncFunctionStateImpl(name, g_asyncFuncNames, g_asyncFuncCount)
+}
+
+fun getAsyncDeclaredRetTypeWithFeatureStateImpl(name: String) r: String {
+    return getAsyncDeclaredRetTypeStateImpl(name, g_asyncFuncNames,
+        g_asyncFuncRetTypes, g_asyncFuncCount)
+}
+
+fun getEnumVariantCountWithFeatureStateImpl() r: Int {
+    return g_enumVariantCount
+}
+
+fun isEnumVariantWithFeatureStateImpl(name: String) r: Bool {
+    return isEnumVariantImpl(name, g_enumVariantNames, g_enumVariantCount)
+}
+
+fun lookupEnumParentWithFeatureStateImpl(name: String) r: String {
+    return lookupEnumParentImpl(name, g_enumVariantNames,
+        g_enumVariantParent, g_enumVariantCount)
+}
+
+fun getFeatureEnumTypeNamesImpl() r: String {
+    return g_enumTypeNames
+}
+
+fun prepareFunctionPreBodyWithFeatureStateImpl(state: CodegenState,
+    fn: FunctionNode, implFuncName: String,
+    resolvedFunctionReturnType: String) r: Void {
+
+    resetLocalCodegenStateImpl(state)
+    state.currentFunctionReturnType = resolvedFunctionReturnType
+    state.currentClassName = ""
+    resetFunctionLoweringOptions(state.functionOptions)
+    state.indent = 0
+
+    let activeVarCountBox = Array<Int>()
+    activeVarCountBox.push(state.activeVarCount)
+    let comptimeNamesBox = Array<String>()
+    comptimeNamesBox.push(g_comptimeParamFuncNames)
+    let comptimeCountBox = Array<Int>()
+    comptimeCountBox.push(g_comptimeParamCount)
+    let funcDefaultsBox = Array<String>()
+    funcDefaultsBox.push(g_funcDefaultsArr)
+    let dynParamFuncsBox = Array<String>()
+    dynParamFuncsBox.push(g_dynParamFuncs)
+    let funcParamCountBox = Array<String>()
+    funcParamCountBox.push(g_funcParamCountArr)
+
+    preRegisterFunctionParametersImpl(fn, implFuncName, state.varNames,
+        state.varRegs, state.varTypes, activeVarCountBox, comptimeNamesBox,
+        comptimeCountBox, funcDefaultsBox, dynParamFuncsBox,
+        funcParamCountBox)
+
+    state.activeVarCount = activeVarCountBox[0]
+    g_comptimeParamFuncNames = comptimeNamesBox[0]
+    g_comptimeParamCount = comptimeCountBox[0]
+    g_funcDefaultsArr = funcDefaultsBox[0]
+    g_dynParamFuncs = dynParamFuncsBox[0]
+    g_funcParamCountArr = funcParamCountBox[0]
+}
+
+fun appendDynTraitNameWithFeatureStateImpl(className: String) r: Void {
+    let dynTraitNamesBox = Array<String>()
+    dynTraitNamesBox.push(g_dynTraitNames)
+    appendDynTraitNameImpl(className, dynTraitNamesBox)
+    g_dynTraitNames = dynTraitNamesBox[0]
+}
+
+fun registerTopLevelTypeAliasWithFeatureStateImpl(className: String,
+    aliasTarget: String) r: Void {
+
+    if g_typeAliasCount > 0 {
+        g_typeAliasNames = g_typeAliasNames + "|" + className
+        g_typeAliasTargets = g_typeAliasTargets + "|" + aliasTarget
+    } else {
+        g_typeAliasNames = className
+        g_typeAliasTargets = aliasTarget
+    }
+    g_typeAliasCount = g_typeAliasCount + 1
+}
+
+fun appendDistinctTypeNameWithFeatureStateImpl(className: String) r: Void {
+    g_distinctTypeNames = g_distinctTypeNames + className + "|"
+}
+
+fun prepareClassTypeDecoratorScanWithFeatureStateImpl(output: StringBuilder,
+    classNode: ClassNode, structNames: Array<String>,
+    structLayouts: Array<String>, structSizes: Array<Int>)
+    r: ClassTypeDecoratorScanSnapshot {
+
+    let decoratorSnapshot = prepareClassTypeDecoratorScanSnapshotImpl(
+        output, classNode, g_reprCClassNames, g_cacheLineClasses,
+        g_sendTypes, g_syncTypes, g_soaClassNames, g_soaClassCount,
+        g_triviallyCopyableClasses, g_moveOnlyClasses, g_cResourceClasses,
+        g_cResourceDestructors, g_reflectClassNames, g_reflectClassCount,
+        g_binaryClassNames, g_binaryEndianness, g_binaryVersions,
+        g_binaryClassCount, g_packetClassNames, g_packetClassIds,
+        g_packetCount, g_gpuBufferClasses, g_gpuBufferLayouts, g_unionTypes,
+        g_typeAliasNames, g_typeAliasTargets, g_typeAliasCount,
+        g_enumTypeNames, structNames, structLayouts, structSizes)
+    let decoratorState = decoratorSnapshot.decoratorState
+    g_reprCClassNames = decoratorState.reprCClassNames
+    g_cacheLineClasses = decoratorState.cacheLineClasses
+    g_sendTypes = decoratorState.sendTypes
+    g_syncTypes = decoratorState.syncTypes
+    g_soaClassNames = decoratorState.soaClassNames
+    g_soaClassCount = decoratorState.soaClassCount
+    g_triviallyCopyableClasses = decoratorState.triviallyCopyableClasses
+    g_moveOnlyClasses = decoratorState.moveOnlyClasses
+    g_cResourceClasses = decoratorState.cResourceClasses
+    g_cResourceDestructors = decoratorState.cResourceDestructors
+    g_reflectClassNames = decoratorState.reflectClassNames
+    g_reflectClassCount = decoratorState.reflectClassCount
+    g_binaryClassNames = decoratorState.binaryClassNames
+    g_binaryEndianness = decoratorState.binaryEndianness
+    g_binaryVersions = decoratorState.binaryVersions
+    g_binaryClassCount = decoratorState.binaryClassCount
+    g_packetClassNames = decoratorState.packetClassNames
+    g_packetClassIds = decoratorState.packetClassIds
+    g_packetCount = decoratorState.packetCount
+    g_gpuBufferClasses = decoratorState.gpuBufferClasses
+    g_gpuBufferLayouts = decoratorState.gpuBufferLayouts
+    g_unionTypes = decoratorState.unionTypes
+    return decoratorSnapshot
+}
+
+fun prepareClassTypeAliasWithFeatureStateImpl(classNode: ClassNode)
+    r: ClassTypeAliasStateSnapshot {
+
+    let typeAliasState = prepareClassTypeAliasStateSnapshotImpl(classNode,
+        g_typeAliasNames, g_typeAliasTargets, g_typeAliasCount)
+    g_typeAliasNames = typeAliasState.typeAliasNames
+    g_typeAliasTargets = typeAliasState.typeAliasTargets
+    g_typeAliasCount = typeAliasState.typeAliasCount
+    return typeAliasState
+}
+
+fun emitClassTypeFieldsWithFeatureStateImpl(output: StringBuilder,
+    classNode: ClassNode, structNames: Array<String>) r: Void {
+
+    emitClassTypeFieldsImpl(output, classNode, g_reprCClassNames,
+        structNames, g_typeAliasNames, g_typeAliasTargets,
+        g_typeAliasCount, g_enumTypeNames)
+}
+
+fun prepareStructLayoutRegistrationWithFeatureStateImpl(classNode: ClassNode,
+    structNames: Array<String>, structLayouts: Array<String>,
+    structFieldNames: Array<String>, structFieldTypes: Array<String>,
+    structSizes: Array<Int>) r: StructLayoutRegistrationSnapshot {
+
+    let layoutSnapshot = prepareStructLayoutRegistrationSnapshotImpl(
+        classNode, g_constGenericNames, g_constGenericValues,
+        g_typeAliasNames, g_typeAliasTargets, g_typeAliasCount,
+        g_inheritanceChildNames, g_inheritanceParentNames,
+        g_inheritanceCount, g_bitfieldKeys, g_bitfieldWidths,
+        g_bitfieldOffsets, g_bitfieldCount, structNames, structLayouts,
+        structFieldNames, structFieldTypes, structSizes, g_enumTypeNames)
+    g_constGenericNames = layoutSnapshot.constGenericNames
+    g_constGenericValues = layoutSnapshot.constGenericValues
+    g_typeAliasNames = layoutSnapshot.typeAliasNames
+    g_typeAliasTargets = layoutSnapshot.typeAliasTargets
+    g_typeAliasCount = layoutSnapshot.typeAliasCount
+    g_inheritanceChildNames = layoutSnapshot.inheritanceChildNames
+    g_inheritanceParentNames = layoutSnapshot.inheritanceParentNames
+    g_inheritanceCount = layoutSnapshot.inheritanceCount
+    g_bitfieldKeys = layoutSnapshot.bitfieldKeys
+    g_bitfieldWidths = layoutSnapshot.bitfieldWidths
+    g_bitfieldOffsets = layoutSnapshot.bitfieldOffsets
+    g_bitfieldCount = layoutSnapshot.bitfieldCount
+    return layoutSnapshot
+}
+
+fun registerComptimeVarWithFeatureStateImpl(name: String, value: Int)
+    r: Void {
+
+    let comptimeNamesBox = Array<String>()
+    comptimeNamesBox.push(g_comptimeNames)
+    let comptimeValuesBox = Array<String>()
+    comptimeValuesBox.push(g_comptimeValues)
+    let comptimeCountBox = Array<Int>()
+    comptimeCountBox.push(g_comptimeCount)
+    registerComptimeVarStateImpl(name, value, comptimeNamesBox,
+        comptimeValuesBox, comptimeCountBox)
+    g_comptimeNames = comptimeNamesBox[0]
+    g_comptimeValues = comptimeValuesBox[0]
+    g_comptimeCount = comptimeCountBox[0]
+}
+
+fun updateComptimeVarWithFeatureStateImpl(name: String, value: Int) r: Void {
+    let comptimeValuesBox = Array<String>()
+    comptimeValuesBox.push(g_comptimeValues)
+    updateComptimeVarStateImpl(name, value, g_comptimeNames,
+        comptimeValuesBox, g_comptimeCount)
+    g_comptimeValues = comptimeValuesBox[0]
+}
+
+fun registerComptimeStrVarWithFeatureStateImpl(name: String,
+    value: String) r: Void {
+
+    let comptimeStrNamesBox = Array<String>()
+    comptimeStrNamesBox.push(g_comptimeStrNames)
+    let comptimeStrValuesBox = Array<String>()
+    comptimeStrValuesBox.push(g_comptimeStrValues)
+    let comptimeStrCountBox = Array<Int>()
+    comptimeStrCountBox.push(g_comptimeStrCount)
+    registerComptimeStrVarStateImpl(name, value, comptimeStrNamesBox,
+        comptimeStrValuesBox, comptimeStrCountBox)
+    g_comptimeStrNames = comptimeStrNamesBox[0]
+    g_comptimeStrValues = comptimeStrValuesBox[0]
+    g_comptimeStrCount = comptimeStrCountBox[0]
+}
+
+fun evaluateConstExprStrWithFeatureStateImpl(expr: ParserExpressionNode,
+    structNames: Array<String>, structFieldNames: Array<String>,
+    structFieldTypes: Array<String>) r: String {
+
+    return evaluateConstExprStrImpl(expr, g_comptimeNames, g_comptimeValues,
+        g_comptimeCount, g_comptimeStrNames, g_comptimeStrValues,
+        g_comptimeStrCount, structNames, structFieldNames, structFieldTypes)
+}
+
+fun evaluateConstExprWithFeatureStateImpl(expr: ParserExpressionNode,
+    structNames: Array<String>, structFieldNames: Array<String>,
+    structFieldTypes: Array<String>) r: Int {
+
+    return evaluateConstExprImpl(expr, g_comptimeNames, g_comptimeValues,
+        g_comptimeCount, g_comptimeStrNames, g_comptimeStrValues,
+        g_comptimeStrCount, structNames, structFieldNames, structFieldTypes)
+}
+
+fun lookupComptimeVarWithFeatureStateImpl(name: String) r: Int {
+    return lookupComptimeVarImpl(name, g_comptimeNames, g_comptimeValues,
+        g_comptimeCount)
+}
+
+fun resetFeatureBootstrapStateImpl() r: Void {
+    g_deferExprs = Array<ParserExpressionNode>()
+    g_errdeferExprs = Array<ParserExpressionNode>()
+    g_regBox = Array<Int>()
+    g_blockBox = Array<Int>()
+    g_floatParamFuncNames = Array<String>()
+    g_floatParamParamIdxs = Array<Int>()
+}
+
+fun resetFeatureModuleScratchStateImpl() r: Void {
+    g_regBox = Array<Int>()
+    g_regBox.push(1)
+    g_blockBox = Array<Int>()
+    g_blockBox.push(0)
+    g_deferExprs = Array<ParserExpressionNode>()
+    g_errdeferExprs = Array<ParserExpressionNode>()
+    g_initFuncNames = ""
+    g_initFuncCount = 0
+}
+
+fun setPanicOnOverflowStateImpl(enabled: Bool) r: Void {
+    g_panicOnOverflow = enabled
+}
+
+fun setBoundsCheckEnabledStateImpl(enabled: Int) r: Void {
+    g_boundsCheckEnabled = enabled
+}
+
+fun setWarnUnusedResultStateImpl(enabled: Int) r: Void {
+    g_warnUnusedResult = enabled
+}
+
+fun setNullSafetyEnabledStateImpl(enabled: Int) r: Void {
+    g_nullSafetyEnabled = enabled
+}
+
+fun setUninitCheckEnabledStateImpl(enabled: Int) r: Void {
+    g_uninitCheckEnabled = enabled
+}
+
+fun setStackCheckEnabledStateImpl(enabled: Int) r: Void {
+    g_stackCheckEnabled = enabled
+}
+
+fun setSanitizerModeStateImpl(mode: String) r: Void {
+    g_sanitizerMode = mode
+}
+
+fun setEnabledFeaturesStateImpl(features: String) r: Void {
+    g_enabledFeatures = features
+}
+
+fun getDynTraitNamesStateImpl() r: String {
+    return g_dynTraitNames
+}
+
+fun getTraitImplRegistryStateImpl() r: String {
+    return g_traitImplRegistry
+}
+
+fun getTraitImplCountStateImpl() r: Int {
+    return g_traitImplCount
+}
+
+fun applyTraitImplStateImpl(traitImplRegistry: String,
+    traitImplCount: Int) r: Void {
+
+    g_traitImplRegistry = traitImplRegistry
+    g_traitImplCount = traitImplCount
+}
+
+fun getFeatureRegBoxImpl() r: Array<Int> {
+    return g_regBox
+}
+
+fun getFeatureBlockBoxImpl() r: Array<Int> {
+    return g_blockBox
+}
+
+fun emitTraitVtableConstantsWithFeatureStateImpl(output: StringBuilder) r: Void {
+    emitTraitVtableConstantsImpl(output, g_traitImplRegistry,
+        g_traitImplCount, g_dynTraitNames)
+}
+
+fun emitGeneratedClosuresWithFeatureStateImpl(output: StringBuilder) r: Void {
+    emitGeneratedClosuresImpl(output, g_closureDefs)
+}
+
+fun emitGlobalConstructorsWithFeatureStateImpl(output: StringBuilder) r: Void {
+    emitGlobalConstructorsImpl(output, g_initFuncCount, g_initFuncNames)
+}
+
+fun emitTBAAMetadataWithFeatureStateImpl(output: StringBuilder) r: Void {
+    emitTBAAMetadataImpl(output, g_sanitizerMode)
+}
+
+fun getFeatureTypeAliasNamesImpl() r: String {
+    return g_typeAliasNames
+}
+
+fun getFeatureTypeAliasTargetsImpl() r: String {
+    return g_typeAliasTargets
+}
+
+fun getFeatureTypeAliasCountImpl() r: Int {
+    return g_typeAliasCount
+}
+
+fun getFeatureReprCClassNamesImpl() r: String {
+    return g_reprCClassNames
+}
+
+fun getFeatureCResourceClassesImpl() r: String {
+    return g_cResourceClasses
+}
+
+fun getFeatureCResourceDestructorsImpl() r: String {
+    return g_cResourceDestructors
+}
+
+fun getFeatureFloatParamFuncNamesImpl() r: Array<String> {
+    return g_floatParamFuncNames
+}
+
+fun getFeatureFloatParamParamIdxsImpl() r: Array<Int> {
+    return g_floatParamParamIdxs
+}
+
+fun populateFeatureDeclarationPassStateImpl(
+    declState: DeclarationPassState) r: Void {
+
+    declState.asyncFuncNames = g_asyncFuncNames
+    declState.asyncFuncRetTypes = g_asyncFuncRetTypes
+    declState.asyncFuncCount = g_asyncFuncCount
+    declState.enumTypeNames = g_enumTypeNames
+    declState.enumVariantNames = g_enumVariantNames
+    declState.enumVariantTags = g_enumVariantTags
+    declState.enumVariantFieldTypes = g_enumVariantFieldTypes
+    declState.enumVariantFieldCounts = g_enumVariantFieldCounts
+    declState.enumVariantParent = g_enumVariantParent
+    declState.enumTypeCount = g_enumTypeCount
+    declState.enumVariantCount = g_enumVariantCount
+}
+
+fun applyFeatureDeclarationPassStateImpl(
+    declState: DeclarationPassState) r: Void {
+
+    g_asyncFuncNames = declState.asyncFuncNames
+    g_asyncFuncRetTypes = declState.asyncFuncRetTypes
+    g_asyncFuncCount = declState.asyncFuncCount
+    g_enumTypeNames = declState.enumTypeNames
+    g_enumVariantNames = declState.enumVariantNames
+    g_enumVariantTags = declState.enumVariantTags
+    g_enumVariantFieldTypes = declState.enumVariantFieldTypes
+    g_enumVariantFieldCounts = declState.enumVariantFieldCounts
+    g_enumVariantParent = declState.enumVariantParent
+    g_enumTypeCount = declState.enumTypeCount
+    g_enumVariantCount = declState.enumVariantCount
+}

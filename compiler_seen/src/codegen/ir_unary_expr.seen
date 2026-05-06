@@ -33,7 +33,8 @@ fun shouldSkipUnaryOverloadTypeImpl(unaryType: String) r: Bool {
 }
 
 fun planOverloadedUnaryState(operator: String, unaryOpType: String,
-    funcNames: String, funcRetTypes: String) r: OverloadedUnaryPlan {
+    funcNames: Array<String>, funcRetTypes: Array<String>)
+    r: OverloadedUnaryPlan {
 
     let plan = OverloadedUnaryPlan.new()
     let unaryOpMethod = unaryOperatorMethodNameImpl(operator)
