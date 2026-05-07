@@ -7,25 +7,10 @@ import str.string.{StringBuilder}
 import codegen.ir_decl_registry.{LateUserDeclareState, recordLateUserDeclareIntoStateImpl}
 import codegen.ir_method_call_plan.{shouldRecordStaticMethodLateDeclareImpl}
 import codegen.ir_method_fastpath.{resolveStaticMethodReturnTypeImpl, emitPreparedStaticMethodCallImpl}
-import codegen.ir_string_collect.{getBaseTypeNameImpl}
-import codegen.ir_type_mapping.{isClassTypeImpl, isDataTypeImpl, mapTypeImpl}
+import codegen.ir_codegen_type_state.{mapTypeState, isClassTypeState, isDataTypeState}
 
-fun mapStaticMethodReturnTypeImpl(returnTypeStr: String,
-    structNames: Array<String>, reprCClassNames: String,
-    typeAliasNames: String, typeAliasTargets: String, typeAliasCount: Int,
-    enumTypeNames: String) r: String {
-
-    if returnTypeStr.startsWith("dyn ") or returnTypeStr.startsWith("*") {
-        return "i64"
-    }
-    if reprCClassNames != "" {
-        let baseType = getBaseTypeNameImpl(returnTypeStr)
-        if reprCClassNames.contains(baseType + "|") {
-            return "%" + baseType
-        }
-    }
-    return mapTypeImpl(returnTypeStr, structNames, typeAliasNames,
-        typeAliasTargets, typeAliasCount, enumTypeNames)
+fun mapStaticMethodReturnTypeImpl(returnTypeStr: String) r: String {
+    return mapTypeState(returnTypeStr)
 }
 
 fun emitPreparedStaticMethodDispatchState(output: StringBuilder,
@@ -33,22 +18,18 @@ fun emitPreparedStaticMethodDispatchState(output: StringBuilder,
     staticClassName: String, funcName: String,
     registeredStaticReturnType: String, inferredStaticReturnType: String,
     argRegs: Array<String>, argTypeStrs: Array<String>,
-    structNames: Array<String>, reprCClassNames: String,
-    typeAliasNames: String, typeAliasTargets: String, typeAliasCount: Int,
-    enumTypeNames: String, lateState: LateUserDeclareState) r: String {
+    lateState: LateUserDeclareState) r: String {
 
     let staticReturnType = resolveStaticMethodReturnTypeImpl(
         registeredStaticReturnType, inferredStaticReturnType)
-    let staticLlvmReturnType = mapStaticMethodReturnTypeImpl(
-        staticReturnType, structNames, reprCClassNames, typeAliasNames,
-        typeAliasTargets, typeAliasCount, enumTypeNames)
+    let staticLlvmReturnType = mapStaticMethodReturnTypeImpl(staticReturnType)
 
     var isClassRecv = 0
-    if isClassTypeImpl(staticClassName, structNames) == 1 {
+    if isClassTypeState(staticClassName) {
         isClassRecv = 1
     }
     var isDataRecv = 0
-    if isDataTypeImpl(staticClassName) == 1 {
+    if isDataTypeState(staticClassName) {
         isDataRecv = 1
     }
     if shouldRecordStaticMethodLateDeclareImpl(potentialClassName,

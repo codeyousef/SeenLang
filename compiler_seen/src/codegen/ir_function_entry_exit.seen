@@ -65,16 +65,12 @@ fun mapFunctionEntryAllocaTypeImpl(seenType: String, structNames: Array<String>,
 }
 
 fun emitPreAllocatedAllocasImpl(output: StringBuilder, regBox: Array<Int>,
-    preAllocatedTypes: Array<String>, structNames: Array<String>,
-    typeAliasNames: String, typeAliasTargets: String, typeAliasCount: Int,
-    enumTypeNames: String, reprCClassNames: String) r: Array<String> {
+    preAllocatedLlvmTypes: Array<String>) r: Array<String> {
 
     let regs = Array<String>()
     var i = 0
-    while i < preAllocatedTypes.length() {
-        let llvmType = mapFunctionEntryAllocaTypeImpl(preAllocatedTypes[i],
-            structNames, typeAliasNames, typeAliasTargets, typeAliasCount,
-            enumTypeNames, reprCClassNames)
+    while i < preAllocatedLlvmTypes.length() {
+        let llvmType = preAllocatedLlvmTypes[i]
         let reg = getNextRegFn(regBox)
         if llvmType == "i64" or llvmType == "double" or llvmType == "ptr" {
             output.append("  " + reg + " = alloca " + llvmType +
@@ -178,10 +174,17 @@ fun emitFunctionEntrySetupStateImpl(state: CodegenState, fn: FunctionNode,
         typeAliasTargets, typeAliasCount, enumTypeNames, reprCClassNames)
     state.activeVarCount = paramActiveVarCountBox[0]
 
+    let preAllocatedLlvmTypes = Array<String>()
+    var preAllocatedIdx = 0
+    while preAllocatedIdx < state.preAllocatedTypes.length() {
+        preAllocatedLlvmTypes.push(mapFunctionEntryAllocaTypeImpl(
+            state.preAllocatedTypes[preAllocatedIdx], state.registry.structNames,
+            typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames,
+            reprCClassNames))
+        preAllocatedIdx = preAllocatedIdx + 1
+    }
     state.preAllocatedRegs = emitPreAllocatedAllocasImpl(state.output,
-        state.regBox, state.preAllocatedTypes, state.registry.structNames,
-        typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames,
-        reprCClassNames)
+        state.regBox, preAllocatedLlvmTypes)
 
     profileStringIndexBox[0] = -1
     if hasFunctionDecoratorGenImpl(fn, "profile") {

@@ -8,7 +8,7 @@ import parser.real_parser.{ParserExpressionNode}
 import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_call_dispatch.{emitOptionUnwrapSpecializedImpl, emitUserMethodCallImpl}
 import codegen.ir_string_collect.{getBaseTypeNameImpl}
-import codegen.ir_type_mapping.{isClassTypeImpl, isDataTypeImpl, mapTypeImpl, isClassHandleLikeTypeImpl}
+import codegen.ir_codegen_type_state.{mapTypeState, isClassTypeState, isDataTypeState, isClassHandleLikeTypeState}
 import codegen.ir_decl_registry.{LateUserDeclareState, recordLateUserDeclareIntoStateImpl}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
 import str.string.{StringBuilder}
@@ -111,7 +111,10 @@ fun tryGeneratePreparedHotReloadInstanceMethodCallImpl(output: StringBuilder,
     receiverReg: String, receiverType: String, hotStateArg: String,
     structNames: Array<String>) r: String {
 
-    let hotClassReceiver = isClassTypeImpl(receiverType, structNames)
+    var hotClassReceiver = 0
+    if isClassTypeState(receiverType) {
+        hotClassReceiver = 1
+    }
     return emitHotReloadMethodCallImpl(output, regBox, methodName,
         quotedFuncName, receiverReg, hotClassReceiver, hotStateArg)
 }
@@ -129,22 +132,8 @@ fun resolveMethodCallReturnTypeImpl(inferredReturnType: String,
     return returnTypeStr
 }
 
-fun mapFinalMethodReturnTypeImpl(returnTypeStr: String,
-    structNames: Array<String>, reprCClassNames: String,
-    typeAliasNames: String, typeAliasTargets: String, typeAliasCount: Int,
-    enumTypeNames: String) r: String {
-
-    if returnTypeStr.startsWith("dyn ") or returnTypeStr.startsWith("*") {
-        return "i64"
-    }
-    if reprCClassNames != "" {
-        let baseType = getBaseTypeNameImpl(returnTypeStr)
-        if reprCClassNames.contains(baseType + "|") {
-            return "%" + baseType
-        }
-    }
-    return mapTypeImpl(returnTypeStr, structNames, typeAliasNames,
-        typeAliasTargets, typeAliasCount, enumTypeNames)
+fun mapFinalMethodReturnTypeImpl(returnTypeStr: String) r: String {
+    return mapTypeState(returnTypeStr)
 }
 
 ///
@@ -196,32 +185,26 @@ fun resolveMethodReceiverAbiImpl(output: StringBuilder, regBox: Array<Int>,
 
 fun prepareMethodCallReceiverAbiImpl(output: StringBuilder, regBox: Array<Int>,
     instanceTypeName: String, receiverRegBox: Array<String>,
-    receiverType: String, receiverLlvmTypeBox: Array<String>,
-    structNames: Array<String>, reprCClassNames: String,
-    typeAliasNames: String, typeAliasTargets: String, typeAliasCount: Int,
-    enumTypeNames: String) r: Void {
+    receiverType: String, receiverLlvmTypeBox: Array<String>) r: Void {
 
-    var receiverStorageLlvmType = mapTypeImpl(receiverType, structNames,
-        typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames)
-    if receiverType.startsWith("dyn ") or receiverType.startsWith("*") {
-        receiverStorageLlvmType = "i64"
-    } else if reprCClassNames != "" {
-        let baseType = getBaseTypeNameImpl(receiverType)
-        if reprCClassNames.contains(baseType + "|") {
-            receiverStorageLlvmType = "%" + baseType
-        }
+    var receiverStorageLlvmType = mapTypeState(receiverType)
+
+    var receiverIsKnownClass = 0
+    if isClassTypeState(receiverType) {
+        receiverIsKnownClass = 1
     }
-
-    let receiverIsKnownClass = isClassTypeImpl(receiverType, structNames)
     var receiverIsClass = receiverIsKnownClass
-    if receiverIsClass == 0 {
-        receiverIsClass = isClassHandleLikeTypeImpl(receiverType, structNames)
+    if receiverIsClass == 0 and isClassHandleLikeTypeState(receiverType) {
+        receiverIsClass = 1
     }
     var receiverNeedsPtrLift = 0
     if receiverStorageLlvmType == "i64" {
         receiverNeedsPtrLift = 1
     }
-    let receiverIsData = isDataTypeImpl(receiverType)
+    var receiverIsData = 0
+    if isDataTypeState(receiverType) {
+        receiverIsData = 1
+    }
     resolveMethodReceiverAbiImpl(output, regBox, instanceTypeName,
         receiverStorageLlvmType, receiverRegBox, receiverLlvmTypeBox,
         receiverNeedsPtrLift, receiverIsData)
@@ -250,7 +233,7 @@ fun extractOptionInnerTypeImpl(receiverType: String, fallbackType: String) r: St
 fun tryGenerateSpecializedInstanceMethodCallImpl(output: StringBuilder,
     regBox: Array<Int>, methodName: String, instanceTypeName: String,
     receiverType: String, returnTypeStr: String, receiverLlvmType: String,
-    receiverReg: String, structNames: Array<String>) r: String {
+    receiverReg: String) r: String {
 
     if methodName == "unwrap" and instanceTypeName == "String" {
         return receiverReg
@@ -260,7 +243,7 @@ fun tryGenerateSpecializedInstanceMethodCallImpl(output: StringBuilder,
         let innerType = extractOptionInnerTypeImpl(receiverType, returnTypeStr)
         var isClassInner = 0
         let baseInnerType = getBaseTypeNameImpl(innerType)
-        if isClassTypeImpl(baseInnerType, structNames) == 1 or
+        if isClassTypeState(baseInnerType) or
             baseInnerType == "Vec" or baseInnerType == "Map" or
             baseInnerType == "HashMap" or baseInnerType == "Result" {
             isClassInner = 1
@@ -278,16 +261,11 @@ fun emitPreparedFinalMethodDispatchState(output: StringBuilder,
     registeredMethodReturnType: String, inferredMethodReturnType: String,
     argRegs: Array<String>, argTypeStrs: Array<String>,
     shouldPrepareReceiverAbi: Bool, shouldTrySpecialized: Bool,
-    shouldEmitUserMethod: Bool, structNames: Array<String>,
-    reprCClassNames: String, typeAliasNames: String,
-    typeAliasTargets: String, typeAliasCount: Int, enumTypeNames: String,
-    lateState: LateUserDeclareState) r: String {
+    shouldEmitUserMethod: Bool, lateState: LateUserDeclareState) r: String {
 
     let returnTypeStr = resolveMethodCallReturnTypeImpl(
         inferredMethodReturnType, registeredMethodReturnType)
-    let llvmReturnType = mapFinalMethodReturnTypeImpl(returnTypeStr,
-        structNames, reprCClassNames, typeAliasNames, typeAliasTargets,
-        typeAliasCount, enumTypeNames)
+    let llvmReturnType = mapFinalMethodReturnTypeImpl(returnTypeStr)
 
     let receiverRegBox = Array<String>()
     receiverRegBox.push(receiverReg)
@@ -295,9 +273,7 @@ fun emitPreparedFinalMethodDispatchState(output: StringBuilder,
     receiverLlvmTypeBox.push("ptr")
     if shouldPrepareReceiverAbi {
         prepareMethodCallReceiverAbiImpl(output, regBox, instanceTypeName,
-            receiverRegBox, receiverType, receiverLlvmTypeBox, structNames,
-            reprCClassNames, typeAliasNames, typeAliasTargets, typeAliasCount,
-            enumTypeNames)
+            receiverRegBox, receiverType, receiverLlvmTypeBox)
     }
 
     let normalizedReceiverReg = receiverRegBox[0]
@@ -311,8 +287,7 @@ fun emitPreparedFinalMethodDispatchState(output: StringBuilder,
     if shouldTrySpecialized {
         let specializedResult = tryGenerateSpecializedInstanceMethodCallImpl(
             output, regBox, methodName, instanceTypeName, receiverType,
-            returnTypeStr, receiverLlvmType, normalizedReceiverReg,
-            structNames)
+            returnTypeStr, receiverLlvmType, normalizedReceiverReg)
         if specializedResult != "" {
             return specializedResult
         }

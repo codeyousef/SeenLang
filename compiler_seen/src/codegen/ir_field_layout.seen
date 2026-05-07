@@ -5,7 +5,7 @@ Extracted from llvm_ir_gen.seen field access paths to reduce duplication.
 
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{parseIntManual, splitPipe, getNextRegFn}
-import codegen.ir_bitfield_access.{findBitfieldWidthImpl}
+import codegen.ir_codegen_feature_state.{findFeatureBitfieldWidthImpl}
 import codegen.ir_member_access.{emitFieldAccessPtrImpl, emitFieldAccessLoadImpl, emitBitfieldMaskLoadImpl}
 import codegen.ir_type_info.{findStructIdx, g_resolvedFieldIndex, getLLVMIRGeneratorFieldIndexImpl, getLLVMIRGeneratorStructLayoutImpl}
 import codegen.ir_seen_field_type_lookup.{getSeenFieldTypeImpl}
@@ -87,8 +87,8 @@ fun emitResolvedFieldAccessLoadImpl(output: StringBuilder, regBox: Array<Int>,
     var resultReg = emitFieldAccessLoadImpl(output, regBox, fieldType,
         fieldPtrReg)
     if bitfieldCount > 0 {
-        let bitfieldWidth = findBitfieldWidthImpl(structType + "." + fieldName,
-            bitfieldKeys, bitfieldWidths)
+        let bitfieldWidth = findFeatureBitfieldWidthImpl(structType + "." +
+            fieldName)
         if bitfieldWidth > 0 and bitfieldWidth < 64 {
             resultReg = emitBitfieldMaskLoadImpl(output, regBox, resultReg,
                 bitfieldWidth)

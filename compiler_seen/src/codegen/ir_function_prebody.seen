@@ -132,9 +132,17 @@ fun emitMainFunctionEntrySnapshotImpl(output: StringBuilder,
         " @main(i32 %argc, ptr %argv) #0 {\n")
     output.append("entry:\n")
     output.append("  call void @seen_runtime_init(i32 %argc, ptr %argv)\n")
+    let preAllocatedLlvmTypes = Array<String>()
+    var preAllocatedIdx = 0
+    while preAllocatedIdx < preAllocatedTypes.length() {
+        preAllocatedLlvmTypes.push(mapFunctionPreBodyReturnTypeImpl(
+            preAllocatedTypes[preAllocatedIdx], structNames, typeAliasNames,
+            typeAliasTargets, typeAliasCount, enumTypeNames,
+            reprCClassNames))
+        preAllocatedIdx = preAllocatedIdx + 1
+    }
     snapshot.preAllocatedRegs = emitPreAllocatedAllocasImpl(output, regBox,
-        preAllocatedTypes, structNames, typeAliasNames, typeAliasTargets,
-        typeAliasCount, enumTypeNames, reprCClassNames)
+        preAllocatedLlvmTypes)
     return snapshot
 }
 

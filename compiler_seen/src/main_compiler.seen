@@ -5348,15 +5348,108 @@ fun checkEnumExhaustivenessStatement(result: FrontendResult, modulePath: String,
         return
     }
 
-    checkEnumExhaustivenessExpression(result, modulePath, moduleProgram, modulePaths, frontends, stmt.expression, boundNames, boundTypes, ownerClassName, funcLine)
-    checkEnumExhaustivenessExpression(result, modulePath, moduleProgram, modulePaths, frontends, stmt.returnValue, boundNames, boundTypes, ownerClassName, funcLine)
-    checkEnumExhaustivenessExpression(result, modulePath, moduleProgram, modulePaths, frontends, stmt.condition, boundNames, boundTypes, ownerClassName, funcLine)
-    checkEnumExhaustivenessExpression(result, modulePath, moduleProgram, modulePaths, frontends, stmt.loopCondition, boundNames, boundTypes, ownerClassName, funcLine)
-    checkEnumExhaustivenessExpression(result, modulePath, moduleProgram, modulePaths, frontends, stmt.initializer, boundNames, boundTypes, ownerClassName, funcLine)
+    if stmt.kind == "Expression" or stmt.kind == "Assignment" or
+        stmt.kind == "MemberAssignment" or stmt.kind == "IndexAssignment" or
+        stmt.kind == "Throw" {
+        checkEnumExhaustivenessExpression(result, modulePath, moduleProgram,
+            modulePaths, frontends, stmt.expression, boundNames, boundTypes,
+            ownerClassName, funcLine)
+        return
+    }
 
-    checkEnumExhaustivenessBlock(result, modulePath, moduleProgram, modulePaths, frontends, stmt.thenBranch, boundNames, boundTypes, ownerClassName, funcLine)
-    checkEnumExhaustivenessBlock(result, modulePath, moduleProgram, modulePaths, frontends, stmt.elseBranch, boundNames, boundTypes, ownerClassName, funcLine)
-    checkEnumExhaustivenessBlock(result, modulePath, moduleProgram, modulePaths, frontends, stmt.loopBody, boundNames, boundTypes, ownerClassName, funcLine)
+    if stmt.kind == "Return" {
+        checkEnumExhaustivenessExpression(result, modulePath, moduleProgram,
+            modulePaths, frontends, stmt.returnValue, boundNames, boundTypes,
+            ownerClassName, funcLine)
+        return
+    }
+
+    if stmt.kind == "If" or stmt.kind == "IfLet" {
+        checkEnumExhaustivenessExpression(result, modulePath, moduleProgram,
+            modulePaths, frontends, stmt.condition, boundNames, boundTypes,
+            ownerClassName, funcLine)
+        checkEnumExhaustivenessBlock(result, modulePath, moduleProgram,
+            modulePaths, frontends, stmt.thenBranch, boundNames, boundTypes,
+            ownerClassName, funcLine)
+        checkEnumExhaustivenessBlock(result, modulePath, moduleProgram,
+            modulePaths, frontends, stmt.elseBranch, boundNames, boundTypes,
+            ownerClassName, funcLine)
+        return
+    }
+
+    if stmt.kind == "While" {
+        checkEnumExhaustivenessExpression(result, modulePath, moduleProgram,
+            modulePaths, frontends, stmt.loopCondition, boundNames, boundTypes,
+            ownerClassName, funcLine)
+        checkEnumExhaustivenessBlock(result, modulePath, moduleProgram,
+            modulePaths, frontends, stmt.loopBody, boundNames, boundTypes,
+            ownerClassName, funcLine)
+        return
+    }
+
+    if stmt.kind == "ForIn" or stmt.kind == "ParallelFor" {
+        checkEnumExhaustivenessExpression(result, modulePath, moduleProgram,
+            modulePaths, frontends, stmt.expression, boundNames, boundTypes,
+            ownerClassName, funcLine)
+        checkEnumExhaustivenessBlock(result, modulePath, moduleProgram,
+            modulePaths, frontends, stmt.loopBody, boundNames, boundTypes,
+            ownerClassName, funcLine)
+        return
+    }
+
+    if stmt.kind == "TryCatch" {
+        checkEnumExhaustivenessBlock(result, modulePath, moduleProgram,
+            modulePaths, frontends, stmt.thenBranch, boundNames, boundTypes,
+            ownerClassName, funcLine)
+        checkEnumExhaustivenessBlock(result, modulePath, moduleProgram,
+            modulePaths, frontends, stmt.elseBranch, boundNames, boundTypes,
+            ownerClassName, funcLine)
+        return
+    }
+
+    if stmt.kind == "Unsafe" or stmt.kind == "Region" or
+        stmt.kind == "ComptimeBlock" {
+        checkEnumExhaustivenessBlock(result, modulePath, moduleProgram,
+            modulePaths, frontends, stmt.thenBranch, boundNames, boundTypes,
+            ownerClassName, funcLine)
+        return
+    }
+
+    if stmt.kind == "ComptimeIf" {
+        checkEnumExhaustivenessExpression(result, modulePath, moduleProgram,
+            modulePaths, frontends, stmt.expression, boundNames, boundTypes,
+            ownerClassName, funcLine)
+        checkEnumExhaustivenessBlock(result, modulePath, moduleProgram,
+            modulePaths, frontends, stmt.thenBranch, boundNames, boundTypes,
+            ownerClassName, funcLine)
+        checkEnumExhaustivenessBlock(result, modulePath, moduleProgram,
+            modulePaths, frontends, stmt.elseBranch, boundNames, boundTypes,
+            ownerClassName, funcLine)
+        return
+    }
+
+    if stmt.kind == "ComptimeAssert" {
+        checkEnumExhaustivenessExpression(result, modulePath, moduleProgram,
+            modulePaths, frontends, stmt.expression, boundNames, boundTypes,
+            ownerClassName, funcLine)
+        checkEnumExhaustivenessExpression(result, modulePath, moduleProgram,
+            modulePaths, frontends, stmt.condition, boundNames, boundTypes,
+            ownerClassName, funcLine)
+        return
+    }
+
+    if stmt.kind == "Defer" or stmt.kind == "Errdefer" {
+        if stmt.expression.kind != "None" and stmt.expression.kind != "" {
+            checkEnumExhaustivenessExpression(result, modulePath, moduleProgram,
+                modulePaths, frontends, stmt.expression, boundNames, boundTypes,
+                ownerClassName, funcLine)
+        } else {
+            checkEnumExhaustivenessBlock(result, modulePath, moduleProgram,
+                modulePaths, frontends, stmt.thenBranch, boundNames, boundTypes,
+                ownerClassName, funcLine)
+        }
+        return
+    }
 }
 
 fun checkEnumExhaustivenessBlock(result: FrontendResult, modulePath: String, moduleProgram: ProgramNode, modulePaths: Array<String>, frontends: Array<FrontendResult>, block: BlockNode, boundNames: Array<String>, boundTypes: Array<String>, ownerClassName: String, funcLine: Int) r: Void {
@@ -5615,23 +5708,92 @@ fun checkUnresolvedFreeCallStatement(result: FrontendResult,
         return
     }
 
-    checkUnresolvedFreeCallExpression(result, modulePath, moduleProgram,
-        stmt.expression, boundNames, boundTypes, ownerClassName, funcLine)
-    checkUnresolvedFreeCallExpression(result, modulePath, moduleProgram,
-        stmt.returnValue, boundNames, boundTypes, ownerClassName, funcLine)
-    checkUnresolvedFreeCallExpression(result, modulePath, moduleProgram,
-        stmt.condition, boundNames, boundTypes, ownerClassName, funcLine)
-    checkUnresolvedFreeCallExpression(result, modulePath, moduleProgram,
-        stmt.loopCondition, boundNames, boundTypes, ownerClassName, funcLine)
-    checkUnresolvedFreeCallExpression(result, modulePath, moduleProgram,
-        stmt.initializer, boundNames, boundTypes, ownerClassName, funcLine)
+    if stmt.kind == "Expression" or stmt.kind == "Assignment" or
+        stmt.kind == "MemberAssignment" or stmt.kind == "IndexAssignment" or
+        stmt.kind == "Throw" {
+        checkUnresolvedFreeCallExpression(result, modulePath, moduleProgram,
+            stmt.expression, boundNames, boundTypes, ownerClassName, funcLine)
+        return
+    }
 
-    checkUnresolvedFreeCallBlock(result, modulePath, moduleProgram,
-        stmt.thenBranch, boundNames, boundTypes, ownerClassName, funcLine)
-    checkUnresolvedFreeCallBlock(result, modulePath, moduleProgram,
-        stmt.elseBranch, boundNames, boundTypes, ownerClassName, funcLine)
-    checkUnresolvedFreeCallBlock(result, modulePath, moduleProgram,
-        stmt.loopBody, boundNames, boundTypes, ownerClassName, funcLine)
+    if stmt.kind == "Return" {
+        checkUnresolvedFreeCallExpression(result, modulePath, moduleProgram,
+            stmt.returnValue, boundNames, boundTypes, ownerClassName, funcLine)
+        return
+    }
+
+    if stmt.kind == "If" or stmt.kind == "IfLet" {
+        checkUnresolvedFreeCallExpression(result, modulePath, moduleProgram,
+            stmt.condition, boundNames, boundTypes, ownerClassName, funcLine)
+        checkUnresolvedFreeCallBlock(result, modulePath, moduleProgram,
+            stmt.thenBranch, boundNames, boundTypes, ownerClassName, funcLine)
+        checkUnresolvedFreeCallBlock(result, modulePath, moduleProgram,
+            stmt.elseBranch, boundNames, boundTypes, ownerClassName, funcLine)
+        return
+    }
+
+    if stmt.kind == "While" {
+        checkUnresolvedFreeCallExpression(result, modulePath, moduleProgram,
+            stmt.loopCondition, boundNames, boundTypes, ownerClassName,
+            funcLine)
+        checkUnresolvedFreeCallBlock(result, modulePath, moduleProgram,
+            stmt.loopBody, boundNames, boundTypes, ownerClassName, funcLine)
+        return
+    }
+
+    if stmt.kind == "ForIn" or stmt.kind == "ParallelFor" {
+        checkUnresolvedFreeCallExpression(result, modulePath, moduleProgram,
+            stmt.expression, boundNames, boundTypes, ownerClassName, funcLine)
+        checkUnresolvedFreeCallBlock(result, modulePath, moduleProgram,
+            stmt.loopBody, boundNames, boundTypes, ownerClassName, funcLine)
+        return
+    }
+
+    if stmt.kind == "TryCatch" {
+        checkUnresolvedFreeCallBlock(result, modulePath, moduleProgram,
+            stmt.thenBranch, boundNames, boundTypes, ownerClassName, funcLine)
+        checkUnresolvedFreeCallBlock(result, modulePath, moduleProgram,
+            stmt.elseBranch, boundNames, boundTypes, ownerClassName, funcLine)
+        return
+    }
+
+    if stmt.kind == "Unsafe" or stmt.kind == "Region" or
+        stmt.kind == "ComptimeBlock" {
+        checkUnresolvedFreeCallBlock(result, modulePath, moduleProgram,
+            stmt.thenBranch, boundNames, boundTypes, ownerClassName, funcLine)
+        return
+    }
+
+    if stmt.kind == "ComptimeIf" {
+        checkUnresolvedFreeCallExpression(result, modulePath, moduleProgram,
+            stmt.expression, boundNames, boundTypes, ownerClassName, funcLine)
+        checkUnresolvedFreeCallBlock(result, modulePath, moduleProgram,
+            stmt.thenBranch, boundNames, boundTypes, ownerClassName, funcLine)
+        checkUnresolvedFreeCallBlock(result, modulePath, moduleProgram,
+            stmt.elseBranch, boundNames, boundTypes, ownerClassName, funcLine)
+        return
+    }
+
+    if stmt.kind == "ComptimeAssert" {
+        checkUnresolvedFreeCallExpression(result, modulePath, moduleProgram,
+            stmt.expression, boundNames, boundTypes, ownerClassName, funcLine)
+        checkUnresolvedFreeCallExpression(result, modulePath, moduleProgram,
+            stmt.condition, boundNames, boundTypes, ownerClassName, funcLine)
+        return
+    }
+
+    if stmt.kind == "Defer" or stmt.kind == "Errdefer" {
+        if stmt.expression.kind != "None" and stmt.expression.kind != "" {
+            checkUnresolvedFreeCallExpression(result, modulePath, moduleProgram,
+                stmt.expression, boundNames, boundTypes, ownerClassName,
+                funcLine)
+        } else {
+            checkUnresolvedFreeCallBlock(result, modulePath, moduleProgram,
+                stmt.thenBranch, boundNames, boundTypes, ownerClassName,
+                funcLine)
+        }
+        return
+    }
 }
 
 fun checkUnresolvedFreeCallBlock(result: FrontendResult,

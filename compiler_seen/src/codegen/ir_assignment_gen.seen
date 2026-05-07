@@ -10,7 +10,7 @@ import codegen.ir_string_collect.{getBaseTypeNameImpl}
 import codegen.ir_type_info.{findStructIdx}
 import codegen.ir_seen_field_type_lookup.{getSeenFieldTypeImpl}
 import codegen.ir_type_mapping.{isClassHandleLikeTypeImpl, isClassTypeImpl, isDataTypeImpl, mapTypeImpl}
-import codegen.ir_bitfield_access.{findBitfieldWidthImpl}
+import codegen.ir_codegen_feature_state.{findFeatureBitfieldWidthImpl}
 import codegen.ir_field_layout.{emitResolvedFieldAccessPtrImpl, emitResolvedFieldAccessLoadImpl}
 import codegen.ir_member_access.{prepareExpressionMemberReceiverImpl, prepareVariableMemberReceiverImpl}
 import codegen.ir_variable_gen.{findActiveVariableIndexImpl}
@@ -171,8 +171,8 @@ fun emitResolvedMemberAssignmentStoreImpl(output: StringBuilder,
         structFieldNames)
 
     if allowBitfield == 1 and bitfieldCount > 0 and fieldTypes[0] == "i64" {
-        let bitfieldWidth = findBitfieldWidthImpl(receiverType + "." + fieldName,
-            bitfieldKeys, bitfieldWidths)
+        let bitfieldWidth = findFeatureBitfieldWidthImpl(receiverType + "." +
+            fieldName)
         if bitfieldWidth > 0 {
             let bitfieldValueReg = coerceAssignmentStoreValueCoreImpl(output,
                 regBox, "i64", valueSeenType, valueReg, structNames)

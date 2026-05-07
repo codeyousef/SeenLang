@@ -13,18 +13,31 @@ fun findBitfieldWidthImpl(bitfieldKey: String, bitfieldKeys: String,
         return 0
     }
 
+    let bitfieldKeysLen = bitfieldKeys.length()
+    let bitfieldWidthsLen = bitfieldWidths.length()
+    if bitfieldKeysLen <= 0 or bitfieldWidthsLen <= 0 {
+        return 0
+    }
+    if bitfieldKeysLen > 65536 or bitfieldWidthsLen > 65536 {
+        return 0
+    }
+
     var keySearchPos = 0
     var bitfieldIdx = 0
-    while keySearchPos < bitfieldKeys.length() {
+    while keySearchPos < bitfieldKeysLen {
         var nextPipe = bitfieldKeys.indexOf("|", keySearchPos)
-        if nextPipe < 0 { nextPipe = bitfieldKeys.length() }
+        if nextPipe < 0 or nextPipe > bitfieldKeysLen {
+            nextPipe = bitfieldKeysLen
+        }
         let entry = bitfieldKeys.substring(keySearchPos, nextPipe)
         if entry == bitfieldKey {
             var widthSearchPos = 0
             var widthIdx = 0
-            while widthSearchPos < bitfieldWidths.length() {
+            while widthSearchPos < bitfieldWidthsLen {
                 var widthPipe = bitfieldWidths.indexOf("|", widthSearchPos)
-                if widthPipe < 0 { widthPipe = bitfieldWidths.length() }
+                if widthPipe < 0 or widthPipe > bitfieldWidthsLen {
+                    widthPipe = bitfieldWidthsLen
+                }
                 if widthIdx == bitfieldIdx {
                     let widthStr = bitfieldWidths.substring(widthSearchPos,
                         widthPipe)

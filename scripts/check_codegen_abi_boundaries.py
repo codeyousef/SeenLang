@@ -131,6 +131,17 @@ FEATURE_BOX_GLOBALS = {
     "g_regBox",
     "g_blockBox",
 }
+FEATURE_STATE_GLOBAL_ACCESSORS = {
+    "g_bitfieldKeys": "getFeatureBitfieldKeysImpl",
+    "g_bitfieldWidths": "getFeatureBitfieldWidthsImpl",
+    "g_bitfieldCount": "getFeatureBitfieldCountImpl",
+}
+BITFIELD_WIDTH_RAW_HELPER = "findBitfieldWidthImpl"
+BITFIELD_WIDTH_OWNER_HELPER = "findFeatureBitfieldWidthImpl"
+BITFIELD_WIDTH_RAW_HELPER_ALLOWLIST = {
+    "ir_bitfield_access",
+    "ir_codegen_feature_state",
+}
 
 FUNCTION_PREBODY_DIRECT_HELPERS = {
     "mapFunctionPreBodyReturnTypeImpl": "use mapTypeState/current owner-state getters instead",
@@ -191,6 +202,56 @@ MODULE_TAIL_FORBIDDEN_STATE = {
 }
 BLOCK_TERMINATED_GETTER = "getBlockTerminatedWithGlobalStateImpl"
 BLOCK_TERMINATED_SETTER = "setBlockTerminatedWithGlobalStateImpl"
+PER_FUNCTION_GLOBAL_STATE_ACCESSORS = {
+    "currentFunctionReturnType": (
+        "getCurrentFunctionReturnTypeWithGlobalStateImpl",
+        "setCurrentFunctionReturnTypeWithGlobalStateImpl",
+    ),
+    "currentClassName": (
+        "getGlobalCurrentClassNameImpl",
+        "setGlobalCurrentClassNameImpl",
+    ),
+    "currentLoopCondLabel": (
+        "getCurrentLoopCondLabelWithGlobalStateImpl",
+        "setCurrentLoopCondLabelWithGlobalStateImpl",
+    ),
+    "currentLoopEndLabel": (
+        "getCurrentLoopEndLabelWithGlobalStateImpl",
+        "setCurrentLoopEndLabelWithGlobalStateImpl",
+    ),
+    "pendingArrayLiteralType": (
+        "getPendingArrayLiteralTypeWithGlobalStateImpl",
+        "setPendingArrayLiteralTypeWithGlobalStateImpl",
+    ),
+    "activeVarCount": (
+        "getActiveVarCountWithGlobalStateImpl",
+        "setActiveVarCountWithGlobalStateImpl",
+    ),
+    "preAllocatedRegs": (
+        "getPreAllocatedRegsWithGlobalStateImpl",
+        "setPreAllocatedRegsWithGlobalStateImpl",
+    ),
+    "preAllocatedTypes": (
+        "getPreAllocatedTypesWithGlobalStateImpl",
+        "setPreAllocatedTypesWithGlobalStateImpl",
+    ),
+    "preAllocatedVars": (
+        "getPreAllocatedVarsWithGlobalStateImpl",
+        "setPreAllocatedVarsWithGlobalStateImpl",
+    ),
+}
+ACTIVE_VAR_COUNT_UNBOUNDED_GETTER = "getActiveVarCountWithGlobalStateImpl"
+ACTIVE_VAR_COUNT_BOUNDED_GETTER = "getBoundedActiveVarCountWithGlobalStateImpl"
+REGISTRY_GLOBAL_STATE_ACCESSORS = {
+    "structNames": "getGlobalStructNamesImpl",
+    "structLayouts": "getGlobalStructLayoutsImpl",
+    "structFieldNames": "getGlobalStructFieldNamesImpl",
+    "structFieldTypes": "getGlobalStructFieldTypesImpl",
+    "structLlvmFieldTypes": "getGlobalStructLlvmFieldTypesImpl",
+    "structSizes": "getGlobalStructSizesImpl",
+    "structMethodNames": "getGlobalStructMethodNamesImpl",
+    "structMethodRetTypes": "getGlobalStructMethodRetTypesImpl",
+}
 DECL_STORAGE_OWNER_HELPERS = {
     "prepareLetStatementPlanWithGlobalStateImpl",
     "resolveLetPreAllocatedRegWithGlobalStateImpl",
@@ -263,6 +324,63 @@ LATE_DECLARE_UNUSED_STATE_PARAMS = {
     "funcRetTypes",
     "xmDeclareNames",
     "xmDeclareCount",
+}
+STATIC_METHOD_DISPATCH_HELPER = "emitPreparedStaticMethodDispatchState"
+STATIC_METHOD_DISPATCH_MAX_ARGS = 11
+STATIC_METHOD_DISPATCH_FORBIDDEN_STATE = {
+    "structNames",
+    "getGlobalStructNamesImpl",
+    "g_reprCClassNames",
+    "reprCClassNames",
+    "g_typeAliasNames",
+    "typeAliasNames",
+    "g_typeAliasTargets",
+    "typeAliasTargets",
+    "g_typeAliasCount",
+    "typeAliasCount",
+    "g_enumTypeNames",
+    "enumTypeNames",
+}
+FINAL_METHOD_DISPATCH_HELPER = "emitPreparedFinalMethodDispatchState"
+FINAL_METHOD_DISPATCH_MAX_ARGS = 15
+FINAL_METHOD_DISPATCH_FORBIDDEN_STATE = STATIC_METHOD_DISPATCH_FORBIDDEN_STATE
+CLASS_METHOD_METADATA_HELPERS = {
+    "collectClassMethodParameterInfoImpl": 5,
+    "emitClassMethodParameterBindingsStateImpl": 11,
+}
+CLASS_METHOD_METADATA_FORBIDDEN_STATE = STATIC_METHOD_DISPATCH_FORBIDDEN_STATE
+PREALLOCATED_ALLOCA_HELPER = "emitPreAllocatedAllocasImpl"
+PREALLOCATED_ALLOCA_MAX_ARGS = 3
+PREALLOCATED_ALLOCA_FORBIDDEN_STATE = STATIC_METHOD_DISPATCH_FORBIDDEN_STATE
+EXTERN_GENERATION_HELPER = "tryHandleExternFunctionGenerationStateImpl"
+EXTERN_GENERATION_OWNER_HELPER = "tryHandleExternFunctionGenerationWithGlobalStateImpl"
+EXTERN_GENERATION_OWNER_MAX_ARGS = 2
+EXTERN_GENERATION_FORBIDDEN_CALL_STATE = {
+    "getGlobalFuncNamesImpl",
+    "getGlobalFuncRetTypesImpl",
+    "funcNames",
+    "funcRetTypes",
+    "getGlobalStructNamesImpl",
+    "structNames",
+    "g_reprCClassNames",
+    "g_typeAliasNames",
+    "g_typeAliasTargets",
+    "g_typeAliasCount",
+    "g_enumTypeNames",
+}
+STRING_BUILDER_METHOD_LOWER_HELPER = "emitPreparedStringBuilderMethodLowerImpl"
+STRING_BUILDER_METHOD_LOWER_MAX_ARGS = 7
+STRING_BUILDER_RECEIVER_HELPER = "emitStringBuilderReceiverMethodCallImpl"
+STRING_BUILDER_RECEIVER_MAX_ARGS = 7
+STRING_BUILDER_FORBIDDEN_STATE = {
+    "getGlobalStructNamesImpl",
+    "structNames",
+    "g_reprCClassNames",
+    "reprCClassNames",
+    "g_typeAliasNames",
+    "g_typeAliasTargets",
+    "g_typeAliasCount",
+    "g_enumTypeNames",
 }
 AST_LAYOUT_STRUCTS = (
     "StatementNode",
@@ -916,6 +1034,442 @@ def find_calls(text: str, name: str | None = None) -> list[tuple[int, str, list[
     return calls
 
 
+def static_method_dispatch_boundary_findings(root: Path) -> list[Finding]:
+    findings: list[Finding] = []
+    helper_path = root / "compiler_seen" / "src" / "codegen" / "ir_method_static_dispatch.seen"
+    facade_path = root / "compiler_seen" / "src" / "codegen" / "llvm_ir_gen.seen"
+    if not helper_path.exists() or not facade_path.exists():
+        return findings
+    helper_text = "\n".join(source_lines(helper_path))
+    definition = find_function_definition(helper_text, STATIC_METHOD_DISPATCH_HELPER)
+    if definition is not None:
+        line_no, params = definition
+        if len(params) > STATIC_METHOD_DISPATCH_MAX_ARGS:
+            findings.append(
+                Finding(
+                    helper_path,
+                    line_no,
+                    f"{STATIC_METHOD_DISPATCH_HELPER} has {len(params)} args; "
+                    "keep static dispatch metadata owner-backed so Stage3 does "
+                    "not pass alias/reprC strings through a high-arity helper",
+                )
+            )
+        joined_params = " ".join(params)
+        leaked = sorted(
+            name
+            for name in STATIC_METHOD_DISPATCH_FORBIDDEN_STATE
+            if re.search(rf"\b{re.escape(name)}\b", joined_params)
+        )
+        if leaked:
+            findings.append(
+                Finding(
+                    helper_path,
+                    line_no,
+                    f"{STATIC_METHOD_DISPATCH_HELPER} takes bootstrap-sensitive "
+                    "type metadata directly: " + ", ".join(leaked),
+                )
+            )
+
+    facade_text = "\n".join(source_lines(facade_path))
+    for line_no, _, args, _ in find_calls(facade_text, STATIC_METHOD_DISPATCH_HELPER):
+        joined_args = " ".join(args)
+        leaked = sorted(
+            name
+            for name in STATIC_METHOD_DISPATCH_FORBIDDEN_STATE
+            if re.search(rf"\b{re.escape(name)}\b", joined_args)
+        )
+        if leaked:
+            findings.append(
+                Finding(
+                    facade_path,
+                    line_no,
+                    f"{STATIC_METHOD_DISPATCH_HELPER} call passes "
+                    "bootstrap-sensitive type metadata directly: "
+                    + ", ".join(leaked),
+                )
+            )
+    return findings
+
+
+def final_method_dispatch_boundary_findings(root: Path) -> list[Finding]:
+    findings: list[Finding] = []
+    helper_path = root / "compiler_seen" / "src" / "codegen" / "ir_method_finalize.seen"
+    facade_path = root / "compiler_seen" / "src" / "codegen" / "llvm_ir_gen.seen"
+    if not helper_path.exists() or not facade_path.exists():
+        return findings
+    helper_text = "\n".join(source_lines(helper_path))
+    definition = find_function_definition(helper_text, FINAL_METHOD_DISPATCH_HELPER)
+    if definition is not None:
+        line_no, params = definition
+        if len(params) > FINAL_METHOD_DISPATCH_MAX_ARGS:
+            findings.append(
+                Finding(
+                    helper_path,
+                    line_no,
+                    f"{FINAL_METHOD_DISPATCH_HELPER} has {len(params)} args; "
+                    "keep final dispatch metadata owner-backed so Stage3 does "
+                    "not pass alias/reprC strings through the late-declare path",
+                )
+            )
+        joined_params = " ".join(params)
+        leaked = sorted(
+            name
+            for name in FINAL_METHOD_DISPATCH_FORBIDDEN_STATE
+            if re.search(rf"\b{re.escape(name)}\b", joined_params)
+        )
+        if leaked:
+            findings.append(
+                Finding(
+                    helper_path,
+                    line_no,
+                    f"{FINAL_METHOD_DISPATCH_HELPER} takes bootstrap-sensitive "
+                    "type metadata directly: " + ", ".join(leaked),
+                )
+            )
+
+    facade_text = "\n".join(source_lines(facade_path))
+    for line_no, _, args, _ in find_calls(facade_text, FINAL_METHOD_DISPATCH_HELPER):
+        joined_args = " ".join(args)
+        leaked = sorted(
+            name
+            for name in FINAL_METHOD_DISPATCH_FORBIDDEN_STATE
+            if re.search(rf"\b{re.escape(name)}\b", joined_args)
+        )
+        if leaked:
+            findings.append(
+                Finding(
+                    facade_path,
+                    line_no,
+                    f"{FINAL_METHOD_DISPATCH_HELPER} call passes "
+                    "bootstrap-sensitive type metadata directly: "
+                    + ", ".join(leaked),
+                )
+            )
+    return findings
+
+
+def class_method_metadata_boundary_findings(root: Path) -> list[Finding]:
+    findings: list[Finding] = []
+    helper_path = root / "compiler_seen" / "src" / "codegen" / "ir_class_method_gen.seen"
+    facade_path = root / "compiler_seen" / "src" / "codegen" / "llvm_ir_gen.seen"
+    if not helper_path.exists() or not facade_path.exists():
+        return findings
+    helper_text = "\n".join(source_lines(helper_path))
+    for helper_name, max_args in sorted(CLASS_METHOD_METADATA_HELPERS.items()):
+        definition = find_function_definition(helper_text, helper_name)
+        if definition is not None:
+            line_no, params = definition
+            if len(params) > max_args:
+                findings.append(
+                    Finding(
+                        helper_path,
+                        line_no,
+                        f"{helper_name} has {len(params)} args; keep class "
+                        "method parameter mapping owner-backed so Stage3 "
+                        "does not loop in mapTypeImpl on fragile metadata",
+                    )
+                )
+            joined_params = " ".join(params)
+            leaked = sorted(
+                name
+                for name in CLASS_METHOD_METADATA_FORBIDDEN_STATE
+                if re.search(rf"\b{re.escape(name)}\b", joined_params)
+            )
+            if leaked:
+                findings.append(
+                    Finding(
+                        helper_path,
+                        line_no,
+                        f"{helper_name} takes bootstrap-sensitive type "
+                        "metadata directly: " + ", ".join(leaked),
+                    )
+                )
+
+    facade_text = "\n".join(source_lines(facade_path))
+    for helper_name in sorted(CLASS_METHOD_METADATA_HELPERS):
+        for line_no, _, args, _ in find_calls(facade_text, helper_name):
+            joined_args = " ".join(args)
+            leaked = sorted(
+                name
+                for name in CLASS_METHOD_METADATA_FORBIDDEN_STATE
+                if re.search(rf"\b{re.escape(name)}\b", joined_args)
+            )
+            if leaked:
+                findings.append(
+                    Finding(
+                        facade_path,
+                        line_no,
+                        f"{helper_name} call passes bootstrap-sensitive "
+                        "type metadata directly: " + ", ".join(leaked),
+                    )
+                )
+    return findings
+
+
+def preallocated_alloca_boundary_findings(root: Path) -> list[Finding]:
+    findings: list[Finding] = []
+    codegen_path = root / "compiler_seen" / "src" / "codegen"
+    helper_path = codegen_path / "ir_function_entry_exit.seen"
+    if not helper_path.exists():
+        return findings
+
+    helper_text = "\n".join(source_lines(helper_path))
+    definition = find_function_definition(helper_text, PREALLOCATED_ALLOCA_HELPER)
+    if definition is not None:
+        line_no, params = definition
+        if len(params) > PREALLOCATED_ALLOCA_MAX_ARGS:
+            findings.append(
+                Finding(
+                    helper_path,
+                    line_no,
+                    f"{PREALLOCATED_ALLOCA_HELPER} has {len(params)} args; "
+                    "map preallocated Seen types before this alloca emitter "
+                    "so Stage3 does not pass alias/reprC strings through it",
+                )
+            )
+        joined_params = " ".join(params)
+        leaked = sorted(
+            name
+            for name in PREALLOCATED_ALLOCA_FORBIDDEN_STATE
+            if re.search(rf"\b{re.escape(name)}\b", joined_params)
+        )
+        if leaked:
+            findings.append(
+                Finding(
+                    helper_path,
+                    line_no,
+                    f"{PREALLOCATED_ALLOCA_HELPER} takes bootstrap-sensitive "
+                    "type metadata directly: " + ", ".join(leaked),
+                )
+            )
+
+    for path in sorted(codegen_path.glob("*.seen")):
+        text = "\n".join(source_lines(path))
+        for line_no, _, args, call_text in find_calls(text, PREALLOCATED_ALLOCA_HELPER):
+            if len(args) > PREALLOCATED_ALLOCA_MAX_ARGS:
+                findings.append(
+                    Finding(
+                        path,
+                        line_no,
+                        f"{PREALLOCATED_ALLOCA_HELPER} call has {len(args)} "
+                        "args; pass mapped LLVM alloca types only",
+                    )
+                )
+            leaked = sorted(
+                name
+                for name in PREALLOCATED_ALLOCA_FORBIDDEN_STATE
+                if re.search(rf"\b{re.escape(name)}\b", call_text)
+            )
+            if leaked:
+                findings.append(
+                    Finding(
+                        path,
+                        line_no,
+                        f"{PREALLOCATED_ALLOCA_HELPER} call passes "
+                        "bootstrap-sensitive type metadata directly: "
+                        + ", ".join(leaked),
+                    )
+                )
+    return findings
+
+
+def extern_generation_boundary_findings(root: Path) -> list[Finding]:
+    findings: list[Finding] = []
+    codegen_path = root / "compiler_seen" / "src" / "codegen"
+    global_path = codegen_path / "ir_codegen_global_state.seen"
+    facade_path = codegen_path / "llvm_ir_gen.seen"
+    if not global_path.exists() or not facade_path.exists():
+        return findings
+
+    global_text = "\n".join(source_lines(global_path))
+    definition = find_function_definition(global_text, EXTERN_GENERATION_OWNER_HELPER)
+    if definition is None:
+        findings.append(
+            Finding(
+                global_path,
+                1,
+                f"missing {EXTERN_GENERATION_OWNER_HELPER}; extern "
+                "function registration must mutate function registry arrays "
+                "inside their owner module",
+            )
+        )
+    else:
+        line_no, params = definition
+        if len(params) > EXTERN_GENERATION_OWNER_MAX_ARGS:
+            findings.append(
+                Finding(
+                    global_path,
+                    line_no,
+                    f"{EXTERN_GENERATION_OWNER_HELPER} has {len(params)} "
+                    "args; keep extern registration owner-backed",
+                )
+            )
+
+    facade_text = "\n".join(source_lines(facade_path))
+    for line_no, _, args, call_text in find_calls(facade_text, EXTERN_GENERATION_HELPER):
+        leaked = sorted(
+            name
+            for name in EXTERN_GENERATION_FORBIDDEN_CALL_STATE
+            if re.search(rf"\b{re.escape(name)}\b", call_text)
+        )
+        details = ""
+        if leaked:
+            details = ": " + ", ".join(leaked)
+        findings.append(
+            Finding(
+                facade_path,
+                line_no,
+                f"facade calls {EXTERN_GENERATION_HELPER}; use "
+                f"{EXTERN_GENERATION_OWNER_HELPER} so Stage3 does not pass "
+                "function-registry arrays through a deep extern helper"
+                + details,
+            )
+        )
+
+    for line_no, _, args, call_text in find_calls(
+        facade_text, EXTERN_GENERATION_OWNER_HELPER
+    ):
+        if len(args) > EXTERN_GENERATION_OWNER_MAX_ARGS:
+            findings.append(
+                Finding(
+                    facade_path,
+                    line_no,
+                    f"{EXTERN_GENERATION_OWNER_HELPER} call has {len(args)} "
+                    "args; pass output and function only",
+                )
+            )
+        leaked = sorted(
+            name
+            for name in EXTERN_GENERATION_FORBIDDEN_CALL_STATE
+            if re.search(rf"\b{re.escape(name)}\b", call_text)
+        )
+        if leaked:
+            findings.append(
+                Finding(
+                    facade_path,
+                    line_no,
+                    f"{EXTERN_GENERATION_OWNER_HELPER} call passes "
+                    "bootstrap-sensitive state directly: " + ", ".join(leaked),
+                )
+            )
+    return findings
+
+
+def string_builder_method_lower_boundary_findings(root: Path) -> list[Finding]:
+    findings: list[Finding] = []
+    codegen_path = root / "compiler_seen" / "src" / "codegen"
+    lower_path = codegen_path / "ir_method_lower_emit.seen"
+    fastpath_path = codegen_path / "ir_method_fastpath.seen"
+    facade_path = codegen_path / "llvm_ir_gen.seen"
+    if not lower_path.exists() or not fastpath_path.exists() or not facade_path.exists():
+        return findings
+
+    lower_text = "\n".join(source_lines(lower_path))
+    definition = find_function_definition(lower_text, STRING_BUILDER_METHOD_LOWER_HELPER)
+    if definition is not None:
+        line_no, params = definition
+        if len(params) > STRING_BUILDER_METHOD_LOWER_MAX_ARGS:
+            findings.append(
+                Finding(
+                    lower_path,
+                    line_no,
+                    f"{STRING_BUILDER_METHOD_LOWER_HELPER} has {len(params)} "
+                    "args; StringBuilder runtime lowering should not carry "
+                    "type-registry or reprC metadata through Stage3",
+                )
+            )
+        joined_params = " ".join(params)
+        leaked = sorted(
+            name
+            for name in STRING_BUILDER_FORBIDDEN_STATE
+            if re.search(rf"\b{re.escape(name)}\b", joined_params)
+        )
+        if leaked:
+            findings.append(
+                Finding(
+                    lower_path,
+                    line_no,
+                    f"{STRING_BUILDER_METHOD_LOWER_HELPER} takes bootstrap-sensitive "
+                    "type metadata directly: " + ", ".join(leaked),
+                )
+            )
+
+    fastpath_text = "\n".join(source_lines(fastpath_path))
+    receiver_definition = find_function_definition(
+        fastpath_text, STRING_BUILDER_RECEIVER_HELPER
+    )
+    if receiver_definition is not None:
+        line_no, params = receiver_definition
+        if len(params) > STRING_BUILDER_RECEIVER_MAX_ARGS:
+            findings.append(
+                Finding(
+                    fastpath_path,
+                    line_no,
+                    f"{STRING_BUILDER_RECEIVER_HELPER} has {len(params)} args; "
+                    "StringBuilder receivers already have a known handle ABI",
+                )
+            )
+        joined_params = " ".join(params)
+        leaked = sorted(
+            name
+            for name in STRING_BUILDER_FORBIDDEN_STATE
+            if re.search(rf"\b{re.escape(name)}\b", joined_params)
+        )
+        if leaked:
+            findings.append(
+                Finding(
+                    fastpath_path,
+                    line_no,
+                    f"{STRING_BUILDER_RECEIVER_HELPER} takes bootstrap-sensitive "
+                    "type metadata directly: " + ", ".join(leaked),
+                )
+            )
+    body = find_function_body(fastpath_text, STRING_BUILDER_RECEIVER_HELPER)
+    if body is not None:
+        body_line, body_text = body
+        if "convertReceiverToPtrImpl" in body_text or "isClassTypeImpl" in body_text:
+            findings.append(
+                Finding(
+                    fastpath_path,
+                    body_line,
+                    f"{STRING_BUILDER_RECEIVER_HELPER} must not ask the "
+                    "global type registry whether StringBuilder is class-like; "
+                    "emit the known i64-handle-to-ptr conversion directly",
+                )
+            )
+
+    facade_text = "\n".join(source_lines(facade_path))
+    for line_no, _, args, call_text in find_calls(
+        facade_text, STRING_BUILDER_METHOD_LOWER_HELPER
+    ):
+        if len(args) > STRING_BUILDER_METHOD_LOWER_MAX_ARGS:
+            findings.append(
+                Finding(
+                    facade_path,
+                    line_no,
+                    f"{STRING_BUILDER_METHOD_LOWER_HELPER} call has {len(args)} "
+                    "args; pass output, reg box, receiver, argument and fuse "
+                    "state only",
+                )
+            )
+        leaked = sorted(
+            name
+            for name in STRING_BUILDER_FORBIDDEN_STATE
+            if re.search(rf"\b{re.escape(name)}\b", call_text)
+        )
+        if leaked:
+            findings.append(
+                Finding(
+                    facade_path,
+                    line_no,
+                    f"{STRING_BUILDER_METHOD_LOWER_HELPER} call passes "
+                    "bootstrap-sensitive type metadata directly: "
+                    + ", ".join(leaked),
+                )
+            )
+    return findings
+
+
 def identity_boundary_findings(root: Path) -> list[Finding]:
     findings: list[Finding] = []
     global_path = root / "compiler_seen" / "src" / "codegen" / "ir_codegen_global_state.seen"
@@ -1149,6 +1703,58 @@ def facade_feature_box_findings(root: Path) -> list[Finding]:
                 "so reset-time array replacement stays behind the owner module",
             )
         )
+    return findings
+
+
+def feature_state_metadata_boundary_findings(root: Path) -> list[Finding]:
+    findings: list[Finding] = []
+    codegen_dir = root / "compiler_seen" / "src" / "codegen"
+    facade_path = root / "compiler_seen" / "src" / "codegen" / "llvm_ir_gen.seen"
+    feature_path = root / "compiler_seen" / "src" / "codegen" / "ir_codegen_feature_state.seen"
+    facade_lines = source_lines(facade_path)
+    feature_text = "\n".join(source_lines(feature_path))
+
+    for state_name, getter in sorted(FEATURE_STATE_GLOBAL_ACCESSORS.items()):
+        if find_function_definition(feature_text, getter) is None:
+            findings.append(Finding(feature_path, 1, f"missing {getter}"))
+    if find_function_definition(feature_text, BITFIELD_WIDTH_OWNER_HELPER) is None:
+        findings.append(Finding(feature_path, 1, f"missing {BITFIELD_WIDTH_OWNER_HELPER}"))
+
+    state_pattern = re.compile(
+        r"(?<!\.)\b("
+        + "|".join(re.escape(name) for name in sorted(FEATURE_STATE_GLOBAL_ACCESSORS))
+        + r")\b"
+    )
+    for line_no, line in enumerate(facade_lines, 1):
+        used = sorted(set(state_pattern.findall(line)))
+        if not used:
+            continue
+        findings.append(
+            Finding(
+                facade_path,
+                line_no,
+                "facade references bootstrap-sensitive feature metadata directly: "
+                + ", ".join(used)
+                + "; use feature-state getter helpers so Stage3 member access "
+                "does not receive stale facade/global string values",
+            )
+        )
+    raw_helper_pattern = re.compile(rf"(?<!\.)\b{BITFIELD_WIDTH_RAW_HELPER}\b")
+    for path in sorted(codegen_dir.rglob("*.seen")):
+        if path.stem in BITFIELD_WIDTH_RAW_HELPER_ALLOWLIST:
+            continue
+        for line_no, line in enumerate(source_lines(path), 1):
+            if raw_helper_pattern.search(line):
+                findings.append(
+                    Finding(
+                        path,
+                        line_no,
+                        f"{BITFIELD_WIDTH_RAW_HELPER} bypasses feature-state "
+                        f"metadata ownership; use {BITFIELD_WIDTH_OWNER_HELPER} "
+                        "so Stage3 member/assignment lowering does not pass "
+                        "bitfield metadata through high-arity call chains",
+                    )
+                )
     return findings
 
 
@@ -1605,6 +2211,131 @@ def block_terminated_boundary_findings(root: Path) -> list[Finding]:
     return findings
 
 
+def per_function_global_state_boundary_findings(root: Path) -> list[Finding]:
+    findings: list[Finding] = []
+    facade_path = root / "compiler_seen" / "src" / "codegen" / "llvm_ir_gen.seen"
+    global_path = root / "compiler_seen" / "src" / "codegen" / "ir_codegen_global_state.seen"
+    facade_lines = source_lines(facade_path)
+    global_text = "\n".join(source_lines(global_path))
+
+    for state_name, (getter, setter) in sorted(PER_FUNCTION_GLOBAL_STATE_ACCESSORS.items()):
+        if find_function_definition(global_text, getter) is None:
+            findings.append(Finding(global_path, 1, f"missing {getter}"))
+        if find_function_definition(global_text, setter) is None:
+            findings.append(Finding(global_path, 1, f"missing {setter}"))
+    if find_function_definition(global_text, ACTIVE_VAR_COUNT_BOUNDED_GETTER) is None:
+        findings.append(Finding(global_path, 1, f"missing {ACTIVE_VAR_COUNT_BOUNDED_GETTER}"))
+
+    state_pattern = re.compile(
+        r"(?<!\.)\b("
+        + "|".join(
+            re.escape(name)
+            for name in sorted(PER_FUNCTION_GLOBAL_STATE_ACCESSORS)
+        )
+        + r")\b"
+    )
+    for line_no, line in enumerate(facade_lines, 1):
+        if "import codegen.ir_codegen_global_state" in line:
+            imported = sorted(set(state_pattern.findall(line)))
+            if ACTIVE_VAR_COUNT_UNBOUNDED_GETTER in line:
+                findings.append(
+                    Finding(
+                        facade_path,
+                        line_no,
+                        "facade imports unbounded active-var-count getter; use "
+                        f"{ACTIVE_VAR_COUNT_BOUNDED_GETTER}(this.varNames) so "
+                        "corrupt bootstrap state cannot drive unbounded scans",
+                    )
+                )
+            if imported:
+                findings.append(
+                    Finding(
+                        facade_path,
+                        line_no,
+                        "facade imports per-function global state directly: "
+                        + ", ".join(imported)
+                        + "; use global-state getter/setter helpers",
+                    )
+                )
+            continue
+
+        if re.search(rf"\b{re.escape(ACTIVE_VAR_COUNT_UNBOUNDED_GETTER)}\s*\(", line):
+            findings.append(
+                Finding(
+                    facade_path,
+                    line_no,
+                    "facade uses unbounded active-var-count getter; use "
+                    f"{ACTIVE_VAR_COUNT_BOUNDED_GETTER}(this.varNames) before "
+                    "passing counts into variable scans or binding storage",
+                )
+            )
+
+        used = sorted(set(state_pattern.findall(line)))
+        if not used:
+            continue
+        findings.append(
+            Finding(
+                facade_path,
+                line_no,
+                "facade references per-function global state directly: "
+                + ", ".join(used)
+                + "; use owner-backed getter/setter helpers so class methods "
+                "do not read bogus facade object offsets",
+            )
+        )
+    return findings
+
+
+def registry_global_state_boundary_findings(root: Path) -> list[Finding]:
+    findings: list[Finding] = []
+    facade_path = root / "compiler_seen" / "src" / "codegen" / "llvm_ir_gen.seen"
+    global_path = root / "compiler_seen" / "src" / "codegen" / "ir_codegen_global_state.seen"
+    facade_lines = source_lines(facade_path)
+    global_text = "\n".join(source_lines(global_path))
+
+    for state_name, getter in sorted(REGISTRY_GLOBAL_STATE_ACCESSORS.items()):
+        if find_function_definition(global_text, getter) is None:
+            findings.append(Finding(global_path, 1, f"missing {getter} for {state_name}"))
+
+    state_pattern = re.compile(
+        r"(?<!\.)\b("
+        + "|".join(
+            re.escape(name)
+            for name in sorted(REGISTRY_GLOBAL_STATE_ACCESSORS)
+        )
+        + r")\b"
+    )
+    for line_no, line in enumerate(facade_lines, 1):
+        if "import codegen.ir_codegen_global_state" in line:
+            imported = sorted(set(state_pattern.findall(line)))
+            if imported:
+                findings.append(
+                    Finding(
+                        facade_path,
+                        line_no,
+                        "facade imports bootstrap registry globals directly: "
+                        + ", ".join(imported)
+                        + "; use global-state getter helpers",
+                    )
+                )
+            continue
+
+        used = sorted(set(state_pattern.findall(line)))
+        if not used:
+            continue
+        findings.append(
+            Finding(
+                facade_path,
+                line_no,
+                "facade references bootstrap registry globals directly: "
+                + ", ".join(used)
+                + "; use owner-backed getter helpers so old bootstrap "
+                "compilers cannot lower them as LLVMIRGenerator fields",
+            )
+        )
+    return findings
+
+
 def declaration_storage_boundary_findings(root: Path) -> list[Finding]:
     findings: list[Finding] = []
     facade_path = root / "compiler_seen" / "src" / "codegen" / "llvm_ir_gen.seen"
@@ -1940,9 +2671,16 @@ def main() -> int:
     findings.extend(compiler_import_cycle_findings(root))
     findings.extend(raw_float_literal_source_findings(root))
     findings.extend(find_owner_import_violations(root))
+    findings.extend(static_method_dispatch_boundary_findings(root))
+    findings.extend(final_method_dispatch_boundary_findings(root))
+    findings.extend(class_method_metadata_boundary_findings(root))
+    findings.extend(preallocated_alloca_boundary_findings(root))
+    findings.extend(extern_generation_boundary_findings(root))
+    findings.extend(string_builder_method_lower_boundary_findings(root))
     findings.extend(identity_boundary_findings(root))
     findings.extend(prebody_boundary_findings(root))
     findings.extend(facade_feature_box_findings(root))
+    findings.extend(feature_state_metadata_boundary_findings(root))
     findings.extend(prelude_boundary_findings(root))
     findings.extend(entry_setup_boundary_findings(root))
     findings.extend(exit_reset_boundary_findings(root))
@@ -1950,6 +2688,8 @@ def main() -> int:
     findings.extend(loop_metadata_boundary_findings(root))
     findings.extend(module_tail_boundary_findings(root))
     findings.extend(block_terminated_boundary_findings(root))
+    findings.extend(per_function_global_state_boundary_findings(root))
+    findings.extend(registry_global_state_boundary_findings(root))
     findings.extend(declaration_storage_boundary_findings(root))
     findings.extend(module_constant_boundary_findings(root))
     findings.extend(function_registry_boundary_findings(root))

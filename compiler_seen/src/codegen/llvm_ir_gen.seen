@@ -153,7 +153,7 @@ import codegen.ir_function_scratch.{snapshotNestedScratchStateImpl, resetLocalCo
 import codegen.ir_function_entry_exit.{emitPreAllocatedAllocasImpl, emitFunctionEntrySetupSnapshotImpl, emitFunctionExitResetSnapshotImpl}
 import codegen.ir_function_signature_emit.{emitAsyncCoroutineEpilogueImpl}
 import codegen.ir_literal_gen.{generateLiteralFree}
-import codegen.ir_function_decorators.{hasFunctionDecoratorImpl, shouldSkipFunctionByCfgStateImpl, emitFunctionDecoratorMetadataCommentsStateImpl, shouldSkipSpecialFunctionBodyStateImpl, tryHandleExternFunctionGenerationStateImpl}
+import codegen.ir_function_decorators.{hasFunctionDecoratorImpl, shouldSkipFunctionByCfgStateImpl, emitFunctionDecoratorMetadataCommentsStateImpl, shouldSkipSpecialFunctionBodyStateImpl}
 import codegen.ir_function_lifecycle.{planFunctionIdentityFlowImpl, planFunctionHighPressureImpl, planFunctionEntryExitFlowImpl, applyFunctionEntrySetupToEmissionImpl, currentFunctionProfileFlagIntImpl, currentFunctionHighPressureIntImpl, applyFunctionExitStateToEmissionImpl}
 import codegen.ir_function_intrinsic_driver.{tryHandleFunctionIntrinsicDriverGlobalStateImpl}
 import codegen.ir_function_decorator_driver.{prepareFunctionAttributeGlobalStateImpl, prepareFunctionDecoratorPreflightGlobalStateImpl}
@@ -167,9 +167,9 @@ import codegen.ir_codegen_state_bridge.{captureCodegenStateBridgeSnapshotImpl, r
 import codegen.ir_codegen_bootstrap_state.{initBootstrapFragileGlobalArrays}
 import codegen.ir_codegen_reset_state.{resetLLVMIRGeneratorModuleStateImpl}
 import codegen.ir_codegen_target_state.{overrideTargetTripleImpl}
-import codegen.ir_codegen_global_state.{preAllocatedRegs, preAllocatedVars, preAllocatedTypes, activeVarCount, structNames, structLayouts, structFieldNames, structFieldTypes, structLlvmFieldTypes, structSizes, structMethodNames, structMethodRetTypes, classMethodBaseNames, typeHeaderPath, currentFunctionReturnType, currentClassName, currentLoopCondLabel, currentLoopEndLabel, generatedFunctions, generatedClasses, typesLoadedFromHeader, runtimeDeclsLoaded, pendingArrayLiteralType, setGlobalTypeHeaderPathImpl, setStringConstantPrefixWithGlobalStateImpl, getStringConstantPrefixWithGlobalStateImpl, getBlockTerminatedWithGlobalStateImpl, setBlockTerminatedWithGlobalStateImpl, prepareLetStatementPlanWithGlobalStateImpl, resolveLetPreAllocatedRegWithGlobalStateImpl, resolveFunctionBodyForInLoopVariableStorageWithGlobalStateImpl, resolveFunctionBodyForInIndexAllocaWithGlobalStateImpl, syncCodegenStateFromGlobalStateImpl, applyGlobalCodegenStateBridgeSnapshotImpl, emitModulePrologueWithGlobalStateImpl, emitRuntimeDeclarationsWithGlobalStateImpl, prepareFunctionGenerationIdentityWithGlobalStateImpl, emitMainFunctionEntryWithGlobalStateImpl, getGlobalFuncNamesImpl, getGlobalFuncRetTypesImpl, getFunctionReturnTypeWithGlobalStateImpl}
+import codegen.ir_codegen_global_state.{setGlobalTypeHeaderPathImpl, setStringConstantPrefixWithGlobalStateImpl, getStringConstantPrefixWithGlobalStateImpl, getBlockTerminatedWithGlobalStateImpl, setBlockTerminatedWithGlobalStateImpl, getCurrentFunctionReturnTypeWithGlobalStateImpl, setCurrentFunctionReturnTypeWithGlobalStateImpl, getGlobalCurrentClassNameImpl, setGlobalCurrentClassNameImpl, getCurrentLoopCondLabelWithGlobalStateImpl, setCurrentLoopCondLabelWithGlobalStateImpl, getCurrentLoopEndLabelWithGlobalStateImpl, setCurrentLoopEndLabelWithGlobalStateImpl, getPendingArrayLiteralTypeWithGlobalStateImpl, setPendingArrayLiteralTypeWithGlobalStateImpl, getBoundedActiveVarCountWithGlobalStateImpl, setActiveVarCountWithGlobalStateImpl, getPreAllocatedTypesWithGlobalStateImpl, setPreAllocatedRegsWithGlobalStateImpl, getGlobalStructNamesImpl, getGlobalStructLayoutsImpl, getGlobalStructFieldNamesImpl, getGlobalStructFieldTypesImpl, getGlobalStructLlvmFieldTypesImpl, getGlobalStructSizesImpl, getGlobalStructMethodNamesImpl, getGlobalStructMethodRetTypesImpl, prepareLetStatementPlanWithGlobalStateImpl, resolveLetPreAllocatedRegWithGlobalStateImpl, resolveFunctionBodyForInLoopVariableStorageWithGlobalStateImpl, resolveFunctionBodyForInIndexAllocaWithGlobalStateImpl, syncCodegenStateFromGlobalStateImpl, applyGlobalCodegenStateBridgeSnapshotImpl, emitModulePrologueWithGlobalStateImpl, emitRuntimeDeclarationsWithGlobalStateImpl, prepareFunctionGenerationIdentityWithGlobalStateImpl, tryHandleExternFunctionGenerationWithGlobalStateImpl, emitMainFunctionEntryWithGlobalStateImpl, getGlobalFuncNamesImpl, getGlobalFuncRetTypesImpl, getFunctionReturnTypeWithGlobalStateImpl}
 import codegen.ir_codegen_module_state.{g_xmDeclareNames, g_xmDeclareStrs, g_xmDeclareCount, g_xmDeclareVis, g_xmDeclareNamesArr, g_xmDeclareStrsArr, g_xmDeclareVisArr, g_chainedPathTypeCacheValues, findCachedIrgenFieldIndex, cacheIrgenFieldIndex, findCachedChainedPathTypeRecord, cacheChainedPathType, resetModuleConstantGenerationState, resetLateUserDeclareState, resetIrgenFieldLookupCaches, findModuleConstantWithModuleStateImpl, getModuleConstantTypeWithModuleStateImpl, getModuleConstSeenTypeWithModuleStateImpl, isModuleConstMutableWithModuleStateImpl, moduleConstantInvariantLoadSuffixWithModuleStateImpl, emitCrossModuleConstantDeclaresWithModuleStateImpl, emitLateUserDeclaresWithModuleStateImpl}
-import codegen.ir_codegen_feature_state.{g_panicOnOverflow, g_asyncFuncNames, g_asyncFuncRetTypes, g_asyncFuncCount, g_inheritanceChildNames, g_inheritanceParentNames, g_inheritanceCount, g_currentClassParentName, g_closureCount, g_closureDefs, g_deferCount, g_deferExprs, g_errdeferCount, g_errdeferExprs, g_errdeferTempAlloca, g_cacheLineClasses, g_insideUnsafe, g_tryCatchLabel, g_tryCatchEndLabel, g_distinctTypeNames, g_unionTypes, g_initFuncNames, g_initFuncCount, g_pforCount, g_comptimeNames, g_comptimeValues, g_comptimeCount, g_intrinsicFuncNames, g_intrinsicLlvmNames, g_intrinsicCount, g_sendTypes, g_syncTypes, g_boundsCheckEnabled, g_boundsCheckLabelCount, g_warnUnusedResult, g_soaClassNames, g_soaClassCount, g_trustedFuncNames, g_triviallyCopyableClasses, g_moveOnlyClasses, g_reprCClassNames, g_cResourceClasses, g_cResourceDestructors, g_funcDefaultsArr, g_funcParamCountArr, g_dynTraitNames, g_vtableClassImpls, g_dynParamFuncs, g_floatParamFuncNames, g_floatParamParamIdxs, g_constGenericNames, g_constGenericValues, g_bitfieldKeys, g_bitfieldWidths, g_bitfieldOffsets, g_bitfieldCount, g_gpuBufferClasses, g_gpuBufferLayouts, g_comptimeStrNames, g_comptimeStrValues, g_comptimeStrCount, g_comptimeParamFuncNames, g_comptimeParamCount, g_gpuShaderNames, g_gpuShaderStages, g_gpuShaderCount, g_gpuShaderWorkgroups, g_gpuShaderBindings, g_deriveTraits, g_deriveClassCount, g_reflectClassNames, g_reflectClassCount, g_specializationNames, g_specializationCount, g_traitImplRegistry, g_traitImplCount, g_customDeriveNames, g_customDeriveFuncNames, g_customDeriveCount, g_nullSafetyEnabled, g_uninitCheckEnabled, g_uninitVarNames, g_uninitVarStatus, g_uninitVarCount, g_stackCheckEnabled, g_sanitizerMode, g_enabledFeatures, g_enabledFeatureCount, g_binaryClassNames, g_binaryEndianness, g_binaryVersions, g_binaryClassCount, g_packetClassNames, g_packetClassIds, g_packetCount, g_typeAliasNames, g_typeAliasTargets, g_typeAliasCount, g_enumVariantNames, g_enumVariantTags, g_enumVariantFieldTypes, g_enumVariantFieldCounts, g_enumTypeNames, g_enumVariantParent, g_enumVariantCount, g_enumTypeCount, setPanicOnOverflowStateImpl, setBoundsCheckEnabledStateImpl, setWarnUnusedResultStateImpl, setNullSafetyEnabledStateImpl, setUninitCheckEnabledStateImpl, setStackCheckEnabledStateImpl, setSanitizerModeStateImpl, setEnabledFeaturesStateImpl, getFeatureRegBoxImpl, getFeatureBlockBoxImpl, setDefaultFillArgsImpl, getDefaultFillArgRegsImpl, getDefaultFillArgTypeStrsImpl, prepareFunctionPreBodyWithFeatureStateImpl, emitTraitVtableConstantsWithFeatureStateImpl, emitGeneratedClosuresWithFeatureStateImpl, emitGlobalConstructorsWithFeatureStateImpl, emitTBAAMetadataWithFeatureStateImpl}
+import codegen.ir_codegen_feature_state.{g_panicOnOverflow, g_asyncFuncNames, g_asyncFuncRetTypes, g_asyncFuncCount, g_inheritanceChildNames, g_inheritanceParentNames, g_inheritanceCount, g_currentClassParentName, g_closureCount, g_closureDefs, g_deferCount, g_deferExprs, g_errdeferCount, g_errdeferExprs, g_errdeferTempAlloca, g_cacheLineClasses, g_insideUnsafe, g_tryCatchLabel, g_tryCatchEndLabel, g_distinctTypeNames, g_unionTypes, g_initFuncNames, g_initFuncCount, g_pforCount, g_comptimeNames, g_comptimeValues, g_comptimeCount, g_intrinsicFuncNames, g_intrinsicLlvmNames, g_intrinsicCount, g_sendTypes, g_syncTypes, g_boundsCheckEnabled, g_boundsCheckLabelCount, g_warnUnusedResult, g_soaClassNames, g_soaClassCount, g_trustedFuncNames, g_triviallyCopyableClasses, g_moveOnlyClasses, g_reprCClassNames, g_cResourceClasses, g_cResourceDestructors, g_funcDefaultsArr, g_funcParamCountArr, g_dynTraitNames, g_vtableClassImpls, g_dynParamFuncs, g_floatParamFuncNames, g_floatParamParamIdxs, g_constGenericNames, g_constGenericValues, getFeatureBitfieldKeysImpl, getFeatureBitfieldWidthsImpl, getFeatureBitfieldCountImpl, g_gpuBufferClasses, g_gpuBufferLayouts, g_comptimeStrNames, g_comptimeStrValues, g_comptimeStrCount, g_comptimeParamFuncNames, g_comptimeParamCount, g_gpuShaderNames, g_gpuShaderStages, g_gpuShaderCount, g_gpuShaderWorkgroups, g_gpuShaderBindings, g_deriveTraits, g_deriveClassCount, g_reflectClassNames, g_reflectClassCount, g_specializationNames, g_specializationCount, g_traitImplRegistry, g_traitImplCount, g_customDeriveNames, g_customDeriveFuncNames, g_customDeriveCount, g_nullSafetyEnabled, g_uninitCheckEnabled, g_uninitVarNames, g_uninitVarStatus, g_uninitVarCount, g_stackCheckEnabled, g_sanitizerMode, g_enabledFeatures, g_enabledFeatureCount, g_binaryClassNames, g_binaryEndianness, g_binaryVersions, g_binaryClassCount, g_packetClassNames, g_packetClassIds, g_packetCount, g_typeAliasNames, g_typeAliasTargets, g_typeAliasCount, g_enumVariantNames, g_enumVariantTags, g_enumVariantFieldTypes, g_enumVariantFieldCounts, g_enumTypeNames, g_enumVariantParent, g_enumVariantCount, g_enumTypeCount, setPanicOnOverflowStateImpl, setBoundsCheckEnabledStateImpl, setWarnUnusedResultStateImpl, setNullSafetyEnabledStateImpl, setUninitCheckEnabledStateImpl, setStackCheckEnabledStateImpl, setSanitizerModeStateImpl, setEnabledFeaturesStateImpl, getFeatureRegBoxImpl, getFeatureBlockBoxImpl, setDefaultFillArgsImpl, getDefaultFillArgRegsImpl, getDefaultFillArgTypeStrsImpl, prepareFunctionPreBodyWithFeatureStateImpl, emitTraitVtableConstantsWithFeatureStateImpl, emitGeneratedClosuresWithFeatureStateImpl, emitGlobalConstructorsWithFeatureStateImpl, emitTBAAMetadataWithFeatureStateImpl}
 import codegen.ir_codegen_type_state.{mapTypeState, isClassTypeState, isDataTypeState, getDataTypeSizeState}
 import codegen.ir_decl_state_driver.{beginDeclarationRegistrationWithGlobalState, captureDeclarationPassState, createDeclarationItemContextFromOwnerState, applyDeclarationPassState, captureLateUserDeclareState, applyLateUserDeclareState}
 import codegen.ir_class_type_guard_driver.{hasGeneratedClassType, tryReuseHeaderLoadedClassType}
@@ -202,8 +202,8 @@ Key field groups:
                        for mutation by extracted free functions)
   Variable tracking:   varNames/varRegs/varTypes (parallel arrays, scoped by push,
                        never popped — findVar searches backwards for shadowing)
-  Struct registry:     structNames/structLayouts/structFieldNames/structFieldTypes/
-                       structSizes/structMethodNames/structMethodRetTypes
+  Struct registry:     getGlobalStructNamesImpl()/getGlobalStructLayoutsImpl()/getGlobalStructFieldNamesImpl()/getGlobalStructFieldTypesImpl()/
+                       getGlobalStructSizesImpl()/getGlobalStructMethodNamesImpl()/getGlobalStructMethodRetTypesImpl()
   Function registry:   funcNames/funcRetTypes (return type lookup for call codegen)
   Per-function state:  currentFunctionReturnType, currentClassName, blockTerminated,
                        currentLoopCondLabel/EndLabel, preAllocatedVars/Types
@@ -381,7 +381,7 @@ class LLVMIRGenerator {
     ///
     Pass 1 entry point: scan a ProgramNode and register all declarations
     without generating any IR. This populates:
-      - Struct layouts (structFieldNames/Types/Layouts via registerStructLayout)
+      - Struct layouts (getGlobalStructFieldNamesImpl()/Types/Layouts via registerStructLayout)
       - Function signatures (funcNames/funcRetTypes via registerFunction)
       - Async function registry (g_asyncFuncNames/RetTypes)
       - Enum variant registry (g_enumVariantNames/Tags/FieldTypes)
@@ -615,7 +615,7 @@ class LLVMIRGenerator {
         WHY class methods BEFORE top-level functions:
         @derive/@reflect/@binary/@packet decorators on classes call
         registerStructMethod() during generateClass(), which populates
-        structMethodNames/structMethodRetTypes. If generateFunction(main)
+        getGlobalStructMethodNamesImpl()/getGlobalStructMethodRetTypesImpl(). If generateFunction(main)
         runs first, it calls inferExpressionType on method calls like
         obj.serialize(), but the method return type isn't registered yet,
         causing type inference to fail and generate incorrect IR.
@@ -826,9 +826,9 @@ class LLVMIRGenerator {
             let defaultParamType = mapTypeState(normalizeDeclaredTypeNodeImpl(defaultParam.paramType))
             let defaultParamReg = "%" + quoteIdentIfNeededImpl(defaultParam.name)
             defaultParamStr = defaultParamStr + defaultParamType + " " + defaultParamReg
-            activeVarCount = storeActiveVariableBindingImpl(this.varNames, this.varRegs,
-                this.varTypes, activeVarCount, defaultParam.name, defaultParamReg,
-                normalizeDeclaredTypeNodeImpl(defaultParam.paramType))
+            setActiveVarCountWithGlobalStateImpl(storeActiveVariableBindingImpl(this.varNames, this.varRegs,
+                this.varTypes, getBoundedActiveVarCountWithGlobalStateImpl(this.varNames), defaultParam.name, defaultParamReg,
+                normalizeDeclaredTypeNodeImpl(defaultParam.paramType)))
             paramIdx = paramIdx + 1
         }
         let defaultRetType = mapTypeState(traitRetTypeName)
@@ -863,8 +863,8 @@ class LLVMIRGenerator {
             registerFunctionStateImpl(traitFuncName, traitRetTypeName,
                 getGlobalFuncNamesImpl(), getGlobalFuncRetTypesImpl())
             registerStructMethodReg(className, traitMethod.name,
-                traitRetTypeName, structNames, structMethodNames,
-                structMethodRetTypes, getGlobalFuncNamesImpl(),
+                traitRetTypeName, getGlobalStructNamesImpl(), getGlobalStructMethodNamesImpl(),
+                getGlobalStructMethodRetTypesImpl(), getGlobalFuncNamesImpl(),
                 getGlobalFuncRetTypesImpl())
             if traitMethod.body.statements.length() > 0 {
                 emitTraitDefaultMethod(className, traitMethod, traitRetTypeName)
@@ -962,14 +962,14 @@ class LLVMIRGenerator {
 
         emitGeneratedClassDecoratorMethodsImpl(this.output, classNode,
             decoratorSnapshot.decoratorFlags, decoratorSnapshot.packetId,
-            structNames, structSizes,
-            structMethodNames, structMethodRetTypes, getGlobalFuncNamesImpl(),
+            getGlobalStructNamesImpl(), getGlobalStructSizesImpl(),
+            getGlobalStructMethodNamesImpl(), getGlobalStructMethodRetTypesImpl(), getGlobalFuncNamesImpl(),
             getGlobalFuncRetTypesImpl(),
             this.stringConstants, getStringConstantPrefixWithGlobalStateImpl(),
             g_binaryClassNames,
             g_binaryVersions, g_binaryEndianness, g_binaryClassCount)
         emitInheritedClassMethodThunksImpl(this.output, getFeatureRegBoxImpl(), classNode,
-            structNames, structMethodNames, structMethodRetTypes,
+            getGlobalStructNamesImpl(), getGlobalStructMethodNamesImpl(), getGlobalStructMethodRetTypesImpl(),
             g_reprCClassNames, g_typeAliasNames, g_typeAliasTargets,
             g_typeAliasCount, g_enumTypeNames)
 
@@ -993,8 +993,9 @@ class LLVMIRGenerator {
     ///
     fun resetClassMethodGenerationState(className: String, parentName: String, methods: Array<FunctionNode>, methodIdx: Int) r: Void {
         resetLocalCodegenState()
-        currentFunctionReturnType = resolveMethodReturnTypeFromList(className, methods, methodIdx)
-        currentClassName = className
+        setCurrentFunctionReturnTypeWithGlobalStateImpl(
+            resolveMethodReturnTypeFromList(className, methods, methodIdx))
+        setGlobalCurrentClassNameImpl(className)
         g_currentClassParentName = parentName
         resetFunctionLoweringOptionsStateImpl(getCurrentFunctionOptions())
         resetFunctionEmissionForFunctionImpl(
@@ -1007,15 +1008,15 @@ class LLVMIRGenerator {
 
         let method = methods[methodIdx]
         if not method.isStatic {
-            activeVarCount = storeActiveVariableBindingImpl(this.varNames, this.varRegs,
-                this.varTypes, activeVarCount, "this", "", className)
+            setActiveVarCountWithGlobalStateImpl(storeActiveVariableBindingImpl(this.varNames, this.varRegs,
+                this.varTypes, getBoundedActiveVarCountWithGlobalStateImpl(this.varNames), "this", "", className))
         }
         var paramIdx = 0
         while paramIdx < method.params.length() {
             let param = method.params[paramIdx]
-            activeVarCount = storeActiveVariableBindingImpl(this.varNames, this.varRegs,
-                this.varTypes, activeVarCount, param.name, "",
-                normalizedMethodParamTypes[paramIdx])
+            setActiveVarCountWithGlobalStateImpl(storeActiveVariableBindingImpl(this.varNames, this.varRegs,
+                this.varTypes, getBoundedActiveVarCountWithGlobalStateImpl(this.varNames), param.name, "",
+                normalizedMethodParamTypes[paramIdx]))
             paramIdx = paramIdx + 1
         }
         collectVariableDeclarations(method.body)
@@ -1036,38 +1037,44 @@ class LLVMIRGenerator {
         let quotedMethodArgNames = Array<String>()
         collectClassMethodParameterInfoImpl(methods, methodIdx,
             normalizedMethodParamTypes, mappedMethodParamTypes,
-            quotedMethodArgNames, structNames, g_typeAliasNames,
-            g_typeAliasTargets, g_typeAliasCount, g_enumTypeNames)
+            quotedMethodArgNames)
         prepareClassMethodVariableCollection(className, methods, methodIdx, normalizedMethodParamTypes)
 
-        let returnType = mapTypeState(currentFunctionReturnType)
+        let returnType = mapTypeState(
+            getCurrentFunctionReturnTypeWithGlobalStateImpl())
         let isStatic = method.isStatic or methodName == "new"
         let explicitReceiverName = emitClassMethodSignatureStateImpl(this.output,
             methods, methodIdx, className, methodName, isStatic, returnType,
             mappedMethodParamTypes, quotedMethodArgNames,
             getMetricsSelfCallFuncsImpl(), getMetricsSelfCallNamesImpl(),
             getMetricsSelfCallCountImpl())
-        activeVarCount = emitClassMethodReceiverBindingStateImpl(this.output,
-            getFeatureRegBoxImpl(), this.varNames, this.varRegs, this.varTypes, activeVarCount, className,
-            isStatic, explicitReceiverName)
-        activeVarCount = emitClassMethodParameterBindingsStateImpl(this.output,
-            getFeatureRegBoxImpl(), this.varNames, this.varRegs, this.varTypes, activeVarCount, methods,
+        setActiveVarCountWithGlobalStateImpl(emitClassMethodReceiverBindingStateImpl(this.output,
+            getFeatureRegBoxImpl(), this.varNames, this.varRegs, this.varTypes, getBoundedActiveVarCountWithGlobalStateImpl(this.varNames), className,
+            isStatic, explicitReceiverName))
+        setActiveVarCountWithGlobalStateImpl(emitClassMethodParameterBindingsStateImpl(this.output,
+            getFeatureRegBoxImpl(), this.varNames, this.varRegs, this.varTypes, getBoundedActiveVarCountWithGlobalStateImpl(this.varNames), methods,
             methodIdx, explicitReceiverName, normalizedMethodParamTypes,
-            quotedMethodArgNames, structNames, g_typeAliasNames,
-            g_typeAliasTargets, g_typeAliasCount, g_enumTypeNames)
-        preAllocatedRegs = emitPreAllocatedAllocasImpl(this.output, getFeatureRegBoxImpl(),
-            preAllocatedTypes, structNames, g_typeAliasNames,
-            g_typeAliasTargets, g_typeAliasCount, g_enumTypeNames,
-            g_reprCClassNames)
-        activeVarCount = emitClassMethodConstructorSetupStateImpl(this.output,
-            getFeatureRegBoxImpl(), this.varNames, this.varRegs, this.varTypes, activeVarCount, className,
+            quotedMethodArgNames))
+        let classMethodPreAllocatedTypes = getPreAllocatedTypesWithGlobalStateImpl()
+        let classMethodPreAllocatedLlvmTypes = Array<String>()
+        var classMethodPreAllocatedIdx = 0
+        while classMethodPreAllocatedIdx < classMethodPreAllocatedTypes.length() {
+            classMethodPreAllocatedLlvmTypes.push(mapTypeState(
+                classMethodPreAllocatedTypes[classMethodPreAllocatedIdx]))
+            classMethodPreAllocatedIdx = classMethodPreAllocatedIdx + 1
+        }
+        setPreAllocatedRegsWithGlobalStateImpl(emitPreAllocatedAllocasImpl(
+            this.output, getFeatureRegBoxImpl(),
+            classMethodPreAllocatedLlvmTypes))
+        setActiveVarCountWithGlobalStateImpl(emitClassMethodConstructorSetupStateImpl(this.output,
+            getFeatureRegBoxImpl(), this.varNames, this.varRegs, this.varTypes, getBoundedActiveVarCountWithGlobalStateImpl(this.varNames), className,
             methodName, method.isStatic, methods, methodIdx,
-            structNames, structSizes, structLayouts, structFieldNames,
-            structFieldTypes)
+            getGlobalStructNamesImpl(), getGlobalStructSizesImpl(), getGlobalStructLayoutsImpl(), getGlobalStructFieldNamesImpl(),
+            getGlobalStructFieldTypesImpl()))
 
         generateBlock(method.body)
         setBlockTerminated(tryEmitClassMethodConstructorReturnStateImpl(this.output,
-            getFeatureRegBoxImpl(), this.varNames, this.varRegs, activeVarCount, methodName,
+            getFeatureRegBoxImpl(), this.varNames, this.varRegs, getBoundedActiveVarCountWithGlobalStateImpl(this.varNames), methodName,
             isBlockTerminated()))
         emitClassMethodDefaultReturnStateImpl(this.output, returnType,
             isBlockTerminated())
@@ -1149,7 +1156,7 @@ class LLVMIRGenerator {
             g_traitImplCount)
 
         if tryHandleFunctionIntrinsicDriverGlobalStateImpl(this.output,
-            getFeatureRegBoxImpl(), fn, structNames, g_typeAliasNames, g_typeAliasTargets,
+            getFeatureRegBoxImpl(), fn, getGlobalStructNamesImpl(), g_typeAliasNames, g_typeAliasTargets,
             g_typeAliasCount, g_enumTypeNames) {
 
             return
@@ -1165,10 +1172,8 @@ class LLVMIRGenerator {
             return
         }
 
-        if tryHandleExternFunctionGenerationStateImpl(this.output, fn, structNames,
-            g_typeAliasNames, g_typeAliasTargets, g_typeAliasCount,
-            g_enumTypeNames, g_reprCClassNames, getGlobalFuncNamesImpl(),
-            getGlobalFuncRetTypesImpl()) {
+        if tryHandleExternFunctionGenerationWithGlobalStateImpl(this.output,
+            fn) {
             return
         }
 
@@ -1254,7 +1259,7 @@ class LLVMIRGenerator {
     fun generateBlock(block: BlockNode) r: Void {
         // Save defer stack depth for this block scope
         let blockScope = captureFunctionBodyBlockScopeImpl(g_deferCount,
-            g_deadStoreSkipVars, activeVarCount)
+            g_deadStoreSkipVars, getBoundedActiveVarCountWithGlobalStateImpl(this.varNames))
 
         ///
         Dead store elimination (9.10b): scan for var x = literal; x = expr2 with no read of x
@@ -1290,7 +1295,7 @@ class LLVMIRGenerator {
         g_deferCount = blockScope.savedDeferCount
         // Restore dead store skip list (scoped to this block)
         g_deadStoreSkipVars = blockScope.savedDeadStoreSkipVars
-        activeVarCount = blockScope.savedActiveVarCount
+        setActiveVarCountWithGlobalStateImpl(blockScope.savedActiveVarCount)
     }
 
     fun warnUnusedResultCall(expr: ParserExpressionNode) r: Void {
@@ -1318,13 +1323,15 @@ class LLVMIRGenerator {
     }
 
     fun emitContinueStatement() r: Void {
-        if emitContinueStatementImpl(this.output, currentLoopCondLabel) == 1 {
+        if emitContinueStatementImpl(this.output,
+            getCurrentLoopCondLabelWithGlobalStateImpl()) == 1 {
             setBlockTerminated(true)
         }
     }
 
     fun emitBreakStatement() r: Void {
-        if emitBreakStatementImpl(this.output, currentLoopEndLabel) == 1 {
+        if emitBreakStatementImpl(this.output,
+            getCurrentLoopEndLabelWithGlobalStateImpl()) == 1 {
             setBlockTerminated(true)
         }
     }
@@ -1341,13 +1348,13 @@ class LLVMIRGenerator {
             isBlockTerminated(), tryCatchContext.tryEndLabel))
 
         emitTryCatchCatchHeaderImpl(this.output, tryCatchContext.tryCatchLabel)
-        let savedCatchVarCount = activeVarCount
-        activeVarCount = bindFunctionBodyCatchVariableImpl(this.output, getFeatureRegBoxImpl(),
-            this.varNames, this.varRegs, this.varTypes, activeVarCount, stmt.variableName)
+        let savedCatchVarCount = getBoundedActiveVarCountWithGlobalStateImpl(this.varNames)
+        setActiveVarCountWithGlobalStateImpl(bindFunctionBodyCatchVariableImpl(this.output, getFeatureRegBoxImpl(),
+            this.varNames, this.varRegs, this.varTypes, getBoundedActiveVarCountWithGlobalStateImpl(this.varNames), stmt.variableName))
         if stmt.elseBranch.statements.length() > 0 {
             generateBlock(stmt.elseBranch)
         }
-        activeVarCount = savedCatchVarCount
+        setActiveVarCountWithGlobalStateImpl(savedCatchVarCount)
         setBlockTerminated(finalizeTryCatchArmImpl(this.output,
             isBlockTerminated(), tryCatchContext.tryEndLabel))
         emitTryCatchFooterImpl(this.output, tryCatchContext.tryEndLabel)
@@ -1432,14 +1439,14 @@ class LLVMIRGenerator {
         let pforIdx = g_pforCount
         g_pforCount = g_pforCount + 1
         let bodyFuncName = buildParallelForBodyFunctionNameImpl(pforIdx)
-        let pforReturnType = currentFunctionReturnType
+        let pforReturnType = getCurrentFunctionReturnTypeWithGlobalStateImpl()
 
         let savedNestedState = beginNestedScratchState(pforReturnType)
 
         emitParallelForBodyHeaderImpl(this.output, bodyFuncName)
         // Bind loop variable to %0
-        activeVarCount = storeActiveVariableBindingImpl(this.varNames, this.varRegs,
-            this.varTypes, activeVarCount, stmt.variableName, "%0", "Int")
+        setActiveVarCountWithGlobalStateImpl(storeActiveVariableBindingImpl(this.varNames, this.varRegs,
+            this.varTypes, getBoundedActiveVarCountWithGlobalStateImpl(this.varNames), stmt.variableName, "%0", "Int"))
         // Generate body block
         generateBlock(stmt.loopBody)
 
@@ -1573,13 +1580,13 @@ class LLVMIRGenerator {
             emitDeadLiteralInitializerSkipNoteImpl(this.output, stmt.variableName)
             return
         }
-        let savedPendingType = pendingArrayLiteralType
+        let savedPendingType = getPendingArrayLiteralTypeWithGlobalStateImpl()
         if shouldSeedDeclarationPendingArrayLiteralTypeImpl(
             stmt.initializer.kind, varType) != 0 {
-            pendingArrayLiteralType = varType
+            setPendingArrayLiteralTypeWithGlobalStateImpl(varType)
         }
         let valueReg = generateExpression(stmt.initializer)
-        pendingArrayLiteralType = savedPendingType
+        setPendingArrayLiteralTypeWithGlobalStateImpl(savedPendingType)
         let initializerType = inferExpressionType(stmt.initializer)
         let storedValueReg = coerceValueForLlvmTarget(llvmType,
             initializerType, valueReg)
@@ -1606,8 +1613,8 @@ class LLVMIRGenerator {
         }
         let reg = resolveLetStatementAllocaImpl(this.output, getFeatureRegBoxImpl(),
             preAllocatedReg, preAllocatedLlvmType, llvmType)
-        activeVarCount = storeActiveVariableBindingImpl(this.varNames, this.varRegs,
-            this.varTypes, activeVarCount, stmt.variableName, reg, varType)
+        setActiveVarCountWithGlobalStateImpl(storeActiveVariableBindingImpl(this.varNames, this.varRegs,
+            this.varTypes, getBoundedActiveVarCountWithGlobalStateImpl(this.varNames), stmt.variableName, reg, varType))
         emitLetStatementInitializer(stmt, reg, varType, llvmType)
     }
 
@@ -1653,18 +1660,19 @@ class LLVMIRGenerator {
         }
         let functionEmission = getCurrentFunctionEmissionStateImpl()
         if stmt.returnValue.kind != "None" {
-            let savedPendingType = pendingArrayLiteralType
+            let savedPendingType = getPendingArrayLiteralTypeWithGlobalStateImpl()
+            let currentReturnType = getCurrentFunctionReturnTypeWithGlobalStateImpl()
             let asyncReturnPlan = prepareAsyncReturnValuePlanImpl(
-                stmt.returnValue.kind, currentFunctionReturnType,
+                stmt.returnValue.kind, currentReturnType,
                 savedPendingType)
-            pendingArrayLiteralType =
-                asyncReturnPlan.pendingArrayLiteralType
+            setPendingArrayLiteralTypeWithGlobalStateImpl(
+                asyncReturnPlan.pendingArrayLiteralType)
             if asyncReturnPlan.shouldMarkTailCall == 1 {
                 markTailCallPositionImpl(getCurrentFunctionOptions())
             }
             let valueReg = generateExpression(stmt.returnValue)
-            pendingArrayLiteralType = savedPendingType
-            let promiseType = mapTypeState(currentFunctionReturnType)
+            setPendingArrayLiteralTypeWithGlobalStateImpl(savedPendingType)
+            let promiseType = mapTypeState(currentReturnType)
             emitAsyncReturnValueBranchImpl(this.output, promiseType, valueReg,
                 functionEmission.asyncPromise, functionEmission.asyncFinalLabel)
             setBlockTerminated(true)
@@ -1684,13 +1692,14 @@ class LLVMIRGenerator {
             return loadReg
         }
 
-        let savedPendingType = pendingArrayLiteralType
+        let savedPendingType = getPendingArrayLiteralTypeWithGlobalStateImpl()
+        let currentReturnType = getCurrentFunctionReturnTypeWithGlobalStateImpl()
         if shouldSeedReturnPendingArrayLiteralTypeImpl(stmt.returnValue.kind,
-            currentFunctionReturnType) == 1 {
-            pendingArrayLiteralType = currentFunctionReturnType
+            currentReturnType) == 1 {
+            setPendingArrayLiteralTypeWithGlobalStateImpl(currentReturnType)
         }
         let valueReg = generateExpression(stmt.returnValue)
-        pendingArrayLiteralType = savedPendingType
+        setPendingArrayLiteralTypeWithGlobalStateImpl(savedPendingType)
         return valueReg
     }
 
@@ -1719,7 +1728,8 @@ class LLVMIRGenerator {
         }
 
         if stmt.returnValue.kind == "None" {
-            let emptyReturnType = mapTypeState(currentFunctionReturnType)
+            let emptyReturnType = mapTypeState(
+                getCurrentFunctionReturnTypeWithGlobalStateImpl())
             emitDefaultEmptyReturnStatementImpl(this.output, emptyReturnType,
                 functionEmission.isMainFunc)
             setBlockTerminated(true)
@@ -1729,8 +1739,9 @@ class LLVMIRGenerator {
         if shouldMarkReturnTailCallImpl(stmt.returnValue.kind) == 1 {
             markTailCallPositionImpl(getCurrentFunctionOptions())
         }
+        let currentReturnType = getCurrentFunctionReturnTypeWithGlobalStateImpl()
         let charValue = resolveCharLiteralReturnValueImpl(
-            currentFunctionReturnType, stmt.returnValue.kind,
+            currentReturnType, stmt.returnValue.kind,
             stmt.returnValue.literalType, stmt.returnValue.literalValue)
         if charValue != "" {
             emitCharLiteralReturnImpl(this.output, charValue)
@@ -1738,14 +1749,14 @@ class LLVMIRGenerator {
             return
         }
 
-        let llvmType = mapTypeState(currentFunctionReturnType)
+        let llvmType = mapTypeState(currentReturnType)
         let rawValueReg = resolveReturnStatementValueReg(stmt)
         let inferredReturnExprType = inferExpressionType(stmt.returnValue)
         let returnExprType = normalizeIfConditionTypeImpl(stmt.returnValue,
             inferredReturnExprType)
         let returnExprLlvmType = mapTypeState(returnExprType)
         emitFinalReturnStatementValueImpl(this.output, getFeatureRegBoxImpl(),
-            isDataTypeState(currentFunctionReturnType), stmt.returnValue.kind,
+            isDataTypeState(currentReturnType), stmt.returnValue.kind,
             returnExprType, returnExprLlvmType, llvmType, rawValueReg)
         setBlockTerminated(true)
     }
@@ -1780,7 +1791,7 @@ class LLVMIRGenerator {
             return false
         }
 
-        let varIdx = findActiveVariableIndexImpl(this.varNames, activeVarCount,
+        let varIdx = findActiveVariableIndexImpl(this.varNames, getBoundedActiveVarCountWithGlobalStateImpl(this.varNames),
             selectPlan.assignName)
         if varIdx < 0 {
             return false
@@ -1813,7 +1824,7 @@ class LLVMIRGenerator {
             return false
         }
 
-        let varIdx = findActiveVariableIndexImpl(this.varNames, activeVarCount,
+        let varIdx = findActiveVariableIndexImpl(this.varNames, getBoundedActiveVarCountWithGlobalStateImpl(this.varNames),
             selectPlan.assignName)
         if varIdx < 0 {
             return false
@@ -1913,12 +1924,12 @@ class LLVMIRGenerator {
 
         cseClear()
         setBlockTerminated(false)
-        let savedIfLetVarCount = activeVarCount
-        activeVarCount = emitIfLetBindingStateImpl(this.output, getFeatureRegBoxImpl(),
-            this.varNames, this.varRegs, this.varTypes, activeVarCount, stmt.variableName,
-            exprReg)
+        let savedIfLetVarCount = getBoundedActiveVarCountWithGlobalStateImpl(this.varNames)
+        setActiveVarCountWithGlobalStateImpl(emitIfLetBindingStateImpl(this.output, getFeatureRegBoxImpl(),
+            this.varNames, this.varRegs, this.varTypes, getBoundedActiveVarCountWithGlobalStateImpl(this.varNames), stmt.variableName,
+            exprReg))
         generateBlock(stmt.thenBranch)
-        activeVarCount = savedIfLetVarCount
+        setActiveVarCountWithGlobalStateImpl(savedIfLetVarCount)
         let thenTerminated = isBlockTerminated()
         if not thenTerminated {
             this.output.append("  br label %" + endLabel + "\n")
@@ -2004,7 +2015,7 @@ class LLVMIRGenerator {
     fun emitWhileConditionBranch(condReg: String, breakFlagVar: String, bodyLabel: String, endLabel: String) r: Void {
         var breakFlagPtrReg = ""
         if breakFlagVar != "" {
-            let bfVarIdx = findActiveVariableIndexImpl(this.varNames, activeVarCount, breakFlagVar)
+            let bfVarIdx = findActiveVariableIndexImpl(this.varNames, getBoundedActiveVarCountWithGlobalStateImpl(this.varNames), breakFlagVar)
             if bfVarIdx >= 0 {
                 breakFlagPtrReg = this.varRegs[bfVarIdx]
             }
@@ -2027,21 +2038,21 @@ class LLVMIRGenerator {
         }
         var lhsArrayReg = ""
         let lhsArrayIdx = findActiveVariableIndexImpl(this.varNames,
-            activeVarCount, memcpyPlan.lhsArrayName)
+            getBoundedActiveVarCountWithGlobalStateImpl(this.varNames), memcpyPlan.lhsArrayName)
         if lhsArrayIdx >= 0 {
             lhsArrayReg = this.varRegs[lhsArrayIdx]
         }
         var rhsArrayReg = ""
         if memcpyPlan.kind == 1 {
             let rhsArrayIdx = findActiveVariableIndexImpl(this.varNames,
-                activeVarCount, memcpyPlan.rhsArrayName)
+                getBoundedActiveVarCountWithGlobalStateImpl(this.varNames), memcpyPlan.rhsArrayName)
             if rhsArrayIdx >= 0 {
                 rhsArrayReg = this.varRegs[rhsArrayIdx]
             }
         }
         var incrementVarReg = ""
         let incrementVarIdx = findActiveVariableIndexImpl(this.varNames,
-            activeVarCount, memcpyPlan.incrementVarName)
+            getBoundedActiveVarCountWithGlobalStateImpl(this.varNames), memcpyPlan.incrementVarName)
         if incrementVarIdx >= 0 {
             incrementVarReg = this.varRegs[incrementVarIdx]
         }
@@ -2062,10 +2073,13 @@ class LLVMIRGenerator {
             memcpyEmitResult.loopsOptimizedDelta
         emitMemcpyLoopExitBlocksImpl(this.output, condLabel, bodyLabel, endLabel)
         let restoredLoopContext = restoreFunctionBodyLoopContextImpl(
-            currentLoopCondLabel, currentLoopEndLabel, savedCondLabel,
+            getCurrentLoopCondLabelWithGlobalStateImpl(),
+            getCurrentLoopEndLabelWithGlobalStateImpl(), savedCondLabel,
             savedEndLabel)
-        currentLoopCondLabel = restoredLoopContext.currentCondLabel
-        currentLoopEndLabel = restoredLoopContext.currentEndLabel
+        setCurrentLoopCondLabelWithGlobalStateImpl(
+            restoredLoopContext.currentCondLabel)
+        setCurrentLoopEndLabelWithGlobalStateImpl(
+            restoredLoopContext.currentEndLabel)
         return true
     }
 
@@ -2128,8 +2142,8 @@ class LLVMIRGenerator {
         let endReg = generateExpression(forInIterable.operands[1])
         let idxReg = resolveFunctionBodyForInIndexAllocaWithGlobalStateImpl(
             this.output, getFeatureRegBoxImpl(), "__forin_idx_" + loopVarName)
-        activeVarCount = storeActiveVariableBindingImpl(this.varNames, this.varRegs,
-            this.varTypes, activeVarCount, loopVarName, loopVarReg, loopVarType)
+        setActiveVarCountWithGlobalStateImpl(storeActiveVariableBindingImpl(this.varNames, this.varRegs,
+            this.varTypes, getBoundedActiveVarCountWithGlobalStateImpl(this.varNames), loopVarName, loopVarReg, loopVarType))
         cseClear()
         emitIndexedForLoopHeaderImpl(this.output, getFeatureRegBoxImpl(), startReg, endReg, loopVarReg, idxReg, condLabel, bodyLabel, endLabel)
         cseClear()
@@ -2162,8 +2176,8 @@ class LLVMIRGenerator {
         let iterStoreReg = getNextRegFn(getFeatureRegBoxImpl())
         this.output.append("  " + iterStoreReg + " = alloca i64, align 8\n")
         this.output.append("  store i64 " + iterObjReg + ", ptr " + iterStoreReg + "\n")
-        activeVarCount = storeActiveVariableBindingImpl(this.varNames, this.varRegs,
-            this.varTypes, activeVarCount, loopVarName, loopVarReg, loopVarType)
+        setActiveVarCountWithGlobalStateImpl(storeActiveVariableBindingImpl(this.varNames, this.varRegs,
+            this.varTypes, getBoundedActiveVarCountWithGlobalStateImpl(this.varNames), loopVarName, loopVarReg, loopVarType))
 
         this.output.append("  br label %" + condLabel + "\n")
         this.output.append(condLabel + ":\n")
@@ -2234,8 +2248,8 @@ class LLVMIRGenerator {
 
         let idxReg = resolveFunctionBodyForInIndexAllocaWithGlobalStateImpl(
             this.output, getFeatureRegBoxImpl(), "__forin_idx_" + loopVarName)
-        activeVarCount = storeActiveVariableBindingImpl(this.varNames, this.varRegs,
-            this.varTypes, activeVarCount, loopVarName, loopVarReg, loopVarType)
+        setActiveVarCountWithGlobalStateImpl(storeActiveVariableBindingImpl(this.varNames, this.varRegs,
+            this.varTypes, getBoundedActiveVarCountWithGlobalStateImpl(this.varNames), loopVarName, loopVarReg, loopVarType))
         cseClear()
         let loadIdx = emitIndexedForLoopHeaderImpl(this.output, getFeatureRegBoxImpl(), "0", lenReg, "", idxReg, condLabel, bodyLabel, endLabel)
         cseClear()
@@ -2263,12 +2277,15 @@ class LLVMIRGenerator {
         emitFunctionBodyLoopEndLabelImpl(this.output, endLabel)
         cseClear()
         setBlockTerminated(false)
-        activeVarCount = savedForInVarCount
+        setActiveVarCountWithGlobalStateImpl(savedForInVarCount)
         let restoredLoopContext = restoreFunctionBodyLoopContextImpl(
-            currentLoopCondLabel, currentLoopEndLabel, savedCondLabel,
+            getCurrentLoopCondLabelWithGlobalStateImpl(),
+            getCurrentLoopEndLabelWithGlobalStateImpl(), savedCondLabel,
             savedEndLabel)
-        currentLoopCondLabel = restoredLoopContext.currentCondLabel
-        currentLoopEndLabel = restoredLoopContext.currentEndLabel
+        setCurrentLoopCondLabelWithGlobalStateImpl(
+            restoredLoopContext.currentCondLabel)
+        setCurrentLoopEndLabelWithGlobalStateImpl(
+            restoredLoopContext.currentEndLabel)
     }
 
     ///
@@ -2284,9 +2301,10 @@ class LLVMIRGenerator {
     ///
     fun generateWhileStatement(stmt: StatementNode) r: Void {
         let loopContext = beginFunctionBodyLoopContextImpl(getFeatureBlockBoxImpl(),
-            currentLoopCondLabel, currentLoopEndLabel)
-        currentLoopCondLabel = loopContext.currentCondLabel
-        currentLoopEndLabel = loopContext.currentEndLabel
+            getCurrentLoopCondLabelWithGlobalStateImpl(),
+            getCurrentLoopEndLabelWithGlobalStateImpl())
+        setCurrentLoopCondLabelWithGlobalStateImpl(loopContext.currentCondLabel)
+        setCurrentLoopEndLabelWithGlobalStateImpl(loopContext.currentEndLabel)
 
         if tryEmitMemcpyOptimizedWhileLoop(stmt, loopContext.condLabel,
             loopContext.bodyLabel, loopContext.endLabel,
@@ -2306,10 +2324,13 @@ class LLVMIRGenerator {
 
         g_inductionVarName = savedInductionVarBox[0]
         let restoredLoopContext = restoreFunctionBodyLoopContextImpl(
-            currentLoopCondLabel, currentLoopEndLabel,
+            getCurrentLoopCondLabelWithGlobalStateImpl(),
+            getCurrentLoopEndLabelWithGlobalStateImpl(),
             loopContext.savedCondLabel, loopContext.savedEndLabel)
-        currentLoopCondLabel = restoredLoopContext.currentCondLabel
-        currentLoopEndLabel = restoredLoopContext.currentEndLabel
+        setCurrentLoopCondLabelWithGlobalStateImpl(
+            restoredLoopContext.currentCondLabel)
+        setCurrentLoopEndLabelWithGlobalStateImpl(
+            restoredLoopContext.currentEndLabel)
     }
 
     ///
@@ -2321,10 +2342,11 @@ class LLVMIRGenerator {
     ///
     fun generateForInStatement(stmt: StatementNode) r: Void {
         let loopContext = beginFunctionBodyLoopContextImpl(getFeatureBlockBoxImpl(),
-            currentLoopCondLabel, currentLoopEndLabel)
-        currentLoopCondLabel = loopContext.currentCondLabel
-        currentLoopEndLabel = loopContext.currentEndLabel
-        let savedForInVarCount = activeVarCount
+            getCurrentLoopCondLabelWithGlobalStateImpl(),
+            getCurrentLoopEndLabelWithGlobalStateImpl())
+        setCurrentLoopCondLabelWithGlobalStateImpl(loopContext.currentCondLabel)
+        setCurrentLoopEndLabelWithGlobalStateImpl(loopContext.currentEndLabel)
+        let savedForInVarCount = getBoundedActiveVarCountWithGlobalStateImpl(this.varNames)
 
         let loopVarName = stmt.variableName
         var resolvedLoopVarType = findVarType(loopVarName)
@@ -2356,21 +2378,21 @@ class LLVMIRGenerator {
     }
 
     fun generateAssignmentValuePreservingPendingType(valueExpr: ParserExpressionNode) r: String {
-        let savedPendingType = pendingArrayLiteralType
+        let savedPendingType = getPendingArrayLiteralTypeWithGlobalStateImpl()
         let valueReg = generateExpression(valueExpr)
-        pendingArrayLiteralType = savedPendingType
+        setPendingArrayLiteralTypeWithGlobalStateImpl(savedPendingType)
         return valueReg
     }
 
     fun generateAssignmentValueForSeenType(valueExpr: ParserExpressionNode, targetSeenType: String) r: String {
-        let savedPendingType = pendingArrayLiteralType
+        let savedPendingType = getPendingArrayLiteralTypeWithGlobalStateImpl()
         if targetSeenType != "" and valueExpr.kind == "ArrayLiteral" {
             if targetSeenType.startsWith("Array") or targetSeenType.startsWith("List") {
-                pendingArrayLiteralType = targetSeenType
+                setPendingArrayLiteralTypeWithGlobalStateImpl(targetSeenType)
             }
         }
         let valueReg = generateExpression(valueExpr)
-        pendingArrayLiteralType = savedPendingType
+        setPendingArrayLiteralTypeWithGlobalStateImpl(savedPendingType)
         return valueReg
     }
 
@@ -2390,13 +2412,13 @@ class LLVMIRGenerator {
     }
 
     fun tryGenerateImplicitThisFieldAssignment(varName: String, valueExpr: ParserExpressionNode) r: Int {
-        let thisIdx = findActiveVariableIndexImpl(this.varNames, activeVarCount, "this")
+        let thisIdx = findActiveVariableIndexImpl(this.varNames, getBoundedActiveVarCountWithGlobalStateImpl(this.varNames), "this")
         if thisIdx < 0 {
             return 0
         }
 
         let thisType = this.varTypes[thisIdx]
-        let structIdx = findStructReg(thisType, structNames)
+        let structIdx = findStructReg(thisType, getGlobalStructNamesImpl())
         if structIdx < 0 {
             return 0
         }
@@ -2413,7 +2435,7 @@ class LLVMIRGenerator {
         let storedValueReg = coerceValueForLlvmTarget(fieldType,
             valueSeenType, valueReg)
         emitImplicitThisFieldStoreImpl(this.output, getFeatureRegBoxImpl(),
-            this.varRegs[thisIdx], structLayouts[structIdx], fieldIdx, fieldType,
+            this.varRegs[thisIdx], getGlobalStructLayoutsImpl()[structIdx], fieldIdx, fieldType,
             storedValueReg)
         return 1
     }
@@ -2459,7 +2481,7 @@ class LLVMIRGenerator {
             return
         }
 
-        let rhsIdx = findActiveVariableIndexImpl(this.varNames, activeVarCount, rhsVarName)
+        let rhsIdx = findActiveVariableIndexImpl(this.varNames, getBoundedActiveVarCountWithGlobalStateImpl(this.varNames), rhsVarName)
         if rhsIdx < 0 {
             return
         }
@@ -2483,7 +2505,7 @@ class LLVMIRGenerator {
     // Handle assignment expression (from parser)
     fun generateAssignmentExpr(expr: ParserExpressionNode) r: Void {
         let varName = expr.variableName
-        let idx = findActiveVariableIndexImpl(this.varNames, activeVarCount, varName)
+        let idx = findActiveVariableIndexImpl(this.varNames, getBoundedActiveVarCountWithGlobalStateImpl(this.varNames), varName)
 
         if idx < 0 {
             tryGenerateFallbackAssignmentTarget(varName, expr.operands[0])
@@ -2501,7 +2523,7 @@ class LLVMIRGenerator {
     ///
     fun generateAssignment(stmt: StatementNode) r: Void {
         let varName = stmt.variableName
-        let idx = findActiveVariableIndexImpl(this.varNames, activeVarCount, varName)
+        let idx = findActiveVariableIndexImpl(this.varNames, getBoundedActiveVarCountWithGlobalStateImpl(this.varNames), varName)
 
         if idx < 0 {
             tryGenerateFallbackAssignmentTarget(varName, stmt.initializer)
@@ -2530,11 +2552,11 @@ class LLVMIRGenerator {
             let receiverType = inferExpressionType(receiverExpr)
             if emitValueReceiverMemberAssignmentImpl(this.output, getFeatureRegBoxImpl(),
                 receiverReg, receiverType, fieldName, valueReg, value.kind,
-                valueSeenType, structNames, structLayouts, structFieldNames,
-                structFieldTypes, structLlvmFieldTypes, g_reprCClassNames,
+                valueSeenType, getGlobalStructNamesImpl(), getGlobalStructLayoutsImpl(), getGlobalStructFieldNamesImpl(),
+                getGlobalStructFieldTypesImpl(), getGlobalStructLlvmFieldTypesImpl(), g_reprCClassNames,
                 g_typeAliasNames, g_typeAliasTargets, g_typeAliasCount,
-                g_enumTypeNames, g_unionTypes, g_bitfieldCount,
-                g_bitfieldKeys, g_bitfieldWidths) == 1 {
+                g_enumTypeNames, g_unionTypes, getFeatureBitfieldCountImpl(),
+                getFeatureBitfieldKeysImpl(), getFeatureBitfieldWidthsImpl()) == 1 {
                 return
             }
             return
@@ -2547,12 +2569,12 @@ class LLVMIRGenerator {
                 let receiverType = inferExpressionType(receiverExpr)
                 if emitValueReceiverMemberAssignmentImpl(this.output, getFeatureRegBoxImpl(),
                     receiverReg, receiverType, fieldName, valueReg,
-                    value.kind, valueSeenType, structNames, structLayouts,
-                    structFieldNames, structFieldTypes,
-                    structLlvmFieldTypes, g_reprCClassNames,
+                    value.kind, valueSeenType, getGlobalStructNamesImpl(), getGlobalStructLayoutsImpl(),
+                    getGlobalStructFieldNamesImpl(), getGlobalStructFieldTypesImpl(),
+                    getGlobalStructLlvmFieldTypesImpl(), g_reprCClassNames,
                     g_typeAliasNames, g_typeAliasTargets, g_typeAliasCount,
-                    g_enumTypeNames, g_unionTypes, g_bitfieldCount,
-                    g_bitfieldKeys, g_bitfieldWidths) == 1 {
+                    g_enumTypeNames, g_unionTypes, getFeatureBitfieldCountImpl(),
+                    getFeatureBitfieldKeysImpl(), getFeatureBitfieldWidthsImpl()) == 1 {
                     return
                 }
             }
@@ -2561,21 +2583,21 @@ class LLVMIRGenerator {
         if emitVariableReceiverMemberAssignmentImpl(this.output, getFeatureRegBoxImpl(),
             receiverName, fieldName, valueReg, value.kind, valueSeenType,
             this.varNames,
-            activeVarCount, this.varRegs, this.varTypes, structNames, structLayouts,
-            structFieldNames, structFieldTypes, structLlvmFieldTypes,
+            getBoundedActiveVarCountWithGlobalStateImpl(this.varNames), this.varRegs, this.varTypes, getGlobalStructNamesImpl(), getGlobalStructLayoutsImpl(),
+            getGlobalStructFieldNamesImpl(), getGlobalStructFieldTypesImpl(), getGlobalStructLlvmFieldTypesImpl(),
             g_reprCClassNames, g_typeAliasNames, g_typeAliasTargets,
             g_typeAliasCount, g_enumTypeNames, g_unionTypes,
-            g_bitfieldCount, g_bitfieldKeys, g_bitfieldWidths) == 1 {
+            getFeatureBitfieldCountImpl(), getFeatureBitfieldKeysImpl(), getFeatureBitfieldWidthsImpl()) == 1 {
             return
         }
         emitImplicitThisMemberAssignmentImpl(this.output, getFeatureRegBoxImpl(), receiverName,
             fieldName, valueReg, value.kind, valueSeenType, this.varNames,
-            activeVarCount,
-            this.varRegs, this.varTypes, structNames, structLayouts, structFieldNames,
-            structFieldTypes, structLlvmFieldTypes, g_reprCClassNames,
+            getBoundedActiveVarCountWithGlobalStateImpl(this.varNames),
+            this.varRegs, this.varTypes, getGlobalStructNamesImpl(), getGlobalStructLayoutsImpl(), getGlobalStructFieldNamesImpl(),
+            getGlobalStructFieldTypesImpl(), getGlobalStructLlvmFieldTypesImpl(), g_reprCClassNames,
             g_typeAliasNames, g_typeAliasTargets, g_typeAliasCount,
-            g_enumTypeNames, g_unionTypes, g_bitfieldCount, g_bitfieldKeys,
-            g_bitfieldWidths)
+            g_enumTypeNames, g_unionTypes, getFeatureBitfieldCountImpl(), getFeatureBitfieldKeysImpl(),
+            getFeatureBitfieldWidthsImpl())
     }
 
     ///
@@ -2617,7 +2639,7 @@ class LLVMIRGenerator {
         let valueSeenType = inferExpressionType(value)
         emitPreparedIndexAssignmentStoreImpl(this.output, getFeatureRegBoxImpl(), arrayReg,
             indexReg, valueReg, elementType, llvmElementType,
-            valueIsStructLiteral, valueSeenType, structNames)
+            valueIsStructLiteral, valueSeenType, getGlobalStructNamesImpl())
     }
 
     ///
@@ -2699,7 +2721,8 @@ class LLVMIRGenerator {
             this.output.append("  br i1 " + tryIsOkReg + ", label %" + tryOkLabel + ", label %" + tryErrLabel + "\n")
 
             this.output.append(tryErrLabel + ":\n")
-            let tryRetType = mapTypeState(currentFunctionReturnType)
+            let tryRetType = mapTypeState(
+                getCurrentFunctionReturnTypeWithGlobalStateImpl())
             if tryRetType == "void" {
                 this.output.append("  ret void\n")
             } else {
@@ -2932,8 +2955,8 @@ class LLVMIRGenerator {
             let cpLocal = getNextRegFn(getFeatureRegBoxImpl())
             this.output.append("  " + cpLocal + " = alloca i64\n")
             this.output.append("  store i64 " + cpReg + ", ptr " + cpLocal + "\n")
-            activeVarCount = storeActiveVariableBindingImpl(this.varNames, this.varRegs,
-                this.varTypes, activeVarCount, cpName, cpLocal, "Int")
+            setActiveVarCountWithGlobalStateImpl(storeActiveVariableBindingImpl(this.varNames, this.varRegs,
+                this.varTypes, getBoundedActiveVarCountWithGlobalStateImpl(this.varNames), cpName, cpLocal, "Int"))
             paramIdx = paramIdx + 1
         }
 
@@ -2973,9 +2996,11 @@ class LLVMIRGenerator {
     }
 
     fun resolveArrayLiteralElementType(expr: ParserExpressionNode) r: String {
-        if pendingArrayLiteralType != "" {
+        let activePendingArrayLiteralType =
+            getPendingArrayLiteralTypeWithGlobalStateImpl()
+        if activePendingArrayLiteralType != "" {
             let pendingElementType = extractArrayLiteralElementTypeImpl(
-                pendingArrayLiteralType)
+                activePendingArrayLiteralType)
             if pendingElementType != "" {
                 return pendingElementType
             }
@@ -3000,13 +3025,13 @@ class LLVMIRGenerator {
     }
 
     fun generateArrayLiteralElementValue(elemExpr: ParserExpressionNode, elementType: String) r: String {
-        let savedElemPending = pendingArrayLiteralType
-        pendingArrayLiteralType = ""
+        let savedElemPending = getPendingArrayLiteralTypeWithGlobalStateImpl()
+        setPendingArrayLiteralTypeWithGlobalStateImpl("")
         if elemExpr.kind == "ArrayLiteral" and (elementType.startsWith("Array") or elementType.startsWith("List")) {
-            pendingArrayLiteralType = elementType
+            setPendingArrayLiteralTypeWithGlobalStateImpl(elementType)
         }
         let argReg = generateExpression(elemExpr)
-        pendingArrayLiteralType = savedElemPending
+        setPendingArrayLiteralTypeWithGlobalStateImpl(savedElemPending)
         return argReg
     }
 
@@ -3041,7 +3066,7 @@ class LLVMIRGenerator {
     }
 
     fun generateArrayLiteral(expr: ParserExpressionNode) r: String {
-        let savedPendingType = pendingArrayLiteralType
+        let savedPendingType = getPendingArrayLiteralTypeWithGlobalStateImpl()
         let elementType = resolveArrayLiteralElementType(expr)
         let arrReg = emitArrayLiteralAllocation(elementType)
 
@@ -3056,7 +3081,7 @@ class LLVMIRGenerator {
             elemIdx = elemIdx + 1
         }
 
-        pendingArrayLiteralType = savedPendingType
+        setPendingArrayLiteralTypeWithGlobalStateImpl(savedPendingType)
         return arrReg
     }
 
@@ -3188,7 +3213,7 @@ class LLVMIRGenerator {
         if swizzleType == "" {
             return ""
         }
-        let swzIdx = findActiveVariableIndexImpl(this.varNames, activeVarCount, receiverName)
+        let swzIdx = findActiveVariableIndexImpl(this.varNames, getBoundedActiveVarCountWithGlobalStateImpl(this.varNames), receiverName)
         if swzIdx < 0 {
             return ""
         }
@@ -3200,25 +3225,25 @@ class LLVMIRGenerator {
         let receiverType = inferExpressionType(receiverExpr)
         return emitPreparedExpressionReceiverMemberAccessImpl(this.output, getFeatureRegBoxImpl(),
             receiverReg, receiverType, fieldName,
-            getFieldTypeState(receiverType, fieldName), structNames, structLayouts,
-            structFieldNames, structFieldTypes, g_reprCClassNames,
+            getFieldTypeState(receiverType, fieldName), getGlobalStructNamesImpl(), getGlobalStructLayoutsImpl(),
+            getGlobalStructFieldNamesImpl(), getGlobalStructFieldTypesImpl(), g_reprCClassNames,
             g_unionTypes, g_typeAliasNames, g_typeAliasTargets,
-            g_typeAliasCount, g_enumTypeNames, g_bitfieldCount,
-            g_bitfieldKeys, g_bitfieldWidths)
+            g_typeAliasCount, g_enumTypeNames, getFeatureBitfieldCountImpl(),
+            getFeatureBitfieldKeysImpl(), getFeatureBitfieldWidthsImpl())
     }
 
     fun tryGenerateVariableReceiverMemberAccess(receiverName: String, fieldName: String) r: String {
-        let idx = findActiveVariableIndexImpl(this.varNames, activeVarCount, receiverName)
+        let idx = findActiveVariableIndexImpl(this.varNames, getBoundedActiveVarCountWithGlobalStateImpl(this.varNames), receiverName)
         if idx < 0 {
             return ""
         }
         let varType = this.varTypes[idx]
         return emitPreparedVariableReceiverMemberAccessImpl(this.output, getFeatureRegBoxImpl(),
             this.varRegs[idx], varType, fieldName, getFieldTypeState(varType, fieldName),
-            structNames, structLayouts, structFieldNames, structFieldTypes,
+            getGlobalStructNamesImpl(), getGlobalStructLayoutsImpl(), getGlobalStructFieldNamesImpl(), getGlobalStructFieldTypesImpl(),
             g_reprCClassNames, g_unionTypes, g_typeAliasNames,
             g_typeAliasTargets, g_typeAliasCount, g_enumTypeNames,
-            g_bitfieldCount, g_bitfieldKeys, g_bitfieldWidths)
+            getFeatureBitfieldCountImpl(), getFeatureBitfieldKeysImpl(), getFeatureBitfieldWidthsImpl())
     }
 
     fun tryGenerateModuleConstReceiverMemberAccess(receiverName: String, fieldName: String) r: String {
@@ -3236,10 +3261,10 @@ class LLVMIRGenerator {
         return emitPreparedModuleConstReceiverMemberAccessImpl(this.output, getFeatureRegBoxImpl(),
             "@" + quoteIdentIfNeededImpl(receiverName), constType, constSeenType,
             invSuffix, fieldName, getFieldTypeState(constSeenType, fieldName),
-            structNames, structLayouts, structFieldNames, structFieldTypes,
+            getGlobalStructNamesImpl(), getGlobalStructLayoutsImpl(), getGlobalStructFieldNamesImpl(), getGlobalStructFieldTypesImpl(),
             g_reprCClassNames, g_unionTypes, g_typeAliasNames,
             g_typeAliasTargets, g_typeAliasCount, g_enumTypeNames,
-            g_bitfieldCount, g_bitfieldKeys, g_bitfieldWidths)
+            getFeatureBitfieldCountImpl(), getFeatureBitfieldKeysImpl(), getFeatureBitfieldWidthsImpl())
     }
 
     fun tryGenerateBracketPathMemberAccess(receiverName: String, fieldName: String) r: String {
@@ -3260,7 +3285,7 @@ class LLVMIRGenerator {
         let baseVar = pathParts[0]
         let arrayField = pathParts[1]
 
-        let baseIdx = findActiveVariableIndexImpl(this.varNames, activeVarCount, baseVar)
+        let baseIdx = findActiveVariableIndexImpl(this.varNames, getBoundedActiveVarCountWithGlobalStateImpl(this.varNames), baseVar)
         if baseIdx < 0 {
             return ""
         }
@@ -3274,11 +3299,11 @@ class LLVMIRGenerator {
         return emitPreparedBracketPathMemberAccessImpl(this.output, getFeatureRegBoxImpl(), receiverName,
             fieldName, baseVar, this.varRegs[baseIdx], baseType, arrayField,
             getFieldTypeState(baseType, arrayField), indexStr, elementType,
-            getFieldTypeState(elementType, fieldName), structNames, structLayouts,
-            structFieldNames, structFieldTypes, g_reprCClassNames,
+            getFieldTypeState(elementType, fieldName), getGlobalStructNamesImpl(), getGlobalStructLayoutsImpl(),
+            getGlobalStructFieldNamesImpl(), getGlobalStructFieldTypesImpl(), g_reprCClassNames,
             g_unionTypes, g_typeAliasNames, g_typeAliasTargets,
-            g_typeAliasCount, g_enumTypeNames, g_bitfieldCount,
-            g_bitfieldKeys, g_bitfieldWidths)
+            g_typeAliasCount, g_enumTypeNames, getFeatureBitfieldCountImpl(),
+            getFeatureBitfieldKeysImpl(), getFeatureBitfieldWidthsImpl())
     }
 
     fun tryGenerateChainedReceiverMemberAccess(receiverName: String, fieldName: String) r: String {
@@ -3292,27 +3317,27 @@ class LLVMIRGenerator {
             return ""
         }
 
-        let baseIdx = findActiveVariableIndexImpl(this.varNames, activeVarCount, baseVarName)
+        let baseIdx = findActiveVariableIndexImpl(this.varNames, getBoundedActiveVarCountWithGlobalStateImpl(this.varNames), baseVarName)
         if baseIdx < 0 {
             return ""
         }
         let baseType = this.varTypes[baseIdx]
         var intermediateType = resolveChainedPathSuffixTypeImpl(baseType, restPath,
-            structNames, structFieldNames, structFieldTypes, structMethodNames, structMethodRetTypes)
+            getGlobalStructNamesImpl(), getGlobalStructFieldNamesImpl(), getGlobalStructFieldTypesImpl(), getGlobalStructMethodNamesImpl(), getGlobalStructMethodRetTypesImpl())
         if intermediateType == "" {
             intermediateType = "ProgramNode"
         }
         return emitPreparedChainedReceiverMemberAccessImpl(this.output, getFeatureRegBoxImpl(),
             fieldName, this.varRegs[baseIdx], baseType, restPath, intermediateType,
-            getFieldTypeState(intermediateType, fieldName), structNames,
-            structLayouts, structFieldNames, structFieldTypes,
+            getFieldTypeState(intermediateType, fieldName), getGlobalStructNamesImpl(),
+            getGlobalStructLayoutsImpl(), getGlobalStructFieldNamesImpl(), getGlobalStructFieldTypesImpl(),
             g_reprCClassNames, g_unionTypes, g_typeAliasNames,
             g_typeAliasTargets, g_typeAliasCount, g_enumTypeNames,
-            g_bitfieldCount, g_bitfieldKeys, g_bitfieldWidths)
+            getFeatureBitfieldCountImpl(), getFeatureBitfieldKeysImpl(), getFeatureBitfieldWidthsImpl())
     }
 
     fun tryGenerateImplicitThisReceiverMemberAccess(receiverName: String, fieldName: String) r: String {
-        let thisIdx = findActiveVariableIndexImpl(this.varNames, activeVarCount, "this")
+        let thisIdx = findActiveVariableIndexImpl(this.varNames, getBoundedActiveVarCountWithGlobalStateImpl(this.varNames), "this")
         if thisIdx < 0 {
             return ""
         }
@@ -3320,8 +3345,8 @@ class LLVMIRGenerator {
         var intermediateType = ""
         if receiverName.contains(".") {
             intermediateType = resolveMethodFieldPathTypeImpl(thisType,
-                receiverName, structNames, structFieldNames, structFieldTypes,
-                structMethodNames, structMethodRetTypes)
+                receiverName, getGlobalStructNamesImpl(), getGlobalStructFieldNamesImpl(), getGlobalStructFieldTypesImpl(),
+                getGlobalStructMethodNamesImpl(), getGlobalStructMethodRetTypesImpl())
         } else {
             let fieldIdx = getFieldInfoState(thisType, receiverName)
             if fieldIdx < 0 {
@@ -3335,10 +3360,10 @@ class LLVMIRGenerator {
         return emitPreparedImplicitThisReceiverMemberAccessImpl(this.output, getFeatureRegBoxImpl(),
             receiverName, fieldName, this.varRegs[thisIdx], thisType,
             intermediateType, getFieldTypeState(intermediateType, fieldName),
-            structNames, structLayouts, structFieldNames, structFieldTypes,
+            getGlobalStructNamesImpl(), getGlobalStructLayoutsImpl(), getGlobalStructFieldNamesImpl(), getGlobalStructFieldTypesImpl(),
             g_reprCClassNames, g_unionTypes, g_typeAliasNames,
             g_typeAliasTargets, g_typeAliasCount, g_enumTypeNames,
-            g_bitfieldCount, g_bitfieldKeys, g_bitfieldWidths)
+            getFeatureBitfieldCountImpl(), getFeatureBitfieldKeysImpl(), getFeatureBitfieldWidthsImpl())
     }
 
     ///
@@ -3447,11 +3472,11 @@ class LLVMIRGenerator {
     ///
     fun generateFieldAccess(ptrReg: String, structType: String, fieldName: String) r: String {
         return generateFieldAccessImpl(this.output, getFeatureRegBoxImpl(), ptrReg, structType,
-            fieldName, getFieldTypeState(structType, fieldName), structNames,
-            structLayouts, structFieldNames, structFieldTypes,
+            fieldName, getFieldTypeState(structType, fieldName), getGlobalStructNamesImpl(),
+            getGlobalStructLayoutsImpl(), getGlobalStructFieldNamesImpl(), getGlobalStructFieldTypesImpl(),
             g_reprCClassNames, g_unionTypes, g_typeAliasNames,
             g_typeAliasTargets, g_typeAliasCount, g_enumTypeNames,
-            g_bitfieldCount, g_bitfieldKeys, g_bitfieldWidths)
+            getFeatureBitfieldCountImpl(), getFeatureBitfieldKeysImpl(), getFeatureBitfieldWidthsImpl())
     }
 
     ///
@@ -3460,8 +3485,8 @@ class LLVMIRGenerator {
     ///
     fun generateFieldAccessPtr(ptrReg: String, structType: String, fieldName: String) r: String {
         return generateFieldAccessPtrImpl(this.output, getFeatureRegBoxImpl(), ptrReg,
-            structType, fieldName, structNames, structLayouts,
-            structFieldNames, g_unionTypes)
+            structType, fieldName, getGlobalStructNamesImpl(), getGlobalStructLayoutsImpl(),
+            getGlobalStructFieldNamesImpl(), g_unionTypes)
     }
 
     ///
@@ -3511,7 +3536,7 @@ class LLVMIRGenerator {
         }
         let inferredLayout = lb + " " + layoutFields + " " + rb
         let alignedStructSize = computeStructSizeFromLayoutImpl(inferredLayout,
-            structNames, structLayouts, structSizes)
+            getGlobalStructNamesImpl(), getGlobalStructLayoutsImpl(), getGlobalStructSizesImpl())
         if alignedStructSize > 0 {
             structSize = alignedStructSize
         }
@@ -3520,16 +3545,16 @@ class LLVMIRGenerator {
 
     fun resolveStructLiteralLayoutInfo(expr: ParserExpressionNode, structName: String, structIdx: Int) r: String {
         if structIdx >= 0 {
-            var structSize = structSizes[structIdx]
+            var structSize = getGlobalStructSizesImpl()[structIdx]
             if structSize < 8 {
                 structSize = 8
             }
-            return structSize.toString() + "|" + structLayouts[structIdx]
+            return structSize.toString() + "|" + getGlobalStructLayoutsImpl()[structIdx]
         }
         let knownLitLayout = resolveKnownStructFieldImpl(structName, "")
         if knownLitLayout != "" {
             var knownStructSize = getLlvmTypeSizeImpl(knownLitLayout,
-                structNames, structLayouts, structSizes)
+                getGlobalStructNamesImpl(), getGlobalStructLayoutsImpl(), getGlobalStructSizesImpl())
             if knownStructSize < 8 {
                 knownStructSize = 8
             }
@@ -3561,16 +3586,16 @@ class LLVMIRGenerator {
         if fieldExpr.operands.length() == 0 {
             return "0"
         }
-        let savedPendingType = pendingArrayLiteralType
+        let savedPendingType = getPendingArrayLiteralTypeWithGlobalStateImpl()
         var fieldSeenType = ""
         if structIdx >= 0 {
             fieldSeenType = getSeenFieldTypeState(structName, fieldName)
         }
         if fieldExpr.operands[0].kind == "ArrayLiteral" and (fieldSeenType.startsWith("Array") or fieldSeenType.startsWith("List")) {
-            pendingArrayLiteralType = fieldSeenType
+            setPendingArrayLiteralTypeWithGlobalStateImpl(fieldSeenType)
         }
         let valueReg = generateExpression(fieldExpr.operands[0])
-        pendingArrayLiteralType = savedPendingType
+        setPendingArrayLiteralTypeWithGlobalStateImpl(savedPendingType)
         return valueReg
     }
 
@@ -3609,7 +3634,7 @@ class LLVMIRGenerator {
 
     fun generateStructLiteral(expr: ParserExpressionNode) r: String {
         let structName = expr.literalType
-        let structIdx = findStructReg(structName, structNames)
+        let structIdx = findStructReg(structName, getGlobalStructNamesImpl())
         let layoutInfo = splitPipe(resolveStructLiteralLayoutInfo(expr, structName, structIdx))
         let structSize = layoutInfo[0].toInt()
         let structLayout = layoutInfo[1]
@@ -3643,7 +3668,7 @@ class LLVMIRGenerator {
                         fieldValueSeenType, fieldReg)
                     fieldReg = coerceMethodCallHandleAssignmentImpl(this.output,
                         getFeatureRegBoxImpl(), fieldType, fieldValueSeenType, rawFieldReg,
-                        fieldValueExpr.kind, fieldReg, structNames)
+                        fieldValueExpr.kind, fieldReg, getGlobalStructNamesImpl())
                 }
             }
             slFieldRegs.push(fieldReg)
@@ -3709,7 +3734,7 @@ class LLVMIRGenerator {
     }
 
     fun tryGenerateImplicitThisVariable(varName: String) r: String {
-        let thisIdx = findActiveVariableIndexImpl(this.varNames, activeVarCount, "this")
+        let thisIdx = findActiveVariableIndexImpl(this.varNames, getBoundedActiveVarCountWithGlobalStateImpl(this.varNames), "this")
         if thisIdx < 0 {
             return ""
         }
@@ -3724,7 +3749,7 @@ class LLVMIRGenerator {
             }
         }
 
-        let structIdx = findStructReg(thisType, structNames)
+        let structIdx = findStructReg(thisType, getGlobalStructNamesImpl())
         if structIdx < 0 {
             return ""
         }
@@ -3779,7 +3804,7 @@ class LLVMIRGenerator {
             return ctReg
         }
 
-        let idx = findActiveVariableIndexImpl(this.varNames, activeVarCount, varName)
+        let idx = findActiveVariableIndexImpl(this.varNames, getBoundedActiveVarCountWithGlobalStateImpl(this.varNames), varName)
         if idx < 0 {
             let fallbackReg = tryGenerateFallbackVariable(varName)
             if fallbackReg != "" {
@@ -3811,14 +3836,14 @@ class LLVMIRGenerator {
     fun generateMembershipArrayReg(rightExpr: ParserExpressionNode,
         elementType: String) r: String {
 
-        let savedPendingType = pendingArrayLiteralType
+        let savedPendingType = getPendingArrayLiteralTypeWithGlobalStateImpl()
         let pendingMembershipType = membershipPendingArrayLiteralTypeImpl(
             rightExpr.kind, elementType)
         if pendingMembershipType != "" {
-            pendingArrayLiteralType = pendingMembershipType
+            setPendingArrayLiteralTypeWithGlobalStateImpl(pendingMembershipType)
         }
         let rightReg = generateExpression(rightExpr)
-        pendingArrayLiteralType = savedPendingType
+        setPendingArrayLiteralTypeWithGlobalStateImpl(savedPendingType)
         return rightReg
     }
 
@@ -4253,7 +4278,7 @@ class LLVMIRGenerator {
                 }
                 let sizeTypeName = inferExpressionType(expr.arguments[0])
                 return resolveSizeofBuiltinValueImpl(mapTypeState(sizeTypeName),
-                    structNames, structLayouts, structSizes)
+                    getGlobalStructNamesImpl(), getGlobalStructLayoutsImpl(), getGlobalStructSizesImpl())
             }
             return "0"
         }
@@ -4262,7 +4287,7 @@ class LLVMIRGenerator {
             if metaPlan.hasArg0 {
                 let alignTypeName = inferExpressionType(expr.arguments[0])
                 return resolveAlignofBuiltinValueImpl(mapTypeState(alignTypeName),
-                    structNames, structLayouts, structSizes)
+                    getGlobalStructNamesImpl(), getGlobalStructLayoutsImpl(), getGlobalStructSizesImpl())
             }
             return "0"
         }
@@ -4272,8 +4297,8 @@ class LLVMIRGenerator {
                 let offTypeName = inferExpressionType(expr.arguments[0])
                 let offFieldName = inferExpressionType(expr.arguments[1])
                 return resolveOffsetofBuiltinValueImpl(offTypeName,
-                    offFieldName, structNames, structFieldNames,
-                    structFieldTypes, structLayouts, structSizes)
+                    offFieldName, getGlobalStructNamesImpl(), getGlobalStructFieldNamesImpl(),
+                    getGlobalStructFieldTypesImpl(), getGlobalStructLayoutsImpl(), getGlobalStructSizesImpl())
             }
             return "0"
         }
@@ -4342,7 +4367,7 @@ class LLVMIRGenerator {
         let lowPlan = planLowLevelBuiltinCallImpl(funcName,
             expr.arguments.length(), isPtrBuiltinCallImpl(funcName),
             isSimdBuiltinCallImpl(funcName, isSimdVectorTypeImpl(funcName)),
-            this.varNames, activeVarCount, g_enumVariantCount, lowIsVariantCall,
+            this.varNames, getBoundedActiveVarCountWithGlobalStateImpl(this.varNames), g_enumVariantCount, lowIsVariantCall,
             lowVariantFieldCount)
         let lowArgPlan = planLowLevelBuiltinArgumentReadsImpl(lowPlan.action,
             lowPlan.hasArg0, lowPlan.hasArg1, lowPlan.hasArg2)
@@ -4475,12 +4500,12 @@ class LLVMIRGenerator {
         if arrayCtorPlan.mode == 2 {
             let capReg = generateExpression(expr.arguments[0])
             let elemSz = resolveArrayConstructorElementSizeImpl(funcName,
-                arrayCtorPlan.elementType, structNames, structSizes)
+                arrayCtorPlan.elementType, getGlobalStructNamesImpl(), getGlobalStructSizesImpl())
             return emitArrayPreallocImpl(this.output, getFeatureRegBoxImpl(), capReg, elemSz)
         }
 
         let elemSize = resolveArrayConstructorElementSizeImpl(funcName,
-            arrayCtorPlan.elementType, structNames, structSizes)
+            arrayCtorPlan.elementType, getGlobalStructNamesImpl(), getGlobalStructSizesImpl())
         return emitArrayInlineImpl(this.output, getFeatureRegBoxImpl(), elemSize,
             currentFunctionAlignToImpl(getCurrentFunctionOptions()))
     }
@@ -4520,7 +4545,7 @@ class LLVMIRGenerator {
 
         var reprCArgRegs = Array<String>()
         var reprCFieldTypes = Array<String>()
-        let fieldTypesStr = structFieldTypes[structIdx]
+        let fieldTypesStr = getGlobalStructFieldTypesImpl()[structIdx]
         let argCount = expr.arguments.length()
         var reprCArgIdx = 0
         var typePos = 0
@@ -4546,7 +4571,7 @@ class LLVMIRGenerator {
             return
         }
 
-        let ctorFieldTypesStr = structFieldTypes[structIdx]
+        let ctorFieldTypesStr = getGlobalStructFieldTypesImpl()[structIdx]
         var ctorByteOffset = 0
         var ctorTypePos = 0
         var ctorArgIdx = 0
@@ -4557,10 +4582,10 @@ class LLVMIRGenerator {
             let ctorArgReg = generateExpression(ctorArgExpr)
             let ctorFieldPtrReg = getNextRegFn(getFeatureRegBoxImpl())
             let ctorFieldOffset = resolveClassConstructorFieldOffsetImpl(
-                structIdx, ctorArgIdx, ctorByteOffset, structNames,
-                structLayouts, structSizes)
+                structIdx, ctorArgIdx, ctorByteOffset, getGlobalStructNamesImpl(),
+                getGlobalStructLayoutsImpl(), getGlobalStructSizesImpl())
             let ctorFieldByteSize = getTypeSizeReg(
-                ctorTypePlan.fieldSeenType, structNames, structSizes)
+                ctorTypePlan.fieldSeenType, getGlobalStructNamesImpl(), getGlobalStructSizesImpl())
             let ctorStorePlan = planConstructorFieldStoreImpl(
                 ctorTypePlan.fieldSeenType, ctorTypePlan.nextTypePos,
                 ctorByteOffset, ctorFieldOffset, ctorFieldByteSize)
@@ -4596,10 +4621,10 @@ class LLVMIRGenerator {
         }
 
         let ptrReg = emitClassHeapAllocationImpl(this.output, getFeatureRegBoxImpl(), structIdx,
-            structNames, structSizes, structLayouts)
+            getGlobalStructNamesImpl(), getGlobalStructSizesImpl(), getGlobalStructLayoutsImpl())
         emitClassArrayFieldInitializersImpl(this.output, getFeatureRegBoxImpl(), ptrReg,
-            structIdx, structNames, structSizes, structLayouts,
-            structFieldNames, structFieldTypes)
+            structIdx, getGlobalStructNamesImpl(), getGlobalStructSizesImpl(), getGlobalStructLayoutsImpl(),
+            getGlobalStructFieldNamesImpl(), getGlobalStructFieldTypesImpl())
         emitClassConstructorArgumentStores(expr, ptrReg, structIdx)
         let intReg = getNextRegFn(getFeatureRegBoxImpl())
         this.output.append("  " + intReg + " = ptrtoint ptr " + ptrReg + " to i64\n")
@@ -4611,7 +4636,7 @@ class LLVMIRGenerator {
             return ""
         }
 
-        let structIdx = findStructReg(funcName, structNames)
+        let structIdx = findStructReg(funcName, getGlobalStructNamesImpl())
         let reprCResult = tryGenerateReprCClassConstructorCall(expr, funcName, structIdx)
         if reprCResult != "" {
             return reprCResult
@@ -4657,7 +4682,7 @@ class LLVMIRGenerator {
     fun tryGenerateSuperRuntimeBuiltinCall(funcName: String) r: String {
         if isSuperRuntimeCallPlanImpl(funcName) {
             if g_currentClassParentName != "" {
-                let thisIdx = findActiveVariableIndexImpl(this.varNames, activeVarCount, "this")
+                let thisIdx = findActiveVariableIndexImpl(this.varNames, getBoundedActiveVarCountWithGlobalStateImpl(this.varNames), "this")
                 if thisIdx >= 0 {
                     return emitSuperRuntimeBuiltinCallImpl(this.output, getFeatureRegBoxImpl(),
                         quoteIdentIfNeededImpl(g_currentClassParentName + "_init"),
@@ -4783,7 +4808,7 @@ class LLVMIRGenerator {
     }
 
     fun tryGenerateImplicitThisCall(expr: ParserExpressionNode, funcName: String) r: String {
-        let thisIdx = findActiveVariableIndexImpl(this.varNames, activeVarCount, "this")
+        let thisIdx = findActiveVariableIndexImpl(this.varNames, getBoundedActiveVarCountWithGlobalStateImpl(this.varNames), "this")
         if thisIdx < 0 {
             return ""
         }
@@ -5008,8 +5033,8 @@ class LLVMIRGenerator {
         let classNames = splitPipe(resolveStaticMethodClassNamesImpl(expr.literalValue))
         let potentialClassName = classNames[0]
         let fullClassName = classNames[1]
-        if not isStaticMethodReceiverReferenceImpl(findActiveVariableIndexImpl(this.varNames, activeVarCount, expr.literalValue),
-            findActiveVariableIndexImpl(this.varNames, activeVarCount, potentialClassName)) {
+        if not isStaticMethodReceiverReferenceImpl(findActiveVariableIndexImpl(this.varNames, getBoundedActiveVarCountWithGlobalStateImpl(this.varNames), expr.literalValue),
+            findActiveVariableIndexImpl(this.varNames, getBoundedActiveVarCountWithGlobalStateImpl(this.varNames), potentialClassName)) {
             return ""
         }
 
@@ -5062,9 +5087,7 @@ class LLVMIRGenerator {
         let staticResult = emitPreparedStaticMethodDispatchState(
             this.output, getFeatureRegBoxImpl(), methodName, potentialClassName,
             staticClassName, funcName, registeredStaticReturnType,
-            inferredStaticReturnType, argRegs, argTypeStrs, structNames,
-            g_reprCClassNames, g_typeAliasNames, g_typeAliasTargets,
-            g_typeAliasCount, g_enumTypeNames, staticLateState)
+            inferredStaticReturnType, argRegs, argTypeStrs, staticLateState)
         applyLateUserDeclareState(staticLateState)
         return staticResult
     }
@@ -5108,7 +5131,7 @@ class LLVMIRGenerator {
             return ""
         }
 
-        let varIdx = findActiveVariableIndexImpl(this.varNames, activeVarCount, varName)
+        let varIdx = findActiveVariableIndexImpl(this.varNames, getBoundedActiveVarCountWithGlobalStateImpl(this.varNames), varName)
         if shouldLoadLocalArrayMutatorPointerImpl(varIdx) {
             return emitLocalVariableLoadImpl(this.output, getFeatureRegBoxImpl(), "ptr",
                 this.varRegs[varIdx])
@@ -5136,10 +5159,10 @@ class LLVMIRGenerator {
         if mutatorPlan.action == 1 {
             let freeReceiverType = resolveArrayFreeReceiverTypeStateImpl(
                 receiverType, expr.literalValue, this.varNames, this.varTypes,
-                activeVarCount)
+                getBoundedActiveVarCountWithGlobalStateImpl(this.varNames))
             var freePtrReg = receiverReg
             if shouldResolveArrayFreeMutatorPointerStateImpl(
-                freeReceiverType, freePtrReg, expr.literalValue, structNames) {
+                freeReceiverType, freePtrReg, expr.literalValue, getGlobalStructNamesImpl()) {
 
                 freePtrReg = tryResolveArrayMutatorPointerFromLiteral(
                     expr.literalValue)
@@ -5147,7 +5170,7 @@ class LLVMIRGenerator {
             return emitPreparedArrayFreeMutatorMethodStateImpl(this.output,
                 getFeatureRegBoxImpl(), freeReceiverType, expr.literalValue,
                 expr.variableName, freePtrReg, this.varNames, this.varRegs,
-                activeVarCount, structNames, structSizes)
+                getBoundedActiveVarCountWithGlobalStateImpl(this.varNames), getGlobalStructNamesImpl(), getGlobalStructSizesImpl())
         }
 
         if mutatorPlan.action == 2 {
@@ -5160,7 +5183,7 @@ class LLVMIRGenerator {
             let pushResult = emitPreparedArrayPushMutatorMethodStateImpl(
                 this.output, getFeatureRegBoxImpl(), g_blockLabelBox, arrayPtrReg,
                 receiverReg, receiverIsArray, argReg, argType,
-                argIsStructLiteral, receiverType, structNames)
+                argIsStructLiteral, receiverType, getGlobalStructNamesImpl())
             if pushResult != "" {
                 return pushResult
             }
@@ -5280,8 +5303,8 @@ class LLVMIRGenerator {
             let explicitFastPath =
                 tryGeneratePreparedExplicitReceiverFastPathImpl(this.output,
                     getFeatureRegBoxImpl(), g_blockLabelBox, methodName, receiverReg,
-                    explicitReceiverTypeBox, structNames, structMethodNames,
-                    structMethodRetTypes, dynArgRegs, dynArgTypes,
+                    explicitReceiverTypeBox, getGlobalStructNamesImpl(), getGlobalStructMethodNamesImpl(),
+                    getGlobalStructMethodRetTypesImpl(), dynArgRegs, dynArgTypes,
                     g_reprCClassNames)
             receiverType = explicitReceiverTypeBox[0]
             if explicitFastPath != "" {
@@ -5308,12 +5331,12 @@ class LLVMIRGenerator {
                 let implicitDottedReceiver =
                     tryResolveImplicitThisDottedMethodReceiverStateImpl(
                     this.output, getFeatureRegBoxImpl(), expr.literalValue, this.varNames,
-                    this.varRegs, this.varTypes, activeVarCount, structNames,
-                    structLayouts, structFieldNames, structFieldTypes,
-                    structMethodNames, structMethodRetTypes,
+                    this.varRegs, this.varTypes, getBoundedActiveVarCountWithGlobalStateImpl(this.varNames), getGlobalStructNamesImpl(),
+                    getGlobalStructLayoutsImpl(), getGlobalStructFieldNamesImpl(), getGlobalStructFieldTypesImpl(),
+                    getGlobalStructMethodNamesImpl(), getGlobalStructMethodRetTypesImpl(),
                     g_reprCClassNames, g_unionTypes, g_typeAliasNames,
                     g_typeAliasTargets, g_typeAliasCount, g_enumTypeNames,
-                    g_bitfieldCount, g_bitfieldKeys, g_bitfieldWidths)
+                    getFeatureBitfieldCountImpl(), getFeatureBitfieldKeysImpl(), getFeatureBitfieldWidthsImpl())
                 if implicitDottedReceiver.receiverReg != "" {
                     receiverReg = implicitDottedReceiver.receiverReg
                     receiverType = implicitDottedReceiver.receiverType
@@ -5322,13 +5345,13 @@ class LLVMIRGenerator {
         } else {
             if postLookupPhase.shouldTrySimpleLiteral {
                 let varName = expr.literalValue
-                let idx = findActiveVariableIndexImpl(this.varNames, activeVarCount, varName)
+                let idx = findActiveVariableIndexImpl(this.varNames, getBoundedActiveVarCountWithGlobalStateImpl(this.varNames), varName)
                 var gvMcIdx = -1
                 if idx < 0 {
                     gvMcIdx = findModuleConstant(varName)
                 }
                 let thisIdx = findActiveVariableIndexImpl(this.varNames,
-                    activeVarCount, "this")
+                    getBoundedActiveVarCountWithGlobalStateImpl(this.varNames), "this")
                 let simpleLiteralPlan =
                     planSimpleLiteralReceiverStageImpl(hasDottedReceiver,
                         expr.literalValue, idx, gvMcIdx, receiverReg,
@@ -5351,8 +5374,8 @@ class LLVMIRGenerator {
                     let localVarFastPath =
                         tryGeneratePreparedLocalVariableReceiverFastPathImpl(
                             this.output, getFeatureRegBoxImpl(), methodName, receiverReg,
-                            varType, structNames, structMethodNames,
-                            structMethodRetTypes, svDynArgRegs,
+                            varType, getGlobalStructNamesImpl(), getGlobalStructMethodNamesImpl(),
+                            getGlobalStructMethodRetTypesImpl(), svDynArgRegs,
                             svDynArgTypes)
                     if localVarFastPath != "" {
                         return localVarFastPath
@@ -5380,13 +5403,13 @@ class LLVMIRGenerator {
                                 this.output, getFeatureRegBoxImpl(), varName,
                                 resolveLiteralMethodReceiverType(varName),
                                 this.varNames, this.varRegs, this.varTypes,
-                                activeVarCount, structNames, structLayouts,
-                                structFieldNames, structFieldTypes,
+                                getBoundedActiveVarCountWithGlobalStateImpl(this.varNames), getGlobalStructNamesImpl(), getGlobalStructLayoutsImpl(),
+                                getGlobalStructFieldNamesImpl(), getGlobalStructFieldTypesImpl(),
                                 g_reprCClassNames, g_unionTypes,
                                 g_typeAliasNames, g_typeAliasTargets,
                                 g_typeAliasCount, g_enumTypeNames,
-                                g_bitfieldCount, g_bitfieldKeys,
-                                g_bitfieldWidths)
+                                getFeatureBitfieldCountImpl(), getFeatureBitfieldKeysImpl(),
+                                getFeatureBitfieldWidthsImpl())
                             if implicitThisReceiver.receiverReg != "" {
                                 receiverReg = implicitThisReceiver.receiverReg
                                 receiverType = implicitThisReceiver.receiverType
@@ -5397,8 +5420,9 @@ class LLVMIRGenerator {
             }
         }
 
+        let activeClassName = getGlobalCurrentClassNameImpl()
         let postResolutionPhase = planMethodReceiverPostResolutionPhaseImpl(
-            receiverReg, currentClassName)
+            receiverReg, activeClassName)
         if postResolutionPhase.shouldTryResolvedFastPath {
             let resolvedReceiverFastPath = tryGenerateResolvedReceiverFastPathMethodCall(expr, methodName, receiverReg, receiverType)
             if resolvedReceiverFastPath != "" {
@@ -5419,19 +5443,19 @@ class LLVMIRGenerator {
         }
 
         let unresolvedStartPlan = planMethodUnresolvedReceiverStartImpl(
-            receiverReg, currentClassName)
+            receiverReg, activeClassName)
         if postResolutionPhase.shouldTryUnresolvedFallback and
             unresolvedStartPlan.shouldHandle {
 
             var implicitMethodRetType = ""
             if unresolvedStartPlan.shouldLookupImplicitReturn {
-                implicitMethodRetType = getMethodReturnTypeState(currentClassName,
+                implicitMethodRetType = getMethodReturnTypeState(activeClassName,
                     methodName)
             }
             let unresolvedFunctionRetType = getFunctionReturnTypeStateImpl(
                 methodName, getGlobalFuncNamesImpl(), getGlobalFuncRetTypesImpl())
             let unresolvedFinalPlan = planMethodUnresolvedReceiverFinalImpl(
-                receiverReg, currentClassName, implicitMethodRetType,
+                receiverReg, activeClassName, implicitMethodRetType,
                 unresolvedFunctionRetType,
                 isStandaloneParserWorkaroundImpl(methodName))
             if unresolvedFinalPlan.shouldLowerAsCall {
@@ -5451,7 +5475,7 @@ class LLVMIRGenerator {
                 let unresolvedDefault =
                     emitPreparedUnresolvedReceiverDefaultImpl(this.output,
                     getFeatureRegBoxImpl(), methodName, receiverReg, receiverType,
-                    currentClassName, expr.literalValue,
+                    activeClassName, expr.literalValue,
                     expr.operands.length())
                 if unresolvedDefault.resultReg != "" {
                     return unresolvedDefault.resultReg
@@ -5500,7 +5524,7 @@ class LLVMIRGenerator {
             let stringBuilderResult =
                 emitPreparedStringBuilderMethodLowerImpl(this.output, getFeatureRegBoxImpl(),
                     methodName, receiverReg, receiverType, sbArg0,
-                    isFloatFused, g_reprCClassNames, structNames)
+                    isFloatFused)
             if stringBuilderResult != "" {
                 return stringBuilderResult
             }
@@ -5546,7 +5570,7 @@ class LLVMIRGenerator {
             }
             let stringLikeResult = emitPreparedStringLikeMethodLowerImpl(
                 this.output, getFeatureRegBoxImpl(), methodName, receiverReg, receiverType, strArg0,
-                strArg1, strArgCount, g_reprCClassNames, structNames)
+                strArg1, strArgCount, g_reprCClassNames, getGlobalStructNamesImpl())
             if stringLikeResult != "" {
                 return stringLikeResult
             }
@@ -5621,9 +5645,7 @@ class LLVMIRGenerator {
             inferredMethodReturnType, argRegs, argTypeStrs,
             finalDispatchPlan.shouldPrepareReceiverAbi,
             finalDispatchPlan.shouldTrySpecialized,
-            finalDispatchPlan.shouldEmitUserMethod, structNames,
-            g_reprCClassNames, g_typeAliasNames, g_typeAliasTargets,
-            g_typeAliasCount, g_enumTypeNames, methodLateState)
+            finalDispatchPlan.shouldEmitUserMethod, methodLateState)
         applyLateUserDeclareState(methodLateState)
         return finalMethodResult
     }
@@ -5713,7 +5735,7 @@ class LLVMIRGenerator {
         if addrOperand.kind == "Variable" or addrOperand.kind == "VarExpr" {
             var addrVarName = addrOperand.variableName
             if addrVarName == "" { addrVarName = addrOperand.literalValue }
-            let addrIdx = findActiveVariableIndexImpl(this.varNames, activeVarCount, addrVarName)
+            let addrIdx = findActiveVariableIndexImpl(this.varNames, getBoundedActiveVarCountWithGlobalStateImpl(this.varNames), addrVarName)
             if addrIdx >= 0 {
                 let addrVarReg = this.varRegs[addrIdx]
                 if isClassTypeState(addrType) {
@@ -5785,7 +5807,7 @@ class LLVMIRGenerator {
                     argExpr.kind, argExpr.variableName, argExpr.literalValue)
                 if moveVarName != "" {
                     let moveVarIdx = findActiveVariableIndexImpl(this.varNames,
-                        activeVarCount, moveVarName)
+                        getBoundedActiveVarCountWithGlobalStateImpl(this.varNames), moveVarName)
                     if shouldRecordMovedArgumentSourceImpl(moveVarName,
                         moveVarIdx) {
                         let moveSrcReg = this.varRegs[moveVarIdx]
@@ -5965,7 +5987,7 @@ class LLVMIRGenerator {
 
     fun emitWhenPatternBindings(subjectReg: String, subjectLlvm: String, patternExpr: ParserExpressionNode) r: Void {
         emitWhenPatternBindingsState(this.output, getFeatureRegBoxImpl(), subjectReg, subjectLlvm,
-            patternExpr, this.varNames, this.varRegs, activeVarCount,
+            patternExpr, this.varNames, this.varRegs, getBoundedActiveVarCountWithGlobalStateImpl(this.varNames),
             g_enumVariantNames, g_enumVariantFieldTypes, g_enumVariantCount)
     }
 
@@ -5979,7 +6001,8 @@ class LLVMIRGenerator {
         let resultPlan = planWhenArmResultImpl(arm.operands.length(),
             armResult.kind, armResult.operands.length())
         if resultPlan.resultAction == 1 {
-            let retType = mapTypeState(currentFunctionReturnType)
+            let retType = mapTypeState(
+                getCurrentFunctionReturnTypeWithGlobalStateImpl())
             if resultPlan.shouldReadReturnValue {
                 let retValReg = generateExpression(armResult.operands[0])
                 emitWhenArmReturnImpl(this.output, retType, retValReg, true)

@@ -10,12 +10,14 @@ import codegen.ir_codegen_state.{CodegenState, FunctionLoweringOptions}
 import codegen.ir_codegen_state_bridge.{CodegenStateBridgeSnapshot, syncCodegenStateBridgeImpl}
 import codegen.ir_decl_registry.{DeclarationPassState, getFunctionReturnTypeStateImpl, registerFunctionStateImpl}
 import codegen.ir_decl_scan.{collectStructMethodSignaturesImpl}
-import codegen.ir_decl_items.{DeclarationItemContext}
+import codegen.ir_decl_items.{DeclarationItemContext, normalizeDeclaredTypeNodeImpl, mapDeclaredTypeImpl}
 import codegen.ir_decl_pass_driver.{beginDeclarationRegistrationPassImpl}
-import codegen.ir_function_gen.{resolveImplementationFunctionNameImpl}
+import codegen.ir_function_gen.{resolveImplementationFunctionNameImpl, hasFunctionDecoratorGenImpl, prepareExternFunctionGenerationImpl}
 import codegen.ir_function_snapshots.{FunctionGenerationIdentitySnapshot}
 import codegen.ir_function_usage.{hasGeneratedFunctionNameImpl, shouldSkipRuntimeBuiltinStubImpl}
 import codegen.ir_codegen_feature_state.{getDynTraitNamesStateImpl, getTraitImplRegistryStateImpl, getTraitImplCountStateImpl, applyTraitImplStateImpl, getFeatureTypeAliasNamesImpl, getFeatureTypeAliasTargetsImpl, getFeatureTypeAliasCountImpl, getFeatureEnumTypeNamesImpl, getFeatureReprCClassNamesImpl}
+import codegen.ir_function_param_meta.{mapFunctionParameterTypeImpl}
+import codegen.ir_declarations.{emitExternDeclImpl}
 import codegen.ir_codegen_target_state.{emitTargetModuleHeaderImpl}
 import codegen.ir_decl_feature_runtime.{emitFeatureDecls}
 import codegen.ir_decl_macro_lsp.{emitMacroAndLspDecls}
@@ -23,6 +25,8 @@ import codegen.ir_decl_parser.{emitParserDecls, emitTypecheckerDecls}
 import codegen.ir_decl_runtime.{emitCoreRuntimeDecls}
 import codegen.ir_decl_string_io.{emitStringAndIODecls}
 import codegen.ir_function_entry_exit.{emitPreAllocatedAllocasImpl}
+import codegen.ir_string_collect.{getBaseTypeNameImpl}
+import codegen.ir_type_mapping.{mapTypeImpl}
 import codegen.ir_type_header.{tryLoadTypeHeaderIntoOutputImpl, emitBuiltinTypeHeaderImpl}
 import codegen.ir_module_constants.{ModuleConstantRegistrySnapshot, emitGlobalVariablesSnapshotImpl, findModuleConstantSnapshotImpl, tryInferModuleConstantVariableTypeSnapshotImpl}
 import codegen.ir_module_emit.{emitCrossModuleConstantDeclaresImpl}
@@ -89,6 +93,93 @@ fun getBlockTerminatedWithGlobalStateImpl() r: Bool {
 
 fun setBlockTerminatedWithGlobalStateImpl(value: Bool) r: Void {
     blockTerminated = value
+}
+
+fun getCurrentFunctionReturnTypeWithGlobalStateImpl() r: String {
+    return currentFunctionReturnType
+}
+
+fun setCurrentFunctionReturnTypeWithGlobalStateImpl(value: String) r: Void {
+    currentFunctionReturnType = value
+}
+
+fun setGlobalCurrentClassNameImpl(value: String) r: Void {
+    currentClassName = value
+}
+
+fun getCurrentLoopCondLabelWithGlobalStateImpl() r: String {
+    return currentLoopCondLabel
+}
+
+fun setCurrentLoopCondLabelWithGlobalStateImpl(value: String) r: Void {
+    currentLoopCondLabel = value
+}
+
+fun getCurrentLoopEndLabelWithGlobalStateImpl() r: String {
+    return currentLoopEndLabel
+}
+
+fun setCurrentLoopEndLabelWithGlobalStateImpl(value: String) r: Void {
+    currentLoopEndLabel = value
+}
+
+fun getPendingArrayLiteralTypeWithGlobalStateImpl() r: String {
+    return pendingArrayLiteralType
+}
+
+fun setPendingArrayLiteralTypeWithGlobalStateImpl(value: String) r: Void {
+    pendingArrayLiteralType = value
+}
+
+fun getActiveVarCountWithGlobalStateImpl() r: Int {
+    if activeVarCount < 0 {
+        return 0
+    }
+    return activeVarCount
+}
+
+fun getBoundedActiveVarCountWithGlobalStateImpl(
+    varNames: Array<String>) r: Int {
+
+    if activeVarCount < 0 {
+        return 0
+    }
+    if activeVarCount > varNames.length() {
+        return varNames.length()
+    }
+    return activeVarCount
+}
+
+fun setActiveVarCountWithGlobalStateImpl(value: Int) r: Void {
+    if value < 0 {
+        activeVarCount = 0
+        return
+    }
+    activeVarCount = value
+}
+
+fun getPreAllocatedTypesWithGlobalStateImpl() r: Array<String> {
+    return preAllocatedTypes
+}
+
+fun setPreAllocatedRegsWithGlobalStateImpl(value: Array<String>) r: Void {
+    preAllocatedRegs = value
+}
+
+fun getPreAllocatedRegsWithGlobalStateImpl() r: Array<String> {
+    return preAllocatedRegs
+}
+
+fun setPreAllocatedTypesWithGlobalStateImpl(value: Array<String>) r: Void {
+    preAllocatedTypes = value
+}
+
+fun getPreAllocatedVarsWithGlobalStateImpl() r: Array<String> {
+    return preAllocatedVars
+}
+
+fun setPreAllocatedVarsWithGlobalStateImpl(value: Array<String>) r: Void {
+    preAllocatedVars = value
 }
 
 fun prepareLetStatementPlanWithGlobalStateImpl(stmt: StatementNode,
@@ -334,17 +425,66 @@ fun prepareFunctionGenerationIdentityWithGlobalStateImpl(fn: FunctionNode,
     return snapshot
 }
 
+fun tryHandleExternFunctionGenerationWithGlobalStateImpl(
+    output: StringBuilder, fn: FunctionNode) r: Bool {
+
+    let externSymbolBox = Array<String>()
+    externSymbolBox.push("")
+    let externAction = prepareExternFunctionGenerationImpl(output, fn,
+        externSymbolBox)
+    if externAction == 0 {
+        return false
+    }
+
+    let normalizedReturnType = normalizeDeclaredTypeNodeImpl(fn.returnType)
+    if externAction == 1 {
+        registerFunctionStateImpl(fn.name, normalizedReturnType, funcNames,
+            funcRetTypes)
+        return true
+    }
+
+    let typeAliasNames = getFeatureTypeAliasNamesImpl()
+    let typeAliasTargets = getFeatureTypeAliasTargetsImpl()
+    let typeAliasCount = getFeatureTypeAliasCountImpl()
+    let enumTypeNames = getFeatureEnumTypeNamesImpl()
+    let reprCClassNames = getFeatureReprCClassNamesImpl()
+    let mappedPTypes = Array<String>()
+    var paramIdx = 0
+    while paramIdx < fn.params.length() {
+        let ptName = normalizeDeclaredTypeNodeImpl(fn.params[paramIdx].paramType)
+        mappedPTypes.push(mapFunctionParameterTypeImpl(ptName, structNames,
+            typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames,
+            reprCClassNames))
+        paramIdx = paramIdx + 1
+    }
+
+    let externRetType = mapDeclaredTypeImpl(normalizedReturnType, structNames,
+        typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames,
+        reprCClassNames)
+    var isVariadic = 0
+    if hasFunctionDecoratorGenImpl(fn, "variadic") {
+        isVariadic = 1
+    }
+    emitExternDeclImpl(output, fn.name, externSymbolBox[0], mappedPTypes,
+        fn.params.length(), externRetType, isVariadic)
+    registerFunctionStateImpl(fn.name, normalizedReturnType, funcNames,
+        funcRetTypes)
+    return true
+}
+
 fun findVisibleVariableTypeWithGlobalStateImpl(varNames: Array<String>,
     varTypes: Array<String>, name: String) r: String {
 
-    return findVisibleVariableTypeImpl(varNames, varTypes, activeVarCount,
+    return findVisibleVariableTypeImpl(varNames, varTypes,
+        getBoundedActiveVarCountWithGlobalStateImpl(varNames),
         preAllocatedVars, preAllocatedTypes, name)
 }
 
 fun findActiveVariableIndexWithGlobalStateImpl(varNames: Array<String>,
     name: String) r: Int {
 
-    return findActiveVariableIndexImpl(varNames, activeVarCount, name)
+    return findActiveVariableIndexImpl(varNames,
+        getBoundedActiveVarCountWithGlobalStateImpl(varNames), name)
 }
 
 fun getPreAllocatedVarCountWithGlobalStateImpl() r: Int {
@@ -377,7 +517,8 @@ fun tryInferImplicitThisVariableTypeWithGlobalStateImpl(
     varNames: Array<String>, varTypes: Array<String>, varName: String)
     r: String {
 
-    let thisIdx = findActiveVariableIndexImpl(varNames, activeVarCount, "this")
+    let thisIdx = findActiveVariableIndexImpl(varNames,
+        getBoundedActiveVarCountWithGlobalStateImpl(varNames), "this")
     if thisIdx < 0 {
         return ""
     }
@@ -494,10 +635,38 @@ fun emitMainFunctionEntryWithGlobalStateImpl(output: StringBuilder,
     output.append("entry:\n")
     output.append("  call void @seen_runtime_init(i32 %argc, ptr %argv)\n")
 
+    let preAllocatedLlvmTypes = Array<String>()
+    let typeAliasNames = getFeatureTypeAliasNamesImpl()
+    let typeAliasTargets = getFeatureTypeAliasTargetsImpl()
+    let typeAliasCount = getFeatureTypeAliasCountImpl()
+    let enumTypeNames = getFeatureEnumTypeNamesImpl()
+    let reprCClassNames = getFeatureReprCClassNamesImpl()
+    var preAllocatedIdx = 0
+    while preAllocatedIdx < preAllocatedTypes.length() {
+        let seenType = preAllocatedTypes[preAllocatedIdx]
+        var llvmType = ""
+        if seenType.startsWith("dyn ") {
+            llvmType = "i64"
+        } else if seenType.startsWith("*") {
+            llvmType = "i64"
+        } else {
+            if reprCClassNames != "" {
+                let baseT = getBaseTypeNameImpl(seenType)
+                if reprCClassNames.contains(baseT + "|") {
+                    llvmType = "%" + baseT
+                }
+            }
+            if llvmType == "" {
+                llvmType = mapTypeImpl(seenType, structNames,
+                    typeAliasNames, typeAliasTargets, typeAliasCount,
+                    enumTypeNames)
+            }
+        }
+        preAllocatedLlvmTypes.push(llvmType)
+        preAllocatedIdx = preAllocatedIdx + 1
+    }
     preAllocatedRegs = emitPreAllocatedAllocasImpl(output, regBox,
-        preAllocatedTypes, structNames, getFeatureTypeAliasNamesImpl(),
-        getFeatureTypeAliasTargetsImpl(), getFeatureTypeAliasCountImpl(),
-        getFeatureEnumTypeNamesImpl(), getFeatureReprCClassNamesImpl())
+        preAllocatedLlvmTypes)
     return mainReturnType
 }
 

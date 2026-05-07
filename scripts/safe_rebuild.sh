@@ -815,8 +815,10 @@ if [ "${SEEN_DISABLE_MEMORY_GUARD:-0}" != "1" ]; then
     export SEEN_MEMORY_GUARD_RESERVE_KB="$MEMORY_GUARD_RESERVE_KB"
     export SEEN_MEMORY_GUARD_TASKS_MAX="$MEMORY_GUARD_TASKS_MAX"
     export SEEN_MEMORY_GUARD_CGROUP_STOP_KB="$MEMORY_GUARD_CGROUP_STOP_KB"
-    if [ "$HOST_OS" != "Darwin" ]; then
+    if [ "$HOST_OS" != "Darwin" ] && [ "${SEEN_MEMORY_GUARD_KERNEL_SCOPE:-1}" != "0" ]; then
         export SEEN_MEMORY_GUARD_REQUIRE_KERNEL_SCOPE=1
+    else
+        export SEEN_MEMORY_GUARD_REQUIRE_KERNEL_SCOPE=0
     fi
 fi
 

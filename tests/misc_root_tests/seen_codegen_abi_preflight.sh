@@ -164,15 +164,36 @@ var generatedFunctions: Array<String> = Array<String>()
 var funcNames: Array<String> = Array<String>()
 var funcRetTypes: Array<String> = Array<String>()
 var structNames: Array<String> = Array<String>()
+var structLayouts: Array<String> = Array<String>()
+var structFieldNames: Array<String> = Array<String>()
+var structFieldTypes: Array<String> = Array<String>()
+var structLlvmFieldTypes: Array<String> = Array<String>()
+var structSizes: Array<Int> = Array<Int>()
+var structMethodNames: Array<String> = Array<String>()
+var structMethodRetTypes: Array<String> = Array<String>()
 var blockTerminated: Bool = false
 var declOrdinalNames: Array<String> = Array<String>()
 var declOrdinalCounts: Array<Int> = Array<Int>()
 var moduleConstantTypes: Array<String> = Array<String>()
 var stringConstantPrefix: String = ""
+var currentFunctionReturnType: String = ""
+var currentClassName: String = ""
+var currentLoopCondLabel: String = ""
+var currentLoopEndLabel: String = ""
+var pendingArrayLiteralType: String = ""
+var activeVarCount: Int = 0
+var preAllocatedRegs: Array<String> = Array<String>()
+var preAllocatedTypes: Array<String> = Array<String>()
+var preAllocatedVars: Array<String> = Array<String>()
 
 fun prepareFunctionGenerationIdentityWithGlobalStateImpl(fn: FunctionNode,
     resolvedFunctionReturnType: String) r: FunctionGenerationIdentitySnapshot {
     return FunctionGenerationIdentitySnapshot.new()
+}
+
+fun tryHandleExternFunctionGenerationWithGlobalStateImpl(
+    output: StringBuilder, fn: FunctionNode) r: Bool {
+    return false
 }
 
 fun getBlockTerminatedWithGlobalStateImpl() r: Bool {
@@ -191,6 +212,38 @@ fun getFunctionReturnTypeWithGlobalStateImpl(name: String) r: String {
     return ""
 }
 
+fun getGlobalStructNamesImpl() r: Array<String> {
+    return structNames
+}
+
+fun getGlobalStructLayoutsImpl() r: Array<String> {
+    return structLayouts
+}
+
+fun getGlobalStructFieldNamesImpl() r: Array<String> {
+    return structFieldNames
+}
+
+fun getGlobalStructFieldTypesImpl() r: Array<String> {
+    return structFieldTypes
+}
+
+fun getGlobalStructLlvmFieldTypesImpl() r: Array<String> {
+    return structLlvmFieldTypes
+}
+
+fun getGlobalStructSizesImpl() r: Array<Int> {
+    return structSizes
+}
+
+fun getGlobalStructMethodNamesImpl() r: Array<String> {
+    return structMethodNames
+}
+
+fun getGlobalStructMethodRetTypesImpl() r: Array<String> {
+    return structMethodRetTypes
+}
+
 fun setBlockTerminatedWithGlobalStateImpl(value: Bool) r: Void {
     blockTerminated = value
 }
@@ -201,6 +254,90 @@ fun setStringConstantPrefixWithGlobalStateImpl(prefix: String) r: Void {
 
 fun getStringConstantPrefixWithGlobalStateImpl() r: String {
     return stringConstantPrefix
+}
+
+fun getCurrentFunctionReturnTypeWithGlobalStateImpl() r: String {
+    return currentFunctionReturnType
+}
+
+fun setCurrentFunctionReturnTypeWithGlobalStateImpl(value: String) r: Void {
+    currentFunctionReturnType = value
+}
+
+fun getGlobalCurrentClassNameImpl() r: String {
+    return currentClassName
+}
+
+fun setGlobalCurrentClassNameImpl(value: String) r: Void {
+    currentClassName = value
+}
+
+fun getCurrentLoopCondLabelWithGlobalStateImpl() r: String {
+    return currentLoopCondLabel
+}
+
+fun setCurrentLoopCondLabelWithGlobalStateImpl(value: String) r: Void {
+    currentLoopCondLabel = value
+}
+
+fun getCurrentLoopEndLabelWithGlobalStateImpl() r: String {
+    return currentLoopEndLabel
+}
+
+fun setCurrentLoopEndLabelWithGlobalStateImpl(value: String) r: Void {
+    currentLoopEndLabel = value
+}
+
+fun getPendingArrayLiteralTypeWithGlobalStateImpl() r: String {
+    return pendingArrayLiteralType
+}
+
+fun setPendingArrayLiteralTypeWithGlobalStateImpl(value: String) r: Void {
+    pendingArrayLiteralType = value
+}
+
+fun getActiveVarCountWithGlobalStateImpl() r: Int {
+    return activeVarCount
+}
+
+fun getBoundedActiveVarCountWithGlobalStateImpl(
+    varNames: Array<String>) r: Int {
+
+    if activeVarCount < 0 {
+        return 0
+    }
+    if activeVarCount > varNames.length() {
+        return varNames.length()
+    }
+    return activeVarCount
+}
+
+fun setActiveVarCountWithGlobalStateImpl(value: Int) r: Void {
+    activeVarCount = value
+}
+
+fun getPreAllocatedRegsWithGlobalStateImpl() r: Array<String> {
+    return preAllocatedRegs
+}
+
+fun setPreAllocatedRegsWithGlobalStateImpl(value: Array<String>) r: Void {
+    preAllocatedRegs = value
+}
+
+fun getPreAllocatedTypesWithGlobalStateImpl() r: Array<String> {
+    return preAllocatedTypes
+}
+
+fun setPreAllocatedTypesWithGlobalStateImpl(value: Array<String>) r: Void {
+    preAllocatedTypes = value
+}
+
+fun getPreAllocatedVarsWithGlobalStateImpl() r: Array<String> {
+    return preAllocatedVars
+}
+
+fun setPreAllocatedVarsWithGlobalStateImpl(value: Array<String>) r: Void {
+    preAllocatedVars = value
 }
 
 fun prepareLetStatementPlanWithGlobalStateImpl(stmt: StatementNode,
@@ -243,6 +380,25 @@ var g_closureDefs: String = ""
 var g_initFuncNames: String = ""
 var g_initFuncCount: Int = 0
 var g_sanitizerMode: String = ""
+var g_bitfieldKeys: String = ""
+var g_bitfieldWidths: String = ""
+var g_bitfieldCount: Int = 0
+
+fun getFeatureBitfieldKeysImpl() r: String {
+    return g_bitfieldKeys
+}
+
+fun getFeatureBitfieldWidthsImpl() r: String {
+    return g_bitfieldWidths
+}
+
+fun getFeatureBitfieldCountImpl() r: Int {
+    return g_bitfieldCount
+}
+
+fun findFeatureBitfieldWidthImpl(bitfieldKey: String) r: Int {
+    return 0
+}
 
 fun prepareFunctionPreBodyWithFeatureStateImpl(state: CodegenState,
     fn: FunctionNode, implFuncName: String,
@@ -395,6 +551,360 @@ fun bad() r: Void {
 }
 SEEN
 expect_fail block_terminated_direct_facade_read
+
+write_owner_modules
+cat > "$TMP_DIR/compiler_seen/src/codegen/llvm_ir_gen.seen" <<'SEEN'
+import codegen.ir_codegen_global_state.{currentFunctionReturnType}
+
+fun bad() r: Void {
+    let retType = mapTypeState(currentFunctionReturnType)
+}
+SEEN
+expect_fail current_return_type_direct_facade_import
+
+write_owner_modules
+cat > "$TMP_DIR/compiler_seen/src/codegen/llvm_ir_gen.seen" <<'SEEN'
+fun bad() r: Void {
+    currentFunctionReturnType = "Int"
+}
+SEEN
+expect_fail current_return_type_direct_facade_write
+
+write_owner_modules
+cat > "$TMP_DIR/compiler_seen/src/codegen/llvm_ir_gen.seen" <<'SEEN'
+fun bad() r: Void {
+    currentLoopCondLabel = "loop.cond"
+}
+SEEN
+expect_fail loop_label_direct_facade_write
+
+write_owner_modules
+cat > "$TMP_DIR/compiler_seen/src/codegen/llvm_ir_gen.seen" <<'SEEN'
+fun bad() r: Void {
+    pendingArrayLiteralType = "Array<Int>"
+}
+SEEN
+expect_fail pending_array_type_direct_facade_write
+
+write_owner_modules
+cat > "$TMP_DIR/compiler_seen/src/codegen/llvm_ir_gen.seen" <<'SEEN'
+fun bad() r: Void {
+    activeVarCount = activeVarCount + 1
+}
+SEEN
+expect_fail active_var_count_direct_facade_write
+
+write_owner_modules
+cat > "$TMP_DIR/compiler_seen/src/codegen/llvm_ir_gen.seen" <<'SEEN'
+import codegen.ir_codegen_global_state.{getActiveVarCountWithGlobalStateImpl}
+
+class LLVMIRGenerator {
+    var varNames: Array<String>
+
+    fun bad() r: Int {
+        return getActiveVarCountWithGlobalStateImpl()
+    }
+}
+SEEN
+expect_fail active_var_count_unbounded_facade_getter
+
+write_owner_modules
+cat > "$TMP_DIR/compiler_seen/src/codegen/llvm_ir_gen.seen" <<'SEEN'
+import codegen.ir_codegen_global_state.{preAllocatedTypes}
+
+fun bad() r: Int {
+    return preAllocatedTypes.length()
+}
+SEEN
+expect_fail preallocated_types_direct_facade_import
+
+write_owner_modules
+cat > "$TMP_DIR/compiler_seen/src/codegen/llvm_ir_gen.seen" <<'SEEN'
+import codegen.ir_codegen_global_state.{structNames}
+
+fun bad(name: String) r: Int {
+    return findStructReg(name, structNames)
+}
+SEEN
+expect_fail registry_struct_names_direct_facade_import
+
+write_owner_modules
+cat > "$TMP_DIR/compiler_seen/src/codegen/llvm_ir_gen.seen" <<'SEEN'
+fun bad(idx: Int) r: String {
+    return structLayouts[idx]
+}
+SEEN
+expect_fail registry_struct_layouts_direct_facade_read
+
+write_owner_modules
+cat > "$TMP_DIR/compiler_seen/src/codegen/llvm_ir_gen.seen" <<'SEEN'
+import codegen.ir_codegen_feature_state.{g_bitfieldWidths}
+
+fun bad() r: Int {
+    return findBitfieldWidthImpl("Flags.enabled", "", g_bitfieldWidths)
+}
+SEEN
+expect_fail bitfield_widths_direct_facade_import
+
+write_owner_modules
+cat > "$TMP_DIR/compiler_seen/src/codegen/ir_field_layout.seen" <<'SEEN'
+import codegen.ir_bitfield_access.{findBitfieldWidthImpl}
+
+fun bad(bitfieldKeys: String, bitfieldWidths: String) r: Int {
+    return findBitfieldWidthImpl("Flags.enabled", bitfieldKeys,
+        bitfieldWidths)
+}
+SEEN
+expect_fail bitfield_width_raw_helper
+rm -f "$TMP_DIR/compiler_seen/src/codegen/ir_field_layout.seen"
+
+write_owner_modules
+cat > "$TMP_DIR/compiler_seen/src/codegen/ir_method_static_dispatch.seen" <<'SEEN'
+fun emitPreparedStaticMethodDispatchState(output: StringBuilder,
+    regBox: Array<Int>, methodName: String, potentialClassName: String,
+    staticClassName: String, funcName: String,
+    registeredStaticReturnType: String, inferredStaticReturnType: String,
+    argRegs: Array<String>, argTypeStrs: Array<String>,
+    structNames: Array<String>, reprCClassNames: String,
+    typeAliasNames: String, typeAliasTargets: String, typeAliasCount: Int,
+    enumTypeNames: String, lateState: LateUserDeclareState) r: String {
+    return ""
+}
+SEEN
+expect_fail static_dispatch_metadata_signature
+rm -f "$TMP_DIR/compiler_seen/src/codegen/ir_method_static_dispatch.seen"
+
+write_owner_modules
+cat > "$TMP_DIR/compiler_seen/src/codegen/ir_method_static_dispatch.seen" <<'SEEN'
+fun emitPreparedStaticMethodDispatchState(output: StringBuilder,
+    regBox: Array<Int>, methodName: String, potentialClassName: String,
+    staticClassName: String, funcName: String,
+    registeredStaticReturnType: String, inferredStaticReturnType: String,
+    argRegs: Array<String>, argTypeStrs: Array<String>,
+    lateState: LateUserDeclareState) r: String {
+    return ""
+}
+SEEN
+cat > "$TMP_DIR/compiler_seen/src/codegen/llvm_ir_gen.seen" <<'SEEN'
+fun bad() r: Void {
+    emitPreparedStaticMethodDispatchState(output, g_regBox, methodName,
+        potentialClassName, staticClassName, funcName, retType, inferredType,
+        argRegs, argTypeStrs, structNames, g_reprCClassNames,
+        g_typeAliasNames, g_typeAliasTargets, g_typeAliasCount,
+        g_enumTypeNames, lateState)
+}
+SEEN
+expect_fail static_dispatch_metadata_call
+rm -f "$TMP_DIR/compiler_seen/src/codegen/ir_method_static_dispatch.seen"
+
+write_owner_modules
+cat > "$TMP_DIR/compiler_seen/src/codegen/ir_method_finalize.seen" <<'SEEN'
+fun emitPreparedFinalMethodDispatchState(output: StringBuilder,
+    regBox: Array<Int>, methodName: String, instanceTypeName: String,
+    funcName: String, receiverReg: String, receiverType: String,
+    registeredMethodReturnType: String, inferredMethodReturnType: String,
+    argRegs: Array<String>, argTypeStrs: Array<String>,
+    shouldPrepareReceiverAbi: Bool, shouldTrySpecialized: Bool,
+    shouldEmitUserMethod: Bool, structNames: Array<String>,
+    reprCClassNames: String, typeAliasNames: String,
+    typeAliasTargets: String, typeAliasCount: Int, enumTypeNames: String,
+    lateState: LateUserDeclareState) r: String {
+    return ""
+}
+SEEN
+expect_fail final_dispatch_metadata_signature
+rm -f "$TMP_DIR/compiler_seen/src/codegen/ir_method_finalize.seen"
+
+write_owner_modules
+cat > "$TMP_DIR/compiler_seen/src/codegen/ir_method_finalize.seen" <<'SEEN'
+fun emitPreparedFinalMethodDispatchState(output: StringBuilder,
+    regBox: Array<Int>, methodName: String, instanceTypeName: String,
+    funcName: String, receiverReg: String, receiverType: String,
+    registeredMethodReturnType: String, inferredMethodReturnType: String,
+    argRegs: Array<String>, argTypeStrs: Array<String>,
+    shouldPrepareReceiverAbi: Bool, shouldTrySpecialized: Bool,
+    shouldEmitUserMethod: Bool, lateState: LateUserDeclareState) r: String {
+    return ""
+}
+SEEN
+cat > "$TMP_DIR/compiler_seen/src/codegen/llvm_ir_gen.seen" <<'SEEN'
+fun bad() r: Void {
+    emitPreparedFinalMethodDispatchState(output, g_regBox, methodName,
+        instanceTypeName, funcName, receiverReg, receiverType, retType,
+        inferredType, argRegs, argTypeStrs, true, true, true, structNames,
+        g_reprCClassNames, g_typeAliasNames, g_typeAliasTargets,
+        g_typeAliasCount, g_enumTypeNames, lateState)
+}
+SEEN
+expect_fail final_dispatch_metadata_call
+rm -f "$TMP_DIR/compiler_seen/src/codegen/ir_method_finalize.seen"
+
+write_owner_modules
+cat > "$TMP_DIR/compiler_seen/src/codegen/ir_class_method_gen.seen" <<'SEEN'
+fun collectClassMethodParameterInfoImpl(methods: Array<FunctionNode>,
+    methodIdx: Int, normalizedMethodParamTypes: Array<String>,
+    mappedMethodParamTypes: Array<String>,
+    quotedMethodArgNames: Array<String>, structNames: Array<String>,
+    typeAliasNames: String, typeAliasTargets: String, typeAliasCount: Int,
+    enumTypeNames: String) r: Void {
+}
+
+fun emitClassMethodParameterBindingsStateImpl(output: StringBuilder,
+    regBox: Array<Int>, varNames: Array<String>, varRegs: Array<String>,
+    varTypes: Array<String>, activeVarCount: Int, methods: Array<FunctionNode>,
+    methodIdx: Int, explicitReceiverName: String,
+    normalizedMethodParamTypes: Array<String>,
+    quotedMethodArgNames: Array<String>) r: Int {
+    return activeVarCount
+}
+SEEN
+expect_fail class_method_param_metadata_signature
+rm -f "$TMP_DIR/compiler_seen/src/codegen/ir_class_method_gen.seen"
+
+write_owner_modules
+cat > "$TMP_DIR/compiler_seen/src/codegen/ir_class_method_gen.seen" <<'SEEN'
+fun collectClassMethodParameterInfoImpl(methods: Array<FunctionNode>,
+    methodIdx: Int, normalizedMethodParamTypes: Array<String>,
+    mappedMethodParamTypes: Array<String>,
+    quotedMethodArgNames: Array<String>) r: Void {
+}
+
+fun emitClassMethodParameterBindingsStateImpl(output: StringBuilder,
+    regBox: Array<Int>, varNames: Array<String>, varRegs: Array<String>,
+    varTypes: Array<String>, activeVarCount: Int, methods: Array<FunctionNode>,
+    methodIdx: Int, explicitReceiverName: String,
+    normalizedMethodParamTypes: Array<String>,
+    quotedMethodArgNames: Array<String>) r: Int {
+    return activeVarCount
+}
+SEEN
+cat > "$TMP_DIR/compiler_seen/src/codegen/llvm_ir_gen.seen" <<'SEEN'
+fun bad() r: Void {
+    collectClassMethodParameterInfoImpl(methods, methodIdx, normalizedTypes,
+        mappedTypes, quotedNames, structNames, g_typeAliasNames,
+        g_typeAliasTargets, g_typeAliasCount, g_enumTypeNames)
+}
+SEEN
+expect_fail class_method_param_metadata_call
+rm -f "$TMP_DIR/compiler_seen/src/codegen/ir_class_method_gen.seen"
+
+write_owner_modules
+cat > "$TMP_DIR/compiler_seen/src/codegen/ir_function_entry_exit.seen" <<'SEEN'
+fun emitPreAllocatedAllocasImpl(output: StringBuilder, regBox: Array<Int>,
+    preAllocatedTypes: Array<String>, structNames: Array<String>,
+    typeAliasNames: String, typeAliasTargets: String, typeAliasCount: Int,
+    enumTypeNames: String, reprCClassNames: String) r: Array<String> {
+    return Array<String>()
+}
+SEEN
+expect_fail preallocated_alloca_metadata_signature
+
+write_owner_modules
+cat > "$TMP_DIR/compiler_seen/src/codegen/ir_function_entry_exit.seen" <<'SEEN'
+fun emitPreAllocatedAllocasImpl(output: StringBuilder, regBox: Array<Int>,
+    preAllocatedLlvmTypes: Array<String>) r: Array<String> {
+    return Array<String>()
+}
+SEEN
+cat > "$TMP_DIR/compiler_seen/src/codegen/llvm_ir_gen.seen" <<'SEEN'
+fun bad() r: Void {
+    emitPreAllocatedAllocasImpl(output, g_regBox, preAllocatedTypes,
+        structNames, g_typeAliasNames, g_typeAliasTargets,
+        g_typeAliasCount, g_enumTypeNames, g_reprCClassNames)
+}
+SEEN
+expect_fail preallocated_alloca_metadata_call
+
+write_owner_modules
+cat > "$TMP_DIR/compiler_seen/src/codegen/llvm_ir_gen.seen" <<'SEEN'
+fun bad(fn: FunctionNode) r: Void {
+    if tryHandleExternFunctionGenerationStateImpl(output, fn,
+        getGlobalStructNamesImpl(), g_typeAliasNames, g_typeAliasTargets,
+        g_typeAliasCount, g_enumTypeNames, g_reprCClassNames,
+        getGlobalFuncNamesImpl(), getGlobalFuncRetTypesImpl()) {
+        return
+    }
+}
+SEEN
+expect_fail extern_generation_direct_facade_call
+
+write_owner_modules
+cat > "$TMP_DIR/compiler_seen/src/codegen/llvm_ir_gen.seen" <<'SEEN'
+fun bad(fn: FunctionNode) r: Void {
+    if tryHandleExternFunctionGenerationWithGlobalStateImpl(output, fn,
+        getGlobalFuncNamesImpl(), getGlobalFuncRetTypesImpl()) {
+        return
+    }
+}
+SEEN
+expect_fail extern_generation_owner_facade_state_call
+
+write_owner_modules
+cat > "$TMP_DIR/compiler_seen/src/codegen/ir_method_lower_emit.seen" <<'SEEN'
+fun emitPreparedStringBuilderMethodLowerImpl(output: StringBuilder,
+    regBox: Array<Int>, methodName: String, receiverReg: String,
+    receiverType: String, sbArg0: String, isFloatFused: Int,
+    reprCClassNames: String, structNames: Array<String>) r: String {
+    return ""
+}
+SEEN
+cat > "$TMP_DIR/compiler_seen/src/codegen/ir_method_fastpath.seen" <<'SEEN'
+fun emitStringBuilderReceiverMethodCallImpl(output: StringBuilder,
+    regBox: Array<Int>, methodName: String, receiverReg: String,
+    receiverType: String, sbArg0: String, isFloatFused: Int) r: String {
+    return ""
+}
+SEEN
+expect_fail string_builder_lower_metadata_signature
+rm -f "$TMP_DIR/compiler_seen/src/codegen/ir_method_lower_emit.seen"
+rm -f "$TMP_DIR/compiler_seen/src/codegen/ir_method_fastpath.seen"
+
+write_owner_modules
+cat > "$TMP_DIR/compiler_seen/src/codegen/ir_method_lower_emit.seen" <<'SEEN'
+fun emitPreparedStringBuilderMethodLowerImpl(output: StringBuilder,
+    regBox: Array<Int>, methodName: String, receiverReg: String,
+    receiverType: String, sbArg0: String, isFloatFused: Int) r: String {
+    return ""
+}
+SEEN
+cat > "$TMP_DIR/compiler_seen/src/codegen/ir_method_fastpath.seen" <<'SEEN'
+fun emitStringBuilderReceiverMethodCallImpl(output: StringBuilder,
+    regBox: Array<Int>, methodName: String, receiverReg: String,
+    receiverType: String, sbArg0: String, isFloatFused: Int) r: String {
+    return ""
+}
+SEEN
+cat > "$TMP_DIR/compiler_seen/src/codegen/llvm_ir_gen.seen" <<'SEEN'
+fun bad() r: Void {
+    emitPreparedStringBuilderMethodLowerImpl(output, getFeatureRegBoxImpl(),
+        methodName, receiverReg, receiverType, sbArg0, isFloatFused,
+        g_reprCClassNames, getGlobalStructNamesImpl())
+}
+SEEN
+expect_fail string_builder_lower_metadata_call
+rm -f "$TMP_DIR/compiler_seen/src/codegen/ir_method_lower_emit.seen"
+rm -f "$TMP_DIR/compiler_seen/src/codegen/ir_method_fastpath.seen"
+
+write_owner_modules
+cat > "$TMP_DIR/compiler_seen/src/codegen/ir_method_lower_emit.seen" <<'SEEN'
+fun emitPreparedStringBuilderMethodLowerImpl(output: StringBuilder,
+    regBox: Array<Int>, methodName: String, receiverReg: String,
+    receiverType: String, sbArg0: String, isFloatFused: Int) r: String {
+    return ""
+}
+SEEN
+cat > "$TMP_DIR/compiler_seen/src/codegen/ir_method_fastpath.seen" <<'SEEN'
+fun emitStringBuilderReceiverMethodCallImpl(output: StringBuilder,
+    regBox: Array<Int>, methodName: String, receiverReg: String,
+    receiverType: String, sbArg0: String, isFloatFused: Int) r: String {
+    let sbPtrReg = convertReceiverToPtrImpl(output, regBox, receiverReg,
+        receiverType, g_reprCClassNames, getGlobalStructNamesImpl())
+    return ""
+}
+SEEN
+expect_fail string_builder_lower_generic_receiver_conversion
+rm -f "$TMP_DIR/compiler_seen/src/codegen/ir_method_lower_emit.seen"
+rm -f "$TMP_DIR/compiler_seen/src/codegen/ir_method_fastpath.seen"
 
 write_owner_modules
 cat > "$TMP_DIR/compiler_seen/src/codegen/llvm_ir_gen.seen" <<'SEEN'

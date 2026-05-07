@@ -1,7 +1,7 @@
 // ir_codegen_type_state.seen - state-aware type mapping helpers for LLVM IR.
 
 import codegen.ir_string_collect.{getBaseTypeNameImpl}
-import codegen.ir_type_mapping.{mapTypeImpl, isDataTypeImpl}
+import codegen.ir_type_mapping.{mapTypeImpl, isDataTypeImpl, isClassHandleLikeTypeImpl}
 import codegen.ir_decl_items.{normalizeSeenTypeNameImpl}
 import codegen.ir_codegen_global_state.{getGlobalStructNamesImpl, getGlobalStructSizesImpl}
 import codegen.ir_codegen_feature_state.{getFeatureReprCClassNamesImpl, getFeatureTypeAliasNamesImpl, getFeatureTypeAliasTargetsImpl, getFeatureTypeAliasCountImpl, getFeatureEnumTypeNamesImpl}
@@ -28,6 +28,10 @@ fun mapTypeState(seenType: String) r: String {
 
 fun isClassTypeState(seenType: String) r: Bool {
     return isClassTypeReg(seenType, getGlobalStructNamesImpl())
+}
+
+fun isClassHandleLikeTypeState(seenType: String) r: Bool {
+    return isClassHandleLikeTypeImpl(seenType, getGlobalStructNamesImpl()) == 1
 }
 
 fun isDataTypeState(seenType: String) r: Bool {

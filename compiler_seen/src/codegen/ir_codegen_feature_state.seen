@@ -20,6 +20,7 @@ import codegen.ir_class_type_layout.{ClassTypeAliasStateSnapshot, prepareClassTy
 import codegen.ir_struct_layout_build.{StructLayoutRegistrationSnapshot, prepareStructLayoutRegistrationSnapshotImpl}
 import codegen.ir_comptime_eval.{registerComptimeVarStateImpl, updateComptimeVarStateImpl, registerComptimeStrVarStateImpl, lookupComptimeVarImpl, evaluateConstExprStrImpl, evaluateConstExprImpl}
 import codegen.ir_module_emit.{emitTraitVtableConstantsImpl, emitGeneratedClosuresImpl, emitGlobalConstructorsImpl, emitTBAAMetadataImpl}
+import codegen.ir_bitfield_access.{findBitfieldWidthImpl}
 
 var g_panicOnOverflow: Bool = false
 
@@ -117,6 +118,47 @@ var g_bitfieldKeys: String = ""
 var g_bitfieldWidths: String = ""
 var g_bitfieldOffsets: String = ""
 var g_bitfieldCount: Int = 0
+
+fun getFeatureBitfieldKeysImpl() r: String {
+    return g_bitfieldKeys
+}
+
+fun getFeatureBitfieldWidthsImpl() r: String {
+    return g_bitfieldWidths
+}
+
+fun getFeatureBitfieldCountImpl() r: Int {
+    if g_bitfieldCount < 0 {
+        return 0
+    }
+    if g_bitfieldCount > 4096 {
+        return 0
+    }
+    return g_bitfieldCount
+}
+
+fun isFeatureBitfieldMetadataUsableImpl() r: Bool {
+    let keyLen = g_bitfieldKeys.length()
+    let widthLen = g_bitfieldWidths.length()
+    if keyLen <= 0 or widthLen <= 0 {
+        return false
+    }
+    if keyLen > 65536 or widthLen > 65536 {
+        return false
+    }
+    return true
+}
+
+fun findFeatureBitfieldWidthImpl(bitfieldKey: String) r: Int {
+    if bitfieldKey == "" or getFeatureBitfieldCountImpl() <= 0 {
+        return 0
+    }
+    if not isFeatureBitfieldMetadataUsableImpl() {
+        return 0
+    }
+    return findBitfieldWidthImpl(bitfieldKey, g_bitfieldKeys,
+        g_bitfieldWidths)
+}
 
 var g_gpuBufferClasses: String = ""
 var g_gpuBufferLayouts: String = ""

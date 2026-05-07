@@ -199,8 +199,8 @@ fun tryGenerateLengthLikeMethodCallImpl(output: StringBuilder, regBox: Array<Int
         return resultReg
     }
     if effectiveReceiverType == "StringBuilder" {
-        let sbPtrReg = convertReceiverToPtrImpl(output, regBox, receiverReg,
-            effectiveReceiverType, reprCClassNames, structNames)
+        let sbPtrReg = convertStringBuilderReceiverHandleToPtrImpl(output,
+            regBox, receiverReg)
         return emitStringBuilderMethodImpl(output, regBox, "length", sbPtrReg,
             "", 0)
     }
@@ -208,10 +208,21 @@ fun tryGenerateLengthLikeMethodCallImpl(output: StringBuilder, regBox: Array<Int
         effectiveReceiverType)
 }
 
+fun convertStringBuilderReceiverHandleToPtrImpl(output: StringBuilder,
+    regBox: Array<Int>, receiverReg: String) r: String {
+
+    if receiverReg == "null" {
+        return "null"
+    }
+    let ptrConvReg = getNextRegFn(regBox)
+    output.append("  " + ptrConvReg + " = inttoptr i64 " + receiverReg +
+        " to ptr\n")
+    return ptrConvReg
+}
+
 fun emitStringBuilderReceiverMethodCallImpl(output: StringBuilder,
     regBox: Array<Int>, methodName: String, receiverReg: String,
-    receiverType: String, sbArg0: String, isFloatFused: Int,
-    reprCClassNames: String, structNames: Array<String>) r: String {
+    receiverType: String, sbArg0: String, isFloatFused: Int) r: String {
 
     if receiverType != "StringBuilder" {
         return ""
@@ -223,8 +234,8 @@ fun emitStringBuilderReceiverMethodCallImpl(output: StringBuilder,
         return ""
     }
 
-    let sbPtrReg = convertReceiverToPtrImpl(output, regBox, receiverReg,
-        receiverType, reprCClassNames, structNames)
+    let sbPtrReg = convertStringBuilderReceiverHandleToPtrImpl(output,
+        regBox, receiverReg)
     return emitStringBuilderMethodImpl(output, regBox, methodName, sbPtrReg,
         sbArg0, isFloatFused)
 }

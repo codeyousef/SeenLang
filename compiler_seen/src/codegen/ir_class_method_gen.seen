@@ -8,7 +8,7 @@ import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_inline_heuristics.{selfCallCheck}
 import codegen.ir_decl_items.{normalizeSeenTypeNameImpl, normalizeDeclaredTypeNodeImpl}
-import codegen.ir_type_mapping.{isDataTypeImpl, mapTypeImpl}
+import codegen.ir_codegen_type_state.{isDataTypeState, mapTypeForParameterState, mapStorageTypeForParameterState}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
 import codegen.ir_function_signature_emit.{emitDefaultReturnValueImpl}
 import codegen.ir_variable_gen.{storeActiveVariableBindingImpl, findActiveVariableIndexImpl}
@@ -127,48 +127,18 @@ fun shouldTraceClassMethodStartImpl(className: String) r: Bool {
         className == "LLVMIRGenerator"
 }
 
-fun mapMethodParameterTypeImpl(seenType: String, structNames: Array<String>,
-    typeAliasNames: String, typeAliasTargets: String, typeAliasCount: Int,
-    enumTypeNames: String) r: String {
-
-    var cleanType = seenType
-    if cleanType.startsWith("comptime:") {
-        cleanType = cleanType.substring(9, cleanType.length())
-    }
-    if cleanType.contains("~default~") {
-        let defaultPos = cleanType.indexOf("~default~", 0)
-        cleanType = cleanType.substring(0, defaultPos)
-    }
-    if isDataTypeImpl(cleanType) == 1 {
-        return "ptr noalias nonnull"
-    }
-    let mapped = mapTypeImpl(cleanType, structNames, typeAliasNames,
-        typeAliasTargets, typeAliasCount, enumTypeNames)
-    if mapped == "ptr" {
-        return "ptr noalias nonnull"
-    }
-    return mapped
+fun mapMethodParameterTypeImpl(seenType: String) r: String {
+    return mapTypeForParameterState(seenType)
 }
 
-fun mapMethodParameterStorageTypeImpl(seenType: String,
-    structNames: Array<String>, typeAliasNames: String,
-    typeAliasTargets: String, typeAliasCount: Int, enumTypeNames: String)
-    r: String {
-
-    let mapped = mapMethodParameterTypeImpl(seenType, structNames,
-        typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames)
-    if mapped == "ptr noalias nonnull" {
-        return "ptr"
-    }
-    return mapped
+fun mapMethodParameterStorageTypeImpl(seenType: String) r: String {
+    return mapStorageTypeForParameterState(seenType)
 }
 
 fun collectClassMethodParameterInfoImpl(methods: Array<FunctionNode>,
     methodIdx: Int, normalizedMethodParamTypes: Array<String>,
     mappedMethodParamTypes: Array<String>,
-    quotedMethodArgNames: Array<String>, structNames: Array<String>,
-    typeAliasNames: String, typeAliasTargets: String, typeAliasCount: Int,
-    enumTypeNames: String) r: Void {
+    quotedMethodArgNames: Array<String>) r: Void {
 
     let method = methods[methodIdx]
     var paramInfoIdx = 0
@@ -178,8 +148,7 @@ fun collectClassMethodParameterInfoImpl(methods: Array<FunctionNode>,
             methodParam.paramType)
         normalizedMethodParamTypes.push(normalizedParamType)
         mappedMethodParamTypes.push(mapMethodParameterTypeImpl(
-            normalizedParamType, structNames, typeAliasNames,
-            typeAliasTargets, typeAliasCount, enumTypeNames))
+            normalizedParamType))
         quotedMethodArgNames.push(quoteIdentIfNeededImpl(
             methodParam.name + ".arg"))
         paramInfoIdx = paramInfoIdx + 1
@@ -255,9 +224,7 @@ fun emitClassMethodParameterBindingsStateImpl(output: StringBuilder,
     varTypes: Array<String>, activeVarCount: Int, methods: Array<FunctionNode>,
     methodIdx: Int, explicitReceiverName: String,
     normalizedMethodParamTypes: Array<String>,
-    quotedMethodArgNames: Array<String>, structNames: Array<String>,
-    typeAliasNames: String, typeAliasTargets: String, typeAliasCount: Int,
-    enumTypeNames: String) r: Int {
+    quotedMethodArgNames: Array<String>) r: Int {
 
     var nextActiveVarCount = activeVarCount
     let method = methods[methodIdx]
@@ -273,15 +240,13 @@ fun emitClassMethodParameterBindingsStateImpl(output: StringBuilder,
         if isExplicitReceiver == 0 {
             let seenTypeName = normalizedMethodParamTypes[paramIdx]
             let semanticSeenTypeName = normalizeSeenTypeNameImpl(seenTypeName)
-            if isDataTypeImpl(semanticSeenTypeName) == 1 {
+            if isDataTypeState(semanticSeenTypeName) {
                 nextActiveVarCount = storeActiveVariableBindingImpl(varNames,
                     varRegs, varTypes, nextActiveVarCount, param.name,
                     "%" + quotedMethodArgNames[paramIdx],
                     semanticSeenTypeName)
             } else {
-                let paramType = mapMethodParameterStorageTypeImpl(seenTypeName,
-                    structNames, typeAliasNames, typeAliasTargets,
-                    typeAliasCount, enumTypeNames)
+                let paramType = mapMethodParameterStorageTypeImpl(seenTypeName)
                 let reg = getNextRegFn(regBox)
                 output.append("  " + reg + " = alloca " + paramType + "\n")
                 output.append("  store " + paramType + " %" +

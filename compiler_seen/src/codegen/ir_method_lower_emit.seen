@@ -53,12 +53,10 @@ fun emitPreparedLengthLikeMethodLowerImpl(output: StringBuilder,
 
 fun emitPreparedStringBuilderMethodLowerImpl(output: StringBuilder,
     regBox: Array<Int>, methodName: String, receiverReg: String,
-    receiverType: String, sbArg0: String, isFloatFused: Int,
-    reprCClassNames: String, structNames: Array<String>) r: String {
+    receiverType: String, sbArg0: String, isFloatFused: Int) r: String {
 
     return emitStringBuilderReceiverMethodCallImpl(output, regBox, methodName,
-        receiverReg, receiverType, sbArg0, isFloatFused, reprCClassNames,
-        structNames)
+        receiverReg, receiverType, sbArg0, isFloatFused)
 }
 
 fun emitPreparedPrimitiveConversionMethodLowerImpl(output: StringBuilder,
@@ -160,7 +158,7 @@ fun emitPreparedSpecializedMethodLowerImpl(output: StringBuilder,
 
     return tryGenerateSpecializedInstanceMethodCallImpl(output, regBox,
         methodName, instanceTypeName, receiverType, returnTypeStr,
-        receiverLlvmType, receiverReg, structNames)
+        receiverLlvmType, receiverReg)
 }
 
 fun emitPreparedUserMethodLowerImpl(output: StringBuilder,
