@@ -4354,12 +4354,8 @@ class RealParser {
         expr.literalType = result.literalType
         expr.variableName = result.variableName
         expr.callee = result.callee
-        ///
-        Don't copy arrays to avoid memory corruption
-        Copy arrays by iterating (avoids shared data pointer issues)
-        Actually skip this - most expressions don't need array data
-        trace
-        ///
+        expr.operands = result.operands
+        expr.arguments = result.arguments
     }
 
     ///
@@ -4382,17 +4378,8 @@ class RealParser {
         expr.literalType = result.literalType
         expr.variableName = result.variableName
         expr.callee = result.callee
-        // Copy arrays by iterating (avoids shared data pointer issues)
-        let i = 0
-        while i < result.operands.length() {
-            expr.operands.push(result.operands[i])
-            i = i + 1
-        }
-        let j = 0
-        while j < result.arguments.length() {
-            expr.arguments.push(result.arguments[j])
-            j = j + 1
-        }
+        expr.operands = result.operands
+        expr.arguments = result.arguments
         // trace
         return
     }

@@ -68,6 +68,45 @@ def fix_invalid_function_names(content):
     return content
 
 
+def _is_safe_llvm_bare_identifier(name):
+    if not name:
+        return False
+    return all(ch.isalnum() or ch in '$._-' for ch in name)
+
+
+def _quote_llvm_identifier(name):
+    escaped = name.replace('\\', '\\5C').replace('"', '\\22')
+    return f'"{escaped}"'
+
+
+def fix_invalid_named_type_identifiers(content):
+    """Quote malformed LLVM named type identifiers like `%/ = type { ... }`.
+
+    Older bootstrap compilers can emit Seen punctuation names directly as LLVM
+    type names. LLVM requires those identifiers to be quoted at both the type
+    definition and every use site.
+    """
+    invalid_names = []
+    seen = set()
+    for m in re.finditer(r'^%([^"\s=]+)\s*=\s*type\b', content, re.MULTILINE):
+        name = m.group(1)
+        if _is_safe_llvm_bare_identifier(name):
+            continue
+        if name in seen:
+            continue
+        seen.add(name)
+        invalid_names.append(name)
+
+    for name in invalid_names:
+        quoted = '%' + _quote_llvm_identifier(name)
+        content = re.sub(
+            r'%' + re.escape(name) + r'(?=($|[\s,)\]\}*]))',
+            quoted,
+            content,
+        )
+    return content
+
+
 def fix_struct_zero(content):
     """Fix `%StructType 0` → `%StructType zeroinitializer` everywhere.
 
@@ -294,6 +333,53 @@ def fix_duplicate_globals(content):
     return '\n'.join(out)
 
 
+def fix_misplaced_global_definitions(content):
+    """Move or drop global definitions that were emitted inside functions."""
+    lines = content.split('\n')
+    top_level_globals = set()
+    in_function = False
+    for line in lines:
+        if re.match(r'^define\s+', line):
+            in_function = True
+        elif in_function and line.strip() == '}':
+            in_function = False
+            continue
+        if not in_function:
+            gm = re.match(r'^(@[^\s=]+)\s*=', line)
+            if gm:
+                top_level_globals.add(gm.group(1))
+
+    out = []
+    hoisted = []
+    hoisted_names = set()
+    in_function = False
+    for line in lines:
+        if re.match(r'^define\s+', line):
+            in_function = True
+        if in_function:
+            gm = re.match(r'^(@[^\s=]+)\s*=', line)
+            if gm:
+                name = gm.group(1)
+                if name not in top_level_globals and name not in hoisted_names:
+                    hoisted.append(line)
+                    hoisted_names.add(name)
+                    top_level_globals.add(name)
+                continue
+        out.append(line)
+        if in_function and line.strip() == '}':
+            in_function = False
+
+    if not hoisted:
+        return '\n'.join(out)
+
+    insert_at = len(out)
+    for idx, line in enumerate(out):
+        if re.match(r'^define\s+', line):
+            insert_at = idx
+            break
+    return '\n'.join(out[:insert_at] + hoisted + out[insert_at:])
+
+
 def _typed_default_value(typ):
     if typ == 'i1':
         return 'false'
@@ -328,6 +414,15 @@ def fix_scalar_literal_and_text_repairs(content):
                 r'\1 \2.0',
                 fixed,
             )
+        lines.append(fixed)
+    return '\n'.join(lines)
+
+
+def fix_ret_void_values(content):
+    """Drop invalid operands from `ret void` instructions."""
+    lines = []
+    for line in content.split('\n'):
+        fixed = re.sub(r'^(\s*)ret\s+void\s+\S.*$', r'\1ret void', line)
         lines.append(fixed)
     return '\n'.join(lines)
 
@@ -369,7 +464,7 @@ def _fix_missing_local_register_uses_in_function(func_lines):
     header = func_lines[0] if func_lines else ''
     header_args = re.search(r'\((.*)\)', header)
     if header_args:
-        for pm in re.finditer(r'\b%\d+\b', header_args.group(1)):
+        for pm in re.finditer(r'%\d+\b', header_args.group(1)):
             defined.add(pm.group(0))
     for line in func_lines:
         dm = re.match(r'\s*(%\d+)\s*=', line)
@@ -434,35 +529,51 @@ def _fix_ssa_in_function(func_lines):
     if not defs:
         return func_lines
 
-    # Check monotonicity
-    if all(defs[i] < defs[i+1] for i in range(len(defs)-1)):
+    param_nums = set()
+    header_args = re.search(r'\((.*)\)', func_lines[0] if func_lines else '')
+    if header_args:
+        for pm in re.finditer(r'%(\d+)\b', header_args.group(1)):
+            param_nums.add(int(pm.group(1)))
+
+    start_num = min(defs)
+    if param_nums:
+        start_num = max(start_num, max(param_nums) + 1)
+
+    has_param_collision = any(d in param_nums for d in defs)
+    # Check monotonicity and the LLVM slot requirement after numbered params.
+    if not has_param_collision and defs[0] >= start_num and \
+       all(defs[i] < defs[i+1] for i in range(len(defs)-1)):
         return func_lines
 
-    # Build mapping preserving definition order
-    seen = set()
-    ordered = []
-    for d in defs:
-        if d not in seen:
-            seen.add(d)
-            ordered.append(d)
+    next_num = start_num
+    value_map = {}
+    fixed = []
 
-    start_num = min(ordered)
-    mapping = {}
-    for i, old_n in enumerate(ordered):
-        mapping[old_n] = start_num + i
+    def apply_value_map(text):
+        for old_tok in sorted(value_map.keys(),
+                              key=lambda item: int(item[1:]),
+                              reverse=True):
+            new_tok = value_map[old_tok]
+            if old_tok != new_tok:
+                text = re.sub(re.escape(old_tok) + r'(?=[\s,)};=]|$)',
+                              new_tok, text)
+        return text
 
-    if all(mapping[k] == k for k in mapping):
-        return func_lines
-
-    # Two-pass rename: % followed by number
-    for old_n in sorted(mapping.keys(), reverse=True):
-        new_n = mapping[old_n]
-        if old_n != new_n:
-            body = re.sub(r'%' + str(old_n) + r'(?=[\s,)};=]|$)',
-                         f'%__R{new_n}__', body)
-
-    body = re.sub(r'%__R(\d+)__', r'%\1', body)
-    return body.split('\n')
+    for idx, line in enumerate(func_lines):
+        if idx == 0:
+            fixed.append(line)
+            continue
+        dm = re.match(r'^(\s*)(%\d+)(\s*=)(.*)$', line)
+        if dm:
+            old_tok = dm.group(2)
+            new_tok = f'%{next_num}'
+            next_num += 1
+            rhs = apply_value_map(dm.group(4))
+            fixed.append(f'{dm.group(1)}{new_tok}{dm.group(3)}{rhs}')
+            value_map[old_tok] = new_tok
+        else:
+            fixed.append(apply_value_map(line))
+    return fixed
 
 
 def fix_type_mismatches(content):
@@ -477,6 +588,134 @@ def fix_type_mismatches(content):
             break
         content = new_content
     return content
+
+
+def fix_nondominating_register_uses(content):
+    """Replace typed uses whose defining block does not dominate the use."""
+    lines = content.split('\n')
+    result = []
+    in_function = False
+    func_buf = []
+
+    for line in lines:
+        if re.match(r'^define\s+', line):
+            in_function = True
+            func_buf = [line]
+            continue
+        if in_function:
+            func_buf.append(line)
+            if line.strip() == '}':
+                result.extend(_fix_nondominating_uses_in_function(func_buf))
+                in_function = False
+                func_buf = []
+            continue
+        result.append(line)
+
+    if func_buf:
+        result.extend(_fix_nondominating_uses_in_function(func_buf))
+    return '\n'.join(result)
+
+
+def _fix_nondominating_uses_in_function(func_lines):
+    if len(func_lines) < 3:
+        return func_lines
+
+    block_names = []
+    block_for_line = []
+    current_block = 'entry'
+    block_names.append(current_block)
+    for idx, line in enumerate(func_lines):
+        stripped = line.strip()
+        if idx > 0 and idx < len(func_lines) - 1 and re.match(r'^[A-Za-z_.$][A-Za-z0-9_.$-]*:$', stripped):
+            current_block = stripped[:-1]
+            if current_block not in block_names:
+                block_names.append(current_block)
+        block_for_line.append(current_block)
+
+    successors = {name: set() for name in block_names}
+    for idx, line in enumerate(func_lines):
+        block = block_for_line[idx]
+        stripped = line.strip()
+        m_cond = re.match(r'br\s+i1\s+[^,]+,\s+label\s+%([^,\s]+),\s+label\s+%([^,\s]+)', stripped)
+        if m_cond:
+            successors.setdefault(block, set()).add(m_cond.group(1))
+            successors.setdefault(block, set()).add(m_cond.group(2))
+            continue
+        m_uncond = re.match(r'br\s+label\s+%([^,\s]+)', stripped)
+        if m_uncond:
+            successors.setdefault(block, set()).add(m_uncond.group(1))
+
+    all_blocks = set(block_names)
+    dominators = {}
+    for name in block_names:
+        dominators[name] = {name} if name == 'entry' else set(all_blocks)
+    changed = True
+    while changed:
+        changed = False
+        for name in block_names:
+            if name == 'entry':
+                continue
+            preds = [b for b, succs in successors.items() if name in succs]
+            if not preds:
+                new_dom = {name}
+            else:
+                new_dom = set(all_blocks)
+                for pred in preds:
+                    new_dom &= dominators.get(pred, set())
+                new_dom.add(name)
+            if new_dom != dominators.get(name, set()):
+                dominators[name] = new_dom
+                changed = True
+
+    reg_types = {}
+    header_args = re.search(r'\((.*)\)', func_lines[0] if func_lines else '')
+    if header_args:
+        for arg in _split_args(header_args.group(1)):
+            m = re.match(r'\s*(ptr|i64|i32|i16|i8|i1|float|double|%[A-Za-z_][A-Za-z0-9_]*)\s+(%\d+)\b', arg.strip())
+            if m:
+                reg_types[m.group(2)] = m.group(1)
+    def_block = {}
+    for idx, line in enumerate(func_lines):
+        reg, typ = _get_reg_type(line.strip(), reg_types)
+        if reg:
+            reg_types[reg] = typ
+            def_block[reg] = block_for_line[idx]
+
+    seen_in_block = {name: set() for name in block_names}
+    fixed = []
+    typed_operand_re = re.compile(
+        r'(?<![\w.])(ptr|i64|i32|i16|i8|i1|float|double|%[A-Za-z_][A-Za-z0-9_]*)\s+(%\d+)\b')
+
+    for idx, line in enumerate(func_lines):
+        stripped = line.strip()
+        block = block_for_line[idx]
+        if idx == 0 or stripped == '}' or re.match(r'%\d+\s*=\s*phi\b', stripped):
+            fixed.append(line)
+            dm_skip = re.match(r'\s*(%\d+)\s*=', line)
+            if dm_skip:
+                seen_in_block.setdefault(block, set()).add(dm_skip.group(1))
+            continue
+
+        def replace_operand(m):
+            typ = m.group(1)
+            reg = m.group(2)
+            if reg not in def_block:
+                return m.group(0)
+            source_block = def_block[reg]
+            if source_block == block:
+                if reg in seen_in_block.setdefault(block, set()):
+                    return m.group(0)
+                return f'{typ} {_typed_default_value(typ)}'
+            if source_block in dominators.get(block, {block}):
+                return m.group(0)
+            return f'{typ} {_typed_default_value(typ)}'
+
+        new_line = typed_operand_re.sub(replace_operand, line)
+        fixed.append(new_line)
+        dm = re.match(r'\s*(%\d+)\s*=', new_line)
+        if dm:
+            seen_in_block.setdefault(block, set()).add(dm.group(1))
+    return fixed
 
 
 def _fix_type_pass(content):
@@ -720,6 +959,269 @@ def _fix_function_types(func_lines):
             if actual and actual != stated:
                 fixed = fixed.replace(f'store {stated} {reg},', f'store {actual} {reg},', 1)
 
+        # Fix load pointer operands that were emitted as scalar/aggregate regs.
+        load_ptr_m = re.match(r'(\s*)(%\d+)\s*=\s*load\s+(\S+),\s*ptr\s+([^,\s]+)(.*)', fixed)
+        if load_ptr_m:
+            indent = load_ptr_m.group(1)
+            out_reg = load_ptr_m.group(2)
+            load_type = load_ptr_m.group(3)
+            ptr_val = load_ptr_m.group(4)
+            rest = load_ptr_m.group(5)
+            if re.match(r'-?(?:0x[0-9A-Fa-f]+|\d+)$', ptr_val) and ptr_val != '0':
+                fixed_ptr = next_temp_reg('ptr')
+                result.append(f'{indent}{fixed_ptr} = inttoptr i64 {ptr_val} to ptr')
+                fixed = f'{indent}{out_reg} = load {load_type}, ptr {fixed_ptr}{rest}'
+                reg_types[out_reg] = load_type
+            elif ptr_val.startswith('%'):
+                actual = reg_types.get(ptr_val)
+                if actual and actual != 'ptr':
+                    fixed_ptr = ptr_val
+                    if actual == 'i64':
+                        fixed_ptr = next_temp_reg('ptr')
+                        result.append(f'{indent}{fixed_ptr} = inttoptr i64 {ptr_val} to ptr')
+                    elif actual == 'i1':
+                        wide_reg = next_temp_reg('i64')
+                        fixed_ptr = next_temp_reg('ptr')
+                        result.append(f'{indent}{wide_reg} = zext i1 {ptr_val} to i64')
+                        result.append(f'{indent}{fixed_ptr} = inttoptr i64 {wide_reg} to ptr')
+                    elif actual == '%SeenString':
+                        fixed_ptr = next_temp_reg('ptr')
+                        result.append(f'{indent}{fixed_ptr} = extractvalue %SeenString {ptr_val}, 1')
+                    fixed = f'{indent}{out_reg} = load {load_type}, ptr {fixed_ptr}{rest}'
+                    reg_types[out_reg] = load_type
+
+        # Fix getelementptr base operands that are scalar/aggregate regs.
+        gep_m = re.match(r'(\s*)(%\d+\s*=\s*getelementptr\b.*?\bptr\s+)(%\d+|-?(?:0x[0-9A-Fa-f]+|\d+))(.*)', fixed)
+        if gep_m:
+            indent = gep_m.group(1)
+            prefix = gep_m.group(2)
+            base_val = gep_m.group(3)
+            rest = gep_m.group(4)
+            if re.match(r'-?(?:0x[0-9A-Fa-f]+|\d+)$', base_val) and base_val != '0':
+                fixed_base = next_temp_reg('ptr')
+                result.append(f'{indent}{fixed_base} = inttoptr i64 {base_val} to ptr')
+                fixed = f'{indent}{prefix}{fixed_base}{rest}'
+            else:
+                actual = reg_types.get(base_val)
+                if actual and actual != 'ptr':
+                    fixed_base = base_val
+                    if actual == 'i64':
+                        fixed_base = next_temp_reg('ptr')
+                        result.append(f'{indent}{fixed_base} = inttoptr i64 {base_val} to ptr')
+                    elif actual == 'i1':
+                        wide_reg = next_temp_reg('i64')
+                        fixed_base = next_temp_reg('ptr')
+                        result.append(f'{indent}{wide_reg} = zext i1 {base_val} to i64')
+                        result.append(f'{indent}{fixed_base} = inttoptr i64 {wide_reg} to ptr')
+                    elif actual == '%SeenString':
+                        fixed_base = next_temp_reg('ptr')
+                        result.append(f'{indent}{fixed_base} = extractvalue %SeenString {base_val}, 1')
+                    fixed = f'{indent}{prefix}{fixed_base}{rest}'
+
+        if 'getelementptr' in fixed:
+            indent = re.match(r'(\s*)', fixed).group(1)
+
+            def coerce_gep_index(m):
+                typ = m.group(1)
+                val = m.group(2)
+                actual = reg_types.get(val)
+                if not actual or actual == typ:
+                    return m.group(0)
+                if typ == 'i64' and actual == 'i1':
+                    cast_reg = next_temp_reg('i64')
+                    result.append(f'{indent}{cast_reg} = zext i1 {val} to i64')
+                    return f'i64 {cast_reg}'
+                if typ == 'i64' and actual == 'ptr':
+                    cast_reg = next_temp_reg('i64')
+                    result.append(f'{indent}{cast_reg} = ptrtoint ptr {val} to i64')
+                    return f'i64 {cast_reg}'
+                if typ == 'i64' and actual == '%SeenString':
+                    cast_reg = next_temp_reg('i64')
+                    result.append(f'{indent}{cast_reg} = extractvalue %SeenString {val}, 0')
+                    return f'i64 {cast_reg}'
+                return m.group(0)
+
+            fixed = re.sub(r'\b(i64|i32)\s+(%\d+)\b', coerce_gep_index, fixed)
+
+        # Fix insertvalue aggregate seeds and field values.
+        ins_m = re.match(
+            r'(\s*)(%\d+)\s*=\s*insertvalue\s+(%\w+)\s+([^,]+),\s+'
+            r'(\S+)\s+([^,]+),\s*(\d+)(.*)',
+            fixed,
+        )
+        if ins_m:
+            indent = ins_m.group(1)
+            out_reg = ins_m.group(2)
+            agg_type = ins_m.group(3)
+            agg_val = ins_m.group(4).strip()
+            field_type = ins_m.group(5)
+            field_val = ins_m.group(6).strip()
+            field_idx = ins_m.group(7)
+            rest = ins_m.group(8)
+            if agg_val.startswith('%'):
+                actual_agg = reg_types.get(agg_val)
+                if actual_agg and actual_agg != agg_type:
+                    agg_val = 'zeroinitializer'
+            if field_type == 'ptr' and field_val == '0':
+                field_val = 'null'
+            if field_val.startswith('%'):
+                actual_field = reg_types.get(field_val)
+                if actual_field and actual_field != field_type:
+                    if field_type == 'ptr' and actual_field == 'i64':
+                        ptr_reg = next_temp_reg('ptr')
+                        result.append(f'{indent}{ptr_reg} = inttoptr i64 {field_val} to ptr')
+                        field_val = ptr_reg
+                    elif field_type == 'ptr' and actual_field == 'i1':
+                        wide_reg = next_temp_reg('i64')
+                        ptr_reg = next_temp_reg('ptr')
+                        result.append(f'{indent}{wide_reg} = zext i1 {field_val} to i64')
+                        result.append(f'{indent}{ptr_reg} = inttoptr i64 {wide_reg} to ptr')
+                        field_val = ptr_reg
+                    elif field_type == 'ptr' and actual_field == '%SeenString':
+                        ptr_reg = next_temp_reg('ptr')
+                        result.append(f'{indent}{ptr_reg} = extractvalue %SeenString {field_val}, 1')
+                        field_val = ptr_reg
+                    elif field_type == 'i64' and actual_field == 'ptr':
+                        int_reg = next_temp_reg('i64')
+                        result.append(f'{indent}{int_reg} = ptrtoint ptr {field_val} to i64')
+                        field_val = int_reg
+                    elif field_type == 'i64' and actual_field == 'i1':
+                        int_reg = next_temp_reg('i64')
+                        result.append(f'{indent}{int_reg} = zext i1 {field_val} to i64')
+                        field_val = int_reg
+                    elif field_type == 'i64' and actual_field == '%SeenString':
+                        int_reg = next_temp_reg('i64')
+                        result.append(f'{indent}{int_reg} = extractvalue %SeenString {field_val}, 0')
+                        field_val = int_reg
+            fixed = (f'{indent}{out_reg} = insertvalue {agg_type} {agg_val}, '
+                     f'{field_type} {field_val}, {field_idx}{rest}')
+            reg_types[out_reg] = agg_type
+
+        # Fix cast source annotations that disagree with the tracked operand.
+        cast_m = re.match(r'(\s*)(%\d+)\s*=\s*(zext|sext|trunc|ptrtoint|inttoptr)\s+(\S+)\s+(%\d+)\s+to\s+(\S+)(.*)', fixed)
+        if cast_m:
+            indent = cast_m.group(1)
+            out_reg = cast_m.group(2)
+            op = cast_m.group(3)
+            src_type = cast_m.group(4)
+            src_val = cast_m.group(5)
+            dst_type = cast_m.group(6)
+            rest = cast_m.group(7)
+            actual = reg_types.get(src_val)
+            if actual and actual != src_type:
+                if dst_type == 'i64' and actual == 'i64':
+                    fixed = f'{indent}{out_reg} = add i64 {src_val}, 0{rest}'
+                    reg_types[out_reg] = 'i64'
+                elif dst_type == 'i64' and actual == 'ptr':
+                    fixed = f'{indent}{out_reg} = ptrtoint ptr {src_val} to i64{rest}'
+                    reg_types[out_reg] = 'i64'
+                elif dst_type == 'i64' and actual == '%SeenString':
+                    fixed = f'{indent}{out_reg} = extractvalue %SeenString {src_val}, 0{rest}'
+                    reg_types[out_reg] = 'i64'
+                elif dst_type == 'ptr' and actual == 'i64':
+                    fixed = f'{indent}{out_reg} = inttoptr i64 {src_val} to ptr{rest}'
+                    reg_types[out_reg] = 'ptr'
+                elif dst_type == 'ptr' and actual == 'i1':
+                    wide_reg = next_temp_reg('i64')
+                    result.append(f'{indent}{wide_reg} = zext i1 {src_val} to i64')
+                    fixed = f'{indent}{out_reg} = inttoptr i64 {wide_reg} to ptr{rest}'
+                    reg_types[out_reg] = 'ptr'
+                elif dst_type == 'ptr' and actual == '%SeenString':
+                    fixed = f'{indent}{out_reg} = extractvalue %SeenString {src_val}, 1{rest}'
+                    reg_types[out_reg] = 'ptr'
+
+        # Fix arithmetic operands whose annotation is wider than the register
+        # type tracked for the current function.
+        ar_m = re.match(
+            r'(\s*)(%\d+)\s*=\s*'
+            r'(add|sub|mul|sdiv|udiv|srem|urem|and|or|xor|shl|ashr|lshr)\s+'
+            r'((?:(?:nuw|nsw|exact)\s+)*)'
+            r'(\S+)\s+([^,]+),\s*(.+)',
+            fixed,
+        )
+        if ar_m:
+            indent = ar_m.group(1)
+            out_reg = ar_m.group(2)
+            op = ar_m.group(3)
+            flags = ar_m.group(4)
+            stated = ar_m.group(5)
+            left_val = ar_m.group(6).strip()
+            right_val = ar_m.group(7).strip()
+
+            def coerce_arith_operand(val):
+                if not val.startswith('%'):
+                    return val
+                actual = reg_types.get(val)
+                if not actual or actual == stated:
+                    return val
+                if stated == 'i64' and actual == 'ptr':
+                    cast_reg = next_temp_reg('i64')
+                    result.append(f'{indent}{cast_reg} = ptrtoint ptr {val} to i64')
+                    return cast_reg
+                if stated == 'i64' and actual == 'i1':
+                    cast_reg = next_temp_reg('i64')
+                    result.append(f'{indent}{cast_reg} = zext i1 {val} to i64')
+                    return cast_reg
+                if stated == 'i64' and actual == '%SeenString':
+                    cast_reg = next_temp_reg('i64')
+                    result.append(f'{indent}{cast_reg} = extractvalue %SeenString {val}, 0')
+                    return cast_reg
+                if stated == 'ptr' and actual == 'i64':
+                    cast_reg = next_temp_reg('ptr')
+                    result.append(f'{indent}{cast_reg} = inttoptr i64 {val} to ptr')
+                    return cast_reg
+                return val
+
+            new_left = coerce_arith_operand(left_val)
+            new_right = coerce_arith_operand(right_val)
+            if new_left != left_val or new_right != right_val:
+                fixed = f'{indent}{out_reg} = {op} {flags}{stated} {new_left}, {new_right}'
+                reg_types[out_reg] = stated
+
+        # Fix icmp operands whose annotated type disagrees with tracked regs.
+        icmp_m = re.match(r'(\s*)(%\d+)\s*=\s*icmp\s+(\w+)\s+(\S+)\s+([^,]+),\s*(.+)', fixed)
+        if icmp_m:
+            indent = icmp_m.group(1)
+            out_reg = icmp_m.group(2)
+            pred = icmp_m.group(3)
+            stated = icmp_m.group(4)
+            left_val = icmp_m.group(5).strip()
+            right_val = icmp_m.group(6).strip()
+
+            def coerce_icmp_operand(val):
+                if stated == 'i1' and val == '0':
+                    return 'false'
+                if stated == 'i1' and val == '1':
+                    return 'true'
+                if not val.startswith('%'):
+                    return val
+                actual = reg_types.get(val)
+                if not actual or actual == stated:
+                    return val
+                if stated == 'i64' and actual == 'ptr':
+                    cast_reg = next_temp_reg('i64')
+                    result.append(f'{indent}{cast_reg} = ptrtoint ptr {val} to i64')
+                    return cast_reg
+                if stated == 'i64' and actual == 'i1':
+                    cast_reg = next_temp_reg('i64')
+                    result.append(f'{indent}{cast_reg} = zext i1 {val} to i64')
+                    return cast_reg
+                if stated == 'i64' and actual == '%SeenString':
+                    cast_reg = next_temp_reg('i64')
+                    result.append(f'{indent}{cast_reg} = extractvalue %SeenString {val}, 0')
+                    return cast_reg
+                if stated == 'ptr' and actual == 'i64':
+                    cast_reg = next_temp_reg('ptr')
+                    result.append(f'{indent}{cast_reg} = inttoptr i64 {val} to ptr')
+                    return cast_reg
+                return val
+
+            new_left = coerce_icmp_operand(left_val)
+            new_right = coerce_icmp_operand(right_val)
+            if new_left != left_val or new_right != right_val:
+                fixed = f'{indent}{out_reg} = icmp {pred} {stated} {new_left}, {new_right}'
+                reg_types[out_reg] = 'i1'
+
         # Fix icmp type mismatches: icmp ne i64 %N, 0 where %N is i1
         im = re.search(r'(icmp\s+\w+\s+)(i64)(\s+%\d+)', fixed)
         if im:
@@ -818,7 +1320,7 @@ def _fix_function_types(func_lines):
                 fixed = f'{br_m.group(1)}br i1 {cmp_reg}{br_m.group(4)}'
 
         # Fix call argument types
-        cm = re.search(r'(call\s+\S+\s+@\w+\()([^)]*)\)', fixed)
+        cm = re.search(r'(call\s+\S+\s+@[^(\s]+\()([^)]*)\)', fixed)
         if cm:
             args_str = cm.group(2)
             if args_str.strip():
@@ -931,6 +1433,20 @@ def _fix_call_args(args_str, reg_types, next_temp_reg=None, indent=''):
                         ptr_reg = next_temp_reg('ptr')
                         pre_lines.append(f'{indent}{ptr_reg} = extractvalue %SeenString {reg}, 1')
                         a = f'ptr {ptr_reg}'
+                    elif stated == '%SeenString' and actual == 'i64':
+                        pack_reg = next_temp_reg('%SeenString')
+                        pre_lines.append(f'{indent}{pack_reg} = insertvalue %SeenString zeroinitializer, i64 {reg}, 0')
+                        a = f'%SeenString {pack_reg}'
+                    elif stated == '%SeenString' and actual == 'i1':
+                        wide_reg = next_temp_reg('i64')
+                        pack_reg = next_temp_reg('%SeenString')
+                        pre_lines.append(f'{indent}{wide_reg} = zext i1 {reg} to i64')
+                        pre_lines.append(f'{indent}{pack_reg} = insertvalue %SeenString zeroinitializer, i64 {wide_reg}, 0')
+                        a = f'%SeenString {pack_reg}'
+                    elif stated == '%SeenString' and actual == 'ptr':
+                        load_reg = next_temp_reg('%SeenString')
+                        pre_lines.append(f'{indent}{load_reg} = load %SeenString, ptr {reg}')
+                        a = f'%SeenString {load_reg}'
                     elif stated == 'i1' and actual == 'i64':
                         cmp_reg = next_temp_reg('i1')
                         pre_lines.append(f'{indent}{cmp_reg} = icmp ne i64 {reg}, 0')
@@ -1484,20 +2000,28 @@ def fix_all(content, all_module_files=None):
     """Apply all fixes in order."""
     content = fix_declare_define_conflicts(content)
     content = fix_invalid_function_names(content)
+    content = fix_invalid_named_type_identifiers(content)
     content = fix_struct_zero(content)
     content = fix_ptr_null(content)
     content = fix_bare_string_refs(content, all_module_files)
     content = fix_undefined_symbols(content)
+    content = fix_misplaced_global_definitions(content)
     content = fix_duplicate_globals(content)
     content = fix_llvmir_generator_layout(content)
     content = fix_runtime_string_returns(content)
     content = fix_cross_module_string_returns(content, all_module_files)
     content = fix_arr_get_element_ptr(content)
     content = fix_scalar_literal_and_text_repairs(content)
+    content = fix_ret_void_values(content)
     content = fix_missing_local_register_uses(content)
+    content = fix_ssa_numbering(content)
     content = fix_type_mismatches(content)
     content = fix_empty_type(content)
     content = fix_ssa_numbering(content)
+    content = fix_type_mismatches(content)
+    content = fix_empty_type(content)
+    content = fix_ssa_numbering(content)
+    content = fix_nondominating_register_uses(content)
     return content
 
 

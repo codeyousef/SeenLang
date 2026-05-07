@@ -234,6 +234,10 @@ fun emitFinalReturnStatementValueImpl(output: StringBuilder,
     returnExprType: String, returnExprLlvmType: String, llvmType: String,
     rawValueReg: String) r: Void {
 
+    if llvmType == "void" {
+        output.append("  ret void\n")
+        return
+    }
     let valueReg = normalizeReturnStatementValueRegImpl(output, regBox,
         isDataReturnType, returnKind, returnExprType, llvmType,
         returnExprLlvmType, rawValueReg)

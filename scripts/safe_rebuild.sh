@@ -370,11 +370,11 @@ copy_bootstrap_seen_tree() {
                 awk '
                     /^[ \t]*\/\/\/[ \t]*$/ {
                         in_triple = !in_triple
-                        print "//"
+                        print ""
                         next
                     }
                     in_triple {
-                        print "//"
+                        print ""
                         next
                     }
                     { print }
@@ -1079,9 +1079,32 @@ recover_with_preserved_production_compiler() {
     cleanup_smoke_build_state
     rm -f "$STAGE3_RECOVERY"
 
+    local recovery_source_root="$REPO_ROOT"
+    local source_mode="${SEEN_EXISTING_BUILDER_SOURCE_ROOT:-auto}"
+    if [ "${SEEN_EXISTING_BUILDER_USE_BOOTSTRAP_OVERLAY:-0}" = "1" ]; then
+        source_mode="overlay"
+    fi
+    case "$source_mode" in
+        overlay)
+            recovery_source_root="$BOOTSTRAP_SOURCE_ROOT"
+            ;;
+        real)
+            recovery_source_root="$REPO_ROOT"
+            ;;
+        auto)
+            case "$(basename "$PRESERVED_PROD_BUILDER")" in
+                seen_frozen*|stage1_frozen*) recovery_source_root="$BOOTSTRAP_SOURCE_ROOT" ;;
+            esac
+            ;;
+        *)
+            echo -e "${RED}ERROR: SEEN_EXISTING_BUILDER_SOURCE_ROOT must be auto, real, or overlay.${NC}" >&2
+            return 1
+            ;;
+    esac
+
     local recovery_exit=0
     run_guarded_command_to_log "preserved compiler recovery" "$RECOVERY_TIMEOUT_SECS" "$MAIN_COMPILER_VMEM_KB" /tmp/safe_rebuild_stage3_recovery.log \
-        bash -c 'cd "$1" || exit 1; shift; exec "$@"' bash "$BOOTSTRAP_SOURCE_ROOT" \
+        bash -c 'cd "$1" || exit 1; shift; exec "$@"' bash "$recovery_source_root" \
         env PATH="$OPT_WRAPPER_DIR:$PATH" \
             SEEN_LOW_MEMORY="${SEEN_LOW_MEMORY:-0}" \
             SEEN_SKIP_IR_FIXUPS=1 \
@@ -1129,9 +1152,32 @@ recover_with_existing_stage_builder() {
     cleanup_smoke_build_state
     rm -f "$STAGE3_RECOVERY"
 
+    local recovery_source_root="$REPO_ROOT"
+    local source_mode="${SEEN_EXISTING_BUILDER_SOURCE_ROOT:-auto}"
+    if [ "${SEEN_EXISTING_BUILDER_USE_BOOTSTRAP_OVERLAY:-0}" = "1" ]; then
+        source_mode="overlay"
+    fi
+    case "$source_mode" in
+        overlay)
+            recovery_source_root="$BOOTSTRAP_SOURCE_ROOT"
+            ;;
+        real)
+            recovery_source_root="$REPO_ROOT"
+            ;;
+        auto)
+            case "$builder_name" in
+                seen_frozen*|stage1_frozen*) recovery_source_root="$BOOTSTRAP_SOURCE_ROOT" ;;
+            esac
+            ;;
+        *)
+            echo -e "${RED}ERROR: SEEN_EXISTING_BUILDER_SOURCE_ROOT must be auto, real, or overlay.${NC}" >&2
+            return 1
+            ;;
+    esac
+
     local recovery_exit=0
     run_guarded_command_to_log "existing stage builder $builder_name recovery" "$RECOVERY_TIMEOUT_SECS" "$MAIN_COMPILER_VMEM_KB" "$builder_log" \
-        bash -c 'cd "$1" || exit 1; shift; exec "$@"' bash "$BOOTSTRAP_SOURCE_ROOT" \
+        bash -c 'cd "$1" || exit 1; shift; exec "$@"' bash "$recovery_source_root" \
         env PATH="$OPT_WRAPPER_DIR:$PATH" \
             SEEN_LOW_MEMORY="${SEEN_LOW_MEMORY:-0}" \
             SEEN_MAIN_VMEM_KB="$MAIN_COMPILER_VMEM_KB" \
@@ -1176,6 +1222,9 @@ recover_with_existing_stage_builders() {
     for candidate in "${candidates[@]}"; do
         if recover_with_existing_stage_builder "$candidate"; then
             return 0
+        fi
+        if [ "${SEEN_STAGE_BUILDER_ONLY:-0}" = "1" ] && [ -n "${SEEN_STAGE_BUILDER:-}" ] && [ "$candidate" = "$SEEN_STAGE_BUILDER" ]; then
+            return 1
         fi
     done
 
@@ -1397,6 +1446,9 @@ if [ "$LOW_MEMORY_MODE" = "1" ] && [ "$HOST_OS" != "Darwin" ] && [ "${SEEN_SKIP_
     echo "Low-memory shortcut: trying existing stage builders before frozen bootstrap..."
     if recover_with_existing_stage_builders; then
         echo -e "${GREEN}Low-memory rebuild succeeded via existing stage builder.${NC}"
+    elif [ "${SEEN_STAGE_BUILDER_ONLY:-0}" = "1" ]; then
+        echo -e "${RED}ERROR: SEEN_STAGE_BUILDER_ONLY=1 and the selected stage builder failed.${NC}"
+        exit 1
     elif recover_with_preserved_production_compiler; then
         echo -e "${GREEN}Low-memory rebuild succeeded via preserved production compiler.${NC}"
     else

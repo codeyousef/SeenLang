@@ -10,9 +10,17 @@ import codegen.ir_decl_items.{isRuntimeBackedStringCompatFunctionImpl}
 import codegen.ir_string_collect.{hexToDecimalImpl}
 
 fun quoteModuleEmitIdentIfNeeded(name: String) r: String {
+    if name == "" {
+        return "\"\""
+    }
     var i = 0
     while i < name.length() {
-        if name.charAt(i).toInt() >= 128 {
+        let ch = name.byteAt(i)
+        let isUpper = ch >= 65 and ch <= 90
+        let isLower = ch >= 97 and ch <= 122
+        let isDigit = ch >= 48 and ch <= 57
+        let isSafePunctuation = ch == 95 or ch == 36 or ch == 45 or ch == 46
+        if not isUpper and not isLower and not isDigit and not isSafePunctuation {
             return "\"" + name + "\""
         }
         i = i + 1
