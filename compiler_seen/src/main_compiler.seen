@@ -23,11 +23,11 @@ Module-level global flags use Int instead of Bool due to a Stage1 codegen
 limitation where boolean variables generate invalid IR.
 ///
 
-import bootstrap.frontend.{FrontendResult, FrontendDiagnostic, run_frontend, run_frontend_declarations, encodeDiagMessage, parseDiagBaseMessage, parseDiagCode, parseDiagSuggestion, parseDiagNote, parseDiagEndColumn}
+import bootstrap.frontend.{FrontendResult, FrontendDiagnostic, runFrontendCompat, runFrontendDeclarationsCompat, encodeDiagMessage, parseDiagBaseMessage, parseDiagCode, parseDiagSuggestion, parseDiagNote, parseDiagEndColumn}
 import io.file.{readText, writeText, appendText, exists}
 import process.process.{runCommand, runProgram, CommandResult, commandWasSuccessful, processFork, waitPid, processExit, shellQuote}
 import env.env.{args}
-import codegen.llvm_ir_gen.{LLVMIRGenerator, overrideTargetTriple}
+import codegen.llvm_ir_gen.{LLVMIRGenerator, newLLVMIRGenerator, overrideTargetTriple}
 import parser.real_parser.{ProgramNode, ItemNode, ClassNode, FunctionNode, StatementNode, ParserExpressionNode, BlockNode, EnumNode}
 import lsp.server.{runLspServer}
 import typechecker.determinism.{DeterminismChecker, checkDeterminismWithProfile, printDeterminismErrors}
@@ -245,7 +245,7 @@ import codegen.ir_codegen_state.{CodegenState}
 import codegen.ir_type_header_registry.{applyTypeHeaderStructLineReg}
 import codegen.ir_type_header.{emitBuiltinTypeHeaderImpl}
 import tools.translator.{translateSource}
-import tools.c_import_gen.{CImportGenerator, CImportResult}
+import tools.c_import_gen.{CImportGenerator, CImportResult, newCImportGenerator}
 import tools.c_import_frontend.{cImportParseHeader}
 import tools.c_import_ast.{cImportParseClangAstDump}
 import tools.c_import_layout.{cImportParseClangRecordLayouts}
@@ -453,10 +453,76 @@ fun getTraceTimeSeconds() r: Int {
     return 0
 }
 
+fun mainCompilerEmptyProgramNode() r: ProgramNode {
+    return ProgramNode{ items: Array<ItemNode>() }
+}
+
+fun mainCompilerUnknownTypeNode() r: TypeNode {
+    return TypeNode{ typeName: "Unknown", isNullable: false }
+}
+
+fun mainCompilerEmptyBlockNode() r: BlockNode {
+    return BlockNode{ statements: Array<StatementNode>() }
+}
+
+fun mainCompilerEmptyFunctionNode() r: FunctionNode {
+    return FunctionNode{
+        name: "",
+        params: Array<ParamNode>(),
+        returnType: mainCompilerUnknownTypeNode(),
+        body: mainCompilerEmptyBlockNode(),
+        isAsync: false,
+        isInline: false,
+        isStatic: false,
+        isExtern: false,
+        isDeterministic: false,
+        isNondeterministic: false,
+        decorators: Array<AnnotationNode>(),
+        line: 0,
+        column: 0,
+        isOverride: false
+    }
+}
+
+fun mainCompilerEmptyClassNode() r: ClassNode {
+    return ClassNode{
+        name: "",
+        fields: Array<ParamNode>(),
+        methods: Array<FunctionNode>(),
+        decorators: Array<AnnotationNode>(),
+        isNondeterministic: false,
+        parentName: ""
+    }
+}
+
+fun mainCompilerEmptyEnumNode() r: EnumNode {
+    return EnumNode{ name: "", variants: Array<String>() }
+}
+
+fun mainCompilerDiagnostic(file: String, line: Int, column: Int,
+    severity: String, message: String) r: FrontendDiagnostic {
+
+    return FrontendDiagnostic{
+        file: file,
+        line: line,
+        column: column,
+        severity: severity,
+        message: message
+    }
+}
+
+fun mainCompilerFrontendResult() r: FrontendResult {
+    return FrontendResult{
+        success: false,
+        diagnostics: Array<FrontendDiagnostic>(),
+        program: mainCompilerEmptyProgramNode()
+    }
+}
+
 // Helper to parse a module and return its program
 fun parseModule(path: String, lang: String) r: FrontendResult {
     if not exists(path) {
-        let frontend = FrontendResult.new()
+        let frontend = mainCompilerFrontendResult()
         let message = encodeDiagMessage(
             "could not read module `" + path + "`",
             "E005",
@@ -464,16 +530,17 @@ fun parseModule(path: String, lang: String) r: FrontendResult {
             "note: imported and Seen.toml-declared modules must exist on disk",
             0
         )
-        frontend.addDiagnostic(FrontendDiagnostic.new(path, 1, 1, "error", message))
+        frontend.addDiagnostic(mainCompilerDiagnostic(path, 1, 1, "error",
+            message))
         return frontend
     }
     let source = readText(path)
-    return run_frontend(source, path, lang)
+    return runFrontendCompat(source, path, lang)
 }
 
 fun parseModuleDeclarations(path: String, lang: String) r: FrontendResult {
     if not exists(path) {
-        let frontend = FrontendResult.new()
+        let frontend = mainCompilerFrontendResult()
         let message = encodeDiagMessage(
             "could not read module `" + path + "`",
             "E005",
@@ -481,11 +548,12 @@ fun parseModuleDeclarations(path: String, lang: String) r: FrontendResult {
             "note: imported and Seen.toml-declared modules must exist on disk",
             0
         )
-        frontend.addDiagnostic(FrontendDiagnostic.new(path, 1, 1, "error", message))
+        frontend.addDiagnostic(mainCompilerDiagnostic(path, 1, 1, "error",
+            message))
         return frontend
     }
     let source = readText(path)
-    return run_frontend_declarations(source, path, lang)
+    return runFrontendDeclarationsCompat(source, path, lang)
 }
 
 fun stripTomlQuotedValue(value: String) r: String {
@@ -3556,6 +3624,147 @@ fun appendSourceTextImportEdges(edges: String, modulePath: String) r: String {
     return result
 }
 
+fun buildModuleImportGraph(modulePaths: Array<String>, language: String)
+    r: Array<String> {
+    var graph = Array<String>()
+    var depIdx = 0
+    while depIdx < modulePaths.length() {
+        let depPath = modulePaths[depIdx]
+        let depSourceDir = getSourceDir(depPath)
+        let depFe = parseModule(depPath, language)
+        var edges = depPath
+        if depFe.success {
+            var depItemIdx = 0
+            while depItemIdx < depFe.program.items.length() {
+                let depItem = depFe.program.items[depItemIdx]
+                if depItem.itemType == "Import" {
+                    let depTarget = resolveAstImportItemPath(depItem,
+                        depSourceDir)
+                    if depTarget != "" {
+                        edges = edges + "|" + resolveRealInputPath(depTarget)
+                    }
+                }
+                depItemIdx = depItemIdx + 1
+            }
+        }
+        edges = appendSourceTextImportEdges(edges, depPath)
+        graph.push(edges)
+        depIdx = depIdx + 1
+    }
+    return graph
+}
+
+fun moduleCyclePathFromParents(modulePaths: Array<String>,
+    parents: Array<Int>, nodeIdx: Int, targetIdx: Int) r: String {
+
+    var reversePath = Array<String>()
+    reversePath.push(modulePaths[targetIdx])
+    var cursor = nodeIdx
+    while cursor >= 0 {
+        reversePath.push(modulePaths[cursor])
+        if cursor == targetIdx {
+            cursor = 0 - 1
+        } else {
+            cursor = parents[cursor]
+        }
+    }
+
+    var result = ""
+    var idx = reversePath.length() - 1
+    while idx >= 0 {
+        if result != "" {
+            result = result + " -> "
+        }
+        result = result + reversePath[idx]
+        idx = idx - 1
+    }
+    return result
+}
+
+fun detectModuleImportCycle(modulePaths: Array<String>, language: String)
+    r: String {
+
+    let depGraph = buildModuleImportGraph(modulePaths, language)
+    var colors = Array<Int>()
+    var parents = Array<Int>()
+    var idx = 0
+    while idx < modulePaths.length() {
+        colors.push(0)
+        parents.push(0 - 1)
+        idx = idx + 1
+    }
+
+    var stack = Array<Int>()
+    var stackTop = 0
+    idx = 0
+    while idx < modulePaths.length() {
+        if colors[idx] == 0 {
+            colors[idx] = 3
+            stack.push(idx)
+            stackTop = stackTop + 1
+            while stackTop > 0 {
+                let nodeIdx = stack[stackTop - 1]
+                if colors[nodeIdx] == 0 or colors[nodeIdx] == 3 {
+                    colors[nodeIdx] = 1
+                    let edges = depGraph[nodeIdx]
+                    var pos = 0
+                    var first = true
+                    var segStart = 0
+                    while pos <= edges.length() {
+                        var isSep = false
+                        if pos == edges.length() {
+                            isSep = true
+                        }
+                        if not isSep {
+                            if edges.substring(pos, pos + 1) == "|" {
+                                isSep = true
+                            }
+                        }
+                        if isSep {
+                            if not first {
+                                let target = resolveRealInputPath(
+                                    edges.substring(segStart, pos))
+                                var targetIdx = 0
+                                while targetIdx < modulePaths.length() {
+                                    if modulePaths[targetIdx] == target {
+                                        if colors[targetIdx] == 1 {
+                                            return moduleCyclePathFromParents(
+                                                modulePaths, parents, nodeIdx,
+                                                targetIdx)
+                                        }
+                                        if colors[targetIdx] == 0 {
+                                            parents[targetIdx] = nodeIdx
+                                            colors[targetIdx] = 3
+                                            stack.push(targetIdx)
+                                            stackTop = stackTop + 1
+                                        }
+                                        targetIdx = modulePaths.length()
+                                    }
+                                    targetIdx = targetIdx + 1
+                                }
+                            }
+                            first = false
+                            segStart = pos + 1
+                        }
+                        pos = pos + 1
+                    }
+                } else {
+                    colors[nodeIdx] = 2
+                    stackTop = stackTop - 1
+                }
+            }
+        }
+        idx = idx + 1
+    }
+    return ""
+}
+
+fun printModuleImportCycleError(cyclePath: String) r: Void {
+    println("error[E094]: cyclic import detected")
+    println("  = cycle: " + cyclePath)
+    return
+}
+
 fun queueImportTextPath(paths: Array<String>, processedPaths: Array<String>, inputFile: String, currentPath: String, sourceDir: String, isBootstrap: Bool, importText: String) r: Void {
     let importSegments = parseImportTextSegments(importText)
     if importSegments.length() == 1 {
@@ -4395,7 +4604,7 @@ fun findProgramClass(program: ProgramNode, className: String) r: ClassNode {
         }
         i = i + 1
     }
-    return ClassNode.new()
+    return mainCompilerEmptyClassNode()
 }
 
 fun findParsedModuleClass(modulePaths: Array<String>, frontends: Array<FrontendResult>, targetPath: String, className: String) r: ClassNode {
@@ -4413,7 +4622,7 @@ fun findParsedModuleClass(modulePaths: Array<String>, frontends: Array<FrontendR
             return findProgramClass(frontend.program, className)
         }
     }
-    return ClassNode.new()
+    return mainCompilerEmptyClassNode()
 }
 
 fun findSourceTextImportedClassInModules(modulePath: String,
@@ -4422,7 +4631,7 @@ fun findSourceTextImportedClassInModules(modulePath: String,
 
     let rawContent = readText(modulePath)
     if rawContent == "" {
-        return ClassNode.new()
+        return mainCompilerEmptyClassNode()
     }
     let content = stripTripleSlashBlockBodiesForRawScan(rawContent)
 
@@ -4460,7 +4669,7 @@ fun findSourceTextImportedClassInModules(modulePath: String,
         pos = pos + 1
     }
 
-    return ClassNode.new()
+    return mainCompilerEmptyClassNode()
 }
 
 fun capabilityDecoratorNameMatches(name: String) r: Bool {
@@ -4512,7 +4721,7 @@ fun findProgramFunction(program: ProgramNode, functionName: String) r: FunctionN
         }
         i = i + 1
     }
-    return FunctionNode.new()
+    return mainCompilerEmptyFunctionNode()
 }
 
 fun findParsedModuleFunction(modulePaths: Array<String>, frontends: Array<FrontendResult>, targetPath: String, functionName: String) r: FunctionNode {
@@ -4530,7 +4739,7 @@ fun findParsedModuleFunction(modulePaths: Array<String>, frontends: Array<Fronte
             return findProgramFunction(frontend.program, functionName)
         }
     }
-    return FunctionNode.new()
+    return mainCompilerEmptyFunctionNode()
 }
 
 fun findSourceTextImportedFunctionInModules(modulePath: String,
@@ -4539,7 +4748,7 @@ fun findSourceTextImportedFunctionInModules(modulePath: String,
 
     let rawContent = readText(modulePath)
     if rawContent == "" {
-        return FunctionNode.new()
+        return mainCompilerEmptyFunctionNode()
     }
     let content = stripTripleSlashBlockBodiesForRawScan(rawContent)
 
@@ -4577,7 +4786,7 @@ fun findSourceTextImportedFunctionInModules(modulePath: String,
         pos = pos + 1
     }
 
-    return FunctionNode.new()
+    return mainCompilerEmptyFunctionNode()
 }
 
 fun findFunctionImportedByAnyModuleInModules(modulePaths: Array<String>,
@@ -4613,7 +4822,7 @@ fun findFunctionImportedByAnyModuleInModules(modulePaths: Array<String>,
         }
         moduleIdx = moduleIdx + 1
     }
-    return FunctionNode.new()
+    return mainCompilerEmptyFunctionNode()
 }
 
 fun findFunctionInAnyParsedModule(modulePaths: Array<String>,
@@ -4628,7 +4837,7 @@ fun findFunctionInAnyParsedModule(modulePaths: Array<String>,
         }
         moduleIdx = moduleIdx + 1
     }
-    return FunctionNode.new()
+    return mainCompilerEmptyFunctionNode()
 }
 
 fun findImportedFunctionInModules(modulePath: String, moduleProgram: ProgramNode, modulePaths: Array<String>, frontends: Array<FrontendResult>, functionName: String) r: FunctionNode {
@@ -4670,7 +4879,8 @@ fun addImportedCapabilityViolation(result: FrontendResult, modulePath: String, l
     }
 
     let encoded = encodeDiagMessage(message, "E005", suggestion, "", 0)
-    result.addDiagnostic(FrontendDiagnostic.new(modulePath, line, 0, "error", encoded))
+    result.addDiagnostic(mainCompilerDiagnostic(modulePath, line, 0, "error",
+        encoded))
 }
 
 fun checkImportedCapabilityCalledFunction(result: FrontendResult, modulePath: String, moduleProgram: ProgramNode, modulePaths: Array<String>, frontends: Array<FrontendResult>, callerFunc: FunctionNode, callerName: String, calledName: String, funcLine: Int) r: Void {
@@ -4817,7 +5027,7 @@ fun findClassImportedByAnyModuleInModules(modulePaths: Array<String>,
         }
         moduleIdx = moduleIdx + 1
     }
-    return ClassNode.new()
+    return mainCompilerEmptyClassNode()
 }
 
 fun isIdentifierStartChar(ch: String) r: Bool {
@@ -4972,7 +5182,7 @@ fun findProgramEnum(program: ProgramNode, enumName: String) r: EnumNode {
         }
         i = i + 1
     }
-    return EnumNode.new()
+    return mainCompilerEmptyEnumNode()
 }
 
 fun findParsedModuleEnum(modulePaths: Array<String>, frontends: Array<FrontendResult>, targetPath: String, enumName: String) r: EnumNode {
@@ -4990,7 +5200,7 @@ fun findParsedModuleEnum(modulePaths: Array<String>, frontends: Array<FrontendRe
             return findProgramEnum(frontend.program, enumName)
         }
     }
-    return EnumNode.new()
+    return mainCompilerEmptyEnumNode()
 }
 
 fun findSourceTextImportedEnumInModules(modulePath: String,
@@ -4999,7 +5209,7 @@ fun findSourceTextImportedEnumInModules(modulePath: String,
 
     let rawContent = readText(modulePath)
     if rawContent == "" {
-        return EnumNode.new()
+        return mainCompilerEmptyEnumNode()
     }
     let content = stripTripleSlashBlockBodiesForRawScan(rawContent)
 
@@ -5037,7 +5247,7 @@ fun findSourceTextImportedEnumInModules(modulePath: String,
         pos = pos + 1
     }
 
-    return EnumNode.new()
+    return mainCompilerEmptyEnumNode()
 }
 
 fun findReferencedEnumInModules(modulePath: String, moduleProgram: ProgramNode, modulePaths: Array<String>, frontends: Array<FrontendResult>, enumName: String) r: EnumNode {
@@ -5105,7 +5315,7 @@ fun findEnumImportedByAnyModuleInModules(modulePaths: Array<String>,
         }
         moduleIdx = moduleIdx + 1
     }
-    return EnumNode.new()
+    return mainCompilerEmptyEnumNode()
 }
 
 fun enumHasVariant(enumNode: EnumNode, variantName: String) r: Bool {
@@ -5378,7 +5588,8 @@ fun addNonExhaustiveEnumDiagnostic(result: FrontendResult, modulePath: String, l
     }
     let note = "missing cases: " + missingText
     let encoded = encodeDiagMessage(message, "E008", suggestion, note, 0)
-    result.addDiagnostic(FrontendDiagnostic.new(modulePath, line, 0, "error", encoded))
+    result.addDiagnostic(mainCompilerDiagnostic(modulePath, line, 0, "error",
+        encoded))
 }
 
 fun checkEnumExhaustivenessExpression(result: FrontendResult, modulePath: String, moduleProgram: ProgramNode, modulePaths: Array<String>, frontends: Array<FrontendResult>, expr: ParserExpressionNode, boundNames: Array<String>, boundTypes: Array<String>, ownerClassName: String, funcLine: Int) r: Void {
@@ -5761,7 +5972,7 @@ fun addUnresolvedFreeCallDiagnostic(result: FrontendResult,
         "",
         0
     )
-    result.addDiagnostic(FrontendDiagnostic.new(modulePath, line, 0, "error",
+    result.addDiagnostic(mainCompilerDiagnostic(modulePath, line, 0, "error",
         message))
 }
 
@@ -6107,7 +6318,7 @@ fun addPackagePrivateImportDiagnostic(result: FrontendResult,
         "",
         0
     )
-    result.addDiagnostic(FrontendDiagnostic.new(modulePath, 0, 0, "error",
+    result.addDiagnostic(mainCompilerDiagnostic(modulePath, 0, 0, "error",
         message))
 }
 
@@ -6126,7 +6337,7 @@ fun checkPackagePrivateImportsForModule(result: FrontendResult,
                 not isStdlibSourceDir(getSourceDir(importedPath)) and
                 not modulesBelongToSamePackage(modulePath, importedPath) {
 
-                var importedFrontend = FrontendResult.new()
+                var importedFrontend = mainCompilerFrontendResult()
                 var foundFrontend = false
                 var moduleIdx = 0
                 while moduleIdx < modulePaths.length() {
@@ -6163,7 +6374,7 @@ fun checkPackagePrivateImportsForModule(result: FrontendResult,
 
 fun validateSealedModules(modulePaths: Array<String>, language: String) r: FrontendResult {
     clearValidationModuleCache()
-    let result = FrontendResult.new()
+    let result = mainCompilerFrontendResult()
     let frontends = Array<FrontendResult>()
 
     var i = 0
@@ -6203,7 +6414,8 @@ fun validateSealedModules(modulePaths: Array<String>, language: String) r: Front
                             "",
                             0
                         )
-                        result.addDiagnostic(FrontendDiagnostic.new(modulePath, 0, 0, "error", message))
+                        result.addDiagnostic(mainCompilerDiagnostic(modulePath,
+                            0, 0, "error", message))
                     }
                 }
                 if cls.hasDecorator("send") {
@@ -6219,7 +6431,8 @@ fun validateSealedModules(modulePaths: Array<String>, language: String) r: Front
                                 "",
                                 0
                             )
-                            result.addDiagnostic(FrontendDiagnostic.new(modulePath, 0, 0, "error", message))
+                            result.addDiagnostic(mainCompilerDiagnostic(
+                                modulePath, 0, 0, "error", message))
                         }
                         sendFieldIdx = sendFieldIdx + 1
                     }
@@ -6237,7 +6450,8 @@ fun validateSealedModules(modulePaths: Array<String>, language: String) r: Front
                                 "",
                                 0
                             )
-                            result.addDiagnostic(FrontendDiagnostic.new(modulePath, 0, 0, "error", message))
+                            result.addDiagnostic(mainCompilerDiagnostic(
+                                modulePath, 0, 0, "error", message))
                         }
                         syncFieldIdx = syncFieldIdx + 1
                     }
@@ -7216,7 +7430,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     }
 
     // Create generator - registries will persist across both passes
-    let generator = LLVMIRGenerator.new()
+    let generator = newLLVMIRGenerator()
     generator.setPanicOnOverflow(panicOnOverflow)
     // Wire P0 deferred CLI flags to codegen module-level state
     if g_panicOnOverflowCli == 1 {
@@ -7471,6 +7685,13 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     println("  [Pass 0] Discovering module graph...")
     let modulePaths = collectModulePaths(resolvedInput, false)
     println("    Found " + modulePaths.length().toString() + " modules")
+    if not moduleGraphContainsCompilerSources(modulePaths) {
+        let importCyclePath = detectModuleImportCycle(modulePaths, language)
+        if importCyclePath != "" {
+            printModuleImportCycleError(importCyclePath)
+            return 1
+        }
+    }
     let boundedLargeProjectWorkers = effectiveLargeProjectWorkerLimit(
         modulePaths.length(), resolvedInput.contains("main_compiler.seen"))
     var boundedLargeProjectOptWorkers = 0
@@ -7491,104 +7712,6 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         if not sealedValidation.success {
             printFrontendDiagnostics(sealedValidation)
             return 1
-        }
-        var depGraph = Array<String>()   // pipe-delimited adjacency: "from|to1|to2|..."
-        var depIdx = 0
-        while depIdx < modulePaths.length() {
-            let depPath = modulePaths[depIdx]
-            let depSourceDir = getSourceDir(depPath)
-            let depFe = parseModule(depPath, language)
-            var edges = depPath
-            if depFe.success {
-                var depItemIdx = 0
-                while depItemIdx < depFe.program.items.length() {
-                    let depItem = depFe.program.items[depItemIdx]
-                    if depItem.itemType == "Import" {
-                        let depTarget = resolveAstImportItemPath(depItem, depSourceDir)
-                        if depTarget != "" {
-                            edges = edges + "|" + depTarget
-                        }
-                    }
-                    depItemIdx = depItemIdx + 1
-                }
-                edges = appendSourceTextImportEdges(edges, depPath)
-            }
-            depGraph.push(edges)
-            depIdx = depIdx + 1
-        }
-        // DFS cycle check: color 0=white, 1=gray, 2=black, 3=queued
-        var depColors = Array<Int>()
-        var depCycleFound = 0
-        var depCyclePath = ""
-        depIdx = 0
-        while depIdx < modulePaths.length() {
-            depColors.push(0)
-            depIdx = depIdx + 1
-        }
-        ///
-        Simple O(V+E) DFS; sufficient for small and medium module graphs.
-        Use manual stack via Array<Int> + stackTop counter (no .pop() in runtime)
-        ///
-        var dfsStack = Array<Int>()
-        var dfsStackTop = 0
-        depIdx = 0
-        while depIdx < modulePaths.length() {
-            if depColors[depIdx] == 0 {
-                depColors[depIdx] = 3
-                dfsStack.push(depIdx)
-                dfsStackTop = dfsStackTop + 1
-                while dfsStackTop > 0 {
-                    let dfsNode = dfsStack[dfsStackTop - 1]
-                    if depColors[dfsNode] == 0 or depColors[dfsNode] == 3 {
-                        depColors[dfsNode] = 1  // gray = in-progress
-                        // Push neighbors
-                        let dfsEdges = depGraph[dfsNode]
-                        // Parse edges (pipe-delimited, first is self)
-                        var dfsPos = 0
-                        var dfsFirst = true
-                        var dfsSegStart = 0
-                        while dfsPos <= dfsEdges.length() {
-                            var dfsIsSep = false
-                            if dfsPos == dfsEdges.length() { dfsIsSep = true }
-                            if not dfsIsSep {
-                                if dfsEdges.substring(dfsPos, dfsPos + 1) == "|" { dfsIsSep = true }
-                            }
-                            if dfsIsSep {
-                                if not dfsFirst {
-                                    let dfsTarget = dfsEdges.substring(dfsSegStart, dfsPos)
-                                    // Find target index
-                                    var dfsTargetIdx = 0
-                                    while dfsTargetIdx < modulePaths.length() {
-                                        if modulePaths[dfsTargetIdx] == dfsTarget {
-                                            if depColors[dfsTargetIdx] == 1 {
-                                                depCycleFound = 1
-                                                depCyclePath = modulePaths[dfsNode] + " -> " + dfsTarget
-                                            }
-                                            if depColors[dfsTargetIdx] == 0 {
-                                                depColors[dfsTargetIdx] = 3
-                                                dfsStack.push(dfsTargetIdx)
-                                                dfsStackTop = dfsStackTop + 1
-                                            }
-                                            dfsTargetIdx = modulePaths.length()
-                                        }
-                                        dfsTargetIdx = dfsTargetIdx + 1
-                                    }
-                                }
-                                dfsFirst = false
-                                dfsSegStart = dfsPos + 1
-                            }
-                            dfsPos = dfsPos + 1
-                        }
-                    } else {
-                        depColors[dfsNode] = 2  // black = done
-                        dfsStackTop = dfsStackTop - 1
-                    }
-                }
-            }
-            depIdx = depIdx + 1
-        }
-        if depCycleFound == 1 {
-            println("  WARNING: Circular module dependency detected: " + depCyclePath)
         }
     } else if modulePaths.length() > 48 {
         println("  [Pass 0] Large module graph: deferring whole-project validation to streaming passes")
@@ -9133,14 +9256,23 @@ fun checkCommandWithProfile(inputFile: String, profile: String, language: String
         return 1
     }
 
-    let frontend = run_frontend(sourceCode, resolvedInput, language)
+    let checkModulePaths = collectModulePaths(resolvedInput, true)
+    if not moduleGraphContainsCompilerSources(checkModulePaths) {
+        let checkCyclePath = detectModuleImportCycle(checkModulePaths,
+            language)
+        if checkCyclePath != "" {
+            printModuleImportCycleError(checkCyclePath)
+            return 1
+        }
+    }
+
+    let frontend = runFrontendCompat(sourceCode, resolvedInput, language)
     validateBasics(frontend, resolvedInput)
     if not frontend.success {
         printFrontendDiagnostics(frontend)
         return 1
     }
 
-    let checkModulePaths = collectModulePaths(resolvedInput, true)
     let checkSealedValidation = validateSealedModules(checkModulePaths, language)
     if not checkSealedValidation.success {
         printFrontendDiagnostics(checkSealedValidation)
@@ -9259,7 +9391,7 @@ fun validateBasics(frontend: FrontendResult, inputFile: String) r: Void {
     }
     if hasMain == 0 {
         var mainMsg = encodeDiagMessage("missing `main` function", "E003", "help: add 'fun main() r: Void { }' as entry point", "", 0)
-        frontend.addDiagnostic(FrontendDiagnostic.new(
+        frontend.addDiagnostic(mainCompilerDiagnostic(
             inputFile, 1, 1, "error", mainMsg
         ))
         frontend.setSuccess(false)
@@ -9322,7 +9454,7 @@ fun jitRunCommand(inputFile: String, verbose: Bool, language: String) r: Int {
     }
 
     // Create generator
-    let generator = LLVMIRGenerator.new()
+    let generator = newLLVMIRGenerator()
 
     // Pass 1: Collect module paths and register declarations
     if verbose {
@@ -9331,6 +9463,13 @@ fun jitRunCommand(inputFile: String, verbose: Bool, language: String) r: Int {
     let modulePaths = collectModulePaths(jitInput, not verbose)
     if verbose {
         println("    Found " + modulePaths.length().toString() + " modules")
+    }
+    if not moduleGraphContainsCompilerSources(modulePaths) {
+        let jitCyclePath = detectModuleImportCycle(modulePaths, language)
+        if jitCyclePath != "" {
+            printModuleImportCycleError(jitCyclePath)
+            return 1
+        }
     }
     let jitSealedValidation = validateSealedModules(modulePaths, language)
     if not jitSealedValidation.success {
@@ -9399,7 +9538,7 @@ fun jitRunCommand(inputFile: String, verbose: Bool, language: String) r: Int {
         if not commandWasSuccessful(linkResult) {
             println("[jit] llvm-link failed, falling back to AOT")
             println(linkResult.output)
-            return aotRunCommand(inputFile, verbose)
+            return aotRunCommand(inputFile, verbose, language)
         }
     }
 
@@ -10581,7 +10720,7 @@ fun importCCommand(argv: Array<String>) r: Int {
     let headerFile = argv[2]
     println("Generating Seen bindings for: " + headerFile)
 
-    let gen = CImportGenerator.new(headerFile)
+    let gen = newCImportGenerator(headerFile)
     let result: CImportResult = gen.parseHeader()
 
     if not result.isSuccessful() {

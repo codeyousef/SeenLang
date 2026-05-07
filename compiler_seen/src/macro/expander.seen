@@ -307,3 +307,7 @@ class MacroExpander {
         return this.errors
     }
 }
+
+fun newMacroExpanderCompat() r: MacroExpander {
+    return MacroExpander.new()
+}

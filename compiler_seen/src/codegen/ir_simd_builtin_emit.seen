@@ -8,6 +8,10 @@ import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_type_mapping.{mapTypeImpl}
 import codegen.ir_simd_type_helpers.{isSimdVectorTypeImpl, simdScalarTypeImpl, simdLaneCountImpl}
 
+fun mapSimdBuiltinTypeImpl(seenType: String) r: String {
+    return mapTypeImpl(seenType, Array<String>(), "", "", 0, "")
+}
+
 ///
 SIMD builtin dispatch: vector constructors, load/store, select, shuffle, gather, scatter
 args/argTypes are pre-generated registers/types, constIndices for shuffle lane indices
@@ -18,7 +22,7 @@ fun emitSimdBuiltinImpl(output: StringBuilder, regBox: Array<Int>,
 
     // SIMD vector constructors: f32x4(a,b,c,d), f32x8(..), i32x4(..), etc.
     if isSimdVectorTypeImpl(funcName) == 1 {
-        let simdLT = mapTypeImpl(funcName)
+        let simdLT = mapSimdBuiltinTypeImpl(funcName)
         let simdST = simdScalarTypeImpl(funcName)
         let simdLanes = simdLaneCountImpl(funcName)
         var simdVec = "undef"
@@ -48,7 +52,7 @@ fun emitSimdBuiltinImpl(output: StringBuilder, regBox: Array<Int>,
             simdLoadAlign = "1"
         }
         if isSimdVectorTypeImpl(simdLoadCleanType) == 1 {
-            let simdLoadLT = mapTypeImpl(simdLoadCleanType)
+            let simdLoadLT = mapSimdBuiltinTypeImpl(simdLoadCleanType)
             if simdLoadAlign != "1" {
                 if simdLoadCleanType == "f32x8" or simdLoadCleanType == "i32x8" or simdLoadCleanType == "f64x4" {
                     simdLoadAlign = "32"
@@ -72,7 +76,7 @@ fun emitSimdBuiltinImpl(output: StringBuilder, regBox: Array<Int>,
             simdStoreAlign = "1"
         }
         if isSimdVectorTypeImpl(simdStoreCleanType) == 1 {
-            let simdStoreLT = mapTypeImpl(simdStoreCleanType)
+            let simdStoreLT = mapSimdBuiltinTypeImpl(simdStoreCleanType)
             if simdStoreAlign != "1" {
                 if simdStoreCleanType == "f32x8" or simdStoreCleanType == "i32x8" or simdStoreCleanType == "f64x4" {
                     simdStoreAlign = "32"
@@ -89,9 +93,9 @@ fun emitSimdBuiltinImpl(output: StringBuilder, regBox: Array<Int>,
     if funcName == "simd_select" {
         if argCount >= 3 {
             let selVecType = argTypes[1]
-            let selVecLT = mapTypeImpl(selVecType)
+            let selVecLT = mapSimdBuiltinTypeImpl(selVecType)
             let selMaskType = argTypes[0]
-            let selMaskLT = mapTypeImpl(selMaskType)
+            let selMaskLT = mapSimdBuiltinTypeImpl(selMaskType)
             let selLanes = simdLaneCountImpl(selVecType)
             let selI1Reg = getNextRegFn(regBox)
             output.append("  " + selI1Reg + " = icmp ne " + selMaskLT + " " + args[0] + ", zeroinitializer\n")
@@ -105,7 +109,7 @@ fun emitSimdBuiltinImpl(output: StringBuilder, regBox: Array<Int>,
     if funcName == "simd_shuffle" {
         if argCount >= 2 {
             let shufVecType = argTypes[0]
-            let shufVecLT = mapTypeImpl(shufVecType)
+            let shufVecLT = mapSimdBuiltinTypeImpl(shufVecType)
             let shufLanes = simdLaneCountImpl(shufVecType)
             var shufMask = "<"
             var shufI = 0

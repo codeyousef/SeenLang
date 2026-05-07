@@ -2,8 +2,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
-COMPILER="$ROOT_DIR/compiler_seen/target/seen"
-TMP_ROOT="/tmp/seen_fix_regressions"
+COMPILER="${COMPILER:-$ROOT_DIR/compiler_seen/target/seen}"
+TMP_ROOT="${TMP_ROOT:-/tmp/seen_fix_regressions}"
 
 D15_EMPTY_SRC="$ROOT_DIR/tests/fixtures/seen_fixes/d15_empty_class_import.seen"
 D15_FUNCTION_SRC="$ROOT_DIR/tests/fixtures/seen_fixes/d15_function_only_import.seen"
@@ -1991,6 +1991,129 @@ EOF
     echo "PASS: missing imported modules fail compilation"
 }
 
+run_cyclic_import_diagnostic_case() {
+    local project_dir="$TMP_ROOT/cyclic_imports"
+    local two_log="$project_dir/two_cycle.log"
+    local three_log="$project_dir/three_cycle.log"
+
+    cleanup_seen_artifacts
+    mkdir -p "$project_dir/two" "$project_dir/three"
+
+    cat >"$project_dir/Seen.toml" <<'EOF'
+[project]
+name = "cyclic_imports"
+version = "0.1.0"
+language = "en"
+
+modules = [
+    "two/a.seen",
+    "two/b.seen",
+    "three/a.seen",
+    "three/b.seen",
+    "three/c.seen",
+]
+
+[build]
+entry = "main.seen"
+EOF
+
+    cat >"$project_dir/two/a.seen" <<'EOF'
+import two.b.{bValue}
+
+fun aValue() r: Int {
+    return bValue()
+}
+EOF
+
+    cat >"$project_dir/two/b.seen" <<'EOF'
+import two.a.{aValue}
+
+fun bValue() r: Int {
+    return aValue()
+}
+EOF
+
+    cat >"$project_dir/three/a.seen" <<'EOF'
+import three.b.{bValue}
+
+fun aValue() r: Int {
+    return bValue()
+}
+EOF
+
+    cat >"$project_dir/three/b.seen" <<'EOF'
+import three.c.{cValue}
+
+fun bValue() r: Int {
+    return cValue()
+}
+EOF
+
+    cat >"$project_dir/three/c.seen" <<'EOF'
+import three.a.{aValue}
+
+fun cValue() r: Int {
+    return aValue()
+}
+EOF
+
+    cat >"$project_dir/main.seen" <<'EOF'
+import two.a.{aValue}
+
+fun main() r: Int {
+    return aValue()
+}
+EOF
+
+    if (
+        cd "$project_dir" &&
+        timeout 120 "$COMPILER" check main.seen >"$two_log" 2>&1
+    ); then
+        echo "FAIL: two-module cyclic import unexpectedly passed"
+        cat "$two_log"
+        exit 1
+    fi
+    if ! grep -q 'cyclic import detected' "$two_log"; then
+        echo "FAIL: two-module cyclic import did not report cycle diagnostic"
+        cat "$two_log"
+        exit 1
+    fi
+    if ! grep -Eq 'two/a\.seen.*two/b\.seen.*two/a\.seen' "$two_log"; then
+        echo "FAIL: two-module cyclic import diagnostic missed cycle path"
+        cat "$two_log"
+        exit 1
+    fi
+
+    cat >"$project_dir/main.seen" <<'EOF'
+import three.a.{aValue}
+
+fun main() r: Int {
+    return aValue()
+}
+EOF
+
+    if (
+        cd "$project_dir" &&
+        timeout 120 "$COMPILER" check main.seen >"$three_log" 2>&1
+    ); then
+        echo "FAIL: longer cyclic import unexpectedly passed"
+        cat "$three_log"
+        exit 1
+    fi
+    if ! grep -q 'cyclic import detected' "$three_log"; then
+        echo "FAIL: longer cyclic import did not report cycle diagnostic"
+        cat "$three_log"
+        exit 1
+    fi
+    if ! grep -Eq 'three/a\.seen.*three/b\.seen.*three/c\.seen.*three/a\.seen' "$three_log"; then
+        echo "FAIL: longer cyclic import diagnostic missed cycle path"
+        cat "$three_log"
+        exit 1
+    fi
+
+    echo "PASS: cyclic imports report clear cycle paths"
+}
+
 if [[ ! -x "$COMPILER" ]]; then
     echo "Compiler binary not found or not executable: $COMPILER" >&2
     exit 1
@@ -2073,6 +2196,7 @@ run_package_private_visibility_failure_case
 run_triple_slash_raw_scanner_case
 run_prebuilt_artifact_interface_index_case
 run_missing_import_failure_case
+run_cyclic_import_diagnostic_case
 
 cleanup_seen_artifacts
 echo "=== Seen fix regression checks passed ==="

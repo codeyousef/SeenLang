@@ -11,28 +11,28 @@ fun emitMapVecBTreeRuntimeDecls(output: StringBuilder,
         output.append("declare i64 @Map_new() nounwind\n")
     }
     if not isFuncDefinedInModule("Map_set", definedFuncs) {
-        output.append("declare i64 @Map_set(i64, %SeenString, i64) nounwind\n")
+        output.append("declare i64 @Map_set(ptr, %SeenString, i64) nounwind\n")
     }
     if not isFuncDefinedInModule("Map_put", definedFuncs) {
-        output.append("declare i64 @Map_put(i64, %SeenString, i64) nounwind\n")
+        output.append("declare i64 @Map_put(ptr, %SeenString, i64) nounwind\n")
     }
     if not isFuncDefinedInModule("Map_get", definedFuncs) {
-        output.append("declare i64 @Map_get(i64, %SeenString) nounwind readonly\n")
+        output.append("declare i64 @Map_get(ptr, %SeenString) nounwind readonly\n")
     }
     if not isFuncDefinedInModule("Map_size", definedFuncs) {
-        output.append("declare i64 @Map_size(i64) nounwind readonly\n")
+        output.append("declare i64 @Map_size(ptr) nounwind readonly\n")
     }
     if not isFuncDefinedInModule("Map_containsKey", definedFuncs) {
-        output.append("declare i1 @Map_containsKey(i64, %SeenString) nounwind readonly\n")
+        output.append("declare i1 @Map_containsKey(ptr, %SeenString) nounwind readonly\n")
     }
     if not isFuncDefinedInModule("Map_containsValue", definedFuncs) {
-        output.append("declare i1 @Map_containsValue(i64, i64) nounwind readonly\n")
+        output.append("declare i1 @Map_containsValue(ptr, i64) nounwind readonly\n")
     }
     if not isFuncDefinedInModule("Map_keys", definedFuncs) {
-        output.append("declare %SeenArray @Map_keys(i64) nounwind\n")
+        output.append("declare ptr @Map_keys(ptr) nounwind\n")
     }
     if not isFuncDefinedInModule("Map_values", definedFuncs) {
-        output.append("declare %SeenArray @Map_values(i64) nounwind\n")
+        output.append("declare ptr @Map_values(ptr) nounwind\n")
     }
 
     // Vec<T> runtime helpers

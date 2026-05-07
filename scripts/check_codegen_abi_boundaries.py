@@ -150,6 +150,28 @@ AGGREGATE_ABI_PRIMITIVE_TYPES = {
     "U8",
     "Void",
 }
+MAIN_COMPILER_BOOTSTRAP_FRAGILE_CONSTRUCTORS = (
+    "FrontendResult.new",
+    "FrontendDiagnostic.new",
+    "ProgramNode.new",
+    "EnumNode.new",
+    "FunctionNode.new",
+    "ClassNode.new",
+    "BlockNode.new",
+    "LLVMIRGenerator.new",
+    "CImportGenerator.new",
+    "run_frontend",
+    "run_frontend_declarations",
+)
+FRONTEND_BOOTSTRAP_FRAGILE_CALLS = (
+    "ProgramNode.new",
+    "FunctionNode.new",
+    "ClassNode.new",
+    "SeenLexer.new",
+    "RealParser.new",
+    "TypeChecker.new",
+    "MacroExpander.new",
+)
 
 IDENTITY_HELPER = "prepareFunctionGenerationIdentityWithGlobalStateImpl"
 IDENTITY_FORBIDDEN_PARAMS = {
@@ -2766,6 +2788,72 @@ def aggregate_abi_signature_findings(root: Path) -> list[Finding]:
     return findings
 
 
+def constructor_declaration_static_findings(root: Path) -> list[Finding]:
+    path = root / "compiler_seen" / "src" / "codegen" / "ir_decl_items.seen"
+    if not path.exists():
+        return []
+
+    findings: list[Finding] = []
+    lines = source_lines(path)
+    for idx, line in enumerate(lines):
+        if "buildDeclareParamsImpl" not in line:
+            continue
+        window = "\n".join(lines[max(0, idx - 4) : idx + 5])
+        if "not method.isStatic" in window and 'method.name == "new"' not in window:
+            findings.append(
+                Finding(
+                    path,
+                    idx + 1,
+                    "class method declarations must treat `new` as static; "
+                    "use a methodIsStatic value that includes "
+                    'method.name == "new"',
+                )
+            )
+    return findings
+
+
+def main_compiler_bootstrap_constructor_findings(root: Path) -> list[Finding]:
+    path = root / "compiler_seen" / "src" / "main_compiler.seen"
+    if not path.exists():
+        return []
+
+    findings: list[Finding] = []
+    for line_no, line in enumerate(source_lines(path), 1):
+        for ctor in MAIN_COMPILER_BOOTSTRAP_FRAGILE_CONSTRUCTORS:
+            if f"{ctor}(" in line:
+                findings.append(
+                    Finding(
+                        path,
+                        line_no,
+                        f"{ctor} is fragile when frozen bootstrap emits stale "
+                        "cross-module constructor declarations; use a local "
+                        "struct-literal helper in main_compiler.seen",
+                    )
+                )
+    return findings
+
+
+def frontend_bootstrap_constructor_findings(root: Path) -> list[Finding]:
+    path = root / "compiler_seen" / "src" / "bootstrap" / "frontend.seen"
+    if not path.exists():
+        return []
+
+    findings: list[Finding] = []
+    for line_no, line in enumerate(source_lines(path), 1):
+        for call in FRONTEND_BOOTSTRAP_FRAGILE_CALLS:
+            if f"{call}(" in line:
+                findings.append(
+                    Finding(
+                        path,
+                        line_no,
+                        f"{call} is fragile when frozen bootstrap emits stale "
+                        "cross-module constructor declarations; use a local "
+                        "literal helper or top-level compat wrapper",
+                    )
+                )
+    return findings
+
+
 def facade_owner_call_findings(root: Path) -> list[Finding]:
     path = root / "compiler_seen" / "src" / "codegen" / "llvm_ir_gen.seen"
     text = "\n".join(source_lines(path))
@@ -2870,6 +2958,9 @@ def main() -> int:
     findings.extend(late_declare_stack_api_findings(root))
     findings.extend(ast_layout_boundary_findings(root))
     findings.extend(aggregate_abi_signature_findings(root))
+    findings.extend(constructor_declaration_static_findings(root))
+    findings.extend(main_compiler_bootstrap_constructor_findings(root))
+    findings.extend(frontend_bootstrap_constructor_findings(root))
     findings.extend(facade_owner_call_findings(root))
     findings.extend(facade_string_prefix_owner_findings(root))
 

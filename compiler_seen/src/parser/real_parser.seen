@@ -6794,5 +6794,9 @@ class RealParser {
 
 }
 
+fun newRealParserCompat(rawTokens: Array<Token>) r: RealParser {
+    return RealParser.new(rawTokens)
+}
+
 
  

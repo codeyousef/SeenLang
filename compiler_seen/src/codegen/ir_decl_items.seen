@@ -272,8 +272,9 @@ fun registerClassMethodDeclarationsIntoStateImpl(className: String,
             registerAsyncFunctionIntoStateImpl(mangledName, methodRetTypeName,
                 ctx.state)
         }
+        let methodIsStatic = method.isStatic or method.name == "new"
         let methodDeclParams = buildDeclareParamsImpl(methodSeenParamTypes,
-            methodLlvmParamTypes, not method.isStatic)
+            methodLlvmParamTypes, not methodIsStatic)
         let methodDecl = buildDeclareStringImpl(
             quoteIdentIfNeededImpl(mangledName), methodRetLlvm,
             methodDeclParams, false)

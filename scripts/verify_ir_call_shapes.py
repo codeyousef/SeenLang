@@ -18,6 +18,9 @@ from pathlib import Path
 FUNC_NAME = r'(?:"[^"]+"|[A-Za-z_$.\-][A-Za-z0-9_$.\-]*)'
 DECL_RE = re.compile(rf"^\s*(declare|define)\s+(?P<prefix>.*?)@(?P<name>{FUNC_NAME})\((?P<params>.*)\)")
 CALL_RE = re.compile(rf"\bcall\b(?P<prefix>.*?)@(?P<name>{FUNC_NAME})\((?P<args>.*)\)")
+CALL_INSTRUCTION_RE = re.compile(
+    r"^(?:[%@][^\s=]+\s*=\s*)?(?:tail\s+|musttail\s+|notail\s+)?call\b"
+)
 TYPE_STARTS = (
     "void",
     "ptr",
@@ -182,6 +185,10 @@ def normalize_function_name(name: str) -> str:
     return name
 
 
+def is_call_instruction_line(line: str) -> bool:
+    return bool(CALL_INSTRUCTION_RE.match(line.strip()))
+
+
 def starts_type_token(token: str) -> bool:
     if not token:
         return False
@@ -312,6 +319,8 @@ def parse_file(path: Path) -> tuple[dict[str, Signature], list[CallSite]]:
                 continue
             if line == "}":
                 current_function = "<top-level>"
+                continue
+            if not is_call_instruction_line(line):
                 continue
             call = CALL_RE.search(line)
             if call:

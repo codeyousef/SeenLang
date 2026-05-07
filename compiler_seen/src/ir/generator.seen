@@ -21,7 +21,7 @@ class IRGenerator {
         module = IRModule.new("seen_program")
         currentFunction = null
         variables = Map<String, IRValue>.new()
-        environment = Environment.new()
+        environment = Environment.new(null)
         
         // Initialize runtime functions
         initializeRuntimeFunctions()

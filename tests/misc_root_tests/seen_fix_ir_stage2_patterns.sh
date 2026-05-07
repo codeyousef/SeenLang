@@ -12,6 +12,7 @@ mkdir -p "$TMP_DIR"
 
 cat >"$IR_FILE" <<'IR'
 %SeenString = type { i64, ptr }
+%SeenArray = type { i64, i64, i64, ptr }
 %TypeNode = type { i64, ptr }
 %/ = type { i8 }
 
@@ -20,9 +21,36 @@ declare void @takes_ptr(ptr)
 declare void @takes_float(float)
 declare void @takes_seen_string(%SeenString)
 declare ptr @returns_ptr()
+declare void @VoidHelper(ptr)
+declare i64 @Map_put(i64, %SeenString, i64)
+declare %SeenArray @Map_keys(i64)
+declare %SeenString @mapTypeImpl(%SeenString, ptr, %SeenString, %SeenString, i64, %SeenString)
 declare i1 @llvm.xxx(ptr, ptr, %SeenString, %SeenString, ptr, i64, %SeenString, %SeenString)
 declare void @llvm.prefetch.p0(ptr, i32, i32, i32)
 declare %SeenString @seen_float_to_string(double)
+declare %SeenArray @__ReadFileBytes(i64, i64)
+declare i64 @__WriteFileBytes(i64, %SeenArray)
+declare i64 @Ok(i64)
+declare i64 @abort(i64)
+declare void @__panic(i64, ptr) noreturn nounwind
+declare ptr @prepareFunctionPreludeAnalysisWithMetricsStateImpl(i64, i64, %SeenString, %SeenString)
+declare ptr @prepareFunctionGenerationIdentityWithGlobalStateImpl(i64, %SeenString)
+declare void @prepareFunctionPreBodyWithFeatureStateImpl(ptr, i64, %SeenString, %SeenString)
+declare void @resetFunctionLoweringOptionsStateImpl(ptr)
+declare void @resetFunctionHighPressureImpl(ptr)
+declare void @markFunctionHighPressureImpl(ptr)
+declare i64 @emitFunctionEntrySetupSnapshotImpl(ptr, i64, %SeenString, %SeenString, %SeenString)
+declare i64 @emitFunctionExitResetSnapshotImpl(ptr, i64, %SeenString)
+declare ptr @scanFunctionBodyDeadStorePatternsSnapshotImpl(i64, i64, i64, %SeenString)
+declare i64 @run_frontend(%SeenString, %SeenString, ptr)
+declare i64 @ParserExpressionNode_new(ptr)
+declare i64 @Token_new(ptr, i64, %SeenString, i64, i64, i64, i64)
+declare i64 @Type_new(%SeenString, i1)
+declare i64 @Environment_new(i64)
+declare i64 @FunctionType_new(ptr, i64, i1)
+declare i64 @JsonValue_bool(i1)
+declare %SeenString @ContentLengthReader_readMessage(ptr)
+declare i64 @parseJson(%SeenString)
 
 If no } found before this leaked parser diagnostic should be a comment
 
@@ -185,6 +213,132 @@ entry:
   ret void
 }
 
+define i64 @result_ok_seen_string() {
+entry:
+  %1 = call %SeenString @seen_float_to_string(double 0.0)
+  %2 = tail call i64 @Ok(%SeenString %1)
+  ret i64 %2
+}
+
+define i64 @result_ok_ptr() {
+entry:
+  %1 = call ptr @returns_ptr()
+  %2 = tail call i64 @Ok(ptr %1)
+  ret i64 %2
+}
+
+define ptr @file_byte_runtime_read(i64 %0, i64 %1) {
+entry:
+  %2 = call ptr @__ReadFileBytes(i64 %0, i64 %1)
+  ret ptr %2
+}
+
+define i64 @file_byte_runtime_write(i64 %0, ptr %1) {
+entry:
+  %2 = call i64 @__WriteFileBytes(i64 %0, ptr %1)
+  ret i64 %2
+}
+
+define i64 @abort_seen_string() {
+entry:
+  %1 = call %SeenString @seen_float_to_string(double 0.0)
+  %2 = call i64 @abort(%SeenString %1)
+  ret i64 %2
+}
+
+define i64 @state_snapshot_handle_abi(i64 %0, i64 %1) {
+entry:
+  %2 = call %SeenString @seen_float_to_string(double 0.0)
+  call void @resetFunctionLoweringOptionsStateImpl(i64 %0)
+  call void @resetFunctionHighPressureImpl(i64 %0)
+  call void @markFunctionHighPressureImpl(i64 %0)
+  call void @prepareFunctionPreBodyWithFeatureStateImpl(i64 %0, i64 %1, %SeenString %2, %SeenString %2)
+  %3 = call i64 @prepareFunctionGenerationIdentityWithGlobalStateImpl(i64 %1, %SeenString %2)
+  %4 = call i64 @prepareFunctionPreludeAnalysisWithMetricsStateImpl(i64 %0, i64 %1, %SeenString %2, %SeenString %2)
+  %5 = call i64 @emitFunctionEntrySetupSnapshotImpl(i64 %0, i64 %1, %SeenString %2, %SeenString %2, %SeenString %2)
+  %6 = call i64 @emitFunctionExitResetSnapshotImpl(i64 %0, i64 %1, %SeenString %2)
+  %7 = call i64 @scanFunctionBodyDeadStorePatternsSnapshotImpl(i64 %0, i64 %1, i64 %3, %SeenString %2)
+  %8 = add i64 %4, %5
+  %9 = add i64 %8, %6
+  %10 = add i64 %9, %7
+  ret i64 %10
+}
+
+define i64 @constructor_zero_arg_abi() {
+entry:
+  %1 = call i64 @ParserExpressionNode_new()
+  ret i64 %1
+}
+
+define i64 @frontend_language_decl_abi() {
+entry:
+  %1 = call i64 @run_frontend(%SeenString zeroinitializer, %SeenString zeroinitializer, %SeenString zeroinitializer)
+  ret i64 %1
+}
+
+define i64 @map_put_bool_value_abi(ptr %0) {
+entry:
+  %1 = call i64 @Map_put(ptr %0, %SeenString zeroinitializer, i1 true)
+  ret i64 %1
+}
+
+define i64 @map_put_string_value_abi(ptr %0) {
+entry:
+  %1 = call i64 @Map_put(ptr %0, %SeenString zeroinitializer, %SeenString zeroinitializer)
+  ret i64 %1
+}
+
+define %SeenString @map_type_short_call_abi() {
+entry:
+  %1 = call %SeenString @mapTypeImpl(%SeenString zeroinitializer)
+  ret %SeenString %1
+}
+
+define ptr @map_keys_ptr_abi(ptr %0) {
+entry:
+  %1 = call ptr @Map_keys(ptr %0)
+  ret ptr %1
+}
+
+define i64 @default_constructor_args_abi() {
+entry:
+  %1 = call i64 @Type_new(%SeenString zeroinitializer)
+  %2 = call i64 @Environment_new()
+  %3 = call i64 @FunctionType_new(ptr null, i64 %1)
+  %4 = add i64 %2, %3
+  ret i64 %4
+}
+
+define i64 @json_bool_literal_abi() {
+entry:
+  %1 = call i64 @JsonValue_bool(i64 1)
+  %2 = call i64 @JsonValue_bool(i64 0)
+  %3 = add i64 %1, %2
+  ret i64 %3
+}
+
+define i64 @lsp_json_string_abi(ptr %0) {
+entry:
+  %1 = alloca i64, align 8
+  %2 = call i64 @ContentLengthReader_readMessage(ptr %0)
+  store i64 %2, ptr %1
+  %3 = load i64, ptr %1
+  %4 = call i64 @parseJson(i64 %3)
+  ret i64 %4
+}
+
+define i64 @constructor_stale_receiver_abi() {
+entry:
+  %1 = call i64 @Token_new(i64 6, %SeenString zeroinitializer, i64 1, i64 2, i64 5, i64 7)
+  ret i64 %1
+}
+
+define void @assigned_void_call(ptr %0) {
+entry:
+  %1 = call ptr @VoidHelper(ptr %0)
+  ret void
+}
+
 define void @aggregate_store_from_handle(i64 %0, ptr %1) {
 entry:
   %2 = add i64 %0, 0
@@ -238,6 +392,41 @@ grep -q 'ret i1 %8' "$IR_FILE"
 grep -q 'call void @llvm.prefetch.p0(ptr %1, i32 0, i32 3, i32 1)' "$IR_FILE"
 grep -q '= zext i1 %1 to i64' "$IR_FILE"
 grep -q '= inttoptr i64 %2 to ptr' "$IR_FILE"
+grep -q 'declare ptr @__ReadFileBytes(i64, i64)' "$IR_FILE"
+grep -q 'declare i64 @__WriteFileBytes(i64, ptr)' "$IR_FILE"
+grep -q 'call ptr @malloc(i64 16)' "$IR_FILE"
+grep -q 'store %SeenString %1, ptr' "$IR_FILE"
+grep -q '= ptrtoint ptr %1 to i64' "$IR_FILE"
+! grep -q 'call i64 @Ok(%SeenString' "$IR_FILE"
+! grep -q 'call i64 @Ok(ptr' "$IR_FILE"
+grep -q 'call void @__panic(i64' "$IR_FILE"
+! grep -q 'call i64 @abort(%SeenString' "$IR_FILE"
+grep -q 'declare i64 @prepareFunctionPreludeAnalysisWithMetricsStateImpl(i64, i64, %SeenString, %SeenString)' "$IR_FILE"
+grep -q 'declare i64 @prepareFunctionGenerationIdentityWithGlobalStateImpl(i64, %SeenString)' "$IR_FILE"
+grep -q 'declare void @prepareFunctionPreBodyWithFeatureStateImpl(i64, i64, %SeenString, %SeenString)' "$IR_FILE"
+grep -q 'declare void @resetFunctionLoweringOptionsStateImpl(i64)' "$IR_FILE"
+grep -q 'declare void @resetFunctionHighPressureImpl(i64)' "$IR_FILE"
+grep -q 'declare void @markFunctionHighPressureImpl(i64)' "$IR_FILE"
+grep -q 'declare i64 @emitFunctionEntrySetupSnapshotImpl(i64, i64, %SeenString, %SeenString, %SeenString)' "$IR_FILE"
+grep -q 'declare i64 @emitFunctionExitResetSnapshotImpl(i64, i64, %SeenString)' "$IR_FILE"
+grep -q 'declare i64 @scanFunctionBodyDeadStorePatternsSnapshotImpl(i64, i64, i64, %SeenString)' "$IR_FILE"
+grep -q 'declare i64 @run_frontend(%SeenString, %SeenString, %SeenString)' "$IR_FILE"
+grep -q 'declare i64 @Map_put(ptr, %SeenString, i64)' "$IR_FILE"
+grep -q '= zext i1 true to i64' "$IR_FILE"
+grep -q 'store %SeenString zeroinitializer, ptr' "$IR_FILE"
+grep -q 'declare ptr @Map_keys(ptr)' "$IR_FILE"
+grep -q 'call i64 @Type_new(%SeenString zeroinitializer, i1 false)' "$IR_FILE"
+grep -q 'call i64 @Environment_new(i64 0)' "$IR_FILE"
+grep -q 'call i64 @FunctionType_new(ptr null, i64 %1, i1 false)' "$IR_FILE"
+grep -q 'call i64 @JsonValue_bool(i1 true)' "$IR_FILE"
+grep -q 'call i64 @JsonValue_bool(i1 false)' "$IR_FILE"
+grep -q 'call %SeenString @ContentLengthReader_readMessage(ptr %0)' "$IR_FILE"
+grep -q 'call i64 @parseJson(%SeenString %3)' "$IR_FILE"
+grep -q 'declare %SeenString @mapTypeImpl(%SeenString)' "$IR_FILE"
+grep -q 'declare i64 @ParserExpressionNode_new()' "$IR_FILE"
+grep -q 'declare i64 @Token_new(i64, %SeenString, i64, i64, i64, i64)' "$IR_FILE"
+grep -q 'call void @VoidHelper(ptr %0)' "$IR_FILE"
+! grep -q '= call ptr @VoidHelper' "$IR_FILE"
 grep -q '= load %TypeNode, ptr' "$IR_FILE"
 grep -q '^; If no } found before' "$IR_FILE"
 grep -q 'i32 0, i32 22' "$IR_FILE"

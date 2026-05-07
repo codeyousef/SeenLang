@@ -1293,4 +1293,42 @@ expect_fail aggregate_abi_risky_helper
 rm -f "$TMP_DIR/compiler_seen/src/codegen/bad_aggregate_helper.seen" \
     "$TMP_DIR/compiler_seen/src/codegen/bad_aggregate_call.seen"
 
+write_owner_modules
+cat > "$TMP_DIR/compiler_seen/src/codegen/ir_decl_items.seen" <<'SEEN'
+fun registerClassMethodDeclarationsIntoStateImpl(className: String,
+    methods: Array<FunctionNode>) r: Void {
+
+    var methodIdx = 0
+    while methodIdx < methods.length() {
+        let method = methods[methodIdx]
+        let methodSeenParamTypes = Array<String>()
+        let methodLlvmParamTypes = Array<String>()
+        let methodDeclParams = buildDeclareParamsImpl(methodSeenParamTypes,
+            methodLlvmParamTypes, not method.isStatic)
+        methodIdx = methodIdx + 1
+    }
+}
+SEEN
+expect_fail constructor_declare_static_rule
+rm -f "$TMP_DIR/compiler_seen/src/codegen/ir_decl_items.seen"
+
+write_owner_modules
+cat > "$TMP_DIR/compiler_seen/src/main_compiler.seen" <<'SEEN'
+fun bad() r: FunctionNode {
+    return FunctionNode.new()
+}
+SEEN
+expect_fail main_compiler_fragile_constructor
+rm -f "$TMP_DIR/compiler_seen/src/main_compiler.seen"
+
+write_owner_modules
+mkdir -p "$TMP_DIR/compiler_seen/src/bootstrap"
+cat > "$TMP_DIR/compiler_seen/src/bootstrap/frontend.seen" <<'SEEN'
+fun bad(source: String) r: SeenLexer {
+    return SeenLexer.new(source, 1, "en")
+}
+SEEN
+expect_fail frontend_fragile_constructor
+rm -f "$TMP_DIR/compiler_seen/src/bootstrap/frontend.seen"
+
 echo "PASS: codegen ABI preflight regressions"

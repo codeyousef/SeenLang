@@ -19,6 +19,8 @@ declare void @takes_string(%SeenString)
 declare %SeenString @string_from_int(i64)
 declare void @vararg_ok(ptr, ...)
 
+@.embedded_ir = private unnamed_addr constant [36 x i8] c"  call void @takes_i64()\0A\00"
+
 define void @ok(ptr %0, i64 %1, %SeenString %2) {
 entry:
   call void @takes_i64(i64 %1)

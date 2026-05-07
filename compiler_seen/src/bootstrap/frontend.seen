@@ -6,11 +6,54 @@
 // Errors from any stage are collected into FrontendDiagnostic objects.
 // Used by both the user-facing CLI and the bootstrap driver.
 
-import lexer.{SeenLexer, LexerError}
-import parser.real_parser.{RealParser, ProgramNode, FunctionNode, ClassNode, StatementNode, ParserExpressionNode, BlockNode}
-import typechecker.interfaces.{TypeChecker}
+import lexer.lexer.{SeenLexer, newSeenLexerCompat}
+import lexer.interfaces.{LexerError}
+import parser.real_parser.{RealParser, ProgramNode, ItemNode, FunctionNode, ClassNode, StatementNode, ParserExpressionNode, BlockNode, ParamNode, TypeNode, AnnotationNode, newRealParserCompat}
+import typechecker.interfaces.{TypeChecker, newTypeCheckerCompat}
 import typechecker.interfaces.{TypeError}
-import macro.expander.{MacroExpander}
+import macro.expander.{MacroExpander, newMacroExpanderCompat}
+
+fun frontendEmptyProgramNode() r: ProgramNode {
+    return ProgramNode{ items: Array<ItemNode>() }
+}
+
+fun frontendUnknownTypeNode() r: TypeNode {
+    return TypeNode{ typeName: "Unknown", isNullable: false }
+}
+
+fun frontendEmptyBlockNode() r: BlockNode {
+    return BlockNode{ statements: Array<StatementNode>() }
+}
+
+fun frontendEmptyFunctionNode() r: FunctionNode {
+    return FunctionNode{
+        name: "",
+        params: Array<ParamNode>(),
+        returnType: frontendUnknownTypeNode(),
+        body: frontendEmptyBlockNode(),
+        isAsync: false,
+        isInline: false,
+        isStatic: false,
+        isExtern: false,
+        isDeterministic: false,
+        isNondeterministic: false,
+        decorators: Array<AnnotationNode>(),
+        line: 0,
+        column: 0,
+        isOverride: false
+    }
+}
+
+fun frontendEmptyClassNode() r: ClassNode {
+    return ClassNode{
+        name: "",
+        fields: Array<ParamNode>(),
+        methods: Array<FunctionNode>(),
+        decorators: Array<AnnotationNode>(),
+        isNondeterministic: false,
+        parentName: ""
+    }
+}
 
 class FrontendDiagnostic {
     var file: String
@@ -75,7 +118,7 @@ class FrontendResult {
         return FrontendResult{
             success: false,
             diagnostics: Array<FrontendDiagnostic>(),
-            program: ProgramNode.new()
+            program: frontendEmptyProgramNode()
         }
     }
 }
@@ -86,14 +129,14 @@ fun run_frontend(source: String, fileLabel: String, language: String = "en") r: 
     let result = FrontendResult.new()
 
     // Error handling is done via result types from the lexer/parser/checker.
-    let lexer = SeenLexer.new(source, 1, language)
+    let lexer = newSeenLexerCompat(source, 1, language)
     let tokens = lexer.tokenize()
 
-    let parser = RealParser.new(tokens)
+    let parser = newRealParserCompat(tokens)
     let ast = parser.parse()
     result.program = ast
     // Reduced tracing to avoid string allocation crashes
-    let checker = TypeChecker.new()
+    let checker = newTypeCheckerCompat()
     let typeResult = checker.check(ast)
 
     if typeResult.errors.length() > 0 {
@@ -120,7 +163,7 @@ fun run_frontend(source: String, fileLabel: String, language: String = "en") r: 
     }
 
     // Macro expansion phase
-    let expander = MacroExpander.new()
+    let expander = newMacroExpanderCompat()
     let macroResult = expander.expandProgram(ast)
 
     // Report macro expansion errors
@@ -169,13 +212,25 @@ fun run_frontend(source: String, fileLabel: String, language: String = "en") r: 
 fun run_frontend_declarations(source: String, fileLabel: String, language: String = "en") r: FrontendResult {
     let result = FrontendResult.new()
 
-    let lexer = SeenLexer.new(source, 1, language)
+    let lexer = newSeenLexerCompat(source, 1, language)
     let tokens = lexer.tokenize()
 
-    let parser = RealParser.new(tokens)
+    let parser = newRealParserCompat(tokens)
     result.program = parser.parseDeclarationsOnly()
     result.success = true
     return result
+}
+
+fun runFrontendCompat(source: String, fileLabel: String,
+    language: String) r: FrontendResult {
+
+    return run_frontend(source, fileLabel, language)
+}
+
+fun runFrontendDeclarationsCompat(source: String, fileLabel: String,
+    language: String) r: FrontendResult {
+
+    return run_frontend_declarations(source, fileLabel, language)
 }
 
 fun functionHasDecorator(func: FunctionNode, decoratorName: String) r: Bool {
@@ -294,7 +349,7 @@ fun frontendFindCapabilityFunction(functions: Array<FunctionNode>, functionNames
         }
         i = i + 1
     }
-    return FunctionNode.new()
+    return frontendEmptyFunctionNode()
 }
 
 fun frontendGetFunctionCapabilities(func: FunctionNode) r: Array<String> {
@@ -570,7 +625,7 @@ fun frontendFindProgramClass(program: ProgramNode, className: String) r: ClassNo
         }
         i = i + 1
     }
-    return ClassNode.new()
+    return frontendEmptyClassNode()
 }
 
 fun frontendIsIdentifierStartChar(ch: String) r: Bool {

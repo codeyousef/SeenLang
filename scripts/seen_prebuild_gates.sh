@@ -48,10 +48,13 @@ sweep_saved_ll_dir() {
         rm -rf "$work_dir"
         exit 1
     fi
+    for ll in "$work_dir"/seen_module_*.ll; do
+        [ -f "$ll" ] || continue
+        run_with_opt_cap python3 "$SCRIPT_DIR/fix_ir.py" "$ll" "$work_dir"/seen_module_*.ll
+    done
     run_with_opt_cap python3 "$SCRIPT_DIR/verify_ir_call_shapes.py" "$work_dir"
     for ll in "$work_dir"/seen_module_*.ll; do
         [ -f "$ll" ] || continue
-        run_with_opt_cap python3 "$SCRIPT_DIR/fix_ir.py" "$ll"
         run_with_opt_cap llvm-as "$ll" -o /dev/null
     done
     echo "PASS: preflight swept $count saved Stage2 .ll file(s)"

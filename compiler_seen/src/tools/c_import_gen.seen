@@ -256,3 +256,7 @@ class CImportGenerator {
     }
 
 }
+
+fun newCImportGenerator(header: String) r: CImportGenerator {
+    return CImportGenerator.new(header)
+}

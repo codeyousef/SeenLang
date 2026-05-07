@@ -63,15 +63,15 @@ class Type {
     }
 }
 
-fun typeInt() r: Type { return Type.new("Int") }
-fun typeFloat() r: Type { return Type.new("Float") }
-fun typeString() r: Type { return Type.new("String") }
-fun typeBool() r: Type { return Type.new("Bool") }
-fun typeVoid() r: Type { return Type.new("()") }
+fun typeInt() r: Type { return Type.new("Int", false) }
+fun typeFloat() r: Type { return Type.new("Float", false) }
+fun typeString() r: Type { return Type.new("String", false) }
+fun typeBool() r: Type { return Type.new("Bool", false) }
+fun typeVoid() r: Type { return Type.new("()", false) }
 fun typeUnit() r: Type { return typeVoid() }
-fun typeAny() r: Type { return Type.new("Any") }
-fun typeNever() r: Type { return Type.new("Never") }
-fun typeUnknown() r: Type { return Type.new("Unknown") }
+fun typeAny() r: Type { return Type.new("Any", false) }
+fun typeNever() r: Type { return Type.new("Never", false) }
+fun typeUnknown() r: Type { return Type.new("Unknown", false) }
 
 class FunctionType {
     var parameters: Array<Type>
@@ -168,7 +168,7 @@ class Environment {
     fun define(name: String, type: Type) r: Void { return }
     fun lookup(name: String) r: Type { return typeUnknown() }
     fun defineFunction(name: String, functionType: FunctionType) r: Void { return }
-    fun lookupFunction(name: String) r: FunctionType { return FunctionType.new(Array<Type>(), typeUnknown()) }
+    fun lookupFunction(name: String) r: FunctionType { return FunctionType.new(Array<Type>(), typeUnknown(), false) }
     fun defineClass(name: String, classType: ClassType) r: Void { return }
     fun lookupClass(name: String) r: ClassType { return ClassType.new("") }
 }
@@ -214,7 +214,7 @@ class TypeChecker {
 
     static fun new() r: TypeChecker {
         return TypeChecker{
-            environment: Environment.new(),
+            environment: Environment.new(null),
             errors: Array<TypeError>(),
             warnings: Array<String>(),
             strictMode: true
@@ -230,7 +230,7 @@ class TypeChecker {
     fun inferType(expression: Expression) r: Type { return typeUnknown() }
     fun unifyTypes(type1: Type, type2: Type) r: Type { return if type1.name == type2.name { type1 } else { typeUnknown() } }
     fun isAssignableFrom(target: Type, source: Type) r: Bool { return target.name == source.name or target.name == typeAny().name }
-    fun resolveMethod(className: String, methodName: String, args: Array<Type>) r: FunctionType { return FunctionType.new(Array<Type>(), typeUnknown()) }
+    fun resolveMethod(className: String, methodName: String, args: Array<Type>) r: FunctionType { return FunctionType.new(Array<Type>(), typeUnknown(), false) }
     fun performSmartCast(variable: String, type: Type, condition: String) r: Void { return }
     fun setStrictMode(enabled: Bool) r: Void { this.strictMode = enabled }
     fun getErrors() r: Array<TypeError> { return this.errors }
@@ -239,7 +239,11 @@ class TypeChecker {
 }
 
 fun typeCheckSource(source: String, language: String = "en") r: TypeInferenceResult {
-    return TypeInferenceResult.new(true, typeVoid(), Environment.new())
+    return TypeInferenceResult.new(true, typeVoid(), Environment.new(null))
+}
+
+fun newTypeCheckerCompat() r: TypeChecker {
+    return TypeChecker.new()
 }
 
 fun createTypeChecker() r: TypeChecker { return TypeChecker.new() }

@@ -77,7 +77,10 @@ fun runtimeIoCallActionImpl(funcName: String, argCount: Int) r: Int {
 }
 
 fun isPanicRuntimeCallPlanImpl(funcName: String) r: Bool {
-    return funcName == "panic"
+    if funcName == "panic" {
+        return true
+    }
+    return funcName == "abort"
 }
 
 fun shouldReadPanicRuntimeArgImpl(funcName: String, argCount: Int) r: Bool {

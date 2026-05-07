@@ -84,7 +84,7 @@ import codegen.ir_constructor_call_plan.{planArrayConstructorCallImpl, shouldEmi
 import codegen.ir_constructor_field_plan.{planNextConstructorFieldTypeImpl, planConstructorFieldStoreImpl}
 import codegen.ir_constructor_field_emit.{emitPreparedReprCConstructorImpl, emitPreparedClassConstructorFieldStoreImpl}
 import codegen.ir_call_args.{fillDefaultParamsImpl, appendPreparedCallArgImpl}
-import codegen.ir_call_runtime.{emitPrintLikeCallImpl, emitOptionRuntimeBuiltinCallImpl, emitSuperRuntimeBuiltinCallImpl, emitReadTextRuntimeCallImpl, emitWriteTextRuntimeCallImpl, emitArgsRuntimeCallImpl, emitReadFileBytesPathRuntimeCallImpl, emitPanicRuntimeCallImpl, emitMathBuiltinCallImpl}
+import codegen.ir_call_runtime.{emitPrintLikeCallImpl, emitOptionRuntimeBuiltinCallImpl, emitResultRuntimeBuiltinCallImpl, emitSuperRuntimeBuiltinCallImpl, emitReadTextRuntimeCallImpl, emitWriteTextRuntimeCallImpl, emitArgsRuntimeCallImpl, emitReadFileBytesPathRuntimeCallImpl, emitPanicRuntimeCallImpl, emitMathBuiltinCallImpl}
 import codegen.ir_call_runtime_plan.{isOptionRuntimeCallPlanImpl, shouldReadSomeRuntimeArgImpl, isSuperRuntimeCallPlanImpl, isEmptyRuntimeCalleeImpl, isPrintRuntimeCallPlanImpl, shouldReadPrintRuntimeArgImpl, runtimeIoCallActionImpl, isPanicRuntimeCallPlanImpl, shouldReadPanicRuntimeArgImpl, planRuntimeBuiltinDispatchImpl}
 import codegen.ir_call_implicit_this_plan.{planImplicitThisCallImpl, implicitThisTailCallFlagImpl}
 import codegen.ir_call_implicit_this_emit.{emitPreparedMisplacedParserImplicitThisCallImpl, emitPreparedStringBuilderImplicitThisCallImpl, emitPreparedNormalImplicitThisCallImpl}
@@ -4681,6 +4681,25 @@ class LLVMIRGenerator {
             argReg, argType, isClassArg)
     }
 
+    fun tryGenerateResultRuntimeBuiltinCall(expr: ParserExpressionNode,
+        funcName: String) r: String {
+
+        if funcName != "Ok" and funcName != "Err" {
+            return ""
+        }
+
+        var argReg = "0"
+        var argLlvmType = "i64"
+        if expr.arguments.length() > 0 {
+            let argType = inferExpressionType(expr.arguments[0])
+            argLlvmType = mapTypeState(argType)
+            argReg = generateExpression(expr.arguments[0])
+        }
+
+        return emitResultRuntimeBuiltinCallImpl(this.output, getFeatureRegBoxImpl(),
+            funcName, argReg, argLlvmType)
+    }
+
     fun tryGenerateSuperRuntimeBuiltinCall(funcName: String) r: String {
         if isSuperRuntimeCallPlanImpl(funcName) {
             if g_currentClassParentName != "" {
@@ -4763,6 +4782,11 @@ class LLVMIRGenerator {
     }
 
     fun tryGenerateRuntimeBuiltinCall(expr: ParserExpressionNode, funcName: String) r: String {
+        let resultCtor = tryGenerateResultRuntimeBuiltinCall(expr, funcName)
+        if resultCtor != "" {
+            return resultCtor
+        }
+
         let runtimePlan = planRuntimeBuiltinDispatchImpl(funcName,
             expr.arguments.length())
         if runtimePlan.shouldTryOption {
@@ -6116,4 +6140,8 @@ class LLVMIRGenerator {
             enumCtorPlan.fieldCount)
         return objReg
     }
+}
+
+fun newLLVMIRGenerator() r: LLVMIRGenerator {
+    return LLVMIRGenerator.new()
 }

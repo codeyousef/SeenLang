@@ -1354,3 +1354,9 @@ class SeenLexer {
         return SeenTokenType.None
     }
 }
+
+fun newSeenLexerCompat(source: String, fileId: Int,
+    language: String) r: SeenLexer {
+
+    return SeenLexer.new(source, fileId, language)
+}

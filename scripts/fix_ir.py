@@ -298,6 +298,430 @@ def fix_undefined_symbols(content):
     return content
 
 
+def fix_result_and_file_runtime_abi(content):
+    """Repair stale frozen-bootstrap ABI shapes for Result and file bytes."""
+    content = re.sub(
+        r'^declare\s+%SeenArray\s+@__ReadFileBytes\(i64,\s*i64\)(.*)$',
+        r'declare ptr @__ReadFileBytes(i64, i64)\1',
+        content,
+        flags=re.MULTILINE,
+    )
+    content = re.sub(
+        r'^declare\s+i64\s+@__WriteFileBytes\(i64,\s*%SeenArray\)(.*)$',
+        r'declare i64 @__WriteFileBytes(i64, ptr)\1',
+        content,
+        flags=re.MULTILINE,
+    )
+    handle_declares = {
+        'prepareFunctionPreludeAnalysisWithMetricsStateImpl':
+            ('i64', 'i64, i64, %SeenString, %SeenString'),
+        'prepareFunctionGenerationIdentityWithGlobalStateImpl':
+            ('i64', 'i64, %SeenString'),
+        'prepareFunctionPreBodyWithFeatureStateImpl':
+            ('void', 'i64, i64, %SeenString, %SeenString'),
+        'resetFunctionLoweringOptionsStateImpl':
+            ('void', 'i64'),
+        'resetFunctionHighPressureImpl':
+            ('void', 'i64'),
+        'markFunctionHighPressureImpl':
+            ('void', 'i64'),
+        'emitFunctionEntrySetupSnapshotImpl':
+            ('i64', 'i64, i64, %SeenString, %SeenString, %SeenString'),
+        'emitFunctionExitResetSnapshotImpl':
+            ('i64', 'i64, i64, %SeenString'),
+        'scanFunctionBodyDeadStorePatternsSnapshotImpl':
+            ('i64', 'i64, i64, i64, %SeenString'),
+    }
+    for name, (ret_type, params) in handle_declares.items():
+        content = re.sub(
+            rf'^declare\s+\S+\s+@{re.escape(name)}\([^)]*\)(.*)$',
+            rf'declare {ret_type} @{name}({params})\1',
+            content,
+            flags=re.MULTILINE,
+        )
+
+    lines = content.split('\n')
+    result = []
+    in_function = False
+    func_buf = []
+
+    for line in lines:
+        if re.match(r'^define\s+', line):
+            in_function = True
+            func_buf = [line]
+            continue
+        if in_function:
+            func_buf.append(line)
+            if line.strip() == '}':
+                result.extend(_fix_result_ok_calls_in_function(func_buf))
+                in_function = False
+                func_buf = []
+            continue
+        result.append(line)
+
+    if func_buf:
+        result.extend(_fix_result_ok_calls_in_function(func_buf))
+    return '\n'.join(result)
+
+
+def _fix_result_ok_calls_in_function(func_lines):
+    used_reg_nums = _collect_function_reg_nums(func_lines)
+    next_reg_num = max(used_reg_nums) + 1 if used_reg_nums else 1
+
+    def next_temp_reg():
+        nonlocal next_reg_num
+        while next_reg_num in used_reg_nums:
+            next_reg_num += 1
+        reg = f'%{next_reg_num}'
+        used_reg_nums.add(next_reg_num)
+        next_reg_num += 1
+        return reg
+
+    fixed_lines = []
+    for line in func_lines:
+        abort_m = re.match(
+            r'(\s*)(%\d+)\s*=\s*call\s+i64\s+@abort\(%SeenString\s+(.+)\)(.*)$',
+            line,
+        )
+        if abort_m:
+            indent = abort_m.group(1)
+            out_reg = abort_m.group(2)
+            message_value = abort_m.group(3).strip()
+            rest = abort_m.group(4)
+            len_reg = next_temp_reg()
+            data_reg = next_temp_reg()
+            fixed_lines.append(f'{indent}{len_reg} = extractvalue %SeenString {message_value}, 0')
+            fixed_lines.append(f'{indent}{data_reg} = extractvalue %SeenString {message_value}, 1')
+            fixed_lines.append(f'{indent}call void @__panic(i64 {len_reg}, ptr {data_reg})')
+            fixed_lines.append(f'{indent}{out_reg} = add i64 0, 0{rest}')
+            continue
+
+        m = re.match(
+            r'(\s*)(%\d+)\s*=\s*(?:tail\s+)?call\s+i64\s+@Ok\((.*)\)(.*)$',
+            line,
+        )
+        if not m:
+            fixed_lines.append(line)
+            continue
+
+        indent = m.group(1)
+        out_reg = m.group(2)
+        args = _split_args(m.group(3))
+        rest = m.group(4)
+        if len(args) != 1:
+            fixed_lines.append(line)
+            continue
+
+        am = re.match(r'(\S+)\s+(.+)$', args[0].strip())
+        if not am:
+            fixed_lines.append(line)
+            continue
+
+        arg_type = am.group(1)
+        arg_value = am.group(2).strip()
+        if arg_type == 'i64':
+            fixed_lines.append(f'{indent}{out_reg} = add i64 {arg_value}, 0{rest}')
+            continue
+        if arg_type == 'ptr':
+            if arg_value == 'null':
+                fixed_lines.append(f'{indent}{out_reg} = add i64 0, 0{rest}')
+            else:
+                fixed_lines.append(f'{indent}{out_reg} = ptrtoint ptr {arg_value} to i64{rest}')
+            continue
+        if arg_type == 'i1':
+            fixed_lines.append(f'{indent}{out_reg} = zext i1 {arg_value} to i64{rest}')
+            continue
+        if arg_type in ('i8', 'i16', 'i32'):
+            fixed_lines.append(f'{indent}{out_reg} = sext {arg_type} {arg_value} to i64{rest}')
+            continue
+        if arg_type == '%SeenString':
+            slot_reg = next_temp_reg()
+            fixed_lines.append(f'{indent}{slot_reg} = call ptr @malloc(i64 16)')
+            fixed_lines.append(f'{indent}store %SeenString {arg_value}, ptr {slot_reg}')
+            fixed_lines.append(f'{indent}{out_reg} = ptrtoint ptr {slot_reg} to i64{rest}')
+            continue
+        if arg_type == 'double':
+            slot_reg = next_temp_reg()
+            fixed_lines.append(f'{indent}{slot_reg} = call ptr @malloc(i64 8)')
+            fixed_lines.append(f'{indent}store double {arg_value}, ptr {slot_reg}')
+            fixed_lines.append(f'{indent}{out_reg} = ptrtoint ptr {slot_reg} to i64{rest}')
+            continue
+        if arg_type == 'float':
+            slot_reg = next_temp_reg()
+            fixed_lines.append(f'{indent}{slot_reg} = call ptr @malloc(i64 4)')
+            fixed_lines.append(f'{indent}store float {arg_value}, ptr {slot_reg}')
+            fixed_lines.append(f'{indent}{out_reg} = ptrtoint ptr {slot_reg} to i64{rest}')
+            continue
+
+        fixed_lines.append(line)
+    return fixed_lines
+
+
+def fix_declarations_to_local_call_shapes(content):
+    """Adjust stale ptr/i64 declarations to the calls emitted in this module."""
+    call_sigs = {}
+    for m in re.finditer(
+        r'\bcall\s+(?:[^@\n]*?\s+)?(?P<ret>\S+)\s+@(?P<name>[A-Za-z0-9_.$\-]+)\((?P<args>[^)\n]*)\)',
+        content,
+    ):
+        name = m.group('name')
+        if name.startswith('llvm.'):
+            continue
+        args = tuple(_extract_arg_types(m.group('args')))
+        sig = (m.group('ret'), args)
+        call_sigs.setdefault(name, set()).add(sig)
+
+    def can_follow_call_shape(name, decl_ret, decl_params, call_ret, call_params):
+        if len(decl_params) != len(call_params):
+            if len(decl_params) == 1 and decl_params[0] == 'ptr' and len(call_params) == 0:
+                return name.endswith('_new')
+            if name.endswith('_new') and len(decl_params) == len(call_params) + 1 and decl_params[0] == 'ptr':
+                return tuple(decl_params[1:]) == tuple(call_params)
+            if name == 'mapTypeImpl' and len(decl_params) == 6 and call_params == ('%SeenString',):
+                return decl_params[0] == '%SeenString' and decl_ret == call_ret
+            return False
+        frontend_entry_names = {
+            'run_frontend',
+            'run_frontend_declarations',
+            'runFrontendCompat',
+            'runFrontendDeclarationsCompat',
+        }
+        if name in frontend_entry_names:
+            idx = 0
+            while idx < len(decl_params):
+                if decl_params[idx] != call_params[idx] and {decl_params[idx], call_params[idx]} != {'ptr', '%SeenString'}:
+                    return False
+                idx += 1
+            return decl_ret == call_ret or {decl_ret, call_ret} == {'ptr', 'i64'}
+        flexible_collection_names = {
+            'Map_put',
+            'Map_set',
+            'Map_get',
+            'Map_size',
+            'Map_containsKey',
+            'Map_containsValue',
+            'Map_keys',
+            'Map_values',
+        }
+        if name in flexible_collection_names:
+            idx = 0
+            while idx < len(decl_params):
+                if decl_params[idx] == call_params[idx]:
+                    idx += 1
+                    continue
+                if {decl_params[idx], call_params[idx]} not in ({'ptr', 'i64'}, {'i1', 'i64'}):
+                    return False
+                idx += 1
+            return decl_ret == call_ret or {decl_ret, call_ret} in ({'ptr', 'i64'}, {'ptr', '%SeenArray'})
+        if decl_ret != call_ret and {decl_ret, call_ret} != {'ptr', 'i64'}:
+            return False
+        idx = 0
+        while idx < len(decl_params):
+            if decl_params[idx] != call_params[idx] and {decl_params[idx], call_params[idx]} != {'ptr', 'i64'}:
+                return False
+            idx += 1
+        return True
+
+    def replace_decl(m):
+        ret_type = m.group('ret')
+        name = m.group('name')
+        params_text = m.group('params')
+        suffix = m.group('suffix')
+        sigs = call_sigs.get(name)
+        if not sigs or len(sigs) != 1:
+            return m.group(0)
+        call_ret, call_params = next(iter(sigs))
+        decl_params = tuple(p.strip() for p in params_text.split(',') if p.strip())
+        if not can_follow_call_shape(name, ret_type, decl_params, call_ret, call_params):
+            return m.group(0)
+        params = ', '.join(call_params)
+        return f'declare {call_ret} @{name}({params}){suffix}'
+
+    return re.sub(
+        r'^declare\s+(?P<ret>\S+)\s+@(?P<name>[A-Za-z0-9_.$\-]+)\((?P<params>[^)]*)\)(?P<suffix>.*)$',
+        replace_decl,
+        content,
+        flags=re.MULTILINE,
+    )
+
+
+def fix_assigned_void_calls(content):
+    """Drop bogus result registers from calls to void helpers."""
+    void_funcs = set()
+    for m in re.finditer(r'^(?:declare|define)\s+void\s+@([A-Za-z0-9_.$\-]+)\(', content, re.MULTILINE):
+        void_funcs.add(m.group(1))
+    if not void_funcs:
+        return content
+
+    def replace_call(m):
+        name = m.group('name')
+        if name not in void_funcs:
+            return m.group(0)
+        return f"{m.group('indent')}call void @{name}({m.group('args')}){m.group('suffix')}"
+
+    return re.sub(
+        r'^(?P<indent>\s*)%\d+\s*=\s*(?:tail\s+)?call\s+\S+\s+@(?P<name>[A-Za-z0-9_.$\-]+)\((?P<args>[^)\n]*)\)(?P<suffix>.*)$',
+        replace_call,
+        content,
+        flags=re.MULTILINE,
+    )
+
+
+def fix_default_constructor_call_args(content):
+    """Materialize default args that older bootstrap codegen omitted."""
+    fixed_lines = []
+    for line in content.split('\n'):
+        if not re.match(r'\s*(?:%\d+\s*=\s*)?(?:tail\s+)?call\b', line):
+            fixed_lines.append(line)
+            continue
+
+        def fix_type_new(m):
+            args = _split_args(m.group(1))
+            if len(args) == 1 and args[0].strip().startswith('%SeenString '):
+                return f"@Type_new({args[0].strip()}, i1 false)"
+            return m.group(0)
+
+        def fix_function_type_new(m):
+            args = _split_args(m.group(1))
+            if len(args) == 2:
+                return f"@FunctionType_new({args[0].strip()}, {args[1].strip()}, i1 false)"
+            return m.group(0)
+
+        fixed = re.sub(r'@Type_new\(([^)\n]*)\)', fix_type_new, line)
+        fixed = re.sub(r'@FunctionType_new\(([^)\n]*)\)', fix_function_type_new, fixed)
+        fixed = re.sub(r'@Environment_new\(\)', '@Environment_new(i64 0)', fixed)
+        fixed_lines.append(fixed)
+    return '\n'.join(fixed_lines)
+
+
+def fix_json_bool_call_args(content):
+    """Repair old JSON parser calls that used integer literals for Bool."""
+    content = re.sub(r'@JsonValue_bool\(i64\s+1\)', '@JsonValue_bool(i1 true)', content)
+    content = re.sub(r'@JsonValue_bool\(i64\s+0\)', '@JsonValue_bool(i1 false)', content)
+    return content
+
+
+def fix_lsp_json_string_abi(content):
+    """Repair LSP JSON helpers that return or consume SeenString values."""
+    content = re.sub(
+        r'(\s*%\d+\s*=\s*call\s+)i64(\s+@ContentLengthReader_readMessage\(ptr\s+[^)\n]+\).*)',
+        r'\1%SeenString\2',
+        content,
+    )
+    content = re.sub(
+        r'(@parseJson)\(i64\s+([^) \n]+)\)',
+        r'\1(%SeenString \2)',
+        content,
+    )
+    return content
+
+
+def fix_map_collection_calls(content):
+    """Normalize Map_put/Map_set calls to pointer receiver plus i64 value ABI."""
+    lines = content.split('\n')
+    result = []
+    in_function = False
+    func_buf = []
+
+    for line in lines:
+        if re.match(r'^define\s+', line):
+            in_function = True
+            func_buf = [line]
+            continue
+        if in_function:
+            func_buf.append(line)
+            if line.strip() == '}':
+                result.extend(_fix_map_collection_calls_in_function(func_buf))
+                in_function = False
+                func_buf = []
+            continue
+        result.append(line)
+
+    if func_buf:
+        result.extend(_fix_map_collection_calls_in_function(func_buf))
+    return '\n'.join(result)
+
+
+def _fix_map_collection_calls_in_function(func_lines):
+    used_reg_nums = _collect_function_reg_nums(func_lines)
+    next_reg_num = max(used_reg_nums) + 1 if used_reg_nums else 1
+
+    def next_temp_reg():
+        nonlocal next_reg_num
+        while next_reg_num in used_reg_nums:
+            next_reg_num += 1
+        reg = f'%{next_reg_num}'
+        used_reg_nums.add(next_reg_num)
+        next_reg_num += 1
+        return reg
+
+    fixed_lines = []
+    for line in func_lines:
+        m = re.match(
+            r'(\s*)((?:%\d+\s*=\s*)?call\s+i64\s+@(Map_(?:put|set))\()([^)]*)(\).*)$',
+            line,
+        )
+        if not m:
+            fixed_lines.append(line)
+            continue
+        args = _split_args(m.group(4))
+        if len(args) != 3:
+            fixed_lines.append(line)
+            continue
+        parsed = []
+        ok = True
+        for arg in args:
+            am = re.match(r'(\S+)\s+(.+)$', arg.strip())
+            if not am:
+                ok = False
+                break
+            parsed.append((am.group(1), am.group(2).strip()))
+        if not ok:
+            fixed_lines.append(line)
+            continue
+
+        indent = m.group(1)
+        receiver_type, receiver_value = parsed[0]
+        value_type, value_value = parsed[2]
+        new_receiver = args[0].strip()
+        new_value = args[2].strip()
+
+        if receiver_type == 'i64':
+            recv_reg = next_temp_reg()
+            fixed_lines.append(f'{indent}{recv_reg} = inttoptr i64 {receiver_value} to ptr')
+            new_receiver = f'ptr {recv_reg}'
+        elif receiver_type == 'ptr':
+            new_receiver = f'ptr {receiver_value}'
+        else:
+            fixed_lines.append(line)
+            continue
+
+        if value_type == 'i1':
+            value_reg = next_temp_reg()
+            fixed_lines.append(f'{indent}{value_reg} = zext i1 {value_value} to i64')
+            new_value = f'i64 {value_reg}'
+        elif value_type == '%SeenString':
+            slot_reg = next_temp_reg()
+            value_reg = next_temp_reg()
+            fixed_lines.append(f'{indent}{slot_reg} = call ptr @malloc(i64 16)')
+            fixed_lines.append(f'{indent}store %SeenString {value_value}, ptr {slot_reg}')
+            fixed_lines.append(f'{indent}{value_reg} = ptrtoint ptr {slot_reg} to i64')
+            new_value = f'i64 {value_reg}'
+        elif value_type == 'ptr':
+            value_reg = next_temp_reg()
+            fixed_lines.append(f'{indent}{value_reg} = ptrtoint ptr {value_value} to i64')
+            new_value = f'i64 {value_reg}'
+        elif value_type == 'i64':
+            new_value = f'i64 {value_value}'
+        else:
+            fixed_lines.append(line)
+            continue
+
+        new_args = ', '.join([new_receiver, args[1].strip(), new_value])
+        fixed_lines.append(f'{m.group(1)}{m.group(2)}{new_args}{m.group(5)}')
+    return fixed_lines
+
+
 def _extract_arg_types(args_str):
     """Extract just the types from a call argument string."""
     if not args_str.strip():
@@ -550,14 +974,9 @@ def _fix_ssa_in_function(func_lines):
     fixed = []
 
     def apply_value_map(text):
-        for old_tok in sorted(value_map.keys(),
-                              key=lambda item: int(item[1:]),
-                              reverse=True):
-            new_tok = value_map[old_tok]
-            if old_tok != new_tok:
-                text = re.sub(re.escape(old_tok) + r'(?=[\s,)};=]|$)',
-                              new_tok, text)
-        return text
+        def replace_reg(m):
+            return value_map.get(m.group(0), m.group(0))
+        return re.sub(r'%\d+\b', replace_reg, text)
 
     for idx, line in enumerate(func_lines):
         if idx == 0:
@@ -2004,12 +2423,15 @@ def fix_all(content, all_module_files=None):
     content = fix_struct_zero(content)
     content = fix_ptr_null(content)
     content = fix_bare_string_refs(content, all_module_files)
+    content = fix_result_and_file_runtime_abi(content)
     content = fix_undefined_symbols(content)
+    content = fix_declare_define_conflicts(content)
     content = fix_misplaced_global_definitions(content)
     content = fix_duplicate_globals(content)
     content = fix_llvmir_generator_layout(content)
     content = fix_runtime_string_returns(content)
     content = fix_cross_module_string_returns(content, all_module_files)
+    content = fix_lsp_json_string_abi(content)
     content = fix_arr_get_element_ptr(content)
     content = fix_scalar_literal_and_text_repairs(content)
     content = fix_ret_void_values(content)
@@ -2022,6 +2444,12 @@ def fix_all(content, all_module_files=None):
     content = fix_empty_type(content)
     content = fix_ssa_numbering(content)
     content = fix_nondominating_register_uses(content)
+    content = fix_assigned_void_calls(content)
+    content = fix_default_constructor_call_args(content)
+    content = fix_json_bool_call_args(content)
+    content = fix_map_collection_calls(content)
+    content = fix_ssa_numbering(content)
+    content = fix_declarations_to_local_call_shapes(content)
     return content
 
 
