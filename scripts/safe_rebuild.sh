@@ -398,7 +398,7 @@ prepare_bootstrap_source_overlay() {
         local base
         base=$(basename "$entry")
         case "$base" in
-            compiler_seen|seen_std)
+            bootstrap|compiler_seen|seen_std)
                 ;;
             *)
                 ln -s "$entry" "$BOOTSTRAP_SOURCE_ROOT/$base"
@@ -406,12 +406,37 @@ prepare_bootstrap_source_overlay() {
         esac
     done
 
+    if [ -d "$REPO_ROOT/bootstrap" ]; then
+        mkdir -p "$BOOTSTRAP_SOURCE_ROOT/bootstrap"
+        for entry in "$REPO_ROOT/bootstrap"/*; do
+            [ -e "$entry" ] || continue
+            local base
+            base=$(basename "$entry")
+            case "$base" in
+                stage1_frozen*|seen_frozen*)
+                    cp -pL "$entry" "$BOOTSTRAP_SOURCE_ROOT/bootstrap/$base"
+                    chmod +x "$BOOTSTRAP_SOURCE_ROOT/bootstrap/$base" 2>/dev/null || true
+                    ;;
+                *)
+                    ln -s "$entry" "$BOOTSTRAP_SOURCE_ROOT/bootstrap/$base"
+                    ;;
+            esac
+        done
+    fi
+
     mkdir -p "$BOOTSTRAP_SOURCE_ROOT/compiler_seen" "$BOOTSTRAP_SOURCE_ROOT/seen_std"
     for entry in "$REPO_ROOT/compiler_seen"/*; do
         local base
         base=$(basename "$entry")
         if [ "$base" = "src" ]; then
             copy_bootstrap_seen_tree "$entry" "$BOOTSTRAP_SOURCE_ROOT/compiler_seen/src"
+        elif [ "$base" = "target" ]; then
+            mkdir -p "$BOOTSTRAP_SOURCE_ROOT/compiler_seen/target"
+            for bin in "$entry"/seen "$entry"/seen_frozen* "$entry"/stage1_frozen* "$entry"/seen_native_snapshot; do
+                [ -f "$bin" ] || continue
+                cp -pL "$bin" "$BOOTSTRAP_SOURCE_ROOT/compiler_seen/target/$(basename "$bin")"
+                chmod +x "$BOOTSTRAP_SOURCE_ROOT/compiler_seen/target/$(basename "$bin")" 2>/dev/null || true
+            done
         else
             ln -s "$entry" "$BOOTSTRAP_SOURCE_ROOT/compiler_seen/$base"
         fi
@@ -1101,16 +1126,25 @@ recover_with_preserved_production_compiler() {
             return 1
             ;;
     esac
+    local recovery_builder_path="$PRESERVED_PROD_BUILDER"
+    case "$recovery_builder_path" in
+        "$REPO_ROOT"/*)
+            if [ "$recovery_source_root" = "$BOOTSTRAP_SOURCE_ROOT" ]; then
+                recovery_builder_path="$BOOTSTRAP_SOURCE_ROOT/${recovery_builder_path#$REPO_ROOT/}"
+            fi
+            ;;
+    esac
 
     local recovery_exit=0
     run_guarded_command_to_log "preserved compiler recovery" "$RECOVERY_TIMEOUT_SECS" "$MAIN_COMPILER_VMEM_KB" /tmp/safe_rebuild_stage3_recovery.log \
         bash -c 'cd "$1" || exit 1; shift; exec "$@"' bash "$recovery_source_root" \
         env PATH="$OPT_WRAPPER_DIR:$PATH" \
+            SEEN_COMPILER_SOURCE_ROOT="$recovery_source_root" \
             SEEN_LOW_MEMORY="${SEEN_LOW_MEMORY:-0}" \
             SEEN_SKIP_IR_FIXUPS=1 \
             SEEN_MAIN_VMEM_KB="$MAIN_COMPILER_VMEM_KB" \
             SEEN_OPT_VMEM_KB="$OPT_VMEM_KB" \
-            "$PRESERVED_PROD_BUILDER" compile "$COMPILER_SOURCE" "$STAGE3_RECOVERY" \
+            "$recovery_builder_path" compile "$COMPILER_SOURCE" "$STAGE3_RECOVERY" \
             --fast --no-cache --no-fork $RELEASE_TARGET_CPU_FLAG || recovery_exit=$?
     if [ "$recovery_exit" -eq 0 ]; then
         echo -e "${GREEN}Recovery rebuild succeeded.${NC}"
@@ -1174,15 +1208,24 @@ recover_with_existing_stage_builder() {
             return 1
             ;;
     esac
+    local recovery_builder_path="$builder_path"
+    case "$recovery_builder_path" in
+        "$REPO_ROOT"/*)
+            if [ "$recovery_source_root" = "$BOOTSTRAP_SOURCE_ROOT" ]; then
+                recovery_builder_path="$BOOTSTRAP_SOURCE_ROOT/${recovery_builder_path#$REPO_ROOT/}"
+            fi
+            ;;
+    esac
 
     local recovery_exit=0
     run_guarded_command_to_log "existing stage builder $builder_name recovery" "$RECOVERY_TIMEOUT_SECS" "$MAIN_COMPILER_VMEM_KB" "$builder_log" \
         bash -c 'cd "$1" || exit 1; shift; exec "$@"' bash "$recovery_source_root" \
         env PATH="$OPT_WRAPPER_DIR:$PATH" \
+            SEEN_COMPILER_SOURCE_ROOT="$recovery_source_root" \
             SEEN_LOW_MEMORY="${SEEN_LOW_MEMORY:-0}" \
             SEEN_MAIN_VMEM_KB="$MAIN_COMPILER_VMEM_KB" \
             SEEN_OPT_VMEM_KB="$OPT_VMEM_KB" \
-            "$builder_path" compile "$COMPILER_SOURCE" "$STAGE3_RECOVERY" \
+            "$recovery_builder_path" compile "$COMPILER_SOURCE" "$STAGE3_RECOVERY" \
             --fast --no-cache --no-fork $RELEASE_TARGET_CPU_FLAG || recovery_exit=$?
 
     if [ "$recovery_exit" -eq 0 ]; then
@@ -1241,7 +1284,11 @@ fi
 
 preserve_existing_production_compiler >/dev/null 2>&1 || true
 prepare_bootstrap_source_overlay
-FROZEN_ABS="$REPO_ROOT/$FROZEN"
+if [ "$BOOTSTRAP_SOURCE_ROOT" != "$REPO_ROOT" ] && [ -f "$BOOTSTRAP_SOURCE_ROOT/$FROZEN" ]; then
+    FROZEN_ABS="$BOOTSTRAP_SOURCE_ROOT/$FROZEN"
+else
+    FROZEN_ABS="$REPO_ROOT/$FROZEN"
+fi
 
 if [ "${SEEN_SKIP_PREBUILD_GATES:-0}" != "1" ]; then
     echo "Running prebuild gates..."
@@ -1478,7 +1525,8 @@ if [ "$HOST_OS" = "Darwin" ]; then
     # eliminated by opt) but still produce a full .opt.ll set we can relink in step 1b.
     if run_with_progress "S1→S2" /tmp/safe_rebuild_stage2.log \
         bash -c 'cd "$1" || exit 1; shift; exec "$@"' bash "$BOOTSTRAP_SOURCE_ROOT" \
-        "$FROZEN_ABS" compile "$COMPILER_SOURCE" "$STAGE2" $STAGE2_COMPILE_FLAGS; then
+        env SEEN_COMPILER_SOURCE_ROOT="$BOOTSTRAP_SOURCE_ROOT" \
+            "$FROZEN_ABS" compile "$COMPILER_SOURCE" "$STAGE2" $STAGE2_COMPILE_FLAGS; then
         echo -e "${GREEN}Stage2 build succeeded.${NC}"
     else
         EXPECTED_STAGE2_MODULES=$(extract_expected_module_count /tmp/safe_rebuild_stage2.log)
@@ -1502,7 +1550,7 @@ else
     SNAPSHOT_DIR="/tmp/seen_ll_snapshot_$$"
     rm -rf "$SNAPSHOT_DIR"
 
-    FROZEN_COMPILE_ENV=(env "PATH=$OPT_WRAPPER_DIR:$PATH")
+    FROZEN_COMPILE_ENV=(env "PATH=$OPT_WRAPPER_DIR:$PATH" "SEEN_COMPILER_SOURCE_ROOT=$BOOTSTRAP_SOURCE_ROOT")
     if [ -n "$FORK_SERIALIZER_SO" ]; then
         FROZEN_COMPILE_ENV+=("LD_PRELOAD=$FORK_SERIALIZER_SO")
     fi
@@ -1672,7 +1720,7 @@ else
 
                     RETRY_SNAPSHOT="/tmp/seen_retry_snapshot_${$}_${RETRY}"
                     rm -rf "$RETRY_SNAPSHOT"
-                    RETRY_COMPILE_ENV=(env "PATH=$OPT_WRAPPER_DIR:$PATH")
+                    RETRY_COMPILE_ENV=(env "PATH=$OPT_WRAPPER_DIR:$PATH" "SEEN_COMPILER_SOURCE_ROOT=$BOOTSTRAP_SOURCE_ROOT")
                     if [ -n "$FORK_SERIALIZER_SO" ]; then
                         RETRY_COMPILE_ENV+=("LD_PRELOAD=$FORK_SERIALIZER_SO")
                     fi
@@ -1785,6 +1833,7 @@ else
 
                     SEEN_MEMORY_GUARD_KILL_ONLY=1 run_guarded_command_to_log "Pass2" 600 "$MAIN_COMPILER_VMEM_KB" /tmp/pass2.log \
                         bash -c 'cd "$1" || exit 1; shift; exec "$@"' bash "$BOOTSTRAP_SOURCE_ROOT" \
+                        env SEEN_COMPILER_SOURCE_ROOT="$BOOTSTRAP_SOURCE_ROOT" \
                         "$PROD_COMPILER" compile "$COMPILER_SOURCE" /dev/null \
                             $PASS2_COMPILE_FLAGS &
                     PASS2_PID=$!

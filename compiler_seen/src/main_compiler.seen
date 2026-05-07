@@ -2463,6 +2463,17 @@ Binary is at <root>/compiler_seen/target/seen, so root = 3 levels up.
 Falls back to args()[0] if /proc/self/exe is unavailable (e.g. macOS).
 ///
 fun getCompilerRoot() r: String {
+    let overrideRootResult: CommandResult = runCommand("printf '%s' \"$SEEN_COMPILER_SOURCE_ROOT\"")
+    if commandWasSuccessful(overrideRootResult) {
+        let overrideRoot = overrideRootResult.output.trim()
+        if overrideRoot != "" {
+            let validateOverrideResult: CommandResult = runCommand("test -d " + shellQuote(overrideRoot + "/compiler_seen/src"))
+            if commandWasSuccessful(validateOverrideResult) {
+                return overrideRoot
+            }
+        }
+    }
+
     // Try /proc/$PPID/exe — $PPID is the compiler process (parent of the shell spawned by runCommand)
     let exeResult = runCommand("readlink -f /proc/$PPID/exe")
     if commandWasSuccessful(exeResult) {
