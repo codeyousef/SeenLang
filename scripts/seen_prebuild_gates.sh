@@ -41,8 +41,6 @@ sweep_saved_ll_dir() {
         count=$((count + 1))
         local copy="$work_dir/$(basename "$ll")"
         cp "$ll" "$copy"
-        run_with_opt_cap python3 "$SCRIPT_DIR/fix_ir.py" "$copy"
-        run_with_opt_cap llvm-as "$copy" -o /dev/null
     done
 
     if [ "$count" -eq 0 ]; then
@@ -50,6 +48,12 @@ sweep_saved_ll_dir() {
         rm -rf "$work_dir"
         exit 1
     fi
+    run_with_opt_cap python3 "$SCRIPT_DIR/verify_ir_call_shapes.py" "$work_dir"
+    for ll in "$work_dir"/seen_module_*.ll; do
+        [ -f "$ll" ] || continue
+        run_with_opt_cap python3 "$SCRIPT_DIR/fix_ir.py" "$ll"
+        run_with_opt_cap llvm-as "$ll" -o /dev/null
+    done
     echo "PASS: preflight swept $count saved Stage2 .ll file(s)"
     rm -rf "$work_dir"
 }
@@ -62,12 +66,15 @@ require_cmd llvm-as
 require_cmd opt
 
 echo "Prebuild gates: Python and shell syntax..."
-python3 -m py_compile "$SCRIPT_DIR/fix_ir.py" "$SCRIPT_DIR/check_codegen_abi_boundaries.py"
+python3 -m py_compile "$SCRIPT_DIR/fix_ir.py" \
+    "$SCRIPT_DIR/check_codegen_abi_boundaries.py" \
+    "$SCRIPT_DIR/verify_ir_call_shapes.py"
 bash -n "$SCRIPT_DIR/safe_rebuild.sh" \
     "$SCRIPT_DIR/recovery_opt.sh" \
     "$SCRIPT_DIR/seen_prebuild_gates.sh" \
     "$REPO_ROOT/tests/misc_root_tests/seen_fix_ir_stage2_patterns.sh" \
-    "$REPO_ROOT/tests/misc_root_tests/seen_codegen_abi_preflight.sh"
+    "$REPO_ROOT/tests/misc_root_tests/seen_codegen_abi_preflight.sh" \
+    "$REPO_ROOT/tests/misc_root_tests/seen_ir_call_shape_preflight.sh"
 
 if [ "${SEEN_SKIP_CODEGEN_ABI_PREFLIGHT:-0}" != "1" ]; then
     echo "Prebuild gates: codegen ABI/import/cycle checks..."
@@ -81,6 +88,9 @@ bash "$REPO_ROOT/tests/misc_root_tests/seen_codegen_abi_preflight.sh"
 
 echo "Prebuild gates: Stage2 IR repair patterns under ${OPT_VMEM_KB} KiB cap..."
 run_with_opt_cap bash "$REPO_ROOT/tests/misc_root_tests/seen_fix_ir_stage2_patterns.sh"
+
+echo "Prebuild gates: IR call shape verifier..."
+run_with_opt_cap bash "$REPO_ROOT/tests/misc_root_tests/seen_ir_call_shape_preflight.sh"
 
 sweep_saved_ll_dir
 
