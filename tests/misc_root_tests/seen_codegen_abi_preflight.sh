@@ -1266,4 +1266,31 @@ fun bad(fn: FunctionNode) r: Void {
 SEEN
 expect_fail facade_owner_call
 
+write_owner_modules
+cat > "$TMP_DIR/compiler_seen/src/codegen/bad_aggregate_helper.seen" <<'SEEN'
+class IdentityLikeSnapshot {
+    var names: Array<String>
+}
+
+fun oversizedIdentityLikeHelper(a0: String, a1: Array<String>,
+    a2: Array<Int>, a3: IdentityLikeSnapshot, a4: IdentityLikeSnapshot,
+    a5: String, a6: Array<String>, a7: Array<Int>,
+    a8: IdentityLikeSnapshot, a9: String, a10: Array<String>,
+    a11: Array<Int>, a12: IdentityLikeSnapshot, a13: String,
+    a14: Array<String>, a15: Array<Int>, a16: IdentityLikeSnapshot,
+    a17: String, a18: Array<String>, a19: Array<Int>,
+    a20: IdentityLikeSnapshot) r: Void {
+}
+SEEN
+cat > "$TMP_DIR/compiler_seen/src/codegen/bad_aggregate_call.seen" <<'SEEN'
+fun callOversizedIdentityLikeHelper() r: Void {
+    oversizedIdentityLikeHelper(s0, a1, a2, snap3, snap4, s5, a6, a7,
+        snap8, s9, a10, a11, snap12, s13, a14, a15, snap16, s17,
+        a18, a19, snap20)
+}
+SEEN
+expect_fail aggregate_abi_risky_helper
+rm -f "$TMP_DIR/compiler_seen/src/codegen/bad_aggregate_helper.seen" \
+    "$TMP_DIR/compiler_seen/src/codegen/bad_aggregate_call.seen"
+
 echo "PASS: codegen ABI preflight regressions"

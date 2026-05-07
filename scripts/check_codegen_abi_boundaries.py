@@ -106,6 +106,50 @@ KNOWN_FACADE_OWNER_CALLS = {
     "emitPreparedFinalMethodDispatchState",
     "emitWhenPatternBindingsState",
 }
+AGGREGATE_ABI_PARAM_THRESHOLD = 20
+AGGREGATE_ABI_AGGREGATE_THRESHOLD = 12
+AGGREGATE_ABI_SIGNATURE_ALLOWLIST = {
+    # Existing reviewed bridge/helper shapes. New helpers over the threshold
+    # should prefer a state/context object or a smaller focused helper.
+    "ir_assignment_gen.emitImplicitThisMemberAssignmentImpl",
+    "ir_assignment_gen.emitResolvedMemberAssignmentStoreImpl",
+    "ir_assignment_gen.emitValueReceiverMemberAssignmentImpl",
+    "ir_assignment_gen.emitVariableReceiverMemberAssignmentImpl",
+    "ir_class_type_decorators.new",
+    "ir_class_type_decorators.prepareClassTypeDecoratorScanSnapshotImpl",
+    "ir_codegen_state_bridge.syncCodegenStateBridgeImpl",
+    "ir_decl_registry.captureDeclarationPassStateImpl",
+    "ir_decl_registry.new",
+    "ir_member_access_gen.emitBracketPathMemberAccessImpl",
+    "ir_member_access_gen.emitChainedReceiverMemberAccessImpl",
+    "ir_member_access_gen.emitImplicitThisReceiverMemberAccessImpl",
+    "ir_member_access_gen.emitModuleConstReceiverMemberAccessImpl",
+    "ir_member_access_gen.emitPreparedBracketPathMemberAccessImpl",
+    "ir_member_access_gen.emitPreparedChainedReceiverMemberAccessImpl",
+    "ir_member_access_gen.emitPreparedImplicitThisReceiverMemberAccessImpl",
+    "ir_member_access_gen.emitPreparedModuleConstReceiverMemberAccessImpl",
+    "ir_method_receiver_lookup_gen.emitImplicitDottedMethodReceiverLoadImpl",
+    "ir_method_receiver_lookup_gen.emitImplicitThisMethodReceiverLoadImpl",
+    "ir_method_receiver_lookup_gen.tryResolveImplicitThisDottedMethodReceiverStateImpl",
+    "ir_method_receiver_lookup_gen.tryResolveImplicitThisLiteralMethodReceiverStateImpl",
+}
+AGGREGATE_ABI_PRIMITIVE_TYPES = {
+    "Bool",
+    "Byte",
+    "Char",
+    "Double",
+    "Float",
+    "Float32",
+    "Float64",
+    "I32",
+    "I64",
+    "Int",
+    "UInt",
+    "UInt32",
+    "UInt64",
+    "U8",
+    "Void",
+}
 
 IDENTITY_HELPER = "prepareFunctionGenerationIdentityWithGlobalStateImpl"
 IDENTITY_FORBIDDEN_PARAMS = {
@@ -2638,6 +2682,90 @@ def late_declare_stack_api_findings(root: Path) -> list[Finding]:
     return findings
 
 
+def param_declared_type(param: str) -> str:
+    if ":" not in param:
+        return ""
+    type_text = param.split(":", 1)[1].split("=", 1)[0].strip()
+    # Drop a possible return marker if a malformed parse included it.
+    if ") r:" in type_text:
+        type_text = type_text.split(") r:", 1)[0].strip()
+    return type_text
+
+
+def is_aggregate_abi_type(type_name: str) -> bool:
+    if not type_name:
+        return False
+    if type_name == "String" or type_name == "StringBuilder":
+        return True
+    if type_name.startswith("Array<"):
+        return True
+    if type_name.endswith("Snapshot") or type_name.endswith("State"):
+        return True
+    if type_name[0].isupper() and type_name not in AGGREGATE_ABI_PRIMITIVE_TYPES:
+        return True
+    return False
+
+
+def aggregate_abi_signature_findings(root: Path) -> list[Finding]:
+    codegen_path = root / "compiler_seen" / "src" / "codegen"
+    findings: list[Finding] = []
+    risky_defs: dict[str, tuple[Path, int, int, int]] = {}
+    for path in sorted(codegen_path.glob("*.seen")):
+        text = "\n".join(source_lines(path))
+        pattern = re.compile(r"\bfun\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(")
+        for match in pattern.finditer(text):
+            name = match.group(1)
+            open_index = text.find("(", match.start())
+            params_text, _ = collect_balanced(text, open_index)
+            params = split_top_level_args(params_text)
+            aggregate_params = [
+                param
+                for param in params
+                if is_aggregate_abi_type(param_declared_type(param))
+            ]
+            if len(params) < AGGREGATE_ABI_PARAM_THRESHOLD:
+                continue
+            if len(aggregate_params) < AGGREGATE_ABI_AGGREGATE_THRESHOLD:
+                continue
+            key = f"{path.stem}.{name}"
+            if key in AGGREGATE_ABI_SIGNATURE_ALLOWLIST:
+                continue
+            line_no = line_for_offset(text, match.start())
+            risky_defs[name] = (path, line_no, len(params), len(aggregate_params))
+            findings.append(
+                Finding(
+                    path,
+                    line_no,
+                    f"{name} has {len(params)} params with "
+                    f"{len(aggregate_params)} aggregate-like values; use a "
+                    "state/context object, owner wrapper, or split helper "
+                    f"(allowlist key: {key})",
+                )
+            )
+
+    for path in sorted(codegen_path.glob("*.seen")):
+        text = "\n".join(source_lines(path))
+        for line_no, callee, args, _ in find_calls(text):
+            risky = risky_defs.get(callee)
+            if risky is None:
+                continue
+            def_path, _, param_count, aggregate_count = risky
+            if def_path == path:
+                continue
+            if len(args) < AGGREGATE_ABI_PARAM_THRESHOLD:
+                continue
+            findings.append(
+                Finding(
+                    path,
+                    line_no,
+                    f"cross-module call to aggregate-heavy helper {callee} "
+                    f"passes {len(args)} args; definition has {param_count} "
+                    f"params and {aggregate_count} aggregate-like values",
+                )
+            )
+    return findings
+
+
 def facade_owner_call_findings(root: Path) -> list[Finding]:
     path = root / "compiler_seen" / "src" / "codegen" / "llvm_ir_gen.seen"
     text = "\n".join(source_lines(path))
@@ -2741,6 +2869,7 @@ def main() -> int:
     findings.extend(function_registry_boundary_findings(root))
     findings.extend(late_declare_stack_api_findings(root))
     findings.extend(ast_layout_boundary_findings(root))
+    findings.extend(aggregate_abi_signature_findings(root))
     findings.extend(facade_owner_call_findings(root))
     findings.extend(facade_string_prefix_owner_findings(root))
 
