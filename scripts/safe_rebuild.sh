@@ -1452,6 +1452,18 @@ if count > 0:
         # with \00 or other garbage. Remove these — the correct declare is already present.
         sed -i '/^declare.*\\\\00/d' "\$arg" 2>/dev/null || true
 
+        # IR call-shape validation: compare direct call sites with declared/defined
+        # signatures before opt, so aggregate/scalar ABI drift fails with context.
+        if [ "\${SEEN_SKIP_IR_CALL_SHAPE_VERIFY:-0}" != "1" ]; then
+            if ! python3 "$SCRIPT_DIR/verify_ir_call_shapes.py" "\$arg" 2>/tmp/seen_call_shape_err.txt; then
+                echo "IR CALL SHAPE ERROR: \$arg" >&2
+                head -20 /tmp/seen_call_shape_err.txt >&2
+                rm -f /tmp/seen_call_shape_err.txt
+                exit 1
+            fi
+            rm -f /tmp/seen_call_shape_err.txt
+        fi
+
         # NOTE: Phantom declare removal disabled — it was too aggressive and removed
         # declares for cross-module functions (emitIncludeStrImpl, etc.) that ARE called
         # from the module via ThinLTO. The awk dedup + fix_ir.py handle the critical cases.
@@ -1475,7 +1487,8 @@ if count > 0:
 
         # NOTE: seen_ir_lint disabled — it naively counts commas to determine
         # argument count, causing false positives on LLVM inline struct literals
-        # like %SeenString { i64 7, ptr @.str }. llvm-as above catches real errors.
+        # like %SeenString { i64 7, ptr @.str }. verify_ir_call_shapes.py handles
+        # direct call signatures without those comma-splitting false positives.
     fi
 done
 if [ "\${SEEN_LOW_MEMORY:-0}" = "1" ]; then
