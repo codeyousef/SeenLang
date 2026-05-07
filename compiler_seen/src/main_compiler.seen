@@ -24,7 +24,7 @@ limitation where boolean variables generate invalid IR.
 ///
 
 import bootstrap.frontend.{FrontendResult, FrontendDiagnostic, run_frontend, run_frontend_declarations, encodeDiagMessage, parseDiagBaseMessage, parseDiagCode, parseDiagSuggestion, parseDiagNote, parseDiagEndColumn}
-import io.file.{readText, writeText, exists}
+import io.file.{readText, writeText, appendText, exists}
 import process.process.{runCommand, runProgram, CommandResult, commandWasSuccessful, processFork, waitPid, processExit, shellQuote}
 import env.env.{args}
 import codegen.llvm_ir_gen.{LLVMIRGenerator, overrideTargetTriple}
@@ -1887,6 +1887,69 @@ fun createPackageInterfaceIndex(manifestPath: String, tomlContent: String,
     return writeText(outputRoot + "/interface.index.tsv", indexText)
 }
 
+fun appendPrebuiltPackageManifestQuoted(manifestPath: String,
+    fieldName: String, fieldValue: String) r: Bool {
+
+    if not appendText(manifestPath, fieldName) {
+        return false
+    }
+    if not appendText(manifestPath, fieldValue) {
+        return false
+    }
+    return appendText(manifestPath, "\"\n")
+}
+
+fun writePrebuiltPackageManifest(outputRoot: String, projectName: String,
+    version: String, declarationDigest: String) r: Bool {
+
+    let manifestPath = outputRoot + "/Seen.pkg.toml"
+    if not writeText(manifestPath, "version = 1\n") {
+        return false
+    }
+    if not appendPrebuiltPackageManifestQuoted(manifestPath, "name = \"",
+        projectName) {
+
+        return false
+    }
+    if not appendPrebuiltPackageManifestQuoted(manifestPath,
+        "package_version = \"", version) {
+
+        return false
+    }
+    if not appendPrebuiltPackageManifestQuoted(manifestPath, "kind = \"",
+        "prebuilt") {
+
+        return false
+    }
+    if not appendPrebuiltPackageManifestQuoted(manifestPath,
+        "interface_path = \"", "src") {
+
+        return false
+    }
+    if not appendPrebuiltPackageManifestQuoted(manifestPath,
+        "interface_index = \"", "interface.index.tsv") {
+
+        return false
+    }
+    if not appendPrebuiltPackageManifestQuoted(manifestPath,
+        "object_manifest = \"", "objects.tsv") {
+
+        return false
+    }
+    if not appendPrebuiltPackageManifestQuoted(manifestPath,
+        "declaration_digest = \"", declarationDigest) {
+
+        return false
+    }
+    if not appendText(manifestPath, "build_signature = \"target=") {
+        return false
+    }
+    if not appendText(manifestPath, detectHostTargetName()) {
+        return false
+    }
+    return appendText(manifestPath, "|pic=1\"\n")
+}
+
 fun createPrebuiltPackageArtifact(manifestPath: String,
     outputRoot: String) r: Bool {
 
@@ -1925,13 +1988,16 @@ fun createPrebuiltPackageArtifact(manifestPath: String,
     let rawManifest = outputRoot + "/objects.raw.tsv"
     let savedPicMode = g_picMode
     let savedObjectManifestPath = g_objectManifestPath
+    let savedSkipWholeProjectPreflight = g_skipWholeProjectPreflight
     g_picMode = 1
     g_objectManifestPath = rawManifest
+    g_skipWholeProjectPreflight = 1
     let compileStatus = compileCommandWithAllOptions(entryPath,
         outputRoot + "/prebuilt", "default", false, false, "en", "",
         "auto", false, "none", "", "", "", "")
     g_picMode = savedPicMode
     g_objectManifestPath = savedObjectManifestPath
+    g_skipWholeProjectPreflight = savedSkipWholeProjectPreflight
     if compileStatus != 0 {
         println("Error: failed to compile prebuilt package artifact")
         return false
@@ -1943,17 +2009,9 @@ fun createPrebuiltPackageArtifact(manifestPath: String,
     removePathIfExists(rawManifest)
 
     let declDigest = computeSeenSourceTreeDigest(projectRoot)
-    let buildSig = "target=" + detectHostTargetName() + "|pic=1"
-    var manifest = "version = 1\n"
-    manifest = manifest + "name = \"" + projectName + "\"\n"
-    manifest = manifest + "package_version = \"" + version + "\"\n"
-    manifest = manifest + "kind = \"prebuilt\"\n"
-    manifest = manifest + "interface_path = \"src\"\n"
-    manifest = manifest + "interface_index = \"interface.index.tsv\"\n"
-    manifest = manifest + "object_manifest = \"objects.tsv\"\n"
-    manifest = manifest + "declaration_digest = \"" + declDigest + "\"\n"
-    manifest = manifest + "build_signature = \"" + buildSig + "\"\n"
-    if not writeText(outputRoot + "/Seen.pkg.toml", manifest) {
+    if not writePrebuiltPackageManifest(outputRoot, projectName, version,
+        declDigest) {
+
         return false
     }
     return true
@@ -3872,6 +3930,9 @@ fun moduleGraphContainsCompilerSources(modulePaths: Array<String>) r: Bool {
 }
 
 fun shouldRunWholeProjectPreflight(modulePaths: Array<String>) r: Bool {
+    if g_skipWholeProjectPreflight == 1 {
+        return false
+    }
     if g_generatedTestMainMode == 1 {
         return false
     }
@@ -5338,16 +5399,84 @@ fun checkEnumExhaustivenessExpression(result: FrontendResult, modulePath: String
         }
     }
 
-    var operandIdx = 0
-    while operandIdx < expr.operands.length() {
-        checkEnumExhaustivenessExpression(result, modulePath, moduleProgram, modulePaths, frontends, expr.operands[operandIdx], boundNames, boundTypes, ownerClassName, funcLine)
-        operandIdx = operandIdx + 1
+    if expr.kind == "Call" {
+        var callArgIdx = 0
+        while callArgIdx < expr.arguments.length() {
+            checkEnumExhaustivenessExpression(result, modulePath, moduleProgram, modulePaths, frontends, expr.arguments[callArgIdx], boundNames, boundTypes, ownerClassName, funcLine)
+            callArgIdx = callArgIdx + 1
+        }
+        return
     }
 
-    var argIdx = 0
-    while argIdx < expr.arguments.length() {
-        checkEnumExhaustivenessExpression(result, modulePath, moduleProgram, modulePaths, frontends, expr.arguments[argIdx], boundNames, boundTypes, ownerClassName, funcLine)
-        argIdx = argIdx + 1
+    if expr.kind == "MethodCall" {
+        var methodArgIdx = 0
+        while methodArgIdx < expr.arguments.length() {
+            checkEnumExhaustivenessExpression(result, modulePath, moduleProgram, modulePaths, frontends, expr.arguments[methodArgIdx], boundNames, boundTypes, ownerClassName, funcLine)
+            methodArgIdx = methodArgIdx + 1
+        }
+        var methodOperandIdx = 0
+        while methodOperandIdx < expr.operands.length() {
+            checkEnumExhaustivenessExpression(result, modulePath, moduleProgram, modulePaths, frontends, expr.operands[methodOperandIdx], boundNames, boundTypes, ownerClassName, funcLine)
+            methodOperandIdx = methodOperandIdx + 1
+        }
+        return
+    }
+
+    if expr.kind == "StructLiteral" {
+        var fieldIdx = 0
+        while fieldIdx < expr.arguments.length() {
+            let fieldExpr = expr.arguments[fieldIdx]
+            if fieldExpr.operands.length() > 0 {
+                checkEnumExhaustivenessExpression(result, modulePath, moduleProgram, modulePaths, frontends, fieldExpr.operands[0], boundNames, boundTypes, ownerClassName, funcLine)
+            }
+            fieldIdx = fieldIdx + 1
+        }
+        return
+    }
+
+    if expr.kind == "ArrayLiteral" or expr.kind == "StringInterpolation" {
+        var argIdx = 0
+        while argIdx < expr.arguments.length() {
+            checkEnumExhaustivenessExpression(result, modulePath, moduleProgram, modulePaths, frontends, expr.arguments[argIdx], boundNames, boundTypes, ownerClassName, funcLine)
+            argIdx = argIdx + 1
+        }
+        return
+    }
+
+    if expr.kind == "WhenExpression" {
+        var subjectIdx = 0
+        while subjectIdx < expr.operands.length() {
+            checkEnumExhaustivenessExpression(result, modulePath, moduleProgram, modulePaths, frontends, expr.operands[subjectIdx], boundNames, boundTypes, ownerClassName, funcLine)
+            subjectIdx = subjectIdx + 1
+        }
+        var armIdx = 0
+        while armIdx < expr.arguments.length() {
+            let armExpr = expr.arguments[armIdx]
+            var armOperandIdx = 0
+            while armOperandIdx < armExpr.operands.length() {
+                checkEnumExhaustivenessExpression(result, modulePath, moduleProgram, modulePaths, frontends, armExpr.operands[armOperandIdx], boundNames, boundTypes, ownerClassName, funcLine)
+                armOperandIdx = armOperandIdx + 1
+            }
+            armIdx = armIdx + 1
+        }
+        return
+    }
+
+    if expr.kind == "Binary" or expr.kind == "Unary" or
+        expr.kind == "Cast" or expr.kind == "Await" or
+        expr.kind == "Assignment" or expr.kind == "MemberAssignment" or
+        expr.kind == "IndexAssignment" or expr.kind == "MemberAccess" or
+        expr.kind == "IndexAccess" or expr.kind == "Elvis" or
+        expr.kind == "NullCoalesce" or expr.kind == "SafeNavigation" or
+        expr.kind == "IfExpression" or expr.kind == "ReturnExpr" or
+        expr.kind == "TryPropagate" or expr.kind == "Range" or
+        expr.kind == "IsExpression" {
+
+        var operandIdx = 0
+        while operandIdx < expr.operands.length() {
+            checkEnumExhaustivenessExpression(result, modulePath, moduleProgram, modulePaths, frontends, expr.operands[operandIdx], boundNames, boundTypes, ownerClassName, funcLine)
+            operandIdx = operandIdx + 1
+        }
     }
 }
 
@@ -5488,6 +5617,22 @@ fun checkEnumExhaustivenessInFunction(result: FrontendResult, modulePath: String
     }
 
     checkEnumExhaustivenessBlock(result, modulePath, moduleProgram, modulePaths, frontends, func.body, boundNames, boundTypes, ownerClassName, func.line)
+}
+
+fun moduleSetHasAnyEnum(frontends: Array<FrontendResult>) r: Bool {
+    var moduleIdx = 0
+    while moduleIdx < frontends.length() {
+        let program = frontends[moduleIdx].program
+        var itemIdx = 0
+        while itemIdx < program.items.length() {
+            if program.items[itemIdx].itemType == "Enum" {
+                return true
+            }
+            itemIdx = itemIdx + 1
+        }
+        moduleIdx = moduleIdx + 1
+    }
+    return false
 }
 
 fun isKnownCompilerBuiltinCallName(callName: String) r: Bool {
@@ -5680,22 +5825,99 @@ fun checkUnresolvedFreeCallExpression(result: FrontendResult,
                     expr.callee)
             }
         }
+        var callArgIdx = 0
+        while callArgIdx < expr.arguments.length() {
+            checkUnresolvedFreeCallExpression(result, modulePath, moduleProgram,
+                expr.arguments[callArgIdx], boundNames, boundTypes,
+                ownerClassName, funcLine)
+            callArgIdx = callArgIdx + 1
+        }
+        return
     }
 
-    var operandIdx = 0
-    while operandIdx < expr.operands.length() {
-        checkUnresolvedFreeCallExpression(result, modulePath, moduleProgram,
-            expr.operands[operandIdx], boundNames, boundTypes, ownerClassName,
-            funcLine)
-        operandIdx = operandIdx + 1
+    if expr.kind == "MethodCall" {
+        var methodArgIdx = 0
+        while methodArgIdx < expr.arguments.length() {
+            checkUnresolvedFreeCallExpression(result, modulePath, moduleProgram,
+                expr.arguments[methodArgIdx], boundNames, boundTypes,
+                ownerClassName, funcLine)
+            methodArgIdx = methodArgIdx + 1
+        }
+        var methodOperandIdx = 0
+        while methodOperandIdx < expr.operands.length() {
+            checkUnresolvedFreeCallExpression(result, modulePath, moduleProgram,
+                expr.operands[methodOperandIdx], boundNames, boundTypes,
+                ownerClassName, funcLine)
+            methodOperandIdx = methodOperandIdx + 1
+        }
+        return
     }
 
-    var argIdx = 0
-    while argIdx < expr.arguments.length() {
-        checkUnresolvedFreeCallExpression(result, modulePath, moduleProgram,
-            expr.arguments[argIdx], boundNames, boundTypes, ownerClassName,
-            funcLine)
-        argIdx = argIdx + 1
+    if expr.kind == "StructLiteral" {
+        var fieldIdx = 0
+        while fieldIdx < expr.arguments.length() {
+            let fieldExpr = expr.arguments[fieldIdx]
+            if fieldExpr.operands.length() > 0 {
+                checkUnresolvedFreeCallExpression(result, modulePath,
+                    moduleProgram, fieldExpr.operands[0], boundNames,
+                    boundTypes, ownerClassName, funcLine)
+            }
+            fieldIdx = fieldIdx + 1
+        }
+        return
+    }
+
+    if expr.kind == "ArrayLiteral" or expr.kind == "StringInterpolation" {
+        var argIdx = 0
+        while argIdx < expr.arguments.length() {
+            checkUnresolvedFreeCallExpression(result, modulePath,
+                moduleProgram, expr.arguments[argIdx], boundNames, boundTypes,
+                ownerClassName, funcLine)
+            argIdx = argIdx + 1
+        }
+        return
+    }
+
+    if expr.kind == "WhenExpression" {
+        var subjectIdx = 0
+        while subjectIdx < expr.operands.length() {
+            checkUnresolvedFreeCallExpression(result, modulePath,
+                moduleProgram, expr.operands[subjectIdx], boundNames,
+                boundTypes, ownerClassName, funcLine)
+            subjectIdx = subjectIdx + 1
+        }
+        var armIdx = 0
+        while armIdx < expr.arguments.length() {
+            let armExpr = expr.arguments[armIdx]
+            var armOperandIdx = 0
+            while armOperandIdx < armExpr.operands.length() {
+                checkUnresolvedFreeCallExpression(result, modulePath,
+                    moduleProgram, armExpr.operands[armOperandIdx],
+                    boundNames, boundTypes, ownerClassName, funcLine)
+                armOperandIdx = armOperandIdx + 1
+            }
+            armIdx = armIdx + 1
+        }
+        return
+    }
+
+    if expr.kind == "Binary" or expr.kind == "Unary" or
+        expr.kind == "Cast" or expr.kind == "Await" or
+        expr.kind == "Assignment" or expr.kind == "MemberAssignment" or
+        expr.kind == "IndexAssignment" or expr.kind == "MemberAccess" or
+        expr.kind == "IndexAccess" or expr.kind == "Elvis" or
+        expr.kind == "NullCoalesce" or expr.kind == "SafeNavigation" or
+        expr.kind == "IfExpression" or expr.kind == "ReturnExpr" or
+        expr.kind == "TryPropagate" or expr.kind == "Range" or
+        expr.kind == "IsExpression" {
+
+        var operandIdx = 0
+        while operandIdx < expr.operands.length() {
+            checkUnresolvedFreeCallExpression(result, modulePath,
+                moduleProgram, expr.operands[operandIdx], boundNames,
+                boundTypes, ownerClassName, funcLine)
+            operandIdx = operandIdx + 1
+        }
     }
 }
 
@@ -5957,6 +6179,7 @@ fun validateSealedModules(modulePaths: Array<String>, language: String) r: Front
 
     g_validationModulePaths = modulePaths
     g_validationFrontends = frontends
+    let hasAnyEnum = moduleSetHasAnyEnum(frontends)
 
     i = 0
     while i < modulePaths.length() {
@@ -6025,7 +6248,10 @@ fun validateSealedModules(modulePaths: Array<String>, language: String) r: Front
                     let method = cls.methods[methodIdx]
                     let methodName = cls.name + "." + method.name
                     checkImportedCapabilityBlock(result, modulePath, program, modulePaths, frontends, method, methodName, method.body, method.line)
-                    checkEnumExhaustivenessInFunction(result, modulePath, program, modulePaths, frontends, method, cls.name)
+                    if hasAnyEnum {
+                        checkEnumExhaustivenessInFunction(result, modulePath,
+                            program, modulePaths, frontends, method, cls.name)
+                    }
                     checkUnresolvedFreeCallsInFunction(result, modulePath,
                         program, method, cls.name)
                     methodIdx = methodIdx + 1
@@ -6035,7 +6261,10 @@ fun validateSealedModules(modulePaths: Array<String>, language: String) r: Front
             if item.itemType == "Function" {
                 let func = item.function
                 checkImportedCapabilityBlock(result, modulePath, program, modulePaths, frontends, func, func.name, func.body, func.line)
-                checkEnumExhaustivenessInFunction(result, modulePath, program, modulePaths, frontends, func, "")
+                if hasAnyEnum {
+                    checkEnumExhaustivenessInFunction(result, modulePath,
+                        program, modulePaths, frontends, func, "")
+                }
                 checkUnresolvedFreeCallsInFunction(result, modulePath, program,
                     func, "")
             }
@@ -6891,6 +7120,8 @@ var g_emitLlvm: Bool = false
 var g_fastMode = 0
 // Generated test-main mode leaves module objects for external test runners and skips final link.
 var g_generatedTestMainMode = 0
+// Scoped escape for nested compiler invocations that only materialize artifacts.
+var g_skipWholeProjectPreflight = 0
 // O2 mode flag: moderate optimization, faster than O3 for bootstrap stages (Int, not Bool -- Stage1 limitation)
 var g_O2Mode = 0
 // CLI flags for safety checks (Int, not Bool -- Stage1 limitation)

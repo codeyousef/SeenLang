@@ -508,6 +508,31 @@ expect_fail() {
 write_owner_modules
 python3 "$ROOT_DIR/scripts/check_codegen_abi_boundaries.py" "$TMP_DIR" >/dev/null
 
+cat > "$TMP_DIR/compiler_seen/src/codegen/ir_field_layout.seen" <<'SEEN'
+fun generateFieldAccessImpl(output: StringBuilder, regBox: Array<Int>,
+    ptrReg: String, structType: String, fieldName: String,
+    llvmFieldType: String, structNames: Array<String>,
+    structLayouts: Array<String>, structFieldNames: Array<String>,
+    structFieldTypes: Array<String>, reprCClassNames: String,
+    unionTypes: String, typeAliasNames: String, typeAliasTargets: String,
+    typeAliasCount: Int, enumTypeNames: String, bitfieldCount: Int,
+    bitfieldKeys: String, bitfieldWidths: String) r: String {
+    return ""
+}
+SEEN
+cat > "$TMP_DIR/compiler_seen/src/codegen/bad_field_access_arity.seen" <<'SEEN'
+fun bad(output: StringBuilder, regBox: Array<Int>) r: String {
+    return generateFieldAccessImpl(output, regBox, ptrReg, "Thing",
+        "field", structNames, structLayouts, structFieldNames,
+        structFieldTypes, reprCClassNames, unionTypes, typeAliasNames,
+        typeAliasTargets, typeAliasCount, enumTypeNames, bitfieldCount,
+        bitfieldKeys, bitfieldWidths)
+}
+SEEN
+expect_fail field_access_helper_arity
+rm -f "$TMP_DIR/compiler_seen/src/codegen/ir_field_layout.seen" \
+    "$TMP_DIR/compiler_seen/src/codegen/bad_field_access_arity.seen"
+
 cat > "$TMP_DIR/compiler_seen/src/codegen/bad_import.seen" <<'SEEN'
 import codegen.ir_codegen_global_state.{generatedFunctions}
 SEEN

@@ -382,6 +382,10 @@ STRING_BUILDER_FORBIDDEN_STATE = {
     "g_typeAliasCount",
     "g_enumTypeNames",
 }
+STRICT_HELPER_ARITY_NAMES = {
+    "generateFieldAccessImpl",
+    "generateFieldAccessPtrImpl",
+}
 AST_LAYOUT_STRUCTS = (
     "StatementNode",
     "ParserExpressionNode",
@@ -1032,6 +1036,47 @@ def find_calls(text: str, name: str | None = None) -> list[tuple[int, str, list[
             )
         )
     return calls
+
+
+def strict_helper_arity_findings(root: Path) -> list[Finding]:
+    codegen_path = root / "compiler_seen" / "src" / "codegen"
+    findings: list[Finding] = []
+    definitions: dict[str, tuple[Path, int, int]] = {}
+    for path in sorted(codegen_path.glob("*.seen")):
+        text = "\n".join(source_lines(path))
+        for helper_name in STRICT_HELPER_ARITY_NAMES:
+            definition = find_function_definition(text, helper_name)
+            if definition is None:
+                continue
+            line_no, params = definition
+            definitions[helper_name] = (path, line_no, len(params))
+
+    for helper_name, (definition_path, definition_line, expected_args) in sorted(
+        definitions.items()
+    ):
+        if expected_args <= 0:
+            findings.append(
+                Finding(
+                    definition_path,
+                    definition_line,
+                    f"{helper_name} has no parsed parameters; arity guard cannot run",
+                )
+            )
+            continue
+        for path in sorted(codegen_path.glob("*.seen")):
+            text = "\n".join(source_lines(path))
+            for line_no, _, args, _ in find_calls(text, helper_name):
+                if len(args) != expected_args:
+                    findings.append(
+                        Finding(
+                            path,
+                            line_no,
+                            f"{helper_name} call has {len(args)} args; "
+                            f"definition requires {expected_args}. Missing "
+                            "state/helper arguments corrupt Stage2 ABI values.",
+                        )
+                    )
+    return findings
 
 
 def static_method_dispatch_boundary_findings(root: Path) -> list[Finding]:
@@ -2677,6 +2722,7 @@ def main() -> int:
     findings.extend(preallocated_alloca_boundary_findings(root))
     findings.extend(extern_generation_boundary_findings(root))
     findings.extend(string_builder_method_lower_boundary_findings(root))
+    findings.extend(strict_helper_arity_findings(root))
     findings.extend(identity_boundary_findings(root))
     findings.extend(prebody_boundary_findings(root))
     findings.extend(facade_feature_box_findings(root))

@@ -3377,15 +3377,17 @@ class LLVMIRGenerator {
     fun generateMemberAccess(expr: ParserExpressionNode) r: String {
         let receiverName = expr.literalValue
         let fieldName = expr.variableName
+        let operandCount = expr.operands.length()
         var dottedBaseKnown = false
-        if receiverName.contains(".") {
+        if operandCount == 0 and receiverName != "" and
+            receiverName.contains(".") {
             let receiverSegments = splitChainedPathImpl(receiverName)
             if receiverSegments.length() > 0 and
                 findVarType(receiverSegments[0]) != "" {
                 dottedBaseKnown = true
             }
         }
-        let memberRoute = planMemberAccessRouteImpl(expr.operands.length(),
+        let memberRoute = planMemberAccessRouteImpl(operandCount,
             receiverName, dottedBaseKnown)
 
         if memberRoute.shouldTryRebuild {
