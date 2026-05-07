@@ -74,7 +74,8 @@ bash -n "$SCRIPT_DIR/safe_rebuild.sh" \
     "$SCRIPT_DIR/seen_prebuild_gates.sh" \
     "$REPO_ROOT/tests/misc_root_tests/seen_fix_ir_stage2_patterns.sh" \
     "$REPO_ROOT/tests/misc_root_tests/seen_codegen_abi_preflight.sh" \
-    "$REPO_ROOT/tests/misc_root_tests/seen_ir_call_shape_preflight.sh"
+    "$REPO_ROOT/tests/misc_root_tests/seen_ir_call_shape_preflight.sh" \
+    "$REPO_ROOT/tests/misc_root_tests/seen_selfhosted_abi_smoke.sh"
 
 if [ "${SEEN_SKIP_CODEGEN_ABI_PREFLIGHT:-0}" != "1" ]; then
     echo "Prebuild gates: codegen ABI/import/cycle checks..."
@@ -91,6 +92,14 @@ run_with_opt_cap bash "$REPO_ROOT/tests/misc_root_tests/seen_fix_ir_stage2_patte
 
 echo "Prebuild gates: IR call shape verifier..."
 run_with_opt_cap bash "$REPO_ROOT/tests/misc_root_tests/seen_ir_call_shape_preflight.sh"
+
+if [ "${SEEN_SKIP_SELFHOSTED_ABI_SMOKE:-0}" != "1" ]; then
+    echo "Prebuild gates: self-hosted ABI smoke fixture..."
+    SEEN_SELFHOSTED_ABI_VMEM_KB="${SEEN_SELFHOSTED_ABI_VMEM_KB:-${SEEN_MAIN_VMEM_KB:-2097152}}" \
+        bash "$REPO_ROOT/tests/misc_root_tests/seen_selfhosted_abi_smoke.sh"
+else
+    echo "Prebuild gates: self-hosted ABI smoke skipped by SEEN_SKIP_SELFHOSTED_ABI_SMOKE=1"
+fi
 
 sweep_saved_ll_dir
 
