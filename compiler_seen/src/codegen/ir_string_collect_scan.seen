@@ -58,7 +58,7 @@ fun collectSelfCallsFromStmtImpl(funcName: String, stmt: StatementNode, selfCall
 }
 
 fun collectSelfCallsFromExprImpl(funcName: String, expr: ParserExpressionNode, selfCallBox: Array<String>, selfCallCountBox: Array<Int>) r: Void {
-    if expr.kind == "" { return }
+    if expr.kind == "" or expr.kind == "None" { return }
     if expr.kind == "Call" {
         if expr.callee == funcName {
             let countIdx = selfCallCountBox.length() - 1
@@ -73,18 +73,92 @@ fun collectSelfCallsFromExprImpl(funcName: String, expr: ParserExpressionNode, s
                 selfCallBox.push(selfCallBox[namesIdx] + "|" + funcName)
             }
             selfCallCountBox.push(count + 1)
-            return
+        }
+        var callArgIdx = 0
+        while callArgIdx < expr.arguments.length() {
+            collectSelfCallsFromExprImpl(funcName, expr.arguments[callArgIdx],
+                selfCallBox, selfCallCountBox)
+            callArgIdx = callArgIdx + 1
+        }
+        return
+    }
+
+    if expr.kind == "MethodCall" {
+        var methodArgIdx = 0
+        while methodArgIdx < expr.arguments.length() {
+            collectSelfCallsFromExprImpl(funcName,
+                expr.arguments[methodArgIdx], selfCallBox, selfCallCountBox)
+            methodArgIdx = methodArgIdx + 1
+        }
+        var methodOperandIdx = 0
+        while methodOperandIdx < expr.operands.length() {
+            collectSelfCallsFromExprImpl(funcName,
+                expr.operands[methodOperandIdx], selfCallBox,
+                selfCallCountBox)
+            methodOperandIdx = methodOperandIdx + 1
+        }
+        return
+    }
+
+    if expr.kind == "StructLiteral" {
+        var fieldIdx = 0
+        while fieldIdx < expr.arguments.length() {
+            let fieldExpr = expr.arguments[fieldIdx]
+            if fieldExpr.operands.length() > 0 {
+                collectSelfCallsFromExprImpl(funcName, fieldExpr.operands[0],
+                    selfCallBox, selfCallCountBox)
+            }
+            fieldIdx = fieldIdx + 1
+        }
+        return
+    }
+
+    if expr.kind == "ArrayLiteral" or expr.kind == "StringInterpolation" {
+        var argIdx = 0
+        while argIdx < expr.arguments.length() {
+            collectSelfCallsFromExprImpl(funcName, expr.arguments[argIdx],
+                selfCallBox, selfCallCountBox)
+            argIdx = argIdx + 1
         }
     }
-    var ai = 0
-    while ai < expr.arguments.length() {
-        collectSelfCallsFromExprImpl(funcName, expr.arguments[ai], selfCallBox, selfCallCountBox)
-        ai = ai + 1
+
+    if expr.kind == "WhenExpression" {
+        var subjectIdx = 0
+        while subjectIdx < expr.operands.length() {
+            collectSelfCallsFromExprImpl(funcName, expr.operands[subjectIdx],
+                selfCallBox, selfCallCountBox)
+            subjectIdx = subjectIdx + 1
+        }
+        var armIdx = 0
+        while armIdx < expr.arguments.length() {
+            let armExpr = expr.arguments[armIdx]
+            var armOperandIdx = 0
+            while armOperandIdx < armExpr.operands.length() {
+                collectSelfCallsFromExprImpl(funcName,
+                    armExpr.operands[armOperandIdx], selfCallBox,
+                    selfCallCountBox)
+                armOperandIdx = armOperandIdx + 1
+            }
+            armIdx = armIdx + 1
+        }
+        return
     }
-    var oi = 0
-    while oi < expr.operands.length() {
-        collectSelfCallsFromExprImpl(funcName, expr.operands[oi], selfCallBox, selfCallCountBox)
-        oi = oi + 1
+
+    if expr.kind == "Binary" or expr.kind == "Unary" or
+        expr.kind == "Cast" or expr.kind == "Await" or
+        expr.kind == "Assignment" or expr.kind == "MemberAssignment" or
+        expr.kind == "IndexAssignment" or expr.kind == "MemberAccess" or
+        expr.kind == "IndexAccess" or expr.kind == "Elvis" or
+        expr.kind == "NullCoalesce" or expr.kind == "SafeNavigation" or
+        expr.kind == "IfExpression" or expr.kind == "ReturnExpr" or
+        expr.kind == "TryPropagate" {
+
+        var operandIdx = 0
+        while operandIdx < expr.operands.length() {
+            collectSelfCallsFromExprImpl(funcName, expr.operands[operandIdx],
+                selfCallBox, selfCallCountBox)
+            operandIdx = operandIdx + 1
+        }
     }
 }
 

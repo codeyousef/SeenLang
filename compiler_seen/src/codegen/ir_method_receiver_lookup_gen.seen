@@ -9,7 +9,7 @@ import codegen.ir_method_receiver_lookup_plan.{planImplicitThisDottedReceiverSta
 import codegen.ir_field_layout.{generateFieldAccessImpl, generateFieldAccessPtrImpl}
 import codegen.ir_path_expr.{splitFirstPathDotImpl}
 import codegen.ir_type_info.{getLLVMIRGeneratorFieldIndexImpl}
-import codegen.ir_type_mapping.{isClassHandleLikeTypeImpl, isClassTypeImpl}
+import codegen.ir_type_mapping.{mapTypeImpl, isClassHandleLikeTypeImpl, isClassTypeImpl}
 import codegen.ir_field_lookup_state.{getFieldInfoState}
 import codegen.type_registry_core.{findStructReg}
 
@@ -74,9 +74,11 @@ fun emitImplicitDottedMethodReceiverLoadImpl(output: StringBuilder,
     let thisPtrReg = emitImplicitThisPointerLoadImpl(output, regBox, thisReg)
     var accessFieldReg = ""
     if firstFieldIsClass {
+        let firstFieldLlvmType = mapTypeImpl(firstFieldType, structNames,
+            typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames)
         let firstFieldReg = generateFieldAccessImpl(output, regBox,
-            thisPtrReg, thisType, firstFieldName, structNames,
-            structLayouts, structFieldNames, structFieldTypes,
+            thisPtrReg, thisType, firstFieldName, firstFieldLlvmType,
+            structNames, structLayouts, structFieldNames, structFieldTypes,
             reprCClassNames, unionTypes, typeAliasNames, typeAliasTargets,
             typeAliasCount, enumTypeNames, bitfieldCount, bitfieldKeys,
             bitfieldWidths)
@@ -88,13 +90,16 @@ fun emitImplicitDottedMethodReceiverLoadImpl(output: StringBuilder,
     if accessFieldReg == "" {
         accessFieldReg = generateFieldAccessPtrImpl(output, regBox,
             thisPtrReg, thisType, firstFieldName, structNames, structLayouts,
-            structFieldNames, reprCClassNames, unionTypes)
+            structFieldNames, unionTypes)
     }
+    let receiverLlvmType = mapTypeImpl(receiverType, structNames,
+        typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames)
     let receiverReg = generateFieldAccessImpl(output, regBox,
-        accessFieldReg, firstFieldType, secondFieldName, structNames,
-        structLayouts, structFieldNames, structFieldTypes, reprCClassNames,
-        unionTypes, typeAliasNames, typeAliasTargets, typeAliasCount,
-        enumTypeNames, bitfieldCount, bitfieldKeys, bitfieldWidths)
+        accessFieldReg, firstFieldType, secondFieldName, receiverLlvmType,
+        structNames, structLayouts, structFieldNames, structFieldTypes,
+        reprCClassNames, unionTypes, typeAliasNames, typeAliasTargets,
+        typeAliasCount, enumTypeNames, bitfieldCount, bitfieldKeys,
+        bitfieldWidths)
     return MethodReceiverLoadResult.new(receiverReg, receiverType)
 }
 
@@ -152,8 +157,10 @@ fun emitImplicitThisMethodReceiverLoadImpl(output: StringBuilder,
     if lookupAction == 1 {
         let thisPtrReg = emitImplicitThisPointerLoadImpl(output, regBox,
             thisReg)
+        let receiverLlvmType = mapTypeImpl(receiverType, structNames,
+            typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames)
         let receiverReg = generateFieldAccessImpl(output, regBox,
-            thisPtrReg, "LLVMIRGenerator", varName, structNames,
+            thisPtrReg, "LLVMIRGenerator", varName, receiverLlvmType, structNames,
             structLayouts, structFieldNames, structFieldTypes,
             reprCClassNames, unionTypes, typeAliasNames, typeAliasTargets,
             typeAliasCount, enumTypeNames, bitfieldCount, bitfieldKeys,
@@ -163,11 +170,14 @@ fun emitImplicitThisMethodReceiverLoadImpl(output: StringBuilder,
     if lookupAction == 2 {
         let thisPtrReg = emitImplicitThisPointerLoadImpl(output, regBox,
             thisReg)
+        let receiverLlvmType = mapTypeImpl(receiverType, structNames,
+            typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames)
         let receiverReg = generateFieldAccessImpl(output, regBox,
-            thisPtrReg, thisType, varName, structNames, structLayouts,
-            structFieldNames, structFieldTypes, reprCClassNames, unionTypes,
-            typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames,
-            bitfieldCount, bitfieldKeys, bitfieldWidths)
+            thisPtrReg, thisType, varName, receiverLlvmType, structNames,
+            structLayouts, structFieldNames, structFieldTypes,
+            reprCClassNames, unionTypes, typeAliasNames, typeAliasTargets,
+            typeAliasCount, enumTypeNames, bitfieldCount, bitfieldKeys,
+            bitfieldWidths)
         return MethodReceiverLoadResult.new(receiverReg, receiverType)
     }
     if lookupAction == 3 {

@@ -4199,7 +4199,8 @@ class RealParser {
         // trace
         this.lastStatement.kind = "Return"
         if not checkToken(SeenTokenType.Semicolon) and not checkToken(SeenTokenType.RightBrace) {
-            parseExpressionInto(this.lastStatement.returnValue)
+            let exprResult = parseExpression()
+            this.lastStatement.returnValue = exprResult
         }
         if matchTokenStr(SeenTokenType.Semicolon) { }
         // trace
@@ -4430,7 +4431,8 @@ class RealParser {
         // Avoid storing peek() result to prevent Token copy corruption
         if not checkToken(SeenTokenType.Semicolon) and not checkToken(SeenTokenType.RightBrace) {
             // trace
-            parseExpressionInto(stmt.returnValue)
+            let exprResult = parseExpression()
+            stmt.returnValue = exprResult
             // trace
         }
         if matchTokenStr(SeenTokenType.Semicolon) { }
@@ -4504,6 +4506,7 @@ class RealParser {
             }
             if exprResult.kind == "Call" or exprResult.kind == "MethodCall" {
                 stmt.returnValue.callee = exprResult.callee
+                stmt.returnValue.literalValue = exprResult.literalValue
             }
             if exprResult.kind == "Binary" {
                 stmt.returnValue.operator = exprResult.operator
@@ -4531,6 +4534,65 @@ class RealParser {
             ///
             if exprResult.kind == "Call" or exprResult.kind == "MethodCall" {
                 stmt.returnValue.arguments = exprResult.arguments
+            }
+            if exprResult.kind == "MethodCall" {
+                var methodOperandIdx = 0
+                while methodOperandIdx < exprResult.operands.length() {
+                    stmt.returnValue.operands.push(
+                        exprResult.operands[methodOperandIdx])
+                    methodOperandIdx = methodOperandIdx + 1
+                }
+            }
+            if exprResult.kind == "StructLiteral" {
+                stmt.returnValue.literalType = exprResult.literalType
+                stmt.returnValue.literalValue = exprResult.literalValue
+                var structArgIdx = 0
+                while structArgIdx < exprResult.arguments.length() {
+                    stmt.returnValue.arguments.push(
+                        exprResult.arguments[structArgIdx])
+                    structArgIdx = structArgIdx + 1
+                }
+            }
+            if exprResult.kind == "ArrayLiteral" or
+                exprResult.kind == "StringInterpolation" {
+
+                var argCopyIdx = 0
+                while argCopyIdx < exprResult.arguments.length() {
+                    stmt.returnValue.arguments.push(
+                        exprResult.arguments[argCopyIdx])
+                    argCopyIdx = argCopyIdx + 1
+                }
+            }
+            if exprResult.kind == "MemberAccess" or
+                exprResult.kind == "IndexAccess" or
+                exprResult.kind == "SafeNavigation" or
+                exprResult.kind == "Elvis" or
+                exprResult.kind == "NullCoalesce" or
+                exprResult.kind == "IfExpression" or
+                exprResult.kind == "WhenExpression" or
+                exprResult.kind == "Cast" or
+                exprResult.kind == "Await" or
+                exprResult.kind == "TryPropagate" or
+                exprResult.kind == "Range" or
+                exprResult.kind == "IsExpression" or
+                exprResult.kind == "Closure" {
+
+                stmt.returnValue.literalValue = exprResult.literalValue
+                stmt.returnValue.literalType = exprResult.literalType
+                stmt.returnValue.callee = exprResult.callee
+                stmt.returnValue.operator = exprResult.operator
+                var operandCopyIdx = 0
+                while operandCopyIdx < exprResult.operands.length() {
+                    stmt.returnValue.operands.push(
+                        exprResult.operands[operandCopyIdx])
+                    operandCopyIdx = operandCopyIdx + 1
+                }
+                var branchArgIdx = 0
+                while branchArgIdx < exprResult.arguments.length() {
+                    stmt.returnValue.arguments.push(
+                        exprResult.arguments[branchArgIdx])
+                    branchArgIdx = branchArgIdx + 1
+                }
             }
         }
         if matchTokenStr(SeenTokenType.Semicolon) { }
@@ -5359,15 +5421,11 @@ class RealParser {
                     var memberLitSet = false
                     if expr.kind == "MemberAccess" {
                         ///
-                        Preserve complex receivers like call().field.next so later
-                        stages still see the nested member access tree.
+                        Preserve chained receivers as an expression tree so
+                        later stages keep the exact object pointer.
                         ///
-                        if expr.literalValue != "" {
-                            memberExpr.literalValue = expr.literalValue + "." + expr.variableName
-                        } else {
-                            memberExpr.literalValue = ""
-                            memberExpr.operands.push(expr)
-                        }
+                        memberExpr.literalValue = ""
+                        memberExpr.operands.push(expr)
                         memberLitSet = true
                     }
                     if not memberLitSet and (expr.kind == "MethodCall" or expr.kind == "Call" or expr.kind == "IndexAccess") {

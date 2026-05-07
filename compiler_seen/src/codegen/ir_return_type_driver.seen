@@ -53,6 +53,14 @@ fun resolveMethodReturnTypeState(className: String, method: FunctionNode,
     stringConstants: Array<String>) r: String {
 
     let declaredType = normalizeDeclaredTypeNodeImpl(method.returnType)
+    if declaredType != "" and declaredType != "Unknown" {
+        return resolveMethodReturnTypeImpl(className, method.name,
+            declaredType, "")
+    }
+    if method.name == "new" {
+        return resolveMethodReturnTypeImpl(className, method.name,
+            declaredType, "")
+    }
     let inferredType = inferBlockReturnTypeState(className, method.body,
         varNames, varTypes, stringConstants)
     return resolveMethodReturnTypeImpl(className, method.name, declaredType,
@@ -72,6 +80,9 @@ fun resolveFunctionReturnTypeState(fn: FunctionNode, varNames: Array<String>,
     varTypes: Array<String>, stringConstants: Array<String>) r: String {
 
     let declaredType = normalizeDeclaredTypeNodeImpl(fn.returnType)
+    if declaredType != "" and declaredType != "Unknown" {
+        return resolveFunctionReturnTypeImpl(declaredType, "")
+    }
     let inferredType = inferBlockReturnTypeState("", fn.body, varNames,
         varTypes, stringConstants)
     return resolveFunctionReturnTypeImpl(declaredType, inferredType)
