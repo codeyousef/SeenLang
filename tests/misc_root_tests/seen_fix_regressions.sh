@@ -1956,6 +1956,75 @@ EOF
     echo "PASS: artifact dependencies use interface indexes and skip dependency codegen"
 }
 
+run_prebuilt_package_symbols_case() {
+    local package_dir="$TMP_ROOT/prebuilt_package_symbols_pkg"
+    local artifact_dir="$TMP_ROOT/prebuilt_package_symbols_artifact"
+    local prebuild_log="$TMP_ROOT/prebuilt_package_symbols.log"
+    local nm_tool
+
+    cleanup_seen_artifacts
+    mkdir -p "$package_dir/src"
+
+    nm_tool="$(command -v llvm-nm || command -v nm || true)"
+    if [[ -z "$nm_tool" ]]; then
+        echo "FAIL: llvm-nm/nm is required for FEL-205 package symbol regression"
+        exit 1
+    fi
+
+    cat >"$package_dir/Seen.toml" <<'EOF'
+[project]
+name = "libx"
+version = "0.1.0"
+language = "en"
+modules = ["src/value.seen"]
+EOF
+
+    cat >"$package_dir/src/value.seen" <<'EOF'
+fun libx_value() r: Int {
+    return 7
+}
+
+@export
+fun libx_exported_value() r: Int {
+    return 8
+}
+EOF
+
+    if ! timeout 180 "$COMPILER" pkg prebuild "$package_dir" "$artifact_dir" >"$prebuild_log" 2>&1; then
+        echo "FAIL: package prebuild for FEL-205 symbol case failed"
+        cat "$prebuild_log"
+        exit 1
+    fi
+
+    local object_rel
+    object_rel="$(awk -F '\t' '$2 ~ /value\.seen$/ {print $1}' "$artifact_dir/objects.tsv")"
+    if [[ -z "$object_rel" ]]; then
+        echo "FAIL: FEL-205 object manifest missing value.seen object"
+        cat "$artifact_dir/objects.tsv"
+        exit 1
+    fi
+
+    local object_path="$artifact_dir/$object_rel"
+    if [[ ! -s "$object_path" ]]; then
+        echo "FAIL: FEL-205 prebuilt object is missing or empty"
+        cat "$prebuild_log"
+        exit 1
+    fi
+
+    if ! "$nm_tool" --defined-only "$object_path" | grep -q ' libx_value$'; then
+        echo "FAIL: FEL-205 prebuilt object missing package function symbol"
+        "$nm_tool" --defined-only "$object_path" || true
+        exit 1
+    fi
+    if ! "$nm_tool" --defined-only "$object_path" | grep -q ' libx_exported_value$'; then
+        echo "FAIL: FEL-205 prebuilt object missing @export function symbol"
+        "$nm_tool" --defined-only "$object_path" || true
+        exit 1
+    fi
+
+    echo "PASS: prebuilt package objects preserve package and @export symbols"
+}
+
 run_missing_import_failure_case() {
     local project_dir="$TMP_ROOT/missing_import_failure"
     local output_file="$project_dir/missing_import_failure"
@@ -2195,6 +2264,7 @@ run_package_root_manifest_modules_case
 run_package_private_visibility_failure_case
 run_triple_slash_raw_scanner_case
 run_prebuilt_artifact_interface_index_case
+run_prebuilt_package_symbols_case
 run_missing_import_failure_case
 run_cyclic_import_diagnostic_case
 

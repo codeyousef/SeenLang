@@ -52,6 +52,22 @@ format_bytes() {
     fi
 }
 
+latest_plain_module_ll() {
+    local dir=$1
+    local latest=""
+    for f in "$dir"/seen_module_*.ll; do
+        [ -f "$f" ] || continue
+        [[ "$f" == *.opt.ll ]] && continue
+        [[ "$f" == *.polly.ll ]] && continue
+        if [ -z "$latest" ] || [ "$f" -nt "$latest" ]; then
+            latest="$f"
+        fi
+    done
+    if [ -n "$latest" ]; then
+        basename "$latest"
+    fi
+}
+
 release_cpu_baseline_to_march() {
     case "$1" in
         "")
@@ -71,6 +87,12 @@ memory_guard_enabled() {
     [ "${SEEN_DISABLE_MEMORY_GUARD:-0}" != "1" ] &&
         [ -x "$MEMORY_GUARD_SCRIPT" ] &&
         { [ -n "${MEMORY_GUARD_RSS_KB:-}" ] || [ -n "${MEMORY_GUARD_RESERVE_KB:-}" ]; }
+}
+
+user_memory_scope_available() {
+    command -v systemd-run >/dev/null 2>&1 || return 1
+    command -v systemctl >/dev/null 2>&1 || return 1
+    systemctl --user show-environment >/dev/null 2>&1
 }
 
 run_guarded_command() {
@@ -158,6 +180,66 @@ run_guarded_command_to_log() {
     return "$status"
 }
 
+log_failure_signal_pattern() {
+    printf '%s\n' 'IR VERIFY|llvm-as:|/usr/bin/opt:|clang: error|ld\.lld: error|LLVM ERROR|Error: optimization failed|Segmentation fault|core dumped|Traceback \(most recent call last\)|(^|[[:space:]])Error:'
+}
+
+start_log_failure_watcher() {
+    local label=$1
+    local log_file=$2
+    local watched_pid=$3
+
+    if [ "${SEEN_ABORT_ON_FIRST_FAILURE_SIGNAL:-1}" = "0" ]; then
+        echo ""
+        return 0
+    fi
+
+    (
+        local pattern
+        pattern=$(log_failure_signal_pattern)
+        local interval="${SEEN_FAILURE_WATCH_INTERVAL_SECS:-2}"
+        local tail_lines="${SEEN_FAILURE_WATCH_TAIL_LINES:-1000}"
+        local match=""
+
+        while kill -0 "$watched_pid" 2>/dev/null; do
+            if [ -f "$log_file" ]; then
+                match=$(tail -n "$tail_lines" "$log_file" 2>/dev/null | grep -n -m1 -E "$pattern" 2>/dev/null || true)
+                if [ -n "$match" ]; then
+                    printf "\n%s[%s]%s first failure signal: %s\n" "$YELLOW" "$label" "$NC" "$match" >&2
+                    printf "%s[%s]%s stopping build step early; set SEEN_ABORT_ON_FIRST_FAILURE_SIGNAL=0 to wait for the full command.\n" "$YELLOW" "$label" "$NC" >&2
+                    kill -TERM "$watched_pid" 2>/dev/null || true
+                    sleep 5
+                    kill -KILL "$watched_pid" 2>/dev/null || true
+                    exit 0
+                fi
+            fi
+            sleep "$interval"
+        done
+    ) &
+    echo "$!"
+}
+
+run_guarded_command_to_log_with_failure_watch() {
+    local label=$1
+    local timeout_secs=$2
+    local vmem_kb=$3
+    local log_file=$4
+    shift 4
+
+    run_guarded_command_to_log "$label" "$timeout_secs" "$vmem_kb" "$log_file" "$@" &
+    local command_pid=$!
+    local failure_watcher_pid
+    failure_watcher_pid=$(start_log_failure_watcher "$label" "$log_file" "$command_pid")
+
+    local status=0
+    wait "$command_pid" || status=$?
+    if [ -n "$failure_watcher_pid" ]; then
+        kill "$failure_watcher_pid" 2>/dev/null || true
+        wait "$failure_watcher_pid" 2>/dev/null || true
+    fi
+    return "$status"
+}
+
 build_fork_serializer() {
     if [ "$HOST_OS" = "Darwin" ]; then
         return 0
@@ -198,11 +280,14 @@ monitor_compilation() {
         local elapsed=$((SECONDS - start_time))
         local elapsed_fmt=$(format_time $elapsed)
 
-        # Count .ll files (modules with IR generated)
-        local ll_count=$(ls /tmp/seen_module_*.ll 2>/dev/null | wc -l)
+        # Count plain generated IR separately from fixed/optimized IR so progress
+        # doesn't look like the compiler is discovering new source modules forever.
+        local ll_count=$(count_plain_module_lls /tmp)
+        local opt_ll_count=$(count_module_opt_lls /tmp)
 
         # Count .o files (modules fully compiled)
-        local obj_count=$(ls /tmp/seen_module_*.o 2>/dev/null | wc -l)
+        local obj_count=$(count_module_objects /tmp)
+        local latest_ll=$(latest_plain_module_ll /tmp)
 
         # Check for module 5 (the big one) -- if its .ll exists
         local mod5_status=""
@@ -235,8 +320,18 @@ monitor_compilation() {
             phase="link"
         fi
 
+        local ll_status="${BOLD}${ll_count} raw.ll${NC}"
+        if [ "$opt_ll_count" -gt 0 ]; then
+            ll_status="${ll_status}/${BOLD}${opt_ll_count} opt.ll${NC}"
+        fi
+
+        local latest_status=""
+        if [ -n "$latest_ll" ]; then
+            latest_status=" latest=${latest_ll}"
+        fi
+
         # Build status line
-        local status="${CYAN}[$label]${NC} ${elapsed_fmt}  ${BOLD}${ll_count} .ll${NC} | ${BOLD}${obj_count} .o${NC}  phase:${phase}  ${DIM}${mod5_status}${NC}"
+        local status="${CYAN}[$label]${NC} ${elapsed_fmt}  ${ll_status} | ${BOLD}${obj_count} .o${NC}  phase:${phase}  ${DIM}${mod5_status}${latest_status}${NC}"
 
         # Only reprint if status changed (avoid flicker)
         if [ "$status" != "$last_status" ]; then
@@ -250,9 +345,10 @@ monitor_compilation() {
     # Final status
     local elapsed=$((SECONDS - start_time))
     local elapsed_fmt=$(format_time $elapsed)
-    local ll_count=$(ls /tmp/seen_module_*.ll 2>/dev/null | wc -l)
-    local obj_count=$(ls /tmp/seen_module_*.o 2>/dev/null | wc -l)
-    printf "\r\033[K${CYAN}[$label]${NC} ${GREEN}done${NC} in ${elapsed_fmt}  ${ll_count} .ll | ${obj_count} .o\n"
+    local ll_count=$(count_plain_module_lls /tmp)
+    local opt_ll_count=$(count_module_opt_lls /tmp)
+    local obj_count=$(count_module_objects /tmp)
+    printf "\r\033[K${CYAN}[$label]${NC} ${GREEN}done${NC} in ${elapsed_fmt}  ${ll_count} raw.ll | ${opt_ll_count} opt.ll | ${obj_count} .o\n"
 }
 
 # Run a compilation step with live progress monitoring.
@@ -272,6 +368,8 @@ run_with_progress() {
     # Start progress monitor
     monitor_compilation "$compile_pid" "$label" &
     local monitor_pid=$!
+    local failure_watcher_pid
+    failure_watcher_pid=$(start_log_failure_watcher "$label" "$logfile" "$compile_pid")
 
     # Wait for compilation to finish
     local exit_code=0
@@ -280,6 +378,10 @@ run_with_progress() {
     # Stop monitor
     kill "$monitor_pid" 2>/dev/null || true
     wait "$monitor_pid" 2>/dev/null || true
+    if [ -n "$failure_watcher_pid" ]; then
+        kill "$failure_watcher_pid" 2>/dev/null || true
+        wait "$failure_watcher_pid" 2>/dev/null || true
+    fi
 
     return $exit_code
 }
@@ -481,6 +583,24 @@ tail_log_if_exists() {
         tail -"$lines" "$log_file" 2>/dev/null || true
     else
         echo "(missing log: $log_file)"
+    fi
+}
+
+summarize_stage2_failure_log() {
+    local log_file=$1
+    if [ ! -f "$log_file" ]; then
+        echo "(missing Stage2 log: $log_file)"
+        return 0
+    fi
+
+    echo -e "${YELLOW}First Stage2 failure signals:${NC}"
+    local matches
+    matches=$(grep -n -E 'IR VERIFY|llvm-as:|/usr/bin/opt:|clang: error|ld.lld: error|LLVM ERROR|Error: optimization failed|error:' "$log_file" 2>/dev/null | head -40 || true)
+    if [ -n "$matches" ]; then
+        echo "$matches"
+    else
+        echo "(no targeted error markers found; tailing recent log output)"
+        tail_log_if_exists "$log_file" 40
     fi
 }
 
@@ -840,9 +960,11 @@ if [ "${SEEN_DISABLE_MEMORY_GUARD:-0}" != "1" ]; then
     export SEEN_MEMORY_GUARD_RESERVE_KB="$MEMORY_GUARD_RESERVE_KB"
     export SEEN_MEMORY_GUARD_TASKS_MAX="$MEMORY_GUARD_TASKS_MAX"
     export SEEN_MEMORY_GUARD_CGROUP_STOP_KB="$MEMORY_GUARD_CGROUP_STOP_KB"
-    if [ "$HOST_OS" != "Darwin" ] && [ "${SEEN_MEMORY_GUARD_KERNEL_SCOPE:-1}" != "0" ]; then
+    if [ "$HOST_OS" != "Darwin" ] && [ "${SEEN_MEMORY_GUARD_KERNEL_SCOPE:-1}" != "0" ] &&
+        user_memory_scope_available; then
         export SEEN_MEMORY_GUARD_REQUIRE_KERNEL_SCOPE=1
     else
+        export SEEN_MEMORY_GUARD_KERNEL_SCOPE=0
         export SEEN_MEMORY_GUARD_REQUIRE_KERNEL_SCOPE=0
     fi
 fi
@@ -1041,8 +1163,8 @@ smoke_test_compiler() {
 
     if ! (
         cd "$REPO_ROOT" &&
-        run_guarded_command "$stage_label check smoke" 120 "$MAIN_COMPILER_VMEM_KB" \
-            env "${compiler_env[@]}" "${check_cmd[@]}" > "$check_log" 2>&1
+        run_guarded_command_to_log_with_failure_watch "$stage_label check smoke" 120 "$MAIN_COMPILER_VMEM_KB" "$check_log" \
+            env "${compiler_env[@]}" "${check_cmd[@]}"
     ); then
         echo -e "${YELLOW}${stage_label} failed hello-world check smoke test.${NC}"
         tail -20 "$check_log" 2>/dev/null || true
@@ -1059,8 +1181,8 @@ smoke_test_compiler() {
 
     if ! (
         cd "$REPO_ROOT" &&
-        run_guarded_command "$stage_label compile smoke" 120 "$MAIN_COMPILER_VMEM_KB" \
-            env "${compiler_env[@]}" "${compile_cmd[@]}" > "$compile_log" 2>&1
+        run_guarded_command_to_log_with_failure_watch "$stage_label compile smoke" 120 "$MAIN_COMPILER_VMEM_KB" "$compile_log" \
+            env "${compiler_env[@]}" "${compile_cmd[@]}"
     ); then
         echo -e "${YELLOW}${stage_label} failed hello-world compile smoke test.${NC}"
         tail -20 "$compile_log" 2>/dev/null || true
@@ -1578,6 +1700,7 @@ else
     # Start progress monitor and snapshot watcher
     monitor_compilation "$COMPILE_PID" "S1→S2" &
     MONITOR_PID=$!
+    FAILURE_WATCHER_PID=$(start_log_failure_watcher "S1→S2" /tmp/safe_rebuild_stage2.log "$COMPILE_PID")
     start_ll_snapshot_watcher "$COMPILE_PID" "$SNAPSHOT_DIR" &
     WATCHER_PID=$!
 
@@ -1588,6 +1711,10 @@ else
     # Stop monitor and watcher
     kill "$MONITOR_PID" 2>/dev/null || true
     wait "$MONITOR_PID" 2>/dev/null || true
+    if [ -n "$FAILURE_WATCHER_PID" ]; then
+        kill "$FAILURE_WATCHER_PID" 2>/dev/null || true
+        wait "$FAILURE_WATCHER_PID" 2>/dev/null || true
+    fi
     finish_ll_snapshot_watcher "$WATCHER_PID"
 
     EXPECTED_STAGE2_MODULES=$(extract_expected_module_count /tmp/safe_rebuild_stage2.log)
@@ -1623,8 +1750,11 @@ else
         echo -e "${YELLOW}Stage2 compilation failed (exit=$COMPILE_EXIT), killing orphans...${NC}"
         kill_frozen_orphans
         preserve_stage2_failure_artifacts "$SNAPSHOT_DIR"
-        if [ "${SEEN_STOP_AFTER_FROZEN_STAGE2_FAILURE:-0}" = "1" ]; then
+        summarize_stage2_failure_log /tmp/safe_rebuild_stage2.log
+        if [ "${SEEN_STOP_AFTER_FROZEN_STAGE2_FAILURE:-0}" = "1" ] ||
+           [ "${SEEN_STAGE2_FAIL_FAST:-0}" = "1" ]; then
             echo -e "${RED}Stopping after frozen Stage2 failure as requested.${NC}"
+            echo "Set SEEN_STAGE2_FAIL_FAST=0 to allow direct IR recovery."
             rm -rf "$SNAPSHOT_DIR"
             exit "$COMPILE_EXIT"
         fi
@@ -1681,9 +1811,14 @@ else
             # Recovery works in a private temp dir to avoid interference from
             # concurrent compilations. It outputs RECOVERY_DIR=<path> on success.
             RECOVERY_EXIT=0
-            RECOVERY_OUTPUT=$(run_guarded_command "Stage2 IR recovery" "$RECOVERY_TIMEOUT_SECS" "$OPT_VMEM_KB" \
-                bash "$SCRIPT_DIR/recovery_opt.sh" "$OPT_WRAPPER_DIR" "$SCRIPT_DIR" "$LL_RECOVERY_SOURCE_DIR" 2>&1) || RECOVERY_EXIT=$?
-            echo "$RECOVERY_OUTPUT" | grep -v '^RECOVERY_DIR=' || true
+            RECOVERY_LOG="/tmp/seen_stage2_recovery_$$.log"
+            set +e
+            run_guarded_command "Stage2 IR recovery" "$RECOVERY_TIMEOUT_SECS" "$OPT_VMEM_KB" \
+                bash "$SCRIPT_DIR/recovery_opt.sh" "$OPT_WRAPPER_DIR" "$SCRIPT_DIR" "$LL_RECOVERY_SOURCE_DIR" 2>&1 | tee "$RECOVERY_LOG"
+            RECOVERY_EXIT=${PIPESTATUS[0]}
+            set -e
+            RECOVERY_OUTPUT=$(cat "$RECOVERY_LOG" 2>/dev/null || true)
+            rm -f "$RECOVERY_LOG"
 
             if [ "$RECOVERY_EXIT" -ne 0 ]; then
                 echo -e "${RED}ERROR: Recovery failed.${NC}"
@@ -2259,7 +2394,7 @@ else
     echo "Step 2: Attempting S2→S3 bootstrap verification (Linux)..."
     echo -e "${DIM}Timeout: 30 minutes. Falls back to S2 if this fails.${NC}"
 
-    if run_guarded_command_to_log "S2->S3" 1800 "$MAIN_COMPILER_VMEM_KB" /tmp/safe_rebuild_stage3.log \
+    if run_guarded_command_to_log_with_failure_watch "S2->S3" 1800 "$MAIN_COMPILER_VMEM_KB" /tmp/safe_rebuild_stage3.log \
         "$STAGE2" compile "$COMPILER_SOURCE" "$STAGE3" --fast --no-cache --no-fork $RELEASE_TARGET_CPU_FLAG \
         ; then
         echo -e "${GREEN}Stage3 build succeeded.${NC}"

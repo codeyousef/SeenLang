@@ -46,7 +46,7 @@ import lexer.lexer.{SeenLexer}
 import lexer.token.{Token, SeenTokenType, TOKEN_EOF}
 import parser.real_parser.{RealParser, ProgramNode}
 import typechecker.typechecker.{SeenTypeChecker}
-import bootstrap.frontend.{run_frontend, FrontendResult, FrontendDiagnostic, encodeDiagMessage, parseDiagBaseMessage, parseDiagCode, parseDiagSuggestion, parseDiagNote, parseDiagEndColumn}
+import bootstrap.frontend.{run_frontend, FrontendResult, FrontendDiagnostic, frontendDiagnostic, encodeDiagMessage, parseDiagBaseMessage, parseDiagCode, parseDiagSuggestion, parseDiagNote, parseDiagEndColumn}
 
 ///
 ============================================================================
@@ -1465,7 +1465,7 @@ class SeenLspServer {
         }
         if hasMain == 0 {
             var mainMsg = encodeDiagMessage("missing `main` function", "E003", "help: add 'fun main() r: Void { }' as entry point", "", 0)
-            result.addDiagnostic(FrontendDiagnostic.new(
+            result.addDiagnostic(frontendDiagnostic(
                 uri, 1, 1, "error", mainMsg
             ))
         }

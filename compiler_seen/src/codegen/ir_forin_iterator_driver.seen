@@ -1,0 +1,89 @@
+// ir_forin_iterator_driver.seen - iterator-protocol for-in lowering.
+
+import parser.real_parser.{StatementNode, ParserExpressionNode}
+import str.string.{StringBuilder}
+import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl}
+import codegen.ir_codegen_global_state.{getBoundedActiveVarCountWithGlobalStateImpl, setActiveVarCountWithGlobalStateImpl, getBlockTerminatedWithGlobalStateImpl, setBlockTerminatedWithGlobalStateImpl, getGlobalFuncNamesImpl, getGlobalFuncRetTypesImpl}
+import codegen.ir_codegen_metrics_state.{cseClear}
+import codegen.ir_codegen_type_state.{mapTypeState}
+import codegen.ir_decl_registry.{getFunctionReturnTypeStateImpl}
+import codegen.ir_loop_plan.{iteratorProtocolFunctionNameImpl, planIteratorProtocolForInLoopImpl}
+import codegen.ir_lowering_context.{CodegenLoweringContext, lowerExpression, inferLoweredExpressionType, lowerCallExpression, prepareLoweredCallArgumentsWithDefaults, lowerEnumConstructor, resetLoweringGenerator, resetLoweringSharedModuleScratch, syncLoweringState, writeBackLoweringState, lowerProgramClasses, lowerProgramTopLevelFunctions, lowerPlainLargeClass, lowerClassNode, lowerFunctionNode, lowerClassMethodFromList, setLowerCurrentClassParentName, resetLoweringLocalCodegenState, collectLoweringVariableDeclarations, clearLoweringActiveBindings, lowerBlock, lowerStatement, isLoweringBlockTerminated, beginLoweringNestedScratch, restoreLoweringNestedScratch, currentLoweringFunctionOptions}
+import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
+import codegen.ir_optimization.{getNextRegFn}
+import codegen.ir_variable_gen.{storeActiveVariableBindingImpl}
+
+fun tryEmitIteratorProtocolForInLoopState(
+    ctx: CodegenLoweringContext, output: StringBuilder,
+    stmt: StatementNode, loopVarName: String, loopVarType: String,
+    loopVarReg: String, forInIterable: ParserExpressionNode,
+    iterableType: String, condLabel: String, bodyLabel: String,
+    endLabel: String, varNames: Array<String>, varRegs: Array<String>,
+    varTypes: Array<String>) r: Bool {
+
+    let iterLookupName = iteratorProtocolFunctionNameImpl(iterableType)
+    let iterFuncRet = getFunctionReturnTypeStateImpl(iterLookupName,
+        getGlobalFuncNamesImpl(), getGlobalFuncRetTypesImpl())
+    let iterPlan = planIteratorProtocolForInLoopImpl(iterableType,
+        iterFuncRet)
+    if not iterPlan.isValid {
+        return false
+    }
+
+    let iterableReg = lowerExpression(ctx, forInIterable)
+    let iterThisReg = getNextRegFn(getFeatureRegBoxImpl())
+    output.append("  " + iterThisReg + " = inttoptr i64 " + iterableReg +
+        " to ptr\n")
+    let iterObjReg = getNextRegFn(getFeatureRegBoxImpl())
+    let iterRetLlvm = mapTypeState(iterPlan.iterReturnType)
+    output.append("  " + iterObjReg + " = call " + iterRetLlvm + " @" +
+        quoteIdentIfNeededImpl(iterPlan.iterFuncName) + "(ptr " +
+        iterThisReg + ")\n")
+    let iterStoreReg = getNextRegFn(getFeatureRegBoxImpl())
+    output.append("  " + iterStoreReg + " = alloca i64, align 8\n")
+    output.append("  store i64 " + iterObjReg + ", ptr " +
+        iterStoreReg + "\n")
+    setActiveVarCountWithGlobalStateImpl(storeActiveVariableBindingImpl(
+        varNames, varRegs, varTypes,
+        getBoundedActiveVarCountWithGlobalStateImpl(varNames),
+        loopVarName, loopVarReg, loopVarType))
+
+    output.append("  br label %" + condLabel + "\n")
+    output.append(condLabel + ":\n")
+    cseClear()
+    let iterLoadReg = getNextRegFn(getFeatureRegBoxImpl())
+    output.append("  " + iterLoadReg + " = load i64, ptr " +
+        iterStoreReg + "\n")
+    let iterPtrReg = getNextRegFn(getFeatureRegBoxImpl())
+    output.append("  " + iterPtrReg + " = inttoptr i64 " + iterLoadReg +
+        " to ptr\n")
+    let hasNextReg = getNextRegFn(getFeatureRegBoxImpl())
+    output.append("  " + hasNextReg + " = call i1 @" +
+        quoteIdentIfNeededImpl(iterPlan.hasNextFuncName) + "(ptr " +
+        iterPtrReg + ")\n")
+    output.append("  br i1 " + hasNextReg + ", label %" + bodyLabel +
+        ", label %" + endLabel + "\n")
+
+    output.append(bodyLabel + ":\n")
+    cseClear()
+    setBlockTerminatedWithGlobalStateImpl(false)
+    let nextRetType = getFunctionReturnTypeStateImpl(iterPlan.nextFuncName,
+        getGlobalFuncNamesImpl(), getGlobalFuncRetTypesImpl())
+    var nextRetLlvm: String = "i64"
+    if nextRetType != "" {
+        nextRetLlvm = mapTypeState(nextRetType)
+    }
+    let nextReg = getNextRegFn(getFeatureRegBoxImpl())
+    output.append("  " + nextReg + " = call " + nextRetLlvm + " @" +
+        quoteIdentIfNeededImpl(iterPlan.nextFuncName) + "(ptr " +
+        iterPtrReg + ")\n")
+    if loopVarReg != "" {
+        output.append("  store " + nextRetLlvm + " " + nextReg +
+            ", ptr " + loopVarReg + "\n")
+    }
+    lowerBlock(ctx, stmt.loopBody)
+    if not getBlockTerminatedWithGlobalStateImpl() {
+        output.append("  br label %" + condLabel + "\n")
+    }
+    return true
+}

@@ -15,7 +15,7 @@ import codegen.ir_codegen_type_state.{isClassTypeState, isDataTypeState}
 import codegen.ir_string_collect.{getBaseTypeNameImpl}
 
 fun tryInferExplicitThisMethodCallType(expr: ParserExpressionNode) r: String {
-    var implicitMethodRetType = ""
+    var implicitMethodRetType: String = ""
     if getGlobalCurrentClassNameImpl() != "" {
         implicitMethodRetType = getMethodReturnTypeState(getGlobalCurrentClassNameImpl(),
             expr.callee)
@@ -25,7 +25,7 @@ fun tryInferExplicitThisMethodCallType(expr: ParserExpressionNode) r: String {
 }
 
 fun tryInferBareMethodOrFunctionCallType(expr: ParserExpressionNode) r: String {
-    var implicitMethodRetType = ""
+    var implicitMethodRetType: String = ""
     if getGlobalCurrentClassNameImpl() != "" {
         implicitMethodRetType = getMethodReturnTypeState(getGlobalCurrentClassNameImpl(),
             expr.callee)
@@ -54,7 +54,7 @@ fun tryInferStaticFactoryMethodType(expr: ParserExpressionNode) r: String {
 }
 
 fun tryInferStaticFromJsonMethodType(expr: ParserExpressionNode) r: String {
-    var staticRetType = ""
+    var staticRetType: String = ""
     if expr.callee == "fromJson" and expr.literalValue != "" and
         expr.literalValue != "this" {
         staticRetType = getMethodReturnTypeState(expr.literalValue, "fromJson")
@@ -66,9 +66,9 @@ fun tryInferStaticFromJsonMethodType(expr: ParserExpressionNode) r: String {
 fun tryInferDeclaredStaticMethodCallTypeState(expr: ParserExpressionNode,
     varNames: Array<String>, varTypes: Array<String>) r: String {
 
-    var receiverVarType = ""
-    var receiverMethodRetType = ""
-    var baseOwnerMethodRetType = ""
+    var receiverVarType: String = ""
+    var receiverMethodRetType: String = ""
+    var baseOwnerMethodRetType: String = ""
     if expr.literalValue != "" and expr.literalValue != "this" {
         receiverVarType = findVarTypeState(varNames, varTypes,
             expr.literalValue)
@@ -128,7 +128,7 @@ fun tryInferReceiverRegistryMethodCallType(expr: ParserExpressionNode, receiverT
 
 fun tryInferLateMethodCallFallbackType(expr: ParserExpressionNode) r: String {
     let mcTable = inferMethodCallTypeTable(expr.callee)
-    var implicitMethodRetType = ""
+    var implicitMethodRetType: String = ""
     if getGlobalCurrentClassNameImpl() != "" {
         implicitMethodRetType = getMethodReturnTypeState(getGlobalCurrentClassNameImpl(),
             expr.callee)
@@ -147,7 +147,7 @@ fun tryInferLateMethodCallFallbackType(expr: ParserExpressionNode) r: String {
 fun tryInferGeneratedCallType(expr: ParserExpressionNode) r: String {
     let generatedPlan = planGeneratedCallInferenceImpl(expr.callee,
         isSimdVectorTypeImpl(expr.callee))
-    var newBaseType = ""
+    var newBaseType: String = ""
     var newBaseTypeKnown = 0
     if generatedPlan.action == 2 {
         newBaseType = generatedPlan.baseType
@@ -156,8 +156,8 @@ fun tryInferGeneratedCallType(expr: ParserExpressionNode) r: String {
             newBaseTypeKnown = 1
         }
     }
-    var fromJsonBaseType = ""
-    var fromJsonRet = ""
+    var fromJsonBaseType: String = ""
+    var fromJsonRet: String = ""
     var fromJsonBaseTypeKnown = 0
     if generatedPlan.action == 3 {
         fromJsonBaseType = generatedPlan.baseType
@@ -185,7 +185,7 @@ fun tryInferResolvedCallExprType(expr: ParserExpressionNode) r: String {
     if isClassTypeState(expr.callee) {
         classCall = 1
     }
-    var implicitMethodRetType = ""
+    var implicitMethodRetType: String = ""
     if resolvedPlan.shouldLookupImplicitMethodReturn {
         implicitMethodRetType = getMethodReturnTypeState(getGlobalCurrentClassNameImpl(),
             expr.callee)

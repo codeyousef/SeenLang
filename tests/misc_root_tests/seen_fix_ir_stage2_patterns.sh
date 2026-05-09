@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 TMP_DIR="/tmp/seen_fix_ir_stage2_patterns"
 IR_FILE="$TMP_DIR/stage2_patterns.ll"
+OTHER_IR_FILE="$TMP_DIR/stage2_patterns_other.ll"
 BC_FILE="$TMP_DIR/stage2_patterns.bc"
 OPT_FILE="$TMP_DIR/stage2_patterns.opt.ll"
 
@@ -21,13 +22,16 @@ declare void @takes_ptr(ptr)
 declare void @takes_float(float)
 declare void @takes_seen_string(%SeenString)
 declare ptr @returns_ptr()
+declare i64 @side_effect()
 declare void @VoidHelper(ptr)
 declare i64 @Map_put(i64, %SeenString, i64)
+declare i1 @Map_containsKey(i64, %SeenString)
 declare %SeenArray @Map_keys(i64)
 declare %SeenString @mapTypeImpl(%SeenString, ptr, %SeenString, %SeenString, i64, %SeenString)
 declare i1 @llvm.xxx(ptr, ptr, %SeenString, %SeenString, ptr, i64, %SeenString, %SeenString)
 declare void @llvm.prefetch.p0(ptr, i32, i32, i32)
 declare %SeenString @seen_float_to_string(double)
+declare i64 @dyn_lowerExpression(ptr, i64)
 declare %SeenArray @__ReadFileBytes(i64, i64)
 declare i64 @__WriteFileBytes(i64, %SeenArray)
 declare i64 @Ok(i64)
@@ -36,21 +40,63 @@ declare void @__panic(i64, ptr) noreturn nounwind
 declare ptr @prepareFunctionPreludeAnalysisWithMetricsStateImpl(i64, i64, %SeenString, %SeenString)
 declare ptr @prepareFunctionGenerationIdentityWithGlobalStateImpl(i64, %SeenString)
 declare void @prepareFunctionPreBodyWithFeatureStateImpl(ptr, i64, %SeenString, %SeenString)
+declare void @emitLoopMetadataWithMetricsStateImpl(i64, ptr)
+declare void @emitLoopMetadataImpl(i64, ptr, ptr, %SeenString, %SeenString, %SeenString)
 declare void @resetFunctionLoweringOptionsStateImpl(ptr)
 declare void @resetFunctionHighPressureImpl(ptr)
 declare void @markFunctionHighPressureImpl(ptr)
+declare i1 @isFunctionHighPressureImpl(ptr)
+declare i64 @currentFunctionAlignToImpl(ptr)
+declare i64 @currentFunctionRegionSizeBytesImpl(ptr)
+declare i1 @isCurrentFunctionAsyncLoweringImpl(ptr)
+declare void @markTailCallPositionImpl(ptr)
+declare i1 @takeTailCallPositionImpl(ptr)
 declare i64 @emitFunctionEntrySetupSnapshotImpl(ptr, i64, %SeenString, %SeenString, %SeenString)
 declare i64 @emitFunctionExitResetSnapshotImpl(ptr, i64, %SeenString)
 declare ptr @scanFunctionBodyDeadStorePatternsSnapshotImpl(i64, i64, i64, %SeenString)
+declare %SeenString @generateLiteralFree(ptr, i64)
+declare ptr @prepareFunctionGenerationIdentitySnapshotImpl(i64, ptr, %SeenString, ptr, ptr, %SeenString, i64, %SeenString, ptr, ptr, ptr)
+declare void @configureFunctionLoweringOptionsImpl(i64, ptr)
+declare i64 @snapshotNestedScratchStateImpl(ptr)
+declare void @resetLocalCodegenStateImpl(ptr)
+declare void @clearActiveBindingsImpl(ptr)
+declare void @beginNestedScratchStateImpl(ptr, %SeenString)
+declare void @restoreNestedScratchStateImpl(ptr, i64)
+declare ptr @emitFunctionEntrySetupStateImpl(ptr, i64, %SeenString, %SeenString, %SeenString, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr)
+declare void @emitFunctionExitAndResetStateImpl(ptr, i64, %SeenString, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr)
+declare ptr @currentLoweringFunctionOptions(i64)
+declare i64 @prepareFunctionPreBodyStateSnapshotImpl(ptr, i64, %SeenString, %SeenString, %SeenString, i64, %SeenString, %SeenString, %SeenString)
+declare ptr @emitFunctionBodyTrailingDeadCodeNoticeSnapshotImpl(i64, i64, i64, i64)
+declare void @syncCodegenStateBridgeImpl(ptr, i64, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, %SeenString, %SeenString, %SeenString, i1, %SeenString, %SeenString, ptr, ptr, ptr, ptr, ptr, i64, %SeenString, ptr, ptr, %SeenString, ptr, ptr, ptr)
+declare i64 @captureCodegenStateBridgeSnapshotImpl(ptr)
+declare i64 @resetLLVMIRGeneratorModuleStateImpl(ptr)
+declare ptr @beginLoweringNestedScratch(i64, %SeenString)
+declare void @restoreLoweringNestedScratch(i64, ptr)
+declare i64 @beginNestedScratchWithLoweringContext(ptr, %SeenString)
+declare void @restoreNestedScratchWithLoweringContext(ptr, i64)
+declare void @resetLocalCodegenWithLoweringContext(ptr)
+declare void @clearActiveBindingsWithLoweringContext(ptr)
+declare ptr @prepareClassTypeDecoratorScanWithFeatureStateImpl(i64, i64, ptr, ptr, ptr)
+declare ptr @prepareClassTypeAliasWithFeatureStateImpl(i64)
+declare ptr @prepareLetStatementPlanWithGlobalStateImpl(i64, %SeenString, %SeenString)
+declare ptr @CrossModuleStateHelper(ptr)
 declare i64 @run_frontend(%SeenString, %SeenString, ptr)
 declare i64 @ParserExpressionNode_new(ptr)
 declare i64 @Token_new(ptr, i64, %SeenString, i64, i64, i64, i64)
+declare i64 @FrontendDiagnostic_new(ptr, %SeenString, i64, i64, %SeenString, %SeenString)
 declare i64 @Type_new(%SeenString, i1)
 declare i64 @Environment_new(i64)
 declare i64 @FunctionType_new(ptr, i64, i1)
 declare i64 @JsonValue_bool(i1)
 declare %SeenString @ContentLengthReader_readMessage(ptr)
 declare i64 @parseJson(%SeenString)
+declare i64 @LspError_unwrap(ptr)
+declare i64 @Document_unwrap(ptr)
+declare i1 @isReprCConstructorTypeImpl(%SeenString, %SeenString)
+declare %SeenString @resolveLiteralMethodReceiverTypeImpl(%SeenString, %SeenString, %SeenString, i64, %SeenString, ptr, ptr, ptr, ptr, ptr)
+declare %SeenString @coerceValueForLlvmTargetImpl(i64, ptr, %SeenString, %SeenString, %SeenString, %SeenString)
+declare i1 @finalizeConditionalEndBlockImpl(i64, %SeenString, i1, i1)
+declare %SeenString @badDynContextDeclare(ptr, void, i64)
 
 If no } found before this leaked parser diagnostic should be a comment
 
@@ -86,6 +132,46 @@ entry:
   ret void
 }
 
+define void @ptr_null_call_literal_repair() {
+entry:
+  call void @takes_ptr(ptr 0)
+  ret void
+}
+
+define i64 @void_dyn_context_param_repair(ptr noalias nonnull %ctx.arg, void %CodegenLoweringContext.arg, i64 %expr.arg) {
+entry:
+  %1 = alloca void
+  store void %CodegenLoweringContext.arg, ptr %1
+  ret i64 %expr.arg
+}
+
+define %SeenString @void_dyn_context_declare_repair(ptr %0, i64 %1) {
+entry:
+  %2 = call %SeenString @badDynContextDeclare(ptr %0, i64 %1)
+  ret %SeenString %2
+}
+
+define %SeenString @lowerExpression(i64 %this.arg, i64 %expr.arg) {
+entry:
+  %1 = insertvalue %SeenString zeroinitializer, i64 %expr.arg, 0
+  ret %SeenString %1
+}
+
+define %SeenString @lowerExpression(ptr noalias nonnull %this.arg, i64 %expr.arg) alwaysinline norecurse #0 {
+entry:
+  %1 = alloca ptr
+  store ptr %this.arg, ptr %1
+  %2 = alloca i64
+  store i64 %expr.arg, ptr %2
+  ret %SeenString zeroinitializer
+}
+
+define %SeenString @dyn_lowering_context_repair(ptr %0, i64 %1) {
+entry:
+  %2 = call i64 @dyn_lowerExpression(ptr %0, i64 %1)
+  ret %SeenString %2
+}
+
 define void @invalid_named_type_repair(ptr %0) {
 entry:
   %1 = load %/, ptr %0
@@ -103,6 +189,14 @@ define void @ret_void_with_value() {
 entry:
   %1 = call %SeenString @seen_float_to_string(double 0.0)
   ret void %1
+}
+
+define void @unassigned_nonvoid_call_slot(ptr %0) {
+entry:
+  %1 = alloca i64, align 8
+  call i64 @side_effect()
+  %2 = load i64, ptr %1
+  ret void
 }
 
 define void @seen_string_call_arg_from_i64() {
@@ -300,6 +394,12 @@ entry:
   ret ptr %1
 }
 
+define i1 @map_contains_key_ptr_abi(ptr %0) {
+entry:
+  %1 = call i1 @Map_containsKey(ptr %0, %SeenString zeroinitializer)
+  ret i1 %1
+}
+
 define i64 @default_constructor_args_abi() {
 entry:
   %1 = call i64 @Type_new(%SeenString zeroinitializer)
@@ -325,6 +425,28 @@ entry:
   %3 = load i64, ptr %1
   %4 = call i64 @parseJson(i64 %3)
   ret i64 %4
+}
+
+define i64 @lsp_error_unwrap_handle_abi(ptr %0) {
+entry:
+  %1 = call i64 @LspError_unwrap(ptr %0)
+  ret i64 %1
+}
+
+define i64 @lsp_option_unwrap_handle_abi(ptr %0) {
+entry:
+  %1 = call i64 @Document_unwrap(ptr %0)
+  ret i64 %1
+}
+
+define i1 @legacy_driver_arity_repairs(%SeenString %0, ptr %1) {
+entry:
+  %2 = call i1 @isReprCConstructorTypeImpl(%SeenString %0)
+  %3 = call %SeenString @resolveLiteralMethodReceiverTypeImpl(%SeenString %0, ptr %1, ptr %1, ptr %1)
+  %4 = call %SeenString @coerceValueForLlvmTargetImpl(%SeenString %0, i64 0, %SeenString %3)
+  %5 = call i1 @finalizeConditionalEndBlockImpl(i64 0, i1 true, %SeenString %4)
+  %6 = and i1 %2, %5
+  ret i1 %6
 }
 
 define i64 @constructor_stale_receiver_abi() {
@@ -360,7 +482,14 @@ entry:
 }
 IR
 
-python3 "$ROOT_DIR/scripts/fix_ir.py" "$IR_FILE"
+cat >"$OTHER_IR_FILE" <<'IR'
+define i64 @CrossModuleStateHelper(i64 %state.arg) {
+entry:
+  ret i64 %state.arg
+}
+IR
+
+python3 "$ROOT_DIR/scripts/fix_ir.py" "$IR_FILE" "$OTHER_IR_FILE"
 
 grep -q 'add i64 0, 1' "$IR_FILE"
 grep -q 'getelementptr i8, ptr null' "$IR_FILE"
@@ -369,10 +498,22 @@ grep -q 'store i64 8, ptr' "$IR_FILE"
 grep -q 'fcmp olt double 0.0, 1.0' "$IR_FILE"
 grep -q 'call %SeenString @seen_float_to_string(double 0.0)' "$IR_FILE"
 grep -q 'call void @takes_float(float 0.0)' "$IR_FILE"
+grep -q 'call void @takes_ptr(ptr null)' "$IR_FILE"
+! grep -q 'ptr 0' "$IR_FILE"
+grep -q 'declare %SeenString @badDynContextDeclare(ptr, i64)' "$IR_FILE"
+grep -q 'define i64 @void_dyn_context_param_repair(ptr noalias nonnull %ctx.arg, i64 %expr.arg)' "$IR_FILE"
+! grep -q 'alloca void' "$IR_FILE"
+! grep -q 'store void' "$IR_FILE"
+! grep -q 'define %SeenString @lowerExpression(ptr noalias nonnull' "$IR_FILE"
+grep -q '= ptrtoint ptr %0 to i64' "$IR_FILE"
+grep -q 'call %SeenString @lowerExpression(i64 %2, i64 %1)' "$IR_FILE"
+grep -q 'ret %SeenString %3' "$IR_FILE"
 grep -q '%"/" = type { i8 }' "$IR_FILE"
 grep -q 'load %"/", ptr' "$IR_FILE"
 grep -q '^@.str.hoisted = private unnamed_addr constant' "$IR_FILE"
 ! grep -q 'ret void %' "$IR_FILE"
+grep -q '%2 = call i64 @side_effect()' "$IR_FILE"
+grep -q '%3 = load i64, ptr %1' "$IR_FILE"
 grep -q '= insertvalue %SeenString zeroinitializer, i64 %1, 0' "$IR_FILE"
 grep -q 'call void @takes_seen_string(%SeenString %2)' "$IR_FILE"
 grep -q '= ptrtoint ptr %1 to i64' "$IR_FILE"
@@ -404,17 +545,61 @@ grep -q 'call void @__panic(i64' "$IR_FILE"
 grep -q 'declare i64 @prepareFunctionPreludeAnalysisWithMetricsStateImpl(i64, i64, %SeenString, %SeenString)' "$IR_FILE"
 grep -q 'declare i64 @prepareFunctionGenerationIdentityWithGlobalStateImpl(i64, %SeenString)' "$IR_FILE"
 grep -q 'declare void @prepareFunctionPreBodyWithFeatureStateImpl(i64, i64, %SeenString, %SeenString)' "$IR_FILE"
+grep -q 'declare void @emitLoopMetadataWithMetricsStateImpl(i64, i64)' "$IR_FILE"
+grep -q 'declare void @emitLoopMetadataImpl(i64, i64, ptr, %SeenString, %SeenString, %SeenString)' "$IR_FILE"
 grep -q 'declare void @resetFunctionLoweringOptionsStateImpl(i64)' "$IR_FILE"
 grep -q 'declare void @resetFunctionHighPressureImpl(i64)' "$IR_FILE"
 grep -q 'declare void @markFunctionHighPressureImpl(i64)' "$IR_FILE"
+grep -q 'declare i1 @isFunctionHighPressureImpl(i64)' "$IR_FILE"
+grep -q 'declare i64 @currentFunctionAlignToImpl(i64)' "$IR_FILE"
+grep -q 'declare i64 @currentFunctionRegionSizeBytesImpl(i64)' "$IR_FILE"
+grep -q 'declare i1 @isCurrentFunctionAsyncLoweringImpl(i64)' "$IR_FILE"
+grep -q 'declare void @markTailCallPositionImpl(i64)' "$IR_FILE"
+grep -q 'declare i1 @takeTailCallPositionImpl(i64)' "$IR_FILE"
 grep -q 'declare i64 @emitFunctionEntrySetupSnapshotImpl(i64, i64, %SeenString, %SeenString, %SeenString)' "$IR_FILE"
 grep -q 'declare i64 @emitFunctionExitResetSnapshotImpl(i64, i64, %SeenString)' "$IR_FILE"
 grep -q 'declare i64 @scanFunctionBodyDeadStorePatternsSnapshotImpl(i64, i64, i64, %SeenString)' "$IR_FILE"
+grep -q 'declare %SeenString @generateLiteralFree(i64, i64)' "$IR_FILE"
+grep -q 'declare i64 @prepareFunctionGenerationIdentitySnapshotImpl(i64, ptr, %SeenString, ptr, ptr, %SeenString, i64, %SeenString, ptr, ptr, ptr)' "$IR_FILE"
+grep -q 'declare void @configureFunctionLoweringOptionsImpl(i64, i64)' "$IR_FILE"
+grep -q 'declare i64 @snapshotNestedScratchStateImpl(i64)' "$IR_FILE"
+grep -q 'declare void @resetLocalCodegenStateImpl(i64)' "$IR_FILE"
+grep -q 'declare void @clearActiveBindingsImpl(i64)' "$IR_FILE"
+grep -q 'declare void @beginNestedScratchStateImpl(i64, %SeenString)' "$IR_FILE"
+grep -q 'declare void @restoreNestedScratchStateImpl(i64, i64)' "$IR_FILE"
+grep -q 'declare ptr @emitFunctionEntrySetupStateImpl(i64, i64, %SeenString, %SeenString, %SeenString, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr)' "$IR_FILE"
+grep -q 'declare void @emitFunctionExitAndResetStateImpl(i64, i64, %SeenString, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr)' "$IR_FILE"
+grep -q 'declare i64 @currentLoweringFunctionOptions(i64)' "$IR_FILE"
+grep -q 'declare i64 @prepareFunctionPreBodyStateSnapshotImpl(i64, i64, %SeenString, %SeenString, %SeenString, i64, %SeenString, %SeenString, %SeenString)' "$IR_FILE"
+grep -q 'declare i64 @emitFunctionBodyTrailingDeadCodeNoticeSnapshotImpl(i64, i64, i64, i64)' "$IR_FILE"
+grep -q 'declare void @syncCodegenStateBridgeImpl(i64, i64, ptr, ptr, ptr, ptr, ptr, ptr, i64, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, %SeenString, %SeenString, %SeenString, i1, %SeenString, %SeenString, ptr, ptr, ptr, ptr, ptr, i64, %SeenString, ptr, ptr, %SeenString, ptr, ptr, ptr)' "$IR_FILE"
+grep -q 'declare i64 @captureCodegenStateBridgeSnapshotImpl(i64)' "$IR_FILE"
+grep -q 'declare i64 @resetLLVMIRGeneratorModuleStateImpl(i64)' "$IR_FILE"
+grep -q 'declare i64 @beginLoweringNestedScratch(i64, %SeenString)' "$IR_FILE"
+grep -q 'declare void @restoreLoweringNestedScratch(i64, i64)' "$IR_FILE"
+grep -q 'declare i64 @beginNestedScratchWithLoweringContext(i64, %SeenString)' "$IR_FILE"
+grep -q 'declare void @restoreNestedScratchWithLoweringContext(i64, i64)' "$IR_FILE"
+grep -q 'declare void @resetLocalCodegenWithLoweringContext(i64)' "$IR_FILE"
+grep -q 'declare void @clearActiveBindingsWithLoweringContext(i64)' "$IR_FILE"
+grep -q 'declare i64 @prepareClassTypeDecoratorScanWithFeatureStateImpl(i64, i64, ptr, ptr, ptr)' "$IR_FILE"
+grep -q 'declare i64 @prepareClassTypeAliasWithFeatureStateImpl(i64)' "$IR_FILE"
+grep -q 'declare i64 @prepareLetStatementPlanWithGlobalStateImpl(i64, %SeenString, %SeenString)' "$IR_FILE"
+grep -q 'declare i64 @CrossModuleStateHelper(i64)' "$IR_FILE"
 grep -q 'declare i64 @run_frontend(%SeenString, %SeenString, %SeenString)' "$IR_FILE"
 grep -q 'declare i64 @Map_put(ptr, %SeenString, i64)' "$IR_FILE"
 grep -q '= zext i1 true to i64' "$IR_FILE"
 grep -q 'store %SeenString zeroinitializer, ptr' "$IR_FILE"
+grep -q 'declare i1 @Map_containsKey(ptr, %SeenString)' "$IR_FILE"
 grep -q 'declare ptr @Map_keys(ptr)' "$IR_FILE"
+grep -q 'declare ptr @LspError_unwrap(ptr)' "$IR_FILE"
+grep -q '= call ptr @LspError_unwrap(ptr %0)' "$IR_FILE"
+grep -q '= ptrtoint ptr %.* to i64' "$IR_FILE"
+grep -q 'declare ptr @Document_unwrap(ptr)' "$IR_FILE"
+grep -q '= call ptr @Document_unwrap(ptr %0)' "$IR_FILE"
+grep -q 'call i1 @isReprCConstructorTypeImpl(%SeenString %0, %SeenString zeroinitializer)' "$IR_FILE"
+grep -q 'call %SeenString @resolveLiteralMethodReceiverTypeImpl(%SeenString %0, %SeenString zeroinitializer, %SeenString zeroinitializer, i64 -1, %SeenString zeroinitializer, ptr null, ptr null, ptr null, ptr null, ptr null)' "$IR_FILE"
+grep -q 'call %SeenString @coerceValueForLlvmTargetImpl(i64 0, ptr null, %SeenString %0,' "$IR_FILE"
+grep -q 'call i1 @finalizeConditionalEndBlockImpl(i64 0, %SeenString %5, i1 true, i1 false)' "$IR_FILE"
 grep -q 'call i64 @Type_new(%SeenString zeroinitializer, i1 false)' "$IR_FILE"
 grep -q 'call i64 @Environment_new(i64 0)' "$IR_FILE"
 grep -q 'call i64 @FunctionType_new(ptr null, i64 %1, i1 false)' "$IR_FILE"
@@ -425,6 +610,7 @@ grep -q 'call i64 @parseJson(%SeenString %3)' "$IR_FILE"
 grep -q 'declare %SeenString @mapTypeImpl(%SeenString)' "$IR_FILE"
 grep -q 'declare i64 @ParserExpressionNode_new()' "$IR_FILE"
 grep -q 'declare i64 @Token_new(i64, %SeenString, i64, i64, i64, i64)' "$IR_FILE"
+grep -q 'declare i64 @FrontendDiagnostic_new(%SeenString, i64, i64, %SeenString, %SeenString)' "$IR_FILE"
 grep -q 'call void @VoidHelper(ptr %0)' "$IR_FILE"
 ! grep -q '= call ptr @VoidHelper' "$IR_FILE"
 grep -q '= load %TypeNode, ptr' "$IR_FILE"

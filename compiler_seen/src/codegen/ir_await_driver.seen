@@ -1,0 +1,22 @@
+// ir_await_driver.seen - recursive await expression lowering.
+
+import parser.real_parser.{ParserExpressionNode}
+import str.string.{StringBuilder}
+import codegen.ir_async_await.{resolveAwaitExpressionResultLlvmTypeState, emitAwaitPollLoopImpl, emitAwaitResultValueImpl}
+import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl}
+import codegen.ir_lowering_context.{CodegenLoweringContext, lowerExpression, inferLoweredExpressionType, lowerCallExpression, prepareLoweredCallArgumentsWithDefaults, lowerEnumConstructor, resetLoweringGenerator, resetLoweringSharedModuleScratch, syncLoweringState, writeBackLoweringState, lowerProgramClasses, lowerProgramTopLevelFunctions, lowerPlainLargeClass, lowerClassNode, lowerFunctionNode, lowerClassMethodFromList, setLowerCurrentClassParentName, resetLoweringLocalCodegenState, collectLoweringVariableDeclarations, clearLoweringActiveBindings, lowerBlock, lowerStatement, isLoweringBlockTerminated, beginLoweringNestedScratch, restoreLoweringNestedScratch, currentLoweringFunctionOptions}
+
+fun generateAwaitExpressionState(ctx: CodegenLoweringContext,
+    output: StringBuilder, expr: ParserExpressionNode,
+    asyncFuncNames: String, asyncFuncRetTypes: String,
+    asyncFuncCount: Int, blockLabelBox: Array<Int>) r: String {
+
+    let futureExpr = expr.operands[0]
+    let hdlReg = lowerExpression(ctx, futureExpr)
+    let resultLlvmType = resolveAwaitExpressionResultLlvmTypeState(
+        futureExpr, asyncFuncNames, asyncFuncRetTypes, asyncFuncCount)
+    emitAwaitPollLoopImpl(output, getFeatureRegBoxImpl(), blockLabelBox,
+        hdlReg)
+    return emitAwaitResultValueImpl(output, getFeatureRegBoxImpl(), hdlReg,
+        resultLlvmType)
+}

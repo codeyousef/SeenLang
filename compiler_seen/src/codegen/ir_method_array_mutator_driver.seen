@@ -1,0 +1,128 @@
+// ir_method_array_mutator_driver.seen - array mutator method-call leaves.
+
+import str.string.{StringBuilder}
+import parser.real_parser.{ParserExpressionNode}
+import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl, getFeatureBlockBoxImpl}
+import codegen.ir_codegen_global_state.{getBoundedActiveVarCountWithGlobalStateImpl, getGlobalStructNamesImpl, getGlobalStructSizesImpl}
+import codegen.ir_lowering_context.{CodegenLoweringContext, lowerExpression, inferLoweredExpressionType, lowerCallExpression, prepareLoweredCallArgumentsWithDefaults, lowerEnumConstructor, resetLoweringGenerator, resetLoweringSharedModuleScratch, syncLoweringState, writeBackLoweringState, lowerProgramClasses, lowerProgramTopLevelFunctions, lowerPlainLargeClass, lowerClassNode, lowerFunctionNode, lowerClassMethodFromList, setLowerCurrentClassParentName, resetLoweringLocalCodegenState, collectLoweringVariableDeclarations, clearLoweringActiveBindings, lowerBlock, lowerStatement, isLoweringBlockTerminated, beginLoweringNestedScratch, restoreLoweringNestedScratch, currentLoweringFunctionOptions}
+import codegen.ir_method_array_mutator_emit.{resolveArrayFreeReceiverTypeStateImpl, shouldResolveArrayFreeMutatorPointerStateImpl, emitPreparedArrayFreeMutatorMethodStateImpl, emitPreparedArrayPushMutatorMethodStateImpl, emitPreparedArrayPopMutatorMethodStateImpl, emitPreparedArraySwapMutatorMethodStateImpl, tryResolveArrayMutatorPointerFromLiteralState}
+import codegen.ir_method_call_plan.{planArrayMutatorMethodImpl}
+import codegen.ir_method_receiver_predicates.{isArrayReceiverTypeImpl}
+
+fun tryGenerateArrayFreeMutatorMethodCallState(output: StringBuilder,
+    receiverReg: String, receiverType: String, methodName: String,
+    receiverName: String, exprVariableName: String,
+    argumentCount: Int, varNames: Array<String>, varRegs: Array<String>,
+    varTypes: Array<String>) r: String {
+
+    let receiverIsArray = isArrayReceiverTypeImpl(receiverType)
+    let mutatorPlan = planArrayMutatorMethodImpl(methodName,
+        receiverIsArray, argumentCount)
+    if mutatorPlan.action != 1 {
+        return ""
+    }
+
+    let activeCount = getBoundedActiveVarCountWithGlobalStateImpl(varNames)
+    let freeReceiverType = resolveArrayFreeReceiverTypeStateImpl(
+        receiverType, receiverName, varNames, varTypes, activeCount)
+    var freePtrReg = receiverReg
+    if shouldResolveArrayFreeMutatorPointerStateImpl(
+        freeReceiverType, freePtrReg, receiverName, getGlobalStructNamesImpl()) {
+
+        freePtrReg = tryResolveArrayMutatorPointerFromLiteralState(output,
+            getFeatureRegBoxImpl(), varNames, varRegs, varTypes, receiverName)
+    }
+    return emitPreparedArrayFreeMutatorMethodStateImpl(output,
+        getFeatureRegBoxImpl(), freeReceiverType, receiverName,
+        exprVariableName, freePtrReg, varNames, varRegs, activeCount,
+        getGlobalStructNamesImpl(), getGlobalStructSizesImpl())
+}
+
+fun generateArrayPushMutatorMethodCallState(output: StringBuilder,
+    blockLabelBox: Array<Int>, receiverReg: String, receiverType: String,
+    receiverName: String, receiverIsArray: Bool, argReg: String,
+    argType: String, argIsStructLiteral: Bool, varNames: Array<String>,
+    varRegs: Array<String>, varTypes: Array<String>) r: String {
+
+    let arrayPtrReg = tryResolveArrayMutatorPointerFromLiteralState(output,
+        getFeatureRegBoxImpl(), varNames, varRegs, varTypes, receiverName)
+    return emitPreparedArrayPushMutatorMethodStateImpl(output,
+        getFeatureRegBoxImpl(), blockLabelBox, arrayPtrReg, receiverReg,
+        receiverIsArray, argReg, argType, argIsStructLiteral, receiverType,
+        getGlobalStructNamesImpl())
+}
+
+fun generateArrayPopMutatorMethodCallState(output: StringBuilder,
+    receiverReg: String, receiverType: String, receiverName: String,
+    varNames: Array<String>, varRegs: Array<String>,
+    varTypes: Array<String>) r: String {
+
+    let arrayPtrReg = tryResolveArrayMutatorPointerFromLiteralState(output,
+        getFeatureRegBoxImpl(), varNames, varRegs, varTypes, receiverName)
+    return emitPreparedArrayPopMutatorMethodStateImpl(output,
+        getFeatureRegBoxImpl(), arrayPtrReg, receiverReg, receiverType)
+}
+
+fun generateArraySwapMutatorMethodCallState(output: StringBuilder,
+    receiverReg: String, receiverName: String, idxAReg: String,
+    idxBReg: String, varNames: Array<String>, varRegs: Array<String>,
+    varTypes: Array<String>) r: String {
+
+    let arrayPtrReg = tryResolveArrayMutatorPointerFromLiteralState(output,
+        getFeatureRegBoxImpl(), varNames, varRegs, varTypes, receiverName)
+    return emitPreparedArraySwapMutatorMethodStateImpl(output,
+        getFeatureRegBoxImpl(), arrayPtrReg, receiverReg, idxAReg, idxBReg)
+}
+
+fun tryGenerateArrayMutatorMethodCallWithContextState(
+    ctx: CodegenLoweringContext, output: StringBuilder,
+    expr: ParserExpressionNode, methodName: String, receiverReg: String,
+    receiverType: String, varNames: Array<String>, varRegs: Array<String>,
+    varTypes: Array<String>) r: String {
+
+    let receiverIsArray = isArrayReceiverTypeImpl(receiverType)
+    let mutatorPlan = planArrayMutatorMethodImpl(methodName,
+        receiverIsArray, expr.arguments.length())
+
+    if mutatorPlan.action == 1 {
+        return tryGenerateArrayFreeMutatorMethodCallState(output,
+            receiverReg, receiverType, methodName, expr.literalValue,
+            expr.variableName, expr.arguments.length(), varNames, varRegs,
+            varTypes)
+    }
+
+    if mutatorPlan.action == 2 {
+        let argExpr = expr.arguments[0]
+        let argReg = lowerExpression(ctx, argExpr)
+        let argType = inferLoweredExpressionType(ctx, argExpr)
+        let pushResult = generateArrayPushMutatorMethodCallState(output,
+            getFeatureBlockBoxImpl(), receiverReg, receiverType,
+            expr.literalValue, receiverIsArray, argReg, argType,
+            argExpr.kind == "StructLiteral", varNames, varRegs, varTypes)
+        if pushResult != "" {
+            return pushResult
+        }
+    }
+
+    if mutatorPlan.action == 3 {
+        let popResult = generateArrayPopMutatorMethodCallState(output,
+            receiverReg, receiverType, expr.literalValue, varNames, varRegs,
+            varTypes)
+        if popResult != "" {
+            return popResult
+        }
+    }
+
+    if mutatorPlan.action == 4 {
+        let idxAReg = lowerExpression(ctx, expr.arguments[0])
+        let idxBReg = lowerExpression(ctx, expr.arguments[1])
+        let swapResult = generateArraySwapMutatorMethodCallState(output,
+            receiverReg, expr.literalValue, idxAReg, idxBReg, varNames,
+            varRegs, varTypes)
+        if swapResult != "" {
+            return swapResult
+        }
+    }
+
+    return ""
+}

@@ -2,6 +2,7 @@
 
 import str.string.{StringBuilder}
 import codegen.ir_codegen_state.{CodegenState, FunctionLoweringOptions}
+import codegen.ir_codegen_feature_state.{g_closureCount, g_closureDefs, g_comptimeCount, g_comptimeNames, g_comptimeValues, g_intrinsicCount, g_intrinsicFuncNames, g_intrinsicLlvmNames, g_pforCount, g_sendTypes, g_syncTypes}
 import codegen.ir_string_collect.{resetStringConstCache}
 
 class CodegenStateBridgeSnapshot {
@@ -121,6 +122,24 @@ fun resetSharedModuleGenerationScratchStateImpl()
 
     resetStringConstCache()
     return SharedModuleGenerationScratchState.new()
+}
+
+fun resetSharedModuleGenerationScratchAndGlobalsImpl()
+    r: SharedModuleGenerationScratchState {
+
+    let scratchState = resetSharedModuleGenerationScratchStateImpl()
+    g_closureCount = scratchState.closureCount
+    g_closureDefs = scratchState.closureDefs
+    g_pforCount = scratchState.pforCount
+    g_comptimeNames = scratchState.comptimeNames
+    g_comptimeValues = scratchState.comptimeValues
+    g_comptimeCount = scratchState.comptimeCount
+    g_intrinsicFuncNames = scratchState.intrinsicFuncNames
+    g_intrinsicLlvmNames = scratchState.intrinsicLlvmNames
+    g_intrinsicCount = scratchState.intrinsicCount
+    g_sendTypes = scratchState.sendTypes
+    g_syncTypes = scratchState.syncTypes
+    return scratchState
 }
 
 fun syncCodegenStateBridgeImpl(state: CodegenState,

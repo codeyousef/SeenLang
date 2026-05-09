@@ -1,0 +1,52 @@
+// ir_assignment_move_driver.seen - move/copy assignment side-effect leaves.
+
+import parser.real_parser.{ParserExpressionNode}
+import str.string.{StringBuilder}
+import codegen.ir_codegen_feature_state.{getFeatureMoveOnlyClassesImpl, getFeatureTriviallyCopyableClassesImpl}
+import codegen.ir_codegen_global_state.{getBoundedActiveVarCountWithGlobalStateImpl}
+import codegen.ir_function_state.{getCurrentFunctionEmissionStateImpl, recordMovedVariableImpl}
+import codegen.ir_variable_gen.{emitMoveSourceNullifyImpl, emitTriviallyCopyableAssignmentNoteImpl, findActiveVariableIndexImpl, getExprVariableNameImpl}
+
+fun applyMoveAssignmentSemanticsState(output: StringBuilder,
+    varNames: Array<String>, varRegs: Array<String>,
+    varTypes: Array<String>, valueExpr: ParserExpressionNode) r: Void {
+
+    let moveOnlyClasses = getFeatureMoveOnlyClassesImpl()
+    if moveOnlyClasses == "" {
+        return
+    }
+    if valueExpr.kind != "Variable" and valueExpr.kind != "VarExpr" {
+        return
+    }
+
+    let rhsVarName = getExprVariableNameImpl(valueExpr.variableName,
+        valueExpr.literalValue)
+    if rhsVarName == "" {
+        return
+    }
+
+    let rhsIdx = findActiveVariableIndexImpl(varNames,
+        getBoundedActiveVarCountWithGlobalStateImpl(varNames), rhsVarName)
+    if rhsIdx < 0 {
+        return
+    }
+
+    let rhsType = varTypes[rhsIdx]
+    if not moveOnlyClasses.contains(rhsType + "|") {
+        return
+    }
+
+    emitMoveSourceNullifyImpl(output, varRegs[rhsIdx])
+    recordMovedVariableImpl(getCurrentFunctionEmissionStateImpl(), rhsVarName)
+}
+
+fun emitTriviallyCopyableAssignmentNoteState(output: StringBuilder,
+    varType: String) r: Void {
+
+    let triviallyCopyableClasses = getFeatureTriviallyCopyableClassesImpl()
+    if triviallyCopyableClasses != "" and
+        triviallyCopyableClasses.contains(varType + "|") {
+
+        emitTriviallyCopyableAssignmentNoteImpl(output, varType)
+    }
+}

@@ -1,0 +1,78 @@
+// ir_special_expr_driver.seen - cast/is/try-propagate expression leaves.
+
+import parser.real_parser.{ParserExpressionNode}
+import str.string.{StringBuilder}
+import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl}
+import codegen.ir_codegen_type_state.{mapTypeState}
+import codegen.ir_enum_ctor_gen.{lookupEnumVariantTagStateImpl}
+import codegen.ir_lowering_context.{CodegenLoweringContext, lowerExpression, inferLoweredExpressionType, lowerCallExpression, prepareLoweredCallArgumentsWithDefaults, lowerEnumConstructor, resetLoweringGenerator, resetLoweringSharedModuleScratch, syncLoweringState, writeBackLoweringState, lowerProgramClasses, lowerProgramTopLevelFunctions, lowerPlainLargeClass, lowerClassNode, lowerFunctionNode, lowerClassMethodFromList, setLowerCurrentClassParentName, resetLoweringLocalCodegenState, collectLoweringVariableDeclarations, clearLoweringActiveBindings, lowerBlock, lowerStatement, isLoweringBlockTerminated, beginLoweringNestedScratch, restoreLoweringNestedScratch, currentLoweringFunctionOptions}
+import codegen.ir_string_builder_cast_emit.{emitCastExprImpl}
+import codegen.ir_optimization.{getNextRegFn}
+
+fun emitCastSpecialExpressionState(ctx: CodegenLoweringContext,
+    output: StringBuilder, expr: ParserExpressionNode) r: String {
+
+    let cSrcReg = lowerExpression(ctx, expr.operands[0])
+    let cSrcType = inferLoweredExpressionType(ctx, expr.operands[0])
+    let cTgtType = expr.literalValue
+    return emitCastExprImpl(output, getFeatureRegBoxImpl(), cSrcReg,
+        cSrcType, cTgtType)
+}
+
+fun emitIsExpressionTestState(ctx: CodegenLoweringContext,
+    output: StringBuilder, expr: ParserExpressionNode,
+    enumVariantNames: String, enumVariantTags: String,
+    enumVariantCount: Int) r: String {
+
+    let isSubjectReg = lowerExpression(ctx, expr.operands[0])
+    let isTypeName = expr.literalValue
+    let isTagIdx = lookupEnumVariantTagStateImpl(isTypeName,
+        enumVariantNames, enumVariantTags, enumVariantCount)
+    if isTagIdx >= 0 {
+        let isTagLoad = getNextRegFn(getFeatureRegBoxImpl())
+        output.append("  " + isTagLoad + " = load i64, ptr " +
+            isSubjectReg + "\n")
+        let isCmpReg = getNextRegFn(getFeatureRegBoxImpl())
+        output.append("  " + isCmpReg + " = icmp eq i64 " + isTagLoad +
+            ", " + isTagIdx.toString() + "\n")
+        return isCmpReg
+    }
+    let isSubjectType = inferLoweredExpressionType(ctx, expr.operands[0])
+    if isSubjectType == isTypeName {
+        return "1"
+    }
+    return "0"
+}
+
+fun emitTryPropagateExpressionState(ctx: CodegenLoweringContext,
+    output: StringBuilder, expr: ParserExpressionNode,
+    currentFunctionReturnType: String) r: String {
+
+    let tryInnerReg = lowerExpression(ctx, expr.operands[0])
+    let tryInnerType = inferLoweredExpressionType(ctx, expr.operands[0])
+    if tryInnerType.startsWith("Result") {
+        let tryIsOkReg = getNextRegFn(getFeatureRegBoxImpl())
+        output.append("  " + tryIsOkReg + " = icmp ne i64 " +
+            tryInnerReg + ", 0\n")
+
+        let tryRegBox = getFeatureRegBoxImpl()
+        let tryLabelSuffix = tryRegBox[0].toString()
+        let tryOkLabel = "try.ok." + tryLabelSuffix
+        let tryErrLabel = "try.err." + tryLabelSuffix
+
+        output.append("  br i1 " + tryIsOkReg + ", label %" +
+            tryOkLabel + ", label %" + tryErrLabel + "\n")
+
+        output.append(tryErrLabel + ":\n")
+        let tryRetType = mapTypeState(currentFunctionReturnType)
+        if tryRetType == "void" {
+            output.append("  ret void\n")
+        } else {
+            output.append("  ret " + tryRetType + " 0\n")
+        }
+
+        output.append(tryOkLabel + ":\n")
+        return tryInnerReg
+    }
+    return tryInnerReg
+}

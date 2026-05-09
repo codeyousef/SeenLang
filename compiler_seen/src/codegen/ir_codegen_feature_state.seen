@@ -104,6 +104,58 @@ fun getDefaultFillArgTypeStrsImpl() r: Array<String> {
     return g_defaultFillArgTypeStrs
 }
 
+fun getFeatureBoundsCheckLabelCountImpl() r: Int {
+    return g_boundsCheckLabelCount
+}
+
+fun getFeaturePanicOnOverflowImpl() r: Bool { return g_panicOnOverflow }
+fun getFeatureBoundsCheckEnabledImpl() r: Int { return g_boundsCheckEnabled }
+fun setFeatureBoundsCheckLabelCountImpl(count: Int) r: Void { g_boundsCheckLabelCount = count }
+fun getFeatureCurrentClassParentNameImpl() r: String { return g_currentClassParentName }
+fun setFeatureCurrentClassParentNameImpl(parentName: String) r: Void { g_currentClassParentName = parentName }
+fun getFeatureClosureCountImpl() r: Int { return g_closureCount }
+fun getFeatureClosureDefsImpl() r: String { return g_closureDefs }
+fun setFeatureClosureStateImpl(count: Int, defs: String) r: Void {
+    g_closureCount = count
+    g_closureDefs = defs
+}
+fun getFeatureComptimeParamCountImpl() r: Int { return g_comptimeParamCount }
+fun getFeatureComptimeParamFuncNamesImpl() r: String { return g_comptimeParamFuncNames }
+fun getFeatureInsideUnsafeImpl() r: Int { return g_insideUnsafe }
+fun getFeatureAsyncFuncNamesImpl() r: String { return g_asyncFuncNames }
+fun getFeatureAsyncFuncRetTypesImpl() r: String { return g_asyncFuncRetTypes }
+fun getFeatureAsyncFuncCountImpl() r: Int { return g_asyncFuncCount }
+fun getFeatureEnumVariantNamesImpl() r: String { return g_enumVariantNames }
+fun getFeatureEnumVariantTagsImpl() r: String { return g_enumVariantTags }
+fun getFeatureEnumVariantFieldTypesImpl() r: String { return g_enumVariantFieldTypes }
+fun getFeatureEnumVariantFieldCountsImpl() r: String { return g_enumVariantFieldCounts }
+fun getFeatureEnumVariantParentImpl() r: String { return g_enumVariantParent }
+fun getFeatureEnumVariantCountImpl() r: Int { return g_enumVariantCount }
+fun getFeatureDeferCountImpl() r: Int { return g_deferCount }
+fun getFeatureDeferExprsImpl() r: Array<ParserExpressionNode> { return g_deferExprs }
+fun setFeatureDeferCountImpl(count: Int) r: Void { g_deferCount = count }
+fun getFeatureErrdeferCountImpl() r: Int { return g_errdeferCount }
+fun getFeatureErrdeferExprsImpl() r: Array<ParserExpressionNode> { return g_errdeferExprs }
+fun getFeatureErrdeferTempAllocaImpl() r: String { return g_errdeferTempAlloca }
+fun getFeatureTryCatchLabelImpl() r: String { return g_tryCatchLabel }
+fun getFeatureTryCatchEndLabelImpl() r: String { return g_tryCatchEndLabel }
+fun getFeatureDistinctTypeNamesImpl() r: String { return g_distinctTypeNames }
+fun getFeaturePforCountImpl() r: Int { return g_pforCount }
+fun getFeatureWarnUnusedResultImpl() r: Int { return g_warnUnusedResult }
+fun applyStatementDriverFeatureStateImpl(boundsCheckLabelCount: Int,
+    errdeferTempAlloca: String, tryCatchLabel: String,
+    tryCatchEndLabel: String, insideUnsafe: Int, pforCount: Int,
+    closureDefs: String) r: Void {
+
+    g_boundsCheckLabelCount = boundsCheckLabelCount
+    g_errdeferTempAlloca = errdeferTempAlloca
+    g_tryCatchLabel = tryCatchLabel
+    g_tryCatchEndLabel = tryCatchEndLabel
+    g_insideUnsafe = insideUnsafe
+    g_pforCount = pforCount
+    g_closureDefs = closureDefs
+}
+
 var g_dynTraitNames: String = ""
 var g_vtableClassImpls: String = ""
 var g_dynParamFuncs: String = ""
@@ -580,6 +632,10 @@ fun setEnabledFeaturesStateImpl(features: String) r: Void {
     g_enabledFeatures = features
 }
 
+fun getEnabledFeaturesStateImpl() r: String {
+    return g_enabledFeatures
+}
+
 fun getDynTraitNamesStateImpl() r: String {
     return g_dynTraitNames
 }
@@ -638,6 +694,30 @@ fun getFeatureTypeAliasCountImpl() r: Int {
 
 fun getFeatureReprCClassNamesImpl() r: String {
     return g_reprCClassNames
+}
+
+fun getFeatureUnionTypesImpl() r: String {
+    return g_unionTypes
+}
+
+fun getFeatureTriviallyCopyableClassesImpl() r: String {
+    return g_triviallyCopyableClasses
+}
+
+fun getFeatureMoveOnlyClassesImpl() r: String {
+    return g_moveOnlyClasses
+}
+
+fun getFeatureDynParamFuncsImpl() r: String {
+    return g_dynParamFuncs
+}
+
+fun getFeatureFuncParamCountArrImpl() r: String {
+    return g_funcParamCountArr
+}
+
+fun getFeatureFuncDefaultsArrImpl() r: String {
+    return g_funcDefaultsArr
 }
 
 fun getFeatureCResourceClassesImpl() r: String {

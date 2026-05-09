@@ -1,0 +1,26 @@
+// ir_generator_config_driver.seen - LLVM generator public configuration helpers.
+
+import codegen.ir_codegen_global_state.{setGlobalTypeHeaderPathImpl}
+import codegen.ir_ml_logging.{setupMLLogging}
+
+fun setGeneratorTypeHeaderPathState(path: String) r: Void {
+    var pipeIdx = 0
+    var foundPipe = false
+    while pipeIdx < path.length() {
+        if path.charAt(pipeIdx) == '|' {
+            foundPipe = true
+            setGlobalTypeHeaderPathImpl(path.substring(0, pipeIdx))
+            let rest = path.substring(pipeIdx + 1, path.length())
+            if rest.length() > 3 {
+                if rest.substring(0, 3) == "ml:" {
+                    setupMLLogging(rest.substring(3, rest.length()))
+                }
+            }
+            break
+        }
+        pipeIdx = pipeIdx + 1
+    }
+    if not foundPipe {
+        setGlobalTypeHeaderPathImpl(path)
+    }
+}

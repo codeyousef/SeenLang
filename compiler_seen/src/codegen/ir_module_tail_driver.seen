@@ -1,0 +1,45 @@
+// ir_module_tail_driver.seen - shared module tail emission for LLVM codegen.
+
+import str.string.{StringBuilder}
+import codegen.ir_codegen_state.{FunctionLoweringOptions}
+import codegen.ir_codegen_feature_state.{emitTraitVtableConstantsWithFeatureStateImpl, emitGeneratedClosuresWithFeatureStateImpl, emitGlobalConstructorsWithFeatureStateImpl, emitTBAAMetadataWithFeatureStateImpl}
+import codegen.ir_codegen_global_state.{getStringConstantPrefixWithGlobalStateImpl}
+import codegen.ir_codegen_metrics_state.{g_branchesEliminated, g_deadStatementsEliminated, g_constantsFolded, g_cseHits, g_loopsOptimized, g_deadStoresEliminated, g_reductionChainsDetected, cseClear, emitLoopMetadataWithMetricsStateImpl}
+import codegen.ir_ml_logging.{writeMLDecisionLog}
+import codegen.ir_module_emit.{emitOptimizationStatisticsSummaryImpl}
+import codegen.ir_string_emit.{emitAdditionalGeneratedStringConstantsImpl}
+
+fun emitSharedModuleTailState(output: StringBuilder,
+    stringConstants: Array<String>, stringConstCountBeforeGen: Int,
+    moduleIndex: Int, clearModuleCse: Bool, writeLogBeforeMetadata: Bool,
+    functionOptions: FunctionLoweringOptions) r: Void {
+
+    emitTraitVtableConstantsWithFeatureStateImpl(output)
+
+    emitAdditionalGeneratedStringConstantsImpl(output, stringConstants,
+        getStringConstantPrefixWithGlobalStateImpl(),
+        stringConstCountBeforeGen)
+
+    emitGeneratedClosuresWithFeatureStateImpl(output)
+
+    emitOptimizationStatisticsSummaryImpl(output, moduleIndex, false,
+        g_branchesEliminated, g_deadStatementsEliminated, g_constantsFolded,
+        g_cseHits, g_loopsOptimized, g_deadStoresEliminated,
+        g_reductionChainsDetected)
+
+    if clearModuleCse {
+        cseClear()
+    }
+
+    if writeLogBeforeMetadata {
+        writeMLDecisionLog()
+    }
+
+    emitGlobalConstructorsWithFeatureStateImpl(output)
+    emitTBAAMetadataWithFeatureStateImpl(output)
+    emitLoopMetadataWithMetricsStateImpl(output, functionOptions)
+
+    if not writeLogBeforeMetadata {
+        writeMLDecisionLog()
+    }
+}

@@ -1,0 +1,83 @@
+// ir_let_statement_driver.seen - let/var statement lowering.
+
+import parser.real_parser.{StatementNode}
+import str.string.{StringBuilder}
+import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl}
+import codegen.ir_codegen_global_state.{getPendingArrayLiteralTypeWithGlobalStateImpl, setPendingArrayLiteralTypeWithGlobalStateImpl, prepareLetStatementPlanWithGlobalStateImpl, resolveLetPreAllocatedRegWithGlobalStateImpl, getBoundedActiveVarCountWithGlobalStateImpl, setActiveVarCountWithGlobalStateImpl}
+import codegen.ir_codegen_type_state.{mapTypeState}
+import codegen.ir_decl_items.{normalizeDeclaredTypeNodeImpl}
+import codegen.ir_lowering_context.{CodegenLoweringContext, lowerExpression, inferLoweredExpressionType, lowerCallExpression, prepareLoweredCallArgumentsWithDefaults, lowerEnumConstructor, resetLoweringGenerator, resetLoweringSharedModuleScratch, syncLoweringState, writeBackLoweringState, lowerProgramClasses, lowerProgramTopLevelFunctions, lowerPlainLargeClass, lowerClassNode, lowerFunctionNode, lowerClassMethodFromList, setLowerCurrentClassParentName, resetLoweringLocalCodegenState, collectLoweringVariableDeclarations, clearLoweringActiveBindings, lowerBlock, lowerStatement, isLoweringBlockTerminated, beginLoweringNestedScratch, restoreLoweringNestedScratch, currentLoweringFunctionOptions}
+import codegen.ir_stmt_dead_code.{shouldSkipDeadLiteralInitializerImpl}
+import codegen.ir_stmt_decl.{shouldInferDeclarationInitializerTypeImpl, shouldSeedDeclarationPendingArrayLiteralTypeImpl, resolveLetStatementAllocaImpl, emitDeadLiteralInitializerSkipNoteImpl, emitDeclarationInitializerStoreImpl}
+import codegen.ir_stmt_var_collect_driver.{inferDeclarationInitializerTypeState}
+import codegen.ir_value_coercion.{coerceValueForLlvmTargetImpl}
+import codegen.ir_variable_gen.{storeActiveVariableBindingImpl}
+
+fun coerceLetInitializerValueForLlvmTargetState(output: StringBuilder,
+    targetLlvmType: String, sourceSeenType: String, valueReg: String)
+    r: String {
+
+    var sourceLlvmType: String = ""
+    if sourceSeenType != "" and sourceSeenType != "Unknown" {
+        sourceLlvmType = mapTypeState(sourceSeenType)
+    }
+    return coerceValueForLlvmTargetImpl(output, getFeatureRegBoxImpl(),
+        targetLlvmType, sourceSeenType, sourceLlvmType, valueReg)
+}
+
+fun emitLetStatementInitializerState(ctx: CodegenLoweringContext,
+    output: StringBuilder, stmt: StatementNode, reg: String,
+    varType: String, llvmType: String, deadStoreSkipVars: String) r: Void {
+
+    if stmt.initializer.kind == "None" {
+        return
+    }
+    if shouldSkipDeadLiteralInitializerImpl(deadStoreSkipVars, stmt) {
+        emitDeadLiteralInitializerSkipNoteImpl(output, stmt.variableName)
+        return
+    }
+    let savedPendingType = getPendingArrayLiteralTypeWithGlobalStateImpl()
+    if shouldSeedDeclarationPendingArrayLiteralTypeImpl(
+        stmt.initializer.kind, varType) != 0 {
+        setPendingArrayLiteralTypeWithGlobalStateImpl(varType)
+    }
+    let valueReg = lowerExpression(ctx, stmt.initializer)
+    setPendingArrayLiteralTypeWithGlobalStateImpl(savedPendingType)
+    let initializerType = inferLoweredExpressionType(ctx, stmt.initializer)
+    let storedValueReg = coerceLetInitializerValueForLlvmTargetState(output,
+        llvmType, initializerType, valueReg)
+    emitDeclarationInitializerStoreImpl(output, llvmType, storedValueReg,
+        reg)
+}
+
+fun generateLetStatementState(ctx: CodegenLoweringContext,
+    output: StringBuilder, stmt: StatementNode, varNames: Array<String>,
+    varRegs: Array<String>, varTypes: Array<String>,
+    stringConstants: Array<String>, deadStoreSkipVars: String) r: Void {
+
+    let declaredType = normalizeDeclaredTypeNodeImpl(stmt.variableType)
+    var initializerType: String = ""
+    if shouldInferDeclarationInitializerTypeImpl(declaredType,
+        stmt.initializer.kind) != 0 {
+        initializerType = inferDeclarationInitializerTypeState(
+            stmt.initializer, varNames, varTypes, stringConstants)
+    }
+    let letPlan = prepareLetStatementPlanWithGlobalStateImpl(stmt,
+        declaredType, initializerType)
+    let varType = letPlan.varType
+    let llvmType = mapTypeState(varType)
+    let preAllocatedReg = resolveLetPreAllocatedRegWithGlobalStateImpl(
+        letPlan.preIdx)
+    var preAllocatedLlvmType: String = ""
+    if preAllocatedReg != "" {
+        preAllocatedLlvmType = mapTypeState(letPlan.preAllocatedType)
+    }
+    let reg = resolveLetStatementAllocaImpl(output, getFeatureRegBoxImpl(),
+        preAllocatedReg, preAllocatedLlvmType, llvmType)
+    setActiveVarCountWithGlobalStateImpl(storeActiveVariableBindingImpl(
+        varNames, varRegs, varTypes,
+        getBoundedActiveVarCountWithGlobalStateImpl(varNames),
+        stmt.variableName, reg, varType))
+    emitLetStatementInitializerState(ctx, output, stmt, reg, varType,
+        llvmType, deadStoreSkipVars)
+}

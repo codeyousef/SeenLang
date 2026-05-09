@@ -2,12 +2,15 @@
 
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn, getNextBlockFn}
-import codegen.ir_method_call_plan.{planArrayMutatorFreeTypeImpl, planArrayMutatorFreeEmitImpl, planArrayMutatorPushPointerImpl, planArrayMutatorFallbackPointerImpl, resolveArrayMutatorVariableNameImpl, resolveArrayReceiverElementTypeImpl, resolveArrayPushElementTypeImpl}
+import codegen.ir_codegen_global_state.{getBoundedActiveVarCountWithGlobalStateImpl}
+import codegen.ir_member_access.{extractLastMemberFieldSegmentImpl}
+import codegen.ir_member_access_driver.{tryGenerateChainedReceiverMemberAccessState, tryGenerateImplicitThisFieldVariableState, tryGenerateImplicitThisReceiverMemberAccessState, tryGenerateModuleConstReceiverMemberAccessState, tryGenerateVariableReceiverMemberAccessState}
+import codegen.ir_method_call_plan.{isDottedArrayMutatorLiteralImpl, planArrayMutatorFreeTypeImpl, planArrayMutatorFreeEmitImpl, planArrayMutatorPushPointerImpl, planArrayMutatorFallbackPointerImpl, resolveArrayMutatorVariableNameImpl, resolveArrayReceiverElementTypeImpl, resolveArrayPushElementTypeImpl, shouldLoadLocalArrayMutatorPointerImpl, shouldResolveChainedArrayMutatorReceiverImpl, shouldUseImplicitThisArrayMutatorPointerImpl}
 import codegen.ir_method_receiver_predicates.{isArrayReceiverTypeImpl}
 import codegen.ir_string_collect.{getBaseTypeNameImpl}
 import codegen.ir_type_mapping.{isClassTypeImpl}
 import codegen.ir_type_tables.{resolvePopElementTypeImpl}
-import codegen.ir_variable_gen.{findActiveVariableIndexImpl}
+import codegen.ir_variable_gen.{emitLocalVariableLoadImpl, findActiveVariableIndexImpl}
 import codegen.type_registry_core.{findStructReg, isDataTypeReg}
 
 fun emitArrayFreeMutationImpl(output: StringBuilder, regBox: Array<Int>,
@@ -26,6 +29,65 @@ fun emitArrayFreeMutationImpl(output: StringBuilder, regBox: Array<Int>,
     output.append("  call void @free(ptr " + dataPtrReg + ")\n")
     output.append("  call void @free(ptr " + arrayPtrReg + ")\n")
     return "0"
+}
+
+fun tryResolveArrayMutatorPointerFromLiteralState(output: StringBuilder,
+    regBox: Array<Int>, varNames: Array<String>, varRegs: Array<String>,
+    varTypes: Array<String>, varName: String) r: String {
+
+    if varName == "" {
+        return ""
+    }
+
+    if isDottedArrayMutatorLiteralImpl(varName) {
+        let fieldName = extractLastMemberFieldSegmentImpl(varName)
+        let receiverName = varName.substring(0,
+            varName.length() - fieldName.length() - 1)
+
+        if shouldResolveChainedArrayMutatorReceiverImpl(receiverName) {
+            let chainedArrayPtr = tryGenerateChainedReceiverMemberAccessState(
+                output, varNames, varRegs, varTypes, receiverName, fieldName)
+            if chainedArrayPtr != "" {
+                return chainedArrayPtr
+            }
+        } else {
+            let varArrayPtr = tryGenerateVariableReceiverMemberAccessState(
+                output, varNames, varRegs, varTypes, receiverName, fieldName)
+            if varArrayPtr != "" {
+                return varArrayPtr
+            }
+
+            let constArrayPtr = tryGenerateModuleConstReceiverMemberAccessState(
+                output, varNames, varTypes, receiverName, fieldName)
+            if constArrayPtr != "" {
+                return constArrayPtr
+            }
+
+            let implicitThisArrayPtr =
+                tryGenerateImplicitThisReceiverMemberAccessState(output,
+                varNames, varRegs, varTypes, receiverName, fieldName)
+            if implicitThisArrayPtr != "" {
+                return implicitThisArrayPtr
+            }
+        }
+        return ""
+    }
+
+    let activeCount = getBoundedActiveVarCountWithGlobalStateImpl(varNames)
+    let varIdx = findActiveVariableIndexImpl(varNames, activeCount, varName)
+    if shouldLoadLocalArrayMutatorPointerImpl(varIdx) {
+        return emitLocalVariableLoadImpl(output, regBox, "ptr", varRegs[varIdx])
+    }
+
+    let implicitThisArrayPtr = tryGenerateImplicitThisFieldVariableState(
+        output, varNames, varRegs, varTypes, varName)
+    if shouldUseImplicitThisArrayMutatorPointerImpl(implicitThisArrayPtr) {
+        return implicitThisArrayPtr
+    }
+
+    let loadReg = getNextRegFn(regBox)
+    output.append("  " + loadReg + " = load ptr, ptr @" + varName + "\n")
+    return loadReg
 }
 
 fun emitArrayPushMutationImpl(output: StringBuilder, regBox: Array<Int>,

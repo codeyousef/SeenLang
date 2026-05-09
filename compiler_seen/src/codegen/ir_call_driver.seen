@@ -1,0 +1,169 @@
+// ir_call_driver.seen - recursive function call orchestration.
+
+import parser.real_parser.{ParserExpressionNode}
+import str.string.{StringBuilder}
+import codegen.ir_call_builtin_plan.{planMetaBuiltinCallImpl}
+import codegen.ir_call_comptime_param.{applyComptimeParamSpecializationState}
+import codegen.ir_call_implicit_this_driver.{tryGenerateImplicitThisCallState}
+import codegen.ir_call_args_driver.{prepareCallArgumentsWithDefaultsState}
+import codegen.ir_call_low_level_driver.{tryGenerateLowLevelBuiltinCallState}
+import codegen.ir_call_meta_driver.{tryGenerateNonTransmuteMetaBuiltinCallState}
+import codegen.ir_call_regular_emit.{emitRegularFunctionCallTailState}
+import codegen.ir_call_regular_plan.{stripGenericCalleeNameImpl, resolveRegularCallLlvmReturnTypeImpl}
+import codegen.ir_call_runtime_driver.{tryGenerateRuntimeBuiltinCallState, tryGenerateMathBuiltinCallState}
+import codegen.ir_codegen_feature_state.{getFeatureAsyncFuncNamesImpl, getFeatureAsyncFuncCountImpl, getFeatureBoundsCheckEnabledImpl, getFeatureBoundsCheckLabelCountImpl, setFeatureBoundsCheckLabelCountImpl, getFeatureComptimeParamFuncNamesImpl, getFeatureComptimeParamCountImpl, getFeatureCurrentClassParentNameImpl, getFeatureEnumVariantCountImpl, getFeatureEnumVariantFieldCountsImpl, getFeatureEnumVariantNamesImpl, getFeatureInsideUnsafeImpl, getDefaultFillArgRegsImpl, getDefaultFillArgTypeStrsImpl, getFeatureRegBoxImpl}
+import codegen.ir_codegen_global_state.{getBoundedActiveVarCountWithGlobalStateImpl}
+import codegen.ir_codegen_state.{getSharedCodegenState}
+import codegen.ir_codegen_type_state.{mapTypeState}
+import codegen.ir_constructor_call_driver.{tryGenerateConstructorLikeCallState}
+import codegen.ir_decl_registry.{isAsyncFunctionStateImpl}
+import codegen.ir_function_state.{takeTailCallPositionImpl}
+import codegen.ir_lowering_context.{CodegenLoweringContext, lowerExpression, inferLoweredExpressionType, lowerCallExpression, prepareLoweredCallArgumentsWithDefaults, lowerEnumConstructor, resetLoweringGenerator, resetLoweringSharedModuleScratch, syncLoweringState, writeBackLoweringState, lowerProgramClasses, lowerProgramTopLevelFunctions, lowerPlainLargeClass, lowerClassNode, lowerFunctionNode, lowerClassMethodFromList, setLowerCurrentClassParentName, resetLoweringLocalCodegenState, collectLoweringVariableDeclarations, clearLoweringActiveBindings, lowerBlock, lowerStatement, isLoweringBlockTerminated, beginLoweringNestedScratch, restoreLoweringNestedScratch, currentLoweringFunctionOptions}
+import codegen.ir_method_gen.{emitTransmuteImpl}
+
+class CallDriverResult {
+    var resultReg: String
+    var boundsCheckLabelCount: Int
+
+    static fun new(resultReg: String, boundsCheckLabelCount: Int)
+        r: CallDriverResult {
+
+        return CallDriverResult{
+            resultReg: resultReg,
+            boundsCheckLabelCount: boundsCheckLabelCount
+        }
+    }
+}
+
+fun generateCallWithGlobalState(ctx: CodegenLoweringContext,
+    output: StringBuilder, expr: ParserExpressionNode,
+    varNames: Array<String>, varRegs: Array<String>,
+    varTypes: Array<String>, stringConstants: Array<String>) r: String {
+
+    let result = generateCallState(ctx, output, expr, varNames, varRegs,
+        varTypes, stringConstants, getFeatureBoundsCheckEnabledImpl(),
+        getFeatureBoundsCheckLabelCountImpl(),
+        getFeatureComptimeParamCountImpl(),
+        getFeatureComptimeParamFuncNamesImpl(), getFeatureInsideUnsafeImpl(),
+        getFeatureCurrentClassParentNameImpl(), getFeatureAsyncFuncNamesImpl(),
+        getFeatureAsyncFuncCountImpl(), getFeatureEnumVariantNamesImpl(),
+        getFeatureEnumVariantFieldCountsImpl(),
+        getFeatureEnumVariantCountImpl())
+    setFeatureBoundsCheckLabelCountImpl(result.boundsCheckLabelCount)
+    return result.resultReg
+}
+
+fun tryGenerateMetaBuiltinCallState(ctx: CodegenLoweringContext,
+    output: StringBuilder, stringConstants: Array<String>,
+    expr: ParserExpressionNode, funcName: String,
+    varNames: Array<String>, varTypes: Array<String>,
+    insideUnsafe: Int) r: String {
+
+    let nonTransmuteMetaResult =
+        tryGenerateNonTransmuteMetaBuiltinCallState(output, stringConstants,
+        expr, funcName, varNames, varTypes)
+    if nonTransmuteMetaResult != "" {
+        return nonTransmuteMetaResult
+    }
+
+    let metaPlan = planMetaBuiltinCallImpl(funcName,
+        expr.arguments.length())
+
+    if metaPlan.action == 4 {
+        if insideUnsafe == 0 {
+            output.append("  ; ERROR: transmute requires unsafe block\n")
+            return "0"
+        }
+        if metaPlan.hasArg0 {
+            let tmSrcReg = lowerExpression(ctx, expr.arguments[0])
+            let tmSrcType = inferLoweredExpressionType(ctx, expr.arguments[0])
+            return emitTransmuteImpl(output, getFeatureRegBoxImpl(),
+                tmSrcReg, mapTypeState(tmSrcType),
+                mapTypeState(metaPlan.targetTypeName))
+        }
+        return "0"
+    }
+
+    return ""
+}
+
+fun generateCallState(ctx: CodegenLoweringContext,
+    output: StringBuilder, expr: ParserExpressionNode,
+    varNames: Array<String>, varRegs: Array<String>,
+    varTypes: Array<String>, stringConstants: Array<String>,
+    boundsCheckEnabled: Int, boundsCheckLabelCount: Int,
+    comptimeParamCount: Int, comptimeParamFuncNames: String,
+    insideUnsafe: Int, currentClassParentName: String,
+    asyncFuncNames: String, asyncFuncCount: Int,
+    enumVariantNames: String, enumVariantFieldCounts: String,
+    enumVariantCount: Int) r: CallDriverResult {
+
+    var funcName = expr.callee
+
+    applyComptimeParamSpecializationState(output, comptimeParamCount,
+        comptimeParamFuncNames, funcName, expr)
+
+    let metaBuiltinResult = tryGenerateMetaBuiltinCallState(ctx, output,
+        stringConstants, expr, funcName, varNames, varTypes, insideUnsafe)
+    if metaBuiltinResult != "" {
+        return CallDriverResult.new(metaBuiltinResult, boundsCheckLabelCount)
+    }
+
+    let lowLevelBuiltinResult = tryGenerateLowLevelBuiltinCallState(ctx,
+        output, expr, funcName, varNames, varRegs,
+        getBoundedActiveVarCountWithGlobalStateImpl(varNames),
+        insideUnsafe, boundsCheckEnabled, boundsCheckLabelCount,
+        enumVariantNames, enumVariantFieldCounts, enumVariantCount)
+    if lowLevelBuiltinResult.resultReg != "" {
+        return CallDriverResult.new(lowLevelBuiltinResult.resultReg,
+            lowLevelBuiltinResult.boundsCheckLabelCount)
+    }
+
+    let constructorResult = tryGenerateConstructorLikeCallState(ctx,
+        output, expr, funcName)
+    if constructorResult != "" {
+        return CallDriverResult.new(constructorResult,
+            lowLevelBuiltinResult.boundsCheckLabelCount)
+    }
+
+    let strippedFuncName = stripGenericCalleeNameImpl(funcName)
+    funcName = strippedFuncName
+
+    let runtimeBuiltinResult = tryGenerateRuntimeBuiltinCallState(ctx,
+        output, expr, funcName, currentClassParentName, varNames, varRegs)
+    if runtimeBuiltinResult != "" {
+        return CallDriverResult.new(runtimeBuiltinResult,
+            lowLevelBuiltinResult.boundsCheckLabelCount)
+    }
+
+    let implicitThisResult = tryGenerateImplicitThisCallState(ctx, output,
+        expr, funcName, varNames, varRegs, varTypes, stringConstants)
+    if implicitThisResult != "" {
+        return CallDriverResult.new(implicitThisResult,
+            lowLevelBuiltinResult.boundsCheckLabelCount)
+    }
+
+    let mathBuiltinResult = tryGenerateMathBuiltinCallState(ctx, output,
+        expr, funcName)
+    if mathBuiltinResult != "" {
+        return CallDriverResult.new(mathBuiltinResult,
+            lowLevelBuiltinResult.boundsCheckLabelCount)
+    }
+
+    prepareCallArgumentsWithDefaultsState(ctx, output, funcName,
+        expr.arguments, true, false, true, "fn call", varNames, varRegs,
+        varTypes, stringConstants)
+    var argRegs = getDefaultFillArgRegsImpl()
+    var argTypeStrs = getDefaultFillArgTypeStrsImpl()
+
+    let returnType = inferLoweredExpressionType(ctx, expr)
+    let llvmReturnType = resolveRegularCallLlvmReturnTypeImpl(
+        mapTypeState(returnType), isAsyncFunctionStateImpl(funcName,
+        asyncFuncNames, asyncFuncCount))
+
+    let resultReg = emitRegularFunctionCallTailState(output, funcName,
+        llvmReturnType, argRegs, argTypeStrs,
+        takeTailCallPositionImpl(getSharedCodegenState().functionOptions))
+    return CallDriverResult.new(resultReg,
+        lowLevelBuiltinResult.boundsCheckLabelCount)
+}

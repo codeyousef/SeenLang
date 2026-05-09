@@ -1,0 +1,62 @@
+// ir_lowering_context.seen - acyclic callbacks for recursive lowering drivers.
+
+import parser.real_parser.{ProgramNode, FunctionNode, ClassNode, BlockNode, StatementNode, ParserExpressionNode}
+import str.string.{StringBuilder}
+import codegen.ir_codegen_state.{FunctionLoweringOptions}
+import codegen.ir_function_snapshots.{NestedScratchStateSnapshot}
+
+type CodegenLoweringContext = Int
+
+extern fun lowerExpression(ctx: CodegenLoweringContext,
+    expr: ParserExpressionNode) r: String
+extern fun lowerExpressionInto(ctx: CodegenLoweringContext,
+    output: StringBuilder, expr: ParserExpressionNode,
+    varNames: Array<String>, varRegs: Array<String>,
+    varTypes: Array<String>, stringConstants: Array<String>) r: String
+extern fun inferLoweredExpressionType(ctx: CodegenLoweringContext,
+    expr: ParserExpressionNode) r: String
+extern fun lowerCallExpression(ctx: CodegenLoweringContext,
+    expr: ParserExpressionNode) r: String
+extern fun prepareLoweredCallArgumentsWithDefaults(
+    ctx: CodegenLoweringContext, funcName: String,
+    arguments: Array<ParserExpressionNode>, enableDynBoxing: Bool,
+    enableFloatPromotion: Bool, nullifyMovedSources: Bool,
+    moveContext: String) r: Void
+extern fun lowerEnumConstructor(ctx: CodegenLoweringContext,
+    variantName: String, expr: ParserExpressionNode) r: String
+extern fun resetLoweringGenerator(ctx: CodegenLoweringContext) r: Void
+extern fun resetLoweringSharedModuleScratch(ctx: CodegenLoweringContext)
+    r: Void
+extern fun syncLoweringState(ctx: CodegenLoweringContext) r: Void
+extern fun writeBackLoweringState(ctx: CodegenLoweringContext) r: Void
+extern fun lowerProgramClasses(ctx: CodegenLoweringContext,
+    program: ProgramNode) r: Void
+extern fun lowerProgramTopLevelFunctions(ctx: CodegenLoweringContext,
+    program: ProgramNode, moduleIndex: Int, traceModule: Bool) r: Void
+extern fun lowerPlainLargeClass(ctx: CodegenLoweringContext,
+    className: String, parentName: String, methods: Array<FunctionNode>)
+    r: Void
+extern fun lowerClassNode(ctx: CodegenLoweringContext,
+    classNode: ClassNode) r: Void
+extern fun lowerFunctionNode(ctx: CodegenLoweringContext,
+    fn: FunctionNode) r: Void
+extern fun lowerClassMethodFromList(ctx: CodegenLoweringContext,
+    className: String, parentName: String, methods: Array<FunctionNode>,
+    methodIdx: Int) r: Void
+extern fun setLowerCurrentClassParentName(ctx: CodegenLoweringContext,
+    parentName: String) r: Void
+extern fun resetLoweringLocalCodegenState(ctx: CodegenLoweringContext)
+    r: Void
+extern fun collectLoweringVariableDeclarations(ctx: CodegenLoweringContext,
+    block: BlockNode) r: Void
+extern fun clearLoweringActiveBindings(ctx: CodegenLoweringContext) r: Void
+extern fun lowerBlock(ctx: CodegenLoweringContext, block: BlockNode) r: Void
+extern fun lowerStatement(ctx: CodegenLoweringContext,
+    stmt: StatementNode) r: Void
+extern fun isLoweringBlockTerminated(ctx: CodegenLoweringContext) r: Bool
+extern fun beginLoweringNestedScratch(ctx: CodegenLoweringContext,
+    returnType: String) r: NestedScratchStateSnapshot
+extern fun restoreLoweringNestedScratch(ctx: CodegenLoweringContext,
+    snapshot: NestedScratchStateSnapshot) r: Void
+extern fun currentLoweringFunctionOptions(ctx: CodegenLoweringContext)
+    r: FunctionLoweringOptions

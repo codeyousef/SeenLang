@@ -1,6 +1,8 @@
 // ir_method_receiver_lookup_gen.seen - low-level method receiver load helpers.
 
 import str.string.{StringBuilder}
+import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl, getFeatureReprCClassNamesImpl, getFeatureUnionTypesImpl, getFeatureTypeAliasNamesImpl, getFeatureTypeAliasTargetsImpl, getFeatureTypeAliasCountImpl, getFeatureEnumTypeNamesImpl, getFeatureBitfieldCountImpl, getFeatureBitfieldKeysImpl, getFeatureBitfieldWidthsImpl}
+import codegen.ir_codegen_global_state.{getBoundedActiveVarCountWithGlobalStateImpl, getGlobalStructNamesImpl, getGlobalStructLayoutsImpl, getGlobalStructFieldNamesImpl, getGlobalStructFieldTypesImpl, getGlobalStructMethodNamesImpl, getGlobalStructMethodRetTypesImpl}
 import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_variable_gen.{findActiveVariableIndexImpl, emitLocalVariableLoadImpl, emitImplicitThisPointerLoadImpl}
 import codegen.ir_method_fastpath.{prepareModuleConstantMethodReceiverImpl}
@@ -144,6 +146,23 @@ fun tryResolveImplicitThisDottedMethodReceiverStateImpl(output: StringBuilder,
         enumTypeNames, bitfieldCount, bitfieldKeys, bitfieldWidths)
 }
 
+fun tryResolveImplicitThisDottedMethodReceiverWithOwnerState(output: StringBuilder,
+    literalValue: String, varNames: Array<String>, varRegs: Array<String>,
+    varTypes: Array<String>) r: MethodReceiverLoadResult {
+
+    return tryResolveImplicitThisDottedMethodReceiverStateImpl(output,
+        getFeatureRegBoxImpl(), literalValue, varNames, varRegs, varTypes,
+        getBoundedActiveVarCountWithGlobalStateImpl(varNames),
+        getGlobalStructNamesImpl(), getGlobalStructLayoutsImpl(),
+        getGlobalStructFieldNamesImpl(), getGlobalStructFieldTypesImpl(),
+        getGlobalStructMethodNamesImpl(), getGlobalStructMethodRetTypesImpl(),
+        getFeatureReprCClassNamesImpl(), getFeatureUnionTypesImpl(),
+        getFeatureTypeAliasNamesImpl(), getFeatureTypeAliasTargetsImpl(),
+        getFeatureTypeAliasCountImpl(), getFeatureEnumTypeNamesImpl(),
+        getFeatureBitfieldCountImpl(), getFeatureBitfieldKeysImpl(),
+        getFeatureBitfieldWidthsImpl())
+}
+
 fun emitImplicitThisMethodReceiverLoadImpl(output: StringBuilder,
     regBox: Array<Int>, lookupAction: Int, thisReg: String,
     thisType: String, varName: String, receiverType: String,
@@ -221,4 +240,21 @@ fun tryResolveImplicitThisLiteralMethodReceiverStateImpl(output: StringBuilder,
         structFieldTypes, reprCClassNames, unionTypes, typeAliasNames,
         typeAliasTargets, typeAliasCount, enumTypeNames, bitfieldCount,
         bitfieldKeys, bitfieldWidths)
+}
+
+fun tryResolveImplicitThisLiteralMethodReceiverWithOwnerState(output: StringBuilder,
+    varName: String, receiverType: String, varNames: Array<String>,
+    varRegs: Array<String>, varTypes: Array<String>)
+    r: MethodReceiverLoadResult {
+
+    return tryResolveImplicitThisLiteralMethodReceiverStateImpl(output,
+        getFeatureRegBoxImpl(), varName, receiverType, varNames, varRegs,
+        varTypes, getBoundedActiveVarCountWithGlobalStateImpl(varNames),
+        getGlobalStructNamesImpl(), getGlobalStructLayoutsImpl(),
+        getGlobalStructFieldNamesImpl(), getGlobalStructFieldTypesImpl(),
+        getFeatureReprCClassNamesImpl(), getFeatureUnionTypesImpl(),
+        getFeatureTypeAliasNamesImpl(), getFeatureTypeAliasTargetsImpl(),
+        getFeatureTypeAliasCountImpl(), getFeatureEnumTypeNamesImpl(),
+        getFeatureBitfieldCountImpl(), getFeatureBitfieldKeysImpl(),
+        getFeatureBitfieldWidthsImpl())
 }

@@ -1,0 +1,131 @@
+// ir_array_literal_driver.seen - array literal allocation and push leaves.
+
+import str.string.{StringBuilder}
+import parser.real_parser.{ParserExpressionNode}
+import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl}
+import codegen.ir_codegen_global_state.{getPendingArrayLiteralTypeWithGlobalStateImpl, setPendingArrayLiteralTypeWithGlobalStateImpl}
+import codegen.ir_codegen_type_state.{getDataTypeSizeState, isClassTypeState, isDataTypeState}
+import codegen.ir_lowering_context.{CodegenLoweringContext, lowerExpression, inferLoweredExpressionType, lowerCallExpression, prepareLoweredCallArgumentsWithDefaults, lowerEnumConstructor, resetLoweringGenerator, resetLoweringSharedModuleScratch, syncLoweringState, writeBackLoweringState, lowerProgramClasses, lowerProgramTopLevelFunctions, lowerPlainLargeClass, lowerClassNode, lowerFunctionNode, lowerClassMethodFromList, setLowerCurrentClassParentName, resetLoweringLocalCodegenState, collectLoweringVariableDeclarations, clearLoweringActiveBindings, lowerBlock, lowerStatement, isLoweringBlockTerminated, beginLoweringNestedScratch, restoreLoweringNestedScratch, currentLoweringFunctionOptions}
+import codegen.ir_optimization.{getNextRegFn}
+import codegen.ir_string_collect.{extractArrayLiteralElementTypeImpl}
+
+fun emitArrayLiteralAllocationState(output: StringBuilder,
+    elementType: String) r: String {
+
+    let arrReg = getNextRegFn(getFeatureRegBoxImpl())
+    if elementType == "String" {
+        output.append("  " + arrReg + " = call ptr @seen_arr_new_str_ptr()\n")
+    } else if isDataTypeState(elementType) {
+        let elementSize = getDataTypeSizeState(elementType)
+        output.append("  " + arrReg +
+            " = call ptr @seen_arr_new_with_size_ptr(i64 " +
+            elementSize.toString() + ")\n")
+    } else {
+        output.append("  " + arrReg + " = call ptr @seen_arr_new_ptr_ptr()\n")
+    }
+    return arrReg
+}
+
+fun emitArrayLiteralElementPushState(output: StringBuilder, arrReg: String,
+    argReg: String, argType: String, argIsStructLiteral: Bool) r: Void {
+
+    if argType == "String" {
+        output.append("  call void @seen_arr_push_str(ptr " + arrReg +
+            ", %SeenString " + argReg + ")\n")
+        return
+    }
+    if argType == "Int" {
+        output.append("  call void @seen_arr_push_i64(ptr " + arrReg +
+            ", i64 " + argReg + ")\n")
+        return
+    }
+
+    var ptrArgReg = argReg
+    if ptrArgReg == "0" {
+        ptrArgReg = "null"
+    }
+    if isClassTypeState(argType) {
+        let tmpClassReg = getNextRegFn(getFeatureRegBoxImpl())
+        output.append("  " + tmpClassReg + " = alloca i64\n")
+        output.append("  store i64 " + argReg + ", ptr " + tmpClassReg +
+            "\n")
+        ptrArgReg = tmpClassReg
+    }
+    if isDataTypeState(argType) and not argIsStructLiteral {
+        let tmpDataReg = getNextRegFn(getFeatureRegBoxImpl())
+        output.append("  " + tmpDataReg + " = alloca %" + argType + "\n")
+        output.append("  store %" + argType + " " + argReg + ", ptr " +
+            tmpDataReg + "\n")
+        ptrArgReg = tmpDataReg
+    }
+    let pushReg = getNextRegFn(getFeatureRegBoxImpl())
+    output.append("  " + pushReg + " = call i64 @Array_push(ptr " + arrReg +
+        ", ptr " + ptrArgReg + ")\n")
+}
+
+fun resolveArrayLiteralElementSeenTypeState(ctx: CodegenLoweringContext,
+    elemExpr: ParserExpressionNode, defaultType: String) r: String {
+
+    if defaultType != "" {
+        return defaultType
+    }
+    if elemExpr.kind == "StructLiteral" and elemExpr.literalType != "" {
+        return elemExpr.literalType
+    }
+    return inferLoweredExpressionType(ctx, elemExpr)
+}
+
+fun resolveArrayLiteralElementTypeState(ctx: CodegenLoweringContext,
+    expr: ParserExpressionNode) r: String {
+
+    let activePendingArrayLiteralType =
+        getPendingArrayLiteralTypeWithGlobalStateImpl()
+    if activePendingArrayLiteralType != "" {
+        let pendingElementType = extractArrayLiteralElementTypeImpl(
+            activePendingArrayLiteralType)
+        if pendingElementType != "" {
+            return pendingElementType
+        }
+    }
+    if expr.arguments.length() == 0 {
+        return ""
+    }
+    return resolveArrayLiteralElementSeenTypeState(ctx, expr.arguments[0], "")
+}
+
+fun generateArrayLiteralElementValueState(ctx: CodegenLoweringContext,
+    elemExpr: ParserExpressionNode, elementType: String) r: String {
+
+    let savedElemPending = getPendingArrayLiteralTypeWithGlobalStateImpl()
+    setPendingArrayLiteralTypeWithGlobalStateImpl("")
+    if elemExpr.kind == "ArrayLiteral" and
+        (elementType.startsWith("Array") or elementType.startsWith("List")) {
+        setPendingArrayLiteralTypeWithGlobalStateImpl(elementType)
+    }
+    let argReg = lowerExpression(ctx, elemExpr)
+    setPendingArrayLiteralTypeWithGlobalStateImpl(savedElemPending)
+    return argReg
+}
+
+fun generateArrayLiteralState(ctx: CodegenLoweringContext,
+    output: StringBuilder, expr: ParserExpressionNode) r: String {
+
+    let savedPendingType = getPendingArrayLiteralTypeWithGlobalStateImpl()
+    let elementType = resolveArrayLiteralElementTypeState(ctx, expr)
+    let arrReg = emitArrayLiteralAllocationState(output, elementType)
+
+    var elemIdx = 0
+    while elemIdx < expr.arguments.length() {
+        let elemExpr = expr.arguments[elemIdx]
+        let argReg = generateArrayLiteralElementValueState(ctx, elemExpr,
+            elementType)
+        let argType = resolveArrayLiteralElementSeenTypeState(ctx, elemExpr,
+            elementType)
+        emitArrayLiteralElementPushState(output, arrReg, argReg, argType,
+            elemExpr.kind == "StructLiteral")
+        elemIdx = elemIdx + 1
+    }
+
+    setPendingArrayLiteralTypeWithGlobalStateImpl(savedPendingType)
+    return arrReg
+}

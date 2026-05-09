@@ -101,15 +101,13 @@ fun normalizeIfConditionTypeImpl(expr: ParserExpressionNode,
     return condType
 }
 
-fun finalizeConditionalEndBlockImpl(output: StringBuilder, endLabel: String,
-    thenTerminated: Bool, elseTerminated: Bool) r: Bool {
+fun finalizeConditionalEndBlockImpl(output: StringBuilder,
+    branchTerminated: Bool, endLabel: String) r: Bool {
 
-    output.append(endLabel + ":\n")
-    if thenTerminated and elseTerminated {
-        output.append("  unreachable\n")
-        return true
+    if not branchTerminated {
+        output.append("  br label %" + endLabel + "\n")
     }
-    return false
+    return branchTerminated
 }
 
 fun emitIfExpressionBranchValueImpl(output: StringBuilder, branchReg: String,

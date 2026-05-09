@@ -1,0 +1,241 @@
+// ir_call_runtime_driver.seen - recursive runtime and math call drivers.
+
+import parser.real_parser.{ParserExpressionNode}
+import str.string.{StringBuilder}
+import codegen.ir_call_runtime.{emitPrintLikeCallImpl, emitOptionRuntimeBuiltinCallImpl, emitResultRuntimeBuiltinCallImpl, emitSuperRuntimeBuiltinCallImpl, emitReadTextRuntimeCallImpl, emitWriteTextRuntimeCallImpl, emitArgsRuntimeCallImpl, emitReadFileBytesPathRuntimeCallImpl, emitPanicRuntimeCallImpl, emitMathBuiltinCallImpl}
+import codegen.ir_call_runtime_plan.{isOptionRuntimeCallPlanImpl, shouldReadSomeRuntimeArgImpl, isSuperRuntimeCallPlanImpl, isEmptyRuntimeCalleeImpl, isPrintRuntimeCallPlanImpl, shouldReadPrintRuntimeArgImpl, runtimeIoCallActionImpl, isPanicRuntimeCallPlanImpl, shouldReadPanicRuntimeArgImpl, isMathRuntimeCallPlanImpl, shouldReadMathRuntimeArgImpl, planRuntimeBuiltinDispatchImpl}
+import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl}
+import codegen.ir_codegen_type_state.{mapTypeState, isClassTypeState}
+import codegen.ir_codegen_global_state.{getBoundedActiveVarCountWithGlobalStateImpl, setBlockTerminatedWithGlobalStateImpl}
+import codegen.ir_lowering_context.{CodegenLoweringContext, lowerExpression, inferLoweredExpressionType, lowerCallExpression, prepareLoweredCallArgumentsWithDefaults, lowerEnumConstructor, resetLoweringGenerator, resetLoweringSharedModuleScratch, syncLoweringState, writeBackLoweringState, lowerProgramClasses, lowerProgramTopLevelFunctions, lowerPlainLargeClass, lowerClassNode, lowerFunctionNode, lowerClassMethodFromList, setLowerCurrentClassParentName, resetLoweringLocalCodegenState, collectLoweringVariableDeclarations, clearLoweringActiveBindings, lowerBlock, lowerStatement, isLoweringBlockTerminated, beginLoweringNestedScratch, restoreLoweringNestedScratch, currentLoweringFunctionOptions}
+import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
+import codegen.ir_variable_gen.{findActiveVariableIndexImpl}
+
+fun tryGenerateOptionRuntimeBuiltinCallState(
+    ctx: CodegenLoweringContext, output: StringBuilder,
+    expr: ParserExpressionNode, funcName: String) r: String {
+
+    if not isOptionRuntimeCallPlanImpl(funcName) {
+        return ""
+    }
+    var argReg: String = "0"
+    var argType: String = "Int"
+    if shouldReadSomeRuntimeArgImpl(funcName, expr.arguments.length()) {
+        argReg = lowerExpression(ctx, expr.arguments[0])
+        argType = inferLoweredExpressionType(ctx, expr.arguments[0])
+    }
+    var isClassArg = 0
+    if isClassTypeState(argType) {
+        isClassArg = 1
+    }
+    return emitOptionRuntimeBuiltinCallImpl(output, getFeatureRegBoxImpl(),
+        funcName, argReg, argType, isClassArg)
+}
+
+fun tryGenerateResultRuntimeBuiltinCallState(
+    ctx: CodegenLoweringContext, output: StringBuilder,
+    expr: ParserExpressionNode, funcName: String) r: String {
+
+    if funcName != "Ok" and funcName != "Err" {
+        return ""
+    }
+
+    var argReg: String = "0"
+    var argLlvmType: String = "i64"
+    if expr.arguments.length() > 0 {
+        let argType = inferLoweredExpressionType(ctx, expr.arguments[0])
+        argLlvmType = mapTypeState(argType)
+        argReg = lowerExpression(ctx, expr.arguments[0])
+    }
+
+    return emitResultRuntimeBuiltinCallImpl(output, getFeatureRegBoxImpl(),
+        funcName, argReg, argLlvmType)
+}
+
+fun tryGenerateSuperRuntimeBuiltinCallState(output: StringBuilder,
+    funcName: String, currentClassParentName: String,
+    varNames: Array<String>, varRegs: Array<String>) r: String {
+
+    if isSuperRuntimeCallPlanImpl(funcName) {
+        if currentClassParentName != "" {
+            let thisIdx = findActiveVariableIndexImpl(varNames,
+                getBoundedActiveVarCountWithGlobalStateImpl(varNames),
+                "this")
+            if thisIdx >= 0 {
+                return emitSuperRuntimeBuiltinCallImpl(output,
+                    getFeatureRegBoxImpl(),
+                    quoteIdentIfNeededImpl(currentClassParentName + "_init"),
+                    varRegs[thisIdx])
+            }
+        }
+        return "0"
+    }
+    return ""
+}
+
+fun tryGenerateEmptyRuntimeBuiltinCallState(
+    ctx: CodegenLoweringContext, expr: ParserExpressionNode,
+    funcName: String) r: String {
+
+    if isEmptyRuntimeCalleeImpl(funcName) {
+        var i = 0
+        while i < expr.arguments.length() {
+            lowerExpression(ctx, expr.arguments[i])
+            i = i + 1
+        }
+        return "0"
+    }
+    return ""
+}
+
+fun tryGeneratePrintRuntimeBuiltinCallState(
+    ctx: CodegenLoweringContext, output: StringBuilder,
+    expr: ParserExpressionNode, funcName: String) r: String {
+
+    if not isPrintRuntimeCallPlanImpl(funcName) {
+        return ""
+    }
+    if shouldReadPrintRuntimeArgImpl(funcName, expr.arguments.length()) {
+        let argType = inferLoweredExpressionType(ctx, expr.arguments[0])
+        let argReg = lowerExpression(ctx, expr.arguments[0])
+        return emitPrintLikeCallImpl(output, getFeatureRegBoxImpl(),
+            funcName, argReg, argType)
+    }
+    return "0"
+}
+
+fun tryGenerateIoRuntimeBuiltinCallState(
+    ctx: CodegenLoweringContext, output: StringBuilder,
+    expr: ParserExpressionNode, funcName: String) r: String {
+
+    let ioAction = runtimeIoCallActionImpl(funcName, expr.arguments.length())
+    if ioAction == 0 {
+        return ""
+    }
+
+    if ioAction == 1 {
+        let argReg = lowerExpression(ctx, expr.arguments[0])
+        return emitReadTextRuntimeCallImpl(output, getFeatureRegBoxImpl(),
+            argReg)
+    }
+
+    if ioAction == 2 {
+        let pathReg = lowerExpression(ctx, expr.arguments[0])
+        let contentReg = lowerExpression(ctx, expr.arguments[1])
+        return emitWriteTextRuntimeCallImpl(output, getFeatureRegBoxImpl(),
+            pathReg, contentReg)
+    }
+
+    if ioAction == 3 {
+        return emitArgsRuntimeCallImpl(output, getFeatureRegBoxImpl())
+    }
+
+    if ioAction == 5 {
+        let pathReg = lowerExpression(ctx, expr.arguments[0])
+        return emitReadFileBytesPathRuntimeCallImpl(output,
+            getFeatureRegBoxImpl(), pathReg)
+    }
+    return "0"
+}
+
+fun tryGeneratePanicRuntimeBuiltinCallState(
+    ctx: CodegenLoweringContext, output: StringBuilder,
+    expr: ParserExpressionNode, funcName: String) r: String {
+
+    if not isPanicRuntimeCallPlanImpl(funcName) {
+        return ""
+    }
+    if shouldReadPanicRuntimeArgImpl(funcName, expr.arguments.length()) {
+        let argReg = lowerExpression(ctx, expr.arguments[0])
+        let panicResult = emitPanicRuntimeCallImpl(output, getFeatureRegBoxImpl(),
+            argReg)
+        setBlockTerminatedWithGlobalStateImpl(true)
+        return panicResult
+    }
+    return "0"
+}
+
+fun tryGenerateRuntimeBuiltinCallState(
+    ctx: CodegenLoweringContext, output: StringBuilder,
+    expr: ParserExpressionNode, funcName: String,
+    currentClassParentName: String, varNames: Array<String>,
+    varRegs: Array<String>) r: String {
+
+    let resultCtor = tryGenerateResultRuntimeBuiltinCallState(ctx, output,
+        expr, funcName)
+    if resultCtor != "" {
+        return resultCtor
+    }
+
+    let runtimePlan = planRuntimeBuiltinDispatchImpl(funcName,
+        expr.arguments.length())
+    if runtimePlan.shouldTryOption {
+        let optionResult = tryGenerateOptionRuntimeBuiltinCallState(ctx,
+            output, expr, funcName)
+        if optionResult != "" {
+            return optionResult
+        }
+    }
+
+    if runtimePlan.shouldTrySuper {
+        let superResult = tryGenerateSuperRuntimeBuiltinCallState(output,
+            funcName, currentClassParentName, varNames, varRegs)
+        if superResult != "" {
+            return superResult
+        }
+    }
+
+    if runtimePlan.shouldTryEmpty {
+        let emptyCallResult =
+            tryGenerateEmptyRuntimeBuiltinCallState(ctx, expr, funcName)
+        if emptyCallResult != "" {
+            return emptyCallResult
+        }
+    }
+
+    if runtimePlan.shouldTryPrint {
+        let printResult = tryGeneratePrintRuntimeBuiltinCallState(ctx,
+            output, expr, funcName)
+        if printResult != "" {
+            return printResult
+        }
+    }
+
+    if runtimePlan.shouldTryIo {
+        let ioResult = tryGenerateIoRuntimeBuiltinCallState(ctx, output,
+            expr, funcName)
+        if ioResult != "" {
+            return ioResult
+        }
+    }
+
+    if runtimePlan.shouldTryPanic {
+        return tryGeneratePanicRuntimeBuiltinCallState(ctx, output, expr,
+            funcName)
+    }
+    return ""
+}
+
+fun tryGenerateMathBuiltinCallState(
+    ctx: CodegenLoweringContext, output: StringBuilder,
+    expr: ParserExpressionNode, funcName: String) r: String {
+
+    let argCount = expr.arguments.length()
+    if not isMathRuntimeCallPlanImpl(funcName) {
+        return ""
+    }
+    var mArg0: String = ""
+    var mArg1: String = ""
+    if shouldReadMathRuntimeArgImpl(argCount, 0) {
+        mArg0 = lowerExpression(ctx, expr.arguments[0])
+    }
+    if shouldReadMathRuntimeArgImpl(argCount, 1) {
+        mArg1 = lowerExpression(ctx, expr.arguments[1])
+    }
+    let mResult = emitMathBuiltinCallImpl(output, getFeatureRegBoxImpl(),
+        funcName, mArg0, mArg1)
+    if mResult != "" {
+        return mResult
+    }
+    return ""
+}

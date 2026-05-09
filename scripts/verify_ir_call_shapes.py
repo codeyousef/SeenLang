@@ -21,6 +21,11 @@ CALL_RE = re.compile(rf"\bcall\b(?P<prefix>.*?)@(?P<name>{FUNC_NAME})\((?P<args>
 CALL_INSTRUCTION_RE = re.compile(
     r"^(?:[%@][^\s=]+\s*=\s*)?(?:tail\s+|musttail\s+|notail\s+)?call\b"
 )
+INTERNAL_HELPER_DECL_RE = re.compile(r"Impl$")
+DYNAMIC_DISPATCH_DECL_RE = re.compile(r"^dyn_")
+IMPOSSIBLE_PRIMITIVE_DECL_RE = re.compile(
+    r"^(?:Int|Bool|Float|Double|Char|Byte)_append$"
+)
 TYPE_STARTS = (
     "void",
     "ptr",
@@ -107,6 +112,13 @@ class CallSite:
     args: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class MalformedIROperand:
+    path: Path
+    line: int
+    message: str
+
+
 def strip_comment(line: str) -> str:
     in_quote = False
     idx = 0
@@ -118,6 +130,37 @@ def strip_comment(line: str) -> str:
             return line[:idx]
         idx += 1
     return line
+
+
+def mask_quoted_text(line: str) -> str:
+    chars: list[str] = []
+    in_quote = False
+    idx = 0
+    while idx < len(line):
+        ch = line[idx]
+        if ch == '"' and (idx == 0 or line[idx - 1] != "\\"):
+            in_quote = not in_quote
+            chars.append(" ")
+        elif in_quote:
+            chars.append(" ")
+        else:
+            chars.append(ch)
+        idx += 1
+    return "".join(chars)
+
+
+def malformed_ir_operands(path: Path, line_no: int, line: str) -> list[MalformedIROperand]:
+    masked = mask_quoted_text(strip_comment(line))
+    findings: list[MalformedIROperand] = []
+    if re.search(r"\bptr\s+0\b(?![0-9xX])", masked):
+        findings.append(
+            MalformedIROperand(
+                path,
+                line_no,
+                "integer zero cannot be used as a ptr operand; use ptr null",
+            )
+        )
+    return findings
 
 
 def split_top_level(text: str, sep: str = ",") -> list[str]:
@@ -299,12 +342,24 @@ def parse_params(params_text: str) -> tuple[tuple[str, ...], bool]:
     return tuple(parsed), vararg
 
 
-def parse_file(path: Path) -> tuple[dict[str, Signature], list[CallSite]]:
+def parse_file(
+    path: Path,
+) -> tuple[
+    dict[str, Signature],
+    list[CallSite],
+    dict[str, Signature],
+    set[str],
+    list[MalformedIROperand],
+]:
     signatures: dict[str, Signature] = {}
+    declarations: dict[str, Signature] = {}
+    definitions: set[str] = set()
     calls: list[CallSite] = []
+    malformed_operands: list[MalformedIROperand] = []
     current_function = "<top-level>"
     with path.open("r", encoding="utf-8", errors="replace") as handle:
         for line_no, raw_line in enumerate(handle, 1):
+            malformed_operands.extend(malformed_ir_operands(path, line_no, raw_line))
             line = strip_comment(raw_line).strip()
             if not line:
                 continue
@@ -313,9 +368,13 @@ def parse_file(path: Path) -> tuple[dict[str, Signature], list[CallSite]]:
                 name = normalize_function_name(decl.group("name"))
                 ret = trailing_return_type(decl.group("prefix"))
                 params, vararg = parse_params(decl.group("params"))
+                signature = Signature(path, line_no, ret, params, vararg)
                 if decl.group(1) == "define":
                     current_function = name
-                signatures[name] = Signature(path, line_no, ret, params, vararg)
+                    definitions.add(name)
+                else:
+                    declarations[name] = signature
+                signatures[name] = signature
                 continue
             if line == "}":
                 current_function = "<top-level>"
@@ -330,7 +389,7 @@ def parse_file(path: Path) -> tuple[dict[str, Signature], list[CallSite]]:
                 ret = trailing_return_type(call.group("prefix"))
                 args, _ = parse_params(call.group("args"))
                 calls.append(CallSite(path, line_no, current_function, callee, ret, args))
-    return signatures, calls
+    return signatures, calls, declarations, definitions, malformed_operands
 
 
 def collect_paths(items: list[str]) -> list[Path]:
@@ -366,12 +425,19 @@ def shapes_match(expected: str, actual: str) -> bool:
 
 def verify(paths: list[Path]) -> int:
     all_signatures: dict[str, Signature] = {}
+    all_declarations: dict[str, Signature] = {}
+    all_definitions: set[str] = set()
     all_calls: list[CallSite] = []
+    all_malformed_operands: list[MalformedIROperand] = []
+    errors = 0
     for path in paths:
         if not path.exists():
             print(f"ERROR: IR file not found: {path}", file=sys.stderr)
             return 1
-        signatures, calls = parse_file(path)
+        signatures, calls, declarations, definitions, malformed_operands = parse_file(path)
+        all_declarations.update(declarations)
+        all_definitions.update(definitions)
+        all_malformed_operands.extend(malformed_operands)
         for name, sig in signatures.items():
             previous = all_signatures.get(name)
             if previous and (
@@ -386,11 +452,42 @@ def verify(paths: list[Path]) -> int:
                     f"({', '.join(previous.params)})",
                     file=sys.stderr,
                 )
-                return 1
+                errors += 1
+                continue
             all_signatures[name] = sig
         all_calls.extend(calls)
 
-    errors = 0
+    for malformed in all_malformed_operands:
+        print(
+            f"ERROR: {malformed.path}:{malformed.line}: {malformed.message}",
+            file=sys.stderr,
+        )
+        errors += 1
+
+    called_names = {call.callee for call in all_calls}
+    has_cross_module_context = len(paths) > 1
+    for name, sig in sorted(all_declarations.items()):
+        if name in all_definitions or name not in called_names:
+            continue
+        if (
+            IMPOSSIBLE_PRIMITIVE_DECL_RE.search(name)
+            or (
+                has_cross_module_context
+                and (
+                    INTERNAL_HELPER_DECL_RE.search(name)
+                    or DYNAMIC_DISPATCH_DECL_RE.search(name)
+                )
+            )
+        ):
+            print(
+                f"ERROR: {sig.path}:{sig.line}: @{name} is declared and called "
+                "but has no definition in the captured Stage2 IR set; this "
+                "usually means a compiler helper module was not imported/seeded "
+                "or dyn receiver typing emitted an impossible primitive method",
+                file=sys.stderr,
+            )
+            errors += 1
+
     for call in all_calls:
         sig = all_signatures.get(call.callee)
         if sig is None:
