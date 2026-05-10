@@ -1,0 +1,196 @@
+// ir_class_driver.seen - class-level lowering orchestration.
+
+import parser.real_parser.{ClassNode, FunctionNode}
+import str.string.{StringBuilder}
+import codegen.ir_class_gen_support.{shouldSkipSourceClassMethodImpl, emitInheritedClassMethodThunksImpl, isTraitClassNodeImpl}
+import codegen.ir_class_generated_features.{emitGeneratedClassDecoratorMethodsImpl}
+import codegen.ir_class_gen_support.{prepareGeneratedClassDecoratorSnapshotImpl}
+import codegen.ir_class_type_alias_state.{emitTraitVtableTypeState, tryHandleTypeAliasClassState}
+import codegen.ir_codegen_state.{getSharedCodegenState}
+import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl, setFeatureCurrentClassParentNameImpl}
+import codegen.ir_codegen_metrics_state.{cseClear}
+import codegen.ir_codegen_global_state.{getStringConstantPrefixWithGlobalStateImpl, getGlobalStructNamesImpl, getGlobalStructSizesImpl, getGlobalStructMethodNamesImpl, getGlobalStructMethodRetTypesImpl, getGlobalFuncNamesImpl, getGlobalFuncRetTypesImpl}
+import codegen.ir_codegen_global_state.{getBoundedActiveVarCountWithGlobalStateImpl, setActiveVarCountWithGlobalStateImpl}
+import codegen.ir_codegen_type_state.{mapTypeState}
+import codegen.ir_decl_features.{generateHotReloadMethodsImpl}
+import codegen.ir_decl_items.{normalizeDeclaredTypeNodeImpl}
+import codegen.ir_decl_registry.{registerFunctionStateImpl}
+import codegen.ir_lowering_context.{CodegenLoweringContext, lowerExpression, inferLoweredExpressionType, lowerCallExpression, prepareLoweredCallArgumentsWithDefaults, lowerEnumConstructor, resetLoweringGenerator, resetLoweringSharedModuleScratch, syncLoweringState, writeBackLoweringState, lowerProgramClasses, lowerProgramTopLevelFunctions, lowerPlainLargeClass, lowerClassNode, lowerFunctionNode, lowerClassMethodFromList, setLowerCurrentClassParentName, resetLoweringLocalCodegenState, collectLoweringVariableDeclarations, clearLoweringActiveBindings, lowerBlock, lowerStatement, isLoweringBlockTerminated, beginLoweringNestedScratch, restoreLoweringNestedScratch, currentLoweringFunctionOptions}
+import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
+import codegen.ir_return_type_driver.{resolveMethodReturnTypeState}
+import codegen.ir_variable_gen.{storeActiveVariableBindingImpl}
+import codegen.type_registry_core.{registerStructMethodReg}
+
+fun emitTraitDefaultMethodState(ctx: CodegenLoweringContext,
+    output: StringBuilder, className: String, traitMethod: FunctionNode,
+    traitRetTypeName: String, varNames: Array<String>,
+    varRegs: Array<String>, varTypes: Array<String>) r: Void {
+
+    let defaultFuncName = className + "_" + traitMethod.name + "_default"
+    output.append("; trait default method: " + defaultFuncName + "\n")
+    let savedNestedState = beginLoweringNestedScratch(ctx, traitRetTypeName)
+    let nestedOutput = getSharedCodegenState().output
+    cseClear()
+    var defaultParamStr: String = ""
+    var paramIdx = 0
+    while paramIdx < traitMethod.params.length() {
+        if paramIdx > 0 {
+            defaultParamStr = defaultParamStr + ", "
+        }
+        let defaultParam = traitMethod.params[paramIdx]
+        let defaultParamSeenType =
+            normalizeDeclaredTypeNodeImpl(defaultParam.paramType)
+        let defaultParamType = mapTypeState(defaultParamSeenType)
+        let defaultParamReg = "%" + quoteIdentIfNeededImpl(defaultParam.name)
+        defaultParamStr = defaultParamStr + defaultParamType + " " +
+            defaultParamReg
+        setActiveVarCountWithGlobalStateImpl(storeActiveVariableBindingImpl(
+            varNames, varRegs, varTypes,
+            getBoundedActiveVarCountWithGlobalStateImpl(varNames),
+            defaultParam.name, defaultParamReg, defaultParamSeenType))
+        paramIdx = paramIdx + 1
+    }
+    let defaultRetType = mapTypeState(traitRetTypeName)
+    nestedOutput.append("define " + defaultRetType + " @" +
+        quoteIdentIfNeededImpl(defaultFuncName) + "(" + defaultParamStr +
+        ") {\n")
+    nestedOutput.append("entry:\n")
+    lowerBlock(ctx, traitMethod.body)
+    if not isLoweringBlockTerminated(ctx) {
+        if defaultRetType == "void" {
+            nestedOutput.append("  ret void\n")
+        } else {
+            nestedOutput.append("  ret " + defaultRetType +
+                " zeroinitializer\n")
+        }
+    }
+    nestedOutput.append("}\n\n")
+    restoreLoweringNestedScratch(ctx, savedNestedState)
+    registerFunctionStateImpl(defaultFuncName, traitRetTypeName,
+        getGlobalFuncNamesImpl(), getGlobalFuncRetTypesImpl())
+}
+
+fun tryGenerateTraitClassState(ctx: CodegenLoweringContext,
+    output: StringBuilder, classNode: ClassNode, varNames: Array<String>,
+    varRegs: Array<String>, varTypes: Array<String>,
+    stringConstants: Array<String>) r: Bool {
+
+    if not isTraitClassNodeImpl(classNode) {
+        return false
+    }
+    let className = classNode.name
+    output.append("; trait " + className +
+        " (method signatures + default impls)\n")
+    var traitMethodIdx = 0
+    while traitMethodIdx < classNode.methods.length() {
+        let traitMethod = classNode.methods[traitMethodIdx]
+        let traitFuncName = className + "_" + traitMethod.name
+        let traitRetTypeName = resolveMethodReturnTypeState(className,
+            traitMethod, varNames, varTypes, stringConstants)
+        registerFunctionStateImpl(traitFuncName, traitRetTypeName,
+            getGlobalFuncNamesImpl(), getGlobalFuncRetTypesImpl())
+        registerStructMethodReg(className, traitMethod.name,
+            traitRetTypeName, getGlobalStructNamesImpl(),
+            getGlobalStructMethodNamesImpl(),
+            getGlobalStructMethodRetTypesImpl(), getGlobalFuncNamesImpl(),
+            getGlobalFuncRetTypesImpl())
+        if traitMethod.body.statements.length() > 0 {
+            emitTraitDefaultMethodState(ctx, output, className,
+                traitMethod, traitRetTypeName, varNames, varRegs, varTypes)
+        }
+        traitMethodIdx = traitMethodIdx + 1
+    }
+    emitTraitVtableTypeState(output, classNode)
+    return true
+}
+
+fun generateRegularClassMethodsState(ctx: CodegenLoweringContext,
+    classNode: ClassNode, isStringBuilder: Bool) r: Void {
+
+    var methodIdx = 0
+    while methodIdx < classNode.methods.length() {
+        let method = classNode.methods[methodIdx]
+        let methodName = method.name
+        if shouldSkipSourceClassMethodImpl(methodName, isStringBuilder) {
+            methodIdx = methodIdx + 1
+            continue
+        }
+        lowerClassMethodFromList(ctx, classNode.name, classNode.parentName,
+            classNode.methods, methodIdx)
+        methodIdx = methodIdx + 1
+    }
+}
+
+fun generatePlainLargeClassState(ctx: CodegenLoweringContext,
+    className: String, parentName: String, methods: Array<FunctionNode>)
+    r: Void {
+
+    if className == "" {
+        return
+    }
+
+    let isStringBuilder = className == "StringBuilder"
+
+    var methodIdx = 0
+    while methodIdx < methods.length() {
+        let method = methods[methodIdx]
+        let methodName = method.name
+        if shouldSkipSourceClassMethodImpl(methodName, isStringBuilder) {
+            methodIdx = methodIdx + 1
+            continue
+        }
+        lowerClassMethodFromList(ctx, className, parentName, methods,
+            methodIdx)
+        methodIdx = methodIdx + 1
+    }
+
+    setFeatureCurrentClassParentNameImpl("")
+}
+
+fun generateClassState(ctx: CodegenLoweringContext,
+    output: StringBuilder, classNode: ClassNode,
+    varNames: Array<String>, varRegs: Array<String>,
+    varTypes: Array<String>,
+    stringConstants: Array<String>, reprCClassNames: String,
+    typeAliasNames: String, typeAliasTargets: String, typeAliasCount: Int,
+    enumTypeNames: String, binaryClassNames: String, binaryVersions: String,
+    binaryEndianness: String, binaryClassCount: Int) r: Void {
+
+    let className = classNode.name
+    if className == "" {
+        return
+    }
+
+    if tryGenerateTraitClassState(ctx, output, classNode, varNames,
+        varRegs, varTypes, stringConstants) {
+        return
+    }
+
+    if tryHandleTypeAliasClassState(output, classNode) {
+        return
+    }
+
+    let isStringBuilder = className == "StringBuilder"
+
+    let decoratorSnapshot =
+        prepareGeneratedClassDecoratorSnapshotImpl(classNode)
+    generateRegularClassMethodsState(ctx, classNode, isStringBuilder)
+
+    if decoratorSnapshot.isHotReload == 1 {
+        generateHotReloadMethodsImpl(output, classNode)
+    }
+
+    emitGeneratedClassDecoratorMethodsImpl(output, classNode,
+        decoratorSnapshot.decoratorFlags, decoratorSnapshot.packetId,
+        getGlobalStructNamesImpl(), getGlobalStructSizesImpl(),
+        getGlobalStructMethodNamesImpl(), getGlobalStructMethodRetTypesImpl(),
+        getGlobalFuncNamesImpl(), getGlobalFuncRetTypesImpl(),
+        stringConstants, getStringConstantPrefixWithGlobalStateImpl(),
+        binaryClassNames, binaryVersions, binaryEndianness, binaryClassCount)
+    emitInheritedClassMethodThunksImpl(output, getFeatureRegBoxImpl(),
+        classNode, getGlobalStructNamesImpl(), getGlobalStructMethodNamesImpl(),
+        getGlobalStructMethodRetTypesImpl(), reprCClassNames, typeAliasNames,
+        typeAliasTargets, typeAliasCount, enumTypeNames)
+
+    setFeatureCurrentClassParentNameImpl("")
+}

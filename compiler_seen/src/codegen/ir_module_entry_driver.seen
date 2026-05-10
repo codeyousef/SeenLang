@@ -1,0 +1,56 @@
+// ir_module_entry_driver.seen - shared module entry emission for LLVM codegen.
+
+import parser.real_parser.{ProgramNode}
+import str.string.{StringBuilder}
+import codegen.ir_codegen_global_state.{emitModulePrologueWithGlobalStateImpl, emitRuntimeDeclarationsWithGlobalStateImpl}
+import codegen.ir_codegen_metrics_state.{callCountClear, selfCallClear, loadMLWeights}
+import codegen.ir_codegen_module_state.{emitCrossModuleConstantDeclaresWithModuleStateImpl}
+import codegen.ir_module_emit.{collectProgramDefinedSymbolsImpl}
+import codegen.ir_module_program_driver.{collectProgramStringConstantsState, collectProgramsStringConstantsState, emitProgramClassTypesState, emitProgramsClassTypesState, emitProgramGlobalVariablesState, emitProgramsGlobalVariablesState}
+import codegen.ir_string_emit.{emitStringConstantsImpl, emitStringConstantsWithPrefixImpl}
+
+class SingleModuleEntryState {
+    var stringConstCountBeforeGen: Int
+    var definedFuncs: Array<String>
+
+    static fun new() r: SingleModuleEntryState {
+        return SingleModuleEntryState{
+            stringConstCountBeforeGen: 0,
+            definedFuncs: Array<String>()
+        }
+    }
+}
+
+fun emitMultipleModuleEntryState(output: StringBuilder,
+    stringConstants: Array<String>, programs: Array<ProgramNode>) r: Int {
+
+    collectProgramsStringConstantsState(programs, stringConstants)
+    emitModulePrologueWithGlobalStateImpl(output)
+    emitProgramsClassTypesState(output, programs)
+    emitProgramsGlobalVariablesState(output, programs)
+    emitStringConstantsImpl(output, stringConstants)
+    let stringConstCountBeforeGen = stringConstants.length()
+    emitRuntimeDeclarationsWithGlobalStateImpl(output, Array<String>())
+    return stringConstCountBeforeGen
+}
+
+fun emitSingleModuleEntryState(output: StringBuilder,
+    stringConstants: Array<String>, program: ProgramNode, moduleIndex: Int)
+    r: SingleModuleEntryState {
+
+    loadMLWeights()
+    callCountClear()
+    selfCallClear()
+    collectProgramStringConstantsState(program, stringConstants)
+    emitModulePrologueWithGlobalStateImpl(output)
+    emitProgramClassTypesState(output, program)
+    emitProgramGlobalVariablesState(output, program)
+    emitCrossModuleConstantDeclaresWithModuleStateImpl(output)
+    emitStringConstantsWithPrefixImpl(output, stringConstants, moduleIndex)
+
+    let entryState = SingleModuleEntryState.new()
+    entryState.stringConstCountBeforeGen = stringConstants.length()
+    entryState.definedFuncs = collectProgramDefinedSymbolsImpl(program)
+    emitRuntimeDeclarationsWithGlobalStateImpl(output, entryState.definedFuncs)
+    return entryState
+}

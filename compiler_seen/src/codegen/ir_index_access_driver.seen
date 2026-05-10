@@ -1,0 +1,153 @@
+// ir_index_access_driver.seen - prepared index access lowering leaves.
+
+import str.string.{StringBuilder}
+import parser.real_parser.{ParserExpressionNode}
+import codegen.ir_assignment_gen.{emitPreparedIndexAssignmentBoundsCheckImpl, emitPreparedIndexAssignmentStoreImpl}
+import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl}
+import codegen.ir_codegen_global_state.{getFunctionReturnTypeWithGlobalStateImpl, getGlobalStructNamesImpl}
+import codegen.ir_codegen_metrics_state.{cseClear}
+import codegen.ir_codegen_type_state.{isClassTypeState, isDataTypeState, mapTypeState}
+import codegen.ir_index_access_gen.{emitPreparedPointerIndexAccessImpl, emitPreparedOperatorIndexAccessCallImpl, emitPreparedIndexBoundsCheckImpl, emitPreparedIndexElementAccessImpl}
+import codegen.ir_index_access_plan.{shouldUsePointerIndexAccessImpl, shouldTryOperatorIndexAccessImpl, planTypedIndexAccessImpl}
+import codegen.ir_lowering_context.{CodegenLoweringContext, lowerExpression, inferLoweredExpressionType, lowerCallExpression, prepareLoweredCallArgumentsWithDefaults, lowerEnumConstructor, resetLoweringGenerator, resetLoweringSharedModuleScratch, syncLoweringState, writeBackLoweringState, lowerProgramClasses, lowerProgramTopLevelFunctions, lowerPlainLargeClass, lowerClassNode, lowerFunctionNode, lowerClassMethodFromList, setLowerCurrentClassParentName, resetLoweringLocalCodegenState, collectLoweringVariableDeclarations, clearLoweringActiveBindings, lowerBlock, lowerStatement, isLoweringBlockTerminated, beginLoweringNestedScratch, restoreLoweringNestedScratch, currentLoweringFunctionOptions}
+import codegen.ir_member_access_driver.{generateFieldAccessState}
+import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
+import codegen.ir_optimization.{getNextRegFn}
+
+class IndexAccessResult {
+    var resultReg: String
+    var boundsCheckLabelCount: Int
+
+    static fun new(resultReg: String, boundsCheckLabelCount: Int)
+        r: IndexAccessResult {
+
+        return IndexAccessResult{
+            resultReg: resultReg,
+            boundsCheckLabelCount: boundsCheckLabelCount
+        }
+    }
+}
+
+fun applyBlockStatementsIndexAccessFallbackState(output: StringBuilder,
+    arrayReg: String, baseVariableName: String, varRegs: Array<String>,
+    varTypes: Array<String>) r: String {
+
+    if arrayReg != "0" or baseVariableName != "statements" {
+        return arrayReg
+    }
+    var blockIdx = 0
+    while blockIdx < varTypes.length() {
+        if varTypes[blockIdx] == "BlockNode" {
+            let blockVarReg = varRegs[blockIdx]
+            let blockPtrReg = getNextRegFn(getFeatureRegBoxImpl())
+            output.append("  " + blockPtrReg + " = load ptr, ptr " +
+                blockVarReg + "\n")
+            return generateFieldAccessState(output, blockPtrReg, "BlockNode",
+                "statements")
+        }
+        blockIdx = blockIdx + 1
+    }
+    return arrayReg
+}
+
+fun emitIndexBoundsCheckState(output: StringBuilder, arrayReg: String,
+    indexReg: String, boundsCheckEnabled: Int, boundsCheckCount: Int)
+    r: Int {
+
+    if boundsCheckEnabled == 0 {
+        return boundsCheckCount
+    }
+    var boundsCountBox = Array<Int>()
+    boundsCountBox.push(boundsCheckCount)
+    emitPreparedIndexBoundsCheckImpl(output, getFeatureRegBoxImpl(), arrayReg,
+        indexReg, boundsCountBox)
+    cseClear()
+    return boundsCountBox[0]
+}
+
+fun emitTypedIndexAccessState(output: StringBuilder, arrayType: String,
+    arrayReg: String, indexReg: String) r: String {
+
+    let typedIndexPlan = planTypedIndexAccessImpl(arrayType)
+    var isDataElement = 0
+    if isDataTypeState(typedIndexPlan.elementType) {
+        isDataElement = 1
+    }
+    var isClassElement = 0
+    if isClassTypeState(typedIndexPlan.elementType) {
+        isClassElement = 1
+    }
+    return emitPreparedIndexElementAccessImpl(output, getFeatureRegBoxImpl(),
+        typedIndexPlan.action, arrayReg, indexReg, typedIndexPlan.elementType,
+        isDataElement, isClassElement)
+}
+
+fun emitPreparedIndexAssignmentState(output: StringBuilder, arrayReg: String,
+    indexReg: String, valueReg: String, arrayType: String,
+    valueKind: String, valueSeenType: String, boundsCheckEnabled: Int,
+    boundsCheckCount: Int) r: Int {
+
+    var nextBoundsCount = boundsCheckCount
+    if boundsCheckEnabled == 1 {
+        let labelSuffix = nextBoundsCount.toString()
+        nextBoundsCount = nextBoundsCount + 1
+        emitPreparedIndexAssignmentBoundsCheckImpl(output, getFeatureRegBoxImpl(),
+            arrayReg, indexReg, "bounds_fail_" + labelSuffix,
+            "bounds_ok_" + labelSuffix)
+        cseClear()
+    }
+
+    var elementType: String = "ptr"
+    if arrayType.startsWith("Array<") {
+        elementType = arrayType.substring(6, arrayType.length() - 1)
+    }
+    let llvmElementType = mapTypeState(elementType)
+
+    var valueIsStructLiteral = 0
+    if valueKind == "StructLiteral" {
+        valueIsStructLiteral = 1
+    }
+    emitPreparedIndexAssignmentStoreImpl(output, getFeatureRegBoxImpl(),
+        arrayReg, indexReg, valueReg, elementType, llvmElementType,
+        valueIsStructLiteral, valueSeenType, getGlobalStructNamesImpl())
+    return nextBoundsCount
+}
+
+fun generateIndexAccessState(ctx: CodegenLoweringContext,
+    output: StringBuilder, expr: ParserExpressionNode,
+    varRegs: Array<String>, varTypes: Array<String>,
+    boundsCheckEnabled: Int, boundsCheckLabelCount: Int) r: IndexAccessResult {
+
+    let idxBaseType = inferLoweredExpressionType(ctx, expr.operands[0])
+    if shouldUsePointerIndexAccessImpl(idxBaseType) {
+        let piaBaseReg = lowerExpression(ctx, expr.operands[0])
+        let piaIdxReg = lowerExpression(ctx, expr.operands[1])
+        return IndexAccessResult.new(
+            emitPreparedPointerIndexAccessImpl(output, getFeatureRegBoxImpl(),
+            piaBaseReg, piaIdxReg), boundsCheckLabelCount)
+    }
+
+    if shouldTryOperatorIndexAccessImpl(idxBaseType) {
+        let idxOpFunc = idxBaseType + "_operator_index"
+        let idxOpRet = getFunctionReturnTypeWithGlobalStateImpl(idxOpFunc)
+        if idxOpRet != "" {
+            let idxBaseReg = lowerExpression(ctx, expr.operands[0])
+            let idxIdxReg = lowerExpression(ctx, expr.operands[1])
+            return IndexAccessResult.new(
+                emitPreparedOperatorIndexAccessCallImpl(output,
+                getFeatureRegBoxImpl(), idxBaseReg, idxIdxReg,
+                mapTypeState(idxOpRet), quoteIdentIfNeededImpl(idxOpFunc)),
+                boundsCheckLabelCount)
+        }
+    }
+
+    var arrayReg = lowerExpression(ctx, expr.operands[0])
+    let indexReg = lowerExpression(ctx, expr.operands[1])
+    arrayReg = applyBlockStatementsIndexAccessFallbackState(output,
+        arrayReg, expr.operands[0].variableName, varRegs, varTypes)
+    let nextBoundsCount = emitIndexBoundsCheckState(output, arrayReg,
+        indexReg, boundsCheckEnabled, boundsCheckLabelCount)
+    let arrayType = inferLoweredExpressionType(ctx, expr.operands[0])
+    return IndexAccessResult.new(emitTypedIndexAccessState(output,
+        arrayType, arrayReg, indexReg), nextBoundsCount)
+}

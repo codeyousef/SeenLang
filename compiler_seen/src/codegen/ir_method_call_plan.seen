@@ -259,6 +259,7 @@ fun planArrayMutatorPushPointerImpl(arrayPtrReg: String,
     let plan = ArrayMutatorPointerPlan.new()
     plan.shouldUseReceiverReg =
         shouldUseReceiverRegForArrayMutationImpl(arrayPtrReg, receiverIsArray)
+        and receiverReg != "0" and receiverReg != "null"
     plan.shouldEmitWithPointer = shouldEmitArrayMutatorWithPointerImpl(
         arrayPtrReg)
     if plan.shouldUseReceiverReg {
@@ -274,6 +275,7 @@ fun planArrayMutatorFallbackPointerImpl(arrayPtrReg: String,
     let plan = ArrayMutatorPointerPlan.new()
     plan.shouldUseReceiverReg =
         shouldUseArrayMutatorReceiverFallbackImpl(arrayPtrReg, receiverReg)
+        and receiverReg != "0" and receiverReg != "null"
     plan.shouldEmitWithPointer = shouldEmitArrayMutatorWithPointerImpl(
         arrayPtrReg)
     if plan.shouldUseReceiverReg {

@@ -1,0 +1,279 @@
+// ir_assignment_driver.seen - recursive assignment lowering.
+
+import parser.real_parser.{ParserExpressionNode, StatementNode}
+import str.string.{StringBuilder}
+import codegen.ir_assignment_move_driver.{applyMoveAssignmentSemanticsState, emitTriviallyCopyableAssignmentNoteState}
+import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl}
+import codegen.ir_codegen_global_state.{getPendingArrayLiteralTypeWithGlobalStateImpl, setPendingArrayLiteralTypeWithGlobalStateImpl, getBoundedActiveVarCountWithGlobalStateImpl, getGlobalStructNamesImpl, getGlobalStructLayoutsImpl}
+import codegen.ir_codegen_type_state.{mapTypeState}
+import codegen.ir_field_lookup_state.{getFieldInfoState, getFieldTypeState, getSeenFieldTypeState}
+import codegen.ir_index_access_driver.{emitPreparedIndexAssignmentState}
+import codegen.ir_lowering_context.{CodegenLoweringContext, lowerExpression, inferLoweredExpressionType, lowerCallExpression, prepareLoweredCallArgumentsWithDefaults, lowerEnumConstructor, resetLoweringGenerator, resetLoweringSharedModuleScratch, syncLoweringState, writeBackLoweringState, lowerProgramClasses, lowerProgramTopLevelFunctions, lowerPlainLargeClass, lowerClassNode, lowerFunctionNode, lowerClassMethodFromList, setLowerCurrentClassParentName, resetLoweringLocalCodegenState, collectLoweringVariableDeclarations, clearLoweringActiveBindings, lowerBlock, lowerStatement, isLoweringBlockTerminated, beginLoweringNestedScratch, restoreLoweringNestedScratch, currentLoweringFunctionOptions}
+import codegen.ir_member_assignment_driver.{emitValueReceiverMemberAssignmentState, emitNamedReceiverMemberAssignmentState, emitImplicitThisMemberAssignmentState}
+import codegen.ir_module_lookup_driver.{findModuleConstant}
+import codegen.ir_codegen_module_state.{getModuleConstantTypeWithModuleStateImpl}
+import codegen.ir_path_expr.{buildChainedPathExprImpl}
+import codegen.ir_value_coercion.{coerceValueForLlvmTargetImpl}
+import codegen.ir_variable_gen.{findActiveVariableIndexImpl, emitStoreValueToPtrImpl, emitImplicitThisFieldStoreImpl, emitDistinctTypeMismatchWarningImpl}
+import codegen.type_registry_core.{findStructReg}
+
+class AssignmentDriverResult {
+    var boundsCheckLabelCount: Int
+
+    static fun new(boundsCheckLabelCount: Int) r: AssignmentDriverResult {
+        return AssignmentDriverResult{
+            boundsCheckLabelCount: boundsCheckLabelCount
+        }
+    }
+}
+
+fun coerceAssignmentValueForLlvmTargetState(output: StringBuilder,
+    targetLlvmType: String, sourceSeenType: String, valueReg: String)
+    r: String {
+
+    var sourceLlvmType: String = ""
+    if sourceSeenType != "" and sourceSeenType != "Unknown" {
+        sourceLlvmType = mapTypeState(sourceSeenType)
+    }
+    return coerceValueForLlvmTargetImpl(output, getFeatureRegBoxImpl(),
+        targetLlvmType, sourceSeenType, sourceLlvmType, valueReg)
+}
+
+fun generateAssignmentValuePreservingPendingTypeState(
+    ctx: CodegenLoweringContext,
+    valueExpr: ParserExpressionNode) r: String {
+
+    let savedPendingType = getPendingArrayLiteralTypeWithGlobalStateImpl()
+    let valueReg = lowerExpression(ctx, valueExpr)
+    setPendingArrayLiteralTypeWithGlobalStateImpl(savedPendingType)
+    return valueReg
+}
+
+fun generateAssignmentValueForSeenTypeState(
+    ctx: CodegenLoweringContext, valueExpr: ParserExpressionNode,
+    targetSeenType: String) r: String {
+
+    let savedPendingType = getPendingArrayLiteralTypeWithGlobalStateImpl()
+    if targetSeenType != "" and valueExpr.kind == "ArrayLiteral" {
+        if targetSeenType.startsWith("Array") or
+            targetSeenType.startsWith("List") {
+
+            setPendingArrayLiteralTypeWithGlobalStateImpl(targetSeenType)
+        }
+    }
+    let valueReg = lowerExpression(ctx, valueExpr)
+    setPendingArrayLiteralTypeWithGlobalStateImpl(savedPendingType)
+    return valueReg
+}
+
+fun tryGenerateModuleConstantAssignmentState(
+    ctx: CodegenLoweringContext, output: StringBuilder,
+    varName: String, valueExpr: ParserExpressionNode) r: Int {
+
+    let constIdx = findModuleConstant(varName)
+    if constIdx < 0 {
+        return 0
+    }
+    let constType = getModuleConstantTypeWithModuleStateImpl(constIdx)
+    let valueReg = generateAssignmentValuePreservingPendingTypeState(ctx,
+        valueExpr)
+    let valueSeenType = inferLoweredExpressionType(ctx, valueExpr)
+    let storedValueReg = coerceAssignmentValueForLlvmTargetState(output,
+        constType, valueSeenType, valueReg)
+    emitStoreValueToPtrImpl(output, constType, storedValueReg,
+        "@" + varName)
+    return 1
+}
+
+fun tryGenerateImplicitThisFieldAssignmentState(
+    ctx: CodegenLoweringContext, output: StringBuilder,
+    varName: String, valueExpr: ParserExpressionNode,
+    varNames: Array<String>, varRegs: Array<String>, varTypes: Array<String>)
+    r: Int {
+
+    let thisIdx = findActiveVariableIndexImpl(varNames,
+        getBoundedActiveVarCountWithGlobalStateImpl(varNames), "this")
+    if thisIdx < 0 {
+        return 0
+    }
+
+    let thisType = varTypes[thisIdx]
+    let structIdx = findStructReg(thisType, getGlobalStructNamesImpl())
+    if structIdx < 0 {
+        return 0
+    }
+
+    let fieldIdx = getFieldInfoState(thisType, varName)
+    if fieldIdx < 0 {
+        return 0
+    }
+
+    let fieldSeenType = getSeenFieldTypeState(thisType, varName)
+    let valueReg = generateAssignmentValueForSeenTypeState(ctx, valueExpr,
+        fieldSeenType)
+    let fieldType = getFieldTypeState(thisType, varName)
+    let valueSeenType = inferLoweredExpressionType(ctx, valueExpr)
+    let storedValueReg = coerceAssignmentValueForLlvmTargetState(output,
+        fieldType, valueSeenType, valueReg)
+    emitImplicitThisFieldStoreImpl(output, getFeatureRegBoxImpl(),
+        varRegs[thisIdx], getGlobalStructLayoutsImpl()[structIdx],
+        fieldIdx, fieldType, storedValueReg)
+    return 1
+}
+
+fun tryGenerateFallbackAssignmentTargetState(
+    ctx: CodegenLoweringContext, output: StringBuilder,
+    varName: String, valueExpr: ParserExpressionNode,
+    varNames: Array<String>, varRegs: Array<String>, varTypes: Array<String>)
+    r: Int {
+
+    if tryGenerateModuleConstantAssignmentState(ctx, output, varName,
+        valueExpr) == 1 {
+        return 1
+    }
+    return tryGenerateImplicitThisFieldAssignmentState(ctx, output, varName,
+        valueExpr, varNames, varRegs, varTypes)
+}
+
+fun emitDistinctAssignmentTypeWarningState(
+    ctx: CodegenLoweringContext, output: StringBuilder,
+    varType: String, valueExpr: ParserExpressionNode,
+    distinctTypeNames: String) r: Void {
+
+    if distinctTypeNames == "" or
+        not distinctTypeNames.contains(varType + "|") {
+        return
+    }
+    let rhsType = inferLoweredExpressionType(ctx, valueExpr)
+    if rhsType != "" and rhsType != varType {
+        emitDistinctTypeMismatchWarningImpl(output, rhsType, varType)
+    }
+}
+
+fun emitLocalVariableAssignmentState(ctx: CodegenLoweringContext,
+    output: StringBuilder, idx: Int, valueExpr: ParserExpressionNode,
+    varRegs: Array<String>, varTypes: Array<String>) r: String {
+
+    let varType = varTypes[idx]
+    let valueReg = generateAssignmentValueForSeenTypeState(ctx, valueExpr,
+        varType)
+    let llvmType = mapTypeState(varType)
+    let valueSeenType = inferLoweredExpressionType(ctx, valueExpr)
+    let storedValueReg = coerceAssignmentValueForLlvmTargetState(output,
+        llvmType, valueSeenType, valueReg)
+    emitStoreValueToPtrImpl(output, llvmType, storedValueReg, varRegs[idx])
+    return varType
+}
+
+fun generateAssignmentExprState(ctx: CodegenLoweringContext,
+    output: StringBuilder, expr: ParserExpressionNode,
+    varNames: Array<String>, varRegs: Array<String>, varTypes: Array<String>)
+    r: Void {
+
+    let varName = expr.variableName
+    let idx = findActiveVariableIndexImpl(varNames,
+        getBoundedActiveVarCountWithGlobalStateImpl(varNames), varName)
+
+    if idx < 0 {
+        tryGenerateFallbackAssignmentTargetState(ctx, output, varName,
+            expr.operands[0], varNames, varRegs, varTypes)
+        return
+    }
+
+    emitLocalVariableAssignmentState(ctx, output, idx, expr.operands[0],
+        varRegs, varTypes)
+}
+
+fun generateAssignmentStatementState(ctx: CodegenLoweringContext,
+    output: StringBuilder, stmt: StatementNode, varNames: Array<String>,
+    varRegs: Array<String>, varTypes: Array<String>,
+    distinctTypeNames: String) r: Void {
+
+    let varName = stmt.variableName
+    let idx = findActiveVariableIndexImpl(varNames,
+        getBoundedActiveVarCountWithGlobalStateImpl(varNames), varName)
+
+    if idx < 0 {
+        tryGenerateFallbackAssignmentTargetState(ctx, output, varName,
+            stmt.initializer, varNames, varRegs, varTypes)
+        return
+    }
+
+    let varType = varTypes[idx]
+    emitDistinctAssignmentTypeWarningState(ctx, output, varType,
+        stmt.initializer, distinctTypeNames)
+    emitLocalVariableAssignmentState(ctx, output, idx, stmt.initializer,
+        varRegs, varTypes)
+    applyMoveAssignmentSemanticsState(output, varNames, varRegs, varTypes,
+        stmt.initializer)
+    emitTriviallyCopyableAssignmentNoteState(output, varType)
+}
+
+fun generateMemberAssignmentState(ctx: CodegenLoweringContext,
+    output: StringBuilder, expr: ParserExpressionNode,
+    varNames: Array<String>, varRegs: Array<String>, varTypes: Array<String>)
+    r: Void {
+
+    let memberAccess = expr.operands[0]
+    let value = expr.operands[1]
+    let receiverName = memberAccess.literalValue
+    let fieldName = memberAccess.variableName
+
+    let valueReg = lowerExpression(ctx, value)
+    let valueSeenType = inferLoweredExpressionType(ctx, value)
+
+    if memberAccess.operands.length() > 0 and memberAccess.literalValue == "" {
+        let receiverExpr = memberAccess.operands[0]
+        let receiverReg = lowerExpression(ctx, receiverExpr)
+        let receiverType = inferLoweredExpressionType(ctx, receiverExpr)
+        if emitValueReceiverMemberAssignmentState(output, receiverReg,
+            receiverType, fieldName, valueReg, value.kind,
+            valueSeenType) == 1 {
+            return
+        }
+        return
+    }
+
+    if receiverName.contains(".") {
+        let receiverExpr = buildChainedPathExprImpl(receiverName)
+        if receiverExpr.kind != "" {
+            let receiverReg = lowerExpression(ctx, receiverExpr)
+            let receiverType = inferLoweredExpressionType(ctx, receiverExpr)
+            if emitValueReceiverMemberAssignmentState(output, receiverReg,
+                receiverType, fieldName, valueReg, value.kind,
+                valueSeenType) == 1 {
+                return
+            }
+        }
+    }
+
+    if emitNamedReceiverMemberAssignmentState(output, receiverName,
+        fieldName, valueReg, value.kind, valueSeenType, varNames, varRegs,
+        varTypes) == 1 {
+        return
+    }
+    emitImplicitThisMemberAssignmentState(output, receiverName, fieldName,
+        valueReg, value.kind, valueSeenType, varNames, varRegs, varTypes)
+}
+
+fun generateIndexAssignmentState(ctx: CodegenLoweringContext,
+    output: StringBuilder, expr: ParserExpressionNode,
+    boundsCheckEnabled: Int, boundsCheckLabelCount: Int)
+    r: AssignmentDriverResult {
+
+    let indexAccess = expr.operands[0]
+    let value = expr.operands[1]
+    let array = indexAccess.operands[0]
+    let index = indexAccess.operands[1]
+
+    let arrayReg = lowerExpression(ctx, array)
+    let indexReg = lowerExpression(ctx, index)
+    let valueReg = lowerExpression(ctx, value)
+
+    let arrayType = inferLoweredExpressionType(ctx, array)
+    let valueSeenType = inferLoweredExpressionType(ctx, value)
+    let newBoundsCount = emitPreparedIndexAssignmentState(output, arrayReg,
+        indexReg, valueReg, arrayType, value.kind, valueSeenType,
+        boundsCheckEnabled, boundsCheckLabelCount)
+    return AssignmentDriverResult.new(newBoundsCount)
+}

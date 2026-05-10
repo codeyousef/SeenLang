@@ -62,7 +62,7 @@ class FrontendDiagnostic {
     var severity: String
     var message: String
 
-    fun new(file: String, line: Int, column: Int, severity: String, message: String) r: FrontendDiagnostic {
+    static fun new(file: String, line: Int, column: Int, severity: String, message: String) r: FrontendDiagnostic {
         return FrontendDiagnostic{
             file: file,
             line: line,
@@ -70,6 +70,16 @@ class FrontendDiagnostic {
             severity: severity,
             message: message
         }
+    }
+}
+
+fun frontendDiagnostic(file: String, line: Int, column: Int, severity: String, message: String) r: FrontendDiagnostic {
+    return FrontendDiagnostic{
+        file: file,
+        line: line,
+        column: column,
+        severity: severity,
+        message: message
     }
 }
 
@@ -156,7 +166,7 @@ fun run_frontend(source: String, fileLabel: String, language: String = "en") r: 
         while j < typeWarnings.length() {
             let warning = typeWarnings[j]
             result.addDiagnostic(
-                FrontendDiagnostic.new(fileLabel, 0, 0, "warning", warning)
+                frontendDiagnostic(fileLabel, 0, 0, "warning", warning)
             )
             j = j + 1
         }
@@ -173,7 +183,7 @@ fun run_frontend(source: String, fileLabel: String, language: String = "en") r: 
         while mi < macroErrors.length() {
             let errMsg = macroErrors[mi]
             var macroEncoded = encodeDiagMessage(errMsg, "E004", "", "", 0)
-            result.addDiagnostic(FrontendDiagnostic.new(
+            result.addDiagnostic(frontendDiagnostic(
                 fileLabel, 0, 0, "error", macroEncoded
             ))
             mi = mi + 1
@@ -495,7 +505,7 @@ fun frontendAddCapabilityViolation(result: FrontendResult, fileLabel: String, li
     }
 
     let encoded = encodeDiagMessage(fullMessage, "E005", suggestion, "", 0)
-    result.addDiagnostic(FrontendDiagnostic.new(fileLabel, line, 0, "error", encoded))
+    result.addDiagnostic(frontendDiagnostic(fileLabel, line, 0, "error", encoded))
 }
 
 fun frontendCheckCapabilityCalledFunction(result: FrontendResult, fileLabel: String, functions: Array<FunctionNode>, functionNames: Array<String>, callerFunc: FunctionNode, callerName: String, calledName: String, funcLine: Int) r: Void {
@@ -688,7 +698,7 @@ fun validateDecoratorClosedClasses(result: FrontendResult, fileLabel: String, pr
                         let message = "@" + requiredDecorator + " class '" + cls.name + "' cannot contain field '" + field.name + "' of type '" + badType + "' without @" + requiredDecorator
                         let suggestion = "Mark '" + badType + "' with @" + requiredDecorator + " or change field '" + field.name + "' to a compatible type."
                         let encoded = encodeDiagMessage(message, "E006", suggestion, "", 0)
-                        result.addDiagnostic(FrontendDiagnostic.new(fileLabel, 0, 0, "error", encoded))
+                        result.addDiagnostic(frontendDiagnostic(fileLabel, 0, 0, "error", encoded))
                     }
                     fi = fi + 1
                 }
@@ -835,7 +845,7 @@ fun diagnostic_from_type_error(error: TypeError, fileLabel: String) r: FrontendD
     var endColumn = location.column + 1
     var encoded = encodeDiagMessage(baseMessage, "E001", suggestion, note, endColumn)
 
-    return FrontendDiagnostic.new(
+    return frontendDiagnostic(
         fileLabel,
         location.line,
         location.column,

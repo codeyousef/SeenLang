@@ -1,0 +1,100 @@
+// ir_method_static_driver.seen - prepared static method dispatch driver.
+
+import parser.real_parser.{ParserExpressionNode}
+import str.string.{StringBuilder}
+import codegen.ir_call_args_driver.{prepareCallArgumentsWithDefaultsState}
+import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl, getDefaultFillArgRegsImpl, getDefaultFillArgTypeStrsImpl}
+import codegen.ir_codegen_global_state.{getBoundedActiveVarCountWithGlobalStateImpl}
+import codegen.ir_decl_state_driver.{captureLateUserDeclareState, applyLateUserDeclareState}
+import codegen.ir_field_lookup_state.{getMethodReturnTypeState}
+import codegen.ir_infer_method_leaf_driver.{tryInferStaticMethodCallTypeState}
+import codegen.ir_lowering_context.{CodegenLoweringContext, lowerExpression, inferLoweredExpressionType, lowerCallExpression, prepareLoweredCallArgumentsWithDefaults, lowerEnumConstructor, resetLoweringGenerator, resetLoweringSharedModuleScratch, syncLoweringState, writeBackLoweringState, lowerProgramClasses, lowerProgramTopLevelFunctions, lowerPlainLargeClass, lowerClassNode, lowerFunctionNode, lowerClassMethodFromList, setLowerCurrentClassParentName, resetLoweringLocalCodegenState, collectLoweringVariableDeclarations, clearLoweringActiveBindings, lowerBlock, lowerStatement, isLoweringBlockTerminated, beginLoweringNestedScratch, restoreLoweringNestedScratch, currentLoweringFunctionOptions}
+import codegen.ir_method_call_plan.{shouldTryStaticMethodCallImpl, isPascalStaticReceiverNameImpl, shouldTryNoArgStaticFactoryImpl, shouldTryArgStaticFactoryImpl, resolveStaticCallClassNameImpl, shouldPromoteStaticMethodFloatArgsImpl, staticMethodFunctionNameImpl}
+import codegen.ir_method_fastpath.{resolveStaticMethodClassNamesImpl, isStaticMethodReceiverReferenceImpl, tryGenerateStaticFactoryMethodCallImpl}
+import codegen.ir_method_receiver_predicates.{needsStaticFactoryArgumentImpl}
+import codegen.ir_method_static_dispatch.{emitPreparedStaticMethodDispatchState}
+import codegen.ir_optimization.{splitPipe}
+import codegen.ir_variable_gen.{findActiveVariableIndexImpl}
+
+fun emitPreparedStaticMethodCallDriverState(output: StringBuilder,
+    expr: ParserExpressionNode, methodName: String,
+    potentialClassName: String, staticClassName: String, funcName: String,
+    argRegs: Array<String>, argTypeStrs: Array<String>,
+    varNames: Array<String>, varTypes: Array<String>) r: String {
+
+    let registeredStaticReturnType = getMethodReturnTypeState(
+        staticClassName, methodName)
+    var inferredStaticReturnType: String = ""
+    if registeredStaticReturnType == "" or
+        registeredStaticReturnType == "Unknown" {
+
+        inferredStaticReturnType = tryInferStaticMethodCallTypeState(expr,
+            varNames, varTypes)
+    }
+    let staticLateState = captureLateUserDeclareState()
+    let staticResult = emitPreparedStaticMethodDispatchState(output,
+        getFeatureRegBoxImpl(), methodName, potentialClassName,
+        staticClassName, funcName, registeredStaticReturnType,
+        inferredStaticReturnType, argRegs, argTypeStrs, staticLateState)
+    applyLateUserDeclareState(staticLateState)
+    return staticResult
+}
+
+fun tryGenerateStaticMethodCallState(ctx: CodegenLoweringContext,
+    output: StringBuilder, expr: ParserExpressionNode, methodName: String,
+    receiverReg: String, varNames: Array<String>, varRegs: Array<String>,
+    varTypes: Array<String>, stringConstants: Array<String>)
+    r: String {
+
+    if not shouldTryStaticMethodCallImpl(receiverReg, expr.literalValue) {
+        return ""
+    }
+
+    let classNames = splitPipe(resolveStaticMethodClassNamesImpl(
+        expr.literalValue))
+    let potentialClassName = classNames[0]
+    let fullClassName = classNames[1]
+    let activeCount = getBoundedActiveVarCountWithGlobalStateImpl(varNames)
+    if not isStaticMethodReceiverReferenceImpl(findActiveVariableIndexImpl(
+        varNames, activeCount, expr.literalValue),
+        findActiveVariableIndexImpl(varNames, activeCount,
+        potentialClassName)) {
+
+        return ""
+    }
+
+    let isUppercase = isPascalStaticReceiverNameImpl(potentialClassName)
+    if shouldTryNoArgStaticFactoryImpl(isUppercase, methodName) {
+        let staticFactoryResult: String = tryGenerateStaticFactoryMethodCallImpl(
+            output, getFeatureRegBoxImpl(), methodName, potentialClassName,
+            fullClassName, "", 0)
+        if staticFactoryResult != "" {
+            return staticFactoryResult
+        }
+    }
+    if shouldTryArgStaticFactoryImpl(isUppercase, expr.arguments.length()) {
+        if needsStaticFactoryArgumentImpl(methodName, potentialClassName) {
+            let staticFactoryArg0 = lowerExpression(ctx, expr.arguments[0])
+            let staticFactoryResult: String =
+                tryGenerateStaticFactoryMethodCallImpl(output,
+                getFeatureRegBoxImpl(), methodName, potentialClassName,
+                fullClassName, staticFactoryArg0, expr.arguments.length())
+            if staticFactoryResult != "" {
+                return staticFactoryResult
+            }
+        }
+    }
+
+    let staticClassName = resolveStaticCallClassNameImpl(expr.literalValue,
+        potentialClassName, isUppercase)
+    let funcName = staticMethodFunctionNameImpl(staticClassName, methodName)
+    prepareCallArgumentsWithDefaultsState(ctx, output, funcName,
+        expr.arguments, false,
+        shouldPromoteStaticMethodFloatArgsImpl(isUppercase), false, "",
+        varNames, varRegs, varTypes, stringConstants)
+
+    return emitPreparedStaticMethodCallDriverState(output, expr, methodName,
+        potentialClassName, staticClassName, funcName,
+        getDefaultFillArgRegsImpl(), getDefaultFillArgTypeStrsImpl(),
+        varNames, varTypes)
+}

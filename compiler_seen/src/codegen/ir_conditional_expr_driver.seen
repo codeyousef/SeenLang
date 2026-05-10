@@ -1,0 +1,146 @@
+// ir_conditional_expr_driver.seen - recursive conditional value lowering.
+
+import parser.real_parser.{ParserExpressionNode}
+import str.string.{StringBuilder}
+import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl, getFeatureBlockBoxImpl}
+import codegen.ir_codegen_type_state.{mapTypeState}
+import codegen.ir_lowering_context.{CodegenLoweringContext, lowerExpression, inferLoweredExpressionType, lowerCallExpression, prepareLoweredCallArgumentsWithDefaults, lowerEnumConstructor, resetLoweringGenerator, resetLoweringSharedModuleScratch, syncLoweringState, writeBackLoweringState, lowerProgramClasses, lowerProgramTopLevelFunctions, lowerPlainLargeClass, lowerClassNode, lowerFunctionNode, lowerClassMethodFromList, setLowerCurrentClassParentName, resetLoweringLocalCodegenState, collectLoweringVariableDeclarations, clearLoweringActiveBindings, lowerBlock, lowerStatement, isLoweringBlockTerminated, beginLoweringNestedScratch, restoreLoweringNestedScratch, currentLoweringFunctionOptions}
+import codegen.ir_member_access_driver.{generateMemberAccessState}
+import codegen.ir_nullish_gen.{emitNullishCheckComparisonImpl, defaultValueForLlvmTypeImpl, emitNullishBranchingImpl, emitNullishBranchToEndImpl, enterNullishElseBranchImpl, finalizeNullishMergeImpl, buildSafeNavigationMemberExprImpl}
+import codegen.ir_optimization.{splitPipe}
+import codegen.ir_stmt_gen.{emitConditionToI1Impl, normalizeIfConditionTypeImpl, emitIfExpressionBranchValueImpl, emitPhiMergeValueImpl}
+
+fun emitIfExpressionSideEffectsState(ctx: CodegenLoweringContext,
+    expr: ParserExpressionNode, startIdx: Int, stopOnSentinel: Bool)
+    r: Int {
+
+    var sideIdx = startIdx
+    while sideIdx < expr.arguments.length() {
+        let sideExpr = expr.arguments[sideIdx]
+        if stopOnSentinel and sideExpr.kind == "Sentinel" {
+            return sideIdx + 1
+        }
+        lowerExpression(ctx, sideExpr)
+        sideIdx = sideIdx + 1
+    }
+    return sideIdx
+}
+
+fun emitIfExpressionBranchValueState(ctx: CodegenLoweringContext,
+    output: StringBuilder, branchExpr: ParserExpressionNode,
+    branchLabelPrefix: String, mergeLabel: String) r: String {
+
+    let branchReg = lowerExpression(ctx, branchExpr)
+    let ifExprRegBox = getFeatureRegBoxImpl()
+    return emitIfExpressionBranchValueImpl(output, branchReg,
+        branchLabelPrefix, mergeLabel, ifExprRegBox[0].toString())
+}
+
+fun emitPhiMergeValueState(output: StringBuilder, llvmType: String,
+    thenReg: String, thenLabel: String, elseReg: String,
+    elseLabel: String) r: String {
+
+    return emitPhiMergeValueImpl(output, getFeatureRegBoxImpl(), llvmType,
+        thenReg, thenLabel, elseReg, elseLabel)
+}
+
+fun generateIfExpressionState(ctx: CodegenLoweringContext,
+    output: StringBuilder, expr: ParserExpressionNode) r: String {
+
+    let condExpr = expr.operands[0]
+    let thenExpr = expr.operands[1]
+    let elseExpr = expr.operands[2]
+
+    let condReg = lowerExpression(ctx, condExpr)
+    let condExprType = normalizeIfConditionTypeImpl(condExpr,
+        inferLoweredExpressionType(ctx, condExpr))
+    let condBool = emitConditionToI1Impl(output, getFeatureRegBoxImpl(),
+        condReg, condExprType)
+
+    let ifRegBox = getFeatureRegBoxImpl()
+    let labelSuffix = ifRegBox[0].toString()
+    let thenLabel = "if.expr.then." + labelSuffix
+    let elseLabel = "if.expr.else." + labelSuffix
+    let mergeLabel = "if.expr.merge." + labelSuffix
+
+    output.append("  br i1 " + condBool + ", label %" + thenLabel +
+        ", label %" + elseLabel + "\n")
+
+    output.append(thenLabel + ":\n")
+    var ifSideIdx = emitIfExpressionSideEffectsState(ctx, expr, 0, true)
+    let thenInfo = splitPipe(emitIfExpressionBranchValueState(ctx, output,
+        thenExpr, "if.expr.then", mergeLabel))
+    let thenReg = thenInfo[0]
+    let thenPhiLabel = thenInfo[1]
+
+    output.append(elseLabel + ":\n")
+    emitIfExpressionSideEffectsState(ctx, expr, ifSideIdx, false)
+    let elseInfo = splitPipe(emitIfExpressionBranchValueState(ctx, output,
+        elseExpr, "if.expr.else", mergeLabel))
+    let elseReg = elseInfo[0]
+    let elsePhiLabel = elseInfo[1]
+
+    output.append(mergeLabel + ":\n")
+    let resultType = inferLoweredExpressionType(ctx, thenExpr)
+    let irType = mapTypeState(resultType)
+    return emitPhiMergeValueState(output, irType, thenReg, thenPhiLabel,
+        elseReg, elsePhiLabel)
+}
+
+fun generateElvisState(ctx: CodegenLoweringContext,
+    output: StringBuilder, expr: ParserExpressionNode) r: String {
+
+    let leftReg = lowerExpression(ctx, expr.operands[0])
+    let leftType = inferLoweredExpressionType(ctx, expr.operands[0])
+    let llvmType = mapTypeState(leftType)
+    let cmpReg = emitNullishCheckComparisonImpl(output,
+        getFeatureRegBoxImpl(), leftReg, llvmType)
+    let branchLabels = splitPipe(emitNullishBranchingImpl(output,
+        getFeatureBlockBoxImpl(), cmpReg))
+    let thenLabel = branchLabels[0]
+    let elseLabel = branchLabels[1]
+    let endLabel = branchLabels[2]
+
+    emitNullishBranchToEndImpl(output, endLabel)
+
+    enterNullishElseBranchImpl(output, elseLabel)
+    let rightReg = lowerExpression(ctx, expr.operands[1])
+    emitNullishBranchToEndImpl(output, endLabel)
+
+    return finalizeNullishMergeImpl(output, getFeatureRegBoxImpl(), endLabel,
+        llvmType, leftReg, thenLabel, rightReg, elseLabel)
+}
+
+fun generateSafeNavigationState(ctx: CodegenLoweringContext,
+    output: StringBuilder, expr: ParserExpressionNode,
+    varNames: Array<String>, varRegs: Array<String>, varTypes: Array<String>,
+    enumVariantNames: String, enumVariantParent: String,
+    enumVariantTags: String, enumVariantFieldCounts: String,
+    enumVariantCount: Int) r: String {
+
+    let recvReg = lowerExpression(ctx, expr.operands[0])
+    let recvType = inferLoweredExpressionType(ctx, expr.operands[0])
+    let cmpReg = emitNullishCheckComparisonImpl(output,
+        getFeatureRegBoxImpl(), recvReg, mapTypeState(recvType))
+    let branchLabels = splitPipe(emitNullishBranchingImpl(output,
+        getFeatureBlockBoxImpl(), cmpReg))
+    let thenLabel = branchLabels[0]
+    let elseLabel = branchLabels[1]
+    let endLabel = branchLabels[2]
+
+    let memberExpr = buildSafeNavigationMemberExprImpl(expr.variableName,
+        expr.operands[0])
+    let memberReg = generateMemberAccessState(ctx, output, memberExpr,
+        varNames, varRegs, varTypes, enumVariantNames, enumVariantParent,
+        enumVariantTags, enumVariantFieldCounts, enumVariantCount)
+    let memberType = inferLoweredExpressionType(ctx, memberExpr)
+    let memberLlvm = mapTypeState(memberType)
+    emitNullishBranchToEndImpl(output, endLabel)
+
+    enterNullishElseBranchImpl(output, elseLabel)
+    let defaultVal = defaultValueForLlvmTypeImpl(memberLlvm)
+    emitNullishBranchToEndImpl(output, endLabel)
+
+    return finalizeNullishMergeImpl(output, getFeatureRegBoxImpl(), endLabel,
+        memberLlvm, memberReg, thenLabel, defaultVal, elseLabel)
+}

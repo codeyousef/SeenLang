@@ -1,0 +1,83 @@
+// ir_function_start_driver.seen - top-level function generation preflight.
+
+import parser.real_parser.{FunctionNode}
+import str.string.{StringBuilder}
+import codegen.ir_codegen_feature_state.{getEnabledFeaturesStateImpl, getTraitImplCountStateImpl, getFeatureRegBoxImpl, getFeatureTypeAliasNamesImpl, getFeatureTypeAliasTargetsImpl, getFeatureTypeAliasCountImpl, getFeatureEnumTypeNamesImpl}
+import codegen.ir_codegen_global_state.{getGlobalStructNamesImpl, prepareFunctionGenerationIdentityWithGlobalStateImpl, tryHandleExternFunctionGenerationWithGlobalStateImpl}
+import codegen.ir_function_decorators.{shouldSkipFunctionByCfgStateImpl, emitFunctionDecoratorMetadataCommentsStateImpl, shouldSkipSpecialFunctionBodyStateImpl}
+import codegen.ir_function_decorator_driver.{prepareFunctionDecoratorPreflightGlobalStateImpl}
+import codegen.ir_function_intrinsic_driver.{tryHandleFunctionIntrinsicDriverGlobalStateImpl}
+import codegen.ir_function_lifecycle.{planFunctionIdentityFlowImpl}
+import codegen.ir_function_snapshots.{FunctionGenerationIdentitySnapshot}
+import codegen.ir_return_type_driver.{resolveFunctionReturnTypeState}
+
+class FunctionGenerationStartState {
+    var shouldReturn: Bool
+    var identity: FunctionGenerationIdentitySnapshot
+
+    static fun new() r: FunctionGenerationStartState {
+        return FunctionGenerationStartState{
+            shouldReturn: false,
+            identity: FunctionGenerationIdentitySnapshot.new()
+        }
+    }
+}
+
+fun beginFunctionGenerationState(output: StringBuilder, fn: FunctionNode,
+    varNames: Array<String>, varTypes: Array<String>,
+    stringConstants: Array<String>) r: FunctionGenerationStartState {
+
+    let startState = FunctionGenerationStartState.new()
+    if shouldSkipFunctionByCfgStateImpl(output, fn,
+        getEnabledFeaturesStateImpl()) {
+
+        startState.shouldReturn = true
+        return startState
+    }
+
+    emitFunctionDecoratorMetadataCommentsStateImpl(output, fn,
+        getTraitImplCountStateImpl())
+
+    if tryHandleFunctionIntrinsicDriverGlobalStateImpl(output,
+        getFeatureRegBoxImpl(), fn, getGlobalStructNamesImpl(),
+        getFeatureTypeAliasNamesImpl(), getFeatureTypeAliasTargetsImpl(),
+        getFeatureTypeAliasCountImpl(), getFeatureEnumTypeNamesImpl()) {
+
+        startState.shouldReturn = true
+        return startState
+    }
+
+    if prepareFunctionDecoratorPreflightGlobalStateImpl(output,
+        getFeatureRegBoxImpl(), fn) {
+
+        startState.shouldReturn = true
+        return startState
+    }
+
+    if shouldSkipSpecialFunctionBodyStateImpl(output, fn) {
+        startState.shouldReturn = true
+        return startState
+    }
+
+    if tryHandleExternFunctionGenerationWithGlobalStateImpl(output, fn) {
+        startState.shouldReturn = true
+        return startState
+    }
+
+    let resolvedFunctionReturnType = resolveFunctionReturnTypeState(fn,
+        varNames, varTypes, stringConstants)
+    let functionIdentity = prepareFunctionGenerationIdentityWithGlobalStateImpl(
+        fn, resolvedFunctionReturnType)
+    let identityFlow = planFunctionIdentityFlowImpl(
+        functionIdentity.alreadyGenerated,
+        functionIdentity.skipRuntimeBuiltinStub)
+    if identityFlow.shouldEmitRuntimeSkipNote {
+        output.append("; skipped user stub for runtime builtin: " +
+            functionIdentity.implFuncName + "\n")
+    }
+    startState.identity = functionIdentity
+    if identityFlow.shouldReturn {
+        startState.shouldReturn = true
+    }
+    return startState
+}

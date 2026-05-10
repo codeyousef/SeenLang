@@ -1,0 +1,210 @@
+// ir_if_statement_driver.seen - if/if-let statement lowering.
+
+import parser.real_parser.{StatementNode}
+import str.string.{StringBuilder}
+import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl, getFeatureBlockBoxImpl}
+import codegen.ir_codegen_global_state.{getBoundedActiveVarCountWithGlobalStateImpl, setActiveVarCountWithGlobalStateImpl, getBlockTerminatedWithGlobalStateImpl, setBlockTerminatedWithGlobalStateImpl}
+import codegen.ir_codegen_type_state.{mapTypeState}
+import codegen.ir_function_body.{planFunctionBodyConstantIfImpl, emitFunctionBodyConstantIfNoteImpl, emitFunctionBodyPairedSelectStoreImpl, emitFunctionBodySingleArmSelectStoreImpl, emitFunctionBodyIfBranchingImpl}
+import codegen.ir_lowering_context.{CodegenLoweringContext, lowerExpression, inferLoweredExpressionType, lowerCallExpression, prepareLoweredCallArgumentsWithDefaults, lowerEnumConstructor, resetLoweringGenerator, resetLoweringSharedModuleScratch, syncLoweringState, writeBackLoweringState, lowerProgramClasses, lowerProgramTopLevelFunctions, lowerPlainLargeClass, lowerClassNode, lowerFunctionNode, lowerClassMethodFromList, setLowerCurrentClassParentName, resetLoweringLocalCodegenState, collectLoweringVariableDeclarations, clearLoweringActiveBindings, lowerBlock, lowerStatement, isLoweringBlockTerminated, beginLoweringNestedScratch, restoreLoweringNestedScratch, currentLoweringFunctionOptions}
+import codegen.ir_ml_logging.{mlLogDecision}
+import codegen.ir_optimization.{getNextRegFn}
+import codegen.ir_stmt_gen.{emitConditionToI1Impl, computeIfBranchWeightMetadataForStatementImpl, finalizeConditionalEndBlockImpl, emitIfLetBindingStateImpl}
+import codegen.ir_stmt_select_plan.{planPairedAssignmentSelectIfImpl, planSingleArmSelectIfImpl}
+import codegen.ir_variable_gen.{findActiveVariableIndexImpl}
+
+class IfStatementDriverResult {
+    var branchesEliminated: Int
+
+    static fun new(branchesEliminated: Int) r: IfStatementDriverResult {
+        return IfStatementDriverResult{
+            branchesEliminated: branchesEliminated
+        }
+    }
+}
+
+fun tryEmitConstantIfStatementState(ctx: CodegenLoweringContext,
+    output: StringBuilder, stmt: StatementNode, branchesEliminated: Int)
+    r: IfStatementDriverResult {
+
+    let constantIfAction = planFunctionBodyConstantIfImpl(stmt.condition)
+    if constantIfAction == 0 {
+        return IfStatementDriverResult.new(branchesEliminated)
+    }
+    var newBranchesEliminated = branchesEliminated + 1
+    if constantIfAction == 1 {
+        mlLogDecision("branch-elim", "folded", "if-true")
+        emitFunctionBodyConstantIfNoteImpl(output, constantIfAction)
+        lowerBlock(ctx, stmt.thenBranch)
+        return IfStatementDriverResult.new(newBranchesEliminated)
+    }
+    if constantIfAction == 2 {
+        mlLogDecision("branch-elim", "folded", "if-false")
+        emitFunctionBodyConstantIfNoteImpl(output, constantIfAction)
+        if stmt.elseBranch.statements.length() > 0 {
+            lowerBlock(ctx, stmt.elseBranch)
+        }
+        return IfStatementDriverResult.new(newBranchesEliminated)
+    }
+    return IfStatementDriverResult.new(branchesEliminated)
+}
+
+fun tryEmitPairedAssignmentSelectIfStatementState(
+    ctx: CodegenLoweringContext, output: StringBuilder,
+    stmt: StatementNode, varNames: Array<String>, varRegs: Array<String>,
+    varTypes: Array<String>, branchesEliminated: Int)
+    r: IfStatementDriverResult {
+
+    let selectPlan = planPairedAssignmentSelectIfImpl(stmt)
+    if not selectPlan.isValid {
+        return IfStatementDriverResult.new(branchesEliminated)
+    }
+
+    let varIdx = findActiveVariableIndexImpl(varNames,
+        getBoundedActiveVarCountWithGlobalStateImpl(varNames),
+        selectPlan.assignName)
+    if varIdx < 0 {
+        return IfStatementDriverResult.new(branchesEliminated)
+    }
+
+    let varType = varTypes[varIdx]
+    let llvmType = mapTypeState(varType)
+    if llvmType != "i64" and llvmType != "double" {
+        return IfStatementDriverResult.new(branchesEliminated)
+    }
+    let thenType = mapTypeState(inferLoweredExpressionType(ctx,
+        selectPlan.thenRhs))
+    let elseType = mapTypeState(inferLoweredExpressionType(ctx,
+        selectPlan.elseRhs))
+    if thenType != llvmType or elseType != llvmType {
+        return IfStatementDriverResult.new(branchesEliminated)
+    }
+
+    let condReg = lowerExpression(ctx, stmt.condition)
+    let thenReg = lowerExpression(ctx, selectPlan.thenRhs)
+    let elseReg = lowerExpression(ctx, selectPlan.elseRhs)
+    emitFunctionBodyPairedSelectStoreImpl(output, getFeatureRegBoxImpl(),
+        condReg, llvmType, thenReg, elseReg, varRegs[varIdx])
+    mlLogDecision("select", "if-else", selectPlan.assignName)
+    return IfStatementDriverResult.new(branchesEliminated + 1)
+}
+
+fun tryEmitSingleArmSelectIfStatementState(ctx: CodegenLoweringContext,
+    output: StringBuilder, stmt: StatementNode, varNames: Array<String>,
+    varRegs: Array<String>, varTypes: Array<String>,
+    branchesEliminated: Int) r: IfStatementDriverResult {
+
+    let singlePlan = planSingleArmSelectIfImpl(stmt)
+    if not singlePlan.isValid {
+        return IfStatementDriverResult.new(branchesEliminated)
+    }
+
+    let singleIdx = findActiveVariableIndexImpl(varNames,
+        getBoundedActiveVarCountWithGlobalStateImpl(varNames),
+        singlePlan.assignName)
+    if singleIdx < 0 {
+        return IfStatementDriverResult.new(branchesEliminated)
+    }
+
+    let singleType = varTypes[singleIdx]
+    let singleLlvmType = mapTypeState(singleType)
+    if singleLlvmType != "i64" and singleLlvmType != "double" {
+        return IfStatementDriverResult.new(branchesEliminated)
+    }
+    let rhsType = mapTypeState(inferLoweredExpressionType(ctx,
+        singlePlan.rhsExpr))
+    if rhsType != singleLlvmType {
+        return IfStatementDriverResult.new(branchesEliminated)
+    }
+
+    let condReg = lowerExpression(ctx, stmt.condition)
+    let rhsReg = lowerExpression(ctx, singlePlan.rhsExpr)
+    emitFunctionBodySingleArmSelectStoreImpl(output, getFeatureRegBoxImpl(),
+        condReg, singleLlvmType, rhsReg, varRegs[singleIdx])
+    mlLogDecision("select", "max-min", singlePlan.assignName)
+    return IfStatementDriverResult.new(branchesEliminated + 1)
+}
+
+fun tryEmitSelectOptimizedIfStatementState(ctx: CodegenLoweringContext,
+    output: StringBuilder, stmt: StatementNode, varNames: Array<String>,
+    varRegs: Array<String>, varTypes: Array<String>,
+    branchesEliminated: Int) r: IfStatementDriverResult {
+
+    let pairedResult = tryEmitPairedAssignmentSelectIfStatementState(ctx,
+        output, stmt, varNames, varRegs, varTypes, branchesEliminated)
+    if pairedResult.branchesEliminated != branchesEliminated {
+        return pairedResult
+    }
+    return tryEmitSingleArmSelectIfStatementState(ctx, output, stmt,
+        varNames, varRegs, varTypes, branchesEliminated)
+}
+
+fun generateIfStatementState(ctx: CodegenLoweringContext,
+    output: StringBuilder, stmt: StatementNode, varNames: Array<String>,
+    varRegs: Array<String>, varTypes: Array<String>,
+    branchesEliminated: Int) r: IfStatementDriverResult {
+
+    let constantResult = tryEmitConstantIfStatementState(ctx, output, stmt,
+        branchesEliminated)
+    if constantResult.branchesEliminated != branchesEliminated {
+        return constantResult
+    }
+    let selectResult = tryEmitSelectOptimizedIfStatementState(ctx, output,
+        stmt, varNames, varRegs, varTypes, branchesEliminated)
+    if selectResult.branchesEliminated != branchesEliminated {
+        return selectResult
+    }
+
+    let condReg = lowerExpression(ctx, stmt.condition)
+    let condType = inferLoweredExpressionType(ctx, stmt.condition)
+    let condBool = emitConditionToI1Impl(output, getFeatureRegBoxImpl(),
+        condReg, condType)
+    let branching = emitFunctionBodyIfBranchingImpl(output,
+        getFeatureBlockBoxImpl(), condBool,
+        computeIfBranchWeightMetadataForStatementImpl(stmt))
+    lowerBlock(ctx, stmt.thenBranch)
+    let thenTerminated = getBlockTerminatedWithGlobalStateImpl()
+    finalizeConditionalEndBlockImpl(output, thenTerminated,
+        branching.endLabel)
+    output.append(branching.elseLabel + ":\n")
+    setBlockTerminatedWithGlobalStateImpl(false)
+    if stmt.elseBranch.statements.length() > 0 {
+        lowerBlock(ctx, stmt.elseBranch)
+    }
+    let elseTerminated = getBlockTerminatedWithGlobalStateImpl()
+    finalizeConditionalEndBlockImpl(output, elseTerminated,
+        branching.endLabel)
+    output.append(branching.endLabel + ":\n")
+    setBlockTerminatedWithGlobalStateImpl(false)
+    return IfStatementDriverResult.new(branchesEliminated)
+}
+
+fun generateIfLetStatementState(ctx: CodegenLoweringContext,
+    output: StringBuilder, stmt: StatementNode, varNames: Array<String>,
+    varRegs: Array<String>, varTypes: Array<String>) r: Void {
+
+    let condReg = lowerExpression(ctx, stmt.condition)
+    let branching = emitFunctionBodyIfBranchingImpl(output,
+        getFeatureBlockBoxImpl(), condReg, "")
+    let savedIfLetVarCount =
+        getBoundedActiveVarCountWithGlobalStateImpl(varNames)
+    let boundCount = emitIfLetBindingStateImpl(output, getFeatureRegBoxImpl(),
+        varNames, varRegs, varTypes, savedIfLetVarCount, stmt.variableName,
+        condReg)
+    setActiveVarCountWithGlobalStateImpl(boundCount)
+    lowerBlock(ctx, stmt.thenBranch)
+    setActiveVarCountWithGlobalStateImpl(savedIfLetVarCount)
+    let thenTerminated = getBlockTerminatedWithGlobalStateImpl()
+    finalizeConditionalEndBlockImpl(output, thenTerminated,
+        branching.endLabel)
+    output.append(branching.elseLabel + ":\n")
+    setBlockTerminatedWithGlobalStateImpl(false)
+    if stmt.elseBranch.statements.length() > 0 {
+        lowerBlock(ctx, stmt.elseBranch)
+    }
+    let elseTerminated = getBlockTerminatedWithGlobalStateImpl()
+    finalizeConditionalEndBlockImpl(output, elseTerminated,
+        branching.endLabel)
+    output.append(branching.endLabel + ":\n")
+    setBlockTerminatedWithGlobalStateImpl(false)
+}

@@ -45,6 +45,13 @@ REAL_OPT=$(command -v opt)
 PROCESSED=0
 FAILED=0
 FAILED_MODULES=""
+PROGRESS_EVERY="${SEEN_RECOVERY_PROGRESS_EVERY:-10}"
+case "$PROGRESS_EVERY" in
+    ''|*[!0-9]*) PROGRESS_EVERY=10 ;;
+esac
+if [ "$PROGRESS_EVERY" -le 0 ]; then
+    PROGRESS_EVERY=10
+fi
 
 run_with_opt_limit() {
     if [ "${SEEN_LOW_MEMORY:-0}" = "1" ] && [ -n "${SEEN_OPT_VMEM_KB:-}" ]; then
@@ -79,6 +86,12 @@ for llfile in "$WORK_DIR"/seen_module_*.ll; do
     modname=$(basename "$llfile" .ll)
     optfile="$WORK_DIR/${modname}.opt.ll"
     objfile="$WORK_DIR/${modname}.o"
+    optlog="$WORK_DIR/${modname}.opt.log"
+    thinlog="$WORK_DIR/${modname}.thinlto.log"
+    CURRENT=$((PROCESSED+FAILED+1))
+    if [ "$CURRENT" -eq 1 ] || [ $((CURRENT % PROGRESS_EVERY)) -eq 0 ]; then
+        echo "  Recovery progress: module=$modname index=$CURRENT/$LL_COUNT processed=$PROCESSED failed=$FAILED"
+    fi
 
     # Run opt: use wrapper (fixups + opt) or real opt directly (--skip-fixups)
     if [ "$SKIP_FIXUPS" = "1" ]; then
@@ -88,10 +101,16 @@ for llfile in "$WORK_DIR"/seen_module_*.ll; do
     fi
     if ! run_with_opt_limit "$OPT_CMD" \
         -passes='function(sroa,instcombine<no-verify-fixpoint>,simplifycfg),default<O1>' \
-        -inline-threshold=250 -S "$llfile" -o "$optfile" 2>/dev/null; then
+        -inline-threshold=250 -S "$llfile" -o "$optfile" >"$optlog" 2>&1; then
         echo "  ERROR: opt failed for $modname"
+        echo "  First failure log: $optlog"
+        tail -40 "$optlog" 2>/dev/null || true
         FAILED=$((FAILED+1))
         FAILED_MODULES="$FAILED_MODULES $modname"
+        if [ "${SEEN_RECOVERY_FAIL_FAST:-0}" = "1" ]; then
+            echo "  Recovery fail-fast enabled; stopping at $modname"
+            break
+        fi
         continue
     fi
 
@@ -100,12 +119,22 @@ for llfile in "$WORK_DIR"/seen_module_*.ll; do
         echo "  ERROR: opt did not emit $optfile"
         FAILED=$((FAILED+1))
         FAILED_MODULES="$FAILED_MODULES $modname"
+        if [ "${SEEN_RECOVERY_FAIL_FAST:-0}" = "1" ]; then
+            echo "  Recovery fail-fast enabled; stopping at $modname"
+            break
+        fi
         continue
     fi
-    if ! run_with_opt_limit "$REAL_OPT" --thinlto-bc "$optfile" -o "$objfile" 2>/dev/null; then
+    if ! run_with_opt_limit "$REAL_OPT" --thinlto-bc "$optfile" -o "$objfile" >"$thinlog" 2>&1; then
         echo "  ERROR: thinlto-bc failed for $modname"
+        echo "  First failure log: $thinlog"
+        tail -40 "$thinlog" 2>/dev/null || true
         FAILED=$((FAILED+1))
         FAILED_MODULES="$FAILED_MODULES $modname"
+        if [ "${SEEN_RECOVERY_FAIL_FAST:-0}" = "1" ]; then
+            echo "  Recovery fail-fast enabled; stopping at $modname"
+            break
+        fi
         continue
     fi
 
@@ -115,6 +144,10 @@ for llfile in "$WORK_DIR"/seen_module_*.ll; do
         echo "  ERROR: object file missing for $modname"
         FAILED=$((FAILED+1))
         FAILED_MODULES="$FAILED_MODULES $modname"
+        if [ "${SEEN_RECOVERY_FAIL_FAST:-0}" = "1" ]; then
+            echo "  Recovery fail-fast enabled; stopping at $modname"
+            break
+        fi
     fi
 done
 

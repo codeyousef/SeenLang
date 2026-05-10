@@ -4,7 +4,9 @@ import str.string.{StringBuilder}
 import codegen.ir_call_args.{promoteFloatArgsImpl}
 import codegen.ir_call_dispatch.{emitUserFunctionCallImpl}
 import codegen.ir_call_regular_plan.{shouldPromoteRegularCallFloatArgsImpl, shouldRecordRegularLateDeclareImpl, regularCallTailFlagImpl}
+import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl, getFeatureFloatParamFuncNamesImpl, getFeatureFloatParamParamIdxsImpl}
 import codegen.ir_decl_registry.{LateUserDeclareState, recordLateUserDeclareIntoStateImpl}
+import codegen.ir_decl_state_driver.{captureLateUserDeclareState, applyLateUserDeclareState}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
 
 fun promoteRegularCallFloatArgsIfNeededState(output: StringBuilder,
@@ -42,4 +44,22 @@ fun emitPreparedRegularFunctionCallState(output: StringBuilder,
     return emitUserFunctionCallImpl(output, regBox,
         quoteIdentIfNeededImpl(funcName), llvmReturnType, argRegs,
         argTypeStrs, tailFlag)
+}
+
+fun emitRegularFunctionCallTailState(output: StringBuilder, funcName: String,
+    llvmReturnType: String, argRegs: Array<String>,
+    argTypeStrs: Array<String>, shouldTailCall: Bool) r: String {
+
+    promoteRegularCallFloatArgsIfNeededState(output, getFeatureRegBoxImpl(),
+        funcName, argRegs, argTypeStrs, getFeatureFloatParamFuncNamesImpl(),
+        getFeatureFloatParamParamIdxsImpl())
+
+    let lateState = captureLateUserDeclareState()
+    if recordRegularLateDeclareIfNeededState(funcName, llvmReturnType,
+        argTypeStrs, lateState) {
+
+        applyLateUserDeclareState(lateState)
+    }
+    return emitPreparedRegularFunctionCallState(output, getFeatureRegBoxImpl(),
+        funcName, llvmReturnType, argRegs, argTypeStrs, shouldTailCall)
 }

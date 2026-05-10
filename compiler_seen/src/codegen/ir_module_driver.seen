@@ -1,0 +1,66 @@
+// ir_module_driver.seen - recursive module generation orchestration.
+
+import parser.real_parser.{ProgramNode}
+import str.string.{StringBuilder}
+import codegen.ir_codegen_global_state.{setStringConstantPrefixWithGlobalStateImpl}
+import codegen.ir_codegen_module_state.{emitLateUserDeclaresWithModuleStateImpl}
+import codegen.ir_function_usage.{emitUnusedTopLevelFunctionWarningsImpl}
+import codegen.ir_lowering_context.{CodegenLoweringContext, lowerExpression, inferLoweredExpressionType, lowerCallExpression, prepareLoweredCallArgumentsWithDefaults, lowerEnumConstructor, syncLoweringState, writeBackLoweringState, lowerProgramClasses, lowerProgramTopLevelFunctions, lowerPlainLargeClass, lowerClassNode, lowerFunctionNode, lowerClassMethodFromList, setLowerCurrentClassParentName, resetLoweringLocalCodegenState, collectLoweringVariableDeclarations, clearLoweringActiveBindings, lowerBlock, lowerStatement, isLoweringBlockTerminated, beginLoweringNestedScratch, restoreLoweringNestedScratch, currentLoweringFunctionOptions}
+import codegen.ir_module_entry_driver.{emitMultipleModuleEntryState, emitSingleModuleEntryState}
+import codegen.ir_module_tail_driver.{emitSharedModuleTailState}
+import codegen.ir_program_flow_plan.{shouldVisitProgramFlowIndexImpl}
+
+fun generateMultipleState(ctx: CodegenLoweringContext,
+    output: StringBuilder, stringConstants: Array<String>,
+    programs: Array<ProgramNode>) r: String {
+
+    setStringConstantPrefixWithGlobalStateImpl("")
+
+    let stringConstCountBeforeGen = emitMultipleModuleEntryState(output,
+        stringConstants, programs)
+
+    syncLoweringState(ctx)
+
+    var classPi = 0
+    while shouldVisitProgramFlowIndexImpl(classPi, programs.length()) {
+        lowerProgramClasses(ctx, programs[classPi])
+        classPi = classPi + 1
+    }
+
+    var fnPi = 0
+    while shouldVisitProgramFlowIndexImpl(fnPi, programs.length()) {
+        lowerProgramTopLevelFunctions(ctx, programs[fnPi], 0, false)
+        fnPi = fnPi + 1
+    }
+
+    emitSharedModuleTailState(output, stringConstants,
+        stringConstCountBeforeGen, 0, false, false,
+        currentLoweringFunctionOptions(ctx))
+
+    return output.toString()
+}
+
+fun generateSingleState(ctx: CodegenLoweringContext,
+    output: StringBuilder, stringConstants: Array<String>,
+    program: ProgramNode, moduleIndex: Int) r: String {
+
+    setStringConstantPrefixWithGlobalStateImpl(
+        "M" + moduleIndex.toString() + ".")
+
+    let moduleEntry = emitSingleModuleEntryState(output, stringConstants,
+        program, moduleIndex)
+    let stringConstCountBeforeGen = moduleEntry.stringConstCountBeforeGen
+    let definedFuncs = moduleEntry.definedFuncs
+
+    syncLoweringState(ctx)
+    lowerProgramClasses(ctx, program)
+    lowerProgramTopLevelFunctions(ctx, program, moduleIndex, false)
+
+    emitLateUserDeclaresWithModuleStateImpl(output, definedFuncs)
+    emitUnusedTopLevelFunctionWarningsImpl(output, program)
+    emitSharedModuleTailState(output, stringConstants,
+        stringConstCountBeforeGen, moduleIndex, true, true,
+        currentLoweringFunctionOptions(ctx))
+
+    return output.toString()
+}

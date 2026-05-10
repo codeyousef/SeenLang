@@ -1,0 +1,65 @@
+// ir_program_driver.seen - program item lowering orchestration.
+
+import parser.real_parser.{ProgramNode}
+import str.string.{StringBuilder}
+import codegen.ir_class_gen_support.{canUseLargePlainClassPathImpl}
+import codegen.ir_lowering_context.{CodegenLoweringContext, lowerExpression, inferLoweredExpressionType, lowerCallExpression, prepareLoweredCallArgumentsWithDefaults, lowerEnumConstructor, resetLoweringGenerator, resetLoweringSharedModuleScratch, syncLoweringState, writeBackLoweringState, lowerProgramClasses, lowerProgramTopLevelFunctions, lowerPlainLargeClass, lowerClassNode, lowerFunctionNode, lowerClassMethodFromList, setLowerCurrentClassParentName, resetLoweringLocalCodegenState, collectLoweringVariableDeclarations, clearLoweringActiveBindings, lowerBlock, lowerStatement, isLoweringBlockTerminated, beginLoweringNestedScratch, restoreLoweringNestedScratch, currentLoweringFunctionOptions}
+import codegen.ir_module_emit.{shouldSkipStandaloneTopLevelFunctionImpl}
+import codegen.ir_program_flow_plan.{shouldVisitProgramFlowIndexImpl, shouldGenerateProgramClassItemImpl, planProgramTopLevelFunctionStartImpl, planProgramTopLevelFunctionAfterSpecialImpl}
+import codegen.ir_special_top_level_emit.{tryHandleSpecialTopLevelFunctionImpl}
+import codegen.ir_codegen_global_state.{getGlobalFuncNamesImpl, getGlobalFuncRetTypesImpl}
+
+fun generateProgramClassesState(ctx: CodegenLoweringContext,
+    program: ProgramNode) r: Void {
+
+    var i = 0
+    while shouldVisitProgramFlowIndexImpl(i, program.items.length()) {
+        let item = program.items[i]
+        if shouldGenerateProgramClassItemImpl(item.itemType) {
+            if canUseLargePlainClassPathImpl(item.classNode.parentName,
+                item.classNode.decorators, item.classNode.methods) {
+
+                lowerPlainLargeClass(ctx, item.classNode.name,
+                    item.classNode.parentName, item.classNode.methods)
+            } else {
+                lowerClassNode(ctx, item.classNode)
+            }
+        }
+        i = i + 1
+    }
+}
+
+fun emitProgramTopLevelFunctionsState(ctx: CodegenLoweringContext,
+    output: StringBuilder, program: ProgramNode, moduleIndex: Int,
+    traceModule: Bool) r: Void {
+
+    var i = 0
+    while shouldVisitProgramFlowIndexImpl(i, program.items.length()) {
+        let item = program.items[i]
+        var plannedFnName: String = ""
+        if item.itemType == "Function" {
+            plannedFnName = item.function.name
+        }
+        let fnPlan = planProgramTopLevelFunctionStartImpl(item.itemType,
+            traceModule, shouldSkipStandaloneTopLevelFunctionImpl(
+            plannedFnName))
+        if fnPlan.shouldHandleFunction {
+            if fnPlan.shouldSkipStandalone {
+                i = i + 1
+                continue
+            }
+            let handledSpecial = tryHandleSpecialTopLevelFunctionImpl(
+                item.function, output, getGlobalFuncNamesImpl(),
+                getGlobalFuncRetTypesImpl())
+            let afterSpecialPlan =
+                planProgramTopLevelFunctionAfterSpecialImpl(traceModule,
+                    fnPlan.shouldTrySpecialHandler, handledSpecial)
+            if not afterSpecialPlan.shouldGenerateFunction {
+                i = i + 1
+                continue
+            }
+            lowerFunctionNode(ctx, item.function)
+        }
+        i = i + 1
+    }
+}

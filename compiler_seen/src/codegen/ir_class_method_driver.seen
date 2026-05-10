@@ -1,0 +1,146 @@
+// ir_class_method_driver.seen - recursive class method lowering.
+
+import parser.real_parser.{FunctionNode}
+import str.string.{StringBuilder}
+import codegen.ir_class_method_gen.{tryEmitOptionClassMethodShimImpl, collectClassMethodParameterInfoImpl, emitClassMethodSignatureStateImpl, emitClassMethodReceiverBindingStateImpl, emitClassMethodParameterBindingsStateImpl, emitClassMethodConstructorSetupStateImpl, tryEmitClassMethodConstructorReturnStateImpl, emitClassMethodDefaultReturnStateImpl}
+import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl, setFeatureCurrentClassParentNameImpl}
+import codegen.ir_codegen_global_state.{setCurrentFunctionReturnTypeWithGlobalStateImpl, setGlobalCurrentClassNameImpl, getCurrentFunctionReturnTypeWithGlobalStateImpl, getBoundedActiveVarCountWithGlobalStateImpl, setActiveVarCountWithGlobalStateImpl, getPreAllocatedTypesWithGlobalStateImpl, setPreAllocatedRegsWithGlobalStateImpl, getGlobalStructNamesImpl, getGlobalStructSizesImpl, getGlobalStructLayoutsImpl, getGlobalStructFieldNamesImpl, getGlobalStructFieldTypesImpl, getGlobalStructMethodNamesImpl, getGlobalStructMethodRetTypesImpl, getGlobalFuncNamesImpl, getGlobalFuncRetTypesImpl, getBlockTerminatedWithGlobalStateImpl, setBlockTerminatedWithGlobalStateImpl}
+import codegen.ir_codegen_metrics_state.{cseClear, getMetricsSelfCallFuncsImpl, getMetricsSelfCallNamesImpl, getMetricsSelfCallCountImpl}
+import codegen.ir_codegen_state.{getSharedCodegenState}
+import codegen.ir_codegen_type_state.{mapTypeState}
+import codegen.ir_function_entry_exit.{emitPreAllocatedAllocasImpl}
+import codegen.ir_function_state.{getCurrentFunctionEmissionStateImpl, resetFunctionEmissionForFunctionImpl, resetFunctionLoweringOptionsStateImpl}
+import codegen.ir_lowering_context.{CodegenLoweringContext, lowerExpression, inferLoweredExpressionType, lowerCallExpression, prepareLoweredCallArgumentsWithDefaults, lowerEnumConstructor, resetLoweringGenerator, resetLoweringSharedModuleScratch, syncLoweringState, writeBackLoweringState, lowerProgramClasses, lowerProgramTopLevelFunctions, lowerPlainLargeClass, lowerClassNode, lowerFunctionNode, lowerClassMethodFromList, setLowerCurrentClassParentName, resetLoweringLocalCodegenState, collectLoweringVariableDeclarations, clearLoweringActiveBindings, lowerBlock, lowerStatement, isLoweringBlockTerminated, beginLoweringNestedScratch, restoreLoweringNestedScratch, currentLoweringFunctionOptions}
+import codegen.ir_return_type_driver.{resolveMethodReturnTypeFromListState}
+import codegen.ir_variable_gen.{storeActiveVariableBindingImpl}
+
+fun resetClassMethodGenerationStateState(ctx: CodegenLoweringContext,
+    className: String, parentName: String, methods: Array<FunctionNode>,
+    methodIdx: Int, varNames: Array<String>, varTypes: Array<String>,
+    stringConstants: Array<String>) r: Void {
+
+    resetLoweringLocalCodegenState(ctx)
+    setCurrentFunctionReturnTypeWithGlobalStateImpl(
+        resolveMethodReturnTypeFromListState(className, methods, methodIdx,
+        varNames, varTypes, stringConstants))
+    setGlobalCurrentClassNameImpl(className)
+    setFeatureCurrentClassParentNameImpl(parentName)
+    resetFunctionLoweringOptionsStateImpl(
+        currentLoweringFunctionOptions(ctx))
+    resetFunctionEmissionForFunctionImpl(
+        getCurrentFunctionEmissionStateImpl())
+    cseClear()
+}
+
+fun prepareClassMethodVariableCollectionState(
+    ctx: CodegenLoweringContext, className: String,
+    methods: Array<FunctionNode>, methodIdx: Int,
+    normalizedMethodParamTypes: Array<String>, varNames: Array<String>,
+    varRegs: Array<String>, varTypes: Array<String>) r: Void {
+
+    let method = methods[methodIdx]
+    if not method.isStatic {
+        setActiveVarCountWithGlobalStateImpl(storeActiveVariableBindingImpl(
+            varNames, varRegs, varTypes,
+            getBoundedActiveVarCountWithGlobalStateImpl(varNames), "this",
+            "", className))
+    }
+    var paramIdx = 0
+    while paramIdx < method.params.length() {
+        let param = method.params[paramIdx]
+        setActiveVarCountWithGlobalStateImpl(storeActiveVariableBindingImpl(
+            varNames, varRegs, varTypes,
+            getBoundedActiveVarCountWithGlobalStateImpl(varNames),
+            param.name, "", normalizedMethodParamTypes[paramIdx]))
+        paramIdx = paramIdx + 1
+    }
+    collectLoweringVariableDeclarations(ctx, method.body)
+    clearLoweringActiveBindings(ctx)
+}
+
+fun generateClassMethodFromListState(ctx: CodegenLoweringContext,
+    output: StringBuilder, className: String, parentName: String,
+    methods: Array<FunctionNode>, methodIdx: Int,
+    varNames: Array<String>, varRegs: Array<String>,
+    varTypes: Array<String>, stringConstants: Array<String>) r: Void {
+
+    let method = methods[methodIdx]
+    let methodName = method.name
+    if tryEmitOptionClassMethodShimImpl(output, className, methodName) == 1 {
+        return
+    }
+
+    resetClassMethodGenerationStateState(ctx, className, parentName,
+        methods, methodIdx, varNames, varTypes, stringConstants)
+    syncLoweringState(ctx)
+    let collectionState = getSharedCodegenState()
+    let collectionVarNames = collectionState.varNames
+    let collectionVarRegs = collectionState.varRegs
+    let collectionVarTypes = collectionState.varTypes
+
+    let normalizedMethodParamTypes = Array<String>()
+    let mappedMethodParamTypes = Array<String>()
+    let quotedMethodArgNames = Array<String>()
+    collectClassMethodParameterInfoImpl(methods, methodIdx,
+        normalizedMethodParamTypes, mappedMethodParamTypes,
+        quotedMethodArgNames)
+    prepareClassMethodVariableCollectionState(ctx, className, methods,
+        methodIdx, normalizedMethodParamTypes, collectionVarNames,
+        collectionVarRegs, collectionVarTypes)
+    syncLoweringState(ctx)
+    let methodState = getSharedCodegenState()
+    let methodVarNames = methodState.varNames
+    let methodVarRegs = methodState.varRegs
+    let methodVarTypes = methodState.varTypes
+
+    let returnType = mapTypeState(
+        getCurrentFunctionReturnTypeWithGlobalStateImpl())
+    let isStatic = method.isStatic or methodName == "new"
+    let explicitReceiverName = emitClassMethodSignatureStateImpl(output,
+        methods, methodIdx, className, methodName, isStatic, returnType,
+        mappedMethodParamTypes, quotedMethodArgNames,
+        getMetricsSelfCallFuncsImpl(), getMetricsSelfCallNamesImpl(),
+        getMetricsSelfCallCountImpl())
+    setActiveVarCountWithGlobalStateImpl(
+        emitClassMethodReceiverBindingStateImpl(output, getFeatureRegBoxImpl(),
+        methodVarNames, methodVarRegs, methodVarTypes,
+        getBoundedActiveVarCountWithGlobalStateImpl(methodVarNames),
+        className, isStatic, explicitReceiverName))
+    setActiveVarCountWithGlobalStateImpl(
+        emitClassMethodParameterBindingsStateImpl(output, getFeatureRegBoxImpl(),
+        methodVarNames, methodVarRegs, methodVarTypes,
+        getBoundedActiveVarCountWithGlobalStateImpl(methodVarNames),
+        methods, methodIdx, explicitReceiverName,
+        normalizedMethodParamTypes, quotedMethodArgNames))
+    let classMethodPreAllocatedTypes =
+        getPreAllocatedTypesWithGlobalStateImpl()
+    let classMethodPreAllocatedLlvmTypes = Array<String>()
+    var classMethodPreAllocatedIdx = 0
+    while classMethodPreAllocatedIdx <
+        classMethodPreAllocatedTypes.length() {
+
+        classMethodPreAllocatedLlvmTypes.push(mapTypeState(
+            classMethodPreAllocatedTypes[classMethodPreAllocatedIdx]))
+        classMethodPreAllocatedIdx = classMethodPreAllocatedIdx + 1
+    }
+    setPreAllocatedRegsWithGlobalStateImpl(emitPreAllocatedAllocasImpl(
+        output, getFeatureRegBoxImpl(), classMethodPreAllocatedLlvmTypes))
+    setActiveVarCountWithGlobalStateImpl(
+        emitClassMethodConstructorSetupStateImpl(output, getFeatureRegBoxImpl(),
+        methodVarNames, methodVarRegs, methodVarTypes,
+        getBoundedActiveVarCountWithGlobalStateImpl(methodVarNames),
+        className, methodName, method.isStatic, methods, methodIdx,
+        getGlobalStructNamesImpl(), getGlobalStructSizesImpl(),
+        getGlobalStructLayoutsImpl(), getGlobalStructFieldNamesImpl(),
+        getGlobalStructFieldTypesImpl()))
+
+    lowerBlock(ctx, method.body)
+    setBlockTerminatedWithGlobalStateImpl(
+        tryEmitClassMethodConstructorReturnStateImpl(output,
+        getFeatureRegBoxImpl(), methodVarNames, methodVarRegs,
+        getBoundedActiveVarCountWithGlobalStateImpl(methodVarNames),
+        methodName, getBlockTerminatedWithGlobalStateImpl()))
+    emitClassMethodDefaultReturnStateImpl(output, returnType,
+        getBlockTerminatedWithGlobalStateImpl())
+    output.append("}\n\n")
+}

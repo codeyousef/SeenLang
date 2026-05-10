@@ -1,0 +1,87 @@
+// ir_call_args_driver.seen - recursive call argument preparation.
+
+import parser.real_parser.{ParserExpressionNode}
+import str.string.{StringBuilder}
+import codegen.ir_call_args.{fillDefaultParamsImpl, appendPreparedCallArgImpl}
+import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl, setDefaultFillArgsImpl, getDefaultFillArgRegsImpl, getDefaultFillArgTypeStrsImpl, getFeatureDynParamFuncsImpl, getFeatureFloatParamFuncNamesImpl, getFeatureFloatParamParamIdxsImpl, getFeatureMoveOnlyClassesImpl, getFeatureFuncParamCountArrImpl, getFeatureFuncDefaultsArrImpl}
+import codegen.ir_codegen_global_state.{getBoundedActiveVarCountWithGlobalStateImpl, getStringConstantPrefixWithGlobalStateImpl}
+import codegen.ir_codegen_type_state.{mapTypeState}
+import codegen.ir_function_state.{getCurrentFunctionEmissionStateImpl, recordMovedVariableImpl}
+import codegen.ir_lowering_context.{CodegenLoweringContext, lowerExpression, inferLoweredExpressionType, lowerCallExpression, prepareLoweredCallArgumentsWithDefaults, lowerEnumConstructor, resetLoweringGenerator, resetLoweringSharedModuleScratch, syncLoweringState, writeBackLoweringState, lowerProgramClasses, lowerProgramTopLevelFunctions, lowerPlainLargeClass, lowerClassNode, lowerFunctionNode, lowerClassMethodFromList, setLowerCurrentClassParentName, resetLoweringLocalCodegenState, collectLoweringVariableDeclarations, clearLoweringActiveBindings, lowerBlock, lowerStatement, isLoweringBlockTerminated, beginLoweringNestedScratch, restoreLoweringNestedScratch, currentLoweringFunctionOptions}
+import codegen.ir_variable_gen.{findActiveVariableIndexImpl, shouldNullifyMovedArgumentSourceImpl, resolveMovedArgumentSourceNameImpl, shouldRecordMovedArgumentSourceImpl}
+
+fun prepareCallArgumentsState(ctx: CodegenLoweringContext,
+    output: StringBuilder, funcName: String,
+    arguments: Array<ParserExpressionNode>, argRegs: Array<String>,
+    argTypeStrs: Array<String>, enableDynBoxing: Bool,
+    enableFloatPromotion: Bool, nullifyMovedSources: Bool,
+    moveContext: String, varNames: Array<String>, varRegs: Array<String>,
+    varTypes: Array<String>) r: Void {
+
+    let dynParamFuncs = getFeatureDynParamFuncsImpl()
+    let floatParamFuncNames = getFeatureFloatParamFuncNamesImpl()
+    let floatParamParamIdxs = getFeatureFloatParamParamIdxsImpl()
+    let moveOnlyClasses = getFeatureMoveOnlyClassesImpl()
+    var argIdx = 0
+    while argIdx < arguments.length() {
+        let argExpr = arguments[argIdx]
+        let argReg = lowerExpression(ctx, argExpr)
+        let argType = inferLoweredExpressionType(ctx, argExpr)
+        let argLlvmType = mapTypeState(argType)
+        appendPreparedCallArgImpl(output, getFeatureRegBoxImpl(), funcName,
+            argReg, argType, argLlvmType, argIdx, argRegs, argTypeStrs,
+            dynParamFuncs, enableDynBoxing, enableFloatPromotion,
+            floatParamFuncNames, floatParamParamIdxs)
+
+        if shouldNullifyMovedArgumentSourceImpl(nullifyMovedSources,
+            moveOnlyClasses, argType) {
+
+            let moveVarName = resolveMovedArgumentSourceNameImpl(
+                argExpr.kind, argExpr.variableName, argExpr.literalValue)
+            if moveVarName != "" {
+                let moveVarIdx = findActiveVariableIndexImpl(varNames,
+                    getBoundedActiveVarCountWithGlobalStateImpl(varNames),
+                    moveVarName)
+                if shouldRecordMovedArgumentSourceImpl(moveVarName,
+                    moveVarIdx) {
+
+                    let moveSrcReg = varRegs[moveVarIdx]
+                    output.append("  store i64 0, ptr " + moveSrcReg +
+                        " ; @move: nullify source (" + moveContext + ")\n")
+                    recordMovedVariableImpl(
+                        getCurrentFunctionEmissionStateImpl(), moveVarName)
+                }
+            }
+        }
+        argIdx = argIdx + 1
+    }
+}
+
+fun fillDefaultParamsLocalState(output: StringBuilder, funcName: String,
+    argRegs: Array<String>, argTypeStrs: Array<String>,
+    stringConstants: Array<String>) r: Void {
+
+    setDefaultFillArgsImpl(argRegs, argTypeStrs)
+    fillDefaultParamsImpl(output, getFeatureRegBoxImpl(), funcName,
+        getDefaultFillArgRegsImpl(), getDefaultFillArgTypeStrsImpl(),
+        getFeatureFuncParamCountArrImpl(), getFeatureFuncDefaultsArrImpl(),
+        getStringConstantPrefixWithGlobalStateImpl(), stringConstants)
+}
+
+fun prepareCallArgumentsWithDefaultsState(
+    ctx: CodegenLoweringContext, output: StringBuilder,
+    funcName: String, arguments: Array<ParserExpressionNode>,
+    enableDynBoxing: Bool, enableFloatPromotion: Bool,
+    nullifyMovedSources: Bool, moveContext: String,
+    varNames: Array<String>, varRegs: Array<String>,
+    varTypes: Array<String>, stringConstants: Array<String>) r: Void {
+
+    let preparedArgRegs = Array<String>()
+    let preparedArgTypeStrs = Array<String>()
+    prepareCallArgumentsState(ctx, output, funcName, arguments,
+        preparedArgRegs, preparedArgTypeStrs, enableDynBoxing,
+        enableFloatPromotion, nullifyMovedSources, moveContext, varNames,
+        varRegs, varTypes)
+    fillDefaultParamsLocalState(output, funcName, preparedArgRegs,
+        preparedArgTypeStrs, stringConstants)
+}

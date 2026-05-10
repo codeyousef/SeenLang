@@ -49,7 +49,7 @@ fun resolveChainedPathTypeState(path: String, varNames: Array<String>,
 fun resolveLiteralMethodReceiverTypeState(literalValue: String,
     varNames: Array<String>, varTypes: Array<String>,
     stringConstants: Array<String>) r: String {
-    var chainedType = ""
+    var chainedType: String = ""
     if literalValue.contains(".") {
         chainedType = resolveChainedPathTypeState(literalValue, varNames,
             varTypes, stringConstants)
@@ -57,7 +57,7 @@ fun resolveLiteralMethodReceiverTypeState(literalValue: String,
     let directVarType = findVarTypeState(varNames, varTypes, literalValue)
     let thisIdx = findActiveVariableIndexWithGlobalStateImpl(varNames,
         "this")
-    var thisType = ""
+    var thisType: String = ""
     if thisIdx >= 0 {
         thisType = varTypes[thisIdx]
     }
@@ -69,8 +69,8 @@ fun resolveLiteralMethodReceiverTypeState(literalValue: String,
 fun inferBinaryExprTypeLocalState(expr: ParserExpressionNode,
     varNames: Array<String>, varTypes: Array<String>,
     stringConstants: Array<String>) r: String {
-    var leftType = ""
-    var rightType = ""
+    var leftType: String = ""
+    var rightType: String = ""
     if expr.operands.length() > 0 {
         leftType = inferExpressionTypeState(expr.operands[0], varNames,
             varTypes, stringConstants)
@@ -116,7 +116,7 @@ fun inferMethodCallExprTypeLocalState(expr: ParserExpressionNode,
             return implicitOrFreeResult
         }
     }
-    var receiverType = ""
+    var receiverType: String = ""
     if methodInferPlan.shouldResolveReceiverType {
         receiverType = resolveMethodCallReceiverTypeState(expr, varNames,
             varTypes, stringConstants)
@@ -157,14 +157,14 @@ fun tryInferBuiltinCallExprTypeState(expr: ParserExpressionNode,
     }
     let builtinPlan = planBuiltinCallInferenceImpl(expr.callee,
         expr.arguments.length(), enumVariantCount, isVariantCall)
-    var selectedArgType = ""
+    var selectedArgType: String = ""
     if builtinPlan.shouldInferSelectedArg {
         selectedArgType = inferExpressionTypeState(
             expr.arguments[builtinPlan.selectedArgIndex], varNames,
             varTypes, stringConstants)
     }
     let builtinType = inferCallExprTypeImpl(expr.callee)
-    var enumParentType = ""
+    var enumParentType: String = ""
     if builtinPlan.shouldLookupEnumParent {
         enumParentType = lookupEnumParentWithFeatureStateImpl(expr.callee)
     }
@@ -208,12 +208,12 @@ fun inferMemberAccessExprTypeLocalState(expr: ParserExpressionNode,
         }
     }
     let fieldName = extractLastMemberFieldSegmentImpl(expr.variableName)
-    var operandReceiverType = ""
+    var operandReceiverType: String = ""
     if memberPlan.shouldInferOperandReceiver {
         operandReceiverType = inferExpressionTypeState(expr.operands[0],
             varNames, varTypes, stringConstants)
     }
-    var literalValueType = ""
+    var literalValueType: String = ""
     if memberPlan.shouldFindLiteralValueType {
         literalValueType = findVarTypeState(varNames, varTypes,
             expr.literalValue)
@@ -226,10 +226,10 @@ fun inferMemberAccessExprTypeLocalState(expr: ParserExpressionNode,
     if jsonFieldType != "" {
         return jsonFieldType
     }
-    var literalReceiverFieldType = ""
+    var literalReceiverFieldType: String = ""
     if memberPlan.shouldTryLiteralReceiver {
-        var chainedPathType = ""
-        var thisType = ""
+        var chainedPathType: String = ""
+        var thisType: String = ""
         let thisIdx = findActiveVariableIndexWithGlobalStateImpl(varNames,
             "this")
         if thisIdx >= 0 {
@@ -284,7 +284,7 @@ fun inferArrayLiteralExprTypeLocalState(expr: ParserExpressionNode,
     if expr.kind != "ArrayLiteral" {
         return ""
     }
-    var knownArrayType = ""
+    var knownArrayType: String = ""
     if expr.arguments.length() > 0 {
         let firstElemType = inferExpressionTypeState(expr.arguments[0],
             varNames, varTypes, stringConstants)
@@ -307,7 +307,7 @@ fun inferUnaryExprTypeLocalState(expr: ParserExpressionNode,
     if expr.kind != "Unary" {
         return ""
     }
-    var operandType = ""
+    var operandType: String = ""
     if expr.operands.length() > 0 {
         operandType = inferExpressionTypeState(expr.operands[0], varNames,
             varTypes, stringConstants)
@@ -321,10 +321,10 @@ fun inferAwaitExprTypeLocalState(expr: ParserExpressionNode,
     if expr.kind != "Await" {
         return ""
     }
-    var innerKind = ""
-    var innerType = ""
-    var asyncRetType = ""
-    var functionRetType = ""
+    var innerKind: String = ""
+    var innerType: String = ""
+    var asyncRetType: String = ""
+    var functionRetType: String = ""
     if expr.operands.length() > 0 {
         let inner = expr.operands[0]
         innerKind = inner.kind
@@ -346,8 +346,8 @@ fun inferTryPropagateExprTypeLocalState(expr: ParserExpressionNode,
     if expr.kind != "TryPropagate" {
         return ""
     }
-    var tryInnerType = ""
-    var tryResultType = ""
+    var tryInnerType: String = ""
+    var tryResultType: String = ""
     if expr.operands.length() > 0 {
         tryInnerType = inferExpressionTypeState(expr.operands[0], varNames,
             varTypes, stringConstants)
@@ -359,7 +359,7 @@ fun inferTryPropagateExprTypeLocalState(expr: ParserExpressionNode,
 fun tryInferNullishSpecialExprTypeState(expr: ParserExpressionNode,
     varNames: Array<String>, varTypes: Array<String>,
     stringConstants: Array<String>) r: String {
-    var operandType = ""
+    var operandType: String = ""
     if (expr.kind == "Elvis" or expr.kind == "NullCoalesce") and
         expr.operands.length() > 0 {
         operandType = inferExpressionTypeState(expr.operands[0], varNames,
@@ -370,7 +370,7 @@ fun tryInferNullishSpecialExprTypeState(expr: ParserExpressionNode,
 fun tryInferBranchingSpecialExprTypeState(expr: ParserExpressionNode,
     varNames: Array<String>, varTypes: Array<String>,
     stringConstants: Array<String>) r: String {
-    var firstBranchType = ""
+    var firstBranchType: String = ""
     if expr.kind == "WhenExpression" {
         if expr.arguments.length() > 0 {
             let firstArm = expr.arguments[0]
@@ -401,42 +401,42 @@ fun inferSpecialExprTypeLocalState(expr: ParserExpressionNode,
     varNames: Array<String>, varTypes: Array<String>,
     stringConstants: Array<String>) r: String {
     let specialPlan = planSpecialExprInferenceImpl(expr.kind)
-    var indexType = ""
+    var indexType: String = ""
     if specialPlan.shouldTryIndexAccess {
         indexType = inferIndexAccessExprTypeLocalState(expr, varNames,
             varTypes, stringConstants)
     }
-    var arrayLiteralType = ""
+    var arrayLiteralType: String = ""
     if specialPlan.shouldTryArrayLiteral {
         arrayLiteralType = inferArrayLiteralExprTypeLocalState(expr,
             varNames, varTypes, stringConstants)
     }
-    var stringInterpolationType = ""
+    var stringInterpolationType: String = ""
     if specialPlan.shouldTryStringInterpolation {
         stringInterpolationType =
             inferStringInterpolationExprTypeLocalState(expr, stringConstants)
     }
-    var unaryType = ""
+    var unaryType: String = ""
     if specialPlan.shouldTryUnary {
         unaryType = inferUnaryExprTypeLocalState(expr, varNames, varTypes,
             stringConstants)
     }
-    var awaitType = ""
+    var awaitType: String = ""
     if specialPlan.shouldTryAwait {
         awaitType = inferAwaitExprTypeLocalState(expr, varNames, varTypes,
             stringConstants)
     }
-    var nullishSpecialType = ""
+    var nullishSpecialType: String = ""
     if specialPlan.shouldTryNullish {
         nullishSpecialType = tryInferNullishSpecialExprTypeState(expr,
             varNames, varTypes, stringConstants)
     }
-    var branchingSpecialType = ""
+    var branchingSpecialType: String = ""
     if specialPlan.shouldTryBranching {
         branchingSpecialType = tryInferBranchingSpecialExprTypeState(expr,
             varNames, varTypes, stringConstants)
     }
-    var fixedSpecialType = ""
+    var fixedSpecialType: String = ""
     if specialPlan.shouldTryFixed {
         fixedSpecialType = tryInferFixedSpecialExprTypeState(expr, varNames,
             varTypes, stringConstants)

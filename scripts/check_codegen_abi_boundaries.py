@@ -164,6 +164,7 @@ MAIN_COMPILER_BOOTSTRAP_FRAGILE_CONSTRUCTORS = (
     "run_frontend_declarations",
 )
 FRONTEND_BOOTSTRAP_FRAGILE_CALLS = (
+    "FrontendDiagnostic.new",
     "ProgramNode.new",
     "FunctionNode.new",
     "ClassNode.new",
@@ -171,6 +172,9 @@ FRONTEND_BOOTSTRAP_FRAGILE_CALLS = (
     "RealParser.new",
     "TypeChecker.new",
     "MacroExpander.new",
+)
+LSP_BOOTSTRAP_FRAGILE_CALLS = (
+    "FrontendDiagnostic.new",
 )
 
 IDENTITY_HELPER = "prepareFunctionGenerationIdentityWithGlobalStateImpl"
@@ -375,6 +379,10 @@ FUNCTION_REGISTRY_PARAM_TYPES = {
     "funcNames": "Array<String>",
     "funcRetTypes": "Array<String>",
 }
+CALL_DEFAULT_REGISTRY_PARAM_TYPES = {
+    "funcParamCountArr": "String",
+    "funcDefaultsArr": "String",
+}
 LATE_DECLARE_STACK_HELPER_MAX_ARGS = {
     "recordLateUserDeclareIntoStateImpl": 5,
     "recordRegularLateDeclareIfNeededState": 4,
@@ -511,6 +519,48 @@ KNOWN_LEGACY_IMPORT_CYCLE_SETS = {
             "codegen.ir_module_emit",
         }
     ),
+}
+BOOTSTRAP_DIRECT_IMPORT_ALLOWLIST = {
+    # Long-standing low-level modules are pulled in through older bootstrap
+    # roots. New extracted codegen helpers must be directly imported from
+    # main_compiler.seen or the frozen compiler may emit declares without
+    # definitions during Stage2 recovery/link.
+    "codegen.ir_declarations",
+    "codegen.ir_optimization",
+    "codegen.ir_type_info",
+    "codegen.ir_type_tables",
+}
+LOWERING_CONTEXT_BUILDER_RETURN = "currentLoweringOutput"
+LOWERING_CONTEXT_FORBIDDEN_CALLBACKS = {
+    "appendLoweringOutput",
+    "currentLoweringOutputText",
+}
+LOWERING_CONTEXT_CALLBACK_NAMES = {
+    "beginLoweringNestedScratch",
+    "clearLoweringActiveBindings",
+    "collectLoweringVariableDeclarations",
+    "currentLoweringFunctionOptions",
+    "inferLoweredExpressionType",
+    "isLoweringBlockTerminated",
+    "lowerBlock",
+    "lowerCallExpression",
+    "lowerClassMethodFromList",
+    "lowerClassNode",
+    "lowerEnumConstructor",
+    "lowerExpression",
+    "lowerFunctionNode",
+    "lowerPlainLargeClass",
+    "lowerProgramClasses",
+    "lowerProgramTopLevelFunctions",
+    "lowerStatement",
+    "prepareLoweredCallArgumentsWithDefaults",
+    "resetLoweringGenerator",
+    "resetLoweringLocalCodegenState",
+    "resetLoweringSharedModuleScratch",
+    "restoreLoweringNestedScratch",
+    "setLowerCurrentClassParentName",
+    "syncLoweringState",
+    "writeBackLoweringState",
 }
 
 
@@ -649,6 +699,59 @@ def compiler_import_integrity_findings(root: Path) -> list[Finding]:
     return findings
 
 
+def main_compiler_direct_bootstrap_import_findings(root: Path) -> list[Finding]:
+    path = root / "compiler_seen" / "src" / "main_compiler.seen"
+    if not path.exists():
+        return []
+    text = strip_triple_slash_blocks(path.read_text(errors="ignore"))
+    direct_imports = {
+        normalize_import_module(match.group(1))
+        for match in re.finditer(r"^\s*import\s+([A-Za-z_][A-Za-z0-9_.]*)", text, re.M)
+    }
+    pushed_modules: list[tuple[int, str]] = []
+    for match in re.finditer(r'modules\.push\("([A-Za-z_][A-Za-z0-9_.]*)"\)', text):
+        module = normalize_import_module(match.group(1))
+        if module.startswith("codegen."):
+            pushed_modules.append((line_for_offset(text, match.start()), module))
+
+    findings: list[Finding] = []
+    for line_no, module in pushed_modules:
+        if module in BOOTSTRAP_DIRECT_IMPORT_ALLOWLIST:
+            continue
+        if module not in direct_imports:
+            findings.append(
+                Finding(
+                    path,
+                    line_no,
+                    f"bootstrap module `{module}` is seeded but not directly "
+                    "imported by main_compiler.seen; frozen bootstrap scans can "
+                    "miss its definitions and leave Stage2 link-only undefined symbols",
+                )
+            )
+    return findings
+
+
+def lowering_context_builder_return_findings(root: Path) -> list[Finding]:
+    codegen = root / "compiler_seen" / "src" / "codegen"
+    findings: list[Finding] = []
+    for path in sorted(codegen.glob("*.seen")):
+        if path.name in {"ir_lowering_context.seen", "llvm_ir_gen.seen"}:
+            continue
+        for line_no, line in enumerate(source_lines(path), 1):
+            if f".{LOWERING_CONTEXT_BUILDER_RETURN}(" in line:
+                findings.append(
+                    Finding(
+                        path,
+                        line_no,
+                        "dyn lowering context returns StringBuilder here; "
+                        "frozen bootstrap lowers that class return as an Int "
+                        "handle, which later emits undefined Int_append. Pass "
+                        "the output builder explicitly through the helper",
+                    )
+                )
+    return findings
+
+
 def compiler_import_cycle_findings(root: Path) -> list[Finding]:
     findings: list[Finding] = []
     src_root = compiler_src_root(root)
@@ -757,6 +860,47 @@ def raw_float_literal_source_findings(root: Path) -> list[Finding]:
                 break
         if len(findings) >= 50:
             break
+    return findings
+
+
+def feature_getter_return_type_findings(root: Path) -> list[Finding]:
+    path = root / "compiler_seen" / "src" / "codegen" / "ir_codegen_feature_state.seen"
+    if not path.exists():
+        return []
+
+    lines = source_lines(path)
+    global_types: dict[str, str] = {}
+    for line in lines:
+        match = re.match(
+            r"\s*var\s+(g_[A-Za-z_][A-Za-z0-9_]*)\s*:\s*([^=]+?)\s*=",
+            line,
+        )
+        if match:
+            global_types[match.group(1)] = " ".join(match.group(2).split())
+
+    findings: list[Finding] = []
+    getter = re.compile(
+        r"\s*fun\s+(getFeature[A-Za-z0-9_]*Impl)\(\)\s+r:\s*([^{]+?)\s*"
+        r"\{\s*return\s+(g_[A-Za-z_][A-Za-z0-9_]*)\s*\}"
+    )
+    for line_no, line in enumerate(lines, 1):
+        match = getter.match(line)
+        if not match:
+            continue
+        func_name = match.group(1)
+        return_type = " ".join(match.group(2).split())
+        global_name = match.group(3)
+        global_type = global_types.get(global_name)
+        if global_type is None or return_type == global_type:
+            continue
+        findings.append(
+            Finding(
+                path,
+                line_no,
+                f"{func_name} returns {return_type} but {global_name} is "
+                f"{global_type}; owner-state accessors must preserve ABI type",
+            )
+        )
     return findings
 
 
@@ -2632,6 +2776,99 @@ def function_registry_boundary_findings(root: Path) -> list[Finding]:
     return findings
 
 
+def call_default_registry_param_findings(root: Path) -> list[Finding]:
+    findings: list[Finding] = []
+    codegen_path = root / "compiler_seen" / "src" / "codegen"
+    function_pattern = re.compile(
+        r"\b(?:static\s+)?fun\s+([A-Za-z_][A-Za-z0-9_]*)\s*\("
+    )
+
+    for path in sorted(codegen_path.glob("*.seen")):
+        text = "\n".join(source_lines(path))
+        for match in function_pattern.finditer(text):
+            open_index = text.find("(", match.start())
+            params, _ = collect_balanced(text, open_index)
+            for param in split_top_level_args(params):
+                param_match = re.match(
+                    r"\s*(funcParamCountArr|funcDefaultsArr)\s*:\s*([^=]+?)\s*$",
+                    param,
+                    re.S,
+                )
+                if not param_match:
+                    continue
+                param_name = param_match.group(1)
+                actual_type = " ".join(param_match.group(2).split())
+                expected_type = CALL_DEFAULT_REGISTRY_PARAM_TYPES[param_name]
+                if actual_type != expected_type:
+                    findings.append(
+                        Finding(
+                            path,
+                            line_for_offset(text, match.start()),
+                            f"{match.group(1)} parameter {param_name} has "
+                            f"type {actual_type}; default-argument registries "
+                            f"must stay {expected_type} to avoid self-hosted "
+                            "String/Array ABI mismatch in regular calls",
+                        )
+                    )
+    return findings
+
+
+def call_argument_lowering_callback_findings(root: Path) -> list[Finding]:
+    findings: list[Finding] = []
+    codegen_path = root / "compiler_seen" / "src" / "codegen"
+    callback_re = re.compile(r"\bprepareLoweredCallArgumentsWithDefaults\s*\(")
+    allowed_files = {
+        "ir_lowering_context.seen",
+        "ir_lowering_context_bridge.seen",
+        "llvm_ir_gen.seen",
+    }
+
+    for path in sorted(codegen_path.glob("*.seen")):
+        if path.name in allowed_files:
+            continue
+        for lineno, line in enumerate(source_lines(path), start=1):
+            if callback_re.search(line):
+                findings.append(
+                    Finding(
+                        path,
+                        lineno,
+                        "call argument lowering must use "
+                        "prepareCallArgumentsWithDefaultsState directly; "
+                        "routing ParserExpressionNode arrays through the "
+                        "lowering-context callback has caused Stage3 ABI "
+                        "corruption",
+                    )
+                )
+    return findings
+
+
+def reprc_constructor_owner_state_findings(root: Path) -> list[Finding]:
+    findings: list[Finding] = []
+    codegen_path = root / "compiler_seen" / "src" / "codegen"
+    helper_re = re.compile(r"\bisReprCConstructorTypeImpl\s*\(")
+    allowed_files = {
+        "ir_constructor_call_plan.seen",
+        "ir_codegen_feature_state.seen",
+    }
+
+    for path in sorted(codegen_path.glob("*.seen")):
+        if path.name in allowed_files:
+            continue
+        for lineno, line in enumerate(source_lines(path), start=1):
+            if helper_re.search(line):
+                findings.append(
+                    Finding(
+                        path,
+                        lineno,
+                        "ReprC constructor checks must go through "
+                        "isReprCConstructorTypeWithFeatureStateImpl; passing "
+                        "struct-name arrays where pipe-delimited ReprC strings "
+                        "are expected can corrupt Stage3 string ABI calls",
+                    )
+                )
+    return findings
+
+
 def late_declare_stack_api_findings(root: Path) -> list[Finding]:
     findings: list[Finding] = []
     codegen_path = root / "compiler_seen" / "src" / "codegen"
@@ -2788,6 +3025,77 @@ def aggregate_abi_signature_findings(root: Path) -> list[Finding]:
     return findings
 
 
+def call_driver_enum_state_findings(root: Path) -> list[Finding]:
+    path = root / "compiler_seen" / "src" / "codegen" / "ir_call_driver.seen"
+    if not path.exists():
+        return []
+
+    text = "\n".join(source_lines(path))
+    match = re.search(r"\bfun\s+generateCallState\s*\(", text)
+    if not match:
+        return []
+
+    params_text, _ = collect_balanced(text, text.find("(", match.start()))
+    expected = {
+        "enumVariantNames": "String",
+        "enumVariantFieldCounts": "String",
+    }
+    findings: list[Finding] = []
+    for param in split_top_level_args(params_text):
+        if ":" not in param:
+            continue
+        name = param.split(":", 1)[0].strip()
+        declared = param_declared_type(param)
+        wanted = expected.get(name)
+        if wanted is None or declared == wanted:
+            continue
+        findings.append(
+            Finding(
+                path,
+                line_for_offset(text, match.start()),
+                f"generateCallState {name} must be {wanted}; feature enum "
+                "state is pipe-encoded String data, and treating it as an "
+                "Array corrupts Stage2 call lowering",
+            )
+        )
+    return findings
+
+
+def enum_feature_state_param_findings(root: Path) -> list[Finding]:
+    codegen_path = root / "compiler_seen" / "src" / "codegen"
+    expected_string_params = {
+        "enumVariantNames",
+        "enumVariantTags",
+        "enumVariantFieldTypes",
+        "enumVariantFieldCounts",
+        "enumVariantParent",
+    }
+    findings: list[Finding] = []
+    for path in sorted(codegen_path.glob("*.seen")):
+        text = "\n".join(source_lines(path))
+        for match in re.finditer(r"\bfun\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(", text):
+            params_text, _ = collect_balanced(text, text.find("(", match.start()))
+            for param in split_top_level_args(params_text):
+                if ":" not in param:
+                    continue
+                name = param.split(":", 1)[0].strip()
+                if name not in expected_string_params:
+                    continue
+                declared = param_declared_type(param)
+                if declared == "String":
+                    continue
+                findings.append(
+                    Finding(
+                        path,
+                        line_for_offset(text, match.start()),
+                        f"{match.group(1)} parameter {name} must be String; "
+                        "feature enum state is pipe-encoded owner data, not "
+                        f"{declared}",
+                    )
+                )
+    return findings
+
+
 def constructor_declaration_static_findings(root: Path) -> list[Finding]:
     path = root / "compiler_seen" / "src" / "codegen" / "ir_decl_items.seen"
     if not path.exists():
@@ -2841,6 +3149,27 @@ def frontend_bootstrap_constructor_findings(root: Path) -> list[Finding]:
     findings: list[Finding] = []
     for line_no, line in enumerate(source_lines(path), 1):
         for call in FRONTEND_BOOTSTRAP_FRAGILE_CALLS:
+            if f"{call}(" in line:
+                findings.append(
+                    Finding(
+                        path,
+                        line_no,
+                        f"{call} is fragile when frozen bootstrap emits stale "
+                        "cross-module constructor declarations; use a local "
+                        "literal helper or top-level compat wrapper",
+                    )
+                )
+    return findings
+
+
+def lsp_bootstrap_constructor_findings(root: Path) -> list[Finding]:
+    path = root / "compiler_seen" / "src" / "lsp" / "server.seen"
+    if not path.exists():
+        return []
+
+    findings: list[Finding] = []
+    for line_no, line in enumerate(source_lines(path), 1):
+        for call in LSP_BOOTSTRAP_FRAGILE_CALLS:
             if f"{call}(" in line:
                 findings.append(
                     Finding(
@@ -2916,6 +3245,515 @@ def facade_string_prefix_owner_findings(root: Path) -> list[Finding]:
     return findings
 
 
+def driver_string_literal_local_findings(root: Path) -> list[Finding]:
+    findings: list[Finding] = []
+    codegen_root = root / "compiler_seen" / "src" / "codegen"
+    if not codegen_root.exists():
+        return findings
+
+    bad_var_re = re.compile(r"\bvar\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*\"")
+    for path in sorted(codegen_root.glob("ir_*driver.seen")):
+        for line_no, line in enumerate(source_lines(path), 1):
+            match = bad_var_re.search(line)
+            if not match:
+                continue
+            findings.append(
+                Finding(
+                    path,
+                    line_no,
+                    "driver local string literal needs an explicit "
+                    "`: String` annotation; old-bootstrap inference can "
+                    "lower it as i64 and later build a null-data SeenString",
+                )
+            )
+    return findings
+
+
+def lowering_context_dyn_param_findings(root: Path) -> list[Finding]:
+    findings: list[Finding] = []
+    codegen_root = root / "compiler_seen" / "src" / "codegen"
+    if not codegen_root.exists():
+        return findings
+
+    bad_param_re = re.compile(r"\bctx\s*:\s*dyn\s+CodegenLoweringContext\b")
+    for path in sorted(codegen_root.glob("*.seen")):
+        for line_no, line in enumerate(source_lines(path), 1):
+            if not bad_param_re.search(line):
+                continue
+            findings.append(
+                Finding(
+                    path,
+                    line_no,
+                    "bootstrap declaration scanning emits a phantom `void` "
+                    "parameter for `dyn CodegenLoweringContext`; use "
+                    "`ctx: CodegenLoweringContext` in codegen driver helpers",
+                )
+            )
+    return findings
+
+
+def lowering_context_alias_findings(root: Path) -> list[Finding]:
+    findings: list[Finding] = []
+    path = root / "compiler_seen" / "src" / "codegen" / "ir_lowering_context.seen"
+    if path.exists():
+        text = "\n".join(source_lines(path))
+        if not re.search(r"\btype\s+CodegenLoweringContext\s*=\s*Int\b", text):
+            findings.append(
+                Finding(
+                    path,
+                    1,
+                    "CodegenLoweringContext must stay an opaque Int handle; "
+                    "trait/class context types use unstable Stage2 trait/object ABI",
+                )
+            )
+        for line_no, line in enumerate(text.splitlines(), 1):
+            if re.search(r"\b(trait|class)\s+CodegenLoweringContext\b", line):
+                findings.append(
+                    Finding(
+                        path,
+                        line_no,
+                        "CodegenLoweringContext must not be a trait/class; "
+                        "use `type CodegenLoweringContext = Int`",
+                    )
+                )
+
+    facade = root / "compiler_seen" / "src" / "codegen" / "llvm_ir_gen.seen"
+    if facade.exists():
+        for line_no, line in enumerate(source_lines(facade), 1):
+            if re.search(r"\bimpl\s+CodegenLoweringContext\s+for\b", line):
+                findings.append(
+                    Finding(
+                        facade,
+                        line_no,
+                        "LLVMIRGenerator must not implement CodegenLoweringContext; "
+                        "the lowering context is an opaque Int handle, not a trait",
+                    )
+                )
+    return findings
+
+
+def lowering_context_facade_cast_findings(root: Path) -> list[Finding]:
+    facade = root / "compiler_seen" / "src" / "codegen" / "llvm_ir_gen.seen"
+    if not facade.exists():
+        return []
+
+    findings: list[Finding] = []
+    bad_cast_re = re.compile(r"\bctxHandle\s+as\s+LLVMIRGenerator\b")
+    for line_no, line in enumerate(source_lines(facade), 1):
+        if not bad_cast_re.search(line):
+            continue
+        findings.append(
+            Finding(
+                facade,
+                line_no,
+                "`ctxHandle as LLVMIRGenerator` inside facade callbacks "
+                "mis-mangles under the frozen compiler into Int_/String_ "
+                "receiver calls; forward through explicit LLVMIRGenerator_* "
+                "ABI wrappers instead",
+            )
+        )
+    return findings
+
+
+def lowering_context_facade_extern_callback_findings(root: Path) -> list[Finding]:
+    facade = root / "compiler_seen" / "src" / "codegen" / "llvm_ir_gen.seen"
+    if not facade.exists():
+        return []
+
+    findings: list[Finding] = []
+    bad_extern_re = re.compile(r"\bextern\s+fun\s+LLVMIRGenerator_[A-Za-z0-9_]*\s*\(")
+    for line_no, line in enumerate(source_lines(facade), 1):
+        if not bad_extern_re.search(line):
+            continue
+        findings.append(
+            Finding(
+                facade,
+                line_no,
+                "LLVMIRGenerator_* extern callbacks must not live in "
+                "llvm_ir_gen.seen; the same module defines the class methods "
+                "and Stage3 rejects the duplicate declare/define symbol. Put "
+                "the extern callback bridge in ir_lowering_context_bridge.seen",
+            )
+        )
+    return findings
+
+
+def lowering_context_duplicate_symbol_callback_findings(root: Path) -> list[Finding]:
+    path = root / "compiler_seen" / "src" / "codegen" / "ir_lowering_context.seen"
+    if not path.exists():
+        return []
+
+    findings: list[Finding] = []
+    for line_no, line in enumerate(source_lines(path), 1):
+        match = re.match(r"\s*fun\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(", line)
+        if not match:
+            continue
+        name = match.group(1)
+        if name not in LOWERING_CONTEXT_FORBIDDEN_CALLBACKS:
+            continue
+        findings.append(
+            Finding(
+                path,
+                line_no,
+                f"`{name}` in CodegenLoweringContext emits a trait stub that "
+                "collides with the LLVMIRGenerator implementation at Stage2 link; "
+                "thread output/state through explicit helper parameters instead",
+            )
+        )
+    return findings
+
+
+def lowering_context_method_call_findings(root: Path) -> list[Finding]:
+    findings: list[Finding] = []
+    codegen_root = root / "compiler_seen" / "src" / "codegen"
+    if not codegen_root.exists():
+        return findings
+
+    callback_pattern = "|".join(sorted(map(re.escape, LOWERING_CONTEXT_CALLBACK_NAMES)))
+    bad_call_re = re.compile(rf"\bctx\.({callback_pattern})\s*\(")
+    for path in sorted(codegen_root.glob("*.seen")):
+        if path.name == "llvm_ir_gen.seen":
+            continue
+        for line_no, line in enumerate(source_lines(path), 1):
+            match = bad_call_re.search(line)
+            if not match:
+                continue
+            findings.append(
+                Finding(
+                    path,
+                    line_no,
+                    f"`ctx.{match.group(1)}(...)` emits broken Stage2 "
+                    "trait-call ABI through the frozen compiler; call the "
+                    "imported lowering-context callback function instead",
+                )
+            )
+    return findings
+
+
+def lowering_context_feature_setter_call_findings(root: Path) -> list[Finding]:
+    findings: list[Finding] = []
+    codegen_root = root / "compiler_seen" / "src" / "codegen"
+    if not codegen_root.exists():
+        return findings
+
+    bad_call_re = re.compile(r"\bsetLowerCurrentClassParentName\s*\(")
+    for path in sorted(codegen_root.glob("*.seen")):
+        if path.name in {"ir_lowering_context.seen", "ir_lowering_context_bridge.seen", "llvm_ir_gen.seen"}:
+            continue
+        for line_no, line in enumerate(source_lines(path), 1):
+            code = strip_line_comment(line)
+            if not bad_call_re.search(code):
+                continue
+            findings.append(
+                Finding(
+                    path,
+                    line_no,
+                    "`setLowerCurrentClassParentName(...)` emits a plain "
+                    "lowering-context link symbol under the frozen compiler; "
+                    "call setFeatureCurrentClassParentNameImpl(...) from "
+                    "ir_codegen_feature_state instead",
+                )
+            )
+    return findings
+
+
+def module_driver_stale_reset_findings(root: Path) -> list[Finding]:
+    path = root / "compiler_seen" / "src" / "codegen" / "ir_module_driver.seen"
+    if not path.exists():
+        return []
+
+    findings: list[Finding] = []
+    text = "\n".join(source_lines(path))
+    bad_calls = ("resetLoweringGenerator", "resetLoweringSharedModuleScratch")
+    for function_name in ("generateMultipleState", "generateSingleState"):
+        body = find_function_body(text, function_name)
+        if body is None:
+            continue
+        body_line, body_text = body
+        for bad_call in bad_calls:
+            match = re.search(rf"\b{re.escape(bad_call)}\s*\(", body_text)
+            if not match:
+                continue
+            findings.append(
+                Finding(
+                    path,
+                    body_line + body_text.count("\n", 0, match.start()),
+                    f"{function_name} calls {bad_call} after the facade has "
+                    "already passed output/stringConstants into the state "
+                    "driver; reset in the facade first so driver locals do "
+                    "not keep stale Array/StringBuilder objects into Stage2",
+                )
+            )
+    return findings
+
+
+def math_runtime_broad_plan_findings(root: Path) -> list[Finding]:
+    path = root / "compiler_seen" / "src" / "codegen" / "ir_call_runtime_driver.seen"
+    if not path.exists():
+        return []
+
+    text = "\n".join(source_lines(path))
+    body = find_function_body(text, "tryGenerateMathBuiltinCallState")
+    if body is None:
+        return []
+
+    body_line, body_text = body
+    match = re.search(r"\bplanRuntimeBuiltinDispatchImpl\s*\(", body_text)
+    if not match:
+        return []
+    return [
+        Finding(
+            path,
+            body_line + body_text.count("\n", 0, match.start()),
+            "tryGenerateMathBuiltinCallState builds the full runtime dispatch "
+            "plan for ordinary user calls; use direct math predicates so Stage2 "
+            "does not exercise the fragile RuntimeBuiltinDispatchPlan class "
+            "return on every regular call",
+        )
+    ]
+
+
+def panic_runtime_terminator_state_findings(root: Path) -> list[Finding]:
+    path = root / "compiler_seen" / "src" / "codegen" / "ir_call_runtime_driver.seen"
+    if not path.exists():
+        return []
+
+    text = "\n".join(source_lines(path))
+    body = find_function_body(text, "tryGeneratePanicRuntimeBuiltinCallState")
+    if body is None:
+        return []
+
+    body_line, body_text = body
+    if "emitPanicRuntimeCallImpl" not in body_text:
+        return []
+    if "setBlockTerminatedWithGlobalStateImpl(true)" in body_text:
+        return []
+    return [
+        Finding(
+            path,
+            body_line,
+            "panic runtime lowering emits an LLVM terminator; mark the "
+            "current block terminated so if/loop drivers do not append a "
+            "merge branch after unreachable",
+        )
+    ]
+
+
+def short_circuit_label_namespace_findings(root: Path) -> list[Finding]:
+    findings: list[Finding] = []
+    codegen_root = root / "compiler_seen" / "src" / "codegen"
+    short_circuit_path = codegen_root / "ir_binary_short_circuit.seen"
+    driver_path = codegen_root / "ir_binary_short_circuit_driver.seen"
+
+    if short_circuit_path.exists():
+        lines = source_lines(short_circuit_path)
+        for line_no, line in enumerate(lines, 1):
+            if "getNextBlockFn" in line:
+                findings.append(
+                    Finding(
+                        short_circuit_path,
+                        line_no,
+                        "short-circuit labels must use a distinct sc.* "
+                        "namespace, not ordinary bbN labels, or recursive "
+                        "child lowering can collide with reserved labels",
+                    )
+                )
+
+        text = "\n".join(lines)
+        body = find_function_body(text, "allocateShortCircuitBinaryLabelsImpl")
+        if body is not None:
+            body_line, _body_text = body
+            if '"sc."' not in text or "getNextRegFn" not in text:
+                findings.append(
+                    Finding(
+                        short_circuit_path,
+                        body_line,
+                        "allocateShortCircuitBinaryLabelsImpl should derive "
+                        "sc.* labels from the register allocator so labels "
+                        "cannot collide with normal bbN control-flow labels",
+                    )
+                )
+
+    if driver_path.exists():
+        text = "\n".join(source_lines(driver_path))
+        for function_name in (
+            "generateShortCircuitAndState",
+            "generateShortCircuitOrState",
+        ):
+            body = find_function_body(text, function_name)
+            if body is None:
+                continue
+            body_line, body_text = body
+            alloc = body_text.find("allocateShortCircuitBinaryLabelsImpl")
+            lower_left = body_text.find("let leftReg = lowerExpression")
+            if alloc >= 0 and lower_left >= 0 and alloc < lower_left:
+                findings.append(
+                    Finding(
+                        driver_path,
+                        body_line + body_text.count("\n", 0, alloc),
+                        f"{function_name} reserves short-circuit labels before "
+                        "lowering the left operand; allocate after left "
+                        "lowering so child control-flow labels cannot collide",
+                    )
+                )
+    return findings
+
+
+def branch_label_allocator_findings(root: Path) -> list[Finding]:
+    findings: list[Finding] = []
+    codegen_root = root / "compiler_seen" / "src" / "codegen"
+    if not codegen_root.exists():
+        return findings
+
+    for path in sorted(codegen_root.glob("*.seen")):
+        lines = source_lines(path)
+        for index, line in enumerate(lines):
+            if "emitFunctionBodyIfBranchingImpl" not in line:
+                continue
+            snippet = "\n".join(lines[index : index + 4])
+            if "getFeatureRegBoxImpl()" not in snippet:
+                continue
+            findings.append(
+                Finding(
+                    path,
+                    index + 1,
+                    "if/if-let branch labels must be allocated from the "
+                    "block-label box, not the register box; using the "
+                    "register counter can duplicate ordinary bbN labels "
+                    "inside loops and break Stage3 LLVM verification",
+                )
+            )
+    return findings
+
+
+def explicit_this_member_access_findings(root: Path) -> list[Finding]:
+    path = root / "compiler_seen" / "src" / "codegen" / "ir_member_access_driver.seen"
+    if not path.exists():
+        return []
+    text = "\n".join(source_lines(path))
+    body = find_function_body(text, "generateMemberAccessState")
+    if body is None:
+        return []
+    body_line, body_text = body
+    if 'receiverName == "this"' in body_text and (
+        "tryGenerateImplicitThisFieldVariableState" in body_text
+    ):
+        return []
+    return [
+        Finding(
+            path,
+            body_line,
+            "generateMemberAccessState must handle explicit this.field "
+            "member access before route planning; otherwise class methods "
+            "can lower fields to literal 0 and emit invalid ptr 0 IR",
+        )
+    ]
+
+
+def class_method_context_array_findings(root: Path) -> list[Finding]:
+    path = root / "compiler_seen" / "src" / "codegen" / "ir_class_method_driver.seen"
+    if not path.exists():
+        return []
+    text = "\n".join(source_lines(path))
+    body = find_function_body(text, "generateClassMethodFromListState")
+    if body is None:
+        return []
+    body_line, body_text = body
+    findings: list[Finding] = []
+    if (
+        "let collectionState = getSharedCodegenState()" not in body_text
+        or "let methodState = getSharedCodegenState()" not in body_text
+    ):
+        findings.append(
+            Finding(
+                path,
+                body_line,
+                "class-method lowering must reacquire current generator "
+                "variable arrays after context reset/clear callbacks; stale "
+                "array references make this/parameter bindings invisible to "
+                "recursive expression lowering",
+            )
+        )
+
+    stale_binding_patterns = (
+        "emitClassMethodReceiverBindingStateImpl(output, getFeatureRegBoxImpl(),\n"
+        "        varNames, varRegs, varTypes",
+        "emitClassMethodParameterBindingsStateImpl(output, getFeatureRegBoxImpl(),\n"
+        "        varNames, varRegs, varTypes",
+        "emitClassMethodConstructorSetupStateImpl(output, getFeatureRegBoxImpl(),\n"
+        "        varNames, varRegs, varTypes",
+        "tryEmitClassMethodConstructorReturnStateImpl(output,\n"
+        "        getFeatureRegBoxImpl(), varNames, varRegs",
+    )
+    for pattern in stale_binding_patterns:
+        if pattern in body_text:
+            offset = body_text.find(pattern)
+            findings.append(
+                Finding(
+                    path,
+                    body_line + body_text.count("\n", 0, offset),
+                    "class-method receiver/parameter/constructor bindings "
+                    "must use reacquired methodVar* arrays, not the stale "
+                    "arrays captured before resetLoweringLocalCodegenState",
+                )
+            )
+    return findings
+
+
+def binary_driver_operand_guard_findings(root: Path) -> list[Finding]:
+    path = root / "compiler_seen" / "src" / "codegen" / "ir_binary_driver.seen"
+    if not path.exists():
+        return []
+    text = "\n".join(source_lines(path))
+    body = find_function_body(text, "generateBinaryState")
+    if body is None:
+        return []
+    body_line, body_text = body
+    findings: list[Finding] = []
+    unsafe_patterns = (
+        "leftExpr.operands.length()",
+        "rightExpr.operands.length()",
+    )
+    for pattern in unsafe_patterns:
+        offset = body_text.find(pattern)
+        if offset >= 0:
+            findings.append(
+                Finding(
+                    path,
+                    body_line + body_text.count("\n", 0, offset),
+                    "binary peephole/FMA planning must not read child "
+                    "operands arrays before proving the child is a Binary "
+                    "expression; leaf parser nodes may have uninitialized "
+                    "operands arrays and crash Stage2/Stage3 codegen",
+                )
+            )
+    return findings
+
+
+def process_shell_quote_bootstrap_findings(root: Path) -> list[Finding]:
+    path = root / "seen_std" / "src" / "process" / "process.seen"
+    if not path.exists():
+        return []
+    text = "\n".join(source_lines(path))
+    body = find_function_body(text, "shellQuote")
+    if body is None:
+        return []
+    body_line, body_text = body
+    findings: list[Finding] = []
+    if "StringBuilder" in text or "StringBuilder.new" in body_text:
+        findings.append(
+            Finding(
+                path,
+                body_line,
+                "process.shellQuote must stay on direct string operations; "
+                "package prebuild runs it inside the compiler binary before "
+                "artifact compilation, and the StringBuilder path can lower to "
+                "the quoted string length instead of the quoted string",
+            )
+        )
+    return findings
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -2929,8 +3767,11 @@ def main() -> int:
 
     findings: list[Finding] = []
     findings.extend(compiler_import_integrity_findings(root))
+    findings.extend(main_compiler_direct_bootstrap_import_findings(root))
     findings.extend(compiler_import_cycle_findings(root))
+    findings.extend(lowering_context_builder_return_findings(root))
     findings.extend(raw_float_literal_source_findings(root))
+    findings.extend(feature_getter_return_type_findings(root))
     findings.extend(find_owner_import_violations(root))
     findings.extend(static_method_dispatch_boundary_findings(root))
     findings.extend(final_method_dispatch_boundary_findings(root))
@@ -2955,14 +3796,37 @@ def main() -> int:
     findings.extend(declaration_storage_boundary_findings(root))
     findings.extend(module_constant_boundary_findings(root))
     findings.extend(function_registry_boundary_findings(root))
+    findings.extend(call_default_registry_param_findings(root))
+    findings.extend(call_argument_lowering_callback_findings(root))
+    findings.extend(reprc_constructor_owner_state_findings(root))
     findings.extend(late_declare_stack_api_findings(root))
     findings.extend(ast_layout_boundary_findings(root))
     findings.extend(aggregate_abi_signature_findings(root))
+    findings.extend(call_driver_enum_state_findings(root))
+    findings.extend(enum_feature_state_param_findings(root))
     findings.extend(constructor_declaration_static_findings(root))
     findings.extend(main_compiler_bootstrap_constructor_findings(root))
     findings.extend(frontend_bootstrap_constructor_findings(root))
+    findings.extend(lsp_bootstrap_constructor_findings(root))
     findings.extend(facade_owner_call_findings(root))
     findings.extend(facade_string_prefix_owner_findings(root))
+    findings.extend(driver_string_literal_local_findings(root))
+    findings.extend(lowering_context_dyn_param_findings(root))
+    findings.extend(lowering_context_alias_findings(root))
+    findings.extend(lowering_context_facade_cast_findings(root))
+    findings.extend(lowering_context_facade_extern_callback_findings(root))
+    findings.extend(lowering_context_duplicate_symbol_callback_findings(root))
+    findings.extend(lowering_context_method_call_findings(root))
+    findings.extend(lowering_context_feature_setter_call_findings(root))
+    findings.extend(module_driver_stale_reset_findings(root))
+    findings.extend(math_runtime_broad_plan_findings(root))
+    findings.extend(panic_runtime_terminator_state_findings(root))
+    findings.extend(short_circuit_label_namespace_findings(root))
+    findings.extend(branch_label_allocator_findings(root))
+    findings.extend(explicit_this_member_access_findings(root))
+    findings.extend(class_method_context_array_findings(root))
+    findings.extend(binary_driver_operand_guard_findings(root))
+    findings.extend(process_shell_quote_bootstrap_findings(root))
 
     if findings:
         print("codegen ABI boundary preflight failed:", file=sys.stderr)

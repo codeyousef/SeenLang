@@ -1,0 +1,257 @@
+// ir_struct_literal_driver.seen - struct literal layout and field planning.
+
+import parser.real_parser.{ParserExpressionNode}
+import str.string.{StringBuilder}
+import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl}
+import codegen.ir_codegen_global_state.{getGlobalStructNamesImpl, getGlobalStructLayoutsImpl, getGlobalStructSizesImpl, getPendingArrayLiteralTypeWithGlobalStateImpl, setPendingArrayLiteralTypeWithGlobalStateImpl}
+import codegen.ir_codegen_type_state.{isClassTypeState, isDataTypeState, mapTypeState}
+import codegen.ir_expr_type_driver.{inferExpressionTypeState}
+import codegen.ir_field_lookup_state.{getFieldInfoState, getFieldTypeState}
+import codegen.ir_field_lookup_state.{getSeenFieldTypeState}
+import codegen.ir_lowering_context.{CodegenLoweringContext, lowerExpression, inferLoweredExpressionType, lowerCallExpression, prepareLoweredCallArgumentsWithDefaults, lowerEnumConstructor, resetLoweringGenerator, resetLoweringSharedModuleScratch, syncLoweringState, writeBackLoweringState, lowerProgramClasses, lowerProgramTopLevelFunctions, lowerPlainLargeClass, lowerClassNode, lowerFunctionNode, lowerClassMethodFromList, setLowerCurrentClassParentName, resetLoweringLocalCodegenState, collectLoweringVariableDeclarations, clearLoweringActiveBindings, lowerBlock, lowerStatement, isLoweringBlockTerminated, beginLoweringNestedScratch, restoreLoweringNestedScratch, currentLoweringFunctionOptions}
+import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
+import codegen.ir_optimization.{getNextRegFn, splitPipe}
+import codegen.ir_struct_field_resolution.{resolveKnownStructFieldImpl}
+import codegen.ir_struct_gen.{emitStructFieldStoresImpl, resolveStructLiteralFieldFallback, inferStructFieldTypeFromExpr}
+import codegen.ir_type_info.{g_resolvedFieldIndex, g_resolvedFieldTypeCode, decodeFieldTypeCode}
+import codegen.ir_type_layout.{getLlvmTypeSizeImpl, computeStructSizeFromLayoutImpl}
+import codegen.ir_value_coercion.{coerceValueForLlvmTargetImpl}
+import codegen.ir_assignment_gen.{coerceMethodCallHandleAssignmentImpl}
+import codegen.type_registry_core.{findStructReg}
+
+fun inferStructLiteralFieldTypeFromValueExprState(
+    valueExpr: ParserExpressionNode, varNames: Array<String>,
+    varTypes: Array<String>, stringConstants: Array<String>,
+    sizeOut: Array<Int>) r: String {
+
+    if valueExpr.kind == "StructLiteral" and valueExpr.literalType != "" {
+        sizeOut[0] = 24
+        return "%" + quoteIdentIfNeededImpl(valueExpr.literalType)
+    }
+    var fieldType = inferStructFieldTypeFromExpr(valueExpr, sizeOut)
+    if valueExpr.kind == "MethodCall" {
+        let calleeType = inferExpressionTypeState(valueExpr, varNames,
+            varTypes, stringConstants)
+        if isDataTypeState(calleeType) {
+            fieldType = "%" + quoteIdentIfNeededImpl(calleeType)
+        }
+    }
+    return fieldType
+}
+
+fun buildInferredStructLiteralLayoutInfoState(expr: ParserExpressionNode,
+    varNames: Array<String>, varTypes: Array<String>,
+    stringConstants: Array<String>) r: String {
+
+    let lb = "{"
+    let rb = "}"
+    var structSize = 0
+    var layoutFields: String = ""
+    var fieldI = 0
+    while fieldI < expr.arguments.length() {
+        if fieldI > 0 {
+            layoutFields = layoutFields + ", "
+        }
+        let fieldExpr = expr.arguments[fieldI]
+        var fieldSizeOut = Array<Int>()
+        fieldSizeOut.push(8)
+        var inferredFieldType: String = "i64"
+        if fieldExpr.operands.length() > 0 {
+            inferredFieldType = inferStructLiteralFieldTypeFromValueExprState(
+                fieldExpr.operands[0], varNames, varTypes, stringConstants,
+                fieldSizeOut)
+        }
+        layoutFields = layoutFields + inferredFieldType
+        structSize = structSize + fieldSizeOut[0]
+        fieldI = fieldI + 1
+    }
+    let inferredLayout = lb + " " + layoutFields + " " + rb
+    let alignedStructSize = computeStructSizeFromLayoutImpl(inferredLayout,
+        getGlobalStructNamesImpl(), getGlobalStructLayoutsImpl(),
+        getGlobalStructSizesImpl())
+    if alignedStructSize > 0 {
+        structSize = alignedStructSize
+    }
+    return structSize.toString() + "|" + inferredLayout
+}
+
+fun resolveStructLiteralLayoutInfoState(expr: ParserExpressionNode,
+    structName: String, structIdx: Int, varNames: Array<String>,
+    varTypes: Array<String>, stringConstants: Array<String>) r: String {
+
+    if structIdx >= 0 {
+        var structSize = getGlobalStructSizesImpl()[structIdx]
+        if structSize < 8 {
+            structSize = 8
+        }
+        return structSize.toString() + "|" + getGlobalStructLayoutsImpl()[structIdx]
+    }
+    let knownLitLayout = resolveKnownStructFieldImpl(structName, "")
+    if knownLitLayout != "" {
+        var knownStructSize = getLlvmTypeSizeImpl(knownLitLayout,
+            getGlobalStructNamesImpl(), getGlobalStructLayoutsImpl(),
+            getGlobalStructSizesImpl())
+        if knownStructSize < 8 {
+            knownStructSize = 8
+        }
+        return knownStructSize.toString() + "|" + knownLitLayout
+    }
+    let inferredInfo = splitPipe(buildInferredStructLiteralLayoutInfoState(expr,
+        varNames, varTypes, stringConstants))
+    var inferredSize = inferredInfo[0].toInt()
+    if inferredSize < 8 {
+        inferredSize = 8
+    }
+    let inferredLayout = inferredInfo[1]
+    println("[WARN] Unknown struct type '" + structName + "' - using inferred layout: " + inferredLayout + " size=" + inferredSize.toString())
+    return inferredSize.toString() + "|" + inferredLayout
+}
+
+fun allocateStructLiteralStorageState(output: StringBuilder,
+    structSize: Int) r: String {
+
+    let mallocReg = getNextRegFn(getFeatureRegBoxImpl())
+    if structSize <= 80 {
+        output.append("  " + mallocReg + " = call ptr @seen_pool_alloc(i64 " +
+            structSize.toString() + ")\n")
+    }
+    if structSize > 80 {
+        output.append("  " + mallocReg + " = call ptr @malloc(i64 " +
+            structSize.toString() + ")\n")
+    }
+    output.append("  ; escape-analysis: heap-to-stack candidate (" +
+        structSize.toString() + " bytes)\n")
+    return mallocReg
+}
+
+fun resolveStructLiteralFieldInfoState(structName: String, structIdx: Int,
+    fieldName: String, fieldExpr: ParserExpressionNode, defaultGepIndex: Int,
+    varNames: Array<String>, varTypes: Array<String>,
+    stringConstants: Array<String>) r: String {
+
+    var gepIndex = defaultGepIndex
+    var fieldType: String = "i64"
+    if structIdx >= 0 {
+        let regFieldIdx = getFieldInfoState(structName, fieldName)
+        if regFieldIdx >= 0 {
+            gepIndex = regFieldIdx
+            fieldType = getFieldTypeState(structName, fieldName)
+        }
+        return fieldType + "|" + gepIndex.toString()
+    }
+    let knownFieldLayout = resolveKnownStructFieldImpl(structName, fieldName)
+    if knownFieldLayout != "" and g_resolvedFieldIndex >= 0 {
+        gepIndex = g_resolvedFieldIndex
+        fieldType = decodeFieldTypeCode(g_resolvedFieldTypeCode)
+        return fieldType + "|" + gepIndex.toString()
+    }
+    let fbGepBox = Array<Int>()
+    fbGepBox.push(defaultGepIndex)
+    let fbType = resolveStructLiteralFieldFallback(structName, fieldName,
+        fbGepBox)
+    if fbType != "" {
+        gepIndex = fbGepBox[0]
+        fieldType = fbType
+        return fieldType + "|" + gepIndex.toString()
+    }
+    if fieldExpr.operands.length() > 0 {
+        let fieldSizeOut = Array<Int>()
+        fieldSizeOut.push(8)
+        fieldType = inferStructLiteralFieldTypeFromValueExprState(
+            fieldExpr.operands[0], varNames, varTypes, stringConstants,
+            fieldSizeOut)
+    }
+    return fieldType + "|" + gepIndex.toString()
+}
+
+fun resolveStructLiteralFieldValueState(ctx: CodegenLoweringContext,
+    structName: String, structIdx: Int, fieldName: String,
+    fieldExpr: ParserExpressionNode) r: String {
+
+    if fieldExpr.operands.length() == 0 {
+        return "0"
+    }
+    let savedPendingType = getPendingArrayLiteralTypeWithGlobalStateImpl()
+    var fieldSeenType: String = ""
+    if structIdx >= 0 {
+        fieldSeenType = getSeenFieldTypeState(structName, fieldName)
+    }
+    if fieldExpr.operands[0].kind == "ArrayLiteral" and
+        (fieldSeenType.startsWith("Array") or
+        fieldSeenType.startsWith("List")) {
+
+        setPendingArrayLiteralTypeWithGlobalStateImpl(fieldSeenType)
+    }
+    let valueReg = lowerExpression(ctx, fieldExpr.operands[0])
+    setPendingArrayLiteralTypeWithGlobalStateImpl(savedPendingType)
+    return valueReg
+}
+
+fun generateStructLiteralState(ctx: CodegenLoweringContext,
+    output: StringBuilder, expr: ParserExpressionNode,
+    varNames: Array<String>, varTypes: Array<String>,
+    stringConstants: Array<String>) r: String {
+
+    let structName = expr.literalType
+    let structIdx = findStructReg(structName, getGlobalStructNamesImpl())
+    let layoutInfo = splitPipe(resolveStructLiteralLayoutInfoState(expr,
+        structName, structIdx, varNames, varTypes, stringConstants))
+    let structSize = layoutInfo[0].toInt()
+    let structLayout = layoutInfo[1]
+    let mallocReg = allocateStructLiteralStorageState(output, structSize)
+
+    var slFieldRegs = Array<String>()
+    var slFieldTypes = Array<String>()
+    var slGepIndices = Array<Int>()
+    var fieldIdx = 0
+    while fieldIdx < expr.arguments.length() {
+        let fieldExpr = expr.arguments[fieldIdx]
+        let fieldName = fieldExpr.variableName
+        let fieldInfo = splitPipe(resolveStructLiteralFieldInfoState(
+            structName, structIdx, fieldName, fieldExpr, fieldIdx,
+            varNames, varTypes, stringConstants))
+        let fieldType = fieldInfo[0]
+        let gepIndex = fieldInfo[1].toInt()
+        var fieldReg = resolveStructLiteralFieldValueState(ctx, structName,
+            structIdx, fieldName, fieldExpr)
+        if fieldExpr.operands.length() > 0 {
+            let fieldValueExpr = fieldExpr.operands[0]
+            if fieldValueExpr.kind == "StructLiteral" and
+                fieldType.startsWith("%") {
+
+                let loadedFieldReg = getNextRegFn(getFeatureRegBoxImpl())
+                output.append("  " + loadedFieldReg + " = load " +
+                    fieldType + ", ptr " + fieldReg + "\n")
+                fieldReg = loadedFieldReg
+            } else {
+                let fieldValueSeenType = inferLoweredExpressionType(ctx,
+                    fieldValueExpr)
+                let rawFieldReg = fieldReg
+                let fieldValueLlvmType = mapTypeState(fieldValueSeenType)
+                fieldReg = coerceValueForLlvmTargetImpl(output,
+                    getFeatureRegBoxImpl(), fieldType, fieldValueSeenType,
+                    fieldValueLlvmType, fieldReg)
+                fieldReg = coerceMethodCallHandleAssignmentImpl(output,
+                    getFeatureRegBoxImpl(), fieldType, fieldValueSeenType,
+                    rawFieldReg, fieldValueExpr.kind, fieldReg,
+                    getGlobalStructNamesImpl())
+            }
+        }
+        slFieldRegs.push(fieldReg)
+        slFieldTypes.push(fieldType)
+        slGepIndices.push(gepIndex)
+        fieldIdx = fieldIdx + 1
+    }
+
+    emitStructFieldStoresImpl(output, getFeatureRegBoxImpl(), structLayout,
+        mallocReg, slFieldRegs, slFieldTypes, slGepIndices)
+
+    if isClassTypeState(structName) {
+        let i64Reg = getNextRegFn(getFeatureRegBoxImpl())
+        output.append("  " + i64Reg + " = ptrtoint ptr " + mallocReg +
+            " to i64\n")
+        return i64Reg
+    }
+
+    return mallocReg
+}

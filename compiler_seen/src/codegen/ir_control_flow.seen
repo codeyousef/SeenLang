@@ -70,11 +70,12 @@ fun detectMemcpyPatternImpl(condition: ParserExpressionNode, body: BlockNode,
     if condition.operands.length() < 2 {
         return 0
     }
-    let mcBoundCheck = condition.operands[1]
-    if mcBoundCheck.kind != "Literal" or mcBoundCheck.literalType != "Int" {
+    if condition.operands[1].kind != "Literal" or
+        condition.operands[1].literalType != "Int" {
+
         return 0
     }
-    let mcBoundVal = parseIntManual(mcBoundCheck.literalValue)
+    let mcBoundVal = parseIntManual(condition.operands[1].literalValue)
     if mcBoundVal < 64 {
         return 0
     }
@@ -131,9 +132,10 @@ fun detectMemcpyPatternImpl(condition: ParserExpressionNode, body: BlockNode,
     if mcLHSIdxName == "" { mcLHSIdxName = mcLHSIdx.variableName }
     // Get condition variable name (loop var)
     var mcCondVarName = ""
-    let mcCondLeft = condition.operands[0]
-    mcCondVarName = mcCondLeft.literalValue
-    if mcCondVarName == "" { mcCondVarName = mcCondLeft.variableName }
+    mcCondVarName = condition.operands[0].literalValue
+    if mcCondVarName == "" {
+        mcCondVarName = condition.operands[0].variableName
+    }
     // Verify index var matches loop induction var
     if mcLHSIdxName != mcIncrVarName or mcCondVarName != mcIncrVarName {
         return 0
@@ -185,9 +187,10 @@ fun detectLoopBoundImpl(condition: ParserExpressionNode) r: Int {
     if condition.kind == "Binary" {
         if condition.operator == "<" or condition.operator == "<=" {
             if condition.operands.length() >= 2 {
-                let boundExpr = condition.operands[1]
-                if boundExpr.kind == "Literal" and boundExpr.literalType == "Int" {
-                    return parseIntManual(boundExpr.literalValue)
+                if condition.operands[1].kind == "Literal" and
+                    condition.operands[1].literalType == "Int" {
+
+                    return parseIntManual(condition.operands[1].literalValue)
                 }
             }
         }
@@ -352,8 +355,9 @@ fun detectGcdPatternImpl(condition: ParserExpressionNode, body: BlockNode) r: Bo
     if condition.operands.length() < 2 {
         return false
     }
-    let gcdBound = condition.operands[1]
-    if gcdBound.kind != "Literal" or gcdBound.literalValue != "0" {
+    if condition.operands[1].kind != "Literal" or
+        condition.operands[1].literalValue != "0" {
+
         return false
     }
     var hasModuloAssign = false

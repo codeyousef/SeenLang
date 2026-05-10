@@ -85,6 +85,12 @@ detect_cgroup_memory_current_file() {
     done < /proc/self/cgroup
 }
 
+user_systemd_scope_available() {
+    command -v systemd-run >/dev/null 2>&1 || return 1
+    command -v systemctl >/dev/null 2>&1 || return 1
+    systemctl --user show-environment >/dev/null 2>&1
+}
+
 read_cgroup_memory_kb() {
     local file=$1
     local bytes=""
@@ -264,7 +270,7 @@ if [ "${SEEN_MEMORY_GUARD_IN_SCOPE:-0}" != "1" ] &&
         echo "memory_guard[$LABEL]: refusing to run; kernel memory scope requires --rss-limit-kb" >&2
         exit 126
     fi
-    if ! command -v systemd-run >/dev/null 2>&1; then
+    if ! user_systemd_scope_available; then
         echo "memory_guard[$LABEL]: refusing to run; systemd-run is unavailable for kernel memory scope" >&2
         exit 126
     fi
@@ -273,7 +279,7 @@ fi
 if [ "${SEEN_MEMORY_GUARD_IN_SCOPE:-0}" != "1" ] &&
     [ "${SEEN_MEMORY_GUARD_KERNEL_SCOPE:-1}" != "0" ] &&
     [ -n "$RSS_LIMIT_KB" ] &&
-    command -v systemd-run >/dev/null 2>&1; then
+    user_systemd_scope_available; then
 
     unit_name="seen-memory-guard-$USER-$$"
     scoped_args=("$0")
@@ -335,6 +341,18 @@ rm -f "$reason_file"
     exec "$@"
 ) &
 child_pid=$!
+monitor_pid=""
+
+terminate_guarded_command() {
+    local status=${1:-143}
+    echo "$status" > "$reason_file" 2>/dev/null || true
+    stop_tree "$child_pid"
+    if [ -n "${monitor_pid:-}" ]; then
+        kill "$monitor_pid" 2>/dev/null || true
+    fi
+}
+
+trap 'terminate_guarded_command 143; exit 143' TERM INT
 
 monitor_loop() {
     local root=$1
@@ -416,6 +434,7 @@ monitor_pid=$!
 command_status=0
 wait "$child_pid" || command_status=$?
 
+trap - TERM INT
 kill "$monitor_pid" 2>/dev/null || true
 wait "$monitor_pid" 2>/dev/null || true
 

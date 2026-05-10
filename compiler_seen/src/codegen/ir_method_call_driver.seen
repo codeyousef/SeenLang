@@ -1,0 +1,459 @@
+// ir_method_call_driver.seen - recursive method-call lowering driver.
+
+import parser.real_parser.{ParserExpressionNode}
+import str.string.{StringBuilder}
+import codegen.ir_call_args_driver.{prepareCallArgumentsWithDefaultsState}
+import codegen.ir_call_fixups.{isStandaloneParserWorkaroundImpl, emitStandaloneParserWorkaroundCallImpl}
+import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl, getFeatureBlockBoxImpl, getFeatureReprCClassNamesImpl, getDefaultFillArgRegsImpl, getDefaultFillArgTypeStrsImpl}
+import codegen.ir_codegen_global_state.{getBoundedActiveVarCountWithGlobalStateImpl, getGlobalCurrentClassNameImpl, getGlobalStructNamesImpl, getGlobalStructFieldNamesImpl, getGlobalStructFieldTypesImpl, getGlobalStructMethodNamesImpl, getGlobalStructMethodRetTypesImpl, getGlobalFuncNamesImpl, getGlobalFuncRetTypesImpl, getFunctionReturnTypeStateImpl, findActiveVariableIndexWithGlobalStateImpl}
+import codegen.ir_codegen_module_state.{findModuleConstantWithModuleStateImpl, getModuleConstantTypeWithModuleStateImpl, moduleConstantInvariantLoadSuffixWithModuleStateImpl}
+import codegen.ir_codegen_type_state.{mapTypeState}
+import codegen.ir_field_lookup_state.{getMethodReturnTypeState}
+import codegen.ir_expr_type_driver.{resolveChainedPathTypeState}
+import codegen.ir_local_type_leaf_driver.{findVarTypeState}
+import codegen.ir_lowering_context.{CodegenLoweringContext, lowerExpression, inferLoweredExpressionType, lowerCallExpression, prepareLoweredCallArgumentsWithDefaults, lowerEnumConstructor, resetLoweringGenerator, resetLoweringSharedModuleScratch, syncLoweringState, writeBackLoweringState, lowerProgramClasses, lowerProgramTopLevelFunctions, lowerPlainLargeClass, lowerClassNode, lowerFunctionNode, lowerClassMethodFromList, setLowerCurrentClassParentName, resetLoweringLocalCodegenState, collectLoweringVariableDeclarations, clearLoweringActiveBindings, lowerBlock, lowerStatement, isLoweringBlockTerminated, beginLoweringNestedScratch, restoreLoweringNestedScratch, currentLoweringFunctionOptions}
+import codegen.ir_member_access_driver.{tryGenerateImplicitThisFieldVariableState}
+import codegen.ir_method_array_mutator_driver.{tryGenerateArrayMutatorMethodCallWithContextState}
+import codegen.ir_method_call_plan.{shouldPrepareEarlyMethodFastPathArgsImpl}
+import codegen.ir_method_fastpath.{tryGeneratePreparedExplicitReceiverFastPathImpl, tryGeneratePreparedLocalVariableReceiverFastPathImpl}
+import codegen.ir_method_final_driver.{resolveMethodDispatchTargetState, shouldUseScalarReceiverFinalFallbackState, tryEmitPreparedMethodHotReloadFinalState, emitPreparedFinalMethodCallDriverState}
+import codegen.ir_method_final_plan.{planMethodUnresolvedReceiverStartImpl, planMethodUnresolvedReceiverFinalImpl}
+import codegen.ir_method_lower_driver.{tryEmitMethodLowerNoArgDriver, tryEmitMethodPrimitiveConversionDriver, tryEmitMethodUnresolvedCollectionGetWarningDriver, tryEmitMethodHotReloadLoweringDriver}
+import codegen.ir_method_lower_emit.{emitPreparedUnresolvedReceiverDefaultImpl, emitPreparedStringBuilderMethodLowerImpl, emitPreparedNumericMethodLowerImpl, emitPreparedStringLikeMethodLowerImpl}
+import codegen.ir_method_lower_plan.{planMethodLowerCallImpl, methodLowerStringBuilderArgActionForArgsImpl, shouldUseMethodLowerUnwrapTraceSourceImpl}
+import codegen.ir_method_receiver.{resolveLiteralMethodReceiverTypeImpl, tryResolveEnumLiteralMethodReceiverImpl}
+import codegen.ir_method_receiver_lookup_gen.{emitLocalMethodReceiverLoadImpl, emitModuleConstantMethodReceiverLoadImpl, tryResolveImplicitThisDottedMethodReceiverWithOwnerState, tryResolveImplicitThisLiteralMethodReceiverWithOwnerState}
+import codegen.ir_method_receiver_lookup_plan.{planMethodReceiverInitialPhaseImpl, planMethodReceiverPostLookupPhaseImpl, planMethodReceiverPostResolutionPhaseImpl, planDottedReceiverStageImpl, planDottedReceiverFallbackStageImpl, planSimpleLiteralReceiverStageImpl}
+import codegen.ir_method_receiver_predicates.{isStringBuilderRuntimeMethodImpl, isNumericReceiverMethodImpl}
+import codegen.ir_method_resolved_fastpath_driver.{tryGenerateResolvedReceiverFastPathMethodCallState}
+import codegen.ir_method_static_driver.{tryGenerateStaticMethodCallState}
+import codegen.ir_path_expr.{splitChainedPathImpl, buildChainedPathExprImpl}
+import codegen.ir_receiver_method_emit.{emitSimdReductionImpl}
+import codegen.ir_variable_gen.{findActiveVariableIndexImpl}
+
+fun prepareMethodCallArgRegsAndTypesState(ctx: CodegenLoweringContext,
+    args: Array<ParserExpressionNode>, argRegs: Array<String>,
+    argTypes: Array<String>) r: Void {
+
+    var argIdx = 0
+    while argIdx < args.length() {
+        let argReg = lowerExpression(ctx, args[argIdx])
+        let argType = inferLoweredExpressionType(ctx, args[argIdx])
+        argRegs.push(argReg)
+        argTypes.push(mapTypeState(argType))
+        argIdx = argIdx + 1
+    }
+}
+
+fun resolveLiteralMethodReceiverTypeWithState(literalValue: String,
+    varNames: Array<String>, varTypes: Array<String>,
+    stringConstants: Array<String>) r: String {
+
+    var chainedType: String = ""
+    if literalValue.contains(".") {
+        chainedType = resolveChainedPathTypeState(literalValue, varNames,
+            varTypes, stringConstants)
+    }
+    let directVarType = findVarTypeState(varNames, varTypes, literalValue)
+    let thisIdx = findActiveVariableIndexWithGlobalStateImpl(varNames,
+        "this")
+    var thisType: String = ""
+    if thisIdx >= 0 {
+        thisType = varTypes[thisIdx]
+    }
+    return resolveLiteralMethodReceiverTypeImpl(literalValue, chainedType,
+        directVarType, thisIdx, thisType, getGlobalStructNamesImpl(),
+        getGlobalStructFieldNamesImpl(), getGlobalStructFieldTypesImpl(),
+        getGlobalStructMethodNamesImpl(), getGlobalStructMethodRetTypesImpl())
+}
+
+fun generateMethodCallState(ctx: CodegenLoweringContext,
+    output: StringBuilder, expr: ParserExpressionNode,
+    varNames: Array<String>, varRegs: Array<String>,
+    varTypes: Array<String>, stringConstants: Array<String>) r: String {
+
+    let methodName = expr.callee
+    var receiverReg: String = ""
+    var receiverType: String = "String"
+    let receiverPhasePlan = planMethodReceiverInitialPhaseImpl(
+        expr.operands.length(), expr.literalValue)
+    let hasDottedReceiver = receiverPhasePlan.hasDottedReceiver
+
+    if receiverPhasePlan.shouldTryDottedReceiver {
+        let receiverSegments = splitChainedPathImpl(expr.literalValue)
+        if receiverSegments.length() > 0 {
+            let baseReceiverName = receiverSegments[0]
+            let baseReceiverType = findVarTypeState(varNames, varTypes,
+                baseReceiverName)
+            let dottedBuildPlan = planDottedReceiverStageImpl(
+                expr.operands.length(), expr.literalValue,
+                receiverSegments.length(), baseReceiverType)
+            if dottedBuildPlan.shouldBuildReceiverExpr {
+                let rebuiltReceiverExpr = buildChainedPathExprImpl(
+                    expr.literalValue)
+                if rebuiltReceiverExpr.kind != "None" {
+                    receiverReg = lowerExpression(ctx, rebuiltReceiverExpr)
+                    receiverType = inferLoweredExpressionType(ctx,
+                        rebuiltReceiverExpr)
+                }
+            }
+        }
+    }
+
+    if receiverPhasePlan.shouldUseExplicitReceiver {
+        receiverReg = lowerExpression(ctx, expr.operands[0])
+        receiverType = inferLoweredExpressionType(ctx, expr.operands[0])
+        let simdRedResult = emitSimdReductionImpl(output, getFeatureRegBoxImpl(),
+            methodName, receiverReg, receiverType)
+        if simdRedResult != "" {
+            return simdRedResult
+        }
+
+        var dynArgRegs = Array<String>()
+        var dynArgTypes = Array<String>()
+        if shouldPrepareEarlyMethodFastPathArgsImpl(receiverType) {
+            prepareMethodCallArgRegsAndTypesState(ctx, expr.arguments,
+                dynArgRegs, dynArgTypes)
+        }
+        let explicitReceiverTypeBox = Array<String>()
+        explicitReceiverTypeBox.push(receiverType)
+        let explicitFastPath =
+            tryGeneratePreparedExplicitReceiverFastPathImpl(output,
+                getFeatureRegBoxImpl(), getFeatureBlockBoxImpl(),
+                methodName, receiverReg, explicitReceiverTypeBox,
+                getGlobalStructNamesImpl(), getGlobalStructMethodNamesImpl(),
+                getGlobalStructMethodRetTypesImpl(), dynArgRegs,
+                dynArgTypes, getFeatureReprCClassNamesImpl())
+        receiverType = explicitReceiverTypeBox[0]
+        if explicitFastPath != "" {
+            return explicitFastPath
+        }
+    }
+
+    let postLookupPhase = planMethodReceiverPostLookupPhaseImpl(
+        hasDottedReceiver, receiverReg, expr.literalValue)
+    let dottedFallbackPlan = planDottedReceiverFallbackStageImpl(
+        hasDottedReceiver, receiverReg)
+    if postLookupPhase.shouldTryDottedFallback {
+        let enumReceiverRegBox = Array<String>()
+        enumReceiverRegBox.push("")
+        let enumReceiverTypeBox = Array<String>()
+        enumReceiverTypeBox.push(receiverType)
+        if dottedFallbackPlan.shouldTryEnumLiteralFallback and
+            tryResolveEnumLiteralMethodReceiverImpl(expr, enumReceiverRegBox,
+            enumReceiverTypeBox) == 1 {
+            receiverReg = enumReceiverRegBox[0]
+            receiverType = enumReceiverTypeBox[0]
+        } else {
+            let implicitDottedReceiver =
+                tryResolveImplicitThisDottedMethodReceiverWithOwnerState(
+                output, expr.literalValue, varNames, varRegs, varTypes)
+            if implicitDottedReceiver.receiverReg != "" {
+                receiverReg = implicitDottedReceiver.receiverReg
+                receiverType = implicitDottedReceiver.receiverType
+            }
+        }
+    } else {
+        if postLookupPhase.shouldTrySimpleLiteral {
+            let varName = expr.literalValue
+            let activeCount = getBoundedActiveVarCountWithGlobalStateImpl(
+                varNames)
+            let idx = findActiveVariableIndexImpl(varNames, activeCount,
+                varName)
+            var gvMcIdx = -1
+            if idx < 0 {
+                gvMcIdx = findModuleConstantWithModuleStateImpl(varName)
+            }
+            let thisIdx = findActiveVariableIndexImpl(varNames, activeCount,
+                "this")
+            let simpleLiteralPlan = planSimpleLiteralReceiverStageImpl(
+                hasDottedReceiver, expr.literalValue, idx, gvMcIdx,
+                receiverReg, thisIdx)
+            if simpleLiteralPlan.shouldUseLocalLiteral {
+                let varReg = varRegs[idx]
+                let varType = varTypes[idx]
+                let localReceiver = emitLocalMethodReceiverLoadImpl(output,
+                    getFeatureRegBoxImpl(), mapTypeState(varType), varReg,
+                    varType)
+                receiverReg = localReceiver.receiverReg
+                receiverType = localReceiver.receiverType
+
+                var svDynArgRegs = Array<String>()
+                var svDynArgTypes = Array<String>()
+                if shouldPrepareEarlyMethodFastPathArgsImpl(varType) {
+                    prepareMethodCallArgRegsAndTypesState(ctx,
+                        expr.arguments, svDynArgRegs, svDynArgTypes)
+                }
+                let localVarFastPath =
+                    tryGeneratePreparedLocalVariableReceiverFastPathImpl(
+                    output, getFeatureRegBoxImpl(), methodName, receiverReg,
+                    varType, getGlobalStructNamesImpl(),
+                    getGlobalStructMethodNamesImpl(),
+                    getGlobalStructMethodRetTypesImpl(), svDynArgRegs,
+                    svDynArgTypes)
+                if localVarFastPath != "" {
+                    return localVarFastPath
+                }
+            } else {
+                if simpleLiteralPlan.shouldUseModuleConstantLiteral {
+                    let gvMcType = getModuleConstantTypeWithModuleStateImpl(
+                        gvMcIdx)
+                    let gvMcInvSuffix =
+                        moduleConstantInvariantLoadSuffixWithModuleStateImpl(
+                        gvMcIdx)
+                    let moduleConstReceiver =
+                        emitModuleConstantMethodReceiverLoadImpl(output,
+                        getFeatureRegBoxImpl(), "@" + varName, gvMcType,
+                        gvMcInvSuffix,
+                        resolveLiteralMethodReceiverTypeWithState(varName,
+                        varNames, varTypes, stringConstants), receiverReg,
+                        receiverType)
+                    receiverReg = moduleConstReceiver.receiverReg
+                    receiverType = moduleConstReceiver.receiverType
+                }
+                if receiverReg == "" {
+                    if simpleLiteralPlan.shouldTryImplicitThisLiteral {
+                        let implicitThisReceiverType =
+                            resolveLiteralMethodReceiverTypeWithState(varName,
+                            varNames, varTypes, stringConstants)
+                        let implicitThisReceiver =
+                            tryResolveImplicitThisLiteralMethodReceiverWithOwnerState(
+                            output, varName, implicitThisReceiverType,
+                            varNames, varRegs, varTypes)
+                        if implicitThisReceiver.receiverReg != "" {
+                            receiverReg = implicitThisReceiver.receiverReg
+                            receiverType = implicitThisReceiver.receiverType
+                        }
+                        if receiverReg == "" {
+                            let implicitThisFieldReceiver =
+                                tryGenerateImplicitThisFieldVariableState(
+                                output, varNames, varRegs, varTypes, varName)
+                            if implicitThisFieldReceiver != "" {
+                                receiverReg = implicitThisFieldReceiver
+                                receiverType = implicitThisReceiverType
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let activeClassName = getGlobalCurrentClassNameImpl()
+    let postResolutionPhase = planMethodReceiverPostResolutionPhaseImpl(
+        receiverReg, activeClassName)
+    if postResolutionPhase.shouldTryResolvedFastPath {
+        let resolvedReceiverFastPath =
+            tryGenerateResolvedReceiverFastPathMethodCallState(ctx, output,
+            expr, methodName, receiverReg, receiverType)
+        if resolvedReceiverFastPath != "" {
+            return resolvedReceiverFastPath
+        }
+    }
+
+    if postResolutionPhase.shouldTryStaticCall {
+        let staticCallResult = tryGenerateStaticMethodCallState(ctx, output,
+            expr, methodName, receiverReg, varNames, varRegs, varTypes,
+            stringConstants)
+        if staticCallResult != "" {
+            return staticCallResult
+        }
+    }
+
+    let unresolvedStartPlan = planMethodUnresolvedReceiverStartImpl(
+        receiverReg, activeClassName)
+    if postResolutionPhase.shouldTryUnresolvedFallback and
+        unresolvedStartPlan.shouldHandle {
+
+        var implicitMethodRetType: String = ""
+        if unresolvedStartPlan.shouldLookupImplicitReturn {
+            implicitMethodRetType = getMethodReturnTypeState(activeClassName,
+                methodName)
+        }
+        let unresolvedFunctionRetType = getFunctionReturnTypeStateImpl(
+            methodName, getGlobalFuncNamesImpl(), getGlobalFuncRetTypesImpl())
+        let unresolvedFinalPlan = planMethodUnresolvedReceiverFinalImpl(
+            receiverReg, activeClassName, implicitMethodRetType,
+            unresolvedFunctionRetType,
+            isStandaloneParserWorkaroundImpl(methodName))
+        if unresolvedFinalPlan.shouldLowerAsCall {
+            return lowerCallExpression(ctx, expr)
+        }
+
+        if unresolvedFinalPlan.shouldUseStandaloneParserWorkaround {
+            prepareCallArgumentsWithDefaultsState(ctx, output, methodName,
+                expr.arguments, false, false, false, "", varNames, varRegs,
+                varTypes, stringConstants)
+            return emitStandaloneParserWorkaroundCallImpl(output,
+                getFeatureRegBoxImpl(), methodName,
+                getDefaultFillArgRegsImpl(), getDefaultFillArgTypeStrsImpl())
+        }
+
+        if unresolvedFinalPlan.shouldWarnAndApplyDefault {
+            let unresolvedDefault =
+                emitPreparedUnresolvedReceiverDefaultImpl(output,
+                getFeatureRegBoxImpl(), methodName, receiverReg, receiverType,
+                activeClassName, expr.literalValue, expr.operands.length())
+            if unresolvedDefault.resultReg != "" {
+                return unresolvedDefault.resultReg
+            }
+            receiverReg = unresolvedDefault.receiverReg
+        }
+    }
+
+    if postResolutionPhase.shouldTryArrayMutator {
+        let arrayMutatorResult =
+            tryGenerateArrayMutatorMethodCallWithContextState(ctx, output,
+            expr, methodName, receiverReg, receiverType, varNames, varRegs,
+            varTypes)
+        if arrayMutatorResult != "" {
+            return arrayMutatorResult
+        }
+    }
+
+    let lowerPlan = planMethodLowerCallImpl(receiverType, methodName,
+        expr.arguments.length(), expr.operands.length(),
+        isStringBuilderRuntimeMethodImpl(methodName),
+        isNumericReceiverMethodImpl(methodName))
+
+    if postResolutionPhase.shouldTryLowering {
+        let noArgLower = tryEmitMethodLowerNoArgDriver(output, methodName,
+            receiverReg, receiverType, lowerPlan)
+        if noArgLower != "" {
+            return noArgLower
+        }
+    }
+
+    if postResolutionPhase.shouldTryLowering and
+        lowerPlan.shouldTryStringBuilder {
+
+        var sbArg0: String = ""
+        var isFloatFused = 0
+        let sbArgAction = methodLowerStringBuilderArgActionForArgsImpl(
+            receiverType, methodName, expr.arguments)
+        if sbArgAction == 2 {
+            let appendArgExpr = expr.arguments[0]
+            sbArg0 = lowerExpression(ctx, appendArgExpr.arguments[0])
+            isFloatFused = 1
+        }
+        if sbArgAction == 1 {
+            sbArg0 = lowerExpression(ctx, expr.arguments[0])
+        }
+        let stringBuilderResult =
+            emitPreparedStringBuilderMethodLowerImpl(output,
+            getFeatureRegBoxImpl(), methodName, receiverReg, receiverType,
+            sbArg0, isFloatFused)
+        if stringBuilderResult != "" {
+            return stringBuilderResult
+        }
+    }
+
+    if postResolutionPhase.shouldTryLowering and
+        lowerPlan.shouldTryPrimitiveConversion {
+        let conversionResult = tryEmitMethodPrimitiveConversionDriver(output,
+            methodName, receiverReg, receiverType, lowerPlan)
+        if conversionResult != "" {
+            return conversionResult
+        }
+    }
+
+    if postResolutionPhase.shouldTryLowering and lowerPlan.shouldTryNumeric {
+        var numArg0: String = ""
+        var numArg1: String = ""
+        if lowerPlan.hasArg0 {
+            numArg0 = lowerExpression(ctx, expr.arguments[0])
+        }
+        if lowerPlan.hasArg1 {
+            numArg1 = lowerExpression(ctx, expr.arguments[1])
+        }
+        let numericResult = emitPreparedNumericMethodLowerImpl(output,
+            getFeatureRegBoxImpl(), methodName, receiverReg, receiverType,
+            numArg0, numArg1)
+        if numericResult != "" {
+            return numericResult
+        }
+    }
+
+    var strArg0: String = ""
+    var strArg1: String = ""
+    let strArgCount = expr.arguments.length()
+    if postResolutionPhase.shouldTryLowering and lowerPlan.shouldTryStringLike {
+        if lowerPlan.hasArg0 {
+            strArg0 = lowerExpression(ctx, expr.arguments[0])
+        }
+        if lowerPlan.hasArg1 {
+            strArg1 = lowerExpression(ctx, expr.arguments[1])
+        }
+        let stringLikeResult = emitPreparedStringLikeMethodLowerImpl(output,
+            getFeatureRegBoxImpl(), methodName, receiverReg, receiverType,
+            strArg0, strArg1, strArgCount, getFeatureReprCClassNamesImpl(),
+            getGlobalStructNamesImpl())
+        if stringLikeResult != "" {
+            return stringLikeResult
+        }
+    }
+
+    var tracedUnwrapSourceType: String = ""
+    if postResolutionPhase.shouldTryLowering and
+        lowerPlan.shouldTraceUnwrapToJsonSource {
+
+        let receiverExpr = expr.operands[0]
+        if shouldUseMethodLowerUnwrapTraceSourceImpl(receiverExpr.kind,
+            receiverExpr.callee, receiverExpr.operands.length()) {
+            tracedUnwrapSourceType = inferLoweredExpressionType(ctx,
+                receiverExpr.operands[0])
+        }
+    }
+    let finalTarget = resolveMethodDispatchTargetState(output, expr,
+        methodName, receiverType, tracedUnwrapSourceType)
+    if finalTarget.immediateResult != "" {
+        return finalTarget.immediateResult
+    }
+    let instanceTypeName = finalTarget.instanceTypeName
+    let funcName = finalTarget.funcName
+
+    var hotStateArg: String = ""
+    if postResolutionPhase.shouldTryLowering and lowerPlan.shouldReadHotStateArg {
+        hotStateArg = lowerExpression(ctx, expr.arguments[0])
+    }
+    let hotReloadResult = tryEmitPreparedMethodHotReloadFinalState(output,
+        methodName, receiverReg, receiverType, funcName,
+        postResolutionPhase.shouldTryLowering, lowerPlan, hotStateArg)
+    if hotReloadResult != "" {
+        return hotReloadResult
+    }
+
+    let shouldUseScalarFallback =
+        shouldUseScalarReceiverFinalFallbackState(receiverType, methodName)
+    var scalarFallbackType: String = ""
+    if shouldUseScalarFallback {
+        scalarFallbackType = inferLoweredExpressionType(ctx, expr)
+    }
+
+    if not shouldUseScalarFallback {
+        prepareCallArgumentsWithDefaultsState(ctx, output, funcName,
+            expr.arguments, false, true, false, "", varNames, varRegs,
+            varTypes, stringConstants)
+    }
+    let argRegs = getDefaultFillArgRegsImpl()
+    let argTypeStrs = getDefaultFillArgTypeStrsImpl()
+
+    var registeredMethodReturnType: String = ""
+    var inferredMethodReturnType: String = ""
+    if not shouldUseScalarFallback {
+        registeredMethodReturnType = getMethodReturnTypeState(
+            instanceTypeName, methodName)
+    }
+    if not shouldUseScalarFallback and
+        (registeredMethodReturnType == "" or
+        registeredMethodReturnType == "Unknown") {
+
+        inferredMethodReturnType = inferLoweredExpressionType(ctx, expr)
+    }
+    return emitPreparedFinalMethodCallDriverState(output, methodName,
+        receiverReg, receiverType, instanceTypeName, funcName,
+        postResolutionPhase.shouldTryFinalDispatch, lowerPlan,
+        shouldUseScalarFallback, expr.literalValue, scalarFallbackType,
+        registeredMethodReturnType, inferredMethodReturnType, argRegs,
+        argTypeStrs)
+}

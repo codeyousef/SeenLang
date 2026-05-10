@@ -1105,6 +1105,24 @@ SEEN
 expect_fail prebody_owner_signature
 
 write_owner_modules
+cat > "$TMP_DIR/compiler_seen/src/codegen/ir_call_driver.seen" <<'SEEN'
+fun generateCallState(ctx: CodegenLoweringContext,
+    output: StringBuilder, expr: ParserExpressionNode,
+    varNames: Array<String>, varRegs: Array<String>,
+    varTypes: Array<String>, stringConstants: Array<String>,
+    boundsCheckEnabled: Int, boundsCheckLabelCount: Int,
+    comptimeParamCount: Int, comptimeParamFuncNames: String,
+    insideUnsafe: Int, currentClassParentName: String,
+    asyncFuncNames: String, asyncFuncCount: Int,
+    enumVariantNames: Array<String>, enumVariantFieldCounts: Array<Int>,
+    enumVariantCount: Int) r: CallDriverResult {
+
+    return CallDriverResult.new("", boundsCheckLabelCount)
+}
+SEEN
+expect_fail call_driver_enum_state_signature
+
+write_owner_modules
 cat > "$TMP_DIR/compiler_seen/src/codegen/llvm_ir_gen.seen" <<'SEEN'
 fun bad() r: Void {
     returnTypeBox[0] = mapFunctionPreBodyReturnTypeImpl(
@@ -1330,5 +1348,314 @@ fun bad(source: String) r: SeenLexer {
 SEEN
 expect_fail frontend_fragile_constructor
 rm -f "$TMP_DIR/compiler_seen/src/bootstrap/frontend.seen"
+
+write_owner_modules
+mkdir -p "$TMP_DIR/compiler_seen/src/bootstrap"
+cat > "$TMP_DIR/compiler_seen/src/bootstrap/frontend.seen" <<'SEEN'
+fun bad(file: String, message: String) r: FrontendDiagnostic {
+    return FrontendDiagnostic.new(file, 1, 1, "error", message)
+}
+SEEN
+expect_fail frontend_diagnostic_fragile_constructor
+rm -f "$TMP_DIR/compiler_seen/src/bootstrap/frontend.seen"
+
+write_owner_modules
+mkdir -p "$TMP_DIR/compiler_seen/src/lsp"
+cat > "$TMP_DIR/compiler_seen/src/lsp/server.seen" <<'SEEN'
+fun bad(file: String, message: String) r: FrontendDiagnostic {
+    return FrontendDiagnostic.new(file, 1, 1, "error", message)
+}
+SEEN
+expect_fail lsp_diagnostic_fragile_constructor
+rm -f "$TMP_DIR/compiler_seen/src/lsp/server.seen"
+
+write_owner_modules
+cat > "$TMP_DIR/compiler_seen/src/codegen/ir_bad_driver.seen" <<'SEEN'
+fun badDriverStringLocal(ctx: CodegenLoweringContext,
+    expr: ParserExpressionNode) r: String {
+
+    var reg = "0"
+    reg = ctx.lowerExpression(expr)
+    return reg
+}
+SEEN
+expect_fail driver_string_literal_local
+rm -f "$TMP_DIR/compiler_seen/src/codegen/ir_bad_driver.seen"
+
+write_owner_modules
+cat > "$TMP_DIR/compiler_seen/src/codegen/ir_bad_driver.seen" <<'SEEN'
+fun badDriverDynContext(ctx: dyn CodegenLoweringContext,
+    expr: ParserExpressionNode) r: String {
+
+    return ctx.lowerExpression(expr)
+}
+SEEN
+expect_fail lowering_context_dyn_param
+rm -f "$TMP_DIR/compiler_seen/src/codegen/ir_bad_driver.seen"
+
+write_owner_modules
+cat > "$TMP_DIR/compiler_seen/src/codegen/ir_bad_driver.seen" <<'SEEN'
+fun badDriverTraitCall(ctx: CodegenLoweringContext,
+    expr: ParserExpressionNode) r: String {
+
+    return ctx.lowerExpression(expr)
+}
+SEEN
+expect_fail lowering_context_method_call
+rm -f "$TMP_DIR/compiler_seen/src/codegen/ir_bad_driver.seen"
+
+write_owner_modules
+cat > "$TMP_DIR/compiler_seen/src/codegen/ir_lowering_context.seen" <<'SEEN'
+trait CodegenLoweringContext {}
+SEEN
+expect_fail lowering_context_trait_context
+rm -f "$TMP_DIR/compiler_seen/src/codegen/ir_lowering_context.seen"
+
+write_owner_modules
+cat > "$TMP_DIR/compiler_seen/src/codegen/llvm_ir_gen.seen" <<'SEEN'
+fun lowerExpression(ctxHandle: CodegenLoweringContext,
+    expr: ParserExpressionNode) r: String {
+    let ctx = ctxHandle as LLVMIRGenerator
+    return ctx.generateExpression(expr)
+}
+SEEN
+expect_fail lowering_context_facade_cast
+rm -f "$TMP_DIR/compiler_seen/src/codegen/llvm_ir_gen.seen"
+
+write_owner_modules
+cat > "$TMP_DIR/compiler_seen/src/codegen/ir_lowering_context.seen" <<'SEEN'
+trait CodegenLoweringContext {
+    fun appendLoweringOutput(this: CodegenLoweringContext,
+        text: String) r: Void
+}
+SEEN
+expect_fail lowering_context_duplicate_symbol_callback
+rm -f "$TMP_DIR/compiler_seen/src/codegen/ir_lowering_context.seen"
+
+write_owner_modules
+cat > "$TMP_DIR/compiler_seen/src/codegen/ir_bad_driver.seen" <<'SEEN'
+fun badClassParentSetter(ctx: CodegenLoweringContext) r: Void {
+    setLowerCurrentClassParentName(ctx, "")
+}
+SEEN
+expect_fail lowering_context_feature_setter_call
+rm -f "$TMP_DIR/compiler_seen/src/codegen/ir_bad_driver.seen"
+
+write_owner_modules
+cat > "$TMP_DIR/compiler_seen/src/codegen/ir_module_driver.seen" <<'SEEN'
+fun generateSingleState(ctx: CodegenLoweringContext,
+    output: StringBuilder, stringConstants: Array<String>,
+    program: ProgramNode, moduleIndex: Int) r: String {
+
+    resetLoweringGenerator(ctx)
+    resetLoweringSharedModuleScratch(ctx)
+    return output.toString()
+}
+SEEN
+expect_fail module_driver_stale_reset
+rm -f "$TMP_DIR/compiler_seen/src/codegen/ir_module_driver.seen"
+
+write_owner_modules
+cat > "$TMP_DIR/compiler_seen/src/codegen/ir_call_args_driver.seen" <<'SEEN'
+fun prepareCallArgumentsWithDefaultsState(
+    ctx: CodegenLoweringContext, output: StringBuilder,
+    funcName: String, arguments: Array<ParserExpressionNode>,
+    enableDynBoxing: Bool, enableFloatPromotion: Bool,
+    nullifyMovedSources: Bool, moveContext: String,
+    varNames: Array<String>, varRegs: Array<String>,
+    varTypes: Array<String>, dynParamFuncs: String,
+    floatParamFuncNames: Array<String>, floatParamParamIdxs: Array<Int>,
+    moveOnlyClasses: String, funcParamCountArr: Array<Int>,
+    funcDefaultsArr: Array<String>, stringConstants: Array<String>) r: Void {
+}
+SEEN
+expect_fail call_default_registry_param_types
+rm -f "$TMP_DIR/compiler_seen/src/codegen/ir_call_args_driver.seen"
+
+write_owner_modules
+cat > "$TMP_DIR/compiler_seen/src/codegen/ir_bad_call_driver.seen" <<'SEEN'
+fun badCallArgRouting(ctx: CodegenLoweringContext,
+    expr: ParserExpressionNode) r: Void {
+
+    prepareLoweredCallArgumentsWithDefaults(ctx, "bad", expr.arguments,
+        false, false, false, "")
+}
+SEEN
+expect_fail call_argument_lowering_callback
+rm -f "$TMP_DIR/compiler_seen/src/codegen/ir_bad_call_driver.seen"
+
+write_owner_modules
+cat > "$TMP_DIR/compiler_seen/src/codegen/ir_bad_constructor_driver.seen" <<'SEEN'
+fun badReprCConstructorCheck(funcName: String) r: Bool {
+    return isReprCConstructorTypeImpl(funcName, getGlobalStructNamesImpl())
+}
+SEEN
+expect_fail reprc_constructor_owner_state
+rm -f "$TMP_DIR/compiler_seen/src/codegen/ir_bad_constructor_driver.seen"
+
+write_owner_modules
+cat > "$TMP_DIR/compiler_seen/src/codegen/ir_call_runtime_driver.seen" <<'SEEN'
+fun tryGenerateMathBuiltinCallState(ctx: CodegenLoweringContext,
+    output: StringBuilder, expr: ParserExpressionNode,
+    funcName: String) r: String {
+
+    let runtimePlan = planRuntimeBuiltinDispatchImpl(funcName,
+        expr.arguments.length())
+    if not runtimePlan.shouldTryMath {
+        return ""
+    }
+    return "0"
+}
+SEEN
+expect_fail math_runtime_broad_plan
+rm -f "$TMP_DIR/compiler_seen/src/codegen/ir_call_runtime_driver.seen"
+
+write_owner_modules
+cat > "$TMP_DIR/compiler_seen/src/codegen/ir_call_runtime_driver.seen" <<'SEEN'
+fun tryGeneratePanicRuntimeBuiltinCallState(
+    ctx: CodegenLoweringContext, output: StringBuilder,
+    expr: ParserExpressionNode, funcName: String) r: String {
+
+    let argReg = lowerExpression(ctx, expr.arguments[0])
+    return emitPanicRuntimeCallImpl(output, getFeatureRegBoxImpl(),
+        argReg)
+}
+SEEN
+expect_fail panic_runtime_terminator_state
+rm -f "$TMP_DIR/compiler_seen/src/codegen/ir_call_runtime_driver.seen"
+
+write_owner_modules
+cat > "$TMP_DIR/compiler_seen/src/codegen/ir_binary_short_circuit.seen" <<'SEEN'
+fun allocateShortCircuitBinaryLabelsImpl(blockLabelBox: Array<Int>)
+    r: ShortCircuitBinaryLabels {
+
+    return ShortCircuitBinaryLabels.new(getNextBlockFn(blockLabelBox),
+        getNextBlockFn(blockLabelBox), getNextBlockFn(blockLabelBox),
+        getNextBlockFn(blockLabelBox))
+}
+SEEN
+expect_fail short_circuit_bb_label_namespace
+rm -f "$TMP_DIR/compiler_seen/src/codegen/ir_binary_short_circuit.seen"
+
+write_owner_modules
+cat > "$TMP_DIR/compiler_seen/src/codegen/ir_binary_short_circuit_driver.seen" <<'SEEN'
+fun generateShortCircuitAndState(ctx: CodegenLoweringContext,
+    output: StringBuilder, expr: ParserExpressionNode) r: String {
+
+    let labels = allocateShortCircuitBinaryLabelsImpl(getFeatureRegBoxImpl())
+    let leftReg = lowerExpression(ctx, expr.operands[0])
+    return leftReg
+}
+SEEN
+expect_fail short_circuit_preallocated_labels
+rm -f "$TMP_DIR/compiler_seen/src/codegen/ir_binary_short_circuit_driver.seen"
+
+write_owner_modules
+cat > "$TMP_DIR/compiler_seen/src/codegen/ir_if_statement_driver.seen" <<'SEEN'
+fun generateIfStatementState(ctx: CodegenLoweringContext,
+    output: StringBuilder, stmt: StatementNode) r: Void {
+
+    let condBool = lowerExpression(ctx, stmt.condition)
+    let branching = emitFunctionBodyIfBranchingImpl(output,
+        getFeatureRegBoxImpl(), condBool, "")
+}
+SEEN
+expect_fail branch_label_reg_allocator
+rm -f "$TMP_DIR/compiler_seen/src/codegen/ir_if_statement_driver.seen"
+
+write_owner_modules
+cat > "$TMP_DIR/compiler_seen/src/codegen/ir_member_access_driver.seen" <<'SEEN'
+fun generateMemberAccessState(ctx: CodegenLoweringContext,
+    output: StringBuilder, expr: ParserExpressionNode,
+    varNames: Array<String>, varRegs: Array<String>,
+    varTypes: Array<String>) r: String {
+
+    let receiverName = expr.literalValue
+    let fieldName = expr.variableName
+    let operandCount = expr.operands.length()
+    if operandCount > 0 and isExplicitThisReceiverExprState(expr.operands[0]) {
+        let explicitThisField = tryGenerateImplicitThisFieldVariableState(
+            output, varNames, varRegs, varTypes, fieldName)
+        if explicitThisField != "" {
+            return explicitThisField
+        }
+    }
+    return "0"
+}
+SEEN
+expect_fail explicit_this_member_access
+rm -f "$TMP_DIR/compiler_seen/src/codegen/ir_member_access_driver.seen"
+
+write_owner_modules
+cat > "$TMP_DIR/compiler_seen/src/codegen/ir_class_method_driver.seen" <<'SEEN'
+fun generateClassMethodFromListState(ctx: CodegenLoweringContext,
+    output: StringBuilder, className: String, parentName: String,
+    methods: Array<FunctionNode>, methodIdx: Int,
+    varNames: Array<String>, varRegs: Array<String>,
+    varTypes: Array<String>, stringConstants: Array<String>) r: Void {
+
+    resetLoweringLocalCodegenState(ctx)
+    prepareClassMethodVariableCollectionState(ctx, className, methods,
+        methodIdx, Array<String>(), varNames, varRegs, varTypes)
+    setActiveVarCountWithGlobalStateImpl(
+        emitClassMethodReceiverBindingStateImpl(output, getFeatureRegBoxImpl(),
+        varNames, varRegs, varTypes,
+        getBoundedActiveVarCountWithGlobalStateImpl(varNames), className,
+        false, ""))
+    lowerBlock(ctx, methods[methodIdx].body)
+}
+SEEN
+expect_fail class_method_stale_context_arrays
+rm -f "$TMP_DIR/compiler_seen/src/codegen/ir_class_method_driver.seen"
+
+write_owner_modules
+cat > "$TMP_DIR/compiler_seen/src/codegen/llvm_ir_gen.seen" <<'SEEN'
+extern fun LLVMIRGenerator_generateExpression(ctx: CodegenLoweringContext,
+    expr: ParserExpressionNode) r: String
+
+class LLVMIRGenerator {
+    fun generateExpression(expr: ParserExpressionNode) r: String {
+        return "0"
+    }
+}
+SEEN
+expect_fail lowering_context_facade_extern_callbacks
+rm -f "$TMP_DIR/compiler_seen/src/codegen/llvm_ir_gen.seen"
+
+write_owner_modules
+cat > "$TMP_DIR/compiler_seen/src/codegen/ir_binary_driver.seen" <<'SEEN'
+fun generateBinaryState(ctx: CodegenLoweringContext,
+    output: StringBuilder, expr: ParserExpressionNode,
+    boundsCheckLabelCount: Int, panicOnOverflow: Bool,
+    inductionVarName: String) r: BinaryDriverResult {
+
+    let leftExpr = expr.operands[0]
+    let rightExpr = expr.operands[1]
+    let leftOperandCount = leftExpr.operands.length()
+    if shouldTryBinaryAssociativeIntFoldImpl(expr.operator,
+        false, leftExpr.kind, leftExpr.operator, leftOperandCount) {
+        return BinaryDriverResult.new("0", boundsCheckLabelCount, 0, 0)
+    }
+    return BinaryDriverResult.new("0", boundsCheckLabelCount, 0, 0)
+}
+SEEN
+expect_fail binary_child_operand_guard
+rm -f "$TMP_DIR/compiler_seen/src/codegen/ir_binary_driver.seen"
+
+write_owner_modules
+mkdir -p "$TMP_DIR/seen_std/src/process"
+cat > "$TMP_DIR/seen_std/src/process/process.seen" <<'SEEN'
+import str.string.{StringBuilder}
+
+fun shellQuote(text: String) r: String {
+    let builder = StringBuilder.new()
+    builder.append("\"")
+    builder.append(text)
+    builder.append("\"")
+    return builder.toString()
+}
+SEEN
+expect_fail process_shell_quote_stringbuilder
+rm -rf "$TMP_DIR/seen_std"
 
 echo "PASS: codegen ABI preflight regressions"

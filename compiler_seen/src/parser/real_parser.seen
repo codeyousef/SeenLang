@@ -4921,18 +4921,21 @@ class RealParser {
     fun parseEquality() r: ParserExpressionNode {
         var expr = parseComparison()
         var matched = true
+        var operator = ""
         while matched {
             matched = false
+            operator = ""
             if matchTokenStr(SeenTokenType.EqualEqual) {
                 matched = true
+                operator = "=="
             }
             if not matched {
                 if matchTokenStr(SeenTokenType.NotEqual) {
                     matched = true
+                    operator = "!="
                 }
             }
             if matched {
-                let operator = previous().getValue()
                 let right = parseComparison()
                 let newExpr = ParserExpressionNode.new()
                 newExpr.kind = "Binary"
@@ -4969,36 +4972,39 @@ class RealParser {
     fun parseComparison() r: ParserExpressionNode {
         var expr = parseRange()
         var matched = true
+        var operator = ""
         while matched {
             matched = false
+            operator = ""
             if matchTokenStr(SeenTokenType.GreaterThan) {
                 matched = true
+                operator = ">"
             }
             if not matched {
                 if matchTokenStr(SeenTokenType.GreaterEqual) {
                     matched = true
+                    operator = ">="
                 }
             }
             if not matched {
                 if matchTokenStr(SeenTokenType.LessThan) {
                     matched = true
+                    operator = "<"
                 }
             }
             if not matched {
                 if matchTokenStr(SeenTokenType.LessEqual) {
                     matched = true
+                    operator = "<="
                 }
             }
             if not matched {
                 if matchTokenStr(SeenTokenType.KeywordIn) {
                     matched = true
+                    operator = "in"
                 }
             }
             if matched {
-                var operator = previous().getValue()
-                if previous().getType() == SeenTokenType.KeywordIn {
-                    operator = "in"
-                }
                 let right = parseRange()
                 let newExpr = ParserExpressionNode.new()
                 newExpr.kind = "Binary"
@@ -6278,29 +6284,32 @@ class RealParser {
     loop parsers.
     ///
     fun parseStableWhileStatementField() r: Void {
-        this.lastStatement.kind = "While"
-        parseExpressionInto(this.lastStatement.loopCondition)
+        let stableWhileCondition = parseExpression()
         consume(SeenTokenType.LeftBrace, "Expected '{' after while condition")
         parseBlockIntoField()
+        this.lastStatement.kind = "While"
+        this.lastStatement.loopCondition = stableWhileCondition
         this.lastStatement.loopBody = this.lastParsedBlock
         return
     }
 
     fun parseStableWhileStatementInto(stmt: StatementNode) r: Void {
-        stmt.kind = "While"
-        parseExpressionInto(stmt.loopCondition)
+        let stableWhileCondition = parseExpression()
         consume(SeenTokenType.LeftBrace, "Expected '{' after while condition")
         parseBlockIntoField()
+        stmt.kind = "While"
+        stmt.loopCondition = stableWhileCondition
         stmt.loopBody = this.lastParsedBlock
         return
     }
 
     fun parseStableWhileStatement() r: StatementNode {
         let stmt = StatementNode.new()
-        stmt.kind = "While"
-        stmt.loopCondition = parseExpression()
+        let stableWhileCondition = parseExpression()
         consume(SeenTokenType.LeftBrace, "Expected '{' after while condition")
         parseBlockIntoField()
+        stmt.kind = "While"
+        stmt.loopCondition = stableWhileCondition
         stmt.loopBody = this.lastParsedBlock
         return stmt
     }
