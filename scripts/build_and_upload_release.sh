@@ -120,16 +120,16 @@ if command -v x86_64-w64-mingw32-gcc &>/dev/null; then
             bash "$SCRIPT_DIR/build_windows_installer.sh" "$VERSION" --skip-compile 2>&1 | tail -10
 
             # Copy Windows artifacts to dist/
-            for f in "$WIN_DIR"/seen-*-windows-x64.zip; do
+            for f in "$WIN_DIR"/seen-"$VERSION"-windows-x64.zip; do
                 [[ -f "$f" ]] && cp "$f" "$DIST_DIR/"
             done
-            for f in "$WIN_INSTALLER_DIR"/output/Seen-*-setup.exe; do
+            for f in "$WIN_INSTALLER_DIR"/output/Seen-"$VERSION"-windows-x64-setup.exe; do
                 [[ -f "$f" ]] && cp "$f" "$DIST_DIR/"
             done
         else
             # At least create the ZIP
             bash "$SCRIPT_DIR/package_windows.sh" "$VERSION" 2>&1 | tail -5
-            for f in "$WIN_DIR"/seen-*-windows-x64.zip; do
+            for f in "$WIN_DIR"/seen-"$VERSION"-windows-x64.zip; do
                 [[ -f "$f" ]] && cp "$f" "$DIST_DIR/"
             done
         fi
