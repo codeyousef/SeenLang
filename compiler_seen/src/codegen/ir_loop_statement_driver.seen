@@ -6,18 +6,21 @@ import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl, getFeatureBlockBo
 import codegen.ir_codegen_global_state.{getBoundedActiveVarCountWithGlobalStateImpl, setActiveVarCountWithGlobalStateImpl, getBlockTerminatedWithGlobalStateImpl, setBlockTerminatedWithGlobalStateImpl, getCurrentLoopCondLabelWithGlobalStateImpl, setCurrentLoopCondLabelWithGlobalStateImpl, getCurrentLoopEndLabelWithGlobalStateImpl, setCurrentLoopEndLabelWithGlobalStateImpl, resolveFunctionBodyForInLoopVariableStorageWithGlobalStateImpl, resolveFunctionBodyForInIndexAllocaWithGlobalStateImpl, getGlobalFuncNamesImpl, getGlobalFuncRetTypesImpl}
 import codegen.ir_codegen_metrics_state.{cseClear, g_inductionVarName}
 import codegen.ir_codegen_module_state.{findModuleConstantWithModuleStateImpl, isModuleConstMutableWithModuleStateImpl}
+import codegen.ir_codegen_state.{getSharedCodegenState}
 import codegen.ir_codegen_type_state.{mapTypeState}
 import codegen.ir_control_flow.{emitForInElementFetchImpl, emitForInPrefetchImpl, emitForInIncrementImpl, detectLoopBoundImpl, computeLoopTileSizeImpl, detectReductionPatternImpl, detectInductionVarImpl, detectBreakOnFlagImpl, detectNestedLoopImpl, detectGcdPatternImpl, emitWhileConditionBranchImpl, emitStringForInElementImpl, emitMemcpyLoopExitBlocksImpl}
 import codegen.ir_field_layout.{emitSeenArrayLengthLoadImpl}
 import codegen.ir_forin_iterator_driver.{tryEmitIteratorProtocolForInLoopState}
 import codegen.ir_function_body.{beginFunctionBodyLoopContextImpl, restoreFunctionBodyLoopContextImpl, emitFunctionBodyLoopEndLabelImpl, emitFunctionBodyMemcpyOptimizedLoopImpl}
+import codegen.ir_literal_gen.{generateLiteralFree}
 import codegen.ir_loop_metadata_driver.{appendLoopTileHint, appendNestedLoopMetadataId, appendReductionLoopMetadataId}
 import codegen.ir_loop_plan.{planMemcpyOptimizedWhileLoopImpl, iteratorProtocolFunctionNameImpl, planIteratorProtocolForInLoopImpl, isRangeForInIterableImpl}
 import codegen.ir_lowering_context.{CodegenLoweringContext, lowerExpression, lowerExpressionInto, inferLoweredExpressionType, lowerCallExpression, prepareLoweredCallArgumentsWithDefaults, lowerEnumConstructor, resetLoweringGenerator, resetLoweringSharedModuleScratch, syncLoweringState, writeBackLoweringState, lowerProgramClasses, lowerProgramTopLevelFunctions, lowerPlainLargeClass, lowerClassNode, lowerFunctionNode, lowerClassMethodFromList, setLowerCurrentClassParentName, resetLoweringLocalCodegenState, collectLoweringVariableDeclarations, clearLoweringActiveBindings, lowerBlock, lowerStatement, isLoweringBlockTerminated, beginLoweringNestedScratch, restoreLoweringNestedScratch, currentLoweringFunctionOptions}
 import codegen.ir_ml_logging.{mlLogDecision}
 import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_stmt_gen.{emitIndexedForLoopHeaderImpl}
-import codegen.ir_variable_gen.{findActiveVariableIndexImpl, storeActiveVariableBindingImpl}
+import codegen.ir_type_ops_comparison.{emitComparisonBinaryOpImpl}
+import codegen.ir_variable_gen.{emitLocalVariableLoadImpl, findActiveVariableIndexImpl, storeActiveVariableBindingImpl}
 import codegen.ir_decl_registry.{getFunctionReturnTypeStateImpl}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
 
@@ -166,6 +169,131 @@ fun emitWhileConditionBranchState(output: StringBuilder,
         breakFlagPtrReg, bodyLabel, endLabel)
 }
 
+fun isWhileComparisonOperatorState(operator: String) r: Bool {
+    return operator == "==" or operator == "!=" or operator == "<" or
+        operator == "<=" or operator == ">" or operator == ">="
+}
+
+fun tryLowerWhileLengthMethodOperandState(output: StringBuilder,
+    expr: ParserExpressionNode, varNames: Array<String>,
+    varRegs: Array<String>, varTypes: Array<String>) r: String {
+
+    if expr.kind != "MethodCall" {
+        return ""
+    }
+    if expr.callee != "length" and expr.callee != "len" and
+        expr.callee != "size" {
+        return ""
+    }
+    if expr.literalValue == "" {
+        return ""
+    }
+
+    let receiverIdx = findActiveVariableIndexImpl(varNames,
+        getBoundedActiveVarCountWithGlobalStateImpl(varNames),
+        expr.literalValue)
+    if receiverIdx < 0 {
+        return ""
+    }
+
+    let receiverType = varTypes[receiverIdx]
+    if receiverType == "String" or receiverType == "SeenString" or
+        receiverType == "%SeenString" {
+
+        let receiverLoadReg = emitLocalVariableLoadImpl(output,
+            getFeatureRegBoxImpl(), mapTypeState(receiverType),
+            varRegs[receiverIdx])
+        let strLenReg = getNextRegFn(getFeatureRegBoxImpl())
+        output.append("  " + strLenReg +
+            " = call i64 @seen_length(%SeenString " + receiverLoadReg + ")\n")
+        return strLenReg
+    }
+    if not receiverType.startsWith("Array<") and receiverType != "Array" and
+        not receiverType.startsWith("List<") and receiverType != "List" {
+
+        return ""
+    }
+    let receiverLoadReg = emitLocalVariableLoadImpl(output,
+        getFeatureRegBoxImpl(), mapTypeState(receiverType),
+        varRegs[receiverIdx])
+    return emitSeenArrayLengthLoadImpl(output, getFeatureRegBoxImpl(),
+        receiverLoadReg, "")
+}
+
+fun lowerWhileComparisonOperandState(ctx: CodegenLoweringContext,
+    output: StringBuilder, expr: ParserExpressionNode,
+    varNames: Array<String>, varRegs: Array<String>,
+    varTypes: Array<String>, stringConstants: Array<String>) r: String {
+
+    if expr.kind == "Variable" or expr.kind == "VarExpr" {
+        let varName = expr.literalValue
+        var localName = varName
+        if localName == "" {
+            localName = expr.variableName
+        }
+        let localIdx = findActiveVariableIndexImpl(varNames,
+            getBoundedActiveVarCountWithGlobalStateImpl(varNames),
+            localName)
+        if localIdx < 0 {
+            return ""
+        }
+        return emitLocalVariableLoadImpl(output, getFeatureRegBoxImpl(),
+            mapTypeState(varTypes[localIdx]), varRegs[localIdx])
+    }
+    if expr.kind == "Literal" {
+        syncLoweringState(ctx)
+        let litState = getSharedCodegenState()
+        let litReg = generateLiteralFree(litState, expr)
+        writeBackLoweringState(ctx)
+        return litReg
+    }
+
+    let lengthReg = tryLowerWhileLengthMethodOperandState(output, expr,
+        varNames, varRegs, varTypes)
+    if lengthReg != "" {
+        return lengthReg
+    }
+    return ""
+}
+
+fun tryGenerateWhileComparisonConditionState(ctx: CodegenLoweringContext,
+    output: StringBuilder, condition: ParserExpressionNode,
+    varNames: Array<String>, varRegs: Array<String>,
+    varTypes: Array<String>, stringConstants: Array<String>) r: String {
+
+    if condition.kind != "Binary" {
+        return ""
+    }
+    if not isWhileComparisonOperatorState(condition.operator) {
+        return ""
+    }
+    if condition.operands.length() < 2 {
+        return ""
+    }
+
+    let leftExpr = condition.operands[0]
+    let rightExpr = condition.operands[1]
+    let leftType = inferLoweredExpressionType(ctx, leftExpr)
+    let rightType = inferLoweredExpressionType(ctx, rightExpr)
+    let leftReg = lowerWhileComparisonOperandState(ctx, output, leftExpr,
+        varNames, varRegs, varTypes, stringConstants)
+    if leftReg == "" {
+        return ""
+    }
+    let rightReg = lowerWhileComparisonOperandState(ctx, output, rightExpr,
+        varNames, varRegs, varTypes, stringConstants)
+    if rightReg == "" {
+        return ""
+    }
+    let resultReg = getNextRegFn(getFeatureRegBoxImpl())
+    let emittedCondReg = emitComparisonBinaryOpImpl(output,
+        getFeatureRegBoxImpl(),
+        condition.operator, resultReg, leftReg, rightReg, leftType, rightType,
+        leftExpr.kind, leftExpr.literalValue, rightExpr.kind,
+        rightExpr.literalValue, mapTypeState(leftType))
+    return emittedCondReg
+}
+
 fun tryEmitMemcpyOptimizedWhileLoopState(
     ctx: CodegenLoweringContext, output: StringBuilder,
     stmt: StatementNode, condLabel: String, bodyLabel: String,
@@ -299,8 +427,12 @@ fun generateWhileStatementState(ctx: CodegenLoweringContext,
     output.append("  br label %" + loopContext.condLabel + "\n")
     output.append(loopContext.condLabel + ":\n")
     cseClear()
-    let condReg = lowerExpressionInto(ctx, output, stmt.loopCondition,
-        varNames, varRegs, varTypes, stringConstants)
+    var condReg = tryGenerateWhileComparisonConditionState(ctx, output,
+        stmt.loopCondition, varNames, varRegs, varTypes, stringConstants)
+    if condReg == "" {
+        condReg = lowerExpressionInto(ctx, output, stmt.loopCondition,
+            varNames, varRegs, varTypes, stringConstants)
+    }
     emitWhileConditionBranchState(output, condReg, breakFlagVar,
         loopContext.bodyLabel, loopContext.endLabel, varNames, varRegs)
 

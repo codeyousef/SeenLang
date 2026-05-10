@@ -269,7 +269,8 @@ fun generateExpressionState(ctx: CodegenLoweringContext,
     if expr.kind == "Binary" {
         let binaryResult = generateBinaryState(ctx, output, expr,
             state.boundsCheckLabelCount, state.panicOnOverflow,
-            state.inductionVarName)
+            state.inductionVarName, varNames, varRegs, varTypes,
+            stringConstants)
         state.boundsCheckLabelCount = binaryResult.boundsCheckLabelCount
         state.constantsFolded = state.constantsFolded +
             binaryResult.constantsFoldedDelta

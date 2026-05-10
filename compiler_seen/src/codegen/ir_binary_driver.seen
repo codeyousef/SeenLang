@@ -11,13 +11,16 @@ import codegen.ir_binary_short_circuit_driver.{generateShortCircuitAndState, gen
 import codegen.ir_binary_tail_driver.{emitPreparedBinaryTailState}
 import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl}
 import codegen.ir_codegen_global_state.{getPendingArrayLiteralTypeWithGlobalStateImpl, setPendingArrayLiteralTypeWithGlobalStateImpl}
+import codegen.ir_codegen_state.{getSharedCodegenState}
 import codegen.ir_codegen_type_state.{mapTypeState}
 import codegen.ir_egraph_rules.{egraphLookup, egraphLookupFloat, egraphSelfComparison}
-import codegen.ir_lowering_context.{CodegenLoweringContext, lowerExpression, inferLoweredExpressionType, lowerCallExpression, prepareLoweredCallArgumentsWithDefaults, lowerEnumConstructor, resetLoweringGenerator, resetLoweringSharedModuleScratch, syncLoweringState, writeBackLoweringState, lowerProgramClasses, lowerProgramTopLevelFunctions, lowerPlainLargeClass, lowerClassNode, lowerFunctionNode, lowerClassMethodFromList, setLowerCurrentClassParentName, resetLoweringLocalCodegenState, collectLoweringVariableDeclarations, clearLoweringActiveBindings, lowerBlock, lowerStatement, isLoweringBlockTerminated, beginLoweringNestedScratch, restoreLoweringNestedScratch, currentLoweringFunctionOptions}
+import codegen.ir_literal_gen.{generateLiteralFree}
+import codegen.ir_lowering_context.{CodegenLoweringContext, lowerExpressionInto, inferLoweredExpressionType, lowerCallExpression, prepareLoweredCallArgumentsWithDefaults, lowerEnumConstructor, resetLoweringGenerator, resetLoweringSharedModuleScratch, syncLoweringState, writeBackLoweringState, lowerProgramClasses, lowerProgramTopLevelFunctions, lowerPlainLargeClass, lowerClassNode, lowerFunctionNode, lowerClassMethodFromList, setLowerCurrentClassParentName, resetLoweringLocalCodegenState, collectLoweringVariableDeclarations, clearLoweringActiveBindings, lowerBlock, lowerStatement, isLoweringBlockTerminated, beginLoweringNestedScratch, restoreLoweringNestedScratch, currentLoweringFunctionOptions}
 import codegen.ir_ml_logging.{mlLogDecision}
 import codegen.ir_optimization.{foldIntConstants, foldIntComparison, exprCost, getNextRegFn}
 import codegen.ir_simd_type_helpers.{isSimdVectorTypeImpl}
 import codegen.ir_string_concat_emit.{isStringConcatTypePairImpl, exprHasStringConcatMarkerImpl, coerceStringConcatPieceRegImpl}
+import codegen.ir_variable_driver.{generateVariableState}
 
 class BinaryDriverResult {
     var resultReg: String
@@ -61,8 +64,30 @@ fun inferMembershipElementTypeState(ctx: CodegenLoweringContext,
     return ""
 }
 
+fun lowerBinaryOperandState(ctx: CodegenLoweringContext,
+    output: StringBuilder, expr: ParserExpressionNode,
+    varNames: Array<String>, varRegs: Array<String>,
+    varTypes: Array<String>, stringConstants: Array<String>) r: String {
+
+    if expr.kind == "Variable" or expr.kind == "VarExpr" {
+        return generateVariableState(output, varNames, varRegs, varTypes,
+            expr)
+    }
+    if expr.kind == "Literal" {
+        syncLoweringState(ctx)
+        let litState = getSharedCodegenState()
+        let litReg = generateLiteralFree(litState, expr)
+        writeBackLoweringState(ctx)
+        return litReg
+    }
+    return lowerExpressionInto(ctx, output, expr, varNames, varRegs,
+        varTypes, stringConstants)
+}
+
 fun generateMembershipArrayRegState(ctx: CodegenLoweringContext,
-    rightExpr: ParserExpressionNode, elementType: String) r: String {
+    output: StringBuilder, rightExpr: ParserExpressionNode,
+    elementType: String, varNames: Array<String>, varRegs: Array<String>,
+    varTypes: Array<String>, stringConstants: Array<String>) r: String {
 
     let savedPendingType = getPendingArrayLiteralTypeWithGlobalStateImpl()
     let pendingMembershipType = membershipPendingArrayLiteralTypeImpl(
@@ -70,15 +95,17 @@ fun generateMembershipArrayRegState(ctx: CodegenLoweringContext,
     if pendingMembershipType != "" {
         setPendingArrayLiteralTypeWithGlobalStateImpl(pendingMembershipType)
     }
-    let rightReg = lowerExpression(ctx, rightExpr)
+    let rightReg = lowerBinaryOperandState(ctx, output, rightExpr, varNames,
+        varRegs, varTypes, stringConstants)
     setPendingArrayLiteralTypeWithGlobalStateImpl(savedPendingType)
     return rightReg
 }
 
 fun generateMembershipExpressionState(ctx: CodegenLoweringContext,
     output: StringBuilder, leftExpr: ParserExpressionNode,
-    rightExpr: ParserExpressionNode, leftType: String, rightType: String)
-    r: String {
+    rightExpr: ParserExpressionNode, leftType: String, rightType: String,
+    varNames: Array<String>, varRegs: Array<String>,
+    varTypes: Array<String>, stringConstants: Array<String>) r: String {
 
     let elementType = inferMembershipElementTypeState(ctx, rightExpr,
         rightType)
@@ -93,9 +120,10 @@ fun generateMembershipExpressionState(ctx: CodegenLoweringContext,
         output.append(unsupportedWarning)
         return "false"
     }
-    let leftReg = lowerExpression(ctx, leftExpr)
-    let rightReg = generateMembershipArrayRegState(ctx, rightExpr,
-        elementType)
+    let leftReg = lowerBinaryOperandState(ctx, output, leftExpr, varNames,
+        varRegs, varTypes, stringConstants)
+    let rightReg = generateMembershipArrayRegState(ctx, output, rightExpr,
+        elementType, varNames, varRegs, varTypes, stringConstants)
     return emitPreparedMembershipContainsImpl(output, getFeatureRegBoxImpl(),
         elementType, leftReg, rightReg)
 }
@@ -124,7 +152,9 @@ fun collectStringConcatPiecesState(ctx: CodegenLoweringContext,
 }
 
 fun generateFlattenedStringConcatState(ctx: CodegenLoweringContext,
-    output: StringBuilder, expr: ParserExpressionNode) r: String {
+    output: StringBuilder, expr: ParserExpressionNode,
+    varNames: Array<String>, varRegs: Array<String>,
+    varTypes: Array<String>, stringConstants: Array<String>) r: String {
 
     var pieces = Array<ParserExpressionNode>()
     var pieceTypes = Array<String>()
@@ -136,7 +166,8 @@ fun generateFlattenedStringConcatState(ctx: CodegenLoweringContext,
     var pieceIdx = 0
     var resultReg: String = ""
     while pieceIdx < pieces.length() {
-        let pieceReg = lowerExpression(ctx, pieces[pieceIdx])
+        let pieceReg = lowerBinaryOperandState(ctx, output, pieces[pieceIdx],
+            varNames, varRegs, varTypes, stringConstants)
         let pieceStrReg = coerceStringConcatPieceRegImpl(output,
             getFeatureRegBoxImpl(), pieceReg, pieceTypes[pieceIdx])
         if pieceIdx == 0 {
@@ -156,7 +187,9 @@ fun generateFlattenedStringConcatState(ctx: CodegenLoweringContext,
 fun generateBinaryState(ctx: CodegenLoweringContext,
     output: StringBuilder, expr: ParserExpressionNode,
     boundsCheckLabelCount: Int, panicOnOverflow: Bool,
-    inductionVarName: String) r: BinaryDriverResult {
+    inductionVarName: String, varNames: Array<String>,
+    varRegs: Array<String>, varTypes: Array<String>,
+    stringConstants: Array<String>) r: BinaryDriverResult {
 
     let leftExpr = expr.operands[0]
     let rightExpr = expr.operands[1]
@@ -167,14 +200,15 @@ fun generateBinaryState(ctx: CodegenLoweringContext,
 
     if expr.operator == "in" {
         return BinaryDriverResult.new(generateMembershipExpressionState(ctx,
-            output, leftExpr, rightExpr, leftType, rightType),
-            boundsCheckLabelCount, constantsDelta, branchesDelta)
+            output, leftExpr, rightExpr, leftType, rightType, varNames,
+            varRegs, varTypes, stringConstants), boundsCheckLabelCount,
+            constantsDelta, branchesDelta)
     }
 
     if expr.operator == "+" and isStringConcatTypePairImpl(leftType,
         rightType) {
         let flattenedStringConcat = generateFlattenedStringConcatState(ctx,
-            output, expr)
+            output, expr, varNames, varRegs, varTypes, stringConstants)
         if flattenedStringConcat != "" {
             return BinaryDriverResult.new(flattenedStringConcat,
                 boundsCheckLabelCount, constantsDelta, branchesDelta)
@@ -182,8 +216,10 @@ fun generateBinaryState(ctx: CodegenLoweringContext,
     }
 
     if shouldTryPointerArithmeticBinaryImpl(leftType, expr.operator) {
-        let paLeftReg = lowerExpression(ctx, leftExpr)
-        let paRightReg = lowerExpression(ctx, rightExpr)
+        let paLeftReg = lowerBinaryOperandState(ctx, output, leftExpr,
+            varNames, varRegs, varTypes, stringConstants)
+        let paRightReg = lowerBinaryOperandState(ctx, output, rightExpr,
+            varNames, varRegs, varTypes, stringConstants)
         let paResult = emitPreparedPointerArithmeticBinaryImpl(output,
             getFeatureRegBoxImpl(), expr.operator, leftType, rightType,
             paLeftReg, paRightReg)
@@ -197,8 +233,10 @@ fun generateBinaryState(ctx: CodegenLoweringContext,
     if shouldTrySimdBinaryGateImpl(isSimdVectorTypeImpl(leftType),
         simdBinaryOp) {
         let simdLlvmType = mapTypeState(leftType)
-        let simdLeftReg = lowerExpression(ctx, leftExpr)
-        let simdRightReg = lowerExpression(ctx, rightExpr)
+        let simdLeftReg = lowerBinaryOperandState(ctx, output, leftExpr,
+            varNames, varRegs, varTypes, stringConstants)
+        let simdRightReg = lowerBinaryOperandState(ctx, output, rightExpr,
+            varNames, varRegs, varTypes, stringConstants)
         let simdResult = emitPreparedSimdBinaryExprImpl(output,
             getFeatureRegBoxImpl(), expr.operator, leftType, simdLlvmType,
             simdLeftReg, simdRightReg)
@@ -221,7 +259,9 @@ fun generateBinaryState(ctx: CodegenLoweringContext,
             let selfAction = egraphSelfComparison(expr.operator)
             let selfPlan = planBinaryFoldActionImpl(selfAction, true)
             if selfPlan.returnLeft {
-                return BinaryDriverResult.new(lowerExpression(ctx, leftExpr),
+                return BinaryDriverResult.new(lowerBinaryOperandState(ctx,
+                    output, leftExpr, varNames, varRegs, varTypes,
+                    stringConstants),
                     boundsCheckLabelCount, constantsDelta, branchesDelta)
             }
             let selfFoldReg = emitPreparedSelfComparisonConstResultImpl(
@@ -242,11 +282,15 @@ fun generateBinaryState(ctx: CodegenLoweringContext,
             leftIsIntLit, rightIsIntLit)
         let actionPlan = planBinaryFoldActionImpl(action, false)
         if actionPlan.returnLeft {
-            return BinaryDriverResult.new(lowerExpression(ctx, leftExpr),
+            return BinaryDriverResult.new(lowerBinaryOperandState(ctx,
+                output, leftExpr, varNames, varRegs, varTypes,
+                stringConstants),
                 boundsCheckLabelCount, constantsDelta, branchesDelta)
         }
         if actionPlan.returnRight {
-            return BinaryDriverResult.new(lowerExpression(ctx, rightExpr),
+            return BinaryDriverResult.new(lowerBinaryOperandState(ctx,
+                output, rightExpr, varNames, varRegs, varTypes,
+                stringConstants),
                 boundsCheckLabelCount, constantsDelta, branchesDelta)
         }
         if actionPlan.shouldEmitAction {
@@ -257,7 +301,8 @@ fun generateBinaryState(ctx: CodegenLoweringContext,
             }
             var egLeftReg: String = ""
             if actionPlan.shouldGenerateLeftReg {
-                egLeftReg = lowerExpression(ctx, leftExpr)
+                egLeftReg = lowerBinaryOperandState(ctx, output, leftExpr,
+                    varNames, varRegs, varTypes, stringConstants)
             }
             let egResult = emitPreparedIntPeepholeBinaryActionImpl(output,
                 getFeatureRegBoxImpl(), action, egLeftReg, expr.operator)
@@ -286,8 +331,9 @@ fun generateBinaryState(ctx: CodegenLoweringContext,
                         buildBinaryFoldLogValueImpl(
                         innerRight.literalValue, expr.operator, rightLitVal,
                         combinedVal))
-                    let innerLeftReg = lowerExpression(ctx,
-                        leftExpr.operands[0])
+                    let innerLeftReg = lowerBinaryOperandState(ctx, output,
+                        leftExpr.operands[0], varNames, varRegs, varTypes,
+                        stringConstants)
                     let assocResultReg =
                         emitPreparedAssociativeIntFoldResultImpl(output,
                         getFeatureRegBoxImpl(), expr.operator, innerLeftReg,
@@ -348,11 +394,15 @@ fun generateBinaryState(ctx: CodegenLoweringContext,
             binaryLiteralFacts.rightIsFloatLiteral)
         let fActionPlan = planBinaryFloatPeepholeImpl(fAction)
         if fActionPlan.returnLeft {
-            return BinaryDriverResult.new(lowerExpression(ctx, leftExpr),
+            return BinaryDriverResult.new(lowerBinaryOperandState(ctx,
+                output, leftExpr, varNames, varRegs, varTypes,
+                stringConstants),
                 boundsCheckLabelCount, constantsDelta, branchesDelta)
         }
         if fActionPlan.returnRight {
-            return BinaryDriverResult.new(lowerExpression(ctx, rightExpr),
+            return BinaryDriverResult.new(lowerBinaryOperandState(ctx,
+                output, rightExpr, varNames, varRegs, varTypes,
+                stringConstants),
                 boundsCheckLabelCount, constantsDelta, branchesDelta)
         }
         if fActionPlan.shouldEmitAction {
@@ -362,10 +412,12 @@ fun generateBinaryState(ctx: CodegenLoweringContext,
             var fgLeftReg: String = ""
             var fgRightReg: String = ""
             if fActionPlan.shouldGenerateRightReg {
-                fgRightReg = lowerExpression(ctx, rightExpr)
+                fgRightReg = lowerBinaryOperandState(ctx, output, rightExpr,
+                    varNames, varRegs, varTypes, stringConstants)
             }
             if fActionPlan.shouldGenerateLeftReg {
-                fgLeftReg = lowerExpression(ctx, leftExpr)
+                fgLeftReg = lowerBinaryOperandState(ctx, output, leftExpr,
+                    varNames, varRegs, varTypes, stringConstants)
             }
             let fResult = emitPreparedFloatPeepholeBinaryActionImpl(output,
                 getFeatureRegBoxImpl(), fAction, fgLeftReg, fgRightReg,
@@ -391,9 +443,15 @@ fun generateBinaryState(ctx: CodegenLoweringContext,
                     return BinaryDriverResult.new(
                         emitPreparedFmaTripleCallImpl(output,
                         getFeatureRegBoxImpl(),
-                        lowerExpression(ctx, rightExpr.operands[0]), rLeftType,
-                        lowerExpression(ctx, rightExpr.operands[1]), rRightType,
-                        lowerExpression(ctx, leftExpr), leftType, "c + a*b"),
+                        lowerBinaryOperandState(ctx, output,
+                        rightExpr.operands[0], varNames, varRegs, varTypes,
+                        stringConstants), rLeftType,
+                        lowerBinaryOperandState(ctx, output,
+                        rightExpr.operands[1], varNames, varRegs, varTypes,
+                        stringConstants), rRightType,
+                        lowerBinaryOperandState(ctx, output, leftExpr,
+                        varNames, varRegs, varTypes, stringConstants),
+                        leftType, "c + a*b"),
                         boundsCheckLabelCount, constantsDelta, branchesDelta)
                 }
             }
@@ -408,9 +466,15 @@ fun generateBinaryState(ctx: CodegenLoweringContext,
                     return BinaryDriverResult.new(
                         emitPreparedFmaTripleCallImpl(output,
                         getFeatureRegBoxImpl(),
-                        lowerExpression(ctx, leftExpr.operands[0]), lLeftType,
-                        lowerExpression(ctx, leftExpr.operands[1]), lRightType,
-                        lowerExpression(ctx, rightExpr), rightType, "a*b + c"),
+                        lowerBinaryOperandState(ctx, output,
+                        leftExpr.operands[0], varNames, varRegs, varTypes,
+                        stringConstants), lLeftType,
+                        lowerBinaryOperandState(ctx, output,
+                        leftExpr.operands[1], varNames, varRegs, varTypes,
+                        stringConstants), lRightType,
+                        lowerBinaryOperandState(ctx, output, rightExpr,
+                        varNames, varRegs, varTypes, stringConstants),
+                        rightType, "a*b + c"),
                         boundsCheckLabelCount, constantsDelta, branchesDelta)
                 }
             }
@@ -429,8 +493,10 @@ fun generateBinaryState(ctx: CodegenLoweringContext,
             branchesDelta)
     }
 
-    let leftReg = lowerExpression(ctx, leftExpr)
-    let rightReg = lowerExpression(ctx, rightExpr)
+    let leftReg = lowerBinaryOperandState(ctx, output, leftExpr, varNames,
+        varRegs, varTypes, stringConstants)
+    let rightReg = lowerBinaryOperandState(ctx, output, rightExpr, varNames,
+        varRegs, varTypes, stringConstants)
     let binaryTail = emitPreparedBinaryTailState(output, expr.operator,
         leftReg, rightReg, leftType, rightType, leftExpr.kind,
         leftExpr.literalValue, leftExpr.variableName, rightExpr.kind,
