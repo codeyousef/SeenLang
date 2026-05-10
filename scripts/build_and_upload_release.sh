@@ -145,10 +145,14 @@ fi
 if [[ -f "$ROOT_DIR/installer/homebrew/generate-formula.sh" ]]; then
     echo ""
     echo "=== Generating macOS Homebrew formula (v$VERSION)... ==="
-    bash "$ROOT_DIR/installer/homebrew/generate-formula.sh" "$VERSION" 2>&1 | tail -5 || true
-    for f in "$ROOT_DIR/installer/homebrew"/seen-lang*.rb; do
-        [[ -f "$f" ]] && cp "$f" "$DIST_DIR/"
-    done
+    if bash "$ROOT_DIR/installer/homebrew/generate-formula.sh" \
+        --version "$VERSION" \
+        --output "$DIST_DIR/seen-lang.rb" 2>&1 | tail -5; then
+        echo "  -> $DIST_DIR/seen-lang.rb"
+    else
+        echo "Skipping Homebrew formula: generator failed."
+        rm -f "$DIST_DIR/seen-lang.rb"
+    fi
 fi
 
 # --- macOS native binary (requires osxcross) ---
