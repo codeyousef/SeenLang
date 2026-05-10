@@ -5,6 +5,49 @@ All notable changes to the Seen compiler will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-05-10
+
+### Added
+
+#### Language, imports, and package workflows
+- Added standalone `/// ... ///` block comments as first-class Seen syntax, including compiler raw-scanner masking so fake imports, declarations, braces, and diagnostics inside comment bodies do not affect parsing, import discovery, package visibility checks, runtime-memory discovery, or interface indexing.
+- Added array and literal-set membership lowering with `in`, including string and integer membership checks.
+- Added `seen pkg prebuild` artifact support with PIC objects, `objects.tsv`, and `interface.index.tsv` so package dependencies can be consumed as declaration/interface artifacts while linking their prebuilt objects and skipping duplicate dependency codegen.
+- Added package-root imports from manifest modules without requiring `src/mod.seen`, while keeping explicit package source imports available.
+- Added package-private visibility diagnostics for outside-package imports of non-public declarations.
+- Added shared-module and hot-reload workflows around `@export`, object manifests, PIC object emission, and inline string casts.
+- Added cyclic import diagnostics that report clear cycle paths before compilation proceeds.
+
+#### Bootstrap and validation guardrails
+- Added strict prebuild gates through `scripts/seen_prebuild_gates.sh`, including compiler module seeding/import checks, import-cycle scans, codegen ABI-boundary checks, LLVM call-shape verification, aggregate ABI risk checks, and self-hosted ABI smoke coverage.
+- Added focused Stage2 IR recovery pattern tests for undefined local register operands, aggregate/scalar mismatches, stale generator layout indices, malformed pointer/scalar stores, raw diagnostic text leaks, and float/double zero literal call operands.
+- Added safer Stage2/Stage3 rebuild progress reporting, fail-fast behavior, explicit first-failure logs, recovery source directory control, and guarded recovery paths that avoid relying on stale live `/tmp` IR snapshots.
+
+### Changed
+
+#### LLVM codegen architecture
+- Completed the LLVM generator facade split: `compiler_seen/src/codegen/llvm_ir_gen.seen` is now a thin public facade, with lowering moved into focused state-based drivers for modules, functions, statements, expressions, method calls, regular calls, low-level calls, binary expressions, member/index access, loops, `when`, unary, variables, struct literals, and package/interface support.
+- Kept `LLVMIRGenerator` and `overrideTargetTriple` as the stable public API while replacing recursive helper coupling with lowering-context/state bridge modules and avoiding helper imports of `codegen.llvm_ir_gen`.
+- Split remaining touched LLVM helper files below the 500-line cap by moving binary operands, for-in statement orchestration, and for-in element emission into dedicated modules.
+- Broadened bootstrap module seeding in `main_compiler.seen` for the extracted codegen drivers and package artifact helpers.
+
+#### Tooling, docs, and editor support
+- Updated packaging docs for prebuilt artifacts, object manifests, interface indexes, artifact dependency linking, and package-root imports.
+- Updated VS Code syntax/snippet support for `///` block comments, `@export`, and shared-module compile workflows.
+- Made rebuild output less quiet during long bootstrap stages by showing stage, module, object, and latest-artifact progress.
+
+### Fixed
+
+#### Codegen and bootstrap correctness
+- Fixed while-condition lowering so loop predicates generate a real `i1` comparison and branch instead of reusing stale or integer-shaped condition values.
+- Fixed Stage2/Stage3 malformed IR recovery for undefined register operands, aggregate loads/stores, `store ptr <integer>` cases, `%SeenString` pointer/handle coercions, raw diagnostic line leaks, and `float 0` / `double 0` call operands.
+- Fixed object-manifest flows so `--emit-llvm` still emits objects when requested and package prebuild artifacts preserve package and `@export` symbols.
+- Fixed PascalCase static `new` locals so class handles use the expected storage shape.
+- Fixed package artifact interface codegen so artifact modules are declaration-only during consumption and their prebuilt objects are linked exactly once.
+- Fixed `effect(Token)` capability syntax and imported capability propagation so wrong or missing capability tokens are diagnosed consistently.
+- Fixed package/source import resolution for project-root runtime memory imports, manifest companion modules, whole-module package imports, and legacy whole-module imports.
+- Fixed missing imported modules and cyclic imports so they fail early with actionable diagnostics instead of reaching later bootstrap/codegen failures.
+
 ## [0.7.2] - 2026-04-29
 
 ### Fixed

@@ -21,6 +21,7 @@
 - **REPL** -- Interactive Seen session in the terminal
 - **Build Integration** -- Build, run, and test from the editor
 - **Shared Module Builds** -- Compile PIC objects and object manifests for hot-reload/shared-library workflows
+- **Package Workflows** -- Run `seen pkg fetch`, `pack`, `prebuild`, and `publish` from VS Code
 - **Multi-Language Keywords** -- Switch between English, Arabic, Spanish, Russian, Chinese, and Japanese keywords
 
 ## Quick Start
@@ -39,6 +40,10 @@
 | Seen: Format Document | `Shift+Alt+F` | Format the current file |
 | Seen: Check Project | -- | Type-check without compiling |
 | Seen: Compile Shared Module Objects | -- | Emit PIC objects plus an object manifest |
+| Seen: Package Fetch | -- | Fetch package dependencies |
+| Seen: Package Pack | -- | Create a package archive |
+| Seen: Package Prebuild | -- | Emit prebuilt package artifacts |
+| Seen: Package Publish | -- | Publish to a local static registry |
 | Seen: Initialize New Project | -- | Scaffold a new Seen project |
 | Seen: Open REPL | -- | Launch interactive REPL |
 | Seen: Switch Project Language | -- | Change keyword language |
@@ -61,6 +66,10 @@
 | `test` | Test function with `@test` |
 | `extern` | External function (FFI) |
 | `export` | Exported function with a stable native symbol |
+| `effect` / `using` | Capability effect and `@using(...)` annotation |
+| `pkgimport` / `pkgfrom` | Package-root and package module imports |
+| `in` | Membership test |
+| `sealed` | Sealed class declaration |
 | `comment` | `///` multi-line block comment |
 | `hotreload` / `hotmodule` / `hotcall` | Hot reload import, load, and Int-call helpers |
 | `closure` | Closure expression `\|x\| expr` |

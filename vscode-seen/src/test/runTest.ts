@@ -9,20 +9,17 @@ async function main() {
         // The path to test runner
         const extensionTestsPath = path.resolve(__dirname, './suite/index');
 
-        // The workspace path for tests
-        const workspacePath = path.resolve(__dirname, '../../test-fixtures');
-
         // Download VS Code, unzip it and run the integration test
         await runTests({
+            version: '1.75.1',
             extensionDevelopmentPath,
             extensionTestsPath,
             launchArgs: [
-                workspacePath,
                 '--disable-extensions'
             ]
         });
     } catch (err) {
-        console.error('Failed to run tests');
+        console.error('Failed to run tests:', err);
         process.exit(1);
     }
 }

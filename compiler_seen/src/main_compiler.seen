@@ -10742,7 +10742,6 @@ fun isValidTranslateLanguage(lang: String) r: Int {
     if lang == "ru" { return 1 }
     if lang == "zh" { return 1 }
     if lang == "ja" { return 1 }
-    if lang == "fr" { return 1 }
     return 0
 }
 
@@ -10803,12 +10802,12 @@ fun translateCommand(argv: Array<String>) r: Int {
 
     if isValidTranslateLanguage(fromLang) == 0 {
         println("Error: Unsupported language '" + fromLang + "'")
-        println("Supported languages: en, ar, es, ru, zh, ja, fr")
+        println("Supported languages: en, ar, es, ru, zh, ja")
         return 1
     }
     if isValidTranslateLanguage(toLang) == 0 {
         println("Error: Unsupported language '" + toLang + "'")
-        println("Supported languages: en, ar, es, ru, zh, ja, fr")
+        println("Supported languages: en, ar, es, ru, zh, ja")
         return 1
     }
 

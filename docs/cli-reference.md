@@ -90,11 +90,13 @@ seen import-c <header.h>
 ```bash
 seen pkg fetch
 seen pkg pack
+seen pkg prebuild
 seen pkg publish ./registry-root
 ```
 
 - `seen pkg fetch` installs registry packages declared in `Seen.toml`
 - `seen pkg pack` creates a source archive for the current package
+- `seen pkg prebuild` emits a prebuilt artifact with `Seen.pkg.toml`, `objects.tsv`, and `interface.index.tsv`
 - `seen pkg publish` writes a static-registry index entry and archive into a local registry directory
 - static registries are served from a base URL or directory with `index/<package>.toml`
   and `archives/<package>/<package>-<version>.seenpkg.tgz`
@@ -104,7 +106,7 @@ seen pkg publish ./registry-root
 
 ```bash
 seen --version
-# Seen 0.6.0 (100% self-hosted)
+# Seen 0.8.0 (100% self-hosted)
 ```
 
 ## Optimization Flags

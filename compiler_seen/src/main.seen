@@ -183,7 +183,7 @@ fun main() r: Int {
     } else if command == "pkg" {
         exit = StagePkgCommand(GetRawCommandLineArgs())
     } else if command == "--version" or command == "-v" {
-        printLn("Seen 0.6.0 (100% self-hosted)")
+        printLn("Seen 0.8.0 (100% self-hosted)")
         printLn("Language: Seen")
         printLn("Targets: native, wasm, uww, c, llvm-ir")
         exit = 0
@@ -325,7 +325,7 @@ fun getDefaultOutput(sourceFile: String, target: Target) r: String {
 }
 
 fun printUsage() r: Void {
-    printLn("Seen 0.6.0 - 100% Self-hosted Compiler")
+    printLn("Seen 0.8.0 - 100% Self-hosted Compiler")
     printLn("")
     printLn("Usage: seen <command> [options]")
     printLn("")
@@ -337,7 +337,7 @@ fun printUsage() r: Void {
     printLn("  format <source.seen>          Format source code")
     printLn("  translate <file> --from <lang> --to <lang> [-o <out>]  Translate source")
     printLn("  import-c <header.h>           Generate extern bindings from C header")
-    printLn("  pkg <fetch|pack|publish>      Manage Seen source packages")
+    printLn("  pkg <fetch|pack|prebuild|publish>      Manage Seen source packages")
     printLn("  clean                         Remove build artifacts")
     printLn("  test                          Run test suite")
     printLn("  lsp                           Start language server")

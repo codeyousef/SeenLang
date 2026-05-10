@@ -4,6 +4,8 @@
 import * as vscode from 'vscode';
 import { spawn } from 'child_process';
 import * as path from 'path';
+import * as fs from 'fs';
+import * as os from 'os';
 
 export interface SeenError {
     code: string;
@@ -57,38 +59,65 @@ export class SeenDiagnosticProvider {
     }
     
     private async compileAndGetErrors(document: vscode.TextDocument): Promise<SeenError[]> {
+        const checkedPath = await this.prepareDocumentForCheck(document);
         return new Promise((resolve) => {
             const seenPath = vscode.workspace.getConfiguration('seen').get<string>('compiler.path', 'seen');
-            const args = ['check', '--json-errors', document.fileName];
+            const language = vscode.workspace.getConfiguration('seen').get<string>('language.default', 'en');
+            const args = ['check', checkedPath, '--language', language];
             
-            let errorOutput = '';
-            const process = spawn(seenPath, args, {
+            let output = '';
+            const child = spawn(seenPath, args, {
                 cwd: vscode.workspace.workspaceFolders?.[0].uri.fsPath
             });
             
-            process.stderr.on('data', (data) => {
-                errorOutput += data.toString();
+            child.stdout.on('data', (data) => {
+                output += data.toString();
+            });
+
+            child.stderr.on('data', (data) => {
+                output += data.toString();
+            });
+
+            child.on('error', (error) => {
+                output += `error: ${error.message}\n  --> ${checkedPath}:1:1\n`;
             });
             
-            process.on('close', () => {
+            child.on('close', () => {
                 try {
-                    const errors = JSON.parse(errorOutput) as SeenError[];
+                    const errors = JSON.parse(output) as SeenError[];
                     resolve(errors);
                 } catch {
                     // If not JSON, parse traditional error format as fallback
-                    resolve(this.parseTraditionalErrors(errorOutput));
+                    resolve(this.parseTraditionalErrors(output));
+                } finally {
+                    this.cleanupPreparedDocument(checkedPath, document.fileName);
                 }
             });
-            
-            // Send document content to stdin if file is unsaved
-            if (document.isDirty) {
-                process.stdin.write(document.getText());
-                process.stdin.end();
-            }
+        });
+    }
+
+    private async prepareDocumentForCheck(document: vscode.TextDocument): Promise<string> {
+        if (!document.isDirty) {
+            return document.fileName;
+        }
+
+        const tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'seen-vscode-check-'));
+        const tempPath = path.join(tempDir, path.basename(document.fileName));
+        await fs.promises.writeFile(tempPath, document.getText(), 'utf8');
+        return tempPath;
+    }
+
+    private cleanupPreparedDocument(checkedPath: string, originalPath: string): void {
+        if (checkedPath === originalPath) {
+            return;
+        }
+        fs.promises.rm(path.dirname(checkedPath), { recursive: true, force: true }).catch(() => {
+            // Best-effort cleanup only.
         });
     }
     
     private stripAnsi(text: string): string {
+        // eslint-disable-next-line no-control-regex
         return text.replace(/\x1b\[[0-9;]*m/g, '');
     }
 

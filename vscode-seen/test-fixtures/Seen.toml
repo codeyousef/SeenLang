@@ -1,6 +1,7 @@
-[package]
+[project]
 name = "test-project"
 version = "0.1.0"
+language = "en"
 edition = "2024"
 authors = ["Test Author <test@seen-lang.org>"]
 description = "Test project for VSCode extension testing"
@@ -12,10 +13,6 @@ description = "Test project for VSCode extension testing"
 [build]
 target = "native"
 optimization = "debug"
-
-[language]
-default = "en"
-available = ["en", "ar"]
 
 [reactive]
 enabled = true

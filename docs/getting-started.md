@@ -103,7 +103,7 @@ mathx = "0.1.0"
 [native.dependencies]
 ```
 
-The `language` field sets the keyword language. Options: `en`, `ar`, `es`, `ru`, `zh`, `fr`.
+The `language` field sets the keyword language. Options: `en`, `ar`, `es`, `ru`, `zh`, `ja`.
 
 ### A Bigger Example
 

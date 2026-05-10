@@ -1,6 +1,7 @@
 // src/extension.ts
 import * as vscode from 'vscode';
 import * as path from 'path';
+import * as cp from 'child_process';
 import { LanguageClient, LanguageClientOptions, ServerOptions, TransportKind } from 'vscode-languageclient/node';
 import { setupCommands } from './commands';
 import { SeenDebugAdapterFactory, registerDebugSupport } from './debugger';
@@ -282,7 +283,6 @@ export function deactivate(): Thenable<void> | undefined {
 }
 
 async function verifySeenInstallation(seenPath: string): Promise<void> {
-    const cp = require('child_process');
     return new Promise((resolve, reject) => {
         cp.exec(`"${seenPath}" --version`, (error: any, stdout: string) => {
             if (error) {
@@ -296,7 +296,6 @@ async function verifySeenInstallation(seenPath: string): Promise<void> {
 }
 
 async function checkSeenInPath(): Promise<boolean> {
-    const cp = require('child_process');
     return new Promise((resolve) => {
         cp.exec('seen --version', (error: any) => {
             resolve(!error);
@@ -332,6 +331,7 @@ class SeenTerminalLinkProvider implements vscode.TerminalLinkProvider {
         const line = context.line;
 
         // Strip ANSI escape codes for matching
+        // eslint-disable-next-line no-control-regex
         const clean = line.replace(/\x1b\[[0-9;]*m/g, '');
 
         // Match "  --> file:line:col" (Rust-style diagnostic)

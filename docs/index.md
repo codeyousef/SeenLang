@@ -14,7 +14,7 @@ fun main() {
 ## Key Features
 
 - **Self-hosted compiler** -- 62,000+ lines of Seen compiling itself
-- **Multi-language keywords** -- write code in English, Arabic, Spanish, Russian, Chinese, or French
+- **Multi-language keywords** -- write code in English, Arabic, Spanish, Russian, Chinese, or Japanese
 - **LLVM backend** -- ThinLTO, vectorization, aggressive inlining (1.0x--1.5x Rust performance)
 - **Region-based memory** -- no garbage collector
 - **Fast compilation** -- fork-parallel IR generation with content-addressed incremental caching
