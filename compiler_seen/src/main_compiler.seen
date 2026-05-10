@@ -144,11 +144,13 @@ import codegen.ir_simd_builtin_emit.{emitSimdBuiltinImpl}
 import codegen.ir_string_builder_cast_emit.{emitStringBuilderMethodImpl, emitCastExprImpl}
 import codegen.ir_special_expr_driver.{emitCastSpecialExpressionState, emitIsExpressionTestState, emitTryPropagateExpressionState}
 import codegen.ir_control_flow.{detectMemcpyPatternImpl}
+import codegen.ir_forin_emit.{emitForInElementFetchImpl, emitForInPrefetchImpl, emitForInIncrementImpl, emitStringForInElementImpl}
 import codegen.ir_loop_context.{appendLoopTileHintImpl, appendLoopMetadataIdImpl, enterLoopContextImpl, restoreLoopContextImpl, emitLoopEndLabelImpl, emitContinueStatementImpl, emitBreakStatementImpl, emitLoopMetadataImpl}
 import codegen.ir_loop_metadata_driver.{appendLoopTileHint, appendNestedLoopMetadataId, appendReductionLoopMetadataId}
 import codegen.ir_loop_plan.{planMemcpyOptimizedWhileLoopImpl, iteratorProtocolFunctionNameImpl, isRangeForInIterableImpl}
 import codegen.ir_forin_iterator_driver.{tryEmitIteratorProtocolForInLoopState}
-import codegen.ir_loop_statement_driver.{generateWhileStatementState, generateForInStatementState}
+import codegen.ir_loop_statement_driver.{generateWhileStatementState}
+import codegen.ir_forin_statement_driver.{generateForInStatementState}
 import codegen.ir_call_constructors.{emitStaticCollectionNewImpl, isArrayConstructorNameImpl, resolveArrayConstructorElementTypeImpl, resolveArrayConstructorElementSizeImpl, isSmallVecConstructorNameImpl, isCollectionConstructorNameImpl, emitCollectionConstructorImpl}
 import codegen.ir_call_args.{fillDefaultParamsImpl}
 import codegen.ir_call_args_driver.{prepareCallArgumentsWithDefaultsState}
@@ -260,6 +262,7 @@ import codegen.ir_member_access_driver.{generateFieldAccessState, generateExpres
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
 import codegen.ir_binary_expr.{binaryOperatorMethodSuffixImpl, isSimdBinaryOperatorImpl, shouldUseFmaForOperandTypesImpl, buildBinaryFoldLogValueImpl}
 import codegen.ir_binary_emit.{emitPreparedPointerArithmeticBinaryImpl, emitPreparedSimdBinaryExprImpl, emitPreparedSelfComparisonConstResultImpl, emitPreparedIntPeepholeBinaryActionImpl, emitPreparedAssociativeIntFoldResultImpl, emitPreparedFoldedBoolLiteralBinaryResultImpl, emitPreparedFoldedIntLiteralBinaryResultImpl, emitPreparedFloatPeepholeBinaryActionImpl, emitPreparedFmaTripleCallImpl, emitPreparedOverloadedBinaryCallImpl, emitPreparedCoreBinaryOpImpl, tryLookupPreparedBinaryCseImpl, recordPreparedBinaryCseImpl}
+import codegen.ir_binary_operand_driver.{lowerBinaryOperandState, generateFlattenedStringConcatState}
 import codegen.ir_binary_driver.{generateBinaryState}
 import codegen.ir_binary_tail_driver.{emitPreparedBinaryTailState}
 import codegen.ir_binary_plan.{shouldTryPointerArithmeticBinaryImpl, shouldTrySimdBinaryGateImpl, shouldUseIntPeepholeGateImpl, shouldUseFloatPeepholeGateImpl, shortCircuitBinaryActionImpl, shouldTryBinaryOverloadImpl}
@@ -4445,9 +4448,11 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_loop_context")
         modules.push("codegen.ir_loop_metadata_driver")
         modules.push("codegen.ir_control_flow")
+        modules.push("codegen.ir_forin_emit")
         modules.push("codegen.ir_loop_plan")
         modules.push("codegen.ir_forin_iterator_driver")
         modules.push("codegen.ir_loop_statement_driver")
+        modules.push("codegen.ir_forin_statement_driver")
         modules.push("codegen.ir_call_constructors")
         modules.push("codegen.ir_call_args")
         modules.push("codegen.ir_call_args_driver")
@@ -4581,6 +4586,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_return_type_driver")
         modules.push("codegen.ir_binary_expr")
         modules.push("codegen.ir_binary_emit")
+        modules.push("codegen.ir_binary_operand_driver")
         modules.push("codegen.ir_binary_driver")
         modules.push("codegen.ir_binary_tail_driver")
         modules.push("codegen.ir_binary_plan")

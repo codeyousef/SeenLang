@@ -6,21 +6,19 @@ import codegen.ir_binary_emit.{emitPreparedPointerArithmeticBinaryImpl, emitPrep
 import codegen.ir_binary_expr.{isSimdBinaryOperatorImpl, shouldUseFmaForOperandTypesImpl, buildSelfComparisonLogValueImpl, buildBinaryFoldLogValueImpl}
 import codegen.ir_binary_fold_plan.{planBinaryOperandLiteralFactsImpl, isBinaryIntLiteralOperandImpl, planBinaryFoldActionImpl, shouldTryBinaryAssociativeIntFoldImpl, binaryAssociativeIntFoldRewriteCostImpl, shouldApplyBinaryAssociativeIntFoldImpl, planBinaryLiteralComparisonFoldImpl, planBinaryLiteralConstantFoldImpl, planBinaryFloatPeepholeImpl, planBinaryFoldFmaImpl}
 import codegen.ir_binary_membership.{inferDeclaredMembershipElementTypeImpl, shouldInferMembershipArrayLiteralElementImpl, membershipPendingArrayLiteralTypeImpl, membershipNeedleWarningImpl, membershipUnsupportedSetWarningImpl, emitPreparedMembershipContainsImpl}
+import codegen.ir_binary_operand_driver.{lowerBinaryOperandState, generateFlattenedStringConcatState}
 import codegen.ir_binary_plan.{shouldTryPointerArithmeticBinaryImpl, shouldTrySimdBinaryGateImpl, shouldUseIntPeepholeGateImpl, shouldUseFloatPeepholeGateImpl, shortCircuitBinaryActionImpl}
 import codegen.ir_binary_short_circuit_driver.{generateShortCircuitAndState, generateShortCircuitOrState}
 import codegen.ir_binary_tail_driver.{emitPreparedBinaryTailState}
 import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl}
 import codegen.ir_codegen_global_state.{getPendingArrayLiteralTypeWithGlobalStateImpl, setPendingArrayLiteralTypeWithGlobalStateImpl}
-import codegen.ir_codegen_state.{getSharedCodegenState}
 import codegen.ir_codegen_type_state.{mapTypeState}
 import codegen.ir_egraph_rules.{egraphLookup, egraphLookupFloat, egraphSelfComparison}
-import codegen.ir_literal_gen.{generateLiteralFree}
-import codegen.ir_lowering_context.{CodegenLoweringContext, lowerExpressionInto, inferLoweredExpressionType, lowerCallExpression, prepareLoweredCallArgumentsWithDefaults, lowerEnumConstructor, resetLoweringGenerator, resetLoweringSharedModuleScratch, syncLoweringState, writeBackLoweringState, lowerProgramClasses, lowerProgramTopLevelFunctions, lowerPlainLargeClass, lowerClassNode, lowerFunctionNode, lowerClassMethodFromList, setLowerCurrentClassParentName, resetLoweringLocalCodegenState, collectLoweringVariableDeclarations, clearLoweringActiveBindings, lowerBlock, lowerStatement, isLoweringBlockTerminated, beginLoweringNestedScratch, restoreLoweringNestedScratch, currentLoweringFunctionOptions}
+import codegen.ir_lowering_context.{CodegenLoweringContext, inferLoweredExpressionType, lowerCallExpression, prepareLoweredCallArgumentsWithDefaults, lowerEnumConstructor, resetLoweringGenerator, resetLoweringSharedModuleScratch, lowerProgramClasses, lowerProgramTopLevelFunctions, lowerPlainLargeClass, lowerClassNode, lowerFunctionNode, lowerClassMethodFromList, setLowerCurrentClassParentName, resetLoweringLocalCodegenState, collectLoweringVariableDeclarations, clearLoweringActiveBindings, lowerBlock, lowerStatement, isLoweringBlockTerminated, beginLoweringNestedScratch, restoreLoweringNestedScratch, currentLoweringFunctionOptions}
 import codegen.ir_ml_logging.{mlLogDecision}
-import codegen.ir_optimization.{foldIntConstants, foldIntComparison, exprCost, getNextRegFn}
+import codegen.ir_optimization.{foldIntConstants, foldIntComparison, exprCost}
 import codegen.ir_simd_type_helpers.{isSimdVectorTypeImpl}
-import codegen.ir_string_concat_emit.{isStringConcatTypePairImpl, exprHasStringConcatMarkerImpl, coerceStringConcatPieceRegImpl}
-import codegen.ir_variable_driver.{generateVariableState}
+import codegen.ir_string_concat_emit.{isStringConcatTypePairImpl}
 
 class BinaryDriverResult {
     var resultReg: String
@@ -62,26 +60,6 @@ fun inferMembershipElementTypeState(ctx: CodegenLoweringContext,
         return inferLoweredExpressionType(ctx, rightExpr.arguments[0])
     }
     return ""
-}
-
-fun lowerBinaryOperandState(ctx: CodegenLoweringContext,
-    output: StringBuilder, expr: ParserExpressionNode,
-    varNames: Array<String>, varRegs: Array<String>,
-    varTypes: Array<String>, stringConstants: Array<String>) r: String {
-
-    if expr.kind == "Variable" or expr.kind == "VarExpr" {
-        return generateVariableState(output, varNames, varRegs, varTypes,
-            expr)
-    }
-    if expr.kind == "Literal" {
-        syncLoweringState(ctx)
-        let litState = getSharedCodegenState()
-        let litReg = generateLiteralFree(litState, expr)
-        writeBackLoweringState(ctx)
-        return litReg
-    }
-    return lowerExpressionInto(ctx, output, expr, varNames, varRegs,
-        varTypes, stringConstants)
 }
 
 fun generateMembershipArrayRegState(ctx: CodegenLoweringContext,
@@ -126,62 +104,6 @@ fun generateMembershipExpressionState(ctx: CodegenLoweringContext,
         elementType, varNames, varRegs, varTypes, stringConstants)
     return emitPreparedMembershipContainsImpl(output, getFeatureRegBoxImpl(),
         elementType, leftReg, rightReg)
-}
-
-fun collectStringConcatPiecesState(ctx: CodegenLoweringContext,
-    expr: ParserExpressionNode, pieces: Array<ParserExpressionNode>,
-    pieceTypes: Array<String>, forceFlatten: Bool) r: Void {
-
-    if expr.kind == "Binary" and expr.operator == "+" and
-        expr.operands.length() >= 2 {
-
-        var shouldFlatten = forceFlatten
-        if not shouldFlatten {
-            shouldFlatten = exprHasStringConcatMarkerImpl(expr)
-        }
-        if shouldFlatten {
-            collectStringConcatPiecesState(ctx, expr.operands[0], pieces,
-                pieceTypes, false)
-            collectStringConcatPiecesState(ctx, expr.operands[1], pieces,
-                pieceTypes, false)
-            return
-        }
-    }
-    pieces.push(expr)
-    pieceTypes.push(inferLoweredExpressionType(ctx, expr))
-}
-
-fun generateFlattenedStringConcatState(ctx: CodegenLoweringContext,
-    output: StringBuilder, expr: ParserExpressionNode,
-    varNames: Array<String>, varRegs: Array<String>,
-    varTypes: Array<String>, stringConstants: Array<String>) r: String {
-
-    var pieces = Array<ParserExpressionNode>()
-    var pieceTypes = Array<String>()
-    collectStringConcatPiecesState(ctx, expr, pieces, pieceTypes, true)
-    if pieces.length() == 0 {
-        return ""
-    }
-
-    var pieceIdx = 0
-    var resultReg: String = ""
-    while pieceIdx < pieces.length() {
-        let pieceReg = lowerBinaryOperandState(ctx, output, pieces[pieceIdx],
-            varNames, varRegs, varTypes, stringConstants)
-        let pieceStrReg = coerceStringConcatPieceRegImpl(output,
-            getFeatureRegBoxImpl(), pieceReg, pieceTypes[pieceIdx])
-        if pieceIdx == 0 {
-            resultReg = pieceStrReg
-        } else {
-            let concatReg = getNextRegFn(getFeatureRegBoxImpl())
-            output.append("  " + concatReg +
-                " = call %SeenString @seen_str_concat_ss(%SeenString " +
-                resultReg + ", %SeenString " + pieceStrReg + ")\n")
-            resultReg = concatReg
-        }
-        pieceIdx = pieceIdx + 1
-    }
-    return resultReg
 }
 
 fun generateBinaryState(ctx: CodegenLoweringContext,

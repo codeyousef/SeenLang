@@ -3,24 +3,22 @@
 import parser.real_parser.{StatementNode, ParserExpressionNode}
 import str.string.{StringBuilder}
 import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl, getFeatureBlockBoxImpl}
-import codegen.ir_codegen_global_state.{getBoundedActiveVarCountWithGlobalStateImpl, setActiveVarCountWithGlobalStateImpl, getBlockTerminatedWithGlobalStateImpl, setBlockTerminatedWithGlobalStateImpl, getCurrentLoopCondLabelWithGlobalStateImpl, setCurrentLoopCondLabelWithGlobalStateImpl, getCurrentLoopEndLabelWithGlobalStateImpl, setCurrentLoopEndLabelWithGlobalStateImpl, resolveFunctionBodyForInLoopVariableStorageWithGlobalStateImpl, resolveFunctionBodyForInIndexAllocaWithGlobalStateImpl, getGlobalFuncNamesImpl, getGlobalFuncRetTypesImpl}
+import codegen.ir_codegen_global_state.{getBoundedActiveVarCountWithGlobalStateImpl, getBlockTerminatedWithGlobalStateImpl, setBlockTerminatedWithGlobalStateImpl, getCurrentLoopCondLabelWithGlobalStateImpl, setCurrentLoopCondLabelWithGlobalStateImpl, getCurrentLoopEndLabelWithGlobalStateImpl, setCurrentLoopEndLabelWithGlobalStateImpl, getGlobalFuncNamesImpl, getGlobalFuncRetTypesImpl}
 import codegen.ir_codegen_metrics_state.{cseClear, g_inductionVarName}
 import codegen.ir_codegen_module_state.{findModuleConstantWithModuleStateImpl, isModuleConstMutableWithModuleStateImpl}
 import codegen.ir_codegen_state.{getSharedCodegenState}
 import codegen.ir_codegen_type_state.{mapTypeState}
-import codegen.ir_control_flow.{emitForInElementFetchImpl, emitForInPrefetchImpl, emitForInIncrementImpl, detectLoopBoundImpl, computeLoopTileSizeImpl, detectReductionPatternImpl, detectInductionVarImpl, detectBreakOnFlagImpl, detectNestedLoopImpl, detectGcdPatternImpl, emitWhileConditionBranchImpl, emitStringForInElementImpl, emitMemcpyLoopExitBlocksImpl}
+import codegen.ir_control_flow.{detectLoopBoundImpl, computeLoopTileSizeImpl, detectReductionPatternImpl, detectInductionVarImpl, detectBreakOnFlagImpl, detectNestedLoopImpl, detectGcdPatternImpl, emitWhileConditionBranchImpl, emitMemcpyLoopExitBlocksImpl}
 import codegen.ir_field_layout.{emitSeenArrayLengthLoadImpl}
-import codegen.ir_forin_iterator_driver.{tryEmitIteratorProtocolForInLoopState}
 import codegen.ir_function_body.{beginFunctionBodyLoopContextImpl, restoreFunctionBodyLoopContextImpl, emitFunctionBodyLoopEndLabelImpl, emitFunctionBodyMemcpyOptimizedLoopImpl}
 import codegen.ir_literal_gen.{generateLiteralFree}
 import codegen.ir_loop_metadata_driver.{appendLoopTileHint, appendNestedLoopMetadataId, appendReductionLoopMetadataId}
-import codegen.ir_loop_plan.{planMemcpyOptimizedWhileLoopImpl, iteratorProtocolFunctionNameImpl, planIteratorProtocolForInLoopImpl, isRangeForInIterableImpl}
+import codegen.ir_loop_plan.{planMemcpyOptimizedWhileLoopImpl, iteratorProtocolFunctionNameImpl, planIteratorProtocolForInLoopImpl}
 import codegen.ir_lowering_context.{CodegenLoweringContext, lowerExpression, lowerExpressionInto, inferLoweredExpressionType, lowerCallExpression, prepareLoweredCallArgumentsWithDefaults, lowerEnumConstructor, resetLoweringGenerator, resetLoweringSharedModuleScratch, syncLoweringState, writeBackLoweringState, lowerProgramClasses, lowerProgramTopLevelFunctions, lowerPlainLargeClass, lowerClassNode, lowerFunctionNode, lowerClassMethodFromList, setLowerCurrentClassParentName, resetLoweringLocalCodegenState, collectLoweringVariableDeclarations, clearLoweringActiveBindings, lowerBlock, lowerStatement, isLoweringBlockTerminated, beginLoweringNestedScratch, restoreLoweringNestedScratch, currentLoweringFunctionOptions}
 import codegen.ir_ml_logging.{mlLogDecision}
 import codegen.ir_optimization.{getNextRegFn}
-import codegen.ir_stmt_gen.{emitIndexedForLoopHeaderImpl}
 import codegen.ir_type_ops_comparison.{emitComparisonBinaryOpImpl}
-import codegen.ir_variable_gen.{emitLocalVariableLoadImpl, findActiveVariableIndexImpl, storeActiveVariableBindingImpl}
+import codegen.ir_variable_gen.{emitLocalVariableLoadImpl, findActiveVariableIndexImpl}
 import codegen.ir_decl_registry.{getFunctionReturnTypeStateImpl}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
 
@@ -462,138 +460,4 @@ fun generateWhileStatementState(ctx: CodegenLoweringContext,
 
     return LoopStatementDriverResult.new(newLoopsOptimized,
         newReductionChains, savedInductionVarName)
-}
-
-fun generateForInStatementState(ctx: CodegenLoweringContext,
-    output: StringBuilder, stmt: StatementNode, varNames: Array<String>,
-    varRegs: Array<String>, varTypes: Array<String>) r: Void {
-
-    let loopContext = beginFunctionBodyLoopContextImpl(getFeatureBlockBoxImpl(),
-        getCurrentLoopCondLabelWithGlobalStateImpl(),
-        getCurrentLoopEndLabelWithGlobalStateImpl())
-    setCurrentLoopCondLabelWithGlobalStateImpl(loopContext.currentCondLabel)
-    setCurrentLoopEndLabelWithGlobalStateImpl(loopContext.currentEndLabel)
-    let savedForInVarCount =
-        getBoundedActiveVarCountWithGlobalStateImpl(varNames)
-
-    let loopVarName = stmt.variableName
-    var resolvedLoopVarType = inferLoweredExpressionType(ctx,
-        ParserExpressionNode{kind: "Variable", literalValue: loopVarName})
-    if resolvedLoopVarType == "" {
-        resolvedLoopVarType = "Int"
-    }
-    let loopVarStorage =
-        resolveFunctionBodyForInLoopVariableStorageWithGlobalStateImpl(
-        output, getFeatureRegBoxImpl(), loopVarName, resolvedLoopVarType,
-        mapTypeState(resolvedLoopVarType))
-    let loopVarType = loopVarStorage.seenType
-    let loopVarReg = loopVarStorage.storageReg
-    let forInIterable = stmt.expression
-
-    if isRangeForInIterableImpl(forInIterable.kind) {
-        let startReg = lowerExpression(ctx, forInIterable.operands[0])
-        let endReg = lowerExpression(ctx, forInIterable.operands[1])
-        let idxReg = resolveFunctionBodyForInIndexAllocaWithGlobalStateImpl(
-            output, getFeatureRegBoxImpl(), "__forin_idx_" + loopVarName)
-        setActiveVarCountWithGlobalStateImpl(storeActiveVariableBindingImpl(
-            varNames, varRegs, varTypes,
-            getBoundedActiveVarCountWithGlobalStateImpl(varNames),
-            loopVarName, loopVarReg, loopVarType))
-        cseClear()
-        emitIndexedForLoopHeaderImpl(output, getFeatureRegBoxImpl(),
-            startReg, endReg, loopVarReg, idxReg, loopContext.condLabel,
-            loopContext.bodyLabel, loopContext.endLabel)
-        cseClear()
-        setBlockTerminatedWithGlobalStateImpl(false)
-        lowerBlock(ctx, stmt.loopBody)
-        if not getBlockTerminatedWithGlobalStateImpl() {
-            emitForInIncrementImpl(output, getFeatureRegBoxImpl(), idxReg,
-                loopContext.condLabel, loopContext.loopMetaIdStr)
-        }
-    } else {
-        let iterableType = inferLoweredExpressionType(ctx, forInIterable)
-        if tryEmitIteratorProtocolForInLoopState(ctx, output, stmt,
-            loopVarName, loopVarType, loopVarReg, forInIterable,
-            iterableType, loopContext.condLabel, loopContext.bodyLabel,
-            loopContext.endLabel, varNames, varRegs, varTypes) {
-
-            emitFunctionBodyLoopEndLabelImpl(output, loopContext.endLabel)
-            cseClear()
-            setBlockTerminatedWithGlobalStateImpl(false)
-            setActiveVarCountWithGlobalStateImpl(savedForInVarCount)
-            let restoredLoopContext = restoreFunctionBodyLoopContextImpl(
-                getCurrentLoopCondLabelWithGlobalStateImpl(),
-                getCurrentLoopEndLabelWithGlobalStateImpl(),
-                loopContext.savedCondLabel, loopContext.savedEndLabel)
-            setCurrentLoopCondLabelWithGlobalStateImpl(
-                restoredLoopContext.currentCondLabel)
-            setCurrentLoopEndLabelWithGlobalStateImpl(
-                restoredLoopContext.currentEndLabel)
-            return
-        }
-        let arrReg = lowerExpression(ctx, forInIterable)
-        let iterType = iterableType
-        var elementType: String = "Int"
-        if iterType.startsWith("Array<") {
-            elementType = iterType.substring(6, iterType.length() - 1)
-        }
-        var lenReg: String = ""
-        if iterType == "String" {
-            lenReg = getNextRegFn(getFeatureRegBoxImpl())
-            var arrStrReg = arrReg
-            if arrReg == "0" {
-                arrStrReg = "zeroinitializer"
-            }
-            output.append("  " + lenReg +
-                " = call i64 @seen_length(%SeenString " + arrStrReg + ")\n")
-        } else {
-            lenReg = emitSeenArrayLengthLoadImpl(output, getFeatureRegBoxImpl(),
-                arrReg, ", !tbaa !108, !range !188")
-        }
-        let idxReg = resolveFunctionBodyForInIndexAllocaWithGlobalStateImpl(
-            output, getFeatureRegBoxImpl(), "__forin_idx_" + loopVarName)
-        setActiveVarCountWithGlobalStateImpl(storeActiveVariableBindingImpl(
-            varNames, varRegs, varTypes,
-            getBoundedActiveVarCountWithGlobalStateImpl(varNames),
-            loopVarName, loopVarReg, loopVarType))
-        cseClear()
-        let loadIdx = emitIndexedForLoopHeaderImpl(output,
-            getFeatureRegBoxImpl(), "0", lenReg, "", idxReg,
-            loopContext.condLabel, loopContext.bodyLabel,
-            loopContext.endLabel)
-        cseClear()
-        setBlockTerminatedWithGlobalStateImpl(false)
-        if iterType == "String" {
-            emitStringForInElementImpl(output, getFeatureRegBoxImpl(),
-                arrReg, loadIdx, loopVarReg)
-        } else {
-            var isString = 0
-            var isFloat = 0
-            if elementType == "String" { isString = 1 }
-            if elementType == "Float" { isFloat = 1 }
-            emitForInElementFetchImpl(output, getFeatureRegBoxImpl(), arrReg,
-                loadIdx, loopVarReg, elementType, isString, isFloat)
-            emitForInPrefetchImpl(output, getFeatureRegBoxImpl(),
-                getFeatureBlockBoxImpl(), arrReg, loadIdx, lenReg,
-                elementType)
-        }
-        lowerBlock(ctx, stmt.loopBody)
-        if not getBlockTerminatedWithGlobalStateImpl() {
-            emitForInIncrementImpl(output, getFeatureRegBoxImpl(), idxReg,
-                loopContext.condLabel, loopContext.loopMetaIdStr)
-        }
-    }
-
-    emitFunctionBodyLoopEndLabelImpl(output, loopContext.endLabel)
-    cseClear()
-    setBlockTerminatedWithGlobalStateImpl(false)
-    setActiveVarCountWithGlobalStateImpl(savedForInVarCount)
-    let restoredLoopContext = restoreFunctionBodyLoopContextImpl(
-        getCurrentLoopCondLabelWithGlobalStateImpl(),
-        getCurrentLoopEndLabelWithGlobalStateImpl(),
-        loopContext.savedCondLabel, loopContext.savedEndLabel)
-    setCurrentLoopCondLabelWithGlobalStateImpl(
-        restoredLoopContext.currentCondLabel)
-    setCurrentLoopEndLabelWithGlobalStateImpl(
-        restoredLoopContext.currentEndLabel)
 }
