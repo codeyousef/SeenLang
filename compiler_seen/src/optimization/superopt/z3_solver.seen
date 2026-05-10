@@ -9,7 +9,7 @@ class Z3Solver {
     var queriesRun: Int
     var equivalencesFound: Int
 
-    fun new() r: Z3Solver {
+    static fun new() r: Z3Solver {
         // Initialize with boundary test values
         var inputs = Array<Int>()
         inputs.push(0)

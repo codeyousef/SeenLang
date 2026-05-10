@@ -12,7 +12,7 @@ class RewriteRule {
     let constArg: Int       // which child must be a constant (-1 if none)
     let constValue: String  // required constant value (e.g., "0", "1")
 
-    fun new(name: String, lhsOp: String, rhsOp: String, lhsArity: Int, constArg: Int, constValue: String) r: RewriteRule {
+    static fun new(name: String, lhsOp: String, rhsOp: String, lhsArity: Int, constArg: Int, constValue: String) r: RewriteRule {
         return RewriteRule{
             name: name,
             lhsOp: lhsOp,
@@ -26,7 +26,7 @@ class RewriteRule {
 
 // Legacy compatibility alias
 class RewriteRuleEngine {
-    fun new() r: RewriteRuleEngine {
+    static fun new() r: RewriteRuleEngine {
         return RewriteRuleEngine{}
     }
 

@@ -9,7 +9,7 @@ class ENode {
     let op: String              // operation name (e.g., "add", "mul", "const_0")
     let children: Array<Int>    // e-class ids of children
 
-    fun new(op: String, children: Array<Int>) r: ENode {
+    static fun new(op: String, children: Array<Int>) r: ENode {
         return ENode{
             op: op,
             children: children
@@ -54,7 +54,7 @@ class EGraph {
     var numNodes: Int
     var dirty: Bool                   // needs rebuild?
 
-    fun new() r: EGraph {
+    static fun new() r: EGraph {
         return EGraph{
             parents: Array<Int>(),
             ranks: Array<Int>(),

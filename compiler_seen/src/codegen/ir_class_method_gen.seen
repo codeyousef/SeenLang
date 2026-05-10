@@ -344,6 +344,15 @@ fun classMethodBlockHasExplicitReturnImpl(block: BlockNode) r: Bool {
 fun classMethodNewUsesExplicitFactoryReturnImpl(methods: Array<FunctionNode>,
     methodIdx: Int) r: Bool {
 
+    ///
+    Bootstrap safety: older stage compilers can materialize partially
+    initialized nested expression arrays for large constructor bodies (notably
+    RealParser.new). The recursive `this` scan is only used to skip an implicit
+    constructor allocation, so keep the conservative allocation path instead of
+    walking potentially invalid expression arrays during self-host rebuilds.
+    ///
+    return false
+
     let method = methods[methodIdx]
     if not classMethodBlockHasExplicitReturnImpl(method.body) {
         return false

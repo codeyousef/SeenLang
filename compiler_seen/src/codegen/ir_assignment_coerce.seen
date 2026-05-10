@@ -2,6 +2,7 @@
 
 import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_type_mapping.{isClassTypeImpl, isDataTypeImpl, isClassHandleLikeTypeImpl}
+import codegen.ir_literal_gen.{normalizeDoubleLiteralForLlvmImpl}
 import str.string.{StringBuilder}
 
 fun mapAssignmentSourceValueTypeCoreImpl(sourceSeenType: String,
@@ -73,7 +74,8 @@ fun coerceAssignmentStoreValueCoreImpl(output: StringBuilder, regBox: Array<Int>
     }
     if targetLlvmType == "i64" and sourceLlvmType == "double" {
         let coercedReg = getNextRegFn(regBox)
-        output.append("  " + coercedReg + " = fptosi double " + valueReg +
+        let doubleValue = normalizeDoubleLiteralForLlvmImpl(valueReg)
+        output.append("  " + coercedReg + " = fptosi double " + doubleValue +
             " to i64\n")
         return coercedReg
     }
@@ -100,7 +102,8 @@ fun coerceAssignmentStoreValueCoreImpl(output: StringBuilder, regBox: Array<Int>
     }
     if targetLlvmType == "i1" and sourceLlvmType == "double" {
         let coercedReg = getNextRegFn(regBox)
-        output.append("  " + coercedReg + " = fcmp one double " + valueReg +
+        let doubleValue = normalizeDoubleLiteralForLlvmImpl(valueReg)
+        output.append("  " + coercedReg + " = fcmp one double " + doubleValue +
             ", 0.0\n")
         return coercedReg
     }

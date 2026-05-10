@@ -47,8 +47,10 @@ fun generateForInStatementState(ctx: CodegenLoweringContext,
         getBoundedActiveVarCountWithGlobalStateImpl(varNames)
 
     let loopVarName = stmt.variableName
-    var resolvedLoopVarType = inferLoweredExpressionType(ctx,
-        ParserExpressionNode{kind: "Variable", literalValue: loopVarName})
+    let loopVarExpr = ParserExpressionNode.new()
+    loopVarExpr.kind = "Variable"
+    loopVarExpr.literalValue = loopVarName
+    var resolvedLoopVarType = inferLoweredExpressionType(ctx, loopVarExpr)
     if resolvedLoopVarType == "" {
         resolvedLoopVarType = "Int"
     }

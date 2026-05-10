@@ -60,7 +60,7 @@ class LexerError {
     var position: Position
     var character: String
 
-    fun new(message: String, position: Position, character: String) r: LexerError {
+    static fun new(message: String, position: Position, character: String) r: LexerError {
         let err = LexerError()
         err.message = message
         err.position = position

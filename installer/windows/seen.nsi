@@ -50,7 +50,7 @@ VIAddVersionKey "LegalCopyright" "MIT License"
 !define MUI_WELCOMEPAGE_TITLE "Welcome to ${PRODUCT_NAME} Setup"
 !define MUI_WELCOMEPAGE_TEXT "This will install the Seen compiler and toolchain.$\r$\n$\r$\nSeen supports keywords in 6 languages: English, Arabic, Spanish, Russian, Chinese, Japanese.$\r$\n$\r$\nClick Next to continue."
 !define MUI_FINISHPAGE_TITLE "Installation Complete"
-!define MUI_FINISHPAGE_TEXT "Open a new terminal and run:$\r$\n  seen compile hello.seen hello --fast$\r$\n$\r$\nLLVM is required for compilation:$\r$\n  winget install LLVM.LLVM"
+!define MUI_FINISHPAGE_TEXT "Open a new terminal and run:$\r$\n  seen compile hello.seen hello --fast$\r$\n$\r$\nSeen installed the compiler, standard library, runtime files, language files, and toolchain support."
 
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_LICENSE "../../LICENSE"
@@ -69,6 +69,7 @@ Section "!Seen Compiler (required)" SEC_COMPILER
   SectionIn RO
   SetOutPath "$INSTDIR\bin"
   File "${SOURCE_DIR}/bin/seen.exe"
+  File /nonfatal "${SOURCE_DIR}/bin/seen-env.cmd"
   SetOutPath "$INSTDIR"
   File "${SOURCE_DIR}/README.txt"
   File /oname=LICENSE.txt "../../LICENSE"
@@ -93,16 +94,42 @@ Section "!Seen Compiler (required)" SEC_COMPILER
   WriteRegDWORD HKLM "${UNINST_KEY}" "NoRepair" 1
 SectionEnd
 
+Section "LLVM Toolchain" SEC_TOOLCHAIN
+  SetOutPath "$INSTDIR\lib\seen\toolchain"
+  File /nonfatal "${SOURCE_DIR}/lib/seen/toolchain/install-llvm.ps1"
+  File /nonfatal "${SOURCE_DIR}/lib/seen/toolchain/manifest.env"
+  File /nonfatal "${SOURCE_DIR}/lib/seen/toolchain/llvm-installer.exe"
+  !if /FileExists "${SOURCE_DIR}/lib/seen/toolchain/llvm/bin/clang.exe"
+    SetOutPath "$INSTDIR\lib\seen\toolchain\llvm"
+    File /r "${SOURCE_DIR}/lib/seen/toolchain/llvm/*.*"
+  !endif
+SectionEnd
+
+Section "Managed LLVM Install" SEC_LLVM_MANAGED
+  IfFileExists "$INSTDIR\lib\seen\toolchain\llvm\bin\clang.exe" managed_done 0
+  IfFileExists "$INSTDIR\lib\seen\toolchain\llvm-installer.exe" 0 check_ps_helper
+    ExecWait '"$INSTDIR\lib\seen\toolchain\llvm-installer.exe" /S'
+    Goto managed_done
+  check_ps_helper:
+  IfFileExists "$INSTDIR\lib\seen\toolchain\install-llvm.ps1" 0 managed_done
+    nsExec::ExecToLog 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\lib\seen\toolchain\install-llvm.ps1"'
+  managed_done:
+SectionEnd
+
 Section "Add to system PATH" SEC_PATH
   ; Append $INSTDIR\bin to system PATH
   ReadRegStr $0 HKLM "${ENV_KEY}" "Path"
+  StrCpy $1 "$INSTDIR\bin"
+  IfFileExists "$INSTDIR\lib\seen\toolchain\llvm\bin\clang.exe" 0 no_bundled_toolchain_path
+    StrCpy $1 "$1;$INSTDIR\lib\seen\toolchain\llvm\bin"
+  no_bundled_toolchain_path:
   ${If} $0 == ""
-    WriteRegExpandStr HKLM "${ENV_KEY}" "Path" "$INSTDIR\bin"
+    WriteRegExpandStr HKLM "${ENV_KEY}" "Path" "$1"
   ${Else}
-    WriteRegExpandStr HKLM "${ENV_KEY}" "Path" "$0;$INSTDIR\bin"
+    WriteRegExpandStr HKLM "${ENV_KEY}" "Path" "$0;$1"
   ${EndIf}
   ; Save our bin path for uninstaller
-  WriteRegStr HKLM "${REG_KEY}" "AddedToPath" "$INSTDIR\bin"
+  WriteRegStr HKLM "${REG_KEY}" "AddedToPath" "$1"
   ; Broadcast environment change
   SendMessage ${HWND_BROADCAST} ${WM_WININICHANGE} 0 "STR:Environment" /TIMEOUT=500
 SectionEnd
@@ -143,6 +170,8 @@ SectionEnd
 ; Component descriptions
 !insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
   !insertmacro MUI_DESCRIPTION_TEXT ${SEC_COMPILER}  "The Seen compiler (seen.exe). Required."
+  !insertmacro MUI_DESCRIPTION_TEXT ${SEC_TOOLCHAIN} "Bundled LLVM toolchain payload or managed installer helper."
+  !insertmacro MUI_DESCRIPTION_TEXT ${SEC_LLVM_MANAGED} "Install LLVM automatically when a bundled payload is not present."
   !insertmacro MUI_DESCRIPTION_TEXT ${SEC_PATH}       "Add Seen to system PATH for terminal access."
   !insertmacro MUI_DESCRIPTION_TEXT ${SEC_RUNTIME}    "C runtime headers for FFI development."
   !insertmacro MUI_DESCRIPTION_TEXT ${SEC_STDLIB}     "Standard library: collections, io, sync, async, SIMD, GPU, JSON, FFI."

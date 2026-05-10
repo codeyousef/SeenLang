@@ -4,7 +4,7 @@ Assigns real instruction costs for optimal code selection
 ///
 
 class CostModel {
-    fun new() r: CostModel {
+    static fun new() r: CostModel {
         return CostModel{}
     }
 

@@ -1,6 +1,7 @@
 # Seen Language Documentation
 
-Seen is a self-hosted systems programming language with multi-language keywords, region-based memory management, and LLVM-powered compilation.
+Seen is a self-hosted systems programming language with multi-language keywords,
+package support, region-oriented runtime APIs, and LLVM-powered compilation.
 
 ```seen
 fun main() {
@@ -13,14 +14,12 @@ fun main() {
 
 ## Key Features
 
-- **Self-hosted compiler** -- 62,000+ lines of Seen compiling itself
+- **Self-hosted compiler** -- the compiler is written in Seen and verified through staged bootstrap
 - **Multi-language keywords** -- write code in English, Arabic, Spanish, Russian, Chinese, or Japanese
-- **LLVM backend** -- ThinLTO, vectorization, aggressive inlining (1.0x--1.5x Rust performance)
-- **Region-based memory** -- no garbage collector
-- **Fast compilation** -- fork-parallel IR generation with content-addressed incremental caching
-- **GPU compute** -- `@compute` shaders via Vulkan/GLSL pipeline
-- **SIMD intrinsics** -- `f32x4`, `i32x4`, `f64x2`, etc.
-- **Async/await** -- LLVM coroutine-based concurrency
+- **LLVM backend** -- native code generation, optimization, cross-target support, and package artifact linking
+- **Packages** -- source registry packages plus local prebuilt artifacts with interface indexes
+- **Tooling** -- built-in LSP, VS Code extension, C import generation, platform packaging helpers
+- **GPU/SIMD APIs** -- stdlib and runtime surfaces for graphics, compute, and vectorized code paths
 
 ## Documentation
 
@@ -67,3 +66,4 @@ fun main() {
 - [JSON](api-reference/json.md) -- JSON derive and parsing
 - [Reflection](api-reference/reflect.md) -- runtime type information
 - [GPU](api-reference/gpu.md) -- GPU types and runtime functions
+- [Full Module Index](api-reference/stdlib-modules.md) -- every `seen_std/src` module family

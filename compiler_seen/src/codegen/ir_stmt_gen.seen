@@ -8,6 +8,7 @@ import parser.real_parser.{ParserExpressionNode, StatementNode}
 import codegen.ir_optimization.{getNextRegFn, getNextBlockFn}
 import codegen.ir_decl_registry.{getFunctionReturnTypeStateImpl}
 import codegen.ir_variable_gen.{storeActiveVariableBindingImpl}
+import codegen.ir_literal_gen.{normalizeDoubleLiteralForLlvmImpl}
 import str.string.{StringBuilder}
 
 ///
@@ -18,7 +19,8 @@ Returns the i1 register name
 fun emitConditionToI1Impl(output: StringBuilder, regBox: Array<Int>, condReg: String, condType: String) r: String {
     if condType == "Float" {
         let cmpReg = getNextRegFn(regBox)
-        output.append("  " + cmpReg + " = fcmp one double " + condReg + ", 0.0\n")
+        let doubleCondReg = normalizeDoubleLiteralForLlvmImpl(condReg)
+        output.append("  " + cmpReg + " = fcmp one double " + doubleCondReg + ", 0.0\n")
         return cmpReg
     }
     if condType == "String" {

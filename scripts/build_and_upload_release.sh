@@ -223,7 +223,7 @@ sudo ./install.sh
 
 \`linux-x64\` is the portable x86-64 baseline. Use \`seen-${VERSION}-linux-x64-v3.tar.gz\` only on x86-64-v3/AVX2-class machines.
 
-**Windows:** Download \`Seen-${VERSION}-windows-x64-setup.exe\` or the ZIP archive. Requires [LLVM](https://releases.llvm.org/) on PATH.
+**Windows:** Download \`Seen-${VERSION}-windows-x64-setup.exe\` or the ZIP archive. The installer includes Seen's runtime, standard library, language files, and LLVM toolchain support; users do not need LLVM preinstalled.
 
 **macOS:** \`brew install seen-lang\` (if published) or build from source with \`./scripts/bootstrap_macos.sh\`.
 

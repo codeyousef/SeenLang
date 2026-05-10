@@ -467,6 +467,7 @@ AST_LAYOUT_STRUCTS = (
 AST_INDEX_TABLES = {
     "ir_field_indices.seen": ("structName", "return"),
     "ir_struct_field_resolution.seen": ("structType", "g_resolvedFieldIndex"),
+    "type_registry_core.seen": ("structName", "return"),
 }
 AST_TYPE_TABLES = (
     "ir_known_struct_field_types.seen",
@@ -863,6 +864,26 @@ def raw_float_literal_source_findings(root: Path) -> list[Finding]:
     return findings
 
 
+def synthetic_parser_expression_literal_findings(root: Path) -> list[Finding]:
+    findings: list[Finding] = []
+    codegen_dir = root / "compiler_seen" / "src" / "codegen"
+    for path in sorted(codegen_dir.rglob("*.seen")):
+        for line_no, line in enumerate(source_lines(path), 1):
+            if "ParserExpressionNode{" not in line:
+                continue
+            findings.append(
+                Finding(
+                    path,
+                    line_no,
+                    "codegen must build synthetic ParserExpressionNode values "
+                    "with ParserExpressionNode.new() plus field assignments; "
+                    "partial aggregate literals can leave omitted String/Array "
+                    "fields ABI-corrupt during self-hosted lowering",
+                )
+            )
+    return findings
+
+
 def feature_getter_return_type_findings(root: Path) -> list[Finding]:
     path = root / "compiler_seen" / "src" / "codegen" / "ir_codegen_feature_state.seen"
     if not path.exists():
@@ -1135,7 +1156,7 @@ def ast_layout_boundary_findings(root: Path) -> list[Finding]:
             block_line, body = block
             for expected_idx, field_name in enumerate(fields):
                 if index_expr == "return":
-                    pattern = rf'fieldName\s*==\s*"{re.escape(field_name)}"\s*\{{\s*return\s+{expected_idx}\b'
+                    pattern = rf'fieldName\s*==\s*"{re.escape(field_name)}"\s*\{{[^}}]*\breturn\s+{expected_idx}\b'
                 else:
                     pattern = rf'fieldName\s*==\s*"{re.escape(field_name)}"\s*\{{[^}}]*{re.escape(index_expr)}\s*=\s*{expected_idx}\b'
                 if not re.search(pattern, body):
@@ -3771,6 +3792,7 @@ def main() -> int:
     findings.extend(compiler_import_cycle_findings(root))
     findings.extend(lowering_context_builder_return_findings(root))
     findings.extend(raw_float_literal_source_findings(root))
+    findings.extend(synthetic_parser_expression_literal_findings(root))
     findings.extend(feature_getter_return_type_findings(root))
     findings.extend(find_owner_import_violations(root))
     findings.extend(static_method_dispatch_boundary_findings(root))

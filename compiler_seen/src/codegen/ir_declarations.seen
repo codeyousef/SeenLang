@@ -7,6 +7,7 @@ Sub-functions split into ir_decl_runtime.seen, ir_decl_parser.seen, ir_decl_feat
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_type_info.{findStructIdx}
+import codegen.ir_literal_gen.{normalizeDoubleLiteralForLlvmImpl}
 
 // Check if a function name is defined in the current module
 fun isFuncDefinedInModule(name: String, definedFuncs: Array<String>) r: Bool {
@@ -60,10 +61,13 @@ Math Builtin IR Emission (extracted from generateCall)
 fun emitMathBuiltinImpl(output: StringBuilder, regBox: Array<Int>,
     funcName: String, arg0: String, arg1: String) r: String {
 
+    let doubleArg0 = normalizeDoubleLiteralForLlvmImpl(arg0)
+    let doubleArg1 = normalizeDoubleLiteralForLlvmImpl(arg1)
+
     // __Sqrt → llvm.sqrt.f64
     if funcName == "__Sqrt" {
         let resultReg = getNextRegFn(regBox)
-        output.append("  " + resultReg + " = call fast double @llvm.sqrt.f64(double " + arg0 + ")\n")
+        output.append("  " + resultReg + " = call fast double @llvm.sqrt.f64(double " + doubleArg0 + ")\n")
         return resultReg
     }
 
@@ -77,14 +81,14 @@ fun emitMathBuiltinImpl(output: StringBuilder, regBox: Array<Int>,
         if funcName == "__Log" { intrinsicName = "@llvm.log.f64" }
         if funcName == "__Log10" { intrinsicName = "@llvm.log10.f64" }
         if funcName == "__Fabs" { intrinsicName = "@llvm.fabs.f64" }
-        output.append("  " + resultReg + " = call fast double " + intrinsicName + "(double " + arg0 + ")\n")
+        output.append("  " + resultReg + " = call fast double " + intrinsicName + "(double " + doubleArg0 + ")\n")
         return resultReg
     }
 
     // __Pow → llvm.pow.f64 (2-arg)
     if funcName == "__Pow" {
         let resultReg = getNextRegFn(regBox)
-        output.append("  " + resultReg + " = call fast double @llvm.pow.f64(double " + arg0 + ", double " + arg1 + ")\n")
+        output.append("  " + resultReg + " = call fast double @llvm.pow.f64(double " + doubleArg0 + ", double " + doubleArg1 + ")\n")
         return resultReg
     }
 
@@ -99,14 +103,14 @@ fun emitMathBuiltinImpl(output: StringBuilder, regBox: Array<Int>,
         if funcName == "__Cosh" { runtimeName = "@__Cosh" }
         if funcName == "__Tanh" { runtimeName = "@__Tanh" }
         if funcName == "__Tan" { runtimeName = "@__Tan" }
-        output.append("  " + resultReg + " = call fast double " + runtimeName + "(double " + arg0 + ")\n")
+        output.append("  " + resultReg + " = call fast double " + runtimeName + "(double " + doubleArg0 + ")\n")
         return resultReg
     }
 
     // __Atan2 → runtime wrapper (2-arg)
     if funcName == "__Atan2" {
         let resultReg = getNextRegFn(regBox)
-        output.append("  " + resultReg + " = call fast double @__Atan2(double " + arg0 + ", double " + arg1 + ")\n")
+        output.append("  " + resultReg + " = call fast double @__Atan2(double " + doubleArg0 + ", double " + doubleArg1 + ")\n")
         return resultReg
     }
 
@@ -122,7 +126,7 @@ fun emitMathBuiltinImpl(output: StringBuilder, regBox: Array<Int>,
     // absFloat → llvm.fabs.f64
     if funcName == "absFloat" {
         let resultReg = getNextRegFn(regBox)
-        output.append("  " + resultReg + " = call fast double @llvm.fabs.f64(double " + arg0 + ") ; float abs intrinsic\n")
+        output.append("  " + resultReg + " = call fast double @llvm.fabs.f64(double " + doubleArg0 + ") ; float abs intrinsic\n")
         return resultReg
     }
 

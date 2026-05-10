@@ -305,12 +305,16 @@ fun tryEmitMemcpyOptimizedWhileLoopState(
     }
     let mcBoundReg = lowerExpression(ctx, memcpyPlan.boundExpr)
 
-    let lhsArrayType = inferLoweredExpressionType(ctx,
-        ParserExpressionNode{kind: "Variable", literalValue: memcpyPlan.lhsArrayName})
+    let lhsArrayExpr = ParserExpressionNode.new()
+    lhsArrayExpr.kind = "Variable"
+    lhsArrayExpr.literalValue = memcpyPlan.lhsArrayName
+    let lhsArrayType = inferLoweredExpressionType(ctx, lhsArrayExpr)
     var rhsArrayType: String = ""
     if memcpyPlan.kind == 1 {
-        rhsArrayType = inferLoweredExpressionType(ctx,
-            ParserExpressionNode{kind: "Variable", literalValue: memcpyPlan.rhsArrayName})
+        let rhsArrayExpr = ParserExpressionNode.new()
+        rhsArrayExpr.kind = "Variable"
+        rhsArrayExpr.literalValue = memcpyPlan.rhsArrayName
+        rhsArrayType = inferLoweredExpressionType(ctx, rhsArrayExpr)
     }
     var lhsArrayReg: String = ""
     let lhsArrayIdx = findActiveVariableIndexImpl(varNames,

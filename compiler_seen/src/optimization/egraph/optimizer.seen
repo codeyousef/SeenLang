@@ -9,7 +9,7 @@ class EGraphOptimizer {
     var graph: EGraph
     var costModel: CostModel
 
-    fun new() r: EGraphOptimizer {
+    static fun new() r: EGraphOptimizer {
         return EGraphOptimizer{
             iterationLimit: 10,
             appliedRules: 0,

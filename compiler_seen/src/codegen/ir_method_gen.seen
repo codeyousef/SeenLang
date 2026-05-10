@@ -94,7 +94,8 @@ Returns "" for user-defined class types (fallthrough to class method call)
 fun emitToIntMethodImpl(output: StringBuilder, regBox: Array<Int>, receiverReg: String, receiverType: String) r: String {
     if receiverType == "Float" {
         let resultReg = getNextRegFn(regBox)
-        output.append("  " + resultReg + " = fptosi double " + receiverReg + " to i64\n")
+        let doubleReceiverReg = normalizeDoubleLiteralForLlvmImpl(receiverReg)
+        output.append("  " + resultReg + " = fptosi double " + doubleReceiverReg + " to i64\n")
         return resultReg
     }
     if receiverType == "String" {
@@ -141,7 +142,8 @@ fun emitNumericMethodImpl(output: StringBuilder, regBox: Array<Int>, methodName:
     // Float.abs()
     if methodName == "abs" and receiverType == "Float" {
         let resultReg = getNextRegFn(regBox)
-        output.append("  " + resultReg + " = call fast double @llvm.fabs.f64(double " + receiverReg + ")\n")
+        let doubleReceiverReg = normalizeDoubleLiteralForLlvmImpl(receiverReg)
+        output.append("  " + resultReg + " = call fast double @llvm.fabs.f64(double " + doubleReceiverReg + ")\n")
         return resultReg
     }
     // Int.min(other)
@@ -155,7 +157,9 @@ fun emitNumericMethodImpl(output: StringBuilder, regBox: Array<Int>, methodName:
     // Float.min(other)
     if methodName == "min" and receiverType == "Float" {
         let resultReg = getNextRegFn(regBox)
-        output.append("  " + resultReg + " = call fast double @llvm.minnum.f64(double " + receiverReg + ", double " + arg0Reg + ")\n")
+        let doubleReceiverReg = normalizeDoubleLiteralForLlvmImpl(receiverReg)
+        let doubleArg0Reg = normalizeDoubleLiteralForLlvmImpl(arg0Reg)
+        output.append("  " + resultReg + " = call fast double @llvm.minnum.f64(double " + doubleReceiverReg + ", double " + doubleArg0Reg + ")\n")
         return resultReg
     }
     // Int.max(other)
@@ -169,7 +173,9 @@ fun emitNumericMethodImpl(output: StringBuilder, regBox: Array<Int>, methodName:
     // Float.max(other)
     if methodName == "max" and receiverType == "Float" {
         let resultReg = getNextRegFn(regBox)
-        output.append("  " + resultReg + " = call fast double @llvm.maxnum.f64(double " + receiverReg + ", double " + arg0Reg + ")\n")
+        let doubleReceiverReg = normalizeDoubleLiteralForLlvmImpl(receiverReg)
+        let doubleArg0Reg = normalizeDoubleLiteralForLlvmImpl(arg0Reg)
+        output.append("  " + resultReg + " = call fast double @llvm.maxnum.f64(double " + doubleReceiverReg + ", double " + doubleArg0Reg + ")\n")
         return resultReg
     }
     // Int.clamp(low, high)
@@ -187,37 +193,43 @@ fun emitNumericMethodImpl(output: StringBuilder, regBox: Array<Int>, methodName:
     // Float.floor()
     if methodName == "floor" and (receiverType == "Float" or receiverType == "") {
         let resultReg = getNextRegFn(regBox)
-        output.append("  " + resultReg + " = call fast double @llvm.floor.f64(double " + receiverReg + ")\n")
+        let doubleReceiverReg = normalizeDoubleLiteralForLlvmImpl(receiverReg)
+        output.append("  " + resultReg + " = call fast double @llvm.floor.f64(double " + doubleReceiverReg + ")\n")
         return resultReg
     }
     // Float.ceil()
     if methodName == "ceil" and (receiverType == "Float" or receiverType == "") {
         let resultReg = getNextRegFn(regBox)
-        output.append("  " + resultReg + " = call fast double @llvm.ceil.f64(double " + receiverReg + ")\n")
+        let doubleReceiverReg = normalizeDoubleLiteralForLlvmImpl(receiverReg)
+        output.append("  " + resultReg + " = call fast double @llvm.ceil.f64(double " + doubleReceiverReg + ")\n")
         return resultReg
     }
     // Float.round()
     if methodName == "round" and (receiverType == "Float" or receiverType == "") {
         let resultReg = getNextRegFn(regBox)
-        output.append("  " + resultReg + " = call fast double @llvm.round.f64(double " + receiverReg + ")\n")
+        let doubleReceiverReg = normalizeDoubleLiteralForLlvmImpl(receiverReg)
+        output.append("  " + resultReg + " = call fast double @llvm.round.f64(double " + doubleReceiverReg + ")\n")
         return resultReg
     }
     // Float.sqrt()
     if methodName == "sqrt" and (receiverType == "Float" or receiverType == "") {
         let resultReg = getNextRegFn(regBox)
-        output.append("  " + resultReg + " = call fast double @llvm.sqrt.f64(double " + receiverReg + ")\n")
+        let doubleReceiverReg = normalizeDoubleLiteralForLlvmImpl(receiverReg)
+        output.append("  " + resultReg + " = call fast double @llvm.sqrt.f64(double " + doubleReceiverReg + ")\n")
         return resultReg
     }
     // Float.isNaN() - NaN != NaN (must NOT use fast flag)
     if methodName == "isNaN" and (receiverType == "Float" or receiverType == "") {
         let resultReg = getNextRegFn(regBox)
-        output.append("  " + resultReg + " = fcmp une double " + receiverReg + ", " + receiverReg + "\n")
+        let doubleReceiverReg = normalizeDoubleLiteralForLlvmImpl(receiverReg)
+        output.append("  " + resultReg + " = fcmp une double " + doubleReceiverReg + ", " + doubleReceiverReg + "\n")
         return resultReg
     }
     // Float.isInfinite() - |x| == +inf (must NOT use fast flag)
     if methodName == "isInfinite" and (receiverType == "Float" or receiverType == "") {
         let fabsReg = getNextRegFn(regBox)
-        output.append("  " + fabsReg + " = call double @llvm.fabs.f64(double " + receiverReg + ")\n")
+        let doubleReceiverReg = normalizeDoubleLiteralForLlvmImpl(receiverReg)
+        output.append("  " + fabsReg + " = call double @llvm.fabs.f64(double " + doubleReceiverReg + ")\n")
         let resultReg = getNextRegFn(regBox)
         output.append("  " + resultReg + " = fcmp oeq double " + fabsReg + ", 0x7FF0000000000000\n")
         return resultReg
@@ -436,7 +448,8 @@ fun emitTransmuteImpl(output: StringBuilder, regBox: Array<Int>, srcReg: String,
         return tmResultReg
     }
     if srcLlvmType == "double" and dstLlvmType == "i64" {
-        output.append("  " + tmResultReg + " = bitcast double " + srcReg + " to i64\n")
+        let doubleSrcReg = normalizeDoubleLiteralForLlvmImpl(srcReg)
+        output.append("  " + tmResultReg + " = bitcast double " + doubleSrcReg + " to i64\n")
         return tmResultReg
     }
     if srcLlvmType == "i32" and dstLlvmType == "float" {

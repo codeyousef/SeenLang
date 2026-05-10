@@ -463,7 +463,8 @@ fun tryGenerateUnresolvedReceiverFallbackMethodImpl(output: StringBuilder,
 
     if methodName == "toInt" and receiverType == "Float" {
         let toIntReg = getNextRegFn(regBox)
-        output.append("  " + toIntReg + " = fptosi double " + receiverReg +
+        let doubleReceiverReg = normalizeDoubleLiteralForLlvmImpl(receiverReg)
+        output.append("  " + toIntReg + " = fptosi double " + doubleReceiverReg +
             " to i64\n")
         return toIntReg
     }

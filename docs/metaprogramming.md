@@ -177,7 +177,7 @@ extern fun __Fabs(x: Float) r: Float
 Conditional compilation via feature flags:
 
 ```bash
-seen build app.seen --feature=gpu --feature=experimental
+seen compile app.seen app --feature=gpu --feature=experimental
 ```
 
 In source code:

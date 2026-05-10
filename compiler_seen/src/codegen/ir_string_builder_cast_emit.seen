@@ -5,6 +5,7 @@ Extracted from ir_type_ops.seen
 
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn}
+import codegen.ir_literal_gen.{normalizeDoubleLiteralForLlvmImpl}
 
 ///
 StringBuilder method dispatch: append, appendInt, appendFloat, appendChar, clear, length, toString
@@ -18,7 +19,8 @@ fun emitStringBuilderMethodImpl(output: StringBuilder, regBox: Array<Int>,
     if methodName == "append" {
         if isFloatAppendFused == 1 {
             let callRegF = getNextRegFn(regBox)
-            output.append("  " + callRegF + " = call i64 @StringBuilder_appendFloat(ptr " + receiverPtrReg + ", double " + arg0 + ")\n")
+            let doubleArg0 = normalizeDoubleLiteralForLlvmImpl(arg0)
+            output.append("  " + callRegF + " = call i64 @StringBuilder_appendFloat(ptr " + receiverPtrReg + ", double " + doubleArg0 + ")\n")
             return "0"
         }
         let callReg = getNextRegFn(regBox)
@@ -32,7 +34,8 @@ fun emitStringBuilderMethodImpl(output: StringBuilder, regBox: Array<Int>,
     }
     if methodName == "appendFloat" {
         let callReg = getNextRegFn(regBox)
-        output.append("  " + callReg + " = call i64 @StringBuilder_appendFloat(ptr " + receiverPtrReg + ", double " + arg0 + ")\n")
+        let doubleArg0 = normalizeDoubleLiteralForLlvmImpl(arg0)
+        output.append("  " + callReg + " = call i64 @StringBuilder_appendFloat(ptr " + receiverPtrReg + ", double " + doubleArg0 + ")\n")
         return "0"
     }
     if methodName == "appendChar" {
@@ -80,7 +83,8 @@ fun emitCastExprImpl(output: StringBuilder, regBox: Array<Int>, innerReg: String
     }
     // Float -> Int
     if castDone == 0 and innerType == "Float" and castTarget == "Int" {
-        output.append("  " + cReg + " = fptosi double " + innerReg + " to i64\n")
+        let doubleInnerReg = normalizeDoubleLiteralForLlvmImpl(innerReg)
+        output.append("  " + cReg + " = fptosi double " + doubleInnerReg + " to i64\n")
         castResultReg = cReg
         castDone = 1
     }
@@ -188,7 +192,8 @@ fun emitCastExprImpl(output: StringBuilder, regBox: Array<Int>, innerReg: String
     }
     // Float -> Float32 (fptrunc double to float)
     if castDone == 0 and innerType == "Float" and castTarget == "Float32" {
-        output.append("  " + cReg + " = fptrunc double " + innerReg + " to float\n")
+        let doubleInnerReg = normalizeDoubleLiteralForLlvmImpl(innerReg)
+        output.append("  " + cReg + " = fptrunc double " + doubleInnerReg + " to float\n")
         castResultReg = cReg
         castDone = 1
     }

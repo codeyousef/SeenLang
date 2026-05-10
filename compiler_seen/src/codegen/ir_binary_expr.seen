@@ -7,6 +7,7 @@ import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_decl_registry.{getFunctionReturnTypeStateImpl}
 import codegen.ir_codegen_type_state.{mapTypeState}
+import codegen.ir_literal_gen.{normalizeDoubleLiteralForLlvmImpl}
 
 class OverloadedBinaryPlan {
     var funcName: String
@@ -316,9 +317,12 @@ fun emitFmaCallImpl(output: StringBuilder, regBox: Array<Int>,
     aReg: String, bReg: String, cReg: String, comment: String) r: String {
 
     let resultReg = getNextRegFn(regBox)
+    let aValue = normalizeDoubleLiteralForLlvmImpl(aReg)
+    let bValue = normalizeDoubleLiteralForLlvmImpl(bReg)
+    let cValue = normalizeDoubleLiteralForLlvmImpl(cReg)
     output.append("  " + resultReg +
-        " = call double @llvm.fmuladd.f64(double " + aReg + ", double " +
-        bReg + ", double " + cReg + ") ; FMA: " + comment + "\n")
+        " = call double @llvm.fmuladd.f64(double " + aValue + ", double " +
+        bValue + ", double " + cValue + ") ; FMA: " + comment + "\n")
     return resultReg
 }
 

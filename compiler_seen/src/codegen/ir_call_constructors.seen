@@ -6,6 +6,7 @@ lowering separate from general call dispatch and argument preparation.
 
 import codegen.ir_optimization.{getNextRegFn, getNextBlockFn}
 import codegen.type_registry_core.{isDataTypeReg, getDataTypeSizeReg}
+import codegen.ir_literal_gen.{normalizeDoubleLiteralForLlvmImpl}
 import str.string.{StringBuilder}
 
 fun isArrayConstructorNameImpl(funcName: String) r: Bool {
@@ -271,7 +272,8 @@ alignToVal: alignment from @align_to decorator (0 = default)
 fun emitArrayBulkInitImpl(output: StringBuilder, regBox: Array<Int>, blockLabelBox: Array<Int>, countReg: String, valueReg: String, elementType: String, isZeroFill: Int, alignToVal: Int) r: String {
     if elementType == "Float" {
         let arrReg = getNextRegFn(regBox)
-        output.append("  " + arrReg + " = call noalias ptr @seen_arr_new_filled_double(i64 " + countReg + ", double " + valueReg + ")\n")
+        let doubleValueReg = normalizeDoubleLiteralForLlvmImpl(valueReg)
+        output.append("  " + arrReg + " = call noalias ptr @seen_arr_new_filled_double(i64 " + countReg + ", double " + doubleValueReg + ")\n")
         return arrReg
     }
     let arrReg = getNextRegFn(regBox)

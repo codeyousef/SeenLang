@@ -8,7 +8,7 @@ class EscapeInfo {
     var escapes: Bool
     var escapeSite: String
 
-    fun new(name: String) r: EscapeInfo {
+    static fun new(name: String) r: EscapeInfo {
         return EscapeInfo{
             variableName: name,
             escapes: false,
@@ -23,7 +23,7 @@ class LifetimeInfo {
     var lastUse: Int
     var isShortLived: Bool
 
-    fun new(name: String) r: LifetimeInfo {
+    static fun new(name: String) r: LifetimeInfo {
         return LifetimeInfo{
             variableName: name,
             firstUse: -1,
@@ -53,7 +53,7 @@ class MemoryOptimizer {
     var lifetimeCount: Int
     var shortLivedCount: Int
 
-    fun new() r: MemoryOptimizer {
+    static fun new() r: MemoryOptimizer {
         return MemoryOptimizer{
             iterationLimit: 5,
             escapedCount: 0,

@@ -12,7 +12,7 @@ class StringBuilder {
     var parts: Array<String>
     var totalLength: Int
 
-    fun new() r: StringBuilder {
+    static fun new() r: StringBuilder {
         return StringBuilder{
             parts: Array<String>(),
             totalLength: 0

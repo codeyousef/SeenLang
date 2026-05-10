@@ -15,6 +15,7 @@ import codegen.ir_field_layout.{emitResolvedFieldAccessPtrImpl, emitResolvedFiel
 import codegen.ir_member_access.{prepareExpressionMemberReceiverImpl, prepareVariableMemberReceiverImpl}
 import codegen.ir_variable_gen.{findActiveVariableIndexImpl}
 import codegen.ir_assignment_coerce.{coerceAssignmentStoreValueCoreImpl, coerceMethodCallHandleAssignmentCoreImpl}
+import codegen.ir_literal_gen.{normalizeDoubleLiteralForLlvmImpl}
 import codegen.type_registry_core.{getFieldInfoReg}
 import str.string.{StringBuilder}
 
@@ -384,7 +385,8 @@ fun emitPrimitiveIndexAssignmentStoreImpl(output: StringBuilder,
         output.append("  " + dataPtrReg + " = load ptr, ptr " + dataPtrPtrReg + ", !tbaa !104\n")
         let elemPtrReg = getNextRegFn(regBox)
         output.append("  " + elemPtrReg + " = getelementptr inbounds nuw double, ptr " + dataPtrReg + ", i64 " + indexReg + "\n")
-        output.append("  store double " + storedValueReg + ", ptr " + elemPtrReg + ", align 8, !tbaa !106\n")
+        let storedDoubleValue = normalizeDoubleLiteralForLlvmImpl(storedValueReg)
+        output.append("  store double " + storedDoubleValue + ", ptr " + elemPtrReg + ", align 8, !tbaa !106\n")
         return 1
     }
     return 0

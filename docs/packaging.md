@@ -117,6 +117,7 @@ The artifact directory contains:
 ```text
 mathx-0.1.0.seenpkg/
 ├── Seen.pkg.toml
+├── interface.index.tsv
 ├── objects.tsv
 ├── objects/
 │   └── module_0.o
@@ -131,11 +132,17 @@ Downstream projects reference it from `Seen.toml`:
 mathx = { artifact = "../dist/mathx-0.1.0.seenpkg" }
 ```
 
-The compiler scans the artifact `src/` tree for declarations and imports, links
-the objects from `objects.tsv`, and skips code generation for modules provided by
-that artifact. `seen pkg prebuild` emits PIC objects through the same
-`--object-manifest` path used by external link workflows, so the artifact can be
-linked into executables or shared-library builds.
+The compiler loads declarations from `interface.index.tsv` or the artifact
+interface sources, links the objects from `objects.tsv`, and skips code
+generation for modules provided by that artifact. `seen pkg prebuild` emits PIC
+objects through the same `--object-manifest` path used by external link
+workflows, so the artifact can be linked into executables or shared-library
+builds.
+
+`interface.index.tsv` is a declaration index. It records the package version,
+module paths, imports, and public/package-visible declarations so downstream
+projects can resolve package-root imports without compiling implementation
+modules.
 
 ## Deploying To `seen.yousef.codes`
 
@@ -154,6 +161,8 @@ One simple flow is:
 - Package name, dependency key, and import root are the same in this MVP.
 - Prebuilt package artifacts are local path dependencies; registry publication
   still serves source archives.
+- Artifact interface modules are declaration-only from the consumer's point of
+  view; implementation objects come from `objects.tsv`.
 
 ## Related
 

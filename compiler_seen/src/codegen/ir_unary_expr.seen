@@ -4,6 +4,7 @@ import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_decl_registry.{getFunctionReturnTypeStateImpl}
 import codegen.ir_codegen_type_state.{mapTypeState}
+import codegen.ir_literal_gen.{normalizeDoubleLiteralForLlvmImpl}
 
 class OverloadedUnaryPlan {
     var funcName: String
@@ -90,8 +91,9 @@ fun emitUnaryNegationImpl(output: StringBuilder, regBox: Array<Int>,
 
     let resultReg = getNextRegFn(regBox)
     if operandType == "Float" {
+        let doubleOperandReg = normalizeDoubleLiteralForLlvmImpl(operandReg)
         output.append("  " + resultReg + " = fneg fast double " +
-            operandReg + "\n")
+            doubleOperandReg + "\n")
     } else {
         output.append("  " + resultReg + " = sub nsw i64 0, " +
             operandReg + "\n")

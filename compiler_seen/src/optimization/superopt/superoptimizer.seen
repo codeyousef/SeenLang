@@ -9,7 +9,7 @@ class PeepholeCandidate {
     var costSaving: Int
     var verified: Bool
 
-    fun new() r: PeepholeCandidate {
+    static fun new() r: PeepholeCandidate {
         return PeepholeCandidate{
             originalOps: Array<String>(),
             replacementOps: Array<String>(),
@@ -23,7 +23,7 @@ class TestVector {
     var inputs: Array<Int>
     var expectedOutput: Int
 
-    fun new(inputs: Array<Int>, expected: Int) r: TestVector {
+    static fun new(inputs: Array<Int>, expected: Int) r: TestVector {
         return TestVector{ inputs: inputs, expectedOutput: expected }
     }
 }
@@ -35,7 +35,7 @@ class Superoptimizer {
     var optimizationsApplied: Int
     var totalCostSaved: Int
 
-    fun new() r: Superoptimizer {
+    static fun new() r: Superoptimizer {
         return Superoptimizer{
             maxLength: 32,
             candidates: Array<PeepholeCandidate>(),

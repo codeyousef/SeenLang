@@ -68,7 +68,9 @@ fun emitBinaryOpImpl(output: StringBuilder, regBox: Array<Int>, boundsLabelBox: 
         if leftType == "Float" or rightType == "Float" {
             if leftType == "Float" and rightType == "Float" {
                 let resultReg = getNextRegFn(regBox)
-                output.append("  " + resultReg + " = fadd fast double " + leftReg + ", " + rightReg + "\n")
+                let fLeft = normalizeDoubleLiteralForLlvmImpl(leftReg)
+                let fRight = normalizeDoubleLiteralForLlvmImpl(rightReg)
+                output.append("  " + resultReg + " = fadd fast double " + fLeft + ", " + fRight + "\n")
                 return resultReg
             }
             var fAddLeft = leftReg
@@ -84,7 +86,9 @@ fun emitBinaryOpImpl(output: StringBuilder, regBox: Array<Int>, boundsLabelBox: 
                 fAddRight = cvtR
             }
             let fAddRes = getNextRegFn(regBox)
-            output.append("  " + fAddRes + " = fadd fast double " + fAddLeft + ", " + fAddRight + "\n")
+            let fAddLeftNorm = normalizeDoubleLiteralForLlvmImpl(fAddLeft)
+            let fAddRightNorm = normalizeDoubleLiteralForLlvmImpl(fAddRight)
+            output.append("  " + fAddRes + " = fadd fast double " + fAddLeftNorm + ", " + fAddRightNorm + "\n")
             return fAddRes
         }
         let resultReg = getNextRegFn(regBox)
@@ -152,7 +156,9 @@ fun emitBinaryOpImpl(output: StringBuilder, regBox: Array<Int>, boundsLabelBox: 
     if operator == "-" {
         if leftType == "Float" or rightType == "Float" {
             if leftType == "Float" and rightType == "Float" {
-                output.append("  " + resultReg + " = fsub fast double " + leftReg + ", " + rightReg + "\n")
+                let fLeft = normalizeDoubleLiteralForLlvmImpl(leftReg)
+                let fRight = normalizeDoubleLiteralForLlvmImpl(rightReg)
+                output.append("  " + resultReg + " = fsub fast double " + fLeft + ", " + fRight + "\n")
             } else {
                 var fSubLeft = leftReg
                 var fSubRight = rightReg
@@ -165,7 +171,9 @@ fun emitBinaryOpImpl(output: StringBuilder, regBox: Array<Int>, boundsLabelBox: 
                     fSubRight = resultReg
                 }
                 let fSubRes = getNextRegFn(regBox)
-                output.append("  " + fSubRes + " = fsub fast double " + fSubLeft + ", " + fSubRight + "\n")
+                let fSubLeftNorm = normalizeDoubleLiteralForLlvmImpl(fSubLeft)
+                let fSubRightNorm = normalizeDoubleLiteralForLlvmImpl(fSubRight)
+                output.append("  " + fSubRes + " = fsub fast double " + fSubLeftNorm + ", " + fSubRightNorm + "\n")
                 return fSubRes
             }
         } else {
@@ -211,7 +219,9 @@ fun emitBinaryOpImpl(output: StringBuilder, regBox: Array<Int>, boundsLabelBox: 
     if not opHandled and operator == "*" {
         if leftType == "Float" or rightType == "Float" {
             if leftType == "Float" and rightType == "Float" {
-                output.append("  " + resultReg + " = fmul fast double " + leftReg + ", " + rightReg + "\n")
+                let fLeft = normalizeDoubleLiteralForLlvmImpl(leftReg)
+                let fRight = normalizeDoubleLiteralForLlvmImpl(rightReg)
+                output.append("  " + resultReg + " = fmul fast double " + fLeft + ", " + fRight + "\n")
             } else {
                 var fMulLeft = leftReg
                 var fMulRight = rightReg
@@ -224,7 +234,9 @@ fun emitBinaryOpImpl(output: StringBuilder, regBox: Array<Int>, boundsLabelBox: 
                     fMulRight = resultReg
                 }
                 let fMulRes = getNextRegFn(regBox)
-                output.append("  " + fMulRes + " = fmul fast double " + fMulLeft + ", " + fMulRight + "\n")
+                let fMulLeftNorm = normalizeDoubleLiteralForLlvmImpl(fMulLeft)
+                let fMulRightNorm = normalizeDoubleLiteralForLlvmImpl(fMulRight)
+                output.append("  " + fMulRes + " = fmul fast double " + fMulLeftNorm + ", " + fMulRightNorm + "\n")
                 return fMulRes
             }
         } else {
@@ -256,7 +268,9 @@ fun emitBinaryOpImpl(output: StringBuilder, regBox: Array<Int>, boundsLabelBox: 
     if not opHandled and operator == "/" {
         if leftType == "Float" or rightType == "Float" {
             if leftType == "Float" and rightType == "Float" {
-                output.append("  " + resultReg + " = fdiv fast double " + leftReg + ", " + rightReg + "\n")
+                let fLeft = normalizeDoubleLiteralForLlvmImpl(leftReg)
+                let fRight = normalizeDoubleLiteralForLlvmImpl(rightReg)
+                output.append("  " + resultReg + " = fdiv fast double " + fLeft + ", " + fRight + "\n")
             } else {
                 var fDivLeft = leftReg
                 var fDivRight = rightReg
@@ -269,7 +283,9 @@ fun emitBinaryOpImpl(output: StringBuilder, regBox: Array<Int>, boundsLabelBox: 
                     fDivRight = resultReg
                 }
                 let fDivRes = getNextRegFn(regBox)
-                output.append("  " + fDivRes + " = fdiv fast double " + fDivLeft + ", " + fDivRight + "\n")
+                let fDivLeftNorm = normalizeDoubleLiteralForLlvmImpl(fDivLeft)
+                let fDivRightNorm = normalizeDoubleLiteralForLlvmImpl(fDivRight)
+                output.append("  " + fDivRes + " = fdiv fast double " + fDivLeftNorm + ", " + fDivRightNorm + "\n")
                 return fDivRes
             }
         } else {
@@ -280,7 +296,9 @@ fun emitBinaryOpImpl(output: StringBuilder, regBox: Array<Int>, boundsLabelBox: 
     if not opHandled and operator == "%" {
         if leftType == "Float" or rightType == "Float" {
             if leftType == "Float" and rightType == "Float" {
-                output.append("  " + resultReg + " = frem fast double " + leftReg + ", " + rightReg + "\n")
+                let fLeft = normalizeDoubleLiteralForLlvmImpl(leftReg)
+                let fRight = normalizeDoubleLiteralForLlvmImpl(rightReg)
+                output.append("  " + resultReg + " = frem fast double " + fLeft + ", " + fRight + "\n")
             } else {
                 var fRemLeft = leftReg
                 var fRemRight = rightReg
@@ -293,7 +311,9 @@ fun emitBinaryOpImpl(output: StringBuilder, regBox: Array<Int>, boundsLabelBox: 
                     fRemRight = resultReg
                 }
                 let fRemRes = getNextRegFn(regBox)
-                output.append("  " + fRemRes + " = frem fast double " + fRemLeft + ", " + fRemRight + "\n")
+                let fRemLeftNorm = normalizeDoubleLiteralForLlvmImpl(fRemLeft)
+                let fRemRightNorm = normalizeDoubleLiteralForLlvmImpl(fRemRight)
+                output.append("  " + fRemRes + " = frem fast double " + fRemLeftNorm + ", " + fRemRightNorm + "\n")
                 return fRemRes
             }
         } else {

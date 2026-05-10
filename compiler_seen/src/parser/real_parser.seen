@@ -201,7 +201,7 @@ class StatementNode {
     var loopCondition: ParserExpressionNode
     var loopBody: BlockNode
 
-    fun new() r: StatementNode {
+    static fun new() r: StatementNode {
         return StatementNode{
             kind: "",
             variableName: "",
@@ -331,6 +331,8 @@ Key fields:
                         which triggers memory corruption in the stage1 bootstrap compiler)
   lastFunction       -- same workaround for FunctionNode
   pendingDecorators  -- decorators (@name) collected before the next declaration
+  pendingSealedModifier -- modifier bits before the next declaration:
+                           1 = sealed, 2 = explicit pub
 ///
 class RealParser {
     var tokens: Array<Token>
@@ -667,12 +669,21 @@ class RealParser {
                     }
                     continue
                 }
+                if this.pendingSealedModifier == 1 {
+                    this.pendingSealedModifier = 3
+                } else {
+                    this.pendingSealedModifier = 2
+                }
                 // fall through for other pub declarations
             }
 
             // Consume optional 'sealed' modifier before class/enum
             if matchTokenStr(SeenTokenType.KeywordSealed) {
-                this.pendingSealedModifier = 1
+                if this.pendingSealedModifier == 2 {
+                    this.pendingSealedModifier = 3
+                } else {
+                    this.pendingSealedModifier = 1
+                }
             }
 
             if matchTokenStr(SeenTokenType.AtSymbol) {
@@ -1026,10 +1037,19 @@ class RealParser {
                     }
                     continue
                 }
+                if this.pendingSealedModifier == 1 {
+                    this.pendingSealedModifier = 3
+                } else {
+                    this.pendingSealedModifier = 2
+                }
             }
 
             if matchTokenStr(SeenTokenType.KeywordSealed) {
-                this.pendingSealedModifier = 1
+                if this.pendingSealedModifier == 2 {
+                    this.pendingSealedModifier = 3
+                } else {
+                    this.pendingSealedModifier = 1
+                }
             }
 
             if matchTokenStr(SeenTokenType.AtSymbol) {
@@ -2265,9 +2285,13 @@ class RealParser {
     }
 
     fun applyPendingTypeModifiersToClass(classNode: ClassNode) r: Void {
-        if this.pendingSealedModifier == 1 {
+        if this.pendingSealedModifier == 1 or this.pendingSealedModifier == 3 {
             this.pendingDecorators.push(AnnotationNode.new("sealed"))
-            this.pendingSealedModifier = 0
+            if this.pendingSealedModifier == 3 {
+                this.pendingSealedModifier = 2
+            } else {
+                this.pendingSealedModifier = 0
+            }
         }
         applyDecoratorsToClass(classNode)
     }
@@ -3181,6 +3205,10 @@ class RealParser {
 
         if this.pendingSealedModifier == 1 {
             this.pendingSealedModifier = 0
+        } else {
+            if this.pendingSealedModifier == 3 {
+                this.pendingSealedModifier = 2
+            }
         }
 
         let nameToken = consume(SeenTokenType.Identifier, "Expected enum name")
@@ -3223,6 +3251,10 @@ class RealParser {
 
         if this.pendingSealedModifier == 1 {
             this.pendingSealedModifier = 0
+        } else {
+            if this.pendingSealedModifier == 3 {
+                this.pendingSealedModifier = 2
+            }
         }
 
         let nameToken = consume(SeenTokenType.Identifier, "Expected enum name")
@@ -6756,6 +6788,14 @@ class RealParser {
 
     // -- Utility helpers --------------------------------------------------
     fun inferVisibility(name: String) r: String {
+        if this.pendingSealedModifier == 2 or this.pendingSealedModifier == 3 {
+            if this.pendingSealedModifier == 3 {
+                this.pendingSealedModifier = 1
+            } else {
+                this.pendingSealedModifier = 0
+            }
+            return "public"
+        }
         if name.length() == 0 {
             return "private"
         }

@@ -226,6 +226,22 @@ fun emitDeadLiteralInitializerSkipNoteImpl(output: StringBuilder,
 fun emitDeclarationInitializerStoreImpl(output: StringBuilder, llvmType: String,
     valueReg: String, reg: String) r: Void {
 
-    output.append("  store " + llvmType + " " + valueReg + ", ptr " + reg +
+    var storeValueReg = valueReg
+    if llvmType == "double" or llvmType == "float" {
+        if storeValueReg == "" {
+            storeValueReg = "0.0"
+        } else {
+            if not storeValueReg.startsWith("%") and
+                storeValueReg != "undef" and
+                not storeValueReg.contains(".") and
+                not storeValueReg.contains("e") and
+                not storeValueReg.contains("E") and
+                not storeValueReg.startsWith("0x") and
+                not storeValueReg.startsWith("0X") {
+                storeValueReg = storeValueReg + ".0"
+            }
+        }
+    }
+    output.append("  store " + llvmType + " " + storeValueReg + ", ptr " + reg +
         "\n")
 }

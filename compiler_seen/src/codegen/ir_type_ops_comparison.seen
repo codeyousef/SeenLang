@@ -3,6 +3,7 @@
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_type_info.{charToCodeStr}
+import codegen.ir_literal_gen.{normalizeDoubleLiteralForLlvmImpl}
 
 fun emitComparisonBinaryOpImpl(output: StringBuilder, regBox: Array<Int>,
     operator: String, resultReg: String, leftReg: String, rightReg: String,
@@ -37,7 +38,9 @@ fun emitComparisonBinaryOpImpl(output: StringBuilder, regBox: Array<Int>,
         if not eqIsChar and not (leftType == "String" or rightType == "String") {
             if leftType == "Float" or rightType == "Float" {
                 if leftType == "Float" and rightType == "Float" {
-                    output.append("  " + resultReg + " = fcmp oeq double " + leftReg + ", " + rightReg + "\n")
+                    let fLeft = normalizeDoubleLiteralForLlvmImpl(leftReg)
+                    let fRight = normalizeDoubleLiteralForLlvmImpl(rightReg)
+                    output.append("  " + resultReg + " = fcmp oeq double " + fLeft + ", " + fRight + "\n")
                 } else {
                     var fcmpEqLeft = leftReg
                     var fcmpEqRight = rightReg
@@ -52,7 +55,9 @@ fun emitComparisonBinaryOpImpl(output: StringBuilder, regBox: Array<Int>,
                         fcmpEqRight = cvtR
                     }
                     let fcmpEqRes = getNextRegFn(regBox)
-                    output.append("  " + fcmpEqRes + " = fcmp oeq double " + fcmpEqLeft + ", " + fcmpEqRight + "\n")
+                    let fcmpEqLeftNorm = normalizeDoubleLiteralForLlvmImpl(fcmpEqLeft)
+                    let fcmpEqRightNorm = normalizeDoubleLiteralForLlvmImpl(fcmpEqRight)
+                    output.append("  " + fcmpEqRes + " = fcmp oeq double " + fcmpEqLeftNorm + ", " + fcmpEqRightNorm + "\n")
                     return fcmpEqRes
                 }
             }
@@ -117,7 +122,9 @@ fun emitComparisonBinaryOpImpl(output: StringBuilder, regBox: Array<Int>,
         if not neIsChar and not (leftType == "String" or rightType == "String") {
             if leftType == "Float" or rightType == "Float" {
                 if leftType == "Float" and rightType == "Float" {
-                    output.append("  " + resultReg + " = fcmp une double " + leftReg + ", " + rightReg + "\n")
+                    let fLeft = normalizeDoubleLiteralForLlvmImpl(leftReg)
+                    let fRight = normalizeDoubleLiteralForLlvmImpl(rightReg)
+                    output.append("  " + resultReg + " = fcmp une double " + fLeft + ", " + fRight + "\n")
                 } else {
                     var fcmpNeLeft = leftReg
                     var fcmpNeRight = rightReg
@@ -132,7 +139,9 @@ fun emitComparisonBinaryOpImpl(output: StringBuilder, regBox: Array<Int>,
                         fcmpNeRight = cvtR
                     }
                     let fcmpNeRes = getNextRegFn(regBox)
-                    output.append("  " + fcmpNeRes + " = fcmp une double " + fcmpNeLeft + ", " + fcmpNeRight + "\n")
+                    let fcmpNeLeftNorm = normalizeDoubleLiteralForLlvmImpl(fcmpNeLeft)
+                    let fcmpNeRightNorm = normalizeDoubleLiteralForLlvmImpl(fcmpNeRight)
+                    output.append("  " + fcmpNeRes + " = fcmp une double " + fcmpNeLeftNorm + ", " + fcmpNeRightNorm + "\n")
                     return fcmpNeRes
                 }
             }
@@ -216,8 +225,10 @@ fun emitComparisonBinaryOpImpl(output: StringBuilder, regBox: Array<Int>,
         }
         if leftType == "Float" or rightType == "Float" {
             if leftType == "Float" and rightType == "Float" {
+                let fcmpLeftNorm = normalizeDoubleLiteralForLlvmImpl(leftVal)
+                let fcmpRightNorm = normalizeDoubleLiteralForLlvmImpl(rightVal)
                 output.append("  " + resultReg + " = fcmp " + floatPredicate +
-                    " double " + leftVal + ", " + rightVal + "\n")
+                    " double " + fcmpLeftNorm + ", " + fcmpRightNorm + "\n")
             } else {
                 var fcmpLeft = leftVal
                 var fcmpRight = rightVal
@@ -234,8 +245,10 @@ fun emitComparisonBinaryOpImpl(output: StringBuilder, regBox: Array<Int>,
                     fcmpRight = cvtR
                 }
                 let fcmpRes = getNextRegFn(regBox)
+                let fcmpLeftNorm = normalizeDoubleLiteralForLlvmImpl(fcmpLeft)
+                let fcmpRightNorm = normalizeDoubleLiteralForLlvmImpl(fcmpRight)
                 output.append("  " + fcmpRes + " = fcmp " + floatPredicate +
-                    " double " + fcmpLeft + ", " + fcmpRight + "\n")
+                    " double " + fcmpLeftNorm + ", " + fcmpRightNorm + "\n")
                 return fcmpRes
             }
         } else {

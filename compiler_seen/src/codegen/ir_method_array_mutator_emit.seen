@@ -11,6 +11,7 @@ import codegen.ir_string_collect.{getBaseTypeNameImpl}
 import codegen.ir_type_mapping.{isClassTypeImpl}
 import codegen.ir_type_tables.{resolvePopElementTypeImpl}
 import codegen.ir_variable_gen.{emitLocalVariableLoadImpl, findActiveVariableIndexImpl}
+import codegen.ir_literal_gen.{normalizeDoubleLiteralForLlvmImpl}
 import codegen.type_registry_core.{findStructReg, isDataTypeReg}
 
 fun emitArrayFreeMutationImpl(output: StringBuilder, regBox: Array<Int>,
@@ -188,7 +189,8 @@ fun emitArrayPushMutationImpl(output: StringBuilder, regBox: Array<Int>,
     }
     if pushElemType == "Float" or receiverType == "Array<Float>" {
         let castReg = getNextRegFn(regBox)
-        output.append("  " + castReg + " = bitcast double " + argReg +
+        let doubleArgReg = normalizeDoubleLiteralForLlvmImpl(argReg)
+        output.append("  " + castReg + " = bitcast double " + doubleArgReg +
             " to i64\n")
         output.append("  call void @seen_arr_push_i64(ptr " + arrayPtrReg +
             ", i64 " + castReg + ")\n")

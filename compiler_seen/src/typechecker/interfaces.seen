@@ -78,7 +78,7 @@ class FunctionType {
     var returnType: Type
     var isAsync: Bool
 
-    fun new(parameters: Array<Type>, returnType: Type, isAsync: Bool = false) r: FunctionType {
+    static fun new(parameters: Array<Type>, returnType: Type, isAsync: Bool = false) r: FunctionType {
         let f = FunctionType()
         f.parameters = parameters
         f.returnType = returnType
@@ -90,7 +90,7 @@ class FunctionType {
 class ClassType {
     var name: String
 
-    fun new(name: String) r: ClassType {
+    static fun new(name: String) r: ClassType {
         let c = ClassType()
         c.name = name
         return c
@@ -100,7 +100,7 @@ class ClassType {
 class InterfaceType {
     var name: String
 
-    fun new(name: String) r: InterfaceType {
+    static fun new(name: String) r: InterfaceType {
         let i = InterfaceType()
         i.name = name
         return i
@@ -112,7 +112,7 @@ class SourceLocation {
     var column: Int
     var file: String
 
-    fun new(line: Int, column: Int, file: String = "") r: SourceLocation {
+    static fun new(line: Int, column: Int, file: String = "") r: SourceLocation {
         let loc = SourceLocation()
         loc.line = line
         loc.column = column
@@ -135,7 +135,7 @@ class TypeError {
     var actual: Type
     var context: String
 
-    fun new(message: String, location: SourceLocation, expected: Type, actual: Type, context: String = "") r: TypeError {
+    static fun new(message: String, location: SourceLocation, expected: Type, actual: Type, context: String = "") r: TypeError {
         let err = TypeError()
         err.message = message
         err.location = location

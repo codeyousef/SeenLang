@@ -6,6 +6,7 @@ Pure analysis functions that determine struct field layouts from expressions
 
 import parser.real_parser.{ParserExpressionNode}
 import str.string.{StringBuilder}
+import codegen.ir_literal_gen.{normalizeDoubleLiteralForLlvmImpl}
 import codegen.ir_optimization.{getNextRegFn}
 
 ///
@@ -190,6 +191,9 @@ fun emitStructFieldStoresImpl(output: StringBuilder, regBox: Array<Int>, structL
         var finalValueReg = valueReg
         if fieldType == "%SeenString" and valueReg == "0" {
             finalValueReg = "zeroinitializer"
+        }
+        if fieldType == "double" or fieldType == "float" {
+            finalValueReg = normalizeDoubleLiteralForLlvmImpl(finalValueReg)
         }
         // ptr fields: integer 0 -> null, non-zero int literal -> inttoptr
         if fieldType == "ptr" {

@@ -265,13 +265,13 @@ fun getFieldInfoReg(structName: String, fieldName: String, structNames: Array<St
         if fieldName == "variableName" { cacheFieldIndex(cacheKey, 1); return 1 }
         if fieldName == "variableType" { cacheFieldIndex(cacheKey, 2); return 2 }
         if fieldName == "initializer" { cacheFieldIndex(cacheKey, 3); return 3 }
-        if fieldName == "expression" { cacheFieldIndex(cacheKey, 4); return 4 }
-        if fieldName == "condition" { cacheFieldIndex(cacheKey, 5); return 5 }
-        if fieldName == "thenBranch" { cacheFieldIndex(cacheKey, 6); return 6 }
-        if fieldName == "elseBranch" { cacheFieldIndex(cacheKey, 7); return 7 }
-        if fieldName == "loopCondition" { cacheFieldIndex(cacheKey, 8); return 8 }
-        if fieldName == "loopBody" { cacheFieldIndex(cacheKey, 9); return 9 }
-        if fieldName == "returnValue" { cacheFieldIndex(cacheKey, 10); return 10 }
+        if fieldName == "returnValue" { cacheFieldIndex(cacheKey, 4); return 4 }
+        if fieldName == "expression" { cacheFieldIndex(cacheKey, 5); return 5 }
+        if fieldName == "condition" { cacheFieldIndex(cacheKey, 6); return 6 }
+        if fieldName == "thenBranch" { cacheFieldIndex(cacheKey, 7); return 7 }
+        if fieldName == "elseBranch" { cacheFieldIndex(cacheKey, 8); return 8 }
+        if fieldName == "loopCondition" { cacheFieldIndex(cacheKey, 9); return 9 }
+        if fieldName == "loopBody" { cacheFieldIndex(cacheKey, 10); return 10 }
     }
     if structName == "ParserExpressionNode" {
         if fieldName == "kind" { cacheFieldIndex(cacheKey, 0); return 0 }

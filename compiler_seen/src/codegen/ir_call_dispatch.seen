@@ -62,7 +62,13 @@ fun emitStringBuilderNewCallImpl(output: StringBuilder, regBox: Array<Int>, func
     var i = 0
     while i < argRegs.length() {
         if i > 0 { output.append(", ") }
-        output.append(argTypeStrs[i] + " " + argRegs[i])
+        var argReg = argRegs[i]
+        if argTypeStrs[i] == "double" or argTypeStrs[i] == "float" {
+            if not argReg.startsWith("%") and argReg != "undef" and not argReg.contains(".") and not argReg.contains("e") and not argReg.contains("E") and not argReg.startsWith("0x") and not argReg.startsWith("0X") {
+                argReg = argReg + ".0"
+            }
+        }
+        output.append(argTypeStrs[i] + " " + argReg)
         i = i + 1
     }
     output.append(")\n")
@@ -78,7 +84,13 @@ fun emitStringFromCharCodeCallImpl(output: StringBuilder, regBox: Array<Int>, ar
     var i = 0
     while i < argRegs.length() {
         if i > 0 { output.append(", ") }
-        output.append(argTypeStrs[i] + " " + argRegs[i])
+        var argReg = argRegs[i]
+        if argTypeStrs[i] == "double" or argTypeStrs[i] == "float" {
+            if not argReg.startsWith("%") and argReg != "undef" and not argReg.contains(".") and not argReg.contains("e") and not argReg.contains("E") and not argReg.startsWith("0x") and not argReg.startsWith("0X") {
+                argReg = argReg + ".0"
+            }
+        }
+        output.append(argTypeStrs[i] + " " + argReg)
         i = i + 1
     }
     output.append(")\n")
@@ -120,7 +132,13 @@ fun emitGenericStaticCallImpl(output: StringBuilder, regBox: Array<Int>, quotedF
         if i > 0 or hasImplicitThis == 1 {
             output.append(", ")
         }
-        output.append(argTypeStrs[i] + " " + argRegs[i])
+        var argReg = argRegs[i]
+        if argTypeStrs[i] == "double" or argTypeStrs[i] == "float" {
+            if not argReg.startsWith("%") and argReg != "undef" and not argReg.contains(".") and not argReg.contains("e") and not argReg.contains("E") and not argReg.startsWith("0x") and not argReg.startsWith("0X") {
+                argReg = argReg + ".0"
+            }
+        }
+        output.append(argTypeStrs[i] + " " + argReg)
         i = i + 1
     }
     output.append(")\n")
@@ -180,7 +198,13 @@ fun emitDynTraitVtableCallImpl(output: StringBuilder, regBox: Array<Int>, receiv
     }
     var aIdx = 0
     while aIdx < argRegs.length() {
-        argStr = argStr + ", " + argTypes[aIdx] + " " + argRegs[aIdx]
+        var argReg = argRegs[aIdx]
+        if argTypes[aIdx] == "double" or argTypes[aIdx] == "float" {
+            if not argReg.startsWith("%") and argReg != "undef" and not argReg.contains(".") and not argReg.contains("e") and not argReg.contains("E") and not argReg.startsWith("0x") and not argReg.startsWith("0X") {
+                argReg = argReg + ".0"
+            }
+        }
+        argStr = argStr + ", " + argTypes[aIdx] + " " + argReg
         aIdx = aIdx + 1
     }
     // Resolve return type from pipe-separated return types at methodIdx
@@ -259,7 +283,13 @@ fun emitUserFunctionCallImpl(output: StringBuilder, regBox: Array<Int>, quotedFu
         var i = 0
         while i < argRegs.length() {
             if i > 0 { output.append(", ") }
-            output.append(argTypeStrs[i] + " " + argRegs[i])
+            var argReg = argRegs[i]
+            if argTypeStrs[i] == "double" or argTypeStrs[i] == "float" {
+                if not argReg.startsWith("%") and argReg != "undef" and not argReg.contains(".") and not argReg.contains("e") and not argReg.contains("E") and not argReg.startsWith("0x") and not argReg.startsWith("0X") {
+                    argReg = argReg + ".0"
+                }
+            }
+            output.append(argTypeStrs[i] + " " + argReg)
             i = i + 1
         }
         output.append(")\n")
@@ -272,7 +302,13 @@ fun emitUserFunctionCallImpl(output: StringBuilder, regBox: Array<Int>, quotedFu
     var i = 0
     while i < argRegs.length() {
         if i > 0 { output.append(", ") }
-        output.append(argTypeStrs[i] + " " + argRegs[i])
+        var argReg = argRegs[i]
+        if argTypeStrs[i] == "double" or argTypeStrs[i] == "float" {
+            if not argReg.startsWith("%") and argReg != "undef" and not argReg.contains(".") and not argReg.contains("e") and not argReg.contains("E") and not argReg.startsWith("0x") and not argReg.startsWith("0X") {
+                argReg = argReg + ".0"
+            }
+        }
+        output.append(argTypeStrs[i] + " " + argReg)
         i = i + 1
     }
     output.append(")\n")
@@ -289,7 +325,13 @@ fun emitUserMethodCallImpl(output: StringBuilder, regBox: Array<Int>, quotedFunc
         var i = 0
         while i < argRegs.length() {
             output.append(", ")
-            output.append(argTypeStrs[i] + " " + argRegs[i])
+            var argReg = argRegs[i]
+            if argTypeStrs[i] == "double" or argTypeStrs[i] == "float" {
+                if not argReg.startsWith("%") and argReg != "undef" and not argReg.contains(".") and not argReg.contains("e") and not argReg.contains("E") and not argReg.startsWith("0x") and not argReg.startsWith("0X") {
+                    argReg = argReg + ".0"
+                }
+            }
+            output.append(argTypeStrs[i] + " " + argReg)
             i = i + 1
         }
         output.append(")\n")
@@ -302,7 +344,13 @@ fun emitUserMethodCallImpl(output: StringBuilder, regBox: Array<Int>, quotedFunc
     var i = 0
     while i < argRegs.length() {
         output.append(", ")
-        output.append(argTypeStrs[i] + " " + argRegs[i])
+        var argReg = argRegs[i]
+        if argTypeStrs[i] == "double" or argTypeStrs[i] == "float" {
+            if not argReg.startsWith("%") and argReg != "undef" and not argReg.contains(".") and not argReg.contains("e") and not argReg.contains("E") and not argReg.startsWith("0x") and not argReg.startsWith("0X") {
+                argReg = argReg + ".0"
+            }
+        }
+        output.append(argTypeStrs[i] + " " + argReg)
         i = i + 1
     }
     output.append(")\n")

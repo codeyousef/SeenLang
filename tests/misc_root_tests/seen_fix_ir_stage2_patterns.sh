@@ -20,6 +20,7 @@ cat >"$IR_FILE" <<'IR'
 declare void @takes_i64(i64)
 declare void @takes_ptr(ptr)
 declare void @takes_float(float)
+declare void @takes_double(double)
 declare void @takes_seen_string(%SeenString)
 declare ptr @returns_ptr()
 declare i64 @side_effect()
@@ -30,6 +31,7 @@ declare %SeenArray @Map_keys(i64)
 declare %SeenString @mapTypeImpl(%SeenString, ptr, %SeenString, %SeenString, i64, %SeenString)
 declare i1 @llvm.xxx(ptr, ptr, %SeenString, %SeenString, ptr, i64, %SeenString, %SeenString)
 declare void @llvm.prefetch.p0(ptr, i32, i32, i32)
+declare double @llvm.fmuladd.f64(double, double, double)
 declare %SeenString @seen_float_to_string(double)
 declare i64 @dyn_lowerExpression(ptr, i64)
 declare %SeenArray @__ReadFileBytes(i64, i64)
@@ -129,7 +131,34 @@ define void @float_call_literal_repairs() {
 entry:
   %1 = call %SeenString @seen_float_to_string(double 0)
   call void @takes_float(float 0)
+  call void @takes_double(double 0)
   ret void
+}
+
+define double @fma_call_literal_repairs(double %0) {
+entry:
+  %1 = call double @llvm.fmuladd.f64(double 0, double 0, double %0)
+  ret double %1
+}
+
+define double @float_binop_literal_repairs(double %0) {
+entry:
+  %1 = fadd fast double 0, %0
+  %2 = fsub fast double %1, 0
+  %3 = fmul fast double 0, %2
+  %4 = fdiv fast double %3, 1
+  %5 = frem fast double %4, 2
+  ret double %5
+}
+
+define i64 @float_unary_literal_repairs(ptr %0) {
+entry:
+  store double 0, ptr %0
+  %1 = fneg fast double 0
+  %2 = fptosi double 0 to i64
+  %3 = bitcast double 0 to i64
+  %4 = add i64 %2, %3
+  ret i64 %4
 }
 
 define void @ptr_null_call_literal_repair() {
@@ -498,6 +527,17 @@ grep -q 'store i64 8, ptr' "$IR_FILE"
 grep -q 'fcmp olt double 0.0, 1.0' "$IR_FILE"
 grep -q 'call %SeenString @seen_float_to_string(double 0.0)' "$IR_FILE"
 grep -q 'call void @takes_float(float 0.0)' "$IR_FILE"
+grep -q 'call void @takes_double(double 0.0)' "$IR_FILE"
+grep -q 'call double @llvm.fmuladd.f64(double 0.0, double 0.0, double %0)' "$IR_FILE"
+grep -q 'fadd fast double 0.0, %0' "$IR_FILE"
+grep -q 'fsub fast double %1, 0.0' "$IR_FILE"
+grep -q 'fmul fast double 0.0, %2' "$IR_FILE"
+grep -q 'fdiv fast double %3, 1.0' "$IR_FILE"
+grep -q 'frem fast double %4, 2.0' "$IR_FILE"
+grep -q 'store double 0.0, ptr %0' "$IR_FILE"
+grep -q 'fneg fast double 0.0' "$IR_FILE"
+grep -q 'fptosi double 0.0 to i64' "$IR_FILE"
+grep -q 'bitcast double 0.0 to i64' "$IR_FILE"
 grep -q 'call void @takes_ptr(ptr null)' "$IR_FILE"
 ! grep -q 'ptr 0' "$IR_FILE"
 grep -q 'declare %SeenString @badDynContextDeclare(ptr, i64)' "$IR_FILE"

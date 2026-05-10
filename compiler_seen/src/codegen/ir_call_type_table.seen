@@ -195,6 +195,15 @@ fun inferCallTypeTableImpl(callee: String) r: String {
     }
     if callee == "printUsage" { return "Void" }
     if callee == "printFrontendDiagnostics" { return "Void" }
+    // Runtime string helpers used directly by package/runtime support modules.
+    if callee == "seen_string_token" { return "String" }
+    if callee == "seen_string_substring" { return "String" }
+    if callee == "seen_string_token_count" { return "Int" }
+    if callee == "seen_string_contains" { return "Int" }
+    if callee == "seen_string_starts_with" { return "Int" }
+    if callee == "seen_string_to_int" { return "Int" }
+    if callee == "seen_string_to_float" { return "Float" }
+    if callee == "seen_string_length_codepoints" { return "Int" }
     // String utility functions from string.seen
     if callee == "trim" { return "String" }
     if callee == "trimStart" { return "String" }

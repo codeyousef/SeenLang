@@ -47,6 +47,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed `effect(Token)` capability syntax and imported capability propagation so wrong or missing capability tokens are diagnosed consistently.
 - Fixed package/source import resolution for project-root runtime memory imports, manifest companion modules, whole-module package imports, and legacy whole-module imports.
 - Fixed missing imported modules and cyclic imports so they fail early with actionable diagnostics instead of reaching later bootstrap/codegen failures.
+- Fixed installed compiler language-data discovery with executable-relative search paths and an English keyword fallback, so packaged compilers can build package artifacts and large external projects outside the source checkout.
+- Fixed synthetic parser-expression construction in loop lowering and added a guardrail so codegen-created AST nodes use initialized defaults instead of partially initialized aggregate literals.
 
 ## [0.7.2] - 2026-04-29
 

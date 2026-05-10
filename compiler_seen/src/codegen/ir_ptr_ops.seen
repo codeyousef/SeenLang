@@ -4,6 +4,7 @@ Extracted from ir_method_gen.seen for FEL-5 SRP.
 ///
 
 import codegen.ir_optimization.{getNextRegFn}
+import codegen.ir_literal_gen.{normalizeDoubleLiteralForLlvmImpl}
 import str.string.{StringBuilder}
 
 ///
@@ -26,7 +27,8 @@ fun emitPtrOpsImpl(output: StringBuilder, regBox: Array<Int>, funcName: String, 
         return "0"
     }
     if funcName == "ptr_store_f64" {
-        output.append("  call void @seen_ptr_store_f64(i64 " + arg0 + ", double " + arg1 + ")\n")
+        let doubleArg1 = normalizeDoubleLiteralForLlvmImpl(arg1)
+        output.append("  call void @seen_ptr_store_f64(i64 " + arg0 + ", double " + doubleArg1 + ")\n")
         return "0"
     }
     if funcName == "ptr_is_null" {

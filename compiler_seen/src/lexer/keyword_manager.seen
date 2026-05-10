@@ -32,6 +32,29 @@ fun parentDir(path: String) r: String {
     return path.substring(0, lastSlash)
 }
 
+fun withTrailingSlash(path: String) r: String {
+    if path == "" {
+        return ""
+    }
+    if path.byteAt(path.length() - 1) == 47 {
+        return path
+    }
+    return path + "/"
+}
+
+fun validLanguagesRoot(root: String, language: String) r: String {
+    let normalized = withTrailingSlash(root)
+    if normalized == "" {
+        return ""
+    }
+    let testFile = normalized + language + "/" + language + "-keywords-control.toml"
+    let check = readText(testFile)
+    if check != "" {
+        return normalized
+    }
+    return ""
+}
+
 fun resolveLanguagesRootFromCompilerSource(language: String) r: String {
     ///
     Detached bootstrap workspaces often omit languages/ but keep compiler_seen/
@@ -45,10 +68,61 @@ fun resolveLanguagesRootFromCompilerSource(language: String) r: String {
             let compilerDir = parentDir(srcDir)
             let root = parentDir(compilerDir)
             if root != "" {
-                let absTest = root + "/languages/" + language + "/" + language + "-keywords-control.toml"
-                let absCheck = readText(absTest)
-                if absCheck != "" {
-                    return root + "/languages/"
+                let resolved = validLanguagesRoot(root + "/languages", language)
+                if resolved != "" {
+                    return resolved
+                }
+            }
+        }
+    }
+    return ""
+}
+
+fun resolveLanguagesRootFromDataPath(language: String) r: String {
+    let dataResult = runCommand("printenv SEEN_DATA_PATH")
+    if commandWasSuccessful(dataResult) {
+        let dataPath = trimTrailingNewline(dataResult.output)
+        if dataPath != "" {
+            let nested = validLanguagesRoot(dataPath + "/languages", language)
+            if nested != "" {
+                return nested
+            }
+            let direct = validLanguagesRoot(dataPath, language)
+            if direct != "" {
+                return direct
+            }
+        }
+    }
+    return ""
+}
+
+fun resolveLanguagesRootFromExecutable(language: String) r: String {
+    // /proc/$PPID/exe is the compiler process when runCommand spawns a shell.
+    let exeResult = runCommand("readlink -f /proc/$PPID/exe")
+    if commandWasSuccessful(exeResult) {
+        let exePath = trimTrailingNewline(exeResult.output)
+        if exePath != "" {
+            let binDir = parentDir(exePath)
+            let prefix = parentDir(binDir)
+            if prefix != "" {
+                let shareRoot = validLanguagesRoot(prefix + "/share/seen/languages", language)
+                if shareRoot != "" {
+                    return shareRoot
+                }
+                let libRoot = validLanguagesRoot(prefix + "/lib/seen/languages", language)
+                if libRoot != "" {
+                    return libRoot
+                }
+            }
+
+            // Repository binary layout: <root>/compiler_seen/target/seen.
+            let targetDir = parentDir(exePath)
+            let compilerDir = parentDir(targetDir)
+            let repoRoot = parentDir(compilerDir)
+            if repoRoot != "" {
+                let repoLangRoot = validLanguagesRoot(repoRoot + "/languages", language)
+                if repoLangRoot != "" {
+                    return repoLangRoot
                 }
             }
         }
@@ -62,47 +136,29 @@ Resolve the languages/ directory. Tries CWD-relative first, then uses
 ///
 fun resolveLanguagesRoot(language: String) r: String {
     // Fast path: check if languages/ exists relative to CWD
-    let testFile = "languages/" + language + "/" + language + "-keywords-control.toml"
-    let cwdTest = readText(testFile)
-    if cwdTest != "" {
-        return "languages/"
+    let cwdRoot = validLanguagesRoot("languages", language)
+    if cwdRoot != "" {
+        return cwdRoot
     }
     let sourceRoot = resolveLanguagesRootFromCompilerSource(language)
     if sourceRoot != "" {
         return sourceRoot
     }
-    // Slow path: use /proc/$PPID/exe — $PPID is the compiler (parent of the shell)
-    let exeResult = runCommand("readlink -f /proc/$PPID/exe")
-    if commandWasSuccessful(exeResult) {
-        let exePath = trimTrailingNewline(exeResult.output)
-        // Strip 3 levels: <root>/compiler_seen/target/seen → <root>
-        var last1 = exePath.length() - 1
-        while last1 >= 0 {
-            if exePath.byteAt(last1) == 47 { break }
-            last1 = last1 - 1
-        }
-        if last1 > 0 {
-            var last2 = last1 - 1
-            while last2 >= 0 {
-                if exePath.byteAt(last2) == 47 { break }
-                last2 = last2 - 1
-            }
-            if last2 > 0 {
-                var last3 = last2 - 1
-                while last3 >= 0 {
-                    if exePath.byteAt(last3) == 47 { break }
-                    last3 = last3 - 1
-                }
-                if last3 >= 0 {
-                    let root = exePath.substring(0, last3)
-                    let absTest = root + "/languages/" + language + "/" + language + "-keywords-control.toml"
-                    let absCheck = readText(absTest)
-                    if absCheck != "" {
-                        return root + "/languages/"
-                    }
-                }
-            }
-        }
+    let dataRoot = resolveLanguagesRootFromDataPath(language)
+    if dataRoot != "" {
+        return dataRoot
+    }
+    let exeRoot = resolveLanguagesRootFromExecutable(language)
+    if exeRoot != "" {
+        return exeRoot
+    }
+    let usrRoot = validLanguagesRoot("/usr/share/seen/languages", language)
+    if usrRoot != "" {
+        return usrRoot
+    }
+    let usrLocalRoot = validLanguagesRoot("/usr/local/share/seen/languages", language)
+    if usrLocalRoot != "" {
+        return usrLocalRoot
     }
     // Fallback: return relative path (original behavior)
     return "languages/"
@@ -141,6 +197,9 @@ class KeywordManager {
         km.loadFromToml(langDir + prefix + "memory.toml")
         km.loadFromToml(langDir + prefix + "meta.toml")
         km.loadFromToml(langDir + prefix + "misc.toml")
+        if km.getKeywordCount() == 0 {
+            km.loadBuiltinEnglishKeywords()
+        }
 
         // Load stdlib aliases for non-English languages
         km.loadStdlibAliases(language)
@@ -328,6 +387,93 @@ class KeywordManager {
         if name == "KeywordInline" { return SeenTokenType.KeywordInline }
         if name == "KeywordEffect" { return SeenTokenType.KeywordEffect }
         return SeenTokenType.Identifier
+    }
+
+    fun addBuiltinKeyword(text: String, tokenName: String) r: Void {
+        let resolvedToken = resolveTokenName(tokenName)
+        if resolvedToken != SeenTokenType.Identifier {
+            this.keywords.put(text, resolvedToken)
+            this.sources.push("KW:" + text + "=" + tokenName)
+        }
+    }
+
+    fun loadBuiltinEnglishKeywords() r: Void {
+        this.sources.push("KW_SOURCE:builtin-en")
+
+        addBuiltinKeyword("fun", "KeywordFun")
+        addBuiltinKeyword("if", "KeywordIf")
+        addBuiltinKeyword("else", "KeywordElse")
+        addBuiltinKeyword("while", "KeywordWhile")
+        addBuiltinKeyword("for", "KeywordFor")
+        addBuiltinKeyword("in", "KeywordIn")
+        addBuiltinKeyword("match", "KeywordMatch")
+        addBuiltinKeyword("break", "KeywordBreak")
+        addBuiltinKeyword("continue", "KeywordContinue")
+        addBuiltinKeyword("return", "KeywordReturn")
+        addBuiltinKeyword("when", "KeywordWhen")
+        addBuiltinKeyword("try", "KeywordTry")
+        addBuiltinKeyword("catch", "KeywordCatch")
+        addBuiltinKeyword("finally", "KeywordFinally")
+        addBuiltinKeyword("throw", "KeywordThrow")
+        addBuiltinKeyword("loop", "KeywordLoop")
+        addBuiltinKeyword("defer", "KeywordDefer")
+        addBuiltinKeyword("unsafe", "KeywordUnsafe")
+        addBuiltinKeyword("errdefer", "KeywordErrdefer")
+
+        addBuiltinKeyword("let", "KeywordLet")
+        addBuiltinKeyword("var", "KeywordVar")
+        addBuiltinKeyword("mut", "KeywordMut")
+        addBuiltinKeyword("const", "KeywordConst")
+        addBuiltinKeyword("static", "KeywordStatic")
+
+        addBuiltinKeyword("data", "KeywordData")
+        addBuiltinKeyword("struct", "KeywordStruct")
+        addBuiltinKeyword("enum", "KeywordEnum")
+        addBuiltinKeyword("impl", "KeywordImpl")
+        addBuiltinKeyword("type", "KeywordType")
+        addBuiltinKeyword("class", "KeywordClass")
+        addBuiltinKeyword("sealed", "KeywordSealed")
+        addBuiltinKeyword("interface", "KeywordInterface")
+        addBuiltinKeyword("override", "KeywordOverride")
+        addBuiltinKeyword("extension", "KeywordExtension")
+        addBuiltinKeyword("extends", "KeywordExtends")
+        addBuiltinKeyword("trait", "KeywordTrait")
+        addBuiltinKeyword("distinct", "KeywordDistinct")
+        addBuiltinKeyword("union", "KeywordUnion")
+
+        addBuiltinKeyword("module", "KeywordModule")
+        addBuiltinKeyword("import", "KeywordImport")
+        addBuiltinKeyword("use", "KeywordUse")
+        addBuiltinKeyword("export", "KeywordExport")
+        addBuiltinKeyword("pub", "KeywordPub")
+
+        addBuiltinKeyword("true", "KeywordTrue")
+        addBuiltinKeyword("false", "KeywordFalse")
+        addBuiltinKeyword("null", "KeywordNull")
+        addBuiltinKeyword("this", "KeywordThis")
+        addBuiltinKeyword("super", "KeywordSuper")
+
+        addBuiltinKeyword("move", "KeywordMove")
+        addBuiltinKeyword("borrow", "KeywordBorrow")
+        addBuiltinKeyword("region", "KeywordRegion")
+        addBuiltinKeyword("ref", "KeywordRef")
+        addBuiltinKeyword("own", "KeywordOwn")
+        addBuiltinKeyword("transmute", "KeywordTransmute")
+        addBuiltinKeyword("gpu", "KeywordGpu")
+
+        addBuiltinKeyword("async", "KeywordAsync")
+        addBuiltinKeyword("await", "KeywordAwait")
+        addBuiltinKeyword("spawn", "KeywordSpawn")
+        addBuiltinKeyword("parallel_for", "KeywordParallelFor")
+        addBuiltinKeyword("comptime", "KeywordComptime")
+        addBuiltinKeyword("inline", "KeywordInline")
+        addBuiltinKeyword("effect", "KeywordEffect")
+
+        addBuiltinKeyword("is", "KeywordIs")
+        addBuiltinKeyword("as", "KeywordAs")
+        addBuiltinKeyword("and", "KeywordAnd")
+        addBuiltinKeyword("or", "KeywordOr")
+        addBuiltinKeyword("not", "KeywordNot")
     }
 
     fun findKeywordSourceEntry(text: String) r: String {

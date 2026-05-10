@@ -1,333 +1,135 @@
 # CLI Reference
 
-## Subcommands
+This page documents the shipped Seen 0.8.0 compiler binary. The release
+entrypoint is `seen compile`; older `seen build` examples are stale for the
+current packaged compiler.
 
-### `seen build`
+## Commands
 
-Compile a Seen source file to a native binary.
+### `seen compile`
+
+Compile a Seen source file to a native binary or target artifact.
 
 ```bash
-seen build <source.seen> [-o output] [flags]
+seen compile <input.seen> [output] [options]
 ```
+
+Common options:
 
 | Option | Description |
 |--------|-------------|
-| `-o, --output <file>` | Output file path |
-| `-t, --target <target>` | Compilation target (see [Targets](#compilation-targets)) |
-| `--backend <backend>` | `llvm` (default) or `c` |
-| `-l, --language <lang>` | Source language: `en`, `ar`, `es`, `ru`, `zh`, `ja` |
+| `--profile deterministic` | Reject nondeterministic collection usage unless explicitly annotated |
+| `--no-cache` | Disable incremental compilation caching |
+| `--language <lang>` / `-l <lang>` | Source keyword language: `en`, `ar`, `es`, `ru`, `zh`, `ja` |
+| `--target=<platform>` / `--target <platform>` | Cross-compile target |
+| `--target-cpu=<cpu>` | CPU baseline: `native`, `x86-64`, `x86-64-v3`, `x86-64-v4` |
+| `--simd=<policy>` | SIMD policy: `auto`, `none`, `sse4.2`, `avx2`, `avx512` |
+| `--simd-report` / `--simd-report=full` | Show LLVM vectorization reports |
+| `--backend=<name>` / `--backend <name>` | Backend selector; the shipped binary supports LLVM |
+| `--deterministic` | Deterministic mode with scalar SIMD and no unchecked `HashMap` |
+| `--sanitize=<policy>` | Sanitizer policy: `address`, `undefined`, `thread`, `memory` |
+| `--pgo-generate` | Build with profile-generation instrumentation |
+| `--pgo-use=<path>` | Use a merged PGO profile |
+| `--ml-log=<path>` | Collect optimization training data |
+| `--ml-decision-log=<path>` | Write optimization decision logs as JSONL |
+| `--pic` | Emit PIC objects suitable for shared-library links |
+| `--object-manifest <path>` | Write an object-to-module TSV manifest and skip final executable link |
+| `--fast` | Use the lightweight optimization path used by bootstrap verification |
+| `--no-fork` | Disable parallel IR/optimization steps |
+| `--projectprefix <n>` | Large-project validation prefix hint |
 
-### `seen run`
+Supported target platforms in the shipped help are:
 
-Compile and execute immediately via JIT:
-
-```bash
-seen run <source.seen> [--language <lang>]
+```text
+linux-x86_64, linux-arm64, windows-x86_64,
+macos-x86_64, macos-arm64, ios-arm64,
+ios-sim-arm64, android-arm64
 ```
 
-Uses `lli --jit-kind=orc` by default. Pass `--aot` for ahead-of-time compilation.
-
-### `seen check`
-
-Type-check without generating code:
+Examples:
 
 ```bash
-seen check <source.seen> [--language <lang>]
-```
-
-### `seen fmt` / `seen format`
-
-Format source code (4-space indent, trim trailing whitespace):
-
-```bash
-seen fmt <source.seen>
-```
-
-### `seen init`
-
-Create a new project scaffold:
-
-```bash
-seen init <project-name>
-```
-
-Creates `project-name/Seen.toml` and `project-name/src/main.seen`.
-
-### `seen test`
-
-Run the project's test suite:
-
-```bash
-seen test
-```
-
-### `seen clean`
-
-Remove build artifacts (`.seen_cache/`, `/tmp/seen_module_*`, `/tmp/seen_jit_*`):
-
-```bash
-seen clean
-```
-
-### `seen lsp`
-
-Start the built-in language server:
-
-```bash
-seen lsp
-```
-
-### `seen import-c`
-
-Generate Seen bindings from a C header file:
-
-```bash
-seen import-c <header.h>
-```
-
-### `seen pkg`
-
-```bash
-seen pkg fetch
-seen pkg pack
-seen pkg prebuild
-seen pkg publish ./registry-root
-```
-
-- `seen pkg fetch` installs registry packages declared in `Seen.toml`
-- `seen pkg pack` creates a source archive for the current package
-- `seen pkg prebuild` emits a prebuilt artifact with `Seen.pkg.toml`, `objects.tsv`, and `interface.index.tsv`
-- `seen pkg publish` writes a static-registry index entry and archive into a local registry directory
-- static registries are served from a base URL or directory with `index/<package>.toml`
-  and `archives/<package>/<package>-<version>.seenpkg.tgz`
-- registry dependencies currently use exact versions only
-
-### `seen --version`
-
-```bash
-seen --version
-# Seen 0.8.0 (100% self-hosted)
-```
-
-## Optimization Flags
-
-| Flag | Description |
-|------|-------------|
-| `-O0` | No optimization |
-| `-O1` | Light optimization |
-| `-O2` | Medium optimization (default) |
-| `-O3` | Aggressive optimization |
-| `--release` | Alias for `-O3` with full LTO |
-| `--fast` | Skip Polly, use minimal `default<O1>` passes (fast compilation) |
-| `-g, --debug` | Include debug information |
-
-## Backend and Target Flags
-
-| Flag | Description |
-|------|-------------|
-| `--backend llvm` | LLVM backend (default, best performance) |
-| `--backend c` | C99 fallback backend |
-| `--target-cpu=<cpu>` | Target CPU: `native`, `x86-64-v3`, `x86-64-v4` |
-| `--target=<platform>` | Cross-compile target (see below) |
-
-### Compilation Targets
-
-| Target | Description |
-|--------|-------------|
-| `native` | Host platform (default) |
-| `wasm` | WebAssembly module |
-| `c` | C source code output |
-| `llvm-ir` | LLVM IR output |
-| `ios-arm64` | iOS ARM64 |
-| `ios-sim-arm64` | iOS Simulator ARM64 |
-| `macos-x86_64` | macOS x86_64 |
-| `macos-arm64` | macOS ARM64 |
-| `windows-x86_64` | Windows x86_64 |
-| `linux-arm64` | Linux ARM64 |
-| `riscv64` | RISC-V 64-bit |
-
-## SIMD Flags
-
-| Flag | Description |
-|------|-------------|
-| `--simd=auto` | Auto-detect (default) |
-| `--simd=none` | Disable SIMD |
-| `--simd=sse4.2` | Force SSE 4.2 |
-| `--simd=avx2` | Force AVX2 |
-| `--simd=avx512` | Force AVX-512 |
-| `--simd-report` | Show vectorization report |
-| `--simd-report=full` | Detailed per-loop report |
-
-## Safety Flags
-
-| Flag | Description |
-|------|-------------|
-| `--null-safety` | Enable null pointer safety checks |
-| `--warn-uninit` | Warn on uninitialized variable access |
-| `--stack-check` | Enable stack overflow checks |
-| `--bounds-check` | Enable array bounds checking |
-| `--panic-on-overflow` | Panic on integer overflow |
-| `--warn-unused-result` | Warn on unused function results |
-
-## Sanitizer Flags
-
-```bash
-seen build source.seen --sanitize=address    # AddressSanitizer
-seen build source.seen --sanitize=undefined  # UBSan
-seen build source.seen --sanitize=thread     # ThreadSanitizer
-seen build source.seen --sanitize=memory     # MemorySanitizer
-```
-
-## Debug and Emission Flags
-
-| Flag | Description |
-|------|-------------|
-| `--emit-llvm` | Save LLVM IR alongside output |
-| `--emit-glsl` | Emit GLSL shader code (GPU) |
-| `--emit-compile-db` | Generate `compile_commands.json` |
-| `--pic` | Emit PIC module/runtime objects suitable for shared-library links |
-| `--object-manifest <path>` | Write a TSV manifest of object path to Seen module path and skip final link |
-| `--trace-llvm` | Trace LLVM IR generation |
-| `--dump-struct-layouts` | Print struct field layouts |
-| `--runtime-debug` | Enable runtime debug output |
-
-### Shared-Library Object Output
-
-```bash
+seen compile hello.seen hello
+seen compile app.seen app --target=linux-arm64 --target-cpu=x86-64
 seen compile plugin.seen plugin_host --pic --no-cache --no-fork \
   --object-manifest /tmp/plugin.objects.tsv
 ```
 
-The manifest contains one tab-separated row per emitted module object:
+When `--object-manifest` is present, `seen compile` stops after object emission
+and records one tab-separated row per emitted module object:
 
 ```text
 /tmp/seen_module_0.o	src/plugin.seen
 ```
 
-Use the listed objects with your platform linker to produce a `.so` or other shared library. When `--object-manifest` is present, `seen compile` stops after object emission and does not run its internal executable link. Without `--pic`, the default executable-oriented object pipeline is unchanged.
+### `seen check`
 
-## Profile-Guided Optimization (PGO)
-
-```bash
-# Step 1: Generate profiling instrumentation
-seen build app.seen -o app --pgo-generate
-./app  # Run with representative input
-
-# Step 2: Merge profiling data
-llvm-profdata merge -o default.profdata default_*.profraw
-
-# Step 3: Recompile with profile data
-seen build app.seen -o app --pgo-use=default.profdata
-```
-
-## Machine Learning Integration
-
-| Flag | Description |
-|------|-------------|
-| `--ml-log=<path>` | Collect ML training data from optimization remarks |
-| `--ml-decision-log=<path>` | Write optimization decision log (JSONL) |
-
-## Compilation Profiles
+Run frontend/type checks without building an executable.
 
 ```bash
-seen build app.seen --profile default        # Allow all types
-seen build app.seen --profile deterministic  # Reject HashMap without @nondeterministic
-seen build app.seen --deterministic          # Scalar SIMD, no HashMap
+seen check <input.seen> [--profile deterministic]
 ```
 
-## Feature Flags
+### `seen run`
+
+Compile and execute a Seen source file.
 
 ```bash
-seen build app.seen --feature=my_feature --feature=experimental
+seen run <input.seen> [--aot] [--verbose] [--language <lang>]
 ```
 
-Use with `@cfg` in source:
+By default `seen run` uses the JIT path. Pass `--aot` to compile an executable
+first, and `--verbose` to show compiler diagnostics during the run.
 
-```seen
-@cfg("my_feature")
-fun experimentalFunction() { ... }
+### Packaging Commands
+
+```bash
+seen pkg fetch [project-dir-or-manifest]
+seen pkg pack [project-dir-or-manifest] [output]
+seen pkg prebuild [project-dir-or-manifest] [output-dir]
+seen pkg publish <registry-dir> [project-dir-or-manifest]
 ```
 
-## Cache Control
+- `fetch` installs exact-version registry dependencies into `.seen/packages/`.
+- `pack` creates a source archive for the current package.
+- `prebuild` emits a local prebuilt artifact containing `Seen.pkg.toml`,
+  `objects.tsv`, `interface.index.tsv`, object files, and interface sources.
+- `publish` writes a static-registry index and archive into a local directory.
 
-| Flag | Description |
-|------|-------------|
-| `--no-cache` | Disable incremental compilation caching |
-| `--no-fork` | Disable fork-parallel IR generation |
-
-Cache locations:
-- `.seen_cache/` -- source-level incremental cache
-- `/tmp/seen_ir_cache` -- IR content-addressed cache
-- `/tmp/seen_thinlto_cache` -- ThinLTO linker cache
-
-## macOS-Specific Commands
-
-### `seen bundle`
-
-Create a macOS app bundle:
+### Platform Packaging Commands
 
 ```bash
 seen bundle <executable> <AppName> [--icon=<icon.icns>] [--version=<1.0>]
-```
-
-### `seen sign`
-
-Code sign a binary or app bundle:
-
-```bash
 seen sign <path> [--identity=<identity>]
-```
-
-### `seen notarize`
-
-Submit for Apple notarization:
-
-```bash
-seen notarize <path.zip|path.app> --apple-id=<email> --team-id=<id> --password=<pwd>
-```
-
-### `seen lipo`
-
-Create universal binary:
-
-```bash
+seen notarize <path> --apple-id=<email> --team-id=<id> --password=<pwd>
 seen lipo <x86_64_binary> <arm64_binary> [--output=<universal>]
 seen lipo --from-source <source.seen> [--output=<universal>]
-```
-
-### `seen ipa`
-
-Create iOS IPA package:
-
-```bash
 seen ipa <executable> <AppName> [--bundle-id=...] [--version=...] [--provisioning-profile=...]
 ```
 
-## Environment Variables
-
-| Variable | Values | Description |
-|----------|--------|-------------|
-| `SEEN_DEBUG_TYPES` | `1` | Type checker debug output |
-| `SEEN_TRACE_LLVM` | `all`, `inst`, `values`, `types`, `ir`, `layouts`, `gep`, `boxing` | LLVM backend tracing |
-| `SEEN_TRACE_LEXER` | `1` | Lexer operation tracing |
-| `SEEN_TRACE_PARSER` | `1` | Parser operation tracing |
-| `SEEN_TRACE_CODEGEN` | `1` | Code generation tracing |
-| `SEEN_TRACE_ALL` | `1` | Enable all tracing |
-| `SEEN_TRACE_VERBOSE` | `1` | Extra verbose trace output |
-| `SEEN_LLVM_BIN` | path to LLVM `bin` dir | Override LLVM tool lookup for `clang`, `opt`, `llc`, `llvm-as`, and `lld` when they are not on `PATH` |
-
-### Tracing Examples
+### Other Commands
 
 ```bash
-# Debug type checking
-SEEN_DEBUG_TYPES=1 seen build program.seen
-
-# Debug all LLVM IR generation
-SEEN_TRACE_LLVM=all seen build program.seen
-
-# Debug struct field access (GEP operations)
-SEEN_TRACE_LLVM=gep seen build program.seen
-
-# Debug boxing/unboxing for generics
-SEEN_TRACE_LLVM=boxing seen build program.seen
+seen translate <file> --from <lang> --to <lang> [-o <output>]
+seen import-c <header.h>
+seen lsp
 ```
+
+`translate` rewrites source keywords between supported Seen languages.
+`import-c` generates Seen `extern fun` declarations from C headers.
+`lsp` starts the built-in language server.
+
+## PGO Workflow
+
+```bash
+seen compile prog.seen prog --pgo-generate
+./prog
+llvm-profdata merge -o default.profdata default_*.profraw
+seen compile prog.seen prog --pgo-use=default.profdata
+```
+
+## Cache Locations
+
+- `.seen_cache/` -- source-level incremental cache
+- `/tmp/seen_ir_cache` -- IR content-addressed cache
+- `/tmp/seen_thinlto_cache` -- ThinLTO linker cache

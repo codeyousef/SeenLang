@@ -4,6 +4,7 @@ import codegen.ir_function_signature_emit.{emitDefaultReturnValueImpl}
 import codegen.ir_type_info.{charToCodeStr}
 import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_stmt_gen.{emitConditionToI1Impl}
+import codegen.ir_literal_gen.{normalizeDoubleLiteralForLlvmImpl}
 import str.string.{StringBuilder}
 
 fun emitErrdeferTempReturnLoadImpl(output: StringBuilder, loadReg: String,
@@ -171,7 +172,8 @@ fun coerceReturnValueRegImpl(output: StringBuilder, regBox: Array<Int>,
     }
     if targetLlvmType == "i64" and sourceLlvmType == "double" {
         let coercedReg = getNextRegFn(regBox)
-        output.append("  " + coercedReg + " = fptosi double " + valueReg +
+        let doubleValue = normalizeDoubleLiteralForLlvmImpl(valueReg)
+        output.append("  " + coercedReg + " = fptosi double " + doubleValue +
             " to i64\n")
         return coercedReg
     }

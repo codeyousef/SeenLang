@@ -1376,6 +1376,28 @@ def fix_scalar_literal_and_text_repairs(content):
                        if re.search(r'\bfcmp\s+\w+\s+(?:float|double)\b', fixed[:m.start()])
                        else m.group(0),
                        fixed)
+        fixed = re.sub(
+            r'\b(fadd|fsub|fmul|fdiv|frem)((?:\s+(?:fast|nnan|ninf|nsz|arcp|contract|afn|reassoc))*)\s+(float|double)\s+(-?(?:0|[1-9][0-9]*))(?=\s*,)',
+            r'\1\2 \3 \4.0',
+            fixed,
+        )
+        fixed = re.sub(
+            r'(,\s*)(-?(?:0|[1-9][0-9]*))(?=\s*(?:;|$))',
+            lambda m: m.group(1) + m.group(2) + '.0'
+            if re.search(r'\b(?:fadd|fsub|fmul|fdiv|frem)(?:\s+(?:fast|nnan|ninf|nsz|arcp|contract|afn|reassoc))*\s+(?:float|double)\b', fixed[:m.start()])
+            else m.group(0),
+            fixed,
+        )
+        fixed = re.sub(
+            r'\b(fneg)((?:\s+(?:fast|nnan|ninf|nsz|arcp|contract|afn|reassoc))*)\s+(float|double)\s+(-?(?:0|[1-9][0-9]*))(?=\s*(?:;|$))',
+            r'\1\2 \3 \4.0',
+            fixed,
+        )
+        fixed = re.sub(
+            r'\b(store|fptosi|fptrunc|bitcast)\s+(float|double)\s+(-?(?:0|[1-9][0-9]*))(?=\s*(?:,|to\b))',
+            r'\1 \2 \3.0',
+            fixed,
+        )
         if 'call ' in fixed:
             fixed = re.sub(
                 r'\b(float|double)\s+(-?(?:0|[1-9][0-9]*))(?=\s*[,)])',

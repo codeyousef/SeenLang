@@ -2,6 +2,7 @@
 
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn}
+import codegen.ir_literal_gen.{normalizeDoubleLiteralForLlvmImpl}
 
 fun coerceValueForLlvmTargetImpl(output: StringBuilder, regBox: Array<Int>,
     targetLlvmType: String, sourceSeenType: String, sourceLlvmType: String,
@@ -27,7 +28,8 @@ fun coerceValueForLlvmTargetImpl(output: StringBuilder, regBox: Array<Int>,
     }
     if targetLlvmType == "i64" and sourceLlvmType == "double" {
         let coercedReg = getNextRegFn(regBox)
-        output.append("  " + coercedReg + " = fptosi double " + valueReg +
+        let doubleValue = normalizeDoubleLiteralForLlvmImpl(valueReg)
+        output.append("  " + coercedReg + " = fptosi double " + doubleValue +
             " to i64\n")
         return coercedReg
     }
@@ -75,8 +77,9 @@ fun coerceValueForLlvmTargetImpl(output: StringBuilder, regBox: Array<Int>,
     }
     if targetLlvmType == "i1" and sourceLlvmType == "double" {
         let coercedReg = getNextRegFn(regBox)
+        let doubleValue = normalizeDoubleLiteralForLlvmImpl(valueReg)
         output.append("  " + coercedReg + " = fcmp one double " +
-            valueReg + ", 0.0\n")
+            doubleValue + ", 0.0\n")
         return coercedReg
     }
     return valueReg

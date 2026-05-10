@@ -72,6 +72,7 @@ Package dependencies can be either:
 
 - exact registry versions like `"0.1.0"`
 - local Seen package paths like `{ path = "../gamekit" }`
+- local prebuilt artifacts like `{ artifact = "../dist/gamekit-0.1.0.seenpkg" }`
 
 Dependencies are imported by the dependency key:
 
@@ -104,6 +105,10 @@ backward compatibility, but new manifests should prefer `[native.dependencies]`.
 
 ## [build] Section
 
+The manifest may include build metadata for projects and tools, but the shipped
+compiler's user-facing build controls are CLI flags documented in
+[CLI Reference](cli-reference.md).
+
 ```toml
 [build]
 targets = ["native", "wasm32", "riscv64"]
@@ -115,6 +120,9 @@ profile = "release"     # "release" or "debug"
 ```
 
 ## [targets.*] Section
+
+Target sections are project metadata for tools and future target profiles. Use
+`seen compile --target=<platform>` for the shipped compiler's target selection.
 
 Per-target configuration:
 
@@ -134,6 +142,9 @@ features = ["simd128"]
 
 ## [format] Section
 
+Format settings are consumed by editor/tooling integrations. The shipped
+compiler binary does not expose a standalone formatter command.
+
 Code formatting preferences:
 
 ```toml
@@ -146,6 +157,9 @@ document-types = [".seen", ".md", ".toml"]
 
 ## [test] Section
 
+Test settings are reserved for project tooling. Use repository test scripts or
+package-specific test runners where provided.
+
 ```toml
 [test]
 threads = "auto"    # number of test threads
@@ -154,6 +168,8 @@ coverage = true     # enable code coverage
 ```
 
 ## [benchmark] Section
+
+Benchmark settings are reserved for project tooling and benchmark scripts.
 
 ```toml
 [benchmark]

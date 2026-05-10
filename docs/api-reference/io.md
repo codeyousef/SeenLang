@@ -47,6 +47,9 @@ file.closeFile()
 | `closeFile()` | `Void` | Close file |
 | `size()` | `Int` | Get file size |
 
+`FsFileResult` represents file-open/read outcomes that need to carry success
+state alongside file data or errors.
+
 ### Runtime File Functions
 
 | Function | Description |
