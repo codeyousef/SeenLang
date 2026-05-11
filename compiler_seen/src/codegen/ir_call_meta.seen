@@ -1,10 +1,12 @@
-// ir_call_meta.seen — compile-time/meta builtin helpers
-// Extracted from llvm_ir_gen.seen to keep meta call computation separate
-// from higher-level builtin dispatch.
+///
+ir_call_meta.seen — compile-time/meta builtin helpers
+Extracted from llvm_ir_gen.seen to keep meta call computation separate
+from higher-level builtin dispatch.
+///
 
 import codegen.ir_call_dispatch.{emitOffsetofImpl}
 import codegen.ir_type_layout.{getLlvmTypeSizeImpl, getLlvmTypeAlignImpl}
-import codegen.type_registry.{findStructReg}
+import codegen.type_registry_core.{findStructReg}
 
 fun resolveSizeofBuiltinValueImpl(llvmType: String, structNames: Array<String>,
     structLayouts: Array<String>, structSizes: Array<Int>) r: String {

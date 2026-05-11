@@ -1,5 +1,7 @@
-// Negative test for capability tokens - these should produce compile errors
-// Run this file to verify capability error detection works
+///
+Negative test for capability tokens - these should produce compile errors
+Run this file to verify capability error detection works
+///
 
 // ERROR: Missing FileToken when calling file operation
 fun testMissingFileToken() r: String {
@@ -44,8 +46,10 @@ fun testWrongToken() r: String {
     return readText("file.txt")  // Should error: has NetToken but needs FileToken
 }
 
-// This main is just to make the file compilable for structure
-// The actual errors should be caught during compilation
+///
+This main is just to make the file compilable for structure
+The actual errors should be caught during compilation
+///
 fun main() r: Int {
     println("This file should not compile successfully!")
     println("It contains intentional capability violations.")

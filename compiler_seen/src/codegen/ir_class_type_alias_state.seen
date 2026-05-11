@@ -1,0 +1,71 @@
+// ir_class_type_alias_state.seen - class type alias and trait type state helpers.
+
+import parser.real_parser.{ClassNode}
+import str.string.{StringBuilder}
+import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
+import codegen.ir_codegen_feature_state.{appendDynTraitNameWithFeatureStateImpl, registerTopLevelTypeAliasWithFeatureStateImpl, appendDistinctTypeNameWithFeatureStateImpl}
+
+fun emitTraitVtableTypeState(output: StringBuilder,
+    classNode: ClassNode) r: Void {
+
+    let className = classNode.name
+    appendDynTraitNameWithFeatureStateImpl(className)
+    output.append("; dyn " + className + " vtable type\n")
+    output.append("%" + quoteIdentIfNeededImpl(className + "_vtable") +
+        " = type { ")
+    var methodIdx = 0
+    while methodIdx < classNode.methods.length() {
+        if methodIdx > 0 {
+            output.append(", ")
+        }
+        output.append("ptr")
+        methodIdx = methodIdx + 1
+    }
+    if classNode.methods.length() == 0 {
+        output.append("i8")
+    }
+    output.append(" }\n\n")
+}
+
+fun registerTopLevelTypeAliasState(output: StringBuilder,
+    className: String, aliasTarget: String) r: Void {
+
+    output.append("; type " + className + " = " + aliasTarget + "\n")
+    registerTopLevelTypeAliasWithFeatureStateImpl(className, aliasTarget)
+}
+
+fun tryHandleTypeAliasClassState(output: StringBuilder,
+    classNode: ClassNode) r: Bool {
+
+    let className = classNode.name
+    var isTypeAlias = false
+    var decoratorIdx = 0
+    while decoratorIdx < classNode.decorators.length() {
+        let decorator = classNode.decorators[decoratorIdx]
+        if decorator.name == "type_alias" {
+            isTypeAlias = true
+            if decorator.arguments.length() > 0 {
+                registerTopLevelTypeAliasState(output, className,
+                    decorator.arguments[0])
+            }
+        }
+        decoratorIdx = decoratorIdx + 1
+    }
+    if not isTypeAlias {
+        return false
+    }
+
+    decoratorIdx = 0
+    while decoratorIdx < classNode.decorators.length() {
+        let decorator = classNode.decorators[decoratorIdx]
+        if decorator.name == "distinct" {
+            if decorator.arguments.length() > 0 {
+                output.append("; distinct " + className + " = " +
+                    decorator.arguments[0] + " (no implicit conversion)\n")
+                appendDistinctTypeNameWithFeatureStateImpl(className)
+            }
+        }
+        decoratorIdx = decoratorIdx + 1
+    }
+    return true
+}

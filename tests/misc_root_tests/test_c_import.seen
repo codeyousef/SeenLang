@@ -1,6 +1,8 @@
-// Test C function imports via extern fun
-// This test verifies calling C library math functions directly
-// (only uses double-precision functions to avoid i32/i64 ABI mismatch)
+///
+Test C function imports via extern fun
+This test verifies calling C library math functions directly
+(only uses double-precision functions to avoid i32/i64 ABI mismatch)
+///
 
 extern fun sqrt(x: Float) r: Float
 extern fun sin(x: Float) r: Float

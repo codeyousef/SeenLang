@@ -1,5 +1,7 @@
-// Test: Same function callable from CPU and GPU
-// The @compute decorator generates a GPU shader + CPU dispatch wrapper
+///
+Test: Same function callable from CPU and GPU
+The @compute decorator generates a GPU shader + CPU dispatch wrapper
+///
 
 @compute(workgroup: 64)
 fun addOne(data: Buffer<Float>) {

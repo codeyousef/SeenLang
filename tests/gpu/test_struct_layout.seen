@@ -1,5 +1,7 @@
-// Test: @gpu_buffer struct layout validation (CPU/GPU match)
-// Verifies std430 alignment rules are checked
+///
+Test: @gpu_buffer struct layout validation (CPU/GPU match)
+Verifies std430 alignment rules are checked
+///
 
 @gpu_buffer
 class Particle {

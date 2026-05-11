@@ -1,5 +1,7 @@
-// Real Seen arithmetic benchmark - measures actual performance
-// Imports runtime intrinsics for high-precision timing
+///
+Real Seen arithmetic benchmark - measures actual performance
+Imports runtime intrinsics for high-precision timing
+///
 
 import runtime.runtime_intrinsics
 fun main() -> Int {

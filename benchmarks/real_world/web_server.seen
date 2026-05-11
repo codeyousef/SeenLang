@@ -1,5 +1,7 @@
-// Real-World Web Server Benchmark
-// Tests HTTP request handling, routing, middleware, and response generation
+///
+Real-World Web Server Benchmark
+Tests HTTP request handling, routing, middleware, and response generation
+///
 
 import std::net::{TcpListener, TcpStream}
 import std::io::{Read, Write}

@@ -1,5 +1,7 @@
-// Keyword Manager - TOML-Driven Keyword Loading
-// Loads keywords and stdlib aliases from TOML files based on language
+///
+Keyword Manager - TOML-Driven Keyword Loading
+Loads keywords and stdlib aliases from TOML files based on language
+///
 
 import lexer.token_type.{SeenTokenType}
 import collections.map.{Map}
@@ -30,9 +32,34 @@ fun parentDir(path: String) r: String {
     return path.substring(0, lastSlash)
 }
 
+fun withTrailingSlash(path: String) r: String {
+    if path == "" {
+        return ""
+    }
+    if path.byteAt(path.length() - 1) == 47 {
+        return path
+    }
+    return path + "/"
+}
+
+fun validLanguagesRoot(root: String, language: String) r: String {
+    let normalized = withTrailingSlash(root)
+    if normalized == "" {
+        return ""
+    }
+    let testFile = normalized + language + "/" + language + "-keywords-control.toml"
+    let check = readText(testFile)
+    if check != "" {
+        return normalized
+    }
+    return ""
+}
+
 fun resolveLanguagesRootFromCompilerSource(language: String) r: String {
-    // Detached bootstrap workspaces often omit languages/ but keep compiler_seen/
-    // symlinked back to the source checkout, so resolve through that real path.
+    ///
+    Detached bootstrap workspaces often omit languages/ but keep compiler_seen/
+    symlinked back to the source checkout, so resolve through that real path.
+    ///
     let sourceResult = runCommand("readlink -f \"compiler_seen/src/main_compiler.seen\"")
     if commandWasSuccessful(sourceResult) {
         let sourcePath = trimTrailingNewline(sourceResult.output)
@@ -41,10 +68,9 @@ fun resolveLanguagesRootFromCompilerSource(language: String) r: String {
             let compilerDir = parentDir(srcDir)
             let root = parentDir(compilerDir)
             if root != "" {
-                let absTest = root + "/languages/" + language + "/" + language + "-keywords-control.toml"
-                let absCheck = readText(absTest)
-                if absCheck != "" {
-                    return root + "/languages/"
+                let resolved = validLanguagesRoot(root + "/languages", language)
+                if resolved != "" {
+                    return resolved
                 }
             }
         }
@@ -52,51 +78,87 @@ fun resolveLanguagesRootFromCompilerSource(language: String) r: String {
     return ""
 }
 
-// Resolve the languages/ directory. Tries CWD-relative first, then uses
-// /proc/self/exe to find the compiler root (works from any CWD on Linux).
+fun resolveLanguagesRootFromDataPath(language: String) r: String {
+    let dataResult = runCommand("printenv SEEN_DATA_PATH")
+    if commandWasSuccessful(dataResult) {
+        let dataPath = trimTrailingNewline(dataResult.output)
+        if dataPath != "" {
+            let nested = validLanguagesRoot(dataPath + "/languages", language)
+            if nested != "" {
+                return nested
+            }
+            let direct = validLanguagesRoot(dataPath, language)
+            if direct != "" {
+                return direct
+            }
+        }
+    }
+    return ""
+}
+
+fun resolveLanguagesRootFromExecutable(language: String) r: String {
+    // /proc/$PPID/exe is the compiler process when runCommand spawns a shell.
+    let exeResult = runCommand("readlink -f /proc/$PPID/exe")
+    if commandWasSuccessful(exeResult) {
+        let exePath = trimTrailingNewline(exeResult.output)
+        if exePath != "" {
+            let binDir = parentDir(exePath)
+            let prefix = parentDir(binDir)
+            if prefix != "" {
+                let shareRoot = validLanguagesRoot(prefix + "/share/seen/languages", language)
+                if shareRoot != "" {
+                    return shareRoot
+                }
+                let libRoot = validLanguagesRoot(prefix + "/lib/seen/languages", language)
+                if libRoot != "" {
+                    return libRoot
+                }
+            }
+
+            // Repository binary layout: <root>/compiler_seen/target/seen.
+            let targetDir = parentDir(exePath)
+            let compilerDir = parentDir(targetDir)
+            let repoRoot = parentDir(compilerDir)
+            if repoRoot != "" {
+                let repoLangRoot = validLanguagesRoot(repoRoot + "/languages", language)
+                if repoLangRoot != "" {
+                    return repoLangRoot
+                }
+            }
+        }
+    }
+    return ""
+}
+
+///
+Resolve the languages/ directory. Tries CWD-relative first, then uses
+/proc/self/exe to find the compiler root (works from any CWD on Linux).
+///
 fun resolveLanguagesRoot(language: String) r: String {
     // Fast path: check if languages/ exists relative to CWD
-    let testFile = "languages/" + language + "/" + language + "-keywords-control.toml"
-    let cwdTest = readText(testFile)
-    if cwdTest != "" {
-        return "languages/"
+    let cwdRoot = validLanguagesRoot("languages", language)
+    if cwdRoot != "" {
+        return cwdRoot
     }
     let sourceRoot = resolveLanguagesRootFromCompilerSource(language)
     if sourceRoot != "" {
         return sourceRoot
     }
-    // Slow path: use /proc/$PPID/exe — $PPID is the compiler (parent of the shell)
-    let exeResult = runCommand("readlink -f /proc/$PPID/exe")
-    if commandWasSuccessful(exeResult) {
-        let exePath = trimTrailingNewline(exeResult.output)
-        // Strip 3 levels: <root>/compiler_seen/target/seen → <root>
-        var last1 = exePath.length() - 1
-        while last1 >= 0 {
-            if exePath.byteAt(last1) == 47 { break }
-            last1 = last1 - 1
-        }
-        if last1 > 0 {
-            var last2 = last1 - 1
-            while last2 >= 0 {
-                if exePath.byteAt(last2) == 47 { break }
-                last2 = last2 - 1
-            }
-            if last2 > 0 {
-                var last3 = last2 - 1
-                while last3 >= 0 {
-                    if exePath.byteAt(last3) == 47 { break }
-                    last3 = last3 - 1
-                }
-                if last3 >= 0 {
-                    let root = exePath.substring(0, last3)
-                    let absTest = root + "/languages/" + language + "/" + language + "-keywords-control.toml"
-                    let absCheck = readText(absTest)
-                    if absCheck != "" {
-                        return root + "/languages/"
-                    }
-                }
-            }
-        }
+    let dataRoot = resolveLanguagesRootFromDataPath(language)
+    if dataRoot != "" {
+        return dataRoot
+    }
+    let exeRoot = resolveLanguagesRootFromExecutable(language)
+    if exeRoot != "" {
+        return exeRoot
+    }
+    let usrRoot = validLanguagesRoot("/usr/share/seen/languages", language)
+    if usrRoot != "" {
+        return usrRoot
+    }
+    let usrLocalRoot = validLanguagesRoot("/usr/local/share/seen/languages", language)
+    if usrLocalRoot != "" {
+        return usrLocalRoot
     }
     // Fallback: return relative path (original behavior)
     return "languages/"
@@ -135,6 +197,9 @@ class KeywordManager {
         km.loadFromToml(langDir + prefix + "memory.toml")
         km.loadFromToml(langDir + prefix + "meta.toml")
         km.loadFromToml(langDir + prefix + "misc.toml")
+        if km.getKeywordCount() == 0 {
+            km.loadBuiltinEnglishKeywords()
+        }
 
         // Load stdlib aliases for non-English languages
         km.loadStdlibAliases(language)
@@ -144,110 +209,112 @@ class KeywordManager {
 
     fun initTokenNameMap() r: Void {
         // Control flow
-        tokenNameMap.put("KeywordFun", SeenTokenType.KeywordFun)
-        tokenNameMap.put("KeywordIf", SeenTokenType.KeywordIf)
-        tokenNameMap.put("KeywordElse", SeenTokenType.KeywordElse)
-        tokenNameMap.put("KeywordWhile", SeenTokenType.KeywordWhile)
-        tokenNameMap.put("KeywordFor", SeenTokenType.KeywordFor)
-        tokenNameMap.put("KeywordIn", SeenTokenType.KeywordIn)
-        tokenNameMap.put("KeywordMatch", SeenTokenType.KeywordMatch)
-        tokenNameMap.put("KeywordBreak", SeenTokenType.KeywordBreak)
-        tokenNameMap.put("KeywordContinue", SeenTokenType.KeywordContinue)
-        tokenNameMap.put("KeywordLoop", SeenTokenType.KeywordLoop)
-        tokenNameMap.put("KeywordReturn", SeenTokenType.KeywordReturn)
-        tokenNameMap.put("KeywordTry", SeenTokenType.KeywordTry)
-        tokenNameMap.put("KeywordCatch", SeenTokenType.KeywordCatch)
-        tokenNameMap.put("KeywordFinally", SeenTokenType.KeywordFinally)
-        tokenNameMap.put("KeywordThrow", SeenTokenType.KeywordThrow)
+        this.tokenNameMap.put("KeywordFun", SeenTokenType.KeywordFun)
+        this.tokenNameMap.put("KeywordIf", SeenTokenType.KeywordIf)
+        this.tokenNameMap.put("KeywordElse", SeenTokenType.KeywordElse)
+        this.tokenNameMap.put("KeywordWhile", SeenTokenType.KeywordWhile)
+        this.tokenNameMap.put("KeywordFor", SeenTokenType.KeywordFor)
+        this.tokenNameMap.put("KeywordIn", SeenTokenType.KeywordIn)
+        this.tokenNameMap.put("KeywordMatch", SeenTokenType.KeywordMatch)
+        this.tokenNameMap.put("KeywordBreak", SeenTokenType.KeywordBreak)
+        this.tokenNameMap.put("KeywordContinue", SeenTokenType.KeywordContinue)
+        this.tokenNameMap.put("KeywordLoop", SeenTokenType.KeywordLoop)
+        this.tokenNameMap.put("KeywordReturn", SeenTokenType.KeywordReturn)
+        this.tokenNameMap.put("KeywordTry", SeenTokenType.KeywordTry)
+        this.tokenNameMap.put("KeywordCatch", SeenTokenType.KeywordCatch)
+        this.tokenNameMap.put("KeywordFinally", SeenTokenType.KeywordFinally)
+        this.tokenNameMap.put("KeywordThrow", SeenTokenType.KeywordThrow)
 
         // Variable declarations
-        tokenNameMap.put("KeywordLet", SeenTokenType.KeywordLet)
-        tokenNameMap.put("KeywordVar", SeenTokenType.KeywordVar)
+        this.tokenNameMap.put("KeywordLet", SeenTokenType.KeywordLet)
+        this.tokenNameMap.put("KeywordVar", SeenTokenType.KeywordVar)
 
         // Type definitions
-        tokenNameMap.put("KeywordClass", SeenTokenType.KeywordClass)
-        tokenNameMap.put("KeywordInterface", SeenTokenType.KeywordInterface)
-        tokenNameMap.put("KeywordEnum", SeenTokenType.KeywordEnum)
-        tokenNameMap.put("KeywordExtends", SeenTokenType.KeywordExtends)
-        tokenNameMap.put("KeywordImplements", SeenTokenType.KeywordImplements)
+        this.tokenNameMap.put("KeywordClass", SeenTokenType.KeywordClass)
+        this.tokenNameMap.put("KeywordInterface", SeenTokenType.KeywordInterface)
+        this.tokenNameMap.put("KeywordEnum", SeenTokenType.KeywordEnum)
+        this.tokenNameMap.put("KeywordExtends", SeenTokenType.KeywordExtends)
+        this.tokenNameMap.put("KeywordImplements", SeenTokenType.KeywordImplements)
 
         // Async
-        tokenNameMap.put("KeywordAsync", SeenTokenType.KeywordAsync)
-        tokenNameMap.put("KeywordAwait", SeenTokenType.KeywordAwait)
-        tokenNameMap.put("KeywordSpawn", SeenTokenType.KeywordSpawn)
+        this.tokenNameMap.put("KeywordAsync", SeenTokenType.KeywordAsync)
+        this.tokenNameMap.put("KeywordAwait", SeenTokenType.KeywordAwait)
+        this.tokenNameMap.put("KeywordSpawn", SeenTokenType.KeywordSpawn)
 
         // Module
-        tokenNameMap.put("KeywordImport", SeenTokenType.KeywordImport)
-        tokenNameMap.put("KeywordExport", SeenTokenType.KeywordExport)
-        tokenNameMap.put("KeywordUse", SeenTokenType.KeywordUse)
+        this.tokenNameMap.put("KeywordImport", SeenTokenType.KeywordImport)
+        this.tokenNameMap.put("KeywordExport", SeenTokenType.KeywordExport)
+        this.tokenNameMap.put("KeywordUse", SeenTokenType.KeywordUse)
 
         // Misc
-        tokenNameMap.put("KeywordAs", SeenTokenType.KeywordAs)
-        tokenNameMap.put("KeywordIs", SeenTokenType.KeywordIs)
-        tokenNameMap.put("KeywordNull", SeenTokenType.KeywordNull)
-        tokenNameMap.put("KeywordTrue", SeenTokenType.KeywordTrue)
-        tokenNameMap.put("KeywordFalse", SeenTokenType.KeywordFalse)
-        tokenNameMap.put("KeywordThis", SeenTokenType.KeywordThis)
-        tokenNameMap.put("KeywordSuper", SeenTokenType.KeywordSuper)
+        this.tokenNameMap.put("KeywordAs", SeenTokenType.KeywordAs)
+        this.tokenNameMap.put("KeywordIs", SeenTokenType.KeywordIs)
+        this.tokenNameMap.put("KeywordNull", SeenTokenType.KeywordNull)
+        this.tokenNameMap.put("KeywordTrue", SeenTokenType.KeywordTrue)
+        this.tokenNameMap.put("KeywordFalse", SeenTokenType.KeywordFalse)
+        this.tokenNameMap.put("KeywordThis", SeenTokenType.KeywordThis)
+        this.tokenNameMap.put("KeywordSuper", SeenTokenType.KeywordSuper)
 
         // Memory
-        tokenNameMap.put("KeywordMove", SeenTokenType.KeywordMove)
-        tokenNameMap.put("KeywordBorrow", SeenTokenType.KeywordBorrow)
-        tokenNameMap.put("KeywordRef", SeenTokenType.KeywordRef)
-        tokenNameMap.put("KeywordOwn", SeenTokenType.KeywordOwn)
+        this.tokenNameMap.put("KeywordMove", SeenTokenType.KeywordMove)
+        this.tokenNameMap.put("KeywordBorrow", SeenTokenType.KeywordBorrow)
+        this.tokenNameMap.put("KeywordRef", SeenTokenType.KeywordRef)
+        this.tokenNameMap.put("KeywordOwn", SeenTokenType.KeywordOwn)
 
         // New keywords
-        tokenNameMap.put("KeywordDefer", SeenTokenType.KeywordDefer)
-        tokenNameMap.put("KeywordModule", SeenTokenType.KeywordModule)
-        tokenNameMap.put("KeywordImpl", SeenTokenType.KeywordImpl)
-        tokenNameMap.put("KeywordExtension", SeenTokenType.KeywordExtension)
-        tokenNameMap.put("KeywordSealed", SeenTokenType.KeywordSealed)
-        tokenNameMap.put("KeywordTrait", SeenTokenType.KeywordTrait)
-        tokenNameMap.put("KeywordUnsafe", SeenTokenType.KeywordUnsafe)
+        this.tokenNameMap.put("KeywordDefer", SeenTokenType.KeywordDefer)
+        this.tokenNameMap.put("KeywordModule", SeenTokenType.KeywordModule)
+        this.tokenNameMap.put("KeywordImpl", SeenTokenType.KeywordImpl)
+        this.tokenNameMap.put("KeywordExtension", SeenTokenType.KeywordExtension)
+        this.tokenNameMap.put("KeywordSealed", SeenTokenType.KeywordSealed)
+        this.tokenNameMap.put("KeywordTrait", SeenTokenType.KeywordTrait)
+        this.tokenNameMap.put("KeywordUnsafe", SeenTokenType.KeywordUnsafe)
 
         // Syntax completeness keywords
-        tokenNameMap.put("KeywordPub", SeenTokenType.KeywordPub)
-        tokenNameMap.put("KeywordStruct", SeenTokenType.KeywordStruct)
-        tokenNameMap.put("KeywordMut", SeenTokenType.KeywordMut)
-        tokenNameMap.put("KeywordConst", SeenTokenType.KeywordConst)
-        tokenNameMap.put("KeywordStatic", SeenTokenType.KeywordStatic)
-        tokenNameMap.put("KeywordOverride", SeenTokenType.KeywordOverride)
-        tokenNameMap.put("KeywordData", SeenTokenType.KeywordData)
+        this.tokenNameMap.put("KeywordPub", SeenTokenType.KeywordPub)
+        this.tokenNameMap.put("KeywordStruct", SeenTokenType.KeywordStruct)
+        this.tokenNameMap.put("KeywordMut", SeenTokenType.KeywordMut)
+        this.tokenNameMap.put("KeywordConst", SeenTokenType.KeywordConst)
+        this.tokenNameMap.put("KeywordStatic", SeenTokenType.KeywordStatic)
+        this.tokenNameMap.put("KeywordOverride", SeenTokenType.KeywordOverride)
+        this.tokenNameMap.put("KeywordData", SeenTokenType.KeywordData)
 
         // Word operators
-        tokenNameMap.put("LogicalAnd", SeenTokenType.LogicalAnd)
-        tokenNameMap.put("LogicalOr", SeenTokenType.LogicalOr)
-        tokenNameMap.put("LogicalNot", SeenTokenType.LogicalNot)
+        this.tokenNameMap.put("LogicalAnd", SeenTokenType.LogicalAnd)
+        this.tokenNameMap.put("LogicalOr", SeenTokenType.LogicalOr)
+        this.tokenNameMap.put("LogicalNot", SeenTokenType.LogicalNot)
 
         // Type keyword
-        tokenNameMap.put("KeywordType", SeenTokenType.KeywordType)
+        this.tokenNameMap.put("KeywordType", SeenTokenType.KeywordType)
 
         // New P0 keywords
-        tokenNameMap.put("KeywordErrdefer", SeenTokenType.KeywordErrdefer)
-        tokenNameMap.put("KeywordDistinct", SeenTokenType.KeywordDistinct)
-        tokenNameMap.put("KeywordUnion", SeenTokenType.KeywordUnion)
-        tokenNameMap.put("KeywordComptime", SeenTokenType.KeywordComptime)
+        this.tokenNameMap.put("KeywordErrdefer", SeenTokenType.KeywordErrdefer)
+        this.tokenNameMap.put("KeywordDistinct", SeenTokenType.KeywordDistinct)
+        this.tokenNameMap.put("KeywordUnion", SeenTokenType.KeywordUnion)
+        this.tokenNameMap.put("KeywordComptime", SeenTokenType.KeywordComptime)
 
         // P1 keywords
-        tokenNameMap.put("KeywordParallelFor", SeenTokenType.KeywordParallelFor)
+        this.tokenNameMap.put("KeywordParallelFor", SeenTokenType.KeywordParallelFor)
 
         // P0 Deferred: Game engine keywords
-        tokenNameMap.put("KeywordTransmute", SeenTokenType.KeywordTransmute)
-        tokenNameMap.put("KeywordGpu", SeenTokenType.KeywordGpu)
+        this.tokenNameMap.put("KeywordTransmute", SeenTokenType.KeywordTransmute)
+        this.tokenNameMap.put("KeywordGpu", SeenTokenType.KeywordGpu)
 
-        // Activated game engine keywords
-        // NOTE: KeywordOperator and KeywordAssert NOT activated — 'operator' is used as
-        // a field name and 'assert' as a function name in compiler source. Activating
-        // them would break bootstrap. Enum variants + codegen values exist for future use.
-        tokenNameMap.put("KeywordRegion", SeenTokenType.KeywordRegion)
-        tokenNameMap.put("KeywordWhen", SeenTokenType.KeywordWhen)
-        tokenNameMap.put("KeywordInline", SeenTokenType.KeywordInline)
-        tokenNameMap.put("KeywordEffect", SeenTokenType.KeywordEffect)
+        ///
+        Activated game engine keywords
+        NOTE: KeywordOperator and KeywordAssert NOT activated — 'operator' is used as
+        a field name and 'assert' as a function name in compiler source. Activating
+        them would break bootstrap. Enum variants + codegen values exist for future use.
+        ///
+        this.tokenNameMap.put("KeywordRegion", SeenTokenType.KeywordRegion)
+        this.tokenNameMap.put("KeywordWhen", SeenTokenType.KeywordWhen)
+        this.tokenNameMap.put("KeywordInline", SeenTokenType.KeywordInline)
+        this.tokenNameMap.put("KeywordEffect", SeenTokenType.KeywordEffect)
 
         // Aliases from misc keywords that map to word operators
-        tokenNameMap.put("KeywordAnd", SeenTokenType.LogicalAnd)
-        tokenNameMap.put("KeywordOr", SeenTokenType.LogicalOr)
-        tokenNameMap.put("KeywordNot", SeenTokenType.LogicalNot)
+        this.tokenNameMap.put("KeywordAnd", SeenTokenType.LogicalAnd)
+        this.tokenNameMap.put("KeywordOr", SeenTokenType.LogicalOr)
+        this.tokenNameMap.put("KeywordNot", SeenTokenType.LogicalNot)
     }
 
     fun resolveTokenName(name: String) r: SeenTokenType {
@@ -322,11 +389,98 @@ class KeywordManager {
         return SeenTokenType.Identifier
     }
 
+    fun addBuiltinKeyword(text: String, tokenName: String) r: Void {
+        let resolvedToken = resolveTokenName(tokenName)
+        if resolvedToken != SeenTokenType.Identifier {
+            this.keywords.put(text, resolvedToken)
+            this.sources.push("KW:" + text + "=" + tokenName)
+        }
+    }
+
+    fun loadBuiltinEnglishKeywords() r: Void {
+        this.sources.push("KW_SOURCE:builtin-en")
+
+        addBuiltinKeyword("fun", "KeywordFun")
+        addBuiltinKeyword("if", "KeywordIf")
+        addBuiltinKeyword("else", "KeywordElse")
+        addBuiltinKeyword("while", "KeywordWhile")
+        addBuiltinKeyword("for", "KeywordFor")
+        addBuiltinKeyword("in", "KeywordIn")
+        addBuiltinKeyword("match", "KeywordMatch")
+        addBuiltinKeyword("break", "KeywordBreak")
+        addBuiltinKeyword("continue", "KeywordContinue")
+        addBuiltinKeyword("return", "KeywordReturn")
+        addBuiltinKeyword("when", "KeywordWhen")
+        addBuiltinKeyword("try", "KeywordTry")
+        addBuiltinKeyword("catch", "KeywordCatch")
+        addBuiltinKeyword("finally", "KeywordFinally")
+        addBuiltinKeyword("throw", "KeywordThrow")
+        addBuiltinKeyword("loop", "KeywordLoop")
+        addBuiltinKeyword("defer", "KeywordDefer")
+        addBuiltinKeyword("unsafe", "KeywordUnsafe")
+        addBuiltinKeyword("errdefer", "KeywordErrdefer")
+
+        addBuiltinKeyword("let", "KeywordLet")
+        addBuiltinKeyword("var", "KeywordVar")
+        addBuiltinKeyword("mut", "KeywordMut")
+        addBuiltinKeyword("const", "KeywordConst")
+        addBuiltinKeyword("static", "KeywordStatic")
+
+        addBuiltinKeyword("data", "KeywordData")
+        addBuiltinKeyword("struct", "KeywordStruct")
+        addBuiltinKeyword("enum", "KeywordEnum")
+        addBuiltinKeyword("impl", "KeywordImpl")
+        addBuiltinKeyword("type", "KeywordType")
+        addBuiltinKeyword("class", "KeywordClass")
+        addBuiltinKeyword("sealed", "KeywordSealed")
+        addBuiltinKeyword("interface", "KeywordInterface")
+        addBuiltinKeyword("override", "KeywordOverride")
+        addBuiltinKeyword("extension", "KeywordExtension")
+        addBuiltinKeyword("extends", "KeywordExtends")
+        addBuiltinKeyword("trait", "KeywordTrait")
+        addBuiltinKeyword("distinct", "KeywordDistinct")
+        addBuiltinKeyword("union", "KeywordUnion")
+
+        addBuiltinKeyword("module", "KeywordModule")
+        addBuiltinKeyword("import", "KeywordImport")
+        addBuiltinKeyword("use", "KeywordUse")
+        addBuiltinKeyword("export", "KeywordExport")
+        addBuiltinKeyword("pub", "KeywordPub")
+
+        addBuiltinKeyword("true", "KeywordTrue")
+        addBuiltinKeyword("false", "KeywordFalse")
+        addBuiltinKeyword("null", "KeywordNull")
+        addBuiltinKeyword("this", "KeywordThis")
+        addBuiltinKeyword("super", "KeywordSuper")
+
+        addBuiltinKeyword("move", "KeywordMove")
+        addBuiltinKeyword("borrow", "KeywordBorrow")
+        addBuiltinKeyword("region", "KeywordRegion")
+        addBuiltinKeyword("ref", "KeywordRef")
+        addBuiltinKeyword("own", "KeywordOwn")
+        addBuiltinKeyword("transmute", "KeywordTransmute")
+        addBuiltinKeyword("gpu", "KeywordGpu")
+
+        addBuiltinKeyword("async", "KeywordAsync")
+        addBuiltinKeyword("await", "KeywordAwait")
+        addBuiltinKeyword("spawn", "KeywordSpawn")
+        addBuiltinKeyword("parallel_for", "KeywordParallelFor")
+        addBuiltinKeyword("comptime", "KeywordComptime")
+        addBuiltinKeyword("inline", "KeywordInline")
+        addBuiltinKeyword("effect", "KeywordEffect")
+
+        addBuiltinKeyword("is", "KeywordIs")
+        addBuiltinKeyword("as", "KeywordAs")
+        addBuiltinKeyword("and", "KeywordAnd")
+        addBuiltinKeyword("or", "KeywordOr")
+        addBuiltinKeyword("not", "KeywordNot")
+    }
+
     fun findKeywordSourceEntry(text: String) r: String {
         let prefix = "KW:" + text + "="
         var idx = 0
-        while idx < sources.length() {
-            let entry = sources[idx]
+        while idx < this.sources.length() {
+            let entry = this.sources[idx]
             if entry.startsWith(prefix) {
                 return entry.substring(prefix.length(), entry.length())
             }
@@ -335,10 +489,12 @@ class KeywordManager {
         return ""
     }
 
-    // Parse a TOML file and load [keywords] entries into the keywords map.
-    // Uses character scanning to avoid dependency on split().
+    ///
+    Parse a TOML file and load [keywords] entries into the keywords map.
+    Uses character scanning to avoid dependency on split().
+    ///
     fun loadFromToml(path: String) r: Void {
-        sources.push(path)
+        this.sources.push(path)
         let content = readText(path)
         let len = content.length()
         var pos = 0
@@ -390,9 +546,11 @@ class KeywordManager {
                     }
                     currentSection = content.substring(ls + 1, secEnd)
                 } else if firstChar == '"' and currentSection == "keywords" {
-                    // Quoted key-value in [keywords] section
-                    // Format: "key" = "TokenName"
-                    // Find the 4 quote characters (byte-based: all delimiters are ASCII)
+                    ///
+                    Quoted key-value in [keywords] section
+                    Format: "key" = "TokenName"
+                    Find the 4 quote characters (byte-based: all delimiters are ASCII)
+                    ///
                     let q1 = ls
                     var q2 = q1 + 1
                     while q2 < le {
@@ -415,8 +573,8 @@ class KeywordManager {
 
                     let resolvedToken = resolveTokenName(value)
                     if resolvedToken != SeenTokenType.Identifier {
-                        keywords.put(key, resolvedToken)
-                        sources.push("KW:" + key + "=" + value)
+                        this.keywords.put(key, resolvedToken)
+                        this.sources.push("KW:" + key + "=" + value)
                     }
                 }
                 // Skip unquoted lines (name = ..., description = ...) and non-keyword sections
@@ -495,8 +653,10 @@ class KeywordManager {
         }
     }
 
-    // Load stdlib entries from TOML into parallel arrays (key, value).
-    // Avoids Map entirely to sidestep the Map.keys()/Map.put() runtime crash bugs.
+    ///
+    Load stdlib entries from TOML into parallel arrays (key, value).
+    Avoids Map entirely to sidestep the Map.keys()/Map.put() runtime crash bugs.
+    ///
     fun loadStdlibToArrays(path: String, keys: Array<String>, values: Array<String>) r: Void {
         let content = readText(path)
         let len = content.length()
@@ -566,10 +726,12 @@ class KeywordManager {
         }
     }
 
-    // Build stdlib alias map: localized name -> English short name.
-    // For non-English languages, loads both English and target language stdlib
-    // TOMLs, then resolves localized_name -> canonical_path -> english_name.
-    // Uses parallel arrays instead of Map to avoid Map runtime crash bugs.
+    ///
+    Build stdlib alias map: localized name -> English short name.
+    For non-English languages, loads both English and target language stdlib
+    TOMLs, then resolves localized_name -> canonical_path -> english_name.
+    Uses parallel arrays instead of Map to avoid Map runtime crash bugs.
+    ///
     fun loadStdlibAliases(language: String) r: Void {
         if language == "en" {
             return
@@ -602,10 +764,12 @@ class KeywordManager {
         loadStdlibToArrays(langDir + prefix + "str.toml", localNames, localPaths)
         loadStdlibToArrays(langDir + prefix + "builtins.toml", localNames, localPaths)
 
-        // Resolve: for each local entry, find the English name that shares
-        // the same canonical path, then store as "ALIAS:localName=englishName"
-        // in the sources array. Avoids Map<String,String>.get() which returns
-        // only first 8 bytes of SeenString (len field), losing the data ptr.
+        ///
+        Resolve: for each local entry, find the English name that shares
+        the same canonical path, then store as "ALIAS:localName=englishName"
+        in the sources array. Avoids Map<String,String>.get() which returns
+        only first 8 bytes of SeenString (len field), losing the data ptr.
+        ///
         var i = 0
         while i < localNames.length() {
             var localCanonical = localPaths[i]
@@ -613,29 +777,33 @@ class KeywordManager {
             var found = 0
             while j < enNames.length() {
                 if enPaths[j] == localCanonical {
-                    sources.push("ALIAS:" + localNames[i] + "=" + enNames[j])
+                    this.sources.push("ALIAS:" + localNames[i] + "=" + enNames[j])
                     found = 1
                     j = enNames.length()
                 }
                 j = j + 1
             }
             if found == 0 {
-                sources.push("ALIAS:" + localNames[i] + "=" + localCanonical)
+                this.sources.push("ALIAS:" + localNames[i] + "=" + localCanonical)
             }
             i = i + 1
         }
     }
 
-    // Resolve a stdlib alias to its English name.
-    // Returns empty string if no alias exists.
+    ///
+    Resolve a stdlib alias to its English name.
+    Returns empty string if no alias exists.
+    ///
     fun resolveStdlibAlias(name: String) r: String {
-        // Search sources array for "ALIAS:name=value" entries.
-        // Cannot use Map<String,String>.get() — it returns only len field (8 bytes),
-        // losing the data pointer, causing SIGSEGV on dereference.
+        ///
+        Search sources array for "ALIAS:name=value" entries.
+        Cannot use Map<String,String>.get() — it returns only len field (8 bytes),
+        losing the data pointer, causing SIGSEGV on dereference.
+        ///
         let prefix = "ALIAS:" + name + "="
         var idx = 0
-        while idx < sources.length() {
-            var entry = sources[idx]
+        while idx < this.sources.length() {
+            var entry = this.sources[idx]
             if entry.startsWith(prefix) {
                 return entry.substring(prefix.length(), entry.length())
             }
@@ -665,7 +833,7 @@ class KeywordManager {
     }
 
     fun getAllKeywords() r: Array<String> {
-        return keywords.keys()
+        return this.keywords.keys()
     }
 
     fun isDynamic() r: Bool {
@@ -673,14 +841,14 @@ class KeywordManager {
     }
 
     fun getSources() r: Array<String> {
-        return sources
+        return this.sources
     }
 
     fun getKeywordCount() r: Int {
-        return keywords.size()
+        return this.keywords.size()
     }
 
     fun hasTranslation(keyword: String) r: Bool {
-        return keywords.containsKey(keyword)
+        return this.keywords.containsKey(keyword)
     }
 }

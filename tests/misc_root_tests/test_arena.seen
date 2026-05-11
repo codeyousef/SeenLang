@@ -1,5 +1,7 @@
-// Test 32-bit index arena allocator
-// Verifies seen_arena_new, seen_arena_alloc, seen_arena_get, seen_arena_reset, seen_arena_free
+///
+Test 32-bit index arena allocator
+Verifies seen_arena_new, seen_arena_alloc, seen_arena_get, seen_arena_reset, seen_arena_free
+///
 
 extern fun seen_arena_new(capacity: Int) r: Int  // returns ptr as Int
 extern fun seen_arena_alloc(arena: Int, size: Int) r: Int  // returns 32-bit index

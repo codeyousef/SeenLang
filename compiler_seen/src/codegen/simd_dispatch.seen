@@ -1,6 +1,8 @@
-// SIMD Multi-Versioned Codegen Framework
-// Generates multiple versions of a function with different target-features
-// and a dispatcher that selects the best version at runtime via seen_cpu_simd_tier()
+///
+SIMD Multi-Versioned Codegen Framework
+Generates multiple versions of a function with different target-features
+and a dispatcher that selects the best version at runtime via seen_cpu_simd_tier()
+///
 
 import str.string.{StringBuilder}
 
@@ -46,12 +48,14 @@ class SIMDDispatchGenerator {
         return "attributes #" + groupNum.toString() + " = { \"target-features\"=\"+avx512f,+avx512bw,+avx512dq,+avx512vl,+avx2,+fma\" }"
     }
 
-    // Generate a 2-version dispatcher (scalar + AVX2) for a given function
-    // funcName: original function name (e.g., "process_array")
-    // paramTypes: LLVM IR parameter types (e.g., "ptr %arr, i64 %len")
-    // returnType: LLVM IR return type (e.g., "i64")
-    // scalarBody: LLVM IR body of the scalar version
-    // avx2Body: LLVM IR body of the AVX2 version
+    ///
+    Generate a 2-version dispatcher (scalar + AVX2) for a given function
+    funcName: original function name (e.g., "process_array")
+    paramTypes: LLVM IR parameter types (e.g., "ptr %arr, i64 %len")
+    returnType: LLVM IR return type (e.g., "i64")
+    scalarBody: LLVM IR body of the scalar version
+    avx2Body: LLVM IR body of the AVX2 version
+    ///
     fun generateDispatch(funcName: String, paramTypes: String, paramNames: String, returnType: String, scalarBody: String, avx2Body: String) r: String {
         var sb = StringBuilder.new()
 

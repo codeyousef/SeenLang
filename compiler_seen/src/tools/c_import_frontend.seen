@@ -1,5 +1,7 @@
-// C-import frontend orchestration kept out of c_import_gen so bootstrap
-// declaration scanning does not have to parse clang-processing bodies there.
+///
+C-import frontend orchestration kept out of c_import_gen so bootstrap
+declaration scanning does not have to parse clang-processing bodies there.
+///
 
 import process.process.{runCommand, CommandResult}
 import io.file.{exists}

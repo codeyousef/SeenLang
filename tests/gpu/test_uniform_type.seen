@@ -1,5 +1,7 @@
-// Test: Uniform[T] type — binding and update
-// Verifies GLSL generator emits std140 layout for uniform buffers
+///
+Test: Uniform[T] type — binding and update
+Verifies GLSL generator emits std140 layout for uniform buffers
+///
 
 @gpu_buffer
 class Params {

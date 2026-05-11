@@ -1,9 +1,19 @@
 // ir_method_receiver_lookup_gen.seen - low-level method receiver load helpers.
 
 import str.string.{StringBuilder}
-import codegen.ir_variable_gen.{emitLocalVariableLoadImpl}
+import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl, getFeatureReprCClassNamesImpl, getFeatureUnionTypesImpl, getFeatureTypeAliasNamesImpl, getFeatureTypeAliasTargetsImpl, getFeatureTypeAliasCountImpl, getFeatureEnumTypeNamesImpl, getFeatureBitfieldCountImpl, getFeatureBitfieldKeysImpl, getFeatureBitfieldWidthsImpl}
+import codegen.ir_codegen_global_state.{getBoundedActiveVarCountWithGlobalStateImpl, getGlobalStructNamesImpl, getGlobalStructLayoutsImpl, getGlobalStructFieldNamesImpl, getGlobalStructFieldTypesImpl, getGlobalStructMethodNamesImpl, getGlobalStructMethodRetTypesImpl}
+import codegen.ir_optimization.{getNextRegFn}
+import codegen.ir_variable_gen.{findActiveVariableIndexImpl, emitLocalVariableLoadImpl, emitImplicitThisPointerLoadImpl}
 import codegen.ir_method_fastpath.{prepareModuleConstantMethodReceiverImpl}
-import codegen.ir_method_receiver.{emitSeenLexerKeywordManagerReceiverImpl}
+import codegen.ir_method_receiver.{emitSeenLexerKeywordManagerReceiverImpl, resolveMethodFieldPathTypeImpl}
+import codegen.ir_method_receiver_lookup_plan.{planImplicitThisDottedReceiverStageImpl, planImplicitThisReceiverStageImpl}
+import codegen.ir_field_layout.{generateFieldAccessImpl, generateFieldAccessPtrImpl}
+import codegen.ir_path_expr.{splitFirstPathDotImpl}
+import codegen.ir_type_info.{getLLVMIRGeneratorFieldIndexImpl}
+import codegen.ir_type_mapping.{mapTypeImpl, isClassHandleLikeTypeImpl, isClassTypeImpl}
+import codegen.ir_field_lookup_state.{getFieldInfoState}
+import codegen.type_registry_core.{findStructReg}
 
 class MethodReceiverLoadResult {
     var receiverReg: String
@@ -51,4 +61,200 @@ fun emitKeywordManagerMethodReceiverLoadImpl(output: StringBuilder,
     let receiverReg = emitSeenLexerKeywordManagerReceiverImpl(output, regBox,
         thisPtrReg)
     return MethodReceiverLoadResult.new(receiverReg, "KeywordManager")
+}
+
+fun emitImplicitDottedMethodReceiverLoadImpl(output: StringBuilder,
+    regBox: Array<Int>, thisReg: String, thisType: String,
+    firstFieldName: String, secondFieldName: String, firstFieldType: String,
+    firstFieldIsClass: Bool, receiverType: String, structNames: Array<String>,
+    structLayouts: Array<String>, structFieldNames: Array<String>,
+    structFieldTypes: Array<String>, reprCClassNames: String,
+    unionTypes: String, typeAliasNames: String, typeAliasTargets: String,
+    typeAliasCount: Int, enumTypeNames: String, bitfieldCount: Int,
+    bitfieldKeys: String, bitfieldWidths: String) r: MethodReceiverLoadResult {
+
+    let thisPtrReg = emitImplicitThisPointerLoadImpl(output, regBox, thisReg)
+    var accessFieldReg = ""
+    if firstFieldIsClass {
+        let firstFieldLlvmType = mapTypeImpl(firstFieldType, structNames,
+            typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames)
+        let firstFieldReg = generateFieldAccessImpl(output, regBox,
+            thisPtrReg, thisType, firstFieldName, firstFieldLlvmType,
+            structNames, structLayouts, structFieldNames, structFieldTypes,
+            reprCClassNames, unionTypes, typeAliasNames, typeAliasTargets,
+            typeAliasCount, enumTypeNames, bitfieldCount, bitfieldKeys,
+            bitfieldWidths)
+        let ptrConvReg = getNextRegFn(regBox)
+        output.append("  " + ptrConvReg + " = inttoptr i64 " +
+            firstFieldReg + " to ptr\n")
+        accessFieldReg = ptrConvReg
+    }
+    if accessFieldReg == "" {
+        accessFieldReg = generateFieldAccessPtrImpl(output, regBox,
+            thisPtrReg, thisType, firstFieldName, structNames, structLayouts,
+            structFieldNames, unionTypes)
+    }
+    let receiverLlvmType = mapTypeImpl(receiverType, structNames,
+        typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames)
+    let receiverReg = generateFieldAccessImpl(output, regBox,
+        accessFieldReg, firstFieldType, secondFieldName, receiverLlvmType,
+        structNames, structLayouts, structFieldNames, structFieldTypes,
+        reprCClassNames, unionTypes, typeAliasNames, typeAliasTargets,
+        typeAliasCount, enumTypeNames, bitfieldCount, bitfieldKeys,
+        bitfieldWidths)
+    return MethodReceiverLoadResult.new(receiverReg, receiverType)
+}
+
+fun tryResolveImplicitThisDottedMethodReceiverStateImpl(output: StringBuilder,
+    regBox: Array<Int>, literalValue: String, varNames: Array<String>,
+    varRegs: Array<String>, varTypes: Array<String>, activeVarCount: Int,
+    structNames: Array<String>, structLayouts: Array<String>,
+    structFieldNames: Array<String>, structFieldTypes: Array<String>,
+    structMethodNames: Array<String>, structMethodRetTypes: Array<String>,
+    reprCClassNames: String, unionTypes: String, typeAliasNames: String,
+    typeAliasTargets: String, typeAliasCount: Int, enumTypeNames: String,
+    bitfieldCount: Int, bitfieldKeys: String, bitfieldWidths: String)
+    r: MethodReceiverLoadResult {
+
+    let pathParts = splitFirstPathDotImpl(literalValue)
+    let thisIdx = findActiveVariableIndexImpl(varNames, activeVarCount,
+        "this")
+    if thisIdx < 0 {
+        return MethodReceiverLoadResult.new("", "")
+    }
+
+    let thisType = varTypes[thisIdx]
+    let firstFieldType = resolveMethodFieldPathTypeImpl(thisType,
+        pathParts[0], structNames, structFieldNames, structFieldTypes,
+        structMethodNames, structMethodRetTypes)
+    let implicitDottedPlan = planImplicitThisDottedReceiverStageImpl(
+        thisIdx, firstFieldType)
+    if not implicitDottedPlan.shouldResolveImplicitThisDotted {
+        return MethodReceiverLoadResult.new("", "")
+    }
+
+    let receiverType = resolveMethodFieldPathTypeImpl(firstFieldType,
+        pathParts[1], structNames, structFieldNames, structFieldTypes,
+        structMethodNames, structMethodRetTypes)
+    let firstFieldIsClass = isClassTypeImpl(firstFieldType, structNames) == 1 or
+        isClassHandleLikeTypeImpl(firstFieldType, structNames) == 1
+    return emitImplicitDottedMethodReceiverLoadImpl(output, regBox,
+        varRegs[thisIdx], thisType, pathParts[0], pathParts[1],
+        firstFieldType, firstFieldIsClass, receiverType, structNames,
+        structLayouts, structFieldNames, structFieldTypes, reprCClassNames,
+        unionTypes, typeAliasNames, typeAliasTargets, typeAliasCount,
+        enumTypeNames, bitfieldCount, bitfieldKeys, bitfieldWidths)
+}
+
+fun tryResolveImplicitThisDottedMethodReceiverWithOwnerState(output: StringBuilder,
+    literalValue: String, varNames: Array<String>, varRegs: Array<String>,
+    varTypes: Array<String>) r: MethodReceiverLoadResult {
+
+    return tryResolveImplicitThisDottedMethodReceiverStateImpl(output,
+        getFeatureRegBoxImpl(), literalValue, varNames, varRegs, varTypes,
+        getBoundedActiveVarCountWithGlobalStateImpl(varNames),
+        getGlobalStructNamesImpl(), getGlobalStructLayoutsImpl(),
+        getGlobalStructFieldNamesImpl(), getGlobalStructFieldTypesImpl(),
+        getGlobalStructMethodNamesImpl(), getGlobalStructMethodRetTypesImpl(),
+        getFeatureReprCClassNamesImpl(), getFeatureUnionTypesImpl(),
+        getFeatureTypeAliasNamesImpl(), getFeatureTypeAliasTargetsImpl(),
+        getFeatureTypeAliasCountImpl(), getFeatureEnumTypeNamesImpl(),
+        getFeatureBitfieldCountImpl(), getFeatureBitfieldKeysImpl(),
+        getFeatureBitfieldWidthsImpl())
+}
+
+fun emitImplicitThisMethodReceiverLoadImpl(output: StringBuilder,
+    regBox: Array<Int>, lookupAction: Int, thisReg: String,
+    thisType: String, varName: String, receiverType: String,
+    structNames: Array<String>, structLayouts: Array<String>,
+    structFieldNames: Array<String>, structFieldTypes: Array<String>,
+    reprCClassNames: String, unionTypes: String, typeAliasNames: String,
+    typeAliasTargets: String, typeAliasCount: Int, enumTypeNames: String,
+    bitfieldCount: Int, bitfieldKeys: String, bitfieldWidths: String)
+    r: MethodReceiverLoadResult {
+
+    if lookupAction == 1 {
+        let thisPtrReg = emitImplicitThisPointerLoadImpl(output, regBox,
+            thisReg)
+        let receiverLlvmType = mapTypeImpl(receiverType, structNames,
+            typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames)
+        let receiverReg = generateFieldAccessImpl(output, regBox,
+            thisPtrReg, "LLVMIRGenerator", varName, receiverLlvmType, structNames,
+            structLayouts, structFieldNames, structFieldTypes,
+            reprCClassNames, unionTypes, typeAliasNames, typeAliasTargets,
+            typeAliasCount, enumTypeNames, bitfieldCount, bitfieldKeys,
+            bitfieldWidths)
+        return MethodReceiverLoadResult.new(receiverReg, receiverType)
+    }
+    if lookupAction == 2 {
+        let thisPtrReg = emitImplicitThisPointerLoadImpl(output, regBox,
+            thisReg)
+        let receiverLlvmType = mapTypeImpl(receiverType, structNames,
+            typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames)
+        let receiverReg = generateFieldAccessImpl(output, regBox,
+            thisPtrReg, thisType, varName, receiverLlvmType, structNames,
+            structLayouts, structFieldNames, structFieldTypes,
+            reprCClassNames, unionTypes, typeAliasNames, typeAliasTargets,
+            typeAliasCount, enumTypeNames, bitfieldCount, bitfieldKeys,
+            bitfieldWidths)
+        return MethodReceiverLoadResult.new(receiverReg, receiverType)
+    }
+    if lookupAction == 3 {
+        let thisPtrReg = emitImplicitThisPointerLoadImpl(output, regBox,
+            thisReg)
+        return emitKeywordManagerMethodReceiverLoadImpl(output, regBox,
+            thisPtrReg)
+    }
+    return MethodReceiverLoadResult.new("", "")
+}
+
+fun tryResolveImplicitThisLiteralMethodReceiverStateImpl(output: StringBuilder,
+    regBox: Array<Int>, varName: String, receiverType: String,
+    varNames: Array<String>, varRegs: Array<String>,
+    varTypes: Array<String>, activeVarCount: Int,
+    structNames: Array<String>, structLayouts: Array<String>,
+    structFieldNames: Array<String>, structFieldTypes: Array<String>,
+    reprCClassNames: String, unionTypes: String, typeAliasNames: String,
+    typeAliasTargets: String, typeAliasCount: Int, enumTypeNames: String,
+    bitfieldCount: Int, bitfieldKeys: String, bitfieldWidths: String)
+    r: MethodReceiverLoadResult {
+
+    let thisIdx = findActiveVariableIndexImpl(varNames, activeVarCount,
+        "this")
+    if thisIdx < 0 {
+        return MethodReceiverLoadResult.new("", "")
+    }
+
+    let thisType = varTypes[thisIdx]
+    let idxCheck = getLLVMIRGeneratorFieldIndexImpl(varName)
+    let structIdx = findStructReg(thisType, structNames)
+    var fieldIdx = -1
+    if structIdx >= 0 {
+        fieldIdx = getFieldInfoState(thisType, varName)
+    }
+    let implicitLookupPlan = planImplicitThisReceiverStageImpl(
+        thisType, varName, idxCheck, structIdx, fieldIdx)
+    return emitImplicitThisMethodReceiverLoadImpl(output, regBox,
+        implicitLookupPlan.lookupAction, varRegs[thisIdx], thisType,
+        varName, receiverType, structNames, structLayouts, structFieldNames,
+        structFieldTypes, reprCClassNames, unionTypes, typeAliasNames,
+        typeAliasTargets, typeAliasCount, enumTypeNames, bitfieldCount,
+        bitfieldKeys, bitfieldWidths)
+}
+
+fun tryResolveImplicitThisLiteralMethodReceiverWithOwnerState(output: StringBuilder,
+    varName: String, receiverType: String, varNames: Array<String>,
+    varRegs: Array<String>, varTypes: Array<String>)
+    r: MethodReceiverLoadResult {
+
+    return tryResolveImplicitThisLiteralMethodReceiverStateImpl(output,
+        getFeatureRegBoxImpl(), varName, receiverType, varNames, varRegs,
+        varTypes, getBoundedActiveVarCountWithGlobalStateImpl(varNames),
+        getGlobalStructNamesImpl(), getGlobalStructLayoutsImpl(),
+        getGlobalStructFieldNamesImpl(), getGlobalStructFieldTypesImpl(),
+        getFeatureReprCClassNamesImpl(), getFeatureUnionTypesImpl(),
+        getFeatureTypeAliasNamesImpl(), getFeatureTypeAliasTargetsImpl(),
+        getFeatureTypeAliasCountImpl(), getFeatureEnumTypeNamesImpl(),
+        getFeatureBitfieldCountImpl(), getFeatureBitfieldKeysImpl(),
+        getFeatureBitfieldWidthsImpl())
 }

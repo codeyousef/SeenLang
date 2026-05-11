@@ -1,7 +1,7 @@
-/**
- * E2E tests for Vulkan FFI bindings.
- * Tests that constants are correctly defined.
- */
+///
+E2E tests for Vulkan FFI bindings.
+Tests that constants are correctly defined.
+///
 
 import platform.linux.vulkan.{
     VK_SUCCESS, VK_NOT_READY, VK_TIMEOUT, VK_INCOMPLETE,

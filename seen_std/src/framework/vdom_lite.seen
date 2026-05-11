@@ -1,16 +1,22 @@
-// Virtual DOM Framework for Seen Language - Lite Version
-// Works with stage1 compiler using inline codegen for Vec/BTreeMap
-// No stdlib imports required - relies on C runtime for collections
+///
+Virtual DOM Framework for Seen Language - Lite Version
+Works with stage1 compiler using inline codegen for Vec/BTreeMap
+No stdlib imports required - relies on C runtime for collections
+///
 
-// ============================================================================
-// VNode Type Constants
-// ============================================================================
-// Using Int instead of data type for stage1 compatibility
-// 0 = Element, 1 = Text, 2 = Component, 3 = Fragment
+///
+============================================================================
+VNode Type Constants
+============================================================================
+Using Int instead of data type for stage1 compatibility
+0 = Element, 1 = Text, 2 = Component, 3 = Fragment
+///
 
-// ============================================================================
-// Core VNode Structure
-// ============================================================================
+///
+============================================================================
+Core VNode Structure
+============================================================================
+///
 
 class VNode {
     var nodeType: Int       // 0=Element, 1=Text, 2=Component, 3=Fragment
@@ -50,9 +56,11 @@ class VNode {
     }
 }
 
-// ============================================================================
-// Factory Functions
-// ============================================================================
+///
+============================================================================
+Factory Functions
+============================================================================
+///
 
 // Create an element with empty attrs and children
 fun createEmptyElement(tag: String) r: VNode {
@@ -126,9 +134,11 @@ fun createComponent(name: String, props: Int) r: VNode {
     }
 }
 
-// ============================================================================
-// Helper Functions for Collections
-// ============================================================================
+///
+============================================================================
+Helper Functions for Collections
+============================================================================
+///
 
 // Create empty attributes map
 fun emptyAttrs() r: Int {
@@ -164,12 +174,14 @@ fun makeChildren3(c1: VNode, c2: VNode, c3: VNode) r: Int {
     return children
 }
 
-// ============================================================================
-// Patch Types
-// ============================================================================
-// Using Int constants for stage1 compatibility
-// 0 = None, 1 = Replace, 2 = UpdateAttrs, 3 = UpdateText
-// 4 = InsertChild, 5 = RemoveChild, 6 = MoveChild
+///
+============================================================================
+Patch Types
+============================================================================
+Using Int constants for stage1 compatibility
+0 = None, 1 = Replace, 2 = UpdateAttrs, 3 = UpdateText
+4 = InsertChild, 5 = RemoveChild, 6 = MoveChild
+///
 
 class Patch {
     var patchType: Int      // Patch type constant
@@ -270,9 +282,11 @@ class Patch {
     }
 }
 
-// ============================================================================
-// VDOM Differ - Deterministic diffing algorithm
-// ============================================================================
+///
+============================================================================
+VDOM Differ - Deterministic diffing algorithm
+============================================================================
+///
 
 class VDOMDiffer {
     var patchCount: Int
@@ -321,8 +335,10 @@ class VDOMDiffer {
 
     // Diff attributes
     fun diffAttributes(oldAttrs: Int, newAttrs: Int) r: Void {
-        // For now, just check if they're different pointers
-        // A full implementation would compare keys/values
+        ///
+        For now, just check if they're different pointers
+        A full implementation would compare keys/values
+        ///
         if oldAttrs != newAttrs {
             this.patchCount = this.patchCount + 1
         }
@@ -342,9 +358,11 @@ class VDOMDiffer {
         var oldChildren = Vec<VNode>.new()
         var newChildren = Vec<VNode>.new()
 
-        // Note: We can't actually access the children from the Int pointers
-        // in a type-safe way with stage1. This is a limitation.
-        // For now, just count as changed if pointers differ.
+        ///
+        Note: We can't actually access the children from the Int pointers
+        in a type-safe way with stage1. This is a limitation.
+        For now, just count as changed if pointers differ.
+        ///
         if oldChildrenPtr != newChildrenPtr {
             this.patchCount = this.patchCount + 1
         }
@@ -356,9 +374,11 @@ class VDOMDiffer {
     }
 }
 
-// ============================================================================
-// VDOM Engine - Simple state management
-// ============================================================================
+///
+============================================================================
+VDOM Engine - Simple state management
+============================================================================
+///
 
 class VDOMEngine {
     var hasTree: Bool
@@ -377,8 +397,10 @@ class VDOMEngine {
 
     // Mount initial tree
     fun mount(node: VNode) r: Void {
-        // Store pointer - can't easily do this in stage1
-        // For now just mark as having tree
+        ///
+        Store pointer - can't easily do this in stage1
+        For now just mark as having tree
+        ///
         this.hasTree = true
         this.patchCount = 0
     }
@@ -408,9 +430,11 @@ class VDOMEngine {
     }
 }
 
-// ============================================================================
-// Public API Functions
-// ============================================================================
+///
+============================================================================
+Public API Functions
+============================================================================
+///
 
 // Create a new differ
 fun createDiffer() r: VDOMDiffer {
@@ -422,9 +446,11 @@ fun createEngine() r: VDOMEngine {
     return VDOMEngine.new()
 }
 
-// ============================================================================
-// Utility Functions
-// ============================================================================
+///
+============================================================================
+Utility Functions
+============================================================================
+///
 
 // Count total nodes in a tree
 fun vdomNodeCount(node: VNode) r: Int {
@@ -435,8 +461,10 @@ fun vdomNodeCount(node: VNode) r: Int {
         return count
     }
 
-    // We can't easily iterate over children stored as Int in stage1
-    // This is a limitation - return 1 for now
+    ///
+    We can't easily iterate over children stored as Int in stage1
+    This is a limitation - return 1 for now
+    ///
     return count
 }
 

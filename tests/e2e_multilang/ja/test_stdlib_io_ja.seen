@@ -1,7 +1,9 @@
-// E2Eテスト: 入出力標準ライブラリ（日本語）
-// 注: __WriteFileは非ASCIIバイトを二重UTF-8エンコードする -- ASCII内容で検証
-// 注: __ReadFileはSeenStringを返すが、コード生成がi64として扱う →
-//     内容の比較不可。__FileSizeで代わりに検証
+///
+E2Eテスト: 入出力標準ライブラリ（日本語）
+注: __WriteFileは非ASCIIバイトを二重UTF-8エンコードする -- ASCII内容で検証
+注: __ReadFileはSeenStringを返すが、コード生成がi64として扱う →
+    内容の比較不可。__FileSizeで代わりに検証
+///
 
 関数 メイン() r: 整数 {
     定数 パス = "/tmp/seen_e2e_test_ja.txt"

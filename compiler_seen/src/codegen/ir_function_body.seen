@@ -1,12 +1,16 @@
 // ir_function_body.seen - function body and block-scope emission helpers.
 
-import parser.real_parser.{BlockNode}
+import parser.real_parser.{BlockNode, ParserExpressionNode}
 import str.string.{StringBuilder}
-import codegen.ir_optimization.{getNextRegFn, getNextBlockFn}
+import codegen.ir_optimization.{getNextRegFn, getNextBlockFn, splitPipe}
 import codegen.ir_stmt_dead_code.{BlockDeadStoreScanSnapshot, TrailingDeadCodeNoticeSnapshot, scanBlockDeadStorePatternsSnapshotImpl, emitTrailingDeadCodeNoticeSnapshotImpl}
+import codegen.ir_stmt_gen.{emitIfBranchingImpl}
 import codegen.ir_stmt_scope.{beginBlockDeferredCleanupImpl}
 import codegen.ir_stmt_return.{emitErrdeferVoidCleanupIntroImpl, emitErrdeferValueSetupImpl, emitErrdeferErrorBranchImpl, emitErrdeferErrorPathIntroImpl, emitErrdeferResumeLabelImpl}
+import codegen.ir_loop_context.{enterLoopContextImpl, restoreLoopContextImpl, emitLoopEndLabelImpl}
+import codegen.ir_stmt_decl.{findPreAllocatedOccurrenceImpl, nextDeclarationOrdinalImpl}
 import codegen.ir_function_ml_logs.{applyDeadStoreMlLogsImpl}
+import codegen.ir_variable_gen.{storeActiveVariableBindingImpl}
 
 class FunctionBodyBlockScopeState {
     var savedDeferCount: Int
@@ -39,6 +43,92 @@ class FunctionBodyErrdeferValueCleanupPlan {
             cleanupStartIndex: cleanupStartIndex
         }
     }
+}
+
+class FunctionBodyIfBranchLabels {
+    var elseLabel: String
+    var endLabel: String
+
+    static fun new(elseLabel: String, endLabel: String)
+        r: FunctionBodyIfBranchLabels {
+
+        return FunctionBodyIfBranchLabels{
+            elseLabel: elseLabel,
+            endLabel: endLabel
+        }
+    }
+}
+
+class FunctionBodyLoopContextState {
+    var loopMetaId: Int
+    var loopMetaIdStr: String
+    var condLabel: String
+    var bodyLabel: String
+    var endLabel: String
+    var savedCondLabel: String
+    var savedEndLabel: String
+    var currentCondLabel: String
+    var currentEndLabel: String
+
+    static fun new(loopMetaId: Int, loopMetaIdStr: String,
+        condLabel: String, bodyLabel: String, endLabel: String,
+        savedCondLabel: String, savedEndLabel: String,
+        currentCondLabel: String, currentEndLabel: String)
+        r: FunctionBodyLoopContextState {
+
+        return FunctionBodyLoopContextState{
+            loopMetaId: loopMetaId,
+            loopMetaIdStr: loopMetaIdStr,
+            condLabel: condLabel,
+            bodyLabel: bodyLabel,
+            endLabel: endLabel,
+            savedCondLabel: savedCondLabel,
+            savedEndLabel: savedEndLabel,
+            currentCondLabel: currentCondLabel,
+            currentEndLabel: currentEndLabel
+        }
+    }
+}
+
+class FunctionBodyLoopVariableStorage {
+    var seenType: String
+    var storageReg: String
+
+    static fun new(seenType: String, storageReg: String)
+        r: FunctionBodyLoopVariableStorage {
+
+        return FunctionBodyLoopVariableStorage{
+            seenType: seenType,
+            storageReg: storageReg
+        }
+    }
+}
+
+class FunctionBodyMemcpyLoopEmitResult {
+    var didEmit: Bool
+    var loopsOptimizedDelta: Int
+    var mlCategory: String
+    var mlAction: String
+    var mlDetail: String
+
+    static fun new(didEmit: Bool, loopsOptimizedDelta: Int,
+        mlCategory: String, mlAction: String, mlDetail: String)
+        r: FunctionBodyMemcpyLoopEmitResult {
+
+        return FunctionBodyMemcpyLoopEmitResult{
+            didEmit: didEmit,
+            loopsOptimizedDelta: loopsOptimizedDelta,
+            mlCategory: mlCategory,
+            mlAction: mlAction,
+            mlDetail: mlDetail
+        }
+    }
+}
+
+fun invalidFunctionBodyMemcpyLoopEmitResultImpl()
+    r: FunctionBodyMemcpyLoopEmitResult {
+
+    return FunctionBodyMemcpyLoopEmitResult.new(false, 0, "", "", "")
 }
 
 fun captureFunctionBodyBlockScopeImpl(currentDeferCount: Int,
@@ -122,4 +212,260 @@ fun finishFunctionBodyValueErrdeferCleanupImpl(output: StringBuilder,
         return
     }
     emitErrdeferResumeLabelImpl(output, okLabel)
+}
+
+fun bindFunctionBodyCatchVariableImpl(output: StringBuilder,
+    regBox: Array<Int>, varNames: Array<String>, varRegs: Array<String>,
+    varTypes: Array<String>, activeVarCount: Int, catchVarName: String)
+    r: Int {
+
+    if catchVarName == "" {
+        return activeVarCount
+    }
+    let catchVarReg = getNextRegFn(regBox)
+    let nextActiveVarCount = storeActiveVariableBindingImpl(varNames, varRegs,
+        varTypes, activeVarCount, catchVarName, catchVarReg, "Int")
+    output.append("  " + catchVarReg + " = add i64 0, 0 ; catch binding\n")
+    return nextActiveVarCount
+}
+
+fun planFunctionBodyExpressionStatementImpl(expr: ParserExpressionNode) r: Int {
+    if expr.kind == "Assignment" {
+        return 1
+    }
+    if expr.kind == "MemberAssignment" {
+        return 2
+    }
+    if expr.kind == "IndexAssignment" {
+        return 3
+    }
+    return 4
+}
+
+fun emitFunctionBodyPairedSelectStoreImpl(output: StringBuilder,
+    regBox: Array<Int>, condReg: String, llvmType: String, thenReg: String,
+    elseReg: String, targetPtrReg: String) r: Void {
+
+    let resultReg = getNextRegFn(regBox)
+    output.append("  " + resultReg + " = select i1 " + condReg + ", " +
+        llvmType + " " + thenReg + ", " + llvmType + " " + elseReg +
+        " ; branchless if/else\n")
+    output.append("  store " + llvmType + " " + resultReg + ", ptr " +
+        targetPtrReg + "\n")
+}
+
+fun emitFunctionBodySingleArmSelectStoreImpl(output: StringBuilder,
+    regBox: Array<Int>, condReg: String, llvmType: String,
+    newValueReg: String, targetPtrReg: String) r: Void {
+
+    let oldValueReg = getNextRegFn(regBox)
+    output.append("  " + oldValueReg + " = load " + llvmType + ", ptr " +
+        targetPtrReg + "\n")
+    let selectedValueReg = getNextRegFn(regBox)
+    output.append("  " + selectedValueReg + " = select i1 " + condReg +
+        ", " + llvmType + " " + newValueReg + ", " + llvmType + " " +
+        oldValueReg + " ; branchless max/min\n")
+    output.append("  store " + llvmType + " " + selectedValueReg +
+        ", ptr " + targetPtrReg + "\n")
+}
+
+fun planFunctionBodyConstantIfImpl(expr: ParserExpressionNode) r: Int {
+    if expr.kind != "BoolLiteral" {
+        return 0
+    }
+    if expr.literalValue == "true" {
+        return 1
+    }
+    if expr.literalValue == "false" {
+        return 2
+    }
+    return 0
+}
+
+fun emitFunctionBodyConstantIfNoteImpl(output: StringBuilder,
+    constantIfAction: Int) r: Void {
+
+    if constantIfAction == 1 {
+        output.append("  ; branch eliminated: if true\n")
+    }
+    if constantIfAction == 2 {
+        output.append("  ; branch eliminated: if false\n")
+    }
+}
+
+fun emitFunctionBodyIfBranchingImpl(output: StringBuilder,
+    blockLabelBox: Array<Int>, condBoolReg: String,
+    branchMetadata: String) r: FunctionBodyIfBranchLabels {
+
+    let branchInfo = emitIfBranchingImpl(output, blockLabelBox, condBoolReg,
+        branchMetadata)
+    let branchLabels = splitPipe(branchInfo)
+    return FunctionBodyIfBranchLabels.new(branchLabels[1], branchLabels[2])
+}
+
+fun beginFunctionBodyLoopContextImpl(blockLabelBox: Array<Int>,
+    currentLoopCondLabel: String, currentLoopEndLabel: String)
+    r: FunctionBodyLoopContextState {
+
+    let loopMetaId = blockLabelBox[0] + 202
+    let loopMetaIdStr = loopMetaId.toString()
+    let condLabel = getNextBlockFn(blockLabelBox)
+    let bodyLabel = getNextBlockFn(blockLabelBox)
+    let endLabel = getNextBlockFn(blockLabelBox)
+
+    let currentCondBox = Array<String>()
+    currentCondBox.push(currentLoopCondLabel)
+    let currentEndBox = Array<String>()
+    currentEndBox.push(currentLoopEndLabel)
+    let savedCondBox = Array<String>()
+    let savedEndBox = Array<String>()
+    enterLoopContextImpl(currentCondBox, currentEndBox, savedCondBox,
+        savedEndBox, condLabel, endLabel, loopMetaIdStr)
+
+    return FunctionBodyLoopContextState.new(loopMetaId, loopMetaIdStr,
+        condLabel, bodyLabel, endLabel, savedCondBox[0], savedEndBox[0],
+        currentCondBox[0], currentEndBox[0])
+}
+
+fun restoreFunctionBodyLoopContextImpl(currentLoopCondLabel: String,
+    currentLoopEndLabel: String, savedCondLabel: String,
+    savedEndLabel: String) r: FunctionBodyLoopContextState {
+
+    let currentCondBox = Array<String>()
+    currentCondBox.push(currentLoopCondLabel)
+    let currentEndBox = Array<String>()
+    currentEndBox.push(currentLoopEndLabel)
+    restoreLoopContextImpl(currentCondBox, currentEndBox, savedCondLabel,
+        savedEndLabel)
+    return FunctionBodyLoopContextState.new(0, "", "", "", "",
+        savedCondLabel, savedEndLabel, currentCondBox[0], currentEndBox[0])
+}
+
+fun emitFunctionBodyLoopEndLabelImpl(output: StringBuilder,
+    endLabel: String) r: Void {
+
+    emitLoopEndLabelImpl(output, endLabel)
+}
+
+fun resolveFunctionBodyForInLoopVariableStorageImpl(output: StringBuilder,
+    regBox: Array<Int>, loopVarName: String, loopVarType: String,
+    loopVarLlvmType: String, declOrdinalNames: Array<String>,
+    declOrdinalCounts: Array<Int>, preAllocatedVars: Array<String>,
+    preAllocatedRegs: Array<String>) r: FunctionBodyLoopVariableStorage {
+
+    let loopVarOrdinal = nextDeclarationOrdinalImpl(declOrdinalNames,
+        declOrdinalCounts, loopVarName)
+    let loopVarPreIdx = findPreAllocatedOccurrenceImpl(preAllocatedVars,
+        loopVarName, loopVarOrdinal)
+    var loopVarReg = ""
+    if loopVarPreIdx >= 0 and loopVarPreIdx < preAllocatedRegs.length() {
+        loopVarReg = preAllocatedRegs[loopVarPreIdx]
+    }
+    if loopVarReg == "" {
+        loopVarReg = getNextRegFn(regBox)
+        if loopVarLlvmType == "i64" or loopVarLlvmType == "double" or
+            loopVarLlvmType == "ptr" {
+
+            output.append("  " + loopVarReg + " = alloca " +
+                loopVarLlvmType + ", align 8\n")
+        } else {
+            output.append("  " + loopVarReg + " = alloca " +
+                loopVarLlvmType + "\n")
+        }
+    }
+    return FunctionBodyLoopVariableStorage.new(loopVarType, loopVarReg)
+}
+
+fun resolveFunctionBodyForInIndexAllocaImpl(output: StringBuilder,
+    regBox: Array<Int>, preAllocatedVars: Array<String>,
+    preAllocatedRegs: Array<String>, idxName: String) r: String {
+
+    var idxReg = ""
+    let idxPreIdx = findPreAllocatedOccurrenceImpl(preAllocatedVars,
+        idxName, 1)
+    if idxPreIdx >= 0 and idxPreIdx < preAllocatedRegs.length() {
+        idxReg = preAllocatedRegs[idxPreIdx]
+    }
+    if idxReg == "" {
+        idxReg = getNextRegFn(regBox)
+        output.append("  " + idxReg + " = alloca i64, align 8\n")
+    }
+    return idxReg
+}
+
+fun emitFunctionBodyArrayDataLoadImpl(output: StringBuilder,
+    regBox: Array<Int>, arrayStorageReg: String) r: String {
+
+    let arrayPtrReg = getNextRegFn(regBox)
+    output.append("  " + arrayPtrReg + " = load ptr, ptr " +
+        arrayStorageReg + "\n")
+    let dataPtrPtrReg = getNextRegFn(regBox)
+    output.append("  " + dataPtrPtrReg +
+        " = getelementptr inbounds %SeenArray, ptr " + arrayPtrReg +
+        ", i32 0, i32 3\n")
+    let dataReg = getNextRegFn(regBox)
+    output.append("  " + dataReg + " = load ptr, ptr " +
+        dataPtrPtrReg + ", !tbaa !104\n")
+    return dataReg
+}
+
+fun emitFunctionBodyMemcpyOptimizedLoopImpl(output: StringBuilder,
+    regBox: Array<Int>, memcpyKind: Int, lhsArrayName: String,
+    rhsArrayName: String, incrementVarName: String, boundReg: String,
+    lhsArrayType: String, rhsArrayType: String, lhsArrayReg: String,
+    rhsArrayReg: String, incrementVarReg: String)
+    r: FunctionBodyMemcpyLoopEmitResult {
+
+    if memcpyKind == 1 {
+        if lhsArrayType != "Array<Int>" or rhsArrayType != "Array<Int>" or
+            lhsArrayReg == "" or rhsArrayReg == "" {
+
+            return invalidFunctionBodyMemcpyLoopEmitResultImpl()
+        }
+        let dstDataReg = emitFunctionBodyArrayDataLoadImpl(output, regBox,
+            lhsArrayReg)
+        let srcDataReg = emitFunctionBodyArrayDataLoadImpl(output, regBox,
+            rhsArrayReg)
+        let byteCountReg = getNextRegFn(regBox)
+        output.append("  " + byteCountReg + " = shl nsw i64 " + boundReg +
+            ", 3\n")
+        output.append("  call void @llvm.memcpy.p0.p0.i64(ptr " +
+            dstDataReg + ", ptr " + srcDataReg + ", i64 " + byteCountReg +
+            ", i1 false)\n")
+        if incrementVarReg != "" {
+            output.append("  store i64 " + boundReg + ", ptr " +
+                incrementVarReg + "\n")
+        }
+        output.append("  ; memcpy optimization: " + lhsArrayName +
+            "[i] = " + rhsArrayName + "[i] -> llvm.memcpy\n")
+        return FunctionBodyMemcpyLoopEmitResult.new(true, 1, "memcpy",
+            "applied", lhsArrayName + "<-" + rhsArrayName)
+    }
+
+    if memcpyKind == 2 {
+        if lhsArrayType != "Array<Int>" or lhsArrayReg == "" {
+            return invalidFunctionBodyMemcpyLoopEmitResultImpl()
+        }
+        let dataReg = emitFunctionBodyArrayDataLoadImpl(output, regBox,
+            lhsArrayReg)
+        let srcReg = getNextRegFn(regBox)
+        output.append("  " + srcReg + " = getelementptr i64, ptr " +
+            dataReg + ", i64 1\n")
+        let byteCountReg = getNextRegFn(regBox)
+        output.append("  " + byteCountReg + " = shl nsw i64 " + boundReg +
+            ", 3\n")
+        output.append("  call void @llvm.memmove.p0.p0.i64(ptr " +
+            dataReg + ", ptr " + srcReg + ", i64 " + byteCountReg +
+            ", i1 false)\n")
+        if incrementVarReg != "" {
+            output.append("  store i64 " + boundReg + ", ptr " +
+                incrementVarReg + "\n")
+        }
+        output.append("  ; memmove optimization: " + lhsArrayName +
+            "[i] = " + lhsArrayName + "[i+1] -> llvm.memmove\n")
+        return FunctionBodyMemcpyLoopEmitResult.new(true, 1, "memmove",
+            "applied", lhsArrayName + "[i]<-[i+1]")
+    }
+
+    return invalidFunctionBodyMemcpyLoopEmitResultImpl()
 }

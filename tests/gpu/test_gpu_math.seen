@@ -1,5 +1,7 @@
-// Test: GPU math built-in functions
-// Verifies GLSL generator maps dot, cross, normalize, mix, clamp etc.
+///
+Test: GPU math built-in functions
+Verifies GLSL generator maps dot, cross, normalize, mix, clamp etc.
+///
 
 @gpu_buffer
 class Vertex {

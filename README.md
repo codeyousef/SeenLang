@@ -61,11 +61,14 @@ And in Chinese:
 
 ## Why Seen?
 
-**Performance** -- Seen compiles through LLVM with ThinLTO, vectorization, and aggressive inlining. Benchmarks track within 1.0x--1.5x of equivalent Rust programs across 17 workloads (matrix multiplication, sieves, binary trees, n-body simulation, etc.).
+**LLVM code generation** -- Seen compiles through LLVM with native codegen,
+SIMD controls, target selection, and package artifact linking.
 
-**Self-hosted** -- The compiler (62,000+ lines of Seen across 123 source files) compiles itself. Bootstrap verification confirms the fixed-point: stage 2 and stage 3 produce identical binaries.
+**Self-hosted** -- The compiler is written in Seen and verifies itself through
+the Stage 1 -> Stage 2 -> Stage 3 bootstrap flow.
 
-**Fast compilation** -- Fork-parallel IR generation across 50+ modules with content-addressed incremental caching. Only changed modules recompile.
+**Incremental compilation** -- Source and IR caches keep rebuilds focused on
+changed modules where possible.
 
 **Multi-language keywords** -- Keywords are defined in TOML files under `languages/`. Adding a new language is adding a directory of TOML files -- no compiler changes required.
 
@@ -73,9 +76,9 @@ And in Chinese:
 
 ## Quick Start
 
-### Prerequisites
+### Source Build Prerequisites
 
-- **LLVM 18+** (clang, opt, lld)
+- **LLVM 18+** (`clang`, `opt`, `llc`, `llvm-as`, `lld`)
 - **GCC** (for runtime compilation)
 - **Git**
 
@@ -84,6 +87,12 @@ And in Chinese:
 ```bash
 git clone https://github.com/codeyousef/SeenLang.git
 cd SeenLang
+AVAIL_KB=$(awk '/MemAvailable/ {print $2}' /proc/meminfo)
+MAIN_KB=$(( AVAIL_KB * 70 / 100 ))
+if [ "$MAIN_KB" -gt 14680064 ]; then MAIN_KB=14680064; fi
+ulimit -v "$MAIN_KB"
+SEEN_LOW_MEMORY=1 SEEN_SKIP_LOW_MEMORY_SHORTCUT=1 \
+SEEN_MAIN_VMEM_KB="$MAIN_KB" SEEN_OPT_VMEM_KB=2097152 \
 ./scripts/safe_rebuild.sh
 ```
 
@@ -105,18 +114,17 @@ export PATH="$PATH:/path/to/SeenLang/compiler_seen/target"
 
 ```bash
 echo 'fun main() { println("Hello, Seen!") }' > hello.seen
-seen build hello.seen -o hello
+seen compile hello.seen hello
 ./hello
 ```
 
 ## Usage
 
 ```bash
-seen build source.seen -o output   # Compile to native binary
-seen build source.seen --fast      # Fast build (skip Polly, O1)
+seen compile source.seen output    # Compile to native binary
+seen compile source.seen output --fast
 seen run source.seen               # JIT execution
 seen check source.seen             # Type check only
-seen fmt source.seen               # Format code
 seen pkg fetch                     # Install package dependencies from Seen.toml
 seen lsp                           # Start language server
 ```
@@ -126,12 +134,10 @@ seen lsp                           # Start language server
 | Flag | Description |
 |------|-------------|
 | `--fast` | Skip heavy optimizations, use O1 |
-| `--release` | Full optimization with LTO |
 | `--emit-llvm` | Dump generated LLVM IR |
-| `--backend c` | Use C backend instead of LLVM |
-| `--debug` | Enable debug symbols and tracing |
-| `--trace-llvm` | Trace LLVM IR generation |
-| `--dump-struct-layouts` | Print struct field layouts |
+| `--backend llvm` | Use the shipped LLVM backend |
+| `SEEN_TRACE_LLVM=all` | Trace LLVM IR generation |
+| `SEEN_TRACE_LLVM=gep` | Trace selected struct/GEP layout paths |
 | `--null-safety` | Enable null safety checks |
 | `--warn-uninit` | Warn on uninitialized variables |
 | `--stack-check` | Enable stack overflow checks |
@@ -487,14 +493,14 @@ require'lspconfig'.seen.setup{
 
 ```
 SeenLang/
-├── compiler_seen/            # Self-hosted compiler (62K+ lines of Seen)
+├── compiler_seen/            # Self-hosted compiler
 │   └── src/
-│       ├── main.seen         # Entry point
+│       ├── main_compiler.seen # Shipped compiler CLI/bootstrap driver
+│       ├── main.seen         # Higher-level CLI wrapper source
 │       ├── lexer/            # Tokenizer with multi-language support
 │       ├── parser/           # Recursive descent parser
 │       ├── typechecker/      # Type inference and checking
-│       ├── codegen/          # LLVM IR generation (13 modules)
-│       ├── ir/               # IR builder and SSA construction
+│       ├── codegen/          # LLVM IR generation and backend helpers
 │       ├── bootstrap/        # Frontend orchestration
 │       └── lsp/              # Language server implementation
 ├── bootstrap/                # Frozen bootstrap compiler
@@ -504,7 +510,7 @@ SeenLang/
 ├── languages/                # Keyword definitions (6 languages, 102 TOML files)
 ├── vscode-seen/              # VS Code extension
 ├── tests/                    # Test suites
-│   └── e2e_multilang/        # 66 end-to-end tests across 6 languages
+│   └── e2e_multilang/        # multilingual end-to-end tests
 ├── benchmarks/               # 17 production benchmarks + comparison suite
 ├── scripts/                  # Build, test, and IR validation tools
 ├── installer/                # Platform installers (Linux, macOS, Windows)
@@ -513,7 +519,7 @@ SeenLang/
 
 ## Compiler Architecture
 
-The compiler follows a 5-stage pipeline:
+The compiler follows a staged pipeline:
 
 ```
 Source (.seen)
@@ -521,15 +527,15 @@ Source (.seen)
   → Parser (recursive descent → AST)
   → Type Checker (inference, validation, smart casts)
   → IR Generator (AST → LLVM IR, three-pass: signatures → types → bodies)
-  → LLVM Backend (opt -O3 → ThinLTO → lld link)
+  → LLVM/toolchain backend
   → Native Binary
 ```
 
 Key architectural decisions:
-- **Fork-parallel codegen**: Each module's IR is generated in a forked child process with copy-on-write memory
-- **Content-addressed IR cache**: Cache key = `hash(declarations_digest + module_source)`, so editing one function only recompiles that module
-- **Three-pass IR generation**: First pass collects all signatures, second resolves types, third emits function bodies -- enables forward references without a separate declaration phase
-- **IR validation**: `scripts/seen_ir_verify.sh` runs `llvm-as` structural checks and `seen_ir_lint` semantic checks on every `.ll` file before optimization
+- **Multi-module codegen**: LLVM IR generation is split across focused state and driver modules.
+- **Content-addressed caches**: source and IR caches avoid recompiling unchanged work where possible.
+- **Three-pass IR generation**: declarations, type/layout preparation, then bodies.
+- **IR validation gates**: `scripts/seen_prebuild_gates.sh`, `scripts/seen_ir_verify.sh`, and `seen_ir_lint` catch known late-stage failures early.
 
 ## Development
 
@@ -538,15 +544,22 @@ Key architectural decisions:
 The compiler compiles itself. After any change to `compiler_seen/src/`, verify bootstrap:
 
 ```bash
+AVAIL_KB=$(awk '/MemAvailable/ {print $2}' /proc/meminfo)
+MAIN_KB=$(( AVAIL_KB * 70 / 100 ))
+if [ "$MAIN_KB" -gt 14680064 ]; then MAIN_KB=14680064; fi
+ulimit -v "$MAIN_KB"
+SEEN_LOW_MEMORY=1 SEEN_SKIP_LOW_MEMORY_SHORTCUT=1 \
+SEEN_MAIN_VMEM_KB="$MAIN_KB" SEEN_OPT_VMEM_KB=2097152 \
 ./scripts/safe_rebuild.sh
 ```
 
-This builds stage 2 from the frozen bootstrap, then stage 3 from stage 2. If stage 2 == stage 3, the fixed-point is confirmed.
+This builds stage 2 from the frozen bootstrap, then stage 3 from stage 2. If
+the staged checks match, the fixed-point is confirmed.
 
 ### Running Tests
 
 ```bash
-# End-to-end tests (66 tests, 6 languages)
+# End-to-end language tests
 bash tests/e2e_multilang/run_all_e2e.sh
 
 # IR validation on generated modules
@@ -557,13 +570,13 @@ bash tests/e2e_multilang/run_all_e2e.sh
 
 ```bash
 # Type checker tracing
-SEEN_DEBUG_TYPES=1 seen build program.seen
+SEEN_DEBUG_TYPES=1 seen compile program.seen program
 
 # LLVM IR generation tracing
-SEEN_TRACE_LLVM=all seen build program.seen
+SEEN_TRACE_LLVM=all seen compile program.seen program
 
 # Struct layout debugging
-SEEN_TRACE_LLVM=gep seen build program.seen
+SEEN_TRACE_LLVM=gep seen compile program.seen program
 ```
 
 ## Contributing
@@ -572,7 +585,7 @@ SEEN_TRACE_LLVM=gep seen build program.seen
 2. Create a feature branch
 3. Make changes
 4. Run tests: `bash tests/e2e_multilang/run_all_e2e.sh`
-5. Verify bootstrap: `./scripts/safe_rebuild.sh`
+5. Verify bootstrap with explicit memory caps as described above.
 6. Submit a pull request
 
 ## License

@@ -3,7 +3,7 @@
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_call_dispatch.{emitUserMethodCallImpl}
-import codegen.ir_type_ops.{emitStringBuilderMethodImpl}
+import codegen.ir_string_builder_cast_emit.{emitStringBuilderMethodImpl}
 
 fun emitPreparedImplicitThisReceiverLoadImpl(output: StringBuilder,
     regBox: Array<Int>, thisReg: String) r: String {

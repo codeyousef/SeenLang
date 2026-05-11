@@ -1,5 +1,7 @@
-// Working example benchmark in Seen
-// This demonstrates a simple benchmark that can actually run
+///
+Working example benchmark in Seen
+This demonstrates a simple benchmark that can actually run
+///
 
 fun main() {
     println("=== Seen Benchmark Example ===")

@@ -1,0 +1,97 @@
+// ir_call_meta_driver.seen - non-recursive meta builtin call lowering.
+
+import parser.real_parser.{ParserExpressionNode}
+import str.string.{StringBuilder}
+import codegen.ir_call_dispatch.{emitIncludeStrImpl, emitIncludeBytesImpl}
+import codegen.ir_call_builtin_plan.{planMetaBuiltinCallImpl}
+import codegen.ir_call_meta.{resolveSizeofBuiltinValueImpl, resolveAlignofBuiltinValueImpl, resolveOffsetofBuiltinValueImpl}
+import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl}
+import codegen.ir_codegen_global_state.{getStringConstantPrefixWithGlobalStateImpl, getGlobalStructNamesImpl, getGlobalStructLayoutsImpl, getGlobalStructFieldNamesImpl, getGlobalStructFieldTypesImpl, getGlobalStructSizesImpl}
+import codegen.ir_codegen_type_state.{mapTypeState}
+import codegen.ir_expr_type_driver.{inferExpressionTypeState}
+import codegen.ir_optimization.{getNextRegFn, parseIntManual}
+import codegen.ir_stmt_comptime.{evaluateConstExprState}
+import codegen.ir_string_emit.{loadEmbeddedStringConstantInfoImpl}
+
+fun tryGenerateNonTransmuteMetaBuiltinCallState(output: StringBuilder,
+    stringConstants: Array<String>, expr: ParserExpressionNode,
+    funcName: String, varNames: Array<String>, varTypes: Array<String>)
+    r: String {
+
+    let metaPlan = planMetaBuiltinCallImpl(funcName, expr.arguments.length())
+    if metaPlan.action == 1 {
+        if metaPlan.hasArg0 {
+            let ctSize = evaluateConstExprState(expr)
+            if ctSize > 0 {
+                return ctSize.toString()
+            }
+            let sizeTypeName = inferExpressionTypeState(expr.arguments[0],
+                varNames, varTypes, stringConstants)
+            return resolveSizeofBuiltinValueImpl(mapTypeState(sizeTypeName),
+                getGlobalStructNamesImpl(), getGlobalStructLayoutsImpl(),
+                getGlobalStructSizesImpl())
+        }
+        return "0"
+    }
+
+    if metaPlan.action == 2 {
+        if metaPlan.hasArg0 {
+            let alignTypeName = inferExpressionTypeState(expr.arguments[0],
+                varNames, varTypes, stringConstants)
+            return resolveAlignofBuiltinValueImpl(mapTypeState(alignTypeName),
+                getGlobalStructNamesImpl(), getGlobalStructLayoutsImpl(),
+                getGlobalStructSizesImpl())
+        }
+        return "0"
+    }
+
+    if metaPlan.action == 3 {
+        if metaPlan.hasArg0 and metaPlan.hasArg1 {
+            let offTypeName = inferExpressionTypeState(expr.arguments[0],
+                varNames, varTypes, stringConstants)
+            let offFieldName = inferExpressionTypeState(expr.arguments[1],
+                varNames, varTypes, stringConstants)
+            return resolveOffsetofBuiltinValueImpl(offTypeName, offFieldName,
+                getGlobalStructNamesImpl(), getGlobalStructFieldNamesImpl(),
+                getGlobalStructFieldTypesImpl(), getGlobalStructLayoutsImpl(),
+                getGlobalStructSizesImpl())
+        }
+        return "0"
+    }
+
+    if metaPlan.action == 5 {
+        if metaPlan.hasArg0 {
+            let inclPath = expr.arguments[0].literalValue
+            let inclInfo = loadEmbeddedStringConstantInfoImpl(stringConstants,
+                inclPath)
+            if inclInfo.length() >= 3 {
+                return emitIncludeStrImpl(output, getFeatureRegBoxImpl(),
+                    inclInfo[0], inclInfo[1],
+                    getStringConstantPrefixWithGlobalStateImpl(),
+                    parseIntManual(inclInfo[2]))
+            }
+            output.append("  ; WARNING: includeStr file not found: " +
+                inclPath + "\n")
+        }
+        let inclEmptyReg = getNextRegFn(getFeatureRegBoxImpl())
+        output.append("  " + inclEmptyReg + " = insertvalue %SeenString undef, i64 0, 0\n")
+        return inclEmptyReg
+    }
+
+    if metaPlan.action == 6 {
+        if metaPlan.hasArg0 {
+            let inclBPath = expr.arguments[0].literalValue
+            let inclBInfo = loadEmbeddedStringConstantInfoImpl(
+                stringConstants, inclBPath)
+            if inclBInfo.length() >= 3 {
+                return emitIncludeBytesImpl(output, getFeatureRegBoxImpl(),
+                    inclBInfo[0], inclBInfo[1],
+                    getStringConstantPrefixWithGlobalStateImpl(),
+                    parseIntManual(inclBInfo[2]))
+            }
+        }
+        return "0"
+    }
+
+    return ""
+}

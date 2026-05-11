@@ -1,5 +1,7 @@
-// Test valid @syscall decorators
-// This test should compile successfully with --profile deterministic
+///
+Test valid @syscall decorators
+This test should compile successfully with --profile deterministic
+///
 
 @syscall("uww::timestamp")
 fun getTimestamp() r: Int {

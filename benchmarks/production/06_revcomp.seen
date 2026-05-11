@@ -1,5 +1,7 @@
-// Reverse Complement Benchmark
-// DNA sequence reverse complement with lookup table
+///
+Reverse Complement Benchmark
+DNA sequence reverse complement with lookup table
+///
 
 fun create_complement_table() -> Array<Int> {
     let table: Array<Int> = Array<Int>(256, 0)

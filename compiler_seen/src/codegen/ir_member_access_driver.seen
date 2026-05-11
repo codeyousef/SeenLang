@@ -1,0 +1,486 @@
+// ir_member_access_driver.seen - acyclic member/field access lowering leaves.
+
+import str.string.{StringBuilder}
+import parser.real_parser.{ParserExpressionNode}
+import codegen.ir_codegen_feature_state.{getFeatureReprCClassNamesImpl, getFeatureUnionTypesImpl, getFeatureTypeAliasNamesImpl, getFeatureTypeAliasTargetsImpl, getFeatureTypeAliasCountImpl, getFeatureEnumTypeNamesImpl, getFeatureRegBoxImpl, getFeatureBitfieldKeysImpl, getFeatureBitfieldWidthsImpl, getFeatureBitfieldCountImpl}
+import codegen.ir_codegen_global_state.{getBoundedActiveVarCountWithGlobalStateImpl, getGlobalStructNamesImpl, getGlobalStructLayoutsImpl, getGlobalStructFieldNamesImpl, getGlobalStructFieldTypesImpl, getGlobalStructMethodNamesImpl, getGlobalStructMethodRetTypesImpl}
+import codegen.ir_codegen_module_state.{findModuleConstantWithModuleStateImpl, getModuleConstantTypeWithModuleStateImpl, getModuleConstSeenTypeWithModuleStateImpl, moduleConstantInvariantLoadSuffixWithModuleStateImpl}
+import codegen.ir_codegen_type_state.{mapTypeState}
+import codegen.ir_field_layout.{generateFieldAccessImpl, generateFieldAccessPtrImpl}
+import codegen.ir_field_lookup_state.{getFieldInfoState, getFieldTypeState, getSeenFieldTypeState}
+import codegen.ir_enum_ctor_gen.{isEnumVariantStateImpl, lookupEnumParentStateImpl, lookupEnumFieldCountStateImpl, lookupEnumVariantTagStateImpl}
+import codegen.ir_local_type_leaf_driver.{findVarTypeState}
+import codegen.ir_lowering_context.{CodegenLoweringContext, lowerExpression, inferLoweredExpressionType, lowerCallExpression, prepareLoweredCallArgumentsWithDefaults, lowerEnumConstructor, resetLoweringGenerator, resetLoweringSharedModuleScratch, syncLoweringState, writeBackLoweringState, lowerProgramClasses, lowerProgramTopLevelFunctions, lowerPlainLargeClass, lowerClassNode, lowerFunctionNode, lowerClassMethodFromList, setLowerCurrentClassParentName, resetLoweringLocalCodegenState, collectLoweringVariableDeclarations, clearLoweringActiveBindings, lowerBlock, lowerStatement, isLoweringBlockTerminated, beginLoweringNestedScratch, restoreLoweringNestedScratch, currentLoweringFunctionOptions}
+import codegen.ir_member_access.{emitSimdSwizzleMemberAccessImpl, inferSimdSwizzleMemberTypeImpl}
+import codegen.ir_member_access_gen.{emitPreparedBracketPathMemberAccessImpl, emitPreparedChainedReceiverMemberAccessImpl, emitPreparedExpressionReceiverMemberAccessImpl, emitPreparedImplicitThisReceiverMemberAccessImpl, emitPreparedModuleConstReceiverMemberAccessImpl, emitPreparedVariableReceiverMemberAccessImpl}
+import codegen.ir_member_access_plan.{planMemberAccessRouteImpl}
+import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, resolveMethodFieldPathTypeImpl}
+import codegen.ir_path_expr.{splitBracketPathImpl, splitFirstPathDotImpl, splitChainedPathImpl, buildChainedPathExprImpl, resolveChainedPathSuffixTypeImpl}
+import codegen.ir_seen_token_types.{getSeenTokenTypeValueImpl}
+import codegen.ir_string_collect.{parseArrayElementTypeImpl}
+import codegen.ir_type_info.{getLLVMIRGeneratorFieldIndexImpl}
+import codegen.type_registry_core.{findStructReg}
+import codegen.ir_variable_gen.{emitImplicitThisPointerLoadImpl}
+
+fun generateFieldAccessState(output: StringBuilder, ptrReg: String,
+    structType: String, fieldName: String) r: String {
+
+    return generateFieldAccessImpl(output, getFeatureRegBoxImpl(), ptrReg,
+        structType, fieldName, getFieldTypeState(structType, fieldName),
+        getGlobalStructNamesImpl(), getGlobalStructLayoutsImpl(),
+        getGlobalStructFieldNamesImpl(), getGlobalStructFieldTypesImpl(),
+        getFeatureReprCClassNamesImpl(), getFeatureUnionTypesImpl(),
+        getFeatureTypeAliasNamesImpl(), getFeatureTypeAliasTargetsImpl(),
+        getFeatureTypeAliasCountImpl(), getFeatureEnumTypeNamesImpl(),
+        getFeatureBitfieldCountImpl(), getFeatureBitfieldKeysImpl(),
+        getFeatureBitfieldWidthsImpl())
+}
+
+fun generateFieldAccessPtrState(output: StringBuilder, ptrReg: String,
+    structType: String, fieldName: String) r: String {
+
+    return generateFieldAccessPtrImpl(output, getFeatureRegBoxImpl(), ptrReg,
+        structType, fieldName, getGlobalStructNamesImpl(),
+        getGlobalStructLayoutsImpl(), getGlobalStructFieldNamesImpl(),
+        getFeatureUnionTypesImpl())
+}
+
+fun generateExpressionReceiverMemberAccessState(output: StringBuilder,
+    receiverReg: String, receiverType: String, fieldName: String) r: String {
+
+    return emitPreparedExpressionReceiverMemberAccessImpl(output,
+        getFeatureRegBoxImpl(), receiverReg, receiverType, fieldName,
+        getFieldTypeState(receiverType, fieldName), getGlobalStructNamesImpl(),
+        getGlobalStructLayoutsImpl(), getGlobalStructFieldNamesImpl(),
+        getGlobalStructFieldTypesImpl(), getFeatureReprCClassNamesImpl(),
+        getFeatureUnionTypesImpl(), getFeatureTypeAliasNamesImpl(),
+        getFeatureTypeAliasTargetsImpl(), getFeatureTypeAliasCountImpl(),
+        getFeatureEnumTypeNamesImpl(), getFeatureBitfieldCountImpl(),
+        getFeatureBitfieldKeysImpl(), getFeatureBitfieldWidthsImpl())
+}
+
+fun tryGenerateSimdSwizzleMemberAccessState(output: StringBuilder,
+    varNames: Array<String>, varRegs: Array<String>, varTypes: Array<String>,
+    receiverName: String, fieldName: String) r: String {
+
+    if receiverName == "" {
+        return ""
+    }
+    let swzVarType = findVarTypeState(varNames, varTypes, receiverName)
+    let swizzleType = inferSimdSwizzleMemberTypeImpl(swzVarType, fieldName)
+    if swizzleType == "" {
+        return ""
+    }
+    let activeCount = getBoundedActiveVarCountWithGlobalStateImpl(varNames)
+    let swzIdx = findActiveMemberVariableIndexState(varNames, activeCount,
+        receiverName)
+    if swzIdx < 0 {
+        return ""
+    }
+    return emitSimdSwizzleMemberAccessImpl(output, getFeatureRegBoxImpl(),
+        fieldName, mapTypeState(swzVarType), varRegs[swzIdx])
+}
+
+fun findActiveMemberVariableIndexState(varNames: Array<String>,
+    activeCount: Int, name: String) r: Int {
+
+    var i = activeCount - 1
+    while i >= 0 {
+        if i < varNames.length() and varNames[i] == name {
+            return i
+        }
+        i = i - 1
+    }
+    return -1
+}
+
+fun tryGenerateVariableReceiverMemberAccessState(output: StringBuilder,
+    varNames: Array<String>, varRegs: Array<String>, varTypes: Array<String>,
+    receiverName: String, fieldName: String) r: String {
+
+    let activeCount = getBoundedActiveVarCountWithGlobalStateImpl(varNames)
+    let idx = findActiveMemberVariableIndexState(varNames, activeCount,
+        receiverName)
+    if idx < 0 {
+        return ""
+    }
+    let varType = varTypes[idx]
+    return emitPreparedVariableReceiverMemberAccessImpl(output,
+        getFeatureRegBoxImpl(), varRegs[idx], varType, fieldName,
+        getFieldTypeState(varType, fieldName), getGlobalStructNamesImpl(),
+        getGlobalStructLayoutsImpl(), getGlobalStructFieldNamesImpl(),
+        getGlobalStructFieldTypesImpl(), getFeatureReprCClassNamesImpl(),
+        getFeatureUnionTypesImpl(), getFeatureTypeAliasNamesImpl(),
+        getFeatureTypeAliasTargetsImpl(), getFeatureTypeAliasCountImpl(),
+        getFeatureEnumTypeNamesImpl(), getFeatureBitfieldCountImpl(),
+        getFeatureBitfieldKeysImpl(), getFeatureBitfieldWidthsImpl())
+}
+
+fun tryGenerateModuleConstReceiverMemberAccessState(output: StringBuilder,
+    varNames: Array<String>, varTypes: Array<String>, receiverName: String,
+    fieldName: String) r: String {
+
+    let constIdx = findModuleConstantWithModuleStateImpl(receiverName)
+    if constIdx < 0 {
+        return ""
+    }
+    let constType = getModuleConstantTypeWithModuleStateImpl(constIdx)
+    var constSeenType = getModuleConstSeenTypeWithModuleStateImpl(constIdx)
+    if constSeenType == "" {
+        constSeenType = findVarTypeState(varNames, varTypes, receiverName)
+    }
+    let invSuffix = moduleConstantInvariantLoadSuffixWithModuleStateImpl(
+        constIdx)
+    return emitPreparedModuleConstReceiverMemberAccessImpl(output,
+        getFeatureRegBoxImpl(), "@" + quoteIdentIfNeededImpl(receiverName),
+        constType, constSeenType, invSuffix, fieldName,
+        getFieldTypeState(constSeenType, fieldName), getGlobalStructNamesImpl(),
+        getGlobalStructLayoutsImpl(), getGlobalStructFieldNamesImpl(),
+        getGlobalStructFieldTypesImpl(), getFeatureReprCClassNamesImpl(),
+        getFeatureUnionTypesImpl(), getFeatureTypeAliasNamesImpl(),
+        getFeatureTypeAliasTargetsImpl(), getFeatureTypeAliasCountImpl(),
+        getFeatureEnumTypeNamesImpl(), getFeatureBitfieldCountImpl(),
+        getFeatureBitfieldKeysImpl(), getFeatureBitfieldWidthsImpl())
+}
+
+fun tryGenerateBracketPathMemberAccessState(output: StringBuilder,
+    varNames: Array<String>, varRegs: Array<String>, varTypes: Array<String>,
+    receiverName: String, fieldName: String) r: String {
+
+    if not receiverName.contains("[") {
+        return ""
+    }
+    let bracketParts = splitBracketPathImpl(receiverName)
+    if bracketParts.length() < 2 {
+        return ""
+    }
+    let pathBeforeBracket = bracketParts[0]
+    let indexStr = bracketParts[1]
+    if not pathBeforeBracket.contains(".") {
+        return ""
+    }
+
+    let pathParts = splitFirstPathDotImpl(pathBeforeBracket)
+    let baseVar = pathParts[0]
+    let arrayField = pathParts[1]
+    let activeCount = getBoundedActiveVarCountWithGlobalStateImpl(varNames)
+    let baseIdx = findActiveMemberVariableIndexState(varNames, activeCount,
+        baseVar)
+    if baseIdx < 0 {
+        return ""
+    }
+
+    let baseType = varTypes[baseIdx]
+    let arrayType = getSeenFieldTypeState(baseType, arrayField)
+    var elementType = parseArrayElementTypeImpl(arrayType)
+    if elementType == "" and arrayType.startsWith("Array<") and
+        arrayType.endsWith(">") {
+
+        elementType = arrayType.substring(6, arrayType.length() - 1)
+    }
+    return emitPreparedBracketPathMemberAccessImpl(output,
+        getFeatureRegBoxImpl(), receiverName, fieldName, baseVar,
+        varRegs[baseIdx], baseType, arrayField,
+        getFieldTypeState(baseType, arrayField), indexStr, elementType,
+        getFieldTypeState(elementType, fieldName), getGlobalStructNamesImpl(),
+        getGlobalStructLayoutsImpl(), getGlobalStructFieldNamesImpl(),
+        getGlobalStructFieldTypesImpl(), getFeatureReprCClassNamesImpl(),
+        getFeatureUnionTypesImpl(), getFeatureTypeAliasNamesImpl(),
+        getFeatureTypeAliasTargetsImpl(), getFeatureTypeAliasCountImpl(),
+        getFeatureEnumTypeNamesImpl(), getFeatureBitfieldCountImpl(),
+        getFeatureBitfieldKeysImpl(), getFeatureBitfieldWidthsImpl())
+}
+
+fun tryGenerateChainedReceiverMemberAccessState(output: StringBuilder,
+    varNames: Array<String>, varRegs: Array<String>, varTypes: Array<String>,
+    receiverName: String, fieldName: String) r: String {
+
+    if not receiverName.contains(".") {
+        return ""
+    }
+    let receiverParts = splitFirstPathDotImpl(receiverName)
+    let baseVarName = receiverParts[0]
+    let restPath = receiverParts[1]
+    if restPath == "" {
+        return ""
+    }
+
+    let activeCount = getBoundedActiveVarCountWithGlobalStateImpl(varNames)
+    let baseIdx = findActiveMemberVariableIndexState(varNames, activeCount,
+        baseVarName)
+    if baseIdx < 0 {
+        return ""
+    }
+    let baseType = varTypes[baseIdx]
+    var intermediateType = resolveChainedPathSuffixTypeImpl(baseType, restPath,
+        getGlobalStructNamesImpl(), getGlobalStructFieldNamesImpl(),
+        getGlobalStructFieldTypesImpl(), getGlobalStructMethodNamesImpl(),
+        getGlobalStructMethodRetTypesImpl())
+    if intermediateType == "" {
+        intermediateType = "ProgramNode"
+    }
+    return emitPreparedChainedReceiverMemberAccessImpl(output,
+        getFeatureRegBoxImpl(), fieldName, varRegs[baseIdx], baseType,
+        restPath, intermediateType, getFieldTypeState(intermediateType,
+        fieldName), getGlobalStructNamesImpl(), getGlobalStructLayoutsImpl(),
+        getGlobalStructFieldNamesImpl(), getGlobalStructFieldTypesImpl(),
+        getFeatureReprCClassNamesImpl(), getFeatureUnionTypesImpl(),
+        getFeatureTypeAliasNamesImpl(), getFeatureTypeAliasTargetsImpl(),
+        getFeatureTypeAliasCountImpl(), getFeatureEnumTypeNamesImpl(),
+        getFeatureBitfieldCountImpl(), getFeatureBitfieldKeysImpl(),
+        getFeatureBitfieldWidthsImpl())
+}
+
+fun tryGenerateImplicitThisReceiverMemberAccessState(output: StringBuilder,
+    varNames: Array<String>, varRegs: Array<String>, varTypes: Array<String>,
+    receiverName: String, fieldName: String) r: String {
+
+    let activeCount = getBoundedActiveVarCountWithGlobalStateImpl(varNames)
+    let thisIdx = findActiveMemberVariableIndexState(varNames, activeCount,
+        "this")
+    if thisIdx < 0 {
+        return ""
+    }
+    let thisType = varTypes[thisIdx]
+    var intermediateType: String = ""
+    if receiverName.contains(".") {
+        intermediateType = resolveMethodFieldPathTypeImpl(thisType,
+            receiverName, getGlobalStructNamesImpl(), getGlobalStructFieldNamesImpl(),
+            getGlobalStructFieldTypesImpl(), getGlobalStructMethodNamesImpl(),
+            getGlobalStructMethodRetTypesImpl())
+    } else {
+        let fieldIdx = getFieldInfoState(thisType, receiverName)
+        if fieldIdx < 0 {
+            return ""
+        }
+        intermediateType = getSeenFieldTypeState(thisType, receiverName)
+    }
+    if intermediateType == "" {
+        return ""
+    }
+    return emitPreparedImplicitThisReceiverMemberAccessImpl(output,
+        getFeatureRegBoxImpl(), receiverName, fieldName, varRegs[thisIdx],
+        thisType, intermediateType, getFieldTypeState(intermediateType,
+        fieldName), getGlobalStructNamesImpl(), getGlobalStructLayoutsImpl(),
+        getGlobalStructFieldNamesImpl(), getGlobalStructFieldTypesImpl(),
+        getFeatureReprCClassNamesImpl(), getFeatureUnionTypesImpl(),
+        getFeatureTypeAliasNamesImpl(), getFeatureTypeAliasTargetsImpl(),
+        getFeatureTypeAliasCountImpl(), getFeatureEnumTypeNamesImpl(),
+        getFeatureBitfieldCountImpl(), getFeatureBitfieldKeysImpl(),
+        getFeatureBitfieldWidthsImpl())
+}
+
+fun tryGenerateImplicitThisFieldVariableState(output: StringBuilder,
+    varNames: Array<String>, varRegs: Array<String>, varTypes: Array<String>,
+    varName: String) r: String {
+
+    let activeCount = getBoundedActiveVarCountWithGlobalStateImpl(varNames)
+    let thisIdx = findActiveMemberVariableIndexState(varNames, activeCount,
+        "this")
+    if thisIdx < 0 {
+        return ""
+    }
+
+    let thisReg = varRegs[thisIdx]
+    let thisType = varTypes[thisIdx]
+    if thisType == "LLVMIRGenerator" {
+        let idxCheck = getLLVMIRGeneratorFieldIndexImpl(varName)
+        if idxCheck >= 0 {
+            let thisPtrReg = emitImplicitThisPointerLoadImpl(output,
+                getFeatureRegBoxImpl(), thisReg)
+            return generateFieldAccessState(output, thisPtrReg, thisType,
+                varName)
+        }
+    }
+
+    let structIdx = findStructReg(thisType, getGlobalStructNamesImpl())
+    if structIdx < 0 {
+        return ""
+    }
+
+    let fieldIdx = getFieldInfoState(thisType, varName)
+    if fieldIdx < 0 {
+        return ""
+    }
+
+    let thisPtrReg = emitImplicitThisPointerLoadImpl(output,
+        getFeatureRegBoxImpl(), thisReg)
+    return generateFieldAccessState(output, thisPtrReg, thisType, varName)
+}
+
+fun isExplicitThisReceiverExprState(expr: ParserExpressionNode) r: Bool {
+    if expr.kind != "Variable" {
+        return false
+    }
+    if expr.variableName == "this" {
+        return true
+    }
+    return expr.literalValue == "this"
+}
+
+fun tryGeneratePlannedMemberAccessTailState(output: StringBuilder,
+    varNames: Array<String>, varRegs: Array<String>, varTypes: Array<String>,
+    receiverName: String, fieldName: String, shouldTrySwizzle: Bool,
+    shouldTryVariableReceiver: Bool, shouldTryModuleConstantReceiver: Bool,
+    shouldTryBracketPath: Bool, shouldTryChainedReceiver: Bool,
+    shouldTryImplicitThisReceiver: Bool) r: String {
+
+    if shouldTrySwizzle {
+        let swizzleResult = tryGenerateSimdSwizzleMemberAccessState(output,
+            varNames, varRegs, varTypes, receiverName, fieldName)
+        if swizzleResult != "" {
+            return swizzleResult
+        }
+    }
+
+    if shouldTryVariableReceiver {
+        let varResult = tryGenerateVariableReceiverMemberAccessState(output,
+            varNames, varRegs, varTypes, receiverName, fieldName)
+        if varResult != "" {
+            return varResult
+        }
+    }
+
+    if shouldTryModuleConstantReceiver {
+        let constResult = tryGenerateModuleConstReceiverMemberAccessState(
+            output, varNames, varTypes, receiverName, fieldName)
+        if constResult != "" {
+            return constResult
+        }
+    }
+
+    if shouldTryBracketPath {
+        let bracketResult = tryGenerateBracketPathMemberAccessState(output,
+            varNames, varRegs, varTypes, receiverName, fieldName)
+        if bracketResult != "" {
+            return bracketResult
+        }
+    }
+
+    if shouldTryChainedReceiver {
+        let chainedResult = tryGenerateChainedReceiverMemberAccessState(output,
+            varNames, varRegs, varTypes, receiverName, fieldName)
+        if chainedResult != "" {
+            return chainedResult
+        }
+    }
+
+    if shouldTryImplicitThisReceiver {
+        let thisResult = tryGenerateImplicitThisReceiverMemberAccessState(
+            output, varNames, varRegs, varTypes, receiverName, fieldName)
+        if thisResult != "" {
+            return thisResult
+        }
+    }
+
+    return ""
+}
+
+fun tryGenerateEnumMemberAccessState(ctx: CodegenLoweringContext,
+    receiverName: String, fieldName: String, enumVariantNames: String,
+    enumVariantParent: String, enumVariantTags: String,
+    enumVariantFieldCounts: String, enumVariantCount: Int) r: String {
+
+    if enumVariantCount > 0 and isEnumVariantStateImpl(fieldName,
+        enumVariantNames, enumVariantCount) {
+        let parentEnum = lookupEnumParentStateImpl(fieldName,
+            enumVariantNames, enumVariantParent, enumVariantCount)
+        if parentEnum == receiverName {
+            let varFieldCount = lookupEnumFieldCountStateImpl(fieldName,
+                enumVariantNames, enumVariantFieldCounts, enumVariantCount)
+            if varFieldCount > 0 {
+                let enumExpr = ParserExpressionNode.new()
+                return lowerEnumConstructor(ctx, fieldName, enumExpr)
+            }
+            return lookupEnumVariantTagStateImpl(fieldName, enumVariantNames,
+                enumVariantTags, enumVariantCount).toString()
+        }
+    }
+    if receiverName == "SeenTokenType" {
+        return getSeenTokenTypeValueImpl(fieldName).toString()
+    }
+    return ""
+}
+
+fun generateMemberAccessState(ctx: CodegenLoweringContext,
+    output: StringBuilder, expr: ParserExpressionNode,
+    varNames: Array<String>, varRegs: Array<String>,
+    varTypes: Array<String>, enumVariantNames: String,
+    enumVariantParent: String, enumVariantTags: String,
+    enumVariantFieldCounts: String, enumVariantCount: Int) r: String {
+
+    let receiverName = expr.literalValue
+    let fieldName = expr.variableName
+    let operandCount = expr.operands.length()
+
+    if operandCount == 0 and receiverName == "this" {
+        let explicitThisField = tryGenerateImplicitThisFieldVariableState(
+            output, varNames, varRegs, varTypes, fieldName)
+        if explicitThisField != "" {
+            return explicitThisField
+        }
+    }
+
+    if operandCount > 0 and isExplicitThisReceiverExprState(expr.operands[0]) {
+        let explicitThisField = tryGenerateImplicitThisFieldVariableState(
+            output, varNames, varRegs, varTypes, fieldName)
+        if explicitThisField != "" {
+            return explicitThisField
+        }
+    }
+
+    var dottedBaseKnown = false
+    if operandCount == 0 and receiverName != "" and
+        receiverName.contains(".") {
+        let receiverSegments = splitChainedPathImpl(receiverName)
+        if receiverSegments.length() > 0 and
+            findVarTypeState(varNames, varTypes, receiverSegments[0]) != "" {
+            dottedBaseKnown = true
+        }
+    }
+    let memberRoute = planMemberAccessRouteImpl(operandCount, receiverName,
+        dottedBaseKnown)
+
+    if memberRoute.shouldTryRebuild {
+        let rebuiltReceiverExpr = buildChainedPathExprImpl(receiverName)
+        if rebuiltReceiverExpr.kind != "None" {
+            let rebuiltExpr = ParserExpressionNode.new()
+            rebuiltExpr.kind = "MemberAccess"
+            rebuiltExpr.variableName = fieldName
+            rebuiltExpr.operands.push(rebuiltReceiverExpr)
+            return generateMemberAccessState(ctx, output, rebuiltExpr,
+                varNames, varRegs, varTypes, enumVariantNames,
+                enumVariantParent, enumVariantTags, enumVariantFieldCounts,
+                enumVariantCount)
+        }
+    }
+
+    if memberRoute.shouldTryEnum {
+        let enumResult = tryGenerateEnumMemberAccessState(ctx, receiverName,
+            fieldName, enumVariantNames, enumVariantParent, enumVariantTags,
+            enumVariantFieldCounts, enumVariantCount)
+        if enumResult != "" {
+            return enumResult
+        }
+    }
+
+    if memberRoute.shouldUseExpressionReceiver {
+        let receiverExpr = expr.operands[0]
+        let receiverReg = lowerExpression(ctx, receiverExpr)
+        let receiverType = inferLoweredExpressionType(ctx, receiverExpr)
+        return generateExpressionReceiverMemberAccessState(output,
+            receiverReg, receiverType, fieldName)
+    }
+
+    let tailResult = tryGeneratePlannedMemberAccessTailState(output,
+        varNames, varRegs, varTypes, receiverName, fieldName,
+        memberRoute.shouldTrySwizzle, memberRoute.shouldTryVariableReceiver,
+        memberRoute.shouldTryModuleConstantReceiver,
+        memberRoute.shouldTryBracketPath, memberRoute.shouldTryChainedReceiver,
+        memberRoute.shouldTryImplicitThisReceiver)
+    if tailResult != "" {
+        return tailResult
+    }
+
+    return "0"
+}

@@ -9,19 +9,30 @@
 # On success, prints "RECOVERY_DIR=<path>" as the LAST line of output.
 # The caller should link .o files from that directory instead of /tmp.
 #
-# Usage: recovery_opt.sh <opt_wrapper_dir> <script_dir>
+# Usage: recovery_opt.sh <opt_wrapper_dir> <script_dir> [source_ll_dir] [--skip-fixups]
 #   opt_wrapper_dir: directory containing the opt wrapper script
 #   script_dir:      directory containing fix_ir.py and other helpers
+#   source_ll_dir:   directory containing seen_module_*.ll (default: $SEEN_RECOVERY_LL_DIR or /tmp)
 
 OPT_WRAPPER_DIR="$1"
 SCRIPT_DIR="$2"
 SKIP_FIXUPS=0
-if [ "$3" = "--skip-fixups" ]; then
+SOURCE_LL_DIR="${SEEN_RECOVERY_LL_DIR:-/tmp}"
+if [ "${3:-}" = "--skip-fixups" ]; then
+    SKIP_FIXUPS=1
+elif [ -n "${3:-}" ]; then
+    SOURCE_LL_DIR="$3"
+fi
+if [ "${4:-}" = "--skip-fixups" ]; then
     SKIP_FIXUPS=1
 fi
 
 if [ -z "$OPT_WRAPPER_DIR" ] || [ -z "$SCRIPT_DIR" ]; then
     echo "  ERROR: recovery_opt.sh requires <opt_wrapper_dir> <script_dir>"
+    exit 1
+fi
+if [ ! -d "$SOURCE_LL_DIR" ]; then
+    echo "  ERROR: recovery source directory not found: $SOURCE_LL_DIR"
     exit 1
 fi
 
@@ -34,6 +45,13 @@ REAL_OPT=$(command -v opt)
 PROCESSED=0
 FAILED=0
 FAILED_MODULES=""
+PROGRESS_EVERY="${SEEN_RECOVERY_PROGRESS_EVERY:-10}"
+case "$PROGRESS_EVERY" in
+    ''|*[!0-9]*) PROGRESS_EVERY=10 ;;
+esac
+if [ "$PROGRESS_EVERY" -le 0 ]; then
+    PROGRESS_EVERY=10
+fi
 
 run_with_opt_limit() {
     if [ "${SEEN_LOW_MEMORY:-0}" = "1" ] && [ -n "${SEEN_OPT_VMEM_KB:-}" ]; then
@@ -50,12 +68,12 @@ run_with_opt_limit() {
 # (which also write to /tmp/seen_module_*) can't interfere.
 WORK_DIR=$(mktemp -d /tmp/seen_recovery.XXXXXX)
 LL_COUNT=0
-for f in /tmp/seen_module_*.ll; do
+for f in "$SOURCE_LL_DIR"/seen_module_*.ll; do
     [ -f "$f" ] || continue
     [[ "$f" == *.opt.ll ]] && continue
     cp "$f" "$WORK_DIR/" 2>/dev/null && LL_COUNT=$((LL_COUNT+1))
 done
-echo "  Recovery: $LL_COUNT .ll files copied to $WORK_DIR"
+echo "  Recovery: $LL_COUNT .ll files copied from $SOURCE_LL_DIR to $WORK_DIR"
 
 if [ "$LL_COUNT" -eq 0 ]; then
     echo "  ERROR: no .ll files to process"
@@ -68,6 +86,12 @@ for llfile in "$WORK_DIR"/seen_module_*.ll; do
     modname=$(basename "$llfile" .ll)
     optfile="$WORK_DIR/${modname}.opt.ll"
     objfile="$WORK_DIR/${modname}.o"
+    optlog="$WORK_DIR/${modname}.opt.log"
+    thinlog="$WORK_DIR/${modname}.thinlto.log"
+    CURRENT=$((PROCESSED+FAILED+1))
+    if [ "$CURRENT" -eq 1 ] || [ $((CURRENT % PROGRESS_EVERY)) -eq 0 ]; then
+        echo "  Recovery progress: module=$modname index=$CURRENT/$LL_COUNT processed=$PROCESSED failed=$FAILED"
+    fi
 
     # Run opt: use wrapper (fixups + opt) or real opt directly (--skip-fixups)
     if [ "$SKIP_FIXUPS" = "1" ]; then
@@ -77,10 +101,16 @@ for llfile in "$WORK_DIR"/seen_module_*.ll; do
     fi
     if ! run_with_opt_limit "$OPT_CMD" \
         -passes='function(sroa,instcombine<no-verify-fixpoint>,simplifycfg),default<O1>' \
-        -inline-threshold=250 -S "$llfile" -o "$optfile" 2>/dev/null; then
+        -inline-threshold=250 -S "$llfile" -o "$optfile" >"$optlog" 2>&1; then
         echo "  ERROR: opt failed for $modname"
+        echo "  First failure log: $optlog"
+        tail -40 "$optlog" 2>/dev/null || true
         FAILED=$((FAILED+1))
         FAILED_MODULES="$FAILED_MODULES $modname"
+        if [ "${SEEN_RECOVERY_FAIL_FAST:-0}" = "1" ]; then
+            echo "  Recovery fail-fast enabled; stopping at $modname"
+            break
+        fi
         continue
     fi
 
@@ -89,12 +119,22 @@ for llfile in "$WORK_DIR"/seen_module_*.ll; do
         echo "  ERROR: opt did not emit $optfile"
         FAILED=$((FAILED+1))
         FAILED_MODULES="$FAILED_MODULES $modname"
+        if [ "${SEEN_RECOVERY_FAIL_FAST:-0}" = "1" ]; then
+            echo "  Recovery fail-fast enabled; stopping at $modname"
+            break
+        fi
         continue
     fi
-    if ! run_with_opt_limit "$REAL_OPT" --thinlto-bc "$optfile" -o "$objfile" 2>/dev/null; then
+    if ! run_with_opt_limit "$REAL_OPT" --thinlto-bc "$optfile" -o "$objfile" >"$thinlog" 2>&1; then
         echo "  ERROR: thinlto-bc failed for $modname"
+        echo "  First failure log: $thinlog"
+        tail -40 "$thinlog" 2>/dev/null || true
         FAILED=$((FAILED+1))
         FAILED_MODULES="$FAILED_MODULES $modname"
+        if [ "${SEEN_RECOVERY_FAIL_FAST:-0}" = "1" ]; then
+            echo "  Recovery fail-fast enabled; stopping at $modname"
+            break
+        fi
         continue
     fi
 
@@ -104,6 +144,10 @@ for llfile in "$WORK_DIR"/seen_module_*.ll; do
         echo "  ERROR: object file missing for $modname"
         FAILED=$((FAILED+1))
         FAILED_MODULES="$FAILED_MODULES $modname"
+        if [ "${SEEN_RECOVERY_FAIL_FAST:-0}" = "1" ]; then
+            echo "  Recovery fail-fast enabled; stopping at $modname"
+            break
+        fi
     fi
 done
 

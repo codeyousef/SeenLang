@@ -127,6 +127,33 @@ fun shortCircuitBinaryActionImpl(operator: String) r: Int {
     return 0
 }
 
+fun shouldWidenIntegerBinaryOperandsForI64Impl(operator: String,
+    leftType: String, rightType: String, leftMappedType: String) r: Bool {
+
+    if leftType == "Float" or rightType == "Float" {
+        return false
+    }
+    if leftType == "String" or rightType == "String" {
+        return false
+    }
+    if leftType == "Bool" or rightType == "Bool" {
+        return false
+    }
+    if leftMappedType == "ptr" {
+        return false
+    }
+    if operator == "+" or operator == "-" or operator == "*" or
+        operator == "/" or operator == "%" or operator == "==" or
+        operator == "!=" or operator == "<" or operator == "<=" or
+        operator == ">" or operator == ">=" or operator == "<<" or
+        operator == ">>" or operator == "&" or operator == "|" or
+        operator == "^" {
+
+        return true
+    }
+    return false
+}
+
 fun shouldUseBinaryCseGateImpl(leftType: String, rightType: String,
     operator: String) r: Bool {
 

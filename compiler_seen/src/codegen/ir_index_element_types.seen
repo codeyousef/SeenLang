@@ -1,0 +1,53 @@
+// ir_index_element_types.seen - IndexAccess element type fallback table.
+
+import codegen.ir_string_collect.{parseSeenStaticArrayElementTypeImpl}
+
+fun inferIndexElementTypeImpl(arrayType: String) r: String {
+    let staticArrayElementType = parseSeenStaticArrayElementTypeImpl(arrayType)
+    if staticArrayElementType != "" {
+        return staticArrayElementType
+    }
+    if arrayType == "Array<FrontendDiagnostic>" {
+        return "FrontendDiagnostic"
+    }
+    if arrayType == "Array<String>" {
+        return "String"
+    }
+    if arrayType == "Array<Int>" {
+        return "Int"
+    }
+    if arrayType == "Array<Float>" {
+        return "Float"
+    }
+    if arrayType == "Array<ItemNode>" {
+        return "ItemNode"
+    }
+    if arrayType == "Array<ProgramNode>" {
+        return "ProgramNode"
+    }
+    if arrayType == "Array<FunctionNode>" {
+        return "FunctionNode"
+    }
+    if arrayType == "Array<ParamNode>" {
+        return "ParamNode"
+    }
+    if arrayType == "Array<StatementNode>" {
+        return "StatementNode"
+    }
+    if arrayType == "Array<ParserExpressionNode>" {
+        return "ParserExpressionNode"
+    }
+    if arrayType == "Array<TypeError>" {
+        return "TypeError"
+    }
+    if arrayType == "Array<ClassNode>" {
+        return "ClassNode"
+    }
+    if arrayType == "Array<BlockNode>" {
+        return "BlockNode"
+    }
+    if arrayType == "Array<AnnotationNode>" {
+        return "AnnotationNode"
+    }
+    return ""
+}

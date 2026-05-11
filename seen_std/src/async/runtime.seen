@@ -1,25 +1,29 @@
-// Composable Async Runtime
-// Based on AC (Composable Async I/O) approach from the research paper
-//
-// Design principles:
-// - Zero bookkeeping until blocking
-// - Lazy task creation
-// - Lock-free ready queue using SPSC (single-threaded: simple array)
-// - Minimal overhead for fast-path (non-blocking) async calls
-//
-// Architecture:
-//   The runtime manages two kinds of work:
-//   1. Coroutine tasks -- LLVM coroutine handles from @async functions
-//   2. Combinator tasks -- then()/map() chains registered in future.seen
-//
-//   Each tick of the event loop:
-//   a) Drain the ready queue (woken tasks)
-//   b) Poll all non-completed coroutine tasks
-//   c) Poll all pending combinator tasks (then/map chains)
-//   d) If nothing progressed and nothing is ready, yield CPU
+///
+Composable Async Runtime
+Based on AC (Composable Async I/O) approach from the research paper
 
-// Inlined from future.seen to avoid multi-module import resolution issues.
-// (collectModulePaths only scans main file imports, not transitive deps.)
+Design principles:
+- Zero bookkeeping until blocking
+- Lazy task creation
+- Lock-free ready queue using SPSC (single-threaded: simple array)
+- Minimal overhead for fast-path (non-blocking) async calls
+
+Architecture:
+  The runtime manages two kinds of work:
+  1. Coroutine tasks -- LLVM coroutine handles from @async functions
+  2. Combinator tasks -- then()/map() chains registered in future.seen
+
+  Each tick of the event loop:
+  a) Drain the ready queue (woken tasks)
+  b) Poll all non-completed coroutine tasks
+  c) Poll all pending combinator tasks (then/map chains)
+  d) If nothing progressed and nothing is ready, yield CPU
+///
+
+///
+Inlined from future.seen to avoid multi-module import resolution issues.
+(collectModulePaths only scans main file imports, not transitive deps.)
+///
 var g_ready_queue: Array<Int>
 
 fun drain_ready_queue() -> Array<Int> {
@@ -32,18 +36,22 @@ fun poll_combinators() -> Void {
     return
 }
 
-// ============================================================================
-// CoroutineTask -- wraps an LLVM coroutine handle for the scheduler
-// ============================================================================
+///
+============================================================================
+CoroutineTask -- wraps an LLVM coroutine handle for the scheduler
+============================================================================
+///
 
-// Coroutine frame operations -- mixed C wrappers and LLVM intrinsics.
-//
-// resume/destroy MUST use LLVM intrinsics because coroutine lowering uses
-// the fastcc calling convention for the resume/destroy function pointers.
-// C wrappers would call with the wrong convention and crash.
-//
-// done/promise are safe as C wrappers since they only read memory
-// (no function pointer calls).
+///
+Coroutine frame operations -- mixed C wrappers and LLVM intrinsics.
+
+resume/destroy MUST use LLVM intrinsics because coroutine lowering uses
+the fastcc calling convention for the resume/destroy function pointers.
+C wrappers would call with the wrong convention and crash.
+
+done/promise are safe as C wrappers since they only read memory
+(no function pointer calls).
+///
 extern fun seen_coro_done(handle: ptr) -> Int
 extern fun llvm_coro_resume(handle: ptr) -> Void
 extern fun llvm_coro_destroy(handle: ptr) -> Void
@@ -67,8 +75,10 @@ fun new_coroutine_task(task_id: Int, task_handle: ptr, task_name: String) -> Cor
     }
 }
 
-// Poll this task once -- resumes the coroutine and checks if it finished.
-// Returns true if the task completed on this poll, false otherwise.
+///
+Poll this task once -- resumes the coroutine and checks if it finished.
+Returns true if the task completed on this poll, false otherwise.
+///
 fun poll_task(task: CoroutineTask) -> Bool {
     if task.completed {
         return true
@@ -93,9 +103,11 @@ fun task_promise(task: CoroutineTask) -> ptr {
     return seen_coro_promise(h)
 }
 
-// ============================================================================
-// AsyncRuntime -- single-threaded cooperative task executor
-// ============================================================================
+///
+============================================================================
+AsyncRuntime -- single-threaded cooperative task executor
+============================================================================
+///
 
 class AsyncRuntime {
     var tasks: Array<CoroutineTask>
@@ -115,8 +127,10 @@ fun new_async_runtime() -> AsyncRuntime {
     }
 }
 
-// Spawn an @async function's coroutine handle as a task.
-// Returns the task ID for tracking.
+///
+Spawn an @async function's coroutine handle as a task.
+Returns the task ID for tracking.
+///
 fun runtime_spawn(rt: AsyncRuntime, handle: ptr, name: String) -> Int {
     let id = rt.next_task_id
     rt.next_task_id = rt.next_task_id + 1
@@ -149,8 +163,10 @@ fun runtime_all_completed(rt: AsyncRuntime) -> Bool {
     return true
 }
 
-// Execute one tick of the event loop.
-// Returns true if any task made progress, false otherwise.
+///
+Execute one tick of the event loop.
+Returns true if any task made progress, false otherwise.
+///
 fun runtime_tick(rt: AsyncRuntime) -> Bool {
     var progress = false
 
@@ -274,18 +290,22 @@ fun runtime_gc(rt: AsyncRuntime) -> Void {
     }
 }
 
-// Global runtime convenience API removed -- module-level function call
-// initialization (var g_runtime = new_async_runtime()) generates invalid IR.
-// Users should create their own AsyncRuntime via new_async_runtime().
+///
+Global runtime convenience API removed -- module-level function call
+initialization (var g_runtime = new_async_runtime()) generates invalid IR.
+Users should create their own AsyncRuntime via new_async_runtime().
+///
 
 extern fun __seen_promise_load_i64(handle: ptr) -> Int
 extern fun __seen_promise_load_f64(handle: ptr) -> Float
 extern fun async_yield() -> Void
 
-// Block on an Int-returning @async function, return the result.
-// Uses a direct polling loop -- does NOT go through runtime_spawn/poll_task
-// because poll_task calls llvm_coro_destroy() which would free the frame
-// before we can read the promise.
+///
+Block on an Int-returning @async function, return the result.
+Uses a direct polling loop -- does NOT go through runtime_spawn/poll_task
+because poll_task calls llvm_coro_destroy() which would free the frame
+before we can read the promise.
+///
 fun runtime_block_on_int(rt: AsyncRuntime, handle: ptr) -> Int {
     var done_flag = 0
     while done_flag == 0 {
@@ -313,20 +333,22 @@ fun runtime_block_on_float(rt: AsyncRuntime, handle: ptr) -> Float {
     return result
 }
 
-// ============================================================================
-// Structured Concurrency — scope { spawn ... } with auto-join
-// ============================================================================
-//
-// AsyncScope ensures that all tasks spawned within the scope complete
-// before the scope exits. This provides structured concurrency guarantees:
-// - Parent waits for all spawned children
-// - Scope block doesn't return until all tasks are done
-//
-// Usage:
-//   let scope = new_async_scope(runtime)
-//   scope_spawn(scope, runtime, coroutine_handle, "task1")
-//   scope_spawn(scope, runtime, coroutine_handle2, "task2")
-//   scope_join(scope, runtime)  // waits for all spawned tasks
+///
+============================================================================
+Structured Concurrency — scope { spawn ... } with auto-join
+============================================================================
+
+AsyncScope ensures that all tasks spawned within the scope complete
+before the scope exits. This provides structured concurrency guarantees:
+- Parent waits for all spawned children
+- Scope block doesn't return until all tasks are done
+
+Usage:
+  let scope = new_async_scope(runtime)
+  scope_spawn(scope, runtime, coroutine_handle, "task1")
+  scope_spawn(scope, runtime, coroutine_handle2, "task2")
+  scope_join(scope, runtime)  // waits for all spawned tasks
+///
 
 class AsyncScope {
     var task_ids: Array<Int>

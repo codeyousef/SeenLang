@@ -1,0 +1,495 @@
+import parser.real_parser.{ParserExpressionNode}
+import codegen.ir_codegen_feature_state.{getAsyncDeclaredRetTypeWithFeatureStateImpl, getEnumVariantCountWithFeatureStateImpl, isEnumVariantWithFeatureStateImpl, lookupEnumParentWithFeatureStateImpl}
+import codegen.ir_codegen_global_state.{getGlobalStructNamesImpl, getGlobalStructFieldNamesImpl, getGlobalStructFieldTypesImpl, getGlobalStructMethodNamesImpl, getGlobalStructMethodRetTypesImpl, getGlobalCurrentClassNameImpl, getFunctionReturnTypeWithGlobalStateImpl, findActiveVariableIndexWithGlobalStateImpl}
+import codegen.ir_codegen_metrics_state.{inferStringInterpolationExprTypeWithMetricsStateImpl}
+import codegen.ir_codegen_module_state.{findCachedChainedPathTypeRecord, cacheChainedPathType, getCachedChainedPathTypeValue}
+import codegen.ir_expr_infer_plan.{planExprInferenceDispatchImpl, planMethodCallInferenceImpl, planGeneratedCallInferenceImpl, planBuiltinCallInferenceImpl, planResolvedCallInferenceImpl, planMemberAccessInferenceImpl, planSpecialExprInferenceImpl}
+import codegen.ir_expr_leaf_driver.{inferLiteralExprTypeLocal}
+import codegen.ir_infer_method_leaf_driver.{tryInferImplicitOrFreeMethodCallType, tryInferStaticMethodCallTypeState, tryInferBuiltinReceiverMethodCallType, tryInferReceiverRegistryMethodCallType, tryInferLateMethodCallFallbackType, tryInferGeneratedCallType, tryInferResolvedCallExprType}
+import codegen.ir_infer_type.{inferBinaryTypeImpl, inferOperatorOverloadSuffix, inferBuiltinCallExprTypeStateImpl, inferCallExprTypeImpl}
+import codegen.ir_local_type_leaf_driver.{findVarTypeState, inferVariableExprTypeLocalState}
+import codegen.ir_member_access.{inferSimdSwizzleMemberTypeImpl, inferJsonValueMemberAccessTypeImpl, inferLiteralReceiverMemberAccessTypeImpl, inferDirectMemberAccessTypeImpl, extractLastMemberFieldSegmentImpl}
+import codegen.ir_method_receiver.{resolveLiteralMethodReceiverTypeImpl, resolveMethodFieldPathTypeImpl}
+import codegen.ir_path_expr.{buildChainedPathExprImpl, splitFirstPathDotImpl, resolveChainedPathSuffixTypeImpl}
+import codegen.ir_simd_type_helpers.{isSimdVectorTypeImpl}
+import codegen.ir_special_expr_infer.{inferIndexAccessExprTypeImpl, inferKnownArrayLiteralTypeImpl, inferArrayLiteralExprTypeImpl, inferUnaryExprTypeImpl, inferAwaitExprTypeImpl, inferTryPropagateExprTypeImpl, inferNullishSpecialExprTypeImpl, inferBranchingSpecialExprTypeImpl, inferFixedSpecialExprTypeImpl, inferSpecialExprTypeImpl}
+import codegen.ir_type_tables.{inferFieldTypeFallback, inferIndexElementType, resolveTryPropagateTypeImpl}
+fun resolveChainedPathTypeState(path: String, varNames: Array<String>,
+    varTypes: Array<String>, stringConstants: Array<String>) r: String {
+    if path.contains("()") {
+        let chainExpr = buildChainedPathExprImpl(path)
+        if chainExpr.kind != "None" {
+            return inferExpressionTypeState(chainExpr, varNames, varTypes,
+                stringConstants)
+        }
+    }
+    let pathParts = splitFirstPathDotImpl(path)
+    let baseName = pathParts[0]
+    let restPath = pathParts[1]
+    if restPath == "" {
+        return findVarTypeState(varNames, varTypes, path)
+    }
+    var currentType = findVarTypeState(varNames, varTypes, baseName)
+    if currentType == "" {
+        return ""
+    }
+    let cacheKey = currentType + "|" + restPath
+    let structLen = getGlobalStructNamesImpl().length()
+    let cached = findCachedChainedPathTypeRecord(cacheKey, structLen)
+    if cached >= 0 {
+        return getCachedChainedPathTypeValue(cached)
+    }
+    let resolvedType = resolveChainedPathSuffixTypeImpl(currentType, restPath,
+        getGlobalStructNamesImpl(), getGlobalStructFieldNamesImpl(),
+        getGlobalStructFieldTypesImpl(), getGlobalStructMethodNamesImpl(),
+        getGlobalStructMethodRetTypesImpl())
+    cacheChainedPathType(cacheKey, structLen, resolvedType)
+    return resolvedType
+}
+fun resolveLiteralMethodReceiverTypeState(literalValue: String,
+    varNames: Array<String>, varTypes: Array<String>,
+    stringConstants: Array<String>) r: String {
+    var chainedType: String = ""
+    if literalValue.contains(".") {
+        chainedType = resolveChainedPathTypeState(literalValue, varNames,
+            varTypes, stringConstants)
+    }
+    let directVarType = findVarTypeState(varNames, varTypes, literalValue)
+    let thisIdx = findActiveVariableIndexWithGlobalStateImpl(varNames,
+        "this")
+    var thisType: String = ""
+    if thisIdx >= 0 {
+        thisType = varTypes[thisIdx]
+    }
+    return resolveLiteralMethodReceiverTypeImpl(literalValue, chainedType,
+        directVarType, thisIdx, thisType, getGlobalStructNamesImpl(),
+        getGlobalStructFieldNamesImpl(), getGlobalStructFieldTypesImpl(),
+        getGlobalStructMethodNamesImpl(), getGlobalStructMethodRetTypesImpl())
+}
+fun inferBinaryExprTypeLocalState(expr: ParserExpressionNode,
+    varNames: Array<String>, varTypes: Array<String>,
+    stringConstants: Array<String>) r: String {
+    var leftType: String = ""
+    var rightType: String = ""
+    if expr.operands.length() > 0 {
+        leftType = inferExpressionTypeState(expr.operands[0], varNames,
+            varTypes, stringConstants)
+    }
+    if isSimdVectorTypeImpl(leftType) == 1 {
+        return leftType
+    }
+    if expr.operands.length() > 1 {
+        rightType = inferExpressionTypeState(expr.operands[1], varNames,
+            varTypes, stringConstants)
+    }
+    let inferredType = inferBinaryTypeImpl(expr.operator, leftType, rightType)
+    if inferredType != "" {
+        return inferredType
+    }
+    let opSuffix = inferOperatorOverloadSuffix(expr.operator)
+    if opSuffix != "" and expr.operands.length() > 0 {
+        let opFuncN = leftType + "_" + opSuffix
+        let overloadType = getFunctionReturnTypeWithGlobalStateImpl(opFuncN)
+        if overloadType != "" {
+            return overloadType
+        }
+    }
+    return "Int"
+}
+fun resolveMethodCallReceiverTypeState(expr: ParserExpressionNode,
+    varNames: Array<String>, varTypes: Array<String>,
+    stringConstants: Array<String>) r: String {
+    if expr.operands.length() > 0 {
+        return inferExpressionTypeState(expr.operands[0], varNames, varTypes,
+            stringConstants)
+    }
+    return resolveLiteralMethodReceiverTypeState(expr.literalValue, varNames,
+        varTypes, stringConstants)
+}
+fun inferMethodCallExprTypeLocalState(expr: ParserExpressionNode,
+    varNames: Array<String>, varTypes: Array<String>,
+    stringConstants: Array<String>) r: String {
+    let methodInferPlan = planMethodCallInferenceImpl()
+    if methodInferPlan.shouldTryImplicitOrFree {
+        let implicitOrFreeResult = tryInferImplicitOrFreeMethodCallType(expr)
+        if implicitOrFreeResult != "" {
+            return implicitOrFreeResult
+        }
+    }
+    var receiverType: String = ""
+    if methodInferPlan.shouldResolveReceiverType {
+        receiverType = resolveMethodCallReceiverTypeState(expr, varNames,
+            varTypes, stringConstants)
+    }
+    if methodInferPlan.shouldTryReceiverRegistry {
+        let receiverRegistryType =
+            tryInferReceiverRegistryMethodCallType(expr, receiverType)
+        if receiverRegistryType != "" {
+            return receiverRegistryType
+        }
+    }
+    if methodInferPlan.shouldTryStatic {
+        let staticResult = tryInferStaticMethodCallTypeState(expr, varNames,
+            varTypes)
+        if staticResult != "" {
+            return staticResult
+        }
+    }
+    if methodInferPlan.shouldTryBuiltinReceiver {
+        let builtinReceiverResult =
+            tryInferBuiltinReceiverMethodCallType(expr, receiverType)
+        if builtinReceiverResult != "" {
+            return builtinReceiverResult
+        }
+    }
+    if methodInferPlan.shouldTryLateFallback {
+        return tryInferLateMethodCallFallbackType(expr)
+    }
+    return ""
+}
+fun tryInferBuiltinCallExprTypeState(expr: ParserExpressionNode,
+    varNames: Array<String>, varTypes: Array<String>,
+    stringConstants: Array<String>) r: String {
+    var isVariantCall = false
+    let enumVariantCount = getEnumVariantCountWithFeatureStateImpl()
+    if enumVariantCount > 0 {
+        isVariantCall = isEnumVariantWithFeatureStateImpl(expr.callee)
+    }
+    let builtinPlan = planBuiltinCallInferenceImpl(expr.callee,
+        expr.arguments.length(), enumVariantCount, isVariantCall)
+    var selectedArgType: String = ""
+    if builtinPlan.shouldInferSelectedArg {
+        selectedArgType = inferExpressionTypeState(
+            expr.arguments[builtinPlan.selectedArgIndex], varNames,
+            varTypes, stringConstants)
+    }
+    let builtinType = inferCallExprTypeImpl(expr.callee)
+    var enumParentType: String = ""
+    if builtinPlan.shouldLookupEnumParent {
+        enumParentType = lookupEnumParentWithFeatureStateImpl(expr.callee)
+    }
+    return inferBuiltinCallExprTypeStateImpl(expr.callee, selectedArgType,
+        builtinType, enumParentType)
+}
+fun inferCallExprTypeLocalState(expr: ParserExpressionNode,
+    varNames: Array<String>, varTypes: Array<String>,
+    stringConstants: Array<String>) r: String {
+    let generatedCallType = tryInferGeneratedCallType(expr)
+    if generatedCallType != "" {
+        return generatedCallType
+    }
+    let builtinCallType = tryInferBuiltinCallExprTypeState(expr, varNames,
+        varTypes, stringConstants)
+    if builtinCallType != "" {
+        return builtinCallType
+    }
+    return tryInferResolvedCallExprType(expr)
+}
+fun inferMemberAccessExprTypeLocalState(expr: ParserExpressionNode,
+    varNames: Array<String>, varTypes: Array<String>,
+    stringConstants: Array<String>) r: String {
+    let memberPlan = planMemberAccessInferenceImpl(expr.literalValue,
+        expr.operands.length(), getEnumVariantCountWithFeatureStateImpl())
+    if memberPlan.shouldTrySimdSwizzle {
+        let swizzleType = inferSimdSwizzleMemberTypeImpl(
+            findVarTypeState(varNames, varTypes, expr.literalValue),
+            expr.variableName)
+        if swizzleType != "" {
+            return swizzleType
+        }
+    }
+    if memberPlan.shouldTryEnumVariant {
+        if isEnumVariantWithFeatureStateImpl(expr.variableName) {
+            let enumParent = lookupEnumParentWithFeatureStateImpl(
+                expr.variableName)
+            if enumParent != "" and enumParent == expr.literalValue {
+                return enumParent
+            }
+        }
+    }
+    let fieldName = extractLastMemberFieldSegmentImpl(expr.variableName)
+    var operandReceiverType: String = ""
+    if memberPlan.shouldInferOperandReceiver {
+        operandReceiverType = inferExpressionTypeState(expr.operands[0],
+            varNames, varTypes, stringConstants)
+    }
+    var literalValueType: String = ""
+    if memberPlan.shouldFindLiteralValueType {
+        literalValueType = findVarTypeState(varNames, varTypes,
+            expr.literalValue)
+    }
+    let jsonFieldType = inferJsonValueMemberAccessTypeImpl(fieldName,
+        operandReceiverType, expr.literalValue,
+        getGlobalCurrentClassNameImpl(), literalValueType,
+        getGlobalStructNamesImpl(), getGlobalStructFieldNamesImpl(),
+        getGlobalStructFieldTypesImpl())
+    if jsonFieldType != "" {
+        return jsonFieldType
+    }
+    var literalReceiverFieldType: String = ""
+    if memberPlan.shouldTryLiteralReceiver {
+        var chainedPathType: String = ""
+        var thisType: String = ""
+        let thisIdx = findActiveVariableIndexWithGlobalStateImpl(varNames,
+            "this")
+        if thisIdx >= 0 {
+            thisType = varTypes[thisIdx]
+        }
+        if expr.literalValue.contains(".") {
+            chainedPathType = resolveChainedPathTypeState(expr.literalValue,
+                varNames, varTypes, stringConstants)
+            if chainedPathType == "" and thisType != "" {
+                chainedPathType = resolveMethodFieldPathTypeImpl(thisType,
+                    expr.literalValue, getGlobalStructNamesImpl(),
+                    getGlobalStructFieldNamesImpl(),
+                    getGlobalStructFieldTypesImpl(),
+                    getGlobalStructMethodNamesImpl(),
+                    getGlobalStructMethodRetTypesImpl())
+            }
+        }
+        literalReceiverFieldType = inferLiteralReceiverMemberAccessTypeImpl(
+            expr.literalValue, fieldName, chainedPathType, literalValueType,
+            thisType, getGlobalStructNamesImpl(),
+            getGlobalStructFieldNamesImpl(), getGlobalStructFieldTypesImpl())
+    }
+    let directFieldType = inferDirectMemberAccessTypeImpl(fieldName,
+        expr.literalValue, getGlobalCurrentClassNameImpl(),
+        operandReceiverType, literalReceiverFieldType,
+        getGlobalStructNamesImpl(), getGlobalStructFieldNamesImpl(),
+        getGlobalStructFieldTypesImpl())
+    if directFieldType != "" {
+        return directFieldType
+    }
+    let fieldFallback = inferFieldTypeFallback(fieldName)
+    if fieldFallback != "" { return fieldFallback }
+    return ""
+}
+fun inferIndexAccessExprTypeLocalState(expr: ParserExpressionNode,
+    varNames: Array<String>, varTypes: Array<String>,
+    stringConstants: Array<String>) r: String {
+    if expr.kind != "IndexAccess" {
+        return ""
+    }
+    if expr.operands.length() == 0 {
+        return "ptr"
+    }
+    let arrayType = inferExpressionTypeState(expr.operands[0], varNames,
+        varTypes, stringConstants)
+    let indexedElementType = inferIndexElementType(arrayType)
+    return inferIndexAccessExprTypeImpl(arrayType, indexedElementType)
+}
+fun inferArrayLiteralExprTypeLocalState(expr: ParserExpressionNode,
+    varNames: Array<String>, varTypes: Array<String>,
+    stringConstants: Array<String>) r: String {
+    if expr.kind != "ArrayLiteral" {
+        return ""
+    }
+    var knownArrayType: String = ""
+    if expr.arguments.length() > 0 {
+        let firstElemType = inferExpressionTypeState(expr.arguments[0],
+            varNames, varTypes, stringConstants)
+        knownArrayType = inferKnownArrayLiteralTypeImpl(firstElemType)
+    }
+    return inferArrayLiteralExprTypeImpl(expr.arguments.length(),
+        knownArrayType)
+}
+fun inferStringInterpolationExprTypeLocalState(expr: ParserExpressionNode,
+    stringConstants: Array<String>) r: String {
+    if expr.kind != "StringInterpolation" {
+        return ""
+    }
+    return inferStringInterpolationExprTypeWithMetricsStateImpl(expr,
+        stringConstants)
+}
+fun inferUnaryExprTypeLocalState(expr: ParserExpressionNode,
+    varNames: Array<String>, varTypes: Array<String>,
+    stringConstants: Array<String>) r: String {
+    if expr.kind != "Unary" {
+        return ""
+    }
+    var operandType: String = ""
+    if expr.operands.length() > 0 {
+        operandType = inferExpressionTypeState(expr.operands[0], varNames,
+            varTypes, stringConstants)
+    }
+    return inferUnaryExprTypeImpl(expr.operator, expr.operands.length(),
+        operandType)
+}
+fun inferAwaitExprTypeLocalState(expr: ParserExpressionNode,
+    varNames: Array<String>, varTypes: Array<String>,
+    stringConstants: Array<String>) r: String {
+    if expr.kind != "Await" {
+        return ""
+    }
+    var innerKind: String = ""
+    var innerType: String = ""
+    var asyncRetType: String = ""
+    var functionRetType: String = ""
+    if expr.operands.length() > 0 {
+        let inner = expr.operands[0]
+        innerKind = inner.kind
+        innerType = inferExpressionTypeState(inner, varNames, varTypes,
+            stringConstants)
+        if inner.kind == "Call" {
+            asyncRetType = getAsyncDeclaredRetTypeWithFeatureStateImpl(
+                inner.callee)
+            functionRetType = getFunctionReturnTypeWithGlobalStateImpl(
+                inner.callee)
+        }
+    }
+    return inferAwaitExprTypeImpl(expr.operands.length(), innerKind,
+        asyncRetType, functionRetType, innerType)
+}
+fun inferTryPropagateExprTypeLocalState(expr: ParserExpressionNode,
+    varNames: Array<String>, varTypes: Array<String>,
+    stringConstants: Array<String>) r: String {
+    if expr.kind != "TryPropagate" {
+        return ""
+    }
+    var tryInnerType: String = ""
+    var tryResultType: String = ""
+    if expr.operands.length() > 0 {
+        tryInnerType = inferExpressionTypeState(expr.operands[0], varNames,
+            varTypes, stringConstants)
+        tryResultType = resolveTryPropagateTypeImpl(tryInnerType)
+    }
+    return inferTryPropagateExprTypeImpl(expr.operands.length(),
+        tryResultType, tryInnerType)
+}
+fun tryInferNullishSpecialExprTypeState(expr: ParserExpressionNode,
+    varNames: Array<String>, varTypes: Array<String>,
+    stringConstants: Array<String>) r: String {
+    var operandType: String = ""
+    if (expr.kind == "Elvis" or expr.kind == "NullCoalesce") and
+        expr.operands.length() > 0 {
+        operandType = inferExpressionTypeState(expr.operands[0], varNames,
+            varTypes, stringConstants)
+    }
+    return inferNullishSpecialExprTypeImpl(expr.kind, operandType)
+}
+fun tryInferBranchingSpecialExprTypeState(expr: ParserExpressionNode,
+    varNames: Array<String>, varTypes: Array<String>,
+    stringConstants: Array<String>) r: String {
+    var firstBranchType: String = ""
+    if expr.kind == "WhenExpression" {
+        if expr.arguments.length() > 0 {
+            let firstArm = expr.arguments[0]
+            if firstArm.operands.length() > 1 {
+                firstBranchType = inferExpressionTypeState(
+                    firstArm.operands[1], varNames, varTypes,
+                    stringConstants)
+            }
+        }
+    }
+    if expr.kind == "IfExpression" {
+        if expr.operands.length() > 1 {
+            firstBranchType = inferExpressionTypeState(expr.operands[1],
+                varNames, varTypes, stringConstants)
+        }
+    }
+    return inferBranchingSpecialExprTypeImpl(expr.kind, firstBranchType)
+}
+fun tryInferFixedSpecialExprTypeState(expr: ParserExpressionNode,
+    varNames: Array<String>, varTypes: Array<String>,
+    stringConstants: Array<String>) r: String {
+    let tryPropagateType = inferTryPropagateExprTypeLocalState(expr, varNames,
+        varTypes, stringConstants)
+    return inferFixedSpecialExprTypeImpl(expr.kind, expr.literalValue,
+        tryPropagateType)
+}
+fun inferSpecialExprTypeLocalState(expr: ParserExpressionNode,
+    varNames: Array<String>, varTypes: Array<String>,
+    stringConstants: Array<String>) r: String {
+    let specialPlan = planSpecialExprInferenceImpl(expr.kind)
+    var indexType: String = ""
+    if specialPlan.shouldTryIndexAccess {
+        indexType = inferIndexAccessExprTypeLocalState(expr, varNames,
+            varTypes, stringConstants)
+    }
+    var arrayLiteralType: String = ""
+    if specialPlan.shouldTryArrayLiteral {
+        arrayLiteralType = inferArrayLiteralExprTypeLocalState(expr,
+            varNames, varTypes, stringConstants)
+    }
+    var stringInterpolationType: String = ""
+    if specialPlan.shouldTryStringInterpolation {
+        stringInterpolationType =
+            inferStringInterpolationExprTypeLocalState(expr, stringConstants)
+    }
+    var unaryType: String = ""
+    if specialPlan.shouldTryUnary {
+        unaryType = inferUnaryExprTypeLocalState(expr, varNames, varTypes,
+            stringConstants)
+    }
+    var awaitType: String = ""
+    if specialPlan.shouldTryAwait {
+        awaitType = inferAwaitExprTypeLocalState(expr, varNames, varTypes,
+            stringConstants)
+    }
+    var nullishSpecialType: String = ""
+    if specialPlan.shouldTryNullish {
+        nullishSpecialType = tryInferNullishSpecialExprTypeState(expr,
+            varNames, varTypes, stringConstants)
+    }
+    var branchingSpecialType: String = ""
+    if specialPlan.shouldTryBranching {
+        branchingSpecialType = tryInferBranchingSpecialExprTypeState(expr,
+            varNames, varTypes, stringConstants)
+    }
+    var fixedSpecialType: String = ""
+    if specialPlan.shouldTryFixed {
+        fixedSpecialType = tryInferFixedSpecialExprTypeState(expr, varNames,
+            varTypes, stringConstants)
+    }
+    return inferSpecialExprTypeImpl(expr.kind, expr.literalType, indexType,
+        arrayLiteralType, stringInterpolationType, unaryType, awaitType,
+        nullishSpecialType, branchingSpecialType, fixedSpecialType)
+}
+fun inferExpressionTypeState(expr: ParserExpressionNode,
+    varNames: Array<String>, varTypes: Array<String>,
+    stringConstants: Array<String>) r: String {
+    let dispatchPlan = planExprInferenceDispatchImpl(expr.kind)
+    if dispatchPlan.action == 1 {
+        return inferLiteralExprTypeLocal(expr)
+    }
+    if dispatchPlan.action == 2 {
+        let variableResult = inferVariableExprTypeLocalState(expr, varNames,
+            varTypes)
+        if variableResult != "" {
+            return variableResult
+        }
+    }
+    if dispatchPlan.action == 3 {
+        return inferBinaryExprTypeLocalState(expr, varNames, varTypes,
+            stringConstants)
+    }
+    if dispatchPlan.action == 4 {
+        let methodCallResult = inferMethodCallExprTypeLocalState(expr,
+            varNames, varTypes, stringConstants)
+        if methodCallResult != "" {
+            return methodCallResult
+        }
+    }
+    if dispatchPlan.action == 5 {
+        let callResult = inferCallExprTypeLocalState(expr, varNames,
+            varTypes, stringConstants)
+        if callResult != "" {
+            return callResult
+        }
+    }
+    if dispatchPlan.action == 6 {
+        let memberAccessResult = inferMemberAccessExprTypeLocalState(expr,
+            varNames, varTypes, stringConstants)
+        if memberAccessResult != "" {
+            return memberAccessResult
+        }
+    }
+    if dispatchPlan.action == 7 {
+        let specialExprResult = inferSpecialExprTypeLocalState(expr, varNames,
+            varTypes, stringConstants)
+        if specialExprResult != "" {
+            return specialExprResult
+        }
+    }
+    return "Int"
+}

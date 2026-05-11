@@ -1,14 +1,18 @@
-// Virtual DOM Framework for Seen Language
-// Provides deterministic Virtual DOM primitives with guaranteed diffing results
-// All collections use BTreeMap/Vec for deterministic iteration order
+///
+Virtual DOM Framework for Seen Language
+Provides deterministic Virtual DOM primitives with guaranteed diffing results
+All collections use BTreeMap/Vec for deterministic iteration order
+///
 
 import collections.btree_map.{BTreeMap}
 import collections.vec.{Vec}
 import core.option.{Option, Some, None}
 
-// ============================================================================
-// Node Types
-// ============================================================================
+///
+============================================================================
+Node Types
+============================================================================
+///
 
 // VNode type discriminator
 data VNodeType {
@@ -66,8 +70,10 @@ class VNode {
         cloned.tag = this.tag
         cloned.text = this.text
         cloned.key = this.key
-        // Note: attributes and children are shared references
-        // For deep clone, would need to iterate and copy
+        ///
+        Note: attributes and children are shared references
+        For deep clone, would need to iterate and copy
+        ///
         cloned.attributes = this.attributes
         cloned.children = this.children
         cloned.eventHandlers = this.eventHandlers
@@ -95,9 +101,11 @@ class VNode {
     }
 }
 
-// ============================================================================
-// Factory Functions
-// ============================================================================
+///
+============================================================================
+Factory Functions
+============================================================================
+///
 
 // Create an element node
 fun createElement(tag: String, attrs: BTreeMap<String, String>, children: Vec<VNode>) r: VNode {
@@ -153,9 +161,11 @@ fun createComponent(name: String, props: BTreeMap<String, String>) r: VNode {
     return node
 }
 
-// ============================================================================
-// Patch Types
-// ============================================================================
+///
+============================================================================
+Patch Types
+============================================================================
+///
 
 // Patch operation types
 data PatchType {
@@ -253,9 +263,11 @@ class Patch {
     }
 }
 
-// ============================================================================
-// Helper for child matching during diffing
-// ============================================================================
+///
+============================================================================
+Helper for child matching during diffing
+============================================================================
+///
 
 class ChildMatch {
     var oldIndex: Int
@@ -279,13 +291,17 @@ class ChildMatch {
     }
 }
 
-// ============================================================================
-// VDOM Differ - Deterministic diffing algorithm
-// ============================================================================
+///
+============================================================================
+VDOM Differ - Deterministic diffing algorithm
+============================================================================
+///
 
 class VDOMDiffer {
-    // Compare two VNode trees and produce deterministic patches
-    // Patches are generated in depth-first order
+    ///
+    Compare two VNode trees and produce deterministic patches
+    Patches are generated in depth-first order
+    ///
     fun diff(oldNode: VNode, newNode: VNode) r: Vec<Patch> {
         var patches = Vec<Patch>.new()
         var rootPath = Vec<Int>.new()
@@ -338,8 +354,10 @@ class VDOMDiffer {
         this.diffChildren(oldNode.children, newNode.children, path, patches)
     }
 
-    // Diff attributes - returns changed/added attrs and removed attr names
-    // BTreeMap ensures deterministic iteration order (sorted by key)
+    ///
+    Diff attributes - returns changed/added attrs and removed attr names
+    BTreeMap ensures deterministic iteration order (sorted by key)
+    ///
     fun diffAttributes(oldAttrs: BTreeMap<String, String>, newAttrs: BTreeMap<String, String>) r: AttrDiffResult {
         var changed = BTreeMap<String, String>.new()
         var removed = Vec<String>.new()
@@ -525,13 +543,17 @@ class AttrDiffResult {
     var removedAttrs: Vec<String>
 }
 
-// ============================================================================
-// VDOM Patcher - Apply patches to produce new tree
-// ============================================================================
+///
+============================================================================
+VDOM Patcher - Apply patches to produce new tree
+============================================================================
+///
 
 class VDOMPatcher {
-    // Apply patches to a VNode tree (returns new tree)
-    // Note: This creates a new tree structure, original is unchanged
+    ///
+    Apply patches to a VNode tree (returns new tree)
+    Note: This creates a new tree structure, original is unchanged
+    ///
     fun applyPatches(root: VNode, patches: Vec<Patch>) r: VNode {
         var result = root.clone()
         var i = 0
@@ -604,8 +626,10 @@ class VDOMPatcher {
         }
 
         if patch.patchType == PatchType.InsertChild {
-            // Insert child at index
-            // For simplicity, we rebuild the children vec
+            ///
+            Insert child at index
+            For simplicity, we rebuild the children vec
+            ///
             var newChildren = Vec<VNode>.new()
             var i = 0
             while i < result.children.len() {
@@ -668,9 +692,11 @@ class VDOMPatcher {
     }
 }
 
-// ============================================================================
-// Global VDOM Engine
-// ============================================================================
+///
+============================================================================
+Global VDOM Engine
+============================================================================
+///
 
 class VDOMEngine {
     var currentTree: Option<VNode>
@@ -727,9 +753,11 @@ class VDOMEngine {
 // Global engine instance
 var g_vdomEngine: VDOMEngine = VDOMEngine.new()
 
-// ============================================================================
-// Public API Functions
-// ============================================================================
+///
+============================================================================
+Public API Functions
+============================================================================
+///
 
 // Initialize the VDOM engine
 fun initVDOM() r: Void {
@@ -766,9 +794,11 @@ fun createPatcher() r: VDOMPatcher {
     return VDOMPatcher{}
 }
 
-// ============================================================================
-// Utility Functions
-// ============================================================================
+///
+============================================================================
+Utility Functions
+============================================================================
+///
 
 // Check if two VNode trees are structurally equal
 fun vdomEqual(a: VNode, b: VNode) r: Bool {

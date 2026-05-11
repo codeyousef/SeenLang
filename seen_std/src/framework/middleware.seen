@@ -1,6 +1,8 @@
-// Middleware Framework for Seen Language
-// Provides composable middleware chains with FIFO execution order
-// Used with the @middleware_stack decorator
+///
+Middleware Framework for Seen Language
+Provides composable middleware chains with FIFO execution order
+Used with the @middleware_stack decorator
+///
 
 // Middleware context - passed through the chain
 class MiddlewareContext {
@@ -86,8 +88,10 @@ data MiddlewareResult {
     Stopped(context: MiddlewareContext)
 }
 
-// Middleware function type (simple version using callbacks)
-// A middleware receives the context and returns whether to continue
+///
+Middleware function type (simple version using callbacks)
+A middleware receives the context and returns whether to continue
+///
 
 // Simple middleware stack with function indices
 @middleware_stack
@@ -217,13 +221,17 @@ class TimingMiddleware {
     }
 }
 
-// ============================================================================
-// Sandbox Isolation for Nondeterministic Middleware
-// ============================================================================
+///
+============================================================================
+Sandbox Isolation for Nondeterministic Middleware
+============================================================================
+///
 
-// A sandboxed middleware wrapper that isolates nondeterministic side effects.
-// Before execution, the context is snapshot'd. If the middleware fails or
-// produces disallowed side effects, the context is rolled back.
+///
+A sandboxed middleware wrapper that isolates nondeterministic side effects.
+Before execution, the context is snapshot'd. If the middleware fails or
+produces disallowed side effects, the context is rolled back.
+///
 class SandboxedMiddleware {
     var name: String
     var allowedWriteKeys: Array<String>   // Keys this middleware is allowed to set
@@ -381,8 +389,10 @@ class SandboxedContext {
 
     // Commit changes (no-op, changes already applied to inner)
     fun commit() r: Void {
-        // Changes are already in the inner context
-        // This method exists for clarity in the API
+        ///
+        Changes are already in the inner context
+        This method exists for clarity in the API
+        ///
     }
 }
 
@@ -414,9 +424,11 @@ class SandboxExecutionResult {
     }
 }
 
-// ============================================================================
-// Global Middleware Registry
-// ============================================================================
+///
+============================================================================
+Global Middleware Registry
+============================================================================
+///
 
 var g_middlewareCount: Int = 0
 

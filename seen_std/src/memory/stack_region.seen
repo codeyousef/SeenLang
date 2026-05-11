@@ -1,5 +1,7 @@
-// StackRegion — LIFO bump allocator with O(1) alloc/pop.
-// Memory is freed in reverse allocation order only.
+///
+StackRegion — LIFO bump allocator with O(1) alloc/pop.
+Memory is freed in reverse allocation order only.
+///
 
 extern fun seen_stack_region_new(capacity: Int) r: Int
 extern fun seen_stack_region_alloc(handle: Int, size: Int) r: Int

@@ -1,5 +1,7 @@
-// Test that macro definitions are parsed correctly
-// This test verifies the parser recognizes @macro decorated functions
+///
+Test that macro definitions are parsed correctly
+This test verifies the parser recognizes @macro decorated functions
+///
 
 // Define a macro (will be skipped during codegen)
 @macro

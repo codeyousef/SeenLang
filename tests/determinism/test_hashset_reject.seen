@@ -1,12 +1,16 @@
-// Test: HashSet should be rejected in deterministic profile
-// Expected: FAIL with --profile deterministic
-// Expected: PASS without --profile flag
+///
+Test: HashSet should be rejected in deterministic profile
+Expected: FAIL with --profile deterministic
+Expected: PASS without --profile flag
+///
 
 import collections.hashset.{HashSet}
 
 fun main() r: Int {
-    // This should be rejected in deterministic profile
-    // because HashSet has nondeterministic iteration order
+    ///
+    This should be rejected in deterministic profile
+    because HashSet has nondeterministic iteration order
+    ///
     let set = HashSet<Int>.new()
     set.insert(1)
     set.insert(2)

@@ -1,5 +1,7 @@
-// Seen Standard Library - Shader Compilation and Reflection
-// Provides utilities for compiling GLSL to SPIR-V and reading reflection data
+///
+Seen Standard Library - Shader Compilation and Reflection
+Provides utilities for compiling GLSL to SPIR-V and reading reflection data
+///
 
 import process.process.{runCommand, CommandResult, commandWasSuccessful}
 import io.file.{readText, writeText, exists}

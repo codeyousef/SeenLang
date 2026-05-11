@@ -1,6 +1,8 @@
-// E2E Test: Variable Keywords (English)
-// Keywords tested: let, var
-// NOTE: const and let mut have codegen bugs (produce 0), so we use let/var
+///
+E2E Test: Variable Keywords (English)
+Keywords tested: let, var
+NOTE: const and let mut have codegen bugs (produce 0), so we use let/var
+///
 
 class Config {
     var name: String

@@ -1,18 +1,22 @@
-// ir_method_fastpath.seen — Shared method-call fast-path and fallback helpers
-// Extracted from ir_method_receiver.seen to keep receiver typing separate from
-// prepared dispatch, static-call emission, and unresolved fallback handling.
+///
+ir_method_fastpath.seen — Shared method-call fast-path and fallback helpers
+Extracted from ir_method_receiver.seen to keep receiver typing separate from
+prepared dispatch, static-call emission, and unresolved fallback handling.
+///
 
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn}
-import codegen.ir_type_ops.{emitOptionMethodImpl, emitJsonValueMethodImpl, emitStringMethodImpl, emitStringBuilderMethodImpl}
+import codegen.ir_receiver_method_emit.{emitOptionMethodImpl, emitJsonValueMethodImpl, emitStringMethodImpl}
+import codegen.ir_string_builder_cast_emit.{emitStringBuilderMethodImpl}
 import codegen.ir_method_gen.{emitToStringMethodImpl, emitToIntMethodImpl, emitToFloatMethodImpl, emitNumericMethodImpl, emitLengthSizeMethodImpl}
 import codegen.ir_call_dispatch.{emitCStrConversionImpl, emitDynTraitVtableCallImpl, emitGenericStaticCallImpl, emitStringBuilderNewCallImpl, emitStringFromCharCodeCallImpl, emitSimdReductionVarImpl}
 import codegen.ir_call_constructors.{emitStaticCollectionNewImpl, emitArrayWithLengthImpl}
-import codegen.ir_type_dispatch.{dispatchCollectionMethodImpl}
+import codegen.ir_collection_dispatch.{dispatchCollectionMethodImpl}
 import codegen.ir_variable_gen.{emitModuleConstantLoadImpl}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, normalizeExplicitMethodReceiverTypeImpl, fallbackModuleConstantMethodReceiverTypeImpl, convertReceiverToPtrImpl}
 import codegen.ir_type_mapping.{isClassTypeImpl}
-import codegen.type_registry.{findStructReg}
+import codegen.type_registry_core.{findStructReg}
+import codegen.ir_literal_gen.{normalizeDoubleLiteralForLlvmImpl}
 
 fun emitPreparedDynTraitMethodCallImpl(output: StringBuilder, regBox: Array<Int>,
     receiverReg: String, receiverType: String, methodName: String,
@@ -195,8 +199,8 @@ fun tryGenerateLengthLikeMethodCallImpl(output: StringBuilder, regBox: Array<Int
         return resultReg
     }
     if effectiveReceiverType == "StringBuilder" {
-        let sbPtrReg = convertReceiverToPtrImpl(output, regBox, receiverReg,
-            effectiveReceiverType, reprCClassNames, structNames)
+        let sbPtrReg = convertStringBuilderReceiverHandleToPtrImpl(output,
+            regBox, receiverReg)
         return emitStringBuilderMethodImpl(output, regBox, "length", sbPtrReg,
             "", 0)
     }
@@ -204,10 +208,21 @@ fun tryGenerateLengthLikeMethodCallImpl(output: StringBuilder, regBox: Array<Int
         effectiveReceiverType)
 }
 
+fun convertStringBuilderReceiverHandleToPtrImpl(output: StringBuilder,
+    regBox: Array<Int>, receiverReg: String) r: String {
+
+    if receiverReg == "null" {
+        return "null"
+    }
+    let ptrConvReg = getNextRegFn(regBox)
+    output.append("  " + ptrConvReg + " = inttoptr i64 " + receiverReg +
+        " to ptr\n")
+    return ptrConvReg
+}
+
 fun emitStringBuilderReceiverMethodCallImpl(output: StringBuilder,
     regBox: Array<Int>, methodName: String, receiverReg: String,
-    receiverType: String, sbArg0: String, isFloatFused: Int,
-    reprCClassNames: String, structNames: Array<String>) r: String {
+    receiverType: String, sbArg0: String, isFloatFused: Int) r: String {
 
     if receiverType != "StringBuilder" {
         return ""
@@ -219,8 +234,8 @@ fun emitStringBuilderReceiverMethodCallImpl(output: StringBuilder,
         return ""
     }
 
-    let sbPtrReg = convertReceiverToPtrImpl(output, regBox, receiverReg,
-        receiverType, reprCClassNames, structNames)
+    let sbPtrReg = convertStringBuilderReceiverHandleToPtrImpl(output,
+        regBox, receiverReg)
     return emitStringBuilderMethodImpl(output, regBox, methodName, sbPtrReg,
         sbArg0, isFloatFused)
 }
@@ -412,16 +427,6 @@ fun emitPreparedStaticMethodCallImpl(output: StringBuilder, regBox: Array<Int>,
         return emitStringFromCharCodeCallImpl(output, regBox, argRegs,
             argTypeStrs)
     }
-    if methodName == "new" and staticLlvmReturnType == "ptr" {
-        let rawResultReg = emitGenericStaticCallImpl(output, regBox,
-            quoteIdentIfNeededImpl(funcName), staticLlvmReturnType,
-            staticClassName, argRegs, argTypeStrs, isClassRecv, isDataRecv,
-            0)
-        let classHandleReg = getNextRegFn(regBox)
-        output.append("  " + classHandleReg + " = ptrtoint ptr " +
-            rawResultReg + " to i64\n")
-        return classHandleReg
-    }
 
     return emitGenericStaticCallImpl(output, regBox,
         quoteIdentIfNeededImpl(funcName), staticLlvmReturnType,
@@ -436,9 +441,10 @@ fun tryGenerateUnresolvedReceiverFallbackMethodImpl(output: StringBuilder,
     if methodName == "toString" {
         let toStrReg = getNextRegFn(regBox)
         if receiverType == "Float" {
+            let doubleReceiverReg = normalizeDoubleLiteralForLlvmImpl(receiverReg)
             output.append("  " + toStrReg +
                 " = call %SeenString @seen_float_to_string(double " +
-                receiverReg + ")\n")
+                doubleReceiverReg + ")\n")
         } else if receiverType == "Int" or receiverType == "" or
             receiverType == "Char" {
             output.append("  " + toStrReg +
@@ -457,7 +463,8 @@ fun tryGenerateUnresolvedReceiverFallbackMethodImpl(output: StringBuilder,
 
     if methodName == "toInt" and receiverType == "Float" {
         let toIntReg = getNextRegFn(regBox)
-        output.append("  " + toIntReg + " = fptosi double " + receiverReg +
+        let doubleReceiverReg = normalizeDoubleLiteralForLlvmImpl(receiverReg)
+        output.append("  " + toIntReg + " = fptosi double " + doubleReceiverReg +
             " to i64\n")
         return toIntReg
     }

@@ -42,9 +42,13 @@ import core.json_derive
 import json
 ```
 
-### JSONValue
+### JsonValue
 
-The `JSONValue` class represents any JSON value.
+The `JsonValue` class represents any JSON value. Constructors include
+`JsonValue_nullValue`, `JsonValue_fromBool`, `JsonValue_bool`,
+`JsonValue_number`, `JsonValue_numberFloat`, `JsonValue_string`,
+`JsonValue_array`, `JsonValue_emptyArray`, `JsonValue_object`, and
+`JsonValue_emptyObject`.
 
 ### JSON Parser
 
@@ -56,6 +60,9 @@ import json.parser
 let value = parseJson(jsonString)
 ```
 
+`JsonParser` and `JsonParseResult` expose parser state and success/error
+results for callers that need more control than a one-shot parse helper.
+
 ### JSON Builder
 
 Build JSON programmatically:
@@ -63,6 +70,8 @@ Build JSON programmatically:
 ```seen
 import json.builder
 ```
+
+`JsonBuilder` and `JsonBuilder_new` provide incremental JSON construction.
 
 ## Runtime JSON Functions
 

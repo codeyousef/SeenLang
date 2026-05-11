@@ -1,7 +1,9 @@
-// LRU Cache Benchmark
-// Real HashMap + array-based doubly-linked list for O(1) get/put
-// Same algorithm as Rust: HashMap<Int,Int> for key->node index mapping
-// Parallel arrays for keys/values/prev/next with free list
+///
+LRU Cache Benchmark
+Real HashMap + array-based doubly-linked list for O(1) get/put
+Same algorithm as Rust: HashMap<Int,Int> for key->node index mapping
+Parallel arrays for keys/values/prev/next with free list
+///
 
 fun moveToFront(nodeIdx: Int, keys: Array<Int>, values: Array<Int>, prev: Array<Int>, next: Array<Int>, headPtr: Array<Int>, tailPtr: Array<Int>) r: Void {
     if nodeIdx == headPtr[0] {

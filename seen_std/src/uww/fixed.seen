@@ -1,21 +1,27 @@
-// seen_std.uww.fixed
-// Fixed-point arithmetic for deterministic numeric computations in UWW mode.
-// Supports multiple fixed-point formats via Qm.n syntax:
-//   fixed8.24  -> Fixed32 (8 integer bits, 24 fractional bits)
-//   fixed32.32 -> Fixed64 (32 integer bits, 32 fractional bits)
-//   fixed64.64 -> Fixed128 (64 integer bits, 64 fractional bits)
+///
+seen_std.uww.fixed
+Fixed-point arithmetic for deterministic numeric computations in UWW mode.
+Supports multiple fixed-point formats via Qm.n syntax:
+  fixed8.24  -> Fixed32 (8 integer bits, 24 fractional bits)
+  fixed32.32 -> Fixed64 (32 integer bits, 32 fractional bits)
+  fixed64.64 -> Fixed128 (64 integer bits, 64 fractional bits)
+///
 
-// ============================================================================
-// Fixed32 - 32-bit fixed-point number
-// Default format: 8.24 (8 bits integer, 24 bits fraction)
-// Represented as: value = raw / SCALE
-// Where SCALE = 2^24 = 16777216 (default for 8.24)
-// ============================================================================
+///
+============================================================================
+Fixed32 - 32-bit fixed-point number
+Default format: 8.24 (8 bits integer, 24 bits fraction)
+Represented as: value = raw / SCALE
+Where SCALE = 2^24 = 16777216 (default for 8.24)
+============================================================================
+///
 class Fixed32 {
     let raw: Int  // Raw 32-bit integer value (stored as Int for simplicity)
 
-    // Scale factor: 2^24 for default 8.24 format
-    // Note: Actual scale depends on Qm.n annotation; this is the default
+    ///
+    Scale factor: 2^24 for default 8.24 format
+    Note: Actual scale depends on Qm.n annotation; this is the default
+    ///
     static let SCALE: Int = 16777216      // 2^24
     static let SCALE_BITS: Int = 24
     static let HALF_SCALE: Int = 8388608  // 2^23 for rounding
@@ -94,8 +100,10 @@ class Fixed32 {
 
     // Multiplication
     fun mul(other: Fixed32) r: Fixed32 {
-        // Use 64-bit intermediate to avoid overflow
-        // result = (a * b) / SCALE
+        ///
+        Use 64-bit intermediate to avoid overflow
+        result = (a * b) / SCALE
+        ///
         let a = raw
         let b = other.raw
         let product = a * b
@@ -153,8 +161,10 @@ class Fixed32 {
 
     // Convert to Fixed64 (upscale)
     fun toFixed64() r: Fixed64 {
-        // Fixed32 default is 8.24, Fixed64 default is 32.32
-        // Need to shift by 8 bits (32-24 = 8)
+        ///
+        Fixed32 default is 8.24, Fixed64 default is 32.32
+        Need to shift by 8 bits (32-24 = 8)
+        ///
         return Fixed64.new(raw * 256)  // 2^8 = 256
     }
 
@@ -196,10 +206,12 @@ fun fixed32Frac(num: Int, denom: Int) r: Fixed32 {
 let FIXED32_ZERO: Fixed32 = Fixed32.zero()
 let FIXED32_ONE: Fixed32 = Fixed32.one()
 
-// ============================================================================
-// Fixed64 - 64-bit fixed-point number
-// Represented as: value = raw / SCALE
-// Where SCALE = 2^32 = 4294967296
+///
+============================================================================
+Fixed64 - 64-bit fixed-point number
+Represented as: value = raw / SCALE
+Where SCALE = 2^32 = 4294967296
+///
 class Fixed64 {
     let raw: Int  // Raw 64-bit integer value
 
@@ -224,16 +236,20 @@ class Fixed64 {
         if denominator == 0 {
             return Fixed64.new(0)  // Avoid division by zero
         }
-        // Multiply first, then divide to maintain precision
-        // But avoid overflow by doing it in stages
+        ///
+        Multiply first, then divide to maintain precision
+        But avoid overflow by doing it in stages
+        ///
         let scaled = numerator * Fixed64.SCALE
         return Fixed64.new(scaled / denominator)
     }
 
     // Create from scaled integer (thousandths: 1500 = 1.5)
     static fun fromThousandths(value: Int) r: Fixed64 {
-        // Convert from thousandths to 32.32 format
-        // value/1000 * SCALE = value * SCALE / 1000
+        ///
+        Convert from thousandths to 32.32 format
+        value/1000 * SCALE = value * SCALE / 1000
+        ///
         let scaled = (value * Fixed64.SCALE) / 1000
         return Fixed64.new(scaled)
     }
@@ -292,14 +308,18 @@ class Fixed64 {
 
     // Multiplication
     fun mul(other: Fixed64) r: Fixed64 {
-        // (a * SCALE) * (b * SCALE) / SCALE = a * b * SCALE
-        // To avoid overflow, we need to be careful
-        // Split into high and low parts
+        ///
+        (a * SCALE) * (b * SCALE) / SCALE = a * b * SCALE
+        To avoid overflow, we need to be careful
+        Split into high and low parts
+        ///
         let a = raw
         let b = other.raw
 
-        // For 64-bit integers, direct multiplication may overflow
-        // Use the fact that raw = intPart * SCALE + fracPart
+        ///
+        For 64-bit integers, direct multiplication may overflow
+        Use the fact that raw = intPart * SCALE + fracPart
+        ///
         let aInt = a / Fixed64.SCALE
         let aFrac = a % Fixed64.SCALE
         let bInt = b / Fixed64.SCALE
@@ -320,8 +340,10 @@ class Fixed64 {
             return Fixed64.new(0)  // Avoid division by zero
         }
 
-        // (a * SCALE) / (b * SCALE) * SCALE = a * SCALE / b
-        // Multiply first to maintain precision
+        ///
+        (a * SCALE) / (b * SCALE) * SCALE = a * SCALE / b
+        Multiply first to maintain precision
+        ///
         let scaledNumerator = raw * Fixed64.SCALE
         return Fixed64.new(scaledNumerator / other.raw)
     }
@@ -416,8 +438,10 @@ class Fixed64 {
 
     // Mathematical functions
 
-    // Square root using Newton-Raphson iteration
-    // Simplified to use raw integer operations for bootstrap compatibility
+    ///
+    Square root using Newton-Raphson iteration
+    Simplified to use raw integer operations for bootstrap compatibility
+    ///
     fun sqrt() r: Fixed64 {
         if raw <= 0 {
             return Fixed64.new(0)
@@ -464,8 +488,10 @@ class Fixed64 {
         return Fixed64.new(currentRaw)
     }
 
-    // Power function (integer exponent)
-    // Simplified to use raw integer operations for bootstrap compatibility
+    ///
+    Power function (integer exponent)
+    Simplified to use raw integer operations for bootstrap compatibility
+    ///
     fun pow(exp: Int) r: Fixed64 {
         if exp == 0 {
             return Fixed64.new(Fixed64.SCALE)  // Return 1.0
@@ -513,8 +539,10 @@ class Fixed64 {
         return Fixed64.new(resultRaw)
     }
 
-    // Linear interpolation: lerp(a, b, t) = a + t * (b - a)
-    // Simplified to use raw integer operations for bootstrap compatibility
+    ///
+    Linear interpolation: lerp(a, b, t) = a + t * (b - a)
+    Simplified to use raw integer operations for bootstrap compatibility
+    ///
     fun lerp(target: Fixed64, t: Fixed64) r: Fixed64 {
         // diff = target - this
         let diffRaw = target.raw - raw
@@ -578,12 +606,14 @@ let FIXED_PI: Fixed64 = Fixed64.fromFraction(355, 113)
 // E approximation (2721/1001)
 let FIXED_E: Fixed64 = Fixed64.fromFraction(2721, 1001)
 
-// ============================================================================
-// Fixed128 - 128-bit fixed-point number
-// Format: 64.64 (64 bits integer, 64 bits fraction)
-// Represented as two 64-bit integers: hi (integer part) and lo (fractional part)
-// The low word is treated as an unsigned value from 0 to 2^64-1
-// ============================================================================
+///
+============================================================================
+Fixed128 - 128-bit fixed-point number
+Format: 64.64 (64 bits integer, 64 bits fraction)
+Represented as two 64-bit integers: hi (integer part) and lo (fractional part)
+The low word is treated as an unsigned value from 0 to 2^64-1
+============================================================================
+///
 class Fixed128 {
     let hi: Int   // High 64 bits (signed integer part)
     let lo: Int   // Low 64 bits (fractional part, unsigned interpretation)
@@ -606,12 +636,16 @@ class Fixed128 {
 
     // Create from Fixed64 (upscale)
     static fun fromFixed64(f: Fixed64) r: Fixed128 {
-        // Fixed64 is 32.32, Fixed128 is 64.64
-        // Need to shift by 32 bits: lo gets f.raw << 32, hi gets f.raw >> 32
+        ///
+        Fixed64 is 32.32, Fixed128 is 64.64
+        Need to shift by 32 bits: lo gets f.raw << 32, hi gets f.raw >> 32
+        ///
         let intPart = f.raw / Fixed64.SCALE
         let fracPart = f.raw % Fixed64.SCALE
-        // fracPart is 32-bit, need to scale to 64-bit
-        // fracPart * (2^64 / 2^32) = fracPart * 2^32
+        ///
+        fracPart is 32-bit, need to scale to 64-bit
+        fracPart * (2^64 / 2^32) = fracPart * 2^32
+        ///
         let lo = fracPart * Fixed64.SCALE
         return Fixed128.new(intPart, lo)
     }
@@ -624,11 +658,13 @@ class Fixed128 {
         // Integer part
         let intPart = numerator / denominator
         let remainder = numerator % denominator
-        // Fractional part: remainder / denominator, scaled to 64-bit fraction
-        // We compute this in steps to avoid overflow
-        // fracPart = (remainder * 2^64) / denominator
-        // But we can't represent 2^64 in i64, so we do it in parts:
-        // fracPart = (remainder * 2^32) / denominator * 2^32
+        ///
+        Fractional part: remainder / denominator, scaled to 64-bit fraction
+        We compute this in steps to avoid overflow
+        fracPart = (remainder * 2^64) / denominator
+        But we can't represent 2^64 in i64, so we do it in parts:
+        fracPart = (remainder * 2^32) / denominator * 2^32
+        ///
         let scaled = (remainder * Fixed64.SCALE) / denominator
         let lo = scaled * Fixed64.SCALE
         return Fixed128.new(intPart, lo)
@@ -653,8 +689,10 @@ class Fixed128 {
 
     // Convert to Fixed64 (may lose precision)
     fun toFixed64() r: Fixed64 {
-        // Combine hi and lo into 32.32 format
-        // hi provides integer part, lo >> 32 provides fractional part
+        ///
+        Combine hi and lo into 32.32 format
+        hi provides integer part, lo >> 32 provides fractional part
+        ///
         let fracPart = lo / Fixed64.SCALE
         return Fixed64.new(hi * Fixed64.SCALE + fracPart)
     }
@@ -677,8 +715,10 @@ class Fixed128 {
     fun add(other: Fixed128) r: Fixed128 {
         // Add low parts
         let loSum = lo + other.lo
-        // Detect carry: if loSum < lo (wrapped), we had a carry
-        // Note: this works because lo is always >= 0 in Seen
+        ///
+        Detect carry: if loSum < lo (wrapped), we had a carry
+        Note: this works because lo is always >= 0 in Seen
+        ///
         var carry = 0
         if loSum < lo {
             carry = 1
@@ -704,8 +744,10 @@ class Fixed128 {
 
     // Multiplication (simplified for small values)
     fun mul(other: Fixed128) r: Fixed128 {
-        // For simplicity, convert to Fixed64, multiply, convert back
-        // This loses precision but is deterministic
+        ///
+        For simplicity, convert to Fixed64, multiply, convert back
+        This loses precision but is deterministic
+        ///
         let a = toFixed64()
         let b = other.toFixed64()
         let product = a.mul(b)
@@ -726,8 +768,10 @@ class Fixed128 {
 
     // Negation
     fun neg() r: Fixed128 {
-        // Two's complement of 128-bit: ~x + 1
-        // ~hi, ~lo then add 1 to lo
+        ///
+        Two's complement of 128-bit: ~x + 1
+        ~hi, ~lo then add 1 to lo
+        ///
         let invLo = -lo - 1
         let invHi = -hi - 1
         // Add 1 to low
@@ -765,8 +809,10 @@ class Fixed128 {
         if hi > other.hi {
             return false
         }
-        // hi == other.hi, compare lo (unsigned comparison)
-        // Since lo >= 0 in Seen, direct comparison works
+        ///
+        hi == other.hi, compare lo (unsigned comparison)
+        Since lo >= 0 in Seen, direct comparison works
+        ///
         return lo < other.lo
     }
 
@@ -837,10 +883,12 @@ let FIXED128_PI: Fixed128 = Fixed128.fromFraction(355, 113)
 // Fixed128 E approximation
 let FIXED128_E: Fixed128 = Fixed128.fromFraction(2721, 1001)
 
-// ============================================================================
-// SaturatingFixed64 - Fixed64 with saturation on overflow
-// Operations clamp to min/max instead of wrapping
-// ============================================================================
+///
+============================================================================
+SaturatingFixed64 - Fixed64 with saturation on overflow
+Operations clamp to min/max instead of wrapping
+============================================================================
+///
 class SaturatingFixed64 {
     let raw: Int
 
@@ -923,10 +971,12 @@ class SaturatingFixed64 {
     }
 }
 
-// ============================================================================
-// WrappingFixed64 - Fixed64 with explicit wrapping semantics
-// Makes it clear that overflow wraps (same as regular Fixed64, but explicit)
-// ============================================================================
+///
+============================================================================
+WrappingFixed64 - Fixed64 with explicit wrapping semantics
+Makes it clear that overflow wraps (same as regular Fixed64, but explicit)
+============================================================================
+///
 class WrappingFixed64 {
     let raw: Int
 

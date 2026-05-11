@@ -2,6 +2,21 @@
 
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn}
+import codegen.ir_decl_registry.{getFunctionReturnTypeStateImpl}
+import codegen.ir_codegen_type_state.{mapTypeState}
+import codegen.ir_literal_gen.{normalizeDoubleLiteralForLlvmImpl}
+
+class OverloadedUnaryPlan {
+    var funcName: String
+    var retLlvmType: String
+
+    static fun new() r: OverloadedUnaryPlan {
+        return OverloadedUnaryPlan{
+            funcName: "",
+            retLlvmType: ""
+        }
+    }
+}
 
 fun unaryOperatorMethodNameImpl(operator: String) r: String {
     if operator == "-" {
@@ -16,6 +31,29 @@ fun unaryOperatorMethodNameImpl(operator: String) r: String {
 fun shouldSkipUnaryOverloadTypeImpl(unaryType: String) r: Bool {
     return unaryType == "Int" or unaryType == "Float" or
         unaryType == "Bool" or unaryType == "String"
+}
+
+fun planOverloadedUnaryState(operator: String, unaryOpType: String,
+    funcNames: Array<String>, funcRetTypes: Array<String>)
+    r: OverloadedUnaryPlan {
+
+    let plan = OverloadedUnaryPlan.new()
+    let unaryOpMethod = unaryOperatorMethodNameImpl(operator)
+    if unaryOpMethod == "" {
+        return plan
+    }
+    if shouldSkipUnaryOverloadTypeImpl(unaryOpType) {
+        return plan
+    }
+    let unaryOpFuncName = unaryOpType + "_" + unaryOpMethod
+    let unaryOpRetType = getFunctionReturnTypeStateImpl(unaryOpFuncName,
+        funcNames, funcRetTypes)
+    if unaryOpRetType == "" {
+        return plan
+    }
+    plan.funcName = unaryOpFuncName
+    plan.retLlvmType = mapTypeState(unaryOpRetType)
+    return plan
 }
 
 fun negatedComparisonPredicateImpl(operator: String) r: String {
@@ -53,8 +91,9 @@ fun emitUnaryNegationImpl(output: StringBuilder, regBox: Array<Int>,
 
     let resultReg = getNextRegFn(regBox)
     if operandType == "Float" {
+        let doubleOperandReg = normalizeDoubleLiteralForLlvmImpl(operandReg)
         output.append("  " + resultReg + " = fneg fast double " +
-            operandReg + "\n")
+            doubleOperandReg + "\n")
     } else {
         output.append("  " + resultReg + " = sub nsw i64 0, " +
             operandReg + "\n")

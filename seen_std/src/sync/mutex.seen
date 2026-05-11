@@ -1,6 +1,8 @@
-// Mutex for thread synchronization backed by pthread_mutex_t
-// The 'handle' field holds an opaque pointer (cast to Int) to the heap-allocated
-// SeenMutex struct. Named 'handle' (not 'lock') to avoid shadowing the lock() method.
+///
+Mutex for thread synchronization backed by pthread_mutex_t
+The 'handle' field holds an opaque pointer (cast to Int) to the heap-allocated
+SeenMutex struct. Named 'handle' (not 'lock') to avoid shadowing the lock() method.
+///
 
 class Mutex {
     var handle: Int

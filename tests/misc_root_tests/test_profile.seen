@@ -1,5 +1,7 @@
-// Test @profile decorator - verifies timing instrumentation
-// Expected: Profile report should show timing for decorated functions
+///
+Test @profile decorator - verifies timing instrumentation
+Expected: Profile report should show timing for decorated functions
+///
 
 @profile
 fun fibonacci(n: Int) r: Int {

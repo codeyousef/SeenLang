@@ -1,5 +1,7 @@
-// Profile-Guided Optimization
-// Wraps LLVM's PGO infrastructure: instrument → profile → optimize
+///
+Profile-Guided Optimization
+Wraps LLVM's PGO infrastructure: instrument → profile → optimize
+///
 import optimization.base.OptimizationPass
 import ir.module.Module
 
@@ -81,8 +83,10 @@ class ProfileGuidedOptimizer extends OptimizationPass {
     // Instrument functions with edge counters for profiling
     fun instrumentFunctions(ir: Module) r: Void {
         println("[pgo] Inserting edge counters into functions")
-        // In LLVM pipeline: -fprofile-generate adds counters
-        // The compiler emits: opt -pgo-instr-gen -instrprof
+        ///
+        In LLVM pipeline: -fprofile-generate adds counters
+        The compiler emits: opt -pgo-instr-gen -instrprof
+        ///
     }
 
     // Collect profile from raw counters file
@@ -99,8 +103,10 @@ class ProfileGuidedOptimizer extends OptimizationPass {
             println("[pgo]   hot: " + profileData.hotFunctions[i])
             i = i + 1
         }
-        // Hot functions get: section ".text.hot", align 64
-        // Cold functions get: section ".text.unlikely"
+        ///
+        Hot functions get: section ".text.hot", align 64
+        Cold functions get: section ".text.unlikely"
+        ///
     }
 
     // Apply branch weight metadata from profile
@@ -112,8 +118,10 @@ class ProfileGuidedOptimizer extends OptimizationPass {
     // Use profile data to guide inlining decisions
     fun applyInliningHints(ir: Module) r: Void {
         println("[pgo] Profile-guided inlining hints")
-        // Hot callsites get: inlinehint or alwaysinline
-        // Cold callsites get: noinline
+        ///
+        Hot callsites get: inlinehint or alwaysinline
+        Cold callsites get: noinline
+        ///
     }
 
     // Generate LLVM PGO flags for the compilation pipeline

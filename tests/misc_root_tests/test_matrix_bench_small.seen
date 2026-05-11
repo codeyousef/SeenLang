@@ -1,5 +1,7 @@
-// Matrix Multiplication Benchmark (SGEMM)
-// High-performance matrix multiplication with cache blocking
+///
+Matrix Multiplication Benchmark (SGEMM)
+High-performance matrix multiplication with cache blocking
+///
 
 class Matrix {
     data: Array<Float>

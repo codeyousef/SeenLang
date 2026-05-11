@@ -1,11 +1,11 @@
-/**
- * CoreAudio FFI bindings for macOS.
- *
- * Low-level bindings to Apple CoreAudio via libseen_platform.dylib shim.
- * Provides audio output, input, and device management for macOS applications.
- *
- * Link with: -lseen_platform (which wraps CoreAudio.framework + AudioToolbox.framework)
- */
+///
+CoreAudio FFI bindings for macOS.
+
+Low-level bindings to Apple CoreAudio via libseen_platform.dylib shim.
+Provides audio output, input, and device management for macOS applications.
+
+Link with: -lseen_platform (which wraps CoreAudio.framework + AudioToolbox.framework)
+///
 
 import core.result.{Result, Ok, Err}
 import core.unit.{Unit}
@@ -30,9 +30,9 @@ let AUDIO_ERR_FORMAT_UNSUPPORTED: Int = -2
 let AUDIO_ERR_BUFFER_OVERFLOW: Int = -3
 let AUDIO_ERR_INITIALIZATION_FAILED: Int = -4
 
-/**
- * Audio stream configuration.
- */
+///
+Audio stream configuration.
+///
 class AudioConfig {
     let sampleRate: Float
     let channels: Int

@@ -1,5 +1,7 @@
-// seen_std.ffi.cinterop
-// Minimal helpers for building deterministic FFI layers during bootstrap.
+///
+seen_std.ffi.cinterop
+Minimal helpers for building deterministic FFI layers during bootstrap.
+///
 
 class CString {
     var text: String

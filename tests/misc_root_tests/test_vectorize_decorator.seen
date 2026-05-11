@@ -1,6 +1,8 @@
-// Test: @vectorize, @no_vectorize, and @lane_width decorators
-// Verify: compile with --simd-report to check vectorization behavior
-// Expected: @no_vectorize function should not vectorize loops
+///
+Test: @vectorize, @no_vectorize, and @lane_width decorators
+Verify: compile with --simd-report to check vectorization behavior
+Expected: @no_vectorize function should not vectorize loops
+///
 
 @no_vectorize
 fun sumScalar(arr: Array<Int>, n: Int) r: Int {

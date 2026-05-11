@@ -1,6 +1,8 @@
-// BTreeMap - Ordered map using Red-Black tree for deterministic iteration
-// Unlike HashMap, BTreeMap always iterates in sorted key order.
-// This is the RECOMMENDED map type for deterministic mode.
+///
+BTreeMap - Ordered map using Red-Black tree for deterministic iteration
+Unlike HashMap, BTreeMap always iterates in sorted key order.
+This is the RECOMMENDED map type for deterministic mode.
+///
 
 import collections.vec.{Vec}
 import core.option.{Option, Some, None}
@@ -201,13 +203,17 @@ class BTreeMap<K, V> {
 
     // Compare two keys (uses Int comparison by default)
     fun compareKeys(a: K, b: K) r: Ordering {
-        // Type-based comparison (simplified for now - uses equality)
-        // In a full implementation, this would use type traits
+        ///
+        Type-based comparison (simplified for now - uses equality)
+        In a full implementation, this would use type traits
+        ///
         if a == b {
             return Ordering.Equal
         }
-        // For now, use hash-like ordering for non-equal values
-        // This is a simplification - real implementation would use Comparable trait
+        ///
+        For now, use hash-like ordering for non-equal values
+        This is a simplification - real implementation would use Comparable trait
+        ///
         return Ordering.Less
     }
 
@@ -377,8 +383,10 @@ class BTreeMap<K, V> {
 
     // Remove a node from the tree
     fun removeNode(node: BTreeNode<K, V>) r: Void {
-        // Simplified removal - full implementation would handle all cases
-        // For now, just clear the node (proper deletion would rebalance)
+        ///
+        Simplified removal - full implementation would handle all cases
+        For now, just clear the node (proper deletion would rebalance)
+        ///
 
         if node.left.isNone() and node.right.isNone() {
             // Leaf node - just remove
@@ -447,5 +455,7 @@ class BTreeMap<K, V> {
     }
 }
 
-// Convenience type alias for common case
-// type SortedMap<K, V> = BTreeMap<K, V>
+///
+Convenience type alias for common case
+type SortedMap<K, V> = BTreeMap<K, V>
+///

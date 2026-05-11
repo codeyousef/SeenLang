@@ -1,7 +1,24 @@
 // ir_async_await.seen - await-expression emission helpers.
 
 import str.string.{StringBuilder}
+import parser.real_parser.{ParserExpressionNode}
 import codegen.ir_optimization.{getNextRegFn, getNextBlockFn}
+import codegen.ir_decl_registry.{getAsyncDeclaredRetTypeStateImpl}
+import codegen.ir_codegen_type_state.{mapTypeState}
+
+fun resolveAwaitExpressionResultLlvmTypeState(futureExpr: ParserExpressionNode,
+    asyncFuncNames: String, asyncFuncRetTypes: String, asyncFuncCount: Int)
+    r: String {
+
+    if futureExpr.kind == "Call" {
+        let declType = getAsyncDeclaredRetTypeStateImpl(futureExpr.callee,
+            asyncFuncNames, asyncFuncRetTypes, asyncFuncCount)
+        if declType != "" {
+            return mapTypeState(declType)
+        }
+    }
+    return "i64"
+}
 
 fun emitAwaitPollLoopImpl(output: StringBuilder, regBox: Array<Int>,
     blockLabelBox: Array<Int>, hdlReg: String) r: Void {

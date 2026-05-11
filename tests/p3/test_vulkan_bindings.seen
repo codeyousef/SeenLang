@@ -1,5 +1,7 @@
-// : Vulkan bindings — already exist in seen_std/src/platform/linux/vulkan.seen
-// Compile-only test verifying the binding constants are valid
+///
+: Vulkan bindings — already exist in seen_std/src/platform/linux/vulkan.seen
+Compile-only test verifying the binding constants are valid
+///
 
 fun main() r: Int {
     // Vulkan result codes (from vulkan.seen)

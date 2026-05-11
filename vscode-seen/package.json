@@ -2,7 +2,7 @@
   "name": "seen-vscode",
   "displayName": "Seen Language",
   "description": "Official Seen language support with syntax highlighting, LSP, debugging, and multi-language keywords",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "publisher": "yousefcodes",
   "icon": "images/icon.png",
   "repository": {
@@ -95,9 +95,19 @@
           "default": "native",
           "description": "Default compilation target"
         },
+        "seen.compile.pic": {
+          "type": "boolean",
+          "default": false,
+          "description": "Emit PIC objects for shared-library builds"
+        },
+        "seen.compile.objectManifest": {
+          "type": "string",
+          "default": "",
+          "description": "Optional path for seen compile --object-manifest"
+        },
         "seen.language.default": {
           "type": "string",
-          "enum": ["en", "ar", "es", "ru", "zh", "fr"],
+          "enum": ["en", "ar", "es", "ru", "zh", "ja"],
           "default": "en",
           "description": "Default language for new projects"
         }
@@ -127,6 +137,26 @@
       {
         "command": "seen.check",
         "title": "Seen: Check Project"
+      },
+      {
+        "command": "seen.compileSharedModule",
+        "title": "Seen: Compile Shared Module Objects"
+      },
+      {
+        "command": "seen.pkgFetch",
+        "title": "Seen: Package Fetch"
+      },
+      {
+        "command": "seen.pkgPack",
+        "title": "Seen: Package Pack"
+      },
+      {
+        "command": "seen.pkgPrebuild",
+        "title": "Seen: Package Prebuild"
+      },
+      {
+        "command": "seen.pkgPublish",
+        "title": "Seen: Package Publish"
       },
       {
         "command": "seen.clean",
@@ -209,6 +239,16 @@
           "command": "seen.init",
           "when": "explorerResourceIsFolder",
           "group": "seen"
+        },
+        {
+          "command": "seen.pkgFetch",
+          "when": "explorerResourceIsFolder || seenProject",
+          "group": "seen"
+        },
+        {
+          "command": "seen.pkgPrebuild",
+          "when": "explorerResourceIsFolder || seenProject",
+          "group": "seen"
         }
       ]
     },
@@ -219,7 +259,7 @@
         "properties": {
           "task": {
             "type": "string",
-            "enum": ["build", "run", "test", "benchmark", "check", "clean"]
+            "enum": ["build", "run", "test", "benchmark", "check", "compile-shared", "pkg-fetch", "pkg-pack", "pkg-prebuild", "pkg-publish", "clean", "init"]
           },
           "args": {
             "type": "array",

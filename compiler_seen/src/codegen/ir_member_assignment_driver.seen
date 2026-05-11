@@ -1,0 +1,56 @@
+// ir_member_assignment_driver.seen - prepared member assignment leaves.
+
+import str.string.{StringBuilder}
+import codegen.ir_assignment_gen.{emitValueReceiverMemberAssignmentImpl, emitVariableReceiverMemberAssignmentImpl, emitImplicitThisMemberAssignmentImpl}
+import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl, getFeatureReprCClassNamesImpl, getFeatureUnionTypesImpl, getFeatureTypeAliasNamesImpl, getFeatureTypeAliasTargetsImpl, getFeatureTypeAliasCountImpl, getFeatureEnumTypeNamesImpl, getFeatureBitfieldCountImpl, getFeatureBitfieldKeysImpl, getFeatureBitfieldWidthsImpl}
+import codegen.ir_codegen_global_state.{getBoundedActiveVarCountWithGlobalStateImpl, getGlobalStructNamesImpl, getGlobalStructLayoutsImpl, getGlobalStructFieldNamesImpl, getGlobalStructFieldTypesImpl, getGlobalStructLlvmFieldTypesImpl}
+
+fun emitValueReceiverMemberAssignmentState(output: StringBuilder,
+    receiverReg: String, receiverType: String, fieldName: String,
+    valueReg: String, valueKind: String, valueSeenType: String) r: Int {
+
+    return emitValueReceiverMemberAssignmentImpl(output, getFeatureRegBoxImpl(),
+        receiverReg, receiverType, fieldName, valueReg, valueKind,
+        valueSeenType, getGlobalStructNamesImpl(), getGlobalStructLayoutsImpl(),
+        getGlobalStructFieldNamesImpl(), getGlobalStructFieldTypesImpl(),
+        getGlobalStructLlvmFieldTypesImpl(), getFeatureReprCClassNamesImpl(),
+        getFeatureTypeAliasNamesImpl(), getFeatureTypeAliasTargetsImpl(),
+        getFeatureTypeAliasCountImpl(), getFeatureEnumTypeNamesImpl(),
+        getFeatureUnionTypesImpl(), getFeatureBitfieldCountImpl(),
+        getFeatureBitfieldKeysImpl(), getFeatureBitfieldWidthsImpl())
+}
+
+fun emitNamedReceiverMemberAssignmentState(output: StringBuilder,
+    receiverName: String, fieldName: String, valueReg: String,
+    valueKind: String, valueSeenType: String, varNames: Array<String>,
+    varRegs: Array<String>, varTypes: Array<String>) r: Int {
+
+    return emitVariableReceiverMemberAssignmentImpl(output,
+        getFeatureRegBoxImpl(), receiverName, fieldName, valueReg, valueKind,
+        valueSeenType, varNames,
+        getBoundedActiveVarCountWithGlobalStateImpl(varNames), varRegs,
+        varTypes, getGlobalStructNamesImpl(), getGlobalStructLayoutsImpl(),
+        getGlobalStructFieldNamesImpl(), getGlobalStructFieldTypesImpl(),
+        getGlobalStructLlvmFieldTypesImpl(), getFeatureReprCClassNamesImpl(),
+        getFeatureTypeAliasNamesImpl(), getFeatureTypeAliasTargetsImpl(),
+        getFeatureTypeAliasCountImpl(), getFeatureEnumTypeNamesImpl(),
+        getFeatureUnionTypesImpl(), getFeatureBitfieldCountImpl(),
+        getFeatureBitfieldKeysImpl(), getFeatureBitfieldWidthsImpl())
+}
+
+fun emitImplicitThisMemberAssignmentState(output: StringBuilder,
+    receiverName: String, fieldName: String, valueReg: String,
+    valueKind: String, valueSeenType: String, varNames: Array<String>,
+    varRegs: Array<String>, varTypes: Array<String>) r: Void {
+
+    emitImplicitThisMemberAssignmentImpl(output, getFeatureRegBoxImpl(),
+        receiverName, fieldName, valueReg, valueKind, valueSeenType, varNames,
+        getBoundedActiveVarCountWithGlobalStateImpl(varNames), varRegs,
+        varTypes, getGlobalStructNamesImpl(), getGlobalStructLayoutsImpl(),
+        getGlobalStructFieldNamesImpl(), getGlobalStructFieldTypesImpl(),
+        getGlobalStructLlvmFieldTypesImpl(), getFeatureReprCClassNamesImpl(),
+        getFeatureTypeAliasNamesImpl(), getFeatureTypeAliasTargetsImpl(),
+        getFeatureTypeAliasCountImpl(), getFeatureEnumTypeNamesImpl(),
+        getFeatureUnionTypesImpl(), getFeatureBitfieldCountImpl(),
+        getFeatureBitfieldKeysImpl(), getFeatureBitfieldWidthsImpl())
+}

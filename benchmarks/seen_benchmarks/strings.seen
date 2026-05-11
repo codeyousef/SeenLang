@@ -1,5 +1,7 @@
-// Seen String Benchmark
-// Tests string operations performance
+///
+Seen String Benchmark
+Tests string operations performance
+///
 
 fun benchmark_string_concatenation(iterations: i32) -> f64 {
     let start = std::time::now()

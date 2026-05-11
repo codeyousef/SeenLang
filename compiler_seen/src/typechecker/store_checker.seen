@@ -1,6 +1,8 @@
-// Store Checker for Seen Language
-// Validates @store decorator usage for deterministic state management
-// Ensures stores only use deterministic types and operations
+///
+Store Checker for Seen Language
+Validates @store decorator usage for deterministic state management
+Ensures stores only use deterministic types and operations
+///
 
 import parser.real_parser.{ClassNode, FunctionNode, ProgramNode, FieldNode}
 
@@ -142,8 +144,10 @@ class StoreChecker {
         var i = 0
         while i < cls.methods.length() {
             let method = cls.methods[i]
-            // Methods that modify state should not return non-void (pure function pattern)
-            // This is a soft warning, not an error
+            ///
+            Methods that modify state should not return non-void (pure function pattern)
+            This is a soft warning, not an error
+            ///
             if method.name.startsWith("set") or method.name.startsWith("update") or method.name.startsWith("add") or method.name.startsWith("remove") {
                 if method.returnType.typeName != "Void" and method.returnType.typeName != "" {
                     result.addWarning("@store mutation method '" + method.name + "' in '" + cls.name + "' returns '" + method.returnType.typeName + "'. Consider returning Void for clearer state mutation semantics.")

@@ -1,10 +1,14 @@
-// JSON Builder
-// Builds JSON strings from JsonValue objects or incrementally
+///
+JSON Builder
+Builds JSON strings from JsonValue objects or incrementally
+///
 
 import json.value.{JsonValue, JSON_NULL, JSON_BOOL, JSON_NUMBER, JSON_STRING, JSON_ARRAY, JSON_OBJECT}
 
-// Fluent JSON builder for constructing JSON strings incrementally
-// Uses String concatenation to avoid StringBuilder dependency
+///
+Fluent JSON builder for constructing JSON strings incrementally
+Uses String concatenation to avoid StringBuilder dependency
+///
 class JsonBuilder {
     var buffer: String
     var needsComma: Int
@@ -210,9 +214,11 @@ fun toHex(value: Int) r: String {
     return String.fromCharCode(hexChars.charAt(high)) + String.fromCharCode(hexChars.charAt(low))
 }
 
-// Convert a JsonValue to a JSON string
-// Named jsonToString (not toJson) to avoid classMethodBaseNames collision
-// with LSP class methods also named toJson (LspPosition.toJson, etc.)
+///
+Convert a JsonValue to a JSON string
+Named jsonToString (not toJson) to avoid classMethodBaseNames collision
+with LSP class methods also named toJson (LspPosition.toJson, etc.)
+///
 fun jsonToString(value: JsonValue) r: String {
     if value.isNull() {
         return "null"

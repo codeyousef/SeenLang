@@ -1,5 +1,7 @@
-// Test for @store decorator
-// Tests deterministic state management with mutation logging
+///
+Test for @store decorator
+Tests deterministic state management with mutation logging
+///
 
 // A simple game state store
 @store

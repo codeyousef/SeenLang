@@ -1,0 +1,14 @@
+// ir_codegen_bootstrap_state.seen - bootstrap-sensitive global array init.
+
+import codegen.ir_codegen_metrics_state.{initMetricsBootstrapArraysImpl}
+import codegen.ir_codegen_feature_state.{resetFeatureBootstrapStateImpl}
+import codegen.ir_codegen_global_state.{initGlobalBootstrapStateImpl}
+import codegen.ir_codegen_module_state.{resetModuleBootstrapArraysImpl, resetModuleConstantGenerationState}
+
+fun initBootstrapFragileGlobalArrays() r: Void {
+    initMetricsBootstrapArraysImpl()
+    resetFeatureBootstrapStateImpl()
+    initGlobalBootstrapStateImpl()
+    resetModuleBootstrapArraysImpl()
+    resetModuleConstantGenerationState()
+}

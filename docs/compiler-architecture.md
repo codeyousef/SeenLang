@@ -1,193 +1,134 @@
 # Compiler Architecture
 
-The Seen compiler is a 100% self-hosted compiler written in Seen. It follows a 5-stage pipeline and compiles through LLVM for native code generation.
+The Seen compiler is self-hosted and compiles through LLVM for native code
+generation. The shipped release binary uses `compiler_seen/src/main_compiler.seen`
+as its command entrypoint.
 
 ## Pipeline Overview
 
-```
+```text
 Source (.seen)
-  → Lexer (tokenize with language-specific keywords)
-  → Parser (recursive descent → AST)
-  → Type Checker (inference, validation, smart casts)
-  → IR Generator (AST → LLVM IR, three-pass)
-  → LLVM Backend (opt → ThinLTO → lld link)
-  → Native Binary
+  -> Lexer
+  -> Parser
+  -> Type checker
+  -> Multi-module LLVM IR generation
+  -> opt/llc or target compiler tools
+  -> Native binary or target artifact
 ```
 
-## Stage 1: Lexer
+## Frontend
 
-**Location:** `compiler_seen/src/lexer/`
+### Lexer
 
-The `SeenLexer` class tokenizes source code into a stream of tokens.
+Location: `compiler_seen/src/lexer/`
 
-- `KeywordManager` loads TOML files from `languages/` for multi-language support
-- Tracks position (line, column) for error reporting
-- Handles string interpolation (`{expr}` inside strings)
-- Byte-level access via `byteAt()` for performance
+- Loads keyword/operator tables from `languages/<lang>/`.
+- Preserves source locations for diagnostics.
+- Supports line comments and standalone-delimited `/// ... ///` block comments.
+- Emits language-neutral token types so later stages do not need to know which
+  human language was used.
 
-**Entry point:** `tokenize(source: String, language: String) -> Array<Token>`
+### Parser
 
-## Stage 2: Parser
+Location: `compiler_seen/src/parser/`
 
-**Location:** `compiler_seen/src/parser/`
+- Recursive-descent parser centered on `real_parser.seen`.
+- Produces program, declaration, statement, and expression nodes.
+- Parses current syntax including package imports, `effect(Token)`,
+  `@using`, `@operator`, nullable/nullish forms, `when`, closures, sealed
+  classes, traits/interfaces, and hot-reload-facing shared-module patterns.
 
-Converts the token stream into an AST (Abstract Syntax Tree).
+### Type Checker
 
-- Recursive descent parser
-- Two-pass parsing for stability (declarations first, then bodies)
-- Key AST node types: `ProgramNode`, `FunctionNode`, `ClassNode`, `StatementNode`, `ParserExpressionNode`
+Location: `compiler_seen/src/typechecker/`
 
-**Entry point:** `parse(tokens: Array<Token>) -> ProgramNode`
+- Runs frontend type validation and diagnostics.
+- Tracks scoped symbols, nullable information, deterministic-mode checks, and
+  effect/capability requirements.
 
-### AST Node Types
+### Bootstrap Frontend
 
-| Node | Description |
-|------|-------------|
-| `ProgramNode` | Root of the AST, contains all top-level declarations |
-| `FunctionNode` | Function declaration with parameters, body, return type |
-| `ClassNode` | Class with fields, methods, inheritance |
-| `StatementNode` | Variable declarations, assignments, control flow |
-| `ParserExpressionNode` | Literals, binary ops, method calls, etc. |
-| `ItemNode` | Function parameters and items |
-| `ParamNode` | Parameter declarations |
-| `ImportSymbolNode` | Import declarations |
+Location: `compiler_seen/src/bootstrap/`
 
-## Stage 3: Type Checker
+The bootstrap frontend wraps lexing, parsing, and type checking into the
+compatibility entrypoints used by Stage 1, Stage 2, the LSP, and package
+declaration scanning.
 
-**Location:** `compiler_seen/src/typechecker/`
+## Code Generation
 
-Performs type inference and validation on the AST.
+Location: `compiler_seen/src/codegen/`
 
-- `TypeChecker` class manages type inference
-- `Environment` manages scoped symbol tables (push/pop scope)
-- Smart casting after null checks
-- Generic type resolution
+The LLVM generator is now split into focused driver and helper modules rather
+than a single monolithic implementation. `llvm_ir_gen.seen` is the public facade;
+state-based helpers handle declarations, modules, functions, calls, binary
+expressions, method calls, statements, literals, member/index access, control
+flow, runtime declarations, and target-specific state.
 
-**Entry point:** `check(program: ProgramNode) -> TypeInferenceResult`
+Generation is organized around:
 
-## Stage 4: Frontend Integration
+1. Declaration/signature collection.
+2. Type/layout and registry preparation.
+3. Function and module body lowering to LLVM IR.
+4. Object emission, optimization, and linking.
 
-**Location:** `compiler_seen/src/bootstrap/`
+Package artifacts participate in code generation through interface indexes and
+object manifests: dependency declarations are scanned, provided modules are
+skipped for codegen, and prebuilt objects are linked into the final binary.
 
-Orchestrates the first three stages.
+## Backend and Targets
 
-- `run_frontend()` chains lexer → parser → type checker
-- Produces `FrontendResult` with diagnostics
-- Converts errors to `FrontendDiagnostic` with source locations
+The shipped compiler supports the LLVM backend. It can emit native binaries and
+target artifacts for the platforms listed in [CLI Reference](cli-reference.md).
+Important target controls include `--target`, `--target-cpu`, `--simd`,
+`--sanitize`, `--pgo-generate`, `--pgo-use`, `--pic`, and
+`--object-manifest`.
 
-## Stage 5: Code Generation
+## Incremental and Parallel Compilation
 
-### IR Generator
+The compiler uses source-level and IR-level caches:
 
-**Location:** `compiler_seen/src/ir/` and `compiler_seen/src/codegen/`
+- `.seen_cache/`
+- `/tmp/seen_ir_cache`
+- `/tmp/seen_thinlto_cache`
 
-Converts AST to LLVM IR using a three-pass approach:
+Normal compiler builds may use fork-parallel module work. Low-memory and
+bootstrap verification paths can disable parallelism with `--no-fork` and use
+the guarded scripts described in [Bootstrap System](bootstrap.md).
 
-1. **Pass 1: Signatures** -- collect all function signatures and type declarations
-2. **Pass 2: Types** -- resolve struct layouts, method tables, generics
-3. **Pass 3: Bodies** -- generate LLVM IR for function implementations
+## Key Source Areas
 
-The IR generator is split across 13 modules:
-
-| Module | Purpose |
-|--------|---------|
-| `llvm_ir_gen.seen` | Main IR generation (14,300 lines) |
-| `ir_declarations.seen` | Runtime function declarations |
-| `ir_decl_features.seen` | Feature-specific declarations |
-| `ir_decl_parser.seen` | Parser-related declarations |
-| `ir_decl_runtime.seen` | Core runtime declarations |
-| `ir_method_gen.seen` | Method generation |
-| `ir_optimization.seen` | CSE cache, call count, utilities |
-| `ir_string_collect.seen` | String constant collection |
-| `ir_type_dispatch.seen` | Type dispatch tables |
-| `ir_type_info.seen` | Type information |
-| `ir_type_mapping.seen` | Seen types → LLVM types |
-| `ir_type_ops.seen` | Type operations |
-| `ir_type_tables.seen` | Type lookup tables |
-
-### LLVM Backend
-
-**Location:** `compiler_seen/src/codegen/llvm_backend.seen`
-
-Full LLVM compilation pipeline:
-
-```
-.ll (LLVM IR)
-  → opt -O3 (optimization with vectorization, loop unrolling, inlining)
-  → opt --thinlto-bc (ThinLTO bitcode)
-  → clang -O3 -flto=thin -fuse-ld=lld (link)
-  → Native Binary
-```
-
-### C Backend (Fallback)
-
-**Location:** `compiler_seen/src/codegen/c_gen.seen`
-
-Emits C99 code as a portable fallback. Compiled with GCC.
-
-## Fork-Parallel IR Generation
-
-Each module's IR is generated in a forked child process:
-
-1. Parent collects all module source code
-2. For each uncached module, fork a child process
-3. Child inherits copy-on-write registry snapshot
-4. Child generates LLVM IR and writes `.ll` file
-5. Parent waits for all children, then links
-
-This provides ~1.74x speedup on cold builds.
-
-## Incremental Compilation
-
-Content-addressed IR cache with per-module granularity:
-
-**Cache key format (v3):**
-```
-hash("v3:" + declarationsHash + ":" + modulePath + ":" + moduleSourceHash)
-```
-
-- `declarationsHash` -- hash of cross-module interfaces (struct layouts, function signatures)
-- `moduleSourceHash` -- hash of the module's source code
-
-Editing a function body in one module only recompiles that module. Cross-module interface changes (new functions, changed signatures) invalidate all caches.
-
-**Cache locations:**
-- `.seen_cache/` -- source-level cache
-- `/tmp/seen_ir_cache` -- IR content-addressed cache
-- `/tmp/seen_thinlto_cache` -- ThinLTO linker cache
-
-## Key Source Files
-
-| File | Size | Purpose |
-|------|------|---------|
-| `compiler_seen/src/main.seen` | -- | Production compiler entry point |
-| `compiler_seen/src/main_compiler.seen` | -- | Stage1 compiler driver |
-| `compiler_seen/src/bootstrap/frontend.seen` | -- | Frontend orchestration |
-| `compiler_seen/src/codegen/llvm_backend.seen` | 16KB | LLVM code generation |
-| `compiler_seen/src/codegen/generator.seen` | 41KB | Backend framework |
-| `compiler_seen/src/ir/ir_generator.seen` | -- | Main LLVM IR generation |
-| `compiler_seen/src/codegen/llvm_ir_gen.seen` | 14K+ lines | Core IR generator |
-| `compiler_seen/src/types/struct_layouts.seen` | -- | Canonical struct field layouts |
+| Area | Purpose |
+|------|---------|
+| `compiler_seen/src/main_compiler.seen` | Shipped compiler CLI and bootstrap driver |
+| `compiler_seen/src/main.seen` | Higher-level CLI wrapper source, not the current release entrypoint |
+| `compiler_seen/src/bootstrap/` | Frontend orchestration and diagnostic compatibility |
+| `compiler_seen/src/lexer/` | Tokenization and multilingual keyword loading |
+| `compiler_seen/src/parser/` | AST construction |
+| `compiler_seen/src/typechecker/` | Type, effect, and deterministic-mode checks |
+| `compiler_seen/src/codegen/` | LLVM IR generation, runtime declarations, backend helpers |
+| `seen_std/src/` | Standard library modules |
+| `seen_runtime/` | C runtime primitives linked by Seen programs |
 
 ## Type Representation in LLVM IR
 
-| Seen Type | LLVM IR Type |
-|-----------|-------------|
+| Seen Type | LLVM IR Shape |
+|-----------|---------------|
 | `Int` | `i64` |
 | `Float` | `double` |
 | `Bool` | `i1` |
-| `String` | `%SeenString` (struct: `{i64, ptr}` = len + data) |
-| `Char` | `i64` (Unicode code point) |
-| `Array<T>` | `%SeenArray*` (struct: `{i64, i64, i64, ptr}`) |
-| `Class` | `ptr` (heap-allocated, handle-based) |
-| Simple enum | `i64` |
-| Data enum | `ptr` (heap-allocated) |
+| `String` | `%SeenString` (`{ i64, ptr }`) |
+| `Char` | `i64` |
+| `Array<T>` | runtime array handle/pointer |
+| Class/value handles | pointer or handle depending on lowering path |
+| Simple enum | integer tag |
+| Data enum | allocated payload/tag representation |
 
 ## Contributing to the Compiler
 
-1. Make changes to `compiler_seen/src/`
-2. Run `./scripts/safe_rebuild.sh` to verify bootstrap
-3. If verification passes, commit
-4. If it fails, fix the bootstrap-breaking issue
+1. Make source changes.
+2. Run source-only gates first.
+3. Run `scripts/safe_rebuild.sh` only with explicit memory limits derived from
+   current system memory.
+4. Commit only after the relevant checks pass.
 
-See [Bootstrap System](bootstrap.md) for details.
+See [Bootstrap System](bootstrap.md) for the staged rebuild workflow.

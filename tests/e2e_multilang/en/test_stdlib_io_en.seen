@@ -1,12 +1,14 @@
-// E2E Test: IO Standard Library (English)
-// Functions tested: __OpenFile, __WriteFile, __ReadFile, __CloseFile, __FileSize,
-//                   __FileExists, __DeleteFile
-// NOTE: High-level wrappers (writeText, readText, exists, deleteFile) are in
-//       seen_std/src/io/file.seen but not available in single-file compilation.
-//       Using __ prefixed runtime functions directly.
-// NOTE: __FileExists/__DeleteFile return bool, use directly in if conditions
-// NOTE: __ReadFile returns SeenString but codegen treats as i64 - cannot use
-//       the returned string content. Verify via __FileSize instead.
+///
+E2E Test: IO Standard Library (English)
+Functions tested: __OpenFile, __WriteFile, __ReadFile, __CloseFile, __FileSize,
+                  __FileExists, __DeleteFile
+NOTE: High-level wrappers (writeText, readText, exists, deleteFile) are in
+      seen_std/src/io/file.seen but not available in single-file compilation.
+      Using __ prefixed runtime functions directly.
+NOTE: __FileExists/__DeleteFile return bool, use directly in if conditions
+NOTE: __ReadFile returns SeenString but codegen treats as i64 - cannot use
+      the returned string content. Verify via __FileSize instead.
+///
 
 fun main() r: Int {
     let path = "/tmp/seen_e2e_test_en.txt"
@@ -38,8 +40,10 @@ fun main() r: Int {
         return 1
     }
 
-    // Test 4: read back and verify size
-    // (Cannot compare string content due to __ReadFile return type bug)
+    ///
+    Test 4: read back and verify size
+    (Cannot compare string content due to __ReadFile return type bug)
+    ///
     let fd2 = __OpenFile(path, "r")
     if fd2 < 0 {
         println("FAIL: open file for read")

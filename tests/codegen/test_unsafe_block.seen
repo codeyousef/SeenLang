@@ -1,5 +1,7 @@
-// Test: Unsafe block enforcement
-// ptr operations should warn outside unsafe blocks
+///
+Test: Unsafe block enforcement
+ptr operations should warn outside unsafe blocks
+///
 
 fun main() {
     // This should emit a warning comment (outside unsafe)

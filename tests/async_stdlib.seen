@@ -1,6 +1,8 @@
-// Async stdlib test -- self-contained version
-// Tests async coroutine scheduling with manual poll loop
-// All logic inline in main() to avoid module-level array type inference issues
+///
+Async stdlib test -- self-contained version
+Tests async coroutine scheduling with manual poll loop
+All logic inline in main() to avoid module-level array type inference issues
+///
 
 extern fun seen_coro_done(handle: ptr) -> Int
 extern fun llvm_coro_resume(handle: ptr) -> Void

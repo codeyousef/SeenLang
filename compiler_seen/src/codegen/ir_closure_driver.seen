@@ -1,0 +1,86 @@
+// ir_closure_driver.seen - closure expression lowering.
+
+import parser.real_parser.{ParserExpressionNode}
+import str.string.{StringBuilder}
+import codegen.ir_codegen_state.{getSharedCodegenState}
+import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl}
+import codegen.ir_codegen_global_state.{getBoundedActiveVarCountWithGlobalStateImpl, setActiveVarCountWithGlobalStateImpl}
+import codegen.ir_lowering_context.{CodegenLoweringContext, lowerExpression, inferLoweredExpressionType, lowerCallExpression, prepareLoweredCallArgumentsWithDefaults, lowerEnumConstructor, resetLoweringGenerator, resetLoweringSharedModuleScratch, syncLoweringState, writeBackLoweringState, lowerProgramClasses, lowerProgramTopLevelFunctions, lowerPlainLargeClass, lowerClassNode, lowerFunctionNode, lowerClassMethodFromList, setLowerCurrentClassParentName, resetLoweringLocalCodegenState, collectLoweringVariableDeclarations, clearLoweringActiveBindings, lowerBlock, lowerStatement, isLoweringBlockTerminated, beginLoweringNestedScratch, restoreLoweringNestedScratch, currentLoweringFunctionOptions}
+import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
+import codegen.ir_optimization.{getNextRegFn}
+import codegen.ir_variable_gen.{storeActiveVariableBindingImpl}
+
+class ClosureDriverResult {
+    var resultReg: String
+    var closureCount: Int
+    var closureDefs: String
+
+    static fun new(resultReg: String, closureCount: Int,
+        closureDefs: String) r: ClosureDriverResult {
+
+        return ClosureDriverResult{
+            resultReg: resultReg,
+            closureCount: closureCount,
+            closureDefs: closureDefs
+        }
+    }
+}
+
+fun generateClosureState(ctx: CodegenLoweringContext,
+    output: StringBuilder, expr: ParserExpressionNode,
+    varNames: Array<String>, varRegs: Array<String>,
+    varTypes: Array<String>, closureCount: Int, closureDefs: String)
+    r: ClosureDriverResult {
+
+    let closureId = closureCount
+    let nextClosureCount = closureCount + 1
+    let closureName = "__seen_closure_" + closureId.toString()
+
+    var paramList: String = ""
+    var paramIdx = 0
+    while paramIdx < expr.arguments.length() {
+        if paramIdx > 0 {
+            paramList = paramList + ", "
+        }
+        paramList = paramList + "i64 %__cp" + paramIdx.toString()
+        paramIdx = paramIdx + 1
+    }
+
+    let clSavedState = beginLoweringNestedScratch(ctx, "Int")
+    let nestedOutput = getSharedCodegenState().output
+
+    nestedOutput.append("define i64 @" + quoteIdentIfNeededImpl(closureName) +
+        "(" + paramList + ") {\n")
+    nestedOutput.append("entry:\n")
+
+    paramIdx = 0
+    while paramIdx < expr.arguments.length() {
+        let cpName = expr.arguments[paramIdx].literalValue
+        let cpReg = "%__cp" + paramIdx.toString()
+        let cpLocal = getNextRegFn(getFeatureRegBoxImpl())
+        nestedOutput.append("  " + cpLocal + " = alloca i64\n")
+        nestedOutput.append("  store i64 " + cpReg + ", ptr " +
+            cpLocal + "\n")
+        setActiveVarCountWithGlobalStateImpl(storeActiveVariableBindingImpl(
+            varNames, varRegs, varTypes,
+            getBoundedActiveVarCountWithGlobalStateImpl(varNames), cpName,
+            cpLocal, "Int"))
+        paramIdx = paramIdx + 1
+    }
+
+    let clBodyReg = lowerExpression(ctx, expr.operands[0])
+    if not isLoweringBlockTerminated(ctx) {
+        nestedOutput.append("  ret i64 " + clBodyReg + "\n")
+    }
+    nestedOutput.append("}\n\n")
+
+    let nextClosureDefs = closureDefs + nestedOutput.toString()
+
+    restoreLoweringNestedScratch(ctx, clSavedState)
+
+    let clResultReg = getNextRegFn(getFeatureRegBoxImpl())
+    output.append("  " + clResultReg + " = ptrtoint ptr @" +
+        closureName + " to i64\n")
+    return ClosureDriverResult.new(clResultReg, nextClosureCount,
+        nextClosureDefs)
+}

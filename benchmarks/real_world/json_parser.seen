@@ -1,5 +1,7 @@
-// Real-World JSON Parser Benchmark
-// Tests JSON parsing, validation, serialization, and manipulation
+///
+Real-World JSON Parser Benchmark
+Tests JSON parsing, validation, serialization, and manipulation
+///
 
 import std::collections::{Vec, HashMap}
 import std::time::Instant

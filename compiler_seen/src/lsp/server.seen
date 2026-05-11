@@ -1,5 +1,7 @@
-// Seen Language Server Protocol Implementation
-// Full LSP server with JSON-RPC over stdio
+///
+Seen Language Server Protocol Implementation
+Full LSP server with JSON-RPC over stdio
+///
 
 import json.value.{JsonValue, JsonValue_emptyObject, JsonValue_emptyArray, JsonValue_array, JsonValue_string, JsonValue_number, JsonValue_bool, JsonValue_nullValue}
 import json.parser.{parseJson}
@@ -44,11 +46,14 @@ import lexer.lexer.{SeenLexer}
 import lexer.token.{Token, SeenTokenType, TOKEN_EOF}
 import parser.real_parser.{RealParser, ProgramNode}
 import typechecker.typechecker.{SeenTypeChecker}
-import bootstrap.frontend.{run_frontend, FrontendResult, FrontendDiagnostic, encodeDiagMessage, parseDiagBaseMessage, parseDiagCode, parseDiagSuggestion, parseDiagNote, parseDiagEndColumn}
+import bootstrap.frontend.{run_frontend, FrontendDiagnostic, parseDiagBaseMessage, parseDiagCode, parseDiagSuggestion, parseDiagNote, parseDiagEndColumn}
+import io.file.{readText, exists}
 
-// ============================================================================
-// Document Storage
-// ============================================================================
+///
+============================================================================
+Document Storage
+============================================================================
+///
 
 class Document {
     var uri: String
@@ -68,9 +73,11 @@ fun Document_new(uri: String, content: String, version: Int) r: Document {
     return doc
 }
 
-// ============================================================================
-// LSP Server
-// ============================================================================
+///
+============================================================================
+LSP Server
+============================================================================
+///
 
 class SeenLspServer {
     var rpc: JsonRpcHandler
@@ -81,9 +88,11 @@ class SeenLspServer {
     var lastDiagUris: Array<String>       // URIs for last diagnostics
     var lastDiagMessages: Array<String>   // Pipe-delimited encoded messages per URI
 
-    // ========================================================================
-    // Helper Methods (moved early to avoid parser limit)
-    // ========================================================================
+    ///
+    ========================================================================
+    Helper Methods (moved early to avoid parser limit)
+    ========================================================================
+    ///
 
     fun checkWordChar(ch: Int) r: Bool {
         // a-z, A-Z, 0-9, _
@@ -135,8 +144,10 @@ class SeenLspServer {
     }
 
     fun log(message: String) r: Void {
-        // Note: In a real implementation, we'd write to stderr
-        // For now, we can use sendNotification for window/logMessage
+        ///
+        Note: In a real implementation, we'd write to stderr
+        For now, we can use sendNotification for window/logMessage
+        ///
         let params = JsonValue_emptyObject()
         params.set("type", JsonValue_number(3))  // Info
         params.set("message", JsonValue_string("[seen-lsp] " + message))
@@ -283,6 +294,124 @@ class SeenLspServer {
         return -1
     }
 
+    fun isTripleSlashDelimiterLine(line: String) r: Bool {
+        let trimmed = line.trim()
+        return trimmed == "///"
+    }
+
+    fun isLineComment(line: String) r: Bool {
+        let trimmed = line.trim()
+        return trimmed.startsWith("//")
+    }
+
+    fun uriToPath(uri: String) r: String {
+        if uri.startsWith("file://") {
+            return uri.substring(7, uri.length())
+        }
+        return uri
+    }
+
+    fun parentDirectory(path: String) r: String {
+        var idx = path.length() - 1
+        while idx >= 0 {
+            if path.charAt(idx) == '/' {
+                if idx == 0 {
+                    return "/"
+                }
+                return path.substring(0, idx)
+            }
+            idx = idx - 1
+        }
+        return ""
+    }
+
+    fun findNearestSeenToml(uri: String) r: String {
+        var current = this.parentDirectory(this.uriToPath(uri))
+        var guard = 0
+        while current != "" and guard < 64 {
+            let candidate = current + "/Seen.toml"
+            if exists(candidate) {
+                return candidate
+            }
+            let parent = this.parentDirectory(current)
+            if parent == current {
+                return ""
+            }
+            current = parent
+            guard = guard + 1
+        }
+        return ""
+    }
+
+    fun extractTomlValue(line: String) r: String {
+        let eqPos = line.indexOf("=", 0)
+        if eqPos < 0 {
+            return ""
+        }
+        var value = line.substring(eqPos + 1, line.length()).trim()
+        let commentPos = value.indexOf("#", 0)
+        if commentPos >= 0 {
+            value = value.substring(0, commentPos).trim()
+        }
+        if value.length() >= 2 {
+            if value.charAt(0) == '"' and value.charAt(value.length() - 1) == '"' {
+                return value.substring(1, value.length() - 1)
+            }
+        }
+        return value
+    }
+
+    fun isSupportedLanguage(lang: String) r: Bool {
+        if lang == "en" { return true }
+        if lang == "ar" { return true }
+        if lang == "es" { return true }
+        if lang == "ru" { return true }
+        if lang == "zh" { return true }
+        if lang == "ja" { return true }
+        return false
+    }
+
+    fun extractLanguageFromToml(content: String) r: String {
+        let lines = content.split("\n")
+        var section = ""
+        var i = 0
+        while i < lines.length() {
+            let trimmed = lines[i].trim()
+            if trimmed.startsWith("[") and trimmed.endsWith("]") {
+                section = trimmed.substring(1, trimmed.length() - 1)
+            } else {
+                if section == "project" and trimmed.startsWith("language") {
+                    let lang = this.extractTomlValue(trimmed)
+                    if this.isSupportedLanguage(lang) {
+                        return lang
+                    }
+                }
+                if section == "language" and trimmed.startsWith("default") {
+                    let lang = this.extractTomlValue(trimmed)
+                    if this.isSupportedLanguage(lang) {
+                        return lang
+                    }
+                }
+            }
+            i = i + 1
+        }
+        return ""
+    }
+
+    fun resolveDocumentLanguage(uri: String) r: String {
+        let manifest = this.findNearestSeenToml(uri)
+        if manifest != "" {
+            let content = readText(manifest)
+            if content != "" {
+                let lang = this.extractLanguageFromToml(content)
+                if lang != "" {
+                    return lang
+                }
+            }
+        }
+        return "en"
+    }
+
     fun getAstForDocument(uri: String) r: ProgramNode {
         let doc = this.getDocument(uri)
         if doc == null {
@@ -290,7 +419,8 @@ class SeenLspServer {
         }
         let docObj = doc.unwrap()
         let content = docObj.content
-        let result = run_frontend(content, uri, "en")
+        let language = this.resolveDocumentLanguage(uri)
+        let result = run_frontend(content, uri, language)
         return result.program
     }
 
@@ -300,9 +430,15 @@ class SeenLspServer {
         var lineStart = 0
         var i = 0
         let funPattern = "fun " + word + "("
+        let externFunPattern = "extern fun " + word + "("
         let classPattern = "class " + word
+        let traitPattern = "trait " + word
+        let interfacePattern = "interface " + word
+        let structPattern = "struct " + word
         let enumPattern = "enum " + word
         let dataPattern = "data " + word
+        let typePattern = "type " + word
+        var inTripleSlashBlock = false
         while i <= content.length() {
             var atEnd = false
             if i == content.length() {
@@ -314,17 +450,38 @@ class SeenLspServer {
             }
             if atEnd {
                 let line = content.substring(lineStart, i)
-                if line.contains(funPattern) {
-                    return lineNum
-                }
-                if line.contains(classPattern) {
-                    return lineNum
-                }
-                if line.contains(enumPattern) {
-                    return lineNum
-                }
-                if line.contains(dataPattern) {
-                    return lineNum
+                if this.isTripleSlashDelimiterLine(line) {
+                    inTripleSlashBlock = not inTripleSlashBlock
+                } else {
+                    if not inTripleSlashBlock and not this.isLineComment(line) {
+                        if line.contains(funPattern) {
+                            return lineNum
+                        }
+                        if line.contains(externFunPattern) {
+                            return lineNum
+                        }
+                        if line.contains(classPattern) {
+                            return lineNum
+                        }
+                        if line.contains(traitPattern) {
+                            return lineNum
+                        }
+                        if line.contains(interfacePattern) {
+                            return lineNum
+                        }
+                        if line.contains(structPattern) {
+                            return lineNum
+                        }
+                        if line.contains(enumPattern) {
+                            return lineNum
+                        }
+                        if line.contains(dataPattern) {
+                            return lineNum
+                        }
+                        if line.contains(typePattern) {
+                            return lineNum
+                        }
+                    }
                 }
                 lineNum = lineNum + 1
                 lineStart = i + 1
@@ -555,9 +712,11 @@ class SeenLspServer {
         return -1
     }
 
-    // ========================================================================
-    // Main Message Loop
-    // ========================================================================
+    ///
+    ========================================================================
+    Main Message Loop
+    ========================================================================
+    ///
 
     fun run() r: Int {
         // Log startup to stderr (visible in output channel)
@@ -637,9 +796,11 @@ class SeenLspServer {
         }
     }
 
-    // ========================================================================
-    // Lifecycle Methods
-    // ========================================================================
+    ///
+    ========================================================================
+    Lifecycle Methods
+    ========================================================================
+    ///
 
     fun handleInitialize(msg: LspMessage) r: Void {
         this.log("Handling initialize request")
@@ -670,9 +831,11 @@ class SeenLspServer {
         this.rpc.stop()
     }
 
-    // ========================================================================
-    // Document Synchronization
-    // ========================================================================
+    ///
+    ========================================================================
+    Document Synchronization
+    ========================================================================
+    ///
 
     fun handleDidOpen(msg: LspMessage) r: Void {
         if msg.params == null {
@@ -756,9 +919,11 @@ class SeenLspServer {
         // Just trigger re-analysis of the document
     }
 
-    // ========================================================================
-    // Language Features
-    // ========================================================================
+    ///
+    ========================================================================
+    Language Features
+    ========================================================================
+    ///
 
     fun handleCompletion(msg: LspMessage) r: Void {
         if msg.params == null {
@@ -1030,96 +1195,79 @@ class SeenLspServer {
         this.rpc.sendResponse(response)
     }
 
-    // ========================================================================
-    // Find References
-    // ========================================================================
+    ///
+    ========================================================================
+    Find References
+    ========================================================================
+    ///
+
+    fun addOccurrencesInLine(results: Array<JsonValue>, uri: String,
+        line: String, lineNum: Int, word: String) r: Void {
+        let wordLen = word.length()
+        if wordLen == 0 {
+            return
+        }
+        var pos = 0
+        while pos <= line.length() - wordLen {
+            let sub = line.substring(pos, pos + wordLen)
+            if sub == word {
+                var beforeOk = true
+                if pos > 0 {
+                    let bc = line.charAt(pos - 1)
+                    if this.checkWordChar(bc) {
+                        beforeOk = false
+                    }
+                }
+                var afterOk = true
+                let afterPos = pos + wordLen
+                if afterPos < line.length() {
+                    let ac = line.charAt(afterPos)
+                    if this.checkWordChar(ac) {
+                        afterOk = false
+                    }
+                }
+                if beforeOk and afterOk {
+                    let startPos = LspPosition_new(lineNum, pos)
+                    let endPos = LspPosition_new(lineNum, pos + wordLen)
+                    let range = Range_new(startPos, endPos)
+                    let loc = Location_new(uri, range)
+                    results.push(loc.toJson())
+                }
+            }
+            pos = pos + 1
+        }
+    }
 
     fun findAllOccurrences(uri: String, content: String, word: String) r: Array<JsonValue> {
         let results = Array<JsonValue>()
         var lineNum = 0
         var lineStart = 0
         var i = 0
-        let wordLen = word.length()
         let contentLen = content.length()
+        var inTripleSlashBlock = false
 
-        while i < contentLen {
-            let ch = content.charAt(i)
-            if ch == 10 {
-                // Process this line (from lineStart to i)
-                var pos = lineStart
-                while pos <= i - wordLen {
-                    // Check if word matches at pos
-                    let sub = content.substring(pos, pos + wordLen)
-                    if sub == word {
-                        // Check word boundary: char before must not be word char
-                        var beforeOk = true
-                        if pos > lineStart {
-                            let bc = content.charAt(pos - 1)
-                            if this.checkWordChar(bc) {
-                                beforeOk = false
-                            }
-                        }
-                        // Check word boundary: char after must not be word char
-                        var afterOk = true
-                        let afterPos = pos + wordLen
-                        if afterPos < i {
-                            let ac = content.charAt(afterPos)
-                            if this.checkWordChar(ac) {
-                                afterOk = false
-                            }
-                        }
-                        if beforeOk {
-                            if afterOk {
-                                let col = pos - lineStart
-                                let startPos = LspPosition_new(lineNum, col)
-                                let endPos = LspPosition_new(lineNum, col + wordLen)
-                                let range = Range_new(startPos, endPos)
-                                let loc = Location_new(uri, range)
-                                results.push(loc.toJson())
-                            }
-                        }
+        while i <= contentLen {
+            var atEnd = false
+            if i == contentLen {
+                atEnd = true
+            } else {
+                if content.charAt(i) == 10 {
+                    atEnd = true
+                }
+            }
+            if atEnd {
+                let line = content.substring(lineStart, i)
+                if this.isTripleSlashDelimiterLine(line) {
+                    inTripleSlashBlock = not inTripleSlashBlock
+                } else {
+                    if not inTripleSlashBlock and not this.isLineComment(line) {
+                        this.addOccurrencesInLine(results, uri, line, lineNum, word)
                     }
-                    pos = pos + 1
                 }
                 lineNum = lineNum + 1
                 lineStart = i + 1
             }
             i = i + 1
-        }
-        // Handle last line (no trailing newline)
-        if lineStart < contentLen {
-            var pos = lineStart
-            while pos <= contentLen - wordLen {
-                let sub = content.substring(pos, pos + wordLen)
-                if sub == word {
-                    var beforeOk = true
-                    if pos > lineStart {
-                        let bc = content.charAt(pos - 1)
-                        if this.checkWordChar(bc) {
-                            beforeOk = false
-                        }
-                    }
-                    var afterOk = true
-                    let afterPos = pos + wordLen
-                    if afterPos < contentLen {
-                        let ac = content.charAt(afterPos)
-                        if this.checkWordChar(ac) {
-                            afterOk = false
-                        }
-                    }
-                    if beforeOk {
-                        if afterOk {
-                            let col = pos - lineStart
-                            let startPos = LspPosition_new(lineNum, col)
-                            let endPos = LspPosition_new(lineNum, col + wordLen)
-                            let range = Range_new(startPos, endPos)
-                            let loc = Location_new(uri, range)
-                            results.push(loc.toJson())
-                        }
-                    }
-                }
-                pos = pos + 1
-            }
         }
         return results
     }
@@ -1167,9 +1315,11 @@ class SeenLspServer {
         this.rpc.sendResponse(response)
     }
 
-    // ========================================================================
-    // Rename
-    // ========================================================================
+    ///
+    ========================================================================
+    Rename
+    ========================================================================
+    ///
 
     fun handleRename(msg: LspMessage) r: Void {
         if msg.params == null {
@@ -1247,9 +1397,11 @@ class SeenLspServer {
         this.rpc.sendResponse(response)
     }
 
-    // ========================================================================
-    // Document Symbols
-    // ========================================================================
+    ///
+    ========================================================================
+    Document Symbols
+    ========================================================================
+    ///
 
     fun extractDocumentSymbols(uri: String, content: String) r: Array<JsonValue> {
         let symbols = Array<JsonValue>()
@@ -1257,12 +1409,19 @@ class SeenLspServer {
         var lineStart = 0
         var i = 0
         let contentLen = content.length()
+        var inTripleSlashBlock = false
 
         while i < contentLen {
             let ch = content.charAt(i)
             if ch == 10 {
                 let line = content.substring(lineStart, i)
-                this.checkLineForSymbol(symbols, uri, line, lineNum)
+                if this.isTripleSlashDelimiterLine(line) {
+                    inTripleSlashBlock = not inTripleSlashBlock
+                } else {
+                    if not inTripleSlashBlock and not this.isLineComment(line) {
+                        this.checkLineForSymbol(symbols, uri, line, lineNum)
+                    }
+                }
                 lineNum = lineNum + 1
                 lineStart = i + 1
             }
@@ -1271,20 +1430,62 @@ class SeenLspServer {
         // Last line
         if lineStart < contentLen {
             let line = content.substring(lineStart, contentLen)
-            this.checkLineForSymbol(symbols, uri, line, lineNum)
+            if not inTripleSlashBlock and not this.isLineComment(line) {
+                this.checkLineForSymbol(symbols, uri, line, lineNum)
+            }
         }
         return symbols
     }
 
+    fun normalizeDeclarationLine(line: String) r: String {
+        var trimmed = line.trim()
+        while trimmed.startsWith("@") {
+            let spacePos = trimmed.indexOf(" ", 0)
+            if spacePos < 0 {
+                return ""
+            }
+            trimmed = trimmed.substring(spacePos + 1, trimmed.length()).trim()
+        }
+        var changed = true
+        while changed {
+            changed = false
+            if trimmed.startsWith("pub ") {
+                trimmed = trimmed.substring(4, trimmed.length()).trim()
+                changed = true
+            }
+            if trimmed.startsWith("static ") {
+                trimmed = trimmed.substring(7, trimmed.length()).trim()
+                changed = true
+            }
+            if trimmed.startsWith("extern ") {
+                trimmed = trimmed.substring(7, trimmed.length()).trim()
+                changed = true
+            }
+            if trimmed.startsWith("sealed ") {
+                trimmed = trimmed.substring(7, trimmed.length()).trim()
+                changed = true
+            }
+            if trimmed.startsWith("abstract ") {
+                trimmed = trimmed.substring(9, trimmed.length()).trim()
+                changed = true
+            }
+            if trimmed.startsWith("override ") {
+                trimmed = trimmed.substring(9, trimmed.length()).trim()
+                changed = true
+            }
+        }
+        return trimmed
+    }
+
     fun checkLineForSymbol(symbols: Array<JsonValue>, uri: String, line: String, lineNum: Int) r: Void {
-        // Skip empty/short lines
-        if line.length() < 4 { return }
+        let declLine = this.normalizeDeclarationLine(line)
+        if declLine.length() < 4 { return }
 
         // Check for function: "fun NAME("
-        let funIdx = this.findPrefix(line, "fun ")
+        let funIdx = this.findPrefix(declLine, "fun ")
         if funIdx >= 0 {
             let nameStart = funIdx + 4
-            let name = this.extractIdentifier(line, nameStart)
+            let name = this.extractIdentifier(declLine, nameStart)
             if name.length() > 0 {
                 this.addSymbolInfo(symbols, name, 12, uri, lineNum)
             }
@@ -1292,21 +1493,51 @@ class SeenLspServer {
         }
 
         // Check for class: "class NAME"
-        let classIdx = this.findPrefix(line, "class ")
+        let classIdx = this.findPrefix(declLine, "class ")
         if classIdx >= 0 {
             let nameStart = classIdx + 6
-            let name = this.extractIdentifier(line, nameStart)
+            let name = this.extractIdentifier(declLine, nameStart)
             if name.length() > 0 {
                 this.addSymbolInfo(symbols, name, 5, uri, lineNum)
             }
             return
         }
 
+        let traitIdx = this.findPrefix(declLine, "trait ")
+        if traitIdx >= 0 {
+            let nameStart = traitIdx + 6
+            let name = this.extractIdentifier(declLine, nameStart)
+            if name.length() > 0 {
+                this.addSymbolInfo(symbols, name, 11, uri, lineNum)
+            }
+            return
+        }
+
+        let interfaceIdx = this.findPrefix(declLine, "interface ")
+        if interfaceIdx >= 0 {
+            let nameStart = interfaceIdx + 10
+            let name = this.extractIdentifier(declLine, nameStart)
+            if name.length() > 0 {
+                this.addSymbolInfo(symbols, name, 11, uri, lineNum)
+            }
+            return
+        }
+
+        let structIdx = this.findPrefix(declLine, "struct ")
+        if structIdx >= 0 {
+            let nameStart = structIdx + 7
+            let name = this.extractIdentifier(declLine, nameStart)
+            if name.length() > 0 {
+                this.addSymbolInfo(symbols, name, 23, uri, lineNum)
+            }
+            return
+        }
+
         // Check for enum: "enum NAME"
-        let enumIdx = this.findPrefix(line, "enum ")
+        let enumIdx = this.findPrefix(declLine, "enum ")
         if enumIdx >= 0 {
             let nameStart = enumIdx + 5
-            let name = this.extractIdentifier(line, nameStart)
+            let name = this.extractIdentifier(declLine, nameStart)
             if name.length() > 0 {
                 this.addSymbolInfo(symbols, name, 10, uri, lineNum)
             }
@@ -1314,12 +1545,22 @@ class SeenLspServer {
         }
 
         // Check for data: "data NAME"
-        let dataIdx = this.findPrefix(line, "data ")
+        let dataIdx = this.findPrefix(declLine, "data ")
         if dataIdx >= 0 {
             let nameStart = dataIdx + 5
-            let name = this.extractIdentifier(line, nameStart)
+            let name = this.extractIdentifier(declLine, nameStart)
             if name.length() > 0 {
                 this.addSymbolInfo(symbols, name, 23, uri, lineNum)
+            }
+            return
+        }
+
+        let typeIdx = this.findPrefix(declLine, "type ")
+        if typeIdx >= 0 {
+            let nameStart = typeIdx + 5
+            let name = this.extractIdentifier(declLine, nameStart)
+            if name.length() > 0 {
+                this.addSymbolInfo(symbols, name, 13, uri, lineNum)
             }
             return
         }
@@ -1416,33 +1657,16 @@ class SeenLspServer {
         this.rpc.sendResponse(response)
     }
 
-    // ========================================================================
-    // Document Analysis
-    // ========================================================================
+    ///
+    ========================================================================
+    Document Analysis
+    ========================================================================
+    ///
 
     fun analyzeDocument(uri: String, content: String) r: Void {
         let diagnostics = Array<Diagnostic>()
-        let result = run_frontend(content, uri, "en")
-
-        // Basic validation: missing main function
-        var program = result.program
-        var hasMain = 0
-        var vi = 0
-        while vi < program.items.length() {
-            var item = program.items[vi]
-            if item.itemType == "Function" {
-                if item.name == "main" {
-                    hasMain = 1
-                }
-            }
-            vi = vi + 1
-        }
-        if hasMain == 0 {
-            var mainMsg = encodeDiagMessage("missing `main` function", "E003", "help: add 'fun main() r: Void { }' as entry point", "", 0)
-            result.addDiagnostic(FrontendDiagnostic.new(
-                uri, 1, 1, "error", mainMsg
-            ))
-        }
+        let language = this.resolveDocumentLanguage(uri)
+        let result = run_frontend(content, uri, language)
 
         // Store encoded messages for code actions
         var storedMessages = ""
@@ -1532,9 +1756,11 @@ class SeenLspServer {
         return result
     }
 
-    // ========================================================================
-    // Completion Generation
-    // ========================================================================
+    ///
+    ========================================================================
+    Completion Generation
+    ========================================================================
+    ///
 
     fun generateCompletions(uri: String, content: String, position: LspPosition) r: Array<CompletionItem> {
         let completions = Array<CompletionItem>()
@@ -1633,15 +1859,15 @@ class SeenLspServer {
 
         // Control flow, declarations, and modifiers
         let keywords = ["if", "else", "while", "for", "return", "break", "continue",
-                        "fun", "class", "data", "let", "var", "import", "pub", "extern",
+                        "fun", "class", "data", "let", "var", "import", "package", "module", "pub", "extern",
                         "true", "false", "null", "and", "or", "not", "in", "as", "is",
                         "match", "enum", "struct", "impl", "trait", "where",
                         "region", "comptime", "inline", "when",
                         "try", "catch", "errdefer", "defer",
                         "async", "await", "spawn",
-                        "unsafe", "distinct", "union",
-                        "this", "extends",
-                        "mut", "const", "static", "override", "type"]
+                        "unsafe", "distinct", "union", "effect",
+                        "this", "extends", "export",
+                        "mut", "const", "static", "override", "sealed", "interface", "type"]
 
         var i = 0
         while i < keywords.length() {
@@ -1661,7 +1887,8 @@ class SeenLspServer {
                      "Vec", "HashMap", "LinkedList", "BTreeMap",
                      "Channel", "Mutex", "RwLock", "AtomicInt", "Barrier", "ThreadLocal",
                      "Buffer", "Uniform", "Image",
-                     "Result", "Option", "SmallVec"]
+                     "Result", "Option", "SmallVec",
+                     "HotModule", "HotReloadWatcher", "StateSnapshot"]
 
         var i = 0
         while i < types.length() {
@@ -1747,6 +1974,58 @@ class SeenLspServer {
         asyncItem.insertTextFormat = 2
         completions.push(asyncItem)
 
+        let blockCommentItem = CompletionItem_new("/// block comment",
+            COMPLETION_SNIPPET)
+        blockCommentItem.detail = "multi-line block comment"
+        blockCommentItem.insertText = "///\n${1:comment}\n///"
+        blockCommentItem.insertTextFormat = 2
+        completions.push(blockCommentItem)
+
+        let exportItem = CompletionItem_new("@export", COMPLETION_SNIPPET)
+        exportItem.detail = "exported function"
+        exportItem.insertText = "@export\nfun ${1:name}(${2:params}) r: ${3:Int} {\n\t$0\n}"
+        exportItem.insertTextFormat = 2
+        completions.push(exportItem)
+
+        let hotReloadImportItem = CompletionItem_new("hotreload import",
+            COMPLETION_SNIPPET)
+        hotReloadImportItem.detail = "import framework hotreload helpers"
+        hotReloadImportItem.insertText = "import framework::hotreload"
+        hotReloadImportItem.insertTextFormat = 2
+        completions.push(hotReloadImportItem)
+
+        let packageImportItem = CompletionItem_new("package import",
+            COMPLETION_SNIPPET)
+        packageImportItem.detail = "import package root"
+        packageImportItem.insertText = "import ${1:package_name}"
+        packageImportItem.insertTextFormat = 2
+        completions.push(packageImportItem)
+
+        let packageSymbolImportItem = CompletionItem_new("package symbol import",
+            COMPLETION_SNIPPET)
+        packageSymbolImportItem.detail = "import symbol from package module"
+        packageSymbolImportItem.insertText = "import ${1:package_name}::${2:src}::${3:module}.{${4:Symbol}}"
+        packageSymbolImportItem.insertTextFormat = 2
+        completions.push(packageSymbolImportItem)
+
+        let usingItem = CompletionItem_new("@using", COMPLETION_SNIPPET)
+        usingItem.detail = "capability requirement"
+        usingItem.insertText = "@using(${1:Token})"
+        usingItem.insertTextFormat = 2
+        completions.push(usingItem)
+
+        let effectItem = CompletionItem_new("effect", COMPLETION_SNIPPET)
+        effectItem.detail = "capability effect"
+        effectItem.insertText = "effect(${1:Token})"
+        effectItem.insertTextFormat = 2
+        completions.push(effectItem)
+
+        let sealedItem = CompletionItem_new("sealed class", COMPLETION_SNIPPET)
+        sealedItem.detail = "sealed class"
+        sealedItem.insertText = "sealed class ${1:Name} {\n\t$0\n}"
+        sealedItem.insertTextFormat = 2
+        completions.push(sealedItem)
+
         return completions
     }
 
@@ -1805,9 +2084,11 @@ class SeenLspServer {
         return completions
     }
 
-    // ========================================================================
-    // Hover Generation
-    // ========================================================================
+    ///
+    ========================================================================
+    Hover Generation
+    ========================================================================
+    ///
 
     fun generateHover(uri: String, content: String, position: LspPosition) r: Hover? {
         // Get the word at the cursor position
@@ -1901,7 +2182,10 @@ class SeenLspServer {
             return "Declares a mutable variable.\n\n```seen\nvar x = value\n```"
         }
         if word == "import" {
-            return "Imports symbols from a module.\n\n```seen\nimport module.{Symbol1, Symbol2}\n```"
+            return "Imports symbols from a module or package.\n\n```seen\nimport module.{Symbol1, Symbol2}\nimport package_name\nimport package_name::src::module.{Symbol}\n```"
+        }
+        if word == "package" {
+            return "Declares or refers to a package root import."
         }
         if word == "if" {
             return "Conditional statement.\n\n```seen\nif condition {\n    // then branch\n} else {\n    // else branch\n}\n```"
@@ -1915,6 +2199,9 @@ class SeenLspServer {
         if word == "for" {
             return "For-in loop.\n\n```seen\nfor item in collection {\n    // body\n}\n```"
         }
+        if word == "in" {
+            return "Membership operator and for-loop collection separator.\n\n```seen\nif item in collection { }\nfor item in collection { }\n```"
+        }
         if word == "match" {
             return "Pattern matching expression.\n\n```seen\nmatch expr {\n    pattern => result\n}\n```"
         }
@@ -1926,6 +2213,12 @@ class SeenLspServer {
         }
         if word == "trait" {
             return "Define a trait (interface).\n\n```seen\ntrait Name {\n    fun method() r: Type\n}\n```"
+        }
+        if word == "interface" {
+            return "Defines an interface-style contract."
+        }
+        if word == "sealed" {
+            return "Restricts inheritance to the declaring module/package."
         }
         if word == "struct" {
             return "Alias for `data`. Defines a value type."
@@ -1975,6 +2268,21 @@ class SeenLspServer {
         if word == "extern" {
             return "Declares an external function (FFI).\n\n```seen\nextern fun c_function(arg: Int) r: Int\n```"
         }
+        if word == "export" {
+            return "Exports a function with a stable native symbol for shared-library and dlsym workflows.\n\n```seen\n@export\nfun plugin_answer() r: Int {\n    return 42\n}\n```"
+        }
+        if word == "effect" {
+            return "Declares a required capability token in a function effect list.\n\n```seen\nfun read(path: String) effect(FileToken) r: String\n```"
+        }
+        if word == "using" {
+            return "Capability annotation for functions that require an imported token.\n\n```seen\n@using(FileToken)\nfun read(path: String) r: String { }\n```"
+        }
+        if word == "HotModule" {
+            return "High-level wrapper around a loaded hot-reload module from `framework::hotreload`."
+        }
+        if word == "HotReloadWatcher" {
+            return "Tracks hot-reload module paths and polls for reload events."
+        }
         if word == "pub" {
             return "Makes a declaration public (visible outside the module)."
         }
@@ -2002,9 +2310,11 @@ fun SeenLspServer_new() r: SeenLspServer {
     return server
 }
 
-// ============================================================================
-// Entry Point
-// ============================================================================
+///
+============================================================================
+Entry Point
+============================================================================
+///
 
 fun runLspServer() r: Int {
     let server = SeenLspServer_new()

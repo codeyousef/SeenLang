@@ -1,0 +1,109 @@
+// ir_enum_lookup.seen - Enum variant registry lookup helpers.
+
+import codegen.ir_optimization.{parseIntManual, pipeGet}
+
+// Parse a single digit character to int
+fun parseDigitChar(c: String) r: Int {
+    if c == "0" { return 0 }
+    if c == "1" { return 1 }
+    if c == "2" { return 2 }
+    if c == "3" { return 3 }
+    if c == "4" { return 4 }
+    if c == "5" { return 5 }
+    if c == "6" { return 6 }
+    if c == "7" { return 7 }
+    if c == "8" { return 8 }
+    if c == "9" { return 9 }
+    return 0
+}
+
+// Look up enum variant tag index by variant name
+fun lookupEnumVariantTagImpl(variantName: String, enumVariantNames: String, enumVariantTags: String, enumVariantCount: Int) r: Int {
+    var i = 0
+    while i < enumVariantCount {
+        let name = pipeGet(enumVariantNames, i)
+        if name == variantName {
+            let tagStr = pipeGet(enumVariantTags, i)
+            return parseIntManual(tagStr)
+        }
+        i = i + 1
+    }
+    return 0
+}
+
+// Look up parent enum type for a variant name
+fun lookupEnumParentImpl(variantName: String, enumVariantNames: String, enumVariantParent: String, enumVariantCount: Int) r: String {
+    var i = 0
+    while i < enumVariantCount {
+        let name = pipeGet(enumVariantNames, i)
+        if name == variantName {
+            return pipeGet(enumVariantParent, i)
+        }
+        i = i + 1
+    }
+    return ""
+}
+
+// Look up enum field type by variant name and field index
+fun lookupEnumFieldTypeImpl(variantName: String, fieldIdx: Int, enumVariantNames: String, enumVariantFieldTypes: String, enumVariantCount: Int) r: String {
+    var i = 0
+    while i < enumVariantCount {
+        let name = pipeGet(enumVariantNames, i)
+        if name == variantName {
+            let fieldTypesStr = pipeGet(enumVariantFieldTypes, i)
+            var fi = 0
+            var fStart = 0
+            var fPos = 0
+            while fPos <= fieldTypesStr.length() {
+                var fAtEnd = 0
+                if fPos == fieldTypesStr.length() { fAtEnd = 1 }
+                if fAtEnd == 0 {
+                    if fieldTypesStr.byteAt(fPos) == 44 { fAtEnd = 1 }
+                }
+                if fAtEnd == 1 {
+                    if fi == fieldIdx {
+                        return fieldTypesStr.substring(fStart, fPos)
+                    }
+                    fi = fi + 1
+                    fStart = fPos + 1
+                }
+                fPos = fPos + 1
+            }
+            return "Int"
+        }
+        i = i + 1
+    }
+    return "Int"
+}
+
+// Look up field count for a variant
+fun lookupEnumFieldCountImpl(variantName: String, enumVariantNames: String, enumVariantFieldCounts: String, enumVariantCount: Int) r: Int {
+    var i = 0
+    while i < enumVariantCount {
+        let name = pipeGet(enumVariantNames, i)
+        if name == variantName {
+            let countStr = pipeGet(enumVariantFieldCounts, i)
+            return parseIntManual(countStr)
+        }
+        i = i + 1
+    }
+    return 0
+}
+
+// Check if a name is a registered enum variant
+fun isEnumVariantImpl(name: String, enumVariantNames: String, enumVariantCount: Int) r: Bool {
+    if enumVariantCount == 0 {
+        return false
+    }
+    if name == "" {
+        return false
+    }
+    var i = 0
+    while i < enumVariantCount {
+        if pipeGet(enumVariantNames, i) == name {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}

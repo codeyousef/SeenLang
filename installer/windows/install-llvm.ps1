@@ -27,13 +27,24 @@ if ($clang) {
 
     # Check version
     $opt = Get-Command opt -ErrorAction SilentlyContinue
+    $llc = Get-Command llc -ErrorAction SilentlyContinue
+    $llvmAs = Get-Command llvm-as -ErrorAction SilentlyContinue
     $lld = Get-Command lld-link -ErrorAction SilentlyContinue
+    if (-not $lld) {
+        $lld = Get-Command ld.lld -ErrorAction SilentlyContinue
+    }
 
     if (-not $opt) {
         Write-Host "Warning: 'opt' not found in PATH. Full LLVM installation may be needed." -ForegroundColor Yellow
     }
+    if (-not $llc) {
+        Write-Host "Warning: 'llc' not found in PATH. Full LLVM installation may be needed." -ForegroundColor Yellow
+    }
+    if (-not $llvmAs) {
+        Write-Host "Warning: 'llvm-as' not found in PATH. Full LLVM installation may be needed." -ForegroundColor Yellow
+    }
     if (-not $lld) {
-        Write-Host "Warning: 'lld-link' not found in PATH. LLD linker may not be installed." -ForegroundColor Yellow
+        Write-Host "Warning: 'lld-link' or 'ld.lld' not found in PATH. LLD linker may not be installed." -ForegroundColor Yellow
     }
 
     exit 0

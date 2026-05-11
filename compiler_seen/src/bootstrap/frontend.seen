@@ -1,28 +1,59 @@
-// frontend.seen — Frontend pipeline orchestrator
-//
+// frontend.seen - Frontend pipeline orchestrator
 // Pipeline stage: Stage 4 (frontend integration)
 // Input: Raw source code string + file label + language code
-// Output: FrontendResult containing AST (ProgramNode), diagnostics, success flag
-//
-// Orchestrates the first three compiler stages in sequence:
-//   1. Lexer (SeenLexer.tokenize) → Array<Token>
-//   2. Parser (RealParser.parse) → ProgramNode (AST)
-//   3. Type Checker (TypeChecker.check) → TypeInferenceResult
-//   4. Macro Expander (MacroExpander.expandProgram) → transformed AST
-//
-// Errors from any stage are collected into FrontendDiagnostic objects with
-// source locations. The pipeline short-circuits on type errors (returns
-// before macro expansion) but does NOT short-circuit on warnings.
-//
-// Used by both the user-facing CLI (main.seen) and the bootstrap driver
-// (main_compiler.seen). The FrontendResult.program field carries the AST
-// through to IR generation.
+// Output: FrontendResult containing AST, diagnostics, and success flag
+// Orchestrates lexer, parser, type checker, and macro expander.
+// Errors from any stage are collected into FrontendDiagnostic objects.
+// Used by both the user-facing CLI and the bootstrap driver.
 
-import lexer.{SeenLexer, LexerError}
-import parser.real_parser.{RealParser, ProgramNode, FunctionNode, ClassNode, StatementNode, ParserExpressionNode, BlockNode}
-import typechecker.interfaces.{TypeChecker}
+import lexer.lexer.{SeenLexer, newSeenLexerCompat}
+import lexer.interfaces.{LexerError}
+import parser.real_parser.{RealParser, ProgramNode, ItemNode, FunctionNode, ClassNode, StatementNode, ParserExpressionNode, BlockNode, ParamNode, TypeNode, AnnotationNode, newRealParserCompat}
+import typechecker.interfaces.{TypeChecker, newTypeCheckerCompat}
 import typechecker.interfaces.{TypeError}
-import macro.expander.{MacroExpander}
+import macro.expander.{MacroExpander, newMacroExpanderCompat}
+
+fun frontendEmptyProgramNode() r: ProgramNode {
+    return ProgramNode{ items: Array<ItemNode>() }
+}
+
+fun frontendUnknownTypeNode() r: TypeNode {
+    return TypeNode{ typeName: "Unknown", isNullable: false }
+}
+
+fun frontendEmptyBlockNode() r: BlockNode {
+    return BlockNode{ statements: Array<StatementNode>() }
+}
+
+fun frontendEmptyFunctionNode() r: FunctionNode {
+    return FunctionNode{
+        name: "",
+        params: Array<ParamNode>(),
+        returnType: frontendUnknownTypeNode(),
+        body: frontendEmptyBlockNode(),
+        isAsync: false,
+        isInline: false,
+        isStatic: false,
+        isExtern: false,
+        isDeterministic: false,
+        isNondeterministic: false,
+        decorators: Array<AnnotationNode>(),
+        line: 0,
+        column: 0,
+        isOverride: false
+    }
+}
+
+fun frontendEmptyClassNode() r: ClassNode {
+    return ClassNode{
+        name: "",
+        fields: Array<ParamNode>(),
+        methods: Array<FunctionNode>(),
+        decorators: Array<AnnotationNode>(),
+        isNondeterministic: false,
+        parentName: ""
+    }
+}
 
 class FrontendDiagnostic {
     var file: String
@@ -31,7 +62,7 @@ class FrontendDiagnostic {
     var severity: String
     var message: String
 
-    fun new(file: String, line: Int, column: Int, severity: String, message: String) r: FrontendDiagnostic {
+    static fun new(file: String, line: Int, column: Int, severity: String, message: String) r: FrontendDiagnostic {
         return FrontendDiagnostic{
             file: file,
             line: line,
@@ -42,25 +73,34 @@ class FrontendDiagnostic {
     }
 }
 
-// Result container for the frontend pipeline. Carries the parsed AST,
-// accumulated diagnostics (errors + warnings), and a success flag.
-// Consumed by buildCommandWithOptions() to decide whether to proceed to codegen.
+fun frontendDiagnostic(file: String, line: Int, column: Int, severity: String, message: String) r: FrontendDiagnostic {
+    return FrontendDiagnostic{
+        file: file,
+        line: line,
+        column: column,
+        severity: severity,
+        message: message
+    }
+}
+
+// Result container for the frontend pipeline.
+// Carries the parsed AST, accumulated diagnostics, and success flag.
 class FrontendResult {
     var success: Bool
     var diagnostics: Array<FrontendDiagnostic>
     var program: ProgramNode
 
-    fun getDiagnostics() r: Array<FrontendDiagnostic> { return diagnostics }
-    fun setSuccess(v: Bool) r: Void { success = v }
+    fun getDiagnostics() r: Array<FrontendDiagnostic> { return this.diagnostics }
+    fun setSuccess(v: Bool) r: Void { this.success = v }
 
     fun addDiagnostic(diag: FrontendDiagnostic) r: Void {
-        diagnostics.push(diag)
+        this.diagnostics.push(diag)
     }
 
     fun hasErrors() r: Bool {
         var i = 0
-        while i < diagnostics.length() {
-            let diag = diagnostics[i]
+        while i < this.diagnostics.length() {
+            let diag = this.diagnostics[i]
             if diag.severity == "error" {
                 return true
             }
@@ -71,8 +111,8 @@ class FrontendResult {
 
     fun hasWarnings() r: Bool {
         var i = 0
-        while i < diagnostics.length() {
-            let diag = diagnostics[i]
+        while i < this.diagnostics.length() {
+            let diag = this.diagnostics[i]
             if diag.severity == "warning" {
                 return true
             }
@@ -82,34 +122,31 @@ class FrontendResult {
     }
 
     // BOOTSTRAP CONSTRAINT: new() must be the LAST method in this class.
-    // Stage2's parser may exit the class body after parsing new() because the
-    // generic constructor Array<FrontendDiagnostic>() causes a brace mismatch
-    // cascade in older compilers. Any methods after new() would be silently lost.
+    // Older compilers can exit the class body after parsing this generic
+    // constructor, so methods after new() may be silently lost.
     static fun new() r: FrontendResult {
         return FrontendResult{
             success: false,
             diagnostics: Array<FrontendDiagnostic>(),
-            program: ProgramNode.new()
+            program: frontendEmptyProgramNode()
         }
     }
 }
 
-// Main frontend entry point. Runs lexer → parser → type checker → macro expansion.
-// Returns a FrontendResult with success=true if all stages pass, or with
-// diagnostics populated on failure. The resulting AST is in result.program.
+// Main frontend entry point.
+// Runs lexer, parser, type checker, and macro expansion.
 fun run_frontend(source: String, fileLabel: String, language: String = "en") r: FrontendResult {
     let result = FrontendResult.new()
 
-    // Without try/catch, we assume the pipeline succeeds.
     // Error handling is done via result types from the lexer/parser/checker.
-    let lexer = SeenLexer.new(source, 1, language)
+    let lexer = newSeenLexerCompat(source, 1, language)
     let tokens = lexer.tokenize()
 
-    let parser = RealParser.new(tokens)
+    let parser = newRealParserCompat(tokens)
     let ast = parser.parse()
     result.program = ast
     // Reduced tracing to avoid string allocation crashes
-    let checker = TypeChecker.new()
+    let checker = newTypeCheckerCompat()
     let typeResult = checker.check(ast)
 
     if typeResult.errors.length() > 0 {
@@ -129,14 +166,14 @@ fun run_frontend(source: String, fileLabel: String, language: String = "en") r: 
         while j < typeWarnings.length() {
             let warning = typeWarnings[j]
             result.addDiagnostic(
-                FrontendDiagnostic.new(fileLabel, 0, 0, "warning", warning)
+                frontendDiagnostic(fileLabel, 0, 0, "warning", warning)
             )
             j = j + 1
         }
     }
 
     // Macro expansion phase
-    let expander = MacroExpander.new()
+    let expander = newMacroExpanderCompat()
     let macroResult = expander.expandProgram(ast)
 
     // Report macro expansion errors
@@ -146,7 +183,7 @@ fun run_frontend(source: String, fileLabel: String, language: String = "en") r: 
         while mi < macroErrors.length() {
             let errMsg = macroErrors[mi]
             var macroEncoded = encodeDiagMessage(errMsg, "E004", "", "", 0)
-            result.addDiagnostic(FrontendDiagnostic.new(
+            result.addDiagnostic(frontendDiagnostic(
                 fileLabel, 0, 0, "error", macroEncoded
             ))
             mi = mi + 1
@@ -180,19 +217,30 @@ fun run_frontend(source: String, fileLabel: String, language: String = "en") r: 
     return result
 }
 
-// Lightweight frontend for declaration registration. It intentionally skips
-// typechecking, macro expansion, and capability validation because Pass 1 only
-// needs declaration shapes for cross-module signatures.
+// Lightweight frontend for declaration registration.
+// It skips typechecking, macro expansion, and capability validation.
 fun run_frontend_declarations(source: String, fileLabel: String, language: String = "en") r: FrontendResult {
     let result = FrontendResult.new()
 
-    let lexer = SeenLexer.new(source, 1, language)
+    let lexer = newSeenLexerCompat(source, 1, language)
     let tokens = lexer.tokenize()
 
-    let parser = RealParser.new(tokens)
+    let parser = newRealParserCompat(tokens)
     result.program = parser.parseDeclarationsOnly()
     result.success = true
     return result
+}
+
+fun runFrontendCompat(source: String, fileLabel: String,
+    language: String) r: FrontendResult {
+
+    return run_frontend(source, fileLabel, language)
+}
+
+fun runFrontendDeclarationsCompat(source: String, fileLabel: String,
+    language: String) r: FrontendResult {
+
+    return run_frontend_declarations(source, fileLabel, language)
 }
 
 fun functionHasDecorator(func: FunctionNode, decoratorName: String) r: Bool {
@@ -311,7 +359,7 @@ fun frontendFindCapabilityFunction(functions: Array<FunctionNode>, functionNames
         }
         i = i + 1
     }
-    return FunctionNode.new()
+    return frontendEmptyFunctionNode()
 }
 
 fun frontendGetFunctionCapabilities(func: FunctionNode) r: Array<String> {
@@ -457,7 +505,7 @@ fun frontendAddCapabilityViolation(result: FrontendResult, fileLabel: String, li
     }
 
     let encoded = encodeDiagMessage(fullMessage, "E005", suggestion, "", 0)
-    result.addDiagnostic(FrontendDiagnostic.new(fileLabel, line, 0, "error", encoded))
+    result.addDiagnostic(frontendDiagnostic(fileLabel, line, 0, "error", encoded))
 }
 
 fun frontendCheckCapabilityCalledFunction(result: FrontendResult, fileLabel: String, functions: Array<FunctionNode>, functionNames: Array<String>, callerFunc: FunctionNode, callerName: String, calledName: String, funcLine: Int) r: Void {
@@ -587,7 +635,7 @@ fun frontendFindProgramClass(program: ProgramNode, className: String) r: ClassNo
         }
         i = i + 1
     }
-    return ClassNode.new()
+    return frontendEmptyClassNode()
 }
 
 fun frontendIsIdentifierStartChar(ch: String) r: Bool {
@@ -650,7 +698,7 @@ fun validateDecoratorClosedClasses(result: FrontendResult, fileLabel: String, pr
                         let message = "@" + requiredDecorator + " class '" + cls.name + "' cannot contain field '" + field.name + "' of type '" + badType + "' without @" + requiredDecorator
                         let suggestion = "Mark '" + badType + "' with @" + requiredDecorator + " or change field '" + field.name + "' to a compatible type."
                         let encoded = encodeDiagMessage(message, "E006", suggestion, "", 0)
-                        result.addDiagnostic(FrontendDiagnostic.new(fileLabel, 0, 0, "error", encoded))
+                        result.addDiagnostic(frontendDiagnostic(fileLabel, 0, 0, "error", encoded))
                     }
                     fi = fi + 1
                 }
@@ -660,10 +708,10 @@ fun validateDecoratorClosedClasses(result: FrontendResult, fileLabel: String, pr
     }
 }
 
-// --- Diagnostic extras encoding ---
+// Diagnostic extras encoding.
 // Encodes extra metadata into the message field using \x01 separator.
 // Format: "base message\x01code\x01suggestion\x01note\x01endColumn"
-// This avoids changing the FrontendDiagnostic struct layout (no bootstrap risk).
+// This avoids changing the FrontendDiagnostic struct layout.
 
 fun diagSeparator() r: String {
     return String.fromCharCode(1)
@@ -797,7 +845,7 @@ fun diagnostic_from_type_error(error: TypeError, fileLabel: String) r: FrontendD
     var endColumn = location.column + 1
     var encoded = encodeDiagMessage(baseMessage, "E001", suggestion, note, endColumn)
 
-    return FrontendDiagnostic.new(
+    return frontendDiagnostic(
         fileLabel,
         location.line,
         location.column,

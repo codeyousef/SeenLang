@@ -1,12 +1,14 @@
-// ir_decl_registry.seen — declaration registry/state helpers
-// Extracted from llvm_ir_gen.seen so declaration plumbing and registry
-// ownership stay separate from the main Pass 1 orchestration.
+///
+ir_decl_registry.seen — declaration registry/state helpers
+Extracted from llvm_ir_gen.seen so declaration plumbing and registry
+ownership stay separate from the main Pass 1 orchestration.
+///
 
 import parser.real_parser.{ProgramNode}
 import str.string.{StringBuilder}
 import codegen.ir_decl_scan.{registerEnumVariantsImpl, registerCrossModuleConstantsImpl, buildLateUserDeclareStringImpl, recordLateUserDeclareImpl, emitLateUserDeclaresImpl, pipeContainsValueImpl, quoteDeclScanIdentIfNeeded}
 import codegen.ir_async_registry.{isAsyncFunctionImpl, getAsyncDeclaredRetTypeImpl}
-import codegen.type_registry.{ensureStructEntryReg, getFunctionReturnTypeReg}
+import codegen.type_registry_core.{ensureStructEntryReg, getFunctionReturnTypeReg}
 
 class DeclarationPassState {
     var asyncFuncNames: String
@@ -132,6 +134,10 @@ fun captureLateUserDeclareStateImpl(lateXmDeclareNames: String,
 
     return LateUserDeclareState.new(lateXmDeclareNames, lateXmDeclareStrs,
         lateXmDeclareCount)
+}
+
+fun resetLateUserDeclareStateImpl() r: LateUserDeclareState {
+    return LateUserDeclareState.new("", "", 0)
 }
 
 fun captureParentClassRegistryStateImpl(inheritanceChildNames: String,
@@ -302,8 +308,7 @@ fun hasLateUserDeclareStateImpl(name: String, lateXmDeclareNames: String,
 }
 
 fun recordLateUserDeclareIntoStateImpl(name: String, llvmReturnType: String,
-    argTypeStrs: Array<String>, hasImplicitThis: Int, funcNames: Array<String>,
-    funcRetTypes: Array<String>, xmDeclareNames: String, xmDeclareCount: Int,
+    argTypeStrs: Array<String>, hasImplicitThis: Int,
     state: LateUserDeclareState) r: Void {
 
     if name == "" {

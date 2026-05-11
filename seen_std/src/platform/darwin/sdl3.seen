@@ -1,11 +1,11 @@
-/**
- * SDL3 FFI bindings for macOS.
- *
- * Cross-platform SDL3 bindings that work on both macOS and Linux.
- * Provides window creation, input handling, and Metal/Vulkan surface support.
- *
- * Link with: -lSDL3
- */
+///
+SDL3 FFI bindings for macOS.
+
+Cross-platform SDL3 bindings that work on both macOS and Linux.
+Provides window creation, input handling, and Metal/Vulkan surface support.
+
+Link with: -lSDL3
+///
 
 import core.result.{Result, Ok, Err}
 import core.unit.{Unit}

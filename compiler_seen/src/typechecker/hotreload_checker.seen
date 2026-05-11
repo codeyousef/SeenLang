@@ -1,5 +1,7 @@
-// Hot Reload Checker - Validates @hot_reload decorator usage
-// Ensures classes marked for hot reload have serializable state
+///
+Hot Reload Checker - Validates @hot_reload decorator usage
+Ensures classes marked for hot reload have serializable state
+///
 
 import compiler_seen.src.parser.real_parser.{ClassNode, ParamNode, AnnotationNode}
 
@@ -148,8 +150,10 @@ class HotReloadChecker {
             return true
         }
 
-        // User-defined types with @derive(Serialize) are assumed serializable
-        // (actual check would require type registry)
+        ///
+        User-defined types with @derive(Serialize) are assumed serializable
+        (actual check would require type registry)
+        ///
         return true
     }
 

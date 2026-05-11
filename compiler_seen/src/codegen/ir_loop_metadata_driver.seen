@@ -1,0 +1,15 @@
+// ir_loop_metadata_driver.seen - loop metadata state helpers.
+
+import codegen.ir_codegen_metrics_state.{appendLoopTileHintWithMetricsStateImpl, appendNestedLoopMetadataIdWithMetricsStateImpl, appendReductionLoopMetadataIdWithMetricsStateImpl}
+
+fun appendLoopTileHint(loopMetaId: Int, hintValue: Int) r: Void {
+    appendLoopTileHintWithMetricsStateImpl(loopMetaId, hintValue)
+}
+
+fun appendNestedLoopMetadataId(loopMetaId: Int) r: Void {
+    appendNestedLoopMetadataIdWithMetricsStateImpl(loopMetaId)
+}
+
+fun appendReductionLoopMetadataId(loopMetaId: Int) r: Void {
+    appendReductionLoopMetadataIdWithMetricsStateImpl(loopMetaId)
+}

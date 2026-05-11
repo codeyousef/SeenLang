@@ -1,5 +1,7 @@
-// seen_std.crypto.md5
-// RFC 1321 compliant MD5 hash implementation in pure Seen.
+///
+seen_std.crypto.md5
+RFC 1321 compliant MD5 hash implementation in pure Seen.
+///
 
 import collections.vec.{Vec}
 import str.string.{StringBuilder}

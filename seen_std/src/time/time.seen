@@ -1,5 +1,7 @@
-// seen_std.time.time
-// Deterministic timestamp + duration helpers atop __GetTimestamp.
+///
+seen_std.time.time
+Deterministic timestamp + duration helpers atop __GetTimestamp.
+///
 
 // External runtime intrinsics
 extern fun __GetTimestamp() r: String

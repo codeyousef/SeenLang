@@ -1,5 +1,7 @@
-// Test @preallocate decorator
-// This test verifies region-based memory allocation
+///
+Test @preallocate decorator
+This test verifies region-based memory allocation
+///
 
 // Simple function with default preallocate settings
 @preallocate

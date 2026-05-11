@@ -1,5 +1,7 @@
-// Binary Trees Benchmark
-// Memory allocation and pointer chasing
+///
+Binary Trees Benchmark
+Memory allocation and pointer chasing
+///
 
 data TreeNode {
     item: Int

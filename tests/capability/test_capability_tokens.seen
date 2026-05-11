@@ -1,17 +1,23 @@
-// Test @using(Token) capability annotations
-// This test verifies that the capability checker correctly enforces security constraints
+///
+Test @using(Token) capability annotations
+This test verifies that the capability checker correctly enforces security constraints
+///
 
-// Test 1: Missing token should fail (compile-time error expected)
-// Uncomment to test error detection:
-// fun testMissingToken() r: Void {
-//     let x = readText("file.txt")  // ERROR: lacks FileToken
-// }
+///
+Test 1: Missing token should fail (compile-time error expected)
+Uncomment to test error detection:
+fun testMissingToken() r: Void {
+    let x = readText("file.txt")  // ERROR: lacks FileToken
+}
+///
 
 // Test 2: With token should pass
 @using(FileToken)
 fun testWithFileToken() r: String {
-    // This would be allowed with FileToken
-    // return readText("config.txt")
+    ///
+    This would be allowed with FileToken
+    return readText("config.txt")
+    ///
     return "test"
 }
 
@@ -22,10 +28,12 @@ fun helperReadFile() r: String {
     return "file contents"
 }
 
-// This should fail without FileToken (uncomment to test):
-// fun testPropagationFail() r: Void {
-//     let x = helperReadFile()  // ERROR: lacks FileToken
-// }
+///
+This should fail without FileToken (uncomment to test):
+fun testPropagationFail() r: Void {
+    let x = helperReadFile()  // ERROR: lacks FileToken
+}
+///
 
 // This should pass with FileToken
 @using(FileToken)
@@ -36,51 +44,63 @@ fun testPropagationPass() r: String {
 // Test 4: Multiple tokens
 @using(FileToken, NetToken)
 fun testMultipleTokens() r: Bool {
-    // With both tokens, can do file and network ops
-    // let content = readText("urls.txt")
-    // let stream = TcpStream.connect("example.com:80")
+    ///
+    With both tokens, can do file and network ops
+    let content = readText("urls.txt")
+    let stream = TcpStream.connect("example.com:80")
+    ///
     return true
 }
 
 // Test 5: AllToken grants all capabilities
 @using(AllToken)
 fun testAllToken() r: Bool {
-    // AllToken grants all capabilities for legacy/trusted code
-    // readText("x.txt")        // OK with AllToken
-    // TcpStream.connect("x:80") // OK with AllToken
-    // execCommand("ls")         // OK with AllToken
+    ///
+    AllToken grants all capabilities for legacy/trusted code
+    readText("x.txt")        // OK with AllToken
+    TcpStream.connect("x:80") // OK with AllToken
+    execCommand("ls")         // OK with AllToken
+    ///
     return true
 }
 
 // Test 6: ProcessToken for execution
 @using(ProcessToken)
 fun testProcessToken() r: Bool {
-    // Would allow process execution
-    // execCommand("ls -la")
+    ///
+    Would allow process execution
+    execCommand("ls -la")
+    ///
     return true
 }
 
 // Test 7: EnvToken for environment access
 @using(EnvToken)
 fun testEnvToken() r: String {
-    // Would allow environment access
-    // return env.get("HOME")
+    ///
+    Would allow environment access
+    return env.get("HOME")
+    ///
     return "/home/user"
 }
 
 // Test 8: DynLoadToken for dynamic loading
 @using(DynLoadToken)
 fun testDynLoadToken() r: Bool {
-    // Would allow dynamic library loading
-    // let module = HotModule.load("plugin.so")
+    ///
+    Would allow dynamic library loading
+    let module = HotModule.load("plugin.so")
+    ///
     return true
 }
 
 // Test 9: NetToken for network operations
 @using(NetToken)
 fun testNetToken() r: Bool {
-    // Would allow network operations
-    // let stream = TcpStream.connect("localhost:8080")
+    ///
+    Would allow network operations
+    let stream = TcpStream.connect("localhost:8080")
+    ///
     return true
 }
 

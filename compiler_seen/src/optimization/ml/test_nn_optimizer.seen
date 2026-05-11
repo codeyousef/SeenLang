@@ -1,5 +1,7 @@
-// Tests for Neural Network-based ML Optimizer
-// Validates neural network operations, training, and decision making
+///
+Tests for Neural Network-based ML Optimizer
+Validates neural network operations, training, and decision making
+///
 
 import optimization.ml.neural_network.{NeuralNetwork, NeuralLayer, TrainingSample, sigmoid, relu}
 import optimization.ml.training_data.{TrainingData, TrainingExample, OptimizationDecision}

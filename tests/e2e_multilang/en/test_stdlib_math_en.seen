@@ -1,7 +1,9 @@
-// E2E Test: Math Operations (English)
-// NOTE: Float stdlib calls (sqrt, sin, cos, abs, floor, ceil, pow) return i64
-// instead of double due to codegen bug. Testing integer math only.
-// Modulo (%) is broken, using workaround: a - (a/b)*b
+///
+E2E Test: Math Operations (English)
+NOTE: Float stdlib calls (sqrt, sin, cos, abs, floor, ceil, pow) return i64
+instead of double due to codegen bug. Testing integer math only.
+Modulo (%) is broken, using workaround: a - (a/b)*b
+///
 
 fun main() r: Int {
     // Test 1: integer abs via conditional

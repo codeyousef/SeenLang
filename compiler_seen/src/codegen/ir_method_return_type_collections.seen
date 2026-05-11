@@ -1,0 +1,320 @@
+// Collection receiver method return type lookup helpers.
+
+fun getCollectionMethodReturnTypeImpl(structName: String,
+    methodName: String) r: String {
+
+    if structName == "Option" or structName == "Optional" or
+        structName.startsWith("Option<") or
+        structName.startsWith("Optional<") {
+
+        if methodName == "isSome" or methodName == "IsSome" or
+            methodName == "isNone" or methodName == "IsNone" {
+            return "Bool"
+        }
+        if methodName == "unwrapOr" or methodName == "UnwrapOr" {
+            if structName.startsWith("Option<") and structName.endsWith(">") {
+                let elemType = structName.substring(7, structName.length() - 1)
+                return elemType
+            }
+            return "Int"
+        }
+        if methodName == "Store" or methodName == "Clear" { return "Void" }
+    }
+
+    if structName == "Vec" or structName.startsWith("Vec<") {
+        if methodName == "len" or methodName == "length" or
+            methodName == "indexOf" {
+            return "Int"
+        }
+        if methodName == "isEmpty" or methodName == "contains" {
+            return "Bool"
+        }
+        if methodName == "push" or methodName == "set" or
+            methodName == "clear" or methodName == "free" or
+            methodName == "reverse" or methodName == "insert" or
+            methodName == "sort" {
+            return "Void"
+        }
+        if methodName == "get" or methodName == "pop" or
+            methodName == "remove" or methodName == "first" or
+            methodName == "last" {
+
+            if structName.startsWith("Vec<") and structName.endsWith(">") {
+                let elementType = structName.substring(4,
+                    structName.length() - 1)
+                return elementType
+            }
+            return "Int"
+        }
+    }
+
+    if structName == "Array" or structName.startsWith("Array<") {
+        if methodName == "length" or methodName == "len" { return "Int" }
+        if methodName == "push" or methodName == "set" or
+            methodName == "clear" or methodName == "free" or
+            methodName == "swap" {
+            return "Void"
+        }
+    }
+
+    if structName == "BTreeMap" or structName.startsWith("BTreeMap<") {
+        if methodName == "size" or methodName == "len" { return "Int" }
+        if methodName == "isEmpty" or methodName == "containsKey" {
+            return "Bool"
+        }
+        if methodName == "insert" { return "Bool" }
+        if methodName == "get" or methodName == "remove" {
+            if structName.startsWith("BTreeMap<") and
+                structName.endsWith(">") {
+                let inner = structName.substring(9, structName.length() - 1)
+                var commaIdx = 0
+                var depth = 0
+                var i = 0
+                while i < inner.length() {
+                    let ch = inner.substring(i, i + 1)
+                    if ch == "<" { depth = depth + 1 }
+                    if ch == ">" { depth = depth - 1 }
+                    if ch == "," and depth == 0 {
+                        commaIdx = i
+                        i = inner.length()
+                    }
+                    i = i + 1
+                }
+                if commaIdx > 0 {
+                    var valueType = inner.substring(commaIdx + 1,
+                        inner.length())
+                    if valueType.startsWith(" ") {
+                        valueType = valueType.substring(1, valueType.length())
+                    }
+                    return "Option<" + valueType + ">"
+                }
+            }
+            return "Option"
+        }
+        if methodName == "keys" {
+            if structName.startsWith("BTreeMap<") and
+                structName.endsWith(">") {
+                let inner = structName.substring(9, structName.length() - 1)
+                var commaIdx = 0
+                var depth = 0
+                var i = 0
+                while i < inner.length() {
+                    let ch = inner.substring(i, i + 1)
+                    if ch == "<" { depth = depth + 1 }
+                    if ch == ">" { depth = depth - 1 }
+                    if ch == "," and depth == 0 {
+                        commaIdx = i
+                        i = inner.length()
+                    }
+                    i = i + 1
+                }
+                if commaIdx > 0 {
+                    let keyType = inner.substring(0, commaIdx)
+                    return "Vec<" + keyType + ">"
+                }
+            }
+            return "Vec"
+        }
+        if methodName == "clear" or methodName == "free" { return "Void" }
+        if methodName == "values" {
+            if structName.startsWith("BTreeMap<") and
+                structName.endsWith(">") {
+                let inner = structName.substring(9, structName.length() - 1)
+                var commaIdx = 0
+                var depth = 0
+                var i = 0
+                while i < inner.length() {
+                    let ch = inner.substring(i, i + 1)
+                    if ch == "<" { depth = depth + 1 }
+                    if ch == ">" { depth = depth - 1 }
+                    if ch == "," and depth == 0 {
+                        commaIdx = i
+                        i = inner.length()
+                    }
+                    i = i + 1
+                }
+                if commaIdx > 0 {
+                    var valueType = inner.substring(commaIdx + 1,
+                        inner.length())
+                    if valueType.startsWith(" ") {
+                        valueType = valueType.substring(1, valueType.length())
+                    }
+                    return "Vec<" + valueType + ">"
+                }
+            }
+            return "Vec"
+        }
+    }
+
+    if structName == "HashMap" or structName.startsWith("HashMap<") {
+        if methodName == "size" or methodName == "len" { return "Int" }
+        if methodName == "isEmpty" or methodName == "containsKey" {
+            return "Bool"
+        }
+        if methodName == "insert" { return "Bool" }
+        if methodName == "get" or methodName == "remove" {
+            if structName.startsWith("HashMap<") and
+                structName.endsWith(">") {
+                let inner = structName.substring(8, structName.length() - 1)
+                var commaIdx = 0
+                var depth = 0
+                var i = 0
+                while i < inner.length() {
+                    let ch = inner.substring(i, i + 1)
+                    if ch == "<" { depth = depth + 1 }
+                    if ch == ">" { depth = depth - 1 }
+                    if ch == "," and depth == 0 {
+                        commaIdx = i
+                        i = inner.length()
+                    }
+                    i = i + 1
+                }
+                if commaIdx > 0 {
+                    var valueType = inner.substring(commaIdx + 1,
+                        inner.length())
+                    if valueType.startsWith(" ") {
+                        valueType = valueType.substring(1, valueType.length())
+                    }
+                    return "Option<" + valueType + ">"
+                }
+            }
+            return "Option"
+        }
+        if methodName == "getOrDefault" {
+            if structName.startsWith("HashMap<") and
+                structName.endsWith(">") {
+                let inner = structName.substring(8, structName.length() - 1)
+                var commaIdx = 0
+                var depth = 0
+                var i = 0
+                while i < inner.length() {
+                    let ch = inner.substring(i, i + 1)
+                    if ch == "<" { depth = depth + 1 }
+                    if ch == ">" { depth = depth - 1 }
+                    if ch == "," and depth == 0 {
+                        commaIdx = i
+                        i = inner.length()
+                    }
+                    i = i + 1
+                }
+                if commaIdx > 0 {
+                    var valueType = inner.substring(commaIdx + 1,
+                        inner.length())
+                    if valueType.startsWith(" ") {
+                        valueType = valueType.substring(1, valueType.length())
+                    }
+                    return valueType
+                }
+            }
+            return "Int"
+        }
+        if methodName == "keys" {
+            if structName.startsWith("HashMap<") and
+                structName.endsWith(">") {
+                let inner = structName.substring(8, structName.length() - 1)
+                var commaIdx = 0
+                var depth = 0
+                var i = 0
+                while i < inner.length() {
+                    let ch = inner.substring(i, i + 1)
+                    if ch == "<" { depth = depth + 1 }
+                    if ch == ">" { depth = depth - 1 }
+                    if ch == "," and depth == 0 {
+                        commaIdx = i
+                        i = inner.length()
+                    }
+                    i = i + 1
+                }
+                if commaIdx > 0 {
+                    let keyType = inner.substring(0, commaIdx)
+                    return "Vec<" + keyType + ">"
+                }
+            }
+            return "Vec"
+        }
+        if methodName == "clear" { return "Void" }
+        if methodName == "values" {
+            if structName.startsWith("HashMap<") and
+                structName.endsWith(">") {
+                let inner = structName.substring(8, structName.length() - 1)
+                var commaIdx = 0
+                var depth = 0
+                var i = 0
+                while i < inner.length() {
+                    let ch = inner.substring(i, i + 1)
+                    if ch == "<" { depth = depth + 1 }
+                    if ch == ">" { depth = depth - 1 }
+                    if ch == "," and depth == 0 {
+                        commaIdx = i
+                        i = inner.length()
+                    }
+                    i = i + 1
+                }
+                if commaIdx > 0 {
+                    var valueType = inner.substring(commaIdx + 1,
+                        inner.length())
+                    if valueType.startsWith(" ") {
+                        valueType = valueType.substring(1, valueType.length())
+                    }
+                    return "Vec<" + valueType + ">"
+                }
+            }
+            return "Vec"
+        }
+    }
+
+    if structName == "StringHashMap" or
+        structName.startsWith("StringHashMap<") {
+        if methodName == "len" or methodName == "capacity" or
+            methodName == "loadFactorPercent" {
+            return "Int"
+        }
+        if methodName == "isEmpty" or methodName == "contains" or
+            methodName == "remove" {
+            return "Bool"
+        }
+        if methodName == "insert" or methodName == "clear" or
+            methodName == "resize" or methodName == "insertInternal" or
+            methodName == "ensureCapacityFor" {
+            return "Void"
+        }
+        if methodName == "get" {
+            if structName.startsWith("StringHashMap<") and
+                structName.endsWith(">") {
+                let valueType = structName.substring(14,
+                    structName.length() - 1)
+                return "Option<" + valueType + ">"
+            }
+            return "Option"
+        }
+        if methodName == "getOrDefault" {
+            if structName.startsWith("StringHashMap<") and
+                structName.endsWith(">") {
+                return structName.substring(14, structName.length() - 1)
+            }
+            return "Int"
+        }
+        if methodName == "keys" { return "Array<String>" }
+    }
+
+    if structName == "LinkedList" or structName.startsWith("LinkedList<") {
+        if methodName == "size" or methodName == "len" { return "Int" }
+        if methodName == "isEmpty" { return "Bool" }
+        if methodName == "pushFront" or methodName == "pushBack" or
+            methodName == "clear" {
+            return "Void"
+        }
+        if methodName == "popFront" or methodName == "popBack" or
+            methodName == "peekFront" or methodName == "peekBack" {
+            if structName.startsWith("LinkedList<") and
+                structName.endsWith(">") {
+                let elemType = structName.substring(11,
+                    structName.length() - 1)
+                return "Option<" + elemType + ">"
+            }
+            return "Option"
+        }
+    }
+
+    return ""
+}

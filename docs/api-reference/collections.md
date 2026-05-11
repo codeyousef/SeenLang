@@ -212,6 +212,8 @@ Double-ended queue with O(1) front/back operations.
 import collections.vecdeque
 ```
 
+`collections/vecdeque` currently exposes `IntVecDeque` for integer queues.
+
 ## SmallVec\<T\>
 
 Inline-storage vector that avoids heap allocation for small sizes:
@@ -241,6 +243,27 @@ Low-level byte buffer for binary data.
 ```seen
 import collections.byte_buffer
 ```
+
+## BitSet
+
+Compact bit set.
+
+```seen
+import collections.bit_set
+```
+
+## StringBuffer
+
+Mutable string buffer used by parser, compiler, and text-heavy runtime code.
+
+```seen
+import collections.string_buffer
+```
+
+## StdString
+
+`collections/std_string` provides `StdString`, a stdlib wrapper around string
+operations that need a class-style surface.
 
 ## Pool\<T\>
 

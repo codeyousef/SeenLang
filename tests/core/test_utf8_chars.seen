@@ -1,6 +1,8 @@
-// UTF-8 Character Roundtrip Test
-// Tests that UTF-8 characters preserve codepoint and string representation
-// Expected: All UTF-8 characters work correctly
+///
+UTF-8 Character Roundtrip Test
+Tests that UTF-8 characters preserve codepoint and string representation
+Expected: All UTF-8 characters work correctly
+///
 
 fun main() r: Int {
     var passed = 0

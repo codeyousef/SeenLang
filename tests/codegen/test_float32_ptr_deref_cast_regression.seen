@@ -1,5 +1,7 @@
-// Regression FEL-29: direct Float32 pointer deref casts to Int must lower with
-// fptosi float -> i64, not an invalid raw float store into an Int slot.
+///
+Regression FEL-29: direct Float32 pointer deref casts to Int must lower with
+fptosi float -> i64, not an invalid raw float store into an Int slot.
+///
 
 fun main() r: Int {
     let addr = ptr_alloc_i32()

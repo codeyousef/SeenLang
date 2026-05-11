@@ -53,12 +53,14 @@ fun cImportParseFunctionDecl(gen: CImportGenerator, declLine: String, lines: Arr
     var fn = CImportedFunction.new()
     fn.headerPath = gen.headerPath
 
-    // Extract function name and return type from the declaration line
-    // Format: `-FunctionDecl ... <name> '<return_type> (<params>)'
-    // Some real headers produce redeclaration lines like:
-    //   FunctionDecl ... prev 0x... memcpy 'void *(...)'
-    // In those cases the real function name is the LAST valid identifier
-    // before the quoted type signature, not the first one.
+    ///
+    Extract function name and return type from the declaration line
+    Format: `-FunctionDecl ... <name> '<return_type> (<params>)'
+    Some real headers produce redeclaration lines like:
+      FunctionDecl ... prev 0x... memcpy 'void *(...)'
+    In those cases the real function name is the LAST valid identifier
+    before the quoted type signature, not the first one.
+    ///
     let parts = declLine.split(" ")
 
     var candidateName = ""
@@ -147,8 +149,10 @@ fun cImportParseRecordDeclWithOwner(gen: CImportGenerator, declLine: String, lin
                     gen.outputRecords.push(nestedRecord)
                 }
             } else if line.contains("IndirectFieldDecl") {
-                // Represent anonymous members via synthesized fields rather than
-                // flattening clang's promoted aliases into the parent record.
+                ///
+                Represent anonymous members via synthesized fields rather than
+                flattening clang's promoted aliases into the parent record.
+                ///
             } else if line.contains("FieldDecl") {
                 let field = cImportParseRecordFieldDecl(gen, line)
                 if field.name != "" {

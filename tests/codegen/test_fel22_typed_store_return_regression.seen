@@ -1,5 +1,7 @@
-// Regression: FEL-22 store and return lowering must use the value's real
-// LLVM type and coerce numeric mismatches before emitting stores/returns.
+///
+Regression: FEL-22 store and return lowering must use the value's real
+LLVM type and coerce numeric mismatches before emitting stores/returns.
+///
 
 data Pair {
     value: Float;

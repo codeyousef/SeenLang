@@ -1,5 +1,7 @@
-// Master Test Suite Runner for SeenLang
-// Executes all test categories and provides comprehensive results
+///
+Master Test Suite Runner for SeenLang
+Executes all test categories and provides comprehensive results
+///
 
 fun runCoreTests() r: Int {
     println("\n=== PHASE 1: CORE FUNCTIONALITY TESTS ===")

@@ -1,6 +1,8 @@
-// OOP Class Basics Test
-// Tests: instance variables, instance methods, static methods
-// Expected: All basic class features work correctly
+///
+OOP Class Basics Test
+Tests: instance variables, instance methods, static methods
+Expected: All basic class features work correctly
+///
 
 class Counter {
     var count: Int

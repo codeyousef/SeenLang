@@ -1,6 +1,8 @@
-// SIMD Codegen Verification Test Program
-// A math-heavy program with loops that should be vectorizable
-// Used by test_simd_integration.sh to verify vectorization
+///
+SIMD Codegen Verification Test Program
+A math-heavy program with loops that should be vectorizable
+Used by test_simd_integration.sh to verify vectorization
+///
 
 fun dotProduct(n: Int) r: Float {
     var a = Array<Float>()
@@ -45,8 +47,10 @@ fun main() r: Int {
     let dot = dotProduct(n)
     let sum = arraySum(n)
 
-    // Print integer approximation to verify scalar equivalence
-    // (avoid Float.toString() which has stage1 codegen issues)
+    ///
+    Print integer approximation to verify scalar equivalence
+    (avoid Float.toString() which has stage1 codegen issues)
+    ///
     let dotInt: Int = dot.toInt()
     let sumInt: Int = sum.toInt()
     println("dot_product(1000) ~ " + dotInt.toString())

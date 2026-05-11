@@ -1,8 +1,15 @@
-// ir_enum_ctor_gen.seen -- Shared enum-constructor emission helpers
-// Extracted from llvm_ir_gen.seen to keep enum allocation/store IR thin.
+///
+ir_enum_ctor_gen.seen -- Shared enum-constructor emission helpers
+Extracted from llvm_ir_gen.seen to keep enum allocation/store IR thin.
+///
 
 import str.string.{StringBuilder}
-import codegen.ir_optimization.{getNextRegFn, lookupEnumVariantTagImpl, lookupEnumParentImpl, lookupEnumFieldTypeImpl, lookupEnumFieldCountImpl, isEnumVariantImpl}
+import parser.real_parser.{ParserExpressionNode}
+import codegen.ir_optimization.{getNextRegFn}
+import codegen.ir_enum_lookup.{lookupEnumVariantTagImpl, lookupEnumParentImpl, lookupEnumFieldTypeImpl, lookupEnumFieldCountImpl, isEnumVariantImpl}
+import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl}
+import codegen.ir_codegen_type_state.{mapTypeState}
+import codegen.ir_lowering_context.{CodegenLoweringContext, lowerExpression, inferLoweredExpressionType, lowerCallExpression, prepareLoweredCallArgumentsWithDefaults, lowerEnumConstructor, resetLoweringGenerator, resetLoweringSharedModuleScratch, syncLoweringState, writeBackLoweringState, lowerProgramClasses, lowerProgramTopLevelFunctions, lowerPlainLargeClass, lowerClassNode, lowerFunctionNode, lowerClassMethodFromList, setLowerCurrentClassParentName, resetLoweringLocalCodegenState, collectLoweringVariableDeclarations, clearLoweringActiveBindings, lowerBlock, lowerStatement, isLoweringBlockTerminated, beginLoweringNestedScratch, restoreLoweringNestedScratch, currentLoweringFunctionOptions}
 
 class EnumConstructorPlan {
     var tag: Int
@@ -100,4 +107,59 @@ fun emitEnumConstructorFieldStoresImpl(output: StringBuilder,
             fieldRegs[fieldIdx] + ", ptr " + fieldPtrReg + "\n")
         fieldIdx = fieldIdx + 1
     }
+}
+
+fun emitEnumConstructorPreparedFieldStoresState(output: StringBuilder,
+    regBox: Array<Int>, variantName: String, objReg: String,
+    fieldRegs: Array<String>, enumVariantNames: String,
+    enumVariantFieldTypes: String, enumVariantCount: Int) r: Void {
+
+    let fieldLlvmTypes = Array<String>()
+    var fieldIdx = 0
+    while fieldIdx < fieldRegs.length() {
+        let fieldType = lookupEnumFieldTypeStateImpl(variantName, fieldIdx,
+            enumVariantNames, enumVariantFieldTypes, enumVariantCount)
+        fieldLlvmTypes.push(mapTypeState(fieldType))
+        fieldIdx = fieldIdx + 1
+    }
+    emitEnumConstructorFieldStoresImpl(output, regBox, objReg, fieldRegs,
+        fieldLlvmTypes)
+}
+
+fun emitEnumConstructorFieldStoresState(ctx: CodegenLoweringContext,
+    output: StringBuilder, variantName: String, expr: ParserExpressionNode,
+    objReg: String, fieldCount: Int, enumVariantNames: String,
+    enumVariantFieldTypes: String, enumVariantCount: Int) r: Void {
+
+    let fieldRegs = Array<String>()
+    var fi = 0
+    while shouldCollectEnumConstructorFieldImpl(fi, fieldCount,
+        expr.arguments.length()) {
+
+        fieldRegs.push(lowerExpression(ctx, expr.arguments[fi]))
+        fi = fi + 1
+    }
+    emitEnumConstructorPreparedFieldStoresState(output, getFeatureRegBoxImpl(),
+        variantName, objReg, fieldRegs, enumVariantNames,
+        enumVariantFieldTypes, enumVariantCount)
+}
+
+fun generateEnumConstructorState(ctx: CodegenLoweringContext,
+    output: StringBuilder, variantName: String, expr: ParserExpressionNode,
+    enumVariantNames: String, enumVariantTags: String,
+    enumVariantFieldTypes: String, enumVariantFieldCounts: String,
+    enumVariantCount: Int) r: String {
+
+    let enumCtorPlan = planEnumConstructorImpl(variantName,
+        enumVariantNames, enumVariantTags, enumVariantFieldCounts,
+        enumVariantCount)
+    if enumCtorPlan.isSimple {
+        return enumCtorPlan.tag.toString()
+    }
+    let objReg = allocateEnumConstructorObjectImpl(output,
+        getFeatureRegBoxImpl(), enumCtorPlan.tag, enumCtorPlan.fieldCount)
+    emitEnumConstructorFieldStoresState(ctx, output, variantName, expr,
+        objReg, enumCtorPlan.fieldCount, enumVariantNames,
+        enumVariantFieldTypes, enumVariantCount)
+    return objReg
 }

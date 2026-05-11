@@ -1,134 +1,116 @@
 # Bootstrap System
 
-The Seen compiler is self-hosted: it compiles itself. The bootstrap system ensures this property is maintained safely across changes.
+Seen is self-hosted: a known-good Seen compiler builds the next compiler, then
+that compiler builds the compiler again. The rebuild is accepted only when the
+new stages verify correctly.
 
-## What is Bootstrap?
+## Stages
 
-A self-hosted compiler can compile its own source code. To verify this:
-
-1. **Stage 1** (frozen): A known-good compiler binary
-2. **Stage 2**: Compile the source with Stage 1
-3. **Stage 3**: Compile the source with Stage 2
-4. If **Stage 2 == Stage 3**, the compiler is at a fixed-point -- it reproduces itself
-
-This proves the compiler is correct and self-consistent.
+1. **Stage 1**: frozen bootstrap compiler.
+2. **Stage 2**: current source compiled by Stage 1.
+3. **Stage 3**: current source compiled by Stage 2.
+4. **Verification**: Stage 2 and Stage 3 outputs must match the expected
+   fixed-point checks used by `scripts/safe_rebuild.sh`.
 
 ## Key Files
 
 | File | Purpose |
 |------|---------|
-| `bootstrap/stage1_frozen` | Frozen, verified bootstrap compiler |
-| `bootstrap/stage1_frozen.sha256` | SHA-256 hash for integrity |
-| `compiler_seen/target/seen` | Production compiler |
-| `scripts/safe_rebuild.sh` | Safe rebuild with verification |
-| `.githooks/pre-commit` | Automatic bootstrap check on commit |
+| `bootstrap/stage1_frozen` | Known-good bootstrap compiler |
+| `bootstrap/stage1_frozen.sha256` | Integrity hash for the frozen compiler |
+| `compiler_seen/target/seen` | Verified compiler output |
+| `target/release/seen` | Release copy of the verified compiler |
+| `scripts/safe_rebuild.sh` | Guarded staged rebuild |
+| `scripts/seen_prebuild_gates.sh` | Early source/IR prebuild gates |
+| `scripts/fix_ir.py` | Frozen-bootstrap IR repair guard for known malformed IR patterns |
 
 ## Safe Rebuild
 
-The recommended way to rebuild after compiler changes:
+Do not run a compiler rebuild without explicit memory limits. A typical guarded
+run derives a main cap from current memory and keeps optimizer work capped:
 
 ```bash
+AVAIL_KB=$(awk '/MemAvailable/ {print $2}' /proc/meminfo)
+MAIN_KB=$(( AVAIL_KB * 70 / 100 ))
+if [ "$MAIN_KB" -gt 14680064 ]; then MAIN_KB=14680064; fi
+ulimit -v "$MAIN_KB"
+SEEN_LOW_MEMORY=1 \
+SEEN_SKIP_LOW_MEMORY_SHORTCUT=1 \
+SEEN_MAIN_VMEM_KB="$MAIN_KB" \
+SEEN_OPT_VMEM_KB=2097152 \
 ./scripts/safe_rebuild.sh
 ```
 
-This script:
-1. Builds Stage 2 from `bootstrap/stage1_frozen`
-2. Builds Stage 3 from Stage 2
-3. Compares Stage 2 and Stage 3
-4. If identical, updates `compiler_seen/target/seen`
-5. If different, reports failure and does not update
+The script runs prebuild gates before expensive compiler work unless explicitly
+disabled with `SEEN_SKIP_PREBUILD_GATES=1`.
 
-### Expected Results
+## Prebuild Gates
 
-- **S2 == S3**: Bootstrap verified. The compiler is self-consistent.
-- **S2 != S3**: The frozen compiler is stale or changes broke self-hosting.
+The prebuild gate catches failures that used to appear late in Stage 2/Stage 3:
 
-## Pre-Commit Hook
+- compiler-codegen ABI boundary drift
+- missing imported/seeded compiler modules
+- compiler import cycles
+- malformed frozen-bootstrap IR patterns repaired by `fix_ir.py`
+- stale package/runtime artifact assumptions
 
-Enable automatic bootstrap verification on commit:
+Run it directly when changing compiler source or bootstrap scripts:
 
 ```bash
-git config core.hooksPath .githooks
+scripts/seen_prebuild_gates.sh
 ```
 
-The hook:
-1. Detects changes to `compiler_seen/src/`
-2. Runs bootstrap verification
-3. Blocks commits that break self-hosting
+## Package Artifacts During Bootstrap
 
-## Development Workflow
+Package prebuild artifacts contain:
 
-1. Make changes to compiler source (`compiler_seen/src/`)
-2. Run `./scripts/safe_rebuild.sh`
-3. If verification passes, commit
-4. If it fails, fix the issue before committing
+- `Seen.pkg.toml`
+- `objects.tsv`
+- `interface.index.tsv`
+- interface/source files under the artifact root
+- prebuilt object files
 
-## Updating the Frozen Compiler
+During dependent builds, the compiler loads declarations from the artifact
+interface/index, links listed objects, and skips code generation for modules
+provided by the artifact.
 
-Only update when you have a verified working compiler:
+## Manual Smoke Checks
+
+When a rebuild succeeds, verify the fresh compiler can compile a minimal program
+before replacing any system-wide binary:
 
 ```bash
-# 1. Verify current compiler passes bootstrap
-./scripts/safe_rebuild.sh
-
-# 2. If successful, update frozen compiler
-cp stage2_head bootstrap/stage1_frozen
-sha256sum bootstrap/stage1_frozen > bootstrap/stage1_frozen.sha256
-
-# 3. Commit
-git add bootstrap/
-git commit -m "Update frozen bootstrap compiler"
+cat > /tmp/seen_hello.seen <<'SEEN'
+fun main() {
+    println("hello")
+}
+SEEN
+compiler_seen/target/seen compile /tmp/seen_hello.seen /tmp/seen_hello
+/tmp/seen_hello
 ```
 
-## Manual Bootstrap
+## Updating a System Binary
 
-Build stages manually:
+Only copy a compiler into a PATH location after Stage 2/Stage 3 verification and
+smoke tests pass. Then compare hashes:
 
 ```bash
-# Stage 2: frozen compiler builds the source
-./bootstrap/stage1_frozen compile compiler_seen/src/main_compiler.seen stage2_new
-
-# Stage 3: stage2 builds the source
-./stage2_new compile compiler_seen/src/main_compiler.seen stage3_new
-
-# Verify
-diff stage2_new stage3_new  # should be identical
+sha256sum compiler_seen/target/seen target/release/seen "$(command -v seen)"
 ```
 
 ## Emergency Recovery
 
-If the production compiler is broken:
+If the working compiler is broken, use the frozen compiler and the guarded
+rebuild scripts instead of retrying uncapped builds:
 
 ```bash
-# Option 1: Use the frozen bootstrap compiler
-./bootstrap/stage1_frozen compile compiler_seen/src/main_compiler.seen recovery_compiler
-
-# Option 2: Check out a known-good commit
-git checkout ead1940 -- compiler_seen/src/
 ./bootstrap/stage1_frozen compile compiler_seen/src/main_compiler.seen recovery_compiler
 ```
 
-## Adding New Features to the Compiler
-
-Some features require a two-phase bootstrap:
-
-1. Add a stub implementation
-2. Rebuild and update frozen compiler
-3. Add the real implementation
-4. Rebuild again
-
-This is necessary when the new feature uses syntax or constructs that the current frozen compiler doesn't understand.
-
-## Common Bootstrap Issues
-
-| Problem | Cause | Solution |
-|---------|-------|----------|
-| "undefined value" error | New method not in old compiler | Two-phase bootstrap (stub first) |
-| GEP index out of bounds | Struct field count mismatch | Update `struct_layouts.seen`, verify field order |
-| S2 != S3 != S4 | Non-deterministic codegen | Check for HashMap/time usage in compiler |
-| Cache invalidation | Changed declarations | Clear `.seen_cache/` and `/tmp/seen_ir_cache` |
+If a rebuild fails, inspect the first concrete failing log/artifact and fix that
+cause before retrying.
 
 ## Related
 
-- [Compiler Architecture](compiler-architecture.md) -- pipeline internals
-- [Known Limitations](known-limitations.md) -- current bugs
+- [Compiler Architecture](compiler-architecture.md)
+- [Known Limitations](known-limitations.md)

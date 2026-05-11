@@ -1,5 +1,7 @@
-// Hello World program in Seen (English syntax)
-// This demonstrates the basic structure of a Seen program
+///
+Hello World program in Seen (English syntax)
+This demonstrates the basic structure of a Seen program
+///
 
 fun main() {
     println("Hello, World!");

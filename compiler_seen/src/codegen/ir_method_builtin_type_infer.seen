@@ -1,0 +1,94 @@
+// ir_method_builtin_type_infer.seen - builtin receiver method type inference.
+
+import codegen.ir_infer_type.{inferReceiverMethodTypeImpl}
+import codegen.ir_type_tables.{resolveCollectionGetTypeImpl, resolvePopElementTypeImpl, resolveUnwrapTypeImpl}
+
+fun tryInferSimpleBuiltinReceiverMethodTypeState(methodName: String,
+    receiverType: String) r: String {
+
+    if methodName == "toUpperCase" or methodName == "toLowerCase" or
+        methodName == "abs" or methodName == "min" or
+        methodName == "max" or methodName == "clamp" or
+        methodName == "floor" or methodName == "ceil" or
+        methodName == "round" or methodName == "sqrt" or
+        methodName == "first" or methodName == "last" or
+        methodName == "remove" {
+
+        return inferReceiverMethodTypeImpl(methodName, receiverType)
+    }
+    return ""
+}
+
+fun tryInferCollectionGetMethodTypeState(methodName: String,
+    receiverType: String) r: String {
+
+    if methodName != "get" {
+        return ""
+    }
+    let isCollectionGet = receiverType.startsWith("Array<") or
+        receiverType.startsWith("Vec<") or
+        receiverType.startsWith("HashMap<") or
+        receiverType.startsWith("StringHashMap<") or
+        receiverType.startsWith("BTreeMap<") or
+        receiverType.startsWith("Map<")
+
+    if isCollectionGet {
+        let collGetType = resolveCollectionGetTypeImpl(receiverType)
+        if collGetType != "" {
+            return collGetType
+        }
+        return "Option<Int>"
+    }
+    return ""
+}
+
+fun tryInferPopMethodTypeState(methodName: String, receiverType: String)
+    r: String {
+
+    if methodName != "pop" {
+        return ""
+    }
+    let popResult = resolvePopElementTypeImpl(receiverType)
+    if popResult != "" {
+        return popResult
+    }
+    return "Int"
+}
+
+fun tryInferUnwrapMethodTypeState(methodName: String, receiverType: String,
+    isClassInner: Int) r: String {
+
+    if methodName != "unwrap" {
+        return ""
+    }
+    let unwrapResult = resolveUnwrapTypeImpl(receiverType, isClassInner)
+    if unwrapResult != "" {
+        return unwrapResult
+    }
+    return "ptr"
+}
+
+fun tryInferBuiltinReceiverMethodCallTypeState(methodName: String,
+    receiverType: String, isClassInner: Int) r: String {
+
+    let simpleBuiltinType = tryInferSimpleBuiltinReceiverMethodTypeState(
+        methodName, receiverType)
+    if simpleBuiltinType != "" {
+        return simpleBuiltinType
+    }
+    let collectionGetType = tryInferCollectionGetMethodTypeState(methodName,
+        receiverType)
+    if collectionGetType != "" {
+        return collectionGetType
+    }
+    let popType = tryInferPopMethodTypeState(methodName, receiverType)
+    if popType != "" {
+        return popType
+    }
+    let unwrapType = tryInferUnwrapMethodTypeState(methodName, receiverType,
+        isClassInner)
+    if unwrapType != "" {
+        return unwrapType
+    }
+    return ""
+}

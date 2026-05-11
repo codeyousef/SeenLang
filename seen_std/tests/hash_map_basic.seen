@@ -1,6 +1,8 @@
-// HashMap<K,V> Basic Test
-// Tests core HashMap functionality
-// Expected: All HashMap operations work correctly
+///
+HashMap<K,V> Basic Test
+Tests core HashMap functionality
+Expected: All HashMap operations work correctly
+///
 
 import collections.hash_map.{HashMap}
 import core.option.{Option, Some, None}

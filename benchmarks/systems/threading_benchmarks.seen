@@ -1,5 +1,7 @@
-// Threading and Concurrency Benchmarks
-// Tests thread creation, synchronization, work stealing, and parallel algorithms
+///
+Threading and Concurrency Benchmarks
+Tests thread creation, synchronization, work stealing, and parallel algorithms
+///
 
 import std::time::Instant
 import std::collections::Vec

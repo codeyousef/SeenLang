@@ -1,5 +1,7 @@
-// seen_std.collections.string_hash_map
-// High-performance hash map specialized for String keys.
+///
+seen_std.collections.string_hash_map
+High-performance hash map specialized for String keys.
+///
 
 import collections.vec.{Vec}
 import core.option.{Option, Some, None}

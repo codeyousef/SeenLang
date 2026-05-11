@@ -1,5 +1,7 @@
-// Test when/match expression with simple enums
-// Tests: bare subjects, is patterns, EnumType.Variant, else, fat arrow =>
+///
+Test when/match expression with simple enums
+Tests: bare subjects, is patterns, EnumType.Variant, else, fat arrow =>
+///
 
 enum Voxel { Air, Grass, Dirt, Stone }
 

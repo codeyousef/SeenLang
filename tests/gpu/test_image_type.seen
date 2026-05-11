@@ -1,5 +1,7 @@
-// Test: Image[T] type — compute image read/write
-// Verifies GLSL generator emits image2D binding with format qualifier
+///
+Test: Image[T] type — compute image read/write
+Verifies GLSL generator emits image2D binding with format qualifier
+///
 
 @compute(workgroup: 16, 16)
 fun blurImage(input: Image<Float>, output: Image<Float>) {

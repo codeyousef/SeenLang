@@ -1,5 +1,7 @@
-// Regression: zero-receiver MethodCall nodes inside class methods must lower
-// like ordinary calls, not fall back to bogus String_* dispatch.
+///
+Regression: zero-receiver MethodCall nodes inside class methods must lower
+like ordinary calls, not fall back to bogus String_* dispatch.
+///
 
 fun floorInt(x: Float) r: Int {
     let xi = x as Int

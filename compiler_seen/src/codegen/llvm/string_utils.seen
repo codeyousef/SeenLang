@@ -1,5 +1,7 @@
-// LLVM IR String Utilities
-// Pure functions for string manipulation used by the LLVM IR generator
+///
+LLVM IR String Utilities
+Pure functions for string manipulation used by the LLVM IR generator
+///
 
 // Convert a hex string value (like "0x00C0") to decimal string
 fun hexToDecimal(value: String) r: String {
@@ -84,8 +86,10 @@ fun removeSpaces(value: String) r: String {
     return result
 }
 
-// Get the base type name from a qualified/generic type
-// e.g., "Array<String>" -> "Array", "module.Class" -> "Class", "Option?" -> "Option"
+///
+Get the base type name from a qualified/generic type
+e.g., "Array<String>" -> "Array", "module.Class" -> "Class", "Option?" -> "Option"
+///
 fun getBaseTypeName(typeName: String) r: String {
     var trimmed = trimSpaces(typeName)
     if trimmed == "" {

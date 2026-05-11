@@ -1,6 +1,8 @@
-// Runtime Memory Safety Test
-// Actually allocates, writes, and reads memory to verify safety
-// Tests: no corruption, boundary checks, proper cleanup
+///
+Runtime Memory Safety Test
+Actually allocates, writes, and reads memory to verify safety
+Tests: no corruption, boundary checks, proper cleanup
+///
 
 fun testArrayBoundaries() r: Bool {
     println("\n=== Test 1: Array Boundary Safety ===")

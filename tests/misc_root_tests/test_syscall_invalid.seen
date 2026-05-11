@@ -1,6 +1,8 @@
-// Test invalid @syscall decorators
-// This test SHOULD FAIL compilation with --profile deterministic in UWW mode
-// It demonstrates that invalid syscall names are rejected
+///
+Test invalid @syscall decorators
+This test SHOULD FAIL compilation with --profile deterministic in UWW mode
+It demonstrates that invalid syscall names are rejected
+///
 
 @syscall("invalid::syscall")
 fun badSyscall() r: Int {

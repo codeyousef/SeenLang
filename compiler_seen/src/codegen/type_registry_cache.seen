@@ -1,0 +1,52 @@
+// type_registry_cache.seen - Shared type-registry lookup cache hooks.
+
+var g_findStructCacheNames: Array<String> = Array<String>()
+var g_findStructCacheIdxs: Array<Int> = Array<Int>()
+var g_findStructCacheLens: Array<Int> = Array<Int>()
+var g_fieldInfoCacheKeys: Array<String> = Array<String>()
+var g_fieldInfoCacheIdxs: Array<Int> = Array<Int>()
+var g_funcReturnCacheNames: Array<String> = Array<String>()
+var g_funcReturnCacheIdxs: Array<Int> = Array<Int>()
+var g_funcReturnCacheLens: Array<Int> = Array<Int>()
+
+fun cachedStructNameMatches(name: String, cachedName: String) r: Bool {
+    if cachedName == name {
+        return true
+    }
+    if name.contains("<") {
+        let ltIdx = name.indexOf("<", 0)
+        if ltIdx > 0 {
+            let baseName = name.substring(0, ltIdx)
+            if cachedName == baseName {
+                return true
+            }
+        }
+    }
+    return false
+}
+
+fun findCachedStructIndex(name: String, structNames: Array<String>) r: Int {
+    return -1
+}
+
+fun cacheStructIndex(name: String, idx: Int, structNames: Array<String>) r: Void {
+    return
+}
+
+fun findCachedFunctionReturnIndex(name: String,
+    funcNames: Array<String>) r: Int {
+    return -2
+}
+
+fun cacheFunctionReturnIndex(name: String, idx: Int,
+    funcNames: Array<String>) r: Void {
+    return
+}
+
+fun findCachedFieldIndex(key: String) r: Int {
+    return -1
+}
+
+fun cacheFieldIndex(key: String, idx: Int) r: Void {
+    return
+}

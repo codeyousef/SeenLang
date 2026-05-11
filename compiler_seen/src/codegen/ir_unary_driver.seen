@@ -1,0 +1,147 @@
+// ir_unary_driver.seen - recursive unary expression lowering.
+
+import parser.real_parser.{ParserExpressionNode}
+import str.string.{StringBuilder}
+import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl}
+import codegen.ir_codegen_global_state.{getBoundedActiveVarCountWithGlobalStateImpl, getGlobalFuncNamesImpl, getGlobalFuncRetTypesImpl}
+import codegen.ir_codegen_type_state.{isClassTypeState}
+import codegen.ir_lowering_context.{CodegenLoweringContext, lowerExpression, inferLoweredExpressionType, lowerCallExpression, prepareLoweredCallArgumentsWithDefaults, lowerEnumConstructor, resetLoweringGenerator, resetLoweringSharedModuleScratch, syncLoweringState, writeBackLoweringState, lowerProgramClasses, lowerProgramTopLevelFunctions, lowerPlainLargeClass, lowerClassNode, lowerFunctionNode, lowerClassMethodFromList, setLowerCurrentClassParentName, resetLoweringLocalCodegenState, collectLoweringVariableDeclarations, clearLoweringActiveBindings, lowerBlock, lowerStatement, isLoweringBlockTerminated, beginLoweringNestedScratch, restoreLoweringNestedScratch, currentLoweringFunctionOptions}
+import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
+import codegen.ir_optimization.{getNextRegFn}
+import codegen.ir_unary_expr.{planOverloadedUnaryState, negatedComparisonPredicateImpl, shouldEmitNegatedComparisonForTypesImpl, emitOverloadedUnaryCallImpl, emitUnaryNegationImpl, emitNegatedComparisonImpl, emitUnaryLogicalNotImpl, emitUnaryAddressOfClassValueImpl, emitUnaryAddressOfVariablePtrImpl, emitUnaryDereferenceImpl, isUnaryBitwiseNotOperatorImpl, emitUnaryBitwiseNotImpl}
+import codegen.ir_variable_gen.{findActiveVariableIndexImpl}
+
+fun tryEmitOverloadedUnaryState(ctx: CodegenLoweringContext,
+    output: StringBuilder, expr: ParserExpressionNode) r: String {
+
+    if expr.operands.length() == 0 {
+        return ""
+    }
+    let unaryOpType = inferLoweredExpressionType(ctx, expr.operands[0])
+    let unaryPlan = planOverloadedUnaryState(expr.operator, unaryOpType,
+        getGlobalFuncNamesImpl(), getGlobalFuncRetTypesImpl())
+    if unaryPlan.funcName == "" {
+        return ""
+    }
+    let unaryValReg = lowerExpression(ctx, expr.operands[0])
+    return emitOverloadedUnaryCallImpl(output, getFeatureRegBoxImpl(),
+        quoteIdentIfNeededImpl(unaryPlan.funcName), unaryPlan.retLlvmType,
+        unaryValReg)
+}
+
+fun emitUnaryNegationState(ctx: CodegenLoweringContext,
+    output: StringBuilder, expr: ParserExpressionNode) r: String {
+
+    let operandReg = lowerExpression(ctx, expr.operands[0])
+    let operandType = inferLoweredExpressionType(ctx, expr.operands[0])
+    return emitUnaryNegationImpl(output, getFeatureRegBoxImpl(), operandReg,
+        operandType)
+}
+
+fun tryEmitNegatedComparisonState(ctx: CodegenLoweringContext,
+    output: StringBuilder, innerExpr: ParserExpressionNode) r: String {
+
+    if innerExpr.kind != "Binary" {
+        return ""
+    }
+    let flippedOp = negatedComparisonPredicateImpl(innerExpr.operator)
+    if flippedOp == "" {
+        return ""
+    }
+    let innerLeftType = inferLoweredExpressionType(ctx, innerExpr.operands[0])
+    let innerRightType = inferLoweredExpressionType(ctx, innerExpr.operands[1])
+    if not shouldEmitNegatedComparisonForTypesImpl(innerLeftType,
+        innerRightType) {
+
+        return ""
+    }
+    let aReg = lowerExpression(ctx, innerExpr.operands[0])
+    let bReg = lowerExpression(ctx, innerExpr.operands[1])
+    return emitNegatedComparisonImpl(output, getFeatureRegBoxImpl(),
+        flippedOp, aReg, bReg)
+}
+
+fun emitUnaryLogicalNotState(ctx: CodegenLoweringContext,
+    output: StringBuilder, expr: ParserExpressionNode) r: String {
+
+    let innerExpr = expr.operands[0]
+    let negatedCmpReg = tryEmitNegatedComparisonState(ctx, output, innerExpr)
+    if negatedCmpReg != "" {
+        return negatedCmpReg
+    }
+    let operandReg = lowerExpression(ctx, innerExpr)
+    let operandType = inferLoweredExpressionType(ctx, innerExpr)
+    return emitUnaryLogicalNotImpl(output, getFeatureRegBoxImpl(),
+        operandReg, operandType)
+}
+
+fun emitUnaryAddressOfState(ctx: CodegenLoweringContext,
+    output: StringBuilder, expr: ParserExpressionNode, insideUnsafe: Int,
+    varNames: Array<String>, varRegs: Array<String>,
+    varTypes: Array<String>) r: String {
+
+    if insideUnsafe == 0 {
+        output.append("  ; WARNING: address-of (&) requires unsafe block\n")
+    }
+    let addrOperand = expr.operands[0]
+    let addrType = inferLoweredExpressionType(ctx, addrOperand)
+    if addrOperand.kind == "Variable" or addrOperand.kind == "VarExpr" {
+        var addrVarName = addrOperand.variableName
+        if addrVarName == "" { addrVarName = addrOperand.literalValue }
+        let addrIdx = findActiveVariableIndexImpl(varNames,
+            getBoundedActiveVarCountWithGlobalStateImpl(varNames),
+            addrVarName)
+        if addrIdx >= 0 {
+            let addrVarReg = varRegs[addrIdx]
+            if isClassTypeState(addrType) {
+                return emitUnaryAddressOfClassValueImpl(output,
+                    getFeatureRegBoxImpl(), addrVarReg)
+            }
+            return emitUnaryAddressOfVariablePtrImpl(output,
+                getFeatureRegBoxImpl(), addrVarReg)
+        }
+    }
+    return lowerExpression(ctx, addrOperand)
+}
+
+fun emitUnaryDereferenceState(ctx: CodegenLoweringContext,
+    output: StringBuilder, expr: ParserExpressionNode,
+    insideUnsafe: Int) r: String {
+
+    if insideUnsafe == 0 {
+        output.append("  ; WARNING: pointer dereference (*) requires unsafe block\n")
+    }
+    let derefValReg = lowerExpression(ctx, expr.operands[0])
+    return emitUnaryDereferenceImpl(output, getFeatureRegBoxImpl(),
+        derefValReg)
+}
+
+fun generateUnaryState(ctx: CodegenLoweringContext,
+    output: StringBuilder, expr: ParserExpressionNode, insideUnsafe: Int,
+    varNames: Array<String>, varRegs: Array<String>,
+    varTypes: Array<String>) r: String {
+
+    let overloadedUnaryReg = tryEmitOverloadedUnaryState(ctx, output, expr)
+    if overloadedUnaryReg != "" {
+        return overloadedUnaryReg
+    }
+    if expr.operator == "-" {
+        return emitUnaryNegationState(ctx, output, expr)
+    }
+    if expr.operator == "not" or expr.operator == "!" {
+        return emitUnaryLogicalNotState(ctx, output, expr)
+    }
+    if expr.operator == "&" {
+        return emitUnaryAddressOfState(ctx, output, expr, insideUnsafe,
+            varNames, varRegs, varTypes)
+    }
+    if expr.operator == "*" {
+        return emitUnaryDereferenceState(ctx, output, expr, insideUnsafe)
+    }
+    if isUnaryBitwiseNotOperatorImpl(expr.operator) {
+        let operandReg = lowerExpression(ctx, expr.operands[0])
+        return emitUnaryBitwiseNotImpl(output, getFeatureRegBoxImpl(),
+            operandReg)
+    }
+    return getNextRegFn(getFeatureRegBoxImpl())
+}

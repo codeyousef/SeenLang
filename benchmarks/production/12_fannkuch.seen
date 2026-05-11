@@ -1,6 +1,8 @@
-// Fannkuch-Redux Benchmark
-// Classic CLBG benchmark: generates all permutations and counts pancake flips
-// Tests integer arrays, permutations, branching
+///
+Fannkuch-Redux Benchmark
+Classic CLBG benchmark: generates all permutations and counts pancake flips
+Tests integer arrays, permutations, branching
+///
 
 fun run_fannkuch(n: Int, out_result: Array<Int>) -> Void {
     let perm: Array<Int> = Array<Int>(n, 0)

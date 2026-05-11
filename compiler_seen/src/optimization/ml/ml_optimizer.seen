@@ -1,6 +1,8 @@
-// ML-Guided Optimization Pipeline
-// Extracts features from IR, makes heuristic decisions, logs to JSONL for future training.
-// No ML framework dependency — uses threshold-based heuristics as default strategy.
+///
+ML-Guided Optimization Pipeline
+Extracts features from IR, makes heuristic decisions, logs to JSONL for future training.
+No ML framework dependency — uses threshold-based heuristics as default strategy.
+///
 
 class MLOptimizer {
     var targetHardware: String
@@ -9,7 +11,7 @@ class MLOptimizer {
     var vectorizeCount: Int
     var unrollCount: Int
 
-    fun new() r: MLOptimizer {
+    static fun new() r: MLOptimizer {
         return MLOptimizer{
             targetHardware: "generic",
             totalDecisions: 0,
@@ -96,7 +98,7 @@ class LoopFeatures {
     let storeOps: Int
     let stride: Int
 
-    fun new(tripCount: Int, nestingDepth: Int, addOps: Int, mulOps: Int, loadOps: Int, storeOps: Int, stride: Int) r: LoopFeatures {
+    static fun new(tripCount: Int, nestingDepth: Int, addOps: Int, mulOps: Int, loadOps: Int, storeOps: Int, stride: Int) r: LoopFeatures {
         return LoopFeatures{
             tripCount: tripCount,
             nestingDepth: nestingDepth,
@@ -124,7 +126,7 @@ class InlineFeatures {
     let callCount: Int
     var hasLoopsVal: Int
 
-    fun new(calleeSize: Int, callerSize: Int, callCount: Int, hasLoops: Int) r: InlineFeatures {
+    static fun new(calleeSize: Int, callerSize: Int, callCount: Int, hasLoops: Int) r: InlineFeatures {
         return InlineFeatures{
             calleeSize: calleeSize,
             callerSize: callerSize,
@@ -138,7 +140,7 @@ class InlineFeatures {
 class Prediction {
     var confidence: Int
 
-    fun new(confidence: Int) r: Prediction {
+    static fun new(confidence: Int) r: Prediction {
         return Prediction{ confidence: confidence }
     }
 }
@@ -146,7 +148,7 @@ class Prediction {
 class ABTestResult {
     var improvement: Int
 
-    fun new(improvement: Int) r: ABTestResult {
+    static fun new(improvement: Int) r: ABTestResult {
         return ABTestResult{ improvement: improvement }
     }
 

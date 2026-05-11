@@ -1,6 +1,8 @@
-// ir_class_type_special.seen — shared special class-type decorator helpers
-// Extracted from llvm_ir_gen.seen so @gpu_buffer / @union emission lives
-// outside the main class-type decorator scan loop.
+///
+ir_class_type_special.seen — shared special class-type decorator helpers
+Extracted from llvm_ir_gen.seen so @gpu_buffer / @union emission lives
+outside the main class-type decorator scan loop.
+///
 
 import parser.real_parser.{ClassNode, AnnotationNode}
 import str.string.{StringBuilder}

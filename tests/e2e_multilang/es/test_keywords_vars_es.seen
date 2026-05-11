@@ -1,8 +1,10 @@
-// Prueba E2E: Palabras clave de variables (Espanol)
-// Palabras probadas: sea, variable
-// NOTA: constante produce 0 (bug de codegen) -- usar sea en su lugar
-// NOTA: sea mutable produce 0 (bug de codegen) -- usar variable en su lugar
-// NOTA: DSE elimina init de var si se reasigna -- evitar patron var x = A; x = B
+///
+Prueba E2E: Palabras clave de variables (Espanol)
+Palabras probadas: sea, variable
+NOTA: constante produce 0 (bug de codegen) -- usar sea en su lugar
+NOTA: sea mutable produce 0 (bug de codegen) -- usar variable en su lugar
+NOTA: DSE elimina init de var si se reasigna -- evitar patron var x = A; x = B
+///
 
 función principal() r: entero {
     // Prueba 1: sea (enlace inmutable)
@@ -14,8 +16,10 @@ función principal() r: entero {
         retornar 1
     }
 
-    // Prueba 2: variable (enlace mutable) -- evitar reasignacion de literal
-    // NOTA: "y" es KeywordAnd en español -- usar "v" en su lugar
+    ///
+    Prueba 2: variable (enlace mutable) -- evitar reasignacion de literal
+    NOTA: "y" es KeywordAnd en español -- usar "v" en su lugar
+    ///
     variable v = 25
     si v == 25 {
         imprimir("EXITO: enlace variable")

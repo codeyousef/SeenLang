@@ -2,6 +2,21 @@
 
 This is the reference for Seen's syntax and semantics.
 
+## Comments
+
+Seen supports `//` line comments and block comments delimited by standalone `///` lines:
+
+```seen
+// Single-line comment
+
+///
+Anything between standalone delimiter lines is ignored by the lexer.
+Use this for longer notes without prefixing every line.
+///
+```
+
+`/// text` is still treated as a line comment; block delimiters must be the only non-whitespace text on the line.
+
 ## Variables
 
 ### Immutable (`let`)
@@ -241,6 +256,16 @@ class Circle extends Shape {
     fun area() r: Float {
         return 3.14159 * this.radius * this.radius
     }
+}
+```
+
+### Sealed classes
+
+`sealed` restricts subclassing to the same compilation/package boundary used by
+the compiler's type checks:
+
+```seen
+sealed class Expr {
 }
 ```
 
@@ -540,17 +565,66 @@ import collections.HashMap
 
 ### Visibility
 
-`pub` makes declarations visible outside the module:
+`pub` makes declarations visible outside the module. Capitalized declaration
+names are also public by convention, so both forms remain valid:
 
 ```seen
 pub fun publicFunction() {
     // accessible from other modules
 }
 
+class PublicByName {
+    // capitalized declarations are externally visible
+}
+
 fun privateFunction() {
     // only accessible within this module
 }
 ```
+
+Package-private declarations are visible inside the same package and rejected
+from outside-package imports.
+
+### Package imports
+
+```seen
+import package_name
+import package_name::src::module.{Symbol}
+import local_module.{Thing}
+```
+
+Prebuilt package artifacts expose declarations through `interface.index.tsv`
+and link implementation objects through `objects.tsv`.
+
+## Effects and Capabilities
+
+Functions can declare required capabilities with `effect(Token)`:
+
+```seen
+fun readConfig(token: FileToken) effect(FileToken) r: String {
+    return readText("config.toml")
+}
+```
+
+Effects propagate through calls; missing or wrong capability tokens are
+diagnosed by the compiler.
+
+## Annotations
+
+Annotations start with `@` and attach metadata to declarations:
+
+```seen
+@using("libm")
+extern fun cos(x: Float) r: Float
+
+@operator("+")
+fun addVec(a: Vec2, b: Vec2) r: Vec2 {
+    return Vec2.new(a.x + b.x, a.y + b.y)
+}
+```
+
+Common annotations include `@using`, `@operator`, `@export`, `@cfg`,
+`@compute`, `@derive`, and `@reflect`.
 
 ## Operator Overloading
 

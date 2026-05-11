@@ -148,6 +148,9 @@ enum Ordering {
 import core.convert
 ```
 
+`core/convert` defines conversion helpers and the `Convertible` class-style
+surface used by stdlib conversion code.
+
 ### Int conversions
 
 | Function | Signature |
@@ -192,3 +195,23 @@ Free function converters:
 - `Float_toString(value: Float) r: String`
 - `Bool_toString(value: Int) r: String`
 - `Char_toString(value: Int) r: String`
+
+`core/to_string` also exposes `FromString` for parse-like conversions.
+
+## Prelude and Helpers
+
+`core/prelude` contains common functions available to ordinary programs through
+the compiler/runtime prelude, including printing, assertions, and basic
+constructors.
+
+Other core modules:
+
+| Module | Purpose |
+|--------|---------|
+| `core/binary` | Binary encoding helpers |
+| `core/bitfield` | Bitfield helpers |
+| `core/compress` | Compression helpers |
+| `core/intrinsics` | Compiler/runtime intrinsic declarations |
+| `core/json_derive` | JSON derive support |
+| `core/packet` | Packet helpers |
+| `core/reflect` | Reflection metadata |

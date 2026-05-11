@@ -120,16 +120,16 @@ if command -v x86_64-w64-mingw32-gcc &>/dev/null; then
             bash "$SCRIPT_DIR/build_windows_installer.sh" "$VERSION" --skip-compile 2>&1 | tail -10
 
             # Copy Windows artifacts to dist/
-            for f in "$WIN_DIR"/seen-*-windows-x64.zip; do
+            for f in "$WIN_DIR"/seen-"$VERSION"-windows-x64.zip; do
                 [[ -f "$f" ]] && cp "$f" "$DIST_DIR/"
             done
-            for f in "$WIN_INSTALLER_DIR"/output/Seen-*-setup.exe; do
+            for f in "$WIN_INSTALLER_DIR"/output/Seen-"$VERSION"-windows-x64-setup.exe; do
                 [[ -f "$f" ]] && cp "$f" "$DIST_DIR/"
             done
         else
             # At least create the ZIP
             bash "$SCRIPT_DIR/package_windows.sh" "$VERSION" 2>&1 | tail -5
-            for f in "$WIN_DIR"/seen-*-windows-x64.zip; do
+            for f in "$WIN_DIR"/seen-"$VERSION"-windows-x64.zip; do
                 [[ -f "$f" ]] && cp "$f" "$DIST_DIR/"
             done
         fi
@@ -145,10 +145,14 @@ fi
 if [[ -f "$ROOT_DIR/installer/homebrew/generate-formula.sh" ]]; then
     echo ""
     echo "=== Generating macOS Homebrew formula (v$VERSION)... ==="
-    bash "$ROOT_DIR/installer/homebrew/generate-formula.sh" "$VERSION" 2>&1 | tail -5 || true
-    for f in "$ROOT_DIR/installer/homebrew"/seen-lang*.rb; do
-        [[ -f "$f" ]] && cp "$f" "$DIST_DIR/"
-    done
+    if bash "$ROOT_DIR/installer/homebrew/generate-formula.sh" \
+        --version "$VERSION" \
+        --output "$DIST_DIR/seen-lang.rb" 2>&1 | tail -5; then
+        echo "  -> $DIST_DIR/seen-lang.rb"
+    else
+        echo "Skipping Homebrew formula: generator failed."
+        rm -f "$DIST_DIR/seen-lang.rb"
+    fi
 fi
 
 # --- macOS native binary (requires osxcross) ---
@@ -223,7 +227,7 @@ sudo ./install.sh
 
 \`linux-x64\` is the portable x86-64 baseline. Use \`seen-${VERSION}-linux-x64-v3.tar.gz\` only on x86-64-v3/AVX2-class machines.
 
-**Windows:** Download \`Seen-${VERSION}-windows-x64-setup.exe\` or the ZIP archive. Requires [LLVM](https://releases.llvm.org/) on PATH.
+**Windows:** Download \`Seen-${VERSION}-windows-x64-setup.exe\` or the ZIP archive. The installer includes Seen's runtime, standard library, language files, and LLVM toolchain support; users do not need LLVM preinstalled.
 
 **macOS:** \`brew install seen-lang\` (if published) or build from source with \`./scripts/bootstrap_macos.sh\`.
 

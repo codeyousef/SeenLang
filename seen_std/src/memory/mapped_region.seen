@@ -1,5 +1,7 @@
-// MappedRegion — Memory-mapped file or anonymous mapping via mmap.
-// Flags: 0 = read-only file, 1 = read-write file, 2 = anonymous rw
+///
+MappedRegion — Memory-mapped file or anonymous mapping via mmap.
+Flags: 0 = read-only file, 1 = read-write file, 2 = anonymous rw
+///
 
 extern fun seen_mapped_new(path_len: Int, path_data: Int, size: Int, flags: Int) r: Int
 extern fun seen_mapped_data(handle: Int) r: Int

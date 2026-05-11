@@ -1,6 +1,6 @@
 // ir_function_state.seen - explicit function lowering state helpers.
 
-import codegen.type_registry.{FunctionLoweringOptions, resetFunctionLoweringOptions}
+import codegen.ir_codegen_state.{FunctionLoweringOptions, resetFunctionLoweringOptions}
 
 class FunctionEmissionState {
     var profiledFlag: Bool

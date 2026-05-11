@@ -5,7 +5,7 @@ class SeenTypeChecker {
     var errors: Array<String>
     var warnings: Array<String>
 
-    fun new() r: SeenTypeChecker {
+    static fun new() r: SeenTypeChecker {
         return SeenTypeChecker{
             smartCastContext: Map<String, Type>.new(),
             strictMode: true,

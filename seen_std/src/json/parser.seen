@@ -1,5 +1,7 @@
-// JSON Parser
-// Parses JSON strings into JsonValue objects
+///
+JSON Parser
+Parses JSON strings into JsonValue objects
+///
 
 import json.value.{JsonValue, JSON_NULL, JSON_BOOL, JSON_NUMBER, JSON_STRING, JSON_ARRAY, JSON_OBJECT, JsonValue_nullValue, JsonValue_bool, JsonValue_string, JsonValue_numberFloat, JsonValue_array, JsonValue_object}
 
@@ -131,7 +133,7 @@ class JsonParser {
             let slice = this.input.substring(this.pos, this.pos + 4)
             if slice == "true" {
                 this.pos = this.pos + 4
-                let bv = JsonValue_bool(1)
+                let bv = JsonValue_bool(true)
                 return JsonParseResult_ok(bv)
             }
         }
@@ -144,7 +146,7 @@ class JsonParser {
             let slice = this.input.substring(this.pos, this.pos + 5)
             if slice == "false" {
                 this.pos = this.pos + 5
-                let bv = JsonValue_bool(0)
+                let bv = JsonValue_bool(false)
                 return JsonParseResult_ok(bv)
             }
         }

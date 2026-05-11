@@ -1,0 +1,74 @@
+// ir_decl_registration_driver.seen - public declaration scan orchestration.
+
+import parser.real_parser.{ProgramNode, ItemNode, ClassNode}
+import codegen.ir_decl_items.{PreparedDeclarationItem, prepareDeclarationItemForRegistrationImpl}
+import codegen.ir_decl_pass_driver.{finishDeclarationRegistrationPassImpl}
+import codegen.ir_decl_state_driver.{beginDeclarationRegistrationWithGlobalState, captureDeclarationPassState, createDeclarationItemContextFromOwnerState, applyDeclarationPassState}
+import codegen.ir_return_type_driver.{resolveMethodReturnTypeFromListState, resolveFunctionReturnTypeState}
+import codegen.ir_struct_layout_state.{registerStructLayoutState}
+
+fun collectClassMethodDeclarationReturnTypesState(classNode: ClassNode,
+    varNames: Array<String>, varTypes: Array<String>,
+    stringConstants: Array<String>) r: Array<String> {
+
+    let methodRetTypeNames = Array<String>()
+    var methodIdx = 0
+    while methodIdx < classNode.methods.length() {
+        methodRetTypeNames.push(resolveMethodReturnTypeFromListState(
+            classNode.name, classNode.methods, methodIdx, varNames,
+            varTypes, stringConstants))
+        methodIdx = methodIdx + 1
+    }
+    return methodRetTypeNames
+}
+
+fun prepareDeclarationItemForRegistrationState(item: ItemNode,
+    varNames: Array<String>, varTypes: Array<String>,
+    stringConstants: Array<String>) r: PreparedDeclarationItem {
+
+    var classMethodRetTypeNames = Array<String>()
+    var funcRetTypeName: String = ""
+    if item.itemType == "Class" {
+        classMethodRetTypeNames =
+            collectClassMethodDeclarationReturnTypesState(item.classNode,
+            varNames, varTypes, stringConstants)
+    }
+    if item.itemType == "Function" {
+        funcRetTypeName = resolveFunctionReturnTypeState(item.function,
+            varNames, varTypes, stringConstants)
+    }
+    return prepareDeclarationItemForRegistrationImpl(item,
+        classMethodRetTypeNames, funcRetTypeName)
+}
+
+fun collectPreparedDeclarationItemsState(program: ProgramNode,
+    varNames: Array<String>, varTypes: Array<String>,
+    stringConstants: Array<String>) r: Array<PreparedDeclarationItem> {
+
+    let preparedItems = Array<PreparedDeclarationItem>()
+    var itemIdx = 0
+    while itemIdx < program.items.length() {
+        let item = program.items[itemIdx]
+        if item.itemType == "Class" or item.itemType == "Data" {
+            registerStructLayoutState(item.classNode)
+        }
+        preparedItems.push(prepareDeclarationItemForRegistrationState(item,
+            varNames, varTypes, stringConstants))
+        itemIdx = itemIdx + 1
+    }
+    return preparedItems
+}
+
+fun registerDeclarationsState(program: ProgramNode, varNames: Array<String>,
+    varTypes: Array<String>, stringConstants: Array<String>) r: Void {
+
+    beginDeclarationRegistrationWithGlobalState(program)
+    let declState = captureDeclarationPassState()
+    let declItemContext = createDeclarationItemContextFromOwnerState(
+        declState)
+    let preparedItems = collectPreparedDeclarationItemsState(program,
+        varNames, varTypes, stringConstants)
+    finishDeclarationRegistrationPassImpl(program, preparedItems,
+        declItemContext, declState)
+    applyDeclarationPassState(declState)
+}

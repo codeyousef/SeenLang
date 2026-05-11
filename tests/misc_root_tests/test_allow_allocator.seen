@@ -1,11 +1,15 @@
-// Test @allow_allocator_optimizations decorator
-// This decorator allows nondeterministic Vec growth patterns in marked functions
+///
+Test @allow_allocator_optimizations decorator
+This decorator allows nondeterministic Vec growth patterns in marked functions
+///
 
 @nondeterministic
 @allow_allocator_optimizations
 fun processLargeData() r: Void {
-    // This function can use exponential Vec growth (nondeterministic)
-    // because it's marked with both @nondeterministic and @allow_allocator_optimizations
+    ///
+    This function can use exponential Vec growth (nondeterministic)
+    because it's marked with both @nondeterministic and @allow_allocator_optimizations
+    ///
     println("Processing with allocator optimizations enabled")
 }
 

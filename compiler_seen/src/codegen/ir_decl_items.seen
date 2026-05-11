@@ -1,6 +1,8 @@
-// ir_decl_items.seen — declaration-item registration helpers
-// Keeps Pass 1 declaration-item plumbing out of llvm_ir_gen.seen while
-// preserving the existing registry and cross-module declare behavior.
+///
+ir_decl_items.seen — declaration-item registration helpers
+Keeps Pass 1 declaration-item plumbing out of llvm_ir_gen.seen while
+preserving the existing registry and cross-module declare behavior.
+///
 
 import parser.real_parser.{FunctionNode, ItemNode, ParamNode, TypeNode}
 import codegen.ir_string_collect.{getBaseTypeNameImpl}
@@ -270,8 +272,9 @@ fun registerClassMethodDeclarationsIntoStateImpl(className: String,
             registerAsyncFunctionIntoStateImpl(mangledName, methodRetTypeName,
                 ctx.state)
         }
+        let methodIsStatic = method.isStatic or method.name == "new"
         let methodDeclParams = buildDeclareParamsImpl(methodSeenParamTypes,
-            methodLlvmParamTypes, not method.isStatic)
+            methodLlvmParamTypes, not methodIsStatic)
         let methodDecl = buildDeclareStringImpl(
             quoteIdentIfNeededImpl(mangledName), methodRetLlvm,
             methodDeclParams, false)

@@ -1,5 +1,7 @@
-// E2E Test: Miscellaneous Keywords (English)
-// Keywords tested: and, or, not, as, is
+///
+E2E Test: Miscellaneous Keywords (English)
+Keywords tested: and, or, not, as, is
+///
 
 fun main() r: Int {
     // Test 1: and operator

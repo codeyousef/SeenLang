@@ -1,6 +1,8 @@
-// Euler Totient (Number Theory) Benchmark
-// Computes Euler's totient function phi(n) for n = 1..N using GCD
-// Pure integer math — fair comparison (no hardware intrinsic advantage)
+///
+Euler Totient (Number Theory) Benchmark
+Computes Euler's totient function phi(n) for n = 1..N using GCD
+Pure integer math — fair comparison (no hardware intrinsic advantage)
+///
 
 fun seen_gcd(a: Int, b: Int) -> Int {
     var x = a

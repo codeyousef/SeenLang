@@ -1,5 +1,7 @@
-// FASTA Generation Benchmark
-// Random sequence generation with weighted selection
+///
+FASTA Generation Benchmark
+Random sequence generation with weighted selection
+///
 
 class Random {
     var seed: Int

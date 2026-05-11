@@ -78,6 +78,20 @@
     ],
     "description": "Import statement"
   },
+  "Package Root Import": {
+    "prefix": "pkgimport",
+    "body": [
+      "import ${1:package_name}"
+    ],
+    "description": "Import a package root module"
+  },
+  "Package Symbol Import": {
+    "prefix": "pkgfrom",
+    "body": [
+      "import ${1:package_name}::${2:src}::${3:module}.{${4:Symbol}}"
+    ],
+    "description": "Import a symbol from a package module"
+  },
   "If": {
     "prefix": "if",
     "body": [
@@ -86,6 +100,15 @@
       "}"
     ],
     "description": "If statement"
+  },
+  "Membership Check": {
+    "prefix": "in",
+    "body": [
+      "if ${1:item} in ${2:collection} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Membership test with the in operator"
   },
   "If-Else": {
     "prefix": "ife",
@@ -149,6 +172,15 @@
     ],
     "description": "Trait declaration"
   },
+  "Sealed Class": {
+    "prefix": "sealed",
+    "body": [
+      "sealed class ${1:Name} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Sealed class declaration"
+  },
   "Implementation": {
     "prefix": "impl",
     "body": [
@@ -166,6 +198,71 @@
       "extern fun ${1:functionName}(${2:params}) r: ${3:ReturnType}"
     ],
     "description": "External function declaration (FFI)"
+  },
+  "Export Function": {
+    "prefix": "export",
+    "body": [
+      "@export",
+      "fun ${1:functionName}(${2:params}) r: ${3:Int} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Exported function with a stable native symbol"
+  },
+  "Block Comment": {
+    "prefix": "comment",
+    "body": [
+      "///",
+      "${1:comment}",
+      "///"
+    ],
+    "description": "Triple-slash multi-line block comment"
+  },
+  "Hot Reload Import": {
+    "prefix": "hotreload",
+    "body": [
+      "import framework::hotreload"
+    ],
+    "description": "Import the hot reload framework helpers"
+  },
+  "Hot Reload Module Load": {
+    "prefix": "hotmodule",
+    "body": [
+      "let ${1:moduleResult} = HotModule.loadNamed(${2:\"./module.so\"}, ${3:\"module\"})",
+      "if ${1:moduleResult}.isSome() {",
+      "\tlet ${4:module} = ${1:moduleResult}.unwrap()",
+      "\t$0",
+      "}"
+    ],
+    "description": "Load a hot-reloadable shared module"
+  },
+  "Hot Reload Int Call": {
+    "prefix": "hotcall",
+    "body": [
+      "let ${1:result} = ${2:module}.callInt(${3:\"entrypoint\"})"
+    ],
+    "description": "Call an Int-returning hot reload entrypoint"
+  },
+  "Hot Reload Int Pointer Call": {
+    "prefix": "hotcallptr",
+    "body": [
+      "let ${1:result} = ${2:module}.callIntPtr(${3:\"entrypoint\"}, ${4:pointer})"
+    ],
+    "description": "Call an Int-returning hot reload entrypoint with a pointer argument"
+  },
+  "Capability Effect": {
+    "prefix": "effect",
+    "body": [
+      "effect(${1:FileToken})"
+    ],
+    "description": "Capability effect annotation in a function signature"
+  },
+  "Using Capability": {
+    "prefix": "using",
+    "body": [
+      "@using(${1:FileToken})"
+    ],
+    "description": "Declare a function's required capability token"
   },
   "Test": {
     "prefix": "test",

@@ -7,9 +7,9 @@ Seen's keywords are defined in external TOML files, enabling programming in 6 la
 Each language has a directory under `languages/` containing TOML files for keywords, operators, and standard library names. The lexer reads these at compile time to tokenize source in the specified language.
 
 ```bash
-seen build hello.seen --language ar    # Compile Arabic source
-seen build hello.seen --language es    # Compile Spanish source
-seen build hello.seen -l zh            # Compile Chinese source
+seen compile hello.seen hello --language ar    # Compile Arabic source
+seen compile hello.seen hello --language es    # Compile Spanish source
+seen compile hello.seen hello -l zh            # Compile Chinese source
 ```
 
 The `language` field in `Seen.toml` sets the default:
@@ -253,7 +253,7 @@ No compiler rebuild required.
 
 ### TOML File Structure
 
-Each language directory contains:
+Each language directory contains 17 TOML files:
 - `xx-keywords-control.toml` -- control flow keywords
 - `xx-keywords-types.toml` -- type definition keywords
 - `xx-keywords-vars.toml` -- variable declaration keywords
@@ -264,7 +264,13 @@ Each language directory contains:
 - `xx-keywords-memory.toml` -- memory management keywords
 - `xx-keywords-meta.toml` -- metaprogramming keywords
 - `xx-keywords-misc.toml` -- miscellaneous keywords
+- `xx-builtins.toml` -- built-in function names
+- `xx-collections.toml` -- collection names
+- `xx-env.toml` -- environment names
+- `xx-io.toml` -- I/O names
+- `xx-math.toml` -- math names
 - `xx-operators.toml` -- operator definitions
+- `xx-str.toml` -- string helpers
 
 TOML format:
 
@@ -288,4 +294,4 @@ languages/
 └── ja/     # Japanese
 ```
 
-Total: 11 files per language, 66 files across 6 languages.
+Total: 17 files per language, 102 files across 6 languages.

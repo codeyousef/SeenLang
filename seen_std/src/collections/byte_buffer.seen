@@ -1,5 +1,7 @@
-// ByteBuffer - Raw byte manipulation with lookup tables
-// Production-quality implementation for high-performance byte processing
+///
+ByteBuffer - Raw byte manipulation with lookup tables
+Production-quality implementation for high-performance byte processing
+///
 
 class ByteBuffer {
     data: Array<Int>

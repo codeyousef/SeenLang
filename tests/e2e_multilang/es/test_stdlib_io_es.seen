@@ -1,12 +1,14 @@
-// Prueba E2E: Biblioteca estandar de entrada/salida (Espanol)
-// Funciones probadas: __OpenFile, __WriteFile, __CloseFile, __FileSize,
-//                     __FileExists, __DeleteFile
-// NOTA: Las funciones de alto nivel (escribirTexto, leerTexto, existe, eliminarArchivo)
-//       estan en seen_std/src/io/file.seen pero no disponibles en compilacion de archivo unico.
-//       Usando funciones de runtime con prefijo __ directamente.
-// NOTA: __FileExists/__DeleteFile retornan bool, usar directamente en condicion si
-// NOTA: __ReadFile retorna SeenString pero codegen lo trata como i64 -- no se puede usar
-//       el contenido de la cadena retornada. Verificar via __FileSize en su lugar.
+///
+Prueba E2E: Biblioteca estandar de entrada/salida (Espanol)
+Funciones probadas: __OpenFile, __WriteFile, __CloseFile, __FileSize,
+                    __FileExists, __DeleteFile
+NOTA: Las funciones de alto nivel (escribirTexto, leerTexto, existe, eliminarArchivo)
+      estan en seen_std/src/io/file.seen pero no disponibles en compilacion de archivo unico.
+      Usando funciones de runtime con prefijo __ directamente.
+NOTA: __FileExists/__DeleteFile retornan bool, usar directamente en condicion si
+NOTA: __ReadFile retorna SeenString pero codegen lo trata como i64 -- no se puede usar
+      el contenido de la cadena retornada. Verificar via __FileSize en su lugar.
+///
 
 función principal() r: entero {
     sea ruta = "/tmp/seen_e2e_test_es.txt"
@@ -38,8 +40,10 @@ función principal() r: entero {
         retornar 1
     }
 
-    // Prueba 4: leer y verificar tamanio
-    // (No se puede comparar contenido de cadena por bug de tipo retorno de __ReadFile)
+    ///
+    Prueba 4: leer y verificar tamanio
+    (No se puede comparar contenido de cadena por bug de tipo retorno de __ReadFile)
+    ///
     sea fd2 = __OpenFile(ruta, "r")
     si fd2 < 0 {
         imprimir("FALLO: abrir archivo para lectura")

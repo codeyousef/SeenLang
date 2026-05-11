@@ -1,5 +1,7 @@
-// Standard Input/Output Functions
-// Provides direct stdin reading and stdout writing for interactive programs (like LSP servers)
+///
+Standard Input/Output Functions
+Provides direct stdin reading and stdout writing for interactive programs (like LSP servers)
+///
 
 import str.string.{trim}
 
@@ -9,27 +11,35 @@ extern fun __ReadStdinBytes(count: Int) r: String
 extern fun __FlushStdout() r: Void
 extern fun __PrintRaw(s: String) r: Void
 
-// Read a single line from stdin (blocking)
-// Returns the line including newline character if present
-// Returns empty string on EOF
+///
+Read a single line from stdin (blocking)
+Returns the line including newline character if present
+Returns empty string on EOF
+///
 fun readLine() r: String {
     return __ReadStdinLine()
 }
 
-// Read exactly N bytes from stdin (blocking)
-// May return fewer bytes if EOF is reached before count
+///
+Read exactly N bytes from stdin (blocking)
+May return fewer bytes if EOF is reached before count
+///
 fun readBytes(count: Int) r: String {
     return __ReadStdinBytes(count)
 }
 
-// Flush the stdout buffer
-// Important for protocols like JSON-RPC where messages must be sent immediately
+///
+Flush the stdout buffer
+Important for protocols like JSON-RPC where messages must be sent immediately
+///
 fun flushStdout() r: Void {
     __FlushStdout()
 }
 
-// Print a string to stdout without adding a newline
-// Useful for protocols like LSP that require exact output format
+///
+Print a string to stdout without adding a newline
+Useful for protocols like LSP that require exact output format
+///
 fun printRaw(s: String) r: Void {
     __PrintRaw(s)
 }
@@ -39,8 +49,10 @@ class StdinReader {
     var buffer: String
     var eof: Int
 
-    // Read the next line from stdin
-    // Returns null on EOF
+    ///
+    Read the next line from stdin
+    Returns null on EOF
+    ///
     fun nextLine() r: String? {
         if this.eof == 1 {
             return null
@@ -71,13 +83,17 @@ fun StdinReader_new() r: StdinReader {
     return reader
 }
 
-// ContentLengthReader for JSON-RPC/LSP protocol
-// Reads Content-Length: N headers and then reads exactly N bytes of body
+///
+ContentLengthReader for JSON-RPC/LSP protocol
+Reads Content-Length: N headers and then reads exactly N bytes of body
+///
 class ContentLengthReader {
     var lastError: String
 
-    // Read a complete LSP message (headers + body)
-    // Returns an empty string on EOF or error; lastError carries detail.
+    ///
+    Read a complete LSP message (headers + body)
+    Returns an empty string on EOF or error; lastError carries detail.
+    ///
     fun readMessage() r: String {
         // Read headers until we get an empty line
         var contentLength = -1

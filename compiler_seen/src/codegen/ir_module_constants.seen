@@ -1,9 +1,11 @@
-// ir_module_constants.seen — module constant lookup and type helpers
-// Keeps module-constant lookup/promotion state separate from llvm_ir_gen.seen.
+///
+ir_module_constants.seen — module constant lookup and type helpers
+Keeps module-constant lookup/promotion state separate from llvm_ir_gen.seen.
+///
 
 import parser.real_parser.{ProgramNode}
 import str.string.{StringBuilder}
-import codegen.ir_optimization.{pipeGet}
+import codegen.ir_optimization.{pipeGet, getNextRegFn}
 import codegen.ir_module_emit.{isValidCrossModuleConstantEntryImpl, emitGlobalVariablesImpl}
 
 class ModuleConstantRegistryState {
@@ -20,11 +22,53 @@ class ModuleConstantRegistryState {
     }
 }
 
+class ModuleConstantRegistrySnapshot {
+    var moduleConstMutable: String
+    var moduleConstSeenTypes: String
+    var seenType: String
+    var constIndex: Int
+
+    static fun new(moduleConstMutable: String, moduleConstSeenTypes: String,
+        seenType: String, constIndex: Int) r: ModuleConstantRegistrySnapshot {
+
+        return ModuleConstantRegistrySnapshot{
+            moduleConstMutable: moduleConstMutable,
+            moduleConstSeenTypes: moduleConstSeenTypes,
+            seenType: seenType,
+            constIndex: constIndex
+        }
+    }
+}
+
+class ModuleConstantGenerationState {
+    var moduleConstantNames: Array<String>
+    var moduleConstantValues: Array<String>
+    var moduleConstantTypes: Array<String>
+    var moduleConstMutable: String
+    var moduleConstSeenTypes: String
+
+    static fun new() r: ModuleConstantGenerationState {
+        return ModuleConstantGenerationState{
+            moduleConstantNames: Array<String>(),
+            moduleConstantValues: Array<String>(),
+            moduleConstantTypes: Array<String>(),
+            moduleConstMutable: "",
+            moduleConstSeenTypes: ""
+        }
+    }
+}
+
 fun captureModuleConstantRegistryStateImpl(moduleConstMutable: String,
     moduleConstSeenTypes: String) r: ModuleConstantRegistryState {
 
     return ModuleConstantRegistryState.new(moduleConstMutable,
         moduleConstSeenTypes)
+}
+
+fun resetModuleConstantGenerationStateImpl()
+    r: ModuleConstantGenerationState {
+
+    return ModuleConstantGenerationState.new()
 }
 
 fun isModuleConstMutableImpl(idx: Int, moduleConstMutable: String) r: Bool {
@@ -76,6 +120,27 @@ fun getModuleConstSeenTypeImpl(idx: Int, moduleConstSeenTypes: String) r: String
         pos = pos + 1
     }
     return ""
+}
+
+fun narrowModuleConstantLoadIfNeededImpl(output: StringBuilder,
+    regBox: Array<Int>, constType: String, loadReg: String,
+    seenType: String, exprLlvmType: String) r: String {
+
+    if constType != "i64" {
+        return loadReg
+    }
+    if seenType == "" {
+        return loadReg
+    }
+    if exprLlvmType != "i8" and exprLlvmType != "i16" and
+        exprLlvmType != "i32" {
+
+        return loadReg
+    }
+    let narrowedReg = getNextRegFn(regBox)
+    output.append("  " + narrowedReg + " = trunc i64 " + loadReg +
+        " to " + exprLlvmType + "\n")
+    return narrowedReg
 }
 
 fun mapModuleConstLlvmTypeToSeenTypeImpl(llvmType: String) r: String {
@@ -200,6 +265,23 @@ fun tryInferModuleConstantVariableTypeIntoStateImpl(name: String,
     return ""
 }
 
+fun tryInferModuleConstantVariableTypeSnapshotImpl(name: String,
+    moduleConstantNames: Array<String>, moduleConstantTypes: Array<String>,
+    moduleConstantValues: Array<String>, moduleConstMutable: String,
+    moduleConstSeenTypes: String, xmConstNames: String, xmConstTypes: String,
+    xmConstMutable: String, xmConstSeenTypes: String, xmConstCount: Int)
+    r: ModuleConstantRegistrySnapshot {
+
+    let state = captureModuleConstantRegistryStateImpl(moduleConstMutable,
+        moduleConstSeenTypes)
+    let seenType = tryInferModuleConstantVariableTypeIntoStateImpl(name,
+        moduleConstantNames, moduleConstantTypes, moduleConstantValues, state,
+        xmConstNames, xmConstTypes, xmConstMutable, xmConstSeenTypes,
+        xmConstCount)
+    return ModuleConstantRegistrySnapshot.new(state.moduleConstMutable,
+        state.moduleConstSeenTypes, seenType, -1)
+}
+
 fun findModuleConstantIntoStateImpl(name: String,
     moduleConstantNames: Array<String>, moduleConstantTypes: Array<String>,
     moduleConstantValues: Array<String>, state: ModuleConstantRegistryState,
@@ -248,6 +330,22 @@ fun findModuleConstantIntoStateImpl(name: String,
     return -1
 }
 
+fun findModuleConstantSnapshotImpl(name: String,
+    moduleConstantNames: Array<String>, moduleConstantTypes: Array<String>,
+    moduleConstantValues: Array<String>, moduleConstMutable: String,
+    moduleConstSeenTypes: String, xmConstNames: String, xmConstTypes: String,
+    xmConstMutable: String, xmConstSeenTypes: String, xmConstCount: Int)
+    r: ModuleConstantRegistrySnapshot {
+
+    let state = captureModuleConstantRegistryStateImpl(moduleConstMutable,
+        moduleConstSeenTypes)
+    let constIdx = findModuleConstantIntoStateImpl(name, moduleConstantNames,
+        moduleConstantTypes, moduleConstantValues, state, xmConstNames,
+        xmConstTypes, xmConstMutable, xmConstSeenTypes, xmConstCount)
+    return ModuleConstantRegistrySnapshot.new(state.moduleConstMutable,
+        state.moduleConstSeenTypes, "", constIdx)
+}
+
 fun emitGlobalVariablesIntoStateImpl(output: StringBuilder, program: ProgramNode,
     moduleConstantNames: Array<String>, moduleConstantTypes: Array<String>,
     moduleConstantValues: Array<String>, state: ModuleConstantRegistryState)
@@ -262,6 +360,20 @@ fun emitGlobalVariablesIntoStateImpl(output: StringBuilder, program: ProgramNode
         moduleConstSeenTypesBox)
     state.moduleConstMutable = moduleConstMutableBox[0]
     state.moduleConstSeenTypes = moduleConstSeenTypesBox[0]
+}
+
+fun emitGlobalVariablesSnapshotImpl(output: StringBuilder,
+    program: ProgramNode, moduleConstantNames: Array<String>,
+    moduleConstantTypes: Array<String>, moduleConstantValues: Array<String>,
+    moduleConstMutable: String, moduleConstSeenTypes: String)
+    r: ModuleConstantRegistrySnapshot {
+
+    let state = captureModuleConstantRegistryStateImpl(moduleConstMutable,
+        moduleConstSeenTypes)
+    emitGlobalVariablesIntoStateImpl(output, program, moduleConstantNames,
+        moduleConstantTypes, moduleConstantValues, state)
+    return ModuleConstantRegistrySnapshot.new(state.moduleConstMutable,
+        state.moduleConstSeenTypes, "", -1)
 }
 
 fun moduleConstantInvariantLoadSuffixImpl(idx: Int, moduleConstMutable: String)

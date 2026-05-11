@@ -1,17 +1,17 @@
-/**
- * Unified audio API for Linux.
- *
- * Provides a backend-agnostic audio interface that automatically
- * selects PipeWire or ALSA based on availability. Supports playback
- * of float32 and int16 audio in mono or stereo configurations.
- *
- * Example:
- *   let audio = AudioDevice.new().unwrap()
- *   audio.start()
- *   let samples = generateSineWave(440.0, 48000, 48000, 0.5)
- *   audio.play(samples)
- *   audio.destroy()
- */
+///
+Unified audio API for Linux.
+
+Provides a backend-agnostic audio interface that automatically
+selects PipeWire or ALSA based on availability. Supports playback
+of float32 and int16 audio in mono or stereo configurations.
+
+Example:
+  let audio = AudioDevice.new().unwrap()
+  audio.start()
+  let samples = generateSineWave(440.0, 48000, 48000, 0.5)
+  audio.play(samples)
+  audio.destroy()
+///
 
 import core.result.{Result, Ok, Err}
 import core.unit.{Unit}
@@ -27,29 +27,29 @@ import platform.linux.alsa.{
     ALSA_DEFAULT_DEVICE
 }
 
-/**
- * Available audio backends.
- */
+///
+Available audio backends.
+///
 enum AudioBackend {
     PipeWire
     ALSA
     None
 }
 
-/**
- * Audio sample format for playback.
- */
+///
+Audio sample format for playback.
+///
 enum AudioSampleFormat {
     Float32
     Int16
 }
 
-/**
- * Audio configuration using a builder pattern.
- *
- * Configure sample rate, channels, format, buffer size, and backend.
- * Use factory methods like stereo48k() for common configurations.
- */
+///
+Audio configuration using a builder pattern.
+
+Configure sample rate, channels, format, buffer size, and backend.
+Use factory methods like stereo48k() for common configurations.
+///
 class AudioConfig {
     var sampleRate: Int
     var channels: Int
@@ -157,12 +157,12 @@ class ALSAState {
     }
 }
 
-/**
- * Unified audio device for playback.
- *
- * Manages audio output through PipeWire or ALSA backends.
- * Automatically selects the best available backend.
- */
+///
+Unified audio device for playback.
+
+Manages audio output through PipeWire or ALSA backends.
+Automatically selects the best available backend.
+///
 class AudioDevice {
     var backend: AudioBackend
     var config: AudioConfig
@@ -170,12 +170,12 @@ class AudioDevice {
     var alsa: ALSAState
     var isPlaying: Bool
 
-    /**
-     * Create audio device with automatic backend selection.
-     *
-     * Tries the preferred backend first, then falls back to
-     * the alternative if unavailable.
-     */
+    ///
+    Create audio device with automatic backend selection.
+
+    Tries the preferred backend first, then falls back to
+    the alternative if unavailable.
+    ///
     static fun create(config: AudioConfig) r: Result<AudioDevice, String> {
         var device = AudioDevice {
             backend: AudioBackend.None,

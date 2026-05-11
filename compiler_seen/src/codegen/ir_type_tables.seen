@@ -1,1071 +1,50 @@
-// Type table lookup functions extracted from llvm_ir_gen.seen
-// Pure lookup functions with no class state dependencies.
-// Returns "" when no match found; callers fall through to dynamic logic.
+///
+Type table lookup functions extracted from llvm_ir_gen.seen
+Pure lookup functions with no class state dependencies.
+Returns "" when no match found; callers fall through to dynamic logic.
+///
 
 import str.string.{StringBuilder}
-import codegen.ir_string_collect.{parseSeenStaticArrayElementTypeImpl}
 import codegen.ir_type_info.{getLLVMIRGeneratorFieldLlvmTypeImpl}
-// Note: getNextRegFn, getNextBlockFn, charToCodeStr, mapTypeImpl, SIMD helpers
-// moved to ir_type_dispatch.seen and ir_type_ops.seen
+import codegen.ir_method_call_type_table.{inferMethodCallTypeTableImpl}
+import codegen.ir_call_type_table.{inferCallTypeTableImpl}
+import codegen.ir_field_type_fallback.{inferFieldTypeFallbackImpl}
+import codegen.ir_header_field_types.{getFieldTypeForHeaderStructImpl}
+import codegen.ir_known_struct_field_types.{getFieldTypeForKnownStructImpl}
+import codegen.ir_index_element_types.{inferIndexElementTypeImpl}
+///
+Note: getNextRegFn, getNextBlockFn, charToCodeStr, mapTypeImpl, SIMD helpers
+moved to ir_type_dispatch.seen and ir_type_ops.seen
+///
 
 // Method name -> return type for MethodCall expressions
 fun inferMethodCallTypeTable(callee: String) r: String {
-    if callee == "length" { return "Int" }
-    if callee == "size" { return "Int" }
-    if callee == "lengthCodepoints" { return "Int" }
-    if callee == "charAt" {
-        return "Char"
-    }
-    if callee == "charCodeAt" { return "Int" }
-    if callee == "byteAt" { return "Int" }
-    // Note: 'getValue' must be hardcoded because Token class methods aren't registered
-    // before parser module methods are compiled (module load order issue)
-    if callee == "toString" { return "String" }
-    if callee == "substring" { return "String" }
-    if callee == "trim" { return "String" }
-    if callee == "generate" { return "String" }
-    if callee == "generateMultiple" { return "String" }
-    if callee == "generateSingle" { return "String" }
-    if callee == "mapType" { return "String" }
-    if callee == "getNextReg" { return "String" }
-    if callee == "getNextBlock" { return "String" }
-    if callee == "getFieldType" { return "String" }
-    if callee == "getSeenFieldType" { return "String" }
-    if callee == "getFunctionReturnType" { return "String" }
-    if callee == "getMethodReturnType" { return "String" }
-    if callee == "resolveChainedPathType" { return "String" }
-    if callee == "hexToDecimal" { return "String" }
-    if callee == "escapeString" { return "String" }
-    if callee == "findVarType" { return "String" }
-    if callee == "peekTokenTypeStr" { return "String" }
-    if callee == "joinSegments" { return "String" }
-    if callee == "getValue" { return "String" }
-    if callee == "getLastError" { return "String" }
-    if callee == "getTypeInfo" { return "String" }
-    if callee == "getString" { return "String" }
-    if callee == "fromCharCode" { return "String" }
-    if callee == "reverse" { return "String" }
-    if callee == "startsWith" { return "Bool" }
-    if callee == "endsWith" { return "Bool" }
-    if callee == "contains" { return "Bool" }
-    if callee == "success" { return "Bool" }
-    if callee == "isDynamic" { return "Bool" }
-    if callee == "isKeyword" { return "Bool" }
-    if callee == "hasTranslation" { return "Bool" }
-    if callee == "containsKey" { return "Bool" }
-    if callee == "containsValue" { return "Bool" }
-    if callee == "isOkay" { return "Bool" }
-    if callee == "isErr" { return "Bool" }
-    if callee == "checkToken" { return "Bool" }
-    if callee == "matchTokenStr" { return "Bool" }
-    if callee == "isAtEnd" { return "Bool" }
-    if callee == "isRunning" { return "Bool" }
-    if callee == "isNotification" { return "Bool" }
-    if callee == "hasMethod" { return "Bool" }
-    if callee == "isWordChar" { return "Bool" }
-    if callee == "isObject" { return "Bool" }
-    if callee == "isArray" { return "Bool" }
-    if callee == "isString" { return "Bool" }
-    if callee == "isNumber" { return "Bool" }
-    if callee == "isBool" { return "Bool" }
-    if callee == "isNull" { return "Bool" }
-    if callee == "hasKey" { return "Bool" }
-    if callee == "isDigit" { return "Bool" }
-    if callee == "isAlpha" { return "Bool" }
-    if callee == "isAlphanumeric" { return "Bool" }
-    if callee == "isUpperCase" { return "Bool" }
-    if callee == "isLowerCase" { return "Bool" }
-    if callee == "isWhitespace" { return "Bool" }
-    if callee == "isEmpty" { return "Bool" }
-    if callee == "isNaN" { return "Bool" }
-    if callee == "isInfinite" { return "Bool" }
-    if callee == "peek" { return "Token" }
-    if callee == "previous" { return "Token" }
-    if callee == "consume" { return "Token" }
-    if callee == "advance" { return "Token" }
-    if callee == "handleWhitespace" { return "Void" }
-    if callee == "handleSingleLineComment" { return "Void" }
-    if callee == "handleMultiLineComment" { return "Void" }
-    if callee == "handleStringLiteral" { return "Void" }
-    if callee == "handleCharLiteral" { return "Void" }
-    if callee == "handleNumericLiteral" { return "Void" }
-    if callee == "handleIdentifierOrKeyword" { return "Void" }
-    if callee == "emitToken" { return "Void" }
-    if callee == "emitErrorToken" { return "Void" }
-    if callee == "setErrorRecoveryMode" { return "Void" }
-    if callee == "push" { return "Void" }
-    if callee == "append" { return "Void" }
-    if callee == "appendChar" { return "Void" }
-    if callee == "appendInt" { return "Void" }
-    if callee == "appendFloat" { return "Void" }
-    if callee == "clear" { return "Void" }
-    if callee == "sendResponse" { return "Void" }
-    if callee == "sendNotification" { return "Void" }
-    if callee == "sendRaw" { return "Void" }
-    if callee == "sendError" { return "Void" }
-    if callee == "stop" { return "Void" }
-    if callee == "storeDocument" { return "Void" }
-    if callee == "removeDocument" { return "Void" }
-    if callee == "log" { return "Void" }
-    if callee == "register" { return "Void" }
-    if callee == "set" { return "Void" }
-    if callee == "peekTokenType" { return "Int" }
-    if callee == "getInt" { return "Int" }
-    if callee == "count" { return "Int" }
-    if callee == "toInt" { return "Int" }
-    if callee == "getBool" {
-        return "Bool"
-    }
-    if callee == "getNumber" { return "Float" }
-    if callee == "getFloat" { return "Float" }
-    if callee == "toFloat" { return "Float" }
-    if callee == "getArray" {
-        return "Array<JsonValue>"
-    }
-    if callee == "parseTypeNode" {
-        return "TypeNode"
-    }
-    if callee == "toArray" {
-        return "Array<Token>"
-    }
-    if callee == "getDiagnostics" {
-        return "Array<FrontendDiagnostic>"
-    }
-    if callee == "getSources" { return "Array<String>" }
-    if callee == "getKeywordSources" { return "Array<String>" }
-    if callee == "keys" { return "Array<String>" }
-    if callee == "values" { return "Array<String>" }
-    if callee == "split" { return "Array<String>" }
-    if callee == "getKeywordCount" {
-        return "Int"
-    }
-    if callee == "check" {
-        return "TypeInferenceResult"
-    }
-    if callee == "parse" { return "ProgramNode" }
-    if callee == "parseDeclarationsOnly" { return "ProgramNode" }
-    if callee == "tokenize" {
-        return "Array<Token>"
-    }
-    if callee == "getContext" { return "String" }
-    if callee == "getMessage" { return "String" }
-    if callee == "unwrapErr" { return "String" }
-    if callee == "getLocation" {
-        return "Location"
-    }
-    if callee == "getExpected" { return "Type" }
-    if callee == "getActual" { return "Type" }
-    if callee == "toJson" {
-        return "JsonValue"
-    }
-    if callee == "parseJson" {
-        return "JsonParseResult"
-    }
-    if callee == "open" { return "FsFileResult" }
-    if callee == "create" { return "FsFileResult" }
-    // LSP methods returning nullable types
-    if callee == "readMessage" {
-        return "LspMessage?"
-    }
-    if callee == "getDocument" {
-        return "Document?"
-    }
-    if callee == "getAt" {
-        return "JsonValue?"
-    }
-    if callee == "readContent" { return "Result" }
-    if callee == "writeContent" { return "Result" }
-    if callee == "closeFile" { return "Result" }
-    return ""
+    return inferMethodCallTypeTableImpl(callee)
 }
 
 // Function/constructor name -> return type for Call expressions
 fun inferCallTypeTable(callee: String) r: String {
-    // Benchmark/runtime intrinsics
-    if callee == "__GetTime" { return "Float" }
-    if callee == "__Sqrt" { return "Float" }
-    if callee == "__Sin" { return "Float" }
-    if callee == "__Cos" { return "Float" }
-    if callee == "__Exp" { return "Float" }
-    if callee == "__Log" { return "Float" }
-    if callee == "__Log10" { return "Float" }
-    if callee == "__Fabs" { return "Float" }
-    if callee == "__Pow" { return "Float" }
-    if callee == "__Asin" { return "Float" }
-    if callee == "__Acos" { return "Float" }
-    if callee == "__Atan" { return "Float" }
-    if callee == "__Atan2" { return "Float" }
-    if callee == "__Sinh" { return "Float" }
-    if callee == "__Cosh" { return "Float" }
-    if callee == "__Tanh" { return "Float" }
-    if callee == "__Tan" { return "Float" }
-    if callee == "__IntToFloat" { return "Float" }
-    if callee == "absFloat" { return "Float" }
-    if callee == "absInt" { return "Int" }
-    if callee == "minInt" { return "Int" }
-    if callee == "maxInt" { return "Int" }
-    if callee == "__FloatToInt" { return "Int" }
-    if callee == "__FloatToString" {
-        return "String"
-    }
-    if callee == "__Print" { return "Void" }
-    if callee == "__PrintInt" { return "Void" }
-    if callee == "__PrintFloat" { return "Void" }
-    if callee == "__PrintRaw" { return "Void" }
-    if callee == "__FlushStdout" { return "Void" }
-    // Explicit class constructor detection (hardcoded for reliability)
-    // AST node types
-    if callee == "FunctionNode" { return callee }
-    if callee == "ClassNode" { return callee }
-    if callee == "EnumNode" { return callee }
-    if callee == "BlockNode" { return callee }
-    if callee == "StatementNode" { return callee }
-    if callee == "ParserExpressionNode" { return callee }
-    if callee == "ProgramNode" { return callee }
-    if callee == "ItemNode" { return callee }
-    if callee == "ImportNode" { return callee }
-    // Compiler infrastructure types
-    if callee == "LLVMIRGenerator" { return callee }
-    if callee == "RealParser" { return callee }
-    if callee == "SeenLexer" { return callee }
-    if callee == "TypeChecker" { return callee }
-    if callee == "Environment" { return callee }
-    if callee == "FrontendResult" { return callee }
-    if callee == "FrontendDiagnostic" { return callee }
-    if callee == "TypeInferenceResult" { return callee }
-    if callee == "TypeError" { return callee }
-    // Data/utility types
-    if callee == "Token" { return callee }
-    if callee == "StringBuilder" { return callee }
-    if callee == "KeywordManager" { return callee }
-    if callee == "Map" { return callee }
-    if callee == "Vec" { return callee }
-    if callee == "VecChunk" { return callee }
-    if callee == "VecSlot" { return callee }
-    if callee == "BTreeMap" { return callee }
-    if callee == "HashMap" { return callee }
-    if callee == "LinkedList" { return callee }
-    if callee == "FsFile" { return callee }
-    if callee == "FsFileResult" { return callee }
-    if callee == "Result" { return callee }
-    if callee == "Optional" { return callee }
-    if callee == "Option" { return callee }
-    // Type system types
-    if callee == "Type" { return callee }
-    if callee == "FunctionType" { return callee }
-    if callee == "ClassType" { return callee }
-    if callee == "InterfaceType" { return callee }
-    if callee == "Location" { return callee }
-    // IR classes from ir/interfaces.seen
-    if callee == "IRBuilder" { return callee }
-    if callee == "IRFunction" { return callee }
-    if callee == "IRBasicBlock" { return callee }
-    if callee == "IRModule" { return callee }
-    if callee == "IRValue" { return callee }
-    if callee == "IRType" { return callee }
-    if callee == "IRInstruction" { return callee }
-    if callee == "IRError" { return callee }
-    if callee == "IRGenerator" { return callee }
-    // LSP types
-    if callee == "JsonRpcHandler" { return callee }
-    if callee == "LspMessage" { return callee }
-    if callee == "LspResponse" { return callee }
-    if callee == "LspError" { return callee }
-    if callee == "MessageDispatcher" { return callee }
-    if callee == "MessageHandler" { return callee }
-    if callee == "SeenLspServer" { return callee }
-    if callee == "Document" { return callee }
-    if callee == "LspPosition" { return callee }
-    if callee == "Range" { return callee }
-    if callee == "Diagnostic" { return callee }
-    if callee == "CompletionItem" { return callee }
-    if callee == "CompletionList" { return callee }
-    if callee == "TextDocumentIdentifier" { return callee }
-    if callee == "TextDocumentItem" { return callee }
-    if callee == "TextDocumentContentChangeEvent" { return callee }
-    if callee == "VersionedTextDocumentIdentifier" { return callee }
-    if callee == "MarkupContent" { return callee }
-    if callee == "Hover" { return callee }
-    if callee == "TextEdit" { return callee }
-    if callee == "CodeAction" { return callee }
-    if callee == "ServerCapabilities" { return callee }
-    if callee == "ServerInfo" { return callee }
-    if callee == "InitializeParams" { return callee }
-    if callee == "InitializeResult" { return callee }
-    if callee == "PublishDiagnosticsParams" { return callee }
-    // JSON types
-    if callee == "JsonValue" { return callee }
-    if callee == "JsonParseResult" { return callee }
-    if callee == "ContentLengthReader" { return callee }
-    // Result constructors (handle both "Err" and "Err<T, E>" forms)
-    if callee == "Err" { return "Result" }
-    if callee == "Ok" { return "Result" }
-    // VDOM factory functions - must be hardcoded since module imports may not register return types
-    if callee == "createElement" { return "VNode" }
-    if callee == "createEmptyElement" { return "VNode" }
-    if callee == "createText" { return "VNode" }
-    if callee == "createKeyedElement" { return "VNode" }
-    if callee == "createFragment" { return "VNode" }
-    if callee == "createComponent" { return "VNode" }
-    if callee == "createDiffer" {
-        return "VDOMDiffer"
-    }
-    if callee == "createPatcher" {
-        return "VDOMPatcher"
-    }
-    if callee == "vdomNodeCount" {
-        return "Int"
-    }
-    if callee == "vdomEqual" {
-        return "Bool"
-    }
-    if callee == "vdomGetTree" {
-        return "Option<VNode>"
-    }
-    if callee == "emptyAttrs" {
-        return "BTreeMap<String,String>"
-    }
-    if callee == "emptyChildren" {
-        return "Vec<VNode>"
-    }
-    if callee == "makeAttrs" { return "BTreeMap<String,String>" }
-    if callee == "makeAttrs2" { return "BTreeMap<String,String>" }
-    if callee == "makeChildren1" { return "Vec<VNode>" }
-    if callee == "makeChildren2" { return "Vec<VNode>" }
-    if callee == "makeChildren3" { return "Vec<VNode>" }
-    // Then hardcoded runtime functions
-    if callee == "readText" {
-        return "String"
-    }
-    if callee == "writeText" {
-        return "Bool"
-    }
-    if callee == "run_frontend" {
-        return "FrontendResult"
-    }
-    if callee == "run_frontend_declarations" {
-        return "FrontendResult"
-    }
-    if callee == "runCommand" {
-        return "CommandResult"
-    }
-    if callee == "commandWasSuccessful" {
-        return "Bool"
-    }
-    if callee == "args" {
-        return "Array<String>"
-    }
-    if callee == "printUsage" { return "Void" }
-    if callee == "printFrontendDiagnostics" { return "Void" }
-    // String utility functions from string.seen
-    if callee == "trim" { return "String" }
-    if callee == "trimStart" { return "String" }
-    if callee == "trimEnd" { return "String" }
-    if callee == "split" { return "Array<String>" }
-    if callee == "lines" { return "Array<String>" }
-    if callee == "words" { return "Array<String>" }
-    if callee == "isBlank" { return "Bool" }
-    if callee == "isWhitespace" { return "Bool" }
-    if callee == "startsWith" { return "Bool" }
-    if callee == "endsWith" { return "Bool" }
-    if callee == "contains" { return "Bool" }
-    if callee == "indexOf" { return "Int" }
-    if callee == "lastIndexOf" { return "Int" }
-    if callee == "padStart" { return "String" }
-    if callee == "padEnd" { return "String" }
-    if callee == "repeat" { return "String" }
-    if callee == "join" { return "String" }
-    if callee == "replaceFirst" { return "String" }
-    if callee == "replaceAll" { return "String" }
-    if callee == "replace" { return "String" }
-    if callee == "removePrefix" { return "String" }
-    if callee == "removeSuffix" { return "String" }
-    if callee == "ensurePrefix" { return "String" }
-    if callee == "ensureSuffix" { return "String" }
-    // LLVMIRGenerator methods called without explicit receiver
-    if callee == "mapType" { return "String" }
-    if callee == "getNextReg" { return "String" }
-    if callee == "getNextBlock" { return "String" }
-    if callee == "getNextBlockLabel" { return "String" }
-    if callee == "getFieldType" { return "String" }
-    if callee == "getSeenFieldType" { return "String" }
-    if callee == "getFunctionReturnType" { return "String" }
-    if callee == "getMethodReturnType" { return "String" }
-    if callee == "resolveChainedPathType" { return "String" }
-    if callee == "hexToDecimal" { return "String" }
-    if callee == "escapeString" { return "String" }
-    if callee == "findVarType" { return "String" }
-    if callee == "getMethodName" { return "String" }
-    if callee == "findVar" { return "Int" }
-    if callee == "findStruct" { return "Int" }
-    if callee == "getFieldInfo" { return "Int" }
-    if callee == "findPreallocated" { return "Int" }
-    if callee == "generateExpression" { return "String" }
-    if callee == "generateBinary" { return "String" }
-    if callee == "generateUnary" { return "String" }
-    if callee == "generateMemberAccess" { return "String" }
-    if callee == "generateMethodCall" { return "String" }
-    if callee == "generateCall" { return "String" }
-    if callee == "generateFieldAccess" { return "String" }
-    if callee == "generateIndexAccess" { return "String" }
-    if callee == "generateStructLiteral" { return "String" }
-    if callee == "generateArrayLiteral" { return "String" }
-    if callee == "generateVarExpression" { return "String" }
-    if callee == "generateLiteral" { return "String" }
-    if callee == "isFuncDefinedInModule" {
-        return "Bool"
-    }
-    if callee == "inferExpressionType" {
-        return "String"
-    }
-    // RealParser utility methods (when called without explicit receiver)
-    if callee == "consume" { return "Token" }
-    if callee == "advance" { return "Token" }
-    if callee == "previous" { return "Token" }
-    if callee == "peek" { return "Token" }
-    if callee == "checkToken" { return "Bool" }
-    if callee == "matchTokenStr" { return "Bool" }
-    if callee == "isAtEnd" { return "Bool" }
-    if callee == "peekTokenType" {
-        return "Int"
-    }
-    if callee == "peekTokenTypeStr" { return "String" }
-    if callee == "joinSegments" { return "String" }
-    if callee == "toArray" {
-        return "Array<Token>"
-    }
-    if callee == "parseTypeNode" {
-        return "TypeNode"
-    }
-    if callee == "parseFunctionItem" { return "ItemNode" }
-    if callee == "parseClassItem" { return "ItemNode" }
-    if callee == "parseEnumItem" { return "ItemNode" }
-    if callee == "parseImportItem" { return "ItemNode" }
-    if callee == "parseStatement" { return "StatementNode" }
-    if callee == "parseBlock" { return "StatementNode" }
-    if callee == "parseIfStatement" { return "StatementNode" }
-    if callee == "parseWhileStatement" { return "StatementNode" }
-    if callee == "parseForStatement" { return "StatementNode" }
-    if callee == "parseExpressionStatement" { return "StatementNode" }
-    if callee == "parseLetStatement" { return "StatementNode" }
-    if callee == "parseVarStatement" { return "StatementNode" }
-    if callee == "parseReturnStatement" { return "StatementNode" }
-    if callee == "parseBreakStatement" { return "StatementNode" }
-    if callee == "parseContinueStatement" { return "StatementNode" }
-    if callee == "parseExpression" { return "ParserExpressionNode" }
-    if callee == "parsePrimary" { return "ParserExpressionNode" }
-    if callee == "parseUnary" { return "ParserExpressionNode" }
-    if callee == "parseBinary" { return "ParserExpressionNode" }
-    if callee == "parseOr" { return "ParserExpressionNode" }
-    if callee == "parseAnd" { return "ParserExpressionNode" }
-    if callee == "parseEquality" { return "ParserExpressionNode" }
-    if callee == "parseComparison" { return "ParserExpressionNode" }
-    if callee == "parseTerm" { return "ParserExpressionNode" }
-    if callee == "parseFactor" { return "ParserExpressionNode" }
-    if callee == "parseCall" { return "ParserExpressionNode" }
-    if callee == "parsePostfix" { return "ParserExpressionNode" }
-    if callee == "parseAssignment" { return "ParserExpressionNode" }
-    if callee == "parseParam" {
-        return "ParamNode"
-    }
-    if callee == "parseImportPath" {
-        return "ImportPathInfo"
-    }
-    if callee == "parseImportSymbols" {
-        return "Array<ImportSymbolNode>"
-    }
-    if callee == "makeImportSymbol" {
-        return "ImportSymbolNode"
-    }
-    if callee == "TypeError" {
-        return "TypeError"
-    }
-    if callee == "FunctionType" {
-        return "FunctionType"
-    }
-    if callee == "ClassType" {
-        return "ClassType"
-    }
-    if callee == "InterfaceType" {
-        return "InterfaceType"
-    }
-    if callee == "Location" {
-        return "Location"
-    }
-    if callee == "Type" {
-        return "Type"
-    }
-    if callee == "Environment" {
-        return "Environment"
-    }
-    if callee == "lookup" { return "Type" }
-    if callee == "typeInt" { return "Type" }
-    if callee == "typeFloat" { return "Type" }
-    if callee == "typeString" { return "Type" }
-    if callee == "typeBool" { return "Type" }
-    if callee == "typeVoid" { return "Type" }
-    if callee == "typeUnit" { return "Type" }
-    if callee == "typeAny" { return "Type" }
-    if callee == "typeNever" { return "Type" }
-    if callee == "typeUnknown" { return "Type" }
-    if callee == "lookupFunction" {
-        return "FunctionType"
-    }
-    if callee == "lookupClass" {
-        return "ClassType"
-    }
-    return ""
+    return inferCallTypeTableImpl(callee)
 }
 
 // Field name -> Seen type fallback for MemberAccess when receiver type is unknown
 fun inferFieldTypeFallback(fieldName: String) r: String {
-    if fieldName == "success" {
-        return "Bool"
-    }
-    if fieldName == "program" {
-        return "ProgramNode"
-    }
-    if fieldName == "diagnostics" {
-        return "Array<FrontendDiagnostic>"
-    }
-    if fieldName == "output" {
-        return "String"
-    }
-    if fieldName == "severity" { return "String" }
-    if fieldName == "message" { return "String" }
-    if fieldName == "file" { return "String" }
-    if fieldName == "name" { return "String" }
-    if fieldName == "typeName" { return "String" }
-    if fieldName == "variableName" { return "String" }
-    if fieldName == "callee" { return "String" }
-    if fieldName == "operator" { return "String" }
-    if fieldName == "kind" { return "String" }
-    if fieldName == "literalValue" { return "String" }
-    if fieldName == "literalType" { return "String" }
-    if fieldName == "line" { return "Int" }
-    if fieldName == "column" { return "Int" }
-    if fieldName == "x" { return "Int" }
-    if fieldName == "y" { return "Int" }
-    if fieldName == "items" {
-        return "Array<ItemNode>"
-    }
-    if fieldName == "itemType" {
-        return "String"
-    }
-    if fieldName == "function" {
-        return "FunctionNode"
-    }
-    if fieldName == "classNode" {
-        return "ClassNode"
-    }
-    if fieldName == "importPath" {
-        return "Array<String>"
-    }
-    if fieldName == "methods" {
-        return "Array<FunctionNode>"
-    }
-    if fieldName == "params" {
-        return "Array<ParamNode>"
-    }
-    if fieldName == "fields" {
-        return "Array<ParamNode>"
-    }
-    if fieldName == "statements" {
-        return "Array<StatementNode>"
-    }
-    if fieldName == "operands" {
-        return "Array<ParserExpressionNode>"
-    }
-    if fieldName == "decorators" {
-        return "Array<AnnotationNode>"
-    }
-    // Note: "arguments" is context-dependent:
-    // - ParserExpressionNode.arguments is Array<ParserExpressionNode>
-    // - AnnotationNode.arguments is Array<String>
-    // The receiver-type lookup will handle this correctly
-    if fieldName == "body" {
-        return "BlockNode"
-    }
-    if fieldName == "returnType" { return "TypeNode" }
-    if fieldName == "variableType" { return "TypeNode" }
-    if fieldName == "paramType" { return "TypeNode" }
-    // NOTE: "errors" and "warnings" are context-dependent fields:
-    // - TypeInferenceResult.errors is Array<TypeError>
-    // - MacroExpansionResult.errors is Array<String>
-    // - TypeInferenceResult.warnings is Array<String>
-    // We must NOT have generic mappings here - let the receiver-based lookup
-    // call getSeenFieldType() which has correct struct-specific mappings
-    if fieldName == "initializer" { return "ParserExpressionNode" }
-    if fieldName == "returnValue" { return "ParserExpressionNode" }
-    if fieldName == "condition" { return "ParserExpressionNode" }
-    if fieldName == "loopVariable" { return "ParserExpressionNode" }
-    if fieldName == "loopIterable" { return "ParserExpressionNode" }
-    if fieldName == "loopBody" { return "BlockNode" }
-    if fieldName == "elseBody" { return "BlockNode" }
-    if fieldName == "thenBody" { return "BlockNode" }
-    return ""
+    return inferFieldTypeFallbackImpl(fieldName)
 }
 
 // Array type -> element type for IndexAccess expressions
 fun inferIndexElementType(arrayType: String) r: String {
-    let staticArrayElementType = parseSeenStaticArrayElementTypeImpl(arrayType)
-    if staticArrayElementType != "" {
-        return staticArrayElementType
-    }
-    if arrayType == "Array<FrontendDiagnostic>" {
-        return "FrontendDiagnostic"
-    }
-    if arrayType == "Array<String>" {
-        return "String"
-    }
-    if arrayType == "Array<Int>" {
-        return "Int"
-    }
-    if arrayType == "Array<Float>" {
-        return "Float"
-    }
-    if arrayType == "Array<ItemNode>" {
-        return "ItemNode"
-    }
-    if arrayType == "Array<ProgramNode>" {
-        return "ProgramNode"
-    }
-    if arrayType == "Array<FunctionNode>" {
-        return "FunctionNode"
-    }
-    if arrayType == "Array<ParamNode>" {
-        return "ParamNode"
-    }
-    if arrayType == "Array<StatementNode>" {
-        return "StatementNode"
-    }
-    if arrayType == "Array<ParserExpressionNode>" {
-        return "ParserExpressionNode"
-    }
-    if arrayType == "Array<TypeError>" {
-        return "TypeError"
-    }
-    if arrayType == "Array<ClassNode>" {
-        return "ClassNode"
-    }
-    if arrayType == "Array<BlockNode>" {
-        return "BlockNode"
-    }
-    if arrayType == "Array<AnnotationNode>" {
-        return "AnnotationNode"
-    }
-    return ""
+    return inferIndexElementTypeImpl(arrayType)
 }
 
 // LLVM type fallback when fieldNamesStr is empty (header-loaded structs)
 fun getFieldTypeForHeaderStruct(structName: String, fieldName: String) r: String {
-    if structName == "FunctionNode" {
-        if fieldName == "name" { return "%SeenString" }
-        if fieldName == "params" { return "ptr" }
-        if fieldName == "returnType" { return "%TypeNode" }
-        if fieldName == "body" { return "i64" }
-        if fieldName == "isAsync" { return "i1" }
-        if fieldName == "isInline" { return "i1" }
-        if fieldName == "isStatic" { return "i1" }
-        if fieldName == "isExtern" { return "i1" }
-        if fieldName == "isDeterministic" { return "i1" }
-        if fieldName == "isNondeterministic" { return "i1" }
-        if fieldName == "decorators" { return "ptr" }
-        if fieldName == "line" { return "i64" }
-        if fieldName == "column" { return "i64" }
-        if fieldName == "isOverride" { return "i1" }
-    }
-    if structName == "ClassNode" {
-        if fieldName == "name" { return "%SeenString" }
-        if fieldName == "fields" { return "ptr" }
-        if fieldName == "methods" { return "ptr" }
-        if fieldName == "decorators" { return "ptr" }
-        if fieldName == "isNondeterministic" { return "i1" }
-        if fieldName == "parentName" { return "%SeenString" }
-    }
-    if structName == "TypeNode" {
-        if fieldName == "typeName" { return "%SeenString" }
-        if fieldName == "isNullable" { return "i1" }
-    }
-    if structName == "ParamNode" {
-        if fieldName == "name" { return "%SeenString" }
-        if fieldName == "paramType" { return "%TypeNode" }
-        if fieldName == "defaultValue" { return "i64" }
-    }
-    if structName == "ItemNode" {
-        if fieldName == "itemType" { return "%SeenString" }
-        if fieldName == "name" { return "%SeenString" }
-        if fieldName == "visibility" { return "%SeenString" }
-        if fieldName == "importPath" { return "ptr" }
-        if fieldName == "importSymbols" { return "ptr" }
-        if fieldName == "function" { return "i64" }
-        if fieldName == "classNode" { return "i64" }
-        if fieldName == "enumNode" { return "i64" }
-    }
-    if structName == "ProgramNode" {
-        if fieldName == "items" { return "ptr" }
-    }
-    if structName == "BlockNode" {
-        if fieldName == "statements" { return "ptr" }
-    }
-    if structName == "FrontendResult" {
-        if fieldName == "success" { return "i1" }
-        if fieldName == "diagnostics" { return "ptr" }
-        if fieldName == "program" { return "i64" }
-    }
-    if structName == "FrontendDiagnostic" {
-        if fieldName == "file" { return "%SeenString" }
-        if fieldName == "line" { return "i64" }
-        if fieldName == "column" { return "i64" }
-        if fieldName == "severity" { return "%SeenString" }
-        if fieldName == "message" { return "%SeenString" }
-    }
-    if structName == "Token" {
-        if fieldName == "tokenType" { return "i64" }
-        if fieldName == "value" { return "%SeenString" }
-        if fieldName == "line" { return "i64" }
-        if fieldName == "column" { return "i64" }
-    }
-    if structName == "StatementNode" {
-        if fieldName == "kind" { return "%SeenString" }
-        if fieldName == "variableName" { return "%SeenString" }
-        if fieldName == "variableType" { return "%TypeNode" }
-        if fieldName == "initializer" { return "i64" }
-        if fieldName == "condition" { return "i64" }
-        if fieldName == "thenBranch" { return "i64" }
-        if fieldName == "elseBranch" { return "i64" }
-        if fieldName == "loopBody" { return "i64" }
-        if fieldName == "loopVariable" { return "%SeenString" }
-        if fieldName == "loopIterable" { return "i64" }
-        if fieldName == "returnValue" { return "i64" }
-        if fieldName == "expression" { return "i64" }
-    }
-    if structName == "ParserExpressionNode" {
-        if fieldName == "kind" { return "%SeenString" }
-        if fieldName == "variableName" { return "%SeenString" }
-        if fieldName == "literalValue" { return "%SeenString" }
-        if fieldName == "literalType" { return "%SeenString" }
-        if fieldName == "operator" { return "%SeenString" }
-        if fieldName == "operands" { return "ptr" }
-        if fieldName == "arguments" { return "ptr" }
-        if fieldName == "callee" { return "%SeenString" }
-    }
-    return ""
+    return getFieldTypeForHeaderStructImpl(structName, fieldName)
 }
 
 // Comprehensive LLVM type tables for all known structs
 fun getFieldTypeForKnownStruct(structName: String, fieldName: String) r: String {
-    if structName == "FrontendResult" {
-        if fieldName == "success" { return "i1" }
-        if fieldName == "diagnostics" { return "ptr" }
-        if fieldName == "program" { return "i64" }
-    }
-    if structName == "FrontendDiagnostic" {
-        if fieldName == "file" { return "%SeenString" }
-        if fieldName == "line" { return "i64" }
-        if fieldName == "column" { return "i64" }
-        if fieldName == "severity" { return "%SeenString" }
-        if fieldName == "message" { return "%SeenString" }
-    }
-    if structName == "CommandResult" {
-        if fieldName == "success" { return "i1" }
-        if fieldName == "output" { return "%SeenString" }
-    }
-    if structName == "FsFileResult" {
-        if fieldName == "isOk" { return "i1" }
-        if fieldName == "file" { return "i64" }
-        if fieldName == "error" { return "%SeenString" }
-    }
-    if structName == "ProgramNode" {
-        if fieldName == "items" { return "ptr" }
-    }
-    if structName == "ItemNode" {
-        if fieldName == "itemType" { return "%SeenString" }
-        if fieldName == "name" { return "%SeenString" }
-        if fieldName == "visibility" { return "%SeenString" }
-        if fieldName == "importPath" { return "ptr" }
-        if fieldName == "importSymbols" { return "ptr" }
-        if fieldName == "function" { return "i64" }
-        if fieldName == "classNode" { return "i64" }
-        if fieldName == "enumNode" { return "i64" }
-    }
-    if structName == "FunctionNode" {
-        if fieldName == "name" { return "%SeenString" }
-        if fieldName == "params" { return "ptr" }
-        if fieldName == "returnType" { return "%TypeNode" }
-        if fieldName == "body" { return "i64" }
-        if fieldName == "isAsync" { return "i1" }
-        if fieldName == "isInline" { return "i1" }
-        if fieldName == "isStatic" { return "i1" }
-        if fieldName == "isExtern" { return "i1" }
-        if fieldName == "isDeterministic" { return "i1" }
-        if fieldName == "isNondeterministic" { return "i1" }
-        if fieldName == "decorators" { return "ptr" }
-        if fieldName == "line" { return "i64" }
-        if fieldName == "column" { return "i64" }
-        if fieldName == "isOverride" { return "i1" }
-    }
-    if structName == "ClassNode" {
-        if fieldName == "name" { return "%SeenString" }
-        if fieldName == "fields" { return "ptr" }
-        if fieldName == "methods" { return "ptr" }
-        if fieldName == "decorators" { return "ptr" }
-        if fieldName == "isNondeterministic" { return "i1" }
-        if fieldName == "parentName" { return "%SeenString" }
-    }
-    if structName == "TypeInferenceResult" {
-        if fieldName == "success" { return "i1" }
-        if fieldName == "type" { return "i64" }
-        if fieldName == "program" { return "i64" }
-        if fieldName == "errors" { return "ptr" }
-        if fieldName == "warnings" { return "ptr" }
-        if fieldName == "environment" { return "i64" }
-        if fieldName == "typeTable" { return "i64" }
-    }
-    if structName == "Token" {
-        if fieldName == "kind" { return "%SeenString" }
-        if fieldName == "tokenType" { return "i64" }
-        if fieldName == "value" { return "%SeenString" }
-        if fieldName == "line" { return "i64" }
-        if fieldName == "column" { return "i64" }
-        if fieldName == "offset" { return "i64" }
-        if fieldName == "endOffset" { return "i64" }
-        if fieldName == "length" { return "i64" }
-        if fieldName == "fileId" { return "i64" }
-        if fieldName == "pos" { return "%Position" }
-    }
-    if structName == "Position" {
-        if fieldName == "line" { return "i64" }
-        if fieldName == "column" { return "i64" }
-        if fieldName == "offset" { return "i64" }
-        if fieldName == "fileId" { return "i64" }
-    }
-    if structName == "TypeRegistry" {
-        if fieldName == "structNames" { return "ptr" }
-        if fieldName == "structLayouts" { return "ptr" }
-        if fieldName == "structFieldNames" { return "ptr" }
-        if fieldName == "structFieldTypes" { return "ptr" }
-        if fieldName == "structLlvmFieldTypes" { return "ptr" }
-        if fieldName == "structSizes" { return "ptr" }
-        if fieldName == "structMethodNames" { return "ptr" }
-        if fieldName == "structMethodRetTypes" { return "ptr" }
-        if fieldName == "funcNames" { return "ptr" }
-        if fieldName == "funcRetTypes" { return "ptr" }
-        if fieldName == "classMethodBaseNames" { return "ptr" }
-        if fieldName == "typeHeaderPath" { return "%SeenString" }
-    }
-    if structName == "StatementNode" {
-        if fieldName == "kind" { return "%SeenString" }
-        if fieldName == "expression" { return "i64" }
-        if fieldName == "condition" { return "i64" }
-        if fieldName == "thenBlock" { return "i64" }
-        if fieldName == "thenBranch" { return "i64" }
-        if fieldName == "elseBlock" { return "i64" }
-        if fieldName == "elseBranch" { return "i64" }
-        if fieldName == "varName" { return "%SeenString" }
-        if fieldName == "varType" { return "%TypeNode" }
-        if fieldName == "isMutable" { return "i1" }
-        if fieldName == "initializer" { return "i64" }
-        if fieldName == "loopVar" { return "%SeenString" }
-        if fieldName == "iterableExpr" { return "i64" }
-        if fieldName == "loopBody" { return "i64" }
-        if fieldName == "whileCondition" { return "i64" }
-        if fieldName == "whileBody" { return "i64" }
-        if fieldName == "loopCondition" { return "i64" }
-        if fieldName == "matchExpr" { return "i64" }
-        if fieldName == "matchArms" { return "ptr" }
-        if fieldName == "returnExpr" { return "i64" }
-        if fieldName == "returnValue" { return "i64" }
-        if fieldName == "value" { return "i64" }
-        if fieldName == "target" { return "i64" }
-    }
-    if structName == "ParserExpressionNode" {
-        if fieldName == "kind" { return "%SeenString" }
-        if fieldName == "callee" { return "%SeenString" }
-        if fieldName == "literalValue" { return "%SeenString" }
-        if fieldName == "literalType" { return "%SeenString" }
-        if fieldName == "operands" { return "ptr" }
-        if fieldName == "operator" { return "%SeenString" }
-        if fieldName == "arguments" { return "ptr" }
-        if fieldName == "typeArgs" { return "ptr" }
-        if fieldName == "isNullable" { return "i1" }
-        if fieldName == "isSafeAccess" { return "i1" }
-        if fieldName == "receiverType" { return "%SeenString" }
-        if fieldName == "fieldName" { return "%SeenString" }
-        if fieldName == "inferredType" { return "%TypeNode" }
-        if fieldName == "lambdaParams" { return "ptr" }
-        if fieldName == "lambdaBody" { return "i64" }
-        if fieldName == "lambdaReturnType" { return "%TypeNode" }
-    }
-    if structName == "TypeNode" {
-        if fieldName == "typeName" { return "%SeenString" }
-        if fieldName == "isNullable" { return "i1" }
-    }
-    if structName == "ParamNode" {
-        if fieldName == "name" { return "%SeenString" }
-        if fieldName == "paramType" { return "%TypeNode" }
-        if fieldName == "isMutable" { return "i1" }
-    }
-    if structName == "FieldNode" {
-        if fieldName == "name" { return "%SeenString" }
-        if fieldName == "fieldType" { return "%TypeNode" }
-        if fieldName == "isMutable" { return "i1" }
-        if fieldName == "defaultValue" { return "i64" }
-    }
-    if structName == "MatchArm" {
-        if fieldName == "pattern" { return "i64" }
-        if fieldName == "body" { return "i64" }
-    }
-    if structName == "BlockNode" {
-        if fieldName == "statements" { return "ptr" }
-    }
-    if structName == "EnumNode" {
-        if fieldName == "name" { return "%SeenString" }
-        if fieldName == "variants" { return "ptr" }
-    }
-    if structName == "EnumVariant" {
-        if fieldName == "name" { return "%SeenString" }
-        if fieldName == "associatedTypes" { return "ptr" }
-    }
-    if structName == "Location" {
-        if fieldName == "line" { return "i64" }
-        if fieldName == "column" { return "i64" }
-        if fieldName == "file" { return "%SeenString" }
-    }
-    if structName == "TypeError" {
-        if fieldName == "message" { return "%SeenString" }
-        if fieldName == "location" { return "i64" }
-        if fieldName == "expected" { return "i64" }
-        if fieldName == "actual" { return "i64" }
-        if fieldName == "context" { return "%SeenString" }
-    }
-    if structName == "LexerError" {
-        if fieldName == "message" { return "%SeenString" }
-        if fieldName == "line" { return "i64" }
-        if fieldName == "column" { return "i64" }
-    }
-    if structName == "ParseError" {
-        if fieldName == "message" { return "%SeenString" }
-        if fieldName == "line" { return "i64" }
-        if fieldName == "column" { return "i64" }
-    }
-    if structName == "SeenLexer" {
-        if fieldName == "source" { return "%SeenString" }
-        if fieldName == "fileId" { return "i64" }
-        if fieldName == "language" { return "%SeenString" }
-        if fieldName == "errorRecoveryMode" { return "i1" }
-        if fieldName == "keywordManager" { return "i64" }
-        if fieldName == "position" { return "i64" }
-        if fieldName == "line" { return "i64" }
-        if fieldName == "column" { return "i64" }
-        if fieldName == "tokens" { return "ptr" }
-        if fieldName == "pos" { return "i64" }
-        if fieldName == "errors" { return "ptr" }
-    }
-    if structName == "TypeChecker" {
-        if fieldName == "environment" { return "i64" }
-        if fieldName == "env" { return "i64" }
-        if fieldName == "errors" { return "ptr" }
-        if fieldName == "warnings" { return "ptr" }
-        if fieldName == "strictMode" { return "i1" }
-        if fieldName == "currentFunction" { return "i64" }
-        if fieldName == "currentClass" { return "i64" }
-        if fieldName == "classTypes" { return "ptr" }
-        if fieldName == "functionTypes" { return "ptr" }
-        if fieldName == "typeTable" { return "i64" }
-    }
-    if structName == "SeenTypeChecker" {
-        if fieldName == "smartCastContext" { return "i64" }
-        if fieldName == "strictMode" { return "i1" }
-        if fieldName == "environment" { return "i64" }
-        if fieldName == "errors" { return "ptr" }
-        if fieldName == "warnings" { return "ptr" }
-    }
-    if structName == "RealParser" {
-        if fieldName == "tokens" { return "ptr" }
-        if fieldName == "pos" { return "i64" }
-        if fieldName == "current" { return "i64" }
-        if fieldName == "currentProgram" { return "i64" }
-        if fieldName == "currentBlock" { return "i64" }
-        if fieldName == "lastStatement" { return "i64" }
-        if fieldName == "lastParsedBlock" { return "i64" }
-        if fieldName == "lastFunction" { return "i64" }
-        if fieldName == "pendingDecorators" { return "ptr" }
-        if fieldName == "blockStack" { return "ptr" }
-        if fieldName == "statementStack" { return "ptr" }
-        if fieldName == "blockStackDepth" { return "i64" }
-        if fieldName == "lastParsedTypeName" { return "%SeenString" }
-        if fieldName == "lastParsedTypeNullable" { return "i1" }
-        if fieldName == "errors" { return "ptr" }
-        if fieldName == "currentFile" { return "%SeenString" }
-    }
-    if structName == "ImportPathInfo" {
-        if fieldName == "text" { return "%SeenString" }
-        if fieldName == "segments" { return "ptr" }
-    }
-    if structName == "ImportSymbolNode" {
-        if fieldName == "name" { return "%SeenString" }
-        if fieldName == "alias" { return "%SeenString" }
-    }
-    if structName == "FsFile" {
-        if fieldName == "fd" { return "i64" }
-        if fieldName == "path" { return "%SeenString" }
-    }
-    if structName == "StringHashMap" {
-        if fieldName == "entries" { return "ptr" }
-        if fieldName == "count" { return "i64" }
-        if fieldName == "capacity" { return "i64" }
-    }
-    if structName == "HashEntry" {
-        if fieldName == "key" { return "%SeenString" }
-        if fieldName == "value" { return "i64" }
-    }
-    if structName == "KeywordManager" {
-        if fieldName == "language" { return "%SeenString" }
-        if fieldName == "keywords" { return "i64" }
-        if fieldName == "tokenNameMap" { return "i64" }
-        if fieldName == "stdlibAliases" { return "i64" }
-        if fieldName == "sources" { return "ptr" }
-    }
-    if structName == "Environment" {
-        if fieldName == "parent" { return "i64" }
-        if fieldName == "variables" { return "i64" }
-        if fieldName == "types" { return "i64" }
-    }
-    if structName == "TypeTable" {
-        if fieldName == "types" { return "i64" }
-        if fieldName == "parent" { return "i64" }
-    }
-    if structName == "Type" {
-        if fieldName == "name" { return "%SeenString" }
-        if fieldName == "isNullable" { return "i1" }
-    }
-    if structName == "FunctionType" {
-        if fieldName == "parameters" { return "ptr" }
-        if fieldName == "returnType" { return "i64" }
-        if fieldName == "isAsync" { return "i1" }
-    }
-    if structName == "ClassType" {
-        if fieldName == "name" { return "%SeenString" }
-        if fieldName == "fields" { return "ptr" }
-        if fieldName == "methods" { return "ptr" }
-    }
-    if structName == "InterfaceType" {
-        if fieldName == "name" { return "%SeenString" }
-        if fieldName == "methods" { return "ptr" }
-    }
-    if structName == "StringBuilder" {
-        if fieldName == "data" { return "ptr" }
-        if fieldName == "length" { return "i64" }
-        if fieldName == "capacity" { return "i64" }
-    }
-    if structName == "SeenArray" {
-        if fieldName == "len" { return "i64" }
-        if fieldName == "cap" { return "i64" }
-        if fieldName == "element_size" { return "i64" }
-        if fieldName == "data" { return "ptr" }
-    }
-    return ""
+    return getFieldTypeForKnownStructImpl(structName, fieldName)
 }
 
 fun getHardcodedFieldLlvmTypeImpl(structName: String, fieldName: String) r: String {
@@ -1078,13 +57,17 @@ fun getHardcodedFieldLlvmTypeImpl(structName: String, fieldName: String) r: Stri
 
 // Register all known data types - populates struct arrays with hardcoded layouts
 fun registerKnownDataTypesImpl(structNames: Array<String>, structLayouts: Array<String>, structFieldNames: Array<String>, structFieldTypes: Array<String>, structLlvmFieldTypes: Array<String>, structSizes: Array<Int>, structMethodNames: Array<String>, structMethodRetTypes: Array<String>) r: Void {
-    // ItemNode { itemType: String, name: String, visibility: String, importPath: Array<String>, importSymbols: Array<ImportSymbolNode>, function: FunctionNode, classNode: ClassNode, enumNode: EnumNode }
-    // Arrays are stored as ptr (8 bytes each, pointer to heap-allocated SeenArray), class types stored as i64
+    ///
+    ItemNode { itemType: String, name: String, visibility: String, importPath: Array<String>, importSymbols: Array<ImportSymbolNode>, function: FunctionNode, classNode: ClassNode, enumNode: EnumNode }
+    Arrays are stored as ptr (8 bytes each, pointer to heap-allocated SeenArray), class types stored as i64
+    ///
     structNames.push("ItemNode")
     structLayouts.push("{ %SeenString, %SeenString, %SeenString, ptr, ptr, i64, i64, i64 }")
     structFieldNames.push("itemType,name,visibility,importPath,importSymbols,function,classNode,enumNode")
-    // Use Seen types (not LLVM types) for getSeenFieldType to work correctly
-    // Field types are pipe-separated per getSeenFieldType parsing
+    ///
+    Use Seen types (not LLVM types) for getSeenFieldType to work correctly
+    Field types are pipe-separated per getSeenFieldType parsing
+    ///
     structFieldTypes.push("String|String|String|Array<String>|Array<ImportSymbolNode>|FunctionNode|ClassNode|EnumNode")
     structLlvmFieldTypes.push("")
     structSizes.push(88)
@@ -1137,12 +120,14 @@ fun registerKnownDataTypesImpl(structNames: Array<String>, structLayouts: Array<
     structSizes.push(24)
     structMethodNames.push("")
     structMethodRetTypes.push("")
-    // FunctionNode { name: String, params: Array<ParamNode>, returnType: TypeNode (inline data), body: BlockNode (class, i64),
-    //                isAsync: Bool, isInline: Bool, isStatic: Bool, isExtern: Bool,
-    //                isDeterministic: Bool, isNondeterministic: Bool, decorators: Array<AnnotationNode>, line: Int, column: Int,
-    //                isOverride: Bool }
-    // Actual layout from source: { %SeenString, ptr, %TypeNode, i64, i1, i1, i1, i1, i1, i1, ptr, i64, i64, i1 }
-    // Where %TypeNode = { %SeenString, i1 }
+    ///
+    FunctionNode { name: String, params: Array<ParamNode>, returnType: TypeNode (inline data), body: BlockNode (class, i64),
+                   isAsync: Bool, isInline: Bool, isStatic: Bool, isExtern: Bool,
+                   isDeterministic: Bool, isNondeterministic: Bool, decorators: Array<AnnotationNode>, line: Int, column: Int,
+                   isOverride: Bool }
+    Actual layout from source: { %SeenString, ptr, %TypeNode, i64, i1, i1, i1, i1, i1, i1, ptr, i64, i64, i1 }
+    Where %TypeNode = { %SeenString, i1 }
+    ///
     structNames.push("FunctionNode")
     // Note: TypeNode is inline (data type), BlockNode is i64 (class type)
     structLayouts.push("{ %SeenString, ptr, %TypeNode, i64, i1, i1, i1, i1, i1, i1, ptr, i64, i64, i1 }")
@@ -1281,8 +266,10 @@ fun registerKnownDataTypesImpl(structNames: Array<String>, structLayouts: Array<
     structSizes.push(24)
     structMethodNames.push("")
     structMethodRetTypes.push("")
-    // FrontendResult { success: Bool, diagnostics: Array<FrontendDiagnostic>, program: ProgramNode }
-    // Rust backend stores arrays as ptr, class types as i64 (pointer-as-int)
+    ///
+    FrontendResult { success: Bool, diagnostics: Array<FrontendDiagnostic>, program: ProgramNode }
+    Rust backend stores arrays as ptr, class types as i64 (pointer-as-int)
+    ///
     structNames.push("FrontendResult")
     structLayouts.push("{ i1, ptr, i64 }")
     structFieldNames.push("success,diagnostics,program")
@@ -1336,8 +323,10 @@ fun registerKnownDataTypesImpl(structNames: Array<String>, structLayouts: Array<
     structSizes.push(24)
     structMethodNames.push("")
     structMethodRetTypes.push("")
-    // Vec<T> { chunks: ptr, capacities: ptr, usage: ptr, length: i64, totalCapacity: i64, nextChunkSize: i64 }
-    // For simplicity, we use a simpler layout: { data: ptr, length: i64, capacity: i64 }
+    ///
+    Vec<T> { chunks: ptr, capacities: ptr, usage: ptr, length: i64, totalCapacity: i64, nextChunkSize: i64 }
+    For simplicity, we use a simpler layout: { data: ptr, length: i64, capacity: i64 }
+    ///
     structNames.push("Vec")
     structLayouts.push("{ ptr, i64, i64 }")
     structFieldNames.push("data,length,capacity")
@@ -1346,8 +335,10 @@ fun registerKnownDataTypesImpl(structNames: Array<String>, structLayouts: Array<
     structSizes.push(24)
     structMethodNames.push("push,get,len,length,isEmpty,set,pop,clear,contains,indexOf,reverse,remove,insert,first,last,sort")
     structMethodRetTypes.push("Void|T|Int|Int|Bool|Void|T|Void|Bool|Int|Void|T|Void|T|T|Void")
-    // BTreeMap<K,V> { root: i64 (Option<BTreeNode>), length: i64 }
-    // For simplicity, we use a linear implementation: { entries: ptr, capacity: i64, length: i64 }
+    ///
+    BTreeMap<K,V> { root: i64 (Option<BTreeNode>), length: i64 }
+    For simplicity, we use a linear implementation: { entries: ptr, capacity: i64, length: i64 }
+    ///
     structNames.push("BTreeMap")
     structLayouts.push("{ ptr, i64, i64 }")
     structFieldNames.push("entries,capacity,length")
@@ -1388,8 +379,10 @@ fun registerKnownDataTypesImpl(structNames: Array<String>, structLayouts: Array<
     structMethodRetTypes.push("Bool|Bool|Bool|Bool|T|T|T|T|T|T|Void|Option<T>|Void")
 }
 
-// resolveCollectionGetTypeImpl — Resolve return type for .get() on collection types
-// Extracted from llvm_ir_gen.seen inferExpressionType() MethodCall branch
+///
+resolveCollectionGetTypeImpl — Resolve return type for .get() on collection types
+Extracted from llvm_ir_gen.seen inferExpressionType() MethodCall branch
+///
 fun resolveCollectionGetTypeImpl(recType: String) r: String {
     if recType.startsWith("Vec<") and recType.endsWith(">") {
         return recType.substring(4, recType.length() - 1)

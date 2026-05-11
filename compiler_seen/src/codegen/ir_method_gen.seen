@@ -1,9 +1,12 @@
-// ir_method_gen.seen — Method call codegen for primitive/built-in receiver types
-// Extracted from llvm_ir_gen.seen generateMethodCall() to follow SRP
-// Each impl function returns a result register string, or "" for fallthrough
+///
+ir_method_gen.seen — Method call codegen for primitive/built-in receiver types
+Extracted from llvm_ir_gen.seen generateMethodCall() to follow SRP
+Each impl function returns a result register string, or "" for fallthrough
+///
 
 import codegen.ir_optimization.{getNextRegFn}
 import str.string.{StringBuilder}
+import codegen.ir_literal_gen.{normalizeDoubleLiteralForLlvmImpl}
 
 fun normalizeArrayFloatLiteralImpl(value: String) r: String {
     if value == "" {
@@ -47,12 +50,15 @@ fun coerceArrayFloatArgImpl(output: StringBuilder, regBox: Array<Int>,
     return argReg
 }
 
-// emitToStringMethodImpl — toString dispatch for Float/Bool/Char/String/Class/Int
-// isClassReceiver: 1 if receiverType is a class type (pre-resolved by wrapper)
+///
+emitToStringMethodImpl — toString dispatch for Float/Bool/Char/String/Class/Int
+isClassReceiver: 1 if receiverType is a class type (pre-resolved by wrapper)
+///
 fun emitToStringMethodImpl(output: StringBuilder, regBox: Array<Int>, receiverReg: String, receiverType: String, isClassReceiver: Int) r: String {
     if receiverType == "Float" {
         let resultReg = getNextRegFn(regBox)
-        output.append("  " + resultReg + " = call %SeenString @seen_float_to_string(double " + receiverReg + ")\n")
+        let doubleReceiverReg = normalizeDoubleLiteralForLlvmImpl(receiverReg)
+        output.append("  " + resultReg + " = call %SeenString @seen_float_to_string(double " + doubleReceiverReg + ")\n")
         return resultReg
     }
     if receiverType == "Bool" {
@@ -81,12 +87,15 @@ fun emitToStringMethodImpl(output: StringBuilder, regBox: Array<Int>, receiverRe
     return resultReg
 }
 
-// emitToIntMethodImpl — toInt dispatch for Float/String/Int/Char
-// Returns "" for user-defined class types (fallthrough to class method call)
+///
+emitToIntMethodImpl — toInt dispatch for Float/String/Int/Char
+Returns "" for user-defined class types (fallthrough to class method call)
+///
 fun emitToIntMethodImpl(output: StringBuilder, regBox: Array<Int>, receiverReg: String, receiverType: String) r: String {
     if receiverType == "Float" {
         let resultReg = getNextRegFn(regBox)
-        output.append("  " + resultReg + " = fptosi double " + receiverReg + " to i64\n")
+        let doubleReceiverReg = normalizeDoubleLiteralForLlvmImpl(receiverReg)
+        output.append("  " + resultReg + " = fptosi double " + doubleReceiverReg + " to i64\n")
         return resultReg
     }
     if receiverType == "String" {
@@ -115,8 +124,10 @@ fun emitToFloatMethodImpl(output: StringBuilder, regBox: Array<Int>, receiverReg
     return receiverReg
 }
 
-// emitNumericMethodImpl — abs/min/max/clamp/floor/ceil/round/sqrt/isNaN/isInfinite
-// arg0Reg/arg1Reg: pre-generated argument registers (for min/max/clamp)
+///
+emitNumericMethodImpl — abs/min/max/clamp/floor/ceil/round/sqrt/isNaN/isInfinite
+arg0Reg/arg1Reg: pre-generated argument registers (for min/max/clamp)
+///
 fun emitNumericMethodImpl(output: StringBuilder, regBox: Array<Int>, methodName: String, receiverReg: String, receiverType: String, arg0Reg: String, arg1Reg: String) r: String {
     // Int.abs() - branchless absolute value
     if methodName == "abs" and (receiverType == "Int" or receiverType == "") {
@@ -131,7 +142,8 @@ fun emitNumericMethodImpl(output: StringBuilder, regBox: Array<Int>, methodName:
     // Float.abs()
     if methodName == "abs" and receiverType == "Float" {
         let resultReg = getNextRegFn(regBox)
-        output.append("  " + resultReg + " = call fast double @llvm.fabs.f64(double " + receiverReg + ")\n")
+        let doubleReceiverReg = normalizeDoubleLiteralForLlvmImpl(receiverReg)
+        output.append("  " + resultReg + " = call fast double @llvm.fabs.f64(double " + doubleReceiverReg + ")\n")
         return resultReg
     }
     // Int.min(other)
@@ -145,7 +157,9 @@ fun emitNumericMethodImpl(output: StringBuilder, regBox: Array<Int>, methodName:
     // Float.min(other)
     if methodName == "min" and receiverType == "Float" {
         let resultReg = getNextRegFn(regBox)
-        output.append("  " + resultReg + " = call fast double @llvm.minnum.f64(double " + receiverReg + ", double " + arg0Reg + ")\n")
+        let doubleReceiverReg = normalizeDoubleLiteralForLlvmImpl(receiverReg)
+        let doubleArg0Reg = normalizeDoubleLiteralForLlvmImpl(arg0Reg)
+        output.append("  " + resultReg + " = call fast double @llvm.minnum.f64(double " + doubleReceiverReg + ", double " + doubleArg0Reg + ")\n")
         return resultReg
     }
     // Int.max(other)
@@ -159,7 +173,9 @@ fun emitNumericMethodImpl(output: StringBuilder, regBox: Array<Int>, methodName:
     // Float.max(other)
     if methodName == "max" and receiverType == "Float" {
         let resultReg = getNextRegFn(regBox)
-        output.append("  " + resultReg + " = call fast double @llvm.maxnum.f64(double " + receiverReg + ", double " + arg0Reg + ")\n")
+        let doubleReceiverReg = normalizeDoubleLiteralForLlvmImpl(receiverReg)
+        let doubleArg0Reg = normalizeDoubleLiteralForLlvmImpl(arg0Reg)
+        output.append("  " + resultReg + " = call fast double @llvm.maxnum.f64(double " + doubleReceiverReg + ", double " + doubleArg0Reg + ")\n")
         return resultReg
     }
     // Int.clamp(low, high)
@@ -177,37 +193,43 @@ fun emitNumericMethodImpl(output: StringBuilder, regBox: Array<Int>, methodName:
     // Float.floor()
     if methodName == "floor" and (receiverType == "Float" or receiverType == "") {
         let resultReg = getNextRegFn(regBox)
-        output.append("  " + resultReg + " = call fast double @llvm.floor.f64(double " + receiverReg + ")\n")
+        let doubleReceiverReg = normalizeDoubleLiteralForLlvmImpl(receiverReg)
+        output.append("  " + resultReg + " = call fast double @llvm.floor.f64(double " + doubleReceiverReg + ")\n")
         return resultReg
     }
     // Float.ceil()
     if methodName == "ceil" and (receiverType == "Float" or receiverType == "") {
         let resultReg = getNextRegFn(regBox)
-        output.append("  " + resultReg + " = call fast double @llvm.ceil.f64(double " + receiverReg + ")\n")
+        let doubleReceiverReg = normalizeDoubleLiteralForLlvmImpl(receiverReg)
+        output.append("  " + resultReg + " = call fast double @llvm.ceil.f64(double " + doubleReceiverReg + ")\n")
         return resultReg
     }
     // Float.round()
     if methodName == "round" and (receiverType == "Float" or receiverType == "") {
         let resultReg = getNextRegFn(regBox)
-        output.append("  " + resultReg + " = call fast double @llvm.round.f64(double " + receiverReg + ")\n")
+        let doubleReceiverReg = normalizeDoubleLiteralForLlvmImpl(receiverReg)
+        output.append("  " + resultReg + " = call fast double @llvm.round.f64(double " + doubleReceiverReg + ")\n")
         return resultReg
     }
     // Float.sqrt()
     if methodName == "sqrt" and (receiverType == "Float" or receiverType == "") {
         let resultReg = getNextRegFn(regBox)
-        output.append("  " + resultReg + " = call fast double @llvm.sqrt.f64(double " + receiverReg + ")\n")
+        let doubleReceiverReg = normalizeDoubleLiteralForLlvmImpl(receiverReg)
+        output.append("  " + resultReg + " = call fast double @llvm.sqrt.f64(double " + doubleReceiverReg + ")\n")
         return resultReg
     }
     // Float.isNaN() - NaN != NaN (must NOT use fast flag)
     if methodName == "isNaN" and (receiverType == "Float" or receiverType == "") {
         let resultReg = getNextRegFn(regBox)
-        output.append("  " + resultReg + " = fcmp une double " + receiverReg + ", " + receiverReg + "\n")
+        let doubleReceiverReg = normalizeDoubleLiteralForLlvmImpl(receiverReg)
+        output.append("  " + resultReg + " = fcmp une double " + doubleReceiverReg + ", " + doubleReceiverReg + "\n")
         return resultReg
     }
     // Float.isInfinite() - |x| == +inf (must NOT use fast flag)
     if methodName == "isInfinite" and (receiverType == "Float" or receiverType == "") {
         let fabsReg = getNextRegFn(regBox)
-        output.append("  " + fabsReg + " = call double @llvm.fabs.f64(double " + receiverReg + ")\n")
+        let doubleReceiverReg = normalizeDoubleLiteralForLlvmImpl(receiverReg)
+        output.append("  " + fabsReg + " = call double @llvm.fabs.f64(double " + doubleReceiverReg + ")\n")
         let resultReg = getNextRegFn(regBox)
         output.append("  " + resultReg + " = fcmp oeq double " + fabsReg + ", 0x7FF0000000000000\n")
         return resultReg
@@ -215,8 +237,10 @@ fun emitNumericMethodImpl(output: StringBuilder, regBox: Array<Int>, methodName:
     return ""
 }
 
-// emitSmallVecMethodImpl — SmallVec push/get/length/clear
-// argReg: pre-generated argument register (for push/get)
+///
+emitSmallVecMethodImpl — SmallVec push/get/length/clear
+argReg: pre-generated argument register (for push/get)
+///
 fun emitSmallVecMethodImpl(output: StringBuilder, regBox: Array<Int>, methodName: String, receiverReg: String, receiverType: String, argReg: String) r: String {
     var svElemSuffix = "_i64"
     if receiverType.contains("String") {
@@ -246,8 +270,10 @@ fun emitSmallVecMethodImpl(output: StringBuilder, regBox: Array<Int>, methodName
     return ""
 }
 
-// emitArrayBasicMethodImpl — Array<T> len/get/push/set for simple variable receivers
-// arg0Reg/arg1Reg: pre-generated argument registers
+///
+emitArrayBasicMethodImpl — Array<T> len/get/push/set for simple variable receivers
+arg0Reg/arg1Reg: pre-generated argument registers
+///
 fun emitArrayBasicMethodImpl(output: StringBuilder, regBox: Array<Int>,
     methodName: String, receiverReg: String, receiverType: String,
     arg0Reg: String, arg1Reg: String, arg0SeenType: String,
@@ -345,9 +371,11 @@ fun emitArrayBasicMethodImpl(output: StringBuilder, regBox: Array<Int>,
     return ""
 }
 
-// emitLengthSizeMethodImpl — length/len/size dispatch for HashMap/LinkedList/Array/String
-// Handles types that don't need convertReceiverToPtr class method
-// Returns "" for types that need class method dispatch (Vec, Map, BTreeMap, List, StringBuilder)
+///
+emitLengthSizeMethodImpl — length/len/size dispatch for HashMap/LinkedList/Array/String
+Handles types that don't need convertReceiverToPtr class method
+Returns "" for types that need class method dispatch (Vec, Map, BTreeMap, List, StringBuilder)
+///
 fun emitLengthSizeMethodImpl(output: StringBuilder, regBox: Array<Int>, receiverReg: String, receiverType: String) r: String {
     // HashMap size
     let isHashMapType = receiverType == "HashMap" or receiverType.startsWith("HashMap<")
@@ -408,8 +436,10 @@ fun emitLengthSizeMethodImpl(output: StringBuilder, regBox: Array<Int>, receiver
     return ""
 }
 
-// emitTransmuteImpl — zero-cost type punning (bitcast / alloca+load)
-// srcLlvmType/dstLlvmType: pre-resolved LLVM types from mapType()
+///
+emitTransmuteImpl — zero-cost type punning (bitcast / alloca+load)
+srcLlvmType/dstLlvmType: pre-resolved LLVM types from mapType()
+///
 fun emitTransmuteImpl(output: StringBuilder, regBox: Array<Int>, srcReg: String, srcLlvmType: String, dstLlvmType: String) r: String {
     let tmResultReg = getNextRegFn(regBox)
     // Same width reinterpret: use bitcast
@@ -418,7 +448,8 @@ fun emitTransmuteImpl(output: StringBuilder, regBox: Array<Int>, srcReg: String,
         return tmResultReg
     }
     if srcLlvmType == "double" and dstLlvmType == "i64" {
-        output.append("  " + tmResultReg + " = bitcast double " + srcReg + " to i64\n")
+        let doubleSrcReg = normalizeDoubleLiteralForLlvmImpl(srcReg)
+        output.append("  " + tmResultReg + " = bitcast double " + doubleSrcReg + " to i64\n")
         return tmResultReg
     }
     if srcLlvmType == "i32" and dstLlvmType == "float" {

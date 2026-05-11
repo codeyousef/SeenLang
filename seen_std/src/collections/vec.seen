@@ -1,5 +1,7 @@
-// seen_std::collections::vec
-// Chunked Vec<T> for deterministic, amortized O(1) push/pop.
+///
+seen_std::collections::vec
+Chunked Vec<T> for deterministic, amortized O(1) push/pop.
+///
 
 // Runtime-provided default initializer for generic T (handled as intrinsic in backend).
 extern fun __default<T>() r: T
@@ -60,8 +62,10 @@ class Vec<T> {
         var chunk = this.chunks[lastIndex]
         let used = this.usage[lastIndex]
 
-        // Use local var to ensure modification isn't lost
-        // Always push - the array grows dynamically
+        ///
+        Use local var to ensure modification isn't lost
+        Always push - the array grows dynamically
+        ///
         var valuesArr = chunk.values
         valuesArr.push(value)
         chunk.values = valuesArr
@@ -160,8 +164,10 @@ class Vec<T> {
     fun growChunk() r: Void {
         // Create a new chunk with capacity - we'll push values on demand
         var chunk = VecChunk<T>{ values: Array<T>(this.nextChunkSize) }
-        // Don't pre-fill with defaults - just track capacity
-        // Use local vars to ensure modifications aren't lost
+        ///
+        Don't pre-fill with defaults - just track capacity
+        Use local vars to ensure modifications aren't lost
+        ///
         var chunksArr = this.chunks
         chunksArr.push(chunk)
         this.chunks = chunksArr

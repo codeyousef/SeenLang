@@ -1,6 +1,8 @@
-// Example: UWW Deterministic Game State
-// Compile with: seen build examples/uww_game.seen -t uww
-// This program demonstrates deterministic computation for UWW runtime
+///
+Example: UWW Deterministic Game State
+Compile with: seen build examples/uww_game.seen -t uww
+This program demonstrates deterministic computation for UWW runtime
+///
 
 import uww.fixed.{Fixed64, fixed, fixedFrac, FIXED_PI}
 
@@ -148,7 +150,9 @@ fun main() r: Int {
         i = i + 1
     }
 
-    // Return deterministic checksum
-    // This should be identical across all UWW nodes
+    ///
+    Return deterministic checksum
+    This should be identical across all UWW nodes
+    ///
     return game.getChecksum() % 256
 }

@@ -1,11 +1,30 @@
-// ir_binary_expr.seen — Shared binary expression IR emitters
-// Extracted from llvm_ir_gen.seen to reduce expression-lowering sprawl.
+///
+ir_binary_expr.seen — Shared binary expression IR emitters
+Extracted from llvm_ir_gen.seen to reduce expression-lowering sprawl.
+///
 
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn}
+import codegen.ir_decl_registry.{getFunctionReturnTypeStateImpl}
+import codegen.ir_codegen_type_state.{mapTypeState}
+import codegen.ir_literal_gen.{normalizeDoubleLiteralForLlvmImpl}
 
-// emitPointerArithmeticBinaryImpl — lower pointer +/- integer and pointer - pointer.
-// Returns "" when the caller should fall through.
+class OverloadedBinaryPlan {
+    var funcName: String
+    var retLlvmType: String
+
+    static fun new() r: OverloadedBinaryPlan {
+        return OverloadedBinaryPlan{
+            funcName: "",
+            retLlvmType: ""
+        }
+    }
+}
+
+///
+emitPointerArithmeticBinaryImpl — lower pointer +/- integer and pointer - pointer.
+Returns "" when the caller should fall through.
+///
 fun emitPointerArithmeticBinaryImpl(output: StringBuilder, regBox: Array<Int>,
     operator: String, leftType: String, rightType: String, leftReg: String, rightReg: String) r: String {
 
@@ -51,8 +70,10 @@ fun simdComparisonPredicateImpl(operator: String, isFloat: Int) r: String {
     return ""
 }
 
-// emitSimdBinaryExprImpl — lower SIMD arithmetic and comparison operations.
-// Returns "" when the caller should fall through.
+///
+emitSimdBinaryExprImpl — lower SIMD arithmetic and comparison operations.
+Returns "" when the caller should fall through.
+///
 fun emitSimdBinaryExprImpl(output: StringBuilder, regBox: Array<Int>,
     operator: String, leftType: String, simdLlvmType: String, leftReg: String, rightReg: String) r: String {
 
@@ -124,6 +145,26 @@ fun binaryOperatorMethodSuffixImpl(operator: String) r: String {
     if operator == "<=" { return "operator_lte" }
     if operator == ">=" { return "operator_gte" }
     return ""
+}
+
+fun planOverloadedBinaryState(operator: String, leftType: String,
+    funcNames: Array<String>, funcRetTypes: Array<String>)
+    r: OverloadedBinaryPlan {
+
+    let plan = OverloadedBinaryPlan.new()
+    let opMethodSuffix = binaryOperatorMethodSuffixImpl(operator)
+    if opMethodSuffix == "" {
+        return plan
+    }
+    let opFuncName = leftType + "_" + opMethodSuffix
+    let opRetType = getFunctionReturnTypeStateImpl(opFuncName,
+        funcNames, funcRetTypes)
+    if opRetType == "" {
+        return plan
+    }
+    plan.funcName = opFuncName
+    plan.retLlvmType = mapTypeState(opRetType)
+    return plan
 }
 
 fun isSimdBinaryOperatorImpl(operator: String) r: Bool {
@@ -276,9 +317,12 @@ fun emitFmaCallImpl(output: StringBuilder, regBox: Array<Int>,
     aReg: String, bReg: String, cReg: String, comment: String) r: String {
 
     let resultReg = getNextRegFn(regBox)
+    let aValue = normalizeDoubleLiteralForLlvmImpl(aReg)
+    let bValue = normalizeDoubleLiteralForLlvmImpl(bReg)
+    let cValue = normalizeDoubleLiteralForLlvmImpl(cReg)
     output.append("  " + resultReg +
-        " = call double @llvm.fmuladd.f64(double " + aReg + ", double " +
-        bReg + ", double " + cReg + ") ; FMA: " + comment + "\n")
+        " = call double @llvm.fmuladd.f64(double " + aValue + ", double " +
+        bValue + ", double " + cValue + ") ; FMA: " + comment + "\n")
     return resultReg
 }
 
@@ -326,6 +370,7 @@ fun exprProducesBoolImpl(exprType: String, operator: String) r: Int {
     if operator == ">" { return 1 }
     if operator == "<=" { return 1 }
     if operator == ">=" { return 1 }
+    if operator == "in" { return 1 }
     if operator == "and" { return 1 }
     if operator == "or" { return 1 }
     if operator == "&&" { return 1 }

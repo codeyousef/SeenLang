@@ -1,9 +1,11 @@
-// ir_control_flow.seen — Loop analysis and control flow helpers
-// Extracted from llvm_ir_gen.seen generateWhileStatement() to reduce module 5 size
-// These are pure AST analysis functions (no generateExpression callbacks needed)
+///
+ir_control_flow.seen — Loop analysis and control flow helpers
+Extracted from llvm_ir_gen.seen generateWhileStatement() to reduce module 5 size
+These are pure AST analysis functions (no generateExpression callbacks needed)
+///
 
 import parser.real_parser.{StatementNode, ParserExpressionNode, BlockNode}
-import codegen.ir_optimization.{parseIntManual, getNextRegFn, getNextBlockFn}
+import codegen.ir_optimization.{parseIntManual, getNextRegFn}
 import str.string.{StringBuilder}
 
 fun emitWhileConditionBranchImpl(output: StringBuilder, regBox: Array<Int>,
@@ -28,21 +30,6 @@ fun emitWhileConditionBranchImpl(output: StringBuilder, regBox: Array<Int>,
         ", label %" + endLabel + ", !prof !196\n")
 }
 
-fun emitStringForInElementImpl(output: StringBuilder, regBox: Array<Int>,
-    arrReg: String, loadIdx: String, loopVarReg: String) r: Void {
-
-    var arrStrReg = arrReg
-    if arrReg == "0" {
-        arrStrReg = "zeroinitializer"
-    }
-    let charReg = getNextRegFn(regBox)
-    output.append("  " + charReg +
-        " = call i64 @seen_char_at(%SeenString " + arrStrReg + ", i64 " +
-        loadIdx + ")\n")
-    output.append("  store i64 " + charReg + ", ptr " + loopVarReg +
-        ", align 8\n")
-}
-
 fun emitMemcpyLoopExitBlocksImpl(output: StringBuilder, condLabel: String,
     bodyLabel: String, endLabel: String) r: Void {
 
@@ -54,9 +41,11 @@ fun emitMemcpyLoopExitBlocksImpl(output: StringBuilder, condLabel: String,
     output.append(endLabel + ":\n")
 }
 
-// detectMemcpyPattern — Check if a while loop is a memcpy or memmove pattern
-// Returns: 0 = no pattern, 1 = memcpy (dest[i]=src[i]), 2 = memmove (arr[i]=arr[i+1])
-// mcLHSArrName/mcRHSArrName/mcIncrVarName: output parameters (pipe-delimited single entry)
+///
+detectMemcpyPattern — Check if a while loop is a memcpy or memmove pattern
+Returns: 0 = no pattern, 1 = memcpy (dest[i]=src[i]), 2 = memmove (arr[i]=arr[i+1])
+mcLHSArrName/mcRHSArrName/mcIncrVarName: output parameters (pipe-delimited single entry)
+///
 fun detectMemcpyPatternImpl(condition: ParserExpressionNode, body: BlockNode,
     infoOut: Array<String>) r: Int {
     // Check condition is i < N with large literal bound
@@ -66,11 +55,12 @@ fun detectMemcpyPatternImpl(condition: ParserExpressionNode, body: BlockNode,
     if condition.operands.length() < 2 {
         return 0
     }
-    let mcBoundCheck = condition.operands[1]
-    if mcBoundCheck.kind != "Literal" or mcBoundCheck.literalType != "Int" {
+    if condition.operands[1].kind != "Literal" or
+        condition.operands[1].literalType != "Int" {
+
         return 0
     }
-    let mcBoundVal = parseIntManual(mcBoundCheck.literalValue)
+    let mcBoundVal = parseIntManual(condition.operands[1].literalValue)
     if mcBoundVal < 64 {
         return 0
     }
@@ -127,9 +117,10 @@ fun detectMemcpyPatternImpl(condition: ParserExpressionNode, body: BlockNode,
     if mcLHSIdxName == "" { mcLHSIdxName = mcLHSIdx.variableName }
     // Get condition variable name (loop var)
     var mcCondVarName = ""
-    let mcCondLeft = condition.operands[0]
-    mcCondVarName = mcCondLeft.literalValue
-    if mcCondVarName == "" { mcCondVarName = mcCondLeft.variableName }
+    mcCondVarName = condition.operands[0].literalValue
+    if mcCondVarName == "" {
+        mcCondVarName = condition.operands[0].variableName
+    }
     // Verify index var matches loop induction var
     if mcLHSIdxName != mcIncrVarName or mcCondVarName != mcIncrVarName {
         return 0
@@ -173,15 +164,18 @@ fun detectMemcpyPatternImpl(condition: ParserExpressionNode, body: BlockNode,
     return 0
 }
 
-// detectLoopBound — Extract literal loop bound from condition
-// Returns -1 if no literal bound
+///
+detectLoopBound — Extract literal loop bound from condition
+Returns -1 if no literal bound
+///
 fun detectLoopBoundImpl(condition: ParserExpressionNode) r: Int {
     if condition.kind == "Binary" {
         if condition.operator == "<" or condition.operator == "<=" {
             if condition.operands.length() >= 2 {
-                let boundExpr = condition.operands[1]
-                if boundExpr.kind == "Literal" and boundExpr.literalType == "Int" {
-                    return parseIntManual(boundExpr.literalValue)
+                if condition.operands[1].kind == "Literal" and
+                    condition.operands[1].literalType == "Int" {
+
+                    return parseIntManual(condition.operands[1].literalValue)
                 }
             }
         }
@@ -189,8 +183,10 @@ fun detectLoopBoundImpl(condition: ParserExpressionNode) r: Int {
     return -1
 }
 
-// computeLoopTileSize — Compute tiling unroll count for a loop with given bound
-// Returns 0 if no tiling needed (bound too small)
+///
+computeLoopTileSize — Compute tiling unroll count for a loop with given bound
+Returns 0 if no tiling needed (bound too small)
+///
 fun computeLoopTileSizeImpl(loopBoundLiteral: Int, mlUnrollThreshold: Int) r: Int {
     if loopBoundLiteral <= 64 {
         return 0
@@ -201,8 +197,10 @@ fun computeLoopTileSizeImpl(loopBoundLiteral: Int, mlUnrollThreshold: Int) r: In
     return tileSize
 }
 
-// detectReductionPattern — Check if loop body contains a reduction (acc = acc + x)
-// Returns reduction variable name, or "" if none
+///
+detectReductionPattern — Check if loop body contains a reduction (acc = acc + x)
+Returns reduction variable name, or "" if none
+///
 fun detectReductionPatternImpl(body: BlockNode) r: String {
     var riIdx = 0
     while riIdx < body.statements.length() {
@@ -230,8 +228,10 @@ fun detectReductionPatternImpl(body: BlockNode) r: String {
     return ""
 }
 
-// detectInductionVar — Check if loop body contains i = i + 1 or i = i - 1
-// Returns induction variable name, or "" if none
+///
+detectInductionVar — Check if loop body contains i = i + 1 or i = i - 1
+Returns induction variable name, or "" if none
+///
 fun detectInductionVarImpl(body: BlockNode) r: String {
     var ivIdx = 0
     while ivIdx < body.statements.length() {
@@ -260,9 +260,11 @@ fun detectInductionVarImpl(body: BlockNode) r: String {
     return ""
 }
 
-// detectBreakOnFlag — Check for break-on-flag pattern in loop body
-// Pattern: if flag == 0 { ... flag = 1 } inside a while loop
-// Returns flag variable name, or "" if none
+///
+detectBreakOnFlag — Check for break-on-flag pattern in loop body
+Pattern: if flag == 0 { ... flag = 1 } inside a while loop
+Returns flag variable name, or "" if none
+///
 fun detectBreakOnFlagImpl(body: BlockNode) r: String {
     if body.statements.length() < 2 {
         return ""
@@ -311,8 +313,10 @@ fun detectBreakOnFlagImpl(body: BlockNode) r: String {
     return ""
 }
 
-// detectNestedLoop — Check if loop body contains a nested while/for loop
-// Returns true if nested loop found
+///
+detectNestedLoop — Check if loop body contains a nested while/for loop
+Returns true if nested loop found
+///
 fun detectNestedLoopImpl(body: BlockNode) r: Bool {
     var idx = 0
     while idx < body.statements.length() {
@@ -325,8 +329,10 @@ fun detectNestedLoopImpl(body: BlockNode) r: Bool {
     return false
 }
 
-// detectGcdPattern — Check for GCD loop pattern: while Y > 0 with modulo in body
-// Returns true if GCD pattern detected
+///
+detectGcdPattern — Check for GCD loop pattern: while Y > 0 with modulo in body
+Returns true if GCD pattern detected
+///
 fun detectGcdPatternImpl(condition: ParserExpressionNode, body: BlockNode) r: Bool {
     if condition.kind != "Binary" or condition.operator != ">" {
         return false
@@ -334,8 +340,9 @@ fun detectGcdPatternImpl(condition: ParserExpressionNode, body: BlockNode) r: Bo
     if condition.operands.length() < 2 {
         return false
     }
-    let gcdBound = condition.operands[1]
-    if gcdBound.kind != "Literal" or gcdBound.literalValue != "0" {
+    if condition.operands[1].kind != "Literal" or
+        condition.operands[1].literalValue != "0" {
+
         return false
     }
     var hasModuloAssign = false
@@ -355,8 +362,10 @@ fun detectGcdPatternImpl(condition: ParserExpressionNode, body: BlockNode) r: Bo
     return hasModuloAssign and body.statements.length() <= 5
 }
 
-// evaluateCfgPredicateImpl — Evaluate @cfg predicate for conditional compilation
-// Returns true if the function should be included
+///
+evaluateCfgPredicateImpl — Evaluate @cfg predicate for conditional compilation
+Returns true if the function should be included
+///
 fun evaluateCfgPredicateImpl(cfgPred: String, enabledFeatures: String) r: Bool {
     if cfgPred == "linux" or cfgPred == "target_os_linux" {
         return true
@@ -394,96 +403,4 @@ fun evaluateCfgPredicateImpl(cfgPred: String, enabledFeatures: String) r: Bool {
         }
     }
     return false
-}
-
-// emitForInElementFetchImpl — Emit element load for array-based for-in loop
-// Handles Int/Char (i64), Float (double), String (runtime call), and generic (i64) element types.
-// arrReg: register holding the SeenArray pointer
-// loadIdxReg: register holding the current loop index
-// loopVarReg: alloca register for the loop variable (where element is stored)
-// elementType: Seen type name of the array element
-// isString: 1 if elementType == "String", isFloat: 1 if elementType == "Float"
-fun emitForInElementFetchImpl(output: StringBuilder, regBox: Array<Int>,
-    arrReg: String, loadIdxReg: String, loopVarReg: String,
-    elementType: String, isString: Int, isFloat: Int) r: Void {
-    if loopVarReg == "" {
-        return
-    }
-    if elementType == "Int" or elementType == "Char" {
-        let fiDataPtrPtr = getNextRegFn(regBox)
-        output.append("  " + fiDataPtrPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 3\n")
-        let fiDataPtr = getNextRegFn(regBox)
-        output.append("  " + fiDataPtr + " = load ptr, ptr " + fiDataPtrPtr + ", !tbaa !104\n")
-        let fiElemPtr = getNextRegFn(regBox)
-        output.append("  " + fiElemPtr + " = getelementptr inbounds nuw i64, ptr " + fiDataPtr + ", i64 " + loadIdxReg + "\n")
-        let elemReg = getNextRegFn(regBox)
-        output.append("  " + elemReg + " = load i64, ptr " + fiElemPtr + ", align 8, !tbaa !105\n")
-        output.append("  store i64 " + elemReg + ", ptr " + loopVarReg + ", align 8\n")
-        return
-    }
-    if isFloat == 1 {
-        let fiDataPtrPtr = getNextRegFn(regBox)
-        output.append("  " + fiDataPtrPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 3\n")
-        let fiDataPtr = getNextRegFn(regBox)
-        output.append("  " + fiDataPtr + " = load ptr, ptr " + fiDataPtrPtr + ", !tbaa !104\n")
-        let fiElemPtr = getNextRegFn(regBox)
-        output.append("  " + fiElemPtr + " = getelementptr inbounds nuw double, ptr " + fiDataPtr + ", i64 " + loadIdxReg + "\n")
-        let elemReg = getNextRegFn(regBox)
-        output.append("  " + elemReg + " = load double, ptr " + fiElemPtr + ", align 8, !tbaa !106\n")
-        output.append("  store double " + elemReg + ", ptr " + loopVarReg + ", align 8\n")
-        return
-    }
-    if isString == 1 {
-        let elemReg = getNextRegFn(regBox)
-        output.append("  " + elemReg + " = call %SeenString @seen_arr_get_str_ptr(ptr " + arrReg + ", i64 " + loadIdxReg + ")\n")
-        output.append("  store %SeenString " + elemReg + ", ptr " + loopVarReg + "\n")
-        return
-    }
-    // Generic pointer-based access - inline GEP for ptr-sized elements
-    let fiDataPtrPtr = getNextRegFn(regBox)
-    output.append("  " + fiDataPtrPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 3\n")
-    let fiDataPtr = getNextRegFn(regBox)
-    output.append("  " + fiDataPtr + " = load ptr, ptr " + fiDataPtrPtr + ", !tbaa !104\n")
-    let fiElemPtr = getNextRegFn(regBox)
-    output.append("  " + fiElemPtr + " = getelementptr inbounds nuw i64, ptr " + fiDataPtr + ", i64 " + loadIdxReg + "\n")
-    let elemReg = getNextRegFn(regBox)
-    output.append("  " + elemReg + " = load i64, ptr " + fiElemPtr + ", align 8, !tbaa !105\n")
-    output.append("  store i64 " + elemReg + ", ptr " + loopVarReg + ", align 8\n")
-}
-
-// emitForInPrefetchImpl — Emit software prefetch for array-based for-in loop
-// Prefetches element at i+8 for sequential array traversals (non-String types only)
-fun emitForInPrefetchImpl(output: StringBuilder, regBox: Array<Int>, blockBox: Array<Int>,
-    arrReg: String, loadIdxReg: String, lenReg: String, elementType: String) r: Void {
-    if elementType == "String" {
-        return
-    }
-    let pfIdxReg = getNextRegFn(regBox)
-    output.append("  " + pfIdxReg + " = add nuw i64 " + loadIdxReg + ", 8\n")
-    let pfCmpReg = getNextRegFn(regBox)
-    output.append("  " + pfCmpReg + " = icmp ult i64 " + pfIdxReg + ", " + lenReg + "\n")
-    let pfDoLabel = getNextBlockFn(blockBox)
-    let pfSkipLabel = getNextBlockFn(blockBox)
-    output.append("  br i1 " + pfCmpReg + ", label %" + pfDoLabel + ", label %" + pfSkipLabel + ", !prof !196\n")
-    output.append(pfDoLabel + ":\n")
-    let pfDataPtrPtr = getNextRegFn(regBox)
-    output.append("  " + pfDataPtrPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 3\n")
-    let pfDataPtr = getNextRegFn(regBox)
-    output.append("  " + pfDataPtr + " = load ptr, ptr " + pfDataPtrPtr + ", !tbaa !104\n")
-    let pfElemPtr = getNextRegFn(regBox)
-    output.append("  " + pfElemPtr + " = getelementptr inbounds nuw i64, ptr " + pfDataPtr + ", i64 " + pfIdxReg + "\n")
-    output.append("  call void @llvm.prefetch.p0(ptr " + pfElemPtr + ", i32 0, i32 3, i32 1) ; prefetch i+8\n")
-    output.append("  br label %" + pfSkipLabel + "\n")
-    output.append(pfSkipLabel + ":\n")
-}
-
-// emitForInIncrementImpl — Emit loop increment and back-edge for array-based for-in
-fun emitForInIncrementImpl(output: StringBuilder, regBox: Array<Int>,
-    idxReg: String, condLabel: String, loopMetaIdStr: String) r: Void {
-    let curIdx = getNextRegFn(regBox)
-    output.append("  " + curIdx + " = load i64, ptr " + idxReg + ", align 8\n")
-    let nextIdx = getNextRegFn(regBox)
-    output.append("  " + nextIdx + " = add nuw nsw i64 " + curIdx + ", 1\n")
-    output.append("  store i64 " + nextIdx + ", ptr " + idxReg + ", align 8\n")
-    output.append("  br label %" + condLabel + ", !llvm.loop !" + loopMetaIdStr + "\n")
 }

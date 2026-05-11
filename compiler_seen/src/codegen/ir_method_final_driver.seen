@@ -1,0 +1,94 @@
+// ir_method_final_driver.seen - final method-call dispatch driver.
+
+import parser.real_parser.{ParserExpressionNode}
+import str.string.{StringBuilder}
+import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl}
+import codegen.ir_decl_state_driver.{captureLateUserDeclareState, applyLateUserDeclareState}
+import codegen.ir_field_layout.{isScalarFieldChainTerminalTypeImpl}
+import codegen.ir_method_finalize.{resolveMethodCallInstanceTypeNameImpl, emitPreparedFinalMethodDispatchState}
+import codegen.ir_method_final_plan.{planMethodFinalDispatchImpl}
+import codegen.ir_method_lower_driver.{tryEmitMethodUnresolvedCollectionGetWarningDriver, tryEmitMethodHotReloadLoweringDriver}
+import codegen.ir_method_lower_emit.{emitPreparedScalarReceiverFallbackImpl}
+import codegen.ir_method_lower_plan.{MethodLowerCallPlan, shouldUseScalarReceiverFallbackImpl}
+import codegen.ir_method_receiver_predicates.{isNumericReceiverMethodImpl}
+
+class MethodDispatchTargetState {
+    var immediateResult: String
+    var instanceTypeName: String
+    var funcName: String
+
+    static fun new() r: MethodDispatchTargetState {
+        return MethodDispatchTargetState{
+            immediateResult: "",
+            instanceTypeName: "",
+            funcName: ""
+        }
+    }
+}
+
+fun shouldUseScalarReceiverFinalFallbackState(receiverType: String,
+    methodName: String) r: Bool {
+
+    return isScalarFieldChainTerminalTypeImpl(receiverType) and
+        shouldUseScalarReceiverFallbackImpl(methodName,
+        isNumericReceiverMethodImpl(methodName))
+}
+
+fun resolveMethodDispatchTargetState(output: StringBuilder,
+    expr: ParserExpressionNode, methodName: String, receiverType: String,
+    tracedUnwrapSourceType: String) r: MethodDispatchTargetState {
+
+    let target = MethodDispatchTargetState.new()
+    let collectionGetWarning =
+        tryEmitMethodUnresolvedCollectionGetWarningDriver(output, methodName,
+        receiverType, expr.literalValue)
+    if collectionGetWarning != "" {
+        target.immediateResult = collectionGetWarning
+        return target
+    }
+
+    target.instanceTypeName = resolveMethodCallInstanceTypeNameImpl(expr,
+        methodName, receiverType, tracedUnwrapSourceType)
+    target.funcName = target.instanceTypeName + "_" + methodName
+    return target
+}
+
+fun tryEmitPreparedMethodHotReloadFinalState(output: StringBuilder,
+    methodName: String, receiverReg: String, receiverType: String,
+    funcName: String, shouldTryLowering: Bool,
+    lowerPlan: MethodLowerCallPlan, hotStateArg: String) r: String {
+
+    if shouldTryLowering and lowerPlan.shouldTryHotReload {
+        return tryEmitMethodHotReloadLoweringDriver(output, methodName,
+            funcName, receiverReg, receiverType, hotStateArg)
+    }
+    return ""
+}
+
+fun emitPreparedFinalMethodCallDriverState(output: StringBuilder,
+    methodName: String, receiverReg: String, receiverType: String,
+    instanceTypeName: String, funcName: String, shouldTryFinalDispatch: Bool,
+    lowerPlan: MethodLowerCallPlan, shouldUseScalarFallback: Bool,
+    literalValue: String,
+    scalarFallbackType: String, registeredMethodReturnType: String,
+    inferredMethodReturnType: String, argRegs: Array<String>,
+    argTypeStrs: Array<String>) r: String {
+
+    if shouldUseScalarFallback {
+        return emitPreparedScalarReceiverFallbackImpl(output, receiverType,
+            methodName, literalValue, scalarFallbackType)
+    }
+
+    let finalDispatchPlan = planMethodFinalDispatchImpl(
+        shouldTryFinalDispatch and lowerPlan.shouldTrySpecialized)
+    let methodLateState = captureLateUserDeclareState()
+    let finalMethodResult = emitPreparedFinalMethodDispatchState(output,
+        getFeatureRegBoxImpl(), methodName, instanceTypeName, funcName,
+        receiverReg, receiverType, registeredMethodReturnType,
+        inferredMethodReturnType, argRegs, argTypeStrs,
+        finalDispatchPlan.shouldPrepareReceiverAbi,
+        finalDispatchPlan.shouldTrySpecialized,
+        finalDispatchPlan.shouldEmitUserMethod, methodLateState)
+    applyLateUserDeclareState(methodLateState)
+    return finalMethodResult
+}

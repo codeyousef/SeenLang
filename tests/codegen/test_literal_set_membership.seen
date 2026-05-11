@@ -1,0 +1,37 @@
+fun main() r: Int {
+    let methodNames: Array<String> = ["createLoad", "createStore", "createCall"]
+    let opcodes: Array<Int> = [7, 11, 13]
+    var passed = 0
+
+    if "createStore" in methodNames {
+        passed = passed + 1
+    } else {
+        println("FAIL: named string set membership")
+    }
+
+    if not ("drop" in methodNames) {
+        passed = passed + 1
+    } else {
+        println("FAIL: missing string set membership")
+    }
+
+    if 11 in opcodes {
+        passed = passed + 1
+    } else {
+        println("FAIL: named int set membership")
+    }
+
+    if 5 in [3, 5, 8] {
+        passed = passed + 1
+    } else {
+        println("FAIL: literal int set membership")
+    }
+
+    if passed == 4 {
+        println("PASS: literal set membership")
+        return 0
+    }
+
+    println("FAIL: literal set membership = " + passed.toString())
+    return 1
+}

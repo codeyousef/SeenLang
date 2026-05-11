@@ -1,5 +1,7 @@
-// Test: GPU built-in variables — globalInvocationId, localInvocationId, workgroupId
-// Verifies GLSL generator maps Seen names to gl_GlobalInvocationID etc.
+///
+Test: GPU built-in variables — globalInvocationId, localInvocationId, workgroupId
+Verifies GLSL generator maps Seen names to gl_GlobalInvocationID etc.
+///
 
 @compute(workgroup: 256)
 fun builtinTest(output: Buffer<Int>) {

@@ -2,8 +2,45 @@
 
 import str.string.{StringBuilder}
 import codegen.ir_call_dispatch.{emitUserMethodCallImpl}
-import codegen.ir_method_fastpath.{tryGenerateLengthLikeMethodCallImpl, emitStringBuilderReceiverMethodCallImpl, tryGeneratePrimitiveConversionMethodCallImpl, tryGenerateNumericReceiverMethodCallImpl, tryGenerateStringLikeReceiverMethodCallImpl}
+import codegen.ir_method_fastpath.{tryGenerateLengthLikeMethodCallImpl, emitStringBuilderReceiverMethodCallImpl, tryGeneratePrimitiveConversionMethodCallImpl, tryGenerateNumericReceiverMethodCallImpl, tryGenerateStringLikeReceiverMethodCallImpl, tryGenerateUnresolvedReceiverFallbackMethodImpl, applyUnresolvedReceiverDefaultImpl}
 import codegen.ir_method_finalize.{tryGeneratePreparedHotReloadInstanceMethodCallImpl, tryGenerateSpecializedInstanceMethodCallImpl}
+
+class UnresolvedReceiverDefaultResult {
+    var resultReg: String
+    var receiverReg: String
+
+    static fun new(resultReg: String, receiverReg: String)
+        r: UnresolvedReceiverDefaultResult {
+
+        return UnresolvedReceiverDefaultResult{
+            resultReg: resultReg,
+            receiverReg: receiverReg
+        }
+    }
+}
+
+fun emitPreparedUnresolvedReceiverDefaultImpl(output: StringBuilder,
+    regBox: Array<Int>, methodName: String, receiverReg: String,
+    receiverType: String, currentClassName: String, literalValue: String,
+    operandCount: Int) r: UnresolvedReceiverDefaultResult {
+
+    output.append("; WARNING: receiver not resolved for " + methodName +
+        ", receiverType='" + receiverType + "', currentClass='" +
+        currentClassName + "', literal='" + literalValue +
+        "', operands=" + operandCount.toString() + ", using default\n")
+    let unresolvedFallback = tryGenerateUnresolvedReceiverFallbackMethodImpl(
+        output, regBox, methodName, receiverReg, receiverType)
+    if unresolvedFallback != "" {
+        return UnresolvedReceiverDefaultResult.new(unresolvedFallback,
+            receiverReg)
+    }
+    let unresolvedReceiverRegBox = Array<String>()
+    unresolvedReceiverRegBox.push(receiverReg)
+    applyUnresolvedReceiverDefaultImpl(unresolvedReceiverRegBox,
+        receiverType)
+    return UnresolvedReceiverDefaultResult.new("",
+        unresolvedReceiverRegBox[0])
+}
 
 fun emitPreparedLengthLikeMethodLowerImpl(output: StringBuilder,
     regBox: Array<Int>, methodName: String, receiverReg: String,
@@ -16,12 +53,10 @@ fun emitPreparedLengthLikeMethodLowerImpl(output: StringBuilder,
 
 fun emitPreparedStringBuilderMethodLowerImpl(output: StringBuilder,
     regBox: Array<Int>, methodName: String, receiverReg: String,
-    receiverType: String, sbArg0: String, isFloatFused: Int,
-    reprCClassNames: String, structNames: Array<String>) r: String {
+    receiverType: String, sbArg0: String, isFloatFused: Int) r: String {
 
     return emitStringBuilderReceiverMethodCallImpl(output, regBox, methodName,
-        receiverReg, receiverType, sbArg0, isFloatFused, reprCClassNames,
-        structNames)
+        receiverReg, receiverType, sbArg0, isFloatFused)
 }
 
 fun emitPreparedPrimitiveConversionMethodLowerImpl(output: StringBuilder,
@@ -30,6 +65,31 @@ fun emitPreparedPrimitiveConversionMethodLowerImpl(output: StringBuilder,
 
     return tryGeneratePrimitiveConversionMethodCallImpl(output, regBox,
         methodName, receiverReg, receiverType, structNames)
+}
+
+fun emitPreparedNonArgMethodLowerDispatchImpl(output: StringBuilder,
+    regBox: Array<Int>, shouldTryLengthLike: Bool,
+    shouldTryPrimitiveConversion: Bool, methodName: String,
+    receiverReg: String, receiverType: String, reprCClassNames: String,
+    structNames: Array<String>) r: String {
+
+    if shouldTryLengthLike {
+        let lengthLikeResult = emitPreparedLengthLikeMethodLowerImpl(output,
+            regBox, methodName, receiverReg, receiverType, reprCClassNames,
+            structNames)
+        if lengthLikeResult != "" {
+            return lengthLikeResult
+        }
+    }
+    if shouldTryPrimitiveConversion {
+        let conversionResult = emitPreparedPrimitiveConversionMethodLowerImpl(
+            output, regBox, methodName, receiverReg, receiverType,
+            structNames)
+        if conversionResult != "" {
+            return conversionResult
+        }
+    }
+    return ""
 }
 
 fun emitPreparedNumericMethodLowerImpl(output: StringBuilder,
@@ -61,6 +121,36 @@ fun emitPreparedHotReloadMethodLowerImpl(output: StringBuilder,
         structNames)
 }
 
+fun emitPreparedUnresolvedCollectionGetWarningImpl(output: StringBuilder,
+    receiverType: String, literalValue: String) r: String {
+
+    output.append("; WARNING: get() receiver not resolved as a collection, receiverType='" +
+        receiverType + "', literal='" + literalValue + "'\n")
+    return "0"
+}
+
+fun emitPreparedScalarReceiverFallbackImpl(output: StringBuilder,
+    receiverType: String, methodName: String, literalValue: String,
+    fallbackType: String) r: String {
+
+    output.append("; WARNING: scalar receiver method not resolved, receiverType='" +
+        receiverType + "', methodName='" + methodName +
+        "', literal='" + literalValue + "', using default\n")
+    if fallbackType == "Bool" or fallbackType == "Boolean" {
+        return "false"
+    }
+    if fallbackType == "Float" {
+        return "0.0"
+    }
+    if fallbackType == "String" {
+        return "zeroinitializer"
+    }
+    if fallbackType == "Void" {
+        return "0"
+    }
+    return "0"
+}
+
 fun emitPreparedSpecializedMethodLowerImpl(output: StringBuilder,
     regBox: Array<Int>, methodName: String, instanceTypeName: String,
     receiverType: String, returnTypeStr: String, receiverLlvmType: String,
@@ -68,7 +158,7 @@ fun emitPreparedSpecializedMethodLowerImpl(output: StringBuilder,
 
     return tryGenerateSpecializedInstanceMethodCallImpl(output, regBox,
         methodName, instanceTypeName, receiverType, returnTypeStr,
-        receiverLlvmType, receiverReg, structNames)
+        receiverLlvmType, receiverReg)
 }
 
 fun emitPreparedUserMethodLowerImpl(output: StringBuilder,

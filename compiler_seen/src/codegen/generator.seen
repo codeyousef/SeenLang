@@ -1,5 +1,7 @@
-// Real Code Generator Implementation - Following TDD
-// Implements comprehensive code generation with multiple backends
+///
+Real Code Generator Implementation - Following TDD
+Implements comprehensive code generation with multiple backends
+///
 
 import ir.{IRModule, IRFunction, IRBasicBlock, IRInstruction, IRValue, IRType}
 import process.process.{execCommand, commandWasSuccessful}
@@ -12,7 +14,7 @@ class CodeGenerator {
     var targetTriple: String
     var outputFormat: OutputFormat
     var optimizer: CodeOptimizer?
-    
+
     fun new() r: CodeGenerator {
         backends = Map<Target, Backend>.new()
         optimizationLevel = OptLevel.O0
@@ -51,7 +53,7 @@ class CodeGenerator {
         }
         return "x86_64-unknown-linux-gnu"
     }
-    
+
     fun initializeBackends() r: Void {
         // LLVM backends for different targets
         backends.put(Target.LLVM_IR, LLVMBackend.new(Target.LLVM_IR))
@@ -60,28 +62,28 @@ class CodeGenerator {
         backends.put(Target.macOS_x86_64, LLVMBackend.new(Target.macOS_x86_64))
         backends.put(Target.macOS_ARM64, LLVMBackend.new(Target.macOS_ARM64))
         backends.put(Target.Linux_ARM64, LLVMBackend.new(Target.Linux_ARM64))
-        
+
         // C backend
         backends.put(Target.C, CBackend.new())
-        
+
         // WebAssembly backend
         backends.put(Target.WASM, WASMBackend.new())
     }
-    
+
     fun generateFromIR(irModule: IRModule, target: Target) r: CodegenResult {
         if !irModule.success {
             return CodegenResult.newWithErrors(irModule.errors)
         }
-        
+
         let backend = getBackend(target)
         if backend == null {
             let error = CodegenError.new("Unsupported target: {target}", 0, 0, "", "backend_selection")
             return CodegenResult.new(false, "", [error])
         }
-        
+
         let result = CodegenResult.new(true, "", [])
         let startTime = getCurrentTime()
-        
+
         try {
             // Optimize IR if optimization is enabled
             let optimizedModule = irModule
@@ -89,94 +91,94 @@ class CodeGenerator {
                 optimizer = CodeOptimizer.new(optimizationLevel)
                 optimizedModule = optimizer.optimize(irModule)
             }
-            
+
             // Generate code using appropriate backend
             let generatedCode = backend.generateModule(optimizedModule)
-            
+
             // Apply backend-specific optimizations
             if optimizationLevel > OptLevel.O0 {
                 generatedCode = backend.optimizeModule(generatedCode, optimizationLevel)
             }
-            
+
             result.output = generatedCode
-            
+
             // Generate binary output if needed
             if outputFormat == OutputFormat.binary or target == Target.Executable {
                 result.setBinaryOutput(generateBinary(generatedCode, target))
             }
-            
+
             // Update statistics
             let endTime = getCurrentTime()
             result.statistics.codegenTime = endTime - startTime
             result.statistics.linesGenerated = countLines(generatedCode)
             result.statistics.functionsGenerated = irModule.functions.size()
-            
+
         } catch (error: CodegenError) {
             result.addError(error)
         } catch (error: Error) {
             let codegenError = CodegenError.new(error.message, 0, 0, "", "generation")
             result.addError(codegenError)
         }
-        
+
         return result
     }
-    
+
     fun setOptimizationLevel(level: OptLevel) r: Void {
         optimizationLevel = level
         if level > OptLevel.O0 {
             optimizer = CodeOptimizer.new(level)
         }
     }
-    
+
     fun setDebugInfo(enabled: Bool) r: Void {
         debugInfo = enabled
     }
-    
+
     fun setTargetTriple(triple: String) r: Void {
         targetTriple = triple
     }
-    
+
     fun setOutputFormat(format: OutputFormat) r: Void {
         outputFormat = format
     }
-    
+
     fun addBackend(target: Target, backend: Backend) r: Void {
         backends.put(target, backend)
     }
-    
+
     fun getBackend(target: Target) r: Backend? {
         return backends.get(target)
     }
-    
+
     fun optimize(code: String, level: OptLevel) r: String {
         if level == OptLevel.O0 {
             return code
         }
-        
+
         // Apply text-based optimizations
         let optimized = code
-        
+
         if level >= OptLevel.O1 {
             optimized = removeDeadCode(optimized)
             optimized = constantFold(optimized)
         }
-        
+
         if level >= OptLevel.O2 {
             optimized = inlineFunctions(optimized)
             optimized = optimizeLoops(optimized)
         }
-        
+
         if level >= OptLevel.O3 {
             optimized = aggressiveOptimizations(optimized)
         }
-        
+
         if level == OptLevel.Os or level == OptLevel.Oz {
             optimized = optimizeForSize(optimized)
         }
-        
+
         return optimized
     }
-    
+
     fun link(objectFiles: Array<String>, outputPath: String) r: Bool {
         if objectFiles.length() == 0 {
             return false
@@ -191,34 +193,34 @@ class CodeGenerator {
 
         return executeCommand(linkerCommand)
     }
-    
+
     fun crossCompile(irModule: IRModule, hostTarget: Target, targetTarget: Target) r: CodegenResult {
         // Save current backend
         let originalBackend = getBackend(hostTarget)
-        
+
         // Set up cross-compilation backend
         let crossBackend = createCrossCompilationBackend(targetTarget)
         if crossBackend == null {
             let error = CodegenError.new("Cross-compilation not supported for target: {targetTarget}", 0, 0, "", "cross_compilation")
             return CodegenResult.new(false, "", [error])
         }
-        
+
         // Temporarily switch backend
         backends.put(targetTarget, crossBackend)
-        
+
         // Generate code for target
         let result = generateFromIR(irModule, targetTarget)
-        
+
         // Restore original backend
         if originalBackend != null {
             backends.put(hostTarget, originalBackend)
         }
-        
+
         return result
     }
-    
+
     // Backend-specific code generation
-    
+
     fun generateBinary(code: String, target: Target) r: Array<Byte> {
         return match target {
             Target.WASM -> generateWASMBinary(code)
@@ -226,39 +228,43 @@ class CodeGenerator {
             _ -> Array<Byte>()  // Text-based targets don't have binary output
         }
     }
-    
+
     fun generateWASMBinary(watCode: String) r: Array<Byte> {
-        // Convert WebAssembly Text format to binary
-        // This is a simplified implementation
+        ///
+        Convert WebAssembly Text format to binary
+        This is a simplified implementation
+        ///
         let binary = Array<Byte>()
-        
+
         // WASM magic number
         binary.push(0x00)
         binary.push(0x61)  // 'a'
-        binary.push(0x73)  // 's' 
+        binary.push(0x73)  // 's'
         binary.push(0x6D)  // 'm'
-        
+
         // WASM version (1.0)
         binary.push(0x01)
         binary.push(0x00)
         binary.push(0x00)
         binary.push(0x00)
-        
-        // Add minimal WASM sections
-        // Type section
+
+        ///
+        Add minimal WASM sections
+        Type section
+        ///
         binary.push(0x01)  // Type section ID
         binary.push(0x04)  // Section size
         binary.push(0x01)  // Number of types
         binary.push(0x60)  // Function type
         binary.push(0x00)  // Number of parameters
         binary.push(0x00)  // Number of results
-        
+
         // Function section
         binary.push(0x03)  // Function section ID
         binary.push(0x02)  // Section size
         binary.push(0x01)  // Number of functions
         binary.push(0x00)  // Function type index
-        
+
         // Code section
         binary.push(0x0A)  // Code section ID
         binary.push(0x04)  // Section size
@@ -266,63 +272,65 @@ class CodeGenerator {
         binary.push(0x02)  // Function body size
         binary.push(0x00)  // Local declarations
         binary.push(0x0B)  // End instruction
-        
+
         return binary
     }
-    
+
     fun generateExecutableBinary(llvmIR: String, target: Target) r: Array<Byte> {
-        // In a real implementation, this would:
-        // 1. Write LLVM IR to temporary file
-        // 2. Invoke LLVM tools (llc, ld) to generate executable
-        // 3. Read the resulting binary
-        
+        ///
+        In a real implementation, this would:
+        1. Write LLVM IR to temporary file
+        2. Invoke LLVM tools (llc, ld) to generate executable
+        3. Read the resulting binary
+        ///
+
         // Mock implementation
         return Array<Byte>()
     }
-    
+
     // Optimization implementations
-    
+
     fun removeDeadCode(code: String) r: String {
         // Remove unreachable code and unused functions
         let lines = code.split("\\n")
         let optimized = Array<String>()
         var inDeadCode = false
-        
+
         for line in lines {
             if line.contains("unreachable") {
                 inDeadCode = true
             } else if line.contains("define ") {
                 inDeadCode = false
             }
-            
+
             if !inDeadCode {
                 optimized.push(line)
             }
         }
-        
+
         return optimized.join("\\n")
     }
-    
+
     fun constantFold(code: String) r: String {
         // Fold constant expressions
         let optimized = code
-        
+
         // Simple constant folding patterns
         optimized = optimized.replace("add i32 0, ", "")
         optimized = optimized.replace("mul i32 1, ", "")
         optimized = optimized.replace("add i32 1, 1", "i32 2")
         optimized = optimized.replace("add i32 2, 2", "i32 4")
         optimized = optimized.replace("mul i32 2, 2", "i32 4")
-        
+
         return optimized
     }
-    
+
     fun inlineFunctions(code: String) r: String {
         // Real function inlining implementation
         let lines = code.split("\\n")
         let inlined = Array<String>()
         let functionDefs = Map<String, FunctionDef>.new()
-        
+
         // First pass: identify small functions suitable for inlining
         let i = 0
         while i < lines.length() {
@@ -333,11 +341,11 @@ class CodeGenerator {
                 let j = i + 1
                 let braceCount = 0
                 var foundBody = false
-                
+
                 while j < lines.length() {
                     let bodyLine = lines[j]
                     funcBody.push(bodyLine)
-                    
+
                     if bodyLine.contains("{{") {
                         braceCount += countOccurrences(bodyLine, "{{")
                         foundBody = true
@@ -345,13 +353,13 @@ class CodeGenerator {
                     if bodyLine.contains("}}") {
                         braceCount -= countOccurrences(bodyLine, "}}")
                     }
-                    
+
                     if foundBody and braceCount == 0 {
                         break
                     }
                     j += 1
                 }
-                
+
                 // Inline if function is small (< 5 instructions) and has no calls
                 if funcBody.length() < 5 and not containsFunction(funcBody) {
                     functionDefs.put(funcName, FunctionDef.new(funcName, funcBody))
@@ -359,40 +367,40 @@ class CodeGenerator {
             }
             i += 1
         }
-        
+
         // Second pass: inline function calls
         for line in lines {
             let modifiedLine = line
-            
+
             for (funcName, funcDef) in functionDefs.entries() {
                 if modifiedLine.contains("call ") and modifiedLine.contains("@" + funcName) {
                     // Replace call with inlined body
                     modifiedLine = inlineCall(modifiedLine, funcDef)
                 }
             }
-            
+
             // Only add non-inlined function definitions
             if not isInlinedFunction(line, functionDefs) {
                 inlined.push(modifiedLine)
             }
         }
-        
+
         return inlined.join("\\n")
     }
-    
+
     fun optimizeLoops(code: String) r: String {
         // Real loop optimization implementation
         let lines = code.split("\\n")
         let optimized = Array<String>()
-        
+
         let i = 0
         while i < lines.length() {
             let line = lines[i]
-            
+
             // Detect simple counting loops for unrolling
             if line.contains("br label %loop") {
                 let loopInfo = analyzeLoop(lines, i)
-                
+
                 if loopInfo.isSimpleCountingLoop and loopInfo.iterations <= 8 {
                     // Unroll small loops
                     let unrolledCode = unrollLoop(loopInfo)
@@ -413,105 +421,111 @@ class CodeGenerator {
             } else {
                 optimized.push(line)
             }
-            
+
             i += 1
         }
-        
+
         return optimized.join("\\n")
     }
-    
+
     fun aggressiveOptimizations(code: String) r: String {
         // Real aggressive optimization implementation
         let optimized = code
-        
+
         // 1. Function specialization for constant parameters
         optimized = specializeForConstants(optimized)
-        
+
         // 2. Aggressive constant propagation
         optimized = aggressiveConstantPropagation(optimized)
-        
+
         // 3. Dead code elimination after inlining
         optimized = eliminateDeadCode(optimized)
-        
+
         // 4. Strength reduction (expensive ops -> cheaper ops)
         optimized = strengthReduction(optimized)
-        
+
         // 5. Loop invariant code motion
         optimized = moveLoopInvariants(optimized)
-        
+
         // 6. Tail call optimization
         optimized = optimizeTailCalls(optimized)
-        
+
         // 7. Register allocation hints
         optimized = addRegisterHints(optimized)
-        
+
         return optimized
     }
-    
+
     fun optimizeForSize(code: String) r: String {
         // Optimize for code size rather than speed
         let optimized = code
-        
+
         // Remove debug information if present
         let lines = optimized.split("\\n")
         let sizeOptimized = Array<String>()
-        
+
         for line in lines {
             if !line.contains("!dbg") and !line.contains("DILocation") {
                 sizeOptimized.push(line)
             }
         }
-        
+
         return sizeOptimized.join("\\n")
     }
-    
+
     // Helper functions
-    
+
     fun createCrossCompilationBackend(target: Target) r: Backend? {
         return match target {
-            Target.Linux_x86_64, Target.Windows_x86_64, Target.macOS_x86_64, 
+            Target.Linux_x86_64, Target.Windows_x86_64, Target.macOS_x86_64,
             Target.macOS_ARM64, Target.Linux_ARM64 -> LLVMBackend.new(target)
             Target.C -> CBackend.new()
             Target.WASM -> WASMBackend.new()
             _ -> null
         }
     }
-    
+
     fun countLines(text: String) r: Int {
         return text.split("\\n").length()
     }
-    
+
     fun getCurrentTime() r: Int {
-        // Real time implementation using system calls
-        // This would interface with the OS time functions
-        // For now, using a monotonic counter approach
-        
-        // In a real implementation, this would call:
-        // - clock_gettime() on Unix systems
-        // - GetTickCount64() on Windows
-        // - std::chrono::high_resolution_clock in C++
-        
+        ///
+        Real time implementation using system calls
+        This would interface with the OS time functions
+        For now, using a monotonic counter approach
+        ///
+
+        ///
+        In a real implementation, this would call:
+        - clock_gettime() on Unix systems
+        - GetTickCount64() on Windows
+        - std::chrono::high_resolution_clock in C++
+        ///
+
         // Placeholder that increments each call (better than returning 0)
         static var timeCounter = 1691750400000  // Start from a real timestamp
         timeCounter += 1
         return timeCounter
     }
-    
+
     fun executeCommand(command: String) r: Bool {
-        // Real command execution implementation
-        // This would interface with the OS process system
-        
+        ///
+        Real command execution implementation
+        This would interface with the OS process system
+        ///
+
         // Validate command for security
         if command.length() == 0 or command.contains("..") or command.contains("rm -rf") {
             return false
         }
-        
+
         // Parse command and arguments
         let parts = command.split(" ")
         if parts.length() == 0 {
             return false
         }
-        
+
         let executable = parts[0]
         let args = Array<String>()
         var i = 1
@@ -519,13 +533,15 @@ class CodeGenerator {
             args.push(parts[i])
             i += 1
         }
-        
-        // In a real implementation, this would:
-        // 1. Use fork() + exec() on Unix systems
-        // 2. Use CreateProcess() on Windows  
-        // 3. Use std::process::Command in Rust/C++
-        // 4. Capture exit code and return success/failure
-        
+
+        ///
+        In a real implementation, this would:
+        1. Use fork() + exec() on Unix systems
+        2. Use CreateProcess() on Windows
+        3. Use std::process::Command in Rust/C++
+        4. Capture exit code and return success/failure
+        ///
+
         // For bootstrap compatibility, simulate common commands
         return match executable {
             "ld" -> simulateLinker(args)
@@ -542,7 +558,7 @@ class LLVMBackend extends Backend {
     let targetTriple: String
     let dataLayout: String
     var features: Array<String>
-    
+
     fun new(target: Target) r: LLVMBackend {
         super(target, "LLVM")
         targetTriple = getTargetTriple(target)
@@ -550,7 +566,7 @@ class LLVMBackend extends Backend {
         features = Array<String>()
         initializeFeatures(target)
     }
-    
+
     fun initializeFeatures(target: Target) r: Void {
         features = match target {
             Target.macOS_ARM64, Target.iOS_ARM64, Target.iOS_Simulator_ARM64 -> ["+neon", "+crypto", "+fullfp16", "+ras", "+lse", "+rdm", "+rcpc", "+zcm", "+zcz"]
@@ -558,14 +574,14 @@ class LLVMBackend extends Backend {
             _ -> ["+sse2", "+sse3", "+ssse3", "+sse4.1", "+sse4.2"]
         }
     }
-    
+
     fun generateModule(irModule: IRModule) r: String {
         let output = ""
-        
+
         // Generate header
         output += generateHeader()
         output += "\\n"
-        
+
         // Generate string constants
         var llvmStringIndex = 0
         while llvmStringIndex < irModule.stringConstants.length() {
@@ -576,31 +592,31 @@ class LLVMBackend extends Backend {
             llvmStringIndex = llvmStringIndex + 1
         }
         output += "\\n"
-        
+
         // Generate global variables
         for (name, value) in irModule.globalVariables.entries() {
             output += generateGlobal(name, value)
         }
-        
+
         // Generate function declarations (external functions)
         output += generateRuntimeDeclarations()
         output += "\\n"
-        
+
         // Generate function definitions
         for (name, function) in irModule.functions.entries() {
             output += generateFunction(function)
             output += "\\n"
         }
-        
+
         return output
     }
-    
+
     fun generateFunction(irFunction: IRFunction) r: String {
         let output = ""
-        
+
         // Function signature
         output += "define {irFunction.returnType.toString()} @{irFunction.name}("
-        
+
         var llvmParamIndex = 0
         while llvmParamIndex < irFunction.parameters.length() {
             if llvmParamIndex > 0 {
@@ -609,29 +625,29 @@ class LLVMBackend extends Backend {
             output += irFunction.parameters[llvmParamIndex].toString()
             llvmParamIndex = llvmParamIndex + 1
         }
-        
+
         output += ") {{\\n"
-        
+
         // Function body (basic blocks)
         for block in irFunction.blocks {
             output += generateBasicBlock(block)
         }
-        
+
         output += "}\\n"
-        
+
         return output
     }
-    
+
     fun generateBasicBlock(block: IRBasicBlock) r: String {
         let output = "{block.name}:\\n"
-        
+
         for instruction in block.instructions {
             output += "  {instruction.toString()}\\n"
         }
-        
+
         return output
     }
-    
+
     fun generateHeader() r: String {
         let output = ""
         output += "; ModuleID = 'seen_program'\\n"
@@ -640,15 +656,15 @@ class LLVMBackend extends Backend {
         output += "target triple = \"{targetTriple}\"\\n"
         return output
     }
-    
+
     fun generateFooter() r: String {
         return ""  // LLVM IR doesn't need a footer
     }
-    
+
     fun generateGlobal(name: String, value: IRValue) r: String {
         return "@{name} = global {value.type.toString()} {value.toString()}\\n"
     }
-    
+
     fun generateRuntimeDeclarations() r: String {
         let output = ""
         output += "declare i32 @printf(i8*, ...)\\n"
@@ -658,26 +674,26 @@ class LLVMBackend extends Backend {
         output += "declare i8* @string_concat(i8*, i8*)\\n"
         return output
     }
-    
+
     fun optimizeModule(module: String, level: OptLevel) r: String {
         // LLVM-specific optimizations
         let optimized = module
-        
+
         if level >= OptLevel.O2 {
             // Add function attributes for optimization
             optimized = optimized.replace("define ", "define noinline ")
             optimized = optimized.replace("noinline noinline", "noinline")
         }
-        
+
         if level >= OptLevel.O3 {
             // More aggressive optimizations
             optimized = optimized.replace("noinline ", "")
             optimized = optimized.replace("define ", "define alwaysinline ")
         }
-        
+
         return optimized
     }
-    
+
     fun supports(feature: String) r: Bool {
         return match feature {
             "optimization" -> true
@@ -687,7 +703,7 @@ class LLVMBackend extends Backend {
             _ -> false
         }
     }
-    
+
     fun escapeString(str: String) r: String {
         return str.replace("\\", "\\\\")
                  .replace("\"", "\\\"")
@@ -701,7 +717,7 @@ class CBackend extends Backend {
     let includeHeaders: Array<String>
     let customTypes: Map<String, String>
     var functionDeclarations: Array<String>
-    
+
     fun new() r: CBackend {
         super(Target.C, "C")
         includeHeaders = Array<String>()
@@ -710,7 +726,7 @@ class CBackend extends Backend {
         initializeHeaders()
         initializeTypes()
     }
-    
+
     fun initializeHeaders() r: Void {
         includeHeaders.push("#include <stdio.h>")
         includeHeaders.push("#include <stdlib.h>")
@@ -718,7 +734,7 @@ class CBackend extends Backend {
         includeHeaders.push("#include <stdbool.h>")
         includeHeaders.push("#include <string.h>")
     }
-    
+
     fun initializeTypes() r: Void {
         customTypes.put("String", "char*")
         customTypes.put("Array", "void*")
@@ -737,20 +753,20 @@ class CBackend extends Backend {
         }
         return fallback
     }
-    
+
     fun generateModule(irModule: IRModule) r: String {
         let output = ""
-        
+
         // Generate header
         output += generateHeader()
         output += "\\n"
-        
+
         // Generate forward declarations
         for (name, function) in irModule.functions.entries() {
             output += generateFunctionDeclaration(function)
         }
         output += "\\n"
-        
+
         // Generate string constants
         var stringIndex = 0
         while stringIndex < irModule.stringConstants.length() {
@@ -759,23 +775,23 @@ class CBackend extends Backend {
             stringIndex = stringIndex + 1
         }
         output += "\\n"
-        
+
         // Generate functions
         for (name, function) in irModule.functions.entries() {
             output += generateFunction(function)
             output += "\\n"
         }
-        
+
         return output
     }
-    
+
     fun generateFunction(irFunction: IRFunction) r: String {
         let output = ""
-        
+
         // Function signature
         let returnType = convertIRTypeToC(irFunction.returnType)
         output += "{returnType} {irFunction.name}("
-        
+
         var paramIndex = 0
         while paramIndex < irFunction.parameters.length() {
             if paramIndex > 0 {
@@ -786,20 +802,20 @@ class CBackend extends Backend {
             output += "{paramType} {param.name}"
             paramIndex = paramIndex + 1
         }
-        
+
         output += ") {{\\n"
-        
+
         // Function body - translate IR to C
         output += generateFunctionBody(irFunction)
-        
+
         output += "}\\n"
-        
+
         return output
     }
-    
+
     fun generateFunctionBody(irFunction: IRFunction) r: String {
         let output = ""
-        
+
         // Generate variable declarations for allocas
         for block in irFunction.blocks {
             for instruction in block.instructions {
@@ -811,21 +827,21 @@ class CBackend extends Backend {
                 }
             }
         }
-        
+
         // Generate basic blocks as labeled sections
         for block in irFunction.blocks {
             if block.name != "entry" {
                 output += "{block.name}:\\n"
             }
-            
+
             for instruction in block.instructions {
                 output += generateCInstruction(instruction)
             }
         }
-        
+
         return output
     }
-    
+
     fun generateCInstruction(instruction: IRInstruction) r: String {
         return match instruction.opcode {
             "store" -> {
@@ -833,34 +849,34 @@ class CBackend extends Backend {
                 let ptr = instruction.operands[1]
                 "    {ptr.name} = {value.toString()};\\n"
             }
-            
+
             "load" -> {
                 let ptr = instruction.operands[0]
                 let result = resultNameOr(instruction, "tmp")
                 "    // Load from {ptr.name} to {result}\\n"
             }
-            
+
             "add" -> {
                 let left = instruction.operands[0]
                 let right = instruction.operands[1]
                 let result = resultNameOr(instruction, "tmp")
                 "    {result} = {left.toString()} + {right.toString()};\\n"
             }
-            
+
             "sub" -> {
                 let left = instruction.operands[0]
                 let right = instruction.operands[1]
                 let result = resultNameOr(instruction, "tmp")
                 "    {result} = {left.toString()} - {right.toString()};\\n"
             }
-            
+
             "mul" -> {
                 let left = instruction.operands[0]
                 let right = instruction.operands[1]
                 let result = resultNameOr(instruction, "tmp")
                 "    {result} = {left.toString()} * {right.toString()};\\n"
             }
-            
+
             "ret" -> {
                 if instruction.operands.length() > 0 {
                     let value = instruction.operands[0]
@@ -869,33 +885,33 @@ class CBackend extends Backend {
                     "    return;\\n"
                 }
             }
-            
+
             "call" -> {
                 let funcName = instruction.operands[0].name.replace("@", "")
                 let result = resultNameOr(instruction, "")
                 let args = Array<String>()
-                
+
                 var operandIndex = 1
                 while operandIndex < instruction.operands.length() {
                     args.push(instruction.operands[operandIndex].toString())
                     operandIndex = operandIndex + 1
                 }
-                
+
                 if result != "" {
                     "    {result} = {funcName}({args.join(\", \")});\\n"
                 } else {
                     "    {funcName}({args.join(\", \")});\\n"
                 }
             }
-            
+
             _ -> "    /* unsupported opcode: {instruction.opcode} */\\n"
         }
     }
-    
+
     fun generateFunctionDeclaration(irFunction: IRFunction) r: String {
         let returnType = convertIRTypeToC(irFunction.returnType)
         let output = "{returnType} {irFunction.name}("
-        
+
         var declParamIndex = 0
         while declParamIndex < irFunction.parameters.length() {
             if declParamIndex > 0 {
@@ -906,28 +922,28 @@ class CBackend extends Backend {
             output += "{paramType}"
             declParamIndex = declParamIndex + 1
         }
-        
+
         output += ");\\n"
         return output
     }
-    
+
     fun generateHeader() r: String {
         let output = ""
         output += "/* Generated C code from Seen compiler */\\n"
         output += "\\n"
-        
+
         for header in includeHeaders {
             output += "{header}\\n"
         }
-        
+
         output += "\\n"
         output += "/* Runtime function declarations */\\n"
         output += "char* string_concat(const char* a, const char* b);\\n"
         output += "\\n"
-        
+
         return output
     }
-    
+
     fun convertIRTypeToC(irType: IRType) r: String {
         return match irType.name {
             "i8" -> "int8_t"
@@ -950,9 +966,11 @@ class CBackend extends Backend {
     }
 }
 
-// Real WebAssembly Backend Implementation
-// This is a simplified version - see wasm_gen.seen for the full implementation
-// with UWW support, deterministic output, and comprehensive instruction mapping
+///
+Real WebAssembly Backend Implementation
+This is a simplified version - see wasm_gen.seen for the full implementation
+with UWW support, deterministic output, and comprehensive instruction mapping
+///
 
 import codegen.wasm_gen.{WASMGenerator}
 
@@ -1123,7 +1141,7 @@ class WASMBackend extends Backend {
 class FunctionDef {
     let name: String
     let body: Array<String>
-    
+
     fun new(name: String, body: Array<String>) r: FunctionDef {
         name = name
         body = body
@@ -1138,7 +1156,7 @@ class LoopInfo {
     let iterations: Int
     let inductionVar: String
     let body: Array<String>
-    
+
     fun new(startIndex: Int, endIndex: Int, isSimple: Bool, vectorizable: Bool, iterations: Int, inductionVar: String, body: Array<String>) r: LoopInfo {
         startIndex = startIndex
         endIndex = endIndex
@@ -1188,8 +1206,10 @@ fun containsFunction(lines: Array<String>) r: Bool {
 }
 
 fun inlineCall(line: String, funcDef: FunctionDef) r: String {
-    // Replace function call with inlined instructions
-    // This is a simplified implementation - real inlining is complex
+    ///
+    Replace function call with inlined instructions
+    This is a simplified implementation - real inlining is complex
+    ///
     return "  ; inlined " + funcDef.name + " here"
 }
 
@@ -1210,7 +1230,7 @@ fun analyzeLoop(lines: Array<String>, startIndex: Int) r: LoopInfo {
     let iterations = 4  // Would analyze loop bounds
     let inductionVar = "i"  // Would extract from analysis
     let body = Array<String>()
-    
+
     return LoopInfo.new(startIndex, endIndex, isSimple, vectorizable, iterations, inductionVar, body)
 }
 
@@ -1218,7 +1238,7 @@ fun unrollLoop(loopInfo: LoopInfo) r: Array<String> {
     // Generate unrolled loop code
     let unrolled = Array<String>()
     unrolled.push("  ; Loop unrolled " + loopInfo.iterations.toString() + " times")
-    
+
     var iteration = 0
     while iteration < loopInfo.iterations {
         unrolled.push("  ; Iteration " + iteration.toString())
@@ -1227,7 +1247,7 @@ fun unrollLoop(loopInfo: LoopInfo) r: Array<String> {
         }
         iteration = iteration + 1
     }
-    
+
     return unrolled
 }
 
@@ -1236,7 +1256,7 @@ fun vectorizeLoop(loopInfo: LoopInfo) r: Array<String> {
     let vectorized = Array<String>()
     vectorized.push("  ; Vectorized loop using SIMD instructions")
     vectorized.push("  ; Original iterations: " + loopInfo.iterations.toString())
-    
+
     return vectorized
 }
 
@@ -1244,7 +1264,7 @@ fun specializeForConstants(code: String) r: String {
     // Create specialized versions of functions for constant parameters
     let lines = code.split("\\n")
     let specialized = Array<String>()
-    
+
     for line in lines {
         if line.contains("call ") and line.contains("i32 1") {
             // Specialize calls with constant 1
@@ -1253,7 +1273,7 @@ fun specializeForConstants(code: String) r: String {
             specialized.push(line)
         }
     }
-    
+
     return specialized.join("\\n")
 }
 
@@ -1268,13 +1288,13 @@ fun eliminateDeadCode(code: String) r: String {
     // Remove unused variables and unreachable code
     let lines = code.split("\\n")
     let live = Array<String>()
-    
+
     for line in lines {
         if not line.contains("unreachable") and not line.contains("; dead") {
             live.push(line)
         }
     }
-    
+
     return live.join("\\n")
 }
 
@@ -1286,8 +1306,10 @@ fun strengthReduction(code: String) r: String {
 }
 
 fun moveLoopInvariants(code: String) r: String {
-    // Move loop-invariant computations outside loops
-    // Advanced analysis required; omitted here by design
+    ///
+    Move loop-invariant computations outside loops
+    Advanced analysis required; omitted here by design
+    ///
     return code
 }
 

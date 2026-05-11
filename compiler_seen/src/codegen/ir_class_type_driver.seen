@@ -1,0 +1,41 @@
+// ir_class_type_driver.seen - class type emission orchestration.
+
+import parser.real_parser.{ClassNode}
+import str.string.{StringBuilder}
+import codegen.ir_class_type_guard_driver.{hasGeneratedClassType, tryReuseHeaderLoadedClassType}
+import codegen.ir_class_type_layout.{emitClassTypeHeaderImpl, emitClassTypeFooterImpl}
+import codegen.ir_codegen_feature_state.{prepareClassTypeDecoratorScanWithFeatureStateImpl, prepareClassTypeAliasWithFeatureStateImpl, emitClassTypeFieldsWithFeatureStateImpl}
+import codegen.ir_codegen_global_state.{getGlobalStructNamesImpl, getGlobalStructLayoutsImpl, getGlobalStructSizesImpl, pushGeneratedClassWithGlobalStateImpl}
+import codegen.ir_struct_layout_state.{registerStructLayoutState}
+
+fun emitClassTypeState(output: StringBuilder, classNode: ClassNode) r: Void {
+    let className = classNode.name
+    if hasGeneratedClassType(className) {
+        return
+    }
+    if tryReuseHeaderLoadedClassType(classNode) {
+        return
+    }
+
+    pushGeneratedClassWithGlobalStateImpl(className)
+    registerStructLayoutState(classNode)
+
+    let decoratorSnapshot = prepareClassTypeDecoratorScanWithFeatureStateImpl(
+        output, classNode, getGlobalStructNamesImpl(),
+        getGlobalStructLayoutsImpl(), getGlobalStructSizesImpl())
+    let typeFlags = decoratorSnapshot.typeFlags
+    if decoratorSnapshot.emittedSpecialClassType == 1 {
+        return
+    }
+
+    emitClassTypeHeaderImpl(output, className, typeFlags)
+    let typeAliasState = prepareClassTypeAliasWithFeatureStateImpl(classNode)
+    let realFieldCount = typeAliasState.realFieldCount
+    if realFieldCount == 0 {
+        output.append("i8")
+    } else {
+        emitClassTypeFieldsWithFeatureStateImpl(output, classNode,
+            getGlobalStructNamesImpl())
+    }
+    emitClassTypeFooterImpl(output, typeFlags)
+}

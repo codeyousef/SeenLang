@@ -1,0 +1,272 @@
+// ir_constructor_call_driver.seen - recursive constructor-call drivers.
+
+import parser.real_parser.{ParserExpressionNode}
+import str.string.{StringBuilder}
+import codegen.ir_call_constructors.{emitArrayBulkInitImpl, emitArrayPreallocImpl, emitArrayInlineImpl, emitSmallVecConstructorImpl, isArrayConstructorNameImpl, resolveArrayConstructorElementTypeImpl, resolveArrayConstructorElementSizeImpl, isSmallVecConstructorNameImpl, isCollectionConstructorNameImpl, emitCollectionConstructorImpl}
+import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl, getFeatureBlockBoxImpl, isReprCConstructorTypeWithFeatureStateImpl}
+import codegen.ir_codegen_global_state.{getGlobalStructNamesImpl, getGlobalStructSizesImpl, getGlobalStructLayoutsImpl, getGlobalStructFieldNamesImpl, getGlobalStructFieldTypesImpl}
+import codegen.ir_codegen_state.{getSharedCodegenState}
+import codegen.ir_codegen_type_state.{mapTypeState, isClassTypeState, isDataTypeState, getDataTypeSizeState}
+import codegen.ir_constructor_call_plan.{planArrayConstructorCallImpl, shouldEmitSmallVecConstructorImpl, shouldEmitCollectionConstructorImpl, shouldReadFirstConstructorArgImpl}
+import codegen.ir_constructor_call_plan.{shouldEmitReprCZeroInitializerImpl, shouldEmitHeapClassConstructorImpl}
+import codegen.ir_constructor_field_plan.{planNextConstructorFieldTypeImpl, planConstructorFieldStoreImpl}
+import codegen.ir_constructor_field_emit.{emitPreparedReprCConstructorImpl, emitPreparedClassConstructorFieldStoreImpl}
+import codegen.ir_class_constructor_gen.{emitClassHeapAllocationImpl, emitClassArrayFieldInitializersImpl, resolveClassConstructorFieldOffsetImpl}
+import codegen.ir_function_state.{currentFunctionAlignToImpl}
+import codegen.ir_lowering_context.{CodegenLoweringContext, lowerExpression, inferLoweredExpressionType, lowerCallExpression, prepareLoweredCallArgumentsWithDefaults, lowerEnumConstructor, resetLoweringGenerator, resetLoweringSharedModuleScratch, syncLoweringState, writeBackLoweringState, lowerProgramClasses, lowerProgramTopLevelFunctions, lowerPlainLargeClass, lowerClassNode, lowerFunctionNode, lowerClassMethodFromList, setLowerCurrentClassParentName, resetLoweringLocalCodegenState, collectLoweringVariableDeclarations, clearLoweringActiveBindings, lowerBlock, lowerStatement, isLoweringBlockTerminated, beginLoweringNestedScratch, restoreLoweringNestedScratch, currentLoweringFunctionOptions}
+import codegen.ir_optimization.{getNextRegFn}
+import codegen.ir_value_coercion.{coerceValueForLlvmTargetImpl}
+import codegen.type_registry_core.{findStructReg, getTypeSizeReg}
+
+fun tryGenerateArrayConstructorCallState(ctx: CodegenLoweringContext,
+    output: StringBuilder, expr: ParserExpressionNode,
+    funcName: String) r: String {
+
+    var fillKind: String = ""
+    var fillLiteralValue: String = ""
+    if expr.arguments.length() > 1 {
+        fillKind = expr.arguments[1].kind
+        fillLiteralValue = expr.arguments[1].literalValue
+    }
+    let isArrayCtor = isArrayConstructorNameImpl(funcName)
+    var elementType: String = ""
+    if isArrayCtor {
+        elementType = resolveArrayConstructorElementTypeImpl(funcName)
+    }
+    let arrayCtorPlan = planArrayConstructorCallImpl(isArrayCtor,
+        expr.arguments.length(), elementType, fillKind, fillLiteralValue)
+    if not arrayCtorPlan.isValid {
+        return ""
+    }
+
+    let alignTo = currentFunctionAlignToImpl(
+        getSharedCodegenState().functionOptions)
+    if arrayCtorPlan.mode == 1 {
+        let countReg = lowerExpression(ctx, expr.arguments[0])
+        let valueReg = lowerExpression(ctx, expr.arguments[1])
+        return emitArrayBulkInitImpl(output, getFeatureRegBoxImpl(),
+            getFeatureBlockBoxImpl(), countReg, valueReg,
+            arrayCtorPlan.elementType, arrayCtorPlan.isZeroFill, alignTo)
+    }
+
+    if arrayCtorPlan.mode == 2 {
+        let capReg = lowerExpression(ctx, expr.arguments[0])
+        let elemSz = resolveArrayConstructorElementSizeImpl(funcName,
+            arrayCtorPlan.elementType, getGlobalStructNamesImpl(),
+            getGlobalStructSizesImpl())
+        return emitArrayPreallocImpl(output, getFeatureRegBoxImpl(), capReg,
+            elemSz)
+    }
+
+    let elemSize = resolveArrayConstructorElementSizeImpl(funcName,
+        arrayCtorPlan.elementType, getGlobalStructNamesImpl(),
+        getGlobalStructSizesImpl())
+    return emitArrayInlineImpl(output, getFeatureRegBoxImpl(), elemSize,
+        alignTo)
+}
+
+fun tryGenerateSmallVecConstructorCallState(
+    ctx: CodegenLoweringContext, output: StringBuilder,
+    expr: ParserExpressionNode, funcName: String) r: String {
+
+    if not shouldEmitSmallVecConstructorImpl(
+        isSmallVecConstructorNameImpl(funcName)) {
+        return ""
+    }
+    var svCapArgReg: String = ""
+    if shouldReadFirstConstructorArgImpl(expr.arguments.length()) {
+        svCapArgReg = lowerExpression(ctx, expr.arguments[0])
+    }
+    return emitSmallVecConstructorImpl(output, getFeatureRegBoxImpl(),
+        funcName, svCapArgReg)
+}
+
+fun tryGenerateCollectionConstructorCallState(
+    ctx: CodegenLoweringContext, output: StringBuilder,
+    expr: ParserExpressionNode, funcName: String) r: String {
+
+    if not shouldEmitCollectionConstructorImpl(
+        isCollectionConstructorNameImpl(funcName)) {
+        return ""
+    }
+    var colCapArg: String = ""
+    if shouldReadFirstConstructorArgImpl(expr.arguments.length()) {
+        colCapArg = lowerExpression(ctx, expr.arguments[0])
+    }
+    return emitCollectionConstructorImpl(output, getFeatureRegBoxImpl(),
+        funcName, colCapArg, expr.arguments.length())
+}
+
+fun coerceConstructorArgForLlvmTargetState(output: StringBuilder,
+    targetLlvmType: String, sourceSeenType: String, valueReg: String)
+    r: String {
+
+    var sourceLlvmType: String = ""
+    if sourceSeenType != "" and sourceSeenType != "Unknown" {
+        sourceLlvmType = mapTypeState(sourceSeenType)
+    }
+    return coerceValueForLlvmTargetImpl(output, getFeatureRegBoxImpl(),
+        targetLlvmType, sourceSeenType, sourceLlvmType, valueReg)
+}
+
+fun tryGenerateReprCClassConstructorCallState(
+    ctx: CodegenLoweringContext, output: StringBuilder,
+    expr: ParserExpressionNode, funcName: String, structIdx: Int)
+    r: String {
+
+    if not isReprCConstructorTypeWithFeatureStateImpl(funcName) {
+        return ""
+    }
+    if shouldEmitReprCZeroInitializerImpl(expr.arguments.length(),
+        structIdx) {
+        return "zeroinitializer"
+    }
+
+    var reprCArgRegs = Array<String>()
+    var reprCFieldTypes = Array<String>()
+    let fieldTypesStr = getGlobalStructFieldTypesImpl()[structIdx]
+    let argCount = expr.arguments.length()
+    var reprCArgIdx = 0
+    var typePos = 0
+    while reprCArgIdx < argCount {
+        let reprCArgExpr = expr.arguments[reprCArgIdx]
+        let reprCRawArgReg = lowerExpression(ctx, reprCArgExpr)
+        let reprCFieldPlan = planNextConstructorFieldTypeImpl(
+            fieldTypesStr, typePos)
+        let reprCFieldLlvmType = mapTypeState(reprCFieldPlan.fieldSeenType)
+        let reprCArgSeenType =
+            inferLoweredExpressionType(ctx, reprCArgExpr)
+        reprCArgRegs.push(coerceConstructorArgForLlvmTargetState(output,
+            reprCFieldLlvmType, reprCArgSeenType, reprCRawArgReg))
+        reprCFieldTypes.push(reprCFieldLlvmType)
+        reprCArgIdx = reprCArgIdx + 1
+        typePos = reprCFieldPlan.nextTypePos
+    }
+    return emitPreparedReprCConstructorImpl(output, getFeatureRegBoxImpl(),
+        funcName, reprCArgRegs, reprCFieldTypes)
+}
+
+fun emitClassConstructorArgumentStoresState(
+    ctx: CodegenLoweringContext, output: StringBuilder,
+    expr: ParserExpressionNode, ptrReg: String, structIdx: Int)
+    r: Void {
+
+    if structIdx < 0 or expr.arguments.length() == 0 {
+        return
+    }
+
+    let ctorFieldTypesStr = getGlobalStructFieldTypesImpl()[structIdx]
+    var ctorByteOffset = 0
+    var ctorTypePos = 0
+    var ctorArgIdx = 0
+    while ctorArgIdx < expr.arguments.length() and
+        ctorTypePos < ctorFieldTypesStr.length() {
+
+        let ctorTypePlan = planNextConstructorFieldTypeImpl(
+            ctorFieldTypesStr, ctorTypePos)
+        let ctorArgExpr = expr.arguments[ctorArgIdx]
+        let ctorArgReg = lowerExpression(ctx, ctorArgExpr)
+        let ctorFieldPtrReg = getNextRegFn(getFeatureRegBoxImpl())
+        let ctorFieldOffset = resolveClassConstructorFieldOffsetImpl(
+            structIdx, ctorArgIdx, ctorByteOffset,
+            getGlobalStructNamesImpl(), getGlobalStructLayoutsImpl(),
+            getGlobalStructSizesImpl())
+        let ctorFieldByteSize = getTypeSizeReg(
+            ctorTypePlan.fieldSeenType, getGlobalStructNamesImpl(),
+            getGlobalStructSizesImpl())
+        let ctorStorePlan = planConstructorFieldStoreImpl(
+            ctorTypePlan.fieldSeenType, ctorTypePlan.nextTypePos,
+            ctorByteOffset, ctorFieldOffset, ctorFieldByteSize)
+        let ctorIsDataField =
+            isDataTypeState(ctorStorePlan.fieldSeenType)
+        var ctorStoreLlvmType = mapTypeState(ctorStorePlan.fieldSeenType)
+        var ctorMemcpySize = 0
+        if ctorIsDataField {
+            ctorStoreLlvmType = "%" + ctorStorePlan.fieldSeenType
+            if ctorArgExpr.kind == "StructLiteral" {
+                ctorMemcpySize =
+                    getDataTypeSizeState(ctorStorePlan.fieldSeenType)
+            }
+        }
+        var ctorStoreReg = ctorArgReg
+        if not (ctorIsDataField and ctorArgExpr.kind == "StructLiteral") {
+            let ctorArgSeenType =
+                inferLoweredExpressionType(ctx, ctorArgExpr)
+            ctorStoreReg = coerceConstructorArgForLlvmTargetState(output,
+                ctorStoreLlvmType, ctorArgSeenType, ctorArgReg)
+        }
+        emitPreparedClassConstructorFieldStoreImpl(output, ctorFieldPtrReg,
+            ptrReg, ctorStorePlan.fieldOffset, ctorStoreLlvmType,
+            ctorStoreReg, ctorArgExpr.kind == "StructLiteral",
+            ctorIsDataField, ctorMemcpySize)
+        ctorByteOffset = ctorStorePlan.nextByteOffset
+        ctorArgIdx = ctorArgIdx + 1
+        ctorTypePos = ctorStorePlan.nextTypePos
+    }
+}
+
+fun tryGenerateHeapClassConstructorCallState(
+    ctx: CodegenLoweringContext, output: StringBuilder,
+    expr: ParserExpressionNode, funcName: String, structIdx: Int)
+    r: String {
+
+    if not shouldEmitHeapClassConstructorImpl(isClassTypeState(funcName)) {
+        return ""
+    }
+
+    let ptrReg = emitClassHeapAllocationImpl(output, getFeatureRegBoxImpl(),
+        structIdx, getGlobalStructNamesImpl(), getGlobalStructSizesImpl(),
+        getGlobalStructLayoutsImpl())
+    emitClassArrayFieldInitializersImpl(output, getFeatureRegBoxImpl(),
+        ptrReg, structIdx, getGlobalStructNamesImpl(),
+        getGlobalStructSizesImpl(), getGlobalStructLayoutsImpl(),
+        getGlobalStructFieldNamesImpl(), getGlobalStructFieldTypesImpl())
+    emitClassConstructorArgumentStoresState(ctx, output, expr, ptrReg,
+        structIdx)
+    let intReg = getNextRegFn(getFeatureRegBoxImpl())
+    output.append("  " + intReg + " = ptrtoint ptr " + ptrReg + " to i64\n")
+    return intReg
+}
+
+fun tryGenerateClassConstructorCallState(
+    ctx: CodegenLoweringContext, output: StringBuilder,
+    expr: ParserExpressionNode, funcName: String) r: String {
+
+    if not isClassTypeState(funcName) {
+        return ""
+    }
+
+    let structIdx = findStructReg(funcName, getGlobalStructNamesImpl())
+    let reprCResult = tryGenerateReprCClassConstructorCallState(ctx,
+        output, expr, funcName, structIdx)
+    if reprCResult != "" {
+        return reprCResult
+    }
+    return tryGenerateHeapClassConstructorCallState(ctx, output, expr,
+        funcName, structIdx)
+}
+
+fun tryGenerateConstructorLikeCallState(
+    ctx: CodegenLoweringContext, output: StringBuilder,
+    expr: ParserExpressionNode, funcName: String) r: String {
+
+    let arrayCtorResult = tryGenerateArrayConstructorCallState(ctx, output,
+        expr, funcName)
+    if arrayCtorResult != "" {
+        return arrayCtorResult
+    }
+
+    let smallVecCtorResult = tryGenerateSmallVecConstructorCallState(ctx,
+        output, expr, funcName)
+    if smallVecCtorResult != "" {
+        return smallVecCtorResult
+    }
+
+    let collectionCtorResult = tryGenerateCollectionConstructorCallState(ctx,
+        output, expr, funcName)
+    if collectionCtorResult != "" {
+        return collectionCtorResult
+    }
+
+    return tryGenerateClassConstructorCallState(ctx, output, expr, funcName)
+}

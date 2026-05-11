@@ -1,6 +1,8 @@
-// JSON Serialization Benchmark
-// High-performance JSON encoding using StringBuilder (O(n) vs O(n²))
-// Optimized: shared tags, pre-computed tags JSON, reused StringBuilder, no object allocation
+///
+JSON Serialization Benchmark
+High-performance JSON encoding using StringBuilder (O(n) vs O(n²))
+Optimized: shared tags, pre-computed tags JSON, reused StringBuilder, no object allocation
+///
 
 fun serialize_into(sb: StringBuilder, id: Int, value: Float, active: Int, tags_json: String) -> Void {
     sb.append("{\"id\":")

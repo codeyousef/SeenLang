@@ -1,5 +1,7 @@
-// : Test GPU region support
-// Create a GPU region, allocate, check stats, destroy
+///
+: Test GPU region support
+Create a GPU region, allocate, check stats, destroy
+///
 
 fun main() {
     println("GPU region test start")

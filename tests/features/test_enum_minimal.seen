@@ -1,6 +1,8 @@
-// Minimal Enum Test
-// Tests: Can we declare and use basic enums?
-// Expected: Basic enum assignment and comparison work
+///
+Minimal Enum Test
+Tests: Can we declare and use basic enums?
+Expected: Basic enum assignment and comparison work
+///
 
 enum Status {
     Active,

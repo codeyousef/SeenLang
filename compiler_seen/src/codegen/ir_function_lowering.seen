@@ -1,10 +1,12 @@
-// ir_function_lowering.seen — function lowering option helpers
-// Extracted from llvm_ir_gen.seen to keep per-function decorator scans
-// separate from the main IR generation orchestration.
+///
+ir_function_lowering.seen — function lowering option helpers
+Extracted from llvm_ir_gen.seen to keep per-function decorator scans
+separate from the main IR generation orchestration.
+///
 
 import parser.real_parser.{FunctionNode}
 import str.string.{StringBuilder}
-import codegen.type_registry.{FunctionLoweringOptions, resetFunctionLoweringOptions}
+import codegen.ir_codegen_state.{FunctionLoweringOptions, resetFunctionLoweringOptions}
 
 fun hasFunctionLoweringDecoratorImpl(fn: FunctionNode, decoratorName: String)
     r: Bool {
@@ -93,7 +95,8 @@ fun configureFunctionLoweringOptionsImpl(fn: FunctionNode,
 
 fun shouldApplyFunctionInlineHeuristicsImpl(fn: FunctionNode) r: Bool {
     return not fn.isInline and
-        not hasFunctionLoweringDecoratorImpl(fn, "noinline")
+        not hasFunctionLoweringDecoratorImpl(fn, "noinline") and
+        not hasFunctionLoweringDecoratorImpl(fn, "export")
 }
 
 fun countFunctionInlineLoopKindsImpl(fn: FunctionNode) r: Int {

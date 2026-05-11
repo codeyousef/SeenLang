@@ -1,12 +1,14 @@
-// Memory Optimizer
-// Escape analysis, stack promotion, lifetime annotations, layout optimization
+///
+Memory Optimizer
+Escape analysis, stack promotion, lifetime annotations, layout optimization
+///
 
 class EscapeInfo {
     var variableName: String
     var escapes: Bool
     var escapeSite: String
 
-    fun new(name: String) r: EscapeInfo {
+    static fun new(name: String) r: EscapeInfo {
         return EscapeInfo{
             variableName: name,
             escapes: false,
@@ -21,7 +23,7 @@ class LifetimeInfo {
     var lastUse: Int
     var isShortLived: Bool
 
-    fun new(name: String) r: LifetimeInfo {
+    static fun new(name: String) r: LifetimeInfo {
         return LifetimeInfo{
             variableName: name,
             firstUse: -1,
@@ -51,7 +53,7 @@ class MemoryOptimizer {
     var lifetimeCount: Int
     var shortLivedCount: Int
 
-    fun new() r: MemoryOptimizer {
+    static fun new() r: MemoryOptimizer {
         return MemoryOptimizer{
             iterationLimit: 5,
             escapedCount: 0,
@@ -66,8 +68,10 @@ class MemoryOptimizer {
 
     // Run full optimization pass on IR line count
     fun optimizeIR(lineCount: Int, allocCount: Int, structCount: Int) r: Void {
-        // Escape analysis: estimate based on allocation patterns
-        // Typically ~30% of allocations don't escape their defining function
+        ///
+        Escape analysis: estimate based on allocation patterns
+        Typically ~30% of allocations don't escape their defining function
+        ///
         nonEscapedCount = allocCount * 3 / 10
         escapedCount = allocCount - nonEscapedCount
 

@@ -1,5 +1,7 @@
-// Regression FEL-30: Bool-returning helpers in logical conditions must produce
-// type-correct i1 short-circuit IR.
+///
+Regression FEL-30: Bool-returning helpers in logical conditions must produce
+type-correct i1 short-circuit IR.
+///
 
 fun isSpace(value: Int) r: Bool {
     return value == 9 || value == 10 || value == 13 || value == 32

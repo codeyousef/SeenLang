@@ -1,0 +1,197 @@
+// ir_call_low_level_driver.seen - prepared low-level builtin call emission.
+
+import parser.real_parser.{ParserExpressionNode}
+import str.string.{StringBuilder}
+import codegen.ir_call_builtin_plan.{planLowLevelBuiltinCallImpl, planLowLevelBuiltinArgumentReadsImpl, shouldReadSimdShuffleConstArgImpl, shouldClearLowLevelDebugAssertCseImpl}
+import codegen.ir_call_low_level.{isPtrBuiltinCallImpl, isSimdBuiltinCallImpl, emitPreparedLowLevelBuiltinActionImpl}
+import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl}
+import codegen.ir_codegen_metrics_state.{cseClear}
+import codegen.ir_enum_ctor_gen.{isEnumVariantStateImpl, lookupEnumFieldCountStateImpl}
+import codegen.ir_function_state.{getCurrentFunctionEmissionStateImpl}
+import codegen.ir_lowering_context.{CodegenLoweringContext, lowerExpression, inferLoweredExpressionType, lowerCallExpression, prepareLoweredCallArgumentsWithDefaults, lowerEnumConstructor, resetLoweringGenerator, resetLoweringSharedModuleScratch, syncLoweringState, writeBackLoweringState, lowerProgramClasses, lowerProgramTopLevelFunctions, lowerPlainLargeClass, lowerClassNode, lowerFunctionNode, lowerClassMethodFromList, setLowerCurrentClassParentName, resetLoweringLocalCodegenState, collectLoweringVariableDeclarations, clearLoweringActiveBindings, lowerBlock, lowerStatement, isLoweringBlockTerminated, beginLoweringNestedScratch, restoreLoweringNestedScratch, currentLoweringFunctionOptions}
+import codegen.ir_simd_type_helpers.{isSimdVectorTypeImpl}
+import codegen.ir_stmt_comptime.{evaluateConstExprState}
+
+class LowLevelBuiltinEmitResult {
+    var resultReg: String
+    var boundsCheckLabelCount: Int
+
+    static fun new(resultReg: String, boundsCheckLabelCount: Int)
+        r: LowLevelBuiltinEmitResult {
+
+        return LowLevelBuiltinEmitResult{
+            resultReg: resultReg,
+            boundsCheckLabelCount: boundsCheckLabelCount
+        }
+    }
+}
+
+fun emitPreparedSimpleLowLevelBuiltinCallState(output: StringBuilder,
+    action: Int, funcName: String, insideUnsafe: Int,
+    boundsCheckEnabled: Int, boundsCheckLabelCount: Int, lowArg0: String,
+    lowArg1: String, lowArg2: String) r: LowLevelBuiltinEmitResult {
+
+    var boundsCountBox = Array<Int>()
+    boundsCountBox.push(boundsCheckLabelCount)
+    let lowResult = emitPreparedLowLevelBuiltinActionImpl(output,
+        getFeatureRegBoxImpl(), action, funcName, insideUnsafe,
+        boundsCheckEnabled, lowArg0, lowArg1, lowArg2, "", "",
+        Array<Int>(), Array<String>(), Array<String>(), Array<Int>(), "",
+        Array<String>(), boundsCountBox)
+    if shouldClearLowLevelDebugAssertCseImpl(action, boundsCheckEnabled,
+        lowArg0) {
+
+        cseClear()
+    }
+    return LowLevelBuiltinEmitResult.new(lowResult, boundsCountBox[0])
+}
+
+fun emitPreparedAsyncYieldBuiltinCallState(output: StringBuilder,
+    funcName: String, insideUnsafe: Int, boundsCheckEnabled: Int,
+    lowArg0: String, lowArg1: String, lowArg2: String,
+    boundsCheckLabelCount: Int) r: LowLevelBuiltinEmitResult {
+
+    var yieldCounterBox = Array<Int>()
+    let functionEmission = getCurrentFunctionEmissionStateImpl()
+    yieldCounterBox.push(functionEmission.yieldCounter)
+    let yieldResult = emitPreparedLowLevelBuiltinActionImpl(output,
+        getFeatureRegBoxImpl(), 10, funcName, insideUnsafe,
+        boundsCheckEnabled, lowArg0, lowArg1, lowArg2,
+        functionEmission.asyncCoroHdl,
+        functionEmission.asyncCleanupLabel, yieldCounterBox, Array<String>(),
+        Array<String>(), Array<Int>(), "", Array<String>(), Array<Int>())
+    functionEmission.yieldCounter = yieldCounterBox[0]
+    return LowLevelBuiltinEmitResult.new(yieldResult, boundsCheckLabelCount)
+}
+
+fun emitPreparedSimdLowLevelBuiltinCallState(output: StringBuilder,
+    action: Int, funcName: String, insideUnsafe: Int,
+    boundsCheckEnabled: Int, lowArg0: String, lowArg1: String,
+    lowArg2: String, simdArgs: Array<String>, simdArgTypes: Array<String>,
+    simdConstIndices: Array<Int>, boundsCheckLabelCount: Int)
+    r: LowLevelBuiltinEmitResult {
+
+    let simdResult = emitPreparedLowLevelBuiltinActionImpl(output,
+        getFeatureRegBoxImpl(), action, funcName, insideUnsafe,
+        boundsCheckEnabled, lowArg0, lowArg1, lowArg2, "", "",
+        Array<Int>(), simdArgs, simdArgTypes, simdConstIndices, "",
+        Array<String>(), Array<Int>())
+    return LowLevelBuiltinEmitResult.new(simdResult, boundsCheckLabelCount)
+}
+
+fun emitPreparedIndirectLowLevelBuiltinCallState(output: StringBuilder,
+    action: Int, funcName: String, insideUnsafe: Int,
+    boundsCheckEnabled: Int, lowArg0: String, lowArg1: String,
+    lowArg2: String, indirectTargetReg: String, icArgRegs: Array<String>,
+    boundsCheckLabelCount: Int) r: LowLevelBuiltinEmitResult {
+
+    let indirectResult = emitPreparedLowLevelBuiltinActionImpl(output,
+        getFeatureRegBoxImpl(), action, funcName, insideUnsafe,
+        boundsCheckEnabled, lowArg0, lowArg1, lowArg2, "", "",
+        Array<Int>(), Array<String>(), Array<String>(), Array<Int>(),
+        indirectTargetReg, icArgRegs, Array<Int>())
+    return LowLevelBuiltinEmitResult.new(indirectResult,
+        boundsCheckLabelCount)
+}
+
+fun tryGenerateLowLevelBuiltinCallState(ctx: CodegenLoweringContext,
+    output: StringBuilder, expr: ParserExpressionNode, funcName: String,
+    varNames: Array<String>, varRegs: Array<String>, activeVarCount: Int,
+    insideUnsafe: Int, boundsCheckEnabled: Int,
+    boundsCheckLabelCount: Int, enumVariantNames: String,
+    enumVariantFieldCounts: String, enumVariantCount: Int)
+    r: LowLevelBuiltinEmitResult {
+
+    var lowIsVariantCall = false
+    var lowVariantFieldCount = 0
+    if enumVariantCount > 0 {
+        lowIsVariantCall = isEnumVariantStateImpl(funcName,
+            enumVariantNames, enumVariantCount)
+        if lowIsVariantCall {
+            lowVariantFieldCount = lookupEnumFieldCountStateImpl(funcName,
+                enumVariantNames, enumVariantFieldCounts, enumVariantCount)
+        }
+    }
+
+    let lowPlan = planLowLevelBuiltinCallImpl(funcName,
+        expr.arguments.length(), isPtrBuiltinCallImpl(funcName),
+        isSimdBuiltinCallImpl(funcName, isSimdVectorTypeImpl(funcName)),
+        varNames, activeVarCount, enumVariantCount, lowIsVariantCall,
+        lowVariantFieldCount)
+    let lowArgPlan = planLowLevelBuiltinArgumentReadsImpl(lowPlan.action,
+        lowPlan.hasArg0, lowPlan.hasArg1, lowPlan.hasArg2)
+
+    var lowArg0: String = lowArgPlan.defaultArg0
+    var lowArg1: String = ""
+    var lowArg2: String = ""
+    if lowArgPlan.shouldReadArg0 {
+        lowArg0 = lowerExpression(ctx, expr.arguments[0])
+    }
+    if lowArgPlan.shouldReadArg1 {
+        lowArg1 = lowerExpression(ctx, expr.arguments[1])
+    }
+    if lowArgPlan.shouldReadArg2 {
+        lowArg2 = lowerExpression(ctx, expr.arguments[2])
+    }
+
+    if lowPlan.action >= 1 and lowPlan.action <= 9 {
+        return emitPreparedSimpleLowLevelBuiltinCallState(output,
+            lowPlan.action, funcName, insideUnsafe, boundsCheckEnabled,
+            boundsCheckLabelCount, lowArg0, lowArg1, lowArg2)
+    }
+
+    if lowPlan.action == 10 {
+        if lowArgPlan.shouldUseAsyncYieldState {
+            return emitPreparedAsyncYieldBuiltinCallState(output, funcName,
+                insideUnsafe, boundsCheckEnabled, lowArg0, lowArg1,
+                lowArg2, boundsCheckLabelCount)
+        }
+        return LowLevelBuiltinEmitResult.new("0", boundsCheckLabelCount)
+    }
+
+    if lowArgPlan.shouldPrepareSimdArgs {
+        var simdArgs = Array<String>()
+        var simdArgTypes = Array<String>()
+        var simdConstIndices = Array<Int>()
+        var simdPreArgIdx = 0
+        while simdPreArgIdx < expr.arguments.length() {
+            if shouldReadSimdShuffleConstArgImpl(funcName, simdPreArgIdx) {
+                simdConstIndices.push(evaluateConstExprState(
+                    expr.arguments[simdPreArgIdx]))
+            } else {
+                simdArgs.push(lowerExpression(ctx,
+                    expr.arguments[simdPreArgIdx]))
+                simdArgTypes.push(inferLoweredExpressionType(ctx,
+                    expr.arguments[simdPreArgIdx]))
+            }
+            simdPreArgIdx = simdPreArgIdx + 1
+        }
+        let simdEmit = emitPreparedSimdLowLevelBuiltinCallState(output,
+            lowPlan.action, funcName, insideUnsafe, boundsCheckEnabled,
+            lowArg0, lowArg1, lowArg2, simdArgs, simdArgTypes,
+            simdConstIndices, boundsCheckLabelCount)
+        if simdEmit.resultReg != "" {
+            return simdEmit
+        }
+    }
+
+    if lowArgPlan.shouldPrepareIndirectArgs {
+        var icArgRegs = Array<String>()
+        var icArgIdx = 0
+        while icArgIdx < expr.arguments.length() {
+            icArgRegs.push(lowerExpression(ctx, expr.arguments[icArgIdx]))
+            icArgIdx = icArgIdx + 1
+        }
+        return emitPreparedIndirectLowLevelBuiltinCallState(output,
+            lowPlan.action, funcName, insideUnsafe, boundsCheckEnabled,
+            lowArg0, lowArg1, lowArg2, varRegs[lowPlan.indirectVarIndex],
+            icArgRegs, boundsCheckLabelCount)
+    }
+
+    if lowArgPlan.shouldGenerateEnumConstructor {
+        return LowLevelBuiltinEmitResult.new(
+            lowerEnumConstructor(ctx, funcName, expr), boundsCheckLabelCount)
+    }
+
+    return LowLevelBuiltinEmitResult.new("", boundsCheckLabelCount)
+}

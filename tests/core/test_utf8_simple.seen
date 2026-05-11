@@ -1,6 +1,8 @@
-// Simple UTF-8 String Test
-// Tests that UTF-8 strings work correctly
-// Expected: UTF-8 strings preserve their content
+///
+Simple UTF-8 String Test
+Tests that UTF-8 strings work correctly
+Expected: UTF-8 strings preserve their content
+///
 
 fun main() r: Int {
     var passed = 0

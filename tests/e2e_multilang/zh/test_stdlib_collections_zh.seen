@@ -1,8 +1,10 @@
-// 端到端测试: 集合标准库 (中文)
-// 测试类型: Array<整数>, Array<字符串>, HashMap<字符串, 整数>
-// 注意: HashMap.放入()不存在, 改用insert()
-// 注意: HashMap.获取()生成无效IR, 改用getOrDefault()
-// 注意: containsKey()返回布尔值, 直接在如果条件中使用
+///
+端到端测试: 集合标准库 (中文)
+测试类型: Array<整数>, Array<字符串>, HashMap<字符串, 整数>
+注意: HashMap.放入()不存在, 改用insert()
+注意: HashMap.获取()生成无效IR, 改用getOrDefault()
+注意: containsKey()返回布尔值, 直接在如果条件中使用
+///
 
 函数 主函数() r: 整数 {
     // 测试1: Array<整数> 添加和获取

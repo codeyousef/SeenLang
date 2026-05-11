@@ -1,0 +1,4 @@
+fun main() r: Int {
+    let work = VoxelTypeCountWork.new(16)
+    return 0
+}

@@ -1,5 +1,7 @@
-// Test: Buffer[T] type — create, write, read, verify data
-// Parser should handle both Buffer<Float> and Buffer[Float] syntax
+///
+Test: Buffer[T] type — create, write, read, verify data
+Parser should handle both Buffer<Float> and Buffer[Float] syntax
+///
 
 @compute(workgroup: 64)
 fun scaleBuffer(input: Buffer<Float>, output: Buffer<Float>, factor: Float) {

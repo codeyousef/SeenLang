@@ -1,5 +1,7 @@
-// Component Checker for Seen Language
-// Validates @component decorator usage and lifecycle method requirements
+///
+Component Checker for Seen Language
+Validates @component decorator usage and lifecycle method requirements
+///
 
 import parser.real_parser.{ClassNode, FunctionNode, ProgramNode}
 
@@ -140,9 +142,11 @@ class ComponentChecker {
             var i = 0
             while i < cls.fields.length() {
                 let field = cls.fields[i]
-                // Check if field type is a component (has @component decorator)
-                // This would require access to the type registry
-                // For now, just warn about potential issues
+                ///
+                Check if field type is a component (has @component decorator)
+                This would require access to the type registry
+                For now, just warn about potential issues
+                ///
                 i = i + 1
             }
         }

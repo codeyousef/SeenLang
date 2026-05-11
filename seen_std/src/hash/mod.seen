@@ -1,5 +1,7 @@
-// seen_std.hash.mod
-// Generic hashing utility functions.
+///
+seen_std.hash.mod
+Generic hashing utility functions.
+///
 
 fun hashInt(value: Int) r: Int {
     var h = value

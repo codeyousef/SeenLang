@@ -1,6 +1,8 @@
-// Spectral Norm Benchmark
-// Classic CLBG benchmark: eigenvalue approximation of infinite matrix
-// Tests dense float math, O(n^2) nested loops, function inlining
+///
+Spectral Norm Benchmark
+Classic CLBG benchmark: eigenvalue approximation of infinite matrix
+Tests dense float math, O(n^2) nested loops, function inlining
+///
 
 fun eval_a(i: Int, j: Int) -> Float {
     let ij = i + j
@@ -103,8 +105,10 @@ fun main() -> Int {
         iter = iter + 1
     }
 
-    // 10 iterations * 2 AtAv per iteration * 2 mat-vec per AtAv = 40 mat-vec multiplies
-    // Each mat-vec is n*n multiply-adds = 2*n*n FLOPs
+    ///
+    10 iterations * 2 AtAv per iteration * 2 mat-vec per AtAv = 40 mat-vec multiplies
+    Each mat-vec is n*n multiply-adds = 2*n*n FLOPs
+    ///
     let flops = 40.0 * 2.0 * n.toFloat() * n.toFloat()
     let mflops = flops / (min_time / 1000.0) / 1000000.0
 

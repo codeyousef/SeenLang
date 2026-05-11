@@ -1,16 +1,16 @@
-/**
- * Safe Steam API wrapper for Linux.
- *
- * High-level interface to Steamworks SDK features including user info,
- * achievements, stats, cloud storage, friends, and controller support.
- * Automatically handles interface versioning and null checks.
- *
- * Example:
- *   let steam = Steam.init(YOUR_APP_ID).unwrap()
- *   println("Welcome, " + steam.getPersonaName())
- *   steam.unlockAchievement("FIRST_WIN")
- *   steam.shutdown()
- */
+///
+Safe Steam API wrapper for Linux.
+
+High-level interface to Steamworks SDK features including user info,
+achievements, stats, cloud storage, friends, and controller support.
+Automatically handles interface versioning and null checks.
+
+Example:
+  let steam = Steam.init(YOUR_APP_ID).unwrap()
+  println("Welcome, " + steam.getPersonaName())
+  steam.unlockAchievement("FIRST_WIN")
+  steam.shutdown()
+///
 
 import core.result.{Result, Ok, Err}
 import core.unit.{Unit}
@@ -53,9 +53,9 @@ import platform.linux.steam.{
     steam_is_running, steam_restart_app_if_necessary, cstr_to_string
 }
 
-/**
- * User's online status in Steam.
- */
+///
+User's online status in Steam.
+///
 enum PersonaState {
     Offline
     Online
@@ -108,9 +108,9 @@ fun overlayPositionToInt(pos: OverlayPosition) r: Int {
     return k_EPositionBottomRight
 }
 
-/**
- * Steam ID wrapper for 64-bit user identifiers.
- */
+///
+Steam ID wrapper for 64-bit user identifiers.
+///
 class SteamID {
     var id: UInt64
 
@@ -149,9 +149,9 @@ class Achievement {
     }
 }
 
-/**
- * Steam Cloud storage quota information.
- */
+///
+Steam Cloud storage quota information.
+///
 class CloudQuota {
     var totalBytes: UInt64
     var availableBytes: UInt64
@@ -175,12 +175,12 @@ class CloudQuota {
     }
 }
 
-/**
- * Main Steam API wrapper managing all Steamworks functionality.
- *
- * Call init() once at startup and runCallbacks() regularly in your
- * game loop. Call shutdown() before exiting.
- */
+///
+Main Steam API wrapper managing all Steamworks functionality.
+
+Call init() once at startup and runCallbacks() regularly in your
+game loop. Call shutdown() before exiting.
+///
 class Steam {
     var initialized: Bool
     var appId: UInt32
@@ -193,12 +193,12 @@ class Steam {
     var steamRemoteStorage: *Void
     var statsReceived: Bool
 
-    /**
-     * Initialize Steam API with your app ID.
-     *
-     * Steam must be running. Returns error if initialization fails
-     * or if the app needs to be restarted through Steam.
-     */
+    ///
+    Initialize Steam API with your app ID.
+
+    Steam must be running. Returns error if initialization fails
+    or if the app needs to be restarted through Steam.
+    ///
     static fun init(appId: UInt32) r: Result<Steam, String> {
         // Check if Steam is running
         if not steam_is_running() {
@@ -598,9 +598,9 @@ class Steam {
     }
 }
 
-/**
- * Check if Steam client is running without initializing the API.
- */
+///
+Check if Steam client is running without initializing the API.
+///
 fun isSteamAvailable() r: Bool {
     return steam_is_running()
 }

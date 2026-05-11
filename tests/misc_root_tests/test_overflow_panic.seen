@@ -1,6 +1,8 @@
-// Test --panic-on-overflow flag with overflow
-// When compiled with --panic-on-overflow, this program will panic
-// Without the flag, it will print -9223372036854775808 (wrap around)
+///
+Test --panic-on-overflow flag with overflow
+When compiled with --panic-on-overflow, this program will panic
+Without the flag, it will print -9223372036854775808 (wrap around)
+///
 
 fun main() r: Int {
     let max = 9223372036854775807  // Int max (2^63 - 1)

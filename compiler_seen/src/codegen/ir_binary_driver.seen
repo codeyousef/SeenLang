@@ -1,0 +1,429 @@
+// ir_binary_driver.seen - recursive binary expression lowering.
+
+import parser.real_parser.{ParserExpressionNode}
+import str.string.{StringBuilder}
+import codegen.ir_binary_emit.{emitPreparedPointerArithmeticBinaryImpl, emitPreparedSimdBinaryExprImpl, emitPreparedSelfComparisonConstResultImpl, emitPreparedIntPeepholeBinaryActionImpl, emitPreparedAssociativeIntFoldResultImpl, emitPreparedFoldedBoolLiteralBinaryResultImpl, emitPreparedFoldedIntLiteralBinaryResultImpl, emitPreparedFloatPeepholeBinaryActionImpl, emitPreparedFmaTripleCallImpl}
+import codegen.ir_binary_expr.{isSimdBinaryOperatorImpl, shouldUseFmaForOperandTypesImpl, buildSelfComparisonLogValueImpl, buildBinaryFoldLogValueImpl}
+import codegen.ir_binary_fold_plan.{planBinaryOperandLiteralFactsImpl, isBinaryIntLiteralOperandImpl, planBinaryFoldActionImpl, shouldTryBinaryAssociativeIntFoldImpl, binaryAssociativeIntFoldRewriteCostImpl, shouldApplyBinaryAssociativeIntFoldImpl, planBinaryLiteralComparisonFoldImpl, planBinaryLiteralConstantFoldImpl, planBinaryFloatPeepholeImpl, planBinaryFoldFmaImpl}
+import codegen.ir_binary_membership.{inferDeclaredMembershipElementTypeImpl, shouldInferMembershipArrayLiteralElementImpl, membershipPendingArrayLiteralTypeImpl, membershipNeedleWarningImpl, membershipUnsupportedSetWarningImpl, emitPreparedMembershipContainsImpl}
+import codegen.ir_binary_operand_driver.{lowerBinaryOperandState, generateFlattenedStringConcatState}
+import codegen.ir_binary_plan.{shouldTryPointerArithmeticBinaryImpl, shouldTrySimdBinaryGateImpl, shouldUseIntPeepholeGateImpl, shouldUseFloatPeepholeGateImpl, shortCircuitBinaryActionImpl}
+import codegen.ir_binary_short_circuit_driver.{generateShortCircuitAndState, generateShortCircuitOrState}
+import codegen.ir_binary_tail_driver.{emitPreparedBinaryTailState}
+import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl}
+import codegen.ir_codegen_global_state.{getPendingArrayLiteralTypeWithGlobalStateImpl, setPendingArrayLiteralTypeWithGlobalStateImpl}
+import codegen.ir_codegen_type_state.{mapTypeState}
+import codegen.ir_egraph_rules.{egraphLookup, egraphLookupFloat, egraphSelfComparison}
+import codegen.ir_lowering_context.{CodegenLoweringContext, inferLoweredExpressionType, lowerCallExpression, prepareLoweredCallArgumentsWithDefaults, lowerEnumConstructor, resetLoweringGenerator, resetLoweringSharedModuleScratch, lowerProgramClasses, lowerProgramTopLevelFunctions, lowerPlainLargeClass, lowerClassNode, lowerFunctionNode, lowerClassMethodFromList, setLowerCurrentClassParentName, resetLoweringLocalCodegenState, collectLoweringVariableDeclarations, clearLoweringActiveBindings, lowerBlock, lowerStatement, isLoweringBlockTerminated, beginLoweringNestedScratch, restoreLoweringNestedScratch, currentLoweringFunctionOptions}
+import codegen.ir_ml_logging.{mlLogDecision}
+import codegen.ir_optimization.{foldIntConstants, foldIntComparison, exprCost}
+import codegen.ir_simd_type_helpers.{isSimdVectorTypeImpl}
+import codegen.ir_string_concat_emit.{isStringConcatTypePairImpl}
+
+class BinaryDriverResult {
+    var resultReg: String
+    var boundsCheckLabelCount: Int
+    var constantsFoldedDelta: Int
+    var branchesEliminatedDelta: Int
+
+    static fun new(resultReg: String, boundsCheckLabelCount: Int,
+        constantsFoldedDelta: Int, branchesEliminatedDelta: Int)
+        r: BinaryDriverResult {
+
+        return BinaryDriverResult{
+            resultReg: resultReg,
+            boundsCheckLabelCount: boundsCheckLabelCount,
+            constantsFoldedDelta: constantsFoldedDelta,
+            branchesEliminatedDelta: branchesEliminatedDelta
+        }
+    }
+}
+
+fun binaryExpressionOperandCount(expr: ParserExpressionNode) r: Int {
+    if expr.kind != "Binary" {
+        return 0
+    }
+    return expr.operands.length()
+}
+
+fun inferMembershipElementTypeState(ctx: CodegenLoweringContext,
+    rightExpr: ParserExpressionNode, rightType: String) r: String {
+
+    let declaredElementType = inferDeclaredMembershipElementTypeImpl(
+        rightType)
+    if declaredElementType != "" {
+        return declaredElementType
+    }
+    if shouldInferMembershipArrayLiteralElementImpl(rightExpr.kind,
+        rightExpr.arguments.length()) {
+
+        return inferLoweredExpressionType(ctx, rightExpr.arguments[0])
+    }
+    return ""
+}
+
+fun generateMembershipArrayRegState(ctx: CodegenLoweringContext,
+    output: StringBuilder, rightExpr: ParserExpressionNode,
+    elementType: String, varNames: Array<String>, varRegs: Array<String>,
+    varTypes: Array<String>, stringConstants: Array<String>) r: String {
+
+    let savedPendingType = getPendingArrayLiteralTypeWithGlobalStateImpl()
+    let pendingMembershipType = membershipPendingArrayLiteralTypeImpl(
+        rightExpr.kind, elementType)
+    if pendingMembershipType != "" {
+        setPendingArrayLiteralTypeWithGlobalStateImpl(pendingMembershipType)
+    }
+    let rightReg = lowerBinaryOperandState(ctx, output, rightExpr, varNames,
+        varRegs, varTypes, stringConstants)
+    setPendingArrayLiteralTypeWithGlobalStateImpl(savedPendingType)
+    return rightReg
+}
+
+fun generateMembershipExpressionState(ctx: CodegenLoweringContext,
+    output: StringBuilder, leftExpr: ParserExpressionNode,
+    rightExpr: ParserExpressionNode, leftType: String, rightType: String,
+    varNames: Array<String>, varRegs: Array<String>,
+    varTypes: Array<String>, stringConstants: Array<String>) r: String {
+
+    let elementType = inferMembershipElementTypeState(ctx, rightExpr,
+        rightType)
+    let needleWarning = membershipNeedleWarningImpl(elementType, leftType)
+    if needleWarning != "" {
+        output.append(needleWarning)
+        return "false"
+    }
+    let unsupportedWarning = membershipUnsupportedSetWarningImpl(
+        elementType, rightType)
+    if unsupportedWarning != "" {
+        output.append(unsupportedWarning)
+        return "false"
+    }
+    let leftReg = lowerBinaryOperandState(ctx, output, leftExpr, varNames,
+        varRegs, varTypes, stringConstants)
+    let rightReg = generateMembershipArrayRegState(ctx, output, rightExpr,
+        elementType, varNames, varRegs, varTypes, stringConstants)
+    return emitPreparedMembershipContainsImpl(output, getFeatureRegBoxImpl(),
+        elementType, leftReg, rightReg)
+}
+
+fun generateBinaryState(ctx: CodegenLoweringContext,
+    output: StringBuilder, expr: ParserExpressionNode,
+    boundsCheckLabelCount: Int, panicOnOverflow: Bool,
+    inductionVarName: String, varNames: Array<String>,
+    varRegs: Array<String>, varTypes: Array<String>,
+    stringConstants: Array<String>) r: BinaryDriverResult {
+
+    let leftExpr = expr.operands[0]
+    let rightExpr = expr.operands[1]
+    let leftType = inferLoweredExpressionType(ctx, leftExpr)
+    let rightType = inferLoweredExpressionType(ctx, rightExpr)
+    var constantsDelta = 0
+    var branchesDelta = 0
+
+    if expr.operator == "in" {
+        return BinaryDriverResult.new(generateMembershipExpressionState(ctx,
+            output, leftExpr, rightExpr, leftType, rightType, varNames,
+            varRegs, varTypes, stringConstants), boundsCheckLabelCount,
+            constantsDelta, branchesDelta)
+    }
+
+    if expr.operator == "+" and isStringConcatTypePairImpl(leftType,
+        rightType) {
+        let flattenedStringConcat = generateFlattenedStringConcatState(ctx,
+            output, expr, varNames, varRegs, varTypes, stringConstants)
+        if flattenedStringConcat != "" {
+            return BinaryDriverResult.new(flattenedStringConcat,
+                boundsCheckLabelCount, constantsDelta, branchesDelta)
+        }
+    }
+
+    if shouldTryPointerArithmeticBinaryImpl(leftType, expr.operator) {
+        let paLeftReg = lowerBinaryOperandState(ctx, output, leftExpr,
+            varNames, varRegs, varTypes, stringConstants)
+        let paRightReg = lowerBinaryOperandState(ctx, output, rightExpr,
+            varNames, varRegs, varTypes, stringConstants)
+        let paResult = emitPreparedPointerArithmeticBinaryImpl(output,
+            getFeatureRegBoxImpl(), expr.operator, leftType, rightType,
+            paLeftReg, paRightReg)
+        if paResult != "" {
+            return BinaryDriverResult.new(paResult, boundsCheckLabelCount,
+                constantsDelta, branchesDelta)
+        }
+    }
+
+    let simdBinaryOp = isSimdBinaryOperatorImpl(expr.operator)
+    if shouldTrySimdBinaryGateImpl(isSimdVectorTypeImpl(leftType),
+        simdBinaryOp) {
+        let simdLlvmType = mapTypeState(leftType)
+        let simdLeftReg = lowerBinaryOperandState(ctx, output, leftExpr,
+            varNames, varRegs, varTypes, stringConstants)
+        let simdRightReg = lowerBinaryOperandState(ctx, output, rightExpr,
+            varNames, varRegs, varTypes, stringConstants)
+        let simdResult = emitPreparedSimdBinaryExprImpl(output,
+            getFeatureRegBoxImpl(), expr.operator, leftType, simdLlvmType,
+            simdLeftReg, simdRightReg)
+        if simdResult != "" {
+            return BinaryDriverResult.new(simdResult, boundsCheckLabelCount,
+                constantsDelta, branchesDelta)
+        }
+    }
+
+    let binaryLiteralFacts = planBinaryOperandLiteralFactsImpl(
+        leftExpr.kind, leftExpr.literalType, leftExpr.literalValue,
+        rightExpr.kind, rightExpr.literalType, rightExpr.literalValue)
+    if shouldUseIntPeepholeGateImpl(leftType, rightType) {
+        let leftIsIntLit = binaryLiteralFacts.leftIsIntLiteral
+        let rightIsIntLit = binaryLiteralFacts.rightIsIntLiteral
+        let leftLitVal = binaryLiteralFacts.leftLiteralValue
+        let rightLitVal = binaryLiteralFacts.rightLiteralValue
+
+        if binaryLiteralFacts.isSelfVariableComparison {
+            let selfAction = egraphSelfComparison(expr.operator)
+            let selfPlan = planBinaryFoldActionImpl(selfAction, true)
+            if selfPlan.returnLeft {
+                return BinaryDriverResult.new(lowerBinaryOperandState(ctx,
+                    output, leftExpr, varNames, varRegs, varTypes,
+                    stringConstants),
+                    boundsCheckLabelCount, constantsDelta, branchesDelta)
+            }
+            let selfFoldReg = emitPreparedSelfComparisonConstResultImpl(
+                output, getFeatureRegBoxImpl(), selfAction, expr.operator)
+            if selfFoldReg != "" {
+                constantsDelta = constantsDelta + 1
+                if selfPlan.shouldLogSelfComparison {
+                    mlLogDecision("e-graph", "self-opt",
+                        buildSelfComparisonLogValueImpl(
+                        leftExpr.literalValue, expr.operator, selfAction))
+                }
+                return BinaryDriverResult.new(selfFoldReg,
+                    boundsCheckLabelCount, constantsDelta, branchesDelta)
+            }
+        }
+
+        let action = egraphLookup(expr.operator, leftLitVal, rightLitVal,
+            leftIsIntLit, rightIsIntLit)
+        let actionPlan = planBinaryFoldActionImpl(action, false)
+        if actionPlan.returnLeft {
+            return BinaryDriverResult.new(lowerBinaryOperandState(ctx,
+                output, leftExpr, varNames, varRegs, varTypes,
+                stringConstants),
+                boundsCheckLabelCount, constantsDelta, branchesDelta)
+        }
+        if actionPlan.returnRight {
+            return BinaryDriverResult.new(lowerBinaryOperandState(ctx,
+                output, rightExpr, varNames, varRegs, varTypes,
+                stringConstants),
+                boundsCheckLabelCount, constantsDelta, branchesDelta)
+        }
+        if actionPlan.shouldEmitAction {
+            if actionPlan.shouldCountFold {
+                constantsDelta = constantsDelta + 1
+                mlLogDecision("e-graph", "folded",
+                    expr.operator + "=" + action)
+            }
+            var egLeftReg: String = ""
+            if actionPlan.shouldGenerateLeftReg {
+                egLeftReg = lowerBinaryOperandState(ctx, output, leftExpr,
+                    varNames, varRegs, varTypes, stringConstants)
+            }
+            let egResult = emitPreparedIntPeepholeBinaryActionImpl(output,
+                getFeatureRegBoxImpl(), action, egLeftReg, expr.operator)
+            if egResult != "" {
+                return BinaryDriverResult.new(egResult,
+                    boundsCheckLabelCount, constantsDelta, branchesDelta)
+            }
+        }
+
+        let leftOperandCount = binaryExpressionOperandCount(leftExpr)
+        if shouldTryBinaryAssociativeIntFoldImpl(expr.operator,
+            rightIsIntLit, leftExpr.kind, leftExpr.operator,
+            leftOperandCount) {
+            let innerRight = leftExpr.operands[1]
+            if isBinaryIntLiteralOperandImpl(innerRight.kind,
+                innerRight.literalType) {
+                let combinedVal = foldIntConstants(
+                    innerRight.literalValue, rightLitVal, expr.operator)
+                let origCost = exprCost(expr) + exprCost(leftExpr)
+                let rewriteCost = binaryAssociativeIntFoldRewriteCostImpl(
+                    expr.operator, exprCost(leftExpr.operands[0]))
+                if shouldApplyBinaryAssociativeIntFoldImpl(combinedVal,
+                    rewriteCost, origCost) {
+                    constantsDelta = constantsDelta + 1
+                    mlLogDecision("e-graph", "assoc-fold",
+                        buildBinaryFoldLogValueImpl(
+                        innerRight.literalValue, expr.operator, rightLitVal,
+                        combinedVal))
+                    let innerLeftReg = lowerBinaryOperandState(ctx, output,
+                        leftExpr.operands[0], varNames, varRegs, varTypes,
+                        stringConstants)
+                    let assocResultReg =
+                        emitPreparedAssociativeIntFoldResultImpl(output,
+                        getFeatureRegBoxImpl(), expr.operator, innerLeftReg,
+                        combinedVal)
+                    if assocResultReg != "" {
+                        return BinaryDriverResult.new(assocResultReg,
+                            boundsCheckLabelCount, constantsDelta,
+                            branchesDelta)
+                    }
+                }
+            }
+        }
+
+        var cmpResult: String = ""
+        if leftIsIntLit and rightIsIntLit {
+            cmpResult = foldIntComparison(leftLitVal, rightLitVal,
+                expr.operator)
+        }
+        let cmpFoldPlan = planBinaryLiteralComparisonFoldImpl(leftIsIntLit,
+            rightIsIntLit, cmpResult)
+        if cmpFoldPlan.shouldFold {
+            constantsDelta = constantsDelta + 1
+            if cmpFoldPlan.shouldCountBranch {
+                branchesDelta = branchesDelta + 1
+            }
+            mlLogDecision("const-fold", "cmp-folded",
+                buildBinaryFoldLogValueImpl(leftLitVal, expr.operator,
+                rightLitVal, cmpResult))
+            return BinaryDriverResult.new(
+                emitPreparedFoldedBoolLiteralBinaryResultImpl(output,
+                getFeatureRegBoxImpl(), cmpResult), boundsCheckLabelCount,
+                constantsDelta, branchesDelta)
+        }
+
+        var folded: String = ""
+        if leftIsIntLit and rightIsIntLit {
+            folded = foldIntConstants(leftLitVal, rightLitVal, expr.operator)
+        }
+        let literalConstFoldPlan = planBinaryLiteralConstantFoldImpl(
+            leftIsIntLit, rightIsIntLit, folded)
+        if literalConstFoldPlan.shouldFold {
+            constantsDelta = constantsDelta + 1
+            mlLogDecision("const-fold", "folded",
+                buildBinaryFoldLogValueImpl(leftLitVal, expr.operator,
+                rightLitVal, folded))
+            return BinaryDriverResult.new(
+                emitPreparedFoldedIntLiteralBinaryResultImpl(output,
+                getFeatureRegBoxImpl(), folded), boundsCheckLabelCount,
+                constantsDelta, branchesDelta)
+        }
+    }
+
+    if shouldUseFloatPeepholeGateImpl(leftType, rightType) {
+        let fAction = egraphLookupFloat(expr.operator,
+            binaryLiteralFacts.leftLiteralValue,
+            binaryLiteralFacts.rightLiteralValue,
+            binaryLiteralFacts.leftIsFloatLiteral,
+            binaryLiteralFacts.rightIsFloatLiteral)
+        let fActionPlan = planBinaryFloatPeepholeImpl(fAction)
+        if fActionPlan.returnLeft {
+            return BinaryDriverResult.new(lowerBinaryOperandState(ctx,
+                output, leftExpr, varNames, varRegs, varTypes,
+                stringConstants),
+                boundsCheckLabelCount, constantsDelta, branchesDelta)
+        }
+        if fActionPlan.returnRight {
+            return BinaryDriverResult.new(lowerBinaryOperandState(ctx,
+                output, rightExpr, varNames, varRegs, varTypes,
+                stringConstants),
+                boundsCheckLabelCount, constantsDelta, branchesDelta)
+        }
+        if fActionPlan.shouldEmitAction {
+            if fActionPlan.shouldCountFold {
+                constantsDelta = constantsDelta + 1
+            }
+            var fgLeftReg: String = ""
+            var fgRightReg: String = ""
+            if fActionPlan.shouldGenerateRightReg {
+                fgRightReg = lowerBinaryOperandState(ctx, output, rightExpr,
+                    varNames, varRegs, varTypes, stringConstants)
+            }
+            if fActionPlan.shouldGenerateLeftReg {
+                fgLeftReg = lowerBinaryOperandState(ctx, output, leftExpr,
+                    varNames, varRegs, varTypes, stringConstants)
+            }
+            let fResult = emitPreparedFloatPeepholeBinaryActionImpl(output,
+                getFeatureRegBoxImpl(), fAction, fgLeftReg, fgRightReg,
+                expr.operator)
+            if fResult != "" {
+                return BinaryDriverResult.new(fResult,
+                    boundsCheckLabelCount, constantsDelta, branchesDelta)
+            }
+        }
+    }
+
+    let fmaSides = planBinaryFoldFmaImpl(expr.operator, leftType, rightType,
+        leftExpr.kind, leftExpr.operator, rightExpr.kind,
+        rightExpr.operator)
+    if fmaSides.shouldTryCandidate {
+        if fmaSides.shouldTryRight {
+            if binaryExpressionOperandCount(rightExpr) >= 2 {
+                let rLeftType = inferLoweredExpressionType(ctx,
+                    rightExpr.operands[0])
+                let rRightType = inferLoweredExpressionType(ctx,
+                    rightExpr.operands[1])
+                if shouldUseFmaForOperandTypesImpl(rLeftType, rRightType) {
+                    return BinaryDriverResult.new(
+                        emitPreparedFmaTripleCallImpl(output,
+                        getFeatureRegBoxImpl(),
+                        lowerBinaryOperandState(ctx, output,
+                        rightExpr.operands[0], varNames, varRegs, varTypes,
+                        stringConstants), rLeftType,
+                        lowerBinaryOperandState(ctx, output,
+                        rightExpr.operands[1], varNames, varRegs, varTypes,
+                        stringConstants), rRightType,
+                        lowerBinaryOperandState(ctx, output, leftExpr,
+                        varNames, varRegs, varTypes, stringConstants),
+                        leftType, "c + a*b"),
+                        boundsCheckLabelCount, constantsDelta, branchesDelta)
+                }
+            }
+        }
+        if fmaSides.shouldTryLeft {
+            if binaryExpressionOperandCount(leftExpr) >= 2 {
+                let lLeftType = inferLoweredExpressionType(ctx,
+                    leftExpr.operands[0])
+                let lRightType = inferLoweredExpressionType(ctx,
+                    leftExpr.operands[1])
+                if shouldUseFmaForOperandTypesImpl(lLeftType, lRightType) {
+                    return BinaryDriverResult.new(
+                        emitPreparedFmaTripleCallImpl(output,
+                        getFeatureRegBoxImpl(),
+                        lowerBinaryOperandState(ctx, output,
+                        leftExpr.operands[0], varNames, varRegs, varTypes,
+                        stringConstants), lLeftType,
+                        lowerBinaryOperandState(ctx, output,
+                        leftExpr.operands[1], varNames, varRegs, varTypes,
+                        stringConstants), lRightType,
+                        lowerBinaryOperandState(ctx, output, rightExpr,
+                        varNames, varRegs, varTypes, stringConstants),
+                        rightType, "a*b + c"),
+                        boundsCheckLabelCount, constantsDelta, branchesDelta)
+                }
+            }
+        }
+    }
+
+    let shortCircuitAction = shortCircuitBinaryActionImpl(expr.operator)
+    if shortCircuitAction == 1 {
+        return BinaryDriverResult.new(generateShortCircuitAndState(ctx,
+            output, expr), boundsCheckLabelCount, constantsDelta,
+            branchesDelta)
+    }
+    if shortCircuitAction == 2 {
+        return BinaryDriverResult.new(generateShortCircuitOrState(ctx,
+            output, expr), boundsCheckLabelCount, constantsDelta,
+            branchesDelta)
+    }
+
+    let leftReg = lowerBinaryOperandState(ctx, output, leftExpr, varNames,
+        varRegs, varTypes, stringConstants)
+    let rightReg = lowerBinaryOperandState(ctx, output, rightExpr, varNames,
+        varRegs, varTypes, stringConstants)
+    let binaryTail = emitPreparedBinaryTailState(output, expr.operator,
+        leftReg, rightReg, leftType, rightType, leftExpr.kind,
+        leftExpr.literalValue, leftExpr.variableName, rightExpr.kind,
+        rightExpr.literalValue, boundsCheckLabelCount, panicOnOverflow,
+        inductionVarName)
+    return BinaryDriverResult.new(binaryTail.resultReg,
+        binaryTail.boundsCheckLabelCount, constantsDelta, branchesDelta)
+}

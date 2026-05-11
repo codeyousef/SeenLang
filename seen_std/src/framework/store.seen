@@ -1,6 +1,8 @@
-// Store Framework for Seen Language
-// Provides deterministic state management with mutation logging and time-travel
-// Used with the @store decorator
+///
+Store Framework for Seen Language
+Provides deterministic state management with mutation logging and time-travel
+Used with the @store decorator
+///
 
 import collections.btree_map.{BTreeMap}
 
@@ -230,8 +232,10 @@ class TimeTravel {
         }
     }
 
-    // Rollback to a specific frame
-    // Returns the mutations that need to be undone (in reverse order)
+    ///
+    Rollback to a specific frame
+    Returns the mutations that need to be undone (in reverse order)
+    ///
     fun rollbackToFrame(targetFrame: Int) r: Array<MutationEntry> {
         let snapshotOpt = registry.findSnapshotForFrame(targetFrame)
         if snapshotOpt.isNone() {

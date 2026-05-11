@@ -16,7 +16,7 @@ set -euo pipefail
 
 case "${1:-}" in
     --version)
-        echo "Seen Language 0.7.2"
+        echo "Seen Language 0.8.0"
         ;;
     check)
         test -f "${2:-}"
@@ -43,14 +43,14 @@ chmod +x "$FAKE_COMPILER"
 
 DIST_DIR="$TMP_DIR/dist"
 "$ROOT_DIR/scripts/build_release.sh" \
-    --version 0.7.2 \
+    --version 0.8.0 \
     --output-dir "$DIST_DIR" \
     --compiler "$FAKE_COMPILER" \
     --cpu-baseline x86-64 \
     --artifact-suffix linux-x64 \
     --skip-verify >/dev/null
 
-TARBALL="$DIST_DIR/seen-0.7.2-linux-x64.tar.gz"
+TARBALL="$DIST_DIR/seen-0.8.0-linux-x64.tar.gz"
 test -f "$TARBALL"
 
 "$ROOT_DIR/scripts/verify_release_cpu_baseline.sh" --cpu-baseline x86-64 "$TARBALL" >/dev/null
@@ -58,7 +58,7 @@ test -f "$TARBALL"
 EXTRACT_DIR="$TMP_DIR/extract"
 mkdir -p "$EXTRACT_DIR"
 tar -xzf "$TARBALL" -C "$EXTRACT_DIR"
-PACKAGE_DIR="$EXTRACT_DIR/seen-0.7.2-linux-x64"
+PACKAGE_DIR="$EXTRACT_DIR/seen-0.8.0-linux-x64"
 
 PREFIX="$TMP_DIR/prefix"
 mkdir -p "$PREFIX/bin"
@@ -66,7 +66,7 @@ SYMLINK_TARGET="$TMP_DIR/original-target"
 printf 'original target content\n' > "$SYMLINK_TARGET"
 ln -s "$SYMLINK_TARGET" "$PREFIX/bin/seen"
 
-(cd "$PACKAGE_DIR" && ./install.sh "$PREFIX" >/dev/null)
+(cd "$PACKAGE_DIR" && SEEN_SKIP_TOOLCHAIN=1 ./install.sh "$PREFIX" >/dev/null)
 
 if [[ "$(cat "$SYMLINK_TARGET")" != "original target content" ]]; then
     echo "install.sh followed the existing seen symlink and overwrote its target" >&2
@@ -78,11 +78,15 @@ if [[ -L "$PREFIX/bin/seen" ]]; then
     exit 1
 fi
 
-if ! "$PREFIX/bin/seen" --version | grep -q '0.7.2'; then
+if ! "$PREFIX/bin/seen" --version | grep -q '0.8.0'; then
     echo "installed seen binary did not come from the release package" >&2
     exit 1
 fi
 
 grep -qx 'cpu-baseline=x86-64' "$PACKAGE_DIR/share/doc/seen/release-cpu-baseline.txt"
+grep -qx 'llvm_min_version=18' "$PACKAGE_DIR/lib/seen/toolchain/manifest.env"
+test -x "$PACKAGE_DIR/lib/seen/toolchain/seen-toolchain.sh"
+test -f "$PACKAGE_DIR/share/doc/seen/toolchain-dependencies.txt"
+test -x "$PREFIX/lib/seen/toolchain/seen-toolchain.sh"
 
 echo "release packaging symlink replacement test passed"

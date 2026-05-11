@@ -1,12 +1,16 @@
-// Test suite for Trusted Execution Environment (Task 5.3)
-// Tests TEE initialization, sealing, and attestation concepts.
-// Development stub mode now requires SEEN_TEE_ALLOW_STUB=1.
+///
+Test suite for Trusted Execution Environment (Task 5.3)
+Tests TEE initialization, sealing, and attestation concepts.
+Development stub mode now requires SEEN_TEE_ALLOW_STUB=1.
+///
 
 fun testTEEInitialization() r: Int {
     println("Testing TEE initialization...")
 
-    // TEE initialization now depends on hardware availability or explicit
-    // SEEN_TEE_ALLOW_STUB=1 opt-in for development mode.
+    ///
+    TEE initialization now depends on hardware availability or explicit
+    SEEN_TEE_ALLOW_STUB=1 opt-in for development mode.
+    ///
 
     println("  TEE initialization: PASS (hardware or explicit stub opt-in)")
     return 0
@@ -15,8 +19,10 @@ fun testTEEInitialization() r: Int {
 fun testTEEDetection() r: Int {
     println("Testing TEE type detection...")
 
-    // Without hardware, TEE type stays NONE unless SEEN_TEE_ALLOW_STUB=1.
-    // Real hardware would report SGX (1) or SEV (2).
+    ///
+    Without hardware, TEE type stays NONE unless SEEN_TEE_ALLOW_STUB=1.
+    Real hardware would report SGX (1) or SEV (2).
+    ///
 
     println("  TEE detection: PASS (no implicit stub fallback)")
     return 0
@@ -28,10 +34,12 @@ fun testDataSealing() r: Int {
     // Test sealing plaintext data
     let plaintext = "Secret data that needs protection"
 
-    // In actual code:
-    // let sealed = TEE.seal(plaintext, SealPolicy.mrenclave())
-    // let unsealed = TEE.unseal(sealed)
-    // assert(unsealed == plaintext)
+    ///
+    In actual code:
+    let sealed = TEE.seal(plaintext, SealPolicy.mrenclave())
+    let unsealed = TEE.unseal(sealed)
+    assert(unsealed == plaintext)
+    ///
 
     println("  Data sealing: PASS (concept verified)")
     return 0
@@ -40,11 +48,15 @@ fun testDataSealing() r: Int {
 fun testSealingPolicies() r: Int {
     println("Testing sealing policies...")
 
-    // Test MRENCLAVE policy (seals to specific enclave measurement)
-    // Test MRSIGNER policy (seals to signer, allows updates)
+    ///
+    Test MRENCLAVE policy (seals to specific enclave measurement)
+    Test MRSIGNER policy (seals to signer, allows updates)
+    ///
 
-    // MRENCLAVE: More restrictive, data can only be unsealed by exact same enclave binary
-    // MRSIGNER: Less restrictive, data can be unsealed by any enclave from same signer
+    ///
+    MRENCLAVE: More restrictive, data can only be unsealed by exact same enclave binary
+    MRSIGNER: Less restrictive, data can be unsealed by any enclave from same signer
+    ///
 
     println("  Sealing policies: PASS (concept verified)")
     return 0
@@ -53,10 +65,12 @@ fun testSealingPolicies() r: Int {
 fun testLocalAttestation() r: Int {
     println("Testing local attestation...")
 
-    // Local attestation verifies identity between enclaves on same platform
-    // In actual code:
-    // let report = TEE.getAttestationReport("user_data", AttestationType.local())
-    // assert(report.isValid())
+    ///
+    Local attestation verifies identity between enclaves on same platform
+    In actual code:
+    let report = TEE.getAttestationReport("user_data", AttestationType.local())
+    assert(report.isValid())
+    ///
 
     println("  Local attestation: PASS (concept verified)")
     return 0
@@ -65,9 +79,11 @@ fun testLocalAttestation() r: Int {
 fun testRemoteAttestation() r: Int {
     println("Testing remote attestation concept...")
 
-    // Remote attestation requires:
-    // - SGX: Intel Attestation Service (IAS) or DCAP
-    // - SEV: AMD Key Distribution Service (KDS)
+    ///
+    Remote attestation requires:
+    - SGX: Intel Attestation Service (IAS) or DCAP
+    - SEV: AMD Key Distribution Service (KDS)
+    ///
 
     // This test just verifies the API exists
     println("  Remote attestation: PASS (concept verified)")
@@ -77,9 +93,11 @@ fun testRemoteAttestation() r: Int {
 fun testKeyDerivation() r: Int {
     println("Testing key derivation...")
 
-    // TEE-derived keys are bound to enclave identity
-    // In actual code:
-    // let key = TEE.deriveKey("my_key_id")
+    ///
+    TEE-derived keys are bound to enclave identity
+    In actual code:
+    let key = TEE.deriveKey("my_key_id")
+    ///
 
     println("  Key derivation: PASS (concept verified)")
     return 0

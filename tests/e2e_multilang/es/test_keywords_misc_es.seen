@@ -1,5 +1,7 @@
-// Prueba E2E: Palabras clave miscelaneas (Espanol)
-// Palabras probadas: y, o, no, como, es
+///
+Prueba E2E: Palabras clave miscelaneas (Espanol)
+Palabras probadas: y, o, no, como, es
+///
 
 función principal() r: entero {
     // Prueba 1: y (and)

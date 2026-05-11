@@ -1,0 +1,7 @@
+// ir_module_lookup_driver.seen - module constant lookup helpers.
+
+import codegen.ir_codegen_module_state.{findModuleConstantWithModuleStateImpl}
+
+fun findModuleConstant(name: String) r: Int {
+    return findModuleConstantWithModuleStateImpl(name)
+}

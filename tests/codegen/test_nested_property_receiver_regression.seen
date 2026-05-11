@@ -1,5 +1,7 @@
-// Regression FEL-32: nested property method receivers reached through implicit
-// this must preserve the object pointer through a large registration-like path.
+///
+Regression FEL-32: nested property method receivers reached through implicit
+this must preserve the object pointer through a large registration-like path.
+///
 
 class PropertyRegistry {
     var lastId: Int

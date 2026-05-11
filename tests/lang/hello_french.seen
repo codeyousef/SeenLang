@@ -1,5 +1,7 @@
-// French language test
-// Compile with: --language fr
+///
+French language test
+Compile with: --language fr
+///
 
 fonction main() -> entier {
     imprimer("Bonjour de Seen!")

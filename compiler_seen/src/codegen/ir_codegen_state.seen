@@ -1,0 +1,174 @@
+// ir_codegen_state.seen - Shared mutable codegen state for extracted helpers.
+
+import str.string.{StringBuilder}
+import codegen.type_registry.{TypeRegistry}
+
+class FunctionLoweringOptions {
+    var unrollCount: Int
+    var vectorizeEnabled: Bool
+    var alignTo: Int
+    var regionSizeBytes: Int
+    var prefetchMode: Int
+    var isAsync: Bool
+    var emitTailCall: Bool
+    var laneWidth: Int
+    var highPressure: Bool
+
+    static fun new() r: FunctionLoweringOptions {
+        return FunctionLoweringOptions{
+            unrollCount: 0,
+            vectorizeEnabled: true,
+            alignTo: 0,
+            regionSizeBytes: 0,
+            prefetchMode: 0,
+            isAsync: false,
+            emitTailCall: false,
+            laneWidth: 0,
+            highPressure: false
+        }
+    }
+}
+
+fun resetFunctionLoweringOptions(opts: FunctionLoweringOptions) r: Void {
+    opts.unrollCount = 0
+    opts.vectorizeEnabled = true
+    opts.alignTo = 0
+    opts.regionSizeBytes = 0
+    opts.prefetchMode = 0
+    opts.isAsync = false
+    opts.emitTailCall = false
+    opts.laneWidth = 0
+    opts.highPressure = false
+}
+
+fun clearTransientFunctionLoweringOptions(opts: FunctionLoweringOptions) r: Void {
+    opts.alignTo = 0
+    opts.regionSizeBytes = 0
+    opts.prefetchMode = 0
+    opts.isAsync = false
+    opts.emitTailCall = false
+    opts.laneWidth = 0
+    opts.highPressure = false
+}
+
+fun encodeFunctionLoweringOptions(opts: FunctionLoweringOptions) r: Int {
+    var encoded = opts.unrollCount
+    if not opts.vectorizeEnabled {
+        encoded = encoded + 1000
+    }
+    if opts.alignTo > 0 {
+        encoded = encoded + opts.alignTo * 10000
+    }
+    if opts.regionSizeBytes > 0 {
+        encoded = encoded + (opts.regionSizeBytes / 1024) * 10000000
+    }
+    if opts.emitTailCall {
+        encoded = encoded + 10000000000
+    }
+    if opts.isAsync {
+        encoded = encoded + 100000000000
+    }
+    return encoded
+}
+
+class CodegenState {
+    var output: StringBuilder
+    var stringConstants: Array<String>
+    var regBox: Array<Int>
+    var blockBox: Array<Int>
+    var varNames: Array<String>
+    var varRegs: Array<String>
+    var varTypes: Array<String>
+    var indent: Int
+    var functionOptions: FunctionLoweringOptions
+    var registry: TypeRegistry
+    var currentFunctionReturnType: String
+    var currentClassName: String
+    var blockTerminated: Int
+    var currentLoopCondLabel: String
+    var currentLoopEndLabel: String
+    var preAllocatedVars: Array<String>
+    var preAllocatedTypes: Array<String>
+    var preAllocatedRegs: Array<String>
+    var declOrdinalNames: Array<String>
+    var declOrdinalCounts: Array<Int>
+    var activeVarCount: Int
+    var stringConstantPrefix: String
+    var generatedFunctions: Array<String>
+    var generatedClasses: Array<String>
+    var pendingArrayLiteralType: String
+    var moduleConstantNames: Array<String>
+    var moduleConstantValues: Array<String>
+    var moduleConstantTypes: Array<String>
+
+    static fun new() r: CodegenState {
+        return CodegenState{
+            output: StringBuilder.new(),
+            stringConstants: Array<String>(),
+            regBox: Array<Int>(),
+            blockBox: Array<Int>(),
+            varNames: Array<String>(),
+            varRegs: Array<String>(),
+            varTypes: Array<String>(),
+            indent: 0,
+            functionOptions: FunctionLoweringOptions.new(),
+            registry: TypeRegistry.new(),
+            currentFunctionReturnType: "",
+            currentClassName: "",
+            blockTerminated: 0,
+            currentLoopCondLabel: "",
+            currentLoopEndLabel: "",
+            preAllocatedVars: Array<String>(),
+            preAllocatedTypes: Array<String>(),
+            preAllocatedRegs: Array<String>(),
+            declOrdinalNames: Array<String>(),
+            declOrdinalCounts: Array<Int>(),
+            activeVarCount: 0,
+            stringConstantPrefix: "",
+            generatedFunctions: Array<String>(),
+            generatedClasses: Array<String>(),
+            pendingArrayLiteralType: "",
+            moduleConstantNames: Array<String>(),
+            moduleConstantValues: Array<String>(),
+            moduleConstantTypes: Array<String>()
+        }
+    }
+}
+
+var g_sharedCodegenState: Int = 0
+var g_sharedCodegenStateInitialized: Bool = false
+
+fun getSharedCodegenState() r: CodegenState {
+    if not g_sharedCodegenStateInitialized {
+        g_sharedCodegenState = CodegenState.new() as Int
+        g_sharedCodegenStateInitialized = true
+    }
+    return g_sharedCodegenState as CodegenState
+}
+
+fun csGetNextReg(s: CodegenState) r: String {
+    let reg = "%" + s.regBox[0].toString()
+    s.regBox[0] = s.regBox[0] + 1
+    return reg
+}
+
+fun csGetNextBlock(s: CodegenState) r: String {
+    let label = "bb" + s.blockBox[0].toString()
+    s.blockBox[0] = s.blockBox[0] + 1
+    return label
+}
+
+fun csFindVar(s: CodegenState, name: String) r: Int {
+    var i = s.varNames.length() - 1
+    while i >= 0 {
+        if s.varNames[i] == name { return i }
+        i = i - 1
+    }
+    return -1
+}
+
+fun csStoreVar(s: CodegenState, name: String, reg: String, varType: String) r: Void {
+    s.varNames.push(name)
+    s.varRegs.push(reg)
+    s.varTypes.push(varType)
+}

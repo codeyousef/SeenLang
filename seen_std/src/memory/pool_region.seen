@@ -1,5 +1,7 @@
-// PoolRegion — Fixed-size block pool with O(1) alloc/free via free list.
-// All blocks are the same size. Ideal for entity/component allocation.
+///
+PoolRegion — Fixed-size block pool with O(1) alloc/free via free list.
+All blocks are the same size. Ideal for entity/component allocation.
+///
 
 extern fun seen_pool_region_new(block_size: Int, count: Int) r: Int
 extern fun seen_pool_region_alloc(handle: Int) r: Int

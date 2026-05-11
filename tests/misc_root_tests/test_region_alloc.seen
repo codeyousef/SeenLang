@@ -1,5 +1,7 @@
-// Test @preallocate decorator (region allocator wiring)
-// Verify: compile with --emit-llvm, grep for '__seen_region_create' and '__seen_region_destroy'
+///
+Test @preallocate decorator (region allocator wiring)
+Verify: compile with --emit-llvm, grep for '__seen_region_create' and '__seen_region_destroy'
+///
 
 @preallocate(size=4096)
 fun processData(n: Int) r: Int {

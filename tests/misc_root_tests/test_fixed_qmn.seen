@@ -1,5 +1,7 @@
-// Test Qm.n fixed-point type syntax
-// Tests the fixed{m}.{n} type annotation where m+n must be 32, 64, or 128
+///
+Test Qm.n fixed-point type syntax
+Tests the fixed{m}.{n} type annotation where m+n must be 32, 64, or 128
+///
 
 import uww.fixed.{Fixed32, Fixed64, Fixed128}
 

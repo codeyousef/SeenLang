@@ -1,5 +1,7 @@
-// : Feature flags — @cfg(feature: "test_feature")
-// Compile with: --feature=test_feature
+///
+: Feature flags — @cfg(feature: "test_feature")
+Compile with: --feature=test_feature
+///
 
 @cfg(feature: "test_feature")
 fun featureEnabled() r: Int {
@@ -12,8 +14,10 @@ fun featureDisabled() r: Int {
 }
 
 fun main() r: Int {
-    // featureEnabled should be included when --feature=test_feature
-    // featureDisabled should be skipped (predicate not met)
+    ///
+    featureEnabled should be included when --feature=test_feature
+    featureDisabled should be skipped (predicate not met)
+    ///
     println("PASS: Feature flags test (compile-only)")
     return 0
 }

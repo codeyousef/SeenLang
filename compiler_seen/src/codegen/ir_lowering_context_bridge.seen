@@ -1,0 +1,192 @@
+// ir_lowering_context_bridge.seen - callback ABI bridge for recursive lowering.
+
+import parser.real_parser.{ProgramNode, FunctionNode, ClassNode, BlockNode, StatementNode, ParserExpressionNode}
+import str.string.{StringBuilder}
+import codegen.ir_lowering_context.{CodegenLoweringContext}
+import codegen.ir_codegen_state.{FunctionLoweringOptions, getSharedCodegenState}
+import codegen.ir_codegen_feature_state.{setFeatureCurrentClassParentNameImpl}
+import codegen.ir_function_snapshots.{NestedScratchStateSnapshot}
+import codegen.ir_function_scratch_bridge.{beginNestedScratchWithLoweringContext, restoreNestedScratchWithLoweringContext, resetLocalCodegenWithLoweringContext, clearActiveBindingsWithLoweringContext}
+import codegen.ir_class_driver.{generatePlainLargeClassState}
+import codegen.ir_program_driver.{generateProgramClassesState}
+
+extern fun LLVMIRGenerator_generateExpression(ctx: CodegenLoweringContext,
+    expr: ParserExpressionNode) r: String
+extern fun LLVMIRGenerator_generateExpressionIntoCallback(
+    ctx: CodegenLoweringContext, output: StringBuilder,
+    expr: ParserExpressionNode, varNames: Array<String>,
+    varRegs: Array<String>, varTypes: Array<String>,
+    stringConstants: Array<String>) r: String
+extern fun LLVMIRGenerator_generateCall(ctx: CodegenLoweringContext,
+    expr: ParserExpressionNode) r: String
+extern fun LLVMIRGenerator_inferExpressionType(ctx: CodegenLoweringContext,
+    expr: ParserExpressionNode) r: String
+extern fun LLVMIRGenerator_reset(ctx: CodegenLoweringContext) r: Void
+extern fun LLVMIRGenerator_resetSharedModuleGenerationScratchState(
+    ctx: CodegenLoweringContext) r: Void
+extern fun LLVMIRGenerator_syncState(ctx: CodegenLoweringContext) r: Void
+extern fun LLVMIRGenerator_writeBackState(ctx: CodegenLoweringContext) r: Void
+extern fun LLVMIRGenerator_isBlockTerminated(
+    ctx: CodegenLoweringContext) r: Bool
+extern fun LLVMIRGenerator_prepareLoweredCallArgumentsWithDefaultsCallback(
+    ctx: CodegenLoweringContext, funcName: String,
+    arguments: Array<ParserExpressionNode>, enableDynBoxing: Bool,
+    enableFloatPromotion: Bool, nullifyMovedSources: Bool,
+    moveContext: String) r: Void
+extern fun LLVMIRGenerator_lowerEnumConstructorCallback(
+    ctx: CodegenLoweringContext, variantName: String,
+    expr: ParserExpressionNode) r: String
+extern fun LLVMIRGenerator_lowerProgramTopLevelFunctionsCallback(
+    ctx: CodegenLoweringContext, program: ProgramNode,
+    moduleIndex: Int, traceModule: Bool) r: Void
+extern fun LLVMIRGenerator_lowerClassNodeCallback(
+    ctx: CodegenLoweringContext, classNode: ClassNode) r: Void
+extern fun LLVMIRGenerator_lowerFunctionNodeCallback(
+    ctx: CodegenLoweringContext, fn: FunctionNode) r: Void
+extern fun LLVMIRGenerator_lowerClassMethodFromListCallback(
+    ctx: CodegenLoweringContext, className: String, parentName: String,
+    methods: Array<FunctionNode>, methodIdx: Int) r: Void
+extern fun LLVMIRGenerator_collectLoweringVariableDeclarationsCallback(
+    ctx: CodegenLoweringContext, block: BlockNode) r: Void
+extern fun LLVMIRGenerator_lowerBlockCallback(
+    ctx: CodegenLoweringContext, block: BlockNode) r: Void
+extern fun LLVMIRGenerator_lowerStatementCallback(
+    ctx: CodegenLoweringContext, stmt: StatementNode) r: Void
+
+fun lowerExpression(ctxHandle: CodegenLoweringContext,
+    expr: ParserExpressionNode) r: String {
+    return LLVMIRGenerator_generateExpression(ctxHandle, expr)
+}
+
+fun lowerExpressionInto(ctxHandle: CodegenLoweringContext,
+    output: StringBuilder, expr: ParserExpressionNode,
+    varNames: Array<String>, varRegs: Array<String>,
+    varTypes: Array<String>, stringConstants: Array<String>) r: String {
+
+    return LLVMIRGenerator_generateExpressionIntoCallback(ctxHandle,
+        output, expr, varNames, varRegs, varTypes, stringConstants)
+}
+
+fun inferLoweredExpressionType(ctxHandle: CodegenLoweringContext,
+    expr: ParserExpressionNode) r: String {
+    return LLVMIRGenerator_inferExpressionType(ctxHandle, expr)
+}
+
+fun lowerCallExpression(ctxHandle: CodegenLoweringContext,
+    expr: ParserExpressionNode) r: String {
+    return LLVMIRGenerator_generateCall(ctxHandle, expr)
+}
+
+fun prepareLoweredCallArgumentsWithDefaults(ctxHandle: CodegenLoweringContext,
+    funcName: String, arguments: Array<ParserExpressionNode>,
+    enableDynBoxing: Bool, enableFloatPromotion: Bool,
+    nullifyMovedSources: Bool, moveContext: String) r: Void {
+    LLVMIRGenerator_prepareLoweredCallArgumentsWithDefaultsCallback(ctxHandle,
+        funcName, arguments, enableDynBoxing, enableFloatPromotion,
+        nullifyMovedSources, moveContext)
+}
+
+fun lowerEnumConstructor(ctxHandle: CodegenLoweringContext,
+    variantName: String, expr: ParserExpressionNode) r: String {
+    return LLVMIRGenerator_lowerEnumConstructorCallback(ctxHandle,
+        variantName, expr)
+}
+
+fun resetLoweringGenerator(ctxHandle: CodegenLoweringContext) r: Void {
+    LLVMIRGenerator_reset(ctxHandle)
+}
+
+fun resetLoweringSharedModuleScratch(ctxHandle: CodegenLoweringContext)
+    r: Void {
+    LLVMIRGenerator_resetSharedModuleGenerationScratchState(ctxHandle)
+}
+
+fun syncLoweringState(ctxHandle: CodegenLoweringContext) r: Void {
+    LLVMIRGenerator_syncState(ctxHandle)
+}
+
+fun writeBackLoweringState(ctxHandle: CodegenLoweringContext) r: Void {
+    LLVMIRGenerator_writeBackState(ctxHandle)
+}
+
+fun lowerProgramClasses(ctxHandle: CodegenLoweringContext,
+    program: ProgramNode) r: Void {
+    generateProgramClassesState(ctxHandle, program)
+}
+
+fun lowerProgramTopLevelFunctions(ctxHandle: CodegenLoweringContext,
+    program: ProgramNode, moduleIndex: Int, traceModule: Bool) r: Void {
+    LLVMIRGenerator_lowerProgramTopLevelFunctionsCallback(ctxHandle, program,
+        moduleIndex, traceModule)
+}
+
+fun lowerPlainLargeClass(ctxHandle: CodegenLoweringContext,
+    className: String, parentName: String, methods: Array<FunctionNode>)
+    r: Void {
+    generatePlainLargeClassState(ctxHandle, className, parentName, methods)
+}
+
+fun lowerClassNode(ctxHandle: CodegenLoweringContext,
+    classNode: ClassNode) r: Void {
+    LLVMIRGenerator_lowerClassNodeCallback(ctxHandle, classNode)
+}
+
+fun lowerFunctionNode(ctxHandle: CodegenLoweringContext,
+    fn: FunctionNode) r: Void {
+    LLVMIRGenerator_lowerFunctionNodeCallback(ctxHandle, fn)
+}
+
+fun lowerClassMethodFromList(ctxHandle: CodegenLoweringContext,
+    className: String, parentName: String, methods: Array<FunctionNode>,
+    methodIdx: Int) r: Void {
+    LLVMIRGenerator_lowerClassMethodFromListCallback(ctxHandle, className,
+        parentName, methods, methodIdx)
+}
+
+fun setLowerCurrentClassParentName(ctxHandle: CodegenLoweringContext,
+    parentName: String) r: Void {
+    setFeatureCurrentClassParentNameImpl(parentName)
+}
+
+fun resetLoweringLocalCodegenState(ctxHandle: CodegenLoweringContext)
+    r: Void {
+    resetLocalCodegenWithLoweringContext(ctxHandle)
+}
+
+fun collectLoweringVariableDeclarations(ctxHandle: CodegenLoweringContext,
+    block: BlockNode) r: Void {
+    LLVMIRGenerator_collectLoweringVariableDeclarationsCallback(ctxHandle,
+        block)
+}
+
+fun clearLoweringActiveBindings(ctxHandle: CodegenLoweringContext) r: Void {
+    clearActiveBindingsWithLoweringContext(ctxHandle)
+}
+
+fun lowerBlock(ctxHandle: CodegenLoweringContext, block: BlockNode) r: Void {
+    LLVMIRGenerator_lowerBlockCallback(ctxHandle, block)
+}
+
+fun lowerStatement(ctxHandle: CodegenLoweringContext,
+    stmt: StatementNode) r: Void {
+    LLVMIRGenerator_lowerStatementCallback(ctxHandle, stmt)
+}
+
+fun isLoweringBlockTerminated(ctxHandle: CodegenLoweringContext) r: Bool {
+    return LLVMIRGenerator_isBlockTerminated(ctxHandle)
+}
+
+fun beginLoweringNestedScratch(ctxHandle: CodegenLoweringContext,
+    returnType: String) r: NestedScratchStateSnapshot {
+    return beginNestedScratchWithLoweringContext(ctxHandle, returnType)
+}
+
+fun restoreLoweringNestedScratch(ctxHandle: CodegenLoweringContext,
+    snapshot: NestedScratchStateSnapshot) r: Void {
+    restoreNestedScratchWithLoweringContext(ctxHandle, snapshot)
+}
+
+fun currentLoweringFunctionOptions(ctxHandle: CodegenLoweringContext)
+    r: FunctionLoweringOptions {
+    return getSharedCodegenState().functionOptions
+}

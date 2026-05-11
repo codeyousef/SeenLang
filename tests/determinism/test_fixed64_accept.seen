@@ -1,5 +1,7 @@
-// Test: Fixed64 types should be accepted in deterministic profile
-// Expected: PASS with --profile deterministic
+///
+Test: Fixed64 types should be accepted in deterministic profile
+Expected: PASS with --profile deterministic
+///
 
 import uww.fixed.{Fixed64, fixed, fixedFrac}
 

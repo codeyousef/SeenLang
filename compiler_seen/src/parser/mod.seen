@@ -1,6 +1,8 @@
-// Parser module stub entry points used by the bootstrap build.
-// The real parser lives in parser.real_parser; these helpers are thin shims
-// that avoid strict type coupling during early bootstrap.
+///
+Parser module stub entry points used by the bootstrap build.
+The real parser lives in parser.real_parser; these helpers are thin shims
+that avoid strict type coupling during early bootstrap.
+///
 
 // Re-export types from real_parser for compatibility
 import parser.real_parser.{ProgramNode, FunctionNode, ClassNode, ParserExpressionNode, StatementNode, BlockNode, ParamNode, ItemNode, TypeNode}

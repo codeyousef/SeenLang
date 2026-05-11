@@ -1,0 +1,43 @@
+///
+ir_method_static_dispatch.seen — final static-method dispatch helpers.
+Keeps generateMethodCall focused on receiver resolution and argument setup.
+///
+
+import str.string.{StringBuilder}
+import codegen.ir_decl_registry.{LateUserDeclareState, recordLateUserDeclareIntoStateImpl}
+import codegen.ir_method_call_plan.{shouldRecordStaticMethodLateDeclareImpl}
+import codegen.ir_method_fastpath.{resolveStaticMethodReturnTypeImpl, emitPreparedStaticMethodCallImpl}
+import codegen.ir_codegen_type_state.{mapTypeState, isClassTypeState, isDataTypeState}
+
+fun mapStaticMethodReturnTypeImpl(returnTypeStr: String) r: String {
+    return mapTypeState(returnTypeStr)
+}
+
+fun emitPreparedStaticMethodDispatchState(output: StringBuilder,
+    regBox: Array<Int>, methodName: String, potentialClassName: String,
+    staticClassName: String, funcName: String,
+    registeredStaticReturnType: String, inferredStaticReturnType: String,
+    argRegs: Array<String>, argTypeStrs: Array<String>,
+    lateState: LateUserDeclareState) r: String {
+
+    let staticReturnType = resolveStaticMethodReturnTypeImpl(
+        registeredStaticReturnType, inferredStaticReturnType)
+    let staticLlvmReturnType = mapStaticMethodReturnTypeImpl(staticReturnType)
+
+    var isClassRecv = 0
+    if isClassTypeState(staticClassName) {
+        isClassRecv = 1
+    }
+    var isDataRecv = 0
+    if isDataTypeState(staticClassName) {
+        isDataRecv = 1
+    }
+    if shouldRecordStaticMethodLateDeclareImpl(potentialClassName,
+        methodName) {
+        recordLateUserDeclareIntoStateImpl(funcName, staticLlvmReturnType,
+            argTypeStrs, 0, lateState)
+    }
+    return emitPreparedStaticMethodCallImpl(output, regBox, methodName,
+        potentialClassName, staticClassName, funcName, staticLlvmReturnType,
+        isClassRecv, isDataRecv, argRegs, argTypeStrs)
+}

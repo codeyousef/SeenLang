@@ -1,0 +1,45 @@
+// ir_struct_layout_state.seen - struct layout registry state updates.
+
+import parser.real_parser.{ClassNode}
+import codegen.ir_codegen_global_state.{ensureStructEntryWithGlobalStateImpl, getGlobalStructNamesImpl, getGlobalStructLayoutsImpl, getGlobalStructFieldNamesImpl, getGlobalStructFieldTypesImpl, getGlobalStructSizesImpl, collectStructMethodSignaturesWithGlobalStateImpl, applyStructLayoutRegistrationWithGlobalStateImpl}
+import codegen.ir_codegen_feature_state.{prepareStructLayoutRegistrationWithFeatureStateImpl}
+
+fun registerStructLayoutState(classNode: ClassNode) r: Void {
+    let structIdx = ensureStructEntryWithGlobalStateImpl(classNode.name)
+    traceGen("registerStructLayout: " + classNode.name + " structIdx=" +
+        structIdx.toString() + " namesLen=" +
+        getGlobalStructNamesImpl().length().toString() +
+        " fieldNamesLen=" +
+        getGlobalStructFieldNamesImpl().length().toString())
+    traceGen("registerStructLayout: " + classNode.name + " fields=" +
+        classNode.fields.length().toString())
+
+    let layoutSnapshot = prepareStructLayoutRegistrationWithFeatureStateImpl(
+        classNode, getGlobalStructNamesImpl(), getGlobalStructLayoutsImpl(),
+        getGlobalStructFieldNamesImpl(), getGlobalStructFieldTypesImpl(),
+        getGlobalStructSizesImpl())
+
+    let layout = layoutSnapshot.layout
+    let fieldNames = layoutSnapshot.fieldNames
+    let fieldTypes = layoutSnapshot.fieldTypes
+    let totalSize = layoutSnapshot.totalSize
+    traceGen("registerStructLayout: " + classNode.name + " layout built")
+
+    let methodNamesBox = Array<String>()
+    methodNamesBox.push("")
+    let methodRetTypesBox = Array<String>()
+    methodRetTypesBox.push("")
+    traceGen("registerStructLayout: " + classNode.name + " methods len=" +
+        classNode.methods.length().toString())
+    collectStructMethodSignaturesWithGlobalStateImpl(classNode,
+        methodNamesBox, methodRetTypesBox)
+
+    traceGen("registerStructLayout: " + classNode.name + " updating registry")
+    traceGen("registerStructLayout: " + classNode.name + " updating field types")
+    traceGen("registerStructLayout: " + classNode.name +
+        " fieldNamesLen(before)=" +
+        getGlobalStructFieldNamesImpl().length().toString())
+    applyStructLayoutRegistrationWithGlobalStateImpl(structIdx, classNode.name,
+        layout, fieldNames, fieldTypes, totalSize, methodNamesBox[0],
+        methodRetTypesBox[0])
+}

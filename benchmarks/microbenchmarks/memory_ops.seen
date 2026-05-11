@@ -1,5 +1,7 @@
-// Memory Operations Microbenchmarks
-// Tests memory allocation, deallocation, copying, and access patterns
+///
+Memory Operations Microbenchmarks
+Tests memory allocation, deallocation, copying, and access patterns
+///
 
 import std::time::Instant
 import std::collections::Vec

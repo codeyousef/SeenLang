@@ -1,5 +1,7 @@
-// Spanish language test
-// Compile with: --language es
+///
+Spanish language test
+Compile with: --language es
+///
 
 funcion main() -> entero {
     imprimir("¡Hola desde Seen!")

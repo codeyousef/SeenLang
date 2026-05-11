@@ -1,5 +1,7 @@
-// Test @noinline and @cold decorators
-// Verify: compile with --emit-llvm, grep for 'noinline' and 'cold' in function defs
+///
+Test @noinline and @cold decorators
+Verify: compile with --emit-llvm, grep for 'noinline' and 'cold' in function defs
+///
 
 @noinline
 fun heavyComputation(x: Int) r: Int {

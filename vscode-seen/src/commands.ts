@@ -3,28 +3,182 @@ import * as vscode from 'vscode';
 import { LanguageClient } from 'vscode-languageclient/node';
 import * as cp from 'child_process';
 import * as path from 'path';
+import { ReactiveVisualizer } from './reactive';
+
+const SEEN_LANGUAGES = [
+    { label: 'English (en)', value: 'en' },
+    { label: 'Arabic (ar)', value: 'ar' },
+    { label: 'Spanish (es)', value: 'es' },
+    { label: 'Russian (ru)', value: 'ru' },
+    { label: 'Chinese (zh)', value: 'zh' },
+    { label: 'Japanese (ja)', value: 'ja' }
+];
+
+function getSeenPath(): string {
+    return vscode.workspace.getConfiguration('seen').get<string>('compiler.path', 'seen');
+}
+
+function createSeenTask(name: string, task: string, args: string[]): vscode.Task {
+    const seenPath = getSeenPath();
+    const seenTask = new vscode.Task(
+        { type: 'seen', task },
+        vscode.TaskScope.Workspace,
+        name,
+        'seen',
+        new vscode.ShellExecution(seenPath, args),
+        '$seen'
+    );
+    seenTask.presentationOptions = { reveal: vscode.TaskRevealKind.Always, clear: true };
+    return seenTask;
+}
+
+async function executeSeenTask(name: string, task: string, args: string[]): Promise<void> {
+    await vscode.tasks.executeTask(createSeenTask(name, task, args));
+}
+
+function workspaceRoot(): string | undefined {
+    return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+}
+
+async function promptProjectRoot(prompt: string): Promise<string | undefined> {
+    const value = await vscode.window.showInputBox({
+        prompt,
+        value: workspaceRoot() ?? '',
+        placeHolder: 'Path to a Seen project directory or Seen.toml'
+    });
+    if (value === undefined) {
+        return undefined;
+    }
+    return value.trim();
+}
+
+async function findWorkspaceSeenToml(): Promise<vscode.Uri | undefined> {
+    const root = workspaceRoot();
+    if (root) {
+        const rootManifest = vscode.Uri.file(path.join(root, 'Seen.toml'));
+        try {
+            await vscode.workspace.fs.stat(rootManifest);
+            return rootManifest;
+        } catch {
+            // Fall through to workspace search.
+        }
+    }
+    const matches = await vscode.workspace.findFiles('**/Seen.toml', '**/node_modules/**', 1);
+    return matches[0];
+}
+
+function setTomlProjectLanguage(content: string, language: string): string {
+    const lines = content.split(/\r?\n/);
+    let inProject = false;
+    let projectStart = -1;
+
+    for (let i = 0; i < lines.length; i++) {
+        const trimmed = lines[i].trim();
+        const section = trimmed.match(/^\[([^\]]+)\]$/);
+        if (section) {
+            if (inProject) {
+                lines.splice(i, 0, `language = "${language}"`);
+                return lines.join('\n');
+            }
+            inProject = section[1] === 'project';
+            if (inProject) {
+                projectStart = i;
+            }
+            continue;
+        }
+
+        if (inProject && trimmed.match(/^language\s*=/)) {
+            lines[i] = `language = "${language}"`;
+            return lines.join('\n');
+        }
+    }
+
+    if (inProject && projectStart >= 0) {
+        lines.push(`language = "${language}"`);
+        return lines.join('\n');
+    }
+
+    const suffix = content.endsWith('\n') || content.length === 0 ? '' : '\n';
+    return `${content}${suffix}[project]\nlanguage = "${language}"\n`;
+}
+
+async function updateWorkspaceLanguage(language: string): Promise<boolean> {
+    await vscode.workspace.getConfiguration('seen').update(
+        'language.default',
+        language,
+        vscode.ConfigurationTarget.Workspace
+    );
+
+    const manifest = await findWorkspaceSeenToml();
+    if (!manifest) {
+        return false;
+    }
+
+    const bytes = await vscode.workspace.fs.readFile(manifest);
+    const content = Buffer.from(bytes).toString('utf8');
+    const updated = setTomlProjectLanguage(content, language);
+    if (updated !== content) {
+        await vscode.workspace.fs.writeFile(manifest, Buffer.from(updated, 'utf8'));
+    }
+    return true;
+}
+
+function getConfiguredLanguage(): string {
+    return vscode.workspace.getConfiguration('seen').get<string>('language.default', 'en');
+}
+
+function runSeenCapture(args: string[], cwd?: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+        const child = cp.spawn(getSeenPath(), args, { cwd });
+        let stdout = '';
+        let stderr = '';
+        child.stdout.on('data', data => { stdout += data.toString(); });
+        child.stderr.on('data', data => { stderr += data.toString(); });
+        child.on('error', reject);
+        child.on('close', code => {
+            if (code === 0) {
+                resolve(stdout);
+            } else {
+                reject(new Error((stderr || stdout || `seen exited with ${code}`).trim()));
+            }
+        });
+    });
+}
+
+function currentReactiveStreamInfo(document: vscode.TextDocument, position: vscode.Position): any | undefined {
+    const line = document.lineAt(position.line).text.trim();
+    const reactiveTokens = ['Observable', 'Flow', 'Subject', 'BehaviorSubject', 'emit', '.map(', '.filter(', '.flatMap(', '.merge(', '.zip('];
+    if (!reactiveTokens.some(token => line.includes(token))) {
+        return undefined;
+    }
+    const operator = reactiveTokens.find(token => line.includes(token)) ?? 'stream';
+    return {
+        operator,
+        description: line,
+        sourceEvents: [
+            { time: 0, value: 'a', type: 'value' },
+            { time: 1, value: 'b', type: 'value' },
+            { time: 2, value: '', type: 'complete' }
+        ],
+        outputEvents: [
+            { time: 0.2, value: 'a', type: 'value' },
+            { time: 1.2, value: 'b', type: 'value' },
+            { time: 2.2, value: '', type: 'complete' }
+        ]
+    };
+}
 
 export function setupCommands(context: vscode.ExtensionContext, client: LanguageClient) {
     // Build command
     context.subscriptions.push(
         vscode.commands.registerCommand('seen.build', async () => {
-            const seenPath = vscode.workspace.getConfiguration('seen').get<string>('compiler.path', 'seen');
             const target = vscode.workspace.getConfiguration('seen').get<string>('target.default', 'native');
             const args = ['build', '--release'];
             if (target !== 'native') {
                 args.push('--target', target);
             }
 
-            const task = new vscode.Task(
-                { type: 'seen', task: 'build' },
-                vscode.TaskScope.Workspace,
-                'Seen Build',
-                'seen',
-                new vscode.ShellExecution(seenPath, args),
-                '$seen'
-            );
-            task.presentationOptions = { reveal: vscode.TaskRevealKind.Always, clear: true };
-            await vscode.tasks.executeTask(task);
+            await executeSeenTask('Seen Build', 'build', args);
         })
     );
 
@@ -35,28 +189,16 @@ export function setupCommands(context: vscode.ExtensionContext, client: Language
             const filePath = editor?.document.languageId === 'seen'
                 ? editor.document.fileName
                 : '';
-            const seenPath = vscode.workspace.getConfiguration('seen').get<string>('compiler.path', 'seen');
             const args = filePath ? ['run', filePath] : ['run'];
 
-            const task = new vscode.Task(
-                { type: 'seen', task: 'run' },
-                vscode.TaskScope.Workspace,
-                'Seen Run',
-                'seen',
-                new vscode.ShellExecution(seenPath, args),
-                '$seen'
-            );
-            task.presentationOptions = { reveal: vscode.TaskRevealKind.Always, clear: true };
-            await vscode.tasks.executeTask(task);
+            await executeSeenTask('Seen Run', 'run', args);
         })
     );
 
     // Test command
     context.subscriptions.push(
         vscode.commands.registerCommand('seen.test', async () => {
-            const terminal = vscode.window.createTerminal('Seen Test');
-            terminal.sendText('seen test');
-            terminal.show();
+            await executeSeenTask('Seen Test', 'test', ['test']);
         })
     );
 
@@ -71,10 +213,7 @@ export function setupCommands(context: vscode.ExtensionContext, client: Language
                 const results = await runBenchmarks();
                 showBenchmarkResults(results);
             } else {
-                // Run in terminal
-                const terminal = vscode.window.createTerminal('Seen Benchmark');
-                terminal.sendText('seen benchmark --json');
-                terminal.show();
+                await executeSeenTask('Seen Benchmark', 'benchmark', ['benchmark', '--json']);
             }
         })
     );
@@ -82,9 +221,7 @@ export function setupCommands(context: vscode.ExtensionContext, client: Language
     // Individual benchmark run (from CodeLens)
     context.subscriptions.push(
         vscode.commands.registerCommand('seen.benchmark.run', async (uri: vscode.Uri, benchmarkName: string) => {
-            const terminal = vscode.window.createTerminal(`Benchmark: ${benchmarkName}`);
-            terminal.sendText(`seen benchmark --filter ${benchmarkName}`);
-            terminal.show();
+            await executeSeenTask(`Benchmark: ${benchmarkName}`, 'benchmark', ['benchmark', '--filter', benchmarkName]);
         })
     );
 
@@ -142,28 +279,135 @@ export function setupCommands(context: vscode.ExtensionContext, client: Language
             const filePath = editor?.document.languageId === 'seen'
                 ? editor.document.fileName
                 : '';
-            const seenPath = vscode.workspace.getConfiguration('seen').get<string>('compiler.path', 'seen');
             const args = filePath ? ['check', filePath] : ['check'];
 
-            const task = new vscode.Task(
-                { type: 'seen', task: 'check' },
-                vscode.TaskScope.Workspace,
-                'Seen Check',
-                'seen',
-                new vscode.ShellExecution(seenPath, args),
-                '$seen'
-            );
-            task.presentationOptions = { reveal: vscode.TaskRevealKind.Always, clear: true };
-            await vscode.tasks.executeTask(task);
+            await executeSeenTask('Seen Check', 'check', args);
+        })
+    );
+
+    // Compile current file as PIC objects for downstream shared-library linking
+    context.subscriptions.push(
+        vscode.commands.registerCommand('seen.compileSharedModule', async () => {
+            const editor = vscode.window.activeTextEditor;
+            if (!editor || editor.document.languageId !== 'seen') {
+                vscode.window.showWarningMessage('Open a Seen file to compile shared module objects.');
+                return;
+            }
+
+            if (editor.document.isDirty) {
+                await editor.document.save();
+            }
+
+            const compileConfig = vscode.workspace.getConfiguration('seen.compile');
+            const filePath = editor.document.fileName;
+            const parsed = path.parse(filePath);
+            const outputBase = path.join(parsed.dir, parsed.name);
+            const configuredManifest = compileConfig.get<string>('objectManifest', '');
+            const manifestPath = configuredManifest && configuredManifest.length > 0
+                ? configuredManifest
+                : outputBase + '.objects.tsv';
+
+            const args = [
+                'compile',
+                filePath,
+                outputBase,
+                '--pic',
+                '--object-manifest',
+                manifestPath,
+                '--no-cache',
+                '--no-fork'
+            ];
+
+            await executeSeenTask('Seen Shared Module Objects', 'compile-shared', args);
+        })
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('seen.pkgFetch', async () => {
+            const root = await promptProjectRoot('Fetch dependencies for which Seen project?');
+            if (root === undefined) {
+                return;
+            }
+            const args = root.length > 0 ? ['pkg', 'fetch', root] : ['pkg', 'fetch'];
+            await executeSeenTask('Seen Package Fetch', 'pkg-fetch', args);
+        })
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('seen.pkgPack', async () => {
+            const root = await promptProjectRoot('Pack which Seen project?');
+            if (root === undefined) {
+                return;
+            }
+            const output = await vscode.window.showInputBox({
+                prompt: 'Optional output archive path',
+                placeHolder: 'Leave empty to use the compiler default'
+            });
+            if (output === undefined) {
+                return;
+            }
+            const args = ['pkg', 'pack'];
+            if (root.length > 0) {
+                args.push(root);
+            }
+            if (output.trim().length > 0) {
+                args.push(output.trim());
+            }
+            await executeSeenTask('Seen Package Pack', 'pkg-pack', args);
+        })
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('seen.pkgPrebuild', async () => {
+            const root = await promptProjectRoot('Prebuild which Seen project?');
+            if (root === undefined) {
+                return;
+            }
+            const output = await vscode.window.showInputBox({
+                prompt: 'Optional output artifact directory',
+                placeHolder: 'Leave empty to use the compiler default'
+            });
+            if (output === undefined) {
+                return;
+            }
+            const args = ['pkg', 'prebuild'];
+            if (root.length > 0) {
+                args.push(root);
+            }
+            if (output.trim().length > 0) {
+                args.push(output.trim());
+            }
+            await executeSeenTask('Seen Package Prebuild', 'pkg-prebuild', args);
+        })
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('seen.pkgPublish', async () => {
+            const registry = await vscode.window.showOpenDialog({
+                canSelectFiles: false,
+                canSelectFolders: true,
+                canSelectMany: false,
+                openLabel: 'Select registry directory'
+            });
+            if (!registry || registry.length === 0) {
+                return;
+            }
+            const root = await promptProjectRoot('Publish which Seen project?');
+            if (root === undefined) {
+                return;
+            }
+            const args = ['pkg', 'publish', registry[0].fsPath];
+            if (root.length > 0) {
+                args.push(root);
+            }
+            await executeSeenTask('Seen Package Publish', 'pkg-publish', args);
         })
     );
 
     // Clean command
     context.subscriptions.push(
         vscode.commands.registerCommand('seen.clean', async () => {
-            const terminal = vscode.window.createTerminal('Seen Clean');
-            terminal.sendText('seen clean');
-            terminal.show();
+            await executeSeenTask('Seen Clean', 'clean', ['clean']);
         })
     );
 
@@ -189,14 +433,7 @@ export function setupCommands(context: vscode.ExtensionContext, client: Language
             }
 
             const language = await vscode.window.showQuickPick(
-                [
-                    { label: 'English (en)', value: 'en' },
-                    { label: 'Arabic (ar)', value: 'ar' },
-                    { label: 'Spanish (es)', value: 'es' },
-                    { label: 'Russian (ru)', value: 'ru' },
-                    { label: 'Chinese (zh)', value: 'zh' },
-                    { label: 'French (fr)', value: 'fr' }
-                ],
+                SEEN_LANGUAGES,
                 { placeHolder: 'Select project language' }
             );
 
@@ -214,9 +451,7 @@ export function setupCommands(context: vscode.ExtensionContext, client: Language
 
             const typeValue = projectType?.value || 'application';
 
-            const terminal = vscode.window.createTerminal('Seen Init');
-            terminal.sendText(`seen init ${projectName} --lang ${langCode} --type ${typeValue}`);
-            terminal.show();
+            await executeSeenTask('Seen Init', 'init', ['init', projectName, '--lang', langCode, '--type', typeValue]);
 
             // Open the new project after creation
             setTimeout(() => {
@@ -235,14 +470,7 @@ export function setupCommands(context: vscode.ExtensionContext, client: Language
         vscode.commands.registerCommand('seen.switchLanguage', async (targetLang?: string) => {
             if (!targetLang) {
                 const language = await vscode.window.showQuickPick(
-                    [
-                        { label: 'English (en)', value: 'en' },
-                        { label: 'Arabic (ar)', value: 'ar' },
-                        { label: 'Spanish (es)', value: 'es' },
-                        { label: 'Russian (ru)', value: 'ru' },
-                        { label: 'Chinese (zh)', value: 'zh' },
-                        { label: 'French (fr)', value: 'fr' }
-                    ],
+                    SEEN_LANGUAGES,
                     { placeHolder: 'Select target language' }
                 );
                 targetLang = language?.value;
@@ -253,13 +481,13 @@ export function setupCommands(context: vscode.ExtensionContext, client: Language
             }
 
             try {
-                const result = await client.sendRequest('seen/switchLanguage', {
-                    targetLanguage: targetLang
-                });
-
-                if (result && (result as any).success) {
-                    vscode.window.showInformationMessage(`Switched to ${targetLang}`);
-                    // Reload window to apply changes
+                const updatedManifest = await updateWorkspaceLanguage(targetLang);
+                const manifestNote = updatedManifest ? ' and Seen.toml' : '';
+                const action = await vscode.window.showInformationMessage(
+                    `Switched Seen language default${manifestNote} to ${targetLang}.`,
+                    'Reload Window'
+                );
+                if (action === 'Reload Window') {
                     vscode.commands.executeCommand('workbench.action.reloadWindow');
                 }
             } catch (error) {
@@ -277,14 +505,7 @@ export function setupCommands(context: vscode.ExtensionContext, client: Language
             }
 
             const targetLanguage = await vscode.window.showQuickPick(
-                [
-                    { label: 'English (en)', value: 'en' },
-                    { label: 'Arabic (ar)', value: 'ar' },
-                    { label: 'Spanish (es)', value: 'es' },
-                    { label: 'Russian (ru)', value: 'ru' },
-                    { label: 'Chinese (zh)', value: 'zh' },
-                    { label: 'French (fr)', value: 'fr' }
-                ],
+                SEEN_LANGUAGES,
                 { placeHolder: 'Translate to' }
             );
 
@@ -293,14 +514,17 @@ export function setupCommands(context: vscode.ExtensionContext, client: Language
             }
 
             try {
-                const translated = await client.sendRequest('seen/translate', {
-                    uri: editor.document.uri.toString(),
-                    targetLanguage: targetLanguage.value
-                });
+                if (editor.document.isDirty) {
+                    await editor.document.save();
+                }
+                const translated = await runSeenCapture(
+                    ['translate', editor.document.fileName, '--from', getConfiguredLanguage(), '--to', targetLanguage.value],
+                    workspaceRoot()
+                );
 
                 // Open translated code in new editor
                 const doc = await vscode.workspace.openTextDocument({
-                    content: (translated as any).content,
+                    content: translated,
                     language: 'seen'
                 });
                 vscode.window.showTextDocument(doc);
@@ -319,17 +543,10 @@ export function setupCommands(context: vscode.ExtensionContext, client: Language
             }
 
             const position = editor.selection.active;
-            try {
-                const streamInfo = await client.sendRequest('seen/getStreamInfo', {
-                    uri: editor.document.uri.toString(),
-                    position: { line: position.line, character: position.character }
-                });
-
-                if (streamInfo) {
-                    // Show marble diagram in webview
-                    vscode.commands.executeCommand('seen.showReactiveView', streamInfo);
-                }
-            } catch (error) {
+            const streamInfo = currentReactiveStreamInfo(editor.document, position);
+            if (streamInfo) {
+                ReactiveVisualizer.show(streamInfo);
+            } else {
                 vscode.window.showErrorMessage('No reactive stream found at current position');
             }
         })
@@ -393,10 +610,10 @@ export function setupCommands(context: vscode.ExtensionContext, client: Language
                 const doc = await vscode.workspace.openTextDocument(file);
                 const text = doc.getText();
                 // Look for function, struct, class, enum declarations
-                const declPattern = new RegExp(`\\b(fun|struct|class|enum|interface)\\s+${symbolName}\\b`);
+                const declPattern = new RegExp(`\\b(fun|struct|class|enum|interface|trait|type|extern\\s+fun)\\s+${symbolName}\\b`);
                 if (declPattern.test(text)) {
                     const relativePath = vscode.workspace.asRelativePath(file);
-                    const modulePath = relativePath.replace(/\.seen$/, '').replace(/\//g, '.');
+                    const modulePath = relativePath.replace(/\.seen$/, '').replace(/\\/g, '/').replace(/\//g, '.');
                     candidates.push({
                         label: `import ${symbolName} from ${modulePath}`,
                         modulePath
@@ -416,7 +633,7 @@ export function setupCommands(context: vscode.ExtensionContext, client: Language
                 });
 
             if (selected) {
-                const importLine = `import ${selected.modulePath} { ${symbolName} }\n`;
+                const importLine = `import ${selected.modulePath}.{${symbolName}}\n`;
                 await editor.edit(editBuilder => {
                     // Insert at the top of the file (after any existing imports)
                     const text = editor.document.getText();
@@ -546,10 +763,16 @@ export function setupCommands(context: vscode.ExtensionContext, client: Language
 
 async function runBenchmarks(filter?: string): Promise<any> {
     return new Promise((resolve, reject) => {
-        const command = filter ? `seen benchmark --json --filter ${filter}` : 'seen benchmark --json';
-        cp.exec(command, (error, stdout, stderr) => {
-            if (error) {
-                reject(error);
+        const args = filter ? ['benchmark', '--json', '--filter', filter] : ['benchmark', '--json'];
+        const child = cp.spawn(getSeenPath(), args, { cwd: workspaceRoot() });
+        let stdout = '';
+        let stderr = '';
+        child.stdout.on('data', data => { stdout += data.toString(); });
+        child.stderr.on('data', data => { stderr += data.toString(); });
+        child.on('error', reject);
+        child.on('close', code => {
+            if (code !== 0) {
+                reject(new Error(stderr || stdout || `seen benchmark exited with ${code}`));
                 return;
             }
             try {

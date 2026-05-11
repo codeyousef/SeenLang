@@ -1,12 +1,12 @@
-/**
- * evdev FFI bindings for Linux.
- *
- * Low-level bindings to libevdev for raw input device access.
- * Provides keyboard, mouse, gamepad, and touchscreen event handling.
- * Prefer the higher-level Gamepad class from input.gamepad for controllers.
- *
- * Link with: -lseen_platform (which wraps libevdev.so.2)
- */
+///
+evdev FFI bindings for Linux.
+
+Low-level bindings to libevdev for raw input device access.
+Provides keyboard, mouse, gamepad, and touchscreen event handling.
+Prefer the higher-level Gamepad class from input.gamepad for controllers.
+
+Link with: -lseen_platform (which wraps libevdev.so.2)
+///
 
 import core.result.{Result, Ok, Err}
 import core.unit.{Unit}
@@ -208,9 +208,11 @@ let DEVICE_TYPE_TOUCHSCREEN: Int = 8
 let DEVICE_TYPE_TABLET: Int = 16
 let DEVICE_TYPE_TOUCHPAD: Int = 32
 
-// ============================================================================
-// Shim FFI Declarations - Link to libseen_platform.so
-// ============================================================================
+///
+============================================================================
+Shim FFI Declarations - Link to libseen_platform.so
+============================================================================
+///
 
 extern "C" fun seen_evdev_new() r: *Void
 extern "C" fun seen_evdev_free(dev: *Void) r: Void
@@ -224,13 +226,15 @@ extern "C" fun seen_evdev_next_event(dev: *Void, flags: Int32, eventType: *Int32
 extern "C" fun seen_evdev_open_device(path: *Char) r: Int32
 extern "C" fun seen_evdev_close_device(fd: Int32) r: Int32
 
-// ============================================================================
-// Safe Wrapper Classes
-// ============================================================================
+///
+============================================================================
+Safe Wrapper Classes
+============================================================================
+///
 
-/**
- * Raw input event from an evdev device.
- */
+///
+Raw input event from an evdev device.
+///
 class InputEvent {
     var eventType: Int
     var code: Int
@@ -269,12 +273,12 @@ class InputEvent {
     }
 }
 
-/**
- * Wrapper for a libevdev input device.
- *
- * Opens /dev/input/eventN devices and provides event polling.
- * Automatically detects device type (keyboard, mouse, gamepad, etc.).
- */
+///
+Wrapper for a libevdev input device.
+
+Opens /dev/input/eventN devices and provides event polling.
+Automatically detects device type (keyboard, mouse, gamepad, etc.).
+///
 class EvdevDevice {
     var devHandle: *Void
     var fd: Int
@@ -401,9 +405,9 @@ class EvdevDevice {
     }
 }
 
-/**
- * List all potential input device paths (/dev/input/event0-31).
- */
+///
+List all potential input device paths (/dev/input/event0-31).
+///
 fun listInputDevices() r: Array<String> {
     var paths = Array<String>()
     var i = 0
@@ -414,11 +418,11 @@ fun listInputDevices() r: Array<String> {
     return paths
 }
 
-/**
- * Find input devices matching the specified type flags.
- *
- * Use DEVICE_TYPE_KEYBOARD, DEVICE_TYPE_MOUSE, DEVICE_TYPE_GAMEPAD, etc.
- */
+///
+Find input devices matching the specified type flags.
+
+Use DEVICE_TYPE_KEYBOARD, DEVICE_TYPE_MOUSE, DEVICE_TYPE_GAMEPAD, etc.
+///
 fun findDevicesByType(deviceType: Int) r: Array<String> {
     var found = Array<String>()
     let paths = listInputDevices()

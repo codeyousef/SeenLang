@@ -1,5 +1,7 @@
-// SIMD Vectorization Report Parser
-// Parses LLVM opt -pass-remarks output and formats a vectorization report
+///
+SIMD Vectorization Report Parser
+Parses LLVM opt -pass-remarks output and formats a vectorization report
+///
 
 import str.string.{StringBuilder}
 
@@ -36,8 +38,10 @@ class SIMDReportParser {
         }
     }
 
-    // Parse LLVM opt output lines for vectorization remarks
-    // Lines matching "remark:" are vectorization passes
+    ///
+    Parse LLVM opt output lines for vectorization remarks
+    Lines matching "remark:" are vectorization passes
+    ///
     fun parseOutput(output: String) r: SIMDReportParser {
         var result = SIMDReportParser.new()
         let lines = output.split("\n")

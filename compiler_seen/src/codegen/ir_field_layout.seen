@@ -1,17 +1,23 @@
-// ir_field_layout.seen — Shared struct field layout resolution helpers
-// Extracted from llvm_ir_gen.seen field access paths to reduce duplication.
+///
+ir_field_layout.seen — Shared struct field layout resolution helpers
+Extracted from llvm_ir_gen.seen field access paths to reduce duplication.
+///
 
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{parseIntManual, splitPipe, getNextRegFn}
-import codegen.ir_bitfield_access.{findBitfieldWidthImpl}
+import codegen.ir_codegen_feature_state.{findFeatureBitfieldWidthImpl}
 import codegen.ir_member_access.{emitFieldAccessPtrImpl, emitFieldAccessLoadImpl, emitBitfieldMaskLoadImpl}
-import codegen.ir_type_info.{findStructIdx, g_resolvedFieldIndex, getLLVMIRGeneratorFieldIndexImpl, getLLVMIRGeneratorStructLayoutImpl, getSeenFieldTypeImpl}
-import codegen.ir_type_mapping.{resolveKnownStructFieldImpl, mapTypeImpl, isClassHandleLikeTypeImpl}
+import codegen.ir_type_info.{findStructIdx, g_resolvedFieldIndex, getLLVMIRGeneratorFieldIndexImpl, getLLVMIRGeneratorStructLayoutImpl}
+import codegen.ir_seen_field_type_lookup.{getSeenFieldTypeImpl}
+import codegen.ir_type_mapping.{mapTypeImpl, isClassHandleLikeTypeImpl}
+import codegen.ir_struct_field_resolution.{resolveKnownStructFieldImpl}
 import codegen.ir_path_expr.{splitFirstPathDotImpl, splitChainedPathImpl}
-import codegen.type_registry.{getFieldInfoReg, isClassTypeReg}
+import codegen.type_registry_core.{getFieldInfoReg, isClassTypeReg}
 
-// resolveFieldAccessLayoutImpl — resolve the LLVM layout string plus field index
-// for a struct field access. Returns "layout|fieldIndex".
+///
+resolveFieldAccessLayoutImpl — resolve the LLVM layout string plus field index
+for a struct field access. Returns "layout|fieldIndex".
+///
 fun resolveFieldAccessLayoutImpl(structType: String, fieldName: String,
     structNames: Array<String>, structLayouts: Array<String>, structFieldNames: Array<String>) r: String {
 
@@ -81,8 +87,8 @@ fun emitResolvedFieldAccessLoadImpl(output: StringBuilder, regBox: Array<Int>,
     var resultReg = emitFieldAccessLoadImpl(output, regBox, fieldType,
         fieldPtrReg)
     if bitfieldCount > 0 {
-        let bitfieldWidth = findBitfieldWidthImpl(structType + "." + fieldName,
-            bitfieldKeys, bitfieldWidths)
+        let bitfieldWidth = findFeatureBitfieldWidthImpl(structType + "." +
+            fieldName)
         if bitfieldWidth > 0 and bitfieldWidth < 64 {
             resultReg = emitBitfieldMaskLoadImpl(output, regBox, resultReg,
                 bitfieldWidth)

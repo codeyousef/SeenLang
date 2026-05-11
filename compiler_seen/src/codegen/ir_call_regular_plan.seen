@@ -1,5 +1,23 @@
 // ir_call_regular_plan.seen - pure regular function-call planning helpers.
 
+fun stripGenericCalleeNameImpl(funcName: String) r: String {
+    if funcName.contains("<") {
+        var ltIdx = 0
+        var scanIdx = 0
+        while scanIdx < funcName.length() {
+            if funcName.byteAt(scanIdx) == 60 {
+                ltIdx = scanIdx
+                scanIdx = funcName.length()
+            }
+            scanIdx = scanIdx + 1
+        }
+        if ltIdx > 0 {
+            return funcName.substring(0, ltIdx)
+        }
+    }
+    return funcName
+}
+
 fun shouldPromoteRegularCallFloatArgsImpl(argRegCount: Int,
     argTypeCount: Int, floatFuncNameCount: Int, floatParamIndexCount: Int)
     r: Bool {

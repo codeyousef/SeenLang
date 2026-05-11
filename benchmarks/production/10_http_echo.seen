@@ -1,6 +1,8 @@
-// HTTP Echo Server Benchmark
-// Simulated HTTP request/response processing
-// Optimized: StringBuilder pattern (O(n) vs O(n²)), no class allocations
+///
+HTTP Echo Server Benchmark
+Simulated HTTP request/response processing
+Optimized: StringBuilder pattern (O(n) vs O(n²)), no class allocations
+///
 
 fun benchmark_http(n: Int) -> Int {
     let test_data = "{\"user\":\"test\",\"action\":\"ping\",\"timestamp\":1234567890}"

@@ -1,6 +1,8 @@
-// N-Body Simulation Benchmark
-// Solar system simulation with gravitational forces
-// Uses pre-allocated Float arrays with loop-based pair interactions
+///
+N-Body Simulation Benchmark
+Solar system simulation with gravitational forces
+Uses pre-allocated Float arrays with loop-based pair interactions
+///
 
 fun advance(bx: Array<Float>, by: Array<Float>, bz: Array<Float>, bvx: Array<Float>, bvy: Array<Float>, bvz: Array<Float>, bmass: Array<Float>, dt: Float, n: Int) -> Void {
     var i = 0

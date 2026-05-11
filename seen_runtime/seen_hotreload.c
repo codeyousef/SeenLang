@@ -289,6 +289,45 @@ int __seen_hotreload_register_function(SeenHotModule* module, SeenStringHR name,
     return 1;
 }
 
+/*
+ * Typed Function Trampolines
+ */
+
+typedef int64_t (*SeenHotFnI64)(void);
+typedef int64_t (*SeenHotFnI64Ptr)(void*);
+
+static void seen_hotreload_copy_symbol_name(SeenStringHR name, char* out, size_t out_size) {
+    if (!out || out_size == 0) return;
+    int copy_len = 0;
+    if (name.data && name.len > 0) {
+        copy_len = (name.len < (int64_t)(out_size - 1)) ? (int)name.len : (int)(out_size - 1);
+        memcpy(out, name.data, copy_len);
+    }
+    out[copy_len] = '\0';
+}
+
+int64_t __seen_hotreload_call_i64(SeenHotModule* module, SeenStringHR name) {
+    void* fn = __seen_hotreload_get_function(module, name);
+    if (!fn) {
+        char symbol[256];
+        seen_hotreload_copy_symbol_name(name, symbol, sizeof(symbol));
+        snprintf(g_last_error, sizeof(g_last_error), "dlsym failed for Int fn(): %s", symbol);
+        return 0;
+    }
+    return ((SeenHotFnI64)fn)();
+}
+
+int64_t __seen_hotreload_call_i64_ptr(SeenHotModule* module, SeenStringHR name, void* arg0) {
+    void* fn = __seen_hotreload_get_function(module, name);
+    if (!fn) {
+        char symbol[256];
+        seen_hotreload_copy_symbol_name(name, symbol, sizeof(symbol));
+        snprintf(g_last_error, sizeof(g_last_error), "dlsym failed for Int fn(ptr): %s", symbol);
+        return 0;
+    }
+    return ((SeenHotFnI64Ptr)fn)(arg0);
+}
+
 // ============================================================================
 // State Serialization
 // ============================================================================

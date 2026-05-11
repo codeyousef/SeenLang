@@ -1,5 +1,7 @@
-// Test: Float types should be rejected in deterministic profile
-// Expected: FAIL with --profile deterministic
+///
+Test: Float types should be rejected in deterministic profile
+Expected: FAIL with --profile deterministic
+///
 
 fun main() r: Int {
     let x: Float = 3.14  // This should fail in deterministic profile

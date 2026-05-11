@@ -1,5 +1,7 @@
-// WASM Code Generator - UWW-Compatible WebAssembly Backend
-// Generates deterministic .wasm binaries for Universal World Wide runtime
+///
+WASM Code Generator - UWW-Compatible WebAssembly Backend
+Generates deterministic .wasm binaries for Universal World Wide runtime
+///
 
 import ir.{IRModule, IRFunction, IRBasicBlock, IRInstruction, IRValue, IRType}
 import str.string.{StringBuilder}
@@ -696,8 +698,10 @@ class WASMGenerator {
             output.append("    (local $" + sanitizeName(local.name) + " " + local.typeString() + ")\n")
         }
 
-        // Generate basic blocks
-        // WASM uses structured control flow, so we need to handle blocks carefully
+        ///
+        Generate basic blocks
+        WASM uses structured control flow, so we need to handle blocks carefully
+        ///
         if irFunction.blocks.length() > 0 {
             // For simple functions with single block, emit directly
             if irFunction.blocks.length() == 1 {
@@ -713,8 +717,10 @@ class WASMGenerator {
 
     // Generate structured control flow for multiple basic blocks
     fun generateStructuredControlFlow(irFunction: IRFunction) r: Void {
-        // WASM requires structured control flow
-        // For now, emit blocks sequentially with br_table for complex control flow
+        ///
+        WASM requires structured control flow
+        For now, emit blocks sequentially with br_table for complex control flow
+        ///
 
         var blockIndex = 0
         while blockIndex < irFunction.blocks.length() {
@@ -951,8 +957,10 @@ class WASMGenerator {
 
     // Generate unconditional branch
     fun generateBranch(instruction: IRInstruction) r: Void {
-        // WASM uses structured control flow
-        // For now emit as comment; real implementation needs block structure
+        ///
+        WASM uses structured control flow
+        For now emit as comment; real implementation needs block structure
+        ///
         if instruction.operands.length() > 0 {
             output.append(";; br " + instruction.operands[0].name + "\n")
         }

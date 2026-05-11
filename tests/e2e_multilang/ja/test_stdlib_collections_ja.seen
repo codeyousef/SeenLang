@@ -1,8 +1,10 @@
-// E2Eテスト: コレクション標準ライブラリ（日本語）
-// テスト対象: Array<整数>, Array<文字列>, HashMap<文字列, 整数>
-// 注: HashMap.設定()(put)は存在しない → insert()を使用
-// 注: HashMap.取得()(get)はコード生成バグあり → getOrDefault()を使用
-// 注: containsKey()はboolを返す → if条件で直接使用
+///
+E2Eテスト: コレクション標準ライブラリ（日本語）
+テスト対象: Array<整数>, Array<文字列>, HashMap<文字列, 整数>
+注: HashMap.設定()(put)は存在しない → insert()を使用
+注: HashMap.取得()(get)はコード生成バグあり → getOrDefault()を使用
+注: containsKey()はboolを返す → if条件で直接使用
+///
 
 関数 メイン() r: 整数 {
     // テスト1: Array<整数> 追加と取得

@@ -1,5 +1,7 @@
-// : Wayland/X11 bindings — compile-only
-// Verifies event constants for both display servers
+///
+: Wayland/X11 bindings — compile-only
+Verifies event constants for both display servers
+///
 
 fun main() r: Int {
     // XCB event types

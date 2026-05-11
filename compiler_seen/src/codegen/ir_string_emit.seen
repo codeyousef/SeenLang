@@ -1,14 +1,18 @@
-// ir_string_emit.seen -- Shared string escaping and constant emission helpers
-// Extracted from llvm_ir_gen.seen to keep string literal IR emission thin.
+///
+ir_string_emit.seen -- Shared string escaping and constant emission helpers
+Extracted from llvm_ir_gen.seen to keep string literal IR emission thin.
+///
 
 import str.string.{StringBuilder}
 import io.file.{readText, exists}
 import codegen.ir_string_collect.{ensureStringConstCache, findCachedStringConstIndex, cacheStringConstUnchecked}
 
-// Escape a string for embedding in LLVM IR constant data. Replaces
-// backslash, double-quote, newline, tab, and carriage-return with their
-// LLVM hex escape sequences (\5C, \22, \0A, \09, \0D). Uses a fast
-// path (byteAt scan) to skip allocation when no escaping is needed.
+///
+Escape a string for embedding in LLVM IR constant data. Replaces
+backslash, double-quote, newline, tab, and carriage-return with their
+LLVM hex escape sequences (\5C, \22, \0A, \09, \0D). Uses a fast
+path (byteAt scan) to skip allocation when no escaping is needed.
+///
 fun escapeStringImpl(str: String) r: String {
     var needsEscape = 0
     var scanIdx = 0

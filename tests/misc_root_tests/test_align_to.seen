@@ -1,5 +1,7 @@
-// Test @align_to(N) decorator
-// Verify: compile with --emit-llvm, grep for 'aligned_alloc' in .ll file
+///
+Test @align_to(N) decorator
+Verify: compile with --emit-llvm, grep for 'aligned_alloc' in .ll file
+///
 
 @align_to(64)
 fun simdFriendlySum(n: Int) r: Int {

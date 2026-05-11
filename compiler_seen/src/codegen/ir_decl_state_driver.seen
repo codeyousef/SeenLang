@@ -1,0 +1,44 @@
+// ir_decl_state_driver.seen - declaration pass state owner API helpers.
+
+import parser.real_parser.{ProgramNode}
+import codegen.ir_decl_registry.{DeclarationPassState, LateUserDeclareState, captureDeclarationPassStateImpl}
+import codegen.ir_decl_items.{DeclarationItemContext}
+import codegen.ir_codegen_feature_state.{populateFeatureDeclarationPassStateImpl, applyFeatureDeclarationPassStateImpl, getFeatureTypeAliasNamesImpl, getFeatureTypeAliasTargetsImpl, getFeatureTypeAliasCountImpl, getFeatureReprCClassNamesImpl, getFeatureFloatParamFuncNamesImpl, getFeatureFloatParamParamIdxsImpl}
+import codegen.ir_codegen_module_state.{populateModuleDeclarationPassStateImpl, applyModuleDeclarationPassStateImpl, captureModuleLateUserDeclareState, applyModuleLateUserDeclareState}
+import codegen.ir_codegen_global_state.{beginDeclarationRegistrationWithGlobalStateImpl, createDeclarationItemContextWithGlobalStateImpl}
+
+fun beginDeclarationRegistrationWithGlobalState(program: ProgramNode) r: Void {
+    beginDeclarationRegistrationWithGlobalStateImpl(program)
+}
+
+fun captureDeclarationPassState() r: DeclarationPassState {
+    let declState = captureDeclarationPassStateImpl("", "", 0, "", "", "",
+        Array<String>(), Array<String>(), Array<String>(), 0, "", "", "",
+        "", "", "", 0, 0, "", "", "", "", 0)
+    populateFeatureDeclarationPassStateImpl(declState)
+    populateModuleDeclarationPassStateImpl(declState)
+    return declState
+}
+
+fun createDeclarationItemContextFromOwnerState(
+    declState: DeclarationPassState) r: DeclarationItemContext {
+
+    return createDeclarationItemContextWithGlobalStateImpl(
+        getFeatureTypeAliasNamesImpl(), getFeatureTypeAliasTargetsImpl(),
+        getFeatureTypeAliasCountImpl(), getFeatureReprCClassNamesImpl(),
+        getFeatureFloatParamFuncNamesImpl(),
+        getFeatureFloatParamParamIdxsImpl(), declState)
+}
+
+fun applyDeclarationPassState(declState: DeclarationPassState) r: Void {
+    applyFeatureDeclarationPassStateImpl(declState)
+    applyModuleDeclarationPassStateImpl(declState)
+}
+
+fun captureLateUserDeclareState() r: LateUserDeclareState {
+    return captureModuleLateUserDeclareState()
+}
+
+fun applyLateUserDeclareState(lateState: LateUserDeclareState) r: Void {
+    applyModuleLateUserDeclareState(lateState)
+}

@@ -39,7 +39,7 @@ fun main() {
 Pass linker flags via the compiler:
 
 ```bash
-seen build app.seen -o app    # automatically links -lm -lpthread
+seen compile app.seen app    # automatically links -lm -lpthread
 ```
 
 The compiler always links:
@@ -57,7 +57,7 @@ For native shims that live inside your project, declare the library in `Seen.tom
 seen_platform = { system = true, path = "native/lib" }
 ```
 
-`path` is resolved relative to the nearest `Seen.toml`. Seen adds `-L<resolved-path>` during linking. On native Linux/macOS builds it also records that directory as a runtime search path, so `seen build` outputs run without extra `LIBRARY_PATH` or `LD_LIBRARY_PATH` wrappers.
+`path` is resolved relative to the nearest `Seen.toml`. Seen adds `-L<resolved-path>` during linking. On native Linux/macOS builds it also records that directory as a runtime search path, so `seen compile` outputs run without extra `LIBRARY_PATH` or `LD_LIBRARY_PATH` wrappers.
 
 ## @cImport
 

@@ -1,0 +1,68 @@
+// ir_binary_tail_driver.seen - prepared binary expression tail emission.
+
+import str.string.{StringBuilder}
+import codegen.ir_binary_emit.{emitPreparedOverloadedBinaryCallImpl, emitPreparedCoreBinaryOpState, tryLookupPreparedBinaryCseImpl, recordPreparedBinaryCseImpl}
+import codegen.ir_binary_expr.{planOverloadedBinaryState}
+import codegen.ir_binary_fold_plan.{planBinaryFoldCseImpl}
+import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl}
+import codegen.ir_codegen_global_state.{getGlobalFuncNamesImpl, getGlobalFuncRetTypesImpl}
+import codegen.ir_codegen_metrics_state.{cseClear}
+import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
+
+class BinaryTailResult {
+    var resultReg: String
+    var boundsCheckLabelCount: Int
+
+    static fun new(resultReg: String, boundsCheckLabelCount: Int)
+        r: BinaryTailResult {
+
+        return BinaryTailResult{
+            resultReg: resultReg,
+            boundsCheckLabelCount: boundsCheckLabelCount
+        }
+    }
+}
+
+fun emitPreparedBinaryTailState(output: StringBuilder, operator: String,
+    leftReg: String, rightReg: String, leftType: String, rightType: String,
+    leftKind: String, leftLiteralValue: String, leftVariableName: String,
+    rightKind: String, rightLiteralValue: String,
+    boundsCheckLabelCount: Int, panicOnOverflow: Bool,
+    inductionVarName: String) r: BinaryTailResult {
+
+    let csePlan = planBinaryFoldCseImpl(leftType, rightType, operator)
+    if csePlan.shouldLookup {
+        let cseCached = tryLookupPreparedBinaryCseImpl(leftReg, operator,
+            rightReg)
+        if cseCached != "" {
+            return BinaryTailResult.new(cseCached, boundsCheckLabelCount)
+        }
+    }
+
+    let overloadedBinaryPlan = planOverloadedBinaryState(operator, leftType,
+        getGlobalFuncNamesImpl(), getGlobalFuncRetTypesImpl())
+    if overloadedBinaryPlan.funcName != "" {
+        return BinaryTailResult.new(emitPreparedOverloadedBinaryCallImpl(
+            output, getFeatureRegBoxImpl(),
+            quoteIdentIfNeededImpl(overloadedBinaryPlan.funcName),
+            overloadedBinaryPlan.retLlvmType, leftReg, rightReg),
+            boundsCheckLabelCount)
+    }
+
+    let coreBinaryResult = emitPreparedCoreBinaryOpState(output,
+        getFeatureRegBoxImpl(), boundsCheckLabelCount, operator, leftReg,
+        rightReg, leftType, rightType, leftKind, leftLiteralValue,
+        leftVariableName, rightKind, rightLiteralValue, panicOnOverflow,
+        inductionVarName)
+    let resultReg = coreBinaryResult.resultReg
+    let nextBoundsCount = coreBinaryResult.boundsCheckLabelCount
+    if coreBinaryResult.shouldClearCse {
+        cseClear()
+    }
+
+    if csePlan.shouldRecord {
+        recordPreparedBinaryCseImpl(leftReg, operator, rightReg, resultReg)
+    }
+
+    return BinaryTailResult.new(resultReg, nextBoundsCount)
+}

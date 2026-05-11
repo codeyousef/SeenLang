@@ -1,5 +1,7 @@
-// Comprehensive Benchmark Runner for Seen vs Rust/Zig/C++
-// This is the main orchestrator for all performance benchmarks
+///
+Comprehensive Benchmark Runner for Seen vs Rust/Zig/C++
+This is the main orchestrator for all performance benchmarks
+///
 
 import std::time
 import std::process

@@ -1,6 +1,8 @@
-// Portable SIMD Vector Types
-// Wraps platform-specific SIMD operations via C runtime functions
-// Auto-dispatches between SSE (4-wide) and AVX2 (8-wide)
+///
+Portable SIMD Vector Types
+Wraps platform-specific SIMD operations via C runtime functions
+Auto-dispatches between SSE (4-wide) and AVX2 (8-wide)
+///
 
 // 4-wide float vector (SSE, 128-bit)
 class SimdFloat4 {

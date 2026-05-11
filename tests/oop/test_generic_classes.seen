@@ -1,6 +1,8 @@
-// OOP Generic Classes Test
-// Tests: generic classes, type parameters, generic methods
-// Expected: Generic type instantiation works correctly
+///
+OOP Generic Classes Test
+Tests: generic classes, type parameters, generic methods
+Expected: Generic type instantiation works correctly
+///
 
 class Box<T> {
     var value: T

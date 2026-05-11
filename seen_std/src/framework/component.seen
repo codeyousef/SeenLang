@@ -1,6 +1,8 @@
-// Component Framework for Seen Language
-// Provides lifecycle management and composition for UI/game components
-// Used with the @component decorator
+///
+Component Framework for Seen Language
+Provides lifecycle management and composition for UI/game components
+Used with the @component decorator
+///
 
 import collections.btree_map.{BTreeMap}
 

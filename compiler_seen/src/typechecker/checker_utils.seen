@@ -1,5 +1,7 @@
-// Shared utility functions for typechecker modules
-// Provides common helpers for checking class structure
+///
+Shared utility functions for typechecker modules
+Provides common helpers for checking class structure
+///
 
 import parser.real_parser.{ClassNode, FunctionNode, FieldNode, AnnotationNode}
 

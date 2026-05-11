@@ -82,8 +82,10 @@ fun expect(condition: Bool, message: String) -> Void {
 }
 
 fun main() -> Int {
-    // Use local constants since cross-module const resolution returns 0 in stage1.
-    // Use 0.0 - X instead of -X for negative float literals (codegen emits i64 sub otherwise).
+    ///
+    Use local constants since cross-module const resolution returns 0 in stage1.
+    Use 0.0 - X instead of -X for negative float literals (codegen emits i64 sub otherwise).
+    ///
     let pi = 3.14159265358979323846
     let tau = 6.28318530717958647692
     let halfPi = 1.57079632679489661923

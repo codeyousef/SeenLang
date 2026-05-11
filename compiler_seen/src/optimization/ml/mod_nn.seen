@@ -1,24 +1,26 @@
-// ML-Guided Optimization Module (Neural Network Version)
-// 
-// This module provides machine learning-based optimization guidance for the Seen compiler.
-// It replaces the threshold-based heuristics with neural networks trained on real
-// compilation outcomes.
-//
-// Usage:
-//   import optimization.ml.{MLOptimizerNN, LoopFeaturesNN, InlineFeaturesNN}
-//
-//   let optimizer = MLOptimizerNN.new()
-//   optimizer.setTargetHardware("x86_64")
-//
-//   // Make vectorization decision
-//   let features = LoopFeaturesNN.new(100, 1, 10, 2, 5, 3, 1)
-//   if optimizer.shouldVectorize(features) {
-//       // Apply vectorization
-//   }
-//
-//   // Train models with collected data
-//   optimizer.trainModels(100)
-//   optimizer.saveModels()
+///
+ML-Guided Optimization Module (Neural Network Version)
+
+This module provides machine learning-based optimization guidance for the Seen compiler.
+It replaces the threshold-based heuristics with neural networks trained on real
+compilation outcomes.
+
+Usage:
+  import optimization.ml.{MLOptimizerNN, LoopFeaturesNN, InlineFeaturesNN}
+
+  let optimizer = MLOptimizerNN.new()
+  optimizer.setTargetHardware("x86_64")
+
+  // Make vectorization decision
+  let features = LoopFeaturesNN.new(100, 1, 10, 2, 5, 3, 1)
+  if optimizer.shouldVectorize(features) {
+      // Apply vectorization
+  }
+
+  // Train models with collected data
+  optimizer.trainModels(100)
+  optimizer.saveModels()
+///
 
 // Import all ML components
 import optimization.ml.neural_network.{

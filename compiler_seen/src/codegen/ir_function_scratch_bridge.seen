@@ -1,0 +1,41 @@
+// ir_function_scratch_bridge.seen - nested scratch operations through lowering context.
+
+import codegen.ir_codegen_state.{getSharedCodegenState}
+import codegen.ir_function_snapshots.{NestedScratchStateSnapshot}
+import codegen.ir_function_scratch.{snapshotNestedScratchStateImpl, resetLocalCodegenStateImpl, clearActiveBindingsImpl, beginNestedScratchStateImpl, restoreNestedScratchStateImpl}
+import codegen.ir_lowering_context.{CodegenLoweringContext, lowerExpression, inferLoweredExpressionType, lowerCallExpression, prepareLoweredCallArgumentsWithDefaults, lowerEnumConstructor, resetLoweringGenerator, resetLoweringSharedModuleScratch, syncLoweringState, writeBackLoweringState, lowerProgramClasses, lowerProgramTopLevelFunctions, lowerPlainLargeClass, lowerClassNode, lowerFunctionNode, lowerClassMethodFromList, setLowerCurrentClassParentName, resetLoweringLocalCodegenState, collectLoweringVariableDeclarations, clearLoweringActiveBindings, lowerBlock, lowerStatement, isLoweringBlockTerminated, beginLoweringNestedScratch, restoreLoweringNestedScratch, currentLoweringFunctionOptions}
+
+fun beginNestedScratchWithLoweringContext(ctx: CodegenLoweringContext,
+    returnType: String) r: NestedScratchStateSnapshot {
+
+    syncLoweringState(ctx)
+    let state = getSharedCodegenState()
+    let snapshot = snapshotNestedScratchStateImpl(state)
+    beginNestedScratchStateImpl(state, returnType)
+    writeBackLoweringState(ctx)
+    return snapshot
+}
+
+fun restoreNestedScratchWithLoweringContext(ctx: CodegenLoweringContext,
+    snapshot: NestedScratchStateSnapshot) r: Void {
+
+    syncLoweringState(ctx)
+    restoreNestedScratchStateImpl(getSharedCodegenState(), snapshot)
+    writeBackLoweringState(ctx)
+}
+
+fun resetLocalCodegenWithLoweringContext(ctx: CodegenLoweringContext)
+    r: Void {
+
+    syncLoweringState(ctx)
+    resetLocalCodegenStateImpl(getSharedCodegenState())
+    writeBackLoweringState(ctx)
+}
+
+fun clearActiveBindingsWithLoweringContext(ctx: CodegenLoweringContext)
+    r: Void {
+
+    syncLoweringState(ctx)
+    clearActiveBindingsImpl(getSharedCodegenState())
+    writeBackLoweringState(ctx)
+}

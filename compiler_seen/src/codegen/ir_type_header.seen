@@ -1,11 +1,13 @@
-// ir_type_header.seen — type-header loading and registry scan helpers
-// Keeps imported LLVM type-header parsing out of llvm_ir_gen.seen.
+///
+ir_type_header.seen — type-header loading and registry scan helpers
+Keeps imported LLVM type-header parsing out of llvm_ir_gen.seen.
+///
 
 import str.string.{StringBuilder}
 import io.file.{readText, exists}
 import codegen.ir_string_collect.{trimSpacesImpl}
 import codegen.ir_module_constants.{appendParsedHeaderModuleConstantImpl}
-import codegen.type_registry.{applyTypeHeaderStructLineReg, computeMissingStructSizesReg}
+import codegen.ir_type_header_registry.{applyTypeHeaderStructLineReg, computeMissingStructSizesReg}
 
 class TypeHeaderLoadResult {
     var loaded: Bool

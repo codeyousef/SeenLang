@@ -1,7 +1,9 @@
-// Lock-Free MPMC Atomic Queue — CAS ring buffer
-// Usage: let q = AtomicQueue.new(1024)
-//        q.push(42)    // returns 1 on success, 0 if full
-//        let v = q.pop()  // returns value or 0 if empty
+///
+Lock-Free MPMC Atomic Queue — CAS ring buffer
+Usage: let q = AtomicQueue.new(1024)
+       q.push(42)    // returns 1 on success, 0 if full
+       let v = q.pop()  // returns value or 0 if empty
+///
 
 class AtomicQueue {
     var handle: Int

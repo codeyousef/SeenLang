@@ -1,6 +1,9 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 import * as path from 'path';
+import * as fs from 'fs';
+
+/* eslint-disable @typescript-eslint/no-var-requires */
 
 suite('Extension Test Suite', () => {
     vscode.window.showInformationMessage('Start all tests.');
@@ -29,6 +32,11 @@ suite('Extension Test Suite', () => {
             'seen.benchmark.compare',
             'seen.format',
             'seen.check',
+            'seen.compileSharedModule',
+            'seen.pkgFetch',
+            'seen.pkgPack',
+            'seen.pkgPrebuild',
+            'seen.pkgPublish',
             'seen.clean',
             'seen.init',
             'seen.repl',
@@ -62,7 +70,24 @@ suite('Extension Test Suite', () => {
         assert.strictEqual(config.get('reactive.marbleDiagrams'), true);
         assert.strictEqual(config.get('benchmark.showInline'), true);
         assert.strictEqual(config.get('target.default'), 'native');
+        assert.strictEqual(config.get('compile.pic'), false);
+        assert.strictEqual(config.get('compile.objectManifest'), '');
         assert.strictEqual(config.get('language.default'), 'en');
+    });
+
+    test('Language enum should match compiler-supported languages', () => {
+        const packageJsonPath = path.join(__dirname, '../../../package.json');
+        const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+        const languages = packageJson.contributes.configuration.properties['seen.language.default'].enum;
+        assert.deepStrictEqual(languages, ['en', 'ar', 'es', 'ru', 'zh', 'ja']);
+    });
+
+    test('Extension should not call unsupported custom LSP methods', () => {
+        const commandsPath = path.join(__dirname, '../../commands.js');
+        const commandsSource = fs.readFileSync(commandsPath, 'utf8');
+        assert.ok(!commandsSource.includes('seen/switchLanguage'));
+        assert.ok(!commandsSource.includes('seen/translate'));
+        assert.ok(!commandsSource.includes('seen/getStreamInfo'));
     });
 });
 

@@ -1,7 +1,7 @@
 // ir_binary_short_circuit.seen - short-circuit binary label and branch helpers.
 
 import str.string.{StringBuilder}
-import codegen.ir_optimization.{getNextBlockFn}
+import codegen.ir_optimization.{getNextRegFn}
 
 class ShortCircuitBinaryLabels {
     var checkLabel: String
@@ -21,12 +21,19 @@ class ShortCircuitBinaryLabels {
     }
 }
 
-fun allocateShortCircuitBinaryLabelsImpl(blockLabelBox: Array<Int>)
+fun nextShortCircuitLabelImpl(regBox: Array<Int>, role: String) r: String {
+    let token = getNextRegFn(regBox)
+    return "sc." + role + "." + token.substring(1, token.length())
+}
+
+fun allocateShortCircuitBinaryLabelsImpl(regBox: Array<Int>)
     r: ShortCircuitBinaryLabels {
 
-    return ShortCircuitBinaryLabels.new(getNextBlockFn(blockLabelBox),
-        getNextBlockFn(blockLabelBox), getNextBlockFn(blockLabelBox),
-        getNextBlockFn(blockLabelBox))
+    return ShortCircuitBinaryLabels.new(
+        nextShortCircuitLabelImpl(regBox, "check"),
+        nextShortCircuitLabelImpl(regBox, "right"),
+        nextShortCircuitLabelImpl(regBox, "done"),
+        nextShortCircuitLabelImpl(regBox, "merge"))
 }
 
 fun emitShortCircuitCheckBridgeImpl(output: StringBuilder,

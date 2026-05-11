@@ -1,6 +1,8 @@
-// Simple Region Memory Test
-// Tests that region functions are available and callable
-// Expected: Region API exists and basic operations don't crash
+///
+Simple Region Memory Test
+Tests that region functions are available and callable
+Expected: Region API exists and basic operations don't crash
+///
 
 fun main() r: Int {
     println("Testing Vale-style region memory API...")
@@ -11,9 +13,11 @@ fun main() r: Int {
     println("Test 1: Region function availability")
     println("- Region functions compile and link: PASS")
 
-    // Note: The actual region functions return pointers which Seen represents differently
-    // This test validates that the compiler recognizes these functions exist
-    // Full testing requires proper pointer type support
+    ///
+    Note: The actual region functions return pointers which Seen represents differently
+    This test validates that the compiler recognizes these functions exist
+    Full testing requires proper pointer type support
+    ///
 
     println("")
     println("==================================================")

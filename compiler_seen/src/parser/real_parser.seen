@@ -1,39 +1,41 @@
-// =============================================================================
-// Stage 2: Recursive-Descent Parser for the Seen Programming Language
-// =============================================================================
-//
-// Input:  Array<Token> produced by the lexer (Stage 1).
-// Output: ProgramNode AST consumed by the type-checker (Stage 3) and codegen.
-//
-// The parser is a single-pass, recursive-descent design.  All AST nodes are
-// allocated eagerly as the token stream is consumed; there is no separate
-// declaration-collection pass inside this file (the two-pass strategy lives
-// in the IR generator, which walks the finished AST twice).
-//
-// Key AST node types emitted:
-//   ProgramNode           -- root; holds an Array<ItemNode>
-//   ItemNode              -- top-level declaration (Function, Class, Enum, Import, GlobalVar)
-//   FunctionNode          -- function/method with params, return type, body
-//   ClassNode             -- class/struct/trait/union with fields and methods
-//   StatementNode         -- control flow (If, While, For, Return, Let, Var, ...)
-//   ParserExpressionNode  -- expressions (Binary, Call, MemberAccess, Literal, ...)
-//
-// Operator precedence is implemented via a Pratt-style chain of mutually
-// recursive functions:
-//   parseExpression -> parseAssignment -> parseOr -> parseAnd -> parseElvis
-//   -> parseEquality -> parseComparison -> parseRange -> parseTerm
-//   -> parseFactor -> parseShift -> parseBitwise -> parseUnary -> parseCall
-//   -> parsePrimary
-//
-// Multi-language keyword support is achieved by comparing against the
-// SeenTokenType enum (populated from TOML keyword files by the lexer),
-// never by raw string matching on token values.
-//
-// IMPORTANT — bootstrap compatibility constraint:
-//   checkToken(SeenTokenType.X) is used everywhere instead of calling
-//   .getTokenType() on tokens.  The latter triggers a cross-module codegen
-//   issue where the returned SeenTokenType enum value is miscompiled.
-// =============================================================================
+///
+=============================================================================
+Stage 2: Recursive-Descent Parser for the Seen Programming Language
+=============================================================================
+
+Input:  Array<Token> produced by the lexer (Stage 1).
+Output: ProgramNode AST consumed by the type-checker (Stage 3) and codegen.
+
+The parser is a single-pass, recursive-descent design.  All AST nodes are
+allocated eagerly as the token stream is consumed; there is no separate
+declaration-collection pass inside this file (the two-pass strategy lives
+in the IR generator, which walks the finished AST twice).
+
+Key AST node types emitted:
+  ProgramNode           -- root; holds an Array<ItemNode>
+  ItemNode              -- top-level declaration (Function, Class, Enum, Import, GlobalVar)
+  FunctionNode          -- function/method with params, return type, body
+  ClassNode             -- class/struct/trait/union with fields and methods
+  StatementNode         -- control flow (If, While, For, Return, Let, Var, ...)
+  ParserExpressionNode  -- expressions (Binary, Call, MemberAccess, Literal, ...)
+
+Operator precedence is implemented via a Pratt-style chain of mutually
+recursive functions:
+  parseExpression -> parseAssignment -> parseOr -> parseAnd -> parseElvis
+  -> parseEquality -> parseComparison -> parseRange -> parseTerm
+  -> parseFactor -> parseShift -> parseBitwise -> parseUnary -> parseCall
+  -> parsePrimary
+
+Multi-language keyword support is achieved by comparing against the
+SeenTokenType enum (populated from TOML keyword files by the lexer),
+never by raw string matching on token values.
+
+IMPORTANT — bootstrap compatibility constraint:
+  checkToken(SeenTokenType.X) is used everywhere instead of calling
+  .getTokenType() on tokens.  The latter triggers a cross-module codegen
+  issue where the returned SeenTokenType enum value is miscompiled.
+=============================================================================
+///
 
 import lexer.interfaces.{Token, Position}
 import lexer.token_type.{SeenTokenType, SeenTokenType2, TestEnum, getA, getLeftParenType, getLeftParenType2, getRightParenType, getSemicolonType, getDotType, getLeftBraceType, getKeywordAsType, getIdentifierType, getColonType, getRightBraceType, getCommaType, getEndOfFileType, getKeywordFunType, getKeywordImportType, getKeywordUseType, getKeywordClassType, getAtType}
@@ -73,7 +75,7 @@ class AnnotationNode {
     }
 
     fun addArgument(arg: String) r: Void {
-        arguments.push(arg)
+        this.arguments.push(arg)
     }
 }
 
@@ -149,8 +151,8 @@ class FunctionNode {
 
     fun hasDecorator(name: String) r: Bool {
         var i = 0
-        while i < decorators.length() {
-            if decorators[i].name == name {
+        while i < this.decorators.length() {
+            if this.decorators[i].name == name {
                 return true
             }
             i = i + 1
@@ -199,7 +201,7 @@ class StatementNode {
     var loopCondition: ParserExpressionNode
     var loopBody: BlockNode
 
-    fun new() r: StatementNode {
+    static fun new() r: StatementNode {
         return StatementNode{
             kind: "",
             variableName: "",
@@ -229,8 +231,10 @@ class ParserExpressionNode {
     // Call
     var callee: String
     var arguments: Array<ParserExpressionNode>
-    // Index access: obj[index] - object is variableName, index in operands[0]
-    // Member access: obj.field - object is variableName, member is callee
+    ///
+    Index access: obj[index] - object is variableName, index in operands[0]
+    Member access: obj.field - object is variableName, member is callee
+    ///
 
     static fun new() r: ParserExpressionNode {
         return ParserExpressionNode{
@@ -268,8 +272,8 @@ class ClassNode {
 
     fun hasDecorator(name: String) r: Bool {
         var i = 0
-        while i < decorators.length() {
-            if decorators[i].name == name {
+        while i < this.decorators.length() {
+            if this.decorators[i].name == name {
                 return true
             }
             i = i + 1
@@ -299,8 +303,10 @@ fun rewriteEffectTokens(rawTokens: Array<Token>) r: Array<Token> {
     var i = 0
     while i < rawTokens.length() {
         let tok = rawTokens[i]
-        // Do not inspect token enum values here: bootstrap can miscompile
-        // cross-module SeenTokenType reads from Token objects.
+        ///
+        Do not inspect token enum values here: bootstrap can miscompile
+        cross-module SeenTokenType reads from Token objects.
+        ///
         if tokenStartsEffectModifier(rawTokens, i) {
             rewritten.push(Token.new(getAtType(), "@", tok.getLine(), tok.getColumn(), 1, tok.getFileId()))
             rewritten.push(Token.new(SeenTokenType.Identifier, "using", tok.getLine(), tok.getColumn(), 5, tok.getFileId()))
@@ -312,18 +318,22 @@ fun rewriteEffectTokens(rawTokens: Array<Token>) r: Array<Token> {
     return rewritten
 }
 
-// Recursive-descent parser that converts a flat token stream into a ProgramNode AST.
-//
-// Key fields:
-//   tokens             -- immutable input token array from the lexer
-//   current            -- cursor index into `tokens`; advanced by advance()/matchTokenStr()
-//   currentProgram     -- accumulates top-level ItemNode declarations during parse()
-//   currentBlock       -- the innermost BlockNode being filled; saved/restored on nesting
-//   lastStatement      -- scratch StatementNode written to by the *Field() helpers, then
-//                         pushed into currentBlock (avoids returning large structs by value,
-//                         which triggers memory corruption in the stage1 bootstrap compiler)
-//   lastFunction       -- same workaround for FunctionNode
-//   pendingDecorators  -- decorators (@name) collected before the next declaration
+///
+Recursive-descent parser that converts a flat token stream into a ProgramNode AST.
+
+Key fields:
+  tokens             -- immutable input token array from the lexer
+  current            -- cursor index into `tokens`; advanced by advance()/matchTokenStr()
+  currentProgram     -- accumulates top-level ItemNode declarations during parse()
+  currentBlock       -- the innermost BlockNode being filled; saved/restored on nesting
+  lastStatement      -- scratch StatementNode written to by the *Field() helpers, then
+                        pushed into currentBlock (avoids returning large structs by value,
+                        which triggers memory corruption in the stage1 bootstrap compiler)
+  lastFunction       -- same workaround for FunctionNode
+  pendingDecorators  -- decorators (@name) collected before the next declaration
+  pendingSealedModifier -- modifier bits before the next declaration:
+                           1 = sealed, 2 = explicit pub
+///
 class RealParser {
     var tokens: Array<Token>
     var current: Int
@@ -354,9 +364,11 @@ class RealParser {
         return false
     }
 
-    // Seen keeps several declaration keywords contextual so existing code can
-    // still use names like `data`, `type`, `module`, and `operator` in places
-    // where an identifier is expected.
+    ///
+    Seen keeps several declaration keywords contextual so existing code can
+    still use names like `data`, `type`, `module`, and `operator` in places
+    where an identifier is expected.
+    ///
     fun isContextualIdentifierTokenType(tokenTypeStr: String) r: Bool {
         if tokenTypeStr == SeenTokenType.KeywordData.toString() { return true }
         if tokenTypeStr == SeenTokenType.KeywordType.toString() { return true }
@@ -451,13 +463,15 @@ class RealParser {
         return tokenValue.contains(".") or tokenValue.contains("e") or tokenValue.contains("E")
     }
 
-    // Check whether the current token matches the given type WITHOUT advancing.
-    //
-    // WHY string comparison instead of enum equality:
-    //   Calling `.getTokenType()` on a Token and comparing the returned
-    //   SeenTokenType directly triggers a cross-module codegen bug in the
-    //   stage1 bootstrap compiler (the returned enum i64 gets miscompiled).
-    //   Comparing .toString() strings is safe across all compiler versions.
+    ///
+    Check whether the current token matches the given type WITHOUT advancing.
+
+    WHY string comparison instead of enum equality:
+      Calling `.getTokenType()` on a Token and comparing the returned
+      SeenTokenType directly triggers a cross-module codegen bug in the
+      stage1 bootstrap compiler (the returned enum i64 gets miscompiled).
+      Comparing .toString() strings is safe across all compiler versions.
+    ///
     fun checkToken(tokenType: SeenTokenType) r: Bool {
         if isAtEnd() {
             return false
@@ -478,58 +492,58 @@ class RealParser {
 
     fun advance() r: Token {
         if not isAtEnd() {
-            current = current + 1
+            this.current = this.current + 1
         }
         return previous()
     }
 
     fun isAtEnd() r: Bool {
-        let len = tokens.length()
-        return current >= len - 1
+        let len = this.tokens.length()
+        return this.current >= len - 1
     }
 
     fun peek() r: Token {
-        if current >= tokens.length() {
-            return tokens[tokens.length() - 1]
+        if this.current >= this.tokens.length() {
+            return this.tokens[this.tokens.length() - 1]
         }
-        return tokens[current]
+        return this.tokens[this.current]
     }
 
-    // Look ahead by offset tokens (0 = current, 1 = next, etc.)
+    // Look ahead by offset this.tokens (0 = this.current, 1 = next, etc.)
     fun peekAt(offset: Int) r: Token {
-        let idx = current + offset
-        if idx >= tokens.length() {
-            return tokens[tokens.length() - 1]
+        let idx = this.current + offset
+        if idx >= this.tokens.length() {
+            return this.tokens[this.tokens.length() - 1]
         }
-        return tokens[idx]
+        return this.tokens[idx]
     }
 
     fun peekTokenType() r: SeenTokenType {
-        if current >= tokens.length() {
-            return tokens[tokens.length() - 1].getType()
+        if this.current >= this.tokens.length() {
+            return this.tokens[this.tokens.length() - 1].getType()
         }
-        return tokens[current].getType()
+        return this.tokens[this.current].getType()
     }
 
     fun peekTokenTypeStr() r: String {
-        if current >= tokens.length() {
-            return tokens[tokens.length() - 1].getType().toString()
+        if this.current >= this.tokens.length() {
+            return this.tokens[this.tokens.length() - 1].getType().toString()
         }
-        return tokens[current].getType().toString()
+        return this.tokens[this.current].getType().toString()
     }
 
     fun peekTokenValue() r: String {
-        if current >= tokens.length() {
-            return tokens[tokens.length() - 1].getValue()
+        if this.current >= this.tokens.length() {
+            return this.tokens[this.tokens.length() - 1].getValue()
         }
-        return tokens[current].getValue()
+        return this.tokens[this.current].getValue()
     }
 
     fun previous() r: Token {
-        if current == 0 {
-            return tokens[0]
+        if this.current == 0 {
+            return this.tokens[0]
         }
-        return tokens[current - 1]
+        return this.tokens[this.current - 1]
     }
 
     fun consume(tokenType: SeenTokenType, message: String) r: Token {
@@ -572,17 +586,19 @@ class RealParser {
 
     // ========== END UTILITY METHODS ==========
 
-    // Main entry point.  Consumes all tokens and returns a ProgramNode whose
-    // `items` array contains every top-level declaration (imports, functions,
-    // classes, enums, global variables, type aliases, impl blocks, etc.).
-    //
-    // The loop dispatches on the current token type to the appropriate
-    // parseXxxItemInto() helper.  Decorators (@name) are collected into
-    // `pendingDecorators` and attached to the next declaration that follows.
+    ///
+    Main entry point.  Consumes all tokens and returns a ProgramNode whose
+    `items` array contains every top-level declaration (imports, functions,
+    classes, enums, global variables, type aliases, impl blocks, etc.).
+
+    The loop dispatches on the current token type to the appropriate
+    parseXxxItemInto() helper.  Decorators (@name) are collected into
+    `pendingDecorators` and attached to the next declaration that follows.
+    ///
     fun parse() r: ProgramNode {
-        currentProgram = ProgramNode.new()
-        pendingDecorators = Array<AnnotationNode>()
-        pendingSealedModifier = 0
+        this.currentProgram = ProgramNode.new()
+        this.pendingDecorators = Array<AnnotationNode>()
+        this.pendingSealedModifier = 0
 
         while not isAtEnd() {
             // Use peekTokenTypeStr to avoid creating Token copy that corrupts memory
@@ -592,8 +608,8 @@ class RealParser {
             if matchTokenStr(SeenTokenType.AtSymbol) {
                 parseDecoratorInto()
                 // : Check if last decorator was @cImport — emit as CImport item immediately
-                if pendingDecorators.length() > 0 {
-                    let lastDec = pendingDecorators[pendingDecorators.length() - 1]
+                if this.pendingDecorators.length() > 0 {
+                    let lastDec = this.pendingDecorators[this.pendingDecorators.length() - 1]
                     if lastDec.name == "cImport" {
                         // Create a function item that acts as a CImport directive
                         let cImportFn = FunctionNode.new()
@@ -607,10 +623,10 @@ class RealParser {
                         cImportItem.itemType = "Function"
                         cImportItem.name = "__cImport"
                         cImportItem.function = cImportFn
-                        currentProgram.items.push(cImportItem)
+                        this.currentProgram.items.push(cImportItem)
                         traceParse("push Function __cImport")
                         // Remove the cImport decorator from pending
-                        pendingDecorators = Array<AnnotationNode>()
+                        this.pendingDecorators = Array<AnnotationNode>()
                     }
                 }
                 continue
@@ -647,24 +663,33 @@ class RealParser {
                 if matchTokenStr(getKeywordImportType()) {
                     parseImportItemInto()
                     // Mark last import item as public for re-export
-                    if currentProgram.items.length() > 0 {
-                        let lastItem = currentProgram.items[currentProgram.items.length() - 1]
+                    if this.currentProgram.items.length() > 0 {
+                        let lastItem = this.currentProgram.items[this.currentProgram.items.length() - 1]
                         lastItem.visibility = "public"
                     }
                     continue
+                }
+                if this.pendingSealedModifier == 1 {
+                    this.pendingSealedModifier = 3
+                } else {
+                    this.pendingSealedModifier = 2
                 }
                 // fall through for other pub declarations
             }
 
             // Consume optional 'sealed' modifier before class/enum
             if matchTokenStr(SeenTokenType.KeywordSealed) {
-                pendingSealedModifier = 1
+                if this.pendingSealedModifier == 2 {
+                    this.pendingSealedModifier = 3
+                } else {
+                    this.pendingSealedModifier = 1
+                }
             }
 
             if matchTokenStr(SeenTokenType.AtSymbol) {
                 parseDecoratorInto()
-                if pendingDecorators.length() > 0 {
-                    let lastDecAfterSealed = pendingDecorators[pendingDecorators.length() - 1]
+                if this.pendingDecorators.length() > 0 {
+                    let lastDecAfterSealed = this.pendingDecorators[this.pendingDecorators.length() - 1]
                     if lastDecAfterSealed.name == "cImport" {
                         let cImportFnAfterSealed = FunctionNode.new()
                         cImportFnAfterSealed.name = "__cImport"
@@ -677,15 +702,15 @@ class RealParser {
                         cImportItemAfterSealed.itemType = "Function"
                         cImportItemAfterSealed.name = "__cImport"
                         cImportItemAfterSealed.function = cImportFnAfterSealed
-                        currentProgram.items.push(cImportItemAfterSealed)
+                        this.currentProgram.items.push(cImportItemAfterSealed)
                         traceParse("push Function __cImport")
-                        pendingDecorators = Array<AnnotationNode>()
+                        this.pendingDecorators = Array<AnnotationNode>()
                     }
                 }
                 continue
             }
 
-            if checkToken(SeenTokenType.KeywordEffect) {
+            if checkEffectModifierToken() {
                 parseEffectModifierInto()
                 continue
             }
@@ -707,7 +732,7 @@ class RealParser {
                     typeAliasItem.name = typeAliasName
                     typeAliasItem.classNode = typeAliasClass
                     typeAliasItem.visibility = inferVisibility(typeAliasName)
-                    currentProgram.items.push(typeAliasItem)
+                    this.currentProgram.items.push(typeAliasItem)
                 }
                 continue
             }
@@ -732,7 +757,7 @@ class RealParser {
                     distinctItem.name = distinctName
                     distinctItem.classNode = distinctClass
                     distinctItem.visibility = inferVisibility(distinctName)
-                    currentProgram.items.push(distinctItem)
+                    this.currentProgram.items.push(distinctItem)
                 }
                 continue
             }
@@ -767,7 +792,7 @@ class RealParser {
                     unionItem.name = unionName
                     unionItem.classNode = unionClass
                     unionItem.visibility = inferVisibility(unionName)
-                    currentProgram.items.push(unionItem)
+                    this.currentProgram.items.push(unionItem)
                 }
                 continue
             }
@@ -778,7 +803,7 @@ class RealParser {
                 if peekedVal == "extern" {
                     advance()
                     let externAnnotation = AnnotationNode.new("extern")
-                    pendingDecorators.push(externAnnotation)
+                    this.pendingDecorators.push(externAnnotation)
                     // Fall through to parse the 'fun' keyword below
                 }
             }
@@ -789,7 +814,7 @@ class RealParser {
                 if asyncFunPeek.getType() == getKeywordFunType() {
                     advance()   // consume 'async'
                     let asyncAnn = AnnotationNode.new("async")
-                    pendingDecorators.push(asyncAnn)
+                    this.pendingDecorators.push(asyncAnn)
                     // Fall through — next token is 'fun', matched below
                 }
             }
@@ -826,15 +851,17 @@ class RealParser {
             if matchTokenStr(SeenTokenType.KeywordTrait) {
                 // Add @trait decorator so codegen can distinguish traits from classes
                 let traitAnn = AnnotationNode.new("trait")
-                pendingDecorators.push(traitAnn)
+                this.pendingDecorators.push(traitAnn)
                 parseClassItemInto()
                 continue
             }
 
             // 'impl' blocks — parse methods and attach to target class
             if matchTokenStr(SeenTokenType.KeywordImpl) {
-                // Parse: impl TraitName for ClassName { methods... }
-                // or:    impl ClassName { methods... }
+                ///
+                Parse: impl TraitName for ClassName { methods... }
+                or:    impl ClassName { methods... }
+                ///
                 var implTraitName = ""
                 var implTargetName = ""
                 if checkToken(SeenTokenType.Identifier) {
@@ -886,13 +913,15 @@ class RealParser {
                         if matchTokenStr(SeenTokenType.KeywordStatic) { continue }
                         if matchTokenStr(SeenTokenType.KeywordOverride) { continue }
 
-                        // Parse function via parseFunctionItemInto (auto-pushes with raw name)
-                        // The codegen detects 'this: ClassName' param and generates ClassName_method
+                        ///
+                        Parse function via parseFunctionItemInto (auto-pushes with raw name)
+                        The codegen detects 'this: ClassName' param and generates ClassName_method
+                        ///
                         if matchTokenStr(getKeywordFunType()) {
                             parseFunctionItemInto()
                             continue
                         }
-                        // Skip unrecognized tokens to avoid infinite loop
+                        // Skip unrecognized this.tokens to avoid infinite loop
                         advance()
                     }
                     // Consume closing brace
@@ -952,31 +981,33 @@ class RealParser {
                 continue
             }
 
-            // Skip tokens we do not understand yet.
+            // Skip this.tokens we do not understand yet.
             advance()
         }
 
         refineTopLevelGlobalTypes()
         // trace.toString())
-        return currentProgram
+        return this.currentProgram
     }
 
-    // Declaration-only parse used by compiler Pass 1. It preserves top-level
-    // declaration shape and skips function bodies so large modules do not build
-    // full statement/expression trees just to register signatures.
+    ///
+    Declaration-only parse used by compiler Pass 1. It preserves top-level
+    declaration shape and skips function bodies so large modules do not build
+    full statement/expression trees just to register signatures.
+    ///
     fun parseDeclarationsOnly() r: ProgramNode {
-        currentProgram = ProgramNode.new()
-        pendingDecorators = Array<AnnotationNode>()
-        pendingSealedModifier = 0
+        this.currentProgram = ProgramNode.new()
+        this.pendingDecorators = Array<AnnotationNode>()
+        this.pendingSealedModifier = 0
 
         while not isAtEnd() {
             if matchTokenStr(SeenTokenType.AtSymbol) {
                 parseDecoratorInto()
-                if pendingDecorators.length() > 0 {
-                    let lastDec = pendingDecorators[pendingDecorators.length() - 1]
+                if this.pendingDecorators.length() > 0 {
+                    let lastDec = this.pendingDecorators[this.pendingDecorators.length() - 1]
                     if lastDec.name == "cImport" {
                         pushCImportDirectiveFromDecorator(lastDec)
-                        pendingDecorators = Array<AnnotationNode>()
+                        this.pendingDecorators = Array<AnnotationNode>()
                     }
                 }
                 continue
@@ -1000,31 +1031,40 @@ class RealParser {
             if matchTokenStr(SeenTokenType.KeywordPub) {
                 if matchTokenStr(getKeywordImportType()) {
                     parseImportItemInto()
-                    if currentProgram.items.length() > 0 {
-                        let lastItem = currentProgram.items[currentProgram.items.length() - 1]
+                    if this.currentProgram.items.length() > 0 {
+                        let lastItem = this.currentProgram.items[this.currentProgram.items.length() - 1]
                         lastItem.visibility = "public"
                     }
                     continue
                 }
+                if this.pendingSealedModifier == 1 {
+                    this.pendingSealedModifier = 3
+                } else {
+                    this.pendingSealedModifier = 2
+                }
             }
 
             if matchTokenStr(SeenTokenType.KeywordSealed) {
-                pendingSealedModifier = 1
+                if this.pendingSealedModifier == 2 {
+                    this.pendingSealedModifier = 3
+                } else {
+                    this.pendingSealedModifier = 1
+                }
             }
 
             if matchTokenStr(SeenTokenType.AtSymbol) {
                 parseDecoratorInto()
-                if pendingDecorators.length() > 0 {
-                    let lastDecAfterSealed = pendingDecorators[pendingDecorators.length() - 1]
+                if this.pendingDecorators.length() > 0 {
+                    let lastDecAfterSealed = this.pendingDecorators[this.pendingDecorators.length() - 1]
                     if lastDecAfterSealed.name == "cImport" {
                         pushCImportDirectiveFromDecorator(lastDecAfterSealed)
-                        pendingDecorators = Array<AnnotationNode>()
+                        this.pendingDecorators = Array<AnnotationNode>()
                     }
                 }
                 continue
             }
 
-            if checkToken(SeenTokenType.KeywordEffect) {
+            if checkEffectModifierToken() {
                 parseEffectModifierInto()
                 continue
             }
@@ -1048,7 +1088,7 @@ class RealParser {
                 let peekedVal = peek().getValue()
                 if peekedVal == "extern" {
                     advance()
-                    pendingDecorators.push(AnnotationNode.new("extern"))
+                    this.pendingDecorators.push(AnnotationNode.new("extern"))
                 }
             }
 
@@ -1056,7 +1096,7 @@ class RealParser {
                 let asyncFunPeek = peekAt(1)
                 if asyncFunPeek.getType() == getKeywordFunType() {
                     advance()
-                    pendingDecorators.push(AnnotationNode.new("async"))
+                    this.pendingDecorators.push(AnnotationNode.new("async"))
                 }
             }
 
@@ -1086,7 +1126,7 @@ class RealParser {
             }
 
             if matchTokenStr(SeenTokenType.KeywordTrait) {
-                pendingDecorators.push(AnnotationNode.new("trait"))
+                this.pendingDecorators.push(AnnotationNode.new("trait"))
                 parseClassDeclarationItemInto()
                 continue
             }
@@ -1130,7 +1170,7 @@ class RealParser {
             advance()
         }
 
-        return currentProgram
+        return this.currentProgram
     }
 
     fun pushCImportDirectiveFromDecorator(dec: AnnotationNode) r: Void {
@@ -1145,7 +1185,7 @@ class RealParser {
         cImportItem.itemType = "Function"
         cImportItem.name = "__cImport"
         cImportItem.function = cImportFn
-        currentProgram.items.push(cImportItem)
+        this.currentProgram.items.push(cImportItem)
     }
 
     fun skipModuleDeclarationTail() r: Void {
@@ -1185,8 +1225,8 @@ class RealParser {
             skipBalancedDelimited(SeenTokenType.LeftBrace, SeenTokenType.RightBrace)
             let dummyStmt = StatementNode.new()
             dummyStmt.kind = "DeclarationBody"
-            lastFunction.body = BlockNode.new()
-            lastFunction.body.statements.push(dummyStmt)
+            this.lastFunction.body = BlockNode.new()
+            this.lastFunction.body.statements.push(dummyStmt)
             return true
         }
         return false
@@ -1222,8 +1262,8 @@ class RealParser {
         }
         let dummyStmt = StatementNode.new()
         dummyStmt.kind = "DeclarationBody"
-        lastFunction.body = BlockNode.new()
-        lastFunction.body.statements.push(dummyStmt)
+        this.lastFunction.body = BlockNode.new()
+        this.lastFunction.body.statements.push(dummyStmt)
     }
 
     fun skipDeclarationHeaderAndBody() r: Void {
@@ -1256,7 +1296,7 @@ class RealParser {
             aliasItem.name = aliasName
             aliasItem.classNode = aliasClass
             aliasItem.visibility = inferVisibility(aliasName)
-            currentProgram.items.push(aliasItem)
+            this.currentProgram.items.push(aliasItem)
         }
         if matchTokenStr(SeenTokenType.Semicolon) { }
     }
@@ -1290,7 +1330,7 @@ class RealParser {
             unionItem.name = unionName
             unionItem.classNode = unionClass
             unionItem.visibility = inferVisibility(unionName)
-            currentProgram.items.push(unionItem)
+            this.currentProgram.items.push(unionItem)
         }
     }
 
@@ -1300,8 +1340,8 @@ class RealParser {
 
     fun ensureTopLevelInitFunctionIndex() r: Int {
         var i = 0
-        while i < currentProgram.items.length() {
-            let item = currentProgram.items[i]
+        while i < this.currentProgram.items.length() {
+            let item = this.currentProgram.items[i]
             if item.itemType == "Function" {
                 if item.function.name == topLevelGlobalInitFunctionName() {
                     return i
@@ -1319,8 +1359,8 @@ class RealParser {
         initReturnType.typeName = "Void"
         initItem.function.returnType = initReturnType
         initItem.function.decorators.push(AnnotationNode.new("init"))
-        currentProgram.items.push(initItem)
-        return currentProgram.items.length() - 1
+        this.currentProgram.items.push(initItem)
+        return this.currentProgram.items.length() - 1
     }
 
     fun appendTopLevelGlobalInitializer(varName: String, initExpr: ParserExpressionNode) r: Void {
@@ -1329,7 +1369,7 @@ class RealParser {
         initStmt.kind = "Assignment"
         initStmt.variableName = varName
         initStmt.initializer = initExpr
-        let initItem = currentProgram.items[initIdx]
+        let initItem = this.currentProgram.items[initIdx]
         initItem.function.body.statements.push(initStmt)
     }
 
@@ -1392,9 +1432,9 @@ class RealParser {
     }
 
     fun findCurrentProgramFunctionReturnType(functionName: String) r: String {
-        var i = currentProgram.items.length() - 1
+        var i = this.currentProgram.items.length() - 1
         while i >= 0 {
-            let item = currentProgram.items[i]
+            let item = this.currentProgram.items[i]
             if item.itemType == "Function" {
                 if item.function.name == functionName {
                     let returnType = item.function.returnType.typeName
@@ -1409,9 +1449,9 @@ class RealParser {
     }
 
     fun findCurrentProgramGlobalType(globalName: String) r: String {
-        var i = currentProgram.items.length() - 1
+        var i = this.currentProgram.items.length() - 1
         while i >= 0 {
-            let item = currentProgram.items[i]
+            let item = this.currentProgram.items[i]
             if item.itemType == "GlobalVar" {
                 if item.name == globalName {
                     return parseTopLevelGlobalEncodedType(item.visibility)
@@ -1427,9 +1467,9 @@ class RealParser {
         if normalizedType == "" {
             return ""
         }
-        var i = currentProgram.items.length() - 1
+        var i = this.currentProgram.items.length() - 1
         while i >= 0 {
-            let item = currentProgram.items[i]
+            let item = this.currentProgram.items[i]
             if item.itemType == "Class" {
                 if item.classNode.name == normalizedType {
                     var fieldIdx = 0
@@ -1452,9 +1492,9 @@ class RealParser {
         if normalizedType == "" {
             return ""
         }
-        var i = currentProgram.items.length() - 1
+        var i = this.currentProgram.items.length() - 1
         while i >= 0 {
-            let item = currentProgram.items[i]
+            let item = this.currentProgram.items[i]
             if item.itemType == "Class" {
                 if item.classNode.name == normalizedType {
                     var methodIdx = 0
@@ -1477,8 +1517,8 @@ class RealParser {
 
     fun findTopLevelGlobalInitializerExpr(globalName: String) r: ParserExpressionNode {
         var i = 0
-        while i < currentProgram.items.length() {
-            let item = currentProgram.items[i]
+        while i < this.currentProgram.items.length() {
+            let item = this.currentProgram.items[i]
             if item.itemType == "Function" {
                 if item.function.name == topLevelGlobalInitFunctionName() {
                     var stmtIdx = 0
@@ -1514,8 +1554,8 @@ class RealParser {
 
     fun refineTopLevelGlobalTypes() r: Void {
         var i = 0
-        while i < currentProgram.items.length() {
-            let item = currentProgram.items[i]
+        while i < this.currentProgram.items.length() {
+            let item = this.currentProgram.items[i]
             if item.itemType == "GlobalVar" {
                 let initExpr = findTopLevelGlobalInitializerExpr(item.name)
                 if initExpr.kind != "None" {
@@ -1644,6 +1684,7 @@ class RealParser {
             if op == ">" { return "Bool" }
             if op == "<=" { return "Bool" }
             if op == ">=" { return "Bool" }
+            if op == "in" { return "Bool" }
             if op == "and" { return "Bool" }
             if op == "or" { return "Bool" }
             if initExpr.operands.length() > 0 {
@@ -1712,7 +1753,7 @@ class RealParser {
         var gvPrefix = "L"
         if isMutable { gvPrefix = "V" }
         gvItem.visibility = gvPrefix + gvType + ":" + extractTopLevelStaticInitializer(gvInitExpr)
-        currentProgram.items.push(gvItem)
+        this.currentProgram.items.push(gvItem)
 
         if gvHasInitializer {
             appendTopLevelGlobalInitializer(gvName, gvInitExpr)
@@ -1748,7 +1789,7 @@ class RealParser {
         var gvPrefix = "L"
         if isMutable { gvPrefix = "V" }
         gvItem.visibility = gvPrefix + gvType + ":" + gvStaticValue
-        currentProgram.items.push(gvItem)
+        this.currentProgram.items.push(gvItem)
     }
 
     fun parseImplDeclarationsOnly() r: Void {
@@ -1773,14 +1814,14 @@ class RealParser {
                 if matchTokenStr(SeenTokenType.KeywordStatic) { continue }
                 if matchTokenStr(SeenTokenType.KeywordOverride) { continue }
                 if matchTokenStr(SeenTokenType.KeywordAsync) {
-                    pendingDecorators.push(AnnotationNode.new("async"))
+                    this.pendingDecorators.push(AnnotationNode.new("async"))
                     continue
                 }
                 if checkToken(SeenTokenType.Identifier) {
                     let implPeekVal = peek().getValue()
                     if implPeekVal == "extern" {
                         advance()
-                        pendingDecorators.push(AnnotationNode.new("extern"))
+                        this.pendingDecorators.push(AnnotationNode.new("extern"))
                         continue
                     }
                 }
@@ -1849,19 +1890,45 @@ class RealParser {
             consume(SeenTokenType.RightParen, "Expected ')' after decorator arguments")
         }
 
-        pendingDecorators.push(annotation)
+        this.pendingDecorators.push(annotation)
+    }
+
+    fun checkEffectModifierToken() r: Bool {
+        if checkToken(SeenTokenType.KeywordEffect) {
+            return true
+        }
+        if checkToken(SeenTokenType.Identifier) {
+            if peek().getValue() == "effect" {
+                return peekAt(1).getType() == SeenTokenType.LeftParen
+            }
+        }
+        return false
+    }
+
+    fun consumeEffectModifierToken() r: Void {
+        if checkToken(SeenTokenType.KeywordEffect) {
+            advance()
+            return
+        }
+        if checkToken(SeenTokenType.Identifier) {
+            if peek().getValue() == "effect" {
+                advance()
+                return
+            }
+        }
+        consume(SeenTokenType.KeywordEffect, "Expected 'effect'")
     }
 
     fun parseEffectModifierInto() r: Void {
-        consume(SeenTokenType.KeywordEffect, "Expected 'effect'")
-        pendingDecorators.push(AnnotationNode.new("effect"))
-        let effectIndex = pendingDecorators.length() - 1
+        consumeEffectModifierToken()
+        this.pendingDecorators.push(AnnotationNode.new("effect"))
+        let effectIndex = this.pendingDecorators.length() - 1
 
         if matchTokenStr(SeenTokenType.LeftParen) {
             while not checkToken(SeenTokenType.RightParen) and not isAtEnd() {
                 if checkNameLikeToken() {
                     let effectArg = advance().getValue()
-                    pendingDecorators[effectIndex].addArgument(effectArg)
+                    this.pendingDecorators[effectIndex].addArgument(effectArg)
                 } else {
                     advance()
                 }
@@ -1904,7 +1971,7 @@ class RealParser {
 
         parseParameterList(func)
         parseOptionalReturnTypeIntoScratch()
-        if lastParsedTypeName != "Unknown" {
+        if this.lastParsedTypeName != "Unknown" {
             func.returnType = parsedScratchTypeNode()
         }
 
@@ -1928,13 +1995,15 @@ class RealParser {
         if matchTokenStr(SeenTokenType.LeftBrace) {
             // trace
             parseBlockIntoField()
-            func.body = lastParsedBlock
+            func.body = this.lastParsedBlock
             // trace.toString())
             funcBodyParsed = true
         }
         if not funcBodyParsed {
-            // trace
-            // Abstract function or declaration
+            ///
+            trace
+            Abstract function or declaration
+            ///
             func.body = BlockNode.new()
             if matchTokenStr(SeenTokenType.Semicolon) {
                 // Consumed
@@ -1958,14 +2027,16 @@ class RealParser {
         return item
     }
 
-    // Parse a complete function declaration and push it as an ItemNode directly
-    // into currentProgram.  Handles generic type parameters, decorators,
-    // parameter lists (including the `r: Type` return-type syntax), fat-arrow
-    // bodies (`=> expr`), and data-type method syntax (`fun Type.method()`).
-    //
-    // Uses lastFunction class field instead of a local FunctionNode variable
-    // to work around a stage1 bootstrap codegen bug where returning or
-    // locally copying large struct values corrupts memory.
+    ///
+    Parse a complete function declaration and push it as an ItemNode directly
+    into currentProgram.  Handles generic type parameters, decorators,
+    parameter lists (including the `r: Type` return-type syntax), fat-arrow
+    bodies (`=> expr`), and data-type method syntax (`fun Type.method()`).
+
+    Uses lastFunction class field instead of a local FunctionNode variable
+    to work around a stage1 bootstrap codegen bug where returning or
+    locally copying large struct values corrupts memory.
+    ///
     fun parseFunctionItemInto() r: Void {
         if isAtEnd() {
             return
@@ -1973,7 +2044,7 @@ class RealParser {
 
         let nameToken = consume(SeenTokenType.Identifier, "Expected function name")
         // Use class field to avoid local variable corruption
-        lastFunction = FunctionNode.new()
+        this.lastFunction = FunctionNode.new()
         clearPendingFunctionReturnType()
         clearPendingFunctionParamTypes()
         // Handle data type method syntax: fun TypeName.methodName() -> TypeName_methodName
@@ -1982,10 +2053,12 @@ class RealParser {
             let methodToken = consume(SeenTokenType.Identifier, "Expected method name after dot")
             funcName = funcName + "_" + methodToken.getValue()
         }
-        lastFunction.name = funcName
+        this.lastFunction.name = funcName
 
-        // Skip generic type parameters: fun name<T: Ord + Clone>(...)
-        // : Detect variadic generic ...Ts syntax
+        ///
+        Skip generic type parameters: fun name<T: Ord + Clone>(...)
+        : Detect variadic generic ...Ts syntax
+        ///
         if checkToken(SeenTokenType.LessThan) {
             advance()
             var gd = 1
@@ -1997,7 +2070,7 @@ class RealParser {
                         let packName = peek().getValue()
                         let variadicAnn = AnnotationNode.new("variadic_generic")
                         variadicAnn.addArgument(packName)
-                        lastFunction.decorators.push(variadicAnn)
+                        this.lastFunction.decorators.push(variadicAnn)
                     }
                 }
                 if checkToken(SeenTokenType.LessThan) { gd = gd + 1 }
@@ -2010,12 +2083,12 @@ class RealParser {
         applyDecoratorsToFunction()
 
         parseParameterListField()
-        var resolvedReturnTypeName = pendingFunctionReturnTypeName
-        var resolvedReturnTypeNullable = pendingFunctionReturnTypeNullable
+        var resolvedReturnTypeName = this.pendingFunctionReturnTypeName
+        var resolvedReturnTypeNullable = this.pendingFunctionReturnTypeNullable
         parseOptionalReturnTypeIntoScratch()
-        if lastParsedTypeName != "Unknown" {
-            resolvedReturnTypeName = lastParsedTypeName
-            resolvedReturnTypeNullable = lastParsedTypeNullable
+        if this.lastParsedTypeName != "Unknown" {
+            resolvedReturnTypeName = this.lastParsedTypeName
+            resolvedReturnTypeNullable = this.lastParsedTypeNullable
         }
 
         // Check for '=>' fat-arrow single-expression body (= followed by >)
@@ -2029,8 +2102,8 @@ class RealParser {
                 let arrowRetStmt = StatementNode.new()
                 arrowRetStmt.kind = "Return"
                 arrowRetStmt.returnValue = arrowBodyExpr
-                lastFunction.body = BlockNode.new()
-                lastFunction.body.statements.push(arrowRetStmt)
+                this.lastFunction.body = BlockNode.new()
+                this.lastFunction.body.statements.push(arrowRetStmt)
                 fatArrowBody = true
             }
         }
@@ -2039,11 +2112,11 @@ class RealParser {
         if not fatArrowBody {
             if matchTokenStr(SeenTokenType.LeftBrace) {
                 parseBlockIntoField()
-                lastFunction.body = lastParsedBlock
+                this.lastFunction.body = this.lastParsedBlock
                 bodyParsed = true
             }
             if not bodyParsed {
-                lastFunction.body = BlockNode.new()
+                this.lastFunction.body = BlockNode.new()
                 if matchTokenStr(SeenTokenType.Semicolon) {
                     // Consumed
                 }
@@ -2052,23 +2125,25 @@ class RealParser {
 
         applyPendingFunctionParamTypes()
         if resolvedReturnTypeName != "Unknown" {
-            lastParsedTypeName = resolvedReturnTypeName
-            lastParsedTypeNullable = resolvedReturnTypeNullable
-            lastFunction.returnType = parsedScratchTypeNode()
+            this.lastParsedTypeName = resolvedReturnTypeName
+            this.lastParsedTypeNullable = resolvedReturnTypeNullable
+            this.lastFunction.returnType = parsedScratchTypeNode()
         }
 
-        traceParsedFunctionShape("parseFunctionItemInto", lastFunction)
+        traceParsedFunctionShape("parseFunctionItemInto", this.lastFunction)
 
-        // Push directly to currentProgram instead of returning
-        // Use separate allocations to avoid heap corruption from struct literal
-        // trace
+        ///
+        Push directly to currentProgram instead of returning
+        Use separate allocations to avoid heap corruption from struct literal
+        trace
+        ///
         let item = ItemNode.new()
         item.itemType = "Function"
-        item.name = lastFunction.name
-        item.visibility = inferVisibility(lastFunction.name)
-        item.function = lastFunction
+        item.name = this.lastFunction.name
+        item.visibility = inferVisibility(this.lastFunction.name)
+        item.function = this.lastFunction
         // trace
-        currentProgram.items.push(item)
+        this.currentProgram.items.push(item)
         traceParse("push Function " + item.name)
         // trace
     }
@@ -2076,9 +2151,9 @@ class RealParser {
     fun finishDeclarationFunctionReturnType(resolvedName: String, resolvedNullable: Bool) r: Void {
         applyPendingFunctionParamTypes()
         if resolvedName != "Unknown" {
-            lastParsedTypeName = resolvedName
-            lastParsedTypeNullable = resolvedNullable
-            lastFunction.returnType = parsedScratchTypeNode()
+            this.lastParsedTypeName = resolvedName
+            this.lastParsedTypeNullable = resolvedNullable
+            this.lastFunction.returnType = parsedScratchTypeNode()
         }
     }
 
@@ -2088,7 +2163,7 @@ class RealParser {
         }
 
         let nameToken = consume(SeenTokenType.Identifier, "Expected function name")
-        lastFunction = FunctionNode.new()
+        this.lastFunction = FunctionNode.new()
         clearPendingFunctionReturnType()
         clearPendingFunctionParamTypes()
 
@@ -2097,18 +2172,18 @@ class RealParser {
             let methodToken = consume(SeenTokenType.Identifier, "Expected method name after dot")
             funcName = funcName + "_" + methodToken.getValue()
         }
-        lastFunction.name = funcName
+        this.lastFunction.name = funcName
 
         skipGenericParametersIfPresent()
         applyDecoratorsToFunction()
         parseParameterListField()
 
-        var resolvedReturnTypeName = pendingFunctionReturnTypeName
-        var resolvedReturnTypeNullable = pendingFunctionReturnTypeNullable
+        var resolvedReturnTypeName = this.pendingFunctionReturnTypeName
+        var resolvedReturnTypeNullable = this.pendingFunctionReturnTypeNullable
         parseOptionalReturnTypeIntoScratch()
-        if lastParsedTypeName != "Unknown" {
-            resolvedReturnTypeName = lastParsedTypeName
-            resolvedReturnTypeNullable = lastParsedTypeNullable
+        if this.lastParsedTypeName != "Unknown" {
+            resolvedReturnTypeName = this.lastParsedTypeName
+            resolvedReturnTypeNullable = this.lastParsedTypeNullable
         }
 
         var bodyHandled = false
@@ -2127,7 +2202,7 @@ class RealParser {
             }
         }
         if not bodyHandled {
-            lastFunction.body = BlockNode.new()
+            this.lastFunction.body = BlockNode.new()
             if matchTokenStr(SeenTokenType.Semicolon) { }
         }
 
@@ -2136,54 +2211,54 @@ class RealParser {
 
         let item = ItemNode.new()
         item.itemType = "Function"
-        item.name = lastFunction.name
-        item.visibility = inferVisibility(lastFunction.name)
-        item.function = lastFunction
-        currentProgram.items.push(item)
+        item.name = this.lastFunction.name
+        item.visibility = inferVisibility(this.lastFunction.name)
+        item.function = this.lastFunction
+        this.currentProgram.items.push(item)
     }
 
-    // Apply pending decorators to lastFunction and clear them
+    // Apply pending decorators to this.lastFunction and clear them
     fun applyDecoratorsToFunction() r: Void {
         // Copy all pending decorators to the function
         var i = 0
-        while i < pendingDecorators.length() {
-            let decorator = pendingDecorators[i]
-            lastFunction.decorators.push(decorator)
+        while i < this.pendingDecorators.length() {
+            let decorator = this.pendingDecorators[i]
+            this.lastFunction.decorators.push(decorator)
 
             // Set convenience flags for common decorators
             if decorator.name == "deterministic" {
-                lastFunction.isDeterministic = true
+                this.lastFunction.isDeterministic = true
             }
             if decorator.name == "nondeterministic" {
-                lastFunction.isNondeterministic = true
+                this.lastFunction.isNondeterministic = true
             }
             if decorator.name == "extern" {
-                lastFunction.isExtern = true
+                this.lastFunction.isExtern = true
             }
             if decorator.name == "inline" {
-                lastFunction.isInline = true
+                this.lastFunction.isInline = true
             }
             if decorator.name == "async" {
-                lastFunction.isAsync = true
+                this.lastFunction.isAsync = true
             }
             if decorator.name == "test" {
                 // Tests are deterministic by default
-                lastFunction.isDeterministic = true
+                this.lastFunction.isDeterministic = true
             }
 
             i = i + 1
         }
 
         // Clear pending decorators after applying
-        pendingDecorators = Array<AnnotationNode>()
+        this.pendingDecorators = Array<AnnotationNode>()
     }
 
     // Apply pending decorators to a ClassNode and clear them
     fun applyDecoratorsToClass(classNode: ClassNode) r: Void {
         // Copy all pending decorators to the class
         var i = 0
-        while i < pendingDecorators.length() {
-            let decorator = pendingDecorators[i]
+        while i < this.pendingDecorators.length() {
+            let decorator = this.pendingDecorators[i]
             classNode.decorators.push(decorator)
 
             // Set convenience flags for common decorators
@@ -2191,9 +2266,11 @@ class RealParser {
                 classNode.isNondeterministic = true
             }
 
-            // For @hot_reload: add sentinel method so IR generator can detect it
-            // without accessing classNode.decorators (which is at a broken GEP index
-            // due to the static fun phantom field bug in ClassNode).
+            ///
+            For @hot_reload: add sentinel method so IR generator can detect it
+            without accessing classNode.decorators (which is at a broken GEP index
+            due to the static fun phantom field bug in ClassNode).
+            ///
             if decorator.name == "hot_reload" {
                 let sentinel = FunctionNode.new()
                 sentinel.name = "__seen_hot_reload_marker__"
@@ -2204,18 +2281,22 @@ class RealParser {
         }
 
         // Clear pending decorators after applying
-        pendingDecorators = Array<AnnotationNode>()
+        this.pendingDecorators = Array<AnnotationNode>()
     }
 
     fun applyPendingTypeModifiersToClass(classNode: ClassNode) r: Void {
-        if pendingSealedModifier == 1 {
-            pendingDecorators.push(AnnotationNode.new("sealed"))
-            pendingSealedModifier = 0
+        if this.pendingSealedModifier == 1 or this.pendingSealedModifier == 3 {
+            this.pendingDecorators.push(AnnotationNode.new("sealed"))
+            if this.pendingSealedModifier == 3 {
+                this.pendingSealedModifier = 2
+            } else {
+                this.pendingSealedModifier = 0
+            }
         }
         applyDecoratorsToClass(classNode)
     }
 
-    // Parse parameter list into lastFunction (avoids passing FunctionNode by value)
+    // Parse parameter list into this.lastFunction (avoids passing FunctionNode by value)
     fun parseParameterListField() r: Void {
         prepareFunctionParameterStorage()
         consume(SeenTokenType.LeftParen, "Expected '(' after function name")
@@ -2250,8 +2331,10 @@ class RealParser {
                     wasReturnParam = true
                     continue
                 }
-                // comptime parameter modifier
-                // If identifier is "comptime", consume the next identifier as the real param name
+                ///
+                comptime parameter modifier
+                If identifier is "comptime", consume the next identifier as the real param name
+                ///
                 var isComptimeParam = false
                 if not wasReturnParam and prevTok.getValue() == "comptime" {
                     isComptimeParam = true
@@ -2263,8 +2346,8 @@ class RealParser {
                         var paramTypeNullable = false
                         if matchTokenStr(SeenTokenType.Colon) {
                             parseTypeNodeIntoScratch()
-                            paramTypeName = lastParsedTypeName
-                            paramTypeNullable = lastParsedTypeNullable
+                            paramTypeName = this.lastParsedTypeName
+                            paramTypeNullable = this.lastParsedTypeNullable
                         }
                         // Encode comptime in type string prefix
                         if paramTypeName != "" {
@@ -2277,10 +2360,10 @@ class RealParser {
                             paramTypeName = paramTypeName + "~default~" + defVal
                             skipExpression()
                         }
-                        lastParsedTypeName = paramTypeName
-                        lastParsedTypeNullable = paramTypeNullable
+                        this.lastParsedTypeName = paramTypeName
+                        this.lastParsedTypeNullable = paramTypeNullable
                         param.paramType = parsedScratchTypeNode()
-                        lastFunction.params.push(param)
+                        this.lastFunction.params.push(param)
                         wasReturnParam = true
                     }
                 }
@@ -2295,8 +2378,8 @@ class RealParser {
                     var paramTypeNullable = false
                     if matchTokenStr(SeenTokenType.Colon) {
                         parseTypeNodeIntoScratch()
-                        paramTypeName = lastParsedTypeName
-                        paramTypeNullable = lastParsedTypeNullable
+                        paramTypeName = this.lastParsedTypeName
+                        paramTypeNullable = this.lastParsedTypeNullable
                     }
                     // Encode ownership in type string prefix
                     if paramOwnership != "" and paramTypeName != "" {
@@ -2308,10 +2391,10 @@ class RealParser {
                         paramTypeName = paramTypeName + "~default~" + defVal
                         skipExpression()
                     }
-                    lastParsedTypeName = paramTypeName
-                    lastParsedTypeNullable = paramTypeNullable
+                    this.lastParsedTypeName = paramTypeName
+                    this.lastParsedTypeNullable = paramTypeNullable
                     param.paramType = parsedScratchTypeNode()
-                    lastFunction.params.push(param)
+                    this.lastFunction.params.push(param)
                 }
             }
 
@@ -2354,8 +2437,10 @@ class RealParser {
                 let curTok = peek()
                 let curType = curTok.getType().toString()
                 let rbStr = SeenTokenType.RightBrace.toString()
-                // trace + " rbCheck=(" + curType + "==" + rbStr + ")")
-                // Consume optional 'pub' modifier
+                ///
+                trace + " rbCheck=(" + curType + "==" + rbStr + ")")
+                Consume optional 'pub' modifier
+                ///
                 if matchTokenStr(SeenTokenType.KeywordPub) {
                     // fall through
                 }
@@ -2366,7 +2451,7 @@ class RealParser {
                     classTokenHandled = true
                 }
                 if not classTokenHandled {
-                    if checkToken(SeenTokenType.KeywordEffect) {
+                    if checkEffectModifierToken() {
                         parseEffectModifierInto()
                         classTokenHandled = true
                     }
@@ -2398,10 +2483,10 @@ class RealParser {
                     if matchTokenStr(SeenTokenType.KeywordStatic) {
                         if matchTokenStr(SeenTokenType.KeywordFun) {
                             let methodNameTok = consume(SeenTokenType.Identifier, "Expected method name")
-                            lastFunction = FunctionNode.new()
+                            this.lastFunction = FunctionNode.new()
                             clearPendingFunctionReturnType()
                             clearPendingFunctionParamTypes()
-                            lastFunction.name = methodNameTok.getValue()
+                            this.lastFunction.name = methodNameTok.getValue()
                             // Skip generic type parameters
                             if checkToken(SeenTokenType.LessThan) {
                                 advance()
@@ -2414,37 +2499,41 @@ class RealParser {
                             }
                             applyDecoratorsToFunction()
                             parseParameterListField()
-                            var resolvedReturnTypeName = pendingFunctionReturnTypeName
-                            var resolvedReturnTypeNullable = pendingFunctionReturnTypeNullable
+                            var resolvedReturnTypeName = this.pendingFunctionReturnTypeName
+                            var resolvedReturnTypeNullable = this.pendingFunctionReturnTypeNullable
                             parseOptionalReturnTypeIntoScratch()
-                            if lastParsedTypeName != "Unknown" {
-                                resolvedReturnTypeName = lastParsedTypeName
-                                resolvedReturnTypeNullable = lastParsedTypeNullable
+                            if this.lastParsedTypeName != "Unknown" {
+                                resolvedReturnTypeName = this.lastParsedTypeName
+                                resolvedReturnTypeNullable = this.lastParsedTypeNullable
                             }
                             if matchTokenStr(SeenTokenType.LeftBrace) {
                                 parseBlockIntoField()
-                                lastFunction.body = lastParsedBlock
+                                this.lastFunction.body = this.lastParsedBlock
                             } else {
-                                lastFunction.body = BlockNode.new()
+                                this.lastFunction.body = BlockNode.new()
                             }
                             applyPendingFunctionParamTypes()
                             if resolvedReturnTypeName != "Unknown" {
-                                lastParsedTypeName = resolvedReturnTypeName
-                                lastParsedTypeNullable = resolvedReturnTypeNullable
-                                lastFunction.returnType = parsedScratchTypeNode()
+                                this.lastParsedTypeName = resolvedReturnTypeName
+                                this.lastParsedTypeNullable = resolvedReturnTypeNullable
+                                this.lastFunction.returnType = parsedScratchTypeNode()
                             }
-                            lastFunction.isStatic = true
-                            classNode.methods.push(lastFunction)
+                            this.lastFunction.isStatic = true
+                            classNode.methods.push(this.lastFunction)
                         }
                         classTokenHandled = true
                     }
                 }
-                // Check for 'fun' (instance method)
-                // NOTE: Use nested if instead of 'and' to ensure short-circuit (Stage1 bug workaround)
+                ///
+                Check for 'fun' (instance method)
+                NOTE: Use nested if instead of 'and' to ensure short-circuit (Stage1 bug workaround)
+                ///
                 if not classTokenHandled {
                     if matchTokenStr(SeenTokenType.KeywordFun) {
-                        // Inline parse using lastFunction field to avoid memory corruption
-                        // Handle 'operator' keyword or normal identifier as method name
+                        ///
+                        Inline parse using lastFunction field to avoid memory corruption
+                        Handle 'operator' keyword or normal identifier as method name
+                        ///
                         var methodNameStr2 = ""
                         if checkToken(SeenTokenType.KeywordOperator) {
                             advance()
@@ -2466,10 +2555,10 @@ class RealParser {
                             if methodNameStr2 == "operator" and matchTokenStr(SeenTokenType.LessEqual) { methodNameStr2 = "operator_lte" }
                             if methodNameStr2 == "operator" and matchTokenStr(SeenTokenType.GreaterEqual) { methodNameStr2 = "operator_gte" }
                         }
-                        lastFunction = FunctionNode.new()
+                        this.lastFunction = FunctionNode.new()
                         clearPendingFunctionReturnType()
                         clearPendingFunctionParamTypes()
-                        lastFunction.name = methodNameStr2
+                        this.lastFunction.name = methodNameStr2
                         // Skip generic type parameters
                         if checkToken(SeenTokenType.LessThan) {
                             advance()
@@ -2482,27 +2571,27 @@ class RealParser {
                         }
                         applyDecoratorsToFunction()
                         parseParameterListField()
-                        var resolvedReturnTypeName2 = pendingFunctionReturnTypeName
-                        var resolvedReturnTypeNullable2 = pendingFunctionReturnTypeNullable
+                        var resolvedReturnTypeName2 = this.pendingFunctionReturnTypeName
+                        var resolvedReturnTypeNullable2 = this.pendingFunctionReturnTypeNullable
                         parseOptionalReturnTypeIntoScratch()
-                        if lastParsedTypeName != "Unknown" {
-                            resolvedReturnTypeName2 = lastParsedTypeName
-                            resolvedReturnTypeNullable2 = lastParsedTypeNullable
+                        if this.lastParsedTypeName != "Unknown" {
+                            resolvedReturnTypeName2 = this.lastParsedTypeName
+                            resolvedReturnTypeNullable2 = this.lastParsedTypeNullable
                         }
                         if matchTokenStr(SeenTokenType.LeftBrace) {
                             parseBlockIntoField()
-                            lastFunction.body = lastParsedBlock
+                            this.lastFunction.body = this.lastParsedBlock
                         } else {
-                            lastFunction.body = BlockNode.new()
+                            this.lastFunction.body = BlockNode.new()
                         }
                         applyPendingFunctionParamTypes()
                         if resolvedReturnTypeName2 != "Unknown" {
-                            lastParsedTypeName = resolvedReturnTypeName2
-                            lastParsedTypeNullable = resolvedReturnTypeNullable2
-                            lastFunction.returnType = parsedScratchTypeNode()
+                            this.lastParsedTypeName = resolvedReturnTypeName2
+                            this.lastParsedTypeNullable = resolvedReturnTypeNullable2
+                            this.lastFunction.returnType = parsedScratchTypeNode()
                         }
-                        lastFunction.isStatic = false
-                        classNode.methods.push(lastFunction)
+                        this.lastFunction.isStatic = false
+                        classNode.methods.push(this.lastFunction)
                         // trace
                         classTokenHandled = true
                     }
@@ -2555,7 +2644,7 @@ class RealParser {
                     }
                 }
                 if not classTokenHandled {
-                    // Skip unknown tokens
+                    // Skip unknown this.tokens
                     advance()
                 }
             }
@@ -2571,14 +2660,16 @@ class RealParser {
         return item
     }
 
-    // Parse a class, struct, trait, or data declaration and push it into
-    // currentProgram.  Also used for `data` and `struct` keywords (aliases).
-    // Parses: generic params, `extends` clause, decorators, braced body
-    // containing fields (var/let/bare), static methods, instance methods
-    // (including operator overloads), and associated type declarations.
-    //
-    // NOTE: `if/else if` chains are written as nested `if not handled { if ... }`
-    // because the stage1 bootstrap compiler does not short-circuit `and`/`or`.
+    ///
+    Parse a class, struct, trait, or data declaration and push it into
+    currentProgram.  Also used for `data` and `struct` keywords (aliases).
+    Parses: generic params, `extends` clause, decorators, braced body
+    containing fields (var/let/bare), static methods, instance methods
+    (including operator overloads), and associated type declarations.
+
+    NOTE: `if/else if` chains are written as nested `if not handled { if ... }`
+    because the stage1 bootstrap compiler does not short-circuit `and`/`or`.
+    ///
     fun parseClassItemInto() r: Void {
         if isAtEnd() {
             return
@@ -2631,7 +2722,7 @@ class RealParser {
                     classIntoTokenHandled = true
                 }
                 if not classIntoTokenHandled {
-                    if checkToken(SeenTokenType.KeywordEffect) {
+                    if checkEffectModifierToken() {
                         parseEffectModifierInto()
                         classIntoTokenHandled = true
                     }
@@ -2662,12 +2753,12 @@ class RealParser {
                 if not classIntoTokenHandled {
                     if matchTokenStr(SeenTokenType.KeywordStatic) {
                         if matchTokenStr(SeenTokenType.KeywordFun) {
-                            // Inline parse using lastFunction field to avoid memory corruption
+                            // Inline parse using this.lastFunction field to avoid memory corruption
                             let methodNameTokInto = consume(SeenTokenType.Identifier, "Expected method name")
-                            lastFunction = FunctionNode.new()
+                            this.lastFunction = FunctionNode.new()
                             clearPendingFunctionReturnType()
                             clearPendingFunctionParamTypes()
-                            lastFunction.name = methodNameTokInto.getValue()
+                            this.lastFunction.name = methodNameTokInto.getValue()
                             // Skip generic type parameters: fun name<T: Ord>(...)
                             if checkToken(SeenTokenType.LessThan) {
                                 advance()
@@ -2680,27 +2771,27 @@ class RealParser {
                             }
                             applyDecoratorsToFunction()
                             parseParameterListField()
-                            var resolvedReturnTypeNameInto = pendingFunctionReturnTypeName
-                            var resolvedReturnTypeNullableInto = pendingFunctionReturnTypeNullable
+                            var resolvedReturnTypeNameInto = this.pendingFunctionReturnTypeName
+                            var resolvedReturnTypeNullableInto = this.pendingFunctionReturnTypeNullable
                             parseOptionalReturnTypeIntoScratch()
-                            if lastParsedTypeName != "Unknown" {
-                                resolvedReturnTypeNameInto = lastParsedTypeName
-                                resolvedReturnTypeNullableInto = lastParsedTypeNullable
+                            if this.lastParsedTypeName != "Unknown" {
+                                resolvedReturnTypeNameInto = this.lastParsedTypeName
+                                resolvedReturnTypeNullableInto = this.lastParsedTypeNullable
                             }
                             if matchTokenStr(SeenTokenType.LeftBrace) {
                                 parseBlockIntoField()
-                                lastFunction.body = lastParsedBlock
+                                this.lastFunction.body = this.lastParsedBlock
                             } else {
-                                lastFunction.body = BlockNode.new()
+                                this.lastFunction.body = BlockNode.new()
                             }
                             applyPendingFunctionParamTypes()
                             if resolvedReturnTypeNameInto != "Unknown" {
-                                lastParsedTypeName = resolvedReturnTypeNameInto
-                                lastParsedTypeNullable = resolvedReturnTypeNullableInto
-                                lastFunction.returnType = parsedScratchTypeNode()
+                                this.lastParsedTypeName = resolvedReturnTypeNameInto
+                                this.lastParsedTypeNullable = resolvedReturnTypeNullableInto
+                                this.lastFunction.returnType = parsedScratchTypeNode()
                             }
-                            lastFunction.isStatic = true
-                            classNode.methods.push(lastFunction)
+                            this.lastFunction.isStatic = true
+                            classNode.methods.push(this.lastFunction)
                         }
                         classIntoTokenHandled = true
                     }
@@ -2717,12 +2808,16 @@ class RealParser {
                         sawAsyncInto = 1
                     }
                 }
-                // Check for 'fun' (instance method)
-                // NOTE: Use nested if instead of 'and' to ensure short-circuit (Stage1 bug workaround)
+                ///
+                Check for 'fun' (instance method)
+                NOTE: Use nested if instead of 'and' to ensure short-circuit (Stage1 bug workaround)
+                ///
                 if not classIntoTokenHandled {
                     if matchTokenStr(SeenTokenType.KeywordFun) {
-                        // Inline parse using lastFunction field to avoid memory corruption
-                        // Handle 'operator' keyword or normal identifier as method name
+                        ///
+                        Inline parse using lastFunction field to avoid memory corruption
+                        Handle 'operator' keyword or normal identifier as method name
+                        ///
                         var methodNameStr = ""
                         if checkToken(SeenTokenType.KeywordOperator) {
                             advance()
@@ -2744,10 +2839,10 @@ class RealParser {
                             if methodNameStr == "operator" and matchTokenStr(SeenTokenType.LessEqual) { methodNameStr = "operator_lte" }
                             if methodNameStr == "operator" and matchTokenStr(SeenTokenType.GreaterEqual) { methodNameStr = "operator_gte" }
                         }
-                        lastFunction = FunctionNode.new()
+                        this.lastFunction = FunctionNode.new()
                         clearPendingFunctionReturnType()
                         clearPendingFunctionParamTypes()
-                        lastFunction.name = methodNameStr
+                        this.lastFunction.name = methodNameStr
                         // Skip generic type parameters: fun name<T: Ord>(...)
                         if checkToken(SeenTokenType.LessThan) {
                             advance()
@@ -2760,33 +2855,33 @@ class RealParser {
                         }
                         applyDecoratorsToFunction()
                         parseParameterListField()
-                        var resolvedReturnTypeNameInto2 = pendingFunctionReturnTypeName
-                        var resolvedReturnTypeNullableInto2 = pendingFunctionReturnTypeNullable
+                        var resolvedReturnTypeNameInto2 = this.pendingFunctionReturnTypeName
+                        var resolvedReturnTypeNullableInto2 = this.pendingFunctionReturnTypeNullable
                         parseOptionalReturnTypeIntoScratch()
-                        if lastParsedTypeName != "Unknown" {
-                            resolvedReturnTypeNameInto2 = lastParsedTypeName
-                            resolvedReturnTypeNullableInto2 = lastParsedTypeNullable
+                        if this.lastParsedTypeName != "Unknown" {
+                            resolvedReturnTypeNameInto2 = this.lastParsedTypeName
+                            resolvedReturnTypeNullableInto2 = this.lastParsedTypeNullable
                         }
                         if matchTokenStr(SeenTokenType.LeftBrace) {
                             parseBlockIntoField()
-                            lastFunction.body = lastParsedBlock
+                            this.lastFunction.body = this.lastParsedBlock
                         } else {
-                            lastFunction.body = BlockNode.new()
+                            this.lastFunction.body = BlockNode.new()
                         }
                         applyPendingFunctionParamTypes()
                         if resolvedReturnTypeNameInto2 != "Unknown" {
-                            lastParsedTypeName = resolvedReturnTypeNameInto2
-                            lastParsedTypeNullable = resolvedReturnTypeNullableInto2
-                            lastFunction.returnType = parsedScratchTypeNode()
+                            this.lastParsedTypeName = resolvedReturnTypeNameInto2
+                            this.lastParsedTypeNullable = resolvedReturnTypeNullableInto2
+                            this.lastFunction.returnType = parsedScratchTypeNode()
                         }
-                        lastFunction.isStatic = false
+                        this.lastFunction.isStatic = false
                         if sawOverrideInto == 1 {
-                            lastFunction.isOverride = true
+                            this.lastFunction.isOverride = true
                         }
                         if sawAsyncInto == 1 {
-                            lastFunction.isAsync = true
+                            this.lastFunction.isAsync = true
                         }
-                        classNode.methods.push(lastFunction)
+                        classNode.methods.push(this.lastFunction)
                         classIntoTokenHandled = true
                     }
                 }
@@ -2843,8 +2938,8 @@ class RealParser {
             consume(SeenTokenType.RightBrace, "Expected '}' after class body")
         }
 
-        // Push directly to currentProgram instead of returning
-        currentProgram.items.push(ItemNode{
+        // Push directly to this.currentProgram instead of returning
+        this.currentProgram.items.push(ItemNode{
             itemType: "Class",
             name: classNode.name,
             visibility: inferVisibility(classNode.name),
@@ -2895,38 +2990,38 @@ class RealParser {
     fun parseClassMethodDeclarationInto(classNode: ClassNode, methodName: String,
         isStaticMethod: Bool, sawOverrideFlag: Int, sawAsyncFlag: Int) r: Void {
 
-        lastFunction = FunctionNode.new()
+        this.lastFunction = FunctionNode.new()
         clearPendingFunctionReturnType()
         clearPendingFunctionParamTypes()
-        lastFunction.name = methodName
+        this.lastFunction.name = methodName
 
         skipGenericParametersIfPresent()
         applyDecoratorsToFunction()
         parseParameterListField()
 
-        var resolvedReturnTypeName = pendingFunctionReturnTypeName
-        var resolvedReturnTypeNullable = pendingFunctionReturnTypeNullable
+        var resolvedReturnTypeName = this.pendingFunctionReturnTypeName
+        var resolvedReturnTypeNullable = this.pendingFunctionReturnTypeNullable
         parseOptionalReturnTypeIntoScratch()
-        if lastParsedTypeName != "Unknown" {
-            resolvedReturnTypeName = lastParsedTypeName
-            resolvedReturnTypeNullable = lastParsedTypeNullable
+        if this.lastParsedTypeName != "Unknown" {
+            resolvedReturnTypeName = this.lastParsedTypeName
+            resolvedReturnTypeNullable = this.lastParsedTypeNullable
         }
 
         if not skipFunctionBodyAndMarkDeclaration() {
-            lastFunction.body = BlockNode.new()
+            this.lastFunction.body = BlockNode.new()
             if matchTokenStr(SeenTokenType.Semicolon) { }
         }
 
         finishDeclarationFunctionReturnType(resolvedReturnTypeName,
             resolvedReturnTypeNullable)
-        lastFunction.isStatic = isStaticMethod
+        this.lastFunction.isStatic = isStaticMethod
         if sawOverrideFlag == 1 {
-            lastFunction.isOverride = true
+            this.lastFunction.isOverride = true
         }
         if sawAsyncFlag == 1 {
-            lastFunction.isAsync = true
+            this.lastFunction.isAsync = true
         }
-        classNode.methods.push(lastFunction)
+        classNode.methods.push(this.lastFunction)
     }
 
     fun parseClassDeclarationItemInto() r: Void {
@@ -2961,7 +3056,7 @@ class RealParser {
                 }
 
                 if not handled {
-                    if checkToken(SeenTokenType.KeywordEffect) {
+                    if checkEffectModifierToken() {
                         parseEffectModifierInto()
                         handled = true
                     }
@@ -3056,7 +3151,7 @@ class RealParser {
         item.name = classNode.name
         item.visibility = inferVisibility(classNode.name)
         item.classNode = classNode
-        currentProgram.items.push(item)
+        this.currentProgram.items.push(item)
     }
 
     fun parseDataStructItemInto() r: Void {
@@ -3093,7 +3188,7 @@ class RealParser {
         }
         if matchTokenStr(SeenTokenType.Semicolon) { }
 
-        currentProgram.items.push(ItemNode{
+        this.currentProgram.items.push(ItemNode{
             itemType: "Class", name: classNode.name,
             visibility: inferVisibility(classNode.name),
             importPath: Array<String>(),
@@ -3108,8 +3203,12 @@ class RealParser {
             return ItemNode.new()
         }
 
-        if pendingSealedModifier == 1 {
-            pendingSealedModifier = 0
+        if this.pendingSealedModifier == 1 {
+            this.pendingSealedModifier = 0
+        } else {
+            if this.pendingSealedModifier == 3 {
+                this.pendingSealedModifier = 2
+            }
         }
 
         let nameToken = consume(SeenTokenType.Identifier, "Expected enum name")
@@ -3140,16 +3239,22 @@ class RealParser {
         return item
     }
 
-    // Parse an enum declaration (enum Name { Variant1, Variant2, ... }) and
-    // push it into currentProgram.  Variants are plain identifiers collected
-    // into EnumNode.variants.
+    ///
+    Parse an enum declaration (enum Name { Variant1, Variant2, ... }) and
+    push it into currentProgram.  Variants are plain identifiers collected
+    into EnumNode.variants.
+    ///
     fun parseEnumItemInto() r: Void {
         if isAtEnd() {
             return
         }
 
-        if pendingSealedModifier == 1 {
-            pendingSealedModifier = 0
+        if this.pendingSealedModifier == 1 {
+            this.pendingSealedModifier = 0
+        } else {
+            if this.pendingSealedModifier == 3 {
+                this.pendingSealedModifier = 2
+            }
         }
 
         let nameToken = consume(SeenTokenType.Identifier, "Expected enum name")
@@ -3170,8 +3275,8 @@ class RealParser {
             consume(SeenTokenType.RightBrace, "Expected '}' after enum variants")
         }
 
-        // Push directly to currentProgram instead of returning
-        currentProgram.items.push(ItemNode{
+        // Push directly to this.currentProgram instead of returning
+        this.currentProgram.items.push(ItemNode{
             itemType: "Enum",
             name: enumNode.name,
             visibility: inferVisibility(enumNode.name),
@@ -3289,8 +3394,10 @@ class RealParser {
     }
 
     fun parseOptionalReturnTypeIntoScratch() r: Void {
-        // Seen uses "r: Type" syntax for return types
-        // Check for identifier "r" followed by colon
+        ///
+        Seen uses "r: Type" syntax for return types
+        Check for identifier "r" followed by colon
+        ///
         if checkToken(SeenTokenType.Identifier) {
             let tok = peek()
             if tok.getValue() == "r" or tok.getValue() == "seen_std.builtins.r" {
@@ -3311,8 +3418,8 @@ class RealParser {
             parseTypeNodeIntoScratch()
             return
         }
-        lastParsedTypeName = "Unknown"
-        lastParsedTypeNullable = false
+        this.lastParsedTypeName = "Unknown"
+        this.lastParsedTypeNullable = false
     }
 
     fun parseOptionalReturnType() r: TypeNode {
@@ -3321,7 +3428,7 @@ class RealParser {
     }
 
     fun parsedScratchTypeNode() r: TypeNode {
-        return TypeNode{ typeName: lastParsedTypeName, isNullable: lastParsedTypeNullable }
+        return TypeNode{ typeName: this.lastParsedTypeName, isNullable: this.lastParsedTypeNullable }
     }
 
     fun formatTypeNodeForTrace(typeNode: TypeNode) r: String {
@@ -3385,7 +3492,7 @@ class RealParser {
         var commaCount = 0
         var sawParamToken = false
 
-        while parenDepth > 0 and current + offset < tokens.length() {
+        while parenDepth > 0 and this.current + offset < this.tokens.length() {
             let tokText = peekAt(offset).getValue()
             if tokText == "(" {
                 parenDepth = parenDepth + 1
@@ -3437,7 +3544,7 @@ class RealParser {
     fun prepareFunctionParameterStorage() r: Void {
         let paramSlots = countParameterListSlotsFromCurrent()
         if paramSlots > 8 {
-            lastFunction.params = Array<ParamNode>(paramSlots + 1)
+            this.lastFunction.params = Array<ParamNode>(paramSlots + 1)
         }
     }
 
@@ -3446,53 +3553,53 @@ class RealParser {
     }
 
     fun clearPendingFunctionReturnType() r: Void {
-        pendingFunctionReturnTypeName = "Unknown"
-        pendingFunctionReturnTypeNullable = false
+        this.pendingFunctionReturnTypeName = "Unknown"
+        this.pendingFunctionReturnTypeNullable = false
     }
 
     fun clearPendingFunctionParamTypes() r: Void {
-        pendingFunctionParamTypeNames = Array<String>()
-        pendingFunctionParamTypeNullables = Array<Int>()
+        this.pendingFunctionParamTypeNames = Array<String>()
+        this.pendingFunctionParamTypeNullables = Array<Int>()
     }
 
     fun capturePendingFunctionReturnTypeFromScratch() r: Void {
-        pendingFunctionReturnTypeName = lastParsedTypeName
-        pendingFunctionReturnTypeNullable = lastParsedTypeNullable
+        this.pendingFunctionReturnTypeName = this.lastParsedTypeName
+        this.pendingFunctionReturnTypeNullable = this.lastParsedTypeNullable
     }
 
     fun addPendingFunctionParamType(typeName: String, isNullable: Bool) r: Void {
-        pendingFunctionParamTypeNames.push(typeName)
+        this.pendingFunctionParamTypeNames.push(typeName)
         if isNullable {
-            pendingFunctionParamTypeNullables.push(1)
+            this.pendingFunctionParamTypeNullables.push(1)
         } else {
-            pendingFunctionParamTypeNullables.push(0)
+            this.pendingFunctionParamTypeNullables.push(0)
         }
     }
 
     fun applyPendingFunctionParamTypes() r: Void {
         var paramIdx = 0
-        while paramIdx < lastFunction.params.length() and paramIdx < pendingFunctionParamTypeNames.length() {
-            let param = lastFunction.params[paramIdx]
-            lastParsedTypeName = pendingFunctionParamTypeNames[paramIdx]
-            lastParsedTypeNullable = pendingFunctionParamTypeNullables[paramIdx] != 0
+        while paramIdx < this.lastFunction.params.length() and paramIdx < this.pendingFunctionParamTypeNames.length() {
+            let param = this.lastFunction.params[paramIdx]
+            this.lastParsedTypeName = this.pendingFunctionParamTypeNames[paramIdx]
+            this.lastParsedTypeNullable = this.pendingFunctionParamTypeNullables[paramIdx] != 0
             param.paramType = parsedScratchTypeNode()
             paramIdx = paramIdx + 1
         }
     }
 
     fun applyPendingFunctionReturnTypeToLastFunction() r: Void {
-        if pendingFunctionReturnTypeName == "Unknown" {
+        if this.pendingFunctionReturnTypeName == "Unknown" {
             return
         }
-        lastParsedTypeName = pendingFunctionReturnTypeName
-        lastParsedTypeNullable = pendingFunctionReturnTypeNullable
-        lastFunction.returnType = parsedScratchTypeNode()
+        this.lastParsedTypeName = this.pendingFunctionReturnTypeName
+        this.lastParsedTypeNullable = this.pendingFunctionReturnTypeNullable
+        this.lastFunction.returnType = parsedScratchTypeNode()
     }
 
     // Parse a type annotation into scratch fields.
     fun parseTypeNodeIntoScratch() r: Void {
-        lastParsedTypeName = "Unknown"
-        lastParsedTypeNullable = false
+        this.lastParsedTypeName = "Unknown"
+        this.lastParsedTypeNullable = false
 
         var typeName = "Unknown"
 
@@ -3507,7 +3614,7 @@ class RealParser {
                 ptrPrefix = "*const "
             }
             parseTypeNodeIntoScratch()
-            typeName = ptrPrefix + lastParsedTypeName
+            typeName = ptrPrefix + this.lastParsedTypeName
             typeIdentFound = true
         }
 
@@ -3518,7 +3625,7 @@ class RealParser {
             // : dyn Trait — dynamic dispatch
             if name == "dyn" and checkToken(SeenTokenType.Identifier) {
                 parseTypeNodeIntoScratch()
-                typeName = "dyn " + lastParsedTypeName
+                typeName = "dyn " + this.lastParsedTypeName
                 typeIdentFound = true
             }
 
@@ -3584,17 +3691,19 @@ class RealParser {
                         }
                     }
                 }
-                // : Buffer[T], Uniform[T], Image[T] — GPU types with square bracket syntax
-                // : SmallVec[T, N] — inline storage with square bracket syntax
+                ///
+                : Buffer[T], Uniform[T], Image[T] — GPU types with square bracket syntax
+                : SmallVec[T, N] — inline storage with square bracket syntax
+                ///
                 if (name == "Buffer" or name == "Uniform" or name == "Image" or name == "SmallVec") and checkToken(SeenTokenType.LeftBracket) {
                     advance()
                     parseTypeNodeIntoScratch()
-                    var bracketTypeStr = lastParsedTypeName
+                    var bracketTypeStr = this.lastParsedTypeName
                     // SmallVec[T, N] — also parse the capacity after comma
                     if name == "SmallVec" and checkToken(SeenTokenType.Comma) {
                         advance()
                         parseTypeNodeIntoScratch()
-                        bracketTypeStr = bracketTypeStr + ", " + lastParsedTypeName
+                        bracketTypeStr = bracketTypeStr + ", " + this.lastParsedTypeName
                     }
                     name = name + "<" + bracketTypeStr + ">"
                     if checkToken(SeenTokenType.RightBracket) {
@@ -3626,7 +3735,7 @@ class RealParser {
 
         // T? is sugar for Option<T>
         if matchTokenStr(SeenTokenType.Question) {
-            lastParsedTypeNullable = true
+            this.lastParsedTypeNullable = true
             typeName = "Option<" + typeName + ">"
         }
 
@@ -3635,7 +3744,7 @@ class RealParser {
             advance()
             let leftTypeName = typeName
             parseTypeNodeIntoScratch()
-            typeName = "Result<" + leftTypeName + "," + lastParsedTypeName + ">"
+            typeName = "Result<" + leftTypeName + "," + this.lastParsedTypeName + ">"
         }
 
         // : Type | Type → ErrorUnion
@@ -3644,40 +3753,44 @@ class RealParser {
             while checkToken(SeenTokenType.BitwiseOr) {
                 advance()
                 parseTypeNodeIntoScratch()
-                unionTypes = unionTypes + "|" + lastParsedTypeName
+                unionTypes = unionTypes + "|" + this.lastParsedTypeName
             }
             typeName = "ErrorUnion<" + unionTypes + ">"
         }
 
-        lastParsedTypeName = typeName
+        this.lastParsedTypeName = typeName
     }
 
-    // Parse a type annotation and return a TypeNode.
-    // Handles: simple names, qualified names (A.B), generic parameters (Map<K,V>),
-    // raw pointers (*T, *const T), nullable (T?), Result sugar (T ! E),
-    // ErrorUnion (A | B), dyn Trait, const generics, fixed-size arrays
-    // (T[N]), and GPU types with square-bracket syntax (Buffer[T], SmallVec[T, N]).
+    ///
+    Parse a type annotation and return a TypeNode.
+    Handles: simple names, qualified names (A.B), generic parameters (Map<K,V>),
+    raw pointers (*T, *const T), nullable (T?), Result sugar (T ! E),
+    ErrorUnion (A | B), dyn Trait, const generics, fixed-size arrays
+    (T[N]), and GPU types with square-bracket syntax (Buffer[T], SmallVec[T, N]).
+    ///
     fun parseTypeNode() r: TypeNode {
         parseTypeNodeIntoScratch()
         return parsedScratchTypeNode()
     }
 
-    // Parse a brace-delimited block of statements.  The opening `{` has
-    // already been consumed by the caller; this method consumes statements
-    // until `}` and returns the populated BlockNode.
-    //
-    // Saves and restores `currentBlock` and `lastStatement` so that nested
-    // blocks (e.g. if-inside-while) do not clobber the outer parse state.
+    ///
+    Parse a brace-delimited block of statements.  The opening `{` has
+    already been consumed by the caller; this method consumes statements
+    until `}` and returns the populated BlockNode.
+
+    Saves and restores `currentBlock` and `lastStatement` so that nested
+    blocks (e.g. if-inside-while) do not clobber the outer parse state.
+    ///
     fun parseBlockIntoField() r: Void {
-        if blockStackDepth >= blockStack.length() {
-            blockStack.push(currentBlock)
-            statementStack.push(lastStatement)
+        if this.blockStackDepth >= this.blockStack.length() {
+            this.blockStack.push(this.currentBlock)
+            this.statementStack.push(this.lastStatement)
         } else {
-            blockStack[blockStackDepth] = currentBlock
-            statementStack[blockStackDepth] = lastStatement
+            this.blockStack[this.blockStackDepth] = this.currentBlock
+            this.statementStack[this.blockStackDepth] = this.lastStatement
         }
-        blockStackDepth = blockStackDepth + 1
-        currentBlock = BlockNode.new()
+        this.blockStackDepth = this.blockStackDepth + 1
+        this.currentBlock = BlockNode.new()
         var loopCount = 0
         while not checkToken(SeenTokenType.RightBrace) and not isAtEnd() {
             loopCount = loopCount + 1
@@ -3685,114 +3798,116 @@ class RealParser {
                 println("[ERROR] parseBlock: too many iterations (>1000), breaking")
                 break
             }
-            // Parse statement directly into currentBlock to avoid returning StatementNode
+            // Parse statement directly into this.currentBlock to avoid returning StatementNode
             parseStatementInto()
         }
         consume(SeenTokenType.RightBrace, "Expected '}' after block")
-        lastParsedBlock = currentBlock
-        let restoreIndex = blockStackDepth - 1
-        currentBlock = blockStack[restoreIndex]
-        lastStatement = statementStack[restoreIndex]
-        blockStackDepth = restoreIndex
+        this.lastParsedBlock = this.currentBlock
+        let restoreIndex = this.blockStackDepth - 1
+        this.currentBlock = this.blockStack[restoreIndex]
+        this.lastStatement = this.statementStack[restoreIndex]
+        this.blockStackDepth = restoreIndex
     }
 
     fun parseBlock() r: BlockNode {
         parseBlockIntoField()
-        return lastParsedBlock
+        return this.lastParsedBlock
     }
 
-    // Parse one statement and push it into `currentBlock`.
-    // Dispatches on the leading keyword token to the appropriate handler.
-    // Falls through to parseExpressionStatementField() if no keyword matches.
-    //
-    // Uses the lastStatement class field as a scratch buffer (filled in by
-    // the *Field() helpers) to avoid returning StatementNode by value, which
-    // the stage1 bootstrap compiler miscompiles.
+    ///
+    Parse one statement and push it into `currentBlock`.
+    Dispatches on the leading keyword token to the appropriate handler.
+    Falls through to parseExpressionStatementField() if no keyword matches.
+
+    Uses the lastStatement class field as a scratch buffer (filled in by
+    the *Field() helpers) to avoid returning StatementNode by value, which
+    the stage1 bootstrap compiler miscompiles.
+    ///
     fun parseStatementInto() r: Void {
-        lastStatement = StatementNode.new()
+        this.lastStatement = StatementNode.new()
 
         if matchTokenStr(SeenTokenType.KeywordLet) {
             parseLetStatementField()
-            currentBlock.statements.push(lastStatement)
+            this.currentBlock.statements.push(this.lastStatement)
             return
         }
         // 'const' treated as 'let' in statement context
         if matchTokenStr(SeenTokenType.KeywordConst) {
             parseLetStatementField()
-            currentBlock.statements.push(lastStatement)
+            this.currentBlock.statements.push(this.lastStatement)
             return
         }
         if matchTokenStr(SeenTokenType.KeywordVar) {
             parseVarStatementField()
-            currentBlock.statements.push(lastStatement)
+            this.currentBlock.statements.push(this.lastStatement)
             return
         }
         if matchTokenStr(SeenTokenType.KeywordReturn) {
             parseReturnStatementField()
-            currentBlock.statements.push(lastStatement)
+            this.currentBlock.statements.push(this.lastStatement)
             return
         }
         if matchTokenStr(SeenTokenType.KeywordIf) {
             parseIfStatementField()
-            currentBlock.statements.push(lastStatement)
+            this.currentBlock.statements.push(this.lastStatement)
             return
         }
         if matchTokenStr(SeenTokenType.KeywordWhile) {
             parseStableWhileStatementField()
-            currentBlock.statements.push(lastStatement)
+            this.currentBlock.statements.push(this.lastStatement)
             return
         }
         if matchTokenStr(SeenTokenType.KeywordLoop) {
-            lastStatement.kind = "While"
-            lastStatement.loopCondition = makeLiteral("true", "Bool")
+            this.lastStatement.kind = "While"
+            this.lastStatement.loopCondition = makeLiteral("true", "Bool")
             consume(SeenTokenType.LeftBrace, "Expected '{' after loop")
             parseBlockIntoField()
-            lastStatement.loopBody = lastParsedBlock
-            currentBlock.statements.push(lastStatement)
+            this.lastStatement.loopBody = this.lastParsedBlock
+            this.currentBlock.statements.push(this.lastStatement)
             return
         }
         if checkToken(SeenTokenType.Identifier) and peek().getValue() == "parallel_for" {
             advance()  // consume 'parallel_for'
             parseParallelForStatementField()
-            currentBlock.statements.push(lastStatement)
+            this.currentBlock.statements.push(this.lastStatement)
             return
         }
         if matchTokenStr(SeenTokenType.KeywordFor) {
             parseForInStatementField()
-            currentBlock.statements.push(lastStatement)
+            this.currentBlock.statements.push(this.lastStatement)
             return
         }
         // Comptime block/assert/if (parsed as identifier to avoid keyword loading fragility)
         if checkToken(SeenTokenType.Identifier) and peek().getValue() == "comptime" {
             advance()  // consume 'comptime'
             parseComptimeStatementField()
-            currentBlock.statements.push(lastStatement)
+            this.currentBlock.statements.push(this.lastStatement)
             return
         }
         // Continue statement
         if matchTokenStr(SeenTokenType.KeywordContinue) {
-            lastStatement.kind = "Continue"
+            this.lastStatement.kind = "Continue"
             if matchTokenStr(SeenTokenType.Semicolon) { }
-            currentBlock.statements.push(lastStatement)
+            this.currentBlock.statements.push(this.lastStatement)
             return
         }
         // Break statement
         if matchTokenStr(SeenTokenType.KeywordBreak) {
-            lastStatement.kind = "Break"
+            this.lastStatement.kind = "Break"
             if matchTokenStr(SeenTokenType.Semicolon) { }
-            currentBlock.statements.push(lastStatement)
+            this.currentBlock.statements.push(this.lastStatement)
             return
         }
         // Region block statement
         if checkToken(SeenTokenType.KeywordRegion) {
             advance()
             let regionStmt = parseRegionStatement()
-            currentBlock.statements.push(regionStmt)
+            this.currentBlock.statements.push(regionStmt)
             return
         }
         // unsafe block: consume keyword, parse body, set kind to "Unsafe"
         if matchTokenStr(SeenTokenType.KeywordUnsafe) {
-            lastStatement.kind = "Unsafe"
+            this.lastStatement.kind = "Unsafe"
             if matchTokenStr(SeenTokenType.LeftBrace) {
                 let unsafeBlock2 = BlockNode.new()
                 while not checkToken(SeenTokenType.RightBrace) and not isAtEnd() {
@@ -3800,13 +3915,13 @@ class RealParser {
                     unsafeBlock2.statements.push(innerUnsafeStmt)
                 }
                 consume(SeenTokenType.RightBrace, "Expected '}' after unsafe block")
-                lastStatement.thenBranch = unsafeBlock2
+                this.lastStatement.thenBranch = unsafeBlock2
             }
             return
         }
         // defer statement: consume keyword, parse expression/block
         if matchTokenStr(SeenTokenType.KeywordDefer) {
-            lastStatement.kind = "Defer"
+            this.lastStatement.kind = "Defer"
             if checkToken(SeenTokenType.LeftBrace) {
                 advance()
                 let deferBlock = BlockNode.new()
@@ -3815,17 +3930,17 @@ class RealParser {
                     deferBlock.statements.push(deferStmt)
                 }
                 consume(SeenTokenType.RightBrace, "Expected '}' after defer block")
-                lastStatement.thenBranch = deferBlock
+                this.lastStatement.thenBranch = deferBlock
             } else {
-                parseExpressionInto(lastStatement.expression)
+                parseExpressionInto(this.lastStatement.expression)
             }
             if matchTokenStr(SeenTokenType.Semicolon) { }
-            currentBlock.statements.push(lastStatement)
+            this.currentBlock.statements.push(this.lastStatement)
             return
         }
         // errdefer statement: like defer but only runs on error returns
         if matchTokenStr(SeenTokenType.KeywordErrdefer) {
-            lastStatement.kind = "Errdefer"
+            this.lastStatement.kind = "Errdefer"
             if checkToken(SeenTokenType.LeftBrace) {
                 advance()
                 let errdeferBlock = BlockNode.new()
@@ -3834,25 +3949,25 @@ class RealParser {
                     errdeferBlock.statements.push(errdeferStmt)
                 }
                 consume(SeenTokenType.RightBrace, "Expected '}' after errdefer block")
-                lastStatement.thenBranch = errdeferBlock
+                this.lastStatement.thenBranch = errdeferBlock
             } else {
-                parseExpressionInto(lastStatement.expression)
+                parseExpressionInto(this.lastStatement.expression)
             }
             if matchTokenStr(SeenTokenType.Semicolon) { }
-            currentBlock.statements.push(lastStatement)
+            this.currentBlock.statements.push(this.lastStatement)
             return
         }
         // Throw statement (treated like expression statement but with throw keyword consumed)
         if matchTokenStr(SeenTokenType.KeywordThrow) {
-            lastStatement.kind = "Throw"
-            parseExpressionInto(lastStatement.expression)
+            this.lastStatement.kind = "Throw"
+            parseExpressionInto(this.lastStatement.expression)
             if matchTokenStr(SeenTokenType.Semicolon) { }
-            currentBlock.statements.push(lastStatement)
+            this.currentBlock.statements.push(this.lastStatement)
             return
         }
         // Expression statement
         parseExpressionStatementField()
-        currentBlock.statements.push(lastStatement)
+        this.currentBlock.statements.push(this.lastStatement)
     }
 
     fun parseStatement() r: StatementNode {
@@ -3879,7 +3994,7 @@ class RealParser {
             stmt.loopCondition = makeLiteral("true", "Bool")
             consume(SeenTokenType.LeftBrace, "Expected '{' after loop")
             parseBlockIntoField()
-            stmt.loopBody = lastParsedBlock
+            stmt.loopBody = this.lastParsedBlock
             return stmt
         }
         if checkToken(SeenTokenType.Identifier) and peek().getValue() == "parallel_for" {
@@ -3898,7 +4013,7 @@ class RealParser {
             tryStmt.kind = "TryCatch"
             if matchTokenStr(SeenTokenType.LeftBrace) {
                 parseBlockIntoField()
-                tryStmt.thenBranch = lastParsedBlock
+                tryStmt.thenBranch = this.lastParsedBlock
             } else {
                 tryStmt.thenBranch = BlockNode.new()
             }
@@ -3912,7 +4027,7 @@ class RealParser {
                 }
                 if matchTokenStr(SeenTokenType.LeftBrace) {
                     parseBlockIntoField()
-                    tryStmt.elseBranch = lastParsedBlock
+                    tryStmt.elseBranch = this.lastParsedBlock
                 } else {
                     tryStmt.elseBranch = BlockNode.new()
                 }
@@ -4035,8 +4150,10 @@ class RealParser {
     fun parseRegionStatement() r: StatementNode {
         let stmt = StatementNode.new()
         stmt.kind = "Region"
-        // Optional strategy: bump, stack, cxl_near, cxl_far, auto, gpu
-        // : gpu keyword — also accept KeywordGpu token
+        ///
+        Optional strategy: bump, stack, cxl_near, cxl_far, auto, gpu
+        : gpu keyword — also accept KeywordGpu token
+        ///
         if checkToken(SeenTokenType.KeywordGpu) {
             advance()
             stmt.variableType = TypeNode.new()
@@ -4064,28 +4181,28 @@ class RealParser {
         // Parse body block
         consume(SeenTokenType.LeftBrace, "Expected '{' after region")
         parseBlockIntoField()
-        stmt.thenBranch = lastParsedBlock
+        stmt.thenBranch = this.lastParsedBlock
         return stmt
     }
 
-    // ========== Field methods - fill lastStatement class field (avoids local copy memory corruption) ==========
+    // ========== Field methods - fill this.lastStatement class field (avoids local copy memory corruption) ==========
 
     fun parseLetStatementField() r: Void {
         // trace
-        lastStatement.kind = "Let"
+        this.lastStatement.kind = "Let"
         // 'let mut x' → treat as 'var x' (mutable binding)
         if matchTokenStr(SeenTokenType.KeywordMut) {
-            lastStatement.kind = "Var"
+            this.lastStatement.kind = "Var"
         }
         let nameToken = consumeNameLike("Expected variable name")
-        lastStatement.variableName = nameToken.getValue()
+        this.lastStatement.variableName = nameToken.getValue()
 
         if matchTokenStr(SeenTokenType.Colon) {
-            lastStatement.variableType = parseTypeNode()
+            this.lastStatement.variableType = parseTypeNode()
         }
 
         if matchTokenStr(SeenTokenType.Equal) {
-            parseExpressionInto(lastStatement.initializer)
+            parseExpressionInto(this.lastStatement.initializer)
         }
 
         if matchTokenStr(SeenTokenType.Semicolon) { }
@@ -4094,16 +4211,16 @@ class RealParser {
 
     fun parseVarStatementField() r: Void {
         // trace
-        lastStatement.kind = "Var"
+        this.lastStatement.kind = "Var"
         let nameToken = consumeNameLike("Expected variable name")
-        lastStatement.variableName = nameToken.getValue()
+        this.lastStatement.variableName = nameToken.getValue()
 
         if matchTokenStr(SeenTokenType.Colon) {
-            lastStatement.variableType = parseTypeNode()
+            this.lastStatement.variableType = parseTypeNode()
         }
 
         if matchTokenStr(SeenTokenType.Equal) {
-            parseExpressionInto(lastStatement.initializer)
+            parseExpressionInto(this.lastStatement.initializer)
         }
 
         if matchTokenStr(SeenTokenType.Semicolon) { }
@@ -4112,49 +4229,50 @@ class RealParser {
 
     fun parseReturnStatementField() r: Void {
         // trace
-        lastStatement.kind = "Return"
+        this.lastStatement.kind = "Return"
         if not checkToken(SeenTokenType.Semicolon) and not checkToken(SeenTokenType.RightBrace) {
-            parseExpressionInto(lastStatement.returnValue)
+            let exprResult = parseExpression()
+            this.lastStatement.returnValue = exprResult
         }
         if matchTokenStr(SeenTokenType.Semicolon) { }
         // trace
     }
 
     fun parseWhileStatementField() r: Void {
-        lastStatement.kind = "While"
-        parseExpressionInto(lastStatement.loopCondition)
+        this.lastStatement.kind = "While"
+        parseExpressionInto(this.lastStatement.loopCondition)
         consume(SeenTokenType.LeftBrace, "Expected '{' after while condition")
         parseBlockIntoField()
-        lastStatement.loopBody = lastParsedBlock
+        this.lastStatement.loopBody = this.lastParsedBlock
         return
     }
 
     fun parseForInStatementField() r: Void {
-        lastStatement.kind = "ForIn"
+        this.lastStatement.kind = "ForIn"
         // Parse loop variable name -- store in variableName (reuse existing field)
         let varToken = consume(SeenTokenType.Identifier, "Expected loop variable name after 'for'")
-        lastStatement.variableName = varToken.getValue()
+        this.lastStatement.variableName = varToken.getValue()
         // Parse 'in' keyword
         consume(SeenTokenType.KeywordIn, "Expected 'in' after loop variable")
         // Parse iterable expression -- store in expression (reuse existing field)
-        parseExpressionInto(lastStatement.expression)
+        parseExpressionInto(this.lastStatement.expression)
         // Parse loop body -- store in loopBody (reuse existing field)
         consume(SeenTokenType.LeftBrace, "Expected '{' after for-in iterable")
         parseBlockIntoField()
-        lastStatement.loopBody = lastParsedBlock
+        this.lastStatement.loopBody = this.lastParsedBlock
         return
     }
 
     // parallel_for varName in startExpr..endExpr { body }
     fun parseParallelForStatementField() r: Void {
-        lastStatement.kind = "ParallelFor"
+        this.lastStatement.kind = "ParallelFor"
         let varToken = consume(SeenTokenType.Identifier, "Expected loop variable name after 'parallel_for'")
-        lastStatement.variableName = varToken.getValue()
+        this.lastStatement.variableName = varToken.getValue()
         consume(SeenTokenType.KeywordIn, "Expected 'in' after parallel_for variable")
-        parseExpressionInto(lastStatement.expression)
+        parseExpressionInto(this.lastStatement.expression)
         consume(SeenTokenType.LeftBrace, "Expected '{' after parallel_for range")
         parseBlockIntoField()
-        lastStatement.loopBody = lastParsedBlock
+        this.lastStatement.loopBody = this.lastParsedBlock
         return
     }
 
@@ -4167,7 +4285,7 @@ class RealParser {
         stmt.expression = parseExpression()
         consume(SeenTokenType.LeftBrace, "Expected '{' after parallel_for range")
         parseBlockIntoField()
-        stmt.loopBody = lastParsedBlock
+        stmt.loopBody = this.lastParsedBlock
         return stmt
     }
 
@@ -4176,35 +4294,35 @@ class RealParser {
         // Check if next is 'assert' (not activated as keyword — used as function name in compiler)
         if checkToken(SeenTokenType.Identifier) and peek().getValue() == "assert" {
             advance()  // consume 'assert'
-            lastStatement.kind = "ComptimeAssert"
+            this.lastStatement.kind = "ComptimeAssert"
             consume(SeenTokenType.LeftParen, "Expected '(' after comptime assert")
-            parseExpressionInto(lastStatement.expression)
+            parseExpressionInto(this.lastStatement.expression)
             // Optional message argument stored in condition field
             if matchTokenStr(SeenTokenType.Comma) {
-                parseExpressionInto(lastStatement.condition)
+                parseExpressionInto(this.lastStatement.condition)
             }
             consume(SeenTokenType.RightParen, "Expected ')' after comptime assert")
             return
         }
         // Check if next is 'if'
         if matchTokenStr(SeenTokenType.KeywordIf) {
-            lastStatement.kind = "ComptimeIf"
-            parseExpressionInto(lastStatement.expression)
+            this.lastStatement.kind = "ComptimeIf"
+            parseExpressionInto(this.lastStatement.expression)
             consume(SeenTokenType.LeftBrace, "Expected '{' after comptime if condition")
             parseBlockIntoField()
-            lastStatement.thenBranch = lastParsedBlock
+            this.lastStatement.thenBranch = this.lastParsedBlock
             if matchTokenStr(SeenTokenType.KeywordElse) {
                 consume(SeenTokenType.LeftBrace, "Expected '{' after else")
                 parseBlockIntoField()
-                lastStatement.elseBranch = lastParsedBlock
+                this.lastStatement.elseBranch = this.lastParsedBlock
             }
             return
         }
         // Default: comptime { block }
-        lastStatement.kind = "ComptimeBlock"
+        this.lastStatement.kind = "ComptimeBlock"
         consume(SeenTokenType.LeftBrace, "Expected '{' after comptime")
         parseBlockIntoField()
-        lastStatement.thenBranch = lastParsedBlock
+        this.lastStatement.thenBranch = this.lastParsedBlock
         return
     }
 
@@ -4229,11 +4347,11 @@ class RealParser {
             stmt.expression = parseExpression()
             consume(SeenTokenType.LeftBrace, "Expected '{' after comptime if condition")
             parseBlockIntoField()
-            stmt.thenBranch = lastParsedBlock
+            stmt.thenBranch = this.lastParsedBlock
             if matchTokenStr(SeenTokenType.KeywordElse) {
                 consume(SeenTokenType.LeftBrace, "Expected '{' after else")
                 parseBlockIntoField()
-                stmt.elseBranch = lastParsedBlock
+                stmt.elseBranch = this.lastParsedBlock
             }
             return stmt
         }
@@ -4241,61 +4359,60 @@ class RealParser {
         stmt.kind = "ComptimeBlock"
         consume(SeenTokenType.LeftBrace, "Expected '{' after comptime")
         parseBlockIntoField()
-        stmt.thenBranch = lastParsedBlock
+        stmt.thenBranch = this.lastParsedBlock
         return stmt
     }
 
     fun parseExpressionStatementField() r: Void {
-        lastStatement.kind = "Expression"
-        parseExpressionInto(lastStatement.expression)
+        this.lastStatement.kind = "Expression"
+        parseExpressionInto(this.lastStatement.expression)
         if matchTokenStr(SeenTokenType.Semicolon) { }
         return
     }
 
-    // Fill expression directly into a ParserExpressionNode field
-    // NOTE: Moved before parseIfStatementField to avoid being skipped by parser bug
+    ///
+    Fill expression directly into a ParserExpressionNode field
+    NOTE: Moved before parseIfStatementField to avoid being skipped by parser bug
+    ///
     fun parseExpressionIntoField(expr: ParserExpressionNode) r: Void {
         // trace
         let result = parseExpression()
-        // trace
-        // Copy all scalar fields
+        ///
+        trace
+        Copy all scalar fields
+        ///
         expr.kind = result.kind
         expr.operator = result.operator
         expr.literalValue = result.literalValue
         expr.literalType = result.literalType
         expr.variableName = result.variableName
         expr.callee = result.callee
-        // Don't copy arrays to avoid memory corruption
-        // Copy arrays by iterating (avoids shared data pointer issues)
-        // Actually skip this - most expressions don't need array data
-        // trace
+        expr.operands = result.operands
+        expr.arguments = result.arguments
     }
 
-    // Fills a ParserExpressionNode directly with parsed expression data
-    // NOTE: Moved before parseIfStatementField to avoid being merged
+    ///
+    Fills a ParserExpressionNode directly with parsed expression data
+    NOTE: Moved before parseIfStatementField to avoid being merged
+    ///
     fun parseExpressionInto(expr: ParserExpressionNode) r: Void {
-        // trace
-        // Parse the expression and copy its fields
+        ///
+        trace
+        Parse the expression and copy its fields
+        ///
         let result = parseExpression()
-        // trace
-        // Copy all scalar fields
+        ///
+        trace
+        Copy all scalar fields
+        ///
         expr.kind = result.kind
         expr.operator = result.operator
         expr.literalValue = result.literalValue
         expr.literalType = result.literalType
         expr.variableName = result.variableName
         expr.callee = result.callee
-        // Copy arrays by iterating (avoids shared data pointer issues)
-        let i = 0
-        while i < result.operands.length() {
-            expr.operands.push(result.operands[i])
-            i = i + 1
-        }
-        let j = 0
-        while j < result.arguments.length() {
-            expr.arguments.push(result.arguments[j])
-            j = j + 1
-        }
+        expr.operands = result.operands
+        expr.arguments = result.arguments
         // trace
         return
     }
@@ -4346,7 +4463,8 @@ class RealParser {
         // Avoid storing peek() result to prevent Token copy corruption
         if not checkToken(SeenTokenType.Semicolon) and not checkToken(SeenTokenType.RightBrace) {
             // trace
-            parseExpressionInto(stmt.returnValue)
+            let exprResult = parseExpression()
+            stmt.returnValue = exprResult
             // trace
         }
         if matchTokenStr(SeenTokenType.Semicolon) { }
@@ -4360,7 +4478,7 @@ class RealParser {
         parseExpressionInto(stmt.loopCondition)
         consume(SeenTokenType.LeftBrace, "Expected '{' after while condition")
         parseBlockIntoField()
-        stmt.loopBody = lastParsedBlock
+        stmt.loopBody = this.lastParsedBlock
         // trace
     }
 
@@ -4372,7 +4490,7 @@ class RealParser {
         stmt.expression = parseExpression()
         consume(SeenTokenType.LeftBrace, "Expected '{' after for-in iterable")
         parseBlockIntoField()
-        stmt.loopBody = lastParsedBlock
+        stmt.loopBody = this.lastParsedBlock
         return
     }
 
@@ -4393,32 +4511,41 @@ class RealParser {
         let stmt = StatementNode.new()
         // trace
         stmt.kind = "Return"
-        // trace
-        // Avoid storing peek() result to prevent Token copy corruption
+        ///
+        trace
+        Avoid storing peek() result to prevent Token copy corruption
+        ///
         if not checkToken(SeenTokenType.Semicolon) and not checkToken(SeenTokenType.RightBrace) {
             // trace
             let exprResult = parseExpression()
-            // trace
-            // Copy fields individually to avoid struct assignment corruption
-            // For VarExpr, we only need kind and variableName
-            // Avoid copying all fields as String assignment might corrupt memory
-            // trace
+            ///
+            trace
+            Copy fields individually to avoid struct assignment corruption
+            For VarExpr, we only need kind and variableName
+            Avoid copying all fields as String assignment might corrupt memory
+            trace
+            ///
             stmt.returnValue.kind = exprResult.kind
             // trace
             stmt.returnValue.variableName = exprResult.variableName
-            // trace
-            // Only copy other fields if needed for this expression type
+            ///
+            trace
+            Only copy other fields if needed for this expression type
+            ///
             if exprResult.kind == "Literal" {
                 stmt.returnValue.literalValue = exprResult.literalValue
                 stmt.returnValue.literalType = exprResult.literalType
             }
             if exprResult.kind == "Call" or exprResult.kind == "MethodCall" {
                 stmt.returnValue.callee = exprResult.callee
+                stmt.returnValue.literalValue = exprResult.literalValue
             }
             if exprResult.kind == "Binary" {
                 stmt.returnValue.operator = exprResult.operator
-                // Binary expressions need operands for OR/AND to work
-                // Copy element by element to avoid array reference issues
+                ///
+                Binary expressions need operands for OR/AND to work
+                Copy element by element to avoid array reference issues
+                ///
                 var opIdx = 0
                 while opIdx < exprResult.operands.length() {
                     stmt.returnValue.operands.push(exprResult.operands[opIdx])
@@ -4433,10 +4560,71 @@ class RealParser {
                     opIdx = opIdx + 1
                 }
             }
-            // trace
-            // Copy arguments for calls
+            ///
+            trace
+            Copy arguments for calls
+            ///
             if exprResult.kind == "Call" or exprResult.kind == "MethodCall" {
                 stmt.returnValue.arguments = exprResult.arguments
+            }
+            if exprResult.kind == "MethodCall" {
+                var methodOperandIdx = 0
+                while methodOperandIdx < exprResult.operands.length() {
+                    stmt.returnValue.operands.push(
+                        exprResult.operands[methodOperandIdx])
+                    methodOperandIdx = methodOperandIdx + 1
+                }
+            }
+            if exprResult.kind == "StructLiteral" {
+                stmt.returnValue.literalType = exprResult.literalType
+                stmt.returnValue.literalValue = exprResult.literalValue
+                var structArgIdx = 0
+                while structArgIdx < exprResult.arguments.length() {
+                    stmt.returnValue.arguments.push(
+                        exprResult.arguments[structArgIdx])
+                    structArgIdx = structArgIdx + 1
+                }
+            }
+            if exprResult.kind == "ArrayLiteral" or
+                exprResult.kind == "StringInterpolation" {
+
+                var argCopyIdx = 0
+                while argCopyIdx < exprResult.arguments.length() {
+                    stmt.returnValue.arguments.push(
+                        exprResult.arguments[argCopyIdx])
+                    argCopyIdx = argCopyIdx + 1
+                }
+            }
+            if exprResult.kind == "MemberAccess" or
+                exprResult.kind == "IndexAccess" or
+                exprResult.kind == "SafeNavigation" or
+                exprResult.kind == "Elvis" or
+                exprResult.kind == "NullCoalesce" or
+                exprResult.kind == "IfExpression" or
+                exprResult.kind == "WhenExpression" or
+                exprResult.kind == "Cast" or
+                exprResult.kind == "Await" or
+                exprResult.kind == "TryPropagate" or
+                exprResult.kind == "Range" or
+                exprResult.kind == "IsExpression" or
+                exprResult.kind == "Closure" {
+
+                stmt.returnValue.literalValue = exprResult.literalValue
+                stmt.returnValue.literalType = exprResult.literalType
+                stmt.returnValue.callee = exprResult.callee
+                stmt.returnValue.operator = exprResult.operator
+                var operandCopyIdx = 0
+                while operandCopyIdx < exprResult.operands.length() {
+                    stmt.returnValue.operands.push(
+                        exprResult.operands[operandCopyIdx])
+                    operandCopyIdx = operandCopyIdx + 1
+                }
+                var branchArgIdx = 0
+                while branchArgIdx < exprResult.arguments.length() {
+                    stmt.returnValue.arguments.push(
+                        exprResult.arguments[branchArgIdx])
+                    branchArgIdx = branchArgIdx + 1
+                }
             }
         }
         if matchTokenStr(SeenTokenType.Semicolon) { }
@@ -4444,15 +4632,17 @@ class RealParser {
         return stmt
     }
 
-    // Parse `while condition { body }`.  Condition is any expression;
-    // body is a brace-delimited block.
+    ///
+    Parse `while condition { body }`.  Condition is any expression;
+    body is a brace-delimited block.
+    ///
     fun parseWhileStatement() r: StatementNode {
         let stmt = StatementNode.new()
         stmt.kind = "While"
         stmt.loopCondition = parseExpression()
         consume(SeenTokenType.LeftBrace, "Expected '{' after while condition")
         parseBlockIntoField()
-        stmt.loopBody = lastParsedBlock
+        stmt.loopBody = this.lastParsedBlock
         return stmt
     }
 
@@ -4466,7 +4656,7 @@ class RealParser {
         stmt.expression = parseExpression()
         consume(SeenTokenType.LeftBrace, "Expected '{' after for-in iterable")
         parseBlockIntoField()
-        stmt.loopBody = lastParsedBlock
+        stmt.loopBody = this.lastParsedBlock
         return stmt
     }
 
@@ -4480,22 +4670,26 @@ class RealParser {
 
     // NOTE: parseIfStatement moved to end of class to avoid method merging bug
 
-    // Top of the expression-parsing precedence chain.
-    // Delegates to parseAssignment, which in turn cascades down through
-    // parseOr -> parseAnd -> ... -> parsePrimary.
-    // Returns a fully constructed ParserExpressionNode tree.
+    ///
+    Top of the expression-parsing precedence chain.
+    Delegates to parseAssignment, which in turn cascades down through
+    parseOr -> parseAnd -> ... -> parsePrimary.
+    Returns a fully constructed ParserExpressionNode tree.
+    ///
     fun parseExpression() r: ParserExpressionNode {
         return parseAssignment()
     }
 
-    // Lowest precedence: simple assignment (=), compound arithmetic assigns
-    // (+=, -=, *=, /=), compound bitwise assigns (%=, &=, |=, ^=, <<=, >>=),
-    // and the postfix `as` type-cast operator.
-    //
-    // Compound bitwise assigns use a save/restore cursor pattern because
-    // the operators (&, |, ^, <<, >>) are the SAME tokens used by
-    // parseBitwise/parseShift.  We must peek ahead for a following `=`
-    // to disambiguate, and backtrack if it is absent.
+    ///
+    Lowest precedence: simple assignment (=), compound arithmetic assigns
+    (+=, -=, *=, /=), compound bitwise assigns (%=, &=, |=, ^=, <<=, >>=),
+    and the postfix `as` type-cast operator.
+
+    Compound bitwise assigns use a save/restore cursor pattern because
+    the operators (&, |, ^, <<, >>) are the SAME tokens used by
+    parseBitwise/parseShift.  We must peek ahead for a following `=`
+    to disambiguate, and backtrack if it is absent.
+    ///
     fun parseAssignment() r: ParserExpressionNode {
         let expr = parseOr()
 
@@ -4579,20 +4773,22 @@ class RealParser {
             }
         }
 
-        // Compound modulo + bitwise assigns: %= &= |= ^= <<= >>=
-        // Detect as value-based two-token sequences (op followed by =)
+        ///
+        Compound modulo + bitwise assigns: %= &= |= ^= <<= >>=
+        Detect as value-based two-token sequences (op followed by =)
+        ///
         var bwOp = ""
         var bwSet = 0
         if bwSet == 0 {
             if not isAtEnd() {
                 if peek().getValue() == "%" {
-                    let bwSvMod = current
+                    let bwSvMod = this.current
                     advance()
                     if matchTokenStr(SeenTokenType.Equal) {
                         bwOp = "%"
                         bwSet = 1
                     } else {
-                        current = bwSvMod
+                        this.current = bwSvMod
                     }
                 }
             }
@@ -4600,13 +4796,13 @@ class RealParser {
         if bwSet == 0 {
             if not isAtEnd() {
                 if peek().getValue() == "&" {
-                    let bwSvAnd = current
+                    let bwSvAnd = this.current
                     advance()
                     if matchTokenStr(SeenTokenType.Equal) {
                         bwOp = "&"
                         bwSet = 1
                     } else {
-                        current = bwSvAnd
+                        this.current = bwSvAnd
                     }
                 }
             }
@@ -4614,13 +4810,13 @@ class RealParser {
         if bwSet == 0 {
             if not isAtEnd() {
                 if peek().getValue() == "|" {
-                    let bwSvOr = current
+                    let bwSvOr = this.current
                     advance()
                     if matchTokenStr(SeenTokenType.Equal) {
                         bwOp = "|"
                         bwSet = 1
                     } else {
-                        current = bwSvOr
+                        this.current = bwSvOr
                     }
                 }
             }
@@ -4628,13 +4824,13 @@ class RealParser {
         if bwSet == 0 {
             if not isAtEnd() {
                 if peek().getValue() == "^" {
-                    let bwSvXor = current
+                    let bwSvXor = this.current
                     advance()
                     if matchTokenStr(SeenTokenType.Equal) {
                         bwOp = "^"
                         bwSet = 1
                     } else {
-                        current = bwSvXor
+                        this.current = bwSvXor
                     }
                 }
             }
@@ -4642,13 +4838,13 @@ class RealParser {
         if bwSet == 0 {
             if not isAtEnd() {
                 if peek().getValue() == "<<" {
-                    let bwSvLs = current
+                    let bwSvLs = this.current
                     advance()
                     if matchTokenStr(SeenTokenType.Equal) {
                         bwOp = "<<"
                         bwSet = 1
                     } else {
-                        current = bwSvLs
+                        this.current = bwSvLs
                     }
                 }
             }
@@ -4656,13 +4852,13 @@ class RealParser {
         if bwSet == 0 {
             if not isAtEnd() {
                 if peek().getValue() == ">>" {
-                    let bwSvRs = current
+                    let bwSvRs = this.current
                     advance()
                     if matchTokenStr(SeenTokenType.Equal) {
                         bwOp = ">>"
                         bwSet = 1
                     } else {
-                        current = bwSvRs
+                        this.current = bwSvRs
                     }
                 }
             }
@@ -4712,8 +4908,10 @@ class RealParser {
         return expr
     }
 
-    // Parse Elvis operator: left ?: right
-    // Parse null-coalescing: left ?? right
+    ///
+    Parse Elvis operator: left ?: right
+    Parse null-coalescing: left ?? right
+    ///
     fun parseElvis() r: ParserExpressionNode {
         var expr = parseEquality()
         if matchTokenStr(SeenTokenType.Elvis) {
@@ -4724,9 +4922,11 @@ class RealParser {
             elvisExpr.operands.push(right)  // [1] = right (default value)
             return elvisExpr
         }
-        // Bootstrap workaround: DoubleQuestion (value 107) is outside stage1_frozen's
-        // 0-99 range, so in stage2 it has type 0 (IntegerLiteral collision).
-        // Guard with string-value check to prevent integer literals being consumed as ??.
+        ///
+        Bootstrap workaround: DoubleQuestion (value 107) is outside stage1_frozen's
+        0-99 range, so in stage2 it has type 0 (IntegerLiteral collision).
+        Guard with string-value check to prevent integer literals being consumed as ??.
+        ///
         if peek().getValue() == "??" {
             if matchTokenStr(SeenTokenType.DoubleQuestion) {
                 let right = parseEquality()
@@ -4740,29 +4940,34 @@ class RealParser {
         return expr
     }
 
-    // WHY sequential `if` instead of `or`:
-    // The stage1 frozen bootstrap compiler does not short-circuit `or`
-    // expressions.  Writing `if matchTokenStr(A) or matchTokenStr(B)` would
-    // execute BOTH matchTokenStr calls even when A already matched, silently
-    // consuming an extra token.  All precedence-level methods below therefore
-    // use nested `if not matched { if matchTokenStr(...) { ... } }` to
-    // guarantee only one token type is consumed per iteration.
+    ///
+    WHY sequential `if` instead of `or`:
+    The stage1 frozen bootstrap compiler does not short-circuit `or`
+    expressions.  Writing `if matchTokenStr(A) or matchTokenStr(B)` would
+    execute BOTH matchTokenStr calls even when A already matched, silently
+    consuming an extra token.  All precedence-level methods below therefore
+    use nested `if not matched { if matchTokenStr(...) { ... } }` to
+    guarantee only one token type is consumed per iteration.
+    ///
 
     fun parseEquality() r: ParserExpressionNode {
         var expr = parseComparison()
         var matched = true
+        var operator = ""
         while matched {
             matched = false
+            operator = ""
             if matchTokenStr(SeenTokenType.EqualEqual) {
                 matched = true
+                operator = "=="
             }
             if not matched {
                 if matchTokenStr(SeenTokenType.NotEqual) {
                     matched = true
+                    operator = "!="
                 }
             }
             if matched {
-                let operator = previous().getValue()
                 let right = parseComparison()
                 let newExpr = ParserExpressionNode.new()
                 newExpr.kind = "Binary"
@@ -4772,8 +4977,10 @@ class RealParser {
                 expr = newExpr
             }
         }
-        // 'is' type test: expr is TypeName
-        // Skip if this looks like a when/match pattern arm (is Ident -> or is Ident . or is Ident =>)
+        ///
+        'is' type test: expr is TypeName
+        Skip if this looks like a when/match pattern arm (is Ident -> or is Ident . or is Ident =>)
+        ///
         if checkToken(SeenTokenType.KeywordIs) {
             let isP2 = peekAt(2)
             let isP2v = isP2.getValue()
@@ -4797,28 +5004,39 @@ class RealParser {
     fun parseComparison() r: ParserExpressionNode {
         var expr = parseRange()
         var matched = true
+        var operator = ""
         while matched {
             matched = false
+            operator = ""
             if matchTokenStr(SeenTokenType.GreaterThan) {
                 matched = true
+                operator = ">"
             }
             if not matched {
                 if matchTokenStr(SeenTokenType.GreaterEqual) {
                     matched = true
+                    operator = ">="
                 }
             }
             if not matched {
                 if matchTokenStr(SeenTokenType.LessThan) {
                     matched = true
+                    operator = "<"
                 }
             }
             if not matched {
                 if matchTokenStr(SeenTokenType.LessEqual) {
                     matched = true
+                    operator = "<="
+                }
+            }
+            if not matched {
+                if matchTokenStr(SeenTokenType.KeywordIn) {
+                    matched = true
+                    operator = "in"
                 }
             }
             if matched {
-                let operator = previous().getValue()
                 let right = parseRange()
                 let newExpr = ParserExpressionNode.new()
                 newExpr.kind = "Binary"
@@ -4831,13 +5049,15 @@ class RealParser {
         return expr
     }
 
-    // Parse range expressions: start..end
-    // Since there is no DotDot token, detect two consecutive Dot tokens
+    ///
+    Parse range expressions: start..end
+    Since there is no DotDot token, detect two consecutive Dot tokens
+    ///
     fun parseRange() r: ParserExpressionNode {
         var expr = parseTerm()
         // Check for '..' by looking for Dot followed by another Dot (without identifier in between)
         if checkToken(SeenTokenType.Dot) {
-            let savedPos = current
+            let savedPos = this.current
             advance() // consume first '.'
             if checkToken(SeenTokenType.Dot) {
                 advance() // consume second '.'
@@ -4849,7 +5069,7 @@ class RealParser {
                 return rangeExpr
             } else {
                 // Not a range, backtrack -- it was a member access dot
-                current = savedPos
+                this.current = savedPos
             }
         }
         return expr
@@ -4920,17 +5140,19 @@ class RealParser {
         return expr
     }
 
-    // Parse left-shift (<<) and right-shift (>>) binary operators.
-    // Tighter than *, /, % but looser than bitwise &, |, ^.
-    //
-    // Uses value-based string checks (peek().getValue() == "<<") instead of
-    // SeenTokenType enum matching for bootstrap compatibility -- the frozen
-    // bootstrap compiler may not have enum constants for shift tokens.
-    //
-    // The lookahead for `=` after the operator is critical: without it,
-    // compound assigns like `x <<= 1` would be misparsed as a shift `x << (= 1)`.
-    // If the next token after << or >> is `=`, we leave the tokens unconsumed
-    // so parseAssignment() handles the compound assign instead.
+    ///
+    Parse left-shift (<<) and right-shift (>>) binary operators.
+    Tighter than *, /, % but looser than bitwise &, |, ^.
+
+    Uses value-based string checks (peek().getValue() == "<<") instead of
+    SeenTokenType enum matching for bootstrap compatibility -- the frozen
+    bootstrap compiler may not have enum constants for shift tokens.
+
+    The lookahead for `=` after the operator is critical: without it,
+    compound assigns like `x <<= 1` would be misparsed as a shift `x << (= 1)`.
+    If the next token after << or >> is `=`, we leave the tokens unconsumed
+    so parseAssignment() handles the compound assign instead.
+    ///
     fun parseShift() r: ParserExpressionNode {
         var expr = parseBitwise()
         var cont = true
@@ -4974,15 +5196,17 @@ class RealParser {
         return expr
     }
 
-    // Parse bitwise AND (&), OR (|), and XOR (^) binary operators.
-    // Tightest binary precedence level (looser only than unary operators).
-    //
-    // Same lookahead-for-`=` discipline as parseShift: each operator check
-    // peeks at the next token to ensure we do not consume `&=`, `|=`, or `^=`
-    // which belong to the compound-assign handling in parseAssignment().
-    //
-    // Uses value-based string checks for the same bootstrap compatibility
-    // reason as parseShift.
+    ///
+    Parse bitwise AND (&), OR (|), and XOR (^) binary operators.
+    Tightest binary precedence level (looser only than unary operators).
+
+    Same lookahead-for-`=` discipline as parseShift: each operator check
+    peeks at the next token to ensure we do not consume `&=`, `|=`, or `^=`
+    which belong to the compound-assign handling in parseAssignment().
+
+    Uses value-based string checks for the same bootstrap compatibility
+    reason as parseShift.
+    ///
     fun parseBitwise() r: ParserExpressionNode {
         var expr = parseUnary()
         var cont = true
@@ -5044,8 +5268,10 @@ class RealParser {
         return expr
     }
     fun parseUnary() r: ParserExpressionNode {
-        // Handle bitwise NOT ~ using token type check (avoids "~" string literal issue
-        // with stage1_frozen/production compiler which miscompiles "~" string comparisons)
+        ///
+        Handle bitwise NOT ~ using token type check (avoids "~" string literal issue
+        with stage1_frozen/production compiler which miscompiles "~" string comparisons)
+        ///
         if checkToken(SeenTokenType.BitwiseNot) {
             advance()
             let operand = parseUnary()
@@ -5115,20 +5341,22 @@ class RealParser {
         // Check for 'not' keyword (would need to add this as a token type)
         return parseCall()
     }
-    // Parse postfix operators: function calls `(args)`, member access `.field`,
-    // method calls `.method(args)`, index access `[expr]`, optional chaining `?.`,
-    // static method `::method`, and postfix `?` error propagation.
-    //
-    // Runs in a loop to handle chains like `a.b[0].c(x).d`.
-    //
-    // Member access handling:
-    //   When a `.identifier` is followed by `(`, the MemberAccess node is
-    //   converted in-place to a MethodCall node.  The receiver expression is
-    //   stored in literalValue (simple name) or operands[0] (complex expr).
-    //
-    //   Literal, Unary, and Binary expressions are explicitly allowed as method
-    //   receivers (e.g. `'~'.toInt()`, `(a+b).abs()`).  Without the operands
-    //   push for these kinds, the receiver would be lost.
+    ///
+    Parse postfix operators: function calls `(args)`, member access `.field`,
+    method calls `.method(args)`, index access `[expr]`, optional chaining `?.`,
+    static method `::method`, and postfix `?` error propagation.
+
+    Runs in a loop to handle chains like `a.b[0].c(x).d`.
+
+    Member access handling:
+      When a `.identifier` is followed by `(`, the MemberAccess node is
+      converted in-place to a MethodCall node.  The receiver expression is
+      stored in literalValue (simple name) or operands[0] (complex expr).
+
+      Literal, Unary, and Binary expressions are explicitly allowed as method
+      receivers (e.g. `'~'.toInt()`, `(a+b).abs()`).  Without the operands
+      push for these kinds, the receiver would be lost.
+    ///
     fun parseCall() r: ParserExpressionNode {
         var expr = parsePrimary()
 
@@ -5141,14 +5369,20 @@ class RealParser {
                 // Check if this is a method call (expr.method())
                 var wasMemberAccess = false
                 if expr.kind == "MemberAccess" {
-                    // trace
-                    // Convert MemberAccess to MethodCall in-place to avoid memory corruption
+                    ///
+                    trace
+                    Convert MemberAccess to MethodCall in-place to avoid memory corruption
+                    ///
                     expr.kind = "MethodCall"
-                    // trace
-                    // literalValue already has the receiver name from MemberAccess
+                    ///
+                    trace
+                    literalValue already has the receiver name from MemberAccess
+                    ///
                     expr.callee = expr.variableName  // method name
-                    // trace
-                    // arguments array already exists from MemberAccess creation
+                    ///
+                    trace
+                    arguments array already exists from MemberAccess creation
+                    ///
                     wasMemberAccess = true
                 }
                 if not wasMemberAccess {
@@ -5159,8 +5393,10 @@ class RealParser {
                     expr = callExpr
                 }
 
-                // Parse arguments into the current expr
-                // trace
+                ///
+                Parse arguments into the current expr
+                trace
+                ///
                 let emptyArgs = checkToken(getRightParenType())
                 if not emptyArgs {
                     // trace
@@ -5196,11 +5432,11 @@ class RealParser {
             }
             if not callTokenHandled and checkToken(getDotType()) {
                 // Check if this is '..' range syntax — don't consume the dot
-                let savedDotPos = current
+                let savedDotPos = this.current
                 advance() // consume first .
                 if checkToken(getDotType()) {
                     // This is '..' range syntax, backtrack
-                    current = savedDotPos
+                    this.current = savedDotPos
                     break
                 }
                 // Postfix .await — create Await expression node
@@ -5222,14 +5458,12 @@ class RealParser {
                     // Build full receiver path for chained access like diag.line.field
                     var memberLitSet = false
                     if expr.kind == "MemberAccess" {
-                        // Preserve complex receivers like call().field.next so later
-                        // stages still see the nested member access tree.
-                        if expr.literalValue != "" {
-                            memberExpr.literalValue = expr.literalValue + "." + expr.variableName
-                        } else {
-                            memberExpr.literalValue = ""
-                            memberExpr.operands.push(expr)
-                        }
+                        ///
+                        Preserve chained receivers as an expression tree so
+                        later stages keep the exact object pointer.
+                        ///
+                        memberExpr.literalValue = ""
+                        memberExpr.operands.push(expr)
                         memberLitSet = true
                     }
                     if not memberLitSet and (expr.kind == "MethodCall" or expr.kind == "Call" or expr.kind == "IndexAccess") {
@@ -5262,7 +5496,7 @@ class RealParser {
             // Handle :: for static method calls (e.g., JsonParser::new())
             if not callTokenHandled and checkToken(SeenTokenType.Colon) {
                 // Look ahead for second colon
-                let savedPos = current
+                let savedPos = this.current
                 advance() // consume first :
                 if checkToken(SeenTokenType.Colon) {
                     advance() // consume second :
@@ -5277,11 +5511,11 @@ class RealParser {
                         callTokenHandled = true
                     } else {
                         // Not an identifier after ::, backtrack
-                        current = savedPos
+                        this.current = savedPos
                     }
                 } else {
                     // Not a double colon, backtrack
-                    current = savedPos
+                    this.current = savedPos
                 }
             }
             if not callTokenHandled and checkToken(SeenTokenType.LeftBracket) {
@@ -5313,27 +5547,31 @@ class RealParser {
         return expr
     }
 
-    // Parse a primary (atomic) expression: literals, identifiers, struct
-    // literals, array literals, parenthesized expressions, if-expressions,
-    // when/match expressions, closures, interpolated strings, and keywords
-    // like `this`, `super`, `spawn`, `transmute`, `gpu`.
-    //
-    // CRITICAL ORDERING CONSTRAINT (bootstrap compatibility):
-    //   Integer, Float, String, Char, and Bool literal checks MUST come
-    //   BEFORE any keyword checks (KeywordWhen, KeywordMatch, etc.).
-    //
-    //   Reason: the pre-refactoring bootstrap compiler's getSeenTokenTypeValue()
-    //   returns 0 for any token type it does not recognize.  Since
-    //   IntegerLiteral has value 0, a checkToken(KeywordWhen) call in that
-    //   compiler actually matches integer tokens.  If we checked keywords
-    //   first, integer literals would be incorrectly consumed as `when`
-    //   expressions, causing all integer return values to become 0.
-    //   Checking literals first ensures they are consumed before any keyword
-    //   match can misfire.
+    ///
+    Parse a primary (atomic) expression: literals, identifiers, struct
+    literals, array literals, parenthesized expressions, if-expressions,
+    when/match expressions, closures, interpolated strings, and keywords
+    like `this`, `super`, `spawn`, `transmute`, `gpu`.
+
+    CRITICAL ORDERING CONSTRAINT (bootstrap compatibility):
+      Integer, Float, String, Char, and Bool literal checks MUST come
+      BEFORE any keyword checks (KeywordWhen, KeywordMatch, etc.).
+
+      Reason: the pre-refactoring bootstrap compiler's getSeenTokenTypeValue()
+      returns 0 for any token type it does not recognize.  Since
+      IntegerLiteral has value 0, a checkToken(KeywordWhen) call in that
+      compiler actually matches integer tokens.  If we checked keywords
+      first, integer literals would be incorrectly consumed as `when`
+      expressions, causing all integer return values to become 0.
+      Checking literals first ensures they are consumed before any keyword
+      match can misfire.
+    ///
     fun parsePrimary() r: ParserExpressionNode {
-        // Literal checks FIRST — must come before keyword checks because
-        // older bootstrap compilers may assign value 0 to unknown token types
-        // (e.g. KeywordWhen), causing them to collide with IntegerLiteral=0.
+        ///
+        Literal checks FIRST — must come before keyword checks because
+        older bootstrap compilers may assign value 0 to unknown token types
+        (e.g. KeywordWhen), causing them to collide with IntegerLiteral=0.
+        ///
 
         // Integer literal
         let currentValue = peek().getValue()
@@ -5349,9 +5587,11 @@ class RealParser {
             return makeLiteral(token.getValue(), "Float")
         }
 
-        // StringLiteral tokens already carry the unquoted payload from the lexer.
-        // Do not re-check for surrounding quotes here or they fall through into
-        // the name-like path and become VarExpr nodes.
+        ///
+        StringLiteral tokens already carry the unquoted payload from the lexer.
+        Do not re-check for surrounding quotes here or they fall through into
+        the name-like path and become VarExpr nodes.
+        ///
         if checkToken(SeenTokenType.StringLiteral) {
             let token = advance()
             let rawValue = token.getValue()
@@ -5365,7 +5605,7 @@ class RealParser {
             return makeLiteral(strValue, "String")
         }
 
-        // CharLiteral tokens also carry the raw character payload.
+        // CharLiteral this.tokens also carry the raw character payload.
         if checkToken(SeenTokenType.CharLiteral) {
             let token = advance()
             return makeLiteral(token.getValue(), "Char")
@@ -5381,10 +5621,12 @@ class RealParser {
             return makeLiteral("false", "Bool")
         }
 
-        // `data` is a contextual declaration keyword, but in expression
-        // position it must behave like a plain identifier. Handle it before
-        // the expression-keyword branches below so bootstrap enum/string
-        // mismatches cannot route it into `if`/`when`/`match` parsing.
+        ///
+        `data` is a contextual declaration keyword, but in expression
+        position it must behave like a plain identifier. Handle it before
+        the expression-keyword branches below so bootstrap enum/string
+        mismatches cannot route it into `if`/`when`/`match` parsing.
+        ///
         if checkNameLikeToken() {
             if peek().getValue() == "data" {
                 advance()
@@ -5428,8 +5670,10 @@ class RealParser {
             } else {
                 ifExpr.operands.push(ParserExpressionNode.new())
             }
-            // Stash side-effect exprs in arguments[] for codegen
-            // Format: [thenSideEffects..., sentinel, elseSideEffects...]
+            ///
+            Stash side-effect exprs in arguments[] for codegen
+            Format: [thenSideEffects..., sentinel, elseSideEffects...]
+            ///
             var thi = 0
             while thi < thenExprs.length() - 1 {
                 ifExpr.arguments.push(thenExprs[thi])
@@ -5452,15 +5696,17 @@ class RealParser {
             return parseWhenExpression()
         }
 
-        // match keyword: match expr { Pattern -> result ... }
-        // Subject is unparenthesised (unlike 'when (expr) {}')
+        ///
+        match keyword: match expr { Pattern -> result ... }
+        Subject is unparenthesised (unlike 'when (expr) {}')
+        ///
         if checkToken(SeenTokenType.KeywordMatch) {
             return parseMatchExpression()
         }
 
         // Closure literal: |params| body_expr
         if checkToken(SeenTokenType.BitwiseOr) {
-            let closureSaved = current
+            let closureSaved = this.current
             advance() // consume opening |
             var closureParams = Array<ParserExpressionNode>()
             var closureValid = true
@@ -5501,7 +5747,7 @@ class RealParser {
                 return closureExpr
             }
             // Not a closure — backtrack
-            current = closureSaved
+            this.current = closureSaved
         }
 
         // Parenthesized expression
@@ -5566,13 +5812,17 @@ class RealParser {
             // Remap 'self' to 'this' (alias for this-pointer)
             if name == "self" { name = "this" }
 
-            // Check for generic type syntax: Array<Type>() or Map<K,V>{}
-            // This needs to be handled before struct literal check
+            ///
+            Check for generic type syntax: Array<Type>() or Map<K,V>{}
+            This needs to be handled before struct literal check
+            ///
             if checkToken(SeenTokenType.LessThan) {
-                // Look ahead to see if this is a generic type or a comparison
-                // Generic type pattern: Identifier<Type>() or Identifier<Type>{}
-                // We save position, try to parse generic, then decide
-                let savedPos = current
+                ///
+                Look ahead to see if this is a generic type or a comparison
+                Generic type pattern: Identifier<Type>() or Identifier<Type>{}
+                We save position, try to parse generic, then decide
+                ///
+                let savedPos = this.current
                 advance() // consume <
                 var genericParsed = false
 
@@ -5616,8 +5866,10 @@ class RealParser {
                         advance() // consume >
                         foundClosingGt = true
 
-                        // Now check if followed by (), {}, or . to confirm generic type
-                        // NOTE: Use nested ifs instead of 'or' to ensure short-circuit (Stage1 bug workaround)
+                        ///
+                        Now check if followed by (), {}, or . to confirm generic type
+                        NOTE: Use nested ifs instead of 'or' to ensure short-circuit (Stage1 bug workaround)
+                        ///
                         var isGenericType = false
                         if checkToken(SeenTokenType.LeftParen) {
                             isGenericType = true
@@ -5640,46 +5892,50 @@ class RealParser {
                         }
                         if not isGenericType {
                             // Not followed by (), {}, or . - backtrack, treat as comparison
-                            current = savedPos
+                            this.current = savedPos
                             genericParsed = true
                         }
                     }
                     if not foundClosingGt {
                         // No closing > - backtrack, treat as comparison
-                        current = savedPos
+                        this.current = savedPos
                         genericParsed = true
                     }
                 }
                 if not genericParsed {
                     // Not an identifier after < - backtrack, treat as comparison
-                    current = savedPos
+                    this.current = savedPos
                 }
             }
 
-            // Check for struct literal: TypeName{ field: value, ... }
-            // Only treat as struct literal if identifier starts with uppercase (type name convention)
-            // This prevents `if myVar { ... }` from being parsed as struct literal
+            ///
+            Check for struct literal: TypeName{ field: value, ... }
+            Only treat as struct literal if identifier starts with uppercase (type name convention)
+            This prevents `if myVar { ... }` from being parsed as struct literal
+            ///
             let firstChar = name.charAt(0)
             let isUppercase = firstChar >= "A" and firstChar <= "Z"
             var isStructLiteral = false
             if isUppercase and checkToken(SeenTokenType.LeftBrace) {
-                // Lookahead: struct literal requires { IDENTIFIER : pattern
-                // This prevents `if X >= MAX_ITEMS { ... }` from treating MAX_ITEMS as struct type
-                let savedCurrent = current
+                ///
+                Lookahead: struct literal requires { IDENTIFIER : pattern
+                This prevents `if X >= MAX_ITEMS { ... }` from treating MAX_ITEMS as struct type
+                ///
+                let savedCurrent = this.current
                 advance() // skip {
                 var looksLikeStruct = false
                 if checkToken(SeenTokenType.RightBrace) {
                     looksLikeStruct = true
                 }
                 if checkToken(SeenTokenType.Identifier) {
-                    let savedCurrent2 = current
+                    let savedCurrent2 = this.current
                     advance()
                     if checkToken(SeenTokenType.Colon) {
                         looksLikeStruct = true
                     }
-                    current = savedCurrent2
+                    this.current = savedCurrent2
                 }
-                current = savedCurrent
+                this.current = savedCurrent
                 if looksLikeStruct {
                     isStructLiteral = true
                 }
@@ -5723,8 +5979,10 @@ class RealParser {
                 return structExpr
             }
 
-            // Regular identifier/variable - use the same pattern as makeLiteral
-            // trace
+            ///
+            Regular identifier/variable - use the same pattern as makeLiteral
+            trace
+            ///
             return makeVariable(name)
         }
 
@@ -5764,10 +6022,12 @@ class RealParser {
         }
     }
 
-    // Create a variable-reference expression node.
-    // The kind is "VarExpr" (not "Variable") because the stage1 bootstrap
-    // compiler has a memory-corruption bug triggered by the exact 8-byte
-    // string "Variable" when stored in a struct field.
+    ///
+    Create a variable-reference expression node.
+    The kind is "VarExpr" (not "Variable") because the stage1 bootstrap
+    compiler has a memory-corruption bug triggered by the exact 8-byte
+    string "Variable" when stored in a struct field.
+    ///
     fun getVariableExprName(expr: ParserExpressionNode) r: String {
         if expr.variableName != "" {
             return expr.variableName
@@ -5788,19 +6048,23 @@ class RealParser {
         return expr
     }
 
-    // Parse an interpolated string like `"Hello {name}!"`.
-    // The lexer emits only non-empty InterpolatedStringMiddle tokens, so the
-    // parser must synthesize empty leading/trailing parts to preserve ordering.
-    // arguments[] always stores string-literal parts with length = exprs + 1,
-    // while operands[] stores the embedded expressions between those parts.
+    ///
+    Parse an interpolated string like `"Hello {name}!"`.
+    The lexer emits only non-empty InterpolatedStringMiddle tokens, so the
+    parser must synthesize empty leading/trailing parts to preserve ordering.
+    arguments[] always stores string-literal parts with length = exprs + 1,
+    while operands[] stores the embedded expressions between those parts.
+    ///
     fun parseInterpolatedString() r: ParserExpressionNode {
         // Consume InterpolatedStringStart
         advance()
 
         let result = ParserExpressionNode.new()
         result.kind = "StringInterpolation"
-        // arguments holds the string literal parts, including empty separators.
-        // operands holds the expressions to interpolate.
+        ///
+        arguments holds the string literal parts, including empty separators.
+        operands holds the expressions to interpolate.
+        ///
 
         while not checkToken(SeenTokenType.InterpolatedStringEnd) {
             if isAtEnd() {
@@ -5808,8 +6072,10 @@ class RealParser {
                 break
             }
 
-            // The lexer omits empty middle tokens, so preserve missing separators
-            // explicitly to keep parts ordered around each expression.
+            ///
+            The lexer omits empty middle tokens, so preserve missing separators
+            explicitly to keep parts ordered around each expression.
+            ///
             if checkToken(SeenTokenType.InterpolatedStringMiddle) {
                 let token = advance()
                 let strPart = token.getValue()
@@ -5852,9 +6118,11 @@ class RealParser {
         return item
     }
 
-    // Parse an import declaration (import path.to.module.{Symbol1, Symbol2})
-    // and push it into currentProgram.  Supports dot-separated paths,
-    // Rust-style :: paths, `as` aliases, and braced symbol lists.
+    ///
+    Parse an import declaration (import path.to.module.{Symbol1, Symbol2})
+    and push it into currentProgram.  Supports dot-separated paths,
+    Rust-style :: paths, `as` aliases, and braced symbol lists.
+    ///
     fun parseImportItemInto() r: Void {
         let importSegments = Array<String>()
 
@@ -5930,14 +6198,14 @@ class RealParser {
 
         matchTokenStr(getSemicolonType())
 
-        // Push directly to currentProgram instead of returning
+        // Push directly to this.currentProgram instead of returning
         let item = ItemNode.new()
         item.itemType = "Import"
         item.name = importText
         item.visibility = ""
         item.importPath = importSegments
         item.importSymbols = importSymbols
-        currentProgram.items.push(item)
+        this.currentProgram.items.push(item)
         traceParse("push Import " + item.name)
     }
 
@@ -6029,72 +6297,81 @@ class RealParser {
         return symbol
     }
 
-    // ========== If-related methods (placed at end of class) ===================
-    //
-    // WHY these are at the end:
-    //   The stage1 frozen bootstrap compiler has a codegen bug where methods
-    //   with similar signatures that appear adjacent in source get "merged" --
-    //   the body of one overwrites another.  Moving parseIfStatementField,
-    //   parseIfStatementInto, and parseIfStatement to the bottom of the class
-    //   (far from each other and from similar parse*Statement methods) avoids
-    //   the collision.
-    // ========================================================================
+    ///
+    ========== If-related methods (placed at end of class) ===================
 
-    // Stable while parsers kept near the bottom of the file to avoid a
-    // stage1 bootstrap method-merging bug observed with adjacent parse*Field
-    // loop parsers.
+    WHY these are at the end:
+      The stage1 frozen bootstrap compiler has a codegen bug where methods
+      with similar signatures that appear adjacent in source get "merged" --
+      the body of one overwrites another.  Moving parseIfStatementField,
+      parseIfStatementInto, and parseIfStatement to the bottom of the class
+      (far from each other and from similar parse*Statement methods) avoids
+      the collision.
+    ========================================================================
+    ///
+
+    ///
+    Stable while parsers kept near the bottom of the file to avoid a
+    stage1 bootstrap method-merging bug observed with adjacent parse*Field
+    loop parsers.
+    ///
     fun parseStableWhileStatementField() r: Void {
-        lastStatement.kind = "While"
-        parseExpressionInto(lastStatement.loopCondition)
+        let stableWhileCondition = parseExpression()
         consume(SeenTokenType.LeftBrace, "Expected '{' after while condition")
         parseBlockIntoField()
-        lastStatement.loopBody = lastParsedBlock
+        this.lastStatement.kind = "While"
+        this.lastStatement.loopCondition = stableWhileCondition
+        this.lastStatement.loopBody = this.lastParsedBlock
         return
     }
 
     fun parseStableWhileStatementInto(stmt: StatementNode) r: Void {
-        stmt.kind = "While"
-        parseExpressionInto(stmt.loopCondition)
+        let stableWhileCondition = parseExpression()
         consume(SeenTokenType.LeftBrace, "Expected '{' after while condition")
         parseBlockIntoField()
-        stmt.loopBody = lastParsedBlock
+        stmt.kind = "While"
+        stmt.loopCondition = stableWhileCondition
+        stmt.loopBody = this.lastParsedBlock
         return
     }
 
     fun parseStableWhileStatement() r: StatementNode {
         let stmt = StatementNode.new()
-        stmt.kind = "While"
-        stmt.loopCondition = parseExpression()
+        let stableWhileCondition = parseExpression()
         consume(SeenTokenType.LeftBrace, "Expected '{' after while condition")
         parseBlockIntoField()
-        stmt.loopBody = lastParsedBlock
+        stmt.kind = "While"
+        stmt.loopCondition = stableWhileCondition
+        stmt.loopBody = this.lastParsedBlock
         return stmt
     }
 
-    // Parse `if condition { then } [else { ... }]` into lastStatement.
+    // Parse `if condition { then } [else { ... }]` into this.lastStatement.
     fun parseIfStatementField() r: Void {
-        lastStatement.kind = "If"
-        parseExpressionInto(lastStatement.condition)
+        this.lastStatement.kind = "If"
+        parseExpressionInto(this.lastStatement.condition)
         consume(SeenTokenType.LeftBrace, "Expected '{'")
         parseBlockIntoField()
-        lastStatement.thenBranch = lastParsedBlock
+        this.lastStatement.thenBranch = this.lastParsedBlock
         // Handle else branch - use checkToken first to avoid advancing prematurely
         if checkToken(SeenTokenType.KeywordElse) {
             advance() // consume 'else'
             if checkToken(SeenTokenType.KeywordIf) {
                 advance() // consume 'if'
-                // Parse else-if as a nested if in the else branch
-                // Uses parseIfStatement() which handles full else-if chains recursively
+                ///
+                Parse else-if as a nested if in the else branch
+                Uses parseIfStatement() which handles full else-if chains recursively
+                ///
                 let elseBlock = BlockNode.new()
                 let nestedIf = parseIfStatement()
                 elseBlock.statements.push(nestedIf)
-                lastStatement.elseBranch = elseBlock
+                this.lastStatement.elseBranch = elseBlock
             } else {
                 // Plain else block
                 if checkToken(SeenTokenType.LeftBrace) {
                     advance() // consume '{'
                     parseBlockIntoField()
-                    lastStatement.elseBranch = lastParsedBlock
+                    this.lastStatement.elseBranch = this.lastParsedBlock
                 }
             }
         }
@@ -6106,7 +6383,7 @@ class RealParser {
         parseExpressionInto(stmt.condition)
         consume(SeenTokenType.LeftBrace, "Expected '{'")
         parseBlockIntoField()
-        stmt.thenBranch = lastParsedBlock
+        stmt.thenBranch = this.lastParsedBlock
         // Handle else branch (supports full else-if chains recursively)
         if checkToken(SeenTokenType.KeywordElse) {
             advance() // consume 'else'
@@ -6120,20 +6397,22 @@ class RealParser {
                 if checkToken(SeenTokenType.LeftBrace) {
                     advance() // consume '{'
                     parseBlockIntoField()
-                    stmt.elseBranch = lastParsedBlock
+                    stmt.elseBranch = this.lastParsedBlock
                 }
             }
         }
         return
     }
 
-    // Parse an if statement, including `if let` bindings and chained else-if.
-    // Else-if is handled by recursively calling parseIfStatement() and
-    // wrapping the result in a single-statement else BlockNode.
-    //
-    // This method is intentionally placed at the END of the class to work
-    // around a stage1 bootstrap codegen bug where adjacent methods with
-    // similar signatures get "merged" (their bodies are conflated).
+    ///
+    Parse an if statement, including `if let` bindings and chained else-if.
+    Else-if is handled by recursively calling parseIfStatement() and
+    wrapping the result in a single-statement else BlockNode.
+
+    This method is intentionally placed at the END of the class to work
+    around a stage1 bootstrap codegen bug where adjacent methods with
+    similar signatures get "merged" (their bodies are conflated).
+    ///
     fun parseIfStatement() r: StatementNode {
         let stmt = StatementNode.new()
         // if let pattern: if let name = expr { ... } else { ... }
@@ -6147,13 +6426,13 @@ class RealParser {
             stmt.condition = parseExpression()
             consume(SeenTokenType.LeftBrace, "Expected '{'")
             parseBlockIntoField()
-            stmt.thenBranch = lastParsedBlock
+            stmt.thenBranch = this.lastParsedBlock
             if checkToken(SeenTokenType.KeywordElse) {
                 advance()
                 if checkToken(SeenTokenType.LeftBrace) {
                     advance()
                     parseBlockIntoField()
-                    stmt.elseBranch = lastParsedBlock
+                    stmt.elseBranch = this.lastParsedBlock
                 }
             }
             return stmt
@@ -6162,7 +6441,7 @@ class RealParser {
         stmt.condition = parseExpression()
         consume(SeenTokenType.LeftBrace, "Expected '{'")
         parseBlockIntoField()
-        stmt.thenBranch = lastParsedBlock
+        stmt.thenBranch = this.lastParsedBlock
         // Handle else branch (supports full else-if chains recursively)
         if checkToken(SeenTokenType.KeywordElse) {
             advance() // consume 'else'
@@ -6178,7 +6457,7 @@ class RealParser {
                 if checkToken(SeenTokenType.LeftBrace) {
                     advance() // consume '{'
                     parseBlockIntoField()
-                    stmt.elseBranch = lastParsedBlock
+                    stmt.elseBranch = this.lastParsedBlock
                 }
             }
         }
@@ -6187,10 +6466,12 @@ class RealParser {
 
     // -- When / Match expression parsing ------------------------------------
 
-    // Parse a when expression: `when (subject) { is Pattern -> expr, ... }`.
-    // The subject is optional and wrapped in parentheses.
-    // Returns a WhenExpression node with operands[0] = subject (if present)
-    // and arguments[] = array of PatternArm nodes.
+    ///
+    Parse a when expression: `when (subject) { is Pattern -> expr, ... }`.
+    The subject is optional and wrapped in parentheses.
+    Returns a WhenExpression node with operands[0] = subject (if present)
+    and arguments[] = array of PatternArm nodes.
+    ///
     fun parseWhenExpression() r: ParserExpressionNode {
         // Consume 'when' keyword
         advance()
@@ -6237,9 +6518,11 @@ class RealParser {
         return whenExpr
     }
 
-    // Parse `match subject { Pattern -> result, ... }`.
-    // Identical to when-expression semantics but the subject is NOT
-    // parenthesized.  Both produce the same WhenExpression AST node.
+    ///
+    Parse `match subject { Pattern -> result, ... }`.
+    Identical to when-expression semantics but the subject is NOT
+    parenthesized.  Both produce the same WhenExpression AST node.
+    ///
     fun parseMatchExpression() r: ParserExpressionNode {
         advance() // consume 'match' keyword
 
@@ -6264,9 +6547,11 @@ class RealParser {
         return matchExpr
     }
 
-    // Parse a single pattern arm directly into ParserExpressionNode
-    // Returns: kind="PatternArm", variableName=pattern kind, literalValue=type/literal value,
-    //          operands[0]=pattern expr, operands[1]=arm result expr
+    ///
+    Parse a single pattern arm directly into ParserExpressionNode
+    Returns: kind="PatternArm", variableName=pattern kind, literalValue=type/literal value,
+             operands[0]=pattern expr, operands[1]=arm result expr
+    ///
     fun parsePatternArmExpr() r: ParserExpressionNode {
         let armExpr = ParserExpressionNode.new()
         armExpr.kind = "PatternArm"
@@ -6323,9 +6608,11 @@ class RealParser {
         return armExpr
     }
 
-    // Parse a pattern directly into ParserExpressionNode
-    // Returns: kind="Pattern", variableName=pattern kind, literalValue=type/literal value,
-    //          literalType=type for literals, operands=field bindings
+    ///
+    Parse a pattern directly into ParserExpressionNode
+    Returns: kind="Pattern", variableName=pattern kind, literalValue=type/literal value,
+             literalType=type for literals, operands=field bindings
+    ///
     fun parsePatternExpr() r: ParserExpressionNode {
         let expr = ParserExpressionNode.new()
         expr.kind = "Pattern"
@@ -6475,8 +6762,10 @@ class RealParser {
         return expr
     }
 
-    // Parse a single field binding into ParserExpressionNode
-    // Returns: kind="PatternField", variableName=field name, literalValue=binding name
+    ///
+    Parse a single field binding into ParserExpressionNode
+    Returns: kind="PatternField", variableName=field name, literalValue=binding name
+    ///
     fun parsePatternFieldExpr() r: ParserExpressionNode {
         let fieldExpr = ParserExpressionNode.new()
         fieldExpr.kind = "PatternField"
@@ -6499,6 +6788,14 @@ class RealParser {
 
     // -- Utility helpers --------------------------------------------------
     fun inferVisibility(name: String) r: String {
+        if this.pendingSealedModifier == 2 or this.pendingSealedModifier == 3 {
+            if this.pendingSealedModifier == 3 {
+                this.pendingSealedModifier = 1
+            } else {
+                this.pendingSealedModifier = 0
+            }
+            return "public"
+        }
         if name.length() == 0 {
             return "private"
         }
@@ -6511,14 +6808,18 @@ class RealParser {
         return "private"
     }
 
-    // BOOTSTRAP CONSTRAINT: keep new() at the end of the class. Older bootstrap
-    // compilers can silently drop later RealParser methods after parsing the
-    // generic Array<...>() initializers in this constructor.
+    ///
+    BOOTSTRAP CONSTRAINT: keep new() at the end of the class. Older bootstrap
+    compilers can silently drop later RealParser methods after parsing the
+    generic Array<...>() initializers in this constructor.
+    ///
     static fun new(rawTokens: Array<Token>) r: RealParser {
         return RealParser{
-            // parseEffectModifierInto() handles KeywordEffect directly, so avoid
-            // rebuilding Array<Token> here. Older bootstrap compilers can
-            // miscompile rewriteEffectTokens() and drop every token.
+            ///
+            parseEffectModifierInto() handles KeywordEffect directly, so avoid
+            rebuilding Array<Token> here. Older bootstrap compilers can
+            miscompile rewriteEffectTokens() and drop every token.
+            ///
             tokens: rawTokens,
             current: 0,
             currentProgram: ProgramNode.new(),
@@ -6540,6 +6841,10 @@ class RealParser {
         }
     }
 
+}
+
+fun newRealParserCompat(rawTokens: Array<Token>) r: RealParser {
+    return RealParser.new(rawTokens)
 }
 
 

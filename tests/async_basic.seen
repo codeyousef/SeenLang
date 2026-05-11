@@ -1,5 +1,7 @@
-// Basic async/await test — uses codegen-level coroutines directly
-// No runtime library dependency
+///
+Basic async/await test — uses codegen-level coroutines directly
+No runtime library dependency
+///
 
 @async
 fun add(a: Int, b: Int) -> Int {

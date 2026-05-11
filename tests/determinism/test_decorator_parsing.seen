@@ -1,6 +1,8 @@
-// Test decorator infrastructure
-// Note: Actual @decorator syntax requires a new bootstrap build
-// This test verifies the infrastructure is in place
+///
+Test decorator infrastructure
+Note: Actual @decorator syntax requires a new bootstrap build
+This test verifies the infrastructure is in place
+///
 
 fun main() r: Int {
     println("=================================")
@@ -26,11 +28,13 @@ fun main() r: Int {
     // Test 2: FunctionNode decorator fields
     println("")
     println("Test 2: FunctionNode fields")
-    // These fields are now in FunctionNode:
-    // - isDeterministic: Bool
-    // - isNondeterministic: Bool
-    // - isExtern: Bool
-    // - decorators: Array<AnnotationNode>
+    ///
+    These fields are now in FunctionNode:
+    - isDeterministic: Bool
+    - isNondeterministic: Bool
+    - isExtern: Bool
+    - decorators: Array<AnnotationNode>
+    ///
     println("FunctionNode has decorator fields:")
     println("  isDeterministic: Bool")
     println("  isNondeterministic: Bool")
@@ -41,9 +45,11 @@ fun main() r: Int {
     // Test 3: AnnotationNode structure
     println("")
     println("Test 3: AnnotationNode structure")
-    // AnnotationNode has:
-    // - name: String
-    // - arguments: Array<String>
+    ///
+    AnnotationNode has:
+    - name: String
+    - arguments: Array<String>
+    ///
     println("AnnotationNode structure:")
     println("  name: String")
     println("  arguments: Array<String>")

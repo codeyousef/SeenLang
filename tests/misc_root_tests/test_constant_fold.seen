@@ -1,6 +1,8 @@
-// Test integer constant folding and strength reductions
-// IntLiteral op IntLiteral → computed at compile time
-// x * 4 → shl 2, x * 8 → shl 3, x / 2 → ashr 1
+///
+Test integer constant folding and strength reductions
+IntLiteral op IntLiteral → computed at compile time
+x * 4 → shl 2, x * 8 → shl 3, x / 2 → ashr 1
+///
 
 fun main() r: Int {
     // Constant folding: 3 + 5 → 8

@@ -1,0 +1,54 @@
+// ir_local_type_leaf_driver.seen - local type fallback leaves.
+
+import parser.real_parser.{ParserExpressionNode}
+import codegen.ir_codegen_global_state.{findVisibleVariableTypeWithGlobalStateImpl, tryInferLLVMIRGeneratorThisFieldTypeWithGlobalStateImpl, tryInferStructThisFieldTypeWithGlobalStateImpl, tryInferImplicitThisVariableTypeWithGlobalStateImpl}
+import codegen.ir_codegen_module_state.{tryInferModuleConstantVariableTypeWithModuleStateImpl}
+import codegen.ir_local_type_fallback.{tryInferNamedPrimitiveVariableTypeImpl}
+import codegen.ir_variable_gen.{getExprVariableNameImpl}
+
+fun findVarTypeState(varNames: Array<String>, varTypes: Array<String>,
+    name: String) r: String {
+
+    let visibleVarType = findVisibleVariableTypeWithGlobalStateImpl(varNames,
+        varTypes, name)
+    if visibleVarType != "" {
+        return visibleVarType
+    }
+    return tryInferModuleConstantVariableTypeWithModuleStateImpl(name)
+}
+
+fun tryInferLLVMIRGeneratorThisFieldType(thisType: String, varName: String) r: String {
+    return tryInferLLVMIRGeneratorThisFieldTypeWithGlobalStateImpl(thisType,
+        varName)
+}
+
+fun tryInferStructThisFieldType(thisType: String, varName: String) r: String {
+    return tryInferStructThisFieldTypeWithGlobalStateImpl(thisType, varName)
+}
+
+fun tryInferNamedPrimitiveVariableType(varName: String) r: String {
+    return tryInferNamedPrimitiveVariableTypeImpl(varName)
+}
+
+fun tryInferImplicitThisVariableTypeState(varNames: Array<String>,
+    varTypes: Array<String>, varName: String) r: String {
+
+    return tryInferImplicitThisVariableTypeWithGlobalStateImpl(varNames,
+        varTypes, varName)
+}
+
+fun inferVariableExprTypeLocalState(expr: ParserExpressionNode,
+    varNames: Array<String>, varTypes: Array<String>) r: String {
+
+    let varName = getExprVariableNameImpl(expr.variableName, expr.literalValue)
+    let varType = findVarTypeState(varNames, varTypes, varName)
+    if varType != "" {
+        return varType
+    }
+    let implicitThisType = tryInferImplicitThisVariableTypeState(varNames,
+        varTypes, varName)
+    if implicitThisType != "" {
+        return implicitThisType
+    }
+    return tryInferNamedPrimitiveVariableType(varName)
+}

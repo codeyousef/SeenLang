@@ -1,10 +1,26 @@
 # Getting Started
 
-## Prerequisites
+## Install a Release
 
-- **LLVM 18+** with `clang`, `opt`, and `lld`
-- **GCC** (for runtime compilation)
-- **Git**
+The Linux and Windows release packages are built to include the compiler and
+the toolchain pieces needed by normal users, including LLVM tools where the
+package format supports bundling them. After installation, verify the compiler
+is on your PATH:
+
+```bash
+seen
+```
+
+The shipped binary prints command usage when no command is supplied.
+
+## Build from Source
+
+Source builds still need local build tools because they rebuild the compiler and
+runtime:
+
+- LLVM 18+ with `clang`, `opt`, `llc`, `llvm-as`, and `lld`
+- GCC or a compatible C compiler for runtime objects
+- Git
 
 On Ubuntu/Debian:
 
@@ -24,7 +40,7 @@ On macOS:
 brew install llvm gcc git
 ```
 
-## Build from Source
+Build the self-hosted compiler:
 
 ```bash
 git clone https://github.com/codeyousef/SeenLang.git
@@ -32,21 +48,9 @@ cd SeenLang
 ./scripts/safe_rebuild.sh
 ```
 
-The production compiler lands at `compiler_seen/target/seen`.
-
-## Install
-
-Copy the binary to your PATH:
-
-```bash
-sudo cp compiler_seen/target/seen /usr/local/bin/seen
-```
-
-Or add the project directory:
-
-```bash
-export PATH="$PATH:/path/to/SeenLang/compiler_seen/target"
-```
+The production compiler lands at `compiler_seen/target/seen`. Follow the
+repository rebuild rules when running this script: derive and set explicit
+memory limits rather than running an uncapped rebuild.
 
 ## Hello World
 
@@ -61,11 +65,11 @@ fun main() {
 Compile and run:
 
 ```bash
-seen build hello.seen -o hello
+seen compile hello.seen hello
 ./hello
 ```
 
-Or use JIT execution (no binary produced):
+Or compile and execute in one step:
 
 ```bash
 seen run hello.seen
@@ -73,11 +77,9 @@ seen run hello.seen
 
 ## Your First Project
 
-### Project Structure
-
 A Seen project uses `Seen.toml` for configuration:
 
-```
+```text
 my_project/
 ├── Seen.toml
 ├── src/
@@ -86,7 +88,7 @@ my_project/
     └── test_main.seen
 ```
 
-### Seen.toml
+Minimal `Seen.toml`:
 
 ```toml
 [project]
@@ -98,14 +100,14 @@ language = "en"
 default = "https://seen.yousef.codes/packages"
 
 [dependencies]
-mathx = "0.1.0"
 
 [native.dependencies]
 ```
 
-The `language` field sets the keyword language. Options: `en`, `ar`, `es`, `ru`, `zh`, `fr`.
+The `language` field sets the keyword language. Supported languages are `en`,
+`ar`, `es`, `ru`, `zh`, and `ja`.
 
-### A Bigger Example
+Example program:
 
 ```seen
 class Counter {
@@ -138,13 +140,13 @@ fun main() {
 Compile:
 
 ```bash
-seen build src/main.seen -o my_project
+seen compile src/main.seen my_project
 ./my_project
 ```
 
 ## Editor Setup
 
-### VS Code (Recommended)
+### VS Code
 
 ```bash
 cd vscode-seen
@@ -153,22 +155,16 @@ npm run package
 code --install-extension seen-*.vsix
 ```
 
-The extension provides:
-- Syntax highlighting
-- IntelliSense via built-in LSP
-- Real-time error diagnostics
-- Code formatting
-- 34 code snippets
+The extension provides syntax highlighting, snippets, tasks, and LSP-backed
+diagnostics/completions through the shipped `seen lsp` server.
 
-### Any Editor (LSP)
-
-Seen includes a built-in language server:
+### Any Editor With LSP
 
 ```bash
 seen lsp
 ```
 
-**Neovim:**
+Neovim:
 
 ```lua
 require'lspconfig'.seen.setup{
@@ -178,7 +174,7 @@ require'lspconfig'.seen.setup{
 }
 ```
 
-**Emacs:**
+Emacs:
 
 ```elisp
 (lsp-register-client
@@ -189,7 +185,7 @@ require'lspconfig'.seen.setup{
 
 ## Writing in Other Languages
 
-The same hello world in Arabic:
+Arabic hello world:
 
 ```seen
 دالة main() {
@@ -197,16 +193,16 @@ The same hello world in Arabic:
 }
 ```
 
-Compile with language flag:
+Compile with the language flag:
 
 ```bash
-seen build hello_ar.seen -o hello --language ar
+seen compile hello_ar.seen hello --language ar
 ```
 
-See [Multi-Language Support](multilingual.md) for full translation tables.
+See [Multi-Language Support](multilingual.md) for translation tables.
 
 ## Next Steps
 
-- [Language Guide](language-guide.md) -- complete syntax reference
-- [CLI Reference](cli-reference.md) -- all compiler commands and flags
+- [Language Guide](language-guide.md) -- syntax and semantics
+- [CLI Reference](cli-reference.md) -- shipped compiler commands and flags
 - [API Reference](api-reference/index.md) -- standard library documentation

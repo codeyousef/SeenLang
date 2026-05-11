@@ -1,5 +1,7 @@
-// Test: @c_resource scope-exit destructor
-// The destructor should be called automatically when the variable goes out of scope
+///
+Test: @c_resource scope-exit destructor
+The destructor should be called automatically when the variable goes out of scope
+///
 
 @c_resource("free")
 class FileHandle {

@@ -1,5 +1,7 @@
-// Test: Explicit CPU/GPU fence synchronization
-// Verifies seen_gpu_fence_create/wait/destroy runtime functions
+///
+Test: Explicit CPU/GPU fence synchronization
+Verifies seen_gpu_fence_create/wait/destroy runtime functions
+///
 
 fun main() r: Int {
     println("test_fence_events: CPU/GPU fence synchronization")

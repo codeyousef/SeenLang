@@ -1,5 +1,7 @@
-// Test @deterministic and @nondeterministic annotations
-// This test verifies that the parser correctly handles decorator syntax
+///
+Test @deterministic and @nondeterministic annotations
+This test verifies that the parser correctly handles decorator syntax
+///
 
 fun main() r: Int {
     println("=================================")
@@ -77,9 +79,11 @@ fun main() r: Int {
     println("")
     println("Test 7: Multiple decorators on function")
     total = total + 1
-    // @deterministic
-    // @inline
-    // fun compute() ...
+    ///
+    @deterministic
+    @inline
+    fun compute() ...
+    ///
     let dec1 = "@deterministic"
     let dec2 = "@inline"
     println(dec1)

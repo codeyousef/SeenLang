@@ -1,9 +1,13 @@
-// Minimal test for Virtual DOM primitives
-// Tests basic type definitions and factory functions
-// NOTE: Full tests require stage2+ compiler due to Vec<Class>.len() codegen issues
+///
+Minimal test for Virtual DOM primitives
+Tests basic type definitions and factory functions
+NOTE: Full tests require stage2+ compiler due to Vec<Class>.len() codegen issues
+///
 
-// Test that the vdom module exists and has the expected types
-// This test validates the API design without exercising complex runtime behavior
+///
+Test that the vdom module exists and has the expected types
+This test validates the API design without exercising complex runtime behavior
+///
 
 fun main() r: Int {
     println("=== Virtual DOM Primitives Test (Minimal) ===")

@@ -1,9 +1,11 @@
-// Prueba E2E: Biblioteca estandar de entorno (Espanol)
-// NOTA: argumentos() (args) no esta definida en el runtime -- causa error de enlace.
-// Probando funcionalidades de entorno que SI funcionan:
-//   - Conversion de cadenas (aTexto)
-//   - Analisis de enteros y configuracion basica del programa
-//   - Punto de entrada del programa y codigos de salida
+///
+Prueba E2E: Biblioteca estandar de entorno (Espanol)
+NOTA: argumentos() (args) no esta definida en el runtime -- causa error de enlace.
+Probando funcionalidades de entorno que SI funcionan:
+  - Conversion de cadenas (aTexto)
+  - Analisis de enteros y configuracion basica del programa
+  - Punto de entrada del programa y codigos de salida
+///
 
 función principal() r: entero {
     // Prueba 1: el programa ejecuta y puede retornar codigo de salida

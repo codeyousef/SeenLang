@@ -1,5 +1,7 @@
-// seen_std.core.intrinsics
-// Runtime intrinsic declarations shared across stdlib and compiler.
+///
+seen_std.core.intrinsics
+Runtime intrinsic declarations shared across stdlib and compiler.
+///
 
 extern fun abort(message: String) r: Never
 

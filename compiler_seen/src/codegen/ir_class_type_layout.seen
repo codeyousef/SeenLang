@@ -1,6 +1,8 @@
-// ir_class_type_layout.seen — shared plain class-type layout helpers
-// Extracted from llvm_ir_gen.seen to keep alias-field accounting and
-// non-decorator class-type emission out of the main file.
+///
+ir_class_type_layout.seen — shared plain class-type layout helpers
+Extracted from llvm_ir_gen.seen to keep alias-field accounting and
+non-decorator class-type emission out of the main file.
+///
 
 import parser.real_parser.{ClassNode, ParamNode}
 import str.string.{StringBuilder}

@@ -1,23 +1,23 @@
-/**
- * Gamepad abstraction for Linux.
- *
- * Provides a unified gamepad API using evdev, normalizing input from
- * different controller types (Xbox, PlayStation, etc.) to a standard
- * layout. Supports multiple simultaneous gamepads with deadzone handling.
- *
- * Example:
- *   let manager = GamepadManager.newDefault()
- *   manager.scan()
- *   while running {
- *       let events = manager.poll()
- *       for event in events {
- *           if event.eventType == GamepadEventType.Button {
- *               // handle button press
- *           }
- *       }
- *   }
- *   manager.disconnectAll()
- */
+///
+Gamepad abstraction for Linux.
+
+Provides a unified gamepad API using evdev, normalizing input from
+different controller types (Xbox, PlayStation, etc.) to a standard
+layout. Supports multiple simultaneous gamepads with deadzone handling.
+
+Example:
+  let manager = GamepadManager.newDefault()
+  manager.scan()
+  while running {
+      let events = manager.poll()
+      for event in events {
+          if event.eventType == GamepadEventType.Button {
+              // handle button press
+          }
+      }
+  }
+  manager.disconnectAll()
+///
 
 import core.result.{Result, Ok, Err}
 import core.unit.{Unit}
@@ -66,12 +66,12 @@ let GAMEPAD_AXIS_COUNT: Int = 6
 
 let DEFAULT_DEADZONE: Float = 0.1
 
-/**
- * Current state of all gamepad inputs.
- *
- * Contains button press states and analog axis values.
- * Updated automatically when polling a Gamepad.
- */
+///
+Current state of all gamepad inputs.
+
+Contains button press states and analog axis values.
+Updated automatically when polling a Gamepad.
+///
 class GamepadState {
     var buttons: Array<Bool>
     var axes: Array<Float>
@@ -128,9 +128,9 @@ class GamepadState {
     }
 }
 
-/**
- * Event data for gamepad button press/release.
- */
+///
+Event data for gamepad button press/release.
+///
 class GamepadButtonEvent {
     var gamepadIndex: Int
     var button: Int
@@ -147,9 +147,9 @@ class GamepadButtonEvent {
     }
 }
 
-/**
- * Event data for gamepad analog axis movement.
- */
+///
+Event data for gamepad analog axis movement.
+///
 class GamepadAxisEvent {
     var gamepadIndex: Int
     var axis: Int
@@ -166,9 +166,9 @@ class GamepadAxisEvent {
     }
 }
 
-/**
- * Event data for gamepad connection/disconnection.
- */
+///
+Event data for gamepad connection/disconnection.
+///
 class GamepadConnectionEvent {
     var gamepadIndex: Int
     var connected: Bool
@@ -183,9 +183,9 @@ class GamepadConnectionEvent {
     }
 }
 
-/**
- * Types of gamepad events.
- */
+///
+Types of gamepad events.
+///
 enum GamepadEventType {
     Button
     Axis
@@ -236,12 +236,12 @@ class GamepadEvent {
     }
 }
 
-/**
- * Single gamepad device with input state and event handling.
- *
- * Wraps an evdev device and normalizes input to the standard layout.
- * Use GamepadManager to handle multiple gamepads and hot-plugging.
- */
+///
+Single gamepad device with input state and event handling.
+
+Wraps an evdev device and normalizes input to the standard layout.
+Use GamepadManager to handle multiple gamepads and hot-plugging.
+///
 class Gamepad {
     var device: EvdevDevice
     var index: Int
@@ -254,11 +254,11 @@ class Gamepad {
     var axisInfoZ: AbsAxisInfo
     var axisInfoRZ: AbsAxisInfo
 
-    /**
-     * Open a gamepad device by evdev path.
-     *
-     * Returns an error if the device cannot be opened or is not a gamepad.
-     */
+    ///
+    Open a gamepad device by evdev path.
+
+    Returns an error if the device cannot be opened or is not a gamepad.
+    ///
     static fun open(path: String, index: Int) r: Result<Gamepad, String> {
         let deviceResult = EvdevDevice.open(path)
         if deviceResult.isErr() {
@@ -504,12 +504,12 @@ class Gamepad {
     }
 }
 
-/**
- * Manager for multiple gamepad devices.
- *
- * Handles device enumeration, hot-plugging detection, and
- * aggregated event polling across all connected gamepads.
- */
+///
+Manager for multiple gamepad devices.
+
+Handles device enumeration, hot-plugging detection, and
+aggregated event polling across all connected gamepads.
+///
 class GamepadManager {
     var gamepads: Array<Gamepad>
     var maxGamepads: Int
@@ -525,12 +525,12 @@ class GamepadManager {
         return GamepadManager.new(4)
     }
 
-    /**
-     * Scan for and connect new gamepads.
-     *
-     * Returns connection events for newly discovered devices.
-     * Call periodically to detect hot-plugged controllers.
-     */
+    ///
+    Scan for and connect new gamepads.
+
+    Returns connection events for newly discovered devices.
+    Call periodically to detect hot-plugged controllers.
+    ///
     fun scan() r: Array<GamepadConnectionEvent> {
         var events = Array<GamepadConnectionEvent>()
         let devicePaths = findDevicesByType(DEVICE_TYPE_GAMEPAD)
@@ -570,12 +570,12 @@ class GamepadManager {
         return events
     }
 
-    /**
-     * Poll all connected gamepads for events.
-     *
-     * Returns button, axis, and connection events from all gamepads.
-     * Call once per frame in your game loop.
-     */
+    ///
+    Poll all connected gamepads for events.
+
+    Returns button, axis, and connection events from all gamepads.
+    Call once per frame in your game loop.
+    ///
     fun poll() r: Array<GamepadEvent> {
         var events = Array<GamepadEvent>()
 
@@ -622,9 +622,9 @@ class GamepadManager {
     }
 }
 
-/**
- * Get the display name for a button index.
- */
+///
+Get the display name for a button index.
+///
 fun getButtonName(button: Int) r: String {
     if button == GAMEPAD_BUTTON_A { return "A" }
     if button == GAMEPAD_BUTTON_B { return "B" }
@@ -646,9 +646,9 @@ fun getButtonName(button: Int) r: String {
     return "Unknown"
 }
 
-/**
- * Get the display name for an axis index.
- */
+///
+Get the display name for an axis index.
+///
 fun getAxisName(axis: Int) r: String {
     if axis == GAMEPAD_AXIS_LEFT_X { return "Left X" }
     if axis == GAMEPAD_AXIS_LEFT_Y { return "Left Y" }

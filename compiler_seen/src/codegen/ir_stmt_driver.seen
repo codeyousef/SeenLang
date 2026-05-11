@@ -1,0 +1,404 @@
+// ir_stmt_driver.seen - recursive statement lowering dispatch.
+
+import parser.real_parser.{BlockNode, ParserExpressionNode, StatementNode}
+import str.string.{StringBuilder}
+import codegen.ir_assignment_driver.{generateAssignmentExprState, generateAssignmentStatementState, generateMemberAssignmentState, generateIndexAssignmentState}
+import codegen.ir_block_driver.{generateBlockState}
+import codegen.ir_codegen_state.{getSharedCodegenState}
+import codegen.ir_codegen_feature_state.{applyStatementDriverFeatureStateImpl, getFeatureBoundsCheckEnabledImpl, getFeatureBoundsCheckLabelCountImpl, getFeatureClosureDefsImpl, getFeatureDeferCountImpl, getFeatureDeferExprsImpl, getFeatureDistinctTypeNamesImpl, getFeatureErrdeferCountImpl, getFeatureErrdeferExprsImpl, getFeatureErrdeferTempAllocaImpl, getFeatureInsideUnsafeImpl, getFeaturePforCountImpl, getFeatureTryCatchEndLabelImpl, getFeatureTryCatchLabelImpl, getFeatureWarnUnusedResultImpl, getFeatureRegBoxImpl, getFeatureBlockBoxImpl}
+import codegen.ir_codegen_global_state.{getBoundedActiveVarCountWithGlobalStateImpl, setActiveVarCountWithGlobalStateImpl, getCurrentFunctionReturnTypeWithGlobalStateImpl, getCurrentLoopCondLabelWithGlobalStateImpl, getCurrentLoopEndLabelWithGlobalStateImpl, setBlockTerminatedWithGlobalStateImpl, getGlobalFuncNamesImpl, getGlobalFuncRetTypesImpl}
+import codegen.ir_codegen_metrics_state.{g_branchesEliminated, g_deadStoreSkipVars, g_inductionVarName, g_loopsOptimized, g_mlUnrollThreshold, g_mlVectorizeThreshold, g_reductionChainsDetected}
+import codegen.ir_decl_items.{normalizeDeclaredTypeNodeImpl}
+import codegen.ir_function_body.{bindFunctionBodyCatchVariableImpl, planFunctionBodyExpressionStatementImpl}
+import codegen.ir_function_scratch.{emitParallelForCallImpl}
+import codegen.ir_if_statement_driver.{generateIfStatementState, generateIfLetStatementState}
+import codegen.ir_let_statement_driver.{generateLetStatementState}
+import codegen.ir_loop_context.{emitContinueStatementImpl, emitBreakStatementImpl}
+import codegen.ir_loop_statement_driver.{generateWhileStatementState}
+import codegen.ir_forin_statement_driver.{generateForInStatementState}
+import codegen.ir_lowering_context.{CodegenLoweringContext, lowerExpression, inferLoweredExpressionType, lowerCallExpression, prepareLoweredCallArgumentsWithDefaults, lowerEnumConstructor, resetLoweringGenerator, resetLoweringSharedModuleScratch, syncLoweringState, writeBackLoweringState, lowerProgramClasses, lowerProgramTopLevelFunctions, lowerPlainLargeClass, lowerClassNode, lowerFunctionNode, lowerClassMethodFromList, setLowerCurrentClassParentName, resetLoweringLocalCodegenState, collectLoweringVariableDeclarations, clearLoweringActiveBindings, lowerBlock, lowerStatement, isLoweringBlockTerminated, beginLoweringNestedScratch, restoreLoweringNestedScratch, currentLoweringFunctionOptions}
+import codegen.ir_optimization.{getNextRegFn}
+import codegen.ir_return_statement_driver.{generateReturnStatementState}
+import codegen.ir_stmt_comptime.{classifyComptimeStatementKindImpl, shouldProcessComptimeLetImpl, shouldRegisterComptimeIntValueImpl, shouldRegisterComptimeStringValueImpl, shouldProcessComptimeAssignmentImpl, shouldApplyComptimeAssignmentUpdateImpl, shouldProcessComptimeWhileImpl, shouldContinueComptimeWhileImpl, shouldEmitRuntimeComptimeStatementImpl, resolveComptimeAssignmentTargetImpl, emitComptimeIntNoteImpl, emitComptimeStringNoteImpl, emitComptimeWhileUnrolledNoteImpl, resolveComptimeAssertMessageImpl, emitComptimeAssertFailureNoteImpl, emitComptimeAssertAbortImpl, emitComptimeAssertPassedNoteImpl, classifyComptimeAssertResultImpl, classifyComptimeIfBranchImpl, shouldGenerateComptimeIfThenImpl, shouldGenerateComptimeIfElseImpl, emitComptimeIfBranchNoteImpl, registerComptimeVarState, updateComptimeVarState, registerComptimeStrVarState, evaluateConstExprStrState, evaluateConstExprState}
+import codegen.ir_stmt_defer_driver.{generateDeferredStatement}
+import codegen.ir_stmt_dispatch_plan.{planStatementDispatchImpl}
+import codegen.ir_stmt_gen.{classifyParallelForRangeExprImpl, buildParallelForBodyFunctionNameImpl, emitParallelForBodyHeaderImpl, finalizeParallelForBodyImpl, emitRegionStatementPreambleImpl, emitRegionStatementCleanupImpl, emitUnusedResultCallWarningImpl}
+import codegen.ir_stmt_scope.{enterUnsafeStatementImpl, exitUnsafeStatementImpl, beginTryCatchStatementSnapshotImpl, finalizeTryCatchArmImpl, emitTryCatchCatchHeaderImpl, emitTryCatchFooterImpl}
+import codegen.ir_variable_gen.{storeActiveVariableBindingImpl}
+
+class StatementDriverState {
+    var boundsCheckLabelCount: Int
+    var branchesEliminated: Int
+    var loopsOptimized: Int
+    var reductionChainsDetected: Int
+    var inductionVarName: String
+    var errdeferTempAlloca: String
+    var tryCatchLabel: String
+    var tryCatchEndLabel: String
+    var insideUnsafe: Int
+    var pforCount: Int
+    var closureDefs: String
+
+    static fun new(boundsCheckLabelCount: Int, branchesEliminated: Int,
+        loopsOptimized: Int, reductionChainsDetected: Int,
+        inductionVarName: String, errdeferTempAlloca: String,
+        tryCatchLabel: String, tryCatchEndLabel: String, insideUnsafe: Int,
+        pforCount: Int, closureDefs: String) r: StatementDriverState {
+
+        return StatementDriverState{
+            boundsCheckLabelCount: boundsCheckLabelCount,
+            branchesEliminated: branchesEliminated,
+            loopsOptimized: loopsOptimized,
+            reductionChainsDetected: reductionChainsDetected,
+            inductionVarName: inductionVarName,
+            errdeferTempAlloca: errdeferTempAlloca,
+            tryCatchLabel: tryCatchLabel,
+            tryCatchEndLabel: tryCatchEndLabel,
+            insideUnsafe: insideUnsafe,
+            pforCount: pforCount,
+            closureDefs: closureDefs
+        }
+    }
+}
+
+fun generateStatementWithGlobalState(ctx: CodegenLoweringContext,
+    output: StringBuilder, stmt: StatementNode, varNames: Array<String>,
+    varRegs: Array<String>, varTypes: Array<String>,
+    stringConstants: Array<String>) r: Void {
+
+    let state = StatementDriverState.new(getFeatureBoundsCheckLabelCountImpl(),
+        g_branchesEliminated, g_loopsOptimized, g_reductionChainsDetected,
+        g_inductionVarName, getFeatureErrdeferTempAllocaImpl(),
+        getFeatureTryCatchLabelImpl(), getFeatureTryCatchEndLabelImpl(),
+        getFeatureInsideUnsafeImpl(), getFeaturePforCountImpl(),
+        getFeatureClosureDefsImpl())
+    generateStatementState(ctx, output, stmt, varNames, varRegs, varTypes,
+        stringConstants, getFeatureDeferCountImpl(), getFeatureDeferExprsImpl(),
+        getFeatureErrdeferCountImpl(), getFeatureErrdeferExprsImpl(),
+        g_deadStoreSkipVars, getFeatureDistinctTypeNamesImpl(),
+        getFeatureBoundsCheckEnabledImpl(), getFeatureWarnUnusedResultImpl(),
+        g_mlUnrollThreshold, g_mlVectorizeThreshold, state)
+    applyStatementDriverFeatureStateImpl(state.boundsCheckLabelCount,
+        state.errdeferTempAlloca, state.tryCatchLabel,
+        state.tryCatchEndLabel, state.insideUnsafe, state.pforCount,
+        state.closureDefs)
+    g_branchesEliminated = state.branchesEliminated
+    g_loopsOptimized = state.loopsOptimized
+    g_reductionChainsDetected = state.reductionChainsDetected
+    g_inductionVarName = state.inductionVarName
+}
+
+fun generateExpressionStatementState(ctx: CodegenLoweringContext,
+    output: StringBuilder, stmt: StatementNode, varNames: Array<String>,
+    varRegs: Array<String>, varTypes: Array<String>,
+    boundsCheckEnabled: Int, warnUnusedResult: Int,
+    state: StatementDriverState) r: Void {
+
+    let exprStmtAction = planFunctionBodyExpressionStatementImpl(
+        stmt.expression)
+    if exprStmtAction == 1 {
+        generateAssignmentExprState(ctx, output, stmt.expression, varNames,
+            varRegs, varTypes)
+        return
+    }
+    if exprStmtAction == 2 {
+        generateMemberAssignmentState(ctx, output, stmt.expression, varNames,
+            varRegs, varTypes)
+        return
+    }
+    if exprStmtAction == 3 {
+        let assignResult = generateIndexAssignmentState(ctx, output,
+            stmt.expression, boundsCheckEnabled,
+            state.boundsCheckLabelCount)
+        state.boundsCheckLabelCount = assignResult.boundsCheckLabelCount
+        return
+    }
+    emitUnusedResultCallWarningImpl(output, stmt.expression, warnUnusedResult,
+        state.tryCatchLabel, getGlobalFuncNamesImpl(),
+        getGlobalFuncRetTypesImpl())
+    lowerExpression(ctx, stmt.expression)
+}
+
+fun generateTryCatchStatementState(ctx: CodegenLoweringContext,
+    output: StringBuilder, stmt: StatementNode, varNames: Array<String>,
+    varRegs: Array<String>, varTypes: Array<String>,
+    state: StatementDriverState) r: Void {
+
+    let tryCatchContext = beginTryCatchStatementSnapshotImpl(output,
+        getFeatureBlockBoxImpl(), state.tryCatchLabel,
+        state.tryCatchEndLabel)
+    state.tryCatchLabel = tryCatchContext.currentTryCatchLabel
+    state.tryCatchEndLabel = tryCatchContext.currentTryCatchEndLabel
+    if stmt.thenBranch.statements.length() > 0 {
+        lowerBlock(ctx, stmt.thenBranch)
+    }
+    setBlockTerminatedWithGlobalStateImpl(finalizeTryCatchArmImpl(output,
+        isLoweringBlockTerminated(ctx), tryCatchContext.tryEndLabel))
+
+    emitTryCatchCatchHeaderImpl(output, tryCatchContext.tryCatchLabel)
+    let savedCatchVarCount = getBoundedActiveVarCountWithGlobalStateImpl(
+        varNames)
+    setActiveVarCountWithGlobalStateImpl(bindFunctionBodyCatchVariableImpl(
+        output, getFeatureRegBoxImpl(), varNames, varRegs, varTypes,
+        getBoundedActiveVarCountWithGlobalStateImpl(varNames),
+        stmt.variableName))
+    if stmt.elseBranch.statements.length() > 0 {
+        lowerBlock(ctx, stmt.elseBranch)
+    }
+    setActiveVarCountWithGlobalStateImpl(savedCatchVarCount)
+    setBlockTerminatedWithGlobalStateImpl(finalizeTryCatchArmImpl(output,
+        isLoweringBlockTerminated(ctx), tryCatchContext.tryEndLabel))
+    emitTryCatchFooterImpl(output, tryCatchContext.tryEndLabel)
+
+    state.tryCatchLabel = tryCatchContext.savedTryCatchLabel
+    state.tryCatchEndLabel = tryCatchContext.savedTryCatchEndLabel
+}
+
+fun generateRegionStatementState(ctx: CodegenLoweringContext,
+    output: StringBuilder, stmt: StatementNode) r: Void {
+
+    let strategy = normalizeDeclaredTypeNodeImpl(stmt.variableType)
+    let regionSlot = emitRegionStatementPreambleImpl(output,
+        getFeatureRegBoxImpl(), strategy, stmt.variableName)
+    lowerBlock(ctx, stmt.thenBranch)
+    emitRegionStatementCleanupImpl(output, getFeatureRegBoxImpl(),
+        regionSlot)
+}
+
+fun generateParallelForStatementState(ctx: CodegenLoweringContext,
+    output: StringBuilder, stmt: StatementNode, varNames: Array<String>,
+    varRegs: Array<String>, varTypes: Array<String>,
+    state: StatementDriverState) r: Void {
+
+    let rangeExpr = stmt.expression
+    var startReg: String = ""
+    var endReg: String = ""
+    if classifyParallelForRangeExprImpl(rangeExpr) == 1 {
+        startReg = lowerExpression(ctx, rangeExpr.operands[0])
+        endReg = lowerExpression(ctx, rangeExpr.operands[1])
+    } else {
+        startReg = "0"
+        endReg = lowerExpression(ctx, rangeExpr)
+    }
+
+    let pforIdx = state.pforCount
+    state.pforCount = state.pforCount + 1
+    let bodyFuncName = buildParallelForBodyFunctionNameImpl(pforIdx)
+    let pforReturnType = getCurrentFunctionReturnTypeWithGlobalStateImpl()
+    let savedNestedState = beginLoweringNestedScratch(ctx, pforReturnType)
+    let nestedOutput = getSharedCodegenState().output
+
+    nestedOutput.append("define i64 " + bodyFuncName + "(i64 %0) nounwind {\n")
+    nestedOutput.append("entry:\n")
+    setActiveVarCountWithGlobalStateImpl(storeActiveVariableBindingImpl(
+        varNames, varRegs, varTypes,
+        getBoundedActiveVarCountWithGlobalStateImpl(varNames),
+        stmt.variableName, "%0", "Int"))
+    lowerBlock(ctx, stmt.loopBody)
+
+    if not isLoweringBlockTerminated(ctx) {
+        nestedOutput.append("  ret i64 0\n")
+    }
+    nestedOutput.append("}\n\n")
+    state.closureDefs = state.closureDefs + nestedOutput.toString()
+
+    restoreLoweringNestedScratch(ctx, savedNestedState)
+    emitParallelForCallImpl(output, stmt.variableName, startReg, endReg,
+        bodyFuncName)
+}
+
+fun processComptimeStatementsState(ctx: CodegenLoweringContext,
+    output: StringBuilder, block: BlockNode) r: Void {
+
+    var ctIdx = 0
+    while ctIdx < block.statements.length() {
+        let ctStmt = block.statements[ctIdx]
+        let ctAction = classifyComptimeStatementKindImpl(ctStmt.kind)
+        if shouldProcessComptimeLetImpl(ctAction) {
+            let ctVal = evaluateConstExprState(ctStmt.initializer)
+            if shouldRegisterComptimeIntValueImpl(ctVal) {
+                registerComptimeVarState(ctStmt.variableName, ctVal)
+                emitComptimeIntNoteImpl(output, "let ",
+                    ctStmt.variableName, ctVal)
+            } else {
+                let ctStrVal = evaluateConstExprStrState(ctStmt.initializer)
+                if shouldRegisterComptimeStringValueImpl(ctStrVal) {
+                    registerComptimeStrVarState(ctStmt.variableName,
+                        ctStrVal)
+                    emitComptimeStringNoteImpl(output, "let ",
+                        ctStmt.variableName, ctStrVal)
+                }
+            }
+        }
+        if shouldProcessComptimeAssignmentImpl(ctAction,
+            ctStmt.expression.kind) {
+
+            let ctAssignName = resolveComptimeAssignmentTargetImpl(
+                ctStmt.expression)
+            if ctAssignName != "" {
+                let ctNewVal = evaluateConstExprState(
+                    ctStmt.expression.operands[0])
+                if shouldApplyComptimeAssignmentUpdateImpl(ctAssignName,
+                    ctNewVal) {
+                    updateComptimeVarState(ctAssignName, ctNewVal)
+                    emitComptimeIntNoteImpl(output, "", ctAssignName,
+                        ctNewVal)
+                }
+            }
+        }
+        if shouldProcessComptimeWhileImpl(ctAction) {
+            var ctWhileIter = 0
+            while ctWhileIter < 1000 {
+                let ctWhileCond = evaluateConstExprState(ctStmt.expression)
+                if not shouldContinueComptimeWhileImpl(ctWhileCond) { break }
+                processComptimeStatementsState(ctx, output,
+                    ctStmt.thenBranch)
+                ctWhileIter = ctWhileIter + 1
+            }
+            emitComptimeWhileUnrolledNoteImpl(output, ctWhileIter)
+        }
+        if shouldEmitRuntimeComptimeStatementImpl(ctAction) {
+            lowerStatement(ctx, ctStmt)
+        }
+        ctIdx = ctIdx + 1
+    }
+}
+
+fun generateComptimeAssertState(output: StringBuilder,
+    stmt: StatementNode) r: Void {
+
+    let condVal = evaluateConstExprState(stmt.expression)
+    let assertAction = classifyComptimeAssertResultImpl(condVal)
+    if assertAction == 1 {
+        let msg = resolveComptimeAssertMessageImpl(stmt.condition)
+        emitComptimeAssertFailureNoteImpl(output, msg)
+        let msgReg = getNextRegFn(getFeatureRegBoxImpl())
+        emitComptimeAssertAbortImpl(output, msgReg)
+    } else {
+        emitComptimeAssertPassedNoteImpl(output)
+    }
+}
+
+fun generateComptimeIfState(ctx: CodegenLoweringContext,
+    output: StringBuilder, stmt: StatementNode) r: Void {
+
+    let condVal = evaluateConstExprState(stmt.expression)
+    let branchAction = classifyComptimeIfBranchImpl(condVal,
+        stmt.elseBranch.statements.length())
+    if shouldGenerateComptimeIfThenImpl(branchAction) {
+        emitComptimeIfBranchNoteImpl(output, branchAction)
+        lowerBlock(ctx, stmt.thenBranch)
+        return
+    }
+    if shouldGenerateComptimeIfElseImpl(branchAction) {
+        emitComptimeIfBranchNoteImpl(output, branchAction)
+        lowerBlock(ctx, stmt.elseBranch)
+        return
+    }
+    emitComptimeIfBranchNoteImpl(output, branchAction)
+}
+
+fun generateUnsafeStatementState(ctx: CodegenLoweringContext,
+    output: StringBuilder, stmt: StatementNode,
+    state: StatementDriverState) r: Void {
+
+    let insideUnsafeBox = Array<Int>()
+    insideUnsafeBox.push(state.insideUnsafe)
+    enterUnsafeStatementImpl(output, insideUnsafeBox)
+    state.insideUnsafe = insideUnsafeBox[0]
+    if stmt.thenBranch.statements.length() > 0 {
+        lowerBlock(ctx, stmt.thenBranch)
+    }
+    insideUnsafeBox[0] = state.insideUnsafe
+    exitUnsafeStatementImpl(output, insideUnsafeBox)
+    state.insideUnsafe = insideUnsafeBox[0]
+}
+
+fun generateStatementState(ctx: CodegenLoweringContext,
+    output: StringBuilder, stmt: StatementNode, varNames: Array<String>,
+    varRegs: Array<String>, varTypes: Array<String>,
+    stringConstants: Array<String>, deferCount: Int,
+    deferExprs: Array<ParserExpressionNode>, errdeferCount: Int,
+    errdeferExprs: Array<ParserExpressionNode>, deadStoreSkipVars: String,
+    distinctTypeNames: String, boundsCheckEnabled: Int,
+    warnUnusedResult: Int, mlUnrollThreshold: Int,
+    mlVectorizeThreshold: Int, state: StatementDriverState) r: Void {
+
+    let dispatchAction = planStatementDispatchImpl(stmt.kind)
+    if dispatchAction == 1 {
+        generateLetStatementState(ctx, output, stmt, varNames, varRegs,
+            varTypes, stringConstants, deadStoreSkipVars)
+    }
+    if dispatchAction == 2 {
+        state.errdeferTempAlloca = generateReturnStatementState(ctx,
+            output, stmt, stringConstants, deferCount, deferExprs,
+            errdeferCount, errdeferExprs, state.errdeferTempAlloca)
+    }
+    if dispatchAction == 3 {
+        generateExpressionStatementState(ctx, output, stmt, varNames,
+            varRegs, varTypes, boundsCheckEnabled, warnUnusedResult, state)
+    }
+    if dispatchAction == 4 {
+        let ifResult = generateIfStatementState(ctx, output, stmt,
+            varNames, varRegs, varTypes, state.branchesEliminated)
+        state.branchesEliminated = ifResult.branchesEliminated
+    }
+    if dispatchAction == 5 {
+        generateIfLetStatementState(ctx, output, stmt, varNames, varRegs,
+            varTypes)
+    }
+    if dispatchAction == 6 {
+        let loopResult = generateWhileStatementState(ctx, output, stmt,
+            varNames, varRegs, varTypes, stringConstants, state.loopsOptimized,
+            state.reductionChainsDetected, state.inductionVarName,
+            mlUnrollThreshold, mlVectorizeThreshold)
+        state.loopsOptimized = loopResult.loopsOptimized
+        state.reductionChainsDetected = loopResult.reductionChainsDetected
+        state.inductionVarName = loopResult.inductionVarName
+    }
+    if dispatchAction == 7 {
+        generateAssignmentStatementState(ctx, output, stmt, varNames,
+            varRegs, varTypes, distinctTypeNames)
+    }
+    if dispatchAction == 8 {
+        generateForInStatementState(ctx, output, stmt, varNames, varRegs,
+            varTypes)
+    }
+    if dispatchAction == 9 {
+        generateRegionStatementState(ctx, output, stmt)
+    }
+    if dispatchAction == 10 {
+        if emitContinueStatementImpl(output,
+            getCurrentLoopCondLabelWithGlobalStateImpl()) == 1 {
+            setBlockTerminatedWithGlobalStateImpl(true)
+        }
+    }
+    if dispatchAction == 11 {
+        if emitBreakStatementImpl(output,
+            getCurrentLoopEndLabelWithGlobalStateImpl()) == 1 {
+            setBlockTerminatedWithGlobalStateImpl(true)
+        }
+    }
+    if dispatchAction == 12 { generateDeferredStatement(stmt, false) }
+    if dispatchAction == 13 { generateDeferredStatement(stmt, true) }
+    if dispatchAction == 14 and stmt.thenBranch.statements.length() > 0 {
+        lowerBlock(ctx, stmt.thenBranch)
+    }
+    if dispatchAction == 15 {
+        generateUnsafeStatementState(ctx, output, stmt, state)
+    }
+    if dispatchAction == 16 {
+        generateTryCatchStatementState(ctx, output, stmt, varNames, varRegs,
+            varTypes, state)
+    }
+    if dispatchAction == 17 {
+        generateParallelForStatementState(ctx, output, stmt, varNames,
+            varRegs, varTypes, state)
+    }
+    if dispatchAction == 18 {
+        output.append("  ; comptime block\n")
+        processComptimeStatementsState(ctx, output, stmt.thenBranch)
+    }
+    if dispatchAction == 19 { generateComptimeAssertState(output, stmt) }
+    if dispatchAction == 20 { generateComptimeIfState(ctx, output, stmt) }
+}

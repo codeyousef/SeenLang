@@ -1,17 +1,21 @@
-// P2 : Binary Serialization Helpers
-// Wrapper module for @binary generated serializer/deserializer
-// Classes decorated with @binary get: serialize() and deserialize(buf)
+///
+P2 : Binary Serialization Helpers
+Wrapper module for @binary generated serializer/deserializer
+Classes decorated with @binary get: serialize() and deserialize(buf)
+///
 
-// Usage:
-//   @binary
-//   class Packet {
-//       id: Int
-//       value: Float
-//       name: String
-//   }
-//   let p = Packet(1, 3.14, "test")
-//   let buf = p.serialize()          // returns buffer handle
-//   let p2 = Packet.deserialize(buf) // reconstruct from buffer
+///
+Usage:
+  @binary
+  class Packet {
+      id: Int
+      value: Float
+      name: String
+  }
+  let p = Packet(1, 3.14, "test")
+  let buf = p.serialize()          // returns buffer handle
+  let p2 = Packet.deserialize(buf) // reconstruct from buffer
+///
 
 // BinaryBuffer: low-level byte buffer for manual serialization
 extern fun __BinaryBufferNew(capacity: Int) r: Int

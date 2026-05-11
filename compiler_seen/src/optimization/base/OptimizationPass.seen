@@ -1,6 +1,8 @@
-// Shared optimization pass scaffolding used by the architecture/memory/pgo/superopt
-// scaffolding. The goal is to provide deterministic hooks so Stage-1 can instantiate and
-// sequence optimization passes without depending on the Kotlin-era helpers.
+///
+Shared optimization pass scaffolding used by the architecture/memory/pgo/superopt
+scaffolding. The goal is to provide deterministic hooks so Stage-1 can instantiate and
+sequence optimization passes without depending on the Kotlin-era helpers.
+///
 
 import ir.module.Module
 
@@ -38,8 +40,10 @@ class OptimizationPass {
         return Optimize(module)
     }
 
-    // Keep both spellings so existing subclasses (Optimize/optimize) continue to
-    // work while we finish the Seen-native ports.
+    ///
+    Keep both spellings so existing subclasses (Optimize/optimize) continue to
+    work while we finish the Seen-native ports.
+    ///
     fun Optimize(module: Module) r: Module {
         return optimize(module)
     }

@@ -1,7 +1,7 @@
 {
   "comments": {
     "lineComment": "//",
-    "blockComment": ["/*", "*/"]
+    "blockComment": ["///", "///"]
   },
   "brackets": [
     ["{", "}"],
@@ -29,6 +29,13 @@
     "decreaseIndentPattern": "^\\s*(\\}|else|catch|finally)\\s*$"
   },
   "onEnterRules": [
+    {
+      "beforeText": "^\\s*///\\s*$",
+      "action": {
+        "indent": "none",
+        "appendText": ""
+      }
+    },
     {
       "beforeText": "^\\s*.*\\{\\s*$",
       "afterText": "^\\s*\\}",

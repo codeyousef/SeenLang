@@ -1,13 +1,17 @@
-// TEE Checker - Validates @enclave decorator usage
-// Part of Seen's Trusted Execution Environment support (Task 5.3)
+///
+TEE Checker - Validates @enclave decorator usage
+Part of Seen's Trusted Execution Environment support (Task 5.3)
+///
 
 import compiler_seen.src.parser.real_parser.FunctionNode
 import compiler_seen.src.parser.real_parser.ClassNode
 import compiler_seen.src.parser.real_parser.AnnotationNode
 
-// ============================================================================
-// TEE Check Result
-// ============================================================================
+///
+============================================================================
+TEE Check Result
+============================================================================
+///
 
 data TEECheckResult {
     isValid: Bool
@@ -38,9 +42,11 @@ fun TEECheckResult.addWarning(msg: String) r: Void {
     warnings.push(msg)
 }
 
-// ============================================================================
-// TEE Checker Class
-// ============================================================================
+///
+============================================================================
+TEE Checker Class
+============================================================================
+///
 
 class TEEChecker {
     static fun new() r: TEEChecker {
@@ -193,8 +199,10 @@ class TEEChecker {
 
     // Check for unsafe operations in a function
     fun hasUnsafeOperations(fn: FunctionNode) r: Bool {
-        // Simplified check - in a real implementation, would analyze function body
-        // Check for calls to known unsafe functions
+        ///
+        Simplified check - in a real implementation, would analyze function body
+        Check for calls to known unsafe functions
+        ///
         let unsafeFunctions = [
             "exec", "system", "popen",
             "malloc", "free", "realloc",
@@ -232,9 +240,11 @@ class TEEChecker {
     }
 }
 
-// ============================================================================
-// Seal Checker - For @seal decorator
-// ============================================================================
+///
+============================================================================
+Seal Checker - For @seal decorator
+============================================================================
+///
 
 class SealChecker {
     static fun new() r: SealChecker {
@@ -288,9 +298,11 @@ class SealChecker {
     }
 }
 
-// ============================================================================
-// Attestation Checker - For @attestation decorator
-// ============================================================================
+///
+============================================================================
+Attestation Checker - For @attestation decorator
+============================================================================
+///
 
 class AttestationChecker {
     static fun new() r: AttestationChecker {
@@ -344,9 +356,11 @@ class AttestationChecker {
     }
 }
 
-// ============================================================================
-// Convenience Functions
-// ============================================================================
+///
+============================================================================
+Convenience Functions
+============================================================================
+///
 
 fun checkTEEFunction(fn: FunctionNode) r: TEECheckResult {
     let checker = TEEChecker.new()

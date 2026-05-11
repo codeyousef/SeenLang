@@ -1,19 +1,23 @@
-// seen_std.core.bitfield
-// Deterministic bitfield types with guaranteed memory layout across platforms.
-// Used for network protocols, hardware interfaces, and binary file formats.
-//
-// All bitfield types provide:
-// - Single-bit access via getBit/setBit
-// - Multi-bit field access via getField/setField
-// - Endianness conversion via toBigEndian/toLittleEndian
-// - Raw value access for serialization
-//
-// NOTE: Implementation uses arithmetic operations (division, modulo, multiplication)
-// to simulate bitwise operations since Seen doesn't have bitwise operators.
+///
+seen_std.core.bitfield
+Deterministic bitfield types with guaranteed memory layout across platforms.
+Used for network protocols, hardware interfaces, and binary file formats.
 
-// ============================================================================
-// Helper function for power of 2 calculations
-// ============================================================================
+All bitfield types provide:
+- Single-bit access via getBit/setBit
+- Multi-bit field access via getField/setField
+- Endianness conversion via toBigEndian/toLittleEndian
+- Raw value access for serialization
+
+NOTE: Implementation uses arithmetic operations (division, modulo, multiplication)
+to simulate bitwise operations since Seen doesn't have bitwise operators.
+///
+
+///
+============================================================================
+Helper function for power of 2 calculations
+============================================================================
+///
 
 fun pow2(n: Int) r: Int {
     var result = 1
@@ -25,9 +29,11 @@ fun pow2(n: Int) r: Int {
     return result
 }
 
-// ============================================================================
-// Bitfield8 - 8-bit packed bit field
-// ============================================================================
+///
+============================================================================
+Bitfield8 - 8-bit packed bit field
+============================================================================
+///
 class Bitfield8 {
     var raw: Int  // Stores 8-bit value (masked to 0-255)
 
@@ -267,9 +273,11 @@ class Bitfield8 {
     }
 }
 
-// ============================================================================
-// Bitfield16 - 16-bit packed bit field
-// ============================================================================
+///
+============================================================================
+Bitfield16 - 16-bit packed bit field
+============================================================================
+///
 class Bitfield16 {
     var raw: Int  // Stores 16-bit value (masked to 0-65535)
 
@@ -532,9 +540,11 @@ class Bitfield16 {
     }
 }
 
-// ============================================================================
-// Bitfield32 - 32-bit packed bit field
-// ============================================================================
+///
+============================================================================
+Bitfield32 - 32-bit packed bit field
+============================================================================
+///
 class Bitfield32 {
     var raw: Int  // Stores 32-bit value
 
@@ -792,9 +802,11 @@ class Bitfield32 {
     }
 }
 
-// ============================================================================
-// Bitfield64 - 64-bit packed bit field
-// ============================================================================
+///
+============================================================================
+Bitfield64 - 64-bit packed bit field
+============================================================================
+///
 class Bitfield64 {
     var raw: Int  // Stores full 64-bit value
 
@@ -1055,9 +1067,11 @@ class Bitfield64 {
     }
 }
 
-// ============================================================================
-// Convenience Functions
-// ============================================================================
+///
+============================================================================
+Convenience Functions
+============================================================================
+///
 
 // Create bitfields from raw values
 fun bitfield8(value: Int) r: Bitfield8 {
@@ -1076,9 +1090,11 @@ fun bitfield64(value: Int) r: Bitfield64 {
     return Bitfield64.new(value)
 }
 
-// ============================================================================
-// Network Byte Order Utilities
-// ============================================================================
+///
+============================================================================
+Network Byte Order Utilities
+============================================================================
+///
 
 // Host to network byte order (big-endian)
 fun htons(value: Int) r: Int {

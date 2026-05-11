@@ -1,5 +1,7 @@
-// ir_type_layout.seen -- Shared LLVM type layout helpers
-// Extracted from llvm_ir_gen.seen to keep size/alignment math thin.
+///
+ir_type_layout.seen -- Shared LLVM type layout helpers
+Extracted from llvm_ir_gen.seen to keep size/alignment math thin.
+///
 
 import codegen.ir_string_collect.{trimSpacesImpl, removeSpacesImpl, extractStructFieldTypesImpl, parseArrayLengthImpl, parseArrayElementTypeImpl}
 import codegen.ir_type_info.{findStructIdx}

@@ -239,7 +239,7 @@ export class BinaryManager {
         progress: vscode.Progress<{ message?: string; increment?: number }>
     ): Promise<void> {
         return new Promise((resolve, reject) => {
-            const downloadWithRedirect = (downloadUrl: string, redirectCount: number = 0) => {
+            const downloadWithRedirect = (downloadUrl: string, redirectCount = 0) => {
                 if (redirectCount > 5) {
                     reject(new Error('Too many redirects'));
                     return;
@@ -292,7 +292,7 @@ export class BinaryManager {
                     });
 
                     file.on('error', (err) => {
-                        fs.unlink(destPath, () => {}); // Clean up
+                        fs.unlink(destPath, () => undefined); // Clean up
                         reject(err);
                     });
                 });

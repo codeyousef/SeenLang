@@ -1,13 +1,17 @@
-// : Test variadic generics MVP (tuple arity expansion)
-// Function with ...Ts generates overloads for arities 1-8
+///
+: Test variadic generics MVP (tuple arity expansion)
+Function with ...Ts generates overloads for arities 1-8
+///
 
 fun query<...Ts>() r: Int {
     return 42
 }
 
 fun main() {
-    // The compiler expands query<...Ts> into query_1, query_2, ..., query_8
-    // Each takes N i64 params and returns a tuple
+    ///
+    The compiler expands query<...Ts> into query_1, query_2, ..., query_8
+    Each takes N i64 params and returns a tuple
+    ///
     println("Variadic generics test: expansion generated")
     println("Variadic generics test passed")
 }

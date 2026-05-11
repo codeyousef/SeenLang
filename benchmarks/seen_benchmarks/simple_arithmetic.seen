@@ -1,5 +1,7 @@
-// Simplified Seen arithmetic benchmark
-// Uses basic syntax that should work with current Seen compiler
+///
+Simplified Seen arithmetic benchmark
+Uses basic syntax that should work with current Seen compiler
+///
 
 fun main() {
     // Simple operations benchmark

@@ -1,0 +1,135 @@
+// ir_when_expression_driver.seen - recursive when-expression lowering.
+
+import parser.real_parser.{ParserExpressionNode}
+import str.string.{StringBuilder}
+import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl, getFeatureBlockBoxImpl}
+import codegen.ir_codegen_global_state.{getBoundedActiveVarCountWithGlobalStateImpl, getBlockTerminatedWithGlobalStateImpl, setBlockTerminatedWithGlobalStateImpl, getCurrentFunctionReturnTypeWithGlobalStateImpl}
+import codegen.ir_codegen_metrics_state.{cseClear}
+import codegen.ir_codegen_type_state.{mapTypeState}
+import codegen.ir_lowering_context.{CodegenLoweringContext, lowerExpression, inferLoweredExpressionType, lowerCallExpression, prepareLoweredCallArgumentsWithDefaults, lowerEnumConstructor, resetLoweringGenerator, resetLoweringSharedModuleScratch, syncLoweringState, writeBackLoweringState, lowerProgramClasses, lowerProgramTopLevelFunctions, lowerPlainLargeClass, lowerClassNode, lowerFunctionNode, lowerClassMethodFromList, setLowerCurrentClassParentName, resetLoweringLocalCodegenState, collectLoweringVariableDeclarations, clearLoweringActiveBindings, lowerBlock, lowerStatement, isLoweringBlockTerminated, beginLoweringNestedScratch, restoreLoweringNestedScratch, currentLoweringFunctionOptions}
+import codegen.ir_optimization.{getNextBlockFn}
+import codegen.ir_when_arm_gen.{emitWhenArmGuardImpl, emitWhenPatternBindingsState, normalizeWhenArmStoreValueImpl}
+import codegen.ir_when_expr_plan.{planWhenSubjectImpl, shouldEmitWhenArmGuardImpl, planWhenArmResultImpl, shouldStoreWhenArmResultImpl, shouldBranchWhenArmToEndImpl, shouldEmitWhenFinalFallthroughImpl}
+import codegen.ir_when_pattern_gen.{emitWhenPatternBranchState}
+import codegen.ir_when_result_gen.{allocateWhenResultSlotImpl, emitWhenArmReturnImpl, emitWhenArmStoreImpl, finalizeWhenResultImpl}
+
+fun emitWhenArmGuardState(ctx: CodegenLoweringContext,
+    output: StringBuilder, arm: ParserExpressionNode, armBodyLabel: String,
+    nextCheckLabel: String) r: Void {
+
+    if not shouldEmitWhenArmGuardImpl(arm.operands.length()) {
+        return
+    }
+    let guardReg = lowerExpression(ctx, arm.operands[2])
+    let guardType = inferLoweredExpressionType(ctx, arm.operands[2])
+    emitWhenArmGuardImpl(output, getFeatureRegBoxImpl(), guardReg,
+        guardType, armBodyLabel, nextCheckLabel)
+    cseClear()
+}
+
+fun emitWhenPatternBindingsWithState(output: StringBuilder,
+    subjectReg: String, subjectLlvm: String, patternExpr: ParserExpressionNode,
+    varNames: Array<String>, varRegs: Array<String>,
+    enumVariantNames: String, enumVariantFieldTypes: String,
+    enumVariantCount: Int) r: Void {
+
+    emitWhenPatternBindingsState(output, getFeatureRegBoxImpl(), subjectReg,
+        subjectLlvm, patternExpr, varNames, varRegs,
+        getBoundedActiveVarCountWithGlobalStateImpl(varNames),
+        enumVariantNames, enumVariantFieldTypes, enumVariantCount)
+}
+
+fun emitWhenArmResultState(ctx: CodegenLoweringContext,
+    output: StringBuilder, arm: ParserExpressionNode,
+    resultAlloca: String) r: Void {
+
+    let resultPlanSeed = planWhenArmResultImpl(arm.operands.length(), "", 0)
+    if resultPlanSeed.resultAction == 0 {
+        return
+    }
+    let armResult = arm.operands[1]
+    let resultPlan = planWhenArmResultImpl(arm.operands.length(),
+        armResult.kind, armResult.operands.length())
+    if resultPlan.resultAction == 1 {
+        let retType = mapTypeState(
+            getCurrentFunctionReturnTypeWithGlobalStateImpl())
+        if resultPlan.shouldReadReturnValue {
+            let retValReg = lowerExpression(ctx, armResult.operands[0])
+            emitWhenArmReturnImpl(output, retType, retValReg, true)
+        } else {
+            emitWhenArmReturnImpl(output, retType, "", false)
+        }
+        setBlockTerminatedWithGlobalStateImpl(true)
+        return
+    }
+    if not resultPlan.shouldGenerateValueExpression {
+        return
+    }
+    let armResultReg = lowerExpression(ctx, armResult)
+    if shouldStoreWhenArmResultImpl(getBlockTerminatedWithGlobalStateImpl()) {
+        let armResultType = inferLoweredExpressionType(ctx, armResult)
+        let armStoreReg = normalizeWhenArmStoreValueImpl(output,
+            getFeatureRegBoxImpl(), armResultReg, armResultType)
+        emitWhenArmStoreImpl(output, resultAlloca, armStoreReg)
+    }
+}
+
+fun generateWhenExpressionState(ctx: CodegenLoweringContext,
+    output: StringBuilder, expr: ParserExpressionNode,
+    varNames: Array<String>, varRegs: Array<String>,
+    stringConstants: Array<String>, enumVariantNames: String,
+    enumVariantTags: String, enumVariantFieldTypes: String,
+    enumVariantCount: Int) r: String {
+
+    let subjectPlan = planWhenSubjectImpl(expr.operands.length())
+    var subjectReg = subjectPlan.defaultSubjectReg
+    var subjectType = subjectPlan.defaultSubjectType
+    if subjectPlan.shouldEvaluateSubject {
+        subjectReg = lowerExpression(ctx, expr.operands[0])
+        subjectType = inferLoweredExpressionType(ctx, expr.operands[0])
+    }
+    let subjectLlvm = mapTypeState(subjectType)
+
+    let endLabel = getNextBlockFn(getFeatureBlockBoxImpl())
+    let resultAlloca = allocateWhenResultSlotImpl(output,
+        getFeatureRegBoxImpl())
+
+    var armIdx = 0
+    while armIdx < expr.arguments.length() {
+        let arm = expr.arguments[armIdx]
+        let patternExpr = arm.operands[0]
+        let armBodyLabel = getNextBlockFn(getFeatureBlockBoxImpl())
+        let nextCheckLabel = getNextBlockFn(getFeatureBlockBoxImpl())
+
+        emitWhenPatternBranchState(output, getFeatureRegBoxImpl(),
+            stringConstants, subjectReg, subjectLlvm, patternExpr,
+            armBodyLabel, nextCheckLabel, enumVariantNames, enumVariantTags,
+            enumVariantCount)
+
+        output.append(armBodyLabel + ":\n")
+        cseClear()
+        emitWhenArmGuardState(ctx, output, arm, armBodyLabel,
+            nextCheckLabel)
+        emitWhenPatternBindingsWithState(output, subjectReg, subjectLlvm,
+            patternExpr, varNames, varRegs, enumVariantNames,
+            enumVariantFieldTypes, enumVariantCount)
+        emitWhenArmResultState(ctx, output, arm, resultAlloca)
+        if shouldBranchWhenArmToEndImpl(
+            getBlockTerminatedWithGlobalStateImpl()) {
+            output.append("  br label %" + endLabel + "\n")
+        }
+        setBlockTerminatedWithGlobalStateImpl(false)
+
+        output.append(nextCheckLabel + ":\n")
+        cseClear()
+        armIdx = armIdx + 1
+    }
+
+    if shouldEmitWhenFinalFallthroughImpl(expr.arguments.length()) {
+        output.append("  br label %" + endLabel + "\n")
+    }
+
+    cseClear()
+    return finalizeWhenResultImpl(output, getFeatureRegBoxImpl(), endLabel,
+        resultAlloca)
+}

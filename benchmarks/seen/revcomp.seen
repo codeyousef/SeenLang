@@ -1,5 +1,7 @@
-// Reverse Complement Benchmark
-// String processing with lookup tables
+///
+Reverse Complement Benchmark
+String processing with lookup tables
+///
 
 import seen_std.collections.vec { Vec }
 

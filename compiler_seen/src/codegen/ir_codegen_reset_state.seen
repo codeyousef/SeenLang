@@ -1,0 +1,48 @@
+// ir_codegen_reset_state.seen - per-module LLVM generator reset helper.
+
+import str.string.{StringBuilder}
+import codegen.ir_codegen_state.{FunctionLoweringOptions}
+import codegen.ir_codegen_feature_state.{resetFeatureModuleScratchStateImpl}
+import codegen.ir_codegen_global_state.{resetGlobalModuleScratchStateImpl}
+import codegen.ir_codegen_module_state.{resetLateUserDeclareState, resetModuleConstantGenerationState, resetIrgenFieldLookupCaches}
+import codegen.ir_codegen_metrics_state.{resetOptCounters}
+import codegen.ir_function_state.{resetFunctionLoweringOptionsStateImpl}
+
+class LLVMIRGeneratorLocalResetState {
+    var output: StringBuilder
+    var stringConstants: Array<String>
+    var varNames: Array<String>
+    var varRegs: Array<String>
+    var varTypes: Array<String>
+    var nextReg: Int
+    var nextBlock: Int
+    var indent: Int
+
+    static fun new() r: LLVMIRGeneratorLocalResetState {
+        return LLVMIRGeneratorLocalResetState{
+            output: StringBuilder.new(),
+            stringConstants: Array<String>(),
+            varNames: Array<String>(),
+            varRegs: Array<String>(),
+            varTypes: Array<String>(),
+            nextReg: 1,
+            nextBlock: 0,
+            indent: 0
+        }
+    }
+}
+
+fun resetLLVMIRGeneratorModuleStateImpl(
+    functionOptions: FunctionLoweringOptions)
+    r: LLVMIRGeneratorLocalResetState {
+
+    let resetState = LLVMIRGeneratorLocalResetState.new()
+    resetFeatureModuleScratchStateImpl()
+    resetGlobalModuleScratchStateImpl()
+    resetLateUserDeclareState()
+    resetModuleConstantGenerationState()
+    resetFunctionLoweringOptionsStateImpl(functionOptions)
+    resetOptCounters()
+    resetIrgenFieldLookupCaches()
+    return resetState
+}

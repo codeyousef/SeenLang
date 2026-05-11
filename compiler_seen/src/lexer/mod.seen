@@ -1,8 +1,12 @@
-// Lexer Module - Real Implementation Entry Point
-// Exports the actual working implementations for TDD
+///
+Lexer Module - Real Implementation Entry Point
+Exports the actual working implementations for TDD
+///
 
-// Import all the interfaces and types
-// import interfaces.{TokenType, Token, Position, LexerError}
+///
+Import all the interfaces and types
+import interfaces.{TokenType, Token, Position, LexerError}
+///
 
 // Import the real implementations
 import lexer.lexer.{SeenLexer}

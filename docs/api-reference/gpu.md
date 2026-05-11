@@ -51,7 +51,7 @@ Seen @compute function
 ### Inspecting Generated GLSL
 
 ```bash
-seen build app.seen --emit-glsl
+seen compile app.seen app --emit-glsl
 ```
 
 ## GPU Dispatch

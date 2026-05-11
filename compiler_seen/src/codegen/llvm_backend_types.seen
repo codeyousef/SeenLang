@@ -1,0 +1,86 @@
+// llvm_backend_types.seen - Result and configuration types for LLVM backend.
+
+// Result structure for benchmark measurements
+class BenchmarkResult {
+    var executionTime: Int;  // nanoseconds
+    var opsPerSecond: Int
+    var success: Bool
+
+    fun new() r: BenchmarkResult {
+        return BenchmarkResult{
+            executionTime: 0,
+            opsPerSecond: 0,
+            success: false
+        }
+    }
+
+    fun toString() r: String {
+        return "BenchmarkResult{" +
+            "time=" + executionTime.toString() + "ns, " +
+            "ops/sec=" + opsPerSecond.toString() + ", " +
+            "success=" + success.toString() + "}"
+    }
+}
+
+// Advanced compilation configuration
+class CompilationConfig {
+    var optimizationLevel: Int
+    var enableLTO: Bool
+    var enablePGO: Bool
+    var targetCPU: String
+    var vectorWidth: Int
+    var unrollFactor: Int
+    var enableFastMath: Bool
+
+    fun new() r: CompilationConfig {
+        return CompilationConfig{
+            optimizationLevel: 3,
+            enableLTO: true,
+            enablePGO: false,
+            targetCPU: "native",
+            vectorWidth: 8,
+            unrollFactor: 8,
+            enableFastMath: true
+        }
+    }
+
+    fun forBenchmarks() r: CompilationConfig {
+        return CompilationConfig{
+            optimizationLevel: 3,
+            enableLTO: true,
+            enablePGO: true,
+            targetCPU: "native",
+            vectorWidth: 16,
+            unrollFactor: 16,
+            enableFastMath: true
+        }
+    }
+}
+
+// Compilation statistics and metrics
+class CompilationStats {
+    var llvmIRLines: Int
+    var optimizationPasses: Int
+    var compilationTimeMs: Int
+    var objectSize: Int
+    var executableSize: Int
+
+    fun new() r: CompilationStats {
+        return CompilationStats{
+            llvmIRLines: 0,
+            optimizationPasses: 0,
+            compilationTimeMs: 0,
+            objectSize: 0,
+            executableSize: 0
+        }
+    }
+
+    fun report() {
+        println("[REPORT] Compilation Statistics:")
+        println("   LLVM IR lines: " + llvmIRLines.toString())
+        println("   Optimization passes: " + optimizationPasses.toString())
+        println("   Compilation time: " + compilationTimeMs.toString() + "ms")
+        println("   Object file size: " + objectSize.toString() + " bytes")
+        println("   Executable size: " + executableSize.toString() + " bytes")
+    }
+}

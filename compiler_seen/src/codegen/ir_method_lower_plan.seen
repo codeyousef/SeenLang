@@ -1,5 +1,7 @@
 // ir_method_lower_plan.seen - pure lower-half method-call planning helpers.
 
+import parser.real_parser.{ParserExpressionNode}
+
 class MethodLowerCallPlan {
     var shouldTryLengthLike: Bool
     var shouldTryStringBuilder: Bool
@@ -68,9 +70,46 @@ fun methodLowerStringBuilderArgActionImpl(receiverType: String,
     return 0
 }
 
+fun methodLowerStringBuilderArgActionForArgsImpl(receiverType: String,
+    methodName: String, args: Array<ParserExpressionNode>) r: Int {
+
+    var argKind = ""
+    var argCallee = ""
+    var nestedArgCount = 0
+    if args.length() > 0 {
+        let appendArgExpr = args[0]
+        argKind = appendArgExpr.kind
+        argCallee = appendArgExpr.callee
+        nestedArgCount = appendArgExpr.arguments.length()
+    }
+    return methodLowerStringBuilderArgActionImpl(receiverType, methodName,
+        args.length(), argKind, argCallee, nestedArgCount)
+}
+
 fun shouldUseMethodLowerUnwrapTraceSourceImpl(exprKind: String,
     callee: String, operandCount: Int) r: Bool {
 
     return exprKind == "MethodCall" and callee == "unwrap" and
         operandCount > 0
+}
+
+fun shouldWarnUnresolvedCollectionGetImpl(methodName: String,
+    receiverIsArray: Bool, receiverIsCollection: Bool) r: Bool {
+
+    return methodName == "get" and not receiverIsArray and
+        not receiverIsCollection
+}
+
+fun shouldUseScalarReceiverFallbackImpl(methodName: String,
+    isNumericReceiverMethod: Bool) r: Bool {
+
+    if isNumericReceiverMethod {
+        return false
+    }
+    if methodName == "toString" or methodName == "toInt" or
+        methodName == "toFloat" {
+
+        return false
+    }
+    return true
 }

@@ -1,5 +1,7 @@
-// Production feature extractor baseline for ML optimizer (deterministic vector output).
-// Provides deterministic numeric vectors so tests can reason about lengths.
+///
+Production feature extractor baseline for ML optimizer (deterministic vector output).
+Provides deterministic numeric vectors so tests can reason about lengths.
+///
 
 class FeatureExtractor {
     fun new() r: FeatureExtractor {

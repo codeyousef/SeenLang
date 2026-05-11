@@ -1,0 +1,14 @@
+// ir_module_header_driver.seen - LLVM module header and runtime declares.
+
+import str.string.{StringBuilder}
+import codegen.ir_codegen_global_state.{emitModulePrologueWithGlobalStateImpl, emitRuntimeDeclarationsWithGlobalStateImpl}
+
+fun emitModulePrologueState(output: StringBuilder) r: Void {
+    emitModulePrologueWithGlobalStateImpl(output)
+}
+
+fun emitRuntimeDeclarationsState(output: StringBuilder,
+    definedFuncs: Array<String>) r: Void {
+
+    emitRuntimeDeclarationsWithGlobalStateImpl(output, definedFuncs)
+}

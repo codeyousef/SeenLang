@@ -1,5 +1,7 @@
-// Test sandbox isolation for nondeterministic middleware
-// Verifies that sandboxed middleware can't corrupt deterministic context
+///
+Test sandbox isolation for nondeterministic middleware
+Verifies that sandboxed middleware can't corrupt deterministic context
+///
 
 // Minimal middleware context (inline, no imports)
 class MiddlewareContext {

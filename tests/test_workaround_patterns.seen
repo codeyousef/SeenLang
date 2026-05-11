@@ -1,5 +1,7 @@
-// Diagnostic test: verify patterns that were worked around for stage1 limitations
-// Tests Bool variables, Bool fields, if not X, static methods
+///
+Diagnostic test: verify patterns that were worked around for stage1 limitations
+Tests Bool variables, Bool fields, if not X, static methods
+///
 
 class Counter {
     var count: Int

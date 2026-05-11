@@ -1,8 +1,10 @@
 // ir_function_prebody.seen - top-level function pre-body state preparation.
 
 import parser.real_parser.{FunctionNode}
-import codegen.type_registry.{CodegenState, resetFunctionLoweringOptions}
-import codegen.ir_function_gen.{resetLocalCodegenStateImpl, emitPreAllocatedAllocasImpl, emitDefaultReturnValueImpl}
+import codegen.ir_codegen_state.{CodegenState, resetFunctionLoweringOptions}
+import codegen.ir_function_scratch.{resetLocalCodegenStateImpl}
+import codegen.ir_function_entry_exit.{emitPreAllocatedAllocasImpl}
+import codegen.ir_function_signature_emit.{emitDefaultReturnValueImpl}
 import codegen.ir_function_param_meta.{preRegisterFunctionParametersImpl}
 import codegen.ir_string_collect.{getBaseTypeNameImpl}
 import codegen.ir_type_mapping.{mapTypeImpl}
@@ -130,9 +132,17 @@ fun emitMainFunctionEntrySnapshotImpl(output: StringBuilder,
         " @main(i32 %argc, ptr %argv) #0 {\n")
     output.append("entry:\n")
     output.append("  call void @seen_runtime_init(i32 %argc, ptr %argv)\n")
+    let preAllocatedLlvmTypes = Array<String>()
+    var preAllocatedIdx = 0
+    while preAllocatedIdx < preAllocatedTypes.length() {
+        preAllocatedLlvmTypes.push(mapFunctionPreBodyReturnTypeImpl(
+            preAllocatedTypes[preAllocatedIdx], structNames, typeAliasNames,
+            typeAliasTargets, typeAliasCount, enumTypeNames,
+            reprCClassNames))
+        preAllocatedIdx = preAllocatedIdx + 1
+    }
     snapshot.preAllocatedRegs = emitPreAllocatedAllocasImpl(output, regBox,
-        preAllocatedTypes, structNames, typeAliasNames, typeAliasTargets,
-        typeAliasCount, enumTypeNames, reprCClassNames)
+        preAllocatedLlvmTypes)
     return snapshot
 }
 

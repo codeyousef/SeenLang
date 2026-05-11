@@ -1,10 +1,12 @@
-// Architecture-Aware Optimizer
-// CPU detection, ISA feature targeting, vector width selection
+///
+Architecture-Aware Optimizer
+CPU detection, ISA feature targeting, vector width selection
+///
 
 class Architecture {
     let name: String
 
-    fun new(name: String) r: Architecture {
+    static fun new(name: String) r: Architecture {
         return Architecture{ name: name }
     }
 }
@@ -13,7 +15,7 @@ class CPUInfo {
     var featureCount: Int
     let microarch: String
 
-    fun new(microarch: String) r: CPUInfo {
+    static fun new(microarch: String) r: CPUInfo {
         return CPUInfo{ featureCount: 0, microarch: microarch }
     }
 
@@ -27,7 +29,7 @@ class CPUInfo {
 class ISAExtensions {
     var count: Int
 
-    fun new() r: ISAExtensions {
+    static fun new() r: ISAExtensions {
         return ISAExtensions{ count: 3 }
     }
 }
@@ -39,7 +41,7 @@ class ArchitectureOptimizer {
     var targetFeatures: String
     var preferVectorWidth: Int
 
-    fun new(target: String) r: ArchitectureOptimizer {
+    static fun new(target: String) r: ArchitectureOptimizer {
         let cpu = CPUInfo.new("zen3")
         var vecWidth = 256
         return ArchitectureOptimizer{

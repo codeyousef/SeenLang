@@ -219,6 +219,7 @@ create_package_structure() {
     # Create directory structure
     mkdir -p "$package_dir/usr/bin"
     mkdir -p "$package_dir/usr/lib/seen"
+    mkdir -p "$package_dir/usr/lib/seen/toolchain"
     mkdir -p "$package_dir/usr/share/seen"
     mkdir -p "$package_dir/usr/share/doc/seen"
     mkdir -p "$package_dir/usr/share/man/man1"
@@ -250,8 +251,8 @@ Maintainer: Seen Language Team <team@seen-lang.org>
 Homepage: https://seen-lang.org
 Vcs-Git: https://github.com/codeyousef/SeenLang.git
 Vcs-Browser: https://github.com/codeyousef/SeenLang
-Depends: libc6 (>= 2.28), libgcc-s1 (>= 3.0), libstdc++6 (>= 5.2)
-Suggests: build-essential, gcc, clang
+Depends: libc6 (>= 2.28), libgcc-s1 (>= 3.0), libstdc++6 (>= 5.2), llvm-18 | llvm (>= 1:18), clang-18 | clang (>= 1:18), lld-18 | lld (>= 1:18)
+Suggests: build-essential, gcc
 Description: High-performance systems programming language
  Seen is a systems programming language designed to be a
  high-performance language while providing intuitive developer
@@ -294,6 +295,11 @@ case "$1" in
         # Update man database
         if command -v mandb >/dev/null 2>&1; then
             mandb -q 2>/dev/null || true
+        fi
+
+        if [ -x /usr/lib/seen/toolchain/seen-toolchain.sh ]; then
+            /usr/lib/seen/toolchain/seen-toolchain.sh --check --prefix /usr >/dev/null 2>&1 || \
+                echo "LLVM 18+ toolchain check failed; run /usr/lib/seen/toolchain/seen-toolchain.sh --install or install clang/opt/llc/llvm-as/lld."
         fi
         
         # Print installation success message
@@ -378,7 +384,19 @@ install_package_files() {
     if [ -d "$PROJECT_ROOT/seen_std" ]; then
         cp -r "$PROJECT_ROOT/seen_std"/* "$package_dir/usr/lib/seen/"
     fi
-    
+
+    # Install toolchain metadata and helper
+    cp "$PROJECT_ROOT/scripts/seen_toolchain.sh" "$package_dir/usr/lib/seen/toolchain/seen-toolchain.sh"
+    chmod 755 "$package_dir/usr/lib/seen/toolchain/seen-toolchain.sh"
+    cat > "$package_dir/usr/lib/seen/toolchain/manifest.env" << EOF
+seen_toolchain_manifest_version=1
+llvm_min_version=18
+llvm_preferred_version=18
+required_tools=clang,opt,llc,llvm-as,ld.lld
+bundle_mode=system-package
+managed_install=/usr/lib/seen/toolchain/seen-toolchain.sh --install
+EOF
+
     # Install language configurations
     if [ -d "$PROJECT_ROOT/languages" ]; then
         cp -r "$PROJECT_ROOT/languages" "$package_dir/usr/share/seen/"

@@ -71,18 +71,18 @@ fun dot_product(a: Array<Float>, b: Array<Float>, n: Int) r: Float {
 Control SIMD code generation:
 
 ```bash
-seen build app.seen --simd=auto     # Auto-detect (default)
-seen build app.seen --simd=none     # Disable SIMD
-seen build app.seen --simd=sse4.2   # Force SSE 4.2
-seen build app.seen --simd=avx2     # Force AVX2
-seen build app.seen --simd=avx512   # Force AVX-512
+seen compile app.seen app --simd=auto     # Auto-detect (default)
+seen compile app.seen app --simd=none     # Disable SIMD
+seen compile app.seen app --simd=sse4.2   # Force SSE 4.2
+seen compile app.seen app --simd=avx2     # Force AVX2
+seen compile app.seen app --simd=avx512   # Force AVX-512
 ```
 
 Vectorization report:
 
 ```bash
-seen build app.seen --simd-report       # Summary
-seen build app.seen --simd-report=full  # Per-loop detail
+seen compile app.seen app --simd-report       # Summary
+seen compile app.seen app --simd-report=full  # Per-loop detail
 ```
 
 ## Runtime SIMD Functions
@@ -169,7 +169,7 @@ fun main() {
 ### Inspecting Generated Shaders
 
 ```bash
-seen build app.seen --emit-glsl
+seen compile app.seen app --emit-glsl
 ```
 
 This saves the generated GLSL alongside the binary.

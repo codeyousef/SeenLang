@@ -1,5 +1,7 @@
-// seen_std.fs.path
-// Deterministic path utilities (normalize/join/basename/dirname/extension).
+///
+seen_std.fs.path
+Deterministic path utilities (normalize/join/basename/dirname/extension).
+///
 
 import str.string.{StringBuilder, lastIndexOf, endsWith}
 import collections.vec.{Vec}

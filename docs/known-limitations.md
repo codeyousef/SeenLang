@@ -1,84 +1,58 @@
 # Known Limitations
 
-This page documents current compiler bugs, codegen limitations, and workarounds.
+This page tracks public caveats that matter when using the shipped compiler.
+Private bootstrap notes and historical recovery plans live outside the public
+docs.
 
-## Stage 1 (Frozen Compiler) Limitations
+## Bootstrap and Rebuilds
 
-The frozen bootstrap compiler has several known issues:
+- Full compiler rebuilds must be memory-capped. Use the pattern in
+  [Bootstrap System](bootstrap.md) instead of running `scripts/safe_rebuild.sh`
+  uncapped.
+- If a rebuild fails, inspect the first concrete failing module/log before
+  retrying. Blind retries can hide deterministic compiler issues.
+- `scripts/fix_ir.py` remains a compatibility guard for malformed IR emitted by
+  older frozen-bootstrap paths. It is not a substitute for fixing source
+  codegen bugs.
 
-| Issue | Workaround |
-|-------|------------|
-| No generic class methods with receiver type inference | Use free functions or explicit type parameters |
-| Float function parameters broken | Inline the computation instead |
-| `%` modulo operator broken | Use `a - (a / b) * b` |
-| Boolean variables broken | Use `var x = 0; x = 1; if x == 1 {` |
-| `if/else if` chains broken | Use nested `if/else` blocks |
-| `if not X` broken | Use `if X { return }` + fall-through |
-| `.getTokenType()` cross-module issue | Use `checkToken(SeenTokenType.X)` |
+## Shipped CLI Shape
 
-## Recently Covered Regression Patterns
+- The shipped release command is `seen compile`, not the newer source-only
+  wrapper command shape in `compiler_seen/src/main.seen`.
+- `seen --version` and `seen --help` are not currently exposed by the shipped
+  binary; invoking an unknown command prints usage.
+- The shipped backend selector documents LLVM-only behavior, even though older
+  docs and source comments mention a C backend.
 
-The current compiler source now has regression coverage for several patterns that were previously listed here as active production codegen bugs:
+## Packages
 
-- `static fun` in classes
-- class constructor struct literals
-- module-level `var x = func()`
-- module-level `Array<T>` / `String` initialization
-- functions returning `Array<T>` via `r:` syntax
-- `let` bindings of string expressions inside `while` loops
-- leading-brace string literals such as `"{identifier"`
+- Registry dependency versions are exact-only for now.
+- `seen pkg publish` writes static registry files to a local directory; it does
+  not upload to a remote service.
+- Local prebuilt artifacts are consumed through `{ artifact = "..." }`
+  dependencies and are linked from `objects.tsv`.
 
-## Cold Compile Hang
+## Determinism
 
-Compilers built from the refactored source hang on 12 specific modules (0, 3, 5, 9, 10, 11, 12, 14, 16, 23, 25, 35) when compiling from scratch without IR cache.
+`HashMap` and `HashSet` iteration order is nondeterministic. In deterministic
+mode, use ordered collections such as `BTreeMap`/`BTreeSet` or explicitly mark
+the nondeterministic usage where allowed.
 
-**Impact:** Cannot cold-compile the full compiler with the refactored-source compiler.
+## Low-Level Runtime Rules
 
-**Workaround:** Use the pre-refactoring compiler (stored as `stage1_frozen`) to populate the IR cache. The `safe_rebuild.sh` script handles this automatically.
-
-**Note:** This is NOT fork-related. The hang occurs with `--no-fork` as well.
-
-## Cross-Module GEP Bug
-
-`getelementptr %ClassName` in module X fails if `%ClassName` is defined in module Y.
-
-**Workaround:** Use `memset` zero-init instead of per-field GEP in isClassType() constructor path.
-
-## `extern fun __foo()` Rule
-
-Names starting with `__` with an empty body are skipped by codegen.
-
-**Workaround:** Add explicit `declare` entry to `ir_declarations.seen`.
-
-## SSA Register Ordering
-
-SSA registers must be strictly ascending. Pre-allocate the register for the FIRST instruction.
-
-## Array Invariant Loads
-
-`!invariant.load` on array data pointers is incorrect -- data changes on push/resize. Do not mark array data as invariant.
-
-## Stack-Allocated SeenArray Headers
-
-Do not stack-allocate `SeenArray` headers. Escaping pointers will crash. Always heap-allocate.
-
-## Runtime C Function Boolean Returns
-
-Runtime C functions returning 0/1 `int64_t` for bool need `trunc i64 to i1` in codegen.
-
-## Float `isNaN`/`isInfinite` Checks
-
-Must NOT use `fast` flag (fast implies nnan/ninf).
-
-## HashMap Non-Determinism
-
-`HashMap` iteration order is non-deterministic. In `--deterministic` mode, the compiler rejects `HashMap` usage unless marked with `@nondeterministic`.
+- Do not stack-allocate escaping `SeenArray` headers; use runtime allocation
+  paths.
+- Do not mark mutable array data pointers as LLVM `!invariant.load`.
+- Runtime C functions that return 0/1 integer values for booleans may need
+  explicit `trunc i64 to i1` in codegen.
+- Floating-point `isNaN`/`isInfinite` checks must avoid LLVM `fast` flags that
+  imply `nnan`/`ninf`.
 
 ## Reporting Issues
 
-If you encounter a new bug:
+When reporting a compiler issue, include:
 
-1. Create a minimal reproduction file (`repro_*.seen`)
-2. Test with `--emit-llvm` to inspect generated IR
-3. Use `SEEN_TRACE_LLVM=all` for detailed tracing
-4. Report at [github.com/codeyousef/SeenLang/issues](https://github.com/codeyousef/SeenLang/issues)
+1. A minimal `.seen` reproduction.
+2. The exact `seen compile` or `seen check` command.
+3. Any relevant capped rebuild log or generated `.ll` artifact.
+4. Whether the system-wide `seen` binary or `compiler_seen/target/seen` was used.

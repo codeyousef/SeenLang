@@ -1,5 +1,7 @@
-// ML-Guided Optimization Pipeline with Neural Network
-// Replaces threshold-based heuristics with trained neural network models
+///
+ML-Guided Optimization Pipeline with Neural Network
+Replaces threshold-based heuristics with trained neural network models
+///
 
 import io.file.{readText, writeText}
 import math.math.{max, min, abs}

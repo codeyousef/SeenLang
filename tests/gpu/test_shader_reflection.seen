@@ -1,5 +1,7 @@
-// Test: Shader reflection — auto-generated descriptor set layout JSON
-// Verifies ShaderReflection.toJSON() produces correct binding info
+///
+Test: Shader reflection — auto-generated descriptor set layout JSON
+Verifies ShaderReflection.toJSON() produces correct binding info
+///
 
 @compute(workgroup: 128)
 fun reflectionTest(input: Buffer<Float>, output: Buffer<Float>, params: Uniform<Float>) {

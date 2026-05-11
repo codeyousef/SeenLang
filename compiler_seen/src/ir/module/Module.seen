@@ -1,5 +1,7 @@
-// Minimal IR Module scaffolding so optimizer passes can share a common data model
-// while the real IR generator continues to live in Rust.
+///
+Minimal IR Module scaffolding so optimizer passes can share a common data model
+while the real IR generator continues to live in Rust.
+///
 
 data FunctionSummary {
     Name: String

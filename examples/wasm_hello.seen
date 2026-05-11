@@ -1,5 +1,7 @@
-// Example: Simple WASM program
-// Compile with: seen build examples/wasm_hello.seen -t wasm
+///
+Example: Simple WASM program
+Compile with: seen build examples/wasm_hello.seen -t wasm
+///
 
 fun fibonacci(n: Int) r: Int {
     if n <= 1 {

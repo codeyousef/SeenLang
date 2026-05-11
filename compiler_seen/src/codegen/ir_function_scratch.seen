@@ -1,0 +1,78 @@
+// Function-local scratch state helpers.
+
+import str.string.{StringBuilder}
+import codegen.ir_codegen_state.{CodegenState}
+import codegen.ir_function_snapshots.{NestedScratchStateSnapshot}
+
+fun snapshotNestedScratchStateImpl(state: CodegenState)
+    r: NestedScratchStateSnapshot {
+
+    let snapshot = NestedScratchStateSnapshot.new()
+    snapshot.output = state.output
+    snapshot.varNames = state.varNames
+    snapshot.varRegs = state.varRegs
+    snapshot.varTypes = state.varTypes
+    snapshot.preAllocatedVars = state.preAllocatedVars
+    snapshot.preAllocatedTypes = state.preAllocatedTypes
+    snapshot.preAllocatedRegs = state.preAllocatedRegs
+    snapshot.declOrdinalNames = state.declOrdinalNames
+    snapshot.declOrdinalCounts = state.declOrdinalCounts
+    snapshot.activeVarCount = state.activeVarCount
+    snapshot.nextReg = state.regBox[0]
+    snapshot.blockTerminated = state.blockTerminated
+    snapshot.currentFunctionReturnType = state.currentFunctionReturnType
+    return snapshot
+}
+
+fun resetLocalCodegenStateImpl(state: CodegenState) r: Void {
+    state.varNames = Array<String>()
+    state.varRegs = Array<String>()
+    state.varTypes = Array<String>()
+    state.preAllocatedVars = Array<String>()
+    state.preAllocatedTypes = Array<String>()
+    state.preAllocatedRegs = Array<String>()
+    state.declOrdinalNames = Array<String>()
+    state.declOrdinalCounts = Array<Int>()
+    state.activeVarCount = 0
+    state.regBox[0] = 1
+    state.blockTerminated = 0
+}
+
+fun clearActiveBindingsImpl(state: CodegenState) r: Void {
+    state.varNames = Array<String>()
+    state.varRegs = Array<String>()
+    state.varTypes = Array<String>()
+    state.activeVarCount = 0
+}
+
+fun beginNestedScratchStateImpl(state: CodegenState, returnType: String) r: Void {
+    state.output = StringBuilder.new()
+    resetLocalCodegenStateImpl(state)
+    state.currentFunctionReturnType = returnType
+}
+
+fun restoreNestedScratchStateImpl(state: CodegenState,
+    snapshot: NestedScratchStateSnapshot) r: Void {
+
+    state.output = snapshot.output
+    state.varNames = snapshot.varNames
+    state.varRegs = snapshot.varRegs
+    state.varTypes = snapshot.varTypes
+    state.preAllocatedVars = snapshot.preAllocatedVars
+    state.preAllocatedTypes = snapshot.preAllocatedTypes
+    state.preAllocatedRegs = snapshot.preAllocatedRegs
+    state.declOrdinalNames = snapshot.declOrdinalNames
+    state.declOrdinalCounts = snapshot.declOrdinalCounts
+    state.activeVarCount = snapshot.activeVarCount
+    state.regBox[0] = snapshot.nextReg
+    state.blockTerminated = snapshot.blockTerminated
+    state.currentFunctionReturnType = snapshot.currentFunctionReturnType
+}
+
+fun emitParallelForCallImpl(output: StringBuilder, loopVarName: String,
+    startReg: String, endReg: String, bodyFuncName: String) r: Void {
+
+    output.append("  ; parallel_for " + loopVarName + "\n")
+    output.append("  call void @seen_parallel_for(i64 " + startReg +
+        ", i64 " + endReg + ", ptr " + bodyFuncName + ", i64 0)\n")
+}

@@ -1,0 +1,67 @@
+// ir_method_resolved_fastpath_driver.seen - resolved receiver fast paths.
+
+import parser.real_parser.{ParserExpressionNode}
+import str.string.{StringBuilder}
+import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl, getFeatureBlockBoxImpl}
+import codegen.ir_lowering_context.{CodegenLoweringContext, lowerExpression, inferLoweredExpressionType, lowerCallExpression, prepareLoweredCallArgumentsWithDefaults, lowerEnumConstructor, resetLoweringGenerator, resetLoweringSharedModuleScratch, syncLoweringState, writeBackLoweringState, lowerProgramClasses, lowerProgramTopLevelFunctions, lowerPlainLargeClass, lowerClassNode, lowerFunctionNode, lowerClassMethodFromList, setLowerCurrentClassParentName, resetLoweringLocalCodegenState, collectLoweringVariableDeclarations, clearLoweringActiveBindings, lowerBlock, lowerStatement, isLoweringBlockTerminated, beginLoweringNestedScratch, restoreLoweringNestedScratch, currentLoweringFunctionOptions}
+import codegen.ir_method_call_plan.{planResolvedReceiverFastPathImpl, shouldReadOptionDefaultFastPathArgImpl, shouldReadSmallVecFastPathArgImpl, shouldReadReceiverFastPathArgImpl}
+import codegen.ir_method_fastpath_emit.{emitResolvedReceiverFastPathActionImpl}
+import codegen.ir_method_receiver_predicates.{isOptionReceiverTypeImpl, isSmallVecReceiverTypeImpl, isCollectionReceiverTypeImpl, isArrayReceiverTypeImpl}
+
+fun tryGenerateResolvedReceiverFastPathMethodCallState(
+    ctx: CodegenLoweringContext, output: StringBuilder,
+    expr: ParserExpressionNode, methodName: String, receiverReg: String,
+    receiverType: String) r: String {
+
+    let fastPathPlan = planResolvedReceiverFastPathImpl(receiverReg,
+        isOptionReceiverTypeImpl(receiverType),
+        isSmallVecReceiverTypeImpl(receiverType),
+        isCollectionReceiverTypeImpl(receiverType),
+        isArrayReceiverTypeImpl(receiverType))
+
+    var optDefaultRegS: String = "0"
+    var svArgReg: String = ""
+    var collArg0s: String = "0"
+    var collArg1s: String = "0"
+    var arrArg0: String = ""
+    var arrArg1: String = ""
+    var arrArg0Type: String = ""
+    var arrArg1Type: String = ""
+
+    if shouldReadOptionDefaultFastPathArgImpl(fastPathPlan.action,
+        methodName, expr.arguments.length()) {
+        optDefaultRegS = lowerExpression(ctx, expr.arguments[0])
+    }
+    if shouldReadSmallVecFastPathArgImpl(fastPathPlan.action,
+        methodName, expr.arguments.length()) {
+        svArgReg = lowerExpression(ctx, expr.arguments[0])
+    }
+    if fastPathPlan.action == 3 and
+        shouldReadReceiverFastPathArgImpl(fastPathPlan.action,
+        expr.arguments.length(), 0) {
+        collArg0s = lowerExpression(ctx, expr.arguments[0])
+    }
+    if fastPathPlan.action == 3 and
+        shouldReadReceiverFastPathArgImpl(fastPathPlan.action,
+        expr.arguments.length(), 1) {
+        collArg1s = lowerExpression(ctx, expr.arguments[1])
+    }
+    if fastPathPlan.action == 4 and
+        shouldReadReceiverFastPathArgImpl(fastPathPlan.action,
+        expr.arguments.length(), 0) {
+        arrArg0 = lowerExpression(ctx, expr.arguments[0])
+        arrArg0Type = inferLoweredExpressionType(ctx, expr.arguments[0])
+    }
+    if fastPathPlan.action == 4 and
+        shouldReadReceiverFastPathArgImpl(fastPathPlan.action,
+        expr.arguments.length(), 1) {
+        arrArg1 = lowerExpression(ctx, expr.arguments[1])
+        arrArg1Type = inferLoweredExpressionType(ctx, expr.arguments[1])
+    }
+
+    return emitResolvedReceiverFastPathActionImpl(output,
+        getFeatureRegBoxImpl(), getFeatureBlockBoxImpl(),
+        fastPathPlan.action, methodName, receiverReg, receiverType,
+        optDefaultRegS, svArgReg, collArg0s, collArg1s, arrArg0, arrArg1,
+        arrArg0Type, arrArg1Type)
+}

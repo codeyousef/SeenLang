@@ -2,8 +2,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
-COMPILER="$ROOT_DIR/compiler_seen/target/seen"
-TMP_ROOT="/tmp/seen_fix_regressions"
+COMPILER="${COMPILER:-$ROOT_DIR/compiler_seen/target/seen}"
+TMP_ROOT="${TMP_ROOT:-/tmp/seen_fix_regressions}"
 
 D15_EMPTY_SRC="$ROOT_DIR/tests/fixtures/seen_fixes/d15_empty_class_import.seen"
 D15_FUNCTION_SRC="$ROOT_DIR/tests/fixtures/seen_fixes/d15_function_only_import.seen"
@@ -37,6 +37,7 @@ WHEN_ENUM_ELSE_OK_SRC="$ROOT_DIR/tests/fixtures/current_limitations/when_enum_el
 UNRESOLVED_FREE_CALL_SRC="$ROOT_DIR/tests/fixtures/current_limitations/unresolved_free_call.seen"
 BOOL_RETURN_COERCION_SRC="$ROOT_DIR/tests/codegen/test_bool_return_int_coercion_regression.seen"
 BOOL_HELPER_LOGICAL_SRC="$ROOT_DIR/tests/codegen/test_bool_helper_logical_regression.seen"
+STRING_VAR_INIT_CONCAT_SRC="$ROOT_DIR/tests/codegen/test_string_var_initializer_concat_regression.seen"
 FLOAT32_PTR_DEREF_CAST_SRC="$ROOT_DIR/tests/codegen/test_float32_ptr_deref_cast_regression.seen"
 NESTED_PROPERTY_RECEIVER_SRC="$ROOT_DIR/tests/codegen/test_nested_property_receiver_regression.seen"
 FEL22_TYPED_STORE_RETURN_SRC="$ROOT_DIR/tests/codegen/test_fel22_typed_store_return_regression.seen"
@@ -45,6 +46,9 @@ RUNTIME_FILE_BYTES_SRC="$ROOT_DIR/tests/codegen/test_runtime_file_bytes_regressi
 UINT32_GLOBAL_INIT_SRC="$ROOT_DIR/tests/codegen/test_uint32_global_init_regression.seen"
 HIGH_ARITY_PARAMS_SRC="$ROOT_DIR/tests/codegen/test_high_arity_params_regression.seen"
 NESTED_CONTINUE_HIGH_ARITY_SRC="$ROOT_DIR/tests/codegen/test_nested_continue_high_arity_regression.seen"
+FEL66_EMIT_LLVM_MANIFEST_SRC="$ROOT_DIR/tests/codegen/test_fel66_emit_llvm_export_manifest.seen"
+FEL67_HOTRELOAD_INLINE_CAST_SRC="$ROOT_DIR/tests/codegen/test_fel67_hotreload_inline_literal_cast.seen"
+FEL68_STATIC_NEW_HANDLE_SRC="$ROOT_DIR/tests/codegen/test_fel68_static_new_handle_regression.seen"
 
 cleanup_seen_artifacts() {
     rm -rf "$ROOT_DIR/.seen_cache" /tmp/seen_ir_cache "$TMP_ROOT"
@@ -423,6 +427,83 @@ run_real_compiler_failure_case() {
     fi
 
     echo "PASS: $label"
+}
+
+run_emit_llvm_object_manifest_case() {
+    local output_file="$TMP_ROOT/fel66_emit_llvm_manifest"
+    local manifest_file="$TMP_ROOT/fel66_emit_llvm_manifest.objects.tsv"
+    local log_file="$TMP_ROOT/fel66_emit_llvm_manifest.log"
+    local emitted_ir="${output_file}.module0.ll"
+
+    cleanup_seen_artifacts
+
+    if ! timeout 120 "$COMPILER" compile "$FEL66_EMIT_LLVM_MANIFEST_SRC" "$output_file" \
+        --pic --no-cache --no-fork --object-manifest "$manifest_file" --emit-llvm \
+        >"$log_file" 2>&1; then
+        echo "FAIL: FEL-66 emit-llvm object manifest compile failed"
+        cat "$log_file"
+        exit 1
+    fi
+
+    if [[ ! -s "$emitted_ir" ]]; then
+        echo "FAIL: FEL-66 did not emit raw module LLVM IR"
+        cat "$log_file"
+        exit 1
+    fi
+
+    if [[ ! -s "$manifest_file" ]]; then
+        echo "FAIL: FEL-66 did not write an object manifest"
+        cat "$log_file"
+        exit 1
+    fi
+
+    local object_file
+    object_file="$(awk 'NF >= 1 { print $1; exit }' "$manifest_file")"
+    if [[ -z "$object_file" || ! -s "$object_file" ]]; then
+        echo "FAIL: FEL-66 manifest object was not produced"
+        cat "$log_file"
+        cat "$manifest_file"
+        exit 1
+    fi
+
+    echo "PASS: FEL-66 emit-llvm object manifests keep object emission"
+}
+
+run_static_new_handle_regression_case() {
+    local output_file="$TMP_ROOT/fel68_static_new_handle"
+    local manifest_file="$TMP_ROOT/fel68_static_new_handle.objects.tsv"
+    local log_file="$TMP_ROOT/fel68_static_new_handle.log"
+    local emitted_ir="${output_file}.module0.ll"
+
+    cleanup_seen_artifacts
+
+    if ! timeout 120 "$COMPILER" compile "$FEL68_STATIC_NEW_HANDLE_SRC" "$output_file" \
+        --pic --no-cache --no-fork --object-manifest "$manifest_file" --emit-llvm \
+        >"$log_file" 2>&1; then
+        echo "FAIL: FEL-68 static new handle compile failed"
+        cat "$log_file"
+        exit 1
+    fi
+
+    if [[ ! -s "$emitted_ir" ]]; then
+        echo "FAIL: FEL-68 did not emit raw module LLVM IR"
+        cat "$log_file"
+        exit 1
+    fi
+
+    if ! grep -q 'call i64 @VoxelTypeCountWork_new' "$emitted_ir"; then
+        echo "FAIL: FEL-68 did not lower PascalCase static new as an i64 class handle"
+        grep -n 'VoxelTypeCountWork_new' "$emitted_ir" || true
+        exit 1
+    fi
+
+    if grep -q 'ptrtoint ptr .*VoxelTypeCountWork_new' "$emitted_ir"; then
+        echo "FAIL: FEL-68 still converts static new pointer result before local storage"
+        grep -n 'VoxelTypeCountWork_new\\|ptrtoint ptr' "$emitted_ir" || true
+        exit 1
+    fi
+
+    echo "PASS: FEL-68 PascalCase static new locals use class-handle storage"
 }
 
 run_toml_project_modules_case() {
@@ -1339,16 +1420,16 @@ language = "en"
 EOF
 
     cat >"$package_dir/src/platform/linux/sdl3.seen" <<'EOF'
-fun audioPlatformValue() r: Int {
+fun AudioPlatformValue() r: Int {
     return 41
 }
 EOF
 
-    cat >"$package_dir/src/runtime.seen" <<'EOF'
-import platform.linux.sdl3.{audioPlatformValue}
+cat >"$package_dir/src/runtime.seen" <<'EOF'
+import platform.linux.sdl3.{AudioPlatformValue}
 
-fun runtimeValue() r: Int {
-    return audioPlatformValue() + 1
+fun RuntimeValue() r: Int {
+    return AudioPlatformValue() + 1
 }
 EOF
 
@@ -1363,10 +1444,10 @@ seen_audio = { path = "../seen_audio" }
 EOF
 
     cat >"$project_dir/main.seen" <<'EOF'
-import seen_audio::src::runtime.{runtimeValue}
+import seen_audio::src::runtime.{RuntimeValue}
 
 fun main() r: Int {
-    if runtimeValue() == 42 {
+    if RuntimeValue() == 42 {
         return 0
     }
     return 1
@@ -1555,7 +1636,7 @@ fun facadeHelper(value: Int) r: Int {
 EOF
 
     cat >"$package_dir/src/facade.seen" <<'EOF'
-fun facadeValue() r: Int {
+fun FacadeValue() r: Int {
     return facadeHelper(SharedType.answer())
 }
 EOF
@@ -1571,10 +1652,10 @@ seen_facade = { path = "../seen_facade" }
 EOF
 
     cat >"$project_dir/main.seen" <<'EOF'
-import seen_facade::src::facade.{facadeValue}
+import seen_facade::src::facade.{FacadeValue}
 
 fun main() r: Int {
-    if facadeValue() == 42 {
+    if FacadeValue() == 42 {
         return 0
     }
     return 1
@@ -1594,6 +1675,354 @@ EOF
     fi
 
     echo "PASS: manifest companion modules keep facade helper symbols visible"
+}
+
+run_package_root_manifest_modules_case() {
+    local package_dir="$TMP_ROOT/seen_root_pkg"
+    local project_dir="$TMP_ROOT/package_root_manifest_modules"
+    local output_file="$project_dir/package_root_manifest_modules"
+    local log_file="$project_dir/package_root_manifest_modules.log"
+
+    cleanup_seen_artifacts
+    mkdir -p "$package_dir/src" "$project_dir"
+
+    cat >"$package_dir/Seen.toml" <<'EOF'
+[project]
+name = "seen_root_pkg"
+version = "0.1.0"
+language = "en"
+
+modules = [
+    "src/value.seen",
+    "src/api.seen",
+]
+EOF
+
+    cat >"$package_dir/src/value.seen" <<'EOF'
+fun RootPackageValue() r: Int {
+    return 42
+}
+EOF
+
+    cat >"$package_dir/src/api.seen" <<'EOF'
+fun RootPackageApi() r: Int {
+    return RootPackageValue()
+}
+EOF
+
+    cat >"$project_dir/Seen.toml" <<'EOF'
+[project]
+name = "package_root_manifest_modules"
+version = "0.1.0"
+language = "en"
+
+[dependencies]
+seen_root_pkg = { path = "../seen_root_pkg" }
+EOF
+
+    cat >"$project_dir/main.seen" <<'EOF'
+import seen_root_pkg.{RootPackageApi}
+
+fun main() r: Int {
+    if RootPackageApi() == 42 {
+        return 0
+    }
+    return 1
+}
+EOF
+
+    if ! run_compile_in_dir "$project_dir" "main.seen" "$output_file" "$log_file"; then
+        echo "FAIL: package-root manifest module import did not compile"
+        cat "$log_file"
+        exit 1
+    fi
+
+    if grep -q 'src/mod.seen' "$log_file"; then
+        echo "FAIL: package-root import still required src/mod.seen"
+        cat "$log_file"
+        exit 1
+    fi
+
+    if ! "$output_file" >/dev/null 2>&1; then
+        echo "FAIL: package-root manifest module binary exited non-zero"
+        cat "$log_file"
+        exit 1
+    fi
+
+    echo "PASS: package-root imports use manifest modules without src/mod.seen"
+}
+
+run_package_private_visibility_failure_case() {
+    local package_dir="$TMP_ROOT/seen_hidden"
+    local project_dir="$TMP_ROOT/package_private_visibility"
+    local log_file="$project_dir/package_private_visibility.log"
+
+    cleanup_seen_artifacts
+    mkdir -p "$package_dir/src" "$project_dir"
+
+    cat >"$package_dir/Seen.toml" <<'EOF'
+[project]
+name = "seen_hidden"
+version = "0.1.0"
+language = "en"
+
+modules = [
+    "src/internal.seen",
+]
+EOF
+
+    cat >"$package_dir/src/internal.seen" <<'EOF'
+fun hiddenValue() r: Int {
+    return 42
+}
+EOF
+
+    cat >"$project_dir/Seen.toml" <<'EOF'
+[project]
+name = "package_private_visibility"
+version = "0.1.0"
+language = "en"
+
+[dependencies]
+seen_hidden = { path = "../seen_hidden" }
+EOF
+
+    cat >"$project_dir/main.seen" <<'EOF'
+import seen_hidden::src::internal.{hiddenValue}
+
+fun main() r: Int {
+    return hiddenValue()
+}
+EOF
+
+    set +e
+    run_check "$project_dir/main.seen" "$log_file"
+    local status=$?
+    set -e
+
+    if [[ "$status" -eq 0 ]]; then
+        echo "FAIL: package-private import unexpectedly passed"
+        cat "$log_file"
+        exit 1
+    fi
+
+    if ! grep -Eq 'package-private declaration `hiddenValue`' "$log_file"; then
+        echo "FAIL: package-private import did not report the expected diagnostic"
+        cat "$log_file"
+        exit 1
+    fi
+
+    echo "PASS: package-private imports are rejected across package boundaries"
+}
+
+run_triple_slash_raw_scanner_case() {
+    local project_dir="$TMP_ROOT/triple_slash_raw_scanner"
+    local output_file="$project_dir/triple_slash_raw_scanner"
+    local log_file="$project_dir/triple_slash_raw_scanner.log"
+
+    cleanup_seen_artifacts
+    mkdir -p "$project_dir"
+
+    cat >"$project_dir/main.seen" <<'EOF'
+///
+import definitely_missing_package::src::ghost.{Ghost}
+class Ghost {
+    If no } found before this line, the lexer or raw scanners leaked comment text.
+    fun broken( r: Void {
+}
+seen_mem_fake_runtime_probe()
+@export
+extern fun vkFake() r: Int
+///
+
+fun main() r: Int {
+    return 0
+}
+EOF
+
+    if ! run_compile_in_dir "$project_dir" "main.seen" "$output_file" "$log_file"; then
+        echo "FAIL: triple-slash raw scanner case did not compile"
+        cat "$log_file"
+        exit 1
+    fi
+
+    if ! "$output_file" >/dev/null 2>&1; then
+        echo "FAIL: triple-slash raw scanner binary exited non-zero"
+        cat "$log_file"
+        exit 1
+    fi
+
+    echo "PASS: triple-slash block bodies stay invisible to raw scanners"
+}
+
+run_prebuilt_artifact_interface_index_case() {
+    local package_dir="$TMP_ROOT/seen_artifact_pkg"
+    local project_dir="$TMP_ROOT/prebuilt_artifact_interface_index"
+    local artifact_dir="$TMP_ROOT/seen_artifact_pkg_prebuilt"
+    local output_file="$project_dir/prebuilt_artifact_interface_index"
+    local manifest_file="$project_dir/objects.tsv"
+    local prebuild_log="$TMP_ROOT/prebuilt_artifact_prebuild.log"
+    local compile_log="$project_dir/prebuilt_artifact_interface_index.log"
+
+    cleanup_seen_artifacts
+    mkdir -p "$package_dir/src" "$project_dir"
+
+    cat >"$package_dir/Seen.toml" <<'EOF'
+[project]
+name = "seen_artifact_pkg"
+version = "0.1.0"
+language = "en"
+
+modules = [
+    "src/value.seen",
+    "src/api.seen",
+]
+EOF
+
+    cat >"$package_dir/src/value.seen" <<'EOF'
+fun ArtifactValue() r: Int {
+    return 42
+}
+EOF
+
+    cat >"$package_dir/src/api.seen" <<'EOF'
+fun ArtifactApi() r: Int {
+    return ArtifactValue()
+}
+EOF
+
+    if ! timeout 180 "$COMPILER" pkg prebuild "$package_dir" "$artifact_dir" >"$prebuild_log" 2>&1; then
+        echo "FAIL: package prebuild for artifact interface index case failed"
+        cat "$prebuild_log"
+        exit 1
+    fi
+
+    if [[ ! -s "$artifact_dir/interface.index.tsv" ]]; then
+        echo "FAIL: package prebuild did not emit interface.index.tsv"
+        cat "$prebuild_log"
+        exit 1
+    fi
+
+    cat >"$project_dir/Seen.toml" <<EOF
+[project]
+name = "prebuilt_artifact_interface_index"
+version = "0.1.0"
+language = "en"
+
+[dependencies]
+seen_artifact_pkg = { artifact = "$artifact_dir" }
+EOF
+
+    cat >"$project_dir/main.seen" <<'EOF'
+import seen_artifact_pkg.{ArtifactApi}
+
+fun main() r: Int {
+    if ArtifactApi() == 42 {
+        return 0
+    }
+    return 1
+}
+EOF
+
+    if ! (
+        cd "$project_dir" &&
+        timeout 180 "$COMPILER" compile main.seen "$output_file" \
+            --pic --no-cache --no-fork --object-manifest "$manifest_file" \
+            >"$compile_log" 2>&1
+    ); then
+        echo "FAIL: artifact dependency object-manifest compile failed"
+        cat "$compile_log"
+        exit 1
+    fi
+
+    if grep -q 'Generating IR (serial): .*/seen_artifact_pkg_prebuilt/src/' "$compile_log"; then
+        echo "FAIL: artifact interface modules were still sent through IR/codegen"
+        cat "$compile_log"
+        exit 1
+    fi
+
+    if ! grep -q 'prebuilt package: seen_artifact_pkg' "$compile_log"; then
+        echo "FAIL: artifact object manifest was not appended"
+        cat "$compile_log"
+        exit 1
+    fi
+
+    if ! grep -q "$artifact_dir/objects/" "$manifest_file"; then
+        echo "FAIL: downstream object manifest did not include prebuilt package objects"
+        cat "$manifest_file"
+        exit 1
+    fi
+
+    echo "PASS: artifact dependencies use interface indexes and skip dependency codegen"
+}
+
+run_prebuilt_package_symbols_case() {
+    local package_dir="$TMP_ROOT/prebuilt_package_symbols_pkg"
+    local artifact_dir="$TMP_ROOT/prebuilt_package_symbols_artifact"
+    local prebuild_log="$TMP_ROOT/prebuilt_package_symbols.log"
+    local nm_tool
+
+    cleanup_seen_artifacts
+    mkdir -p "$package_dir/src"
+
+    nm_tool="$(command -v llvm-nm || command -v nm || true)"
+    if [[ -z "$nm_tool" ]]; then
+        echo "FAIL: llvm-nm/nm is required for FEL-205 package symbol regression"
+        exit 1
+    fi
+
+    cat >"$package_dir/Seen.toml" <<'EOF'
+[project]
+name = "libx"
+version = "0.1.0"
+language = "en"
+modules = ["src/value.seen"]
+EOF
+
+    cat >"$package_dir/src/value.seen" <<'EOF'
+fun libx_value() r: Int {
+    return 7
+}
+
+@export
+fun libx_exported_value() r: Int {
+    return 8
+}
+EOF
+
+    if ! timeout 180 "$COMPILER" pkg prebuild "$package_dir" "$artifact_dir" >"$prebuild_log" 2>&1; then
+        echo "FAIL: package prebuild for FEL-205 symbol case failed"
+        cat "$prebuild_log"
+        exit 1
+    fi
+
+    local object_rel
+    object_rel="$(awk -F '\t' '$2 ~ /value\.seen$/ {print $1}' "$artifact_dir/objects.tsv")"
+    if [[ -z "$object_rel" ]]; then
+        echo "FAIL: FEL-205 object manifest missing value.seen object"
+        cat "$artifact_dir/objects.tsv"
+        exit 1
+    fi
+
+    local object_path="$artifact_dir/$object_rel"
+    if [[ ! -s "$object_path" ]]; then
+        echo "FAIL: FEL-205 prebuilt object is missing or empty"
+        cat "$prebuild_log"
+        exit 1
+    fi
+
+    if ! "$nm_tool" --defined-only "$object_path" | grep -q ' libx_value$'; then
+        echo "FAIL: FEL-205 prebuilt object missing package function symbol"
+        "$nm_tool" --defined-only "$object_path" || true
+        exit 1
+    fi
+    if ! "$nm_tool" --defined-only "$object_path" | grep -q ' libx_exported_value$'; then
+        echo "FAIL: FEL-205 prebuilt object missing @export function symbol"
+        "$nm_tool" --defined-only "$object_path" || true
+        exit 1
+    fi
+
+    echo "PASS: prebuilt package objects preserve package and @export symbols"
 }
 
 run_missing_import_failure_case() {
@@ -1629,6 +2058,129 @@ EOF
     fi
 
     echo "PASS: missing imported modules fail compilation"
+}
+
+run_cyclic_import_diagnostic_case() {
+    local project_dir="$TMP_ROOT/cyclic_imports"
+    local two_log="$project_dir/two_cycle.log"
+    local three_log="$project_dir/three_cycle.log"
+
+    cleanup_seen_artifacts
+    mkdir -p "$project_dir/two" "$project_dir/three"
+
+    cat >"$project_dir/Seen.toml" <<'EOF'
+[project]
+name = "cyclic_imports"
+version = "0.1.0"
+language = "en"
+
+modules = [
+    "two/a.seen",
+    "two/b.seen",
+    "three/a.seen",
+    "three/b.seen",
+    "three/c.seen",
+]
+
+[build]
+entry = "main.seen"
+EOF
+
+    cat >"$project_dir/two/a.seen" <<'EOF'
+import two.b.{bValue}
+
+fun aValue() r: Int {
+    return bValue()
+}
+EOF
+
+    cat >"$project_dir/two/b.seen" <<'EOF'
+import two.a.{aValue}
+
+fun bValue() r: Int {
+    return aValue()
+}
+EOF
+
+    cat >"$project_dir/three/a.seen" <<'EOF'
+import three.b.{bValue}
+
+fun aValue() r: Int {
+    return bValue()
+}
+EOF
+
+    cat >"$project_dir/three/b.seen" <<'EOF'
+import three.c.{cValue}
+
+fun bValue() r: Int {
+    return cValue()
+}
+EOF
+
+    cat >"$project_dir/three/c.seen" <<'EOF'
+import three.a.{aValue}
+
+fun cValue() r: Int {
+    return aValue()
+}
+EOF
+
+    cat >"$project_dir/main.seen" <<'EOF'
+import two.a.{aValue}
+
+fun main() r: Int {
+    return aValue()
+}
+EOF
+
+    if (
+        cd "$project_dir" &&
+        timeout 120 "$COMPILER" check main.seen >"$two_log" 2>&1
+    ); then
+        echo "FAIL: two-module cyclic import unexpectedly passed"
+        cat "$two_log"
+        exit 1
+    fi
+    if ! grep -q 'cyclic import detected' "$two_log"; then
+        echo "FAIL: two-module cyclic import did not report cycle diagnostic"
+        cat "$two_log"
+        exit 1
+    fi
+    if ! grep -Eq 'two/a\.seen.*two/b\.seen.*two/a\.seen' "$two_log"; then
+        echo "FAIL: two-module cyclic import diagnostic missed cycle path"
+        cat "$two_log"
+        exit 1
+    fi
+
+    cat >"$project_dir/main.seen" <<'EOF'
+import three.a.{aValue}
+
+fun main() r: Int {
+    return aValue()
+}
+EOF
+
+    if (
+        cd "$project_dir" &&
+        timeout 120 "$COMPILER" check main.seen >"$three_log" 2>&1
+    ); then
+        echo "FAIL: longer cyclic import unexpectedly passed"
+        cat "$three_log"
+        exit 1
+    fi
+    if ! grep -q 'cyclic import detected' "$three_log"; then
+        echo "FAIL: longer cyclic import did not report cycle diagnostic"
+        cat "$three_log"
+        exit 1
+    fi
+    if ! grep -Eq 'three/a\.seen.*three/b\.seen.*three/c\.seen.*three/a\.seen' "$three_log"; then
+        echo "FAIL: longer cyclic import diagnostic missed cycle path"
+        cat "$three_log"
+        exit 1
+    fi
+
+    echo "PASS: cyclic imports report clear cycle paths"
 }
 
 if [[ ! -x "$COMPILER" ]]; then
@@ -1679,6 +2231,7 @@ run_check_success_case "enum matches stay allowed with else arm" "$WHEN_ENUM_ELS
 run_check_failure_case "unresolved free function calls are diagnosed" "$UNRESOLVED_FREE_CALL_SRC" "$TMP_ROOT/unresolved_free_call.log" 'unresolved function `chunkInBounds`'
 run_success_case "Bool returns coerce Int predicates to i1" "$BOOL_RETURN_COERCION_SRC" "$TMP_ROOT/bool_return_coercion" "$TMP_ROOT/bool_return_coercion.log"
 run_success_case "Bool helper logical conditions stay verifier-clean" "$BOOL_HELPER_LOGICAL_SRC" "$TMP_ROOT/bool_helper_logical" "$TMP_ROOT/bool_helper_logical.log"
+run_success_case "string local initializer survives nested concat rewrite" "$STRING_VAR_INIT_CONCAT_SRC" "$TMP_ROOT/string_var_init_concat" "$TMP_ROOT/string_var_init_concat.log"
 run_success_case "Float32 pointer deref casts directly to Int" "$FLOAT32_PTR_DEREF_CAST_SRC" "$TMP_ROOT/float32_ptr_deref_cast" "$TMP_ROOT/float32_ptr_deref_cast.log"
 run_success_case_with_ir_check "nested property method receivers preserve object pointer" "$NESTED_PROPERTY_RECEIVER_SRC" "$TMP_ROOT/nested_property_receiver" "$TMP_ROOT/nested_property_receiver.log" 'call void @PropertyRegistry_registerFloat' '= call i64 @PropertyRegistry_registerFloat'
 run_success_case "FEL-22 typed stores and Float returns stay verifier-clean" "$FEL22_TYPED_STORE_RETURN_SRC" "$TMP_ROOT/fel22_typed_store_return" "$TMP_ROOT/fel22_typed_store_return.log"
@@ -1688,6 +2241,9 @@ run_success_case "UInt32 top-level globals extend into module init stores" "$UIN
 run_scalar_get_guard_case
 run_success_case "9+ parameter functions parse without corruption" "$HIGH_ARITY_PARAMS_SRC" "$TMP_ROOT/high_arity_params" "$TMP_ROOT/high_arity_params.log"
 run_success_case "nested continue high-arity functions compile" "$NESTED_CONTINUE_HIGH_ARITY_SRC" "$TMP_ROOT/nested_continue_high_arity" "$TMP_ROOT/nested_continue_high_arity.log"
+run_emit_llvm_object_manifest_case
+run_success_case "FEL-67 hotreload inline string cast stays verifier-clean" "$FEL67_HOTRELOAD_INLINE_CAST_SRC" "$TMP_ROOT/fel67_hotreload_inline_cast" "$TMP_ROOT/fel67_hotreload_inline_cast.log"
+run_static_new_handle_regression_case
 run_c12_case
 run_recovery_partial_failure_case
 run_toml_project_modules_case
@@ -1704,7 +2260,13 @@ run_package_local_dotted_import_case
 run_manifest_sibling_runtime_memory_case
 run_package_whole_module_visibility_case
 run_manifest_companion_module_visibility_case
+run_package_root_manifest_modules_case
+run_package_private_visibility_failure_case
+run_triple_slash_raw_scanner_case
+run_prebuilt_artifact_interface_index_case
+run_prebuilt_package_symbols_case
 run_missing_import_failure_case
+run_cyclic_import_diagnostic_case
 
 cleanup_seen_artifacts
 echo "=== Seen fix regression checks passed ==="

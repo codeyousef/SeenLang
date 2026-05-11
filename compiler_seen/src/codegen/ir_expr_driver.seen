@@ -1,0 +1,319 @@
+// ir_expr_driver.seen - recursive expression lowering dispatch.
+
+import parser.real_parser.{ParserExpressionNode}
+import str.string.{StringBuilder}
+import codegen.ir_array_literal_driver.{generateArrayLiteralState}
+import codegen.ir_await_driver.{generateAwaitExpressionState}
+import codegen.ir_binary_driver.{generateBinaryState}
+import codegen.ir_call_driver.{generateCallState}
+import codegen.ir_closure_driver.{generateClosureState}
+import codegen.ir_codegen_feature_state.{getFeaturePanicOnOverflowImpl, getFeatureAsyncFuncNamesImpl, getFeatureAsyncFuncRetTypesImpl, getFeatureAsyncFuncCountImpl, getFeatureCurrentClassParentNameImpl, getFeatureClosureCountImpl, getFeatureClosureDefsImpl, getFeatureComptimeParamFuncNamesImpl, getFeatureComptimeParamCountImpl, getFeatureInsideUnsafeImpl, getFeatureBoundsCheckEnabledImpl, getFeatureBoundsCheckLabelCountImpl, setFeatureBoundsCheckLabelCountImpl, getFeatureEnumVariantNamesImpl, getFeatureEnumVariantTagsImpl, getFeatureEnumVariantFieldTypesImpl, getFeatureEnumVariantFieldCountsImpl, getFeatureEnumVariantParentImpl, getFeatureEnumVariantCountImpl, setFeatureClosureStateImpl, getFeatureRegBoxImpl, getFeatureBlockBoxImpl}
+import codegen.ir_codegen_global_state.{getCurrentFunctionReturnTypeWithGlobalStateImpl}
+import codegen.ir_codegen_metrics_state.{g_branchesEliminated, g_constantsFolded, g_stringsDeduped, g_inductionVarName}
+import codegen.ir_codegen_state.{getSharedCodegenState}
+import codegen.ir_conditional_expr_driver.{generateIfExpressionState, generateElvisState, generateSafeNavigationState}
+import codegen.ir_enum_ctor_gen.{generateEnumConstructorState}
+import codegen.ir_index_access_driver.{generateIndexAccessState}
+import codegen.ir_literal_gen.{generateLiteralFree}
+import codegen.ir_lowering_context.{CodegenLoweringContext, lowerExpression, inferLoweredExpressionType, lowerCallExpression, prepareLoweredCallArgumentsWithDefaults, lowerEnumConstructor, resetLoweringGenerator, resetLoweringSharedModuleScratch, syncLoweringState, writeBackLoweringState, lowerProgramClasses, lowerProgramTopLevelFunctions, lowerPlainLargeClass, lowerClassNode, lowerFunctionNode, lowerClassMethodFromList, setLowerCurrentClassParentName, resetLoweringLocalCodegenState, collectLoweringVariableDeclarations, clearLoweringActiveBindings, lowerBlock, lowerStatement, isLoweringBlockTerminated, beginLoweringNestedScratch, restoreLoweringNestedScratch, currentLoweringFunctionOptions}
+import codegen.ir_member_access_driver.{generateMemberAccessState}
+import codegen.ir_method_call_driver.{generateMethodCallState}
+import codegen.ir_ml_logging.{mlLogDecision}
+import codegen.ir_special_expr_driver.{emitCastSpecialExpressionState, emitIsExpressionTestState, emitTryPropagateExpressionState}
+import codegen.ir_string_interp_gen.{generateStringInterpolationFromPartsImpl}
+import codegen.ir_struct_literal_driver.{generateStructLiteralState}
+import codegen.ir_unary_driver.{generateUnaryState}
+import codegen.ir_variable_driver.{generateVariableState}
+import codegen.ir_when_expression_driver.{generateWhenExpressionState}
+
+class ExpressionDriverState {
+    var boundsCheckEnabled: Int
+    var boundsCheckLabelCount: Int
+    var panicOnOverflow: Bool
+    var inductionVarName: String
+    var constantsFolded: Int
+    var branchesEliminated: Int
+    var stringsDeduped: Int
+    var closureCount: Int
+    var closureDefs: String
+    var comptimeParamCount: Int
+    var comptimeParamFuncNames: String
+    var insideUnsafe: Int
+    var currentClassParentName: String
+    var asyncFuncNames: String
+    var asyncFuncRetTypes: String
+    var asyncFuncCount: Int
+    var enumVariantNames: String
+    var enumVariantTags: String
+    var enumVariantFieldTypes: String
+    var enumVariantFieldCounts: String
+    var enumVariantParent: String
+    var enumVariantCount: Int
+
+    static fun new() r: ExpressionDriverState {
+        return ExpressionDriverState{
+            boundsCheckEnabled: 0,
+            boundsCheckLabelCount: 0,
+            panicOnOverflow: false,
+            inductionVarName: "",
+            constantsFolded: 0,
+            branchesEliminated: 0,
+            stringsDeduped: 0,
+            closureCount: 0,
+            closureDefs: "",
+            comptimeParamCount: 0,
+            comptimeParamFuncNames: "",
+            insideUnsafe: 0,
+            currentClassParentName: "",
+            asyncFuncNames: "",
+            asyncFuncRetTypes: "",
+            asyncFuncCount: 0,
+            enumVariantNames: "",
+            enumVariantTags: "",
+            enumVariantFieldTypes: "",
+            enumVariantFieldCounts: "",
+            enumVariantParent: "",
+            enumVariantCount: 0
+        }
+    }
+}
+
+fun loadExpressionDriverStateFromGlobals() r: ExpressionDriverState {
+    let state = ExpressionDriverState.new()
+    state.boundsCheckEnabled = getFeatureBoundsCheckEnabledImpl()
+    state.boundsCheckLabelCount = getFeatureBoundsCheckLabelCountImpl()
+    state.panicOnOverflow = getFeaturePanicOnOverflowImpl()
+    state.inductionVarName = g_inductionVarName
+    state.constantsFolded = g_constantsFolded
+    state.branchesEliminated = g_branchesEliminated
+    state.stringsDeduped = g_stringsDeduped
+    state.closureCount = getFeatureClosureCountImpl()
+    state.closureDefs = getFeatureClosureDefsImpl()
+    state.comptimeParamCount = getFeatureComptimeParamCountImpl()
+    state.comptimeParamFuncNames = getFeatureComptimeParamFuncNamesImpl()
+    state.insideUnsafe = getFeatureInsideUnsafeImpl()
+    state.currentClassParentName = getFeatureCurrentClassParentNameImpl()
+    state.asyncFuncNames = getFeatureAsyncFuncNamesImpl()
+    state.asyncFuncRetTypes = getFeatureAsyncFuncRetTypesImpl()
+    state.asyncFuncCount = getFeatureAsyncFuncCountImpl()
+    state.enumVariantNames = getFeatureEnumVariantNamesImpl()
+    state.enumVariantTags = getFeatureEnumVariantTagsImpl()
+    state.enumVariantFieldTypes = getFeatureEnumVariantFieldTypesImpl()
+    state.enumVariantFieldCounts = getFeatureEnumVariantFieldCountsImpl()
+    state.enumVariantParent = getFeatureEnumVariantParentImpl()
+    state.enumVariantCount = getFeatureEnumVariantCountImpl()
+    return state
+}
+
+fun storeExpressionDriverStateToGlobals(state: ExpressionDriverState)
+    r: Void {
+
+    setFeatureBoundsCheckLabelCountImpl(state.boundsCheckLabelCount)
+    g_constantsFolded = state.constantsFolded
+    g_branchesEliminated = state.branchesEliminated
+    g_stringsDeduped = state.stringsDeduped
+    setFeatureClosureStateImpl(state.closureCount, state.closureDefs)
+}
+
+fun generateExpressionWithGlobalState(ctx: CodegenLoweringContext,
+    output: StringBuilder, expr: ParserExpressionNode,
+    varNames: Array<String>, varRegs: Array<String>,
+    varTypes: Array<String>, stringConstants: Array<String>) r: String {
+
+    let state = loadExpressionDriverStateFromGlobals()
+    let result = generateExpressionState(ctx, output, expr, varNames,
+        varRegs, varTypes, stringConstants, state)
+    storeExpressionDriverStateToGlobals(state)
+    return result
+}
+
+fun generateLiteralExpressionState(ctx: CodegenLoweringContext,
+    expr: ParserExpressionNode, state: ExpressionDriverState) r: String {
+
+    syncLoweringState(ctx)
+    let litState = getSharedCodegenState()
+    let litResult = generateLiteralFree(litState, expr)
+    writeBackLoweringState(ctx)
+    if expr.literalType == "String" and expr.literalValue.length() <= 15 {
+        state.stringsDeduped = state.stringsDeduped + 1
+        mlLogDecision("sso", "inlined", "len:" +
+            expr.literalValue.length().toString())
+    }
+    return litResult
+}
+
+fun generateStringInterpolationState(ctx: CodegenLoweringContext,
+    output: StringBuilder, expr: ParserExpressionNode,
+    varNames: Array<String>, varRegs: Array<String>,
+    varTypes: Array<String>, stringConstants: Array<String>,
+    state: ExpressionDriverState) r: String {
+
+    let numParts = expr.arguments.length()
+    let numExprs = expr.operands.length()
+    var partRegs = Array<String>()
+    var exprRegs = Array<String>()
+    var exprTypes = Array<String>()
+    var i = 0
+    while i < numParts {
+        partRegs.push(generateLiteralExpressionState(ctx, expr.arguments[i],
+            state))
+        if i < numExprs {
+            let interpExpr = expr.operands[i]
+            exprTypes.push(inferLoweredExpressionType(ctx, interpExpr))
+            exprRegs.push(generateExpressionState(ctx, output, interpExpr,
+                varNames, varRegs, varTypes, stringConstants, state))
+        }
+        i = i + 1
+    }
+    return generateStringInterpolationFromPartsImpl(output,
+        getFeatureRegBoxImpl(), partRegs, exprRegs, exprTypes)
+}
+
+fun generateConstructionExpressionState(ctx: CodegenLoweringContext,
+    output: StringBuilder, expr: ParserExpressionNode,
+    varNames: Array<String>, varRegs: Array<String>,
+    varTypes: Array<String>,
+    stringConstants: Array<String>, state: ExpressionDriverState) r: String {
+
+    if expr.kind == "StructLiteral" {
+        return generateStructLiteralState(ctx, output, expr, varNames,
+            varTypes, stringConstants)
+    }
+    if expr.kind == "ArrayLiteral" {
+        return generateArrayLiteralState(ctx, output, expr)
+    }
+    if expr.kind == "StringInterpolation" {
+        return generateStringInterpolationState(ctx, output, expr, varNames,
+            varRegs, varTypes, stringConstants, state)
+    }
+    return ""
+}
+
+fun generateConditionalExpressionState(ctx: CodegenLoweringContext,
+    output: StringBuilder, expr: ParserExpressionNode,
+    varNames: Array<String>, varRegs: Array<String>,
+    varTypes: Array<String>, stringConstants: Array<String>,
+    state: ExpressionDriverState) r: String {
+
+    if expr.kind == "Elvis" or expr.kind == "NullCoalesce" {
+        return generateElvisState(ctx, output, expr)
+    }
+    if expr.kind == "SafeNavigation" {
+        return generateSafeNavigationState(ctx, output, expr, varNames,
+            varRegs, varTypes, state.enumVariantNames,
+            state.enumVariantParent, state.enumVariantTags,
+            state.enumVariantFieldCounts, state.enumVariantCount)
+    }
+    if expr.kind == "WhenExpression" {
+        return generateWhenExpressionState(ctx, output, expr, varNames,
+            varRegs, stringConstants, state.enumVariantNames,
+            state.enumVariantTags, state.enumVariantFieldTypes,
+            state.enumVariantCount)
+    }
+    if expr.kind == "IfExpression" {
+        return generateIfExpressionState(ctx, output, expr)
+    }
+    return ""
+}
+
+fun generateSpecialExpressionState(ctx: CodegenLoweringContext,
+    output: StringBuilder, expr: ParserExpressionNode,
+    varNames: Array<String>, varRegs: Array<String>,
+    varTypes: Array<String>, state: ExpressionDriverState) r: String {
+
+    if expr.kind == "Await" {
+        return generateAwaitExpressionState(ctx, output, expr,
+            state.asyncFuncNames, state.asyncFuncRetTypes,
+            state.asyncFuncCount, getFeatureBlockBoxImpl())
+    }
+    if expr.kind == "Unary" {
+        return generateUnaryState(ctx, output, expr, state.insideUnsafe,
+            varNames, varRegs, varTypes)
+    }
+    if expr.kind == "Cast" {
+        return emitCastSpecialExpressionState(ctx, output, expr)
+    }
+    if expr.kind == "IsExpression" {
+        return emitIsExpressionTestState(ctx, output, expr,
+            state.enumVariantNames, state.enumVariantTags,
+            state.enumVariantCount)
+    }
+    if expr.kind == "Closure" {
+        let closureResult = generateClosureState(ctx, output, expr,
+            varNames, varRegs, varTypes, state.closureCount,
+            state.closureDefs)
+        state.closureCount = closureResult.closureCount
+        state.closureDefs = closureResult.closureDefs
+        return closureResult.resultReg
+    }
+    if expr.kind == "TryPropagate" {
+        return emitTryPropagateExpressionState(ctx, output, expr,
+            getCurrentFunctionReturnTypeWithGlobalStateImpl())
+    }
+    return ""
+}
+
+fun generateExpressionState(ctx: CodegenLoweringContext,
+    output: StringBuilder, expr: ParserExpressionNode,
+    varNames: Array<String>, varRegs: Array<String>,
+    varTypes: Array<String>, stringConstants: Array<String>,
+    state: ExpressionDriverState) r: String {
+
+    if expr.kind == "Literal" {
+        return generateLiteralExpressionState(ctx, expr, state)
+    }
+    if expr.kind == "Variable" or expr.kind == "VarExpr" {
+        return generateVariableState(output, varNames, varRegs, varTypes,
+            expr)
+    }
+    if expr.kind == "Binary" {
+        let binaryResult = generateBinaryState(ctx, output, expr,
+            state.boundsCheckLabelCount, state.panicOnOverflow,
+            state.inductionVarName, varNames, varRegs, varTypes,
+            stringConstants)
+        state.boundsCheckLabelCount = binaryResult.boundsCheckLabelCount
+        state.constantsFolded = state.constantsFolded +
+            binaryResult.constantsFoldedDelta
+        state.branchesEliminated = state.branchesEliminated +
+            binaryResult.branchesEliminatedDelta
+        return binaryResult.resultReg
+    }
+    if expr.kind == "Call" {
+        let callReg = lowerCallExpression(ctx, expr)
+        state.boundsCheckLabelCount = getFeatureBoundsCheckLabelCountImpl()
+        return callReg
+    }
+    if expr.kind == "MethodCall" {
+        return generateMethodCallState(ctx, output, expr, varNames, varRegs,
+            varTypes, stringConstants)
+    }
+    if expr.kind == "MemberAccess" {
+        return generateMemberAccessState(ctx, output, expr, varNames,
+            varRegs, varTypes, state.enumVariantNames,
+            state.enumVariantParent, state.enumVariantTags,
+            state.enumVariantFieldCounts, state.enumVariantCount)
+    }
+    if expr.kind == "IndexAccess" {
+        let indexResult = generateIndexAccessState(ctx, output, expr,
+            varRegs, varTypes, state.boundsCheckEnabled,
+            state.boundsCheckLabelCount)
+        state.boundsCheckLabelCount = indexResult.boundsCheckLabelCount
+        return indexResult.resultReg
+    }
+    let constructionReg = generateConstructionExpressionState(ctx, output,
+        expr, varNames, varRegs, varTypes, stringConstants, state)
+    if constructionReg != "" {
+        return constructionReg
+    }
+    let conditionalReg = generateConditionalExpressionState(ctx, output,
+        expr, varNames, varRegs, varTypes, stringConstants, state)
+    if conditionalReg != "" {
+        return conditionalReg
+    }
+    let specialReg = generateSpecialExpressionState(ctx, output, expr,
+        varNames, varRegs, varTypes, state)
+    if specialReg != "" {
+        return specialReg
+    }
+    return "0"
+}

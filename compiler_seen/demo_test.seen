@@ -1,5 +1,7 @@
-// Demonstration Test - Shows our compiler components work
-// This uses the real implementations we created
+///
+Demonstration Test - Shows our compiler components work
+This uses the real implementations we created
+///
 
 fun main() -> Int {
     println("==============================================")

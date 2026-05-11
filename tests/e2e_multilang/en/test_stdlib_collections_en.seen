@@ -1,8 +1,10 @@
-// E2E Test: Collections Standard Library (English)
-// Types tested: Array<Int>, Array<String>, HashMap<String,Int>
-// NOTE: HashMap uses insert() not put() (put doesn't exist in runtime)
-// NOTE: HashMap.get() returns Option<T> which breaks codegen; use getOrDefault()
-// NOTE: HashMap.containsKey() returns bool, use directly in if condition
+///
+E2E Test: Collections Standard Library (English)
+Types tested: Array<Int>, Array<String>, HashMap<String,Int>
+NOTE: HashMap uses insert() not put() (put doesn't exist in runtime)
+NOTE: HashMap.get() returns Option<T> which breaks codegen; use getOrDefault()
+NOTE: HashMap.containsKey() returns bool, use directly in if condition
+///
 
 fun main() r: Int {
     // Test 1: Array<Int> push and get

@@ -1,0 +1,169 @@
+// Function generation snapshot data structures.
+
+import str.string.{StringBuilder}
+
+class NestedScratchStateSnapshot {
+    var output: StringBuilder
+    var varNames: Array<String>
+    var varRegs: Array<String>
+    var varTypes: Array<String>
+    var preAllocatedVars: Array<String>
+    var preAllocatedTypes: Array<String>
+    var preAllocatedRegs: Array<String>
+    var declOrdinalNames: Array<String>
+    var declOrdinalCounts: Array<Int>
+    var activeVarCount: Int
+    var nextReg: Int
+    var blockTerminated: Int
+    var currentFunctionReturnType: String
+
+    static fun new() r: NestedScratchStateSnapshot {
+        return NestedScratchStateSnapshot{
+            output: StringBuilder.new(),
+            varNames: Array<String>(),
+            varRegs: Array<String>(),
+            varTypes: Array<String>(),
+            preAllocatedVars: Array<String>(),
+            preAllocatedTypes: Array<String>(),
+            preAllocatedRegs: Array<String>(),
+            declOrdinalNames: Array<String>(),
+            declOrdinalCounts: Array<Int>(),
+            activeVarCount: 0,
+            nextReg: 1,
+            blockTerminated: 0,
+            currentFunctionReturnType: ""
+        }
+    }
+}
+
+class FunctionInlineHeuristicsAnalysis {
+    var funcAttrs: String
+    var applied: Int
+    var bodySize: Int
+    var hasLoopsFlag: Int
+    var nestDepth: Int
+    var inlineDecision: String
+
+    static fun new() r: FunctionInlineHeuristicsAnalysis {
+        return FunctionInlineHeuristicsAnalysis{
+            funcAttrs: "",
+            applied: 0,
+            bodySize: 0,
+            hasLoopsFlag: 0,
+            nestDepth: 0,
+            inlineDecision: ""
+        }
+    }
+}
+
+class FunctionRegisterPressureAnalysis {
+    var regPressureCount: Int
+    var highPressure: Int
+
+    static fun new() r: FunctionRegisterPressureAnalysis {
+        return FunctionRegisterPressureAnalysis{
+            regPressureCount: 0,
+            highPressure: 0
+        }
+    }
+}
+
+class FunctionGenerationIdentitySnapshot {
+    var implFuncName: String
+    var resolvedFunctionReturnType: String
+    var traitImplRegistry: String
+    var traitImplCount: Int
+    var alreadyGenerated: Int
+    var skipRuntimeBuiltinStub: Int
+
+    static fun new() r: FunctionGenerationIdentitySnapshot {
+        return FunctionGenerationIdentitySnapshot{
+            implFuncName: "",
+            resolvedFunctionReturnType: "",
+            traitImplRegistry: "",
+            traitImplCount: 0,
+            alreadyGenerated: 0,
+            skipRuntimeBuiltinStub: 0
+        }
+    }
+}
+
+class FunctionEntrySetupSnapshot {
+    var unusedParams: Array<String>
+    var profiledFlag: Int
+    var profiledName: String
+    var asyncPromise: String
+    var asyncCoroId: String
+    var asyncCoroHdl: String
+    var asyncFinalLabel: String
+    var asyncCleanupLabel: String
+
+    static fun new() r: FunctionEntrySetupSnapshot {
+        return FunctionEntrySetupSnapshot{
+            unusedParams: Array<String>(),
+            profiledFlag: 0,
+            profiledName: "",
+            asyncPromise: "",
+            asyncCoroId: "",
+            asyncCoroHdl: "",
+            asyncFinalLabel: "",
+            asyncCleanupLabel: ""
+        }
+    }
+}
+
+class FunctionRuntimeStateSnapshot {
+    var profiledFlag: Int
+    var profiledName: String
+    var highPressure: Int
+    var asyncCoroId: String
+    var asyncCoroHdl: String
+    var asyncPromise: String
+    var asyncFinalLabel: String
+    var asyncCleanupLabel: String
+
+    static fun new() r: FunctionRuntimeStateSnapshot {
+        return FunctionRuntimeStateSnapshot{
+            profiledFlag: 0,
+            profiledName: "",
+            highPressure: 0,
+            asyncCoroId: "",
+            asyncCoroHdl: "",
+            asyncPromise: "",
+            asyncFinalLabel: "",
+            asyncCleanupLabel: ""
+        }
+    }
+}
+
+class FunctionPreludeAnalysisSnapshot {
+    var funcAttrs: String
+    var inlineReplayDecision: Int
+    var inlineFeatureLog: Int
+    var inlineBodySize: Int
+    var inlineCallCount: Int
+    var inlineHasLoopsFlag: Int
+    var inlineNestDepth: Int
+    var inlineDecisionAction: String
+    var inlineDecisionDetail: String
+    var highPressure: Int
+    var regPressureCount: Int
+    var regPressureDetail: String
+
+    static fun new() r: FunctionPreludeAnalysisSnapshot {
+        return FunctionPreludeAnalysisSnapshot{
+            funcAttrs: "",
+            inlineReplayDecision: 0,
+            inlineFeatureLog: 0,
+            inlineBodySize: 0,
+            inlineCallCount: 0,
+            inlineHasLoopsFlag: 0,
+            inlineNestDepth: 0,
+            inlineDecisionAction: "",
+            inlineDecisionDetail: "",
+            highPressure: 0,
+            regPressureCount: 0,
+            regPressureDetail: ""
+        }
+    }
+}

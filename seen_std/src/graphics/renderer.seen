@@ -1,17 +1,17 @@
-/**
- * High-level Vulkan renderer abstraction.
- *
- * Provides a safe, easy-to-use rendering API that handles Vulkan
- * initialization, swapchain management, and frame synchronization.
- * Supports triple buffering and automatic swapchain recreation.
- *
- * Example:
- *   let window = Window.newVulkan("Game", 1280, 720).unwrap()
- *   let renderer = VulkanRenderer.new(window, "My Game").unwrap()
- *   renderer.setClearColor(ClearColor.cornflowerBlue())
- *   // render loop...
- *   renderer.destroy()
- */
+///
+High-level Vulkan renderer abstraction.
+
+Provides a safe, easy-to-use rendering API that handles Vulkan
+initialization, swapchain management, and frame synchronization.
+Supports triple buffering and automatic swapchain recreation.
+
+Example:
+  let window = Window.newVulkan("Game", 1280, 720).unwrap()
+  let renderer = VulkanRenderer.new(window, "My Game").unwrap()
+  renderer.setClearColor(ClearColor.cornflowerBlue())
+  // render loop...
+  renderer.destroy()
+///
 
 import core.result.{Result, Ok, Err}
 import core.unit.{Unit}
@@ -80,12 +80,12 @@ import platform.linux.vulkan.{
 
 let MAX_FRAMES_IN_FLIGHT: Int = 2
 
-/**
- * RGBA clear color for render pass clearing.
- *
- * Use factory methods like black(), white(), or cornflowerBlue()
- * for common colors, or create custom colors with new().
- */
+///
+RGBA clear color for render pass clearing.
+
+Use factory methods like black(), white(), or cornflowerBlue()
+for common colors, or create custom colors with new().
+///
 class ClearColor {
     var red: Float
     var green: Float
@@ -109,12 +109,12 @@ class ClearColor {
     }
 }
 
-/**
- * Renderer configuration using a builder pattern.
- *
- * Controls validation layers, vsync, triple buffering, and MSAA.
- * Create with new() and chain configuration methods.
- */
+///
+Renderer configuration using a builder pattern.
+
+Controls validation layers, vsync, triple buffering, and MSAA.
+Create with new() and chain configuration methods.
+///
 class RendererConfig {
     var appName: String
     var appVersion: Int
@@ -155,9 +155,9 @@ class RendererConfig {
     }
 }
 
-/**
- * GPU buffer wrapper for vertex, index, and uniform data.
- */
+///
+GPU buffer wrapper for vertex, index, and uniform data.
+///
 class Buffer {
     var handle: UInt64
     var memory: UInt64
@@ -178,9 +178,9 @@ class Buffer {
     }
 }
 
-/**
- * Graphics pipeline wrapper containing handle and layout.
- */
+///
+Graphics pipeline wrapper containing handle and layout.
+///
 class Pipeline {
     var handle: UInt64
     var layout: UInt64
@@ -197,11 +197,11 @@ class Pipeline {
     }
 }
 
-/**
- * Per-frame resources for multi-buffered rendering.
- *
- * Contains command buffer, semaphores, and fence for frame sync.
- */
+///
+Per-frame resources for multi-buffered rendering.
+
+Contains command buffer, semaphores, and fence for frame sync.
+///
 class FrameData {
     var commandBuffer: UInt64
     var imageAvailableSemaphore: UInt64
@@ -218,12 +218,12 @@ class FrameData {
     }
 }
 
-/**
- * Main Vulkan renderer managing the full rendering pipeline.
- *
- * Handles instance, device, swapchain, render pass, and frame
- * synchronization. Call beginFrame()/endFrame() each frame.
- */
+///
+Main Vulkan renderer managing the full rendering pipeline.
+
+Handles instance, device, swapchain, render pass, and frame
+synchronization. Call beginFrame()/endFrame() each frame.
+///
 class VulkanRenderer {
     var instance: UInt64
     var physicalDevice: UInt64
@@ -247,12 +247,12 @@ class VulkanRenderer {
     var clearColor: ClearColor
     var framebufferResized: Bool
 
-    /**
-     * Create a renderer with full configuration options.
-     *
-     * Initializes Vulkan instance, device, swapchain, and frame resources.
-     * The window must have been created with Vulkan support.
-     */
+    ///
+    Create a renderer with full configuration options.
+
+    Initializes Vulkan instance, device, swapchain, and frame resources.
+    The window must have been created with Vulkan support.
+    ///
     static fun create(window: Window, config: RendererConfig) r: Result<VulkanRenderer, String> {
         var renderer = VulkanRenderer {
             instance: 0,
@@ -366,9 +366,9 @@ class VulkanRenderer {
         return Ok(renderer)
     }
 
-    /**
-     * Create a renderer with default settings.
-     */
+    ///
+    Create a renderer with default settings.
+    ///
     static fun new(window: Window, appName: String) r: Result<VulkanRenderer, String> {
         let config = RendererConfig.new(appName)
         return VulkanRenderer.create(window, config)
@@ -715,13 +715,13 @@ class VulkanRenderer {
         this.clearColor = color
     }
 
-    /**
-     * Begin a new frame by acquiring a swapchain image.
-     *
-     * Waits for the previous frame to complete, acquires the next
-     * image, and begins the command buffer and render pass.
-     * Returns the image index for endFrame().
-     */
+    ///
+    Begin a new frame by acquiring a swapchain image.
+
+    Waits for the previous frame to complete, acquires the next
+    image, and begins the command buffer and render pass.
+    Returns the image index for endFrame().
+    ///
     fun beginFrame() r: Result<UInt32, String> {
         let frame = this.frames[this.currentFrame]
 
@@ -787,12 +787,12 @@ class VulkanRenderer {
         return Ok(imageIndex)
     }
 
-    /**
-     * End the current frame and present to screen.
-     *
-     * Ends the render pass, submits commands, and presents.
-     * Pass the imageIndex returned from beginFrame().
-     */
+    ///
+    End the current frame and present to screen.
+
+    Ends the render pass, submits commands, and presents.
+    Pass the imageIndex returned from beginFrame().
+    ///
     fun endFrame(imageIndex: UInt32) r: Result<Unit, String> {
         let frame = this.frames[this.currentFrame]
 
@@ -858,12 +858,12 @@ class VulkanRenderer {
         seen_vk_cmd_draw_indexed(frame.commandBuffer, indexCount, instanceCount, firstIndex, vertexOffset, firstInstance)
     }
 
-    /**
-     * Create a graphics pipeline from SPIR-V shader bytecode.
-     *
-     * Takes vertex and fragment shader bytecode as UInt32 arrays.
-     * The pipeline uses default settings (triangle list, back-face cull).
-     */
+    ///
+    Create a graphics pipeline from SPIR-V shader bytecode.
+
+    Takes vertex and fragment shader bytecode as UInt32 arrays.
+    The pipeline uses default settings (triangle list, back-face cull).
+    ///
     fun createPipeline(vertSpirv: Array<UInt32>, fragSpirv: Array<UInt32>) r: Result<Pipeline, String> {
         var pipeline = Pipeline.empty()
 
@@ -941,12 +941,12 @@ class VulkanRenderer {
         }
     }
 
-    /**
-     * Recreate swapchain after window resize.
-     *
-     * Call this when receiving a WindowResized event or when
-     * beginFrame() returns a swapchain out-of-date error.
-     */
+    ///
+    Recreate swapchain after window resize.
+
+    Call this when receiving a WindowResized event or when
+    beginFrame() returns a swapchain out-of-date error.
+    ///
     fun resize(width: UInt32, height: UInt32) r: Result<Unit, String> {
         let _ = seen_vk_device_wait_idle(this.device)
 
@@ -1052,12 +1052,12 @@ class VulkanRenderer {
         }
     }
 
-    /**
-     * Destroy all Vulkan resources and cleanup.
-     *
-     * Waits for GPU idle before destroying. Must be called
-     * before destroying the window.
-     */
+    ///
+    Destroy all Vulkan resources and cleanup.
+
+    Waits for GPU idle before destroying. Must be called
+    before destroying the window.
+    ///
     fun destroy() r: Void {
         let _ = seen_vk_device_wait_idle(this.device)
 

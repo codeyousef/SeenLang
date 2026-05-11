@@ -1,5 +1,7 @@
-// Helper Math Module
-// Simple utility functions for testing imports
+///
+Helper Math Module
+Simple utility functions for testing imports
+///
 
 fun add(a: Int, b: Int) r: Int {
     return a + b

@@ -1,7 +1,9 @@
-// Middleware Checker for Seen Language
-// Validates @middleware_stack decorator usage for composable middleware chains
-// Ensures deterministic FIFO execution order
-// Enforces sandbox isolation for nondeterministic user middleware
+///
+Middleware Checker for Seen Language
+Validates @middleware_stack decorator usage for composable middleware chains
+Ensures deterministic FIFO execution order
+Enforces sandbox isolation for nondeterministic user middleware
+///
 
 import parser.real_parser.{ClassNode, FunctionNode, ProgramNode, FieldNode}
 
@@ -33,8 +35,10 @@ class MiddlewareCheckResult {
     }
 }
 
-// Known nondeterministic operations that require sandboxing in middleware
-// File I/O
+///
+Known nondeterministic operations that require sandboxing in middleware
+File I/O
+///
 var SANDBOX_RESTRICTED_FILE: Array<String> = Array<String>()
 // Network
 var SANDBOX_RESTRICTED_NET: Array<String> = Array<String>()

@@ -258,6 +258,9 @@ BuildRequires:  make
 Requires:       glibc >= 2.17
 Requires:       libgcc
 Requires:       libstdc++
+Requires:       clang
+Requires:       llvm
+Requires:       lld
 
 %description
 Seen is a systems programming language designed to be a
@@ -302,6 +305,7 @@ rm -rf %{buildroot}
 # Create directory structure
 install -d %{buildroot}%{_bindir}
 install -d %{buildroot}%{_libdir}/seen
+install -d %{buildroot}%{_libdir}/seen/toolchain
 install -d %{buildroot}%{_datadir}/seen
 install -d %{buildroot}%{_docdir}/%{name}
 install -d %{buildroot}%{_mandir}/man1
@@ -319,6 +323,10 @@ install -m 755 seen-riscv %{buildroot}%{_bindir}/seen-riscv
 
 # Install standard library
 cp -r stdlib/* %{buildroot}%{_libdir}/seen/
+
+# Install LLVM toolchain metadata and helper
+install -m 755 toolchain/seen-toolchain.sh %{buildroot}%{_libdir}/seen/toolchain/seen-toolchain.sh
+install -m 644 toolchain/manifest.env %{buildroot}%{_libdir}/seen/toolchain/manifest.env
 
 # Install language configurations  
 cp -r languages %{buildroot}%{_datadir}/seen/
@@ -407,6 +415,10 @@ mandb -q &> /dev/null || :
 
 echo "Seen Language installed successfully!"
 echo "Run 'seen --version' to verify installation."
+if [ -x %{_libdir}/seen/toolchain/seen-toolchain.sh ]; then
+    %{_libdir}/seen/toolchain/seen-toolchain.sh --check --prefix /usr >/dev/null 2>&1 || \
+        echo "LLVM 18+ toolchain check failed; run %{_libdir}/seen/toolchain/seen-toolchain.sh --install or install clang/opt/llc/llvm-as/lld."
+fi
 
 %preun
 # Remove alternatives
@@ -469,6 +481,19 @@ create_source_tarball() {
         mkdir -p "$source_dir/stdlib"
         cp -r "$PROJECT_ROOT/seen_std"/* "$source_dir/stdlib/"
     fi
+
+    # Copy toolchain metadata and helper
+    mkdir -p "$source_dir/toolchain"
+    cp "$PROJECT_ROOT/scripts/seen_toolchain.sh" "$source_dir/toolchain/seen-toolchain.sh"
+    chmod 755 "$source_dir/toolchain/seen-toolchain.sh"
+    cat > "$source_dir/toolchain/manifest.env" << EOF
+seen_toolchain_manifest_version=1
+llvm_min_version=18
+llvm_preferred_version=18
+required_tools=clang,opt,llc,llvm-as,ld.lld
+bundle_mode=system-package
+managed_install=%{_libdir}/seen/toolchain/seen-toolchain.sh --install
+EOF
     
     # Copy language configurations
     if [ -d "$PROJECT_ROOT/languages" ]; then

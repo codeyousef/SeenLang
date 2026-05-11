@@ -1,5 +1,7 @@
-// C Type Mappings for @_c_import decorator
-// Maps C types to Seen types for FFI generation
+///
+C Type Mappings for @_c_import decorator
+Maps C types to Seen types for FFI generation
+///
 
 // C to Seen type mapping function
 fun cTypeToSeen(cType: String) r: String {

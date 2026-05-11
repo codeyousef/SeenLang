@@ -1,8 +1,12 @@
-// Test UWW determinism requirements
-// This file should compile successfully with --target uww
+///
+Test UWW determinism requirements
+This file should compile successfully with --target uww
+///
 
-// Import UWW runtime functions (provided by UWW host)
-// Note: These are extern declarations that map to UWW imports
+///
+Import UWW runtime functions (provided by UWW host)
+Note: These are extern declarations that map to UWW imports
+///
 
 // Deterministic random number generator using Fixed64
 import uww.fixed.{Fixed64, fixed, fixedFrac}
@@ -21,8 +25,10 @@ class GameState {
 
     // Deterministic pseudo-random using LCG
     fun nextRandom() r: Int {
-        // Linear Congruential Generator
-        // Parameters from MINSTD
+        ///
+        Linear Congruential Generator
+        Parameters from MINSTD
+        ///
         seed = (seed * 48271) % 2147483647
         return seed
     }

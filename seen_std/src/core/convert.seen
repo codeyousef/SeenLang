@@ -1,5 +1,7 @@
-// Conversion traits: From/Into pattern
-// Uses free-function convention: TypeName_from_SourceType(value) -> TargetType
+///
+Conversion traits: From/Into pattern
+Uses free-function convention: TypeName_from_SourceType(value) -> TargetType
+///
 
 @trait
 class Convertible {

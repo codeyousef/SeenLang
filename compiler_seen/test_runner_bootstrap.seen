@@ -1,5 +1,7 @@
-// Bootstrap-Compatible Test Runner
-// Simplified test execution for bootstrap compiler
+///
+Bootstrap-Compatible Test Runner
+Simplified test execution for bootstrap compiler
+///
 
 fun main() {
     println("🚀 Running Optimization Tests (Bootstrap Mode)\n")

@@ -1,5 +1,7 @@
-// Buffered I/O - Production-quality buffered reader/writer
-// Reduces syscall overhead for high-throughput I/O
+///
+Buffered I/O - Production-quality buffered reader/writer
+Reduces syscall overhead for high-throughput I/O
+///
 
 class BufferedWriter {
     buffer: Array<String>

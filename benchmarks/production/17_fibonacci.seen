@@ -1,7 +1,9 @@
-// Fibonacci Benchmark
-// Compute sum of first N fibonacci numbers using iterative method
-// Tests loop performance and integer arithmetic
-// N = 80000000, expected checksum depends on mod arithmetic (i64 overflow wraps)
+///
+Fibonacci Benchmark
+Compute sum of first N fibonacci numbers using iterative method
+Tests loop performance and integer arithmetic
+N = 80000000, expected checksum depends on mod arithmetic (i64 overflow wraps)
+///
 
 fun benchmark_fib(n: Int) -> Int {
     var a = 0

@@ -1,5 +1,7 @@
-// ir_when_result_gen.seen -- Shared when-result emission helpers
-// Extracted from llvm_ir_gen.seen to keep when result handling thin.
+///
+ir_when_result_gen.seen -- Shared when-result emission helpers
+Extracted from llvm_ir_gen.seen to keep when result handling thin.
+///
 
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn}
