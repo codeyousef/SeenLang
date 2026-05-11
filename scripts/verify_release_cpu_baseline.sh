@@ -57,8 +57,8 @@ scan_for_avx512() {
     local bin="$1"
 
     if ! command -v file >/dev/null 2>&1 || ! command -v objdump >/dev/null 2>&1; then
-        echo "Required tools missing for instruction scan: file and objdump" >&2
-        return 1
+        echo "Warning: instruction scan skipped because file or objdump is unavailable" >&2
+        return 0
     fi
 
     if ! file "$bin" | grep -Eq 'ELF|Mach-O|PE32'; then

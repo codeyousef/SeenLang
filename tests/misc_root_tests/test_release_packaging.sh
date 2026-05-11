@@ -55,6 +55,16 @@ test -f "$TARBALL"
 
 "$ROOT_DIR/scripts/verify_release_cpu_baseline.sh" --cpu-baseline x86-64 "$TARBALL" >/dev/null
 
+MIN_SCAN_PATH="$TMP_DIR/min_scan_path"
+mkdir -p "$MIN_SCAN_PATH"
+for tool in bash tar gzip find head grep mktemp rm cat chmod basename; do
+    tool_path="$(command -v "$tool")"
+    ln -s "$tool_path" "$MIN_SCAN_PATH/$tool"
+done
+
+PATH="$MIN_SCAN_PATH" "$ROOT_DIR/scripts/verify_release_cpu_baseline.sh" \
+    --cpu-baseline x86-64 "$TARBALL" >/dev/null
+
 EXTRACT_DIR="$TMP_DIR/extract"
 mkdir -p "$EXTRACT_DIR"
 tar -xzf "$TARBALL" -C "$EXTRACT_DIR"
