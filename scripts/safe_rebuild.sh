@@ -1509,6 +1509,51 @@ wait_for_stable_ir_file() {
         sleep 0.1
     done
 }
+repair_stale_builder_ir() {
+    local file="\$1"
+    # Fix C-style void parameters emitted by older builders. LLVM IR spells an
+    # empty parameter list as (), and has no void parameter type.
+    sed -i 's/, void)/)/g; s/(void, /(/g; s/, void, /, /g; s/(void)\([[:space:]]*\)/()\1/g' "\$file" 2>/dev/null || true
+
+    # Drop impossible dead casts from void-returning calls. Older builders can
+    # emit these after void statements, and LLVM rejects void as a value type.
+    sed -i '/^[[:space:]]*%[0-9][0-9]* = bitcast void %[0-9][0-9]* to /d' "\$file" 2>/dev/null || true
+
+    # Older builders can also leave invalid aggregate returns in unreachable
+    # blocks, for example a ret of an i1 value from a SeenString function.
+    # Replace only those verifier-invalid returns with a zero aggregate value.
+    python3 - "\$file" <<'PY_RET_FIX' 2>&1 || true
+import re
+import sys
+
+path = sys.argv[1]
+try:
+    with open(path, "r", encoding="utf-8") as fh:
+        content = fh.read()
+except OSError:
+    sys.exit(0)
+
+i1_values = set(re.findall(r"^\s*(%\d+)\s*=\s*icmp\b", content, re.M))
+
+def fix_ret(match):
+    aggregate_type = match.group(1)
+    value = match.group(2)
+    if value in i1_values:
+        return "  ret " + aggregate_type + " zeroinitializer"
+    return match.group(0)
+
+fixed, count = re.subn(
+    r"^\s*ret\s+(%[A-Za-z0-9_.]+)\s+(%\d+)\s*$",
+    fix_ret,
+    content,
+    flags=re.M,
+)
+if count > 0 and fixed != content:
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(fixed)
+    print("  stale-builder aggregate ret fix applied to " + path, file=sys.stderr)
+PY_RET_FIX
+}
 if [ "\${SEEN_SKIP_IR_FIXUPS:-0}" = "1" ]; then
     acquire_seen_low_memory_opt_lock
     exec "$REAL_OPT" "\$@"
@@ -1569,6 +1614,8 @@ if count > 0:
         # This is a belt-and-suspenders fix in case fix_ir.py doesn't catch it
         sed -i 's/^\(declare.*(\)\(.*\), 0)/\1\2, i64)/g' "\$arg" 2>/dev/null || true
 
+        repair_stale_builder_ir "\$arg"
+
         # Fix corrupt declares from string constants leaking into declare generator
         # Stage1 parses @funcName(...) from string constants, producing broken declares
         # with \00 or other garbage. Remove these — the correct declare is already present.
@@ -1595,6 +1642,7 @@ if count > 0:
             echo "IR VERIFY WARNING: \$arg (retrying fixups)" >&2
             head -2 /tmp/seen_verify_err.txt >&2
             if python3 "$SCRIPT_DIR/fix_ir.py" "\$arg" 2>&1 && \
+               repair_stale_builder_ir "\$arg" && \
                llvm-as "\$arg" -o /dev/null 2>/tmp/seen_verify_err.txt; then
                 echo "IR VERIFY RECOVERED: \$arg" >&2
             else

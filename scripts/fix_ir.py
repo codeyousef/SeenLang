@@ -828,6 +828,22 @@ def fix_declarations_to_local_call_shapes(content):
         call_sigs.setdefault(name, set()).add(sig)
 
     def can_follow_call_shape(name, decl_ret, decl_params, call_ret, call_params):
+        def abi_compatible(left, right):
+            if left == right:
+                return True
+            return {left, right} in ({'ptr', 'i64'},)
+
+        def all_prefix_params_compatible():
+            idx = 0
+            while idx < len(decl_params):
+                if not abi_compatible(decl_params[idx], call_params[idx]):
+                    return False
+                idx += 1
+            return True
+
+        def ret_compatible():
+            return decl_ret == call_ret or {decl_ret, call_ret} == {'ptr', 'i64'}
+
         if len(decl_params) != len(call_params):
             if len(decl_params) == 1 and decl_params[0] == 'ptr' and len(call_params) == 0:
                 return name.endswith('_new')
@@ -835,6 +851,10 @@ def fix_declarations_to_local_call_shapes(content):
                 return tuple(decl_params[1:]) == tuple(call_params)
             if name == 'mapTypeImpl' and len(decl_params) == 6 and call_params == ('%SeenString',):
                 return decl_params[0] == '%SeenString' and decl_ret == call_ret
+            if len(decl_params) < len(call_params) and (
+                name.endswith('_new') or name.startswith('JsonValue_')
+            ):
+                return ret_compatible() and all_prefix_params_compatible()
             return False
         frontend_entry_names = {
             'run_frontend',
@@ -869,11 +889,11 @@ def fix_declarations_to_local_call_shapes(content):
                     return False
                 idx += 1
             return decl_ret == call_ret or {decl_ret, call_ret} in ({'ptr', 'i64'}, {'ptr', '%SeenArray'})
-        if decl_ret != call_ret and {decl_ret, call_ret} != {'ptr', 'i64'}:
+        if not ret_compatible():
             return False
         idx = 0
         while idx < len(decl_params):
-            if decl_params[idx] != call_params[idx] and {decl_params[idx], call_params[idx]} != {'ptr', 'i64'}:
+            if not abi_compatible(decl_params[idx], call_params[idx]):
                 return False
             idx += 1
         return True
