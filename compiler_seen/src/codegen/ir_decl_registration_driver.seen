@@ -45,6 +45,10 @@ fun collectPreparedDeclarationItemsState(program: ProgramNode,
     varNames: Array<String>, varTypes: Array<String>,
     stringConstants: Array<String>) r: Array<PreparedDeclarationItem> {
 
+    ///
+    Register layouts before declaration items are finalized. Return type
+    resolution can depend on class/data shapes that appear later in the file.
+    ///
     let preparedItems = Array<PreparedDeclarationItem>()
     var itemIdx = 0
     while itemIdx < program.items.length() {
@@ -62,6 +66,11 @@ fun collectPreparedDeclarationItemsState(program: ProgramNode,
 fun registerDeclarationsState(program: ProgramNode, varNames: Array<String>,
     varTypes: Array<String>, stringConstants: Array<String>) r: Void {
 
+    ///
+    Declaration registration is a two-step pass: capture mutable owner state,
+    prepare items against that snapshot, then apply the updated state once.
+    This keeps cross-module declaration scans deterministic during bootstrap.
+    ///
     beginDeclarationRegistrationWithGlobalState(program)
     let declState = captureDeclarationPassState()
     let declItemContext = createDeclarationItemContextFromOwnerState(

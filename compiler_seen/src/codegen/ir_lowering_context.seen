@@ -1,4 +1,11 @@
-// ir_lowering_context.seen - acyclic callbacks for recursive lowering drivers.
+///
+ir_lowering_context.seen - acyclic callbacks for recursive lowering drivers.
+
+`CodegenLoweringContext` is an opaque handle back to the facade. Extracted
+helpers call these externs when they need recursive lowering without importing
+the facade module directly. That keeps the refactor split acyclic during
+self-hosted bootstrap.
+///
 
 import parser.real_parser.{ProgramNode, FunctionNode, ClassNode, BlockNode, StatementNode, ParserExpressionNode}
 import str.string.{StringBuilder}

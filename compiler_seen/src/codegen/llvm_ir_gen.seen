@@ -1,3 +1,11 @@
+///
+Public LLVM IR generator facade.
+
+Most lowering work now lives in focused `ir_*` modules. This class stays as
+the compatibility surface for older call sites and for bootstrap builds that
+still pass the generator around as an object. Keep orchestration and state
+bridging here; put new lowering rules in the extracted modules.
+///
 import parser.real_parser.{ProgramNode, FunctionNode, ClassNode, BlockNode, StatementNode, ParserExpressionNode}
 import str.string.{StringBuilder}
 import codegen.ir_module_driver.{generateMultipleState, generateSingleState}
@@ -78,6 +86,11 @@ class LLVMIRGenerator {
     fun isBlockTerminated() r: Bool { return getBlockTerminatedWithGlobalStateImpl() }
     fun setBlockTerminated(value: Bool) r: Void { setBlockTerminatedWithGlobalStateImpl(value) }
 
+    ///
+    Push facade-owned buffers into the shared state used by extracted helpers.
+    The bridge keeps the old object API alive while the implementation works
+    through explicit state modules.
+    ///
     fun syncState() r: Void {
         let state = getSharedCodegenState()
         // Legacy layout field only. FunctionLoweringOptions is the source of truth.
@@ -88,6 +101,11 @@ class LLVMIRGenerator {
             this.varTypes, getCurrentFunctionOptions())
     }
 
+    ///
+    Pull helper-owned buffers back into the facade after nested lowering.
+    Any helper that calls through `CodegenLoweringContext` should leave the
+    facade consistent before returning to legacy callers.
+    ///
     fun writeBackState() r: Void {
         let state = getSharedCodegenState()
         let snapshot = captureCodegenStateBridgeSnapshotImpl(state)
@@ -129,6 +147,11 @@ class LLVMIRGenerator {
             this.stringConstants, program, moduleIndex)
     }
     fun generateExpression(expr: ParserExpressionNode) r: String { return generateExpressionWithGlobalState(this as Int, this.output, expr, this.varNames, this.varRegs, this.varTypes, this.stringConstants) }
+    ///
+    Lower an expression into caller-owned scratch buffers. This is used by
+    nested contexts such as constructor fields and short-circuit branches where
+    emitting into the main function buffer too early would corrupt control flow.
+    ///
     fun generateExpressionIntoCallback(outputOverride: StringBuilder,
         expr: ParserExpressionNode, varNamesOverride: Array<String>,
         varRegsOverride: Array<String>, varTypesOverride: Array<String>,

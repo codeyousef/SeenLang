@@ -144,6 +144,16 @@ module paths, imports, and public/package-visible declarations so downstream
 projects can resolve package-root imports without compiling implementation
 modules.
 
+For artifact dependencies, declaration discovery and code generation are
+separate on purpose. During the declaration pass, the compiler queues the
+artifact's interface modules so local code can resolve package functions,
+methods, fields, and aggregate return types. During object emission, those same
+artifact modules are treated as already provided and are not compiled again; the
+objects listed in `objects.tsv` are linked instead. This split is important for
+helpers that return `String`, classes, arrays, or other aggregate values,
+because the consumer must see the real signature even though the implementation
+came from the artifact.
+
 ## Deploying To `seen.yousef.codes`
 
 One simple flow is:

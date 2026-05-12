@@ -75,6 +75,26 @@ Package artifacts participate in code generation through interface indexes and
 object manifests: dependency declarations are scanned, provided modules are
 skipped for codegen, and prebuilt objects are linked into the final binary.
 
+### Refactored Codegen Layout
+
+The refactor intentionally leaves `llvm_ir_gen.seen` boring. It owns the
+compatibility API, bridges legacy facade fields into shared state, and delegates
+real lowering work to smaller modules. A quick rule of thumb:
+
+| Module family | What belongs there |
+|---------------|--------------------|
+| `ir_decl_*` | declaration scanning, runtime declarations, type registration |
+| `ir_module_*` | module entry/tail emission, string constants, object-unit flow |
+| `ir_function_*` | function identity, attributes, entry/exit state, body setup |
+| `ir_call_*` and `ir_method_*` | call planning, receiver handling, argument lowering |
+| `ir_stmt_*` and `ir_*_driver` | statement/expression orchestration |
+| `ir_*_emit` and `ir_*_plan` | leaf emission and small planning decisions |
+
+Comments in these files should explain the boundary or invariant, not restate
+the line of code below them. Good comments answer questions such as "why is this
+state copied here?", "why does this pass run before that one?", or "what must be
+true when this helper returns?".
+
 ## Backend and Targets
 
 The shipped compiler supports the LLVM backend. It can emit native binaries and

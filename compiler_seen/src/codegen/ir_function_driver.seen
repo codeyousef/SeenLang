@@ -22,6 +22,10 @@ fun prepareFunctionPreBodyAndTryEmitMainState(
     resolvedFunctionReturnType: String, returnTypeBox: Array<String>)
     r: Bool {
 
+    ///
+    The `main` function is lowered through a special wrapper path so platform
+    return conventions and runtime entry setup stay centralized.
+    ///
     setFeatureCurrentClassParentNameImpl("")
     let functionEmission = getCurrentFunctionEmissionStateImpl()
     resetFunctionEmissionForFunctionImpl(functionEmission)
@@ -73,6 +77,11 @@ fun generateFunctionState(ctx: CodegenLoweringContext,
     let fnName = functionIdentity.implFuncName
     let returnType = returnTypeBox[0]
 
+    ///
+    Prelude analysis decides attributes and pressure hints before emitting the
+    body. Keep it before entry setup so parameter allocation and ML logs see the
+    same function identity and attributes.
+    ///
     var funcAttrs = prepareFunctionAttributeGlobalStateImpl(output, fn)
 
     let preludeAnalysis = prepareFunctionPreludeAnalysisWithMetricsStateImpl(
@@ -92,6 +101,11 @@ fun generateFunctionState(ctx: CodegenLoweringContext,
 
     cseClear()
 
+    ///
+    Entry/exit snapshots isolate helper-owned state mutations from the facade.
+    Apply the snapshots after bridge write-back so recursive lowering observes
+    the same state that the emitted IR used.
+    ///
     syncLoweringState(ctx)
     let state = getSharedCodegenState()
     let entrySetup = emitFunctionEntrySetupSnapshotImpl(state, fn, fnName,

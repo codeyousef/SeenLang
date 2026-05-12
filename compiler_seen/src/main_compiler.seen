@@ -1314,6 +1314,12 @@ fun sourcePathRelativeSrcPath(sourcePath: String) r: String {
 fun prebuiltObjectManifestSourceInterfacePath(artifactRoot: String,
     sourcePath: String) r: String {
 
+    ///
+    Object manifests record the source path used when the artifact was built.
+    Consumers need a declaration source instead: first try paths copied into
+    the artifact, then fall back to the original absolute path for local dev
+    artifacts that still sit beside their sources.
+    ///
     if artifactRoot == "" or sourcePath == "" {
         return ""
     }
@@ -1347,6 +1353,11 @@ fun prebuiltObjectManifestSourceInterfacePath(artifactRoot: String,
 fun queueArtifactPackageObjectSourceModules(paths: Array<String>,
     processedPaths: Array<String>, artifactRoot: String) r: Int {
 
+    ///
+    Recover declaration modules from `objects.tsv` when an older artifact does
+    not have a complete interface index. The paths are queued only for
+    declaration discovery; later codegen still links the prebuilt objects.
+    ///
     let manifestPath = prebuiltPackageObjectManifestPath(artifactRoot)
     let content = loadFileContent(manifestPath)
     if content == "" {
@@ -1394,6 +1405,11 @@ fun queueArtifactPackageObjectSourceModules(paths: Array<String>,
 fun queueArtifactPackageInterfaceModules(paths: Array<String>,
     processedPaths: Array<String>, artifactRoot: String) r: Int {
 
+    ///
+    Queue artifact interfaces ahead of import discovery so downstream modules
+    see dependency signatures during Pass 1. This is what keeps String/class
+    return types intact while Pass 2 skips the dependency implementation.
+    ///
     let modules = extractPackageInterfaceIndexModules(artifactRoot)
     let interfaceRoot = prebuiltPackageInterfaceRoot(artifactRoot)
     var count = 0
@@ -1431,6 +1447,11 @@ fun queuePrebuiltDependencyDeclarationModules(paths: Array<String>,
     processedPaths: Array<String>, projectRoot: String,
     tomlContent: String, quiet: Bool) r: Int {
 
+    ///
+    Artifact dependencies do not contribute implementation modules to the
+    consumer build, but their declarations must still enter the module worklist
+    before local code is parsed and lowered.
+    ///
     let deps = extractTomlPackageDependencies(tomlContent)
     var total = 0
     var idx = 0
@@ -4511,6 +4532,12 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
                     discoverImportsFromModule(paths, processedPaths, inputFile, resolvedBuildEntry, isBootstrap)
                 }
             }
+            ///
+            Prebuilt artifact declarations are deliberately queued after the
+            project entry/module seed but before recursive import discovery.
+            That lets local imports resolve artifact-owned symbols while the
+            codegen phase later skips artifact-provided implementation modules.
+            ///
             let _ = queuePrebuiltDependencyDeclarationModules(paths,
                 processedPaths, projectRoot, tomlContent, quiet)
         }

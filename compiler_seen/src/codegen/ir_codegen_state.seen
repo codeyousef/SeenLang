@@ -1,4 +1,11 @@
-// ir_codegen_state.seen - Shared mutable codegen state for extracted helpers.
+///
+ir_codegen_state.seen - shared mutable codegen state for extracted helpers.
+
+The refactored generator uses this state object to avoid passing dozens of
+parallel arrays through every helper. The public facade still owns some legacy
+fields, so bridge functions copy data in and out at explicit lowering
+boundaries.
+///
 
 import str.string.{StringBuilder}
 import codegen.type_registry.{TypeRegistry}
@@ -29,6 +36,10 @@ class FunctionLoweringOptions {
     }
 }
 
+///
+Reset every function option before starting a fresh function. Options that
+come from decorators or target planning must not leak across functions.
+///
 fun resetFunctionLoweringOptions(opts: FunctionLoweringOptions) r: Void {
     opts.unrollCount = 0
     opts.vectorizeEnabled = true
@@ -41,6 +52,10 @@ fun resetFunctionLoweringOptions(opts: FunctionLoweringOptions) r: Void {
     opts.highPressure = false
 }
 
+///
+Clear only per-function transient options while preserving longer-lived knobs
+such as unroll/vectorization choices that may be set by a surrounding pass.
+///
 fun clearTransientFunctionLoweringOptions(opts: FunctionLoweringOptions) r: Void {
     opts.alignTo = 0
     opts.regionSizeBytes = 0
@@ -51,6 +66,11 @@ fun clearTransientFunctionLoweringOptions(opts: FunctionLoweringOptions) r: Void
     opts.highPressure = false
 }
 
+///
+Legacy compatibility encoding for old helper signatures that still transport
+lowering options through an integer. New code should prefer
+FunctionLoweringOptions directly.
+///
 fun encodeFunctionLoweringOptions(opts: FunctionLoweringOptions) r: Int {
     var encoded = opts.unrollCount
     if not opts.vectorizeEnabled {
@@ -71,6 +91,14 @@ fun encodeFunctionLoweringOptions(opts: FunctionLoweringOptions) r: Int {
     return encoded
 }
 
+///
+Central lowering state for a module/function pass.
+
+Fields are intentionally grouped by purpose: emitted text, register/block
+counters, local bindings, function context, loop context, declaration ordinals,
+and module constants. Add new fields here only when they describe state shared
+across multiple extracted helpers.
+///
 class CodegenState {
     var output: StringBuilder
     var stringConstants: Array<String>

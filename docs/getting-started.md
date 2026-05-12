@@ -8,10 +8,14 @@ package format supports bundling them. After installation, verify the compiler
 is on your PATH:
 
 ```bash
-seen
+seen --version
 ```
 
-The shipped binary prints command usage when no command is supplied.
+The shipped binary also prints command usage when no command is supplied:
+
+```bash
+seen
+```
 
 ## Build from Source
 

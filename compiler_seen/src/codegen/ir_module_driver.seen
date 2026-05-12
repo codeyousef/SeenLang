@@ -16,6 +16,11 @@ fun generateMultipleState(ctx: CodegenLoweringContext,
 
     setStringConstantPrefixWithGlobalStateImpl("")
 
+    ///
+    Shared-module generation emits one combined IR unit. Classes are lowered
+    before functions so method and field layouts are ready for call/body
+    lowering across every input program.
+    ///
     let stringConstCountBeforeGen = emitMultipleModuleEntryState(output,
         stringConstants, programs)
 
@@ -44,6 +49,10 @@ fun generateSingleState(ctx: CodegenLoweringContext,
     output: StringBuilder, stringConstants: Array<String>,
     program: ProgramNode, moduleIndex: Int) r: String {
 
+    ///
+    Per-module object emission prefixes string constants with the module index
+    to keep independently emitted objects linkable without symbol collisions.
+    ///
     setStringConstantPrefixWithGlobalStateImpl(
         "M" + moduleIndex.toString() + ".")
 
