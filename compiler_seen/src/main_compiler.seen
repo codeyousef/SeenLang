@@ -25,7 +25,7 @@ limitation where boolean variables generate invalid IR.
 
 import bootstrap.frontend.{FrontendResult, FrontendDiagnostic, runFrontendCompat, runFrontendDeclarationsCompat, encodeDiagMessage, parseDiagBaseMessage, parseDiagCode, parseDiagSuggestion, parseDiagNote, parseDiagEndColumn}
 import io.file.{readText, writeText, appendText, exists}
-import process.process.{runCommand, runProgram, CommandResult, commandWasSuccessful, processFork, waitPid, processExit}
+import process.process.{runCommand, runProgram, CommandResult, commandWasSuccessful, processFork, waitPid, processExit, getPid}
 import env.env.{args}
 import codegen.llvm_ir_gen.{LLVMIRGenerator, newLLVMIRGenerator, overrideTargetTriple}
 import parser.real_parser.{ProgramNode, ItemNode, ClassNode, FunctionNode, StatementNode, ParserExpressionNode, BlockNode, EnumNode}
@@ -4226,7 +4226,54 @@ fun generatedTestObjectSetCachePath(setKey: String) r: String {
     return "/tmp/seen_testmain_obj_cache/" + setKey + ".objects"
 }
 
-fun tryCopyGeneratedTestObjectFromCache(cacheKey: String, moduleIndex: Int) r: Bool {
+fun compileTempDirForInvocation(inputFile: String, outputFile: String) r: String {
+    let pidText = getPid().toString()
+    let key = hashString(inputFile + "|" + outputFile + "|" + pidText)
+    return "/tmp/seen_compile_" + pidText + "_" + key
+}
+
+fun moduleTempPath(tempDir: String, moduleIndexText: String,
+    suffix: String) r: String {
+
+    return tempDir + "/seen_module_" + moduleIndexText + suffix
+}
+
+fun moduleTempPathInt(tempDir: String, moduleIndex: Int,
+    suffix: String) r: String {
+
+    return moduleTempPath(tempDir, moduleIndex.toString(), suffix)
+}
+
+fun childStatusTempPath(tempDir: String, moduleIndexText: String) r: String {
+    return tempDir + "/seen_child_status_" + moduleIndexText + ".txt"
+}
+
+fun mlRemarksTempPath(tempDir: String, moduleIndexText: String) r: String {
+    return tempDir + "/seen_ml_remarks_" + moduleIndexText + ".yaml"
+}
+
+fun parallelOptScriptTempPath(tempDir: String) r: String {
+    return tempDir + "/seen_parallel_opt.sh"
+}
+
+fun ensureFreshCompileTempDir(tempDir: String) r: Bool {
+    removePathIfExists(tempDir)
+    return ensureDirectory(tempDir)
+}
+
+fun publishLegacyModuleTempArtifacts(tempDir: String) r: Void {
+    if tempDir == "" {
+        return
+    }
+    let cleanCmd = "rm -f /tmp/seen_module_*.ll /tmp/seen_module_*.o /tmp/seen_module_*.opt.ll /tmp/seen_module_*.polly.ll /tmp/seen_module_*.opt.status /tmp/seen_module_*.opt.log /tmp/seen_parallel_opt.sh"
+    let _ = runCommand(cleanCmd)
+    let _copy = runCommand("cp " + tempDir + "/seen_module_* /tmp/ 2>/dev/null || true")
+    return
+}
+
+fun tryCopyGeneratedTestObjectFromCache(cacheKey: String, moduleIndex: Int,
+    tempDir: String) r: Bool {
+
     let cacheFile = generatedTestObjectCachePath(cacheKey)
     if cacheFile == "" {
         return false
@@ -4234,7 +4281,7 @@ fun tryCopyGeneratedTestObjectFromCache(cacheKey: String, moduleIndex: Int) r: B
     if not exists(cacheFile) {
         return false
     }
-    let objFile = "/tmp/seen_module_" + moduleIndex.toString() + ".o"
+    let objFile = moduleTempPathInt(tempDir, moduleIndex, ".o")
     let copyResult: CommandResult = runCommand("cp " + mainCompilerShellQuote(cacheFile) + " " + mainCompilerShellQuote(objFile))
     return commandWasSuccessful(copyResult)
 }
@@ -4248,7 +4295,9 @@ fun generatedTestObjectCacheHasKey(cacheKey: String) r: Bool {
     return commandWasSuccessful(checkResult)
 }
 
-fun tryUseGeneratedTestObjectSetCacheForInput(inputFile: String, cacheSignature: String, normalizedCrossTarget: String) r: Bool {
+fun tryUseGeneratedTestObjectSetCacheForInput(inputFile: String,
+    cacheSignature: String, normalizedCrossTarget: String,
+    tempDir: String) r: Bool {
     if g_generatedTestMainMode == 0 {
         return false
     }
@@ -4297,12 +4346,14 @@ fun tryUseGeneratedTestObjectSetCacheForInput(inputFile: String, cacheSignature:
         return false
     }
 
-    let cleanCmd = "rm -f /tmp/seen_module_*.ll /tmp/seen_module_*.o /tmp/seen_module_*.opt.ll /tmp/seen_module_*.polly.ll /tmp/seen_module_*.opt.status /tmp/seen_module_*.opt.log /tmp/seen_parallel_opt.sh"
-    let cleanResult: CommandResult = runCommand(cleanCmd)
+    if not ensureFreshCompileTempDir(tempDir) {
+        return false
+    }
 
     var copyIdx = 0
     while copyIdx < cacheKeys.length() {
-        if not tryCopyGeneratedTestObjectFromCache(cacheKeys[copyIdx], copyIdx) {
+        if not tryCopyGeneratedTestObjectFromCache(cacheKeys[copyIdx],
+            copyIdx, tempDir) {
             return false
         }
         copyIdx = copyIdx + 1
@@ -4311,10 +4362,13 @@ fun tryUseGeneratedTestObjectSetCacheForInput(inputFile: String, cacheSignature:
     println("  [Pass 0] Reusing generated test object set")
     println("    Found " + cacheKeys.length().toString() + " modules")
     println("  [3] Skipping final link for generated test main; module objects are ready")
+    publishLegacyModuleTempArtifacts(tempDir)
     return true
 }
 
-fun tryUseCompleteGeneratedTestObjectCache(modulePaths: Array<String>, cacheSignature: String, normalizedCrossTarget: String) r: Bool {
+fun tryUseCompleteGeneratedTestObjectCache(modulePaths: Array<String>,
+    cacheSignature: String, normalizedCrossTarget: String,
+    tempDir: String) r: Bool {
     if g_generatedTestMainMode == 0 {
         return false
     }
@@ -4338,13 +4392,15 @@ fun tryUseCompleteGeneratedTestObjectCache(modulePaths: Array<String>, cacheSign
 
     var copyIdx = 0
     while copyIdx < cacheKeys.length() {
-        if not tryCopyGeneratedTestObjectFromCache(cacheKeys[copyIdx], copyIdx) {
+        if not tryCopyGeneratedTestObjectFromCache(cacheKeys[copyIdx],
+            copyIdx, tempDir) {
             return false
         }
         copyIdx = copyIdx + 1
     }
 
     println("  [3] Skipping final link for generated test main; module objects are ready")
+    publishLegacyModuleTempArtifacts(tempDir)
     return true
 }
 
@@ -7752,7 +7808,8 @@ compile subcommand. Orchestrates a two-pass architecture:
   Pass 2: For each module, check caches (source-level, then IR-level).
           Uncached modules are compiled via fork() for parallelism -- each
           child inherits a CoW copy of the Pass 1 registry. Children write
-          .ll files to /tmp and exit; the parent waits for all to complete.
+          .ll files under a process-unique temp directory and exit; the parent
+          waits for all to complete.
 
   Pass 2b: Run LLVM opt + ThinLTO-bc in parallel via a generated shell script.
            Each module: opt -O3 -> Polly (best-effort) -> opt --thinlto-bc -> .o
@@ -8071,7 +8128,15 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             boundedLargeProjectWorkers.toString() + " jobs, opt " +
             boundedLargeProjectOptWorkers.toString() + " jobs")
     }
-    if useCache and tryUseCompleteGeneratedTestObjectCache(modulePaths, cacheSignature, normalizedCrossTarget) {
+    let compileTempDir = compileTempDirForInvocation(resolvedInput,
+        outputFile)
+    if not ensureFreshCompileTempDir(compileTempDir) {
+        println("    Error: could not create compiler temp directory: " +
+            compileTempDir)
+        return 1
+    }
+    if useCache and tryUseCompleteGeneratedTestObjectCache(modulePaths,
+        cacheSignature, normalizedCrossTarget, compileTempDir) {
         storeGeneratedTestObjectSetCache(resolvedInput, modulePaths, cacheSignature, normalizedCrossTarget)
         return 0
     }
@@ -8194,11 +8259,17 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     ============================================================
     PASS 2: Stream compile each module (one AST at a time)
     ============================================================
-    Clean stale per-module LLVM temp files so later invocations cannot
-    accidentally reuse or inspect IR/object artifacts from previous builds.
+    Per-module LLVM temp files live under a process-unique directory so two
+    independent compiler invocations cannot remove or overwrite each other's
+    raw IR, optimized IR, status, log, script, or object files.
     ///
-    let cleanCmd = "rm -f /tmp/seen_module_*.ll /tmp/seen_module_*.o /tmp/seen_module_*.opt.ll /tmp/seen_module_*.polly.ll /tmp/seen_module_*.opt.status /tmp/seen_module_*.opt.log /tmp/seen_parallel_opt.sh"
+    let cleanCmd = "rm -rf " + mainCompilerShellQuote(compileTempDir)
     __ExecuteProgram(cleanCmd)
+    if not ensureDirectory(compileTempDir) {
+        println("    Error: could not recreate compiler temp directory: " +
+            compileTempDir)
+        return 1
+    }
 
     if g_generatedTestMainMode == 0 {
         println("  [Pass 2] Compiling modules...")
@@ -8259,8 +8330,10 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         var generatedTestObjectCacheKey = ""
         if useCache and g_generatedTestMainMode == 1 and normalizedCrossTarget != "android-arm64" {
             generatedTestObjectCacheKey = generatedTestObjectCacheKeyForModule(path, cacheSignature)
-            if tryCopyGeneratedTestObjectFromCache(generatedTestObjectCacheKey, moduleIndex) {
-                let cachedTestObj = "/tmp/seen_module_" + moduleIndex.toString() + ".o"
+            if tryCopyGeneratedTestObjectFromCache(generatedTestObjectCacheKey,
+                moduleIndex, compileTempDir) {
+                let cachedTestObj = moduleTempPathInt(compileTempDir,
+                    moduleIndex, ".o")
                 objectFiles.push(cachedTestObj)
                 objectSourcePaths.push(path)
                 moduleIndex = moduleIndex + 1
@@ -8308,7 +8381,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         }
         if irCacheHit == 1 {
             let irCacheFile = "/tmp/seen_ir_cache/" + irCacheKey + ".o"
-            let irCacheObj = "/tmp/seen_module_" + moduleIndex.toString() + ".o"
+            let irCacheObj = moduleTempPathInt(compileTempDir,
+                moduleIndex, ".o")
             let irCopy: CommandResult = runCommand("cp " + irCacheFile + " " + irCacheObj)
             objectFiles.push(irCacheObj)
             objectSourcePaths.push(path)
@@ -8328,7 +8402,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         if not pass2IrRunsParallel {
             // Serial: generate IR in-process (no fork)
             println("    [" + moduleIndex.toString() + "] Generating IR (serial): " + path)
-            let llFile = "/tmp/seen_module_" + moduleIndex.toString() + ".ll"
+            let llFile = moduleTempPathInt(compileTempDir, moduleIndex,
+                ".ll")
             let moduleStartTime = getTraceTimeSeconds()
             println("    [" + moduleIndex.toString() + "] Parse start")
             let parseStartTime = getTraceTimeSeconds()
@@ -8377,8 +8452,10 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             } else {
                 if pid == 0 {
                     // === CHILD: generate IR, write .ll file, then exit ===
-                    let llFile = "/tmp/seen_module_" + moduleIndex.toString() + ".ll"
-                    let statusFile = "/tmp/seen_child_status_" + moduleIndex.toString() + ".txt"
+                    let llFile = moduleTempPathInt(compileTempDir,
+                        moduleIndex, ".ll")
+                    let statusFile = childStatusTempPath(compileTempDir,
+                        moduleIndex.toString())
                     if g_generatedTestMainMode == 0 {
                         writeText(statusFile, "parse_start\n" + path)
                     }
@@ -8418,7 +8495,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                         }
                     }
                     if g_generatedTestMainMode == 1 and normalizedCrossTarget != "android-arm64" {
-                        let objFile = "/tmp/seen_module_" + moduleIndex.toString() + ".o"
+                        let objFile = moduleTempPathInt(compileTempDir,
+                            moduleIndex, ".o")
                         let childObjCmd = llvmLlcTool + " -filetype=obj -O0 -relocation-model=pic " + llFile + " -o " + objFile
                         let childObjResult: CommandResult = runCommand(childObjCmd)
                         if not commandWasSuccessful(childObjResult) {
@@ -8449,9 +8527,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                             let throttledEc = waitPid(forkPids[forkWaitCursor])
                             let throttledIdx = forkModuleIdxStrs[
                                 forkWaitCursor]
-                            let throttledStatusFile =
-                                "/tmp/seen_child_status_" + throttledIdx +
-                                ".txt"
+                            let throttledStatusFile = childStatusTempPath(
+                                compileTempDir, throttledIdx)
                             if throttledEc != 0 {
                                 if g_generatedTestMainMode == 0 {
                                     writeText(throttledStatusFile,
@@ -8488,7 +8565,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     var waitIdx = forkWaitCursor
     while waitIdx < forkPids.length() {
         let ec = waitPid(forkPids[waitIdx])
-        let statusFile = "/tmp/seen_child_status_" + forkModuleIdxStrs[waitIdx] + ".txt"
+        let statusFile = childStatusTempPath(compileTempDir,
+            forkModuleIdxStrs[waitIdx])
         if ec != 0 {
             if g_generatedTestMainMode == 0 {
                 writeText(statusFile, "exit_failed\n" + ec.toString())
@@ -8511,9 +8589,9 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     var forkReg = 0
     while forkReg < forkModuleIdxStrs.length() {
         let midxStr = forkModuleIdxStrs[forkReg]
-        let llFile = "/tmp/seen_module_" + midxStr + ".ll"
+        let llFile = moduleTempPath(compileTempDir, midxStr, ".ll")
         if g_generatedTestMainMode == 1 and normalizedCrossTarget != "android-arm64" {
-            let objFile = "/tmp/seen_module_" + midxStr + ".o"
+            let objFile = moduleTempPath(compileTempDir, midxStr, ".o")
             let checkObj: CommandResult = runCommand("test -f " + objFile)
             if not commandWasSuccessful(checkObj) {
                 println("    Error: generated test main object missing for module " + midxStr)
@@ -8603,9 +8681,9 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         var pi = 0
         while pi < uncachedIdxStrs.length() {
             let midx = uncachedIdxStrs[pi]
-            let llFile = "/tmp/seen_module_" + midx + ".ll"
-            let optFile = "/tmp/seen_module_" + midx + ".opt.ll"
-            let objFile = "/tmp/seen_module_" + midx + ".o"
+            let llFile = moduleTempPath(compileTempDir, midx, ".ll")
+            let optFile = moduleTempPath(compileTempDir, midx, ".opt.ll")
+            let objFile = moduleTempPath(compileTempDir, midx, ".o")
 
             var moduleOptCmd = llvmOptTool + " -passes='" + optPasses + "'" + optInternalize + " -inline-threshold=" + optThreshold + " -S " + llFile + " -o " + optFile + pgoOptFlags
             var androidClangOptLevel = "-O3"
@@ -8623,11 +8701,14 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             if g_generatedTestMainMode == 1 and normalizedCrossTarget != "android-arm64" {
                 moduleOptCmd = "cp " + llFile + " " + optFile
             } else if actualMlLogPath != "" {
-                moduleOptCmd = moduleOptCmd + " -pass-remarks-output=/tmp/seen_ml_remarks_" + midx + ".yaml -pass-remarks-format=yaml"
+                moduleOptCmd = moduleOptCmd + " -pass-remarks-output=" +
+                    mlRemarksTempPath(compileTempDir, midx) +
+                    " -pass-remarks-format=yaml"
             }
 
-            let statusFile = "/tmp/seen_module_" + midx + ".opt.status"
-            let logFile = "/tmp/seen_module_" + midx + ".opt.log"
+            let statusFile = moduleTempPath(compileTempDir, midx,
+                ".opt.status")
+            let logFile = moduleTempPath(compileTempDir, midx, ".opt.log")
             ///
             Each module writes a status file and log so the parent can stop the
             build on the first optimization/object-emission failure instead of
@@ -8640,7 +8721,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             if g_fastMode == 0 and normalizedCrossTarget != "android-arm64" and
                 boundedLargeProjectOptWorkers == 0 {
 
-                let pollyFile = "/tmp/seen_module_" + midx + ".polly.ll"
+                let pollyFile = moduleTempPath(compileTempDir, midx,
+                    ".polly.ll")
                 pollyStep = "    (" + llvmOptTool + " -passes='polly-canonicalize,polly' -S " + optFile + " -o " + pollyFile + " >>" + logFile + " 2>&1 && mv " + pollyFile + " " + optFile + ") || true\n"
             }
             var moduleObjCmd = llvmOptTool + " --thinlto-bc " + optFile + " -o " + objFile
@@ -8699,16 +8781,19 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             script = script + "wait\n"
         }
 
-        if not writeText("/tmp/seen_parallel_opt.sh", script) {
+        let parallelScriptFile = parallelOptScriptTempPath(compileTempDir)
+        if not writeText(parallelScriptFile, script) {
             println("    Error: Failed to write parallel optimization script")
             return 1
         }
-        let chmodResult: CommandResult = runCommand("chmod +x /tmp/seen_parallel_opt.sh")
+        let chmodResult: CommandResult = runCommand("chmod +x " +
+            mainCompilerShellQuote(parallelScriptFile))
         if not commandWasSuccessful(chmodResult) {
             println("    Error: Failed to make parallel optimization script executable")
             return 1
         }
-        let parallelResult: CommandResult = runCommand("/tmp/seen_parallel_opt.sh")
+        let parallelResult: CommandResult = runCommand(
+            mainCompilerShellQuote(parallelScriptFile))
 
         ///
         Verify all modules reported successful optimization/object emission
@@ -8717,7 +8802,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         var vi = 0
         while vi < uncachedIdxStrs.length() {
             let midx = uncachedIdxStrs[vi]
-            let statusFile = "/tmp/seen_module_" + midx + ".opt.status"
+            let statusFile = moduleTempPath(compileTempDir, midx,
+                ".opt.status")
             let statusText = loadFileContent(statusFile)
             if statusText != "ok" {
                 if statusText == "opt" {
@@ -8729,18 +8815,18 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                         println("    Error: module optimization did not complete for module " + midx)
                     }
                 }
-                let logFile = "/tmp/seen_module_" + midx + ".opt.log"
+                let logFile = moduleTempPath(compileTempDir, midx, ".opt.log")
                 let logTail: CommandResult = runCommand("tail -n 40 " + logFile)
                 if commandWasSuccessful(logTail) {
                     println(logTail.output)
                 }
                 return 1
             }
-            let objFile = "/tmp/seen_module_" + midx + ".o"
+            let objFile = moduleTempPath(compileTempDir, midx, ".o")
             let checkObj: CommandResult = runCommand("test -f " + objFile)
             if not commandWasSuccessful(checkObj) {
                 println("    Error: module " + midx + " reported success but did not produce an object file")
-                let logFile = "/tmp/seen_module_" + midx + ".opt.log"
+                let logFile = moduleTempPath(compileTempDir, midx, ".opt.log")
                 let logTail: CommandResult = runCommand("tail -n 40 " + logFile)
                 if commandWasSuccessful(logTail) {
                     println(logTail.output)
@@ -8758,13 +8844,13 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         var ci = 0
         while ci < uncachedIdxStrs.length() {
             let midx = uncachedIdxStrs[ci]
-            let objFile = "/tmp/seen_module_" + midx + ".o"
+            let objFile = moduleTempPath(compileTempDir, midx, ".o")
             objectFiles.push(objFile)
             objectSourcePaths.push(uncachedSrcPaths[ci])
 
             // --emit-llvm: save optimized IR alongside output
             if g_emitLlvm {
-                let optFile = "/tmp/seen_module_" + midx + ".opt.ll"
+                let optFile = moduleTempPath(compileTempDir, midx, ".opt.ll")
                 let emitOptDst = outputFile + ".module" + midx + ".opt.ll"
                 let emitOptCp: CommandResult = runCommand("cp " + optFile + " " + emitOptDst)
                 println("    Emitted optimized IR: " + emitOptDst)
@@ -8772,7 +8858,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
 
             // Collect ML training data if --ml-log was specified
             if actualMlLogPath != "" {
-                let mlRemarksFile = "/tmp/seen_ml_remarks_" + midx + ".yaml"
+                let mlRemarksFile = mlRemarksTempPath(compileTempDir, midx)
                 collectMLTrainingData(mlRemarksFile, actualMlLogPath)
             }
 
@@ -8911,12 +8997,12 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                     llLinkCmd = llLinkCmd + llFiles[lli] + " "
                     lli = lli + 1
                 }
-                let mergedLl = "/tmp/seen_merged_release.ll"
+                let mergedLl = compileTempDir + "/seen_merged_release.ll"
                 llLinkCmd = llLinkCmd + "-o " + mergedLl
                 let llLinkResult: CommandResult = runCommand(llLinkCmd)
                 if commandWasSuccessful(llLinkResult) {
                     // Try Polly pre-pass for polyhedral loop optimization (best-effort)
-                    let pollyOut = "/tmp/seen_merged_polly.ll"
+                    let pollyOut = compileTempDir + "/seen_merged_polly.ll"
                     let pollyCmd = llvmOptTool + " -passes='polly-canonicalize,polly' -S " + mergedLl + " -o " + pollyOut + " 2>/dev/null"
                     let pollyResult: CommandResult = runCommand(pollyCmd)
                     var mergedInput = mergedLl
@@ -8925,12 +9011,12 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                         println("    Polly: polyhedral loop optimization applied")
                     }
                     // Run opt with internalize on merged module (enables cross-module inlining)
-                    let mergedOpt = "/tmp/seen_merged_release.opt.ll"
+                    let mergedOpt = compileTempDir + "/seen_merged_release.opt.ll"
                     let mergedOptCmd = llvmOptTool + " -passes='function(sroa,instcombine<no-verify-fixpoint>,simplifycfg),internalize,default<O3>,function(loop-unroll-and-jam)' -internalize-public-api-list=main -inline-threshold=2000 -S " + mergedInput + " -o " + mergedOpt
                     let mergedOptResult: CommandResult = runCommand(mergedOptCmd)
                     if commandWasSuccessful(mergedOptResult) {
                         // Compile merged optimized IR to single object file
-                        let mergedObj = "/tmp/seen_merged_release.o"
+                        let mergedObj = compileTempDir + "/seen_merged_release.o"
                         let mergedLlcCmd = llvmLlcTool + " -filetype=obj -O3 -relocation-model=pic -enable-misched -enable-post-misched -enable-shrink-wrap -fp-contract=fast -mcpu=" + llvmLlcCpu + " " + mergedOpt + " -o " + mergedObj
                         let mergedLlcResult: CommandResult = runCommand(mergedLlcCmd)
                         if commandWasSuccessful(mergedLlcResult) {
@@ -8983,6 +9069,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         }
         println("  Wrote object manifest: " + g_objectManifestPath)
         println("  [3] Skipping final link because object manifest mode leaves module objects for downstream linking")
+        publishLegacyModuleTempArtifacts(compileTempDir)
         return 0
     }
     if g_generatedTestMainMode == 1 {
@@ -8990,6 +9077,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             storeGeneratedTestObjectSetCache(resolvedInput, modulePaths, cacheSignature, normalizedCrossTarget)
         }
         println("  [3] Skipping final link for generated test main; module objects are ready")
+        publishLegacyModuleTempArtifacts(compileTempDir)
         return 0
     }
     println("  [3] Linking " + objectFiles.length().toString() + " object files...")
@@ -9596,6 +9684,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             println("  Wrote compile_commands.json (" + objectFiles.length().toString() + " entries)")
         }
         println("Build succeeded -> " + outputFile)
+        publishLegacyModuleTempArtifacts(compileTempDir)
         return 0
     }
 

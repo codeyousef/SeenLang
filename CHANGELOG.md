@@ -7,10 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.8.2] - 2026-05-12
 
+### Added
+
+- Added focused regression coverage for prebuilt artifact `String` helper ABI preservation, `[build].modules` cross-module struct-argument calls, and concurrent package prebuild temp-file isolation.
+
+### Changed
+
+- Documented the refactored LLVM codegen facade, shared state, lowering-driver boundaries, and prebuilt artifact declaration/object split for future compiler work.
+- Clarified project configuration docs so `modules` under `[build]` is documented alongside `[project].modules`.
+
 ### Fixed
 
 - Fixed prebuilt artifact dependency declaration seeding so linked dependency helpers that return `String` keep their `%SeenString` ABI even when the consumer calls them without an explicit source import.
 - Fixed manifest module discovery so `modules` listed under `[build]` are included in the compilation graph, preserving cross-module struct layouts for method calls that pass struct literals.
+- Fixed compiler package-build temp paths so concurrent `seen pkg prebuild` invocations no longer overwrite each other's module IR, optimization status, logs, or object files.
 
 ## [0.8.1] - 2026-05-12
 
