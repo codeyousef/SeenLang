@@ -558,6 +558,8 @@ install_app_files() {
     # Install standard library
     if [ -d "$PROJECT_ROOT/seen_std" ]; then
         cp -r "$PROJECT_ROOT/seen_std"/* "$appdir/usr/lib/seen/"
+        find "$appdir/usr/lib/seen/seen_std" "$appdir/usr/lib/seen/src" \
+            -type f -name '*.tmp.*' -delete 2>/dev/null || true
         info "  ✓ Standard library installed"
     fi
     

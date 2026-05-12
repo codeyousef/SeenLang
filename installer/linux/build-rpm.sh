@@ -480,6 +480,7 @@ create_source_tarball() {
     if [ -d "$PROJECT_ROOT/seen_std" ]; then
         mkdir -p "$source_dir/stdlib"
         cp -r "$PROJECT_ROOT/seen_std"/* "$source_dir/stdlib/"
+        find "$source_dir/stdlib" -type f -name '*.tmp.*' -delete
     fi
 
     # Copy toolchain metadata and helper

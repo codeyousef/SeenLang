@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Made the Windows cross-build helper use a serial, no-cache, portable IR generation path by default and lower transformed Windows IR through Clang's COFF object backend so release packages can be rebuilt from the current compiler on AVX-512 hosts.
 - Fixed the Windows ABI transformer so struct parameters rewritten to `byval` pointers are materialized back into local aggregate values before the function body uses them.
 - Fixed Windows COFF weak-symbol handling for runtime helpers and compiler package constants so cross-built compiler binaries link cleanly under MinGW.
+- Pruned transient standard-library `*.tmp.*` files from Linux and Windows release staging so generated packages contain only intentional sources and metadata.
 - Extended release artifact verification to require the packaged compiler to expose `seen pkg prebuild` and successfully emit both `objects.tsv` and `interface.index.tsv`, catching stale package-command surfaces before upload.
 - Hardened low-memory rebuild recovery by repairing stale builder IR call-shape, void-parameter, and aggregate-return mismatches before LLVM verification.
 - Fixed prebuilt package interface import resolution so artifact sources can resolve their own package-qualified sibling imports, preserving dependency class layouts for downstream `String` field access.

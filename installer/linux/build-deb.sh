@@ -383,6 +383,8 @@ install_package_files() {
     # Install standard library
     if [ -d "$PROJECT_ROOT/seen_std" ]; then
         cp -r "$PROJECT_ROOT/seen_std"/* "$package_dir/usr/lib/seen/"
+        find "$package_dir/usr/lib/seen/seen_std" "$package_dir/usr/lib/seen/src" \
+            -type f -name '*.tmp.*' -delete 2>/dev/null || true
     fi
 
     # Install toolchain metadata and helper

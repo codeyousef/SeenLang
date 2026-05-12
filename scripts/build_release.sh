@@ -123,6 +123,7 @@ strip "$STAGING/bin/seen" 2>/dev/null || true
 echo "[2/6] Copying standard library..."
 if [[ -d "$ROOT_DIR/seen_std/src" ]]; then
     cp -r "$ROOT_DIR/seen_std/src/"* "$STAGING/lib/seen/std/"
+    find "$STAGING/lib/seen/std" -type f -name '*.tmp.*' -delete
 fi
 
 echo "[3/6] Copying runtime..."

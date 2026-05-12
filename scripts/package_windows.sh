@@ -46,6 +46,7 @@ echo "  bin/seen-env.cmd"
 # --- Standard library ---
 if [ -d "$PROJECT_DIR/seen_std/src" ]; then
     cp -r "$PROJECT_DIR/seen_std/src/"* "$PACKAGE_DIR/lib/seen/std/"
+    find "$PACKAGE_DIR/lib/seen/std" -type f -name '*.tmp.*' -delete
     STD_COUNT=$(find "$PACKAGE_DIR/lib/seen/std" -type f | wc -l)
     echo "  lib/seen/std/ ($STD_COUNT files)"
 fi
