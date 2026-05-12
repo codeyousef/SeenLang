@@ -3,6 +3,7 @@
 import str.string.{StringBuilder}
 import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl, getFeatureReprCClassNamesImpl}
 import codegen.ir_codegen_global_state.{getGlobalStructNamesImpl}
+import codegen.ir_field_layout.{isScalarFieldChainTerminalTypeImpl}
 import codegen.ir_method_lower_plan.{MethodLowerCallPlan, shouldWarnUnresolvedCollectionGetImpl}
 import codegen.ir_method_receiver_predicates.{isArrayReceiverTypeImpl, isCollectionReceiverTypeImpl}
 import codegen.ir_method_lower_emit.{emitPreparedNonArgMethodLowerDispatchImpl, emitPreparedHotReloadMethodLowerImpl, emitPreparedUnresolvedCollectionGetWarningImpl}
@@ -42,7 +43,8 @@ fun tryEmitMethodUnresolvedCollectionGetWarningDriver(output: StringBuilder,
 
     if shouldWarnUnresolvedCollectionGetImpl(methodName,
         isArrayReceiverTypeImpl(receiverType),
-        isCollectionReceiverTypeImpl(receiverType)) {
+        isCollectionReceiverTypeImpl(receiverType),
+        isScalarFieldChainTerminalTypeImpl(receiverType)) {
 
         return emitPreparedUnresolvedCollectionGetWarningImpl(output,
             receiverType, literalValue)

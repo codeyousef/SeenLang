@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Added focused regression coverage for prebuilt artifact `String` helper ABI preservation, `[build].modules` cross-module struct-argument calls, and concurrent package prebuild temp-file isolation.
+- Added focused regression coverage for prebuilt artifact `String` helper ABI preservation, `[build].modules` cross-module struct-argument calls, concurrent package prebuild temp-file isolation, and class values returned through Array-backed helper methods.
 
 ### Changed
 
@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed prebuilt artifact dependency declaration seeding so linked dependency helpers that return `String` keep their `%SeenString` ABI even when the consumer calls them without an explicit source import.
 - Fixed manifest module discovery so `modules` listed under `[build]` are included in the compilation graph, preserving cross-module struct layouts for method calls that pass struct literals.
 - Fixed compiler package-build temp paths so concurrent `seen pkg prebuild` invocations no longer overwrite each other's module IR, optimization status, logs, or object files.
+- Fixed method dispatch for user-defined `get` methods on class receivers so they no longer get mistaken for failed collection lookups, preserving class handles returned from Array-backed helper methods.
 
 ## [0.8.1] - 2026-05-12
 
