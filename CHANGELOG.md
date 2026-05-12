@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Fixed prebuilt artifact dependency declaration seeding so linked dependency helpers that return `String` keep their `%SeenString` ABI even when the consumer calls them without an explicit source import.
+- Fixed manifest module discovery so `modules` listed under `[build]` are included in the compilation graph, preserving cross-module struct layouts for method calls that pass struct literals.
 
 ## [0.8.1] - 2026-05-12
 

@@ -3529,8 +3529,13 @@ fun extractQuotedTomlStrings(line: String) r: Array<String> {
 }
 
 fun extractTomlProjectModules(content: String) r: Array<String> {
+    ///
+    Historical manifests put `modules` under `[project]`; newer package-style
+    test manifests may put the build graph next to `[build].entry`. Treat both
+    sections as module-list owners and preserve first-seen order.
+    ///
     let modules = Array<String>()
-    var inProject = 0
+    var inModuleListSection = 0
     var collectingModules = 0
     var lineStart = 0
     var pos = 0
@@ -3551,15 +3556,15 @@ fun extractTomlProjectModules(content: String) r: Array<String> {
             if line.startsWith("[") {
                 if line.endsWith("]") {
                     let section = line.substring(1, line.length() - 1)
-                    if section == "project" {
-                        inProject = 1
+                    if section == "project" or section == "build" {
+                        inModuleListSection = 1
                     } else {
-                        inProject = 0
+                        inModuleListSection = 0
                     }
                     collectingModules = 0
                 }
             } else {
-                if inProject == 1 {
+                if inModuleListSection == 1 {
                     if line != "" and not line.startsWith("#") {
                         if collectingModules == 1 {
                             let lineModules = extractQuotedTomlStrings(line)

@@ -57,6 +57,19 @@ modules = [
 ]
 ```
 
+`modules` may also be written under `[build]` when you want the build entry and
+the build graph in the same section. The compiler treats `[project].modules` and
+`[build].modules` as one ordered module list.
+
+```toml
+[build]
+entry = "src/main.seen"
+modules = [
+    "src/mesh_data.seen",
+    "src/main.seen",
+]
+```
+
 ## [dependencies] Section
 
 ```toml
