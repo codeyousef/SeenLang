@@ -82,6 +82,15 @@ def transform_ll_for_win64(content):
         'target datalayout = "e-m:w-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128"',
         content
     )
+    # MinGW COFF leaves LLVM `weak global` definitions as unresolved weak
+    # externals. The compiler emits each of these package constants once, so
+    # promote them to normal definitions for the Windows object path.
+    content = re.sub(
+        r'^(@[-\w.$]+\s+=\s+)weak\s+global\b',
+        r'\1global',
+        content,
+        flags=re.MULTILINE,
+    )
 
     # Fix main: void -> i32, and only change "ret void" -> "ret i32 0" inside @main
     # On Windows, main() must return i32 (int), not void.
@@ -117,8 +126,16 @@ def transform_ll_for_win64(content):
     # Current function being sret-transformed (for fixing ret instructions)
     current_sret_type = None
     current_sret_param = None
+    pending_param_loads = []
+    param_counter = [0]
 
     for line in lines:
+        if pending_param_loads and re.match(r'^[A-Za-z$._-][-\w.$]*:\s*(?:;.*)?$', line):
+            new_lines.append(line)
+            new_lines.extend(pending_param_loads)
+            pending_param_loads = []
+            continue
+
         # Handle declare/define lines
         decl_match = re.match(r'^(declare|define)\s+(.*)', line)
         if decl_match:
@@ -148,8 +165,19 @@ def transform_ll_for_win64(content):
                 # Transform params
                 new_params = f'ptr sret({ret_type}) {sret_param_name}' if keyword == 'define' else f'ptr sret({ret_type})'
                 if params.strip():
-                    for param in split_params(params):
-                        new_params += ', ' + transform_param(param, byval_types)
+                    if keyword == 'define':
+                        transformed_params, pending_param_loads = transform_define_params(
+                            params,
+                            byval_types,
+                            param_counter,
+                        )
+                    else:
+                        transformed_params = [
+                            transform_param(param, byval_types)
+                            for param in split_params(params)
+                        ]
+                    if transformed_params:
+                        new_params += ', ' + ', '.join(transformed_params)
                 new_line = f'{keyword} void {func_name}({new_params}){attrs}'
                 new_lines.append(new_line)
                 continue
@@ -161,9 +189,17 @@ def transform_ll_for_win64(content):
 
             # Check params for struct types
             if signature:
-                new_params = []
-                for param in split_params(params):
-                    new_params.append(transform_param(param, byval_types))
+                if keyword == 'define':
+                    new_params, pending_param_loads = transform_define_params(
+                        params,
+                        byval_types,
+                        param_counter,
+                    )
+                else:
+                    new_params = [
+                        transform_param(param, byval_types)
+                        for param in split_params(params)
+                    ]
 
                 new_line = f'{keyword} {ret_type} {func_name}({", ".join(new_params)}){attrs}'
                 new_lines.append(new_line)
@@ -257,6 +293,68 @@ def transform_param(param, byval_types):
             attrs_prefix = f'{attrs} ' if attrs else ''
             return f'ptr byval({t}) {attrs_prefix}{m.group(2)}'
     return param
+
+
+def transform_define_params(params, byval_types, counter):
+    """Transform define parameters and load byval struct pointers at entry."""
+    new_params = []
+    entry_loads = []
+
+    for param in split_params(params):
+        transformed = False
+        for t in byval_types:
+            parsed = parse_struct_param(param, t)
+            if not parsed:
+                continue
+
+            attrs, var = parsed
+            if not var:
+                new_params.append(f'ptr byval({t})')
+                transformed = True
+                break
+
+            byval_var = byval_param_name(var, counter)
+            attrs = [attr for attr in attrs if attr != 'returned']
+            attrs_prefix = f'{" ".join(attrs)} ' if attrs else ''
+            new_params.append(f'ptr byval({t}) {attrs_prefix}{byval_var}')
+            entry_loads.append(f'  {var} = load {t}, ptr {byval_var}')
+            transformed = True
+            break
+
+        if not transformed:
+            new_params.append(param)
+
+    return new_params, entry_loads
+
+
+def parse_struct_param(param, struct_type):
+    stripped = param.strip()
+    escaped = re.escape(struct_type)
+    if re.match(rf'^{escaped}$', stripped):
+        return [], None
+
+    if not stripped.startswith(f'{struct_type} '):
+        return None
+
+    parts = stripped[len(struct_type):].strip().split()
+    if not parts:
+        return [], None
+
+    var = parts[-1]
+    if not re.match(rf'^{LLVM_VALUE}$', var):
+        return None
+
+    return parts[:-1], var
+
+
+def byval_param_name(var, counter):
+    ident = var[1:] if var.startswith('%') else var
+    if re.match(r'^[A-Za-z$._-][-\w.$]*$', ident):
+        return f'{var}.byval'
+
+    name = f'%_byval_param_{counter[0]}'
+    counter[0] += 1
+    return name
 
 
 def transform_call_line(line, byval_types, sret_functions, counter):

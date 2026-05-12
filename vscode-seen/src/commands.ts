@@ -169,16 +169,23 @@ function currentReactiveStreamInfo(document: vscode.TextDocument, position: vsco
 }
 
 export function setupCommands(context: vscode.ExtensionContext, client: LanguageClient) {
-    // Build command
+    // Compile command. Keep the seen.build command id for existing keybindings.
     context.subscriptions.push(
         vscode.commands.registerCommand('seen.build', async () => {
-            const target = vscode.workspace.getConfiguration('seen').get<string>('target.default', 'native');
-            const args = ['build', '--release'];
-            if (target !== 'native') {
-                args.push('--target', target);
+            const editor = vscode.window.activeTextEditor;
+            if (!editor || editor.document.languageId !== 'seen') {
+                vscode.window.showWarningMessage('Open a Seen file to compile.');
+                return;
             }
 
-            await executeSeenTask('Seen Build', 'build', args);
+            if (editor.document.isDirty) {
+                await editor.document.save();
+            }
+
+            const filePath = editor.document.fileName;
+            const parsed = path.parse(filePath);
+            const outputBase = path.join(parsed.dir, parsed.name);
+            await executeSeenTask('Seen Compile', 'compile', ['compile', filePath, outputBase]);
         })
     );
 
@@ -198,7 +205,9 @@ export function setupCommands(context: vscode.ExtensionContext, client: Language
     // Test command
     context.subscriptions.push(
         vscode.commands.registerCommand('seen.test', async () => {
-            await executeSeenTask('Seen Test', 'test', ['test']);
+            vscode.window.showWarningMessage(
+                'seen test is not supported by the shipped compiler. Use project-specific test scripts for now.'
+            );
         })
     );
 
@@ -407,61 +416,18 @@ export function setupCommands(context: vscode.ExtensionContext, client: Language
     // Clean command
     context.subscriptions.push(
         vscode.commands.registerCommand('seen.clean', async () => {
-            await executeSeenTask('Seen Clean', 'clean', ['clean']);
+            vscode.window.showWarningMessage(
+                'seen clean is not supported by the shipped compiler. Remove project build artifacts manually for now.'
+            );
         })
     );
 
     // Initialize new project
     context.subscriptions.push(
         vscode.commands.registerCommand('seen.init', async () => {
-            const projectName = await vscode.window.showInputBox({
-                prompt: 'Enter project name',
-                placeHolder: 'my-project',
-                validateInput: (input) => {
-                    if (!input) {
-                        return 'Project name is required';
-                    }
-                    if (!/^[a-zA-Z0-9_-]+$/.test(input)) {
-                        return 'Project name can only contain letters, numbers, underscores, and hyphens';
-                    }
-                    return null;
-                }
-            });
-
-            if (!projectName) {
-                return;
-            }
-
-            const language = await vscode.window.showQuickPick(
-                SEEN_LANGUAGES,
-                { placeHolder: 'Select project language' }
+            vscode.window.showWarningMessage(
+                'seen init is not supported by the shipped compiler. Create a Seen.toml and source files manually for now.'
             );
-
-            const langCode = language?.value || 'en';
-
-            const projectType = await vscode.window.showQuickPick(
-                [
-                    { label: 'Application', value: 'application' },
-                    { label: 'Library', value: 'library' },
-                    { label: 'Reactive', value: 'reactive' },
-                    { label: 'Benchmark', value: 'benchmark' }
-                ],
-                { placeHolder: 'Select project type' }
-            );
-
-            const typeValue = projectType?.value || 'application';
-
-            await executeSeenTask('Seen Init', 'init', ['init', projectName, '--lang', langCode, '--type', typeValue]);
-
-            // Open the new project after creation
-            setTimeout(() => {
-                const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-                if (workspaceRoot) {
-                    const projectPath = path.join(workspaceRoot, projectName);
-                    const uri = vscode.Uri.file(projectPath);
-                    vscode.commands.executeCommand('vscode.openFolder', uri);
-                }
-            }, 2000);
         })
     );
 

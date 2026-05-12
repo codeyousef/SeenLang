@@ -5,6 +5,25 @@ All notable changes to the Seen compiler will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.1] - 2026-05-12
+
+### Fixed
+
+#### Release packaging and CPU portability
+- Fixed the Linux release rebuild path so portable `linux-x64` packages can be produced and verified against an explicit `x86-64` CPU baseline instead of inheriting AVX-512 instructions from the build host.
+- Made the Windows cross-build helper use a serial, no-cache, portable IR generation path by default and lower transformed Windows IR through Clang's COFF object backend so release packages can be rebuilt from the current compiler on AVX-512 hosts.
+- Fixed the Windows ABI transformer so struct parameters rewritten to `byval` pointers are materialized back into local aggregate values before the function body uses them.
+- Fixed Windows COFF weak-symbol handling for runtime helpers and compiler package constants so cross-built compiler binaries link cleanly under MinGW.
+- Extended release artifact verification to require the packaged compiler to expose `seen pkg prebuild` and successfully emit both `objects.tsv` and `interface.index.tsv`, catching stale package-command surfaces before upload.
+- Hardened low-memory rebuild recovery by repairing stale builder IR call-shape, void-parameter, and aggregate-return mismatches before LLVM verification.
+- Fixed prebuilt package interface import resolution so artifact sources can resolve their own package-qualified sibling imports, preserving dependency class layouts for downstream `String` field access.
+- Fixed prebuilt package object-manifest declaration discovery so `String`-returning helpers built into an artifact but omitted from the public interface module list keep their ABI when consumed downstream.
+- Made prebuilt object manifests portable by recording project-relative source paths instead of build-machine absolute paths.
+- Added shipped compiler support for `seen --version` / `seen -v` and `seen --help` / `seen -h`, and made legacy source-wrapper commands fail with explicit unsupported-command diagnostics.
+- Fixed recovered compiler source reads in `seen check` by resolving real input paths more defensively and falling back to a shell-quoted read when the bootstrap runtime read path returns empty content.
+- Updated compiler database output, CLI docs, known-limitations docs, and VS Code command labels so editor tooling follows the shipped `seen compile` command surface.
+- Revalidated the package/hot-module workflow with the fixed compiler: package dependencies remain declaration-only during consumption, prebuilt objects link correctly, and shared module exports keep the expected ABI symbols.
+
 ## [0.8.0] - 2026-05-10
 
 ### Added

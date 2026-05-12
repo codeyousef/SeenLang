@@ -116,15 +116,11 @@
     "commands": [
       {
         "command": "seen.build",
-        "title": "Seen: Build Project"
+        "title": "Seen: Compile Current File"
       },
       {
         "command": "seen.run",
         "title": "Seen: Run Project"
-      },
-      {
-        "command": "seen.test",
-        "title": "Seen: Run Tests"
       },
       {
         "command": "seen.benchmark",
@@ -157,14 +153,6 @@
       {
         "command": "seen.pkgPublish",
         "title": "Seen: Package Publish"
-      },
-      {
-        "command": "seen.clean",
-        "title": "Seen: Clean Build Artifacts"
-      },
-      {
-        "command": "seen.init",
-        "title": "Seen: Initialize New Project"
       },
       {
         "command": "seen.reactive.visualize",
@@ -235,11 +223,6 @@
         }
       ],
       "explorer/context": [
-        {
-          "command": "seen.init",
-          "when": "explorerResourceIsFolder",
-          "group": "seen"
-        },
         {
           "command": "seen.pkgFetch",
           "when": "explorerResourceIsFolder || seenProject",

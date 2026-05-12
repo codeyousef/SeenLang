@@ -1,10 +1,22 @@
 # CLI Reference
 
-This page documents the shipped Seen 0.8.0 compiler binary. The release
+This page documents the shipped Seen 0.8.1 compiler binary. The release
 entrypoint is `seen compile`; older `seen build` examples are stale for the
 current packaged compiler.
 
 ## Commands
+
+### Global flags
+
+```bash
+seen --version
+seen -v
+seen --help
+seen -h
+```
+
+`--version` prints the shipped compiler version and exits successfully.
+`--help` prints the supported command surface and exits successfully.
 
 ### `seen compile`
 
@@ -127,6 +139,17 @@ seen compile prog.seen prog --pgo-generate
 llvm-profdata merge -o default.profdata default_*.profraw
 seen compile prog.seen prog --pgo-use=default.profdata
 ```
+
+## Unsupported Source-Wrapper Commands
+
+The shipped compiler intentionally does not expose the legacy source-wrapper
+commands `build`, `init`, `fmt`, `format`, `clean`, or `test`. These commands
+fail with a clear diagnostic. Use `seen compile` for builds and
+project-specific scripts for scaffolding, cleanup, and tests until those
+surfaces are implemented in the shipped entrypoint.
+
+The shipped compiler is LLVM-only. Passing `--backend=c` to `seen compile`
+fails with an explicit unsupported-backend diagnostic.
 
 ## Cache Locations
 

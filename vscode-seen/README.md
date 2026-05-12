@@ -16,10 +16,10 @@
 - **IntelliSense** -- Code completion and type information via the built-in LSP
 - **Error Diagnostics** -- Real-time error checking as you type
 - **Go to Definition / Find References** -- Navigate your codebase
-- **Code Formatting** -- Format with `Shift+Alt+F` (uses `seen fmt`)
+- **Code Formatting** -- Format with `Shift+Alt+F` through LSP formatting
 - **Debugging** -- Breakpoints, stepping, variable inspection
 - **REPL** -- Interactive Seen session in the terminal
-- **Build Integration** -- Build, run, and test from the editor
+- **Compile Integration** -- Compile, run, check, and package from the editor
 - **Shared Module Builds** -- Compile PIC objects and object manifests for hot-reload/shared-library workflows
 - **Package Workflows** -- Run `seen pkg fetch`, `pack`, `prebuild`, and `publish` from VS Code
 - **Multi-Language Keywords** -- Switch between English, Arabic, Spanish, Russian, Chinese, and Japanese keywords
@@ -34,9 +34,8 @@
 
 | Command | Shortcut | Description |
 |---------|----------|-------------|
-| Seen: Build Project | `Ctrl+Shift+B` | Compile the current project |
+| Seen: Compile Current File | `Ctrl+Shift+B` | Compile the active Seen source file |
 | Seen: Run Project | `F5` | Execute the program |
-| Seen: Run Tests | -- | Run all test functions |
 | Seen: Format Document | `Shift+Alt+F` | Format the current file |
 | Seen: Check Project | -- | Type-check without compiling |
 | Seen: Compile Shared Module Objects | -- | Emit PIC objects plus an object manifest |

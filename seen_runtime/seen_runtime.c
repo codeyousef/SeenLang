@@ -64,6 +64,12 @@ static inline void* seen_aligned_alloc(size_t alignment, size_t size) {
 
 #endif // _WIN32
 
+#if defined(_WIN32)
+#define SEEN_WEAK
+#else
+#define SEEN_WEAK __attribute__((weak))
+#endif
+
 #include <ctype.h>
 
 // ============================================================================
@@ -739,7 +745,7 @@ static inline bool is_whitespace(char c) {
     return c == ' ' || c == '\t' || c == '\n' || c == '\r';
 }
 
-__attribute__((weak)) SeenString trim(SeenString text) {
+SEEN_WEAK SeenString trim(SeenString text) {
     int64_t start = 0;
     int64_t end = text.len;
 
@@ -2187,8 +2193,8 @@ SeenString CGenerator_generate(void* gen, void* program) {
 
 void* Ok(void* value) { return value; }
 void* Err(SeenString message) { return NULL; }
-__attribute__((weak)) void* Some(void* value) { return value; }
-__attribute__((weak)) void* None(void) { return NULL; }
+SEEN_WEAK void* Some(void* value) { return value; }
+SEEN_WEAK void* None(void) { return NULL; }
 
 // Generic default value - returns null/zero for any type
 // Used by Option<T> for default initialization
@@ -2358,26 +2364,26 @@ void* Location(void) { return malloc(32); }
 // These have weak linkage so user-defined versions can override them
 // ============================================================================
 
-__attribute__((weak)) void* TypeNode_new(void) {
+SEEN_WEAK void* TypeNode_new(void) {
     // Simple struct with name field
     void* node = malloc(64);
     memset(node, 0, 64);
     return node;
 }
 
-__attribute__((weak)) void* ItemNode_new(void) {
+SEEN_WEAK void* ItemNode_new(void) {
     void* node = malloc(256);
     memset(node, 0, 256);
     return node;
 }
 
-__attribute__((weak)) void* ParamNode_new(void) {
+SEEN_WEAK void* ParamNode_new(void) {
     void* node = malloc(128);
     memset(node, 0, 128);
     return node;
 }
 
-__attribute__((weak)) void* ImportSymbolNode_new(void) {
+SEEN_WEAK void* ImportSymbolNode_new(void) {
     void* node = malloc(64);
     memset(node, 0, 64);
     return node;
@@ -8093,11 +8099,7 @@ void seen_small_vec_clear(int64_t handle) {
 // ============================================================================
 #include <string.h>
 
-#if defined(_MSC_VER)
-#define SEEN_BOOTSTRAP_WEAK
-#else
-#define SEEN_BOOTSTRAP_WEAK __attribute__((weak))
-#endif
+#define SEEN_BOOTSTRAP_WEAK SEEN_WEAK
 
 SEEN_BOOTSTRAP_WEAK int64_t seen_packed_chunk_create(int64_t size) { return (int64_t)calloc(1, (size_t)size); }
 SEEN_BOOTSTRAP_WEAK void seen_packed_chunk_free(int64_t ptr) { free((void*)ptr); }
@@ -8112,8 +8114,8 @@ SEEN_BOOTSTRAP_WEAK int64_t seen_chunk_brick_load(int64_t p) { (void)p; return 0
 SEEN_BOOTSTRAP_WEAK void seen_chunk_brick_free(int64_t p) { (void)p; }
 void seen_quality_log(int64_t level, int64_t msg_ptr, int64_t msg_len) { (void)level; (void)msg_ptr; (void)msg_len; }
 SEEN_BOOTSTRAP_WEAK int64_t seen_vk_get_physical_device_timestamp_period(void) { return 0; }
-__attribute__((weak)) int64_t seen_vk_create_query_pool(int64_t a, int64_t b) { (void)a; (void)b; return 0; }
-__attribute__((weak)) void seen_vk_cmd_write_timestamp(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
+SEEN_WEAK int64_t seen_vk_create_query_pool(int64_t a, int64_t b) { (void)a; (void)b; return 0; }
+SEEN_WEAK void seen_vk_cmd_write_timestamp(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
 
 // Hearton engine string helpers (SeenString already typedef'd above)
 SeenString hearton_int_to_str(int64_t val) {
@@ -8179,28 +8181,28 @@ SEEN_BOOTSTRAP_WEAK int64_t seen_string_starts_with(int64_t s_len, char* s_data,
 }
 
 // SDL stubs
-__attribute__((weak)) int64_t seen_sdl_init(int64_t a) { (void)a; return 0; }
+SEEN_WEAK int64_t seen_sdl_init(int64_t a) { (void)a; return 0; }
 SEEN_BOOTSTRAP_WEAK int64_t seen_sdl_create_window_vulkan(int64_t a, int64_t b, int64_t c, int64_t d) { (void)a; (void)b; (void)c; (void)d; return 0; }
 SEEN_BOOTSTRAP_WEAK int64_t seen_sdl_alloc_event_buffer(void) { return 0; }
-__attribute__((weak)) void seen_sdl_set_relative_mouse(int64_t a) { (void)a; }
+SEEN_WEAK void seen_sdl_set_relative_mouse(int64_t a) { (void)a; }
 SEEN_BOOTSTRAP_WEAK int64_t SDL_SetRelativeMouseMode(int64_t enabled) { (void)enabled; return 0; }
 
 // Vulkan stubs
-__attribute__((weak)) int64_t seen_vk_create_instance(int64_t a) { (void)a; return 0; }
+SEEN_WEAK int64_t seen_vk_create_instance(int64_t a) { (void)a; return 0; }
 SEEN_BOOTSTRAP_WEAK int64_t seen_vk_create_surface(int64_t a, int64_t b) { (void)a; (void)b; return 0; }
 SEEN_BOOTSTRAP_WEAK int64_t seen_vk_pick_physical_device(int64_t a, int64_t b) { (void)a; (void)b; return 0; }
 SEEN_BOOTSTRAP_WEAK int64_t seen_vk_create_logical_device(int64_t a) { (void)a; return 0; }
 SEEN_BOOTSTRAP_WEAK int64_t seen_vk_get_graphics_queue(int64_t a) { (void)a; return 0; }
 SEEN_BOOTSTRAP_WEAK int64_t seen_vk_get_present_queue(int64_t a) { (void)a; return 0; }
-__attribute__((weak)) int64_t seen_vk_create_swapchain(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; return 0; }
+SEEN_WEAK int64_t seen_vk_create_swapchain(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; return 0; }
 SEEN_BOOTSTRAP_WEAK int64_t seen_vk_get_swapchain_image_count(int64_t a) { (void)a; return 0; }
 SEEN_BOOTSTRAP_WEAK int64_t seen_vk_create_swapchain_image_views(int64_t a, int64_t b) { (void)a; (void)b; return 0; }
 SEEN_BOOTSTRAP_WEAK int64_t seen_vk_create_render_pass(int64_t a) { (void)a; return 0; }
 SEEN_BOOTSTRAP_WEAK int64_t seen_vk_create_framebuffers(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; return 0; }
-__attribute__((weak)) int64_t seen_vk_create_command_pool(int64_t a) { (void)a; return 0; }
-__attribute__((weak)) int64_t seen_vk_allocate_command_buffers(int64_t a, int64_t b) { (void)a; (void)b; return 0; }
-__attribute__((weak)) int64_t seen_vk_create_semaphore(int64_t a) { (void)a; return 0; }
-__attribute__((weak)) int64_t seen_vk_create_fence(int64_t a) { (void)a; return 0; }
+SEEN_WEAK int64_t seen_vk_create_command_pool(int64_t a) { (void)a; return 0; }
+SEEN_WEAK int64_t seen_vk_allocate_command_buffers(int64_t a, int64_t b) { (void)a; (void)b; return 0; }
+SEEN_WEAK int64_t seen_vk_create_semaphore(int64_t a) { (void)a; return 0; }
+SEEN_WEAK int64_t seen_vk_create_fence(int64_t a) { (void)a; return 0; }
 SEEN_BOOTSTRAP_WEAK int64_t seen_vk_create_depth_resources(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; return 0; }
 SEEN_BOOTSTRAP_WEAK int64_t seen_vk_create_depth_image(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; return 0; }
 SEEN_BOOTSTRAP_WEAK int64_t seen_vk_create_depth_image_view(int64_t a) { (void)a; return 0; }
@@ -8232,18 +8234,18 @@ SEEN_BOOTSTRAP_WEAK void seen_console_poll_line(int64_t a, int64_t b) { (void)a;
 SEEN_BOOTSTRAP_WEAK void seen_audio_write_samples(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
 SEEN_BOOTSTRAP_WEAK void seen_audio_destroy(int64_t a) { (void)a; }
 SEEN_BOOTSTRAP_WEAK int64_t seen_sdl_get_ticks_ns(void) { return 0; }
-__attribute__((weak)) void seen_sdl_show_window(int64_t a) { (void)a; }
+SEEN_WEAK void seen_sdl_show_window(int64_t a) { (void)a; }
 SEEN_BOOTSTRAP_WEAK int64_t seen_vk_create_depth_only_render_pass(int64_t a) { (void)a; return 0; }
 SEEN_BOOTSTRAP_WEAK int64_t seen_vk_create_offscreen_render_pass(int64_t a) { (void)a; return 0; }
 SEEN_BOOTSTRAP_WEAK int64_t seen_vk_create_depth_resources_sampled(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; return 0; }
 SEEN_BOOTSTRAP_WEAK int64_t seen_vk_create_depth_framebuffer(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; return 0; }
 SEEN_BOOTSTRAP_WEAK int64_t seen_vk_depth_pack_get_view(int64_t a) { (void)a; return 0; }
-__attribute__((weak)) int64_t seen_vk_create_descriptor_pool(int64_t a, int64_t b) { (void)a; (void)b; return 0; }
-__attribute__((weak)) int64_t seen_vk_create_descriptor_set_layout(int64_t a, int64_t b) { (void)a; (void)b; return 0; }
+SEEN_WEAK int64_t seen_vk_create_descriptor_pool(int64_t a, int64_t b) { (void)a; (void)b; return 0; }
+SEEN_WEAK int64_t seen_vk_create_descriptor_set_layout(int64_t a, int64_t b) { (void)a; (void)b; return 0; }
 SEEN_BOOTSTRAP_WEAK int64_t seen_vk_create_pipeline_layout_ext(int64_t a, int64_t b) { (void)a; (void)b; return 0; }
-__attribute__((weak)) int64_t seen_vk_allocate_descriptor_set(int64_t a, int64_t b) { (void)a; (void)b; return 0; }
-__attribute__((weak)) void seen_vk_update_descriptor_set_buffer(int64_t a, int64_t b, int64_t c, int64_t d) { (void)a; (void)b; (void)c; (void)d; }
-__attribute__((weak)) void seen_vk_update_descriptor_set_image(int64_t a, int64_t b, int64_t c, int64_t d) { (void)a; (void)b; (void)c; (void)d; }
+SEEN_WEAK int64_t seen_vk_allocate_descriptor_set(int64_t a, int64_t b) { (void)a; (void)b; return 0; }
+SEEN_WEAK void seen_vk_update_descriptor_set_buffer(int64_t a, int64_t b, int64_t c, int64_t d) { (void)a; (void)b; (void)c; (void)d; }
+SEEN_WEAK void seen_vk_update_descriptor_set_image(int64_t a, int64_t b, int64_t c, int64_t d) { (void)a; (void)b; (void)c; (void)d; }
 
 // ==========================================================================
 // Comprehensive stubs for bootstrap builds — Vulkan, SDL, voxel, audio, etc.
@@ -8255,53 +8257,53 @@ __attribute__((weak)) void seen_vk_update_descriptor_set_image(int64_t a, int64_
 // Keep these opt-in for bootstrap-only builds. Exporting them from the default
 // runtime object can shadow the real Vulkan loader in user projects.
 #ifdef SEEN_ENABLE_BOOTSTRAP_RAW_VULKAN_STUBS
-__attribute__((weak)) int64_t vkBindBufferMemory(int64_t a, int64_t b, int64_t c, int64_t d) { (void)a; (void)b; (void)c; (void)d; return 0; }
-__attribute__((weak)) void vkCmdEndRenderPass(int64_t a) { (void)a; }
-__attribute__((weak)) void vkDestroyBuffer(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
-__attribute__((weak)) void vkDestroyCommandPool(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
-__attribute__((weak)) void vkDestroyDescriptorPool(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
-__attribute__((weak)) void vkDestroyDescriptorSetLayout(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
-__attribute__((weak)) void vkDestroyDevice(int64_t a, int64_t b) { (void)a; (void)b; }
-__attribute__((weak)) void vkDestroyFence(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
-__attribute__((weak)) void vkDestroyFramebuffer(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
-__attribute__((weak)) void vkDestroyImage(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
-__attribute__((weak)) void vkDestroyImageView(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
-__attribute__((weak)) void vkDestroyInstance(int64_t a, int64_t b) { (void)a; (void)b; }
-__attribute__((weak)) void vkDestroyPipeline(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
-__attribute__((weak)) void vkDestroyPipelineLayout(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
-__attribute__((weak)) void vkDestroyRenderPass(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
-__attribute__((weak)) void vkDestroySampler(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
-__attribute__((weak)) void vkDestroySemaphore(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
-__attribute__((weak)) void vkDestroyShaderModule(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
-__attribute__((weak)) void vkDestroySurfaceKHR(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
-__attribute__((weak)) void vkDestroySwapchainKHR(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
-__attribute__((weak)) int64_t vkDeviceWaitIdle(int64_t a) { (void)a; return 0; }
-__attribute__((weak)) int64_t vkEndCommandBuffer(int64_t a) { (void)a; return 0; }
-__attribute__((weak)) void vkFreeMemory(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
-__attribute__((weak)) void vkUnmapMemory(int64_t a, int64_t b) { (void)a; (void)b; }
+SEEN_WEAK int64_t vkBindBufferMemory(int64_t a, int64_t b, int64_t c, int64_t d) { (void)a; (void)b; (void)c; (void)d; return 0; }
+SEEN_WEAK void vkCmdEndRenderPass(int64_t a) { (void)a; }
+SEEN_WEAK void vkDestroyBuffer(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
+SEEN_WEAK void vkDestroyCommandPool(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
+SEEN_WEAK void vkDestroyDescriptorPool(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
+SEEN_WEAK void vkDestroyDescriptorSetLayout(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
+SEEN_WEAK void vkDestroyDevice(int64_t a, int64_t b) { (void)a; (void)b; }
+SEEN_WEAK void vkDestroyFence(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
+SEEN_WEAK void vkDestroyFramebuffer(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
+SEEN_WEAK void vkDestroyImage(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
+SEEN_WEAK void vkDestroyImageView(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
+SEEN_WEAK void vkDestroyInstance(int64_t a, int64_t b) { (void)a; (void)b; }
+SEEN_WEAK void vkDestroyPipeline(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
+SEEN_WEAK void vkDestroyPipelineLayout(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
+SEEN_WEAK void vkDestroyRenderPass(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
+SEEN_WEAK void vkDestroySampler(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
+SEEN_WEAK void vkDestroySemaphore(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
+SEEN_WEAK void vkDestroyShaderModule(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
+SEEN_WEAK void vkDestroySurfaceKHR(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
+SEEN_WEAK void vkDestroySwapchainKHR(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
+SEEN_WEAK int64_t vkDeviceWaitIdle(int64_t a) { (void)a; return 0; }
+SEEN_WEAK int64_t vkEndCommandBuffer(int64_t a) { (void)a; return 0; }
+SEEN_WEAK void vkFreeMemory(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
+SEEN_WEAK void vkUnmapMemory(int64_t a, int64_t b) { (void)a; (void)b; }
 #endif
 
 // --- Vulkan wrapper stubs ---
-__attribute__((weak)) int64_t seen_vk_acquire_next_image(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; return 0; }
-__attribute__((weak)) void seen_vk_begin_command_buffer(int64_t a) { (void)a; }
+SEEN_WEAK int64_t seen_vk_acquire_next_image(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; return 0; }
+SEEN_WEAK void seen_vk_begin_command_buffer(int64_t a) { (void)a; }
 SEEN_BOOTSTRAP_WEAK void seen_vk_begin_render_pass(int64_t a, int64_t b, int64_t c, int64_t d, int64_t e) { (void)a; (void)b; (void)c; (void)d; (void)e; }
 SEEN_BOOTSTRAP_WEAK void seen_vk_begin_render_pass_depth(int64_t a, int64_t b, int64_t c, int64_t d) { (void)a; (void)b; (void)c; (void)d; }
 SEEN_BOOTSTRAP_WEAK void seen_vk_cmd_bind_compute_descriptor_set(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
 SEEN_BOOTSTRAP_WEAK void seen_vk_cmd_bind_descriptor_set(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
 SEEN_BOOTSTRAP_WEAK void seen_vk_cmd_bind_index_buffer(int64_t a, int64_t b) { (void)a; (void)b; }
-__attribute__((weak)) void seen_vk_cmd_bind_pipeline(int64_t a, int64_t b) { (void)a; (void)b; }
+SEEN_WEAK void seen_vk_cmd_bind_pipeline(int64_t a, int64_t b) { (void)a; (void)b; }
 SEEN_BOOTSTRAP_WEAK void seen_vk_cmd_bind_vertex_buffer(int64_t a, int64_t b) { (void)a; (void)b; }
 SEEN_BOOTSTRAP_WEAK void seen_vk_cmd_depth_image_barrier(int64_t a, int64_t b) { (void)a; (void)b; }
 SEEN_BOOTSTRAP_WEAK void seen_vk_cmd_dispatch_compute(int64_t a, int64_t b, int64_t c, int64_t d) { (void)a; (void)b; (void)c; (void)d; }
-__attribute__((weak)) void seen_vk_cmd_draw(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
+SEEN_WEAK void seen_vk_cmd_draw(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
 SEEN_BOOTSTRAP_WEAK void seen_vk_cmd_draw_indexed(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
 SEEN_BOOTSTRAP_WEAK void seen_vk_cmd_draw_indexed_indirect(int64_t a, int64_t b, int64_t c, int64_t d) { (void)a; (void)b; (void)c; (void)d; }
 SEEN_BOOTSTRAP_WEAK void seen_vk_cmd_image_barrier(int64_t a, int64_t b, int64_t c, int64_t d) { (void)a; (void)b; (void)c; (void)d; }
 SEEN_BOOTSTRAP_WEAK void seen_vk_cmd_pipeline_barrier(int64_t a, int64_t b) { (void)a; (void)b; }
 SEEN_BOOTSTRAP_WEAK void seen_vk_cmd_push_constants_frag(int64_t a, int64_t b, int64_t c, int64_t d) { (void)a; (void)b; (void)c; (void)d; }
-__attribute__((weak)) void seen_vk_cmd_reset_query_pool(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
-__attribute__((weak)) void seen_vk_cmd_set_scissor(int64_t a, int64_t b, int64_t c, int64_t d, int64_t e) { (void)a; (void)b; (void)c; (void)d; (void)e; }
-__attribute__((weak)) void seen_vk_cmd_set_viewport(int64_t a, int64_t b, int64_t c, int64_t d, int64_t e) { (void)a; (void)b; (void)c; (void)d; (void)e; }
+SEEN_WEAK void seen_vk_cmd_reset_query_pool(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
+SEEN_WEAK void seen_vk_cmd_set_scissor(int64_t a, int64_t b, int64_t c, int64_t d, int64_t e) { (void)a; (void)b; (void)c; (void)d; (void)e; }
+SEEN_WEAK void seen_vk_cmd_set_viewport(int64_t a, int64_t b, int64_t c, int64_t d, int64_t e) { (void)a; (void)b; (void)c; (void)d; (void)e; }
 SEEN_BOOTSTRAP_WEAK void seen_vk_cmd_storage_buffer_to_indirect_barrier(int64_t a, int64_t b) { (void)a; (void)b; }
 SEEN_BOOTSTRAP_WEAK int64_t seen_vk_create_blend_pipeline(int64_t a, int64_t b, int64_t c, int64_t d) { (void)a; (void)b; (void)c; (void)d; return 0; }
 SEEN_BOOTSTRAP_WEAK int64_t seen_vk_create_compute_pipeline_with_layout(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; return 0; }
@@ -8322,7 +8324,7 @@ SEEN_BOOTSTRAP_WEAK void seen_vk_destroy_depth_resources(int64_t a) { (void)a; }
 SEEN_BOOTSTRAP_WEAK void seen_vk_destroy_framebuffers(int64_t a, int64_t b) { (void)a; (void)b; }
 SEEN_BOOTSTRAP_WEAK void seen_vk_destroy_image_views(int64_t a, int64_t b) { (void)a; (void)b; }
 SEEN_BOOTSTRAP_WEAK void seen_vk_destroy_offscreen_target(int64_t a) { (void)a; }
-__attribute__((weak)) void seen_vk_destroy_query_pool(int64_t a) { (void)a; }
+SEEN_WEAK void seen_vk_destroy_query_pool(int64_t a) { (void)a; }
 SEEN_BOOTSTRAP_WEAK void seen_vk_destroy_texture_atlas(int64_t a) { (void)a; }
 SEEN_BOOTSTRAP_WEAK int64_t seen_vk_get_command_buffer(int64_t a, int64_t b) { (void)a; (void)b; return 0; }
 SEEN_BOOTSTRAP_WEAK int64_t seen_vk_get_framebuffer(int64_t a, int64_t b) { (void)a; (void)b; return 0; }
@@ -8334,15 +8336,15 @@ SEEN_BOOTSTRAP_WEAK int64_t seen_vk_map_memory(int64_t a, int64_t b) { (void)a; 
 SEEN_BOOTSTRAP_WEAK int64_t seen_vk_offscreen_get_image(int64_t a) { (void)a; return 0; }
 SEEN_BOOTSTRAP_WEAK int64_t seen_vk_offscreen_get_sampler(int64_t a) { (void)a; return 0; }
 SEEN_BOOTSTRAP_WEAK int64_t seen_vk_offscreen_get_view(int64_t a) { (void)a; return 0; }
-__attribute__((weak)) int64_t seen_vk_queue_present(int64_t a, int64_t b, int64_t c, int64_t d) { (void)a; (void)b; (void)c; (void)d; return 0; }
-__attribute__((weak)) int64_t seen_vk_queue_submit(int64_t a, int64_t b, int64_t c, int64_t d) { (void)a; (void)b; (void)c; (void)d; return 0; }
+SEEN_WEAK int64_t seen_vk_queue_present(int64_t a, int64_t b, int64_t c, int64_t d) { (void)a; (void)b; (void)c; (void)d; return 0; }
+SEEN_WEAK int64_t seen_vk_queue_submit(int64_t a, int64_t b, int64_t c, int64_t d) { (void)a; (void)b; (void)c; (void)d; return 0; }
 SEEN_BOOTSTRAP_WEAK int64_t seen_vk_recreate_swapchain(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; return 0; }
 SEEN_BOOTSTRAP_WEAK void seen_vk_reset_fence(int64_t a, int64_t b) { (void)a; (void)b; }
 SEEN_BOOTSTRAP_WEAK void seen_vk_wait_for_fence(int64_t a, int64_t b) { (void)a; (void)b; }
 
 // --- SDL stubs ---
-__attribute__((weak)) void SDL_Quit(void) {}
-__attribute__((weak)) void seen_sdl_destroy_window(int64_t a) { (void)a; }
+SEEN_WEAK void SDL_Quit(void) {}
+SEEN_WEAK void seen_sdl_destroy_window(int64_t a) { (void)a; }
 SEEN_BOOTSTRAP_WEAK int64_t seen_sdl_event_key_scancode(int64_t a) { (void)a; return 0; }
 SEEN_BOOTSTRAP_WEAK int64_t seen_sdl_event_mouse_button(int64_t a) { (void)a; return 0; }
 SEEN_BOOTSTRAP_WEAK int64_t seen_sdl_event_mouse_dx(int64_t a) { (void)a; return 0; }
@@ -8351,7 +8353,7 @@ SEEN_BOOTSTRAP_WEAK int64_t seen_sdl_event_type(int64_t a) { (void)a; return 0; 
 SEEN_BOOTSTRAP_WEAK int64_t seen_sdl_event_window_h(int64_t a) { (void)a; return 0; }
 SEEN_BOOTSTRAP_WEAK int64_t seen_sdl_event_window_w(int64_t a) { (void)a; return 0; }
 SEEN_BOOTSTRAP_WEAK void seen_sdl_free_event_buffer(int64_t a) { (void)a; }
-__attribute__((weak)) int64_t seen_sdl_poll_event(int64_t a) { (void)a; return 0; }
+SEEN_WEAK int64_t seen_sdl_poll_event(int64_t a) { (void)a; return 0; }
 
 // --- Audio stubs ---
 SEEN_BOOTSTRAP_WEAK int64_t seen_audio_init(int64_t a, int64_t b) { (void)a; (void)b; return 0; }
@@ -8422,14 +8424,14 @@ SEEN_BOOTSTRAP_I64_STUB(seen_world_to_chunk_coord)
 #undef SEEN_BOOTSTRAP_I64_STUB
 
 // --- Memory utility stubs ---
-__attribute__((weak)) int64_t seen_mem_alloc(int64_t a) { return (int64_t)calloc(1, (size_t)a); }
-__attribute__((weak)) void seen_mem_free(int64_t a) { free((void*)a); }
-__attribute__((weak)) void seen_memcpy_bytes(int64_t dst, int64_t src, int64_t n) { if (dst && src && n > 0) memcpy((void*)dst, (void*)src, (size_t)n); }
-__attribute__((weak)) void seen_memcpy_floats(int64_t dst, int64_t src, int64_t n) { if (dst && src && n > 0) memcpy((void*)dst, (void*)src, (size_t)n * sizeof(float)); }
-__attribute__((weak)) void seen_memcpy_ints(int64_t dst, int64_t src, int64_t n) { if (dst && src && n > 0) memcpy((void*)dst, (void*)src, (size_t)n * sizeof(int64_t)); }
-__attribute__((weak)) int64_t seen_mem_load_i32(int64_t ptr, int64_t off) { return ptr ? (int64_t)(*(int32_t*)((char*)ptr + off)) : 0; }
-__attribute__((weak)) void seen_mem_store_f32(int64_t ptr, int64_t off, double val) { if (ptr) *(float*)((char*)ptr + off) = (float)val; }
-__attribute__((weak)) void seen_mem_store_i32(int64_t ptr, int64_t off, int64_t val) { if (ptr) *(int32_t*)((char*)ptr + off) = (int32_t)val; }
+SEEN_WEAK int64_t seen_mem_alloc(int64_t a) { return (int64_t)calloc(1, (size_t)a); }
+SEEN_WEAK void seen_mem_free(int64_t a) { free((void*)a); }
+SEEN_WEAK void seen_memcpy_bytes(int64_t dst, int64_t src, int64_t n) { if (dst && src && n > 0) memcpy((void*)dst, (void*)src, (size_t)n); }
+SEEN_WEAK void seen_memcpy_floats(int64_t dst, int64_t src, int64_t n) { if (dst && src && n > 0) memcpy((void*)dst, (void*)src, (size_t)n * sizeof(float)); }
+SEEN_WEAK void seen_memcpy_ints(int64_t dst, int64_t src, int64_t n) { if (dst && src && n > 0) memcpy((void*)dst, (void*)src, (size_t)n * sizeof(int64_t)); }
+SEEN_WEAK int64_t seen_mem_load_i32(int64_t ptr, int64_t off) { return ptr ? (int64_t)(*(int32_t*)((char*)ptr + off)) : 0; }
+SEEN_WEAK void seen_mem_store_f32(int64_t ptr, int64_t off, double val) { if (ptr) *(float*)((char*)ptr + off) = (float)val; }
+SEEN_WEAK void seen_mem_store_i32(int64_t ptr, int64_t off, int64_t val) { if (ptr) *(int32_t*)((char*)ptr + off) = (int32_t)val; }
 
 // --- Performance/debug stubs ---
 SEEN_BOOTSTRAP_WEAK void seen_perf_10b_metrics(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }

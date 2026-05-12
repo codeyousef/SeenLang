@@ -16,7 +16,28 @@ set -euo pipefail
 
 case "${1:-}" in
     --version)
-        echo "Seen Language 0.8.0"
+        echo "Seen Language 0.8.1"
+        ;;
+    pkg)
+        case "${2:-}" in
+            prebuild)
+                artifact_dir="${4:-}"
+                if [[ -z "$artifact_dir" ]]; then
+                    echo "missing artifact dir" >&2
+                    exit 1
+                fi
+                mkdir -p "$artifact_dir/objects"
+                printf 'objects/module_0.o\t%s\n' "${3:-}/src/value.seen" > "$artifact_dir/objects.tsv"
+                printf 'release_prebuild_value\t%s\n' "${3:-}/src/value.seen" > "$artifact_dir/interface.index.tsv"
+                printf 'fake object\n' > "$artifact_dir/objects/module_0.o"
+                ;;
+            *)
+                echo "Usage: seen pkg fetch [project-dir-or-manifest]"
+                echo "       seen pkg pack [project-dir-or-manifest] [output]"
+                echo "       seen pkg prebuild [project-dir-or-manifest] [output-dir]"
+                echo "       seen pkg publish <registry-dir> [project-dir-or-manifest]"
+                ;;
+        esac
         ;;
     check)
         test -f "${2:-}"
@@ -34,7 +55,7 @@ OUT_EOF
         chmod +x "$output"
         ;;
     *)
-        echo "Usage: seen <check|compile>"
+        echo "Usage: seen <check|compile|pkg>"
         exit 1
         ;;
 esac
@@ -43,21 +64,21 @@ chmod +x "$FAKE_COMPILER"
 
 DIST_DIR="$TMP_DIR/dist"
 "$ROOT_DIR/scripts/build_release.sh" \
-    --version 0.8.0 \
+    --version 0.8.1 \
     --output-dir "$DIST_DIR" \
     --compiler "$FAKE_COMPILER" \
     --cpu-baseline x86-64 \
     --artifact-suffix linux-x64 \
     --skip-verify >/dev/null
 
-TARBALL="$DIST_DIR/seen-0.8.0-linux-x64.tar.gz"
+TARBALL="$DIST_DIR/seen-0.8.1-linux-x64.tar.gz"
 test -f "$TARBALL"
 
 "$ROOT_DIR/scripts/verify_release_cpu_baseline.sh" --cpu-baseline x86-64 "$TARBALL" >/dev/null
 
 MIN_SCAN_PATH="$TMP_DIR/min_scan_path"
 mkdir -p "$MIN_SCAN_PATH"
-for tool in bash tar gzip find head grep mktemp rm cat chmod basename; do
+for tool in bash tar gzip find head grep mktemp rm cat chmod basename mkdir; do
     tool_path="$(command -v "$tool")"
     ln -s "$tool_path" "$MIN_SCAN_PATH/$tool"
 done
@@ -68,7 +89,7 @@ PATH="$MIN_SCAN_PATH" "$ROOT_DIR/scripts/verify_release_cpu_baseline.sh" \
 EXTRACT_DIR="$TMP_DIR/extract"
 mkdir -p "$EXTRACT_DIR"
 tar -xzf "$TARBALL" -C "$EXTRACT_DIR"
-PACKAGE_DIR="$EXTRACT_DIR/seen-0.8.0-linux-x64"
+PACKAGE_DIR="$EXTRACT_DIR/seen-0.8.1-linux-x64"
 
 PREFIX="$TMP_DIR/prefix"
 mkdir -p "$PREFIX/bin"
@@ -88,7 +109,7 @@ if [[ -L "$PREFIX/bin/seen" ]]; then
     exit 1
 fi
 
-if ! "$PREFIX/bin/seen" --version | grep -q '0.8.0'; then
+if ! "$PREFIX/bin/seen" --version | grep -q '0.8.1'; then
     echo "installed seen binary did not come from the release package" >&2
     exit 1
 fi

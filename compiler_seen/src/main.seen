@@ -1,13 +1,16 @@
 ///
-main.seen — User-facing CLI entry point for the Seen compiler
+main.seen — Legacy/full CLI wrapper for source builds
 
 Pipeline stage: Entry point (before all compilation stages)
 Input: Command-line arguments (subcommand + flags)
 Output: Dispatches to the appropriate compilation pipeline
 
-This is the production compiler binary's main(). It parses CLI arguments and
-routes to one of several compilation paths:
-  - "build"  → LLVM backend (default) or C backend via main_compiler.seen
+The shipped release entrypoint is main_compiler.seen. This wrapper keeps
+source/bootstrap experiments available, but commands implemented here are not
+automatically part of the packaged compiler surface.
+
+It parses CLI arguments and routes to one of several compilation paths:
+  - "build"  → legacy source-build wrapper
   - "run"    → Compile to temp file + execute
   - "check"  → Frontend only (lexer → parser → typechecker), no codegen
   - "fmt"    → Basic source formatter (indent normalization)
@@ -16,8 +19,9 @@ routes to one of several compilation paths:
   - "pkg"    → Package workflow for fetch/pack/publish
 
 The LLVM backend path delegates to StageCompileSeenProgram (main_compiler.seen),
-which handles multi-module IR generation, optimization, and linking.
-The C backend path uses CGenerator for a simpler gcc-based pipeline.
+which handles multi-module IR generation, optimization, and linking. The C
+backend path is legacy wrapper-only and is not supported by the shipped
+compiler entrypoint.
 
 Multi-language support: --language flag selects keyword set (en/ar/es/ru/zh/ja),
 passed through to the lexer's KeywordManager.
@@ -183,7 +187,7 @@ fun main() r: Int {
     } else if command == "pkg" {
         exit = StagePkgCommand(GetRawCommandLineArgs())
     } else if command == "--version" or command == "-v" {
-        printLn("Seen 0.8.0 (100% self-hosted)")
+        printLn("Seen 0.8.1 (100% self-hosted)")
         printLn("Language: Seen")
         printLn("Targets: native, wasm, uww, c, llvm-ir")
         exit = 0
@@ -325,7 +329,7 @@ fun getDefaultOutput(sourceFile: String, target: Target) r: String {
 }
 
 fun printUsage() r: Void {
-    printLn("Seen 0.8.0 - 100% Self-hosted Compiler")
+    printLn("Seen 0.8.1 - 100% Self-hosted Compiler")
     printLn("")
     printLn("Usage: seen <command> [options]")
     printLn("")
@@ -397,8 +401,9 @@ fun printUsage() r: Void {
 }
 
 ///
-Legacy C-backend compilation path: frontend → CGenerator → gcc.
-Used when --backend=c is specified. Slower than LLVM but more portable.
+Legacy wrapper-only C-backend path: frontend → CGenerator → gcc.
+The shipped compiler entrypoint rejects --backend=c until this path is
+production-ready there.
 ///
 fun CompileSeenProgram(sourceCode: String, outputPath: String, language: String) r: Bool {
     printLn("[trace] CompileSeenProgram: calling run_frontend...")
@@ -595,7 +600,7 @@ fun buildCommandWithOptions(options: CompilerOptions) r: Int {
         return buildWASM(sourceCode, outputFile, options)
     }
 
-    // Use LLVM backend by default, C backend via --backend=c
+    // Use LLVM by default; --backend=c remains a legacy source-wrapper path.
     if options.backend == "c" {
         let success = CompileSeenProgram(sourceCode, outputFile, options.language)
         if success {

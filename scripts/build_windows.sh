@@ -5,7 +5,7 @@
 # Strategy:
 #   1. Use frozen bootstrap to compile .seen source → .ll (LLVM IR)
 #   2. Transform .ll for Windows x64 ABI (struct passing via byval)
-#   3. Compile .ll → assembly via llc targeting mingw
+#   3. Compile transformed .ll → COFF object via clang targeting mingw
 #   4. Link with cross-compiled runtime via mingw-gcc → .exe
 set -e
 
@@ -18,6 +18,7 @@ ABI_SCRIPT="${SCRIPT_DIR}/ll_win64_abi.py"
 # Resolve versioned tool names
 OPT=$(command -v opt-20 2>/dev/null || command -v opt 2>/dev/null || true)
 LLC=$(command -v llc-20 2>/dev/null || command -v llc 2>/dev/null || true)
+CLANG=$(command -v clang-20 2>/dev/null || command -v clang 2>/dev/null || true)
 MINGW_GCC=$(command -v x86_64-w64-mingw32-gcc 2>/dev/null || true)
 
 # Detect frozen compiler
@@ -30,12 +31,31 @@ else
     exit 1
 fi
 
+read -r -a SEEN_WINDOWS_COMPILE_FLAGS <<< "${SEEN_WINDOWS_COMPILE_FLAGS:---fast --no-cache --no-fork --target-cpu=x86-64 --simd=none}"
+SEEN_WINDOWS_OBJECT_BACKEND="${SEEN_WINDOWS_OBJECT_BACKEND:-clang}"
+SEEN_WINDOWS_CLANG_OPT="${SEEN_WINDOWS_CLANG_OPT:--O2}"
+read -r -a SEEN_WINDOWS_CLANG_WARN_FLAGS <<< "${SEEN_WINDOWS_CLANG_WARN_FLAGS:--Wno-pass-failed}"
+SEEN_WINDOWS_LLC_OPT="${SEEN_WINDOWS_LLC_OPT:--O2}"
+read -r -a SEEN_WINDOWS_LINK_FLAGS <<< "${SEEN_WINDOWS_LINK_FLAGS:--Wl,--allow-multiple-definition}"
+
 # Check prerequisites
 MISSING=""
 [ -z "$OPT" ] && MISSING="$MISSING opt(opt-20)"
-[ -z "$LLC" ] && MISSING="$MISSING llc(llc-20)"
 [ -z "$MINGW_GCC" ] && MISSING="$MISSING x86_64-w64-mingw32-gcc"
 [ ! -f "$ABI_SCRIPT" ] && MISSING="$MISSING ll_win64_abi.py"
+case "$SEEN_WINDOWS_OBJECT_BACKEND" in
+    clang)
+        [ -z "$CLANG" ] && MISSING="$MISSING clang(clang-20)"
+        ;;
+    llc)
+        [ -z "$LLC" ] && MISSING="$MISSING llc(llc-20)"
+        ;;
+    *)
+        echo "ERROR: Unsupported SEEN_WINDOWS_OBJECT_BACKEND=$SEEN_WINDOWS_OBJECT_BACKEND"
+        echo "Supported backends: clang, llc"
+        exit 1
+        ;;
+esac
 if [ -n "$MISSING" ]; then
     echo "ERROR: Missing:$MISSING"
     echo "Install: sudo apt-get install llvm-20 clang-20 lld-20 gcc-mingw-w64-x86-64"
@@ -114,10 +134,12 @@ cross_compile() {
     fi
 
     mkdir -p "$OUTPUT_DIR"
+    rm -f "$OUTPUT_DIR"/seen_module_*_win.ll "$OUTPUT_DIR"/seen_module_*_win.s "$OUTPUT_DIR"/seen_module_*_win.o 2>/dev/null || true
 
     echo "=== Cross-compiling for Windows x86-64 ==="
     echo "  Input:  $INPUT"
     echo "  Output: $OUTPUT_EXE"
+    echo "  Object backend: $SEEN_WINDOWS_OBJECT_BACKEND"
     echo ""
 
     # Step 1: Set up tool wrappers
@@ -128,7 +150,8 @@ cross_compile() {
     local LINUX_BIN="/tmp/seen_win_build_$$"
     rm -rf .seen_cache /tmp/seen_ir_cache /tmp/seen_module_*.ll /tmp/seen_module_*.o
     chmod +x "$SEEN"
-    PATH="/tmp/seen_opt_override:$PATH" "$SEEN" compile "$INPUT" "$LINUX_BIN" --fast 2>&1
+    SEEN_COMPILER_SOURCE_ROOT="${SEEN_COMPILER_SOURCE_ROOT:-$PROJECT_DIR}" \
+        PATH="/tmp/seen_opt_override:$PATH" "$SEEN" compile "$INPUT" "$LINUX_BIN" "${SEEN_WINDOWS_COMPILE_FLAGS[@]}" 2>&1
     echo ""
 
     # Step 3: Collect .ll files (exclude .opt.ll which are optimized duplicates)
@@ -143,21 +166,28 @@ cross_compile() {
 
     # Step 4: Transform .ll for Windows ABI
     echo "[3/5] Transforming IR for Windows x64 ABI..."
-    local WIN_ASM_FILES=""
+    local WIN_LINK_INPUTS=""
     for ll in $LL_FILES; do
         local base=$(basename "$ll" .ll)
         local win_ll="$OUTPUT_DIR/${base}_win.ll"
         local win_asm="$OUTPUT_DIR/${base}_win.s"
+        local win_obj="$OUTPUT_DIR/${base}_win.o"
 
         python3 "$ABI_SCRIPT" "$ll" "$win_ll"
-        $LLC "$win_ll" -o "$win_asm" -mtriple=x86_64-w64-mingw32 -O2 --filetype=asm 2>&1
-        # Remove LLVM directives that GNU assembler doesn't understand
-        sed -i \
-            -e '/.addrsig/d' \
-            -e '/\.section\s.*,discard,/d' \
-            -e 's/\.section[[:space:]]\+\.ctors,"dw",unique,[0-9]\+/.section .ctors,"dw"/' \
-            "$win_asm"
-        WIN_ASM_FILES="$WIN_ASM_FILES $win_asm"
+
+        if [ "$SEEN_WINDOWS_OBJECT_BACKEND" = "clang" ]; then
+            "$CLANG" -target x86_64-w64-windows-gnu -c "$win_ll" -o "$win_obj" "$SEEN_WINDOWS_CLANG_OPT" "${SEEN_WINDOWS_CLANG_WARN_FLAGS[@]}" 2>&1
+            WIN_LINK_INPUTS="$WIN_LINK_INPUTS $win_obj"
+        else
+            $LLC "$win_ll" -o "$win_asm" -mtriple=x86_64-w64-mingw32 "$SEEN_WINDOWS_LLC_OPT" --filetype=asm 2>&1
+            # Remove LLVM directives that GNU assembler doesn't understand
+            sed -i \
+                -e '/.addrsig/d' \
+                -e '/\.section\s.*,discard,/d' \
+                -e 's/\.section[[:space:]]\+\.ctors,"dw",unique,[0-9]\+/.section .ctors,"dw"/' \
+                "$win_asm"
+            WIN_LINK_INPUTS="$WIN_LINK_INPUTS $win_asm"
+        fi
         echo "  $base -> OK"
     done
 
@@ -169,13 +199,14 @@ cross_compile() {
     # Step 6: Link
     echo "[5/5] Linking $OUTPUT_EXE..."
     $MINGW_GCC -static \
-        $WIN_ASM_FILES \
+        $WIN_LINK_INPUTS \
         "$OUTPUT_DIR/seen_runtime_win.o" \
         -o "$OUTPUT_EXE" \
+        "${SEEN_WINDOWS_LINK_FLAGS[@]}" \
         -lkernel32 -ladvapi32 -lshell32 -lws2_32
 
     # Clean up temp files
-    rm -f "$LINUX_BIN" $OUTPUT_DIR/seen_module_*_win.ll $OUTPUT_DIR/seen_module_*_win.s
+    rm -f "$LINUX_BIN" $OUTPUT_DIR/seen_module_*_win.ll $OUTPUT_DIR/seen_module_*_win.s $OUTPUT_DIR/seen_module_*_win.o
 
     local SIZE=$(stat -c%s "$OUTPUT_EXE" 2>/dev/null || stat -f%z "$OUTPUT_EXE")
     echo ""

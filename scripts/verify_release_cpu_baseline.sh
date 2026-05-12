@@ -77,6 +77,9 @@ run_smoke_tests() {
     local tmpdir="$2"
     local source="$tmpdir/release_smoke.seen"
     local output="$tmpdir/release_smoke_bin"
+    local pkgdir="$tmpdir/prebuild_pkg"
+    local artifact_dir="$tmpdir/prebuild_artifact"
+    local pkg_output
     local startup_output
 
     if "$bin" --version >/dev/null 2>&1; then
@@ -100,6 +103,36 @@ SMOKE_EOF
 
     "$bin" check "$source" >/dev/null 2>&1
     "$bin" compile "$source" "$output" --fast --no-cache --target-cpu="$CPU_BASELINE" >/dev/null 2>&1
+
+    pkg_output="$("$bin" pkg 2>&1 || true)"
+    if ! grep -q 'pkg prebuild' <<<"$pkg_output"; then
+        echo "Packaged compiler does not expose 'seen pkg prebuild': $bin" >&2
+        return 1
+    fi
+
+    mkdir -p "$pkgdir/src" "$artifact_dir"
+    cat > "$pkgdir/Seen.toml" <<'PKG_TOML_EOF'
+[project]
+name = "release_prebuild_smoke"
+version = "0.1.0"
+language = "en"
+modules = ["src/value.seen"]
+PKG_TOML_EOF
+    cat > "$pkgdir/src/value.seen" <<'PKG_SRC_EOF'
+pub fun release_prebuild_value() r: Int {
+    return 7
+}
+PKG_SRC_EOF
+
+    "$bin" pkg prebuild "$pkgdir" "$artifact_dir" >/dev/null 2>&1
+    if [[ ! -s "$artifact_dir/objects.tsv" ]]; then
+        echo "Package prebuild smoke did not emit objects.tsv: $bin" >&2
+        return 1
+    fi
+    if [[ ! -s "$artifact_dir/interface.index.tsv" ]]; then
+        echo "Package prebuild smoke did not emit interface.index.tsv: $bin" >&2
+        return 1
+    fi
 }
 
 for artifact in "${ARTIFACTS[@]}"; do

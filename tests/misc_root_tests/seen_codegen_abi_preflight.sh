@@ -71,6 +71,36 @@ fun getKnownFieldIndexPrimaryTableImpl(structName: String, fieldName: String)
     return -1
 }
 SEEN
+    cat > "$TMP_DIR/compiler_seen/src/codegen/type_registry_core.seen" <<'SEEN'
+fun getFieldInfoReg(structName: String, fieldName: String,
+    structNames: Array<String>, structFieldNames: Array<String>) r: Int {
+
+    if structName == "StatementNode" {
+        if fieldName == "kind" { return 0 }
+        if fieldName == "variableName" { return 1 }
+        if fieldName == "variableType" { return 2 }
+        if fieldName == "initializer" { return 3 }
+        if fieldName == "returnValue" { return 4 }
+        if fieldName == "expression" { return 5 }
+        if fieldName == "condition" { return 6 }
+        if fieldName == "thenBranch" { return 7 }
+        if fieldName == "elseBranch" { return 8 }
+        if fieldName == "loopCondition" { return 9 }
+        if fieldName == "loopBody" { return 10 }
+    }
+    if structName == "ParserExpressionNode" {
+        if fieldName == "kind" { return 0 }
+        if fieldName == "operands" { return 1 }
+        if fieldName == "operator" { return 2 }
+        if fieldName == "literalValue" { return 3 }
+        if fieldName == "literalType" { return 4 }
+        if fieldName == "variableName" { return 5 }
+        if fieldName == "callee" { return 6 }
+        if fieldName == "arguments" { return 7 }
+    }
+    return -1
+}
+SEEN
     cat > "$TMP_DIR/compiler_seen/src/codegen/ir_struct_field_resolution.seen" <<'SEEN'
 fun resolveKnownStructFieldImpl(structType: String, fieldName: String)
     r: String {

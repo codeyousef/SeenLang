@@ -1281,6 +1281,116 @@ fun extractPackageInterfaceIndexModules(artifactRoot: String) r: Array<String> {
     return modules
 }
 
+fun sourcePathRelativeSrcPath(sourcePath: String) r: String {
+    if sourcePath == "" {
+        return ""
+    }
+    if sourcePath.startsWith("src/") {
+        return sourcePath
+    }
+    if sourcePath.startsWith("./src/") {
+        return sourcePath.substring(2, sourcePath.length())
+    }
+
+    let marker = "/src/"
+    var lastMarker = 0 - 1
+    var scan = 0
+    while scan < sourcePath.length() {
+        let hit = sourcePath.indexOf(marker, scan)
+        if hit < 0 {
+            scan = sourcePath.length()
+        } else {
+            lastMarker = hit
+            scan = hit + 1
+        }
+    }
+    if lastMarker >= 0 {
+        return "src/" + sourcePath.substring(
+            lastMarker + marker.length(), sourcePath.length())
+    }
+    return ""
+}
+
+fun prebuiltObjectManifestSourceInterfacePath(artifactRoot: String,
+    sourcePath: String) r: String {
+
+    if artifactRoot == "" or sourcePath == "" {
+        return ""
+    }
+
+    if not isAbsolutePath(sourcePath) {
+        let artifactRelative = resolveProjectPath(artifactRoot, sourcePath)
+        if loadFileContent(artifactRelative) != "" {
+            return artifactRelative
+        }
+        let interfaceRelative = resolveProjectPath(
+            prebuiltPackageInterfaceRoot(artifactRoot), sourcePath)
+        if loadFileContent(interfaceRelative) != "" {
+            return interfaceRelative
+        }
+    }
+
+    let srcRel = sourcePathRelativeSrcPath(sourcePath)
+    if srcRel != "" {
+        let copiedInterfacePath = resolveProjectPath(artifactRoot, srcRel)
+        if loadFileContent(copiedInterfacePath) != "" {
+            return copiedInterfacePath
+        }
+    }
+
+    if loadFileContent(sourcePath) != "" {
+        return sourcePath
+    }
+    return ""
+}
+
+fun queueArtifactPackageObjectSourceModules(paths: Array<String>,
+    processedPaths: Array<String>, artifactRoot: String) r: Int {
+
+    let manifestPath = prebuiltPackageObjectManifestPath(artifactRoot)
+    let content = loadFileContent(manifestPath)
+    if content == "" {
+        return 0
+    }
+
+    let tab = String.fromCharCode(9)
+    var count = 0
+    var lineStart = 0
+    var pos = 0
+    while pos <= content.length() {
+        var atEnd = 0
+        if pos == content.length() {
+            atEnd = 1
+        }
+        var isNewline = 0
+        if atEnd == 0 {
+            if content.byteAt(pos) == 10 {
+                isNewline = 1
+            }
+        }
+        if isNewline == 1 or atEnd == 1 {
+            let line = content.substring(lineStart, pos).trim()
+            if line != "" and not line.startsWith("#") {
+                let tabPos = line.indexOf(tab, 0)
+                if tabPos > 0 {
+                    let sourcePath = line.substring(tabPos + 1,
+                        line.length()).trim()
+                    let interfacePath =
+                        prebuiltObjectManifestSourceInterfacePath(
+                            artifactRoot, sourcePath)
+                    if interfacePath != "" {
+                        pushUniquePath(paths, processedPaths, interfacePath)
+                        count = count + 1
+                    }
+                }
+            }
+            lineStart = pos + 1
+        }
+        pos = pos + 1
+    }
+    return count
+}
+
 fun queueArtifactPackageInterfaceModules(paths: Array<String>,
     processedPaths: Array<String>, artifactRoot: String) r: Int {
 
@@ -1303,6 +1413,8 @@ fun queueArtifactPackageInterfaceModules(paths: Array<String>,
         }
         idx = idx + 1
     }
+    count = count + queueArtifactPackageObjectSourceModules(paths,
+        processedPaths, artifactRoot)
     if count > 0 {
         return count
     }
@@ -1652,6 +1764,65 @@ fun resolvePackageDependencyProjectRoot(sourceDir: String, depName: String) r: S
     return ""
 }
 
+fun findNearestSeenPkgTomlFromDir(dir: String) r: String {
+    var current = resolveRealInputPath(dir)
+    while current != "" {
+        let manifestPath = current + "/Seen.pkg.toml"
+        if loadFileContent(manifestPath) != "" {
+            return manifestPath
+        }
+        let fallbackManifestPath = current + "/seenpkg.toml"
+        if loadFileContent(fallbackManifestPath) != "" {
+            return fallbackManifestPath
+        }
+        let parent = getSourceDir(current)
+        if parent == current {
+            return ""
+        }
+        current = parent
+    }
+    return ""
+}
+
+fun resolvePrebuiltArtifactSelfImportPath(importPath: Array<String>,
+    sourceDir: String) r: String {
+
+    if importPath.length() == 0 {
+        return ""
+    }
+    let manifestPath = findNearestSeenPkgTomlFromDir(sourceDir)
+    if manifestPath == "" {
+        return ""
+    }
+    let artifactRoot = getSourceDir(manifestPath)
+    let packageName = prebuiltPackageManifestField(artifactRoot, "name")
+    if packageName == "" or importPath[0] != packageName {
+        return ""
+    }
+
+    var filePath = prebuiltPackageInterfaceRoot(artifactRoot)
+    var idx = 1
+    if importPath.length() > 1 {
+        if importPath[1] == "src" {
+            idx = 2
+        }
+    }
+    while idx < importPath.length() {
+        filePath = filePath + "/" + importPath[idx]
+        idx = idx + 1
+    }
+
+    let modPath = filePath + "/mod.seen"
+    if loadFileContent(modPath) != "" {
+        return modPath
+    }
+    let directPath = filePath + ".seen"
+    if loadFileContent(directPath) != "" {
+        return directPath
+    }
+    return ""
+}
+
 fun queueSourcePackageRootModules(paths: Array<String>,
     processedPaths: Array<String>, packageRoot: String,
     packageName: String) r: Int {
@@ -1837,7 +2008,7 @@ fun resolvePackagePrebuildEntry(manifestPath: String,
 }
 
 fun rewritePrebuiltObjectManifest(rawManifestPath: String,
-    artifactRoot: String) r: Bool {
+    artifactRoot: String, projectRoot: String) r: Bool {
 
     let objectDir = artifactRoot + "/objects"
     let dstManifest = artifactRoot + "/objects.tsv"
@@ -1881,8 +2052,16 @@ fun rewritePrebuiltObjectManifest(rawManifestPath: String,
                     if not commandWasSuccessful(copyResult) {
                         return false
                     }
+                    var portableSourcePath = sourcePath
+                    let projectRootReal = resolveRealInputPath(projectRoot)
+                    let sourcePathReal = resolveRealInputPath(sourcePath)
+                    let sourceRel = pathRelativeToProjectRoot(sourcePathReal,
+                        projectRootReal)
+                    if sourceRel != "" and not isAbsolutePath(sourceRel) {
+                        portableSourcePath = sourceRel
+                    }
                     rewritten = rewritten + relObjectPath + tab +
-                        sourcePath + "\n"
+                        portableSourcePath + "\n"
                     count = count + 1
                 }
             }
@@ -2138,7 +2317,8 @@ fun createPrebuiltPackageArtifact(manifestPath: String,
         println("Error: failed to compile prebuilt package artifact")
         return false
     }
-    if not rewritePrebuiltObjectManifest(rawManifest, outputRoot) {
+    if not rewritePrebuiltObjectManifest(rawManifest, outputRoot,
+        projectRoot) {
         println("Error: failed to copy prebuilt package objects")
         return false
     }
@@ -2811,6 +2991,11 @@ fun resolveImportPath(importPath: Array<String>, sourceDir: String) r: String {
             }
         }
 
+        let artifactSelfImportPath = resolvePrebuiltArtifactSelfImportPath(
+            importPath, sourceDir)
+        if artifactSelfImportPath != "" {
+            return artifactSelfImportPath
+        }
         let packageImportPath = resolvePackageImportPath(importPath, sourceDir)
         if packageImportPath != "" {
             return packageImportPath
@@ -9340,7 +9525,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                 cdbContent = cdbContent + "  " + lb + "\n"
                 cdbContent = cdbContent + "    \"directory\": \".\",\n"
                 cdbContent = cdbContent + "    \"file\": \"" + cdbObjFile + "\",\n"
-                cdbContent = cdbContent + "    \"command\": \"seen build " + cdbObjFile + "\"\n"
+                cdbContent = cdbContent + "    \"command\": \"seen compile " + cdbObjFile + "\"\n"
                 cdbContent = cdbContent + "  " + rb
                 cdbIdx = cdbIdx + 1
             }
@@ -9367,11 +9552,20 @@ pipeline (lex -> parse -> typecheck) and optionally the determinism checker.
 Returns 0 if all checks pass, 1 on any error.
 ///
 fun checkCommandWithProfile(inputFile: String, profile: String, language: String) r: Int {
-    let resolvedInput = resolveRealInputPath(inputFile)
+    var resolvedInput = resolveRealInputPath(inputFile)
+    if resolvedInput == "" {
+        resolvedInput = inputFile
+    }
     if not ensureProjectPackageDependenciesForInput(resolvedInput, true) {
         return 1
     }
-    let sourceCode = readText(resolvedInput)
+    var sourceCode = readText(resolvedInput)
+    if sourceCode == "" {
+        let catResult = runCommand("cat " + mainCompilerShellQuote(resolvedInput))
+        if commandWasSuccessful(catResult) {
+            sourceCode = catResult.output
+        }
+    }
     if sourceCode == "" {
         println("[ERROR] Failed to read source: " + resolvedInput)
         return 1
@@ -9715,7 +9909,20 @@ fun runScriptCommand(inputFile: String, useAot: Bool, verbose: Bool, language: S
     return jitRunCommand(inputFile, verbose, language)
 }
 
+fun seenCompilerVersion() r: String {
+    return "0.8.1"
+}
+
+fun printVersion() r: Void {
+    println("Seen " + seenCompilerVersion())
+    println("Language: Seen")
+    println("Entrypoint: shipped compiler")
+    return
+}
+
 fun printUsage() r: Void {
+    println("Seen " + seenCompilerVersion() + " - Self-hosted Compiler")
+    println("")
     println("Usage: seen compile <input.seen> [output] [--profile deterministic] [--no-cache]")
     println("       seen check <input.seen> [--profile deterministic]")
     println("       seen run <input.seen> [--aot] [--verbose] [--language <lang>]")
@@ -9729,6 +9936,8 @@ fun printUsage() r: Void {
     println("       seen import-c <header.h>")
     println("       seen pkg <fetch|pack|prebuild|publish> ...")
     println("       seen lsp")
+    println("       seen --help | -h")
+    println("       seen --version | -v")
     println("")
     println("Options:")
     println("  --profile deterministic  Reject HashMap/HashSet without @nondeterministic")
@@ -9764,6 +9973,41 @@ fun printUsage() r: Void {
     println("  3. llvm-profdata merge -o default.profdata default_*.profraw")
     println("  4. seen compile prog.seen prog --pgo-use=default.profdata")
     return
+}
+
+fun isUnsupportedSourceWrapperCommand(command: String) r: Bool {
+    return command == "build" or command == "init" or command == "fmt" or
+        command == "format" or command == "clean" or command == "test"
+}
+
+fun unsupportedSourceWrapperCommand(command: String) r: Int {
+    if command == "build" {
+        println("Error: 'seen build' is not supported by the shipped compiler.")
+        println("Use: seen compile <input.seen> [output]")
+        return 1
+    }
+    if command == "init" {
+        println("Error: 'seen init' is not supported by the shipped compiler.")
+        println("Create a Seen.toml and source files manually for now.")
+        return 1
+    }
+    if command == "fmt" or command == "format" {
+        println("Error: 'seen " + command + "' is not supported by the shipped compiler.")
+        println("Use editor/LSP formatting support where available.")
+        return 1
+    }
+    if command == "clean" {
+        println("Error: 'seen clean' is not supported by the shipped compiler.")
+        println("Remove project build artifacts manually for now.")
+        return 1
+    }
+    if command == "test" {
+        println("Error: 'seen test' is not supported by the shipped compiler.")
+        println("Use project-specific test scripts until the shipped test runner is implemented.")
+        return 1
+    }
+    println("Error: command '" + command + "' is not supported by the shipped compiler.")
+    return 1
 }
 
 ///
@@ -9883,6 +10127,20 @@ fun main() r: Int {
     }
 
     let command = argv[1]
+    if command == "--version" or command == "-v" {
+        printVersion()
+        return 0
+    }
+
+    if command == "--help" or command == "-h" {
+        printUsage()
+        return 0
+    }
+
+    if isUnsupportedSourceWrapperCommand(command) {
+        return unsupportedSourceWrapperCommand(command)
+    }
+
     if command == "compile" {
         if argv.length() < 3 {
             printUsage()
@@ -10084,11 +10342,12 @@ fun main() r: Int {
             printUsage()
             return 1
         }
+        let inputFile = argv[2]
         let profile = parseProfile(argv, 3)
         var language = parseLanguage(argv, 3)
         // Read language from Seen.toml [project] if CLI didn't explicitly set --language
         if not hasLanguageFlag(argv, 3) {
-            let tc = readNearestSeenTomlForInput(argv[2])
+            let tc = readNearestSeenTomlForInput(inputFile)
             if tc != "" {
                 let tl = extractTomlProjectLanguage(tc)
                 if tl != "" {
@@ -10096,7 +10355,7 @@ fun main() r: Int {
                 }
             }
         }
-        return checkCommandWithProfile(argv[2], profile, language)
+        return checkCommandWithProfile(inputFile, profile, language)
     }
 
     if command == "run" {

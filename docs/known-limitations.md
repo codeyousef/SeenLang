@@ -17,12 +17,15 @@ docs.
 
 ## Shipped CLI Shape
 
-- The shipped release command is `seen compile`, not the newer source-only
-  wrapper command shape in `compiler_seen/src/main.seen`.
-- `seen --version` and `seen --help` are not currently exposed by the shipped
-  binary; invoking an unknown command prints usage.
-- The shipped backend selector documents LLVM-only behavior, even though older
-  docs and source comments mention a C backend.
+- The shipped release command is `seen compile`; `seen build` is not a shipped
+  alias.
+- `seen --version` / `seen -v` and `seen --help` / `seen -h` are supported by
+  the shipped compiler.
+- `seen init`, `seen fmt`, `seen format`, `seen clean`, and `seen test` are not
+  shipped compiler commands yet. They fail with an explicit unsupported-command
+  diagnostic instead of silently advertising source-wrapper behavior.
+- The shipped backend selector is LLVM-only. `--backend=c` is intentionally
+  unsupported until a production C backend is wired into the release entrypoint.
 
 ## Packages
 
