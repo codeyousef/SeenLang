@@ -1,0 +1,57 @@
+import main_compiler.{
+    newModuleImportGraph, moduleImportGraphBeginModule,
+    moduleImportGraphAddEdge, moduleImportGraphHasEdgeFrom,
+    moduleImportGraphEdgeCount, modulePathIndex
+}
+
+fun expect(condition: Bool, message: String) r: Void {
+    if not condition {
+        abort(message)
+    }
+}
+
+fun testModulePathIndex() r: Void {
+    let modulePaths = Array<String>()
+    modulePaths.push("/project/src/main.seen")
+    modulePaths.push("/project/src/helper.seen")
+    modulePaths.push("/project/src/feature.seen")
+
+    expect(modulePathIndex(modulePaths, "/project/src/main.seen") == 0,
+        "module path index resolves first entry")
+    expect(modulePathIndex(modulePaths, "/project/src/feature.seen") == 2,
+        "module path index resolves later entry")
+    expect(modulePathIndex(modulePaths, "/project/src/missing.seen") == -1,
+        "module path index reports missing entries")
+}
+
+fun testModuleImportGraphRanges() r: Void {
+    let graph = newModuleImportGraph(3)
+
+    moduleImportGraphBeginModule(graph, 0)
+    moduleImportGraphAddEdge(graph, 0, 1)
+    moduleImportGraphAddEdge(graph, 0, 1)
+    moduleImportGraphAddEdge(graph, 0, 2)
+
+    expect(moduleImportGraphEdgeCount(graph, 0) == 2,
+        "module graph deduplicates repeated edges")
+    expect(moduleImportGraphHasEdgeFrom(graph, 0, 1),
+        "module graph records first target")
+    expect(moduleImportGraphHasEdgeFrom(graph, 0, 2),
+        "module graph records second target")
+
+    moduleImportGraphBeginModule(graph, 1)
+    moduleImportGraphAddEdge(graph, 1, 2)
+
+    expect(moduleImportGraphEdgeCount(graph, 0) == 2,
+        "later module ranges do not change earlier edge counts")
+    expect(moduleImportGraphEdgeCount(graph, 1) == 1,
+        "module graph stores edge count for later module")
+    expect(moduleImportGraphHasEdgeFrom(graph, 1, 2),
+        "module graph stores later module target")
+}
+
+fun main() r: Int {
+    testModulePathIndex()
+    testModuleImportGraphRanges()
+    return 0
+}

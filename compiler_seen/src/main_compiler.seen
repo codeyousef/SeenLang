@@ -328,6 +328,9 @@ var g_validationFrontends: Array<FrontendResult> = Array<FrontendResult>()
 var g_manifestCompanionCacheTomlPath: String = ""
 var g_manifestCompanionCacheProjectRoot: String = ""
 var g_manifestCompanionCacheModules: Array<String> = Array<String>()
+var g_resolveRealInputPathCwd: String = ""
+var g_resolveRealInputPathKeys: Array<String> = Array<String>()
+var g_resolveRealInputPathValues: Array<String> = Array<String>()
 
 fun clearValidationModuleCache() r: Void {
     g_validationModulePaths = Array<String>()
@@ -3422,20 +3425,19 @@ fun resolveRealInputPath(path: String) r: String {
     if path == "" {
         return ""
     }
+    let cached = findCachedRealInputPath(path)
+    if cached != "" {
+        return cached
+    }
     var resolved = path
     if not isAbsolutePath(resolved) {
-        let pwdResult = runCommand("pwd")
-        if commandWasSuccessful(pwdResult) {
-            var cwd = pwdResult.output
-            if cwd.length() > 0 {
-                if cwd.byteAt(cwd.length() - 1) == 10 {
-                    cwd = cwd.substring(0, cwd.length() - 1)
-                }
-            }
+        let cwd = cachedRealInputPathCwd()
+        if cwd != "" {
             resolved = cwd + "/" + resolved
         }
     }
-    let realpathResult = runCommand("readlink -f \"" + resolved + "\"")
+    let realpathResult = runCommand("readlink -f " +
+        mainCompilerShellQuote(resolved))
     if commandWasSuccessful(realpathResult) {
         var realpath = realpathResult.output
         if realpath.length() > 0 {
@@ -3444,10 +3446,69 @@ fun resolveRealInputPath(path: String) r: String {
             }
         }
         if realpath != "" {
+            cacheRealInputPath(path, realpath)
             return realpath
         }
     }
+    cacheRealInputPath(path, resolved)
     return resolved
+}
+
+fun realInputPathCacheMaxEntries() r: Int {
+    return 8192
+}
+
+fun resetRealInputPathCache() r: Void {
+    g_resolveRealInputPathCwd = ""
+    g_resolveRealInputPathKeys = Array<String>()
+    g_resolveRealInputPathValues = Array<String>()
+    return
+}
+
+fun cachedRealInputPathCwd() r: String {
+    if g_resolveRealInputPathCwd == "" {
+        g_resolveRealInputPathCwd = currentWorkingDir()
+    }
+    return g_resolveRealInputPathCwd
+}
+
+fun findCachedRealInputPath(path: String) r: String {
+    var limit = g_resolveRealInputPathKeys.length()
+    if g_resolveRealInputPathValues.length() < limit {
+        limit = g_resolveRealInputPathValues.length()
+    }
+    var i = limit - 1
+    while i >= 0 {
+        if g_resolveRealInputPathKeys[i] == path {
+            return g_resolveRealInputPathValues[i]
+        }
+        i = i - 1
+    }
+    return ""
+}
+
+fun cacheRealInputPath(path: String, resolved: String) r: Void {
+    if path == "" or resolved == "" {
+        return
+    }
+    if g_resolveRealInputPathKeys.length() > realInputPathCacheMaxEntries() {
+        resetRealInputPathCache()
+    }
+    var limit = g_resolveRealInputPathKeys.length()
+    if g_resolveRealInputPathValues.length() < limit {
+        limit = g_resolveRealInputPathValues.length()
+    }
+    var i = limit - 1
+    while i >= 0 {
+        if g_resolveRealInputPathKeys[i] == path {
+            g_resolveRealInputPathValues[i] = resolved
+            return
+        }
+        i = i - 1
+    }
+    g_resolveRealInputPathKeys.push(path)
+    g_resolveRealInputPathValues.push(resolved)
+    return
 }
 
 fun findNearestSeenTomlFromDir(initialDir: String) r: String {
@@ -4152,11 +4213,129 @@ fun resolveSourceTextImportedOrQualifiedSymbolName(importText: String,
     return resolveSourceTextImportedSymbolName(importText, symbolName)
 }
 
-fun appendSourceTextImportEdges(edges: String, modulePath: String) r: String {
-    var result = edges
+class ModuleImportGraph {
+    var edgeStarts: Array<Int>
+    var edgeCounts: Array<Int>
+    var edgeTargets: Array<Int>
+
+    static fun new() r: ModuleImportGraph {
+        return ModuleImportGraph{
+            edgeStarts: Array<Int>(),
+            edgeCounts: Array<Int>(),
+            edgeTargets: Array<Int>()
+        }
+    }
+}
+
+fun newModuleImportGraph(moduleCount: Int) r: ModuleImportGraph {
+    let graph = ModuleImportGraph.new()
+    var idx = 0
+    while idx < moduleCount {
+        graph.edgeStarts.push(0)
+        graph.edgeCounts.push(0)
+        idx = idx + 1
+    }
+    return graph
+}
+
+fun modulePathIndex(modulePaths: Array<String>, targetPath: String) r: Int {
+    if targetPath == "" {
+        return -1
+    }
+    var idx = 0
+    while idx < modulePaths.length() {
+        if modulePaths[idx] == targetPath {
+            return idx
+        }
+        idx = idx + 1
+    }
+    return -1
+}
+
+fun moduleImportGraphBeginModule(graph: ModuleImportGraph, sourceIdx: Int)
+    r: Void {
+
+    if sourceIdx < 0 or sourceIdx >= graph.edgeStarts.length() {
+        return
+    }
+    graph.edgeStarts[sourceIdx] = graph.edgeTargets.length()
+    graph.edgeCounts[sourceIdx] = 0
+    return
+}
+
+fun moduleImportGraphEdgeCount(graph: ModuleImportGraph, sourceIdx: Int)
+    r: Int {
+
+    if sourceIdx < 0 or sourceIdx >= graph.edgeCounts.length() {
+        return 0
+    }
+    return graph.edgeCounts[sourceIdx]
+}
+
+fun moduleImportGraphHasEdgeFrom(graph: ModuleImportGraph, sourceIdx: Int,
+    targetIdx: Int) r: Bool {
+
+    if sourceIdx < 0 or sourceIdx >= graph.edgeStarts.length() {
+        return false
+    }
+    if sourceIdx >= graph.edgeCounts.length() {
+        return false
+    }
+    let start = graph.edgeStarts[sourceIdx]
+    let count = graph.edgeCounts[sourceIdx]
+    var offset = 0
+    while offset < count {
+        let edgeIdx = start + offset
+        if edgeIdx >= 0 and edgeIdx < graph.edgeTargets.length() {
+            if graph.edgeTargets[edgeIdx] == targetIdx {
+                return true
+            }
+        }
+        offset = offset + 1
+    }
+    return false
+}
+
+fun moduleImportGraphAddEdge(graph: ModuleImportGraph, sourceIdx: Int,
+    targetIdx: Int) r: Void {
+
+    if targetIdx < 0 {
+        return
+    }
+    if sourceIdx < 0 or sourceIdx >= graph.edgeStarts.length() {
+        return
+    }
+    if sourceIdx >= graph.edgeCounts.length() {
+        return
+    }
+    if moduleImportGraphHasEdgeFrom(graph, sourceIdx, targetIdx) {
+        return
+    }
+    graph.edgeTargets.push(targetIdx)
+    graph.edgeCounts[sourceIdx] = graph.edgeCounts[sourceIdx] + 1
+    return
+}
+
+fun appendModuleImportGraphEdge(modulePaths: Array<String>,
+    graph: ModuleImportGraph, sourceIdx: Int, targetPath: String) r: Void {
+
+    if targetPath == "" {
+        return
+    }
+    let normalizedTarget = resolveRealInputPath(targetPath)
+    let targetIdx = modulePathIndex(modulePaths, normalizedTarget)
+    if targetIdx >= 0 {
+        moduleImportGraphAddEdge(graph, sourceIdx, targetIdx)
+    }
+    return
+}
+
+fun appendSourceTextImportEdges(modulePaths: Array<String>,
+    graph: ModuleImportGraph, sourceIdx: Int, modulePath: String) r: Void {
+
     let rawContent = readText(modulePath)
     if rawContent == "" {
-        return result
+        return
     }
     let content = stripTripleSlashBlockBodiesForRawScan(rawContent)
     let sourceDir = getSourceDir(modulePath)
@@ -4178,27 +4357,27 @@ fun appendSourceTextImportEdges(edges: String, modulePath: String) r: String {
             if importText != "" {
                 let importPath = sourceTextImportPath(importText, sourceDir)
                 if importPath != "" {
-                    if not result.contains("|" + importPath) {
-                        result = result + "|" + importPath
-                    }
+                    appendModuleImportGraphEdge(modulePaths, graph, sourceIdx,
+                        importPath)
                 }
             }
             lineStart = pos + 1
         }
         pos = pos + 1
     }
-    return result
+    return
 }
 
 fun buildModuleImportGraph(modulePaths: Array<String>, language: String)
-    r: Array<String> {
-    var graph = Array<String>()
+    r: ModuleImportGraph {
+
+    let graph = newModuleImportGraph(modulePaths.length())
     var depIdx = 0
     while depIdx < modulePaths.length() {
         let depPath = modulePaths[depIdx]
         let depSourceDir = getSourceDir(depPath)
         let depFe = parseModule(depPath, language)
-        var edges = depPath
+        moduleImportGraphBeginModule(graph, depIdx)
         if depFe.success {
             var depItemIdx = 0
             while depItemIdx < depFe.program.items.length() {
@@ -4207,14 +4386,14 @@ fun buildModuleImportGraph(modulePaths: Array<String>, language: String)
                     let depTarget = resolveAstImportItemPath(depItem,
                         depSourceDir)
                     if depTarget != "" {
-                        edges = edges + "|" + resolveRealInputPath(depTarget)
+                        appendModuleImportGraphEdge(modulePaths, graph,
+                            depIdx, depTarget)
                     }
                 }
                 depItemIdx = depItemIdx + 1
             }
         }
-        edges = appendSourceTextImportEdges(edges, depPath)
-        graph.push(edges)
+        appendSourceTextImportEdges(modulePaths, graph, depIdx, depPath)
         depIdx = depIdx + 1
     }
     return graph
@@ -4272,47 +4451,28 @@ fun detectModuleImportCycle(modulePaths: Array<String>, language: String)
                 let nodeIdx = stack[stackTop - 1]
                 if colors[nodeIdx] == 0 or colors[nodeIdx] == 3 {
                     colors[nodeIdx] = 1
-                    let edges = depGraph[nodeIdx]
-                    var pos = 0
-                    var first = true
-                    var segStart = 0
-                    while pos <= edges.length() {
-                        var isSep = false
-                        if pos == edges.length() {
-                            isSep = true
-                        }
-                        if not isSep {
-                            if edges.substring(pos, pos + 1) == "|" {
-                                isSep = true
-                            }
-                        }
-                        if isSep {
-                            if not first {
-                                let target = resolveRealInputPath(
-                                    edges.substring(segStart, pos))
-                                var targetIdx = 0
-                                while targetIdx < modulePaths.length() {
-                                    if modulePaths[targetIdx] == target {
-                                        if colors[targetIdx] == 1 {
-                                            return moduleCyclePathFromParents(
-                                                modulePaths, parents, nodeIdx,
-                                                targetIdx)
-                                        }
-                                        if colors[targetIdx] == 0 {
-                                            parents[targetIdx] = nodeIdx
-                                            colors[targetIdx] = 3
-                                            stack.push(targetIdx)
-                                            stackTop = stackTop + 1
-                                        }
-                                        targetIdx = modulePaths.length()
-                                    }
-                                    targetIdx = targetIdx + 1
+                    let start = depGraph.edgeStarts[nodeIdx]
+                    let count = depGraph.edgeCounts[nodeIdx]
+                    var edgeOffset = 0
+                    while edgeOffset < count {
+                        let edgeIdx = start + edgeOffset
+                        if edgeIdx >= 0 and edgeIdx < depGraph.edgeTargets.length() {
+                            let targetIdx = depGraph.edgeTargets[edgeIdx]
+                            if targetIdx >= 0 and targetIdx < modulePaths.length() {
+                                if colors[targetIdx] == 1 {
+                                    return moduleCyclePathFromParents(
+                                        modulePaths, parents, nodeIdx,
+                                        targetIdx)
+                                }
+                                if colors[targetIdx] == 0 {
+                                    parents[targetIdx] = nodeIdx
+                                    colors[targetIdx] = 3
+                                    stack.push(targetIdx)
+                                    stackTop = stackTop + 1
                                 }
                             }
-                            first = false
-                            segStart = pos + 1
                         }
-                        pos = pos + 1
+                        edgeOffset = edgeOffset + 1
                     }
                 } else {
                     colors[nodeIdx] = 2
@@ -8136,6 +8296,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     Canonicalize the entry path so symlinked workspaces behave the same as
     the real source tree during module discovery.
     ///
+    resetRealInputPathCache()
     let resolvedInput = resolveRealInputPath(inputFile)
     if not ensureProjectPackageDependenciesForInput(resolvedInput, true) {
         return 1
@@ -10014,6 +10175,7 @@ pipeline (lex -> parse -> typecheck) and optionally the determinism checker.
 Returns 0 if all checks pass, 1 on any error.
 ///
 fun checkCommandWithProfile(inputFile: String, profile: String, language: String) r: Int {
+    resetRealInputPathCache()
     var resolvedInput = resolveRealInputPath(inputFile)
     if resolvedInput == "" {
         resolvedInput = inputFile
@@ -10211,6 +10373,7 @@ consume ThinLTO bitcode. Falls back to AOT compilation if lli is not
 available or if JIT runtime build fails.
 ///
 fun jitRunCommand(inputFile: String, verbose: Bool, language: String) r: Int {
+    resetRealInputPathCache()
     let jitInput = resolveRealInputPath(inputFile)
     if verbose {
         println("[jit] Compiling " + inputFile + "...")
