@@ -935,6 +935,7 @@ RELEASE_CLANG_MARCH_FLAG="$(release_cpu_baseline_to_march "$RELEASE_CPU_BASELINE
 MAIN_COMPILER_VMEM_KB=""
 OPT_VMEM_KB=""
 RECOVERY_TIMEOUT_SECS="${SEEN_RECOVERY_TIMEOUT_SECS:-1800}"
+IR_RECOVERY_DISABLED="${SEEN_DISABLE_IR_RECOVERY:-0}"
 SYSTEM_MEMORY_KB=$(detect_effective_system_memory_kb || true)
 SYSTEM_AVAILABLE_KB=$(detect_available_memory_kb || true)
 MEMORY_GUARD_RSS_KB=""
@@ -1042,6 +1043,9 @@ fi
 
 if memory_guard_enabled; then
     echo -e "${YELLOW}Memory guard enabled: tree RSS cap $(format_bytes $((MEMORY_GUARD_RSS_KB * 1024))); cgroup stop $(format_bytes $((MEMORY_GUARD_CGROUP_STOP_KB * 1024))); reserve $(format_bytes $((MEMORY_GUARD_RESERVE_KB * 1024))); tasks max ${MEMORY_GUARD_TASKS_MAX:-unlimited}.${NC}"
+fi
+if [ "$IR_RECOVERY_DISABLED" = "1" ]; then
+    echo -e "${YELLOW}Strict rebuild validation enabled: direct IR recovery is disabled.${NC}"
 fi
 
 if [ "$HOST_OS" = "Darwin" ]; then
@@ -1391,6 +1395,11 @@ recover_complete_ll_set_to_compiler() {
     local marker_dir=$2
     local output_path=$3
     local label=$4
+
+    if [ "$IR_RECOVERY_DISABLED" = "1" ]; then
+        echo -e "${RED}ERROR: ${label} failed and SEEN_DISABLE_IR_RECOVERY=1 forbids direct IR recovery.${NC}"
+        return 1
+    fi
 
     if ! is_positive_integer "$expected_modules" || [ "$expected_modules" -le 0 ]; then
         return 1
@@ -1986,6 +1995,11 @@ else
            [ "${SEEN_STAGE2_FAIL_FAST:-0}" = "1" ]; then
             echo -e "${RED}Stopping after frozen Stage2 failure as requested.${NC}"
             echo "Set SEEN_STAGE2_FAIL_FAST=0 to allow direct IR recovery."
+            rm -rf "$SNAPSHOT_DIR"
+            exit "$COMPILE_EXIT"
+        fi
+        if [ "$IR_RECOVERY_DISABLED" = "1" ]; then
+            echo -e "${RED}ERROR: Stage2 failed and SEEN_DISABLE_IR_RECOVERY=1 forbids direct IR recovery.${NC}"
             rm -rf "$SNAPSHOT_DIR"
             exit "$COMPILE_EXIT"
         fi
@@ -2666,6 +2680,11 @@ else
             tail_log_if_exists /tmp/safe_rebuild_stage3.log 10
         fi
         EXPECTED_STAGE3_MODULES=$(extract_expected_module_count /tmp/safe_rebuild_stage3.log)
+        if [ "$IR_RECOVERY_DISABLED" = "1" ]; then
+            rm -rf "$S3_MARKER"
+            echo -e "${RED}ERROR: Stage3 failed and SEEN_DISABLE_IR_RECOVERY=1 forbids direct IR recovery.${NC}"
+            exit "$S3_EXIT"
+        fi
         if recover_complete_ll_set_to_compiler "$EXPECTED_STAGE3_MODULES" "$S3_MARKER" "$STAGE3_RECOVERY" "Stage3"; then
             rm -rf "$S3_MARKER"
             echo ""

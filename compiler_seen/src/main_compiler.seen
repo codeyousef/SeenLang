@@ -8249,6 +8249,15 @@ fun resolveLlvmTool(tool: String) r: String {
     return ""
 }
 
+fun llvmToolCommandForGeneratedScript(resolvedTool: String, tool: String) r: String {
+    if resolvedTool.startsWith("/tmp/seen_opt_override/") or
+        resolvedTool.startsWith("/tmp/seen_opt_wrapper.") {
+
+        return tool
+    }
+    return resolvedTool
+}
+
 fun compileCommandWithProfileAndCache(inputFile: String, outputFile: String, profile: String, useCache: Bool) r: Int {
     return compileCommandWithAllOptions(inputFile, outputFile, profile, false, useCache, "en", "", "auto", false, "", "", "", "", "")
 }
@@ -8403,6 +8412,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     let llvmOptTool = resolveLlvmTool("opt")
     let llvmLlcTool = resolveLlvmTool("llc")
     let llvmLinkTool = resolveLlvmTool("llvm-link")
+    let llvmOptScriptTool = llvmToolCommandForGeneratedScript(llvmOptTool,
+        "opt")
 
     if normalizedCrossTarget == "android-arm64" and targetClangArgs == "" {
         println("  Error: Android cross-compilation requires ANDROID_NDK_HOME or ANDROID_NDK_ROOT with a valid LLVM sysroot")
@@ -9186,8 +9197,14 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             }
         }
 
-        // Write parallel optimization shell script
-        var script = "#!/bin/sh\n"
+        // Write the optimization script incrementally. Building one giant
+        // concatenated string for large bootstrap compiles can crash older
+        // self-hosted compiler binaries before any optimizer process starts.
+        let parallelScriptFile = parallelOptScriptTempPath(compileTempDir)
+        if not writeText(parallelScriptFile, "#!/bin/sh\n") {
+            println("    Error: Failed to write parallel optimization script")
+            return 1
+        }
         var pi = 0
         while pi < uncachedIdxStrs.length() {
             let midx = uncachedIdxStrs[pi]
@@ -9195,7 +9212,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             let optFile = moduleTempPath(compileTempDir, midx, ".opt.ll")
             let objFile = moduleTempPath(compileTempDir, midx, ".o")
 
-            var moduleOptCmd = llvmOptTool + " -passes='" + optPasses + "'" + optInternalize + " -inline-threshold=" + optThreshold + " -S " + llFile + " -o " + optFile + pgoOptFlags
+            var moduleOptCmd = llvmOptScriptTool + " -passes='" + optPasses + "'" + optInternalize + " -inline-threshold=" + optThreshold + " -S " + llFile + " -o " + optFile + pgoOptFlags
             var androidClangOptLevel = "-O3"
             if g_fastMode == 1 {
                 androidClangOptLevel = "-O1"
@@ -9233,9 +9250,9 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
 
                 let pollyFile = moduleTempPath(compileTempDir, midx,
                     ".polly.ll")
-                pollyStep = "    (" + llvmOptTool + " -passes='polly-canonicalize,polly' -S " + optFile + " -o " + pollyFile + " >>" + logFile + " 2>&1 && mv " + pollyFile + " " + optFile + ") || true\n"
+                pollyStep = "    (" + llvmOptScriptTool + " -passes='polly-canonicalize,polly' -S " + optFile + " -o " + pollyFile + " >>" + logFile + " 2>&1 && mv " + pollyFile + " " + optFile + ") || true\n"
             }
-            var moduleObjCmd = llvmOptTool + " --thinlto-bc " + optFile + " -o " + objFile
+            var moduleObjCmd = llvmOptScriptTool + " --thinlto-bc " + optFile + " -o " + objFile
             if g_picMode == 1 and normalizedCrossTarget != "android-arm64" {
                 var picLlcOptLevel = "-O3"
                 if g_fastMode == 1 {
@@ -9263,38 +9280,46 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                 moduleObjCmd = targetClangDriver + " " + androidClangOptLevel + " -flto=thin -ffunction-sections -fdata-sections" + modulePicFlag + " -Wno-unused-command-line-argument -c -x ir " + targetClangArgs + " " + optFile + " -o " + objFile
             }
             if pass2bRunsParallel and boundedLargeProjectOptWorkers > 0 {
-                script = script + "while [ \"$(jobs -p | wc -l | tr -d ' ')\" -ge " + boundedLargeProjectOptWorkers.toString() + " ]; do sleep 0.05; done\n"
+                if not appendText(parallelScriptFile,
+                    "while [ \"$(jobs -p | wc -l | tr -d ' ')\" -ge " +
+                    boundedLargeProjectOptWorkers.toString() +
+                    " ]; do sleep 0.05; done\n") {
+
+                    println("    Error: Failed to append optimizer worker throttle")
+                    return 1
+                }
             }
-            script = script + "(\n"
-            script = script + "  rm -f " + objFile + " " + optFile + " " + statusFile + " " + logFile + "\n"
-            script = script + "  if " + moduleOptCmd + " >" + logFile + " 2>&1; then\n"
+            var moduleScript = "(\n"
+            moduleScript = moduleScript + "  rm -f " + objFile + " " + optFile + " " + statusFile + " " + logFile + "\n"
+            moduleScript = moduleScript + "  if " + moduleOptCmd + " >" + logFile + " 2>&1; then\n"
             if pollyStep != "" {
-                script = script + pollyStep
+                moduleScript = moduleScript + pollyStep
             }
-            script = script + "    if " + moduleObjCmd + " >>" + logFile + " 2>&1; then\n"
-            script = script + "      printf 'ok' > " + statusFile + "\n"
-            script = script + "    else\n"
-            script = script + "      printf 'object' > " + statusFile + "\n"
-            script = script + "    fi\n"
-            script = script + "  else\n"
-            script = script + "    printf 'opt' > " + statusFile + "\n"
-            script = script + "  fi\n"
+            moduleScript = moduleScript + "    if " + moduleObjCmd + " >>" + logFile + " 2>&1; then\n"
+            moduleScript = moduleScript + "      printf 'ok' > " + statusFile + "\n"
+            moduleScript = moduleScript + "    else\n"
+            moduleScript = moduleScript + "      printf 'object' > " + statusFile + "\n"
+            moduleScript = moduleScript + "    fi\n"
+            moduleScript = moduleScript + "  else\n"
+            moduleScript = moduleScript + "    printf 'opt' > " + statusFile + "\n"
+            moduleScript = moduleScript + "  fi\n"
             if pass2bRunsParallel {
-                script = script + ") &\n"
+                moduleScript = moduleScript + ") &\n"
             } else {
-                script = script + ")\n"
+                moduleScript = moduleScript + ")\n"
+            }
+            if not appendText(parallelScriptFile, moduleScript) {
+                println("    Error: Failed to append optimizer step for module " + midx)
+                return 1
             }
 
             pi = pi + 1
         }
         if pass2bRunsParallel {
-            script = script + "wait\n"
-        }
-
-        let parallelScriptFile = parallelOptScriptTempPath(compileTempDir)
-        if not writeText(parallelScriptFile, script) {
-            println("    Error: Failed to write parallel optimization script")
-            return 1
+            if not appendText(parallelScriptFile, "wait\n") {
+                println("    Error: Failed to append optimizer wait")
+                return 1
+            }
         }
         let chmodResult: CommandResult = runCommand("chmod +x " +
             mainCompilerShellQuote(parallelScriptFile))
