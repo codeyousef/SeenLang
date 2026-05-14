@@ -37,7 +37,8 @@ fun quoteDeclScanIdentIfNeededCore(name: String) r: String {
 fun pipeContainsValueCoreImpl(value: String, pipeValues: String, valueCount: Int) r: Bool {
     var i = 0
     while i < valueCount {
-        if pipeGet(pipeValues, i) == value {
+        let pipeValue: String = pipeGet(pipeValues, i)
+        if pipeValue == value {
             return true
         }
         i = i + 1
@@ -126,11 +127,11 @@ fun emitLateUserDeclaresCoreImpl(output: StringBuilder, definedFuncs: Array<Stri
     output.append("\n; Late-discovered user external declarations\n")
     var i = 0
     while i < lateXmDeclareCount {
-        let declName = pipeGet(lateXmDeclareNames, i)
+        let declName: String = pipeGet(lateXmDeclareNames, i)
         if not definedFuncListContainsCoreImpl(definedFuncs, declName) and
             not moduleAlreadyDeclaresFunctionCoreImpl(currentIr, declName) {
 
-            let declStr = pipeGet(lateXmDeclareStrs, i)
+            let declStr: String = pipeGet(lateXmDeclareStrs, i)
             output.append(declStr)
             currentIr = currentIr + declStr
             definedFuncs.push(declName)

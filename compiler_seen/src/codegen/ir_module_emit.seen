@@ -178,8 +178,8 @@ fun emitCrossModuleConstantDeclaresImpl(output: StringBuilder, moduleConstantNam
 	    var i = 0
 	    let emittedNames = Array<String>()
 	    while i < xmConstCount {
-	        let name = pipeGet(xmConstNames, i)
-	        let llvmType = pipeGet(xmConstTypes, i)
+	        let name: String = pipeGet(xmConstNames, i)
+	        let llvmType: String = pipeGet(xmConstTypes, i)
 	        if isValidCrossModuleConstantEntryImpl(name, llvmType) and not arrayContainsString(moduleConstantNames, name) and not arrayContainsString(emittedNames, name) {
 	            output.append("@" + quoteModuleEmitIdentIfNeeded(name) + " = external global " + llvmType + "\n")
 	            emittedNames.push(name)

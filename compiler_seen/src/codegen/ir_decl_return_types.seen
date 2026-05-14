@@ -1,8 +1,5 @@
-///
-ir_decl_return_types.seen — declaration return-type selection helpers
-Keeps declaration-time return-type policy separate from llvm_ir_gen.seen
-while leaving local block traversal and expression inference wrappers in place.
-///
+// Declaration return-type selection helpers.
+// Keeps declaration-time return-type policy separate from llvm_ir_gen.seen.
 
 fun inferReturnExprTypeImpl(className: String, exprKind: String,
     exprLiteralType: String, exprLiteralValue: String, exprCallee: String,

@@ -1,8 +1,5 @@
-///
-ir_decl_registry.seen — declaration registry/state helpers
-Extracted from llvm_ir_gen.seen so declaration plumbing and registry
-ownership stay separate from the main Pass 1 orchestration.
-///
+// Declaration registry and state helpers.
+// Extracted from llvm_ir_gen.seen to keep registry plumbing separate.
 
 import parser.real_parser.{ProgramNode}
 import str.string.{StringBuilder}
@@ -243,9 +240,10 @@ fun lookupParentClassStateImpl(childName: String, inheritanceChildNames: String,
 
     var idx = 0
     while idx < inheritanceCount {
-        let child = pipeGet(inheritanceChildNames, idx)
+        let child: String = pipeGet(inheritanceChildNames, idx)
         if child == childName {
-            return pipeGet(inheritanceParentNames, idx)
+            let parent: String = pipeGet(inheritanceParentNames, idx)
+            return parent
         }
         idx = idx + 1
     }

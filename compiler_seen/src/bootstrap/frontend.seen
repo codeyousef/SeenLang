@@ -8,7 +8,7 @@
 
 import lexer.lexer.{SeenLexer, newSeenLexerCompat}
 import lexer.interfaces.{LexerError}
-import parser.real_parser.{RealParser, ProgramNode, ItemNode, FunctionNode, ClassNode, StatementNode, ParserExpressionNode, BlockNode, ParamNode, TypeNode, AnnotationNode, newRealParserCompat}
+import parser.real_parser.{RealParser, ProgramNode, ItemNode, FunctionNode, ClassNode, StatementNode, ParserExpressionNode, BlockNode, ParamNode, TypeNode, AnnotationNode, newRealParserCompat, getUiCallArgName, clearUiCallArgNames, getUiSlotCount, getUiSlotName, getUiSlotBlock}
 import typechecker.interfaces.{TypeChecker, newTypeCheckerCompat}
 import typechecker.interfaces.{TypeError}
 import macro.expander.{MacroExpander, newMacroExpanderCompat}
@@ -40,8 +40,7 @@ fun frontendEmptyFunctionNode() r: FunctionNode {
         decorators: Array<AnnotationNode>(),
         line: 0,
         column: 0,
-        isOverride: false,
-        isComponent: false
+        isOverride: false
     }
 }
 
@@ -140,10 +139,10 @@ fun run_frontend(source: String, fileLabel: String, language: String = "en") r: 
     let result = FrontendResult.new()
 
     // Error handling is done via result types from the lexer/parser/checker.
-    let lexer = newSeenLexerCompat(source, 1, language)
+    let lexer: SeenLexer = newSeenLexerCompat(source, 1, language)
     let tokens = lexer.tokenize()
 
-    let parser = newRealParserCompat(tokens)
+    let parser: RealParser = newRealParserCompat(tokens)
     let ast = parser.parse()
     result.program = ast
 
@@ -154,7 +153,7 @@ fun run_frontend(source: String, fileLabel: String, language: String = "en") r: 
     frontendNormalizeNamedArguments(ast)
 
     // Reduced tracing to avoid string allocation crashes
-    let checker = newTypeCheckerCompat()
+    let checker: TypeChecker = newTypeCheckerCompat()
     let typeResult = checker.check(ast)
 
     if typeResult.errors.length() > 0 {
@@ -181,7 +180,7 @@ fun run_frontend(source: String, fileLabel: String, language: String = "en") r: 
     }
 
     // Macro expansion phase
-    let expander = newMacroExpanderCompat()
+    let expander: MacroExpander = newMacroExpanderCompat()
     let macroResult = expander.expandProgram(ast)
 
     // Report macro expansion errors
@@ -230,10 +229,10 @@ fun run_frontend(source: String, fileLabel: String, language: String = "en") r: 
 fun run_frontend_declarations(source: String, fileLabel: String, language: String = "en") r: FrontendResult {
     let result = FrontendResult.new()
 
-    let lexer = newSeenLexerCompat(source, 1, language)
+    let lexer: SeenLexer = newSeenLexerCompat(source, 1, language)
     let tokens = lexer.tokenize()
 
-    let parser = newRealParserCompat(tokens)
+    let parser: RealParser = newRealParserCompat(tokens)
     result.program = parser.parseDeclarationsOnly()
     result.success = true
     return result
@@ -320,7 +319,7 @@ fun programUsesFacadeComponents(program: ProgramNode) r: Bool {
     while i < program.items.length() {
         let item = program.items[i]
         if item.itemType == "Function" {
-            if item.function.isComponent {
+            if functionHasDecorator(item.function, "facade_component") {
                 return true
             }
         }
@@ -415,16 +414,13 @@ fun facadeFindParamIndex(func: FunctionNode, paramName: String) r: Int {
 }
 
 fun facadeCallArgName(expr: ParserExpressionNode, index: Int) r: String {
-    if index >= 0 and index < expr.argumentNames.length() {
-        return expr.argumentNames[index]
-    }
-    return ""
+    return getUiCallArgName(expr, index)
 }
 
 fun facadeCallHasNamedArgs(expr: ParserExpressionNode) r: Bool {
     var i = 0
-    while i < expr.argumentNames.length() {
-        if expr.argumentNames[i] != "" {
+    while i < expr.arguments.length() {
+        if getUiCallArgName(expr, i) != "" {
             return true
         }
         i = i + 1
@@ -601,12 +597,10 @@ fun facadeNormalizeNamedCall(expr: ParserExpressionNode,
     }
 
     let nextArgs = Array<ParserExpressionNode>()
-    let nextNames = Array<String>()
     var pi = 0
     while pi < func.params.length() {
         if pi < positionalArgs.length() {
             nextArgs.push(positionalArgs[pi])
-            nextNames.push("")
         } else {
             var foundNamed = -1
             ni = 0
@@ -618,12 +612,10 @@ fun facadeNormalizeNamedCall(expr: ParserExpressionNode,
             }
             if foundNamed >= 0 {
                 nextArgs.push(namedArgs[foundNamed])
-                nextNames.push("")
             } else if pi <= highestProvided {
                 let param = func.params[pi]
                 if facadeParamHasDefault(param) {
                     nextArgs.push(facadeMakeDefaultExpression(param))
-                    nextNames.push("")
                 } else {
                     return
                 }
@@ -633,17 +625,18 @@ fun facadeNormalizeNamedCall(expr: ParserExpressionNode,
     }
 
     expr.arguments = nextArgs
-    expr.argumentNames = nextNames
+    clearUiCallArgNames(expr)
 }
 
 fun facadeSlotNamesHaveDuplicate(expr: ParserExpressionNode) r: Bool {
     var i = 0
-    while i < expr.slotNames.length() {
-        let slotName = expr.slotNames[i]
+    let slotCount = getUiSlotCount(expr)
+    while i < slotCount {
+        let slotName = getUiSlotName(expr, i)
         if slotName != "" {
             var j = i + 1
-            while j < expr.slotNames.length() {
-                if expr.slotNames[j] == slotName {
+            while j < slotCount {
+                if getUiSlotName(expr, j) == slotName {
                     return true
                 }
                 j = j + 1
@@ -685,8 +678,8 @@ fun facadeValidateExpression(result: FrontendResult, fileLabel: String,
         oi = oi + 1
     }
     var si = 0
-    while si < expr.slotBlocks.length() {
-        facadeValidateBlock(result, fileLabel, expr.slotBlocks[si],
+    while si < getUiSlotCount(expr) {
+        facadeValidateBlock(result, fileLabel, getUiSlotBlock(expr, si),
             functions, insideComponent)
         si = si + 1
     }
@@ -710,8 +703,8 @@ fun facadeNormalizeExpression(expr: ParserExpressionNode,
         oi = oi + 1
     }
     var si = 0
-    while si < expr.slotBlocks.length() {
-        facadeNormalizeBlock(expr.slotBlocks[si], functions)
+    while si < getUiSlotCount(expr) {
+        facadeNormalizeBlock(getUiSlotBlock(expr, si), functions)
         si = si + 1
     }
 
@@ -748,8 +741,8 @@ fun facadeExpressionHasNamedArg(expr: ParserExpressionNode,
     argName: String) r: Bool {
 
     var i = 0
-    while i < expr.argumentNames.length() {
-        if expr.argumentNames[i] == argName {
+    while i < expr.arguments.length() {
+        if getUiCallArgName(expr, i) == argName {
             return true
         }
         i = i + 1
@@ -761,8 +754,8 @@ fun facadeLiteralNamedArgValue(expr: ParserExpressionNode,
     argName: String) r: String {
 
     var i = 0
-    while i < expr.argumentNames.length() and i < expr.arguments.length() {
-        if expr.argumentNames[i] == argName {
+    while i < expr.arguments.length() {
+        if getUiCallArgName(expr, i) == argName {
             let argExpr = expr.arguments[i]
             if argExpr.kind == "Literal" {
                 return argExpr.literalValue
@@ -777,7 +770,7 @@ fun facadeLooksLikeUiChild(expr: ParserExpressionNode) r: Bool {
     if expr.kind != "Call" and expr.kind != "MethodCall" {
         return false
     }
-    if expr.slotBlocks.length() > 0 {
+    if getUiSlotCount(expr) > 0 {
         return true
     }
     if expr.callee.length() > 0 {
@@ -824,8 +817,9 @@ fun facadeValidateDynamicChildExpr(result: FrontendResult, fileLabel: String,
         oi = oi + 1
     }
     var si = 0
-    while si < expr.slotBlocks.length() {
-        facadeValidateDynamicChildBlock(result, fileLabel, expr.slotBlocks[si],
+    while si < getUiSlotCount(expr) {
+        facadeValidateDynamicChildBlock(result, fileLabel,
+            getUiSlotBlock(expr, si),
             keys)
         si = si + 1
     }
@@ -998,7 +992,8 @@ fun addFacadeDiagnostics(result: FrontendResult, fileLabel: String,
         let item = program.items[i]
         if item.itemType == "Function" {
             facadeValidateBlock(result, fileLabel, item.function.body,
-                functions, item.function.isComponent)
+                functions, functionHasDecorator(item.function,
+                    "facade_component"))
         }
         if item.itemType == "Class" {
             let cls = item.classNode
@@ -1018,20 +1013,22 @@ fun facadeComponentMetadata(program: ProgramNode) r: String {
     var i = 0
     while i < program.items.length() {
         let item = program.items[i]
-        if item.itemType == "Function" and item.function.isComponent {
-            if metadata != "" {
-                metadata = metadata + "\n"
-            }
-            metadata = metadata + "component\t" + item.function.name + "\t"
-            var pi = 0
-            while pi < item.function.params.length() {
-                if pi > 0 {
-                    metadata = metadata + ","
+        if item.itemType == "Function" {
+            if functionHasDecorator(item.function, "facade_component") {
+                if metadata != "" {
+                    metadata = metadata + "\n"
                 }
-                let param = item.function.params[pi]
-                metadata = metadata + param.name + ":" +
-                    facadeParamTypeWithoutDefault(param.paramType.typeName)
-                pi = pi + 1
+                metadata = metadata + "component\t" + item.function.name + "\t"
+                var pi = 0
+                while pi < item.function.params.length() {
+                    if pi > 0 {
+                        metadata = metadata + ","
+                    }
+                    let param = item.function.params[pi]
+                    metadata = metadata + param.name + ":" +
+                        facadeParamTypeWithoutDefault(param.paramType.typeName)
+                    pi = pi + 1
+                }
             }
         }
         i = i + 1

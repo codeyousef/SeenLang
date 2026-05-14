@@ -204,7 +204,7 @@ fun emitInheritedClassMethodThunksImpl(output: StringBuilder,
     var parentMethodIdx = 0
     while parentMethodIdx < parentMethodCount {
         let parentMethodName = commaGetImpl(parentMethodList, parentMethodIdx)
-        let parentRetType = pipeGet(parentRetTypes, parentMethodIdx)
+        let parentRetType: String = pipeGet(parentRetTypes, parentMethodIdx)
         var childHasMethod = 0
         var childMethodIdx = 0
         while childMethodIdx < classNode.methods.length() {

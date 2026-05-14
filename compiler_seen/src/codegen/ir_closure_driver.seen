@@ -1,6 +1,6 @@
 // ir_closure_driver.seen - closure expression lowering.
 
-import parser.real_parser.{ParserExpressionNode}
+import parser.real_parser.{ParserExpressionNode, getUiCallbackBlock}
 import str.string.{StringBuilder}
 import codegen.ir_codegen_state.{getSharedCodegenState}
 import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl}
@@ -99,8 +99,9 @@ fun generateUiCallbackState(ctx: CodegenLoweringContext,
     nestedOutput.append("define i64 @" + quoteIdentIfNeededImpl(closureName) +
         "() {\n")
     nestedOutput.append("entry:\n")
-    if expr.slotBlocks.length() > 0 {
-        lowerBlock(ctx, expr.slotBlocks[0])
+    let callbackBlock = getUiCallbackBlock(expr)
+    if callbackBlock.statements.length() > 0 {
+        lowerBlock(ctx, callbackBlock)
     }
     if not isLoweringBlockTerminated(ctx) {
         nestedOutput.append("  ret i64 0\n")

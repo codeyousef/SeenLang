@@ -1,7 +1,5 @@
-///
-ir_module_constants.seen — module constant lookup and type helpers
-Keeps module-constant lookup/promotion state separate from llvm_ir_gen.seen.
-///
+// Module constant lookup and type helpers.
+// Keeps module-constant lookup state separate from llvm_ir_gen.seen.
 
 import parser.real_parser.{ProgramNode}
 import str.string.{StringBuilder}
@@ -231,13 +229,13 @@ fun tryInferModuleConstantVariableTypeIntoStateImpl(name: String,
     if xmConstCount > 0 {
         var xi = 0
         while xi < xmConstCount {
-            let xcName = pipeGet(xmConstNames, xi)
-            let xcType = pipeGet(xmConstTypes, xi)
+            let xcName: String = pipeGet(xmConstNames, xi)
+            let xcType: String = pipeGet(xmConstTypes, xi)
             if isValidCrossModuleConstantEntryImpl(xcName, xcType) and
                 xcName == name {
 
-                let xcMut = pipeGet(xmConstMutable, xi)
-                let xcSeenType = pipeGet(xmConstSeenTypes, xi)
+                let xcMut: String = pipeGet(xmConstMutable, xi)
+                let xcSeenType: String = pipeGet(xmConstSeenTypes, xi)
                 moduleConstantNames.push(name)
                 moduleConstantTypes.push(xcType)
                 moduleConstantValues.push("0")
@@ -299,13 +297,13 @@ fun findModuleConstantIntoStateImpl(name: String,
     if xmConstCount > 0 {
         var xi = 0
         while xi < xmConstCount {
-            let xcName = pipeGet(xmConstNames, xi)
-            let xcType = pipeGet(xmConstTypes, xi)
+            let xcName: String = pipeGet(xmConstNames, xi)
+            let xcType: String = pipeGet(xmConstTypes, xi)
             if isValidCrossModuleConstantEntryImpl(xcName, xcType) and
                 xcName == name {
 
-                let xcMut = pipeGet(xmConstMutable, xi)
-                let xcSeenType = pipeGet(xmConstSeenTypes, xi)
+                let xcMut: String = pipeGet(xmConstMutable, xi)
+                let xcSeenType: String = pipeGet(xmConstSeenTypes, xi)
                 moduleConstantNames.push(name)
                 moduleConstantTypes.push(xcType)
                 moduleConstantValues.push("0")

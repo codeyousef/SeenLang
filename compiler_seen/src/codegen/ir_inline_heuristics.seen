@@ -75,9 +75,9 @@ If any entry has both funcName as the defining function AND as the called functi
 fun selfCallCheck(funcName: String, selfCallFuncs: String, selfCallNames: String, selfCallCount: Int) r: Bool {
     var i = 0
     while i < selfCallCount {
-        let defFunc = pipeGet(selfCallFuncs, i)
+        let defFunc: String = pipeGet(selfCallFuncs, i)
         if defFunc == funcName {
-            let calledFunc = pipeGet(selfCallNames, i)
+            let calledFunc: String = pipeGet(selfCallNames, i)
             if calledFunc == funcName {
                 return true
             }

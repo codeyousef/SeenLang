@@ -28,7 +28,7 @@ import io.file.{readText, writeText, appendText, exists}
 import process.process.{runCommand, runProgram, CommandResult, commandWasSuccessful, processFork, waitPid, processExit, getPid}
 import env.env.{args}
 import codegen.llvm_ir_gen.{LLVMIRGenerator, newLLVMIRGenerator, overrideTargetTriple}
-import parser.real_parser.{ProgramNode, ItemNode, ImportSymbolNode, ClassNode, FunctionNode, StatementNode, ParserExpressionNode, BlockNode, EnumNode}
+import parser.real_parser.{ProgramNode, ItemNode, ImportSymbolNode, ClassNode, FunctionNode, StatementNode, ParserExpressionNode, BlockNode, EnumNode, getUiSlotCount, getUiSlotBlock}
 import lsp.server.{runLspServer}
 import typechecker.determinism.{DeterminismChecker, checkDeterminismWithProfile, printDeterminismErrors}
 import codegen.ir_decl_runtime.{emitCoreRuntimeDecls}
@@ -551,8 +551,7 @@ fun mainCompilerEmptyFunctionNode() r: FunctionNode {
         decorators: Array<AnnotationNode>(),
         line: 0,
         column: 0,
-        isOverride: false,
-        isComponent: false
+        isOverride: false
     }
 }
 
@@ -702,8 +701,8 @@ fun normalizeExpressionModuleAliases(expr: ParserExpressionNode,
     }
 
     var slotIdx = 0
-    while slotIdx < expr.slotBlocks.length() {
-        normalizeBlockModuleAliases(expr.slotBlocks[slotIdx], aliases)
+    while slotIdx < getUiSlotCount(expr) {
+        normalizeBlockModuleAliases(getUiSlotBlock(expr, slotIdx), aliases)
         slotIdx = slotIdx + 1
     }
 
@@ -945,6 +944,186 @@ fun defaultRegistryLocation() r: String {
     return "https://seen.yousef.codes/packages"
 }
 
+fun resolveProjectPath(projectRoot: String, path: String) r: String {
+    if path == "" {
+        return ""
+    }
+    if path.length() > 0 {
+        if path.byteAt(0) == 47 {
+            return path
+        }
+    }
+    if projectRoot == "" {
+        return path
+    }
+    if projectRoot == "/" {
+        return "/" + path
+    }
+    return projectRoot + "/" + path
+}
+
+// Get directory part of file path. Uses byteAt() (47 = '/')
+fun getSourceDir(filePath: String) r: String {
+    var lastSlash = 0 - 1
+    var i = 0
+    while i < filePath.length() {
+        if filePath.byteAt(i) == 47 {
+            lastSlash = i
+        }
+        i = i + 1
+    }
+    if lastSlash < 0 {
+        return ""
+    }
+    return filePath.substring(0, lastSlash)
+}
+
+fun isAbsolutePath(path: String) r: Bool {
+    if path.length() == 0 {
+        return false
+    }
+    return path.byteAt(0) == 47
+}
+
+fun realInputPathCacheMaxEntries() r: Int {
+    return 8192
+}
+
+fun resetRealInputPathCache() r: Void {
+    g_resolveRealInputPathCwd = ""
+    g_resolveRealInputPathKeys = Array<String>()
+    g_resolveRealInputPathValues = Array<String>()
+    return
+}
+
+fun cachedRealInputPathCwd() r: String {
+    if g_resolveRealInputPathCwd == "" {
+        g_resolveRealInputPathCwd = currentWorkingDir()
+    }
+    return g_resolveRealInputPathCwd
+}
+
+fun findCachedRealInputPath(path: String) r: String {
+    var limit = g_resolveRealInputPathKeys.length()
+    if g_resolveRealInputPathValues.length() < limit {
+        limit = g_resolveRealInputPathValues.length()
+    }
+    var i = limit - 1
+    while i >= 0 {
+        if g_resolveRealInputPathKeys[i] == path {
+            return g_resolveRealInputPathValues[i]
+        }
+        i = i - 1
+    }
+    return ""
+}
+
+fun cacheRealInputPath(path: String, resolved: String) r: Void {
+    if path == "" or resolved == "" {
+        return
+    }
+    if g_resolveRealInputPathKeys.length() > realInputPathCacheMaxEntries() {
+        resetRealInputPathCache()
+    }
+    var limit = g_resolveRealInputPathKeys.length()
+    if g_resolveRealInputPathValues.length() < limit {
+        limit = g_resolveRealInputPathValues.length()
+    }
+    var i = limit - 1
+    while i >= 0 {
+        if g_resolveRealInputPathKeys[i] == path {
+            g_resolveRealInputPathValues[i] = resolved
+            return
+        }
+        i = i - 1
+    }
+    g_resolveRealInputPathKeys.push(path)
+    g_resolveRealInputPathValues.push(resolved)
+    return
+}
+
+fun resolveRealInputPath(path: String) r: String {
+    if path == "" {
+        return ""
+    }
+    let cached = findCachedRealInputPath(path)
+    if cached != "" {
+        return cached
+    }
+    var resolved = path
+    if not isAbsolutePath(resolved) {
+        let cwd = cachedRealInputPathCwd()
+        if cwd != "" {
+            resolved = cwd + "/" + resolved
+        }
+    }
+    let realpathResult = runCommand("readlink -f " +
+        mainCompilerShellQuote(resolved))
+    if commandWasSuccessful(realpathResult) {
+        var realpath = realpathResult.output
+        if realpath.length() > 0 {
+            if realpath.byteAt(realpath.length() - 1) == 10 {
+                realpath = realpath.substring(0, realpath.length() - 1)
+            }
+        }
+        if realpath != "" {
+            cacheRealInputPath(path, realpath)
+            return realpath
+        }
+    }
+    cacheRealInputPath(path, resolved)
+    return resolved
+}
+
+fun findNearestSeenTomlFromDir(initialDir: String) r: String {
+    var searchDir = initialDir
+    var searching = 1
+    while searching == 1 {
+        var candidate = "Seen.toml"
+        if searchDir == "/" {
+            candidate = "/Seen.toml"
+        } else {
+            if searchDir != "" {
+                candidate = searchDir + "/Seen.toml"
+            }
+        }
+        if loadFileContent(candidate) != "" {
+            return candidate
+        }
+        if searchDir == "" or searchDir == "/" {
+            searching = 0
+        } else {
+            let parentDir = getSourceDir(searchDir)
+            if parentDir == searchDir {
+                searching = 0
+            } else {
+                if parentDir == "" {
+                    if isAbsolutePath(searchDir) {
+                        searchDir = "/"
+                    } else {
+                        searchDir = ""
+                    }
+                } else {
+                    searchDir = parentDir
+                }
+            }
+        }
+    }
+    return ""
+}
+
+fun findNearestSeenTomlForInput(inputFile: String) r: String {
+    return findNearestSeenTomlFromDir(getSourceDir(inputFile))
+}
+
+fun readNearestSeenTomlForInput(inputFile: String) r: String {
+    let tomlPath = findNearestSeenTomlForInput(inputFile)
+    if tomlPath == "" {
+        return ""
+    }
+    return readText(tomlPath)
+}
+
 fun extractTomlProjectVersion(content: String) r: String {
     var inProject = 0
     var lineStart = 0
@@ -1050,6 +1229,32 @@ fun registryLocationForProject(projectRoot: String, content: String, registryNam
         return location
     }
     return resolveProjectPath(projectRoot, location)
+}
+
+fun extractTomlInlineQuotedField(value: String, fieldName: String) r: String {
+    var fieldPos = value.indexOf(fieldName + " =", 0)
+    if fieldPos < 0 {
+        fieldPos = value.indexOf(fieldName + "=", 0)
+    }
+    if fieldPos < 0 {
+        return ""
+    }
+    var pos = fieldPos + fieldName.length()
+    while pos < value.length() {
+        if value.byteAt(pos) == 34 {
+            let start = pos + 1
+            var end = start
+            while end < value.length() {
+                if value.byteAt(end) == 34 {
+                    return value.substring(start, end)
+                }
+                end = end + 1
+            }
+            return ""
+        }
+        pos = pos + 1
+    }
+    return ""
 }
 
 fun parsePackageDependencyEntry(depName: String, depValue: String) r: PackageDependency {
@@ -1556,7 +1761,10 @@ fun prebuiltObjectManifestSourceInterfacePath(artifactRoot: String,
     the artifact, then fall back to the original absolute path for local dev
     artifacts that still sit beside their sources.
     ///
-    if artifactRoot == "" or sourcePath == "" {
+    if artifactRoot.length() == 0 {
+        return ""
+    }
+    if sourcePath.length() == 0 {
         return ""
     }
 
@@ -2789,32 +2997,6 @@ fun pkgCommand(argv: Array<String>) r: Int {
     return 1
 }
 
-fun extractTomlInlineQuotedField(value: String, fieldName: String) r: String {
-    var fieldPos = value.indexOf(fieldName + " =", 0)
-    if fieldPos < 0 {
-        fieldPos = value.indexOf(fieldName + "=", 0)
-    }
-    if fieldPos < 0 {
-        return ""
-    }
-    var pos = fieldPos + fieldName.length()
-    while pos < value.length() {
-        if value.byteAt(pos) == 34 {
-            let start = pos + 1
-            var end = start
-            while end < value.length() {
-                if value.byteAt(end) == 34 {
-                    return value.substring(start, end)
-                }
-                end = end + 1
-            }
-            return ""
-        }
-        pos = pos + 1
-    }
-    return ""
-}
-
 fun extractTomlProjectName(content: String) r: String {
     var inProject = 0
     var lineStart = 0
@@ -3403,184 +3585,6 @@ fun resolveImportPath(importPath: Array<String>, sourceDir: String) r: String {
         }
     }
     return directPath
-}
-
-// Get directory part of file path. Uses byteAt() (47 = '/')
-fun getSourceDir(filePath: String) r: String {
-    var lastSlash = 0 - 1
-    var i = 0
-    while i < filePath.length() {
-        if filePath.byteAt(i) == 47 {
-            lastSlash = i
-        }
-        i = i + 1
-    }
-    if lastSlash < 0 {
-        return ""
-    }
-    return filePath.substring(0, lastSlash)
-}
-
-fun isAbsolutePath(path: String) r: Bool {
-    if path.length() == 0 {
-        return false
-    }
-    return path.byteAt(0) == 47
-}
-
-fun resolveRealInputPath(path: String) r: String {
-    if path == "" {
-        return ""
-    }
-    let cached = findCachedRealInputPath(path)
-    if cached != "" {
-        return cached
-    }
-    var resolved = path
-    if not isAbsolutePath(resolved) {
-        let cwd = cachedRealInputPathCwd()
-        if cwd != "" {
-            resolved = cwd + "/" + resolved
-        }
-    }
-    let realpathResult = runCommand("readlink -f " +
-        mainCompilerShellQuote(resolved))
-    if commandWasSuccessful(realpathResult) {
-        var realpath = realpathResult.output
-        if realpath.length() > 0 {
-            if realpath.byteAt(realpath.length() - 1) == 10 {
-                realpath = realpath.substring(0, realpath.length() - 1)
-            }
-        }
-        if realpath != "" {
-            cacheRealInputPath(path, realpath)
-            return realpath
-        }
-    }
-    cacheRealInputPath(path, resolved)
-    return resolved
-}
-
-fun realInputPathCacheMaxEntries() r: Int {
-    return 8192
-}
-
-fun resetRealInputPathCache() r: Void {
-    g_resolveRealInputPathCwd = ""
-    g_resolveRealInputPathKeys = Array<String>()
-    g_resolveRealInputPathValues = Array<String>()
-    return
-}
-
-fun cachedRealInputPathCwd() r: String {
-    if g_resolveRealInputPathCwd == "" {
-        g_resolveRealInputPathCwd = currentWorkingDir()
-    }
-    return g_resolveRealInputPathCwd
-}
-
-fun findCachedRealInputPath(path: String) r: String {
-    var limit = g_resolveRealInputPathKeys.length()
-    if g_resolveRealInputPathValues.length() < limit {
-        limit = g_resolveRealInputPathValues.length()
-    }
-    var i = limit - 1
-    while i >= 0 {
-        if g_resolveRealInputPathKeys[i] == path {
-            return g_resolveRealInputPathValues[i]
-        }
-        i = i - 1
-    }
-    return ""
-}
-
-fun cacheRealInputPath(path: String, resolved: String) r: Void {
-    if path == "" or resolved == "" {
-        return
-    }
-    if g_resolveRealInputPathKeys.length() > realInputPathCacheMaxEntries() {
-        resetRealInputPathCache()
-    }
-    var limit = g_resolveRealInputPathKeys.length()
-    if g_resolveRealInputPathValues.length() < limit {
-        limit = g_resolveRealInputPathValues.length()
-    }
-    var i = limit - 1
-    while i >= 0 {
-        if g_resolveRealInputPathKeys[i] == path {
-            g_resolveRealInputPathValues[i] = resolved
-            return
-        }
-        i = i - 1
-    }
-    g_resolveRealInputPathKeys.push(path)
-    g_resolveRealInputPathValues.push(resolved)
-    return
-}
-
-fun findNearestSeenTomlFromDir(initialDir: String) r: String {
-    var searchDir = initialDir
-    var searching = 1
-    while searching == 1 {
-        var candidate = "Seen.toml"
-        if searchDir == "/" {
-            candidate = "/Seen.toml"
-        } else {
-            if searchDir != "" {
-                candidate = searchDir + "/Seen.toml"
-            }
-        }
-        if loadFileContent(candidate) != "" {
-            return candidate
-        }
-        if searchDir == "" or searchDir == "/" {
-            searching = 0
-        } else {
-            let parentDir = getSourceDir(searchDir)
-            if parentDir == searchDir {
-                searching = 0
-            } else {
-                if parentDir == "" {
-                    if isAbsolutePath(searchDir) {
-                        searchDir = "/"
-                    } else {
-                        searchDir = ""
-                    }
-                } else {
-                    searchDir = parentDir
-                }
-            }
-        }
-    }
-    return ""
-}
-
-fun findNearestSeenTomlForInput(inputFile: String) r: String {
-    return findNearestSeenTomlFromDir(getSourceDir(inputFile))
-}
-
-fun readNearestSeenTomlForInput(inputFile: String) r: String {
-    let tomlPath = findNearestSeenTomlForInput(inputFile)
-    if tomlPath == "" {
-        return ""
-    }
-    return readText(tomlPath)
-}
-
-fun resolveProjectPath(projectRoot: String, path: String) r: String {
-    if path == "" {
-        return ""
-    }
-    if isAbsolutePath(path) {
-        return path
-    }
-    if projectRoot == "" {
-        return path
-    }
-    if projectRoot == "/" {
-        return "/" + path
-    }
-    return projectRoot + "/" + path
 }
 
 fun buildLocalLibrarySearchFlags(resolvedPath: String, effectiveTarget: String, normalizedCrossTarget: String) r: String {

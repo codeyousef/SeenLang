@@ -21,7 +21,6 @@ class StatementNode {
     var elseBranch: BlockNode
     var loopCondition: ParserExpressionNode
     var loopBody: BlockNode
-    var metadata: Array<String>
 
     fun new() r: StatementNode {
         return StatementNode{}
@@ -37,9 +36,6 @@ class ParserExpressionNode {
     var variableName: String
     var callee: String
     var arguments: Array<ParserExpressionNode>
-    var argumentNames: Array<String>
-    var slotNames: Array<String>
-    var slotBlocks: Array<BlockNode>
 
     static fun new() r: ParserExpressionNode {
         return ParserExpressionNode{}
@@ -61,7 +57,6 @@ fun getKnownFieldIndexPrimaryTableImpl(structName: String, fieldName: String)
         if fieldName == "elseBranch" { return 8 }
         if fieldName == "loopCondition" { return 9 }
         if fieldName == "loopBody" { return 10 }
-        if fieldName == "metadata" { return 11 }
     }
     if structName == "ParserExpressionNode" {
         if fieldName == "kind" { return 0 }
@@ -72,9 +67,6 @@ fun getKnownFieldIndexPrimaryTableImpl(structName: String, fieldName: String)
         if fieldName == "variableName" { return 5 }
         if fieldName == "callee" { return 6 }
         if fieldName == "arguments" { return 7 }
-        if fieldName == "argumentNames" { return 8 }
-        if fieldName == "slotNames" { return 9 }
-        if fieldName == "slotBlocks" { return 10 }
     }
     return -1
 }
@@ -95,7 +87,6 @@ fun getFieldInfoReg(structName: String, fieldName: String,
         if fieldName == "elseBranch" { return 8 }
         if fieldName == "loopCondition" { return 9 }
         if fieldName == "loopBody" { return 10 }
-        if fieldName == "metadata" { return 11 }
     }
     if structName == "ParserExpressionNode" {
         if fieldName == "kind" { return 0 }
@@ -106,9 +97,6 @@ fun getFieldInfoReg(structName: String, fieldName: String,
         if fieldName == "variableName" { return 5 }
         if fieldName == "callee" { return 6 }
         if fieldName == "arguments" { return 7 }
-        if fieldName == "argumentNames" { return 8 }
-        if fieldName == "slotNames" { return 9 }
-        if fieldName == "slotBlocks" { return 10 }
     }
     return -1
 }
@@ -130,8 +118,7 @@ fun resolveKnownStructFieldImpl(structType: String, fieldName: String)
         if fieldName == "elseBranch" { g_resolvedFieldIndex = 8; g_resolvedFieldTypeCode = 0 }
         if fieldName == "loopCondition" { g_resolvedFieldIndex = 9; g_resolvedFieldTypeCode = 0 }
         if fieldName == "loopBody" { g_resolvedFieldIndex = 10; g_resolvedFieldTypeCode = 0 }
-        if fieldName == "metadata" { g_resolvedFieldIndex = 11; g_resolvedFieldTypeCode = 2 }
-        return lb + " %SeenString, %SeenString, %TypeNode, i64, i64, i64, i64, i64, i64, i64, i64, ptr " + rb
+        return lb + " %SeenString, %SeenString, %TypeNode, i64, i64, i64, i64, i64, i64, i64, i64 " + rb
     }
     if structType == "ParserExpressionNode" {
         if fieldName == "kind" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 3 }
@@ -142,10 +129,7 @@ fun resolveKnownStructFieldImpl(structType: String, fieldName: String)
         if fieldName == "variableName" { g_resolvedFieldIndex = 5; g_resolvedFieldTypeCode = 3 }
         if fieldName == "callee" { g_resolvedFieldIndex = 6; g_resolvedFieldTypeCode = 3 }
         if fieldName == "arguments" { g_resolvedFieldIndex = 7; g_resolvedFieldTypeCode = 2 }
-        if fieldName == "argumentNames" { g_resolvedFieldIndex = 8; g_resolvedFieldTypeCode = 2 }
-        if fieldName == "slotNames" { g_resolvedFieldIndex = 9; g_resolvedFieldTypeCode = 2 }
-        if fieldName == "slotBlocks" { g_resolvedFieldIndex = 10; g_resolvedFieldTypeCode = 2 }
-        return lb + " %SeenString, ptr, %SeenString, %SeenString, %SeenString, %SeenString, %SeenString, ptr, ptr, ptr, ptr " + rb
+        return lb + " %SeenString, ptr, %SeenString, %SeenString, %SeenString, %SeenString, %SeenString, ptr " + rb
     }
     return ""
 }
@@ -165,7 +149,6 @@ fun getFieldTypeForKnownStructImpl(structName: String, fieldName: String)
         if fieldName == "elseBranch" { return "i64" }
         if fieldName == "loopCondition" { return "i64" }
         if fieldName == "loopBody" { return "i64" }
-        if fieldName == "metadata" { return "ptr" }
     }
     if structName == "ParserExpressionNode" {
         if fieldName == "kind" { return "%SeenString" }
@@ -176,9 +159,6 @@ fun getFieldTypeForKnownStructImpl(structName: String, fieldName: String)
         if fieldName == "variableName" { return "%SeenString" }
         if fieldName == "callee" { return "%SeenString" }
         if fieldName == "arguments" { return "ptr" }
-        if fieldName == "argumentNames" { return "ptr" }
-        if fieldName == "slotNames" { return "ptr" }
-        if fieldName == "slotBlocks" { return "ptr" }
     }
     return ""
 }
@@ -191,20 +171,20 @@ fun registerKnownDataTypesImpl(structNames: Array<String>,
     structMethodRetTypes: Array<String>) r: Void {
 
     structNames.push("StatementNode")
-    structLayouts.push("{ %SeenString, %SeenString, %TypeNode, i64, i64, i64, i64, i64, i64, i64, i64, ptr }")
-    structFieldNames.push("kind,variableName,variableType,initializer,returnValue,expression,condition,thenBranch,elseBranch,loopCondition,loopBody,metadata")
-    structFieldTypes.push("String|String|TypeNode|ParserExpressionNode|ParserExpressionNode|ParserExpressionNode|ParserExpressionNode|BlockNode|BlockNode|ParserExpressionNode|BlockNode|Array<String>")
+    structLayouts.push("{ %SeenString, %SeenString, %TypeNode, i64, i64, i64, i64, i64, i64, i64, i64 }")
+    structFieldNames.push("kind,variableName,variableType,initializer,returnValue,expression,condition,thenBranch,elseBranch,loopCondition,loopBody")
+    structFieldTypes.push("String|String|TypeNode|ParserExpressionNode|ParserExpressionNode|ParserExpressionNode|ParserExpressionNode|BlockNode|BlockNode|ParserExpressionNode|BlockNode")
     structLlvmFieldTypes.push("")
-    structSizes.push(128)
+    structSizes.push(120)
     structMethodNames.push("")
     structMethodRetTypes.push("")
 
     structNames.push("ParserExpressionNode")
-    structLayouts.push("{ %SeenString, ptr, %SeenString, %SeenString, %SeenString, %SeenString, %SeenString, ptr, ptr, ptr, ptr }")
-    structFieldNames.push("kind,operands,operator,literalValue,literalType,variableName,callee,arguments,argumentNames,slotNames,slotBlocks")
-    structFieldTypes.push("String|Array<ParserExpressionNode>|String|String|String|String|String|Array<ParserExpressionNode>|Array<String>|Array<String>|Array<BlockNode>")
+    structLayouts.push("{ %SeenString, ptr, %SeenString, %SeenString, %SeenString, %SeenString, %SeenString, ptr }")
+    structFieldNames.push("kind,operands,operator,literalValue,literalType,variableName,callee,arguments")
+    structFieldTypes.push("String|Array<ParserExpressionNode>|String|String|String|String|String|Array<ParserExpressionNode>")
     structLlvmFieldTypes.push("")
-    structSizes.push(136)
+    structSizes.push(112)
     structMethodNames.push("")
     structMethodRetTypes.push("")
 }
@@ -1070,9 +1050,6 @@ fun getKnownFieldIndexPrimaryTableImpl(structName: String, fieldName: String)
         if fieldName == "variableName" { return 5 }
         if fieldName == "callee" { return 6 }
         if fieldName == "arguments" { return 7 }
-        if fieldName == "argumentNames" { return 8 }
-        if fieldName == "slotNames" { return 9 }
-        if fieldName == "slotBlocks" { return 10 }
     }
     return -1
 }
@@ -1095,7 +1072,6 @@ fun getFieldTypeForKnownStructImpl(structName: String, fieldName: String)
         if fieldName == "elseBranch" { return "i64" }
         if fieldName == "loopCondition" { return "i64" }
         if fieldName == "loopBody" { return "i64" }
-        if fieldName == "metadata" { return "ptr" }
     }
     if structName == "ParserExpressionNode" {
         if fieldName == "kind" { return "%SeenString" }
@@ -1106,9 +1082,6 @@ fun getFieldTypeForKnownStructImpl(structName: String, fieldName: String)
         if fieldName == "variableName" { return "%SeenString" }
         if fieldName == "callee" { return "%SeenString" }
         if fieldName == "arguments" { return "ptr" }
-        if fieldName == "argumentNames" { return "ptr" }
-        if fieldName == "slotNames" { return "ptr" }
-        if fieldName == "slotBlocks" { return "ptr" }
         if fieldName == "typeArgs" { return "ptr" }
     }
     return ""

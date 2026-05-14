@@ -21,9 +21,9 @@ fun parseDigitChar(c: String) r: Int {
 fun lookupEnumVariantTagImpl(variantName: String, enumVariantNames: String, enumVariantTags: String, enumVariantCount: Int) r: Int {
     var i = 0
     while i < enumVariantCount {
-        let name = pipeGet(enumVariantNames, i)
+        let name: String = pipeGet(enumVariantNames, i)
         if name == variantName {
-            let tagStr = pipeGet(enumVariantTags, i)
+            let tagStr: String = pipeGet(enumVariantTags, i)
             return parseIntManual(tagStr)
         }
         i = i + 1
@@ -35,9 +35,10 @@ fun lookupEnumVariantTagImpl(variantName: String, enumVariantNames: String, enum
 fun lookupEnumParentImpl(variantName: String, enumVariantNames: String, enumVariantParent: String, enumVariantCount: Int) r: String {
     var i = 0
     while i < enumVariantCount {
-        let name = pipeGet(enumVariantNames, i)
+        let name: String = pipeGet(enumVariantNames, i)
         if name == variantName {
-            return pipeGet(enumVariantParent, i)
+            let parent: String = pipeGet(enumVariantParent, i)
+            return parent
         }
         i = i + 1
     }
@@ -48,9 +49,9 @@ fun lookupEnumParentImpl(variantName: String, enumVariantNames: String, enumVari
 fun lookupEnumFieldTypeImpl(variantName: String, fieldIdx: Int, enumVariantNames: String, enumVariantFieldTypes: String, enumVariantCount: Int) r: String {
     var i = 0
     while i < enumVariantCount {
-        let name = pipeGet(enumVariantNames, i)
+        let name: String = pipeGet(enumVariantNames, i)
         if name == variantName {
-            let fieldTypesStr = pipeGet(enumVariantFieldTypes, i)
+            let fieldTypesStr: String = pipeGet(enumVariantFieldTypes, i)
             var fi = 0
             var fStart = 0
             var fPos = 0
@@ -80,9 +81,9 @@ fun lookupEnumFieldTypeImpl(variantName: String, fieldIdx: Int, enumVariantNames
 fun lookupEnumFieldCountImpl(variantName: String, enumVariantNames: String, enumVariantFieldCounts: String, enumVariantCount: Int) r: Int {
     var i = 0
     while i < enumVariantCount {
-        let name = pipeGet(enumVariantNames, i)
+        let name: String = pipeGet(enumVariantNames, i)
         if name == variantName {
-            let countStr = pipeGet(enumVariantFieldCounts, i)
+            let countStr: String = pipeGet(enumVariantFieldCounts, i)
             return parseIntManual(countStr)
         }
         i = i + 1
@@ -100,7 +101,8 @@ fun isEnumVariantImpl(name: String, enumVariantNames: String, enumVariantCount: 
     }
     var i = 0
     while i < enumVariantCount {
-        if pipeGet(enumVariantNames, i) == name {
+        let variantName: String = pipeGet(enumVariantNames, i)
+        if variantName == name {
             return true
         }
         i = i + 1

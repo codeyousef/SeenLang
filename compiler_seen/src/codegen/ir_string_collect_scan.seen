@@ -1,6 +1,6 @@
 // ir_string_collect_scan.seen - AST walks for string constants and self-calls.
 
-import parser.real_parser.{ParserExpressionNode, ProgramNode, BlockNode, StatementNode}
+import parser.real_parser.{ParserExpressionNode, ProgramNode, BlockNode, StatementNode, getUiSlotCount, getUiSlotBlock}
 import codegen.ir_string_collect.{ensureStringConstCache, hasCachedStringConst, cacheStringConstUnchecked}
 
 ///
@@ -249,16 +249,16 @@ fun collectStringConstantsFromExprImpl(expr: ParserExpressionNode, stringConstan
             i = i + 1
         }
         i = 0
-        while i < expr.slotBlocks.length() {
-            collectStringConstantsFromBlockImpl(expr.slotBlocks[i],
+        while i < getUiSlotCount(expr) {
+            collectStringConstantsFromBlockImpl(getUiSlotBlock(expr, i),
                 stringConstants, callCountNamesBox, callCountEntriesBox)
             i = i + 1
         }
     }
     if expr.kind == "UiCallback" {
         var cbSlotIdx = 0
-        while cbSlotIdx < expr.slotBlocks.length() {
-            collectStringConstantsFromBlockImpl(expr.slotBlocks[cbSlotIdx],
+        while cbSlotIdx < getUiSlotCount(expr) {
+            collectStringConstantsFromBlockImpl(getUiSlotBlock(expr, cbSlotIdx),
                 stringConstants, callCountNamesBox, callCountEntriesBox)
             cbSlotIdx = cbSlotIdx + 1
         }

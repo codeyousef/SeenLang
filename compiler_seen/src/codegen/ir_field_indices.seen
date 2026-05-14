@@ -17,7 +17,6 @@ fun getKnownFieldIndexPrimaryTableImpl(structName: String, fieldName: String)
         if fieldName == "line" { return 11 }
         if fieldName == "column" { return 12 }
         if fieldName == "isOverride" { return 13 }
-        if fieldName == "isComponent" { return 14 }
     }
     if structName == "ClassNode" {
         if fieldName == "name" { return 0 }
@@ -69,7 +68,6 @@ fun getKnownFieldIndexPrimaryTableImpl(structName: String, fieldName: String)
         if fieldName == "elseBranch" { return 8 }
         if fieldName == "loopCondition" { return 9 }
         if fieldName == "loopBody" { return 10 }
-        if fieldName == "metadata" { return 11 }
     }
     if structName == "ParserExpressionNode" {
         if fieldName == "kind" { return 0 }
@@ -80,9 +78,6 @@ fun getKnownFieldIndexPrimaryTableImpl(structName: String, fieldName: String)
         if fieldName == "variableName" { return 5 }
         if fieldName == "callee" { return 6 }
         if fieldName == "arguments" { return 7 }
-        if fieldName == "argumentNames" { return 8 }
-        if fieldName == "slotNames" { return 9 }
-        if fieldName == "slotBlocks" { return 10 }
     }
     return -1
 }

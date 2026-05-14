@@ -234,6 +234,9 @@ fun inferCallTypeTableImpl(callee: String) r: String {
     if callee == "getNextReg" { return "String" }
     if callee == "getNextBlock" { return "String" }
     if callee == "getNextBlockLabel" { return "String" }
+    if callee == "pipeGet" { return "String" }
+    if callee == "parseGlobalVarType" { return "String" }
+    if callee == "parseGlobalVarValue" { return "String" }
     if callee == "getFieldType" { return "String" }
     if callee == "getSeenFieldType" { return "String" }
     if callee == "getFunctionReturnType" { return "String" }

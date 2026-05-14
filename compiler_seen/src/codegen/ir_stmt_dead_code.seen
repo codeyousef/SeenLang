@@ -206,7 +206,7 @@ fun shouldSkipDeadLiteralInitializerImpl(deadStoreSkipVars: String,
     }
     var dsScanIdx = 0
     while dsScanIdx < deadStoreSkipVars.length() {
-        let dsEntry = pipeGet(deadStoreSkipVars, dsScanIdx)
+        let dsEntry: String = pipeGet(deadStoreSkipVars, dsScanIdx)
         if dsEntry == "" {
             return false
         }

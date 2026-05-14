@@ -100,7 +100,7 @@ IMPORTANT: Field order MUST match the class definition exactly
 fun getFunctionNodeLayout() r: StructLayout {
     let layout = StructLayout.new("FunctionNode")
 
-    // Fields in declaration order (indices 0-12) -- matches FunctionNode class in real_parser.seen
+    // Fields in declaration order (indices 0-13) -- matches FunctionNode class in real_parser.seen
     layout.addField("name", "String", "%SeenString")                           // 0
     layout.addField("params", "Array<ParamNode>", "ptr")                       // 1
     layout.addField("returnType", "TypeNode", "ptr")                           // 2

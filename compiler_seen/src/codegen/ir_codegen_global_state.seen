@@ -1,8 +1,6 @@
-///
-ir_codegen_global_state.seen - bootstrap-sensitive generator globals.
-These remain module globals instead of LLVMIRGenerator fields so older
-bootstrap compilers do not need to lower self-hosted field stores for them.
-///
+// Bootstrap-sensitive generator globals.
+// These remain module globals instead of LLVMIRGenerator fields so older
+// bootstrap compilers do not need to lower self-hosted field stores for them.
 
 import parser.real_parser.{ProgramNode, ClassNode, FunctionNode, StatementNode}
 import str.string.{StringBuilder}
@@ -308,10 +306,6 @@ fun tryInferModuleConstantVariableTypeWithGlobalStateImpl(name: String,
     xmConstSeenTypes: String, xmConstCount: Int)
     r: ModuleConstantRegistrySnapshot {
 
-    if moduleConstantNames.length() == 0 and xmConstCount <= 0 {
-        return ModuleConstantRegistrySnapshot.new(moduleConstMutable,
-            moduleConstSeenTypes, "", -1)
-    }
     return tryInferModuleConstantVariableTypeSnapshotImpl(name,
         moduleConstantNames, moduleConstantTypes, moduleConstantValues,
         moduleConstMutable, moduleConstSeenTypes, xmConstNames,

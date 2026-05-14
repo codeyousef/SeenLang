@@ -1,7 +1,5 @@
-///
-ir_decl_scan.seen — Pass 1 declaration-scan helpers
-Shared registry mutation helpers extracted from llvm_ir_gen.seen registerDeclarations().
-///
+// Pass 1 declaration-scan helpers.
+// Shared registry mutation helpers extracted from llvm_ir_gen.seen.
 
 import parser.real_parser.{ProgramNode, FunctionNode}
 import str.string.{StringBuilder}
@@ -38,7 +36,8 @@ fun appendPipeValue(box: Array<String>, value: String) r: Void {
 fun pipeNameContainsImpl(values: String, count: Int, target: String) r: Bool {
     var i = 0
     while i < count {
-        if pipeGet(values, i) == target {
+        let value: String = pipeGet(values, i)
+        if value == target {
             return true
         }
         i = i + 1
@@ -132,7 +131,7 @@ fun appendInheritedStructLayoutPrefixImpl(parentFieldNames: String,
             nameEnd = parentFieldNames.length()
         }
         let parentFieldName = parentFieldNames.substring(nameStart, nameEnd)
-        let parentFieldType = pipeGet(parentFieldTypes, parentFieldIdx)
+        let parentFieldType: String = pipeGet(parentFieldTypes, parentFieldIdx)
         let parentLlvmType = mapTypeImpl(parentFieldType, structNames,
             typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames)
         if parentFieldIdx > 0 {
@@ -261,11 +260,9 @@ fun resolveStructMethodSignatureReturnTypeImpl(className: String,
     if method.name == "new" {
         return className
     }
-    ///
-    Declaration scanning must not walk method bodies: large self-hosted
-    classes expose bootstrap AST-copy fragility here. Methods without an
-    explicit result type are treated as no-value methods for ABI metadata.
-    ///
+    // Declaration scanning must not walk method bodies. Large self-hosted
+    // classes expose bootstrap AST-copy fragility here, so methods without
+    // an explicit result type are treated as no-value methods for ABI metadata.
     return "Void"
 }
 

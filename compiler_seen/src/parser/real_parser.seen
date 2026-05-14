@@ -1,41 +1,5 @@
-///
-=============================================================================
-Stage 2: Recursive-Descent Parser for the Seen Programming Language
-=============================================================================
-
-Input:  Array<Token> produced by the lexer (Stage 1).
-Output: ProgramNode AST consumed by the type-checker (Stage 3) and codegen.
-
-The parser is a single-pass, recursive-descent design.  All AST nodes are
-allocated eagerly as the token stream is consumed; there is no separate
-declaration-collection pass inside this file (the two-pass strategy lives
-in the IR generator, which walks the finished AST twice).
-
-Key AST node types emitted:
-  ProgramNode           -- root; holds an Array<ItemNode>
-  ItemNode              -- top-level declaration (Function, Class, Enum, Import, GlobalVar)
-  FunctionNode          -- function/method with params, return type, body
-  ClassNode             -- class/struct/trait/union with fields and methods
-  StatementNode         -- control flow (If, While, For, Return, Let, Var, ...)
-  ParserExpressionNode  -- expressions (Binary, Call, MemberAccess, Literal, ...)
-
-Operator precedence is implemented via a Pratt-style chain of mutually
-recursive functions:
-  parseExpression -> parseAssignment -> parseOr -> parseAnd -> parseElvis
-  -> parseEquality -> parseComparison -> parseRange -> parseTerm
-  -> parseFactor -> parseShift -> parseBitwise -> parseUnary -> parseCall
-  -> parsePrimary
-
-Multi-language keyword support is achieved by comparing against the
-SeenTokenType enum (populated from TOML keyword files by the lexer),
-never by raw string matching on token values.
-
-IMPORTANT — bootstrap compatibility constraint:
-  checkToken(SeenTokenType.X) is used everywhere instead of calling
-  .getTokenType() on tokens.  The latter triggers a cross-module codegen
-  issue where the returned SeenTokenType enum value is miscompiled.
-=============================================================================
-///
+// Parser AST nodes and recursive descent parser implementation.
+// Keep this opening comment plain for older bootstrap scanners.
 
 import lexer.interfaces.{Token, Position}
 import lexer.token_type.{SeenTokenType, SeenTokenType2, TestEnum, getA, getLeftParenType, getLeftParenType2, getRightParenType, getSemicolonType, getDotType, getLeftBraceType, getKeywordAsType, getIdentifierType, getColonType, getRightBraceType, getCommaType, getEndOfFileType, getKeywordFunType, getKeywordImportType, getKeywordUseType, getKeywordClassType, getAtType}
@@ -129,7 +93,6 @@ class FunctionNode {
     var line: Int
     var column: Int
     var isOverride: Bool
-    var isComponent: Bool
 
     static fun new() r: FunctionNode {
         return FunctionNode{
@@ -146,8 +109,7 @@ class FunctionNode {
             decorators: Array<AnnotationNode>(),
             line: 0,
             column: 0,
-            isOverride: false,
-            isComponent: false
+            isOverride: false
         }
     }
 
@@ -202,7 +164,6 @@ class StatementNode {
     // While
     var loopCondition: ParserExpressionNode
     var loopBody: BlockNode
-    var metadata: Array<String>
 
     static fun new() r: StatementNode {
         return StatementNode{
@@ -216,8 +177,7 @@ class StatementNode {
             thenBranch: BlockNode.new(),
             elseBranch: BlockNode.new(),
             loopCondition: ParserExpressionNode.new(),
-            loopBody: BlockNode.new(),
-            metadata: Array<String>()
+            loopBody: BlockNode.new()
         }
     }
 }
@@ -235,9 +195,6 @@ class ParserExpressionNode {
     // Call
     var callee: String
     var arguments: Array<ParserExpressionNode>
-    var argumentNames: Array<String>
-    var slotNames: Array<String>
-    var slotBlocks: Array<BlockNode>
     ///
     Index access: obj[index] - object is variableName, index in operands[0]
     Member access: obj.field - object is variableName, member is callee
@@ -252,12 +209,131 @@ class ParserExpressionNode {
             literalType: "",
             variableName: "",
             callee: "",
-            arguments: Array<ParserExpressionNode>(),
-            argumentNames: Array<String>(),
-            slotNames: Array<String>(),
-            slotBlocks: Array<BlockNode>()
+            arguments: Array<ParserExpressionNode>()
         }
     }
+}
+
+var g_uiNextArgListId: Int = 1
+var g_uiArgListIds: Array<String> = Array<String>()
+var g_uiArgIndexes: Array<Int> = Array<Int>()
+var g_uiArgNames: Array<String> = Array<String>()
+
+var g_uiNextSlotListId: Int = 1
+var g_uiSlotListIds: Array<String> = Array<String>()
+var g_uiSlotNames: Array<String> = Array<String>()
+var g_uiSlotBlocks: Array<BlockNode> = Array<BlockNode>()
+
+fun ensureUiArgListId(expr: ParserExpressionNode) r: String {
+    if not expr.operator.startsWith("__ui_args:") {
+        expr.operator = "__ui_args:" + g_uiNextArgListId.toString()
+        g_uiNextArgListId = g_uiNextArgListId + 1
+    }
+    return expr.operator
+}
+
+fun registerUiCallArgName(expr: ParserExpressionNode, index: Int,
+    name: String) r: Void {
+
+    if name == "" {
+        return
+    }
+    let id = ensureUiArgListId(expr)
+    g_uiArgListIds.push(id)
+    g_uiArgIndexes.push(index)
+    g_uiArgNames.push(name)
+}
+
+fun getUiCallArgName(expr: ParserExpressionNode, index: Int) r: String {
+    if not expr.operator.startsWith("__ui_args:") {
+        return ""
+    }
+    var i = g_uiArgListIds.length() - 1
+    while i >= 0 {
+        if g_uiArgListIds[i] == expr.operator and g_uiArgIndexes[i] == index {
+            return g_uiArgNames[i]
+        }
+        i = i - 1
+    }
+    return ""
+}
+
+fun clearUiCallArgNames(expr: ParserExpressionNode) r: Void {
+    if expr.operator.startsWith("__ui_args:") {
+        expr.operator = ""
+    }
+}
+
+fun ensureUiSlotListId(expr: ParserExpressionNode) r: String {
+    if not expr.literalType.startsWith("__ui_slots:") {
+        expr.literalType = "__ui_slots:" + g_uiNextSlotListId.toString()
+        g_uiNextSlotListId = g_uiNextSlotListId + 1
+    }
+    return expr.literalType
+}
+
+fun registerUiSlotBlock(expr: ParserExpressionNode, slotName: String,
+    block: BlockNode) r: Void {
+
+    let id = ensureUiSlotListId(expr)
+    g_uiSlotListIds.push(id)
+    g_uiSlotNames.push(slotName)
+    g_uiSlotBlocks.push(block)
+}
+
+fun getUiSlotCount(expr: ParserExpressionNode) r: Int {
+    if not expr.literalType.startsWith("__ui_slots:") {
+        return 0
+    }
+    var count = 0
+    var i = 0
+    while i < g_uiSlotListIds.length() {
+        if g_uiSlotListIds[i] == expr.literalType {
+            count = count + 1
+        }
+        i = i + 1
+    }
+    return count
+}
+
+fun getUiSlotName(expr: ParserExpressionNode, index: Int) r: String {
+    if not expr.literalType.startsWith("__ui_slots:") {
+        return ""
+    }
+    var found = 0
+    var i = 0
+    while i < g_uiSlotListIds.length() {
+        if g_uiSlotListIds[i] == expr.literalType {
+            if found == index {
+                return g_uiSlotNames[i]
+            }
+            found = found + 1
+        }
+        i = i + 1
+    }
+    return ""
+}
+
+fun getUiSlotBlock(expr: ParserExpressionNode, index: Int) r: BlockNode {
+    if not expr.literalType.startsWith("__ui_slots:") {
+        return BlockNode.new()
+    }
+    var found = 0
+    var i = 0
+    while i < g_uiSlotListIds.length() {
+        if g_uiSlotListIds[i] == expr.literalType {
+            if found == index {
+                return g_uiSlotBlocks[i]
+            }
+            found = found + 1
+        }
+        i = i + 1
+    }
+    return BlockNode.new()
+}
+
+fun getUiCallbackBlock(expr: ParserExpressionNode) r: BlockNode {
+    return getUiSlotBlock(expr, 0)
 }
 
 class ClassNode {
@@ -2269,10 +2345,6 @@ class RealParser {
                 // Tests are deterministic by default
                 this.lastFunction.isDeterministic = true
             }
-            if decorator.name == "facade_component" {
-                this.lastFunction.isComponent = true
-            }
-
             i = i + 1
         }
 
@@ -4433,11 +4505,6 @@ class RealParser {
             parseExpressionInto(this.lastStatement.initializer)
         }
 
-        if kindName == "UiComputed" {
-            collectUiExpressionDependencies(this.lastStatement.initializer,
-                this.lastStatement.metadata)
-        }
-
         if matchTokenStr(SeenTokenType.Semicolon) { }
         return
     }
@@ -4454,10 +4521,6 @@ class RealParser {
 
         if matchTokenStr(SeenTokenType.Equal) {
             stmt.initializer = parseExpression()
-        }
-
-        if kindName == "UiComputed" {
-            collectUiExpressionDependencies(stmt.initializer, stmt.metadata)
         }
 
         if matchTokenStr(SeenTokenType.Semicolon) { }
@@ -4558,9 +4621,6 @@ class RealParser {
         expr.callee = result.callee
         expr.operands = result.operands
         expr.arguments = result.arguments
-        expr.argumentNames = result.argumentNames
-        expr.slotNames = result.slotNames
-        expr.slotBlocks = result.slotBlocks
     }
 
     ///
@@ -4585,9 +4645,6 @@ class RealParser {
         expr.callee = result.callee
         expr.operands = result.operands
         expr.arguments = result.arguments
-        expr.argumentNames = result.argumentNames
-        expr.slotNames = result.slotNames
-        expr.slotBlocks = result.slotBlocks
         // trace
         return
     }
@@ -4741,9 +4798,6 @@ class RealParser {
             ///
             if exprResult.kind == "Call" or exprResult.kind == "MethodCall" {
                 stmt.returnValue.arguments = exprResult.arguments
-                stmt.returnValue.argumentNames = exprResult.argumentNames
-                stmt.returnValue.slotNames = exprResult.slotNames
-                stmt.returnValue.slotBlocks = exprResult.slotBlocks
             }
             if exprResult.kind == "MethodCall" {
                 var methodOperandIdx = 0
@@ -4803,9 +4857,6 @@ class RealParser {
                         exprResult.arguments[branchArgIdx])
                     branchArgIdx = branchArgIdx + 1
                 }
-                stmt.returnValue.argumentNames = exprResult.argumentNames
-                stmt.returnValue.slotNames = exprResult.slotNames
-                stmt.returnValue.slotBlocks = exprResult.slotBlocks
             }
         }
         if matchTokenStr(SeenTokenType.Semicolon) { }
@@ -5543,8 +5594,7 @@ class RealParser {
         parseBlockIntoField()
         let callbackExpr = ParserExpressionNode.new()
         callbackExpr.kind = "UiCallback"
-        callbackExpr.slotNames.push("body")
-        callbackExpr.slotBlocks.push(this.lastParsedBlock)
+        registerUiSlotBlock(callbackExpr, "body", this.lastParsedBlock)
         return callbackExpr
     }
 
@@ -5559,12 +5609,12 @@ class RealParser {
                 } else {
                     expr.arguments.push(parseExpression())
                 }
-                expr.argumentNames.push(argName)
+                registerUiCallArgName(expr, expr.arguments.length() - 1,
+                    argName)
                 return
             }
         }
         expr.arguments.push(parseExpression())
-        expr.argumentNames.push("")
         return
     }
 
@@ -5584,8 +5634,7 @@ class RealParser {
         if block.statements.length() == 0 {
             return
         }
-        expr.slotNames.push("")
-        expr.slotBlocks.push(block)
+        registerUiSlotBlock(expr, "", block)
         return
     }
 
@@ -5606,8 +5655,8 @@ class RealParser {
                             let slotName = advance().getValue()
                             consume(SeenTokenType.LeftBrace, "Expected '{' after slot name")
                             parseBlockIntoField()
-                            uiExpr.slotNames.push(slotName)
-                            uiExpr.slotBlocks.push(this.lastParsedBlock)
+                            registerUiSlotBlock(uiExpr, slotName,
+                                this.lastParsedBlock)
                             continue
                         }
                     }
@@ -6287,10 +6336,7 @@ class RealParser {
             literalType: typeName,
             variableName: "",
             callee: "",
-            arguments: Array<ParserExpressionNode>(),
-            argumentNames: Array<String>(),
-            slotNames: Array<String>(),
-            slotBlocks: Array<BlockNode>()
+            arguments: Array<ParserExpressionNode>()
         }
     }
 
@@ -6317,9 +6363,6 @@ class RealParser {
         expr.variableName = varName
         expr.callee = ""
         expr.arguments = Array<ParserExpressionNode>()
-        expr.argumentNames = Array<String>()
-        expr.slotNames = Array<String>()
-        expr.slotBlocks = Array<BlockNode>()
         return expr
     }
 

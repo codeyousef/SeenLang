@@ -58,18 +58,6 @@ fun inferFieldTypeFallbackImpl(fieldName: String) r: String {
     if fieldName == "operands" {
         return "Array<ParserExpressionNode>"
     }
-    if fieldName == "argumentNames" {
-        return "Array<String>"
-    }
-    if fieldName == "slotNames" {
-        return "Array<String>"
-    }
-    if fieldName == "slotBlocks" {
-        return "Array<BlockNode>"
-    }
-    if fieldName == "metadata" {
-        return "Array<String>"
-    }
     if fieldName == "decorators" {
         return "Array<AnnotationNode>"
     }

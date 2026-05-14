@@ -144,10 +144,8 @@ class SeenLspServer {
     }
 
     fun log(message: String) r: Void {
-        ///
-        Note: In a real implementation, we'd write to stderr
-        For now, we can use sendNotification for window/logMessage
-        ///
+        // In a real implementation this would write to stderr.
+        // For now, send a window/logMessage notification.
         let params = JsonValue_emptyObject()
         params.set("type", JsonValue_number(3))  // Info
         params.set("message", JsonValue_string("[seen-lsp] " + message))
@@ -1834,7 +1832,7 @@ class SeenLspServer {
             if item.itemType == "Function" {
                 let fnItem = CompletionItem_new(item.name, COMPLETION_FUNCTION)
                 fnItem.detail = this.extractSignatureFromSource(content, item.name)
-                if item.function.isComponent {
+                if item.function.hasDecorator("facade_component") {
                     fnItem.detail = "component " + item.name
                 }
                 completions.push(fnItem)
@@ -2172,7 +2170,7 @@ class SeenLspServer {
             if item.itemType == "Function" and item.name == word {
                 let sig = this.extractSignatureFromSource(content, item.name)
                 var header = sig
-                if item.function.isComponent {
+                if item.function.hasDecorator("facade_component") {
                     header = "component " + item.name
                 }
                 let hoverContent = MarkupContent_markdown("```seen\n" + header + "\n```")

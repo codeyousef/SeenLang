@@ -41,7 +41,7 @@ fun applyFunctionUnusedParamMlLogsImpl(unusedParams: Array<String>,
 fun applyDeadStoreMlLogsImpl(deadStoreLogEntries: String) r: Void {
     var dsLogIdx = 0
     while dsLogIdx < deadStoreLogEntries.length() {
-        let logEntry = pipeGet(deadStoreLogEntries, dsLogIdx)
+        let logEntry: String = pipeGet(deadStoreLogEntries, dsLogIdx)
         if logEntry == "" {
             break
         }
