@@ -195,14 +195,20 @@ fi
 
 if [[ -f "$ROOT_DIR/installer/homebrew/generate-formula.sh" ]]; then
     echo ""
-    echo "=== Generating macOS Homebrew formula (v$VERSION)... ==="
-    if bash "$ROOT_DIR/installer/homebrew/generate-formula.sh" \
-        --version "$VERSION" \
-        --output "$DIST_DIR/seen-lang.rb" 2>&1 | tail -5; then
-        echo "  -> $DIST_DIR/seen-lang.rb"
+    if [[ "${SEEN_RELEASE_GENERATE_HOMEBREW:-0}" == "1" ]] ||
+        compgen -G "$DIST_DIR/seen-$VERSION-macos-*.tar.gz" >/dev/null; then
+        echo "=== Generating macOS Homebrew formula (v$VERSION)... ==="
+        if bash "$ROOT_DIR/installer/homebrew/generate-formula.sh" \
+            --version "$VERSION" \
+            --output "$DIST_DIR/seen-lang.rb" 2>&1 | tail -5; then
+            echo "  -> $DIST_DIR/seen-lang.rb"
+        else
+            rm -f "$DIST_DIR/seen-lang.rb"
+            die "Homebrew formula generator failed."
+        fi
     else
-        rm -f "$DIST_DIR/seen-lang.rb"
-        die "Homebrew formula generator failed."
+        echo "Skipping Homebrew formula (macOS release artifacts not present)."
+        echo "  Set SEEN_RELEASE_GENERATE_HOMEBREW=1 to force generation."
     fi
 fi
 
