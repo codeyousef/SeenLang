@@ -29,16 +29,63 @@ LINUX_X64_COMPILER="${SEEN_LINUX_X64_COMPILER:-$COMPILER}"
 LINUX_X64_V3_COMPILER="${SEEN_LINUX_X64_V3_COMPILER:-$ROOT_DIR/compiler_seen/target/seen-x86-64-v3}"
 DIST_DIR="$ROOT_DIR/dist"  # absolute path required — build_release.sh cd's into subshells
 
+die() {
+    echo "Error: $*" >&2
+    exit 1
+}
+
+require_artifacts() {
+    local missing=0
+    local artifact
+
+    for artifact in "$@"; do
+        if [[ ! -s "$artifact" ]]; then
+            echo "Error: required release artifact missing or empty: $artifact" >&2
+            missing=1
+        fi
+    done
+
+    if [[ "$missing" -ne 0 ]]; then
+        exit 1
+    fi
+}
+
+write_checksum_manifest() {
+    local -a artifact_names=()
+    local artifact_name
+
+    while IFS= read -r artifact_name; do
+        artifact_names+=("$artifact_name")
+    done < <(cd "$DIST_DIR" && find . -maxdepth 1 -type f \
+        \( -name '*.tar.gz' -o -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' -o -name '*.zip' -o -name '*.exe' \) \
+        -printf '%f\n' | sort)
+
+    if [[ "${#artifact_names[@]}" -eq 0 ]]; then
+        die "No checksum-eligible artifacts produced in $DIST_DIR"
+    fi
+
+    (cd "$DIST_DIR" && sha256sum "${artifact_names[@]}" > SHA256SUMS)
+    (cd "$DIST_DIR" && sha256sum -c SHA256SUMS >/dev/null)
+}
+
+write_sidecar_checksum() {
+    local artifact="$1"
+    local artifact_dir artifact_name
+
+    [[ -s "$artifact" ]] || return 0
+    artifact_dir="$(dirname "$artifact")"
+    artifact_name="$(basename "$artifact")"
+    (cd "$artifact_dir" && sha256sum "$artifact_name" > "$artifact_name.sha256")
+}
+
 # --- Preflight checks ---
 
 if ! command -v gh &>/dev/null; then
-    echo "Error: gh CLI not found. Install from https://cli.github.com/"
-    exit 1
+    die "gh CLI not found. Install from https://cli.github.com/"
 fi
 
 if ! gh auth status &>/dev/null 2>&1; then
-    echo "Error: gh CLI not authenticated. Run: gh auth login"
-    exit 1
+    die "gh CLI not authenticated. Run: gh auth login"
 fi
 
 if [[ ! -x "$LINUX_X64_COMPILER" ]]; then
@@ -46,6 +93,10 @@ if [[ ! -x "$LINUX_X64_COMPILER" ]]; then
     echo "Build it first with a memory-capped baseline rebuild, for example:"
     echo "  SEEN_LOW_MEMORY=1 SEEN_MAIN_VMEM_KB=8388608 SEEN_OPT_VMEM_KB=2097152 SEEN_RELEASE_CPU_BASELINE=x86-64 ./scripts/safe_rebuild.sh"
     exit 1
+fi
+
+if [[ -n "${SEEN_APPIMAGE_RUNTIME_FILE:-}" && ! -f "$SEEN_APPIMAGE_RUNTIME_FILE" ]]; then
+    die "SEEN_APPIMAGE_RUNTIME_FILE does not exist: $SEEN_APPIMAGE_RUNTIME_FILE"
 fi
 
 # Quick smoke test (try "build" first — full CLI, fall back to "compile" for bootstrap-only binary)
@@ -150,8 +201,8 @@ if [[ -f "$ROOT_DIR/installer/homebrew/generate-formula.sh" ]]; then
         --output "$DIST_DIR/seen-lang.rb" 2>&1 | tail -5; then
         echo "  -> $DIST_DIR/seen-lang.rb"
     else
-        echo "Skipping Homebrew formula: generator failed."
         rm -f "$DIST_DIR/seen-lang.rb"
+        die "Homebrew formula generator failed."
     fi
 fi
 
@@ -174,16 +225,49 @@ fi
 
 ARTIFACTS=("$DIST_DIR"/*)
 if [[ ${#ARTIFACTS[@]} -eq 0 ]]; then
-    echo "Error: No artifacts produced in $DIST_DIR"
-    exit 1
+    die "No artifacts produced in $DIST_DIR"
 fi
+
+EXPECTED_ARTIFACTS=(
+    "$DIST_DIR/seen-$VERSION-linux-x64.tar.gz"
+)
+
+if [[ -x "$LINUX_X64_V3_COMPILER" ]]; then
+    EXPECTED_ARTIFACTS+=("$DIST_DIR/seen-$VERSION-linux-x64-v3.tar.gz")
+fi
+
+if command -v dpkg-deb &>/dev/null; then
+    EXPECTED_ARTIFACTS+=("$DIST_DIR/seen-lang_${VERSION}_amd64.deb")
+fi
+
+if command -v rpmbuild &>/dev/null; then
+    EXPECTED_ARTIFACTS+=(
+        "$DIST_DIR/seen-lang-$VERSION-1.x86_64.rpm"
+        "$DIST_DIR/seen-lang-devel-$VERSION-1.x86_64.rpm"
+        "$DIST_DIR/seen-lang-docs-$VERSION-1.noarch.rpm"
+    )
+fi
+
+if command -v appimagetool &>/dev/null; then
+    EXPECTED_ARTIFACTS+=("$DIST_DIR/SeenLanguage-$VERSION-x86_64.AppImage")
+fi
+
+if command -v x86_64-w64-mingw32-gcc &>/dev/null && [[ -f "$ROOT_DIR/target-windows/seen.exe" ]]; then
+    EXPECTED_ARTIFACTS+=("$DIST_DIR/seen-$VERSION-windows-x64.zip")
+    if command -v makensis &>/dev/null; then
+        EXPECTED_ARTIFACTS+=("$DIST_DIR/Seen-$VERSION-windows-x64-setup.exe")
+    fi
+fi
+
+require_artifacts "${EXPECTED_ARTIFACTS[@]}"
+
+write_sidecar_checksum "$DIST_DIR/seen-$VERSION-windows-x64.zip"
+write_sidecar_checksum "$DIST_DIR/Seen-$VERSION-windows-x64-setup.exe"
 
 # Regenerate checksums to include all platforms
 echo ""
 echo "Regenerating checksums..."
-(cd "$DIST_DIR" && sha256sum *.tar.gz *.deb *.rpm *.AppImage *.zip *.exe 2>/dev/null > SHA256SUMS || \
-    sha256sum *.tar.gz *.zip *.exe 2>/dev/null > SHA256SUMS || \
-    sha256sum *.tar.gz > SHA256SUMS)
+write_checksum_manifest
 echo "  -> $DIST_DIR/SHA256SUMS"
 
 echo ""
@@ -194,8 +278,13 @@ ls -lh "$DIST_DIR"/ | grep -v '^total'
 
 echo ""
 echo "=== Creating tag $TAG... ==="
-if git -C "$ROOT_DIR" rev-parse "$TAG" &>/dev/null; then
-    echo "Tag $TAG already exists, skipping creation."
+if git -C "$ROOT_DIR" rev-parse -q --verify "refs/tags/$TAG" &>/dev/null; then
+    TAG_COMMIT="$(git -C "$ROOT_DIR" rev-list -n1 "$TAG")"
+    HEAD_COMMIT="$(git -C "$ROOT_DIR" rev-parse HEAD)"
+    if [[ "$TAG_COMMIT" != "$HEAD_COMMIT" ]]; then
+        die "Tag $TAG points at $TAG_COMMIT, but HEAD is $HEAD_COMMIT. Move or recreate the tag before uploading."
+    fi
+    echo "Tag $TAG already exists at HEAD."
 else
     git -C "$ROOT_DIR" tag "$TAG"
     echo "Created tag $TAG."

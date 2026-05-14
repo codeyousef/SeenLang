@@ -143,6 +143,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Set defaults
 if [ -z "$TEMPLATE_FILE" ]; then
     TEMPLATE_FILE="$SCRIPT_DIR/seen-lang.rb"
+elif [[ "$TEMPLATE_FILE" != /* ]]; then
+    TEMPLATE_FILE="$SCRIPT_DIR/$TEMPLATE_FILE"
 fi
 
 if [ -z "$OUTPUT_FILE" ]; then
