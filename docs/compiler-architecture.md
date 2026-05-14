@@ -36,7 +36,10 @@ Location: `compiler_seen/src/parser/`
 - Produces program, declaration, statement, and expression nodes.
 - Parses current syntax including package imports, `effect(Token)`,
   `@using`, `@operator`, nullable/nullish forms, `when`, closures, sealed
-  classes, traits/interfaces, and hot-reload-facing shared-module patterns.
+  classes, traits/interfaces, module namespace aliases, facade `component`
+  functions, named arguments, trailing/named slot blocks, UI `state` /
+  `computed` / `uiEffect` constructs, and hot-reload-facing shared-module
+  patterns.
 
 ### Type Checker
 
@@ -45,6 +48,9 @@ Location: `compiler_seen/src/typechecker/`
 - Runs frontend type validation and diagnostics.
 - Tracks scoped symbols, nullable information, deterministic-mode checks, and
   effect/capability requirements.
+- Emits conservative warning diagnostics for unreachable statements, unused
+  locals, unused parameters, unused private top-level functions, unused import
+  symbols, and unused whole-module imports.
 
 ### Bootstrap Frontend
 
@@ -53,6 +59,11 @@ Location: `compiler_seen/src/bootstrap/`
 The bootstrap frontend wraps lexing, parsing, and type checking into the
 compatibility entrypoints used by Stage 1, Stage 2, the LSP, and package
 declaration scanning.
+
+New bootstrap helper modules must be reachable from `main_compiler.seen`
+imports as well as from the embedded compiler-module list. That keeps older
+bootstrap compilers from treating new helper calls as external declarations with
+the wrong ABI during self-hosted rebuilds.
 
 ## Code Generation
 

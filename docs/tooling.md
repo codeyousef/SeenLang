@@ -17,13 +17,17 @@ code --install-extension seen-*.vsix
 ### Features
 
 - TextMate syntax highlighting for Seen syntax, comments, annotations, package
-  imports, effects, hot reload helpers, and multilingual keywords.
+  imports, module aliases, facade component syntax, effects, hot reload helpers,
+  and multilingual keywords.
 - LSP-backed diagnostics, completions, hover, definitions, references, rename,
   and document symbols through `seen lsp`.
+- Import-block folding for contiguous top-level `import`, `use`, and
+  `pub import` declarations.
 - Build/check/run/package tasks using the shipped `seen compile`, `seen check`,
   `seen run`, and `seen pkg` commands.
 - Snippets for functions, classes, structs, enums, traits/interfaces, effects,
-  packages, shared modules, hot reload, GPU/SIMD, defer/errdefer, and FFI.
+  packages, facade components, UI state/effects, shared modules, hot reload,
+  GPU/SIMD, defer/errdefer, and FFI.
 
 ### Commands
 
@@ -102,6 +106,11 @@ Use deterministic mode when auditing reproducibility-sensitive code:
 ```bash
 seen check src/main.seen --profile deterministic
 ```
+
+The checker and LSP surface warning diagnostics for conservative dead-code
+cases, including unreachable statements, unused locals or parameters, unused
+private top-level functions, and unused imports. Warning codes are reported as
+warnings in editor clients rather than promoted to errors.
 
 ## Debugging Compiler Output
 

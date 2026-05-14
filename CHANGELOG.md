@@ -5,7 +5,7 @@ All notable changes to the Seen compiler will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.8.3] - 2026-05-14
+## [0.8.3] - 2026-05-15
 
 ### Added
 
@@ -32,6 +32,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - FEL-262/FEL-274: Optimized compiler module path resolution and import-cycle detection with bounded realpath caching and indexed import graph edges instead of pipe-delimited edge strings.
 - FEL-275-FEL-280: Extended AST layout metadata, frontend validation, codegen statement/expression dispatch, LSP completions/hover/symbols, and VS Code grammar/snippets for facade declarative UI syntax.
 - Bumped the shipped Seen compiler version to `0.8.3`.
+
+### Fixed
+
+- FEL-311: Fixed bootstrap import discovery for newly split compiler helper modules so `bootstrap.dead_code` is compiled before `bootstrap.frontend` indexes dead-code warning arrays, preventing invalid LLVM IR during guarded compiler rebuilds.
+- FEL-261/FEL-311: Reworked the dead-code warning regression fixture to exercise the analyzer directly, keeping warning coverage while avoiding the old oversized integration path.
+- FEL-262: Fixed release package builders so DEB metadata reports a real installed size, RPM builds keep temporary/database state inside the build directory, AppImage builds can run offline with a supplied runtime and validate without FUSE, and the Linux-built Windows NSIS installer skips absent optional LLVM payloads without warnings.
 
 ## [0.8.2] - 2026-05-12
 

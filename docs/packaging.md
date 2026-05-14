@@ -174,6 +174,26 @@ One simple flow is:
 - Artifact interface modules are declaration-only from the consumer's point of
   view; implementation objects come from `objects.tsv`.
 
+## Release Artifact Builds
+
+Release package scripts are designed to use an already-built compiler binary and
+should be run under an explicit memory guard during release verification.
+
+- `scripts/build_release.sh` stages the Linux tarball and, on hosts with the
+  required tools, builds DEB, RPM, and AppImage artifacts.
+- `scripts/build_windows_installer.sh <version> --skip-compile --nsis` builds
+  the Windows ZIP and the NSIS setup executable from an existing
+  `target-windows/seen.exe`.
+- `installer/linux/build-appimage.sh` prefers an installed `appimagetool`, can
+  use `SEEN_APPIMAGE_RUNTIME_FILE` for offline builds, defaults to `xz`
+  compression for broad runtime compatibility, and validates with
+  extract-and-run when FUSE is not available.
+- `installer/linux/build-rpm.sh` keeps RPM temporary and database files inside
+  the build tree so package creation does not depend on writable system RPM
+  state.
+- `installer/linux/build-deb.sh` writes package control metadata after staging
+  files so `Installed-Size` reflects the actual payload.
+
 ## Related
 
 - [Project Configuration](project-config.md)
