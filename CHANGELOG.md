@@ -18,6 +18,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - FEL-262/FEL-272: Added focused compiler cache coverage for struct registry, function return, field index, IR field index, and chained-path type cache behavior.
 - FEL-262/FEL-273: Added focused compiler cache coverage for codegen type-info struct lookup, Seen field type lookup, method return lookup, and bool-suffix method inference.
 - FEL-262/FEL-274: Added focused compiler coverage for module import graph indexing and duplicate edge handling.
+- FEL-275/FEL-279: Added facade `component` functions with compiler-visible metadata plus component-local `state`, `computed`, and `uiEffect` constructs.
+- FEL-276/FEL-277: Added named function arguments, callback block arguments, and trailing/named slot block parsing for declarative Seen APIs.
+- FEL-278: Added first-class UI callback block lowering through the existing generated-closure path and callback-aware frontend diagnostics.
+- FEL-280: Added frontend diagnostics for missing and duplicate stable keys in dynamic facade UI children.
+- FEL-275-FEL-280: Added focused compiler and VS Code extension coverage for facade component syntax, named arguments, slots, callbacks, local UI state, and stable key diagnostics.
 
 ### Changed
 
@@ -25,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - FEL-262/FEL-272: Enabled source-level compiler registry lookup caches for repeated struct, function return, field index, IR field index, and chained-path type lookups while preserving existing lookup semantics.
 - FEL-262/FEL-273: Enabled remaining internal codegen type lookup caches with bounded reset behavior and stale-registry guards.
 - FEL-262/FEL-274: Optimized compiler module path resolution and import-cycle detection with bounded realpath caching and indexed import graph edges instead of pipe-delimited edge strings.
+- FEL-275-FEL-280: Extended AST layout metadata, frontend validation, codegen statement/expression dispatch, LSP completions/hover/symbols, and VS Code grammar/snippets for facade declarative UI syntax.
 - Bumped the shipped Seen compiler version to `0.8.3`.
 
 ## [0.8.2] - 2026-05-12

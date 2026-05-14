@@ -1,7 +1,10 @@
 // ir_stmt_dispatch_plan.seen - pure statement dispatch action planner.
 
 fun planStatementDispatchImpl(stmtKind: String) r: Int {
-    if stmtKind == "Let" or stmtKind == "Var" { return 1 }
+    if stmtKind == "Let" or stmtKind == "Var" or
+        stmtKind == "UiState" or stmtKind == "UiComputed" {
+        return 1
+    }
     if stmtKind == "Return" { return 2 }
     if stmtKind == "Expression" { return 3 }
     if stmtKind == "If" { return 4 }
@@ -21,5 +24,6 @@ fun planStatementDispatchImpl(stmtKind: String) r: Int {
     if stmtKind == "ComptimeBlock" { return 18 }
     if stmtKind == "ComptimeAssert" { return 19 }
     if stmtKind == "ComptimeIf" { return 20 }
+    if stmtKind == "UiEffect" { return 21 }
     return 0
 }

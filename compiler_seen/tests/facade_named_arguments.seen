@@ -1,0 +1,61 @@
+import bootstrap.frontend.{run_frontend}
+
+fun expect(condition: Bool, message: String) r: Void {
+    if not condition {
+        abort(message)
+    }
+}
+
+fun expectFrontendSuccess(source: String, label: String) r: Void {
+    let result = run_frontend(source, label, "en")
+    if not result.success {
+        for diag in result.diagnostics {
+            println("{diag.severity}: {diag.message}")
+        }
+        abort(label + " should succeed")
+    }
+}
+
+fun expectFrontendError(source: String, label: String, expected: String) r: Void {
+    let result = run_frontend(source, label, "en")
+    expect(not result.success, label + " should fail")
+    var found = false
+    var i = 0
+    while i < result.diagnostics.length() {
+        if result.diagnostics[i].message.contains(expected) {
+            found = true
+        }
+        i = i + 1
+    }
+    expect(found, label + " should report " + expected)
+}
+
+fun main() r: Int {
+    let lb = "{"
+    let rb = "}"
+    let helpers =
+        "fun Button(text: String = \"Play\", enabled: Bool = true, key: Int = 0) r: Int " + lb + " return 0 " + rb
+
+    expectFrontendSuccess(helpers +
+        "fun ok() r: Int " + lb + " return Button(enabled: false, key: 7) " + rb,
+        "named sparse defaults")
+
+    expectFrontendError(helpers +
+        "fun badUnknown() r: Int " + lb + " return Button(label: \"Play\") " + rb,
+        "unknown named argument", "Unknown named argument")
+
+    expectFrontendError(helpers +
+        "fun badDuplicate() r: Int " + lb + " return Button(text: \"A\", text: \"B\") " + rb,
+        "duplicate named argument", "Duplicate named argument")
+
+    expectFrontendError(helpers +
+        "fun badOrder() r: Int " + lb + " return Button(enabled: true, \"Late\") " + rb,
+        "positional after named", "Positional arguments")
+
+    expectFrontendError(
+        "fun Required(text: String, enabled: Bool = true) r: Int " + lb + " return 0 " + rb +
+        "fun badMissing() r: Int " + lb + " return Required(enabled: false) " + rb,
+        "missing named argument", "Missing required argument")
+
+    return 0
+}

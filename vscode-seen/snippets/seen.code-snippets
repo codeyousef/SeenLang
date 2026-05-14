@@ -18,6 +18,15 @@
     ],
     "description": "Function declaration"
   },
+  "Facade Component": {
+    "prefix": "component",
+    "body": [
+      "component ${1:Name}(${2:props}) {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Facade component function"
+  },
   "Void Function": {
     "prefix": "funv",
     "body": [
@@ -152,6 +161,29 @@
       "var ${1:name}: ${2:Type} = ${3:value}"
     ],
     "description": "Mutable variable declaration"
+  },
+  "UI State": {
+    "prefix": "state",
+    "body": [
+      "state ${1:name}: ${2:Type} = ${3:value}"
+    ],
+    "description": "Component local state"
+  },
+  "Computed Value": {
+    "prefix": "computed",
+    "body": [
+      "computed ${1:name}: ${2:Type} = ${3:expression}"
+    ],
+    "description": "Component computed value"
+  },
+  "UI Effect": {
+    "prefix": "uiEffect",
+    "body": [
+      "uiEffect {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Component side-effect block"
   },
   "Match Expression": {
     "prefix": "match",

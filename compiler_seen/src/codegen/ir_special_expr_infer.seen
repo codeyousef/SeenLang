@@ -114,7 +114,7 @@ fun inferFixedSpecialExprTypeImpl(kind: String, literalValue: String,
     if kind == "IsExpression" {
         return "Bool"
     }
-    if kind == "Closure" {
+    if kind == "Closure" or kind == "UiCallback" {
         return "Int"
     }
     if kind == "TryPropagate" {

@@ -84,3 +84,36 @@ fun generateClosureState(ctx: CodegenLoweringContext,
     return ClosureDriverResult.new(clResultReg, nextClosureCount,
         nextClosureDefs)
 }
+
+fun generateUiCallbackState(ctx: CodegenLoweringContext,
+    output: StringBuilder, expr: ParserExpressionNode,
+    closureCount: Int, closureDefs: String) r: ClosureDriverResult {
+
+    let closureId = closureCount
+    let nextClosureCount = closureCount + 1
+    let closureName = "__seen_ui_callback_" + closureId.toString()
+
+    let clSavedState = beginLoweringNestedScratch(ctx, "Int")
+    let nestedOutput = getSharedCodegenState().output
+
+    nestedOutput.append("define i64 @" + quoteIdentIfNeededImpl(closureName) +
+        "() {\n")
+    nestedOutput.append("entry:\n")
+    if expr.slotBlocks.length() > 0 {
+        lowerBlock(ctx, expr.slotBlocks[0])
+    }
+    if not isLoweringBlockTerminated(ctx) {
+        nestedOutput.append("  ret i64 0\n")
+    }
+    nestedOutput.append("}\n\n")
+
+    let nextClosureDefs = closureDefs + nestedOutput.toString()
+
+    restoreLoweringNestedScratch(ctx, clSavedState)
+
+    let clResultReg = getNextRegFn(getFeatureRegBoxImpl())
+    output.append("  " + clResultReg + " = ptrtoint ptr @" +
+        closureName + " to i64\n")
+    return ClosureDriverResult.new(clResultReg, nextClosureCount,
+        nextClosureDefs)
+}

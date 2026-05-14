@@ -129,6 +129,7 @@ class FunctionNode {
     var line: Int
     var column: Int
     var isOverride: Bool
+    var isComponent: Bool
 
     static fun new() r: FunctionNode {
         return FunctionNode{
@@ -145,7 +146,8 @@ class FunctionNode {
             decorators: Array<AnnotationNode>(),
             line: 0,
             column: 0,
-            isOverride: false
+            isOverride: false,
+            isComponent: false
         }
     }
 
@@ -200,6 +202,7 @@ class StatementNode {
     // While
     var loopCondition: ParserExpressionNode
     var loopBody: BlockNode
+    var metadata: Array<String>
 
     static fun new() r: StatementNode {
         return StatementNode{
@@ -213,7 +216,8 @@ class StatementNode {
             thenBranch: BlockNode.new(),
             elseBranch: BlockNode.new(),
             loopCondition: ParserExpressionNode.new(),
-            loopBody: BlockNode.new()
+            loopBody: BlockNode.new(),
+            metadata: Array<String>()
         }
     }
 }
@@ -231,6 +235,9 @@ class ParserExpressionNode {
     // Call
     var callee: String
     var arguments: Array<ParserExpressionNode>
+    var argumentNames: Array<String>
+    var slotNames: Array<String>
+    var slotBlocks: Array<BlockNode>
     ///
     Index access: obj[index] - object is variableName, index in operands[0]
     Member access: obj.field - object is variableName, member is callee
@@ -245,7 +252,10 @@ class ParserExpressionNode {
             literalType: "",
             variableName: "",
             callee: "",
-            arguments: Array<ParserExpressionNode>()
+            arguments: Array<ParserExpressionNode>(),
+            argumentNames: Array<String>(),
+            slotNames: Array<String>(),
+            slotBlocks: Array<BlockNode>()
         }
     }
 }
@@ -715,6 +725,13 @@ class RealParser {
                 continue
             }
 
+            if checkNameLikeToken() and peek().getValue() == "component" {
+                advance()
+                this.pendingDecorators.push(AnnotationNode.new("facade_component"))
+                parseFunctionItemInto()
+                continue
+            }
+
             // 'type' keyword — type alias: type Foo = Bar<Baz>
             if matchTokenStr(SeenTokenType.KeywordType) {
                 if checkToken(SeenTokenType.Identifier) {
@@ -1066,6 +1083,13 @@ class RealParser {
 
             if checkEffectModifierToken() {
                 parseEffectModifierInto()
+                continue
+            }
+
+            if checkNameLikeToken() and peek().getValue() == "component" {
+                advance()
+                this.pendingDecorators.push(AnnotationNode.new("facade_component"))
+                parseFunctionDeclarationItemInto()
                 continue
             }
 
@@ -2244,6 +2268,9 @@ class RealParser {
             if decorator.name == "test" {
                 // Tests are deterministic by default
                 this.lastFunction.isDeterministic = true
+            }
+            if decorator.name == "facade_component" {
+                this.lastFunction.isComponent = true
             }
 
             i = i + 1
@@ -3884,6 +3911,24 @@ class RealParser {
             this.currentBlock.statements.push(this.lastStatement)
             return
         }
+        if checkNameLikeToken() and peek().getValue() == "state" {
+            advance()
+            parseUiStateLikeStatementField("UiState")
+            this.currentBlock.statements.push(this.lastStatement)
+            return
+        }
+        if checkNameLikeToken() and peek().getValue() == "computed" {
+            advance()
+            parseUiStateLikeStatementField("UiComputed")
+            this.currentBlock.statements.push(this.lastStatement)
+            return
+        }
+        if checkNameLikeToken() and peek().getValue() == "uiEffect" {
+            advance()
+            parseUiEffectStatementField()
+            this.currentBlock.statements.push(this.lastStatement)
+            return
+        }
         // Continue statement
         if matchTokenStr(SeenTokenType.KeywordContinue) {
             this.lastStatement.kind = "Continue"
@@ -4006,6 +4051,18 @@ class RealParser {
         if checkToken(SeenTokenType.Identifier) and peek().getValue() == "comptime" {
             advance()  // consume 'comptime'
             return parseComptimeStatement()
+        }
+        if checkNameLikeToken() and peek().getValue() == "state" {
+            advance()
+            return parseUiStateLikeStatement("UiState")
+        }
+        if checkNameLikeToken() and peek().getValue() == "computed" {
+            advance()
+            return parseUiStateLikeStatement("UiComputed")
+        }
+        if checkNameLikeToken() and peek().getValue() == "uiEffect" {
+            advance()
+            return parseUiEffectStatement()
         }
         // try/catch block
         if matchTokenStr(SeenTokenType.KeywordTry) {
@@ -4363,6 +4420,118 @@ class RealParser {
         return stmt
     }
 
+    fun parseUiStateLikeStatementField(kindName: String) r: Void {
+        this.lastStatement.kind = kindName
+        let nameToken = consumeNameLike("Expected UI binding name")
+        this.lastStatement.variableName = nameToken.getValue()
+
+        if matchTokenStr(SeenTokenType.Colon) {
+            this.lastStatement.variableType = parseTypeNode()
+        }
+
+        if matchTokenStr(SeenTokenType.Equal) {
+            parseExpressionInto(this.lastStatement.initializer)
+        }
+
+        if kindName == "UiComputed" {
+            collectUiExpressionDependencies(this.lastStatement.initializer,
+                this.lastStatement.metadata)
+        }
+
+        if matchTokenStr(SeenTokenType.Semicolon) { }
+        return
+    }
+
+    fun parseUiStateLikeStatement(kindName: String) r: StatementNode {
+        let stmt = StatementNode.new()
+        stmt.kind = kindName
+        let nameToken = consumeNameLike("Expected UI binding name")
+        stmt.variableName = nameToken.getValue()
+
+        if matchTokenStr(SeenTokenType.Colon) {
+            stmt.variableType = parseTypeNode()
+        }
+
+        if matchTokenStr(SeenTokenType.Equal) {
+            stmt.initializer = parseExpression()
+        }
+
+        if kindName == "UiComputed" {
+            collectUiExpressionDependencies(stmt.initializer, stmt.metadata)
+        }
+
+        if matchTokenStr(SeenTokenType.Semicolon) { }
+        return stmt
+    }
+
+    fun parseUiEffectStatementField() r: Void {
+        this.lastStatement.kind = "UiEffect"
+        if checkToken(SeenTokenType.LeftBrace) {
+            advance()
+            let effectBlock = BlockNode.new()
+            while not checkToken(SeenTokenType.RightBrace) and not isAtEnd() {
+                effectBlock.statements.push(parseStatement())
+            }
+            consume(SeenTokenType.RightBrace, "Expected '}' after uiEffect block")
+            this.lastStatement.thenBranch = effectBlock
+        } else {
+            parseExpressionInto(this.lastStatement.expression)
+        }
+        if matchTokenStr(SeenTokenType.Semicolon) { }
+        return
+    }
+
+    fun parseUiEffectStatement() r: StatementNode {
+        let stmt = StatementNode.new()
+        stmt.kind = "UiEffect"
+        if checkToken(SeenTokenType.LeftBrace) {
+            advance()
+            let effectBlock = BlockNode.new()
+            while not checkToken(SeenTokenType.RightBrace) and not isAtEnd() {
+                effectBlock.statements.push(parseStatement())
+            }
+            consume(SeenTokenType.RightBrace, "Expected '}' after uiEffect block")
+            stmt.thenBranch = effectBlock
+        } else {
+            stmt.expression = parseExpression()
+        }
+        if matchTokenStr(SeenTokenType.Semicolon) { }
+        return stmt
+    }
+
+    fun uiMetadataContains(values: Array<String>, value: String) r: Bool {
+        var idx = 0
+        while idx < values.length() {
+            if values[idx] == value {
+                return true
+            }
+            idx = idx + 1
+        }
+        return false
+    }
+
+    fun collectUiExpressionDependencies(expr: ParserExpressionNode,
+        deps: Array<String>) r: Void {
+
+        if expr.kind == "VarExpr" {
+            if expr.variableName != "" and not uiMetadataContains(deps,
+                expr.variableName) {
+                deps.push(expr.variableName)
+            }
+        }
+        var argIdx = 0
+        while argIdx < expr.arguments.length() {
+            collectUiExpressionDependencies(expr.arguments[argIdx], deps)
+            argIdx = argIdx + 1
+        }
+        var opIdx = 0
+        while opIdx < expr.operands.length() {
+            collectUiExpressionDependencies(expr.operands[opIdx], deps)
+            opIdx = opIdx + 1
+        }
+        return
+    }
+
     fun parseExpressionStatementField() r: Void {
         this.lastStatement.kind = "Expression"
         parseExpressionInto(this.lastStatement.expression)
@@ -4389,6 +4558,9 @@ class RealParser {
         expr.callee = result.callee
         expr.operands = result.operands
         expr.arguments = result.arguments
+        expr.argumentNames = result.argumentNames
+        expr.slotNames = result.slotNames
+        expr.slotBlocks = result.slotBlocks
     }
 
     ///
@@ -4413,6 +4585,9 @@ class RealParser {
         expr.callee = result.callee
         expr.operands = result.operands
         expr.arguments = result.arguments
+        expr.argumentNames = result.argumentNames
+        expr.slotNames = result.slotNames
+        expr.slotBlocks = result.slotBlocks
         // trace
         return
     }
@@ -4566,6 +4741,9 @@ class RealParser {
             ///
             if exprResult.kind == "Call" or exprResult.kind == "MethodCall" {
                 stmt.returnValue.arguments = exprResult.arguments
+                stmt.returnValue.argumentNames = exprResult.argumentNames
+                stmt.returnValue.slotNames = exprResult.slotNames
+                stmt.returnValue.slotBlocks = exprResult.slotBlocks
             }
             if exprResult.kind == "MethodCall" {
                 var methodOperandIdx = 0
@@ -4625,6 +4803,9 @@ class RealParser {
                         exprResult.arguments[branchArgIdx])
                     branchArgIdx = branchArgIdx + 1
                 }
+                stmt.returnValue.argumentNames = exprResult.argumentNames
+                stmt.returnValue.slotNames = exprResult.slotNames
+                stmt.returnValue.slotBlocks = exprResult.slotBlocks
             }
         }
         if matchTokenStr(SeenTokenType.Semicolon) { }
@@ -5357,6 +5538,88 @@ class RealParser {
       receivers (e.g. `'~'.toInt()`, `(a+b).abs()`).  Without the operands
       push for these kinds, the receiver would be lost.
     ///
+    fun parseUiCallbackBlockExpression() r: ParserExpressionNode {
+        advance()
+        parseBlockIntoField()
+        let callbackExpr = ParserExpressionNode.new()
+        callbackExpr.kind = "UiCallback"
+        callbackExpr.slotNames.push("body")
+        callbackExpr.slotBlocks.push(this.lastParsedBlock)
+        return callbackExpr
+    }
+
+    fun parseCallArgumentInto(expr: ParserExpressionNode) r: Void {
+        if checkNameLikeToken() {
+            let nextTok = peekAt(1)
+            if nextTok.getType() == SeenTokenType.Colon {
+                let argName = advance().getValue()
+                consume(SeenTokenType.Colon, "Expected ':' after named argument")
+                if checkToken(SeenTokenType.LeftBrace) {
+                    expr.arguments.push(parseUiCallbackBlockExpression())
+                } else {
+                    expr.arguments.push(parseExpression())
+                }
+                expr.argumentNames.push(argName)
+                return
+            }
+        }
+        expr.arguments.push(parseExpression())
+        expr.argumentNames.push("")
+        return
+    }
+
+    fun ensureUiCallExpression(expr: ParserExpressionNode) r: ParserExpressionNode {
+        if expr.kind == "Call" or expr.kind == "MethodCall" {
+            return expr
+        }
+        let callExpr = ParserExpressionNode.new()
+        callExpr.kind = "Call"
+        callExpr.callee = getVariableExprName(expr)
+        return callExpr
+    }
+
+    fun appendDefaultUiSlot(expr: ParserExpressionNode,
+        block: BlockNode) r: Void {
+
+        if block.statements.length() == 0 {
+            return
+        }
+        expr.slotNames.push("")
+        expr.slotBlocks.push(block)
+        return
+    }
+
+    fun parseUiSlotBlockInto(expr: ParserExpressionNode) r: ParserExpressionNode {
+        let uiExpr = ensureUiCallExpression(expr)
+        advance()
+        var defaultBlock = BlockNode.new()
+        while not checkToken(SeenTokenType.RightBrace) and not isAtEnd() {
+            if checkNameLikeToken() {
+                let nextTok = peekAt(1)
+                if nextTok.getType() == SeenTokenType.LeftBrace {
+                    let maybeSlotName = peek().getValue()
+                    if maybeSlotName.length() > 0 {
+                        let first = maybeSlotName.substring(0, 1)
+                        if first >= "a" and first <= "z" {
+                            appendDefaultUiSlot(uiExpr, defaultBlock)
+                            defaultBlock = BlockNode.new()
+                            let slotName = advance().getValue()
+                            consume(SeenTokenType.LeftBrace, "Expected '{' after slot name")
+                            parseBlockIntoField()
+                            uiExpr.slotNames.push(slotName)
+                            uiExpr.slotBlocks.push(this.lastParsedBlock)
+                            continue
+                        }
+                    }
+                }
+            }
+            defaultBlock.statements.push(parseStatement())
+        }
+        appendDefaultUiSlot(uiExpr, defaultBlock)
+        consume(SeenTokenType.RightBrace, "Expected '}' after UI slot block")
+        return uiExpr
+    }
+
     fun parseCall() r: ParserExpressionNode {
         var expr = parsePrimary()
 
@@ -5400,9 +5663,9 @@ class RealParser {
                 let emptyArgs = checkToken(getRightParenType())
                 if not emptyArgs {
                     // trace
-                    expr.arguments.push(parseExpression())
+                    parseCallArgumentInto(expr)
                     while matchTokenStr(getCommaType()) {
-                        expr.arguments.push(parseExpression())
+                        parseCallArgumentInto(expr)
                     }
                     // trace
                 }
@@ -5411,6 +5674,12 @@ class RealParser {
                 consume(getRightParenType(), "Expected ')' after arguments")
                 // trace
                 callTokenHandled = true
+            }
+            if not callTokenHandled and checkToken(SeenTokenType.LeftBrace) {
+                if expr.kind == "Call" or expr.kind == "MethodCall" or expr.kind == "VarExpr" {
+                    expr = parseUiSlotBlockInto(expr)
+                    callTokenHandled = true
+                }
             }
             // Handle optional chaining: ?.
             if not callTokenHandled and checkToken(SeenTokenType.SafeNavigation) {
@@ -6018,7 +6287,10 @@ class RealParser {
             literalType: typeName,
             variableName: "",
             callee: "",
-            arguments: Array<ParserExpressionNode>()
+            arguments: Array<ParserExpressionNode>(),
+            argumentNames: Array<String>(),
+            slotNames: Array<String>(),
+            slotBlocks: Array<BlockNode>()
         }
     }
 
@@ -6045,6 +6317,9 @@ class RealParser {
         expr.variableName = varName
         expr.callee = ""
         expr.arguments = Array<ParserExpressionNode>()
+        expr.argumentNames = Array<String>()
+        expr.slotNames = Array<String>()
+        expr.slotBlocks = Array<BlockNode>()
         return expr
     }
 

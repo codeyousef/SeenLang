@@ -25,7 +25,7 @@
     ["`", "`"]
   ],
   "indentationRules": {
-    "increaseIndentPattern": "^\\s*(class|struct|data|enum|fun|if|else|for|while|match|loop|try|catch|finally|extension|interface|object|sealed|region|arena|defer|impl|trait|unsafe|parallel_for|when|comptime|\\{)\\s*$",
+    "increaseIndentPattern": "^\\s*(class|struct|data|enum|fun|component|if|else|for|while|match|loop|try|catch|finally|extension|interface|object|sealed|region|arena|defer|uiEffect|impl|trait|unsafe|parallel_for|when|comptime|\\{)\\s*$",
     "decreaseIndentPattern": "^\\s*(\\}|else|catch|finally)\\s*$"
   },
   "onEnterRules": [
@@ -52,7 +52,7 @@
       }
     },
     {
-      "beforeText": "^\\s*(fun|if|else|for|while|match|loop|class|struct|data|enum|interface|object|sealed|extension|region|arena|defer|try|catch|finally|impl|trait|unsafe|parallel_for|when|comptime)\\b.*$",
+      "beforeText": "^\\s*(fun|component|if|else|for|while|match|loop|class|struct|data|enum|interface|object|sealed|extension|region|arena|defer|uiEffect|try|catch|finally|impl|trait|unsafe|parallel_for|when|comptime)\\b.*$",
       "action": {
         "indent": "none"
       }

@@ -221,7 +221,7 @@ fun inferSimpleExprTypeImpl(exprKind: String, literalType: String, literalValue:
     if exprKind == "IsExpression" {
         return "Bool"
     }
-    if exprKind == "Closure" {
+    if exprKind == "Closure" or exprKind == "UiCallback" {
         return "Int"
     }
     if exprKind == "SafeNavigation" {

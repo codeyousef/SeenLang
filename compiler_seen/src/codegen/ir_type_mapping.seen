@@ -392,6 +392,14 @@ fun mapFieldNameToReceiverType(fieldName: String) r: String {
     if fieldName == "operands" { return "Array<ParserExpressionNode>" }
     if fieldName.endsWith(".arguments") { return "Array<ParserExpressionNode>" }
     if fieldName == "arguments" { return "Array<ParserExpressionNode>" }
+    if fieldName.endsWith(".argumentNames") { return "Array<String>" }
+    if fieldName == "argumentNames" { return "Array<String>" }
+    if fieldName.endsWith(".slotNames") { return "Array<String>" }
+    if fieldName == "slotNames" { return "Array<String>" }
+    if fieldName.endsWith(".slotBlocks") { return "Array<BlockNode>" }
+    if fieldName == "slotBlocks" { return "Array<BlockNode>" }
+    if fieldName.endsWith(".metadata") { return "Array<String>" }
+    if fieldName == "metadata" { return "Array<String>" }
     if fieldName.endsWith(".errors") { return "Array<TypeError>" }
     if fieldName == "errors" { return "Array<TypeError>" }
     if fieldName.endsWith(".warnings") { return "Array<String>" }

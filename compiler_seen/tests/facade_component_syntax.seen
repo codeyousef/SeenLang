@@ -1,0 +1,56 @@
+import lexer.lexer.{newSeenLexerCompat}
+import parser.real_parser.{newRealParserCompat}
+
+fun expect(condition: Bool, message: String) r: Void {
+    if not condition {
+        abort(message)
+    }
+}
+
+fun main() r: Int {
+    let lb = "{"
+    let rb = "}"
+    let source =
+        "fun Button(text: String, key: Int = 0, onPress: Callback<Int> = 0) r: Int " + lb + " return 0 " + rb +
+        "fun Text(text: String, key: Int = 0) r: Int " + lb + " return 0 " + rb +
+        "component Counter(title: String) " + lb +
+        " state count: Int = 0; " +
+        " computed label: String = title; " +
+        " Button(text: label, key: count, onPress: " + lb + " println(label); " + rb + ") " + lb +
+        "   Text " + lb + " title " + lb + " Text(text: label); " + rb + " " + rb +
+        "   title " + lb + " Text(text: label); " + rb +
+        "   content " + lb + " Text(text: title); " + rb +
+        " " + rb +
+        rb
+
+    let lexer = newSeenLexerCompat(source, 1, "en")
+    let parser = newRealParserCompat(lexer.tokenize())
+    let ast = parser.parse()
+
+    expect(ast.items.length() == 3, "expected two helper functions and one component")
+    let componentItem = ast.items[2]
+    expect(componentItem.itemType == "Function", "component remains a function item")
+    expect(componentItem.function.isComponent, "component function is marked as facade component")
+
+    let body = componentItem.function.body
+    expect(body.statements.length() == 3, "component body should have three statements")
+    expect(body.statements[0].kind == "UiState", "state parses as UiState")
+    expect(body.statements[1].kind == "UiComputed", "computed parses as UiComputed")
+    expect(body.statements[1].metadata.length() == 1, "computed tracks one dependency")
+    expect(body.statements[1].metadata[0] == "title", "computed dependency tracks title")
+
+    let callExpr = body.statements[2].expression
+    expect(callExpr.kind == "Call", "trailing slot call remains a call")
+    expect(callExpr.argumentNames.length() == 3, "named arguments are recorded")
+    expect(callExpr.argumentNames[0] == "text", "first argument name is text")
+    expect(callExpr.argumentNames[1] == "key", "second argument name is key")
+    expect(callExpr.argumentNames[2] == "onPress", "third argument name is onPress")
+    expect(callExpr.arguments[2].kind == "UiCallback", "callback block parses as UiCallback")
+    expect(callExpr.slotNames.length() == 3, "default and named slot blocks are recorded")
+    expect(callExpr.slotNames[0] == "", "uppercase child block stays in default slot")
+    expect(callExpr.slotBlocks[0].statements.length() == 1, "default slot keeps child statement")
+    expect(callExpr.slotNames[1] == "title", "first named slot is title")
+    expect(callExpr.slotNames[2] == "content", "second named slot is content")
+
+    return 0
+}

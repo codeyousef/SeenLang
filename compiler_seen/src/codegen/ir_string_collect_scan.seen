@@ -171,7 +171,8 @@ fun collectStringConstantsFromBlockImpl(block: BlockNode, stringConstants: Array
 }
 
 fun collectStringConstantsFromStatementImpl(stmt: StatementNode, stringConstants: Array<String>, callCountNamesBox: Array<String>, callCountEntriesBox: Array<Int>) r: Void {
-    if stmt.kind == "Let" or stmt.kind == "Var" {
+    if stmt.kind == "Let" or stmt.kind == "Var" or
+        stmt.kind == "UiState" or stmt.kind == "UiComputed" {
         collectStringConstantsFromExprImpl(stmt.initializer, stringConstants, callCountNamesBox, callCountEntriesBox)
     }
     if stmt.kind == "Return" {
@@ -222,6 +223,10 @@ fun collectStringConstantsFromStatementImpl(stmt: StatementNode, stringConstants
     if stmt.kind == "ParallelFor" {
         collectStringConstantsFromBlockImpl(stmt.loopBody, stringConstants, callCountNamesBox, callCountEntriesBox)
     }
+    if stmt.kind == "UiEffect" {
+        collectStringConstantsFromBlockImpl(stmt.thenBranch, stringConstants, callCountNamesBox, callCountEntriesBox)
+        collectStringConstantsFromExprImpl(stmt.expression, stringConstants, callCountNamesBox, callCountEntriesBox)
+    }
     // Also check the expression for MemberAssignment/IndexAssignment
     if stmt.expression.kind != "" {
         collectStringConstantsFromExprImpl(stmt.expression, stringConstants, callCountNamesBox, callCountEntriesBox)
@@ -242,6 +247,20 @@ fun collectStringConstantsFromExprImpl(expr: ParserExpressionNode, stringConstan
         while i < expr.operands.length() {
             collectStringConstantsFromExprImpl(expr.operands[i], stringConstants, callCountNamesBox, callCountEntriesBox)
             i = i + 1
+        }
+        i = 0
+        while i < expr.slotBlocks.length() {
+            collectStringConstantsFromBlockImpl(expr.slotBlocks[i],
+                stringConstants, callCountNamesBox, callCountEntriesBox)
+            i = i + 1
+        }
+    }
+    if expr.kind == "UiCallback" {
+        var cbSlotIdx = 0
+        while cbSlotIdx < expr.slotBlocks.length() {
+            collectStringConstantsFromBlockImpl(expr.slotBlocks[cbSlotIdx],
+                stringConstants, callCountNamesBox, callCountEntriesBox)
+            cbSlotIdx = cbSlotIdx + 1
         }
     }
     if expr.kind == "Call" or expr.kind == "MethodCall" {

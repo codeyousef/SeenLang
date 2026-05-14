@@ -6,7 +6,7 @@ import codegen.ir_array_literal_driver.{generateArrayLiteralState}
 import codegen.ir_await_driver.{generateAwaitExpressionState}
 import codegen.ir_binary_driver.{generateBinaryState}
 import codegen.ir_call_driver.{generateCallState}
-import codegen.ir_closure_driver.{generateClosureState}
+import codegen.ir_closure_driver.{generateClosureState, generateUiCallbackState}
 import codegen.ir_codegen_feature_state.{getFeaturePanicOnOverflowImpl, getFeatureAsyncFuncNamesImpl, getFeatureAsyncFuncRetTypesImpl, getFeatureAsyncFuncCountImpl, getFeatureCurrentClassParentNameImpl, getFeatureClosureCountImpl, getFeatureClosureDefsImpl, getFeatureComptimeParamFuncNamesImpl, getFeatureComptimeParamCountImpl, getFeatureInsideUnsafeImpl, getFeatureBoundsCheckEnabledImpl, getFeatureBoundsCheckLabelCountImpl, setFeatureBoundsCheckLabelCountImpl, getFeatureEnumVariantNamesImpl, getFeatureEnumVariantTagsImpl, getFeatureEnumVariantFieldTypesImpl, getFeatureEnumVariantFieldCountsImpl, getFeatureEnumVariantParentImpl, getFeatureEnumVariantCountImpl, setFeatureClosureStateImpl, getFeatureRegBoxImpl, getFeatureBlockBoxImpl}
 import codegen.ir_codegen_global_state.{getCurrentFunctionReturnTypeWithGlobalStateImpl}
 import codegen.ir_codegen_metrics_state.{g_branchesEliminated, g_constantsFolded, g_stringsDeduped, g_inductionVarName}
@@ -245,6 +245,13 @@ fun generateSpecialExpressionState(ctx: CodegenLoweringContext,
         state.closureCount = closureResult.closureCount
         state.closureDefs = closureResult.closureDefs
         return closureResult.resultReg
+    }
+    if expr.kind == "UiCallback" {
+        let callbackResult = generateUiCallbackState(ctx, output, expr,
+            state.closureCount, state.closureDefs)
+        state.closureCount = callbackResult.closureCount
+        state.closureDefs = callbackResult.closureDefs
+        return callbackResult.resultReg
     }
     if expr.kind == "TryPropagate" {
         return emitTryPropagateExpressionState(ctx, output, expr,

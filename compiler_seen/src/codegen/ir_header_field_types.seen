@@ -17,6 +17,7 @@ fun getFieldTypeForHeaderStructImpl(structName: String, fieldName: String)
         if fieldName == "line" { return "i64" }
         if fieldName == "column" { return "i64" }
         if fieldName == "isOverride" { return "i1" }
+        if fieldName == "isComponent" { return "i1" }
     }
     if structName == "ClassNode" {
         if fieldName == "name" { return "%SeenString" }
@@ -82,6 +83,8 @@ fun getFieldTypeForHeaderStructImpl(structName: String, fieldName: String)
         if fieldName == "loopIterable" { return "i64" }
         if fieldName == "returnValue" { return "i64" }
         if fieldName == "expression" { return "i64" }
+        if fieldName == "loopCondition" { return "i64" }
+        if fieldName == "metadata" { return "ptr" }
     }
     if structName == "ParserExpressionNode" {
         if fieldName == "kind" { return "%SeenString" }
@@ -91,6 +94,9 @@ fun getFieldTypeForHeaderStructImpl(structName: String, fieldName: String)
         if fieldName == "operator" { return "%SeenString" }
         if fieldName == "operands" { return "ptr" }
         if fieldName == "arguments" { return "ptr" }
+        if fieldName == "argumentNames" { return "ptr" }
+        if fieldName == "slotNames" { return "ptr" }
+        if fieldName == "slotBlocks" { return "ptr" }
         if fieldName == "callee" { return "%SeenString" }
     }
     return ""

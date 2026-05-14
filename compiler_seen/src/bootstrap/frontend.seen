@@ -40,7 +40,8 @@ fun frontendEmptyFunctionNode() r: FunctionNode {
         decorators: Array<AnnotationNode>(),
         line: 0,
         column: 0,
-        isOverride: false
+        isOverride: false,
+        isComponent: false
     }
 }
 
@@ -145,6 +146,13 @@ fun run_frontend(source: String, fileLabel: String, language: String = "en") r: 
     let parser = newRealParserCompat(tokens)
     let ast = parser.parse()
     result.program = ast
+
+    addFacadeDiagnostics(result, fileLabel, ast)
+    if result.hasErrors() {
+        return result
+    }
+    frontendNormalizeNamedArguments(ast)
+
     // Reduced tracing to avoid string allocation crashes
     let checker = newTypeCheckerCompat()
     let typeResult = checker.check(ast)
@@ -305,6 +313,730 @@ fun programUsesClassDecorator(program: ProgramNode, decoratorName: String) r: Bo
         i = i + 1
     }
     return false
+}
+
+fun programUsesFacadeComponents(program: ProgramNode) r: Bool {
+    var i = 0
+    while i < program.items.length() {
+        let item = program.items[i]
+        if item.itemType == "Function" {
+            if item.function.isComponent {
+                return true
+            }
+        }
+        i = i + 1
+    }
+    return false
+}
+
+fun facadeParamTypeWithoutDefault(typeName: String) r: String {
+    let defaultIdx = typeName.indexOf("~default~", 0)
+    if defaultIdx >= 0 {
+        return typeName.substring(0, defaultIdx)
+    }
+    return typeName
+}
+
+fun facadeParamHasDefault(param: ParamNode) r: Bool {
+    return param.paramType.typeName.contains("~default~")
+}
+
+fun facadeParamDefaultValue(param: ParamNode) r: String {
+    let typeName = param.paramType.typeName
+    let defaultIdx = typeName.indexOf("~default~", 0)
+    if defaultIdx < 0 {
+        return ""
+    }
+    return typeName.substring(defaultIdx + 9, typeName.length())
+}
+
+fun facadeMakeDefaultExpression(param: ParamNode) r: ParserExpressionNode {
+    let expr = ParserExpressionNode.new()
+    expr.kind = "Literal"
+    let defaultValue = facadeParamDefaultValue(param)
+    let paramType = facadeParamTypeWithoutDefault(param.paramType.typeName)
+    expr.literalValue = defaultValue
+    expr.literalType = "Int"
+    if defaultValue == "true" or defaultValue == "false" {
+        expr.literalType = "Bool"
+    }
+    if paramType == "String" or defaultValue.startsWith("\"") {
+        expr.literalType = "String"
+    }
+    if paramType == "Float" or defaultValue.contains(".") {
+        expr.literalType = "Float"
+    }
+    return expr
+}
+
+fun facadeCollectCallableFunctions(program: ProgramNode,
+    functions: Array<FunctionNode>) r: Void {
+
+    var i = 0
+    while i < program.items.length() {
+        let item = program.items[i]
+        if item.itemType == "Function" {
+            functions.push(item.function)
+        }
+        if item.itemType == "Class" {
+            let cls = item.classNode
+            var mi = 0
+            while mi < cls.methods.length() {
+                functions.push(cls.methods[mi])
+                mi = mi + 1
+            }
+        }
+        i = i + 1
+    }
+}
+
+fun facadeFindCallable(functions: Array<FunctionNode>,
+    functionName: String) r: FunctionNode {
+
+    var i = functions.length() - 1
+    while i >= 0 {
+        if functions[i].name == functionName {
+            return functions[i]
+        }
+        i = i - 1
+    }
+    return frontendEmptyFunctionNode()
+}
+
+fun facadeFindParamIndex(func: FunctionNode, paramName: String) r: Int {
+    var i = 0
+    while i < func.params.length() {
+        if func.params[i].name == paramName {
+            return i
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+fun facadeCallArgName(expr: ParserExpressionNode, index: Int) r: String {
+    if index >= 0 and index < expr.argumentNames.length() {
+        return expr.argumentNames[index]
+    }
+    return ""
+}
+
+fun facadeCallHasNamedArgs(expr: ParserExpressionNode) r: Bool {
+    var i = 0
+    while i < expr.argumentNames.length() {
+        if expr.argumentNames[i] != "" {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
+fun facadeArrayContains(values: Array<String>, value: String) r: Bool {
+    var i = 0
+    while i < values.length() {
+        if values[i] == value {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
+fun facadeAddDiagnostic(result: FrontendResult, fileLabel: String,
+    severity: String, code: String, message: String, suggestion: String)
+    r: Void {
+
+    result.addDiagnostic(frontendDiagnostic(fileLabel, 0, 0, severity,
+        encodeDiagMessage(message, code, suggestion, "", 0)))
+}
+
+fun facadeTypeLooksCallback(typeName: String) r: Bool {
+    let baseType = facadeParamTypeWithoutDefault(typeName)
+    if baseType.startsWith("Callback") { return true }
+    if baseType.startsWith("Fn") { return true }
+    if baseType.startsWith("Function") { return true }
+    if baseType.startsWith("fn(") { return true }
+    if baseType.contains("->") { return true }
+    return false
+}
+
+fun facadeArgumentLooksCallback(expr: ParserExpressionNode) r: Bool {
+    return expr.kind == "UiCallback" or expr.kind == "Closure"
+}
+
+fun facadeValidateNamedCall(result: FrontendResult, fileLabel: String,
+    expr: ParserExpressionNode, func: FunctionNode) r: Void {
+
+    if not facadeCallHasNamedArgs(expr) {
+        return
+    }
+    if func.name == "" {
+        return
+    }
+
+    let seenNames = Array<String>()
+    var sawNamed = false
+    var positionalCount = 0
+    var ai = 0
+    while ai < expr.arguments.length() {
+        let argName = facadeCallArgName(expr, ai)
+        if argName == "" {
+            if sawNamed {
+                facadeAddDiagnostic(result, fileLabel, "error", "FEL276",
+                    "Positional arguments must appear before named arguments when calling '" + expr.callee + "'.",
+                    "Move the positional argument before the first named argument.")
+            } else {
+                positionalCount = positionalCount + 1
+            }
+        } else {
+            sawNamed = true
+            let paramIdx = facadeFindParamIndex(func, argName)
+            if paramIdx < 0 {
+                facadeAddDiagnostic(result, fileLabel, "error", "FEL276",
+                    "Unknown named argument '" + argName + "' for '" + expr.callee + "'.",
+                    "Use one of the declared parameter names.")
+            } else {
+                if paramIdx < positionalCount {
+                    facadeAddDiagnostic(result, fileLabel, "error", "FEL276",
+                        "Named argument '" + argName + "' duplicates an earlier positional argument.",
+                        "Remove either the positional argument or the named argument.")
+                }
+                if facadeArrayContains(seenNames, argName) {
+                    facadeAddDiagnostic(result, fileLabel, "error", "FEL276",
+                        "Duplicate named argument '" + argName + "' for '" + expr.callee + "'.",
+                        "Pass each named argument at most once.")
+                }
+                seenNames.push(argName)
+
+                let param = func.params[paramIdx]
+                let argExpr = expr.arguments[ai]
+                if facadeTypeLooksCallback(param.paramType.typeName) {
+                    if not facadeArgumentLooksCallback(argExpr) {
+                        facadeAddDiagnostic(result, fileLabel, "warning",
+                            "FEL278",
+                            "Callback parameter '" + argName + "' is receiving a non-callback expression.",
+                            "Pass a closure or trailing callback block.")
+                    }
+                }
+                if argExpr.kind == "UiCallback" and
+                    not facadeTypeLooksCallback(param.paramType.typeName) and
+                    not argName.startsWith("on") {
+
+                    facadeAddDiagnostic(result, fileLabel, "warning",
+                        "FEL278",
+                        "Block callback argument '" + argName + "' does not map to a callback-typed parameter.",
+                        "Use a callback type for this parameter or pass a normal expression.")
+                }
+            }
+        }
+        ai = ai + 1
+    }
+
+    if result.hasErrors() {
+        return
+    }
+
+    var pi = positionalCount
+    while pi < func.params.length() {
+        let param = func.params[pi]
+        if not facadeArrayContains(seenNames, param.name) and
+            not facadeParamHasDefault(param) {
+
+            facadeAddDiagnostic(result, fileLabel, "error", "FEL276",
+                "Missing required argument '" + param.name + "' for '" + expr.callee + "'.",
+                "Pass the argument by name or position.")
+        }
+        pi = pi + 1
+    }
+}
+
+fun facadeNormalizeNamedCall(expr: ParserExpressionNode,
+    func: FunctionNode) r: Void {
+
+    if func.name == "" or not facadeCallHasNamedArgs(expr) {
+        return
+    }
+
+    let positionalArgs = Array<ParserExpressionNode>()
+    let namedNames = Array<String>()
+    let namedArgs = Array<ParserExpressionNode>()
+    let namedParamIndexes = Array<Int>()
+    var invalid = false
+    var sawNamed = false
+    var ai = 0
+    while ai < expr.arguments.length() {
+        let argName = facadeCallArgName(expr, ai)
+        if argName == "" {
+            if sawNamed {
+                invalid = true
+            } else {
+                positionalArgs.push(expr.arguments[ai])
+            }
+        } else {
+            sawNamed = true
+            let paramIdx = facadeFindParamIndex(func, argName)
+            if paramIdx < 0 or facadeArrayContains(namedNames, argName) or
+                paramIdx < positionalArgs.length() {
+                invalid = true
+            } else {
+                namedNames.push(argName)
+                namedArgs.push(expr.arguments[ai])
+                namedParamIndexes.push(paramIdx)
+            }
+        }
+        ai = ai + 1
+    }
+    if invalid {
+        return
+    }
+
+    var highestProvided = positionalArgs.length() - 1
+    var ni = 0
+    while ni < namedParamIndexes.length() {
+        if namedParamIndexes[ni] > highestProvided {
+            highestProvided = namedParamIndexes[ni]
+        }
+        ni = ni + 1
+    }
+
+    let nextArgs = Array<ParserExpressionNode>()
+    let nextNames = Array<String>()
+    var pi = 0
+    while pi < func.params.length() {
+        if pi < positionalArgs.length() {
+            nextArgs.push(positionalArgs[pi])
+            nextNames.push("")
+        } else {
+            var foundNamed = -1
+            ni = 0
+            while ni < namedParamIndexes.length() {
+                if namedParamIndexes[ni] == pi {
+                    foundNamed = ni
+                }
+                ni = ni + 1
+            }
+            if foundNamed >= 0 {
+                nextArgs.push(namedArgs[foundNamed])
+                nextNames.push("")
+            } else if pi <= highestProvided {
+                let param = func.params[pi]
+                if facadeParamHasDefault(param) {
+                    nextArgs.push(facadeMakeDefaultExpression(param))
+                    nextNames.push("")
+                } else {
+                    return
+                }
+            }
+        }
+        pi = pi + 1
+    }
+
+    expr.arguments = nextArgs
+    expr.argumentNames = nextNames
+}
+
+fun facadeSlotNamesHaveDuplicate(expr: ParserExpressionNode) r: Bool {
+    var i = 0
+    while i < expr.slotNames.length() {
+        let slotName = expr.slotNames[i]
+        if slotName != "" {
+            var j = i + 1
+            while j < expr.slotNames.length() {
+                if expr.slotNames[j] == slotName {
+                    return true
+                }
+                j = j + 1
+            }
+        }
+        i = i + 1
+    }
+    return false
+}
+
+fun facadeValidateExpression(result: FrontendResult, fileLabel: String,
+    expr: ParserExpressionNode, functions: Array<FunctionNode>,
+    insideComponent: Bool) r: Void {
+
+    if expr.kind == "None" or expr.kind == "" {
+        return
+    }
+
+    if expr.kind == "Call" or expr.kind == "MethodCall" {
+        let func = facadeFindCallable(functions, expr.callee)
+        facadeValidateNamedCall(result, fileLabel, expr, func)
+        if facadeSlotNamesHaveDuplicate(expr) {
+            facadeAddDiagnostic(result, fileLabel, "warning", "FEL277",
+                "Duplicate named slot block on '" + expr.callee + "'.",
+                "Use each named slot at most once for a component call.")
+        }
+    }
+
+    var ai = 0
+    while ai < expr.arguments.length() {
+        facadeValidateExpression(result, fileLabel, expr.arguments[ai],
+            functions, insideComponent)
+        ai = ai + 1
+    }
+    var oi = 0
+    while oi < expr.operands.length() {
+        facadeValidateExpression(result, fileLabel, expr.operands[oi],
+            functions, insideComponent)
+        oi = oi + 1
+    }
+    var si = 0
+    while si < expr.slotBlocks.length() {
+        facadeValidateBlock(result, fileLabel, expr.slotBlocks[si],
+            functions, insideComponent)
+        si = si + 1
+    }
+}
+
+fun facadeNormalizeExpression(expr: ParserExpressionNode,
+    functions: Array<FunctionNode>) r: Void {
+
+    if expr.kind == "None" or expr.kind == "" {
+        return
+    }
+
+    var ai = 0
+    while ai < expr.arguments.length() {
+        facadeNormalizeExpression(expr.arguments[ai], functions)
+        ai = ai + 1
+    }
+    var oi = 0
+    while oi < expr.operands.length() {
+        facadeNormalizeExpression(expr.operands[oi], functions)
+        oi = oi + 1
+    }
+    var si = 0
+    while si < expr.slotBlocks.length() {
+        facadeNormalizeBlock(expr.slotBlocks[si], functions)
+        si = si + 1
+    }
+
+    if expr.kind == "Call" or expr.kind == "MethodCall" {
+        facadeNormalizeNamedCall(expr, facadeFindCallable(functions,
+            expr.callee))
+    }
+}
+
+fun facadeExpressionLooksEffectful(expr: ParserExpressionNode) r: Bool {
+    if expr.kind == "Call" or expr.kind == "MethodCall" or
+        expr.kind == "Assignment" or expr.kind == "MemberAssignment" or
+        expr.kind == "IndexAssignment" or expr.kind == "UiCallback" {
+        return true
+    }
+    var ai = 0
+    while ai < expr.arguments.length() {
+        if facadeExpressionLooksEffectful(expr.arguments[ai]) {
+            return true
+        }
+        ai = ai + 1
+    }
+    var oi = 0
+    while oi < expr.operands.length() {
+        if facadeExpressionLooksEffectful(expr.operands[oi]) {
+            return true
+        }
+        oi = oi + 1
+    }
+    return false
+}
+
+fun facadeExpressionHasNamedArg(expr: ParserExpressionNode,
+    argName: String) r: Bool {
+
+    var i = 0
+    while i < expr.argumentNames.length() {
+        if expr.argumentNames[i] == argName {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
+fun facadeLiteralNamedArgValue(expr: ParserExpressionNode,
+    argName: String) r: String {
+
+    var i = 0
+    while i < expr.argumentNames.length() and i < expr.arguments.length() {
+        if expr.argumentNames[i] == argName {
+            let argExpr = expr.arguments[i]
+            if argExpr.kind == "Literal" {
+                return argExpr.literalValue
+            }
+        }
+        i = i + 1
+    }
+    return ""
+}
+
+fun facadeLooksLikeUiChild(expr: ParserExpressionNode) r: Bool {
+    if expr.kind != "Call" and expr.kind != "MethodCall" {
+        return false
+    }
+    if expr.slotBlocks.length() > 0 {
+        return true
+    }
+    if expr.callee.length() > 0 {
+        let first = expr.callee.substring(0, 1)
+        if first >= "A" and first <= "Z" {
+            return true
+        }
+    }
+    return false
+}
+
+fun facadeValidateDynamicChildExpr(result: FrontendResult, fileLabel: String,
+    expr: ParserExpressionNode, keys: Array<String>) r: Void {
+
+    if facadeLooksLikeUiChild(expr) {
+        if not facadeExpressionHasNamedArg(expr, "key") {
+            facadeAddDiagnostic(result, fileLabel, "warning", "FEL280",
+                "Dynamic UI child '" + expr.callee + "' is missing a stable key.",
+                "Pass a stable key: key: item.id.")
+        } else {
+            let keyValue = facadeLiteralNamedArgValue(expr, "key")
+            if keyValue != "" {
+                if facadeArrayContains(keys, keyValue) {
+                    facadeAddDiagnostic(result, fileLabel, "warning",
+                        "FEL280",
+                        "Duplicate static UI key '" + keyValue + "' in dynamic children.",
+                        "Use a key derived from the loop item.")
+                }
+                keys.push(keyValue)
+            }
+        }
+    }
+
+    var ai = 0
+    while ai < expr.arguments.length() {
+        facadeValidateDynamicChildExpr(result, fileLabel, expr.arguments[ai],
+            keys)
+        ai = ai + 1
+    }
+    var oi = 0
+    while oi < expr.operands.length() {
+        facadeValidateDynamicChildExpr(result, fileLabel, expr.operands[oi],
+            keys)
+        oi = oi + 1
+    }
+    var si = 0
+    while si < expr.slotBlocks.length() {
+        facadeValidateDynamicChildBlock(result, fileLabel, expr.slotBlocks[si],
+            keys)
+        si = si + 1
+    }
+}
+
+fun facadeValidateDynamicChildStatement(result: FrontendResult,
+    fileLabel: String, stmt: StatementNode, keys: Array<String>) r: Void {
+
+    facadeValidateDynamicChildExpr(result, fileLabel, stmt.expression, keys)
+    facadeValidateDynamicChildExpr(result, fileLabel, stmt.returnValue, keys)
+    facadeValidateDynamicChildExpr(result, fileLabel, stmt.initializer, keys)
+    facadeValidateDynamicChildExpr(result, fileLabel, stmt.condition, keys)
+    if stmt.kind == "If" {
+        facadeValidateDynamicChildBlock(result, fileLabel, stmt.thenBranch,
+            keys)
+        facadeValidateDynamicChildBlock(result, fileLabel, stmt.elseBranch,
+            keys)
+    }
+    if stmt.kind == "ForIn" or stmt.kind == "ParallelFor" or
+        stmt.kind == "While" {
+        facadeValidateDynamicChildBlock(result, fileLabel, stmt.loopBody,
+            keys)
+    }
+    if stmt.kind == "UiEffect" or stmt.kind == "Block" or
+        stmt.kind == "Unsafe" {
+        facadeValidateDynamicChildBlock(result, fileLabel, stmt.thenBranch,
+            keys)
+    }
+}
+
+fun facadeValidateDynamicChildBlock(result: FrontendResult,
+    fileLabel: String, block: BlockNode, keys: Array<String>) r: Void {
+
+    var i = 0
+    while i < block.statements.length() {
+        facadeValidateDynamicChildStatement(result, fileLabel,
+            block.statements[i], keys)
+        i = i + 1
+    }
+}
+
+fun facadeValidateStatement(result: FrontendResult, fileLabel: String,
+    stmt: StatementNode, functions: Array<FunctionNode>, insideComponent: Bool)
+    r: Void {
+
+    if stmt.kind == "UiState" or stmt.kind == "UiComputed" or
+        stmt.kind == "UiEffect" {
+        if not insideComponent {
+            facadeAddDiagnostic(result, fileLabel, "error", "FEL279",
+                "'" + stmt.kind + "' can only appear inside a facade component.",
+                "Move this construct into a component body.")
+        }
+    }
+    if insideComponent {
+        if stmt.kind == "UiState" and stmt.initializer.kind == "None" {
+            facadeAddDiagnostic(result, fileLabel, "error", "FEL279",
+                "UI state '" + stmt.variableName + "' requires an initializer.",
+                "Initialize the state value where it is declared.")
+        }
+        if stmt.kind == "UiComputed" {
+            if stmt.initializer.kind == "None" {
+                facadeAddDiagnostic(result, fileLabel, "error", "FEL279",
+                    "Computed UI value '" + stmt.variableName + "' requires an initializer.",
+                    "Initialize the computed value with an expression.")
+            } else if facadeExpressionLooksEffectful(stmt.initializer) {
+                facadeAddDiagnostic(result, fileLabel, "warning", "FEL279",
+                    "Computed UI value '" + stmt.variableName + "' may perform side effects.",
+                    "Move side effects into uiEffect and keep computed values pure.")
+            }
+        }
+        if stmt.kind == "ForIn" or stmt.kind == "ParallelFor" {
+            let keys = Array<String>()
+            facadeValidateDynamicChildBlock(result, fileLabel, stmt.loopBody,
+                keys)
+        }
+    }
+
+    facadeValidateExpression(result, fileLabel, stmt.initializer, functions,
+        insideComponent)
+    facadeValidateExpression(result, fileLabel, stmt.returnValue, functions,
+        insideComponent)
+    facadeValidateExpression(result, fileLabel, stmt.expression, functions,
+        insideComponent)
+    facadeValidateExpression(result, fileLabel, stmt.condition, functions,
+        insideComponent)
+    facadeValidateExpression(result, fileLabel, stmt.loopCondition,
+        functions, insideComponent)
+
+    if stmt.kind == "If" {
+        facadeValidateBlock(result, fileLabel, stmt.thenBranch, functions,
+            insideComponent)
+        facadeValidateBlock(result, fileLabel, stmt.elseBranch, functions,
+            insideComponent)
+    }
+    if stmt.kind == "While" or stmt.kind == "ForIn" or
+        stmt.kind == "ParallelFor" {
+        facadeValidateBlock(result, fileLabel, stmt.loopBody, functions,
+            insideComponent)
+    }
+    if stmt.kind == "UiEffect" or stmt.kind == "Block" or
+        stmt.kind == "Unsafe" or stmt.kind == "ComptimeBlock" {
+        facadeValidateBlock(result, fileLabel, stmt.thenBranch, functions,
+            insideComponent)
+    }
+}
+
+fun facadeValidateBlock(result: FrontendResult, fileLabel: String,
+    block: BlockNode, functions: Array<FunctionNode>, insideComponent: Bool)
+    r: Void {
+
+    var i = 0
+    while i < block.statements.length() {
+        facadeValidateStatement(result, fileLabel, block.statements[i],
+            functions, insideComponent)
+        i = i + 1
+    }
+}
+
+fun facadeNormalizeStatement(stmt: StatementNode,
+    functions: Array<FunctionNode>) r: Void {
+
+    facadeNormalizeExpression(stmt.initializer, functions)
+    facadeNormalizeExpression(stmt.returnValue, functions)
+    facadeNormalizeExpression(stmt.expression, functions)
+    facadeNormalizeExpression(stmt.condition, functions)
+    facadeNormalizeExpression(stmt.loopCondition, functions)
+    facadeNormalizeBlock(stmt.thenBranch, functions)
+    facadeNormalizeBlock(stmt.elseBranch, functions)
+    facadeNormalizeBlock(stmt.loopBody, functions)
+}
+
+fun facadeNormalizeBlock(block: BlockNode,
+    functions: Array<FunctionNode>) r: Void {
+
+    var i = 0
+    while i < block.statements.length() {
+        facadeNormalizeStatement(block.statements[i], functions)
+        i = i + 1
+    }
+}
+
+fun frontendNormalizeNamedArguments(program: ProgramNode) r: Void {
+    let functions = Array<FunctionNode>()
+    facadeCollectCallableFunctions(program, functions)
+    var i = 0
+    while i < program.items.length() {
+        let item = program.items[i]
+        if item.itemType == "Function" {
+            facadeNormalizeBlock(item.function.body, functions)
+        }
+        if item.itemType == "Class" {
+            let cls = item.classNode
+            var mi = 0
+            while mi < cls.methods.length() {
+                facadeNormalizeBlock(cls.methods[mi].body, functions)
+                mi = mi + 1
+            }
+        }
+        i = i + 1
+    }
+}
+
+fun addFacadeDiagnostics(result: FrontendResult, fileLabel: String,
+    program: ProgramNode) r: Void {
+
+    let functions = Array<FunctionNode>()
+    facadeCollectCallableFunctions(program, functions)
+    var i = 0
+    while i < program.items.length() {
+        let item = program.items[i]
+        if item.itemType == "Function" {
+            facadeValidateBlock(result, fileLabel, item.function.body,
+                functions, item.function.isComponent)
+        }
+        if item.itemType == "Class" {
+            let cls = item.classNode
+            var mi = 0
+            while mi < cls.methods.length() {
+                facadeValidateBlock(result, fileLabel, cls.methods[mi].body,
+                    functions, false)
+                mi = mi + 1
+            }
+        }
+        i = i + 1
+    }
+}
+
+fun facadeComponentMetadata(program: ProgramNode) r: String {
+    var metadata = ""
+    var i = 0
+    while i < program.items.length() {
+        let item = program.items[i]
+        if item.itemType == "Function" and item.function.isComponent {
+            if metadata != "" {
+                metadata = metadata + "\n"
+            }
+            metadata = metadata + "component\t" + item.function.name + "\t"
+            var pi = 0
+            while pi < item.function.params.length() {
+                if pi > 0 {
+                    metadata = metadata + ","
+                }
+                let param = item.function.params[pi]
+                metadata = metadata + param.name + ":" +
+                    facadeParamTypeWithoutDefault(param.paramType.typeName)
+                pi = pi + 1
+            }
+        }
+        i = i + 1
+    }
+    return metadata
 }
 
 // Keep capability validation local to the frontend so bootstrap does not depend

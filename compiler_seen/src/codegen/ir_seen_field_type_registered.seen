@@ -13,6 +13,14 @@ fun getSeenFieldTypeEmptyRegistryFallbackImpl(structName: String,
         if fieldName == "isAsync" { return "Bool" }
         if fieldName == "isInline" { return "Bool" }
         if fieldName == "isStatic" { return "Bool" }
+        if fieldName == "isExtern" { return "Bool" }
+        if fieldName == "isDeterministic" { return "Bool" }
+        if fieldName == "isNondeterministic" { return "Bool" }
+        if fieldName == "decorators" { return "Array<AnnotationNode>" }
+        if fieldName == "line" { return "Int" }
+        if fieldName == "column" { return "Int" }
+        if fieldName == "isOverride" { return "Bool" }
+        if fieldName == "isComponent" { return "Bool" }
     }
     if structName == "ClassNode" {
         if fieldName == "name" { return "String" }
@@ -54,6 +62,7 @@ fun getSeenFieldTypeEmptyRegistryFallbackImpl(structName: String,
         if fieldName == "elseBranch" { return "BlockNode" }
         if fieldName == "loopCondition" { return "ParserExpressionNode" }
         if fieldName == "loopBody" { return "BlockNode" }
+        if fieldName == "metadata" { return "Array<String>" }
     }
     if structName == "ParserExpressionNode" {
         if fieldName == "kind" { return "String" }
@@ -63,6 +72,9 @@ fun getSeenFieldTypeEmptyRegistryFallbackImpl(structName: String,
         if fieldName == "operator" { return "String" }
         if fieldName == "operands" { return "Array<ParserExpressionNode>" }
         if fieldName == "arguments" { return "Array<ParserExpressionNode>" }
+        if fieldName == "argumentNames" { return "Array<String>" }
+        if fieldName == "slotNames" { return "Array<String>" }
+        if fieldName == "slotBlocks" { return "Array<BlockNode>" }
         if fieldName == "callee" { return "String" }
     }
     if structName == "FrontendResult" {

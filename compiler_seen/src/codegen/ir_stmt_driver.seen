@@ -314,6 +314,18 @@ fun generateUnsafeStatementState(ctx: CodegenLoweringContext,
     state.insideUnsafe = insideUnsafeBox[0]
 }
 
+fun generateUiEffectStatementState(ctx: CodegenLoweringContext,
+    stmt: StatementNode) r: Void {
+
+    if stmt.thenBranch.statements.length() > 0 {
+        lowerBlock(ctx, stmt.thenBranch)
+        return
+    }
+    if stmt.expression.kind != "None" {
+        lowerExpression(ctx, stmt.expression)
+    }
+}
+
 fun generateStatementState(ctx: CodegenLoweringContext,
     output: StringBuilder, stmt: StatementNode, varNames: Array<String>,
     varRegs: Array<String>, varTypes: Array<String>,
@@ -401,4 +413,5 @@ fun generateStatementState(ctx: CodegenLoweringContext,
     }
     if dispatchAction == 19 { generateComptimeAssertState(output, stmt) }
     if dispatchAction == 20 { generateComptimeIfState(ctx, output, stmt) }
+    if dispatchAction == 21 { generateUiEffectStatementState(ctx, stmt) }
 }

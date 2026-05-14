@@ -551,7 +551,8 @@ fun mainCompilerEmptyFunctionNode() r: FunctionNode {
         decorators: Array<AnnotationNode>(),
         line: 0,
         column: 0,
-        isOverride: false
+        isOverride: false,
+        isComponent: false
     }
 }
 
@@ -698,6 +699,12 @@ fun normalizeExpressionModuleAliases(expr: ParserExpressionNode,
     while argIdx < expr.arguments.length() {
         normalizeExpressionModuleAliases(expr.arguments[argIdx], aliases)
         argIdx = argIdx + 1
+    }
+
+    var slotIdx = 0
+    while slotIdx < expr.slotBlocks.length() {
+        normalizeBlockModuleAliases(expr.slotBlocks[slotIdx], aliases)
+        slotIdx = slotIdx + 1
     }
 
     if expr.kind == "MethodCall" {

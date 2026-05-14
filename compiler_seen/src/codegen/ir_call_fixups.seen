@@ -22,10 +22,10 @@ RealParser methods that were parsed as standalone functions in older stages.
 Returns the lowered LLVM return type string, or "" if no fixup applies.
 ///
 fun resolveRealParserMisplacedMethodReturnTypeImpl(funcName: String) r: String {
-    if pipeContainsCallFixupImpl("isAtEnd|checkToken|matchTokenStr", funcName) {
+    if pipeContainsCallFixupImpl("isAtEnd|checkToken|matchTokenStr|uiMetadataContains", funcName) {
         return "i1"
     }
-    if pipeContainsCallFixupImpl("consume|advance|peek|previous|peekTokenType|parseParameterList|parseBlock|parseParam|parsePrimary|parseCall|parseUnary|parseFactor|parseTerm|parseComparison|parseEquality|parseAnd|parseOr|parseAssignment|parseExpression|parseStatement|parseIfStatement|parseWhileStatement|parseLetStatement|parseVarStatement|parseExpressionStatement|parseReturnStatement|parseFunctionItem|parseClassItem|parseEnumItem|parseImportItem|makeImportSymbol", funcName) {
+    if pipeContainsCallFixupImpl("consume|advance|peek|previous|peekTokenType|parseParameterList|parseBlock|parseParam|parsePrimary|parseCall|parseUnary|parseFactor|parseTerm|parseComparison|parseEquality|parseAnd|parseOr|parseAssignment|parseExpression|parseStatement|parseIfStatement|parseWhileStatement|parseLetStatement|parseVarStatement|parseExpressionStatement|parseReturnStatement|parseFunctionItem|parseClassItem|parseEnumItem|parseImportItem|makeImportSymbol|parseUiStateLikeStatement|parseUiEffectStatement|parseUiCallbackBlockExpression|ensureUiCallExpression|parseUiSlotBlockInto", funcName) {
         return "i64"
     }
     if pipeContainsCallFixupImpl("peekTokenTypeStr|inferVisibility|joinSegments", funcName) {
@@ -40,7 +40,7 @@ fun resolveRealParserMisplacedMethodReturnTypeImpl(funcName: String) r: String {
     if funcName == "parseImportSymbols" {
         return "ptr"
     }
-    if pipeContainsCallFixupImpl("skipExpression|toArray|parseExpressionStatementByIdx|parseReturnStatementByIdx|parseIfStatementByIdx|parseWhileStatementByIdx|parseLetStatementByIdx|parseVarStatementByIdx|parseStatementInto|parseExpressionStatementInto|parseReturnStatementInto|parseIfStatementInto|parseWhileStatementInto|parseLetStatementInto|parseVarStatementInto|parseExpressionInto|parseExpressionIntoField|parseLetStatementField|parseVarStatementField|parseReturnStatementField|parseIfStatementField|parseWhileStatementField|parseExpressionStatementField|parseParameterListField|parseFunctionItemInto|parseClassItemInto|parseEnumItemInto|parseImportItemInto", funcName) {
+    if pipeContainsCallFixupImpl("skipExpression|toArray|parseExpressionStatementByIdx|parseReturnStatementByIdx|parseIfStatementByIdx|parseWhileStatementByIdx|parseLetStatementByIdx|parseVarStatementByIdx|parseStatementInto|parseExpressionStatementInto|parseReturnStatementInto|parseIfStatementInto|parseWhileStatementInto|parseLetStatementInto|parseVarStatementInto|parseExpressionInto|parseExpressionIntoField|parseLetStatementField|parseVarStatementField|parseReturnStatementField|parseIfStatementField|parseWhileStatementField|parseExpressionStatementField|parseParameterListField|parseFunctionItemInto|parseClassItemInto|parseEnumItemInto|parseImportItemInto|parseCallArgumentInto|appendDefaultUiSlot|parseUiStateLikeStatementField|parseUiEffectStatementField|collectUiExpressionDependencies", funcName) {
         return "ptr"
     }
     return ""

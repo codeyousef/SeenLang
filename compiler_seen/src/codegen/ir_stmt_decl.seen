@@ -150,7 +150,8 @@ fun findCollectedDeclarationTypeImpl(preAllocatedVars: Array<String>,
 }
 
 fun classifyCollectedStatementKindImpl(stmtKind: String) r: Int {
-    if stmtKind == "Let" or stmtKind == "Var" {
+    if stmtKind == "Let" or stmtKind == "Var" or
+        stmtKind == "UiState" or stmtKind == "UiComputed" {
         return 1
     }
     if stmtKind == "If" {

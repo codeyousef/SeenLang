@@ -48,7 +48,7 @@
         },
         {
           "name": "keyword.declaration.seen",
-          "match": "\\b(fun|val|var|let|class|interface|spec|object|trait|sealed|data|enum|type|alias|struct|extension|companion|extern|macro|impl|extends|distinct|union)\\b"
+          "match": "\\b(fun|component|val|var|let|class|interface|spec|object|trait|sealed|data|enum|type|alias|struct|extension|companion|extern|macro|impl|extends|distinct|union)\\b"
         },
         {
           "name": "keyword.modifier.seen",
@@ -60,7 +60,7 @@
         },
         {
           "name": "keyword.other.seen",
-          "match": "\\b(as|is|in|out|where|by|constructor|init|crossinline|noinline|vararg|dynamic|send|to|from|request|reply|effect|actor|receive|spawn|select|lazy|observable|computed|region|arena|move|borrow|ref|own|transmute|gpu|parallel_for|scope|cancel|detached|emit|delay)\\b"
+          "match": "\\b(as|is|in|out|where|by|constructor|init|crossinline|noinline|vararg|dynamic|send|to|from|request|reply|effect|state|computed|uiEffect|actor|receive|spawn|select|lazy|observable|region|arena|move|borrow|ref|own|transmute|gpu|parallel_for|scope|cancel|detached|emit|delay)\\b"
         },
         {
           "name": "keyword.operator.word.seen",
@@ -101,7 +101,7 @@
       "patterns": [
         {
           "name": "meta.function.seen",
-          "match": "\\b(fun)\\s+(\\w+)",
+          "match": "\\b(fun|component)\\s+(\\w+)",
           "captures": {
             "1": {
               "name": "keyword.declaration.function.seen"

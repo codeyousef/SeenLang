@@ -50,6 +50,7 @@ fun getFieldTypeForKnownStructImpl(structName: String, fieldName: String) r: Str
         if fieldName == "line" { return "i64" }
         if fieldName == "column" { return "i64" }
         if fieldName == "isOverride" { return "i1" }
+        if fieldName == "isComponent" { return "i1" }
     }
     if structName == "ClassNode" {
         if fieldName == "name" { return "%SeenString" }
@@ -112,6 +113,7 @@ fun getFieldTypeForKnownStructImpl(structName: String, fieldName: String) r: Str
         if fieldName == "elseBranch" { return "i64" }
         if fieldName == "loopCondition" { return "i64" }
         if fieldName == "loopBody" { return "i64" }
+        if fieldName == "metadata" { return "ptr" }
     }
     if structName == "ParserExpressionNode" {
         if fieldName == "kind" { return "%SeenString" }
@@ -122,6 +124,9 @@ fun getFieldTypeForKnownStructImpl(structName: String, fieldName: String) r: Str
         if fieldName == "variableName" { return "%SeenString" }
         if fieldName == "callee" { return "%SeenString" }
         if fieldName == "arguments" { return "ptr" }
+        if fieldName == "argumentNames" { return "ptr" }
+        if fieldName == "slotNames" { return "ptr" }
+        if fieldName == "slotBlocks" { return "ptr" }
     }
     if structName == "TypeNode" {
         if fieldName == "typeName" { return "%SeenString" }

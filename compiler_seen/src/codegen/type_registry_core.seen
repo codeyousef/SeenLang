@@ -224,6 +224,7 @@ fun getFieldInfoReg(structName: String, fieldName: String, structNames: Array<St
         if fieldName == "line" { cacheFieldIndex(cacheKey, 11); return 11 }
         if fieldName == "column" { cacheFieldIndex(cacheKey, 12); return 12 }
         if fieldName == "isOverride" { cacheFieldIndex(cacheKey, 13); return 13 }
+        if fieldName == "isComponent" { cacheFieldIndex(cacheKey, 14); return 14 }
     }
     if structName == "ClassNode" {
         if fieldName == "name" { cacheFieldIndex(cacheKey, 0); return 0 }
@@ -275,6 +276,7 @@ fun getFieldInfoReg(structName: String, fieldName: String, structNames: Array<St
         if fieldName == "elseBranch" { cacheFieldIndex(cacheKey, 8); return 8 }
         if fieldName == "loopCondition" { cacheFieldIndex(cacheKey, 9); return 9 }
         if fieldName == "loopBody" { cacheFieldIndex(cacheKey, 10); return 10 }
+        if fieldName == "metadata" { cacheFieldIndex(cacheKey, 11); return 11 }
     }
     if structName == "ParserExpressionNode" {
         if fieldName == "kind" { cacheFieldIndex(cacheKey, 0); return 0 }
@@ -285,6 +287,9 @@ fun getFieldInfoReg(structName: String, fieldName: String, structNames: Array<St
         if fieldName == "variableName" { cacheFieldIndex(cacheKey, 5); return 5 }
         if fieldName == "callee" { cacheFieldIndex(cacheKey, 6); return 6 }
         if fieldName == "arguments" { cacheFieldIndex(cacheKey, 7); return 7 }
+        if fieldName == "argumentNames" { cacheFieldIndex(cacheKey, 8); return 8 }
+        if fieldName == "slotNames" { cacheFieldIndex(cacheKey, 9); return 9 }
+        if fieldName == "slotBlocks" { cacheFieldIndex(cacheKey, 10); return 10 }
     }
     let lspFieldIdx = getKnownLspFieldIndexImpl(structName, fieldName)
     if lspFieldIdx >= 0 {

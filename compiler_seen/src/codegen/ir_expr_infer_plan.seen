@@ -213,6 +213,7 @@ fun planSpecialExprInferenceImpl(kind: String)
     plan.shouldTryBranching = kind == "WhenExpression" or
         kind == "IfExpression"
     plan.shouldTryFixed = kind == "Range" or kind == "IsExpression" or
-        kind == "Closure" or kind == "TryPropagate" or kind == "Cast"
+        kind == "Closure" or kind == "UiCallback" or
+        kind == "TryPropagate" or kind == "Cast"
     return plan
 }

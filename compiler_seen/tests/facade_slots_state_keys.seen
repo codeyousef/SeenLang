@@ -1,0 +1,72 @@
+import bootstrap.frontend.{run_frontend, facadeComponentMetadata}
+
+fun expect(condition: Bool, message: String) r: Void {
+    if not condition {
+        abort(message)
+    }
+}
+
+fun resultHasDiagnosticContaining(source: String, label: String,
+    expected: String) r: Bool {
+
+    let result = run_frontend(source, label, "en")
+    var i = 0
+    while i < result.diagnostics.length() {
+        if result.diagnostics[i].message.contains(expected) {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
+fun main() r: Int {
+    let lb = "{"
+    let rb = "}"
+    let helpers =
+        "fun Text(text: String, key: Int = 0) r: Int " + lb + " return 0 " + rb +
+        "fun Panel(title: String = \"\", key: Int = 0) r: Int " + lb + " return 0 " + rb
+
+    let source = helpers +
+        "component List(items: Array<Int>) " + lb +
+        " state selected: Int = 0; " +
+        " computed label: String = \"item\"; " +
+        " uiEffect " + lb + " println(label); " + rb +
+        " for item in items " + lb +
+        "   Text(text: label); " +
+        " " + rb +
+        rb
+
+    let result = run_frontend(source, "facade slots state keys", "en")
+    expect(result.success, "component source should succeed with warnings")
+    expect(result.hasWarnings(), "missing dynamic child key should warn")
+    expect(facadeComponentMetadata(result.program).contains("component\tList"),
+        "component metadata includes List")
+
+    expect(resultHasDiagnosticContaining(helpers +
+        "fun bad() r: Int " + lb + " state outside: Int = 0; return outside " + rb,
+        "state outside component", "can only appear inside a facade component"),
+        "state outside component should be rejected")
+
+    expect(resultHasDiagnosticContaining(helpers +
+        "component DuplicateSlots() " + lb +
+        " Panel() " + lb +
+        "   title " + lb + " Text(text: \"A\"); " + rb +
+        "   title " + lb + " Text(text: \"B\"); " + rb +
+        " " + rb +
+        rb,
+        "duplicate slots", "Duplicate named slot"),
+        "duplicate named slots should warn")
+
+    expect(resultHasDiagnosticContaining(helpers +
+        "component DuplicateKeys(items: Array<Int>) " + lb +
+        " for item in items " + lb +
+        "   Text(text: \"A\", key: 1); " +
+        "   Text(text: \"B\", key: 1); " +
+        " " + rb +
+        rb,
+        "duplicate keys", "Duplicate static UI key"),
+        "duplicate static keys should warn")
+
+    return 0
+}

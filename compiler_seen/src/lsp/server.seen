@@ -430,6 +430,7 @@ class SeenLspServer {
         var lineStart = 0
         var i = 0
         let funPattern = "fun " + word + "("
+        let componentPattern = "component " + word + "("
         let externFunPattern = "extern fun " + word + "("
         let classPattern = "class " + word
         let traitPattern = "trait " + word
@@ -455,6 +456,9 @@ class SeenLspServer {
                 } else {
                     if not inTripleSlashBlock and not this.isLineComment(line) {
                         if line.contains(funPattern) {
+                            return lineNum
+                        }
+                        if line.contains(componentPattern) {
                             return lineNum
                         }
                         if line.contains(externFunPattern) {
@@ -497,7 +501,7 @@ class SeenLspServer {
             return "fun " + fnName + "(...)"
         }
         let line = this.getLineContent(content, defLine)
-        // Find "fun " in the line and extract up to "{"
+        // Find "fun " or "component " in the line and extract up to "{"
         var funStart = -1
         var i = 0
         while i < line.length() - 3 {
@@ -506,6 +510,16 @@ class SeenLspServer {
                 i = line.length()
             }
             i = i + 1
+        }
+        if funStart < 0 {
+            i = 0
+            while i < line.length() - 9 {
+                if line.substring(i, i + 10) == "component " {
+                    funStart = i
+                    i = line.length()
+                }
+                i = i + 1
+            }
         }
         if funStart < 0 {
             return "fun " + fnName + "(...)"
@@ -1492,6 +1506,16 @@ class SeenLspServer {
             return
         }
 
+        let componentIdx = this.findPrefix(declLine, "component ")
+        if componentIdx >= 0 {
+            let nameStart = componentIdx + 10
+            let name = this.extractIdentifier(declLine, nameStart)
+            if name.length() > 0 {
+                this.addSymbolInfo(symbols, name, 12, uri, lineNum)
+            }
+            return
+        }
+
         // Check for class: "class NAME"
         let classIdx = this.findPrefix(declLine, "class ")
         if classIdx >= 0 {
@@ -1810,6 +1834,9 @@ class SeenLspServer {
             if item.itemType == "Function" {
                 let fnItem = CompletionItem_new(item.name, COMPLETION_FUNCTION)
                 fnItem.detail = this.extractSignatureFromSource(content, item.name)
+                if item.function.isComponent {
+                    fnItem.detail = "component " + item.name
+                }
                 completions.push(fnItem)
             }
             if item.itemType == "Class" {
@@ -1859,7 +1886,7 @@ class SeenLspServer {
 
         // Control flow, declarations, and modifiers
         let keywords = ["if", "else", "while", "for", "return", "break", "continue",
-                        "fun", "class", "data", "let", "var", "import", "package", "module", "pub", "extern",
+                        "fun", "component", "class", "data", "let", "var", "state", "computed", "uiEffect", "import", "package", "module", "pub", "extern",
                         "true", "false", "null", "and", "or", "not", "in", "as", "is",
                         "match", "enum", "struct", "impl", "trait", "where",
                         "region", "comptime", "inline", "when",
@@ -1887,7 +1914,7 @@ class SeenLspServer {
                      "Vec", "HashMap", "LinkedList", "BTreeMap",
                      "Channel", "Mutex", "RwLock", "AtomicInt", "Barrier", "ThreadLocal",
                      "Buffer", "Uniform", "Image",
-                     "Result", "Option", "SmallVec",
+                     "Result", "Option", "SmallVec", "Callback",
                      "HotModule", "HotReloadWatcher", "StateSnapshot"]
 
         var i = 0
@@ -1917,6 +1944,12 @@ class SeenLspServer {
         classItem.insertText = "class ${1:Name} {\n\t$0\n}"
         classItem.insertTextFormat = 2
         completions.push(classItem)
+
+        let componentItem = CompletionItem_new("component", COMPLETION_SNIPPET)
+        componentItem.detail = "facade component"
+        componentItem.insertText = "component ${1:Name}(${2:props}) {\n\t$0\n}"
+        componentItem.insertTextFormat = 2
+        completions.push(componentItem)
 
         // If snippet
         let ifItem = CompletionItem_new("if", COMPLETION_SNIPPET)
@@ -2020,6 +2053,24 @@ class SeenLspServer {
         effectItem.insertTextFormat = 2
         completions.push(effectItem)
 
+        let stateItem = CompletionItem_new("state", COMPLETION_SNIPPET)
+        stateItem.detail = "component local state"
+        stateItem.insertText = "state ${1:name}: ${2:Type} = ${3:value}"
+        stateItem.insertTextFormat = 2
+        completions.push(stateItem)
+
+        let computedItem = CompletionItem_new("computed", COMPLETION_SNIPPET)
+        computedItem.detail = "computed component value"
+        computedItem.insertText = "computed ${1:name}: ${2:Type} = ${3:expression}"
+        computedItem.insertTextFormat = 2
+        completions.push(computedItem)
+
+        let uiEffectItem = CompletionItem_new("uiEffect", COMPLETION_SNIPPET)
+        uiEffectItem.detail = "component side effect"
+        uiEffectItem.insertText = "uiEffect {\n\t$0\n}"
+        uiEffectItem.insertTextFormat = 2
+        completions.push(uiEffectItem)
+
         let sealedItem = CompletionItem_new("sealed class", COMPLETION_SNIPPET)
         sealedItem.detail = "sealed class"
         sealedItem.insertText = "sealed class ${1:Name} {\n\t$0\n}"
@@ -2120,7 +2171,11 @@ class SeenLspServer {
             let item = prog.items[j]
             if item.itemType == "Function" and item.name == word {
                 let sig = this.extractSignatureFromSource(content, item.name)
-                let hoverContent = MarkupContent_markdown("```seen\n" + sig + "\n```")
+                var header = sig
+                if item.function.isComponent {
+                    header = "component " + item.name
+                }
+                let hoverContent = MarkupContent_markdown("```seen\n" + header + "\n```")
                 return Hover_new(hoverContent)
             }
             if item.itemType == "Class" and item.name == word {
@@ -2169,6 +2224,9 @@ class SeenLspServer {
         if word == "fun" {
             return "Defines a function.\n\n```seen\nfun name(params) r: Type { body }\n```"
         }
+        if word == "component" {
+            return "Defines a facade component function.\n\n```seen\ncomponent Name(props) {\n    state count: Int = 0\n}\n```"
+        }
         if word == "class" {
             return "Defines a class type.\n\n```seen\nclass Name {\n    var field: Type\n    fun method() r: Type { }\n}\n```"
         }
@@ -2180,6 +2238,15 @@ class SeenLspServer {
         }
         if word == "var" {
             return "Declares a mutable variable.\n\n```seen\nvar x = value\n```"
+        }
+        if word == "state" {
+            return "Declares component-local UI state.\n\n```seen\nstate count: Int = 0\n```"
+        }
+        if word == "computed" {
+            return "Declares a derived component value.\n\n```seen\ncomputed label: String = title\n```"
+        }
+        if word == "uiEffect" {
+            return "Declares an explicit component side-effect block.\n\n```seen\nuiEffect {\n    refresh()\n}\n```"
         }
         if word == "import" {
             return "Imports symbols from a module or package.\n\n```seen\nimport module.{Symbol1, Symbol2}\nimport package_name\nimport package_name::src::module.{Symbol}\n```"

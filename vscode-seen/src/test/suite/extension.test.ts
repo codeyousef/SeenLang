@@ -206,6 +206,26 @@ suite('Language Features Test Suite', () => {
         assert.strictEqual(ranges[0].start, 0);
         assert.strictEqual(ranges[0].end, 2);
     });
+
+    test('Grammar should include facade component keywords', () => {
+        const grammarPath = path.join(__dirname, '../../../syntaxes/seen.tmLanguage.json');
+        const grammar = fs.readFileSync(grammarPath, 'utf8');
+
+        assert.ok(grammar.includes('component'));
+        assert.ok(grammar.includes('uiEffect'));
+        assert.ok(grammar.includes('state'));
+        assert.ok(grammar.includes('computed'));
+    });
+
+    test('Snippets should include facade component constructs', () => {
+        const snippetsPath = path.join(__dirname, '../../../snippets/seen.code-snippets');
+        const snippets = JSON.parse(fs.readFileSync(snippetsPath, 'utf8'));
+
+        assert.ok(snippets['Facade Component']);
+        assert.ok(snippets['UI State']);
+        assert.ok(snippets['Computed Value']);
+        assert.ok(snippets['UI Effect']);
+    });
 });
 
 function mockDocument(lines: string[]) {

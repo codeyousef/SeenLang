@@ -124,18 +124,18 @@ fun registerKnownDataTypesImpl(structNames: Array<String>, structLayouts: Array<
     FunctionNode { name: String, params: Array<ParamNode>, returnType: TypeNode (inline data), body: BlockNode (class, i64),
                    isAsync: Bool, isInline: Bool, isStatic: Bool, isExtern: Bool,
                    isDeterministic: Bool, isNondeterministic: Bool, decorators: Array<AnnotationNode>, line: Int, column: Int,
-                   isOverride: Bool }
-    Actual layout from source: { %SeenString, ptr, %TypeNode, i64, i1, i1, i1, i1, i1, i1, ptr, i64, i64, i1 }
+                   isOverride: Bool, isComponent: Bool }
+    Actual layout from source: { %SeenString, ptr, %TypeNode, i64, i1, i1, i1, i1, i1, i1, ptr, i64, i64, i1, i1 }
     Where %TypeNode = { %SeenString, i1 }
     ///
     structNames.push("FunctionNode")
     // Note: TypeNode is inline (data type), BlockNode is i64 (class type)
-    structLayouts.push("{ %SeenString, ptr, %TypeNode, i64, i1, i1, i1, i1, i1, i1, ptr, i64, i64, i1 }")
-    structFieldNames.push("name,params,returnType,body,isAsync,isInline,isStatic,isExtern,isDeterministic,isNondeterministic,decorators,line,column,isOverride")
-    structFieldTypes.push("String|Array<ParamNode>|TypeNode|BlockNode|Bool|Bool|Bool|Bool|Bool|Bool|Array<AnnotationNode>|Int|Int|Bool")
+    structLayouts.push("{ %SeenString, ptr, %TypeNode, i64, i1, i1, i1, i1, i1, i1, ptr, i64, i64, i1, i1 }")
+    structFieldNames.push("name,params,returnType,body,isAsync,isInline,isStatic,isExtern,isDeterministic,isNondeterministic,decorators,line,column,isOverride,isComponent")
+    structFieldTypes.push("String|Array<ParamNode>|TypeNode|BlockNode|Bool|Bool|Bool|Bool|Bool|Bool|Array<AnnotationNode>|Int|Int|Bool|Bool")
     structLlvmFieldTypes.push("")
     // Keep the existing conservative allocation size to avoid under-allocation.
-    structSizes.push(128)
+    structSizes.push(144)
     structMethodNames.push("")
     structMethodRetTypes.push("")
     // ClassNode { name: String, fields: Array<ParamNode>, methods: Array<FunctionNode>, decorators: Array<AnnotationNode>, isNondeterministic: Bool, parentName: String }
@@ -156,24 +156,24 @@ fun registerKnownDataTypesImpl(structNames: Array<String>, structLayouts: Array<
     structSizes.push(8)
     structMethodNames.push("")
     structMethodRetTypes.push("")
-    // StatementNode { kind, variableName, variableType (TypeNode inline), initializer, returnValue, expression, condition, thenBranch, elseBranch, loopCondition, loopBody }
+    // StatementNode { kind, variableName, variableType (TypeNode inline), initializer, returnValue, expression, condition, thenBranch, elseBranch, loopCondition, loopBody, metadata }
     structNames.push("StatementNode")
-    structLayouts.push("{ %SeenString, %SeenString, %TypeNode, i64, i64, i64, i64, i64, i64, i64, i64 }")
-    structFieldNames.push("kind,variableName,variableType,initializer,returnValue,expression,condition,thenBranch,elseBranch,loopCondition,loopBody")
-    structFieldTypes.push("String|String|TypeNode|ParserExpressionNode|ParserExpressionNode|ParserExpressionNode|ParserExpressionNode|BlockNode|BlockNode|ParserExpressionNode|BlockNode")
+    structLayouts.push("{ %SeenString, %SeenString, %TypeNode, i64, i64, i64, i64, i64, i64, i64, i64, ptr }")
+    structFieldNames.push("kind,variableName,variableType,initializer,returnValue,expression,condition,thenBranch,elseBranch,loopCondition,loopBody,metadata")
+    structFieldTypes.push("String|String|TypeNode|ParserExpressionNode|ParserExpressionNode|ParserExpressionNode|ParserExpressionNode|BlockNode|BlockNode|ParserExpressionNode|BlockNode|Array<String>")
     structLlvmFieldTypes.push("")
-    // 16 + 16 + 24 + 8*8 = 120 (aligned)
-    structSizes.push(120)
+    // 16 + 16 + 24 + 8*9 = 128 (aligned)
+    structSizes.push(128)
     structMethodNames.push("")
     structMethodRetTypes.push("")
-    // ParserExpressionNode { kind, operands, operator, literalValue, literalType, variableName, callee, arguments }
+    // ParserExpressionNode { kind, operands, operator, literalValue, literalType, variableName, callee, arguments, argumentNames, slotNames, slotBlocks }
     structNames.push("ParserExpressionNode")
-    structLayouts.push("{ %SeenString, ptr, %SeenString, %SeenString, %SeenString, %SeenString, %SeenString, ptr }")
-    structFieldNames.push("kind,operands,operator,literalValue,literalType,variableName,callee,arguments")
-    structFieldTypes.push("String|Array<ParserExpressionNode>|String|String|String|String|String|Array<ParserExpressionNode>")
+    structLayouts.push("{ %SeenString, ptr, %SeenString, %SeenString, %SeenString, %SeenString, %SeenString, ptr, ptr, ptr, ptr }")
+    structFieldNames.push("kind,operands,operator,literalValue,literalType,variableName,callee,arguments,argumentNames,slotNames,slotBlocks")
+    structFieldTypes.push("String|Array<ParserExpressionNode>|String|String|String|String|String|Array<ParserExpressionNode>|Array<String>|Array<String>|Array<BlockNode>")
     structLlvmFieldTypes.push("")
-    // 16 + 8 + 16*5 + 8 = 112 (aligned)
-    structSizes.push(112)
+    // 16 + 8 + 16*5 + 8*4 = 136 (aligned)
+    structSizes.push(136)
     structMethodNames.push("")
     structMethodRetTypes.push("")
     // StringBuilder { parts: Array<String>, totalLength: Int }
