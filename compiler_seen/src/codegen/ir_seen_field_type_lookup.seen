@@ -36,9 +36,21 @@ fun getSeenFieldTypeImpl(structName: String, fieldName: String, structNames: Arr
         }
         if structName == "ItemNode" {
             if fieldName == "itemType" { return "String" }
+            if fieldName == "name" { return "String" }
+            if fieldName == "visibility" { return "String" }
             if fieldName == "function" { return "FunctionNode" }
             if fieldName == "classNode" { return "ClassNode" }
             if fieldName == "importPath" { return "Array<String>" }
+            if fieldName == "importSymbols" { return "Array<ImportSymbolNode>" }
+            if fieldName == "enumNode" { return "EnumNode" }
+            if fieldName == "line" { return "Int" }
+            if fieldName == "column" { return "Int" }
+        }
+        if structName == "ImportSymbolNode" {
+            if fieldName == "name" { return "String" }
+            if fieldName == "alias" { return "String" }
+            if fieldName == "line" { return "Int" }
+            if fieldName == "column" { return "Int" }
         }
         if structName == "FrontendDiagnostic" {
             if fieldName == "severity" { return "String" }
@@ -100,6 +112,9 @@ fun getSeenFieldTypeImpl(structName: String, fieldName: String, structNames: Arr
         if structName == "ParamNode" {
             if fieldName == "name" { return "String" }
             if fieldName == "paramType" { return "TypeNode" }
+            if fieldName == "isMutable" { return "Bool" }
+            if fieldName == "line" { return "Int" }
+            if fieldName == "column" { return "Int" }
         }
         if structName == "FieldNode" {
             if fieldName == "name" { return "String" }
@@ -128,6 +143,8 @@ fun getSeenFieldTypeImpl(structName: String, fieldName: String, structNames: Arr
             if fieldName == "elseBranch" { return "BlockNode" }
             if fieldName == "loopCondition" { return "ParserExpressionNode" }
             if fieldName == "loopBody" { return "BlockNode" }
+            if fieldName == "line" { return "Int" }
+            if fieldName == "column" { return "Int" }
         }
         if structName == "ParserExpressionNode" {
             if fieldName == "kind" { return "String" }

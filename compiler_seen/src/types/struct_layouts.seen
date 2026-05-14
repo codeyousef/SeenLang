@@ -137,6 +137,8 @@ fun getItemNodeLayout() r: StructLayout {
     layout.addField("function", "FunctionNode", "ptr")                         // 5
     layout.addField("classNode", "ClassNode", "ptr")                           // 6
     layout.addField("enumNode", "EnumNode", "ptr")                             // 7
+    layout.addField("line", "Int", "i64")                                      // 8
+    layout.addField("column", "Int", "i64")                                    // 9
     return layout
 }
 
@@ -154,6 +156,8 @@ fun getStatementNodeLayout() r: StructLayout {
     layout.addField("elseBranch", "BlockNode", "i64")                          // 8
     layout.addField("loopCondition", "ParserExpressionNode", "i64")            // 9
     layout.addField("loopBody", "BlockNode", "i64")                            // 10
+    layout.addField("line", "Int", "i64")                                      // 11
+    layout.addField("column", "Int", "i64")                                    // 12
     return layout
 }
 
@@ -204,8 +208,10 @@ fun getTypeNodeLayout() r: StructLayout {
 fun getParamNodeLayout() r: StructLayout {
     let layout = StructLayout.new("ParamNode")
     layout.addField("name", "String", "%SeenString")                           // 0
-    layout.addField("paramType", "TypeNode", "ptr")                            // 1
-    layout.addField("defaultValue", "ParserExpressionNode", "ptr")             // 2
+    layout.addField("paramType", "TypeNode", "%TypeNode")                      // 1
+    layout.addField("isMutable", "Bool", "i1")                                 // 2
+    layout.addField("line", "Int", "i64")                                      // 3
+    layout.addField("column", "Int", "i64")                                    // 4
     return layout
 }
 

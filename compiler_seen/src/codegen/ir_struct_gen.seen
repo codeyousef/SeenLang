@@ -112,6 +112,14 @@ fun resolveStructLiteralFieldFallback(structName: String, fieldName: String, gep
         gepIndexOut[0] = 7
         return "i64"
     }
+    if structName == "ItemNode" and fieldName == "line" {
+        gepIndexOut[0] = 8
+        return "i64"
+    }
+    if structName == "ItemNode" and fieldName == "column" {
+        gepIndexOut[0] = 9
+        return "i64"
+    }
     if structName == "ImportPathInfo" and fieldName == "text" {
         gepIndexOut[0] = 0
         return "%SeenString"
@@ -131,6 +139,30 @@ fun resolveStructLiteralFieldFallback(structName: String, fieldName: String, gep
     if structName == "ParamNode" and fieldName == "isMutable" {
         gepIndexOut[0] = 2
         return "i1"
+    }
+    if structName == "ParamNode" and fieldName == "line" {
+        gepIndexOut[0] = 3
+        return "i64"
+    }
+    if structName == "ParamNode" and fieldName == "column" {
+        gepIndexOut[0] = 4
+        return "i64"
+    }
+    if structName == "ImportSymbolNode" and fieldName == "name" {
+        gepIndexOut[0] = 0
+        return "%SeenString"
+    }
+    if structName == "ImportSymbolNode" and fieldName == "alias" {
+        gepIndexOut[0] = 1
+        return "%SeenString"
+    }
+    if structName == "ImportSymbolNode" and fieldName == "line" {
+        gepIndexOut[0] = 2
+        return "i64"
+    }
+    if structName == "ImportSymbolNode" and fieldName == "column" {
+        gepIndexOut[0] = 3
+        return "i64"
     }
     return ""
 }

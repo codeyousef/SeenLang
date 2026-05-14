@@ -606,6 +606,25 @@ fun parseModule(path: String, lang: String) r: FrontendResult {
     return runFrontendCompat(source, path, lang)
 }
 
+fun shouldPrintFrontendWarningsForCompilePath(path: String) r: Bool {
+    if path.startsWith("compiler_seen/") { return false }
+    if path.contains("/compiler_seen/") { return false }
+    if path.startsWith("seen_std/") { return false }
+    if path.contains("/seen_std/") { return false }
+    if path.contains("/.seen/") { return false }
+    return true
+}
+
+fun printFrontendWarningsForCompilePath(frontend: FrontendResult,
+    path: String) r: Void {
+
+    if frontend.hasWarnings() {
+        if shouldPrintFrontendWarningsForCompilePath(path) {
+            printFrontendDiagnostics(frontend)
+        }
+    }
+}
+
 fun parseModuleDeclarations(path: String, lang: String) r: FrontendResult {
     if not exists(path) {
         let frontend = mainCompilerFrontendResult()
@@ -4657,6 +4676,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("macro.registry")
         modules.push("macro.interpreter")
         modules.push("macro.expander")
+        modules.push("bootstrap.dead_code")
         modules.push("bootstrap.frontend")
         modules.push("codegen.ir_optimization")
         modules.push("codegen.ir_egraph_rules")
@@ -8413,6 +8433,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                 println("[irgen] Parse failed: " + path)
                 return 1
             }
+            printFrontendWarningsForCompilePath(frontend, path)
             println("    [" + moduleIndex.toString() + "] Parse done in " + (parseEndTime - parseStartTime).toString() + "s")
             println("    [" + moduleIndex.toString() + "] Codegen start")
             let codegenStartTime = getTraceTimeSeconds()
@@ -8467,6 +8488,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                         println("[irgen child] Parse failed: " + path)
                         processExit(1)
                     }
+                    printFrontendWarningsForCompilePath(frontend, path)
                     if g_generatedTestMainMode == 0 {
                         writeText(statusFile, "parse_done\n" + path)
                         writeText(statusFile, "codegen_start\n" + path)
@@ -9737,6 +9759,9 @@ fun checkCommandWithProfile(inputFile: String, profile: String, language: String
     if not frontend.success {
         printFrontendDiagnostics(frontend)
         return 1
+    }
+    if frontend.hasWarnings() {
+        printFrontendDiagnostics(frontend)
     }
 
     let checkSealedValidation = validateSealedModules(checkModulePaths, language)

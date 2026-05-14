@@ -1,0 +1,136 @@
+import bootstrap.frontend.{run_frontend, parseDiagCode, parseDiagBaseMessage, FrontendDiagnostic}
+import lsp.server.{SeenLspServer_new}
+import lsp.types.{DIAGNOSTIC_WARNING}
+
+fun main() r: Int {
+    let source = """
+import parser.real_parser.{ProgramNode as UsedType, RealParser as UnusedParser}
+import lexer.lexer.{SeenLexer as AliasLexer}
+import process.process
+
+fun unusedHelper() r: Int {
+    return 1
+}
+
+fun helperWithUnusedParam(unusedParam: Int) r: Int {
+    return 2
+}
+
+fun _ignoredUnused() r: Int {
+    return 3
+}
+
+pub fun PublicEntry(unusedPublicParam: Int) r: Int {
+    return 0
+}
+
+@extern
+fun nativeThing(unusedExternParam: Int) r: Int
+
+@test
+fun decoratedEntry(unusedDecoratedParam: Int) r: Int {
+    return 0
+}
+
+pub fun UsesImportedType(value: UsedType) r: Int {
+    return 0
+}
+
+fun usedHelper() r: Int {
+    return 4
+}
+
+fun methodOnlyHelper() r: Int {
+    return 6
+}
+
+class MethodHolder {
+    fun compute(unusedMethodParam: Int) r: Int {
+        return methodOnlyHelper()
+    }
+}
+
+fun main() r: Int {
+    let unusedLocal = 1
+    let _ignored = 2
+    let usedLocal = usedHelper()
+    if false {
+        let branchValue = 3
+    }
+    if true {
+        let _reachable = usedLocal
+    } else {
+        let hidden = 4
+    }
+    return usedLocal
+    let afterReturn = 5
+}
+"""
+
+    let result = run_frontend(source, "dead_code_inline.seen", "en")
+    if not result.success {
+        println("frontend failed unexpectedly")
+        return 1
+    }
+
+    if not hasCode(result.diagnostics, "W001") { return 2 }
+    if not hasCode(result.diagnostics, "W002") { return 3 }
+    if not hasCode(result.diagnostics, "W003") { return 4 }
+    if not hasCode(result.diagnostics, "W004") { return 5 }
+    if not hasCode(result.diagnostics, "W005") { return 6 }
+    if not hasCode(result.diagnostics, "W006") { return 7 }
+
+    if hasMessageFragment(result.diagnostics, "_ignored") { return 8 }
+    if hasMessageFragment(result.diagnostics, "PublicEntry") { return 9 }
+    if hasMessageFragment(result.diagnostics, "unusedPublicParam") { return 10 }
+    if hasMessageFragment(result.diagnostics, "unusedExternParam") { return 11 }
+    if hasMessageFragment(result.diagnostics, "unusedDecoratedParam") { return 12 }
+    if hasMessageFragment(result.diagnostics, "UsedType") { return 13 }
+    if not hasMessageFragment(result.diagnostics, "unusedMethodParam") {
+        return 14
+    }
+    if hasMessageFragment(result.diagnostics, "methodOnlyHelper") { return 15 }
+
+    let warningIndex = findCodeIndex(result.diagnostics, "W001")
+    if warningIndex < 0 { return 16 }
+    let server = SeenLspServer_new()
+    let converted = server.convertDiagnostic(result.diagnostics[warningIndex])
+    if converted.severity != DIAGNOSTIC_WARNING { return 17 }
+    if converted.source != "seen" { return 18 }
+    if converted.code != "W001" { return 19 }
+    if converted.range.start.line < 0 { return 20 }
+    if converted.range.end.character <= converted.range.start.character {
+        return 21
+    }
+
+    return 0
+}
+
+fun hasCode(diagnostics: Array<FrontendDiagnostic>, code: String) r: Bool {
+    return findCodeIndex(diagnostics, code) >= 0
+}
+
+fun findCodeIndex(diagnostics: Array<FrontendDiagnostic>, code: String) r: Int {
+    var i = 0
+    while i < diagnostics.length() {
+        if parseDiagCode(diagnostics[i].message) == code {
+            return i
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+fun hasMessageFragment(diagnostics: Array<FrontendDiagnostic>, fragment: String)
+    r: Bool {
+
+    var i = 0
+    while i < diagnostics.length() {
+        let base = parseDiagBaseMessage(diagnostics[i].message)
+        if base.contains(fragment) {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}

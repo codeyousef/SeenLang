@@ -88,6 +88,8 @@ class ItemNode {
     var function: FunctionNode
     var classNode: ClassNode
     var enumNode: EnumNode
+    var line: Int
+    var column: Int
 
     static fun new() r: ItemNode {
         return ItemNode{
@@ -98,7 +100,9 @@ class ItemNode {
             importSymbols: Array<ImportSymbolNode>(),
             function: FunctionNode.new(),
             classNode: ClassNode.new(),
-            enumNode: EnumNode.new()
+            enumNode: EnumNode.new(),
+            line: 0,
+            column: 0
         }
     }
 }
@@ -106,9 +110,11 @@ class ItemNode {
 class ImportSymbolNode {
     var name: String
     var alias: String
+    var line: Int
+    var column: Int
 
     static fun new() r: ImportSymbolNode {
-        return ImportSymbolNode{ name: "", alias: "" }
+        return ImportSymbolNode{ name: "", alias: "", line: 0, column: 0 }
     }
 }
 
@@ -165,9 +171,17 @@ class ParamNode {
     var name: String
     var paramType: TypeNode
     var isMutable: Bool
+    var line: Int
+    var column: Int
 
     static fun new() r: ParamNode {
-        return ParamNode{ name: "", paramType: TypeNode.new(), isMutable: false }
+        return ParamNode{
+            name: "",
+            paramType: TypeNode.new(),
+            isMutable: false,
+            line: 0,
+            column: 0
+        }
     }
 }
 
@@ -200,6 +214,8 @@ class StatementNode {
     // While
     var loopCondition: ParserExpressionNode
     var loopBody: BlockNode
+    var line: Int
+    var column: Int
 
     static fun new() r: StatementNode {
         return StatementNode{
@@ -213,7 +229,9 @@ class StatementNode {
             thenBranch: BlockNode.new(),
             elseBranch: BlockNode.new(),
             loopCondition: ParserExpressionNode.new(),
-            loopBody: BlockNode.new()
+            loopBody: BlockNode.new(),
+            line: 0,
+            column: 0
         }
     }
 }
@@ -765,7 +783,8 @@ class RealParser {
             // 'union' keyword — C-interop union type
             if matchTokenStr(SeenTokenType.KeywordUnion) {
                 if checkToken(SeenTokenType.Identifier) {
-                    let unionName = advance().getValue()
+                    let unionNameTok = advance()
+                    let unionName = unionNameTok.getValue()
                     let unionClass = ClassNode.new()
                     unionClass.name = unionName
                     let unionAnn = AnnotationNode.new("union")
@@ -774,12 +793,15 @@ class RealParser {
                         // Parse fields like a class body
                         while not checkToken(SeenTokenType.RightBrace) and not isAtEnd() {
                             if checkToken(SeenTokenType.Identifier) {
-                                let fieldName = advance().getValue()
+                                let fieldTok = advance()
+                                let fieldName = fieldTok.getValue()
                                 consume(SeenTokenType.Colon, "Expected ':' after union field name")
                                 let fieldType = parseTypeNode()
                                 let fieldParam = ParamNode.new()
                                 fieldParam.name = fieldName
                                 fieldParam.paramType = fieldType
+                                fieldParam.line = fieldTok.getLine()
+                                fieldParam.column = fieldTok.getColumn()
                                 unionClass.fields.push(fieldParam)
                             }
                             if matchTokenStr(SeenTokenType.Comma) { }
@@ -792,6 +814,8 @@ class RealParser {
                     unionItem.name = unionName
                     unionItem.classNode = unionClass
                     unionItem.visibility = inferVisibility(unionName)
+                    unionItem.line = unionNameTok.getLine()
+                    unionItem.column = unionNameTok.getColumn()
                     this.currentProgram.items.push(unionItem)
                 }
                 continue
@@ -1303,19 +1327,23 @@ class RealParser {
 
     fun parseUnionDeclarationOnly() r: Void {
         if checkToken(SeenTokenType.Identifier) {
-            let unionName = advance().getValue()
+            let unionNameTok = advance()
+            let unionName = unionNameTok.getValue()
             let unionClass = ClassNode.new()
             unionClass.name = unionName
             unionClass.decorators.push(AnnotationNode.new("union"))
             if matchTokenStr(SeenTokenType.LeftBrace) {
                 while not checkToken(SeenTokenType.RightBrace) and not isAtEnd() {
                     if checkToken(SeenTokenType.Identifier) {
-                        let fieldName = advance().getValue()
+                        let fieldTok = advance()
+                        let fieldName = fieldTok.getValue()
                         consume(SeenTokenType.Colon, "Expected ':' after union field name")
                         let fieldType = parseTypeNode()
                         let fieldParam = ParamNode.new()
                         fieldParam.name = fieldName
                         fieldParam.paramType = fieldType
+                        fieldParam.line = fieldTok.getLine()
+                        fieldParam.column = fieldTok.getColumn()
                         unionClass.fields.push(fieldParam)
                     } else {
                         advance()
@@ -1330,6 +1358,8 @@ class RealParser {
             unionItem.name = unionName
             unionItem.classNode = unionClass
             unionItem.visibility = inferVisibility(unionName)
+            unionItem.line = unionNameTok.getLine()
+            unionItem.column = unionNameTok.getColumn()
             this.currentProgram.items.push(unionItem)
         }
     }
@@ -1753,6 +1783,8 @@ class RealParser {
         var gvPrefix = "L"
         if isMutable { gvPrefix = "V" }
         gvItem.visibility = gvPrefix + gvType + ":" + extractTopLevelStaticInitializer(gvInitExpr)
+        gvItem.line = gvNameToken.getLine()
+        gvItem.column = gvNameToken.getColumn()
         this.currentProgram.items.push(gvItem)
 
         if gvHasInitializer {
@@ -1789,6 +1821,8 @@ class RealParser {
         var gvPrefix = "L"
         if isMutable { gvPrefix = "V" }
         gvItem.visibility = gvPrefix + gvType + ":" + gvStaticValue
+        gvItem.line = gvNameToken.getLine()
+        gvItem.column = gvNameToken.getColumn()
         this.currentProgram.items.push(gvItem)
     }
 
@@ -1949,6 +1983,8 @@ class RealParser {
 
         let nameToken = consume(SeenTokenType.Identifier, "Expected function name")
         let func = FunctionNode.new()
+        func.line = nameToken.getLine()
+        func.column = nameToken.getColumn()
         // Handle data type method syntax: fun TypeName.methodName() -> TypeName_methodName
         var funcName = nameToken.getValue()
         if matchTokenStr(SeenTokenType.Dot) {
@@ -2022,6 +2058,8 @@ class RealParser {
         item.visibility = inferVisibility(func.name)
         // trace
         item.function = func
+        item.line = func.line
+        item.column = func.column
         // trace
 
         return item
@@ -2047,6 +2085,8 @@ class RealParser {
         this.lastFunction = FunctionNode.new()
         clearPendingFunctionReturnType()
         clearPendingFunctionParamTypes()
+        this.lastFunction.line = nameToken.getLine()
+        this.lastFunction.column = nameToken.getColumn()
         // Handle data type method syntax: fun TypeName.methodName() -> TypeName_methodName
         var funcName = nameToken.getValue()
         if matchTokenStr(SeenTokenType.Dot) {
@@ -2101,6 +2141,8 @@ class RealParser {
                 let arrowBodyExpr = parseExpression()
                 let arrowRetStmt = StatementNode.new()
                 arrowRetStmt.kind = "Return"
+                arrowRetStmt.line = nameToken.getLine()
+                arrowRetStmt.column = nameToken.getColumn()
                 arrowRetStmt.returnValue = arrowBodyExpr
                 this.lastFunction.body = BlockNode.new()
                 this.lastFunction.body.statements.push(arrowRetStmt)
@@ -2142,6 +2184,8 @@ class RealParser {
         item.name = this.lastFunction.name
         item.visibility = inferVisibility(this.lastFunction.name)
         item.function = this.lastFunction
+        item.line = this.lastFunction.line
+        item.column = this.lastFunction.column
         // trace
         this.currentProgram.items.push(item)
         traceParse("push Function " + item.name)
@@ -2166,6 +2210,8 @@ class RealParser {
         this.lastFunction = FunctionNode.new()
         clearPendingFunctionReturnType()
         clearPendingFunctionParamTypes()
+        this.lastFunction.line = nameToken.getLine()
+        this.lastFunction.column = nameToken.getColumn()
 
         var funcName = nameToken.getValue()
         if matchTokenStr(SeenTokenType.Dot) {
@@ -2214,6 +2260,8 @@ class RealParser {
         item.name = this.lastFunction.name
         item.visibility = inferVisibility(this.lastFunction.name)
         item.function = this.lastFunction
+        item.line = this.lastFunction.line
+        item.column = this.lastFunction.column
         this.currentProgram.items.push(item)
     }
 
@@ -2363,6 +2411,8 @@ class RealParser {
                         this.lastParsedTypeName = paramTypeName
                         this.lastParsedTypeNullable = paramTypeNullable
                         param.paramType = parsedScratchTypeNode()
+                        param.line = realTok.getLine()
+                        param.column = realTok.getColumn()
                         this.lastFunction.params.push(param)
                         wasReturnParam = true
                     }
@@ -2394,6 +2444,8 @@ class RealParser {
                     this.lastParsedTypeName = paramTypeName
                     this.lastParsedTypeNullable = paramTypeNullable
                     param.paramType = parsedScratchTypeNode()
+                    param.line = prevTok.getLine()
+                    param.column = prevTok.getColumn()
                     this.lastFunction.params.push(param)
                 }
             }
@@ -2473,6 +2525,8 @@ class RealParser {
                         let field = ParamNode.new()
                         field.name = fieldName.getValue()
                         field.paramType = fieldType
+                        field.line = fieldName.getLine()
+                        field.column = fieldName.getColumn()
                         classNode.fields.push(field)
                         // trace
                         classTokenHandled = true
@@ -2487,6 +2541,8 @@ class RealParser {
                             clearPendingFunctionReturnType()
                             clearPendingFunctionParamTypes()
                             this.lastFunction.name = methodNameTok.getValue()
+                            this.lastFunction.line = methodNameTok.getLine()
+                            this.lastFunction.column = methodNameTok.getColumn()
                             // Skip generic type parameters
                             if checkToken(SeenTokenType.LessThan) {
                                 advance()
@@ -2535,12 +2591,18 @@ class RealParser {
                         Handle 'operator' keyword or normal identifier as method name
                         ///
                         var methodNameStr2 = ""
+                        var methodLine2 = 0
+                        var methodColumn2 = 0
                         if checkToken(SeenTokenType.KeywordOperator) {
-                            advance()
+                            let opTok2 = advance()
                             methodNameStr2 = "operator"
+                            methodLine2 = opTok2.getLine()
+                            methodColumn2 = opTok2.getColumn()
                         } else {
                             let methodNameTok2 = consume(SeenTokenType.Identifier, "Expected method name")
                             methodNameStr2 = methodNameTok2.getValue()
+                            methodLine2 = methodNameTok2.getLine()
+                            methodColumn2 = methodNameTok2.getColumn()
                         }
                         if methodNameStr2 == "operator" {
                             if matchTokenStr(SeenTokenType.Plus) { methodNameStr2 = "operator_add" }
@@ -2559,6 +2621,8 @@ class RealParser {
                         clearPendingFunctionReturnType()
                         clearPendingFunctionParamTypes()
                         this.lastFunction.name = methodNameStr2
+                        this.lastFunction.line = methodLine2
+                        this.lastFunction.column = methodColumn2
                         // Skip generic type parameters
                         if checkToken(SeenTokenType.LessThan) {
                             advance()
@@ -2617,6 +2681,8 @@ class RealParser {
                                 let bareField2 = ParamNode.new()
                                 bareField2.name = bareFieldName2.getValue()
                                 bareField2.paramType = bareFieldType2
+                                bareField2.line = bareFieldName2.getLine()
+                                bareField2.column = bareFieldName2.getColumn()
                                 classNode.fields.push(bareField2)
                                 if matchTokenStr(SeenTokenType.Semicolon) { }
                                 if matchTokenStr(SeenTokenType.Comma) { }
@@ -2656,6 +2722,8 @@ class RealParser {
         item.name = classNode.name
         item.visibility = inferVisibility(classNode.name)
         item.classNode = classNode
+        item.line = nameToken.getLine()
+        item.column = nameToken.getColumn()
 
         return item
     }
@@ -2744,6 +2812,8 @@ class RealParser {
                         let field = ParamNode.new()
                         field.name = fieldName.getValue()
                         field.paramType = fieldType
+                        field.line = fieldName.getLine()
+                        field.column = fieldName.getColumn()
                         classNode.fields.push(field)
                         // trace
                         classIntoTokenHandled = true
@@ -2759,6 +2829,8 @@ class RealParser {
                             clearPendingFunctionReturnType()
                             clearPendingFunctionParamTypes()
                             this.lastFunction.name = methodNameTokInto.getValue()
+                            this.lastFunction.line = methodNameTokInto.getLine()
+                            this.lastFunction.column = methodNameTokInto.getColumn()
                             // Skip generic type parameters: fun name<T: Ord>(...)
                             if checkToken(SeenTokenType.LessThan) {
                                 advance()
@@ -2819,12 +2891,18 @@ class RealParser {
                         Handle 'operator' keyword or normal identifier as method name
                         ///
                         var methodNameStr = ""
+                        var methodLine = 0
+                        var methodColumn = 0
                         if checkToken(SeenTokenType.KeywordOperator) {
-                            advance()
+                            let opTok = advance()
                             methodNameStr = "operator"
+                            methodLine = opTok.getLine()
+                            methodColumn = opTok.getColumn()
                         } else {
                             let methodNameTokInto2 = consume(SeenTokenType.Identifier, "Expected method name")
                             methodNameStr = methodNameTokInto2.getValue()
+                            methodLine = methodNameTokInto2.getLine()
+                            methodColumn = methodNameTokInto2.getColumn()
                         }
                         if methodNameStr == "operator" {
                             if matchTokenStr(SeenTokenType.Plus) { methodNameStr = "operator_add" }
@@ -2843,6 +2921,8 @@ class RealParser {
                         clearPendingFunctionReturnType()
                         clearPendingFunctionParamTypes()
                         this.lastFunction.name = methodNameStr
+                        this.lastFunction.line = methodLine
+                        this.lastFunction.column = methodColumn
                         // Skip generic type parameters: fun name<T: Ord>(...)
                         if checkToken(SeenTokenType.LessThan) {
                             advance()
@@ -2906,6 +2986,8 @@ class RealParser {
                                 let bareField = ParamNode.new()
                                 bareField.name = bareFieldName.getValue()
                                 bareField.paramType = bareFieldType
+                                bareField.line = bareFieldName.getLine()
+                                bareField.column = bareFieldName.getColumn()
                                 classNode.fields.push(bareField)
                                 if matchTokenStr(SeenTokenType.Semicolon) { }
                                 if matchTokenStr(SeenTokenType.Comma) { }
@@ -2947,7 +3029,9 @@ class RealParser {
             importSymbols: Array<ImportSymbolNode>(),
             function: FunctionNode.new(),
             classNode: classNode,
-            enumNode: EnumNode.new()
+            enumNode: EnumNode.new(),
+            line: nameToken.getLine(),
+            column: nameToken.getColumn()
         })
         // trace
     }
@@ -2966,6 +3050,8 @@ class RealParser {
         let field = ParamNode.new()
         field.name = fieldName.getValue()
         field.paramType = fieldType
+        field.line = fieldName.getLine()
+        field.column = fieldName.getColumn()
         classNode.fields.push(field)
         if matchTokenStr(SeenTokenType.Semicolon) { }
         if matchTokenStr(SeenTokenType.Comma) { }
@@ -2988,12 +3074,15 @@ class RealParser {
     }
 
     fun parseClassMethodDeclarationInto(classNode: ClassNode, methodName: String,
-        isStaticMethod: Bool, sawOverrideFlag: Int, sawAsyncFlag: Int) r: Void {
+        isStaticMethod: Bool, sawOverrideFlag: Int, sawAsyncFlag: Int,
+        methodLine: Int, methodColumn: Int) r: Void {
 
         this.lastFunction = FunctionNode.new()
         clearPendingFunctionReturnType()
         clearPendingFunctionParamTypes()
         this.lastFunction.name = methodName
+        this.lastFunction.line = methodLine
+        this.lastFunction.column = methodColumn
 
         skipGenericParametersIfPresent()
         applyDecoratorsToFunction()
@@ -3075,7 +3164,9 @@ class RealParser {
                         if matchTokenStr(SeenTokenType.KeywordFun) {
                             let methodNameTok = consume(SeenTokenType.Identifier, "Expected method name")
                             parseClassMethodDeclarationInto(classNode,
-                                methodNameTok.getValue(), true, 0, 0)
+                                methodNameTok.getValue(), true, 0, 0,
+                                methodNameTok.getLine(),
+                                methodNameTok.getColumn())
                         }
                         handled = true
                     }
@@ -3096,15 +3187,22 @@ class RealParser {
                 if not handled {
                     if matchTokenStr(SeenTokenType.KeywordFun) {
                         var methodName = ""
+                        var methodLine3 = 0
+                        var methodColumn3 = 0
                         if checkToken(SeenTokenType.KeywordOperator) {
-                            advance()
+                            let opTok3 = advance()
                             methodName = parseOperatorMethodNameDeclarationOnly()
+                            methodLine3 = opTok3.getLine()
+                            methodColumn3 = opTok3.getColumn()
                         } else {
                             let methodNameTok2 = consume(SeenTokenType.Identifier, "Expected method name")
                             methodName = methodNameTok2.getValue()
+                            methodLine3 = methodNameTok2.getLine()
+                            methodColumn3 = methodNameTok2.getColumn()
                         }
                         parseClassMethodDeclarationInto(classNode, methodName,
-                            false, sawOverride, sawAsync)
+                            false, sawOverride, sawAsync, methodLine3,
+                            methodColumn3)
                         handled = true
                     }
                 }
@@ -3151,6 +3249,8 @@ class RealParser {
         item.name = classNode.name
         item.visibility = inferVisibility(classNode.name)
         item.classNode = classNode
+        item.line = nameToken.getLine()
+        item.column = nameToken.getColumn()
         this.currentProgram.items.push(item)
     }
 
@@ -3181,6 +3281,8 @@ class RealParser {
                 let f = ParamNode.new()
                 f.name = fn.getValue()
                 f.paramType = ft
+                f.line = fn.getLine()
+                f.column = fn.getColumn()
                 classNode.fields.push(f)
                 if not matchTokenStr(SeenTokenType.Comma) { break }
             }
@@ -3194,7 +3296,10 @@ class RealParser {
             importPath: Array<String>(),
             importSymbols: Array<ImportSymbolNode>(),
             function: FunctionNode.new(),
-            classNode: classNode, enumNode: EnumNode.new()
+            classNode: classNode,
+            enumNode: EnumNode.new(),
+            line: nameToken.getLine(),
+            column: nameToken.getColumn()
         })
     }
 
@@ -3235,6 +3340,8 @@ class RealParser {
         item.name = enumNode.name
         item.visibility = inferVisibility(enumNode.name)
         item.enumNode = enumNode
+        item.line = nameToken.getLine()
+        item.column = nameToken.getColumn()
 
         return item
     }
@@ -3284,7 +3391,9 @@ class RealParser {
             importSymbols: Array<ImportSymbolNode>(),
             function: FunctionNode.new(),
             classNode: ClassNode.new(),
-            enumNode: enumNode
+            enumNode: enumNode,
+            line: nameToken.getLine(),
+            column: nameToken.getColumn()
         })
     }
 
@@ -3363,6 +3472,8 @@ class RealParser {
         if paramRawName == "self" { paramRawName = "this" }
         let param = ParamNode.new()
         param.name = paramRawName
+        param.line = nameToken.getLine()
+        param.column = nameToken.getColumn()
         let parsedParamType = parseOptionalTypeAnnotation()
         var paramTypeName = parsedParamType.typeName
 
@@ -3824,7 +3935,10 @@ class RealParser {
     the stage1 bootstrap compiler miscompiles.
     ///
     fun parseStatementInto() r: Void {
+        let stmtStartTok = peek()
         this.lastStatement = StatementNode.new()
+        this.lastStatement.line = stmtStartTok.getLine()
+        this.lastStatement.column = stmtStartTok.getColumn()
 
         if matchTokenStr(SeenTokenType.KeywordLet) {
             parseLetStatementField()
@@ -3991,6 +4105,8 @@ class RealParser {
         if matchTokenStr(SeenTokenType.KeywordLoop) {
             let stmt = StatementNode.new()
             stmt.kind = "While"
+            stmt.line = stmtTok.getLine()
+            stmt.column = stmtTok.getColumn()
             stmt.loopCondition = makeLiteral("true", "Bool")
             consume(SeenTokenType.LeftBrace, "Expected '{' after loop")
             parseBlockIntoField()
@@ -4011,6 +4127,8 @@ class RealParser {
         if matchTokenStr(SeenTokenType.KeywordTry) {
             let tryStmt = StatementNode.new()
             tryStmt.kind = "TryCatch"
+            tryStmt.line = stmtTok.getLine()
+            tryStmt.column = stmtTok.getColumn()
             if matchTokenStr(SeenTokenType.LeftBrace) {
                 parseBlockIntoField()
                 tryStmt.thenBranch = this.lastParsedBlock
@@ -4039,12 +4157,16 @@ class RealParser {
         if matchTokenStr(SeenTokenType.KeywordContinue) {
             let stmt = StatementNode.new()
             stmt.kind = "Continue"
+            stmt.line = stmtTok.getLine()
+            stmt.column = stmtTok.getColumn()
             if matchTokenStr(SeenTokenType.Semicolon) { }
             return stmt
         }
         if matchTokenStr(SeenTokenType.KeywordBreak) {
             let stmt = StatementNode.new()
             stmt.kind = "Break"
+            stmt.line = stmtTok.getLine()
+            stmt.column = stmtTok.getColumn()
             if matchTokenStr(SeenTokenType.Semicolon) { }
             return stmt
         }
@@ -4056,6 +4178,8 @@ class RealParser {
         if matchTokenStr(SeenTokenType.KeywordUnsafe) {
             let unsafeStmt = StatementNode.new()
             unsafeStmt.kind = "Unsafe"
+            unsafeStmt.line = stmtTok.getLine()
+            unsafeStmt.column = stmtTok.getColumn()
             if matchTokenStr(SeenTokenType.LeftBrace) {
                 let unsafeBlock = BlockNode.new()
                 while not checkToken(SeenTokenType.RightBrace) and not isAtEnd() {
@@ -4071,6 +4195,8 @@ class RealParser {
         if matchTokenStr(SeenTokenType.KeywordDefer) {
             let deferStmt = StatementNode.new()
             deferStmt.kind = "Defer"
+            deferStmt.line = stmtTok.getLine()
+            deferStmt.column = stmtTok.getColumn()
             if checkToken(SeenTokenType.LeftBrace) {
                 advance()
                 let deferBlock = BlockNode.new()
@@ -4090,6 +4216,8 @@ class RealParser {
         if matchTokenStr(SeenTokenType.KeywordErrdefer) {
             let errdeferStmt = StatementNode.new()
             errdeferStmt.kind = "Errdefer"
+            errdeferStmt.line = stmtTok.getLine()
+            errdeferStmt.column = stmtTok.getColumn()
             if checkToken(SeenTokenType.LeftBrace) {
                 advance()
                 let errdeferBlock2 = BlockNode.new()
@@ -4113,6 +4241,9 @@ class RealParser {
     fun parseLetStatement() r: StatementNode {
         let stmt = StatementNode.new()
         stmt.kind = "Let"
+        let startTok = previous()
+        stmt.line = startTok.getLine()
+        stmt.column = startTok.getColumn()
         let nameToken = consumeNameLike("Expected variable name")
         stmt.variableName = nameToken.getValue()
 
@@ -4131,6 +4262,9 @@ class RealParser {
     fun parseVarStatement() r: StatementNode {
         let stmt = StatementNode.new()
         stmt.kind = "Var"
+        let startTok = previous()
+        stmt.line = startTok.getLine()
+        stmt.column = startTok.getColumn()
         let nameToken = consumeNameLike("Expected variable name")
         stmt.variableName = nameToken.getValue()
 
@@ -4150,6 +4284,9 @@ class RealParser {
     fun parseRegionStatement() r: StatementNode {
         let stmt = StatementNode.new()
         stmt.kind = "Region"
+        let startTok = previous()
+        stmt.line = startTok.getLine()
+        stmt.column = startTok.getColumn()
         ///
         Optional strategy: bump, stack, cxl_near, cxl_far, auto, gpu
         : gpu keyword — also accept KeywordGpu token
@@ -4279,6 +4416,9 @@ class RealParser {
     fun parseParallelForStatement() r: StatementNode {
         let stmt = StatementNode.new()
         stmt.kind = "ParallelFor"
+        let startTok = previous()
+        stmt.line = startTok.getLine()
+        stmt.column = startTok.getColumn()
         let varToken = consume(SeenTokenType.Identifier, "Expected loop variable name after 'parallel_for'")
         stmt.variableName = varToken.getValue()
         consume(SeenTokenType.KeywordIn, "Expected 'in' after parallel_for variable")
@@ -4332,6 +4472,9 @@ class RealParser {
         if checkToken(SeenTokenType.Identifier) and peek().getValue() == "assert" {
             advance()  // consume 'assert'
             stmt.kind = "ComptimeAssert"
+            let startTok = previous()
+            stmt.line = startTok.getLine()
+            stmt.column = startTok.getColumn()
             consume(SeenTokenType.LeftParen, "Expected '(' after comptime assert")
             stmt.expression = parseExpression()
             // Optional message argument stored in condition field
@@ -4344,6 +4487,9 @@ class RealParser {
         // Check if next is 'if'
         if matchTokenStr(SeenTokenType.KeywordIf) {
             stmt.kind = "ComptimeIf"
+            let startTok2 = previous()
+            stmt.line = startTok2.getLine()
+            stmt.column = startTok2.getColumn()
             stmt.expression = parseExpression()
             consume(SeenTokenType.LeftBrace, "Expected '{' after comptime if condition")
             parseBlockIntoField()
@@ -4357,6 +4503,9 @@ class RealParser {
         }
         // Default: comptime { block }
         stmt.kind = "ComptimeBlock"
+        let startTok3 = previous()
+        stmt.line = startTok3.getLine()
+        stmt.column = startTok3.getColumn()
         consume(SeenTokenType.LeftBrace, "Expected '{' after comptime")
         parseBlockIntoField()
         stmt.thenBranch = this.lastParsedBlock
@@ -4511,6 +4660,9 @@ class RealParser {
         let stmt = StatementNode.new()
         // trace
         stmt.kind = "Return"
+        let startTok = previous()
+        stmt.line = startTok.getLine()
+        stmt.column = startTok.getColumn()
         ///
         trace
         Avoid storing peek() result to prevent Token copy corruption
@@ -4639,6 +4791,9 @@ class RealParser {
     fun parseWhileStatement() r: StatementNode {
         let stmt = StatementNode.new()
         stmt.kind = "While"
+        let startTok = previous()
+        stmt.line = startTok.getLine()
+        stmt.column = startTok.getColumn()
         stmt.loopCondition = parseExpression()
         consume(SeenTokenType.LeftBrace, "Expected '{' after while condition")
         parseBlockIntoField()
@@ -4650,6 +4805,9 @@ class RealParser {
     fun parseForInStatement() r: StatementNode {
         let stmt = StatementNode.new()
         stmt.kind = "ForIn"
+        let startTok = previous()
+        stmt.line = startTok.getLine()
+        stmt.column = startTok.getColumn()
         let varToken = consume(SeenTokenType.Identifier, "Expected loop variable name after 'for'")
         stmt.variableName = varToken.getValue()
         consume(SeenTokenType.KeywordIn, "Expected 'in' after loop variable")
@@ -4661,8 +4819,11 @@ class RealParser {
     }
 
     fun parseExpressionStatement() r: StatementNode {
+        let startTok = peek()
         let stmt = StatementNode.new()
         stmt.kind = "Expression"
+        stmt.line = startTok.getLine()
+        stmt.column = startTok.getColumn()
         stmt.expression = parseExpression()
         if matchTokenStr(SeenTokenType.Semicolon) { }
         return stmt
@@ -6104,6 +6265,7 @@ class RealParser {
     }
 
     fun parseImportItem() r: ItemNode {
+        let importStartTok = peek()
         let pathInfo = parseImportPath()
         let importSymbols = parseImportSymbols(pathInfo)
 
@@ -6115,6 +6277,8 @@ class RealParser {
         item.importPath = pathInfo.segments
         item.importSymbols = importSymbols
         item.visibility = ""
+        item.line = importStartTok.getLine()
+        item.column = importStartTok.getColumn()
         return item
     }
 
@@ -6124,6 +6288,7 @@ class RealParser {
     Rust-style :: paths, `as` aliases, and braced symbol lists.
     ///
     fun parseImportItemInto() r: Void {
+        let importStartTok = peek()
         let importSegments = Array<String>()
 
         if checkNameLikeToken() {
@@ -6162,11 +6327,14 @@ class RealParser {
 
         let importSymbols = Array<ImportSymbolNode>()
         if matchTokenStr(getKeywordAsType()) and importSegments.length() > 0 {
-            let alias = consumeNameLikeValue("Expected alias after 'as'")
+            let aliasTok = consumeNameLike("Expected alias after 'as'")
+            let alias = aliasTok.getValue()
             let baseName = importSegments[importSegments.length() - 1]
             let symbol = ImportSymbolNode.new()
             symbol.name = baseName
             symbol.alias = alias
+            symbol.line = aliasTok.getLine()
+            symbol.column = aliasTok.getColumn()
             importSymbols.push(symbol)
         } else {
             if matchTokenStr(getLeftBraceType()) {
@@ -6175,15 +6343,23 @@ class RealParser {
                         break
                     }
 
-                    let symbolName = consumeNameLikeValue("Expected symbol name")
+                    let symbolTok = consumeNameLike("Expected symbol name")
+                    let symbolName = symbolTok.getValue()
                     var aliasValue = ""
+                    var symbolLine = symbolTok.getLine()
+                    var symbolColumn = symbolTok.getColumn()
                     if matchTokenStr(getKeywordAsType()) {
-                        aliasValue = consumeNameLikeValue("Expected alias name")
+                        let aliasTok2 = consumeNameLike("Expected alias name")
+                        aliasValue = aliasTok2.getValue()
+                        symbolLine = aliasTok2.getLine()
+                        symbolColumn = aliasTok2.getColumn()
                     }
 
                     let symbol = ImportSymbolNode.new()
                     symbol.name = symbolName
                     symbol.alias = aliasValue
+                    symbol.line = symbolLine
+                    symbol.column = symbolColumn
                     importSymbols.push(symbol)
 
                     if matchTokenStr(getCommaType()) {
@@ -6205,6 +6381,8 @@ class RealParser {
         item.visibility = ""
         item.importPath = importSegments
         item.importSymbols = importSymbols
+        item.line = importStartTok.getLine()
+        item.column = importStartTok.getColumn()
         this.currentProgram.items.push(item)
         traceParse("push Import " + item.name)
     }
@@ -6256,9 +6434,11 @@ class RealParser {
         let symbols = Array<ImportSymbolNode>()
 
         if matchTokenStr(getKeywordAsType()) and pathInfo.segments.length() > 0 {
-            let alias = consumeNameLikeValue("Expected alias after 'as'")
+            let aliasTok = consumeNameLike("Expected alias after 'as'")
+            let alias = aliasTok.getValue()
             let baseName = pathInfo.segments[pathInfo.segments.length() - 1]
-            symbols.push(makeImportSymbol(baseName, alias))
+            symbols.push(makeImportSymbol(baseName, alias, aliasTok.getLine(),
+                aliasTok.getColumn()))
             return symbols
         }
 
@@ -6271,13 +6451,20 @@ class RealParser {
                 break
             }
 
-            let symbolName = consumeNameLikeValue("Expected symbol name")
+            let symbolTok = consumeNameLike("Expected symbol name")
+            let symbolName = symbolTok.getValue()
             var aliasValue = ""
+            var symbolLine = symbolTok.getLine()
+            var symbolColumn = symbolTok.getColumn()
             if matchTokenStr(getKeywordAsType()) {
-                aliasValue = consumeNameLikeValue("Expected alias name")
+                let aliasTok2 = consumeNameLike("Expected alias name")
+                aliasValue = aliasTok2.getValue()
+                symbolLine = aliasTok2.getLine()
+                symbolColumn = aliasTok2.getColumn()
             }
 
-            symbols.push(makeImportSymbol(symbolName, aliasValue))
+            symbols.push(makeImportSymbol(symbolName, aliasValue, symbolLine,
+                symbolColumn))
 
             if matchTokenStr(getCommaType()) {
                 continue
@@ -6290,10 +6477,14 @@ class RealParser {
         return symbols
     }
 
-    fun makeImportSymbol(name: String, alias: String) r: ImportSymbolNode {
+    fun makeImportSymbol(name: String, alias: String, line: Int, column: Int)
+        r: ImportSymbolNode {
+
         let symbol = ImportSymbolNode()
         symbol.name = name
         symbol.alias = alias
+        symbol.line = line
+        symbol.column = column
         return symbol
     }
 
@@ -6337,6 +6528,9 @@ class RealParser {
 
     fun parseStableWhileStatement() r: StatementNode {
         let stmt = StatementNode.new()
+        let startTok = previous()
+        stmt.line = startTok.getLine()
+        stmt.column = startTok.getColumn()
         let stableWhileCondition = parseExpression()
         consume(SeenTokenType.LeftBrace, "Expected '{' after while condition")
         parseBlockIntoField()
@@ -6415,6 +6609,9 @@ class RealParser {
     ///
     fun parseIfStatement() r: StatementNode {
         let stmt = StatementNode.new()
+        let startTok = previous()
+        stmt.line = startTok.getLine()
+        stmt.column = startTok.getColumn()
         // if let pattern: if let name = expr { ... } else { ... }
         if checkToken(SeenTokenType.KeywordLet) {
             advance() // consume 'let'

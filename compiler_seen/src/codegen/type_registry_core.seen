@@ -184,11 +184,11 @@ fun getDataTypeSizeReg(seenType: String, structNames: Array<String>, structSizes
         if sizeVal > 0 { return sizeVal }
     }
     if baseType == "TypeNode" { return 24 }
-    if baseType == "ParamNode" { return 48 }
+    if baseType == "ParamNode" { return 72 }
     if baseType == "CommandResult" { return 24 }
-    if baseType == "ItemNode" { return 88 }
+    if baseType == "ItemNode" { return 104 }
     if baseType == "ImportPathInfo" { return 24 }
-    if baseType == "ImportSymbolNode" { return 32 }
+    if baseType == "ImportSymbolNode" { return 48 }
     if baseType == "FrontendDiagnostic" { return 72 }
     if baseType == "CompilerInfo" { return 40 }
     if baseType == "FunctionSummary" { return 32 }
@@ -238,6 +238,8 @@ fun getFieldInfoReg(structName: String, fieldName: String, structNames: Array<St
         if fieldName == "name" { cacheFieldIndex(cacheKey, 0); return 0 }
         if fieldName == "paramType" { cacheFieldIndex(cacheKey, 1); return 1 }
         if fieldName == "isMutable" { cacheFieldIndex(cacheKey, 2); return 2 }
+        if fieldName == "line" { cacheFieldIndex(cacheKey, 3); return 3 }
+        if fieldName == "column" { cacheFieldIndex(cacheKey, 4); return 4 }
     }
     if structName == "ItemNode" {
         if fieldName == "itemType" { cacheFieldIndex(cacheKey, 0); return 0 }
@@ -248,6 +250,14 @@ fun getFieldInfoReg(structName: String, fieldName: String, structNames: Array<St
         if fieldName == "function" { cacheFieldIndex(cacheKey, 5); return 5 }
         if fieldName == "classNode" { cacheFieldIndex(cacheKey, 6); return 6 }
         if fieldName == "enumNode" { cacheFieldIndex(cacheKey, 7); return 7 }
+        if fieldName == "line" { cacheFieldIndex(cacheKey, 8); return 8 }
+        if fieldName == "column" { cacheFieldIndex(cacheKey, 9); return 9 }
+    }
+    if structName == "ImportSymbolNode" {
+        if fieldName == "name" { cacheFieldIndex(cacheKey, 0); return 0 }
+        if fieldName == "alias" { cacheFieldIndex(cacheKey, 1); return 1 }
+        if fieldName == "line" { cacheFieldIndex(cacheKey, 2); return 2 }
+        if fieldName == "column" { cacheFieldIndex(cacheKey, 3); return 3 }
     }
     if structName == "ProgramNode" {
         if fieldName == "items" { cacheFieldIndex(cacheKey, 0); return 0 }
@@ -272,6 +282,8 @@ fun getFieldInfoReg(structName: String, fieldName: String, structNames: Array<St
         if fieldName == "elseBranch" { cacheFieldIndex(cacheKey, 8); return 8 }
         if fieldName == "loopCondition" { cacheFieldIndex(cacheKey, 9); return 9 }
         if fieldName == "loopBody" { cacheFieldIndex(cacheKey, 10); return 10 }
+        if fieldName == "line" { cacheFieldIndex(cacheKey, 11); return 11 }
+        if fieldName == "column" { cacheFieldIndex(cacheKey, 12); return 12 }
     }
     if structName == "ParserExpressionNode" {
         if fieldName == "kind" { cacheFieldIndex(cacheKey, 0); return 0 }

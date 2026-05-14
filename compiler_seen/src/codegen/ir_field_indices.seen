@@ -34,6 +34,8 @@ fun getKnownFieldIndexPrimaryTableImpl(structName: String, fieldName: String)
         if fieldName == "name" { return 0 }
         if fieldName == "paramType" { return 1 }
         if fieldName == "isMutable" { return 2 }
+        if fieldName == "line" { return 3 }
+        if fieldName == "column" { return 4 }
     }
     if structName == "ItemNode" {
         if fieldName == "itemType" { return 0 }
@@ -44,6 +46,14 @@ fun getKnownFieldIndexPrimaryTableImpl(structName: String, fieldName: String)
         if fieldName == "function" { return 5 }
         if fieldName == "classNode" { return 6 }
         if fieldName == "enumNode" { return 7 }
+        if fieldName == "line" { return 8 }
+        if fieldName == "column" { return 9 }
+    }
+    if structName == "ImportSymbolNode" {
+        if fieldName == "name" { return 0 }
+        if fieldName == "alias" { return 1 }
+        if fieldName == "line" { return 2 }
+        if fieldName == "column" { return 3 }
     }
     if structName == "ProgramNode" {
         if fieldName == "items" { return 0 }
@@ -68,6 +78,8 @@ fun getKnownFieldIndexPrimaryTableImpl(structName: String, fieldName: String)
         if fieldName == "elseBranch" { return 8 }
         if fieldName == "loopCondition" { return 9 }
         if fieldName == "loopBody" { return 10 }
+        if fieldName == "line" { return 11 }
+        if fieldName == "column" { return 12 }
     }
     if structName == "ParserExpressionNode" {
         if fieldName == "kind" { return 0 }
