@@ -1,0 +1,72 @@
+import bootstrap.frontend.{run_frontend}
+import main_compiler.{resolveImportedSymbolName, resolveImportedQualifiedSymbolName}
+import parser.real_parser.{ImportSymbolNode}
+
+fun main() r: Int {
+    let lb = "{"
+    let rb = "}"
+    let source = "import parser.real_parser as parserAlias; " +
+        "import parser.real_parser." + lb + "ProgramNode as ParsedProgram" + rb + "; " +
+        "fun demo() r: Int { return 0 }"
+
+    let result = run_frontend(source, "module_alias_imports", "en")
+    if not result.success {
+        println("frontend failed unexpectedly")
+        for diag in result.diagnostics {
+            println("{diag.severity}: {diag.message}")
+        }
+        return 1
+    }
+
+    if result.program.items.length() < 3 {
+        println("expected imports and a function")
+        return 2
+    }
+
+    let moduleAliasImport = result.program.items[0]
+    if not verifyModuleAlias(moduleAliasImport.importSymbols, "parserAlias") {
+        return 3
+    }
+
+    if resolveImportedSymbolName(moduleAliasImport, "ProgramNode") != "" {
+        println("module alias unexpectedly injected ProgramNode")
+        return 4
+    }
+
+    let resolvedQualified =
+        resolveImportedQualifiedSymbolName(moduleAliasImport,
+        "parserAlias.ProgramNode")
+    if resolvedQualified != "ProgramNode" {
+        println("expected parserAlias.ProgramNode to resolve to ProgramNode, got {resolvedQualified}")
+        return 5
+    }
+
+    let symbolAliasImport = result.program.items[1]
+    let resolvedSymbolAlias =
+        resolveImportedQualifiedSymbolName(symbolAliasImport,
+        "ParsedProgram")
+    if resolvedSymbolAlias != "ProgramNode" {
+        println("expected ParsedProgram to resolve to ProgramNode, got {resolvedSymbolAlias}")
+        return 6
+    }
+
+    return 0
+}
+
+fun verifyModuleAlias(symbols: Array<ImportSymbolNode>, expectedAlias: String)
+    r: Bool {
+
+    if symbols.length() != 1 {
+        println("expected one module alias symbol, got {symbols.length()}")
+        return false
+    }
+    if symbols[0].name != "*" {
+        println("expected module alias sentinel '*', got {symbols[0].name}")
+        return false
+    }
+    if symbols[0].alias != expectedAlias {
+        println("expected alias {expectedAlias}, got {symbols[0].alias}")
+        return false
+    }
+    return true
+}

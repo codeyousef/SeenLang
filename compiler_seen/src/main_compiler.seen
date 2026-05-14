@@ -28,7 +28,7 @@ import io.file.{readText, writeText, appendText, exists}
 import process.process.{runCommand, runProgram, CommandResult, commandWasSuccessful, processFork, waitPid, processExit, getPid}
 import env.env.{args}
 import codegen.llvm_ir_gen.{LLVMIRGenerator, newLLVMIRGenerator, overrideTargetTriple}
-import parser.real_parser.{ProgramNode, ItemNode, ClassNode, FunctionNode, StatementNode, ParserExpressionNode, BlockNode, EnumNode}
+import parser.real_parser.{ProgramNode, ItemNode, ImportSymbolNode, ClassNode, FunctionNode, StatementNode, ParserExpressionNode, BlockNode, EnumNode}
 import lsp.server.{runLspServer}
 import typechecker.determinism.{DeterminismChecker, checkDeterminismWithProfile, printDeterminismErrors}
 import codegen.ir_decl_runtime.{emitCoreRuntimeDecls}
@@ -587,6 +587,224 @@ fun mainCompilerFrontendResult() r: FrontendResult {
     }
 }
 
+fun importSymbolIsModuleAlias(symbol: ImportSymbolNode) r: Bool {
+    return symbol.name == "*" and symbol.alias != ""
+}
+
+fun importItemHasModuleAlias(importItem: ItemNode, aliasName: String) r: Bool {
+    if importItem.itemType != "Import" or aliasName == "" {
+        return false
+    }
+
+    var i = 0
+    while i < importItem.importSymbols.length() {
+        let symbol = importItem.importSymbols[i]
+        if importSymbolIsModuleAlias(symbol) and symbol.alias == aliasName {
+            return true
+        }
+        i = i + 1
+    }
+
+    return false
+}
+
+fun collectProgramModuleAliasNames(program: ProgramNode) r: Array<String> {
+    let aliases = Array<String>()
+    var itemIdx = 0
+    while itemIdx < program.items.length() {
+        let item = program.items[itemIdx]
+        if item.itemType == "Import" {
+            var symbolIdx = 0
+            while symbolIdx < item.importSymbols.length() {
+                let symbol = item.importSymbols[symbolIdx]
+                if importSymbolIsModuleAlias(symbol) {
+                    aliases.push(symbol.alias)
+                }
+                symbolIdx = symbolIdx + 1
+            }
+        }
+        itemIdx = itemIdx + 1
+    }
+    return aliases
+}
+
+fun programHasModuleAliasName(aliases: Array<String>, aliasName: String)
+    r: Bool {
+
+    var i = 0
+    while i < aliases.length() {
+        if aliases[i] == aliasName {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
+fun moduleAliasPrefixHasBoundary(name: String, pos: Int) r: Bool {
+    if pos <= 0 {
+        return true
+    }
+
+    let b = name.byteAt(pos - 1)
+    if b >= 48 and b <= 57 { return false }
+    if b >= 65 and b <= 90 { return false }
+    if b >= 97 and b <= 122 { return false }
+    if b == 95 { return false }
+    return true
+}
+
+fun stripModuleAliasPrefixes(name: String, aliases: Array<String>) r: String {
+    var result = name
+    var aliasIdx = 0
+    while aliasIdx < aliases.length() {
+        let aliasName = aliases[aliasIdx]
+        if aliasName != "" {
+            let prefix = aliasName + "."
+            var pos = result.indexOf(prefix, 0)
+            while pos >= 0 {
+                if moduleAliasPrefixHasBoundary(result, pos) {
+                    result = result.substring(0, pos) +
+                        result.substring(pos + prefix.length(),
+                        result.length())
+                    pos = result.indexOf(prefix, pos)
+                } else {
+                    pos = result.indexOf(prefix, pos + prefix.length())
+                }
+            }
+        }
+        aliasIdx = aliasIdx + 1
+    }
+    return result
+}
+
+fun normalizeExpressionModuleAliases(expr: ParserExpressionNode,
+    aliases: Array<String>) r: Void {
+
+    if expr.kind == "" or expr.kind == "None" {
+        return
+    }
+
+    var operandIdx = 0
+    while operandIdx < expr.operands.length() {
+        normalizeExpressionModuleAliases(expr.operands[operandIdx], aliases)
+        operandIdx = operandIdx + 1
+    }
+
+    var argIdx = 0
+    while argIdx < expr.arguments.length() {
+        normalizeExpressionModuleAliases(expr.arguments[argIdx], aliases)
+        argIdx = argIdx + 1
+    }
+
+    if expr.kind == "MethodCall" {
+        if expr.operands.length() == 0 and
+            programHasModuleAliasName(aliases, expr.literalValue) {
+
+            expr.kind = "Call"
+            expr.literalValue = ""
+            expr.variableName = ""
+            return
+        }
+    }
+
+    if expr.kind == "MemberAccess" {
+        if expr.operands.length() == 0 and
+            programHasModuleAliasName(aliases, expr.literalValue) {
+
+            expr.kind = "VarExpr"
+            expr.literalValue = ""
+            expr.callee = ""
+            return
+        }
+    }
+
+    expr.literalValue = stripModuleAliasPrefixes(expr.literalValue, aliases)
+    expr.literalType = stripModuleAliasPrefixes(expr.literalType, aliases)
+    expr.variableName = stripModuleAliasPrefixes(expr.variableName, aliases)
+    expr.callee = stripModuleAliasPrefixes(expr.callee, aliases)
+}
+
+fun normalizeBlockModuleAliases(block: BlockNode, aliases: Array<String>)
+    r: Void {
+
+    var stmtIdx = 0
+    while stmtIdx < block.statements.length() {
+        normalizeStatementModuleAliases(block.statements[stmtIdx], aliases)
+        stmtIdx = stmtIdx + 1
+    }
+}
+
+fun normalizeStatementModuleAliases(stmt: StatementNode,
+    aliases: Array<String>) r: Void {
+
+    stmt.variableType.typeName =
+        stripModuleAliasPrefixes(stmt.variableType.typeName, aliases)
+    normalizeExpressionModuleAliases(stmt.initializer, aliases)
+    normalizeExpressionModuleAliases(stmt.returnValue, aliases)
+    normalizeExpressionModuleAliases(stmt.expression, aliases)
+    normalizeExpressionModuleAliases(stmt.condition, aliases)
+    normalizeBlockModuleAliases(stmt.thenBranch, aliases)
+    normalizeBlockModuleAliases(stmt.elseBranch, aliases)
+    normalizeExpressionModuleAliases(stmt.loopCondition, aliases)
+    normalizeBlockModuleAliases(stmt.loopBody, aliases)
+}
+
+fun normalizeFunctionModuleAliases(func: FunctionNode,
+    aliases: Array<String>) r: Void {
+
+    var paramIdx = 0
+    while paramIdx < func.params.length() {
+        let param = func.params[paramIdx]
+        param.paramType.typeName =
+            stripModuleAliasPrefixes(param.paramType.typeName, aliases)
+        paramIdx = paramIdx + 1
+    }
+
+    func.returnType.typeName =
+        stripModuleAliasPrefixes(func.returnType.typeName, aliases)
+    normalizeBlockModuleAliases(func.body, aliases)
+}
+
+fun normalizeClassModuleAliases(cls: ClassNode, aliases: Array<String>)
+    r: Void {
+
+    cls.parentName = stripModuleAliasPrefixes(cls.parentName, aliases)
+
+    var fieldIdx = 0
+    while fieldIdx < cls.fields.length() {
+        let field = cls.fields[fieldIdx]
+        field.paramType.typeName =
+            stripModuleAliasPrefixes(field.paramType.typeName, aliases)
+        fieldIdx = fieldIdx + 1
+    }
+
+    var methodIdx = 0
+    while methodIdx < cls.methods.length() {
+        normalizeFunctionModuleAliases(cls.methods[methodIdx], aliases)
+        methodIdx = methodIdx + 1
+    }
+}
+
+fun normalizeProgramModuleAliases(program: ProgramNode) r: Void {
+    let aliases = collectProgramModuleAliasNames(program)
+    if aliases.length() == 0 {
+        return
+    }
+
+    var itemIdx = 0
+    while itemIdx < program.items.length() {
+        let item = program.items[itemIdx]
+        if item.itemType == "Function" {
+            normalizeFunctionModuleAliases(item.function, aliases)
+        }
+        if item.itemType == "Class" {
+            normalizeClassModuleAliases(item.classNode, aliases)
+        }
+        itemIdx = itemIdx + 1
+    }
+}
+
 // Helper to parse a module and return its program
 fun parseModule(path: String, lang: String) r: FrontendResult {
     if not exists(path) {
@@ -603,7 +821,11 @@ fun parseModule(path: String, lang: String) r: FrontendResult {
         return frontend
     }
     let source = readText(path)
-    return runFrontendCompat(source, path, lang)
+    let frontend = runFrontendCompat(source, path, lang)
+    if frontend.success {
+        normalizeProgramModuleAliases(frontend.program)
+    }
+    return frontend
 }
 
 fun parseModuleDeclarations(path: String, lang: String) r: FrontendResult {
@@ -621,7 +843,11 @@ fun parseModuleDeclarations(path: String, lang: String) r: FrontendResult {
         return frontend
     }
     let source = readText(path)
-    return runFrontendDeclarationsCompat(source, path, lang)
+    let frontend = runFrontendDeclarationsCompat(source, path, lang)
+    if frontend.success {
+        normalizeProgramModuleAliases(frontend.program)
+    }
+    return frontend
 }
 
 fun stripTomlQuotedValue(value: String) r: String {
@@ -3828,6 +4054,36 @@ fun sourceTextImportPath(importText: String, sourceDir: String) r: String {
     return resolveImportPath(importSegments, sourceDir)
 }
 
+fun resolveSourceTextModuleAliasQualifiedName(importText: String,
+    symbolName: String) r: String {
+
+    let text = normalizeSourceImportText(importText)
+    if text == "" or symbolName == "" {
+        return ""
+    }
+
+    if text.indexOf("{", 0) >= 0 {
+        return ""
+    }
+
+    let dotPos = symbolName.indexOf(".", 0)
+    if dotPos <= 0 {
+        return ""
+    }
+
+    let aliasPos = text.indexOf(" as ", 0)
+    if aliasPos < 0 {
+        return ""
+    }
+
+    let aliasName = text.substring(aliasPos + 4, text.length()).trim()
+    if aliasName == symbolName.substring(0, dotPos) {
+        return symbolName.substring(dotPos + 1, symbolName.length())
+    }
+
+    return ""
+}
+
 fun resolveSourceTextImportedSymbolName(importText: String, symbolName: String) r: String {
     let text = normalizeSourceImportText(importText)
     if text == "" or symbolName == "" {
@@ -3879,18 +4135,21 @@ fun resolveSourceTextImportedSymbolName(importText: String, symbolName: String) 
 
     let aliasPos = text.indexOf(" as ", 0)
     if aliasPos >= 0 {
-        let pathText = text.substring(0, aliasPos).trim()
-        let aliasName = text.substring(aliasPos + 4, text.length()).trim()
-        if aliasName == symbolName {
-            let segments = parseImportTextSegments(pathText)
-            if segments.length() > 0 {
-                return segments[segments.length() - 1]
-            }
-        }
         return ""
     }
 
     return symbolName
+}
+
+fun resolveSourceTextImportedOrQualifiedSymbolName(importText: String,
+    symbolName: String) r: String {
+
+    let moduleAliasSymbolName =
+        resolveSourceTextModuleAliasQualifiedName(importText, symbolName)
+    if moduleAliasSymbolName != "" {
+        return moduleAliasSymbolName
+    }
+    return resolveSourceTextImportedSymbolName(importText, symbolName)
 }
 
 fun appendSourceTextImportEdges(edges: String, modulePath: String) r: String {
@@ -4982,7 +5241,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
 }
 
 fun importProvidesSymbol(importItem: ItemNode, symbolName: String) r: Bool {
-    return resolveImportedSymbolName(importItem, symbolName) != ""
+    return resolveImportedQualifiedSymbolName(importItem, symbolName) != ""
 }
 
 fun stripCallGenericArguments(callName: String) r: String {
@@ -5005,16 +5264,49 @@ fun resolveImportedSymbolName(importItem: ItemNode, symbolName: String) r: Strin
     var i = 0
     while i < importItem.importSymbols.length() {
         let symbol = importItem.importSymbols[i]
-        if symbol.alias == symbolName {
-            return symbol.name
-        }
-        if symbol.alias == "" and symbol.name == symbolName {
-            return symbol.name
+        if not importSymbolIsModuleAlias(symbol) {
+            if symbol.alias == symbolName {
+                return symbol.name
+            }
+            if symbol.alias == "" and symbol.name == symbolName {
+                return symbol.name
+            }
         }
         i = i + 1
     }
 
     return ""
+}
+
+fun resolveModuleAliasQualifiedName(importItem: ItemNode,
+    symbolName: String) r: String {
+
+    if importItem.itemType != "Import" or symbolName == "" {
+        return ""
+    }
+
+    let dotPos = symbolName.indexOf(".", 0)
+    if dotPos <= 0 {
+        return ""
+    }
+
+    let aliasName = symbolName.substring(0, dotPos)
+    if importItemHasModuleAlias(importItem, aliasName) {
+        return symbolName.substring(dotPos + 1, symbolName.length())
+    }
+
+    return ""
+}
+
+fun resolveImportedQualifiedSymbolName(importItem: ItemNode,
+    symbolName: String) r: String {
+
+    let moduleAliasSymbolName = resolveModuleAliasQualifiedName(importItem,
+        symbolName)
+    if moduleAliasSymbolName != "" {
+        return moduleAliasSymbolName
+    }
+    return resolveImportedSymbolName(importItem, symbolName)
 }
 
 fun findProgramClass(program: ProgramNode, className: String) r: ClassNode {
@@ -5076,7 +5368,9 @@ fun findSourceTextImportedClassInModules(modulePath: String,
         if isNewline == 1 or atEnd == 1 {
             let importText = sourceImportBodyFromLine(content.substring(lineStart, pos))
             if importText != "" {
-                let importedSymbolName = resolveSourceTextImportedSymbolName(importText, className)
+                let importedSymbolName =
+                    resolveSourceTextImportedOrQualifiedSymbolName(importText,
+                    className)
                 if importedSymbolName != "" {
                     let importedPath = sourceTextImportPath(importText, sourceDir)
                     if importedPath != "" {
@@ -5193,7 +5487,9 @@ fun findSourceTextImportedFunctionInModules(modulePath: String,
         if isNewline == 1 or atEnd == 1 {
             let importText = sourceImportBodyFromLine(content.substring(lineStart, pos))
             if importText != "" {
-                let importedSymbolName = resolveSourceTextImportedSymbolName(importText, functionName)
+                let importedSymbolName =
+                    resolveSourceTextImportedOrQualifiedSymbolName(importText,
+                    functionName)
                 if importedSymbolName != "" {
                     let importedPath = sourceTextImportPath(importText, sourceDir)
                     if importedPath != "" {
@@ -5224,7 +5520,7 @@ fun findFunctionImportedByAnyModuleInModules(modulePaths: Array<String>,
         var itemIdx = 0
         while itemIdx < importingProgram.items.length() {
             let item = importingProgram.items[itemIdx]
-            let importedSymbolName = resolveImportedSymbolName(item,
+            let importedSymbolName = resolveImportedQualifiedSymbolName(item,
                 functionName)
             if importedSymbolName != "" {
                 let importedPath = resolveAstImportItemPath(item,
@@ -5269,7 +5565,8 @@ fun findImportedFunctionInModules(modulePath: String, moduleProgram: ProgramNode
     var i = 0
     while i < moduleProgram.items.length() {
         let item = moduleProgram.items[i]
-        let importedSymbolName = resolveImportedSymbolName(item, functionName)
+        let importedSymbolName = resolveImportedQualifiedSymbolName(item,
+            functionName)
         if importedSymbolName != "" {
             let importedPath = resolveAstImportItemPath(item, sourceDir)
             if importedPath != "" {
@@ -5396,7 +5693,8 @@ fun findReferencedClassInModules(modulePath: String, moduleProgram: ProgramNode,
     var i = 0
     while i < moduleProgram.items.length() {
         let item = moduleProgram.items[i]
-        let importedSymbolName = resolveImportedSymbolName(item, className)
+        let importedSymbolName = resolveImportedQualifiedSymbolName(item,
+            className)
         if importedSymbolName != "" {
             let importedPath = resolveAstImportItemPath(item, sourceDir)
             if importedPath != "" {
@@ -5430,7 +5728,8 @@ fun findClassImportedByAnyModuleInModules(modulePaths: Array<String>,
         var itemIdx = 0
         while itemIdx < importingProgram.items.length() {
             let item = importingProgram.items[itemIdx]
-            let importedSymbolName = resolveImportedSymbolName(item, className)
+            let importedSymbolName = resolveImportedQualifiedSymbolName(item,
+                className)
             if importedSymbolName != "" {
                 let importedPath = resolveAstImportItemPath(item,
                     importingDir)
@@ -5551,7 +5850,9 @@ fun findSourceTextImportedSealedParentModule(modulePath: String,
         if isNewline == 1 or atEnd == 1 {
             let importText = sourceImportBodyFromLine(content.substring(lineStart, pos))
             if importText != "" {
-                let importedSymbolName = resolveSourceTextImportedSymbolName(importText, parentName)
+                let importedSymbolName =
+                    resolveSourceTextImportedOrQualifiedSymbolName(importText,
+                    parentName)
                 if importedSymbolName != "" {
                     let importedPath = sourceTextImportPath(importText, sourceDir)
                     if importedPath != "" {
@@ -5579,7 +5880,8 @@ fun findImportedSealedParentModule(modulePath: String, moduleProgram: ProgramNod
     var i = 0
     while i < moduleProgram.items.length() {
         let item = moduleProgram.items[i]
-        let importedSymbolName = resolveImportedSymbolName(item, parentName)
+        let importedSymbolName = resolveImportedQualifiedSymbolName(item,
+            parentName)
         if importedSymbolName != "" {
             let importedPath = resolveAstImportItemPath(item, sourceDir)
             if importedPath != "" {
@@ -5654,7 +5956,9 @@ fun findSourceTextImportedEnumInModules(modulePath: String,
         if isNewline == 1 or atEnd == 1 {
             let importText = sourceImportBodyFromLine(content.substring(lineStart, pos))
             if importText != "" {
-                let importedSymbolName = resolveSourceTextImportedSymbolName(importText, enumName)
+                let importedSymbolName =
+                    resolveSourceTextImportedOrQualifiedSymbolName(importText,
+                    enumName)
                 if importedSymbolName != "" {
                     let importedPath = sourceTextImportPath(importText, sourceDir)
                     if importedPath != "" {
@@ -5684,7 +5988,8 @@ fun findReferencedEnumInModules(modulePath: String, moduleProgram: ProgramNode, 
     var i = 0
     while i < moduleProgram.items.length() {
         let item = moduleProgram.items[i]
-        let importedSymbolName = resolveImportedSymbolName(item, enumName)
+        let importedSymbolName = resolveImportedQualifiedSymbolName(item,
+            enumName)
         if importedSymbolName != "" {
             let importedPath = resolveAstImportItemPath(item, sourceDir)
             if importedPath != "" {
@@ -5718,7 +6023,8 @@ fun findEnumImportedByAnyModuleInModules(modulePaths: Array<String>,
         var itemIdx = 0
         while itemIdx < importingProgram.items.length() {
             let item = importingProgram.items[itemIdx]
-            let importedSymbolName = resolveImportedSymbolName(item, enumName)
+            let importedSymbolName = resolveImportedQualifiedSymbolName(item,
+                enumName)
             if importedSymbolName != "" {
                 let importedPath = resolveAstImportItemPath(item,
                     importingDir)
@@ -6426,7 +6732,9 @@ fun sourceTextImportMentionsResolvableSymbol(modulePath: String,
         if isNewline == 1 or atEnd == 1 {
             let importText = sourceImportBodyFromLine(content.substring(lineStart, pos))
             if importText != "" {
-                let importedSymbolName = resolveSourceTextImportedSymbolName(importText, symbolName)
+                let importedSymbolName =
+                    resolveSourceTextImportedOrQualifiedSymbolName(importText,
+                    symbolName)
                 if importedSymbolName != "" {
                     let importedPath = sourceTextImportPath(importText, sourceDir)
                     if importedPath != "" and exists(importedPath) {
@@ -6780,12 +7088,15 @@ fun checkPackagePrivateImportsForModule(result: FrontendResult,
                 if foundFrontend {
                     var symIdx = 0
                     while symIdx < item.importSymbols.length() {
-                        let symbolName = item.importSymbols[symIdx].name
-                        let visibility = findProgramItemVisibility(
-                            importedFrontend.program, symbolName)
-                        if visibility != "" and visibility != "public" {
-                            addPackagePrivateImportDiagnostic(result,
-                                modulePath, symbolName, importedPath)
+                        let symbol = item.importSymbols[symIdx]
+                        if not importSymbolIsModuleAlias(symbol) {
+                            let symbolName = symbol.name
+                            let visibility = findProgramItemVisibility(
+                                importedFrontend.program, symbolName)
+                            if visibility != "" and visibility != "public" {
+                                addPackagePrivateImportDiagnostic(result,
+                                    modulePath, symbolName, importedPath)
+                            }
                         }
                         symIdx = symIdx + 1
                     }

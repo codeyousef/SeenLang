@@ -10,6 +10,7 @@ import { ReactiveVisualizer, ReactiveStreamViewProvider, ReactiveInlineValueProv
 import { BenchmarkRunner, BenchmarkTreeDataProvider, BenchmarkCodeLensProvider, registerBenchmarkCommands } from './benchmark';
 import { SeenDiagnosticProvider, SeenQuickFixProvider, SeenErrorLens } from './errorDiagnostics';
 import { BinaryManager } from './binaryManager';
+import { SeenImportFoldingProvider } from './importFolding';
 
 let client: LanguageClient | undefined;
 let diagnosticProvider: SeenDiagnosticProvider | undefined;
@@ -122,6 +123,13 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.languages.registerCodeLensProvider(
             { language: 'seen' },
             errorLensProvider
+        )
+    );
+
+    context.subscriptions.push(
+        vscode.languages.registerFoldingRangeProvider(
+            { language: 'seen' },
+            new SeenImportFoldingProvider()
         )
     );
 

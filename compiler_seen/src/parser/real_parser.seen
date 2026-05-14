@@ -6163,9 +6163,8 @@ class RealParser {
         let importSymbols = Array<ImportSymbolNode>()
         if matchTokenStr(getKeywordAsType()) and importSegments.length() > 0 {
             let alias = consumeNameLikeValue("Expected alias after 'as'")
-            let baseName = importSegments[importSegments.length() - 1]
             let symbol = ImportSymbolNode.new()
-            symbol.name = baseName
+            symbol.name = "*"
             symbol.alias = alias
             importSymbols.push(symbol)
         } else {
@@ -6257,8 +6256,7 @@ class RealParser {
 
         if matchTokenStr(getKeywordAsType()) and pathInfo.segments.length() > 0 {
             let alias = consumeNameLikeValue("Expected alias after 'as'")
-            let baseName = pathInfo.segments[pathInfo.segments.length() - 1]
-            symbols.push(makeImportSymbol(baseName, alias))
+            symbols.push(makeImportSymbol("*", alias))
             return symbols
         }
 

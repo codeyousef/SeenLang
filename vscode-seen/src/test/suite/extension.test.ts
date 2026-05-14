@@ -155,7 +155,65 @@ suite('Language Features Test Suite', () => {
             assert.ok(true, 'Skipped: test fixture not found');
         }
     });
+
+    test('Import folding should fold consecutive imports', () => {
+        const FoldingModule = require('../../importFolding');
+        const provider = new FoldingModule.SeenImportFoldingProvider();
+        const document = mockDocument([
+            'import codegen.ir_member_access_driver as memberAccess',
+            'import codegen.ir_call_driver as calls',
+            'import parser.real_parser.{ProgramNode as ParsedProgram}',
+            'fun main() r: Int { return 0 }',
+        ]);
+
+        const ranges = provider.provideFoldingRanges(document, {} as any, {} as any) as vscode.FoldingRange[];
+
+        assert.strictEqual(ranges.length, 1);
+        assert.strictEqual(ranges[0].start, 0);
+        assert.strictEqual(ranges[0].end, 2);
+    });
+
+    test('Import folding should stop before declarations', () => {
+        const FoldingModule = require('../../importFolding');
+        const provider = new FoldingModule.SeenImportFoldingProvider();
+        const document = mockDocument([
+            'import parser.real_parser.{ProgramNode}',
+            'import bootstrap.frontend.{run_frontend}',
+            'class Demo { }',
+            'import should.not.fold',
+        ]);
+
+        const ranges = provider.provideFoldingRanges(document, {} as any, {} as any) as vscode.FoldingRange[];
+
+        assert.strictEqual(ranges.length, 1);
+        assert.strictEqual(ranges[0].start, 0);
+        assert.strictEqual(ranges[0].end, 1);
+    });
+
+    test('Import folding should group import use and pub import lines', () => {
+        const FoldingModule = require('../../importFolding');
+        const provider = new FoldingModule.SeenImportFoldingProvider();
+        const document = mockDocument([
+            'pub import api.surface',
+            'use std.io',
+            'import codegen.ir_call_driver as calls',
+            'let value = 1',
+        ]);
+
+        const ranges = provider.provideFoldingRanges(document, {} as any, {} as any) as vscode.FoldingRange[];
+
+        assert.strictEqual(ranges.length, 1);
+        assert.strictEqual(ranges[0].start, 0);
+        assert.strictEqual(ranges[0].end, 2);
+    });
 });
+
+function mockDocument(lines: string[]) {
+    return {
+        lineCount: lines.length,
+        lineAt: (line: number) => ({ text: lines[line] }),
+    } as any;
+}
 
 suite('Command Test Suite', () => {
 

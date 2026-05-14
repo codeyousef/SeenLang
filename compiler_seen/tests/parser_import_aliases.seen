@@ -56,7 +56,7 @@ fun main() r: Int {
     }
 
     let importThree = ast.items[4]
-    if not verifySymbol(importThree.importSymbols, 0, "main", "ParserMain") {
+    if not verifyModuleAlias(importThree.importSymbols, 0, "ParserMain") {
         return 9
     }
 
@@ -89,4 +89,8 @@ fun verifySymbol(symbols: Array<ImportSymbolNode>, index: Int, expectedName: Str
     }
 
     return true
+}
+
+fun verifyModuleAlias(symbols: Array<ImportSymbolNode>, index: Int, expectedAlias: String) r: Bool {
+    return verifySymbol(symbols, index, "*", expectedAlias)
 }
