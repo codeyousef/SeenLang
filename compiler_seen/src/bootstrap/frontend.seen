@@ -470,6 +470,9 @@ fun facadeValidateNamedCall(result: FrontendResult, fileLabel: String,
     if func.name == "" {
         return
     }
+    if expr.callee == "new" {
+        return
+    }
 
     let seenNames = Array<String>()
     var sawNamed = false

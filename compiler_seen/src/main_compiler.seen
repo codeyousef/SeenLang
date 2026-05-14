@@ -48,6 +48,7 @@ Seed newer helper modules through direct imports so older bootstrap
 compilers discover them from the main-file import scan before falling back
 to their embedded compiler-module list.
 ///
+import bootstrap.dead_code.{collectDeadCodeWarnings as _seedCollectDeadCodeWarnings}
 import codegen.ir_decl_late_declares.{pipeContainsValueCoreImpl}
 import codegen.ir_decl_scan.{pipeContainsValueImpl}
 import codegen.ir_egraph_rules.{egraphLookup, egraphLookupFloat, egraphSelfComparison}
@@ -1056,6 +1057,10 @@ fun resolveRealInputPath(path: String) r: String {
         if cwd != "" {
             resolved = cwd + "/" + resolved
         }
+    }
+    if isAbsolutePath(resolved) {
+        cacheRealInputPath(path, resolved)
+        return resolved
     }
     let realpathResult = runCommand("readlink -f " +
         mainCompilerShellQuote(resolved))
@@ -10223,10 +10228,12 @@ fun checkCommandWithProfile(inputFile: String, profile: String, language: String
         return 1
     }
 
-    let checkSealedValidation = validateSealedModules(checkModulePaths, language)
-    if not checkSealedValidation.success {
-        printFrontendDiagnostics(checkSealedValidation)
-        return 1
+    if shouldRunWholeProjectPreflight(checkModulePaths) {
+        let checkSealedValidation = validateSealedModules(checkModulePaths, language)
+        if not checkSealedValidation.success {
+            printFrontendDiagnostics(checkSealedValidation)
+            return 1
+        }
     }
 
     if profile == "deterministic" {
@@ -10422,10 +10429,12 @@ fun jitRunCommand(inputFile: String, verbose: Bool, language: String) r: Int {
             return 1
         }
     }
-    let jitSealedValidation = validateSealedModules(modulePaths, language)
-    if not jitSealedValidation.success {
-        printFrontendDiagnostics(jitSealedValidation)
-        return 1
+    if shouldRunWholeProjectPreflight(modulePaths) {
+        let jitSealedValidation = validateSealedModules(modulePaths, language)
+        if not jitSealedValidation.success {
+            printFrontendDiagnostics(jitSealedValidation)
+            return 1
+        }
     }
 
     var passIdx = 0

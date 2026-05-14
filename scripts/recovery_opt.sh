@@ -42,6 +42,8 @@ if [ "$SKIP_FIXUPS" = "0" ] && [ ! -x "$OPT_WRAPPER_DIR/opt" ]; then
 fi
 
 REAL_OPT=$(command -v opt)
+REAL_LLC=$(command -v llc)
+OBJECT_MODE="${SEEN_RECOVERY_OBJECT_MODE:-native}"
 PROCESSED=0
 FAILED=0
 FAILED_MODULES=""
@@ -100,7 +102,7 @@ for llfile in "$WORK_DIR"/seen_module_*.ll; do
         OPT_CMD="$OPT_WRAPPER_DIR/opt"
     fi
     if ! run_with_opt_limit "$OPT_CMD" \
-        -passes='function(sroa,instcombine<no-verify-fixpoint>,simplifycfg),default<O1>' \
+        -passes='default<O1>' \
         -inline-threshold=250 -S "$llfile" -o "$optfile" >"$optlog" 2>&1; then
         echo "  ERROR: opt failed for $modname"
         echo "  First failure log: $optlog"
@@ -114,7 +116,8 @@ for llfile in "$WORK_DIR"/seen_module_*.ll; do
         continue
     fi
 
-    # Generate ThinLTO bitcode
+    # Generate objects. Native llc output matches the compiler --fast pipeline;
+    # ThinLTO bitcode remains available for callers that opt in explicitly.
     if [ ! -f "$optfile" ]; then
         echo "  ERROR: opt did not emit $optfile"
         FAILED=$((FAILED+1))
@@ -125,8 +128,13 @@ for llfile in "$WORK_DIR"/seen_module_*.ll; do
         fi
         continue
     fi
-    if ! run_with_opt_limit "$REAL_OPT" --thinlto-bc "$optfile" -o "$objfile" >"$thinlog" 2>&1; then
-        echo "  ERROR: thinlto-bc failed for $modname"
+    if [ "$OBJECT_MODE" = "thinlto" ]; then
+        OBJ_CMD=("$REAL_OPT" --thinlto-bc "$optfile" -o "$objfile")
+    else
+        OBJ_CMD=("$REAL_LLC" -filetype=obj -O1 -relocation-model=pic "$optfile" -o "$objfile")
+    fi
+    if ! run_with_opt_limit "${OBJ_CMD[@]}" >"$thinlog" 2>&1; then
+        echo "  ERROR: object emission failed for $modname"
         echo "  First failure log: $thinlog"
         tail -40 "$thinlog" 2>/dev/null || true
         FAILED=$((FAILED+1))

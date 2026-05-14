@@ -189,11 +189,13 @@ info "  Bundle Vulkan: $BUNDLE_VULKAN"
 
 # Check dependencies
 check_dependencies() {
-    local deps=("tar" "wget" "chmod" "find")
+    local deps=("tar" "chmod" "find")
     local missing=()
     
-    # Check for wget or curl
-    if ! command -v wget &> /dev/null && ! command -v curl &> /dev/null; then
+    # Only need a downloader when appimagetool is not already installed.
+    if ! command -v appimagetool &> /dev/null &&
+       ! command -v wget &> /dev/null &&
+       ! command -v curl &> /dev/null; then
         missing+=("wget or curl")
     fi
     
@@ -266,9 +268,16 @@ validate_sources() {
 download_appimagetool() {
     local temp_dir="$1"
     local appimagetool="$temp_dir/appimagetool"
-    
+    local installed_appimagetool
+
+    if installed_appimagetool="$(command -v appimagetool 2>/dev/null)"; then
+        info "Using installed appimagetool: $installed_appimagetool"
+        echo "$installed_appimagetool"
+        return 0
+    fi
+
     info "Downloading appimagetool..."
-    
+
     # Choose download tool
     if command -v wget &> /dev/null; then
         wget -q -O "$appimagetool" "$APPIMAGE_TOOL_URL"
@@ -753,10 +762,22 @@ build_appimage() {
     
     # Build AppImage
     local build_opts=()
+    local runtime_file="${SEEN_APPIMAGE_RUNTIME_FILE:-${APPIMAGE_RUNTIME_FILE:-}}"
+    local compressor="${SEEN_APPIMAGE_COMPRESSOR:-xz}"
+    local mksquashfs_processors="${SEEN_APPIMAGE_MKSQUASHFS_PROCESSORS:-1}"
     if $VERBOSE; then
         build_opts+=("-v")
     else
         build_opts+=("--no-appstream")
+    fi
+    build_opts+=("--comp" "$compressor")
+    build_opts+=("--mksquashfs-opt" "-processors")
+    build_opts+=("--mksquashfs-opt" "$mksquashfs_processors")
+    if [ -n "$runtime_file" ]; then
+        if [ ! -f "$runtime_file" ]; then
+            error "AppImage runtime file not found: $runtime_file"
+        fi
+        build_opts+=("--runtime-file" "$runtime_file")
     fi
     
     # Set environment for appimagetool
@@ -798,6 +819,9 @@ test_appimage() {
         local version_output
         if version_output=$("$appimage_file" --version 2>&1); then
             success "  ✓ AppImage runs successfully: $version_output"
+            return 0
+        elif version_output=$(APPIMAGE_EXTRACT_AND_RUN=1 "$appimage_file" --version 2>&1); then
+            success "  ✓ AppImage runs successfully with extract-and-run: $version_output"
             return 0
         else
             warning "  AppImage test failed: $version_output"

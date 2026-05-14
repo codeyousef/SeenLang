@@ -3,7 +3,7 @@
 import parser.real_parser.{BlockNode, ParserExpressionNode}
 import str.string.{StringBuilder}
 import codegen.ir_codegen_feature_state.{getFeatureDeferCountImpl, getFeatureDeferExprsImpl, setFeatureDeferCountImpl}
-import codegen.ir_codegen_global_state.{getBoundedActiveVarCountWithGlobalStateImpl, setActiveVarCountWithGlobalStateImpl}
+import codegen.ir_codegen_global_state.{getBoundedActiveVarCountWithGlobalStateImpl, setActiveVarCountWithGlobalStateImpl, setBlockTerminatedWithGlobalStateImpl}
 import codegen.ir_codegen_metrics_state.{g_deadStatementsEliminated, g_deadStoresEliminated, g_deadStoreSkipVars}
 import codegen.ir_function_body.{captureFunctionBodyBlockScopeImpl, scanFunctionBodyDeadStorePatternsSnapshotImpl, emitFunctionBodyTrailingDeadCodeNoticeSnapshotImpl, beginFunctionBodyBlockDeferredCleanupImpl}
 import codegen.ir_lowering_context.{CodegenLoweringContext, lowerExpression, inferLoweredExpressionType, lowerCallExpression, prepareLoweredCallArgumentsWithDefaults, lowerEnumConstructor, resetLoweringGenerator, resetLoweringSharedModuleScratch, syncLoweringState, writeBackLoweringState, lowerProgramClasses, lowerProgramTopLevelFunctions, lowerPlainLargeClass, lowerClassNode, lowerFunctionNode, lowerClassMethodFromList, setLowerCurrentClassParentName, resetLoweringLocalCodegenState, collectLoweringVariableDeclarations, clearLoweringActiveBindings, lowerBlock, lowerStatement, isLoweringBlockTerminated, beginLoweringNestedScratch, restoreLoweringNestedScratch, currentLoweringFunctionOptions}
@@ -67,6 +67,15 @@ fun generateBlockState(ctx: CodegenLoweringContext,
             break
         }
         lowerStatement(ctx, block.statements[i])
+        if block.statements[i].kind == "Return" {
+            setBlockTerminatedWithGlobalStateImpl(true)
+            let deadCodeNotice =
+                emitFunctionBodyTrailingDeadCodeNoticeSnapshotImpl(output,
+                    block, i + 1, newDeadStatementsEliminated)
+            newDeadStatementsEliminated =
+                deadCodeNotice.deadStatementsEliminated
+            break
+        }
         i = i + 1
     }
 

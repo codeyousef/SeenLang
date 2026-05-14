@@ -650,9 +650,9 @@ main() {
     local package_dir=$(create_package_structure "$temp_dir")
     
     # Build package contents
-    create_control_file "$package_dir"
     create_install_scripts "$package_dir"
     install_package_files "$package_dir"
+    create_control_file "$package_dir"
     
     # Build the package
     build_package "$temp_dir" "$package_dir"

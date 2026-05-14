@@ -626,6 +626,29 @@ count_plain_module_lls() {
     echo "$count"
 }
 
+find_latest_compile_ll_dir_with_count() {
+    local expected_count=$1
+    local newer_than=${2:-}
+    local latest=""
+    local dir
+    local count
+
+    for dir in /tmp/seen_compile_*; do
+        [ -d "$dir" ] || continue
+        if [ -n "$newer_than" ] && [ ! "$dir" -nt "$newer_than" ]; then
+            continue
+        fi
+        count=$(count_plain_module_lls "$dir")
+        if [ "$count" -eq "$expected_count" ] 2>/dev/null; then
+            if [ -z "$latest" ] || [ "$dir" -nt "$latest" ]; then
+                latest="$dir"
+            fi
+        fi
+    done
+
+    echo "$latest"
+}
+
 count_module_opt_lls() {
     local dir=$1
     local count=0
@@ -1258,6 +1281,8 @@ recover_with_preserved_production_compiler() {
     esac
 
     local recovery_exit=0
+    local recovery_marker=""
+    recovery_marker=$(mktemp -d /tmp/seen_preserved_recovery_marker.XXXXXX 2>/dev/null || true)
     run_guarded_command_to_log "preserved compiler recovery" "$RECOVERY_TIMEOUT_SECS" "$MAIN_COMPILER_VMEM_KB" /tmp/safe_rebuild_stage3_recovery.log \
         bash -c 'cd "$1" || exit 1; shift; exec "$@"' bash "$recovery_source_root" \
         env PATH="$OPT_WRAPPER_DIR:$PATH" \
@@ -1269,6 +1294,7 @@ recover_with_preserved_production_compiler() {
             "$recovery_builder_path" compile "$COMPILER_SOURCE" "$STAGE3_RECOVERY" \
             --fast --no-cache --no-fork $RELEASE_TARGET_CPU_FLAG || recovery_exit=$?
     if [ "$recovery_exit" -eq 0 ]; then
+        rm -rf "$recovery_marker"
         echo -e "${GREEN}Recovery rebuild succeeded.${NC}"
         echo ""
         echo "Recovery smoke: checking hello-world..."
@@ -1284,6 +1310,143 @@ recover_with_preserved_production_compiler() {
     if [ "$recovery_exit" != "124" ]; then
         tail_log_if_exists /tmp/safe_rebuild_stage3_recovery.log 10
     fi
+    local preserved_expected_modules=0
+    local preserved_ll_dir=""
+    preserved_expected_modules=$(extract_expected_module_count /tmp/safe_rebuild_stage3_recovery.log)
+    if is_positive_integer "$preserved_expected_modules" && [ "$preserved_expected_modules" -gt 0 ]; then
+        preserved_ll_dir=$(find_latest_compile_ll_dir_with_count "$preserved_expected_modules" "$recovery_marker")
+        if [ -n "$preserved_ll_dir" ]; then
+            LL_COUNT="$preserved_expected_modules"
+            LL_SOURCE="preserved compiler recovery"
+            LL_RECOVERY_SOURCE_DIR="$preserved_ll_dir"
+            EXPECTED_STAGE2_MODULES="$preserved_expected_modules"
+            echo -e "${YELLOW}Preserved compiler left a complete $LL_COUNT/$EXPECTED_STAGE2_MODULES .ll set at $LL_RECOVERY_SOURCE_DIR; falling back to direct IR recovery.${NC}"
+        fi
+    fi
+    rm -rf "$recovery_marker"
+    return 1
+}
+
+link_recovered_compiler() {
+    local output_path=$1
+    local recovery_dir=$2
+    local label=$3
+
+    local obj_count
+    obj_count=$(count_module_objects "$recovery_dir")
+    echo "  ${label}: $obj_count recovered module objects ready."
+
+    local rt_dir
+    rt_dir="$(cd "$SCRIPT_DIR/.." && pwd)/seen_runtime"
+    if [ ! -f "$rt_dir/seen_runtime.o" ] || [ "$rt_dir/seen_runtime.c" -nt "$rt_dir/seen_runtime.o" ]; then
+        echo "  Pre-compiling runtime..."
+        run_guarded_command "${label} runtime seen_runtime.c" 300 "$OPT_VMEM_KB" \
+            clang -O3 -flto=thin "$RELEASE_CLANG_MARCH_FLAG" -ffunction-sections -fdata-sections -pthread \
+            -c -I "$rt_dir" "$rt_dir/seen_runtime.c" -o "$rt_dir/seen_runtime.o" 2>/dev/null || true
+    fi
+    if [ -f "$rt_dir/seen_region.c" ]; then
+        if [ ! -f "$rt_dir/seen_region.o" ] || [ "$rt_dir/seen_region.c" -nt "$rt_dir/seen_region.o" ]; then
+            run_guarded_command "${label} runtime seen_region.c" 300 "$OPT_VMEM_KB" \
+                clang -O3 -flto=thin "$RELEASE_CLANG_MARCH_FLAG" -ffunction-sections -fdata-sections \
+                -c -I "$rt_dir" "$rt_dir/seen_region.c" -o "$rt_dir/seen_region.o" 2>/dev/null || true
+        fi
+    fi
+    if [ -f "$rt_dir/seen_gpu.c" ]; then
+        if [ ! -f "$rt_dir/seen_gpu.o" ] || [ "$rt_dir/seen_gpu.c" -nt "$rt_dir/seen_gpu.o" ]; then
+            run_guarded_command "${label} runtime seen_gpu.c" 300 "$OPT_VMEM_KB" \
+                clang -O3 -flto=thin "$RELEASE_CLANG_MARCH_FLAG" -ffunction-sections -fdata-sections \
+                -c -I "$rt_dir" "$rt_dir/seen_gpu.c" -o "$rt_dir/seen_gpu.o" 2>/dev/null || true
+        fi
+    fi
+
+    local link_objs=""
+    local obj
+    for obj in "$recovery_dir"/seen_module_*.o; do
+        link_objs="$link_objs $obj"
+    done
+
+    local rt_objs="$rt_dir/seen_runtime.o"
+    [ -f "$rt_dir/seen_region.o" ] && rt_objs="$rt_objs $rt_dir/seen_region.o"
+    [ -f "$rt_dir/seen_gpu.o" ] && rt_objs="$rt_objs $rt_dir/seen_gpu.o"
+
+    local link_libs="-lm -lpthread"
+    [ -f "$rt_dir/seen_gpu.o" ] && pkg-config --exists vulkan 2>/dev/null && link_libs="$link_libs -lvulkan"
+
+    echo "  Linking $obj_count modules..."
+    if run_guarded_command "${label} recovery link" 0 "" clang -O1 -fuse-ld=lld \
+        -Wl,--allow-multiple-definition \
+        "$RELEASE_CLANG_MARCH_FLAG" -Wl,--gc-sections -Wno-unused-command-line-argument \
+        $link_objs $rt_objs -o "$output_path" $link_libs 2>/tmp/safe_rebuild_link.log; then
+        echo -e "${GREEN}${label} recovery link succeeded ($(wc -c < "$output_path" | tr -d ' ') bytes).${NC}"
+        return 0
+    fi
+
+    echo -e "${RED}ERROR: ${label} recovery link failed.${NC}"
+    grep -E 'undefined|error' /tmp/safe_rebuild_link.log | head -10
+    return 1
+}
+
+recover_complete_ll_set_to_compiler() {
+    local expected_modules=$1
+    local marker_dir=$2
+    local output_path=$3
+    local label=$4
+
+    if ! is_positive_integer "$expected_modules" || [ "$expected_modules" -le 0 ]; then
+        return 1
+    fi
+
+    local ll_dir
+    ll_dir=$(find_latest_compile_ll_dir_with_count "$expected_modules" "$marker_dir")
+    if [ -z "$ll_dir" ]; then
+        return 1
+    fi
+
+    echo -e "${YELLOW}${label} left a complete $expected_modules/$expected_modules .ll set at $ll_dir; falling back to direct IR recovery.${NC}"
+
+    local recovery_exit=0
+    local recovery_log="/tmp/seen_${label//[^A-Za-z0-9_]/_}_recovery_$$.log"
+    set +e
+    run_guarded_command "${label} IR recovery" "$RECOVERY_TIMEOUT_SECS" "$OPT_VMEM_KB" \
+        bash "$SCRIPT_DIR/recovery_opt.sh" "$OPT_WRAPPER_DIR" "$SCRIPT_DIR" "$ll_dir" 2>&1 | tee "$recovery_log"
+    recovery_exit=${PIPESTATUS[0]}
+    set -e
+
+    local recovery_output
+    recovery_output=$(cat "$recovery_log" 2>/dev/null || true)
+    rm -f "$recovery_log"
+
+    if [ "$recovery_exit" -ne 0 ]; then
+        echo -e "${RED}ERROR: ${label} IR recovery failed.${NC}"
+        return 1
+    fi
+
+    local recovery_dir
+    recovery_dir=$(echo "$recovery_output" | grep '^RECOVERY_DIR=' | tail -1 | cut -d= -f2)
+    if [ -z "$recovery_dir" ] || [ ! -d "$recovery_dir" ]; then
+        echo -e "${RED}ERROR: ${label} IR recovery did not return an output directory.${NC}"
+        return 1
+    fi
+
+    local obj_count
+    obj_count=$(count_module_objects "$recovery_dir")
+    if [ "$obj_count" -ne "$expected_modules" ]; then
+        local missing_modules
+        missing_modules=$(list_modules_missing_objects "$recovery_dir")
+        echo -e "${RED}ERROR: ${label} IR recovery produced only $obj_count/$expected_modules objects.${NC}"
+        if [ -n "$missing_modules" ]; then
+            echo "Missing objects:$missing_modules"
+        fi
+        rm -rf "$recovery_dir"
+        return 1
+    fi
+
+    if link_recovered_compiler "$output_path" "$recovery_dir" "$label"; then
+        rm -rf "$recovery_dir"
+        return 0
+    fi
+
+    rm -rf "$recovery_dir"
     return 1
 }
 
@@ -1533,21 +1696,41 @@ try:
 except OSError:
     sys.exit(0)
 
-i1_values = set(re.findall(r"^\s*(%\d+)\s*=\s*icmp\b", content, re.M))
+def fix_function_ret_values(function_text):
+    i1_values = set(re.findall(r"^\s*(%\d+)\s*=\s*icmp\b", function_text, re.M))
+    if not i1_values:
+        return function_text
 
-def fix_ret(match):
-    aggregate_type = match.group(1)
-    value = match.group(2)
-    if value in i1_values:
-        return "  ret " + aggregate_type + " zeroinitializer"
-    return match.group(0)
+    def fix_ret(match):
+        aggregate_type = match.group(1)
+        value = match.group(2)
+        if value in i1_values:
+            return "  ret " + aggregate_type + " zeroinitializer"
+        return match.group(0)
 
-fixed, count = re.subn(
-    r"^\s*ret\s+(%[A-Za-z0-9_.]+)\s+(%\d+)\s*$",
-    fix_ret,
-    content,
-    flags=re.M,
-)
+    return re.sub(
+        r"^\s*ret\s+(%[A-Za-z0-9_.]+)\s+(%\d+)\s*$",
+        fix_ret,
+        function_text,
+        flags=re.M,
+    )
+
+parts = []
+last = 0
+for match in re.finditer(r"^define\b", content, re.M):
+    start = match.start()
+    if start < last:
+        continue
+    end_match = re.search(r"^}\s*$", content[start:], re.M)
+    if not end_match:
+        continue
+    end = start + end_match.end()
+    parts.append(content[last:start])
+    parts.append(fix_function_ret_values(content[start:end]))
+    last = end
+parts.append(content[last:])
+fixed = "".join(parts)
+count = 1 if fixed != content else 0
 if count > 0 and fixed != content:
     with open(path, "w", encoding="utf-8") as fh:
         fh.write(fixed)
@@ -2180,8 +2363,7 @@ else
             LINK_LIBS="-lm -lpthread"
             [ -f "$RT_DIR/seen_gpu.o" ] && pkg-config --exists vulkan 2>/dev/null && LINK_LIBS="$LINK_LIBS -lvulkan"
 
-            if run_guarded_command "Stage2 recovery link" 0 "" clang -O1 -flto=thin -fuse-ld=lld \
-                -Wl,--thinlto-cache-dir=/tmp/seen_thinlto_cache \
+            if run_guarded_command "Stage2 recovery link" 0 "" clang -O1 -fuse-ld=lld \
                 -Wl,--allow-multiple-definition \
                 "$RELEASE_CLANG_MARCH_FLAG" -Wl,--gc-sections -Wno-unused-command-line-argument \
                 $LINK_OBJS $RT_OBJS -o "$STAGE2" $LINK_LIBS 2>/tmp/safe_rebuild_link.log; then
@@ -2442,9 +2624,11 @@ else
     echo "Step 2: Attempting S2→S3 bootstrap verification (Linux)..."
     echo -e "${DIM}Timeout: 30 minutes. Falls back to S2 if this fails.${NC}"
 
+    S3_MARKER=$(mktemp -d /tmp/seen_stage3_marker.XXXXXX 2>/dev/null || true)
     if run_guarded_command_to_log_with_failure_watch "S2->S3" 1800 "$MAIN_COMPILER_VMEM_KB" /tmp/safe_rebuild_stage3.log \
         "$STAGE2" compile "$COMPILER_SOURCE" "$STAGE3" --fast --no-cache --no-fork $RELEASE_TARGET_CPU_FLAG \
         ; then
+        rm -rf "$S3_MARKER"
         echo -e "${GREEN}Stage3 build succeeded.${NC}"
 
         echo ""
@@ -2481,15 +2665,35 @@ else
             echo "Check /tmp/safe_rebuild_stage3.log for details."
             tail_log_if_exists /tmp/safe_rebuild_stage3.log 10
         fi
-        if [ "${SEEN_REQUIRE_STAGE3:-0}" = "1" ]; then
-            echo -e "${RED}ERROR: SEEN_REQUIRE_STAGE3=1 and S2→S3 failed.${NC}"
-            exit "$S3_EXIT"
-        fi
-        if recover_with_preserved_production_compiler; then
-            echo -e "${GREEN}Using recovered stage3 as production compiler.${NC}"
+        EXPECTED_STAGE3_MODULES=$(extract_expected_module_count /tmp/safe_rebuild_stage3.log)
+        if recover_complete_ll_set_to_compiler "$EXPECTED_STAGE3_MODULES" "$S3_MARKER" "$STAGE3_RECOVERY" "Stage3"; then
+            rm -rf "$S3_MARKER"
+            echo ""
+            echo "Stage3 recovery smoke: checking hello-world..."
+            if smoke_test_compiler "$STAGE3_RECOVERY" "Recovered stage3" "stage3_recovery"; then
+                echo -e "${GREEN}Using recovered stage3 as production compiler.${NC}"
+                VERIFIED="$STAGE3_RECOVERY"
+            else
+                echo -e "${YELLOW}Recovered stage3 failed hello-world smoke.${NC}"
+                if [ "${SEEN_REQUIRE_STAGE3:-0}" = "1" ]; then
+                    echo -e "${RED}ERROR: SEEN_REQUIRE_STAGE3=1 and recovered Stage3 smoke failed.${NC}"
+                    exit 1
+                fi
+                echo -e "${GREEN}Using Stage2 as production compiler (verified via frozen bootstrap).${NC}"
+                VERIFIED="$STAGE2"
+            fi
         else
-            echo -e "${GREEN}Using Stage2 as production compiler (verified via frozen bootstrap).${NC}"
-            VERIFIED="$STAGE2"
+            rm -rf "$S3_MARKER"
+            if [ "${SEEN_REQUIRE_STAGE3:-0}" = "1" ]; then
+                echo -e "${RED}ERROR: SEEN_REQUIRE_STAGE3=1 and S2→S3 failed.${NC}"
+                exit "$S3_EXIT"
+            fi
+            if recover_with_preserved_production_compiler; then
+                echo -e "${GREEN}Using recovered stage3 as production compiler.${NC}"
+            else
+                echo -e "${GREEN}Using Stage2 as production compiler (verified via frozen bootstrap).${NC}"
+                VERIFIED="$STAGE2"
+            fi
         fi
     fi
 

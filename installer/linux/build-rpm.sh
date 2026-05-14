@@ -252,9 +252,6 @@ License:        MIT
 URL:            https://seen-lang.org
 Source0:        %{name}-%{version}.tar.gz
 
-BuildRequires:  gcc
-BuildRequires:  make
-
 Requires:       glibc >= 2.17
 Requires:       libgcc
 Requires:       libstdc++
@@ -552,7 +549,10 @@ build_rpm() {
     local rpmbuild_opts=(
         "--define" "_topdir $rpmbuild_dir"
         "--define" "_target_cpu $ARCH"
+        "--define" "_tmppath $rpmbuild_dir/TMP"
+        "--define" "_dbpath $rpmbuild_dir/RPMDB"
     )
+    mkdir -p "$rpmbuild_dir/TMP" "$rpmbuild_dir/RPMDB"
     
     # Add conditional builds based on available files
     if [ -f "$SOURCE_DIR/seen-lsp" ]; then

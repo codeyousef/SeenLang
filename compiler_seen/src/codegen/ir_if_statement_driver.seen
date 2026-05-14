@@ -162,20 +162,25 @@ fun generateIfStatementState(ctx: CodegenLoweringContext,
     let branching = emitFunctionBodyIfBranchingImpl(output,
         getFeatureBlockBoxImpl(), condBool,
         computeIfBranchWeightMetadataForStatementImpl(stmt))
+    let hasElseBranch = stmt.elseBranch.statements.length() > 0
     lowerBlock(ctx, stmt.thenBranch)
     let thenTerminated = getBlockTerminatedWithGlobalStateImpl()
     finalizeConditionalEndBlockImpl(output, thenTerminated,
         branching.endLabel)
     output.append(branching.elseLabel + ":\n")
     setBlockTerminatedWithGlobalStateImpl(false)
-    if stmt.elseBranch.statements.length() > 0 {
+    if hasElseBranch {
         lowerBlock(ctx, stmt.elseBranch)
     }
     let elseTerminated = getBlockTerminatedWithGlobalStateImpl()
     finalizeConditionalEndBlockImpl(output, elseTerminated,
         branching.endLabel)
-    output.append(branching.endLabel + ":\n")
-    setBlockTerminatedWithGlobalStateImpl(false)
+    let allBranchesTerminated =
+        hasElseBranch and thenTerminated and elseTerminated
+    if not allBranchesTerminated {
+        output.append(branching.endLabel + ":\n")
+    }
+    setBlockTerminatedWithGlobalStateImpl(allBranchesTerminated)
     return IfStatementDriverResult.new(branchesEliminated)
 }
 
@@ -195,16 +200,21 @@ fun generateIfLetStatementState(ctx: CodegenLoweringContext,
     lowerBlock(ctx, stmt.thenBranch)
     setActiveVarCountWithGlobalStateImpl(savedIfLetVarCount)
     let thenTerminated = getBlockTerminatedWithGlobalStateImpl()
+    let hasElseBranch = stmt.elseBranch.statements.length() > 0
     finalizeConditionalEndBlockImpl(output, thenTerminated,
         branching.endLabel)
     output.append(branching.elseLabel + ":\n")
     setBlockTerminatedWithGlobalStateImpl(false)
-    if stmt.elseBranch.statements.length() > 0 {
+    if hasElseBranch {
         lowerBlock(ctx, stmt.elseBranch)
     }
     let elseTerminated = getBlockTerminatedWithGlobalStateImpl()
     finalizeConditionalEndBlockImpl(output, elseTerminated,
         branching.endLabel)
-    output.append(branching.endLabel + ":\n")
-    setBlockTerminatedWithGlobalStateImpl(false)
+    let allBranchesTerminated =
+        hasElseBranch and thenTerminated and elseTerminated
+    if not allBranchesTerminated {
+        output.append(branching.endLabel + ":\n")
+    }
+    setBlockTerminatedWithGlobalStateImpl(allBranchesTerminated)
 }

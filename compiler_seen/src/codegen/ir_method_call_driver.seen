@@ -242,6 +242,17 @@ fun generateMethodCallState(ctx: CodegenLoweringContext,
     let activeClassName = getGlobalCurrentClassNameImpl()
     let postResolutionPhase = planMethodReceiverPostResolutionPhaseImpl(
         receiverReg, activeClassName)
+
+    if postResolutionPhase.shouldTryArrayMutator {
+        let earlyArrayMutatorResult =
+            tryGenerateArrayMutatorMethodCallWithContextState(ctx, output,
+            expr, methodName, receiverReg, receiverType, varNames, varRegs,
+            varTypes)
+        if earlyArrayMutatorResult != "" {
+            return earlyArrayMutatorResult
+        }
+    }
+
     if postResolutionPhase.shouldTryResolvedFastPath {
         let resolvedReceiverFastPath =
             tryGenerateResolvedReceiverFastPathMethodCallState(ctx, output,
@@ -298,16 +309,6 @@ fun generateMethodCallState(ctx: CodegenLoweringContext,
                 return unresolvedDefault.resultReg
             }
             receiverReg = unresolvedDefault.receiverReg
-        }
-    }
-
-    if postResolutionPhase.shouldTryArrayMutator {
-        let arrayMutatorResult =
-            tryGenerateArrayMutatorMethodCallWithContextState(ctx, output,
-            expr, methodName, receiverReg, receiverType, varNames, varRegs,
-            varTypes)
-        if arrayMutatorResult != "" {
-            return arrayMutatorResult
         }
     }
 

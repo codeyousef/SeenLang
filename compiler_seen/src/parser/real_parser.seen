@@ -223,6 +223,7 @@ var g_uiNextSlotListId: Int = 1
 var g_uiSlotListIds: Array<String> = Array<String>()
 var g_uiSlotNames: Array<String> = Array<String>()
 var g_uiSlotBlocks: Array<BlockNode> = Array<BlockNode>()
+var g_uiTrailingBlockSuppressionDepth: Int = 0
 
 fun ensureUiArgListId(expr: ParserExpressionNode) r: String {
     if not expr.operator.startsWith("__ui_args:") {
@@ -506,6 +507,35 @@ class RealParser {
             return false
         }
         return isIdentifierLikeTokenValue(peekTokenValue())
+    }
+
+    fun checkNameLikeTokenAt(offset: Int) r: Bool {
+        let token = peekAt(offset)
+        return isIdentifierLikeTokenValue(token.getValue())
+    }
+
+    fun checkUiBindingStatementStart(name: String) r: Bool {
+        if not checkNameLikeToken() {
+            return false
+        }
+        if peek().getValue() != name {
+            return false
+        }
+        return checkNameLikeTokenAt(1)
+    }
+
+    fun checkUiEffectStatementStart() r: Bool {
+        if not checkNameLikeToken() {
+            return false
+        }
+        if peek().getValue() != "uiEffect" {
+            return false
+        }
+        let nextValue = peekAt(1).getValue()
+        if nextValue == "{" {
+            return true
+        }
+        return checkNameLikeTokenAt(1)
     }
 
     fun consumeNameLike(message: String) r: Token {
@@ -3983,19 +4013,19 @@ class RealParser {
             this.currentBlock.statements.push(this.lastStatement)
             return
         }
-        if checkNameLikeToken() and peek().getValue() == "state" {
+        if checkUiBindingStatementStart("state") {
             advance()
             parseUiStateLikeStatementField("UiState")
             this.currentBlock.statements.push(this.lastStatement)
             return
         }
-        if checkNameLikeToken() and peek().getValue() == "computed" {
+        if checkUiBindingStatementStart("computed") {
             advance()
             parseUiStateLikeStatementField("UiComputed")
             this.currentBlock.statements.push(this.lastStatement)
             return
         }
-        if checkNameLikeToken() and peek().getValue() == "uiEffect" {
+        if checkUiEffectStatementStart() {
             advance()
             parseUiEffectStatementField()
             this.currentBlock.statements.push(this.lastStatement)
@@ -4124,15 +4154,15 @@ class RealParser {
             advance()  // consume 'comptime'
             return parseComptimeStatement()
         }
-        if checkNameLikeToken() and peek().getValue() == "state" {
+        if checkUiBindingStatementStart("state") {
             advance()
             return parseUiStateLikeStatement("UiState")
         }
-        if checkNameLikeToken() and peek().getValue() == "computed" {
+        if checkUiBindingStatementStart("computed") {
             advance()
             return parseUiStateLikeStatement("UiComputed")
         }
-        if checkNameLikeToken() and peek().getValue() == "uiEffect" {
+        if checkUiEffectStatementStart() {
             advance()
             return parseUiEffectStatement()
         }
@@ -4369,7 +4399,9 @@ class RealParser {
 
     fun parseWhileStatementField() r: Void {
         this.lastStatement.kind = "While"
+        g_uiTrailingBlockSuppressionDepth = g_uiTrailingBlockSuppressionDepth + 1
         parseExpressionInto(this.lastStatement.loopCondition)
+        g_uiTrailingBlockSuppressionDepth = g_uiTrailingBlockSuppressionDepth - 1
         consume(SeenTokenType.LeftBrace, "Expected '{' after while condition")
         parseBlockIntoField()
         this.lastStatement.loopBody = this.lastParsedBlock
@@ -4384,7 +4416,9 @@ class RealParser {
         // Parse 'in' keyword
         consume(SeenTokenType.KeywordIn, "Expected 'in' after loop variable")
         // Parse iterable expression -- store in expression (reuse existing field)
+        g_uiTrailingBlockSuppressionDepth = g_uiTrailingBlockSuppressionDepth + 1
         parseExpressionInto(this.lastStatement.expression)
+        g_uiTrailingBlockSuppressionDepth = g_uiTrailingBlockSuppressionDepth - 1
         // Parse loop body -- store in loopBody (reuse existing field)
         consume(SeenTokenType.LeftBrace, "Expected '{' after for-in iterable")
         parseBlockIntoField()
@@ -4398,7 +4432,9 @@ class RealParser {
         let varToken = consume(SeenTokenType.Identifier, "Expected loop variable name after 'parallel_for'")
         this.lastStatement.variableName = varToken.getValue()
         consume(SeenTokenType.KeywordIn, "Expected 'in' after parallel_for variable")
+        g_uiTrailingBlockSuppressionDepth = g_uiTrailingBlockSuppressionDepth + 1
         parseExpressionInto(this.lastStatement.expression)
+        g_uiTrailingBlockSuppressionDepth = g_uiTrailingBlockSuppressionDepth - 1
         consume(SeenTokenType.LeftBrace, "Expected '{' after parallel_for range")
         parseBlockIntoField()
         this.lastStatement.loopBody = this.lastParsedBlock
@@ -4411,7 +4447,9 @@ class RealParser {
         let varToken = consume(SeenTokenType.Identifier, "Expected loop variable name after 'parallel_for'")
         stmt.variableName = varToken.getValue()
         consume(SeenTokenType.KeywordIn, "Expected 'in' after parallel_for variable")
+        g_uiTrailingBlockSuppressionDepth = g_uiTrailingBlockSuppressionDepth + 1
         stmt.expression = parseExpression()
+        g_uiTrailingBlockSuppressionDepth = g_uiTrailingBlockSuppressionDepth - 1
         consume(SeenTokenType.LeftBrace, "Expected '{' after parallel_for range")
         parseBlockIntoField()
         stmt.loopBody = this.lastParsedBlock
@@ -4436,7 +4474,9 @@ class RealParser {
         // Check if next is 'if'
         if matchTokenStr(SeenTokenType.KeywordIf) {
             this.lastStatement.kind = "ComptimeIf"
+            g_uiTrailingBlockSuppressionDepth = g_uiTrailingBlockSuppressionDepth + 1
             parseExpressionInto(this.lastStatement.expression)
+            g_uiTrailingBlockSuppressionDepth = g_uiTrailingBlockSuppressionDepth - 1
             consume(SeenTokenType.LeftBrace, "Expected '{' after comptime if condition")
             parseBlockIntoField()
             this.lastStatement.thenBranch = this.lastParsedBlock
@@ -4473,7 +4513,9 @@ class RealParser {
         // Check if next is 'if'
         if matchTokenStr(SeenTokenType.KeywordIf) {
             stmt.kind = "ComptimeIf"
+            g_uiTrailingBlockSuppressionDepth = g_uiTrailingBlockSuppressionDepth + 1
             stmt.expression = parseExpression()
+            g_uiTrailingBlockSuppressionDepth = g_uiTrailingBlockSuppressionDepth - 1
             consume(SeenTokenType.LeftBrace, "Expected '{' after comptime if condition")
             parseBlockIntoField()
             stmt.thenBranch = this.lastParsedBlock
@@ -4707,7 +4749,9 @@ class RealParser {
     fun parseWhileStatementInto(stmt: StatementNode) r: Void {
         // trace
         stmt.kind = "While"
+        g_uiTrailingBlockSuppressionDepth = g_uiTrailingBlockSuppressionDepth + 1
         parseExpressionInto(stmt.loopCondition)
+        g_uiTrailingBlockSuppressionDepth = g_uiTrailingBlockSuppressionDepth - 1
         consume(SeenTokenType.LeftBrace, "Expected '{' after while condition")
         parseBlockIntoField()
         stmt.loopBody = this.lastParsedBlock
@@ -4719,7 +4763,9 @@ class RealParser {
         let varToken = consume(SeenTokenType.Identifier, "Expected loop variable name after 'for'")
         stmt.variableName = varToken.getValue()
         consume(SeenTokenType.KeywordIn, "Expected 'in' after loop variable")
+        g_uiTrailingBlockSuppressionDepth = g_uiTrailingBlockSuppressionDepth + 1
         stmt.expression = parseExpression()
+        g_uiTrailingBlockSuppressionDepth = g_uiTrailingBlockSuppressionDepth - 1
         consume(SeenTokenType.LeftBrace, "Expected '{' after for-in iterable")
         parseBlockIntoField()
         stmt.loopBody = this.lastParsedBlock
@@ -4871,7 +4917,9 @@ class RealParser {
     fun parseWhileStatement() r: StatementNode {
         let stmt = StatementNode.new()
         stmt.kind = "While"
+        g_uiTrailingBlockSuppressionDepth = g_uiTrailingBlockSuppressionDepth + 1
         stmt.loopCondition = parseExpression()
+        g_uiTrailingBlockSuppressionDepth = g_uiTrailingBlockSuppressionDepth - 1
         consume(SeenTokenType.LeftBrace, "Expected '{' after while condition")
         parseBlockIntoField()
         stmt.loopBody = this.lastParsedBlock
@@ -4885,7 +4933,9 @@ class RealParser {
         let varToken = consume(SeenTokenType.Identifier, "Expected loop variable name after 'for'")
         stmt.variableName = varToken.getValue()
         consume(SeenTokenType.KeywordIn, "Expected 'in' after loop variable")
+        g_uiTrailingBlockSuppressionDepth = g_uiTrailingBlockSuppressionDepth + 1
         stmt.expression = parseExpression()
+        g_uiTrailingBlockSuppressionDepth = g_uiTrailingBlockSuppressionDepth - 1
         consume(SeenTokenType.LeftBrace, "Expected '{' after for-in iterable")
         parseBlockIntoField()
         stmt.loopBody = this.lastParsedBlock
@@ -5724,7 +5774,7 @@ class RealParser {
                 // trace
                 callTokenHandled = true
             }
-            if not callTokenHandled and checkToken(SeenTokenType.LeftBrace) {
+            if not callTokenHandled and g_uiTrailingBlockSuppressionDepth == 0 and checkToken(SeenTokenType.LeftBrace) {
                 if expr.kind == "Call" or expr.kind == "MethodCall" or expr.kind == "VarExpr" {
                     expr = parseUiSlotBlockInto(expr)
                     callTokenHandled = true
@@ -5955,7 +6005,9 @@ class RealParser {
         // If expression: if condition { expr } else { expr }
         if checkToken(SeenTokenType.KeywordIf) {
             advance() // consume 'if'
+            g_uiTrailingBlockSuppressionDepth = g_uiTrailingBlockSuppressionDepth + 1
             let condition = parseExpression()
+            g_uiTrailingBlockSuppressionDepth = g_uiTrailingBlockSuppressionDepth - 1
             consume(SeenTokenType.LeftBrace, "Expected '{' after if condition")
             // Parse then-block: semicolon-separated exprs, last is the value
             var thenExprs = Array<ParserExpressionNode>()
@@ -6632,7 +6684,9 @@ class RealParser {
     loop parsers.
     ///
     fun parseStableWhileStatementField() r: Void {
+        g_uiTrailingBlockSuppressionDepth = g_uiTrailingBlockSuppressionDepth + 1
         let stableWhileCondition = parseExpression()
+        g_uiTrailingBlockSuppressionDepth = g_uiTrailingBlockSuppressionDepth - 1
         consume(SeenTokenType.LeftBrace, "Expected '{' after while condition")
         parseBlockIntoField()
         this.lastStatement.kind = "While"
@@ -6642,7 +6696,9 @@ class RealParser {
     }
 
     fun parseStableWhileStatementInto(stmt: StatementNode) r: Void {
+        g_uiTrailingBlockSuppressionDepth = g_uiTrailingBlockSuppressionDepth + 1
         let stableWhileCondition = parseExpression()
+        g_uiTrailingBlockSuppressionDepth = g_uiTrailingBlockSuppressionDepth - 1
         consume(SeenTokenType.LeftBrace, "Expected '{' after while condition")
         parseBlockIntoField()
         stmt.kind = "While"
@@ -6653,7 +6709,9 @@ class RealParser {
 
     fun parseStableWhileStatement() r: StatementNode {
         let stmt = StatementNode.new()
+        g_uiTrailingBlockSuppressionDepth = g_uiTrailingBlockSuppressionDepth + 1
         let stableWhileCondition = parseExpression()
+        g_uiTrailingBlockSuppressionDepth = g_uiTrailingBlockSuppressionDepth - 1
         consume(SeenTokenType.LeftBrace, "Expected '{' after while condition")
         parseBlockIntoField()
         stmt.kind = "While"
@@ -6665,7 +6723,9 @@ class RealParser {
     // Parse `if condition { then } [else { ... }]` into this.lastStatement.
     fun parseIfStatementField() r: Void {
         this.lastStatement.kind = "If"
+        g_uiTrailingBlockSuppressionDepth = g_uiTrailingBlockSuppressionDepth + 1
         parseExpressionInto(this.lastStatement.condition)
+        g_uiTrailingBlockSuppressionDepth = g_uiTrailingBlockSuppressionDepth - 1
         consume(SeenTokenType.LeftBrace, "Expected '{'")
         parseBlockIntoField()
         this.lastStatement.thenBranch = this.lastParsedBlock
@@ -6696,7 +6756,9 @@ class RealParser {
 
     fun parseIfStatementInto(stmt: StatementNode) r: Void {
         stmt.kind = "If"
+        g_uiTrailingBlockSuppressionDepth = g_uiTrailingBlockSuppressionDepth + 1
         parseExpressionInto(stmt.condition)
+        g_uiTrailingBlockSuppressionDepth = g_uiTrailingBlockSuppressionDepth - 1
         consume(SeenTokenType.LeftBrace, "Expected '{'")
         parseBlockIntoField()
         stmt.thenBranch = this.lastParsedBlock
@@ -6739,7 +6801,9 @@ class RealParser {
             let bindToken = consume(SeenTokenType.Identifier, "Expected variable name after 'if let'")
             stmt.variableName = bindToken.getValue()
             consume(SeenTokenType.Equal, "Expected '=' in if let")
+            g_uiTrailingBlockSuppressionDepth = g_uiTrailingBlockSuppressionDepth + 1
             stmt.condition = parseExpression()
+            g_uiTrailingBlockSuppressionDepth = g_uiTrailingBlockSuppressionDepth - 1
             consume(SeenTokenType.LeftBrace, "Expected '{'")
             parseBlockIntoField()
             stmt.thenBranch = this.lastParsedBlock
@@ -6754,7 +6818,9 @@ class RealParser {
             return stmt
         }
         stmt.kind = "If"
+        g_uiTrailingBlockSuppressionDepth = g_uiTrailingBlockSuppressionDepth + 1
         stmt.condition = parseExpression()
+        g_uiTrailingBlockSuppressionDepth = g_uiTrailingBlockSuppressionDepth - 1
         consume(SeenTokenType.LeftBrace, "Expected '{'")
         parseBlockIntoField()
         stmt.thenBranch = this.lastParsedBlock
@@ -6798,13 +6864,17 @@ class RealParser {
         if checkToken(SeenTokenType.LeftParen) {
             advance() // consume '('
             hasSubject = true
+            g_uiTrailingBlockSuppressionDepth = g_uiTrailingBlockSuppressionDepth + 1
             subjectExpr = parseExpression()
+            g_uiTrailingBlockSuppressionDepth = g_uiTrailingBlockSuppressionDepth - 1
             consume(SeenTokenType.RightParen, "Expected ')' after when subject")
         } else {
             if not checkToken(SeenTokenType.LeftBrace) {
                 // Bare subject without parens: when expr { ... }
                 hasSubject = true
+                g_uiTrailingBlockSuppressionDepth = g_uiTrailingBlockSuppressionDepth + 1
                 subjectExpr = parseExpression()
+                g_uiTrailingBlockSuppressionDepth = g_uiTrailingBlockSuppressionDepth - 1
             }
         }
 
@@ -6843,7 +6913,9 @@ class RealParser {
         advance() // consume 'match' keyword
 
         // Parse subject expression without parentheses
+        g_uiTrailingBlockSuppressionDepth = g_uiTrailingBlockSuppressionDepth + 1
         let subjectExpr = parseExpression()
+        g_uiTrailingBlockSuppressionDepth = g_uiTrailingBlockSuppressionDepth - 1
 
         consume(SeenTokenType.LeftBrace, "Expected '{' after match subject")
 

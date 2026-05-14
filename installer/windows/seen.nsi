@@ -98,7 +98,9 @@ Section "LLVM Toolchain" SEC_TOOLCHAIN
   SetOutPath "$INSTDIR\lib\seen\toolchain"
   File /nonfatal "${SOURCE_DIR}/lib/seen/toolchain/install-llvm.ps1"
   File /nonfatal "${SOURCE_DIR}/lib/seen/toolchain/manifest.env"
-  File /nonfatal "${SOURCE_DIR}/lib/seen/toolchain/llvm-installer.exe"
+  !if /FileExists "${SOURCE_DIR}/lib/seen/toolchain/llvm-installer.exe"
+    File "${SOURCE_DIR}/lib/seen/toolchain/llvm-installer.exe"
+  !endif
   !if /FileExists "${SOURCE_DIR}/lib/seen/toolchain/llvm/bin/clang.exe"
     SetOutPath "$INSTDIR\lib\seen\toolchain\llvm"
     File /r "${SOURCE_DIR}/lib/seen/toolchain/llvm/*.*"
