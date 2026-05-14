@@ -4,6 +4,7 @@ import trace.{traceGen}
 import codegen.ir_string_collect.{trimSpacesImpl, normalizeHeaderTypeImpl, parseDecimalIntImpl}
 import codegen.ir_type_layout.{computeStructSizeFromLayoutImpl}
 import codegen.type_registry_core.{findStructReg, ensureStructEntryReg, isDataTypeReg}
+import codegen.type_registry_cache.{resetFieldInfoCache}
 
 fun updateStructLayoutFromHeaderReg(structName: String, structLayout: String,
     structNames: Array<String>, structLayouts: Array<String>,
@@ -80,6 +81,9 @@ fun updateStructFieldsFromHeaderReg(structName: String, fieldsStr: String,
         pos = pos + 1
     }
     if namesOut == "" { return }
+    if structFieldNames[idx] != namesOut {
+        resetFieldInfoCache()
+    }
     structFieldNames[idx] = namesOut
     structLlvmFieldTypes[idx] = llvmTypesOut
     if existingNames != "" and existingTypes != "" {

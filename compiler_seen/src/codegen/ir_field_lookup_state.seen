@@ -10,7 +10,8 @@ import codegen.ir_codegen_feature_state.{getFeatureReprCClassNamesImpl, getFeatu
 import codegen.ir_codegen_module_state.{findCachedIrgenFieldIndex, cacheIrgenFieldIndex}
 
 fun getFieldInfoState(structName: String, fieldName: String) r: Int {
-    let cacheKey = structName + "." + fieldName
+    let cacheKey = getGlobalStructNamesImpl().length().toString() + ":" +
+        structName + "." + fieldName
     let cached = findCachedIrgenFieldIndex(cacheKey)
     if cached >= 0 {
         return cached

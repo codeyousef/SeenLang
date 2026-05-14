@@ -5,7 +5,7 @@ import codegen.ir_type_info.{getKnownLspFieldIndexImpl}
 import codegen.ir_type_mapping.{isDataTypeImpl, isClassTypeImpl}
 import codegen.ir_type_tables.{registerKnownDataTypesImpl}
 import codegen.ir_string_collect.{getBaseTypeNameImpl, parseSeenStaticArrayLengthImpl, parseSeenStaticArrayElementTypeImpl, isSeenStaticArrayTypeImpl}
-import codegen.type_registry_cache.{findCachedStructIndex, cacheStructIndex, findCachedFunctionReturnIndex, cacheFunctionReturnIndex, findCachedFieldIndex, cacheFieldIndex}
+import codegen.type_registry_cache.{findCachedStructIndex, cacheStructIndex, findCachedFunctionReturnIndex, cacheFunctionReturnIndex, findCachedFieldIndex, cacheFieldIndex, resetFieldInfoCache}
 
 fun findStructReg(name: String, structNames: Array<String>) r: Int {
     let cached = findCachedStructIndex(name, structNames)
@@ -75,6 +75,9 @@ fun applyStructLayoutRegistrationReg(structIdx: Int, className: String,
     structSizes: Array<Int>, structMethodNames: Array<String>,
     structMethodRetTypes: Array<String>) r: Void {
 
+    if structFieldNames[structIdx] != fieldNames {
+        resetFieldInfoCache()
+    }
     structLayouts[structIdx] = layout
     structFieldNames[structIdx] = fieldNames
     structFieldTypes[structIdx] = fieldTypes
@@ -200,7 +203,7 @@ fun getDataTypeSizeReg(seenType: String, structNames: Array<String>, structSizes
 
 fun getFieldInfoReg(structName: String, fieldName: String, structNames: Array<String>, structFieldNames: Array<String>) r: Int {
     traceGen("getFieldInfo: " + structName + "." + fieldName)
-    let cacheKey = structName + "." + fieldName
+    let cacheKey = structNames.length().toString() + ":" + structName + "." + fieldName
     let cached = findCachedFieldIndex(cacheKey)
     if cached >= 0 {
         return cached

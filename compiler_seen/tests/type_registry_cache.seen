@@ -1,0 +1,169 @@
+import codegen.type_registry_cache.{
+    resetStructLookupCache, resetFunctionReturnCache, resetFieldInfoCache,
+    findCachedStructIndex, cacheStructIndex, findCachedFunctionReturnIndex
+}
+import codegen.type_registry_core.{
+    findStructReg, getFunctionReturnTypeReg, getFieldInfoReg,
+    applyStructLayoutRegistrationReg
+}
+import codegen.ir_field_registry.{
+    findCachedIrgenFieldIndexImpl, cacheIrgenFieldIndexImpl,
+    findCachedChainedPathTypeRecordImpl, cacheChainedPathTypeImpl
+}
+
+fun expect(condition: Bool, message: String) r: Void {
+    if not condition {
+        abort(message)
+    }
+}
+
+fun testStructLookupCache() r: Void {
+    resetStructLookupCache()
+
+    let structNames = Array<String>()
+    structNames.push("CacheBox")
+    structNames.push("CacheEnvelope")
+
+    expect(findCachedStructIndex("CacheEnvelope", structNames) == -1,
+        "struct cache starts empty")
+
+    cacheStructIndex("CacheEnvelope<Int>", 1, structNames)
+    expect(findCachedStructIndex("CacheEnvelope<String>", structNames) == 1,
+        "generic struct cache uses the base registry name")
+
+    let genericStructNames = Array<String>()
+    genericStructNames.push("CacheGeneric")
+    genericStructNames.push("CacheGeneric<Int>")
+    cacheStructIndex("CacheGeneric<Int>", 1, genericStructNames)
+    cacheStructIndex("CacheGeneric<String>", 0, genericStructNames)
+    expect(findCachedStructIndex("CacheGeneric<Int>", genericStructNames) == 1,
+        "exact generic cache wins over base fallback")
+    expect(findCachedStructIndex("CacheGeneric<String>", genericStructNames)
+        == 0, "generic base fallback still resolves")
+
+    structNames.push("CacheEnvelope")
+    expect(findCachedStructIndex("CacheEnvelope", structNames) == -1,
+        "struct cache is guarded by registry length")
+    expect(findStructReg("CacheEnvelope", structNames) == 2,
+        "struct lookup still resolves the latest matching entry")
+    expect(findCachedStructIndex("CacheEnvelope", structNames) == 2,
+        "struct lookup caches the latest matching entry")
+}
+
+fun testFunctionReturnCache() r: Void {
+    resetFunctionReturnCache()
+
+    let funcNames = Array<String>()
+    let funcRetTypes = Array<String>()
+    funcNames.push("cacheFunc")
+    funcRetTypes.push("Int")
+
+    expect(findCachedFunctionReturnIndex("cacheFunc", funcNames) == -2,
+        "function return cache starts empty")
+    expect(getFunctionReturnTypeReg("cacheFunc", funcNames, funcRetTypes) ==
+        "Int", "function return lookup resolves uncached entry")
+    expect(findCachedFunctionReturnIndex("cacheFunc", funcNames) == 0,
+        "function return lookup populates cache")
+
+    expect(getFunctionReturnTypeReg("missingCacheFunc", funcNames,
+        funcRetTypes) == "", "missing function return resolves empty")
+    expect(findCachedFunctionReturnIndex("missingCacheFunc", funcNames) == -1,
+        "missing function return is cached as a miss")
+
+    funcNames.push("missingCacheFunc")
+    funcRetTypes.push("String")
+    expect(findCachedFunctionReturnIndex("missingCacheFunc", funcNames) == -2,
+        "function return miss is invalidated by registry growth")
+    expect(getFunctionReturnTypeReg("missingCacheFunc", funcNames,
+        funcRetTypes) == "String", "new function after miss resolves")
+
+    funcNames.push("cacheFunc")
+    funcRetTypes.push("Bool")
+    expect(getFunctionReturnTypeReg("cacheFunc", funcNames, funcRetTypes) ==
+        "Bool", "function return cache respects later duplicate entries")
+}
+
+fun testFieldInfoCache() r: Void {
+    resetFieldInfoCache()
+
+    let structNames = Array<String>()
+    let structFieldNames = Array<String>()
+    structNames.push("CacheRecord")
+    structFieldNames.push("alpha,beta")
+
+    expect(getFieldInfoReg("CacheRecord", "beta", structNames,
+        structFieldNames) == 1, "field lookup resolves dynamic field")
+
+    structNames.push("CacheRecord")
+    structFieldNames.push("gamma")
+    expect(getFieldInfoReg("CacheRecord", "beta", structNames,
+        structFieldNames) == -1, "field cache is guarded by registry length")
+    expect(getFieldInfoReg("CacheRecord", "gamma", structNames,
+        structFieldNames) == 0, "field lookup resolves latest duplicate")
+
+    let layoutStructNames = Array<String>()
+    let structLayouts = Array<String>()
+    let layoutFieldNames = Array<String>()
+    let structFieldTypes = Array<String>()
+    let structSizes = Array<Int>()
+    let structMethodNames = Array<String>()
+    let structMethodRetTypes = Array<String>()
+    layoutStructNames.push("CacheLayout")
+    structLayouts.push("")
+    layoutFieldNames.push("alpha,beta")
+    structFieldTypes.push("Int|Int")
+    structSizes.push(0)
+    structMethodNames.push("")
+    structMethodRetTypes.push("")
+
+    expect(getFieldInfoReg("CacheLayout", "beta", layoutStructNames,
+        layoutFieldNames) == 1, "field lookup caches initial layout")
+    applyStructLayoutRegistrationReg(0, "CacheLayout", "", "beta,alpha",
+        "Int|Int", 0, "", "", structLayouts, layoutFieldNames,
+        structFieldTypes, structSizes, structMethodNames, structMethodRetTypes)
+    expect(getFieldInfoReg("CacheLayout", "beta", layoutStructNames,
+        layoutFieldNames) == 0, "field cache resets after layout rewrite")
+}
+
+fun testIrFieldLookupCaches() r: Void {
+    let fieldKeys = Array<String>()
+    let fieldIdxs = Array<Int>()
+
+    cacheIrgenFieldIndexImpl("CacheState.value", 4, fieldKeys, fieldIdxs)
+    expect(findCachedIrgenFieldIndexImpl("CacheState.value", fieldKeys,
+        fieldIdxs) == 4, "irgen field cache returns cached index")
+
+    cacheIrgenFieldIndexImpl("CacheState.value", 5, fieldKeys, fieldIdxs)
+    expect(findCachedIrgenFieldIndexImpl("CacheState.value", fieldKeys,
+        fieldIdxs) == 5, "irgen field cache updates existing entry")
+
+    let pathKeys = Array<String>()
+    let pathLens = Array<Int>()
+    let pathValues = Array<String>()
+    cacheChainedPathTypeImpl("CacheState|next.value", 2, "Int", pathKeys,
+        pathLens, pathValues)
+
+    let cachedPath = findCachedChainedPathTypeRecordImpl(
+        "CacheState|next.value", 2, pathKeys, pathLens)
+    expect(cachedPath >= 0, "chained path cache returns cached record")
+    expect(pathValues[cachedPath] == "Int",
+        "chained path cache stores result type")
+    expect(findCachedChainedPathTypeRecordImpl("CacheState|next.value", 3,
+        pathKeys, pathLens) == -1,
+        "chained path cache is guarded by registry length")
+
+    cacheChainedPathTypeImpl("CacheState|next.value", 2, "String", pathKeys,
+        pathLens, pathValues)
+    let updatedPath = findCachedChainedPathTypeRecordImpl(
+        "CacheState|next.value", 2, pathKeys, pathLens)
+    expect(pathValues[updatedPath] == "String",
+        "chained path cache updates existing entry")
+}
+
+fun main() r: Int {
+    testStructLookupCache()
+    testFunctionReturnCache()
+    testFieldInfoCache()
+    testIrFieldLookupCaches()
+    return 0
+}

@@ -15,10 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - FEL-270: Added VS Code import-block folding for contiguous top-level `import`, `use`, and `pub import` lines.
 - FEL-261/FEL-270: Added focused parser, compiler, and extension coverage for dead-code warnings, module alias imports, and import folding.
 - FEL-262/FEL-271: Added focused stdlib coverage for `VecDeque`, `IntVecDeque`, and `BitSet` behavior around wraparound, growth, clearing, and word-boundary bit operations.
+- FEL-262/FEL-272: Added focused compiler cache coverage for struct registry, function return, field index, IR field index, and chained-path type cache behavior.
 
 ### Changed
 
 - FEL-262/FEL-271: Optimized source-only `VecDeque`, `IntVecDeque`, and `BitSet` containers while preserving their public APIs.
+- FEL-262/FEL-272: Enabled source-level compiler registry lookup caches for repeated struct, function return, field index, IR field index, and chained-path type lookups while preserving existing lookup semantics.
 - Bumped the shipped Seen compiler version to `0.8.3`.
 
 ## [0.8.2] - 2026-05-12
