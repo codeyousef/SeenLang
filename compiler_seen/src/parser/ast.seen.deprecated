@@ -23,6 +23,8 @@ data ItemNode {
     importSymbols: Array<ImportSymbolNode>
     function: FunctionNode
     classNode: ClassNode
+    line: Int
+    column: Int
 }
 
 fun ItemNode.new() r: ItemNode {
@@ -33,19 +35,25 @@ fun ItemNode.new() r: ItemNode {
         importPath: Array<String>(),
         importSymbols: Array<ImportSymbolNode>(),
         function: FunctionNode.new(),
-        classNode: ClassNode.new()
+        classNode: ClassNode.new(),
+        line: 0,
+        column: 0
     }
 }
 
 data ImportSymbolNode {
     name: String
     alias: String
+    line: Int
+    column: Int
 }
 
 fun ImportSymbolNode.new() r: ImportSymbolNode {
     return ImportSymbolNode{
         name: "",
-        alias: ""
+        alias: "",
+        line: 0,
+        column: 0
     }
 }
 
@@ -73,13 +81,17 @@ data ParamNode {
     name: String
     paramType: TypeNode
     isMutable: Bool
+    line: Int
+    column: Int
 }
 
 fun ParamNode.new() r: ParamNode {
     return ParamNode{
         name: "",
         paramType: TypeNode.new(),
-        isMutable: false
+        isMutable: false,
+        line: 0,
+        column: 0
     }
 }
 
@@ -100,9 +112,17 @@ class StatementNode {
     var kind: String
     var variableName: String
     var variableType: TypeNode
+    var line: Int
+    var column: Int
 
     static fun new() r: StatementNode {
-        return StatementNode{ kind: "", variableName: "", variableType: TypeNode.new() }
+        return StatementNode{
+            kind: "",
+            variableName: "",
+            variableType: TypeNode.new(),
+            line: 0,
+            column: 0
+        }
     }
 }
 

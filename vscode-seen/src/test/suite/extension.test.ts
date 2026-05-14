@@ -89,6 +89,32 @@ suite('Extension Test Suite', () => {
         assert.ok(!commandsSource.includes('seen/translate'));
         assert.ok(!commandsSource.includes('seen/getStreamInfo'));
     });
+
+    test('Fallback diagnostics should parse warning codes and ranges', () => {
+        const DiagnosticsModule = require('../../errorDiagnostics');
+        const provider = new DiagnosticsModule.SeenDiagnosticProvider();
+        try {
+            const output = [
+                'warning[W001]: unreachable statement',
+                '  --> /tmp/dead_code.seen:4:5',
+                '   |',
+                ' 4 |     let x = 1',
+                '   |     ^^^'
+            ].join('\n');
+
+            const parsed = (provider as any).parseTraditionalErrors(output);
+            assert.strictEqual(parsed.length, 1);
+            assert.strictEqual(parsed[0].severity, 'warning');
+            assert.strictEqual(parsed[0].code, 'W001');
+            assert.strictEqual(parsed[0].message, 'unreachable statement');
+            assert.strictEqual(parsed[0].file, '/tmp/dead_code.seen');
+            assert.strictEqual(parsed[0].location.line, 4);
+            assert.strictEqual(parsed[0].location.column, 5);
+            assert.strictEqual(parsed[0].location.length, 3);
+        } finally {
+            provider.dispose();
+        }
+    });
 });
 
 suite('Language Features Test Suite', () => {

@@ -1,0 +1,301 @@
+import bootstrap.dead_code.{collectDeadCodeWarnings, DeadCodeWarning}
+import parser.real_parser.{ProgramNode, ItemNode, FunctionNode, ClassNode, StatementNode, ParserExpressionNode, BlockNode, ParamNode, TypeNode, ImportSymbolNode, AnnotationNode}
+
+fun main() r: Int {
+    let program = ProgramNode.new()
+
+    program.items.push(makeSymbolImport("parser.real_parser",
+        "ProgramNode", "UsedType", 1, 8))
+    program.items.push(makeSymbolImport("parser.real_parser",
+        "RealParser", "UnusedParser", 1, 41))
+    program.items.push(makeSymbolImport("lexer.lexer",
+        "SeenLexer", "AliasLexer", 2, 8))
+    program.items.push(makeModuleImport("process.process", 3, 8))
+
+    program.items.push(makeSimpleFunctionItem("unusedHelper", "private", 5,
+        makeReturnBlock(6)))
+    program.items.push(makeFunctionWithParam("helperWithUnusedParam",
+        "unusedParam", "Int", 9, 9, makeReturnBlock(10)))
+    program.items.push(makeSimpleFunctionItem("_ignoredUnused", "private", 13,
+        makeReturnBlock(14)))
+    program.items.push(makeFunctionWithParam("PublicEntry",
+        "unusedPublicParam", "Int", 17, 17, makeReturnBlock(18)))
+    program.items[program.items.length() - 1].visibility = "public"
+    program.items.push(makeExternFunctionItem("nativeThing",
+        "unusedExternParam", "Int", 21, 21))
+    program.items.push(makeDecoratedFunctionItem("decoratedEntry",
+        "unusedDecoratedParam", "Int", 24, 24))
+    program.items.push(makeFunctionWithParam("UsesImportedType",
+        "value", "UsedType", 29, 29, makeReturnBlock(30)))
+    program.items[program.items.length() - 1].visibility = "public"
+    program.items.push(makeSimpleFunctionItem("usedHelper", "private", 33,
+        makeReturnBlock(34)))
+    program.items.push(makeSimpleFunctionItem("methodOnlyHelper", "private",
+        37, makeReturnBlock(38)))
+    program.items.push(makeMethodHolderItem())
+    program.items.push(makeSimpleFunctionItem("main", "private", 47,
+        makeMainBlock()))
+
+    let warnings = collectDeadCodeWarnings(program)
+
+    if not hasCode(warnings, "W001") { return 1 }
+    if not hasCode(warnings, "W002") { return 2 }
+    if not hasCode(warnings, "W003") { return 3 }
+    if not hasCode(warnings, "W004") { return 4 }
+    if not hasCode(warnings, "W005") { return 5 }
+    if not hasCode(warnings, "W006") { return 6 }
+
+    if hasMessageFragment(warnings, "_ignored") { return 7 }
+    if hasMessageFragment(warnings, "PublicEntry") { return 8 }
+    if hasMessageFragment(warnings, "unusedPublicParam") { return 9 }
+    if hasMessageFragment(warnings, "unusedExternParam") { return 10 }
+    if hasMessageFragment(warnings, "unusedDecoratedParam") { return 11 }
+    if hasMessageFragment(warnings, "UsedType") { return 12 }
+    if not hasMessageFragment(warnings, "unusedMethodParam") { return 13 }
+    if hasMessageFragment(warnings, "methodOnlyHelper") { return 14 }
+
+    let warningIndex = findCodeIndex(warnings, "W001")
+    if warningIndex < 0 { return 15 }
+    let warning = warnings[warningIndex]
+    if warning.line < 1 { return 16 }
+    if warning.endColumn <= warning.column { return 17 }
+
+    return 0
+}
+
+fun makeModuleImport(path: String, line: Int, column: Int) r: ItemNode {
+    let item = ItemNode.new()
+    item.itemType = "Import"
+    item.name = path
+    item.line = line
+    item.column = column
+    pushPathSegments(item.importPath, path)
+    return item
+}
+
+fun makeSymbolImport(path: String, name: String, alias: String, line: Int,
+    column: Int) r: ItemNode {
+
+    let item = makeModuleImport(path, line, column)
+    let symbol = ImportSymbolNode.new()
+    symbol.name = name
+    symbol.alias = alias
+    symbol.line = line
+    symbol.column = column
+    item.importSymbols.push(symbol)
+    return item
+}
+
+fun pushPathSegments(parts: Array<String>, path: String) r: Void {
+    var remaining = path
+    var dot = remaining.indexOf(".", 0)
+    while dot >= 0 {
+        parts.push(remaining.substring(0, dot))
+        remaining = remaining.substring(dot + 1, remaining.length())
+        dot = remaining.indexOf(".", 0)
+    }
+    if remaining != "" {
+        parts.push(remaining)
+    }
+}
+
+fun makeSimpleFunctionItem(name: String, visibility: String, line: Int,
+    body: BlockNode) r: ItemNode {
+
+    let item = ItemNode.new()
+    item.itemType = "Function"
+    item.name = name
+    item.visibility = visibility
+    item.function = FunctionNode.new()
+    item.function.name = name
+    item.function.line = line
+    item.function.column = 5
+    item.function.returnType = makeType("Int")
+    item.function.body = body
+    return item
+}
+
+fun makeFunctionWithParam(name: String, paramName: String, paramType: String,
+    line: Int, paramLine: Int, body: BlockNode) r: ItemNode {
+
+    let item = makeSimpleFunctionItem(name, "private", line, body)
+    item.function.params.push(makeParam(paramName, paramType, paramLine, 9))
+    return item
+}
+
+fun makeExternFunctionItem(name: String, paramName: String, paramType: String,
+    line: Int, paramLine: Int) r: ItemNode {
+
+    let item = makeFunctionWithParam(name, paramName, paramType, line,
+        paramLine, BlockNode.new())
+    item.function.isExtern = true
+    return item
+}
+
+fun makeDecoratedFunctionItem(name: String, paramName: String,
+    paramType: String, line: Int, paramLine: Int) r: ItemNode {
+
+    let item = makeFunctionWithParam(name, paramName, paramType, line,
+        paramLine, makeReturnBlock(line + 1))
+    item.function.decorators.push(AnnotationNode.new("test"))
+    return item
+}
+
+fun makeMethodHolderItem() r: ItemNode {
+    let item = ItemNode.new()
+    item.itemType = "Class"
+    item.name = "MethodHolder"
+    item.classNode = ClassNode.new()
+    item.classNode.name = "MethodHolder"
+
+    let method = FunctionNode.new()
+    method.name = "compute"
+    method.line = 42
+    method.column = 9
+    method.returnType = makeType("Int")
+    method.params.push(makeParam("unusedMethodParam", "Int", 42, 17))
+
+    let body = BlockNode.new()
+    body.statements.push(makeReturnStmt(makeCallExpr("methodOnlyHelper"), 43, 9))
+    method.body = body
+    item.classNode.methods.push(method)
+    return item
+}
+
+fun makeMainBlock() r: BlockNode {
+    let body = BlockNode.new()
+    body.statements.push(makeLetStmt("unusedLocal", makeLiteralExpr("1", "Int"),
+        48, 9))
+    body.statements.push(makeLetStmt("_ignored", makeLiteralExpr("2", "Int"),
+        49, 9))
+    body.statements.push(makeLetStmt("usedLocal", makeCallExpr("usedHelper"),
+        50, 9))
+
+    let falseBranch = BlockNode.new()
+    falseBranch.statements.push(makeLetStmt("branchValue",
+        makeLiteralExpr("3", "Int"), 52, 13))
+    body.statements.push(makeIfStmt(makeLiteralExpr("false", "Bool"),
+        falseBranch, BlockNode.new(), 51, 9))
+
+    let trueBranch = BlockNode.new()
+    trueBranch.statements.push(makeLetStmt("_reachable",
+        makeVarExpr("usedLocal"), 55, 13))
+    let hiddenBranch = BlockNode.new()
+    hiddenBranch.statements.push(makeLetStmt("hidden",
+        makeLiteralExpr("4", "Int"), 57, 13))
+    body.statements.push(makeIfStmt(makeLiteralExpr("true", "Bool"),
+        trueBranch, hiddenBranch, 54, 9))
+
+    body.statements.push(makeReturnStmt(makeVarExpr("usedLocal"), 59, 9))
+    body.statements.push(makeLetStmt("afterReturn",
+        makeLiteralExpr("5", "Int"), 60, 9))
+    return body
+}
+
+fun makeReturnBlock(line: Int) r: BlockNode {
+    let body = BlockNode.new()
+    body.statements.push(makeReturnStmt(makeLiteralExpr("0", "Int"), line, 5))
+    return body
+}
+
+fun makeParam(name: String, typeName: String, line: Int, column: Int) r: ParamNode {
+    let param = ParamNode.new()
+    param.name = name
+    param.paramType = makeType(typeName)
+    param.line = line
+    param.column = column
+    return param
+}
+
+fun makeType(name: String) r: TypeNode {
+    let node = TypeNode.new()
+    node.typeName = name
+    return node
+}
+
+fun makeLetStmt(name: String, initializer: ParserExpressionNode, line: Int,
+    column: Int) r: StatementNode {
+
+    let stmt = StatementNode.new()
+    stmt.kind = "Let"
+    stmt.variableName = name
+    stmt.variableType = makeType("Int")
+    stmt.initializer = initializer
+    stmt.line = line
+    stmt.column = column
+    return stmt
+}
+
+fun makeReturnStmt(value: ParserExpressionNode, line: Int,
+    column: Int) r: StatementNode {
+
+    let stmt = StatementNode.new()
+    stmt.kind = "Return"
+    stmt.returnValue = value
+    stmt.line = line
+    stmt.column = column
+    return stmt
+}
+
+fun makeIfStmt(condition: ParserExpressionNode, thenBranch: BlockNode,
+    elseBranch: BlockNode, line: Int, column: Int) r: StatementNode {
+
+    let stmt = StatementNode.new()
+    stmt.kind = "If"
+    stmt.condition = condition
+    stmt.thenBranch = thenBranch
+    stmt.elseBranch = elseBranch
+    stmt.line = line
+    stmt.column = column
+    return stmt
+}
+
+fun makeLiteralExpr(value: String, typeName: String) r: ParserExpressionNode {
+    let expr = ParserExpressionNode.new()
+    expr.kind = "Literal"
+    expr.literalValue = value
+    expr.literalType = typeName
+    return expr
+}
+
+fun makeVarExpr(name: String) r: ParserExpressionNode {
+    let expr = ParserExpressionNode.new()
+    expr.kind = "VarExpr"
+    expr.variableName = name
+    return expr
+}
+
+fun makeCallExpr(name: String) r: ParserExpressionNode {
+    let expr = ParserExpressionNode.new()
+    expr.kind = "Call"
+    expr.callee = name
+    return expr
+}
+
+fun hasCode(warnings: Array<DeadCodeWarning>, code: String) r: Bool {
+    return findCodeIndex(warnings, code) >= 0
+}
+
+fun findCodeIndex(warnings: Array<DeadCodeWarning>, code: String) r: Int {
+    var i = 0
+    while i < warnings.length() {
+        if warnings[i].code == code {
+            return i
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+fun hasMessageFragment(warnings: Array<DeadCodeWarning>, fragment: String)
+    r: Bool {
+
+    var i = 0
+    while i < warnings.length() {
+        if warnings[i].message.contains(fragment) {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}

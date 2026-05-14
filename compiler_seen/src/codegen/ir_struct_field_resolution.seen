@@ -62,7 +62,9 @@ fun resolveKnownStructFieldImpl(structType: String, fieldName: String) r: String
         if fieldName == "function" { g_resolvedFieldIndex = 5; g_resolvedFieldTypeCode = 0 }
         if fieldName == "classNode" { g_resolvedFieldIndex = 6; g_resolvedFieldTypeCode = 0 }
         if fieldName == "enumNode" { g_resolvedFieldIndex = 7; g_resolvedFieldTypeCode = 0 }
-        return lb + " %SeenString, %SeenString, %SeenString, ptr, ptr, i64, i64, i64 " + rb
+        if fieldName == "line" { g_resolvedFieldIndex = 8; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "column" { g_resolvedFieldIndex = 9; g_resolvedFieldTypeCode = 0 }
+        return lb + " %SeenString, %SeenString, %SeenString, ptr, ptr, i64, i64, i64, i64, i64 " + rb
     }
     if structType == "TypeInferenceResult" {
         if fieldName == "success" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 1 }
@@ -132,7 +134,16 @@ fun resolveKnownStructFieldImpl(structType: String, fieldName: String) r: String
         if fieldName == "name" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 3 }
         if fieldName == "paramType" { g_resolvedFieldIndex = 1; g_resolvedFieldTypeCode = 4 }
         if fieldName == "isMutable" { g_resolvedFieldIndex = 2; g_resolvedFieldTypeCode = 1 }
-        return lb + " %SeenString, %TypeNode, i1 " + rb
+        if fieldName == "line" { g_resolvedFieldIndex = 3; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "column" { g_resolvedFieldIndex = 4; g_resolvedFieldTypeCode = 0 }
+        return lb + " %SeenString, %TypeNode, i1, i64, i64 " + rb
+    }
+    if structType == "ImportSymbolNode" {
+        if fieldName == "name" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 3 }
+        if fieldName == "alias" { g_resolvedFieldIndex = 1; g_resolvedFieldTypeCode = 3 }
+        if fieldName == "line" { g_resolvedFieldIndex = 2; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "column" { g_resolvedFieldIndex = 3; g_resolvedFieldTypeCode = 0 }
+        return lb + " %SeenString, %SeenString, i64, i64 " + rb
     }
     if structType == "ParserExpressionNode" {
         if fieldName == "kind" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 3 }
@@ -213,7 +224,9 @@ fun resolveKnownStructFieldImpl(structType: String, fieldName: String) r: String
         if fieldName == "elseBranch" { g_resolvedFieldIndex = 8; g_resolvedFieldTypeCode = 0 }
         if fieldName == "loopCondition" { g_resolvedFieldIndex = 9; g_resolvedFieldTypeCode = 0 }
         if fieldName == "loopBody" { g_resolvedFieldIndex = 10; g_resolvedFieldTypeCode = 0 }
-        return lb + " %SeenString, %SeenString, %TypeNode, i64, i64, i64, i64, i64, i64, i64, i64 " + rb
+        if fieldName == "line" { g_resolvedFieldIndex = 11; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "column" { g_resolvedFieldIndex = 12; g_resolvedFieldTypeCode = 0 }
+        return lb + " %SeenString, %SeenString, %TypeNode, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64 " + rb
     }
     // LSP types
     if structType == "LspMessage" {

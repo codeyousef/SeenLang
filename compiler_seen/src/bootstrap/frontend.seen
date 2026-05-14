@@ -12,6 +12,7 @@ import parser.real_parser.{RealParser, ProgramNode, ItemNode, FunctionNode, Clas
 import typechecker.interfaces.{TypeChecker, newTypeCheckerCompat}
 import typechecker.interfaces.{TypeError}
 import macro.expander.{MacroExpander, newMacroExpanderCompat}
+import bootstrap.dead_code.{collectDeadCodeWarnings}
 
 fun frontendEmptyProgramNode() r: ProgramNode {
     return ProgramNode{ items: Array<ItemNode>() }
@@ -177,6 +178,17 @@ fun run_frontend(source: String, fileLabel: String, language: String = "en") r: 
             )
             j = j + 1
         }
+    }
+
+    let deadCodeWarnings = collectDeadCodeWarnings(ast)
+    var dwi = 0
+    while dwi < deadCodeWarnings.length() {
+        let warning = deadCodeWarnings[dwi]
+        let encodedWarning = encodeDiagMessage(warning.message,
+            warning.code, "", "", warning.endColumn)
+        result.addDiagnostic(frontendDiagnostic(fileLabel, warning.line,
+            warning.column, "warning", encodedWarning))
+        dwi = dwi + 1
     }
 
     // Macro expansion phase

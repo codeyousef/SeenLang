@@ -1,0 +1,852 @@
+// Conservative frontend dead-code analysis.
+
+import parser.real_parser.{ProgramNode, ItemNode, FunctionNode, ClassNode, StatementNode, ParserExpressionNode, BlockNode, TypeNode, ImportSymbolNode}
+
+class DeadCodeWarning {
+    var code: String
+    var message: String
+    var line: Int
+    var column: Int
+    var endColumn: Int
+
+    static fun new(code: String, message: String, line: Int, column: Int,
+        endColumn: Int) r: DeadCodeWarning {
+
+        return DeadCodeWarning{
+            code: code,
+            message: message,
+            line: line,
+            column: column,
+            endColumn: endColumn
+        }
+    }
+}
+
+fun collectDeadCodeWarnings(program: ProgramNode) r: Array<DeadCodeWarning> {
+    let warnings = Array<DeadCodeWarning>()
+
+    deadCollectUnreachableWarnings(program, warnings)
+    deadCollectUnusedLocalWarnings(program, warnings)
+    deadCollectUnusedParameterWarnings(program, warnings)
+    deadCollectUnusedImportWarnings(program, warnings)
+    deadCollectUnusedPrivateFunctionWarnings(program, warnings)
+
+    return warnings
+}
+
+fun deadLineOrOne(line: Int) r: Int {
+    if line > 0 { return line }
+    return 1
+}
+
+fun deadColumnOrOne(column: Int) r: Int {
+    if column > 0 { return column }
+    return 1
+}
+
+fun deadEndColumnForName(column: Int, name: String) r: Int {
+    let start = deadColumnOrOne(column)
+    if name.length() > 0 {
+        return start + name.length()
+    }
+    return start + 1
+}
+
+fun deadAddWarning(warnings: Array<DeadCodeWarning>, code: String,
+    message: String, line: Int, column: Int, endColumn: Int) r: Void {
+
+    warnings.push(DeadCodeWarning.new(code, message, deadLineOrOne(line),
+        deadColumnOrOne(column), endColumn))
+}
+
+fun deadNameSuppressed(name: String) r: Bool {
+    if name == "" { return true }
+    if name == "this" { return true }
+    if name.startsWith("_") { return true }
+    return false
+}
+
+fun deadNameMatchesUse(name: String, usedName: String) r: Bool {
+    if name == usedName { return true }
+    if usedName.startsWith(name + ".") { return true }
+    if usedName.startsWith(name + "::") { return true }
+    return false
+}
+
+fun deadFunctionIsEntrypoint(item: ItemNode, func: FunctionNode) r: Bool {
+    var ownerIsPublic = false
+    if item.visibility == "public" {
+        ownerIsPublic = true
+    }
+    return deadFunctionSkipsUnusedParameterWarnings(func, ownerIsPublic)
+}
+
+fun deadFunctionSkipsUnusedParameterWarnings(func: FunctionNode,
+    ownerIsPublic: Bool) r: Bool {
+
+    if ownerIsPublic { return true }
+    if func.name == "main" { return true }
+    if func.name.startsWith("__") { return true }
+    if func.isExtern { return true }
+    if func.isOverride { return true }
+    if func.decorators.length() > 0 { return true }
+    return false
+}
+
+fun deadClassIsEntrypoint(item: ItemNode, klass: ClassNode) r: Bool {
+    if item.visibility == "public" { return true }
+    if klass.decorators.length() > 0 { return true }
+    return false
+}
+
+fun deadTypeTextReferencesName(typeText: String, name: String) r: Bool {
+    if typeText == name { return true }
+    if typeText.contains(name + "<") { return true }
+    if typeText.contains(name + ".") { return true }
+    if typeText.contains(name + "::") { return true }
+    if typeText.contains("<" + name) { return true }
+    if typeText.contains("," + name) { return true }
+    if typeText.contains(", " + name) { return true }
+    if typeText.contains(" " + name) { return true }
+    return false
+}
+
+fun deadTypeReferencesName(typeNode: TypeNode, name: String) r: Bool {
+    return deadTypeTextReferencesName(typeNode.typeName, name)
+}
+
+fun deadExpressionReferencesName(expr: ParserExpressionNode, name: String)
+    r: Bool {
+
+    if expr.kind == "" { return false }
+    if expr.kind == "None" { return false }
+
+    if expr.kind == "VarExpr" or expr.kind == "Variable" {
+        if deadNameMatchesUse(name, expr.variableName) { return true }
+        if deadNameMatchesUse(name, expr.literalValue) { return true }
+    }
+
+    if expr.kind != "Assignment" {
+        if expr.variableName != "" {
+            if deadNameMatchesUse(name, expr.variableName) { return true }
+        }
+    }
+
+    if expr.callee != "" {
+        if deadNameMatchesUse(name, expr.callee) { return true }
+    }
+
+    if expr.literalType != "" {
+        if deadTypeTextReferencesName(expr.literalType, name) { return true }
+    }
+
+    if expr.kind == "Assignment" {
+        if expr.operands.length() > 0 {
+            return deadExpressionReferencesName(expr.operands[0], name)
+        }
+        return false
+    }
+
+    var i = 0
+    while i < expr.operands.length() {
+        if deadExpressionReferencesName(expr.operands[i], name) { return true }
+        i = i + 1
+    }
+
+    i = 0
+    while i < expr.arguments.length() {
+        if deadExpressionReferencesName(expr.arguments[i], name) { return true }
+        i = i + 1
+    }
+
+    return false
+}
+
+fun deadExpressionCallsName(expr: ParserExpressionNode, name: String) r: Bool {
+    if expr.kind == "" { return false }
+    if expr.kind == "None" { return false }
+
+    if expr.kind == "Call" {
+        if deadNameMatchesUse(name, expr.callee) { return true }
+    }
+
+    var i = 0
+    while i < expr.operands.length() {
+        if deadExpressionCallsName(expr.operands[i], name) { return true }
+        i = i + 1
+    }
+
+    i = 0
+    while i < expr.arguments.length() {
+        if deadExpressionCallsName(expr.arguments[i], name) { return true }
+        i = i + 1
+    }
+
+    return false
+}
+
+fun deadIfConstantValue(expr: ParserExpressionNode) r: String {
+    if expr.kind == "Literal" {
+        if expr.literalType == "Bool" {
+            if expr.literalValue == "true" { return "true" }
+            if expr.literalValue == "false" { return "false" }
+        }
+    }
+    return ""
+}
+
+fun deadStatementHasConditionalBranches(stmt: StatementNode) r: Bool {
+    if stmt.kind == "If" { return true }
+    if stmt.kind == "IfLet" { return true }
+    if stmt.kind == "ComptimeIf" { return true }
+    return false
+}
+
+fun deadStatementConstantBranchValue(stmt: StatementNode) r: String {
+    if stmt.kind == "IfLet" { return "" }
+    if stmt.kind == "ComptimeIf" {
+        let exprValue = deadIfConstantValue(stmt.expression)
+        if exprValue != "" { return exprValue }
+    }
+    return deadIfConstantValue(stmt.condition)
+}
+
+fun deadEndColumnForStatement(stmt: StatementNode) r: Int {
+    let start = deadColumnOrOne(stmt.column)
+    if stmt.kind == "Return" { return start + 6 }
+    if stmt.kind == "Continue" { return start + 8 }
+    if stmt.kind == "Break" { return start + 5 }
+    if stmt.kind == "Let" { return start + 3 }
+    if stmt.kind == "Var" { return start + 3 }
+    if stmt.kind == "If" { return start + 2 }
+    if stmt.kind == "IfLet" { return start + 2 }
+    if stmt.kind == "While" { return start + 5 }
+    if stmt.kind == "ForIn" { return start + 3 }
+    if stmt.kind == "ParallelFor" { return start + 12 }
+    if stmt.kind == "Throw" { return start + 5 }
+    return start + 1
+}
+
+fun deadBlockReferencesName(block: BlockNode, name: String) r: Bool {
+    return deadBlockReferencesNameFrom(block, name, 0)
+}
+
+fun deadBlockReferencesNameFrom(block: BlockNode, name: String, start: Int)
+    r: Bool {
+
+    var i = start
+    while i < block.statements.length() {
+        let stmt = block.statements[i]
+        if deadStatementReferencesName(stmt, name) { return true }
+        if deadStatementTerminates(stmt) { return false }
+        i = i + 1
+    }
+    return false
+}
+
+fun deadStatementReferencesName(stmt: StatementNode, name: String) r: Bool {
+    if stmt.kind == "Let" or stmt.kind == "Var" {
+        if deadExpressionReferencesName(stmt.initializer, name) { return true }
+        if deadTypeReferencesName(stmt.variableType, name) { return true }
+        return false
+    }
+
+    if stmt.kind == "Assignment" {
+        if deadExpressionReferencesName(stmt.initializer, name) { return true }
+        if deadExpressionReferencesName(stmt.expression, name) { return true }
+        return false
+    }
+
+    if stmt.kind == "Return" {
+        if deadExpressionReferencesName(stmt.returnValue, name) { return true }
+        if deadExpressionReferencesName(stmt.expression, name) { return true }
+        return false
+    }
+
+    if stmt.kind == "Expression" {
+        return deadExpressionReferencesName(stmt.expression, name)
+    }
+
+    if deadStatementHasConditionalBranches(stmt) {
+        if deadExpressionReferencesName(stmt.condition, name) { return true }
+        if deadExpressionReferencesName(stmt.expression, name) { return true }
+        let constValue = deadStatementConstantBranchValue(stmt)
+        if constValue == "true" {
+            return deadBlockReferencesName(stmt.thenBranch, name)
+        }
+        if constValue == "false" {
+            return deadBlockReferencesName(stmt.elseBranch, name)
+        }
+        if deadBlockReferencesName(stmt.thenBranch, name) { return true }
+        if deadBlockReferencesName(stmt.elseBranch, name) { return true }
+        return false
+    }
+
+    if stmt.kind == "While" {
+        if deadExpressionReferencesName(stmt.loopCondition, name) { return true }
+        return deadBlockReferencesName(stmt.loopBody, name)
+    }
+
+    if stmt.kind == "ForIn" or stmt.kind == "ParallelFor" {
+        if deadExpressionReferencesName(stmt.expression, name) { return true }
+        return deadBlockReferencesName(stmt.loopBody, name)
+    }
+
+    if stmt.kind == "Unsafe" or stmt.kind == "Defer" or
+        stmt.kind == "Errdefer" or stmt.kind == "ComptimeBlock" {
+
+        if deadExpressionReferencesName(stmt.expression, name) { return true }
+        return deadBlockReferencesName(stmt.thenBranch, name)
+    }
+
+    if stmt.kind == "TryCatch" {
+        if deadBlockReferencesName(stmt.thenBranch, name) { return true }
+        if deadBlockReferencesName(stmt.elseBranch, name) { return true }
+        return false
+    }
+
+    if deadExpressionReferencesName(stmt.initializer, name) { return true }
+    if deadExpressionReferencesName(stmt.returnValue, name) { return true }
+    if deadExpressionReferencesName(stmt.expression, name) { return true }
+    if deadExpressionReferencesName(stmt.condition, name) { return true }
+    if deadExpressionReferencesName(stmt.loopCondition, name) { return true }
+    return false
+}
+
+fun deadBlockCallsName(block: BlockNode, name: String) r: Bool {
+    var i = 0
+    while i < block.statements.length() {
+        let stmt = block.statements[i]
+        if deadStatementCallsName(stmt, name) { return true }
+        if deadStatementTerminates(stmt) { return false }
+        i = i + 1
+    }
+    return false
+}
+
+fun deadStatementCallsName(stmt: StatementNode, name: String) r: Bool {
+    if deadExpressionCallsName(stmt.initializer, name) { return true }
+    if deadExpressionCallsName(stmt.returnValue, name) { return true }
+    if deadExpressionCallsName(stmt.expression, name) { return true }
+    if deadExpressionCallsName(stmt.condition, name) { return true }
+    if deadExpressionCallsName(stmt.loopCondition, name) { return true }
+
+    if deadStatementHasConditionalBranches(stmt) {
+        let constValue = deadStatementConstantBranchValue(stmt)
+        if constValue == "true" {
+            return deadBlockCallsName(stmt.thenBranch, name)
+        }
+        if constValue == "false" {
+            return deadBlockCallsName(stmt.elseBranch, name)
+        }
+        if deadBlockCallsName(stmt.thenBranch, name) { return true }
+        if deadBlockCallsName(stmt.elseBranch, name) { return true }
+        return false
+    }
+
+    if stmt.kind == "While" or stmt.kind == "ForIn" or
+        stmt.kind == "ParallelFor" {
+
+        return deadBlockCallsName(stmt.loopBody, name)
+    }
+
+    if stmt.kind == "Unsafe" or stmt.kind == "Defer" or
+        stmt.kind == "Errdefer" or stmt.kind == "ComptimeBlock" {
+
+        return deadBlockCallsName(stmt.thenBranch, name)
+    }
+
+    if stmt.kind == "TryCatch" {
+        if deadBlockCallsName(stmt.thenBranch, name) { return true }
+        if deadBlockCallsName(stmt.elseBranch, name) { return true }
+    }
+
+    return false
+}
+
+fun deadStatementTerminates(stmt: StatementNode) r: Bool {
+    if stmt.kind == "Return" { return true }
+    if stmt.kind == "Throw" { return true }
+    if stmt.kind == "Break" { return true }
+    if stmt.kind == "Continue" { return true }
+
+    if deadStatementHasConditionalBranches(stmt) {
+        let constValue = deadStatementConstantBranchValue(stmt)
+        if constValue == "true" {
+            return deadBlockAlwaysTerminates(stmt.thenBranch)
+        }
+        if constValue == "false" {
+            return deadBlockAlwaysTerminates(stmt.elseBranch)
+        }
+        if stmt.elseBranch.statements.length() == 0 { return false }
+        if deadBlockAlwaysTerminates(stmt.thenBranch) {
+            if deadBlockAlwaysTerminates(stmt.elseBranch) { return true }
+        }
+    }
+
+    if stmt.kind == "TryCatch" {
+        if stmt.elseBranch.statements.length() == 0 { return false }
+        if deadBlockAlwaysTerminates(stmt.thenBranch) {
+            if deadBlockAlwaysTerminates(stmt.elseBranch) { return true }
+        }
+    }
+
+    return false
+}
+
+fun deadBlockAlwaysTerminates(block: BlockNode) r: Bool {
+    var i = 0
+    while i < block.statements.length() {
+        let stmt = block.statements[i]
+        if deadStatementTerminates(stmt) { return true }
+        i = i + 1
+    }
+    return false
+}
+
+fun deadCollectUnreachableWarnings(program: ProgramNode,
+    warnings: Array<DeadCodeWarning>) r: Void {
+
+    var i = 0
+    while i < program.items.length() {
+        let item = program.items[i]
+        if item.itemType == "Function" {
+            deadCollectUnreachableInBlock(warnings, item.function.body)
+        }
+        if item.itemType == "Class" {
+            var mi = 0
+            while mi < item.classNode.methods.length() {
+                deadCollectUnreachableInBlock(warnings,
+                    item.classNode.methods[mi].body)
+                mi = mi + 1
+            }
+        }
+        i = i + 1
+    }
+}
+
+fun deadCollectUnreachableInBlock(warnings: Array<DeadCodeWarning>,
+    block: BlockNode) r: Void {
+
+    var terminated = false
+    var i = 0
+    while i < block.statements.length() {
+        let stmt = block.statements[i]
+        if terminated {
+            deadAddWarning(warnings, "W001", "unreachable statement",
+                stmt.line, stmt.column, deadEndColumnForStatement(stmt))
+        } else {
+            deadCollectUnreachableInStatement(warnings, stmt)
+            if deadStatementTerminates(stmt) {
+                terminated = true
+            }
+        }
+        i = i + 1
+    }
+}
+
+fun deadWarnFirstStatementInBlock(warnings: Array<DeadCodeWarning>,
+    block: BlockNode) r: Void {
+
+    if block.statements.length() > 0 {
+        let stmt = block.statements[0]
+        deadAddWarning(warnings, "W001", "unreachable statement",
+            stmt.line, stmt.column, deadEndColumnForStatement(stmt))
+    }
+}
+
+fun deadCollectUnreachableInStatement(warnings: Array<DeadCodeWarning>,
+    stmt: StatementNode) r: Void {
+
+    if deadStatementHasConditionalBranches(stmt) {
+        let constValue = deadStatementConstantBranchValue(stmt)
+        if constValue == "true" {
+            deadCollectUnreachableInBlock(warnings, stmt.thenBranch)
+            deadWarnFirstStatementInBlock(warnings, stmt.elseBranch)
+            return
+        }
+        if constValue == "false" {
+            deadWarnFirstStatementInBlock(warnings, stmt.thenBranch)
+            deadCollectUnreachableInBlock(warnings, stmt.elseBranch)
+            return
+        }
+        deadCollectUnreachableInBlock(warnings, stmt.thenBranch)
+        deadCollectUnreachableInBlock(warnings, stmt.elseBranch)
+        return
+    }
+
+    if stmt.kind == "While" or stmt.kind == "ForIn" or
+        stmt.kind == "ParallelFor" {
+
+        deadCollectUnreachableInBlock(warnings, stmt.loopBody)
+        return
+    }
+
+    if stmt.kind == "Unsafe" or stmt.kind == "Defer" or
+        stmt.kind == "Errdefer" or stmt.kind == "ComptimeBlock" {
+
+        deadCollectUnreachableInBlock(warnings, stmt.thenBranch)
+        return
+    }
+
+    if stmt.kind == "TryCatch" {
+        deadCollectUnreachableInBlock(warnings, stmt.thenBranch)
+        deadCollectUnreachableInBlock(warnings, stmt.elseBranch)
+    }
+}
+
+fun deadCollectUnusedLocalWarnings(program: ProgramNode,
+    warnings: Array<DeadCodeWarning>) r: Void {
+
+    var i = 0
+    while i < program.items.length() {
+        let item = program.items[i]
+        if item.itemType == "Function" {
+            deadCollectUnusedLocalsInBlock(warnings, item.function.body)
+        }
+        if item.itemType == "Class" {
+            var mi = 0
+            while mi < item.classNode.methods.length() {
+                deadCollectUnusedLocalsInBlock(warnings,
+                    item.classNode.methods[mi].body)
+                mi = mi + 1
+            }
+        }
+        i = i + 1
+    }
+}
+
+fun deadCollectUnusedLocalsInBlock(warnings: Array<DeadCodeWarning>,
+    block: BlockNode) r: Void {
+
+    var terminated = false
+    var i = 0
+    while i < block.statements.length() {
+        let stmt = block.statements[i]
+        if not terminated {
+            if stmt.kind == "Let" or stmt.kind == "Var" {
+                let name = stmt.variableName
+                if not deadNameSuppressed(name) {
+                    if not deadBlockReferencesNameFrom(block, name, i + 1) {
+                        deadAddWarning(warnings, "W002",
+                            "unused local binding `" + name + "`",
+                            stmt.line, stmt.column,
+                            deadEndColumnForName(stmt.column, name))
+                    }
+                }
+            }
+            deadCollectUnusedLocalsInStatement(warnings, stmt)
+            if deadStatementTerminates(stmt) {
+                terminated = true
+            }
+        }
+        i = i + 1
+    }
+}
+
+fun deadCollectUnusedLocalsInStatement(warnings: Array<DeadCodeWarning>,
+    stmt: StatementNode) r: Void {
+
+    if deadStatementHasConditionalBranches(stmt) {
+        let constValue = deadStatementConstantBranchValue(stmt)
+        if constValue == "true" {
+            deadCollectUnusedLocalsInBlock(warnings, stmt.thenBranch)
+            return
+        }
+        if constValue == "false" {
+            deadCollectUnusedLocalsInBlock(warnings, stmt.elseBranch)
+            return
+        }
+        deadCollectUnusedLocalsInBlock(warnings, stmt.thenBranch)
+        deadCollectUnusedLocalsInBlock(warnings, stmt.elseBranch)
+        return
+    }
+
+    if stmt.kind == "While" or stmt.kind == "ForIn" or
+        stmt.kind == "ParallelFor" {
+
+        deadCollectUnusedLocalsInBlock(warnings, stmt.loopBody)
+        return
+    }
+
+    if stmt.kind == "Unsafe" or stmt.kind == "Defer" or
+        stmt.kind == "Errdefer" or stmt.kind == "ComptimeBlock" {
+
+        deadCollectUnusedLocalsInBlock(warnings, stmt.thenBranch)
+        return
+    }
+
+    if stmt.kind == "TryCatch" {
+        deadCollectUnusedLocalsInBlock(warnings, stmt.thenBranch)
+        deadCollectUnusedLocalsInBlock(warnings, stmt.elseBranch)
+    }
+}
+
+fun deadCollectUnusedParameterWarnings(program: ProgramNode,
+    warnings: Array<DeadCodeWarning>) r: Void {
+
+    var i = 0
+    while i < program.items.length() {
+        let item = program.items[i]
+        if item.itemType == "Function" {
+            if not deadFunctionIsEntrypoint(item, item.function) {
+                deadCollectUnusedParamsForFunction(warnings, item.function)
+            }
+        }
+        if item.itemType == "Class" {
+            let ownerIsPublic = deadClassIsEntrypoint(item, item.classNode)
+            var mi = 0
+            while mi < item.classNode.methods.length() {
+                let method = item.classNode.methods[mi]
+                if not deadFunctionSkipsUnusedParameterWarnings(method,
+                    ownerIsPublic) {
+
+                    deadCollectUnusedParamsForFunction(warnings, method)
+                }
+                mi = mi + 1
+            }
+        }
+        i = i + 1
+    }
+}
+
+fun deadCollectUnusedParamsForFunction(warnings: Array<DeadCodeWarning>,
+    func: FunctionNode) r: Void {
+
+    var i = 0
+    while i < func.params.length() {
+        let param = func.params[i]
+        let name = param.name
+        if not deadNameSuppressed(name) {
+            if not deadBlockReferencesName(func.body, name) {
+                deadAddWarning(warnings, "W003",
+                    "unused parameter `" + name + "`",
+                    param.line, param.column,
+                    deadEndColumnForName(param.column, name))
+            }
+        }
+        i = i + 1
+    }
+}
+
+fun deadProgramReferencesName(program: ProgramNode, name: String,
+    excludedIndex: Int) r: Bool {
+
+    var i = 0
+    while i < program.items.length() {
+        if i != excludedIndex {
+            let item = program.items[i]
+            if item.itemType == "Function" {
+                if deadFunctionReferencesName(item.function, name) {
+                    return true
+                }
+            }
+            if item.itemType == "Class" {
+                if deadClassReferencesName(item.classNode, name) {
+                    return true
+                }
+            }
+        }
+        i = i + 1
+    }
+    return false
+}
+
+fun deadFunctionReferencesName(func: FunctionNode, name: String) r: Bool {
+    if deadTypeReferencesName(func.returnType, name) { return true }
+    var i = 0
+    while i < func.params.length() {
+        if deadTypeReferencesName(func.params[i].paramType, name) { return true }
+        i = i + 1
+    }
+    return deadBlockReferencesName(func.body, name)
+}
+
+fun deadClassReferencesName(klass: ClassNode, name: String) r: Bool {
+    if deadTypeTextReferencesName(klass.parentName, name) { return true }
+
+    var i = 0
+    while i < klass.fields.length() {
+        if deadTypeReferencesName(klass.fields[i].paramType, name) { return true }
+        i = i + 1
+    }
+
+    i = 0
+    while i < klass.methods.length() {
+        if deadFunctionReferencesName(klass.methods[i], name) { return true }
+        i = i + 1
+    }
+
+    return false
+}
+
+fun deadImportSymbolVisibleName(symbol: ImportSymbolNode) r: String {
+    if symbol.alias != "" { return symbol.alias }
+    return symbol.name
+}
+
+fun deadCollectUnusedImportWarnings(program: ProgramNode,
+    warnings: Array<DeadCodeWarning>) r: Void {
+
+    var i = 0
+    while i < program.items.length() {
+        let item = program.items[i]
+        if item.itemType == "Import" {
+            if item.visibility != "public" {
+                deadCollectUnusedImportItemWarnings(program, warnings, item, i)
+            }
+        }
+        i = i + 1
+    }
+}
+
+fun deadCollectUnusedImportItemWarnings(program: ProgramNode,
+    warnings: Array<DeadCodeWarning>, item: ItemNode, itemIndex: Int) r: Void {
+
+    if item.importSymbols.length() > 0 {
+        var si = 0
+        while si < item.importSymbols.length() {
+            let symbol = item.importSymbols[si]
+            let visibleName = deadImportSymbolVisibleName(symbol)
+            if not deadNameSuppressed(visibleName) {
+                if not deadProgramReferencesName(program, visibleName, itemIndex) {
+                    deadAddWarning(warnings, "W004",
+                        "unused import symbol `" + visibleName + "`",
+                        symbol.line, symbol.column,
+                        deadEndColumnForName(symbol.column, visibleName))
+                }
+            }
+            si = si + 1
+        }
+        return
+    }
+
+    if item.importPath.length() > 0 {
+        let visibleName = item.importPath[item.importPath.length() - 1]
+        if not deadNameSuppressed(visibleName) {
+            if not deadProgramReferencesName(program, visibleName, itemIndex) {
+                deadAddWarning(warnings, "W006",
+                    "unused module import `" + visibleName + "`",
+                    item.line, item.column,
+                    deadEndColumnForName(item.column, visibleName))
+            }
+        }
+    }
+}
+
+fun deadArrayContains(names: Array<String>, name: String) r: Bool {
+    var i = 0
+    while i < names.length() {
+        if names[i] == name { return true }
+        i = i + 1
+    }
+    return false
+}
+
+fun deadArrayPushIfMissing(names: Array<String>, name: String) r: Bool {
+    if deadArrayContains(names, name) { return false }
+    names.push(name)
+    return true
+}
+
+fun deadSeedReachableFunctions(program: ProgramNode,
+    reachable: Array<String>) r: Void {
+
+    var i = 0
+    while i < program.items.length() {
+        let item = program.items[i]
+        if item.itemType == "Function" {
+            if deadFunctionIsEntrypoint(item, item.function) {
+                deadArrayPushIfMissing(reachable, item.function.name)
+            }
+        }
+        i = i + 1
+    }
+}
+
+fun deadMarkCalledFunctionsFromBlock(program: ProgramNode,
+    reachable: Array<String>, block: BlockNode) r: Bool {
+
+    var changed = false
+    var i = 0
+    while i < program.items.length() {
+        let candidate = program.items[i]
+        if candidate.itemType == "Function" {
+            let candidateName = candidate.function.name
+            if not deadArrayContains(reachable, candidateName) {
+                if deadBlockCallsName(block, candidateName) {
+                    if deadArrayPushIfMissing(reachable, candidateName) {
+                        changed = true
+                    }
+                }
+            }
+        }
+        i = i + 1
+    }
+    return changed
+}
+
+fun deadComputeReachableFunctions(program: ProgramNode) r: Array<String> {
+    let reachable = Array<String>()
+    deadSeedReachableFunctions(program, reachable)
+
+    var changed = true
+    while changed {
+        changed = false
+        var i = 0
+        while i < program.items.length() {
+            let item = program.items[i]
+            if item.itemType == "Function" {
+                if deadArrayContains(reachable, item.function.name) {
+                    if deadMarkCalledFunctionsFromBlock(program, reachable,
+                        item.function.body) {
+                        changed = true
+                    }
+                }
+            }
+            if item.itemType == "Class" {
+                if deadClassIsEntrypoint(item, item.classNode) {
+                    var mi = 0
+                    while mi < item.classNode.methods.length() {
+                        if deadMarkCalledFunctionsFromBlock(program, reachable,
+                            item.classNode.methods[mi].body) {
+                            changed = true
+                        }
+                        mi = mi + 1
+                    }
+                }
+            }
+            i = i + 1
+        }
+    }
+
+    return reachable
+}
+
+fun deadCollectUnusedPrivateFunctionWarnings(program: ProgramNode,
+    warnings: Array<DeadCodeWarning>) r: Void {
+
+    let reachable = deadComputeReachableFunctions(program)
+
+    var i = 0
+    while i < program.items.length() {
+        let item = program.items[i]
+        if item.itemType == "Function" {
+            let func = item.function
+            if not deadFunctionIsEntrypoint(item, func) {
+                if not deadNameSuppressed(func.name) {
+                    if not deadArrayContains(reachable, func.name) {
+                        if not deadProgramReferencesName(program, func.name, i) {
+                            deadAddWarning(warnings, "W005",
+                                "unused private top-level function `" +
+                                    func.name + "`",
+                                func.line, func.column,
+                                deadEndColumnForName(func.column, func.name))
+                        }
+                    }
+                }
+            }
+        }
+        i = i + 1
+    }
+}

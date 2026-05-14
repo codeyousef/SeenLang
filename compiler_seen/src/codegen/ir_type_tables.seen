@@ -58,38 +58,38 @@ fun getHardcodedFieldLlvmTypeImpl(structName: String, fieldName: String) r: Stri
 // Register all known data types - populates struct arrays with hardcoded layouts
 fun registerKnownDataTypesImpl(structNames: Array<String>, structLayouts: Array<String>, structFieldNames: Array<String>, structFieldTypes: Array<String>, structLlvmFieldTypes: Array<String>, structSizes: Array<Int>, structMethodNames: Array<String>, structMethodRetTypes: Array<String>) r: Void {
     ///
-    ItemNode { itemType: String, name: String, visibility: String, importPath: Array<String>, importSymbols: Array<ImportSymbolNode>, function: FunctionNode, classNode: ClassNode, enumNode: EnumNode }
+    ItemNode { itemType: String, name: String, visibility: String, importPath: Array<String>, importSymbols: Array<ImportSymbolNode>, function: FunctionNode, classNode: ClassNode, enumNode: EnumNode, line: Int, column: Int }
     Arrays are stored as ptr (8 bytes each, pointer to heap-allocated SeenArray), class types stored as i64
     ///
     structNames.push("ItemNode")
-    structLayouts.push("{ %SeenString, %SeenString, %SeenString, ptr, ptr, i64, i64, i64 }")
-    structFieldNames.push("itemType,name,visibility,importPath,importSymbols,function,classNode,enumNode")
+    structLayouts.push("{ %SeenString, %SeenString, %SeenString, ptr, ptr, i64, i64, i64, i64, i64 }")
+    structFieldNames.push("itemType,name,visibility,importPath,importSymbols,function,classNode,enumNode,line,column")
     ///
     Use Seen types (not LLVM types) for getSeenFieldType to work correctly
     Field types are pipe-separated per getSeenFieldType parsing
     ///
-    structFieldTypes.push("String|String|String|Array<String>|Array<ImportSymbolNode>|FunctionNode|ClassNode|EnumNode")
+    structFieldTypes.push("String|String|String|Array<String>|Array<ImportSymbolNode>|FunctionNode|ClassNode|EnumNode|Int|Int")
     structLlvmFieldTypes.push("")
-    structSizes.push(88)
+    structSizes.push(104)
     structMethodNames.push("")
     structMethodRetTypes.push("")
-    // ImportSymbolNode { name: String, alias: String }
+    // ImportSymbolNode { name: String, alias: String, line: Int, column: Int }
     structNames.push("ImportSymbolNode")
-    structLayouts.push("{ %SeenString, %SeenString }")
-    structFieldNames.push("name,alias")
-    structFieldTypes.push("String|String")
+    structLayouts.push("{ %SeenString, %SeenString, i64, i64 }")
+    structFieldNames.push("name,alias,line,column")
+    structFieldTypes.push("String|String|Int|Int")
     structLlvmFieldTypes.push("")
-    structSizes.push(32)
+    structSizes.push(48)
     structMethodNames.push("")
     structMethodRetTypes.push("")
-    // ParamNode { name: String, paramType: TypeNode (inline), isMutable: i1 }
+    // ParamNode { name: String, paramType: TypeNode (inline), isMutable: i1, line: Int, column: Int }
     structNames.push("ParamNode")
-    structLayouts.push("{ %SeenString, %TypeNode, i1 }")
-    structFieldNames.push("name,paramType,isMutable")
-    structFieldTypes.push("String|TypeNode|Bool")
+    structLayouts.push("{ %SeenString, %TypeNode, i1, i64, i64 }")
+    structFieldNames.push("name,paramType,isMutable,line,column")
+    structFieldTypes.push("String|TypeNode|Bool|Int|Int")
     structLlvmFieldTypes.push("")
-    // %SeenString(16) + %TypeNode(24) + i1(1) + padding = 48
-    structSizes.push(48)
+    // Keep a conservative allocation to avoid under-allocation across bootstrap compilers.
+    structSizes.push(72)
     structMethodNames.push("")
     structMethodRetTypes.push("")
     // TypeNode { typeName: String, isNullable: i1 }
@@ -156,14 +156,14 @@ fun registerKnownDataTypesImpl(structNames: Array<String>, structLayouts: Array<
     structSizes.push(8)
     structMethodNames.push("")
     structMethodRetTypes.push("")
-    // StatementNode { kind, variableName, variableType (TypeNode inline), initializer, returnValue, expression, condition, thenBranch, elseBranch, loopCondition, loopBody }
+    // StatementNode { kind, variableName, variableType (TypeNode inline), initializer, returnValue, expression, condition, thenBranch, elseBranch, loopCondition, loopBody, line, column }
     structNames.push("StatementNode")
-    structLayouts.push("{ %SeenString, %SeenString, %TypeNode, i64, i64, i64, i64, i64, i64, i64, i64 }")
-    structFieldNames.push("kind,variableName,variableType,initializer,returnValue,expression,condition,thenBranch,elseBranch,loopCondition,loopBody")
-    structFieldTypes.push("String|String|TypeNode|ParserExpressionNode|ParserExpressionNode|ParserExpressionNode|ParserExpressionNode|BlockNode|BlockNode|ParserExpressionNode|BlockNode")
+    structLayouts.push("{ %SeenString, %SeenString, %TypeNode, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64 }")
+    structFieldNames.push("kind,variableName,variableType,initializer,returnValue,expression,condition,thenBranch,elseBranch,loopCondition,loopBody,line,column")
+    structFieldTypes.push("String|String|TypeNode|ParserExpressionNode|ParserExpressionNode|ParserExpressionNode|ParserExpressionNode|BlockNode|BlockNode|ParserExpressionNode|BlockNode|Int|Int")
     structLlvmFieldTypes.push("")
-    // 16 + 16 + 24 + 8*8 = 120 (aligned)
-    structSizes.push(120)
+    // Keep a conservative allocation to avoid under-allocation across bootstrap compilers.
+    structSizes.push(144)
     structMethodNames.push("")
     structMethodRetTypes.push("")
     // ParserExpressionNode { kind, operands, operator, literalValue, literalType, variableName, callee, arguments }

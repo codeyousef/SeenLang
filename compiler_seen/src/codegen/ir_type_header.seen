@@ -109,16 +109,16 @@ fun emitBuiltinTypeHeaderImpl(output: StringBuilder,
     output.append("%SeenArray = type { i64, i64, i64, ptr }\n")
     // TypeNode: { typeName: %SeenString, isNullable: i1 } - inline data type
     output.append("%TypeNode = type { %SeenString, i1 }\n")
-    // ParamNode: { name: %SeenString, paramType: %TypeNode, isMutable: i1 } - inline data type
-    output.append("%ParamNode = type { %SeenString, %TypeNode, i1 }\n")
+    // ParamNode: { name: %SeenString, paramType: %TypeNode, isMutable: i1, line: i64, column: i64 } - inline data type
+    output.append("%ParamNode = type { %SeenString, %TypeNode, i1, i64, i64 }\n")
     // ImportPathInfo: { text: %SeenString, segments: ptr (to SeenArray) } - inline data type
     output.append("%ImportPathInfo = type { %SeenString, ptr }\n")
-    // ImportSymbolNode: { name: %SeenString, alias: %SeenString } - inline data type
-    output.append("%ImportSymbolNode = type { %SeenString, %SeenString }\n")
+    // ImportSymbolNode: { name: %SeenString, alias: %SeenString, line: i64, column: i64 } - inline data type
+    output.append("%ImportSymbolNode = type { %SeenString, %SeenString, i64, i64 }\n")
     // AnnotationNode: { name: %SeenString, arguments: ptr (to SeenArray) } - inline data type for decorators
     output.append("%AnnotationNode = type { %SeenString, ptr }\n")
-    // ItemNode: { itemType, name, visibility: %SeenString, importPath, importSymbols: ptr, function, classNode, enumNode: i64 }
-    output.append("%ItemNode = type { %SeenString, %SeenString, %SeenString, ptr, ptr, i64, i64, i64 }\n")
+    // ItemNode: { itemType, name, visibility: %SeenString, importPath, importSymbols: ptr, function, classNode, enumNode, line, column: i64 }
+    output.append("%ItemNode = type { %SeenString, %SeenString, %SeenString, ptr, ptr, i64, i64, i64, i64, i64 }\n")
     // CommandResult: { success: Bool, output: String } - from process.seen
     output.append("%CommandResult = type { i1, %SeenString }\n")
     // RemovalResult: { success: Bool, message: String, files_removed: Array, directories_removed: Array }

@@ -33,7 +33,10 @@ fun getFieldTypeForHeaderStructImpl(structName: String, fieldName: String)
     if structName == "ParamNode" {
         if fieldName == "name" { return "%SeenString" }
         if fieldName == "paramType" { return "%TypeNode" }
+        if fieldName == "isMutable" { return "i1" }
         if fieldName == "defaultValue" { return "i64" }
+        if fieldName == "line" { return "i64" }
+        if fieldName == "column" { return "i64" }
     }
     if structName == "ItemNode" {
         if fieldName == "itemType" { return "%SeenString" }
@@ -44,6 +47,14 @@ fun getFieldTypeForHeaderStructImpl(structName: String, fieldName: String)
         if fieldName == "function" { return "i64" }
         if fieldName == "classNode" { return "i64" }
         if fieldName == "enumNode" { return "i64" }
+        if fieldName == "line" { return "i64" }
+        if fieldName == "column" { return "i64" }
+    }
+    if structName == "ImportSymbolNode" {
+        if fieldName == "name" { return "%SeenString" }
+        if fieldName == "alias" { return "%SeenString" }
+        if fieldName == "line" { return "i64" }
+        if fieldName == "column" { return "i64" }
     }
     if structName == "ProgramNode" {
         if fieldName == "items" { return "ptr" }
@@ -83,6 +94,8 @@ fun getFieldTypeForHeaderStructImpl(structName: String, fieldName: String)
         if fieldName == "returnValue" { return "i64" }
         if fieldName == "expression" { return "i64" }
         if fieldName == "loopCondition" { return "i64" }
+        if fieldName == "line" { return "i64" }
+        if fieldName == "column" { return "i64" }
     }
     if structName == "ParserExpressionNode" {
         if fieldName == "kind" { return "%SeenString" }
