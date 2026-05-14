@@ -13,6 +13,16 @@ WIN_DIR="${PROJECT_DIR}/target-windows"
 VERSION="${1:-1.0.0}"
 
 PACKAGE_DIR="${WIN_DIR}/seen-${VERSION}-windows-x64"
+
+prune_packaged_stdlib_artifacts() {
+    local stdlib_dir="$1"
+    [ -d "$stdlib_dir" ] || return 0
+
+    find "$stdlib_dir" -type f -name '*.tmp.*' -exec rm -f {} +
+    find "$stdlib_dir" -type d \( -name build -o -name target -o -name .seen \) \
+        -prune -exec rm -rf {} +
+}
+
 echo "=== Packaging Seen $VERSION for Windows ==="
 echo "  Output: $PACKAGE_DIR"
 
@@ -46,7 +56,7 @@ echo "  bin/seen-env.cmd"
 # --- Standard library ---
 if [ -d "$PROJECT_DIR/seen_std/src" ]; then
     cp -r "$PROJECT_DIR/seen_std/src/"* "$PACKAGE_DIR/lib/seen/std/"
-    find "$PACKAGE_DIR/lib/seen/std" -type f -name '*.tmp.*' -delete
+    prune_packaged_stdlib_artifacts "$PACKAGE_DIR/lib/seen/std"
     STD_COUNT=$(find "$PACKAGE_DIR/lib/seen/std" -type f | wc -l)
     echo "  lib/seen/std/ ($STD_COUNT files)"
 fi

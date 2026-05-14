@@ -32,6 +32,15 @@ success() { echo -e "${GREEN}$1${NC}"; }
 warn()    { echo -e "${YELLOW}$1${NC}"; }
 die()     { echo -e "${RED}Error: $1${NC}" >&2; exit 1; }
 
+prune_packaged_stdlib_artifacts() {
+    local stdlib_dir="$1"
+    [ -d "$stdlib_dir" ] || return 0
+
+    find "$stdlib_dir" -type f -name '*.tmp.*' -exec rm -f {} +
+    find "$stdlib_dir" -type d \( -name build -o -name target -o -name .seen \) \
+        -prune -exec rm -rf {} +
+}
+
 # --- Locate the Seen binary ---
 SEEN_BIN="${1:-$PROJECT_ROOT/compiler_seen/target/seen}"
 
@@ -80,6 +89,7 @@ chmod 755 "$PAYLOAD/usr/local/bin/seen-lsp"
 info "[2/5] Packaging standard library..."
 if [ -d "$PROJECT_ROOT/seen_std/src" ]; then
     cp -R "$PROJECT_ROOT/seen_std/src/." "$PAYLOAD/usr/local/lib/seen/"
+    prune_packaged_stdlib_artifacts "$PAYLOAD/usr/local/lib/seen"
     STD_COUNT=$(find "$PAYLOAD/usr/local/lib/seen" -name '*.seen' | wc -l | tr -d ' ')
     info "    $STD_COUNT stdlib modules packaged"
 else

@@ -44,6 +44,15 @@ success() {
     echo -e "${GREEN}$1${NC}" >&2
 }
 
+prune_packaged_stdlib_artifacts() {
+    local stdlib_dir="$1"
+    [ -d "$stdlib_dir" ] || return 0
+
+    find "$stdlib_dir" -type f -name '*.tmp.*' -exec rm -f {} +
+    find "$stdlib_dir" -type d \( -name build -o -name target -o -name .seen \) \
+        -prune -exec rm -rf {} +
+}
+
 header() {
     echo ""
     echo -e "${CYAN}===============================================${NC}"
@@ -567,8 +576,8 @@ install_app_files() {
     # Install standard library
     if [ -d "$PROJECT_ROOT/seen_std" ]; then
         cp -r "$PROJECT_ROOT/seen_std"/* "$appdir/usr/lib/seen/"
-        find "$appdir/usr/lib/seen/seen_std" "$appdir/usr/lib/seen/src" \
-            -type f -name '*.tmp.*' -delete 2>/dev/null || true
+        prune_packaged_stdlib_artifacts "$appdir/usr/lib/seen/seen_std"
+        prune_packaged_stdlib_artifacts "$appdir/usr/lib/seen/src"
         info "  ✓ Standard library installed"
     fi
     

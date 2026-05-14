@@ -38,6 +38,15 @@ success() {
     echo -e "${GREEN}$1${NC}" >&2
 }
 
+prune_packaged_stdlib_artifacts() {
+    local stdlib_dir="$1"
+    [ -d "$stdlib_dir" ] || return 0
+
+    find "$stdlib_dir" -type f -name '*.tmp.*' -exec rm -f {} +
+    find "$stdlib_dir" -type d \( -name build -o -name target -o -name .seen \) \
+        -prune -exec rm -rf {} +
+}
+
 header() {
     echo ""
     echo -e "${CYAN}===============================================${NC}"
@@ -477,7 +486,7 @@ create_source_tarball() {
     if [ -d "$PROJECT_ROOT/seen_std" ]; then
         mkdir -p "$source_dir/stdlib"
         cp -r "$PROJECT_ROOT/seen_std"/* "$source_dir/stdlib/"
-        find "$source_dir/stdlib" -type f -name '*.tmp.*' -delete
+        prune_packaged_stdlib_artifacts "$source_dir/stdlib"
     fi
 
     # Copy toolchain metadata and helper

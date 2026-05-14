@@ -28,6 +28,15 @@ CPU_BASELINE="${SEEN_RELEASE_CPU_BASELINE:-x86-64}"
 ARTIFACT_SUFFIX=""
 SKIP_VERIFY="${SEEN_RELEASE_SKIP_VERIFY:-0}"
 
+prune_packaged_stdlib_artifacts() {
+    local stdlib_dir="$1"
+    [[ -d "$stdlib_dir" ]] || return 0
+
+    find "$stdlib_dir" -type f -name '*.tmp.*' -exec rm -f {} +
+    find "$stdlib_dir" -type d \( -name build -o -name target -o -name .seen \) \
+        -prune -exec rm -rf {} +
+}
+
 usage() {
     echo "Usage: $0 --version <version> [--output-dir <dir>] [--compiler <path>]"
     echo "          [--cpu-baseline <x86-64|x86-64-v3>] [--artifact-suffix <linux-x64|linux-x64-v3>]"
@@ -123,7 +132,7 @@ strip "$STAGING/bin/seen" 2>/dev/null || true
 echo "[2/6] Copying standard library..."
 if [[ -d "$ROOT_DIR/seen_std/src" ]]; then
     cp -r "$ROOT_DIR/seen_std/src/"* "$STAGING/lib/seen/std/"
-    find "$STAGING/lib/seen/std" -type f -name '*.tmp.*' -delete
+    prune_packaged_stdlib_artifacts "$STAGING/lib/seen/std"
 fi
 
 echo "[3/6] Copying runtime..."
