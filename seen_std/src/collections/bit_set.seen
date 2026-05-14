@@ -4,15 +4,49 @@ Bit-packed boolean array for memory-efficient boolean storage.
 Used for Sieve of Eratosthenes and other algorithms requiring dense bit storage.
 ///
 
-import collections.vec.{Vec}
+fun bitSetWordCount(size: Int) r: Int {
+    if size <= 0 {
+        return 0
+    }
+    return (size + 63) / 64
+}
+
+fun bitSetMaskForBits(bits: Int) r: Int {
+    if bits <= 0 {
+        return 0
+    }
+    if bits >= 64 {
+        return -1
+    }
+
+    var mask = 0
+    var bit = 0
+    while bit < bits {
+        mask = mask | (1 << bit)
+        bit = bit + 1
+    }
+    return mask
+}
+
+fun bitSetCountWordOnes(word: Int, bitLimit: Int) r: Int {
+    var count = 0
+    var bit = 0
+    while bit < bitLimit {
+        if (word & (1 << bit)) != 0 {
+            count = count + 1
+        }
+        bit = bit + 1
+    }
+    return count
+}
 
 class BitSet {
-    var words: Vec<Int>
+    var words: Array<Int>
     var capacity: Int
 
     fun new(size: Int) -> BitSet {
-        let numWords = (size + 63) / 64
-        let words = Vec<Int>.new()
+        let numWords = bitSetWordCount(size)
+        let words = Array<Int>()
         var i = 0
         while i < numWords {
             words.push(0)
@@ -30,8 +64,7 @@ class BitSet {
         }
         let wordIndex = index / 64
         let bitIndex = index % 64
-        let word = this.words.get(wordIndex)
-        this.words.set(wordIndex, word | (1 << bitIndex))
+        this.words[wordIndex] = this.words[wordIndex] | (1 << bitIndex)
     }
 
     fun clear(this: BitSet, index: Int) -> Void {
@@ -40,8 +73,7 @@ class BitSet {
         }
         let wordIndex = index / 64
         let bitIndex = index % 64
-        let word = this.words.get(wordIndex)
-        this.words.set(wordIndex, word & ~(1 << bitIndex))
+        this.words[wordIndex] = this.words[wordIndex] & ~(1 << bitIndex)
     }
 
     fun get(this: BitSet, index: Int) -> Bool {
@@ -50,8 +82,7 @@ class BitSet {
         }
         let wordIndex = index / 64
         let bitIndex = index % 64
-        let word = this.words.get(wordIndex)
-        return (word & (1 << bitIndex)) != 0
+        return (this.words[wordIndex] & (1 << bitIndex)) != 0
     }
 
     fun size(this: BitSet) -> Int {
@@ -59,29 +90,44 @@ class BitSet {
     }
 
     fun countOnes(this: BitSet) -> Int {
-        let count = 0
-        var i = 0
-        while i < this.capacity {
-            if this.get(i) {
-                count = count + 1
+        var count = 0
+        let wordCount = this.words.length()
+        var wordIndex = 0
+        while wordIndex < wordCount {
+            var bitLimit = 64
+            if wordIndex == wordCount - 1 {
+                let trailingBits = this.capacity % 64
+                if trailingBits != 0 {
+                    bitLimit = trailingBits
+                }
             }
-            i = i + 1
+            count = count + bitSetCountWordOnes(this.words[wordIndex],
+                bitLimit)
+            wordIndex = wordIndex + 1
         }
         return count
     }
 
     fun clearAll(this: BitSet) -> Void {
         var i = 0
-        while i < this.words.size() {
-            this.words.set(i, 0)
+        while i < this.words.length() {
+            this.words[i] = 0
             i = i + 1
         }
     }
 
     fun setAll(this: BitSet) -> Void {
+        let wordCount = this.words.length()
         var i = 0
-        while i < this.words.size() {
-            this.words.set(i, -1)
+        while i < wordCount {
+            var word = -1
+            if i == wordCount - 1 {
+                let trailingBits = this.capacity % 64
+                if trailingBits != 0 {
+                    word = bitSetMaskForBits(trailingBits)
+                }
+            }
+            this.words[i] = word
             i = i + 1
         }
     }

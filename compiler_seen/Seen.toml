@@ -1,6 +1,6 @@
 [project]
 name = "seen_compiler"
-version = "0.8.2"
+version = "0.8.3"
 language = "en"
 visibility = "caps"
 description = "Self-hosted Seen compiler - written in Seen"

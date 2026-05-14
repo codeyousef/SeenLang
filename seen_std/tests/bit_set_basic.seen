@@ -1,0 +1,45 @@
+import collections.bit_set.{BitSet}
+
+fun expect(condition: Bool, message: String) -> Void {
+    if not condition {
+        abort(message)
+    }
+}
+
+fun main() r: Int {
+    let bits = BitSet.new(130)
+    expect(bits.size() == 130, "size tracks requested capacity")
+    expect(bits.countOnes() == 0, "new bitset has no set bits")
+
+    bits.set(0)
+    bits.set(63)
+    bits.set(64)
+    bits.set(129)
+
+    expect(bits.get(0), "bit 0 set")
+    expect(bits.get(63), "bit 63 set")
+    expect(bits.get(64), "bit 64 set")
+    expect(bits.get(129), "bit 129 set")
+    expect(bits.countOnes() == 4, "count across word boundaries")
+
+    bits.clear(63)
+    expect(not bits.get(63), "clear bit 63")
+    expect(bits.countOnes() == 3, "count after clear")
+
+    bits.setAll()
+    expect(bits.countOnes() == 130, "setAll masks unused final bits")
+    expect(bits.get(0), "setAll bit 0")
+    expect(bits.get(64), "setAll bit 64")
+    expect(bits.get(129), "setAll final valid bit")
+
+    bits.clear(129)
+    expect(not bits.get(129), "clear final valid bit")
+    expect(bits.countOnes() == 129, "count after clearing final bit")
+
+    bits.clearAll()
+    expect(bits.countOnes() == 0, "clearAll clears all words")
+    expect(not bits.get(0), "clearAll bit 0")
+    expect(not bits.get(64), "clearAll bit 64")
+
+    return 0
+}

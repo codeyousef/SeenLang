@@ -1,143 +1,163 @@
 ///
-VecDeque - Double-ended queue with O(1) push/pop at both ends
-Deterministic FIFO/LIFO operations for async task scheduling
+VecDeque - Double-ended queue with O(1) push/pop at both ends.
+Deterministic FIFO/LIFO operations for async task scheduling.
 ///
 
-// VecDeque implementation using a circular buffer
+import core.option.{Option, Some, None}
+
 class VecDeque<T> {
-    var data: Array<T>
+    var data: Array<Option<T>>
     var head: Int      // Index of first element
     var tail: Int      // Index after last element
     var capacity: Int  // Total capacity
     var count: Int     // Number of elements
 
     static fun new() r: VecDeque<T> {
-        let initialCapacity = 16
-        return VecDeque<T>{
-            data: Array<T>(),
-            head: 0,
-            tail: 0,
-            capacity: initialCapacity,
-            count: 0
-        }
+        return VecDeque<T>.withCapacity(16)
     }
 
     static fun withCapacity(cap: Int) r: VecDeque<T> {
+        var effectiveCap = cap
+        if effectiveCap <= 0 {
+            effectiveCap = 1
+        }
+
+        let storage = Array<Option<T>>()
+        var i = 0
+        while i < effectiveCap {
+            storage.push(None<T>())
+            i = i + 1
+        }
+
         return VecDeque<T>{
-            data: Array<T>(),
+            data: storage,
             head: 0,
             tail: 0,
-            capacity: cap,
+            capacity: effectiveCap,
             count: 0
         }
     }
 
-    // Get number of elements
     fun len() r: Int {
         return count
     }
 
-    // Check if empty
     fun isEmpty() r: Bool {
         return count == 0
     }
 
-    // Check if full
     fun isFull() r: Bool {
         return count >= capacity
     }
 
-    // Push to back (enqueue)
-    fun pushBack(value: T) r: Void {
-        data.push(value)
-        count = count + 1
-        tail = count
+    fun physicalIndex(index: Int) r: Int {
+        return (head + index) % capacity
     }
 
-    // Push to front
-    fun pushFront(value: T) r: Void {
-        ///
-        For simplicity, we implement this by shifting
-        A full circular buffer would be more efficient
-        ///
-        var newData = Array<T>()
-        newData.push(value)
+    fun ensureCapacityFor(required: Int) r: Void {
+        if required <= capacity {
+            return
+        }
+
+        var newCapacity = capacity * 2
+        if newCapacity < required {
+            newCapacity = required
+        }
+        if newCapacity <= 0 {
+            newCapacity = 1
+        }
+
+        let newData = Array<Option<T>>()
         var i = 0
-        while i < data.length() {
-            newData.push(data[i])
+        while i < count {
+            newData.push(data[physicalIndex(i)])
             i = i + 1
         }
+        while i < newCapacity {
+            newData.push(None<T>())
+            i = i + 1
+        }
+
         data = newData
-        count = count + 1
+        head = 0
         tail = count
+        capacity = newCapacity
     }
 
-    // Pop from front (dequeue) - FIFO
+    fun pushBack(value: T) r: Void {
+        ensureCapacityFor(count + 1)
+        data[tail] = Some<T>(value)
+        tail = (tail + 1) % capacity
+        count = count + 1
+    }
+
+    fun pushFront(value: T) r: Void {
+        ensureCapacityFor(count + 1)
+        head = (head + capacity - 1) % capacity
+        data[head] = Some<T>(value)
+        count = count + 1
+    }
+
     fun popFront() r: Option<T> {
         if count == 0 {
-            return None()
+            return None<T>()
         }
-        let value = data[0]
-        // Shift all elements left
-        var newData = Array<T>()
-        var i = 1
-        while i < data.length() {
-            newData.push(data[i])
-            i = i + 1
-        }
-        data = newData
+
+        let value = data[head]
+        data[head] = None<T>()
+        head = (head + 1) % capacity
         count = count - 1
-        tail = count
-        return Some(value)
+        if count == 0 {
+            head = 0
+            tail = 0
+        }
+        return value
     }
 
-    // Pop from back - LIFO
     fun popBack() r: Option<T> {
         if count == 0 {
-            return None()
+            return None<T>()
         }
-        let lastIdx = count - 1
-        let value = data[lastIdx]
-        // Remove last element
-        var newData = Array<T>()
-        var i = 0
-        while i < lastIdx {
-            newData.push(data[i])
-            i = i + 1
-        }
-        data = newData
+
+        tail = (tail + capacity - 1) % capacity
+        let value = data[tail]
+        data[tail] = None<T>()
         count = count - 1
-        tail = count
-        return Some(value)
+        if count == 0 {
+            head = 0
+            tail = 0
+        }
+        return value
     }
 
-    // Peek at front without removing
     fun front() r: Option<T> {
         if count == 0 {
-            return None()
+            return None<T>()
         }
-        return Some(data[0])
+        return data[head]
     }
 
-    // Peek at back without removing
     fun back() r: Option<T> {
         if count == 0 {
-            return None()
+            return None<T>()
         }
-        return Some(data[count - 1])
+        let index = (tail + capacity - 1) % capacity
+        return data[index]
     }
 
-    // Get element at index
     fun get(index: Int) r: Option<T> {
         if index < 0 or index >= count {
-            return None()
+            return None<T>()
         }
-        return Some(data[index])
+        return data[physicalIndex(index)]
     }
 
-    // Clear all elements
     fun clear() r: Void {
-        data = Array<T>()
+        var i = 0
+        while i < capacity {
+            data[i] = None<T>()
+            i = i + 1
+        }
         head = 0
         tail = 0
         count = 0
@@ -146,12 +166,34 @@ class VecDeque<T> {
 
 // Specialized VecDeque for Int (avoids generic complexity)
 class IntVecDeque {
-    var data: Array<Int>
+    var data: Array<Option<Int>>
+    var head: Int
+    var tail: Int
+    var capacity: Int
     var count: Int
 
     static fun new() r: IntVecDeque {
+        return IntVecDeque.withCapacity(16)
+    }
+
+    static fun withCapacity(cap: Int) r: IntVecDeque {
+        var effectiveCap = cap
+        if effectiveCap <= 0 {
+            effectiveCap = 1
+        }
+
+        let storage = Array<Option<Int>>()
+        var i = 0
+        while i < effectiveCap {
+            storage.push(None<Int>())
+            i = i + 1
+        }
+
         return IntVecDeque{
-            data: Array<Int>(),
+            data: storage,
+            head: 0,
+            tail: 0,
+            capacity: effectiveCap,
             count: 0
         }
     }
@@ -164,36 +206,120 @@ class IntVecDeque {
         return count == 0
     }
 
+    fun isFull() r: Bool {
+        return count >= capacity
+    }
+
+    fun physicalIndex(index: Int) r: Int {
+        return (head + index) % capacity
+    }
+
+    fun ensureCapacityFor(required: Int) r: Void {
+        if required <= capacity {
+            return
+        }
+
+        var newCapacity = capacity * 2
+        if newCapacity < required {
+            newCapacity = required
+        }
+        if newCapacity <= 0 {
+            newCapacity = 1
+        }
+
+        let newData = Array<Option<Int>>()
+        var i = 0
+        while i < count {
+            newData.push(data[physicalIndex(i)])
+            i = i + 1
+        }
+        while i < newCapacity {
+            newData.push(None<Int>())
+            i = i + 1
+        }
+
+        data = newData
+        head = 0
+        tail = count
+        capacity = newCapacity
+    }
+
     fun pushBack(value: Int) r: Void {
-        data.push(value)
+        ensureCapacityFor(count + 1)
+        data[tail] = Some<Int>(value)
+        tail = (tail + 1) % capacity
+        count = count + 1
+    }
+
+    fun pushFront(value: Int) r: Void {
+        ensureCapacityFor(count + 1)
+        head = (head + capacity - 1) % capacity
+        data[head] = Some<Int>(value)
         count = count + 1
     }
 
     fun popFront() r: Option<Int> {
         if count == 0 {
-            return None()
+            return None<Int>()
         }
-        let value = data[0]
-        var newData = Array<Int>()
-        var i = 1
-        while i < data.length() {
-            newData.push(data[i])
-            i = i + 1
-        }
-        data = newData
+
+        let value = data[head]
+        data[head] = None<Int>()
+        head = (head + 1) % capacity
         count = count - 1
-        return Some(value)
+        if count == 0 {
+            head = 0
+            tail = 0
+        }
+        return value
+    }
+
+    fun popBack() r: Option<Int> {
+        if count == 0 {
+            return None<Int>()
+        }
+
+        tail = (tail + capacity - 1) % capacity
+        let value = data[tail]
+        data[tail] = None<Int>()
+        count = count - 1
+        if count == 0 {
+            head = 0
+            tail = 0
+        }
+        return value
     }
 
     fun front() r: Option<Int> {
         if count == 0 {
-            return None()
+            return None<Int>()
         }
-        return Some(data[0])
+        return data[head]
+    }
+
+    fun back() r: Option<Int> {
+        if count == 0 {
+            return None<Int>()
+        }
+        let index = (tail + capacity - 1) % capacity
+        return data[index]
+    }
+
+    fun get(index: Int) r: Option<Int> {
+        if index < 0 or index >= count {
+            return None<Int>()
+        }
+        return data[physicalIndex(index)]
     }
 
     fun clear() r: Void {
-        data = Array<Int>()
+        var i = 0
+        while i < capacity {
+            data[i] = None<Int>()
+            i = i + 1
+        }
+        head = 0
+        tail = 0
         count = 0
     }
 }

@@ -5,6 +5,22 @@ All notable changes to the Seen compiler will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.3] - 2026-05-14
+
+### Added
+
+- FEL-261: Added conservative frontend dead-code warnings for unreachable statements, unused locals, unused parameters, unused import symbols, unused private top-level functions, and unused whole-module imports.
+- FEL-261: Added LSP/editor diagnostic conversion coverage for Seen warning codes so dead-code warnings surface as warnings instead of errors.
+- FEL-270: Added module namespace import aliases such as `import codegen.ir_call_driver as calls`, including alias-qualified resolution for functions, types, enums, and static-style references without injecting unqualified names.
+- FEL-270: Added VS Code import-block folding for contiguous top-level `import`, `use`, and `pub import` lines.
+- FEL-261/FEL-270: Added focused parser, compiler, and extension coverage for dead-code warnings, module alias imports, and import folding.
+- FEL-262/FEL-271: Added focused stdlib coverage for `VecDeque`, `IntVecDeque`, and `BitSet` behavior around wraparound, growth, clearing, and word-boundary bit operations.
+
+### Changed
+
+- FEL-262/FEL-271: Optimized source-only `VecDeque`, `IntVecDeque`, and `BitSet` containers while preserving their public APIs.
+- Bumped the shipped Seen compiler version to `0.8.3`.
+
 ## [0.8.2] - 2026-05-12
 
 ### Added

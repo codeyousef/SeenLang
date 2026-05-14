@@ -10372,7 +10372,7 @@ fun runScriptCommand(inputFile: String, useAot: Bool, verbose: Bool, language: S
 }
 
 fun seenCompilerVersion() r: String {
-    return "0.8.2"
+    return "0.8.3"
 }
 
 fun printVersion() r: Void {

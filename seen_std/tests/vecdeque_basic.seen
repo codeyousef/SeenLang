@@ -1,0 +1,86 @@
+import collections.vecdeque.{VecDeque, IntVecDeque}
+import core.option.{Option}
+
+fun expect(condition: Bool, message: String) -> Void {
+    if not condition {
+        abort(message)
+    }
+}
+
+fun expectSomeInt(value: Option<Int>, expected: Int, message: String) -> Void {
+    expect(value.isSome(), message + " should be Some")
+    expect(value.unwrapOr(-999999) == expected, message)
+}
+
+fun testGenericVecDeque() r: Void {
+    let deque = VecDeque<Int>.withCapacity(3)
+    expect(deque.isEmpty(), "deque starts empty")
+    expect(deque.front().isNone(), "front on empty")
+    expect(deque.popFront().isNone(), "popFront on empty")
+
+    deque.pushBack(1)
+    deque.pushBack(2)
+    deque.pushBack(3)
+    expect(deque.isFull(), "deque full after filling capacity")
+
+    expectSomeInt(deque.popFront(), 1, "popFront returns first value")
+    deque.pushBack(4)
+
+    expectSomeInt(deque.get(0), 2, "wrapped get 0")
+    expectSomeInt(deque.get(1), 3, "wrapped get 1")
+    expectSomeInt(deque.get(2), 4, "wrapped get 2")
+    expectSomeInt(deque.front(), 2, "front after wrap")
+    expectSomeInt(deque.back(), 4, "back after wrap")
+
+    deque.pushFront(1)
+    expect(deque.len() == 4, "pushFront grows full deque")
+    expectSomeInt(deque.get(0), 1, "grown get 0")
+    expectSomeInt(deque.get(3), 4, "grown get 3")
+
+    expectSomeInt(deque.popBack(), 4, "popBack returns last value")
+    expectSomeInt(deque.popFront(), 1, "popFront returns pushed front")
+    expectSomeInt(deque.get(0), 2, "remaining get 0")
+    expectSomeInt(deque.get(1), 3, "remaining get 1")
+
+    let retainedCapacity = deque.capacity
+    deque.clear()
+    expect(deque.isEmpty(), "clear empties deque")
+    expect(deque.capacity == retainedCapacity, "clear retains capacity")
+    deque.pushBack(9)
+    expectSomeInt(deque.front(), 9, "push after clear")
+}
+
+fun testIntVecDeque() r: Void {
+    let deque = IntVecDeque.withCapacity(2)
+    expect(deque.isEmpty(), "int deque starts empty")
+    expect(deque.popBack().isNone(), "int popBack on empty")
+
+    deque.pushBack(10)
+    deque.pushBack(20)
+    expect(deque.isFull(), "int deque full")
+    expectSomeInt(deque.popFront(), 10, "int popFront wraps head")
+    deque.pushBack(30)
+    deque.pushFront(5)
+
+    expect(deque.len() == 3, "int deque grows")
+    expectSomeInt(deque.front(), 5, "int front")
+    expectSomeInt(deque.back(), 30, "int back")
+    expectSomeInt(deque.get(0), 5, "int get 0")
+    expectSomeInt(deque.get(1), 20, "int get 1")
+    expectSomeInt(deque.get(2), 30, "int get 2")
+    expectSomeInt(deque.popBack(), 30, "int popBack")
+    expectSomeInt(deque.back(), 20, "int back after pop")
+
+    let retainedCapacity = deque.capacity
+    deque.clear()
+    expect(deque.isEmpty(), "int clear empties")
+    expect(deque.capacity == retainedCapacity, "int clear retains capacity")
+    deque.pushFront(7)
+    expectSomeInt(deque.front(), 7, "int pushFront after clear")
+}
+
+fun main() r: Int {
+    testGenericVecDeque()
+    testIntVecDeque()
+    return 0
+}
