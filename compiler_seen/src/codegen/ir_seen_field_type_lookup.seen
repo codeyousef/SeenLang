@@ -9,7 +9,9 @@ import codegen.ir_seen_field_type_registered.{getSeenFieldTypeEmptyRegistryFallb
 fun getSeenFieldTypeImpl(structName: String, fieldName: String, structNames: Array<String>, structFieldNames: Array<String>, structFieldTypes: Array<String>) r: String {
     let cacheKey = structName + "." + fieldName
     let structLen = structNames.length()
-    let cachedFieldType = findSeenFieldTypeCacheRecord(cacheKey, structLen)
+    let cachedFieldType = findSeenFieldTypeCacheRecord(cacheKey, structLen,
+        structName, fieldName, structNames, structFieldNames,
+        structFieldTypes)
     if cachedFieldType >= 0 {
         return g_seenFieldTypeCacheValues[cachedFieldType]
     }

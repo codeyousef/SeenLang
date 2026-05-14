@@ -4,6 +4,8 @@ import str.string.{StringBuilder}
 import codegen.ir_codegen_state.{CodegenState, FunctionLoweringOptions}
 import codegen.ir_codegen_feature_state.{g_closureCount, g_closureDefs, g_comptimeCount, g_comptimeNames, g_comptimeValues, g_intrinsicCount, g_intrinsicFuncNames, g_intrinsicLlvmNames, g_pforCount, g_sendTypes, g_syncTypes}
 import codegen.ir_string_collect.{resetStringConstCache}
+import codegen.ir_type_info.{resetTypeInfoLookupCaches}
+import codegen.ir_infer_type.{resetMethodBoolSuffixCache}
 
 class CodegenStateBridgeSnapshot {
     var output: StringBuilder
@@ -121,6 +123,8 @@ fun resetSharedModuleGenerationScratchStateImpl()
     r: SharedModuleGenerationScratchState {
 
     resetStringConstCache()
+    resetTypeInfoLookupCaches()
+    resetMethodBoolSuffixCache()
     return SharedModuleGenerationScratchState.new()
 }
 

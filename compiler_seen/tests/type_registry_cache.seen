@@ -10,6 +10,11 @@ import codegen.ir_field_registry.{
     findCachedIrgenFieldIndexImpl, cacheIrgenFieldIndexImpl,
     findCachedChainedPathTypeRecordImpl, cacheChainedPathTypeImpl
 }
+import codegen.ir_type_info.{resetTypeInfoLookupCaches, findStructIdx}
+import codegen.ir_seen_field_type_lookup.{getSeenFieldTypeImpl}
+import codegen.ir_method_return_type_lookup.{getMethodReturnTypeImpl}
+import codegen.ir_infer_type.{resetMethodBoolSuffixCache,
+    inferMethodCallBoolSuffixImpl}
 
 fun expect(condition: Bool, message: String) r: Void {
     if not condition {
@@ -160,10 +165,180 @@ fun testIrFieldLookupCaches() r: Void {
         "chained path cache updates existing entry")
 }
 
+fun testTypeInfoStructLookupCache() r: Void {
+    resetTypeInfoLookupCaches()
+
+    let structNames = Array<String>()
+    structNames.push("CacheStruct")
+    structNames.push("OtherStruct")
+
+    expect(findStructIdx(structNames, "CacheStruct") == 0,
+        "type-info struct lookup resolves uncached entry")
+    expect(findStructIdx(structNames, "CacheStruct") == 0,
+        "type-info struct lookup returns cached entry")
+
+    let sameLengthStructNames = Array<String>()
+    sameLengthStructNames.push("CacheStruct")
+    sameLengthStructNames.push("CacheStruct")
+    expect(findStructIdx(sameLengthStructNames, "CacheStruct") == 1,
+        "type-info struct cache rejects stale same-length duplicate")
+
+    sameLengthStructNames.push("CacheStruct")
+    expect(findStructIdx(sameLengthStructNames, "CacheStruct") == 2,
+        "type-info struct cache respects registry growth")
+}
+
+fun testSeenFieldTypeCache() r: Void {
+    resetTypeInfoLookupCaches()
+
+    let structNames = Array<String>()
+    let fieldNames = Array<String>()
+    let fieldTypes = Array<String>()
+    structNames.push("CacheFieldRecord")
+    fieldNames.push("alpha,beta")
+    fieldTypes.push("Int|String")
+
+    expect(getSeenFieldTypeImpl("CacheFieldRecord", "beta", structNames,
+        fieldNames, fieldTypes) == "String",
+        "seen field type lookup resolves dynamic field")
+    expect(getSeenFieldTypeImpl("CacheFieldRecord", "beta", structNames,
+        fieldNames, fieldTypes) == "String",
+        "seen field type lookup returns cached field")
+
+    let sameLengthStructNames = Array<String>()
+    let sameLengthFieldNames = Array<String>()
+    let sameLengthFieldTypes = Array<String>()
+    sameLengthStructNames.push("CacheFieldRecord")
+    sameLengthFieldNames.push("beta")
+    sameLengthFieldTypes.push("Bool")
+    expect(getSeenFieldTypeImpl("CacheFieldRecord", "beta",
+        sameLengthStructNames, sameLengthFieldNames, sameLengthFieldTypes) ==
+        "Bool", "seen field type cache rejects stale same-length layout")
+
+    expect(getSeenFieldTypeImpl("CacheFieldRecord", "missing",
+        sameLengthStructNames, sameLengthFieldNames, sameLengthFieldTypes) ==
+        "Int", "seen field type cache stores misses as default Int")
+
+    let lateFieldNames = Array<String>()
+    let lateFieldTypes = Array<String>()
+    lateFieldNames.push("missing")
+    lateFieldTypes.push("Float")
+    expect(getSeenFieldTypeImpl("CacheFieldRecord", "missing",
+        sameLengthStructNames, lateFieldNames, lateFieldTypes) == "Float",
+        "seen field type cache rejects stale same-length miss")
+}
+
+fun testMethodReturnTypeCache() r: Void {
+    resetTypeInfoLookupCaches()
+
+    let structNames = Array<String>()
+    let methodNames = Array<String>()
+    let methodRetTypes = Array<String>()
+    structNames.push("CacheMethodRecord")
+    methodNames.push("foo,bar")
+    methodRetTypes.push("Int|String")
+
+    expect(getMethodReturnTypeImpl("CacheMethodRecord", "bar", structNames,
+        methodNames, methodRetTypes) == "String",
+        "method return lookup resolves dynamic method")
+    expect(getMethodReturnTypeImpl("CacheMethodRecord", "bar", structNames,
+        methodNames, methodRetTypes) == "String",
+        "method return lookup returns cached method")
+
+    let sameLengthStructNames = Array<String>()
+    let sameLengthMethodNames = Array<String>()
+    let sameLengthMethodRetTypes = Array<String>()
+    sameLengthStructNames.push("CacheMethodRecord")
+    sameLengthMethodNames.push("bar")
+    sameLengthMethodRetTypes.push("Bool")
+    expect(getMethodReturnTypeImpl("CacheMethodRecord", "bar",
+        sameLengthStructNames, sameLengthMethodNames,
+        sameLengthMethodRetTypes) == "Bool",
+        "method return cache rejects stale same-length method table")
+
+    expect(getMethodReturnTypeImpl("CacheMethodRecord", "missing",
+        sameLengthStructNames, sameLengthMethodNames,
+        sameLengthMethodRetTypes) == "",
+        "method return cache stores missing method")
+
+    let lateMethodNames = Array<String>()
+    let lateMethodRetTypes = Array<String>()
+    lateMethodNames.push("missing")
+    lateMethodRetTypes.push("Float")
+    expect(getMethodReturnTypeImpl("CacheMethodRecord", "missing",
+        sameLengthStructNames, lateMethodNames, lateMethodRetTypes) ==
+        "Float", "method return cache rejects stale same-length miss")
+
+    let duplicateStructNames = Array<String>()
+    let duplicateMethodNames = Array<String>()
+    let duplicateMethodRetTypes = Array<String>()
+    duplicateStructNames.push("CacheMethodRecord")
+    duplicateMethodNames.push("bar")
+    duplicateMethodRetTypes.push("Int")
+    duplicateStructNames.push("CacheMethodRecord")
+    duplicateMethodNames.push("bar")
+    duplicateMethodRetTypes.push("String")
+    expect(getMethodReturnTypeImpl("CacheMethodRecord", "bar",
+        duplicateStructNames, duplicateMethodNames,
+        duplicateMethodRetTypes) == "String",
+        "method return cache respects latest duplicate struct")
+}
+
+fun testMethodBoolSuffixCache() r: Void {
+    resetMethodBoolSuffixCache()
+
+    let funcNames = Array<String>()
+    let funcRetTypes = Array<String>()
+    funcNames.push("Owner_isReady")
+    funcRetTypes.push("Bool")
+    expect(inferMethodCallBoolSuffixImpl("isReady", funcNames,
+        funcRetTypes) == "Bool",
+        "bool suffix lookup resolves Bool helper")
+    expect(inferMethodCallBoolSuffixImpl("isReady", funcNames,
+        funcRetTypes) == "Bool",
+        "bool suffix lookup returns cached Bool helper")
+
+    let sameLengthRetTypes = Array<String>()
+    sameLengthRetTypes.push("Int")
+    expect(inferMethodCallBoolSuffixImpl("isReady", funcNames,
+        sameLengthRetTypes) == "",
+        "bool suffix cache rejects stale same-length return type")
+
+    let missNames = Array<String>()
+    let missRetTypes = Array<String>()
+    missNames.push("Other_value")
+    missRetTypes.push("Bool")
+    expect(inferMethodCallBoolSuffixImpl("missing", missNames,
+        missRetTypes) == "",
+        "bool suffix lookup caches no-match miss")
+
+    let lateNames = Array<String>()
+    let lateRetTypes = Array<String>()
+    lateNames.push("Owner_missing")
+    lateRetTypes.push("Bool")
+    expect(inferMethodCallBoolSuffixImpl("missing", lateNames,
+        lateRetTypes) == "Bool",
+        "bool suffix cache rejects stale same-length no-match miss")
+
+    let latestNames = Array<String>()
+    let latestRetTypes = Array<String>()
+    latestNames.push("Old_isReady")
+    latestRetTypes.push("Bool")
+    latestNames.push("New_isReady")
+    latestRetTypes.push("Int")
+    expect(inferMethodCallBoolSuffixImpl("isReady", latestNames,
+        latestRetTypes) == "",
+        "bool suffix lookup preserves latest non-Bool helper behavior")
+}
+
 fun main() r: Int {
     testStructLookupCache()
     testFunctionReturnCache()
     testFieldInfoCache()
     testIrFieldLookupCaches()
+    testTypeInfoStructLookupCache()
+    testSeenFieldTypeCache()
+    testMethodReturnTypeCache()
+    testMethodBoolSuffixCache()
     return 0
 }

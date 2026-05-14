@@ -16,11 +16,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - FEL-261/FEL-270: Added focused parser, compiler, and extension coverage for dead-code warnings, module alias imports, and import folding.
 - FEL-262/FEL-271: Added focused stdlib coverage for `VecDeque`, `IntVecDeque`, and `BitSet` behavior around wraparound, growth, clearing, and word-boundary bit operations.
 - FEL-262/FEL-272: Added focused compiler cache coverage for struct registry, function return, field index, IR field index, and chained-path type cache behavior.
+- FEL-262/FEL-273: Added focused compiler cache coverage for codegen type-info struct lookup, Seen field type lookup, method return lookup, and bool-suffix method inference.
 
 ### Changed
 
 - FEL-262/FEL-271: Optimized source-only `VecDeque`, `IntVecDeque`, and `BitSet` containers while preserving their public APIs.
 - FEL-262/FEL-272: Enabled source-level compiler registry lookup caches for repeated struct, function return, field index, IR field index, and chained-path type lookups while preserving existing lookup semantics.
+- FEL-262/FEL-273: Enabled remaining internal codegen type lookup caches with bounded reset behavior and stale-registry guards.
 - Bumped the shipped Seen compiler version to `0.8.3`.
 
 ## [0.8.2] - 2026-05-12

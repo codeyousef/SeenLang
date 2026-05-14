@@ -33,6 +33,46 @@ var g_methodReturnCacheStructIdxs: Array<Int> = Array<Int>()
 var g_methodReturnCacheMethodNames: Array<String> = Array<String>()
 var g_methodReturnCacheMethodRetTypes: Array<String> = Array<String>()
 
+fun typeInfoCacheMaxEntries() r: Int {
+    return 8192
+}
+
+fun typeInfoMin2(a: Int, b: Int) r: Int {
+    if a < b { return a }
+    return b
+}
+
+fun typeInfoMin3(a: Int, b: Int, c: Int) r: Int {
+    return typeInfoMin2(typeInfoMin2(a, b), c)
+}
+
+fun resetTypeInfoStructLookupCache() r: Void {
+    g_typeInfoFindStructCacheNames = Array<String>()
+    g_typeInfoFindStructCacheIdxs = Array<Int>()
+    g_typeInfoFindStructCacheLens = Array<Int>()
+}
+
+fun resetSeenFieldTypeCache() r: Void {
+    g_seenFieldTypeCacheKeys = Array<String>()
+    g_seenFieldTypeCacheLens = Array<Int>()
+    g_seenFieldTypeCacheValues = Array<String>()
+}
+
+fun resetMethodReturnTypeCache() r: Void {
+    g_methodReturnCacheKeys = Array<String>()
+    g_methodReturnCacheTypes = Array<String>()
+    g_methodReturnCacheStructLens = Array<Int>()
+    g_methodReturnCacheStructIdxs = Array<Int>()
+    g_methodReturnCacheMethodNames = Array<String>()
+    g_methodReturnCacheMethodRetTypes = Array<String>()
+}
+
+fun resetTypeInfoLookupCaches() r: Void {
+    resetTypeInfoStructLookupCache()
+    resetSeenFieldTypeCache()
+    resetMethodReturnTypeCache()
+}
+
 fun decodeFieldTypeCode(code: Int) r: String {
     if code == 0 { return "i64" }
     if code == 1 { return "i1" }
@@ -47,9 +87,38 @@ fun decodeFieldTypeCode(code: Int) r: String {
 
 // Local struct name lookup (replaces class findStruct method)
 fun findStructIdx(structNames: Array<String>, name: String) r: Int {
+    let currentLen = structNames.length()
+    var limit = typeInfoMin3(g_typeInfoFindStructCacheNames.length(),
+        g_typeInfoFindStructCacheIdxs.length(),
+        g_typeInfoFindStructCacheLens.length())
+    var cached = limit - 1
+    while cached >= 0 {
+        if g_typeInfoFindStructCacheLens[cached] == currentLen and
+            g_typeInfoFindStructCacheNames[cached] == name {
+
+            let idx = g_typeInfoFindStructCacheIdxs[cached]
+            if idx >= 0 and idx < currentLen and structNames[idx] == name {
+                var laterIdx = currentLen - 1
+                var hasLaterMatch = false
+                while laterIdx > idx {
+                    if structNames[laterIdx] == name {
+                        hasLaterMatch = true
+                        laterIdx = idx
+                    }
+                    laterIdx = laterIdx - 1
+                }
+                if not hasLaterMatch {
+                    return idx
+                }
+            }
+        }
+        cached = cached - 1
+    }
+
     var i = structNames.length() - 1
     while i >= 0 {
         if structNames[i] == name {
+            cacheTypeInfoStructIdx(name, i, structNames)
             return i
         }
         i = i - 1
@@ -57,11 +126,163 @@ fun findStructIdx(structNames: Array<String>, name: String) r: Int {
     return -1
 }
 
-fun findSeenFieldTypeCacheRecord(key: String, structLen: Int) r: Int {
+fun cacheTypeInfoStructIdx(name: String, idx: Int,
+    structNames: Array<String>) r: Void {
+
+    if idx < 0 or idx >= structNames.length() {
+        return
+    }
+    if g_typeInfoFindStructCacheNames.length() > typeInfoCacheMaxEntries() {
+        resetTypeInfoStructLookupCache()
+    }
+    let currentLen = structNames.length()
+    var limit = typeInfoMin3(g_typeInfoFindStructCacheNames.length(),
+        g_typeInfoFindStructCacheIdxs.length(),
+        g_typeInfoFindStructCacheLens.length())
+    var i = limit - 1
+    while i >= 0 {
+        if g_typeInfoFindStructCacheLens[i] == currentLen and
+            g_typeInfoFindStructCacheNames[i] == name {
+
+            g_typeInfoFindStructCacheIdxs[i] = idx
+            return
+        }
+        i = i - 1
+    }
+    g_typeInfoFindStructCacheNames.push(name)
+    g_typeInfoFindStructCacheIdxs.push(idx)
+    g_typeInfoFindStructCacheLens.push(currentLen)
+    return
+}
+
+fun cachedSeenFieldTypeMatchesCurrent(structName: String, fieldName: String,
+    resultType: String, structNames: Array<String>,
+    structFieldNames: Array<String>, structFieldTypes: Array<String>) r: Bool {
+
+    if structName == "LLVMIRGenerator" {
+        if fieldName == "output" { return resultType == "StringBuilder" }
+        if fieldName == "stringConstants" { return resultType == "Array<String>" }
+        if fieldName == "nextReg" { return resultType == "Int" }
+        if fieldName == "nextBlock" { return resultType == "Int" }
+        if fieldName == "varNames" { return resultType == "Array<String>" }
+        if fieldName == "varRegs" { return resultType == "Array<String>" }
+        if fieldName == "varTypes" { return resultType == "Array<String>" }
+        if fieldName == "indent" { return resultType == "Int" }
+    }
+
+    let idx = findStructIdx(structNames, structName)
+    if idx < 0 {
+        return resultType == "Int"
+    }
+    if idx >= structFieldNames.length() or idx >= structFieldTypes.length() {
+        return false
+    }
+    let fieldNamesStr = structFieldNames[idx]
+    let fieldTypesStr = structFieldTypes[idx]
+    if fieldTypesStr == "" {
+        return false
+    }
+
+    var fieldIdx = 0
+    var nameStart = 0
+    var foundField = false
+    var pos = 0
+    while pos <= fieldNamesStr.length() and not foundField {
+        var atComma = 0
+        if pos == fieldNamesStr.length() { atComma = 1 }
+        if atComma == 0 {
+            if fieldNamesStr.byteAt(pos) == 44 { atComma = 1 }
+        }
+        if atComma == 1 {
+            let name = fieldNamesStr.substring(nameStart, pos)
+            if name == fieldName {
+                foundField = true
+            }
+            if name != fieldName {
+                fieldIdx = fieldIdx + 1
+                nameStart = pos + 1
+            }
+        }
+        pos = pos + 1
+    }
+
+    if not foundField {
+        let knownLspFieldType = getKnownLspSeenFieldTypeImpl(structName,
+            fieldName)
+        if knownLspFieldType != "" {
+            return resultType == knownLspFieldType
+        }
+        return resultType == "Int"
+    }
+
+    var typeIdx = 0
+    var typeStart = 0
+    pos = 0
+    while pos <= fieldTypesStr.length() {
+        var atPipe = 0
+        if pos == fieldTypesStr.length() { atPipe = 1 }
+        if atPipe == 0 {
+            if fieldTypesStr.byteAt(pos) == 124 { atPipe = 1 }
+        }
+        if atPipe == 1 {
+            if typeIdx == fieldIdx {
+                return resultType == fieldTypesStr.substring(typeStart, pos)
+            }
+            typeIdx = typeIdx + 1
+            typeStart = pos + 1
+        }
+        pos = pos + 1
+    }
+
+    let lateKnownLspFieldType = getKnownLspSeenFieldTypeImpl(structName,
+        fieldName)
+    if lateKnownLspFieldType != "" {
+        return resultType == lateKnownLspFieldType
+    }
+    return resultType == "Int"
+}
+
+fun findSeenFieldTypeCacheRecord(key: String, structLen: Int,
+    structName: String, fieldName: String, structNames: Array<String>,
+    structFieldNames: Array<String>, structFieldTypes: Array<String>) r: Int {
+
+    var limit = typeInfoMin3(g_seenFieldTypeCacheKeys.length(),
+        g_seenFieldTypeCacheLens.length(), g_seenFieldTypeCacheValues.length())
+    var i = limit - 1
+    while i >= 0 {
+        if g_seenFieldTypeCacheLens[i] == structLen and
+            g_seenFieldTypeCacheKeys[i] == key {
+
+            if cachedSeenFieldTypeMatchesCurrent(structName, fieldName,
+                g_seenFieldTypeCacheValues[i], structNames, structFieldNames,
+                structFieldTypes) {
+                return i
+            }
+        }
+        i = i - 1
+    }
     return -1
 }
 
 fun cacheSeenFieldType(key: String, structLen: Int, resultType: String) r: Void {
+    if g_seenFieldTypeCacheKeys.length() > typeInfoCacheMaxEntries() {
+        resetSeenFieldTypeCache()
+    }
+    var limit = typeInfoMin3(g_seenFieldTypeCacheKeys.length(),
+        g_seenFieldTypeCacheLens.length(), g_seenFieldTypeCacheValues.length())
+    var i = limit - 1
+    while i >= 0 {
+        if g_seenFieldTypeCacheLens[i] == structLen and
+            g_seenFieldTypeCacheKeys[i] == key {
+
+            g_seenFieldTypeCacheValues[i] = resultType
+            return
+        }
+        i = i - 1
+    }
+    g_seenFieldTypeCacheKeys.push(key)
+    g_seenFieldTypeCacheLens.push(structLen)
+    g_seenFieldTypeCacheValues.push(resultType)
     return
 }
 
@@ -69,9 +290,62 @@ fun methodReturnCacheKeyImpl(structName: String, methodName: String) r: String {
     return structName + ":" + methodName
 }
 
+fun cachedStructIndexStillLatest(structNames: Array<String>, structName: String,
+    idx: Int) r: Bool {
+
+    if idx < 0 or idx >= structNames.length() {
+        return false
+    }
+    if structNames[idx] != structName {
+        return false
+    }
+    var laterIdx = structNames.length() - 1
+    while laterIdx > idx {
+        if structNames[laterIdx] == structName {
+            return false
+        }
+        laterIdx = laterIdx - 1
+    }
+    return true
+}
+
 fun findMethodReturnCacheRecordImpl(structName: String, methodName: String,
     structNames: Array<String>, structMethodNames: Array<String>,
     structMethodRetTypes: Array<String>) r: Int {
+
+    let key = methodReturnCacheKeyImpl(structName, methodName)
+    let structLen = structNames.length()
+    var limit = typeInfoMin3(g_methodReturnCacheKeys.length(),
+        g_methodReturnCacheTypes.length(),
+        g_methodReturnCacheStructLens.length())
+    limit = typeInfoMin3(limit, g_methodReturnCacheStructIdxs.length(),
+        g_methodReturnCacheMethodNames.length())
+    limit = typeInfoMin2(limit, g_methodReturnCacheMethodRetTypes.length())
+    var i = limit - 1
+    while i >= 0 {
+        if g_methodReturnCacheStructLens[i] == structLen and
+            g_methodReturnCacheKeys[i] == key {
+
+            let structIdx = g_methodReturnCacheStructIdxs[i]
+            if structIdx < 0 {
+                if findStructIdx(structNames, structName) < 0 {
+                    return i
+                }
+            } else if cachedStructIndexStillLatest(structNames, structName,
+                structIdx) {
+
+                if structIdx < structMethodNames.length() and
+                    structIdx < structMethodRetTypes.length() and
+                    structMethodNames[structIdx] ==
+                        g_methodReturnCacheMethodNames[i] and
+                    structMethodRetTypes[structIdx] ==
+                        g_methodReturnCacheMethodRetTypes[i] {
+                    return i
+                }
+            }
+        }
+        i = i - 1
+    }
     return -1
 }
 
@@ -79,6 +353,45 @@ fun cacheMethodReturnTypeImpl(structName: String, methodName: String,
     resultType: String, structNames: Array<String>,
     structMethodNames: Array<String>, structMethodRetTypes: Array<String>)
     r: Void {
+
+    if g_methodReturnCacheKeys.length() > typeInfoCacheMaxEntries() {
+        resetMethodReturnTypeCache()
+    }
+    let key = methodReturnCacheKeyImpl(structName, methodName)
+    let structLen = structNames.length()
+    let structIdx = findStructIdx(structNames, structName)
+    var methodNames = ""
+    var methodRetTypes = ""
+    if structIdx >= 0 and structIdx < structMethodNames.length() and
+        structIdx < structMethodRetTypes.length() {
+        methodNames = structMethodNames[structIdx]
+        methodRetTypes = structMethodRetTypes[structIdx]
+    }
+    var limit = typeInfoMin3(g_methodReturnCacheKeys.length(),
+        g_methodReturnCacheTypes.length(),
+        g_methodReturnCacheStructLens.length())
+    limit = typeInfoMin3(limit, g_methodReturnCacheStructIdxs.length(),
+        g_methodReturnCacheMethodNames.length())
+    limit = typeInfoMin2(limit, g_methodReturnCacheMethodRetTypes.length())
+    var i = limit - 1
+    while i >= 0 {
+        if g_methodReturnCacheStructLens[i] == structLen and
+            g_methodReturnCacheKeys[i] == key {
+
+            g_methodReturnCacheTypes[i] = resultType
+            g_methodReturnCacheStructIdxs[i] = structIdx
+            g_methodReturnCacheMethodNames[i] = methodNames
+            g_methodReturnCacheMethodRetTypes[i] = methodRetTypes
+            return
+        }
+        i = i - 1
+    }
+    g_methodReturnCacheKeys.push(key)
+    g_methodReturnCacheTypes.push(resultType)
+    g_methodReturnCacheStructLens.push(structLen)
+    g_methodReturnCacheStructIdxs.push(structIdx)
+    g_methodReturnCacheMethodNames.push(methodNames)
+    g_methodReturnCacheMethodRetTypes.push(methodRetTypes)
     return
 }
 

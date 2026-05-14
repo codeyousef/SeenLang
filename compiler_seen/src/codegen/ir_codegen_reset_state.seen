@@ -7,6 +7,8 @@ import codegen.ir_codegen_global_state.{resetGlobalModuleScratchStateImpl}
 import codegen.ir_codegen_module_state.{resetLateUserDeclareState, resetModuleConstantGenerationState, resetIrgenFieldLookupCaches}
 import codegen.ir_codegen_metrics_state.{resetOptCounters}
 import codegen.ir_function_state.{resetFunctionLoweringOptionsStateImpl}
+import codegen.ir_type_info.{resetTypeInfoLookupCaches}
+import codegen.ir_infer_type.{resetMethodBoolSuffixCache}
 
 class LLVMIRGeneratorLocalResetState {
     var output: StringBuilder
@@ -44,5 +46,7 @@ fun resetLLVMIRGeneratorModuleStateImpl(
     resetFunctionLoweringOptionsStateImpl(functionOptions)
     resetOptCounters()
     resetIrgenFieldLookupCaches()
+    resetTypeInfoLookupCaches()
+    resetMethodBoolSuffixCache()
     return resetState
 }

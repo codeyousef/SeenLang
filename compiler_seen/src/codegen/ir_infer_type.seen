@@ -11,13 +11,143 @@ Returns "" if neither operand type constrains the result (fallthrough to "Int")
 var g_methodBoolSuffixCacheCallees: Array<String> = Array<String>()
 var g_methodBoolSuffixCacheLens: Array<Int> = Array<Int>()
 var g_methodBoolSuffixCacheTypes: Array<String> = Array<String>()
+var g_methodBoolSuffixCacheMatchIdxs: Array<Int> = Array<Int>()
+var g_methodBoolSuffixCacheMatchNames: Array<String> = Array<String>()
+var g_methodBoolSuffixCacheMatchRetTypes: Array<String> = Array<String>()
 
-fun findMethodBoolSuffixCacheRecord(callee: String, funcLen: Int) r: Int {
+fun methodBoolSuffixCacheMaxEntries() r: Int {
+    return 8192
+}
+
+fun methodBoolSuffixMin2(a: Int, b: Int) r: Int {
+    if a < b { return a }
+    return b
+}
+
+fun methodBoolSuffixMin3(a: Int, b: Int, c: Int) r: Int {
+    return methodBoolSuffixMin2(methodBoolSuffixMin2(a, b), c)
+}
+
+fun resetMethodBoolSuffixCache() r: Void {
+    g_methodBoolSuffixCacheCallees = Array<String>()
+    g_methodBoolSuffixCacheLens = Array<Int>()
+    g_methodBoolSuffixCacheTypes = Array<String>()
+    g_methodBoolSuffixCacheMatchIdxs = Array<Int>()
+    g_methodBoolSuffixCacheMatchNames = Array<String>()
+    g_methodBoolSuffixCacheMatchRetTypes = Array<String>()
+}
+
+fun methodBoolSuffixCacheRecordStillCurrent(callee: String, resultType: String,
+    matchIdx: Int, matchName: String, matchRetType: String,
+    funcNames: Array<String>, funcRetTypes: Array<String>) r: Bool {
+
+    let funcLen = funcNames.length()
+    let boolSuffix = "_" + callee
+    if matchIdx >= 0 {
+        if matchIdx >= funcLen or matchIdx >= funcRetTypes.length() {
+            return false
+        }
+        if funcNames[matchIdx] != matchName {
+            return false
+        }
+        if funcRetTypes[matchIdx] != matchRetType {
+            return false
+        }
+        var laterIdx = funcLen - 1
+        while laterIdx > matchIdx {
+            if funcNames[laterIdx].endsWith(boolSuffix) {
+                return false
+            }
+            laterIdx = laterIdx - 1
+        }
+        if matchRetType == "Bool" {
+            return resultType == "Bool"
+        }
+        return resultType == ""
+    }
+
+    var scanIdx = funcLen - 1
+    while scanIdx >= 0 {
+        if funcNames[scanIdx].endsWith(boolSuffix) {
+            return false
+        }
+        scanIdx = scanIdx - 1
+    }
+    return resultType == ""
+}
+
+fun findMethodBoolSuffixCacheRecord(callee: String, funcNames: Array<String>,
+    funcRetTypes: Array<String>) r: Int {
+
+    let funcLen = funcNames.length()
+    var limit = methodBoolSuffixMin3(g_methodBoolSuffixCacheCallees.length(),
+        g_methodBoolSuffixCacheLens.length(),
+        g_methodBoolSuffixCacheTypes.length())
+    limit = methodBoolSuffixMin3(limit,
+        g_methodBoolSuffixCacheMatchIdxs.length(),
+        g_methodBoolSuffixCacheMatchNames.length())
+    limit = methodBoolSuffixMin2(limit,
+        g_methodBoolSuffixCacheMatchRetTypes.length())
+    var i = limit - 1
+    while i >= 0 {
+        if g_methodBoolSuffixCacheLens[i] == funcLen and
+            g_methodBoolSuffixCacheCallees[i] == callee {
+
+            if methodBoolSuffixCacheRecordStillCurrent(callee,
+                g_methodBoolSuffixCacheTypes[i],
+                g_methodBoolSuffixCacheMatchIdxs[i],
+                g_methodBoolSuffixCacheMatchNames[i],
+                g_methodBoolSuffixCacheMatchRetTypes[i], funcNames,
+                funcRetTypes) {
+                return i
+            }
+        }
+        i = i - 1
+    }
     return -1
 }
 
-fun cacheMethodBoolSuffixType(callee: String, funcLen: Int,
-    resultType: String) r: Void {
+fun cacheMethodBoolSuffixType(callee: String, funcNames: Array<String>,
+    funcRetTypes: Array<String>, matchIdx: Int, resultType: String) r: Void {
+
+    if g_methodBoolSuffixCacheCallees.length() > methodBoolSuffixCacheMaxEntries() {
+        resetMethodBoolSuffixCache()
+    }
+    let funcLen = funcNames.length()
+    var matchName = ""
+    var matchRetType = ""
+    if matchIdx >= 0 and matchIdx < funcLen and
+        matchIdx < funcRetTypes.length() {
+        matchName = funcNames[matchIdx]
+        matchRetType = funcRetTypes[matchIdx]
+    }
+    var limit = methodBoolSuffixMin3(g_methodBoolSuffixCacheCallees.length(),
+        g_methodBoolSuffixCacheLens.length(),
+        g_methodBoolSuffixCacheTypes.length())
+    limit = methodBoolSuffixMin3(limit,
+        g_methodBoolSuffixCacheMatchIdxs.length(),
+        g_methodBoolSuffixCacheMatchNames.length())
+    limit = methodBoolSuffixMin2(limit,
+        g_methodBoolSuffixCacheMatchRetTypes.length())
+    var i = limit - 1
+    while i >= 0 {
+        if g_methodBoolSuffixCacheLens[i] == funcLen and
+            g_methodBoolSuffixCacheCallees[i] == callee {
+
+            g_methodBoolSuffixCacheTypes[i] = resultType
+            g_methodBoolSuffixCacheMatchIdxs[i] = matchIdx
+            g_methodBoolSuffixCacheMatchNames[i] = matchName
+            g_methodBoolSuffixCacheMatchRetTypes[i] = matchRetType
+            return
+        }
+        i = i - 1
+    }
+    g_methodBoolSuffixCacheCallees.push(callee)
+    g_methodBoolSuffixCacheLens.push(funcLen)
+    g_methodBoolSuffixCacheTypes.push(resultType)
+    g_methodBoolSuffixCacheMatchIdxs.push(matchIdx)
+    g_methodBoolSuffixCacheMatchNames.push(matchName)
+    g_methodBoolSuffixCacheMatchRetTypes.push(matchRetType)
     return
 }
 
@@ -309,23 +439,27 @@ fun inferMethodCallBoolSuffixImpl(callee: String, funcNames: Array<String>,
     funcRetTypes: Array<String>) r: String {
 
     let funcLen = funcNames.length()
-    let cached = findMethodBoolSuffixCacheRecord(callee, funcLen)
+    let cached = findMethodBoolSuffixCacheRecord(callee, funcNames,
+        funcRetTypes)
     if cached >= 0 {
         return g_methodBoolSuffixCacheTypes[cached]
     }
     let boolSuffix = "_" + callee
+    var matchedIdx = -1
     var boolScanIdx = funcLen - 1
     while boolScanIdx >= 0 {
         if funcNames[boolScanIdx].endsWith(boolSuffix) {
+            matchedIdx = boolScanIdx
             if funcRetTypes[boolScanIdx] == "Bool" {
-                cacheMethodBoolSuffixType(callee, funcLen, "Bool")
+                cacheMethodBoolSuffixType(callee, funcNames, funcRetTypes,
+                    boolScanIdx, "Bool")
                 return "Bool"
             }
             boolScanIdx = -1
         }
         boolScanIdx = boolScanIdx - 1
     }
-    cacheMethodBoolSuffixType(callee, funcLen, "")
+    cacheMethodBoolSuffixType(callee, funcNames, funcRetTypes, matchedIdx, "")
     return ""
 }
 
