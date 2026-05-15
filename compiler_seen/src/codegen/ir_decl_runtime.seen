@@ -54,6 +54,7 @@ fun emitCoreRuntimeDecls(output: StringBuilder, runtimeDeclsLoaded: Bool, define
         output.append("declare i64 @StringBuilder_append(ptr nonnull, %SeenString) nounwind willreturn\n")
         output.append("declare i64 @StringBuilder_appendChar(ptr nonnull, i64) nounwind willreturn\n")
         output.append("declare %SeenString @StringBuilder_toString(ptr nonnull) nounwind willreturn\n")
+        output.append("declare i1 @StringBuilder_writeToFile_impl(ptr nonnull, %SeenString) nounwind\n")
         output.append("declare void @StringBuilder_clear_impl(ptr nonnull) nounwind willreturn\n")
         output.append("declare i64 @StringBuilder_length(ptr nonnull) nounwind willreturn memory(argmem: read)\n")
         output.append("declare i64 @StringBuilder_appendFloat(ptr nonnull, double) nounwind willreturn\n")

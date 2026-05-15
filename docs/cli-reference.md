@@ -47,6 +47,7 @@ Common options:
 | `--pic` | Emit PIC objects suitable for shared-library links |
 | `--object-manifest <path>` | Write an object-to-module TSV manifest and skip final executable link |
 | `--fast` | Use the lightweight optimization path used by bootstrap verification |
+| `--no-merged-release-lto` | Disable full merged release LTO for lower-memory release builds |
 | `--no-fork` | Disable parallel IR/optimization steps |
 | `--projectprefix <n>` | Large-project validation prefix hint |
 
@@ -87,11 +88,12 @@ seen check <input.seen> [--profile deterministic]
 Compile and execute a Seen source file.
 
 ```bash
-seen run <input.seen> [--aot] [--verbose] [--language <lang>]
+seen run <input.seen> [--aot] [--no-cache] [--verbose] [--language <lang>]
 ```
 
 By default `seen run` uses the JIT path. Pass `--aot` to compile an executable
-first, and `--verbose` to show compiler diagnostics during the run.
+first, `--no-cache` to force a fresh compile, and `--verbose` to show compiler
+diagnostics during the run. Run flags may appear before or after the input path.
 
 ### Packaging Commands
 

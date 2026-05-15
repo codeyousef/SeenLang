@@ -32,12 +32,13 @@ run derives a main cap from current memory and keeps optimizer work capped:
 ```bash
 AVAIL_KB=$(awk '/MemAvailable/ {print $2}' /proc/meminfo)
 MAIN_KB=$(( AVAIL_KB * 70 / 100 ))
-if [ "$MAIN_KB" -gt 14680064 ]; then MAIN_KB=14680064; fi
+if [ "$MAIN_KB" -gt 8388608 ]; then MAIN_KB=8388608; fi
 ulimit -v "$MAIN_KB"
 SEEN_LOW_MEMORY=1 \
 SEEN_SKIP_LOW_MEMORY_SHORTCUT=1 \
 SEEN_MAIN_VMEM_KB="$MAIN_KB" \
 SEEN_OPT_VMEM_KB=2097152 \
+SEEN_MEMORY_LIMIT_BYTES="$(( MAIN_KB * 1024 ))" \
 ./scripts/safe_rebuild.sh
 ```
 

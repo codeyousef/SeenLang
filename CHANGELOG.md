@@ -5,6 +5,36 @@ All notable changes to the Seen compiler will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - Unreleased
+
+### Added
+
+- FEL-329/FEL-331: Added runtime memory-budget tracking and fallible allocation ABI entrypoints, including `SEEN_MEMORY_LIMIT_BYTES`, used/peak/failure counters, and `seen_try_*` allocation helpers.
+- FEL-329/FEL-332: Added `memory.allocation` stdlib APIs with `AllocError`, `MemoryStats`, `setMemoryLimitBytes`, `memoryStats`, and `ensureAllocationBudget`.
+- FEL-329/FEL-333: Added a StringBuilder-backed IR file emission path so compiler modules can write generated LLVM IR without first flattening the whole module into one `String`.
+- FEL-329/FEL-336: Added a focused memory allocation contract smoke test covering allocation budgets, `StringBuilder.try*` APIs, and direct builder file output.
+- FEL-338/FEL-344: Added runtime/libm-backed stdlib math wrappers for trig, inverse trig, exponential/logarithmic, rounding, modulo, cbrt, hypot, and hyperbolic functions.
+
+### Changed
+
+- FEL-329/FEL-333: Compiler Pass 2 now uses `generateSingleToFile` for module IR emission, reducing peak memory by avoiding the extra full-module `writeText` string.
+- FEL-329/FEL-334: Multi-module compiler IR generation and optimizer fanout now use bounded worker counts by default instead of unbounded fork/background job fanout.
+- FEL-329/FEL-334: Registry cache hashing now folds module hashes incrementally instead of building a whole-project concatenated signature string.
+- FEL-329/FEL-335: Full merged release LTO remains the default `--release` performance path, with `--no-merged-release-lto` available for lower-memory release builds.
+- FEL-329/FEL-336: `scripts/safe_rebuild.sh` exports a tracked allocation budget derived from the capped compiler VM limit during low-memory rebuilds.
+- FEL-338/FEL-340: Reworked source `Vec<T>` to use the compiler/runtime contiguous layout with O(1) random access and linear `toArray`.
+- FEL-338/FEL-343: Routed `repeat` and `join` through `StringBuilder`, and made JSON string/number parsing avoid the largest repeated substring and concatenation paths.
+- FEL-338/FEL-345: Replaced runtime `Vec<Int>` and `Vec<Float>` last-pivot quicksort with median-of-three partitioning, insertion sort for small ranges, and bounded tail recursion.
+
+### Fixed
+
+- FEL-329/FEL-331: Replaced several core runtime allocation hot spots in arrays, StringBuilder, aligned growth, and pool allocation with budget-aware allocation helpers and explicit allocation-failure diagnostics.
+- FEL-329/FEL-332: Avoided extra transient string allocation in `StringBuilder.appendLine` and rewrote `split` to accumulate through `StringBuilder` instead of per-character string concatenation.
+- FEL-338/FEL-341: Removed per-byte substring allocation from string hash loops used by `hash.mod` and `StringHashMap`.
+- FEL-338/FEL-343: Removed stray debug output from `StringBuilder.mergeAdjacent`.
+- FEL-352: Registered default-argument metadata during declaration scanning and diagnosed explicit imported/local function name collisions before IR emission.
+- Fixed `seen run` option parsing so `--aot`, `--no-cache`, `--verbose`, and `--language` work in any order around the input path.
+
 ## [0.8.3] - 2026-05-15
 
 ### Added

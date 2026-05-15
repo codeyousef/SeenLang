@@ -36,33 +36,15 @@ fun emitMapVecBTreeRuntimeDecls(output: StringBuilder,
     }
 
     // Vec<T> runtime helpers
-    if not isFuncDefinedInModule("Vec_new", definedFuncs) {
-        output.append("declare noalias ptr @Vec_new() nounwind\n")
-    }
-    if not isFuncDefinedInModule("Vec_push", definedFuncs) {
-        output.append("declare void @Vec_push(ptr, i64) nounwind\n")
-    }
-    if not isFuncDefinedInModule("Vec_get", definedFuncs) {
-        output.append("declare i64 @Vec_get(ptr, i64) nounwind readonly\n")
-    }
-    if not isFuncDefinedInModule("Vec_set", definedFuncs) {
-        output.append("declare void @Vec_set(ptr, i64, i64) nounwind\n")
-    }
-    if not isFuncDefinedInModule("Vec_pop", definedFuncs) {
-        output.append("declare i64 @Vec_pop(ptr) nounwind\n")
-    }
-    if not isFuncDefinedInModule("Vec_clear", definedFuncs) {
-        output.append("declare void @Vec_clear(ptr) nounwind\n")
-    }
-    if not isFuncDefinedInModule("Vec_len", definedFuncs) {
-        output.append("declare i64 @Vec_len(ptr) nounwind readonly\n")
-    }
-    if not isFuncDefinedInModule("Vec_capacity", definedFuncs) {
-        output.append("declare i64 @Vec_capacity(ptr) nounwind readonly\n")
-    }
-    if not isFuncDefinedInModule("Vec_ensureCapacity", definedFuncs) {
-        output.append("declare void @Vec_ensureCapacity(ptr, i64) nounwind\n")
-    }
+    output.append("declare noalias ptr @Vec_new() nounwind\n")
+    output.append("declare void @Vec_push(ptr, i64) nounwind\n")
+    output.append("declare i64 @Vec_get(ptr, i64) nounwind readonly\n")
+    output.append("declare void @Vec_set(ptr, i64, i64) nounwind\n")
+    output.append("declare i64 @Vec_pop(ptr) nounwind\n")
+    output.append("declare void @Vec_clear(ptr) nounwind\n")
+    output.append("declare i64 @Vec_len(ptr) nounwind readonly\n")
+    output.append("declare i64 @Vec_capacity(ptr) nounwind readonly\n")
+    output.append("declare void @Vec_ensureCapacity(ptr, i64) nounwind\n")
     // Vec<Int> utility methods
     if not isFuncDefinedInModule("Vec_contains", definedFuncs) {
         output.append("declare i64 @Vec_contains(ptr, i64) nounwind readonly\n")
@@ -88,6 +70,7 @@ fun emitMapVecBTreeRuntimeDecls(output: StringBuilder,
     if not isFuncDefinedInModule("Vec_sort", definedFuncs) {
         output.append("declare void @Vec_sort(ptr) nounwind\n")
     }
+    output.append("declare ptr @Vec_toArray(ptr) nounwind\n")
 
     // BTreeMap<K,V> runtime helpers
     if not isFuncDefinedInModule("BTreeMap_new", definedFuncs) {
@@ -165,6 +148,9 @@ fun emitMapVecBTreeRuntimeDecls(output: StringBuilder,
     if not isFuncDefinedInModule("Vec_last_str", definedFuncs) {
         output.append("declare %SeenString @Vec_last_str(ptr) nounwind readonly\n")
     }
+    if not isFuncDefinedInModule("Vec_toArray_str", definedFuncs) {
+        output.append("declare ptr @Vec_toArray_str(ptr) nounwind\n")
+    }
     // Vec<Float> runtime helpers
     if not isFuncDefinedInModule("Vec_new_float", definedFuncs) {
         output.append("declare noalias ptr @Vec_new_float() nounwind\n")
@@ -216,6 +202,9 @@ fun emitMapVecBTreeRuntimeDecls(output: StringBuilder,
     }
     if not isFuncDefinedInModule("Vec_sort_float", definedFuncs) {
         output.append("declare void @Vec_sort_float(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("Vec_toArray_float", definedFuncs) {
+        output.append("declare ptr @Vec_toArray_float(ptr) nounwind\n")
     }
     // String.split() wrapper
     if not isFuncDefinedInModule("String_split", definedFuncs) {

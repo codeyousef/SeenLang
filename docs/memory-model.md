@@ -2,6 +2,44 @@
 
 Seen uses region-based memory management with no garbage collector. Memory is managed through regions, arenas, ownership semantics, and compile-time lifetime tracking.
 
+## Allocation Failure
+
+Seen 0.9.0 treats allocation failure as part of memory safety. A program can set
+or inherit a process allocation budget with `SEEN_MEMORY_LIMIT_BYTES`; runtime
+allocation helpers track used bytes, peak bytes, and allocation failures.
+
+Allocation-heavy APIs should prefer fallible forms that return
+`Result<T, AllocError>`:
+
+```seen
+import core.result.{Result, Ok}
+import core.unit.{Unit}
+import memory.allocation.{AllocError, ensureAllocationBudget, memoryStats}
+
+fun reserveScratch(bytes: Int) r: Result<Unit, AllocError> {
+    ensureAllocationBudget(bytes)?
+    return Ok(Unit{})
+}
+```
+
+Existing infallible APIs remain available for compatibility, but the runtime now
+routes core growth paths through budget-aware helpers and reports a Seen
+allocation failure diagnostic instead of relying on the host to OOM-kill the
+process.
+
+### Memory statistics
+
+```seen
+import memory.allocation.{setMemoryLimitBytes, memoryStats}
+
+setMemoryLimitBytes(128 * 1024 * 1024)
+let stats = memoryStats()
+println("peak bytes: {stats.peakBytes}")
+```
+
+`MemoryStats` reports `limitBytes`, `usedBytes`, `peakBytes`,
+`remainingBytes`, and `allocationFailures`.
+
 ## Stack vs Heap
 
 Primitive types (`Int`, `Float`, `Bool`, `Char`) live on the stack. Classes are heap-allocated and accessed via handles (pointers stored as `i64`). Arrays use heap-allocated backing storage.

@@ -175,6 +175,21 @@ fun emitVecMethodCoreImpl(output: StringBuilder, regBox: Array<Int>,
         return "0"
     }
 
+    // toArray
+    if methodName == "toArray" {
+        let resultReg = getNextRegFn(regBox)
+        if hasStr {
+            output.append("  " + resultReg + " = call ptr @Vec_toArray_str(ptr " + vecPtrReg + ")\n")
+        } else {
+            if hasFloat {
+                output.append("  " + resultReg + " = call ptr @Vec_toArray_float(ptr " + vecPtrReg + ")\n")
+            } else {
+                output.append("  " + resultReg + " = call ptr @Vec_toArray(ptr " + vecPtrReg + ")\n")
+            }
+        }
+        return resultReg
+    }
+
     // Unhandled method - return empty to signal fallthrough
     return ""
 }

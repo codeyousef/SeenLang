@@ -65,7 +65,9 @@
 
 ## Runtime Math Functions
 
-These are mapped to LLVM intrinsics for maximum performance:
+The public stdlib math APIs route through runtime/libm-backed helpers where
+available. The LLVM backend may lower the internal `__*` helpers to LLVM
+intrinsics for maximum performance:
 
 | Runtime Function | LLVM Intrinsic |
 |-----------------|----------------|
@@ -89,6 +91,10 @@ Additional runtime functions:
 | `__Sinh(x)` | Hyperbolic sine |
 | `__Cosh(x)` | Hyperbolic cosine |
 | `__Tanh(x)` | Hyperbolic tangent |
+
+The stdlib also exposes C ABI wrappers named `seen_math_*` for source-level
+modules that need stable runtime dispatch without depending on compiler
+intrinsic names directly.
 
 ## Time
 

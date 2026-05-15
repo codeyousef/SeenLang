@@ -40,6 +40,15 @@ fun computeMethodReturnTypeUncachedImpl(structName: String, methodName: String,
     if structName == "TypeInferenceResult" {
         if methodName == "getVariableType" { return "Type" }
     }
+    if structName == "StringBuilder" {
+        if methodName == "toString" { return "String" }
+        if methodName == "writeToFile" { return "Bool" }
+        if methodName == "length" { return "Int" }
+        if methodName == "append" or methodName == "appendChar" or
+            methodName == "clear" {
+            return "Void"
+        }
+    }
     // Type checker
     if structName == "TypeChecker" {
         if methodName == "check" { return "TypeInferenceResult" }

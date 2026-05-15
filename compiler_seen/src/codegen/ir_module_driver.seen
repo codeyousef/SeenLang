@@ -14,6 +14,14 @@ fun generateMultipleState(ctx: CodegenLoweringContext,
     output: StringBuilder, stringConstants: Array<String>,
     programs: Array<ProgramNode>) r: String {
 
+    emitMultipleState(ctx, output, stringConstants, programs)
+    return output.toString()
+}
+
+fun emitMultipleState(ctx: CodegenLoweringContext,
+    output: StringBuilder, stringConstants: Array<String>,
+    programs: Array<ProgramNode>) r: Void {
+
     setStringConstantPrefixWithGlobalStateImpl("")
 
     ///
@@ -41,13 +49,19 @@ fun generateMultipleState(ctx: CodegenLoweringContext,
     emitSharedModuleTailState(output, stringConstants,
         stringConstCountBeforeGen, 0, false, false,
         currentLoweringFunctionOptions(ctx))
-
-    return output.toString()
 }
 
 fun generateSingleState(ctx: CodegenLoweringContext,
     output: StringBuilder, stringConstants: Array<String>,
     program: ProgramNode, moduleIndex: Int) r: String {
+
+    emitSingleState(ctx, output, stringConstants, program, moduleIndex)
+    return output.toString()
+}
+
+fun emitSingleState(ctx: CodegenLoweringContext,
+    output: StringBuilder, stringConstants: Array<String>,
+    program: ProgramNode, moduleIndex: Int) r: Void {
 
     ///
     Per-module object emission prefixes string constants with the module index
@@ -70,6 +84,4 @@ fun generateSingleState(ctx: CodegenLoweringContext,
     emitSharedModuleTailState(output, stringConstants,
         stringConstCountBeforeGen, moduleIndex, true, true,
         currentLoweringFunctionOptions(ctx))
-
-    return output.toString()
 }

@@ -14,7 +14,7 @@ fun beginDeclarationRegistrationWithGlobalState(program: ProgramNode) r: Void {
 fun captureDeclarationPassState() r: DeclarationPassState {
     let declState = captureDeclarationPassStateImpl("", "", 0, "", "", "",
         Array<String>(), Array<String>(), Array<String>(), 0, "", "", "",
-        "", "", "", 0, 0, "", "", "", "", 0)
+        "", "", "", 0, 0, "", "", "", "", 0, "", "")
     populateFeatureDeclarationPassStateImpl(declState)
     populateModuleDeclarationPassStateImpl(declState)
     return declState

@@ -31,7 +31,7 @@ The standard library is written in Seen and provides high-level abstractions.
 | [GPU](gpu.md) | Buffer, Uniform, Image types; Vulkan runtime |
 | [Graphics](graphics.md) | GPU resource wrappers, renderer, shader helpers |
 | [Input](input.md) | Gamepad state and events |
-| [Memory Regions](memory.md) | Mapped, pool, and stack regions |
+| [Memory](memory.md) | Allocation budgets plus mapped, pool, and stack regions |
 | [Networking](net.md) | Poll and TCP wrappers |
 | [Platform](platform.md) | Darwin, Linux, Windows, and Web bindings |
 | [Scripting](scripting.md) | Lua integration |

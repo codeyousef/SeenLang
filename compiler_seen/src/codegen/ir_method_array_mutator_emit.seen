@@ -221,19 +221,27 @@ fun emitArrayPushMutationImpl(output: StringBuilder, regBox: Array<Int>,
                 arrayPtrReg + ", ptr " + ptrArgReg + ")\n")
             return resultReg
         }
-        var ptrArgReg = argReg
         if isClassTypeImpl(pushElemType, structNames) == 1 {
             let ptrReg = getNextRegFn(regBox)
             output.append("  " + ptrReg + " = inttoptr i64 " + argReg +
                 " to ptr\n")
-            ptrArgReg = ptrReg
+            output.append("  call void @seen_arr_push_ptr(ptr " + arrayPtrReg +
+                ", ptr " + ptrReg + ")\n")
+            return "0"
         }
-        if ptrArgReg == "0" {
-            ptrArgReg = "null"
+
+        var valueArgReg = argReg
+        if valueArgReg == "null" {
+            valueArgReg = "0"
         }
-        output.append("  call void @seen_arr_push_ptr(ptr " + arrayPtrReg +
-            ", ptr " + ptrArgReg + ")\n")
-        return "0"
+        let tmpReg = getNextRegFn(regBox)
+        output.append("  " + tmpReg + " = alloca i64\n")
+        output.append("  store i64 " + valueArgReg + ", ptr " + tmpReg +
+            "\n")
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call i64 @Array_push(ptr " +
+            arrayPtrReg + ", ptr " + tmpReg + ")\n")
+        return resultReg
     }
 
     return ""

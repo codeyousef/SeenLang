@@ -122,9 +122,15 @@ The compiler uses source-level and IR-level caches:
 - `/tmp/seen_ir_cache`
 - `/tmp/seen_thinlto_cache`
 
-Normal compiler builds may use fork-parallel module work. Low-memory and
-bootstrap verification paths can disable parallelism with `--no-fork` and use
-the guarded scripts described in [Bootstrap System](bootstrap.md).
+Normal multi-module compiler builds use bounded worker pools for IR generation
+and optimizer work. Low-memory and bootstrap verification paths can still force
+serial execution with `--no-fork`; guarded scripts also export
+`SEEN_MEMORY_LIMIT_BYTES` so runtime allocation-heavy compiler phases fail with
+Seen diagnostics instead of depending on host OOM behavior.
+
+Release builds keep the full merged-IR LTO path by default for performance.
+Memory-constrained callers can pass `--no-merged-release-lto` to stay on the
+bounded per-module ThinLTO path.
 
 ## Key Source Areas
 

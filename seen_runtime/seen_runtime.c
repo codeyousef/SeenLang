@@ -36,6 +36,7 @@
 #include <sched.h>
 #include <pthread.h>
 #include <spawn.h>
+#include <dlfcn.h>
 
 // Apple platform headers
 #if defined(__APPLE__)
@@ -72,6 +73,8 @@ static inline void* seen_aligned_alloc(size_t alignment, size_t size) {
 
 #include <ctype.h>
 
+static inline size_t seen_align_up(size_t n, size_t align);
+
 // ============================================================================
 // Pool Allocator - size-class slab allocator with free-list recycling
 // ============================================================================
@@ -96,7 +99,7 @@ static inline int pool_class(size_t size) {
 __attribute__((hot, malloc))
 void *seen_pool_alloc(int64_t size) {
     if (__builtin_expect(size <= 0 || size > POOL_MAX_SIZE, 0))
-        return malloc(size > 0 ? size : 1);
+        return seen_try_malloc(size > 0 ? size : 1);
     int cls = pool_class((size_t)size);
     size_t slot = (size_t)(cls + 1) * 8;
 
@@ -113,8 +116,10 @@ void *seen_pool_alloc(int64_t size) {
     // Slow path: bump-allocate from slab
     PoolSlab *slab = pool_slabs[cls];
     if (__builtin_expect(!slab || slab->used + slot > POOL_SLAB_SIZE, 0)) {
-        slab = (PoolSlab *)malloc(sizeof(PoolSlab));
-        slab->base = (char *)malloc(POOL_SLAB_SIZE);
+        slab = (PoolSlab *)seen_try_malloc(sizeof(PoolSlab));
+        if (!slab) return NULL;
+        slab->base = (char *)seen_try_malloc(POOL_SLAB_SIZE);
+        if (!slab->base) return NULL;
         slab->used = 0;
         slab->next = pool_slabs[cls];
         pool_slabs[cls] = slab;
@@ -191,6 +196,235 @@ void seen_error_set_cstr(int64_t subsystem, int64_t code, const char* message) {
     }
 }
 
+// ============================================================================
+// Fallible allocation budget
+// ============================================================================
+
+#define SEEN_ERROR_SUBSYSTEM_MEMORY 2
+#define SEEN_ERROR_OUT_OF_MEMORY 1
+#define SEEN_ERROR_ALLOCATION_OVERFLOW 2
+
+static int g_seen_memory_initialized = 0;
+static int64_t g_seen_memory_limit_bytes = 0;
+static int64_t g_seen_memory_used_bytes = 0;
+static int64_t g_seen_memory_peak_bytes = 0;
+static int64_t g_seen_memory_allocation_failures = 0;
+
+static void seen_memory_init_from_env_once(void) {
+    if (g_seen_memory_initialized) return;
+    g_seen_memory_initialized = 1;
+
+    const char* env_limit = getenv("SEEN_MEMORY_LIMIT_BYTES");
+    if (!env_limit || env_limit[0] == '\0') return;
+
+    char* end = NULL;
+    errno = 0;
+    long long parsed = strtoll(env_limit, &end, 10);
+    if (errno == 0 && end && *end == '\0' && parsed > 0) {
+        g_seen_memory_limit_bytes = (int64_t)parsed;
+    }
+}
+
+static bool seen_memory_can_reserve(int64_t old_size, int64_t new_size) {
+    seen_memory_init_from_env_once();
+
+    if (old_size < 0 || new_size < 0) {
+        g_seen_memory_allocation_failures++;
+        seen_error_set_cstr(SEEN_ERROR_SUBSYSTEM_MEMORY,
+            SEEN_ERROR_ALLOCATION_OVERFLOW,
+            "invalid allocation size");
+        return false;
+    }
+
+    int64_t base = g_seen_memory_used_bytes;
+    if (old_size > base) old_size = base;
+    int64_t after_release = base - old_size;
+    if (INT64_MAX - after_release < new_size) {
+        g_seen_memory_allocation_failures++;
+        seen_error_set_cstr(SEEN_ERROR_SUBSYSTEM_MEMORY,
+            SEEN_ERROR_ALLOCATION_OVERFLOW,
+            "allocation size overflow");
+        return false;
+    }
+
+    int64_t projected = after_release + new_size;
+    if (g_seen_memory_limit_bytes > 0 && projected > g_seen_memory_limit_bytes) {
+        g_seen_memory_allocation_failures++;
+        seen_error_set_cstr(SEEN_ERROR_SUBSYSTEM_MEMORY,
+            SEEN_ERROR_OUT_OF_MEMORY,
+            "Seen memory budget exceeded");
+        return false;
+    }
+
+    return true;
+}
+
+static void seen_memory_commit_reservation(int64_t old_size, int64_t new_size) {
+    int64_t base = g_seen_memory_used_bytes;
+    if (old_size > base) old_size = base;
+    g_seen_memory_used_bytes = base - old_size + new_size;
+    if (g_seen_memory_used_bytes > g_seen_memory_peak_bytes) {
+        g_seen_memory_peak_bytes = g_seen_memory_used_bytes;
+    }
+}
+
+static void seen_memory_release_reservation(int64_t size) {
+    if (size <= 0) return;
+    if (size > g_seen_memory_used_bytes) {
+        g_seen_memory_used_bytes = 0;
+    } else {
+        g_seen_memory_used_bytes -= size;
+    }
+}
+
+void seen_memory_set_limit_bytes(int64_t bytes) {
+    seen_memory_init_from_env_once();
+    if (bytes < 0) bytes = 0;
+    g_seen_memory_limit_bytes = bytes;
+}
+
+int64_t seen_memory_limit_bytes(void) {
+    seen_memory_init_from_env_once();
+    return g_seen_memory_limit_bytes;
+}
+
+int64_t seen_memory_used_bytes(void) {
+    seen_memory_init_from_env_once();
+    return g_seen_memory_used_bytes;
+}
+
+int64_t seen_memory_peak_bytes(void) {
+    seen_memory_init_from_env_once();
+    return g_seen_memory_peak_bytes;
+}
+
+int64_t seen_memory_allocation_failures(void) {
+    seen_memory_init_from_env_once();
+    return g_seen_memory_allocation_failures;
+}
+
+int64_t seen_memory_remaining_bytes(void) {
+    seen_memory_init_from_env_once();
+    if (g_seen_memory_limit_bytes <= 0) return INT64_MAX;
+    if (g_seen_memory_used_bytes >= g_seen_memory_limit_bytes) return 0;
+    return g_seen_memory_limit_bytes - g_seen_memory_used_bytes;
+}
+
+SeenMemoryStats seen_memory_stats(void) {
+    SeenMemoryStats stats = {
+        seen_memory_limit_bytes(),
+        seen_memory_used_bytes(),
+        seen_memory_peak_bytes(),
+        seen_memory_allocation_failures()
+    };
+    return stats;
+}
+
+void* seen_try_malloc(int64_t size) {
+    if (size <= 0) size = 1;
+    if (!seen_memory_can_reserve(0, size)) return NULL;
+    void* ptr = malloc((size_t)size);
+    if (!ptr) {
+        g_seen_memory_allocation_failures++;
+        seen_error_set_cstr(SEEN_ERROR_SUBSYSTEM_MEMORY,
+            SEEN_ERROR_OUT_OF_MEMORY,
+            "malloc failed");
+        return NULL;
+    }
+    seen_memory_commit_reservation(0, size);
+    return ptr;
+}
+
+void* seen_try_calloc(int64_t count, int64_t size) {
+    if (count <= 0 || size <= 0) {
+        count = 1;
+        size = 1;
+    }
+    if (count > INT64_MAX / size) {
+        g_seen_memory_allocation_failures++;
+        seen_error_set_cstr(SEEN_ERROR_SUBSYSTEM_MEMORY,
+            SEEN_ERROR_ALLOCATION_OVERFLOW,
+            "calloc size overflow");
+        return NULL;
+    }
+    int64_t total = count * size;
+    if (!seen_memory_can_reserve(0, total)) return NULL;
+    void* ptr = calloc((size_t)count, (size_t)size);
+    if (!ptr) {
+        g_seen_memory_allocation_failures++;
+        seen_error_set_cstr(SEEN_ERROR_SUBSYSTEM_MEMORY,
+            SEEN_ERROR_OUT_OF_MEMORY,
+            "calloc failed");
+        return NULL;
+    }
+    seen_memory_commit_reservation(0, total);
+    return ptr;
+}
+
+void* seen_try_realloc(void* old, int64_t old_size, int64_t new_size) {
+    if (new_size <= 0) new_size = 1;
+    if (old_size < 0) old_size = 0;
+    if (!seen_memory_can_reserve(old ? old_size : 0, new_size)) return NULL;
+    void* ptr = realloc(old, (size_t)new_size);
+    if (!ptr) {
+        g_seen_memory_allocation_failures++;
+        seen_error_set_cstr(SEEN_ERROR_SUBSYSTEM_MEMORY,
+            SEEN_ERROR_OUT_OF_MEMORY,
+            "realloc failed");
+        return NULL;
+    }
+    seen_memory_commit_reservation(old ? old_size : 0, new_size);
+    return ptr;
+}
+
+void* seen_try_aligned_realloc(void* old, int64_t old_size, int64_t new_size,
+    int64_t alignment) {
+    if (alignment <= 0) alignment = 32;
+    if (new_size <= 0) new_size = alignment;
+    size_t aligned_size = seen_align_up((size_t)new_size, (size_t)alignment);
+    if (!seen_memory_can_reserve(old ? old_size : 0, (int64_t)aligned_size)) {
+        return NULL;
+    }
+
+#ifdef SEEN_WIN32_ALIGNED
+    void* p = _aligned_realloc(old, aligned_size, (size_t)alignment);
+    if (!p) {
+        g_seen_memory_allocation_failures++;
+        seen_error_set_cstr(SEEN_ERROR_SUBSYSTEM_MEMORY,
+            SEEN_ERROR_OUT_OF_MEMORY,
+            "aligned realloc failed");
+        return NULL;
+    }
+#else
+    void* p = aligned_alloc((size_t)alignment, aligned_size);
+    if (!p) {
+        g_seen_memory_allocation_failures++;
+        seen_error_set_cstr(SEEN_ERROR_SUBSYSTEM_MEMORY,
+            SEEN_ERROR_OUT_OF_MEMORY,
+            "aligned allocation failed");
+        return NULL;
+    }
+    if (old) {
+        size_t copy_size = (size_t)(old_size < new_size ? old_size : new_size);
+        memcpy(p, old, copy_size);
+        free(old);
+    }
+#endif
+    seen_memory_commit_reservation(old ? old_size : 0, (int64_t)aligned_size);
+    return p;
+}
+
+static void seen_oom_abort(const char* context, int64_t size) {
+    if (!context) context = "allocation";
+    fprintf(stderr,
+        "Seen allocation failure in %s requesting %lld bytes (limit=%lld used=%lld peak=%lld failures=%lld)\n",
+        context, (long long)size, (long long)seen_memory_limit_bytes(),
+        (long long)seen_memory_used_bytes(),
+        (long long)seen_memory_peak_bytes(),
+        (long long)seen_memory_allocation_failures());
+    abort();
+}
+
 // Debug counters (guarded behind SEEN_RUNTIME_DEBUG env var)
 #ifdef SEEN_RUNTIME_DEBUG_COUNTERS
 static long g_substring_count = 0;
@@ -209,6 +443,7 @@ void seen_debug_print_counters(void) {}
 void seen_runtime_init(int argc, char** argv) {
     g_argc = argc;
     g_argv = argv;
+    seen_memory_init_from_env_once();
 }
 
 // ============================================================================
@@ -809,25 +1044,22 @@ static inline size_t seen_align_up(size_t n, size_t align) {
 }
 
 static void* seen_aligned_realloc(void* old, size_t old_size, size_t new_size) {
-    size_t aligned_size = seen_align_up(new_size, 32);
-    if (aligned_size == 0) aligned_size = 32;
-#ifdef SEEN_WIN32_ALIGNED
-    // On Windows, _aligned_malloc memory must be reallocated with _aligned_realloc
-    (void)old_size; // _aligned_realloc doesn't need old_size
-    void* p = _aligned_realloc(old, aligned_size, 32);
-    if (!p) { fprintf(stderr, "seen_aligned_realloc: OOM\n"); abort(); }
+    void* p = seen_try_aligned_realloc(old, (int64_t)old_size,
+        (int64_t)new_size, 32);
+    if (!p) {
+        fprintf(stderr, "Seen allocation failure: aligned resize from %zu to %zu bytes failed (limit=%lld used=%lld peak=%lld)\n",
+            old_size, new_size, (long long)seen_memory_limit_bytes(),
+            (long long)seen_memory_used_bytes(),
+            (long long)seen_memory_peak_bytes());
+        abort();
+    }
     return p;
-#else
-    void* p = aligned_alloc(32, aligned_size);
-    if (!p) { fprintf(stderr, "seen_aligned_realloc: OOM\n"); abort(); }
-    if (old) { memcpy(p, old, old_size < new_size ? old_size : new_size); free(old); }
-    return p;
-#endif
 }
 
 SeenArray seen_arr_new_str(void) {
     size_t sz = 8 * sizeof(SeenString);
-    void* data = aligned_alloc(32, seen_align_up(sz, 32));
+    void* data = seen_try_aligned_realloc(NULL, 0, (int64_t)sz, 32);
+    if (!data) seen_oom_abort("seen_arr_new_str", (int64_t)sz);
     // element_size = sizeof(SeenString) = 16 bytes
     SeenArray arr = { 0, 8, sizeof(SeenString), data };
     return arr;
@@ -835,16 +1067,19 @@ SeenArray seen_arr_new_str(void) {
 
 SeenArray seen_arr_new_ptr(void) {
     size_t sz = 8 * sizeof(void*);
-    void* data = aligned_alloc(32, seen_align_up(sz, 32));
+    void* data = seen_try_aligned_realloc(NULL, 0, (int64_t)sz, 32);
+    if (!data) seen_oom_abort("seen_arr_new_ptr", (int64_t)sz);
     SeenArray arr = { 0, 8, sizeof(void*), data };
     return arr;
 }
 
 // Heap-allocated versions that return ptr for LLVM ABI compatibility
 SeenArray* seen_arr_new_str_ptr(void) {
-    SeenArray* arr = (SeenArray*)malloc(sizeof(SeenArray));
+    SeenArray* arr = (SeenArray*)seen_try_malloc(sizeof(SeenArray));
+    if (!arr) seen_oom_abort("seen_arr_new_str_ptr header", sizeof(SeenArray));
     size_t sz = 8 * sizeof(SeenString);
-    arr->data = aligned_alloc(32, seen_align_up(sz, 32));
+    arr->data = seen_try_aligned_realloc(NULL, 0, (int64_t)sz, 32);
+    if (!arr->data) seen_oom_abort("seen_arr_new_str_ptr data", (int64_t)sz);
     arr->len = 0;
     arr->cap = 8;
     arr->element_size = sizeof(SeenString);
@@ -852,9 +1087,11 @@ SeenArray* seen_arr_new_str_ptr(void) {
 }
 
 SeenArray* seen_arr_new_ptr_ptr(void) {
-    SeenArray* arr = (SeenArray*)malloc(sizeof(SeenArray));
+    SeenArray* arr = (SeenArray*)seen_try_malloc(sizeof(SeenArray));
+    if (!arr) seen_oom_abort("seen_arr_new_ptr_ptr header", sizeof(SeenArray));
     size_t sz = 8 * sizeof(void*);
-    arr->data = aligned_alloc(32, seen_align_up(sz, 32));
+    arr->data = seen_try_aligned_realloc(NULL, 0, (int64_t)sz, 32);
+    if (!arr->data) seen_oom_abort("seen_arr_new_ptr_ptr data", (int64_t)sz);
     arr->len = 0;
     arr->cap = 8;
     arr->element_size = sizeof(void*);
@@ -863,13 +1100,15 @@ SeenArray* seen_arr_new_ptr_ptr(void) {
 
 // Create array with custom element_size (for data types like ItemNode)
 SeenArray* seen_arr_new_with_size_ptr(int64_t element_size) {
-    SeenArray* arr = (SeenArray*)malloc(sizeof(SeenArray));
+    SeenArray* arr = (SeenArray*)seen_try_malloc(sizeof(SeenArray));
+    if (!arr) seen_oom_abort("seen_arr_new_with_size_ptr header", sizeof(SeenArray));
     if (element_size <= 0 || element_size > 4096) {
         fprintf(stderr, "seen_arr_new_with_size_ptr: invalid element_size=%ld\n", (long)element_size);
         abort();
     }
     size_t sz = 8 * (size_t)element_size;
-    arr->data = aligned_alloc(32, seen_align_up(sz, 32));
+    arr->data = seen_try_aligned_realloc(NULL, 0, (int64_t)sz, 32);
+    if (!arr->data) seen_oom_abort("seen_arr_new_with_size_ptr data", (int64_t)sz);
     arr->len = 0;
     arr->cap = 8;
     arr->element_size = element_size;
@@ -1883,16 +2122,22 @@ void print(SeenString s) {
 
 // Allocate a StringBuilder on the heap and return pointer
 void* StringBuilder_new(void) {
-    StringBuilder* sb = (StringBuilder*)malloc(sizeof(StringBuilder));
+    StringBuilder* sb = (StringBuilder*)seen_try_malloc(sizeof(StringBuilder));
+    if (!sb) seen_oom_abort("StringBuilder_new", sizeof(StringBuilder));
     *sb = StringBuilder_new_value();  // Call inline version
     return sb;
 }
 
 // Allocate a StringBuilder with pre-allocated capacity for parts array
 void* StringBuilder_new_with_capacity(int64_t cap) {
-    StringBuilder* sb = (StringBuilder*)malloc(sizeof(StringBuilder));
-    SeenArray* parts = (SeenArray*)malloc(sizeof(SeenArray));
-    parts->data = malloc(cap * sizeof(SeenString));
+    if (cap < 0) cap = 0;
+    StringBuilder* sb = (StringBuilder*)seen_try_malloc(sizeof(StringBuilder));
+    if (!sb) seen_oom_abort("StringBuilder_new_with_capacity header", sizeof(StringBuilder));
+    SeenArray* parts = (SeenArray*)seen_try_malloc(sizeof(SeenArray));
+    if (!parts) seen_oom_abort("StringBuilder_new_with_capacity parts", sizeof(SeenArray));
+    int64_t data_size = cap * (int64_t)sizeof(SeenString);
+    parts->data = seen_try_malloc(data_size > 0 ? data_size : 1);
+    if (!parts->data) seen_oom_abort("StringBuilder_new_with_capacity data", data_size);
     parts->len = 0;
     parts->cap = cap;
     sb->parts = parts;
@@ -1911,6 +2156,35 @@ int64_t StringBuilder_append(void* s, SeenString str) {
 SeenString StringBuilder_toString(void* s) {
     StringBuilder* sb = (StringBuilder*)s;
     return StringBuilder_toString_value(sb);  // Call inline version
+}
+
+bool StringBuilder_writeToFile_impl(void* s, SeenString path) {
+    StringBuilder* sb = (StringBuilder*)s;
+    if (!sb || !sb->parts || path.len < 0 || !path.data) return false;
+
+    char* cpath = (char*)seen_try_malloc(path.len + 1);
+    if (!cpath) return false;
+    memcpy(cpath, path.data, (size_t)path.len);
+    cpath[path.len] = 0;
+
+    FILE* f = fopen(cpath, "w");
+    free(cpath);
+    seen_memory_release_reservation(path.len + 1);
+    if (!f) return false;
+
+    for (int64_t i = 0; i < sb->parts->len; i++) {
+        SeenString part = ((SeenString*)sb->parts->data)[i];
+        if (part.len <= 0) continue;
+        if (!part.data || fwrite(part.data, 1, (size_t)part.len, f) != (size_t)part.len) {
+            fclose(f);
+            return false;
+        }
+    }
+    return fclose(f) == 0;
+}
+
+SEEN_WEAK bool StringBuilder_writeToFile(void* s, SeenString path) {
+    return StringBuilder_writeToFile_impl(s, path);
 }
 
 // Get length of StringBuilder
@@ -2191,16 +2465,16 @@ SeenString CGenerator_generate(void* gen, void* program) {
 // Result/Option Type Stubs
 // ============================================================================
 
-void* Ok(void* value) { return value; }
-void* Err(SeenString message) { return NULL; }
+SEEN_WEAK void* Ok(void* value) { return value; }
+SEEN_WEAK void* Err(SeenString message) { return NULL; }
 SEEN_WEAK void* Some(void* value) { return value; }
 SEEN_WEAK void* None(void) { return NULL; }
 
 // Generic default value - returns null/zero for any type
 // Used by Option<T> for default initialization
 void* __default(void) { return NULL; }
-bool Result_isOkay(void* result) { return result != NULL; }
-SeenString Result_unwrapErr(void* result) { return (SeenString){ 0, "" }; }
+SEEN_WEAK bool Result_isOkay(void* result) { return result != NULL; }
+SEEN_WEAK SeenString Result_unwrapErr(void* result) { return (SeenString){ 0, "" }; }
 
 // SeenTokenType is actually i64 (enum), unwrap just returns the value
 int64_t SeenTokenType_unwrap(int64_t value) { return value; }
@@ -3082,30 +3356,70 @@ int64_t Vec_last(void* vecPtr) {
     return vec->data[vec->length - 1];
 }
 
+static inline void Vec_swap_i64(int64_t* a, int64_t* b) {
+    int64_t tmp = *a;
+    *a = *b;
+    *b = tmp;
+}
+
+static void Vec_insertion_sort_i64(int64_t* data, int64_t low, int64_t high) {
+    for (int64_t i = low + 1; i <= high; i++) {
+        int64_t value = data[i];
+        int64_t j = i - 1;
+        while (j >= low && data[j] > value) {
+            data[j + 1] = data[j];
+            j--;
+        }
+        data[j + 1] = value;
+    }
+}
+
+static int64_t Vec_partition_i64(int64_t* data, int64_t low, int64_t high) {
+    int64_t mid = low + (high - low) / 2;
+    if (data[mid] < data[low]) Vec_swap_i64(&data[mid], &data[low]);
+    if (data[high] < data[low]) Vec_swap_i64(&data[high], &data[low]);
+    if (data[high] < data[mid]) Vec_swap_i64(&data[high], &data[mid]);
+    Vec_swap_i64(&data[mid], &data[high - 1]);
+    int64_t pivot = data[high - 1];
+    int64_t i = low;
+    int64_t j = high - 1;
+    for (;;) {
+        while (data[++i] < pivot) {}
+        while (data[--j] > pivot) {}
+        if (i >= j) break;
+        Vec_swap_i64(&data[i], &data[j]);
+    }
+    Vec_swap_i64(&data[i], &data[high - 1]);
+    return i;
+}
+
 static void Vec_sort_helper(int64_t* data, int64_t low, int64_t high) {
-    if (low >= high) return;
-    int64_t pivot = data[high];
-    int64_t i = low - 1;
-    for (int64_t j = low; j < high; j++) {
-        if (data[j] <= pivot) {
-            i++;
-            int64_t tmp = data[i];
-            data[i] = data[j];
-            data[j] = tmp;
+    while (high - low > 16) {
+        int64_t pivot = Vec_partition_i64(data, low, high);
+        if (pivot - low < high - pivot) {
+            Vec_sort_helper(data, low, pivot - 1);
+            low = pivot + 1;
+        } else {
+            Vec_sort_helper(data, pivot + 1, high);
+            high = pivot - 1;
         }
     }
-    int64_t tmp = data[i + 1];
-    data[i + 1] = data[high];
-    data[high] = tmp;
-    int64_t pi = i + 1;
-    Vec_sort_helper(data, low, pi - 1);
-    Vec_sort_helper(data, pi + 1, high);
+    Vec_insertion_sort_i64(data, low, high);
 }
 
 void Vec_sort(void* vecPtr) {
     SeenVec* vec = (SeenVec*)vecPtr;
     if (vec->length <= 1) return;
     Vec_sort_helper(vec->data, 0, vec->length - 1);
+}
+
+void* Vec_toArray(void* vecPtr) {
+    SeenVec* vec = (SeenVec*)vecPtr;
+    SeenArray* arr = seen_arr_new_with_size_ptr((int64_t)sizeof(int64_t));
+    for (int64_t i = 0; i < vec->length; i++) {
+        seen_arr_push_i64(arr, vec->data[i]);
+    }
+    return arr;
 }
 
 int64_t Vec_len(void* vecPtr) {
@@ -3385,6 +3699,15 @@ SeenString Vec_last_str(void* vecPtr) {
     return vec->data[vec->length - 1];
 }
 
+void* Vec_toArray_str(void* vecPtr) {
+    SeenVecStr* vec = (SeenVecStr*)vecPtr;
+    SeenArray* arr = seen_arr_new_str_ptr();
+    for (int64_t i = 0; i < vec->length; i++) {
+        seen_arr_push_str(arr, vec->data[i]);
+    }
+    return arr;
+}
+
 // ============================================================================
 // Vec with Float elements
 // Vec_float stores double values (8 bytes each)
@@ -3523,30 +3846,70 @@ double Vec_last_float(void* vecPtr) {
     return vec->data[vec->length - 1];
 }
 
+static inline void Vec_swap_f64(double* a, double* b) {
+    double tmp = *a;
+    *a = *b;
+    *b = tmp;
+}
+
+static void Vec_insertion_sort_f64(double* data, int64_t low, int64_t high) {
+    for (int64_t i = low + 1; i <= high; i++) {
+        double value = data[i];
+        int64_t j = i - 1;
+        while (j >= low && data[j] > value) {
+            data[j + 1] = data[j];
+            j--;
+        }
+        data[j + 1] = value;
+    }
+}
+
+static int64_t Vec_partition_f64(double* data, int64_t low, int64_t high) {
+    int64_t mid = low + (high - low) / 2;
+    if (data[mid] < data[low]) Vec_swap_f64(&data[mid], &data[low]);
+    if (data[high] < data[low]) Vec_swap_f64(&data[high], &data[low]);
+    if (data[high] < data[mid]) Vec_swap_f64(&data[high], &data[mid]);
+    Vec_swap_f64(&data[mid], &data[high - 1]);
+    double pivot = data[high - 1];
+    int64_t i = low;
+    int64_t j = high - 1;
+    for (;;) {
+        while (data[++i] < pivot) {}
+        while (data[--j] > pivot) {}
+        if (i >= j) break;
+        Vec_swap_f64(&data[i], &data[j]);
+    }
+    Vec_swap_f64(&data[i], &data[high - 1]);
+    return i;
+}
+
 static void Vec_sort_float_helper(double* data, int64_t low, int64_t high) {
-    if (low >= high) return;
-    double pivot = data[high];
-    int64_t i = low - 1;
-    for (int64_t j = low; j < high; j++) {
-        if (data[j] <= pivot) {
-            i++;
-            double tmp = data[i];
-            data[i] = data[j];
-            data[j] = tmp;
+    while (high - low > 16) {
+        int64_t pivot = Vec_partition_f64(data, low, high);
+        if (pivot - low < high - pivot) {
+            Vec_sort_float_helper(data, low, pivot - 1);
+            low = pivot + 1;
+        } else {
+            Vec_sort_float_helper(data, pivot + 1, high);
+            high = pivot - 1;
         }
     }
-    double tmp = data[i + 1];
-    data[i + 1] = data[high];
-    data[high] = tmp;
-    int64_t pi = i + 1;
-    Vec_sort_float_helper(data, low, pi - 1);
-    Vec_sort_float_helper(data, pi + 1, high);
+    Vec_insertion_sort_f64(data, low, high);
 }
 
 void Vec_sort_float(void* vecPtr) {
     SeenVecFloat* vec = (SeenVecFloat*)vecPtr;
     if (vec->length <= 1) return;
     Vec_sort_float_helper(vec->data, 0, vec->length - 1);
+}
+
+void* Vec_toArray_float(void* vecPtr) {
+    SeenVecFloat* vec = (SeenVecFloat*)vecPtr;
+    SeenArray* arr = seen_arr_new_with_size_ptr((int64_t)sizeof(double));
+    for (int64_t i = 0; i < vec->length; i++) {
+        seen_arr_push_f64(arr, vec->data[i]);
+    }
+    return arr;
 }
 
 // String.split() heap-allocated wrapper
@@ -8175,7 +8538,90 @@ SEEN_BOOTSTRAP_WEAK int64_t seen_string_to_int(int64_t len, char* data) { (void)
 SEEN_BOOTSTRAP_WEAK double seen_math_positive_infinity(void) { return INFINITY; }
 SEEN_BOOTSTRAP_WEAK double seen_math_negative_infinity(void) { return -INFINITY; }
 SEEN_BOOTSTRAP_WEAK double seen_math_nan(void) { return NAN; }
-SEEN_BOOTSTRAP_WEAK double seen_math_sqrt(double x) { return sqrt(x); }
+
+typedef double (*SeenUnaryMathFn)(double);
+typedef double (*SeenBinaryMathFn)(double, double);
+
+#if defined(_WIN32)
+#define SEEN_LIBM_UNARY_WRAPPER(seen_name, libm_name) \
+    SEEN_BOOTSTRAP_WEAK double seen_name(double x) { return libm_name(x); }
+#define SEEN_LIBM_BINARY_WRAPPER(seen_name, libm_name) \
+    SEEN_BOOTSTRAP_WEAK double seen_name(double x, double y) { return libm_name(x, y); }
+#else
+static void* seen_resolve_libm_symbol(const char* name) {
+    void* symbol = NULL;
+#if defined(__GLIBC__)
+    symbol = dlvsym(RTLD_NEXT, name, "GLIBC_2.2.5");
+#endif
+    if (!symbol) {
+        symbol = dlsym(RTLD_NEXT, name);
+    }
+#if defined(__APPLE__)
+    if (!symbol) {
+        void* handle = dlopen("/usr/lib/libSystem.B.dylib", RTLD_LAZY | RTLD_LOCAL);
+        if (handle) {
+            symbol = dlsym(handle, name);
+        }
+    }
+#else
+    if (!symbol) {
+        void* handle = dlopen("libm.so.6", RTLD_LAZY | RTLD_LOCAL);
+        if (!handle) {
+            handle = dlopen("libm.so", RTLD_LAZY | RTLD_LOCAL);
+        }
+        if (handle) {
+            symbol = dlsym(handle, name);
+        }
+    }
+#endif
+    if (!symbol) {
+        fprintf(stderr, "Seen runtime: unable to resolve libm symbol '%s'\n", name);
+        abort();
+    }
+    return symbol;
+}
+
+#define SEEN_LIBM_UNARY_WRAPPER(seen_name, libm_name) \
+    SEEN_BOOTSTRAP_WEAK double seen_name(double x) { \
+        static SeenUnaryMathFn fn = NULL; \
+        if (!fn) { \
+            fn = (SeenUnaryMathFn)seen_resolve_libm_symbol(#libm_name); \
+        } \
+        return fn(x); \
+    }
+
+#define SEEN_LIBM_BINARY_WRAPPER(seen_name, libm_name) \
+    SEEN_BOOTSTRAP_WEAK double seen_name(double x, double y) { \
+        static SeenBinaryMathFn fn = NULL; \
+        if (!fn) { \
+            fn = (SeenBinaryMathFn)seen_resolve_libm_symbol(#libm_name); \
+        } \
+        return fn(x, y); \
+    }
+#endif
+
+SEEN_LIBM_UNARY_WRAPPER(seen_math_sqrt, sqrt)
+SEEN_LIBM_UNARY_WRAPPER(seen_math_sin, sin)
+SEEN_LIBM_UNARY_WRAPPER(seen_math_cos, cos)
+SEEN_LIBM_UNARY_WRAPPER(seen_math_tan, tan)
+SEEN_LIBM_UNARY_WRAPPER(seen_math_asin, asin)
+SEEN_LIBM_UNARY_WRAPPER(seen_math_acos, acos)
+SEEN_LIBM_UNARY_WRAPPER(seen_math_atan, atan)
+SEEN_LIBM_BINARY_WRAPPER(seen_math_atan2, atan2)
+SEEN_LIBM_UNARY_WRAPPER(seen_math_floor, floor)
+SEEN_LIBM_UNARY_WRAPPER(seen_math_ceil, ceil)
+SEEN_LIBM_BINARY_WRAPPER(seen_math_pow, pow)
+SEEN_LIBM_UNARY_WRAPPER(seen_math_exp, exp)
+SEEN_LIBM_UNARY_WRAPPER(seen_math_exp2, exp2)
+SEEN_LIBM_UNARY_WRAPPER(seen_math_log, log)
+SEEN_LIBM_UNARY_WRAPPER(seen_math_log2, log2)
+SEEN_LIBM_UNARY_WRAPPER(seen_math_log10, log10)
+SEEN_LIBM_BINARY_WRAPPER(seen_math_fmod, fmod)
+SEEN_LIBM_UNARY_WRAPPER(seen_math_cbrt, cbrt)
+SEEN_LIBM_BINARY_WRAPPER(seen_math_hypot, hypot)
+SEEN_LIBM_UNARY_WRAPPER(seen_math_sinh, sinh)
+SEEN_LIBM_UNARY_WRAPPER(seen_math_cosh, cosh)
+SEEN_LIBM_UNARY_WRAPPER(seen_math_tanh, tanh)
 SEEN_BOOTSTRAP_WEAK int64_t seen_string_starts_with(int64_t s_len, char* s_data, int64_t p_len, char* p_data) {
     (void)s_len; (void)s_data; (void)p_len; (void)p_data; return 0;
 }

@@ -453,6 +453,26 @@ fun compute() r: Result<Int, String> {
 }
 ```
 
+### Allocation errors
+
+Allocation-heavy APIs expose fallible `try*` forms using the same
+`Result<T, E>` style. `AllocError` carries the requested size plus current
+runtime memory-budget state.
+
+```seen
+import core.result.{Result, Ok}
+import core.unit.{Unit}
+import memory.allocation.{AllocError, ensureAllocationBudget}
+
+fun prepareBuffer(bytes: Int) r: Result<Unit, AllocError> {
+    ensureAllocationBudget(bytes)?
+    return Ok(Unit{})
+}
+```
+
+Set `SEEN_MEMORY_LIMIT_BYTES` to enforce a process allocation budget from the
+outside, or call `setMemoryLimitBytes(bytes)` inside a program.
+
 ### try / catch
 
 ```seen

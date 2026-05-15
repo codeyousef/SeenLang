@@ -117,6 +117,10 @@ fun shouldRecordStaticMethodLateDeclareImpl(potentialClassName: String,
     if potentialClassName == "String" and methodName == "fromCharCode" {
         return false
     }
+    if potentialClassName == "Int" and
+        (methodName == "max" or methodName == "min") {
+        return false
+    }
     return true
 }
 
@@ -219,7 +223,7 @@ fun planArrayMutatorMethodImpl(methodName: String, receiverIsArray: Bool,
         plan.action = 2
         return plan
     }
-    if methodName == "pop" {
+    if methodName == "pop" and receiverIsArray {
         plan.action = 3
         return plan
     }

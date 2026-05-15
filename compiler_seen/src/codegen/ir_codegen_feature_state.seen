@@ -750,6 +750,8 @@ fun populateFeatureDeclarationPassStateImpl(
     declState.enumVariantParent = g_enumVariantParent
     declState.enumTypeCount = g_enumTypeCount
     declState.enumVariantCount = g_enumVariantCount
+    declState.funcDefaultsArr = g_funcDefaultsArr
+    declState.funcParamCountArr = g_funcParamCountArr
 }
 
 fun applyFeatureDeclarationPassStateImpl(
@@ -766,4 +768,6 @@ fun applyFeatureDeclarationPassStateImpl(
     g_enumVariantParent = declState.enumVariantParent
     g_enumTypeCount = declState.enumTypeCount
     g_enumVariantCount = declState.enumVariantCount
+    g_funcDefaultsArr = declState.funcDefaultsArr
+    g_funcParamCountArr = declState.funcParamCountArr
 }

@@ -131,17 +131,36 @@ fun isTraitClassNodeImpl(classNode: ClassNode) r: Bool {
 
 fun isRuntimeBackedStringBuilderMethodImpl(methodName: String) r: Bool {
     return methodName == "new" or methodName == "append" or
+        methodName == "writeToFile" or
         methodName == "appendChar" or methodName == "toString" or
         methodName == "clear" or methodName == "length"
 }
 
-fun shouldSkipSourceClassMethodImpl(methodName: String, isStringBuilder: Bool)
+fun isRuntimeBackedVecMethodImpl(methodName: String) r: Bool {
+    return methodName == "new" or methodName == "push" or
+        methodName == "get" or methodName == "len" or
+        methodName == "length" or methodName == "isEmpty" or
+        methodName == "set" or methodName == "pop" or
+        methodName == "clear" or methodName == "contains" or
+        methodName == "indexOf" or methodName == "reverse" or
+        methodName == "remove" or methodName == "insert" or
+        methodName == "first" or methodName == "last" or
+        methodName == "sort" or methodName == "capacity" or
+        methodName == "reserve" or methodName == "ensureCapacity" or
+        methodName == "toArray"
+}
+
+fun shouldSkipSourceClassMethodImpl(methodName: String, className: String,
+    isStringBuilder: Bool)
     r: Bool {
 
     if methodName == "__seen_hot_reload_marker__" {
         return true
     }
     if isStringBuilder and isRuntimeBackedStringBuilderMethodImpl(methodName) {
+        return true
+    }
+    if className == "Vec" and isRuntimeBackedVecMethodImpl(methodName) {
         return true
     }
     return false

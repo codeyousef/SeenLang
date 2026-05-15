@@ -31,6 +31,8 @@ class DeclarationPassState {
     var xmConstMutable: String
     var xmConstSeenTypes: String
     var xmConstCount: Int
+    var funcDefaultsArr: String
+    var funcParamCountArr: String
 
     static fun new(asyncFuncNames: String, asyncFuncRetTypes: String,
         asyncFuncCount: Int, xmDeclareNames: String, xmDeclareStrs: String,
@@ -41,7 +43,8 @@ class DeclarationPassState {
         enumVariantFieldTypes: String, enumVariantFieldCounts: String,
         enumVariantParent: String, enumTypeCount: Int, enumVariantCount: Int,
         xmConstNames: String, xmConstTypes: String, xmConstMutable: String,
-        xmConstSeenTypes: String, xmConstCount: Int) r: DeclarationPassState {
+        xmConstSeenTypes: String, xmConstCount: Int, funcDefaultsArr: String,
+        funcParamCountArr: String) r: DeclarationPassState {
 
         return DeclarationPassState{
             asyncFuncNames: asyncFuncNames,
@@ -66,7 +69,9 @@ class DeclarationPassState {
             xmConstTypes: xmConstTypes,
             xmConstMutable: xmConstMutable,
             xmConstSeenTypes: xmConstSeenTypes,
-            xmConstCount: xmConstCount
+            xmConstCount: xmConstCount,
+            funcDefaultsArr: funcDefaultsArr,
+            funcParamCountArr: funcParamCountArr
         }
     }
 }
@@ -114,7 +119,8 @@ fun captureDeclarationPassStateImpl(asyncFuncNames: String,
     enumVariantFieldCounts: String, enumVariantParent: String,
     enumTypeCount: Int, enumVariantCount: Int, xmConstNames: String,
     xmConstTypes: String, xmConstMutable: String, xmConstSeenTypes: String,
-    xmConstCount: Int) r: DeclarationPassState {
+    xmConstCount: Int, funcDefaultsArr: String,
+    funcParamCountArr: String) r: DeclarationPassState {
 
     return DeclarationPassState.new(asyncFuncNames, asyncFuncRetTypes,
         asyncFuncCount, xmDeclareNames, xmDeclareStrs, xmDeclareVis,
@@ -122,7 +128,8 @@ fun captureDeclarationPassStateImpl(asyncFuncNames: String,
         xmDeclareCount, enumTypeNames, enumVariantNames, enumVariantTags,
         enumVariantFieldTypes, enumVariantFieldCounts, enumVariantParent,
         enumTypeCount, enumVariantCount, xmConstNames, xmConstTypes,
-        xmConstMutable, xmConstSeenTypes, xmConstCount)
+        xmConstMutable, xmConstSeenTypes, xmConstCount, funcDefaultsArr,
+        funcParamCountArr)
 }
 
 fun captureLateUserDeclareStateImpl(lateXmDeclareNames: String,

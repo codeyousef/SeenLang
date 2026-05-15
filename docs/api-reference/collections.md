@@ -53,7 +53,9 @@ for name in names {
 
 ## Vec\<T\>
 
-Chunked vector with amortized O(1) push/pop. Better for very large collections.
+Contiguous vector with amortized O(1) push/pop and O(1) indexed access.
+`Vec<T>` is the preferred performance-oriented growable sequence when callers
+need repeated `get`, `set`, iteration, or conversion back to `Array<T>`.
 
 ```seen
 import collections.vec
@@ -83,6 +85,10 @@ let v = Vec<Int>.withCapacity(1000)
 ## HashMap\<K, V\>
 
 Robin-hood hashing hash map. Iteration order is non-deterministic.
+
+For string-heavy workloads, prefer `StringHashMap<V>` while the generic hashing
+contract is being hardened for 0.9.0. `StringHashMap` uses byte-wise hashing and
+avoids per-character substring allocation.
 
 ```seen
 import collections.hash_map

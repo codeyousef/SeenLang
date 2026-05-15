@@ -56,6 +56,13 @@ typedef struct {
     SeenString message;
 } FrontendDiagnostic;
 
+typedef struct {
+    int64_t limitBytes;
+    int64_t usedBytes;
+    int64_t peakBytes;
+    int64_t allocationFailures;
+} SeenMemoryStats;
+
 // Forward declarations for generator types
 typedef struct CGenerator CGenerator;
 
@@ -110,6 +117,19 @@ static inline SeenString seen_str_concat(SeenString a, const char* b) {
 // String concatenation (SeenString + SeenString)
 SeenString seen_str_concat_ss(SeenString a, SeenString b);
 
+// Fallible allocation and memory-budget ABI
+void seen_memory_set_limit_bytes(int64_t bytes);
+int64_t seen_memory_limit_bytes(void);
+int64_t seen_memory_used_bytes(void);
+int64_t seen_memory_peak_bytes(void);
+int64_t seen_memory_allocation_failures(void);
+int64_t seen_memory_remaining_bytes(void);
+SeenMemoryStats seen_memory_stats(void);
+void* seen_try_malloc(int64_t size);
+void* seen_try_calloc(int64_t count, int64_t size);
+void* seen_try_realloc(void* old, int64_t old_size, int64_t new_size);
+void* seen_try_aligned_realloc(void* old, int64_t old_size, int64_t new_size, int64_t alignment);
+
 // String equality (SeenString == char*)
 static inline bool seen_str_eq(SeenString a, const char* b) {
     size_t blen = strlen(b);
@@ -158,6 +178,33 @@ int64_t seen_error_message_len(void);
 void seen_error_set_cstr(int64_t subsystem, int64_t code, const char* message);
 double seen_ptr_deref_f64(int64_t ptr);
 
+// Math helpers used by the stdlib wrappers.
+double seen_math_positive_infinity(void);
+double seen_math_negative_infinity(void);
+double seen_math_nan(void);
+double seen_math_sqrt(double x);
+double seen_math_sin(double x);
+double seen_math_cos(double x);
+double seen_math_tan(double x);
+double seen_math_asin(double x);
+double seen_math_acos(double x);
+double seen_math_atan(double x);
+double seen_math_atan2(double y, double x);
+double seen_math_floor(double x);
+double seen_math_ceil(double x);
+double seen_math_pow(double x, double y);
+double seen_math_exp(double x);
+double seen_math_exp2(double x);
+double seen_math_log(double x);
+double seen_math_log2(double x);
+double seen_math_log10(double x);
+double seen_math_fmod(double x, double y);
+double seen_math_cbrt(double x);
+double seen_math_hypot(double x, double y);
+double seen_math_sinh(double x);
+double seen_math_cosh(double x);
+double seen_math_tanh(double x);
+
 // Char (Unicode code point) to string
 SeenString seen_char_to_str(int64_t c);
 
@@ -199,6 +246,11 @@ int64_t String_count(SeenString s, SeenString needle);
 // Unwrap functions for optional types
 int64_t Int_unwrap(int64_t val);
 void* Optional_unwrap(void* ptr);
+
+// Runtime-backed Vec conversion helpers.
+void* Vec_toArray(void* vecPtr);
+void* Vec_toArray_str(void* vecPtr);
+void* Vec_toArray_float(void* vecPtr);
 
 // Alias for compatibility
 static inline char* seen_to_string(int64_t n) {
@@ -245,6 +297,9 @@ void seen_arr_push_str(SeenArray* arr, SeenString s);
 
 // Push i64 by value (not pointer) - for Array<Int>
 void seen_arr_push_i64(SeenArray* arr, int64_t val);
+
+// Push f64 by value - for Array<Float>
+void seen_arr_push_f64(SeenArray* arr, double val);
 
 // Generic push for pointer types
 void seen_arr_push_ptr(SeenArray* arr, void* p);
@@ -349,6 +404,7 @@ void* StringBuilder_new(void);
 void* StringBuilder_new_with_capacity(int64_t cap);
 int64_t StringBuilder_append(void* sb, SeenString text);
 SeenString StringBuilder_toString(void* sb);
+bool StringBuilder_writeToFile_impl(void* sb, SeenString path);
 int64_t StringBuilder_length(void* sb);
 void StringBuilder_clear_impl(void* sb);
 int64_t StringBuilder_appendFloat(void* sb, double f);
@@ -363,17 +419,35 @@ static inline StringBuilder StringBuilder_new_value(void) {
 // Fast-path push for StringBuilder (skips validation, relies on LTO inlining)
 static inline void seen_arr_push_str_fast(SeenArray* arr, SeenString s) {
     if (__builtin_expect(arr->len >= arr->cap, 0)) {
+        if (arr->cap > INT64_MAX / 2) return;
         int64_t new_cap = arr->cap == 0 ? 8 : arr->cap * 2;
+        if (new_cap > INT64_MAX / (int64_t)sizeof(SeenString)) return;
+        void* new_data = seen_try_realloc(arr->data,
+            arr->cap * (int64_t)sizeof(SeenString),
+            new_cap * (int64_t)sizeof(SeenString));
+        if (!new_data) return;
         arr->cap = new_cap;
-        arr->data = realloc(arr->data, new_cap * sizeof(SeenString));
+        arr->data = new_data;
     }
     ((SeenString*)arr->data)[arr->len++] = s;
 }
 
-static inline void StringBuilder_append_value(StringBuilder* sb, SeenString text) {
-    if (text.len == 0) return;
+static inline bool StringBuilder_tryAppend_value(StringBuilder* sb, SeenString text) {
+    if (!sb || !sb->parts || text.len < 0) return false;
+    if (text.len == 0) return true;
+    if (INT64_MAX - sb->totalLength < text.len) return false;
+    int64_t old_len = sb->parts->len;
     sb->totalLength += text.len;
     seen_arr_push_str_fast(sb->parts, text);
+    if (sb->parts->len == old_len) {
+        sb->totalLength -= text.len;
+        return false;
+    }
+    return true;
+}
+
+static inline void StringBuilder_append_value(StringBuilder* sb, SeenString text) {
+    (void)StringBuilder_tryAppend_value(sb, text);
 }
 
 static inline void StringBuilder_appendLine(StringBuilder* sb, SeenString text) {
@@ -387,7 +461,11 @@ static inline void StringBuilder_clear(StringBuilder* sb) {
 }
 
 static inline SeenString StringBuilder_toString_value(StringBuilder* sb) {
-    char* data = (char*)malloc(sb->totalLength + 1);
+    char* data = (char*)seen_try_malloc(sb->totalLength + 1);
+    if (!data) {
+        SeenString empty = { 0, "" };
+        return empty;
+    }
     char* ptr = data;
     for (int64_t i = 0; i < sb->parts->len; i++) {
         SeenString part = ((SeenString*)sb->parts->data)[i];

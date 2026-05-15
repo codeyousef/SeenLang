@@ -13,13 +13,13 @@ class StdString {
         return StdString{ buffer: Vec<Char>.new() }
     }
 
-    fun fromString(text: String) r: StdString {
+    static fun fromString(text: String) r: StdString {
         let s = StdString.new()
         s.push(text)
         return s
     }
 
-    fun withCapacity(capacity: Int) r: StdString {
+    static fun withCapacity(capacity: Int) r: StdString {
         let s = StdString.new()
         s.reserve(capacity)
         return s

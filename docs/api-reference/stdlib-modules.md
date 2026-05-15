@@ -23,7 +23,7 @@ modules are listed here so missing API-reference coverage is visible.
 | `io` | File, buffered, and stdio helpers |
 | `json` | JSON values, parser, builder |
 | `math` | Math helpers |
-| `memory` | Region allocation helpers |
+| `memory` | Allocation budget, statistics, and region helpers |
 | `net` | Polling and TCP wrappers |
 | `platform` | OS-specific windows/audio/input/GPU bindings |
 | `process` | Process execution helpers |
@@ -147,6 +147,7 @@ modules are listed here so missing API-reference coverage is visible.
 
 ### `memory`
 
+- `memory/allocation`
 - `memory/mapped_region`
 - `memory/pool_region`
 - `memory/stack_region`

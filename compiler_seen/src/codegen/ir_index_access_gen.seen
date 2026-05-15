@@ -178,6 +178,21 @@ fun emitFallbackIndexElementAccessImpl(output: StringBuilder,
             " to i64\n")
         return resultReg
     }
+    if elementType != "" {
+        output.append("  " + ptrResultReg +
+            " = call ptr @seen_arr_get_element_ptr(ptr " + arrayReg +
+            ", i64 " + indexReg + ")\n")
+        let payloadReg = getNextRegFn(regBox)
+        output.append("  " + payloadReg + " = load i64, ptr " +
+            ptrResultReg + "\n")
+        if elementType == "Bool" {
+            let boolReg = getNextRegFn(regBox)
+            output.append("  " + boolReg + " = icmp ne i64 " +
+                payloadReg + ", 0\n")
+            return boolReg
+        }
+        return payloadReg
+    }
     output.append("  " + ptrResultReg +
         " = call ptr @seen_arr_get_element_ptr(ptr " + arrayReg +
         ", i64 " + indexReg + ")\n")

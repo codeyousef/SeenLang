@@ -1032,13 +1032,15 @@ if [ "${SEEN_LOW_MEMORY:-0}" = "1" ]; then
         export SEEN_MEMORY_GUARD_CGROUP_STOP_KB="$MEMORY_GUARD_CGROUP_STOP_KB"
     fi
     RECOVERY_TIMEOUT_SECS="${SEEN_RECOVERY_TIMEOUT_SECS:-7200}"
+    MAIN_COMPILER_MEMORY_LIMIT_BYTES="${SEEN_MEMORY_LIMIT_BYTES:-$((MAIN_COMPILER_VMEM_KB * 1024))}"
     export SEEN_LOW_MEMORY=1
     export SEEN_MAIN_VMEM_KB="$MAIN_COMPILER_VMEM_KB"
     export SEEN_OPT_VMEM_KB="$OPT_VMEM_KB"
+    export SEEN_MEMORY_LIMIT_BYTES="$MAIN_COMPILER_MEMORY_LIMIT_BYTES"
     export SEEN_RECOVERY_TIMEOUT_SECS="$RECOVERY_TIMEOUT_SECS"
     guard_low_memory_concurrency
     echo -e "${YELLOW}Low-memory mode enabled: serial bootstrap stages.${NC}"
-    echo -e "${YELLOW}Detected system memory: $(format_bytes $((SYSTEM_MEMORY_KB * 1024))). Main compiler cap: $(format_bytes $((MAIN_COMPILER_VMEM_KB * 1024))). opt cap: $(format_bytes $((OPT_VMEM_KB * 1024))).${NC}"
+    echo -e "${YELLOW}Detected system memory: $(format_bytes $((SYSTEM_MEMORY_KB * 1024))). Main compiler cap: $(format_bytes $((MAIN_COMPILER_VMEM_KB * 1024))). tracked allocation budget: $(format_bytes "$MAIN_COMPILER_MEMORY_LIMIT_BYTES"). opt cap: $(format_bytes $((OPT_VMEM_KB * 1024))).${NC}"
 fi
 
 if memory_guard_enabled; then
@@ -1175,6 +1177,9 @@ smoke_test_compiler() {
         if [ -n "$OPT_VMEM_KB" ]; then
             compiler_env+=("SEEN_OPT_VMEM_KB=$OPT_VMEM_KB")
         fi
+        if [ -n "${SEEN_MEMORY_LIMIT_BYTES:-}" ]; then
+            compiler_env+=("SEEN_MEMORY_LIMIT_BYTES=$SEEN_MEMORY_LIMIT_BYTES")
+        fi
         check_cmd+=(--no-fork)
         compile_cmd+=(--no-fork)
     fi
@@ -1218,8 +1223,12 @@ smoke_test_compiler() {
         return 1
     fi
 
+    if [ -f "$smoke_bin" ] && [ ! -x "$smoke_bin" ]; then
+        chmod +x "$smoke_bin" 2>/dev/null || true
+    fi
+
     if [ ! -x "$smoke_bin" ]; then
-        echo -e "${YELLOW}${stage_label} compile smoke test did not produce $smoke_bin.${NC}"
+        echo -e "${YELLOW}${stage_label} compile smoke test did not produce executable $smoke_bin.${NC}"
         preserve_smoke_failure_artifacts "$stage_slug"
         cleanup_smoke_build_state
         return 1
@@ -1295,6 +1304,7 @@ recover_with_preserved_production_compiler() {
             SEEN_SKIP_IR_FIXUPS=1 \
             SEEN_MAIN_VMEM_KB="$MAIN_COMPILER_VMEM_KB" \
             SEEN_OPT_VMEM_KB="$OPT_VMEM_KB" \
+            SEEN_MEMORY_LIMIT_BYTES="${SEEN_MEMORY_LIMIT_BYTES:-}" \
             "$recovery_builder_path" compile "$COMPILER_SOURCE" "$STAGE3_RECOVERY" \
             --fast --no-cache --no-fork $RELEASE_TARGET_CPU_FLAG || recovery_exit=$?
     if [ "$recovery_exit" -eq 0 ]; then
@@ -1519,6 +1529,7 @@ recover_with_existing_stage_builder() {
             SEEN_LOW_MEMORY="${SEEN_LOW_MEMORY:-0}" \
             SEEN_MAIN_VMEM_KB="$MAIN_COMPILER_VMEM_KB" \
             SEEN_OPT_VMEM_KB="$OPT_VMEM_KB" \
+            SEEN_MEMORY_LIMIT_BYTES="${SEEN_MEMORY_LIMIT_BYTES:-}" \
             "$recovery_builder_path" compile "$COMPILER_SOURCE" "$STAGE3_RECOVERY" \
             --fast --no-cache --no-fork $RELEASE_TARGET_CPU_FLAG || recovery_exit=$?
 

@@ -92,7 +92,9 @@ let byte = seen_byte_at(s, 0) // raw byte at index
 
 ## StringBuilder
 
-Efficient string building with amortized allocation:
+Efficient string building with amortized allocation. `repeat`, `join`, `split`,
+and compiler-facing builder paths use this instead of repeated string
+concatenation for large outputs.
 
 ```seen
 import str.string
@@ -109,6 +111,7 @@ let sb = StringBuilder.new()
 | Method | Return | Description |
 |--------|--------|-------------|
 | `append(text: String)` | `Void` | Append string |
+| `tryAppend(text: String)` | `Result<Unit, AllocError>` | Append after checking the current memory budget |
 | `appendChar(ch: Char)` | `Void` | Append character |
 | `appendLine(text: String)` | `Void` | Append string + newline |
 | `appendAll(values: Array<String>)` | `Void` | Append all strings |
@@ -116,6 +119,8 @@ let sb = StringBuilder.new()
 | `isEmpty()` | `Bool` | Check if empty |
 | `length()` | `Int` | Get total length |
 | `toString()` | `String` | Build final string |
+| `tryToString()` | `Result<String, AllocError>` | Build after checking the current memory budget |
+| `writeToFile(path: String)` | `Bool` | Stream builder parts to a file |
 | `buildAndClear()` | `String` | Build string and clear builder |
 
 ### Example

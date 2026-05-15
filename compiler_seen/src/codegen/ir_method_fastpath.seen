@@ -227,7 +227,8 @@ fun emitStringBuilderReceiverMethodCallImpl(output: StringBuilder,
     if receiverType != "StringBuilder" {
         return ""
     }
-    if methodName != "append" and methodName != "appendInt" and
+    if methodName != "append" and methodName != "writeToFile" and
+        methodName != "appendInt" and
         methodName != "appendFloat" and methodName != "appendChar" and
         methodName != "clear" and methodName != "length" and
         methodName != "toString" {
@@ -426,6 +427,12 @@ fun emitPreparedStaticMethodCallImpl(output: StringBuilder, regBox: Array<Int>,
     if potentialClassName == "String" and methodName == "fromCharCode" {
         return emitStringFromCharCodeCallImpl(output, regBox, argRegs,
             argTypeStrs)
+    }
+    if potentialClassName == "Int" and methodName == "max" {
+        return "9223372036854775807"
+    }
+    if potentialClassName == "Int" and methodName == "min" {
+        return "-9223372036854775808"
     }
 
     return emitGenericStaticCallImpl(output, regBox,

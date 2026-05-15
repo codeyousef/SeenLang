@@ -1,0 +1,70 @@
+///
+Allocation failure contract for Seen 0.9.0.
+
+The runtime owns the raw budget counters. Stdlib APIs expose those counters in
+Seen terms so allocation-heavy code can choose `Result` paths instead of
+depending on process OOM behavior.
+///
+
+import core.result.{Result, Ok, Err}
+import core.unit.{Unit}
+
+extern fun seen_memory_set_limit_bytes(bytes: Int) r: Void
+extern fun seen_memory_limit_bytes() r: Int
+extern fun seen_memory_used_bytes() r: Int
+extern fun seen_memory_peak_bytes() r: Int
+extern fun seen_memory_remaining_bytes() r: Int
+extern fun seen_memory_allocation_failures() r: Int
+
+class AllocError {
+    var requestedBytes: Int
+    var limitBytes: Int
+    var usedBytes: Int
+    var message: String
+
+    static fun outOfMemory(requestedBytes: Int) r: AllocError {
+        return AllocError {
+            requestedBytes: requestedBytes,
+            limitBytes: seen_memory_limit_bytes(),
+            usedBytes: seen_memory_used_bytes(),
+            message: "Seen allocation budget exceeded"
+        }
+    }
+}
+
+class MemoryStats {
+    var limitBytes: Int
+    var usedBytes: Int
+    var peakBytes: Int
+    var remainingBytes: Int
+    var allocationFailures: Int
+
+    static fun current() r: MemoryStats {
+        return MemoryStats {
+            limitBytes: seen_memory_limit_bytes(),
+            usedBytes: seen_memory_used_bytes(),
+            peakBytes: seen_memory_peak_bytes(),
+            remainingBytes: seen_memory_remaining_bytes(),
+            allocationFailures: seen_memory_allocation_failures()
+        }
+    }
+}
+
+fun setMemoryLimitBytes(bytes: Int) r: Void {
+    seen_memory_set_limit_bytes(bytes)
+}
+
+fun memoryStats() r: MemoryStats {
+    return MemoryStats.current()
+}
+
+fun memoryRemainingBytes() r: Int {
+    return seen_memory_remaining_bytes()
+}
+
+fun ensureAllocationBudget(bytes: Int) r: Result<Unit, AllocError> {
+    if bytes <= seen_memory_remaining_bytes() {
+        return Ok<Unit, AllocError>(Unit{})
+    }
+    return Err<Unit, AllocError>(AllocError.outOfMemory(bytes))
+}

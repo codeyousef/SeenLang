@@ -8,6 +8,7 @@ import str.string.{StringBuilder}
 import codegen.ir_codegen_global_state.{resetGlobalModuleConstantsImpl, emitGlobalVariablesWithGlobalStateImpl, emitCrossModuleConstantDeclaresWithGlobalStateImpl, findModuleConstantWithGlobalStateImpl, getModuleConstantTypeWithGlobalStateImpl, tryInferModuleConstantVariableTypeWithGlobalStateImpl}
 import codegen.ir_decl_registry.{DeclarationPassState, LateUserDeclareState, captureLateUserDeclareStateImpl, resetLateUserDeclareStateImpl, emitLateUserDeclaresStateImpl}
 import codegen.ir_module_constants.{isModuleConstMutableImpl, getModuleConstSeenTypeImpl, resetModuleConstantGenerationStateImpl, moduleConstantInvariantLoadSuffixImpl}
+import codegen.ir_module_emit.{emitCrossModuleFunctionDeclaresImpl}
 import codegen.ir_field_registry.{findCachedIrgenFieldIndexImpl, cacheIrgenFieldIndexImpl, findCachedChainedPathTypeRecordImpl, cacheChainedPathTypeImpl, resetFieldLookupCacheStateImpl}
 
 var g_moduleConstMutable: String = ""
@@ -90,6 +91,13 @@ fun emitCrossModuleConstantDeclaresWithModuleStateImpl(
 
     emitCrossModuleConstantDeclaresWithGlobalStateImpl(output,
         g_xmConstNames, g_xmConstTypes, g_xmConstCount)
+}
+
+fun emitCrossModuleFunctionDeclaresWithModuleStateImpl(output: StringBuilder,
+    definedFuncs: Array<String>) r: Void {
+
+    emitCrossModuleFunctionDeclaresImpl(output, definedFuncs,
+        g_xmDeclareNames, g_xmDeclareStrs, g_xmDeclareCount)
 }
 
 fun findModuleConstantWithModuleStateImpl(name: String) r: Int {

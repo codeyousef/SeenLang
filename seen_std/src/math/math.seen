@@ -22,6 +22,28 @@ const FRAC_1_SQRT2: Float = 0.70710678118654752440
 extern "C" fun seen_math_positive_infinity() r: Float
 extern "C" fun seen_math_negative_infinity() r: Float
 extern "C" fun seen_math_nan() r: Float
+extern "C" fun seen_math_sqrt(value: Float) r: Float
+extern "C" fun seen_math_sin(value: Float) r: Float
+extern "C" fun seen_math_cos(value: Float) r: Float
+extern "C" fun seen_math_tan(value: Float) r: Float
+extern "C" fun seen_math_asin(value: Float) r: Float
+extern "C" fun seen_math_acos(value: Float) r: Float
+extern "C" fun seen_math_atan(value: Float) r: Float
+extern "C" fun seen_math_atan2(y: Float, x: Float) r: Float
+extern "C" fun seen_math_floor(value: Float) r: Float
+extern "C" fun seen_math_ceil(value: Float) r: Float
+extern "C" fun seen_math_pow(base: Float, exponent: Float) r: Float
+extern "C" fun seen_math_exp(value: Float) r: Float
+extern "C" fun seen_math_exp2(value: Float) r: Float
+extern "C" fun seen_math_log(value: Float) r: Float
+extern "C" fun seen_math_log2(value: Float) r: Float
+extern "C" fun seen_math_log10(value: Float) r: Float
+extern "C" fun seen_math_fmod(x: Float, y: Float) r: Float
+extern "C" fun seen_math_cbrt(value: Float) r: Float
+extern "C" fun seen_math_hypot(x: Float, y: Float) r: Float
+extern "C" fun seen_math_sinh(value: Float) r: Float
+extern "C" fun seen_math_cosh(value: Float) r: Float
+extern "C" fun seen_math_tanh(value: Float) r: Float
 
 let INFINITY: Float = seen_math_positive_infinity()
 let NEG_INFINITY: Float = seen_math_negative_infinity()
@@ -88,83 +110,23 @@ fun approxEqual(a: Float, b: Float, tolerance: Float = 0.0001) r: Bool {
 }
 
 fun sin(radians: Float) r: Float {
-    let angle = normalizeAngle(radians)
-    let x2 = angle * angle
-    let x3 = angle * x2
-    let x5 = x3 * x2
-    let x7 = x5 * x2
-    let x9 = x7 * x2
-    return angle
-        - (x3 / 6.0)
-        + (x5 / 120.0)
-        - (x7 / 5040.0)
-        + (x9 / 362880.0)
+    return seen_math_sin(radians)
 }
 
 fun cos(radians: Float) r: Float {
-    let angle = normalizeAngle(radians)
-    let x2 = angle * angle
-    let x4 = x2 * x2
-    let x6 = x4 * x2
-    let x8 = x4 * x4
-    return 1.0
-        - (x2 / 2.0)
-        + (x4 / 24.0)
-        - (x6 / 720.0)
-        + (x8 / 40320.0)
+    return seen_math_cos(radians)
 }
 
 fun tan(radians: Float) r: Float {
-    let c = cos(radians)
-    if approxEqual(c, 0.0, 0.0000001) {
-        abort("tan undefined for angle {radians}")
-    }
-    return sin(radians) / c
+    return seen_math_tan(radians)
 }
 
 fun atan(x: Float) r: Float {
-    // Range reduction: for |x| > 1, use atan(x) = sign*PI/2 - atan(1/x)
-    let pi_half = 1.57079632679489661923
-    if x > 1.0 {
-        return pi_half - atan(1.0 / x)
-    }
-    if x < -1.0 {
-        return -pi_half - atan(1.0 / x)
-    }
-    // Taylor series for |x| <= 1: atan(x) = x - x^3/3 + x^5/5 - x^7/7 + ...
-    let x2 = x * x
-    var term = x
-    var result = x
-    var n = 1
-    while n < 13 {
-        term = -term * x2
-        let denom = 2 * n + 1
-        result = result + term / denom.toFloat()
-        n = n + 1
-    }
-    return result
+    return seen_math_atan(x)
 }
 
 fun atan2(y: Float, x: Float) r: Float {
-    let pi = 3.14159265358979323846
-    if x > 0.0 {
-        return atan(y / x)
-    }
-    if x < 0.0 and y >= 0.0 {
-        return atan(y / x) + pi
-    }
-    if x < 0.0 and y < 0.0 {
-        return atan(y / x) - pi
-    }
-    // x == 0
-    let pi_half = 1.57079632679489661923
-    if y > 0.0 {
-        return pi_half
-    }
-    if y < 0.0 {
-        return -pi_half
-    }
-    return 0.0
+    return seen_math_atan2(y, x)
 }
 
 fun asin(x: Float) r: Float {
@@ -178,75 +140,29 @@ fun asin(x: Float) r: Float {
     if x == -1.0 {
         return -pi_half
     }
-    return atan(x / sqrt(1.0 - x * x))
+    return seen_math_asin(x)
 }
 
 fun acos(x: Float) r: Float {
     if x < -1.0 or x > 1.0 {
         abort("acos: domain error, x must be in [-1, 1]")
     }
-    let pi_half = 1.57079632679489661923
-    return pi_half - asin(x)
+    return seen_math_acos(x)
 }
 
 fun sqrt(value: Float) r: Float {
     if value < 0.0 {
         abort("sqrt of negative input")
     }
-    if value == 0.0 {
-        return 0.0
-    }
-    var guess = value
-    var iterations = 0
-    while iterations < 24 {
-        guess = 0.5 * (guess + value / guess)
-        iterations = iterations + 1
-    }
-    return guess
+    return seen_math_sqrt(value)
 }
 
 fun floor(value: Float) r: Float {
-    if value >= 0.0 {
-        var whole = 0.0
-        var remaining = value
-        while remaining >= 1.0 {
-            remaining = remaining - 1.0
-            whole = whole + 1.0
-        }
-        return whole
-    }
-    var whole = 0.0
-    var remaining = value
-    while remaining <= -1.0 {
-        remaining = remaining + 1.0
-        whole = whole - 1.0
-    }
-    if remaining == 0.0 {
-        return whole
-    }
-    return whole - 1.0
+    return seen_math_floor(value)
 }
 
 fun ceil(value: Float) r: Float {
-    if value >= 0.0 {
-        var whole = 0.0
-        var remaining = value
-        while remaining >= 1.0 {
-            remaining = remaining - 1.0
-            whole = whole + 1.0
-        }
-        if remaining == 0.0 {
-            return whole
-        }
-        return whole + 1.0
-    }
-    var whole = 0.0
-    var remaining = value
-    while remaining <= -1.0 {
-        remaining = remaining + 1.0
-        whole = whole - 1.0
-    }
-    return whole
+    return seen_math_ceil(value)
 }
 
 fun round(value: Float) r: Float {
@@ -265,59 +181,25 @@ fun pow(base: Float, exponent: Float) r: Float {
     if exponent == 0.0 {
         return 1.0
     }
-    // Check if exponent is an integer
-    let absExp = abs(exponent)
-    let fracPart = absExp - floor(absExp)
-    if fracPart < 0.0000000001 and absExp < 1000.0 {
-        // Integer fast path
-        var result = 1.0
-        var count = absExp
-        while count >= 1.0 {
-            result = result * base
-            count = count - 1.0
-        }
-        if exponent < 0.0 {
-            if result == 0.0 {
-                abort("pow division by zero")
-            }
-            return 1.0 / result
-        }
-        return result
-    }
-    // Fractional exponent: base^exp = exp(exp * ln(base))
-    if base < 0.0 {
+    let fracPart = abs(exponent) - floor(abs(exponent))
+    if base < 0.0 and fracPart >= 0.0000000001 {
         abort("pow: negative base with fractional exponent")
     }
-    if base == 0.0 {
-        return 0.0
+    if base == 0.0 and exponent < 0.0 {
+        abort("pow division by zero")
     }
-    return exp(exponent * ln(base))
+    return seen_math_pow(base, exponent)
 }
 
 fun exp(value: Float) r: Float {
-    var term = 1.0
-    var result = 1.0
-    var n = 1
-    while n < 20 {
-        term = term * value / n
-        result = result + term
-        n = n + 1
-    }
-    return result
+    return seen_math_exp(value)
 }
 
 fun ln(value: Float) r: Float {
     if value <= 0.0 {
         abort("ln expects positive input")
     }
-    var guess = 0.0
-    var iterations = 0
-    while iterations < 32 {
-        let e = exp(guess)
-        guess = guess + (value - e) / e
-        iterations = iterations + 1
-    }
-    return guess
+    return seen_math_log(value)
 }
 
 fun log(base: Float, value: Float) r: Float {
@@ -325,15 +207,21 @@ fun log(base: Float, value: Float) r: Float {
 }
 
 fun log2(value: Float) r: Float {
-    return ln(value) * 1.44269504088896340736
+    if value <= 0.0 {
+        abort("log2 expects positive input")
+    }
+    return seen_math_log2(value)
 }
 
 fun log10(value: Float) r: Float {
-    return ln(value) * 0.43429448190325182765
+    if value <= 0.0 {
+        abort("log10 expects positive input")
+    }
+    return seen_math_log10(value)
 }
 
 fun exp2(value: Float) r: Float {
-    return exp(value * 0.69314718055994530942)
+    return seen_math_exp2(value)
 }
 
 fun clamp(value: Float, minValue: Float, maxValue: Float) r: Float {
@@ -476,42 +364,18 @@ fun smoothstep(edge0: Float, edge1: Float, value: Float) r: Float {
 }
 
 fun cbrt(value: Float) r: Float {
-    if value == 0.0 {
-        return 0.0
-    }
-    var x = abs(value)
-    var guess = x / 3.0
-    if guess == 0.0 {
-        guess = 1.0
-    }
-    var iterations = 0
-    while iterations < 30 {
-        guess = (2.0 * guess + x / (guess * guess)) / 3.0
-        iterations = iterations + 1
-    }
-    if value < 0.0 {
-        return -guess
-    }
-    return guess
+    return seen_math_cbrt(value)
 }
 
 fun hypot(x: Float, y: Float) r: Float {
-    let ax = abs(x)
-    let ay = abs(y)
-    if ax == 0.0 and ay == 0.0 {
-        return 0.0
-    }
-    let big = max(ax, ay)
-    let small = min(ax, ay)
-    let ratio = small / big
-    return big * sqrt(1.0 + ratio * ratio)
+    return seen_math_hypot(x, y)
 }
 
 fun fmod(x: Float, y: Float) r: Float {
     if y == 0.0 {
         abort("fmod: division by zero")
     }
-    return x - floor(x / y) * y
+    return seen_math_fmod(x, y)
 }
 
 fun copysign(x: Float, y: Float) r: Float {
@@ -531,14 +395,13 @@ fun degrees(value: Float) r: Float {
 }
 
 fun normalizeAngle(value: Float) r: Float {
-    // Use local literals so we don't depend on module-level const resolution during bootstrap lowering.
     let pi = 3.14159265358979323846
     let tau = 6.28318530717958647692
-    var angle = value
-    while angle > pi {
+    var angle = seen_math_fmod(value, tau)
+    if angle > pi {
         angle = angle - tau
     }
-    while angle < -pi {
+    if angle < -pi {
         angle = angle + tau
     }
     return angle
@@ -547,34 +410,15 @@ fun normalizeAngle(value: Float) r: Float {
 // --- Hyperbolic functions ---
 
 fun sinh(x: Float) r: Float {
-    if abs(x) < 1.0 {
-        // Taylor series for small x to avoid cancellation: x + x^3/6 + x^5/120 + ...
-        let x2 = x * x
-        let x3 = x * x2
-        let x5 = x3 * x2
-        let x7 = x5 * x2
-        let x9 = x7 * x2
-        let x11 = x9 * x2
-        return x + x3 / 6.0 + x5 / 120.0 + x7 / 5040.0 + x9 / 362880.0 + x11 / 39916800.0
-    }
-    let ex = exp(x)
-    return (ex - 1.0 / ex) / 2.0
+    return seen_math_sinh(x)
 }
 
 fun cosh(x: Float) r: Float {
-    let ex = exp(x)
-    return (ex + 1.0 / ex) / 2.0
+    return seen_math_cosh(x)
 }
 
 fun tanh(x: Float) r: Float {
-    if x > 20.0 {
-        return 1.0
-    }
-    if x < -20.0 {
-        return -1.0
-    }
-    let e2x = exp(2.0 * x)
-    return (e2x - 1.0) / (e2x + 1.0)
+    return seen_math_tanh(x)
 }
 
 fun asinh(x: Float) r: Float {

@@ -104,13 +104,15 @@ fun main() {
 ## 🎯 Next Steps
 
 1. **Replace placeholder .seen files** with valid Seen syntax
-2. **Run full benchmark suite** once Seen files are fixed
-3. **Compare performance** between Seen, Rust, C++, and Zig
-4. **Generate reports** with actual performance data
+2. **Record 0.9.0 baselines** for compiler, collections, strings/JSON, math, and sort/search workloads before accepting optimization claims
+3. **Run full benchmark suite** once Seen files are fixed
+4. **Compare performance** between Seen, Rust, C++, and Zig
+5. **Generate reports** with actual performance data
 
 ## 💡 Tips
 
 - Use `compiler_seen/*.seen` files as examples of valid Seen syntax
 - The Seen compiler expects: `seen run <file> -- <args>`
+- Run benchmark and rebuild commands with explicit memory limits derived from the host, matching the repository build policy
 - PowerShell scripts work best with PowerShell 5.1+ or PowerShell Core 7+
 - Install Zig from https://ziglang.org/ for Zig benchmarks

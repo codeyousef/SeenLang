@@ -4,6 +4,7 @@ Parses JSON strings into JsonValue objects
 ///
 
 import json.value.{JsonValue, JSON_NULL, JSON_BOOL, JSON_NUMBER, JSON_STRING, JSON_ARRAY, JSON_OBJECT, JsonValue_nullValue, JsonValue_bool, JsonValue_string, JsonValue_numberFloat, JsonValue_array, JsonValue_object}
+import str.string.{StringBuilder}
 
 // JSON Parser result
 class JsonParseResult {
@@ -116,41 +117,47 @@ class JsonParser {
 
     // Parse null
     fun parseNull() r: JsonParseResult {
-        if this.pos + 4 <= this.len {
-            let slice = this.input.substring(this.pos, this.pos + 4)
-            if slice == "null" {
-                this.pos = this.pos + 4
-                let nv = JsonValue_nullValue()
-                return JsonParseResult_ok(nv)
-            }
+        if this.matchesLiteral("null") {
+            this.pos = this.pos + 4
+            let nv = JsonValue_nullValue()
+            return JsonParseResult_ok(nv)
         }
         return JsonParseResult_err("Expected 'null'", this.pos)
     }
 
     // Parse true
     fun parseTrue() r: JsonParseResult {
-        if this.pos + 4 <= this.len {
-            let slice = this.input.substring(this.pos, this.pos + 4)
-            if slice == "true" {
-                this.pos = this.pos + 4
-                let bv = JsonValue_bool(true)
-                return JsonParseResult_ok(bv)
-            }
+        if this.matchesLiteral("true") {
+            this.pos = this.pos + 4
+            let bv = JsonValue_bool(true)
+            return JsonParseResult_ok(bv)
         }
         return JsonParseResult_err("Expected 'true'", this.pos)
     }
 
     // Parse false
     fun parseFalse() r: JsonParseResult {
-        if this.pos + 5 <= this.len {
-            let slice = this.input.substring(this.pos, this.pos + 5)
-            if slice == "false" {
-                this.pos = this.pos + 5
-                let bv = JsonValue_bool(false)
-                return JsonParseResult_ok(bv)
-            }
+        if this.matchesLiteral("false") {
+            this.pos = this.pos + 5
+            let bv = JsonValue_bool(false)
+            return JsonParseResult_ok(bv)
         }
         return JsonParseResult_err("Expected 'false'", this.pos)
+    }
+
+    fun matchesLiteral(literal: String) r: Bool {
+        let litLen = literal.length()
+        if this.pos + litLen > this.len {
+            return false
+        }
+        var i = 0
+        while i < litLen {
+            if this.input.byteAt(this.pos + i) != literal.byteAt(i) {
+                return false
+            }
+            i = i + 1
+        }
+        return true
     }
 
     // Parse string
@@ -160,17 +167,25 @@ class JsonParser {
         }
         this.pos = this.pos + 1  // Skip opening quote
 
-        var result = ""
+        let builder = StringBuilder.new()
+        var segmentStart = this.pos
         while this.pos < this.len {
             let ch = this.input.charAt(this.pos)
 
             if ch == 34 {  // Closing quote
+                if this.pos > segmentStart {
+                    builder.append(this.input.substring(segmentStart, this.pos))
+                }
                 this.pos = this.pos + 1
+                let result = builder.toString()
                 let sv = JsonValue_string(result)
                 return JsonParseResult_ok(sv)
             }
 
             if ch == 92 {  // Backslash (escape)
+                if this.pos > segmentStart {
+                    builder.append(this.input.substring(segmentStart, this.pos))
+                }
                 this.pos = this.pos + 1
                 if this.pos >= this.len {
                     return JsonParseResult_err("Unexpected end of string escape", this.pos)
@@ -191,25 +206,25 @@ class JsonParser {
                     if this.pos + 4 >= this.len {
                         return JsonParseResult_err("Invalid unicode escape", this.pos)
                     }
-                    this.pos = this.pos + 1
-                    let hex = this.input.substring(this.pos, this.pos + 4)
-                    let codepoint = this.parseHex(hex)
+                    let codepoint = this.parseHexAt(this.pos + 1)
                     if codepoint < 0 {
                         return JsonParseResult_err("Invalid unicode escape", this.pos)
                     }
-                    escapedChar = String.fromCharCode(codepoint)
-                    this.pos = this.pos + 3  // Will be incremented again below
-                    escapeHandled = 1
+                    builder.append(String.fromCharCode(codepoint))
+                    this.pos = this.pos + 5
+                    segmentStart = this.pos
+                    continue
                 }
                 if escapeHandled == 0 {
                     return JsonParseResult_err("Invalid escape sequence", this.pos)
                 }
-                result = result + escapedChar
+                builder.append(escapedChar)
+                this.pos = this.pos + 1
+                segmentStart = this.pos
+                continue
             } else {
                 if ch < 32 {
                     return JsonParseResult_err("Invalid control character in string", this.pos)
-                } else {
-                    result = result + String.fromCharCode(ch)
                 }
             }
 
@@ -217,6 +232,38 @@ class JsonParser {
         }
 
         return JsonParseResult_err("Unterminated string", this.pos)
+    }
+
+    fun parseHexAt(start: Int) r: Int {
+        var result = 0
+        var i = 0
+        while i < 4 {
+            let ch = this.input.charAt(start + i)
+            var digit = 0
+            var hexHandled = 0
+            if ch >= 48 and ch <= 57 {
+                digit = ch - 48
+                hexHandled = 1
+            }
+            if hexHandled == 0 {
+                if ch >= 65 and ch <= 70 {
+                    digit = ch - 55
+                    hexHandled = 1
+                }
+            }
+            if hexHandled == 0 {
+                if ch >= 97 and ch <= 102 {
+                    digit = ch - 87
+                    hexHandled = 1
+                }
+            }
+            if hexHandled == 0 {
+                return -1
+            }
+            result = result * 16 + digit
+            i = i + 1
+        }
+        return result
     }
 
     // Parse 4 hex digits to integer
@@ -341,16 +388,29 @@ class JsonParser {
             }
         }
 
-        let numStr = this.input.substring(startPos, this.pos)
-        let numValue = this.parseFloat(numStr)
+        let numValue = this.parseFloatRange(startPos, this.pos)
         let fv = JsonValue_numberFloat(numValue)
         return JsonParseResult_ok(fv)
     }
 
     // Parse float from string (simple implementation)
     fun parseFloat(s: String) r: Float {
+        let oldInput = this.input
+        let oldPos = this.pos
+        let oldLen = this.len
+        this.input = s
+        this.pos = 0
+        this.len = s.length()
+        let result = this.parseFloatRange(0, this.len)
+        this.input = oldInput
+        this.pos = oldPos
+        this.len = oldLen
+        return result
+    }
+
+    fun parseFloatRange(start: Int, end: Int) r: Float {
         var result = 0.0
-        var i = 0
+        var i = start
         var negativeNum = 0
         var afterDec = 0
         var decimalMultiplier = 0.1
@@ -359,13 +419,13 @@ class JsonParser {
         var expNeg = 0
 
         // Handle negative sign
-        if i < s.length() and s.charAt(i) == 45 {
+        if i < end and this.input.charAt(i) == 45 {
             negativeNum = 1
             i = i + 1
         }
 
-        while i < s.length() {
-            let ch = s.charAt(i)
+        while i < end {
+            let ch = this.input.charAt(i)
 
             if ch == 46 {  // Decimal point
                 afterDec = 1
@@ -376,8 +436,8 @@ class JsonParser {
             if ch == 101 or ch == 69 {  // Exponent
                 hasExp = 1
                 i = i + 1
-                if i < s.length() {
-                    let signCh = s.charAt(i)
+                if i < end {
+                    let signCh = this.input.charAt(i)
                     if signCh == 45 {
                         expNeg = 1
                         i = i + 1
@@ -388,8 +448,8 @@ class JsonParser {
                     }
                 }
                 // Parse exponent digits
-                while i < s.length() {
-                    let expCh = s.charAt(i)
+                while i < end {
+                    let expCh = this.input.charAt(i)
                     if expCh >= 48 and expCh <= 57 {
                         exponent = exponent * 10 + (expCh - 48)
                     } else {

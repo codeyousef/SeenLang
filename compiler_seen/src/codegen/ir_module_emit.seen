@@ -188,6 +188,30 @@ fun emitCrossModuleConstantDeclaresImpl(output: StringBuilder, moduleConstantNam
 	    }
 	}
 
+fun emitCrossModuleFunctionDeclaresImpl(output: StringBuilder,
+    definedFuncs: Array<String>, xmDeclareNames: String, xmDeclareStrs: String,
+    xmDeclareCount: Int) r: Void {
+
+    let emittedNames = Array<String>()
+    var currentIr = output.toString()
+    var i = 0
+    while i < xmDeclareCount {
+        let name: String = pipeGet(xmDeclareNames, i)
+        let declStr: String = pipeGet(xmDeclareStrs, i)
+        let quotedName = quoteModuleEmitIdentIfNeeded(name)
+        let alreadyInModule = currentIr.contains("@" + quotedName + "(")
+        if name != "" and name != "main" and declStr != "" and
+            not arrayContainsString(definedFuncs, name) and
+            not arrayContainsString(emittedNames, name) and
+            not alreadyInModule {
+            output.append(declStr)
+            emittedNames.push(name)
+            currentIr = currentIr + declStr
+        }
+        i = i + 1
+    }
+}
+
 fun emitTraitVtableConstantsImpl(output: StringBuilder, traitImplRegistry: String,
     traitImplCount: Int, dynTraitNames: String) r: Void {
 

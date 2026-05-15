@@ -498,6 +498,15 @@ fun inferReceiverMethodTypeImpl(callee: String, receiverType: String) r: String 
             return "Int"
         }
     }
+    if callee == "toArray" {
+        if receiverType.startsWith("Vec<") and receiverType.endsWith(">") {
+            let elemType = receiverType.substring(4, receiverType.length() - 1)
+            return "Array<" + elemType + ">"
+        }
+        if receiverType == "Vec" {
+            return "Array<Int>"
+        }
+    }
     return ""
 }
 

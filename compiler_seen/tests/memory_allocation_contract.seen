@@ -1,0 +1,40 @@
+import memory.allocation.{setMemoryLimitBytes, memoryStats, ensureAllocationBudget}
+import str.string.{StringBuilder}
+
+fun main() r: Int {
+    setMemoryLimitBytes(128 * 1024 * 1024)
+
+    let budgetOk = ensureAllocationBudget(64)
+    if not budgetOk.isOkay() {
+        return 1
+    }
+
+    let builder = StringBuilder.new()
+    let appendOk = builder.tryAppend("alpha")
+    if not appendOk.isOkay() {
+        return 2
+    }
+    builder.appendLine("beta")
+
+    let textResult = builder.tryToString()
+    if not textResult.isOkay() {
+        return 3
+    }
+    if builder.toString() != "alphabeta\n" {
+        return 4
+    }
+
+    if not builder.writeToFile("/tmp/seen_memory_allocation_contract.txt") {
+        return 5
+    }
+
+    let stats = memoryStats()
+    if stats.limitBytes <= 0 {
+        return 6
+    }
+    if stats.peakBytes < stats.usedBytes {
+        return 7
+    }
+
+    return 0
+}

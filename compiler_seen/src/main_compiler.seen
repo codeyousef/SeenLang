@@ -4975,7 +4975,7 @@ fun effectiveLargeProjectWorkerLimit(moduleCount: Int, isBootstrap: Bool) r: Int
     if isBootstrap {
         return 0
     }
-    if g_noFork == 0 {
+    if g_noFork != 0 {
         return 0
     }
     if g_projectPrefixLimit <= 0 {
@@ -7303,6 +7303,101 @@ fun checkPackagePrivateImportsForModule(result: FrontendResult,
     }
 }
 
+fun resolveExplicitImportedFunctionCollisionName(importItem: ItemNode,
+    localName: String) r: String {
+
+    if importItem.itemType != "Import" {
+        return ""
+    }
+    if importItem.importSymbols.length() == 0 {
+        return ""
+    }
+
+    var symbolIdx = 0
+    while symbolIdx < importItem.importSymbols.length() {
+        let symbol = importItem.importSymbols[symbolIdx]
+        if not importSymbolIsModuleAlias(symbol) {
+            if symbol.alias == localName {
+                return symbol.name
+            }
+            if symbol.alias == "" and symbol.name == localName {
+                return symbol.name
+            }
+        }
+        symbolIdx = symbolIdx + 1
+    }
+
+    return ""
+}
+
+fun addImportedLocalFunctionCollisionDiagnostic(result: FrontendResult,
+    modulePath: String, localName: String, importedName: String,
+    importedPath: String, line: Int, column: Int) r: Void {
+
+    var importedDisplay = importedName
+    if importedName != localName {
+        importedDisplay = importedName + " as " + localName
+    }
+    let message = encodeDiagMessage(
+        "local function `" + localName +
+            "` conflicts with imported function `" + importedDisplay + "`",
+        "E011",
+        "Rename the local function or import `" + importedName +
+            "` with an alias before calling it.",
+        "note: the imported function comes from `" + importedPath +
+            "`; this diagnostic prevents ambiguous default-argument lowering.",
+        0
+    )
+    result.addDiagnostic(mainCompilerDiagnostic(modulePath, line, column,
+        "error", message))
+}
+
+fun checkImportedLocalFunctionCollisionsForModule(result: FrontendResult,
+    modulePath: String, program: ProgramNode, modulePaths: Array<String>,
+    frontends: Array<FrontendResult>) r: Void {
+
+    let sourceDir = getSourceDir(modulePath)
+    var itemIdx = 0
+    while itemIdx < program.items.length() {
+        let item = program.items[itemIdx]
+        if item.itemType == "Function" {
+            let localFunc = item.function
+            var reported = false
+            var importIdx = 0
+            while importIdx < program.items.length() {
+                let importItem = program.items[importIdx]
+                let importedName =
+                    resolveExplicitImportedFunctionCollisionName(importItem,
+                    localFunc.name)
+                if importedName != "" {
+                    let importedPath = resolveAstImportItemPath(importItem,
+                        sourceDir)
+                    if importedPath != "" {
+                        let importedFunc = findParsedModuleFunction(
+                            modulePaths, frontends, importedPath,
+                            importedName)
+                        if importedFunc.name != "" {
+                            var line = localFunc.line
+                            var column = localFunc.column
+                            if line <= 0 { line = item.line }
+                            if column <= 0 { column = item.column }
+                            addImportedLocalFunctionCollisionDiagnostic(
+                                result, modulePath, localFunc.name,
+                                importedName, importedPath, line, column)
+                            reported = true
+                            importIdx = program.items.length()
+                        }
+                    }
+                }
+                if not reported {
+                    importIdx = importIdx + 1
+                }
+            }
+        }
+        itemIdx = itemIdx + 1
+    }
+}
+
 fun validateSealedModules(modulePaths: Array<String>, language: String) r: FrontendResult {
     clearValidationModuleCache()
     let result = mainCompilerFrontendResult()
@@ -7329,6 +7424,8 @@ fun validateSealedModules(modulePaths: Array<String>, language: String) r: Front
         let program = frontends[i].program
         checkPackagePrivateImportsForModule(result, modulePath, program,
             modulePaths, frontends, language)
+        checkImportedLocalFunctionCollisionsForModule(result, modulePath,
+            program, modulePaths, frontends)
 
         var itemIdx = 0
         while itemIdx < program.items.length() {
@@ -8266,8 +8363,10 @@ fun compileCommandWithOptions(inputFile: String, outputFile: String, profile: St
     return compileCommandWithAllOptions(inputFile, outputFile, profile, panicOnOverflow, useCache, "en", "", "auto", false, "", "", "", "", "")
 }
 
-// Release mode flag: enables cross-module LTO for multi-module builds
+// Release mode flag: enables release optimization.
 var g_releaseMode: Bool = false
+// Full merged release LTO is the default performance path for --release.
+var g_disableMergedReleaseLto: Bool = false
 // Emit LLVM IR flag: saves .ll files alongside output for debugging
 var g_emitLlvm: Bool = false
 // Fast mode flag: lightweight optimization for bootstrap verification (Int, not Bool -- Stage1 limitation)
@@ -8300,13 +8399,13 @@ var g_objectManifestPath: String = ""
 // Disable fork-parallel IR generation (use sequential in-process generation)
 var g_noFork = 0
 ///
-HeartOn validation passes this legacy project-prefix hint together with
---no-fork. Keep bootstrap builds serial, but allow a bounded worker pool for
-large project graphs that explicitly opt into this path.
+HeartOn validation can pass this legacy project-prefix hint. Keep --no-fork
+strictly serial; bounded worker pools are only available when forking is
+allowed and the project is large enough to benefit from the cap.
 ///
 var g_projectPrefixLimit = 0
-var g_largeProjectWorkerLimit = 16
-var g_largeProjectOptWorkerLimit = 24
+var g_largeProjectWorkerLimit = 4
+var g_largeProjectOptWorkerLimit = 2
 ///
 ThinLTO cache path (/tmp/seen_thinlto_cache) and IR cache path (/tmp/seen_ir_cache)
 are inlined as string literals at each use site. Module-level String variables
@@ -8636,10 +8735,16 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             return 1
         }
     }
-    let boundedLargeProjectWorkers = effectiveLargeProjectWorkerLimit(
+    var boundedLargeProjectWorkers = effectiveLargeProjectWorkerLimit(
         modulePaths.length(), resolvedInput.contains("main_compiler.seen"))
     var boundedLargeProjectOptWorkers = 0
     if boundedLargeProjectWorkers > 0 {
+        boundedLargeProjectOptWorkers = g_largeProjectOptWorkerLimit
+    }
+    if boundedLargeProjectWorkers == 0 and g_noFork == 0 and
+        modulePaths.length() > 1 {
+
+        boundedLargeProjectWorkers = g_largeProjectWorkerLimit
         boundedLargeProjectOptWorkers = g_largeProjectOptWorkerLimit
     }
     if boundedLargeProjectWorkers > 0 {
@@ -8750,18 +8855,18 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     var registryHash = ""
     var cacheValid = false
     if useCache {
-        var globalData = ""
+        var registryHashInput = cacheSignature
         var gi = 0
         while gi < modulePaths.length() {
             let gpath = modulePaths[gi]
             let gsrc = readText(gpath)
             let gsrcHash = hashString(gsrc)
-            globalData = globalData + gpath + ":" + gsrcHash + "\n"
+            registryHashInput = hashString(registryHashInput + "\n" +
+                gpath + ":" + gsrcHash)
             gi = gi + 1
         }
-        globalData = globalData + prebuiltPackageGraphSignatureForInput(
-            resolvedInput)
-        registryHash = hashString(cacheSignature + "\n" + globalData)
+        registryHash = hashString(registryHashInput + "\n" +
+            prebuiltPackageGraphSignatureForInput(resolvedInput))
         ensureCacheDir()
         let cachedRegHash = loadFileContent(".seen_cache/registry.hash")
         if cachedRegHash == registryHash {
@@ -8936,10 +9041,11 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             println("    [" + moduleIndex.toString() + "] Parse done in " + (parseEndTime - parseStartTime).toString() + "s")
             println("    [" + moduleIndex.toString() + "] Codegen start")
             let codegenStartTime = getTraceTimeSeconds()
-            let llvmIR = generator.generateSingle(frontend.program, moduleIndex)
+            let irWritten = generator.generateSingleToFile(frontend.program,
+                moduleIndex, llFile)
             let codegenEndTime = getTraceTimeSeconds()
             println("    [" + moduleIndex.toString() + "] Codegen done in " + (codegenEndTime - codegenStartTime).toString() + "s")
-            if not writeText(llFile, llvmIR) {
+            if not irWritten {
                 println("[irgen] Failed to write IR: " + llFile)
                 return 1
             }
@@ -8992,11 +9098,12 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                         writeText(statusFile, "parse_done\n" + path)
                         writeText(statusFile, "codegen_start\n" + path)
                     }
-                    let llvmIR = generator.generateSingle(frontend.program, moduleIndex)
+                    let irWritten = generator.generateSingleToFile(
+                        frontend.program, moduleIndex, llFile)
                     if g_generatedTestMainMode == 0 {
                         writeText(statusFile, "codegen_done\n" + path)
                     }
-                    if not writeText(llFile, llvmIR) {
+                    if not irWritten {
                         if g_generatedTestMainMode == 0 {
                             writeText(statusFile, "write_failed\n" + llFile)
                         }
@@ -9170,7 +9277,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             pgoPasses = "pgo-instr-use,"
             pgoOptFlags = " -pgo-test-profile-file=" + pgoPath
         }
-        if boundedLargeProjectOptWorkers > 0 {
+        if boundedLargeProjectOptWorkers > 0 and g_noFork == 1 {
             optPasses = pgoPasses + "default<O1>"
             optThreshold = "250"
         } else if g_fastMode == 1 {
@@ -9506,17 +9613,15 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
 
     ///
     ============================================================
-    RELEASE MODE: Cross-module LTO merge (when --release and multi-module)
+    RELEASE MODE: Cross-module LTO merge
     ============================================================
-    Why a separate release path? The normal pipeline uses ThinLTO (per-module
-    bitcode + link-time cross-module inlining). --release instead merges ALL
-    modules into a single LLVM IR file via llvm-link, then runs internalize +
-    O3 on the whole program. This enables aggressive whole-program optimization
-    (dead code elimination, cross-module inlining with threshold=2000) at the
-    cost of higher memory usage and slower compilation. The merged object is
-    compiled via llc rather than ThinLTO.
+    Why a separate release path? Full module merging unlocks whole-program
+    optimization and keeps release performance strong, but it loads every
+    module into one LLVM module. Memory-constrained callers can opt out with
+    --no-merged-release-lto and stay on the bounded per-module ThinLTO path.
     ///
-    if g_releaseMode and modulePaths.length() > 1 and normalizedCrossTarget == "" and
+    if g_releaseMode and not g_disableMergedReleaseLto and
+        modulePaths.length() > 1 and normalizedCrossTarget == "" and
         g_objectManifestPath == "" and not sourcesContainExportDecorator(modulePaths) {
 
         if llFiles.length() != modulePaths.length() {
@@ -10440,7 +10545,8 @@ Uses a non-LTO runtime object (seen_runtime_jit.o) since lli cannot
 consume ThinLTO bitcode. Falls back to AOT compilation if lli is not
 available or if JIT runtime build fails.
 ///
-fun jitRunCommand(inputFile: String, verbose: Bool, language: String) r: Int {
+fun jitRunCommand(inputFile: String, verbose: Bool, language: String,
+    useCache: Bool) r: Int {
     resetRealInputPathCache()
     let jitInput = resolveRealInputPath(inputFile)
     if verbose {
@@ -10451,14 +10557,14 @@ fun jitRunCommand(inputFile: String, verbose: Bool, language: String) r: Int {
     let lliCheck: CommandResult = runCommand("which lli")
     if not commandWasSuccessful(lliCheck) {
         println("[jit] lli not found, falling back to AOT")
-        return aotRunCommand(inputFile, verbose, language)
+        return aotRunCommand(inputFile, verbose, language, useCache)
     }
 
     // Build non-LTO runtime for lli
     let jitRt = ensureJitRuntime()
     if jitRt == "" {
         println("[jit] JIT runtime build failed, falling back to AOT")
-        return aotRunCommand(inputFile, verbose, language)
+        return aotRunCommand(inputFile, verbose, language, useCache)
     }
 
     // Create generator
@@ -10517,9 +10623,9 @@ fun jitRunCommand(inputFile: String, verbose: Bool, language: String) r: Int {
             println("    Error: Failed to parse " + path)
             return 1
         }
-        let llvmIR = generator.generateSingle(frontend.program, moduleIndex)
         let llFile = "/tmp/seen_jit_module_" + moduleIndex.toString() + ".ll"
-        if not writeText(llFile, llvmIR) {
+        if not generator.generateSingleToFile(frontend.program, moduleIndex,
+            llFile) {
             println("    Error: Failed to write IR: " + llFile)
             return 1
         }
@@ -10548,7 +10654,7 @@ fun jitRunCommand(inputFile: String, verbose: Bool, language: String) r: Int {
         if not commandWasSuccessful(linkResult) {
             println("[jit] llvm-link failed, falling back to AOT")
             println(linkResult.output)
-            return aotRunCommand(inputFile, verbose, language)
+            return aotRunCommand(inputFile, verbose, language, useCache)
         }
     }
 
@@ -10571,14 +10677,16 @@ AOT execution path: compiles the source to a temporary binary at
 /tmp/seen_run_script using the full compile pipeline, then executes it.
 This is the fallback when JIT is unavailable and the explicit path for --aot.
 ///
-fun aotRunCommand(inputFile: String, verbose: Bool, language: String) r: Int {
+fun aotRunCommand(inputFile: String, verbose: Bool, language: String,
+    useCache: Bool) r: Int {
     if verbose {
         println("[run] Compiling " + inputFile + "...")
     }
 
     // Compile to temp file
     let tempOutput = "/tmp/seen_run_script"
-    let compileResult = compileCommandWithLanguage(inputFile, tempOutput, language)
+    let compileResult = compileCommandWithFullTargeting(inputFile, tempOutput,
+        "default", useCache, language, "", "auto", false, "", "", "", "", "")
     if compileResult != 0 {
         println("[run] Compilation failed")
         return compileResult
@@ -10597,11 +10705,12 @@ fun aotRunCommand(inputFile: String, verbose: Bool, language: String) r: Int {
 }
 
 // Dispatch run command: JIT by default, AOT with --aot flag
-fun runScriptCommand(inputFile: String, useAot: Bool, verbose: Bool, language: String) r: Int {
+fun runScriptCommand(inputFile: String, useAot: Bool, verbose: Bool,
+    language: String, useCache: Bool) r: Int {
     if useAot {
-        return aotRunCommand(inputFile, verbose, language)
+        return aotRunCommand(inputFile, verbose, language, useCache)
     }
-    return jitRunCommand(inputFile, verbose, language)
+    return jitRunCommand(inputFile, verbose, language, useCache)
 }
 
 fun seenCompilerVersion() r: String {
@@ -10620,7 +10729,7 @@ fun printUsage() r: Void {
     println("")
     println("Usage: seen compile <input.seen> [output] [--profile deterministic] [--no-cache]")
     println("       seen check <input.seen> [--profile deterministic]")
-    println("       seen run <input.seen> [--aot] [--verbose] [--language <lang>]")
+    println("       seen run <input.seen> [--aot] [--no-cache] [--verbose] [--language <lang>]")
     println("       seen bundle <executable> <AppName> [--icon=<icon.icns>] [--version=<1.0>]")
     println("       seen sign <path> [--identity=<identity>]")
     println("       seen notarize <path> --apple-id=<email> --team-id=<id> --password=<pwd>")
@@ -10659,6 +10768,8 @@ fun printUsage() r: Void {
     println("  --pic                    Emit PIC module/runtime objects for shared libraries")
     println("  --object-manifest <path> Write object-to-module TSV manifest and skip final link")
     println("  --fast                   Lightweight optimization (for bootstrap verification)")
+    println("  --no-merged-release-lto")
+    println("                           Disable full merged release LTO for lower memory")
     println("  --no-fork                Disable parallel IR/opt bootstrap steps (sequential)")
     println("  --projectprefix <n>      Large-project validation prefix hint")
     println("")
@@ -10918,7 +11029,9 @@ fun main() r: Int {
                                                                 if argv[argIdx] == "--release" {
                                                                     g_releaseMode = true
                                                                 } else {
-                                                                    if argv[argIdx] == "--emit-llvm" {
+                                                                    if argv[argIdx] == "--no-merged-release-lto" {
+                                                                        g_disableMergedReleaseLto = true
+                                                                    } else if argv[argIdx] == "--emit-llvm" {
                                                                         g_emitLlvm = true
                                                                     } else {
                                                                         if argv[argIdx] == "--fast" {
@@ -11058,15 +11171,18 @@ fun main() r: Int {
             printUsage()
             return 1
         }
-        // Parse --aot, --verbose, and --language flags
+        // Parse run flags in any order around the input path.
         var useAot = false
         var verbose = false
+        var runUseCache = true
         var runInputFile = ""
         var runLanguage = "en"
         var ri = 2
         while ri < argv.length() {
             if argv[ri] == "--aot" {
                 useAot = true
+            } else if argv[ri] == "--no-cache" {
+                runUseCache = false
             } else if argv[ri] == "--verbose" {
                 verbose = true
             } else if argv[ri] == "--language" or argv[ri] == "-l" {
@@ -11095,7 +11211,8 @@ fun main() r: Int {
                 }
             }
         }
-        return runScriptCommand(runInputFile, useAot, verbose, runLanguage)
+        return runScriptCommand(runInputFile, useAot, verbose, runLanguage,
+            runUseCache)
     }
 
     // LSP command - start language server
