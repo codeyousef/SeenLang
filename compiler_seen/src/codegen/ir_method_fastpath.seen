@@ -153,7 +153,8 @@ fun tryGenerateExplicitCollectionMethodCallImpl(output: StringBuilder,
 
     let isCollectionType = receiverType.startsWith("Vec<") or
         receiverType == "Vec" or receiverType.startsWith("BTreeMap<") or
-        receiverType == "BTreeMap" or receiverType.startsWith("HashMap<") or
+        receiverType == "BTreeMap" or receiverType.startsWith("Map<") or
+        receiverType == "Map" or receiverType.startsWith("HashMap<") or
         receiverType == "HashMap" or
         receiverType.startsWith("StringHashMap<") or
         receiverType == "StringHashMap" or

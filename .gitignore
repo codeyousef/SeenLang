@@ -163,6 +163,7 @@ seen_lexer.o
 seen_parser.o
 seen_runtime.o
 seen_runtime/seen_runtime_jit.o
+seen_runtime/*.o.sig
 seen_symbols.o
 seen_lsp_full.o
 seen.exe

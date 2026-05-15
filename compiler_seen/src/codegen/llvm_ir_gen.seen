@@ -39,7 +39,7 @@ class LLVMIRGenerator {
     var stringConstants: Array<String>
     var nextReg: Int
     var nextBlock: Int
-    // Using parallel arrays as workaround for Map.get() bug
+    // Parallel arrays keep this bootstrap-fragile state layout stable.
     var varNames: Array<String>
     var varRegs: Array<String>
     var varTypes: Array<String>

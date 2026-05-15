@@ -251,13 +251,12 @@ fun initializeStates(capacity: Int) r: Vec<Int> {
 }
 
 fun hashString(text: String) r: Int {
-    var hash = 2166136261
+    var hash = 5381
     let len = text.length()
     var index = 0
     while index < len {
         let code = text.byteAt(index)
-        hash = hash + code
-        hash = (hash * 131) % 2147483647
+        hash = ((hash << 5) + hash) + code
         index = index + 1
     }
     if hash < 0 {

@@ -372,13 +372,14 @@ fun emitArrayBasicMethodImpl(output: StringBuilder, regBox: Array<Int>,
 }
 
 ///
-emitLengthSizeMethodImpl — length/len/size dispatch for HashMap/LinkedList/Array/String
+emitLengthSizeMethodImpl — length/len/size dispatch for Map/HashMap/LinkedList/Array/String
 Handles types that don't need convertReceiverToPtr class method
-Returns "" for types that need class method dispatch (Vec, Map, BTreeMap, List, StringBuilder)
+Returns "" for types that need class method dispatch (Vec, BTreeMap, List, StringBuilder)
 ///
 fun emitLengthSizeMethodImpl(output: StringBuilder, regBox: Array<Int>, receiverReg: String, receiverType: String) r: String {
-    // HashMap size
-    let isHashMapType = receiverType == "HashMap" or receiverType.startsWith("HashMap<")
+    // Map/HashMap size
+    let isHashMapType = receiverType == "HashMap" or receiverType.startsWith("HashMap<") or
+        receiverType == "Map" or receiverType.startsWith("Map<")
     if isHashMapType {
         let mapPtrReg = getNextRegFn(regBox)
         output.append("  " + mapPtrReg + " = inttoptr i64 " + receiverReg + " to ptr\n")

@@ -66,11 +66,34 @@ fun deadNameSuppressed(name: String) r: Bool {
     return false
 }
 
-fun deadNameMatchesUse(name: String, usedName: String) r: Bool {
-    if name == usedName { return true }
-    if usedName.startsWith(name + ".") { return true }
-    if usedName.startsWith(name + "::") { return true }
+fun deadStringStartsWithNameBoundary(text: String, name: String) r: Bool {
+    if name == "" { return false }
+    if text.length() < name.length() { return false }
+
+    var i = 0
+    while i < name.length() {
+        if text.byteAt(i) != name.byteAt(i) {
+            return false
+        }
+        i = i + 1
+    }
+
+    if text.length() == name.length() {
+        return true
+    }
+
+    let next = text.byteAt(name.length())
+    if next == 46 { return true }
+    if next == 58 {
+        if text.length() > name.length() + 1 {
+            return text.byteAt(name.length() + 1) == 58
+        }
+    }
     return false
+}
+
+fun deadNameMatchesUse(name: String, usedName: String) r: Bool {
+    return deadStringStartsWithNameBoundary(usedName, name)
 }
 
 fun deadFunctionIsEntrypoint(item: ItemNode, func: FunctionNode) r: Bool {
@@ -100,14 +123,48 @@ fun deadClassIsEntrypoint(item: ItemNode, klass: ClassNode) r: Bool {
 }
 
 fun deadTypeTextReferencesName(typeText: String, name: String) r: Bool {
-    if typeText == name { return true }
-    if typeText.contains(name + "<") { return true }
-    if typeText.contains(name + ".") { return true }
-    if typeText.contains(name + "::") { return true }
-    if typeText.contains("<" + name) { return true }
-    if typeText.contains("," + name) { return true }
-    if typeText.contains(", " + name) { return true }
-    if typeText.contains(" " + name) { return true }
+    if name == "" { return false }
+    var pos = 0
+    while pos <= typeText.length() - name.length() {
+        var matches = true
+        var i = 0
+        while i < name.length() {
+            if typeText.byteAt(pos + i) != name.byteAt(i) {
+                matches = false
+                i = name.length()
+            } else {
+                i = i + 1
+            }
+        }
+        if matches {
+            var beforeOk = false
+            if pos == 0 {
+                beforeOk = true
+            } else {
+                let prev = typeText.byteAt(pos - 1)
+                if prev == 32 or prev == 44 or prev == 60 {
+                    beforeOk = true
+                }
+            }
+
+            var afterOk = false
+            let after = pos + name.length()
+            if after >= typeText.length() {
+                afterOk = true
+            } else {
+                let next = typeText.byteAt(after)
+                if next == 32 or next == 44 or next == 46 or next == 58 or
+                    next == 60 or next == 62 {
+
+                    afterOk = true
+                }
+            }
+            if beforeOk and afterOk {
+                return true
+            }
+        }
+        pos = pos + 1
+    }
     return false
 }
 
@@ -129,6 +186,17 @@ fun deadExpressionReferencesName(expr: ParserExpressionNode, name: String)
     if expr.kind != "Assignment" {
         if expr.variableName != "" {
             if deadNameMatchesUse(name, expr.variableName) { return true }
+        }
+    }
+
+    if expr.kind == "MemberAccess" or expr.kind == "MethodCall" or
+        expr.kind == "SafeNavigation" {
+
+        if expr.literalValue != "" {
+            if deadNameMatchesUse(name, expr.literalValue) { return true }
+            if deadTypeTextReferencesName(expr.literalValue, name) {
+                return true
+            }
         }
     }
 

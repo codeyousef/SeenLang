@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - FEL-329/FEL-333: Added a StringBuilder-backed IR file emission path so compiler modules can write generated LLVM IR without first flattening the whole module into one `String`.
 - FEL-329/FEL-336: Added a focused memory allocation contract smoke test covering allocation budgets, `StringBuilder.try*` APIs, and direct builder file output.
 - FEL-338/FEL-344: Added runtime/libm-backed stdlib math wrappers for trig, inverse trig, exponential/logarithmic, rounding, modulo, cbrt, hypot, and hyperbolic functions.
+- FEL-380/FEL-381: Added build-performance telemetry with `SEEN_TRACE_BUILD=<path>` JSONL output, `SEEN_BUILD_TRACE=<path>` compatibility aliasing, terminal timing summaries, and `scripts/build_perf_gate.sh` baseline/compare support.
+- FEL-380/FEL-384: Added tiered guarded rebuild modes: `scripts/safe_rebuild.sh --tier quick`, `--tier verify`, and `--tier full`, with no-argument behavior remaining the full cold verification path.
 
 ### Changed
 
@@ -25,15 +27,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - FEL-338/FEL-340: Reworked source `Vec<T>` to use the compiler/runtime contiguous layout with O(1) random access and linear `toArray`.
 - FEL-338/FEL-343: Routed `repeat` and `join` through `StringBuilder`, and made JSON string/number parsing avoid the largest repeated substring and concatenation paths.
 - FEL-338/FEL-345: Replaced runtime `Vec<Int>` and `Vec<Float>` last-pivot quicksort with median-of-three partitioning, insertion sort for small ranges, and bounded tail recursion.
+- FEL-338/FEL-367: Reworked `Map<K,V>` compatibility paths so compiled Map constructors and methods lower to indexed HashMap runtime tables, while the runtime `Map` table preserves insertion-order iteration with an open-addressed index.
+- FEL-338/FEL-368: Reworked runtime `BTreeMap` variants as sorted contiguous tables with binary-search lookup/removal while preserving deterministic key/value iteration order.
+- FEL-380/FEL-382/FEL-383: Moved compiler cache signatures to cache-v4 keys using stable module identities, declaration-level project hashes, module body hashes, toolchain versions, target/profile/LTO/sanitizer/PIC/PGO flags, and runtime payload signatures.
+- FEL-380/FEL-385: Rebuild scripts now derive `SEEN_JOBS` and `SEEN_OPT_JOBS` from capped memory and CPU count, while the compiler also honors explicit `--jobs`, `--opt-jobs`, `SEEN_JOBS`, and `SEEN_OPT_JOBS`.
+- FEL-380/FEL-386/FEL-387: Release packaging reuses hashed Linux payload staging, builds optional Linux package formats with bounded parallel jobs, and validates Windows `seen.exe` reuse through version, binary, payload, and toolchain manifests.
+- FEL-380/FEL-381: Release upload now requires a recent full-rebuild verification stamp from `scripts/safe_rebuild.sh --tier full` before artifacts can be uploaded, unless explicitly overridden for emergency local testing.
 
 ### Fixed
 
 - FEL-329/FEL-331: Replaced several core runtime allocation hot spots in arrays, StringBuilder, aligned growth, and pool allocation with budget-aware allocation helpers and explicit allocation-failure diagnostics.
 - FEL-329/FEL-332: Avoided extra transient string allocation in `StringBuilder.appendLine` and rewrote `split` to accumulate through `StringBuilder` instead of per-character string concatenation.
 - FEL-338/FEL-341: Removed per-byte substring allocation from string hash loops used by `hash.mod` and `StringHashMap`.
+- FEL-338/FEL-341/FEL-367: Kept collection string hashing on byte scans and removed the remaining per-byte modulo from source `StringHashMap` hashing.
+- FEL-338/FEL-367: Fixed legacy `Map<String, String>` lowering so `get`/`getOrDefault` preserve full SeenString values instead of falling through bootstrap fallback layouts.
+- FEL-338/FEL-367: Made legacy runtime `Map_*` symbols weak so imported source `collections.map` fallback methods can coexist with runtime compatibility helpers.
 - FEL-338/FEL-343: Removed stray debug output from `StringBuilder.mergeAdjacent`.
+- FEL-374: Fixed dead-code false positives for values and imports used only as method-call or member-access receivers.
+- FEL-372: Fixed collection handle lowering for map `keys`/`values` and `Vec.toArray` so pointer-returning runtime helpers are cast back to Seen handles before storage.
 - FEL-352: Registered default-argument metadata during declaration scanning and diagnosed explicit imported/local function name collisions before IR emission.
 - Fixed `seen run` option parsing so `--aot`, `--no-cache`, `--verbose`, and `--language` work in any order around the input path.
+- FEL-380/FEL-381: Fixed build-performance gate cache counters so module-level `cached=`/`uncached=` trace details are included alongside explicit cache hit/miss events.
+- FEL-380/FEL-386: Runtime object reuse now records full build signatures instead of relying only on source timestamps, so incompatible runtime objects are rebuilt with a diagnostic trace event.
+- FEL-380/FEL-383: Quick/verify smoke cleanup now preserves `.seen_cache`, `/tmp/seen_ir_cache`, and `/tmp/seen_thinlto_cache`, leaving broad cache removal to full-tier cold verification or explicit `--clean-cache`.
+- FEL-391: Fixed self-hosted quick rebuild failures by removing whole-module IR flattening from late declaration checks, eliminating repeated dead-code name-match string concatenation, and replacing the bounded optimizer `jobs -p` throttle with portable batched waits.
+- FEL-396: Fixed Windows installer packaging so unmanifested or stale `target-windows/seen.exe` reuse fails before staging, while `build_windows_installer.sh --force-compile` rebuilds the Windows compiler and writes the validated reuse manifest.
 
 ## [0.8.3] - 2026-05-15
 

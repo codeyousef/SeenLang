@@ -122,6 +122,9 @@ fun emitCoreRuntimeDecls(output: StringBuilder, runtimeDeclsLoaded: Bool, define
         if not isFuncDefinedInModule("HashMap_containsKey", definedFuncs) {
             output.append("declare i1 @HashMap_containsKey(ptr, i64) nounwind readonly\n")
         }
+        if not isFuncDefinedInModule("HashMap_containsValue", definedFuncs) {
+            output.append("declare i1 @HashMap_containsValue(ptr, i64) nounwind readonly\n")
+        }
         if not isFuncDefinedInModule("HashMap_remove", definedFuncs) {
             output.append("declare i64 @HashMap_remove(ptr, i64) nounwind\n")
         }
@@ -156,6 +159,9 @@ fun emitCoreRuntimeDecls(output: StringBuilder, runtimeDeclsLoaded: Bool, define
         }
         if not isFuncDefinedInModule("HashMap_containsKey_str", definedFuncs) {
             output.append("declare i1 @HashMap_containsKey_str(ptr, %SeenString) nounwind readonly\n")
+        }
+        if not isFuncDefinedInModule("HashMap_containsValue_str", definedFuncs) {
+            output.append("declare i1 @HashMap_containsValue_str(ptr, i64) nounwind readonly\n")
         }
         if not isFuncDefinedInModule("HashMap_remove_str", definedFuncs) {
             output.append("declare i64 @HashMap_remove_str(ptr, %SeenString) nounwind\n")
@@ -192,6 +198,9 @@ fun emitCoreRuntimeDecls(output: StringBuilder, runtimeDeclsLoaded: Bool, define
         if not isFuncDefinedInModule("HashMap_containsKey_str_str", definedFuncs) {
             output.append("declare i1 @HashMap_containsKey_str_str(ptr, %SeenString) nounwind readonly\n")
         }
+        if not isFuncDefinedInModule("HashMap_containsValue_str_str", definedFuncs) {
+            output.append("declare i1 @HashMap_containsValue_str_str(ptr, %SeenString) nounwind readonly\n")
+        }
         if not isFuncDefinedInModule("HashMap_remove_str_str", definedFuncs) {
             output.append("declare i64 @HashMap_remove_str_str(ptr, %SeenString) nounwind\n")
         }
@@ -226,6 +235,9 @@ fun emitCoreRuntimeDecls(output: StringBuilder, runtimeDeclsLoaded: Bool, define
         }
         if not isFuncDefinedInModule("HashMap_containsKey_int_str", definedFuncs) {
             output.append("declare i1 @HashMap_containsKey_int_str(ptr, i64) nounwind readonly\n")
+        }
+        if not isFuncDefinedInModule("HashMap_containsValue_int_str", definedFuncs) {
+            output.append("declare i1 @HashMap_containsValue_int_str(ptr, %SeenString) nounwind readonly\n")
         }
         if not isFuncDefinedInModule("HashMap_remove_int_str", definedFuncs) {
             output.append("declare i64 @HashMap_remove_int_str(ptr, i64) nounwind\n")

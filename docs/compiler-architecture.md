@@ -122,8 +122,17 @@ The compiler uses source-level and IR-level caches:
 - `/tmp/seen_ir_cache`
 - `/tmp/seen_thinlto_cache`
 
+Cache-v4 keys use stable module identities rather than temporary bootstrap
+overlay paths. Source/object reuse is scoped by the compiler ABI signature,
+project declaration hash, module body hash, LLVM tool versions, target/profile
+settings, LTO/PIC/sanitizer/PGO flags, and runtime payload signatures. Body-only
+edits should miss the changed module's object key without flushing otherwise
+valid neighboring cache entries.
+
 Normal multi-module compiler builds use bounded worker pools for IR generation
-and optimizer work. Low-memory and bootstrap verification paths can still force
+and optimizer work. Guarded scripts derive `SEEN_JOBS` and `SEEN_OPT_JOBS` from
+memory caps and CPU count; the compiler also accepts `--jobs <n>` and
+`--opt-jobs <n>`. Low-memory and bootstrap verification paths can still force
 serial execution with `--no-fork`; guarded scripts also export
 `SEEN_MEMORY_LIMIT_BYTES` so runtime allocation-heavy compiler phases fail with
 Seen diagnostics instead of depending on host OOM behavior.
@@ -131,6 +140,11 @@ Seen diagnostics instead of depending on host OOM behavior.
 Release builds keep the full merged-IR LTO path by default for performance.
 Memory-constrained callers can pass `--no-merged-release-lto` to stay on the
 bounded per-module ThinLTO path.
+
+`SEEN_TRACE_BUILD=<path>` writes JSONL build events
+from rebuild scripts and compiler phases such as module discovery, declaration
+scan, cache hashing, IR/object emission, runtime object reuse, release merge,
+and link. `SEEN_BUILD_TRACE=<path>` remains a compatibility alias.
 
 ## Key Source Areas
 

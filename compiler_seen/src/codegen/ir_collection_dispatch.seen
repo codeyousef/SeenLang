@@ -2,7 +2,7 @@
 
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn}
-import codegen.ir_type_dispatch.{emitVecMethodImpl, emitBTreeMapMethodImpl, emitHashMapMethodImpl, emitStringHashMapMethodImpl}
+import codegen.ir_type_dispatch.{emitVecMethodImpl, emitBTreeMapMethodImpl, emitMapMethodImpl, emitHashMapMethodImpl, emitStringHashMapMethodImpl}
 import codegen.ir_linked_list_dispatch.{emitLinkedListMethodImpl}
 
 ///
@@ -52,6 +52,19 @@ fun dispatchCollectionMethodImpl(output: StringBuilder, regBox: Array<Int>,
         let btResult = emitBTreeMapMethodImpl(output, regBox, methodName, mapPtrReg, arg0, arg1, hasStringKey, hasStringValue)
         if btResult != "" {
             return btResult
+        }
+    }
+
+    // Map dispatch
+    let isMapType = receiverType == "Map" or receiverType.startsWith("Map<")
+    if isMapType {
+        let mapPtrReg = getNextRegFn(regBox)
+        output.append("  " + mapPtrReg + " = inttoptr i64 " + receiverReg + " to ptr\n")
+        let hasStringKey = receiverType.contains("<String")
+        let hasStringValue = receiverType.contains(", String>") or receiverType.contains(",String>")
+        let mapResult = emitMapMethodImpl(output, regBox, methodName, mapPtrReg, arg0, arg1, hasStringKey, hasStringValue)
+        if mapResult != "" {
+            return mapResult
         }
     }
 

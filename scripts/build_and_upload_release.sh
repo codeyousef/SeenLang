@@ -15,6 +15,13 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+BUILD_TRACE_COMMON="$SCRIPT_DIR/build_trace_common.sh"
+if [[ -f "$BUILD_TRACE_COMMON" ]]; then
+    # shellcheck source=scripts/build_trace_common.sh
+    source "$BUILD_TRACE_COMMON"
+    seen_build_trace_init "build_and_upload_release"
+    trap 'seen_build_trace_summary' EXIT
+fi
 
 VERSION="${1:-}"
 if [[ -z "$VERSION" ]]; then
@@ -93,6 +100,10 @@ if [[ ! -x "$LINUX_X64_COMPILER" ]]; then
     echo "Build it first with a memory-capped baseline rebuild, for example:"
     echo "  SEEN_LOW_MEMORY=1 SEEN_MAIN_VMEM_KB=8388608 SEEN_OPT_VMEM_KB=2097152 SEEN_RELEASE_CPU_BASELINE=x86-64 ./scripts/safe_rebuild.sh"
     exit 1
+fi
+
+if declare -F seen_build_require_full_release_stamp >/dev/null 2>&1; then
+    seen_build_require_full_release_stamp "$ROOT_DIR" "$LINUX_X64_COMPILER"
 fi
 
 if [[ -n "${SEEN_APPIMAGE_RUNTIME_FILE:-}" && ! -f "$SEEN_APPIMAGE_RUNTIME_FILE" ]]; then

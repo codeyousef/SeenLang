@@ -2274,129 +2274,261 @@ int64_t StringBuilder_appendInt(void* s, int64_t n) {
 
 // ============================================================================
 // Map (Hash Map) Implementation
-// Simple linear-search map for small collections (like keyword maps)
+// String-key compatibility map with insertion-ordered entries and indexed lookup.
 // ============================================================================
 
 #define MAP_INITIAL_CAPACITY 32
+#define MAP_INITIAL_INDEX_CAPACITY 64
 
 typedef struct {
     uint64_t magic;
     SeenString* keys;
     int64_t* values;
+    int64_t* index_entries;
+    uint8_t* index_states;
     int64_t size;
     int64_t capacity;
+    int64_t index_capacity;
 } SeenMap;
+
+static int64_t Map_checked_bytes(int64_t count, int64_t elem_size, const char* context) {
+    if (count < 0 || elem_size < 0 || (elem_size != 0 && count > INT64_MAX / elem_size)) {
+        seen_oom_abort(context, INT64_MAX);
+    }
+    return count * elem_size;
+}
+
+static void* Map_alloc_array(int64_t count, int64_t elem_size, const char* context) {
+    int64_t bytes = Map_checked_bytes(count, elem_size, context);
+    void* ptr = seen_try_malloc(bytes > 0 ? bytes : 1);
+    if (!ptr) seen_oom_abort(context, bytes);
+    return ptr;
+}
+
+static void* Map_calloc_array(int64_t count, int64_t elem_size, const char* context) {
+    void* ptr = seen_try_calloc(count > 0 ? count : 1, elem_size > 0 ? elem_size : 1);
+    if (!ptr) seen_oom_abort(context, Map_checked_bytes(count, elem_size, context));
+    return ptr;
+}
+
+static int64_t Map_next_power_of_two(int64_t needed, const char* context) {
+    int64_t capacity = MAP_INITIAL_INDEX_CAPACITY;
+    while (capacity < needed) {
+        if (capacity > INT64_MAX / 2) seen_oom_abort(context, INT64_MAX);
+        capacity *= 2;
+    }
+    return capacity;
+}
+
+static int64_t Map_next_entry_capacity(int64_t capacity, const char* context) {
+    if (capacity > INT64_MAX / 2) seen_oom_abort(context, INT64_MAX);
+    return capacity * 2;
+}
+
+static uint64_t Map_hash_key(SeenString key) {
+    uint64_t hash = 0xcbf29ce484222325ULL;
+    const char* data = key.data;
+    for (int64_t i = 0; i < key.len; i++) {
+        hash ^= (uint8_t)data[i];
+        hash *= 0x100000001b3ULL;
+    }
+    return hash;
+}
+
+static bool Map_key_eq(SeenString a, SeenString b) {
+    return a.len == b.len && (a.len == 0 || memcmp(a.data, b.data, a.len) == 0);
+}
 
 static void Map_check(SeenMap* map, const char* fn) {
     if (!map || map->magic != 0x5345454E4D4150ULL) {
         fprintf(stderr, "%s: invalid map pointer\n", fn);
         abort();
     }
-    if (map->capacity <= 0 || map->size < 0 || map->size > map->capacity || !map->keys || !map->values) {
-        fprintf(stderr, "%s: corrupt map state (size=%ld cap=%ld)\n", fn, (long)map->size, (long)map->capacity);
+    if (map->capacity <= 0 || map->index_capacity <= 0 || map->size < 0 ||
+        map->size > map->capacity || !map->keys || !map->values ||
+        !map->index_entries || !map->index_states ||
+        (map->index_capacity & (map->index_capacity - 1)) != 0) {
+        fprintf(stderr, "%s: corrupt map state (size=%ld cap=%ld index_cap=%ld)\n",
+            fn, (long)map->size, (long)map->capacity, (long)map->index_capacity);
         abort();
     }
 }
 
-void* Map_new(void) {
-    SeenMap* map = (SeenMap*)malloc(sizeof(SeenMap));
+static int64_t Map_index_find(SeenMap* map, SeenString key, bool* found) {
+    uint64_t hash = Map_hash_key(key);
+    int64_t mask = map->index_capacity - 1;
+    int64_t idx = (int64_t)(hash & (uint64_t)mask);
+    for (int64_t probe = 0; probe < map->index_capacity; probe++) {
+        if (map->index_states[idx] == 0) {
+            *found = false;
+            return idx;
+        }
+        int64_t entry = map->index_entries[idx];
+        if (entry >= 0 && entry < map->size && Map_key_eq(map->keys[entry], key)) {
+            *found = true;
+            return idx;
+        }
+        idx = (idx + 1) & mask;
+    }
+
+    fprintf(stderr, "Map_index_find: full index without empty slot\n");
+    abort();
+}
+
+static void Map_index_insert_existing(SeenMap* map, int64_t entry) {
+    bool found = false;
+    int64_t slot = Map_index_find(map, map->keys[entry], &found);
+    map->index_entries[slot] = entry;
+    map->index_states[slot] = 1;
+}
+
+static void Map_rebuild_index(SeenMap* map, int64_t requested_capacity) {
+    int64_t old_capacity = map->index_capacity;
+    int64_t* old_entries = map->index_entries;
+    uint8_t* old_states = map->index_states;
+    int64_t new_capacity = Map_next_power_of_two(requested_capacity, "Map_rebuild_index capacity");
+
+    map->index_capacity = new_capacity;
+    map->index_entries = (int64_t*)Map_alloc_array(
+        new_capacity, (int64_t)sizeof(int64_t), "Map_rebuild_index entries");
+    map->index_states = (uint8_t*)Map_calloc_array(
+        new_capacity, (int64_t)sizeof(uint8_t), "Map_rebuild_index states");
+
+    for (int64_t i = 0; i < map->size; i++) {
+        Map_index_insert_existing(map, i);
+    }
+
+    if (old_entries) {
+        free(old_entries);
+        seen_memory_release_reservation(Map_checked_bytes(
+            old_capacity, (int64_t)sizeof(int64_t), "Map_rebuild_index old entries"));
+    }
+    if (old_states) {
+        free(old_states);
+        seen_memory_release_reservation(Map_checked_bytes(
+            old_capacity, (int64_t)sizeof(uint8_t), "Map_rebuild_index old states"));
+    }
+}
+
+SEEN_WEAK void* Map_new(void) {
+    SeenMap* map = (SeenMap*)seen_try_malloc(sizeof(SeenMap));
+    if (!map) seen_oom_abort("Map_new header", sizeof(SeenMap));
     map->magic = 0x5345454E4D4150ULL;
     map->capacity = MAP_INITIAL_CAPACITY;
+    map->index_capacity = MAP_INITIAL_INDEX_CAPACITY;
     map->size = 0;
-    map->keys = (SeenString*)malloc(sizeof(SeenString) * map->capacity);
-    map->values = (int64_t*)malloc(sizeof(int64_t) * map->capacity);
+    map->keys = (SeenString*)Map_alloc_array(
+        map->capacity, (int64_t)sizeof(SeenString), "Map_new keys");
+    map->values = (int64_t*)Map_alloc_array(
+        map->capacity, (int64_t)sizeof(int64_t), "Map_new values");
+    map->index_entries = (int64_t*)Map_alloc_array(
+        map->index_capacity, (int64_t)sizeof(int64_t), "Map_new index entries");
+    map->index_states = (uint8_t*)Map_calloc_array(
+        map->index_capacity, (int64_t)sizeof(uint8_t), "Map_new index states");
     return map;
 }
 
-static void Map_grow(SeenMap* map) {
-    Map_check(map, "Map_grow");
-    int64_t new_capacity = map->capacity * 2;
-    SeenString* new_keys = (SeenString*)malloc(sizeof(SeenString) * new_capacity);
-    int64_t* new_values = (int64_t*)malloc(sizeof(int64_t) * new_capacity);
+static void Map_grow_entries(SeenMap* map) {
+    Map_check(map, "Map_grow_entries");
+    int64_t old_capacity = map->capacity;
+    int64_t new_capacity = Map_next_entry_capacity(map->capacity, "Map_grow_entries capacity");
+    int64_t old_key_bytes = Map_checked_bytes(
+        old_capacity, (int64_t)sizeof(SeenString), "Map_grow_entries old keys");
+    int64_t new_key_bytes = Map_checked_bytes(
+        new_capacity, (int64_t)sizeof(SeenString), "Map_grow_entries new keys");
+    int64_t old_value_bytes = Map_checked_bytes(
+        old_capacity, (int64_t)sizeof(int64_t), "Map_grow_entries old values");
+    int64_t new_value_bytes = Map_checked_bytes(
+        new_capacity, (int64_t)sizeof(int64_t), "Map_grow_entries new values");
 
-    for (int64_t i = 0; i < map->size; i++) {
-        new_keys[i] = map->keys[i];
-        new_values[i] = map->values[i];
-    }
+    SeenString* new_keys = (SeenString*)seen_try_realloc(
+        map->keys, old_key_bytes, new_key_bytes);
+    if (!new_keys) seen_oom_abort("Map_grow_entries keys", new_key_bytes);
+    int64_t* new_values = (int64_t*)seen_try_realloc(
+        map->values, old_value_bytes, new_value_bytes);
+    if (!new_values) seen_oom_abort("Map_grow_entries values", new_value_bytes);
 
-    free(map->keys);
-    free(map->values);
     map->keys = new_keys;
     map->values = new_values;
     map->capacity = new_capacity;
 }
 
-int64_t Map_put(void* m, SeenString key, int64_t value) {
+SEEN_WEAK int64_t Map_put(void* m, SeenString key, int64_t value) {
     SeenMap* map = (SeenMap*)m;
     Map_check(map, "Map_put");
 
-    // Check if key already exists
-    for (int64_t i = 0; i < map->size; i++) {
-        if (map->keys[i].len == key.len &&
-            memcmp(map->keys[i].data, key.data, key.len) == 0) {
-            int64_t old_value = map->values[i];
-            map->values[i] = value;
-            return old_value;
-        }
+    bool found = false;
+    int64_t slot = Map_index_find(map, key, &found);
+    if (found) {
+        int64_t entry = map->index_entries[slot];
+        int64_t old_value = map->values[entry];
+        map->values[entry] = value;
+        return old_value;
     }
 
-    // Key not found, add new entry
     if (map->size >= map->capacity) {
-        Map_grow(map);
+        Map_grow_entries(map);
     }
 
-    // Copy the key string data
-    char* key_copy = (char*)malloc(key.len + 1);
-    memcpy(key_copy, key.data, key.len);
+    if ((map->size + 1) * 10 >= map->index_capacity * 7) {
+        Map_rebuild_index(map, map->index_capacity * 2);
+        slot = Map_index_find(map, key, &found);
+    }
+
+    if (key.len < 0 || key.len == INT64_MAX) {
+        seen_oom_abort("Map_put key", INT64_MAX);
+    }
+    int64_t key_bytes = Map_checked_bytes(key.len + 1, 1, "Map_put key");
+    char* key_copy = (char*)seen_try_malloc(key_bytes);
+    if (!key_copy) seen_oom_abort("Map_put key", key_bytes);
+    if (key.len > 0) {
+        memcpy(key_copy, key.data, key.len);
+    }
     key_copy[key.len] = 0;
 
     map->keys[map->size].len = key.len;
     map->keys[map->size].data = key_copy;
     map->values[map->size] = value;
+    map->index_entries[slot] = map->size;
+    map->index_states[slot] = 1;
     map->size++;
 
     return 0;  // No previous value
 }
 
-int64_t Map_set(void* m, SeenString key, int64_t value) {
+SEEN_WEAK int64_t Map_set(void* m, SeenString key, int64_t value) {
     return Map_put(m, key, value);
 }
 
-int64_t Map_get(void* m, SeenString key) {
+SEEN_WEAK int64_t Map_get(void* m, SeenString key) {
     SeenMap* map = (SeenMap*)m;
     Map_check(map, "Map_get");
 
-    for (int64_t i = 0; i < map->size; i++) {
-        if (map->keys[i].len == key.len &&
-            memcmp(map->keys[i].data, key.data, key.len) == 0) {
-            return map->values[i];
-        }
+    bool found = false;
+    int64_t slot = Map_index_find(map, key, &found);
+    if (found) {
+        return map->values[map->index_entries[slot]];
     }
 
     return 0;  // Not found, return 0 (or could use sentinel)
 }
 
-int64_t Map_size(void* m) {
+SEEN_WEAK int64_t Map_size(void* m) {
     SeenMap* map = (SeenMap*)m;
     Map_check(map, "Map_size");
     return map->size;
 }
 
-bool Map_containsKey(void* m, SeenString key) {
+SEEN_WEAK bool Map_containsKey(void* m, SeenString key) {
     SeenMap* map = (SeenMap*)m;
     Map_check(map, "Map_containsKey");
 
-    for (int64_t i = 0; i < map->size; i++) {
-        if (map->keys[i].len == key.len &&
-            memcmp(map->keys[i].data, key.data, key.len) == 0) {
-            return true;
-        }
-    }
-
-    return false;
+    bool found = false;
+    Map_index_find(map, key, &found);
+    return found;
 }
 
-bool Map_containsValue(void* m, int64_t value) {
+SEEN_WEAK bool Map_containsValue(void* m, int64_t value) {
     SeenMap* map = (SeenMap*)m;
     Map_check(map, "Map_containsValue");
 
@@ -2409,7 +2541,7 @@ bool Map_containsValue(void* m, int64_t value) {
     return false;
 }
 
-SeenArray Map_keys(void* m) {
+SEEN_WEAK SeenArray Map_keys(void* m) {
     SeenMap* map = (SeenMap*)m;
     Map_check(map, "Map_keys");
 
@@ -2417,7 +2549,10 @@ SeenArray Map_keys(void* m) {
     result.len = map->size;
     result.cap = map->size;
     result.element_size = sizeof(SeenString);
-    result.data = malloc(sizeof(SeenString) * map->size);
+    int64_t data_bytes = Map_checked_bytes(
+        map->size, (int64_t)sizeof(SeenString), "Map_keys result");
+    result.data = seen_try_malloc(data_bytes > 0 ? data_bytes : 1);
+    if (!result.data) seen_oom_abort("Map_keys result", data_bytes);
 
     for (int64_t i = 0; i < map->size; i++) {
         ((SeenString*)result.data)[i] = map->keys[i];
@@ -2426,7 +2561,7 @@ SeenArray Map_keys(void* m) {
     return result;
 }
 
-SeenArray Map_values(void* m) {
+SEEN_WEAK SeenArray Map_values(void* m) {
     SeenMap* map = (SeenMap*)m;
     Map_check(map, "Map_values");
 
@@ -2434,7 +2569,10 @@ SeenArray Map_values(void* m) {
     result.len = map->size;
     result.cap = map->size;
     result.element_size = sizeof(int64_t);
-    result.data = malloc(sizeof(int64_t) * map->size);
+    int64_t data_bytes = Map_checked_bytes(
+        map->size, (int64_t)sizeof(int64_t), "Map_values result");
+    result.data = seen_try_malloc(data_bytes > 0 ? data_bytes : 1);
+    if (!result.data) seen_oom_abort("Map_values result", data_bytes);
 
     for (int64_t i = 0; i < map->size; i++) {
         ((int64_t*)result.data)[i] = map->values[i];
@@ -3428,9 +3566,10 @@ int64_t Vec_len(void* vecPtr) {
 }
 
 // ============================================================================
-// BTreeMap<K,V> Runtime Helpers - Simplified Linear Implementation
-// BTreeMap uses a linear array for simplicity: { entries: ptr, capacity: i64, length: i64 }
-// Each entry is { key: i64, value: i64 }
+// BTreeMap<K,V> Runtime Helpers - sorted contiguous tables
+// BTreeMap keeps entries sorted by key so lookups/removals use binary search and
+// key/value iteration is deterministic.
+// Layout remains { entries: ptr, capacity: i64, length: i64 } for generated IR.
 // ============================================================================
 
 typedef struct {
@@ -3444,65 +3583,130 @@ typedef struct {
     int64_t length;
 } SeenBTreeMap;
 
+static int64_t BTreeMap_checked_bytes(int64_t count, int64_t elem_size, const char* context) {
+    if (count <= 0) count = 1;
+    if (elem_size <= 0 || count > INT64_MAX / elem_size) {
+        seen_oom_abort(context, INT64_MAX);
+    }
+    return count * elem_size;
+}
+
+static void* BTreeMap_alloc_entries(int64_t count, int64_t elem_size, const char* context) {
+    int64_t bytes = BTreeMap_checked_bytes(count, elem_size, context);
+    void* ptr = seen_try_malloc(bytes);
+    if (!ptr) seen_oom_abort(context, bytes);
+    return ptr;
+}
+
+static void* BTreeMap_grow_entries(void* old, int64_t old_count, int64_t new_count,
+    int64_t elem_size, const char* context) {
+    int64_t old_bytes = BTreeMap_checked_bytes(old_count, elem_size, context);
+    int64_t new_bytes = BTreeMap_checked_bytes(new_count, elem_size, context);
+    void* ptr = seen_try_realloc(old, old_bytes, new_bytes);
+    if (!ptr) seen_oom_abort(context, new_bytes);
+    return ptr;
+}
+
+static int64_t BTreeMap_next_capacity(int64_t capacity, const char* context) {
+    if (capacity <= 0) return 16;
+    if (capacity > INT64_MAX / 2) seen_oom_abort(context, INT64_MAX);
+    return capacity * 2;
+}
+
+static int64_t BTreeMap_find_i64(BTreeMapEntry* entries, int64_t length,
+    int64_t key, bool* found) {
+    int64_t low = 0;
+    int64_t high = length;
+    while (low < high) {
+        int64_t mid = low + (high - low) / 2;
+        if (entries[mid].key < key) {
+            low = mid + 1;
+        } else {
+            high = mid;
+        }
+    }
+    *found = low < length && entries[low].key == key;
+    return low;
+}
+
+static int BTreeMap_compare_string(SeenString a, SeenString b) {
+    int64_t min_len = a.len < b.len ? a.len : b.len;
+    if (min_len > 0) {
+        int cmp = memcmp(a.data, b.data, (size_t)min_len);
+        if (cmp < 0) return -1;
+        if (cmp > 0) return 1;
+    }
+    if (a.len == b.len) return 0;
+    return a.len < b.len ? -1 : 1;
+}
+
 // Helper: create Option<V> as Some(value) or None
 static int64_t BTreeMap_make_some(int64_t value) {
     // Option layout: { i1 hasValue, i64 value }
-    uint8_t* opt = (uint8_t*)malloc(16);
+    uint8_t* opt = (uint8_t*)seen_try_malloc(16);
+    if (!opt) seen_oom_abort("BTreeMap Option<Int> Some", 16);
     *opt = 1;  // hasValue = true
     *(int64_t*)(opt + 8) = value;
     return (int64_t)opt;
 }
 
 static int64_t BTreeMap_make_none(void) {
-    uint8_t* opt = (uint8_t*)malloc(16);
+    uint8_t* opt = (uint8_t*)seen_try_malloc(16);
+    if (!opt) seen_oom_abort("BTreeMap Option<Int> None", 16);
     *opt = 0;  // hasValue = false
     return (int64_t)opt;
 }
 
 void* BTreeMap_new(void) {
-    SeenBTreeMap* map = (SeenBTreeMap*)malloc(sizeof(SeenBTreeMap));
+    SeenBTreeMap* map = (SeenBTreeMap*)seen_try_malloc(sizeof(SeenBTreeMap));
+    if (!map) seen_oom_abort("BTreeMap_new header", sizeof(SeenBTreeMap));
     map->capacity = 16;
-    map->entries = (BTreeMapEntry*)malloc(sizeof(BTreeMapEntry) * map->capacity);
+    map->entries = (BTreeMapEntry*)BTreeMap_alloc_entries(
+        map->capacity, (int64_t)sizeof(BTreeMapEntry), "BTreeMap_new entries");
     map->length = 0;
     return map;
 }
 
 bool BTreeMap_insert(void* mapPtr, int64_t key, int64_t value) {
     SeenBTreeMap* map = (SeenBTreeMap*)mapPtr;
-    // Check if key exists
-    for (int64_t i = 0; i < map->length; i++) {
-        if (map->entries[i].key == key) {
-            map->entries[i].value = value;
-            return false;  // Updated existing
-        }
+    bool found = false;
+    int64_t index = BTreeMap_find_i64(map->entries, map->length, key, &found);
+    if (found) {
+        map->entries[index].value = value;
+        return false;  // Updated existing
     }
-    // Grow if needed
     if (map->length >= map->capacity) {
-        map->capacity *= 2;
-        map->entries = realloc(map->entries, sizeof(BTreeMapEntry) * map->capacity);
+        int64_t old_capacity = map->capacity;
+        map->capacity = BTreeMap_next_capacity(map->capacity, "BTreeMap_insert grow");
+        map->entries = (BTreeMapEntry*)BTreeMap_grow_entries(
+            map->entries, old_capacity, map->capacity,
+            (int64_t)sizeof(BTreeMapEntry), "BTreeMap_insert entries");
     }
-    map->entries[map->length].key = key;
-    map->entries[map->length].value = value;
+    if (index < map->length) {
+        memmove(&map->entries[index + 1], &map->entries[index],
+            (size_t)(map->length - index) * sizeof(BTreeMapEntry));
+    }
+    map->entries[index].key = key;
+    map->entries[index].value = value;
     map->length++;
     return true;  // New entry
 }
 
 int64_t BTreeMap_get(void* mapPtr, int64_t key) {
     SeenBTreeMap* map = (SeenBTreeMap*)mapPtr;
-    for (int64_t i = 0; i < map->length; i++) {
-        if (map->entries[i].key == key) {
-            return BTreeMap_make_some(map->entries[i].value);
-        }
+    bool found = false;
+    int64_t index = BTreeMap_find_i64(map->entries, map->length, key, &found);
+    if (found) {
+        return BTreeMap_make_some(map->entries[index].value);
     }
     return BTreeMap_make_none();
 }
 
 bool BTreeMap_containsKey(void* mapPtr, int64_t key) {
     SeenBTreeMap* map = (SeenBTreeMap*)mapPtr;
-    for (int64_t i = 0; i < map->length; i++) {
-        if (map->entries[i].key == key) return true;
-    }
-    return false;
+    bool found = false;
+    BTreeMap_find_i64(map->entries, map->length, key, &found);
+    return found;
 }
 
 int64_t BTreeMap_keys(void* mapPtr) {
@@ -3525,16 +3729,16 @@ int64_t BTreeMap_values(void* mapPtr) {
 
 int64_t BTreeMap_remove(void* mapPtr, int64_t key) {
     SeenBTreeMap* map = (SeenBTreeMap*)mapPtr;
-    for (int64_t i = 0; i < map->length; i++) {
-        if (map->entries[i].key == key) {
-            int64_t value = map->entries[i].value;
-            // Shift remaining entries
-            for (int64_t j = i; j < map->length - 1; j++) {
-                map->entries[j] = map->entries[j + 1];
-            }
-            map->length--;
-            return BTreeMap_make_some(value);
+    bool found = false;
+    int64_t index = BTreeMap_find_i64(map->entries, map->length, key, &found);
+    if (found) {
+        int64_t value = map->entries[index].value;
+        if (index < map->length - 1) {
+            memmove(&map->entries[index], &map->entries[index + 1],
+                (size_t)(map->length - index - 1) * sizeof(BTreeMapEntry));
         }
+        map->length--;
+        return BTreeMap_make_some(value);
     }
     return BTreeMap_make_none();
 }
@@ -3936,55 +4140,73 @@ typedef struct {
     int64_t length;
 } SeenBTreeMapStr;
 
+static int64_t BTreeMap_find_str(BTreeEntryStr* entries, int64_t length,
+    SeenString key, bool* found) {
+    int64_t low = 0;
+    int64_t high = length;
+    while (low < high) {
+        int64_t mid = low + (high - low) / 2;
+        int cmp = BTreeMap_compare_string(entries[mid].key, key);
+        if (cmp < 0) {
+            low = mid + 1;
+        } else {
+            high = mid;
+        }
+    }
+    *found = low < length && BTreeMap_compare_string(entries[low].key, key) == 0;
+    return low;
+}
+
 void* BTreeMap_new_str(void) {
-    SeenBTreeMapStr* map = (SeenBTreeMapStr*)malloc(sizeof(SeenBTreeMapStr));
+    SeenBTreeMapStr* map = (SeenBTreeMapStr*)seen_try_malloc(sizeof(SeenBTreeMapStr));
+    if (!map) seen_oom_abort("BTreeMap_new_str header", sizeof(SeenBTreeMapStr));
     map->capacity = 16;
-    map->entries = (BTreeEntryStr*)malloc(sizeof(BTreeEntryStr) * map->capacity);
+    map->entries = (BTreeEntryStr*)BTreeMap_alloc_entries(
+        map->capacity, (int64_t)sizeof(BTreeEntryStr), "BTreeMap_new_str entries");
     map->length = 0;
     return map;
 }
 
 bool BTreeMap_insert_str(void* mapPtr, SeenString key, int64_t value) {
     SeenBTreeMapStr* map = (SeenBTreeMapStr*)mapPtr;
-    // Check if key exists
-    for (int64_t i = 0; i < map->length; i++) {
-        if (map->entries[i].key.len == key.len &&
-            memcmp(map->entries[i].key.data, key.data, key.len) == 0) {
-            map->entries[i].value = value;
-            return false;  // Updated existing
-        }
+    bool found = false;
+    int64_t index = BTreeMap_find_str(map->entries, map->length, key, &found);
+    if (found) {
+        map->entries[index].value = value;
+        return false;  // Updated existing
     }
-    // Grow if needed
     if (map->length >= map->capacity) {
-        map->capacity *= 2;
-        map->entries = realloc(map->entries, sizeof(BTreeEntryStr) * map->capacity);
+        int64_t old_capacity = map->capacity;
+        map->capacity = BTreeMap_next_capacity(map->capacity, "BTreeMap_insert_str grow");
+        map->entries = (BTreeEntryStr*)BTreeMap_grow_entries(
+            map->entries, old_capacity, map->capacity,
+            (int64_t)sizeof(BTreeEntryStr), "BTreeMap_insert_str entries");
     }
-    map->entries[map->length].key = key;
-    map->entries[map->length].value = value;
+    if (index < map->length) {
+        memmove(&map->entries[index + 1], &map->entries[index],
+            (size_t)(map->length - index) * sizeof(BTreeEntryStr));
+    }
+    map->entries[index].key = key;
+    map->entries[index].value = value;
     map->length++;
     return true;  // New entry
 }
 
 int64_t BTreeMap_get_str(void* mapPtr, SeenString key) {
     SeenBTreeMapStr* map = (SeenBTreeMapStr*)mapPtr;
-    for (int64_t i = 0; i < map->length; i++) {
-        if (map->entries[i].key.len == key.len &&
-            memcmp(map->entries[i].key.data, key.data, key.len) == 0) {
-            return BTreeMap_make_some(map->entries[i].value);
-        }
+    bool found = false;
+    int64_t index = BTreeMap_find_str(map->entries, map->length, key, &found);
+    if (found) {
+        return BTreeMap_make_some(map->entries[index].value);
     }
     return BTreeMap_make_none();
 }
 
 bool BTreeMap_containsKey_str(void* mapPtr, SeenString key) {
     SeenBTreeMapStr* map = (SeenBTreeMapStr*)mapPtr;
-    for (int64_t i = 0; i < map->length; i++) {
-        if (map->entries[i].key.len == key.len &&
-            memcmp(map->entries[i].key.data, key.data, key.len) == 0) {
-            return true;
-        }
-    }
-    return false;
+    bool found = false;
+    BTreeMap_find_str(map->entries, map->length, key, &found);
+    return found;
 }
 
 int64_t BTreeMap_keys_str(void* mapPtr) {
@@ -4012,17 +4234,16 @@ int64_t BTreeMap_size_str(void* mapPtr) {
 
 int64_t BTreeMap_remove_str(void* mapPtr, SeenString key) {
     SeenBTreeMapStr* map = (SeenBTreeMapStr*)mapPtr;
-    for (int64_t i = 0; i < map->length; i++) {
-        if (map->entries[i].key.len == key.len &&
-            memcmp(map->entries[i].key.data, key.data, key.len) == 0) {
-            int64_t value = map->entries[i].value;
-            // Shift remaining entries
-            for (int64_t j = i; j < map->length - 1; j++) {
-                map->entries[j] = map->entries[j + 1];
-            }
-            map->length--;
-            return BTreeMap_make_some(value);
+    bool found = false;
+    int64_t index = BTreeMap_find_str(map->entries, map->length, key, &found);
+    if (found) {
+        int64_t value = map->entries[index].value;
+        if (index < map->length - 1) {
+            memmove(&map->entries[index], &map->entries[index + 1],
+                (size_t)(map->length - index - 1) * sizeof(BTreeEntryStr));
         }
+        map->length--;
+        return BTreeMap_make_some(value);
     }
     return BTreeMap_make_none();
 }
@@ -4048,31 +4269,54 @@ typedef struct {
     int64_t length;
 } SeenBTreeMapStrStr;
 
+static int64_t BTreeMap_find_str_str(BTreeEntryStrStr* entries, int64_t length,
+    SeenString key, bool* found) {
+    int64_t low = 0;
+    int64_t high = length;
+    while (low < high) {
+        int64_t mid = low + (high - low) / 2;
+        int cmp = BTreeMap_compare_string(entries[mid].key, key);
+        if (cmp < 0) {
+            low = mid + 1;
+        } else {
+            high = mid;
+        }
+    }
+    *found = low < length && BTreeMap_compare_string(entries[low].key, key) == 0;
+    return low;
+}
+
 void* BTreeMap_new_str_str(void) {
-    SeenBTreeMapStrStr* map = (SeenBTreeMapStrStr*)malloc(sizeof(SeenBTreeMapStrStr));
+    SeenBTreeMapStrStr* map = (SeenBTreeMapStrStr*)seen_try_malloc(sizeof(SeenBTreeMapStrStr));
+    if (!map) seen_oom_abort("BTreeMap_new_str_str header", sizeof(SeenBTreeMapStrStr));
     map->capacity = 16;
-    map->entries = (BTreeEntryStrStr*)malloc(sizeof(BTreeEntryStrStr) * map->capacity);
+    map->entries = (BTreeEntryStrStr*)BTreeMap_alloc_entries(
+        map->capacity, (int64_t)sizeof(BTreeEntryStrStr), "BTreeMap_new_str_str entries");
     map->length = 0;
     return map;
 }
 
 bool BTreeMap_insert_str_str(void* mapPtr, SeenString key, SeenString value) {
     SeenBTreeMapStrStr* map = (SeenBTreeMapStrStr*)mapPtr;
-    // Check if key exists
-    for (int64_t i = 0; i < map->length; i++) {
-        if (map->entries[i].key.len == key.len &&
-            memcmp(map->entries[i].key.data, key.data, key.len) == 0) {
-            map->entries[i].value = value;
-            return false;  // Updated existing
-        }
+    bool found = false;
+    int64_t index = BTreeMap_find_str_str(map->entries, map->length, key, &found);
+    if (found) {
+        map->entries[index].value = value;
+        return false;  // Updated existing
     }
-    // Grow if needed
     if (map->length >= map->capacity) {
-        map->capacity *= 2;
-        map->entries = realloc(map->entries, sizeof(BTreeEntryStrStr) * map->capacity);
+        int64_t old_capacity = map->capacity;
+        map->capacity = BTreeMap_next_capacity(map->capacity, "BTreeMap_insert_str_str grow");
+        map->entries = (BTreeEntryStrStr*)BTreeMap_grow_entries(
+            map->entries, old_capacity, map->capacity,
+            (int64_t)sizeof(BTreeEntryStrStr), "BTreeMap_insert_str_str entries");
     }
-    map->entries[map->length].key = key;
-    map->entries[map->length].value = value;
+    if (index < map->length) {
+        memmove(&map->entries[index + 1], &map->entries[index],
+            (size_t)(map->length - index) * sizeof(BTreeEntryStrStr));
+    }
+    map->entries[index].key = key;
+    map->entries[index].value = value;
     map->length++;
     return true;  // New entry
 }
@@ -4080,14 +4324,16 @@ bool BTreeMap_insert_str_str(void* mapPtr, SeenString key, SeenString value) {
 // Helper: create Option<String> as Some(value)
 static int64_t BTreeMap_make_some_str(SeenString value) {
     // Option<String> layout: { i1 hasValue (8 bytes with padding), SeenString value (16 bytes) } = 24 bytes
-    uint8_t* opt = (uint8_t*)malloc(24);
+    uint8_t* opt = (uint8_t*)seen_try_malloc(24);
+    if (!opt) seen_oom_abort("BTreeMap Option<String> Some", 24);
     *opt = 1;  // hasValue = true
     *(SeenString*)(opt + 8) = value;  // Store SeenString at offset 8
     return (int64_t)opt;
 }
 
 static int64_t BTreeMap_make_none_str(void) {
-    uint8_t* opt = (uint8_t*)malloc(24);
+    uint8_t* opt = (uint8_t*)seen_try_malloc(24);
+    if (!opt) seen_oom_abort("BTreeMap Option<String> None", 24);
     *opt = 0;  // hasValue = false
     // Leave value uninitialized (will be checked via hasValue before access)
     return (int64_t)opt;
@@ -4096,24 +4342,19 @@ static int64_t BTreeMap_make_none_str(void) {
 // Returns Option<String> as i64 (pointer to { i1, SeenString })
 int64_t BTreeMap_get_str_str(void* mapPtr, SeenString key) {
     SeenBTreeMapStrStr* map = (SeenBTreeMapStrStr*)mapPtr;
-    for (int64_t i = 0; i < map->length; i++) {
-        if (map->entries[i].key.len == key.len &&
-            memcmp(map->entries[i].key.data, key.data, key.len) == 0) {
-            return BTreeMap_make_some_str(map->entries[i].value);
-        }
+    bool found = false;
+    int64_t index = BTreeMap_find_str_str(map->entries, map->length, key, &found);
+    if (found) {
+        return BTreeMap_make_some_str(map->entries[index].value);
     }
     return BTreeMap_make_none_str();
 }
 
 bool BTreeMap_containsKey_str_str(void* mapPtr, SeenString key) {
     SeenBTreeMapStrStr* map = (SeenBTreeMapStrStr*)mapPtr;
-    for (int64_t i = 0; i < map->length; i++) {
-        if (map->entries[i].key.len == key.len &&
-            memcmp(map->entries[i].key.data, key.data, key.len) == 0) {
-            return true;
-        }
-    }
-    return false;
+    bool found = false;
+    BTreeMap_find_str_str(map->entries, map->length, key, &found);
+    return found;
 }
 
 int64_t BTreeMap_keys_str_str(void* mapPtr) {
@@ -4142,17 +4383,16 @@ int64_t BTreeMap_size_str_str(void* mapPtr) {
 // Returns Option<String> as i64 (pointer to { i1, SeenString })
 int64_t BTreeMap_remove_str_str(void* mapPtr, SeenString key) {
     SeenBTreeMapStrStr* map = (SeenBTreeMapStrStr*)mapPtr;
-    for (int64_t i = 0; i < map->length; i++) {
-        if (map->entries[i].key.len == key.len &&
-            memcmp(map->entries[i].key.data, key.data, key.len) == 0) {
-            SeenString value = map->entries[i].value;
-            // Shift remaining entries
-            for (int64_t j = i; j < map->length - 1; j++) {
-                map->entries[j] = map->entries[j + 1];
-            }
-            map->length--;
-            return BTreeMap_make_some_str(value);
+    bool found = false;
+    int64_t index = BTreeMap_find_str_str(map->entries, map->length, key, &found);
+    if (found) {
+        SeenString value = map->entries[index].value;
+        if (index < map->length - 1) {
+            memmove(&map->entries[index], &map->entries[index + 1],
+                (size_t)(map->length - index - 1) * sizeof(BTreeEntryStrStr));
         }
+        map->length--;
+        return BTreeMap_make_some_str(value);
     }
     return BTreeMap_make_none_str();
 }
@@ -4177,48 +4417,72 @@ typedef struct {
     int64_t length;
 } SeenBTreeMapIntStr;
 
+static int64_t BTreeMap_find_int_str(BTreeEntryIntStr* entries, int64_t length,
+    int64_t key, bool* found) {
+    int64_t low = 0;
+    int64_t high = length;
+    while (low < high) {
+        int64_t mid = low + (high - low) / 2;
+        if (entries[mid].key < key) {
+            low = mid + 1;
+        } else {
+            high = mid;
+        }
+    }
+    *found = low < length && entries[low].key == key;
+    return low;
+}
+
 void* BTreeMap_new_int_str(void) {
-    SeenBTreeMapIntStr* map = (SeenBTreeMapIntStr*)malloc(sizeof(SeenBTreeMapIntStr));
+    SeenBTreeMapIntStr* map = (SeenBTreeMapIntStr*)seen_try_malloc(sizeof(SeenBTreeMapIntStr));
+    if (!map) seen_oom_abort("BTreeMap_new_int_str header", sizeof(SeenBTreeMapIntStr));
     map->capacity = 16;
-    map->entries = (BTreeEntryIntStr*)malloc(sizeof(BTreeEntryIntStr) * map->capacity);
+    map->entries = (BTreeEntryIntStr*)BTreeMap_alloc_entries(
+        map->capacity, (int64_t)sizeof(BTreeEntryIntStr), "BTreeMap_new_int_str entries");
     map->length = 0;
     return map;
 }
 
 bool BTreeMap_insert_int_str(void* mapPtr, int64_t key, SeenString value) {
     SeenBTreeMapIntStr* map = (SeenBTreeMapIntStr*)mapPtr;
-    for (int64_t i = 0; i < map->length; i++) {
-        if (map->entries[i].key == key) {
-            map->entries[i].value = value;
-            return false;
-        }
+    bool found = false;
+    int64_t index = BTreeMap_find_int_str(map->entries, map->length, key, &found);
+    if (found) {
+        map->entries[index].value = value;
+        return false;
     }
     if (map->length >= map->capacity) {
-        map->capacity *= 2;
-        map->entries = realloc(map->entries, sizeof(BTreeEntryIntStr) * map->capacity);
+        int64_t old_capacity = map->capacity;
+        map->capacity = BTreeMap_next_capacity(map->capacity, "BTreeMap_insert_int_str grow");
+        map->entries = (BTreeEntryIntStr*)BTreeMap_grow_entries(
+            map->entries, old_capacity, map->capacity,
+            (int64_t)sizeof(BTreeEntryIntStr), "BTreeMap_insert_int_str entries");
     }
-    map->entries[map->length].key = key;
-    map->entries[map->length].value = value;
+    if (index < map->length) {
+        memmove(&map->entries[index + 1], &map->entries[index],
+            (size_t)(map->length - index) * sizeof(BTreeEntryIntStr));
+    }
+    map->entries[index].key = key;
+    map->entries[index].value = value;
     map->length++;
     return true;
 }
 
 int64_t BTreeMap_get_int_str(void* mapPtr, int64_t key) {
     SeenBTreeMapIntStr* map = (SeenBTreeMapIntStr*)mapPtr;
-    for (int64_t i = 0; i < map->length; i++) {
-        if (map->entries[i].key == key) {
-            return BTreeMap_make_some_str(map->entries[i].value);
-        }
+    bool found = false;
+    int64_t index = BTreeMap_find_int_str(map->entries, map->length, key, &found);
+    if (found) {
+        return BTreeMap_make_some_str(map->entries[index].value);
     }
     return BTreeMap_make_none_str();
 }
 
 bool BTreeMap_containsKey_int_str(void* mapPtr, int64_t key) {
     SeenBTreeMapIntStr* map = (SeenBTreeMapIntStr*)mapPtr;
-    for (int64_t i = 0; i < map->length; i++) {
-        if (map->entries[i].key == key) return true;
-    }
-    return false;
+    bool found = false;
+    BTreeMap_find_int_str(map->entries, map->length, key, &found);
+    return found;
 }
 
 int64_t BTreeMap_keys_int_str(void* mapPtr) {
@@ -4246,15 +4510,16 @@ int64_t BTreeMap_size_int_str(void* mapPtr) {
 
 int64_t BTreeMap_remove_int_str(void* mapPtr, int64_t key) {
     SeenBTreeMapIntStr* map = (SeenBTreeMapIntStr*)mapPtr;
-    for (int64_t i = 0; i < map->length; i++) {
-        if (map->entries[i].key == key) {
-            SeenString value = map->entries[i].value;
-            for (int64_t j = i; j < map->length - 1; j++) {
-                map->entries[j] = map->entries[j + 1];
-            }
-            map->length--;
-            return BTreeMap_make_some_str(value);
+    bool found = false;
+    int64_t index = BTreeMap_find_int_str(map->entries, map->length, key, &found);
+    if (found) {
+        SeenString value = map->entries[index].value;
+        if (index < map->length - 1) {
+            memmove(&map->entries[index], &map->entries[index + 1],
+                (size_t)(map->length - index - 1) * sizeof(BTreeEntryIntStr));
         }
+        map->length--;
+        return BTreeMap_make_some_str(value);
     }
     return BTreeMap_make_none_str();
 }
@@ -5488,6 +5753,16 @@ bool HashMap_containsKey(void* mapPtr, int64_t key) {
     }
 }
 
+bool HashMap_containsValue(void* mapPtr, int64_t value) {
+    SeenHashMap* map = (SeenHashMap*)mapPtr;
+    for (int64_t i = 0; i < map->capacity; i++) {
+        if (map->states[i] == 1 && map->values[i] == value) {
+            return true;
+        }
+    }
+    return false;
+}
+
 int64_t HashMap_remove(void* mapPtr, int64_t key) {
     SeenHashMap* map = (SeenHashMap*)mapPtr;
     uint64_t h = hashmap_hash_int(key);
@@ -5695,6 +5970,16 @@ bool HashMap_containsKey_str(void* mapPtr, SeenString key) {
     }
 }
 
+bool HashMap_containsValue_str(void* mapPtr, int64_t value) {
+    SeenHashMapStr* map = (SeenHashMapStr*)mapPtr;
+    for (int64_t i = 0; i < map->capacity; i++) {
+        if (map->states[i] == 1 && map->values[i] == value) {
+            return true;
+        }
+    }
+    return false;
+}
+
 int64_t HashMap_remove_str(void* mapPtr, SeenString key) {
     SeenHashMapStr* map = (SeenHashMapStr*)mapPtr;
     uint64_t h = hashmap_hash_str(key);
@@ -5885,6 +6170,16 @@ bool HashMap_containsKey_str_str(void* mapPtr, SeenString key) {
     }
 }
 
+bool HashMap_containsValue_str_str(void* mapPtr, SeenString value) {
+    SeenHashMapStrStr* map = (SeenHashMapStrStr*)mapPtr;
+    for (int64_t i = 0; i < map->capacity; i++) {
+        if (map->states[i] == 1 && hashmap_str_eq(map->values[i], value)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 int64_t HashMap_remove_str_str(void* mapPtr, SeenString key) {
     SeenHashMapStrStr* map = (SeenHashMapStrStr*)mapPtr;
     uint64_t h = hashmap_hash_str(key);
@@ -6073,6 +6368,16 @@ bool HashMap_containsKey_int_str(void* mapPtr, int64_t key) {
         if (map->states[idx] == 1 && map->keys[idx] == key) return true;
         idx = (idx + 1) & mask;
     }
+}
+
+bool HashMap_containsValue_int_str(void* mapPtr, SeenString value) {
+    SeenHashMapIntStr* map = (SeenHashMapIntStr*)mapPtr;
+    for (int64_t i = 0; i < map->capacity; i++) {
+        if (map->states[i] == 1 && hashmap_str_eq(map->values[i], value)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 int64_t HashMap_remove_int_str(void* mapPtr, int64_t key) {

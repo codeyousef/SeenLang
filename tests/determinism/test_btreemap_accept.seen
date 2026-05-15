@@ -11,12 +11,20 @@ fun main() r: Int {
     because BTreeMap has deterministic sorted iteration order
     ///
     let map = BTreeMap<String, Int>.new()
-    map.insert("key1", 1)
     map.insert("key2", 2)
+    map.insert("key1", 1)
 
     // Iteration order is guaranteed to be sorted!
     let keys = map.keys()
-    println("Keys: " + keys.size().toString())
+    if keys.get(0) != "key1" or keys.get(1) != "key2" {
+        println("FAIL: BTreeMap keys are not sorted")
+        return 1
+    }
+    if keys.len() != 2 {
+        println("FAIL: BTreeMap key count mismatch")
+        return 1
+    }
+    println("Keys: " + keys.len().toString())
 
     // This is deterministic - same input always produces same output
     return 0

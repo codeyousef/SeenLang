@@ -105,6 +105,23 @@ fun moduleAlreadyDeclaresFunctionCoreImpl(ir: String, name: String) r: Bool {
     return false
 }
 
+fun moduleBuilderAlreadyDeclaresFunctionCoreImpl(output: StringBuilder,
+    name: String) r: Bool {
+
+    let symbolSig = "@" + quoteDeclScanIdentIfNeededCore(name) + "("
+    var i = 0
+    while i < output.parts.length() {
+        let part = output.parts[i]
+        if part.contains(symbolSig) and
+            (part.contains("declare ") or part.contains("define ")) {
+
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
 fun definedFuncListContainsCoreImpl(definedFuncs: Array<String>, name: String) r: Bool {
     var i = 0
     while i < definedFuncs.length() {
@@ -123,18 +140,19 @@ fun emitLateUserDeclaresCoreImpl(output: StringBuilder, definedFuncs: Array<Stri
         return
     }
 
-    var currentIr = output.toString()
     output.append("\n; Late-discovered user external declarations\n")
+    let emittedNames = Array<String>()
     var i = 0
     while i < lateXmDeclareCount {
         let declName: String = pipeGet(lateXmDeclareNames, i)
         if not definedFuncListContainsCoreImpl(definedFuncs, declName) and
-            not moduleAlreadyDeclaresFunctionCoreImpl(currentIr, declName) {
+            not definedFuncListContainsCoreImpl(emittedNames, declName) and
+            not moduleBuilderAlreadyDeclaresFunctionCoreImpl(output, declName) {
 
             let declStr: String = pipeGet(lateXmDeclareStrs, i)
             output.append(declStr)
-            currentIr = currentIr + declStr
             definedFuncs.push(declName)
+            emittedNames.push(declName)
         }
         i = i + 1
     }

@@ -7,6 +7,7 @@ import parser.real_parser.{ProgramNode, FunctionNode}
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{parseGlobalVarMutable, parseGlobalVarType, parseGlobalVarValue, pipeGet}
 import codegen.ir_decl_items.{isRuntimeBackedStringCompatFunctionImpl}
+import codegen.ir_decl_late_declares.{moduleBuilderAlreadyDeclaresFunctionCoreImpl}
 import codegen.ir_string_collect.{hexToDecimalImpl}
 
 fun quoteModuleEmitIdentIfNeeded(name: String) r: String {
@@ -193,20 +194,17 @@ fun emitCrossModuleFunctionDeclaresImpl(output: StringBuilder,
     xmDeclareCount: Int) r: Void {
 
     let emittedNames = Array<String>()
-    var currentIr = output.toString()
     var i = 0
     while i < xmDeclareCount {
         let name: String = pipeGet(xmDeclareNames, i)
         let declStr: String = pipeGet(xmDeclareStrs, i)
-        let quotedName = quoteModuleEmitIdentIfNeeded(name)
-        let alreadyInModule = currentIr.contains("@" + quotedName + "(")
+        let alreadyInModule = moduleBuilderAlreadyDeclaresFunctionCoreImpl(output, name)
         if name != "" and name != "main" and declStr != "" and
             not arrayContainsString(definedFuncs, name) and
             not arrayContainsString(emittedNames, name) and
             not alreadyInModule {
             output.append(declStr)
             emittedNames.push(name)
-            currentIr = currentIr + declStr
         }
         i = i + 1
     }

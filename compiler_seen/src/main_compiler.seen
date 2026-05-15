@@ -10,12 +10,12 @@ and production builds. It orchestrates the full compilation pipeline:
     -> opt -O3 (per-module, parallel) -> opt --thinlto-bc -> clang -flto=thin
 
 Key design decisions:
-  - Fork-parallel IR generation: each uncached module is compiled in a forked
-    child process. The child inherits a copy-on-write snapshot of the parent's
-    Pass 1 declaration registry, avoiding costly serialization.
-  - Content-addressed IR cache (v3 key = declarationsHash + moduleSourceHash):
-    deterministic IR means the same source + declarations always produce the
-    same optimized object file, enabling cross-stage cache reuse.
+  - Bounded IR generation: uncached modules can be compiled by adaptive worker
+    pools when memory budget allows, while serial/no-fork paths remain available
+    for low-memory bootstrap and recovery builds.
+  - Content-addressed IR cache-v4 keys combine the compiler/toolchain signature,
+    project declaration hash, stable module identity, and module body hash so
+    body-only edits avoid whole-project invalidation.
   - ThinLTO linking: per-module bitcode with summaries enables LLD to perform
     cross-module inlining at link time without the memory cost of full LTO.
 
@@ -395,9 +395,54 @@ fun mainCompilerItemDeclaresMain(item: ItemNode) r: Bool {
     return mainCompilerIsMainFunctionName(item.function.name)
 }
 
+fun buildToolVersionForCache(toolName: String) r: String {
+    let result: CommandResult = runCommand("sh -c 'command -v " + toolName + " >/dev/null 2>&1 && " + toolName + " --version 2>/dev/null | head -1 || true'")
+    if commandWasSuccessful(result) {
+        return result.output.trim()
+    }
+    return ""
+}
+
+fun runtimeSourceSignatureForCache() r: String {
+    var input = "runtime-v1"
+    input = hashString(input + "\n" + loadFileContent("seen_runtime/seen_runtime.c"))
+    input = hashString(input + "\n" + loadFileContent("seen_runtime/seen_region.c"))
+    input = hashString(input + "\n" + loadFileContent("seen_runtime/seen_gpu.c"))
+    input = hashString(input + "\n" + loadFileContent("seen_runtime/seen_hotreload.c"))
+    return input
+}
+
+fun runtimeObjectBuildSignature(name: String, sourcePath: String,
+    clangMarch: String, picFlag: String, sanitizerFlags: String,
+    pgoFlags: String, effectiveTarget: String, extraFlags: String) r: String {
+
+    return hashString("runtime-object-v1|" + name + "|src=" +
+        hashString(loadFileContent(sourcePath)) + "|clang=" +
+        hashString(buildToolVersionForCache("clang")) + "|march=" +
+        clangMarch + "|pic=" + picFlag + "|sanitize=" + sanitizerFlags +
+        "|pgo=" + pgoFlags + "|target=" + effectiveTarget + "|extra=" +
+        extraFlags)
+}
+
+fun runtimeObjectIsFresh(objectPath: String, signature: String) r: Bool {
+    if not exists(objectPath) {
+        return false
+    }
+    let sigPath = objectPath + ".sig"
+    if not exists(sigPath) {
+        return false
+    }
+    return loadFileContent(sigPath) == signature
+}
+
+fun writeRuntimeObjectSignature(objectPath: String, signature: String) r: Void {
+    let _ = writeText(objectPath + ".sig", signature)
+    return
+}
+
 fun buildCacheSignature(profile: String, language: String, targetCpu: String, simdPolicy: String,
     sanitizePolicy: String, pgoMode: String, effectiveTarget: String, panicOnOverflow: Bool) r: String {
-    var signature = "cache-v3"
+    var signature = "cache-v4"
     signature = signature + "|profile=" + profile
     signature = signature + "|language=" + language
     signature = signature + "|targetCpu=" + targetCpu
@@ -430,6 +475,12 @@ fun buildCacheSignature(profile: String, language: String, targetCpu: String, si
     } else {
         signature = signature + "|bounds=0"
     }
+    signature = signature + "|jobs=" + g_largeProjectWorkerLimit.toString()
+    signature = signature + "|optJobs=" + g_largeProjectOptWorkerLimit.toString()
+    signature = signature + "|llvmOpt=" + hashString(buildToolVersionForCache("opt"))
+    signature = signature + "|llvmLlc=" + hashString(buildToolVersionForCache("llc"))
+    signature = signature + "|clang=" + hashString(buildToolVersionForCache("clang"))
+    signature = signature + "|runtime=" + runtimeSourceSignatureForCache()
     if effectiveTarget == "android-arm64" {
         signature = signature + "|moduleobj=target-clang"
     } else {
@@ -523,6 +574,63 @@ fun getTraceTimeSeconds() r: Int {
         }
     }
     return 0
+}
+
+fun readPositiveEnvInt(name: String) r: Int {
+    let result: CommandResult = runCommand("printf '%s' \"$" + name + "\"")
+    if commandWasSuccessful(result) {
+        let out = result.output.trim()
+        if out.length() > 0 {
+            let value = out.toInt()
+            if value > 0 {
+                return value
+            }
+        }
+    }
+    return 0
+}
+
+fun buildTracePath() r: String {
+    let direct: CommandResult = runCommand("printf '%s' \"$SEEN_TRACE_BUILD\"")
+    if commandWasSuccessful(direct) {
+        let path = direct.output.trim()
+        if path != "" {
+            return path
+        }
+    }
+    let alias: CommandResult = runCommand("printf '%s' \"$SEEN_BUILD_TRACE\"")
+    if commandWasSuccessful(alias) {
+        return alias.output.trim()
+    }
+    return ""
+}
+
+fun buildTraceEmit(phase: String, status: String, durationSeconds: Int, detail: String) r: Void {
+    let tracePath = buildTracePath()
+    if tracePath == "" {
+        return
+    }
+    let ts = getTraceTimeSeconds()
+    let q = String.fromCharCode(34)
+    var line = "{" + q + "ts" + q + ":" + ts.toString() +
+        "," + q + "script" + q + ":" + q + "compiler" + q +
+        "," + q + "phase" + q + ":" + q + phase + q +
+        "," + q + "status" + q + ":" + q + status + q +
+        "," + q + "duration_ms" + q + ":" +
+        (durationSeconds * 1000).toString() +
+        "," + q + "detail" + q + ":" + q + detail + q + "}\n"
+    let _ = appendText(tracePath, line)
+    return
+}
+
+fun buildTraceFinish(phase: String, startSeconds: Int, status: String, detail: String) r: Void {
+    let endSeconds = getTraceTimeSeconds()
+    var duration = endSeconds - startSeconds
+    if duration < 0 {
+        duration = 0
+    }
+    buildTraceEmit(phase, status, duration, detail)
+    return
 }
 
 fun mainCompilerEmptyProgramNode() r: ProgramNode {
@@ -4638,6 +4746,64 @@ fun generatedTestStableModuleIdentity(normalizedPath: String) r: String {
     return normalizedPath
 }
 
+fun stableModuleCacheIdentity(modulePath: String) r: String {
+    let normalizedPath = resolveRealInputPath(modulePath)
+    if normalizedPath == "" {
+        return modulePath
+    }
+    return generatedTestStableModuleIdentity(normalizedPath)
+}
+
+fun declarationFingerprintLine(line: String) r: String {
+    let trimmed = line.trim()
+    if trimmed == "" {
+        return ""
+    }
+    if trimmed.startsWith("//") {
+        return ""
+    }
+    if trimmed.startsWith("import ") or trimmed.startsWith("use ") or
+        trimmed.startsWith("pub import ") {
+
+        return trimmed
+    }
+    if trimmed.startsWith("fun ") or trimmed.startsWith("static fun ") or
+        trimmed.startsWith("class ") or trimmed.startsWith("struct ") or
+        trimmed.startsWith("enum ") or trimmed.startsWith("data ") or
+        trimmed.startsWith("trait ") or trimmed.startsWith("interface ") or
+        trimmed.startsWith("typealias ") or trimmed.startsWith("const ") {
+
+        return trimmed
+    }
+    if trimmed.contains(" fun ") or trimmed.contains(" r: ") or
+        trimmed.contains(" -> ") {
+
+        return trimmed
+    }
+    return ""
+}
+
+fun moduleDeclarationFingerprint(modulePath: String) r: String {
+    let stableIdentity = stableModuleCacheIdentity(modulePath)
+    let cmd = "awk '/^[[:space:]]*(import|use|pub import|fun|static fun|class|struct|enum|data|trait|interface|typealias|const)[[:space:]]/ || /[[:space:]]fun[[:space:]]/ || /[[:space:]]r:[[:space:]]/ || / -> / { print }' " +
+        mainCompilerShellQuote(modulePath) + " | sha256sum | awk '{print $1}'"
+    let result: CommandResult = runCommand(cmd)
+    if commandWasSuccessful(result) {
+        let out = result.output.trim()
+        if out != "" {
+            return "decl-v2|" + stableIdentity + "|" + out
+        }
+    }
+    return "decl-v2|" + stableIdentity + "|" + hashString(readText(modulePath))
+}
+
+fun sourceObjectCacheKey(cacheSignature: String, registryHash: String,
+    modulePath: String) r: String {
+
+    return hashString("source-object-v4|" + cacheSignature + "|" +
+        registryHash + "|" + stableModuleCacheIdentity(modulePath))
+}
+
 fun generatedTestObjectCacheKeyForModule(modulePath: String, cacheSignature: String) r: String {
     let normalizedPath = resolveRealInputPath(modulePath)
     if normalizedPath == "" {
@@ -4972,11 +5138,14 @@ fun shouldRunWholeProjectPreflight(modulePaths: Array<String>) r: Bool {
 }
 
 fun effectiveLargeProjectWorkerLimit(moduleCount: Int, isBootstrap: Bool) r: Int {
-    if isBootstrap {
-        return 0
-    }
     if g_noFork != 0 {
         return 0
+    }
+    if g_largeProjectWorkerLimit <= 0 {
+        return 0
+    }
+    if isBootstrap {
+        return g_largeProjectWorkerLimit
     }
     if g_projectPrefixLimit <= 0 {
         return 0
@@ -8504,6 +8673,20 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         effectiveTarget = detectHostTargetName()
     }
     setComptimeTargetName(effectiveTarget)
+    let envJobs = readPositiveEnvInt("SEEN_JOBS")
+    if envJobs > 0 {
+        g_largeProjectWorkerLimit = envJobs
+    }
+    let envOptJobs = readPositiveEnvInt("SEEN_OPT_JOBS")
+    if envOptJobs > 0 {
+        g_largeProjectOptWorkerLimit = envOptJobs
+    }
+    if g_largeProjectWorkerLimit < 1 {
+        g_largeProjectWorkerLimit = 1
+    }
+    if g_largeProjectOptWorkerLimit < 1 {
+        g_largeProjectOptWorkerLimit = 1
+    }
     let cacheSignature = buildCacheSignature(profile, language, targetCpu, simdPolicy, sanitizePolicy, pgoMode, effectiveTarget, panicOnOverflow)
     let targetClangArgs = buildTargetClangArgs(effectiveTarget)
     let targetClangDriver = buildTargetClangDriver(effectiveTarget)
@@ -8726,8 +8909,11 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     this early gives a clear diagnostic instead of a cryptic linker error.
     ///
     println("  [Pass 0] Discovering module graph...")
+    let pass0Start = getTraceTimeSeconds()
     let modulePaths = collectModulePaths(resolvedInput, false)
     println("    Found " + modulePaths.length().toString() + " modules")
+    buildTraceFinish("module discovery", pass0Start, "ok",
+        "modules=" + modulePaths.length().toString())
     if not moduleGraphContainsCompilerSources(modulePaths) {
         let importCyclePath = detectModuleImportCycle(modulePaths, language)
         if importCyclePath != "" {
@@ -8790,6 +8976,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     ///
     println("  [Pass 1] Scanning declarations...")
 
+    let pass1Start = getTraceTimeSeconds()
     var passIdx = 0
     while passIdx < modulePaths.length() {
         let path = modulePaths[passIdx]
@@ -8820,6 +9007,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         passIdx = passIdx + 1
     }
     println("  [Pass 1] Complete - declarations registered")
+    buildTraceFinish("declaration scan", pass1Start, "ok",
+        "modules=" + modulePaths.length().toString())
 
     // Optimization pipeline status
     if g_generatedTestMainMode == 0 {
@@ -8844,25 +9033,25 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     CACHE: Compute global hash for incremental compilation
     ============================================================
     The source-level cache (.seen_cache/) uses a global registryHash to detect
-    when ANY module's declarations change. When the hash changes, all cached .o
-    files are invalidated because cross-module type resolution may have changed.
-    Cache entries are namespaced by the effective compilation signature so cross-
-    target and cross-profile builds never reuse incompatible object files.
-    The IR cache (/tmp/seen_ir_cache/) uses per-module keys (signature + registryHash + path)
-    for finer granularity -- a body-only change in module A does not invalidate
-    module B's IR cache since declarations are unchanged.
+    declaration-level ABI changes without tying every cache entry to every
+    module body. Cache entries are namespaced by the effective compilation
+    signature so cross-target, toolchain, profile, sanitizer, LTO, PIC, PGO,
+    runtime, and worker-policy changes never reuse incompatible object files.
+    The IR cache (/tmp/seen_ir_cache/) uses cache-v4 keys:
+    signature + project declaration hash + stable module identity + module body
+    hash. Body-only changes miss only the changed module's object key.
     ///
     var registryHash = ""
     var cacheValid = false
     if useCache {
+        let cacheHashStart = getTraceTimeSeconds()
         var registryHashInput = cacheSignature
         var gi = 0
         while gi < modulePaths.length() {
             let gpath = modulePaths[gi]
-            let gsrc = readText(gpath)
-            let gsrcHash = hashString(gsrc)
+            let gdeclHash = moduleDeclarationFingerprint(gpath)
             registryHashInput = hashString(registryHashInput + "\n" +
-                gpath + ":" + gsrcHash)
+                stableModuleCacheIdentity(gpath) + ":" + gdeclHash)
             gi = gi + 1
         }
         registryHash = hashString(registryHashInput + "\n" +
@@ -8872,11 +9061,14 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         if cachedRegHash == registryHash {
             cacheValid = true
         } else {
-            // Global state changed -- invalidate all cached .o files
-            clearCache()
-            ensureCacheDir()
+            // cache-v4 keys include the declaration hash, so stale objects are
+            // naturally bypassed without deleting otherwise useful warm cache
+            // entries from neighboring rebuild tiers or bootstrap overlays.
             writeText(".seen_cache/registry.hash", registryHash)
+            cacheValid = true
         }
+        buildTraceFinish("cache hashing", cacheHashStart, "ok",
+            "modules=" + modulePaths.length().toString())
     }
 
     ///
@@ -8898,6 +9090,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     if g_generatedTestMainMode == 0 {
         println("  [Pass 2] Compiling modules...")
     }
+    let pass2Start = getTraceTimeSeconds()
     var objectFiles = Array<String>()
     var objectSourcePaths = Array<String>()
     var llFiles = Array<String>()
@@ -8967,7 +9160,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
 
         // Check source-level cache first (fastest: just file comparison)
         if useCache and cacheValid {
-            let pathHash = hashString(cacheSignature + ":" + path)
+            let pathHash = sourceObjectCacheKey(cacheSignature, registryHash,
+                path)
             let sourceContent = readText(path)
             let sourceHash = hashString(sourceContent)
             let cachedHashFile = ".seen_cache/" + pathHash + ".hash"
@@ -8988,14 +9182,16 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         identical declarations always produce identical optimized .o files. This cache
         persists across bootstrap stages (stage2 can reuse stage1's cached objects),
         which is critical for keeping bootstrap verification fast.
-        Key = hash("v3:" + cacheSignature + ":" + registryHash + ":" + path).
-        The "v3" prefix forces a one-time cache miss after broadening the cache key.
-        one-time cache miss when the pipeline changes (e.g., llvm-as -> opt --thinlto-bc).
+        Key = hash("v4:" + signature + ":" + declarationHash + ":" +
+        stableIdentity + ":" + moduleBodyHash).
         ///
         var irCacheKey = ""
         var irCacheHit = 0
         if useCache and registryHash != "" {
-            irCacheKey = hashString("v3:" + cacheSignature + ":" + registryHash + ":" + path)
+            let irSource = readText(path)
+            irCacheKey = hashString("v4:" + cacheSignature + ":" +
+                registryHash + ":" + stableModuleCacheIdentity(path) + ":" +
+                hashString(irSource))
             ensureIrCacheDir()
             let irCacheFile = "/tmp/seen_ir_cache/" + irCacheKey + ".o"
             let checkIrCache: CommandResult = runCommand("test -f " + irCacheFile)
@@ -9014,7 +9210,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             // Promote to source-level cache to speed up next build within same stage
             if useCache {
                 ensureCacheDir()
-                let srcPathHash = hashString(cacheSignature + ":" + path)
+                let srcPathHash = sourceObjectCacheKey(cacheSignature,
+                    registryHash, path)
                 let srcContent = readText(path)
                 let cpSrcObj: CommandResult = runCommand("cp " + irCacheObj + " .seen_cache/" + srcPathHash + ".o")
                 writeText(".seen_cache/" + srcPathHash + ".hash", hashString(srcContent))
@@ -9250,6 +9447,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
       3. object emission (ThinLTO bitcode normally, native llc objects in fast mode)
     ///
     if uncachedIdxStrs.length() > 0 {
+        let pass2bStart = getTraceTimeSeconds()
         var pass2bRunsParallel = g_noFork == 0
         if boundedLargeProjectOptWorkers > 0 {
             pass2bRunsParallel = true
@@ -9313,6 +9511,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             return 1
         }
         var pi = 0
+        var pendingOptWorkers = 0
         while pi < uncachedIdxStrs.length() {
             let midx = uncachedIdxStrs[pi]
             let llFile = moduleTempPath(compileTempDir, midx, ".ll")
@@ -9386,16 +9585,6 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                 }
                 moduleObjCmd = targetClangDriver + " " + androidClangOptLevel + " -flto=thin -ffunction-sections -fdata-sections" + modulePicFlag + " -Wno-unused-command-line-argument -c -x ir " + targetClangArgs + " " + optFile + " -o " + objFile
             }
-            if pass2bRunsParallel and boundedLargeProjectOptWorkers > 0 {
-                if not appendText(parallelScriptFile,
-                    "while [ \"$(jobs -p | wc -l | tr -d ' ')\" -ge " +
-                    boundedLargeProjectOptWorkers.toString() +
-                    " ]; do sleep 0.05; done\n") {
-
-                    println("    Error: Failed to append optimizer worker throttle")
-                    return 1
-                }
-            }
             var moduleScript = "(\n"
             moduleScript = moduleScript + "  rm -f " + objFile + " " + optFile + " " + statusFile + " " + logFile + "\n"
             moduleScript = moduleScript + "  if " + moduleOptCmd + " >" + logFile + " 2>&1; then\n"
@@ -9419,10 +9608,20 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                 println("    Error: Failed to append optimizer step for module " + midx)
                 return 1
             }
+            if pass2bRunsParallel and boundedLargeProjectOptWorkers > 0 {
+                pendingOptWorkers = pendingOptWorkers + 1
+                if pendingOptWorkers >= boundedLargeProjectOptWorkers {
+                    if not appendText(parallelScriptFile, "wait\n") {
+                        println("    Error: Failed to append optimizer worker wait")
+                        return 1
+                    }
+                    pendingOptWorkers = 0
+                }
+            }
 
             pi = pi + 1
         }
-        if pass2bRunsParallel {
+        if pass2bRunsParallel and pendingOptWorkers > 0 {
             if not appendText(parallelScriptFile, "wait\n") {
                 println("    Error: Failed to append optimizer wait")
                 return 1
@@ -9508,7 +9707,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             if useCache {
                 ensureCacheDir()
                 let sourcePath = uncachedSrcPaths[ci]
-                let pathHash = hashString(cacheSignature + ":" + sourcePath)
+                let pathHash = sourceObjectCacheKey(cacheSignature,
+                    registryHash, sourcePath)
                 let cpCacheResult: CommandResult = runCommand("cp " + objFile + " .seen_cache/" + pathHash + ".o")
                 writeText(".seen_cache/" + pathHash + ".hash", hashString(readText(sourcePath)))
             }
@@ -9524,6 +9724,9 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             ci = ci + 1
         }
         println("  [Pass 2b] Optimization complete")
+        buildTraceFinish("opt object emission", pass2bStart, "ok",
+            "uncached=" + uncachedIdxStrs.length().toString() +
+            " mode=" + optExecutionMode)
     }
 
     if g_generatedTestMainMode == 0 {
@@ -9533,6 +9736,9 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             println("  [Pass 2] Complete")
         }
     }
+    buildTraceFinish("ir generation and object cache", pass2Start, "ok",
+        "cached=" + cachedCount.toString() + " modules=" +
+        modulePaths.length().toString())
 
     ///
     Detect host platform before any native object emission so release builds
@@ -9631,6 +9837,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                 println("  [2.5] Skipping merged release path: missing llvm-link or llc")
             } else {
                 println("  [2.5] Release mode: cross-module LTO merge (" + llFiles.length().toString() + " modules)...")
+                let releaseMergeStart = getTraceTimeSeconds()
                 var llLinkCmd = llvmLinkTool + " -S "
                 var lli = 0
                 while lli < llFiles.length() {
@@ -9680,6 +9887,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                     println("    Warning: llvm-link failed, using per-module objects")
                     println(llLinkResult.output)
                 }
+                buildTraceFinish("release merge lto", releaseMergeStart,
+                    "ok", "modules=" + llFiles.length().toString())
             }
         }
     }
@@ -9688,12 +9897,10 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     ============================================================
     LINKING: Combine all object files
     ============================================================
-    Why ThinLTO (not full LTO)? Full LTO loads all bitcode into one module,
-    requiring O(total IR) memory. ThinLTO reads only summaries, then performs
-    cross-module inlining on a per-function basis. For the 50-module compiler,
-    full LTO would require 5+ GB RAM; ThinLTO stays under 1 GB while still
-    enabling cross-module inlining. The ThinLTO cache at /tmp/seen_thinlto_cache
-    means unchanged modules skip link-time optimization entirely on rebuilds.
+    Release builds keep the merged cross-module LTO path by default for
+    throughput. Users can choose --no-merged-release-lto to keep per-module
+    objects and lower peak memory. Non-release and opt-out release builds link
+    the bounded object set produced above.
     ///
     if objectFiles.length() != expectedLinkObjects {
         println("    Error: refusing to link partial module set (" + objectFiles.length().toString() + "/" + expectedLinkObjects.toString() + " link objects)")
@@ -9806,9 +10013,10 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         }
     }
     if sanitizePolicy == "" {
-        let checkRtResult: CommandResult =
-            runCommand("test " + runtimeObj + " -nt " + runtimeSrc)
-        if not commandWasSuccessful(checkRtResult) {
+        let runtimeSig = runtimeObjectBuildSignature("seen_runtime",
+            runtimeSrc, clangMarch, picCompileFlag, sanitizerClangFlags,
+            pgoClangFlags, effectiveTarget, teeRuntimeCompileFlags)
+        if not runtimeObjectIsFresh(runtimeObj, runtimeSig) {
             println("  [3a] Pre-compiling runtime...")
             let rtCompile: CommandResult =
                 runCommand("clang -O3 -flto=thin " + clangMarch +
@@ -9817,11 +10025,21 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                     runtimeSrc + " -o " + runtimeObj)
             if not commandWasSuccessful(rtCompile) {
                 println("    Warning: Runtime pre-compilation failed, will compile inline")
+            } else {
+                writeRuntimeObjectSignature(runtimeObj, runtimeSig)
+                buildTraceEmit("runtime object cache", "miss", 0,
+                    "seen_runtime")
             }
+        } else {
+            buildTraceEmit("runtime object cache", "hit", 0,
+                "seen_runtime")
         }
         if hasTeeRuntime {
-            let checkTeeRtResult: CommandResult = runCommand("test " + teeRuntimeObj + " -nt " + teeRuntimeSrc)
-            if not commandWasSuccessful(checkTeeRtResult) {
+            let teeSig = runtimeObjectBuildSignature("seen_tee_common",
+                teeRuntimeSrc, clangMarch, picCompileFlag,
+                sanitizerClangFlags, pgoClangFlags, effectiveTarget,
+                teeRuntimeCompileFlags)
+            if not runtimeObjectIsFresh(teeRuntimeObj, teeSig) {
                 let teeRtCompile: CommandResult =
                     runCommand("clang -O3 -flto=thin " + clangMarch +
                         " -ffunction-sections -fdata-sections -pthread" +
@@ -9829,7 +10047,14 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                         teeRuntimeSrc + " -o " + teeRuntimeObj)
                 if not commandWasSuccessful(teeRtCompile) {
                     println("    Warning: TEE runtime pre-compilation failed, will compile inline")
+                } else {
+                    writeRuntimeObjectSignature(teeRuntimeObj, teeSig)
+                    buildTraceEmit("runtime object cache", "miss",
+                        0, "seen_tee_common")
                 }
+            } else {
+                buildTraceEmit("runtime object cache", "hit", 0,
+                    "seen_tee_common")
             }
         }
     } else {
@@ -10005,16 +10230,26 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     if g_picMode == 1 {
         regionObj = rtPrefix + "/seen_region_pic.o"
     }
-    let checkRegionResult: CommandResult = runCommand("test " + regionObj + " -nt " + rtPrefix + "/seen_region.c")
-    if not commandWasSuccessful(checkRegionResult) {
-        let regionSrcCheck: CommandResult = runCommand("test -f " + rtPrefix + "/seen_region.c")
+    let regionSrc = rtPrefix + "/seen_region.c"
+    let regionSig = runtimeObjectBuildSignature("seen_region",
+        regionSrc, clangMarch, picCompileFlag, sanitizerClangFlags,
+        pgoClangFlags, effectiveTarget, "")
+    if not runtimeObjectIsFresh(regionObj, regionSig) {
+        let regionSrcCheck: CommandResult = runCommand("test -f " + regionSrc)
         if commandWasSuccessful(regionSrcCheck) {
             let hostRegionCmd = "clang -O3 -flto=thin " + clangMarch +
                 " -ffunction-sections -fdata-sections" + picCompileFlag +
-                " -c -I " + rtPrefix + " " + rtPrefix +
-                "/seen_region.c -o " + regionObj
+                " -c -I " + rtPrefix + " " + regionSrc + " -o " +
+                regionObj
             let rtRegion: CommandResult = runCommand(hostRegionCmd)
+            if commandWasSuccessful(rtRegion) {
+                writeRuntimeObjectSignature(regionObj, regionSig)
+                buildTraceEmit("runtime object cache", "miss", 0,
+                    "seen_region")
+            }
         }
+    } else {
+        buildTraceEmit("runtime object cache", "hit", 0, "seen_region")
     }
     // Add region allocator object if it exists
     var regionArg = ""
@@ -10049,9 +10284,12 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         if g_picMode == 1 {
             hostGpuObj = rtPrefix + "/seen_gpu_pic.o"
         }
-        let checkGpuResult: CommandResult = runCommand("test " + hostGpuObj + " -nt " + rtPrefix + "/seen_gpu.c")
-        if not commandWasSuccessful(checkGpuResult) {
-            let gpuSrcCheck: CommandResult = runCommand("test -f " + rtPrefix + "/seen_gpu.c")
+        let gpuSrc = rtPrefix + "/seen_gpu.c"
+        let gpuSig = runtimeObjectBuildSignature("seen_gpu", gpuSrc,
+            clangMarch, picCompileFlag, sanitizerClangFlags, pgoClangFlags,
+            effectiveTarget, getHostVulkanCflags())
+        if not runtimeObjectIsFresh(hostGpuObj, gpuSig) {
+            let gpuSrcCheck: CommandResult = runCommand("test -f " + gpuSrc)
             if commandWasSuccessful(gpuSrcCheck) {
                 // Check if vulkan headers are available before trying to compile
                 let vulkanCheck: CommandResult = runCommand("pkg-config --exists vulkan 2>/dev/null")
@@ -10059,19 +10297,29 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                     let rtGpu: CommandResult =
                         runCommand("clang -O3 -flto=thin " + clangMarch +
                             " -ffunction-sections -fdata-sections" +
-                            picCompileFlag + " -c -I " + rtPrefix + " " +
-                            rtPrefix + "/seen_gpu.c -o " + hostGpuObj +
+                            picCompileFlag + " -c -I " + rtPrefix + " " + gpuSrc + " -o " + hostGpuObj +
                             " $(pkg-config --cflags vulkan) 2>&1")
+                    if commandWasSuccessful(rtGpu) {
+                        writeRuntimeObjectSignature(hostGpuObj, gpuSig)
+                        buildTraceEmit("runtime object cache", "miss",
+                            0, "seen_gpu")
+                    }
                 } else {
                     // Try without pkg-config (headers might be in standard paths)
                     let rtGpu2: CommandResult =
                         runCommand("clang -O3 -flto=thin " + clangMarch +
                             " -ffunction-sections -fdata-sections" +
-                            picCompileFlag + " -c -I " + rtPrefix + " " +
-                            rtPrefix + "/seen_gpu.c -o " + hostGpuObj +
+                            picCompileFlag + " -c -I " + rtPrefix + " " + gpuSrc + " -o " + hostGpuObj +
                             " 2>&1")
+                    if commandWasSuccessful(rtGpu2) {
+                        writeRuntimeObjectSignature(hostGpuObj, gpuSig)
+                        buildTraceEmit("runtime object cache", "miss",
+                            0, "seen_gpu")
+                    }
                 }
             }
+        } else {
+            buildTraceEmit("runtime object cache", "hit", 0, "seen_gpu")
         }
         if normalizedCrossTarget == "" {
             let useGpuObj: CommandResult = runCommand("test -f " + hostGpuObj)
@@ -10139,10 +10387,10 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             if g_picMode == 1 {
                 hotReloadObj = rtPrefix + "/seen_hotreload_pic.o"
             }
-            let checkHotReloadResult: CommandResult =
-                runCommand("test " + hotReloadObj + " -nt " +
-                    hotReloadSrc)
-            if not commandWasSuccessful(checkHotReloadResult) {
+            let hotReloadSig = runtimeObjectBuildSignature("seen_hotreload",
+                hotReloadSrc, clangMarch, picCompileFlag,
+                sanitizerClangFlags, pgoClangFlags, effectiveTarget, "")
+            if not runtimeObjectIsFresh(hotReloadObj, hotReloadSig) {
                 let hotReloadCmd = "clang -O3 -flto=thin " + clangMarch +
                     " -ffunction-sections -fdata-sections" +
                     picCompileFlag + " -c -I " + rtPrefix + " " +
@@ -10154,6 +10402,12 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                     println(hotReloadResult.output)
                     return 1
                 }
+                writeRuntimeObjectSignature(hotReloadObj, hotReloadSig)
+                buildTraceEmit("runtime object cache", "miss", 0,
+                    "seen_hotreload")
+            } else {
+                buildTraceEmit("runtime object cache", "hit", 0,
+                    "seen_hotreload")
             }
             let useHotReloadObj: CommandResult =
                 runCommand("test -f " + hotReloadObj)
@@ -10290,6 +10544,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         teeRuntimeLinkFlags + platformShimLinkFlags + tomlExtraLinkFlags +
         " 2>&1"
 
+    let linkStart = getTraceTimeSeconds()
     let linkResult: CommandResult = runCommand(linkCmd)
     if commandWasSuccessful(linkResult) {
         let outputCheck: CommandResult = runCommand("test -f " + outputFile)
@@ -10324,12 +10579,16 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             println("  Wrote compile_commands.json (" + objectFiles.length().toString() + " entries)")
         }
         println("Build succeeded -> " + outputFile)
+        buildTraceFinish("link", linkStart, "ok",
+            "objects=" + objectFiles.length().toString())
         publishLegacyModuleTempArtifacts(compileTempDir)
         return 0
     }
 
     println("Linking failed")
     println(linkResult.output)
+    buildTraceFinish("link", linkStart, "failed",
+        "objects=" + objectFiles.length().toString())
     return 1
 }
 
@@ -10771,6 +11030,8 @@ fun printUsage() r: Void {
     println("  --no-merged-release-lto")
     println("                           Disable full merged release LTO for lower memory")
     println("  --no-fork                Disable parallel IR/opt bootstrap steps (sequential)")
+    println("  --jobs <n>               Limit parallel module IR workers")
+    println("  --opt-jobs <n>           Limit parallel optimizer/object workers")
     println("  --projectprefix <n>      Large-project validation prefix hint")
     println("")
     println("PGO Workflow:")
@@ -11074,6 +11335,32 @@ fun main() r: Int {
                                                                                     g_objectManifestPath = extractFlagValue(argv[argIdx], 18)
                                                                                 } else if argv[argIdx] == "--no-fork" {
                                                                                     g_noFork = 1
+                                                                                } else if argv[argIdx] == "--jobs" {
+                                                                                    if argIdx + 1 < argv.length() {
+                                                                                        argIdx = argIdx + 1
+                                                                                        let jobsValue = argv[argIdx].toInt()
+                                                                                        if jobsValue > 0 {
+                                                                                            g_largeProjectWorkerLimit = jobsValue
+                                                                                        }
+                                                                                    }
+                                                                                } else if startsWith(argv[argIdx], "--jobs=") {
+                                                                                    let jobsValue2 = extractFlagValue(argv[argIdx], 7).toInt()
+                                                                                    if jobsValue2 > 0 {
+                                                                                        g_largeProjectWorkerLimit = jobsValue2
+                                                                                    }
+                                                                                } else if argv[argIdx] == "--opt-jobs" {
+                                                                                    if argIdx + 1 < argv.length() {
+                                                                                        argIdx = argIdx + 1
+                                                                                        let optJobsValue = argv[argIdx].toInt()
+                                                                                        if optJobsValue > 0 {
+                                                                                            g_largeProjectOptWorkerLimit = optJobsValue
+                                                                                        }
+                                                                                    }
+                                                                                } else if startsWith(argv[argIdx], "--opt-jobs=") {
+                                                                                    let optJobsValue2 = extractFlagValue(argv[argIdx], 11).toInt()
+                                                                                    if optJobsValue2 > 0 {
+                                                                                        g_largeProjectOptWorkerLimit = optJobsValue2
+                                                                                    }
                                                                                 } else if argv[argIdx] == "--projectprefix" {
                                                                                     if argIdx + 1 < argv.length() {
                                                                                         argIdx = argIdx + 1

@@ -177,16 +177,18 @@ fun emitVecMethodCoreImpl(output: StringBuilder, regBox: Array<Int>,
 
     // toArray
     if methodName == "toArray" {
-        let resultReg = getNextRegFn(regBox)
+        let rawReg = getNextRegFn(regBox)
         if hasStr {
-            output.append("  " + resultReg + " = call ptr @Vec_toArray_str(ptr " + vecPtrReg + ")\n")
+            output.append("  " + rawReg + " = call ptr @Vec_toArray_str(ptr " + vecPtrReg + ")\n")
         } else {
             if hasFloat {
-                output.append("  " + resultReg + " = call ptr @Vec_toArray_float(ptr " + vecPtrReg + ")\n")
+                output.append("  " + rawReg + " = call ptr @Vec_toArray_float(ptr " + vecPtrReg + ")\n")
             } else {
-                output.append("  " + resultReg + " = call ptr @Vec_toArray(ptr " + vecPtrReg + ")\n")
+                output.append("  " + rawReg + " = call ptr @Vec_toArray(ptr " + vecPtrReg + ")\n")
             }
         }
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = ptrtoint ptr " + rawReg + " to i64\n")
         return resultReg
     }
 

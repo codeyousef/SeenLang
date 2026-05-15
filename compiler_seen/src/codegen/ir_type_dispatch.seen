@@ -158,8 +158,10 @@ fun emitBTreeMapMethodImpl(output: StringBuilder, regBox: Array<Int>, methodName
 
     // keys
     if methodName == "keys" {
+        let rawReg = getNextRegFn(regBox)
+        output.append("  " + rawReg + " = call ptr @BTreeMap_keys" + suffix + "(ptr " + mapPtrReg + ")\n")
         let resultReg = getNextRegFn(regBox)
-        output.append("  " + resultReg + " = call ptr @BTreeMap_keys" + suffix + "(ptr " + mapPtrReg + ")\n")
+        output.append("  " + resultReg + " = ptrtoint ptr " + rawReg + " to i64\n")
         return resultReg
     }
 
@@ -190,8 +192,10 @@ fun emitBTreeMapMethodImpl(output: StringBuilder, regBox: Array<Int>, methodName
 
     // values
     if methodName == "values" {
+        let rawReg = getNextRegFn(regBox)
+        output.append("  " + rawReg + " = call ptr @BTreeMap_values" + suffix + "(ptr " + mapPtrReg + ")\n")
         let resultReg = getNextRegFn(regBox)
-        output.append("  " + resultReg + " = call ptr @BTreeMap_values" + suffix + "(ptr " + mapPtrReg + ")\n")
+        output.append("  " + resultReg + " = ptrtoint ptr " + rawReg + " to i64\n")
         return resultReg
     }
 
@@ -301,8 +305,10 @@ fun emitHashMapMethodImpl(output: StringBuilder, regBox: Array<Int>, methodName:
 
     // keys
     if methodName == "keys" {
+        let rawReg = getNextRegFn(regBox)
+        output.append("  " + rawReg + " = call ptr @HashMap_keys" + suffix + "(ptr " + mapPtrReg + ")\n")
         let resultReg = getNextRegFn(regBox)
-        output.append("  " + resultReg + " = call ptr @HashMap_keys" + suffix + "(ptr " + mapPtrReg + ")\n")
+        output.append("  " + resultReg + " = ptrtoint ptr " + rawReg + " to i64\n")
         return resultReg
     }
 
@@ -333,9 +339,165 @@ fun emitHashMapMethodImpl(output: StringBuilder, regBox: Array<Int>, methodName:
 
     // values
     if methodName == "values" {
+        let rawReg = getNextRegFn(regBox)
+        output.append("  " + rawReg + " = call ptr @HashMap_values" + suffix + "(ptr " + mapPtrReg + ")\n")
         let resultReg = getNextRegFn(regBox)
-        output.append("  " + resultReg + " = call ptr @HashMap_values" + suffix + "(ptr " + mapPtrReg + ")\n")
+        output.append("  " + resultReg + " = ptrtoint ptr " + rawReg + " to i64\n")
         return resultReg
+    }
+
+    return ""
+}
+
+///
+Emit LLVM IR for legacy Map<K,V> method calls using the same indexed
+runtime tables as HashMap<K,V>. Map keeps its source-level put/set Void API,
+but compiled lookup/update/remove paths should not fall back to linear arrays.
+///
+fun emitMapMethodImpl(output: StringBuilder, regBox: Array<Int>, methodName: String, mapPtrReg: String, arg0: String, arg1: String, hasStrKey: Bool, hasStrVal: Bool) r: String {
+    let suffix = mapSuffix4Way(hasStrKey, hasStrVal)
+
+    if methodName == "size" or methodName == "len" or methodName == "length" {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call i64 @HashMap_size" + suffix + "(ptr " + mapPtrReg + ")\n")
+        return resultReg
+    }
+
+    if methodName == "isEmpty" {
+        let sizeReg = getNextRegFn(regBox)
+        output.append("  " + sizeReg + " = call i64 @HashMap_size" + suffix + "(ptr " + mapPtrReg + ")\n")
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = icmp eq i64 " + sizeReg + ", 0\n")
+        return resultReg
+    }
+
+    if methodName == "put" or methodName == "set" {
+        let ignoredReg = getNextRegFn(regBox)
+        if hasStrKey {
+            if hasStrVal {
+                output.append("  " + ignoredReg + " = call i1 @HashMap_insert_str_str(ptr " + mapPtrReg + ", %SeenString " + arg0 + ", %SeenString " + arg1 + ")\n")
+            } else {
+                output.append("  " + ignoredReg + " = call i1 @HashMap_insert_str(ptr " + mapPtrReg + ", %SeenString " + arg0 + ", i64 " + arg1 + ")\n")
+            }
+        } else {
+            if hasStrVal {
+                output.append("  " + ignoredReg + " = call i1 @HashMap_insert_int_str(ptr " + mapPtrReg + ", i64 " + arg0 + ", %SeenString " + arg1 + ")\n")
+            } else {
+                output.append("  " + ignoredReg + " = call i1 @HashMap_insert(ptr " + mapPtrReg + ", i64 " + arg0 + ", i64 " + arg1 + ")\n")
+            }
+        }
+        return "0"
+    }
+
+    if methodName == "get" {
+        let resultReg = getNextRegFn(regBox)
+        if hasStrKey {
+            if hasStrVal {
+                output.append("  " + resultReg + " = call i64 @HashMap_get_str_str(ptr " + mapPtrReg + ", %SeenString " + arg0 + ")\n")
+            } else {
+                output.append("  " + resultReg + " = call i64 @HashMap_get_str(ptr " + mapPtrReg + ", %SeenString " + arg0 + ")\n")
+            }
+        } else {
+            if hasStrVal {
+                output.append("  " + resultReg + " = call i64 @HashMap_get_int_str(ptr " + mapPtrReg + ", i64 " + arg0 + ")\n")
+            } else {
+                output.append("  " + resultReg + " = call i64 @HashMap_get(ptr " + mapPtrReg + ", i64 " + arg0 + ")\n")
+            }
+        }
+        return resultReg
+    }
+
+    if methodName == "getOrDefault" {
+        let resultReg = getNextRegFn(regBox)
+        if hasStrKey {
+            if hasStrVal {
+                output.append("  " + resultReg + " = call %SeenString @HashMap_getOrDefault_str_str(ptr " + mapPtrReg + ", %SeenString " + arg0 + ", %SeenString " + arg1 + ")\n")
+            } else {
+                output.append("  " + resultReg + " = call i64 @HashMap_getOrDefault_str(ptr " + mapPtrReg + ", %SeenString " + arg0 + ", i64 " + arg1 + ")\n")
+            }
+        } else {
+            if hasStrVal {
+                output.append("  " + resultReg + " = call %SeenString @HashMap_getOrDefault_int_str(ptr " + mapPtrReg + ", i64 " + arg0 + ", %SeenString " + arg1 + ")\n")
+            } else {
+                output.append("  " + resultReg + " = call i64 @HashMap_getOrDefault(ptr " + mapPtrReg + ", i64 " + arg0 + ", i64 " + arg1 + ")\n")
+            }
+        }
+        return resultReg
+    }
+
+    if methodName == "containsKey" {
+        let resultReg = getNextRegFn(regBox)
+        if hasStrKey {
+            if hasStrVal {
+                output.append("  " + resultReg + " = call i1 @HashMap_containsKey_str_str(ptr " + mapPtrReg + ", %SeenString " + arg0 + ")\n")
+            } else {
+                output.append("  " + resultReg + " = call i1 @HashMap_containsKey_str(ptr " + mapPtrReg + ", %SeenString " + arg0 + ")\n")
+            }
+        } else {
+            if hasStrVal {
+                output.append("  " + resultReg + " = call i1 @HashMap_containsKey_int_str(ptr " + mapPtrReg + ", i64 " + arg0 + ")\n")
+            } else {
+                output.append("  " + resultReg + " = call i1 @HashMap_containsKey(ptr " + mapPtrReg + ", i64 " + arg0 + ")\n")
+            }
+        }
+        return resultReg
+    }
+
+    if methodName == "containsValue" {
+        let resultReg = getNextRegFn(regBox)
+        if hasStrKey {
+            if hasStrVal {
+                output.append("  " + resultReg + " = call i1 @HashMap_containsValue_str_str(ptr " + mapPtrReg + ", %SeenString " + arg0 + ")\n")
+            } else {
+                output.append("  " + resultReg + " = call i1 @HashMap_containsValue_str(ptr " + mapPtrReg + ", i64 " + arg0 + ")\n")
+            }
+        } else {
+            if hasStrVal {
+                output.append("  " + resultReg + " = call i1 @HashMap_containsValue_int_str(ptr " + mapPtrReg + ", %SeenString " + arg0 + ")\n")
+            } else {
+                output.append("  " + resultReg + " = call i1 @HashMap_containsValue(ptr " + mapPtrReg + ", i64 " + arg0 + ")\n")
+            }
+        }
+        return resultReg
+    }
+
+    if methodName == "keys" {
+        let rawReg = getNextRegFn(regBox)
+        output.append("  " + rawReg + " = call ptr @HashMap_keys" + suffix + "(ptr " + mapPtrReg + ")\n")
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = ptrtoint ptr " + rawReg + " to i64\n")
+        return resultReg
+    }
+
+    if methodName == "values" {
+        let rawReg = getNextRegFn(regBox)
+        output.append("  " + rawReg + " = call ptr @HashMap_values" + suffix + "(ptr " + mapPtrReg + ")\n")
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = ptrtoint ptr " + rawReg + " to i64\n")
+        return resultReg
+    }
+
+    if methodName == "remove" {
+        let resultReg = getNextRegFn(regBox)
+        if hasStrKey {
+            if hasStrVal {
+                output.append("  " + resultReg + " = call i64 @HashMap_remove_str_str(ptr " + mapPtrReg + ", %SeenString " + arg0 + ")\n")
+            } else {
+                output.append("  " + resultReg + " = call i64 @HashMap_remove_str(ptr " + mapPtrReg + ", %SeenString " + arg0 + ")\n")
+            }
+        } else {
+            if hasStrVal {
+                output.append("  " + resultReg + " = call i64 @HashMap_remove_int_str(ptr " + mapPtrReg + ", i64 " + arg0 + ")\n")
+            } else {
+                output.append("  " + resultReg + " = call i64 @HashMap_remove(ptr " + mapPtrReg + ", i64 " + arg0 + ")\n")
+            }
+        }
+        return resultReg
+    }
+
+    if methodName == "clear" {
+        output.append("  call void @HashMap_clear" + suffix + "(ptr " + mapPtrReg + ")\n")
+        return "0"
     }
 
     return ""

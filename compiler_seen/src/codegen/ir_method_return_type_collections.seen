@@ -1,5 +1,38 @@
 // Collection receiver method return type lookup helpers.
 
+fun collectionMapTypePartImpl(structName: String, prefixLen: Int,
+    wantValue: Bool) r: String {
+
+    if not(structName.endsWith(">")) {
+        return ""
+    }
+    var commaIdx = 0
+    var depth = 0
+    var i = prefixLen
+    while i < structName.length() - 1 {
+        let ch = structName.substring(i, i + 1)
+        if ch == "<" { depth = depth + 1 }
+        if ch == ">" { depth = depth - 1 }
+        if ch == "," and depth == 0 {
+            commaIdx = i
+            i = structName.length()
+        }
+        i = i + 1
+    }
+    if commaIdx <= 0 {
+        return ""
+    }
+    if wantValue {
+        var valueType = structName.substring(commaIdx + 1,
+            structName.length() - 1)
+        if valueType.startsWith(" ") {
+            valueType = valueType.substring(1, valueType.length())
+        }
+        return valueType
+    }
+    return structName.substring(prefixLen, commaIdx)
+}
+
 fun getCollectionMethodReturnTypeImpl(structName: String,
     methodName: String) r: String {
 
@@ -141,6 +174,49 @@ fun getCollectionMethodReturnTypeImpl(structName: String,
                     }
                     return "Vec<" + valueType + ">"
                 }
+            }
+            return "Vec"
+        }
+    }
+
+    if structName == "Map" or structName.startsWith("Map<") {
+        if methodName == "size" or methodName == "len" or
+            methodName == "length" {
+            return "Int"
+        }
+        if methodName == "isEmpty" or methodName == "containsKey" or
+            methodName == "containsValue" {
+            return "Bool"
+        }
+        if methodName == "put" or methodName == "set" or
+            methodName == "clear" {
+            return "Void"
+        }
+        if methodName == "get" or methodName == "remove" {
+            if structName.startsWith("Map<") {
+                let valueType = collectionMapTypePartImpl(structName, 4, true)
+                if valueType != "" { return "Option<" + valueType + ">" }
+            }
+            return "Option"
+        }
+        if methodName == "getOrDefault" {
+            if structName.startsWith("Map<") {
+                let valueType = collectionMapTypePartImpl(structName, 4, true)
+                if valueType != "" { return valueType }
+            }
+            return "Int"
+        }
+        if methodName == "keys" {
+            if structName.startsWith("Map<") {
+                let keyType = collectionMapTypePartImpl(structName, 4, false)
+                if keyType != "" { return "Vec<" + keyType + ">" }
+            }
+            return "Vec"
+        }
+        if methodName == "values" {
+            if structName.startsWith("Map<") {
+                let valueType = collectionMapTypePartImpl(structName, 4, true)
+                if valueType != "" { return "Vec<" + valueType + ">" }
             }
             return "Vec"
         }

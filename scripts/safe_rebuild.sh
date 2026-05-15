@@ -27,6 +27,69 @@ MEMORY_GUARD_SCRIPT="$SCRIPT_DIR/memory_guard.sh"
 FORK_SERIALIZER_SOURCE="$SCRIPT_DIR/fork_serializer.c"
 FORK_SERIALIZER_SO=""
 BOOTSTRAP_SOURCE_ROOT=""
+BUILD_TRACE_COMMON="$SCRIPT_DIR/build_trace_common.sh"
+REBUILD_TIER="full"
+CLEAN_CACHE=0
+
+if [ -f "$BUILD_TRACE_COMMON" ]; then
+    # shellcheck source=scripts/build_trace_common.sh
+    source "$BUILD_TRACE_COMMON"
+    seen_build_trace_init "safe_rebuild"
+fi
+
+safe_rebuild_usage() {
+    echo "Usage: $0 [--tier quick|verify|full] [--clean-cache] [--help]"
+    echo ""
+    echo "Tiers:"
+    echo "  quick   Cache-enabled developer rebuild to compiler_seen/target/seen-dev; smoke only."
+    echo "  verify  Cache-enabled production rebuild; targeted checks; install after verification."
+    echo "  full    Cold staged bootstrap verification. This is the default for compatibility."
+}
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --tier)
+            if [ "$#" -lt 2 ]; then
+                echo -e "${RED:-}ERROR: --tier requires quick, verify, or full.${NC:-}" >&2
+                exit 1
+            fi
+            REBUILD_TIER="$2"
+            shift 2
+            ;;
+        --tier=*)
+            REBUILD_TIER="${1#--tier=}"
+            shift
+            ;;
+        --clean-cache)
+            CLEAN_CACHE=1
+            shift
+            ;;
+        -h|--help)
+            safe_rebuild_usage
+            exit 0
+            ;;
+        *)
+            echo -e "${RED:-}ERROR: unknown safe rebuild option: $1${NC:-}" >&2
+            safe_rebuild_usage >&2
+            exit 1
+            ;;
+    esac
+done
+
+case "$REBUILD_TIER" in
+    quick|verify|full) ;;
+    *)
+        echo -e "${RED:-}ERROR: --tier must be quick, verify, or full.${NC:-}" >&2
+        exit 1
+        ;;
+esac
+
+safe_rebuild_cleanup() {
+    cleanup_bootstrap_source_overlay
+    if declare -F seen_build_trace_summary >/dev/null 2>&1; then
+        seen_build_trace_summary
+    fi
+}
 
 # --- Progress monitoring helpers ---
 
@@ -158,6 +221,10 @@ run_guarded_command_to_log() {
     shift 4
 
     local guard_log="${log_file%.log}.guard.log"
+    local trace_start=""
+    if declare -F seen_build_trace_step_start >/dev/null 2>&1; then
+        trace_start=$(seen_build_trace_step_start "$label")
+    fi
     : > "$log_file"
     : > "$guard_log"
 
@@ -177,6 +244,13 @@ run_guarded_command_to_log() {
         } >> "$log_file" 2>/dev/null || true
     fi
 
+    if declare -F seen_build_trace_step_end >/dev/null 2>&1; then
+        if [ "$status" -eq 0 ]; then
+            seen_build_trace_step_end "$label" "$trace_start" "ok" "log=$log_file"
+        else
+            seen_build_trace_step_end "$label" "$trace_start" "failed:$status" "log=$log_file"
+        fi
+    fi
     return "$status"
 }
 
@@ -561,7 +635,7 @@ cleanup_bootstrap_source_overlay() {
     fi
 }
 
-trap cleanup_bootstrap_source_overlay EXIT
+trap safe_rebuild_cleanup EXIT
 
 extract_expected_module_count() {
     local log_file=$1
@@ -814,7 +888,7 @@ derive_main_compiler_vmem_kb() {
         fi
     fi
 
-    local max_main_kb=$((8 * 1024 * 1024))
+    local max_main_kb=$((10 * 1024 * 1024))
     if [ "$cap_kb" -gt "$max_main_kb" ]; then
         cap_kb=$max_main_kb
     fi
@@ -920,8 +994,55 @@ guard_low_memory_concurrency() {
     fi
 }
 
+configure_adaptive_rebuild_workers() {
+    local jobs opt_jobs
+
+    if [ -n "${SEEN_JOBS:-}" ] && ! is_positive_integer "$SEEN_JOBS"; then
+        echo -e "${RED}ERROR: SEEN_JOBS must be a positive integer.${NC}" >&2
+        exit 1
+    fi
+    if [ -n "${SEEN_OPT_JOBS:-}" ] && ! is_positive_integer "$SEEN_OPT_JOBS"; then
+        echo -e "${RED}ERROR: SEEN_OPT_JOBS must be a positive integer.${NC}" >&2
+        exit 1
+    fi
+
+    if declare -F seen_build_derive_jobs >/dev/null 2>&1; then
+        read -r jobs opt_jobs < <(seen_build_derive_jobs "$MAIN_COMPILER_VMEM_KB" "$OPT_VMEM_KB")
+    else
+        jobs=2
+        opt_jobs=1
+    fi
+
+    if [ -z "${SEEN_JOBS:-}" ]; then
+        export SEEN_JOBS="$jobs"
+    fi
+    if [ -z "${SEEN_OPT_JOBS:-}" ]; then
+        export SEEN_OPT_JOBS="$opt_jobs"
+    fi
+
+    if declare -F seen_build_trace_event >/dev/null 2>&1; then
+        seen_build_trace_event "worker budget" "ok" "SEEN_JOBS=$SEEN_JOBS SEEN_OPT_JOBS=$SEEN_OPT_JOBS"
+    fi
+}
+
+clean_rebuild_caches() {
+    local reason="${1:-requested}"
+    local trace_start=""
+    if declare -F seen_build_trace_step_start >/dev/null 2>&1; then
+        trace_start=$(seen_build_trace_step_start "cache cleanup")
+    fi
+    rm -rf .seen_cache/ /tmp/seen_ir_cache/ /tmp/seen_thinlto_cache/ /tmp/seen_testmain_obj_cache/
+    if declare -F seen_build_trace_step_end >/dev/null 2>&1; then
+        seen_build_trace_step_end "cache cleanup" "$trace_start" "ok" "$reason"
+    fi
+}
+
 echo "=== Safe Rebuild Script ==="
 echo ""
+echo "Tier: $REBUILD_TIER"
+if [ "$CLEAN_CACHE" = "1" ]; then
+    echo "Cache cleanup: requested"
+fi
 
 # Detect host platform
 HOST_OS=$(uname -s)
@@ -1039,9 +1160,15 @@ if [ "${SEEN_LOW_MEMORY:-0}" = "1" ]; then
     export SEEN_MEMORY_LIMIT_BYTES="$MAIN_COMPILER_MEMORY_LIMIT_BYTES"
     export SEEN_RECOVERY_TIMEOUT_SECS="$RECOVERY_TIMEOUT_SECS"
     guard_low_memory_concurrency
-    echo -e "${YELLOW}Low-memory mode enabled: serial bootstrap stages.${NC}"
+    if [ "$REBUILD_TIER" = "full" ]; then
+        echo -e "${YELLOW}Low-memory mode enabled: serial full-bootstrap stages.${NC}"
+    else
+        echo -e "${YELLOW}Low-memory mode enabled: adaptive bounded worker tiers.${NC}"
+    fi
     echo -e "${YELLOW}Detected system memory: $(format_bytes $((SYSTEM_MEMORY_KB * 1024))). Main compiler cap: $(format_bytes $((MAIN_COMPILER_VMEM_KB * 1024))). tracked allocation budget: $(format_bytes "$MAIN_COMPILER_MEMORY_LIMIT_BYTES"). opt cap: $(format_bytes $((OPT_VMEM_KB * 1024))).${NC}"
 fi
+
+configure_adaptive_rebuild_workers
 
 if memory_guard_enabled; then
     echo -e "${YELLOW}Memory guard enabled: tree RSS cap $(format_bytes $((MEMORY_GUARD_RSS_KB * 1024))); cgroup stop $(format_bytes $((MEMORY_GUARD_CGROUP_STOP_KB * 1024))); reserve $(format_bytes $((MEMORY_GUARD_RESERVE_KB * 1024))); tasks max ${MEMORY_GUARD_TASKS_MAX:-unlimited}.${NC}"
@@ -1118,7 +1245,6 @@ verify_hash() {
 }
 
 cleanup_smoke_build_state() {
-    rm -rf .seen_cache/ /tmp/seen_ir_cache/ /tmp/seen_thinlto_cache/
     rm -f /tmp/seen_module_*.ll /tmp/seen_module_*.o /tmp/seen_module_*.opt.ll
     rm -f /tmp/seen_module_*.polly.ll /tmp/seen_module_*.opt.status /tmp/seen_module_*.opt.log
     rm -f /tmp/seen_module_*.relink.o /tmp/safe_rebuild_smoke_bin
@@ -1245,6 +1371,216 @@ smoke_test_compiler() {
     echo -e "${GREEN}${stage_label} passed hello-world smoke test.${NC}"
     cleanup_smoke_build_state
     return 0
+}
+
+tier_source_root_for_builder() {
+    local builder_path=$1
+    local builder_name
+    builder_name=$(basename "$builder_path")
+    case "$builder_name" in
+        seen_frozen*|stage1_frozen*)
+            printf '%s\n' "$BOOTSTRAP_SOURCE_ROOT"
+            ;;
+        *)
+            printf '%s\n' "$REPO_ROOT"
+            ;;
+    esac
+}
+
+tier_builder_path_for_source_root() {
+    local builder_path=$1
+    local source_root=$2
+    case "$builder_path" in
+        "$REPO_ROOT"/*)
+            if [ "$source_root" = "$BOOTSTRAP_SOURCE_ROOT" ]; then
+                printf '%s\n' "$BOOTSTRAP_SOURCE_ROOT/${builder_path#$REPO_ROOT/}"
+                return 0
+            fi
+            ;;
+    esac
+    printf '%s\n' "$builder_path"
+}
+
+tier_builder_candidates() {
+    if [ -n "${SEEN_STAGE_BUILDER:-}" ]; then
+        printf '%s\n' "$SEEN_STAGE_BUILDER"
+    fi
+    printf '%s\n' \
+        "$REPO_ROOT/compiler_seen/target/seen-dev" \
+        "$REPO_ROOT/stage2_head" \
+        "$REPO_ROOT/stage3_recovery_head" \
+        "$REPO_ROOT/stage3_head" \
+        "$REPO_ROOT/compiler_seen/target/seen" \
+        "$REPO_ROOT/target/release/seen" \
+        "$REPO_ROOT/bootstrap/stage1_frozen_v3" \
+        "$REPO_ROOT/bootstrap/stage1_frozen"
+}
+
+tier_builder_supports_jobs() {
+    local builder_path=$1
+    "$builder_path" --help 2>/dev/null | grep -q -- '--jobs'
+}
+
+tier_legacy_builder_requires_guarded_fork() {
+    case "$(basename "$1")" in
+        stage2_head)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+run_tier_prebuild_gates_if_needed() {
+    if [ "$REBUILD_TIER" != "verify" ]; then
+        return 0
+    fi
+    if [ "${SEEN_SKIP_PREBUILD_GATES:-0}" = "1" ]; then
+        echo -e "${YELLOW}Prebuild gates skipped by SEEN_SKIP_PREBUILD_GATES=1.${NC}"
+        return 0
+    fi
+
+    echo "Running verify-tier prebuild gates..."
+    if run_guarded_command_to_log_with_failure_watch "prebuild gates" 900 "$MAIN_COMPILER_VMEM_KB" \
+        /tmp/safe_rebuild_verify_prebuild_gates.log \
+        bash "$SCRIPT_DIR/seen_prebuild_gates.sh"; then
+        return 0
+    fi
+    echo -e "${RED}ERROR: verify-tier prebuild gates failed.${NC}"
+    tail_log_if_exists /tmp/safe_rebuild_verify_prebuild_gates.log 30
+    return 1
+}
+
+run_tier_targeted_checks() {
+    local compiler_path=$1
+
+    if [ "$REBUILD_TIER" != "verify" ]; then
+        return 0
+    fi
+
+    if [ -f "$REPO_ROOT/compiler_seen/tests/dead_code_warnings.seen" ]; then
+        if ! run_guarded_command_to_log_with_failure_watch "verify dead-code test check" 300 "$MAIN_COMPILER_VMEM_KB" \
+            /tmp/safe_rebuild_verify_dead_code.log \
+            "$compiler_path" check "$REPO_ROOT/compiler_seen/tests/dead_code_warnings.seen"; then
+            echo -e "${RED}ERROR: verify-tier dead-code test check failed.${NC}"
+            tail_log_if_exists /tmp/safe_rebuild_verify_dead_code.log 30
+            return 1
+        fi
+    fi
+
+    return 0
+}
+
+install_tier_verified_compiler() {
+    local compiler_path=$1
+
+    echo ""
+    echo "Installing verified compiler..."
+    mkdir -p "$REPO_ROOT/compiler_seen/target" "$REPO_ROOT/target/release"
+    rm -f "$REPO_ROOT/compiler_seen/target/seen" 2>/dev/null || true
+    cp "$compiler_path" "$REPO_ROOT/compiler_seen/target/seen"
+    chmod +x "$REPO_ROOT/compiler_seen/target/seen"
+    cp "$REPO_ROOT/compiler_seen/target/seen" "$REPO_ROOT/target/release/seen"
+    chmod +x "$REPO_ROOT/target/release/seen"
+}
+
+run_tiered_rebuild() {
+    local output_path final_output_path label compile_log candidate source_root builder_for_root
+    local compile_status compile_flags
+
+    label="$REBUILD_TIER"
+    if [ "$REBUILD_TIER" = "quick" ]; then
+        output_path="/tmp/seen_quick_rebuild"
+        final_output_path="$REPO_ROOT/compiler_seen/target/seen-dev"
+        compile_log="/tmp/safe_rebuild_quick.log"
+    else
+        output_path="/tmp/seen_verify_rebuild"
+        final_output_path="$output_path"
+        compile_log="/tmp/safe_rebuild_verify.log"
+    fi
+
+    if [ "$CLEAN_CACHE" = "1" ]; then
+        clean_rebuild_caches "$REBUILD_TIER --clean-cache"
+    fi
+    run_tier_prebuild_gates_if_needed || return 1
+
+    echo ""
+    echo "Tiered rebuild: $REBUILD_TIER"
+    echo "  SEEN_JOBS=$SEEN_JOBS SEEN_OPT_JOBS=$SEEN_OPT_JOBS"
+    echo "  Output: $final_output_path"
+
+    rm -f "$output_path"
+    mkdir -p "$(dirname "$output_path")" "$(dirname "$final_output_path")"
+
+    while IFS= read -r candidate; do
+        [ -n "$candidate" ] || continue
+        [ -x "$candidate" ] || continue
+        source_root=$(tier_source_root_for_builder "$candidate")
+        builder_for_root=$(tier_builder_path_for_source_root "$candidate" "$source_root")
+        [ -x "$builder_for_root" ] || continue
+
+        echo "  Trying builder: $candidate"
+        compile_status=0
+        compile_flags=(--fast)
+        if [ -n "${RELEASE_TARGET_CPU_FLAG:-}" ]; then
+            compile_flags+=("$RELEASE_TARGET_CPU_FLAG")
+        fi
+        if [ "${SEEN_FORCE_SERIAL_REBUILD:-0}" = "1" ]; then
+            compile_flags+=(--no-fork)
+        elif [ "$LOW_MEMORY_MODE" = "1" ] && ! tier_builder_supports_jobs "$builder_for_root" &&
+            ! tier_legacy_builder_requires_guarded_fork "$candidate"; then
+            echo "    Builder lacks worker-budget flags; using --no-fork under low-memory cap."
+            compile_flags+=(--no-fork)
+        elif [ "$LOW_MEMORY_MODE" = "1" ] && ! tier_builder_supports_jobs "$builder_for_root"; then
+            echo "    Legacy stage builder requires forked codegen; memory guard remains active."
+        fi
+
+        run_guarded_command_to_log_with_failure_watch "$label compile" 0 "$MAIN_COMPILER_VMEM_KB" "$compile_log" \
+            bash -c 'cd "$1" || exit 1; shift; exec "$@"' bash "$source_root" \
+            env \
+                SEEN_COMPILER_SOURCE_ROOT="$source_root" \
+                SEEN_LOW_MEMORY="${SEEN_LOW_MEMORY:-0}" \
+                SEEN_MAIN_VMEM_KB="$MAIN_COMPILER_VMEM_KB" \
+                SEEN_OPT_VMEM_KB="$OPT_VMEM_KB" \
+                SEEN_MEMORY_LIMIT_BYTES="${SEEN_MEMORY_LIMIT_BYTES:-}" \
+                SEEN_JOBS="$SEEN_JOBS" \
+                SEEN_OPT_JOBS="$SEEN_OPT_JOBS" \
+                "$builder_for_root" compile "$COMPILER_SOURCE" "$output_path" \
+                "${compile_flags[@]}" || compile_status=$?
+
+        if [ "$compile_status" -ne 0 ]; then
+            echo -e "${YELLOW}  Builder failed for $REBUILD_TIER tier (exit=$compile_status); trying next candidate.${NC}"
+            tail_log_if_exists "$compile_log" 10
+            rm -f "$output_path"
+            if [ "${SEEN_STAGE_BUILDER_ONLY:-0}" = "1" ] && [ -n "${SEEN_STAGE_BUILDER:-}" ] && [ "$candidate" = "$SEEN_STAGE_BUILDER" ]; then
+                return "$compile_status"
+            fi
+            continue
+        fi
+
+        if smoke_test_compiler "$output_path" "$REBUILD_TIER compiler" "$REBUILD_TIER"; then
+            run_tier_targeted_checks "$output_path" || return 1
+            if [ "$REBUILD_TIER" = "verify" ]; then
+                install_tier_verified_compiler "$output_path"
+            else
+                cp "$output_path" "$final_output_path"
+                chmod +x "$final_output_path"
+            fi
+            echo -e "${GREEN}${REBUILD_TIER} rebuild complete.${NC}"
+            if [ "$REBUILD_TIER" = "quick" ]; then
+                echo "Developer compiler: compiler_seen/target/seen-dev"
+            else
+                echo "Production compiler updated: compiler_seen/target/seen"
+                echo "Also installed to: target/release/seen"
+            fi
+            return 0
+        fi
+
+        echo -e "${YELLOW}  Built compiler failed smoke; trying next builder.${NC}"
+        rm -f "$output_path"
+    done < <(tier_builder_candidates)
+
+    echo -e "${RED}ERROR: no trusted stage builder completed the $REBUILD_TIER rebuild.${NC}"
+    return 1
 }
 
 recover_with_preserved_production_compiler() {
@@ -1595,9 +1931,22 @@ else
     FROZEN_ABS="$REPO_ROOT/$FROZEN"
 fi
 
+if [ "$REBUILD_TIER" != "full" ]; then
+    run_tiered_rebuild
+    exit $?
+fi
+
+clean_rebuild_caches "full tier cold verification"
+
 if [ "${SEEN_SKIP_PREBUILD_GATES:-0}" != "1" ]; then
     echo "Running prebuild gates..."
-    bash "$SCRIPT_DIR/seen_prebuild_gates.sh"
+    if ! run_guarded_command_to_log_with_failure_watch "prebuild gates" 900 "$MAIN_COMPILER_VMEM_KB" \
+        /tmp/safe_rebuild_prebuild_gates.log \
+        bash "$SCRIPT_DIR/seen_prebuild_gates.sh"; then
+        echo -e "${RED}ERROR: prebuild gates failed.${NC}"
+        tail_log_if_exists /tmp/safe_rebuild_prebuild_gates.log 30
+        exit 1
+    fi
 else
     echo -e "${YELLOW}Prebuild gates skipped by SEEN_SKIP_PREBUILD_GATES=1.${NC}"
 fi
@@ -1610,7 +1959,6 @@ sleep 1
 
 # Clean up any previous test files and cache
 rm -f "$STAGE2" "$STAGE3"
-rm -rf .seen_cache/ /tmp/seen_ir_cache/
 
 # --- Opt wrapper setup (platform-specific) ---
 
@@ -2748,6 +3096,9 @@ rm -f stage3_recovery_head 2>/dev/null || true
 mkdir -p target/release
 cp compiler_seen/target/seen target/release/seen
 chmod +x target/release/seen
+if declare -F seen_build_write_full_release_stamp >/dev/null 2>&1; then
+    seen_build_write_full_release_stamp "$REPO_ROOT" "$REPO_ROOT/compiler_seen/target/seen"
+fi
 
 # Clean up
 rm -f "$STAGE2" "$STAGE3" "$STAGE3_RECOVERY" "$PRESERVED_PROD_BUILDER"

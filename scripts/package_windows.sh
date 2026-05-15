@@ -11,6 +11,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 WIN_DIR="${PROJECT_DIR}/target-windows"
 VERSION="${1:-1.0.0}"
+BUILD_TRACE_COMMON="$SCRIPT_DIR/build_trace_common.sh"
+if [ -f "$BUILD_TRACE_COMMON" ]; then
+    # shellcheck source=scripts/build_trace_common.sh
+    source "$BUILD_TRACE_COMMON"
+    seen_build_trace_init "package_windows"
+    trap 'seen_build_trace_summary' EXIT
+fi
 
 PACKAGE_DIR="${WIN_DIR}/seen-${VERSION}-windows-x64"
 
@@ -21,6 +28,78 @@ prune_packaged_stdlib_artifacts() {
     find "$stdlib_dir" -type f -name '*.tmp.*' -exec rm -f {} +
     find "$stdlib_dir" -type d \( -name build -o -name target -o -name .seen \) \
         -prune -exec rm -rf {} +
+}
+
+windows_payload_hash() {
+    if declare -F seen_build_hash_paths >/dev/null 2>&1; then
+        seen_build_hash_paths \
+            "$PROJECT_DIR/seen_std/src" \
+            "$PROJECT_DIR/seen_runtime" \
+            "$PROJECT_DIR/languages" \
+            "$PROJECT_DIR/docs" \
+            "$PROJECT_DIR/installer/windows/install-llvm.ps1" \
+            "${SEEN_WINDOWS_LLVM_BUNDLE_DIR:-}" \
+            "${SEEN_WINDOWS_LLVM_INSTALLER:-}"
+    else
+        find "$PROJECT_DIR/seen_std/src" "$PROJECT_DIR/seen_runtime" "$PROJECT_DIR/languages" "$PROJECT_DIR/docs" \
+            -type f -print0 2>/dev/null | sort -z | xargs -0 sha256sum 2>/dev/null | sha256sum | awk '{print $1}'
+    fi
+}
+
+windows_toolchain_manifest_hash() {
+    if declare -F seen_build_hash_paths >/dev/null 2>&1; then
+        seen_build_hash_paths \
+            "$PROJECT_DIR/installer/windows/install-llvm.ps1" \
+            "${SEEN_WINDOWS_LLVM_BUNDLE_DIR:-}" \
+            "${SEEN_WINDOWS_LLVM_INSTALLER:-}"
+    else
+        printf '%s|%s|%s\n' \
+            "${SEEN_WINDOWS_LLVM_BUNDLE_DIR:-}" \
+            "${SEEN_WINDOWS_LLVM_INSTALLER:-}" \
+            "$(sha256sum "$PROJECT_DIR/installer/windows/install-llvm.ps1" 2>/dev/null | awk '{print $1}')" |
+            sha256sum | awk '{print $1}'
+    fi
+}
+
+manifest_value() {
+    local key="$1"
+    local file="$2"
+    awk -F= -v key="$key" '$1 == key {print $2; exit}' "$file"
+}
+
+validate_windows_binary_manifest() {
+    local exe="$WIN_DIR/seen.exe"
+    local manifest="$WIN_DIR/seen.exe.manifest.env"
+    local exe_hash payload_hash toolchain_hash
+
+    exe_hash=$(sha256sum "$exe" | awk '{print $1}')
+    payload_hash=$(windows_payload_hash)
+    toolchain_hash=$(windows_toolchain_manifest_hash)
+
+    if [ ! -f "$manifest" ]; then
+        echo "ERROR: $exe has no reuse manifest: $manifest"
+        echo "Rebuild the Windows compiler path so version, binary hash, runtime payload hash, and toolchain manifest can be verified."
+        exit 1
+    fi
+    if [ "$(manifest_value version "$manifest")" != "$VERSION" ]; then
+        echo "ERROR: Windows binary manifest version does not match package version $VERSION."
+        exit 1
+    fi
+    if [ "$(manifest_value binary_sha256 "$manifest")" != "$exe_hash" ]; then
+        echo "ERROR: Windows binary manifest hash is stale for target-windows/seen.exe."
+        exit 1
+    fi
+    if [ "$(manifest_value payload_sha256 "$manifest")" != "$payload_hash" ]; then
+        echo "ERROR: Windows binary manifest payload hash is stale."
+        exit 1
+    fi
+    if [ "$(manifest_value toolchain_sha256 "$manifest")" != "$toolchain_hash" ]; then
+        echo "ERROR: Windows binary manifest toolchain hash is stale."
+        exit 1
+    fi
+    if declare -F seen_build_trace_event >/dev/null 2>&1; then
+        seen_build_trace_event "windows binary manifest" "ok" "$manifest"
+    fi
 }
 
 echo "=== Packaging Seen $VERSION for Windows ==="
@@ -41,6 +120,7 @@ if [ ! -f "$WIN_DIR/seen.exe" ]; then
     echo "Run scripts/build_windows.sh first."
     exit 1
 fi
+validate_windows_binary_manifest
 cp "$WIN_DIR/seen.exe" "$PACKAGE_DIR/bin/"
 echo "  bin/seen.exe"
 

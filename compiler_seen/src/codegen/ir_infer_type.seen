@@ -549,7 +549,10 @@ fun inferCallExprTypeImpl(callee: String) r: String {
     if callee.startsWith("SmallVec<") or callee.startsWith("SmallVec[") or callee == "SmallVec" {
         return callee
     }
-    // Check for HashMap/BTreeMap/LinkedList constructors - preserve generic parameters
+    // Check for Map/HashMap/BTreeMap/LinkedList constructors - preserve generic parameters
+    if callee.startsWith("Map<") {
+        return callee
+    }
     if callee.startsWith("HashMap<") {
         return callee
     }

@@ -28,6 +28,9 @@ fun isCollectionReceiverTypeImpl(receiverType: String) r: Bool {
     if receiverType == "BTreeMap" or receiverType.startsWith("BTreeMap<") {
         return true
     }
+    if receiverType == "Map" or receiverType.startsWith("Map<") {
+        return true
+    }
     if receiverType == "HashMap" or receiverType.startsWith("HashMap<") {
         return true
     }

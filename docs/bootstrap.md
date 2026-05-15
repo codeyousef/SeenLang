@@ -26,13 +26,21 @@ new stages verify correctly.
 
 ## Safe Rebuild
 
+`scripts/safe_rebuild.sh` has three tiers:
+
+| Tier | Purpose | Output |
+|------|---------|--------|
+| `--tier quick` | Cache-enabled developer rebuild with smoke checks only. | `compiler_seen/target/seen-dev` |
+| `--tier verify` | Cache-enabled production rebuild with prebuild gates, smoke checks, and targeted compiler checks before install. | `compiler_seen/target/seen` and `target/release/seen` |
+| `--tier full` | Cold staged bootstrap verification with the existing Stage 1/2/3 and recovery semantics. This is still the no-argument default. | `compiler_seen/target/seen`, `target/release/seen`, and a full-release stamp |
+
 Do not run a compiler rebuild without explicit memory limits. A typical guarded
 run derives a main cap from current memory and keeps optimizer work capped:
 
 ```bash
 AVAIL_KB=$(awk '/MemAvailable/ {print $2}' /proc/meminfo)
 MAIN_KB=$(( AVAIL_KB * 70 / 100 ))
-if [ "$MAIN_KB" -gt 8388608 ]; then MAIN_KB=8388608; fi
+if [ "$MAIN_KB" -gt 10485760 ]; then MAIN_KB=10485760; fi
 ulimit -v "$MAIN_KB"
 SEEN_LOW_MEMORY=1 \
 SEEN_SKIP_LOW_MEMORY_SHORTCUT=1 \
@@ -44,6 +52,41 @@ SEEN_MEMORY_LIMIT_BYTES="$(( MAIN_KB * 1024 ))" \
 
 The script runs prebuild gates before expensive compiler work unless explicitly
 disabled with `SEEN_SKIP_PREBUILD_GATES=1`.
+
+For iterative work, use the same derived caps with a quicker tier:
+
+```bash
+SEEN_LOW_MEMORY=1 \
+SEEN_MAIN_VMEM_KB="$MAIN_KB" \
+SEEN_OPT_VMEM_KB=2097152 \
+SEEN_MEMORY_LIMIT_BYTES="$(( MAIN_KB * 1024 ))" \
+./scripts/safe_rebuild.sh --tier quick
+```
+
+`--clean-cache` explicitly removes `.seen_cache/`, `/tmp/seen_ir_cache`,
+`/tmp/seen_thinlto_cache`, and generated-test object caches. Quick and verify
+tiers do not clear useful caches during normal rebuilds.
+
+## Build Telemetry
+
+Set `SEEN_TRACE_BUILD=<path>` to write JSONL build events. `SEEN_BUILD_TRACE`
+is accepted as a compatibility alias.
+
+```bash
+SEEN_TRACE_BUILD=/tmp/seen-build.jsonl ./scripts/safe_rebuild.sh --tier quick
+```
+
+The scripts also print a concise timing summary. Use
+`scripts/build_perf_gate.sh --record-baseline` and
+`scripts/build_perf_gate.sh --compare` to record and compare capped rebuild
+baselines.
+
+## Worker Budgets
+
+The rebuild script derives `SEEN_JOBS` and `SEEN_OPT_JOBS` from CPU count and
+the memory caps when the variables are not supplied. The compiler also accepts
+`--jobs <n>` and `--opt-jobs <n>`. `--no-fork` remains the explicit serial
+escape hatch.
 
 ## Prebuild Gates
 
