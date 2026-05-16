@@ -121,13 +121,16 @@ The compiler uses source-level and IR-level caches:
 - `.seen_cache/`
 - `/tmp/seen_ir_cache`
 - `/tmp/seen_thinlto_cache`
+- `target/seen-build/runtime-objects/`
+- `target/seen-build/release-lto/`
 
 Cache-v4 keys use stable module identities rather than temporary bootstrap
-overlay paths. Source/object reuse is scoped by the compiler ABI signature,
-project declaration hash, module body hash, LLVM tool versions, target/profile
-settings, LTO/PIC/sanitizer/PGO flags, and runtime payload signatures. Body-only
-edits should miss the changed module's object key without flushing otherwise
-valid neighboring cache entries.
+overlay paths. Source/object reuse is scoped by the compiler binary hash,
+compiler ABI signature, project declaration hash, module body hash, LLVM tool
+versions, target/profile settings, LTO/PIC/sanitizer/PGO flags, and runtime
+payload signatures. Body-only edits should miss the changed module's object key
+without flushing otherwise valid neighboring cache entries, while compiler
+codegen/layout changes reject stale objects automatically.
 
 Normal multi-module compiler builds use bounded worker pools for IR generation
 and optimizer work. Guarded scripts derive `SEEN_JOBS` and `SEEN_OPT_JOBS` from
@@ -139,12 +142,19 @@ Seen diagnostics instead of depending on host OOM behavior.
 
 Release builds keep the full merged-IR LTO path by default for performance.
 Memory-constrained callers can pass `--no-merged-release-lto` to stay on the
-bounded per-module ThinLTO path.
+bounded per-module ThinLTO path. Warm release builds can reuse a
+signature-keyed merged-LTO object while preserving the default merged-LTO mode.
+
+`seen compile --emit-module-ir-dir <dir> --stop-after-ir` writes raw per-module
+LLVM IR into a caller-owned directory and exits before object emission/linking.
+Packaging and cross-build scripts use this instead of scraping global `/tmp`
+module artifacts.
 
 `SEEN_TRACE_BUILD=<path>` writes JSONL build events
 from rebuild scripts and compiler phases such as module discovery, declaration
 scan, cache hashing, IR/object emission, runtime object reuse, release merge,
-and link. `SEEN_BUILD_TRACE=<path>` remains a compatibility alias.
+release-LTO mode, and link. `SEEN_BUILD_TRACE=<path>` remains a compatibility
+alias. Compiler trace events use millisecond timestamps and escaped JSON fields.
 
 ## Key Source Areas
 

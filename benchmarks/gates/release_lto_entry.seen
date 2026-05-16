@@ -1,0 +1,19 @@
+import math.math.{sqrt}
+
+fun releaseLtoWork(n: Int) r: Float {
+    var i = 1
+    var total = 0.0
+    while i <= n {
+        total = total + sqrt(i.toFloat())
+        i = i + 1
+    }
+    return total
+}
+
+fun main() r: Int {
+    let value = releaseLtoWork(128)
+    if value <= 0.0 {
+        return 1
+    }
+    return 0
+}

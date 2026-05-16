@@ -76,10 +76,26 @@ is accepted as a compatibility alias.
 SEEN_TRACE_BUILD=/tmp/seen-build.jsonl ./scripts/safe_rebuild.sh --tier quick
 ```
 
-The scripts also print a concise timing summary. Use
-`scripts/build_perf_gate.sh --record-baseline` and
-`scripts/build_perf_gate.sh --compare` to record and compare capped rebuild
-baselines.
+The scripts also print a concise timing summary. Use `scripts/perf_gate.sh` to
+record and compare capped performance baselines. `scripts/build_perf_gate.sh`
+remains a compatibility wrapper for the build suite.
+
+```bash
+SEEN_LOW_MEMORY=1 scripts/perf_gate.sh --record-baseline --suite build --tier quick
+SEEN_LOW_MEMORY=1 scripts/perf_gate.sh --compare --suite build --tier quick
+scripts/perf_gate.sh --compare --suite stdlib
+scripts/perf_gate.sh --compare --suite runtime
+scripts/perf_gate.sh --compare --suite release-lto
+scripts/perf_gate.sh --compare --suite packages --version 0.9.0-build
+```
+
+Schema-v2 baselines are stored under
+`target/seen-build/perf-baselines/<suite>/`. Build traces include guard
+state/status and peak RSS fields for guarded commands. Regression failures
+include the suite or benchmark name, threshold, observed value, and next action.
+Compiler module cache keys also include the active compiler binary hash, so a
+warm quick/verify rebuild keeps valid objects only when they were produced by a
+compatible compiler.
 
 ## Worker Budgets
 
@@ -87,6 +103,12 @@ The rebuild script derives `SEEN_JOBS` and `SEEN_OPT_JOBS` from CPU count and
 the memory caps when the variables are not supplied. The compiler also accepts
 `--jobs <n>` and `--opt-jobs <n>`. `--no-fork` remains the explicit serial
 escape hatch.
+
+Quick and verify tiers choose a trusted builder before doing frozen-bootstrap
+startup/hash checks or creating the bootstrap source overlay. Those frozen-only
+steps still run for full cold verification and for quick/verify fallback to a
+frozen compiler. Quick/verify smoke compiles use a signature-keyed cache, but
+the smoke executable is still run every time.
 
 ## Prebuild Gates
 

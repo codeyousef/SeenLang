@@ -3,7 +3,7 @@
 import parser.real_parser.{StatementNode}
 import str.string.{StringBuilder}
 import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl}
-import codegen.ir_codegen_global_state.{getPendingArrayLiteralTypeWithGlobalStateImpl, setPendingArrayLiteralTypeWithGlobalStateImpl, prepareLetStatementPlanWithGlobalStateImpl, resolveLetPreAllocatedRegWithGlobalStateImpl, getBoundedActiveVarCountWithGlobalStateImpl, setActiveVarCountWithGlobalStateImpl}
+import codegen.ir_codegen_global_state.{getPendingArrayLiteralTypeWithGlobalStateImpl, setPendingArrayLiteralTypeWithGlobalStateImpl, prepareLetStatementPlanWithGlobalStateImpl, resolveLetPreAllocatedRegWithGlobalStateImpl, getBoundedActiveVarCountWithGlobalStateImpl, setActiveVarCountWithGlobalStateImpl, getGlobalStructNamesImpl}
 import codegen.ir_codegen_type_state.{mapTypeState, isClassTypeState}
 import codegen.ir_decl_items.{normalizeDeclaredTypeNodeImpl}
 import codegen.ir_lowering_context.{CodegenLoweringContext, lowerExpression, inferLoweredExpressionType, lowerCallExpression, prepareLoweredCallArgumentsWithDefaults, lowerEnumConstructor, resetLoweringGenerator, resetLoweringSharedModuleScratch, syncLoweringState, writeBackLoweringState, lowerProgramClasses, lowerProgramTopLevelFunctions, lowerPlainLargeClass, lowerClassNode, lowerFunctionNode, lowerClassMethodFromList, setLowerCurrentClassParentName, resetLoweringLocalCodegenState, collectLoweringVariableDeclarations, clearLoweringActiveBindings, lowerBlock, lowerStatement, isLoweringBlockTerminated, beginLoweringNestedScratch, restoreLoweringNestedScratch, currentLoweringFunctionOptions}
@@ -11,6 +11,7 @@ import codegen.ir_stmt_dead_code.{shouldSkipDeadLiteralInitializerImpl}
 import codegen.ir_stmt_decl.{shouldInferDeclarationInitializerTypeImpl, shouldSeedDeclarationPendingArrayLiteralTypeImpl, resolveLetStatementAllocaImpl, emitDeadLiteralInitializerSkipNoteImpl, emitDeclarationInitializerStoreImpl}
 import codegen.ir_stmt_var_collect_driver.{inferDeclarationInitializerTypeState}
 import codegen.ir_value_coercion.{coerceValueForLlvmTargetImpl}
+import codegen.ir_assignment_coerce.{coerceOptionStoreValueCoreImpl}
 import codegen.ir_variable_gen.{storeActiveVariableBindingImpl}
 
 fun coerceLetInitializerValueForLlvmTargetState(output: StringBuilder,
@@ -44,8 +45,15 @@ fun emitLetStatementInitializerState(ctx: CodegenLoweringContext,
     let valueReg = lowerExpression(ctx, stmt.initializer)
     setPendingArrayLiteralTypeWithGlobalStateImpl(savedPendingType)
     let initializerType = inferLoweredExpressionType(ctx, stmt.initializer)
-    var storedValueReg = coerceLetInitializerValueForLlvmTargetState(output,
-        llvmType, initializerType, valueReg)
+    var storedValueReg = coerceOptionStoreValueCoreImpl(output,
+        getFeatureRegBoxImpl(), varType, initializerType, valueReg,
+        getGlobalStructNamesImpl())
+    var storedValueType = initializerType
+    if storedValueReg != valueReg {
+        storedValueType = varType
+    }
+    storedValueReg = coerceLetInitializerValueForLlvmTargetState(output,
+        llvmType, storedValueType, storedValueReg)
     if stmt.initializer.kind == "StructLiteral" and llvmType == "i64" and
         not isClassTypeState(initializerType) and storedValueReg.startsWith("%") {
 

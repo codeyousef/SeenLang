@@ -14,7 +14,7 @@ import codegen.ir_codegen_feature_state.{findFeatureBitfieldWidthImpl}
 import codegen.ir_field_layout.{emitResolvedFieldAccessPtrImpl, emitResolvedFieldAccessLoadImpl}
 import codegen.ir_member_access.{prepareExpressionMemberReceiverImpl, prepareVariableMemberReceiverImpl}
 import codegen.ir_variable_gen.{findActiveVariableIndexImpl}
-import codegen.ir_assignment_coerce.{coerceAssignmentStoreValueCoreImpl, coerceMethodCallHandleAssignmentCoreImpl}
+import codegen.ir_assignment_coerce.{coerceAssignmentStoreValueCoreImpl, coerceMethodCallHandleAssignmentCoreImpl, coerceOptionStoreValueCoreImpl}
 import codegen.ir_literal_gen.{normalizeDoubleLiteralForLlvmImpl}
 import codegen.type_registry_core.{getFieldInfoReg}
 import str.string.{StringBuilder}
@@ -160,8 +160,14 @@ fun emitResolvedMemberAssignmentStoreImpl(output: StringBuilder,
     }
 
     if unionTypes != "" and unionTypes.contains(receiverType + "|") {
-        let unionValueReg = coerceAssignmentStoreValueCoreImpl(output, regBox,
-            fieldTypes[0], valueSeenType, valueReg, structNames)
+        var unionValueReg = coerceOptionStoreValueCoreImpl(output, regBox,
+            fieldTypes[1], valueSeenType, valueReg, structNames)
+        var unionValueSeenType = valueSeenType
+        if unionValueReg != valueReg {
+            unionValueSeenType = fieldTypes[1]
+        }
+        unionValueReg = coerceAssignmentStoreValueCoreImpl(output, regBox,
+            fieldTypes[0], unionValueSeenType, unionValueReg, structNames)
         emitUnionFieldStoreImpl(output, fieldTypes[0], unionValueReg,
             receiverPtrReg)
         return 1
@@ -192,10 +198,16 @@ fun emitResolvedMemberAssignmentStoreImpl(output: StringBuilder,
     if isDataTypeImpl(fieldTypes[1]) == 1 {
         isDataField = 1
     }
-    var coercedValueReg = coerceAssignmentStoreValueCoreImpl(output, regBox,
-        fieldTypes[0], valueSeenType, valueReg, structNames)
+    var coercedValueReg = coerceOptionStoreValueCoreImpl(output, regBox,
+        fieldTypes[1], valueSeenType, valueReg, structNames)
+    var coercedValueSeenType = valueSeenType
+    if coercedValueReg != valueReg {
+        coercedValueSeenType = fieldTypes[1]
+    }
+    coercedValueReg = coerceAssignmentStoreValueCoreImpl(output, regBox,
+        fieldTypes[0], coercedValueSeenType, coercedValueReg, structNames)
     coercedValueReg = coerceMethodCallHandleAssignmentImpl(output, regBox,
-        fieldTypes[0], valueSeenType, valueReg, valueKind,
+        fieldTypes[0], coercedValueSeenType, coercedValueReg, valueKind,
         coercedValueReg, structNames)
     emitFieldStoreImpl(output, regBox, coercedValueReg, fieldTypes[0],
         fieldPtrReg, valueIsStructLit, isDataField)

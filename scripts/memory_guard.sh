@@ -19,6 +19,7 @@ REQUIRE_KERNEL_SCOPE="${SEEN_MEMORY_GUARD_REQUIRE_KERNEL_SCOPE:-0}"
 CGROUP_STOP_KB="${SEEN_MEMORY_GUARD_CGROUP_STOP_KB:-}"
 KILL_ONLY="${SEEN_MEMORY_GUARD_KILL_ONLY:-0}"
 LABEL="${SEEN_MEMORY_GUARD_LABEL:-command}"
+METRICS_FILE="${SEEN_MEMORY_GUARD_METRICS_FILE:-}"
 
 usage() {
     cat >&2 <<'EOF'
@@ -34,6 +35,7 @@ Options:
   --cgroup-stop-kb N        In kernel-scope mode, stop when cgroup memory.current reaches N KB.
   --kill-only               Stop the tree with SIGKILL only, without a SIGTERM grace period.
   --label TEXT              Human-readable label in guard messages.
+  --metrics-file PATH       Write machine-readable peak-memory metrics.
 EOF
 }
 
@@ -167,6 +169,38 @@ stop_tree() {
     kill_tree_with_signal "$root" KILL
 }
 
+write_metrics_file() {
+    local state=$1
+    local peak_rss=${2:-0}
+    local peak_cgroup=${3:-0}
+    local current_rss=${4:-0}
+
+    [ -n "$METRICS_FILE" ] || return 0
+    mkdir -p "$(dirname "$METRICS_FILE")" 2>/dev/null || true
+    {
+        printf 'metrics_version=1\n'
+        printf 'label=%s\n' "$LABEL"
+        printf 'state=%s\n' "$state"
+        printf 'peak_rss_kb=%s\n' "$peak_rss"
+        printf 'peak_cgroup_kb=%s\n' "$peak_cgroup"
+        printf 'last_rss_kb=%s\n' "$current_rss"
+        printf 'rss_limit_kb=%s\n' "${RSS_LIMIT_KB:-0}"
+        printf 'vmem_limit_kb=%s\n' "${VMEM_LIMIT_KB:-0}"
+        printf 'available_reserve_kb=%s\n' "${RESERVE_KB:-0}"
+        printf 'timeout_secs=%s\n' "$TIMEOUT_SECS"
+        printf 'recorded_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    } > "$METRICS_FILE.tmp.$$" 2>/dev/null && mv "$METRICS_FILE.tmp.$$" "$METRICS_FILE" 2>/dev/null || true
+}
+
+append_metrics_status() {
+    local command_status=$1
+    [ -n "$METRICS_FILE" ] || return 0
+    if [ ! -f "$METRICS_FILE" ]; then
+        write_metrics_file "unobserved" 0 0 0
+    fi
+    printf 'command_status=%s\n' "$command_status" >> "$METRICS_FILE" 2>/dev/null || true
+}
+
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --rss-limit-kb)
@@ -203,6 +237,10 @@ while [ "$#" -gt 0 ]; do
             ;;
         --label)
             LABEL="${2:-command}"
+            shift 2
+            ;;
+        --metrics-file)
+            METRICS_FILE="${2:-}"
             shift 2
             ;;
         --help|-h)
@@ -304,6 +342,9 @@ if [ "${SEEN_MEMORY_GUARD_IN_SCOPE:-0}" != "1" ] &&
     if [ "$KILL_ONLY" = "1" ]; then
         scoped_args+=(--kill-only)
     fi
+    if [ -n "$METRICS_FILE" ]; then
+        scoped_args+=(--metrics-file "$METRICS_FILE")
+    fi
     scoped_args+=(--interval-secs "$INTERVAL_SECS" --label "$LABEL" -- "$@")
 
     high_kb=$((RSS_LIMIT_KB * 90 / 100))
@@ -382,6 +423,7 @@ monitor_loop() {
         if [ -n "$RSS_LIMIT_KB" ] && [ "$rss" -gt "$RSS_LIMIT_KB" ]; then
             echo "memory_guard[$LABEL]: stopping command; RSS $(format_kb "$rss") exceeded cap $(format_kb "$RSS_LIMIT_KB") (peak $(format_kb "$peak_rss"))" >&2
             echo "137" > "$reason_file"
+            write_metrics_file "rss_limit" "$peak_rss" "$peak_cgroup_kb" "$rss"
             stop_tree "$root"
             return
         fi
@@ -396,6 +438,7 @@ monitor_loop() {
                 if [ "$cgroup_kb" -ge "$cgroup_stop_kb" ]; then
                     echo "memory_guard[$LABEL]: stopping command; cgroup memory $(format_kb "$cgroup_kb") reached stop threshold $(format_kb "$cgroup_stop_kb") below hard cap $(format_kb "$RSS_LIMIT_KB") (tree RSS $(format_kb "$rss"), peak cgroup $(format_kb "$peak_cgroup_kb"))" >&2
                     echo "137" > "$reason_file"
+                    write_metrics_file "cgroup_limit" "$peak_rss" "$peak_cgroup_kb" "$rss"
                     stop_tree "$root"
                     return
                 fi
@@ -408,6 +451,7 @@ monitor_loop() {
             if is_positive_integer "$available" && [ "$available" -lt "$RESERVE_KB" ]; then
                 echo "memory_guard[$LABEL]: stopping command; MemAvailable $(format_kb "$available") fell below reserve $(format_kb "$RESERVE_KB") (tree RSS $(format_kb "$rss"), peak $(format_kb "$peak_rss"))" >&2
                 echo "137" > "$reason_file"
+                write_metrics_file "reserve_limit" "$peak_rss" "$peak_cgroup_kb" "$rss"
                 stop_tree "$root"
                 return
             fi
@@ -418,6 +462,7 @@ monitor_loop() {
             if [ "$elapsed" -gt "$TIMEOUT_SECS" ]; then
                 echo "memory_guard[$LABEL]: stopping command; timeout ${TIMEOUT_SECS}s exceeded (tree RSS $(format_kb "$rss"), peak $(format_kb "$peak_rss"))" >&2
                 echo "124" > "$reason_file"
+                write_metrics_file "timeout" "$peak_rss" "$peak_cgroup_kb" "$rss"
                 stop_tree "$root"
                 return
             fi
@@ -425,6 +470,7 @@ monitor_loop() {
 
         sleep "$INTERVAL_SECS"
     done
+    write_metrics_file "complete" "$peak_rss" "$peak_cgroup_kb" 0
 }
 
 guard_start=$SECONDS
@@ -435,14 +481,15 @@ command_status=0
 wait "$child_pid" || command_status=$?
 
 trap - TERM INT
-kill "$monitor_pid" 2>/dev/null || true
 wait "$monitor_pid" 2>/dev/null || true
 
 if [ -f "$reason_file" ]; then
     guarded_status=$(cat "$reason_file" 2>/dev/null || echo 137)
     rm -f "$reason_file"
+    append_metrics_status "$guarded_status"
     exit "$guarded_status"
 fi
 
 rm -f "$reason_file"
+append_metrics_status "$command_status"
 exit "$command_status"

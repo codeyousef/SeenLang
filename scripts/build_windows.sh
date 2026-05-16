@@ -14,6 +14,12 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 RUNTIME_DIR="${PROJECT_DIR}/seen_runtime"
 OUTPUT_DIR="${PROJECT_DIR}/target-windows"
 ABI_SCRIPT="${SCRIPT_DIR}/ll_win64_abi.py"
+BUILD_TRACE_COMMON="${SCRIPT_DIR}/build_trace_common.sh"
+if [ -f "$BUILD_TRACE_COMMON" ]; then
+    # shellcheck source=scripts/build_trace_common.sh
+    source "$BUILD_TRACE_COMMON"
+    seen_build_trace_init "build_windows"
+fi
 
 # Resolve versioned tool names
 OPT=$(command -v opt-20 2>/dev/null || command -v opt 2>/dev/null || true)
@@ -110,14 +116,65 @@ WRAPPER_EOF
 
 # Cross-compile the C runtime for Windows (cached)
 compile_runtime() {
-    if [ ! -f "$OUTPUT_DIR/seen_runtime_win.o" ] || \
-       [ "$RUNTIME_DIR/seen_runtime.c" -nt "$OUTPUT_DIR/seen_runtime_win.o" ]; then
+    local runtime_key runtime_cache_dir runtime_cache_obj
+    runtime_key=$(windows_hash_key \
+        "runtime-v2" \
+        "$RUNTIME_DIR/seen_runtime.c" \
+        "$RUNTIME_DIR/seen_runtime.h" \
+        "$RUNTIME_DIR/seen_region.c" \
+        "$RUNTIME_DIR/seen_region.h" \
+        "$RUNTIME_DIR/seen_tee_common.c" \
+        "$RUNTIME_DIR/seen_tee.h" \
+        "$RUNTIME_DIR/seen_compat_win32.h")
+    runtime_cache_dir="$OUTPUT_DIR/runtime-cache"
+    runtime_cache_obj="$runtime_cache_dir/$runtime_key.o"
+    mkdir -p "$runtime_cache_dir"
+    if [ -f "$runtime_cache_obj" ]; then
+        cp "$runtime_cache_obj" "$OUTPUT_DIR/seen_runtime_win.o"
+        if declare -F seen_build_trace_event >/dev/null 2>&1; then
+            seen_build_trace_event "windows runtime cache" "hit" "$runtime_key"
+        fi
+    else
         echo "  Compiling runtime for Windows..."
         $MINGW_GCC -c -O2 -DNDEBUG -D_WIN32 \
             "$RUNTIME_DIR/seen_runtime.c" \
             -o "$OUTPUT_DIR/seen_runtime_win.o" \
             -I"$RUNTIME_DIR"
+        cp "$OUTPUT_DIR/seen_runtime_win.o" "$runtime_cache_obj"
+        if declare -F seen_build_trace_event >/dev/null 2>&1; then
+            seen_build_trace_event "windows runtime cache" "miss" "$runtime_key"
+        fi
     fi
+}
+
+hash_file_for_windows() {
+    local file="$1"
+    if [ -f "$file" ]; then
+        sha256sum "$file" | awk '{print $1}'
+    elif [ -d "$file" ]; then
+        find "$file" -type f -print0 | sort -z | xargs -0 sha256sum 2>/dev/null | sha256sum | awk '{print $1}'
+    else
+        printf 'missing'
+    fi
+}
+
+windows_hash_key() {
+    local label="$1"
+    shift
+    {
+        printf '%s\n' "$label"
+        printf 'seen=%s\n' "$(hash_file_for_windows "$SEEN")"
+        printf 'abi=%s\n' "$(hash_file_for_windows "$ABI_SCRIPT")"
+        printf 'backend=%s\n' "$SEEN_WINDOWS_OBJECT_BACKEND"
+        printf 'clang=%s\n' "$($CLANG --version 2>/dev/null | head -1 || true)"
+        printf 'llc=%s\n' "$($LLC --version 2>/dev/null | head -1 || true)"
+        printf 'mingw=%s\n' "$($MINGW_GCC --version 2>/dev/null | head -1 || true)"
+        printf 'flags=%s\n' "${SEEN_WINDOWS_COMPILE_FLAGS[*]}"
+        local path
+        for path in "$@"; do
+            printf '%s=%s\n' "$path" "$(hash_file_for_windows "$path")"
+        done
+    } | sha256sum | awk '{print $1}'
 }
 
 # Main: cross-compile a .seen file to Windows .exe
@@ -148,14 +205,34 @@ cross_compile() {
     # Step 2: Compile .seen → .ll (Linux LLVM IR)
     echo "[1/5] Compiling Seen source to LLVM IR..."
     local LINUX_BIN="/tmp/seen_win_build_$$"
-    rm -rf .seen_cache /tmp/seen_ir_cache /tmp/seen_module_*.ll /tmp/seen_module_*.o
+    local IR_KEY IR_DIR IR_TMP_DIR
+    IR_KEY=$(windows_hash_key "ir-v1" "$INPUT" "$PROJECT_DIR/seen_std/src" "$PROJECT_DIR/seen_runtime/seen_runtime.c")
+    IR_DIR="$OUTPUT_DIR/ir-cache/$IR_KEY"
     chmod +x "$SEEN"
-    SEEN_COMPILER_SOURCE_ROOT="${SEEN_COMPILER_SOURCE_ROOT:-$PROJECT_DIR}" \
-        PATH="/tmp/seen_opt_override:$PATH" "$SEEN" compile "$INPUT" "$LINUX_BIN" "${SEEN_WINDOWS_COMPILE_FLAGS[@]}" 2>&1
+    if [ -f "$IR_DIR/.ready" ]; then
+        echo "  Reusing Windows IR cache: $IR_KEY"
+        if declare -F seen_build_trace_event >/dev/null 2>&1; then
+            seen_build_trace_event "windows ir cache" "hit" "$IR_KEY"
+        fi
+    else
+        IR_TMP_DIR="$OUTPUT_DIR/ir-cache/$IR_KEY.tmp.$$"
+        rm -rf "$IR_TMP_DIR"
+        mkdir -p "$IR_TMP_DIR"
+        SEEN_COMPILER_SOURCE_ROOT="${SEEN_COMPILER_SOURCE_ROOT:-$PROJECT_DIR}" \
+            PATH="/tmp/seen_opt_override:$PATH" "$SEEN" compile "$INPUT" "$LINUX_BIN" \
+            "${SEEN_WINDOWS_COMPILE_FLAGS[@]}" \
+            --emit-module-ir-dir "$IR_TMP_DIR" --stop-after-ir 2>&1
+        touch "$IR_TMP_DIR/.ready"
+        rm -rf "$IR_DIR"
+        mv "$IR_TMP_DIR" "$IR_DIR"
+        if declare -F seen_build_trace_event >/dev/null 2>&1; then
+            seen_build_trace_event "windows ir cache" "miss" "$IR_KEY"
+        fi
+    fi
     echo ""
 
     # Step 3: Collect .ll files (exclude .opt.ll which are optimized duplicates)
-    local LL_FILES=$(ls /tmp/seen_module_*.ll 2>/dev/null | grep -v '\.opt\.ll' || true)
+    local LL_FILES=$(find "$IR_DIR" -maxdepth 1 -type f -name 'seen_module_*.ll' ! -name '*.opt.ll' ! -name '*.polly.ll' | sort || true)
     local LL_COUNT=$(echo "$LL_FILES" | grep -c "seen_module" 2>/dev/null || echo 0)
     echo "[2/5] Found $LL_COUNT module .ll files"
 
@@ -167,17 +244,32 @@ cross_compile() {
     # Step 4: Transform .ll for Windows ABI
     echo "[3/5] Transforming IR for Windows x64 ABI..."
     local WIN_LINK_INPUTS=""
+    local OBJECT_CACHE_DIR="$OUTPUT_DIR/object-cache"
+    mkdir -p "$OBJECT_CACHE_DIR"
     for ll in $LL_FILES; do
         local base=$(basename "$ll" .ll)
         local win_ll="$OUTPUT_DIR/${base}_win.ll"
         local win_asm="$OUTPUT_DIR/${base}_win.s"
         local win_obj="$OUTPUT_DIR/${base}_win.o"
+        local object_key object_cache_obj
+
+        object_key=$(windows_hash_key "object-v1" "$ll")
+        object_cache_obj="$OBJECT_CACHE_DIR/$object_key.o"
+        if [ -f "$object_cache_obj" ]; then
+            WIN_LINK_INPUTS="$WIN_LINK_INPUTS $object_cache_obj"
+            echo "  $base -> cache hit"
+            if declare -F seen_build_trace_event >/dev/null 2>&1; then
+                seen_build_trace_event "windows object cache" "hit" "$object_key"
+            fi
+            continue
+        fi
 
         python3 "$ABI_SCRIPT" "$ll" "$win_ll"
 
         if [ "$SEEN_WINDOWS_OBJECT_BACKEND" = "clang" ]; then
             "$CLANG" -target x86_64-w64-windows-gnu -c "$win_ll" -o "$win_obj" "$SEEN_WINDOWS_CLANG_OPT" "${SEEN_WINDOWS_CLANG_WARN_FLAGS[@]}" 2>&1
-            WIN_LINK_INPUTS="$WIN_LINK_INPUTS $win_obj"
+            cp "$win_obj" "$object_cache_obj"
+            WIN_LINK_INPUTS="$WIN_LINK_INPUTS $object_cache_obj"
         else
             $LLC "$win_ll" -o "$win_asm" -mtriple=x86_64-w64-mingw32 "$SEEN_WINDOWS_LLC_OPT" --filetype=asm 2>&1
             # Remove LLVM directives that GNU assembler doesn't understand
@@ -189,6 +281,9 @@ cross_compile() {
             WIN_LINK_INPUTS="$WIN_LINK_INPUTS $win_asm"
         fi
         echo "  $base -> OK"
+        if declare -F seen_build_trace_event >/dev/null 2>&1; then
+            seen_build_trace_event "windows object cache" "miss" "$object_key"
+        fi
     done
 
     # Step 5: Compile runtime

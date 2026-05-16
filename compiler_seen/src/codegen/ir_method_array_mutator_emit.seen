@@ -8,7 +8,7 @@ import codegen.ir_member_access_driver.{tryGenerateChainedReceiverMemberAccessSt
 import codegen.ir_method_call_plan.{isDottedArrayMutatorLiteralImpl, planArrayMutatorFreeTypeImpl, planArrayMutatorFreeEmitImpl, planArrayMutatorPushPointerImpl, planArrayMutatorFallbackPointerImpl, resolveArrayMutatorVariableNameImpl, resolveArrayReceiverElementTypeImpl, resolveArrayPushElementTypeImpl, shouldLoadLocalArrayMutatorPointerImpl, shouldResolveChainedArrayMutatorReceiverImpl, shouldUseImplicitThisArrayMutatorPointerImpl}
 import codegen.ir_method_receiver_predicates.{isArrayReceiverTypeImpl}
 import codegen.ir_string_collect.{getBaseTypeNameImpl}
-import codegen.ir_type_mapping.{isClassTypeImpl}
+import codegen.ir_type_mapping.{isClassHandleLikeTypeImpl, isClassTypeImpl}
 import codegen.ir_type_tables.{resolvePopElementTypeImpl}
 import codegen.ir_variable_gen.{emitLocalVariableLoadImpl, findActiveVariableIndexImpl}
 import codegen.ir_literal_gen.{normalizeDoubleLiteralForLlvmImpl}
@@ -221,7 +221,15 @@ fun emitArrayPushMutationImpl(output: StringBuilder, regBox: Array<Int>,
                 arrayPtrReg + ", ptr " + ptrArgReg + ")\n")
             return resultReg
         }
-        if isClassTypeImpl(pushElemType, structNames) == 1 {
+        if isClassTypeImpl(pushElemType, structNames) == 1 or
+            (pushElemType != "" and pushElemType != "Unknown" and
+                isClassHandleLikeTypeImpl(pushElemType, structNames) == 1) {
+
+            if argReg == "null" or argReg == "0" {
+                output.append("  call void @seen_arr_push_ptr(ptr " +
+                    arrayPtrReg + ", ptr null)\n")
+                return "0"
+            }
             let ptrReg = getNextRegFn(regBox)
             output.append("  " + ptrReg + " = inttoptr i64 " + argReg +
                 " to ptr\n")

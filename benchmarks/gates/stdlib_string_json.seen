@@ -1,0 +1,30 @@
+import json.parser.{parseJson}
+import str.string.{StringBuilder}
+
+fun main() r: Int {
+    let builder = StringBuilder.new()
+    var i = 0
+    while i < 256 {
+        builder.append("{\"id\":")
+        builder.append(i.toString())
+        builder.append(",\"name\":\"item")
+        builder.append(i.toString())
+        builder.append("\",\"active\":true,\"values\":[1,2,3]}")
+        i = i + 1
+    }
+
+    let text = "{\"items\":[{\"id\":1,\"name\":\"alpha\",\"active\":true},{\"id\":2,\"name\":\"beta\",\"active\":false}],\"count\":2}"
+    var parsed = 0
+    while parsed < 256 {
+        let result = parseJson(text)
+        if result.success != 1 {
+            return 1
+        }
+        parsed = parsed + 1
+    }
+
+    if builder.length() <= 0 {
+        return 2
+    }
+    return 0
+}

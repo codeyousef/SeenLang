@@ -185,6 +185,11 @@ should be run under an explicit memory guard during release verification.
   payloads from `target/seen-build/package-payloads/` when the payload hash
   matches, then builds independent package formats with bounded
   `SEEN_PACKAGE_JOBS`.
+- Linux release artifacts are also cached under
+  `target/seen-build/package-artifacts/linux/` by version, compiler hash,
+  payload hash, package scripts, package-tool availability, CPU baseline, and
+  verification mode. A manifest-verified cache hit restores the tarball and
+  optional package outputs without rebuilding them.
 - `scripts/build_windows_installer.sh <version> --force-compile --zip-only`
   rebuilds `target-windows/seen.exe` from Linux cross-compilation tools, writes
   its reuse manifest, and stages the Windows ZIP.
@@ -194,6 +199,11 @@ should be run under an explicit memory guard during release verification.
 - Windows `target-windows/seen.exe` reuse is manifest-gated. The companion
   `target-windows/seen.exe.manifest.env` must match the package version, binary
   hash, payload hash, and toolchain hash before ZIP/installer staging proceeds.
+- Windows cross-builds use compiler-owned `--emit-module-ir-dir` output plus
+  `target-windows/ir-cache/`, `target-windows/object-cache/`, and
+  `target-windows/runtime-cache/` instead of clearing `.seen_cache` or
+  `/tmp/seen_ir_cache`. Windows ZIP outputs are cached under
+  `target-windows/package-artifacts/` with the same manifest-gated reuse model.
 - `installer/linux/build-appimage.sh` prefers an installed `appimagetool`, can
   use `SEEN_APPIMAGE_RUNTIME_FILE` for offline builds, defaults to `xz`
   compression for broad runtime compatibility, and validates with
@@ -206,7 +216,9 @@ should be run under an explicit memory guard during release verification.
 
 `scripts/build_and_upload_release.sh` refuses to upload artifacts unless a
 recent full verification stamp exists under `target/seen-build/`, written by
-`scripts/safe_rebuild.sh --tier full`.
+`scripts/safe_rebuild.sh --tier full`. It keeps reusable `dist/` artifacts by
+default; set `SEEN_RELEASE_CLEAN_DIST=1` for an explicit clean release staging
+directory.
 
 ## Related
 

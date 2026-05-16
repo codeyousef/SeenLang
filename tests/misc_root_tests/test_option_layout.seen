@@ -1,0 +1,41 @@
+class Payload {
+    var name: String
+}
+
+fun main() r: Int {
+    let maybeName: String? = "seen"
+    if maybeName.unwrap() != "seen" {
+        return 1
+    }
+
+    let maybeFlag: Bool? = true
+    if not maybeFlag.unwrap() {
+        return 2
+    }
+
+    let maybeRatio: Float? = 1.5
+    if maybeRatio.unwrap() < 1.4 {
+        return 3
+    }
+
+    let payload = Payload()
+    payload.name = "core"
+
+    let holder = PayloadHolder()
+    holder.value = payload
+    let unwrapped = holder.value.unwrap()
+    if unwrapped.name != "core" {
+        return 4
+    }
+
+    holder.value = null
+    if not holder.value.isNone() {
+        return 5
+    }
+
+    return 0
+}
+
+class PayloadHolder {
+    var value: Payload?
+}

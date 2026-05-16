@@ -102,8 +102,68 @@ validate_windows_binary_manifest() {
     fi
 }
 
+windows_package_artifact_key() {
+    local exe_hash payload_hash toolchain_hash script_hash
+    exe_hash=$(sha256sum "$WIN_DIR/seen.exe" | awk '{print $1}')
+    payload_hash=$(windows_payload_hash)
+    toolchain_hash=$(windows_toolchain_manifest_hash)
+    if declare -F seen_build_hash_paths >/dev/null 2>&1; then
+        script_hash=$(seen_build_hash_paths "$SCRIPT_DIR/package_windows.sh" "$PROJECT_DIR/installer/windows" 2>/dev/null)
+    else
+        script_hash=$(sha256sum "$SCRIPT_DIR/package_windows.sh" | awk '{print $1}')
+    fi
+    {
+        printf 'windows-package-v1\n'
+        printf 'version=%s\n' "$VERSION"
+        printf 'exe=%s\n' "$exe_hash"
+        printf 'payload=%s\n' "$payload_hash"
+        printf 'toolchain=%s\n' "$toolchain_hash"
+        printf 'scripts=%s\n' "$script_hash"
+    } | sha256sum | awk '{print $1}'
+}
+
+restore_windows_package_artifact() {
+    local cache_dir="$1"
+    local zip_name="seen-${VERSION}-windows-x64.zip"
+    local tgz_name="seen-${VERSION}-windows-x64.tar.gz"
+    if [ -f "$cache_dir/$zip_name" ]; then
+        cp "$cache_dir/$zip_name" "$WIN_DIR/$zip_name"
+        if declare -F seen_build_trace_event >/dev/null 2>&1; then
+            seen_build_trace_event "windows package artifact cache" "hit" "$(basename "$cache_dir")"
+        fi
+        echo "Reused Windows package artifact cache: $cache_dir"
+        echo "  Archive: $WIN_DIR/$zip_name"
+        exit 0
+    fi
+    if [ -f "$cache_dir/$tgz_name" ]; then
+        cp "$cache_dir/$tgz_name" "$WIN_DIR/$tgz_name"
+        if declare -F seen_build_trace_event >/dev/null 2>&1; then
+            seen_build_trace_event "windows package artifact cache" "hit" "$(basename "$cache_dir")"
+        fi
+        echo "Reused Windows package artifact cache: $cache_dir"
+        echo "  Archive: $WIN_DIR/$tgz_name"
+        exit 0
+    fi
+    if declare -F seen_build_trace_event >/dev/null 2>&1; then
+        seen_build_trace_event "windows package artifact cache" "miss" "$(basename "$cache_dir")"
+    fi
+}
+
 echo "=== Packaging Seen $VERSION for Windows ==="
 echo "  Output: $PACKAGE_DIR"
+
+# --- Compiler binary ---
+if [ ! -f "$WIN_DIR/seen.exe" ]; then
+    echo "ERROR: seen.exe not found in $WIN_DIR"
+    echo "Run scripts/build_windows.sh first."
+    exit 1
+fi
+validate_windows_binary_manifest
+WINDOWS_ARTIFACT_CACHE_ROOT="$WIN_DIR/package-artifacts"
+WINDOWS_ARTIFACT_KEY="$(windows_package_artifact_key)"
+WINDOWS_ARTIFACT_CACHE_DIR="$WINDOWS_ARTIFACT_CACHE_ROOT/$WINDOWS_ARTIFACT_KEY"
+mkdir -p "$WINDOWS_ARTIFACT_CACHE_ROOT"
+restore_windows_package_artifact "$WINDOWS_ARTIFACT_CACHE_DIR"
 
 # Clean and create directory structure
 rm -rf "$PACKAGE_DIR"
@@ -114,13 +174,6 @@ mkdir -p "$PACKAGE_DIR/lib/seen/toolchain"
 mkdir -p "$PACKAGE_DIR/share/seen/languages"
 mkdir -p "$PACKAGE_DIR/share/seen/docs"
 
-# --- Compiler binary ---
-if [ ! -f "$WIN_DIR/seen.exe" ]; then
-    echo "ERROR: seen.exe not found in $WIN_DIR"
-    echo "Run scripts/build_windows.sh first."
-    exit 1
-fi
-validate_windows_binary_manifest
 cp "$WIN_DIR/seen.exe" "$PACKAGE_DIR/bin/"
 echo "  bin/seen.exe"
 
@@ -277,6 +330,20 @@ fi
 TOTAL_FILES=$(find "$PACKAGE_DIR" -type f | wc -l)
 TOTAL_SIZE=$(du -sh "$PACKAGE_DIR" | cut -f1)
 ZIP_SIZE=$(du -h "$WIN_DIR/$ZIPFILE" | cut -f1)
+rm -rf "$WINDOWS_ARTIFACT_CACHE_DIR.tmp"
+mkdir -p "$WINDOWS_ARTIFACT_CACHE_DIR.tmp"
+cp "$WIN_DIR/$ZIPFILE" "$WINDOWS_ARTIFACT_CACHE_DIR.tmp/"
+cat > "$WINDOWS_ARTIFACT_CACHE_DIR.tmp/manifest.env" << EOF
+artifact_manifest_version=1
+version=$VERSION
+artifact=$ZIPFILE
+created_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+EOF
+rm -rf "$WINDOWS_ARTIFACT_CACHE_DIR"
+mv "$WINDOWS_ARTIFACT_CACHE_DIR.tmp" "$WINDOWS_ARTIFACT_CACHE_DIR"
+if declare -F seen_build_trace_event >/dev/null 2>&1; then
+    seen_build_trace_event "windows package artifact cache" "store" "$WINDOWS_ARTIFACT_KEY"
+fi
 
 echo ""
 echo "=== Package created ==="

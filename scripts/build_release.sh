@@ -72,6 +72,85 @@ copy_payload_to_cache() {
     touch "$cache_dir/.ready"
 }
 
+release_package_tool_signature() {
+    local tool
+    for tool in dpkg-deb rpmbuild appimagetool tar sha256sum; do
+        if command -v "$tool" >/dev/null 2>&1; then
+            printf '%s=%s\n' "$tool" "$(command -v "$tool")"
+        else
+            printf '%s=missing\n' "$tool"
+        fi
+    done | sha256sum | awk '{print $1}'
+}
+
+release_artifact_key() {
+    local compiler_hash payload_hash script_hash tool_hash
+    compiler_hash="$(seen_build_hash_file "$COMPILER_BIN" 2>/dev/null || sha256sum "$COMPILER_BIN" | awk '{print $1}')"
+    payload_hash="$1"
+    script_hash="$(seen_build_hash_paths "$SCRIPT_DIR/build_release.sh" "$ROOT_DIR/installer/linux" 2>/dev/null || sha256sum "$SCRIPT_DIR/build_release.sh" | awk '{print $1}')"
+    tool_hash="$(release_package_tool_signature)"
+    {
+        printf 'artifact-cache-v1\n'
+        printf 'version=%s\n' "$VERSION"
+        printf 'package=%s\n' "$PACKAGE_NAME"
+        printf 'cpu=%s\n' "$CPU_BASELINE"
+        printf 'suffix=%s\n' "$ARTIFACT_SUFFIX"
+        printf 'compiler=%s\n' "$compiler_hash"
+        printf 'payload=%s\n' "$payload_hash"
+        printf 'scripts=%s\n' "$script_hash"
+        printf 'tools=%s\n' "$tool_hash"
+        printf 'skip_verify=%s\n' "$SKIP_VERIFY"
+    } | sha256sum | awk '{print $1}'
+}
+
+restore_release_artifacts_from_cache() {
+    local cache_dir="$1"
+    local manifest="$cache_dir/manifest.env"
+    [[ -f "$manifest" ]] || return 1
+    if [[ "$SKIP_VERIFY" != "1" ]] && ! grep -q '^verified=1$' "$manifest"; then
+        return 1
+    fi
+    shopt -s nullglob
+    local artifacts=("$cache_dir"/*)
+    shopt -u nullglob
+    [[ "${#artifacts[@]}" -gt 1 ]] || return 1
+    cp -a "$cache_dir"/. "$OUTPUT_DIR/"
+    rm -f "$OUTPUT_DIR/manifest.env"
+    if declare -F seen_build_trace_event >/dev/null 2>&1; then
+        seen_build_trace_event "package artifact cache" "hit" "$(basename "$cache_dir")"
+    fi
+    echo "Reused release package artifact cache: $cache_dir"
+    return 0
+}
+
+store_release_artifacts_to_cache() {
+    local cache_dir="$1"
+    rm -rf "$cache_dir.tmp"
+    mkdir -p "$cache_dir.tmp"
+    shopt -s nullglob
+    cp -a "$OUTPUT_DIR"/*.tar.gz "$OUTPUT_DIR"/*.deb "$OUTPUT_DIR"/*.rpm \
+        "$OUTPUT_DIR"/*.AppImage "$OUTPUT_DIR"/SHA256SUMS "$cache_dir.tmp/" 2>/dev/null || true
+    shopt -u nullglob
+    {
+        printf 'artifact_manifest_version=1\n'
+        printf 'version=%s\n' "$VERSION"
+        printf 'package=%s\n' "$PACKAGE_NAME"
+        printf 'cpu_baseline=%s\n' "$CPU_BASELINE"
+        printf 'artifact_suffix=%s\n' "$ARTIFACT_SUFFIX"
+        if [[ "$SKIP_VERIFY" == "1" ]]; then
+            printf 'verified=0\n'
+        else
+            printf 'verified=1\n'
+        fi
+        printf 'created_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    } > "$cache_dir.tmp/manifest.env"
+    rm -rf "$cache_dir"
+    mv "$cache_dir.tmp" "$cache_dir"
+    if declare -F seen_build_trace_event >/dev/null 2>&1; then
+        seen_build_trace_event "package artifact cache" "store" "$(basename "$cache_dir")"
+    fi
+}
+
 usage() {
     echo "Usage: $0 --version <version> [--output-dir <dir>] [--compiler <path>]"
     echo "          [--cpu-baseline <x86-64|x86-64-v3>] [--artifact-suffix <linux-x64|linux-x64-v3>]"
@@ -156,12 +235,28 @@ echo ""
 rm -rf "$OUTPUT_DIR/staging"
 
 PACKAGE_NAME="seen-${VERSION}-${ARTIFACT_SUFFIX}"
-STAGING="$OUTPUT_DIR/staging/$PACKAGE_NAME"
-mkdir -p "$STAGING"/{bin,lib/seen/std,lib/seen/runtime,lib/seen/toolchain,share/seen/languages,share/doc/seen}
 PAYLOAD_CACHE_ROOT="$ROOT_DIR/target/seen-build/package-payloads/linux"
 PAYLOAD_KEY="$(release_payload_hash)"
 PAYLOAD_CACHE_DIR="$PAYLOAD_CACHE_ROOT/$PAYLOAD_KEY"
 PAYLOAD_CACHE_HIT=0
+ARTIFACT_CACHE_ROOT="$ROOT_DIR/target/seen-build/package-artifacts/linux"
+ARTIFACT_KEY="$(release_artifact_key "$PAYLOAD_KEY")"
+ARTIFACT_CACHE_DIR="$ARTIFACT_CACHE_ROOT/$ARTIFACT_KEY"
+mkdir -p "$ARTIFACT_CACHE_ROOT"
+
+if restore_release_artifacts_from_cache "$ARTIFACT_CACHE_DIR"; then
+    echo ""
+    echo "=== Release build complete ==="
+    echo "Artifacts in $OUTPUT_DIR:"
+    ls -lh "$OUTPUT_DIR"/ 2>/dev/null | grep -v '^total'
+    exit 0
+fi
+if declare -F seen_build_trace_event >/dev/null 2>&1; then
+    seen_build_trace_event "package artifact cache" "miss" "$ARTIFACT_KEY"
+fi
+
+STAGING="$OUTPUT_DIR/staging/$PACKAGE_NAME"
+mkdir -p "$STAGING"/{bin,lib/seen/std,lib/seen/runtime,lib/seen/toolchain,share/seen/languages,share/doc/seen}
 
 echo "[1/6] Copying compiler binary..."
 cp "$COMPILER_BIN" "$STAGING/bin/seen"
@@ -422,6 +517,7 @@ echo "Generating checksums..."
     -printf '%f\n' | sort | xargs -r sha256sum > SHA256SUMS)
 echo "  -> $OUTPUT_DIR/SHA256SUMS"
 
+store_release_artifacts_to_cache "$ARTIFACT_CACHE_DIR"
 rm -rf "$OUTPUT_DIR/staging"
 
 echo ""

@@ -48,6 +48,8 @@ Common options:
 | `--object-manifest <path>` | Write an object-to-module TSV manifest and skip final executable link |
 | `--fast` | Use the lightweight optimization path used by bootstrap verification |
 | `--no-merged-release-lto` | Disable full merged release LTO for lower-memory release builds |
+| `--emit-module-ir-dir <dir>` | Emit raw per-module LLVM IR into `<dir>` for packaging/cross-build tools |
+| `--stop-after-ir` | Stop after `--emit-module-ir-dir`; requires an IR output directory |
 | `--no-fork` | Disable parallel IR/optimization steps |
 | `--projectprefix <n>` | Large-project validation prefix hint |
 
@@ -158,3 +160,7 @@ fails with an explicit unsupported-backend diagnostic.
 - `.seen_cache/` -- source-level incremental cache
 - `/tmp/seen_ir_cache` -- IR content-addressed cache
 - `/tmp/seen_thinlto_cache` -- ThinLTO linker cache
+- `target/seen-build/runtime-objects/` -- signature-keyed runtime objects
+- `target/seen-build/release-lto/` -- merged release-LTO object cache
+- `target/seen-build/perf-baselines/` -- performance gate baselines
+- `target/seen-build/package-artifacts/` -- release package artifact caches

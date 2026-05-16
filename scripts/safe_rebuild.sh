@@ -27,6 +27,8 @@ MEMORY_GUARD_SCRIPT="$SCRIPT_DIR/memory_guard.sh"
 FORK_SERIALIZER_SOURCE="$SCRIPT_DIR/fork_serializer.c"
 FORK_SERIALIZER_SO=""
 BOOTSTRAP_SOURCE_ROOT=""
+BOOTSTRAP_PREFLIGHT_DONE=0
+FROZEN_ABS=""
 BUILD_TRACE_COMMON="$SCRIPT_DIR/build_trace_common.sh"
 REBUILD_TIER="full"
 CLEAN_CACHE=0
@@ -187,6 +189,9 @@ run_guarded_command() {
         if [ "${SEEN_MEMORY_GUARD_KILL_ONLY:-0}" = "1" ]; then
             guard_cmd+=(--kill-only)
         fi
+        if [ -n "${SEEN_MEMORY_GUARD_METRICS_FILE:-}" ]; then
+            guard_cmd+=(--metrics-file "$SEEN_MEMORY_GUARD_METRICS_FILE")
+        fi
         guard_cmd+=(-- "$@")
         "${guard_cmd[@]}"
         return $?
@@ -221,14 +226,17 @@ run_guarded_command_to_log() {
     shift 4
 
     local guard_log="${log_file%.log}.guard.log"
+    local guard_metrics="${log_file%.log}.guard.metrics"
     local trace_start=""
     if declare -F seen_build_trace_step_start >/dev/null 2>&1; then
         trace_start=$(seen_build_trace_step_start "$label")
     fi
     : > "$log_file"
     : > "$guard_log"
+    rm -f "$guard_metrics"
 
     local status=0
+    SEEN_MEMORY_GUARD_METRICS_FILE="$guard_metrics" \
     run_guarded_command "$label" "$timeout_secs" "$vmem_kb" \
         bash -c '
             log_file=$1
@@ -245,10 +253,30 @@ run_guarded_command_to_log() {
     fi
 
     if declare -F seen_build_trace_step_end >/dev/null 2>&1; then
+        local trace_detail="log=$log_file"
+        local peak_rss_kb peak_cgroup_kb guard_state guard_status
+        if [ -f "$guard_metrics" ]; then
+            peak_rss_kb=$(awk -F= '/^peak_rss_kb=/ {print $2; exit}' "$guard_metrics" 2>/dev/null || true)
+            peak_cgroup_kb=$(awk -F= '/^peak_cgroup_kb=/ {print $2; exit}' "$guard_metrics" 2>/dev/null || true)
+            guard_state=$(awk -F= '/^state=/ {print $2; exit}' "$guard_metrics" 2>/dev/null || true)
+            guard_status=$(awk -F= '/^command_status=/ {print $2; exit}' "$guard_metrics" 2>/dev/null || true)
+            if [ -n "$peak_rss_kb" ]; then
+                trace_detail="$trace_detail peak_rss_kb=$peak_rss_kb"
+            fi
+            if [ -n "$peak_cgroup_kb" ]; then
+                trace_detail="$trace_detail peak_cgroup_kb=$peak_cgroup_kb"
+            fi
+            if [ -n "$guard_state" ]; then
+                trace_detail="$trace_detail guard_state=$guard_state"
+            fi
+            if [ -n "$guard_status" ]; then
+                trace_detail="$trace_detail guard_status=$guard_status"
+            fi
+        fi
         if [ "$status" -eq 0 ]; then
-            seen_build_trace_step_end "$label" "$trace_start" "ok" "log=$log_file"
+            seen_build_trace_step_end "$label" "$trace_start" "ok" "$trace_detail"
         else
-            seen_build_trace_step_end "$label" "$trace_start" "failed:$status" "log=$log_file"
+            seen_build_trace_step_end "$label" "$trace_start" "failed:$status" "$trace_detail"
         fi
     fi
     return "$status"
@@ -1211,28 +1239,31 @@ else
 fi
 
 # Check frozen compiler exists
-if [ ! -f "$FROZEN" ]; then
-    echo -e "${RED}ERROR: Frozen compiler not found at $FROZEN${NC}"
-    echo "Run this script from the repository root."
-    if [ "$HOST_OS" = "Darwin" ]; then
-        echo "On macOS, run scripts/bootstrap_macos.sh first to create the macOS bootstrap."
-    fi
-    exit 1
-fi
-
-if ! bootstrap_binary_usable "$FROZEN"; then
-    if [ "$HOST_OS" != "Darwin" ] && [ "$FROZEN" = "bootstrap/stage1_frozen" ] && [ -x "bootstrap/stage1_frozen_v3" ] && bootstrap_binary_usable "bootstrap/stage1_frozen_v3"; then
-        echo -e "${YELLOW}bootstrap/stage1_frozen failed a startup smoke test; falling back to bootstrap/stage1_frozen_v3.${NC}"
-        FROZEN="bootstrap/stage1_frozen_v3"
-        HASH_FILE="bootstrap/stage1_frozen_v3.sha256"
-    else
-        echo -e "${RED}ERROR: Frozen compiler at $FROZEN failed a startup smoke test.${NC}"
+if [ "$REBUILD_TIER" = "full" ]; then
+    if [ ! -f "$FROZEN" ]; then
+        echo -e "${RED}ERROR: Frozen compiler not found at $FROZEN${NC}"
+        echo "Run this script from the repository root."
+        if [ "$HOST_OS" = "Darwin" ]; then
+            echo "On macOS, run scripts/bootstrap_macos.sh first to create the macOS bootstrap."
+        fi
         exit 1
     fi
+
+    if ! bootstrap_binary_usable "$FROZEN"; then
+        if [ "$HOST_OS" != "Darwin" ] && [ "$FROZEN" = "bootstrap/stage1_frozen" ] && [ -x "bootstrap/stage1_frozen_v3" ] && bootstrap_binary_usable "bootstrap/stage1_frozen_v3"; then
+            echo -e "${YELLOW}bootstrap/stage1_frozen failed a startup smoke test; falling back to bootstrap/stage1_frozen_v3.${NC}"
+            FROZEN="bootstrap/stage1_frozen_v3"
+            HASH_FILE="bootstrap/stage1_frozen_v3.sha256"
+        else
+            echo -e "${RED}ERROR: Frozen compiler at $FROZEN failed a startup smoke test.${NC}"
+            exit 1
+        fi
+    fi
+elif declare -F seen_build_trace_event >/dev/null 2>&1; then
+    seen_build_trace_event "bootstrap preflight" "deferred" "$REBUILD_TIER tier"
 fi
 
 # Verify frozen compiler hash (cross-platform)
-echo "Verifying frozen compiler integrity..."
 verify_hash() {
     if command -v sha256sum &>/dev/null; then
         sha256sum -c "$1" > /dev/null 2>&1
@@ -1241,6 +1272,66 @@ verify_hash() {
     else
         echo -e "${YELLOW}WARNING: No sha256sum or shasum found, skipping hash verification${NC}"
         return 0
+    fi
+}
+
+ensure_bootstrap_preflight() {
+    if [ "$BOOTSTRAP_PREFLIGHT_DONE" = "1" ]; then
+        return 0
+    fi
+
+    local trace_start=""
+    if declare -F seen_build_trace_step_start >/dev/null 2>&1; then
+        trace_start=$(seen_build_trace_step_start "bootstrap preflight")
+    fi
+
+    if [ ! -f "$FROZEN" ]; then
+        echo -e "${RED}ERROR: Frozen compiler not found at $FROZEN${NC}"
+        echo "Run this script from the repository root."
+        if [ "$HOST_OS" = "Darwin" ]; then
+            echo "On macOS, run scripts/bootstrap_macos.sh first to create the macOS bootstrap."
+        fi
+        if declare -F seen_build_trace_step_end >/dev/null 2>&1; then
+            seen_build_trace_step_end "bootstrap preflight" "$trace_start" "failed" "missing=$FROZEN"
+        fi
+        return 1
+    fi
+
+    if ! bootstrap_binary_usable "$FROZEN"; then
+        if [ "$HOST_OS" != "Darwin" ] && [ "$FROZEN" = "bootstrap/stage1_frozen" ] && [ -x "bootstrap/stage1_frozen_v3" ] && bootstrap_binary_usable "bootstrap/stage1_frozen_v3"; then
+            echo -e "${YELLOW}bootstrap/stage1_frozen failed a startup smoke test; falling back to bootstrap/stage1_frozen_v3.${NC}"
+            FROZEN="bootstrap/stage1_frozen_v3"
+            HASH_FILE="bootstrap/stage1_frozen_v3.sha256"
+        else
+            echo -e "${RED}ERROR: Frozen compiler at $FROZEN failed a startup smoke test.${NC}"
+            if declare -F seen_build_trace_step_end >/dev/null 2>&1; then
+                seen_build_trace_step_end "bootstrap preflight" "$trace_start" "failed" "startup=$FROZEN"
+            fi
+            return 1
+        fi
+    fi
+
+    echo "Verifying frozen compiler integrity..."
+    if verify_hash "$HASH_FILE"; then
+        echo -e "${GREEN}Frozen compiler verified.${NC}"
+    else
+        echo -e "${RED}ERROR: Frozen compiler hash verification failed!${NC}"
+        echo "The bootstrap compiler may be corrupted."
+        if declare -F seen_build_trace_step_end >/dev/null 2>&1; then
+            seen_build_trace_step_end "bootstrap preflight" "$trace_start" "failed" "hash=$HASH_FILE"
+        fi
+        return 1
+    fi
+
+    prepare_bootstrap_source_overlay
+    if [ "$BOOTSTRAP_SOURCE_ROOT" != "$REPO_ROOT" ] && [ -f "$BOOTSTRAP_SOURCE_ROOT/$FROZEN" ]; then
+        FROZEN_ABS="$BOOTSTRAP_SOURCE_ROOT/$FROZEN"
+    else
+        FROZEN_ABS="$REPO_ROOT/$FROZEN"
+    fi
+    BOOTSTRAP_PREFLIGHT_DONE=1
+    if declare -F seen_build_trace_step_end >/dev/null 2>&1; then
+        seen_build_trace_step_end "bootstrap preflight" "$trace_start" "ok" "frozen=$FROZEN source_root=$BOOTSTRAP_SOURCE_ROOT"
     fi
 }
 
@@ -1281,6 +1372,56 @@ preserve_existing_production_compiler() {
     return 1
 }
 
+hash_paths_for_cache() {
+    if declare -F seen_build_hash_paths >/dev/null 2>&1; then
+        seen_build_hash_paths "$@"
+        return
+    fi
+    local path
+    for path in "$@"; do
+        [ -e "$path" ] || continue
+        if [ -f "$path" ]; then
+            sha256sum "$path"
+        else
+            find "$path" -type f -print0 | sort -z | xargs -0 sha256sum 2>/dev/null
+        fi
+    done | sha256sum | awk '{print $1}'
+}
+
+smoke_compile_cache_key() {
+    local compiler_path=$1
+    local smoke_fixture=$2
+    local smoke_flags=$3
+    local compiler_hash fixture_hash runtime_hash std_hash
+
+    compiler_hash=$(hash_paths_for_cache "$compiler_path")
+    fixture_hash=$(hash_paths_for_cache "$smoke_fixture")
+    runtime_hash=$(hash_paths_for_cache "$REPO_ROOT/seen_runtime")
+    std_hash=$(hash_paths_for_cache "$REPO_ROOT/seen_std/src")
+    {
+        printf 'smoke-cache-v1\n'
+        printf 'compiler=%s\n' "$compiler_hash"
+        printf 'fixture=%s\n' "$fixture_hash"
+        printf 'runtime=%s\n' "$runtime_hash"
+        printf 'stdlib=%s\n' "$std_hash"
+        printf 'flags=%s\n' "$smoke_flags"
+        printf 'host_os=%s\n' "${HOST_OS:-unknown}"
+        printf 'host_arch=%s\n' "${HOST_ARCH:-unknown}"
+    } | sha256sum | awk '{print $1}'
+}
+
+smoke_cache_default_enabled() {
+    case "${SEEN_SMOKE_CACHE:-}" in
+        0|false|False|FALSE|no|No|NO)
+            return 1
+            ;;
+        1|true|True|TRUE|yes|Yes|YES)
+            return 0
+            ;;
+    esac
+    [ "$REBUILD_TIER" != "full" ]
+}
+
 smoke_test_compiler() {
     local compiler_path=$1
     local stage_label=$2
@@ -1294,6 +1435,8 @@ smoke_test_compiler() {
     local compiler_env=()
     local check_cmd=("$compiler_path" check "$smoke_source")
     local compile_cmd=("$compiler_path" compile "$smoke_source" "$smoke_bin" --fast --no-cache)
+    local smoke_flags="--fast --no-cache"
+    local smoke_cache_key smoke_cache_dir smoke_cache_bin
 
     if [ "$LOW_MEMORY_MODE" = "1" ]; then
         compiler_env+=("SEEN_LOW_MEMORY=${SEEN_LOW_MEMORY:-1}")
@@ -1308,9 +1451,11 @@ smoke_test_compiler() {
         fi
         check_cmd+=(--no-fork)
         compile_cmd+=(--no-fork)
+        smoke_flags="$smoke_flags --no-fork"
     fi
     if [ -n "${RELEASE_TARGET_CPU_FLAG:-}" ]; then
         compile_cmd+=("$RELEASE_TARGET_CPU_FLAG")
+        smoke_flags="$smoke_flags $RELEASE_TARGET_CPU_FLAG"
     fi
 
     cleanup_smoke_build_state
@@ -1337,16 +1482,53 @@ smoke_test_compiler() {
         return 1
     fi
 
-    if ! (
-        cd "$REPO_ROOT" &&
-        run_guarded_command_to_log_with_failure_watch "$stage_label compile smoke" 120 "$MAIN_COMPILER_VMEM_KB" "$compile_log" \
-            env "${compiler_env[@]}" "${compile_cmd[@]}"
-    ); then
-        echo -e "${YELLOW}${stage_label} failed hello-world compile smoke test.${NC}"
-        tail -20 "$compile_log" 2>/dev/null || true
-        preserve_smoke_failure_artifacts "$stage_slug"
-        cleanup_smoke_build_state
-        return 1
+    if smoke_cache_default_enabled; then
+        smoke_cache_key=$(smoke_compile_cache_key "$compiler_path" "$smoke_fixture" "$smoke_flags")
+        smoke_cache_dir="$REPO_ROOT/target/seen-build/smoke-cache/$smoke_cache_key"
+        smoke_cache_bin="$smoke_cache_dir/safe_rebuild_smoke_bin"
+        if [ -x "$smoke_cache_bin" ]; then
+            cp "$smoke_cache_bin" "$smoke_bin"
+            chmod +x "$smoke_bin" 2>/dev/null || true
+            printf 'smoke compile cache hit: %s\n' "$smoke_cache_key" > "$compile_log"
+            if declare -F seen_build_trace_event >/dev/null 2>&1; then
+                seen_build_trace_event "$stage_label compile smoke cache" "hit" "key=$smoke_cache_key"
+            fi
+        else
+            if declare -F seen_build_trace_event >/dev/null 2>&1; then
+                seen_build_trace_event "$stage_label compile smoke cache" "miss" "key=$smoke_cache_key"
+            fi
+            if ! (
+                cd "$REPO_ROOT" &&
+                run_guarded_command_to_log_with_failure_watch "$stage_label compile smoke" 120 "$MAIN_COMPILER_VMEM_KB" "$compile_log" \
+                    env "${compiler_env[@]}" "${compile_cmd[@]}"
+            ); then
+                echo -e "${YELLOW}${stage_label} failed hello-world compile smoke test.${NC}"
+                tail -20 "$compile_log" 2>/dev/null || true
+                preserve_smoke_failure_artifacts "$stage_slug"
+                cleanup_smoke_build_state
+                return 1
+            fi
+            if [ -x "$smoke_bin" ]; then
+                mkdir -p "$smoke_cache_dir"
+                cp "$smoke_bin" "$smoke_cache_bin" 2>/dev/null || true
+                chmod +x "$smoke_cache_bin" 2>/dev/null || true
+            fi
+        fi
+    else
+        if declare -F seen_build_trace_event >/dev/null 2>&1; then
+            seen_build_trace_event "$stage_label compile smoke cache" "disabled" "tier=$REBUILD_TIER"
+        fi
+        if ! (
+            cd "$REPO_ROOT" &&
+            run_guarded_command_to_log_with_failure_watch "$stage_label compile smoke" 120 "$MAIN_COMPILER_VMEM_KB" "$compile_log" \
+                env "${compiler_env[@]}" "${compile_cmd[@]}"
+        ); then
+            echo -e "${YELLOW}${stage_label} failed hello-world compile smoke test.${NC}"
+            tail -20 "$compile_log" 2>/dev/null || true
+            preserve_smoke_failure_artifacts "$stage_slug"
+            cleanup_smoke_build_state
+            return 1
+        fi
     fi
 
     if [ -f "$smoke_bin" ] && [ ! -x "$smoke_bin" ]; then
@@ -1385,6 +1567,15 @@ tier_source_root_for_builder() {
             printf '%s\n' "$REPO_ROOT"
             ;;
     esac
+}
+
+tier_builder_requires_bootstrap_preflight() {
+    case "$(basename "$1")" in
+        seen_frozen*|stage1_frozen*)
+            return 0
+            ;;
+    esac
+    return 1
 }
 
 tier_builder_path_for_source_root() {
@@ -1514,6 +1705,9 @@ run_tiered_rebuild() {
     while IFS= read -r candidate; do
         [ -n "$candidate" ] || continue
         [ -x "$candidate" ] || continue
+        if tier_builder_requires_bootstrap_preflight "$candidate"; then
+            ensure_bootstrap_preflight || return 1
+        fi
         source_root=$(tier_source_root_for_builder "$candidate")
         builder_for_root=$(tier_builder_path_for_source_root "$candidate" "$source_root")
         [ -x "$builder_for_root" ] || continue
@@ -1915,26 +2109,14 @@ recover_with_existing_stage_builders() {
     return 1
 }
 
-if verify_hash "$HASH_FILE"; then
-    echo -e "${GREEN}Frozen compiler verified.${NC}"
-else
-    echo -e "${RED}ERROR: Frozen compiler hash verification failed!${NC}"
-    echo "The bootstrap compiler may be corrupted."
-    exit 1
-fi
-
 preserve_existing_production_compiler >/dev/null 2>&1 || true
-prepare_bootstrap_source_overlay
-if [ "$BOOTSTRAP_SOURCE_ROOT" != "$REPO_ROOT" ] && [ -f "$BOOTSTRAP_SOURCE_ROOT/$FROZEN" ]; then
-    FROZEN_ABS="$BOOTSTRAP_SOURCE_ROOT/$FROZEN"
-else
-    FROZEN_ABS="$REPO_ROOT/$FROZEN"
-fi
 
 if [ "$REBUILD_TIER" != "full" ]; then
     run_tiered_rebuild
     exit $?
 fi
+
+ensure_bootstrap_preflight || exit 1
 
 clean_rebuild_caches "full tier cold verification"
 

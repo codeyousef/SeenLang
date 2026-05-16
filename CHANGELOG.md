@@ -9,83 +9,93 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- FEL-329/FEL-331: Added runtime memory-budget tracking and fallible allocation ABI entrypoints, including `SEEN_MEMORY_LIMIT_BYTES`, used/peak/failure counters, and `seen_try_*` allocation helpers.
-- FEL-329/FEL-332: Added `memory.allocation` stdlib APIs with `AllocError`, `MemoryStats`, `setMemoryLimitBytes`, `memoryStats`, and `ensureAllocationBudget`.
-- FEL-329/FEL-333: Added a StringBuilder-backed IR file emission path so compiler modules can write generated LLVM IR without first flattening the whole module into one `String`.
-- FEL-329/FEL-336: Added a focused memory allocation contract smoke test covering allocation budgets, `StringBuilder.try*` APIs, and direct builder file output.
-- FEL-338/FEL-344: Added runtime/libm-backed stdlib math wrappers for trig, inverse trig, exponential/logarithmic, rounding, modulo, cbrt, hypot, and hyperbolic functions.
-- FEL-380/FEL-381: Added build-performance telemetry with `SEEN_TRACE_BUILD=<path>` JSONL output, `SEEN_BUILD_TRACE=<path>` compatibility aliasing, terminal timing summaries, and `scripts/build_perf_gate.sh` baseline/compare support.
-- FEL-380/FEL-384: Added tiered guarded rebuild modes: `scripts/safe_rebuild.sh --tier quick`, `--tier verify`, and `--tier full`, with no-argument behavior remaining the full cold verification path.
+- Added runtime memory-budget tracking and fallible allocation ABI entrypoints, including `SEEN_MEMORY_LIMIT_BYTES`, used/peak/failure counters, and `seen_try_*` allocation helpers.
+- Added `memory.allocation` stdlib APIs with `AllocError`, `MemoryStats`, `setMemoryLimitBytes`, `memoryStats`, and `ensureAllocationBudget`.
+- Added a StringBuilder-backed IR file emission path so compiler modules can write generated LLVM IR without first flattening the whole module into one `String`.
+- Added a focused memory allocation contract smoke test covering allocation budgets, `StringBuilder.try*` APIs, and direct builder file output.
+- Added runtime/libm-backed stdlib math wrappers for trig, inverse trig, exponential/logarithmic, rounding, modulo, cbrt, hypot, and hyperbolic functions.
+- Added build-performance telemetry with `SEEN_TRACE_BUILD=<path>` JSONL output, `SEEN_BUILD_TRACE=<path>` compatibility aliasing, terminal timing summaries, and `scripts/build_perf_gate.sh` baseline/compare support.
+- Added tiered guarded rebuild modes: `scripts/safe_rebuild.sh --tier quick`, `--tier verify`, and `--tier full`, with no-argument behavior remaining the full cold verification path.
+- Added canonical `scripts/perf_gate.sh` schema-v2 performance gates for build, stdlib, runtime, release-LTO, and package suites, while keeping `scripts/build_perf_gate.sh` as a build-suite compatibility wrapper.
+- Added capped Seen benchmark gate fixtures for collections, StringBuilder/JSON, math/sort, runtime allocation, and release-LTO behavior.
+- Added `seen compile --emit-module-ir-dir <path>` and `--stop-after-ir` so packaging and cross-build tools can request per-module IR without scraping global `/tmp` artifacts.
 
 ### Changed
 
-- FEL-329/FEL-333: Compiler Pass 2 now uses `generateSingleToFile` for module IR emission, reducing peak memory by avoiding the extra full-module `writeText` string.
-- FEL-329/FEL-334: Multi-module compiler IR generation and optimizer fanout now use bounded worker counts by default instead of unbounded fork/background job fanout.
-- FEL-329/FEL-334: Registry cache hashing now folds module hashes incrementally instead of building a whole-project concatenated signature string.
-- FEL-329/FEL-335: Full merged release LTO remains the default `--release` performance path, with `--no-merged-release-lto` available for lower-memory release builds.
-- FEL-329/FEL-336: `scripts/safe_rebuild.sh` exports a tracked allocation budget derived from the capped compiler VM limit during low-memory rebuilds.
-- FEL-338/FEL-340: Reworked source `Vec<T>` to use the compiler/runtime contiguous layout with O(1) random access and linear `toArray`.
-- FEL-338/FEL-343: Routed `repeat` and `join` through `StringBuilder`, and made JSON string/number parsing avoid the largest repeated substring and concatenation paths.
-- FEL-338/FEL-345: Replaced runtime `Vec<Int>` and `Vec<Float>` last-pivot quicksort with median-of-three partitioning, insertion sort for small ranges, and bounded tail recursion.
-- FEL-338/FEL-367: Reworked `Map<K,V>` compatibility paths so compiled Map constructors and methods lower to indexed HashMap runtime tables, while the runtime `Map` table preserves insertion-order iteration with an open-addressed index.
-- FEL-338/FEL-368: Reworked runtime `BTreeMap` variants as sorted contiguous tables with binary-search lookup/removal while preserving deterministic key/value iteration order.
-- FEL-380/FEL-382/FEL-383: Moved compiler cache signatures to cache-v4 keys using stable module identities, declaration-level project hashes, module body hashes, toolchain versions, target/profile/LTO/sanitizer/PIC/PGO flags, and runtime payload signatures.
-- FEL-380/FEL-385: Rebuild scripts now derive `SEEN_JOBS` and `SEEN_OPT_JOBS` from capped memory and CPU count, while the compiler also honors explicit `--jobs`, `--opt-jobs`, `SEEN_JOBS`, and `SEEN_OPT_JOBS`.
-- FEL-380/FEL-386/FEL-387: Release packaging reuses hashed Linux payload staging, builds optional Linux package formats with bounded parallel jobs, and validates Windows `seen.exe` reuse through version, binary, payload, and toolchain manifests.
-- FEL-380/FEL-381: Release upload now requires a recent full-rebuild verification stamp from `scripts/safe_rebuild.sh --tier full` before artifacts can be uploaded, unless explicitly overridden for emergency local testing.
+- Compiler Pass 2 now uses `generateSingleToFile` for module IR emission, reducing peak memory by avoiding the extra full-module `writeText` string.
+- Multi-module compiler IR generation and optimizer fanout now use bounded worker counts by default instead of unbounded fork/background job fanout.
+- Registry cache hashing now folds module hashes incrementally instead of building a whole-project concatenated signature string.
+- Full merged release LTO remains the default `--release` performance path, with `--no-merged-release-lto` available for lower-memory release builds.
+- `scripts/safe_rebuild.sh` exports a tracked allocation budget derived from the capped compiler VM limit during low-memory rebuilds.
+- Reworked source `Vec<T>` to use the compiler/runtime contiguous layout with O(1) random access and linear `toArray`.
+- Routed `repeat` and `join` through `StringBuilder`, and made JSON string/number parsing avoid the largest repeated substring and concatenation paths.
+- Replaced runtime `Vec<Int>` and `Vec<Float>` last-pivot quicksort with median-of-three partitioning, insertion sort for small ranges, and bounded tail recursion.
+- Reworked `Map<K,V>` compatibility paths so compiled Map constructors and methods lower to indexed HashMap runtime tables, while the runtime `Map` table preserves insertion-order iteration with an open-addressed index.
+- Reworked runtime `BTreeMap` variants as sorted contiguous tables with binary-search lookup/removal while preserving deterministic key/value iteration order.
+- Moved compiler cache signatures to cache-v4 keys using stable module identities, declaration-level project hashes, module body hashes, toolchain versions, target/profile/LTO/sanitizer/PIC/PGO flags, and runtime payload signatures.
+- Rebuild scripts now derive `SEEN_JOBS` and `SEEN_OPT_JOBS` from capped memory and CPU count, while the compiler also honors explicit `--jobs`, `--opt-jobs`, `SEEN_JOBS`, and `SEEN_OPT_JOBS`.
+- Release packaging reuses hashed Linux payload staging, builds optional Linux package formats with bounded parallel jobs, and validates Windows `seen.exe` reuse through version, binary, payload, and toolchain manifests.
+- Release upload now requires a recent full-rebuild verification stamp from `scripts/safe_rebuild.sh --tier full` before artifacts can be uploaded, unless explicitly overridden for emergency local testing.
+- Quick and verify rebuild tiers now defer frozen-bootstrap preflight and source-overlay creation until a frozen fallback is actually selected, and cache smoke compile artifacts by compiler, fixture, runtime, stdlib, flags, and target signature while still running the smoke binary.
+- Compiler build traces now use millisecond timestamps, cached trace-path lookup, escaped JSON fields, release-LTO mode events, and a merged release-LTO object cache so warm release builds preserve default merged LTO instead of silently falling back.
+- Windows cross-builds now reuse signature-keyed IR, transformed object, and runtime caches without clearing global compiler caches, while Linux and Windows package builders reuse manifest-checked package artifacts.
+- Cache-v4 module object keys now include the active compiler binary hash, so warm builds reject stale objects after compiler codegen/layout changes instead of reusing incompatible cached output.
 
 ### Fixed
 
-- FEL-329/FEL-331: Replaced several core runtime allocation hot spots in arrays, StringBuilder, aligned growth, and pool allocation with budget-aware allocation helpers and explicit allocation-failure diagnostics.
-- FEL-329/FEL-332: Avoided extra transient string allocation in `StringBuilder.appendLine` and rewrote `split` to accumulate through `StringBuilder` instead of per-character string concatenation.
-- FEL-338/FEL-341: Removed per-byte substring allocation from string hash loops used by `hash.mod` and `StringHashMap`.
-- FEL-338/FEL-341/FEL-367: Kept collection string hashing on byte scans and removed the remaining per-byte modulo from source `StringHashMap` hashing.
-- FEL-338/FEL-367: Fixed legacy `Map<String, String>` lowering so `get`/`getOrDefault` preserve full SeenString values instead of falling through bootstrap fallback layouts.
-- FEL-338/FEL-367: Made legacy runtime `Map_*` symbols weak so imported source `collections.map` fallback methods can coexist with runtime compatibility helpers.
-- FEL-338/FEL-343: Removed stray debug output from `StringBuilder.mergeAdjacent`.
-- FEL-374: Fixed dead-code false positives for values and imports used only as method-call or member-access receivers.
-- FEL-372: Fixed collection handle lowering for map `keys`/`values` and `Vec.toArray` so pointer-returning runtime helpers are cast back to Seen handles before storage.
-- FEL-352: Registered default-argument metadata during declaration scanning and diagnosed explicit imported/local function name collisions before IR emission.
+- Replaced several core runtime allocation hot spots in arrays, StringBuilder, aligned growth, and pool allocation with budget-aware allocation helpers and explicit allocation-failure diagnostics.
+- Avoided extra transient string allocation in `StringBuilder.appendLine` and rewrote `split` to accumulate through `StringBuilder` instead of per-character string concatenation.
+- Removed per-byte substring allocation from string hash loops used by `hash.mod` and `StringHashMap`.
+- Kept collection string hashing on byte scans and removed the remaining per-byte modulo from source `StringHashMap` hashing.
+- Fixed legacy `Map<String, String>` lowering so `get`/`getOrDefault` preserve full SeenString values instead of falling through bootstrap fallback layouts.
+- Made legacy runtime `Map_*` symbols weak so imported source `collections.map` fallback methods can coexist with runtime compatibility helpers.
+- Removed stray debug output from `StringBuilder.mergeAdjacent`.
+- Fixed dead-code false positives for values and imports used only as method-call or member-access receivers.
+- Fixed collection handle lowering for map `keys`/`values` and `Vec.toArray` so pointer-returning runtime helpers are cast back to Seen handles before storage.
+- Registered default-argument metadata during declaration scanning and diagnosed explicit imported/local function name collisions before IR emission.
 - Fixed `seen run` option parsing so `--aot`, `--no-cache`, `--verbose`, and `--language` work in any order around the input path.
-- FEL-380/FEL-381: Fixed build-performance gate cache counters so module-level `cached=`/`uncached=` trace details are included alongside explicit cache hit/miss events.
-- FEL-380/FEL-386: Runtime object reuse now records full build signatures instead of relying only on source timestamps, so incompatible runtime objects are rebuilt with a diagnostic trace event.
-- FEL-380/FEL-383: Quick/verify smoke cleanup now preserves `.seen_cache`, `/tmp/seen_ir_cache`, and `/tmp/seen_thinlto_cache`, leaving broad cache removal to full-tier cold verification or explicit `--clean-cache`.
-- FEL-391: Fixed self-hosted quick rebuild failures by removing whole-module IR flattening from late declaration checks, eliminating repeated dead-code name-match string concatenation, and replacing the bounded optimizer `jobs -p` throttle with portable batched waits.
-- FEL-396: Fixed Windows installer packaging so unmanifested or stale `target-windows/seen.exe` reuse fails before staging, while `build_windows_installer.sh --force-compile` rebuilds the Windows compiler and writes the validated reuse manifest.
+- Fixed build-performance gate cache counters so module-level `cached=`/`uncached=` trace details are included alongside explicit cache hit/miss events.
+- Runtime object reuse now records full build signatures instead of relying only on source timestamps, so incompatible runtime objects are rebuilt with a diagnostic trace event.
+- Quick/verify smoke cleanup now preserves `.seen_cache`, `/tmp/seen_ir_cache`, and `/tmp/seen_thinlto_cache`, leaving broad cache removal to full-tier cold verification or explicit `--clean-cache`.
+- `memory_guard.sh` now writes machine-readable peak-memory metrics for successful guarded commands, and rebuild trace details include guard state/status and peak RSS.
+- Runtime object cache entries are now signature-keyed under `target/seen-build/runtime-objects/`, preventing compiler builds and smoke builds with different runtime flags from invalidating each other.
+- Fixed implicit assignment of `T` values into `Option<T>`/nullable storage so field and local initializers construct `Some<T>` wrappers, with specialized payload layout for String, Bool, Float, and boxed/class values.
+- Fixed self-hosted quick rebuild failures by removing whole-module IR flattening from late declaration checks, eliminating repeated dead-code name-match string concatenation, and replacing the bounded optimizer `jobs -p` throttle with portable batched waits.
+- Fixed Windows installer packaging so unmanifested or stale `target-windows/seen.exe` reuse fails before staging, while `build_windows_installer.sh --force-compile` rebuilds the Windows compiler and writes the validated reuse manifest.
 
 ## [0.8.3] - 2026-05-15
 
 ### Added
 
-- FEL-261: Added conservative frontend dead-code warnings for unreachable statements, unused locals, unused parameters, unused import symbols, unused private top-level functions, and unused whole-module imports.
-- FEL-261: Added LSP/editor diagnostic conversion coverage for Seen warning codes so dead-code warnings surface as warnings instead of errors.
-- FEL-270: Added module namespace import aliases such as `import codegen.ir_call_driver as calls`, including alias-qualified resolution for functions, types, enums, and static-style references without injecting unqualified names.
-- FEL-270: Added VS Code import-block folding for contiguous top-level `import`, `use`, and `pub import` lines.
-- FEL-261/FEL-270: Added focused parser, compiler, and extension coverage for dead-code warnings, module alias imports, and import folding.
-- FEL-262/FEL-271: Added focused stdlib coverage for `VecDeque`, `IntVecDeque`, and `BitSet` behavior around wraparound, growth, clearing, and word-boundary bit operations.
-- FEL-262/FEL-272: Added focused compiler cache coverage for struct registry, function return, field index, IR field index, and chained-path type cache behavior.
-- FEL-262/FEL-273: Added focused compiler cache coverage for codegen type-info struct lookup, Seen field type lookup, method return lookup, and bool-suffix method inference.
-- FEL-262/FEL-274: Added focused compiler coverage for module import graph indexing and duplicate edge handling.
-- FEL-275/FEL-279: Added facade `component` functions with compiler-visible metadata plus component-local `state`, `computed`, and `uiEffect` constructs.
-- FEL-276/FEL-277: Added named function arguments, callback block arguments, and trailing/named slot block parsing for declarative Seen APIs.
-- FEL-278: Added first-class UI callback block lowering through the existing generated-closure path and callback-aware frontend diagnostics.
-- FEL-280: Added frontend diagnostics for missing and duplicate stable keys in dynamic facade UI children.
-- FEL-275-FEL-280: Added focused compiler and VS Code extension coverage for facade component syntax, named arguments, slots, callbacks, local UI state, and stable key diagnostics.
+- Added conservative frontend dead-code warnings for unreachable statements, unused locals, unused parameters, unused import symbols, unused private top-level functions, and unused whole-module imports.
+- Added LSP/editor diagnostic conversion coverage for Seen warning codes so dead-code warnings surface as warnings instead of errors.
+- Added module namespace import aliases such as `import codegen.ir_call_driver as calls`, including alias-qualified resolution for functions, types, enums, and static-style references without injecting unqualified names.
+- Added VS Code import-block folding for contiguous top-level `import`, `use`, and `pub import` lines.
+- Added focused parser, compiler, and extension coverage for dead-code warnings, module alias imports, and import folding.
+- Added focused stdlib coverage for `VecDeque`, `IntVecDeque`, and `BitSet` behavior around wraparound, growth, clearing, and word-boundary bit operations.
+- Added focused compiler cache coverage for struct registry, function return, field index, IR field index, and chained-path type cache behavior.
+- Added focused compiler cache coverage for codegen type-info struct lookup, Seen field type lookup, method return lookup, and bool-suffix method inference.
+- Added focused compiler coverage for module import graph indexing and duplicate edge handling.
+- Added facade `component` functions with compiler-visible metadata plus component-local `state`, `computed`, and `uiEffect` constructs.
+- Added named function arguments, callback block arguments, and trailing/named slot block parsing for declarative Seen APIs.
+- Added first-class UI callback block lowering through the existing generated-closure path and callback-aware frontend diagnostics.
+- Added frontend diagnostics for missing and duplicate stable keys in dynamic facade UI children.
+- Added focused compiler and VS Code extension coverage for facade component syntax, named arguments, slots, callbacks, local UI state, and stable key diagnostics.
 
 ### Changed
 
-- FEL-262/FEL-271: Optimized source-only `VecDeque`, `IntVecDeque`, and `BitSet` containers while preserving their public APIs.
-- FEL-262/FEL-272: Enabled source-level compiler registry lookup caches for repeated struct, function return, field index, IR field index, and chained-path type lookups while preserving existing lookup semantics.
-- FEL-262/FEL-273: Enabled remaining internal codegen type lookup caches with bounded reset behavior and stale-registry guards.
-- FEL-262/FEL-274: Optimized compiler module path resolution and import-cycle detection with bounded realpath caching and indexed import graph edges instead of pipe-delimited edge strings.
-- FEL-275-FEL-280: Extended AST layout metadata, frontend validation, codegen statement/expression dispatch, LSP completions/hover/symbols, and VS Code grammar/snippets for facade declarative UI syntax.
+- Optimized source-only `VecDeque`, `IntVecDeque`, and `BitSet` containers while preserving their public APIs.
+- Enabled source-level compiler registry lookup caches for repeated struct, function return, field index, IR field index, and chained-path type lookups while preserving existing lookup semantics.
+- Enabled remaining internal codegen type lookup caches with bounded reset behavior and stale-registry guards.
+- Optimized compiler module path resolution and import-cycle detection with bounded realpath caching and indexed import graph edges instead of pipe-delimited edge strings.
+- Extended AST layout metadata, frontend validation, codegen statement/expression dispatch, LSP completions/hover/symbols, and VS Code grammar/snippets for facade declarative UI syntax.
 - Bumped the shipped Seen compiler version to `0.8.3`.
 
 ### Fixed
 
-- FEL-311: Fixed bootstrap import discovery for newly split compiler helper modules so `bootstrap.dead_code` is compiled before `bootstrap.frontend` indexes dead-code warning arrays, preventing invalid LLVM IR during guarded compiler rebuilds.
-- FEL-261/FEL-311: Reworked the dead-code warning regression fixture to exercise the analyzer directly, keeping warning coverage while avoiding the old oversized integration path.
-- FEL-262: Fixed release package builders so DEB metadata reports a real installed size, RPM builds keep temporary/database state inside the build directory, AppImage builds can run offline with a supplied runtime and validate without FUSE, and the Linux-built Windows NSIS installer skips absent optional LLVM payloads without warnings.
+- Fixed bootstrap import discovery for newly split compiler helper modules so `bootstrap.dead_code` is compiled before `bootstrap.frontend` indexes dead-code warning arrays, preventing invalid LLVM IR during guarded compiler rebuilds.
+- Reworked the dead-code warning regression fixture to exercise the analyzer directly, keeping warning coverage while avoiding the old oversized integration path.
+- Fixed release package builders so DEB metadata reports a real installed size, RPM builds keep temporary/database state inside the build directory, AppImage builds can run offline with a supplied runtime and validate without FUSE, and the Linux-built Windows NSIS installer skips absent optional LLVM payloads without warnings.
 
 ## [0.8.2] - 2026-05-12
 
@@ -231,13 +241,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 #### Validation, codegen, and manifest regressions
-- Fixed FEL-18 and FEL-22 validation regressions introduced during the IR refactor.
+- Fixed validation regressions introduced during the IR refactor.
 - Fixed post-manifest codegen regressions in package-aware builds.
 - Fixed package source import resolution when using `src/` layout in `Seen.toml`.
-- Fixed FEL-22 scanner memory usage during large file ingestion.
-- Fixed FEL-22 manifest graph preflight not accounting for transitive package dependencies.
+- Fixed scanner memory usage during large file ingestion.
+- Fixed manifest graph preflight not accounting for transitive package dependencies.
 - Fixed legacy import visibility resolution for nested module paths.
-- Fixed class method return type receiver inference (FEL-20 regression).
+- Fixed class method return type receiver inference.
 - Fixed high-arity parameter handling in codegen for `i64` alias and `uint32` global initialization.
 - Fixed nested `continue` in high-arity loop contexts.
 - Fixed bool-to-int coercion return paths in codegen.

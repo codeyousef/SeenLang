@@ -3,7 +3,71 @@
 import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_type_mapping.{isClassTypeImpl, isDataTypeImpl, isClassHandleLikeTypeImpl}
 import codegen.ir_literal_gen.{normalizeDoubleLiteralForLlvmImpl}
+import codegen.ir_declarations.{emitSomeConstructorImpl, emitNoneConstructorImpl}
 import str.string.{StringBuilder}
+
+fun optionStoreInnerTypeCoreImpl(targetSeenType: String) r: String {
+    if targetSeenType.startsWith("Option<") and targetSeenType.endsWith(">") {
+        return targetSeenType.substring(7, targetSeenType.length() - 1)
+    }
+    if targetSeenType.startsWith("Optional<") and targetSeenType.endsWith(">") {
+        return targetSeenType.substring(9, targetSeenType.length() - 1)
+    }
+    return ""
+}
+
+fun optionStoreSourceAlreadyWrappedCoreImpl(targetSeenType: String,
+    sourceSeenType: String) r: Bool {
+
+    if sourceSeenType == targetSeenType {
+        return true
+    }
+    if sourceSeenType.startsWith("Option<") {
+        return true
+    }
+    return sourceSeenType.startsWith("Optional<")
+}
+
+fun optionStoreInnerIsClassCoreImpl(innerType: String,
+    structNames: Array<String>) r: Int {
+
+    if isClassTypeImpl(innerType, structNames) == 1 {
+        return 1
+    }
+    if isClassHandleLikeTypeImpl(innerType, structNames) == 1 {
+        return 1
+    }
+    if innerType.startsWith("Array<") or innerType.startsWith("List<") {
+        return 1
+    }
+    if innerType.startsWith("Vec<") or innerType.startsWith("Map<") or
+        innerType.startsWith("HashMap<") or innerType.startsWith("BTreeMap<") {
+        return 1
+    }
+    return 0
+}
+
+fun coerceOptionStoreValueCoreImpl(output: StringBuilder, regBox: Array<Int>,
+    targetSeenType: String, sourceSeenType: String, valueReg: String,
+    structNames: Array<String>) r: String {
+
+    let innerType = optionStoreInnerTypeCoreImpl(targetSeenType)
+    if innerType == "" {
+        return valueReg
+    }
+    if optionStoreSourceAlreadyWrappedCoreImpl(targetSeenType, sourceSeenType) {
+        return valueReg
+    }
+    if valueReg == "0" or valueReg == "null" {
+        return emitNoneConstructorImpl(output, regBox)
+    }
+    if sourceSeenType == "" or sourceSeenType == "Unknown" {
+        return valueReg
+    }
+    let isClassArg = optionStoreInnerIsClassCoreImpl(innerType, structNames)
+    return emitSomeConstructorImpl(output, regBox, valueReg, innerType,
+        isClassArg)
+}
 
 fun mapAssignmentSourceValueTypeCoreImpl(sourceSeenType: String,
     structNames: Array<String>) r: String {

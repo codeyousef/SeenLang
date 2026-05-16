@@ -129,7 +129,10 @@ rm -f "$TMPFILE" "${TMPFILE%.seen}"
 
 echo ""
 echo "=== Building Linux release packages (v$VERSION)... ==="
-rm -rf "$DIST_DIR"
+if [[ "${SEEN_RELEASE_CLEAN_DIST:-0}" == "1" ]]; then
+    rm -rf "$DIST_DIR"
+fi
+mkdir -p "$DIST_DIR"
 "$SCRIPT_DIR/build_release.sh" \
     --version "$VERSION" \
     --output-dir "$DIST_DIR" \
