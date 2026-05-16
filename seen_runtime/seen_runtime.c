@@ -468,6 +468,12 @@ static char* seen_runtime_alloc_chars(int64_t len, const char* context) {
     return data;
 }
 
+static void seen_runtime_free_budgeted(void* ptr, int64_t size) {
+    if (!ptr) return;
+    seen_memory_release_reservation(size);
+    free(ptr);
+}
+
 static char* seen_runtime_cstring(SeenString s, const char* context) {
     char* data = seen_runtime_alloc_chars(s.len, context);
     if (s.len > 0) {
@@ -1699,24 +1705,34 @@ void seen_arr_set_i64(SeenArray* arr, int64_t index, int64_t val) {
 
 // Bulk array initialization - creates array pre-filled with a value
 SeenArray* seen_arr_new_filled_i64(int64_t count, int64_t value) {
-    SeenArray* arr = (SeenArray*)malloc(sizeof(SeenArray));
+    if (count < 0 || count > INT64_MAX / (int64_t)sizeof(int64_t)) {
+        seen_oom_abort("seen_arr_new_filled_i64", count);
+    }
+    SeenArray* arr = (SeenArray*)seen_try_malloc(sizeof(SeenArray));
+    if (!arr) seen_oom_abort("seen_arr_new_filled_i64 header", sizeof(SeenArray));
     arr->len = count;
     arr->cap = count;
     arr->element_size = sizeof(int64_t);
     size_t sz = (size_t)count * sizeof(int64_t);
-    arr->data = aligned_alloc(32, seen_align_up(sz ? sz : 32, 32));
+    arr->data = seen_try_aligned_realloc(NULL, 0, (int64_t)(sz ? sz : 32), 32);
+    if (!arr->data) seen_oom_abort("seen_arr_new_filled_i64 data", (int64_t)sz);
     int64_t* data = (int64_t*)arr->data;
     for (int64_t i = 0; i < count; i++) data[i] = value;
     return arr;
 }
 
 SeenArray* seen_arr_new_filled_double(int64_t count, double value) {
-    SeenArray* arr = (SeenArray*)malloc(sizeof(SeenArray));
+    if (count < 0 || count > INT64_MAX / (int64_t)sizeof(double)) {
+        seen_oom_abort("seen_arr_new_filled_double", count);
+    }
+    SeenArray* arr = (SeenArray*)seen_try_malloc(sizeof(SeenArray));
+    if (!arr) seen_oom_abort("seen_arr_new_filled_double header", sizeof(SeenArray));
     arr->len = count;
     arr->cap = count;
     arr->element_size = sizeof(double);
     size_t sz = (size_t)count * sizeof(double);
-    arr->data = aligned_alloc(32, seen_align_up(sz ? sz : 32, 32));
+    arr->data = seen_try_aligned_realloc(NULL, 0, (int64_t)(sz ? sz : 32), 32);
+    if (!arr->data) seen_oom_abort("seen_arr_new_filled_double data", (int64_t)sz);
     double* data = (double*)arr->data;
     for (int64_t i = 0; i < count; i++) data[i] = value;
     return arr;
@@ -1975,7 +1991,7 @@ SeenString seen_bool_to_string(bool b) {
 
 SeenString seen_char_to_str(int64_t c) {
     // Convert a Unicode code point to a UTF-8 string
-    char* buf = (char*)malloc(8);  // Max 4 bytes for UTF-8 + null
+    char* buf = seen_runtime_alloc_chars(7, "seen_char_to_str");
     int len = 0;
     if (c < 0x80) {
         buf[0] = (char)c;
@@ -2139,7 +2155,7 @@ int64_t Char_toLowerCase(int64_t c) {
 
 SeenString String_toUpperCase(SeenString s) {
     if (s.len == 0) return s;
-    char* buf = (char*)malloc(s.len + 1);
+    char* buf = seen_runtime_alloc_chars(s.len, "String_toUpperCase");
     for (int64_t i = 0; i < s.len; i++) {
         unsigned char c = (unsigned char)s.data[i];
         buf[i] = (c >= 'a' && c <= 'z') ? (char)(c - 32) : (char)c;
@@ -2151,7 +2167,7 @@ SeenString String_toUpperCase(SeenString s) {
 
 SeenString String_toLowerCase(SeenString s) {
     if (s.len == 0) return s;
-    char* buf = (char*)malloc(s.len + 1);
+    char* buf = seen_runtime_alloc_chars(s.len, "String_toLowerCase");
     for (int64_t i = 0; i < s.len; i++) {
         unsigned char c = (unsigned char)s.data[i];
         buf[i] = (c >= 'A' && c <= 'Z') ? (char)(c + 32) : (char)c;
@@ -2188,7 +2204,7 @@ double String_toFloat(SeenString s) {
 
 SeenString String_reverse(SeenString s) {
     if (s.len <= 1) return s;
-    char* buf = (char*)malloc(s.len + 1);
+    char* buf = seen_runtime_alloc_chars(s.len, "String_reverse");
     for (int64_t i = 0; i < s.len; i++) {
         buf[i] = s.data[s.len - 1 - i];
     }
@@ -2215,7 +2231,7 @@ int64_t String_count(SeenString s, SeenString needle) {
 
 SeenString String_replace(SeenString s, SeenString old, SeenString replacement) {
     if (old.len == 0 || s.len == 0) {
-        char* copy = (char*)malloc(s.len + 1);
+        char* copy = seen_runtime_alloc_chars(s.len, "String_replace copy");
         if (s.len > 0) memcpy(copy, s.data, s.len);
         copy[s.len] = '\0';
         SeenString result = { s.len, copy };
@@ -2229,8 +2245,13 @@ SeenString String_replace(SeenString s, SeenString old, SeenString replacement) 
             i += old.len - 1;
         }
     }
-    int64_t newLen = s.len + count * (replacement.len - old.len);
-    char* buf = (char*)malloc(newLen + 1);
+    int64_t delta = replacement.len - old.len;
+    if (count != 0 && (delta > 0 && count > (INT64_MAX - s.len) / delta)) {
+        seen_oom_abort("String_replace size overflow", s.len);
+    }
+    int64_t newLen = s.len + count * delta;
+    if (newLen < 0) seen_oom_abort("String_replace size overflow", newLen);
+    char* buf = seen_runtime_alloc_chars(newLen, "String_replace");
     int64_t pos = 0;
     for (int64_t i = 0; i < s.len; ) {
         if (i <= s.len - old.len && memcmp(s.data + i, old.data, old.len) == 0) {
@@ -3123,11 +3144,11 @@ int64_t JsonValue_unwrap(void* ptr) {
 // Typechecker Type Stubs
 // ============================================================================
 
-void* TypeError(void) { return malloc(64); }
-void* FunctionType(void) { return malloc(64); }
-void* ClassType(void) { return malloc(64); }
-void* InterfaceType(void) { return malloc(64); }
-void* Location(void) { return malloc(32); }
+void* TypeError(void) { return seen_try_calloc(1, 64); }
+void* FunctionType(void) { return seen_try_calloc(1, 64); }
+void* ClassType(void) { return seen_try_calloc(1, 64); }
+void* InterfaceType(void) { return seen_try_calloc(1, 64); }
+void* Location(void) { return seen_try_calloc(1, 32); }
 
 // TypeError methods are now defined in compiler_seen/src/typechecker/interfaces.seen
 // as a proper Seen class with full implementations; stubs removed to avoid duplicate symbols.
@@ -3139,26 +3160,22 @@ void* Location(void) { return malloc(32); }
 
 SEEN_WEAK void* TypeNode_new(void) {
     // Simple struct with name field
-    void* node = malloc(64);
-    memset(node, 0, 64);
+    void* node = seen_try_calloc(1, 64);
     return node;
 }
 
 SEEN_WEAK void* ItemNode_new(void) {
-    void* node = malloc(256);
-    memset(node, 0, 256);
+    void* node = seen_try_calloc(1, 256);
     return node;
 }
 
 SEEN_WEAK void* ParamNode_new(void) {
-    void* node = malloc(128);
-    memset(node, 0, 128);
+    void* node = seen_try_calloc(1, 128);
     return node;
 }
 
 SEEN_WEAK void* ImportSymbolNode_new(void) {
-    void* node = malloc(64);
-    memset(node, 0, 64);
+    void* node = seen_try_calloc(1, 64);
     return node;
 }
 
@@ -3225,7 +3242,7 @@ SeenString __ReadStdinLine(void) {
 #ifdef _WIN32
     // getline is not available on Windows/mingw; use fgets with dynamic buffer
     size_t capacity = 256;
-    char* buffer = (char*)malloc(capacity);
+    char* buffer = (char*)seen_try_malloc((int64_t)capacity);
     if (!buffer) { SeenString empty = { 0, "" }; return empty; }
     size_t len = 0;
     while (1) {
@@ -3236,9 +3253,16 @@ SeenString __ReadStdinLine(void) {
         len = strlen(buffer);
         if (len > 0 && buffer[len - 1] == '\n') break;
         if (len + 1 >= capacity) {
+            size_t old_capacity = capacity;
             capacity *= 2;
-            buffer = (char*)realloc(buffer, capacity);
-            if (!buffer) { SeenString empty = { 0, "" }; return empty; }
+            char* grown = (char*)seen_try_realloc(buffer, (int64_t)old_capacity,
+                (int64_t)capacity);
+            if (!grown) {
+                seen_runtime_free_budgeted(buffer, (int64_t)old_capacity);
+                SeenString empty = { 0, "" };
+                return empty;
+            }
+            buffer = grown;
         }
     }
     SeenString result = { (int64_t)len, buffer };
@@ -3269,11 +3293,7 @@ SeenString __ReadStdinBytes(int64_t count) {
         return empty;
     }
 
-    char* buffer = (char*)malloc(count + 1);
-    if (!buffer) {
-        SeenString empty = { 0, "" };
-        return empty;
-    }
+    char* buffer = seen_runtime_alloc_chars(count, "__ReadStdinBytes");
 
     size_t total_read = 0;
     while (total_read < (size_t)count) {
@@ -7013,16 +7033,16 @@ typedef struct {
 } SeenLinkedList;
 
 void* LinkedList_new(void) {
-    SeenLinkedList* ll = (SeenLinkedList*)malloc(sizeof(SeenLinkedList));
-    ll->head = NULL;
-    ll->tail = NULL;
-    ll->length = 0;
+    SeenLinkedList* ll = (SeenLinkedList*)seen_try_calloc(
+        1, sizeof(SeenLinkedList));
+    if (!ll) return NULL;
     return ll;
 }
 
 void LinkedList_pushFront(void* llPtr, int64_t value) {
     SeenLinkedList* ll = (SeenLinkedList*)llPtr;
-    LLNode* node = (LLNode*)malloc(sizeof(LLNode));
+    LLNode* node = (LLNode*)seen_try_malloc(sizeof(LLNode));
+    if (!node) seen_oom_abort("LinkedList node", sizeof(LLNode));
     node->value = value;
     node->prev = NULL;
     node->next = ll->head;
@@ -7034,7 +7054,8 @@ void LinkedList_pushFront(void* llPtr, int64_t value) {
 
 void LinkedList_pushBack(void* llPtr, int64_t value) {
     SeenLinkedList* ll = (SeenLinkedList*)llPtr;
-    LLNode* node = (LLNode*)malloc(sizeof(LLNode));
+    LLNode* node = (LLNode*)seen_try_malloc(sizeof(LLNode));
+    if (!node) seen_oom_abort("LinkedList node", sizeof(LLNode));
     node->value = value;
     node->prev = ll->tail;
     node->next = NULL;
@@ -7053,7 +7074,7 @@ int64_t LinkedList_popFront(void* llPtr) {
     if (ll->head) ll->head->prev = NULL;
     else ll->tail = NULL;
     ll->length--;
-    free(node);
+    seen_runtime_free_budgeted(node, sizeof(LLNode));
     return BTreeMap_make_some(val);
 }
 
@@ -7066,7 +7087,7 @@ int64_t LinkedList_popBack(void* llPtr) {
     if (ll->tail) ll->tail->next = NULL;
     else ll->head = NULL;
     ll->length--;
-    free(node);
+    seen_runtime_free_budgeted(node, sizeof(LLNode));
     return BTreeMap_make_some(val);
 }
 
@@ -7100,7 +7121,7 @@ void LinkedList_removeNode(void* llPtr, void* nodePtr) {
     if (node->next) node->next->prev = node->prev;
     else ll->tail = node->prev;
     ll->length--;
-    free(node);
+    seen_runtime_free_budgeted(node, sizeof(LLNode));
 }
 
 void LinkedList_clear(void* llPtr) {
@@ -7108,7 +7129,7 @@ void LinkedList_clear(void* llPtr) {
     LLNode* cur = ll->head;
     while (cur) {
         LLNode* next = cur->next;
-        free(cur);
+        seen_runtime_free_budgeted(cur, sizeof(LLNode));
         cur = next;
     }
     ll->head = NULL;
@@ -7133,16 +7154,15 @@ typedef struct {
 } SeenLinkedListStr;
 
 void* LinkedList_new_str(void) {
-    SeenLinkedListStr* ll = (SeenLinkedListStr*)malloc(sizeof(SeenLinkedListStr));
-    ll->head = NULL;
-    ll->tail = NULL;
-    ll->length = 0;
+    SeenLinkedListStr* ll = (SeenLinkedListStr*)seen_try_calloc(
+        1, sizeof(SeenLinkedListStr));
     return ll;
 }
 
 void LinkedList_pushFront_str(void* llPtr, SeenString value) {
     SeenLinkedListStr* ll = (SeenLinkedListStr*)llPtr;
-    LLNodeStr* node = (LLNodeStr*)malloc(sizeof(LLNodeStr));
+    LLNodeStr* node = (LLNodeStr*)seen_try_malloc(sizeof(LLNodeStr));
+    if (!node) seen_oom_abort("LinkedList<String> node", sizeof(LLNodeStr));
     node->value = value;
     node->prev = NULL;
     node->next = ll->head;
@@ -7154,7 +7174,8 @@ void LinkedList_pushFront_str(void* llPtr, SeenString value) {
 
 void LinkedList_pushBack_str(void* llPtr, SeenString value) {
     SeenLinkedListStr* ll = (SeenLinkedListStr*)llPtr;
-    LLNodeStr* node = (LLNodeStr*)malloc(sizeof(LLNodeStr));
+    LLNodeStr* node = (LLNodeStr*)seen_try_malloc(sizeof(LLNodeStr));
+    if (!node) seen_oom_abort("LinkedList<String> node", sizeof(LLNodeStr));
     node->value = value;
     node->prev = ll->tail;
     node->next = NULL;
@@ -7173,7 +7194,7 @@ int64_t LinkedList_popFront_str(void* llPtr) {
     if (ll->head) ll->head->prev = NULL;
     else ll->tail = NULL;
     ll->length--;
-    free(node);
+    seen_runtime_free_budgeted(node, sizeof(LLNodeStr));
     return BTreeMap_make_some_str(val);
 }
 
@@ -7186,7 +7207,7 @@ int64_t LinkedList_popBack_str(void* llPtr) {
     if (ll->tail) ll->tail->next = NULL;
     else ll->head = NULL;
     ll->length--;
-    free(node);
+    seen_runtime_free_budgeted(node, sizeof(LLNodeStr));
     return BTreeMap_make_some_str(val);
 }
 
@@ -7217,7 +7238,7 @@ void LinkedList_clear_str(void* llPtr) {
     LLNodeStr* cur = ll->head;
     while (cur) {
         LLNodeStr* next = cur->next;
-        free(cur);
+        seen_runtime_free_budgeted(cur, sizeof(LLNodeStr));
         cur = next;
     }
     ll->head = NULL;
@@ -7233,7 +7254,8 @@ typedef struct { pthread_mutex_t m; } SeenMutex;
 
 // Allocate and initialize a new mutex. Returns opaque handle (cast to int64_t).
 int64_t __MutexCreate(void) {
-    SeenMutex* mtx = (SeenMutex*)malloc(sizeof(SeenMutex));
+    SeenMutex* mtx = (SeenMutex*)seen_try_malloc(sizeof(SeenMutex));
+    if (!mtx) return 0;
     pthread_mutex_init(&mtx->m, NULL);
     return (int64_t)(uintptr_t)mtx;
 }
@@ -7242,7 +7264,7 @@ int64_t __MutexCreate(void) {
 void __MutexDestroy(int64_t handle) {
     SeenMutex* mtx = (SeenMutex*)(uintptr_t)handle;
     pthread_mutex_destroy(&mtx->m);
-    free(mtx);
+    seen_runtime_free_budgeted(mtx, sizeof(SeenMutex));
 }
 
 // Acquire the mutex, blocking until available.
@@ -7273,7 +7295,8 @@ int64_t __MutexTryLock(int64_t handle) {
 
 // Allocate a heap int64_t for AtomicInt/AtomicBool handle pattern.
 int64_t __AtomicAlloc(int64_t initial) {
-    int64_t* p = (int64_t*)malloc(sizeof(int64_t));
+    int64_t* p = (int64_t*)seen_try_malloc(sizeof(int64_t));
+    if (!p) return 0;
     __atomic_store_n(p, initial, __ATOMIC_SEQ_CST);
     return (int64_t)(uintptr_t)p;
 }
@@ -7388,20 +7411,25 @@ typedef struct {
 static void* seen_thread_runner(void* raw) {
     SeenThreadArg* a = (SeenThreadArg*)raw;
     a->fn(a->arg);
-    free(a);
+    seen_runtime_free_budgeted(a, sizeof(SeenThreadArg));
     return NULL;
 }
 
 // Create a new thread that calls fn(arg). Returns opaque thread handle, or 0 on failure.
 // fn_ptr is cast from an int64_t function pointer (unsafe, for internal use only).
 int64_t __RawThreadCreate(int64_t fn_ptr, int64_t arg) {
-    pthread_t* t = (pthread_t*)malloc(sizeof(pthread_t));
-    SeenThreadArg* a = (SeenThreadArg*)malloc(sizeof(SeenThreadArg));
+    pthread_t* t = (pthread_t*)seen_try_malloc(sizeof(pthread_t));
+    if (!t) return 0;
+    SeenThreadArg* a = (SeenThreadArg*)seen_try_malloc(sizeof(SeenThreadArg));
+    if (!a) {
+        seen_runtime_free_budgeted(t, sizeof(pthread_t));
+        return 0;
+    }
     a->fn = (int64_t (*)(int64_t))fn_ptr;
     a->arg = arg;
     if (pthread_create(t, NULL, seen_thread_runner, a) != 0) {
-        free(t);
-        free(a);
+        seen_runtime_free_budgeted(t, sizeof(pthread_t));
+        seen_runtime_free_budgeted(a, sizeof(SeenThreadArg));
         return 0;
     }
     return (int64_t)(uintptr_t)t;
@@ -7411,7 +7439,7 @@ int64_t __RawThreadCreate(int64_t fn_ptr, int64_t arg) {
 int64_t __RawThreadJoin(int64_t handle) {
     pthread_t* t = (pthread_t*)(uintptr_t)handle;
     pthread_join(*t, NULL);
-    free(t);
+    seen_runtime_free_budgeted(t, sizeof(pthread_t));
     return 0;
 }
 
@@ -7697,7 +7725,9 @@ typedef struct {
 
 // flags: 0 = read-only file, 1 = read-write file, 2 = anonymous rw
 int64_t seen_mapped_new(int64_t path_len, char *path_data, int64_t size, int64_t flags) {
-    SeenMappedRegion *mr = (SeenMappedRegion *)malloc(sizeof(SeenMappedRegion));
+    if (size <= 0) return 0;
+    SeenMappedRegion *mr = (SeenMappedRegion *)seen_try_malloc(
+        sizeof(SeenMappedRegion));
     if (!mr) return 0;
     mr->length = (size_t)size;
     mr->fd = -1;
@@ -7717,13 +7747,20 @@ int64_t seen_mapped_new(int64_t path_len, char *path_data, int64_t size, int64_t
         DWORD share = FILE_SHARE_READ;
         HANDLE hFile = CreateFileA(pathbuf, access, share, NULL, OPEN_EXISTING,
                                    FILE_ATTRIBUTE_NORMAL, NULL);
-        if (hFile == INVALID_HANDLE_VALUE) { free(mr); return 0; }
+        if (hFile == INVALID_HANDLE_VALUE) {
+            seen_runtime_free_budgeted(mr, sizeof(SeenMappedRegion));
+            return 0;
+        }
 
         DWORD fProtect = (flags == 1) ? PAGE_READWRITE : PAGE_READONLY;
         HANDLE hMap = CreateFileMappingA(hFile, NULL, fProtect,
                                          (DWORD)(mr->length >> 32),
                                          (DWORD)(mr->length & 0xFFFFFFFF), NULL);
-        if (!hMap) { CloseHandle(hFile); free(mr); return 0; }
+        if (!hMap) {
+            CloseHandle(hFile);
+            seen_runtime_free_budgeted(mr, sizeof(SeenMappedRegion));
+            return 0;
+        }
 
         DWORD mapAccess = (flags == 1) ? FILE_MAP_WRITE : FILE_MAP_READ;
         mr->addr = MapViewOfFile(hMap, mapAccess, 0, 0, mr->length);
@@ -7733,7 +7770,7 @@ int64_t seen_mapped_new(int64_t path_len, char *path_data, int64_t size, int64_t
     }
     if (!mr->addr) {
         if (mr->fd >= 0) CloseHandle((HANDLE)(intptr_t)mr->fd);
-        free(mr);
+        seen_runtime_free_budgeted(mr, sizeof(SeenMappedRegion));
         return 0;
     }
 #else
@@ -7750,7 +7787,10 @@ int64_t seen_mapped_new(int64_t path_len, char *path_data, int64_t size, int64_t
 
         int oflags = (flags == 1) ? O_RDWR : O_RDONLY;
         mr->fd = open(pathbuf, oflags);
-        if (mr->fd < 0) { free(mr); return 0; }
+        if (mr->fd < 0) {
+            seen_runtime_free_budgeted(mr, sizeof(SeenMappedRegion));
+            return 0;
+        }
 
         int prot = PROT_READ | ((flags == 1) ? PROT_WRITE : 0);
         int mflags = (flags == 1) ? MAP_SHARED : MAP_PRIVATE;
@@ -7759,7 +7799,7 @@ int64_t seen_mapped_new(int64_t path_len, char *path_data, int64_t size, int64_t
 
     if (mr->addr == MAP_FAILED) {
         if (mr->fd >= 0) close(mr->fd);
-        free(mr);
+        seen_runtime_free_budgeted(mr, sizeof(SeenMappedRegion));
         return 0;
     }
 #endif
@@ -7790,7 +7830,7 @@ void seen_mapped_free(int64_t handle) {
         munmap(mr->addr, mr->length);
         if (mr->fd >= 0) close(mr->fd);
 #endif
-        free(mr);
+        seen_runtime_free_budgeted(mr, sizeof(SeenMappedRegion));
     }
 }
 
@@ -7808,7 +7848,7 @@ int64_t seen_mapped_length(int64_t handle) {
 typedef struct { SRWLOCK rw; } SeenRwLock;
 
 int64_t seen_rwlock_new(void) {
-    SeenRwLock *l = (SeenRwLock *)malloc(sizeof(SeenRwLock));
+    SeenRwLock *l = (SeenRwLock *)seen_try_malloc(sizeof(SeenRwLock));
     if (!l) return 0;
     InitializeSRWLock(&l->rw);
     return (int64_t)(uintptr_t)l;
@@ -7837,13 +7877,13 @@ void seen_rwlock_write_unlock(int64_t handle) {
 void seen_rwlock_destroy(int64_t handle) {
     SeenRwLock *l = (SeenRwLock *)(uintptr_t)handle;
     // SRWLOCK has no destroy function
-    if (l) free(l);
+    seen_runtime_free_budgeted(l, sizeof(SeenRwLock));
 }
 #else
 typedef struct { pthread_rwlock_t rw; } SeenRwLock;
 
 int64_t seen_rwlock_new(void) {
-    SeenRwLock *l = (SeenRwLock *)malloc(sizeof(SeenRwLock));
+    SeenRwLock *l = (SeenRwLock *)seen_try_malloc(sizeof(SeenRwLock));
     if (!l) return 0;
     pthread_rwlock_init(&l->rw, NULL);
     return (int64_t)(uintptr_t)l;
@@ -7871,7 +7911,10 @@ void seen_rwlock_write_unlock(int64_t handle) {
 
 void seen_rwlock_destroy(int64_t handle) {
     SeenRwLock *l = (SeenRwLock *)(uintptr_t)handle;
-    if (l) { pthread_rwlock_destroy(&l->rw); free(l); }
+    if (l) {
+        pthread_rwlock_destroy(&l->rw);
+        seen_runtime_free_budgeted(l, sizeof(SeenRwLock));
+    }
 }
 #endif
 
@@ -7890,7 +7933,7 @@ typedef struct {
 } SeenBarrier;
 
 int64_t seen_barrier_new(int64_t count) {
-    SeenBarrier *b = (SeenBarrier *)malloc(sizeof(SeenBarrier));
+    SeenBarrier *b = (SeenBarrier *)seen_try_malloc(sizeof(SeenBarrier));
     if (!b) return 0;
     InitializeCriticalSection(&b->lock);
     InitializeConditionVariable(&b->cond);
@@ -7923,7 +7966,7 @@ void seen_barrier_destroy(int64_t handle) {
     SeenBarrier *b = (SeenBarrier *)(uintptr_t)handle;
     if (b) {
         DeleteCriticalSection(&b->lock);
-        free(b);
+        seen_runtime_free_budgeted(b, sizeof(SeenBarrier));
     }
 }
 #else
@@ -7972,7 +8015,7 @@ static void seen_pthread_barrier_destroy(seen_pthread_barrier_t *b) {
 typedef struct { seen_pthread_barrier_t b; } SeenBarrier;
 
 int64_t seen_barrier_new(int64_t count) {
-    SeenBarrier *b = (SeenBarrier *)malloc(sizeof(SeenBarrier));
+    SeenBarrier *b = (SeenBarrier *)seen_try_malloc(sizeof(SeenBarrier));
     if (!b) return 0;
     seen_pthread_barrier_init(&b->b, (unsigned)count);
     return (int64_t)(uintptr_t)b;
@@ -7986,13 +8029,16 @@ int64_t seen_barrier_wait(int64_t handle) {
 
 void seen_barrier_destroy(int64_t handle) {
     SeenBarrier *b = (SeenBarrier *)(uintptr_t)handle;
-    if (b) { seen_pthread_barrier_destroy(&b->b); free(b); }
+    if (b) {
+        seen_pthread_barrier_destroy(&b->b);
+        seen_runtime_free_budgeted(b, sizeof(SeenBarrier));
+    }
 }
 #else
 typedef struct { pthread_barrier_t b; } SeenBarrier;
 
 int64_t seen_barrier_new(int64_t count) {
-    SeenBarrier *b = (SeenBarrier *)malloc(sizeof(SeenBarrier));
+    SeenBarrier *b = (SeenBarrier *)seen_try_malloc(sizeof(SeenBarrier));
     if (!b) return 0;
     pthread_barrier_init(&b->b, NULL, (unsigned)count);
     return (int64_t)(uintptr_t)b;
@@ -8006,7 +8052,10 @@ int64_t seen_barrier_wait(int64_t handle) {
 
 void seen_barrier_destroy(int64_t handle) {
     SeenBarrier *b = (SeenBarrier *)(uintptr_t)handle;
-    if (b) { pthread_barrier_destroy(&b->b); free(b); }
+    if (b) {
+        pthread_barrier_destroy(&b->b);
+        seen_runtime_free_budgeted(b, sizeof(SeenBarrier));
+    }
 }
 #endif
 #endif
@@ -8193,7 +8242,7 @@ int64_t seen_ws_pool_new(int64_t nworkers) {
     int n = (int)nworkers;
     if (n <= 0) n = 4;
     if (n > 255) n = 255; // packed encoding limit
-    SeenWSPool *pool = (SeenWSPool *)calloc(1, sizeof(SeenWSPool));
+    SeenWSPool *pool = (SeenWSPool *)seen_try_calloc(1, sizeof(SeenWSPool));
     if (!pool) return 0;
     pool->nworkers = n;
     pool->shutdown = 0;
@@ -8201,8 +8250,22 @@ int64_t seen_ws_pool_new(int64_t nworkers) {
     pool->submit_bottom = 0;
     pthread_mutex_init(&pool->submit_lock, NULL);
     pthread_cond_init(&pool->submit_cond, NULL);
-    pool->deques  = (SeenDeque *)calloc((size_t)n, sizeof(SeenDeque));
-    pool->threads = (pthread_t *)calloc((size_t)n, sizeof(pthread_t));
+    pool->deques = (SeenDeque *)seen_try_calloc(n, sizeof(SeenDeque));
+    pool->threads = (pthread_t *)seen_try_calloc(n, sizeof(pthread_t));
+    if (!pool->deques || !pool->threads) {
+        if (pool->deques) {
+            seen_runtime_free_budgeted(pool->deques,
+                (int64_t)n * (int64_t)sizeof(SeenDeque));
+        }
+        if (pool->threads) {
+            seen_runtime_free_budgeted(pool->threads,
+                (int64_t)n * (int64_t)sizeof(pthread_t));
+        }
+        pthread_mutex_destroy(&pool->submit_lock);
+        pthread_cond_destroy(&pool->submit_cond);
+        seen_runtime_free_budgeted(pool, sizeof(SeenWSPool));
+        return 0;
+    }
     for (int i = 0; i < n; i++) deque_init(&pool->deques[i]);
     for (int i = 0; i < n; i++) {
         int64_t packed = (int64_t)(uintptr_t)pool | (int64_t)i;
@@ -8240,9 +8303,11 @@ void seen_ws_pool_shutdown(int64_t pool_handle) {
     }
     pthread_mutex_destroy(&pool->submit_lock);
     pthread_cond_destroy(&pool->submit_cond);
-    free(pool->deques);
-    free(pool->threads);
-    free(pool);
+    seen_runtime_free_budgeted(pool->deques,
+        (int64_t)pool->nworkers * (int64_t)sizeof(SeenDeque));
+    seen_runtime_free_budgeted(pool->threads,
+        (int64_t)pool->nworkers * (int64_t)sizeof(pthread_t));
+    seen_runtime_free_budgeted(pool, sizeof(SeenWSPool));
 }
 
 // ============================================================================
@@ -8281,8 +8346,22 @@ void seen_parallel_for(int64_t start, int64_t end, int64_t fn_ptr, int64_t nthre
         return;
     }
 
-    pthread_t* threads = (pthread_t*)malloc(sizeof(pthread_t) * nt);
-    SeenPForArgs* args = (SeenPForArgs*)malloc(sizeof(SeenPForArgs) * nt);
+    pthread_t* threads = (pthread_t*)seen_try_malloc(
+        (int64_t)sizeof(pthread_t) * nt);
+    SeenPForArgs* args = (SeenPForArgs*)seen_try_malloc(
+        (int64_t)sizeof(SeenPForArgs) * nt);
+    if (!threads || !args) {
+        if (threads) {
+            seen_runtime_free_budgeted(threads,
+                (int64_t)sizeof(pthread_t) * nt);
+        }
+        if (args) {
+            seen_runtime_free_budgeted(args,
+                (int64_t)sizeof(SeenPForArgs) * nt);
+        }
+        for (int64_t i = start; i < end; i++) body(i);
+        return;
+    }
     int64_t chunk = range / nt;
     int64_t remainder = range % nt;
     int64_t cur = start;
@@ -8297,8 +8376,8 @@ void seen_parallel_for(int64_t start, int64_t end, int64_t fn_ptr, int64_t nthre
     for (int64_t t = 0; t < nt; t++) {
         pthread_join(threads[t], NULL);
     }
-    free(threads);
-    free(args);
+    seen_runtime_free_budgeted(threads, (int64_t)sizeof(pthread_t) * nt);
+    seen_runtime_free_budgeted(args, (int64_t)sizeof(SeenPForArgs) * nt);
 }
 
 // ============================================================================
@@ -8321,8 +8400,15 @@ int64_t seen_atomic_queue_new(int64_t capacity) {
     while (cap < capacity) cap <<= 1;
     if (cap < 16) cap = 16;
 
-    SeenAtomicQueue* q = (SeenAtomicQueue*)calloc(1, sizeof(SeenAtomicQueue));
-    q->slots = (int64_t*)calloc(cap, sizeof(int64_t));
+    if (cap > INT64_MAX / (int64_t)sizeof(int64_t)) return 0;
+    SeenAtomicQueue* q = (SeenAtomicQueue*)seen_try_calloc(
+        1, sizeof(SeenAtomicQueue));
+    if (!q) return 0;
+    q->slots = (int64_t*)seen_try_calloc(cap, sizeof(int64_t));
+    if (!q->slots) {
+        seen_runtime_free_budgeted(q, sizeof(SeenAtomicQueue));
+        return 0;
+    }
     __atomic_store_n(&q->head, 0, __ATOMIC_RELAXED);
     __atomic_store_n(&q->tail, 0, __ATOMIC_RELAXED);
     q->mask = cap - 1;
@@ -8363,8 +8449,10 @@ int64_t seen_atomic_queue_pop(int64_t handle) {
 
 void seen_atomic_queue_destroy(int64_t handle) {
     SeenAtomicQueue* q = (SeenAtomicQueue*)(uintptr_t)handle;
-    free(q->slots);
-    free(q);
+    if (!q) return;
+    seen_runtime_free_budgeted(q->slots,
+        q->capacity * (int64_t)sizeof(int64_t));
+    seen_runtime_free_budgeted(q, sizeof(SeenAtomicQueue));
 }
 
 // Treiber Stack — CAS linked list
@@ -8378,14 +8466,18 @@ typedef struct {
 } SeenAtomicStack;
 
 int64_t seen_atomic_stack_new(void) {
-    SeenAtomicStack* s = (SeenAtomicStack*)calloc(1, sizeof(SeenAtomicStack));
+    SeenAtomicStack* s = (SeenAtomicStack*)seen_try_calloc(
+        1, sizeof(SeenAtomicStack));
+    if (!s) return 0;
     __atomic_store_n(&s->top, NULL, __ATOMIC_RELAXED);
     return (int64_t)(uintptr_t)s;
 }
 
 void seen_atomic_stack_push(int64_t handle, int64_t value) {
     SeenAtomicStack* s = (SeenAtomicStack*)(uintptr_t)handle;
-    SeenAStackNode* node = (SeenAStackNode*)malloc(sizeof(SeenAStackNode));
+    SeenAStackNode* node = (SeenAStackNode*)seen_try_malloc(
+        sizeof(SeenAStackNode));
+    if (!node) seen_oom_abort("atomic stack node", sizeof(SeenAStackNode));
     node->value = value;
     node->next = __atomic_load_n(&s->top, __ATOMIC_RELAXED);
     while (!__atomic_compare_exchange_n(&s->top, &node->next, node, 1,
@@ -8399,9 +8491,9 @@ int64_t seen_atomic_stack_pop(int64_t handle) {
     SeenAStackNode* top = __atomic_load_n(&s->top, __ATOMIC_ACQUIRE);
     while (top != NULL) {
         if (__atomic_compare_exchange_n(&s->top, &top, top->next, 1,
-                __ATOMIC_ACQ_REL, __ATOMIC_RELAXED)) {
+            __ATOMIC_ACQ_REL, __ATOMIC_RELAXED)) {
             int64_t val = top->value;
-            free(top);
+            seen_runtime_free_budgeted(top, sizeof(SeenAStackNode));
             return val;
         }
         // retry — top updated by CAS
@@ -8414,10 +8506,10 @@ void seen_atomic_stack_destroy(int64_t handle) {
     SeenAStackNode* node = __atomic_load_n(&s->top, __ATOMIC_RELAXED);
     while (node) {
         SeenAStackNode* next = node->next;
-        free(node);
+        seen_runtime_free_budgeted(node, sizeof(SeenAStackNode));
         node = next;
     }
-    free(s);
+    seen_runtime_free_budgeted(s, sizeof(SeenAtomicStack));
 }
 
 // ============================================================================
@@ -9118,10 +9210,8 @@ SeenString seen_json_decode_string(SeenString raw) {
         return empty;
     }
 
-    char* out = (char*)malloc((size_t)trimmed.len);
-    if (!out) {
-        return empty;
-    }
+    char* out = seen_runtime_alloc_chars(trimmed.len - 2,
+        "seen_json_decode_string");
 
     int64_t out_len = 0;
     for (int64_t i = 1; i < trimmed.len - 1; i++) {
@@ -9296,7 +9386,7 @@ void seen_stack_overflow_panic(void) {
 // ============================================================================
 
 int64_t seen_small_vec_new(int64_t inline_capacity) {
-    SeenSmallVec *sv = (SeenSmallVec *)malloc(sizeof(SeenSmallVec));
+    SeenSmallVec *sv = (SeenSmallVec *)seen_try_malloc(sizeof(SeenSmallVec));
     if (!sv) return 0;
     sv->data = NULL;
     memset(sv->inline_buf, 0, sizeof(sv->inline_buf));
@@ -9310,17 +9400,24 @@ static void sv_ensure_capacity(SeenSmallVec *sv, int64_t needed) {
     if (needed <= sv->capacity) return;
     int64_t new_cap = sv->capacity * 2;
     if (new_cap < needed) new_cap = needed;
+    if (new_cap <= 0 || new_cap > INT64_MAX / (int64_t)sizeof(int64_t)) {
+        seen_oom_abort("SmallVec capacity overflow", new_cap);
+    }
+    int64_t new_bytes = new_cap * (int64_t)sizeof(int64_t);
     if (sv->data == NULL) {
         // Transition from inline to heap
-        sv->data = (int64_t *)malloc(new_cap * sizeof(int64_t));
-        if (!sv->data) return;
+        sv->data = (int64_t *)seen_try_malloc(new_bytes);
+        if (!sv->data) seen_oom_abort("SmallVec heap storage", new_bytes);
         // Copy inline data to heap
         for (int64_t i = 0; i < sv->length; i++) {
             sv->data[i] = sv->inline_buf[i];
         }
     } else {
-        sv->data = (int64_t *)realloc(sv->data, new_cap * sizeof(int64_t));
-        if (!sv->data) return;
+        int64_t old_bytes = sv->capacity * (int64_t)sizeof(int64_t);
+        int64_t* grown = (int64_t *)seen_try_realloc(
+            sv->data, old_bytes, new_bytes);
+        if (!grown) seen_oom_abort("SmallVec heap growth", new_bytes);
+        sv->data = grown;
     }
     sv->capacity = new_cap;
 }
@@ -9373,7 +9470,8 @@ void seen_small_vec_clear(int64_t handle) {
     sv->length = 0;
     // If on heap, free and go back to inline
     if (sv->data) {
-        free(sv->data);
+        seen_runtime_free_budgeted(sv->data,
+            sv->capacity * (int64_t)sizeof(int64_t));
         sv->data = NULL;
         sv->capacity = sv->inline_cap;
     }
@@ -9387,8 +9485,19 @@ void seen_small_vec_clear(int64_t handle) {
 
 #define SEEN_BOOTSTRAP_WEAK SEEN_WEAK
 
-SEEN_BOOTSTRAP_WEAK int64_t seen_packed_chunk_create(int64_t size) { return (int64_t)calloc(1, (size_t)size); }
-SEEN_BOOTSTRAP_WEAK void seen_packed_chunk_free(int64_t ptr) { free((void*)ptr); }
+SEEN_BOOTSTRAP_WEAK int64_t seen_packed_chunk_create(int64_t size) {
+    if (size <= 0 || size > INT64_MAX - (int64_t)sizeof(int64_t)) return 0;
+    int64_t total = size + (int64_t)sizeof(int64_t);
+    int64_t* base = (int64_t*)seen_try_calloc(1, total);
+    if (!base) return 0;
+    *base = total;
+    return (int64_t)(base + 1);
+}
+SEEN_BOOTSTRAP_WEAK void seen_packed_chunk_free(int64_t ptr) {
+    if (!ptr) return;
+    int64_t* base = ((int64_t*)ptr) - 1;
+    seen_runtime_free_budgeted(base, *base);
+}
 SEEN_BOOTSTRAP_WEAK int64_t seen_packed_chunk_get(int64_t ptr, int64_t idx) { return ((int64_t*)ptr)[idx]; }
 SEEN_BOOTSTRAP_WEAK void seen_packed_chunk_set(int64_t ptr, int64_t idx, int64_t val) { ((int64_t*)ptr)[idx] = val; }
 SEEN_BOOTSTRAP_WEAK int64_t seen_rle_compress(int64_t data, int64_t len) { (void)data; (void)len; return 0; }
@@ -9406,12 +9515,14 @@ SEEN_WEAK void seen_vk_cmd_write_timestamp(int64_t a, int64_t b, int64_t c) { (v
 // Hearton engine string helpers (SeenString already typedef'd above)
 SeenString hearton_int_to_str(int64_t val) {
     char buf[32]; int n = snprintf(buf, sizeof(buf), "%ld", (long)val);
-    char* s = malloc(n + 1); memcpy(s, buf, n + 1);
+    char* s = seen_runtime_alloc_chars(n, "hearton_int_to_str");
+    memcpy(s, buf, (size_t)n + 1);
     return (SeenString){n, s};
 }
 SeenString hearton_float_to_str(double val) {
     char buf[64]; int n = snprintf(buf, sizeof(buf), "%.6f", val);
-    char* s = malloc(n + 1); memcpy(s, buf, n + 1);
+    char* s = seen_runtime_alloc_chars(n, "hearton_float_to_str");
+    memcpy(s, buf, (size_t)n + 1);
     return (SeenString){n, s};
 }
 int64_t seen_string_contains(int64_t s_len, char* s_data, int64_t sub_len, char* sub_data) {
@@ -9440,7 +9551,9 @@ SeenString seen_string_token(int64_t s_len, char* s_data, int64_t d_len, char* d
         if (s_data[i] == d_data[0]) { end = i; break; }
     }
     int64_t len = end - start;
-    char* r = malloc(len + 1); memcpy(r, s_data + start, len); r[len] = 0;
+    char* r = seen_runtime_alloc_chars(len, "seen_string_token");
+    memcpy(r, s_data + start, (size_t)len);
+    r[len] = 0;
     return (SeenString){len, r};
 }
 
@@ -9828,8 +9941,19 @@ SEEN_BOOTSTRAP_I64_STUB(seen_world_to_chunk_coord)
 #undef SEEN_BOOTSTRAP_I64_STUB
 
 // --- Memory utility stubs ---
-SEEN_WEAK int64_t seen_mem_alloc(int64_t a) { return (int64_t)calloc(1, (size_t)a); }
-SEEN_WEAK void seen_mem_free(int64_t a) { free((void*)a); }
+SEEN_WEAK int64_t seen_mem_alloc(int64_t a) {
+    if (a <= 0 || a > INT64_MAX - (int64_t)sizeof(int64_t)) return 0;
+    int64_t total = a + (int64_t)sizeof(int64_t);
+    int64_t* base = (int64_t*)seen_try_calloc(1, total);
+    if (!base) return 0;
+    *base = total;
+    return (int64_t)(base + 1);
+}
+SEEN_WEAK void seen_mem_free(int64_t a) {
+    if (!a) return;
+    int64_t* base = ((int64_t*)a) - 1;
+    seen_runtime_free_budgeted(base, *base);
+}
 SEEN_WEAK void seen_memcpy_bytes(int64_t dst, int64_t src, int64_t n) { if (dst && src && n > 0) memcpy((void*)dst, (void*)src, (size_t)n); }
 SEEN_WEAK void seen_memcpy_floats(int64_t dst, int64_t src, int64_t n) { if (dst && src && n > 0) memcpy((void*)dst, (void*)src, (size_t)n * sizeof(float)); }
 SEEN_WEAK void seen_memcpy_ints(int64_t dst, int64_t src, int64_t n) { if (dst && src && n > 0) memcpy((void*)dst, (void*)src, (size_t)n * sizeof(int64_t)); }
