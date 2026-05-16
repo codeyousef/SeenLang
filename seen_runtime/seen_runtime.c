@@ -5230,10 +5230,15 @@ typedef struct SeenArena {
 } SeenArena;
 
 void* seen_arena_new(int64_t capacity) {
-    SeenArena* arena = (SeenArena*)malloc(sizeof(SeenArena));
+    if (capacity <= 0 || capacity > UINT32_MAX) return NULL;
+    SeenArena* arena = (SeenArena*)seen_try_malloc(sizeof(SeenArena));
     if (!arena) return NULL;
-    arena->base = (char*)malloc((size_t)capacity);
-    if (!arena->base) { free(arena); return NULL; }
+    arena->base = (char*)seen_try_malloc(capacity);
+    if (!arena->base) {
+        free(arena);
+        seen_memory_release_reservation(sizeof(SeenArena));
+        return NULL;
+    }
     arena->offset = 0;
     arena->capacity = (uint32_t)capacity;
     return (void*)arena;
@@ -5268,7 +5273,9 @@ void seen_arena_reset(void* arenaPtr) {
 void seen_arena_free(void* arenaPtr) {
     SeenArena* arena = (SeenArena*)arenaPtr;
     if (!arena) return;
+    seen_memory_release_reservation(arena->capacity);
     free(arena->base);
+    seen_memory_release_reservation(sizeof(SeenArena));
     free(arena);
 }
 
@@ -5299,10 +5306,11 @@ typedef struct SeenLayoutProbe {
 } SeenLayoutProbe;
 
 void* seen_probe_new(SeenString tag) {
-    SeenLayoutProbe* probe = (SeenLayoutProbe*)calloc(1, sizeof(SeenLayoutProbe));
+    SeenLayoutProbe* probe =
+        (SeenLayoutProbe*)seen_try_calloc(1, sizeof(SeenLayoutProbe));
     if (!probe) return NULL;
     // Copy tag string
-    char* tag_copy = (char*)malloc(tag.len + 1);
+    char* tag_copy = seen_runtime_alloc_chars(tag.len, "layout probe tag");
     memcpy(tag_copy, tag.data, tag.len);
     tag_copy[tag.len] = '\0';
     probe->tag = tag_copy;
@@ -5348,7 +5356,11 @@ void seen_probe_report(void* probePtr) {
 void seen_probe_free(void* probePtr) {
     SeenLayoutProbe* probe = (SeenLayoutProbe*)probePtr;
     if (!probe) return;
+    if (probe->tag) {
+        seen_memory_release_reservation((int64_t)strlen(probe->tag) + 1);
+    }
     free((void*)probe->tag);
+    seen_memory_release_reservation(sizeof(SeenLayoutProbe));
     free(probe);
 }
 
@@ -5725,43 +5737,50 @@ void seen_simd_prefix_sum(void* arr_data, int64_t len) {
 // --- 4-wide float (NEON) ---
 
 void* seen_simd_f4_splat(double val) {
-    float32x4_t* r = (float32x4_t*)malloc(sizeof(float32x4_t));
+    float32x4_t* r = (float32x4_t*)seen_simd_alloc(
+        (int64_t)sizeof(float32x4_t), 16, "SIMD f4 neon");
     *r = vdupq_n_f32((float)val);
     return r;
 }
 
 void* seen_simd_f4_add(void* a, void* b) {
-    float32x4_t* r = (float32x4_t*)malloc(sizeof(float32x4_t));
+    float32x4_t* r = (float32x4_t*)seen_simd_alloc(
+        (int64_t)sizeof(float32x4_t), 16, "SIMD f4 neon");
     *r = vaddq_f32(*(float32x4_t*)a, *(float32x4_t*)b);
     return r;
 }
 
 void* seen_simd_f4_sub(void* a, void* b) {
-    float32x4_t* r = (float32x4_t*)malloc(sizeof(float32x4_t));
+    float32x4_t* r = (float32x4_t*)seen_simd_alloc(
+        (int64_t)sizeof(float32x4_t), 16, "SIMD f4 neon");
     *r = vsubq_f32(*(float32x4_t*)a, *(float32x4_t*)b);
     return r;
 }
 
 void* seen_simd_f4_mul(void* a, void* b) {
-    float32x4_t* r = (float32x4_t*)malloc(sizeof(float32x4_t));
+    float32x4_t* r = (float32x4_t*)seen_simd_alloc(
+        (int64_t)sizeof(float32x4_t), 16, "SIMD f4 neon");
     *r = vmulq_f32(*(float32x4_t*)a, *(float32x4_t*)b);
     return r;
 }
 
 void* seen_simd_f4_div(void* a, void* b) {
-    float32x4_t* r = (float32x4_t*)malloc(sizeof(float32x4_t));
+    float32x4_t* r = (float32x4_t*)seen_simd_alloc(
+        (int64_t)sizeof(float32x4_t), 16, "SIMD f4 neon");
     *r = vdivq_f32(*(float32x4_t*)a, *(float32x4_t*)b);
     return r;
 }
 
 void* seen_simd_f4_min(void* a, void* b) {
-    float32x4_t* r = (float32x4_t*)malloc(sizeof(float32x4_t));
+    float32x4_t* r = (float32x4_t*)seen_simd_alloc(
+        (int64_t)sizeof(float32x4_t), 16, "SIMD f4 neon");
     *r = vminq_f32(*(float32x4_t*)a, *(float32x4_t*)b);
     return r;
 }
 
 void* seen_simd_f4_max(void* a, void* b) {
-    float32x4_t* r = (float32x4_t*)malloc(sizeof(float32x4_t));
+    float32x4_t* r = (float32x4_t*)seen_simd_alloc(
+        (int64_t)sizeof(float32x4_t), 16, "SIMD f4 neon");
     *r = vmaxq_f32(*(float32x4_t*)a, *(float32x4_t*)b);
     return r;
 }
@@ -5777,7 +5796,8 @@ double seen_simd_f4_dot(void* a, void* b) {
 }
 
 void* seen_simd_f4_load(void* ptr) {
-    float32x4_t* r = (float32x4_t*)malloc(sizeof(float32x4_t));
+    float32x4_t* r = (float32x4_t*)seen_simd_alloc(
+        (int64_t)sizeof(float32x4_t), 16, "SIMD f4 neon");
     *r = vld1q_f32((float*)ptr);
     return r;
 }
@@ -5789,14 +5809,16 @@ void seen_simd_f4_store(void* vec, void* ptr) {
 // --- 8-wide float (emulated with 2x NEON on AArch64) ---
 
 void* seen_simd_f8_splat(double val) {
-    float32x4_t* r = (float32x4_t*)malloc(2 * sizeof(float32x4_t));
+    float32x4_t* r = (float32x4_t*)seen_simd_alloc(
+        (int64_t)(2 * sizeof(float32x4_t)), 16, "SIMD f8 neon");
     r[0] = vdupq_n_f32((float)val);
     r[1] = vdupq_n_f32((float)val);
     return r;
 }
 
 void* seen_simd_f8_add(void* a, void* b) {
-    float32x4_t* r = (float32x4_t*)malloc(2 * sizeof(float32x4_t));
+    float32x4_t* r = (float32x4_t*)seen_simd_alloc(
+        (int64_t)(2 * sizeof(float32x4_t)), 16, "SIMD f8 neon");
     float32x4_t* va = (float32x4_t*)a;
     float32x4_t* vb = (float32x4_t*)b;
     r[0] = vaddq_f32(va[0], vb[0]);
@@ -5805,7 +5827,8 @@ void* seen_simd_f8_add(void* a, void* b) {
 }
 
 void* seen_simd_f8_sub(void* a, void* b) {
-    float32x4_t* r = (float32x4_t*)malloc(2 * sizeof(float32x4_t));
+    float32x4_t* r = (float32x4_t*)seen_simd_alloc(
+        (int64_t)(2 * sizeof(float32x4_t)), 16, "SIMD f8 neon");
     float32x4_t* va = (float32x4_t*)a;
     float32x4_t* vb = (float32x4_t*)b;
     r[0] = vsubq_f32(va[0], vb[0]);
@@ -5814,7 +5837,8 @@ void* seen_simd_f8_sub(void* a, void* b) {
 }
 
 void* seen_simd_f8_mul(void* a, void* b) {
-    float32x4_t* r = (float32x4_t*)malloc(2 * sizeof(float32x4_t));
+    float32x4_t* r = (float32x4_t*)seen_simd_alloc(
+        (int64_t)(2 * sizeof(float32x4_t)), 16, "SIMD f8 neon");
     float32x4_t* va = (float32x4_t*)a;
     float32x4_t* vb = (float32x4_t*)b;
     r[0] = vmulq_f32(va[0], vb[0]);
@@ -5823,7 +5847,8 @@ void* seen_simd_f8_mul(void* a, void* b) {
 }
 
 void* seen_simd_f8_div(void* a, void* b) {
-    float32x4_t* r = (float32x4_t*)malloc(2 * sizeof(float32x4_t));
+    float32x4_t* r = (float32x4_t*)seen_simd_alloc(
+        (int64_t)(2 * sizeof(float32x4_t)), 16, "SIMD f8 neon");
     float32x4_t* va = (float32x4_t*)a;
     float32x4_t* vb = (float32x4_t*)b;
     r[0] = vdivq_f32(va[0], vb[0]);
@@ -5832,7 +5857,8 @@ void* seen_simd_f8_div(void* a, void* b) {
 }
 
 void* seen_simd_f8_min(void* a, void* b) {
-    float32x4_t* r = (float32x4_t*)malloc(2 * sizeof(float32x4_t));
+    float32x4_t* r = (float32x4_t*)seen_simd_alloc(
+        (int64_t)(2 * sizeof(float32x4_t)), 16, "SIMD f8 neon");
     float32x4_t* va = (float32x4_t*)a;
     float32x4_t* vb = (float32x4_t*)b;
     r[0] = vminq_f32(va[0], vb[0]);
@@ -5841,7 +5867,8 @@ void* seen_simd_f8_min(void* a, void* b) {
 }
 
 void* seen_simd_f8_max(void* a, void* b) {
-    float32x4_t* r = (float32x4_t*)malloc(2 * sizeof(float32x4_t));
+    float32x4_t* r = (float32x4_t*)seen_simd_alloc(
+        (int64_t)(2 * sizeof(float32x4_t)), 16, "SIMD f8 neon");
     float32x4_t* va = (float32x4_t*)a;
     float32x4_t* vb = (float32x4_t*)b;
     r[0] = vmaxq_f32(va[0], vb[0]);
@@ -5865,7 +5892,8 @@ double seen_simd_f8_dot(void* a, void* b) {
 }
 
 void* seen_simd_f8_load(void* ptr) {
-    float32x4_t* r = (float32x4_t*)malloc(2 * sizeof(float32x4_t));
+    float32x4_t* r = (float32x4_t*)seen_simd_alloc(
+        (int64_t)(2 * sizeof(float32x4_t)), 16, "SIMD f8 neon");
     float* fp = (float*)ptr;
     r[0] = vld1q_f32(fp);
     r[1] = vld1q_f32(fp + 4);
@@ -5936,7 +5964,8 @@ void seen_simd_prefix_sum(void* arr_data, int64_t len) {
 // Scalar fallback implementations for RISC-V, WASM, and other architectures
 
 void* seen_simd_f4_splat(double val) {
-    float* r = (float*)malloc(4 * sizeof(float));
+    float* r = (float*)seen_simd_alloc((int64_t)(4 * sizeof(float)),
+        16, "SIMD f4 scalar");
     for (int i = 0; i < 4; i++) r[i] = (float)val;
     return r;
 }
@@ -5955,12 +5984,12 @@ static void scalar_f4_binop(void* a, void* b, void* r, int op) {
     }
 }
 
-void* seen_simd_f4_add(void* a, void* b) { float* r = (float*)malloc(4*sizeof(float)); scalar_f4_binop(a,b,r,0); return r; }
-void* seen_simd_f4_sub(void* a, void* b) { float* r = (float*)malloc(4*sizeof(float)); scalar_f4_binop(a,b,r,1); return r; }
-void* seen_simd_f4_mul(void* a, void* b) { float* r = (float*)malloc(4*sizeof(float)); scalar_f4_binop(a,b,r,2); return r; }
-void* seen_simd_f4_div(void* a, void* b) { float* r = (float*)malloc(4*sizeof(float)); scalar_f4_binop(a,b,r,3); return r; }
-void* seen_simd_f4_min(void* a, void* b) { float* r = (float*)malloc(4*sizeof(float)); scalar_f4_binop(a,b,r,4); return r; }
-void* seen_simd_f4_max(void* a, void* b) { float* r = (float*)malloc(4*sizeof(float)); scalar_f4_binop(a,b,r,5); return r; }
+void* seen_simd_f4_add(void* a, void* b) { float* r = (float*)seen_simd_alloc((int64_t)(4 * sizeof(float)), 16, "SIMD f4 scalar"); scalar_f4_binop(a,b,r,0); return r; }
+void* seen_simd_f4_sub(void* a, void* b) { float* r = (float*)seen_simd_alloc((int64_t)(4 * sizeof(float)), 16, "SIMD f4 scalar"); scalar_f4_binop(a,b,r,1); return r; }
+void* seen_simd_f4_mul(void* a, void* b) { float* r = (float*)seen_simd_alloc((int64_t)(4 * sizeof(float)), 16, "SIMD f4 scalar"); scalar_f4_binop(a,b,r,2); return r; }
+void* seen_simd_f4_div(void* a, void* b) { float* r = (float*)seen_simd_alloc((int64_t)(4 * sizeof(float)), 16, "SIMD f4 scalar"); scalar_f4_binop(a,b,r,3); return r; }
+void* seen_simd_f4_min(void* a, void* b) { float* r = (float*)seen_simd_alloc((int64_t)(4 * sizeof(float)), 16, "SIMD f4 scalar"); scalar_f4_binop(a,b,r,4); return r; }
+void* seen_simd_f4_max(void* a, void* b) { float* r = (float*)seen_simd_alloc((int64_t)(4 * sizeof(float)), 16, "SIMD f4 scalar"); scalar_f4_binop(a,b,r,5); return r; }
 
 double seen_simd_f4_sum(void* a) {
     float* f = (float*)a;
@@ -5973,7 +6002,8 @@ double seen_simd_f4_dot(void* a, void* b) {
 }
 
 void* seen_simd_f4_load(void* ptr) {
-    float* r = (float*)malloc(4 * sizeof(float));
+    float* r = (float*)seen_simd_alloc((int64_t)(4 * sizeof(float)),
+        16, "SIMD f4 scalar");
     memcpy(r, ptr, 4 * sizeof(float));
     return r;
 }
@@ -5983,7 +6013,8 @@ void seen_simd_f4_store(void* vec, void* ptr) {
 }
 
 void* seen_simd_f8_splat(double val) {
-    float* r = (float*)malloc(8 * sizeof(float));
+    float* r = (float*)seen_simd_alloc((int64_t)(8 * sizeof(float)),
+        32, "SIMD f8 scalar");
     for (int i = 0; i < 8; i++) r[i] = (float)val;
     return r;
 }
@@ -6002,12 +6033,12 @@ static void scalar_f8_binop(void* a, void* b, void* r, int op) {
     }
 }
 
-void* seen_simd_f8_add(void* a, void* b) { float* r = (float*)malloc(8*sizeof(float)); scalar_f8_binop(a,b,r,0); return r; }
-void* seen_simd_f8_sub(void* a, void* b) { float* r = (float*)malloc(8*sizeof(float)); scalar_f8_binop(a,b,r,1); return r; }
-void* seen_simd_f8_mul(void* a, void* b) { float* r = (float*)malloc(8*sizeof(float)); scalar_f8_binop(a,b,r,2); return r; }
-void* seen_simd_f8_div(void* a, void* b) { float* r = (float*)malloc(8*sizeof(float)); scalar_f8_binop(a,b,r,3); return r; }
-void* seen_simd_f8_min(void* a, void* b) { float* r = (float*)malloc(8*sizeof(float)); scalar_f8_binop(a,b,r,4); return r; }
-void* seen_simd_f8_max(void* a, void* b) { float* r = (float*)malloc(8*sizeof(float)); scalar_f8_binop(a,b,r,5); return r; }
+void* seen_simd_f8_add(void* a, void* b) { float* r = (float*)seen_simd_alloc((int64_t)(8 * sizeof(float)), 32, "SIMD f8 scalar"); scalar_f8_binop(a,b,r,0); return r; }
+void* seen_simd_f8_sub(void* a, void* b) { float* r = (float*)seen_simd_alloc((int64_t)(8 * sizeof(float)), 32, "SIMD f8 scalar"); scalar_f8_binop(a,b,r,1); return r; }
+void* seen_simd_f8_mul(void* a, void* b) { float* r = (float*)seen_simd_alloc((int64_t)(8 * sizeof(float)), 32, "SIMD f8 scalar"); scalar_f8_binop(a,b,r,2); return r; }
+void* seen_simd_f8_div(void* a, void* b) { float* r = (float*)seen_simd_alloc((int64_t)(8 * sizeof(float)), 32, "SIMD f8 scalar"); scalar_f8_binop(a,b,r,3); return r; }
+void* seen_simd_f8_min(void* a, void* b) { float* r = (float*)seen_simd_alloc((int64_t)(8 * sizeof(float)), 32, "SIMD f8 scalar"); scalar_f8_binop(a,b,r,4); return r; }
+void* seen_simd_f8_max(void* a, void* b) { float* r = (float*)seen_simd_alloc((int64_t)(8 * sizeof(float)), 32, "SIMD f8 scalar"); scalar_f8_binop(a,b,r,5); return r; }
 
 double seen_simd_f8_sum(void* a) {
     float* f = (float*)a;
@@ -6024,7 +6055,8 @@ double seen_simd_f8_dot(void* a, void* b) {
 }
 
 void* seen_simd_f8_load(void* ptr) {
-    float* r = (float*)malloc(8 * sizeof(float));
+    float* r = (float*)seen_simd_alloc((int64_t)(8 * sizeof(float)),
+        32, "SIMD f8 scalar");
     memcpy(r, ptr, 8 * sizeof(float));
     return r;
 }
@@ -7501,10 +7533,16 @@ typedef struct {
 } SeenStackRegion;
 
 int64_t seen_stack_region_new(int64_t capacity) {
-    SeenStackRegion *sr = (SeenStackRegion *)malloc(sizeof(SeenStackRegion));
+    if (capacity <= 0) return 0;
+    SeenStackRegion *sr =
+        (SeenStackRegion *)seen_try_malloc(sizeof(SeenStackRegion));
     if (!sr) return 0;
-    sr->base = (char *)malloc((size_t)capacity);
-    if (!sr->base) { free(sr); return 0; }
+    sr->base = (char *)seen_try_malloc(capacity);
+    if (!sr->base) {
+        free(sr);
+        seen_memory_release_reservation(sizeof(SeenStackRegion));
+        return 0;
+    }
     sr->capacity = (size_t)capacity;
     sr->offset   = 0;
     return (int64_t)(uintptr_t)sr;
@@ -7533,7 +7571,12 @@ void seen_stack_region_reset(int64_t handle) {
 
 void seen_stack_region_destroy(int64_t handle) {
     SeenStackRegion *sr = (SeenStackRegion *)(uintptr_t)handle;
-    if (sr) { free(sr->base); free(sr); }
+    if (sr) {
+        seen_memory_release_reservation((int64_t)sr->capacity);
+        free(sr->base);
+        seen_memory_release_reservation(sizeof(SeenStackRegion));
+        free(sr);
+    }
 }
 
 int64_t seen_stack_region_remaining(int64_t handle) {
@@ -7559,12 +7602,19 @@ typedef struct {
 } SeenPoolRegion;
 
 int64_t seen_pool_region_new(int64_t block_size, int64_t count) {
+    if (block_size <= 0 || count <= 0) return 0;
     size_t bs = ((size_t)block_size + 15) & ~(size_t)15;
     if (bs < sizeof(SeenPoolBlock)) bs = sizeof(SeenPoolBlock);
-    SeenPoolRegion *pr = (SeenPoolRegion *)malloc(sizeof(SeenPoolRegion));
+    if ((uint64_t)count > (uint64_t)INT64_MAX / (uint64_t)bs) return 0;
+    SeenPoolRegion *pr =
+        (SeenPoolRegion *)seen_try_malloc(sizeof(SeenPoolRegion));
     if (!pr) return 0;
-    pr->base = (char *)malloc(bs * (size_t)count);
-    if (!pr->base) { free(pr); return 0; }
+    pr->base = (char *)seen_try_malloc((int64_t)(bs * (size_t)count));
+    if (!pr->base) {
+        free(pr);
+        seen_memory_release_reservation(sizeof(SeenPoolRegion));
+        return 0;
+    }
     pr->block_size = bs;
     pr->capacity   = (size_t)count;
     pr->used       = 0;
@@ -7597,7 +7647,13 @@ void seen_pool_region_free(int64_t handle, int64_t ptr) {
 
 void seen_pool_region_destroy(int64_t handle) {
     SeenPoolRegion *pr = (SeenPoolRegion *)(uintptr_t)handle;
-    if (pr) { free(pr->base); free(pr); }
+    if (pr) {
+        seen_memory_release_reservation(
+            (int64_t)(pr->block_size * pr->capacity));
+        free(pr->base);
+        seen_memory_release_reservation(sizeof(SeenPoolRegion));
+        free(pr);
+    }
 }
 
 void seen_pool_region_reset(int64_t handle) {
