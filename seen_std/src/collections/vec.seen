@@ -81,9 +81,7 @@ class Vec<T> {
     }
 
     fun clear() r: Void {
-        this.data = Array<T>()
         this.length = 0
-        this.capacity = 0
     }
 
     fun reserve(capacity: Int) r: Void {

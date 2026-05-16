@@ -30,6 +30,7 @@ fun main() -> Int {
 
     vec.clear()
     expect(vec.isEmpty(), "clear should reset vector")
+    expect(vec.capacity() >= 8, "clear should keep allocated capacity for reuse")
 
     vec.reserve(64)
     expect(vec.capacity() >= 64, "reserve should grow capacity")

@@ -81,6 +81,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed fixed-width `Float64` compiler type mapping, primitive classification, and `sizeof` handling so it follows the same double-width ABI as `Float`.
 - Suppressed redundant internal `Unit` layout fallback noise during compiler IR generation and reformatted remaining codegen fallback warnings as user-readable warning lines.
 - Fixed class method calls whose names match string helper methods, such as `this.indexOf(name)`, so they dispatch to the class method instead of emitting invalid string-helper IR.
+- Fixed `Vec.toArray()` method-call lowering so pointer-returning runtime helpers are stored as arrays instead of being coerced through integer handles.
+- Fixed `Vec.clear()` so it preserves allocated capacity for reuse instead of discarding the backing storage.
 
 ## [0.8.3] - 2026-05-15
 
