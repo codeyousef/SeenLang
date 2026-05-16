@@ -328,6 +328,7 @@ run_guarded_command_to_log_with_failure_watch() {
     local log_file=$4
     shift 4
 
+    : > "$log_file"
     run_guarded_command_to_log "$label" "$timeout_secs" "$vmem_kb" "$log_file" "$@" &
     local command_pid=$!
     local failure_watcher_pid
@@ -464,6 +465,7 @@ run_with_progress() {
 
     # Start compilation in background, logging to file. The guard watches the
     # entire child process tree, so forked opt/link children count toward the cap.
+    : > "$logfile"
     run_guarded_command_to_log "$label" 0 "${MAIN_COMPILER_VMEM_KB:-}" "$logfile" "$@" &
     local compile_pid=$!
 
