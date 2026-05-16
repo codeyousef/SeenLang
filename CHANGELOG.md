@@ -80,6 +80,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed Windows installer packaging so unmanifested or stale `target-windows/seen.exe` reuse fails before staging, while `build_windows_installer.sh --force-compile` rebuilds the Windows compiler and writes the validated reuse manifest.
 - Fixed fixed-width `Float64` compiler type mapping, primitive classification, and `sizeof` handling so it follows the same double-width ABI as `Float`.
 - Suppressed redundant internal `Unit` layout fallback noise during compiler IR generation and reformatted remaining codegen fallback warnings as user-readable warning lines.
+- Fixed class method calls whose names match string helper methods, such as `this.indexOf(name)`, so they dispatch to the class method instead of emitting invalid string-helper IR.
 
 ## [0.8.3] - 2026-05-15
 

@@ -199,28 +199,28 @@ fun emitStringMethodImpl(output: StringBuilder, regBox: Array<Int>,
         }
         return ""
     }
-    if methodName == "substring" {
+    if methodName == "substring" and isStringReceiver {
         var receiverStrReg = receiverReg
         if receiverReg == "0" { receiverStrReg = "zeroinitializer" }
         let resultReg = getNextRegFn(regBox)
         output.append("  " + resultReg + " = call %SeenString @seen_substring(%SeenString " + receiverStrReg + ", i64 " + arg0 + ", i64 " + arg1 + ")\n")
         return resultReg
     }
-    if methodName == "charAt" {
+    if methodName == "charAt" and isStringReceiver {
         var receiverStrReg = receiverReg
         if receiverReg == "0" { receiverStrReg = "zeroinitializer" }
         let resultReg = getNextRegFn(regBox)
         output.append("  " + resultReg + " = call i64 @seen_char_at(%SeenString " + receiverStrReg + ", i64 " + arg0 + ")\n")
         return resultReg
     }
-    if methodName == "charCodeAt" {
+    if methodName == "charCodeAt" and isStringReceiver {
         var receiverStrReg = receiverReg
         if receiverReg == "0" { receiverStrReg = "zeroinitializer" }
         let resultReg = getNextRegFn(regBox)
         output.append("  " + resultReg + " = call i64 @seen_char_at(%SeenString " + receiverStrReg + ", i64 " + arg0 + ")\n")
         return resultReg
     }
-    if methodName == "byteAt" {
+    if methodName == "byteAt" and isStringReceiver {
         var receiverStrReg = receiverReg
         if receiverReg == "0" { receiverStrReg = "zeroinitializer" }
         let resultReg = getNextRegFn(regBox)
@@ -285,14 +285,14 @@ fun emitStringMethodImpl(output: StringBuilder, regBox: Array<Int>,
             return resultReg
         }
     }
-    if methodName == "indexOf" {
+    if methodName == "indexOf" and isStringReceiver {
         var startIdxReg = "0"
         if argCount > 1 { startIdxReg = arg1 }
         let resultReg = getNextRegFn(regBox)
         output.append("  " + resultReg + " = call i64 @indexOf(%SeenString " + receiverReg + ", %SeenString " + arg0 + ", i64 " + startIdxReg + ")\n")
         return resultReg
     }
-    if methodName == "lastIndexOf" {
+    if methodName == "lastIndexOf" and isStringReceiver {
         var startIdxReg = "-1"
         if argCount > 1 { startIdxReg = arg1 }
         let resultReg = getNextRegFn(regBox)
