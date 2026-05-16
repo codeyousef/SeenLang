@@ -119,7 +119,7 @@ fun allocateStructLiteralStorageState(output: StringBuilder,
             structSize.toString() + ")\n")
     }
     if structSize > 80 {
-        output.append("  " + mallocReg + " = call ptr @malloc(i64 " +
+        output.append("  " + mallocReg + " = call ptr @seen_checked_malloc(i64 " +
             structSize.toString() + ")\n")
     }
     output.append("  ; escape-analysis: heap-to-stack candidate (" +

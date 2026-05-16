@@ -792,19 +792,19 @@ def _fix_result_ok_calls_in_function(func_lines):
             continue
         if arg_type == '%SeenString':
             slot_reg = next_temp_reg()
-            fixed_lines.append(f'{indent}{slot_reg} = call ptr @malloc(i64 16)')
+            fixed_lines.append(f'{indent}{slot_reg} = call ptr @seen_checked_malloc(i64 16)')
             fixed_lines.append(f'{indent}store %SeenString {arg_value}, ptr {slot_reg}')
             fixed_lines.append(f'{indent}{out_reg} = ptrtoint ptr {slot_reg} to i64{rest}')
             continue
         if arg_type == 'double':
             slot_reg = next_temp_reg()
-            fixed_lines.append(f'{indent}{slot_reg} = call ptr @malloc(i64 8)')
+            fixed_lines.append(f'{indent}{slot_reg} = call ptr @seen_checked_malloc(i64 8)')
             fixed_lines.append(f'{indent}store double {arg_value}, ptr {slot_reg}')
             fixed_lines.append(f'{indent}{out_reg} = ptrtoint ptr {slot_reg} to i64{rest}')
             continue
         if arg_type == 'float':
             slot_reg = next_temp_reg()
-            fixed_lines.append(f'{indent}{slot_reg} = call ptr @malloc(i64 4)')
+            fixed_lines.append(f'{indent}{slot_reg} = call ptr @seen_checked_malloc(i64 4)')
             fixed_lines.append(f'{indent}store float {arg_value}, ptr {slot_reg}')
             fixed_lines.append(f'{indent}{out_reg} = ptrtoint ptr {slot_reg} to i64{rest}')
             continue
@@ -1267,7 +1267,7 @@ def _fix_map_collection_calls_in_function(func_lines):
         elif value_type == '%SeenString':
             slot_reg = next_temp_reg()
             value_reg = next_temp_reg()
-            fixed_lines.append(f'{indent}{slot_reg} = call ptr @malloc(i64 16)')
+            fixed_lines.append(f'{indent}{slot_reg} = call ptr @seen_checked_malloc(i64 16)')
             fixed_lines.append(f'{indent}store %SeenString {value_value}, ptr {slot_reg}')
             fixed_lines.append(f'{indent}{value_reg} = ptrtoint ptr {slot_reg} to i64')
             new_value = f'i64 {value_reg}'

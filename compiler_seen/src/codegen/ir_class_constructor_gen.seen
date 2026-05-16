@@ -37,7 +37,7 @@ fun emitClassHeapAllocationImpl(output: StringBuilder, regBox: Array<Int>,
             structSize.toString() + ")\n")
     }
     if structSize > 80 {
-        output.append("  " + allocReg + " = call ptr @malloc(i64 " +
+        output.append("  " + allocReg + " = call ptr @seen_checked_malloc(i64 " +
             structSize.toString() + ")\n")
     }
     output.append("  call void @llvm.memset.p0.i64(ptr " + allocReg +

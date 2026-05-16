@@ -56,6 +56,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - SIMD min/max reductions now use AVX2 vectorized paths where available, and x86 SIMD temporary allocations go through the runtime's budget-aware aligned allocator.
 - Architecture optimization now derives target features and preferred vector width from the target string instead of assuming an AVX2 desktop CPU.
 - Benchmark gates now prefer the stable verified compiler by default, preserve warm caches unless explicitly asked for cold-cache measurement, and derive memory caps for production benchmark runs.
+- Compiler-generated class, enum, array, coroutine, serialization, and repair-script allocation IR now uses checked Seen allocation wrappers instead of direct host allocator calls.
 
 ### Fixed
 

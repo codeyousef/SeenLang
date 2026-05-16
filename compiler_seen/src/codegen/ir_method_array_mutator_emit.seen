@@ -139,6 +139,9 @@ fun emitArrayPushMutationImpl(output: StringBuilder, regBox: Array<Int>,
         let newByteSizeReg = getNextRegFn(regBox)
         output.append("  " + newByteSizeReg + " = shl i64 " + newCapReg +
             ", 3\n")
+        let oldByteSizeReg = getNextRegFn(regBox)
+        output.append("  " + oldByteSizeReg + " = shl i64 " + capReg +
+            ", 3\n")
         let slowDataPtrPtrReg = getNextRegFn(regBox)
         output.append("  " + slowDataPtrPtrReg +
             " = getelementptr inbounds %SeenArray, ptr " + arrayPtrReg +
@@ -147,8 +150,9 @@ fun emitArrayPushMutationImpl(output: StringBuilder, regBox: Array<Int>,
         output.append("  " + slowOldDataReg + " = load ptr, ptr " +
             slowDataPtrPtrReg + ", !tbaa !104\n")
         let slowNewDataReg = getNextRegFn(regBox)
-        output.append("  " + slowNewDataReg + " = call ptr @realloc(ptr " +
-            slowOldDataReg + ", i64 " + newByteSizeReg + ")\n")
+        output.append("  " + slowNewDataReg +
+            " = call ptr @seen_checked_realloc(ptr " + slowOldDataReg +
+            ", i64 " + oldByteSizeReg + ", i64 " + newByteSizeReg + ")\n")
         output.append("  store ptr " + slowNewDataReg + ", ptr " +
             slowDataPtrPtrReg + ", !tbaa !104\n")
         let slowElemPtrReg = getNextRegFn(regBox)

@@ -8,6 +8,9 @@ fun emitMemoryRuntimeDecls(output: StringBuilder) r: Void {
     output.append("declare void @free(ptr nocapture) nounwind allockind(\"free\")\n")
     output.append("declare noalias ptr @realloc(ptr nocapture, i64) nounwind allockind(\"realloc\") allocsize(1)\n")
     output.append("declare noalias ptr @aligned_alloc(i64, i64) nounwind allockind(\"alloc,uninitialized,aligned\") allocsize(1)\n")
+    output.append("declare noalias ptr @seen_checked_malloc(i64) nounwind allockind(\"alloc,uninitialized\") allocsize(0)\n")
+    output.append("declare ptr @seen_checked_realloc(ptr, i64, i64) nounwind\n")
+    output.append("declare noalias ptr @seen_checked_aligned_alloc(i64, i64) nounwind allockind(\"alloc,uninitialized,aligned\") allocsize(1)\n")
     // Pool allocator for class instances — allockind enables LLVM to treat as allocator/deallocator pair
     output.append("declare noalias ptr @seen_pool_alloc(i64) nounwind allockind(\"alloc,uninitialized\") allocsize(0)\n")
     output.append("declare void @seen_pool_free(ptr nocapture, i64) nounwind allockind(\"free\")\n")

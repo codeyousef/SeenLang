@@ -377,6 +377,20 @@ void* seen_try_realloc(void* old, int64_t old_size, int64_t new_size) {
     return ptr;
 }
 
+static void seen_oom_abort(const char* context, int64_t size);
+
+void* seen_checked_malloc(int64_t size) {
+    void* ptr = seen_try_malloc(size);
+    if (!ptr) seen_oom_abort("compiler-emitted allocation", size);
+    return ptr;
+}
+
+void* seen_checked_realloc(void* old, int64_t old_size, int64_t new_size) {
+    void* ptr = seen_try_realloc(old, old_size, new_size);
+    if (!ptr) seen_oom_abort("compiler-emitted reallocation", new_size);
+    return ptr;
+}
+
 void* seen_try_aligned_realloc(void* old, int64_t old_size, int64_t new_size,
     int64_t alignment) {
     if (alignment <= 0) alignment = 32;
@@ -412,6 +426,12 @@ void* seen_try_aligned_realloc(void* old, int64_t old_size, int64_t new_size,
 #endif
     seen_memory_commit_reservation(old ? old_size : 0, (int64_t)aligned_size);
     return p;
+}
+
+void* seen_checked_aligned_alloc(int64_t alignment, int64_t size) {
+    void* ptr = seen_try_aligned_realloc(NULL, 0, size, alignment);
+    if (!ptr) seen_oom_abort("compiler-emitted aligned allocation", size);
+    return ptr;
 }
 
 static void seen_oom_abort(const char* context, int64_t size) {

@@ -128,6 +128,9 @@ SeenMemoryStats seen_memory_stats(void);
 void* seen_try_malloc(int64_t size);
 void* seen_try_calloc(int64_t count, int64_t size);
 void* seen_try_realloc(void* old, int64_t old_size, int64_t new_size);
+void* seen_checked_malloc(int64_t size);
+void* seen_checked_realloc(void* old, int64_t old_size, int64_t new_size);
+void* seen_checked_aligned_alloc(int64_t alignment, int64_t size);
 void* seen_try_aligned_realloc(void* old, int64_t old_size, int64_t new_size, int64_t alignment);
 
 // String equality (SeenString == char*)
