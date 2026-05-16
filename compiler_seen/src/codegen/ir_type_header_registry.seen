@@ -1,6 +1,7 @@
 // ir_type_header_registry.seen - Type-header registration helpers.
 
 import trace.{traceGen}
+import str.string.{StringBuilder}
 import codegen.ir_string_collect.{trimSpacesImpl, normalizeHeaderTypeImpl, parseDecimalIntImpl}
 import codegen.ir_type_layout.{computeStructSizeFromLayoutImpl}
 import codegen.type_registry_core.{findStructReg, ensureStructEntryReg, isDataTypeReg}
@@ -42,8 +43,9 @@ fun updateStructFieldsFromHeaderReg(structName: String, fieldsStr: String,
     let existingTypes = structFieldTypes[idx]
     let trimmedFields = trimSpacesImpl(fieldsStr)
     if trimmedFields == "" { return }
-    var namesOut = ""
-    var llvmTypesOut = ""
+    let namesOut = StringBuilder.new()
+    let llvmTypesOut = StringBuilder.new()
+    var hasFieldOut = false
     var entryStart = 0
     var pos = 0
     var nesting = 0
@@ -68,27 +70,30 @@ fun updateStructFieldsFromHeaderReg(structName: String, fieldsStr: String,
                     entry.length()))
                 let normalizedType = normalizeHeaderTypeImpl(rawType)
                 if rawName != "" {
-                    if namesOut != "" {
-                        namesOut = namesOut + ","
-                        llvmTypesOut = llvmTypesOut + "|"
+                    if hasFieldOut {
+                        namesOut.append(",")
+                        llvmTypesOut.append("|")
                     }
-                    namesOut = namesOut + rawName
-                    llvmTypesOut = llvmTypesOut + normalizedType
+                    namesOut.append(rawName)
+                    llvmTypesOut.append(normalizedType)
+                    hasFieldOut = true
                 }
             }
             entryStart = pos + 1
         }
         pos = pos + 1
     }
-    if namesOut == "" { return }
-    if structFieldNames[idx] != namesOut {
+    if not hasFieldOut { return }
+    let namesOutText = namesOut.toString()
+    let llvmTypesOutText = llvmTypesOut.toString()
+    if structFieldNames[idx] != namesOutText {
         resetFieldInfoCache()
     }
-    structFieldNames[idx] = namesOut
-    structLlvmFieldTypes[idx] = llvmTypesOut
+    structFieldNames[idx] = namesOutText
+    structLlvmFieldTypes[idx] = llvmTypesOutText
     if existingNames != "" and existingTypes != "" {
         let reordered = reorderFieldTypesReg(existingNames, existingTypes,
-            namesOut)
+            namesOutText)
         if reordered != "" { structFieldTypes[idx] = reordered }
     }
 }
@@ -200,7 +205,8 @@ fun getFieldTypeFromListsReg(fieldNamesStr: String, fieldTypesStr: String,
 fun reorderFieldTypesReg(existingNames: String, existingTypes: String,
     newNames: String) r: String {
 
-    var result = ""
+    let result = StringBuilder.new()
+    var hasMapped = false
     var start = 0
     var pos = 0
     while pos <= newNames.length() {
@@ -211,13 +217,14 @@ fun reorderFieldTypesReg(existingNames: String, existingTypes: String,
             var mappedType = getFieldTypeFromListsReg(existingNames,
                 existingTypes, name)
             if mappedType == "" { mappedType = "Int" }
-            if result != "" { result = result + "|" }
-            result = result + mappedType
+            if hasMapped { result.append("|") }
+            result.append(mappedType)
+            hasMapped = true
             start = pos + 1
         }
         pos = pos + 1
     }
-    return result
+    return result.toString()
 }
 
 fun computeMissingStructSizesReg(structNames: Array<String>,

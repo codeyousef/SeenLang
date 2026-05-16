@@ -4,6 +4,7 @@ Extracted from ir_type_info.seen
 ///
 
 import codegen.ir_optimization.{simpleHash}
+import str.string.{StringBuilder}
 
 fun stringConstBucketCount() r: Int {
     return 4096
@@ -145,16 +146,16 @@ fun trimSpacesImpl(value: String) r: String {
 }
 
 fun removeSpacesImpl(value: String) r: String {
-    var result = ""
+    let result = StringBuilder.new()
     var i = 0
     while i < value.length() {
         let c = value.charAt(i)
         if c != ' ' and c != '\t' and c != '\r' {
-            result = result + c.toString()
+            result.appendChar(c)
         }
         i = i + 1
     }
-    return result
+    return result.toString()
 }
 
 fun getBaseTypeNameImpl(typeName: String) r: String {
