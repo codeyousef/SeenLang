@@ -63,6 +63,8 @@ typedef struct {
     int64_t allocationFailures;
 } SeenMemoryStats;
 
+void* seen_checked_malloc(int64_t size);
+
 // Forward declarations for generator types
 typedef struct CGenerator CGenerator;
 
@@ -79,7 +81,7 @@ char* seen_str_to_cstr(SeenString s);
 // Create SeenString with copy
 static inline SeenString seen_str_copy(const char* s) {
     size_t len = strlen(s);
-    char* data = (char*)malloc(len + 1);
+    char* data = (char*)seen_checked_malloc((int64_t)len + 1);
     memcpy(data, s, len + 1);
     SeenString result = { len, data };
     return result;
@@ -107,7 +109,7 @@ void* seen_arr_get_element_ptr(SeenArray* a, int64_t idx);
 // String concatenation (SeenString + char*)
 static inline SeenString seen_str_concat(SeenString a, const char* b) {
     size_t blen = strlen(b);
-    char* newdata = (char*)malloc(a.len + blen + 1);
+    char* newdata = (char*)seen_checked_malloc(a.len + (int64_t)blen + 1);
     memcpy(newdata, a.data, a.len);
     memcpy(newdata + a.len, b, blen + 1);
     SeenString result = { a.len + blen, newdata };
@@ -265,7 +267,7 @@ void* Vec_toArray_float(void* vecPtr);
 
 // Alias for compatibility
 static inline char* seen_to_string(int64_t n) {
-    char* buf = (char*)malloc(32);
+    char* buf = (char*)seen_checked_malloc(32);
     sprintf(buf, "%" PRId64, n);
     return buf;
 }
