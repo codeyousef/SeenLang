@@ -57,6 +57,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Architecture optimization now derives target features and preferred vector width from the target string instead of assuming an AVX2 desktop CPU.
 - Benchmark gates now prefer the stable verified compiler by default, preserve warm caches unless explicitly asked for cold-cache measurement, and derive memory caps for production benchmark runs.
 - Compiler-generated class, enum, array, coroutine, serialization, and repair-script allocation IR now uses checked Seen allocation wrappers instead of direct host allocator calls.
+- Benchmark documentation now points to `scripts/perf_gate.sh` and clearly separates maintained 0.9.0 gates from legacy benchmark migration material.
+- Compiler ML JSON output helpers now assemble arrays and objects with `StringBuilder` instead of recursive whole-string concatenation.
 
 ### Fixed
 
@@ -105,6 +107,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed unresolved struct literals so missing class imports are reported as Seen diagnostics before LLVM IR generation instead of reaching unknown-layout method calls.
 - Fixed the stdlib environment module to expose the documented `remove(name)` helper as an alias for `removeEnv(name)`.
 - Filled in missing stdlib file helpers for `size`, `hash`, `writeLines`, and parent-directory creation.
+- Fixed the root workspace manifest so unrelated repo-local fixtures no longer inherit an absolute external project build entry.
+- Fixed guarded rebuild failure watching so stale log contents cannot abort a fresh build before the guarded command rewrites its log.
 
 ## [0.8.3] - 2026-05-15
 
