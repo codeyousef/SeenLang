@@ -3950,31 +3950,26 @@ fun canonicalFilesystemPath(path: String) r: String {
     if path == "" {
         return ""
     }
-    let realpathResult = runCommand("readlink -f " +
-        mainCompilerShellQuote(path))
-    if commandWasSuccessful(realpathResult) {
-        let resolved = realpathResult.output.trim()
-        if resolved != "" {
-            return resolved
-        }
+    let resolved = resolveRealInputPath(path)
+    if resolved != "" {
+        return resolved
     }
     return path
 }
 
-fun companionPathAlreadyQueued(paths: Array<String>, candidatePath: String)
+fun companionPathAlreadyQueued(paths: Array<String>,
+    processedPaths: Array<String>, candidatePath: String)
     r: Bool {
 
     let candidateReal = canonicalFilesystemPath(candidatePath)
-    var pathIdx = 0
-    while pathIdx < paths.length() {
-        if paths[pathIdx] == candidatePath {
-            return true
-        }
-        if candidateReal != "" and
-            canonicalFilesystemPath(paths[pathIdx]) == candidateReal {
-            return true
-        }
-        pathIdx = pathIdx + 1
+    if candidateReal == "" {
+        return false
+    }
+    if containsPath(paths, candidateReal) {
+        return true
+    }
+    if containsPath(processedPaths, candidateReal) {
+        return true
     }
     return false
 }
@@ -3985,7 +3980,8 @@ fun pushUniqueCompanionPath(paths: Array<String>,
     if candidatePath == "" {
         return
     }
-    if not companionPathAlreadyQueued(paths, candidatePath) {
+    if not companionPathAlreadyQueued(paths, processedPaths,
+        candidatePath) {
         pushUniquePath(paths, processedPaths, candidatePath)
     }
     return
@@ -3993,27 +3989,30 @@ fun pushUniqueCompanionPath(paths: Array<String>,
 
 fun appendManifestCompanionModulesFromToml(paths: Array<String>,
     processedPaths: Array<String>, normalizedCurrent: String,
-    tomlPath: String) r: Void {
+    tomlPath: String) r: Bool {
 
     let sourceDir = getSourceDir(normalizedCurrent)
     if sourceDir == "" {
-        return
+        return false
     }
 
     let fileName = getLastSegment(normalizedCurrent)
     let stem = stripSeenExtension(fileName)
     if stem == "" {
-        return
+        return false
     }
 
     let tomlContent = loadFileContent(tomlPath)
     if tomlContent == "" {
-        return
+        return false
     }
 
     let projectRoot = getSourceDir(tomlPath)
     let projectRootReal = canonicalFilesystemPath(projectRoot)
     let projectModules = cachedManifestProjectModules(tomlPath, tomlContent)
+    if projectModules.length() == 0 {
+        return false
+    }
     let companionPrefix = stem + "_"
     let currentRel = pathRelativeToProjectRoot(normalizedCurrent,
         projectRootReal)
@@ -4059,7 +4058,10 @@ fun appendManifestCompanionModulesFromToml(paths: Array<String>,
         }
         moduleIdx = moduleIdx + 1
     }
-    return
+    if currentModuleIndex >= 0 {
+        return true
+    }
+    return false
 }
 
 fun appendFilesystemCompanionModulesForPath(paths: Array<String>,
@@ -4104,18 +4106,22 @@ fun appendManifestCompanionModulesForPath(paths: Array<String>,
         return
     }
 
-    appendManifestCompanionModulesFromToml(paths, processedPaths,
+    let manifestCovered = appendManifestCompanionModulesFromToml(paths, processedPaths,
         normalizedCurrent, findNearestSeenTomlFromDir(sourceDir))
-    appendFilesystemCompanionModulesForPath(paths, processedPaths,
-        normalizedCurrent)
+    if not manifestCovered {
+        appendFilesystemCompanionModulesForPath(paths, processedPaths,
+            normalizedCurrent)
+    }
 
     let canonicalCurrent = canonicalFilesystemPath(normalizedCurrent)
     if canonicalCurrent != "" and canonicalCurrent != normalizedCurrent {
         let canonicalSourceDir = getSourceDir(canonicalCurrent)
-        appendManifestCompanionModulesFromToml(paths, processedPaths,
+        let canonicalManifestCovered = appendManifestCompanionModulesFromToml(paths, processedPaths,
             canonicalCurrent, findNearestSeenTomlFromDir(canonicalSourceDir))
-        appendFilesystemCompanionModulesForPath(paths, processedPaths,
-            canonicalCurrent)
+        if not canonicalManifestCovered {
+            appendFilesystemCompanionModulesForPath(paths, processedPaths,
+                canonicalCurrent)
+        }
     }
     return
 }
