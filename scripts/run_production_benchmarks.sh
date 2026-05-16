@@ -6,7 +6,8 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$REPO_ROOT"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -14,13 +15,28 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-RESULTS_DIR="benchmark_results"
+RESULTS_DIR="target/seen-build/benchmark-results"
 mkdir -p "$RESULTS_DIR"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 REPORT_FILE="$RESULTS_DIR/production_comparison_$TIMESTAMP.md"
 JSONL_FILE="$RESULTS_DIR/results_$TIMESTAMP.jsonl"
 
-SEEN_COMPILER="$SCRIPT_DIR/compiler_seen/target/seen"
+SEEN_COMPILER="$REPO_ROOT/compiler_seen/target/seen"
+
+if [ -z "${SEEN_MEMORY_LIMIT_BYTES:-}" ]; then
+    AVAILABLE_KB=$(awk '/MemAvailable:/ { print $2 }' /proc/meminfo 2>/dev/null || echo 0)
+    if [ "$AVAILABLE_KB" -gt 0 ]; then
+        DERIVED_BYTES=$((AVAILABLE_KB * 1024 / 4))
+        MAX_BYTES=$((12 * 1024 * 1024 * 1024))
+        if [ "$DERIVED_BYTES" -gt "$MAX_BYTES" ]; then
+            DERIVED_BYTES=$MAX_BYTES
+        fi
+        export SEEN_MEMORY_LIMIT_BYTES="$DERIVED_BYTES"
+    else
+        export SEEN_MEMORY_LIMIT_BYTES=$((8 * 1024 * 1024 * 1024))
+    fi
+fi
+export SEEN_LOW_MEMORY="${SEEN_LOW_MEMORY:-1}"
 
 echo -e "${BLUE}=== Production Benchmark Suite ===${NC}"
 
@@ -94,8 +110,9 @@ for benchmark in "${BENCHMARKS[@]}"; do
         continue
     fi
 
-    # Clear cache to avoid stale objects from previous benchmark
-    rm -rf .seen_cache/
+    if [ "${SEEN_BENCH_COLD_CACHE:-0}" = "1" ]; then
+        rm -rf .seen_cache/
+    fi
 
     # Measure compile time
     echo "Compiling..."

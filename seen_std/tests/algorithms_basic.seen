@@ -41,6 +41,8 @@ fun main() r: Int {
 
     let radix = radixSortInt([1000, 1, 255, 16, 4096, 0])
     failed = failed + expect(isSorted(radix), "radixSortInt returns sorted copy")
+    let signedRadix = radixSortInt([5, -10, 0, -1, 7, -100])
+    failed = failed + expect(isSorted(signedRadix), "radixSortInt handles signed values")
 
     let minQueue = IntPriorityQueue.min()
     minQueue.push(8)

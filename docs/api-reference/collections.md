@@ -265,8 +265,8 @@ let value = bytes.get(0)
 |------|-------------|
 | `ByteArray` | Compact growable byte array |
 | `ByteBuffer` | Convenience wrapper around `ByteArray` |
-| `Int32Buffer` / `Int64Buffer` | Primitive integer buffer APIs |
-| `Float32Buffer` / `Float64Buffer` | Floating-point buffer APIs backed by Seen `Float` storage |
+| `Int32Buffer` / `Int64Buffer` | Primitive integer buffer APIs backed by compact runtime storage |
+| `Float32Buffer` / `Float64Buffer` | Primitive floating-point buffer APIs backed by native `float`/`double` storage |
 
 | Method | Return | Description |
 |--------|--------|-------------|
@@ -292,9 +292,9 @@ import collections.algorithms
 | `binarySearchInt(values, needle)` | Return matching index or `-1` |
 | `lowerBoundInt(values, needle)` | First insertion slot not less than `needle` |
 | `upperBoundInt(values, needle)` | First insertion slot greater than `needle` |
-| `unstableSortInt(values)` | In-place quicksort with insertion sort for small partitions |
+| `unstableSortInt(values)` | In-place introsort with insertion sort for small partitions and a heapsort depth fallback |
 | `stableSortInt(values)` | Stable sorted copy |
-| `radixSortInt(values)` | Integer radix sort for non-negative values, with comparison-sort fallback for negatives |
+| `radixSortInt(values)` | Signed integer radix sort that preserves negative/positive ordering |
 | `IntPriorityQueue.min()` / `.max()` | Binary heap priority queues |
 
 ## BitSet

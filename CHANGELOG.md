@@ -45,9 +45,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cache-v4 module object keys now include the active compiler binary hash, so warm builds reject stale objects after compiler codegen/layout changes instead of reusing incompatible cached output.
 - Generic source `HashMap`/`HashSet` fallback hashing now derives hashes from key content instead of a constant fallback, and `containsKey`/`getOrDefault` avoid constructing `Option` results.
 - String prefix/suffix/search/count/split/replace helpers now scan bytes directly and append unchanged segments instead of allocating a substring at every candidate position.
+- Primitive `Int32Buffer`, `Int64Buffer`, `Float32Buffer`, and `Float64Buffer` now use compact runtime-backed storage instead of widening every element through generic arrays.
+- `StringBuilder.toString()` now flattens builder parts through a one-pass runtime helper, keeping large source-built strings linear instead of recursive concatenation.
+- JSON numeric parsing now uses a runtime range parser so large numbers no longer need an intermediate whole-number substring before conversion.
+- `round`, `copysign`, `asinh`, `acosh`, and `atanh` now route through runtime/libm-backed wrappers, and integer `gcd` uses native modulo arithmetic.
+- Integer unstable sort now uses introsort with a heapsort fallback, and integer radix sort preserves signed ordering without falling back to comparison sort for negative values.
 - WASM export/function ordering now uses quicksort with insertion sort for small partitions instead of bubble sort.
 - E-graph insertion now uses hash-consing buckets, and class-node lookup uses rebuilt per-class indexes after merges.
+- E-graph rebuild now hashes flattened child storage directly and tracks active class counts incrementally, avoiding repeated child-array allocation and full-class scans.
+- SIMD min/max reductions now use AVX2 vectorized paths where available, and x86 SIMD temporary allocations go through the runtime's budget-aware aligned allocator.
 - Architecture optimization now derives target features and preferred vector width from the target string instead of assuming an AVX2 desktop CPU.
+- Benchmark gates now prefer the stable verified compiler by default, preserve warm caches unless explicitly asked for cold-cache measurement, and derive memory caps for production benchmark runs.
 
 ### Fixed
 

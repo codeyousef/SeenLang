@@ -59,6 +59,7 @@ import math.math.{
     radToDeg,
     radians,
     remap,
+    round,
     saturatingAdd,
     saturatingMul,
     saturatingSub,
@@ -119,6 +120,8 @@ fun main() -> Int {
     expect(testApproxEqual(sqrt(16.0), 4.0), "sqrt(16) should be 4")
     expect(testApproxEqual(floor(3.9), 3.0), "floor mismatch")
     expect(testApproxEqual(ceil(3.1), 4.0), "ceil mismatch")
+    expect(testApproxEqual(round(3.5), 4.0), "round positive mismatch")
+    expect(testApproxEqual(round(neg05f), neg1f), "round negative mismatch")
     expect(testApproxEqual(pow(2.0, 3.0), 8.0), "pow mismatch")
     expect(testApproxEqual(exp(1.0), e), "exp(1) should equal E")
     expect(testApproxEqual(ln(e), 1.0), "ln mismatch")

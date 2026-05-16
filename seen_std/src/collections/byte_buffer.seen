@@ -12,6 +12,31 @@ extern fun seen_byte_array_slice(handle: Int, start: Int, end: Int) r: Int
 extern fun seen_byte_array_reverse(handle: Int) r: Void
 extern fun seen_byte_array_to_int_array(handle: Int) r: Array<Int>
 
+extern fun seen_i32_buffer_new(capacity: Int) r: Int
+extern fun seen_i32_buffer_len(handle: Int) r: Int
+extern fun seen_i32_buffer_clear(handle: Int) r: Void
+extern fun seen_i32_buffer_push(handle: Int, value: Int32) r: Void
+extern fun seen_i32_buffer_get(handle: Int, index: Int) r: Int32
+extern fun seen_i32_buffer_set(handle: Int, index: Int, value: Int32) r: Void
+extern fun seen_i64_buffer_new(capacity: Int) r: Int
+extern fun seen_i64_buffer_len(handle: Int) r: Int
+extern fun seen_i64_buffer_clear(handle: Int) r: Void
+extern fun seen_i64_buffer_push(handle: Int, value: Int64) r: Void
+extern fun seen_i64_buffer_get(handle: Int, index: Int) r: Int64
+extern fun seen_i64_buffer_set(handle: Int, index: Int, value: Int64) r: Void
+extern fun seen_f32_buffer_new(capacity: Int) r: Int
+extern fun seen_f32_buffer_len(handle: Int) r: Int
+extern fun seen_f32_buffer_clear(handle: Int) r: Void
+extern fun seen_f32_buffer_push(handle: Int, value: Float) r: Void
+extern fun seen_f32_buffer_get(handle: Int, index: Int) r: Float
+extern fun seen_f32_buffer_set(handle: Int, index: Int, value: Float) r: Void
+extern fun seen_f64_buffer_new(capacity: Int) r: Int
+extern fun seen_f64_buffer_len(handle: Int) r: Int
+extern fun seen_f64_buffer_clear(handle: Int) r: Void
+extern fun seen_f64_buffer_push(handle: Int, value: Float) r: Void
+extern fun seen_f64_buffer_get(handle: Int, index: Int) r: Float
+extern fun seen_f64_buffer_set(handle: Int, index: Int, value: Float) r: Void
+
 class ByteArray {
     handle: Int
 
@@ -83,122 +108,138 @@ class ByteArray {
 }
 
 class Int32Buffer {
-    data: Array<Int>
+    handle: Int
 
     static fun new(initialCapacity: Int = 16) -> Int32Buffer {
-        return Int32Buffer {
-            data: Array<Int>(initialCapacity)
-        }
+        return Int32Buffer.withCapacity(initialCapacity)
     }
 
     static fun withCapacity(initialCapacity: Int) -> Int32Buffer {
-        return Int32Buffer.new(initialCapacity)
+        return Int32Buffer {
+            handle: seen_i32_buffer_new(initialCapacity)
+        }
     }
 
     fun length() -> Int {
-        return this.data.length()
+        return seen_i32_buffer_len(this.handle)
+    }
+
+    fun clear() -> Void {
+        seen_i32_buffer_clear(this.handle)
     }
 
     fun push(value: Int32) -> Void {
-        this.data.push(value as Int)
+        seen_i32_buffer_push(this.handle, value)
     }
 
     fun get(index: Int) -> Int32 {
-        return this.data[index] as Int32
+        return seen_i32_buffer_get(this.handle, index)
     }
 
     fun set(index: Int, value: Int32) -> Void {
-        this.data[index] = value as Int
+        seen_i32_buffer_set(this.handle, index, value)
     }
 }
 
 class Int64Buffer {
-    data: Array<Int>
+    handle: Int
 
     static fun new(initialCapacity: Int = 16) -> Int64Buffer {
-        return Int64Buffer {
-            data: Array<Int>(initialCapacity)
-        }
+        return Int64Buffer.withCapacity(initialCapacity)
     }
 
     static fun withCapacity(initialCapacity: Int) -> Int64Buffer {
-        return Int64Buffer.new(initialCapacity)
+        return Int64Buffer {
+            handle: seen_i64_buffer_new(initialCapacity)
+        }
     }
 
     fun length() -> Int {
-        return this.data.length()
+        return seen_i64_buffer_len(this.handle)
+    }
+
+    fun clear() -> Void {
+        seen_i64_buffer_clear(this.handle)
     }
 
     fun push(value: Int64) -> Void {
-        this.data.push(value as Int)
+        seen_i64_buffer_push(this.handle, value)
     }
 
     fun get(index: Int) -> Int64 {
-        return this.data[index] as Int64
+        return seen_i64_buffer_get(this.handle, index)
     }
 
     fun set(index: Int, value: Int64) -> Void {
-        this.data[index] = value as Int
+        seen_i64_buffer_set(this.handle, index, value)
     }
 }
 
 class Float32Buffer {
-    data: Array<Float>
+    handle: Int
 
     static fun new(initialCapacity: Int = 16) -> Float32Buffer {
-        return Float32Buffer {
-            data: Array<Float>(initialCapacity)
-        }
+        return Float32Buffer.withCapacity(initialCapacity)
     }
 
     static fun withCapacity(initialCapacity: Int) -> Float32Buffer {
-        return Float32Buffer.new(initialCapacity)
+        return Float32Buffer {
+            handle: seen_f32_buffer_new(initialCapacity)
+        }
     }
 
     fun length() -> Int {
-        return this.data.length()
+        return seen_f32_buffer_len(this.handle)
+    }
+
+    fun clear() -> Void {
+        seen_f32_buffer_clear(this.handle)
     }
 
     fun push(value: Float) -> Void {
-        this.data.push(value)
+        seen_f32_buffer_push(this.handle, value)
     }
 
     fun get(index: Int) -> Float {
-        return this.data[index]
+        return seen_f32_buffer_get(this.handle, index)
     }
 
     fun set(index: Int, value: Float) -> Void {
-        this.data[index] = value
+        seen_f32_buffer_set(this.handle, index, value)
     }
 }
 
 class Float64Buffer {
-    data: Array<Float>
+    handle: Int
 
     static fun new(initialCapacity: Int = 16) -> Float64Buffer {
-        return Float64Buffer {
-            data: Array<Float>(initialCapacity)
-        }
+        return Float64Buffer.withCapacity(initialCapacity)
     }
 
     static fun withCapacity(initialCapacity: Int) -> Float64Buffer {
-        return Float64Buffer.new(initialCapacity)
+        return Float64Buffer {
+            handle: seen_f64_buffer_new(initialCapacity)
+        }
     }
 
     fun length() -> Int {
-        return this.data.length()
+        return seen_f64_buffer_len(this.handle)
+    }
+
+    fun clear() -> Void {
+        seen_f64_buffer_clear(this.handle)
     }
 
     fun push(value: Float) -> Void {
-        this.data.push(value)
+        seen_f64_buffer_push(this.handle, value)
     }
 
     fun get(index: Int) -> Float {
-        return this.data[index]
+        return seen_f64_buffer_get(this.handle, index)
     }
 
     fun set(index: Int, value: Float) -> Void {
-        this.data[index] = value
+        seen_f64_buffer_set(this.handle, index, value)
     }
 }
 

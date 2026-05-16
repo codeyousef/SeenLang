@@ -6,6 +6,8 @@ Parses JSON strings into JsonValue objects
 import json.value.{JsonValue, JSON_NULL, JSON_BOOL, JSON_NUMBER, JSON_STRING, JSON_ARRAY, JSON_OBJECT, JsonValue_nullValue, JsonValue_bool, JsonValue_string, JsonValue_numberFloat, JsonValue_array, JsonValue_object}
 import str.string.{StringBuilder}
 
+extern "C" fun seen_parse_float_range(text: String, start: Int, end: Int) r: Float
+
 // JSON Parser result
 class JsonParseResult {
     var success: Int
@@ -388,7 +390,7 @@ class JsonParser {
             }
         }
 
-        let numValue = this.parseFloatRange(startPos, this.pos)
+        let numValue = seen_parse_float_range(this.input, startPos, this.pos)
         let fv = JsonValue_numberFloat(numValue)
         return JsonParseResult_ok(fv)
     }
@@ -401,7 +403,7 @@ class JsonParser {
         this.input = s
         this.pos = 0
         this.len = s.length()
-        let result = this.parseFloatRange(0, this.len)
+        let result = seen_parse_float_range(this.input, 0, this.len)
         this.input = oldInput
         this.pos = oldPos
         this.len = oldLen

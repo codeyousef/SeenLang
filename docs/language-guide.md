@@ -539,13 +539,16 @@ let age = map.get("alice")
 let bytes = ByteBuffer.withCapacity(256)
 bytes.push(255)
 
+let raw = Int32Buffer.withCapacity(128)
+raw.push(42)
+
 let values = [5, 1, 3]
 unstableSortInt(values)
 let slot = lowerBoundInt(values, 3)
 ```
 
 See the [Collections API](api-reference/collections.md) for Vec, BTreeMap,
-ByteBuffer, sort/search helpers, priority queues, and more.
+ByteBuffer, primitive buffers, sort/search helpers, priority queues, and more.
 
 ## Ranges
 

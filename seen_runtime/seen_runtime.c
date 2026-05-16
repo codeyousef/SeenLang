@@ -1362,6 +1362,198 @@ SeenArray* seen_byte_array_to_int_array(void* handle) {
     return arr;
 }
 
+// ============================================================================
+// Primitive buffer runtime - compact typed storage for numeric hot paths
+// ============================================================================
+
+typedef struct {
+    void* data;
+    int64_t len;
+    int64_t cap;
+    int64_t elem_size;
+} SeenPrimitiveBuffer;
+
+static int64_t seen_primitive_capacity(int64_t requested) {
+    int64_t cap = 16;
+    while (cap < requested) {
+        if (cap > INT64_MAX / 2) {
+            seen_oom_abort("PrimitiveBuffer capacity overflow", INT64_MAX);
+        }
+        cap *= 2;
+    }
+    return cap;
+}
+
+static SeenPrimitiveBuffer* seen_primitive_buffer_new(int64_t capacity,
+                                                      int64_t elem_size,
+                                                      const char* label) {
+    SeenPrimitiveBuffer* buffer =
+        (SeenPrimitiveBuffer*)seen_try_malloc((int64_t)sizeof(SeenPrimitiveBuffer));
+    if (!buffer) seen_oom_abort(label, (int64_t)sizeof(SeenPrimitiveBuffer));
+    buffer->cap = seen_primitive_capacity(capacity > 0 ? capacity : 16);
+    buffer->len = 0;
+    buffer->elem_size = elem_size;
+    int64_t bytes = buffer->cap * elem_size;
+    buffer->data = seen_try_malloc(bytes);
+    if (!buffer->data) seen_oom_abort(label, bytes);
+    return buffer;
+}
+
+static void seen_primitive_buffer_ensure(SeenPrimitiveBuffer* buffer,
+                                         int64_t required,
+                                         const char* label) {
+    if (!buffer) seen_oom_abort(label, 0);
+    if (required <= buffer->cap) return;
+    int64_t new_cap = seen_primitive_capacity(required);
+    int64_t old_bytes = buffer->cap * buffer->elem_size;
+    int64_t new_bytes = new_cap * buffer->elem_size;
+    void* new_data = seen_try_realloc(buffer->data, old_bytes, new_bytes);
+    if (!new_data) seen_oom_abort(label, new_bytes);
+    buffer->data = new_data;
+    buffer->cap = new_cap;
+}
+
+static void seen_primitive_check_index(SeenPrimitiveBuffer* buffer,
+                                       int64_t index,
+                                       const char* label) {
+    if (!buffer || index < 0 || index >= buffer->len) {
+        fprintf(stderr, "%s index out of bounds\n", label);
+        abort();
+    }
+}
+
+void* seen_i32_buffer_new(int64_t capacity) {
+    return seen_primitive_buffer_new(capacity, (int64_t)sizeof(int32_t), "Int32Buffer");
+}
+
+int64_t seen_i32_buffer_len(void* handle) {
+    SeenPrimitiveBuffer* buffer = (SeenPrimitiveBuffer*)handle;
+    return buffer ? buffer->len : 0;
+}
+
+void seen_i32_buffer_clear(void* handle) {
+    SeenPrimitiveBuffer* buffer = (SeenPrimitiveBuffer*)handle;
+    if (buffer) buffer->len = 0;
+}
+
+void seen_i32_buffer_push(void* handle, int64_t value) {
+    SeenPrimitiveBuffer* buffer = (SeenPrimitiveBuffer*)handle;
+    if (!buffer) seen_oom_abort("Int32Buffer missing handle", 0);
+    seen_primitive_buffer_ensure(buffer, buffer->len + 1, "Int32Buffer grow");
+    ((int32_t*)buffer->data)[buffer->len++] = (int32_t)value;
+}
+
+int64_t seen_i32_buffer_get(void* handle, int64_t index) {
+    SeenPrimitiveBuffer* buffer = (SeenPrimitiveBuffer*)handle;
+    seen_primitive_check_index(buffer, index, "Int32Buffer");
+    return (int64_t)((int32_t*)buffer->data)[index];
+}
+
+void seen_i32_buffer_set(void* handle, int64_t index, int64_t value) {
+    SeenPrimitiveBuffer* buffer = (SeenPrimitiveBuffer*)handle;
+    seen_primitive_check_index(buffer, index, "Int32Buffer");
+    ((int32_t*)buffer->data)[index] = (int32_t)value;
+}
+
+void* seen_i64_buffer_new(int64_t capacity) {
+    return seen_primitive_buffer_new(capacity, (int64_t)sizeof(int64_t), "Int64Buffer");
+}
+
+int64_t seen_i64_buffer_len(void* handle) {
+    SeenPrimitiveBuffer* buffer = (SeenPrimitiveBuffer*)handle;
+    return buffer ? buffer->len : 0;
+}
+
+void seen_i64_buffer_clear(void* handle) {
+    SeenPrimitiveBuffer* buffer = (SeenPrimitiveBuffer*)handle;
+    if (buffer) buffer->len = 0;
+}
+
+void seen_i64_buffer_push(void* handle, int64_t value) {
+    SeenPrimitiveBuffer* buffer = (SeenPrimitiveBuffer*)handle;
+    if (!buffer) seen_oom_abort("Int64Buffer missing handle", 0);
+    seen_primitive_buffer_ensure(buffer, buffer->len + 1, "Int64Buffer grow");
+    ((int64_t*)buffer->data)[buffer->len++] = value;
+}
+
+int64_t seen_i64_buffer_get(void* handle, int64_t index) {
+    SeenPrimitiveBuffer* buffer = (SeenPrimitiveBuffer*)handle;
+    seen_primitive_check_index(buffer, index, "Int64Buffer");
+    return ((int64_t*)buffer->data)[index];
+}
+
+void seen_i64_buffer_set(void* handle, int64_t index, int64_t value) {
+    SeenPrimitiveBuffer* buffer = (SeenPrimitiveBuffer*)handle;
+    seen_primitive_check_index(buffer, index, "Int64Buffer");
+    ((int64_t*)buffer->data)[index] = value;
+}
+
+void* seen_f32_buffer_new(int64_t capacity) {
+    return seen_primitive_buffer_new(capacity, (int64_t)sizeof(float), "Float32Buffer");
+}
+
+int64_t seen_f32_buffer_len(void* handle) {
+    SeenPrimitiveBuffer* buffer = (SeenPrimitiveBuffer*)handle;
+    return buffer ? buffer->len : 0;
+}
+
+void seen_f32_buffer_clear(void* handle) {
+    SeenPrimitiveBuffer* buffer = (SeenPrimitiveBuffer*)handle;
+    if (buffer) buffer->len = 0;
+}
+
+void seen_f32_buffer_push(void* handle, double value) {
+    SeenPrimitiveBuffer* buffer = (SeenPrimitiveBuffer*)handle;
+    if (!buffer) seen_oom_abort("Float32Buffer missing handle", 0);
+    seen_primitive_buffer_ensure(buffer, buffer->len + 1, "Float32Buffer grow");
+    ((float*)buffer->data)[buffer->len++] = (float)value;
+}
+
+double seen_f32_buffer_get(void* handle, int64_t index) {
+    SeenPrimitiveBuffer* buffer = (SeenPrimitiveBuffer*)handle;
+    seen_primitive_check_index(buffer, index, "Float32Buffer");
+    return (double)((float*)buffer->data)[index];
+}
+
+void seen_f32_buffer_set(void* handle, int64_t index, double value) {
+    SeenPrimitiveBuffer* buffer = (SeenPrimitiveBuffer*)handle;
+    seen_primitive_check_index(buffer, index, "Float32Buffer");
+    ((float*)buffer->data)[index] = (float)value;
+}
+
+void* seen_f64_buffer_new(int64_t capacity) {
+    return seen_primitive_buffer_new(capacity, (int64_t)sizeof(double), "Float64Buffer");
+}
+
+int64_t seen_f64_buffer_len(void* handle) {
+    SeenPrimitiveBuffer* buffer = (SeenPrimitiveBuffer*)handle;
+    return buffer ? buffer->len : 0;
+}
+
+void seen_f64_buffer_clear(void* handle) {
+    SeenPrimitiveBuffer* buffer = (SeenPrimitiveBuffer*)handle;
+    if (buffer) buffer->len = 0;
+}
+
+void seen_f64_buffer_push(void* handle, double value) {
+    SeenPrimitiveBuffer* buffer = (SeenPrimitiveBuffer*)handle;
+    if (!buffer) seen_oom_abort("Float64Buffer missing handle", 0);
+    seen_primitive_buffer_ensure(buffer, buffer->len + 1, "Float64Buffer grow");
+    ((double*)buffer->data)[buffer->len++] = value;
+}
+
+double seen_f64_buffer_get(void* handle, int64_t index) {
+    SeenPrimitiveBuffer* buffer = (SeenPrimitiveBuffer*)handle;
+    seen_primitive_check_index(buffer, index, "Float64Buffer");
+    return ((double*)buffer->data)[index];
+}
+
+void seen_f64_buffer_set(void* handle, int64_t index, double value) {
+    SeenPrimitiveBuffer* buffer = (SeenPrimitiveBuffer*)handle;
+    seen_primitive_check_index(buffer, index, "Float64Buffer");
+    ((double*)buffer->data)[index] = value;
+}
+
 // Wrapper for malloc with tracking
 void* tracked_malloc(size_t size) {
     void* ptr = malloc(size);
@@ -2287,6 +2479,42 @@ int64_t StringBuilder_append(void* s, SeenString str) {
 SeenString StringBuilder_toString(void* s) {
     StringBuilder* sb = (StringBuilder*)s;
     return StringBuilder_toString_value(sb);  // Call inline version
+}
+
+SeenString seen_string_builder_flatten(SeenArray* parts, int64_t totalLength) {
+    (void)totalLength;
+    if (!parts || parts->len <= 0) {
+        return seen_cstr_to_str("");
+    }
+
+    int64_t actual_total = 0;
+    for (int64_t i = 0; i < parts->len; i++) {
+        SeenString part = ((SeenString*)parts->data)[i];
+        if (part.len > 0) {
+            if (INT64_MAX - actual_total < part.len) {
+                seen_oom_abort("StringBuilder flatten length overflow", INT64_MAX);
+            }
+            actual_total += part.len;
+        }
+    }
+
+    char* data = (char*)seen_try_malloc(actual_total + 1);
+    if (!data) {
+        SeenString empty = { 0, "" };
+        return empty;
+    }
+
+    char* write = data;
+    for (int64_t i = 0; i < parts->len; i++) {
+        SeenString part = ((SeenString*)parts->data)[i];
+        if (part.len > 0) {
+            memcpy(write, part.data, (size_t)part.len);
+            write += part.len;
+        }
+    }
+    *write = 0;
+    SeenString result = { actual_total, data };
+    return result;
 }
 
 bool StringBuilder_writeToFile_impl(void* s, SeenString path) {
@@ -5110,6 +5338,12 @@ void seen_perf_export_json(SeenString path) {
 // SIMD Vector Runtime Functions
 // ============================================================================
 
+static void* seen_simd_alloc(int64_t size, int64_t alignment, const char* label) {
+    void* ptr = seen_try_aligned_realloc(NULL, 0, size, alignment);
+    if (!ptr) seen_oom_abort(label, size);
+    return ptr;
+}
+
 #if defined(__x86_64__) || defined(_M_X64)
 #include <immintrin.h>
 
@@ -5118,49 +5352,49 @@ void seen_perf_export_json(SeenString path) {
 
 __attribute__((target("sse2")))
 void* seen_simd_f4_splat(double val) {
-    __m128* r = (__m128*)aligned_alloc(16, sizeof(__m128));
+    __m128* r = (__m128*)seen_simd_alloc((int64_t)sizeof(__m128), 16, "SIMD f4");
     *r = _mm_set1_ps((float)val);
     return r;
 }
 
 __attribute__((target("sse2")))
 void* seen_simd_f4_add(void* a, void* b) {
-    __m128* r = (__m128*)aligned_alloc(16, sizeof(__m128));
+    __m128* r = (__m128*)seen_simd_alloc((int64_t)sizeof(__m128), 16, "SIMD f4");
     *r = _mm_add_ps(*(__m128*)a, *(__m128*)b);
     return r;
 }
 
 __attribute__((target("sse2")))
 void* seen_simd_f4_sub(void* a, void* b) {
-    __m128* r = (__m128*)aligned_alloc(16, sizeof(__m128));
+    __m128* r = (__m128*)seen_simd_alloc((int64_t)sizeof(__m128), 16, "SIMD f4");
     *r = _mm_sub_ps(*(__m128*)a, *(__m128*)b);
     return r;
 }
 
 __attribute__((target("sse2")))
 void* seen_simd_f4_mul(void* a, void* b) {
-    __m128* r = (__m128*)aligned_alloc(16, sizeof(__m128));
+    __m128* r = (__m128*)seen_simd_alloc((int64_t)sizeof(__m128), 16, "SIMD f4");
     *r = _mm_mul_ps(*(__m128*)a, *(__m128*)b);
     return r;
 }
 
 __attribute__((target("sse2")))
 void* seen_simd_f4_div(void* a, void* b) {
-    __m128* r = (__m128*)aligned_alloc(16, sizeof(__m128));
+    __m128* r = (__m128*)seen_simd_alloc((int64_t)sizeof(__m128), 16, "SIMD f4");
     *r = _mm_div_ps(*(__m128*)a, *(__m128*)b);
     return r;
 }
 
 __attribute__((target("sse2")))
 void* seen_simd_f4_min(void* a, void* b) {
-    __m128* r = (__m128*)aligned_alloc(16, sizeof(__m128));
+    __m128* r = (__m128*)seen_simd_alloc((int64_t)sizeof(__m128), 16, "SIMD f4");
     *r = _mm_min_ps(*(__m128*)a, *(__m128*)b);
     return r;
 }
 
 __attribute__((target("sse2")))
 void* seen_simd_f4_max(void* a, void* b) {
-    __m128* r = (__m128*)aligned_alloc(16, sizeof(__m128));
+    __m128* r = (__m128*)seen_simd_alloc((int64_t)sizeof(__m128), 16, "SIMD f4");
     *r = _mm_max_ps(*(__m128*)a, *(__m128*)b);
     return r;
 }
@@ -5187,7 +5421,7 @@ double seen_simd_f4_dot(void* a, void* b) {
 
 __attribute__((target("sse2")))
 void* seen_simd_f4_load(void* ptr) {
-    __m128* r = (__m128*)aligned_alloc(16, sizeof(__m128));
+    __m128* r = (__m128*)seen_simd_alloc((int64_t)sizeof(__m128), 16, "SIMD f4");
     *r = _mm_loadu_ps((float*)ptr);
     return r;
 }
@@ -5201,49 +5435,49 @@ void seen_simd_f4_store(void* vec, void* ptr) {
 
 __attribute__((target("avx2")))
 void* seen_simd_f8_splat(double val) {
-    __m256* r = (__m256*)aligned_alloc(32, sizeof(__m256));
+    __m256* r = (__m256*)seen_simd_alloc((int64_t)sizeof(__m256), 32, "SIMD f8");
     *r = _mm256_set1_ps((float)val);
     return r;
 }
 
 __attribute__((target("avx2")))
 void* seen_simd_f8_add(void* a, void* b) {
-    __m256* r = (__m256*)aligned_alloc(32, sizeof(__m256));
+    __m256* r = (__m256*)seen_simd_alloc((int64_t)sizeof(__m256), 32, "SIMD f8");
     *r = _mm256_add_ps(*(__m256*)a, *(__m256*)b);
     return r;
 }
 
 __attribute__((target("avx2")))
 void* seen_simd_f8_sub(void* a, void* b) {
-    __m256* r = (__m256*)aligned_alloc(32, sizeof(__m256));
+    __m256* r = (__m256*)seen_simd_alloc((int64_t)sizeof(__m256), 32, "SIMD f8");
     *r = _mm256_sub_ps(*(__m256*)a, *(__m256*)b);
     return r;
 }
 
 __attribute__((target("avx2")))
 void* seen_simd_f8_mul(void* a, void* b) {
-    __m256* r = (__m256*)aligned_alloc(32, sizeof(__m256));
+    __m256* r = (__m256*)seen_simd_alloc((int64_t)sizeof(__m256), 32, "SIMD f8");
     *r = _mm256_mul_ps(*(__m256*)a, *(__m256*)b);
     return r;
 }
 
 __attribute__((target("avx2")))
 void* seen_simd_f8_div(void* a, void* b) {
-    __m256* r = (__m256*)aligned_alloc(32, sizeof(__m256));
+    __m256* r = (__m256*)seen_simd_alloc((int64_t)sizeof(__m256), 32, "SIMD f8");
     *r = _mm256_div_ps(*(__m256*)a, *(__m256*)b);
     return r;
 }
 
 __attribute__((target("avx2")))
 void* seen_simd_f8_min(void* a, void* b) {
-    __m256* r = (__m256*)aligned_alloc(32, sizeof(__m256));
+    __m256* r = (__m256*)seen_simd_alloc((int64_t)sizeof(__m256), 32, "SIMD f8");
     *r = _mm256_min_ps(*(__m256*)a, *(__m256*)b);
     return r;
 }
 
 __attribute__((target("avx2")))
 void* seen_simd_f8_max(void* a, void* b) {
-    __m256* r = (__m256*)aligned_alloc(32, sizeof(__m256));
+    __m256* r = (__m256*)seen_simd_alloc((int64_t)sizeof(__m256), 32, "SIMD f8");
     *r = _mm256_max_ps(*(__m256*)a, *(__m256*)b);
     return r;
 }
@@ -5276,7 +5510,7 @@ double seen_simd_f8_dot(void* a, void* b) {
 
 __attribute__((target("avx2")))
 void* seen_simd_f8_load(void* ptr) {
-    __m256* r = (__m256*)aligned_alloc(32, sizeof(__m256));
+    __m256* r = (__m256*)seen_simd_alloc((int64_t)sizeof(__m256), 32, "SIMD f8");
     *r = _mm256_loadu_ps((float*)ptr);
     return r;
 }
@@ -5352,9 +5586,52 @@ double seen_simd_dot_product(void* a_data, void* b_data, int64_t len) {
     return sum;
 }
 
+__attribute__((target("avx2")))
+static double seen_simd_reduce_min_avx2(float* data, int64_t len) {
+    int64_t i = 8;
+    __m256 acc = _mm256_loadu_ps(data);
+    for (; i + 7 < len; i += 8) {
+        __m256 v = _mm256_loadu_ps(data + i);
+        acc = _mm256_min_ps(acc, v);
+    }
+    float lanes[8];
+    _mm256_storeu_ps(lanes, acc);
+    float min_val = lanes[0];
+    for (int lane = 1; lane < 8; lane++) {
+        if (lanes[lane] < min_val) min_val = lanes[lane];
+    }
+    for (; i < len; i++) {
+        if (data[i] < min_val) min_val = data[i];
+    }
+    return (double)min_val;
+}
+
+__attribute__((target("avx2")))
+static double seen_simd_reduce_max_avx2(float* data, int64_t len) {
+    int64_t i = 8;
+    __m256 acc = _mm256_loadu_ps(data);
+    for (; i + 7 < len; i += 8) {
+        __m256 v = _mm256_loadu_ps(data + i);
+        acc = _mm256_max_ps(acc, v);
+    }
+    float lanes[8];
+    _mm256_storeu_ps(lanes, acc);
+    float max_val = lanes[0];
+    for (int lane = 1; lane < 8; lane++) {
+        if (lanes[lane] > max_val) max_val = lanes[lane];
+    }
+    for (; i < len; i++) {
+        if (data[i] > max_val) max_val = data[i];
+    }
+    return (double)max_val;
+}
+
 double seen_simd_reduce_min(void* arr_data, int64_t len) {
     if (len <= 0) return 0.0;
     float* data = (float*)arr_data;
+    if (g_cpu_features.avx2 && len >= 8) {
+        return seen_simd_reduce_min_avx2(data, len);
+    }
     float min_val = data[0];
     for (int64_t i = 1; i < len; i++) {
         if (data[i] < min_val) min_val = data[i];
@@ -5365,6 +5642,9 @@ double seen_simd_reduce_min(void* arr_data, int64_t len) {
 double seen_simd_reduce_max(void* arr_data, int64_t len) {
     if (len <= 0) return 0.0;
     float* data = (float*)arr_data;
+    if (g_cpu_features.avx2 && len >= 8) {
+        return seen_simd_reduce_max_avx2(data, len);
+    }
     float max_val = data[0];
     for (int64_t i = 1; i < len; i++) {
         if (data[i] > max_val) max_val = data[i];
@@ -9058,6 +9338,41 @@ SEEN_LIBM_BINARY_WRAPPER(seen_math_hypot, hypot)
 SEEN_LIBM_UNARY_WRAPPER(seen_math_sinh, sinh)
 SEEN_LIBM_UNARY_WRAPPER(seen_math_cosh, cosh)
 SEEN_LIBM_UNARY_WRAPPER(seen_math_tanh, tanh)
+SEEN_LIBM_UNARY_WRAPPER(seen_math_round, round)
+SEEN_LIBM_UNARY_WRAPPER(seen_math_asinh, asinh)
+SEEN_LIBM_UNARY_WRAPPER(seen_math_acosh, acosh)
+SEEN_LIBM_UNARY_WRAPPER(seen_math_atanh, atanh)
+SEEN_LIBM_BINARY_WRAPPER(seen_math_copysign, copysign)
+
+SEEN_BOOTSTRAP_WEAK double seen_parse_float_range(SeenString text, int64_t start, int64_t end) {
+    if (start < 0) start = 0;
+    if (end < start) end = start;
+    if (end > text.len) end = text.len;
+
+    int64_t len = end - start;
+    if (len <= 0) return 0.0;
+
+    char stack_buf[128];
+    char* buf = stack_buf;
+    bool heap = false;
+    if (len >= (int64_t)sizeof(stack_buf)) {
+        buf = (char*)seen_try_malloc(len + 1);
+        if (!buf) seen_oom_abort("parse float buffer", len + 1);
+        heap = true;
+    }
+
+    memcpy(buf, text.data + start, (size_t)len);
+    buf[len] = 0;
+    char* parse_end = NULL;
+    errno = 0;
+    double value = strtod(buf, &parse_end);
+
+    if (heap) {
+        free(buf);
+        seen_memory_release_reservation(len + 1);
+    }
+    return value;
+}
 SEEN_BOOTSTRAP_WEAK int64_t seen_string_starts_with(int64_t s_len, char* s_data, int64_t p_len, char* p_data) {
     (void)s_len; (void)s_data; (void)p_len; (void)p_data; return 0;
 }

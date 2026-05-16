@@ -302,9 +302,13 @@ compiler_for_tier() {
 
 find_benchmark_compiler() {
     local candidate
+    if [ "${SEEN_BENCH_USE_DEV:-0}" = "1" ] && [ -x "$ROOT_DIR/compiler_seen/target/seen-dev" ]; then
+        printf '%s\n' "$ROOT_DIR/compiler_seen/target/seen-dev"
+        return 0
+    fi
     for candidate in \
-        "$ROOT_DIR/compiler_seen/target/seen-dev" \
         "$ROOT_DIR/compiler_seen/target/seen" \
+        "$ROOT_DIR/compiler_seen/target/seen-dev" \
         "$ROOT_DIR/target/release/seen"; do
         if [ -x "$candidate" ]; then
             printf '%s\n' "$candidate"

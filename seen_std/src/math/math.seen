@@ -44,6 +44,11 @@ extern "C" fun seen_math_hypot(x: Float, y: Float) r: Float
 extern "C" fun seen_math_sinh(value: Float) r: Float
 extern "C" fun seen_math_cosh(value: Float) r: Float
 extern "C" fun seen_math_tanh(value: Float) r: Float
+extern "C" fun seen_math_round(value: Float) r: Float
+extern "C" fun seen_math_asinh(value: Float) r: Float
+extern "C" fun seen_math_acosh(value: Float) r: Float
+extern "C" fun seen_math_atanh(value: Float) r: Float
+extern "C" fun seen_math_copysign(x: Float, y: Float) r: Float
 
 let INFINITY: Float = seen_math_positive_infinity()
 let NEG_INFINITY: Float = seen_math_negative_infinity()
@@ -166,15 +171,7 @@ fun ceil(value: Float) r: Float {
 }
 
 fun round(value: Float) r: Float {
-    let floored = floor(value)
-    let fraction = value - floored
-    if fraction >= 0.5 {
-        return floored + 1.0
-    }
-    if fraction <= -0.5 {
-        return floored - 1.0
-    }
-    return floored
+    return seen_math_round(value)
 }
 
 fun pow(base: Float, exponent: Float) r: Float {
@@ -379,11 +376,7 @@ fun fmod(x: Float, y: Float) r: Float {
 }
 
 fun copysign(x: Float, y: Float) r: Float {
-    let magnitude = abs(x)
-    if y < 0.0 {
-        return -magnitude
-    }
-    return magnitude
+    return seen_math_copysign(x, y)
 }
 
 fun radians(value: Float) r: Float {
@@ -422,21 +415,21 @@ fun tanh(x: Float) r: Float {
 }
 
 fun asinh(x: Float) r: Float {
-    return ln(x + sqrt(x * x + 1.0))
+    return seen_math_asinh(x)
 }
 
 fun acosh(x: Float) r: Float {
     if x < 1.0 {
         abort("acosh: domain error, x must be >= 1")
     }
-    return ln(x + sqrt(x * x - 1.0))
+    return seen_math_acosh(x)
 }
 
 fun atanh(x: Float) r: Float {
     if x <= -1.0 or x >= 1.0 {
         abort("atanh: domain error, x must be in (-1, 1)")
     }
-    return 0.5 * ln((1.0 + x) / (1.0 - x))
+    return seen_math_atanh(x)
 }
 
 // --- IEEE 754 classification ---
@@ -460,7 +453,7 @@ fun gcd(a: Int, b: Int) r: Int {
     var y = absInt(b)
     while y != 0 {
         let temp = y
-        y = x - (x / y) * y
+        y = x % y
         x = temp
     }
     return x

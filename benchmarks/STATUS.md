@@ -11,6 +11,11 @@ Older benchmark harness, microbenchmark, systems, and real-world `.seen` files
 remain legacy placeholders until they are converted to valid Seen. Do not use
 those placeholder files as evidence for optimization claims.
 
+Production comparison scripts are compatibility tooling only. They preserve
+warm caches by default, write reports under `target/seen-build/`, and should be
+run with `SEEN_LOW_MEMORY=1` plus an explicit `SEEN_MEMORY_LIMIT_BYTES` cap. Set
+`SEEN_BENCH_COLD_CACHE=1` only when deliberately measuring cold-cache behavior.
+
 ## ✅ What's Working
 
 ### PowerShell Scripts
@@ -115,7 +120,7 @@ fun main() {
 ## 🎯 Next Steps
 
 1. **Replace placeholder .seen files** with valid Seen syntax
-2. **Record 0.9.0 baselines** for compiler, collections, strings/JSON, math, and sort/search workloads before accepting optimization claims
+2. **Record 0.9.0 baselines** with `scripts/perf_gate.sh` for compiler, collections, buffers, strings/JSON, math, and sort/search workloads before accepting optimization claims
 3. **Run full benchmark suite** once Seen files are fixed
 4. **Compare performance** between Seen, Rust, C++, and Zig
 5. **Generate reports** with actual performance data

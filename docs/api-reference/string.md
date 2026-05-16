@@ -36,6 +36,9 @@ let byte = seen_byte_at(s, 0) // raw byte at index
 
 ### String Functions
 
+Prefix, suffix, search, count, split, and replace helpers scan byte indexes
+directly and allocate only the returned pieces or rebuilt result.
+
 | Function | Signature | Description |
 |----------|-----------|-------------|
 | `split` | `(text: String, delimiter: String) r: Array<String>` | Split by delimiter |
@@ -94,7 +97,8 @@ let byte = seen_byte_at(s, 0) // raw byte at index
 
 Efficient string building with amortized allocation. `repeat`, `join`, `split`,
 and compiler-facing builder paths use this instead of repeated string
-concatenation for large outputs.
+concatenation for large outputs. `toString()` flattens the accumulated parts
+through a one-pass runtime helper.
 
 ```seen
 import str.string
@@ -118,7 +122,7 @@ let sb = StringBuilder.new()
 | `clear()` | `Void` | Clear contents |
 | `isEmpty()` | `Bool` | Check if empty |
 | `length()` | `Int` | Get total length |
-| `toString()` | `String` | Build final string |
+| `toString()` | `String` | Build final string with a linear flatten pass |
 | `tryToString()` | `Result<String, AllocError>` | Build after checking the current memory budget |
 | `writeToFile(path: String)` | `Bool` | Stream builder parts to a file |
 | `buildAndClear()` | `String` | Build string and clear builder |

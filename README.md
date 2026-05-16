@@ -391,7 +391,19 @@ fun readFile(path: String) r: String {
 
 ## Benchmarks
 
-17 production benchmarks in `benchmarks/production/`:
+Use `scripts/perf_gate.sh` for the small, capped regression gates that protect
+compiler, stdlib, runtime, release-LTO, and package performance. Production
+benchmark scripts remain available for broader comparison runs and preserve
+warm caches by default.
+
+```bash
+SEEN_LOW_MEMORY=1 scripts/perf_gate.sh --compare --suite stdlib
+SEEN_LOW_MEMORY=1 scripts/perf_gate.sh --compare --suite runtime
+SEEN_LOW_MEMORY=1 scripts/perf_gate.sh --compare --suite build --tier quick
+./scripts/run_production_benchmarks.sh
+```
+
+Production benchmarks in `benchmarks/production/`:
 
 | Benchmark | Description |
 |-----------|-------------|
@@ -411,12 +423,6 @@ fun readFile(path: String) r: String {
 | `15_dft_spectrum` | Discrete Fourier transform |
 | `16_euler_totient` | Euler's totient function |
 | `17_fibonacci` | Recursive Fibonacci |
-
-Run benchmarks:
-
-```bash
-./scripts/run_production_benchmarks.sh
-```
 
 Comparison benchmarks against C, C++, Rust, and Zig are in `benchmarks/comparison/`.
 

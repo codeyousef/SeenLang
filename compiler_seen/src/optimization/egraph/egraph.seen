@@ -56,6 +56,7 @@ class EGraph {
     var classNodeHeads: Array<Int>    // e-class id -> first node index
     var classNodeNext: Array<Int>     // node index -> next node in class list
     var numClasses: Int
+    var activeClassCount: Int
     var numNodes: Int
     var dirty: Bool                   // needs rebuild?
 
@@ -73,6 +74,7 @@ class EGraph {
             classNodeHeads: Array<Int>(),
             classNodeNext: Array<Int>(),
             numClasses: 0,
+            activeClassCount: 0,
             numNodes: 0,
             dirty: false
         }
@@ -163,6 +165,7 @@ class EGraph {
         this.ranks.push(0)
         this.classNodeHeads.push(-1)
         this.numClasses = this.numClasses + 1
+        this.activeClassCount = this.activeClassCount + 1
 
         // Create new e-node
         let nodeIdx = this.numNodes
@@ -198,17 +201,20 @@ class EGraph {
         // Union by rank
         if this.ranks[root1] < this.ranks[root2] {
             this.parents[root1] = root2
+            this.activeClassCount = this.activeClassCount - 1
             this.dirty = true
             return root2
         }
         if this.ranks[root1] > this.ranks[root2] {
             this.parents[root2] = root1
+            this.activeClassCount = this.activeClassCount - 1
             this.dirty = true
             return root1
         }
         // Equal rank: pick root1 as new root, increment rank
         this.parents[root2] = root1
         this.ranks[root1] = this.ranks[root1] + 1
+        this.activeClassCount = this.activeClassCount - 1
         this.dirty = true
         return root1
     }
@@ -230,7 +236,7 @@ class EGraph {
             }
             // Re-canonicalize the node's class
             this.nodeClassId[ni] = find(this.nodeClassId[ni])
-            this.nodeSignatureHashes[ni] = this.signatureHash(this.nodeOps[ni], this.nodeChildren(ni))
+            this.nodeSignatureHashes[ni] = this.signatureHashNode(ni)
             ni = ni + 1
         }
         this.rebuildSignatureIndex()
@@ -289,16 +295,10 @@ class EGraph {
 
     // Get total number of e-classes
     fun classCount() r: Int {
-        // Count unique canonical representatives
-        var count = 0
-        var i = 0
-        while i < this.numClasses {
-            if find(i) == i {
-                count = count + 1
-            }
-            i = i + 1
+        if this.activeClassCount < 0 {
+            return 0
         }
-        return count
+        return this.activeClassCount
     }
 
     fun signatureHash(op: String, children: Array<Int>) r: Int {
@@ -313,6 +313,27 @@ class EGraph {
         i = 0
         while i < children.length() {
             hash = hash ^ children[i]
+            hash = hash * 16777619
+            i = i + 1
+        }
+        return hash
+    }
+
+    fun signatureHashNode(nodeIdx: Int) r: Int {
+        var hash = 2166136261
+        let op = this.nodeOps[nodeIdx]
+        var i = 0
+        while i < op.length() {
+            hash = hash ^ op.byteAt(i)
+            hash = hash * 16777619
+            i = i + 1
+        }
+
+        let offset = this.nodeChildrenOffsets[nodeIdx]
+        let numKids = this.nodeChildrenFlat[offset]
+        i = 0
+        while i < numKids {
+            hash = hash ^ this.nodeChildrenFlat[offset + 1 + i]
             hash = hash * 16777619
             i = i + 1
         }

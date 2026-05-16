@@ -56,7 +56,7 @@ fun unstableSortInt(values: Array<Int>) -> Void {
     if values.length() < 2 {
         return
     }
-    quickSortInt(values, 0, values.length() - 1)
+    introSortInt(values, 0, values.length() - 1, sortDepthLimitInt(values.length()))
 }
 
 fun stableSortInt(values: Array<Int>) -> Array<Int> {
@@ -85,21 +85,12 @@ fun stableSortInt(values: Array<Int>) -> Array<Int> {
 fun radixSortInt(values: Array<Int>) -> Array<Int> {
     let result = Array<Int>(values.length())
     var index = 0
-    var hasNegative = false
     while index < values.length() {
-        if values[index] < 0 {
-            hasNegative = true
-        }
         result.push(values[index])
         index = index + 1
     }
 
     if result.length() < 2 {
-        return result
-    }
-
-    if hasNegative {
-        unstableSortInt(result)
         return result
     }
 
@@ -121,7 +112,7 @@ fun radixSortInt(values: Array<Int>) -> Array<Int> {
 
         index = 0
         while index < result.length() {
-            let byte = (result[index] >> shift) & 255
+            let byte = ((result[index] ^ Int.min()) >> shift) & 255
             counts[byte] = counts[byte] + 1
             index = index + 1
         }
@@ -138,7 +129,7 @@ fun radixSortInt(values: Array<Int>) -> Array<Int> {
         index = 0
         while index < result.length() {
             let value = result[index]
-            let byte = (value >> shift) & 255
+            let byte = ((value ^ Int.min()) >> shift) & 255
             let target = counts[byte]
             scratch[target] = value
             counts[byte] = target + 1
@@ -157,19 +148,38 @@ fun radixSortInt(values: Array<Int>) -> Array<Int> {
     return result
 }
 
-fun quickSortInt(values: Array<Int>, low: Int, high: Int) -> Void {
+fun sortDepthLimitInt(length: Int) -> Int {
+    var n = length
+    var depth = 0
+    while n > 1 {
+        n = n / 2
+        depth = depth + 1
+    }
+    return depth * 2
+}
+
+fun introSortInt(values: Array<Int>, low: Int, high: Int, depthLimit: Int) -> Void {
     if high - low <= 16 {
         insertionSortInt(values, low, high)
         return
     }
 
+    if depthLimit <= 0 {
+        heapSortRangeInt(values, low, high)
+        return
+    }
+
     let pivotIndex = partitionInt(values, low, high)
     if pivotIndex - 1 > low {
-        quickSortInt(values, low, pivotIndex - 1)
+        introSortInt(values, low, pivotIndex - 1, depthLimit - 1)
     }
     if pivotIndex + 1 < high {
-        quickSortInt(values, pivotIndex + 1, high)
+        introSortInt(values, pivotIndex + 1, high, depthLimit - 1)
     }
+}
+
+fun quickSortInt(values: Array<Int>, low: Int, high: Int) -> Void {
+    introSortInt(values, low, high, sortDepthLimitInt(high - low + 1))
 }
 
 fun partitionInt(values: Array<Int>, low: Int, high: Int) -> Int {
@@ -274,6 +284,49 @@ fun swapInt(values: Array<Int>, left: Int, right: Int) -> Void {
     let temp = values[left]
     values[left] = values[right]
     values[right] = temp
+}
+
+fun heapSortRangeInt(values: Array<Int>, low: Int, high: Int) -> Void {
+    let count = high - low + 1
+    if count < 2 {
+        return
+    }
+
+    var start = (count / 2) - 1
+    while start >= 0 {
+        siftDownRangeInt(values, start, count, low)
+        start = start - 1
+    }
+
+    var end = count - 1
+    while end > 0 {
+        swapInt(values, low, low + end)
+        siftDownRangeInt(values, 0, end, low)
+        end = end - 1
+    }
+}
+
+fun siftDownRangeInt(values: Array<Int>, rootStart: Int, count: Int, offset: Int) -> Void {
+    var root = rootStart
+    while true {
+        let child = (root * 2) + 1
+        if child >= count {
+            return
+        }
+
+        var best = child
+        let right = child + 1
+        if right < count and values[offset + right] > values[offset + child] {
+            best = right
+        }
+
+        if values[offset + root] >= values[offset + best] {
+            return
+        }
+
+        swapInt(values, offset + root, offset + best)
+        root = best
+    }
 }
 
 class IntPriorityQueue {

@@ -12,5 +12,8 @@ SIMD lowering paths.
 
 Helper functions include `simd_f4_*`, `simd_f8_*`, `simd_reduce_sum`,
 `simd_prefix_sum`, `simd_min`, `simd_max`, and `simd_dot_product`.
+Runtime reductions use vectorized min/max paths on AVX2-capable x86 targets
+where available, and SIMD temporary storage is allocated through the same
+budget-aware aligned allocator used by the rest of the runtime.
 
 See [SIMD and GPU](../simd-and-gpu.md) for usage and CLI controls.

@@ -3,7 +3,7 @@ ByteArray and ByteBuffer Basic Test
 Expected: byte-backed buffers mask values, preserve order, and support primitive widths.
 ///
 
-import collections.byte_buffer.{ByteArray, ByteBuffer, Int32Buffer, Int64Buffer}
+import collections.byte_buffer.{ByteArray, ByteBuffer, Float32Buffer, Float64Buffer, Int32Buffer, Int64Buffer}
 
 fun expect(condition: Bool, message: String) r: Int {
     if condition {
@@ -50,6 +50,18 @@ fun main() r: Int {
     wideInts.push(2000 as Int64)
     failed = failed + expect(wideInts.length() == 2, "Int64Buffer length")
     failed = failed + expect((wideInts.get(0) as Int) < (wideInts.get(1) as Int), "Int64Buffer values")
+
+    let floats32 = Float32Buffer.new()
+    floats32.push(1.5)
+    floats32.push(2.5)
+    failed = failed + expect(floats32.length() == 2, "Float32Buffer length")
+    failed = failed + expect(floats32.get(0) < floats32.get(1), "Float32Buffer values")
+
+    let floats64 = Float64Buffer.new()
+    floats64.push(10.25)
+    floats64.push(20.5)
+    failed = failed + expect(floats64.length() == 2, "Float64Buffer length")
+    failed = failed + expect(floats64.get(1) > floats64.get(0), "Float64Buffer values")
 
     if failed > 0 {
         return 1

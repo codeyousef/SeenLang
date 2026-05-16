@@ -97,6 +97,11 @@ Compiler module cache keys also include the active compiler binary hash, so a
 warm quick/verify rebuild keeps valid objects only when they were produced by a
 compatible compiler.
 
+Benchmark suites use the verified `compiler_seen/target/seen` binary by
+default. Set `SEEN_BENCH_USE_DEV=1` when the intent is to measure the current
+quick-tier `compiler_seen/target/seen-dev` output instead. Production benchmark
+scripts preserve warm caches unless `SEEN_BENCH_COLD_CACHE=1` is set.
+
 ## Worker Budgets
 
 The rebuild script derives `SEEN_JOBS` and `SEEN_OPT_JOBS` from CPU count and

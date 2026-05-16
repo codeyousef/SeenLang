@@ -1,5 +1,5 @@
 import collections.algorithms.{binarySearchInt, lowerBoundInt, unstableSortInt, IntPriorityQueue}
-import collections.byte_buffer.{ByteBuffer}
+import collections.byte_buffer.{ByteBuffer, Float32Buffer, Float64Buffer, Int32Buffer, Int64Buffer}
 import collections.hash_map.{HashMap}
 
 fun checksumArray(values: Array<Int>) r: Int {
@@ -40,6 +40,23 @@ fun main() r: Int {
     }
     let bufferSlice = buffer.slice(64, 512)
     total = total + bufferSlice.length() + bufferSlice.get(0)
+
+    let i32s = Int32Buffer.withCapacity(4096)
+    let i64s = Int64Buffer.withCapacity(4096)
+    let f32s = Float32Buffer.withCapacity(4096)
+    let f64s = Float64Buffer.withCapacity(4096)
+    i = 0
+    while i < 4096 {
+        i32s.push((i % 1024) as Int32)
+        i64s.push((i * 3) as Int64)
+        f32s.push(i.toFloat() * 0.5)
+        f64s.push(i.toFloat() * 1.5)
+        i = i + 1
+    }
+    total = total + (i32s.get(100) as Int)
+    total = total + (i64s.get(200) as Int)
+    total = total + f32s.get(300).toInt()
+    total = total + f64s.get(400).toInt()
 
     let sorted = Array<Int>()
     i = 0
