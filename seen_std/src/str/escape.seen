@@ -3,11 +3,14 @@ String escape/unescape utilities for JSON and other formats
 Production-quality implementation
 ///
 
+import str.string.{StringBuilder}
+
 class StringEscape {
     // Escape a string for JSON output
     fun escapeJson(input: String) -> String {
-        var result = ""
+        let builder = StringBuilder.new()
         var i = 0
+        var segmentStart = 0
         let len = input.length()
         
         while i < len {
@@ -19,29 +22,39 @@ class StringEscape {
             let tab = 9         // '\t'
             let backspace = 8   // '\b'
             let formfeed = 12   // '\f'
+            var escaped = ""
             
             if ch == quote {
-                result = result + "\\\""
+                escaped = "\\\""
             } else if ch == backslash {
-                result = result + "\\\\"
+                escaped = "\\\\"
             } else if ch == newline {
-                result = result + "\\n"
+                escaped = "\\n"
             } else if ch == carriageReturn {
-                result = result + "\\r"
+                escaped = "\\r"
             } else if ch == tab {
-                result = result + "\\t"
+                escaped = "\\t"
             } else if ch == backspace {
-                result = result + "\\b"
+                escaped = "\\b"
             } else if ch == formfeed {
-                result = result + "\\f"
-            } else {
-                result = result + String.fromCharCode(ch)
+                escaped = "\\f"
+            }
+
+            if escaped.length() > 0 {
+                if segmentStart < i {
+                    builder.append(input.substring(segmentStart, i))
+                }
+                builder.append(escaped)
+                segmentStart = i + 1
             }
             
             i = i + 1
         }
         
-        return result
+        if segmentStart < len {
+            builder.append(input.substring(segmentStart, len))
+        }
+        return builder.toString()
     }
     
     // Check if a string needs escaping for JSON
@@ -52,70 +65,96 @@ class StringEscape {
         while i < len {
             let ch = input.charAt(i)
             if ch == '"' or ch == '\\' or ch == '\n' or ch == '\r' or ch == '\t' or ch == '\b' or ch == '\f' {
-                true
+                return true
             }
             i = i + 1
         }
         
-        false
+        return false
     }
     
     // URL encode a string
     fun urlEncode(input: String): String {
-        let result = ""
+        let builder = StringBuilder.new()
         var i = 0
+        var segmentStart = 0
         let len = input.length()
         
         while i < len {
             let ch = input.charAt(i)
             
             if isAlphaNum(ch) or ch == '-' or ch == '_' or ch == '.' or ch == '~' {
-                result = result + String.fromCharCode(ch)
+                // Keep scanning the unescaped segment.
             } else if ch == ' ' {
-                result = result + "+"
+                if segmentStart < i {
+                    builder.append(input.substring(segmentStart, i))
+                }
+                builder.append("+")
+                segmentStart = i + 1
             } else {
-                result = result + "%" + toHex(ch / 16) + toHex(ch % 16)
+                if segmentStart < i {
+                    builder.append(input.substring(segmentStart, i))
+                }
+                builder.append("%")
+                builder.append(toHex(ch / 16))
+                builder.append(toHex(ch % 16))
+                segmentStart = i + 1
             }
             
             i = i + 1
         }
         
-        result
+        if segmentStart < len {
+            builder.append(input.substring(segmentStart, len))
+        }
+        return builder.toString()
     }
     
     // HTML escape
     fun escapeHtml(input: String): String {
-        let result = ""
+        let builder = StringBuilder.new()
         var i = 0
+        var segmentStart = 0
         let len = input.length()
         
         while i < len {
             let ch = input.charAt(i)
+            var escaped = ""
             
             if ch == '<' {
-                result = result + "&lt;"
+                escaped = "&lt;"
             } else if ch == '>' {
-                result = result + "&gt;"
+                escaped = "&gt;"
             } else if ch == '&' {
-                result = result + "&amp;"
+                escaped = "&amp;"
             } else if ch == '"' {
-                result = result + "&quot;"
+                escaped = "&quot;"
             } else if ch == '\'' {
-                result = result + "&#39;"
-            } else {
-                result = result + String.fromCharCode(ch)
+                escaped = "&#39;"
+            }
+
+            if escaped.length() > 0 {
+                if segmentStart < i {
+                    builder.append(input.substring(segmentStart, i))
+                }
+                builder.append(escaped)
+                segmentStart = i + 1
             }
             
             i = i + 1
         }
         
-        result
+        if segmentStart < len {
+            builder.append(input.substring(segmentStart, len))
+        }
+        return builder.toString()
     }
     
     // Unescape JSON string
     fun unescapeJson(input: String): String {
-        let result = ""
+        let builder = StringBuilder.new()
         var i = 0
+        var segmentStart = 0
         let len = input.length()
         
         while i < len {
@@ -123,51 +162,55 @@ class StringEscape {
             
             if ch == '\\' and i + 1 < len {
                 let next = input.charAt(i + 1)
+                var unescaped = ""
                 if next == '"' {
-                    result = result + "\""
-                    i = i + 1
+                    unescaped = "\""
                 } else if next == '\\' {
-                    result = result + "\\"
-                    i = i + 1
+                    unescaped = "\\"
                 } else if next == 'n' {
-                    result = result + "\n"
-                    i = i + 1
+                    unescaped = "\n"
                 } else if next == 'r' {
-                    result = result + "\r"
-                    i = i + 1
+                    unescaped = "\r"
                 } else if next == 't' {
-                    result = result + "\t"
-                    i = i + 1
+                    unescaped = "\t"
                 } else if next == 'b' {
-                    result = result + "\b"
-                    i = i + 1
+                    unescaped = "\b"
                 } else if next == 'f' {
-                    result = result + "\f"
-                    i = i + 1
+                    unescaped = "\f"
+                }
+
+                if unescaped.length() > 0 {
+                    if segmentStart < i {
+                        builder.append(input.substring(segmentStart, i))
+                    }
+                    builder.append(unescaped)
+                    i = i + 2
+                    segmentStart = i
                 } else {
-                    result = result + String.fromCharCode(ch)
+                    i = i + 1
                 }
             } else {
-                result = result + String.fromCharCode(ch)
+                i = i + 1
             }
-            
-            i = i + 1
         }
         
-        result
+        if segmentStart < len {
+            builder.append(input.substring(segmentStart, len))
+        }
+        return builder.toString()
     }
     
     // Helper: check if character is alphanumeric
     fun isAlphaNum(ch: Int): Bool {
-        (ch >= 48 and ch <= 57) or (ch >= 65 and ch <= 90) or (ch >= 97 and ch <= 122)
+        return (ch >= 48 and ch <= 57) or (ch >= 65 and ch <= 90) or (ch >= 97 and ch <= 122)
     }
     
     // Helper: convert number to hex digit
     fun toHex(n: Int): String {
         if n < 10 {
-            String.fromCharCode(48 + n)
+            return String.fromCharCode(48 + n)
         } else {
-            String.fromCharCode(65 + (n - 10))
+            return String.fromCharCode(65 + (n - 10))
         }
     }
 }

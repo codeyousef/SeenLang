@@ -76,6 +76,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Avoided extra transient string allocation in `StringBuilder.appendLine` and rewrote `split` to accumulate through `StringBuilder` instead of per-character string concatenation.
 - Removed per-byte substring allocation from string hash loops used by `hash.mod` and `StringHashMap`.
 - Kept collection string hashing on byte scans and removed the remaining per-byte modulo from source `StringHashMap` hashing.
+- Reworked string JSON, URL, and HTML escaping helpers to use `StringBuilder` segment appends instead of repeated whole-result concatenation.
 - Fixed legacy `Map<String, String>` lowering so `get`/`getOrDefault` preserve full SeenString values instead of falling through bootstrap fallback layouts.
 - Made legacy runtime `Map_*` symbols weak so imported source `collections.map` fallback methods can coexist with runtime compatibility helpers.
 - Removed stray debug output from `StringBuilder.mergeAdjacent`.

@@ -24,6 +24,7 @@ import str.string.{
     trimStart,
     words
 }
+import str.escape.{StringEscape}
 
 fun expect(condition: Bool, message: String) -> Void {
     if not condition {
@@ -94,6 +95,16 @@ fun main() -> Int {
     expect(ensureSuffix("log", ".seen") == "log.seen", "ensureSuffix mismatch")
     expect(padStart("seen", 6, '_') == "__seen", "padStart mismatch")
     expect(padEnd("seen", 6, '_') == "seen__", "padEnd mismatch")
+
+    let esc = StringEscape{}
+    let jsonRaw = "a\n\"b\\"
+    let jsonEscaped = esc.escapeJson(jsonRaw)
+    let jsonUnescaped = esc.unescapeJson(jsonEscaped)
+    expect(jsonEscaped == "a\\n\\\"b\\\\", "escapeJson mismatch")
+    expect(jsonUnescaped == jsonRaw, "unescapeJson mismatch")
+    let encodedUrl = esc.urlEncode("a b?")
+    expect(encodedUrl == "a+b%3F", "urlEncode mismatch")
+    expect(esc.escapeHtml("<a&\"'>") == "&lt;a&amp;&quot;&#39;&gt;", "escapeHtml mismatch")
 
     let cString = combined.toCString()
     expect(cString.toSeenString() == combined, "CString round-trip failed")
