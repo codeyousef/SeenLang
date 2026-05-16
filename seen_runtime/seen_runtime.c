@@ -1559,10 +1559,9 @@ void seen_f64_buffer_set(void* handle, int64_t index, double value) {
 
 // Wrapper for malloc with tracking
 void* tracked_malloc(size_t size) {
-    void* ptr = malloc(size);
+    void* ptr = seen_try_malloc((int64_t)size);
     if (!ptr && size != 0) {
-        fprintf(stderr, "tracked_malloc: malloc(%zu) failed\n", size);
-        abort();
+        seen_oom_abort("tracked_malloc", (int64_t)size);
     }
     return ptr;
 }
@@ -3730,8 +3729,43 @@ typedef struct {
     int64_t capacity;
 } SeenVec;
 
+static int64_t Vec_checked_bytes(int64_t count, int64_t elem_size,
+    const char* context) {
+    if (count <= 0) count = 1;
+    if (elem_size <= 0 || count > INT64_MAX / elem_size) {
+        seen_oom_abort(context, INT64_MAX);
+    }
+    return count * elem_size;
+}
+
+static int64_t Vec_next_capacity(int64_t capacity, const char* context) {
+    if (capacity <= 0) return 8;
+    if (capacity > INT64_MAX / 2) {
+        seen_oom_abort(context, INT64_MAX);
+    }
+    return capacity * 2;
+}
+
+static void* Vec_alloc_data(int64_t count, int64_t elem_size,
+    const char* context) {
+    int64_t bytes = Vec_checked_bytes(count, elem_size, context);
+    void* ptr = seen_try_malloc(bytes);
+    if (!ptr) seen_oom_abort(context, bytes);
+    return ptr;
+}
+
+static void* Vec_realloc_data(void* old, int64_t old_count,
+    int64_t new_count, int64_t elem_size, const char* context) {
+    int64_t old_bytes = Vec_checked_bytes(old_count, elem_size, context);
+    int64_t new_bytes = Vec_checked_bytes(new_count, elem_size, context);
+    void* ptr = seen_try_realloc(old, old_bytes, new_bytes);
+    if (!ptr) seen_oom_abort(context, new_bytes);
+    return ptr;
+}
+
 void* Vec_new(void) {
-    SeenVec* vec = (SeenVec*)malloc(sizeof(SeenVec));
+    SeenVec* vec = (SeenVec*)seen_try_malloc(sizeof(SeenVec));
+    if (!vec) seen_oom_abort("Vec_new header", sizeof(SeenVec));
     vec->data = NULL;
     vec->length = 0;
     vec->capacity = 0;
@@ -3741,8 +3775,10 @@ void* Vec_new(void) {
 void Vec_push(void* vecPtr, int64_t value) {
     SeenVec* vec = (SeenVec*)vecPtr;
     if (vec->length >= vec->capacity) {
-        int64_t newCap = vec->capacity == 0 ? 8 : vec->capacity * 2;
-        vec->data = (int64_t*)realloc(vec->data, sizeof(int64_t) * newCap);
+        int64_t oldCap = vec->capacity;
+        int64_t newCap = Vec_next_capacity(vec->capacity, "Vec_push grow");
+        vec->data = (int64_t*)Vec_realloc_data(vec->data, oldCap, newCap,
+            (int64_t)sizeof(int64_t), "Vec_push data");
         vec->capacity = newCap;
     }
     vec->data[vec->length++] = value;
@@ -3782,9 +3818,10 @@ void Vec_ensureCapacity(void* vecPtr, int64_t capacity) {
     if (capacity <= vec->capacity) return;
     int64_t newCap = vec->capacity == 0 ? 8 : vec->capacity;
     while (newCap < capacity) {
-        newCap *= 2;
+        newCap = Vec_next_capacity(newCap, "Vec_ensureCapacity grow");
     }
-    vec->data = (int64_t*)realloc(vec->data, sizeof(int64_t) * newCap);
+    vec->data = (int64_t*)Vec_realloc_data(vec->data, vec->capacity,
+        newCap, (int64_t)sizeof(int64_t), "Vec_ensureCapacity data");
     vec->capacity = newCap;
 }
 
@@ -3833,8 +3870,10 @@ void Vec_insert(void* vecPtr, int64_t index, int64_t value) {
     SeenVec* vec = (SeenVec*)vecPtr;
     if (index < 0 || index > vec->length) return;
     if (vec->length >= vec->capacity) {
-        int64_t newCap = vec->capacity == 0 ? 8 : vec->capacity * 2;
-        vec->data = (int64_t*)realloc(vec->data, sizeof(int64_t) * newCap);
+        int64_t oldCap = vec->capacity;
+        int64_t newCap = Vec_next_capacity(vec->capacity, "Vec_insert grow");
+        vec->data = (int64_t*)Vec_realloc_data(vec->data, oldCap, newCap,
+            (int64_t)sizeof(int64_t), "Vec_insert data");
         vec->capacity = newCap;
     }
     for (int64_t i = vec->length; i > index; i--) {
@@ -4122,9 +4161,11 @@ typedef struct {
 } SeenVecStr;
 
 void* Vec_new_str(void) {
-    SeenVecStr* vec = (SeenVecStr*)malloc(sizeof(SeenVecStr));
+    SeenVecStr* vec = (SeenVecStr*)seen_try_malloc(sizeof(SeenVecStr));
+    if (!vec) seen_oom_abort("Vec_new_str header", sizeof(SeenVecStr));
     vec->capacity = 8;
-    vec->data = (SeenString*)malloc(sizeof(SeenString) * vec->capacity);
+    vec->data = (SeenString*)Vec_alloc_data(vec->capacity,
+        (int64_t)sizeof(SeenString), "Vec_new_str data");
     vec->length = 0;
     return vec;
 }
@@ -4132,8 +4173,10 @@ void* Vec_new_str(void) {
 void Vec_push_str(void* vecPtr, SeenString value) {
     SeenVecStr* vec = (SeenVecStr*)vecPtr;
     if (vec->length >= vec->capacity) {
-        vec->capacity *= 2;
-        vec->data = realloc(vec->data, sizeof(SeenString) * vec->capacity);
+        int64_t oldCap = vec->capacity;
+        vec->capacity = Vec_next_capacity(vec->capacity, "Vec_push_str grow");
+        vec->data = (SeenString*)Vec_realloc_data(vec->data, oldCap,
+            vec->capacity, (int64_t)sizeof(SeenString), "Vec_push_str data");
     }
     vec->data[vec->length++] = value;
 }
@@ -4162,9 +4205,10 @@ void Vec_ensureCapacity_str(void* vecPtr, int64_t capacity) {
     if (capacity <= vec->capacity) return;
     int64_t newCap = vec->capacity == 0 ? 8 : vec->capacity;
     while (newCap < capacity) {
-        newCap *= 2;
+        newCap = Vec_next_capacity(newCap, "Vec_ensureCapacity_str grow");
     }
-    vec->data = (SeenString*)realloc(vec->data, sizeof(SeenString) * newCap);
+    vec->data = (SeenString*)Vec_realloc_data(vec->data, vec->capacity,
+        newCap, (int64_t)sizeof(SeenString), "Vec_ensureCapacity_str data");
     vec->capacity = newCap;
 }
 
@@ -4237,8 +4281,10 @@ void Vec_insert_str(void* vecPtr, int64_t index, SeenString value) {
     SeenVecStr* vec = (SeenVecStr*)vecPtr;
     if (index < 0 || index > vec->length) return;
     if (vec->length >= vec->capacity) {
-        vec->capacity *= 2;
-        vec->data = realloc(vec->data, sizeof(SeenString) * vec->capacity);
+        int64_t oldCap = vec->capacity;
+        vec->capacity = Vec_next_capacity(vec->capacity, "Vec_insert_str grow");
+        vec->data = (SeenString*)Vec_realloc_data(vec->data, oldCap,
+            vec->capacity, (int64_t)sizeof(SeenString), "Vec_insert_str data");
     }
     for (int64_t i = vec->length; i > index; i--) {
         vec->data[i] = vec->data[i - 1];
@@ -4286,9 +4332,11 @@ typedef struct {
 } SeenVecFloat;
 
 void* Vec_new_float(void) {
-    SeenVecFloat* vec = (SeenVecFloat*)malloc(sizeof(SeenVecFloat));
+    SeenVecFloat* vec = (SeenVecFloat*)seen_try_malloc(sizeof(SeenVecFloat));
+    if (!vec) seen_oom_abort("Vec_new_float header", sizeof(SeenVecFloat));
     vec->capacity = 8;
-    vec->data = (double*)malloc(sizeof(double) * vec->capacity);
+    vec->data = (double*)Vec_alloc_data(vec->capacity,
+        (int64_t)sizeof(double), "Vec_new_float data");
     vec->length = 0;
     return vec;
 }
@@ -4296,8 +4344,11 @@ void* Vec_new_float(void) {
 void Vec_push_float(void* vecPtr, double value) {
     SeenVecFloat* vec = (SeenVecFloat*)vecPtr;
     if (vec->length >= vec->capacity) {
-        vec->capacity *= 2;
-        vec->data = realloc(vec->data, sizeof(double) * vec->capacity);
+        int64_t oldCap = vec->capacity;
+        vec->capacity = Vec_next_capacity(vec->capacity,
+            "Vec_push_float grow");
+        vec->data = (double*)Vec_realloc_data(vec->data, oldCap,
+            vec->capacity, (int64_t)sizeof(double), "Vec_push_float data");
     }
     vec->data[vec->length++] = value;
 }
@@ -4341,9 +4392,10 @@ void Vec_ensureCapacity_float(void* vecPtr, int64_t capacity) {
     if (capacity <= vec->capacity) return;
     int64_t newCap = vec->capacity == 0 ? 8 : vec->capacity;
     while (newCap < capacity) {
-        newCap *= 2;
+        newCap = Vec_next_capacity(newCap, "Vec_ensureCapacity_float grow");
     }
-    vec->data = (double*)realloc(vec->data, sizeof(double) * newCap);
+    vec->data = (double*)Vec_realloc_data(vec->data, vec->capacity,
+        newCap, (int64_t)sizeof(double), "Vec_ensureCapacity_float data");
     vec->capacity = newCap;
 }
 
@@ -4390,8 +4442,11 @@ void Vec_insert_float(void* vecPtr, int64_t index, double value) {
     SeenVecFloat* vec = (SeenVecFloat*)vecPtr;
     if (index < 0 || index > vec->length) return;
     if (vec->length >= vec->capacity) {
-        vec->capacity *= 2;
-        vec->data = realloc(vec->data, sizeof(double) * vec->capacity);
+        int64_t oldCap = vec->capacity;
+        vec->capacity = Vec_next_capacity(vec->capacity,
+            "Vec_insert_float grow");
+        vec->data = (double*)Vec_realloc_data(vec->data, oldCap,
+            vec->capacity, (int64_t)sizeof(double), "Vec_insert_float data");
     }
     for (int64_t i = vec->length; i > index; i--) {
         vec->data[i] = vec->data[i - 1];
@@ -4481,7 +4536,8 @@ void* Vec_toArray_float(void* vecPtr) {
 // String.split() heap-allocated wrapper
 void* String_split(SeenString text, SeenString delimiter) {
     SeenArray result = split(text, delimiter);
-    SeenArray* heap = (SeenArray*)malloc(sizeof(SeenArray));
+    SeenArray* heap = (SeenArray*)seen_try_malloc(sizeof(SeenArray));
+    if (!heap) seen_oom_abort("String_split result", sizeof(SeenArray));
     *heap = result;
     return heap;
 }
@@ -8469,13 +8525,19 @@ int64_t seen_arr_clone(int64_t src) {
     int64_t len = srcArr->len;
     int64_t cap = srcArr->cap;
     if (cap < len) cap = len;
-    SeenArray* dst = (SeenArray*)malloc(sizeof(SeenArray));
+    SeenArray* dst = (SeenArray*)seen_try_malloc(sizeof(SeenArray));
+    if (!dst) seen_oom_abort("seen_arr_clone header", sizeof(SeenArray));
     dst->len = len;
     dst->cap = cap;
     dst->element_size = srcArr->element_size;
     if (cap > 0 && srcArr->data) {
-        dst->data = malloc(cap * srcArr->element_size);
-        memcpy(dst->data, srcArr->data, len * srcArr->element_size);
+        dst->data = Vec_alloc_data(cap, srcArr->element_size,
+            "seen_arr_clone data");
+        if (len > 0) {
+            memcpy(dst->data, srcArr->data,
+                (size_t)Vec_checked_bytes(len, srcArr->element_size,
+                    "seen_arr_clone copy"));
+        }
     } else {
         dst->data = NULL;
     }
@@ -8536,18 +8598,32 @@ typedef struct {
 } SeenByteBuffer;
 
 static SeenByteBuffer* seen_bytebuf_new(int64_t cap) {
-    SeenByteBuffer* buf = (SeenByteBuffer*)malloc(sizeof(SeenByteBuffer));
-    buf->data = (uint8_t*)malloc(cap > 0 ? cap : 64);
+    SeenByteBuffer* buf =
+        (SeenByteBuffer*)seen_try_malloc(sizeof(SeenByteBuffer));
+    if (!buf) seen_oom_abort("binary buffer header", sizeof(SeenByteBuffer));
     buf->length = 0;
     buf->capacity = cap > 0 ? cap : 64;
+    buf->data = (uint8_t*)Vec_alloc_data(buf->capacity,
+        (int64_t)sizeof(uint8_t), "binary buffer data");
     return buf;
 }
 
 static void seen_bytebuf_ensure(SeenByteBuffer* buf, int64_t extra) {
+    if (extra < 0 || buf->length > INT64_MAX - extra) {
+        seen_oom_abort("binary buffer grow overflow", INT64_MAX);
+    }
     if (buf->length + extra > buf->capacity) {
+        int64_t oldCap = buf->capacity;
+        if (buf->capacity > INT64_MAX / 2) {
+            seen_oom_abort("binary buffer grow overflow", INT64_MAX);
+        }
         int64_t newCap = buf->capacity * 2;
         if (newCap < buf->length + extra) newCap = buf->length + extra;
-        buf->data = (uint8_t*)realloc(buf->data, newCap);
+        if (newCap < oldCap) {
+            seen_oom_abort("binary buffer grow overflow", INT64_MAX);
+        }
+        buf->data = (uint8_t*)Vec_realloc_data(buf->data, oldCap, newCap,
+            (int64_t)sizeof(uint8_t), "binary buffer data");
         buf->capacity = newCap;
     }
 }
@@ -8631,7 +8707,7 @@ SeenString seen_binary_read_str(int64_t buf_handle, int64_t offset) {
     int32_t slen = 0;
     memcpy(&slen, buf->data + offset, 4);
     if (slen < 0 || offset + 4 + slen > buf->length) return result;
-    char* data = (char*)malloc(slen + 1);
+    char* data = seen_runtime_alloc_chars(slen, "binary read string");
     memcpy(data, buf->data + offset + 4, slen);
     data[slen] = '\0';
     result.data = data;
@@ -8724,9 +8800,12 @@ typedef struct {
 } SeenJsonBuilder;
 
 int64_t seen_json_start_object(int64_t unused) {
-    SeenJsonBuilder* jb = (SeenJsonBuilder*)malloc(sizeof(SeenJsonBuilder));
+    SeenJsonBuilder* jb =
+        (SeenJsonBuilder*)seen_try_malloc(sizeof(SeenJsonBuilder));
+    if (!jb) seen_oom_abort("json builder header", sizeof(SeenJsonBuilder));
     jb->capacity = 256;
-    jb->data = (char*)malloc(jb->capacity);
+    jb->data = (char*)Vec_alloc_data(jb->capacity, (int64_t)sizeof(char),
+        "json builder data");
     jb->data[0] = '{';
     jb->length = 1;
     jb->fieldCount = 0;
@@ -8735,9 +8814,17 @@ int64_t seen_json_start_object(int64_t unused) {
 }
 
 static void jb_ensure(SeenJsonBuilder* jb, int64_t extra) {
+    if (extra < 0 || jb->length > INT64_MAX - extra) {
+        seen_oom_abort("json builder grow overflow", INT64_MAX);
+    }
     if (jb->length + extra >= jb->capacity) {
+        int64_t oldCapacity = jb->capacity;
+        if (jb->capacity > (INT64_MAX - extra) / 2) {
+            seen_oom_abort("json builder grow overflow", INT64_MAX);
+        }
         jb->capacity = jb->capacity * 2 + extra;
-        jb->data = (char*)realloc(jb->data, jb->capacity);
+        jb->data = (char*)Vec_realloc_data(jb->data, oldCapacity,
+            jb->capacity, (int64_t)sizeof(char), "json builder data");
     }
 }
 

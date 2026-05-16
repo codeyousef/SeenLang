@@ -62,6 +62,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Replaced several core runtime allocation hot spots in arrays, StringBuilder, aligned growth, and pool allocation with budget-aware allocation helpers and explicit allocation-failure diagnostics.
 - Routed runtime HashMap constructor and growth allocations through the budget-aware allocator so map-heavy workloads respect Seen memory limits instead of bypassing accounting.
 - Routed runtime file/path, process command, environment, `split`, and `trim` helper allocations through budget-aware allocation helpers.
+- Routed runtime `Vec`, binary byte-buffer, array clone, and JSON builder allocation/growth paths through budget-aware allocation helpers.
 - Avoided extra transient string allocation in `StringBuilder.appendLine` and rewrote `split` to accumulate through `StringBuilder` instead of per-character string concatenation.
 - Removed per-byte substring allocation from string hash loops used by `hash.mod` and `StringHashMap`.
 - Kept collection string hashing on byte scans and removed the remaining per-byte modulo from source `StringHashMap` hashing.
