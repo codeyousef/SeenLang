@@ -124,6 +124,8 @@ int64_t seen_memory_used_bytes(void);
 int64_t seen_memory_peak_bytes(void);
 int64_t seen_memory_allocation_failures(void);
 int64_t seen_memory_remaining_bytes(void);
+int64_t seen_memory_try_reserve_bytes(int64_t size);
+void seen_memory_release_bytes(int64_t size);
 SeenMemoryStats seen_memory_stats(void);
 void* seen_try_malloc(int64_t size);
 void* seen_try_calloc(int64_t count, int64_t size);

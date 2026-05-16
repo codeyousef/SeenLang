@@ -310,6 +310,16 @@ int64_t seen_memory_remaining_bytes(void) {
     return g_seen_memory_limit_bytes - g_seen_memory_used_bytes;
 }
 
+int64_t seen_memory_try_reserve_bytes(int64_t size) {
+    if (!seen_memory_can_reserve(0, size)) return 0;
+    seen_memory_commit_reservation(0, size);
+    return 1;
+}
+
+void seen_memory_release_bytes(int64_t size) {
+    seen_memory_release_reservation(size);
+}
+
 SeenMemoryStats seen_memory_stats(void) {
     SeenMemoryStats stats = {
         seen_memory_limit_bytes(),
