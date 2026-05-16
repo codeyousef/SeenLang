@@ -457,19 +457,45 @@ void seen_panic_overflow(const char* op, int64_t left, int64_t right) {
     abort();
 }
 
+static char* seen_runtime_alloc_chars(int64_t len, const char* context) {
+    if (len < 0 || len >= INT64_MAX) {
+        seen_oom_abort(context, len);
+    }
+    char* data = (char*)seen_try_malloc(len + 1);
+    if (!data) {
+        seen_oom_abort(context, len + 1);
+    }
+    return data;
+}
+
+static char* seen_runtime_cstring(SeenString s, const char* context) {
+    char* data = seen_runtime_alloc_chars(s.len, context);
+    if (s.len > 0) {
+        memcpy(data, s.data, (size_t)s.len);
+    }
+    data[s.len] = 0;
+    return data;
+}
+
+static SeenString seen_runtime_copy_string_slice(const char* src, int64_t len,
+    const char* context) {
+    char* data = seen_runtime_alloc_chars(len, context);
+    if (len > 0) {
+        memcpy(data, src, (size_t)len);
+    }
+    data[len] = 0;
+    SeenString result = { len, data };
+    return result;
+}
+
 // ============================================================================
 // File I/O Primitive Functions (used by Seen stdlib io.file)
 // ============================================================================
 
 // Open file and return file descriptor (or -1 on error)
 int64_t __OpenFile(SeenString path, SeenString mode) {
-    char* cpath = (char*)malloc(path.len + 1);
-    memcpy(cpath, path.data, path.len);
-    cpath[path.len] = 0;
-
-    char* cmode = (char*)malloc(mode.len + 1);
-    memcpy(cmode, mode.data, mode.len);
-    cmode[mode.len] = 0;
+    char* cpath = seen_runtime_cstring(path, "__OpenFile path");
+    char* cmode = seen_runtime_cstring(mode, "__OpenFile mode");
 
     FILE* f = fopen(cpath, cmode);
     free(cpath);
@@ -497,7 +523,7 @@ SeenString __ReadFile(int64_t fd) {
 
     // For full file read, read from current position
     long remaining = size - cur;
-    char* data = (char*)malloc(remaining + 1);
+    char* data = seen_runtime_alloc_chars((int64_t)remaining, "__ReadFile");
     size_t read = fread(data, 1, remaining, f);
     data[read] = 0;
 
@@ -533,9 +559,7 @@ SeenArray* __ReadFileBytes(int64_t fd, int64_t size) {
 
 // Compatibility helper for older code that declared __ReadFileBytes(path).
 SeenArray* __ReadFileBytesPath(SeenString path) {
-    char* cpath = (char*)malloc(path.len + 1);
-    memcpy(cpath, path.data, path.len);
-    cpath[path.len] = 0;
+    char* cpath = seen_runtime_cstring(path, "__ReadFileBytesPath path");
 
     FILE* f = fopen(cpath, "rb");
     free(cpath);
@@ -598,9 +622,7 @@ SeenString __FileError(int64_t fd) {
 
 // Check if file exists
 bool __FileExists(SeenString path) {
-    char* cpath = (char*)malloc(path.len + 1);
-    memcpy(cpath, path.data, path.len);
-    cpath[path.len] = 0;
+    char* cpath = seen_runtime_cstring(path, "__FileExists path");
 
     FILE* f = fopen(cpath, "r");
     free(cpath);
@@ -613,9 +635,7 @@ bool __FileExists(SeenString path) {
 
 // Delete file
 bool __DeleteFile(SeenString path) {
-    char* cpath = (char*)malloc(path.len + 1);
-    memcpy(cpath, path.data, path.len);
-    cpath[path.len] = 0;
+    char* cpath = seen_runtime_cstring(path, "__DeleteFile path");
 
     int result = remove(cpath);
     free(cpath);
@@ -624,9 +644,7 @@ bool __DeleteFile(SeenString path) {
 
 // Create directory
 bool __CreateDirectory(SeenString path) {
-    char* cpath = (char*)malloc(path.len + 1);
-    memcpy(cpath, path.data, path.len);
-    cpath[path.len] = 0;
+    char* cpath = seen_runtime_cstring(path, "__CreateDirectory path");
 
 #ifdef _WIN32
     int result = _mkdir(cpath);
@@ -650,9 +668,7 @@ typedef struct {
 // Execute program by path and return exit code.
 #ifdef _WIN32
 int64_t __ExecuteProgram(SeenString path) {
-    char* cpath = (char*)malloc(path.len + 1);
-    memcpy(cpath, path.data, path.len);
-    cpath[path.len] = 0;
+    char* cpath = seen_runtime_cstring(path, "__ExecuteProgram path");
 
     int status = system(cpath);
     free(cpath);
@@ -662,9 +678,7 @@ int64_t __ExecuteProgram(SeenString path) {
 // Uses posix_spawn via /bin/sh -c (like system(3) but available on all Apple platforms).
 extern char **environ;
 int64_t __ExecuteProgram(SeenString path) {
-    char* cpath = (char*)malloc(path.len + 1);
-    memcpy(cpath, path.data, path.len);
-    cpath[path.len] = 0;
+    char* cpath = seen_runtime_cstring(path, "__ExecuteProgram path");
 
 #if defined(__ANDROID__)
     int status = system(cpath);
@@ -694,14 +708,14 @@ int64_t __ExecuteProgram(SeenString path) {
 // Execute command and capture output
 // Returns a pointer to a malloc'd SeenCommandResult (to avoid ABI issues with large struct returns)
 SeenCommandResult* __ExecuteCommand(SeenString cmd) {
-    SeenCommandResult* result = (SeenCommandResult*)malloc(sizeof(SeenCommandResult));
+    SeenCommandResult* result =
+        (SeenCommandResult*)seen_try_malloc((int64_t)sizeof(SeenCommandResult));
+    if (!result) seen_oom_abort("__ExecuteCommand result", sizeof(SeenCommandResult));
     result->success = false;
     result->output.len = 0;
     result->output.data = "";
 
-    char* ccmd = (char*)malloc(cmd.len + 1);
-    memcpy(ccmd, cmd.data, cmd.len);
-    ccmd[cmd.len] = 0;
+    char* ccmd = seen_runtime_cstring(cmd, "__ExecuteCommand command");
 
     FILE* pipe = popen(ccmd, "r");
     free(ccmd);
@@ -710,16 +724,26 @@ SeenCommandResult* __ExecuteCommand(SeenString cmd) {
         return result;
     }
 
-    char* output = (char*)malloc(4096);
     size_t capacity = 4096;
+    char* output = (char*)seen_try_malloc((int64_t)capacity);
+    if (!output) seen_oom_abort("__ExecuteCommand output", (int64_t)capacity);
     size_t length = 0;
 
     char buffer[256];
     while (fgets(buffer, sizeof(buffer), pipe)) {
         size_t buflen = strlen(buffer);
-        if (length + buflen >= capacity) {
+        while (length + buflen >= capacity) {
+            size_t old_capacity = capacity;
+            if (capacity > (size_t)INT64_MAX / 2) {
+                seen_oom_abort("__ExecuteCommand output overflow", INT64_MAX);
+            }
             capacity *= 2;
-            output = (char*)realloc(output, capacity);
+            char* grown = (char*)seen_try_realloc(output,
+                (int64_t)old_capacity, (int64_t)capacity);
+            if (!grown) {
+                seen_oom_abort("__ExecuteCommand output", (int64_t)capacity);
+            }
+            output = grown;
         }
         memcpy(output + length, buffer, buflen);
         length += buflen;
@@ -806,9 +830,7 @@ SeenArray* __GetCommandLineArgs(void) {
 
 // Check if environment variable exists
 bool __HasEnv(SeenString name) {
-    char* cname = (char*)malloc(name.len + 1);
-    memcpy(cname, name.data, name.len);
-    cname[name.len] = 0;
+    char* cname = seen_runtime_cstring(name, "__HasEnv name");
 
     char* val = getenv(cname);
     free(cname);
@@ -817,9 +839,7 @@ bool __HasEnv(SeenString name) {
 
 // Get environment variable value
 SeenString __GetEnv(SeenString name) {
-    char* cname = (char*)malloc(name.len + 1);
-    memcpy(cname, name.data, name.len);
-    cname[name.len] = 0;
+    char* cname = seen_runtime_cstring(name, "__GetEnv name");
 
     char* val = getenv(cname);
     free(cname);
@@ -833,13 +853,8 @@ SeenString __GetEnv(SeenString name) {
 
 // Set environment variable
 bool __SetEnv(SeenString name, SeenString value) {
-    char* cname = (char*)malloc(name.len + 1);
-    memcpy(cname, name.data, name.len);
-    cname[name.len] = 0;
-
-    char* cvalue = (char*)malloc(value.len + 1);
-    memcpy(cvalue, value.data, value.len);
-    cvalue[value.len] = 0;
+    char* cname = seen_runtime_cstring(name, "__SetEnv name");
+    char* cvalue = seen_runtime_cstring(value, "__SetEnv value");
 
 #ifdef _WIN32
     int result = _putenv_s(cname, cvalue);
@@ -853,13 +868,11 @@ bool __SetEnv(SeenString name, SeenString value) {
 
 // Remove environment variable
 bool __RemoveEnv(SeenString name) {
-    char* cname = (char*)malloc(name.len + 1);
-    memcpy(cname, name.data, name.len);
-    cname[name.len] = 0;
+    char* cname = seen_runtime_cstring(name, "__RemoveEnv name");
 
 #ifdef _WIN32
     // On Windows, _putenv with "NAME=" removes the variable
-    char* buf = (char*)malloc(name.len + 2);
+    char* buf = seen_runtime_alloc_chars(name.len + 1, "__RemoveEnv buffer");
     memcpy(buf, cname, name.len);
     buf[name.len] = '=';
     buf[name.len + 1] = 0;
@@ -940,10 +953,8 @@ SeenArray split(SeenString text, SeenString delimiter) {
                 next_byte_idx = text.len;
             }
             int64_t ch_len = next_byte_idx - byte_idx;
-            char* ch = (char*)malloc(ch_len + 1);
-            memcpy(ch, text.data + byte_idx, ch_len);
-            ch[ch_len] = 0;
-            SeenString s = { ch_len, ch };
+            SeenString s = seen_runtime_copy_string_slice(
+                text.data + byte_idx, ch_len, "split character");
             seen_arr_push_str(&result, s);
             byte_idx = next_byte_idx;
         }
@@ -955,10 +966,8 @@ SeenArray split(SeenString text, SeenString delimiter) {
         if (memcmp(text.data + i, delimiter.data, delimiter.len) == 0) {
             // Found delimiter
             int64_t len = i - start;
-            char* part = (char*)malloc(len + 1);
-            memcpy(part, text.data + start, len);
-            part[len] = 0;
-            SeenString s = { len, part };
+            SeenString s = seen_runtime_copy_string_slice(text.data + start,
+                len, "split segment");
             seen_arr_push_str(&result, s);
             start = i + delimiter.len;
             i = start - 1; // Will be incremented by loop
@@ -967,10 +976,8 @@ SeenArray split(SeenString text, SeenString delimiter) {
 
     // Add remaining part
     int64_t len = text.len - start;
-    char* part = (char*)malloc(len + 1);
-    memcpy(part, text.data + start, len);
-    part[len] = 0;
-    SeenString s = { len, part };
+    SeenString s = seen_runtime_copy_string_slice(text.data + start, len,
+        "split segment");
     seen_arr_push_str(&result, s);
 
     return result;
@@ -997,11 +1004,7 @@ SEEN_WEAK SeenString trim(SeenString text) {
     }
 
     int64_t len = end - start;
-    char* data = (char*)malloc(len + 1);
-    memcpy(data, text.data + start, len);
-    data[len] = 0;
-    SeenString result = { len, data };
-    return result;
+    return seen_runtime_copy_string_slice(text.data + start, len, "trim");
 }
 
 // ============================================================================
@@ -6037,6 +6040,20 @@ static uint64_t hashmap_hash_int(int64_t key) {
     return h;
 }
 
+static void* hashmap_alloc_array(int64_t count, size_t element_size,
+                                 bool zeroed, const char* context) {
+    if (count <= 0) count = 1;
+    if (element_size == 0 ||
+        (uint64_t)count > ((uint64_t)-1) / (uint64_t)element_size) {
+        seen_oom_abort(context, (size_t)-1);
+    }
+    size_t bytes = (size_t)count * element_size;
+    void* ptr = zeroed ? seen_try_calloc((size_t)count, element_size)
+                       : seen_try_malloc(bytes);
+    if (!ptr) seen_oom_abort(context, bytes);
+    return ptr;
+}
+
 static void hashmap_grow(SeenHashMap* map) {
     int64_t old_cap = map->capacity;
     int64_t* old_keys = map->keys;
@@ -6044,9 +6061,12 @@ static void hashmap_grow(SeenHashMap* map) {
     uint8_t* old_states = map->states;
     int64_t new_cap = old_cap * 2;
     int64_t mask = new_cap - 1;
-    int64_t* new_keys = (int64_t*)malloc(new_cap * sizeof(int64_t));
-    int64_t* new_values = (int64_t*)malloc(new_cap * sizeof(int64_t));
-    uint8_t* new_states = (uint8_t*)calloc(new_cap, sizeof(uint8_t));
+    int64_t* new_keys = (int64_t*)hashmap_alloc_array(new_cap,
+        sizeof(int64_t), false, "HashMap_grow keys");
+    int64_t* new_values = (int64_t*)hashmap_alloc_array(new_cap,
+        sizeof(int64_t), false, "HashMap_grow values");
+    uint8_t* new_states = (uint8_t*)hashmap_alloc_array(new_cap,
+        sizeof(uint8_t), true, "HashMap_grow states");
     for (int64_t i = 0; i < old_cap; i++) {
         if (old_states[i] == 1) {
             uint64_t h = hashmap_hash_int(old_keys[i]);
@@ -6070,11 +6090,15 @@ static void hashmap_grow(SeenHashMap* map) {
 }
 
 void* HashMap_new(void) {
-    SeenHashMap* map = (SeenHashMap*)malloc(sizeof(SeenHashMap));
+    SeenHashMap* map = (SeenHashMap*)hashmap_alloc_array(1,
+        sizeof(SeenHashMap), false, "HashMap_new header");
     map->capacity = 16;
-    map->keys = (int64_t*)malloc(map->capacity * sizeof(int64_t));
-    map->values = (int64_t*)malloc(map->capacity * sizeof(int64_t));
-    map->states = (uint8_t*)calloc(map->capacity, sizeof(uint8_t));
+    map->keys = (int64_t*)hashmap_alloc_array(map->capacity,
+        sizeof(int64_t), false, "HashMap_new keys");
+    map->values = (int64_t*)hashmap_alloc_array(map->capacity,
+        sizeof(int64_t), false, "HashMap_new values");
+    map->states = (uint8_t*)hashmap_alloc_array(map->capacity,
+        sizeof(uint8_t), true, "HashMap_new states");
     map->length = 0;
     map->tombstones = 0;
     return map;
@@ -6083,11 +6107,15 @@ void* HashMap_new(void) {
 void* HashMap_new_with_capacity(int64_t capacity) {
     int64_t cap = 16;
     while (cap < capacity) cap *= 2;
-    SeenHashMap* map = (SeenHashMap*)malloc(sizeof(SeenHashMap));
+    SeenHashMap* map = (SeenHashMap*)hashmap_alloc_array(1,
+        sizeof(SeenHashMap), false, "HashMap_new_with_capacity header");
     map->capacity = cap;
-    map->keys = (int64_t*)malloc(cap * sizeof(int64_t));
-    map->values = (int64_t*)malloc(cap * sizeof(int64_t));
-    map->states = (uint8_t*)calloc(cap, sizeof(uint8_t));
+    map->keys = (int64_t*)hashmap_alloc_array(cap, sizeof(int64_t),
+        false, "HashMap_new_with_capacity keys");
+    map->values = (int64_t*)hashmap_alloc_array(cap, sizeof(int64_t),
+        false, "HashMap_new_with_capacity values");
+    map->states = (uint8_t*)hashmap_alloc_array(cap, sizeof(uint8_t),
+        true, "HashMap_new_with_capacity states");
     map->length = 0;
     map->tombstones = 0;
     return map;
@@ -6263,9 +6291,12 @@ static void hashmap_grow_str(SeenHashMapStr* map) {
     uint8_t* old_states = map->states;
     int64_t new_cap = old_cap * 2;
     int64_t mask = new_cap - 1;
-    SeenString* new_keys = (SeenString*)malloc(new_cap * sizeof(SeenString));
-    int64_t* new_values = (int64_t*)malloc(new_cap * sizeof(int64_t));
-    uint8_t* new_states = (uint8_t*)calloc(new_cap, sizeof(uint8_t));
+    SeenString* new_keys = (SeenString*)hashmap_alloc_array(new_cap,
+        sizeof(SeenString), false, "HashMap_grow_str keys");
+    int64_t* new_values = (int64_t*)hashmap_alloc_array(new_cap,
+        sizeof(int64_t), false, "HashMap_grow_str values");
+    uint8_t* new_states = (uint8_t*)hashmap_alloc_array(new_cap,
+        sizeof(uint8_t), true, "HashMap_grow_str states");
     for (int64_t i = 0; i < old_cap; i++) {
         if (old_states[i] == 1) {
             uint64_t h = hashmap_hash_str(old_keys[i]);
@@ -6289,11 +6320,15 @@ static void hashmap_grow_str(SeenHashMapStr* map) {
 }
 
 void* HashMap_new_str(void) {
-    SeenHashMapStr* map = (SeenHashMapStr*)malloc(sizeof(SeenHashMapStr));
+    SeenHashMapStr* map = (SeenHashMapStr*)hashmap_alloc_array(1,
+        sizeof(SeenHashMapStr), false, "HashMap_new_str header");
     map->capacity = 16;
-    map->keys = (SeenString*)malloc(map->capacity * sizeof(SeenString));
-    map->values = (int64_t*)malloc(map->capacity * sizeof(int64_t));
-    map->states = (uint8_t*)calloc(map->capacity, sizeof(uint8_t));
+    map->keys = (SeenString*)hashmap_alloc_array(map->capacity,
+        sizeof(SeenString), false, "HashMap_new_str keys");
+    map->values = (int64_t*)hashmap_alloc_array(map->capacity,
+        sizeof(int64_t), false, "HashMap_new_str values");
+    map->states = (uint8_t*)hashmap_alloc_array(map->capacity,
+        sizeof(uint8_t), true, "HashMap_new_str states");
     map->length = 0;
     map->tombstones = 0;
     return map;
@@ -6302,11 +6337,16 @@ void* HashMap_new_str(void) {
 void* HashMap_new_str_with_capacity(int64_t capacity) {
     int64_t cap = 16;
     while (cap < capacity) cap *= 2;
-    SeenHashMapStr* map = (SeenHashMapStr*)malloc(sizeof(SeenHashMapStr));
+    SeenHashMapStr* map = (SeenHashMapStr*)hashmap_alloc_array(1,
+        sizeof(SeenHashMapStr), false,
+        "HashMap_new_str_with_capacity header");
     map->capacity = cap;
-    map->keys = (SeenString*)malloc(cap * sizeof(SeenString));
-    map->values = (int64_t*)malloc(cap * sizeof(int64_t));
-    map->states = (uint8_t*)calloc(cap, sizeof(uint8_t));
+    map->keys = (SeenString*)hashmap_alloc_array(cap, sizeof(SeenString),
+        false, "HashMap_new_str_with_capacity keys");
+    map->values = (int64_t*)hashmap_alloc_array(cap, sizeof(int64_t),
+        false, "HashMap_new_str_with_capacity values");
+    map->states = (uint8_t*)hashmap_alloc_array(cap, sizeof(uint8_t),
+        true, "HashMap_new_str_with_capacity states");
     map->length = 0;
     map->tombstones = 0;
     return map;
@@ -6463,9 +6503,12 @@ static void hashmap_grow_str_str(SeenHashMapStrStr* map) {
     uint8_t* old_states = map->states;
     int64_t new_cap = old_cap * 2;
     int64_t mask = new_cap - 1;
-    SeenString* new_keys = (SeenString*)malloc(new_cap * sizeof(SeenString));
-    SeenString* new_values = (SeenString*)malloc(new_cap * sizeof(SeenString));
-    uint8_t* new_states = (uint8_t*)calloc(new_cap, sizeof(uint8_t));
+    SeenString* new_keys = (SeenString*)hashmap_alloc_array(new_cap,
+        sizeof(SeenString), false, "HashMap_grow_str_str keys");
+    SeenString* new_values = (SeenString*)hashmap_alloc_array(new_cap,
+        sizeof(SeenString), false, "HashMap_grow_str_str values");
+    uint8_t* new_states = (uint8_t*)hashmap_alloc_array(new_cap,
+        sizeof(uint8_t), true, "HashMap_grow_str_str states");
     for (int64_t i = 0; i < old_cap; i++) {
         if (old_states[i] == 1) {
             uint64_t h = hashmap_hash_str(old_keys[i]);
@@ -6489,11 +6532,15 @@ static void hashmap_grow_str_str(SeenHashMapStrStr* map) {
 }
 
 void* HashMap_new_str_str(void) {
-    SeenHashMapStrStr* map = (SeenHashMapStrStr*)malloc(sizeof(SeenHashMapStrStr));
+    SeenHashMapStrStr* map = (SeenHashMapStrStr*)hashmap_alloc_array(1,
+        sizeof(SeenHashMapStrStr), false, "HashMap_new_str_str header");
     map->capacity = 16;
-    map->keys = (SeenString*)malloc(map->capacity * sizeof(SeenString));
-    map->values = (SeenString*)malloc(map->capacity * sizeof(SeenString));
-    map->states = (uint8_t*)calloc(map->capacity, sizeof(uint8_t));
+    map->keys = (SeenString*)hashmap_alloc_array(map->capacity,
+        sizeof(SeenString), false, "HashMap_new_str_str keys");
+    map->values = (SeenString*)hashmap_alloc_array(map->capacity,
+        sizeof(SeenString), false, "HashMap_new_str_str values");
+    map->states = (uint8_t*)hashmap_alloc_array(map->capacity,
+        sizeof(uint8_t), true, "HashMap_new_str_str states");
     map->length = 0;
     map->tombstones = 0;
     return map;
@@ -6502,11 +6549,16 @@ void* HashMap_new_str_str(void) {
 void* HashMap_new_str_str_with_capacity(int64_t capacity) {
     int64_t cap = 16;
     while (cap < capacity) cap *= 2;
-    SeenHashMapStrStr* map = (SeenHashMapStrStr*)malloc(sizeof(SeenHashMapStrStr));
+    SeenHashMapStrStr* map = (SeenHashMapStrStr*)hashmap_alloc_array(1,
+        sizeof(SeenHashMapStrStr), false,
+        "HashMap_new_str_str_with_capacity header");
     map->capacity = cap;
-    map->keys = (SeenString*)malloc(cap * sizeof(SeenString));
-    map->values = (SeenString*)malloc(cap * sizeof(SeenString));
-    map->states = (uint8_t*)calloc(cap, sizeof(uint8_t));
+    map->keys = (SeenString*)hashmap_alloc_array(cap, sizeof(SeenString),
+        false, "HashMap_new_str_str_with_capacity keys");
+    map->values = (SeenString*)hashmap_alloc_array(cap, sizeof(SeenString),
+        false, "HashMap_new_str_str_with_capacity values");
+    map->states = (uint8_t*)hashmap_alloc_array(cap, sizeof(uint8_t),
+        true, "HashMap_new_str_str_with_capacity states");
     map->length = 0;
     map->tombstones = 0;
     return map;
@@ -6663,9 +6715,12 @@ static void hashmap_grow_int_str(SeenHashMapIntStr* map) {
     uint8_t* old_states = map->states;
     int64_t new_cap = old_cap * 2;
     int64_t mask = new_cap - 1;
-    int64_t* new_keys = (int64_t*)malloc(new_cap * sizeof(int64_t));
-    SeenString* new_values = (SeenString*)malloc(new_cap * sizeof(SeenString));
-    uint8_t* new_states = (uint8_t*)calloc(new_cap, sizeof(uint8_t));
+    int64_t* new_keys = (int64_t*)hashmap_alloc_array(new_cap,
+        sizeof(int64_t), false, "HashMap_grow_int_str keys");
+    SeenString* new_values = (SeenString*)hashmap_alloc_array(new_cap,
+        sizeof(SeenString), false, "HashMap_grow_int_str values");
+    uint8_t* new_states = (uint8_t*)hashmap_alloc_array(new_cap,
+        sizeof(uint8_t), true, "HashMap_grow_int_str states");
     for (int64_t i = 0; i < old_cap; i++) {
         if (old_states[i] == 1) {
             uint64_t h = hashmap_hash_int(old_keys[i]);
@@ -6689,11 +6744,15 @@ static void hashmap_grow_int_str(SeenHashMapIntStr* map) {
 }
 
 void* HashMap_new_int_str(void) {
-    SeenHashMapIntStr* map = (SeenHashMapIntStr*)malloc(sizeof(SeenHashMapIntStr));
+    SeenHashMapIntStr* map = (SeenHashMapIntStr*)hashmap_alloc_array(1,
+        sizeof(SeenHashMapIntStr), false, "HashMap_new_int_str header");
     map->capacity = 16;
-    map->keys = (int64_t*)malloc(map->capacity * sizeof(int64_t));
-    map->values = (SeenString*)malloc(map->capacity * sizeof(SeenString));
-    map->states = (uint8_t*)calloc(map->capacity, sizeof(uint8_t));
+    map->keys = (int64_t*)hashmap_alloc_array(map->capacity,
+        sizeof(int64_t), false, "HashMap_new_int_str keys");
+    map->values = (SeenString*)hashmap_alloc_array(map->capacity,
+        sizeof(SeenString), false, "HashMap_new_int_str values");
+    map->states = (uint8_t*)hashmap_alloc_array(map->capacity,
+        sizeof(uint8_t), true, "HashMap_new_int_str states");
     map->length = 0;
     map->tombstones = 0;
     return map;
@@ -6702,11 +6761,16 @@ void* HashMap_new_int_str(void) {
 void* HashMap_new_int_str_with_capacity(int64_t capacity) {
     int64_t cap = 16;
     while (cap < capacity) cap *= 2;
-    SeenHashMapIntStr* map = (SeenHashMapIntStr*)malloc(sizeof(SeenHashMapIntStr));
+    SeenHashMapIntStr* map = (SeenHashMapIntStr*)hashmap_alloc_array(1,
+        sizeof(SeenHashMapIntStr), false,
+        "HashMap_new_int_str_with_capacity header");
     map->capacity = cap;
-    map->keys = (int64_t*)malloc(cap * sizeof(int64_t));
-    map->values = (SeenString*)malloc(cap * sizeof(SeenString));
-    map->states = (uint8_t*)calloc(cap, sizeof(uint8_t));
+    map->keys = (int64_t*)hashmap_alloc_array(cap, sizeof(int64_t),
+        false, "HashMap_new_int_str_with_capacity keys");
+    map->values = (SeenString*)hashmap_alloc_array(cap, sizeof(SeenString),
+        false, "HashMap_new_int_str_with_capacity values");
+    map->states = (uint8_t*)hashmap_alloc_array(cap, sizeof(uint8_t),
+        true, "HashMap_new_int_str_with_capacity states");
     map->length = 0;
     map->tombstones = 0;
     return map;

@@ -21,7 +21,8 @@ fun main() -> Int {
     runCommandOrAbort("echo process_or_abort")
 
     let quoted = shellQuote("alpha \"beta\" \\ gamma")
-    expect(quoted == "\"alpha \\\"beta\\\" \\\\ gamma\"", "shellQuote should escape quotes/backslashes")
+    let expected = "\"" + "alpha \\\"beta\\\" \\\\ gamma" + "\""
+    expect(quoted == expected, "shellQuote should escape quotes/backslashes")
 
     return 0
 }

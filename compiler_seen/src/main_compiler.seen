@@ -7419,6 +7419,103 @@ fun addUnresolvedFreeCallDiagnostic(result: FrontendResult,
         message))
 }
 
+fun isStringEqualityOperator(operatorName: String) r: Bool {
+    return operatorName == "==" or operatorName == "!="
+}
+
+fun isAllowedStringEqualityPeerType(typeName: String) r: Bool {
+    return typeName == "String" or typeName == "Char"
+}
+
+fun shouldDiagnoseStringEqualityTypeMismatch(leftType: String,
+    rightType: String) r: Bool {
+
+    if leftType == "" or rightType == "" {
+        return false
+    }
+    let leftIsString = leftType == "String"
+    let rightIsString = rightType == "String"
+    if not leftIsString and not rightIsString {
+        return false
+    }
+    if leftIsString and isAllowedStringEqualityPeerType(rightType) {
+        return false
+    }
+    if rightIsString and isAllowedStringEqualityPeerType(leftType) {
+        return false
+    }
+    return true
+}
+
+fun addStringEqualityTypeMismatchDiagnostic(result: FrontendResult,
+    modulePath: String, line: Int, leftType: String, rightType: String,
+    operatorName: String) r: Void {
+
+    let message = encodeDiagMessage(
+        "cannot compare `" + leftType + "` and `" + rightType +
+            "` with `" + operatorName + "`",
+        "E012",
+        "Convert both operands to String explicitly or compare values of matching types.",
+        "String equality requires both operands to lower as String values.",
+        0
+    )
+    result.addDiagnostic(mainCompilerDiagnostic(modulePath, line, 0, "error",
+        message))
+}
+
+fun isKnownStructLiteralTypeInModules(modulePath: String,
+    moduleProgram: ProgramNode, typeName: String) r: Bool {
+
+    let baseTypeName = stripCallGenericArguments(typeName)
+    if baseTypeName == "" or baseTypeName == "Unit" {
+        return true
+    }
+
+    let referencedClass = findReferencedClassInModules(modulePath,
+        moduleProgram, g_validationModulePaths, g_validationFrontends,
+        baseTypeName)
+    if referencedClass.name != "" {
+        return true
+    }
+
+    var moduleIdx = 0
+    while moduleIdx < g_validationFrontends.length() {
+        let program = g_validationFrontends[moduleIdx].program
+        var itemIdx = 0
+        while itemIdx < program.items.length() {
+            let item = program.items[itemIdx]
+            if item.itemType == "Class" and item.classNode.name == baseTypeName {
+                return true
+            }
+            if item.itemType == "Enum" and item.enumNode.name == baseTypeName {
+                return true
+            }
+            itemIdx = itemIdx + 1
+        }
+        moduleIdx = moduleIdx + 1
+    }
+
+    let referencedEnum = findReferencedEnumInModules(modulePath,
+        moduleProgram, g_validationModulePaths, g_validationFrontends,
+        baseTypeName)
+    return referencedEnum.name != ""
+}
+
+fun addUnresolvedStructLiteralDiagnostic(result: FrontendResult,
+    modulePath: String, line: Int, typeName: String) r: Void {
+
+    let message = encodeDiagMessage(
+        "unresolved type `" + typeName + "` in struct literal",
+        "E013",
+        "Define `" + typeName +
+            "` or import the module that declares it before constructing it.",
+        "Unknown struct literals cannot be safely lowered to LLVM IR.",
+        0
+    )
+    result.addDiagnostic(mainCompilerDiagnostic(modulePath, line, 0, "error",
+        message))
+}
+
 fun sourceTextImportMentionsResolvableSymbol(modulePath: String,
     symbolName: String) r: Bool {
 
@@ -7510,6 +7607,11 @@ fun checkUnresolvedFreeCallExpression(result: FrontendResult,
     }
 
     if expr.kind == "StructLiteral" {
+        if not isKnownStructLiteralTypeInModules(modulePath, moduleProgram,
+            expr.literalType) {
+            addUnresolvedStructLiteralDiagnostic(result, modulePath, funcLine,
+                expr.literalType)
+        }
         var fieldIdx = 0
         while fieldIdx < expr.arguments.length() {
             let fieldExpr = expr.arguments[fieldIdx]
@@ -7557,6 +7659,21 @@ fun checkUnresolvedFreeCallExpression(result: FrontendResult,
         return
     }
 
+    if expr.kind == "Binary" and isStringEqualityOperator(expr.operator) and
+        expr.operands.length() >= 2 {
+
+        let leftType = inferExpressionTypeNameInModules(modulePath,
+            moduleProgram, g_validationModulePaths, g_validationFrontends,
+            expr.operands[0], boundNames, boundTypes, ownerClassName)
+        let rightType = inferExpressionTypeNameInModules(modulePath,
+            moduleProgram, g_validationModulePaths, g_validationFrontends,
+            expr.operands[1], boundNames, boundTypes, ownerClassName)
+        if shouldDiagnoseStringEqualityTypeMismatch(leftType, rightType) {
+            addStringEqualityTypeMismatchDiagnostic(result, modulePath,
+                funcLine, leftType, rightType, expr.operator)
+        }
+    }
+
     if expr.kind == "Binary" or expr.kind == "Unary" or
         expr.kind == "Cast" or expr.kind == "Await" or
         expr.kind == "Assignment" or expr.kind == "MemberAssignment" or
@@ -7593,7 +7710,15 @@ fun checkUnresolvedFreeCallStatement(result: FrontendResult,
     }
 
     if stmt.kind == "Expression" and stmt.expression.kind == "Call" {
-        // Direct call statements can still lower to late external declarations.
+        // Direct call statements can still lower to late external declarations,
+        // but their arguments must not bypass frontend IR-safety validation.
+        var directArgIdx = 0
+        while directArgIdx < stmt.expression.arguments.length() {
+            checkUnresolvedFreeCallExpression(result, modulePath,
+                moduleProgram, stmt.expression.arguments[directArgIdx],
+                boundNames, boundTypes, ownerClassName, funcLine)
+            directArgIdx = directArgIdx + 1
+        }
         return
     }
 

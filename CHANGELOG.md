@@ -60,6 +60,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Replaced several core runtime allocation hot spots in arrays, StringBuilder, aligned growth, and pool allocation with budget-aware allocation helpers and explicit allocation-failure diagnostics.
+- Routed runtime HashMap constructor and growth allocations through the budget-aware allocator so map-heavy workloads respect Seen memory limits instead of bypassing accounting.
+- Routed runtime file/path, process command, environment, `split`, and `trim` helper allocations through budget-aware allocation helpers.
 - Avoided extra transient string allocation in `StringBuilder.appendLine` and rewrote `split` to accumulate through `StringBuilder` instead of per-character string concatenation.
 - Removed per-byte substring allocation from string hash loops used by `hash.mod` and `StringHashMap`.
 - Kept collection string hashing on byte scans and removed the remaining per-byte modulo from source `StringHashMap` hashing.
@@ -83,6 +85,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed class method calls whose names match string helper methods, such as `this.indexOf(name)`, so they dispatch to the class method instead of emitting invalid string-helper IR.
 - Fixed `Vec.toArray()` method-call lowering so pointer-returning runtime helpers are stored as arrays instead of being coerced through integer handles.
 - Fixed `Vec.clear()` so it preserves allocated capacity for reuse instead of discarding the backing storage.
+- Fixed string equality lowering so direct `String` function returns can be compared to string literals inside casts without invalid LLVM IR, while mismatched string/non-string comparisons now stop with a Seen diagnostic.
+- Fixed unresolved struct literals so missing class imports are reported as Seen diagnostics before LLVM IR generation instead of reaching unknown-layout method calls.
+- Fixed the stdlib environment module to expose the documented `remove(name)` helper as an alias for `removeEnv(name)`.
+- Filled in missing stdlib file helpers for `size`, `hash`, `writeLines`, and parent-directory creation.
 
 ## [0.8.3] - 2026-05-15
 

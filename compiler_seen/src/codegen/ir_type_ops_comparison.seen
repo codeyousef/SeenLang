@@ -16,16 +16,30 @@ fun emitComparisonBinaryOpImpl(output: StringBuilder, regBox: Array<Int>,
         if leftType == "Char" or rightType == "Char" {
             var leftVal = leftReg
             var rightVal = rightReg
+            var charComparable = true
             if leftType == "Char" and rightType == "String" and
                 rightExprKind == "Literal" and rightLiteralValue.length() == 1 {
                 rightVal = charToCodeStr(rightLiteralValue)
+            }
+            if leftType == "Char" and rightType == "String" and
+                not (rightExprKind == "Literal" and rightLiteralValue.length() == 1) {
+                charComparable = false
             }
             if rightType == "Char" and leftType == "String" and
                 leftExprKind == "Literal" and leftLiteralValue.length() == 1 {
                 leftVal = charToCodeStr(leftLiteralValue)
             }
-            output.append("  " + resultReg + " = icmp eq i64 " + leftVal +
-                ", " + rightVal + "\n")
+            if rightType == "Char" and leftType == "String" and
+                not (leftExprKind == "Literal" and leftLiteralValue.length() == 1) {
+                charComparable = false
+            }
+            if charComparable {
+                output.append("  " + resultReg + " = icmp eq i64 " + leftVal +
+                    ", " + rightVal + "\n")
+            } else {
+                output.append("  " + resultReg + " = icmp eq i64 0, 1 ; incompatible string/char equality\n")
+            }
+            return resultReg
         }
         var eqIsChar = leftType == "Char" or rightType == "Char"
         if not eqIsChar and (leftType == "String" or rightType == "String") {
@@ -33,7 +47,12 @@ fun emitComparisonBinaryOpImpl(output: StringBuilder, regBox: Array<Int>,
             var rightStrReg = rightReg
             if leftReg == "0" { leftStrReg = "zeroinitializer" }
             if rightReg == "0" { rightStrReg = "zeroinitializer" }
-            output.append("  " + resultReg + " = call i1 @seen_str_eq_ss(%SeenString " + leftStrReg + ", %SeenString " + rightStrReg + ")\n")
+            if leftType == "String" and rightType == "String" {
+                output.append("  " + resultReg + " = call i1 @seen_str_eq_ss(%SeenString " + leftStrReg + ", %SeenString " + rightStrReg + ")\n")
+            } else {
+                output.append("  " + resultReg + " = icmp eq i64 0, 1 ; incompatible string equality operand\n")
+            }
+            return resultReg
         }
         if not eqIsChar and not (leftType == "String" or rightType == "String") {
             if leftType == "Float" or rightType == "Float" {
@@ -100,16 +119,30 @@ fun emitComparisonBinaryOpImpl(output: StringBuilder, regBox: Array<Int>,
         if leftType == "Char" or rightType == "Char" {
             var leftVal = leftReg
             var rightVal = rightReg
+            var charComparable = true
             if leftType == "Char" and rightType == "String" and
                 rightExprKind == "Literal" and rightLiteralValue.length() == 1 {
                 rightVal = charToCodeStr(rightLiteralValue)
+            }
+            if leftType == "Char" and rightType == "String" and
+                not (rightExprKind == "Literal" and rightLiteralValue.length() == 1) {
+                charComparable = false
             }
             if rightType == "Char" and leftType == "String" and
                 leftExprKind == "Literal" and leftLiteralValue.length() == 1 {
                 leftVal = charToCodeStr(leftLiteralValue)
             }
-            output.append("  " + resultReg + " = icmp ne i64 " + leftVal +
-                ", " + rightVal + "\n")
+            if rightType == "Char" and leftType == "String" and
+                not (leftExprKind == "Literal" and leftLiteralValue.length() == 1) {
+                charComparable = false
+            }
+            if charComparable {
+                output.append("  " + resultReg + " = icmp ne i64 " + leftVal +
+                    ", " + rightVal + "\n")
+            } else {
+                output.append("  " + resultReg + " = icmp eq i64 0, 0 ; incompatible string/char inequality\n")
+            }
+            return resultReg
         }
         var neIsChar = leftType == "Char" or rightType == "Char"
         if not neIsChar and (leftType == "String" or rightType == "String") {
@@ -117,7 +150,12 @@ fun emitComparisonBinaryOpImpl(output: StringBuilder, regBox: Array<Int>,
             var rightStrReg = rightReg
             if leftReg == "0" { leftStrReg = "zeroinitializer" }
             if rightReg == "0" { rightStrReg = "zeroinitializer" }
-            output.append("  " + resultReg + " = call i1 @seen_str_ne_ss(%SeenString " + leftStrReg + ", %SeenString " + rightStrReg + ")\n")
+            if leftType == "String" and rightType == "String" {
+                output.append("  " + resultReg + " = call i1 @seen_str_ne_ss(%SeenString " + leftStrReg + ", %SeenString " + rightStrReg + ")\n")
+            } else {
+                output.append("  " + resultReg + " = icmp eq i64 0, 0 ; incompatible string inequality operand\n")
+            }
+            return resultReg
         }
         if not neIsChar and not (leftType == "String" or rightType == "String") {
             if leftType == "Float" or rightType == "Float" {

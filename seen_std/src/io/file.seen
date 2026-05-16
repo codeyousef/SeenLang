@@ -187,3 +187,52 @@ fun deleteFile(path: String) r: Bool {
 fun createDirectory(path: String) r: Bool {
     return __CreateDirectory(path)
 }
+
+fun size(path: String) r: Int {
+    let fd: Int = __OpenFile(path, "r")
+    if fd < 0 {
+        return -1
+    }
+    let fileSize: Int = __FileSize(fd)
+    let _ = __CloseFile(fd)
+    return fileSize
+}
+
+fun writeLines(path: String, lines: Array<String>) r: Bool {
+    var content = ""
+    var i = 0
+    while i < lines.length() {
+        if i > 0 {
+            content = content + "\n"
+        }
+        content = content + lines[i]
+        i = i + 1
+    }
+    return writeText(path, content)
+}
+
+fun hash(path: String) r: String {
+    let content = readText(path)
+    var value = 1469598103934665603
+    var i = 0
+    while i < content.length() {
+        value = value ^ content.charAt(i)
+        value = value * 1099511628211
+        i = i + 1
+    }
+    return value.toString()
+}
+
+fun ensureParentDirectories(path: String) r: Bool {
+    var i = 0
+    while i < path.length() {
+        if path.substring(i, i + 1) == "/" {
+            let parent = path.substring(0, i)
+            if parent.length() > 0 {
+                createDirectory(parent)
+            }
+        }
+        i = i + 1
+    }
+    return true
+}
