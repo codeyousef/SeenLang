@@ -32,6 +32,7 @@ Common options:
 |--------|-------------|
 | `--profile deterministic` | Reject nondeterministic collection usage unless explicitly annotated |
 | `--no-cache` | Disable incremental compilation caching |
+| `--verbose` | Show full per-module compiler progress and expanded warning diagnostics |
 | `--language <lang>` / `-l <lang>` | Source keyword language: `en`, `ar`, `es`, `ru`, `zh`, `ja` |
 | `--target=<platform>` / `--target <platform>` | Cross-compile target |
 | `--target-cpu=<cpu>` | CPU baseline: `native`, `x86-64`, `x86-64-v3`, `x86-64-v4` |
@@ -60,6 +61,10 @@ linux-x86_64, linux-arm64, windows-x86_64,
 macos-x86_64, macos-arm64, ios-arm64,
 ios-sim-arm64, android-arm64
 ```
+
+By default, `seen compile` prints bounded progress at useful phase checkpoints
+instead of one line per internal action. Warning diagnostics remain visible, and
+`--verbose` expands progress and warnings when debugging a specific module.
 
 Examples:
 

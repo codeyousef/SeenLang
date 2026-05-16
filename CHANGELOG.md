@@ -40,6 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Release upload now requires a recent full-rebuild verification stamp from `scripts/safe_rebuild.sh --tier full` before artifacts can be uploaded, unless explicitly overridden for emergency local testing.
 - Quick and verify rebuild tiers now defer frozen-bootstrap preflight and source-overlay creation until a frozen fallback is actually selected, and cache smoke compile artifacts by compiler, fixture, runtime, stdlib, flags, and target signature while still running the smoke binary.
 - Compiler build traces now use millisecond timestamps, cached trace-path lookup, escaped JSON fields, release-LTO mode events, and a merged release-LTO object cache so warm release builds preserve default merged LTO instead of silently falling back.
+- `seen compile` now prints bounded, human-readable phase progress for module discovery, declaration scanning, IR generation, optimizer/object emission, linking, and IR-only exits; `--verbose` keeps full per-module detail and expanded warning diagnostics.
 - Windows cross-builds now reuse signature-keyed IR, transformed object, and runtime caches without clearing global compiler caches, while Linux and Windows package builders reuse manifest-checked package artifacts.
 - Cache-v4 module object keys now include the active compiler binary hash, so warm builds reject stale objects after compiler codegen/layout changes instead of reusing incompatible cached output.
 - Generic source `HashMap`/`HashSet` fallback hashing now derives hashes from key content instead of a constant fallback, and `containsKey`/`getOrDefault` avoid constructing `Option` results.
@@ -70,6 +71,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed self-hosted quick rebuild failures by removing whole-module IR flattening from late declaration checks, eliminating repeated dead-code name-match string concatenation, and replacing the bounded optimizer `jobs -p` throttle with portable batched waits.
 - Fixed Windows installer packaging so unmanifested or stale `target-windows/seen.exe` reuse fails before staging, while `build_windows_installer.sh --force-compile` rebuilds the Windows compiler and writes the validated reuse manifest.
 - Fixed fixed-width `Float64` compiler type mapping, primitive classification, and `sizeof` handling so it follows the same double-width ABI as `Float`.
+- Suppressed redundant internal `Unit` layout fallback noise during compiler IR generation and reformatted remaining codegen fallback warnings as user-readable warning lines.
 
 ## [0.8.3] - 2026-05-15
 

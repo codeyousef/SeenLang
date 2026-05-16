@@ -103,7 +103,10 @@ fun resolveStructLiteralLayoutInfoState(expr: ParserExpressionNode,
         inferredSize = 8
     }
     let inferredLayout = inferredInfo[1]
-    println("[WARN] Unknown struct type '" + structName + "' - using inferred layout: " + inferredLayout + " size=" + inferredSize.toString())
+    if structName != "Unit" {
+        println("warning: codegen inferred layout for unknown struct type '" +
+            structName + "' (" + inferredSize.toString() + " bytes)")
+    }
     return inferredSize.toString() + "|" + inferredLayout
 }
 

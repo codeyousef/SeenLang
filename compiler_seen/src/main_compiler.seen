@@ -750,6 +750,71 @@ fun buildTraceFinish(phase: String, startSeconds: Int, status: String, detail: S
     return
 }
 
+fun compileProgressInterval(total: Int) r: Int {
+    if total <= 16 {
+        return 1
+    }
+    if total <= 64 {
+        return 8
+    }
+    if total <= 256 {
+        return 25
+    }
+    return 50
+}
+
+fun shouldPrintCompileProgress(count: Int, total: Int) r: Bool {
+    if g_compilerVerbose == 1 {
+        return true
+    }
+    if total <= 0 {
+        return true
+    }
+    if total <= 16 {
+        return true
+    }
+    if count <= 1 {
+        return true
+    }
+    if count >= total {
+        return true
+    }
+    let interval = compileProgressInterval(total)
+    if interval <= 1 {
+        return true
+    }
+    return (count % interval) == 0
+}
+
+fun compileProgressMessage(phase: String, action: String, count: Int,
+    total: Int, path: String) r: String {
+
+    var percent = 0
+    if total > 0 {
+        percent = (count * 100) / total
+    }
+    var detail = path
+    if g_compilerVerbose == 0 and total > 16 {
+        detail = getLastSegment(path)
+    }
+    var message = "    [" + phase + "] " + action + " " +
+        count.toString() + "/" + total.toString() + " (" +
+        percent.toString() + "%)"
+    if detail != "" {
+        message = message + ": " + detail
+    }
+    return message
+}
+
+fun printCompileProgress(phase: String, action: String, count: Int,
+    total: Int, path: String) r: Void {
+
+    if shouldPrintCompileProgress(count, total) {
+        println(compileProgressMessage(phase, action, count, total, path))
+    }
+    return
+}
+
 fun mainCompilerEmptyProgramNode() r: ProgramNode {
     return ProgramNode{ items: Array<ItemNode>() }
 }
@@ -1072,12 +1137,56 @@ fun shouldPrintFrontendWarningsForCompilePath(path: String) r: Bool {
     return true
 }
 
+fun countFrontendDiagnosticsBySeverity(frontend: FrontendResult,
+    severity: String) r: Int {
+
+    let diagnostics = frontend.getDiagnostics()
+    var count = 0
+    var idx = 0
+    while idx < diagnostics.length() {
+        if diagnostics[idx].severity == severity {
+            count = count + 1
+        }
+        idx = idx + 1
+    }
+    return count
+}
+
+fun firstFrontendDiagnosticMessageBySeverity(frontend: FrontendResult,
+    severity: String) r: String {
+
+    let diagnostics = frontend.getDiagnostics()
+    var idx = 0
+    while idx < diagnostics.length() {
+        let diag = diagnostics[idx]
+        if diag.severity == severity {
+            return parseDiagBaseMessage(diag.message)
+        }
+        idx = idx + 1
+    }
+    return ""
+}
+
 fun printFrontendWarningsForCompilePath(frontend: FrontendResult,
     path: String) r: Void {
 
     if frontend.hasWarnings() {
         if shouldPrintFrontendWarningsForCompilePath(path) {
-            printFrontendDiagnostics(frontend)
+            if g_compilerVerbose == 1 {
+                printFrontendDiagnostics(frontend)
+            } else {
+                let warningCount =
+                    countFrontendDiagnosticsBySeverity(frontend, "warning")
+                let firstWarning =
+                    firstFrontendDiagnosticMessageBySeverity(frontend,
+                        "warning")
+                println(colorYellow("warning") + ": " +
+                    warningCount.toString() + " warning(s) in " + path)
+                if firstWarning != "" {
+                    println("  " + colorCyan("= first: " + firstWarning))
+                }
+                println("  " + colorCyan("= use --verbose to show full warning diagnostics"))
+            }
         }
     }
 }
@@ -8810,6 +8919,8 @@ var g_picMode = 0
 var g_objectManifestPath: String = ""
 // Disable fork-parallel IR generation (use sequential in-process generation)
 var g_noFork = 0
+// Show per-module compile details and full warning diagnostics.
+var g_compilerVerbose = 0
 ///
 HeartOn validation can pass this legacy project-prefix hint. Keep --no-fork
 strictly serial; bounded worker pools are only available when forking is
@@ -9224,7 +9335,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     while passIdx < modulePaths.length() {
         let path = modulePaths[passIdx]
         if g_generatedTestMainMode == 0 {
-            println("    Scanning: " + path)
+            printCompileProgress("Pass 1", "scanning declarations",
+                passIdx + 1, modulePaths.length(), path)
         }
         var frontend = parseModuleDeclarations(path, language)
         if isDeterministicProfile {
@@ -9381,8 +9493,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         let path = modulePaths[moduleIndex]
         if isPrebuiltPackageModulePathForInput(resolvedInput, path) {
             if g_generatedTestMainMode == 0 {
-                println("    [" + moduleIndex.toString() +
-                    "] Prebuilt declarations only: " + path)
+                printCompileProgress("Pass 2", "prebuilt declarations",
+                    moduleIndex + 1, modulePaths.length(), path)
             }
             moduleIndex = moduleIndex + 1
             continue
@@ -9411,7 +9523,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             let cachedObjFile = ".seen_cache/" + pathHash + ".o"
             let storedHash = loadFileContent(cachedHashFile)
             if storedHash == sourceHash and exists(cachedObjFile) {
-                println("    [" + moduleIndex.toString() + "] Cached: " + path)
+                printCompileProgress("Pass 2", "source cache hit",
+                    moduleIndex + 1, modulePaths.length(), path)
                 objectFiles.push(cachedObjFile)
                 objectSourcePaths.push(path)
                 cachedCount = cachedCount + 1
@@ -9449,7 +9562,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             let irCopy: CommandResult = runCommand("cp " + irCacheFile + " " + irCacheObj)
             objectFiles.push(irCacheObj)
             objectSourcePaths.push(path)
-            println("    [" + moduleIndex.toString() + "] IR cache hit: " + path)
+            printCompileProgress("Pass 2", "IR cache hit",
+                moduleIndex + 1, modulePaths.length(), path)
             // Promote to source-level cache to speed up next build within same stage
             if useCache {
                 ensureCacheDir()
@@ -9465,26 +9579,34 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
 
         if not pass2IrRunsParallel {
             // Serial: generate IR in-process (no fork)
-            println("    [" + moduleIndex.toString() + "] Generating IR (serial): " + path)
+            printCompileProgress("Pass 2", "generating IR serial",
+                moduleIndex + 1, modulePaths.length(), path)
             let llFile = moduleTempPathInt(compileTempDir, moduleIndex,
                 ".ll")
             let moduleStartTime = getTraceTimeSeconds()
-            println("    [" + moduleIndex.toString() + "] Parse start")
+            if g_compilerVerbose == 1 {
+                println("    [" + moduleIndex.toString() + "] Parse start")
+            }
             let parseStartTime = getTraceTimeSeconds()
             let frontend = parseModule(path, language)
             let parseEndTime = getTraceTimeSeconds()
             if not frontend.success {
+                printFrontendDiagnostics(frontend)
                 println("[irgen] Parse failed: " + path)
                 return 1
             }
             printFrontendWarningsForCompilePath(frontend, path)
-            println("    [" + moduleIndex.toString() + "] Parse done in " + (parseEndTime - parseStartTime).toString() + "s")
-            println("    [" + moduleIndex.toString() + "] Codegen start")
+            if g_compilerVerbose == 1 {
+                println("    [" + moduleIndex.toString() + "] Parse done in " + (parseEndTime - parseStartTime).toString() + "s")
+                println("    [" + moduleIndex.toString() + "] Codegen start")
+            }
             let codegenStartTime = getTraceTimeSeconds()
             let irWritten = generator.generateSingleToFile(frontend.program,
                 moduleIndex, llFile)
             let codegenEndTime = getTraceTimeSeconds()
-            println("    [" + moduleIndex.toString() + "] Codegen done in " + (codegenEndTime - codegenStartTime).toString() + "s")
+            if g_compilerVerbose == 1 {
+                println("    [" + moduleIndex.toString() + "] Codegen done in " + (codegenEndTime - codegenStartTime).toString() + "s")
+            }
             if not irWritten {
                 println("[irgen] Failed to write IR: " + llFile)
                 return 1
@@ -9498,7 +9620,9 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                 }
             }
             let moduleEndTime = getTraceTimeSeconds()
-            println("    [" + moduleIndex.toString() + "] Module IR ready in " + (moduleEndTime - moduleStartTime).toString() + "s")
+            if g_compilerVerbose == 1 {
+                println("    [" + moduleIndex.toString() + "] Module IR ready in " + (moduleEndTime - moduleStartTime).toString() + "s")
+            }
             llFiles.push(llFile)
             uncachedIdxStrs.push(moduleIndex.toString())
             uncachedSrcPaths.push(path)
@@ -9509,7 +9633,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             Child gets a copy-on-write snapshot of the parent's registry from Pass 1.
             ///
             if g_generatedTestMainMode == 0 {
-                println("    [" + moduleIndex.toString() + "] Forking IR gen: " + path)
+                printCompileProgress("Pass 2", "queued IR",
+                    moduleIndex + 1, modulePaths.length(), path)
             }
             let pid = processFork()
             if pid < 0 {
@@ -9530,6 +9655,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                         if g_generatedTestMainMode == 0 {
                             writeText(statusFile, "parse_failed\n" + path)
                         }
+                        printFrontendDiagnostics(frontend)
                         println("[irgen child] Parse failed: " + path)
                         processExit(1)
                     }
@@ -9614,8 +9740,11 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                                 if g_generatedTestMainMode == 0 {
                                     writeText(throttledStatusFile,
                                         "exit_ok\n" + throttledIdx)
-                                    println("    [" + throttledIdx +
-                                        "] Child exit ok")
+                                    printCompileProgress("Pass 2",
+                                        "IR complete",
+                                        forkWaitCursor + 1,
+                                        modulePaths.length(),
+                                        forkSrcPaths[forkWaitCursor])
                                 }
                             }
                             forkWaitCursor = forkWaitCursor + 1
@@ -9649,7 +9778,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         } else {
             if g_generatedTestMainMode == 0 {
                 writeText(statusFile, "exit_ok\n" + forkModuleIdxStrs[waitIdx])
-                println("    [" + forkModuleIdxStrs[waitIdx] + "] Child exit ok")
+                printCompileProgress("Pass 2", "IR complete",
+                    waitIdx + 1, modulePaths.length(), forkSrcPaths[waitIdx])
             }
         }
         waitIdx = waitIdx + 1
@@ -9834,6 +9964,13 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                 moduleObjCmd = targetClangDriver + " " + androidClangOptLevel + " -flto=thin -ffunction-sections -fdata-sections" + modulePicFlag + " -Wno-unused-command-line-argument -c -x ir " + targetClangArgs + " " + optFile + " -o " + objFile
             }
             var moduleScript = "(\n"
+            if shouldPrintCompileProgress(pi + 1, uncachedIdxStrs.length()) {
+                let optProgressLine = compileProgressMessage("Pass 2b",
+                    "optimizing/object", pi + 1,
+                    uncachedIdxStrs.length(), uncachedSrcPaths[pi])
+                moduleScript = moduleScript + "  printf '%s\\n' " +
+                    mainCompilerShellQuote(optProgressLine) + " >&2\n"
+            }
             moduleScript = moduleScript + "  rm -f " + objFile + " " + optFile + " " + statusFile + " " + logFile + "\n"
             moduleScript = moduleScript + "  if " + moduleOptCmd + " >" + logFile + " 2>&1; then\n"
             if pollyStep != "" {
@@ -9894,14 +10031,15 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             let statusFile = moduleTempPath(compileTempDir, midx,
                 ".opt.status")
             let statusText = loadFileContent(statusFile)
+            let sourcePath = uncachedSrcPaths[vi]
             if statusText != "ok" {
                 if statusText == "opt" {
-                    println("    Error: optimization failed for module " + midx)
+                    println("    Error: optimization failed for module " + midx + ": " + sourcePath)
                 } else {
                     if statusText == "object" {
-                        println("    Error: object emission failed for module " + midx)
+                        println("    Error: object emission failed for module " + midx + ": " + sourcePath)
                     } else {
-                        println("    Error: module optimization did not complete for module " + midx)
+                        println("    Error: module optimization did not complete for module " + midx + ": " + sourcePath)
                     }
                 }
                 let logFile = moduleTempPath(compileTempDir, midx, ".opt.log")
@@ -9914,7 +10052,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             let objFile = moduleTempPath(compileTempDir, midx, ".o")
             let checkObj: CommandResult = runCommand("test -f " + objFile)
             if not commandWasSuccessful(checkObj) {
-                println("    Error: module " + midx + " reported success but did not produce an object file")
+                println("    Error: module " + midx + " reported success but did not produce an object file: " + sourcePath)
                 let logFile = moduleTempPath(compileTempDir, midx, ".opt.log")
                 let logTail: CommandResult = runCommand("tail -n 40 " + logFile)
                 if commandWasSuccessful(logTail) {
@@ -11280,6 +11418,7 @@ This is the fallback when JIT is unavailable and the explicit path for --aot.
 fun aotRunCommand(inputFile: String, verbose: Bool, language: String,
     useCache: Bool) r: Int {
     if verbose {
+        g_compilerVerbose = 1
         println("[run] Compiling " + inputFile + "...")
     }
 
@@ -11327,7 +11466,7 @@ fun printVersion() r: Void {
 fun printUsage() r: Void {
     println("Seen " + seenCompilerVersion() + " - Self-hosted Compiler")
     println("")
-    println("Usage: seen compile <input.seen> [output] [--profile deterministic] [--no-cache]")
+    println("Usage: seen compile <input.seen> [output] [--profile deterministic] [--no-cache] [--verbose]")
     println("       seen check <input.seen> [--profile deterministic]")
     println("       seen run <input.seen> [--aot] [--no-cache] [--verbose] [--language <lang>]")
     println("       seen bundle <executable> <AppName> [--icon=<icon.icns>] [--version=<1.0>]")
@@ -11347,7 +11486,7 @@ fun printUsage() r: Void {
     println("  --profile deterministic  Reject HashMap/HashSet without @nondeterministic")
     println("  --no-cache               Disable incremental compilation caching")
     println("  --aot                    Use AOT compilation for 'run' (default: JIT via lli)")
-    println("  --verbose                Show compiler diagnostics during 'run'")
+    println("  --verbose                Show full per-module compiler progress and warnings")
     println("  --target-cpu=<cpu>       Target CPU (native, x86-64, x86-64-v3, x86-64-v4)")
     println("  --simd=<policy>          SIMD policy (auto, none, sse4.2, avx2, avx512)")
     println("  --simd-report            Show LLVM vectorization report (brief)")
@@ -11579,6 +11718,9 @@ fun main() r: Int {
             if argv[argIdx] == "--no-cache" {
                 useCache = false
             } else {
+                if argv[argIdx] == "--verbose" {
+                    g_compilerVerbose = 1
+                } else {
                 if argv[argIdx] == "--profile" {
                     if argIdx + 1 < argv.length() {
                         argIdx = argIdx + 1
@@ -11742,6 +11884,7 @@ fun main() r: Int {
                             }
                         }
                     }
+                }
                 }
             }
             argIdx = argIdx + 1
