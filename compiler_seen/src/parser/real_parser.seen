@@ -3861,8 +3861,6 @@ class RealParser {
         if not typeIdentFound and checkToken(SeenTokenType.Identifier) {
             let token = advance()
             var name = token.getValue()
-            let nameBuilder = StringBuilder.new()
-            nameBuilder.append(name)
 
             // : dyn Trait — dynamic dispatch
             if name == "dyn" and checkToken(SeenTokenType.Identifier) {
@@ -3876,8 +3874,7 @@ class RealParser {
                 while matchTokenStr(SeenTokenType.Dot) {
                     var dotIdentHandled = false
                     if checkToken(SeenTokenType.Identifier) {
-                        nameBuilder.append(".")
-                        nameBuilder.append(advance().getValue())
+                        name = name + "." + advance().getValue()
                         dotIdentHandled = true
                     }
                     if not dotIdentHandled {
@@ -3886,46 +3883,46 @@ class RealParser {
                 }
                 // Parse generic parameters <...> and include them in the name
                 if matchTokenStr(SeenTokenType.LessThan) {
-                    nameBuilder.append("<")
+                    name = name + "<"
                     var depth = 1
                     while depth > 0 and not isAtEnd() {
                         var genericTokenHandled = false
                         if checkToken(SeenTokenType.LessThan) {
-                            nameBuilder.append("<")
+                            name = name + "<"
                             advance()
                             depth = depth + 1
                             genericTokenHandled = true
                         }
                         if not genericTokenHandled and checkToken(SeenTokenType.GreaterThan) {
-                            nameBuilder.append(">")
+                            name = name + ">"
                             advance()
                             depth = depth - 1
                             genericTokenHandled = true
                         }
                         if not genericTokenHandled and checkToken(SeenTokenType.Identifier) {
                             // : const generic — recognize integer literals inside generic params
-                            nameBuilder.append(advance().getValue())
+                            name = name + advance().getValue()
                             genericTokenHandled = true
                         }
                         if not genericTokenHandled and checkToken(SeenTokenType.Comma) {
-                            nameBuilder.append(",")
+                            name = name + ","
                             advance()
                             genericTokenHandled = true
                         }
                         if not genericTokenHandled and checkToken(SeenTokenType.IntegerLiteral) {
                             // : const generic integer parameter (e.g. Grid<Int,8,8>)
-                            nameBuilder.append(advance().getValue())
+                            name = name + advance().getValue()
                             genericTokenHandled = true
                         }
                         if not genericTokenHandled and checkToken(SeenTokenType.Colon) {
                             // : const generic constraint colon (e.g. <const N: Int>)
-                            nameBuilder.append(":")
+                            name = name + ":"
                             advance()
                             genericTokenHandled = true
                         }
                         if not genericTokenHandled and checkToken(SeenTokenType.KeywordConst) {
                             // : const keyword in generic params
-                            nameBuilder.append("const ")
+                            name = name + "const "
                             advance()
                             genericTokenHandled = true
                         }
@@ -3938,20 +3935,17 @@ class RealParser {
                 : Buffer[T], Uniform[T], Image[T] — GPU types with square bracket syntax
                 : SmallVec[T, N] — inline storage with square bracket syntax
                 ///
-                let squareBaseName = nameBuilder.toString()
-                if (squareBaseName == "Buffer" or squareBaseName == "Uniform" or squareBaseName == "Image" or squareBaseName == "SmallVec") and checkToken(SeenTokenType.LeftBracket) {
+                if (name == "Buffer" or name == "Uniform" or name == "Image" or name == "SmallVec") and checkToken(SeenTokenType.LeftBracket) {
                     advance()
                     parseTypeNodeIntoScratch()
                     var bracketTypeStr = this.lastParsedTypeName
                     // SmallVec[T, N] — also parse the capacity after comma
-                    if squareBaseName == "SmallVec" and checkToken(SeenTokenType.Comma) {
+                    if name == "SmallVec" and checkToken(SeenTokenType.Comma) {
                         advance()
                         parseTypeNodeIntoScratch()
                         bracketTypeStr = bracketTypeStr + ", " + this.lastParsedTypeName
                     }
-                    nameBuilder.append("<")
-                    nameBuilder.append(bracketTypeStr)
-                    nameBuilder.append(">")
+                    name = name + "<" + bracketTypeStr + ">"
                     if checkToken(SeenTokenType.RightBracket) {
                         advance()
                     }
@@ -3969,11 +3963,9 @@ class RealParser {
                     if checkToken(SeenTokenType.RightBracket) {
                         advance()
                     }
-                    nameBuilder.append("[")
-                    nameBuilder.append(arrayLen)
-                    nameBuilder.append("]")
+                    name = name + "[" + arrayLen + "]"
                 }
-                typeName = nameBuilder.toString()
+                typeName = name
                 typeIdentFound = true
             }
         }
@@ -3997,15 +3989,13 @@ class RealParser {
 
         // : Type | Type → ErrorUnion
         if checkToken(SeenTokenType.BitwiseOr) {
-            let unionTypes = StringBuilder.new()
-            unionTypes.append(typeName)
+            var unionTypes = typeName
             while checkToken(SeenTokenType.BitwiseOr) {
                 advance()
                 parseTypeNodeIntoScratch()
-                unionTypes.append("|")
-                unionTypes.append(this.lastParsedTypeName)
+                unionTypes = unionTypes + "|" + this.lastParsedTypeName
             }
-            typeName = "ErrorUnion<" + unionTypes.toString() + ">"
+            typeName = "ErrorUnion<" + unionTypes + ">"
         }
 
         this.lastParsedTypeName = typeName
@@ -6372,25 +6362,20 @@ class RealParser {
                     let typeParam = advance().getValue()
 
                     // Handle nested generics like BTreeNode<K, V> or Array<Array<Int>>
-                    let fullTypeParam = StringBuilder.new()
-                    fullTypeParam.append(typeParam)
+                    var fullTypeParam = typeParam
                     if checkToken(SeenTokenType.LessThan) {
                         advance() // consume inner <
                         if checkToken(SeenTokenType.Identifier) {
-                            let innerParams = StringBuilder.new()
-                            innerParams.append(advance().getValue())
+                            var innerParams = advance().getValue()
                             // Handle multiple inner type params like <K, V>
                             while matchTokenStr(SeenTokenType.Comma) {
                                 if checkToken(SeenTokenType.Identifier) {
-                                    innerParams.append(", ")
-                                    innerParams.append(advance().getValue())
+                                    innerParams = innerParams + ", " + advance().getValue()
                                 }
                             }
                             if checkToken(SeenTokenType.GreaterThan) {
                                 advance() // consume inner >
-                                fullTypeParam.append("<")
-                                fullTypeParam.append(innerParams.toString())
-                                fullTypeParam.append(">")
+                                fullTypeParam = fullTypeParam + "<" + innerParams + ">"
                             }
                         }
                     }
@@ -6398,12 +6383,10 @@ class RealParser {
                     // Handle multiple type parameters like Map<K, V> or FixedArray<Int, 4>
                     while matchTokenStr(SeenTokenType.Comma) {
                         if checkToken(SeenTokenType.Identifier) {
-                            fullTypeParam.append(", ")
-                            fullTypeParam.append(advance().getValue())
+                            fullTypeParam = fullTypeParam + ", " + advance().getValue()
                         } else {
                             if checkToken(SeenTokenType.IntegerLiteral) {
-                                fullTypeParam.append(", ")
-                                fullTypeParam.append(advance().getValue())
+                                fullTypeParam = fullTypeParam + ", " + advance().getValue()
                             }
                         }
                     }
@@ -6434,7 +6417,7 @@ class RealParser {
                         }
                         if isGenericType {
                             // This IS a generic type - update name to include type param
-                            name = name + "<" + fullTypeParam.toString() + ">"
+                            name = name + "<" + fullTypeParam + ">"
                             // Continue to normal call/struct literal handling below
                             genericParsed = true
                         }
