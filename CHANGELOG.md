@@ -70,6 +70,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Routed hot-reload state/module helpers and TEE string/attestation helper allocations through budget-aware allocation paths.
 - Routed runtime header inline string helpers and NUMA allocation helpers through checked/budget-aware allocation paths.
 - Routed GPU runtime host-side device enumeration, shader loading, pipeline, and descriptor helper allocations through budget-aware allocation paths.
+- Routed Windows runtime thread-wrapper allocations through the Seen allocation budget instead of raw host allocation.
+- Routed Linux Vulkan platform shim transient arrays through checked allocation helpers with optional Seen memory-budget accounting when linked with the runtime.
+- Routed Darwin platform CoreAudio stream allocation through checked allocation helpers with optional Seen memory-budget accounting when linked with the runtime.
 - Avoided extra transient string allocation in `StringBuilder.appendLine` and rewrote `split` to accumulate through `StringBuilder` instead of per-character string concatenation.
 - Removed per-byte substring allocation from string hash loops used by `hash.mod` and `StringHashMap`.
 - Kept collection string hashing on byte scans and removed the remaining per-byte modulo from source `StringHashMap` hashing.

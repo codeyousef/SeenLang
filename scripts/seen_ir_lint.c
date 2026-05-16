@@ -584,11 +584,22 @@ static void pass3_check_norecurse(FILE *fp, FuncTable *tbl __attribute__((unused
 
 /* ---- Main ---- */
 
+static void *lint_calloc(size_t count, size_t size, const char *label) {
+    if (size != 0 && count > ((size_t)-1) / size) {
+        fprintf(stderr, "ERROR: allocation size overflow for %s\n", label);
+        return NULL;
+    }
+    void *ptr = calloc(count, size);
+    if (!ptr) {
+        fprintf(stderr, "ERROR: out of memory allocating %s (%zu bytes)\n", label, count * size);
+    }
+    return ptr;
+}
+
 static int lint_file(const char *filename) {
     FILE *fp;
-    FuncTable *tbl = calloc(1, sizeof(FuncTable));
+    FuncTable *tbl = (FuncTable *)lint_calloc(1, sizeof(FuncTable), "function table");
     if (!tbl) {
-        fprintf(stderr, "ERROR: out of memory\n");
         return 1;
     }
 

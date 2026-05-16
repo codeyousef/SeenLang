@@ -39,6 +39,9 @@
 // Include sys/types.h which typically provides pid_t and ssize_t on mingw-w64
 #include <sys/types.h>
 
+void* seen_try_malloc(int64_t size);
+void seen_memory_release_bytes(int64_t size);
+
 // ============================================================================
 // Process functions
 // ============================================================================
@@ -220,6 +223,7 @@ static DWORD WINAPI seen_win32_thread_func(LPVOID lpParam) {
     seen_win32_thread_arg *ta = (seen_win32_thread_arg *)lpParam;
     void *(*fn)(void *) = ta->start_routine;
     void *arg = ta->arg;
+    seen_memory_release_bytes((int64_t)sizeof(seen_win32_thread_arg));
     free(ta);
     fn(arg);
     return 0;
@@ -228,12 +232,13 @@ static DWORD WINAPI seen_win32_thread_func(LPVOID lpParam) {
 static inline int pthread_create(pthread_t *thread, const pthread_attr_t *attr,
                                  void *(*start_routine)(void *), void *arg) {
     (void)attr;
-    seen_win32_thread_arg *ta = (seen_win32_thread_arg *)malloc(sizeof(seen_win32_thread_arg));
+    seen_win32_thread_arg *ta = (seen_win32_thread_arg *)seen_try_malloc((int64_t)sizeof(seen_win32_thread_arg));
     if (!ta) return -1;
     ta->start_routine = start_routine;
     ta->arg = arg;
     HANDLE h = CreateThread(NULL, 0, seen_win32_thread_func, ta, 0, NULL);
     if (h == NULL) {
+        seen_memory_release_bytes((int64_t)sizeof(seen_win32_thread_arg));
         free(ta);
         return -1;
     }
