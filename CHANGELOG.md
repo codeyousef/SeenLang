@@ -69,6 +69,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Routed the standalone region and pinning runtimes, including mmap-backed GPU/CXL regions, through the shared Seen allocation budget counters.
 - Routed hot-reload state/module helpers and TEE string/attestation helper allocations through budget-aware allocation paths.
 - Routed runtime header inline string helpers and NUMA allocation helpers through checked/budget-aware allocation paths.
+- Routed GPU runtime host-side device enumeration, shader loading, pipeline, and descriptor helper allocations through budget-aware allocation paths.
 - Avoided extra transient string allocation in `StringBuilder.appendLine` and rewrote `split` to accumulate through `StringBuilder` instead of per-character string concatenation.
 - Removed per-byte substring allocation from string hash loops used by `hash.mod` and `StringHashMap`.
 - Kept collection string hashing on byte scans and removed the remaining per-byte modulo from source `StringHashMap` hashing.
