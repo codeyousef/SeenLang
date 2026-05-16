@@ -79,6 +79,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Reworked string JSON, URL, and HTML escaping helpers to use `StringBuilder` segment appends instead of repeated whole-result concatenation.
 - Reworked JSON string escaping, compact serialization, pretty serialization, and indentation helpers to assemble output with `StringBuilder` instead of repeated whole-result concatenation.
 - Reworked buffered I/O string assembly paths to use `StringBuilder` and explicit returns, avoiding byte-by-byte whole-string concatenation in line reads and flushes.
+- Reworked compiler LLVM string-constant escaping to append unchanged segments with `StringBuilder` instead of growing the escaped string one byte at a time.
 - Fixed legacy `Map<String, String>` lowering so `get`/`getOrDefault` preserve full SeenString values instead of falling through bootstrap fallback layouts.
 - Made legacy runtime `Map_*` symbols weak so imported source `collections.map` fallback methods can coexist with runtime compatibility helpers.
 - Removed stray debug output from `StringBuilder.mergeAdjacent`.
