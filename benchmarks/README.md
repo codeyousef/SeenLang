@@ -1,5 +1,21 @@
 # Seen Language Benchmark Suite
 
+## 0.9.0 Performance Gates
+
+Use `scripts/perf_gate.sh` from the repository root for the maintained gated
+benchmarks:
+
+```bash
+SEEN_LOW_MEMORY=1 scripts/perf_gate.sh --record-baseline --suite stdlib
+SEEN_LOW_MEMORY=1 scripts/perf_gate.sh --compare --suite stdlib
+SEEN_LOW_MEMORY=1 scripts/perf_gate.sh --compare --suite runtime
+```
+
+The gate fixtures under `benchmarks/gates/` are valid Seen programs. The older
+PowerShell comparison suite is still useful for cross-language experiments, but
+some legacy `.seen` benchmark files outside `benchmarks/gates/` remain
+placeholder material until converted.
+
 ## 🚀 Quick Start
 
 Run the complete benchmark suite with one command:

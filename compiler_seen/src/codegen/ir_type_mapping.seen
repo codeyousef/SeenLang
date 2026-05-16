@@ -42,6 +42,8 @@ fun isClassTypeImpl(name: String, structNames: Array<String>) r: Int {
     if baseType == "Bool" { return 0 }
     if baseType == "Boolean" { return 0 }
     if baseType == "Float" { return 0 }
+    if baseType == "Float32" { return 0 }
+    if baseType == "Float64" { return 0 }
     if baseType == "String" { return 0 }
     if baseType == "Void" { return 0 }
     if name.startsWith("Array<") { return 0 }
@@ -171,6 +173,8 @@ fun isClassHandleLikeTypeImpl(name: String, structNames: Array<String>) r: Int {
     if baseType == "Bool" { return 0 }
     if baseType == "Boolean" { return 0 }
     if baseType == "Float" { return 0 }
+    if baseType == "Float32" { return 0 }
+    if baseType == "Float64" { return 0 }
     if baseType == "String" { return 0 }
     if baseType == "Void" { return 0 }
     if baseType == "Array" { return 0 }
@@ -301,6 +305,9 @@ fun mapTypeImpl(seenType: String, structNames: Array<String>,
     if baseType == "UInt64" { return "i64" }
     if baseType == "Float32" {
         return "float"
+    }
+    if baseType == "Float64" {
+        return "double"
     }
     if baseType == "Char" {
         return "i64"

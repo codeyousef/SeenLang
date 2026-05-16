@@ -14,23 +14,54 @@ class Architecture {
 class CPUInfo {
     var featureCount: Int
     let microarch: String
+    let sse2: Bool
+    let avx2: Bool
+    let avx512: Bool
+    let fma: Bool
+    let bmi2: Bool
 
-    static fun new(microarch: String) r: CPUInfo {
-        return CPUInfo{ featureCount: 0, microarch: microarch }
+    static fun new(microarch: String, sse2: Bool, avx2: Bool, avx512: Bool, fma: Bool, bmi2: Bool) r: CPUInfo {
+        var count = 0
+        if sse2 { count = count + 1 }
+        if avx2 { count = count + 1 }
+        if avx512 { count = count + 1 }
+        if fma { count = count + 1 }
+        if bmi2 { count = count + 1 }
+        return CPUInfo{
+            featureCount: count,
+            microarch: microarch,
+            sse2: sse2,
+            avx2: avx2,
+            avx512: avx512,
+            fma: fma,
+            bmi2: bmi2
+        }
     }
 
-    fun hasSSE2() r: Bool { return true }
-    fun hasAVX2() r: Bool { return true }
-    fun hasAVX512() r: Bool { return false }
-    fun hasFMA() r: Bool { return true }
-    fun hasBMI2() r: Bool { return true }
+    fun hasSSE2() r: Bool { return this.sse2 }
+    fun hasAVX2() r: Bool { return this.avx2 }
+    fun hasAVX512() r: Bool { return this.avx512 }
+    fun hasFMA() r: Bool { return this.fma }
+    fun hasBMI2() r: Bool { return this.bmi2 }
 }
 
 class ISAExtensions {
     var count: Int
+    let features: String
 
-    static fun new() r: ISAExtensions {
-        return ISAExtensions{ count: 3 }
+    static fun new(features: String) r: ISAExtensions {
+        var count = 0
+        if features.length() > 0 {
+            count = 1
+            var i = 0
+            while i < features.length() {
+                if features.charAt(i) == ',' {
+                    count = count + 1
+                }
+                i = i + 1
+            }
+        }
+        return ISAExtensions{ count: count, features: features }
     }
 }
 
@@ -42,15 +73,65 @@ class ArchitectureOptimizer {
     var preferVectorWidth: Int
 
     static fun new(target: String) r: ArchitectureOptimizer {
-        let cpu = CPUInfo.new("zen3")
-        var vecWidth = 256
+        let cpu = ArchitectureOptimizer.detectCPU(target)
+        let features = ArchitectureOptimizer.featuresForCPU(cpu)
+        var vecWidth = 128
+        if cpu.hasAVX2() {
+            vecWidth = 256
+        }
+        if cpu.hasAVX512() {
+            vecWidth = 512
+        }
         return ArchitectureOptimizer{
             architecture: Architecture.new(target),
             cpuInfo: cpu,
-            isa: ISAExtensions.new(),
-            targetFeatures: "+sse2,+sse4.2,+avx2,+bmi2,+fma",
+            isa: ISAExtensions.new(features),
+            targetFeatures: features,
             preferVectorWidth: vecWidth
         }
+    }
+
+    static fun detectCPU(target: String) r: CPUInfo {
+        if target.contains("avx512") or target.contains("x86-64-v4") {
+            return CPUInfo.new("x86-64-v4", true, true, true, true, true)
+        }
+        if target.contains("avx2") or target.contains("x86-64-v3") {
+            return CPUInfo.new("x86-64-v3", true, true, false, true, true)
+        }
+        if target.contains("x86_64") or target.contains("x86-64") or target.contains("amd64") {
+            return CPUInfo.new("x86-64", true, false, false, false, false)
+        }
+        if target.contains("aarch64") or target.contains("arm64") {
+            return CPUInfo.new("aarch64", false, false, false, false, false)
+        }
+        if target.contains("wasm") {
+            return CPUInfo.new("wasm-generic", false, false, false, false, false)
+        }
+        return CPUInfo.new("generic", false, false, false, false, false)
+    }
+
+    static fun featuresForCPU(cpu: CPUInfo) r: String {
+        var features = ""
+        if cpu.hasSSE2() {
+            features = features + "+sse2"
+        }
+        if cpu.hasAVX2() {
+            if features.length() > 0 { features = features + "," }
+            features = features + "+avx2"
+        }
+        if cpu.hasBMI2() {
+            if features.length() > 0 { features = features + "," }
+            features = features + "+bmi2"
+        }
+        if cpu.hasFMA() {
+            if features.length() > 0 { features = features + "," }
+            features = features + "+fma"
+        }
+        if cpu.hasAVX512() {
+            if features.length() > 0 { features = features + "," }
+            features = features + "+avx512f"
+        }
+        return features
     }
 
     fun optimize() r: Void {

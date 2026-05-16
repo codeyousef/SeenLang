@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added canonical `scripts/perf_gate.sh` schema-v2 performance gates for build, stdlib, runtime, release-LTO, and package suites, while keeping `scripts/build_perf_gate.sh` as a build-suite compatibility wrapper.
 - Added capped Seen benchmark gate fixtures for collections, StringBuilder/JSON, math/sort, runtime allocation, and release-LTO behavior.
 - Added `seen compile --emit-module-ir-dir <path>` and `--stop-after-ir` so packaging and cross-build tools can request per-module IR without scraping global `/tmp` artifacts.
+- Added byte-backed `ByteArray`/`ByteBuffer` runtime storage plus primitive buffer APIs for integer and floating-point data paths.
+- Added public collection algorithm helpers for integer binary search, lower/upper bounds, stable and unstable sort, radix sort, and integer priority queues.
 
 ### Changed
 
@@ -40,6 +42,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Compiler build traces now use millisecond timestamps, cached trace-path lookup, escaped JSON fields, release-LTO mode events, and a merged release-LTO object cache so warm release builds preserve default merged LTO instead of silently falling back.
 - Windows cross-builds now reuse signature-keyed IR, transformed object, and runtime caches without clearing global compiler caches, while Linux and Windows package builders reuse manifest-checked package artifacts.
 - Cache-v4 module object keys now include the active compiler binary hash, so warm builds reject stale objects after compiler codegen/layout changes instead of reusing incompatible cached output.
+- Generic source `HashMap`/`HashSet` fallback hashing now derives hashes from key content instead of a constant fallback, and `containsKey`/`getOrDefault` avoid constructing `Option` results.
+- String prefix/suffix/search/count/split/replace helpers now scan bytes directly and append unchanged segments instead of allocating a substring at every candidate position.
+- WASM export/function ordering now uses quicksort with insertion sort for small partitions instead of bubble sort.
+- E-graph insertion now uses hash-consing buckets, and class-node lookup uses rebuilt per-class indexes after merges.
+- Architecture optimization now derives target features and preferred vector width from the target string instead of assuming an AVX2 desktop CPU.
 
 ### Fixed
 
@@ -62,6 +69,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed implicit assignment of `T` values into `Option<T>`/nullable storage so field and local initializers construct `Some<T>` wrappers, with specialized payload layout for String, Bool, Float, and boxed/class values.
 - Fixed self-hosted quick rebuild failures by removing whole-module IR flattening from late declaration checks, eliminating repeated dead-code name-match string concatenation, and replacing the bounded optimizer `jobs -p` throttle with portable batched waits.
 - Fixed Windows installer packaging so unmanifested or stale `target-windows/seen.exe` reuse fails before staging, while `build_windows_installer.sh --force-compile` rebuilds the Windows compiler and writes the validated reuse manifest.
+- Fixed fixed-width `Float64` compiler type mapping, primitive classification, and `sizeof` handling so it follows the same double-width ABI as `Float`.
 
 ## [0.8.3] - 2026-05-15
 

@@ -1,3 +1,7 @@
+import collections.algorithms.{binarySearchInt, lowerBoundInt, unstableSortInt, IntPriorityQueue}
+import collections.byte_buffer.{ByteBuffer}
+import collections.hash_map.{HashMap}
+
 fun checksumArray(values: Array<Int>) r: Int {
     var sum = 0
     var i = 0
@@ -26,6 +30,52 @@ fun main() r: Int {
         }
         total = total + checksumArray(values)
         rounds = rounds + 1
+    }
+
+    let buffer = ByteBuffer.withCapacity(4096)
+    i = 0
+    while i < 4096 {
+        buffer.push((i * 31 + 7) % 256)
+        i = i + 1
+    }
+    let bufferSlice = buffer.slice(64, 512)
+    total = total + bufferSlice.length() + bufferSlice.get(0)
+
+    let sorted = Array<Int>()
+    i = 0
+    while i < 2048 {
+        sorted.push((i * 7919 + 17) % 10007)
+        i = i + 1
+    }
+    unstableSortInt(sorted)
+    total = total + lowerBoundInt(sorted, 5000)
+    total = total + binarySearchInt(sorted, sorted[sorted.length() / 2])
+
+    let queue = IntPriorityQueue.min()
+    i = 0
+    while i < 1024 {
+        queue.push((i * 17 + 5) % 4096)
+        i = i + 1
+    }
+    i = 0
+    while i < 128 {
+        total = total + queue.pop()
+        i = i + 1
+    }
+
+    let map = HashMap<String, Int>.withCapacity(2048)
+    i = 0
+    while i < 2048 {
+        map.insert("key-" + i.toString(), i)
+        i = i + 1
+    }
+    i = 0
+    while i < 2048 {
+        let hit = map.get("key-" + i.toString())
+        if hit.isSome() {
+            total = total + hit.unwrap()
+        }
+        i = i + 1
     }
 
     if total <= 0 {

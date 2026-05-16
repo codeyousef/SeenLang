@@ -50,6 +50,11 @@ class EGraph {
     var nodeChildrenFlat: Array<Int>  // flattened children: [numChildren, child0, child1, ...]
     var nodeChildrenOffsets: Array<Int> // offset into nodeChildrenFlat for node i
     var nodeClassId: Array<Int>       // which e-class does node i belong to?
+    var nodeSignatureHashes: Array<Int> // hash-consing hash for op + canonical children
+    var signatureBuckets: Array<Int>  // hash bucket -> first node index
+    var signatureNext: Array<Int>     // node index -> next node in hash bucket
+    var classNodeHeads: Array<Int>    // e-class id -> first node index
+    var classNodeNext: Array<Int>     // node index -> next node in class list
     var numClasses: Int
     var numNodes: Int
     var dirty: Bool                   // needs rebuild?
@@ -62,10 +67,25 @@ class EGraph {
             nodeChildrenFlat: Array<Int>(),
             nodeChildrenOffsets: Array<Int>(),
             nodeClassId: Array<Int>(),
+            nodeSignatureHashes: Array<Int>(),
+            signatureBuckets: EGraph.emptyBuckets(4096),
+            signatureNext: Array<Int>(),
+            classNodeHeads: Array<Int>(),
+            classNodeNext: Array<Int>(),
             numClasses: 0,
             numNodes: 0,
             dirty: false
         }
+    }
+
+    static fun emptyBuckets(capacity: Int) r: Array<Int> {
+        let buckets = Array<Int>(capacity)
+        var i = 0
+        while i < capacity {
+            buckets.push(-1)
+            i = i + 1
+        }
+        return buckets
     }
 
     // Find the canonical representative of an e-class (with path compression)
@@ -97,6 +117,10 @@ class EGraph {
     If an equivalent node already exists, returns its class
     ///
     fun add(op: String, children: Array<Int>) r: Int {
+        if this.dirty {
+            this.rebuild()
+        }
+
         // Canonicalize children
         var canonChildren = Array<Int>()
         var ci = 0
@@ -105,9 +129,12 @@ class EGraph {
             ci = ci + 1
         }
 
+        let signatureHash = this.signatureHash(op, canonChildren)
+        let bucket = this.signatureBucket(signatureHash)
+
         // Check if equivalent node already exists (deduplication)
-        var ni = 0
-        while ni < this.numNodes {
+        var ni = this.signatureBuckets[bucket]
+        while ni >= 0 {
             if this.nodeOps[ni] == op {
                 // Check if children match
                 let offset = this.nodeChildrenOffsets[ni]
@@ -127,19 +154,21 @@ class EGraph {
                     }
                 }
             }
-            ni = ni + 1
+            ni = this.signatureNext[ni]
         }
 
         // Create new e-class
         let classId = this.numClasses
         this.parents.push(classId)
         this.ranks.push(0)
+        this.classNodeHeads.push(-1)
         this.numClasses = this.numClasses + 1
 
         // Create new e-node
         let nodeIdx = this.numNodes
         this.nodeOps.push(op)
         this.nodeClassId.push(classId)
+        this.nodeSignatureHashes.push(signatureHash)
         let flatOffset = this.nodeChildrenFlat.length()
         this.nodeChildrenOffsets.push(flatOffset)
         this.nodeChildrenFlat.push(canonChildren.length())
@@ -148,7 +177,12 @@ class EGraph {
             this.nodeChildrenFlat.push(canonChildren[cj])
             cj = cj + 1
         }
+        this.signatureNext.push(this.signatureBuckets[bucket])
+        this.signatureBuckets[bucket] = nodeIdx
+        this.classNodeNext.push(this.classNodeHeads[classId])
+        this.classNodeHeads[classId] = nodeIdx
         this.numNodes = this.numNodes + 1
+        this.ensureSignatureCapacity()
 
         return classId
     }
@@ -196,8 +230,11 @@ class EGraph {
             }
             // Re-canonicalize the node's class
             this.nodeClassId[ni] = find(this.nodeClassId[ni])
+            this.nodeSignatureHashes[ni] = this.signatureHash(this.nodeOps[ni], this.nodeChildren(ni))
             ni = ni + 1
         }
+        this.rebuildSignatureIndex()
+        this.rebuildClassNodeIndex()
         this.dirty = false
         return true
     }
@@ -234,14 +271,18 @@ class EGraph {
 
     // Get all node indices belonging to an e-class
     fun classNodes(classId: Int) r: Array<Int> {
+        if this.dirty {
+            this.rebuild()
+        }
         let canon = find(classId)
         var result = Array<Int>()
-        var ni = 0
-        while ni < this.numNodes {
-            if find(this.nodeClassId[ni]) == canon {
-                result.push(ni)
-            }
-            ni = ni + 1
+        if canon < 0 or canon >= this.classNodeHeads.length() {
+            return result
+        }
+        var ni = this.classNodeHeads[canon]
+        while ni >= 0 {
+            result.push(ni)
+            ni = this.classNodeNext[ni]
         }
         return result
     }
@@ -258,5 +299,79 @@ class EGraph {
             i = i + 1
         }
         return count
+    }
+
+    fun signatureHash(op: String, children: Array<Int>) r: Int {
+        var hash = 2166136261
+        var i = 0
+        while i < op.length() {
+            hash = hash ^ op.byteAt(i)
+            hash = hash * 16777619
+            i = i + 1
+        }
+
+        i = 0
+        while i < children.length() {
+            hash = hash ^ children[i]
+            hash = hash * 16777619
+            i = i + 1
+        }
+        return hash
+    }
+
+    fun signatureBucket(hash: Int) r: Int {
+        let mask = this.signatureBuckets.length() - 1
+        return hash & mask
+    }
+
+    fun ensureSignatureCapacity() r: Void {
+        if this.numNodes <= this.signatureBuckets.length() * 2 {
+            return
+        }
+        this.signatureBuckets = EGraph.emptyBuckets(this.signatureBuckets.length() * 2)
+        this.rebuildSignatureIndex()
+    }
+
+    fun rebuildSignatureIndex() r: Void {
+        var i = 0
+        while i < this.signatureBuckets.length() {
+            this.signatureBuckets[i] = -1
+            i = i + 1
+        }
+
+        this.signatureNext = Array<Int>(this.numNodes)
+        i = 0
+        while i < this.numNodes {
+            this.signatureNext.push(-1)
+            i = i + 1
+        }
+
+        i = 0
+        while i < this.numNodes {
+            let bucket = this.signatureBucket(this.nodeSignatureHashes[i])
+            this.signatureNext[i] = this.signatureBuckets[bucket]
+            this.signatureBuckets[bucket] = i
+            i = i + 1
+        }
+    }
+
+    fun rebuildClassNodeIndex() r: Void {
+        this.classNodeHeads = EGraph.emptyBuckets(this.numClasses)
+        this.classNodeNext = Array<Int>(this.numNodes)
+
+        var i = 0
+        while i < this.numNodes {
+            this.classNodeNext.push(-1)
+            i = i + 1
+        }
+
+        i = 0
+        while i < this.numNodes {
+            let classId = find(this.nodeClassId[i])
+            this.nodeClassId[i] = classId
+            this.classNodeNext[i] = this.classNodeHeads[classId]
+            this.classNodeHeads[classId] = i
+            i = i + 1
+        }
     }
 }

@@ -86,9 +86,10 @@ let v = Vec<Int>.withCapacity(1000)
 
 Robin-hood hashing hash map. Iteration order is non-deterministic.
 
-For string-heavy workloads, prefer `StringHashMap<V>` while the generic hashing
-contract is being hardened for 0.9.0. `StringHashMap` uses byte-wise hashing and
-avoids per-character substring allocation.
+Generic keys in the source fallback hash through their stable string form, so
+supported primitive and string keys no longer collapse into a single bucket.
+For string-heavy workloads, `StringHashMap<V>` still avoids generic conversion
+overhead and uses byte-wise hashing directly.
 
 ```seen
 import collections.hash_map
@@ -107,6 +108,8 @@ let map = HashMap<String, Int>.withCapacity(100)
 |--------|--------|-------------|
 | `insert(key: K, value: V)` | `Void` | Insert or update |
 | `get(key: K)` | `Option<V>` | Lookup by key |
+| `getOrDefault(key: K, defaultValue: V)` | `V` | Lookup without allocating an `Option` result |
+| `containsKey(key: K)` | `Bool` | Probe without allocating an `Option` result |
 | `remove(key: K)` | `Option<V>` | Remove by key |
 | `len()` | `Int` | Number of entries |
 | `isEmpty()` | `Bool` | Check empty |
@@ -244,11 +247,55 @@ import collections.string_hash_map
 
 ## ByteBuffer
 
-Low-level byte buffer for binary data.
+Low-level byte storage for binary data. `ByteArray` and `ByteBuffer` use compact
+runtime-backed byte storage and expose `Int` values at the API boundary.
 
 ```seen
 import collections.byte_buffer
+
+let bytes = ByteBuffer.withCapacity(1024)
+bytes.push(255)
+bytes.push(256)   // stored as 0
+let value = bytes.get(0)
 ```
+
+### Byte APIs
+
+| Type | Description |
+|------|-------------|
+| `ByteArray` | Compact growable byte array |
+| `ByteBuffer` | Convenience wrapper around `ByteArray` |
+| `Int32Buffer` / `Int64Buffer` | Primitive integer buffer APIs |
+| `Float32Buffer` / `Float64Buffer` | Floating-point buffer APIs backed by Seen `Float` storage |
+
+| Method | Return | Description |
+|--------|--------|-------------|
+| `push(value: Int)` | `Void` | Append byte, masked to `0..255` |
+| `append(other)` | `Void` | Append another byte buffer |
+| `get(index: Int)` | `Int` | Read byte |
+| `set(index: Int, value: Int)` | `Void` | Write byte |
+| `slice(start: Int, end: Int)` | same type | Copy a byte range |
+| `reverse()` | `Void` | Reverse in place |
+| `fill(value: Int)` | `Void` | Fill existing bytes |
+| `toArray()` / `toIntArray()` | `Array<Int>` | Convert to integer byte values |
+
+## Algorithms
+
+Shared collection algorithms for performance-sensitive integer paths.
+
+```seen
+import collections.algorithms
+```
+
+| Function / Type | Description |
+|-----------------|-------------|
+| `binarySearchInt(values, needle)` | Return matching index or `-1` |
+| `lowerBoundInt(values, needle)` | First insertion slot not less than `needle` |
+| `upperBoundInt(values, needle)` | First insertion slot greater than `needle` |
+| `unstableSortInt(values)` | In-place quicksort with insertion sort for small partitions |
+| `stableSortInt(values)` | Stable sorted copy |
+| `radixSortInt(values)` | Integer radix sort for non-negative values, with comparison-sort fallback for negatives |
+| `IntPriorityQueue.min()` / `.max()` | Binary heap priority queues |
 
 ## BitSet
 

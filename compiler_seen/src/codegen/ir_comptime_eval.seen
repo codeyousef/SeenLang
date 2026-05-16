@@ -206,6 +206,7 @@ fun comptimeSizeofImpl(typeName: String) r: Int {
     if typeName == "Int32" { return 4 }
     if typeName == "UInt32" { return 4 }
     if typeName == "Float32" { return 4 }
+    if typeName == "Float64" { return 8 }
     if typeName == "Int64" { return 8 }
     if typeName == "UInt64" { return 8 }
     if typeName == "f32x4" { return 16 }

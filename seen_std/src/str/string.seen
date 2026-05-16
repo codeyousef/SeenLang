@@ -158,22 +158,36 @@ fun split(text: String, delimiter: String) r: Array<String> {
         return pieces
     }
 
-    var current = StringBuilder.new()
     var index = 0
+    var segmentStart = 0
     let limit = text.length()
-    while index < limit {
-        let nextIndex = index + delimLength
-        if nextIndex <= limit and text.substring(index, nextIndex) == delimiter {
-            pieces.push(current.toString())
-            current.clear()
-            index = nextIndex
+    while index <= limit - delimLength {
+        if stringRegionMatches(text, index, delimiter) {
+            pieces.push(text.substring(segmentStart, index))
+            index = index + delimLength
+            segmentStart = index
         } else {
-            current.appendChar(text.charAt(index))
             index = index + 1
         }
     }
-    pieces.push(current.toString())
+    pieces.push(text.substring(segmentStart, limit))
     return pieces
+}
+
+fun stringRegionMatches(text: String, offset: Int, needle: String) r: Bool {
+    let needleLength = needle.length()
+    if offset < 0 or offset + needleLength > text.length() {
+        return false
+    }
+
+    var index = 0
+    while index < needleLength {
+        if text.byteAt(offset + index) != needle.byteAt(index) {
+            return false
+        }
+        index = index + 1
+    }
+    return true
 }
 
 fun utf8ByteLenFromLeadByte(byte: Int) r: Int {
@@ -292,7 +306,7 @@ fun startsWith(text: String, prefix: String) r: Bool {
     if prefix.length() > text.length() {
         return false
     }
-    return text.substring(0, prefix.length()) == prefix
+    return stringRegionMatches(text, 0, prefix)
 }
 
 fun endsWith(text: String, suffix: String) r: Bool {
@@ -300,7 +314,7 @@ fun endsWith(text: String, suffix: String) r: Bool {
         return false
     }
     let start = text.length() - suffix.length()
-    return text.substring(start, text.length()) == suffix
+    return stringRegionMatches(text, start, suffix)
 }
 
 fun indexOf(text: String, needle: String, startIndex: Int = 0) r: Int {
@@ -323,7 +337,7 @@ fun indexOf(text: String, needle: String, startIndex: Int = 0) r: Int {
         return -1
     }
     while start <= limit {
-        if text.substring(start, start + needleLength) == needle {
+        if stringRegionMatches(text, start, needle) {
             return start
         }
         start = start + 1
@@ -346,7 +360,7 @@ fun lastIndexOf(text: String, needle: String) r: Int {
     }
     var index = text.length() - needleLength
     while index >= 0 {
-        if text.substring(index, index + needleLength) == needle {
+        if stringRegionMatches(text, index, needle) {
             return index
         }
         index = index - 1
@@ -443,18 +457,21 @@ fun replaceAll(text: String, target: String, replacement: String) r: String {
     let length = text.length()
     let targetLength = target.length()
     var index = 0
+    var segmentStart = 0
     while index <= length - targetLength {
-        if text.substring(index, index + targetLength) == target {
+        if stringRegionMatches(text, index, target) {
+            if index > segmentStart {
+                builder.append(text.substring(segmentStart, index))
+            }
             builder.append(replacement)
             index = index + targetLength
+            segmentStart = index
         } else {
-            builder.appendChar(text.charAt(index))
             index = index + 1
         }
     }
-    while index < length {
-        builder.appendChar(text.charAt(index))
-        index = index + 1
+    if segmentStart < length {
+        builder.append(text.substring(segmentStart, length))
     }
     return builder.toString()
 }
@@ -675,7 +692,7 @@ fun String_count(text: String, needle: String) r: Int {
     var i = 0
     let limit = text.length() - needleLen
     while i <= limit {
-        if text.substring(i, i + needleLen) == needle {
+        if stringRegionMatches(text, i, needle) {
             count = count + 1
             i = i + needleLen
         } else {

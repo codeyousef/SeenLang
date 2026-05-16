@@ -35,15 +35,19 @@ class HashMap<K, V> {
     }
 
     static fun withCapacity(cap: Int) -> HashMap<K, V> {
+        var normalizedCapacity = 1
+        while normalizedCapacity < cap {
+            normalizedCapacity = normalizedCapacity * 2
+        }
         var buckets = Vec<Option<Entry<K, V>>>.new()
         var i = 0
-        while i < cap {
+        while i < normalizedCapacity {
             buckets.push(None<Entry<K, V>>())
             i = i + 1
         }
         return HashMap<K, V> {
             buckets: buckets,
-            capacity: cap,
+            capacity: normalizedCapacity,
             length: 0,
             loadFactor: 0.75
         }
@@ -57,7 +61,7 @@ class HashMap<K, V> {
         }
 
         let hash = this.hashKey(key)
-        let index = hash % this.capacity
+        let index = this.bucketIndex(hash)
         var entry = Entry<K, V>.new(key, value, hash)
         
         var i = 0
@@ -91,41 +95,28 @@ class HashMap<K, V> {
     }
 
     fun get(key: K) -> Option<V> {
-        let hash = this.hashKey(key)
-        let index = hash % this.capacity
-
-        var i = 0
-        while i < this.capacity {
-            let bucketIndex = (index + i) % this.capacity
-            let bucket = this.buckets.get(bucketIndex)
-
-            if bucket.isNone() {
-                return None<V>()
-            }
-
-            let entry = bucket.unwrap()
-            
-            if entry.hash == hash and this.keysEqual(entry.key, key) {
-                return Some<V>(entry.value)
-            }
-
-            if i > entry.distance {
-                return None<V>()
-            }
-
-            i = i + 1
+        let entryIndex = this.findEntryIndex(key)
+        if entryIndex < 0 {
+            return None<V>()
         }
+        return Some<V>(this.buckets.get(entryIndex).unwrap().value)
+    }
 
-        return None<V>()
+    fun getOrDefault(key: K, defaultValue: V) -> V {
+        let entryIndex = this.findEntryIndex(key)
+        if entryIndex < 0 {
+            return defaultValue
+        }
+        return this.buckets.get(entryIndex).unwrap().value
     }
 
     fun containsKey(key: K) -> Bool {
-        return this.get(key).isSome()
+        return this.findEntryIndex(key) >= 0
     }
 
     fun remove(key: K) -> Option<V> {
         let hash = this.hashKey(key)
-        let index = hash % this.capacity
+        let index = this.bucketIndex(hash)
 
         var i = 0
         while i < this.capacity {
@@ -219,8 +210,42 @@ class HashMap<K, V> {
         this.length = 0
     }
 
+    fun bucketIndex(hash: Int) -> Int {
+        let mask = this.capacity - 1
+        return hash & mask
+    }
+
+    fun findEntryIndex(key: K) -> Int {
+        let hash = this.hashKey(key)
+        let index = this.bucketIndex(hash)
+
+        var i = 0
+        while i < this.capacity {
+            let bucketIndex = (index + i) % this.capacity
+            let bucket = this.buckets.get(bucketIndex)
+
+            if bucket.isNone() {
+                return -1
+            }
+
+            let entry = bucket.unwrap()
+
+            if entry.hash == hash and this.keysEqual(entry.key, key) {
+                return bucketIndex
+            }
+
+            if i > entry.distance {
+                return -1
+            }
+
+            i = i + 1
+        }
+
+        return -1
+    }
+
     fun hashKey(key: K) -> Int {
-        return hashInt(0)
+        return hashString(key.toString())
     }
 
     fun keysEqual(k1: K, k2: K) -> Bool {

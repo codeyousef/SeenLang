@@ -212,6 +212,21 @@ fun main() r: Int {
         failed = failed + 1
     }
 
+    // Test 11: string keys should distribute by their content, not a constant fallback
+    let stringMap = HashMap<String, Int>.withCapacity(8)
+    stringMap.insert("alpha", 1)
+    stringMap.insert("bravo", 2)
+    stringMap.insert("charlie", 3)
+    stringMap.insert("delta", 4)
+    let stringValue = stringMap.get("charlie")
+    if stringMap.size() == 4 and stringValue.isSome() and stringValue.unwrap() == 3 {
+        println("PASS: HashMap hashes string keys by content")
+        passed = passed + 1
+    } else {
+        println("FAIL: HashMap string-key lookup failed")
+        failed = failed + 1
+    }
+
     // Summary
     println("")
     println("HashMap Test Results:")

@@ -1,5 +1,16 @@
 # Benchmark Suite Status
 
+## 0.9.0 Gate Fixtures
+
+The canonical performance gates for day-to-day 0.9.0 work live in
+`benchmarks/gates/` and are driven by `scripts/perf_gate.sh`. These fixtures are
+valid Seen programs and currently cover collections, byte buffers, string/JSON,
+math/sort, runtime allocation, and release-LTO behavior.
+
+Older benchmark harness, microbenchmark, systems, and real-world `.seen` files
+remain legacy placeholders until they are converted to valid Seen. Do not use
+those placeholder files as evidence for optimization claims.
+
 ## ✅ What's Working
 
 ### PowerShell Scripts
@@ -21,8 +32,8 @@
 
 ## ⚠️ What Needs Work
 
-### Seen Benchmark Files
-The `.seen` files in the benchmarks directory are **placeholders with pseudo-code**. They need to be rewritten with valid Seen syntax. Currently causing parse errors:
+### Legacy Seen Benchmark Files
+The old `.seen` files outside `benchmarks/gates/` are **placeholders with pseudo-code**. They need to be rewritten with valid Seen syntax before they become part of the benchmark suite:
 - `harness/metrics.seen`
 - `harness/runner.seen`
 - `harness/reporter.seen`

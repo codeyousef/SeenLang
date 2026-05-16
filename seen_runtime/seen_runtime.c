@@ -1231,6 +1231,137 @@ void seen_arr_clear(SeenArray* arr) {
     if (arr) arr->len = 0;
 }
 
+// ============================================================================
+// ByteArray runtime - compact uint8_t storage for ByteArray/ByteBuffer
+// ============================================================================
+
+typedef struct {
+    uint8_t* data;
+    int64_t len;
+    int64_t cap;
+} SeenByteArray;
+
+static int64_t seen_byte_capacity(int64_t requested) {
+    int64_t cap = 16;
+    while (cap < requested) {
+        if (cap > INT64_MAX / 2) {
+            seen_oom_abort("ByteArray capacity overflow", INT64_MAX);
+        }
+        cap *= 2;
+    }
+    return cap;
+}
+
+static void seen_byte_array_ensure(SeenByteArray* bytes, int64_t required) {
+    if (!bytes) seen_oom_abort("ByteArray missing handle", 0);
+    if (required <= bytes->cap) return;
+
+    int64_t new_cap = seen_byte_capacity(required);
+    uint8_t* new_data = (uint8_t*)seen_try_realloc(
+        bytes->data, bytes->cap, new_cap);
+    if (!new_data) seen_oom_abort("ByteArray grow", new_cap);
+    bytes->data = new_data;
+    bytes->cap = new_cap;
+}
+
+void* seen_byte_array_new(int64_t capacity) {
+    SeenByteArray* bytes = (SeenByteArray*)seen_try_malloc(sizeof(SeenByteArray));
+    if (!bytes) seen_oom_abort("ByteArray header", sizeof(SeenByteArray));
+    bytes->cap = seen_byte_capacity(capacity > 0 ? capacity : 16);
+    bytes->len = 0;
+    bytes->data = (uint8_t*)seen_try_malloc(bytes->cap);
+    if (!bytes->data) seen_oom_abort("ByteArray data", bytes->cap);
+    return bytes;
+}
+
+int64_t seen_byte_array_len(void* handle) {
+    SeenByteArray* bytes = (SeenByteArray*)handle;
+    return bytes ? bytes->len : 0;
+}
+
+void seen_byte_array_clear(void* handle) {
+    SeenByteArray* bytes = (SeenByteArray*)handle;
+    if (bytes) bytes->len = 0;
+}
+
+void seen_byte_array_push(void* handle, int64_t value) {
+    SeenByteArray* bytes = (SeenByteArray*)handle;
+    seen_byte_array_ensure(bytes, bytes->len + 1);
+    bytes->data[bytes->len++] = (uint8_t)(value & 255);
+}
+
+void seen_byte_array_append(void* handle, void* other_handle) {
+    SeenByteArray* bytes = (SeenByteArray*)handle;
+    SeenByteArray* other = (SeenByteArray*)other_handle;
+    if (!other || other->len == 0) return;
+    seen_byte_array_ensure(bytes, bytes->len + other->len);
+    memcpy(bytes->data + bytes->len, other->data, (size_t)other->len);
+    bytes->len += other->len;
+}
+
+int64_t seen_byte_array_get(void* handle, int64_t index) {
+    SeenByteArray* bytes = (SeenByteArray*)handle;
+    if (!bytes || index < 0 || index >= bytes->len) {
+        fprintf(stderr, "ByteArray index out of bounds\n");
+        abort();
+    }
+    return (int64_t)bytes->data[index];
+}
+
+void seen_byte_array_set(void* handle, int64_t index, int64_t value) {
+    SeenByteArray* bytes = (SeenByteArray*)handle;
+    if (!bytes || index < 0 || index >= bytes->len) {
+        fprintf(stderr, "ByteArray index out of bounds\n");
+        abort();
+    }
+    bytes->data[index] = (uint8_t)(value & 255);
+}
+
+void seen_byte_array_fill(void* handle, int64_t value) {
+    SeenByteArray* bytes = (SeenByteArray*)handle;
+    if (!bytes || bytes->len <= 0) return;
+    memset(bytes->data, (int)(value & 255), (size_t)bytes->len);
+}
+
+void* seen_byte_array_slice(void* handle, int64_t start, int64_t end) {
+    SeenByteArray* bytes = (SeenByteArray*)handle;
+    if (!bytes) return seen_byte_array_new(0);
+    if (start < 0) start = 0;
+    if (end > bytes->len) end = bytes->len;
+    if (end < start) end = start;
+    int64_t len = end - start;
+    SeenByteArray* result = (SeenByteArray*)seen_byte_array_new(len);
+    if (len > 0) {
+        memcpy(result->data, bytes->data + start, (size_t)len);
+        result->len = len;
+    }
+    return result;
+}
+
+void seen_byte_array_reverse(void* handle) {
+    SeenByteArray* bytes = (SeenByteArray*)handle;
+    if (!bytes || bytes->len < 2) return;
+    int64_t left = 0;
+    int64_t right = bytes->len - 1;
+    while (left < right) {
+        uint8_t tmp = bytes->data[left];
+        bytes->data[left] = bytes->data[right];
+        bytes->data[right] = tmp;
+        left++;
+        right--;
+    }
+}
+
+SeenArray* seen_byte_array_to_int_array(void* handle) {
+    SeenByteArray* bytes = (SeenByteArray*)handle;
+    SeenArray* arr = seen_arr_new_ptr_ptr();
+    if (!bytes) return arr;
+    for (int64_t i = 0; i < bytes->len; i++) {
+        seen_arr_push_i64(arr, (int64_t)bytes->data[i]);
+    }
+    return arr;
+}
+
 // Wrapper for malloc with tracking
 void* tracked_malloc(size_t size) {
     void* ptr = malloc(size);

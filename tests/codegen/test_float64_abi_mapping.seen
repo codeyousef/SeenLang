@@ -1,0 +1,31 @@
+///
+Regression: fixed-width Float64 parameters must lower as double, not i64.
+///
+
+class Float64Box {
+    var value: Float64
+
+    static fun new() r: Float64Box {
+        return Float64Box { value: 0.0 as Float64 }
+    }
+
+    fun set(value: Float64) r: Void {
+        this.value = value
+    }
+
+    fun get() r: Float64 {
+        return this.value
+    }
+}
+
+fun main() r: Int {
+    let box = Float64Box.new()
+    box.set(1.25 as Float64)
+    let value = box.get() as Float
+    if value > 1.2 and value < 1.3 {
+        println("PASS: Float64 ABI mapping")
+        return 0
+    }
+    println("FAIL: Float64 ABI mapping")
+    return 1
+}

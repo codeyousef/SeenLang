@@ -533,7 +533,19 @@ map.insert("bob", 25)
 let age = map.get("alice")
 ```
 
-See the [Collections API](api-reference/collections.md) for Vec, BTreeMap, LinkedList, and more.
+### Byte Buffers and Algorithms
+
+```seen
+let bytes = ByteBuffer.withCapacity(256)
+bytes.push(255)
+
+let values = [5, 1, 3]
+unstableSortInt(values)
+let slot = lowerBoundInt(values, 3)
+```
+
+See the [Collections API](api-reference/collections.md) for Vec, BTreeMap,
+ByteBuffer, sort/search helpers, priority queues, and more.
 
 ## Ranges
 

@@ -14,7 +14,7 @@ The standard library is written in Seen and provides high-level abstractions.
 | [Async](async.md) | Future, waker, task, and async runtime helpers |
 | [Audio](audio.md) | Audio devices, formats, and backend wrappers |
 | [Strings](string.md) | String operations, StringBuilder |
-| [Collections](collections.md) | Array, Vec, HashMap, BTreeMap, HashSet, LinkedList, SmallVec |
+| [Collections](collections.md) | Array, Vec, HashMap, BTreeMap, ByteBuffer, sort/search helpers, priority queues |
 | [Math](math.md) | Mathematical functions and constants |
 | [I/O](io.md) | File I/O, stdio, buffered readers/writers |
 | [Environment](env.md) | Environment helpers |

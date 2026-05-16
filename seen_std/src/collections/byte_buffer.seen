@@ -1,157 +1,273 @@
-///
-ByteBuffer - Raw byte manipulation with lookup tables
-Production-quality implementation for high-performance byte processing
-///
+// Byte-backed buffers for binary, parser, and IO-heavy paths.
 
-class ByteBuffer {
-    data: Array<Int>
-    len: Int
-    capacity: Int
-    
-    fun new(initialCapacity: Int): ByteBuffer {
-        let buf = ByteBuffer()
-        buf.data = Array<Int>(initialCapacity)
-        buf.len = 0
-        buf.capacity = initialCapacity
-        buf
+extern fun seen_byte_array_new(capacity: Int) r: Int
+extern fun seen_byte_array_len(handle: Int) r: Int
+extern fun seen_byte_array_clear(handle: Int) r: Void
+extern fun seen_byte_array_push(handle: Int, value: Int) r: Void
+extern fun seen_byte_array_append(handle: Int, other: Int) r: Void
+extern fun seen_byte_array_get(handle: Int, index: Int) r: Int
+extern fun seen_byte_array_set(handle: Int, index: Int, value: Int) r: Void
+extern fun seen_byte_array_fill(handle: Int, value: Int) r: Void
+extern fun seen_byte_array_slice(handle: Int, start: Int, end: Int) r: Int
+extern fun seen_byte_array_reverse(handle: Int) r: Void
+extern fun seen_byte_array_to_int_array(handle: Int) r: Array<Int>
+
+class ByteArray {
+    handle: Int
+
+    static fun new(initialCapacity: Int = 16) -> ByteArray {
+        return ByteArray.withCapacity(initialCapacity)
     }
-    
-    fun fromArray(bytes: Array<Int>): ByteBuffer {
-        let buf = ByteBuffer.new(bytes.length())
-        var i = 0
-        while i < bytes.length() {
-            buf.data.push(bytes[i])
-            i = i + 1
-        }
-        buf.len = bytes.length()
-        buf
-    }
-    
-    fun length(): Int {
-        this.len
-    }
-    
-    fun get(index: Int): Int {
-        if index < 0 or index >= this.len {
-            abort("ByteBuffer index out of bounds")
-        }
-        this.data[index]
-    }
-    
-    fun set(index: Int, value: Int) {
-        if index < 0 or index >= this.len {
-            abort("ByteBuffer index out of bounds")
-        }
-        this.data[index] = value and 255
-    }
-    
-    fun push(byte: Int) {
-        if this.len >= this.capacity {
-            this.grow()
-        }
-        this.data.push(byte and 255)
-        this.len = this.len + 1
-    }
-    
-    fun grow() {
-        let newCapacity = this.capacity * 2
-        if newCapacity < 16 {
-            newCapacity = 16
-        }
-        let newData = Array<Int>(newCapacity)
-        var i = 0
-        while i < this.len {
-            newData.push(this.data[i])
-            i = i + 1
-        }
-        this.data = newData
-        this.capacity = newCapacity
-    }
-    
-    fun clear() {
-        this.len = 0
-    }
-    
-    fun toArray(): Array<Int> {
-        let result = Array<Int>(this.len)
-        var i = 0
-        while i < this.len {
-            result.push(this.data[i])
-            i = i + 1
-        }
-        result
-    }
-    
-    fun slice(start: Int, end: Int): ByteBuffer {
-        if start < 0 or end > this.len or start > end {
-            abort("ByteBuffer slice out of bounds")
-        }
-        let result = ByteBuffer.new(end - start)
-        let i = start
-        while i < end {
-            result.push(this.data[i])
-            i = i + 1
-        }
-        result
-    }
-    
-    fun reverse() {
-        let left = 0
-        let right = this.len - 1
-        while left < right {
-            let temp = this.data[left]
-            this.data[left] = this.data[right]
-            this.data[right] = temp
-            left = left + 1
-            right = right - 1
+
+    static fun withCapacity(initialCapacity: Int) -> ByteArray {
+        return ByteArray {
+            handle: seen_byte_array_new(initialCapacity)
         }
     }
-    
-    fun fill(value: Int) {
-        let byte = value and 255
-        var i = 0
-        while i < this.len {
-            this.data[i] = byte
-            i = i + 1
+
+    static fun fromInts(bytes: Array<Int>) -> ByteArray {
+        let buffer = ByteArray.withCapacity(bytes.length())
+        var index = 0
+        while index < bytes.length() {
+            buffer.push(bytes[index])
+            index = index + 1
         }
+        return buffer
+    }
+
+    fun length() -> Int {
+        return seen_byte_array_len(this.handle)
+    }
+
+    fun isEmpty() -> Bool {
+        return this.length() == 0
+    }
+
+    fun clear() -> Void {
+        seen_byte_array_clear(this.handle)
+    }
+
+    fun push(value: Int) -> Void {
+        seen_byte_array_push(this.handle, value)
+    }
+
+    fun append(other: ByteArray) -> Void {
+        seen_byte_array_append(this.handle, other.handle)
+    }
+
+    fun get(index: Int) -> Int {
+        return seen_byte_array_get(this.handle, index)
+    }
+
+    fun set(index: Int, value: Int) -> Void {
+        seen_byte_array_set(this.handle, index, value)
+    }
+
+    fun fill(value: Int) -> Void {
+        seen_byte_array_fill(this.handle, value)
+    }
+
+    fun slice(start: Int, end: Int) -> ByteArray {
+        return ByteArray {
+            handle: seen_byte_array_slice(this.handle, start, end)
+        }
+    }
+
+    fun reverse() -> Void {
+        seen_byte_array_reverse(this.handle)
+    }
+
+    fun toIntArray() -> Array<Int> {
+        return seen_byte_array_to_int_array(this.handle)
     }
 }
 
-// Lookup table utilities
-class LookupTable {
-    fun createComplement(): Array<Int> {
-        let table = Array<Int>(256)
-        var i = 0
-        while i < 256 {
-            table.push(0)
-            i = i + 1
+class Int32Buffer {
+    data: Array<Int>
+
+    static fun new(initialCapacity: Int = 16) -> Int32Buffer {
+        return Int32Buffer {
+            data: Array<Int>(initialCapacity)
         }
-        
-        table[65] = 84   // 'A' -> 'T'
-        table[84] = 65   // 'T' -> 'A'
-        table[67] = 71   // 'C' -> 'G'
-        table[71] = 67   // 'G' -> 'C'
-        table[97] = 116  // 'a' -> 't'
-        table[116] = 97  // 't' -> 'a'
-        table[99] = 103  // 'c' -> 'g'
-        table[103] = 99  // 'g' -> 'c'
-        
-        // Preserve newlines and other characters
-        table[10] = 10   // '\n'
-        table[13] = 13   // '\r'
-        table[62] = 62   // '>'
-        
-        table
     }
-    
-    fun applyLookup(buffer: ByteBuffer, table: Array<Int>): ByteBuffer {
-        let result = ByteBuffer.new(buffer.length())
-        var i = 0
-        while i < buffer.length() {
-            let byte = buffer.get(i)
-            result.push(table[byte])
-            i = i + 1
+
+    static fun withCapacity(initialCapacity: Int) -> Int32Buffer {
+        return Int32Buffer.new(initialCapacity)
+    }
+
+    fun length() -> Int {
+        return this.data.length()
+    }
+
+    fun push(value: Int32) -> Void {
+        this.data.push(value as Int)
+    }
+
+    fun get(index: Int) -> Int32 {
+        return this.data[index] as Int32
+    }
+
+    fun set(index: Int, value: Int32) -> Void {
+        this.data[index] = value as Int
+    }
+}
+
+class Int64Buffer {
+    data: Array<Int>
+
+    static fun new(initialCapacity: Int = 16) -> Int64Buffer {
+        return Int64Buffer {
+            data: Array<Int>(initialCapacity)
         }
-        result
+    }
+
+    static fun withCapacity(initialCapacity: Int) -> Int64Buffer {
+        return Int64Buffer.new(initialCapacity)
+    }
+
+    fun length() -> Int {
+        return this.data.length()
+    }
+
+    fun push(value: Int64) -> Void {
+        this.data.push(value as Int)
+    }
+
+    fun get(index: Int) -> Int64 {
+        return this.data[index] as Int64
+    }
+
+    fun set(index: Int, value: Int64) -> Void {
+        this.data[index] = value as Int
+    }
+}
+
+class Float32Buffer {
+    data: Array<Float>
+
+    static fun new(initialCapacity: Int = 16) -> Float32Buffer {
+        return Float32Buffer {
+            data: Array<Float>(initialCapacity)
+        }
+    }
+
+    static fun withCapacity(initialCapacity: Int) -> Float32Buffer {
+        return Float32Buffer.new(initialCapacity)
+    }
+
+    fun length() -> Int {
+        return this.data.length()
+    }
+
+    fun push(value: Float) -> Void {
+        this.data.push(value)
+    }
+
+    fun get(index: Int) -> Float {
+        return this.data[index]
+    }
+
+    fun set(index: Int, value: Float) -> Void {
+        this.data[index] = value
+    }
+}
+
+class Float64Buffer {
+    data: Array<Float>
+
+    static fun new(initialCapacity: Int = 16) -> Float64Buffer {
+        return Float64Buffer {
+            data: Array<Float>(initialCapacity)
+        }
+    }
+
+    static fun withCapacity(initialCapacity: Int) -> Float64Buffer {
+        return Float64Buffer.new(initialCapacity)
+    }
+
+    fun length() -> Int {
+        return this.data.length()
+    }
+
+    fun push(value: Float) -> Void {
+        this.data.push(value)
+    }
+
+    fun get(index: Int) -> Float {
+        return this.data[index]
+    }
+
+    fun set(index: Int, value: Float) -> Void {
+        this.data[index] = value
+    }
+}
+
+class ByteBuffer {
+    bytes: ByteArray
+
+    static fun new(initialCapacity: Int = 16) -> ByteBuffer {
+        return ByteBuffer.withCapacity(initialCapacity)
+    }
+
+    static fun withCapacity(initialCapacity: Int) -> ByteBuffer {
+        return ByteBuffer {
+            bytes: ByteArray.withCapacity(initialCapacity)
+        }
+    }
+
+    static fun fromArray(data: Array<Int>) -> ByteBuffer {
+        return ByteBuffer {
+            bytes: ByteArray.fromInts(data)
+        }
+    }
+
+    fun length() -> Int {
+        return this.bytes.length()
+    }
+
+    fun isEmpty() -> Bool {
+        return this.bytes.isEmpty()
+    }
+
+    fun push(byte: Int) -> Void {
+        this.bytes.push(byte)
+    }
+
+    fun append(other: ByteBuffer) -> Void {
+        this.bytes.append(other.bytes)
+    }
+
+    fun get(index: Int) -> Int {
+        return this.bytes.get(index)
+    }
+
+    fun set(index: Int, byte: Int) -> Void {
+        this.bytes.set(index, byte)
+    }
+
+    fun toArray() -> Array<Int> {
+        return this.bytes.toIntArray()
+    }
+
+    fun toByteArray() -> ByteArray {
+        return this.bytes
+    }
+
+    fun clear() -> Void {
+        this.bytes.clear()
+    }
+
+    fun slice(start: Int, end: Int) -> ByteBuffer {
+        return ByteBuffer {
+            bytes: this.bytes.slice(start, end)
+        }
+    }
+
+    fun reverse() -> Void {
+        this.bytes.reverse()
+    }
+
+    fun fill(byte: Int) -> Void {
+        this.bytes.fill(byte)
     }
 }

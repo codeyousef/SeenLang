@@ -1,0 +1,63 @@
+///
+Collection Algorithms Basic Test
+Expected: sort, search, radix sort, and priority queues preserve ordering.
+///
+
+import collections.algorithms.{binarySearchInt, lowerBoundInt, upperBoundInt, unstableSortInt, stableSortInt, radixSortInt, IntPriorityQueue}
+
+fun isSorted(values: Array<Int>) r: Bool {
+    var index = 1
+    while index < values.length() {
+        if values[index - 1] > values[index] {
+            return false
+        }
+        index = index + 1
+    }
+    return true
+}
+
+fun expect(condition: Bool, message: String) r: Int {
+    if condition {
+        println("PASS: " + message)
+        return 0
+    }
+    println("FAIL: " + message)
+    return 1
+}
+
+fun main() r: Int {
+    var failed = 0
+
+    let values = [9, 4, 1, 7, 4, 0, 12, 3]
+    unstableSortInt(values)
+    failed = failed + expect(isSorted(values), "unstableSortInt sorts in place")
+    failed = failed + expect(binarySearchInt(values, 7) >= 0, "binarySearchInt finds existing value")
+    failed = failed + expect(binarySearchInt(values, 100) == -1, "binarySearchInt reports missing value")
+    failed = failed + expect(lowerBoundInt(values, 4) == 3, "lowerBoundInt returns first matching slot")
+    failed = failed + expect(upperBoundInt(values, 4) == 5, "upperBoundInt returns slot after duplicates")
+
+    let stable = stableSortInt([5, 2, 5, 1, 3])
+    failed = failed + expect(isSorted(stable), "stableSortInt returns sorted copy")
+
+    let radix = radixSortInt([1000, 1, 255, 16, 4096, 0])
+    failed = failed + expect(isSorted(radix), "radixSortInt returns sorted copy")
+
+    let minQueue = IntPriorityQueue.min()
+    minQueue.push(8)
+    minQueue.push(3)
+    minQueue.push(5)
+    failed = failed + expect(minQueue.pop() == 3, "min priority queue pops smallest")
+    failed = failed + expect(minQueue.pop() == 5, "min priority queue preserves heap order")
+
+    let maxQueue = IntPriorityQueue.max()
+    maxQueue.push(8)
+    maxQueue.push(3)
+    maxQueue.push(5)
+    failed = failed + expect(maxQueue.pop() == 8, "max priority queue pops largest")
+    failed = failed + expect(maxQueue.peek() == 5, "max priority queue peek")
+
+    if failed > 0 {
+        return 1
+    }
+    return 0
+}

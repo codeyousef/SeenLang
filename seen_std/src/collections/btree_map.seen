@@ -201,20 +201,12 @@ class BTreeMap<K, V> {
 
     // ========== Internal helper methods ==========
 
-    // Compare two keys (uses Int comparison by default)
+    // Compare two keys with a deterministic fallback compatible with sorted runtime maps.
     fun compareKeys(a: K, b: K) r: Ordering {
-        ///
-        Type-based comparison (simplified for now - uses equality)
-        In a full implementation, this would use type traits
-        ///
         if a == b {
             return Ordering.Equal
         }
-        ///
-        For now, use hash-like ordering for non-equal values
-        This is a simplification - real implementation would use Comparable trait
-        ///
-        return Ordering.Less
+        return compareString(a.toString(), b.toString())
     }
 
     // In-order traversal to collect keys

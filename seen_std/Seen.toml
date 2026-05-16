@@ -17,11 +17,17 @@ modules = [
     # Collections
     "src/collections/list_utils.seen",
     "src/collections/vec.seen",
+    "src/collections/algorithms.seen",
+    "src/collections/byte_buffer.seen",
     "src/collections/btree_map.seen",
     "src/collections/btree_set.seen",
+    "src/collections/hash/mod.seen",
+    "src/collections/hash_map.seen",
+    "src/collections/hashset.seen",
     "src/collections/std_string.seen",
     "src/collections/string_hash_map.seen",
     "src/collections/string_buffer.seen",
+    "src/hash/mod.seen",
 
     # I/O and filesystem
     "src/io/file.seen",

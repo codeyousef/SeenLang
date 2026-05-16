@@ -551,21 +551,86 @@ class WASMGenerator {
         for (name, _) in irModule.functions.entries() {
             names.push(name)
         }
-        // Simple bubble sort for determinism (could use better algorithm)
-        var i = 0
-        while i < names.length() {
-            var j = i + 1
-            while j < names.length() {
-                if names[j] < names[i] {
-                    let temp = names[i]
-                    names[i] = names[j]
-                    names[j] = temp
-                }
-                j = j + 1
-            }
-            i = i + 1
+        if names.length() > 1 {
+            quickSortStrings(names, 0, names.length() - 1)
         }
         return names
+    }
+
+    fun quickSortStrings(names: Array<String>, low: Int, high: Int) r: Void {
+        if high - low <= 16 {
+            insertionSortStrings(names, low, high)
+            return
+        }
+
+        let pivotIndex = partitionStrings(names, low, high)
+        if pivotIndex - 1 > low {
+            quickSortStrings(names, low, pivotIndex - 1)
+        }
+        if pivotIndex + 1 < high {
+            quickSortStrings(names, pivotIndex + 1, high)
+        }
+    }
+
+    fun partitionStrings(names: Array<String>, low: Int, high: Int) r: Int {
+        let mid = low + ((high - low) / 2)
+        if names[mid] < names[low] {
+            swapStrings(names, mid, low)
+        }
+        if names[high] < names[low] {
+            swapStrings(names, high, low)
+        }
+        if names[high] < names[mid] {
+            swapStrings(names, high, mid)
+        }
+
+        swapStrings(names, mid, high - 1)
+        let pivot = names[high - 1]
+        var left = low
+        var right = high - 1
+
+        while true {
+            left = left + 1
+            while names[left] < pivot {
+                left = left + 1
+            }
+
+            right = right - 1
+            while pivot < names[right] {
+                right = right - 1
+            }
+
+            if left >= right {
+                break
+            }
+            swapStrings(names, left, right)
+        }
+
+        swapStrings(names, left, high - 1)
+        return left
+    }
+
+    fun insertionSortStrings(names: Array<String>, low: Int, high: Int) r: Void {
+        var index = low + 1
+        while index <= high {
+            let value = names[index]
+            var scan = index - 1
+            while scan >= low and names[scan] > value {
+                names[scan + 1] = names[scan]
+                scan = scan - 1
+            }
+            names[scan + 1] = value
+            index = index + 1
+        }
+    }
+
+    fun swapStrings(names: Array<String>, left: Int, right: Int) r: Void {
+        if left == right {
+            return
+        }
+        let temp = names[left]
+        names[left] = names[right]
+        names[right] = temp
     }
 
     // Check if memory is imported

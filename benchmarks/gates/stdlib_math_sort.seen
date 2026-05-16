@@ -1,22 +1,5 @@
 import math.math.{sin, cos, sqrt, pow}
-
-fun swap(values: Array<Int>, a: Int, b: Int) r: Void {
-    let tmp = values[a]
-    values[a] = values[b]
-    values[b] = tmp
-}
-
-fun insertionSort(values: Array<Int>) r: Void {
-    var i = 1
-    while i < values.length() {
-        var j = i
-        while j > 0 and values[j - 1] > values[j] {
-            swap(values, j - 1, j)
-            j = j - 1
-        }
-        i = i + 1
-    }
-}
+import collections.algorithms.{unstableSortInt, radixSortInt}
 
 fun main() r: Int {
     let values = Array<Int>()
@@ -25,12 +8,14 @@ fun main() r: Int {
         values.push((i * 7919 + 17) % 10007)
         i = i + 1
     }
-    insertionSort(values)
+    unstableSortInt(values)
+
+    let radix = radixSortInt(values)
 
     var accum = 0.0
     var j = 1
     while j < values.length() {
-        if values[j - 1] > values[j] {
+        if values[j - 1] > values[j] or radix[j - 1] > radix[j] {
             return 1
         }
         let f = values[j].toFloat() / 1000.0
