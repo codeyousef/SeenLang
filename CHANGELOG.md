@@ -59,6 +59,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Compiler-generated class, enum, array, coroutine, serialization, and repair-script allocation IR now uses checked Seen allocation wrappers instead of direct host allocator calls.
 - Benchmark documentation now points to `scripts/perf_gate.sh` and clearly separates maintained 0.9.0 gates from legacy benchmark migration material.
 - Compiler ML JSON output helpers now assemble arrays and objects with `StringBuilder` instead of recursive whole-string concatenation.
+- Bumped the shipped Seen compiler, workspace, CLI, LSP, and packaging metadata version to `0.9.0`.
 
 ### Fixed
 

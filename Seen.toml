@@ -1,6 +1,6 @@
 [project]
 name = "seenlang"
-version = "0.8.3"
+version = "0.9.0"
 language = "en"
 description = "Seen language compiler and standard library workspace"
 
