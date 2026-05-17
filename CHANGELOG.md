@@ -105,6 +105,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed `Vec.toArray()` method-call lowering so pointer-returning runtime helpers are stored as arrays instead of being coerced through integer handles.
 - Fixed `Vec.clear()` so it preserves allocated capacity for reuse instead of discarding the backing storage.
 - Fixed string equality lowering so direct `String` function returns can be compared to string literals inside casts without invalid LLVM IR, while mismatched string/non-string comparisons now stop with a Seen diagnostic.
+- Fixed the HeartOn facade clean-baseline compile regression where cross-module `String` and `Void` expression lowering could emit invalid LLVM IR, including `assertEq(void 0, ...)` calls and integer-handle stores into `SeenString` slots.
 - Fixed unresolved struct literals so missing class imports are reported as Seen diagnostics before LLVM IR generation instead of reaching unknown-layout method calls.
 - Fixed the stdlib environment module to expose the documented `remove(name)` helper as an alias for `removeEnv(name)`.
 - Filled in missing stdlib file helpers for `size`, `hash`, `writeLines`, and parent-directory creation.
