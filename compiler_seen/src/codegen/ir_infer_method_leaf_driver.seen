@@ -89,14 +89,20 @@ fun tryInferDeclaredStaticMethodCallTypeState(expr: ParserExpressionNode,
 fun tryInferStaticMethodCallTypeState(expr: ParserExpressionNode,
     varNames: Array<String>, varTypes: Array<String>) r: String {
 
+    if expr.literalValue != "" and expr.literalValue != "this" {
+        let localReceiverType = findVarTypeState(varNames, varTypes,
+            expr.literalValue)
+        if localReceiverType == "" {
+            let earlyStaticFactoryType = tryInferStaticFactoryMethodType(expr)
+            if earlyStaticFactoryType != "" {
+                return earlyStaticFactoryType
+            }
+        }
+    }
     let declaredStaticType = tryInferDeclaredStaticMethodCallTypeState(expr,
         varNames, varTypes)
     if declaredStaticType != "" {
         return declaredStaticType
-    }
-    let staticFactoryType = tryInferStaticFactoryMethodType(expr)
-    if staticFactoryType != "" {
-        return staticFactoryType
     }
     return tryInferStaticFromJsonMethodType(expr)
 }

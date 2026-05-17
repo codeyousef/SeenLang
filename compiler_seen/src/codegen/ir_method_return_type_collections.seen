@@ -405,6 +405,32 @@ fun getCollectionMethodReturnTypeImpl(structName: String,
         if methodName == "keys" { return "Array<String>" }
     }
 
+    if structName == "HashSet" or structName.startsWith("HashSet<") {
+        if methodName == "len" or methodName == "size" {
+            return "Int"
+        }
+        if methodName == "isEmpty" or methodName == "insert" or
+            methodName == "remove" or methodName == "contains" {
+            return "Bool"
+        }
+        if methodName == "clear" {
+            return "Void"
+        }
+    }
+
+    if structName == "StringHashSet" {
+        if methodName == "len" or methodName == "size" {
+            return "Int"
+        }
+        if methodName == "isEmpty" or methodName == "insert" or
+            methodName == "remove" or methodName == "contains" {
+            return "Bool"
+        }
+        if methodName == "clear" {
+            return "Void"
+        }
+    }
+
     if structName == "LinkedList" or structName.startsWith("LinkedList<") {
         if methodName == "size" or methodName == "len" { return "Int" }
         if methodName == "isEmpty" { return "Bool" }

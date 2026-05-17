@@ -13,6 +13,7 @@ import codegen.ir_type_mapping.{mapTypeImpl, isClassHandleLikeTypeImpl}
 import codegen.ir_struct_field_resolution.{resolveKnownStructFieldImpl}
 import codegen.ir_path_expr.{splitFirstPathDotImpl, splitChainedPathImpl}
 import codegen.type_registry_core.{getFieldInfoReg, isClassTypeReg}
+import codegen.ir_string_collect.{extractStructFieldTypesImpl}
 
 ///
 resolveFieldAccessLayoutImpl — resolve the LLVM layout string plus field index
@@ -82,9 +83,25 @@ fun emitResolvedFieldAccessLoadImpl(output: StringBuilder, regBox: Array<Int>,
     structFieldNames: Array<String>, bitfieldCount: Int,
     bitfieldKeys: String, bitfieldWidths: String) r: String {
 
+    let layoutParts = splitPipe(resolveFieldAccessLayoutImpl(structType,
+        fieldName, structNames, structLayouts, structFieldNames))
+    var structLayout = "{ i64 }"
+    var fieldIndex = 0
+    if layoutParts.length() >= 2 {
+        structLayout = layoutParts[0]
+        fieldIndex = parseIntManual(layoutParts[1])
+    }
+    var effectiveFieldType = fieldType
+    let layoutFieldTypes = extractStructFieldTypesImpl(structLayout)
+    if fieldIndex >= 0 and fieldIndex < layoutFieldTypes.length() {
+        let layoutFieldType = layoutFieldTypes[fieldIndex]
+        if fieldType == "ptr" and layoutFieldType == "i64" {
+            effectiveFieldType = layoutFieldType
+        }
+    }
     let fieldPtrReg = emitResolvedFieldAccessPtrImpl(output, regBox, ptrReg,
         structType, fieldName, structNames, structLayouts, structFieldNames)
-    var resultReg = emitFieldAccessLoadImpl(output, regBox, fieldType,
+    var resultReg = emitFieldAccessLoadImpl(output, regBox, effectiveFieldType,
         fieldPtrReg)
     if bitfieldCount > 0 {
         let bitfieldWidth = findFeatureBitfieldWidthImpl(structType + "." +

@@ -6,8 +6,10 @@ import codegen.ir_codegen_global_state.{findStructWithGlobalStateImpl, appendCol
 import codegen.ir_decl_items.{normalizeDeclaredTypeNodeImpl}
 import codegen.ir_expr_type_driver.{inferExpressionTypeState, resolveLiteralMethodReceiverTypeState}
 import codegen.ir_field_lookup_state.{getMethodReturnTypeState}
+import codegen.ir_infer_type.{inferStaticFactoryMethodTypeImpl}
 import codegen.ir_local_type_leaf_driver.{findVarTypeState}
 import codegen.ir_stmt_decl.{shouldInferDeclarationInitializerTypeImpl, resolveDeclarationBaseTypeImpl, resolveLetStatementTypeImpl, classifyCollectedStatementKindImpl, shouldTraceCollectedDeclarationTypeImpl, resolveCollectedForInElementTypeImpl, buildForInIndexNameImpl}
+import codegen.ir_string_collect.{getBaseTypeNameImpl}
 
 fun inferDeclarationInitializerTypeState(expr: ParserExpressionNode,
     varNames: Array<String>, varTypes: Array<String>,
@@ -34,6 +36,18 @@ fun inferDeclarationInitializerTypeState(expr: ParserExpressionNode,
             } else {
                 receiverType = inferExpressionTypeState(receiverExpr, varNames,
                     varTypes, stringConstants)
+            }
+        }
+        if receiverName != "" and receiverName != "this" {
+            let localReceiverType = findVarTypeState(varNames, varTypes,
+                receiverName)
+            if localReceiverType == "" {
+                let staticFactoryType = inferStaticFactoryMethodTypeImpl(
+                    expr.callee, receiverName,
+                    getBaseTypeNameImpl(receiverName))
+                if staticFactoryType != "" {
+                    return staticFactoryType
+                }
             }
         }
         if receiverType != "" and receiverType != "Unknown" {

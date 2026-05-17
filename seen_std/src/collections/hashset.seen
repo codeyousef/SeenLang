@@ -3,44 +3,108 @@ import collections.hash_map.{HashMap}
 
 @nondeterministic
 class HashSet<T> {
-    var map: HashMap<T, Bool>
+    var map: HashMap<String, Bool>
     
-    fun new() -> HashSet<T> {
+    static fun new() -> HashSet<T> {
         return HashSet {
-            map: HashMap<T, Bool>.new()
+            map: HashMap<String, Bool>.new()
         }
     }
     
-    fun withCapacity(capacity: Int) -> HashSet<T> {
+    static fun withCapacity(capacity: Int) -> HashSet<T> {
         return HashSet {
-            map: HashMap<T, Bool>.withCapacity(capacity)
+            map: HashMap<String, Bool>.withCapacity(capacity)
         }
     }
     
     fun insert(value: T) -> Bool {
-        let hadValue = this.map.containsKey(value)
-        this.map.insert(value, true)
+        let key = value.toString()
+        var backing: HashMap<String, Bool> = this.map
+        let hadValue = backing.containsKey(key)
+        backing.insert(key, true)
+        this.map = backing
         return not hadValue
     }
     
     fun remove(value: T) -> Bool {
-        let result = this.map.remove(value)
+        let key = value.toString()
+        var backing: HashMap<String, Bool> = this.map
+        let result = backing.remove(key)
+        this.map = backing
         return result.isSome()
     }
     
     fun contains(value: T) -> Bool {
-        return this.map.containsKey(value)
+        let key = value.toString()
+        var backing: HashMap<String, Bool> = this.map
+        return backing.containsKey(key)
     }
     
     fun len() -> Int {
-        return this.map.size()
+        var backing: HashMap<String, Bool> = this.map
+        return backing.size()
     }
     
     fun isEmpty() -> Bool {
-        return this.map.isEmpty()
+        var backing: HashMap<String, Bool> = this.map
+        return backing.isEmpty()
     }
     
     fun clear() -> Void {
-        this.map.clear()
+        var backing: HashMap<String, Bool> = this.map
+        backing.clear()
+        this.map = backing
+    }
+}
+
+class StringHashSet {
+    var map: HashMap<String, Bool>
+
+    static fun new() -> StringHashSet {
+        return StringHashSet {
+            map: HashMap<String, Bool>.new()
+        }
+    }
+
+    static fun withCapacity(capacity: Int) -> StringHashSet {
+        return StringHashSet {
+            map: HashMap<String, Bool>.withCapacity(capacity)
+        }
+    }
+
+    fun insert(value: String) -> Bool {
+        var backing: HashMap<String, Bool> = this.map
+        let hadValue = backing.containsKey(value)
+        backing.insert(value, true)
+        this.map = backing
+        return not hadValue
+    }
+
+    fun remove(value: String) -> Bool {
+        var backing: HashMap<String, Bool> = this.map
+        let result = backing.remove(value)
+        this.map = backing
+        return result.isSome()
+    }
+
+    fun contains(value: String) -> Bool {
+        var backing: HashMap<String, Bool> = this.map
+        return backing.containsKey(value)
+    }
+
+    fun len() -> Int {
+        var backing: HashMap<String, Bool> = this.map
+        return backing.size()
+    }
+
+    fun isEmpty() -> Bool {
+        var backing: HashMap<String, Bool> = this.map
+        return backing.isEmpty()
+    }
+
+    fun clear() -> Void {
+        var backing: HashMap<String, Bool> = this.map
+        backing.clear()
+        this.map = backing
     }
 }
