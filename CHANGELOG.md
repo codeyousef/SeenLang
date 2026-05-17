@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added build-performance telemetry with `SEEN_TRACE_BUILD=<path>` JSONL output, `SEEN_BUILD_TRACE=<path>` compatibility aliasing, terminal timing summaries, and `scripts/build_perf_gate.sh` baseline/compare support.
 - Added tiered guarded rebuild modes: `scripts/safe_rebuild.sh --tier quick`, `--tier verify`, and `--tier full`, with no-argument behavior remaining the full cold verification path.
 - Added canonical `scripts/perf_gate.sh` schema-v2 performance gates for build, stdlib, runtime, release-LTO, and package suites, while keeping `scripts/build_perf_gate.sh` as a build-suite compatibility wrapper.
-- Added capped Seen benchmark gate fixtures for collections, StringBuilder/JSON, math/sort, runtime allocation, and release-LTO behavior.
+- Added capped Seen benchmark gate fixtures for collections, StringBuilder/JSON, math/sort, runtime allocation, runtime SIMD, and release-LTO behavior.
 - Added `seen compile --emit-module-ir-dir <path>` and `--stop-after-ir` so packaging and cross-build tools can request per-module IR without scraping global `/tmp` artifacts.
 - Added byte-backed `ByteArray`/`ByteBuffer` runtime storage plus primitive buffer APIs for integer and floating-point data paths.
 - Added public collection algorithm helpers for integer binary search, lower/upper bounds, stable and unstable sort, radix sort, and integer priority queues.
@@ -65,7 +65,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - WASM export/function ordering now uses quicksort with insertion sort for small partitions instead of bubble sort.
 - E-graph insertion now uses hash-consing buckets, and class-node lookup uses rebuilt per-class indexes after merges.
 - E-graph rebuild now hashes flattened child storage directly and tracks active class counts incrementally, avoiding repeated child-array allocation and full-class scans.
-- SIMD min/max reductions now use AVX2 vectorized paths where available, and x86 SIMD temporary allocations go through the runtime's budget-aware aligned allocator.
+- SIMD runtime reductions now use AVX2 or NEON paths for sum, dot, min/max, and prefix workloads where available, while scalar fallbacks remain explicit on unsupported targets.
+- Native SIMD vector expressions remain value-lowered without heap temporaries, and the runtime now exposes non-allocating `*_into` entrypoints for handle-compatible SIMD operations that can provide caller-owned storage.
+- `simd.simd_math` array helpers now operate on Seen's `Array<Float>` double storage instead of treating arrays as raw float buffers.
 - Architecture optimization now derives target features and preferred vector width from the target string instead of assuming an AVX2 desktop CPU.
 - Benchmark gates now prefer the stable verified compiler by default, preserve warm caches unless explicitly asked for cold-cache measurement, and derive memory caps for production benchmark runs.
 - Compiler-generated class, enum, array, coroutine, serialization, and repair-script allocation IR now uses checked Seen allocation wrappers instead of direct host allocator calls.

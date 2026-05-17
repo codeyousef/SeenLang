@@ -1,0 +1,27 @@
+// Test native SIMD value lowering and reductions.
+fun approxEqual(a: Float, b: Float) r: Bool {
+    var diff = a - b
+    if diff < 0.0 {
+        diff = 0.0 - diff
+    }
+    return diff < 0.0001
+}
+
+fun main() r: Int {
+    let a = f32x4(1.0, 2.0, 3.0, 4.0)
+    let b = f32x4(10.0, 20.0, 30.0, 40.0)
+    let c = (a + b) * f32x4(2.0, 2.0, 2.0, 2.0)
+    let total = c.reduce_add()
+    let low = c.reduce_min()
+    let high = c.reduce_max()
+    if not approxEqual(total, 220.0) {
+        return 1
+    }
+    if not approxEqual(low, 22.0) {
+        return 2
+    }
+    if not approxEqual(high, 88.0) {
+        return 3
+    }
+    return 0
+}

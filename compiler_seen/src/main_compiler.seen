@@ -7316,7 +7316,8 @@ fun isKnownCompilerBuiltinCallName(callName: String) r: Bool {
         callName == "split" or callName == "async_yield" {
         return true
     }
-    if callName.startsWith("simd_") or callName.startsWith("Simd") {
+    if callName.startsWith("simd_") or callName.startsWith("Simd") or
+        isSimdVectorTypeImpl(callName) == 1 {
         return true
     }
     if isPtrBuiltinCallImpl(callName) == 1 {

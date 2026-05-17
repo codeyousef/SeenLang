@@ -5921,11 +5921,97 @@ static void* seen_simd_alloc(int64_t size, int64_t alignment, const char* label)
     return ptr;
 }
 
+static double* seen_simd_array_f64_data(SeenArray* arr, int64_t* len_io) {
+    if (!len_io) return NULL;
+    if (!arr || !arr->data || *len_io <= 0 || arr->len <= 0) {
+        *len_io = 0;
+        return NULL;
+    }
+    if (arr->element_size < (int64_t)sizeof(double)) {
+        *len_io = 0;
+        return NULL;
+    }
+    if (*len_io > arr->len) {
+        *len_io = arr->len;
+    }
+    return (double*)arr->data;
+}
+
+static double seen_simd_reduce_sum_f64_scalar(double* data, int64_t len) {
+    double sum = 0.0;
+    for (int64_t i = 0; i < len; i++) sum += data[i];
+    return sum;
+}
+
+static double seen_simd_dot_product_f64_scalar(double* a, double* b, int64_t len) {
+    double sum = 0.0;
+    for (int64_t i = 0; i < len; i++) sum += a[i] * b[i];
+    return sum;
+}
+
+static double seen_simd_reduce_min_f64_scalar(double* data, int64_t len) {
+    if (len <= 0) return 0.0;
+    double min_val = data[0];
+    for (int64_t i = 1; i < len; i++) if (data[i] < min_val) min_val = data[i];
+    return min_val;
+}
+
+static double seen_simd_reduce_max_f64_scalar(double* data, int64_t len) {
+    if (len <= 0) return 0.0;
+    double max_val = data[0];
+    for (int64_t i = 1; i < len; i++) if (data[i] > max_val) max_val = data[i];
+    return max_val;
+}
+
+static void seen_simd_prefix_sum_f64_scalar(double* data, int64_t len) {
+    for (int64_t i = 1; i < len; i++) data[i] += data[i - 1];
+}
+
 #if defined(__x86_64__) || defined(_M_X64)
 #include <immintrin.h>
 
 // --- 4-wide float (SSE) ---
 // SSE2 is baseline for x86_64, SSE3 needed for movehdup
+
+__attribute__((target("sse2")))
+void seen_simd_f4_splat_into(void* out, double val) {
+    *(__m128*)out = _mm_set1_ps((float)val);
+}
+
+__attribute__((target("sse2")))
+void seen_simd_f4_add_into(void* out, void* a, void* b) {
+    *(__m128*)out = _mm_add_ps(*(__m128*)a, *(__m128*)b);
+}
+
+__attribute__((target("sse2")))
+void seen_simd_f4_sub_into(void* out, void* a, void* b) {
+    *(__m128*)out = _mm_sub_ps(*(__m128*)a, *(__m128*)b);
+}
+
+__attribute__((target("sse2")))
+void seen_simd_f4_mul_into(void* out, void* a, void* b) {
+    *(__m128*)out = _mm_mul_ps(*(__m128*)a, *(__m128*)b);
+}
+
+__attribute__((target("sse2")))
+void seen_simd_f4_div_into(void* out, void* a, void* b) {
+    *(__m128*)out = _mm_div_ps(*(__m128*)a, *(__m128*)b);
+}
+
+__attribute__((target("sse2")))
+void seen_simd_f4_min_into(void* out, void* a, void* b) {
+    *(__m128*)out = _mm_min_ps(*(__m128*)a, *(__m128*)b);
+}
+
+__attribute__((target("sse2")))
+void seen_simd_f4_max_into(void* out, void* a, void* b) {
+    *(__m128*)out = _mm_max_ps(*(__m128*)a, *(__m128*)b);
+}
+
+__attribute__((target("sse2")))
+void seen_simd_f4_load_into(void* out, void* ptr) {
+    *(__m128*)out = _mm_loadu_ps((float*)ptr);
+}
 
 __attribute__((target("sse2")))
 void* seen_simd_f4_splat(double val) {
@@ -6009,6 +6095,46 @@ void seen_simd_f4_store(void* vec, void* ptr) {
 }
 
 // --- 8-wide float (AVX2) ---
+
+__attribute__((target("avx2")))
+void seen_simd_f8_splat_into(void* out, double val) {
+    *(__m256*)out = _mm256_set1_ps((float)val);
+}
+
+__attribute__((target("avx2")))
+void seen_simd_f8_add_into(void* out, void* a, void* b) {
+    *(__m256*)out = _mm256_add_ps(*(__m256*)a, *(__m256*)b);
+}
+
+__attribute__((target("avx2")))
+void seen_simd_f8_sub_into(void* out, void* a, void* b) {
+    *(__m256*)out = _mm256_sub_ps(*(__m256*)a, *(__m256*)b);
+}
+
+__attribute__((target("avx2")))
+void seen_simd_f8_mul_into(void* out, void* a, void* b) {
+    *(__m256*)out = _mm256_mul_ps(*(__m256*)a, *(__m256*)b);
+}
+
+__attribute__((target("avx2")))
+void seen_simd_f8_div_into(void* out, void* a, void* b) {
+    *(__m256*)out = _mm256_div_ps(*(__m256*)a, *(__m256*)b);
+}
+
+__attribute__((target("avx2")))
+void seen_simd_f8_min_into(void* out, void* a, void* b) {
+    *(__m256*)out = _mm256_min_ps(*(__m256*)a, *(__m256*)b);
+}
+
+__attribute__((target("avx2")))
+void seen_simd_f8_max_into(void* out, void* a, void* b) {
+    *(__m256*)out = _mm256_max_ps(*(__m256*)a, *(__m256*)b);
+}
+
+__attribute__((target("avx2")))
+void seen_simd_f8_load_into(void* out, void* ptr) {
+    *(__m256*)out = _mm256_loadu_ps((float*)ptr);
+}
 
 __attribute__((target("avx2")))
 void* seen_simd_f8_splat(double val) {
@@ -6229,11 +6355,155 @@ double seen_simd_reduce_max(void* arr_data, int64_t len) {
     return (double)max_val;
 }
 
+__attribute__((target("avx2")))
+static void seen_simd_prefix_sum_avx2(float* data, int64_t len) {
+    float carry = 0.0f;
+    int64_t i = 0;
+    for (; i + 7 < len; i += 8) {
+        __m256 x = _mm256_loadu_ps(data + i);
+        __m256 t = _mm256_castsi256_ps(
+            _mm256_slli_si256(_mm256_castps_si256(x), 4));
+        x = _mm256_add_ps(x, t);
+        t = _mm256_castsi256_ps(
+            _mm256_slli_si256(_mm256_castps_si256(x), 8));
+        x = _mm256_add_ps(x, t);
+
+        __m128 lo = _mm256_castps256_ps128(x);
+        __m128 hi = _mm256_extractf128_ps(x, 1);
+        float low_total = _mm_cvtss_f32(_mm_shuffle_ps(lo, lo, 0xff));
+        hi = _mm_add_ps(hi, _mm_set1_ps(low_total));
+        x = _mm256_insertf128_ps(_mm256_castps128_ps256(lo), hi, 1);
+        x = _mm256_add_ps(x, _mm256_set1_ps(carry));
+        _mm256_storeu_ps(data + i, x);
+        carry = data[i + 7];
+    }
+    for (; i < len; i++) {
+        carry += data[i];
+        data[i] = carry;
+    }
+}
+
 void seen_simd_prefix_sum(void* arr_data, int64_t len) {
     float* data = (float*)arr_data;
+    if (g_cpu_features.avx2 && len >= 8) {
+        seen_simd_prefix_sum_avx2(data, len);
+        return;
+    }
     for (int64_t i = 1; i < len; i++) {
         data[i] += data[i - 1];
     }
+}
+
+__attribute__((target("avx2")))
+static double seen_simd_reduce_sum_f64_avx2(double* data, int64_t len) {
+    int64_t i = 0;
+    __m256d acc = _mm256_setzero_pd();
+    for (; i + 3 < len; i += 4) {
+        acc = _mm256_add_pd(acc, _mm256_loadu_pd(data + i));
+    }
+    double lanes[4];
+    _mm256_storeu_pd(lanes, acc);
+    double sum = lanes[0] + lanes[1] + lanes[2] + lanes[3];
+    for (; i < len; i++) sum += data[i];
+    return sum;
+}
+
+__attribute__((target("avx2")))
+static double seen_simd_dot_product_f64_avx2(double* a, double* b, int64_t len) {
+    int64_t i = 0;
+    __m256d acc = _mm256_setzero_pd();
+    for (; i + 3 < len; i += 4) {
+        __m256d va = _mm256_loadu_pd(a + i);
+        __m256d vb = _mm256_loadu_pd(b + i);
+        acc = _mm256_add_pd(acc, _mm256_mul_pd(va, vb));
+    }
+    double lanes[4];
+    _mm256_storeu_pd(lanes, acc);
+    double sum = lanes[0] + lanes[1] + lanes[2] + lanes[3];
+    for (; i < len; i++) sum += a[i] * b[i];
+    return sum;
+}
+
+__attribute__((target("avx2")))
+static double seen_simd_reduce_min_f64_avx2(double* data, int64_t len) {
+    int64_t i = 4;
+    __m256d acc = _mm256_loadu_pd(data);
+    for (; i + 3 < len; i += 4) {
+        acc = _mm256_min_pd(acc, _mm256_loadu_pd(data + i));
+    }
+    double lanes[4];
+    _mm256_storeu_pd(lanes, acc);
+    double min_val = lanes[0];
+    for (int lane = 1; lane < 4; lane++) if (lanes[lane] < min_val) min_val = lanes[lane];
+    for (; i < len; i++) if (data[i] < min_val) min_val = data[i];
+    return min_val;
+}
+
+__attribute__((target("avx2")))
+static double seen_simd_reduce_max_f64_avx2(double* data, int64_t len) {
+    int64_t i = 4;
+    __m256d acc = _mm256_loadu_pd(data);
+    for (; i + 3 < len; i += 4) {
+        acc = _mm256_max_pd(acc, _mm256_loadu_pd(data + i));
+    }
+    double lanes[4];
+    _mm256_storeu_pd(lanes, acc);
+    double max_val = lanes[0];
+    for (int lane = 1; lane < 4; lane++) if (lanes[lane] > max_val) max_val = lanes[lane];
+    for (; i < len; i++) if (data[i] > max_val) max_val = data[i];
+    return max_val;
+}
+
+__attribute__((target("avx2")))
+static void seen_simd_prefix_sum_f64_avx2(double* data, int64_t len) {
+    double carry = 0.0;
+    int64_t i = 0;
+    for (; i + 3 < len; i += 4) {
+        __m256d x = _mm256_loadu_pd(data + i);
+        __m256d t = _mm256_castsi256_pd(
+            _mm256_slli_si256(_mm256_castpd_si256(x), 8));
+        x = _mm256_add_pd(x, t);
+        __m128d lo = _mm256_castpd256_pd128(x);
+        __m128d hi = _mm256_extractf128_pd(x, 1);
+        double low_total = _mm_cvtsd_f64(_mm_unpackhi_pd(lo, lo));
+        hi = _mm_add_pd(hi, _mm_set1_pd(low_total));
+        x = _mm256_insertf128_pd(_mm256_castpd128_pd256(lo), hi, 1);
+        x = _mm256_add_pd(x, _mm256_set1_pd(carry));
+        _mm256_storeu_pd(data + i, x);
+        carry = data[i + 3];
+    }
+    for (; i < len; i++) {
+        carry += data[i];
+        data[i] = carry;
+    }
+}
+
+static double seen_simd_reduce_sum_f64_auto(double* data, int64_t len) {
+    if (g_cpu_features.avx2 && len >= 4) return seen_simd_reduce_sum_f64_avx2(data, len);
+    return seen_simd_reduce_sum_f64_scalar(data, len);
+}
+
+static double seen_simd_dot_product_f64_auto(double* a, double* b, int64_t len) {
+    if (g_cpu_features.avx2 && len >= 4) return seen_simd_dot_product_f64_avx2(a, b, len);
+    return seen_simd_dot_product_f64_scalar(a, b, len);
+}
+
+static double seen_simd_reduce_min_f64_auto(double* data, int64_t len) {
+    if (g_cpu_features.avx2 && len >= 4) return seen_simd_reduce_min_f64_avx2(data, len);
+    return seen_simd_reduce_min_f64_scalar(data, len);
+}
+
+static double seen_simd_reduce_max_f64_auto(double* data, int64_t len) {
+    if (g_cpu_features.avx2 && len >= 4) return seen_simd_reduce_max_f64_avx2(data, len);
+    return seen_simd_reduce_max_f64_scalar(data, len);
+}
+
+static void seen_simd_prefix_sum_f64_auto(double* data, int64_t len) {
+    if (g_cpu_features.avx2 && len >= 4) {
+        seen_simd_prefix_sum_f64_avx2(data, len);
+        return;
+    }
+    seen_simd_prefix_sum_f64_scalar(data, len);
 }
 
 #elif defined(__aarch64__)
@@ -6241,6 +6511,38 @@ void seen_simd_prefix_sum(void* arr_data, int64_t len) {
 #include <arm_neon.h>
 
 // --- 4-wide float (NEON) ---
+
+void seen_simd_f4_splat_into(void* out, double val) {
+    *(float32x4_t*)out = vdupq_n_f32((float)val);
+}
+
+void seen_simd_f4_add_into(void* out, void* a, void* b) {
+    *(float32x4_t*)out = vaddq_f32(*(float32x4_t*)a, *(float32x4_t*)b);
+}
+
+void seen_simd_f4_sub_into(void* out, void* a, void* b) {
+    *(float32x4_t*)out = vsubq_f32(*(float32x4_t*)a, *(float32x4_t*)b);
+}
+
+void seen_simd_f4_mul_into(void* out, void* a, void* b) {
+    *(float32x4_t*)out = vmulq_f32(*(float32x4_t*)a, *(float32x4_t*)b);
+}
+
+void seen_simd_f4_div_into(void* out, void* a, void* b) {
+    *(float32x4_t*)out = vdivq_f32(*(float32x4_t*)a, *(float32x4_t*)b);
+}
+
+void seen_simd_f4_min_into(void* out, void* a, void* b) {
+    *(float32x4_t*)out = vminq_f32(*(float32x4_t*)a, *(float32x4_t*)b);
+}
+
+void seen_simd_f4_max_into(void* out, void* a, void* b) {
+    *(float32x4_t*)out = vmaxq_f32(*(float32x4_t*)a, *(float32x4_t*)b);
+}
+
+void seen_simd_f4_load_into(void* out, void* ptr) {
+    *(float32x4_t*)out = vld1q_f32((float*)ptr);
+}
 
 void* seen_simd_f4_splat(double val) {
     float32x4_t* r = (float32x4_t*)seen_simd_alloc(
@@ -6313,6 +6615,67 @@ void seen_simd_f4_store(void* vec, void* ptr) {
 }
 
 // --- 8-wide float (emulated with 2x NEON on AArch64) ---
+
+void seen_simd_f8_splat_into(void* out, double val) {
+    float32x4_t* r = (float32x4_t*)out;
+    r[0] = vdupq_n_f32((float)val);
+    r[1] = vdupq_n_f32((float)val);
+}
+
+void seen_simd_f8_add_into(void* out, void* a, void* b) {
+    float32x4_t* r = (float32x4_t*)out;
+    float32x4_t* va = (float32x4_t*)a;
+    float32x4_t* vb = (float32x4_t*)b;
+    r[0] = vaddq_f32(va[0], vb[0]);
+    r[1] = vaddq_f32(va[1], vb[1]);
+}
+
+void seen_simd_f8_sub_into(void* out, void* a, void* b) {
+    float32x4_t* r = (float32x4_t*)out;
+    float32x4_t* va = (float32x4_t*)a;
+    float32x4_t* vb = (float32x4_t*)b;
+    r[0] = vsubq_f32(va[0], vb[0]);
+    r[1] = vsubq_f32(va[1], vb[1]);
+}
+
+void seen_simd_f8_mul_into(void* out, void* a, void* b) {
+    float32x4_t* r = (float32x4_t*)out;
+    float32x4_t* va = (float32x4_t*)a;
+    float32x4_t* vb = (float32x4_t*)b;
+    r[0] = vmulq_f32(va[0], vb[0]);
+    r[1] = vmulq_f32(va[1], vb[1]);
+}
+
+void seen_simd_f8_div_into(void* out, void* a, void* b) {
+    float32x4_t* r = (float32x4_t*)out;
+    float32x4_t* va = (float32x4_t*)a;
+    float32x4_t* vb = (float32x4_t*)b;
+    r[0] = vdivq_f32(va[0], vb[0]);
+    r[1] = vdivq_f32(va[1], vb[1]);
+}
+
+void seen_simd_f8_min_into(void* out, void* a, void* b) {
+    float32x4_t* r = (float32x4_t*)out;
+    float32x4_t* va = (float32x4_t*)a;
+    float32x4_t* vb = (float32x4_t*)b;
+    r[0] = vminq_f32(va[0], vb[0]);
+    r[1] = vminq_f32(va[1], vb[1]);
+}
+
+void seen_simd_f8_max_into(void* out, void* a, void* b) {
+    float32x4_t* r = (float32x4_t*)out;
+    float32x4_t* va = (float32x4_t*)a;
+    float32x4_t* vb = (float32x4_t*)b;
+    r[0] = vmaxq_f32(va[0], vb[0]);
+    r[1] = vmaxq_f32(va[1], vb[1]);
+}
+
+void seen_simd_f8_load_into(void* out, void* ptr) {
+    float32x4_t* r = (float32x4_t*)out;
+    float* fp = (float*)ptr;
+    r[0] = vld1q_f32(fp);
+    r[1] = vld1q_f32(fp + 4);
+}
 
 void* seen_simd_f8_splat(double val) {
     float32x4_t* r = (float32x4_t*)seen_simd_alloc(
@@ -6448,26 +6811,134 @@ double seen_simd_dot_product(void* a_data, void* b_data, int64_t len) {
 double seen_simd_reduce_min(void* arr_data, int64_t len) {
     if (len <= 0) return 0.0;
     float* data = (float*)arr_data;
-    float min_val = data[0];
-    for (int64_t i = 1; i < len; i++) if (data[i] < min_val) min_val = data[i];
+    int64_t i = 4;
+    float32x4_t acc = vld1q_f32(data);
+    for (; i + 3 < len; i += 4) {
+        acc = vminq_f32(acc, vld1q_f32(data + i));
+    }
+    float min_val = vminvq_f32(acc);
+    for (; i < len; i++) if (data[i] < min_val) min_val = data[i];
     return (double)min_val;
 }
 
 double seen_simd_reduce_max(void* arr_data, int64_t len) {
     if (len <= 0) return 0.0;
     float* data = (float*)arr_data;
-    float max_val = data[0];
-    for (int64_t i = 1; i < len; i++) if (data[i] > max_val) max_val = data[i];
+    int64_t i = 4;
+    float32x4_t acc = vld1q_f32(data);
+    for (; i + 3 < len; i += 4) {
+        acc = vmaxq_f32(acc, vld1q_f32(data + i));
+    }
+    float max_val = vmaxvq_f32(acc);
+    for (; i < len; i++) if (data[i] > max_val) max_val = data[i];
     return (double)max_val;
 }
 
 void seen_simd_prefix_sum(void* arr_data, int64_t len) {
     float* data = (float*)arr_data;
-    for (int64_t i = 1; i < len; i++) data[i] += data[i - 1];
+    float carry = 0.0f;
+    int64_t i = 0;
+    for (; i + 3 < len; i += 4) {
+        float32x4_t v = vld1q_f32(data + i);
+        float lanes[4];
+        vst1q_f32(lanes, v);
+        lanes[0] += carry;
+        lanes[1] += lanes[0];
+        lanes[2] += lanes[1];
+        lanes[3] += lanes[2];
+        carry = lanes[3];
+        vst1q_f32(data + i, vld1q_f32(lanes));
+    }
+    for (; i < len; i++) {
+        carry += data[i];
+        data[i] = carry;
+    }
+}
+
+static double seen_simd_reduce_sum_f64_auto(double* data, int64_t len) {
+    double sum = 0.0;
+    int64_t i = 0;
+    float64x2_t acc = vdupq_n_f64(0.0);
+    for (; i + 1 < len; i += 2) {
+        acc = vaddq_f64(acc, vld1q_f64(data + i));
+    }
+    sum = vaddvq_f64(acc);
+    for (; i < len; i++) sum += data[i];
+    return sum;
+}
+
+static double seen_simd_dot_product_f64_auto(double* a, double* b, int64_t len) {
+    double sum = 0.0;
+    int64_t i = 0;
+    float64x2_t acc = vdupq_n_f64(0.0);
+    for (; i + 1 < len; i += 2) {
+        acc = vfmaq_f64(acc, vld1q_f64(a + i), vld1q_f64(b + i));
+    }
+    sum = vaddvq_f64(acc);
+    for (; i < len; i++) sum += a[i] * b[i];
+    return sum;
+}
+
+static double seen_simd_reduce_min_f64_auto(double* data, int64_t len) {
+    if (len <= 0) return 0.0;
+    int64_t i = 2;
+    float64x2_t acc = vld1q_f64(data);
+    for (; i + 1 < len; i += 2) {
+        acc = vminq_f64(acc, vld1q_f64(data + i));
+    }
+    double min_val = vminvq_f64(acc);
+    for (; i < len; i++) if (data[i] < min_val) min_val = data[i];
+    return min_val;
+}
+
+static double seen_simd_reduce_max_f64_auto(double* data, int64_t len) {
+    if (len <= 0) return 0.0;
+    int64_t i = 2;
+    float64x2_t acc = vld1q_f64(data);
+    for (; i + 1 < len; i += 2) {
+        acc = vmaxq_f64(acc, vld1q_f64(data + i));
+    }
+    double max_val = vmaxvq_f64(acc);
+    for (; i < len; i++) if (data[i] > max_val) max_val = data[i];
+    return max_val;
+}
+
+static void seen_simd_prefix_sum_f64_auto(double* data, int64_t len) {
+    double carry = 0.0;
+    int64_t i = 0;
+    for (; i + 1 < len; i += 2) {
+        float64x2_t v = vld1q_f64(data + i);
+        double lanes[2];
+        vst1q_f64(lanes, v);
+        lanes[0] += carry;
+        lanes[1] += lanes[0];
+        carry = lanes[1];
+        vst1q_f64(data + i, vld1q_f64(lanes));
+    }
+    for (; i < len; i++) {
+        carry += data[i];
+        data[i] = carry;
+    }
 }
 
 #else
 // Scalar fallback implementations for RISC-V, WASM, and other architectures
+
+static void scalar_f4_binop(void* a, void* b, void* r, int op);
+static void scalar_f8_binop(void* a, void* b, void* r, int op);
+
+void seen_simd_f4_splat_into(void* out, double val) {
+    float* r = (float*)out;
+    for (int i = 0; i < 4; i++) r[i] = (float)val;
+}
+
+void seen_simd_f4_add_into(void* out, void* a, void* b) { scalar_f4_binop(a, b, out, 0); }
+void seen_simd_f4_sub_into(void* out, void* a, void* b) { scalar_f4_binop(a, b, out, 1); }
+void seen_simd_f4_mul_into(void* out, void* a, void* b) { scalar_f4_binop(a, b, out, 2); }
+void seen_simd_f4_div_into(void* out, void* a, void* b) { scalar_f4_binop(a, b, out, 3); }
+void seen_simd_f4_min_into(void* out, void* a, void* b) { scalar_f4_binop(a, b, out, 4); }
+void seen_simd_f4_max_into(void* out, void* a, void* b) { scalar_f4_binop(a, b, out, 5); }
+void seen_simd_f4_load_into(void* out, void* ptr) { memcpy(out, ptr, 4 * sizeof(float)); }
 
 void* seen_simd_f4_splat(double val) {
     float* r = (float*)seen_simd_alloc((int64_t)(4 * sizeof(float)),
@@ -6524,6 +6995,19 @@ void* seen_simd_f8_splat(double val) {
     for (int i = 0; i < 8; i++) r[i] = (float)val;
     return r;
 }
+
+void seen_simd_f8_splat_into(void* out, double val) {
+    float* r = (float*)out;
+    for (int i = 0; i < 8; i++) r[i] = (float)val;
+}
+
+void seen_simd_f8_add_into(void* out, void* a, void* b) { scalar_f8_binop(a, b, out, 0); }
+void seen_simd_f8_sub_into(void* out, void* a, void* b) { scalar_f8_binop(a, b, out, 1); }
+void seen_simd_f8_mul_into(void* out, void* a, void* b) { scalar_f8_binop(a, b, out, 2); }
+void seen_simd_f8_div_into(void* out, void* a, void* b) { scalar_f8_binop(a, b, out, 3); }
+void seen_simd_f8_min_into(void* out, void* a, void* b) { scalar_f8_binop(a, b, out, 4); }
+void seen_simd_f8_max_into(void* out, void* a, void* b) { scalar_f8_binop(a, b, out, 5); }
+void seen_simd_f8_load_into(void* out, void* ptr) { memcpy(out, ptr, 8 * sizeof(float)); }
 
 static void scalar_f8_binop(void* a, void* b, void* r, int op) {
     float* fa = (float*)a; float* fb = (float*)b; float* fr = (float*)r;
@@ -6607,7 +7091,87 @@ void seen_simd_prefix_sum(void* arr_data, int64_t len) {
     for (int64_t i = 1; i < len; i++) data[i] += data[i - 1];
 }
 
+static double seen_simd_reduce_sum_f64_auto(double* data, int64_t len) {
+    return seen_simd_reduce_sum_f64_scalar(data, len);
+}
+
+static double seen_simd_dot_product_f64_auto(double* a, double* b, int64_t len) {
+    return seen_simd_dot_product_f64_scalar(a, b, len);
+}
+
+static double seen_simd_reduce_min_f64_auto(double* data, int64_t len) {
+    return seen_simd_reduce_min_f64_scalar(data, len);
+}
+
+static double seen_simd_reduce_max_f64_auto(double* data, int64_t len) {
+    return seen_simd_reduce_max_f64_scalar(data, len);
+}
+
+static void seen_simd_prefix_sum_f64_auto(double* data, int64_t len) {
+    seen_simd_prefix_sum_f64_scalar(data, len);
+}
+
 #endif // x86_64 / aarch64 / scalar
+
+int64_t __simd_f4_splat(double val) { return (int64_t)(intptr_t)seen_simd_f4_splat(val); }
+int64_t __simd_f4_load(int64_t ptr) { return (int64_t)(intptr_t)seen_simd_f4_load((void*)(intptr_t)ptr); }
+void __simd_f4_store(int64_t vec, int64_t ptr) { seen_simd_f4_store((void*)(intptr_t)vec, (void*)(intptr_t)ptr); }
+int64_t __simd_f4_add(int64_t a, int64_t b) { return (int64_t)(intptr_t)seen_simd_f4_add((void*)(intptr_t)a, (void*)(intptr_t)b); }
+int64_t __simd_f4_sub(int64_t a, int64_t b) { return (int64_t)(intptr_t)seen_simd_f4_sub((void*)(intptr_t)a, (void*)(intptr_t)b); }
+int64_t __simd_f4_mul(int64_t a, int64_t b) { return (int64_t)(intptr_t)seen_simd_f4_mul((void*)(intptr_t)a, (void*)(intptr_t)b); }
+int64_t __simd_f4_div(int64_t a, int64_t b) { return (int64_t)(intptr_t)seen_simd_f4_div((void*)(intptr_t)a, (void*)(intptr_t)b); }
+int64_t __simd_f4_min(int64_t a, int64_t b) { return (int64_t)(intptr_t)seen_simd_f4_min((void*)(intptr_t)a, (void*)(intptr_t)b); }
+int64_t __simd_f4_max(int64_t a, int64_t b) { return (int64_t)(intptr_t)seen_simd_f4_max((void*)(intptr_t)a, (void*)(intptr_t)b); }
+double __simd_f4_sum(int64_t a) { return seen_simd_f4_sum((void*)(intptr_t)a); }
+double __simd_f4_dot(int64_t a, int64_t b) { return seen_simd_f4_dot((void*)(intptr_t)a, (void*)(intptr_t)b); }
+
+int64_t __simd_f8_splat(double val) { return (int64_t)(intptr_t)seen_simd_f8_splat(val); }
+int64_t __simd_f8_load(int64_t ptr) { return (int64_t)(intptr_t)seen_simd_f8_load((void*)(intptr_t)ptr); }
+void __simd_f8_store(int64_t vec, int64_t ptr) { seen_simd_f8_store((void*)(intptr_t)vec, (void*)(intptr_t)ptr); }
+int64_t __simd_f8_add(int64_t a, int64_t b) { return (int64_t)(intptr_t)seen_simd_f8_add((void*)(intptr_t)a, (void*)(intptr_t)b); }
+int64_t __simd_f8_sub(int64_t a, int64_t b) { return (int64_t)(intptr_t)seen_simd_f8_sub((void*)(intptr_t)a, (void*)(intptr_t)b); }
+int64_t __simd_f8_mul(int64_t a, int64_t b) { return (int64_t)(intptr_t)seen_simd_f8_mul((void*)(intptr_t)a, (void*)(intptr_t)b); }
+int64_t __simd_f8_div(int64_t a, int64_t b) { return (int64_t)(intptr_t)seen_simd_f8_div((void*)(intptr_t)a, (void*)(intptr_t)b); }
+int64_t __simd_f8_min(int64_t a, int64_t b) { return (int64_t)(intptr_t)seen_simd_f8_min((void*)(intptr_t)a, (void*)(intptr_t)b); }
+int64_t __simd_f8_max(int64_t a, int64_t b) { return (int64_t)(intptr_t)seen_simd_f8_max((void*)(intptr_t)a, (void*)(intptr_t)b); }
+double __simd_f8_sum(int64_t a) { return seen_simd_f8_sum((void*)(intptr_t)a); }
+double __simd_f8_dot(int64_t a, int64_t b) { return seen_simd_f8_dot((void*)(intptr_t)a, (void*)(intptr_t)b); }
+
+double __simd_reduce_sum(SeenArray* arr, int64_t len) {
+    double* data = seen_simd_array_f64_data(arr, &len);
+    if (!data || len <= 0) return 0.0;
+    return seen_simd_reduce_sum_f64_auto(data, len);
+}
+
+double __simd_dot_product(SeenArray* a_arr, SeenArray* b_arr, int64_t len) {
+    int64_t a_len = len;
+    int64_t b_len = len;
+    double* a = seen_simd_array_f64_data(a_arr, &a_len);
+    double* b = seen_simd_array_f64_data(b_arr, &b_len);
+    if (!a || !b) return 0.0;
+    if (a_len < len) len = a_len;
+    if (b_len < len) len = b_len;
+    if (len <= 0) return 0.0;
+    return seen_simd_dot_product_f64_auto(a, b, len);
+}
+
+double __simd_reduce_min(SeenArray* arr, int64_t len) {
+    double* data = seen_simd_array_f64_data(arr, &len);
+    if (!data || len <= 0) return 0.0;
+    return seen_simd_reduce_min_f64_auto(data, len);
+}
+
+double __simd_reduce_max(SeenArray* arr, int64_t len) {
+    double* data = seen_simd_array_f64_data(arr, &len);
+    if (!data || len <= 0) return 0.0;
+    return seen_simd_reduce_max_f64_auto(data, len);
+}
+
+void __simd_prefix_sum(SeenArray* arr, int64_t len) {
+    double* data = seen_simd_array_f64_data(arr, &len);
+    if (!data || len <= 0) return;
+    seen_simd_prefix_sum_f64_auto(data, len);
+}
 
 // ============================================================================
 // HashMap<K,V> Runtime - Open addressing with linear probing (SOA layout)

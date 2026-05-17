@@ -4,6 +4,30 @@ Wraps platform-specific SIMD operations via C runtime functions
 Auto-dispatches between SSE (4-wide) and AVX2 (8-wide)
 ///
 
+extern fun __simd_f4_splat(value: Float) r: Int
+extern fun __simd_f4_load(ptr: Int) r: Int
+extern fun __simd_f4_store(vec: Int, ptr: Int) r: Void
+extern fun __simd_f4_add(a: Int, b: Int) r: Int
+extern fun __simd_f4_sub(a: Int, b: Int) r: Int
+extern fun __simd_f4_mul(a: Int, b: Int) r: Int
+extern fun __simd_f4_div(a: Int, b: Int) r: Int
+extern fun __simd_f4_min(a: Int, b: Int) r: Int
+extern fun __simd_f4_max(a: Int, b: Int) r: Int
+extern fun __simd_f4_sum(a: Int) r: Float
+extern fun __simd_f4_dot(a: Int, b: Int) r: Float
+
+extern fun __simd_f8_splat(value: Float) r: Int
+extern fun __simd_f8_load(ptr: Int) r: Int
+extern fun __simd_f8_store(vec: Int, ptr: Int) r: Void
+extern fun __simd_f8_add(a: Int, b: Int) r: Int
+extern fun __simd_f8_sub(a: Int, b: Int) r: Int
+extern fun __simd_f8_mul(a: Int, b: Int) r: Int
+extern fun __simd_f8_div(a: Int, b: Int) r: Int
+extern fun __simd_f8_min(a: Int, b: Int) r: Int
+extern fun __simd_f8_max(a: Int, b: Int) r: Int
+extern fun __simd_f8_sum(a: Int) r: Float
+extern fun __simd_f8_dot(a: Int, b: Int) r: Float
+
 // 4-wide float vector (SSE, 128-bit)
 class SimdFloat4 {
     let handle: Int  // opaque pointer to __m128

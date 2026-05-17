@@ -1,0 +1,23 @@
+import simd.simd_math.{simd_reduce_sum, simd_min, simd_max, simd_dot_product}
+
+fun main() r: Int {
+    let a = Array<Float>()
+    let b = Array<Float>()
+    var i = 0
+    while i < 4096 {
+        let value = i.toFloat() * 0.5
+        a.push(value)
+        b.push(4096.0 - value)
+        i = i + 1
+    }
+
+    let sum = simd_reduce_sum(a, a.length())
+    let low = simd_min(a, a.length())
+    let high = simd_max(a, a.length())
+    let dot = simd_dot_product(a, b, a.length())
+
+    if sum <= 0.0 or low != 0.0 or high <= low or dot <= 0.0 {
+        return 1
+    }
+    return 0
+}

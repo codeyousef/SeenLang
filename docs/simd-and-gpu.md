@@ -34,6 +34,13 @@ let diff = a - b
 let quot = a / b
 ```
 
+These native vector expressions are value-lowered by the compiler and do not
+allocate heap temporaries. The `simd.simd_types` `SimdFloat4` and `SimdFloat8`
+wrappers remain available for compatibility with handle-based runtime calls;
+new runtime `*_into` entrypoints provide a caller-storage ABI for FFI or future
+lowering paths that need wrapper operations without allocating a new handle for
+each temporary.
+
 ### Horizontal Reductions
 
 ```seen
@@ -90,19 +97,26 @@ seen compile app.seen app --simd-report=full  # Per-loop detail
 Auto-dispatching functions that select the best SIMD width at runtime:
 
 ```seen
-// Sum array elements with SIMD
-let total = seen_simd_reduce_sum(array_data, length)
+import simd.simd_math.{simd_reduce_sum, simd_prefix_sum, simd_min, simd_max, simd_dot_product}
+
+// Sum Array<Float> elements with SIMD when supported
+let total = simd_reduce_sum(values, values.length())
 
 // Dot product
-let dot = seen_simd_dot_product(a_data, b_data, length)
+let dot = simd_dot_product(a, b, a.length())
 
 // Min/max
-let min_val = seen_simd_reduce_min(array_data, length)
-let max_val = seen_simd_reduce_max(array_data, length)
+let min_val = simd_min(values, values.length())
+let max_val = simd_max(values, values.length())
 
 // Prefix sum
-seen_simd_prefix_sum(array_data, length)
+simd_prefix_sum(values, values.length())
 ```
+
+The stdlib runtime helpers operate on Seen's `Array<Float>` double storage.
+AVX2-capable x86 and NEON-capable AArch64 targets use vectorized sum, dot,
+min/max, and prefix paths where available; other targets intentionally fall
+back to scalar loops.
 
 ## CPU Feature Detection
 

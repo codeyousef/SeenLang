@@ -19,6 +19,31 @@ fun inferCallTypeTableImpl(callee: String) r: String {
     if callee == "__Cosh" { return "Float" }
     if callee == "__Tanh" { return "Float" }
     if callee == "__Tan" { return "Float" }
+    if callee == "__simd_f4_splat" { return "Int" }
+    if callee == "__simd_f4_load" { return "Int" }
+    if callee == "__simd_f4_add" { return "Int" }
+    if callee == "__simd_f4_sub" { return "Int" }
+    if callee == "__simd_f4_mul" { return "Int" }
+    if callee == "__simd_f4_div" { return "Int" }
+    if callee == "__simd_f4_min" { return "Int" }
+    if callee == "__simd_f4_max" { return "Int" }
+    if callee == "__simd_f4_sum" { return "Float" }
+    if callee == "__simd_f4_dot" { return "Float" }
+    if callee == "__simd_f8_splat" { return "Int" }
+    if callee == "__simd_f8_load" { return "Int" }
+    if callee == "__simd_f8_add" { return "Int" }
+    if callee == "__simd_f8_sub" { return "Int" }
+    if callee == "__simd_f8_mul" { return "Int" }
+    if callee == "__simd_f8_div" { return "Int" }
+    if callee == "__simd_f8_min" { return "Int" }
+    if callee == "__simd_f8_max" { return "Int" }
+    if callee == "__simd_f8_sum" { return "Float" }
+    if callee == "__simd_f8_dot" { return "Float" }
+    if callee == "__simd_reduce_sum" { return "Float" }
+    if callee == "__simd_dot_product" { return "Float" }
+    if callee == "__simd_reduce_min" { return "Float" }
+    if callee == "__simd_reduce_max" { return "Float" }
+    if callee == "__simd_prefix_sum" { return "Void" }
     if callee == "__IntToFloat" { return "Float" }
     if callee == "absFloat" { return "Float" }
     if callee == "absInt" { return "Int" }

@@ -375,7 +375,7 @@ bench_list_for_suite() {
             printf '%s\n' collections string_json math_sort
             ;;
         runtime)
-            printf '%s\n' allocation
+            printf '%s\n' allocation simd
             ;;
         *)
             return 1

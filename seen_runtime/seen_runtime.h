@@ -712,6 +712,14 @@ double seen_simd_f4_sum(void* a);
 double seen_simd_f4_dot(void* a, void* b);
 void* seen_simd_f4_load(void* ptr);
 void seen_simd_f4_store(void* vec, void* ptr);
+void seen_simd_f4_splat_into(void* out, double val);
+void seen_simd_f4_add_into(void* out, void* a, void* b);
+void seen_simd_f4_sub_into(void* out, void* a, void* b);
+void seen_simd_f4_mul_into(void* out, void* a, void* b);
+void seen_simd_f4_div_into(void* out, void* a, void* b);
+void seen_simd_f4_min_into(void* out, void* a, void* b);
+void seen_simd_f4_max_into(void* out, void* a, void* b);
+void seen_simd_f4_load_into(void* out, void* ptr);
 
 // 8-wide float (AVX2)
 void* seen_simd_f8_splat(double val);
@@ -725,6 +733,14 @@ double seen_simd_f8_sum(void* a);
 double seen_simd_f8_dot(void* a, void* b);
 void* seen_simd_f8_load(void* ptr);
 void seen_simd_f8_store(void* vec, void* ptr);
+void seen_simd_f8_splat_into(void* out, double val);
+void seen_simd_f8_add_into(void* out, void* a, void* b);
+void seen_simd_f8_sub_into(void* out, void* a, void* b);
+void seen_simd_f8_mul_into(void* out, void* a, void* b);
+void seen_simd_f8_div_into(void* out, void* a, void* b);
+void seen_simd_f8_min_into(void* out, void* a, void* b);
+void seen_simd_f8_max_into(void* out, void* a, void* b);
+void seen_simd_f8_load_into(void* out, void* ptr);
 
 // Auto-dispatch SIMD array operations
 double seen_simd_reduce_sum(void* arr_data, int64_t len);
@@ -732,6 +748,35 @@ double seen_simd_dot_product(void* a_data, void* b_data, int64_t len);
 double seen_simd_reduce_min(void* arr_data, int64_t len);
 double seen_simd_reduce_max(void* arr_data, int64_t len);
 void seen_simd_prefix_sum(void* arr_data, int64_t len);
+
+// Seen stdlib compatibility wrappers over Array<Float> (double storage).
+int64_t __simd_f4_splat(double val);
+int64_t __simd_f4_load(int64_t ptr);
+void __simd_f4_store(int64_t vec, int64_t ptr);
+int64_t __simd_f4_add(int64_t a, int64_t b);
+int64_t __simd_f4_sub(int64_t a, int64_t b);
+int64_t __simd_f4_mul(int64_t a, int64_t b);
+int64_t __simd_f4_div(int64_t a, int64_t b);
+int64_t __simd_f4_min(int64_t a, int64_t b);
+int64_t __simd_f4_max(int64_t a, int64_t b);
+double __simd_f4_sum(int64_t a);
+double __simd_f4_dot(int64_t a, int64_t b);
+int64_t __simd_f8_splat(double val);
+int64_t __simd_f8_load(int64_t ptr);
+void __simd_f8_store(int64_t vec, int64_t ptr);
+int64_t __simd_f8_add(int64_t a, int64_t b);
+int64_t __simd_f8_sub(int64_t a, int64_t b);
+int64_t __simd_f8_mul(int64_t a, int64_t b);
+int64_t __simd_f8_div(int64_t a, int64_t b);
+int64_t __simd_f8_min(int64_t a, int64_t b);
+int64_t __simd_f8_max(int64_t a, int64_t b);
+double __simd_f8_sum(int64_t a);
+double __simd_f8_dot(int64_t a, int64_t b);
+double __simd_reduce_sum(SeenArray* arr, int64_t len);
+double __simd_dot_product(SeenArray* a, SeenArray* b, int64_t len);
+double __simd_reduce_min(SeenArray* arr, int64_t len);
+double __simd_reduce_max(SeenArray* arr, int64_t len);
+void __simd_prefix_sum(SeenArray* arr, int64_t len);
 
 // ============================================================================
 // 32-bit Index Arena Allocator
