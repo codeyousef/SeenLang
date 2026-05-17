@@ -36,7 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Routed `repeat` and `join` through `StringBuilder`, and made JSON string/number parsing avoid the largest repeated substring and concatenation paths.
 - Replaced runtime `Vec<Int>` and `Vec<Float>` last-pivot quicksort with median-of-three partitioning, insertion sort for small ranges, and bounded tail recursion.
 - Reworked `Map<K,V>` compatibility paths so compiled Map constructors and methods lower to indexed HashMap runtime tables, while the runtime `Map` table preserves insertion-order iteration with an open-addressed index.
-- Reworked runtime `BTreeMap` variants as sorted contiguous tables with binary-search lookup/removal while preserving deterministic key/value iteration order.
+- Reworked runtime `BTreeMap` variants and the source fallback as sorted contiguous tables with binary-search lookup/removal while preserving deterministic key/value iteration order.
 - Moved compiler cache signatures to cache-v4 keys using stable module identities, declaration-level project hashes, module body hashes, toolchain versions, target/profile/LTO/sanitizer/PIC/PGO flags, and runtime payload signatures.
 - Rebuild scripts now derive `SEEN_JOBS` and `SEEN_OPT_JOBS` from capped memory and CPU count, while the compiler also honors explicit `--jobs`, `--opt-jobs`, `SEEN_JOBS`, and `SEEN_OPT_JOBS`.
 - Release packaging reuses hashed Linux payload staging, builds optional Linux package formats with bounded parallel jobs, and validates Windows `seen.exe` reuse through version, binary, payload, and toolchain manifests.
