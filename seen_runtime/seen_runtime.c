@@ -6412,6 +6412,10 @@ int64_t HashMap_getOrDefault(void* mapPtr, int64_t key, int64_t defaultValue) {
     }
 }
 
+int64_t HashMap_getUnchecked(void* mapPtr, int64_t key) {
+    return HashMap_getOrDefault(mapPtr, key, 0);
+}
+
 bool HashMap_containsKey(void* mapPtr, int64_t key) {
     SeenHashMap* map = (SeenHashMap*)mapPtr;
     uint64_t h = hashmap_hash_int(key);
@@ -6641,6 +6645,10 @@ int64_t HashMap_getOrDefault_str(void* mapPtr, SeenString key, int64_t defaultVa
     }
 }
 
+int64_t HashMap_getUnchecked_str(void* mapPtr, SeenString key) {
+    return HashMap_getOrDefault_str(mapPtr, key, 0);
+}
+
 bool HashMap_containsKey_str(void* mapPtr, SeenString key) {
     SeenHashMapStr* map = (SeenHashMapStr*)mapPtr;
     uint64_t h = hashmap_hash_str(key);
@@ -6853,6 +6861,11 @@ SeenString HashMap_getOrDefault_str_str(void* mapPtr, SeenString key, SeenString
     }
 }
 
+SeenString HashMap_getUnchecked_str_str(void* mapPtr, SeenString key) {
+    SeenString empty = { 0, "" };
+    return HashMap_getOrDefault_str_str(mapPtr, key, empty);
+}
+
 bool HashMap_containsKey_str_str(void* mapPtr, SeenString key) {
     SeenHashMapStrStr* map = (SeenHashMapStrStr*)mapPtr;
     uint64_t h = hashmap_hash_str(key);
@@ -7063,6 +7076,11 @@ SeenString HashMap_getOrDefault_int_str(void* mapPtr, int64_t key, SeenString de
             return map->values[idx];
         idx = (idx + 1) & mask;
     }
+}
+
+SeenString HashMap_getUnchecked_int_str(void* mapPtr, int64_t key) {
+    SeenString empty = { 0, "" };
+    return HashMap_getOrDefault_int_str(mapPtr, key, empty);
 }
 
 bool HashMap_containsKey_int_str(void* mapPtr, int64_t key) {
@@ -9787,6 +9805,40 @@ SEEN_LIBM_UNARY_WRAPPER(seen_math_asinh, asinh)
 SEEN_LIBM_UNARY_WRAPPER(seen_math_acosh, acosh)
 SEEN_LIBM_UNARY_WRAPPER(seen_math_atanh, atanh)
 SEEN_LIBM_BINARY_WRAPPER(seen_math_copysign, copysign)
+
+int64_t seen_math_popcount_i64(int64_t x) {
+    return (int64_t)__builtin_popcountll((unsigned long long)x);
+}
+
+int64_t seen_math_clz_i64(int64_t x) {
+    unsigned long long value = (unsigned long long)x;
+    if (value == 0ULL) return 64;
+    return (int64_t)__builtin_clzll(value);
+}
+
+int64_t seen_math_ctz_i64(int64_t x) {
+    unsigned long long value = (unsigned long long)x;
+    if (value == 0ULL) return 64;
+    return (int64_t)__builtin_ctzll(value);
+}
+
+int64_t seen_math_rotate_left_i64(int64_t x, int64_t shift) {
+    unsigned long long value = (unsigned long long)x;
+    unsigned int amount = (unsigned int)(shift & 63);
+    if (amount == 0) return x;
+    return (int64_t)((value << amount) | (value >> (64U - amount)));
+}
+
+int64_t seen_math_rotate_right_i64(int64_t x, int64_t shift) {
+    unsigned long long value = (unsigned long long)x;
+    unsigned int amount = (unsigned int)(shift & 63);
+    if (amount == 0) return x;
+    return (int64_t)((value >> amount) | (value << (64U - amount)));
+}
+
+int64_t seen_math_byteswap_i64(int64_t x) {
+    return (int64_t)__builtin_bswap64((unsigned long long)x);
+}
 
 SEEN_BOOTSTRAP_WEAK double seen_parse_float_range(SeenString text, int64_t start, int64_t end) {
     if (start < 0) start = 0;

@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added public collection algorithm helpers for integer binary search, lower/upper bounds, stable and unstable sort, radix sort, and integer priority queues.
 - Added reserve/capacity APIs for byte and primitive buffers so binary, parser, and numeric hot paths can grow storage once and reuse it.
 - Added floating-point binary search, lower/upper bounds, stable/unstable sort, and priority queue helpers for `Array<Float>` workloads.
+- Added integer bit-operation helpers for popcount, leading/trailing zero counts, rotate-left/right, and byte-swap operations.
 
 ### Changed
 
@@ -46,6 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Windows cross-builds now reuse signature-keyed IR, transformed object, and runtime caches without clearing global compiler caches, while Linux and Windows package builders reuse manifest-checked package artifacts.
 - Cache-v4 module object keys now include the active compiler binary hash, so warm builds reject stale objects after compiler codegen/layout changes instead of reusing incompatible cached output.
 - Generic source `HashMap`/`HashSet` fallback hashing now derives hashes from key content instead of a constant fallback, and `containsKey`/`getOrDefault` avoid constructing `Option` results.
+- `HashMap` now exposes `getUnchecked` for hot lookup loops that already proved key presence with `containsKey`, avoiding `Option` construction on the value path.
 - String prefix/suffix/search/count/split/replace helpers now scan bytes directly and append unchanged segments instead of allocating a substring at every candidate position.
 - String prefix, suffix, contains, `indexOf`, and `lastIndexOf` now route through runtime byte-search fast paths with single-byte `memchr` handling.
 - Primitive `Int32Buffer`, `Int64Buffer`, `Float32Buffer`, and `Float64Buffer` now use compact runtime-backed storage instead of widening every element through generic arrays.
@@ -63,6 +65,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Compiler-generated class, enum, array, coroutine, serialization, and repair-script allocation IR now uses checked Seen allocation wrappers instead of direct host allocator calls.
 - Benchmark documentation now points to `scripts/perf_gate.sh` and clearly separates maintained 0.9.0 gates from legacy benchmark migration material.
 - Compiler ML JSON output helpers now assemble arrays and objects with `StringBuilder` instead of recursive whole-string concatenation.
+- Compiler pipe-delimited metadata probes now compare candidate entries in place instead of allocating substrings for each lookup.
 - Bumped the shipped Seen compiler, workspace, CLI, LSP, and packaging metadata version to `0.9.0`.
 
 ### Fixed

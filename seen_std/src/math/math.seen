@@ -49,6 +49,12 @@ extern "C" fun seen_math_asinh(value: Float) r: Float
 extern "C" fun seen_math_acosh(value: Float) r: Float
 extern "C" fun seen_math_atanh(value: Float) r: Float
 extern "C" fun seen_math_copysign(x: Float, y: Float) r: Float
+extern "C" fun seen_math_popcount_i64(value: Int) r: Int
+extern "C" fun seen_math_clz_i64(value: Int) r: Int
+extern "C" fun seen_math_ctz_i64(value: Int) r: Int
+extern "C" fun seen_math_rotate_left_i64(value: Int, shift: Int) r: Int
+extern "C" fun seen_math_rotate_right_i64(value: Int, shift: Int) r: Int
+extern "C" fun seen_math_byteswap_i64(value: Int) r: Int
 
 let INFINITY: Float = seen_math_positive_infinity()
 let NEG_INFINITY: Float = seen_math_negative_infinity()
@@ -337,6 +343,30 @@ fun checkedDiv(a: Int, b: Int) r: Int {
         abort("division overflow")
     }
     return a / b
+}
+
+fun popcount(value: Int) r: Int {
+    return seen_math_popcount_i64(value)
+}
+
+fun countLeadingZeros(value: Int) r: Int {
+    return seen_math_clz_i64(value)
+}
+
+fun countTrailingZeros(value: Int) r: Int {
+    return seen_math_ctz_i64(value)
+}
+
+fun rotateLeft(value: Int, shift: Int) r: Int {
+    return seen_math_rotate_left_i64(value, shift)
+}
+
+fun rotateRight(value: Int, shift: Int) r: Int {
+    return seen_math_rotate_right_i64(value, shift)
+}
+
+fun byteswap(value: Int) r: Int {
+    return seen_math_byteswap_i64(value)
 }
 
 fun lerp(a: Float, b: Float, t: Float) r: Float {

@@ -33,6 +33,8 @@ import math.math.{
     clamp,
     clamp01,
     clampInt,
+    countLeadingZeros,
+    countTrailingZeros,
     copysign,
     cos,
     cosh,
@@ -55,11 +57,15 @@ import math.math.{
     log10,
     max,
     min,
+    byteswap,
+    popcount,
     pow,
     radToDeg,
     radians,
     remap,
     round,
+    rotateLeft,
+    rotateRight,
     saturatingAdd,
     saturatingMul,
     saturatingSub,
@@ -148,6 +154,14 @@ fun main() -> Int {
     expect(checkedSub(10, 5) == 5, "checkedSub should subtract values")
     expect(checkedMul(3, 4) == 12, "checkedMul should multiply values")
     expect(checkedDiv(10, 2) == 5, "checkedDiv should divide values")
+    expect(popcount(15) == 4, "popcount should count set bits")
+    expect(countLeadingZeros(1) == 63, "countLeadingZeros should handle one-bit value")
+    expect(countTrailingZeros(8) == 3, "countTrailingZeros should count low zero bits")
+    expect(countLeadingZeros(0) == 64, "countLeadingZeros should handle zero")
+    expect(countTrailingZeros(0) == 64, "countTrailingZeros should handle zero")
+    expect(rotateLeft(1, 3) == 8, "rotateLeft should rotate low bits")
+    expect(rotateRight(8, 3) == 1, "rotateRight should rotate low bits")
+    expect(byteswap(1) == 72057594037927936, "byteswap should swap all bytes")
     expect(testApproxEqual(lerp(0.0, 10.0, 0.25), 2.5), "lerp mismatch")
     expect(testApproxEqual(remap(5.0, 0.0, 10.0, 0.0, 1.0), 0.5), "remap mismatch")
     expect(testApproxEqual(smoothstep(0.0, 1.0, 0.0), 0.0), "smoothstep start mismatch")

@@ -110,6 +110,14 @@ class HashMap<K, V> {
         return this.buckets.get(entryIndex).unwrap().value
     }
 
+    fun getUnchecked(key: K) -> V {
+        let entryIndex = this.findEntryIndex(key)
+        if entryIndex < 0 {
+            panic("HashMap.getUnchecked missing key")
+        }
+        return this.buckets.get(entryIndex).unwrap().value
+    }
+
     fun containsKey(key: K) -> Bool {
         return this.findEntryIndex(key) >= 0
     }

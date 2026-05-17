@@ -74,6 +74,14 @@ fun main() r: Int {
         failed = failed + 1
     }
 
+    if map.containsKey(1) and map.getUnchecked(1) == "ONE" {
+        println("PASS: getUnchecked() returns existing value without Option")
+        passed = passed + 1
+    } else {
+        println("FAIL: getUnchecked() did not return existing value")
+        failed = failed + 1
+    }
+
     // Test 4: containsKey()
     if map.containsKey(1) {
         println("PASS: containsKey() returns true for existing key")
@@ -224,6 +232,14 @@ fun main() r: Int {
         passed = passed + 1
     } else {
         println("FAIL: HashMap string-key lookup failed")
+        failed = failed + 1
+    }
+
+    if stringMap.containsKey("delta") and stringMap.getUnchecked("delta") == 4 {
+        println("PASS: string-key getUnchecked() returns existing value")
+        passed = passed + 1
+    } else {
+        println("FAIL: string-key getUnchecked() failed")
         failed = failed + 1
     }
 

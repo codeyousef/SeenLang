@@ -1,4 +1,4 @@
-import math.math.{sin, cos, sqrt, pow}
+import math.math.{sin, cos, sqrt, pow, popcount, rotateLeft}
 import collections.algorithms.{unstableSortInt, radixSortInt}
 
 fun main() r: Int {
@@ -20,6 +20,8 @@ fun main() r: Int {
         }
         let f = values[j].toFloat() / 1000.0
         accum = accum + sqrt(f + 1.0) + sin(f) * cos(f) + pow(f + 1.0, 1.25)
+        accum = accum + popcount(values[j]).toFloat()
+        accum = accum + (rotateLeft(values[j], j) & 255).toFloat()
         j = j + 1
     }
 

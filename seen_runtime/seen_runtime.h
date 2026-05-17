@@ -216,6 +216,12 @@ double seen_math_asinh(double x);
 double seen_math_acosh(double x);
 double seen_math_atanh(double x);
 double seen_math_copysign(double x, double y);
+int64_t seen_math_popcount_i64(int64_t x);
+int64_t seen_math_clz_i64(int64_t x);
+int64_t seen_math_ctz_i64(int64_t x);
+int64_t seen_math_rotate_left_i64(int64_t x, int64_t shift);
+int64_t seen_math_rotate_right_i64(int64_t x, int64_t shift);
+int64_t seen_math_byteswap_i64(int64_t x);
 double seen_parse_float_range(SeenString text, int64_t start, int64_t end);
 
 // Char (Unicode code point) to string
@@ -264,6 +270,11 @@ void* Optional_unwrap(void* ptr);
 void* Vec_toArray(void* vecPtr);
 void* Vec_toArray_str(void* vecPtr);
 void* Vec_toArray_float(void* vecPtr);
+
+int64_t HashMap_getUnchecked(void* mapPtr, int64_t key);
+int64_t HashMap_getUnchecked_str(void* mapPtr, SeenString key);
+SeenString HashMap_getUnchecked_str_str(void* mapPtr, SeenString key);
+SeenString HashMap_getUnchecked_int_str(void* mapPtr, int64_t key);
 
 // Alias for compatibility
 static inline char* seen_to_string(int64_t n) {

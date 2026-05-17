@@ -110,6 +110,7 @@ let map = HashMap<String, Int>.withCapacity(100)
 | `get(key: K)` | `Option<V>` | Lookup by key |
 | `getOrDefault(key: K, defaultValue: V)` | `V` | Lookup without allocating an `Option` result |
 | `containsKey(key: K)` | `Bool` | Probe without allocating an `Option` result |
+| `getUnchecked(key: K)` | `V` | Direct lookup for hot paths after `containsKey`; missing keys are caller error |
 | `remove(key: K)` | `Option<V>` | Remove by key |
 | `len()` | `Int` | Number of entries |
 | `isEmpty()` | `Bool` | Check empty |
@@ -125,6 +126,7 @@ let map = HashMap<String, Int>.withCapacity(100)
 | `hashmap_new_*_with_capacity(cap)` | Create with capacity |
 | `hashmap_insert_*(map, key, val)` | Insert |
 | `hashmap_get_*(map, key)` | Lookup |
+| `hashmap_getUnchecked_*(map, key)` | Direct lookup without constructing an `Option` wrapper |
 | `hashmap_remove_*(map, key)` | Remove |
 | `hashmap_clear_*(map)` | Clear all entries |
 | `hashmap_size_*(map)` | Get size |

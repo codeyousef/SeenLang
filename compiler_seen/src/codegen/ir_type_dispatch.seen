@@ -284,6 +284,26 @@ fun emitHashMapMethodImpl(output: StringBuilder, regBox: Array<Int>, methodName:
         return resultReg
     }
 
+    // getUnchecked: caller must establish presence with containsKey.
+    // This avoids constructing Option wrappers in hot lookup loops.
+    if methodName == "getUnchecked" {
+        let resultReg = getNextRegFn(regBox)
+        if hasStrKey {
+            if hasStrVal {
+                output.append("  " + resultReg + " = call %SeenString @HashMap_getUnchecked_str_str(ptr " + mapPtrReg + ", %SeenString " + arg0 + ")\n")
+            } else {
+                output.append("  " + resultReg + " = call i64 @HashMap_getUnchecked_str(ptr " + mapPtrReg + ", %SeenString " + arg0 + ")\n")
+            }
+        } else {
+            if hasStrVal {
+                output.append("  " + resultReg + " = call %SeenString @HashMap_getUnchecked_int_str(ptr " + mapPtrReg + ", i64 " + arg0 + ")\n")
+            } else {
+                output.append("  " + resultReg + " = call i64 @HashMap_getUnchecked(ptr " + mapPtrReg + ", i64 " + arg0 + ")\n")
+            }
+        }
+        return resultReg
+    }
+
     // containsKey
     if methodName == "containsKey" {
         let resultReg = getNextRegFn(regBox)
@@ -425,6 +445,24 @@ fun emitMapMethodImpl(output: StringBuilder, regBox: Array<Int>, methodName: Str
         return resultReg
     }
 
+    if methodName == "getUnchecked" {
+        let resultReg = getNextRegFn(regBox)
+        if hasStrKey {
+            if hasStrVal {
+                output.append("  " + resultReg + " = call %SeenString @HashMap_getUnchecked_str_str(ptr " + mapPtrReg + ", %SeenString " + arg0 + ")\n")
+            } else {
+                output.append("  " + resultReg + " = call i64 @HashMap_getUnchecked_str(ptr " + mapPtrReg + ", %SeenString " + arg0 + ")\n")
+            }
+        } else {
+            if hasStrVal {
+                output.append("  " + resultReg + " = call %SeenString @HashMap_getUnchecked_int_str(ptr " + mapPtrReg + ", i64 " + arg0 + ")\n")
+            } else {
+                output.append("  " + resultReg + " = call i64 @HashMap_getUnchecked(ptr " + mapPtrReg + ", i64 " + arg0 + ")\n")
+            }
+        }
+        return resultReg
+    }
+
     if methodName == "containsKey" {
         let resultReg = getNextRegFn(regBox)
         if hasStrKey {
@@ -557,6 +595,16 @@ fun emitStringHashMapMethodImpl(output: StringBuilder, regBox: Array<Int>, metho
             output.append("  " + resultReg + " = call %SeenString @HashMap_getOrDefault_str_str(ptr " + mapPtrReg + ", %SeenString " + arg0 + ", %SeenString " + arg1 + ")\n")
         } else {
             output.append("  " + resultReg + " = call i64 @HashMap_getOrDefault_str(ptr " + mapPtrReg + ", %SeenString " + arg0 + ", i64 " + arg1 + ")\n")
+        }
+        return resultReg
+    }
+
+    if methodName == "getUnchecked" {
+        let resultReg = getNextRegFn(regBox)
+        if hasStrVal {
+            output.append("  " + resultReg + " = call %SeenString @HashMap_getUnchecked_str_str(ptr " + mapPtrReg + ", %SeenString " + arg0 + ")\n")
+        } else {
+            output.append("  " + resultReg + " = call i64 @HashMap_getUnchecked_str(ptr " + mapPtrReg + ", %SeenString " + arg0 + ")\n")
         }
         return resultReg
     }

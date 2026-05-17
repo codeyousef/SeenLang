@@ -115,9 +115,9 @@ fun main() r: Int {
     }
     i = 0
     while i < 2048 {
-        let hit = map.get("key-" + i.toString())
-        if hit.isSome() {
-            total = total + hit.unwrap()
+        let key = "key-" + i.toString()
+        if map.containsKey(key) {
+            total = total + map.getUnchecked(key)
         }
         i = i + 1
     }

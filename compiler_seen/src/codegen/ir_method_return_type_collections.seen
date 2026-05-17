@@ -256,7 +256,7 @@ fun getCollectionMethodReturnTypeImpl(structName: String,
             }
             return "Option"
         }
-        if methodName == "getOrDefault" {
+        if methodName == "getOrDefault" or methodName == "getUnchecked" {
             if structName.startsWith("HashMap<") and
                 structName.endsWith(">") {
                 let inner = structName.substring(8, structName.length() - 1)
@@ -363,7 +363,7 @@ fun getCollectionMethodReturnTypeImpl(structName: String,
             }
             return "Option"
         }
-        if methodName == "getOrDefault" {
+        if methodName == "getOrDefault" or methodName == "getUnchecked" {
             if structName.startsWith("StringHashMap<") and
                 structName.endsWith(">") {
                 return structName.substring(14, structName.length() - 1)
