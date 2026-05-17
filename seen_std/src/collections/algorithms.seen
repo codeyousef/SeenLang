@@ -423,3 +423,347 @@ class IntPriorityQueue {
         return left > right
     }
 }
+
+fun binarySearchFloat(values: Array<Float>, needle: Float) -> Int {
+    var low = 0
+    var high = values.length() - 1
+
+    while low <= high {
+        let mid = low + ((high - low) / 2)
+        let value = values[mid]
+        if value == needle {
+            return mid
+        }
+        if value < needle {
+            low = mid + 1
+        } else {
+            high = mid - 1
+        }
+    }
+
+    return -1
+}
+
+fun lowerBoundFloat(values: Array<Float>, needle: Float) -> Int {
+    var low = 0
+    var high = values.length()
+
+    while low < high {
+        let mid = low + ((high - low) / 2)
+        if values[mid] < needle {
+            low = mid + 1
+        } else {
+            high = mid
+        }
+    }
+
+    return low
+}
+
+fun upperBoundFloat(values: Array<Float>, needle: Float) -> Int {
+    var low = 0
+    var high = values.length()
+
+    while low < high {
+        let mid = low + ((high - low) / 2)
+        if values[mid] <= needle {
+            low = mid + 1
+        } else {
+            high = mid
+        }
+    }
+
+    return low
+}
+
+fun unstableSortFloat(values: Array<Float>) -> Void {
+    if values.length() < 2 {
+        return
+    }
+    introSortFloat(values, 0, values.length() - 1, sortDepthLimitInt(values.length()))
+}
+
+fun stableSortFloat(values: Array<Float>) -> Array<Float> {
+    let result = Array<Float>(values.length())
+    var index = 0
+    while index < values.length() {
+        result.push(values[index])
+        index = index + 1
+    }
+
+    if result.length() < 2 {
+        return result
+    }
+
+    let scratch = Array<Float>(result.length())
+    index = 0
+    while index < result.length() {
+        scratch.push(0.0)
+        index = index + 1
+    }
+
+    mergeSortFloat(result, scratch, 0, result.length())
+    return result
+}
+
+fun introSortFloat(values: Array<Float>, low: Int, high: Int, depthLimit: Int) -> Void {
+    if high - low <= 16 {
+        insertionSortFloat(values, low, high)
+        return
+    }
+
+    if depthLimit <= 0 {
+        heapSortRangeFloat(values, low, high)
+        return
+    }
+
+    let pivotIndex = partitionFloat(values, low, high)
+    if pivotIndex - 1 > low {
+        introSortFloat(values, low, pivotIndex - 1, depthLimit - 1)
+    }
+    if pivotIndex + 1 < high {
+        introSortFloat(values, pivotIndex + 1, high, depthLimit - 1)
+    }
+}
+
+fun partitionFloat(values: Array<Float>, low: Int, high: Int) -> Int {
+    let mid = low + ((high - low) / 2)
+    if values[mid] < values[low] {
+        swapFloat(values, mid, low)
+    }
+    if values[high] < values[low] {
+        swapFloat(values, high, low)
+    }
+    if values[high] < values[mid] {
+        swapFloat(values, high, mid)
+    }
+
+    swapFloat(values, mid, high - 1)
+    let pivot = values[high - 1]
+    var left = low
+    var right = high - 1
+
+    while true {
+        left = left + 1
+        while values[left] < pivot {
+            left = left + 1
+        }
+
+        right = right - 1
+        while pivot < values[right] {
+            right = right - 1
+        }
+
+        if left >= right {
+            break
+        }
+        swapFloat(values, left, right)
+    }
+
+    swapFloat(values, left, high - 1)
+    return left
+}
+
+fun insertionSortFloat(values: Array<Float>, low: Int, high: Int) -> Void {
+    var index = low + 1
+    while index <= high {
+        let value = values[index]
+        var scan = index - 1
+        while scan >= low and values[scan] > value {
+            values[scan + 1] = values[scan]
+            scan = scan - 1
+        }
+        values[scan + 1] = value
+        index = index + 1
+    }
+}
+
+fun mergeSortFloat(values: Array<Float>, scratch: Array<Float>, start: Int, end: Int) -> Void {
+    if end - start < 2 {
+        return
+    }
+
+    let mid = start + ((end - start) / 2)
+    mergeSortFloat(values, scratch, start, mid)
+    mergeSortFloat(values, scratch, mid, end)
+
+    var left = start
+    var right = mid
+    var write = start
+
+    while left < mid and right < end {
+        if values[left] <= values[right] {
+            scratch[write] = values[left]
+            left = left + 1
+        } else {
+            scratch[write] = values[right]
+            right = right + 1
+        }
+        write = write + 1
+    }
+
+    while left < mid {
+        scratch[write] = values[left]
+        left = left + 1
+        write = write + 1
+    }
+
+    while right < end {
+        scratch[write] = values[right]
+        right = right + 1
+        write = write + 1
+    }
+
+    write = start
+    while write < end {
+        values[write] = scratch[write]
+        write = write + 1
+    }
+}
+
+fun heapSortRangeFloat(values: Array<Float>, low: Int, high: Int) -> Void {
+    let count = high - low + 1
+    if count < 2 {
+        return
+    }
+
+    var start = (count / 2) - 1
+    while start >= 0 {
+        siftDownRangeFloat(values, start, count, low)
+        start = start - 1
+    }
+
+    var end = count - 1
+    while end > 0 {
+        swapFloat(values, low, low + end)
+        siftDownRangeFloat(values, 0, end, low)
+        end = end - 1
+    }
+}
+
+fun siftDownRangeFloat(values: Array<Float>, rootStart: Int, count: Int, offset: Int) -> Void {
+    var root = rootStart
+    while true {
+        let child = (root * 2) + 1
+        if child >= count {
+            return
+        }
+
+        var best = child
+        let right = child + 1
+        if right < count and values[offset + right] > values[offset + child] {
+            best = right
+        }
+
+        if values[offset + root] >= values[offset + best] {
+            return
+        }
+
+        swapFloat(values, offset + root, offset + best)
+        root = best
+    }
+}
+
+fun swapFloat(values: Array<Float>, left: Int, right: Int) -> Void {
+    if left == right {
+        return
+    }
+    let temp = values[left]
+    values[left] = values[right]
+    values[right] = temp
+}
+
+class FloatPriorityQueue {
+    data: Array<Float>
+    minHeap: Bool
+
+    static fun min() -> FloatPriorityQueue {
+        return FloatPriorityQueue {
+            data: Array<Float>(),
+            minHeap: true
+        }
+    }
+
+    static fun max() -> FloatPriorityQueue {
+        return FloatPriorityQueue {
+            data: Array<Float>(),
+            minHeap: false
+        }
+    }
+
+    fun length() -> Int {
+        return this.data.length()
+    }
+
+    fun isEmpty() -> Bool {
+        return this.data.length() == 0
+    }
+
+    fun push(value: Float) -> Void {
+        this.data.push(value)
+        this.siftUp(this.data.length() - 1)
+    }
+
+    fun peek() -> Float {
+        if this.data.length() == 0 {
+            panic("PriorityQueue is empty")
+        }
+        return this.data[0]
+    }
+
+    fun pop() -> Float {
+        if this.data.length() == 0 {
+            panic("PriorityQueue is empty")
+        }
+
+        let result = this.data[0]
+        let last = this.data.pop()
+        if this.data.length() > 0 {
+            this.data[0] = last
+            this.siftDown(0)
+        }
+        return result
+    }
+
+    fun siftUp(index: Int) -> Void {
+        var child = index
+        while child > 0 {
+            let parent = (child - 1) / 2
+            if this.hasHigherPriority(this.data[parent], this.data[child]) {
+                break
+            }
+            swapFloat(this.data, parent, child)
+            child = parent
+        }
+    }
+
+    fun siftDown(index: Int) -> Void {
+        var parent = index
+        while true {
+            let left = (parent * 2) + 1
+            let right = left + 1
+            var best = parent
+
+            if left < this.data.length() and this.hasHigherPriority(this.data[left], this.data[best]) {
+                best = left
+            }
+            if right < this.data.length() and this.hasHigherPriority(this.data[right], this.data[best]) {
+                best = right
+            }
+
+            if best == parent {
+                break
+            }
+
+            swapFloat(this.data, parent, best)
+            parent = best
+        }
+    }
+
+    fun hasHigherPriority(left: Float, right: Float) -> Bool {
+        if this.minHeap {
+            return left < right
+        }
+        return left > right
+    }
+}

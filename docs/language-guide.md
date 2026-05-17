@@ -537,6 +537,7 @@ let age = map.get("alice")
 
 ```seen
 let bytes = ByteBuffer.withCapacity(256)
+bytes.reserve(1024)
 bytes.push(255)
 
 let raw = Int32Buffer.withCapacity(128)
@@ -545,6 +546,11 @@ raw.push(42)
 let values = [5, 1, 3]
 unstableSortInt(values)
 let slot = lowerBoundInt(values, 3)
+
+let scores = Array<Float>()
+scores.push(3.5)
+scores.push(1.25)
+unstableSortFloat(scores)
 ```
 
 See the [Collections API](api-reference/collections.md) for Vec, BTreeMap,

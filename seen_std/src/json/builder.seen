@@ -11,14 +11,14 @@ Fluent JSON builder for constructing JSON strings incrementally
 Uses builder-backed escaping and value serialization for linear output assembly
 ///
 class JsonBuilder {
-    var buffer: String
+    var buffer: StringBuilder
     var needsComma: Int
     var depth: Int
 
     // Start a new object
     fun startObject() r: JsonBuilder {
         this.maybeComma()
-        this.buffer = this.buffer + "{"
+        this.buffer.append("{")
         this.needsComma = 0
         this.depth = this.depth + 1
         return this
@@ -26,7 +26,7 @@ class JsonBuilder {
 
     // End the current object
     fun endObject() r: JsonBuilder {
-        this.buffer = this.buffer + "}"
+        this.buffer.append("}")
         this.needsComma = 1
         this.depth = this.depth - 1
         return this
@@ -35,7 +35,7 @@ class JsonBuilder {
     // Start a new array
     fun startArray() r: JsonBuilder {
         this.maybeComma()
-        this.buffer = this.buffer + "["
+        this.buffer.append("[")
         this.needsComma = 0
         this.depth = this.depth + 1
         return this
@@ -43,7 +43,7 @@ class JsonBuilder {
 
     // End the current array
     fun endArray() r: JsonBuilder {
-        this.buffer = this.buffer + "]"
+        this.buffer.append("]")
         this.needsComma = 1
         this.depth = this.depth - 1
         return this
@@ -52,8 +52,8 @@ class JsonBuilder {
     // Add a key (for object properties)
     fun key(name: String) r: JsonBuilder {
         this.maybeComma()
-        this.buffer = this.buffer + escapeJsonString(name)
-        this.buffer = this.buffer + ":"
+        this.buffer.append(escapeJsonString(name))
+        this.buffer.append(":")
         this.needsComma = 0
         return this
     }
@@ -61,7 +61,7 @@ class JsonBuilder {
     // Add null value
     fun nullValue() r: JsonBuilder {
         this.maybeComma()
-        this.buffer = this.buffer + "null"
+        this.buffer.append("null")
         this.needsComma = 1
         return this
     }
@@ -70,9 +70,9 @@ class JsonBuilder {
     fun bool(value: Int) r: JsonBuilder {
         this.maybeComma()
         if value == 1 {
-            this.buffer = this.buffer + "true"
+            this.buffer.append("true")
         } else {
-            this.buffer = this.buffer + "false"
+            this.buffer.append("false")
         }
         this.needsComma = 1
         return this
@@ -81,7 +81,7 @@ class JsonBuilder {
     // Add integer value
     fun number(value: Int) r: JsonBuilder {
         this.maybeComma()
-        this.buffer = this.buffer + value.toString()
+        this.buffer.append(value.toString())
         this.needsComma = 1
         return this
     }
@@ -89,7 +89,7 @@ class JsonBuilder {
     // Add float value (uses integer representation)
     fun numberFloat(value: Float) r: JsonBuilder {
         this.maybeComma()
-        this.buffer = this.buffer + value.toInt().toString()
+        this.buffer.append(value.toInt().toString())
         this.needsComma = 1
         return this
     }
@@ -97,7 +97,7 @@ class JsonBuilder {
     // Add string value
     fun string(value: String) r: JsonBuilder {
         this.maybeComma()
-        this.buffer = this.buffer + escapeJsonString(value)
+        this.buffer.append(escapeJsonString(value))
         this.needsComma = 1
         return this
     }
@@ -105,7 +105,7 @@ class JsonBuilder {
     // Add raw JSON (already formatted)
     fun raw(json: String) r: JsonBuilder {
         this.maybeComma()
-        this.buffer = this.buffer + json
+        this.buffer.append(json)
         this.needsComma = 1
         return this
     }
@@ -137,18 +137,18 @@ class JsonBuilder {
     // Internal: add comma if needed
     fun maybeComma() r: Void {
         if this.needsComma == 1 {
-            this.buffer = this.buffer + ","
+            this.buffer.append(",")
         }
     }
 
     // Build the final JSON string
     fun build() r: String {
-        return this.buffer
+        return this.buffer.toString()
     }
 
     // Reset the builder for reuse
     fun reset() r: Void {
-        this.buffer = ""
+        this.buffer.clear()
         this.needsComma = 0
         this.depth = 0
     }
@@ -158,7 +158,7 @@ class JsonBuilder {
 
 fun JsonBuilder_new() r: JsonBuilder {
     let builder = JsonBuilder()
-    builder.buffer = ""
+    builder.buffer = StringBuilder.new()
     builder.needsComma = 0
     builder.depth = 0
     return builder

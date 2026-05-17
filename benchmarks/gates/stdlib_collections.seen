@@ -1,4 +1,4 @@
-import collections.algorithms.{binarySearchInt, lowerBoundInt, unstableSortInt, IntPriorityQueue}
+import collections.algorithms.{binarySearchFloat, binarySearchInt, lowerBoundFloat, lowerBoundInt, unstableSortFloat, unstableSortInt, FloatPriorityQueue, IntPriorityQueue}
 import collections.byte_buffer.{ByteBuffer, Float32Buffer, Float64Buffer, Int32Buffer, Int64Buffer}
 import collections.hash_map.{HashMap}
 
@@ -33,6 +33,7 @@ fun main() r: Int {
     }
 
     let buffer = ByteBuffer.withCapacity(4096)
+    buffer.reserve(8192)
     i = 0
     while i < 4096 {
         buffer.push((i * 31 + 7) % 256)
@@ -45,6 +46,10 @@ fun main() r: Int {
     let i64s = Int64Buffer.withCapacity(4096)
     let f32s = Float32Buffer.withCapacity(4096)
     let f64s = Float64Buffer.withCapacity(4096)
+    i32s.reserve(8192)
+    i64s.reserve(8192)
+    f32s.reserve(8192)
+    f64s.reserve(8192)
     i = 0
     while i < 4096 {
         i32s.push((i % 1024) as Int32)
@@ -68,6 +73,16 @@ fun main() r: Int {
     total = total + lowerBoundInt(sorted, 5000)
     total = total + binarySearchInt(sorted, sorted[sorted.length() / 2])
 
+    let sortedFloats = Array<Float>()
+    i = 0
+    while i < 2048 {
+        sortedFloats.push(((i * 3571 + 29) % 10007).toFloat() * 0.25)
+        i = i + 1
+    }
+    unstableSortFloat(sortedFloats)
+    total = total + lowerBoundFloat(sortedFloats, 1250.0)
+    total = total + binarySearchFloat(sortedFloats, sortedFloats[sortedFloats.length() / 2])
+
     let queue = IntPriorityQueue.min()
     i = 0
     while i < 1024 {
@@ -77,6 +92,18 @@ fun main() r: Int {
     i = 0
     while i < 128 {
         total = total + queue.pop()
+        i = i + 1
+    }
+
+    let floatQueue = FloatPriorityQueue.max()
+    i = 0
+    while i < 1024 {
+        floatQueue.push(((i * 19 + 3) % 4096).toFloat())
+        i = i + 1
+    }
+    i = 0
+    while i < 128 {
+        total = total + floatQueue.pop().toInt()
         i = i + 1
     }
 

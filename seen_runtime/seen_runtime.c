@@ -1291,16 +1291,34 @@ static int64_t seen_byte_capacity(int64_t requested) {
     return cap;
 }
 
-static void seen_byte_array_ensure(SeenByteArray* bytes, int64_t required) {
-    if (!bytes) seen_oom_abort("ByteArray missing handle", 0);
-    if (required <= bytes->cap) return;
+bool seen_byte_array_try_reserve(void* handle, int64_t required) {
+    SeenByteArray* bytes = (SeenByteArray*)handle;
+    if (!bytes || required < 0) return false;
+    if (required <= bytes->cap) return true;
 
-    int64_t new_cap = seen_byte_capacity(required);
+    int64_t new_cap = bytes->cap > 0 ? bytes->cap : 16;
+    while (new_cap < required) {
+        if (new_cap > INT64_MAX / 2) return false;
+        new_cap *= 2;
+    }
     uint8_t* new_data = (uint8_t*)seen_try_realloc(
         bytes->data, bytes->cap, new_cap);
-    if (!new_data) seen_oom_abort("ByteArray grow", new_cap);
+    if (!new_data) return false;
     bytes->data = new_data;
     bytes->cap = new_cap;
+    return true;
+}
+
+static void seen_byte_array_ensure(SeenByteArray* bytes, int64_t required) {
+    if (!bytes) seen_oom_abort("ByteArray missing handle", 0);
+    if (!seen_byte_array_try_reserve(bytes, required)) {
+        seen_oom_abort("ByteArray grow", required);
+    }
+}
+
+int64_t seen_byte_array_capacity(void* handle) {
+    SeenByteArray* bytes = (SeenByteArray*)handle;
+    return bytes ? bytes->cap : 0;
 }
 
 void* seen_byte_array_new(int64_t capacity) {
@@ -1438,18 +1456,38 @@ static SeenPrimitiveBuffer* seen_primitive_buffer_new(int64_t capacity,
     return buffer;
 }
 
+bool seen_primitive_buffer_try_reserve(void* handle, int64_t required);
+
 static void seen_primitive_buffer_ensure(SeenPrimitiveBuffer* buffer,
                                          int64_t required,
                                          const char* label) {
     if (!buffer) seen_oom_abort(label, 0);
-    if (required <= buffer->cap) return;
-    int64_t new_cap = seen_primitive_capacity(required);
+    if (seen_primitive_buffer_try_reserve(buffer, required)) return;
+    seen_oom_abort(label, required * buffer->elem_size);
+}
+
+bool seen_primitive_buffer_try_reserve(void* handle, int64_t required) {
+    SeenPrimitiveBuffer* buffer = (SeenPrimitiveBuffer*)handle;
+    if (!buffer || required < 0) return false;
+    if (required <= buffer->cap) return true;
+
+    int64_t new_cap = buffer->cap > 0 ? buffer->cap : 16;
+    while (new_cap < required) {
+        if (new_cap > INT64_MAX / 2) return false;
+        new_cap *= 2;
+    }
     int64_t old_bytes = buffer->cap * buffer->elem_size;
     int64_t new_bytes = new_cap * buffer->elem_size;
     void* new_data = seen_try_realloc(buffer->data, old_bytes, new_bytes);
-    if (!new_data) seen_oom_abort(label, new_bytes);
+    if (!new_data) return false;
     buffer->data = new_data;
     buffer->cap = new_cap;
+    return true;
+}
+
+int64_t seen_primitive_buffer_capacity(void* handle) {
+    SeenPrimitiveBuffer* buffer = (SeenPrimitiveBuffer*)handle;
+    return buffer ? buffer->cap : 0;
 }
 
 static void seen_primitive_check_index(SeenPrimitiveBuffer* buffer,
@@ -2418,23 +2456,93 @@ SeenString String_unwrap(int64_t nullable_str) {
     return *str_ptr;
 }
 
-bool startsWith(SeenString text, SeenString prefix) {
+static int64_t seen_string_index_of_bytes(SeenString text, SeenString needle, int64_t start) {
+    if (start < 0) start = 0;
+    if (needle.len == 0) {
+        if (start > text.len) return text.len;
+        return start;
+    }
+    if (!text.data || !needle.data || text.len < 0 || needle.len < 0) return -1;
+    if (needle.len > text.len || start > text.len - needle.len) return -1;
+
+    if (needle.len == 1) {
+        const void* found = memchr(text.data + start, needle.data[0],
+            (size_t)(text.len - start));
+        if (!found) return -1;
+        return (int64_t)((const char*)found - text.data);
+    }
+
+    const char first = needle.data[0];
+    int64_t scan = start;
+    int64_t last = text.len - needle.len;
+    while (scan <= last) {
+        const void* found = memchr(text.data + scan, first,
+            (size_t)(last - scan + 1));
+        if (!found) return -1;
+        scan = (int64_t)((const char*)found - text.data);
+        if (memcmp(text.data + scan + 1, needle.data + 1,
+                   (size_t)(needle.len - 1)) == 0) {
+            return scan;
+        }
+        scan++;
+    }
+    return -1;
+}
+
+bool seen_string_starts_with_fast(SeenString text, SeenString prefix) {
     if (prefix.len > text.len) return false;
+    if (prefix.len < 0 || text.len < 0 || !text.data || !prefix.data) return false;
     return memcmp(text.data, prefix.data, prefix.len) == 0;
 }
 
-bool endsWith(SeenString text, SeenString suffix) {
+bool seen_string_ends_with_fast(SeenString text, SeenString suffix) {
     if (suffix.len > text.len) return false;
+    if (suffix.len < 0 || text.len < 0 || !text.data || !suffix.data) return false;
     return memcmp(text.data + text.len - suffix.len, suffix.data, suffix.len) == 0;
 }
 
-bool contains(SeenString text, SeenString needle) {
-    if (needle.len == 0) return true;
-    if (needle.len > text.len) return false;
-    for (int64_t i = 0; i <= text.len - needle.len; i++) {
-        if (memcmp(text.data + i, needle.data, needle.len) == 0) return true;
+int64_t seen_string_index_of_fast(SeenString text, SeenString needle, int64_t start) {
+    return seen_string_index_of_bytes(text, needle, start);
+}
+
+int64_t seen_string_last_index_of_fast(SeenString text, SeenString needle) {
+    if (needle.len == 0) return text.len;
+    if (!text.data || !needle.data || text.len < 0 || needle.len < 0) return -1;
+    if (needle.len > text.len) return -1;
+
+    if (needle.len == 1) {
+        for (int64_t i = text.len - 1; i >= 0; i--) {
+            if (text.data[i] == needle.data[0]) return i;
+        }
+        return -1;
     }
-    return false;
+
+    int64_t index = text.len - needle.len;
+    while (index >= 0) {
+        if (text.data[index] == needle.data[0] &&
+            memcmp(text.data + index + 1, needle.data + 1,
+                   (size_t)(needle.len - 1)) == 0) {
+            return index;
+        }
+        index--;
+    }
+    return -1;
+}
+
+bool seen_string_contains_fast(SeenString text, SeenString needle) {
+    return seen_string_index_of_bytes(text, needle, 0) >= 0;
+}
+
+bool startsWith(SeenString text, SeenString prefix) {
+    return seen_string_starts_with_fast(text, prefix);
+}
+
+bool endsWith(SeenString text, SeenString suffix) {
+    return seen_string_ends_with_fast(text, suffix);
+}
+
+bool contains(SeenString text, SeenString needle) {
+    return seen_string_contains_fast(text, needle);
 }
 
 bool seen_str_eq_ss(SeenString a, SeenString b) {
@@ -3214,20 +3322,7 @@ SEEN_WEAK void* ImportSymbolNode_new(void) {
 // ============================================================================
 
 int64_t indexOf(SeenString text, SeenString needle, int64_t start) {
-    if (needle.len == 0) return start;
-    if (text.len < needle.len + start) return -1;
-
-    for (int64_t i = start; i <= text.len - needle.len; i++) {
-        bool found = true;
-        for (int64_t j = 0; j < needle.len; j++) {
-            if (text.data[i + j] != needle.data[j]) {
-                found = false;
-                break;
-            }
-        }
-        if (found) return i;
-    }
-    return -1;
+    return seen_string_index_of_fast(text, needle, start);
 }
 
 int64_t lastIndexOf(SeenString text, SeenString needle, int64_t start) {
@@ -3235,22 +3330,21 @@ int64_t lastIndexOf(SeenString text, SeenString needle, int64_t start) {
         if (start < 0 || start > text.len) return text.len;
         return start;
     }
-    if (text.len < needle.len) return -1;
-
-    int64_t max_start = text.len - needle.len;
-    if (start < 0 || start > max_start) {
-        start = max_start;
+    if (start < 0 || start >= text.len) {
+        return seen_string_last_index_of_fast(text, needle);
     }
-
-    for (int64_t i = start; i >= 0; i--) {
-        bool found = true;
-        for (int64_t j = 0; j < needle.len; j++) {
-            if (text.data[i + j] != needle.data[j]) {
-                found = false;
-                break;
-            }
+    if (!text.data || !needle.data || text.len < 0 || needle.len < 0) return -1;
+    if (needle.len > text.len) return -1;
+    int64_t max_start = text.len - needle.len;
+    if (start > max_start) start = max_start;
+    while (start >= 0) {
+        if (text.data[start] == needle.data[0] &&
+            (needle.len == 1 ||
+             memcmp(text.data + start + 1, needle.data + 1,
+                    (size_t)(needle.len - 1)) == 0)) {
+            return start;
         }
-        if (found) return i;
+        start--;
     }
     return -1;
 }

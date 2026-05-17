@@ -37,7 +37,9 @@ let byte = seen_byte_at(s, 0) // raw byte at index
 ### String Functions
 
 Prefix, suffix, search, count, split, and replace helpers scan byte indexes
-directly and allocate only the returned pieces or rebuilt result.
+directly and allocate only the returned pieces or rebuilt result. Common
+prefix/suffix and substring probes use runtime byte-search fast paths, including
+a single-byte `memchr` path for delimiter-heavy workloads.
 
 | Function | Signature | Description |
 |----------|-----------|-------------|

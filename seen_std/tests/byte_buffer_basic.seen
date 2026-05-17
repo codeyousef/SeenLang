@@ -18,6 +18,9 @@ fun main() r: Int {
     var failed = 0
 
     let bytes = ByteArray.withCapacity(2)
+    failed = failed + expect(bytes.capacity() >= 2, "ByteArray exposes capacity")
+    failed = failed + expect(bytes.tryReserve(32), "ByteArray tryReserve succeeds")
+    failed = failed + expect(bytes.capacity() >= 32, "ByteArray reserve grows capacity")
     bytes.push(1)
     bytes.push(256 + 2)
     bytes.push(-1)
@@ -31,6 +34,8 @@ fun main() r: Int {
     failed = failed + expect(slice.get(0) == 2 and slice.get(1) == 255, "ByteArray slice values")
 
     let buffer = ByteBuffer.new()
+    buffer.reserve(24)
+    failed = failed + expect(buffer.capacity() >= 24, "ByteBuffer reserve grows capacity")
     buffer.push(10)
     buffer.push(20)
     let appended = ByteBuffer.fromArray([30, 40])
@@ -40,24 +45,32 @@ fun main() r: Int {
     failed = failed + expect(buffer.get(0) == 40 and buffer.get(3) == 10, "ByteBuffer reverse")
 
     let ints = Int32Buffer.new()
+    failed = failed + expect(ints.tryReserve(10), "Int32Buffer tryReserve succeeds")
+    failed = failed + expect(ints.capacity() >= 10, "Int32Buffer capacity")
     ints.push(7 as Int32)
     ints.push(9 as Int32)
     failed = failed + expect(ints.length() == 2, "Int32Buffer length")
     failed = failed + expect((ints.get(0) as Int) == 7 and (ints.get(1) as Int) == 9, "Int32Buffer values")
 
     let wideInts = Int64Buffer.new()
+    wideInts.reserve(10)
+    failed = failed + expect(wideInts.capacity() >= 10, "Int64Buffer reserve")
     wideInts.push(1000 as Int64)
     wideInts.push(2000 as Int64)
     failed = failed + expect(wideInts.length() == 2, "Int64Buffer length")
     failed = failed + expect((wideInts.get(0) as Int) < (wideInts.get(1) as Int), "Int64Buffer values")
 
     let floats32 = Float32Buffer.new()
+    floats32.reserve(10)
+    failed = failed + expect(floats32.capacity() >= 10, "Float32Buffer reserve")
     floats32.push(1.5)
     floats32.push(2.5)
     failed = failed + expect(floats32.length() == 2, "Float32Buffer length")
     failed = failed + expect(floats32.get(0) < floats32.get(1), "Float32Buffer values")
 
     let floats64 = Float64Buffer.new()
+    floats64.reserve(10)
+    failed = failed + expect(floats64.capacity() >= 10, "Float64Buffer reserve")
     floats64.push(10.25)
     floats64.push(20.5)
     failed = failed + expect(floats64.length() == 2, "Float64Buffer length")

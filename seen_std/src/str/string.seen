@@ -13,6 +13,11 @@ import io.file.{writeText, appendText}
 import memory.allocation.{AllocError, memoryRemainingBytes}
 
 extern "C" fun seen_string_builder_flatten(parts: Array<String>, totalLength: Int) r: String
+extern "C" fun seen_string_contains_fast(text: String, needle: String) r: Bool
+extern "C" fun seen_string_starts_with_fast(text: String, prefix: String) r: Bool
+extern "C" fun seen_string_ends_with_fast(text: String, suffix: String) r: Bool
+extern "C" fun seen_string_index_of_fast(text: String, needle: String, start: Int) r: Int
+extern "C" fun seen_string_last_index_of_fast(text: String, needle: String) r: Int
 
 class StringBuilder {
     var parts: Array<String>
@@ -299,50 +304,19 @@ fun isBlank(text: String) r: Bool {
 }
 
 fun contains(text: String, needle: String) r: Bool {
-    return indexOf(text, needle, 0) >= 0
+    return seen_string_contains_fast(text, needle)
 }
 
 fun startsWith(text: String, prefix: String) r: Bool {
-    if prefix.length() > text.length() {
-        return false
-    }
-    return stringRegionMatches(text, 0, prefix)
+    return seen_string_starts_with_fast(text, prefix)
 }
 
 fun endsWith(text: String, suffix: String) r: Bool {
-    if suffix.length() > text.length() {
-        return false
-    }
-    let start = text.length() - suffix.length()
-    return stringRegionMatches(text, start, suffix)
+    return seen_string_ends_with_fast(text, suffix)
 }
 
 fun indexOf(text: String, needle: String, startIndex: Int = 0) r: Int {
-    let needleLength = needle.length()
-    if needleLength == 0 {
-        if startIndex < 0 {
-            return 0
-        }
-        if startIndex > text.length() {
-            return text.length()
-        }
-        return startIndex
-    }
-    var start = startIndex
-    if start < 0 {
-        start = 0
-    }
-    let limit = text.length() - needleLength
-    if limit < 0 {
-        return -1
-    }
-    while start <= limit {
-        if stringRegionMatches(text, start, needle) {
-            return start
-        }
-        start = start + 1
-    }
-    return -1
+    return seen_string_index_of_fast(text, needle, startIndex)
 }
 
 fun String_charCodeAt(s: String, index: Int) r: Int {
@@ -351,21 +325,7 @@ fun String_charCodeAt(s: String, index: Int) r: Int {
 }
 
 fun lastIndexOf(text: String, needle: String) r: Int {
-    let needleLength = needle.length()
-    if needleLength == 0 {
-        return text.length()
-    }
-    if needleLength > text.length() {
-        return -1
-    }
-    var index = text.length() - needleLength
-    while index >= 0 {
-        if stringRegionMatches(text, index, needle) {
-            return index
-        }
-        index = index - 1
-    }
-    return -1
+    return seen_string_last_index_of_fast(text, needle)
 }
 
 fun lines(text: String, dropEmpty: Bool = false) r: Array<String> {

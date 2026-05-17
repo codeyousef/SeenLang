@@ -66,8 +66,11 @@ fun main() -> Int {
     expect(contains("deterministic", "mini"), "substring match expected")
     expect(startsWith("channel", "chan"), "startsWith expected")
     expect(endsWith("scheduler", "uler"), "endsWith expected")
+    expect(contains("deterministic", "c"), "single-byte contains expected")
+    expect(indexOf("deterministic", "i", 0) == 6, "single-byte indexOf expected")
     expect(indexOf("abracadabra", "abra", 1) == 7, "indexOf offset mismatch")
     expect(lastIndexOf("abracadabra", "bra") == 8, "lastIndexOf mismatch")
+    expect(lastIndexOf("mississippi", "s") == 6, "single-byte lastIndexOf mismatch")
 
     let repeated = repeat("ha", 3)
     expect(repeated == "hahaha", "repeat should copy text")

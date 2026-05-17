@@ -1,6 +1,7 @@
 import json.builder.{JsonBuilder_new, escapeJsonString, jsonToString, toJsonPretty}
 import json.parser.{parseJson}
 import json.value.{JsonValue_emptyArray, JsonValue_emptyObject, JsonValue_number, JsonValue_string}
+import str.string.{startsWith}
 
 fun expect(condition: Bool, message: String) -> Void {
     if not condition {
@@ -20,6 +21,15 @@ fun main() -> Int {
     builder.intProp("count", 3)
     builder.endObject()
     expect(builder.build() == "{\"name\":\"Seen\\nLang\",\"count\":3}", "JsonBuilder output mismatch")
+    builder.reset()
+    builder.startArray()
+    var index = 0
+    while index < 64 {
+        builder.number(index)
+        index = index + 1
+    }
+    builder.endArray()
+    expect(startsWith(builder.build(), "[0,1,2"), "JsonBuilder should reuse backing builder after reset")
 
     let arr = JsonValue_emptyArray()
     arr.push(JsonValue_string("a\"b"))

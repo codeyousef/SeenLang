@@ -75,6 +75,8 @@ import json.builder
 ```
 
 `JsonBuilder` and `JsonBuilder_new` provide incremental JSON construction.
+The builder stores output in `StringBuilder` parts internally, so large objects
+and arrays grow linearly instead of repeatedly copying the whole JSON string.
 
 ## Runtime JSON Functions
 

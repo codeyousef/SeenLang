@@ -421,6 +421,8 @@ SeenString seen_string_builder_flatten(SeenArray* parts, int64_t totalLength);
 
 void* seen_byte_array_new(int64_t capacity);
 int64_t seen_byte_array_len(void* handle);
+int64_t seen_byte_array_capacity(void* handle);
+bool seen_byte_array_try_reserve(void* handle, int64_t required);
 void seen_byte_array_clear(void* handle);
 void seen_byte_array_push(void* handle, int64_t value);
 void seen_byte_array_append(void* handle, void* other_handle);
@@ -432,6 +434,8 @@ void seen_byte_array_reverse(void* handle);
 SeenArray* seen_byte_array_to_int_array(void* handle);
 
 void* seen_i32_buffer_new(int64_t capacity);
+int64_t seen_primitive_buffer_capacity(void* handle);
+bool seen_primitive_buffer_try_reserve(void* handle, int64_t required);
 int64_t seen_i32_buffer_len(void* handle);
 void seen_i32_buffer_clear(void* handle);
 void seen_i32_buffer_push(void* handle, int64_t value);
@@ -546,6 +550,11 @@ bool endsWith(SeenString text, SeenString suffix);
 
 // Check if contains substring
 bool contains(SeenString text, SeenString needle);
+bool seen_string_contains_fast(SeenString text, SeenString needle);
+bool seen_string_starts_with_fast(SeenString text, SeenString prefix);
+bool seen_string_ends_with_fast(SeenString text, SeenString suffix);
+int64_t seen_string_index_of_fast(SeenString text, SeenString needle, int64_t start);
+int64_t seen_string_last_index_of_fast(SeenString text, SeenString needle);
 
 // Find index of substring
 int64_t indexOf(SeenString text, SeenString needle, int64_t start);

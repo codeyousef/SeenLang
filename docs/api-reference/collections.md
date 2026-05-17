@@ -254,6 +254,7 @@ runtime-backed byte storage and expose `Int` values at the API boundary.
 import collections.byte_buffer
 
 let bytes = ByteBuffer.withCapacity(1024)
+bytes.reserve(4096)
 bytes.push(255)
 bytes.push(256)   // stored as 0
 let value = bytes.get(0)
@@ -270,6 +271,9 @@ let value = bytes.get(0)
 
 | Method | Return | Description |
 |--------|--------|-------------|
+| `capacity()` | `Int` | Current allocated capacity |
+| `tryReserve(requiredCapacity)` | `Bool` | Grow backing storage without aborting on allocation failure |
+| `reserve(requiredCapacity)` | `Void` | Grow backing storage or panic with a Seen diagnostic |
 | `push(value: Int)` | `Void` | Append byte, masked to `0..255` |
 | `append(other)` | `Void` | Append another byte buffer |
 | `get(index: Int)` | `Int` | Read byte |
@@ -281,7 +285,8 @@ let value = bytes.get(0)
 
 ## Algorithms
 
-Shared collection algorithms for performance-sensitive integer paths.
+Shared collection algorithms for performance-sensitive integer and floating-point
+paths.
 
 ```seen
 import collections.algorithms
@@ -296,6 +301,12 @@ import collections.algorithms
 | `stableSortInt(values)` | Stable sorted copy |
 | `radixSortInt(values)` | Signed integer radix sort that preserves negative/positive ordering |
 | `IntPriorityQueue.min()` / `.max()` | Binary heap priority queues |
+| `binarySearchFloat(values, needle)` | Return matching float index or `-1` |
+| `lowerBoundFloat(values, needle)` | First float insertion slot not less than `needle` |
+| `upperBoundFloat(values, needle)` | First float insertion slot greater than `needle` |
+| `unstableSortFloat(values)` | In-place introsort for `Array<Float>` |
+| `stableSortFloat(values)` | Stable sorted float copy |
+| `FloatPriorityQueue.min()` / `.max()` | Binary heap priority queues for floats |
 
 ## BitSet
 

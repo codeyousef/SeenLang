@@ -1,5 +1,6 @@
 import json.parser.{parseJson}
-import str.string.{StringBuilder}
+import json.builder.{JsonBuilder_new}
+import str.string.{StringBuilder, contains, indexOf, lastIndexOf, replaceAll, split, trim}
 
 fun main() r: Int {
     let builder = StringBuilder.new()
@@ -10,6 +11,35 @@ fun main() r: Int {
         builder.append(",\"name\":\"item")
         builder.append(i.toString())
         builder.append("\",\"active\":true,\"values\":[1,2,3]}")
+        i = i + 1
+    }
+
+    let jsonBuilder = JsonBuilder_new()
+    jsonBuilder.startObject()
+    i = 0
+    while i < 128 {
+        jsonBuilder.key("field" + i.toString())
+        jsonBuilder.string("value-" + i.toString())
+        i = i + 1
+    }
+    jsonBuilder.endObject()
+    let jsonBuilt = jsonBuilder.build()
+    if not contains(jsonBuilt, "\"field127\"") {
+        return 3
+    }
+
+    let searchText = "   alpha,beta,gamma,delta,epsilon,zeta,eta,theta,alpha,beta,gamma   "
+    var searchScore = 0
+    i = 0
+    while i < 512 {
+        if contains(searchText, "theta") {
+            searchScore = searchScore + indexOf(searchText, "alpha", 1)
+            searchScore = searchScore + lastIndexOf(searchText, "gamma")
+        }
+        let pieces = split(searchText, ",")
+        searchScore = searchScore + pieces.length()
+        let replaced = replaceAll(searchText, "alpha", "omega")
+        searchScore = searchScore + trim(replaced).length()
         i = i + 1
     }
 
@@ -25,6 +55,9 @@ fun main() r: Int {
 
     if builder.length() <= 0 {
         return 2
+    }
+    if searchScore <= 0 {
+        return 4
     }
     return 0
 }

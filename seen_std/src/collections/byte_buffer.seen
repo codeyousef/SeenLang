@@ -2,6 +2,8 @@
 
 extern fun seen_byte_array_new(capacity: Int) r: Int
 extern fun seen_byte_array_len(handle: Int) r: Int
+extern fun seen_byte_array_capacity(handle: Int) r: Int
+extern fun seen_byte_array_try_reserve(handle: Int, required: Int) r: Bool
 extern fun seen_byte_array_clear(handle: Int) r: Void
 extern fun seen_byte_array_push(handle: Int, value: Int) r: Void
 extern fun seen_byte_array_append(handle: Int, other: Int) r: Void
@@ -13,6 +15,8 @@ extern fun seen_byte_array_reverse(handle: Int) r: Void
 extern fun seen_byte_array_to_int_array(handle: Int) r: Array<Int>
 
 extern fun seen_i32_buffer_new(capacity: Int) r: Int
+extern fun seen_primitive_buffer_capacity(handle: Int) r: Int
+extern fun seen_primitive_buffer_try_reserve(handle: Int, required: Int) r: Bool
 extern fun seen_i32_buffer_len(handle: Int) r: Int
 extern fun seen_i32_buffer_clear(handle: Int) r: Void
 extern fun seen_i32_buffer_push(handle: Int, value: Int32) r: Void
@@ -62,6 +66,20 @@ class ByteArray {
 
     fun length() -> Int {
         return seen_byte_array_len(this.handle)
+    }
+
+    fun capacity() -> Int {
+        return seen_byte_array_capacity(this.handle)
+    }
+
+    fun tryReserve(requiredCapacity: Int) -> Bool {
+        return seen_byte_array_try_reserve(this.handle, requiredCapacity)
+    }
+
+    fun reserve(requiredCapacity: Int) -> Void {
+        if not this.tryReserve(requiredCapacity) {
+            panic("ByteArray reserve failed")
+        }
     }
 
     fun isEmpty() -> Bool {
@@ -124,6 +142,20 @@ class Int32Buffer {
         return seen_i32_buffer_len(this.handle)
     }
 
+    fun capacity() -> Int {
+        return seen_primitive_buffer_capacity(this.handle)
+    }
+
+    fun tryReserve(requiredCapacity: Int) -> Bool {
+        return seen_primitive_buffer_try_reserve(this.handle, requiredCapacity)
+    }
+
+    fun reserve(requiredCapacity: Int) -> Void {
+        if not this.tryReserve(requiredCapacity) {
+            panic("Int32Buffer reserve failed")
+        }
+    }
+
     fun clear() -> Void {
         seen_i32_buffer_clear(this.handle)
     }
@@ -156,6 +188,20 @@ class Int64Buffer {
 
     fun length() -> Int {
         return seen_i64_buffer_len(this.handle)
+    }
+
+    fun capacity() -> Int {
+        return seen_primitive_buffer_capacity(this.handle)
+    }
+
+    fun tryReserve(requiredCapacity: Int) -> Bool {
+        return seen_primitive_buffer_try_reserve(this.handle, requiredCapacity)
+    }
+
+    fun reserve(requiredCapacity: Int) -> Void {
+        if not this.tryReserve(requiredCapacity) {
+            panic("Int64Buffer reserve failed")
+        }
     }
 
     fun clear() -> Void {
@@ -192,6 +238,20 @@ class Float32Buffer {
         return seen_f32_buffer_len(this.handle)
     }
 
+    fun capacity() -> Int {
+        return seen_primitive_buffer_capacity(this.handle)
+    }
+
+    fun tryReserve(requiredCapacity: Int) -> Bool {
+        return seen_primitive_buffer_try_reserve(this.handle, requiredCapacity)
+    }
+
+    fun reserve(requiredCapacity: Int) -> Void {
+        if not this.tryReserve(requiredCapacity) {
+            panic("Float32Buffer reserve failed")
+        }
+    }
+
     fun clear() -> Void {
         seen_f32_buffer_clear(this.handle)
     }
@@ -224,6 +284,20 @@ class Float64Buffer {
 
     fun length() -> Int {
         return seen_f64_buffer_len(this.handle)
+    }
+
+    fun capacity() -> Int {
+        return seen_primitive_buffer_capacity(this.handle)
+    }
+
+    fun tryReserve(requiredCapacity: Int) -> Bool {
+        return seen_primitive_buffer_try_reserve(this.handle, requiredCapacity)
+    }
+
+    fun reserve(requiredCapacity: Int) -> Void {
+        if not this.tryReserve(requiredCapacity) {
+            panic("Float64Buffer reserve failed")
+        }
     }
 
     fun clear() -> Void {
@@ -264,6 +338,18 @@ class ByteBuffer {
 
     fun length() -> Int {
         return this.bytes.length()
+    }
+
+    fun capacity() -> Int {
+        return this.bytes.capacity()
+    }
+
+    fun tryReserve(requiredCapacity: Int) -> Bool {
+        return this.bytes.tryReserve(requiredCapacity)
+    }
+
+    fun reserve(requiredCapacity: Int) -> Void {
+        this.bytes.reserve(requiredCapacity)
     }
 
     fun isEmpty() -> Bool {

@@ -21,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `seen compile --emit-module-ir-dir <path>` and `--stop-after-ir` so packaging and cross-build tools can request per-module IR without scraping global `/tmp` artifacts.
 - Added byte-backed `ByteArray`/`ByteBuffer` runtime storage plus primitive buffer APIs for integer and floating-point data paths.
 - Added public collection algorithm helpers for integer binary search, lower/upper bounds, stable and unstable sort, radix sort, and integer priority queues.
+- Added reserve/capacity APIs for byte and primitive buffers so binary, parser, and numeric hot paths can grow storage once and reuse it.
+- Added floating-point binary search, lower/upper bounds, stable/unstable sort, and priority queue helpers for `Array<Float>` workloads.
 
 ### Changed
 
@@ -45,8 +47,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cache-v4 module object keys now include the active compiler binary hash, so warm builds reject stale objects after compiler codegen/layout changes instead of reusing incompatible cached output.
 - Generic source `HashMap`/`HashSet` fallback hashing now derives hashes from key content instead of a constant fallback, and `containsKey`/`getOrDefault` avoid constructing `Option` results.
 - String prefix/suffix/search/count/split/replace helpers now scan bytes directly and append unchanged segments instead of allocating a substring at every candidate position.
+- String prefix, suffix, contains, `indexOf`, and `lastIndexOf` now route through runtime byte-search fast paths with single-byte `memchr` handling.
 - Primitive `Int32Buffer`, `Int64Buffer`, `Float32Buffer`, and `Float64Buffer` now use compact runtime-backed storage instead of widening every element through generic arrays.
 - `StringBuilder.toString()` now flattens builder parts through a one-pass runtime helper, keeping large source-built strings linear instead of recursive concatenation.
+- `JsonBuilder` now stores output in a `StringBuilder` internally, avoiding repeated whole-buffer concatenation during incremental JSON construction.
 - JSON numeric parsing now uses a runtime range parser so large numbers no longer need an intermediate whole-number substring before conversion.
 - `round`, `copysign`, `asinh`, `acosh`, and `atanh` now route through runtime/libm-backed wrappers, and integer `gcd` uses native modulo arithmetic.
 - Integer unstable sort now uses introsort with a heapsort fallback, and integer radix sort preserves signed ordering without falling back to comparison sort for negative values.
