@@ -9,6 +9,7 @@ import codegen.ir_optimization.{parseGlobalVarMutable, parseGlobalVarType, parse
 import codegen.ir_decl_items.{isRuntimeBackedStringCompatFunctionImpl}
 import codegen.ir_decl_late_declares.{moduleBuilderAlreadyDeclaresFunctionCoreImpl}
 import codegen.ir_string_collect.{hexToDecimalImpl}
+import codegen.symbol_interner.{internSymbol, newSymbolIdSet, symbolIdSetAdd, symbolIdSetContains, SymbolIdSet}
 
 fun quoteModuleEmitIdentIfNeeded(name: String) r: String {
     if name == "" {
@@ -173,6 +174,25 @@ fun arrayContainsString(values: Array<String>, target: String) r: Bool {
     return false
 }
 
+fun addModuleEmitStringArrayToSet(values: Array<String>,
+    set: SymbolIdSet) r: Void {
+
+    var i = 0
+    while i < values.length() {
+        if values[i] != "" {
+            symbolIdSetAdd(set, internSymbol(values[i]))
+        }
+        i = i + 1
+    }
+}
+
+fun moduleEmitSetContainsName(set: SymbolIdSet, name: String) r: Bool {
+    if name == "" {
+        return false
+    }
+    return symbolIdSetContains(set, internSymbol(name))
+}
+
 fun emitCrossModuleConstantDeclaresImpl(output: StringBuilder, moduleConstantNames: Array<String>,
     xmConstNames: String, xmConstTypes: String, xmConstCount: Int) r: Void {
 
@@ -188,6 +208,39 @@ fun emitCrossModuleConstantDeclaresImpl(output: StringBuilder, moduleConstantNam
 	        i = i + 1
 	    }
 	}
+
+fun emitCrossModuleConstantDeclaresIndexedImpl(output: StringBuilder,
+    moduleConstantNames: Array<String>, xmConstNamesArr: Array<String>,
+    xmConstTypesArr: Array<String>, xmConstCount: Int) r: Void {
+
+    let moduleNames = newSymbolIdSet(moduleConstantNames.length() +
+        xmConstCount + 16)
+    addModuleEmitStringArrayToSet(moduleConstantNames, moduleNames)
+    let emittedNames = newSymbolIdSet(xmConstCount + 16)
+
+    var limit = xmConstNamesArr.length()
+    if xmConstTypesArr.length() < limit {
+        limit = xmConstTypesArr.length()
+    }
+    if xmConstCount < limit {
+        limit = xmConstCount
+    }
+
+    var i = 0
+    while i < limit {
+        let name = xmConstNamesArr[i]
+        let llvmType = xmConstTypesArr[i]
+        if isValidCrossModuleConstantEntryImpl(name, llvmType) and
+            not moduleEmitSetContainsName(moduleNames, name) and
+            not moduleEmitSetContainsName(emittedNames, name) {
+
+            output.append("@" + quoteModuleEmitIdentIfNeeded(name) +
+                " = external global " + llvmType + "\n")
+            symbolIdSetAdd(emittedNames, internSymbol(name))
+        }
+        i = i + 1
+    }
+}
 
 fun emitCrossModuleFunctionDeclaresImpl(output: StringBuilder,
     definedFuncs: Array<String>, xmDeclareNames: String, xmDeclareStrs: String,
@@ -205,6 +258,39 @@ fun emitCrossModuleFunctionDeclaresImpl(output: StringBuilder,
             not alreadyInModule {
             output.append(declStr)
             emittedNames.push(name)
+        }
+        i = i + 1
+    }
+}
+
+fun emitCrossModuleFunctionDeclaresIndexedImpl(output: StringBuilder,
+    definedFuncs: Array<String>, xmDeclareNamesArr: Array<String>,
+    xmDeclareStrsArr: Array<String>, xmDeclareCount: Int) r: Void {
+
+    let definedSet = newSymbolIdSet(definedFuncs.length() + xmDeclareCount +
+        16)
+    addModuleEmitStringArrayToSet(definedFuncs, definedSet)
+    let emittedSet = newSymbolIdSet(xmDeclareCount + 16)
+
+    var limit = xmDeclareNamesArr.length()
+    if xmDeclareStrsArr.length() < limit {
+        limit = xmDeclareStrsArr.length()
+    }
+    if xmDeclareCount < limit {
+        limit = xmDeclareCount
+    }
+
+    var i = 0
+    while i < limit {
+        let name = xmDeclareNamesArr[i]
+        let declStr = xmDeclareStrsArr[i]
+        if name != "" and name != "main" and declStr != "" and
+            not moduleEmitSetContainsName(definedSet, name) and
+            not moduleEmitSetContainsName(emittedSet, name) and
+            not moduleBuilderAlreadyDeclaresFunctionCoreImpl(output, name) {
+
+            output.append(declStr)
+            symbolIdSetAdd(emittedSet, internSymbol(name))
         }
         i = i + 1
     }

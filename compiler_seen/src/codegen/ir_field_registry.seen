@@ -9,19 +9,20 @@ import codegen.ir_type_info.{getKnownFieldIndexPrimaryImpl, getKnownFieldIndexFa
 import codegen.ir_type_mapping.{mapTypeImpl}
 import codegen.ir_type_tables.{getFieldTypeForHeaderStruct, getHardcodedFieldLlvmTypeImpl}
 import codegen.type_registry_core.{findStructReg}
+import codegen.symbol_interner.{internSymbol}
 
 class FieldLookupCacheState {
-    var fieldInfoCacheKeys: Array<String>
+    var fieldInfoCacheKeyIds: Array<Int>
     var fieldInfoCacheIdxs: Array<Int>
-    var chainedPathTypeCacheKeys: Array<String>
+    var chainedPathTypeCacheKeyIds: Array<Int>
     var chainedPathTypeCacheLens: Array<Int>
     var chainedPathTypeCacheValues: Array<String>
 
     static fun new() r: FieldLookupCacheState {
         return FieldLookupCacheState{
-            fieldInfoCacheKeys: Array<String>(),
+            fieldInfoCacheKeyIds: Array<Int>(),
             fieldInfoCacheIdxs: Array<Int>(),
-            chainedPathTypeCacheKeys: Array<String>(),
+            chainedPathTypeCacheKeyIds: Array<Int>(),
             chainedPathTypeCacheLens: Array<Int>(),
             chainedPathTypeCacheValues: Array<String>()
         }
@@ -42,13 +43,14 @@ fun fieldRegistryMin3(a: Int, b: Int, c: Int) r: Int {
 }
 
 fun findCachedIrgenFieldIndexImpl(key: String,
-    fieldInfoCacheKeys: Array<String>, fieldInfoCacheIdxs: Array<Int>) r: Int {
+    fieldInfoCacheKeyIds: Array<Int>, fieldInfoCacheIdxs: Array<Int>) r: Int {
 
-    var limit = fieldRegistryMin2(fieldInfoCacheKeys.length(),
+    let keyId = internSymbol(key)
+    var limit = fieldRegistryMin2(fieldInfoCacheKeyIds.length(),
         fieldInfoCacheIdxs.length())
     var i = limit - 1
     while i >= 0 {
-        if fieldInfoCacheKeys[i] == key {
+        if fieldInfoCacheKeyIds[i] == keyId {
             return fieldInfoCacheIdxs[i]
         }
         i = i - 1
@@ -57,37 +59,39 @@ fun findCachedIrgenFieldIndexImpl(key: String,
 }
 
 fun cacheIrgenFieldIndexImpl(key: String, idx: Int,
-    fieldInfoCacheKeys: Array<String>,
+    fieldInfoCacheKeyIds: Array<Int>,
     fieldInfoCacheIdxs: Array<Int>) r: Void {
 
     if idx < 0 {
         return
     }
-    var limit = fieldRegistryMin2(fieldInfoCacheKeys.length(),
+    let keyId = internSymbol(key)
+    var limit = fieldRegistryMin2(fieldInfoCacheKeyIds.length(),
         fieldInfoCacheIdxs.length())
     var i = limit - 1
     while i >= 0 {
-        if fieldInfoCacheKeys[i] == key {
+        if fieldInfoCacheKeyIds[i] == keyId {
             fieldInfoCacheIdxs[i] = idx
             return
         }
         i = i - 1
     }
-    fieldInfoCacheKeys.push(key)
+    fieldInfoCacheKeyIds.push(keyId)
     fieldInfoCacheIdxs.push(idx)
     return
 }
 
 fun findCachedChainedPathTypeRecordImpl(key: String, structLen: Int,
-    chainedPathTypeCacheKeys: Array<String>,
+    chainedPathTypeCacheKeyIds: Array<Int>,
     chainedPathTypeCacheLens: Array<Int>) r: Int {
 
-    var limit = fieldRegistryMin2(chainedPathTypeCacheKeys.length(),
+    let keyId = internSymbol(key)
+    var limit = fieldRegistryMin2(chainedPathTypeCacheKeyIds.length(),
         chainedPathTypeCacheLens.length())
     var i = limit - 1
     while i >= 0 {
         if chainedPathTypeCacheLens[i] == structLen and
-            chainedPathTypeCacheKeys[i] == key {
+            chainedPathTypeCacheKeyIds[i] == keyId {
 
             return i
         }
@@ -97,23 +101,24 @@ fun findCachedChainedPathTypeRecordImpl(key: String, structLen: Int,
 }
 
 fun cacheChainedPathTypeImpl(key: String, structLen: Int, resultType: String,
-    chainedPathTypeCacheKeys: Array<String>,
+    chainedPathTypeCacheKeyIds: Array<Int>,
     chainedPathTypeCacheLens: Array<Int>,
     chainedPathTypeCacheValues: Array<String>) r: Void {
 
-    var limit = fieldRegistryMin3(chainedPathTypeCacheKeys.length(),
+    let keyId = internSymbol(key)
+    var limit = fieldRegistryMin3(chainedPathTypeCacheKeyIds.length(),
         chainedPathTypeCacheLens.length(), chainedPathTypeCacheValues.length())
     var i = limit - 1
     while i >= 0 {
         if chainedPathTypeCacheLens[i] == structLen and
-            chainedPathTypeCacheKeys[i] == key {
+            chainedPathTypeCacheKeyIds[i] == keyId {
 
             chainedPathTypeCacheValues[i] = resultType
             return
         }
         i = i - 1
     }
-    chainedPathTypeCacheKeys.push(key)
+    chainedPathTypeCacheKeyIds.push(keyId)
     chainedPathTypeCacheLens.push(structLen)
     chainedPathTypeCacheValues.push(resultType)
     return

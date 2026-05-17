@@ -11,6 +11,7 @@ import codegen.ir_type_layout.{getLlvmTypeSizeImpl}
 import codegen.ir_type_mapping.{isDataTypeImpl, mapTypeImpl}
 import codegen.type_registry_core.{getTypeSizeReg}
 import codegen.ir_decl_late_declares.{quoteDeclScanIdentIfNeededCore, pipeContainsValueCoreImpl, buildLateUserDeclareStringCoreImpl, recordLateUserDeclareCoreImpl, emitLateUserDeclaresCoreImpl}
+import codegen.symbol_interner.{internSymbol, newSymbolIdSet, symbolIdSetAdd, symbolIdSetContains, SymbolIdSet}
 
 fun ensureStringBoxValue(box: Array<String>) r: Void {
     if box.length() == 0 {
@@ -43,6 +44,23 @@ fun pipeNameContainsImpl(values: String, count: Int, target: String) r: Bool {
         i = i + 1
     }
     return false
+}
+
+fun addStringArraySymbolsToSet(values: Array<String>, set: SymbolIdSet) r: Void {
+    var i = 0
+    while i < values.length() {
+        if values[i] != "" {
+            symbolIdSetAdd(set, internSymbol(values[i]))
+        }
+        i = i + 1
+    }
+}
+
+fun symbolSetContainsName(set: SymbolIdSet, name: String) r: Bool {
+    if name == "" {
+        return false
+    }
+    return symbolIdSetContains(set, internSymbol(name))
 }
 
 fun sanitizeDeclSignaturePartImpl(value: String) r: String {
@@ -440,6 +458,53 @@ fun registerCrossModuleConstantsImpl(program: ProgramNode,
                 appendPipeValue(xmConstMutableBox, mutFlag)
                 appendPipeValue(xmConstSeenTypesBox, seenType)
                 ensureIntBoxValue(xmConstCountBox)
+                xmConstCountBox[0] = xmConstCountBox[0] + 1
+            }
+        }
+        itemIdx = itemIdx + 1
+    }
+}
+
+fun registerCrossModuleConstantsIndexedImpl(program: ProgramNode,
+    xmConstNamesBox: Array<String>, xmConstTypesBox: Array<String>,
+    xmConstMutableBox: Array<String>, xmConstSeenTypesBox: Array<String>,
+    xmConstCountBox: Array<Int>, xmConstNamesArr: Array<String>,
+    xmConstTypesArr: Array<String>, xmConstMutableArr: Array<String>,
+    xmConstSeenTypesArr: Array<String>) r: Void {
+
+    ensureStringBoxValue(xmConstNamesBox)
+    ensureStringBoxValue(xmConstTypesBox)
+    ensureStringBoxValue(xmConstMutableBox)
+    ensureStringBoxValue(xmConstSeenTypesBox)
+    ensureIntBoxValue(xmConstCountBox)
+
+    let existingNames = newSymbolIdSet(xmConstNamesArr.length() +
+        program.items.length() + 16)
+    addStringArraySymbolsToSet(xmConstNamesArr, existingNames)
+
+    var itemIdx = 0
+    while itemIdx < program.items.length() {
+        let item = program.items[itemIdx]
+        if item.itemType == "GlobalVar" {
+            let encoded = item.visibility
+            let seenType = parseGlobalVarType(encoded)
+            let llvmType = mapGlobalVarLlvmTypeImpl(seenType)
+            if isValidCrossModuleConstantEntryImpl(item.name, llvmType) and
+                not symbolSetContainsName(existingNames, item.name) {
+
+                var mutFlag = "0"
+                if parseGlobalVarMutable(encoded) {
+                    mutFlag = "1"
+                }
+                appendPipeValue(xmConstNamesBox, item.name)
+                appendPipeValue(xmConstTypesBox, llvmType)
+                appendPipeValue(xmConstMutableBox, mutFlag)
+                appendPipeValue(xmConstSeenTypesBox, seenType)
+                xmConstNamesArr.push(item.name)
+                xmConstTypesArr.push(llvmType)
+                xmConstMutableArr.push(mutFlag)
+                xmConstSeenTypesArr.push(seenType)
+                symbolIdSetAdd(existingNames, internSymbol(item.name))
                 xmConstCountBox[0] = xmConstCountBox[0] + 1
             }
         }

@@ -51,6 +51,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Generic collection factory inference now preserves concrete types such as `HashMap<String, Int>.withCapacity(...)`, so string-key maps lower to the correct runtime ABI even without an explicit variable annotation.
 - `HashSet` constructors now work as static constructors, and `StringHashSet` provides a dedicated string-key set backed by the runtime string hash table.
 - The compiler now interns hot registry/cache strings behind stable symbol IDs, reducing repeated string comparisons while preserving user-facing names in diagnostics and generated output.
+- Compiler registry emission now keeps cross-module declares/constants in indexed arrays and uses symbol-ID sets for duplicate checks, while local field lookup caches compare interned IDs instead of full strings.
 - `HashMap`, `Map`, `StringHashMap`, and `BTreeMap` now expose direct-value lookup and removal fast paths such as `getUnchecked`, `removeOrDefault`, and `removeUnchecked` for hot paths that do not need boxed `Option` results.
 - String prefix/suffix/search/count/split/replace helpers now scan bytes directly and append unchanged segments instead of allocating a substring at every candidate position.
 - String prefix, suffix, contains, `indexOf`, and `lastIndexOf` now route through runtime byte-search fast paths with single-byte `memchr` handling.

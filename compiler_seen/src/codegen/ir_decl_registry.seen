@@ -3,7 +3,7 @@
 
 import parser.real_parser.{ProgramNode}
 import str.string.{StringBuilder}
-import codegen.ir_decl_scan.{registerEnumVariantsImpl, registerCrossModuleConstantsImpl, buildLateUserDeclareStringImpl, recordLateUserDeclareImpl, emitLateUserDeclaresImpl, pipeContainsValueImpl, quoteDeclScanIdentIfNeeded}
+import codegen.ir_decl_scan.{registerEnumVariantsImpl, registerCrossModuleConstantsIndexedImpl, buildLateUserDeclareStringImpl, recordLateUserDeclareImpl, emitLateUserDeclaresImpl, pipeContainsValueImpl, quoteDeclScanIdentIfNeeded}
 import codegen.ir_async_registry.{isAsyncFunctionImpl, getAsyncDeclaredRetTypeImpl}
 import codegen.type_registry_core.{ensureStructEntryReg, getFunctionReturnTypeReg}
 
@@ -31,6 +31,10 @@ class DeclarationPassState {
     var xmConstMutable: String
     var xmConstSeenTypes: String
     var xmConstCount: Int
+    var xmConstNamesArr: Array<String>
+    var xmConstTypesArr: Array<String>
+    var xmConstMutableArr: Array<String>
+    var xmConstSeenTypesArr: Array<String>
     var funcDefaultsArr: String
     var funcParamCountArr: String
 
@@ -43,7 +47,10 @@ class DeclarationPassState {
         enumVariantFieldTypes: String, enumVariantFieldCounts: String,
         enumVariantParent: String, enumTypeCount: Int, enumVariantCount: Int,
         xmConstNames: String, xmConstTypes: String, xmConstMutable: String,
-        xmConstSeenTypes: String, xmConstCount: Int, funcDefaultsArr: String,
+        xmConstSeenTypes: String, xmConstCount: Int,
+        xmConstNamesArr: Array<String>, xmConstTypesArr: Array<String>,
+        xmConstMutableArr: Array<String>,
+        xmConstSeenTypesArr: Array<String>, funcDefaultsArr: String,
         funcParamCountArr: String) r: DeclarationPassState {
 
         return DeclarationPassState{
@@ -70,6 +77,10 @@ class DeclarationPassState {
             xmConstMutable: xmConstMutable,
             xmConstSeenTypes: xmConstSeenTypes,
             xmConstCount: xmConstCount,
+            xmConstNamesArr: xmConstNamesArr,
+            xmConstTypesArr: xmConstTypesArr,
+            xmConstMutableArr: xmConstMutableArr,
+            xmConstSeenTypesArr: xmConstSeenTypesArr,
             funcDefaultsArr: funcDefaultsArr,
             funcParamCountArr: funcParamCountArr
         }
@@ -119,7 +130,9 @@ fun captureDeclarationPassStateImpl(asyncFuncNames: String,
     enumVariantFieldCounts: String, enumVariantParent: String,
     enumTypeCount: Int, enumVariantCount: Int, xmConstNames: String,
     xmConstTypes: String, xmConstMutable: String, xmConstSeenTypes: String,
-    xmConstCount: Int, funcDefaultsArr: String,
+    xmConstCount: Int, xmConstNamesArr: Array<String>,
+    xmConstTypesArr: Array<String>, xmConstMutableArr: Array<String>,
+    xmConstSeenTypesArr: Array<String>, funcDefaultsArr: String,
     funcParamCountArr: String) r: DeclarationPassState {
 
     return DeclarationPassState.new(asyncFuncNames, asyncFuncRetTypes,
@@ -128,8 +141,9 @@ fun captureDeclarationPassStateImpl(asyncFuncNames: String,
         xmDeclareCount, enumTypeNames, enumVariantNames, enumVariantTags,
         enumVariantFieldTypes, enumVariantFieldCounts, enumVariantParent,
         enumTypeCount, enumVariantCount, xmConstNames, xmConstTypes,
-        xmConstMutable, xmConstSeenTypes, xmConstCount, funcDefaultsArr,
-        funcParamCountArr)
+        xmConstMutable, xmConstSeenTypes, xmConstCount, xmConstNamesArr,
+        xmConstTypesArr, xmConstMutableArr, xmConstSeenTypesArr,
+        funcDefaultsArr, funcParamCountArr)
 }
 
 fun captureLateUserDeclareStateImpl(lateXmDeclareNames: String,
@@ -221,8 +235,10 @@ fun registerCrossModuleConstantsIntoStateImpl(program: ProgramNode,
     seenTypesBox.push(state.xmConstSeenTypes)
     let countBox = Array<Int>()
     countBox.push(state.xmConstCount)
-    registerCrossModuleConstantsImpl(program, namesBox, typesBox, mutableBox,
-        seenTypesBox, countBox)
+    registerCrossModuleConstantsIndexedImpl(program, namesBox, typesBox,
+        mutableBox, seenTypesBox, countBox, state.xmConstNamesArr,
+        state.xmConstTypesArr, state.xmConstMutableArr,
+        state.xmConstSeenTypesArr)
     state.xmConstNames = namesBox[0]
     state.xmConstTypes = typesBox[0]
     state.xmConstMutable = mutableBox[0]
