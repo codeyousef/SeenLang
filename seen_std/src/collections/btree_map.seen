@@ -131,6 +131,22 @@ class BTreeMap<K, V> {
         return None<V>()
     }
 
+    fun getOrDefault(key: K, defaultValue: V) r: V {
+        let found = this.get(key)
+        if found.isSome() {
+            return found.unwrap()
+        }
+        return defaultValue
+    }
+
+    fun getUnchecked(key: K) r: V {
+        let found = this.get(key)
+        if found.isNone() {
+            panic("BTreeMap.getUnchecked missing key")
+        }
+        return found.unwrap()
+    }
+
     // Check if key exists
     fun containsKey(key: K) r: Bool {
         return this.get(key).isSome()
@@ -167,6 +183,22 @@ class BTreeMap<K, V> {
             }
         }
         return None<V>()
+    }
+
+    fun removeOrDefault(key: K, defaultValue: V) r: V {
+        let removed = this.remove(key)
+        if removed.isSome() {
+            return removed.unwrap()
+        }
+        return defaultValue
+    }
+
+    fun removeUnchecked(key: K) r: V {
+        let removed = this.remove(key)
+        if removed.isNone() {
+            panic("BTreeMap.removeUnchecked missing key")
+        }
+        return removed.unwrap()
     }
 
     // Get all keys in sorted order (deterministic)

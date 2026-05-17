@@ -124,6 +124,35 @@ fun getCollectionMethodReturnTypeImpl(structName: String,
             }
             return "Option"
         }
+        if methodName == "getOrDefault" or methodName == "getUnchecked" or
+            methodName == "removeOrDefault" or methodName == "removeUnchecked" {
+            if structName.startsWith("BTreeMap<") and
+                structName.endsWith(">") {
+                let inner = structName.substring(9, structName.length() - 1)
+                var commaIdx = 0
+                var depth = 0
+                var i = 0
+                while i < inner.length() {
+                    let ch = inner.substring(i, i + 1)
+                    if ch == "<" { depth = depth + 1 }
+                    if ch == ">" { depth = depth - 1 }
+                    if ch == "," and depth == 0 {
+                        commaIdx = i
+                        i = inner.length()
+                    }
+                    i = i + 1
+                }
+                if commaIdx > 0 {
+                    var valueType = inner.substring(commaIdx + 1,
+                        inner.length())
+                    if valueType.startsWith(" ") {
+                        valueType = valueType.substring(1, valueType.length())
+                    }
+                    return valueType
+                }
+            }
+            return "Int"
+        }
         if methodName == "keys" {
             if structName.startsWith("BTreeMap<") and
                 structName.endsWith(">") {
@@ -199,7 +228,8 @@ fun getCollectionMethodReturnTypeImpl(structName: String,
             }
             return "Option"
         }
-        if methodName == "getOrDefault" {
+        if methodName == "getOrDefault" or methodName == "getUnchecked" or
+            methodName == "removeOrDefault" or methodName == "removeUnchecked" {
             if structName.startsWith("Map<") {
                 let valueType = collectionMapTypePartImpl(structName, 4, true)
                 if valueType != "" { return valueType }
@@ -256,7 +286,8 @@ fun getCollectionMethodReturnTypeImpl(structName: String,
             }
             return "Option"
         }
-        if methodName == "getOrDefault" or methodName == "getUnchecked" {
+        if methodName == "getOrDefault" or methodName == "getUnchecked" or
+            methodName == "removeOrDefault" or methodName == "removeUnchecked" {
             if structName.startsWith("HashMap<") and
                 structName.endsWith(">") {
                 let inner = structName.substring(8, structName.length() - 1)
@@ -363,7 +394,8 @@ fun getCollectionMethodReturnTypeImpl(structName: String,
             }
             return "Option"
         }
-        if methodName == "getOrDefault" or methodName == "getUnchecked" {
+        if methodName == "getOrDefault" or methodName == "getUnchecked" or
+            methodName == "removeOrDefault" or methodName == "removeUnchecked" {
             if structName.startsWith("StringHashMap<") and
                 structName.endsWith(">") {
                 return structName.substring(14, structName.length() - 1)

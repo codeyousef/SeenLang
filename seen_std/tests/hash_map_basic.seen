@@ -158,6 +158,30 @@ fun main() r: Int {
         failed = failed + 1
     }
 
+    if map.removeOrDefault(3, "missing") == "three" {
+        println("PASS: removeOrDefault() returns removed value")
+        passed = passed + 1
+    } else {
+        println("FAIL: removeOrDefault() did not return removed value")
+        failed = failed + 1
+    }
+
+    if map.removeOrDefault(999, "missing") == "missing" {
+        println("PASS: removeOrDefault() returns fallback for missing key")
+        passed = passed + 1
+    } else {
+        println("FAIL: removeOrDefault() did not return fallback")
+        failed = failed + 1
+    }
+
+    if map.containsKey(4) and map.removeUnchecked(4) == "four" {
+        println("PASS: removeUnchecked() returns existing value")
+        passed = passed + 1
+    } else {
+        println("FAIL: removeUnchecked() did not return existing value")
+        failed = failed + 1
+    }
+
     // Test 9: clear()
     map.clear()
     if map.size() == 0 {
@@ -240,6 +264,22 @@ fun main() r: Int {
         passed = passed + 1
     } else {
         println("FAIL: string-key getUnchecked() failed")
+        failed = failed + 1
+    }
+
+    if stringMap.removeOrDefault("alpha", -1) == 1 {
+        println("PASS: string-key removeOrDefault() returns existing value")
+        passed = passed + 1
+    } else {
+        println("FAIL: string-key removeOrDefault() failed")
+        failed = failed + 1
+    }
+
+    if stringMap.containsKey("bravo") and stringMap.removeUnchecked("bravo") == 2 {
+        println("PASS: string-key removeUnchecked() returns existing value")
+        passed = passed + 1
+    } else {
+        println("FAIL: string-key removeUnchecked() failed")
         failed = failed + 1
     }
 

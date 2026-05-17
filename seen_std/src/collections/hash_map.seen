@@ -154,6 +154,22 @@ class HashMap<K, V> {
         return None<V>()
     }
 
+    fun removeOrDefault(key: K, defaultValue: V) -> V {
+        let removed = this.remove(key)
+        if removed.isSome() {
+            return removed.unwrap()
+        }
+        return defaultValue
+    }
+
+    fun removeUnchecked(key: K) -> V {
+        let removed = this.remove(key)
+        if removed.isNone() {
+            panic("HashMap.removeUnchecked missing key")
+        }
+        return removed.unwrap()
+    }
+
     fun shiftBack(startIndex: Int) -> Void {
         var i = startIndex
         while i < this.capacity {

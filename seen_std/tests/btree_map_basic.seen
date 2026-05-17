@@ -1,0 +1,80 @@
+///
+BTreeMap<K,V> Basic Test
+Expected: sorted maps preserve deterministic order and expose no-allocation lookup helpers.
+///
+
+import collections.btree_map.{BTreeMap}
+
+fun expect(condition: Bool, name: String) r: Int {
+    if condition {
+        println("PASS: " + name)
+        return 0
+    }
+    println("FAIL: " + name)
+    return 1
+}
+
+fun main() r: Int {
+    var failed = 0
+
+    let scores = BTreeMap<String, Int>.new()
+    scores.insert("delta", 4)
+    scores.insert("alpha", 1)
+
+    failed = failed + expect(scores.size() == 2, "size tracks inserts")
+    failed = failed + expect(scores.getOrDefault("alpha", -1) == 1,
+        "string-key getOrDefault returns existing value")
+    failed = failed + expect(scores.getOrDefault("missing", -1) == -1,
+        "string-key getOrDefault returns fallback")
+    failed = failed + expect(scores.containsKey("delta") and
+        scores.getUnchecked("delta") == 4,
+        "string-key getUnchecked returns existing value")
+
+    let ids = BTreeMap<Int, String>.new()
+    ids.insert(2, "two")
+    ids.insert(1, "one")
+    failed = failed + expect(ids.getOrDefault(1, "missing") == "one",
+        "int-key getOrDefault returns existing string")
+    failed = failed + expect(ids.getOrDefault(3, "missing") == "missing",
+        "int-key getOrDefault returns string fallback")
+    failed = failed + expect(ids.containsKey(2) and
+        ids.getUnchecked(2) == "two",
+        "int-key getUnchecked returns existing string")
+
+    let labels = BTreeMap<String, String>.new()
+    labels.insert("b", "bee")
+    labels.insert("a", "aye")
+    failed = failed + expect(labels.getOrDefault("a", "missing") == "aye",
+        "string-string getOrDefault returns existing string")
+    failed = failed + expect(labels.getUnchecked("b") == "bee",
+        "string-string getUnchecked returns existing string")
+
+    let keys = scores.keys()
+    failed = failed + expect(keys.get(0) == "alpha" and keys.get(1) == "delta",
+        "keys stay sorted")
+
+    failed = failed + expect(scores.removeOrDefault("alpha", -1) == 1,
+        "string-key removeOrDefault returns existing value")
+    failed = failed + expect(scores.removeOrDefault("missing", -1) == -1,
+        "string-key removeOrDefault returns fallback")
+    failed = failed + expect(scores.containsKey("delta") and
+        scores.removeUnchecked("delta") == 4,
+        "string-key removeUnchecked returns existing value")
+    failed = failed + expect(scores.size() == 0,
+        "remove fast paths update size")
+
+    failed = failed + expect(ids.removeOrDefault(1, "missing") == "one",
+        "int-key removeOrDefault returns existing string")
+    failed = failed + expect(ids.removeOrDefault(3, "missing") == "missing",
+        "int-key removeOrDefault returns string fallback")
+    failed = failed + expect(ids.containsKey(2) and ids.removeUnchecked(2) == "two",
+        "int-key removeUnchecked returns existing string")
+
+    failed = failed + expect(labels.removeOrDefault("a", "missing") == "aye",
+        "string-string removeOrDefault returns existing string")
+    failed = failed + expect(labels.containsKey("b") and
+        labels.removeUnchecked("b") == "bee",
+        "string-string removeUnchecked returns existing string")
+
+    return failed
+}

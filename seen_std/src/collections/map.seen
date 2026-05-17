@@ -70,6 +70,22 @@ class Map<K, V> {
         return None()
     }
 
+    fun getOrDefault(key: K, defaultValue: V) r: V {
+        let found = this.get(key)
+        if found.isSome() {
+            return found.unwrap()
+        }
+        return defaultValue
+    }
+
+    fun getUnchecked(key: K) r: V {
+        let found = this.get(key)
+        if found.isNone() {
+            panic("Map.getUnchecked missing key")
+        }
+        return found.unwrap()
+    }
+
     fun containsKey(key: K) r: Bool {
         var keysVec: Vec<K> = this.keys
         var i = 0
@@ -148,6 +164,22 @@ class Map<K, V> {
             i = i + 1
         }
         return None()
+    }
+
+    fun removeOrDefault(key: K, defaultValue: V) r: V {
+        let removed = this.remove(key)
+        if removed.isSome() {
+            return removed.unwrap()
+        }
+        return defaultValue
+    }
+
+    fun removeUnchecked(key: K) r: V {
+        let removed = this.remove(key)
+        if removed.isNone() {
+            panic("Map.removeUnchecked missing key")
+        }
+        return removed.unwrap()
     }
 
     fun size() r: Int {

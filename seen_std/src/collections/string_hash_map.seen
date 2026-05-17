@@ -80,6 +80,14 @@ class StringHashMap<V> {
         return defaultValue
     }
 
+    fun getUnchecked(key: String) r: V {
+        let opt = this.get(key)
+        if opt.isNone() {
+            panic("StringHashMap.getUnchecked missing key")
+        }
+        return opt.unwrap()
+    }
+
     fun contains(key: String) r: Bool {
         return this.findSlot(key) >= 0
     }
@@ -93,6 +101,24 @@ class StringHashMap<V> {
         states.set(slot, tombstoneState())
         length = length - 1
         return true
+    }
+
+    fun removeOrDefault(key: String, defaultValue: V) r: V {
+        let opt = this.get(key)
+        if opt.isSome() {
+            this.remove(key)
+            return opt.unwrap()
+        }
+        return defaultValue
+    }
+
+    fun removeUnchecked(key: String) r: V {
+        let opt = this.get(key)
+        if opt.isNone() {
+            panic("StringHashMap.removeUnchecked missing key")
+        }
+        this.remove(key)
+        return opt.unwrap()
     }
 
     fun keys() r: Array<String> {

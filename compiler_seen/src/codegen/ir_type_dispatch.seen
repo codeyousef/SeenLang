@@ -54,6 +54,7 @@ For size/len and isEmpty: uses runtime calls for str variants, GEP for int/int
 fun emitBTreeMapMethodImpl(output: StringBuilder, regBox: Array<Int>, methodName: String, mapPtrReg: String, arg0: String, arg1: String, hasStrKey: Bool, hasStrVal: Bool) r: String {
     let suffix = mapSuffix4Way(hasStrKey, hasStrVal)
     let keyType = mapKeyType(hasStrKey)
+    let valType = mapValType(hasStrVal)
 
     // size/len
     if methodName == "size" or methodName == "len" {
@@ -137,6 +138,36 @@ fun emitBTreeMapMethodImpl(output: StringBuilder, regBox: Array<Int>, methodName
         return resultReg
     }
 
+    // getOrDefault
+    if methodName == "getOrDefault" {
+        let resultReg = getNextRegFn(regBox)
+        if hasStrKey {
+            output.append("  " + resultReg + " = call " + valType +
+                " @BTreeMap_getOrDefault" + suffix + "(ptr " + mapPtrReg +
+                ", %SeenString " + arg0 + ", " + valType + " " + arg1 + ")\n")
+        } else {
+            output.append("  " + resultReg + " = call " + valType +
+                " @BTreeMap_getOrDefault" + suffix + "(ptr " + mapPtrReg +
+                ", i64 " + arg0 + ", " + valType + " " + arg1 + ")\n")
+        }
+        return resultReg
+    }
+
+    // getUnchecked: caller must establish presence with containsKey.
+    if methodName == "getUnchecked" {
+        let resultReg = getNextRegFn(regBox)
+        if hasStrKey {
+            output.append("  " + resultReg + " = call " + valType +
+                " @BTreeMap_getUnchecked" + suffix + "(ptr " + mapPtrReg +
+                ", %SeenString " + arg0 + ")\n")
+        } else {
+            output.append("  " + resultReg + " = call " + valType +
+                " @BTreeMap_getUnchecked" + suffix + "(ptr " + mapPtrReg +
+                ", i64 " + arg0 + ")\n")
+        }
+        return resultReg
+    }
+
     // containsKey
     if methodName == "containsKey" {
         let resultReg = getNextRegFn(regBox)
@@ -181,6 +212,22 @@ fun emitBTreeMapMethodImpl(output: StringBuilder, regBox: Array<Int>, methodName
                 output.append("  " + resultReg + " = call i64 @BTreeMap_remove(ptr " + mapPtrReg + ", i64 " + arg0 + ")\n")
             }
         }
+        return resultReg
+    }
+
+    if methodName == "removeOrDefault" {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call " + valType +
+            " @BTreeMap_removeOrDefault" + suffix + "(ptr " + mapPtrReg +
+            ", " + keyType + " " + arg0 + ", " + valType + " " + arg1 + ")\n")
+        return resultReg
+    }
+
+    if methodName == "removeUnchecked" {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call " + valType +
+            " @BTreeMap_removeUnchecked" + suffix + "(ptr " + mapPtrReg +
+            ", " + keyType + " " + arg0 + ")\n")
         return resultReg
     }
 
@@ -351,6 +398,22 @@ fun emitHashMapMethodImpl(output: StringBuilder, regBox: Array<Int>, methodName:
         return resultReg
     }
 
+    if methodName == "removeOrDefault" {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call " + valType +
+            " @HashMap_removeOrDefault" + suffix + "(ptr " + mapPtrReg +
+            ", " + keyType + " " + arg0 + ", " + valType + " " + arg1 + ")\n")
+        return resultReg
+    }
+
+    if methodName == "removeUnchecked" {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call " + valType +
+            " @HashMap_removeUnchecked" + suffix + "(ptr " + mapPtrReg +
+            ", " + keyType + " " + arg0 + ")\n")
+        return resultReg
+    }
+
     // clear
     if methodName == "clear" {
         output.append("  call void @HashMap_clear" + suffix + "(ptr " + mapPtrReg + ")\n")
@@ -376,6 +439,8 @@ but compiled lookup/update/remove paths should not fall back to linear arrays.
 ///
 fun emitMapMethodImpl(output: StringBuilder, regBox: Array<Int>, methodName: String, mapPtrReg: String, arg0: String, arg1: String, hasStrKey: Bool, hasStrVal: Bool) r: String {
     let suffix = mapSuffix4Way(hasStrKey, hasStrVal)
+    let keyType = mapKeyType(hasStrKey)
+    let valType = mapValType(hasStrVal)
 
     if methodName == "size" or methodName == "len" or methodName == "length" {
         let resultReg = getNextRegFn(regBox)
@@ -533,6 +598,22 @@ fun emitMapMethodImpl(output: StringBuilder, regBox: Array<Int>, methodName: Str
         return resultReg
     }
 
+    if methodName == "removeOrDefault" {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call " + valType +
+            " @HashMap_removeOrDefault" + suffix + "(ptr " + mapPtrReg +
+            ", " + keyType + " " + arg0 + ", " + valType + " " + arg1 + ")\n")
+        return resultReg
+    }
+
+    if methodName == "removeUnchecked" {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call " + valType +
+            " @HashMap_removeUnchecked" + suffix + "(ptr " + mapPtrReg +
+            ", " + keyType + " " + arg0 + ")\n")
+        return resultReg
+    }
+
     if methodName == "clear" {
         output.append("  call void @HashMap_clear" + suffix + "(ptr " + mapPtrReg + ")\n")
         return "0"
@@ -636,6 +717,26 @@ fun emitStringHashMapMethodImpl(output: StringBuilder, regBox: Array<Int>, metho
         }
         let resultReg = getNextRegFn(regBox)
         output.append("  " + resultReg + " = load i1, ptr " + hasValuePtrReg + "\n")
+        return resultReg
+    }
+
+    if methodName == "removeOrDefault" {
+        let resultReg = getNextRegFn(regBox)
+        if hasStrVal {
+            output.append("  " + resultReg + " = call %SeenString @HashMap_removeOrDefault_str_str(ptr " + mapPtrReg + ", %SeenString " + arg0 + ", %SeenString " + arg1 + ")\n")
+        } else {
+            output.append("  " + resultReg + " = call i64 @HashMap_removeOrDefault_str(ptr " + mapPtrReg + ", %SeenString " + arg0 + ", i64 " + arg1 + ")\n")
+        }
+        return resultReg
+    }
+
+    if methodName == "removeUnchecked" {
+        let resultReg = getNextRegFn(regBox)
+        if hasStrVal {
+            output.append("  " + resultReg + " = call %SeenString @HashMap_removeUnchecked_str_str(ptr " + mapPtrReg + ", %SeenString " + arg0 + ")\n")
+        } else {
+            output.append("  " + resultReg + " = call i64 @HashMap_removeUnchecked_str(ptr " + mapPtrReg + ", %SeenString " + arg0 + ")\n")
+        }
         return resultReg
     }
 

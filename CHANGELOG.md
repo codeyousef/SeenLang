@@ -47,7 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Windows cross-builds now reuse signature-keyed IR, transformed object, and runtime caches without clearing global compiler caches, while Linux and Windows package builders reuse manifest-checked package artifacts.
 - Cache-v4 module object keys now include the active compiler binary hash, so warm builds reject stale objects after compiler codegen/layout changes instead of reusing incompatible cached output.
 - Generic source `HashMap`/`HashSet` fallback hashing now derives hashes from key content instead of a constant fallback, and `containsKey`/`getOrDefault` avoid constructing `Option` results.
-- `HashMap` now exposes `getUnchecked` for hot lookup loops that already proved key presence with `containsKey`, avoiding `Option` construction on the value path.
+- `HashMap`, `Map`, `StringHashMap`, and `BTreeMap` now expose direct-value lookup and removal fast paths such as `getUnchecked`, `removeOrDefault`, and `removeUnchecked` for hot paths that do not need boxed `Option` results.
 - String prefix/suffix/search/count/split/replace helpers now scan bytes directly and append unchanged segments instead of allocating a substring at every candidate position.
 - String prefix, suffix, contains, `indexOf`, and `lastIndexOf` now route through runtime byte-search fast paths with single-byte `memchr` handling.
 - Primitive `Int32Buffer`, `Int64Buffer`, `Float32Buffer`, and `Float64Buffer` now use compact runtime-backed storage instead of widening every element through generic arrays.

@@ -4247,6 +4247,20 @@ int64_t BTreeMap_get(void* mapPtr, int64_t key) {
     return BTreeMap_make_none();
 }
 
+int64_t BTreeMap_getOrDefault(void* mapPtr, int64_t key, int64_t defaultValue) {
+    SeenBTreeMap* map = (SeenBTreeMap*)mapPtr;
+    bool found = false;
+    int64_t index = BTreeMap_find_i64(map->entries, map->length, key, &found);
+    if (found) {
+        return map->entries[index].value;
+    }
+    return defaultValue;
+}
+
+int64_t BTreeMap_getUnchecked(void* mapPtr, int64_t key) {
+    return BTreeMap_getOrDefault(mapPtr, key, 0);
+}
+
 bool BTreeMap_containsKey(void* mapPtr, int64_t key) {
     SeenBTreeMap* map = (SeenBTreeMap*)mapPtr;
     bool found = false;
@@ -4286,6 +4300,26 @@ int64_t BTreeMap_remove(void* mapPtr, int64_t key) {
         return BTreeMap_make_some(value);
     }
     return BTreeMap_make_none();
+}
+
+int64_t BTreeMap_removeOrDefault(void* mapPtr, int64_t key, int64_t defaultValue) {
+    SeenBTreeMap* map = (SeenBTreeMap*)mapPtr;
+    bool found = false;
+    int64_t index = BTreeMap_find_i64(map->entries, map->length, key, &found);
+    if (found) {
+        int64_t value = map->entries[index].value;
+        if (index < map->length - 1) {
+            memmove(&map->entries[index], &map->entries[index + 1],
+                (size_t)(map->length - index - 1) * sizeof(BTreeMapEntry));
+        }
+        map->length--;
+        return value;
+    }
+    return defaultValue;
+}
+
+int64_t BTreeMap_removeUnchecked(void* mapPtr, int64_t key) {
+    return BTreeMap_removeOrDefault(mapPtr, key, 0);
 }
 
 void BTreeMap_clear(void* mapPtr) {
@@ -4764,6 +4798,20 @@ int64_t BTreeMap_get_str(void* mapPtr, SeenString key) {
     return BTreeMap_make_none();
 }
 
+int64_t BTreeMap_getOrDefault_str(void* mapPtr, SeenString key, int64_t defaultValue) {
+    SeenBTreeMapStr* map = (SeenBTreeMapStr*)mapPtr;
+    bool found = false;
+    int64_t index = BTreeMap_find_str(map->entries, map->length, key, &found);
+    if (found) {
+        return map->entries[index].value;
+    }
+    return defaultValue;
+}
+
+int64_t BTreeMap_getUnchecked_str(void* mapPtr, SeenString key) {
+    return BTreeMap_getOrDefault_str(mapPtr, key, 0);
+}
+
 bool BTreeMap_containsKey_str(void* mapPtr, SeenString key) {
     SeenBTreeMapStr* map = (SeenBTreeMapStr*)mapPtr;
     bool found = false;
@@ -4808,6 +4856,26 @@ int64_t BTreeMap_remove_str(void* mapPtr, SeenString key) {
         return BTreeMap_make_some(value);
     }
     return BTreeMap_make_none();
+}
+
+int64_t BTreeMap_removeOrDefault_str(void* mapPtr, SeenString key, int64_t defaultValue) {
+    SeenBTreeMapStr* map = (SeenBTreeMapStr*)mapPtr;
+    bool found = false;
+    int64_t index = BTreeMap_find_str(map->entries, map->length, key, &found);
+    if (found) {
+        int64_t value = map->entries[index].value;
+        if (index < map->length - 1) {
+            memmove(&map->entries[index], &map->entries[index + 1],
+                (size_t)(map->length - index - 1) * sizeof(BTreeEntryStr));
+        }
+        map->length--;
+        return value;
+    }
+    return defaultValue;
+}
+
+int64_t BTreeMap_removeUnchecked_str(void* mapPtr, SeenString key) {
+    return BTreeMap_removeOrDefault_str(mapPtr, key, 0);
 }
 
 void BTreeMap_clear_str(void* mapPtr) {
@@ -4912,6 +4980,21 @@ int64_t BTreeMap_get_str_str(void* mapPtr, SeenString key) {
     return BTreeMap_make_none_str();
 }
 
+SeenString BTreeMap_getOrDefault_str_str(void* mapPtr, SeenString key, SeenString defaultValue) {
+    SeenBTreeMapStrStr* map = (SeenBTreeMapStrStr*)mapPtr;
+    bool found = false;
+    int64_t index = BTreeMap_find_str_str(map->entries, map->length, key, &found);
+    if (found) {
+        return map->entries[index].value;
+    }
+    return defaultValue;
+}
+
+SeenString BTreeMap_getUnchecked_str_str(void* mapPtr, SeenString key) {
+    SeenString empty = { 0, "" };
+    return BTreeMap_getOrDefault_str_str(mapPtr, key, empty);
+}
+
 bool BTreeMap_containsKey_str_str(void* mapPtr, SeenString key) {
     SeenBTreeMapStrStr* map = (SeenBTreeMapStrStr*)mapPtr;
     bool found = false;
@@ -4957,6 +5040,27 @@ int64_t BTreeMap_remove_str_str(void* mapPtr, SeenString key) {
         return BTreeMap_make_some_str(value);
     }
     return BTreeMap_make_none_str();
+}
+
+SeenString BTreeMap_removeOrDefault_str_str(void* mapPtr, SeenString key, SeenString defaultValue) {
+    SeenBTreeMapStrStr* map = (SeenBTreeMapStrStr*)mapPtr;
+    bool found = false;
+    int64_t index = BTreeMap_find_str_str(map->entries, map->length, key, &found);
+    if (found) {
+        SeenString value = map->entries[index].value;
+        if (index < map->length - 1) {
+            memmove(&map->entries[index], &map->entries[index + 1],
+                (size_t)(map->length - index - 1) * sizeof(BTreeEntryStrStr));
+        }
+        map->length--;
+        return value;
+    }
+    return defaultValue;
+}
+
+SeenString BTreeMap_removeUnchecked_str_str(void* mapPtr, SeenString key) {
+    SeenString empty = { 0, "" };
+    return BTreeMap_removeOrDefault_str_str(mapPtr, key, empty);
 }
 
 void BTreeMap_clear_str_str(void* mapPtr) {
@@ -5040,6 +5144,21 @@ int64_t BTreeMap_get_int_str(void* mapPtr, int64_t key) {
     return BTreeMap_make_none_str();
 }
 
+SeenString BTreeMap_getOrDefault_int_str(void* mapPtr, int64_t key, SeenString defaultValue) {
+    SeenBTreeMapIntStr* map = (SeenBTreeMapIntStr*)mapPtr;
+    bool found = false;
+    int64_t index = BTreeMap_find_int_str(map->entries, map->length, key, &found);
+    if (found) {
+        return map->entries[index].value;
+    }
+    return defaultValue;
+}
+
+SeenString BTreeMap_getUnchecked_int_str(void* mapPtr, int64_t key) {
+    SeenString empty = { 0, "" };
+    return BTreeMap_getOrDefault_int_str(mapPtr, key, empty);
+}
+
 bool BTreeMap_containsKey_int_str(void* mapPtr, int64_t key) {
     SeenBTreeMapIntStr* map = (SeenBTreeMapIntStr*)mapPtr;
     bool found = false;
@@ -5084,6 +5203,27 @@ int64_t BTreeMap_remove_int_str(void* mapPtr, int64_t key) {
         return BTreeMap_make_some_str(value);
     }
     return BTreeMap_make_none_str();
+}
+
+SeenString BTreeMap_removeOrDefault_int_str(void* mapPtr, int64_t key, SeenString defaultValue) {
+    SeenBTreeMapIntStr* map = (SeenBTreeMapIntStr*)mapPtr;
+    bool found = false;
+    int64_t index = BTreeMap_find_int_str(map->entries, map->length, key, &found);
+    if (found) {
+        SeenString value = map->entries[index].value;
+        if (index < map->length - 1) {
+            memmove(&map->entries[index], &map->entries[index + 1],
+                (size_t)(map->length - index - 1) * sizeof(BTreeEntryIntStr));
+        }
+        map->length--;
+        return value;
+    }
+    return defaultValue;
+}
+
+SeenString BTreeMap_removeUnchecked_int_str(void* mapPtr, int64_t key) {
+    SeenString empty = { 0, "" };
+    return BTreeMap_removeOrDefault_int_str(mapPtr, key, empty);
 }
 
 void BTreeMap_clear_int_str(void* mapPtr) {
@@ -6458,6 +6598,30 @@ int64_t HashMap_remove(void* mapPtr, int64_t key) {
     }
 }
 
+int64_t HashMap_removeOrDefault(void* mapPtr, int64_t key, int64_t defaultValue) {
+    SeenHashMap* map = (SeenHashMap*)mapPtr;
+    uint64_t h = hashmap_hash_int(key);
+    int64_t mask = map->capacity - 1;
+    int64_t idx = (int64_t)(h & (uint64_t)mask);
+    while (1) {
+        if (map->states[idx] == 0) {
+            return defaultValue;
+        }
+        if (map->states[idx] == 1 && map->keys[idx] == key) {
+            int64_t val = map->values[idx];
+            map->states[idx] = 2;
+            map->length--;
+            map->tombstones++;
+            return val;
+        }
+        idx = (idx + 1) & mask;
+    }
+}
+
+int64_t HashMap_removeUnchecked(void* mapPtr, int64_t key) {
+    return HashMap_removeOrDefault(mapPtr, key, 0);
+}
+
 int64_t HashMap_keys(void* mapPtr) {
     SeenHashMap* map = (SeenHashMap*)mapPtr;
     SeenVec* vec = Vec_new();
@@ -6689,6 +6853,28 @@ int64_t HashMap_remove_str(void* mapPtr, SeenString key) {
     }
 }
 
+int64_t HashMap_removeOrDefault_str(void* mapPtr, SeenString key, int64_t defaultValue) {
+    SeenHashMapStr* map = (SeenHashMapStr*)mapPtr;
+    uint64_t h = hashmap_hash_str(key);
+    int64_t mask = map->capacity - 1;
+    int64_t idx = (int64_t)(h & (uint64_t)mask);
+    while (1) {
+        if (map->states[idx] == 0) return defaultValue;
+        if (map->states[idx] == 1 && hashmap_str_eq(map->keys[idx], key)) {
+            int64_t val = map->values[idx];
+            map->states[idx] = 2;
+            map->length--;
+            map->tombstones++;
+            return val;
+        }
+        idx = (idx + 1) & mask;
+    }
+}
+
+int64_t HashMap_removeUnchecked_str(void* mapPtr, SeenString key) {
+    return HashMap_removeOrDefault_str(mapPtr, key, 0);
+}
+
 int64_t HashMap_keys_str(void* mapPtr) {
     SeenHashMapStr* map = (SeenHashMapStr*)mapPtr;
     SeenVecStr* vec = Vec_new_str();
@@ -6906,6 +7092,29 @@ int64_t HashMap_remove_str_str(void* mapPtr, SeenString key) {
     }
 }
 
+SeenString HashMap_removeOrDefault_str_str(void* mapPtr, SeenString key, SeenString defaultValue) {
+    SeenHashMapStrStr* map = (SeenHashMapStrStr*)mapPtr;
+    uint64_t h = hashmap_hash_str(key);
+    int64_t mask = map->capacity - 1;
+    int64_t idx = (int64_t)(h & (uint64_t)mask);
+    while (1) {
+        if (map->states[idx] == 0) return defaultValue;
+        if (map->states[idx] == 1 && hashmap_str_eq(map->keys[idx], key)) {
+            SeenString val = map->values[idx];
+            map->states[idx] = 2;
+            map->length--;
+            map->tombstones++;
+            return val;
+        }
+        idx = (idx + 1) & mask;
+    }
+}
+
+SeenString HashMap_removeUnchecked_str_str(void* mapPtr, SeenString key) {
+    SeenString empty = { 0, "" };
+    return HashMap_removeOrDefault_str_str(mapPtr, key, empty);
+}
+
 int64_t HashMap_keys_str_str(void* mapPtr) {
     SeenHashMapStrStr* map = (SeenHashMapStrStr*)mapPtr;
     SeenVecStr* vec = Vec_new_str();
@@ -7121,6 +7330,29 @@ int64_t HashMap_remove_int_str(void* mapPtr, int64_t key) {
         }
         idx = (idx + 1) & mask;
     }
+}
+
+SeenString HashMap_removeOrDefault_int_str(void* mapPtr, int64_t key, SeenString defaultValue) {
+    SeenHashMapIntStr* map = (SeenHashMapIntStr*)mapPtr;
+    uint64_t h = hashmap_hash_int(key);
+    int64_t mask = map->capacity - 1;
+    int64_t idx = (int64_t)(h & (uint64_t)mask);
+    while (1) {
+        if (map->states[idx] == 0) return defaultValue;
+        if (map->states[idx] == 1 && map->keys[idx] == key) {
+            SeenString val = map->values[idx];
+            map->states[idx] = 2;
+            map->length--;
+            map->tombstones++;
+            return val;
+        }
+        idx = (idx + 1) & mask;
+    }
+}
+
+SeenString HashMap_removeUnchecked_int_str(void* mapPtr, int64_t key) {
+    SeenString empty = { 0, "" };
+    return HashMap_removeOrDefault_int_str(mapPtr, key, empty);
 }
 
 int64_t HashMap_keys_int_str(void* mapPtr) {

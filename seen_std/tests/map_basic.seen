@@ -41,6 +41,12 @@ fun main() r: Int {
     expect(removed.isSome(), "Map<String,Int> remove should return Some")
     expect(removed.unwrap() == 9000, "Map<String,Int> removed value")
     expect(not counts.containsKey("key-42"), "Map<String,Int> remove clears key")
+    expect(counts.removeOrDefault("key-43", -1) == 129,
+        "Map<String,Int> removeOrDefault existing")
+    expect(counts.removeOrDefault("missing", -1) == -1,
+        "Map<String,Int> removeOrDefault fallback")
+    expect(counts.containsKey("key-44") and counts.removeUnchecked("key-44") == 132,
+        "Map<String,Int> removeUnchecked existing")
 
     let countKeys = counts.keys()
     let countValues = counts.values()
@@ -57,12 +63,23 @@ fun main() r: Int {
         "Map<String,String> getOrDefault existing")
     expect(names.getOrDefault("none", "missing") == "missing",
         "Map<String,String> getOrDefault fallback")
+    expect(names.containsKey("seen") and names.getUnchecked("seen") == "language",
+        "Map<String,String> getUnchecked existing")
+    expect(names.removeOrDefault("stage", "missing") == "compiler",
+        "Map<String,String> removeOrDefault existing")
+    expect(names.removeOrDefault("none", "missing") == "missing",
+        "Map<String,String> removeOrDefault fallback")
     expect(names.containsValue("language"), "Map<String,String> contains value")
 
     let ids = Map<Int, String>.new()
     ids.put(7, "seven")
     ids.put(11, "eleven")
     expect(ids.get(11).unwrap() == "eleven", "Map<Int,String> get value")
+    expect(ids.getUnchecked(7) == "seven", "Map<Int,String> getUnchecked existing")
+    expect(ids.removeOrDefault(11, "missing") == "eleven",
+        "Map<Int,String> removeOrDefault existing")
+    expect(ids.removeOrDefault(12, "missing") == "missing",
+        "Map<Int,String> removeOrDefault fallback")
     expect(ids.containsValue("seven"), "Map<Int,String> contains string value")
 
     let numeric = Map<Int, Int>.new()
@@ -70,7 +87,8 @@ fun main() r: Int {
     numeric.put(2, 20)
     expect(numeric.getOrDefault(2, -1) == 20, "Map<Int,Int> getOrDefault existing")
     expect(numeric.getOrDefault(3, -1) == -1, "Map<Int,Int> getOrDefault fallback")
-    expect(numeric.values().len() == 2, "Map<Int,Int> values length")
+    expect(numeric.removeUnchecked(1) == 10, "Map<Int,Int> removeUnchecked existing")
+    expect(numeric.values().len() == 1, "Map<Int,Int> values length after removal")
 
     names.clear()
     expect(names.isEmpty(), "Map clear empties map")
