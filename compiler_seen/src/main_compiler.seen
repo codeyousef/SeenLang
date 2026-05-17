@@ -292,7 +292,8 @@ import codegen.ir_stmt_return.{emitErrdeferTempReturnLoadImpl, emitProfileExitOn
 import codegen.ir_return_statement_driver.{generateReturnStatementState}
 import codegen.ir_stmt_scope.{recordDeferredStatementSnapshotImpl, beginTryCatchStatementSnapshotImpl}
 import codegen.ir_stmt_defer_driver.{generateDeferredStatement}
-import codegen.type_registry_cache.{cachedStructNameMatches}
+import codegen.type_registry_cache.{cachedStructNameMatches, resetTypeRegistryLookupCaches}
+import codegen.symbol_interner.{resetSymbolInterner, symbolInternerTraceDetail}
 import codegen.type_registry_core.{findStructReg}
 import codegen.type_registry.{TypeRegistry}
 import codegen.ir_codegen_state.{CodegenState}
@@ -5892,6 +5893,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_stmt_comptime")
         modules.push("codegen.ir_stmt_return")
         modules.push("codegen.ir_return_statement_driver")
+        modules.push("codegen.symbol_interner")
         modules.push("codegen.type_registry_cache")
         modules.push("codegen.type_registry_core")
         modules.push("codegen.ir_type_header_registry")
@@ -9091,6 +9093,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     the real source tree during module discovery.
     ///
     resetRealInputPathCache()
+    resetSymbolInterner()
+    resetTypeRegistryLookupCaches()
     let resolvedInput = resolveRealInputPath(inputFile)
     if not ensureProjectPackageDependenciesForInput(resolvedInput, true) {
         return 1
@@ -9490,7 +9494,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     }
     println("  [Pass 1] Complete - declarations registered")
     buildTraceFinish("declaration scan", pass1Start, "ok",
-        "modules=" + modulePaths.length().toString())
+        "modules=" + modulePaths.length().toString() + " " +
+        symbolInternerTraceDetail())
 
     // Optimization pipeline status
     if g_generatedTestMainMode == 0 {
@@ -9506,7 +9511,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             pipelineTargetCpu = "x86-64"
         }
         println("    Architecture: target-cpu=" + pipelineTargetCpu)
-        println("    Memory: LLVM SROA/mem2reg + pool allocator runtime")
+        println("    Memory: LLVM SROA/mem2reg + pool allocator runtime + symbol interning")
         println("    Backend: opt -O3 -> llc -O3 -> clang -O3 -flto")
     }
 
@@ -9550,7 +9555,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             cacheValid = true
         }
         buildTraceFinish("cache hashing", cacheHashStart, "ok",
-            "modules=" + modulePaths.length().toString())
+            "modules=" + modulePaths.length().toString() + " " +
+            symbolInternerTraceDetail())
     }
 
     ///
@@ -10251,7 +10257,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     }
     buildTraceFinish("ir generation and object cache", pass2Start, "ok",
         "cached=" + cachedCount.toString() + " modules=" +
-        modulePaths.length().toString())
+        modulePaths.length().toString() + " " + symbolInternerTraceDetail())
 
     if g_emitModuleIrDir != "" {
         if publishModuleIrArtifacts(compileTempDir, g_emitModuleIrDir) {
