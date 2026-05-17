@@ -17,12 +17,19 @@ fun main() -> Int {
 
     let copy = StdString.fromString("Lang")
     expect(copy.toString() == "Lang", "from should copy text")
+    let maybeCopy = StdString.tryFromString("Result")
+    expect(maybeCopy.isOkay(), "tryFromString should return Ok")
+    expect(maybeCopy.unwrap().toString() == "Result", "tryFromString should copy text")
 
     s.reserve(64)
     expect(s.capacity() >= 64, "reserve should grow buffer")
+    expect(s.tryReserve(96).isOkay(), "tryReserve should report success")
+    expect(s.tryPush("!").isOkay(), "tryPush should report success")
+    expect(s.tryPushChar('?').isOkay(), "tryPushChar should report success")
+    expect(s.tryToString().isOkay(), "tryToString should return Ok")
 
     let drained = s.intoString()
-    expect(drained == "Seen Std", "intoString should return accumulated text")
+    expect(drained == "Seen Std!?", "intoString should return accumulated text")
     expect(s.isEmpty(), "intoString should clear buffer")
 
     return 0

@@ -270,6 +270,15 @@ void* Optional_unwrap(void* ptr);
 void* Vec_toArray(void* vecPtr);
 void* Vec_toArray_str(void* vecPtr);
 void* Vec_toArray_float(void* vecPtr);
+int64_t Vec_tryPush(void* vecPtr, int64_t value);
+int64_t Vec_tryPush_str(void* vecPtr, SeenString value);
+int64_t Vec_tryPush_float(void* vecPtr, double value);
+int64_t Vec_tryEnsureCapacity(void* vecPtr, int64_t capacity);
+int64_t Vec_tryEnsureCapacity_str(void* vecPtr, int64_t capacity);
+int64_t Vec_tryEnsureCapacity_float(void* vecPtr, int64_t capacity);
+int64_t Vec_tryToArray(void* vecPtr);
+int64_t Vec_tryToArray_str(void* vecPtr);
+int64_t Vec_tryToArray_float(void* vecPtr);
 
 int64_t HashMap_getUnchecked(void* mapPtr, int64_t key);
 int64_t HashMap_getUnchecked_str(void* mapPtr, SeenString key);

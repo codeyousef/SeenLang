@@ -10,8 +10,11 @@ fun expect(condition: Bool, message: String) -> Void {
 fun main() -> Int {
     let map = StringHashMap<Int>.new()
     expect(map.isEmpty(), "map should start empty")
+    expect(StringHashMap<Int>.tryWithCapacity(8).isOkay(),
+        "tryWithCapacity should return Ok")
+    expect(map.tryReserve(32).isOkay(), "tryReserve should report success")
 
-    map.insert("alpha", 1)
+    expect(map.tryInsert("alpha", 1).isOkay(), "tryInsert should report success")
     map.insert("beta", 2)
     map.insert("gamma", 3)
 

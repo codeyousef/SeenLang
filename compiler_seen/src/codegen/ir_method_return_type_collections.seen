@@ -59,6 +59,21 @@ fun getCollectionMethodReturnTypeImpl(structName: String,
             methodName == "indexOf" {
             return "Int"
         }
+        if methodName == "tryPush" or methodName == "tryReserve" or
+            methodName == "tryEnsureCapacity" {
+            return "Result<Unit, AllocError>"
+        }
+        if methodName == "tryWithCapacity" {
+            return "Result<" + structName + ", AllocError>"
+        }
+        if methodName == "tryToArray" {
+            if structName.startsWith("Vec<") and structName.endsWith(">") {
+                let elementType = structName.substring(4,
+                    structName.length() - 1)
+                return "Result<Array<" + elementType + ">, AllocError>"
+            }
+            return "Result<Array<Int>, AllocError>"
+        }
         if methodName == "isEmpty" or methodName == "contains" {
             return "Bool"
         }
@@ -213,6 +228,12 @@ fun getCollectionMethodReturnTypeImpl(structName: String,
             methodName == "length" {
             return "Int"
         }
+        if methodName == "tryPut" or methodName == "tryReserve" {
+            return "Result<Unit, AllocError>"
+        }
+        if methodName == "tryWithCapacity" {
+            return "Result<" + structName + ", AllocError>"
+        }
         if methodName == "isEmpty" or methodName == "containsKey" or
             methodName == "containsValue" {
             return "Bool"
@@ -254,6 +275,13 @@ fun getCollectionMethodReturnTypeImpl(structName: String,
 
     if structName == "HashMap" or structName.startsWith("HashMap<") {
         if methodName == "size" or methodName == "len" { return "Int" }
+        if methodName == "tryInsert" or methodName == "tryReserve" or
+            methodName == "tryResize" {
+            return "Result<Unit, AllocError>"
+        }
+        if methodName == "tryWithCapacity" {
+            return "Result<" + structName + ", AllocError>"
+        }
         if methodName == "isEmpty" or methodName == "containsKey" {
             return "Bool"
         }
@@ -376,6 +404,13 @@ fun getCollectionMethodReturnTypeImpl(structName: String,
             methodName == "loadFactorPercent" {
             return "Int"
         }
+        if methodName == "tryInsert" or methodName == "tryReserve" or
+            methodName == "tryEnsureCapacityFor" or methodName == "tryResize" {
+            return "Result<Unit, AllocError>"
+        }
+        if methodName == "tryWithCapacity" {
+            return "Result<" + structName + ", AllocError>"
+        }
         if methodName == "isEmpty" or methodName == "contains" or
             methodName == "remove" {
             return "Bool"
@@ -409,6 +444,15 @@ fun getCollectionMethodReturnTypeImpl(structName: String,
         if methodName == "len" or methodName == "size" {
             return "Int"
         }
+        if methodName == "tryInsert" {
+            return "Result<Bool, AllocError>"
+        }
+        if methodName == "tryReserve" {
+            return "Result<Unit, AllocError>"
+        }
+        if methodName == "tryWithCapacity" {
+            return "Result<" + structName + ", AllocError>"
+        }
         if methodName == "isEmpty" or methodName == "insert" or
             methodName == "remove" or methodName == "contains" {
             return "Bool"
@@ -421,6 +465,15 @@ fun getCollectionMethodReturnTypeImpl(structName: String,
     if structName == "StringHashSet" {
         if methodName == "len" or methodName == "size" {
             return "Int"
+        }
+        if methodName == "tryInsert" {
+            return "Result<Bool, AllocError>"
+        }
+        if methodName == "tryReserve" {
+            return "Result<Unit, AllocError>"
+        }
+        if methodName == "tryWithCapacity" {
+            return "Result<StringHashSet, AllocError>"
         }
         if methodName == "isEmpty" or methodName == "insert" or
             methodName == "remove" or methodName == "contains" {

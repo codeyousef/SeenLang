@@ -45,6 +45,9 @@ fun emitMapVecBTreeRuntimeDecls(output: StringBuilder,
     output.append("declare i64 @Vec_len(ptr) nounwind readonly\n")
     output.append("declare i64 @Vec_capacity(ptr) nounwind readonly\n")
     output.append("declare void @Vec_ensureCapacity(ptr, i64) nounwind\n")
+    output.append("declare i64 @Vec_tryPush(ptr, i64) nounwind\n")
+    output.append("declare i64 @Vec_tryEnsureCapacity(ptr, i64) nounwind\n")
+    output.append("declare i64 @Vec_tryToArray(ptr) nounwind\n")
     // Vec<Int> utility methods
     if not isFuncDefinedInModule("Vec_contains", definedFuncs) {
         output.append("declare i64 @Vec_contains(ptr, i64) nounwind readonly\n")
@@ -129,6 +132,15 @@ fun emitMapVecBTreeRuntimeDecls(output: StringBuilder,
     if not isFuncDefinedInModule("Vec_ensureCapacity_str", definedFuncs) {
         output.append("declare void @Vec_ensureCapacity_str(ptr, i64) nounwind\n")
     }
+    if not isFuncDefinedInModule("Vec_tryPush_str", definedFuncs) {
+        output.append("declare i64 @Vec_tryPush_str(ptr, %SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("Vec_tryEnsureCapacity_str", definedFuncs) {
+        output.append("declare i64 @Vec_tryEnsureCapacity_str(ptr, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("Vec_tryToArray_str", definedFuncs) {
+        output.append("declare i64 @Vec_tryToArray_str(ptr) nounwind\n")
+    }
     if not isFuncDefinedInModule("Vec_set_str", definedFuncs) {
         output.append("declare void @Vec_set_str(ptr, i64, %SeenString) nounwind\n")
     }
@@ -190,6 +202,15 @@ fun emitMapVecBTreeRuntimeDecls(output: StringBuilder,
     }
     if not isFuncDefinedInModule("Vec_ensureCapacity_float", definedFuncs) {
         output.append("declare void @Vec_ensureCapacity_float(ptr, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("Vec_tryPush_float", definedFuncs) {
+        output.append("declare i64 @Vec_tryPush_float(ptr, double) nounwind\n")
+    }
+    if not isFuncDefinedInModule("Vec_tryEnsureCapacity_float", definedFuncs) {
+        output.append("declare i64 @Vec_tryEnsureCapacity_float(ptr, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("Vec_tryToArray_float", definedFuncs) {
+        output.append("declare i64 @Vec_tryToArray_float(ptr) nounwind\n")
     }
     if not isFuncDefinedInModule("Vec_contains_float", definedFuncs) {
         output.append("declare i64 @Vec_contains_float(ptr, double) nounwind readonly\n")

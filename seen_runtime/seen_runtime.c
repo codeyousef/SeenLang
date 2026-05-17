@@ -3861,6 +3861,55 @@ void __seen_component_destroy_tree(int64_t id) {
     info->state = SEEN_COMPONENT_DESTROYED;
 }
 
+typedef struct {
+    bool isOk;
+    SeenArray* okStorage;
+    SeenArray* errStorage;
+} SeenResult;
+
+typedef struct {
+    int64_t requestedBytes;
+    int64_t limitBytes;
+    int64_t usedBytes;
+    SeenString message;
+} SeenAllocError;
+
+static int64_t seen_result_ok_i64(int64_t value) {
+    SeenArray* ok = seen_arr_new_ptr_ptr();
+    seen_arr_push_ptr(ok, (void*)value);
+    SeenArray* err = seen_arr_new_ptr_ptr();
+    SeenResult* result = (SeenResult*)seen_try_malloc((int64_t)sizeof(SeenResult));
+    if (!result) seen_oom_abort("Result Ok header", sizeof(SeenResult));
+    result->isOk = true;
+    result->okStorage = ok;
+    result->errStorage = err;
+    return (int64_t)result;
+}
+
+static int64_t seen_result_ok_unit(void) {
+    void* unit = seen_pool_alloc(8);
+    return seen_result_ok_i64((int64_t)unit);
+}
+
+static int64_t seen_result_err_alloc(int64_t requested_bytes) {
+    SeenAllocError* error =
+        (SeenAllocError*)seen_try_malloc((int64_t)sizeof(SeenAllocError));
+    if (!error) seen_oom_abort("AllocError header", sizeof(SeenAllocError));
+    error->requestedBytes = requested_bytes;
+    error->limitBytes = seen_memory_limit_bytes();
+    error->usedBytes = seen_memory_used_bytes();
+    error->message = seen_cstr_to_str("Seen allocation budget exceeded");
+    SeenArray* ok = seen_arr_new_ptr_ptr();
+    SeenArray* err = seen_arr_new_ptr_ptr();
+    seen_arr_push_ptr(err, error);
+    SeenResult* result = (SeenResult*)seen_try_malloc((int64_t)sizeof(SeenResult));
+    if (!result) seen_oom_abort("Result Err header", sizeof(SeenResult));
+    result->isOk = false;
+    result->okStorage = ok;
+    result->errStorage = err;
+    return (int64_t)result;
+}
+
 // ============================================================================
 // Vec<T> Runtime Helpers
 // Vec is a simple growable array: { data: ptr, length: i64, capacity: i64 }
@@ -3880,6 +3929,18 @@ static int64_t Vec_checked_bytes(int64_t count, int64_t elem_size,
         seen_oom_abort(context, INT64_MAX);
     }
     return count * elem_size;
+}
+
+static bool Vec_try_checked_bytes(int64_t count, int64_t elem_size,
+    int64_t* bytes_out) {
+    if (count <= 0) count = 1;
+    if (elem_size <= 0 || count > INT64_MAX / elem_size) {
+        g_seen_memory_allocation_failures++;
+        if (bytes_out) *bytes_out = INT64_MAX;
+        return false;
+    }
+    if (bytes_out) *bytes_out = count * elem_size;
+    return true;
 }
 
 static int64_t Vec_next_capacity(int64_t capacity, const char* context) {
@@ -3905,6 +3966,35 @@ static void* Vec_realloc_data(void* old, int64_t old_count,
     void* ptr = seen_try_realloc(old, old_bytes, new_bytes);
     if (!ptr) seen_oom_abort(context, new_bytes);
     return ptr;
+}
+
+static bool Vec_try_reserve_raw(void** data, int64_t* capacity,
+    int64_t required_capacity, int64_t elem_size, int64_t* requested_out) {
+    if (required_capacity <= *capacity) return true;
+    int64_t newCap = *capacity == 0 ? 8 : *capacity;
+    while (newCap < required_capacity) {
+        if (newCap > INT64_MAX / 2) {
+            g_seen_memory_allocation_failures++;
+            if (requested_out) *requested_out = INT64_MAX;
+            return false;
+        }
+        newCap *= 2;
+    }
+    int64_t old_bytes = 0;
+    int64_t new_bytes = 0;
+    if (!Vec_try_checked_bytes(*capacity, elem_size, &old_bytes) ||
+        !Vec_try_checked_bytes(newCap, elem_size, &new_bytes)) {
+        if (requested_out) *requested_out = new_bytes;
+        return false;
+    }
+    void* next = seen_try_realloc(*data, *data ? old_bytes : 0, new_bytes);
+    if (!next) {
+        if (requested_out) *requested_out = new_bytes;
+        return false;
+    }
+    *data = next;
+    *capacity = newCap;
+    return true;
 }
 
 void* Vec_new(void) {
@@ -3967,6 +4057,29 @@ void Vec_ensureCapacity(void* vecPtr, int64_t capacity) {
     vec->data = (int64_t*)Vec_realloc_data(vec->data, vec->capacity,
         newCap, (int64_t)sizeof(int64_t), "Vec_ensureCapacity data");
     vec->capacity = newCap;
+}
+
+int64_t Vec_tryEnsureCapacity(void* vecPtr, int64_t capacity) {
+    SeenVec* vec = (SeenVec*)vecPtr;
+    int64_t requested = capacity * (int64_t)sizeof(int64_t);
+    if (!vec) return seen_result_err_alloc(requested);
+    if (!Vec_try_reserve_raw((void**)&vec->data, &vec->capacity, capacity,
+        (int64_t)sizeof(int64_t), &requested)) {
+        return seen_result_err_alloc(requested);
+    }
+    return seen_result_ok_unit();
+}
+
+int64_t Vec_tryPush(void* vecPtr, int64_t value) {
+    SeenVec* vec = (SeenVec*)vecPtr;
+    if (!vec) return seen_result_err_alloc((int64_t)sizeof(int64_t));
+    int64_t requested = 0;
+    if (!Vec_try_reserve_raw((void**)&vec->data, &vec->capacity,
+        vec->length + 1, (int64_t)sizeof(int64_t), &requested)) {
+        return seen_result_err_alloc(requested);
+    }
+    vec->data[vec->length++] = value;
+    return seen_result_ok_unit();
 }
 
 // Vec<Int> utility methods
@@ -4103,6 +4216,27 @@ void* Vec_toArray(void* vecPtr) {
         seen_arr_push_i64(arr, vec->data[i]);
     }
     return arr;
+}
+
+int64_t Vec_tryToArray(void* vecPtr) {
+    SeenVec* vec = (SeenVec*)vecPtr;
+    if (!vec) return seen_result_err_alloc((int64_t)sizeof(SeenArray));
+    int64_t data_bytes = 0;
+    if (!Vec_try_checked_bytes(vec->length, (int64_t)sizeof(int64_t),
+        &data_bytes)) {
+        return seen_result_err_alloc(data_bytes);
+    }
+    SeenArray* arr = (SeenArray*)seen_try_malloc((int64_t)sizeof(SeenArray));
+    if (!arr) return seen_result_err_alloc((int64_t)sizeof(SeenArray));
+    arr->len = 0;
+    arr->cap = vec->length > 0 ? vec->length : 1;
+    arr->element_size = (int64_t)sizeof(int64_t);
+    arr->data = seen_try_malloc(data_bytes);
+    if (!arr->data) return seen_result_err_alloc(data_bytes);
+    for (int64_t i = 0; i < vec->length; i++) {
+        seen_arr_push_i64(arr, vec->data[i]);
+    }
+    return seen_result_ok_i64((int64_t)arr);
 }
 
 int64_t Vec_len(void* vecPtr) {
@@ -4359,6 +4493,29 @@ void Vec_push_str(void* vecPtr, SeenString value) {
     vec->data[vec->length++] = value;
 }
 
+int64_t Vec_tryEnsureCapacity_str(void* vecPtr, int64_t capacity) {
+    SeenVecStr* vec = (SeenVecStr*)vecPtr;
+    int64_t requested = capacity * (int64_t)sizeof(SeenString);
+    if (!vec) return seen_result_err_alloc(requested);
+    if (!Vec_try_reserve_raw((void**)&vec->data, &vec->capacity, capacity,
+        (int64_t)sizeof(SeenString), &requested)) {
+        return seen_result_err_alloc(requested);
+    }
+    return seen_result_ok_unit();
+}
+
+int64_t Vec_tryPush_str(void* vecPtr, SeenString value) {
+    SeenVecStr* vec = (SeenVecStr*)vecPtr;
+    if (!vec) return seen_result_err_alloc((int64_t)sizeof(SeenString));
+    int64_t requested = 0;
+    if (!Vec_try_reserve_raw((void**)&vec->data, &vec->capacity,
+        vec->length + 1, (int64_t)sizeof(SeenString), &requested)) {
+        return seen_result_err_alloc(requested);
+    }
+    vec->data[vec->length++] = value;
+    return seen_result_ok_unit();
+}
+
 SeenString Vec_get_str(void* vecPtr, int64_t index) {
     SeenVecStr* vec = (SeenVecStr*)vecPtr;
     if (index < 0 || index >= vec->length) {
@@ -4498,6 +4655,27 @@ void* Vec_toArray_str(void* vecPtr) {
     return arr;
 }
 
+int64_t Vec_tryToArray_str(void* vecPtr) {
+    SeenVecStr* vec = (SeenVecStr*)vecPtr;
+    if (!vec) return seen_result_err_alloc((int64_t)sizeof(SeenArray));
+    int64_t data_bytes = 0;
+    if (!Vec_try_checked_bytes(vec->length, (int64_t)sizeof(SeenString),
+        &data_bytes)) {
+        return seen_result_err_alloc(data_bytes);
+    }
+    SeenArray* arr = (SeenArray*)seen_try_malloc((int64_t)sizeof(SeenArray));
+    if (!arr) return seen_result_err_alloc((int64_t)sizeof(SeenArray));
+    arr->len = 0;
+    arr->cap = vec->length > 0 ? vec->length : 1;
+    arr->element_size = (int64_t)sizeof(SeenString);
+    arr->data = seen_try_malloc(data_bytes);
+    if (!arr->data) return seen_result_err_alloc(data_bytes);
+    for (int64_t i = 0; i < vec->length; i++) {
+        seen_arr_push_str(arr, vec->data[i]);
+    }
+    return seen_result_ok_i64((int64_t)arr);
+}
+
 // ============================================================================
 // Vec with Float elements
 // Vec_float stores double values (8 bytes each)
@@ -4529,6 +4707,29 @@ void Vec_push_float(void* vecPtr, double value) {
             vec->capacity, (int64_t)sizeof(double), "Vec_push_float data");
     }
     vec->data[vec->length++] = value;
+}
+
+int64_t Vec_tryEnsureCapacity_float(void* vecPtr, int64_t capacity) {
+    SeenVecFloat* vec = (SeenVecFloat*)vecPtr;
+    int64_t requested = capacity * (int64_t)sizeof(double);
+    if (!vec) return seen_result_err_alloc(requested);
+    if (!Vec_try_reserve_raw((void**)&vec->data, &vec->capacity, capacity,
+        (int64_t)sizeof(double), &requested)) {
+        return seen_result_err_alloc(requested);
+    }
+    return seen_result_ok_unit();
+}
+
+int64_t Vec_tryPush_float(void* vecPtr, double value) {
+    SeenVecFloat* vec = (SeenVecFloat*)vecPtr;
+    if (!vec) return seen_result_err_alloc((int64_t)sizeof(double));
+    int64_t requested = 0;
+    if (!Vec_try_reserve_raw((void**)&vec->data, &vec->capacity,
+        vec->length + 1, (int64_t)sizeof(double), &requested)) {
+        return seen_result_err_alloc(requested);
+    }
+    vec->data[vec->length++] = value;
+    return seen_result_ok_unit();
 }
 
 double Vec_get_float(void* vecPtr, int64_t index) {
@@ -4718,6 +4919,27 @@ void* String_split(SeenString text, SeenString delimiter) {
     if (!heap) seen_oom_abort("String_split result", sizeof(SeenArray));
     *heap = result;
     return heap;
+}
+
+int64_t Vec_tryToArray_float(void* vecPtr) {
+    SeenVecFloat* vec = (SeenVecFloat*)vecPtr;
+    if (!vec) return seen_result_err_alloc((int64_t)sizeof(SeenArray));
+    int64_t data_bytes = 0;
+    if (!Vec_try_checked_bytes(vec->length, (int64_t)sizeof(double),
+        &data_bytes)) {
+        return seen_result_err_alloc(data_bytes);
+    }
+    SeenArray* arr = (SeenArray*)seen_try_malloc((int64_t)sizeof(SeenArray));
+    if (!arr) return seen_result_err_alloc((int64_t)sizeof(SeenArray));
+    arr->len = 0;
+    arr->cap = vec->length > 0 ? vec->length : 1;
+    arr->element_size = (int64_t)sizeof(double);
+    arr->data = seen_try_malloc(data_bytes);
+    if (!arr->data) return seen_result_err_alloc(data_bytes);
+    for (int64_t i = 0; i < vec->length; i++) {
+        seen_arr_push_f64(arr, vec->data[i]);
+    }
+    return seen_result_ok_i64((int64_t)arr);
 }
 
 // ============================================================================

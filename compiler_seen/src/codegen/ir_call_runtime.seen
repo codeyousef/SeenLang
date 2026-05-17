@@ -58,11 +58,7 @@ fun emitOptionRuntimeBuiltinCallImpl(output: StringBuilder, regBox: Array<Int>, 
 fun emitResultRuntimeBuiltinCallImpl(output: StringBuilder, regBox: Array<Int>,
     funcName: String, argReg: String, argLlvmType: String) r: String {
 
-    if funcName == "Err" {
-        return "0"
-    }
-
-    if funcName != "Ok" {
+    if funcName != "Ok" and funcName != "Err" {
         return ""
     }
 

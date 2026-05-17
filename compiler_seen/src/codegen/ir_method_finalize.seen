@@ -10,7 +10,9 @@ import codegen.ir_call_dispatch.{emitOptionUnwrapSpecializedImpl, emitUserMethod
 import codegen.ir_string_collect.{getBaseTypeNameImpl}
 import codegen.ir_codegen_type_state.{mapTypeState, isClassTypeState, isDataTypeState, isClassHandleLikeTypeState}
 import codegen.ir_decl_registry.{LateUserDeclareState, recordLateUserDeclareIntoStateImpl}
+import codegen.ir_infer_type.{extractResultInnerType, extractResultErrorType}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
+import codegen.ir_type_dispatch.{emitHashMapMethodImpl, emitMapMethodImpl, emitStringHashMapMethodImpl}
 import str.string.{StringBuilder}
 
 fun stripMethodGenericSuffixImpl(typeName: String) r: String {
@@ -233,10 +235,96 @@ fun extractOptionInnerTypeImpl(receiverType: String, fallbackType: String) r: St
 fun tryGenerateSpecializedInstanceMethodCallImpl(output: StringBuilder,
     regBox: Array<Int>, methodName: String, instanceTypeName: String,
     receiverType: String, returnTypeStr: String, receiverLlvmType: String,
-    receiverReg: String) r: String {
+    receiverReg: String, argRegs: Array<String>) r: String {
 
     if methodName == "unwrap" and instanceTypeName == "String" {
         return receiverReg
+    }
+
+    if instanceTypeName == "HashMap" and
+        (methodName == "tryInsert" or methodName == "tryReserve") {
+        let hasStringKey = receiverType.contains("<String")
+        let hasStringValue = receiverType.contains(", String>") or
+            receiverType.contains(",String>")
+        var arg0 = "0"
+        var arg1 = "0"
+        if argRegs.length() > 0 { arg0 = argRegs[0] }
+        if argRegs.length() > 1 { arg1 = argRegs[1] }
+        return emitHashMapMethodImpl(output, regBox, methodName, receiverReg,
+            arg0, arg1, hasStringKey, hasStringValue)
+    }
+
+    if instanceTypeName == "Map" and
+        (methodName == "tryPut" or methodName == "tryReserve") {
+        let hasStringKey = receiverType.contains("<String")
+        let hasStringValue = receiverType.contains(", String>") or
+            receiverType.contains(",String>")
+        var arg0 = "0"
+        var arg1 = "0"
+        if argRegs.length() > 0 { arg0 = argRegs[0] }
+        if argRegs.length() > 1 { arg1 = argRegs[1] }
+        return emitMapMethodImpl(output, regBox, methodName, receiverReg,
+            arg0, arg1, hasStringKey, hasStringValue)
+    }
+
+    if instanceTypeName == "StringHashMap" and
+        (methodName == "tryInsert" or methodName == "tryReserve") {
+        let hasStringValue = receiverType.contains("<String>")
+        var arg0 = "0"
+        var arg1 = "0"
+        if argRegs.length() > 0 { arg0 = argRegs[0] }
+        if argRegs.length() > 1 { arg1 = argRegs[1] }
+        return emitStringHashMapMethodImpl(output, regBox, methodName,
+            receiverReg, arg0, arg1, hasStringValue)
+    }
+
+    if instanceTypeName == "Result" and
+        (methodName == "unwrap" or methodName == "expect" or
+        methodName == "unwrapErr") {
+
+        var payloadType = extractResultInnerType(receiverType)
+        if methodName == "unwrapErr" {
+            payloadType = extractResultErrorType(receiverType)
+        }
+        if payloadType == "String" {
+            let boxedPayloadReg = getNextRegFn(regBox)
+            if methodName == "unwrapErr" {
+                output.append("  " + boxedPayloadReg + " = call i64 @Result_unwrapErr(" +
+                    receiverLlvmType + " " + receiverReg + ")\n")
+            } else if methodName == "expect" and argRegs.length() > 0 {
+                output.append("  " + boxedPayloadReg + " = call i64 @Result_expect(" +
+                    receiverLlvmType + " " + receiverReg + ", %SeenString " +
+                    argRegs[0] + ")\n")
+            } else {
+                output.append("  " + boxedPayloadReg + " = call i64 @Result_unwrap(" +
+                    receiverLlvmType + " " + receiverReg + ")\n")
+            }
+            let slotPtrReg = getNextRegFn(regBox)
+            output.append("  " + slotPtrReg + " = inttoptr i64 " +
+                boxedPayloadReg + " to ptr\n")
+            let resultReg = getNextRegFn(regBox)
+            output.append("  " + resultReg + " = load %SeenString, ptr " +
+                slotPtrReg + "\n")
+            return resultReg
+        }
+        if payloadType == "Bool" {
+            let boxedPayloadReg = getNextRegFn(regBox)
+            if methodName == "unwrapErr" {
+                output.append("  " + boxedPayloadReg + " = call i64 @Result_unwrapErr(" +
+                    receiverLlvmType + " " + receiverReg + ")\n")
+            } else if methodName == "expect" and argRegs.length() > 0 {
+                output.append("  " + boxedPayloadReg + " = call i64 @Result_expect(" +
+                    receiverLlvmType + " " + receiverReg + ", %SeenString " +
+                    argRegs[0] + ")\n")
+            } else {
+                output.append("  " + boxedPayloadReg + " = call i64 @Result_unwrap(" +
+                    receiverLlvmType + " " + receiverReg + ")\n")
+            }
+            let resultReg = getNextRegFn(regBox)
+            output.append("  " + resultReg + " = trunc i64 " +
+                boxedPayloadReg + " to i1\n")
+            return resultReg
+        }
     }
 
     if methodName == "unwrap" and instanceTypeName == "Option" {
@@ -279,15 +367,73 @@ fun emitPreparedFinalMethodDispatchState(output: StringBuilder,
     let normalizedReceiverReg = receiverRegBox[0]
     let receiverLlvmType = receiverLlvmTypeBox[0]
 
+    if funcName == "HashMap_tryInsert" or funcName == "HashMap_tryReserve" {
+        var hasStringKeyFromArgs = receiverType.contains("<String")
+        var hasStringValueFromArgs = receiverType.contains(", String>") or
+            receiverType.contains(",String>")
+        if argTypeStrs.length() > 0 and argTypeStrs[0] == "%SeenString" {
+            hasStringKeyFromArgs = true
+        }
+        if argTypeStrs.length() > 1 and argTypeStrs[1] == "%SeenString" {
+            hasStringValueFromArgs = true
+        }
+        var arg0 = "0"
+        var arg1 = "0"
+        if argRegs.length() > 0 { arg0 = argRegs[0] }
+        if argRegs.length() > 1 { arg1 = argRegs[1] }
+        return emitHashMapMethodImpl(output, regBox, methodName,
+            normalizedReceiverReg, arg0, arg1, hasStringKeyFromArgs,
+            hasStringValueFromArgs)
+    }
+
+    if funcName == "Map_tryPut" or funcName == "Map_tryReserve" {
+        var hasStringKeyFromArgs = receiverType.contains("<String")
+        var hasStringValueFromArgs = receiverType.contains(", String>") or
+            receiverType.contains(",String>")
+        if argTypeStrs.length() > 0 and argTypeStrs[0] == "%SeenString" {
+            hasStringKeyFromArgs = true
+        }
+        if argTypeStrs.length() > 1 and argTypeStrs[1] == "%SeenString" {
+            hasStringValueFromArgs = true
+        }
+        var arg0 = "0"
+        var arg1 = "0"
+        if argRegs.length() > 0 { arg0 = argRegs[0] }
+        if argRegs.length() > 1 { arg1 = argRegs[1] }
+        return emitMapMethodImpl(output, regBox, methodName,
+            normalizedReceiverReg, arg0, arg1, hasStringKeyFromArgs,
+            hasStringValueFromArgs)
+    }
+
+    if funcName == "StringHashMap_tryInsert" or
+        funcName == "StringHashMap_tryReserve" {
+        var hasStringValueFromArgs = receiverType.contains("<String>")
+        if argTypeStrs.length() > 1 and argTypeStrs[1] == "%SeenString" {
+            hasStringValueFromArgs = true
+        }
+        var arg0 = "0"
+        var arg1 = "0"
+        if argRegs.length() > 0 { arg0 = argRegs[0] }
+        if argRegs.length() > 1 { arg1 = argRegs[1] }
+        return emitStringHashMapMethodImpl(output, regBox, methodName,
+            normalizedReceiverReg, arg0, arg1, hasStringValueFromArgs)
+    }
+
     if shouldEmitUserMethod and receiverLlvmType == "ptr" {
         recordLateUserDeclareIntoStateImpl(funcName, llvmReturnType,
             argTypeStrs, 1, lateState)
     }
 
-    if shouldTrySpecialized {
+    let shouldForceSpecializedMapResult =
+        ((instanceTypeName == "HashMap" or instanceTypeName == "StringHashMap") and
+        (methodName == "tryInsert" or methodName == "tryReserve")) or
+        (instanceTypeName == "Map" and
+        (methodName == "tryPut" or methodName == "tryReserve"))
+
+    if shouldTrySpecialized or shouldForceSpecializedMapResult {
         let specializedResult = tryGenerateSpecializedInstanceMethodCallImpl(
             output, regBox, methodName, instanceTypeName, receiverType,
-            returnTypeStr, receiverLlvmType, normalizedReceiverReg)
+            returnTypeStr, receiverLlvmType, normalizedReceiverReg, argRegs)
         if specializedResult != "" {
             return specializedResult
         }

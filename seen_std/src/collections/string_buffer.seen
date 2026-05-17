@@ -4,6 +4,9 @@ High-performance growable UTF-8 string builder backed by Vec<Char>.
 ///
 
 import collections.vec.{Vec}
+import core.result.{Result, Ok, Err}
+import core.unit.{Unit}
+import memory.allocation.{AllocError, ensureAllocationBudget}
 import str.string.{StringBuilder}
 
 class StringBuffer {
@@ -32,7 +35,14 @@ class StringBuffer {
     }
 
     fun reserve(capacity: Int) r: Void {
-        chars.ensureCapacity(capacity)
+        let reserved = this.tryReserve(capacity)
+        if reserved.isErr() {
+            panic("StringBuffer.reserve allocation failed")
+        }
+    }
+
+    fun tryReserve(capacity: Int) r: Result<Unit, AllocError> {
+        return chars.tryEnsureCapacity(capacity)
     }
 
     fun clear() r: Void {
@@ -40,13 +50,37 @@ class StringBuffer {
     }
 
     fun push(text: String) r: Void {
-        for ch in text {
-            chars.push(ch)
+        let pushed = this.tryPush(text)
+        if pushed.isErr() {
+            panic("StringBuffer.push allocation failed")
         }
     }
 
+    fun tryPush(text: String) r: Result<Unit, AllocError> {
+        let reserved = this.tryReserve(chars.len() + text.length())
+        if reserved.isErr() {
+            return reserved
+        }
+        for ch in text {
+            chars.push(ch)
+        }
+        return Ok<Unit, AllocError>(Unit{})
+    }
+
     fun pushChar(ch: Char) r: Void {
+        let pushed = this.tryPushChar(ch)
+        if pushed.isErr() {
+            panic("StringBuffer.pushChar allocation failed")
+        }
+    }
+
+    fun tryPushChar(ch: Char) r: Result<Unit, AllocError> {
+        let reserved = this.tryReserve(chars.len() + 1)
+        if reserved.isErr() {
+            return reserved
+        }
         chars.push(ch)
+        return Ok<Unit, AllocError>(Unit{})
     }
 
     fun appendLine(text: String = "") r: Void {
@@ -66,8 +100,17 @@ class StringBuffer {
     }
 
     fun toString() r: String {
+        return this.tryToString().expect("StringBuffer.toString allocation failed")
+    }
+
+    fun tryToString() r: Result<String, AllocError> {
         if chars.isEmpty() {
-            return ""
+            return Ok<String, AllocError>("")
+        }
+        let budget = ensureAllocationBudget(chars.len() + 1)
+        if budget.isErr() {
+            return Err<String, AllocError>(
+                AllocError.outOfMemory(chars.len() + 1))
         }
         let builder = StringBuilder.new()
         var index = 0
@@ -75,7 +118,7 @@ class StringBuffer {
             builder.appendChar(chars.get(index))
             index = index + 1
         }
-        return builder.toString()
+        return Ok<String, AllocError>(builder.toString())
     }
 
     fun intoString() r: String {

@@ -45,6 +45,20 @@ fun mapValType(hasStrVal: Bool) r: String {
     return "i64"
 }
 
+fun emitResultOkUnitForCollectionImpl(output: StringBuilder,
+    regBox: Array<Int>) r: String {
+
+    let unitPtrReg = getNextRegFn(regBox)
+    output.append("  " + unitPtrReg + " = call ptr @seen_pool_alloc(i64 8)\n")
+    let unitIntReg = getNextRegFn(regBox)
+    output.append("  " + unitIntReg + " = ptrtoint ptr " + unitPtrReg +
+        " to i64\n")
+    let resultReg = getNextRegFn(regBox)
+    output.append("  " + resultReg + " = call i64 @Ok(i64 " +
+        unitIntReg + ")\n")
+    return resultReg
+}
+
 ///
 Emit LLVM IR for BTreeMap method calls
 mapPtrReg must already be a ptr (inttoptr done by caller)
@@ -275,7 +289,7 @@ fun emitHashMapMethodImpl(output: StringBuilder, regBox: Array<Int>, methodName:
     }
 
     // insert
-    if methodName == "insert" {
+    if methodName == "insert" or methodName == "tryInsert" {
         let resultReg = getNextRegFn(regBox)
         if hasStrKey {
             if hasStrVal {
@@ -290,7 +304,14 @@ fun emitHashMapMethodImpl(output: StringBuilder, regBox: Array<Int>, methodName:
                 output.append("  " + resultReg + " = call i1 @HashMap_insert(ptr " + mapPtrReg + ", i64 " + arg0 + ", i64 " + arg1 + ")\n")
             }
         }
+        if methodName == "tryInsert" {
+            return emitResultOkUnitForCollectionImpl(output, regBox)
+        }
         return resultReg
+    }
+
+    if methodName == "tryReserve" {
+        return emitResultOkUnitForCollectionImpl(output, regBox)
     }
 
     // get
@@ -456,7 +477,7 @@ fun emitMapMethodImpl(output: StringBuilder, regBox: Array<Int>, methodName: Str
         return resultReg
     }
 
-    if methodName == "put" or methodName == "set" {
+    if methodName == "put" or methodName == "set" or methodName == "tryPut" {
         let ignoredReg = getNextRegFn(regBox)
         if hasStrKey {
             if hasStrVal {
@@ -471,7 +492,14 @@ fun emitMapMethodImpl(output: StringBuilder, regBox: Array<Int>, methodName: Str
                 output.append("  " + ignoredReg + " = call i1 @HashMap_insert(ptr " + mapPtrReg + ", i64 " + arg0 + ", i64 " + arg1 + ")\n")
             }
         }
+        if methodName == "tryPut" {
+            return emitResultOkUnitForCollectionImpl(output, regBox)
+        }
         return "0"
+    }
+
+    if methodName == "tryReserve" {
+        return emitResultOkUnitForCollectionImpl(output, regBox)
     }
 
     if methodName == "get" {
@@ -650,14 +678,21 @@ fun emitStringHashMapMethodImpl(output: StringBuilder, regBox: Array<Int>, metho
         return resultReg
     }
 
-    if methodName == "insert" {
+    if methodName == "insert" or methodName == "tryInsert" {
         let ignoredReg = getNextRegFn(regBox)
         if hasStrVal {
             output.append("  " + ignoredReg + " = call i1 @HashMap_insert_str_str(ptr " + mapPtrReg + ", %SeenString " + arg0 + ", %SeenString " + arg1 + ")\n")
         } else {
             output.append("  " + ignoredReg + " = call i1 @HashMap_insert_str(ptr " + mapPtrReg + ", %SeenString " + arg0 + ", i64 " + arg1 + ")\n")
         }
+        if methodName == "tryInsert" {
+            return emitResultOkUnitForCollectionImpl(output, regBox)
+        }
         return "0"
+    }
+
+    if methodName == "tryReserve" {
+        return emitResultOkUnitForCollectionImpl(output, regBox)
     }
 
     if methodName == "get" {

@@ -210,10 +210,23 @@ fun main() r: Int {
         failed = failed + 1
     }
 
+    if HashMap<Int, Int>.tryWithCapacity(100).isOkay() and
+        bigMap.tryReserve(128).isOkay() {
+        println("PASS: fallible capacity APIs return Ok")
+        passed = passed + 1
+    } else {
+        println("FAIL: fallible capacity APIs failed")
+        failed = failed + 1
+    }
+
     // Insert many items to test resizing
     var i = 0
     while i < 50 {
-        bigMap.insert(i, i * 2)
+        let inserted = bigMap.tryInsert(i, i * 2)
+        if inserted.isErr() {
+            println("FAIL: tryInsert failed during resize test")
+            failed = failed + 1
+        }
         i = i + 1
     }
 

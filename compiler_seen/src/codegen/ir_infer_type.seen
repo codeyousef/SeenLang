@@ -608,3 +608,47 @@ fun extractResultInnerType(resultType: String) r: String {
     }
     return ""
 }
+
+///
+extractResultErrorType — extract E from "Result<T, E>" type string
+Returns "" if the type doesn't match Result<T, E>.
+///
+fun extractResultErrorType(resultType: String) r: String {
+    if not resultType.startsWith("Result<") {
+        return ""
+    }
+    var depth = 0
+    var commaPos = -1
+    var gtPos = -1
+    var i = 0
+    while i < resultType.length() {
+        let ch = resultType.byteAt(i)
+        if ch == 60 {
+            depth = depth + 1
+        } else {
+            if ch == 62 {
+                depth = depth - 1
+                if depth == 0 and gtPos < 0 {
+                    gtPos = i
+                }
+            } else {
+                if ch == 44 and depth == 1 and commaPos < 0 {
+                    commaPos = i
+                }
+            }
+        }
+        i = i + 1
+    }
+    if commaPos < 0 or gtPos <= commaPos {
+        return ""
+    }
+    var start = commaPos + 1
+    while start < gtPos and resultType.byteAt(start) == 32 {
+        start = start + 1
+    }
+    var end = gtPos
+    while end > start and resultType.byteAt(end - 1) == 32 {
+        end = end - 1
+    }
+    return resultType.substring(start, end)
+}

@@ -18,6 +18,8 @@ fun main() -> Int {
 
     buffer.reserve(128)
     expect(buffer.capacity() >= 128, "reserve should grow internal storage")
+    expect(buffer.tryReserve(160).isOkay(), "tryReserve should report success")
+    expect(buffer.capacity() >= 160, "tryReserve should grow internal storage")
 
     buffer.appendLine(" rocks")
     expect(buffer.len() == 17, "appendLine should add newline")
@@ -30,6 +32,9 @@ fun main() -> Int {
     expect(buffer.isEmpty(), "intoString should clear buffer")
 
     buffer.push("reset")
+    expect(buffer.tryPush(" again").isOkay(), "tryPush should report success")
+    expect(buffer.tryPushChar('!').isOkay(), "tryPushChar should report success")
+    expect(buffer.tryToString().isOkay(), "tryToString should return Ok")
     buffer.clear()
     expect(buffer.len() == 0, "clear should reset buffer")
 

@@ -3,6 +3,10 @@ seen_std::collections::vec
 Contiguous Vec<T> with amortized O(1) push and O(1) random access.
 ///
 
+import core.result.{Result, Ok, Err}
+import core.unit.{Unit}
+import memory.allocation.{AllocError, ensureAllocationBudget}
+
 // Runtime-provided default initializer for generic T (handled as intrinsic in backend).
 extern fun __default<T>() r: T
 
@@ -25,9 +29,17 @@ class Vec<T> {
     }
 
     static fun withCapacity(capacity: Int) r: Vec<T> {
+        return Vec<T>.tryWithCapacity(capacity).expect(
+            "Vec.withCapacity allocation failed")
+    }
+
+    static fun tryWithCapacity(capacity: Int) r: Result<Vec<T>, AllocError> {
         var vec = Vec.new()
-        vec.reserve(capacity)
-        return vec
+        let reserved = vec.tryReserve(capacity)
+        if reserved.isErr() {
+            return Err<Vec<T>, AllocError>(reserved.unwrapErr())
+        }
+        return Ok<Vec<T>, AllocError>(vec)
     }
 
     fun len() r: Int {
@@ -43,12 +55,22 @@ class Vec<T> {
     }
 
     fun push(value: T) r: Void {
+        let pushed = this.tryPush(value)
+        if pushed.isErr() {
+            panic("Vec.push allocation failed")
+        }
+    }
+
+    fun tryPush(value: T) r: Result<Unit, AllocError> {
         if this.length >= this.capacity {
             var nextCapacity = 8
             if this.capacity > 0 {
                 nextCapacity = this.capacity * 2
             }
-            this.reserve(nextCapacity)
+            let reserved = this.tryReserve(nextCapacity)
+            if reserved.isErr() {
+                return reserved
+            }
         }
         if this.length < this.data.length() {
             this.data[this.length] = value
@@ -56,6 +78,7 @@ class Vec<T> {
             this.data.push(value)
         }
         this.length = this.length + 1
+        return Ok<Unit, AllocError>(Unit{})
     }
 
     fun pop() r: T {
@@ -85,8 +108,15 @@ class Vec<T> {
     }
 
     fun reserve(capacity: Int) r: Void {
+        let reserved = this.tryReserve(capacity)
+        if reserved.isErr() {
+            panic("Vec.reserve allocation failed")
+        }
+    }
+
+    fun tryReserve(capacity: Int) r: Result<Unit, AllocError> {
         if capacity <= this.capacity {
-            return
+            return Ok<Unit, AllocError>(Unit{})
         }
         var target = 8
         if this.capacity > 0 {
@@ -94,6 +124,10 @@ class Vec<T> {
         }
         while target < capacity {
             target = target * 2
+        }
+        let budget = ensureAllocationBudget(target * 16)
+        if budget.isErr() {
+            return budget
         }
         let newData = Array<T>(target)
         var index = 0
@@ -103,20 +137,33 @@ class Vec<T> {
         }
         this.data = newData
         this.capacity = target
+        return Ok<Unit, AllocError>(Unit{})
     }
 
     fun ensureCapacity(capacity: Int) r: Void {
         this.reserve(capacity)
     }
 
+    fun tryEnsureCapacity(capacity: Int) r: Result<Unit, AllocError> {
+        return this.tryReserve(capacity)
+    }
+
     fun toArray() r: Array<T> {
+        return this.tryToArray().expect("Vec.toArray allocation failed")
+    }
+
+    fun tryToArray() r: Result<Array<T>, AllocError> {
+        let budget = ensureAllocationBudget(this.length * 16)
+        if budget.isErr() {
+            return Err<Array<T>, AllocError>(budget.unwrapErr())
+        }
         let arr = Array<T>(this.length)
         var i = 0
         while i < this.length {
             arr.push(this.data[i])
             i = i + 1
         }
-        return arr
+        return Ok<Array<T>, AllocError>(arr)
     }
 
     fun locateSlot(index: Int) r: VecSlot {

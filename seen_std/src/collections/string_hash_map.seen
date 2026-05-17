@@ -5,6 +5,9 @@ High-performance hash map specialized for String keys.
 
 import collections.vec.{Vec}
 import core.option.{Option, Some, None}
+import core.result.{Result, Ok, Err}
+import core.unit.{Unit}
+import memory.allocation.{AllocError, ensureAllocationBudget}
 
 fun emptyState() r: Int { return 0 }
 fun occupiedState() r: Int { return 1 }
@@ -27,12 +30,22 @@ class StringHashMap<V> {
     }
 
     static fun withCapacity(capacity: Int) r: StringHashMap<V> {
+        return StringHashMap<V>.tryWithCapacity(capacity).expect(
+            "StringHashMap.withCapacity allocation failed")
+    }
+
+    static fun tryWithCapacity(capacity: Int) r: Result<StringHashMap<V>, AllocError> {
         let buckets = nextPowerOfTwo(capacity)
-        return StringHashMap{
+        let budget = ensureAllocationBudget(buckets * 48)
+        if budget.isErr() {
+            return Err<StringHashMap<V>, AllocError>(budget.unwrapErr())
+        }
+        let map = StringHashMap{
             entries: initializeBuckets<V>(buckets),
             states: initializeStates(buckets),
             length: 0
         }
+        return Ok<StringHashMap<V>, AllocError>(map)
     }
 
     fun len() r: Int {
@@ -55,8 +68,30 @@ class StringHashMap<V> {
     }
 
     fun insert(key: String, value: V) r: Void {
-        this.ensureCapacityFor(length + 1)
+        let inserted = this.tryInsert(key, value)
+        if inserted.isErr() {
+            panic("StringHashMap.insert allocation failed")
+        }
+    }
+
+    fun tryInsert(key: String, value: V) r: Result<Unit, AllocError> {
+        let reserved = this.tryEnsureCapacityFor(length + 1)
+        if reserved.isErr() {
+            return reserved
+        }
         this.insertInternal(key, value)
+        return Ok<Unit, AllocError>(Unit{})
+    }
+
+    fun reserve(requiredEntries: Int) r: Void {
+        let reserved = this.tryReserve(requiredEntries)
+        if reserved.isErr() {
+            panic("StringHashMap.reserve allocation failed")
+        }
+    }
+
+    fun tryReserve(requiredEntries: Int) r: Result<Unit, AllocError> {
+        return this.tryEnsureCapacityFor(requiredEntries)
     }
 
     fun get(key: String) r: Option<V> {
@@ -204,18 +239,35 @@ class StringHashMap<V> {
     }
 
     fun ensureCapacityFor(required: Int) r: Void {
+        let reserved = this.tryEnsureCapacityFor(required)
+        if reserved.isErr() {
+            panic("StringHashMap.ensureCapacityFor allocation failed")
+        }
+    }
+
+    fun tryEnsureCapacityFor(required: Int) r: Result<Unit, AllocError> {
         if this.capacity() == 0 {
-            this.resize(defaultCapacity())
-            return
+            return this.tryResize(defaultCapacity())
         }
         if ((required * 100) / this.capacity()) <= maxLoadPercent() {
-            return
+            return Ok<Unit, AllocError>(Unit{})
         }
-        this.resize(this.capacity() * 2)
+        return this.tryResize(this.capacity() * 2)
     }
 
     fun resize(newCapacity: Int) r: Void {
+        let resized = this.tryResize(newCapacity)
+        if resized.isErr() {
+            panic("StringHashMap.resize allocation failed")
+        }
+    }
+
+    fun tryResize(newCapacity: Int) r: Result<Unit, AllocError> {
         let target = nextPowerOfTwo(newCapacity)
+        let budget = ensureAllocationBudget(target * 48)
+        if budget.isErr() {
+            return budget
+        }
         let oldEntries = entries
         let oldStates = states
         entries = initializeBuckets<V>(target)
@@ -232,6 +284,7 @@ class StringHashMap<V> {
             }
             index = index + 1
         }
+        return Ok<Unit, AllocError>(Unit{})
     }
 
     fun probeIndex(key: String) r: Int {

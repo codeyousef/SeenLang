@@ -9,6 +9,9 @@ bootstrap and older-stage compilers without storing every bucket as Option<Entry
 
 import collections.vec.{Vec}
 import core.option.{Option, Some, None}
+import core.result.{Result, Ok, Err}
+import core.unit.{Unit}
+import memory.allocation.{AllocError, ensureAllocationBudget}
 import hash.mod.{hashString}
 
 extern fun __default<T>() r: T
@@ -28,9 +31,18 @@ class HashMap<K, V> {
     }
 
     static fun withCapacity(cap: Int) -> HashMap<K, V> {
+        return HashMap<K, V>.tryWithCapacity(cap).expect(
+            "HashMap.withCapacity allocation failed")
+    }
+
+    static fun tryWithCapacity(cap: Int) -> Result<HashMap<K, V>, AllocError> {
         var normalizedCapacity = 16
         while normalizedCapacity < cap {
             normalizedCapacity = normalizedCapacity * 2
+        }
+        let budget = ensureAllocationBudget(normalizedCapacity * 64)
+        if budget.isErr() {
+            return Err<HashMap<K, V>, AllocError>(budget.unwrapErr())
         }
 
         let map = HashMap<K, V> {
@@ -43,12 +55,22 @@ class HashMap<K, V> {
             tombstones: 0
         }
         map.initializeBuckets()
-        return map
+        return Ok<HashMap<K, V>, AllocError>(map)
     }
 
     fun insert(key: K, value: V) -> Void {
+        let inserted = this.tryInsert(key, value)
+        if inserted.isErr() {
+            panic("HashMap.insert allocation failed")
+        }
+    }
+
+    fun tryInsert(key: K, value: V) -> Result<Unit, AllocError> {
         if (this.length + this.tombstones + 1) * 100 > this.capacity * 70 {
-            this.resize()
+            let resized = this.tryResize()
+            if resized.isErr() {
+                return resized
+            }
         }
 
         let hash = this.hashKey(key)
@@ -72,7 +94,7 @@ class HashMap<K, V> {
                 }
                 this.writeEntry(insertAt, key, value, hash)
                 this.length = this.length + 1
-                return
+                return Ok<Unit, AllocError>(Unit{})
             }
 
             if state == 2 {
@@ -84,15 +106,39 @@ class HashMap<K, V> {
                     this.keysEqual(keysVec.get(bucketIndex), key) {
                     valuesVec.set(bucketIndex, value)
                     this.fallbackValues = valuesVec
-                    return
+                    return Ok<Unit, AllocError>(Unit{})
                 }
             }
 
             probe = probe + 1
         }
 
-        this.resize()
-        this.insert(key, value)
+        let resized = this.tryResize()
+        if resized.isErr() {
+            return resized
+        }
+        return this.tryInsert(key, value)
+    }
+
+    fun reserve(requiredEntries: Int) -> Void {
+        let reserved = this.tryReserve(requiredEntries)
+        if reserved.isErr() {
+            panic("HashMap.reserve allocation failed")
+        }
+    }
+
+    fun tryReserve(requiredEntries: Int) -> Result<Unit, AllocError> {
+        var requiredBuckets = 16
+        while (requiredEntries * 100) > (requiredBuckets * 70) {
+            requiredBuckets = requiredBuckets * 2
+        }
+        while this.capacity < requiredBuckets {
+            let resized = this.tryResize()
+            if resized.isErr() {
+                return resized
+            }
+        }
+        return Ok<Unit, AllocError>(Unit{})
     }
 
     fun get(key: K) -> Option<V> {
@@ -257,6 +303,13 @@ class HashMap<K, V> {
     }
 
     fun resize() -> Void {
+        let resized = this.tryResize()
+        if resized.isErr() {
+            panic("HashMap.resize allocation failed")
+        }
+    }
+
+    fun tryResize() -> Result<Unit, AllocError> {
         let oldKeys = this.fallbackKeys
         let oldValues = this.fallbackValues
         let oldHashes = this.fallbackHashes
@@ -264,6 +317,11 @@ class HashMap<K, V> {
         let oldCapacity = this.capacity
 
         this.capacity = this.capacity * 2
+        let budget = ensureAllocationBudget(this.capacity * 64)
+        if budget.isErr() {
+            this.capacity = oldCapacity
+            return budget
+        }
         this.fallbackKeys = Vec<K>.withCapacity(this.capacity)
         this.fallbackValues = Vec<V>.withCapacity(this.capacity)
         this.fallbackHashes = Vec<Int>.withCapacity(this.capacity)
@@ -282,6 +340,7 @@ class HashMap<K, V> {
             }
             index = index + 1
         }
+        return Ok<Unit, AllocError>(Unit{})
     }
 
     fun insertWithHash(key: K, value: V, hash: Int) -> Void {

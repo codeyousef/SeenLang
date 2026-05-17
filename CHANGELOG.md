@@ -52,6 +52,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `HashSet` constructors now work as static constructors, and `StringHashSet` provides a dedicated string-key set backed by the runtime string hash table.
 - The compiler now interns hot registry/cache strings behind stable symbol IDs, reducing repeated string comparisons while preserving user-facing names in diagnostics and generated output.
 - Compiler registry emission now keeps cross-module declares/constants in indexed arrays and uses symbol-ID sets for duplicate checks, while local field lookup caches compare interned IDs instead of full strings.
+- Core source containers now expose fallible capacity and mutation APIs for `Vec`, map/set fallbacks, `StdString`, and `StringBuffer`, with existing infallible methods routing through budget-checked paths.
 - `HashMap`, `Map`, `StringHashMap`, and `BTreeMap` now expose direct-value lookup and removal fast paths such as `getUnchecked`, `removeOrDefault`, and `removeUnchecked` for hot paths that do not need boxed `Option` results.
 - String prefix/suffix/search/count/split/replace helpers now scan bytes directly and append unchanged segments instead of allocating a substring at every candidate position.
 - String prefix, suffix, contains, `indexOf`, and `lastIndexOf` now route through runtime byte-search fast paths with single-byte `memchr` handling.
@@ -117,6 +118,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed `Vec.toArray()` method-call lowering so pointer-returning runtime helpers are stored as arrays instead of being coerced through integer handles.
 - Fixed `Vec.clear()` so it preserves allocated capacity for reuse instead of discarding the backing storage.
 - Fixed string equality lowering so direct `String` function returns can be compared to string literals inside casts without invalid LLVM IR, while mismatched string/non-string comparisons now stop with a Seen diagnostic.
+- Fixed generic `Result` payload lowering for string and boolean values so fallible APIs can be unwrapped inside expressions without invalid LLVM IR or runtime ABI corruption.
 - Fixed the HeartOn facade clean-baseline compile regression where cross-module `String` and `Void` expression lowering could emit invalid LLVM IR, including `assertEq(void 0, ...)` calls and integer-handle stores into `SeenString` slots.
 - Fixed class-like struct literal arguments so methods receive the expected Seen handle ABI even when the literal layout is discovered across module boundaries.
 - Fixed companion module discovery for manifest-backed projects so conventional sibling modules such as `greedy_data.seen` are still compiled when the manifest omits them.

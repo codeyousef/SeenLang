@@ -379,10 +379,23 @@ fun tryGenerateStaticFactoryMethodCallImpl(output: StringBuilder,
     }
 
     if methodName == "withCapacity" and argCount > 0 and
-        (potentialClassName == "HashMap" or
+        (potentialClassName == "Map" or potentialClassName == "HashMap" or
             potentialClassName == "StringHashMap") {
         return emitStaticHashMapWithCapacityCallImpl(output, regBox,
             potentialClassName, fullClassName, firstArgReg)
+    }
+
+    if methodName == "tryWithCapacity" and argCount > 0 and
+        (potentialClassName == "Map" or potentialClassName == "HashMap" or
+            potentialClassName == "StringHashMap") {
+        let mapReg = emitStaticHashMapWithCapacityCallImpl(output, regBox,
+            potentialClassName, fullClassName, firstArgReg)
+        if mapReg != "" {
+            let resultReg = getNextRegFn(regBox)
+            output.append("  " + resultReg + " = call i64 @Ok(i64 " +
+                mapReg + ")\n")
+            return resultReg
+        }
     }
 
     if potentialClassName == "Array" and methodName == "withLength" and

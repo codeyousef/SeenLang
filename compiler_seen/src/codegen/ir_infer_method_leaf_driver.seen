@@ -6,7 +6,7 @@ import codegen.ir_codegen_global_state.{getGlobalCurrentClassNameImpl, getFuncti
 import codegen.ir_codegen_feature_state.{isAsyncFunctionWithFeatureStateImpl}
 import codegen.ir_expr_infer_plan.{planGeneratedCallInferenceImpl, planResolvedCallInferenceImpl}
 import codegen.ir_field_lookup_state.{getMethodReturnTypeState}
-import codegen.ir_infer_type.{inferExplicitThisMethodCallTypeImpl, inferBareMethodOrFunctionCallTypeImpl, inferDeclaredStaticMethodCallTypeImpl, inferStaticFactoryMethodTypeImpl, inferStaticFromJsonMethodTypeImpl, inferReceiverRegistryMethodCallTypeImpl, inferLateMethodCallFallbackTypeImpl, inferGeneratedCallTypeImpl, inferResolvedCallExprTypeImpl}
+import codegen.ir_infer_type.{inferExplicitThisMethodCallTypeImpl, inferBareMethodOrFunctionCallTypeImpl, inferDeclaredStaticMethodCallTypeImpl, inferStaticFactoryMethodTypeImpl, inferStaticFromJsonMethodTypeImpl, inferReceiverRegistryMethodCallTypeImpl, inferLateMethodCallFallbackTypeImpl, inferGeneratedCallTypeImpl, inferResolvedCallExprTypeImpl, extractResultInnerType, extractResultErrorType}
 import codegen.ir_local_type_leaf_driver.{findVarTypeState}
 import codegen.ir_method_builtin_type_infer.{tryInferBuiltinReceiverMethodCallTypeState}
 import codegen.ir_type_tables.{inferMethodCallTypeTable, inferCallTypeTable}
@@ -116,6 +116,21 @@ fun tryInferBuiltinReceiverMethodCallType(expr: ParserExpressionNode, receiverTy
     var isClassInner = 0
     if isClassTypeState(receiverType) {
         isClassInner = 1
+    }
+    if receiverType.startsWith("Result<") {
+        if expr.callee == "unwrap" or expr.callee == "expect" or
+            expr.callee == "unwrapOr" {
+            let okType = extractResultInnerType(receiverType)
+            if okType != "" {
+                return okType
+            }
+        }
+        if expr.callee == "unwrapErr" {
+            let errType = extractResultErrorType(receiverType)
+            if errType != "" {
+                return errType
+            }
+        }
     }
     return tryInferBuiltinReceiverMethodCallTypeState(expr.callee,
         receiverType, isClassInner)

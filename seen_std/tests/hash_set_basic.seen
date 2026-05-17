@@ -8,6 +8,13 @@ fun main() r: Int {
     var failed = 0
 
     let ints = HashSet<Int>.withCapacity(4)
+    if HashSet<Int>.tryWithCapacity(4).isOkay() and ints.tryReserve(8).isOkay() {
+        println("PASS: fallible HashSet capacity APIs return Ok")
+    } else {
+        println("FAIL: fallible HashSet capacity APIs return Ok")
+        failed = failed + 1
+    }
+
     if ints.isEmpty() {
         println("PASS: new set starts empty")
     } else {
@@ -15,7 +22,8 @@ fun main() r: Int {
         failed = failed + 1
     }
 
-    if ints.insert(7) {
+    let tryInsertInt = ints.tryInsert(7)
+    if tryInsertInt.isOkay() and tryInsertInt.unwrap() {
         println("PASS: insert reports new int")
     } else {
         println("FAIL: insert reports new int")
@@ -65,7 +73,15 @@ fun main() r: Int {
     }
 
     let words = StringHashSet.new()
-    if words.insert("alpha") {
+    if StringHashSet.tryWithCapacity(4).isOkay() and words.tryReserve(8).isOkay() {
+        println("PASS: fallible StringHashSet capacity APIs return Ok")
+    } else {
+        println("FAIL: fallible StringHashSet capacity APIs return Ok")
+        failed = failed + 1
+    }
+
+    let tryInsertWord = words.tryInsert("alpha")
+    if tryInsertWord.isOkay() and tryInsertWord.unwrap() {
         println("PASS: insert reports new string")
     } else {
         println("FAIL: insert reports new string")

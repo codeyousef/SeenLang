@@ -95,7 +95,7 @@ fun emitCoreRuntimeDecls(output: StringBuilder, runtimeDeclsLoaded: Bool, define
             output.append("declare i1 @Result_isOkay(ptr) nounwind\n")
         }
         if not isFuncDefinedInModule("Result_unwrapErr", definedFuncs) {
-            output.append("declare %SeenString @Result_unwrapErr(ptr) nounwind\n")
+            output.append("declare i64 @Result_unwrapErr(ptr) nounwind\n")
         }
         output.append("declare i64 @SeenTokenType_unwrap(i64) nounwind readonly\n")
         emitLspJsonRuntimeDecls(output, definedFuncs)

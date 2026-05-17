@@ -10,7 +10,7 @@ import ffi.cinterop.{CString, toCString, fromCString}
 import core.result.{Result, Ok, Err}
 import core.unit.{Unit}
 import io.file.{writeText, appendText}
-import memory.allocation.{AllocError, memoryRemainingBytes}
+import memory.allocation.{AllocError, ensureAllocationBudget}
 
 extern "C" fun seen_string_builder_flatten(parts: Array<String>, totalLength: Int) r: String
 extern "C" fun seen_string_contains_fast(text: String, needle: String) r: Bool
@@ -39,8 +39,9 @@ class StringBuilder {
     }
 
     fun tryAppend(text: String) r: Result<Unit, AllocError> {
-        if text.length() > memoryRemainingBytes() {
-            return Err<Unit, AllocError>(AllocError.outOfMemory(text.length()))
+        let budget = ensureAllocationBudget(text.length())
+        if budget.isErr() {
+            return Err<Unit, AllocError>(budget.unwrapErr())
         }
         append(text)
         return Ok<Unit, AllocError>(Unit{})
@@ -86,9 +87,9 @@ class StringBuilder {
     }
 
     fun tryToString() r: Result<String, AllocError> {
-        if this.totalLength + 1 > memoryRemainingBytes() {
-            return Err<String, AllocError>(
-                AllocError.outOfMemory(this.totalLength + 1))
+        let budget = ensureAllocationBudget(this.totalLength + 1)
+        if budget.isErr() {
+            return Err<String, AllocError>(budget.unwrapErr())
         }
         return Ok<String, AllocError>(toString())
     }

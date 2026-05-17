@@ -15,9 +15,11 @@ fun expect(condition: Bool, message: String) r: Void {
 
 fun main() r: Int {
     let counts = Map<String, Int>.new()
+    expect(counts.tryReserve(128).isOkay(), "Map tryReserve should report success")
     var i = 0
     while i < 96 {
-        counts.put("key-" + i.toString(), i * 3)
+        expect(counts.tryPut("key-" + i.toString(), i * 3).isOkay(),
+            "Map tryPut should report success")
         i = i + 1
     }
 
@@ -54,6 +56,8 @@ fun main() r: Int {
     expect(countValues.len() == counts.size(), "Map<String,Int> values length")
 
     let names = Map<String, String>.new()
+    expect(Map<String, String>.tryWithCapacity(4).isOkay(),
+        "Map tryWithCapacity should return Ok")
     names.put("seen", "language")
     names.put("stage", "compiler")
     let seenName = names.get("seen")

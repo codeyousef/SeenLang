@@ -147,11 +147,15 @@ fun isRuntimeBackedVecMethodImpl(methodName: String) r: Bool {
         methodName == "first" or methodName == "last" or
         methodName == "sort" or methodName == "capacity" or
         methodName == "reserve" or methodName == "ensureCapacity" or
-        methodName == "toArray"
+        methodName == "toArray" or methodName == "tryPush" or
+        methodName == "tryReserve" or methodName == "tryEnsureCapacity" or
+        methodName == "tryToArray"
 }
 
 fun isRuntimeBackedMapMethodImpl(methodName: String) r: Bool {
     return methodName == "new" or methodName == "withCapacity" or
+        methodName == "tryWithCapacity" or methodName == "tryReserve" or
+        methodName == "tryInsert" or methodName == "tryPut" or
         methodName == "put" or methodName == "set" or
         methodName == "insert" or methodName == "get" or
         methodName == "getOrDefault" or methodName == "getUnchecked" or

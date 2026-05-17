@@ -63,6 +63,12 @@ fun memoryRemainingBytes() r: Int {
 }
 
 fun ensureAllocationBudget(bytes: Int) r: Result<Unit, AllocError> {
+    if bytes <= 0 {
+        return Ok<Unit, AllocError>(Unit{})
+    }
+    if seen_memory_limit_bytes() <= 0 {
+        return Ok<Unit, AllocError>(Unit{})
+    }
     if bytes <= seen_memory_remaining_bytes() {
         return Ok<Unit, AllocError>(Unit{})
     }
