@@ -4,7 +4,7 @@ import parser.real_parser.{ParserExpressionNode}
 import str.string.{StringBuilder}
 import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl}
 import codegen.ir_codegen_global_state.{getGlobalStructNamesImpl, getGlobalStructLayoutsImpl, getGlobalStructSizesImpl, getPendingArrayLiteralTypeWithGlobalStateImpl, setPendingArrayLiteralTypeWithGlobalStateImpl}
-import codegen.ir_codegen_type_state.{isClassTypeState, isDataTypeState, mapTypeState}
+import codegen.ir_codegen_type_state.{isClassHandleLikeTypeState, isClassTypeState, isDataTypeState, mapTypeState}
 import codegen.ir_expr_type_driver.{inferExpressionTypeState}
 import codegen.ir_field_lookup_state.{getFieldInfoState, getFieldTypeState}
 import codegen.ir_field_lookup_state.{getSeenFieldTypeState}
@@ -249,7 +249,7 @@ fun generateStructLiteralState(ctx: CodegenLoweringContext,
     emitStructFieldStoresImpl(output, getFeatureRegBoxImpl(), structLayout,
         mallocReg, slFieldRegs, slFieldTypes, slGepIndices)
 
-    if isClassTypeState(structName) {
+    if isClassTypeState(structName) or isClassHandleLikeTypeState(structName) {
         let i64Reg = getNextRegFn(getFeatureRegBoxImpl())
         output.append("  " + i64Reg + " = ptrtoint ptr " + mallocReg +
             " to i64\n")

@@ -4135,6 +4135,7 @@ fun appendManifestCompanionModulesFromToml(paths: Array<String>,
     }
 
     moduleIdx = 0
+    var matchedCompanionCandidate = false
     while moduleIdx < projectModules.length() {
         let moduleRel = projectModules[moduleIdx]
         if moduleRel != currentRel {
@@ -4158,6 +4159,7 @@ fun appendManifestCompanionModulesFromToml(paths: Array<String>,
                     }
                 }
                 if shouldAddCandidate {
+                    matchedCompanionCandidate = true
                     let candidatePath = resolveProjectPath(projectRootReal,
                         moduleRel)
                     pushUniqueCompanionPath(paths, processedPaths,
@@ -4168,7 +4170,7 @@ fun appendManifestCompanionModulesFromToml(paths: Array<String>,
         moduleIdx = moduleIdx + 1
     }
     if currentModuleIndex >= 0 {
-        return true
+        return matchedCompanionCandidate
     }
     return false
 }
