@@ -80,7 +80,7 @@
         },
         {
           "name": "support.type.collection.seen",
-          "match": "\\b(Array|List|Vec|Map|HashMap|BTreeMap|Set|HashSet|Option|Result|Box|Rc|Arc|LinkedList|SmallVec|Buffer|Uniform|Image|Channel|AtomicInt|Mutex|RwLock|Barrier|ThreadLocal)\\b"
+          "match": "\\b(Array|List|Vec|Map|HashMap|StringHashMap|BTreeMap|Set|HashSet|BTreeSet|Option|Result|Box|Rc|Arc|LinkedList|SmallVec|ByteArray|ByteBuffer|Int32Buffer|Int64Buffer|Float32Buffer|Float64Buffer|StringBuilder|StringBuffer|IntPriorityQueue|FloatPriorityQueue|Buffer|Uniform|Image|Channel|AtomicInt|Mutex|RwLock|Barrier|ThreadLocal|AllocError|MemoryStats)\\b"
         },
         {
           "name": "support.type.nullable.seen",

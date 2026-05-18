@@ -76,6 +76,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Compiler ML JSON output helpers now assemble arrays and objects with `StringBuilder` instead of recursive whole-string concatenation.
 - Compiler pipe-delimited metadata probes now compare candidate entries in place instead of allocating substrings for each lookup.
 - Bumped the shipped Seen compiler, workspace, CLI, LSP, and packaging metadata version to `0.9.0`.
+- Refreshed public docs, API references, README, LSP completions, multilingual keyword TOMLs, and VS Code extension metadata for the 0.9.0 target, memory, collection, and performance surfaces.
 
 ### Fixed
 

@@ -18,4 +18,23 @@ diffing, and hot reload.
 | Store | `MutationEntry`, `StoreSnapshot`, `StoreRegistry`, `TimeTravel` |
 | VDOM | `VNode`, `Patch`, `VDOMDiffer`, `VDOMPatcher`, `VDOMEngine` |
 
+## Facade Component Syntax
+
+The compiler recognizes facade component functions and component-local UI
+constructs:
+
+```seen
+component Panel(title: String) {
+    state open: Bool = true
+    computed label: String = title
+    uiEffect {
+        println(label)
+    }
+}
+```
+
+Named arguments, callback block arguments, and trailing/named slot blocks are
+parsed as part of the declarative UI surface. The frontend emits diagnostics for
+missing and duplicate stable keys in dynamic component children.
+
 See also [Hot Reload](hotreload.md).

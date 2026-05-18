@@ -33,7 +33,6 @@ def rel(path: pathlib.Path) -> str:
 
 def check_stale_cli_examples(errors: list[str]) -> None:
     stale = [
-        "seen --version",
         "seen fmt",
         "seen format",
         "seen init",
@@ -50,11 +49,11 @@ def check_stale_cli_examples(errors: list[str]) -> None:
             for needle in stale:
                 if needle not in line:
                     continue
-                if needle == "seen --version" and "not currently exposed" in line:
+                if "not shipped compiler commands" in line:
                     continue
                 errors.append(f"{rel(path)}:{line_no} contains stale CLI reference `{needle}`")
         for line_no, line in enumerate(text.splitlines(), 1):
-            if "seen build" in line and "older `seen build` examples are stale" not in line:
+            if "seen build" in line and "older `seen build` examples are stale" not in line and "not a shipped" not in line:
                 errors.append(f"{rel(path)}:{line_no} uses stale `seen build`")
 
 

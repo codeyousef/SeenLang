@@ -13,3 +13,9 @@ framework and graphics code.
 Notable wrappers include `CocoaWindow`, `WindowConfig`, `WindowEvent`,
 `AlsaPcm`, `EvdevDevice`, `KeyboardEvent`, `PointerMotionEvent`,
 `PointerButtonEvent`, `SteamApp`, and platform SDL extern bindings.
+
+Compilation targets are documented separately in
+[Compilation Targets](../targets.md). Linux platform APIs are shared by
+`linux-x86_64`, `linux-arm64`, and `linux-riscv64`; RISC-V runtime feature
+reporting intentionally exposes scalar SIMD fallback behavior until RVV support
+is added.

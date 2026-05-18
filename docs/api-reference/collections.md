@@ -294,6 +294,8 @@ paths.
 import collections.algorithms
 ```
 
+Module path: `collections/algorithms`.
+
 | Function / Type | Description |
 |-----------------|-------------|
 | `binarySearchInt(values, needle)` | Return matching index or `-1` |

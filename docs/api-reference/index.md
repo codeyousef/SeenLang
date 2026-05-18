@@ -47,7 +47,8 @@ The runtime is written in C and provides low-level primitives that every Seen pr
 
 - ~170 functions covering strings, arrays, I/O, math, concurrency, SIMD, and memory management
 - Automatically linked by the compiler (`-lm -lpthread`)
-- Platform-specific implementations for Linux and macOS
+- Platform-specific implementations for Linux, Linux RISC-V cross-targets,
+  macOS, and Windows packaging/runtime helpers
 
 ## Prelude
 

@@ -109,6 +109,27 @@ fun add(a: Int, b: Int) r: Int {
 
 ### Default parameters are not yet supported — use overloads or optional types.
 
+## Facade Components
+
+Facade component functions use the contextual `component` form. Inside a
+component body, `state`, `computed`, and `uiEffect` declare UI-local state,
+derived values, and explicit side-effect blocks:
+
+```seen
+component Counter(title: String) {
+    state count: Int = 0
+    computed label: String = title + ": " + count.toString()
+
+    uiEffect {
+        println(label)
+    }
+}
+```
+
+Component calls support named arguments and trailing or named slot blocks for
+declarative APIs. Dynamic child lists should provide stable keys so frontend and
+editor diagnostics can catch missing or duplicate child identity.
+
 ## Control Flow
 
 ### if / else

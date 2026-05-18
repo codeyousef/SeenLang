@@ -119,7 +119,7 @@ export class BinaryManager {
 
     private getPlatformId(): string {
         const platform = process.platform;
-        const arch = process.arch;
+        const arch = process.arch as string;
 
         // Map Node.js platform/arch to our binary naming convention
         if (platform === 'linux' && arch === 'x64') {
@@ -127,6 +127,9 @@ export class BinaryManager {
         }
         if (platform === 'linux' && arch === 'arm64') {
             return 'linux-arm64';
+        }
+        if (platform === 'linux' && arch === 'riscv64') {
+            return 'linux-riscv64';
         }
         if (platform === 'darwin' && arch === 'x64') {
             return 'darwin-x64';

@@ -2,7 +2,7 @@
   "name": "seen-vscode",
   "displayName": "Seen Language",
   "description": "Official Seen language support with syntax highlighting, LSP, debugging, and multi-language keywords",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "publisher": "yousefcodes",
   "icon": "images/icon.png",
   "repository": {
@@ -91,7 +91,18 @@
         },
         "seen.target.default": {
           "type": "string",
-          "enum": ["native", "x86_64", "aarch64", "riscv32", "riscv64", "wasm"],
+          "enum": [
+            "native",
+            "linux-x86_64",
+            "linux-arm64",
+            "linux-riscv64",
+            "windows-x86_64",
+            "macos-x86_64",
+            "macos-arm64",
+            "ios-arm64",
+            "ios-sim-arm64",
+            "android-arm64"
+          ],
           "default": "native",
           "description": "Default compilation target"
         },

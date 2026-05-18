@@ -72,7 +72,8 @@ seen lsp
 The server resolves project language from nearby `Seen.toml` when possible and
 falls back to English. It masks `/// ... ///` block comments for source-symbol
 operations and supports completions/hover for packages, annotations, effects,
-capabilities, hot reload, imports, sealed classes, exports, and stdlib modules.
+capabilities, hot reload, imports, sealed classes, exports, new collection and
+memory types, and stdlib modules.
 
 ### Neovim
 
@@ -152,9 +153,10 @@ bash scripts/platform_matrix.sh --stage3 compiler_seen/target/seen --platform li
 
 ## Linux RISC-V Cross Sysroot and QEMU
 
-Seen supports `linux-riscv64` as an RV64GC Linux GNU userspace target. On
-pacman-compatible Linux hosts, install system packages directly or create a
-local sysroot:
+Seen supports `linux-riscv64` as an RV64GC Linux GNU userspace target. The
+canonical target list and triples are documented in
+[Compilation Targets](targets.md). On pacman-compatible Linux hosts, install
+system packages directly or create a local sysroot:
 
 ```bash
 sudo pacman -Syu --needed clang llvm lld file qemu-user qemu-user-static qemu-system-riscv qemu-system-riscv-firmware riscv64-linux-gnu-binutils riscv64-linux-gnu-gcc riscv64-linux-gnu-glibc
@@ -195,4 +197,5 @@ source or package interface modules.
 
 - [Getting Started](getting-started.md)
 - [CLI Reference](cli-reference.md)
+- [Compilation Targets](targets.md)
 - [Project Configuration](project-config.md)

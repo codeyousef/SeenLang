@@ -16,6 +16,10 @@ import io.file
 | `exists` | `(path: String) r: Bool` | Check if file exists |
 | `deleteFile` | `(path: String) r: Bool` | Delete a file |
 | `createDirectory` | `(path: String) r: Bool` | Create a directory |
+| `ensureParentDirectories` | `(path: String) r: Bool` | Create parent directories needed for a file path |
+| `writeLines` | `(path: String, lines: Array<String>) r: Bool` | Write lines with newline separators |
+| `size` | `(path: String) r: Int` | Return file size, or `-1` on failure |
+| `hash` | `(path: String) r: String` | Return a stable file-content hash string |
 
 ### Example
 

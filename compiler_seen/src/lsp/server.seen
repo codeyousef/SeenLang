@@ -178,16 +178,55 @@ class SeenLspServer {
             return "Hash map type."
         }
         if word == "Vec" {
-            return "Growable array type.\n\n```seen\nlet v = Vec<Int>()\nv.push(42)\n```"
+            return "Contiguous growable vector with amortized O(1) push and O(1) indexed access.\n\n```seen\nlet v = Vec<Int>()\nv.push(42)\n```"
         }
         if word == "HashMap" {
-            return "Hash map with key-value pairs.\n\n```seen\nlet m = HashMap<String, Int>()\nm.set(\"key\", 42)\n```"
+            return "Hash map with content-based hashing and direct lookup helpers.\n\n```seen\nlet m = HashMap<String, Int>()\nm.insert(\"key\", 42)\n```"
+        }
+        if word == "StringHashMap" {
+            return "String-key hash map backed by the runtime string hash table."
+        }
+        if word == "HashSet" {
+            return "Unordered set backed by HashMap."
         }
         if word == "LinkedList" {
             return "Doubly-linked list type."
         }
         if word == "BTreeMap" {
-            return "Sorted map backed by a B-tree."
+            return "Sorted map with deterministic key iteration."
+        }
+        if word == "BTreeSet" {
+            return "Ordered set backed by BTreeMap."
+        }
+        if word == "ByteArray" {
+            return "Compact runtime-backed byte storage."
+        }
+        if word == "ByteBuffer" {
+            return "Growable byte buffer backed by compact byte storage."
+        }
+        if word == "Int32Buffer" {
+            return "Runtime-backed compact 32-bit integer buffer."
+        }
+        if word == "Int64Buffer" {
+            return "Runtime-backed compact 64-bit integer buffer."
+        }
+        if word == "Float32Buffer" {
+            return "Runtime-backed compact 32-bit float buffer."
+        }
+        if word == "Float64Buffer" {
+            return "Runtime-backed compact 64-bit float buffer."
+        }
+        if word == "StringBuilder" {
+            return "Amortized string builder with one-pass runtime-backed flattening."
+        }
+        if word == "StringBuffer" {
+            return "Mutable string buffer for parser, compiler, and text-heavy runtime code."
+        }
+        if word == "IntPriorityQueue" {
+            return "Integer binary-heap priority queue."
+        }
+        if word == "FloatPriorityQueue" {
+            return "Floating-point binary-heap priority queue."
         }
         if word == "Channel" {
             return "Inter-thread communication channel.\n\n```seen\nlet ch = Channel<Int>()\nch.send(42)\nlet val = ch.recv()\n```"
@@ -221,6 +260,12 @@ class SeenLspServer {
         }
         if word == "Option" {
             return "Optional type. Either Some(value) or None."
+        }
+        if word == "AllocError" {
+            return "Allocation failure details for fallible memory APIs."
+        }
+        if word == "MemoryStats" {
+            return "Runtime allocation budget, usage, peak, remaining, and failure counters."
         }
         if word == "SmallVec" {
             return "Small-buffer-optimized vector. Stores small arrays inline without heap allocation."
@@ -1909,10 +1954,12 @@ class SeenLspServer {
         let completions = Array<CompletionItem>()
 
         let types = ["Int", "Float", "String", "Bool", "Char", "Void", "Array", "Map",
-                     "Vec", "HashMap", "LinkedList", "BTreeMap",
+                     "Vec", "HashMap", "StringHashMap", "HashSet", "LinkedList", "BTreeMap", "BTreeSet",
+                     "ByteArray", "ByteBuffer", "Int32Buffer", "Int64Buffer", "Float32Buffer", "Float64Buffer",
+                     "StringBuilder", "StringBuffer", "IntPriorityQueue", "FloatPriorityQueue",
                      "Channel", "Mutex", "RwLock", "AtomicInt", "Barrier", "ThreadLocal",
                      "Buffer", "Uniform", "Image",
-                     "Result", "Option", "SmallVec", "Callback",
+                     "Result", "Option", "AllocError", "MemoryStats", "SmallVec", "Callback",
                      "HotModule", "HotReloadWatcher", "StateSnapshot"]
 
         var i = 0
@@ -2068,6 +2115,30 @@ class SeenLspServer {
         uiEffectItem.insertText = "uiEffect {\n\t$0\n}"
         uiEffectItem.insertTextFormat = 2
         completions.push(uiEffectItem)
+
+        let stringBuilderItem = CompletionItem_new("StringBuilder", COMPLETION_SNIPPET)
+        stringBuilderItem.detail = "build string linearly"
+        stringBuilderItem.insertText = "let ${1:builder} = StringBuilder.new()\n${1:builder}.append(${2:\"value\"})\nlet ${3:result} = ${1:builder}.toString()"
+        stringBuilderItem.insertTextFormat = 2
+        completions.push(stringBuilderItem)
+
+        let byteBufferItem = CompletionItem_new("ByteBuffer", COMPLETION_SNIPPET)
+        byteBufferItem.detail = "byte-backed buffer"
+        byteBufferItem.insertText = "let ${1:bytes} = ByteBuffer.withCapacity(${2:256})\n${1:bytes}.push(${3:255})\nlet ${4:value} = ${1:bytes}.get(${5:0})"
+        byteBufferItem.insertTextFormat = 2
+        completions.push(byteBufferItem)
+
+        let hashMapItem = CompletionItem_new("HashMap", COMPLETION_SNIPPET)
+        hashMapItem.detail = "HashMap insert and lookup"
+        hashMapItem.insertText = "let ${1:map} = HashMap<${2:String}, ${3:Int}>.withCapacity(${4:64})\n${1:map}.insert(${5:\"key\"}, ${6:1})\nlet ${7:value} = ${1:map}.getOrDefault(${5:\"key\"}, ${8:0})"
+        hashMapItem.insertTextFormat = 2
+        completions.push(hashMapItem)
+
+        let priorityQueueItem = CompletionItem_new("IntPriorityQueue", COMPLETION_SNIPPET)
+        priorityQueueItem.detail = "integer priority queue"
+        priorityQueueItem.insertText = "let ${1:queue} = IntPriorityQueue.min()\n${1:queue}.push(${2:42})\nlet ${3:next} = ${1:queue}.pop()"
+        priorityQueueItem.insertTextFormat = 2
+        completions.push(priorityQueueItem)
 
         let sealedItem = CompletionItem_new("sealed class", COMPLETION_SNIPPET)
         sealedItem.detail = "sealed class"

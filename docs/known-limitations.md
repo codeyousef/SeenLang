@@ -21,9 +21,7 @@ docs.
   alias.
 - `seen --version` / `seen -v` and `seen --help` / `seen -h` are supported by
   the shipped compiler.
-- `seen init`, `seen fmt`, `seen format`, `seen clean`, and `seen test` are not
-  shipped compiler commands yet. They fail with an explicit unsupported-command
-  diagnostic instead of silently advertising source-wrapper behavior.
+- These are not shipped compiler commands yet: `seen init`, `seen fmt`, `seen format`, `seen clean`, and `seen test`. They fail with an explicit unsupported-command diagnostic instead of silently advertising source-wrapper behavior.
 - The shipped backend selector is LLVM-only. `--backend=c` is intentionally
   unsupported until a production C backend is wired into the release entrypoint.
 
