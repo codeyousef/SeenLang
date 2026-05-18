@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added reserve/capacity APIs for byte and primitive buffers so binary, parser, and numeric hot paths can grow storage once and reuse it.
 - Added floating-point binary search, lower/upper bounds, stable/unstable sort, and priority queue helpers for `Array<Float>` workloads.
 - Added integer bit-operation helpers for popcount, leading/trailing zero counts, rotate-left/right, and byte-swap operations.
+- Added first-class `linux-riscv64` cross-target plumbing with RV64GC Linux GNU defaults, compile-time target predicates, RISC-V runtime feature reporting, and QEMU user/full-system verification helpers.
 
 ### Changed
 

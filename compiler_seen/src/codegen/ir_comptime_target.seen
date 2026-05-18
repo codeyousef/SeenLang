@@ -14,6 +14,10 @@ fun normalizeComptimeTargetName(target: String) r: String {
     if target == "linux-arm64" { return "linux-arm64" }
     if target == "aarch64-unknown-linux-gnu" { return "linux-arm64" }
     if target == "arm64-unknown-linux-gnu" { return "linux-arm64" }
+    if target == "linux-riscv64" { return "linux-riscv64" }
+    if target == "riscv64" { return "linux-riscv64" }
+    if target == "riscv64-linux-gnu" { return "linux-riscv64" }
+    if target == "riscv64-unknown-linux-gnu" { return "linux-riscv64" }
     if target == "windows-x86_64" { return "windows-x86_64" }
     if target == "x86_64-w64-windows-gnu" { return "windows-x86_64" }
     if target == "macos-arm64" { return "macos-arm64" }
@@ -62,6 +66,9 @@ fun detectHostComptimeTargetName() r: String {
         if unameM.output.contains("arm64") or unameM.output.contains("aarch64") {
             arch = "arm64"
         }
+        if unameM.output.contains("riscv64") {
+            arch = "riscv64"
+        }
     }
     if os == "darwin" {
         if arch == "arm64" {
@@ -74,6 +81,9 @@ fun detectHostComptimeTargetName() r: String {
     }
     if arch == "arm64" {
         return "linux-arm64"
+    }
+    if arch == "riscv64" {
+        return "linux-riscv64"
     }
     return "linux-x86_64"
 }
@@ -107,5 +117,10 @@ fun comptimeTargetIsAarch64(target: String) r: Bool {
     if target == "ios-arm64" { return true }
     if target == "ios-sim-arm64" { return true }
     if target == "android-arm64" { return true }
+    return false
+}
+
+fun comptimeTargetIsRiscv64(target: String) r: Bool {
+    if target == "linux-riscv64" { return true }
     return false
 }

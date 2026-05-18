@@ -57,9 +57,9 @@ Common options:
 Supported target platforms in the shipped help are:
 
 ```text
-linux-x86_64, linux-arm64, windows-x86_64,
-macos-x86_64, macos-arm64, ios-arm64,
-ios-sim-arm64, android-arm64
+linux-x86_64, linux-arm64, linux-riscv64,
+windows-x86_64, macos-x86_64, macos-arm64,
+ios-arm64, ios-sim-arm64, android-arm64
 ```
 
 By default, `seen compile` prints bounded progress at useful phase checkpoints
@@ -71,6 +71,7 @@ Examples:
 ```bash
 seen compile hello.seen hello
 seen compile app.seen app --target=linux-arm64 --target-cpu=x86-64
+seen compile app.seen app-rv64 --target=linux-riscv64
 seen compile plugin.seen plugin_host --pic --no-cache --no-fork \
   --object-manifest /tmp/plugin.objects.tsv
 ```

@@ -683,7 +683,7 @@ int64_t __seen_middleware_get_count(void);
 // Detect CPU features (called automatically at startup)
 void seen_cpu_detect(void);
 
-// Check if a specific CPU feature is available (e.g., "avx2", "sse4.2", "neon")
+// Check if a specific CPU feature is available (e.g., "avx2", "sse4.2", "neon", "riscv64", "rvv")
 int64_t seen_cpu_has_feature(SeenString name);
 
 // Returns SIMD tier: 0=scalar, 1=SSE4.2, 2=AVX2, 3=AVX-512, 4=NEON, 5=SVE

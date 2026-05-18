@@ -21,10 +21,14 @@ fun main() r: Int {
             }
         } else {
             comptime if (target.isLinux) {
-                comptime if (target.isAarch64) {
-                    println("TARGET:linux-arm64")
+                comptime if (target.isRiscv64) {
+                    println("TARGET:linux-riscv64")
                 } else {
-                    println("TARGET:linux-x86_64")
+                    comptime if (target.isAarch64) {
+                        println("TARGET:linux-arm64")
+                    } else {
+                        println("TARGET:linux-x86_64")
+                    }
                 }
             } else {
                 comptime if (target.isWindows) {
@@ -38,6 +42,9 @@ fun main() r: Int {
 
     comptime if (target.hasNeon) {
         println("SIMD:neon")
+    }
+    comptime if (target.hasRVV) {
+        println("SIMD:rvv")
     }
     comptime if (target.hasSSE2) {
         println("SIMD:sse2")

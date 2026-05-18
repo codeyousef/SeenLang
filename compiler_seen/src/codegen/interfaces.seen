@@ -194,6 +194,7 @@ class LLVMBackend extends Backend {
             Target.iOS_ARM64 -> "arm64-apple-ios17.0"
             Target.iOS_Simulator_ARM64 -> "arm64-apple-ios17.0-simulator"
             Target.Android_ARM64 -> "aarch64-linux-android24"
+            Target.RISC_V -> "riscv64-unknown-linux-gnu"
             _ -> "x86_64-unknown-linux-gnu"
         }
     }
@@ -210,6 +211,8 @@ class LLVMBackend extends Backend {
                 "e-m:o-i64:64-i128:128-n32:64-S128"
             Target.Linux_ARM64, Target.Android_ARM64 ->
                 "e-m:e-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128"
+            Target.RISC_V ->
+                "e-m:e-p:64:64-i64:64-i128:128-n32:64-S128"
             _ -> "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128"
         }
     }
@@ -357,7 +360,7 @@ class UWWBackend extends WASMBackend {
 
 fun createBackend(target: Target) r: Backend {
     if target == Target.LLVM_IR or target == Target.Linux_x86_64 or target == Target.Windows_x86_64 or
-        target == Target.macOS_x86_64 or target == Target.macOS_ARM64 or target == Target.Linux_ARM64 or target == Target.iOS_ARM64 or target == Target.iOS_Simulator_ARM64 or target == Target.Android_ARM64 {
+        target == Target.macOS_x86_64 or target == Target.macOS_ARM64 or target == Target.Linux_ARM64 or target == Target.iOS_ARM64 or target == Target.iOS_Simulator_ARM64 or target == Target.Android_ARM64 or target == Target.RISC_V {
         return LLVMBackend.new(target) as Backend
     } else if target == Target.C {
         return CBackend.new() as Backend
@@ -391,6 +394,10 @@ fun parseTarget(targetStr: String) r: Target {
         "aarch64-apple-darwin" -> Target.macOS_ARM64
         "linux-arm64" -> Target.Linux_ARM64
         "aarch64-linux-gnu" -> Target.Linux_ARM64
+        "aarch64-unknown-linux-gnu" -> Target.Linux_ARM64
+        "linux-riscv64" -> Target.RISC_V
+        "riscv64-linux-gnu" -> Target.RISC_V
+        "riscv64-unknown-linux-gnu" -> Target.RISC_V
         "ios-arm64" -> Target.iOS_ARM64
         "arm64-apple-ios" -> Target.iOS_ARM64
         "arm64-apple-ios17.0" -> Target.iOS_ARM64

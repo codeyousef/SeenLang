@@ -150,6 +150,36 @@ bash scripts/native_target_smoke.sh --compiler compiler_seen/target/seen --targe
 bash scripts/platform_matrix.sh --stage3 compiler_seen/target/seen --platform linux-arm64
 ```
 
+## Linux RISC-V Cross Sysroot and QEMU
+
+Seen supports `linux-riscv64` as an RV64GC Linux GNU userspace target. On
+pacman-compatible Linux hosts, install system packages directly or create a
+local sysroot:
+
+```bash
+sudo pacman -Syu --needed clang llvm lld file qemu-user qemu-user-static qemu-system-riscv qemu-system-riscv-firmware riscv64-linux-gnu-binutils riscv64-linux-gnu-gcc riscv64-linux-gnu-glibc
+
+# Optional local sysroot instead of relying on /usr/riscv64-linux-gnu:
+./scripts/setup_linux_riscv64_sysroot.sh
+source artifacts/toolchains/linux-riscv64/env.sh
+```
+
+Validate the fast emulator tier with QEMU user-mode:
+
+```bash
+bash scripts/test_riscv64_qemu.sh --compiler compiler_seen/target/seen --require
+bash scripts/native_target_smoke.sh --compiler compiler_seen/target/seen --target linux-riscv64
+```
+
+For full guest validation, provide a RISC-V Linux kernel/rootfs with SSH and run:
+
+```bash
+SEEN_RISCV64_QEMU_KERNEL=/path/to/Image \
+SEEN_RISCV64_QEMU_ROOTFS=/path/to/rootfs.qcow2 \
+SEEN_RISCV64_QEMU_IDENTITY=/path/to/key \
+bash scripts/test_riscv64_system_qemu.sh --compiler compiler_seen/target/seen --require
+```
+
 ## Import from C
 
 Generate Seen bindings from a C header:

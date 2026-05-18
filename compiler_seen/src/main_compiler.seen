@@ -3952,7 +3952,7 @@ fun buildLocalLibrarySearchFlags(resolvedPath: String, effectiveTarget: String, 
     }
     var flags = " -L" + resolvedPath
     if normalizedCrossTarget == "" {
-        if effectiveTarget == "linux-x86_64" or effectiveTarget == "linux-arm64" or effectiveTarget == "macos-x86_64" or effectiveTarget == "macos-arm64" {
+        if effectiveTarget == "linux-x86_64" or effectiveTarget == "linux-arm64" or effectiveTarget == "linux-riscv64" or effectiveTarget == "macos-x86_64" or effectiveTarget == "macos-arm64" {
             flags = flags + " -Wl,-rpath," + resolvedPath
         }
     }
@@ -8382,6 +8382,9 @@ fun normalizeCrossTargetName(target: String) r: String {
     if target == "linux-arm64" or target == "aarch64-linux-gnu" or target == "aarch64-unknown-linux-gnu" {
         return "linux-arm64"
     }
+    if target == "linux-riscv64" or target == "riscv64" or target == "riscv64-linux-gnu" or target == "riscv64-unknown-linux-gnu" {
+        return "linux-riscv64"
+    }
     if target == "windows-x86_64" or target == "windows-gnu-x86_64" or target == "x86_64-pc-windows-msvc" or target == "x86_64-w64-windows-gnu" {
         return "windows-x86_64"
     }
@@ -8405,6 +8408,9 @@ fun detectHostTargetName() r: String {
         if unameM.output.contains("arm64") or unameM.output.contains("aarch64") {
             arch = "arm64"
         }
+        if unameM.output.contains("riscv64") {
+            arch = "riscv64"
+        }
     }
     if os == "darwin" {
         if arch == "arm64" {
@@ -8414,6 +8420,9 @@ fun detectHostTargetName() r: String {
     }
     if arch == "arm64" {
         return "linux-arm64"
+    }
+    if arch == "riscv64" {
+        return "linux-riscv64"
     }
     return "linux-x86_64"
 }
@@ -8556,6 +8565,112 @@ fun getLinuxArm64GccToolchain(sysroot: String) r: String {
     return ""
 }
 
+fun getLinuxRiscv64Triple() r: String {
+    let tripleEnvResult: CommandResult = runCommand("printf '%s' \"$SEEN_LINUX_RISCV64_TRIPLE\"")
+    if commandWasSuccessful(tripleEnvResult) {
+        let tripleEnv = tripleEnvResult.output.trim()
+        if tripleEnv != "" {
+            return tripleEnv
+        }
+    }
+    return "riscv64-linux-gnu"
+}
+
+fun getLinuxRiscv64Sysroot() r: String {
+    let sysrootEnvResult: CommandResult = runCommand("printf '%s' \"$SEEN_LINUX_RISCV64_SYSROOT\"")
+    if commandWasSuccessful(sysrootEnvResult) {
+        let sysrootEnv = sysrootEnvResult.output.trim()
+        if sysrootEnv != "" {
+            let validateEnv: CommandResult = runCommand("test -d " + sysrootEnv)
+            if commandWasSuccessful(validateEnv) {
+                return sysrootEnv
+            }
+        }
+    }
+    let genericSysrootResult: CommandResult = runCommand("printf '%s' \"$RISCV64_SYSROOT\"")
+    if commandWasSuccessful(genericSysrootResult) {
+        let genericSysroot = genericSysrootResult.output.trim()
+        if genericSysroot != "" {
+            let validateGeneric: CommandResult = runCommand("test -d " + genericSysroot)
+            if commandWasSuccessful(validateGeneric) {
+                return genericSysroot
+            }
+        }
+    }
+    let artifactSysrootCheck: CommandResult = runCommand("test -d artifacts/toolchains/linux-riscv64/usr/riscv64-linux-gnu")
+    if commandWasSuccessful(artifactSysrootCheck) {
+        return "artifacts/toolchains/linux-riscv64/usr/riscv64-linux-gnu"
+    }
+    let usrSysrootCheck: CommandResult = runCommand("test -d /usr/riscv64-linux-gnu")
+    if commandWasSuccessful(usrSysrootCheck) {
+        return "/usr/riscv64-linux-gnu"
+    }
+    let usrLocalSysrootCheck: CommandResult = runCommand("test -d /usr/local/riscv64-linux-gnu")
+    if commandWasSuccessful(usrLocalSysrootCheck) {
+        return "/usr/local/riscv64-linux-gnu"
+    }
+    let optSysrootCheck: CommandResult = runCommand("test -d /opt/riscv64-linux-gnu")
+    if commandWasSuccessful(optSysrootCheck) {
+        return "/opt/riscv64-linux-gnu"
+    }
+    return ""
+}
+
+fun getLinuxRiscv64GccToolchain(sysroot: String) r: String {
+    let toolchainEnvResult: CommandResult = runCommand("printf '%s' \"$SEEN_LINUX_RISCV64_GCC_TOOLCHAIN\"")
+    if commandWasSuccessful(toolchainEnvResult) {
+        let toolchainEnv = toolchainEnvResult.output.trim()
+        if toolchainEnv != "" {
+            let validateEnv: CommandResult = runCommand("test -d " + toolchainEnv)
+            if commandWasSuccessful(validateEnv) {
+                return toolchainEnv
+            }
+        }
+    }
+    let genericToolchainResult: CommandResult = runCommand("printf '%s' \"$RISCV64_GCC_TOOLCHAIN\"")
+    if commandWasSuccessful(genericToolchainResult) {
+        let genericToolchain = genericToolchainResult.output.trim()
+        if genericToolchain != "" {
+            let validateGeneric: CommandResult = runCommand("test -d " + genericToolchain)
+            if commandWasSuccessful(validateGeneric) {
+                return genericToolchain
+            }
+        }
+    }
+    if sysroot != "" {
+        let parentDirResult: CommandResult = runCommand("dirname " + sysroot)
+        if commandWasSuccessful(parentDirResult) {
+            let parentDir = parentDirResult.output.trim()
+            if parentDir != "" {
+                let gccDirCheck: CommandResult = runCommand("test -d " + parentDir + "/lib/gcc/riscv64-linux-gnu")
+                if commandWasSuccessful(gccDirCheck) {
+                    return parentDir
+                }
+            }
+        }
+    }
+    let gccPathResult: CommandResult = runCommand("command -v riscv64-linux-gnu-gcc 2>/dev/null")
+    if commandWasSuccessful(gccPathResult) {
+        let gccPath = gccPathResult.output.trim()
+        if gccPath != "" {
+            let gccBinDirResult: CommandResult = runCommand("dirname " + gccPath)
+            if commandWasSuccessful(gccBinDirResult) {
+                let gccBinDir = gccBinDirResult.output.trim()
+                if gccBinDir != "" {
+                    let toolchainRootResult: CommandResult = runCommand("dirname " + gccBinDir)
+                    if commandWasSuccessful(toolchainRootResult) {
+                        let toolchainRoot = toolchainRootResult.output.trim()
+                        if toolchainRoot != "" {
+                            return toolchainRoot
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return ""
+}
+
 fun sourcesNeedGpuRuntime(modulePaths: Array<String>) r: Bool {
     var mi = 0
     while mi < modulePaths.length() {
@@ -8645,11 +8760,14 @@ fun buildTargetRuntimeCompileFlags(target: String) r: String {
     if target == "android-arm64" {
         flags = flags + " -D__ANDROID_API__=" + getAndroidApiLevel()
     }
+    if target == "linux-riscv64" {
+        flags = flags + " -DSEEN_TARGET_RISCV64=1"
+    }
     return flags
 }
 
 fun targetSupportsRegionRuntime(target: String) r: Bool {
-    if target == "linux-x86_64" or target == "linux-arm64" or target == "android-arm64" {
+    if target == "linux-x86_64" or target == "linux-arm64" or target == "linux-riscv64" or target == "android-arm64" {
         return true
     }
     return false
@@ -8905,6 +9023,22 @@ fun buildTargetClangArgs(target: String) r: String {
         }
         return ""
     }
+    if target == "linux-riscv64" {
+        let riscvTriple = getLinuxRiscv64Triple()
+        if detectHostTargetName() == "linux-riscv64" {
+            return "--target=" + riscvTriple
+        }
+        let sysroot = getLinuxRiscv64Sysroot()
+        if sysroot != "" {
+            var args = "--target=" + riscvTriple + " --sysroot=" + sysroot + " -march=rv64gc -mabi=lp64d"
+            let gccToolchain = getLinuxRiscv64GccToolchain(sysroot)
+            if gccToolchain != "" {
+                args = args + " --gcc-toolchain=" + gccToolchain
+            }
+            return args
+        }
+        return ""
+    }
     if target == "linux-x86_64" {
         return "--target=x86_64-unknown-linux-gnu"
     }
@@ -8923,6 +9057,18 @@ fun buildTargetClangArgs(target: String) r: String {
 }
 
 fun buildTargetClangDriver(target: String) r: String {
+    if target == "linux-riscv64" {
+        let riscvClangResult: CommandResult = runCommand("printf '%s' \"$SEEN_LINUX_RISCV64_CLANG\"")
+        if commandWasSuccessful(riscvClangResult) {
+            let riscvClang = riscvClangResult.output.trim()
+            if riscvClang != "" {
+                let riscvClangCheck: CommandResult = runCommand("test -x " + riscvClang)
+                if commandWasSuccessful(riscvClangCheck) {
+                    return riscvClang
+                }
+            }
+        }
+    }
     if target == "android-arm64" {
         let ndkRoot = getAndroidNdkRoot()
         if ndkRoot != "" {
@@ -9201,6 +9347,10 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         println("  Error: Linux ARM64 cross-compilation requires SEEN_LINUX_ARM64_SYSROOT or an installed aarch64 sysroot such as /usr/aarch64-linux-gnu")
         return 1
     }
+    if normalizedCrossTarget == "linux-riscv64" and detectHostTargetName() != "linux-riscv64" and targetClangArgs == "" {
+        println("  Error: Linux RISC-V cross-compilation requires SEEN_LINUX_RISCV64_SYSROOT, RISCV64_SYSROOT, artifacts/toolchains/linux-riscv64, or an installed riscv64 sysroot such as /usr/riscv64-linux-gnu")
+        return 1
+    }
 
     // Cross-compilation: override target triple and data layout
     if normalizedCrossTarget != "" {
@@ -9228,6 +9378,10 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                             overrideTargetTriple("aarch64-unknown-linux-gnu", "e-m:e-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128")
                             println("  Cross-compiling for Linux ARM64")
                         } else {
+                            if normalizedCrossTarget == "linux-riscv64" {
+                                overrideTargetTriple("riscv64-unknown-linux-gnu", "e-m:e-p:64:64-i64:64-i128:128-n32:64-S128")
+                                println("  Cross-compiling for Linux RISC-V 64")
+                            } else {
                             if normalizedCrossTarget == "windows-x86_64" {
                                 overrideTargetTriple("x86_64-w64-windows-gnu", "e-m:w-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128")
                                 println("  Cross-compiling for Windows x86_64")
@@ -9239,6 +9393,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                                 } else {
                                     println("  Warning: Unknown cross-target '" + crossTarget + "', using host platform")
                                 }
+                            }
                             }
                         }
                     }
@@ -10039,11 +10194,11 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                     androidClangOptLevel = "-O2"
                 }
             }
-            if normalizedCrossTarget == "android-arm64" {
+            if normalizedCrossTarget == "android-arm64" or normalizedCrossTarget == "linux-riscv64" {
                 moduleOptCmd = targetClangDriver + " " + androidClangOptLevel + " -S -emit-llvm -Wno-unused-command-line-argument -x ir " + targetClangArgs + " " + llFile + " -o " + optFile
             }
 
-            if g_generatedTestMainMode == 1 and normalizedCrossTarget != "android-arm64" {
+            if g_generatedTestMainMode == 1 and normalizedCrossTarget != "android-arm64" and normalizedCrossTarget != "linux-riscv64" {
                 moduleOptCmd = "cp " + llFile + " " + optFile
             } else if actualMlLogPath != "" {
                 moduleOptCmd = moduleOptCmd + " -pass-remarks-output=" +
@@ -10063,7 +10218,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             ThinLTO link overhead.
             ///
             var pollyStep = ""
-            if g_fastMode == 0 and normalizedCrossTarget != "android-arm64" and
+            if g_fastMode == 0 and normalizedCrossTarget != "android-arm64" and normalizedCrossTarget != "linux-riscv64" and
                 boundedLargeProjectOptWorkers == 0 {
 
                 let pollyFile = moduleTempPath(compileTempDir, midx,
@@ -10071,7 +10226,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                 pollyStep = "    (" + llvmOptScriptTool + " -passes='polly-canonicalize,polly' -S " + optFile + " -o " + pollyFile + " >>" + logFile + " 2>&1 && mv " + pollyFile + " " + optFile + ") || true\n"
             }
             var moduleObjCmd = llvmOptScriptTool + " --thinlto-bc " + optFile + " -o " + objFile
-            if g_picMode == 1 and normalizedCrossTarget != "android-arm64" {
+            if g_picMode == 1 and normalizedCrossTarget != "android-arm64" and normalizedCrossTarget != "linux-riscv64" {
                 var picLlcOptLevel = "-O3"
                 if g_fastMode == 1 {
                     picLlcOptLevel = "-O1"
@@ -10084,10 +10239,10 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                     picLlcOptLevel + " -relocation-model=pic " + optFile +
                     " -o " + objFile
             }
-            if g_fastMode == 1 and normalizedCrossTarget != "android-arm64" {
+            if g_fastMode == 1 and normalizedCrossTarget != "android-arm64" and normalizedCrossTarget != "linux-riscv64" {
                 moduleObjCmd = llvmLlcTool + " -filetype=obj -O1 -relocation-model=pic " + optFile + " -o " + objFile
             }
-            if g_generatedTestMainMode == 1 and normalizedCrossTarget != "android-arm64" {
+            if g_generatedTestMainMode == 1 and normalizedCrossTarget != "android-arm64" and normalizedCrossTarget != "linux-riscv64" {
                 moduleObjCmd = llvmLlcTool + " -filetype=obj -O0 -relocation-model=pic " + optFile + " -o " + objFile
             }
             if normalizedCrossTarget == "android-arm64" {
@@ -10096,6 +10251,13 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                     modulePicFlag = " -fPIC"
                 }
                 moduleObjCmd = targetClangDriver + " " + androidClangOptLevel + " -flto=thin -ffunction-sections -fdata-sections" + modulePicFlag + " -Wno-unused-command-line-argument -c -x ir " + targetClangArgs + " " + optFile + " -o " + objFile
+            }
+            if normalizedCrossTarget == "linux-riscv64" {
+                var modulePicFlagRiscv = ""
+                if g_picMode == 1 {
+                    modulePicFlagRiscv = " -fPIC"
+                }
+                moduleObjCmd = targetClangDriver + " " + androidClangOptLevel + " -ffunction-sections -fdata-sections" + modulePicFlagRiscv + " -Wno-unused-command-line-argument -c -x ir " + targetClangArgs + " " + optFile + " -o " + objFile
             }
             var moduleScript = "(\n"
             if shouldPrintCompileProgress(pi + 1, uncachedIdxStrs.length()) {
@@ -10355,6 +10517,9 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         if effectiveTarget == "linux-x86_64" or effectiveTarget == "macos-x86_64" or effectiveTarget == "windows-x86_64" {
             clangMarch = "-march=x86-64"
             llvmLlcCpu = "x86-64"
+        } else if effectiveTarget == "linux-riscv64" {
+            clangMarch = ""
+            llvmLlcCpu = "generic-rv64"
         } else {
             clangMarch = ""
         }
@@ -10757,7 +10922,24 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             let rtTargetOut = "/tmp/seen_runtime_" + effectiveTarget + ".o"
             let rtTargetCmd: CommandResult = runCommand(targetClangDriver + " -O3 -flto=thin -ffunction-sections -fdata-sections" + targetRuntimeFlags + " -c " + targetClangArgs + " -I " + rtPrefix + " " + rtPrefix + "/seen_runtime.c -o " + rtTargetOut)
             if commandWasSuccessful(rtTargetCmd) {
-                runtimeArg = rtTargetOut + teeInlineArg
+                runtimeArg = rtTargetOut
+                if hasTeeRuntime {
+                    let teeTargetOut = "/tmp/seen_tee_common_" + effectiveTarget + ".o"
+                    let teeTargetCmd: CommandResult = runCommand(targetClangDriver + " -O3 -flto=thin -ffunction-sections -fdata-sections" + targetRuntimeFlags + " -c " + targetClangArgs + " -I " + rtPrefix + " " + teeRuntimeSrc + " -o " + teeTargetOut)
+                    if commandWasSuccessful(teeTargetCmd) {
+                        runtimeArg = runtimeArg + " " + teeTargetOut
+                    } else {
+                        println("    Error: target TEE runtime compilation failed for " + effectiveTarget)
+                        println(teeTargetCmd.output)
+                        return 1
+                    }
+                }
+                if hasTeeSgxRuntime {
+                    runtimeArg = runtimeArg + " " + teeSgxRuntimeSrc
+                }
+                if hasTeeSevRuntime {
+                    runtimeArg = runtimeArg + " " + teeSevRuntimeSrc
+                }
             } else {
                 println("    Error: target runtime compilation failed for " + effectiveTarget)
                 println(rtTargetCmd.output)
@@ -10792,10 +10974,14 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                     if effectiveTarget == "android-arm64" {
                         linkCmd = targetClangDriver + " " + targetClangArgs + " -O2 -flto=thin -shared -Wl,--gc-sections -Wno-unused-command-line-argument "
                     } else {
+                    if effectiveTarget == "linux-riscv64" {
+                        linkCmd = targetClangDriver + " " + targetClangArgs + " -O3 -fuse-ld=lld -Wl,--gc-sections -Wno-unused-command-line-argument "
+                    } else {
                         linkCmd = targetClangDriver + " " + targetClangArgs + " -O3 -flto=thin -fuse-ld=lld -Wl,--thinlto-cache-dir=/tmp/seen_thinlto_cache -Wl,--gc-sections -Wno-unused-command-line-argument "
                         if clangMarch != "" {
                             linkCmd = linkCmd + clangMarch + " "
                         }
+                    }
                     }
                 }
             }
@@ -11132,6 +11318,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     if needsHotReloadRuntime {
         if effectiveTarget == "linux-x86_64" or
             effectiveTarget == "linux-arm64" or
+            effectiveTarget == "linux-riscv64" or
             effectiveTarget == "android-arm64" {
 
             if not linkLibs.contains("-ldl") {
@@ -11621,7 +11808,7 @@ fun printUsage() r: Void {
     println("  --no-cache               Disable incremental compilation caching")
     println("  --aot                    Use AOT compilation for 'run' (default: JIT via lli)")
     println("  --verbose                Show full per-module compiler progress and warnings")
-    println("  --target-cpu=<cpu>       Target CPU (native, x86-64, x86-64-v3, x86-64-v4)")
+    println("  --target-cpu=<cpu>       Target CPU (native, x86-64, x86-64-v3, x86-64-v4, rv64gc)")
     println("  --simd=<policy>          SIMD policy (auto, none, sse4.2, avx2, avx512)")
     println("  --simd-report            Show LLVM vectorization report (brief)")
     println("  --simd-report=full       Show detailed per-loop vectorization report")
@@ -11635,7 +11822,8 @@ fun printUsage() r: Void {
     println("  --ml-decision-log=<path> Write optimization decision log (JSONL format)")
     println("  --target=<platform>      Cross-compile target")
     println("  --target <platform>      Same as above")
-    println("                           linux-x86_64, linux-arm64, windows-x86_64,")
+    println("                           linux-x86_64, linux-arm64, linux-riscv64,")
+    println("                           windows-x86_64,")
     println("                           macos-x86_64, macos-arm64, ios-arm64,")
     println("                           ios-sim-arm64, android-arm64")
     println("  --pic                    Emit PIC module/runtime objects for shared libraries")

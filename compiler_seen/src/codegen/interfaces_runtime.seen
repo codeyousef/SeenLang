@@ -218,6 +218,9 @@ class Linker {
         if target == Target.Linux_ARM64 {
             return "--target=aarch64-unknown-linux-gnu"
         }
+        if target == Target.RISC_V {
+            return "--target=riscv64-linux-gnu"
+        }
         if target == Target.iOS_ARM64 {
             let sdkResult: CommandResult = runCommand("xcrun --sdk iphoneos --show-sdk-path")
             if commandWasSuccessful(sdkResult) {

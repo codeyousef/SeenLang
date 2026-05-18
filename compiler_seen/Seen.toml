@@ -36,7 +36,7 @@ features = ["simd", "vectorization"]
 
 [targets.riscv64]
 triple = "riscv64-unknown-linux-gnu"
-features = ["rvv", "compressed", "atomic"]
+features = ["rv64gc", "compressed", "atomic"]
 
 [targets.wasm32]
 triple = "wasm32-unknown-unknown" 

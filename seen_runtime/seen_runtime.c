@@ -5588,6 +5588,8 @@ typedef struct {
     int avx512vl;
     int neon;
     int sve;
+    int riscv64;
+    int rvv;
     int apx;
     int avx10;
     int detected;
@@ -5661,6 +5663,15 @@ static void seen_cpu_detect_impl(void) {
 }
 #endif
 
+#elif defined(__riscv) && (__riscv_xlen == 64)
+
+static void seen_cpu_detect_impl(void) {
+    if (g_cpu_features.detected) return;
+    g_cpu_features.detected = 1;
+    g_cpu_features.riscv64 = 1;
+    g_cpu_features.rvv = 0; // RVV codegen/runtime support is not enabled yet.
+}
+
 #else
 // Fallback: no hardware detection
 static void seen_cpu_detect_impl(void) {
@@ -5702,6 +5713,8 @@ int64_t seen_cpu_has_feature(SeenString name) {
     if (name.len == 8 && memcmp(name.data, "avx512vl", 8) == 0) return g_cpu_features.avx512vl;
     if (name.len == 4 && memcmp(name.data, "neon", 4) == 0) return g_cpu_features.neon;
     if (name.len == 3 && memcmp(name.data, "sve", 3) == 0) return g_cpu_features.sve;
+    if (name.len == 7 && memcmp(name.data, "riscv64", 7) == 0) return g_cpu_features.riscv64;
+    if (name.len == 3 && memcmp(name.data, "rvv", 3) == 0) return g_cpu_features.rvv;
     if (name.len == 3 && memcmp(name.data, "apx", 3) == 0) return g_cpu_features.apx;
     if (name.len == 5 && memcmp(name.data, "avx10", 5) == 0) return g_cpu_features.avx10;
 
@@ -5900,6 +5913,8 @@ void seen_perf_export_json(SeenString path) {
     fprintf(f, "    \"avx512vl\": %d,\n", g_cpu_features.avx512vl);
     fprintf(f, "    \"neon\": %d,\n", g_cpu_features.neon);
     fprintf(f, "    \"sve\": %d,\n", g_cpu_features.sve);
+    fprintf(f, "    \"riscv64\": %d,\n", g_cpu_features.riscv64);
+    fprintf(f, "    \"rvv\": %d,\n", g_cpu_features.rvv);
     fprintf(f, "    \"apx\": %d,\n", g_cpu_features.apx);
     fprintf(f, "    \"avx10\": %d\n", g_cpu_features.avx10);
     fprintf(f, "  },\n");

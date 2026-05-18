@@ -361,6 +361,7 @@ fun printUsage() r: Void {
     printLn("      macos-arm64               macOS ARM64 executable")
     printLn("      linux-x86_64              Linux x86_64 executable")
     printLn("      linux-arm64               Linux ARM64 executable")
+    printLn("      linux-riscv64             Linux RISC-V 64 executable")
     printLn("      ios-arm64                 iOS ARM64 artifact")
     printLn("      ios-sim-arm64             iOS Simulator ARM64 artifact")
     printLn("      android-arm64             Android ARM64 shared library")
@@ -779,7 +780,7 @@ fun targetToString(target: Target) r: String {
         Target.iOS_ARM64 -> "ios-arm64"
         Target.iOS_Simulator_ARM64 -> "ios-sim-arm64"
         Target.Android_ARM64 -> "android-arm64"
-        Target.RISC_V -> "riscv"
+        Target.RISC_V -> "linux-riscv64"
         _ -> "native"
     }
 }
