@@ -28,6 +28,9 @@ fun isCollectionReceiverTypeImpl(receiverType: String) r: Bool {
     if receiverType == "BTreeMap" or receiverType.startsWith("BTreeMap<") {
         return true
     }
+    if receiverType == "Map" or receiverType.startsWith("Map<") {
+        return true
+    }
     if receiverType == "HashMap" or receiverType.startsWith("HashMap<") {
         return true
     }
@@ -105,8 +108,8 @@ fun isNumericReceiverMethodImpl(methodName: String) r: Bool {
 fun needsStaticFactoryArgumentImpl(methodName: String,
     potentialClassName: String) r: Bool {
 
-    if methodName == "withCapacity" {
-        if potentialClassName == "HashMap" {
+    if methodName == "withCapacity" or methodName == "tryWithCapacity" {
+        if potentialClassName == "Map" or potentialClassName == "HashMap" {
             return true
         }
         return potentialClassName == "StringHashMap"

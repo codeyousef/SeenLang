@@ -1,0 +1,39 @@
+///
+Regression: class methods named like string helpers must dispatch as class
+methods when called through `this`, not through the string fast path.
+///
+
+class TokenSet {
+    var first: String
+    var second: String
+
+    static fun new() r: TokenSet {
+        return TokenSet { first: "alpha", second: "beta" }
+    }
+
+    fun indexOf(name: String) r: Int {
+        if name == this.first {
+            return 0
+        }
+        if name == this.second {
+            return 1
+        }
+        return -1
+    }
+
+    fun typeFor(name: String) r: Int {
+        return this.indexOf(name) + 10
+    }
+}
+
+fun main() r: Int {
+    let tokens = TokenSet.new()
+    let beta = tokens.typeFor("beta")
+    let missing = tokens.typeFor("gamma")
+    if beta == 11 and missing == 9 {
+        println("PASS: class method indexOf dispatch")
+        return 0
+    }
+    println("FAIL: class method indexOf dispatch")
+    return 1
+}

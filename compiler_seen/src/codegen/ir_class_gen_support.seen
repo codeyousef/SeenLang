@@ -131,17 +131,60 @@ fun isTraitClassNodeImpl(classNode: ClassNode) r: Bool {
 
 fun isRuntimeBackedStringBuilderMethodImpl(methodName: String) r: Bool {
     return methodName == "new" or methodName == "append" or
+        methodName == "writeToFile" or
         methodName == "appendChar" or methodName == "toString" or
         methodName == "clear" or methodName == "length"
 }
 
-fun shouldSkipSourceClassMethodImpl(methodName: String, isStringBuilder: Bool)
+fun isRuntimeBackedVecMethodImpl(methodName: String) r: Bool {
+    return methodName == "new" or methodName == "push" or
+        methodName == "get" or methodName == "len" or
+        methodName == "length" or methodName == "isEmpty" or
+        methodName == "set" or methodName == "pop" or
+        methodName == "clear" or methodName == "contains" or
+        methodName == "indexOf" or methodName == "reverse" or
+        methodName == "remove" or methodName == "insert" or
+        methodName == "first" or methodName == "last" or
+        methodName == "sort" or methodName == "capacity" or
+        methodName == "reserve" or methodName == "ensureCapacity" or
+        methodName == "toArray" or methodName == "tryPush" or
+        methodName == "tryReserve" or methodName == "tryEnsureCapacity" or
+        methodName == "tryToArray"
+}
+
+fun isRuntimeBackedMapMethodImpl(methodName: String) r: Bool {
+    return methodName == "new" or methodName == "withCapacity" or
+        methodName == "tryWithCapacity" or methodName == "tryReserve" or
+        methodName == "tryInsert" or methodName == "tryPut" or
+        methodName == "put" or methodName == "set" or
+        methodName == "insert" or methodName == "get" or
+        methodName == "getOrDefault" or methodName == "getUnchecked" or
+        methodName == "contains" or methodName == "containsKey" or
+        methodName == "containsValue" or methodName == "remove" or
+        methodName == "removeOrDefault" or methodName == "removeUnchecked" or
+        methodName == "keys" or methodName == "values" or
+        methodName == "size" or methodName == "len" or
+        methodName == "length" or methodName == "isEmpty" or
+        methodName == "clear" or methodName == "capacity" or
+        methodName == "loadFactorPercent"
+}
+
+fun shouldSkipSourceClassMethodImpl(methodName: String, className: String,
+    isStringBuilder: Bool)
     r: Bool {
 
     if methodName == "__seen_hot_reload_marker__" {
         return true
     }
     if isStringBuilder and isRuntimeBackedStringBuilderMethodImpl(methodName) {
+        return true
+    }
+    if className == "Vec" and isRuntimeBackedVecMethodImpl(methodName) {
+        return true
+    }
+    if (className == "Map" or className == "HashMap" or
+        className == "StringHashMap" or className == "BTreeMap") and
+        isRuntimeBackedMapMethodImpl(methodName) {
         return true
     }
     return false

@@ -201,6 +201,19 @@ fun foldIntComparison(leftVal: String, rightVal: String, op: String) r: String {
 
 // Check if a pipe-delimited string contains the given needle as an entry.
 // Uses byteAt() to avoid per-byte string allocation.
+fun pipeSegmentEquals(data: String, start: Int, end: Int, needle: String) r: Bool {
+    let length = end - start
+    if length != needle.length() { return false }
+    var i = 0
+    while i < length {
+        if data.byteAt(start + i) != needle.byteAt(i) {
+            return false
+        }
+        i = i + 1
+    }
+    return true
+}
+
 fun pipeContains(data: String, needle: String) r: Bool {
     if data == "" { return false }
     var pos = 0
@@ -212,7 +225,7 @@ fun pipeContains(data: String, needle: String) r: Bool {
             if data.byteAt(pos) == 124 { atEnd = 1 }
         }
         if atEnd == 1 {
-            if data.substring(start, pos) == needle {
+            if pipeSegmentEquals(data, start, pos, needle) {
                 return true
             }
             start = pos + 1

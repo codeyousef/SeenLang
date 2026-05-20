@@ -5,7 +5,7 @@ Extracted from ir_type_mapping.seen
 
 import parser.real_parser.{ParserExpressionNode}
 import codegen.ir_type_info.{findStructIdx}
-import codegen.ir_comptime_target.{getComptimeTargetName, comptimeTargetIsX86_64, comptimeTargetIsAarch64}
+import codegen.ir_comptime_target.{getComptimeTargetName, comptimeTargetIsX86_64, comptimeTargetIsAarch64, comptimeTargetIsRiscv64}
 
 fun parseSimpleIntImpl(s: String) r: Int {
     if s == "" { return -9999999 }
@@ -206,6 +206,7 @@ fun comptimeSizeofImpl(typeName: String) r: Int {
     if typeName == "Int32" { return 4 }
     if typeName == "UInt32" { return 4 }
     if typeName == "Float32" { return 4 }
+    if typeName == "Float64" { return 8 }
     if typeName == "Int64" { return 8 }
     if typeName == "UInt64" { return 8 }
     if typeName == "f32x4" { return 16 }
@@ -345,8 +346,9 @@ fun evaluateConstExprImpl(expr: ParserExpressionNode, comptimeNames: String, com
             let activeTarget = getComptimeTargetName()
             let isX86_64 = comptimeTargetIsX86_64(activeTarget)
             let isAarch64 = comptimeTargetIsAarch64(activeTarget)
+            let isRiscv64 = comptimeTargetIsRiscv64(activeTarget)
             if expr.variableName == "isLinux" {
-                if activeTarget == "linux-x86_64" or activeTarget == "linux-arm64" { return 1 }
+                if activeTarget == "linux-x86_64" or activeTarget == "linux-arm64" or activeTarget == "linux-riscv64" { return 1 }
                 return 0
             }
             if expr.variableName == "isMacos" {
@@ -373,6 +375,10 @@ fun evaluateConstExprImpl(expr: ParserExpressionNode, comptimeNames: String, com
                 if isAarch64 { return 1 }
                 return 0
             }
+            if expr.variableName == "isRiscv64" {
+                if isRiscv64 { return 1 }
+                return 0
+            }
             if expr.variableName == "hasSSE2" {
                 if isX86_64 { return 1 }
                 return 0
@@ -384,6 +390,7 @@ fun evaluateConstExprImpl(expr: ParserExpressionNode, comptimeNames: String, com
                 if isAarch64 { return 1 }
                 return 0
             }
+            if expr.variableName == "hasRVV" { return 0 }
             if expr.variableName == "pointerSize" { return 8 }
         }
     }

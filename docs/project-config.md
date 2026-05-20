@@ -124,7 +124,7 @@ compiler's user-facing build controls are CLI flags documented in
 
 ```toml
 [build]
-targets = ["native", "wasm32", "riscv64"]
+targets = ["native", "linux-x86_64", "linux-riscv64"]
 optimize = "speed"      # "speed" or "size"
 lto = true              # Link-time optimization
 codegen-units = 1       # Single unit for best optimization
@@ -136,6 +136,7 @@ profile = "release"     # "release" or "debug"
 
 Target sections are project metadata for tools and future target profiles. Use
 `seen compile --target=<platform>` for the shipped compiler's target selection.
+Canonical target names and triples are listed in [Compilation Targets](targets.md).
 
 Per-target configuration:
 
@@ -144,13 +145,9 @@ Per-target configuration:
 triple = "x86_64-unknown-linux-gnu"
 features = ["simd", "vectorization"]
 
-[targets.riscv64]
+[targets.linux-riscv64]
 triple = "riscv64-unknown-linux-gnu"
-features = ["rvv", "compressed", "atomic"]
-
-[targets.wasm32]
-triple = "wasm32-unknown-unknown"
-features = ["simd128"]
+features = ["rv64gc", "compressed", "atomic"]
 ```
 
 ## [format] Section

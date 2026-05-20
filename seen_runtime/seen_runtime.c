@@ -36,6 +36,7 @@
 #include <sched.h>
 #include <pthread.h>
 #include <spawn.h>
+#include <dlfcn.h>
 
 // Apple platform headers
 #if defined(__APPLE__)
@@ -72,6 +73,8 @@ static inline void* seen_aligned_alloc(size_t alignment, size_t size) {
 
 #include <ctype.h>
 
+static inline size_t seen_align_up(size_t n, size_t align);
+
 // ============================================================================
 // Pool Allocator - size-class slab allocator with free-list recycling
 // ============================================================================
@@ -96,7 +99,7 @@ static inline int pool_class(size_t size) {
 __attribute__((hot, malloc))
 void *seen_pool_alloc(int64_t size) {
     if (__builtin_expect(size <= 0 || size > POOL_MAX_SIZE, 0))
-        return malloc(size > 0 ? size : 1);
+        return seen_try_malloc(size > 0 ? size : 1);
     int cls = pool_class((size_t)size);
     size_t slot = (size_t)(cls + 1) * 8;
 
@@ -113,8 +116,10 @@ void *seen_pool_alloc(int64_t size) {
     // Slow path: bump-allocate from slab
     PoolSlab *slab = pool_slabs[cls];
     if (__builtin_expect(!slab || slab->used + slot > POOL_SLAB_SIZE, 0)) {
-        slab = (PoolSlab *)malloc(sizeof(PoolSlab));
-        slab->base = (char *)malloc(POOL_SLAB_SIZE);
+        slab = (PoolSlab *)seen_try_malloc(sizeof(PoolSlab));
+        if (!slab) return NULL;
+        slab->base = (char *)seen_try_malloc(POOL_SLAB_SIZE);
+        if (!slab->base) return NULL;
         slab->used = 0;
         slab->next = pool_slabs[cls];
         pool_slabs[cls] = slab;
@@ -191,6 +196,265 @@ void seen_error_set_cstr(int64_t subsystem, int64_t code, const char* message) {
     }
 }
 
+// ============================================================================
+// Fallible allocation budget
+// ============================================================================
+
+#define SEEN_ERROR_SUBSYSTEM_MEMORY 2
+#define SEEN_ERROR_OUT_OF_MEMORY 1
+#define SEEN_ERROR_ALLOCATION_OVERFLOW 2
+
+static int g_seen_memory_initialized = 0;
+static int64_t g_seen_memory_limit_bytes = 0;
+static int64_t g_seen_memory_used_bytes = 0;
+static int64_t g_seen_memory_peak_bytes = 0;
+static int64_t g_seen_memory_allocation_failures = 0;
+
+static void seen_memory_init_from_env_once(void) {
+    if (g_seen_memory_initialized) return;
+    g_seen_memory_initialized = 1;
+
+    const char* env_limit = getenv("SEEN_MEMORY_LIMIT_BYTES");
+    if (!env_limit || env_limit[0] == '\0') return;
+
+    char* end = NULL;
+    errno = 0;
+    long long parsed = strtoll(env_limit, &end, 10);
+    if (errno == 0 && end && *end == '\0' && parsed > 0) {
+        g_seen_memory_limit_bytes = (int64_t)parsed;
+    }
+}
+
+static bool seen_memory_can_reserve(int64_t old_size, int64_t new_size) {
+    seen_memory_init_from_env_once();
+
+    if (old_size < 0 || new_size < 0) {
+        g_seen_memory_allocation_failures++;
+        seen_error_set_cstr(SEEN_ERROR_SUBSYSTEM_MEMORY,
+            SEEN_ERROR_ALLOCATION_OVERFLOW,
+            "invalid allocation size");
+        return false;
+    }
+
+    int64_t base = g_seen_memory_used_bytes;
+    if (old_size > base) old_size = base;
+    int64_t after_release = base - old_size;
+    if (INT64_MAX - after_release < new_size) {
+        g_seen_memory_allocation_failures++;
+        seen_error_set_cstr(SEEN_ERROR_SUBSYSTEM_MEMORY,
+            SEEN_ERROR_ALLOCATION_OVERFLOW,
+            "allocation size overflow");
+        return false;
+    }
+
+    int64_t projected = after_release + new_size;
+    if (g_seen_memory_limit_bytes > 0 && projected > g_seen_memory_limit_bytes) {
+        g_seen_memory_allocation_failures++;
+        seen_error_set_cstr(SEEN_ERROR_SUBSYSTEM_MEMORY,
+            SEEN_ERROR_OUT_OF_MEMORY,
+            "Seen memory budget exceeded");
+        return false;
+    }
+
+    return true;
+}
+
+static void seen_memory_commit_reservation(int64_t old_size, int64_t new_size) {
+    int64_t base = g_seen_memory_used_bytes;
+    if (old_size > base) old_size = base;
+    g_seen_memory_used_bytes = base - old_size + new_size;
+    if (g_seen_memory_used_bytes > g_seen_memory_peak_bytes) {
+        g_seen_memory_peak_bytes = g_seen_memory_used_bytes;
+    }
+}
+
+static void seen_memory_release_reservation(int64_t size) {
+    if (size <= 0) return;
+    if (size > g_seen_memory_used_bytes) {
+        g_seen_memory_used_bytes = 0;
+    } else {
+        g_seen_memory_used_bytes -= size;
+    }
+}
+
+void seen_memory_set_limit_bytes(int64_t bytes) {
+    seen_memory_init_from_env_once();
+    if (bytes < 0) bytes = 0;
+    g_seen_memory_limit_bytes = bytes;
+}
+
+int64_t seen_memory_limit_bytes(void) {
+    seen_memory_init_from_env_once();
+    return g_seen_memory_limit_bytes;
+}
+
+int64_t seen_memory_used_bytes(void) {
+    seen_memory_init_from_env_once();
+    return g_seen_memory_used_bytes;
+}
+
+int64_t seen_memory_peak_bytes(void) {
+    seen_memory_init_from_env_once();
+    return g_seen_memory_peak_bytes;
+}
+
+int64_t seen_memory_allocation_failures(void) {
+    seen_memory_init_from_env_once();
+    return g_seen_memory_allocation_failures;
+}
+
+int64_t seen_memory_remaining_bytes(void) {
+    seen_memory_init_from_env_once();
+    if (g_seen_memory_limit_bytes <= 0) return INT64_MAX;
+    if (g_seen_memory_used_bytes >= g_seen_memory_limit_bytes) return 0;
+    return g_seen_memory_limit_bytes - g_seen_memory_used_bytes;
+}
+
+int64_t seen_memory_try_reserve_bytes(int64_t size) {
+    if (!seen_memory_can_reserve(0, size)) return 0;
+    seen_memory_commit_reservation(0, size);
+    return 1;
+}
+
+void seen_memory_release_bytes(int64_t size) {
+    seen_memory_release_reservation(size);
+}
+
+SeenMemoryStats seen_memory_stats(void) {
+    SeenMemoryStats stats = {
+        seen_memory_limit_bytes(),
+        seen_memory_used_bytes(),
+        seen_memory_peak_bytes(),
+        seen_memory_allocation_failures()
+    };
+    return stats;
+}
+
+void* seen_try_malloc(int64_t size) {
+    if (size <= 0) size = 1;
+    if (!seen_memory_can_reserve(0, size)) return NULL;
+    void* ptr = malloc((size_t)size);
+    if (!ptr) {
+        g_seen_memory_allocation_failures++;
+        seen_error_set_cstr(SEEN_ERROR_SUBSYSTEM_MEMORY,
+            SEEN_ERROR_OUT_OF_MEMORY,
+            "malloc failed");
+        return NULL;
+    }
+    seen_memory_commit_reservation(0, size);
+    return ptr;
+}
+
+void* seen_try_calloc(int64_t count, int64_t size) {
+    if (count <= 0 || size <= 0) {
+        count = 1;
+        size = 1;
+    }
+    if (count > INT64_MAX / size) {
+        g_seen_memory_allocation_failures++;
+        seen_error_set_cstr(SEEN_ERROR_SUBSYSTEM_MEMORY,
+            SEEN_ERROR_ALLOCATION_OVERFLOW,
+            "calloc size overflow");
+        return NULL;
+    }
+    int64_t total = count * size;
+    if (!seen_memory_can_reserve(0, total)) return NULL;
+    void* ptr = calloc((size_t)count, (size_t)size);
+    if (!ptr) {
+        g_seen_memory_allocation_failures++;
+        seen_error_set_cstr(SEEN_ERROR_SUBSYSTEM_MEMORY,
+            SEEN_ERROR_OUT_OF_MEMORY,
+            "calloc failed");
+        return NULL;
+    }
+    seen_memory_commit_reservation(0, total);
+    return ptr;
+}
+
+void* seen_try_realloc(void* old, int64_t old_size, int64_t new_size) {
+    if (new_size <= 0) new_size = 1;
+    if (old_size < 0) old_size = 0;
+    if (!seen_memory_can_reserve(old ? old_size : 0, new_size)) return NULL;
+    void* ptr = realloc(old, (size_t)new_size);
+    if (!ptr) {
+        g_seen_memory_allocation_failures++;
+        seen_error_set_cstr(SEEN_ERROR_SUBSYSTEM_MEMORY,
+            SEEN_ERROR_OUT_OF_MEMORY,
+            "realloc failed");
+        return NULL;
+    }
+    seen_memory_commit_reservation(old ? old_size : 0, new_size);
+    return ptr;
+}
+
+static void seen_oom_abort(const char* context, int64_t size);
+
+void* seen_checked_malloc(int64_t size) {
+    void* ptr = seen_try_malloc(size);
+    if (!ptr) seen_oom_abort("compiler-emitted allocation", size);
+    return ptr;
+}
+
+void* seen_checked_realloc(void* old, int64_t old_size, int64_t new_size) {
+    void* ptr = seen_try_realloc(old, old_size, new_size);
+    if (!ptr) seen_oom_abort("compiler-emitted reallocation", new_size);
+    return ptr;
+}
+
+void* seen_try_aligned_realloc(void* old, int64_t old_size, int64_t new_size,
+    int64_t alignment) {
+    if (alignment <= 0) alignment = 32;
+    if (new_size <= 0) new_size = alignment;
+    size_t aligned_size = seen_align_up((size_t)new_size, (size_t)alignment);
+    if (!seen_memory_can_reserve(old ? old_size : 0, (int64_t)aligned_size)) {
+        return NULL;
+    }
+
+#ifdef SEEN_WIN32_ALIGNED
+    void* p = _aligned_realloc(old, aligned_size, (size_t)alignment);
+    if (!p) {
+        g_seen_memory_allocation_failures++;
+        seen_error_set_cstr(SEEN_ERROR_SUBSYSTEM_MEMORY,
+            SEEN_ERROR_OUT_OF_MEMORY,
+            "aligned realloc failed");
+        return NULL;
+    }
+#else
+    void* p = aligned_alloc((size_t)alignment, aligned_size);
+    if (!p) {
+        g_seen_memory_allocation_failures++;
+        seen_error_set_cstr(SEEN_ERROR_SUBSYSTEM_MEMORY,
+            SEEN_ERROR_OUT_OF_MEMORY,
+            "aligned allocation failed");
+        return NULL;
+    }
+    if (old) {
+        size_t copy_size = (size_t)(old_size < new_size ? old_size : new_size);
+        memcpy(p, old, copy_size);
+        free(old);
+    }
+#endif
+    seen_memory_commit_reservation(old ? old_size : 0, (int64_t)aligned_size);
+    return p;
+}
+
+void* seen_checked_aligned_alloc(int64_t alignment, int64_t size) {
+    void* ptr = seen_try_aligned_realloc(NULL, 0, size, alignment);
+    if (!ptr) seen_oom_abort("compiler-emitted aligned allocation", size);
+    return ptr;
+}
+
+static void seen_oom_abort(const char* context, int64_t size) {
+    if (!context) context = "allocation";
+    fprintf(stderr,
+        "Seen allocation failure in %s requesting %lld bytes (limit=%lld used=%lld peak=%lld failures=%lld)\n",
+        context, (long long)size, (long long)seen_memory_limit_bytes(),
+        (long long)seen_memory_used_bytes(),
+        (long long)seen_memory_peak_bytes(),
+        (long long)seen_memory_allocation_failures());
+    abort();
+}
+
 // Debug counters (guarded behind SEEN_RUNTIME_DEBUG env var)
 #ifdef SEEN_RUNTIME_DEBUG_COUNTERS
 static long g_substring_count = 0;
@@ -209,6 +473,7 @@ void seen_debug_print_counters(void) {}
 void seen_runtime_init(int argc, char** argv) {
     g_argc = argc;
     g_argv = argv;
+    seen_memory_init_from_env_once();
 }
 
 // ============================================================================
@@ -222,19 +487,51 @@ void seen_panic_overflow(const char* op, int64_t left, int64_t right) {
     abort();
 }
 
+static char* seen_runtime_alloc_chars(int64_t len, const char* context) {
+    if (len < 0 || len >= INT64_MAX) {
+        seen_oom_abort(context, len);
+    }
+    char* data = (char*)seen_try_malloc(len + 1);
+    if (!data) {
+        seen_oom_abort(context, len + 1);
+    }
+    return data;
+}
+
+static void seen_runtime_free_budgeted(void* ptr, int64_t size) {
+    if (!ptr) return;
+    seen_memory_release_reservation(size);
+    free(ptr);
+}
+
+static char* seen_runtime_cstring(SeenString s, const char* context) {
+    char* data = seen_runtime_alloc_chars(s.len, context);
+    if (s.len > 0) {
+        memcpy(data, s.data, (size_t)s.len);
+    }
+    data[s.len] = 0;
+    return data;
+}
+
+static SeenString seen_runtime_copy_string_slice(const char* src, int64_t len,
+    const char* context) {
+    char* data = seen_runtime_alloc_chars(len, context);
+    if (len > 0) {
+        memcpy(data, src, (size_t)len);
+    }
+    data[len] = 0;
+    SeenString result = { len, data };
+    return result;
+}
+
 // ============================================================================
 // File I/O Primitive Functions (used by Seen stdlib io.file)
 // ============================================================================
 
 // Open file and return file descriptor (or -1 on error)
 int64_t __OpenFile(SeenString path, SeenString mode) {
-    char* cpath = (char*)malloc(path.len + 1);
-    memcpy(cpath, path.data, path.len);
-    cpath[path.len] = 0;
-
-    char* cmode = (char*)malloc(mode.len + 1);
-    memcpy(cmode, mode.data, mode.len);
-    cmode[mode.len] = 0;
+    char* cpath = seen_runtime_cstring(path, "__OpenFile path");
+    char* cmode = seen_runtime_cstring(mode, "__OpenFile mode");
 
     FILE* f = fopen(cpath, cmode);
     free(cpath);
@@ -262,7 +559,7 @@ SeenString __ReadFile(int64_t fd) {
 
     // For full file read, read from current position
     long remaining = size - cur;
-    char* data = (char*)malloc(remaining + 1);
+    char* data = seen_runtime_alloc_chars((int64_t)remaining, "__ReadFile");
     size_t read = fread(data, 1, remaining, f);
     data[read] = 0;
 
@@ -298,9 +595,7 @@ SeenArray* __ReadFileBytes(int64_t fd, int64_t size) {
 
 // Compatibility helper for older code that declared __ReadFileBytes(path).
 SeenArray* __ReadFileBytesPath(SeenString path) {
-    char* cpath = (char*)malloc(path.len + 1);
-    memcpy(cpath, path.data, path.len);
-    cpath[path.len] = 0;
+    char* cpath = seen_runtime_cstring(path, "__ReadFileBytesPath path");
 
     FILE* f = fopen(cpath, "rb");
     free(cpath);
@@ -363,9 +658,7 @@ SeenString __FileError(int64_t fd) {
 
 // Check if file exists
 bool __FileExists(SeenString path) {
-    char* cpath = (char*)malloc(path.len + 1);
-    memcpy(cpath, path.data, path.len);
-    cpath[path.len] = 0;
+    char* cpath = seen_runtime_cstring(path, "__FileExists path");
 
     FILE* f = fopen(cpath, "r");
     free(cpath);
@@ -378,9 +671,7 @@ bool __FileExists(SeenString path) {
 
 // Delete file
 bool __DeleteFile(SeenString path) {
-    char* cpath = (char*)malloc(path.len + 1);
-    memcpy(cpath, path.data, path.len);
-    cpath[path.len] = 0;
+    char* cpath = seen_runtime_cstring(path, "__DeleteFile path");
 
     int result = remove(cpath);
     free(cpath);
@@ -389,9 +680,7 @@ bool __DeleteFile(SeenString path) {
 
 // Create directory
 bool __CreateDirectory(SeenString path) {
-    char* cpath = (char*)malloc(path.len + 1);
-    memcpy(cpath, path.data, path.len);
-    cpath[path.len] = 0;
+    char* cpath = seen_runtime_cstring(path, "__CreateDirectory path");
 
 #ifdef _WIN32
     int result = _mkdir(cpath);
@@ -415,9 +704,7 @@ typedef struct {
 // Execute program by path and return exit code.
 #ifdef _WIN32
 int64_t __ExecuteProgram(SeenString path) {
-    char* cpath = (char*)malloc(path.len + 1);
-    memcpy(cpath, path.data, path.len);
-    cpath[path.len] = 0;
+    char* cpath = seen_runtime_cstring(path, "__ExecuteProgram path");
 
     int status = system(cpath);
     free(cpath);
@@ -427,9 +714,7 @@ int64_t __ExecuteProgram(SeenString path) {
 // Uses posix_spawn via /bin/sh -c (like system(3) but available on all Apple platforms).
 extern char **environ;
 int64_t __ExecuteProgram(SeenString path) {
-    char* cpath = (char*)malloc(path.len + 1);
-    memcpy(cpath, path.data, path.len);
-    cpath[path.len] = 0;
+    char* cpath = seen_runtime_cstring(path, "__ExecuteProgram path");
 
 #if defined(__ANDROID__)
     int status = system(cpath);
@@ -459,14 +744,14 @@ int64_t __ExecuteProgram(SeenString path) {
 // Execute command and capture output
 // Returns a pointer to a malloc'd SeenCommandResult (to avoid ABI issues with large struct returns)
 SeenCommandResult* __ExecuteCommand(SeenString cmd) {
-    SeenCommandResult* result = (SeenCommandResult*)malloc(sizeof(SeenCommandResult));
+    SeenCommandResult* result =
+        (SeenCommandResult*)seen_try_malloc((int64_t)sizeof(SeenCommandResult));
+    if (!result) seen_oom_abort("__ExecuteCommand result", sizeof(SeenCommandResult));
     result->success = false;
     result->output.len = 0;
     result->output.data = "";
 
-    char* ccmd = (char*)malloc(cmd.len + 1);
-    memcpy(ccmd, cmd.data, cmd.len);
-    ccmd[cmd.len] = 0;
+    char* ccmd = seen_runtime_cstring(cmd, "__ExecuteCommand command");
 
     FILE* pipe = popen(ccmd, "r");
     free(ccmd);
@@ -475,16 +760,26 @@ SeenCommandResult* __ExecuteCommand(SeenString cmd) {
         return result;
     }
 
-    char* output = (char*)malloc(4096);
     size_t capacity = 4096;
+    char* output = (char*)seen_try_malloc((int64_t)capacity);
+    if (!output) seen_oom_abort("__ExecuteCommand output", (int64_t)capacity);
     size_t length = 0;
 
     char buffer[256];
     while (fgets(buffer, sizeof(buffer), pipe)) {
         size_t buflen = strlen(buffer);
-        if (length + buflen >= capacity) {
+        while (length + buflen >= capacity) {
+            size_t old_capacity = capacity;
+            if (capacity > (size_t)INT64_MAX / 2) {
+                seen_oom_abort("__ExecuteCommand output overflow", INT64_MAX);
+            }
             capacity *= 2;
-            output = (char*)realloc(output, capacity);
+            char* grown = (char*)seen_try_realloc(output,
+                (int64_t)old_capacity, (int64_t)capacity);
+            if (!grown) {
+                seen_oom_abort("__ExecuteCommand output", (int64_t)capacity);
+            }
+            output = grown;
         }
         memcpy(output + length, buffer, buflen);
         length += buflen;
@@ -571,9 +866,7 @@ SeenArray* __GetCommandLineArgs(void) {
 
 // Check if environment variable exists
 bool __HasEnv(SeenString name) {
-    char* cname = (char*)malloc(name.len + 1);
-    memcpy(cname, name.data, name.len);
-    cname[name.len] = 0;
+    char* cname = seen_runtime_cstring(name, "__HasEnv name");
 
     char* val = getenv(cname);
     free(cname);
@@ -582,9 +875,7 @@ bool __HasEnv(SeenString name) {
 
 // Get environment variable value
 SeenString __GetEnv(SeenString name) {
-    char* cname = (char*)malloc(name.len + 1);
-    memcpy(cname, name.data, name.len);
-    cname[name.len] = 0;
+    char* cname = seen_runtime_cstring(name, "__GetEnv name");
 
     char* val = getenv(cname);
     free(cname);
@@ -598,13 +889,8 @@ SeenString __GetEnv(SeenString name) {
 
 // Set environment variable
 bool __SetEnv(SeenString name, SeenString value) {
-    char* cname = (char*)malloc(name.len + 1);
-    memcpy(cname, name.data, name.len);
-    cname[name.len] = 0;
-
-    char* cvalue = (char*)malloc(value.len + 1);
-    memcpy(cvalue, value.data, value.len);
-    cvalue[value.len] = 0;
+    char* cname = seen_runtime_cstring(name, "__SetEnv name");
+    char* cvalue = seen_runtime_cstring(value, "__SetEnv value");
 
 #ifdef _WIN32
     int result = _putenv_s(cname, cvalue);
@@ -618,13 +904,11 @@ bool __SetEnv(SeenString name, SeenString value) {
 
 // Remove environment variable
 bool __RemoveEnv(SeenString name) {
-    char* cname = (char*)malloc(name.len + 1);
-    memcpy(cname, name.data, name.len);
-    cname[name.len] = 0;
+    char* cname = seen_runtime_cstring(name, "__RemoveEnv name");
 
 #ifdef _WIN32
     // On Windows, _putenv with "NAME=" removes the variable
-    char* buf = (char*)malloc(name.len + 2);
+    char* buf = seen_runtime_alloc_chars(name.len + 1, "__RemoveEnv buffer");
     memcpy(buf, cname, name.len);
     buf[name.len] = '=';
     buf[name.len + 1] = 0;
@@ -705,10 +989,8 @@ SeenArray split(SeenString text, SeenString delimiter) {
                 next_byte_idx = text.len;
             }
             int64_t ch_len = next_byte_idx - byte_idx;
-            char* ch = (char*)malloc(ch_len + 1);
-            memcpy(ch, text.data + byte_idx, ch_len);
-            ch[ch_len] = 0;
-            SeenString s = { ch_len, ch };
+            SeenString s = seen_runtime_copy_string_slice(
+                text.data + byte_idx, ch_len, "split character");
             seen_arr_push_str(&result, s);
             byte_idx = next_byte_idx;
         }
@@ -720,10 +1002,8 @@ SeenArray split(SeenString text, SeenString delimiter) {
         if (memcmp(text.data + i, delimiter.data, delimiter.len) == 0) {
             // Found delimiter
             int64_t len = i - start;
-            char* part = (char*)malloc(len + 1);
-            memcpy(part, text.data + start, len);
-            part[len] = 0;
-            SeenString s = { len, part };
+            SeenString s = seen_runtime_copy_string_slice(text.data + start,
+                len, "split segment");
             seen_arr_push_str(&result, s);
             start = i + delimiter.len;
             i = start - 1; // Will be incremented by loop
@@ -732,10 +1012,8 @@ SeenArray split(SeenString text, SeenString delimiter) {
 
     // Add remaining part
     int64_t len = text.len - start;
-    char* part = (char*)malloc(len + 1);
-    memcpy(part, text.data + start, len);
-    part[len] = 0;
-    SeenString s = { len, part };
+    SeenString s = seen_runtime_copy_string_slice(text.data + start, len,
+        "split segment");
     seen_arr_push_str(&result, s);
 
     return result;
@@ -762,11 +1040,7 @@ SEEN_WEAK SeenString trim(SeenString text) {
     }
 
     int64_t len = end - start;
-    char* data = (char*)malloc(len + 1);
-    memcpy(data, text.data + start, len);
-    data[len] = 0;
-    SeenString result = { len, data };
-    return result;
+    return seen_runtime_copy_string_slice(text.data + start, len, "trim");
 }
 
 // ============================================================================
@@ -809,25 +1083,22 @@ static inline size_t seen_align_up(size_t n, size_t align) {
 }
 
 static void* seen_aligned_realloc(void* old, size_t old_size, size_t new_size) {
-    size_t aligned_size = seen_align_up(new_size, 32);
-    if (aligned_size == 0) aligned_size = 32;
-#ifdef SEEN_WIN32_ALIGNED
-    // On Windows, _aligned_malloc memory must be reallocated with _aligned_realloc
-    (void)old_size; // _aligned_realloc doesn't need old_size
-    void* p = _aligned_realloc(old, aligned_size, 32);
-    if (!p) { fprintf(stderr, "seen_aligned_realloc: OOM\n"); abort(); }
+    void* p = seen_try_aligned_realloc(old, (int64_t)old_size,
+        (int64_t)new_size, 32);
+    if (!p) {
+        fprintf(stderr, "Seen allocation failure: aligned resize from %zu to %zu bytes failed (limit=%lld used=%lld peak=%lld)\n",
+            old_size, new_size, (long long)seen_memory_limit_bytes(),
+            (long long)seen_memory_used_bytes(),
+            (long long)seen_memory_peak_bytes());
+        abort();
+    }
     return p;
-#else
-    void* p = aligned_alloc(32, aligned_size);
-    if (!p) { fprintf(stderr, "seen_aligned_realloc: OOM\n"); abort(); }
-    if (old) { memcpy(p, old, old_size < new_size ? old_size : new_size); free(old); }
-    return p;
-#endif
 }
 
 SeenArray seen_arr_new_str(void) {
     size_t sz = 8 * sizeof(SeenString);
-    void* data = aligned_alloc(32, seen_align_up(sz, 32));
+    void* data = seen_try_aligned_realloc(NULL, 0, (int64_t)sz, 32);
+    if (!data) seen_oom_abort("seen_arr_new_str", (int64_t)sz);
     // element_size = sizeof(SeenString) = 16 bytes
     SeenArray arr = { 0, 8, sizeof(SeenString), data };
     return arr;
@@ -835,16 +1106,19 @@ SeenArray seen_arr_new_str(void) {
 
 SeenArray seen_arr_new_ptr(void) {
     size_t sz = 8 * sizeof(void*);
-    void* data = aligned_alloc(32, seen_align_up(sz, 32));
+    void* data = seen_try_aligned_realloc(NULL, 0, (int64_t)sz, 32);
+    if (!data) seen_oom_abort("seen_arr_new_ptr", (int64_t)sz);
     SeenArray arr = { 0, 8, sizeof(void*), data };
     return arr;
 }
 
 // Heap-allocated versions that return ptr for LLVM ABI compatibility
 SeenArray* seen_arr_new_str_ptr(void) {
-    SeenArray* arr = (SeenArray*)malloc(sizeof(SeenArray));
+    SeenArray* arr = (SeenArray*)seen_try_malloc(sizeof(SeenArray));
+    if (!arr) seen_oom_abort("seen_arr_new_str_ptr header", sizeof(SeenArray));
     size_t sz = 8 * sizeof(SeenString);
-    arr->data = aligned_alloc(32, seen_align_up(sz, 32));
+    arr->data = seen_try_aligned_realloc(NULL, 0, (int64_t)sz, 32);
+    if (!arr->data) seen_oom_abort("seen_arr_new_str_ptr data", (int64_t)sz);
     arr->len = 0;
     arr->cap = 8;
     arr->element_size = sizeof(SeenString);
@@ -852,9 +1126,11 @@ SeenArray* seen_arr_new_str_ptr(void) {
 }
 
 SeenArray* seen_arr_new_ptr_ptr(void) {
-    SeenArray* arr = (SeenArray*)malloc(sizeof(SeenArray));
+    SeenArray* arr = (SeenArray*)seen_try_malloc(sizeof(SeenArray));
+    if (!arr) seen_oom_abort("seen_arr_new_ptr_ptr header", sizeof(SeenArray));
     size_t sz = 8 * sizeof(void*);
-    arr->data = aligned_alloc(32, seen_align_up(sz, 32));
+    arr->data = seen_try_aligned_realloc(NULL, 0, (int64_t)sz, 32);
+    if (!arr->data) seen_oom_abort("seen_arr_new_ptr_ptr data", (int64_t)sz);
     arr->len = 0;
     arr->cap = 8;
     arr->element_size = sizeof(void*);
@@ -863,13 +1139,15 @@ SeenArray* seen_arr_new_ptr_ptr(void) {
 
 // Create array with custom element_size (for data types like ItemNode)
 SeenArray* seen_arr_new_with_size_ptr(int64_t element_size) {
-    SeenArray* arr = (SeenArray*)malloc(sizeof(SeenArray));
+    SeenArray* arr = (SeenArray*)seen_try_malloc(sizeof(SeenArray));
+    if (!arr) seen_oom_abort("seen_arr_new_with_size_ptr header", sizeof(SeenArray));
     if (element_size <= 0 || element_size > 4096) {
         fprintf(stderr, "seen_arr_new_with_size_ptr: invalid element_size=%ld\n", (long)element_size);
         abort();
     }
     size_t sz = 8 * (size_t)element_size;
-    arr->data = aligned_alloc(32, seen_align_up(sz, 32));
+    arr->data = seen_try_aligned_realloc(NULL, 0, (int64_t)sz, 32);
+    if (!arr->data) seen_oom_abort("seen_arr_new_with_size_ptr data", (int64_t)sz);
     arr->len = 0;
     arr->cap = 8;
     arr->element_size = element_size;
@@ -992,12 +1270,372 @@ void seen_arr_clear(SeenArray* arr) {
     if (arr) arr->len = 0;
 }
 
+// ============================================================================
+// ByteArray runtime - compact uint8_t storage for ByteArray/ByteBuffer
+// ============================================================================
+
+typedef struct {
+    uint8_t* data;
+    int64_t len;
+    int64_t cap;
+} SeenByteArray;
+
+static int64_t seen_byte_capacity(int64_t requested) {
+    int64_t cap = 16;
+    while (cap < requested) {
+        if (cap > INT64_MAX / 2) {
+            seen_oom_abort("ByteArray capacity overflow", INT64_MAX);
+        }
+        cap *= 2;
+    }
+    return cap;
+}
+
+bool seen_byte_array_try_reserve(void* handle, int64_t required) {
+    SeenByteArray* bytes = (SeenByteArray*)handle;
+    if (!bytes || required < 0) return false;
+    if (required <= bytes->cap) return true;
+
+    int64_t new_cap = bytes->cap > 0 ? bytes->cap : 16;
+    while (new_cap < required) {
+        if (new_cap > INT64_MAX / 2) return false;
+        new_cap *= 2;
+    }
+    uint8_t* new_data = (uint8_t*)seen_try_realloc(
+        bytes->data, bytes->cap, new_cap);
+    if (!new_data) return false;
+    bytes->data = new_data;
+    bytes->cap = new_cap;
+    return true;
+}
+
+static void seen_byte_array_ensure(SeenByteArray* bytes, int64_t required) {
+    if (!bytes) seen_oom_abort("ByteArray missing handle", 0);
+    if (!seen_byte_array_try_reserve(bytes, required)) {
+        seen_oom_abort("ByteArray grow", required);
+    }
+}
+
+int64_t seen_byte_array_capacity(void* handle) {
+    SeenByteArray* bytes = (SeenByteArray*)handle;
+    return bytes ? bytes->cap : 0;
+}
+
+void* seen_byte_array_new(int64_t capacity) {
+    SeenByteArray* bytes = (SeenByteArray*)seen_try_malloc(sizeof(SeenByteArray));
+    if (!bytes) seen_oom_abort("ByteArray header", sizeof(SeenByteArray));
+    bytes->cap = seen_byte_capacity(capacity > 0 ? capacity : 16);
+    bytes->len = 0;
+    bytes->data = (uint8_t*)seen_try_malloc(bytes->cap);
+    if (!bytes->data) seen_oom_abort("ByteArray data", bytes->cap);
+    return bytes;
+}
+
+int64_t seen_byte_array_len(void* handle) {
+    SeenByteArray* bytes = (SeenByteArray*)handle;
+    return bytes ? bytes->len : 0;
+}
+
+void seen_byte_array_clear(void* handle) {
+    SeenByteArray* bytes = (SeenByteArray*)handle;
+    if (bytes) bytes->len = 0;
+}
+
+void seen_byte_array_push(void* handle, int64_t value) {
+    SeenByteArray* bytes = (SeenByteArray*)handle;
+    seen_byte_array_ensure(bytes, bytes->len + 1);
+    bytes->data[bytes->len++] = (uint8_t)(value & 255);
+}
+
+void seen_byte_array_append(void* handle, void* other_handle) {
+    SeenByteArray* bytes = (SeenByteArray*)handle;
+    SeenByteArray* other = (SeenByteArray*)other_handle;
+    if (!other || other->len == 0) return;
+    seen_byte_array_ensure(bytes, bytes->len + other->len);
+    memcpy(bytes->data + bytes->len, other->data, (size_t)other->len);
+    bytes->len += other->len;
+}
+
+int64_t seen_byte_array_get(void* handle, int64_t index) {
+    SeenByteArray* bytes = (SeenByteArray*)handle;
+    if (!bytes || index < 0 || index >= bytes->len) {
+        fprintf(stderr, "ByteArray index out of bounds\n");
+        abort();
+    }
+    return (int64_t)bytes->data[index];
+}
+
+void seen_byte_array_set(void* handle, int64_t index, int64_t value) {
+    SeenByteArray* bytes = (SeenByteArray*)handle;
+    if (!bytes || index < 0 || index >= bytes->len) {
+        fprintf(stderr, "ByteArray index out of bounds\n");
+        abort();
+    }
+    bytes->data[index] = (uint8_t)(value & 255);
+}
+
+void seen_byte_array_fill(void* handle, int64_t value) {
+    SeenByteArray* bytes = (SeenByteArray*)handle;
+    if (!bytes || bytes->len <= 0) return;
+    memset(bytes->data, (int)(value & 255), (size_t)bytes->len);
+}
+
+void* seen_byte_array_slice(void* handle, int64_t start, int64_t end) {
+    SeenByteArray* bytes = (SeenByteArray*)handle;
+    if (!bytes) return seen_byte_array_new(0);
+    if (start < 0) start = 0;
+    if (end > bytes->len) end = bytes->len;
+    if (end < start) end = start;
+    int64_t len = end - start;
+    SeenByteArray* result = (SeenByteArray*)seen_byte_array_new(len);
+    if (len > 0) {
+        memcpy(result->data, bytes->data + start, (size_t)len);
+        result->len = len;
+    }
+    return result;
+}
+
+void seen_byte_array_reverse(void* handle) {
+    SeenByteArray* bytes = (SeenByteArray*)handle;
+    if (!bytes || bytes->len < 2) return;
+    int64_t left = 0;
+    int64_t right = bytes->len - 1;
+    while (left < right) {
+        uint8_t tmp = bytes->data[left];
+        bytes->data[left] = bytes->data[right];
+        bytes->data[right] = tmp;
+        left++;
+        right--;
+    }
+}
+
+SeenArray* seen_byte_array_to_int_array(void* handle) {
+    SeenByteArray* bytes = (SeenByteArray*)handle;
+    SeenArray* arr = seen_arr_new_ptr_ptr();
+    if (!bytes) return arr;
+    for (int64_t i = 0; i < bytes->len; i++) {
+        seen_arr_push_i64(arr, (int64_t)bytes->data[i]);
+    }
+    return arr;
+}
+
+// ============================================================================
+// Primitive buffer runtime - compact typed storage for numeric hot paths
+// ============================================================================
+
+typedef struct {
+    void* data;
+    int64_t len;
+    int64_t cap;
+    int64_t elem_size;
+} SeenPrimitiveBuffer;
+
+static int64_t seen_primitive_capacity(int64_t requested) {
+    int64_t cap = 16;
+    while (cap < requested) {
+        if (cap > INT64_MAX / 2) {
+            seen_oom_abort("PrimitiveBuffer capacity overflow", INT64_MAX);
+        }
+        cap *= 2;
+    }
+    return cap;
+}
+
+static SeenPrimitiveBuffer* seen_primitive_buffer_new(int64_t capacity,
+                                                      int64_t elem_size,
+                                                      const char* label) {
+    SeenPrimitiveBuffer* buffer =
+        (SeenPrimitiveBuffer*)seen_try_malloc((int64_t)sizeof(SeenPrimitiveBuffer));
+    if (!buffer) seen_oom_abort(label, (int64_t)sizeof(SeenPrimitiveBuffer));
+    buffer->cap = seen_primitive_capacity(capacity > 0 ? capacity : 16);
+    buffer->len = 0;
+    buffer->elem_size = elem_size;
+    int64_t bytes = buffer->cap * elem_size;
+    buffer->data = seen_try_malloc(bytes);
+    if (!buffer->data) seen_oom_abort(label, bytes);
+    return buffer;
+}
+
+bool seen_primitive_buffer_try_reserve(void* handle, int64_t required);
+
+static void seen_primitive_buffer_ensure(SeenPrimitiveBuffer* buffer,
+                                         int64_t required,
+                                         const char* label) {
+    if (!buffer) seen_oom_abort(label, 0);
+    if (seen_primitive_buffer_try_reserve(buffer, required)) return;
+    seen_oom_abort(label, required * buffer->elem_size);
+}
+
+bool seen_primitive_buffer_try_reserve(void* handle, int64_t required) {
+    SeenPrimitiveBuffer* buffer = (SeenPrimitiveBuffer*)handle;
+    if (!buffer || required < 0) return false;
+    if (required <= buffer->cap) return true;
+
+    int64_t new_cap = buffer->cap > 0 ? buffer->cap : 16;
+    while (new_cap < required) {
+        if (new_cap > INT64_MAX / 2) return false;
+        new_cap *= 2;
+    }
+    int64_t old_bytes = buffer->cap * buffer->elem_size;
+    int64_t new_bytes = new_cap * buffer->elem_size;
+    void* new_data = seen_try_realloc(buffer->data, old_bytes, new_bytes);
+    if (!new_data) return false;
+    buffer->data = new_data;
+    buffer->cap = new_cap;
+    return true;
+}
+
+int64_t seen_primitive_buffer_capacity(void* handle) {
+    SeenPrimitiveBuffer* buffer = (SeenPrimitiveBuffer*)handle;
+    return buffer ? buffer->cap : 0;
+}
+
+static void seen_primitive_check_index(SeenPrimitiveBuffer* buffer,
+                                       int64_t index,
+                                       const char* label) {
+    if (!buffer || index < 0 || index >= buffer->len) {
+        fprintf(stderr, "%s index out of bounds\n", label);
+        abort();
+    }
+}
+
+void* seen_i32_buffer_new(int64_t capacity) {
+    return seen_primitive_buffer_new(capacity, (int64_t)sizeof(int32_t), "Int32Buffer");
+}
+
+int64_t seen_i32_buffer_len(void* handle) {
+    SeenPrimitiveBuffer* buffer = (SeenPrimitiveBuffer*)handle;
+    return buffer ? buffer->len : 0;
+}
+
+void seen_i32_buffer_clear(void* handle) {
+    SeenPrimitiveBuffer* buffer = (SeenPrimitiveBuffer*)handle;
+    if (buffer) buffer->len = 0;
+}
+
+void seen_i32_buffer_push(void* handle, int64_t value) {
+    SeenPrimitiveBuffer* buffer = (SeenPrimitiveBuffer*)handle;
+    if (!buffer) seen_oom_abort("Int32Buffer missing handle", 0);
+    seen_primitive_buffer_ensure(buffer, buffer->len + 1, "Int32Buffer grow");
+    ((int32_t*)buffer->data)[buffer->len++] = (int32_t)value;
+}
+
+int64_t seen_i32_buffer_get(void* handle, int64_t index) {
+    SeenPrimitiveBuffer* buffer = (SeenPrimitiveBuffer*)handle;
+    seen_primitive_check_index(buffer, index, "Int32Buffer");
+    return (int64_t)((int32_t*)buffer->data)[index];
+}
+
+void seen_i32_buffer_set(void* handle, int64_t index, int64_t value) {
+    SeenPrimitiveBuffer* buffer = (SeenPrimitiveBuffer*)handle;
+    seen_primitive_check_index(buffer, index, "Int32Buffer");
+    ((int32_t*)buffer->data)[index] = (int32_t)value;
+}
+
+void* seen_i64_buffer_new(int64_t capacity) {
+    return seen_primitive_buffer_new(capacity, (int64_t)sizeof(int64_t), "Int64Buffer");
+}
+
+int64_t seen_i64_buffer_len(void* handle) {
+    SeenPrimitiveBuffer* buffer = (SeenPrimitiveBuffer*)handle;
+    return buffer ? buffer->len : 0;
+}
+
+void seen_i64_buffer_clear(void* handle) {
+    SeenPrimitiveBuffer* buffer = (SeenPrimitiveBuffer*)handle;
+    if (buffer) buffer->len = 0;
+}
+
+void seen_i64_buffer_push(void* handle, int64_t value) {
+    SeenPrimitiveBuffer* buffer = (SeenPrimitiveBuffer*)handle;
+    if (!buffer) seen_oom_abort("Int64Buffer missing handle", 0);
+    seen_primitive_buffer_ensure(buffer, buffer->len + 1, "Int64Buffer grow");
+    ((int64_t*)buffer->data)[buffer->len++] = value;
+}
+
+int64_t seen_i64_buffer_get(void* handle, int64_t index) {
+    SeenPrimitiveBuffer* buffer = (SeenPrimitiveBuffer*)handle;
+    seen_primitive_check_index(buffer, index, "Int64Buffer");
+    return ((int64_t*)buffer->data)[index];
+}
+
+void seen_i64_buffer_set(void* handle, int64_t index, int64_t value) {
+    SeenPrimitiveBuffer* buffer = (SeenPrimitiveBuffer*)handle;
+    seen_primitive_check_index(buffer, index, "Int64Buffer");
+    ((int64_t*)buffer->data)[index] = value;
+}
+
+void* seen_f32_buffer_new(int64_t capacity) {
+    return seen_primitive_buffer_new(capacity, (int64_t)sizeof(float), "Float32Buffer");
+}
+
+int64_t seen_f32_buffer_len(void* handle) {
+    SeenPrimitiveBuffer* buffer = (SeenPrimitiveBuffer*)handle;
+    return buffer ? buffer->len : 0;
+}
+
+void seen_f32_buffer_clear(void* handle) {
+    SeenPrimitiveBuffer* buffer = (SeenPrimitiveBuffer*)handle;
+    if (buffer) buffer->len = 0;
+}
+
+void seen_f32_buffer_push(void* handle, double value) {
+    SeenPrimitiveBuffer* buffer = (SeenPrimitiveBuffer*)handle;
+    if (!buffer) seen_oom_abort("Float32Buffer missing handle", 0);
+    seen_primitive_buffer_ensure(buffer, buffer->len + 1, "Float32Buffer grow");
+    ((float*)buffer->data)[buffer->len++] = (float)value;
+}
+
+double seen_f32_buffer_get(void* handle, int64_t index) {
+    SeenPrimitiveBuffer* buffer = (SeenPrimitiveBuffer*)handle;
+    seen_primitive_check_index(buffer, index, "Float32Buffer");
+    return (double)((float*)buffer->data)[index];
+}
+
+void seen_f32_buffer_set(void* handle, int64_t index, double value) {
+    SeenPrimitiveBuffer* buffer = (SeenPrimitiveBuffer*)handle;
+    seen_primitive_check_index(buffer, index, "Float32Buffer");
+    ((float*)buffer->data)[index] = (float)value;
+}
+
+void* seen_f64_buffer_new(int64_t capacity) {
+    return seen_primitive_buffer_new(capacity, (int64_t)sizeof(double), "Float64Buffer");
+}
+
+int64_t seen_f64_buffer_len(void* handle) {
+    SeenPrimitiveBuffer* buffer = (SeenPrimitiveBuffer*)handle;
+    return buffer ? buffer->len : 0;
+}
+
+void seen_f64_buffer_clear(void* handle) {
+    SeenPrimitiveBuffer* buffer = (SeenPrimitiveBuffer*)handle;
+    if (buffer) buffer->len = 0;
+}
+
+void seen_f64_buffer_push(void* handle, double value) {
+    SeenPrimitiveBuffer* buffer = (SeenPrimitiveBuffer*)handle;
+    if (!buffer) seen_oom_abort("Float64Buffer missing handle", 0);
+    seen_primitive_buffer_ensure(buffer, buffer->len + 1, "Float64Buffer grow");
+    ((double*)buffer->data)[buffer->len++] = value;
+}
+
+double seen_f64_buffer_get(void* handle, int64_t index) {
+    SeenPrimitiveBuffer* buffer = (SeenPrimitiveBuffer*)handle;
+    seen_primitive_check_index(buffer, index, "Float64Buffer");
+    return ((double*)buffer->data)[index];
+}
+
+void seen_f64_buffer_set(void* handle, int64_t index, double value) {
+    SeenPrimitiveBuffer* buffer = (SeenPrimitiveBuffer*)handle;
+    seen_primitive_check_index(buffer, index, "Float64Buffer");
+    ((double*)buffer->data)[index] = value;
+}
+
 // Wrapper for malloc with tracking
 void* tracked_malloc(size_t size) {
-    void* ptr = malloc(size);
+    void* ptr = seen_try_malloc((int64_t)size);
     if (!ptr && size != 0) {
-        fprintf(stderr, "tracked_malloc: malloc(%zu) failed\n", size);
-        abort();
+        seen_oom_abort("tracked_malloc", (int64_t)size);
     }
     return ptr;
 }
@@ -1135,24 +1773,34 @@ void seen_arr_set_i64(SeenArray* arr, int64_t index, int64_t val) {
 
 // Bulk array initialization - creates array pre-filled with a value
 SeenArray* seen_arr_new_filled_i64(int64_t count, int64_t value) {
-    SeenArray* arr = (SeenArray*)malloc(sizeof(SeenArray));
+    if (count < 0 || count > INT64_MAX / (int64_t)sizeof(int64_t)) {
+        seen_oom_abort("seen_arr_new_filled_i64", count);
+    }
+    SeenArray* arr = (SeenArray*)seen_try_malloc(sizeof(SeenArray));
+    if (!arr) seen_oom_abort("seen_arr_new_filled_i64 header", sizeof(SeenArray));
     arr->len = count;
     arr->cap = count;
     arr->element_size = sizeof(int64_t);
     size_t sz = (size_t)count * sizeof(int64_t);
-    arr->data = aligned_alloc(32, seen_align_up(sz ? sz : 32, 32));
+    arr->data = seen_try_aligned_realloc(NULL, 0, (int64_t)(sz ? sz : 32), 32);
+    if (!arr->data) seen_oom_abort("seen_arr_new_filled_i64 data", (int64_t)sz);
     int64_t* data = (int64_t*)arr->data;
     for (int64_t i = 0; i < count; i++) data[i] = value;
     return arr;
 }
 
 SeenArray* seen_arr_new_filled_double(int64_t count, double value) {
-    SeenArray* arr = (SeenArray*)malloc(sizeof(SeenArray));
+    if (count < 0 || count > INT64_MAX / (int64_t)sizeof(double)) {
+        seen_oom_abort("seen_arr_new_filled_double", count);
+    }
+    SeenArray* arr = (SeenArray*)seen_try_malloc(sizeof(SeenArray));
+    if (!arr) seen_oom_abort("seen_arr_new_filled_double header", sizeof(SeenArray));
     arr->len = count;
     arr->cap = count;
     arr->element_size = sizeof(double);
     size_t sz = (size_t)count * sizeof(double);
-    arr->data = aligned_alloc(32, seen_align_up(sz ? sz : 32, 32));
+    arr->data = seen_try_aligned_realloc(NULL, 0, (int64_t)(sz ? sz : 32), 32);
+    if (!arr->data) seen_oom_abort("seen_arr_new_filled_double data", (int64_t)sz);
     double* data = (double*)arr->data;
     for (int64_t i = 0; i < count; i++) data[i] = value;
     return arr;
@@ -1411,7 +2059,7 @@ SeenString seen_bool_to_string(bool b) {
 
 SeenString seen_char_to_str(int64_t c) {
     // Convert a Unicode code point to a UTF-8 string
-    char* buf = (char*)malloc(8);  // Max 4 bytes for UTF-8 + null
+    char* buf = seen_runtime_alloc_chars(7, "seen_char_to_str");
     int len = 0;
     if (c < 0x80) {
         buf[0] = (char)c;
@@ -1575,7 +2223,7 @@ int64_t Char_toLowerCase(int64_t c) {
 
 SeenString String_toUpperCase(SeenString s) {
     if (s.len == 0) return s;
-    char* buf = (char*)malloc(s.len + 1);
+    char* buf = seen_runtime_alloc_chars(s.len, "String_toUpperCase");
     for (int64_t i = 0; i < s.len; i++) {
         unsigned char c = (unsigned char)s.data[i];
         buf[i] = (c >= 'a' && c <= 'z') ? (char)(c - 32) : (char)c;
@@ -1587,7 +2235,7 @@ SeenString String_toUpperCase(SeenString s) {
 
 SeenString String_toLowerCase(SeenString s) {
     if (s.len == 0) return s;
-    char* buf = (char*)malloc(s.len + 1);
+    char* buf = seen_runtime_alloc_chars(s.len, "String_toLowerCase");
     for (int64_t i = 0; i < s.len; i++) {
         unsigned char c = (unsigned char)s.data[i];
         buf[i] = (c >= 'A' && c <= 'Z') ? (char)(c + 32) : (char)c;
@@ -1624,7 +2272,7 @@ double String_toFloat(SeenString s) {
 
 SeenString String_reverse(SeenString s) {
     if (s.len <= 1) return s;
-    char* buf = (char*)malloc(s.len + 1);
+    char* buf = seen_runtime_alloc_chars(s.len, "String_reverse");
     for (int64_t i = 0; i < s.len; i++) {
         buf[i] = s.data[s.len - 1 - i];
     }
@@ -1651,7 +2299,7 @@ int64_t String_count(SeenString s, SeenString needle) {
 
 SeenString String_replace(SeenString s, SeenString old, SeenString replacement) {
     if (old.len == 0 || s.len == 0) {
-        char* copy = (char*)malloc(s.len + 1);
+        char* copy = seen_runtime_alloc_chars(s.len, "String_replace copy");
         if (s.len > 0) memcpy(copy, s.data, s.len);
         copy[s.len] = '\0';
         SeenString result = { s.len, copy };
@@ -1665,8 +2313,13 @@ SeenString String_replace(SeenString s, SeenString old, SeenString replacement) 
             i += old.len - 1;
         }
     }
-    int64_t newLen = s.len + count * (replacement.len - old.len);
-    char* buf = (char*)malloc(newLen + 1);
+    int64_t delta = replacement.len - old.len;
+    if (count != 0 && (delta > 0 && count > (INT64_MAX - s.len) / delta)) {
+        seen_oom_abort("String_replace size overflow", s.len);
+    }
+    int64_t newLen = s.len + count * delta;
+    if (newLen < 0) seen_oom_abort("String_replace size overflow", newLen);
+    char* buf = seen_runtime_alloc_chars(newLen, "String_replace");
     int64_t pos = 0;
     for (int64_t i = 0; i < s.len; ) {
         if (i <= s.len - old.len && memcmp(s.data + i, old.data, old.len) == 0) {
@@ -1803,23 +2456,93 @@ SeenString String_unwrap(int64_t nullable_str) {
     return *str_ptr;
 }
 
-bool startsWith(SeenString text, SeenString prefix) {
+static int64_t seen_string_index_of_bytes(SeenString text, SeenString needle, int64_t start) {
+    if (start < 0) start = 0;
+    if (needle.len == 0) {
+        if (start > text.len) return text.len;
+        return start;
+    }
+    if (!text.data || !needle.data || text.len < 0 || needle.len < 0) return -1;
+    if (needle.len > text.len || start > text.len - needle.len) return -1;
+
+    if (needle.len == 1) {
+        const void* found = memchr(text.data + start, needle.data[0],
+            (size_t)(text.len - start));
+        if (!found) return -1;
+        return (int64_t)((const char*)found - text.data);
+    }
+
+    const char first = needle.data[0];
+    int64_t scan = start;
+    int64_t last = text.len - needle.len;
+    while (scan <= last) {
+        const void* found = memchr(text.data + scan, first,
+            (size_t)(last - scan + 1));
+        if (!found) return -1;
+        scan = (int64_t)((const char*)found - text.data);
+        if (memcmp(text.data + scan + 1, needle.data + 1,
+                   (size_t)(needle.len - 1)) == 0) {
+            return scan;
+        }
+        scan++;
+    }
+    return -1;
+}
+
+bool seen_string_starts_with_fast(SeenString text, SeenString prefix) {
     if (prefix.len > text.len) return false;
+    if (prefix.len < 0 || text.len < 0 || !text.data || !prefix.data) return false;
     return memcmp(text.data, prefix.data, prefix.len) == 0;
 }
 
-bool endsWith(SeenString text, SeenString suffix) {
+bool seen_string_ends_with_fast(SeenString text, SeenString suffix) {
     if (suffix.len > text.len) return false;
+    if (suffix.len < 0 || text.len < 0 || !text.data || !suffix.data) return false;
     return memcmp(text.data + text.len - suffix.len, suffix.data, suffix.len) == 0;
 }
 
-bool contains(SeenString text, SeenString needle) {
-    if (needle.len == 0) return true;
-    if (needle.len > text.len) return false;
-    for (int64_t i = 0; i <= text.len - needle.len; i++) {
-        if (memcmp(text.data + i, needle.data, needle.len) == 0) return true;
+int64_t seen_string_index_of_fast(SeenString text, SeenString needle, int64_t start) {
+    return seen_string_index_of_bytes(text, needle, start);
+}
+
+int64_t seen_string_last_index_of_fast(SeenString text, SeenString needle) {
+    if (needle.len == 0) return text.len;
+    if (!text.data || !needle.data || text.len < 0 || needle.len < 0) return -1;
+    if (needle.len > text.len) return -1;
+
+    if (needle.len == 1) {
+        for (int64_t i = text.len - 1; i >= 0; i--) {
+            if (text.data[i] == needle.data[0]) return i;
+        }
+        return -1;
     }
-    return false;
+
+    int64_t index = text.len - needle.len;
+    while (index >= 0) {
+        if (text.data[index] == needle.data[0] &&
+            memcmp(text.data + index + 1, needle.data + 1,
+                   (size_t)(needle.len - 1)) == 0) {
+            return index;
+        }
+        index--;
+    }
+    return -1;
+}
+
+bool seen_string_contains_fast(SeenString text, SeenString needle) {
+    return seen_string_index_of_bytes(text, needle, 0) >= 0;
+}
+
+bool startsWith(SeenString text, SeenString prefix) {
+    return seen_string_starts_with_fast(text, prefix);
+}
+
+bool endsWith(SeenString text, SeenString suffix) {
+    return seen_string_ends_with_fast(text, suffix);
+}
+
+bool contains(SeenString text, SeenString needle) {
+    return seen_string_contains_fast(text, needle);
 }
 
 bool seen_str_eq_ss(SeenString a, SeenString b) {
@@ -1883,16 +2606,22 @@ void print(SeenString s) {
 
 // Allocate a StringBuilder on the heap and return pointer
 void* StringBuilder_new(void) {
-    StringBuilder* sb = (StringBuilder*)malloc(sizeof(StringBuilder));
+    StringBuilder* sb = (StringBuilder*)seen_try_malloc(sizeof(StringBuilder));
+    if (!sb) seen_oom_abort("StringBuilder_new", sizeof(StringBuilder));
     *sb = StringBuilder_new_value();  // Call inline version
     return sb;
 }
 
 // Allocate a StringBuilder with pre-allocated capacity for parts array
 void* StringBuilder_new_with_capacity(int64_t cap) {
-    StringBuilder* sb = (StringBuilder*)malloc(sizeof(StringBuilder));
-    SeenArray* parts = (SeenArray*)malloc(sizeof(SeenArray));
-    parts->data = malloc(cap * sizeof(SeenString));
+    if (cap < 0) cap = 0;
+    StringBuilder* sb = (StringBuilder*)seen_try_malloc(sizeof(StringBuilder));
+    if (!sb) seen_oom_abort("StringBuilder_new_with_capacity header", sizeof(StringBuilder));
+    SeenArray* parts = (SeenArray*)seen_try_malloc(sizeof(SeenArray));
+    if (!parts) seen_oom_abort("StringBuilder_new_with_capacity parts", sizeof(SeenArray));
+    int64_t data_size = cap * (int64_t)sizeof(SeenString);
+    parts->data = seen_try_malloc(data_size > 0 ? data_size : 1);
+    if (!parts->data) seen_oom_abort("StringBuilder_new_with_capacity data", data_size);
     parts->len = 0;
     parts->cap = cap;
     sb->parts = parts;
@@ -1911,6 +2640,71 @@ int64_t StringBuilder_append(void* s, SeenString str) {
 SeenString StringBuilder_toString(void* s) {
     StringBuilder* sb = (StringBuilder*)s;
     return StringBuilder_toString_value(sb);  // Call inline version
+}
+
+SeenString seen_string_builder_flatten(SeenArray* parts, int64_t totalLength) {
+    (void)totalLength;
+    if (!parts || parts->len <= 0) {
+        return seen_cstr_to_str("");
+    }
+
+    int64_t actual_total = 0;
+    for (int64_t i = 0; i < parts->len; i++) {
+        SeenString part = ((SeenString*)parts->data)[i];
+        if (part.len > 0) {
+            if (INT64_MAX - actual_total < part.len) {
+                seen_oom_abort("StringBuilder flatten length overflow", INT64_MAX);
+            }
+            actual_total += part.len;
+        }
+    }
+
+    char* data = (char*)seen_try_malloc(actual_total + 1);
+    if (!data) {
+        SeenString empty = { 0, "" };
+        return empty;
+    }
+
+    char* write = data;
+    for (int64_t i = 0; i < parts->len; i++) {
+        SeenString part = ((SeenString*)parts->data)[i];
+        if (part.len > 0) {
+            memcpy(write, part.data, (size_t)part.len);
+            write += part.len;
+        }
+    }
+    *write = 0;
+    SeenString result = { actual_total, data };
+    return result;
+}
+
+bool StringBuilder_writeToFile_impl(void* s, SeenString path) {
+    StringBuilder* sb = (StringBuilder*)s;
+    if (!sb || !sb->parts || path.len < 0 || !path.data) return false;
+
+    char* cpath = (char*)seen_try_malloc(path.len + 1);
+    if (!cpath) return false;
+    memcpy(cpath, path.data, (size_t)path.len);
+    cpath[path.len] = 0;
+
+    FILE* f = fopen(cpath, "w");
+    free(cpath);
+    seen_memory_release_reservation(path.len + 1);
+    if (!f) return false;
+
+    for (int64_t i = 0; i < sb->parts->len; i++) {
+        SeenString part = ((SeenString*)sb->parts->data)[i];
+        if (part.len <= 0) continue;
+        if (!part.data || fwrite(part.data, 1, (size_t)part.len, f) != (size_t)part.len) {
+            fclose(f);
+            return false;
+        }
+    }
+    return fclose(f) == 0;
+}
+
+SEEN_WEAK bool StringBuilder_writeToFile(void* s, SeenString path) {
+    return StringBuilder_writeToFile_impl(s, path);
 }
 
 // Get length of StringBuilder
@@ -2000,129 +2794,261 @@ int64_t StringBuilder_appendInt(void* s, int64_t n) {
 
 // ============================================================================
 // Map (Hash Map) Implementation
-// Simple linear-search map for small collections (like keyword maps)
+// String-key compatibility map with insertion-ordered entries and indexed lookup.
 // ============================================================================
 
 #define MAP_INITIAL_CAPACITY 32
+#define MAP_INITIAL_INDEX_CAPACITY 64
 
 typedef struct {
     uint64_t magic;
     SeenString* keys;
     int64_t* values;
+    int64_t* index_entries;
+    uint8_t* index_states;
     int64_t size;
     int64_t capacity;
+    int64_t index_capacity;
 } SeenMap;
+
+static int64_t Map_checked_bytes(int64_t count, int64_t elem_size, const char* context) {
+    if (count < 0 || elem_size < 0 || (elem_size != 0 && count > INT64_MAX / elem_size)) {
+        seen_oom_abort(context, INT64_MAX);
+    }
+    return count * elem_size;
+}
+
+static void* Map_alloc_array(int64_t count, int64_t elem_size, const char* context) {
+    int64_t bytes = Map_checked_bytes(count, elem_size, context);
+    void* ptr = seen_try_malloc(bytes > 0 ? bytes : 1);
+    if (!ptr) seen_oom_abort(context, bytes);
+    return ptr;
+}
+
+static void* Map_calloc_array(int64_t count, int64_t elem_size, const char* context) {
+    void* ptr = seen_try_calloc(count > 0 ? count : 1, elem_size > 0 ? elem_size : 1);
+    if (!ptr) seen_oom_abort(context, Map_checked_bytes(count, elem_size, context));
+    return ptr;
+}
+
+static int64_t Map_next_power_of_two(int64_t needed, const char* context) {
+    int64_t capacity = MAP_INITIAL_INDEX_CAPACITY;
+    while (capacity < needed) {
+        if (capacity > INT64_MAX / 2) seen_oom_abort(context, INT64_MAX);
+        capacity *= 2;
+    }
+    return capacity;
+}
+
+static int64_t Map_next_entry_capacity(int64_t capacity, const char* context) {
+    if (capacity > INT64_MAX / 2) seen_oom_abort(context, INT64_MAX);
+    return capacity * 2;
+}
+
+static uint64_t Map_hash_key(SeenString key) {
+    uint64_t hash = 0xcbf29ce484222325ULL;
+    const char* data = key.data;
+    for (int64_t i = 0; i < key.len; i++) {
+        hash ^= (uint8_t)data[i];
+        hash *= 0x100000001b3ULL;
+    }
+    return hash;
+}
+
+static bool Map_key_eq(SeenString a, SeenString b) {
+    return a.len == b.len && (a.len == 0 || memcmp(a.data, b.data, a.len) == 0);
+}
 
 static void Map_check(SeenMap* map, const char* fn) {
     if (!map || map->magic != 0x5345454E4D4150ULL) {
         fprintf(stderr, "%s: invalid map pointer\n", fn);
         abort();
     }
-    if (map->capacity <= 0 || map->size < 0 || map->size > map->capacity || !map->keys || !map->values) {
-        fprintf(stderr, "%s: corrupt map state (size=%ld cap=%ld)\n", fn, (long)map->size, (long)map->capacity);
+    if (map->capacity <= 0 || map->index_capacity <= 0 || map->size < 0 ||
+        map->size > map->capacity || !map->keys || !map->values ||
+        !map->index_entries || !map->index_states ||
+        (map->index_capacity & (map->index_capacity - 1)) != 0) {
+        fprintf(stderr, "%s: corrupt map state (size=%ld cap=%ld index_cap=%ld)\n",
+            fn, (long)map->size, (long)map->capacity, (long)map->index_capacity);
         abort();
     }
 }
 
-void* Map_new(void) {
-    SeenMap* map = (SeenMap*)malloc(sizeof(SeenMap));
+static int64_t Map_index_find(SeenMap* map, SeenString key, bool* found) {
+    uint64_t hash = Map_hash_key(key);
+    int64_t mask = map->index_capacity - 1;
+    int64_t idx = (int64_t)(hash & (uint64_t)mask);
+    for (int64_t probe = 0; probe < map->index_capacity; probe++) {
+        if (map->index_states[idx] == 0) {
+            *found = false;
+            return idx;
+        }
+        int64_t entry = map->index_entries[idx];
+        if (entry >= 0 && entry < map->size && Map_key_eq(map->keys[entry], key)) {
+            *found = true;
+            return idx;
+        }
+        idx = (idx + 1) & mask;
+    }
+
+    fprintf(stderr, "Map_index_find: full index without empty slot\n");
+    abort();
+}
+
+static void Map_index_insert_existing(SeenMap* map, int64_t entry) {
+    bool found = false;
+    int64_t slot = Map_index_find(map, map->keys[entry], &found);
+    map->index_entries[slot] = entry;
+    map->index_states[slot] = 1;
+}
+
+static void Map_rebuild_index(SeenMap* map, int64_t requested_capacity) {
+    int64_t old_capacity = map->index_capacity;
+    int64_t* old_entries = map->index_entries;
+    uint8_t* old_states = map->index_states;
+    int64_t new_capacity = Map_next_power_of_two(requested_capacity, "Map_rebuild_index capacity");
+
+    map->index_capacity = new_capacity;
+    map->index_entries = (int64_t*)Map_alloc_array(
+        new_capacity, (int64_t)sizeof(int64_t), "Map_rebuild_index entries");
+    map->index_states = (uint8_t*)Map_calloc_array(
+        new_capacity, (int64_t)sizeof(uint8_t), "Map_rebuild_index states");
+
+    for (int64_t i = 0; i < map->size; i++) {
+        Map_index_insert_existing(map, i);
+    }
+
+    if (old_entries) {
+        free(old_entries);
+        seen_memory_release_reservation(Map_checked_bytes(
+            old_capacity, (int64_t)sizeof(int64_t), "Map_rebuild_index old entries"));
+    }
+    if (old_states) {
+        free(old_states);
+        seen_memory_release_reservation(Map_checked_bytes(
+            old_capacity, (int64_t)sizeof(uint8_t), "Map_rebuild_index old states"));
+    }
+}
+
+SEEN_WEAK void* Map_new(void) {
+    SeenMap* map = (SeenMap*)seen_try_malloc(sizeof(SeenMap));
+    if (!map) seen_oom_abort("Map_new header", sizeof(SeenMap));
     map->magic = 0x5345454E4D4150ULL;
     map->capacity = MAP_INITIAL_CAPACITY;
+    map->index_capacity = MAP_INITIAL_INDEX_CAPACITY;
     map->size = 0;
-    map->keys = (SeenString*)malloc(sizeof(SeenString) * map->capacity);
-    map->values = (int64_t*)malloc(sizeof(int64_t) * map->capacity);
+    map->keys = (SeenString*)Map_alloc_array(
+        map->capacity, (int64_t)sizeof(SeenString), "Map_new keys");
+    map->values = (int64_t*)Map_alloc_array(
+        map->capacity, (int64_t)sizeof(int64_t), "Map_new values");
+    map->index_entries = (int64_t*)Map_alloc_array(
+        map->index_capacity, (int64_t)sizeof(int64_t), "Map_new index entries");
+    map->index_states = (uint8_t*)Map_calloc_array(
+        map->index_capacity, (int64_t)sizeof(uint8_t), "Map_new index states");
     return map;
 }
 
-static void Map_grow(SeenMap* map) {
-    Map_check(map, "Map_grow");
-    int64_t new_capacity = map->capacity * 2;
-    SeenString* new_keys = (SeenString*)malloc(sizeof(SeenString) * new_capacity);
-    int64_t* new_values = (int64_t*)malloc(sizeof(int64_t) * new_capacity);
+static void Map_grow_entries(SeenMap* map) {
+    Map_check(map, "Map_grow_entries");
+    int64_t old_capacity = map->capacity;
+    int64_t new_capacity = Map_next_entry_capacity(map->capacity, "Map_grow_entries capacity");
+    int64_t old_key_bytes = Map_checked_bytes(
+        old_capacity, (int64_t)sizeof(SeenString), "Map_grow_entries old keys");
+    int64_t new_key_bytes = Map_checked_bytes(
+        new_capacity, (int64_t)sizeof(SeenString), "Map_grow_entries new keys");
+    int64_t old_value_bytes = Map_checked_bytes(
+        old_capacity, (int64_t)sizeof(int64_t), "Map_grow_entries old values");
+    int64_t new_value_bytes = Map_checked_bytes(
+        new_capacity, (int64_t)sizeof(int64_t), "Map_grow_entries new values");
 
-    for (int64_t i = 0; i < map->size; i++) {
-        new_keys[i] = map->keys[i];
-        new_values[i] = map->values[i];
-    }
+    SeenString* new_keys = (SeenString*)seen_try_realloc(
+        map->keys, old_key_bytes, new_key_bytes);
+    if (!new_keys) seen_oom_abort("Map_grow_entries keys", new_key_bytes);
+    int64_t* new_values = (int64_t*)seen_try_realloc(
+        map->values, old_value_bytes, new_value_bytes);
+    if (!new_values) seen_oom_abort("Map_grow_entries values", new_value_bytes);
 
-    free(map->keys);
-    free(map->values);
     map->keys = new_keys;
     map->values = new_values;
     map->capacity = new_capacity;
 }
 
-int64_t Map_put(void* m, SeenString key, int64_t value) {
+SEEN_WEAK int64_t Map_put(void* m, SeenString key, int64_t value) {
     SeenMap* map = (SeenMap*)m;
     Map_check(map, "Map_put");
 
-    // Check if key already exists
-    for (int64_t i = 0; i < map->size; i++) {
-        if (map->keys[i].len == key.len &&
-            memcmp(map->keys[i].data, key.data, key.len) == 0) {
-            int64_t old_value = map->values[i];
-            map->values[i] = value;
-            return old_value;
-        }
+    bool found = false;
+    int64_t slot = Map_index_find(map, key, &found);
+    if (found) {
+        int64_t entry = map->index_entries[slot];
+        int64_t old_value = map->values[entry];
+        map->values[entry] = value;
+        return old_value;
     }
 
-    // Key not found, add new entry
     if (map->size >= map->capacity) {
-        Map_grow(map);
+        Map_grow_entries(map);
     }
 
-    // Copy the key string data
-    char* key_copy = (char*)malloc(key.len + 1);
-    memcpy(key_copy, key.data, key.len);
+    if ((map->size + 1) * 10 >= map->index_capacity * 7) {
+        Map_rebuild_index(map, map->index_capacity * 2);
+        slot = Map_index_find(map, key, &found);
+    }
+
+    if (key.len < 0 || key.len == INT64_MAX) {
+        seen_oom_abort("Map_put key", INT64_MAX);
+    }
+    int64_t key_bytes = Map_checked_bytes(key.len + 1, 1, "Map_put key");
+    char* key_copy = (char*)seen_try_malloc(key_bytes);
+    if (!key_copy) seen_oom_abort("Map_put key", key_bytes);
+    if (key.len > 0) {
+        memcpy(key_copy, key.data, key.len);
+    }
     key_copy[key.len] = 0;
 
     map->keys[map->size].len = key.len;
     map->keys[map->size].data = key_copy;
     map->values[map->size] = value;
+    map->index_entries[slot] = map->size;
+    map->index_states[slot] = 1;
     map->size++;
 
     return 0;  // No previous value
 }
 
-int64_t Map_set(void* m, SeenString key, int64_t value) {
+SEEN_WEAK int64_t Map_set(void* m, SeenString key, int64_t value) {
     return Map_put(m, key, value);
 }
 
-int64_t Map_get(void* m, SeenString key) {
+SEEN_WEAK int64_t Map_get(void* m, SeenString key) {
     SeenMap* map = (SeenMap*)m;
     Map_check(map, "Map_get");
 
-    for (int64_t i = 0; i < map->size; i++) {
-        if (map->keys[i].len == key.len &&
-            memcmp(map->keys[i].data, key.data, key.len) == 0) {
-            return map->values[i];
-        }
+    bool found = false;
+    int64_t slot = Map_index_find(map, key, &found);
+    if (found) {
+        return map->values[map->index_entries[slot]];
     }
 
     return 0;  // Not found, return 0 (or could use sentinel)
 }
 
-int64_t Map_size(void* m) {
+SEEN_WEAK int64_t Map_size(void* m) {
     SeenMap* map = (SeenMap*)m;
     Map_check(map, "Map_size");
     return map->size;
 }
 
-bool Map_containsKey(void* m, SeenString key) {
+SEEN_WEAK bool Map_containsKey(void* m, SeenString key) {
     SeenMap* map = (SeenMap*)m;
     Map_check(map, "Map_containsKey");
 
-    for (int64_t i = 0; i < map->size; i++) {
-        if (map->keys[i].len == key.len &&
-            memcmp(map->keys[i].data, key.data, key.len) == 0) {
-            return true;
-        }
-    }
-
-    return false;
+    bool found = false;
+    Map_index_find(map, key, &found);
+    return found;
 }
 
-bool Map_containsValue(void* m, int64_t value) {
+SEEN_WEAK bool Map_containsValue(void* m, int64_t value) {
     SeenMap* map = (SeenMap*)m;
     Map_check(map, "Map_containsValue");
 
@@ -2135,7 +3061,7 @@ bool Map_containsValue(void* m, int64_t value) {
     return false;
 }
 
-SeenArray Map_keys(void* m) {
+SEEN_WEAK SeenArray Map_keys(void* m) {
     SeenMap* map = (SeenMap*)m;
     Map_check(map, "Map_keys");
 
@@ -2143,7 +3069,10 @@ SeenArray Map_keys(void* m) {
     result.len = map->size;
     result.cap = map->size;
     result.element_size = sizeof(SeenString);
-    result.data = malloc(sizeof(SeenString) * map->size);
+    int64_t data_bytes = Map_checked_bytes(
+        map->size, (int64_t)sizeof(SeenString), "Map_keys result");
+    result.data = seen_try_malloc(data_bytes > 0 ? data_bytes : 1);
+    if (!result.data) seen_oom_abort("Map_keys result", data_bytes);
 
     for (int64_t i = 0; i < map->size; i++) {
         ((SeenString*)result.data)[i] = map->keys[i];
@@ -2152,7 +3081,7 @@ SeenArray Map_keys(void* m) {
     return result;
 }
 
-SeenArray Map_values(void* m) {
+SEEN_WEAK SeenArray Map_values(void* m) {
     SeenMap* map = (SeenMap*)m;
     Map_check(map, "Map_values");
 
@@ -2160,7 +3089,10 @@ SeenArray Map_values(void* m) {
     result.len = map->size;
     result.cap = map->size;
     result.element_size = sizeof(int64_t);
-    result.data = malloc(sizeof(int64_t) * map->size);
+    int64_t data_bytes = Map_checked_bytes(
+        map->size, (int64_t)sizeof(int64_t), "Map_values result");
+    result.data = seen_try_malloc(data_bytes > 0 ? data_bytes : 1);
+    if (!result.data) seen_oom_abort("Map_values result", data_bytes);
 
     for (int64_t i = 0; i < map->size; i++) {
         ((int64_t*)result.data)[i] = map->values[i];
@@ -2191,16 +3123,16 @@ SeenString CGenerator_generate(void* gen, void* program) {
 // Result/Option Type Stubs
 // ============================================================================
 
-void* Ok(void* value) { return value; }
-void* Err(SeenString message) { return NULL; }
+SEEN_WEAK void* Ok(void* value) { return value; }
+SEEN_WEAK void* Err(SeenString message) { return NULL; }
 SEEN_WEAK void* Some(void* value) { return value; }
 SEEN_WEAK void* None(void) { return NULL; }
 
 // Generic default value - returns null/zero for any type
 // Used by Option<T> for default initialization
 void* __default(void) { return NULL; }
-bool Result_isOkay(void* result) { return result != NULL; }
-SeenString Result_unwrapErr(void* result) { return (SeenString){ 0, "" }; }
+SEEN_WEAK bool Result_isOkay(void* result) { return result != NULL; }
+SEEN_WEAK SeenString Result_unwrapErr(void* result) { return (SeenString){ 0, "" }; }
 
 // SeenTokenType is actually i64 (enum), unwrap just returns the value
 int64_t SeenTokenType_unwrap(int64_t value) { return value; }
@@ -2350,11 +3282,11 @@ int64_t JsonValue_unwrap(void* ptr) {
 // Typechecker Type Stubs
 // ============================================================================
 
-void* TypeError(void) { return malloc(64); }
-void* FunctionType(void) { return malloc(64); }
-void* ClassType(void) { return malloc(64); }
-void* InterfaceType(void) { return malloc(64); }
-void* Location(void) { return malloc(32); }
+void* TypeError(void) { return seen_try_calloc(1, 64); }
+void* FunctionType(void) { return seen_try_calloc(1, 64); }
+void* ClassType(void) { return seen_try_calloc(1, 64); }
+void* InterfaceType(void) { return seen_try_calloc(1, 64); }
+void* Location(void) { return seen_try_calloc(1, 32); }
 
 // TypeError methods are now defined in compiler_seen/src/typechecker/interfaces.seen
 // as a proper Seen class with full implementations; stubs removed to avoid duplicate symbols.
@@ -2366,26 +3298,22 @@ void* Location(void) { return malloc(32); }
 
 SEEN_WEAK void* TypeNode_new(void) {
     // Simple struct with name field
-    void* node = malloc(64);
-    memset(node, 0, 64);
+    void* node = seen_try_calloc(1, 64);
     return node;
 }
 
 SEEN_WEAK void* ItemNode_new(void) {
-    void* node = malloc(256);
-    memset(node, 0, 256);
+    void* node = seen_try_calloc(1, 256);
     return node;
 }
 
 SEEN_WEAK void* ParamNode_new(void) {
-    void* node = malloc(128);
-    memset(node, 0, 128);
+    void* node = seen_try_calloc(1, 128);
     return node;
 }
 
 SEEN_WEAK void* ImportSymbolNode_new(void) {
-    void* node = malloc(64);
-    memset(node, 0, 64);
+    void* node = seen_try_calloc(1, 64);
     return node;
 }
 
@@ -2394,20 +3322,7 @@ SEEN_WEAK void* ImportSymbolNode_new(void) {
 // ============================================================================
 
 int64_t indexOf(SeenString text, SeenString needle, int64_t start) {
-    if (needle.len == 0) return start;
-    if (text.len < needle.len + start) return -1;
-
-    for (int64_t i = start; i <= text.len - needle.len; i++) {
-        bool found = true;
-        for (int64_t j = 0; j < needle.len; j++) {
-            if (text.data[i + j] != needle.data[j]) {
-                found = false;
-                break;
-            }
-        }
-        if (found) return i;
-    }
-    return -1;
+    return seen_string_index_of_fast(text, needle, start);
 }
 
 int64_t lastIndexOf(SeenString text, SeenString needle, int64_t start) {
@@ -2415,22 +3330,21 @@ int64_t lastIndexOf(SeenString text, SeenString needle, int64_t start) {
         if (start < 0 || start > text.len) return text.len;
         return start;
     }
-    if (text.len < needle.len) return -1;
-
-    int64_t max_start = text.len - needle.len;
-    if (start < 0 || start > max_start) {
-        start = max_start;
+    if (start < 0 || start >= text.len) {
+        return seen_string_last_index_of_fast(text, needle);
     }
-
-    for (int64_t i = start; i >= 0; i--) {
-        bool found = true;
-        for (int64_t j = 0; j < needle.len; j++) {
-            if (text.data[i + j] != needle.data[j]) {
-                found = false;
-                break;
-            }
+    if (!text.data || !needle.data || text.len < 0 || needle.len < 0) return -1;
+    if (needle.len > text.len) return -1;
+    int64_t max_start = text.len - needle.len;
+    if (start > max_start) start = max_start;
+    while (start >= 0) {
+        if (text.data[start] == needle.data[0] &&
+            (needle.len == 1 ||
+             memcmp(text.data + start + 1, needle.data + 1,
+                    (size_t)(needle.len - 1)) == 0)) {
+            return start;
         }
-        if (found) return i;
+        start--;
     }
     return -1;
 }
@@ -2452,7 +3366,7 @@ SeenString __ReadStdinLine(void) {
 #ifdef _WIN32
     // getline is not available on Windows/mingw; use fgets with dynamic buffer
     size_t capacity = 256;
-    char* buffer = (char*)malloc(capacity);
+    char* buffer = (char*)seen_try_malloc((int64_t)capacity);
     if (!buffer) { SeenString empty = { 0, "" }; return empty; }
     size_t len = 0;
     while (1) {
@@ -2463,9 +3377,16 @@ SeenString __ReadStdinLine(void) {
         len = strlen(buffer);
         if (len > 0 && buffer[len - 1] == '\n') break;
         if (len + 1 >= capacity) {
+            size_t old_capacity = capacity;
             capacity *= 2;
-            buffer = (char*)realloc(buffer, capacity);
-            if (!buffer) { SeenString empty = { 0, "" }; return empty; }
+            char* grown = (char*)seen_try_realloc(buffer, (int64_t)old_capacity,
+                (int64_t)capacity);
+            if (!grown) {
+                seen_runtime_free_budgeted(buffer, (int64_t)old_capacity);
+                SeenString empty = { 0, "" };
+                return empty;
+            }
+            buffer = grown;
         }
     }
     SeenString result = { (int64_t)len, buffer };
@@ -2496,11 +3417,7 @@ SeenString __ReadStdinBytes(int64_t count) {
         return empty;
     }
 
-    char* buffer = (char*)malloc(count + 1);
-    if (!buffer) {
-        SeenString empty = { 0, "" };
-        return empty;
-    }
+    char* buffer = seen_runtime_alloc_chars(count, "__ReadStdinBytes");
 
     size_t total_read = 0;
     while (total_read < (size_t)count) {
@@ -2944,6 +3861,55 @@ void __seen_component_destroy_tree(int64_t id) {
     info->state = SEEN_COMPONENT_DESTROYED;
 }
 
+typedef struct {
+    bool isOk;
+    SeenArray* okStorage;
+    SeenArray* errStorage;
+} SeenResult;
+
+typedef struct {
+    int64_t requestedBytes;
+    int64_t limitBytes;
+    int64_t usedBytes;
+    SeenString message;
+} SeenAllocError;
+
+static int64_t seen_result_ok_i64(int64_t value) {
+    SeenArray* ok = seen_arr_new_ptr_ptr();
+    seen_arr_push_ptr(ok, (void*)value);
+    SeenArray* err = seen_arr_new_ptr_ptr();
+    SeenResult* result = (SeenResult*)seen_try_malloc((int64_t)sizeof(SeenResult));
+    if (!result) seen_oom_abort("Result Ok header", sizeof(SeenResult));
+    result->isOk = true;
+    result->okStorage = ok;
+    result->errStorage = err;
+    return (int64_t)result;
+}
+
+static int64_t seen_result_ok_unit(void) {
+    void* unit = seen_pool_alloc(8);
+    return seen_result_ok_i64((int64_t)unit);
+}
+
+static int64_t seen_result_err_alloc(int64_t requested_bytes) {
+    SeenAllocError* error =
+        (SeenAllocError*)seen_try_malloc((int64_t)sizeof(SeenAllocError));
+    if (!error) seen_oom_abort("AllocError header", sizeof(SeenAllocError));
+    error->requestedBytes = requested_bytes;
+    error->limitBytes = seen_memory_limit_bytes();
+    error->usedBytes = seen_memory_used_bytes();
+    error->message = seen_cstr_to_str("Seen allocation budget exceeded");
+    SeenArray* ok = seen_arr_new_ptr_ptr();
+    SeenArray* err = seen_arr_new_ptr_ptr();
+    seen_arr_push_ptr(err, error);
+    SeenResult* result = (SeenResult*)seen_try_malloc((int64_t)sizeof(SeenResult));
+    if (!result) seen_oom_abort("Result Err header", sizeof(SeenResult));
+    result->isOk = false;
+    result->okStorage = ok;
+    result->errStorage = err;
+    return (int64_t)result;
+}
+
 // ============================================================================
 // Vec<T> Runtime Helpers
 // Vec is a simple growable array: { data: ptr, length: i64, capacity: i64 }
@@ -2956,8 +3922,84 @@ typedef struct {
     int64_t capacity;
 } SeenVec;
 
+static int64_t Vec_checked_bytes(int64_t count, int64_t elem_size,
+    const char* context) {
+    if (count <= 0) count = 1;
+    if (elem_size <= 0 || count > INT64_MAX / elem_size) {
+        seen_oom_abort(context, INT64_MAX);
+    }
+    return count * elem_size;
+}
+
+static bool Vec_try_checked_bytes(int64_t count, int64_t elem_size,
+    int64_t* bytes_out) {
+    if (count <= 0) count = 1;
+    if (elem_size <= 0 || count > INT64_MAX / elem_size) {
+        g_seen_memory_allocation_failures++;
+        if (bytes_out) *bytes_out = INT64_MAX;
+        return false;
+    }
+    if (bytes_out) *bytes_out = count * elem_size;
+    return true;
+}
+
+static int64_t Vec_next_capacity(int64_t capacity, const char* context) {
+    if (capacity <= 0) return 8;
+    if (capacity > INT64_MAX / 2) {
+        seen_oom_abort(context, INT64_MAX);
+    }
+    return capacity * 2;
+}
+
+static void* Vec_alloc_data(int64_t count, int64_t elem_size,
+    const char* context) {
+    int64_t bytes = Vec_checked_bytes(count, elem_size, context);
+    void* ptr = seen_try_malloc(bytes);
+    if (!ptr) seen_oom_abort(context, bytes);
+    return ptr;
+}
+
+static void* Vec_realloc_data(void* old, int64_t old_count,
+    int64_t new_count, int64_t elem_size, const char* context) {
+    int64_t old_bytes = Vec_checked_bytes(old_count, elem_size, context);
+    int64_t new_bytes = Vec_checked_bytes(new_count, elem_size, context);
+    void* ptr = seen_try_realloc(old, old_bytes, new_bytes);
+    if (!ptr) seen_oom_abort(context, new_bytes);
+    return ptr;
+}
+
+static bool Vec_try_reserve_raw(void** data, int64_t* capacity,
+    int64_t required_capacity, int64_t elem_size, int64_t* requested_out) {
+    if (required_capacity <= *capacity) return true;
+    int64_t newCap = *capacity == 0 ? 8 : *capacity;
+    while (newCap < required_capacity) {
+        if (newCap > INT64_MAX / 2) {
+            g_seen_memory_allocation_failures++;
+            if (requested_out) *requested_out = INT64_MAX;
+            return false;
+        }
+        newCap *= 2;
+    }
+    int64_t old_bytes = 0;
+    int64_t new_bytes = 0;
+    if (!Vec_try_checked_bytes(*capacity, elem_size, &old_bytes) ||
+        !Vec_try_checked_bytes(newCap, elem_size, &new_bytes)) {
+        if (requested_out) *requested_out = new_bytes;
+        return false;
+    }
+    void* next = seen_try_realloc(*data, *data ? old_bytes : 0, new_bytes);
+    if (!next) {
+        if (requested_out) *requested_out = new_bytes;
+        return false;
+    }
+    *data = next;
+    *capacity = newCap;
+    return true;
+}
+
 void* Vec_new(void) {
-    SeenVec* vec = (SeenVec*)malloc(sizeof(SeenVec));
+    SeenVec* vec = (SeenVec*)seen_try_malloc(sizeof(SeenVec));
+    if (!vec) seen_oom_abort("Vec_new header", sizeof(SeenVec));
     vec->data = NULL;
     vec->length = 0;
     vec->capacity = 0;
@@ -2967,8 +4009,10 @@ void* Vec_new(void) {
 void Vec_push(void* vecPtr, int64_t value) {
     SeenVec* vec = (SeenVec*)vecPtr;
     if (vec->length >= vec->capacity) {
-        int64_t newCap = vec->capacity == 0 ? 8 : vec->capacity * 2;
-        vec->data = (int64_t*)realloc(vec->data, sizeof(int64_t) * newCap);
+        int64_t oldCap = vec->capacity;
+        int64_t newCap = Vec_next_capacity(vec->capacity, "Vec_push grow");
+        vec->data = (int64_t*)Vec_realloc_data(vec->data, oldCap, newCap,
+            (int64_t)sizeof(int64_t), "Vec_push data");
         vec->capacity = newCap;
     }
     vec->data[vec->length++] = value;
@@ -3008,10 +4052,34 @@ void Vec_ensureCapacity(void* vecPtr, int64_t capacity) {
     if (capacity <= vec->capacity) return;
     int64_t newCap = vec->capacity == 0 ? 8 : vec->capacity;
     while (newCap < capacity) {
-        newCap *= 2;
+        newCap = Vec_next_capacity(newCap, "Vec_ensureCapacity grow");
     }
-    vec->data = (int64_t*)realloc(vec->data, sizeof(int64_t) * newCap);
+    vec->data = (int64_t*)Vec_realloc_data(vec->data, vec->capacity,
+        newCap, (int64_t)sizeof(int64_t), "Vec_ensureCapacity data");
     vec->capacity = newCap;
+}
+
+int64_t Vec_tryEnsureCapacity(void* vecPtr, int64_t capacity) {
+    SeenVec* vec = (SeenVec*)vecPtr;
+    int64_t requested = capacity * (int64_t)sizeof(int64_t);
+    if (!vec) return seen_result_err_alloc(requested);
+    if (!Vec_try_reserve_raw((void**)&vec->data, &vec->capacity, capacity,
+        (int64_t)sizeof(int64_t), &requested)) {
+        return seen_result_err_alloc(requested);
+    }
+    return seen_result_ok_unit();
+}
+
+int64_t Vec_tryPush(void* vecPtr, int64_t value) {
+    SeenVec* vec = (SeenVec*)vecPtr;
+    if (!vec) return seen_result_err_alloc((int64_t)sizeof(int64_t));
+    int64_t requested = 0;
+    if (!Vec_try_reserve_raw((void**)&vec->data, &vec->capacity,
+        vec->length + 1, (int64_t)sizeof(int64_t), &requested)) {
+        return seen_result_err_alloc(requested);
+    }
+    vec->data[vec->length++] = value;
+    return seen_result_ok_unit();
 }
 
 // Vec<Int> utility methods
@@ -3059,8 +4127,10 @@ void Vec_insert(void* vecPtr, int64_t index, int64_t value) {
     SeenVec* vec = (SeenVec*)vecPtr;
     if (index < 0 || index > vec->length) return;
     if (vec->length >= vec->capacity) {
-        int64_t newCap = vec->capacity == 0 ? 8 : vec->capacity * 2;
-        vec->data = (int64_t*)realloc(vec->data, sizeof(int64_t) * newCap);
+        int64_t oldCap = vec->capacity;
+        int64_t newCap = Vec_next_capacity(vec->capacity, "Vec_insert grow");
+        vec->data = (int64_t*)Vec_realloc_data(vec->data, oldCap, newCap,
+            (int64_t)sizeof(int64_t), "Vec_insert data");
         vec->capacity = newCap;
     }
     for (int64_t i = vec->length; i > index; i--) {
@@ -3082,24 +4152,55 @@ int64_t Vec_last(void* vecPtr) {
     return vec->data[vec->length - 1];
 }
 
+static inline void Vec_swap_i64(int64_t* a, int64_t* b) {
+    int64_t tmp = *a;
+    *a = *b;
+    *b = tmp;
+}
+
+static void Vec_insertion_sort_i64(int64_t* data, int64_t low, int64_t high) {
+    for (int64_t i = low + 1; i <= high; i++) {
+        int64_t value = data[i];
+        int64_t j = i - 1;
+        while (j >= low && data[j] > value) {
+            data[j + 1] = data[j];
+            j--;
+        }
+        data[j + 1] = value;
+    }
+}
+
+static int64_t Vec_partition_i64(int64_t* data, int64_t low, int64_t high) {
+    int64_t mid = low + (high - low) / 2;
+    if (data[mid] < data[low]) Vec_swap_i64(&data[mid], &data[low]);
+    if (data[high] < data[low]) Vec_swap_i64(&data[high], &data[low]);
+    if (data[high] < data[mid]) Vec_swap_i64(&data[high], &data[mid]);
+    Vec_swap_i64(&data[mid], &data[high - 1]);
+    int64_t pivot = data[high - 1];
+    int64_t i = low;
+    int64_t j = high - 1;
+    for (;;) {
+        while (data[++i] < pivot) {}
+        while (data[--j] > pivot) {}
+        if (i >= j) break;
+        Vec_swap_i64(&data[i], &data[j]);
+    }
+    Vec_swap_i64(&data[i], &data[high - 1]);
+    return i;
+}
+
 static void Vec_sort_helper(int64_t* data, int64_t low, int64_t high) {
-    if (low >= high) return;
-    int64_t pivot = data[high];
-    int64_t i = low - 1;
-    for (int64_t j = low; j < high; j++) {
-        if (data[j] <= pivot) {
-            i++;
-            int64_t tmp = data[i];
-            data[i] = data[j];
-            data[j] = tmp;
+    while (high - low > 16) {
+        int64_t pivot = Vec_partition_i64(data, low, high);
+        if (pivot - low < high - pivot) {
+            Vec_sort_helper(data, low, pivot - 1);
+            low = pivot + 1;
+        } else {
+            Vec_sort_helper(data, pivot + 1, high);
+            high = pivot - 1;
         }
     }
-    int64_t tmp = data[i + 1];
-    data[i + 1] = data[high];
-    data[high] = tmp;
-    int64_t pi = i + 1;
-    Vec_sort_helper(data, low, pi - 1);
-    Vec_sort_helper(data, pi + 1, high);
+    Vec_insertion_sort_i64(data, low, high);
 }
 
 void Vec_sort(void* vecPtr) {
@@ -3108,15 +4209,46 @@ void Vec_sort(void* vecPtr) {
     Vec_sort_helper(vec->data, 0, vec->length - 1);
 }
 
+void* Vec_toArray(void* vecPtr) {
+    SeenVec* vec = (SeenVec*)vecPtr;
+    SeenArray* arr = seen_arr_new_with_size_ptr((int64_t)sizeof(int64_t));
+    for (int64_t i = 0; i < vec->length; i++) {
+        seen_arr_push_i64(arr, vec->data[i]);
+    }
+    return arr;
+}
+
+int64_t Vec_tryToArray(void* vecPtr) {
+    SeenVec* vec = (SeenVec*)vecPtr;
+    if (!vec) return seen_result_err_alloc((int64_t)sizeof(SeenArray));
+    int64_t data_bytes = 0;
+    if (!Vec_try_checked_bytes(vec->length, (int64_t)sizeof(int64_t),
+        &data_bytes)) {
+        return seen_result_err_alloc(data_bytes);
+    }
+    SeenArray* arr = (SeenArray*)seen_try_malloc((int64_t)sizeof(SeenArray));
+    if (!arr) return seen_result_err_alloc((int64_t)sizeof(SeenArray));
+    arr->len = 0;
+    arr->cap = vec->length > 0 ? vec->length : 1;
+    arr->element_size = (int64_t)sizeof(int64_t);
+    arr->data = seen_try_malloc(data_bytes);
+    if (!arr->data) return seen_result_err_alloc(data_bytes);
+    for (int64_t i = 0; i < vec->length; i++) {
+        seen_arr_push_i64(arr, vec->data[i]);
+    }
+    return seen_result_ok_i64((int64_t)arr);
+}
+
 int64_t Vec_len(void* vecPtr) {
     SeenVec* vec = (SeenVec*)vecPtr;
     return vec->length;
 }
 
 // ============================================================================
-// BTreeMap<K,V> Runtime Helpers - Simplified Linear Implementation
-// BTreeMap uses a linear array for simplicity: { entries: ptr, capacity: i64, length: i64 }
-// Each entry is { key: i64, value: i64 }
+// BTreeMap<K,V> Runtime Helpers - sorted contiguous tables
+// BTreeMap keeps entries sorted by key so lookups/removals use binary search and
+// key/value iteration is deterministic.
+// Layout remains { entries: ptr, capacity: i64, length: i64 } for generated IR.
 // ============================================================================
 
 typedef struct {
@@ -3130,65 +4262,144 @@ typedef struct {
     int64_t length;
 } SeenBTreeMap;
 
+static int64_t BTreeMap_checked_bytes(int64_t count, int64_t elem_size, const char* context) {
+    if (count <= 0) count = 1;
+    if (elem_size <= 0 || count > INT64_MAX / elem_size) {
+        seen_oom_abort(context, INT64_MAX);
+    }
+    return count * elem_size;
+}
+
+static void* BTreeMap_alloc_entries(int64_t count, int64_t elem_size, const char* context) {
+    int64_t bytes = BTreeMap_checked_bytes(count, elem_size, context);
+    void* ptr = seen_try_malloc(bytes);
+    if (!ptr) seen_oom_abort(context, bytes);
+    return ptr;
+}
+
+static void* BTreeMap_grow_entries(void* old, int64_t old_count, int64_t new_count,
+    int64_t elem_size, const char* context) {
+    int64_t old_bytes = BTreeMap_checked_bytes(old_count, elem_size, context);
+    int64_t new_bytes = BTreeMap_checked_bytes(new_count, elem_size, context);
+    void* ptr = seen_try_realloc(old, old_bytes, new_bytes);
+    if (!ptr) seen_oom_abort(context, new_bytes);
+    return ptr;
+}
+
+static int64_t BTreeMap_next_capacity(int64_t capacity, const char* context) {
+    if (capacity <= 0) return 16;
+    if (capacity > INT64_MAX / 2) seen_oom_abort(context, INT64_MAX);
+    return capacity * 2;
+}
+
+static int64_t BTreeMap_find_i64(BTreeMapEntry* entries, int64_t length,
+    int64_t key, bool* found) {
+    int64_t low = 0;
+    int64_t high = length;
+    while (low < high) {
+        int64_t mid = low + (high - low) / 2;
+        if (entries[mid].key < key) {
+            low = mid + 1;
+        } else {
+            high = mid;
+        }
+    }
+    *found = low < length && entries[low].key == key;
+    return low;
+}
+
+static int BTreeMap_compare_string(SeenString a, SeenString b) {
+    int64_t min_len = a.len < b.len ? a.len : b.len;
+    if (min_len > 0) {
+        int cmp = memcmp(a.data, b.data, (size_t)min_len);
+        if (cmp < 0) return -1;
+        if (cmp > 0) return 1;
+    }
+    if (a.len == b.len) return 0;
+    return a.len < b.len ? -1 : 1;
+}
+
 // Helper: create Option<V> as Some(value) or None
 static int64_t BTreeMap_make_some(int64_t value) {
     // Option layout: { i1 hasValue, i64 value }
-    uint8_t* opt = (uint8_t*)malloc(16);
+    uint8_t* opt = (uint8_t*)seen_try_malloc(16);
+    if (!opt) seen_oom_abort("BTreeMap Option<Int> Some", 16);
     *opt = 1;  // hasValue = true
     *(int64_t*)(opt + 8) = value;
     return (int64_t)opt;
 }
 
 static int64_t BTreeMap_make_none(void) {
-    uint8_t* opt = (uint8_t*)malloc(16);
+    uint8_t* opt = (uint8_t*)seen_try_malloc(16);
+    if (!opt) seen_oom_abort("BTreeMap Option<Int> None", 16);
     *opt = 0;  // hasValue = false
     return (int64_t)opt;
 }
 
 void* BTreeMap_new(void) {
-    SeenBTreeMap* map = (SeenBTreeMap*)malloc(sizeof(SeenBTreeMap));
+    SeenBTreeMap* map = (SeenBTreeMap*)seen_try_malloc(sizeof(SeenBTreeMap));
+    if (!map) seen_oom_abort("BTreeMap_new header", sizeof(SeenBTreeMap));
     map->capacity = 16;
-    map->entries = (BTreeMapEntry*)malloc(sizeof(BTreeMapEntry) * map->capacity);
+    map->entries = (BTreeMapEntry*)BTreeMap_alloc_entries(
+        map->capacity, (int64_t)sizeof(BTreeMapEntry), "BTreeMap_new entries");
     map->length = 0;
     return map;
 }
 
 bool BTreeMap_insert(void* mapPtr, int64_t key, int64_t value) {
     SeenBTreeMap* map = (SeenBTreeMap*)mapPtr;
-    // Check if key exists
-    for (int64_t i = 0; i < map->length; i++) {
-        if (map->entries[i].key == key) {
-            map->entries[i].value = value;
-            return false;  // Updated existing
-        }
+    bool found = false;
+    int64_t index = BTreeMap_find_i64(map->entries, map->length, key, &found);
+    if (found) {
+        map->entries[index].value = value;
+        return false;  // Updated existing
     }
-    // Grow if needed
     if (map->length >= map->capacity) {
-        map->capacity *= 2;
-        map->entries = realloc(map->entries, sizeof(BTreeMapEntry) * map->capacity);
+        int64_t old_capacity = map->capacity;
+        map->capacity = BTreeMap_next_capacity(map->capacity, "BTreeMap_insert grow");
+        map->entries = (BTreeMapEntry*)BTreeMap_grow_entries(
+            map->entries, old_capacity, map->capacity,
+            (int64_t)sizeof(BTreeMapEntry), "BTreeMap_insert entries");
     }
-    map->entries[map->length].key = key;
-    map->entries[map->length].value = value;
+    if (index < map->length) {
+        memmove(&map->entries[index + 1], &map->entries[index],
+            (size_t)(map->length - index) * sizeof(BTreeMapEntry));
+    }
+    map->entries[index].key = key;
+    map->entries[index].value = value;
     map->length++;
     return true;  // New entry
 }
 
 int64_t BTreeMap_get(void* mapPtr, int64_t key) {
     SeenBTreeMap* map = (SeenBTreeMap*)mapPtr;
-    for (int64_t i = 0; i < map->length; i++) {
-        if (map->entries[i].key == key) {
-            return BTreeMap_make_some(map->entries[i].value);
-        }
+    bool found = false;
+    int64_t index = BTreeMap_find_i64(map->entries, map->length, key, &found);
+    if (found) {
+        return BTreeMap_make_some(map->entries[index].value);
     }
     return BTreeMap_make_none();
 }
 
+int64_t BTreeMap_getOrDefault(void* mapPtr, int64_t key, int64_t defaultValue) {
+    SeenBTreeMap* map = (SeenBTreeMap*)mapPtr;
+    bool found = false;
+    int64_t index = BTreeMap_find_i64(map->entries, map->length, key, &found);
+    if (found) {
+        return map->entries[index].value;
+    }
+    return defaultValue;
+}
+
+int64_t BTreeMap_getUnchecked(void* mapPtr, int64_t key) {
+    return BTreeMap_getOrDefault(mapPtr, key, 0);
+}
+
 bool BTreeMap_containsKey(void* mapPtr, int64_t key) {
     SeenBTreeMap* map = (SeenBTreeMap*)mapPtr;
-    for (int64_t i = 0; i < map->length; i++) {
-        if (map->entries[i].key == key) return true;
-    }
-    return false;
+    bool found = false;
+    BTreeMap_find_i64(map->entries, map->length, key, &found);
+    return found;
 }
 
 int64_t BTreeMap_keys(void* mapPtr) {
@@ -3211,18 +4422,38 @@ int64_t BTreeMap_values(void* mapPtr) {
 
 int64_t BTreeMap_remove(void* mapPtr, int64_t key) {
     SeenBTreeMap* map = (SeenBTreeMap*)mapPtr;
-    for (int64_t i = 0; i < map->length; i++) {
-        if (map->entries[i].key == key) {
-            int64_t value = map->entries[i].value;
-            // Shift remaining entries
-            for (int64_t j = i; j < map->length - 1; j++) {
-                map->entries[j] = map->entries[j + 1];
-            }
-            map->length--;
-            return BTreeMap_make_some(value);
+    bool found = false;
+    int64_t index = BTreeMap_find_i64(map->entries, map->length, key, &found);
+    if (found) {
+        int64_t value = map->entries[index].value;
+        if (index < map->length - 1) {
+            memmove(&map->entries[index], &map->entries[index + 1],
+                (size_t)(map->length - index - 1) * sizeof(BTreeMapEntry));
         }
+        map->length--;
+        return BTreeMap_make_some(value);
     }
     return BTreeMap_make_none();
+}
+
+int64_t BTreeMap_removeOrDefault(void* mapPtr, int64_t key, int64_t defaultValue) {
+    SeenBTreeMap* map = (SeenBTreeMap*)mapPtr;
+    bool found = false;
+    int64_t index = BTreeMap_find_i64(map->entries, map->length, key, &found);
+    if (found) {
+        int64_t value = map->entries[index].value;
+        if (index < map->length - 1) {
+            memmove(&map->entries[index], &map->entries[index + 1],
+                (size_t)(map->length - index - 1) * sizeof(BTreeMapEntry));
+        }
+        map->length--;
+        return value;
+    }
+    return defaultValue;
+}
+
+int64_t BTreeMap_removeUnchecked(void* mapPtr, int64_t key) {
+    return BTreeMap_removeOrDefault(mapPtr, key, 0);
 }
 
 void BTreeMap_clear(void* mapPtr) {
@@ -3242,9 +4473,11 @@ typedef struct {
 } SeenVecStr;
 
 void* Vec_new_str(void) {
-    SeenVecStr* vec = (SeenVecStr*)malloc(sizeof(SeenVecStr));
+    SeenVecStr* vec = (SeenVecStr*)seen_try_malloc(sizeof(SeenVecStr));
+    if (!vec) seen_oom_abort("Vec_new_str header", sizeof(SeenVecStr));
     vec->capacity = 8;
-    vec->data = (SeenString*)malloc(sizeof(SeenString) * vec->capacity);
+    vec->data = (SeenString*)Vec_alloc_data(vec->capacity,
+        (int64_t)sizeof(SeenString), "Vec_new_str data");
     vec->length = 0;
     return vec;
 }
@@ -3252,10 +4485,35 @@ void* Vec_new_str(void) {
 void Vec_push_str(void* vecPtr, SeenString value) {
     SeenVecStr* vec = (SeenVecStr*)vecPtr;
     if (vec->length >= vec->capacity) {
-        vec->capacity *= 2;
-        vec->data = realloc(vec->data, sizeof(SeenString) * vec->capacity);
+        int64_t oldCap = vec->capacity;
+        vec->capacity = Vec_next_capacity(vec->capacity, "Vec_push_str grow");
+        vec->data = (SeenString*)Vec_realloc_data(vec->data, oldCap,
+            vec->capacity, (int64_t)sizeof(SeenString), "Vec_push_str data");
     }
     vec->data[vec->length++] = value;
+}
+
+int64_t Vec_tryEnsureCapacity_str(void* vecPtr, int64_t capacity) {
+    SeenVecStr* vec = (SeenVecStr*)vecPtr;
+    int64_t requested = capacity * (int64_t)sizeof(SeenString);
+    if (!vec) return seen_result_err_alloc(requested);
+    if (!Vec_try_reserve_raw((void**)&vec->data, &vec->capacity, capacity,
+        (int64_t)sizeof(SeenString), &requested)) {
+        return seen_result_err_alloc(requested);
+    }
+    return seen_result_ok_unit();
+}
+
+int64_t Vec_tryPush_str(void* vecPtr, SeenString value) {
+    SeenVecStr* vec = (SeenVecStr*)vecPtr;
+    if (!vec) return seen_result_err_alloc((int64_t)sizeof(SeenString));
+    int64_t requested = 0;
+    if (!Vec_try_reserve_raw((void**)&vec->data, &vec->capacity,
+        vec->length + 1, (int64_t)sizeof(SeenString), &requested)) {
+        return seen_result_err_alloc(requested);
+    }
+    vec->data[vec->length++] = value;
+    return seen_result_ok_unit();
 }
 
 SeenString Vec_get_str(void* vecPtr, int64_t index) {
@@ -3282,9 +4540,10 @@ void Vec_ensureCapacity_str(void* vecPtr, int64_t capacity) {
     if (capacity <= vec->capacity) return;
     int64_t newCap = vec->capacity == 0 ? 8 : vec->capacity;
     while (newCap < capacity) {
-        newCap *= 2;
+        newCap = Vec_next_capacity(newCap, "Vec_ensureCapacity_str grow");
     }
-    vec->data = (SeenString*)realloc(vec->data, sizeof(SeenString) * newCap);
+    vec->data = (SeenString*)Vec_realloc_data(vec->data, vec->capacity,
+        newCap, (int64_t)sizeof(SeenString), "Vec_ensureCapacity_str data");
     vec->capacity = newCap;
 }
 
@@ -3357,8 +4616,10 @@ void Vec_insert_str(void* vecPtr, int64_t index, SeenString value) {
     SeenVecStr* vec = (SeenVecStr*)vecPtr;
     if (index < 0 || index > vec->length) return;
     if (vec->length >= vec->capacity) {
-        vec->capacity *= 2;
-        vec->data = realloc(vec->data, sizeof(SeenString) * vec->capacity);
+        int64_t oldCap = vec->capacity;
+        vec->capacity = Vec_next_capacity(vec->capacity, "Vec_insert_str grow");
+        vec->data = (SeenString*)Vec_realloc_data(vec->data, oldCap,
+            vec->capacity, (int64_t)sizeof(SeenString), "Vec_insert_str data");
     }
     for (int64_t i = vec->length; i > index; i--) {
         vec->data[i] = vec->data[i - 1];
@@ -3385,6 +4646,36 @@ SeenString Vec_last_str(void* vecPtr) {
     return vec->data[vec->length - 1];
 }
 
+void* Vec_toArray_str(void* vecPtr) {
+    SeenVecStr* vec = (SeenVecStr*)vecPtr;
+    SeenArray* arr = seen_arr_new_str_ptr();
+    for (int64_t i = 0; i < vec->length; i++) {
+        seen_arr_push_str(arr, vec->data[i]);
+    }
+    return arr;
+}
+
+int64_t Vec_tryToArray_str(void* vecPtr) {
+    SeenVecStr* vec = (SeenVecStr*)vecPtr;
+    if (!vec) return seen_result_err_alloc((int64_t)sizeof(SeenArray));
+    int64_t data_bytes = 0;
+    if (!Vec_try_checked_bytes(vec->length, (int64_t)sizeof(SeenString),
+        &data_bytes)) {
+        return seen_result_err_alloc(data_bytes);
+    }
+    SeenArray* arr = (SeenArray*)seen_try_malloc((int64_t)sizeof(SeenArray));
+    if (!arr) return seen_result_err_alloc((int64_t)sizeof(SeenArray));
+    arr->len = 0;
+    arr->cap = vec->length > 0 ? vec->length : 1;
+    arr->element_size = (int64_t)sizeof(SeenString);
+    arr->data = seen_try_malloc(data_bytes);
+    if (!arr->data) return seen_result_err_alloc(data_bytes);
+    for (int64_t i = 0; i < vec->length; i++) {
+        seen_arr_push_str(arr, vec->data[i]);
+    }
+    return seen_result_ok_i64((int64_t)arr);
+}
+
 // ============================================================================
 // Vec with Float elements
 // Vec_float stores double values (8 bytes each)
@@ -3397,9 +4688,11 @@ typedef struct {
 } SeenVecFloat;
 
 void* Vec_new_float(void) {
-    SeenVecFloat* vec = (SeenVecFloat*)malloc(sizeof(SeenVecFloat));
+    SeenVecFloat* vec = (SeenVecFloat*)seen_try_malloc(sizeof(SeenVecFloat));
+    if (!vec) seen_oom_abort("Vec_new_float header", sizeof(SeenVecFloat));
     vec->capacity = 8;
-    vec->data = (double*)malloc(sizeof(double) * vec->capacity);
+    vec->data = (double*)Vec_alloc_data(vec->capacity,
+        (int64_t)sizeof(double), "Vec_new_float data");
     vec->length = 0;
     return vec;
 }
@@ -3407,10 +4700,36 @@ void* Vec_new_float(void) {
 void Vec_push_float(void* vecPtr, double value) {
     SeenVecFloat* vec = (SeenVecFloat*)vecPtr;
     if (vec->length >= vec->capacity) {
-        vec->capacity *= 2;
-        vec->data = realloc(vec->data, sizeof(double) * vec->capacity);
+        int64_t oldCap = vec->capacity;
+        vec->capacity = Vec_next_capacity(vec->capacity,
+            "Vec_push_float grow");
+        vec->data = (double*)Vec_realloc_data(vec->data, oldCap,
+            vec->capacity, (int64_t)sizeof(double), "Vec_push_float data");
     }
     vec->data[vec->length++] = value;
+}
+
+int64_t Vec_tryEnsureCapacity_float(void* vecPtr, int64_t capacity) {
+    SeenVecFloat* vec = (SeenVecFloat*)vecPtr;
+    int64_t requested = capacity * (int64_t)sizeof(double);
+    if (!vec) return seen_result_err_alloc(requested);
+    if (!Vec_try_reserve_raw((void**)&vec->data, &vec->capacity, capacity,
+        (int64_t)sizeof(double), &requested)) {
+        return seen_result_err_alloc(requested);
+    }
+    return seen_result_ok_unit();
+}
+
+int64_t Vec_tryPush_float(void* vecPtr, double value) {
+    SeenVecFloat* vec = (SeenVecFloat*)vecPtr;
+    if (!vec) return seen_result_err_alloc((int64_t)sizeof(double));
+    int64_t requested = 0;
+    if (!Vec_try_reserve_raw((void**)&vec->data, &vec->capacity,
+        vec->length + 1, (int64_t)sizeof(double), &requested)) {
+        return seen_result_err_alloc(requested);
+    }
+    vec->data[vec->length++] = value;
+    return seen_result_ok_unit();
 }
 
 double Vec_get_float(void* vecPtr, int64_t index) {
@@ -3452,9 +4771,10 @@ void Vec_ensureCapacity_float(void* vecPtr, int64_t capacity) {
     if (capacity <= vec->capacity) return;
     int64_t newCap = vec->capacity == 0 ? 8 : vec->capacity;
     while (newCap < capacity) {
-        newCap *= 2;
+        newCap = Vec_next_capacity(newCap, "Vec_ensureCapacity_float grow");
     }
-    vec->data = (double*)realloc(vec->data, sizeof(double) * newCap);
+    vec->data = (double*)Vec_realloc_data(vec->data, vec->capacity,
+        newCap, (int64_t)sizeof(double), "Vec_ensureCapacity_float data");
     vec->capacity = newCap;
 }
 
@@ -3501,8 +4821,11 @@ void Vec_insert_float(void* vecPtr, int64_t index, double value) {
     SeenVecFloat* vec = (SeenVecFloat*)vecPtr;
     if (index < 0 || index > vec->length) return;
     if (vec->length >= vec->capacity) {
-        vec->capacity *= 2;
-        vec->data = realloc(vec->data, sizeof(double) * vec->capacity);
+        int64_t oldCap = vec->capacity;
+        vec->capacity = Vec_next_capacity(vec->capacity,
+            "Vec_insert_float grow");
+        vec->data = (double*)Vec_realloc_data(vec->data, oldCap,
+            vec->capacity, (int64_t)sizeof(double), "Vec_insert_float data");
     }
     for (int64_t i = vec->length; i > index; i--) {
         vec->data[i] = vec->data[i - 1];
@@ -3523,24 +4846,55 @@ double Vec_last_float(void* vecPtr) {
     return vec->data[vec->length - 1];
 }
 
+static inline void Vec_swap_f64(double* a, double* b) {
+    double tmp = *a;
+    *a = *b;
+    *b = tmp;
+}
+
+static void Vec_insertion_sort_f64(double* data, int64_t low, int64_t high) {
+    for (int64_t i = low + 1; i <= high; i++) {
+        double value = data[i];
+        int64_t j = i - 1;
+        while (j >= low && data[j] > value) {
+            data[j + 1] = data[j];
+            j--;
+        }
+        data[j + 1] = value;
+    }
+}
+
+static int64_t Vec_partition_f64(double* data, int64_t low, int64_t high) {
+    int64_t mid = low + (high - low) / 2;
+    if (data[mid] < data[low]) Vec_swap_f64(&data[mid], &data[low]);
+    if (data[high] < data[low]) Vec_swap_f64(&data[high], &data[low]);
+    if (data[high] < data[mid]) Vec_swap_f64(&data[high], &data[mid]);
+    Vec_swap_f64(&data[mid], &data[high - 1]);
+    double pivot = data[high - 1];
+    int64_t i = low;
+    int64_t j = high - 1;
+    for (;;) {
+        while (data[++i] < pivot) {}
+        while (data[--j] > pivot) {}
+        if (i >= j) break;
+        Vec_swap_f64(&data[i], &data[j]);
+    }
+    Vec_swap_f64(&data[i], &data[high - 1]);
+    return i;
+}
+
 static void Vec_sort_float_helper(double* data, int64_t low, int64_t high) {
-    if (low >= high) return;
-    double pivot = data[high];
-    int64_t i = low - 1;
-    for (int64_t j = low; j < high; j++) {
-        if (data[j] <= pivot) {
-            i++;
-            double tmp = data[i];
-            data[i] = data[j];
-            data[j] = tmp;
+    while (high - low > 16) {
+        int64_t pivot = Vec_partition_f64(data, low, high);
+        if (pivot - low < high - pivot) {
+            Vec_sort_float_helper(data, low, pivot - 1);
+            low = pivot + 1;
+        } else {
+            Vec_sort_float_helper(data, pivot + 1, high);
+            high = pivot - 1;
         }
     }
-    double tmp = data[i + 1];
-    data[i + 1] = data[high];
-    data[high] = tmp;
-    int64_t pi = i + 1;
-    Vec_sort_float_helper(data, low, pi - 1);
-    Vec_sort_float_helper(data, pi + 1, high);
+    Vec_insertion_sort_f64(data, low, high);
 }
 
 void Vec_sort_float(void* vecPtr) {
@@ -3549,12 +4903,43 @@ void Vec_sort_float(void* vecPtr) {
     Vec_sort_float_helper(vec->data, 0, vec->length - 1);
 }
 
+void* Vec_toArray_float(void* vecPtr) {
+    SeenVecFloat* vec = (SeenVecFloat*)vecPtr;
+    SeenArray* arr = seen_arr_new_with_size_ptr((int64_t)sizeof(double));
+    for (int64_t i = 0; i < vec->length; i++) {
+        seen_arr_push_f64(arr, vec->data[i]);
+    }
+    return arr;
+}
+
 // String.split() heap-allocated wrapper
 void* String_split(SeenString text, SeenString delimiter) {
     SeenArray result = split(text, delimiter);
-    SeenArray* heap = (SeenArray*)malloc(sizeof(SeenArray));
+    SeenArray* heap = (SeenArray*)seen_try_malloc(sizeof(SeenArray));
+    if (!heap) seen_oom_abort("String_split result", sizeof(SeenArray));
     *heap = result;
     return heap;
+}
+
+int64_t Vec_tryToArray_float(void* vecPtr) {
+    SeenVecFloat* vec = (SeenVecFloat*)vecPtr;
+    if (!vec) return seen_result_err_alloc((int64_t)sizeof(SeenArray));
+    int64_t data_bytes = 0;
+    if (!Vec_try_checked_bytes(vec->length, (int64_t)sizeof(double),
+        &data_bytes)) {
+        return seen_result_err_alloc(data_bytes);
+    }
+    SeenArray* arr = (SeenArray*)seen_try_malloc((int64_t)sizeof(SeenArray));
+    if (!arr) return seen_result_err_alloc((int64_t)sizeof(SeenArray));
+    arr->len = 0;
+    arr->cap = vec->length > 0 ? vec->length : 1;
+    arr->element_size = (int64_t)sizeof(double);
+    arr->data = seen_try_malloc(data_bytes);
+    if (!arr->data) return seen_result_err_alloc(data_bytes);
+    for (int64_t i = 0; i < vec->length; i++) {
+        seen_arr_push_f64(arr, vec->data[i]);
+    }
+    return seen_result_ok_i64((int64_t)arr);
 }
 
 // ============================================================================
@@ -3573,55 +4958,87 @@ typedef struct {
     int64_t length;
 } SeenBTreeMapStr;
 
+static int64_t BTreeMap_find_str(BTreeEntryStr* entries, int64_t length,
+    SeenString key, bool* found) {
+    int64_t low = 0;
+    int64_t high = length;
+    while (low < high) {
+        int64_t mid = low + (high - low) / 2;
+        int cmp = BTreeMap_compare_string(entries[mid].key, key);
+        if (cmp < 0) {
+            low = mid + 1;
+        } else {
+            high = mid;
+        }
+    }
+    *found = low < length && BTreeMap_compare_string(entries[low].key, key) == 0;
+    return low;
+}
+
 void* BTreeMap_new_str(void) {
-    SeenBTreeMapStr* map = (SeenBTreeMapStr*)malloc(sizeof(SeenBTreeMapStr));
+    SeenBTreeMapStr* map = (SeenBTreeMapStr*)seen_try_malloc(sizeof(SeenBTreeMapStr));
+    if (!map) seen_oom_abort("BTreeMap_new_str header", sizeof(SeenBTreeMapStr));
     map->capacity = 16;
-    map->entries = (BTreeEntryStr*)malloc(sizeof(BTreeEntryStr) * map->capacity);
+    map->entries = (BTreeEntryStr*)BTreeMap_alloc_entries(
+        map->capacity, (int64_t)sizeof(BTreeEntryStr), "BTreeMap_new_str entries");
     map->length = 0;
     return map;
 }
 
 bool BTreeMap_insert_str(void* mapPtr, SeenString key, int64_t value) {
     SeenBTreeMapStr* map = (SeenBTreeMapStr*)mapPtr;
-    // Check if key exists
-    for (int64_t i = 0; i < map->length; i++) {
-        if (map->entries[i].key.len == key.len &&
-            memcmp(map->entries[i].key.data, key.data, key.len) == 0) {
-            map->entries[i].value = value;
-            return false;  // Updated existing
-        }
+    bool found = false;
+    int64_t index = BTreeMap_find_str(map->entries, map->length, key, &found);
+    if (found) {
+        map->entries[index].value = value;
+        return false;  // Updated existing
     }
-    // Grow if needed
     if (map->length >= map->capacity) {
-        map->capacity *= 2;
-        map->entries = realloc(map->entries, sizeof(BTreeEntryStr) * map->capacity);
+        int64_t old_capacity = map->capacity;
+        map->capacity = BTreeMap_next_capacity(map->capacity, "BTreeMap_insert_str grow");
+        map->entries = (BTreeEntryStr*)BTreeMap_grow_entries(
+            map->entries, old_capacity, map->capacity,
+            (int64_t)sizeof(BTreeEntryStr), "BTreeMap_insert_str entries");
     }
-    map->entries[map->length].key = key;
-    map->entries[map->length].value = value;
+    if (index < map->length) {
+        memmove(&map->entries[index + 1], &map->entries[index],
+            (size_t)(map->length - index) * sizeof(BTreeEntryStr));
+    }
+    map->entries[index].key = key;
+    map->entries[index].value = value;
     map->length++;
     return true;  // New entry
 }
 
 int64_t BTreeMap_get_str(void* mapPtr, SeenString key) {
     SeenBTreeMapStr* map = (SeenBTreeMapStr*)mapPtr;
-    for (int64_t i = 0; i < map->length; i++) {
-        if (map->entries[i].key.len == key.len &&
-            memcmp(map->entries[i].key.data, key.data, key.len) == 0) {
-            return BTreeMap_make_some(map->entries[i].value);
-        }
+    bool found = false;
+    int64_t index = BTreeMap_find_str(map->entries, map->length, key, &found);
+    if (found) {
+        return BTreeMap_make_some(map->entries[index].value);
     }
     return BTreeMap_make_none();
 }
 
+int64_t BTreeMap_getOrDefault_str(void* mapPtr, SeenString key, int64_t defaultValue) {
+    SeenBTreeMapStr* map = (SeenBTreeMapStr*)mapPtr;
+    bool found = false;
+    int64_t index = BTreeMap_find_str(map->entries, map->length, key, &found);
+    if (found) {
+        return map->entries[index].value;
+    }
+    return defaultValue;
+}
+
+int64_t BTreeMap_getUnchecked_str(void* mapPtr, SeenString key) {
+    return BTreeMap_getOrDefault_str(mapPtr, key, 0);
+}
+
 bool BTreeMap_containsKey_str(void* mapPtr, SeenString key) {
     SeenBTreeMapStr* map = (SeenBTreeMapStr*)mapPtr;
-    for (int64_t i = 0; i < map->length; i++) {
-        if (map->entries[i].key.len == key.len &&
-            memcmp(map->entries[i].key.data, key.data, key.len) == 0) {
-            return true;
-        }
-    }
-    return false;
+    bool found = false;
+    BTreeMap_find_str(map->entries, map->length, key, &found);
+    return found;
 }
 
 int64_t BTreeMap_keys_str(void* mapPtr) {
@@ -3649,19 +5066,38 @@ int64_t BTreeMap_size_str(void* mapPtr) {
 
 int64_t BTreeMap_remove_str(void* mapPtr, SeenString key) {
     SeenBTreeMapStr* map = (SeenBTreeMapStr*)mapPtr;
-    for (int64_t i = 0; i < map->length; i++) {
-        if (map->entries[i].key.len == key.len &&
-            memcmp(map->entries[i].key.data, key.data, key.len) == 0) {
-            int64_t value = map->entries[i].value;
-            // Shift remaining entries
-            for (int64_t j = i; j < map->length - 1; j++) {
-                map->entries[j] = map->entries[j + 1];
-            }
-            map->length--;
-            return BTreeMap_make_some(value);
+    bool found = false;
+    int64_t index = BTreeMap_find_str(map->entries, map->length, key, &found);
+    if (found) {
+        int64_t value = map->entries[index].value;
+        if (index < map->length - 1) {
+            memmove(&map->entries[index], &map->entries[index + 1],
+                (size_t)(map->length - index - 1) * sizeof(BTreeEntryStr));
         }
+        map->length--;
+        return BTreeMap_make_some(value);
     }
     return BTreeMap_make_none();
+}
+
+int64_t BTreeMap_removeOrDefault_str(void* mapPtr, SeenString key, int64_t defaultValue) {
+    SeenBTreeMapStr* map = (SeenBTreeMapStr*)mapPtr;
+    bool found = false;
+    int64_t index = BTreeMap_find_str(map->entries, map->length, key, &found);
+    if (found) {
+        int64_t value = map->entries[index].value;
+        if (index < map->length - 1) {
+            memmove(&map->entries[index], &map->entries[index + 1],
+                (size_t)(map->length - index - 1) * sizeof(BTreeEntryStr));
+        }
+        map->length--;
+        return value;
+    }
+    return defaultValue;
+}
+
+int64_t BTreeMap_removeUnchecked_str(void* mapPtr, SeenString key) {
+    return BTreeMap_removeOrDefault_str(mapPtr, key, 0);
 }
 
 void BTreeMap_clear_str(void* mapPtr) {
@@ -3685,31 +5121,54 @@ typedef struct {
     int64_t length;
 } SeenBTreeMapStrStr;
 
+static int64_t BTreeMap_find_str_str(BTreeEntryStrStr* entries, int64_t length,
+    SeenString key, bool* found) {
+    int64_t low = 0;
+    int64_t high = length;
+    while (low < high) {
+        int64_t mid = low + (high - low) / 2;
+        int cmp = BTreeMap_compare_string(entries[mid].key, key);
+        if (cmp < 0) {
+            low = mid + 1;
+        } else {
+            high = mid;
+        }
+    }
+    *found = low < length && BTreeMap_compare_string(entries[low].key, key) == 0;
+    return low;
+}
+
 void* BTreeMap_new_str_str(void) {
-    SeenBTreeMapStrStr* map = (SeenBTreeMapStrStr*)malloc(sizeof(SeenBTreeMapStrStr));
+    SeenBTreeMapStrStr* map = (SeenBTreeMapStrStr*)seen_try_malloc(sizeof(SeenBTreeMapStrStr));
+    if (!map) seen_oom_abort("BTreeMap_new_str_str header", sizeof(SeenBTreeMapStrStr));
     map->capacity = 16;
-    map->entries = (BTreeEntryStrStr*)malloc(sizeof(BTreeEntryStrStr) * map->capacity);
+    map->entries = (BTreeEntryStrStr*)BTreeMap_alloc_entries(
+        map->capacity, (int64_t)sizeof(BTreeEntryStrStr), "BTreeMap_new_str_str entries");
     map->length = 0;
     return map;
 }
 
 bool BTreeMap_insert_str_str(void* mapPtr, SeenString key, SeenString value) {
     SeenBTreeMapStrStr* map = (SeenBTreeMapStrStr*)mapPtr;
-    // Check if key exists
-    for (int64_t i = 0; i < map->length; i++) {
-        if (map->entries[i].key.len == key.len &&
-            memcmp(map->entries[i].key.data, key.data, key.len) == 0) {
-            map->entries[i].value = value;
-            return false;  // Updated existing
-        }
+    bool found = false;
+    int64_t index = BTreeMap_find_str_str(map->entries, map->length, key, &found);
+    if (found) {
+        map->entries[index].value = value;
+        return false;  // Updated existing
     }
-    // Grow if needed
     if (map->length >= map->capacity) {
-        map->capacity *= 2;
-        map->entries = realloc(map->entries, sizeof(BTreeEntryStrStr) * map->capacity);
+        int64_t old_capacity = map->capacity;
+        map->capacity = BTreeMap_next_capacity(map->capacity, "BTreeMap_insert_str_str grow");
+        map->entries = (BTreeEntryStrStr*)BTreeMap_grow_entries(
+            map->entries, old_capacity, map->capacity,
+            (int64_t)sizeof(BTreeEntryStrStr), "BTreeMap_insert_str_str entries");
     }
-    map->entries[map->length].key = key;
-    map->entries[map->length].value = value;
+    if (index < map->length) {
+        memmove(&map->entries[index + 1], &map->entries[index],
+            (size_t)(map->length - index) * sizeof(BTreeEntryStrStr));
+    }
+    map->entries[index].key = key;
+    map->entries[index].value = value;
     map->length++;
     return true;  // New entry
 }
@@ -3717,14 +5176,16 @@ bool BTreeMap_insert_str_str(void* mapPtr, SeenString key, SeenString value) {
 // Helper: create Option<String> as Some(value)
 static int64_t BTreeMap_make_some_str(SeenString value) {
     // Option<String> layout: { i1 hasValue (8 bytes with padding), SeenString value (16 bytes) } = 24 bytes
-    uint8_t* opt = (uint8_t*)malloc(24);
+    uint8_t* opt = (uint8_t*)seen_try_malloc(24);
+    if (!opt) seen_oom_abort("BTreeMap Option<String> Some", 24);
     *opt = 1;  // hasValue = true
     *(SeenString*)(opt + 8) = value;  // Store SeenString at offset 8
     return (int64_t)opt;
 }
 
 static int64_t BTreeMap_make_none_str(void) {
-    uint8_t* opt = (uint8_t*)malloc(24);
+    uint8_t* opt = (uint8_t*)seen_try_malloc(24);
+    if (!opt) seen_oom_abort("BTreeMap Option<String> None", 24);
     *opt = 0;  // hasValue = false
     // Leave value uninitialized (will be checked via hasValue before access)
     return (int64_t)opt;
@@ -3733,24 +5194,34 @@ static int64_t BTreeMap_make_none_str(void) {
 // Returns Option<String> as i64 (pointer to { i1, SeenString })
 int64_t BTreeMap_get_str_str(void* mapPtr, SeenString key) {
     SeenBTreeMapStrStr* map = (SeenBTreeMapStrStr*)mapPtr;
-    for (int64_t i = 0; i < map->length; i++) {
-        if (map->entries[i].key.len == key.len &&
-            memcmp(map->entries[i].key.data, key.data, key.len) == 0) {
-            return BTreeMap_make_some_str(map->entries[i].value);
-        }
+    bool found = false;
+    int64_t index = BTreeMap_find_str_str(map->entries, map->length, key, &found);
+    if (found) {
+        return BTreeMap_make_some_str(map->entries[index].value);
     }
     return BTreeMap_make_none_str();
 }
 
+SeenString BTreeMap_getOrDefault_str_str(void* mapPtr, SeenString key, SeenString defaultValue) {
+    SeenBTreeMapStrStr* map = (SeenBTreeMapStrStr*)mapPtr;
+    bool found = false;
+    int64_t index = BTreeMap_find_str_str(map->entries, map->length, key, &found);
+    if (found) {
+        return map->entries[index].value;
+    }
+    return defaultValue;
+}
+
+SeenString BTreeMap_getUnchecked_str_str(void* mapPtr, SeenString key) {
+    SeenString empty = { 0, "" };
+    return BTreeMap_getOrDefault_str_str(mapPtr, key, empty);
+}
+
 bool BTreeMap_containsKey_str_str(void* mapPtr, SeenString key) {
     SeenBTreeMapStrStr* map = (SeenBTreeMapStrStr*)mapPtr;
-    for (int64_t i = 0; i < map->length; i++) {
-        if (map->entries[i].key.len == key.len &&
-            memcmp(map->entries[i].key.data, key.data, key.len) == 0) {
-            return true;
-        }
-    }
-    return false;
+    bool found = false;
+    BTreeMap_find_str_str(map->entries, map->length, key, &found);
+    return found;
 }
 
 int64_t BTreeMap_keys_str_str(void* mapPtr) {
@@ -3779,19 +5250,39 @@ int64_t BTreeMap_size_str_str(void* mapPtr) {
 // Returns Option<String> as i64 (pointer to { i1, SeenString })
 int64_t BTreeMap_remove_str_str(void* mapPtr, SeenString key) {
     SeenBTreeMapStrStr* map = (SeenBTreeMapStrStr*)mapPtr;
-    for (int64_t i = 0; i < map->length; i++) {
-        if (map->entries[i].key.len == key.len &&
-            memcmp(map->entries[i].key.data, key.data, key.len) == 0) {
-            SeenString value = map->entries[i].value;
-            // Shift remaining entries
-            for (int64_t j = i; j < map->length - 1; j++) {
-                map->entries[j] = map->entries[j + 1];
-            }
-            map->length--;
-            return BTreeMap_make_some_str(value);
+    bool found = false;
+    int64_t index = BTreeMap_find_str_str(map->entries, map->length, key, &found);
+    if (found) {
+        SeenString value = map->entries[index].value;
+        if (index < map->length - 1) {
+            memmove(&map->entries[index], &map->entries[index + 1],
+                (size_t)(map->length - index - 1) * sizeof(BTreeEntryStrStr));
         }
+        map->length--;
+        return BTreeMap_make_some_str(value);
     }
     return BTreeMap_make_none_str();
+}
+
+SeenString BTreeMap_removeOrDefault_str_str(void* mapPtr, SeenString key, SeenString defaultValue) {
+    SeenBTreeMapStrStr* map = (SeenBTreeMapStrStr*)mapPtr;
+    bool found = false;
+    int64_t index = BTreeMap_find_str_str(map->entries, map->length, key, &found);
+    if (found) {
+        SeenString value = map->entries[index].value;
+        if (index < map->length - 1) {
+            memmove(&map->entries[index], &map->entries[index + 1],
+                (size_t)(map->length - index - 1) * sizeof(BTreeEntryStrStr));
+        }
+        map->length--;
+        return value;
+    }
+    return defaultValue;
+}
+
+SeenString BTreeMap_removeUnchecked_str_str(void* mapPtr, SeenString key) {
+    SeenString empty = { 0, "" };
+    return BTreeMap_removeOrDefault_str_str(mapPtr, key, empty);
 }
 
 void BTreeMap_clear_str_str(void* mapPtr) {
@@ -3814,48 +5305,87 @@ typedef struct {
     int64_t length;
 } SeenBTreeMapIntStr;
 
+static int64_t BTreeMap_find_int_str(BTreeEntryIntStr* entries, int64_t length,
+    int64_t key, bool* found) {
+    int64_t low = 0;
+    int64_t high = length;
+    while (low < high) {
+        int64_t mid = low + (high - low) / 2;
+        if (entries[mid].key < key) {
+            low = mid + 1;
+        } else {
+            high = mid;
+        }
+    }
+    *found = low < length && entries[low].key == key;
+    return low;
+}
+
 void* BTreeMap_new_int_str(void) {
-    SeenBTreeMapIntStr* map = (SeenBTreeMapIntStr*)malloc(sizeof(SeenBTreeMapIntStr));
+    SeenBTreeMapIntStr* map = (SeenBTreeMapIntStr*)seen_try_malloc(sizeof(SeenBTreeMapIntStr));
+    if (!map) seen_oom_abort("BTreeMap_new_int_str header", sizeof(SeenBTreeMapIntStr));
     map->capacity = 16;
-    map->entries = (BTreeEntryIntStr*)malloc(sizeof(BTreeEntryIntStr) * map->capacity);
+    map->entries = (BTreeEntryIntStr*)BTreeMap_alloc_entries(
+        map->capacity, (int64_t)sizeof(BTreeEntryIntStr), "BTreeMap_new_int_str entries");
     map->length = 0;
     return map;
 }
 
 bool BTreeMap_insert_int_str(void* mapPtr, int64_t key, SeenString value) {
     SeenBTreeMapIntStr* map = (SeenBTreeMapIntStr*)mapPtr;
-    for (int64_t i = 0; i < map->length; i++) {
-        if (map->entries[i].key == key) {
-            map->entries[i].value = value;
-            return false;
-        }
+    bool found = false;
+    int64_t index = BTreeMap_find_int_str(map->entries, map->length, key, &found);
+    if (found) {
+        map->entries[index].value = value;
+        return false;
     }
     if (map->length >= map->capacity) {
-        map->capacity *= 2;
-        map->entries = realloc(map->entries, sizeof(BTreeEntryIntStr) * map->capacity);
+        int64_t old_capacity = map->capacity;
+        map->capacity = BTreeMap_next_capacity(map->capacity, "BTreeMap_insert_int_str grow");
+        map->entries = (BTreeEntryIntStr*)BTreeMap_grow_entries(
+            map->entries, old_capacity, map->capacity,
+            (int64_t)sizeof(BTreeEntryIntStr), "BTreeMap_insert_int_str entries");
     }
-    map->entries[map->length].key = key;
-    map->entries[map->length].value = value;
+    if (index < map->length) {
+        memmove(&map->entries[index + 1], &map->entries[index],
+            (size_t)(map->length - index) * sizeof(BTreeEntryIntStr));
+    }
+    map->entries[index].key = key;
+    map->entries[index].value = value;
     map->length++;
     return true;
 }
 
 int64_t BTreeMap_get_int_str(void* mapPtr, int64_t key) {
     SeenBTreeMapIntStr* map = (SeenBTreeMapIntStr*)mapPtr;
-    for (int64_t i = 0; i < map->length; i++) {
-        if (map->entries[i].key == key) {
-            return BTreeMap_make_some_str(map->entries[i].value);
-        }
+    bool found = false;
+    int64_t index = BTreeMap_find_int_str(map->entries, map->length, key, &found);
+    if (found) {
+        return BTreeMap_make_some_str(map->entries[index].value);
     }
     return BTreeMap_make_none_str();
 }
 
+SeenString BTreeMap_getOrDefault_int_str(void* mapPtr, int64_t key, SeenString defaultValue) {
+    SeenBTreeMapIntStr* map = (SeenBTreeMapIntStr*)mapPtr;
+    bool found = false;
+    int64_t index = BTreeMap_find_int_str(map->entries, map->length, key, &found);
+    if (found) {
+        return map->entries[index].value;
+    }
+    return defaultValue;
+}
+
+SeenString BTreeMap_getUnchecked_int_str(void* mapPtr, int64_t key) {
+    SeenString empty = { 0, "" };
+    return BTreeMap_getOrDefault_int_str(mapPtr, key, empty);
+}
+
 bool BTreeMap_containsKey_int_str(void* mapPtr, int64_t key) {
     SeenBTreeMapIntStr* map = (SeenBTreeMapIntStr*)mapPtr;
-    for (int64_t i = 0; i < map->length; i++) {
-        if (map->entries[i].key == key) return true;
-    }
-    return false;
+    bool found = false;
+    BTreeMap_find_int_str(map->entries, map->length, key, &found);
+    return found;
 }
 
 int64_t BTreeMap_keys_int_str(void* mapPtr) {
@@ -3883,17 +5413,39 @@ int64_t BTreeMap_size_int_str(void* mapPtr) {
 
 int64_t BTreeMap_remove_int_str(void* mapPtr, int64_t key) {
     SeenBTreeMapIntStr* map = (SeenBTreeMapIntStr*)mapPtr;
-    for (int64_t i = 0; i < map->length; i++) {
-        if (map->entries[i].key == key) {
-            SeenString value = map->entries[i].value;
-            for (int64_t j = i; j < map->length - 1; j++) {
-                map->entries[j] = map->entries[j + 1];
-            }
-            map->length--;
-            return BTreeMap_make_some_str(value);
+    bool found = false;
+    int64_t index = BTreeMap_find_int_str(map->entries, map->length, key, &found);
+    if (found) {
+        SeenString value = map->entries[index].value;
+        if (index < map->length - 1) {
+            memmove(&map->entries[index], &map->entries[index + 1],
+                (size_t)(map->length - index - 1) * sizeof(BTreeEntryIntStr));
         }
+        map->length--;
+        return BTreeMap_make_some_str(value);
     }
     return BTreeMap_make_none_str();
+}
+
+SeenString BTreeMap_removeOrDefault_int_str(void* mapPtr, int64_t key, SeenString defaultValue) {
+    SeenBTreeMapIntStr* map = (SeenBTreeMapIntStr*)mapPtr;
+    bool found = false;
+    int64_t index = BTreeMap_find_int_str(map->entries, map->length, key, &found);
+    if (found) {
+        SeenString value = map->entries[index].value;
+        if (index < map->length - 1) {
+            memmove(&map->entries[index], &map->entries[index + 1],
+                (size_t)(map->length - index - 1) * sizeof(BTreeEntryIntStr));
+        }
+        map->length--;
+        return value;
+    }
+    return defaultValue;
+}
+
+SeenString BTreeMap_removeUnchecked_int_str(void* mapPtr, int64_t key) {
+    SeenString empty = { 0, "" };
+    return BTreeMap_removeOrDefault_int_str(mapPtr, key, empty);
 }
 
 void BTreeMap_clear_int_str(void* mapPtr) {
@@ -4036,6 +5588,8 @@ typedef struct {
     int avx512vl;
     int neon;
     int sve;
+    int riscv64;
+    int rvv;
     int apx;
     int avx10;
     int detected;
@@ -4109,6 +5663,15 @@ static void seen_cpu_detect_impl(void) {
 }
 #endif
 
+#elif defined(__riscv) && (__riscv_xlen == 64)
+
+static void seen_cpu_detect_impl(void) {
+    if (g_cpu_features.detected) return;
+    g_cpu_features.detected = 1;
+    g_cpu_features.riscv64 = 1;
+    g_cpu_features.rvv = 0; // RVV codegen/runtime support is not enabled yet.
+}
+
 #else
 // Fallback: no hardware detection
 static void seen_cpu_detect_impl(void) {
@@ -4150,6 +5713,8 @@ int64_t seen_cpu_has_feature(SeenString name) {
     if (name.len == 8 && memcmp(name.data, "avx512vl", 8) == 0) return g_cpu_features.avx512vl;
     if (name.len == 4 && memcmp(name.data, "neon", 4) == 0) return g_cpu_features.neon;
     if (name.len == 3 && memcmp(name.data, "sve", 3) == 0) return g_cpu_features.sve;
+    if (name.len == 7 && memcmp(name.data, "riscv64", 7) == 0) return g_cpu_features.riscv64;
+    if (name.len == 3 && memcmp(name.data, "rvv", 3) == 0) return g_cpu_features.rvv;
     if (name.len == 3 && memcmp(name.data, "apx", 3) == 0) return g_cpu_features.apx;
     if (name.len == 5 && memcmp(name.data, "avx10", 5) == 0) return g_cpu_features.avx10;
 
@@ -4184,10 +5749,15 @@ typedef struct SeenArena {
 } SeenArena;
 
 void* seen_arena_new(int64_t capacity) {
-    SeenArena* arena = (SeenArena*)malloc(sizeof(SeenArena));
+    if (capacity <= 0 || capacity > UINT32_MAX) return NULL;
+    SeenArena* arena = (SeenArena*)seen_try_malloc(sizeof(SeenArena));
     if (!arena) return NULL;
-    arena->base = (char*)malloc((size_t)capacity);
-    if (!arena->base) { free(arena); return NULL; }
+    arena->base = (char*)seen_try_malloc(capacity);
+    if (!arena->base) {
+        free(arena);
+        seen_memory_release_reservation(sizeof(SeenArena));
+        return NULL;
+    }
     arena->offset = 0;
     arena->capacity = (uint32_t)capacity;
     return (void*)arena;
@@ -4222,7 +5792,9 @@ void seen_arena_reset(void* arenaPtr) {
 void seen_arena_free(void* arenaPtr) {
     SeenArena* arena = (SeenArena*)arenaPtr;
     if (!arena) return;
+    seen_memory_release_reservation(arena->capacity);
     free(arena->base);
+    seen_memory_release_reservation(sizeof(SeenArena));
     free(arena);
 }
 
@@ -4253,10 +5825,11 @@ typedef struct SeenLayoutProbe {
 } SeenLayoutProbe;
 
 void* seen_probe_new(SeenString tag) {
-    SeenLayoutProbe* probe = (SeenLayoutProbe*)calloc(1, sizeof(SeenLayoutProbe));
+    SeenLayoutProbe* probe =
+        (SeenLayoutProbe*)seen_try_calloc(1, sizeof(SeenLayoutProbe));
     if (!probe) return NULL;
     // Copy tag string
-    char* tag_copy = (char*)malloc(tag.len + 1);
+    char* tag_copy = seen_runtime_alloc_chars(tag.len, "layout probe tag");
     memcpy(tag_copy, tag.data, tag.len);
     tag_copy[tag.len] = '\0';
     probe->tag = tag_copy;
@@ -4302,7 +5875,11 @@ void seen_probe_report(void* probePtr) {
 void seen_probe_free(void* probePtr) {
     SeenLayoutProbe* probe = (SeenLayoutProbe*)probePtr;
     if (!probe) return;
+    if (probe->tag) {
+        seen_memory_release_reservation((int64_t)strlen(probe->tag) + 1);
+    }
     free((void*)probe->tag);
+    seen_memory_release_reservation(sizeof(SeenLayoutProbe));
     free(probe);
 }
 
@@ -4336,6 +5913,8 @@ void seen_perf_export_json(SeenString path) {
     fprintf(f, "    \"avx512vl\": %d,\n", g_cpu_features.avx512vl);
     fprintf(f, "    \"neon\": %d,\n", g_cpu_features.neon);
     fprintf(f, "    \"sve\": %d,\n", g_cpu_features.sve);
+    fprintf(f, "    \"riscv64\": %d,\n", g_cpu_features.riscv64);
+    fprintf(f, "    \"rvv\": %d,\n", g_cpu_features.rvv);
     fprintf(f, "    \"apx\": %d,\n", g_cpu_features.apx);
     fprintf(f, "    \"avx10\": %d\n", g_cpu_features.avx10);
     fprintf(f, "  },\n");
@@ -4351,6 +5930,58 @@ void seen_perf_export_json(SeenString path) {
 // SIMD Vector Runtime Functions
 // ============================================================================
 
+static void* seen_simd_alloc(int64_t size, int64_t alignment, const char* label) {
+    void* ptr = seen_try_aligned_realloc(NULL, 0, size, alignment);
+    if (!ptr) seen_oom_abort(label, size);
+    return ptr;
+}
+
+static double* seen_simd_array_f64_data(SeenArray* arr, int64_t* len_io) {
+    if (!len_io) return NULL;
+    if (!arr || !arr->data || *len_io <= 0 || arr->len <= 0) {
+        *len_io = 0;
+        return NULL;
+    }
+    if (arr->element_size < (int64_t)sizeof(double)) {
+        *len_io = 0;
+        return NULL;
+    }
+    if (*len_io > arr->len) {
+        *len_io = arr->len;
+    }
+    return (double*)arr->data;
+}
+
+static double seen_simd_reduce_sum_f64_scalar(double* data, int64_t len) {
+    double sum = 0.0;
+    for (int64_t i = 0; i < len; i++) sum += data[i];
+    return sum;
+}
+
+static double seen_simd_dot_product_f64_scalar(double* a, double* b, int64_t len) {
+    double sum = 0.0;
+    for (int64_t i = 0; i < len; i++) sum += a[i] * b[i];
+    return sum;
+}
+
+static double seen_simd_reduce_min_f64_scalar(double* data, int64_t len) {
+    if (len <= 0) return 0.0;
+    double min_val = data[0];
+    for (int64_t i = 1; i < len; i++) if (data[i] < min_val) min_val = data[i];
+    return min_val;
+}
+
+static double seen_simd_reduce_max_f64_scalar(double* data, int64_t len) {
+    if (len <= 0) return 0.0;
+    double max_val = data[0];
+    for (int64_t i = 1; i < len; i++) if (data[i] > max_val) max_val = data[i];
+    return max_val;
+}
+
+static void seen_simd_prefix_sum_f64_scalar(double* data, int64_t len) {
+    for (int64_t i = 1; i < len; i++) data[i] += data[i - 1];
+}
+
 #if defined(__x86_64__) || defined(_M_X64)
 #include <immintrin.h>
 
@@ -4358,50 +5989,90 @@ void seen_perf_export_json(SeenString path) {
 // SSE2 is baseline for x86_64, SSE3 needed for movehdup
 
 __attribute__((target("sse2")))
+void seen_simd_f4_splat_into(void* out, double val) {
+    *(__m128*)out = _mm_set1_ps((float)val);
+}
+
+__attribute__((target("sse2")))
+void seen_simd_f4_add_into(void* out, void* a, void* b) {
+    *(__m128*)out = _mm_add_ps(*(__m128*)a, *(__m128*)b);
+}
+
+__attribute__((target("sse2")))
+void seen_simd_f4_sub_into(void* out, void* a, void* b) {
+    *(__m128*)out = _mm_sub_ps(*(__m128*)a, *(__m128*)b);
+}
+
+__attribute__((target("sse2")))
+void seen_simd_f4_mul_into(void* out, void* a, void* b) {
+    *(__m128*)out = _mm_mul_ps(*(__m128*)a, *(__m128*)b);
+}
+
+__attribute__((target("sse2")))
+void seen_simd_f4_div_into(void* out, void* a, void* b) {
+    *(__m128*)out = _mm_div_ps(*(__m128*)a, *(__m128*)b);
+}
+
+__attribute__((target("sse2")))
+void seen_simd_f4_min_into(void* out, void* a, void* b) {
+    *(__m128*)out = _mm_min_ps(*(__m128*)a, *(__m128*)b);
+}
+
+__attribute__((target("sse2")))
+void seen_simd_f4_max_into(void* out, void* a, void* b) {
+    *(__m128*)out = _mm_max_ps(*(__m128*)a, *(__m128*)b);
+}
+
+__attribute__((target("sse2")))
+void seen_simd_f4_load_into(void* out, void* ptr) {
+    *(__m128*)out = _mm_loadu_ps((float*)ptr);
+}
+
+__attribute__((target("sse2")))
 void* seen_simd_f4_splat(double val) {
-    __m128* r = (__m128*)aligned_alloc(16, sizeof(__m128));
+    __m128* r = (__m128*)seen_simd_alloc((int64_t)sizeof(__m128), 16, "SIMD f4");
     *r = _mm_set1_ps((float)val);
     return r;
 }
 
 __attribute__((target("sse2")))
 void* seen_simd_f4_add(void* a, void* b) {
-    __m128* r = (__m128*)aligned_alloc(16, sizeof(__m128));
+    __m128* r = (__m128*)seen_simd_alloc((int64_t)sizeof(__m128), 16, "SIMD f4");
     *r = _mm_add_ps(*(__m128*)a, *(__m128*)b);
     return r;
 }
 
 __attribute__((target("sse2")))
 void* seen_simd_f4_sub(void* a, void* b) {
-    __m128* r = (__m128*)aligned_alloc(16, sizeof(__m128));
+    __m128* r = (__m128*)seen_simd_alloc((int64_t)sizeof(__m128), 16, "SIMD f4");
     *r = _mm_sub_ps(*(__m128*)a, *(__m128*)b);
     return r;
 }
 
 __attribute__((target("sse2")))
 void* seen_simd_f4_mul(void* a, void* b) {
-    __m128* r = (__m128*)aligned_alloc(16, sizeof(__m128));
+    __m128* r = (__m128*)seen_simd_alloc((int64_t)sizeof(__m128), 16, "SIMD f4");
     *r = _mm_mul_ps(*(__m128*)a, *(__m128*)b);
     return r;
 }
 
 __attribute__((target("sse2")))
 void* seen_simd_f4_div(void* a, void* b) {
-    __m128* r = (__m128*)aligned_alloc(16, sizeof(__m128));
+    __m128* r = (__m128*)seen_simd_alloc((int64_t)sizeof(__m128), 16, "SIMD f4");
     *r = _mm_div_ps(*(__m128*)a, *(__m128*)b);
     return r;
 }
 
 __attribute__((target("sse2")))
 void* seen_simd_f4_min(void* a, void* b) {
-    __m128* r = (__m128*)aligned_alloc(16, sizeof(__m128));
+    __m128* r = (__m128*)seen_simd_alloc((int64_t)sizeof(__m128), 16, "SIMD f4");
     *r = _mm_min_ps(*(__m128*)a, *(__m128*)b);
     return r;
 }
 
 __attribute__((target("sse2")))
 void* seen_simd_f4_max(void* a, void* b) {
-    __m128* r = (__m128*)aligned_alloc(16, sizeof(__m128));
+    __m128* r = (__m128*)seen_simd_alloc((int64_t)sizeof(__m128), 16, "SIMD f4");
     *r = _mm_max_ps(*(__m128*)a, *(__m128*)b);
     return r;
 }
@@ -4428,7 +6099,7 @@ double seen_simd_f4_dot(void* a, void* b) {
 
 __attribute__((target("sse2")))
 void* seen_simd_f4_load(void* ptr) {
-    __m128* r = (__m128*)aligned_alloc(16, sizeof(__m128));
+    __m128* r = (__m128*)seen_simd_alloc((int64_t)sizeof(__m128), 16, "SIMD f4");
     *r = _mm_loadu_ps((float*)ptr);
     return r;
 }
@@ -4441,50 +6112,90 @@ void seen_simd_f4_store(void* vec, void* ptr) {
 // --- 8-wide float (AVX2) ---
 
 __attribute__((target("avx2")))
+void seen_simd_f8_splat_into(void* out, double val) {
+    *(__m256*)out = _mm256_set1_ps((float)val);
+}
+
+__attribute__((target("avx2")))
+void seen_simd_f8_add_into(void* out, void* a, void* b) {
+    *(__m256*)out = _mm256_add_ps(*(__m256*)a, *(__m256*)b);
+}
+
+__attribute__((target("avx2")))
+void seen_simd_f8_sub_into(void* out, void* a, void* b) {
+    *(__m256*)out = _mm256_sub_ps(*(__m256*)a, *(__m256*)b);
+}
+
+__attribute__((target("avx2")))
+void seen_simd_f8_mul_into(void* out, void* a, void* b) {
+    *(__m256*)out = _mm256_mul_ps(*(__m256*)a, *(__m256*)b);
+}
+
+__attribute__((target("avx2")))
+void seen_simd_f8_div_into(void* out, void* a, void* b) {
+    *(__m256*)out = _mm256_div_ps(*(__m256*)a, *(__m256*)b);
+}
+
+__attribute__((target("avx2")))
+void seen_simd_f8_min_into(void* out, void* a, void* b) {
+    *(__m256*)out = _mm256_min_ps(*(__m256*)a, *(__m256*)b);
+}
+
+__attribute__((target("avx2")))
+void seen_simd_f8_max_into(void* out, void* a, void* b) {
+    *(__m256*)out = _mm256_max_ps(*(__m256*)a, *(__m256*)b);
+}
+
+__attribute__((target("avx2")))
+void seen_simd_f8_load_into(void* out, void* ptr) {
+    *(__m256*)out = _mm256_loadu_ps((float*)ptr);
+}
+
+__attribute__((target("avx2")))
 void* seen_simd_f8_splat(double val) {
-    __m256* r = (__m256*)aligned_alloc(32, sizeof(__m256));
+    __m256* r = (__m256*)seen_simd_alloc((int64_t)sizeof(__m256), 32, "SIMD f8");
     *r = _mm256_set1_ps((float)val);
     return r;
 }
 
 __attribute__((target("avx2")))
 void* seen_simd_f8_add(void* a, void* b) {
-    __m256* r = (__m256*)aligned_alloc(32, sizeof(__m256));
+    __m256* r = (__m256*)seen_simd_alloc((int64_t)sizeof(__m256), 32, "SIMD f8");
     *r = _mm256_add_ps(*(__m256*)a, *(__m256*)b);
     return r;
 }
 
 __attribute__((target("avx2")))
 void* seen_simd_f8_sub(void* a, void* b) {
-    __m256* r = (__m256*)aligned_alloc(32, sizeof(__m256));
+    __m256* r = (__m256*)seen_simd_alloc((int64_t)sizeof(__m256), 32, "SIMD f8");
     *r = _mm256_sub_ps(*(__m256*)a, *(__m256*)b);
     return r;
 }
 
 __attribute__((target("avx2")))
 void* seen_simd_f8_mul(void* a, void* b) {
-    __m256* r = (__m256*)aligned_alloc(32, sizeof(__m256));
+    __m256* r = (__m256*)seen_simd_alloc((int64_t)sizeof(__m256), 32, "SIMD f8");
     *r = _mm256_mul_ps(*(__m256*)a, *(__m256*)b);
     return r;
 }
 
 __attribute__((target("avx2")))
 void* seen_simd_f8_div(void* a, void* b) {
-    __m256* r = (__m256*)aligned_alloc(32, sizeof(__m256));
+    __m256* r = (__m256*)seen_simd_alloc((int64_t)sizeof(__m256), 32, "SIMD f8");
     *r = _mm256_div_ps(*(__m256*)a, *(__m256*)b);
     return r;
 }
 
 __attribute__((target("avx2")))
 void* seen_simd_f8_min(void* a, void* b) {
-    __m256* r = (__m256*)aligned_alloc(32, sizeof(__m256));
+    __m256* r = (__m256*)seen_simd_alloc((int64_t)sizeof(__m256), 32, "SIMD f8");
     *r = _mm256_min_ps(*(__m256*)a, *(__m256*)b);
     return r;
 }
 
 __attribute__((target("avx2")))
 void* seen_simd_f8_max(void* a, void* b) {
-    __m256* r = (__m256*)aligned_alloc(32, sizeof(__m256));
+    __m256* r = (__m256*)seen_simd_alloc((int64_t)sizeof(__m256), 32, "SIMD f8");
     *r = _mm256_max_ps(*(__m256*)a, *(__m256*)b);
     return r;
 }
@@ -4517,7 +6228,7 @@ double seen_simd_f8_dot(void* a, void* b) {
 
 __attribute__((target("avx2")))
 void* seen_simd_f8_load(void* ptr) {
-    __m256* r = (__m256*)aligned_alloc(32, sizeof(__m256));
+    __m256* r = (__m256*)seen_simd_alloc((int64_t)sizeof(__m256), 32, "SIMD f8");
     *r = _mm256_loadu_ps((float*)ptr);
     return r;
 }
@@ -4593,9 +6304,52 @@ double seen_simd_dot_product(void* a_data, void* b_data, int64_t len) {
     return sum;
 }
 
+__attribute__((target("avx2")))
+static double seen_simd_reduce_min_avx2(float* data, int64_t len) {
+    int64_t i = 8;
+    __m256 acc = _mm256_loadu_ps(data);
+    for (; i + 7 < len; i += 8) {
+        __m256 v = _mm256_loadu_ps(data + i);
+        acc = _mm256_min_ps(acc, v);
+    }
+    float lanes[8];
+    _mm256_storeu_ps(lanes, acc);
+    float min_val = lanes[0];
+    for (int lane = 1; lane < 8; lane++) {
+        if (lanes[lane] < min_val) min_val = lanes[lane];
+    }
+    for (; i < len; i++) {
+        if (data[i] < min_val) min_val = data[i];
+    }
+    return (double)min_val;
+}
+
+__attribute__((target("avx2")))
+static double seen_simd_reduce_max_avx2(float* data, int64_t len) {
+    int64_t i = 8;
+    __m256 acc = _mm256_loadu_ps(data);
+    for (; i + 7 < len; i += 8) {
+        __m256 v = _mm256_loadu_ps(data + i);
+        acc = _mm256_max_ps(acc, v);
+    }
+    float lanes[8];
+    _mm256_storeu_ps(lanes, acc);
+    float max_val = lanes[0];
+    for (int lane = 1; lane < 8; lane++) {
+        if (lanes[lane] > max_val) max_val = lanes[lane];
+    }
+    for (; i < len; i++) {
+        if (data[i] > max_val) max_val = data[i];
+    }
+    return (double)max_val;
+}
+
 double seen_simd_reduce_min(void* arr_data, int64_t len) {
     if (len <= 0) return 0.0;
     float* data = (float*)arr_data;
+    if (g_cpu_features.avx2 && len >= 8) {
+        return seen_simd_reduce_min_avx2(data, len);
+    }
     float min_val = data[0];
     for (int64_t i = 1; i < len; i++) {
         if (data[i] < min_val) min_val = data[i];
@@ -4606,6 +6360,9 @@ double seen_simd_reduce_min(void* arr_data, int64_t len) {
 double seen_simd_reduce_max(void* arr_data, int64_t len) {
     if (len <= 0) return 0.0;
     float* data = (float*)arr_data;
+    if (g_cpu_features.avx2 && len >= 8) {
+        return seen_simd_reduce_max_avx2(data, len);
+    }
     float max_val = data[0];
     for (int64_t i = 1; i < len; i++) {
         if (data[i] > max_val) max_val = data[i];
@@ -4613,11 +6370,155 @@ double seen_simd_reduce_max(void* arr_data, int64_t len) {
     return (double)max_val;
 }
 
+__attribute__((target("avx2")))
+static void seen_simd_prefix_sum_avx2(float* data, int64_t len) {
+    float carry = 0.0f;
+    int64_t i = 0;
+    for (; i + 7 < len; i += 8) {
+        __m256 x = _mm256_loadu_ps(data + i);
+        __m256 t = _mm256_castsi256_ps(
+            _mm256_slli_si256(_mm256_castps_si256(x), 4));
+        x = _mm256_add_ps(x, t);
+        t = _mm256_castsi256_ps(
+            _mm256_slli_si256(_mm256_castps_si256(x), 8));
+        x = _mm256_add_ps(x, t);
+
+        __m128 lo = _mm256_castps256_ps128(x);
+        __m128 hi = _mm256_extractf128_ps(x, 1);
+        float low_total = _mm_cvtss_f32(_mm_shuffle_ps(lo, lo, 0xff));
+        hi = _mm_add_ps(hi, _mm_set1_ps(low_total));
+        x = _mm256_insertf128_ps(_mm256_castps128_ps256(lo), hi, 1);
+        x = _mm256_add_ps(x, _mm256_set1_ps(carry));
+        _mm256_storeu_ps(data + i, x);
+        carry = data[i + 7];
+    }
+    for (; i < len; i++) {
+        carry += data[i];
+        data[i] = carry;
+    }
+}
+
 void seen_simd_prefix_sum(void* arr_data, int64_t len) {
     float* data = (float*)arr_data;
+    if (g_cpu_features.avx2 && len >= 8) {
+        seen_simd_prefix_sum_avx2(data, len);
+        return;
+    }
     for (int64_t i = 1; i < len; i++) {
         data[i] += data[i - 1];
     }
+}
+
+__attribute__((target("avx2")))
+static double seen_simd_reduce_sum_f64_avx2(double* data, int64_t len) {
+    int64_t i = 0;
+    __m256d acc = _mm256_setzero_pd();
+    for (; i + 3 < len; i += 4) {
+        acc = _mm256_add_pd(acc, _mm256_loadu_pd(data + i));
+    }
+    double lanes[4];
+    _mm256_storeu_pd(lanes, acc);
+    double sum = lanes[0] + lanes[1] + lanes[2] + lanes[3];
+    for (; i < len; i++) sum += data[i];
+    return sum;
+}
+
+__attribute__((target("avx2")))
+static double seen_simd_dot_product_f64_avx2(double* a, double* b, int64_t len) {
+    int64_t i = 0;
+    __m256d acc = _mm256_setzero_pd();
+    for (; i + 3 < len; i += 4) {
+        __m256d va = _mm256_loadu_pd(a + i);
+        __m256d vb = _mm256_loadu_pd(b + i);
+        acc = _mm256_add_pd(acc, _mm256_mul_pd(va, vb));
+    }
+    double lanes[4];
+    _mm256_storeu_pd(lanes, acc);
+    double sum = lanes[0] + lanes[1] + lanes[2] + lanes[3];
+    for (; i < len; i++) sum += a[i] * b[i];
+    return sum;
+}
+
+__attribute__((target("avx2")))
+static double seen_simd_reduce_min_f64_avx2(double* data, int64_t len) {
+    int64_t i = 4;
+    __m256d acc = _mm256_loadu_pd(data);
+    for (; i + 3 < len; i += 4) {
+        acc = _mm256_min_pd(acc, _mm256_loadu_pd(data + i));
+    }
+    double lanes[4];
+    _mm256_storeu_pd(lanes, acc);
+    double min_val = lanes[0];
+    for (int lane = 1; lane < 4; lane++) if (lanes[lane] < min_val) min_val = lanes[lane];
+    for (; i < len; i++) if (data[i] < min_val) min_val = data[i];
+    return min_val;
+}
+
+__attribute__((target("avx2")))
+static double seen_simd_reduce_max_f64_avx2(double* data, int64_t len) {
+    int64_t i = 4;
+    __m256d acc = _mm256_loadu_pd(data);
+    for (; i + 3 < len; i += 4) {
+        acc = _mm256_max_pd(acc, _mm256_loadu_pd(data + i));
+    }
+    double lanes[4];
+    _mm256_storeu_pd(lanes, acc);
+    double max_val = lanes[0];
+    for (int lane = 1; lane < 4; lane++) if (lanes[lane] > max_val) max_val = lanes[lane];
+    for (; i < len; i++) if (data[i] > max_val) max_val = data[i];
+    return max_val;
+}
+
+__attribute__((target("avx2")))
+static void seen_simd_prefix_sum_f64_avx2(double* data, int64_t len) {
+    double carry = 0.0;
+    int64_t i = 0;
+    for (; i + 3 < len; i += 4) {
+        __m256d x = _mm256_loadu_pd(data + i);
+        __m256d t = _mm256_castsi256_pd(
+            _mm256_slli_si256(_mm256_castpd_si256(x), 8));
+        x = _mm256_add_pd(x, t);
+        __m128d lo = _mm256_castpd256_pd128(x);
+        __m128d hi = _mm256_extractf128_pd(x, 1);
+        double low_total = _mm_cvtsd_f64(_mm_unpackhi_pd(lo, lo));
+        hi = _mm_add_pd(hi, _mm_set1_pd(low_total));
+        x = _mm256_insertf128_pd(_mm256_castpd128_pd256(lo), hi, 1);
+        x = _mm256_add_pd(x, _mm256_set1_pd(carry));
+        _mm256_storeu_pd(data + i, x);
+        carry = data[i + 3];
+    }
+    for (; i < len; i++) {
+        carry += data[i];
+        data[i] = carry;
+    }
+}
+
+static double seen_simd_reduce_sum_f64_auto(double* data, int64_t len) {
+    if (g_cpu_features.avx2 && len >= 4) return seen_simd_reduce_sum_f64_avx2(data, len);
+    return seen_simd_reduce_sum_f64_scalar(data, len);
+}
+
+static double seen_simd_dot_product_f64_auto(double* a, double* b, int64_t len) {
+    if (g_cpu_features.avx2 && len >= 4) return seen_simd_dot_product_f64_avx2(a, b, len);
+    return seen_simd_dot_product_f64_scalar(a, b, len);
+}
+
+static double seen_simd_reduce_min_f64_auto(double* data, int64_t len) {
+    if (g_cpu_features.avx2 && len >= 4) return seen_simd_reduce_min_f64_avx2(data, len);
+    return seen_simd_reduce_min_f64_scalar(data, len);
+}
+
+static double seen_simd_reduce_max_f64_auto(double* data, int64_t len) {
+    if (g_cpu_features.avx2 && len >= 4) return seen_simd_reduce_max_f64_avx2(data, len);
+    return seen_simd_reduce_max_f64_scalar(data, len);
+}
+
+static void seen_simd_prefix_sum_f64_auto(double* data, int64_t len) {
+    if (g_cpu_features.avx2 && len >= 4) {
+        seen_simd_prefix_sum_f64_avx2(data, len);
+        return;
+    }
+    seen_simd_prefix_sum_f64_scalar(data, len);
 }
 
 #elif defined(__aarch64__)
@@ -4626,44 +6527,83 @@ void seen_simd_prefix_sum(void* arr_data, int64_t len) {
 
 // --- 4-wide float (NEON) ---
 
+void seen_simd_f4_splat_into(void* out, double val) {
+    *(float32x4_t*)out = vdupq_n_f32((float)val);
+}
+
+void seen_simd_f4_add_into(void* out, void* a, void* b) {
+    *(float32x4_t*)out = vaddq_f32(*(float32x4_t*)a, *(float32x4_t*)b);
+}
+
+void seen_simd_f4_sub_into(void* out, void* a, void* b) {
+    *(float32x4_t*)out = vsubq_f32(*(float32x4_t*)a, *(float32x4_t*)b);
+}
+
+void seen_simd_f4_mul_into(void* out, void* a, void* b) {
+    *(float32x4_t*)out = vmulq_f32(*(float32x4_t*)a, *(float32x4_t*)b);
+}
+
+void seen_simd_f4_div_into(void* out, void* a, void* b) {
+    *(float32x4_t*)out = vdivq_f32(*(float32x4_t*)a, *(float32x4_t*)b);
+}
+
+void seen_simd_f4_min_into(void* out, void* a, void* b) {
+    *(float32x4_t*)out = vminq_f32(*(float32x4_t*)a, *(float32x4_t*)b);
+}
+
+void seen_simd_f4_max_into(void* out, void* a, void* b) {
+    *(float32x4_t*)out = vmaxq_f32(*(float32x4_t*)a, *(float32x4_t*)b);
+}
+
+void seen_simd_f4_load_into(void* out, void* ptr) {
+    *(float32x4_t*)out = vld1q_f32((float*)ptr);
+}
+
 void* seen_simd_f4_splat(double val) {
-    float32x4_t* r = (float32x4_t*)malloc(sizeof(float32x4_t));
+    float32x4_t* r = (float32x4_t*)seen_simd_alloc(
+        (int64_t)sizeof(float32x4_t), 16, "SIMD f4 neon");
     *r = vdupq_n_f32((float)val);
     return r;
 }
 
 void* seen_simd_f4_add(void* a, void* b) {
-    float32x4_t* r = (float32x4_t*)malloc(sizeof(float32x4_t));
+    float32x4_t* r = (float32x4_t*)seen_simd_alloc(
+        (int64_t)sizeof(float32x4_t), 16, "SIMD f4 neon");
     *r = vaddq_f32(*(float32x4_t*)a, *(float32x4_t*)b);
     return r;
 }
 
 void* seen_simd_f4_sub(void* a, void* b) {
-    float32x4_t* r = (float32x4_t*)malloc(sizeof(float32x4_t));
+    float32x4_t* r = (float32x4_t*)seen_simd_alloc(
+        (int64_t)sizeof(float32x4_t), 16, "SIMD f4 neon");
     *r = vsubq_f32(*(float32x4_t*)a, *(float32x4_t*)b);
     return r;
 }
 
 void* seen_simd_f4_mul(void* a, void* b) {
-    float32x4_t* r = (float32x4_t*)malloc(sizeof(float32x4_t));
+    float32x4_t* r = (float32x4_t*)seen_simd_alloc(
+        (int64_t)sizeof(float32x4_t), 16, "SIMD f4 neon");
     *r = vmulq_f32(*(float32x4_t*)a, *(float32x4_t*)b);
     return r;
 }
 
 void* seen_simd_f4_div(void* a, void* b) {
-    float32x4_t* r = (float32x4_t*)malloc(sizeof(float32x4_t));
+    float32x4_t* r = (float32x4_t*)seen_simd_alloc(
+        (int64_t)sizeof(float32x4_t), 16, "SIMD f4 neon");
     *r = vdivq_f32(*(float32x4_t*)a, *(float32x4_t*)b);
     return r;
 }
 
 void* seen_simd_f4_min(void* a, void* b) {
-    float32x4_t* r = (float32x4_t*)malloc(sizeof(float32x4_t));
+    float32x4_t* r = (float32x4_t*)seen_simd_alloc(
+        (int64_t)sizeof(float32x4_t), 16, "SIMD f4 neon");
     *r = vminq_f32(*(float32x4_t*)a, *(float32x4_t*)b);
     return r;
 }
 
 void* seen_simd_f4_max(void* a, void* b) {
-    float32x4_t* r = (float32x4_t*)malloc(sizeof(float32x4_t));
+    float32x4_t* r = (float32x4_t*)seen_simd_alloc(
+        (int64_t)sizeof(float32x4_t), 16, "SIMD f4 neon");
     *r = vmaxq_f32(*(float32x4_t*)a, *(float32x4_t*)b);
     return r;
 }
@@ -4679,7 +6619,8 @@ double seen_simd_f4_dot(void* a, void* b) {
 }
 
 void* seen_simd_f4_load(void* ptr) {
-    float32x4_t* r = (float32x4_t*)malloc(sizeof(float32x4_t));
+    float32x4_t* r = (float32x4_t*)seen_simd_alloc(
+        (int64_t)sizeof(float32x4_t), 16, "SIMD f4 neon");
     *r = vld1q_f32((float*)ptr);
     return r;
 }
@@ -4690,15 +6631,78 @@ void seen_simd_f4_store(void* vec, void* ptr) {
 
 // --- 8-wide float (emulated with 2x NEON on AArch64) ---
 
+void seen_simd_f8_splat_into(void* out, double val) {
+    float32x4_t* r = (float32x4_t*)out;
+    r[0] = vdupq_n_f32((float)val);
+    r[1] = vdupq_n_f32((float)val);
+}
+
+void seen_simd_f8_add_into(void* out, void* a, void* b) {
+    float32x4_t* r = (float32x4_t*)out;
+    float32x4_t* va = (float32x4_t*)a;
+    float32x4_t* vb = (float32x4_t*)b;
+    r[0] = vaddq_f32(va[0], vb[0]);
+    r[1] = vaddq_f32(va[1], vb[1]);
+}
+
+void seen_simd_f8_sub_into(void* out, void* a, void* b) {
+    float32x4_t* r = (float32x4_t*)out;
+    float32x4_t* va = (float32x4_t*)a;
+    float32x4_t* vb = (float32x4_t*)b;
+    r[0] = vsubq_f32(va[0], vb[0]);
+    r[1] = vsubq_f32(va[1], vb[1]);
+}
+
+void seen_simd_f8_mul_into(void* out, void* a, void* b) {
+    float32x4_t* r = (float32x4_t*)out;
+    float32x4_t* va = (float32x4_t*)a;
+    float32x4_t* vb = (float32x4_t*)b;
+    r[0] = vmulq_f32(va[0], vb[0]);
+    r[1] = vmulq_f32(va[1], vb[1]);
+}
+
+void seen_simd_f8_div_into(void* out, void* a, void* b) {
+    float32x4_t* r = (float32x4_t*)out;
+    float32x4_t* va = (float32x4_t*)a;
+    float32x4_t* vb = (float32x4_t*)b;
+    r[0] = vdivq_f32(va[0], vb[0]);
+    r[1] = vdivq_f32(va[1], vb[1]);
+}
+
+void seen_simd_f8_min_into(void* out, void* a, void* b) {
+    float32x4_t* r = (float32x4_t*)out;
+    float32x4_t* va = (float32x4_t*)a;
+    float32x4_t* vb = (float32x4_t*)b;
+    r[0] = vminq_f32(va[0], vb[0]);
+    r[1] = vminq_f32(va[1], vb[1]);
+}
+
+void seen_simd_f8_max_into(void* out, void* a, void* b) {
+    float32x4_t* r = (float32x4_t*)out;
+    float32x4_t* va = (float32x4_t*)a;
+    float32x4_t* vb = (float32x4_t*)b;
+    r[0] = vmaxq_f32(va[0], vb[0]);
+    r[1] = vmaxq_f32(va[1], vb[1]);
+}
+
+void seen_simd_f8_load_into(void* out, void* ptr) {
+    float32x4_t* r = (float32x4_t*)out;
+    float* fp = (float*)ptr;
+    r[0] = vld1q_f32(fp);
+    r[1] = vld1q_f32(fp + 4);
+}
+
 void* seen_simd_f8_splat(double val) {
-    float32x4_t* r = (float32x4_t*)malloc(2 * sizeof(float32x4_t));
+    float32x4_t* r = (float32x4_t*)seen_simd_alloc(
+        (int64_t)(2 * sizeof(float32x4_t)), 16, "SIMD f8 neon");
     r[0] = vdupq_n_f32((float)val);
     r[1] = vdupq_n_f32((float)val);
     return r;
 }
 
 void* seen_simd_f8_add(void* a, void* b) {
-    float32x4_t* r = (float32x4_t*)malloc(2 * sizeof(float32x4_t));
+    float32x4_t* r = (float32x4_t*)seen_simd_alloc(
+        (int64_t)(2 * sizeof(float32x4_t)), 16, "SIMD f8 neon");
     float32x4_t* va = (float32x4_t*)a;
     float32x4_t* vb = (float32x4_t*)b;
     r[0] = vaddq_f32(va[0], vb[0]);
@@ -4707,7 +6711,8 @@ void* seen_simd_f8_add(void* a, void* b) {
 }
 
 void* seen_simd_f8_sub(void* a, void* b) {
-    float32x4_t* r = (float32x4_t*)malloc(2 * sizeof(float32x4_t));
+    float32x4_t* r = (float32x4_t*)seen_simd_alloc(
+        (int64_t)(2 * sizeof(float32x4_t)), 16, "SIMD f8 neon");
     float32x4_t* va = (float32x4_t*)a;
     float32x4_t* vb = (float32x4_t*)b;
     r[0] = vsubq_f32(va[0], vb[0]);
@@ -4716,7 +6721,8 @@ void* seen_simd_f8_sub(void* a, void* b) {
 }
 
 void* seen_simd_f8_mul(void* a, void* b) {
-    float32x4_t* r = (float32x4_t*)malloc(2 * sizeof(float32x4_t));
+    float32x4_t* r = (float32x4_t*)seen_simd_alloc(
+        (int64_t)(2 * sizeof(float32x4_t)), 16, "SIMD f8 neon");
     float32x4_t* va = (float32x4_t*)a;
     float32x4_t* vb = (float32x4_t*)b;
     r[0] = vmulq_f32(va[0], vb[0]);
@@ -4725,7 +6731,8 @@ void* seen_simd_f8_mul(void* a, void* b) {
 }
 
 void* seen_simd_f8_div(void* a, void* b) {
-    float32x4_t* r = (float32x4_t*)malloc(2 * sizeof(float32x4_t));
+    float32x4_t* r = (float32x4_t*)seen_simd_alloc(
+        (int64_t)(2 * sizeof(float32x4_t)), 16, "SIMD f8 neon");
     float32x4_t* va = (float32x4_t*)a;
     float32x4_t* vb = (float32x4_t*)b;
     r[0] = vdivq_f32(va[0], vb[0]);
@@ -4734,7 +6741,8 @@ void* seen_simd_f8_div(void* a, void* b) {
 }
 
 void* seen_simd_f8_min(void* a, void* b) {
-    float32x4_t* r = (float32x4_t*)malloc(2 * sizeof(float32x4_t));
+    float32x4_t* r = (float32x4_t*)seen_simd_alloc(
+        (int64_t)(2 * sizeof(float32x4_t)), 16, "SIMD f8 neon");
     float32x4_t* va = (float32x4_t*)a;
     float32x4_t* vb = (float32x4_t*)b;
     r[0] = vminq_f32(va[0], vb[0]);
@@ -4743,7 +6751,8 @@ void* seen_simd_f8_min(void* a, void* b) {
 }
 
 void* seen_simd_f8_max(void* a, void* b) {
-    float32x4_t* r = (float32x4_t*)malloc(2 * sizeof(float32x4_t));
+    float32x4_t* r = (float32x4_t*)seen_simd_alloc(
+        (int64_t)(2 * sizeof(float32x4_t)), 16, "SIMD f8 neon");
     float32x4_t* va = (float32x4_t*)a;
     float32x4_t* vb = (float32x4_t*)b;
     r[0] = vmaxq_f32(va[0], vb[0]);
@@ -4767,7 +6776,8 @@ double seen_simd_f8_dot(void* a, void* b) {
 }
 
 void* seen_simd_f8_load(void* ptr) {
-    float32x4_t* r = (float32x4_t*)malloc(2 * sizeof(float32x4_t));
+    float32x4_t* r = (float32x4_t*)seen_simd_alloc(
+        (int64_t)(2 * sizeof(float32x4_t)), 16, "SIMD f8 neon");
     float* fp = (float*)ptr;
     r[0] = vld1q_f32(fp);
     r[1] = vld1q_f32(fp + 4);
@@ -4816,29 +6826,138 @@ double seen_simd_dot_product(void* a_data, void* b_data, int64_t len) {
 double seen_simd_reduce_min(void* arr_data, int64_t len) {
     if (len <= 0) return 0.0;
     float* data = (float*)arr_data;
-    float min_val = data[0];
-    for (int64_t i = 1; i < len; i++) if (data[i] < min_val) min_val = data[i];
+    int64_t i = 4;
+    float32x4_t acc = vld1q_f32(data);
+    for (; i + 3 < len; i += 4) {
+        acc = vminq_f32(acc, vld1q_f32(data + i));
+    }
+    float min_val = vminvq_f32(acc);
+    for (; i < len; i++) if (data[i] < min_val) min_val = data[i];
     return (double)min_val;
 }
 
 double seen_simd_reduce_max(void* arr_data, int64_t len) {
     if (len <= 0) return 0.0;
     float* data = (float*)arr_data;
-    float max_val = data[0];
-    for (int64_t i = 1; i < len; i++) if (data[i] > max_val) max_val = data[i];
+    int64_t i = 4;
+    float32x4_t acc = vld1q_f32(data);
+    for (; i + 3 < len; i += 4) {
+        acc = vmaxq_f32(acc, vld1q_f32(data + i));
+    }
+    float max_val = vmaxvq_f32(acc);
+    for (; i < len; i++) if (data[i] > max_val) max_val = data[i];
     return (double)max_val;
 }
 
 void seen_simd_prefix_sum(void* arr_data, int64_t len) {
     float* data = (float*)arr_data;
-    for (int64_t i = 1; i < len; i++) data[i] += data[i - 1];
+    float carry = 0.0f;
+    int64_t i = 0;
+    for (; i + 3 < len; i += 4) {
+        float32x4_t v = vld1q_f32(data + i);
+        float lanes[4];
+        vst1q_f32(lanes, v);
+        lanes[0] += carry;
+        lanes[1] += lanes[0];
+        lanes[2] += lanes[1];
+        lanes[3] += lanes[2];
+        carry = lanes[3];
+        vst1q_f32(data + i, vld1q_f32(lanes));
+    }
+    for (; i < len; i++) {
+        carry += data[i];
+        data[i] = carry;
+    }
+}
+
+static double seen_simd_reduce_sum_f64_auto(double* data, int64_t len) {
+    double sum = 0.0;
+    int64_t i = 0;
+    float64x2_t acc = vdupq_n_f64(0.0);
+    for (; i + 1 < len; i += 2) {
+        acc = vaddq_f64(acc, vld1q_f64(data + i));
+    }
+    sum = vaddvq_f64(acc);
+    for (; i < len; i++) sum += data[i];
+    return sum;
+}
+
+static double seen_simd_dot_product_f64_auto(double* a, double* b, int64_t len) {
+    double sum = 0.0;
+    int64_t i = 0;
+    float64x2_t acc = vdupq_n_f64(0.0);
+    for (; i + 1 < len; i += 2) {
+        acc = vfmaq_f64(acc, vld1q_f64(a + i), vld1q_f64(b + i));
+    }
+    sum = vaddvq_f64(acc);
+    for (; i < len; i++) sum += a[i] * b[i];
+    return sum;
+}
+
+static double seen_simd_reduce_min_f64_auto(double* data, int64_t len) {
+    if (len <= 0) return 0.0;
+    int64_t i = 2;
+    float64x2_t acc = vld1q_f64(data);
+    for (; i + 1 < len; i += 2) {
+        acc = vminq_f64(acc, vld1q_f64(data + i));
+    }
+    double min_val = vminvq_f64(acc);
+    for (; i < len; i++) if (data[i] < min_val) min_val = data[i];
+    return min_val;
+}
+
+static double seen_simd_reduce_max_f64_auto(double* data, int64_t len) {
+    if (len <= 0) return 0.0;
+    int64_t i = 2;
+    float64x2_t acc = vld1q_f64(data);
+    for (; i + 1 < len; i += 2) {
+        acc = vmaxq_f64(acc, vld1q_f64(data + i));
+    }
+    double max_val = vmaxvq_f64(acc);
+    for (; i < len; i++) if (data[i] > max_val) max_val = data[i];
+    return max_val;
+}
+
+static void seen_simd_prefix_sum_f64_auto(double* data, int64_t len) {
+    double carry = 0.0;
+    int64_t i = 0;
+    for (; i + 1 < len; i += 2) {
+        float64x2_t v = vld1q_f64(data + i);
+        double lanes[2];
+        vst1q_f64(lanes, v);
+        lanes[0] += carry;
+        lanes[1] += lanes[0];
+        carry = lanes[1];
+        vst1q_f64(data + i, vld1q_f64(lanes));
+    }
+    for (; i < len; i++) {
+        carry += data[i];
+        data[i] = carry;
+    }
 }
 
 #else
 // Scalar fallback implementations for RISC-V, WASM, and other architectures
 
+static void scalar_f4_binop(void* a, void* b, void* r, int op);
+static void scalar_f8_binop(void* a, void* b, void* r, int op);
+
+void seen_simd_f4_splat_into(void* out, double val) {
+    float* r = (float*)out;
+    for (int i = 0; i < 4; i++) r[i] = (float)val;
+}
+
+void seen_simd_f4_add_into(void* out, void* a, void* b) { scalar_f4_binop(a, b, out, 0); }
+void seen_simd_f4_sub_into(void* out, void* a, void* b) { scalar_f4_binop(a, b, out, 1); }
+void seen_simd_f4_mul_into(void* out, void* a, void* b) { scalar_f4_binop(a, b, out, 2); }
+void seen_simd_f4_div_into(void* out, void* a, void* b) { scalar_f4_binop(a, b, out, 3); }
+void seen_simd_f4_min_into(void* out, void* a, void* b) { scalar_f4_binop(a, b, out, 4); }
+void seen_simd_f4_max_into(void* out, void* a, void* b) { scalar_f4_binop(a, b, out, 5); }
+void seen_simd_f4_load_into(void* out, void* ptr) { memcpy(out, ptr, 4 * sizeof(float)); }
+
 void* seen_simd_f4_splat(double val) {
-    float* r = (float*)malloc(4 * sizeof(float));
+    float* r = (float*)seen_simd_alloc((int64_t)(4 * sizeof(float)),
+        16, "SIMD f4 scalar");
     for (int i = 0; i < 4; i++) r[i] = (float)val;
     return r;
 }
@@ -4857,12 +6976,12 @@ static void scalar_f4_binop(void* a, void* b, void* r, int op) {
     }
 }
 
-void* seen_simd_f4_add(void* a, void* b) { float* r = (float*)malloc(4*sizeof(float)); scalar_f4_binop(a,b,r,0); return r; }
-void* seen_simd_f4_sub(void* a, void* b) { float* r = (float*)malloc(4*sizeof(float)); scalar_f4_binop(a,b,r,1); return r; }
-void* seen_simd_f4_mul(void* a, void* b) { float* r = (float*)malloc(4*sizeof(float)); scalar_f4_binop(a,b,r,2); return r; }
-void* seen_simd_f4_div(void* a, void* b) { float* r = (float*)malloc(4*sizeof(float)); scalar_f4_binop(a,b,r,3); return r; }
-void* seen_simd_f4_min(void* a, void* b) { float* r = (float*)malloc(4*sizeof(float)); scalar_f4_binop(a,b,r,4); return r; }
-void* seen_simd_f4_max(void* a, void* b) { float* r = (float*)malloc(4*sizeof(float)); scalar_f4_binop(a,b,r,5); return r; }
+void* seen_simd_f4_add(void* a, void* b) { float* r = (float*)seen_simd_alloc((int64_t)(4 * sizeof(float)), 16, "SIMD f4 scalar"); scalar_f4_binop(a,b,r,0); return r; }
+void* seen_simd_f4_sub(void* a, void* b) { float* r = (float*)seen_simd_alloc((int64_t)(4 * sizeof(float)), 16, "SIMD f4 scalar"); scalar_f4_binop(a,b,r,1); return r; }
+void* seen_simd_f4_mul(void* a, void* b) { float* r = (float*)seen_simd_alloc((int64_t)(4 * sizeof(float)), 16, "SIMD f4 scalar"); scalar_f4_binop(a,b,r,2); return r; }
+void* seen_simd_f4_div(void* a, void* b) { float* r = (float*)seen_simd_alloc((int64_t)(4 * sizeof(float)), 16, "SIMD f4 scalar"); scalar_f4_binop(a,b,r,3); return r; }
+void* seen_simd_f4_min(void* a, void* b) { float* r = (float*)seen_simd_alloc((int64_t)(4 * sizeof(float)), 16, "SIMD f4 scalar"); scalar_f4_binop(a,b,r,4); return r; }
+void* seen_simd_f4_max(void* a, void* b) { float* r = (float*)seen_simd_alloc((int64_t)(4 * sizeof(float)), 16, "SIMD f4 scalar"); scalar_f4_binop(a,b,r,5); return r; }
 
 double seen_simd_f4_sum(void* a) {
     float* f = (float*)a;
@@ -4875,7 +6994,8 @@ double seen_simd_f4_dot(void* a, void* b) {
 }
 
 void* seen_simd_f4_load(void* ptr) {
-    float* r = (float*)malloc(4 * sizeof(float));
+    float* r = (float*)seen_simd_alloc((int64_t)(4 * sizeof(float)),
+        16, "SIMD f4 scalar");
     memcpy(r, ptr, 4 * sizeof(float));
     return r;
 }
@@ -4885,10 +7005,24 @@ void seen_simd_f4_store(void* vec, void* ptr) {
 }
 
 void* seen_simd_f8_splat(double val) {
-    float* r = (float*)malloc(8 * sizeof(float));
+    float* r = (float*)seen_simd_alloc((int64_t)(8 * sizeof(float)),
+        32, "SIMD f8 scalar");
     for (int i = 0; i < 8; i++) r[i] = (float)val;
     return r;
 }
+
+void seen_simd_f8_splat_into(void* out, double val) {
+    float* r = (float*)out;
+    for (int i = 0; i < 8; i++) r[i] = (float)val;
+}
+
+void seen_simd_f8_add_into(void* out, void* a, void* b) { scalar_f8_binop(a, b, out, 0); }
+void seen_simd_f8_sub_into(void* out, void* a, void* b) { scalar_f8_binop(a, b, out, 1); }
+void seen_simd_f8_mul_into(void* out, void* a, void* b) { scalar_f8_binop(a, b, out, 2); }
+void seen_simd_f8_div_into(void* out, void* a, void* b) { scalar_f8_binop(a, b, out, 3); }
+void seen_simd_f8_min_into(void* out, void* a, void* b) { scalar_f8_binop(a, b, out, 4); }
+void seen_simd_f8_max_into(void* out, void* a, void* b) { scalar_f8_binop(a, b, out, 5); }
+void seen_simd_f8_load_into(void* out, void* ptr) { memcpy(out, ptr, 8 * sizeof(float)); }
 
 static void scalar_f8_binop(void* a, void* b, void* r, int op) {
     float* fa = (float*)a; float* fb = (float*)b; float* fr = (float*)r;
@@ -4904,12 +7038,12 @@ static void scalar_f8_binop(void* a, void* b, void* r, int op) {
     }
 }
 
-void* seen_simd_f8_add(void* a, void* b) { float* r = (float*)malloc(8*sizeof(float)); scalar_f8_binop(a,b,r,0); return r; }
-void* seen_simd_f8_sub(void* a, void* b) { float* r = (float*)malloc(8*sizeof(float)); scalar_f8_binop(a,b,r,1); return r; }
-void* seen_simd_f8_mul(void* a, void* b) { float* r = (float*)malloc(8*sizeof(float)); scalar_f8_binop(a,b,r,2); return r; }
-void* seen_simd_f8_div(void* a, void* b) { float* r = (float*)malloc(8*sizeof(float)); scalar_f8_binop(a,b,r,3); return r; }
-void* seen_simd_f8_min(void* a, void* b) { float* r = (float*)malloc(8*sizeof(float)); scalar_f8_binop(a,b,r,4); return r; }
-void* seen_simd_f8_max(void* a, void* b) { float* r = (float*)malloc(8*sizeof(float)); scalar_f8_binop(a,b,r,5); return r; }
+void* seen_simd_f8_add(void* a, void* b) { float* r = (float*)seen_simd_alloc((int64_t)(8 * sizeof(float)), 32, "SIMD f8 scalar"); scalar_f8_binop(a,b,r,0); return r; }
+void* seen_simd_f8_sub(void* a, void* b) { float* r = (float*)seen_simd_alloc((int64_t)(8 * sizeof(float)), 32, "SIMD f8 scalar"); scalar_f8_binop(a,b,r,1); return r; }
+void* seen_simd_f8_mul(void* a, void* b) { float* r = (float*)seen_simd_alloc((int64_t)(8 * sizeof(float)), 32, "SIMD f8 scalar"); scalar_f8_binop(a,b,r,2); return r; }
+void* seen_simd_f8_div(void* a, void* b) { float* r = (float*)seen_simd_alloc((int64_t)(8 * sizeof(float)), 32, "SIMD f8 scalar"); scalar_f8_binop(a,b,r,3); return r; }
+void* seen_simd_f8_min(void* a, void* b) { float* r = (float*)seen_simd_alloc((int64_t)(8 * sizeof(float)), 32, "SIMD f8 scalar"); scalar_f8_binop(a,b,r,4); return r; }
+void* seen_simd_f8_max(void* a, void* b) { float* r = (float*)seen_simd_alloc((int64_t)(8 * sizeof(float)), 32, "SIMD f8 scalar"); scalar_f8_binop(a,b,r,5); return r; }
 
 double seen_simd_f8_sum(void* a) {
     float* f = (float*)a;
@@ -4926,7 +7060,8 @@ double seen_simd_f8_dot(void* a, void* b) {
 }
 
 void* seen_simd_f8_load(void* ptr) {
-    float* r = (float*)malloc(8 * sizeof(float));
+    float* r = (float*)seen_simd_alloc((int64_t)(8 * sizeof(float)),
+        32, "SIMD f8 scalar");
     memcpy(r, ptr, 8 * sizeof(float));
     return r;
 }
@@ -4971,7 +7106,87 @@ void seen_simd_prefix_sum(void* arr_data, int64_t len) {
     for (int64_t i = 1; i < len; i++) data[i] += data[i - 1];
 }
 
+static double seen_simd_reduce_sum_f64_auto(double* data, int64_t len) {
+    return seen_simd_reduce_sum_f64_scalar(data, len);
+}
+
+static double seen_simd_dot_product_f64_auto(double* a, double* b, int64_t len) {
+    return seen_simd_dot_product_f64_scalar(a, b, len);
+}
+
+static double seen_simd_reduce_min_f64_auto(double* data, int64_t len) {
+    return seen_simd_reduce_min_f64_scalar(data, len);
+}
+
+static double seen_simd_reduce_max_f64_auto(double* data, int64_t len) {
+    return seen_simd_reduce_max_f64_scalar(data, len);
+}
+
+static void seen_simd_prefix_sum_f64_auto(double* data, int64_t len) {
+    seen_simd_prefix_sum_f64_scalar(data, len);
+}
+
 #endif // x86_64 / aarch64 / scalar
+
+int64_t __simd_f4_splat(double val) { return (int64_t)(intptr_t)seen_simd_f4_splat(val); }
+int64_t __simd_f4_load(int64_t ptr) { return (int64_t)(intptr_t)seen_simd_f4_load((void*)(intptr_t)ptr); }
+void __simd_f4_store(int64_t vec, int64_t ptr) { seen_simd_f4_store((void*)(intptr_t)vec, (void*)(intptr_t)ptr); }
+int64_t __simd_f4_add(int64_t a, int64_t b) { return (int64_t)(intptr_t)seen_simd_f4_add((void*)(intptr_t)a, (void*)(intptr_t)b); }
+int64_t __simd_f4_sub(int64_t a, int64_t b) { return (int64_t)(intptr_t)seen_simd_f4_sub((void*)(intptr_t)a, (void*)(intptr_t)b); }
+int64_t __simd_f4_mul(int64_t a, int64_t b) { return (int64_t)(intptr_t)seen_simd_f4_mul((void*)(intptr_t)a, (void*)(intptr_t)b); }
+int64_t __simd_f4_div(int64_t a, int64_t b) { return (int64_t)(intptr_t)seen_simd_f4_div((void*)(intptr_t)a, (void*)(intptr_t)b); }
+int64_t __simd_f4_min(int64_t a, int64_t b) { return (int64_t)(intptr_t)seen_simd_f4_min((void*)(intptr_t)a, (void*)(intptr_t)b); }
+int64_t __simd_f4_max(int64_t a, int64_t b) { return (int64_t)(intptr_t)seen_simd_f4_max((void*)(intptr_t)a, (void*)(intptr_t)b); }
+double __simd_f4_sum(int64_t a) { return seen_simd_f4_sum((void*)(intptr_t)a); }
+double __simd_f4_dot(int64_t a, int64_t b) { return seen_simd_f4_dot((void*)(intptr_t)a, (void*)(intptr_t)b); }
+
+int64_t __simd_f8_splat(double val) { return (int64_t)(intptr_t)seen_simd_f8_splat(val); }
+int64_t __simd_f8_load(int64_t ptr) { return (int64_t)(intptr_t)seen_simd_f8_load((void*)(intptr_t)ptr); }
+void __simd_f8_store(int64_t vec, int64_t ptr) { seen_simd_f8_store((void*)(intptr_t)vec, (void*)(intptr_t)ptr); }
+int64_t __simd_f8_add(int64_t a, int64_t b) { return (int64_t)(intptr_t)seen_simd_f8_add((void*)(intptr_t)a, (void*)(intptr_t)b); }
+int64_t __simd_f8_sub(int64_t a, int64_t b) { return (int64_t)(intptr_t)seen_simd_f8_sub((void*)(intptr_t)a, (void*)(intptr_t)b); }
+int64_t __simd_f8_mul(int64_t a, int64_t b) { return (int64_t)(intptr_t)seen_simd_f8_mul((void*)(intptr_t)a, (void*)(intptr_t)b); }
+int64_t __simd_f8_div(int64_t a, int64_t b) { return (int64_t)(intptr_t)seen_simd_f8_div((void*)(intptr_t)a, (void*)(intptr_t)b); }
+int64_t __simd_f8_min(int64_t a, int64_t b) { return (int64_t)(intptr_t)seen_simd_f8_min((void*)(intptr_t)a, (void*)(intptr_t)b); }
+int64_t __simd_f8_max(int64_t a, int64_t b) { return (int64_t)(intptr_t)seen_simd_f8_max((void*)(intptr_t)a, (void*)(intptr_t)b); }
+double __simd_f8_sum(int64_t a) { return seen_simd_f8_sum((void*)(intptr_t)a); }
+double __simd_f8_dot(int64_t a, int64_t b) { return seen_simd_f8_dot((void*)(intptr_t)a, (void*)(intptr_t)b); }
+
+double __simd_reduce_sum(SeenArray* arr, int64_t len) {
+    double* data = seen_simd_array_f64_data(arr, &len);
+    if (!data || len <= 0) return 0.0;
+    return seen_simd_reduce_sum_f64_auto(data, len);
+}
+
+double __simd_dot_product(SeenArray* a_arr, SeenArray* b_arr, int64_t len) {
+    int64_t a_len = len;
+    int64_t b_len = len;
+    double* a = seen_simd_array_f64_data(a_arr, &a_len);
+    double* b = seen_simd_array_f64_data(b_arr, &b_len);
+    if (!a || !b) return 0.0;
+    if (a_len < len) len = a_len;
+    if (b_len < len) len = b_len;
+    if (len <= 0) return 0.0;
+    return seen_simd_dot_product_f64_auto(a, b, len);
+}
+
+double __simd_reduce_min(SeenArray* arr, int64_t len) {
+    double* data = seen_simd_array_f64_data(arr, &len);
+    if (!data || len <= 0) return 0.0;
+    return seen_simd_reduce_min_f64_auto(data, len);
+}
+
+double __simd_reduce_max(SeenArray* arr, int64_t len) {
+    double* data = seen_simd_array_f64_data(arr, &len);
+    if (!data || len <= 0) return 0.0;
+    return seen_simd_reduce_max_f64_auto(data, len);
+}
+
+void __simd_prefix_sum(SeenArray* arr, int64_t len) {
+    double* data = seen_simd_array_f64_data(arr, &len);
+    if (!data || len <= 0) return;
+    seen_simd_prefix_sum_f64_auto(data, len);
+}
 
 // ============================================================================
 // HashMap<K,V> Runtime - Open addressing with linear probing (SOA layout)
@@ -4998,6 +7213,20 @@ static uint64_t hashmap_hash_int(int64_t key) {
     return h;
 }
 
+static void* hashmap_alloc_array(int64_t count, size_t element_size,
+                                 bool zeroed, const char* context) {
+    if (count <= 0) count = 1;
+    if (element_size == 0 ||
+        (uint64_t)count > ((uint64_t)-1) / (uint64_t)element_size) {
+        seen_oom_abort(context, (size_t)-1);
+    }
+    size_t bytes = (size_t)count * element_size;
+    void* ptr = zeroed ? seen_try_calloc((size_t)count, element_size)
+                       : seen_try_malloc(bytes);
+    if (!ptr) seen_oom_abort(context, bytes);
+    return ptr;
+}
+
 static void hashmap_grow(SeenHashMap* map) {
     int64_t old_cap = map->capacity;
     int64_t* old_keys = map->keys;
@@ -5005,9 +7234,12 @@ static void hashmap_grow(SeenHashMap* map) {
     uint8_t* old_states = map->states;
     int64_t new_cap = old_cap * 2;
     int64_t mask = new_cap - 1;
-    int64_t* new_keys = (int64_t*)malloc(new_cap * sizeof(int64_t));
-    int64_t* new_values = (int64_t*)malloc(new_cap * sizeof(int64_t));
-    uint8_t* new_states = (uint8_t*)calloc(new_cap, sizeof(uint8_t));
+    int64_t* new_keys = (int64_t*)hashmap_alloc_array(new_cap,
+        sizeof(int64_t), false, "HashMap_grow keys");
+    int64_t* new_values = (int64_t*)hashmap_alloc_array(new_cap,
+        sizeof(int64_t), false, "HashMap_grow values");
+    uint8_t* new_states = (uint8_t*)hashmap_alloc_array(new_cap,
+        sizeof(uint8_t), true, "HashMap_grow states");
     for (int64_t i = 0; i < old_cap; i++) {
         if (old_states[i] == 1) {
             uint64_t h = hashmap_hash_int(old_keys[i]);
@@ -5031,11 +7263,15 @@ static void hashmap_grow(SeenHashMap* map) {
 }
 
 void* HashMap_new(void) {
-    SeenHashMap* map = (SeenHashMap*)malloc(sizeof(SeenHashMap));
+    SeenHashMap* map = (SeenHashMap*)hashmap_alloc_array(1,
+        sizeof(SeenHashMap), false, "HashMap_new header");
     map->capacity = 16;
-    map->keys = (int64_t*)malloc(map->capacity * sizeof(int64_t));
-    map->values = (int64_t*)malloc(map->capacity * sizeof(int64_t));
-    map->states = (uint8_t*)calloc(map->capacity, sizeof(uint8_t));
+    map->keys = (int64_t*)hashmap_alloc_array(map->capacity,
+        sizeof(int64_t), false, "HashMap_new keys");
+    map->values = (int64_t*)hashmap_alloc_array(map->capacity,
+        sizeof(int64_t), false, "HashMap_new values");
+    map->states = (uint8_t*)hashmap_alloc_array(map->capacity,
+        sizeof(uint8_t), true, "HashMap_new states");
     map->length = 0;
     map->tombstones = 0;
     return map;
@@ -5044,11 +7280,15 @@ void* HashMap_new(void) {
 void* HashMap_new_with_capacity(int64_t capacity) {
     int64_t cap = 16;
     while (cap < capacity) cap *= 2;
-    SeenHashMap* map = (SeenHashMap*)malloc(sizeof(SeenHashMap));
+    SeenHashMap* map = (SeenHashMap*)hashmap_alloc_array(1,
+        sizeof(SeenHashMap), false, "HashMap_new_with_capacity header");
     map->capacity = cap;
-    map->keys = (int64_t*)malloc(cap * sizeof(int64_t));
-    map->values = (int64_t*)malloc(cap * sizeof(int64_t));
-    map->states = (uint8_t*)calloc(cap, sizeof(uint8_t));
+    map->keys = (int64_t*)hashmap_alloc_array(cap, sizeof(int64_t),
+        false, "HashMap_new_with_capacity keys");
+    map->values = (int64_t*)hashmap_alloc_array(cap, sizeof(int64_t),
+        false, "HashMap_new_with_capacity values");
+    map->states = (uint8_t*)hashmap_alloc_array(cap, sizeof(uint8_t),
+        true, "HashMap_new_with_capacity states");
     map->length = 0;
     map->tombstones = 0;
     return map;
@@ -5113,6 +7353,10 @@ int64_t HashMap_getOrDefault(void* mapPtr, int64_t key, int64_t defaultValue) {
     }
 }
 
+int64_t HashMap_getUnchecked(void* mapPtr, int64_t key) {
+    return HashMap_getOrDefault(mapPtr, key, 0);
+}
+
 bool HashMap_containsKey(void* mapPtr, int64_t key) {
     SeenHashMap* map = (SeenHashMap*)mapPtr;
     uint64_t h = hashmap_hash_int(key);
@@ -5123,6 +7367,16 @@ bool HashMap_containsKey(void* mapPtr, int64_t key) {
         if (map->states[idx] == 1 && map->keys[idx] == key) return true;
         idx = (idx + 1) & mask;
     }
+}
+
+bool HashMap_containsValue(void* mapPtr, int64_t value) {
+    SeenHashMap* map = (SeenHashMap*)mapPtr;
+    for (int64_t i = 0; i < map->capacity; i++) {
+        if (map->states[i] == 1 && map->values[i] == value) {
+            return true;
+        }
+    }
+    return false;
 }
 
 int64_t HashMap_remove(void* mapPtr, int64_t key) {
@@ -5143,6 +7397,30 @@ int64_t HashMap_remove(void* mapPtr, int64_t key) {
         }
         idx = (idx + 1) & mask;
     }
+}
+
+int64_t HashMap_removeOrDefault(void* mapPtr, int64_t key, int64_t defaultValue) {
+    SeenHashMap* map = (SeenHashMap*)mapPtr;
+    uint64_t h = hashmap_hash_int(key);
+    int64_t mask = map->capacity - 1;
+    int64_t idx = (int64_t)(h & (uint64_t)mask);
+    while (1) {
+        if (map->states[idx] == 0) {
+            return defaultValue;
+        }
+        if (map->states[idx] == 1 && map->keys[idx] == key) {
+            int64_t val = map->values[idx];
+            map->states[idx] = 2;
+            map->length--;
+            map->tombstones++;
+            return val;
+        }
+        idx = (idx + 1) & mask;
+    }
+}
+
+int64_t HashMap_removeUnchecked(void* mapPtr, int64_t key) {
+    return HashMap_removeOrDefault(mapPtr, key, 0);
 }
 
 int64_t HashMap_keys(void* mapPtr) {
@@ -5214,9 +7492,12 @@ static void hashmap_grow_str(SeenHashMapStr* map) {
     uint8_t* old_states = map->states;
     int64_t new_cap = old_cap * 2;
     int64_t mask = new_cap - 1;
-    SeenString* new_keys = (SeenString*)malloc(new_cap * sizeof(SeenString));
-    int64_t* new_values = (int64_t*)malloc(new_cap * sizeof(int64_t));
-    uint8_t* new_states = (uint8_t*)calloc(new_cap, sizeof(uint8_t));
+    SeenString* new_keys = (SeenString*)hashmap_alloc_array(new_cap,
+        sizeof(SeenString), false, "HashMap_grow_str keys");
+    int64_t* new_values = (int64_t*)hashmap_alloc_array(new_cap,
+        sizeof(int64_t), false, "HashMap_grow_str values");
+    uint8_t* new_states = (uint8_t*)hashmap_alloc_array(new_cap,
+        sizeof(uint8_t), true, "HashMap_grow_str states");
     for (int64_t i = 0; i < old_cap; i++) {
         if (old_states[i] == 1) {
             uint64_t h = hashmap_hash_str(old_keys[i]);
@@ -5240,11 +7521,15 @@ static void hashmap_grow_str(SeenHashMapStr* map) {
 }
 
 void* HashMap_new_str(void) {
-    SeenHashMapStr* map = (SeenHashMapStr*)malloc(sizeof(SeenHashMapStr));
+    SeenHashMapStr* map = (SeenHashMapStr*)hashmap_alloc_array(1,
+        sizeof(SeenHashMapStr), false, "HashMap_new_str header");
     map->capacity = 16;
-    map->keys = (SeenString*)malloc(map->capacity * sizeof(SeenString));
-    map->values = (int64_t*)malloc(map->capacity * sizeof(int64_t));
-    map->states = (uint8_t*)calloc(map->capacity, sizeof(uint8_t));
+    map->keys = (SeenString*)hashmap_alloc_array(map->capacity,
+        sizeof(SeenString), false, "HashMap_new_str keys");
+    map->values = (int64_t*)hashmap_alloc_array(map->capacity,
+        sizeof(int64_t), false, "HashMap_new_str values");
+    map->states = (uint8_t*)hashmap_alloc_array(map->capacity,
+        sizeof(uint8_t), true, "HashMap_new_str states");
     map->length = 0;
     map->tombstones = 0;
     return map;
@@ -5253,11 +7538,16 @@ void* HashMap_new_str(void) {
 void* HashMap_new_str_with_capacity(int64_t capacity) {
     int64_t cap = 16;
     while (cap < capacity) cap *= 2;
-    SeenHashMapStr* map = (SeenHashMapStr*)malloc(sizeof(SeenHashMapStr));
+    SeenHashMapStr* map = (SeenHashMapStr*)hashmap_alloc_array(1,
+        sizeof(SeenHashMapStr), false,
+        "HashMap_new_str_with_capacity header");
     map->capacity = cap;
-    map->keys = (SeenString*)malloc(cap * sizeof(SeenString));
-    map->values = (int64_t*)malloc(cap * sizeof(int64_t));
-    map->states = (uint8_t*)calloc(cap, sizeof(uint8_t));
+    map->keys = (SeenString*)hashmap_alloc_array(cap, sizeof(SeenString),
+        false, "HashMap_new_str_with_capacity keys");
+    map->values = (int64_t*)hashmap_alloc_array(cap, sizeof(int64_t),
+        false, "HashMap_new_str_with_capacity values");
+    map->states = (uint8_t*)hashmap_alloc_array(cap, sizeof(uint8_t),
+        true, "HashMap_new_str_with_capacity states");
     map->length = 0;
     map->tombstones = 0;
     return map;
@@ -5320,6 +7610,10 @@ int64_t HashMap_getOrDefault_str(void* mapPtr, SeenString key, int64_t defaultVa
     }
 }
 
+int64_t HashMap_getUnchecked_str(void* mapPtr, SeenString key) {
+    return HashMap_getOrDefault_str(mapPtr, key, 0);
+}
+
 bool HashMap_containsKey_str(void* mapPtr, SeenString key) {
     SeenHashMapStr* map = (SeenHashMapStr*)mapPtr;
     uint64_t h = hashmap_hash_str(key);
@@ -5330,6 +7624,16 @@ bool HashMap_containsKey_str(void* mapPtr, SeenString key) {
         if (map->states[idx] == 1 && hashmap_str_eq(map->keys[idx], key)) return true;
         idx = (idx + 1) & mask;
     }
+}
+
+bool HashMap_containsValue_str(void* mapPtr, int64_t value) {
+    SeenHashMapStr* map = (SeenHashMapStr*)mapPtr;
+    for (int64_t i = 0; i < map->capacity; i++) {
+        if (map->states[i] == 1 && map->values[i] == value) {
+            return true;
+        }
+    }
+    return false;
 }
 
 int64_t HashMap_remove_str(void* mapPtr, SeenString key) {
@@ -5348,6 +7652,28 @@ int64_t HashMap_remove_str(void* mapPtr, SeenString key) {
         }
         idx = (idx + 1) & mask;
     }
+}
+
+int64_t HashMap_removeOrDefault_str(void* mapPtr, SeenString key, int64_t defaultValue) {
+    SeenHashMapStr* map = (SeenHashMapStr*)mapPtr;
+    uint64_t h = hashmap_hash_str(key);
+    int64_t mask = map->capacity - 1;
+    int64_t idx = (int64_t)(h & (uint64_t)mask);
+    while (1) {
+        if (map->states[idx] == 0) return defaultValue;
+        if (map->states[idx] == 1 && hashmap_str_eq(map->keys[idx], key)) {
+            int64_t val = map->values[idx];
+            map->states[idx] = 2;
+            map->length--;
+            map->tombstones++;
+            return val;
+        }
+        idx = (idx + 1) & mask;
+    }
+}
+
+int64_t HashMap_removeUnchecked_str(void* mapPtr, SeenString key) {
+    return HashMap_removeOrDefault_str(mapPtr, key, 0);
 }
 
 int64_t HashMap_keys_str(void* mapPtr) {
@@ -5404,9 +7730,12 @@ static void hashmap_grow_str_str(SeenHashMapStrStr* map) {
     uint8_t* old_states = map->states;
     int64_t new_cap = old_cap * 2;
     int64_t mask = new_cap - 1;
-    SeenString* new_keys = (SeenString*)malloc(new_cap * sizeof(SeenString));
-    SeenString* new_values = (SeenString*)malloc(new_cap * sizeof(SeenString));
-    uint8_t* new_states = (uint8_t*)calloc(new_cap, sizeof(uint8_t));
+    SeenString* new_keys = (SeenString*)hashmap_alloc_array(new_cap,
+        sizeof(SeenString), false, "HashMap_grow_str_str keys");
+    SeenString* new_values = (SeenString*)hashmap_alloc_array(new_cap,
+        sizeof(SeenString), false, "HashMap_grow_str_str values");
+    uint8_t* new_states = (uint8_t*)hashmap_alloc_array(new_cap,
+        sizeof(uint8_t), true, "HashMap_grow_str_str states");
     for (int64_t i = 0; i < old_cap; i++) {
         if (old_states[i] == 1) {
             uint64_t h = hashmap_hash_str(old_keys[i]);
@@ -5430,11 +7759,15 @@ static void hashmap_grow_str_str(SeenHashMapStrStr* map) {
 }
 
 void* HashMap_new_str_str(void) {
-    SeenHashMapStrStr* map = (SeenHashMapStrStr*)malloc(sizeof(SeenHashMapStrStr));
+    SeenHashMapStrStr* map = (SeenHashMapStrStr*)hashmap_alloc_array(1,
+        sizeof(SeenHashMapStrStr), false, "HashMap_new_str_str header");
     map->capacity = 16;
-    map->keys = (SeenString*)malloc(map->capacity * sizeof(SeenString));
-    map->values = (SeenString*)malloc(map->capacity * sizeof(SeenString));
-    map->states = (uint8_t*)calloc(map->capacity, sizeof(uint8_t));
+    map->keys = (SeenString*)hashmap_alloc_array(map->capacity,
+        sizeof(SeenString), false, "HashMap_new_str_str keys");
+    map->values = (SeenString*)hashmap_alloc_array(map->capacity,
+        sizeof(SeenString), false, "HashMap_new_str_str values");
+    map->states = (uint8_t*)hashmap_alloc_array(map->capacity,
+        sizeof(uint8_t), true, "HashMap_new_str_str states");
     map->length = 0;
     map->tombstones = 0;
     return map;
@@ -5443,11 +7776,16 @@ void* HashMap_new_str_str(void) {
 void* HashMap_new_str_str_with_capacity(int64_t capacity) {
     int64_t cap = 16;
     while (cap < capacity) cap *= 2;
-    SeenHashMapStrStr* map = (SeenHashMapStrStr*)malloc(sizeof(SeenHashMapStrStr));
+    SeenHashMapStrStr* map = (SeenHashMapStrStr*)hashmap_alloc_array(1,
+        sizeof(SeenHashMapStrStr), false,
+        "HashMap_new_str_str_with_capacity header");
     map->capacity = cap;
-    map->keys = (SeenString*)malloc(cap * sizeof(SeenString));
-    map->values = (SeenString*)malloc(cap * sizeof(SeenString));
-    map->states = (uint8_t*)calloc(cap, sizeof(uint8_t));
+    map->keys = (SeenString*)hashmap_alloc_array(cap, sizeof(SeenString),
+        false, "HashMap_new_str_str_with_capacity keys");
+    map->values = (SeenString*)hashmap_alloc_array(cap, sizeof(SeenString),
+        false, "HashMap_new_str_str_with_capacity values");
+    map->states = (uint8_t*)hashmap_alloc_array(cap, sizeof(uint8_t),
+        true, "HashMap_new_str_str_with_capacity states");
     map->length = 0;
     map->tombstones = 0;
     return map;
@@ -5510,6 +7848,11 @@ SeenString HashMap_getOrDefault_str_str(void* mapPtr, SeenString key, SeenString
     }
 }
 
+SeenString HashMap_getUnchecked_str_str(void* mapPtr, SeenString key) {
+    SeenString empty = { 0, "" };
+    return HashMap_getOrDefault_str_str(mapPtr, key, empty);
+}
+
 bool HashMap_containsKey_str_str(void* mapPtr, SeenString key) {
     SeenHashMapStrStr* map = (SeenHashMapStrStr*)mapPtr;
     uint64_t h = hashmap_hash_str(key);
@@ -5520,6 +7863,16 @@ bool HashMap_containsKey_str_str(void* mapPtr, SeenString key) {
         if (map->states[idx] == 1 && hashmap_str_eq(map->keys[idx], key)) return true;
         idx = (idx + 1) & mask;
     }
+}
+
+bool HashMap_containsValue_str_str(void* mapPtr, SeenString value) {
+    SeenHashMapStrStr* map = (SeenHashMapStrStr*)mapPtr;
+    for (int64_t i = 0; i < map->capacity; i++) {
+        if (map->states[i] == 1 && hashmap_str_eq(map->values[i], value)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 int64_t HashMap_remove_str_str(void* mapPtr, SeenString key) {
@@ -5538,6 +7891,29 @@ int64_t HashMap_remove_str_str(void* mapPtr, SeenString key) {
         }
         idx = (idx + 1) & mask;
     }
+}
+
+SeenString HashMap_removeOrDefault_str_str(void* mapPtr, SeenString key, SeenString defaultValue) {
+    SeenHashMapStrStr* map = (SeenHashMapStrStr*)mapPtr;
+    uint64_t h = hashmap_hash_str(key);
+    int64_t mask = map->capacity - 1;
+    int64_t idx = (int64_t)(h & (uint64_t)mask);
+    while (1) {
+        if (map->states[idx] == 0) return defaultValue;
+        if (map->states[idx] == 1 && hashmap_str_eq(map->keys[idx], key)) {
+            SeenString val = map->values[idx];
+            map->states[idx] = 2;
+            map->length--;
+            map->tombstones++;
+            return val;
+        }
+        idx = (idx + 1) & mask;
+    }
+}
+
+SeenString HashMap_removeUnchecked_str_str(void* mapPtr, SeenString key) {
+    SeenString empty = { 0, "" };
+    return HashMap_removeOrDefault_str_str(mapPtr, key, empty);
 }
 
 int64_t HashMap_keys_str_str(void* mapPtr) {
@@ -5594,9 +7970,12 @@ static void hashmap_grow_int_str(SeenHashMapIntStr* map) {
     uint8_t* old_states = map->states;
     int64_t new_cap = old_cap * 2;
     int64_t mask = new_cap - 1;
-    int64_t* new_keys = (int64_t*)malloc(new_cap * sizeof(int64_t));
-    SeenString* new_values = (SeenString*)malloc(new_cap * sizeof(SeenString));
-    uint8_t* new_states = (uint8_t*)calloc(new_cap, sizeof(uint8_t));
+    int64_t* new_keys = (int64_t*)hashmap_alloc_array(new_cap,
+        sizeof(int64_t), false, "HashMap_grow_int_str keys");
+    SeenString* new_values = (SeenString*)hashmap_alloc_array(new_cap,
+        sizeof(SeenString), false, "HashMap_grow_int_str values");
+    uint8_t* new_states = (uint8_t*)hashmap_alloc_array(new_cap,
+        sizeof(uint8_t), true, "HashMap_grow_int_str states");
     for (int64_t i = 0; i < old_cap; i++) {
         if (old_states[i] == 1) {
             uint64_t h = hashmap_hash_int(old_keys[i]);
@@ -5620,11 +7999,15 @@ static void hashmap_grow_int_str(SeenHashMapIntStr* map) {
 }
 
 void* HashMap_new_int_str(void) {
-    SeenHashMapIntStr* map = (SeenHashMapIntStr*)malloc(sizeof(SeenHashMapIntStr));
+    SeenHashMapIntStr* map = (SeenHashMapIntStr*)hashmap_alloc_array(1,
+        sizeof(SeenHashMapIntStr), false, "HashMap_new_int_str header");
     map->capacity = 16;
-    map->keys = (int64_t*)malloc(map->capacity * sizeof(int64_t));
-    map->values = (SeenString*)malloc(map->capacity * sizeof(SeenString));
-    map->states = (uint8_t*)calloc(map->capacity, sizeof(uint8_t));
+    map->keys = (int64_t*)hashmap_alloc_array(map->capacity,
+        sizeof(int64_t), false, "HashMap_new_int_str keys");
+    map->values = (SeenString*)hashmap_alloc_array(map->capacity,
+        sizeof(SeenString), false, "HashMap_new_int_str values");
+    map->states = (uint8_t*)hashmap_alloc_array(map->capacity,
+        sizeof(uint8_t), true, "HashMap_new_int_str states");
     map->length = 0;
     map->tombstones = 0;
     return map;
@@ -5633,11 +8016,16 @@ void* HashMap_new_int_str(void) {
 void* HashMap_new_int_str_with_capacity(int64_t capacity) {
     int64_t cap = 16;
     while (cap < capacity) cap *= 2;
-    SeenHashMapIntStr* map = (SeenHashMapIntStr*)malloc(sizeof(SeenHashMapIntStr));
+    SeenHashMapIntStr* map = (SeenHashMapIntStr*)hashmap_alloc_array(1,
+        sizeof(SeenHashMapIntStr), false,
+        "HashMap_new_int_str_with_capacity header");
     map->capacity = cap;
-    map->keys = (int64_t*)malloc(cap * sizeof(int64_t));
-    map->values = (SeenString*)malloc(cap * sizeof(SeenString));
-    map->states = (uint8_t*)calloc(cap, sizeof(uint8_t));
+    map->keys = (int64_t*)hashmap_alloc_array(cap, sizeof(int64_t),
+        false, "HashMap_new_int_str_with_capacity keys");
+    map->values = (SeenString*)hashmap_alloc_array(cap, sizeof(SeenString),
+        false, "HashMap_new_int_str_with_capacity values");
+    map->states = (uint8_t*)hashmap_alloc_array(cap, sizeof(uint8_t),
+        true, "HashMap_new_int_str_with_capacity states");
     map->length = 0;
     map->tombstones = 0;
     return map;
@@ -5700,6 +8088,11 @@ SeenString HashMap_getOrDefault_int_str(void* mapPtr, int64_t key, SeenString de
     }
 }
 
+SeenString HashMap_getUnchecked_int_str(void* mapPtr, int64_t key) {
+    SeenString empty = { 0, "" };
+    return HashMap_getOrDefault_int_str(mapPtr, key, empty);
+}
+
 bool HashMap_containsKey_int_str(void* mapPtr, int64_t key) {
     SeenHashMapIntStr* map = (SeenHashMapIntStr*)mapPtr;
     uint64_t h = hashmap_hash_int(key);
@@ -5710,6 +8103,16 @@ bool HashMap_containsKey_int_str(void* mapPtr, int64_t key) {
         if (map->states[idx] == 1 && map->keys[idx] == key) return true;
         idx = (idx + 1) & mask;
     }
+}
+
+bool HashMap_containsValue_int_str(void* mapPtr, SeenString value) {
+    SeenHashMapIntStr* map = (SeenHashMapIntStr*)mapPtr;
+    for (int64_t i = 0; i < map->capacity; i++) {
+        if (map->states[i] == 1 && hashmap_str_eq(map->values[i], value)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 int64_t HashMap_remove_int_str(void* mapPtr, int64_t key) {
@@ -5728,6 +8131,29 @@ int64_t HashMap_remove_int_str(void* mapPtr, int64_t key) {
         }
         idx = (idx + 1) & mask;
     }
+}
+
+SeenString HashMap_removeOrDefault_int_str(void* mapPtr, int64_t key, SeenString defaultValue) {
+    SeenHashMapIntStr* map = (SeenHashMapIntStr*)mapPtr;
+    uint64_t h = hashmap_hash_int(key);
+    int64_t mask = map->capacity - 1;
+    int64_t idx = (int64_t)(h & (uint64_t)mask);
+    while (1) {
+        if (map->states[idx] == 0) return defaultValue;
+        if (map->states[idx] == 1 && map->keys[idx] == key) {
+            SeenString val = map->values[idx];
+            map->states[idx] = 2;
+            map->length--;
+            map->tombstones++;
+            return val;
+        }
+        idx = (idx + 1) & mask;
+    }
+}
+
+SeenString HashMap_removeUnchecked_int_str(void* mapPtr, int64_t key) {
+    SeenString empty = { 0, "" };
+    return HashMap_removeOrDefault_int_str(mapPtr, key, empty);
 }
 
 int64_t HashMap_keys_int_str(void* mapPtr) {
@@ -5782,16 +8208,16 @@ typedef struct {
 } SeenLinkedList;
 
 void* LinkedList_new(void) {
-    SeenLinkedList* ll = (SeenLinkedList*)malloc(sizeof(SeenLinkedList));
-    ll->head = NULL;
-    ll->tail = NULL;
-    ll->length = 0;
+    SeenLinkedList* ll = (SeenLinkedList*)seen_try_calloc(
+        1, sizeof(SeenLinkedList));
+    if (!ll) return NULL;
     return ll;
 }
 
 void LinkedList_pushFront(void* llPtr, int64_t value) {
     SeenLinkedList* ll = (SeenLinkedList*)llPtr;
-    LLNode* node = (LLNode*)malloc(sizeof(LLNode));
+    LLNode* node = (LLNode*)seen_try_malloc(sizeof(LLNode));
+    if (!node) seen_oom_abort("LinkedList node", sizeof(LLNode));
     node->value = value;
     node->prev = NULL;
     node->next = ll->head;
@@ -5803,7 +8229,8 @@ void LinkedList_pushFront(void* llPtr, int64_t value) {
 
 void LinkedList_pushBack(void* llPtr, int64_t value) {
     SeenLinkedList* ll = (SeenLinkedList*)llPtr;
-    LLNode* node = (LLNode*)malloc(sizeof(LLNode));
+    LLNode* node = (LLNode*)seen_try_malloc(sizeof(LLNode));
+    if (!node) seen_oom_abort("LinkedList node", sizeof(LLNode));
     node->value = value;
     node->prev = ll->tail;
     node->next = NULL;
@@ -5822,7 +8249,7 @@ int64_t LinkedList_popFront(void* llPtr) {
     if (ll->head) ll->head->prev = NULL;
     else ll->tail = NULL;
     ll->length--;
-    free(node);
+    seen_runtime_free_budgeted(node, sizeof(LLNode));
     return BTreeMap_make_some(val);
 }
 
@@ -5835,7 +8262,7 @@ int64_t LinkedList_popBack(void* llPtr) {
     if (ll->tail) ll->tail->next = NULL;
     else ll->head = NULL;
     ll->length--;
-    free(node);
+    seen_runtime_free_budgeted(node, sizeof(LLNode));
     return BTreeMap_make_some(val);
 }
 
@@ -5869,7 +8296,7 @@ void LinkedList_removeNode(void* llPtr, void* nodePtr) {
     if (node->next) node->next->prev = node->prev;
     else ll->tail = node->prev;
     ll->length--;
-    free(node);
+    seen_runtime_free_budgeted(node, sizeof(LLNode));
 }
 
 void LinkedList_clear(void* llPtr) {
@@ -5877,7 +8304,7 @@ void LinkedList_clear(void* llPtr) {
     LLNode* cur = ll->head;
     while (cur) {
         LLNode* next = cur->next;
-        free(cur);
+        seen_runtime_free_budgeted(cur, sizeof(LLNode));
         cur = next;
     }
     ll->head = NULL;
@@ -5902,16 +8329,15 @@ typedef struct {
 } SeenLinkedListStr;
 
 void* LinkedList_new_str(void) {
-    SeenLinkedListStr* ll = (SeenLinkedListStr*)malloc(sizeof(SeenLinkedListStr));
-    ll->head = NULL;
-    ll->tail = NULL;
-    ll->length = 0;
+    SeenLinkedListStr* ll = (SeenLinkedListStr*)seen_try_calloc(
+        1, sizeof(SeenLinkedListStr));
     return ll;
 }
 
 void LinkedList_pushFront_str(void* llPtr, SeenString value) {
     SeenLinkedListStr* ll = (SeenLinkedListStr*)llPtr;
-    LLNodeStr* node = (LLNodeStr*)malloc(sizeof(LLNodeStr));
+    LLNodeStr* node = (LLNodeStr*)seen_try_malloc(sizeof(LLNodeStr));
+    if (!node) seen_oom_abort("LinkedList<String> node", sizeof(LLNodeStr));
     node->value = value;
     node->prev = NULL;
     node->next = ll->head;
@@ -5923,7 +8349,8 @@ void LinkedList_pushFront_str(void* llPtr, SeenString value) {
 
 void LinkedList_pushBack_str(void* llPtr, SeenString value) {
     SeenLinkedListStr* ll = (SeenLinkedListStr*)llPtr;
-    LLNodeStr* node = (LLNodeStr*)malloc(sizeof(LLNodeStr));
+    LLNodeStr* node = (LLNodeStr*)seen_try_malloc(sizeof(LLNodeStr));
+    if (!node) seen_oom_abort("LinkedList<String> node", sizeof(LLNodeStr));
     node->value = value;
     node->prev = ll->tail;
     node->next = NULL;
@@ -5942,7 +8369,7 @@ int64_t LinkedList_popFront_str(void* llPtr) {
     if (ll->head) ll->head->prev = NULL;
     else ll->tail = NULL;
     ll->length--;
-    free(node);
+    seen_runtime_free_budgeted(node, sizeof(LLNodeStr));
     return BTreeMap_make_some_str(val);
 }
 
@@ -5955,7 +8382,7 @@ int64_t LinkedList_popBack_str(void* llPtr) {
     if (ll->tail) ll->tail->next = NULL;
     else ll->head = NULL;
     ll->length--;
-    free(node);
+    seen_runtime_free_budgeted(node, sizeof(LLNodeStr));
     return BTreeMap_make_some_str(val);
 }
 
@@ -5986,7 +8413,7 @@ void LinkedList_clear_str(void* llPtr) {
     LLNodeStr* cur = ll->head;
     while (cur) {
         LLNodeStr* next = cur->next;
-        free(cur);
+        seen_runtime_free_budgeted(cur, sizeof(LLNodeStr));
         cur = next;
     }
     ll->head = NULL;
@@ -6002,7 +8429,8 @@ typedef struct { pthread_mutex_t m; } SeenMutex;
 
 // Allocate and initialize a new mutex. Returns opaque handle (cast to int64_t).
 int64_t __MutexCreate(void) {
-    SeenMutex* mtx = (SeenMutex*)malloc(sizeof(SeenMutex));
+    SeenMutex* mtx = (SeenMutex*)seen_try_malloc(sizeof(SeenMutex));
+    if (!mtx) return 0;
     pthread_mutex_init(&mtx->m, NULL);
     return (int64_t)(uintptr_t)mtx;
 }
@@ -6011,7 +8439,7 @@ int64_t __MutexCreate(void) {
 void __MutexDestroy(int64_t handle) {
     SeenMutex* mtx = (SeenMutex*)(uintptr_t)handle;
     pthread_mutex_destroy(&mtx->m);
-    free(mtx);
+    seen_runtime_free_budgeted(mtx, sizeof(SeenMutex));
 }
 
 // Acquire the mutex, blocking until available.
@@ -6042,7 +8470,8 @@ int64_t __MutexTryLock(int64_t handle) {
 
 // Allocate a heap int64_t for AtomicInt/AtomicBool handle pattern.
 int64_t __AtomicAlloc(int64_t initial) {
-    int64_t* p = (int64_t*)malloc(sizeof(int64_t));
+    int64_t* p = (int64_t*)seen_try_malloc(sizeof(int64_t));
+    if (!p) return 0;
     __atomic_store_n(p, initial, __ATOMIC_SEQ_CST);
     return (int64_t)(uintptr_t)p;
 }
@@ -6157,20 +8586,25 @@ typedef struct {
 static void* seen_thread_runner(void* raw) {
     SeenThreadArg* a = (SeenThreadArg*)raw;
     a->fn(a->arg);
-    free(a);
+    seen_runtime_free_budgeted(a, sizeof(SeenThreadArg));
     return NULL;
 }
 
 // Create a new thread that calls fn(arg). Returns opaque thread handle, or 0 on failure.
 // fn_ptr is cast from an int64_t function pointer (unsafe, for internal use only).
 int64_t __RawThreadCreate(int64_t fn_ptr, int64_t arg) {
-    pthread_t* t = (pthread_t*)malloc(sizeof(pthread_t));
-    SeenThreadArg* a = (SeenThreadArg*)malloc(sizeof(SeenThreadArg));
+    pthread_t* t = (pthread_t*)seen_try_malloc(sizeof(pthread_t));
+    if (!t) return 0;
+    SeenThreadArg* a = (SeenThreadArg*)seen_try_malloc(sizeof(SeenThreadArg));
+    if (!a) {
+        seen_runtime_free_budgeted(t, sizeof(pthread_t));
+        return 0;
+    }
     a->fn = (int64_t (*)(int64_t))fn_ptr;
     a->arg = arg;
     if (pthread_create(t, NULL, seen_thread_runner, a) != 0) {
-        free(t);
-        free(a);
+        seen_runtime_free_budgeted(t, sizeof(pthread_t));
+        seen_runtime_free_budgeted(a, sizeof(SeenThreadArg));
         return 0;
     }
     return (int64_t)(uintptr_t)t;
@@ -6180,7 +8614,7 @@ int64_t __RawThreadCreate(int64_t fn_ptr, int64_t arg) {
 int64_t __RawThreadJoin(int64_t handle) {
     pthread_t* t = (pthread_t*)(uintptr_t)handle;
     pthread_join(*t, NULL);
-    free(t);
+    seen_runtime_free_budgeted(t, sizeof(pthread_t));
     return 0;
 }
 
@@ -6302,10 +8736,16 @@ typedef struct {
 } SeenStackRegion;
 
 int64_t seen_stack_region_new(int64_t capacity) {
-    SeenStackRegion *sr = (SeenStackRegion *)malloc(sizeof(SeenStackRegion));
+    if (capacity <= 0) return 0;
+    SeenStackRegion *sr =
+        (SeenStackRegion *)seen_try_malloc(sizeof(SeenStackRegion));
     if (!sr) return 0;
-    sr->base = (char *)malloc((size_t)capacity);
-    if (!sr->base) { free(sr); return 0; }
+    sr->base = (char *)seen_try_malloc(capacity);
+    if (!sr->base) {
+        free(sr);
+        seen_memory_release_reservation(sizeof(SeenStackRegion));
+        return 0;
+    }
     sr->capacity = (size_t)capacity;
     sr->offset   = 0;
     return (int64_t)(uintptr_t)sr;
@@ -6334,7 +8774,12 @@ void seen_stack_region_reset(int64_t handle) {
 
 void seen_stack_region_destroy(int64_t handle) {
     SeenStackRegion *sr = (SeenStackRegion *)(uintptr_t)handle;
-    if (sr) { free(sr->base); free(sr); }
+    if (sr) {
+        seen_memory_release_reservation((int64_t)sr->capacity);
+        free(sr->base);
+        seen_memory_release_reservation(sizeof(SeenStackRegion));
+        free(sr);
+    }
 }
 
 int64_t seen_stack_region_remaining(int64_t handle) {
@@ -6360,12 +8805,19 @@ typedef struct {
 } SeenPoolRegion;
 
 int64_t seen_pool_region_new(int64_t block_size, int64_t count) {
+    if (block_size <= 0 || count <= 0) return 0;
     size_t bs = ((size_t)block_size + 15) & ~(size_t)15;
     if (bs < sizeof(SeenPoolBlock)) bs = sizeof(SeenPoolBlock);
-    SeenPoolRegion *pr = (SeenPoolRegion *)malloc(sizeof(SeenPoolRegion));
+    if ((uint64_t)count > (uint64_t)INT64_MAX / (uint64_t)bs) return 0;
+    SeenPoolRegion *pr =
+        (SeenPoolRegion *)seen_try_malloc(sizeof(SeenPoolRegion));
     if (!pr) return 0;
-    pr->base = (char *)malloc(bs * (size_t)count);
-    if (!pr->base) { free(pr); return 0; }
+    pr->base = (char *)seen_try_malloc((int64_t)(bs * (size_t)count));
+    if (!pr->base) {
+        free(pr);
+        seen_memory_release_reservation(sizeof(SeenPoolRegion));
+        return 0;
+    }
     pr->block_size = bs;
     pr->capacity   = (size_t)count;
     pr->used       = 0;
@@ -6398,7 +8850,13 @@ void seen_pool_region_free(int64_t handle, int64_t ptr) {
 
 void seen_pool_region_destroy(int64_t handle) {
     SeenPoolRegion *pr = (SeenPoolRegion *)(uintptr_t)handle;
-    if (pr) { free(pr->base); free(pr); }
+    if (pr) {
+        seen_memory_release_reservation(
+            (int64_t)(pr->block_size * pr->capacity));
+        free(pr->base);
+        seen_memory_release_reservation(sizeof(SeenPoolRegion));
+        free(pr);
+    }
 }
 
 void seen_pool_region_reset(int64_t handle) {
@@ -6442,7 +8900,9 @@ typedef struct {
 
 // flags: 0 = read-only file, 1 = read-write file, 2 = anonymous rw
 int64_t seen_mapped_new(int64_t path_len, char *path_data, int64_t size, int64_t flags) {
-    SeenMappedRegion *mr = (SeenMappedRegion *)malloc(sizeof(SeenMappedRegion));
+    if (size <= 0) return 0;
+    SeenMappedRegion *mr = (SeenMappedRegion *)seen_try_malloc(
+        sizeof(SeenMappedRegion));
     if (!mr) return 0;
     mr->length = (size_t)size;
     mr->fd = -1;
@@ -6462,13 +8922,20 @@ int64_t seen_mapped_new(int64_t path_len, char *path_data, int64_t size, int64_t
         DWORD share = FILE_SHARE_READ;
         HANDLE hFile = CreateFileA(pathbuf, access, share, NULL, OPEN_EXISTING,
                                    FILE_ATTRIBUTE_NORMAL, NULL);
-        if (hFile == INVALID_HANDLE_VALUE) { free(mr); return 0; }
+        if (hFile == INVALID_HANDLE_VALUE) {
+            seen_runtime_free_budgeted(mr, sizeof(SeenMappedRegion));
+            return 0;
+        }
 
         DWORD fProtect = (flags == 1) ? PAGE_READWRITE : PAGE_READONLY;
         HANDLE hMap = CreateFileMappingA(hFile, NULL, fProtect,
                                          (DWORD)(mr->length >> 32),
                                          (DWORD)(mr->length & 0xFFFFFFFF), NULL);
-        if (!hMap) { CloseHandle(hFile); free(mr); return 0; }
+        if (!hMap) {
+            CloseHandle(hFile);
+            seen_runtime_free_budgeted(mr, sizeof(SeenMappedRegion));
+            return 0;
+        }
 
         DWORD mapAccess = (flags == 1) ? FILE_MAP_WRITE : FILE_MAP_READ;
         mr->addr = MapViewOfFile(hMap, mapAccess, 0, 0, mr->length);
@@ -6478,7 +8945,7 @@ int64_t seen_mapped_new(int64_t path_len, char *path_data, int64_t size, int64_t
     }
     if (!mr->addr) {
         if (mr->fd >= 0) CloseHandle((HANDLE)(intptr_t)mr->fd);
-        free(mr);
+        seen_runtime_free_budgeted(mr, sizeof(SeenMappedRegion));
         return 0;
     }
 #else
@@ -6495,7 +8962,10 @@ int64_t seen_mapped_new(int64_t path_len, char *path_data, int64_t size, int64_t
 
         int oflags = (flags == 1) ? O_RDWR : O_RDONLY;
         mr->fd = open(pathbuf, oflags);
-        if (mr->fd < 0) { free(mr); return 0; }
+        if (mr->fd < 0) {
+            seen_runtime_free_budgeted(mr, sizeof(SeenMappedRegion));
+            return 0;
+        }
 
         int prot = PROT_READ | ((flags == 1) ? PROT_WRITE : 0);
         int mflags = (flags == 1) ? MAP_SHARED : MAP_PRIVATE;
@@ -6504,7 +8974,7 @@ int64_t seen_mapped_new(int64_t path_len, char *path_data, int64_t size, int64_t
 
     if (mr->addr == MAP_FAILED) {
         if (mr->fd >= 0) close(mr->fd);
-        free(mr);
+        seen_runtime_free_budgeted(mr, sizeof(SeenMappedRegion));
         return 0;
     }
 #endif
@@ -6535,7 +9005,7 @@ void seen_mapped_free(int64_t handle) {
         munmap(mr->addr, mr->length);
         if (mr->fd >= 0) close(mr->fd);
 #endif
-        free(mr);
+        seen_runtime_free_budgeted(mr, sizeof(SeenMappedRegion));
     }
 }
 
@@ -6553,7 +9023,7 @@ int64_t seen_mapped_length(int64_t handle) {
 typedef struct { SRWLOCK rw; } SeenRwLock;
 
 int64_t seen_rwlock_new(void) {
-    SeenRwLock *l = (SeenRwLock *)malloc(sizeof(SeenRwLock));
+    SeenRwLock *l = (SeenRwLock *)seen_try_malloc(sizeof(SeenRwLock));
     if (!l) return 0;
     InitializeSRWLock(&l->rw);
     return (int64_t)(uintptr_t)l;
@@ -6582,13 +9052,13 @@ void seen_rwlock_write_unlock(int64_t handle) {
 void seen_rwlock_destroy(int64_t handle) {
     SeenRwLock *l = (SeenRwLock *)(uintptr_t)handle;
     // SRWLOCK has no destroy function
-    if (l) free(l);
+    seen_runtime_free_budgeted(l, sizeof(SeenRwLock));
 }
 #else
 typedef struct { pthread_rwlock_t rw; } SeenRwLock;
 
 int64_t seen_rwlock_new(void) {
-    SeenRwLock *l = (SeenRwLock *)malloc(sizeof(SeenRwLock));
+    SeenRwLock *l = (SeenRwLock *)seen_try_malloc(sizeof(SeenRwLock));
     if (!l) return 0;
     pthread_rwlock_init(&l->rw, NULL);
     return (int64_t)(uintptr_t)l;
@@ -6616,7 +9086,10 @@ void seen_rwlock_write_unlock(int64_t handle) {
 
 void seen_rwlock_destroy(int64_t handle) {
     SeenRwLock *l = (SeenRwLock *)(uintptr_t)handle;
-    if (l) { pthread_rwlock_destroy(&l->rw); free(l); }
+    if (l) {
+        pthread_rwlock_destroy(&l->rw);
+        seen_runtime_free_budgeted(l, sizeof(SeenRwLock));
+    }
 }
 #endif
 
@@ -6635,7 +9108,7 @@ typedef struct {
 } SeenBarrier;
 
 int64_t seen_barrier_new(int64_t count) {
-    SeenBarrier *b = (SeenBarrier *)malloc(sizeof(SeenBarrier));
+    SeenBarrier *b = (SeenBarrier *)seen_try_malloc(sizeof(SeenBarrier));
     if (!b) return 0;
     InitializeCriticalSection(&b->lock);
     InitializeConditionVariable(&b->cond);
@@ -6668,7 +9141,7 @@ void seen_barrier_destroy(int64_t handle) {
     SeenBarrier *b = (SeenBarrier *)(uintptr_t)handle;
     if (b) {
         DeleteCriticalSection(&b->lock);
-        free(b);
+        seen_runtime_free_budgeted(b, sizeof(SeenBarrier));
     }
 }
 #else
@@ -6717,7 +9190,7 @@ static void seen_pthread_barrier_destroy(seen_pthread_barrier_t *b) {
 typedef struct { seen_pthread_barrier_t b; } SeenBarrier;
 
 int64_t seen_barrier_new(int64_t count) {
-    SeenBarrier *b = (SeenBarrier *)malloc(sizeof(SeenBarrier));
+    SeenBarrier *b = (SeenBarrier *)seen_try_malloc(sizeof(SeenBarrier));
     if (!b) return 0;
     seen_pthread_barrier_init(&b->b, (unsigned)count);
     return (int64_t)(uintptr_t)b;
@@ -6731,13 +9204,16 @@ int64_t seen_barrier_wait(int64_t handle) {
 
 void seen_barrier_destroy(int64_t handle) {
     SeenBarrier *b = (SeenBarrier *)(uintptr_t)handle;
-    if (b) { seen_pthread_barrier_destroy(&b->b); free(b); }
+    if (b) {
+        seen_pthread_barrier_destroy(&b->b);
+        seen_runtime_free_budgeted(b, sizeof(SeenBarrier));
+    }
 }
 #else
 typedef struct { pthread_barrier_t b; } SeenBarrier;
 
 int64_t seen_barrier_new(int64_t count) {
-    SeenBarrier *b = (SeenBarrier *)malloc(sizeof(SeenBarrier));
+    SeenBarrier *b = (SeenBarrier *)seen_try_malloc(sizeof(SeenBarrier));
     if (!b) return 0;
     pthread_barrier_init(&b->b, NULL, (unsigned)count);
     return (int64_t)(uintptr_t)b;
@@ -6751,7 +9227,10 @@ int64_t seen_barrier_wait(int64_t handle) {
 
 void seen_barrier_destroy(int64_t handle) {
     SeenBarrier *b = (SeenBarrier *)(uintptr_t)handle;
-    if (b) { pthread_barrier_destroy(&b->b); free(b); }
+    if (b) {
+        pthread_barrier_destroy(&b->b);
+        seen_runtime_free_budgeted(b, sizeof(SeenBarrier));
+    }
 }
 #endif
 #endif
@@ -6938,7 +9417,7 @@ int64_t seen_ws_pool_new(int64_t nworkers) {
     int n = (int)nworkers;
     if (n <= 0) n = 4;
     if (n > 255) n = 255; // packed encoding limit
-    SeenWSPool *pool = (SeenWSPool *)calloc(1, sizeof(SeenWSPool));
+    SeenWSPool *pool = (SeenWSPool *)seen_try_calloc(1, sizeof(SeenWSPool));
     if (!pool) return 0;
     pool->nworkers = n;
     pool->shutdown = 0;
@@ -6946,8 +9425,22 @@ int64_t seen_ws_pool_new(int64_t nworkers) {
     pool->submit_bottom = 0;
     pthread_mutex_init(&pool->submit_lock, NULL);
     pthread_cond_init(&pool->submit_cond, NULL);
-    pool->deques  = (SeenDeque *)calloc((size_t)n, sizeof(SeenDeque));
-    pool->threads = (pthread_t *)calloc((size_t)n, sizeof(pthread_t));
+    pool->deques = (SeenDeque *)seen_try_calloc(n, sizeof(SeenDeque));
+    pool->threads = (pthread_t *)seen_try_calloc(n, sizeof(pthread_t));
+    if (!pool->deques || !pool->threads) {
+        if (pool->deques) {
+            seen_runtime_free_budgeted(pool->deques,
+                (int64_t)n * (int64_t)sizeof(SeenDeque));
+        }
+        if (pool->threads) {
+            seen_runtime_free_budgeted(pool->threads,
+                (int64_t)n * (int64_t)sizeof(pthread_t));
+        }
+        pthread_mutex_destroy(&pool->submit_lock);
+        pthread_cond_destroy(&pool->submit_cond);
+        seen_runtime_free_budgeted(pool, sizeof(SeenWSPool));
+        return 0;
+    }
     for (int i = 0; i < n; i++) deque_init(&pool->deques[i]);
     for (int i = 0; i < n; i++) {
         int64_t packed = (int64_t)(uintptr_t)pool | (int64_t)i;
@@ -6985,9 +9478,11 @@ void seen_ws_pool_shutdown(int64_t pool_handle) {
     }
     pthread_mutex_destroy(&pool->submit_lock);
     pthread_cond_destroy(&pool->submit_cond);
-    free(pool->deques);
-    free(pool->threads);
-    free(pool);
+    seen_runtime_free_budgeted(pool->deques,
+        (int64_t)pool->nworkers * (int64_t)sizeof(SeenDeque));
+    seen_runtime_free_budgeted(pool->threads,
+        (int64_t)pool->nworkers * (int64_t)sizeof(pthread_t));
+    seen_runtime_free_budgeted(pool, sizeof(SeenWSPool));
 }
 
 // ============================================================================
@@ -7026,8 +9521,22 @@ void seen_parallel_for(int64_t start, int64_t end, int64_t fn_ptr, int64_t nthre
         return;
     }
 
-    pthread_t* threads = (pthread_t*)malloc(sizeof(pthread_t) * nt);
-    SeenPForArgs* args = (SeenPForArgs*)malloc(sizeof(SeenPForArgs) * nt);
+    pthread_t* threads = (pthread_t*)seen_try_malloc(
+        (int64_t)sizeof(pthread_t) * nt);
+    SeenPForArgs* args = (SeenPForArgs*)seen_try_malloc(
+        (int64_t)sizeof(SeenPForArgs) * nt);
+    if (!threads || !args) {
+        if (threads) {
+            seen_runtime_free_budgeted(threads,
+                (int64_t)sizeof(pthread_t) * nt);
+        }
+        if (args) {
+            seen_runtime_free_budgeted(args,
+                (int64_t)sizeof(SeenPForArgs) * nt);
+        }
+        for (int64_t i = start; i < end; i++) body(i);
+        return;
+    }
     int64_t chunk = range / nt;
     int64_t remainder = range % nt;
     int64_t cur = start;
@@ -7042,8 +9551,8 @@ void seen_parallel_for(int64_t start, int64_t end, int64_t fn_ptr, int64_t nthre
     for (int64_t t = 0; t < nt; t++) {
         pthread_join(threads[t], NULL);
     }
-    free(threads);
-    free(args);
+    seen_runtime_free_budgeted(threads, (int64_t)sizeof(pthread_t) * nt);
+    seen_runtime_free_budgeted(args, (int64_t)sizeof(SeenPForArgs) * nt);
 }
 
 // ============================================================================
@@ -7066,8 +9575,15 @@ int64_t seen_atomic_queue_new(int64_t capacity) {
     while (cap < capacity) cap <<= 1;
     if (cap < 16) cap = 16;
 
-    SeenAtomicQueue* q = (SeenAtomicQueue*)calloc(1, sizeof(SeenAtomicQueue));
-    q->slots = (int64_t*)calloc(cap, sizeof(int64_t));
+    if (cap > INT64_MAX / (int64_t)sizeof(int64_t)) return 0;
+    SeenAtomicQueue* q = (SeenAtomicQueue*)seen_try_calloc(
+        1, sizeof(SeenAtomicQueue));
+    if (!q) return 0;
+    q->slots = (int64_t*)seen_try_calloc(cap, sizeof(int64_t));
+    if (!q->slots) {
+        seen_runtime_free_budgeted(q, sizeof(SeenAtomicQueue));
+        return 0;
+    }
     __atomic_store_n(&q->head, 0, __ATOMIC_RELAXED);
     __atomic_store_n(&q->tail, 0, __ATOMIC_RELAXED);
     q->mask = cap - 1;
@@ -7108,8 +9624,10 @@ int64_t seen_atomic_queue_pop(int64_t handle) {
 
 void seen_atomic_queue_destroy(int64_t handle) {
     SeenAtomicQueue* q = (SeenAtomicQueue*)(uintptr_t)handle;
-    free(q->slots);
-    free(q);
+    if (!q) return;
+    seen_runtime_free_budgeted(q->slots,
+        q->capacity * (int64_t)sizeof(int64_t));
+    seen_runtime_free_budgeted(q, sizeof(SeenAtomicQueue));
 }
 
 // Treiber Stack — CAS linked list
@@ -7123,14 +9641,18 @@ typedef struct {
 } SeenAtomicStack;
 
 int64_t seen_atomic_stack_new(void) {
-    SeenAtomicStack* s = (SeenAtomicStack*)calloc(1, sizeof(SeenAtomicStack));
+    SeenAtomicStack* s = (SeenAtomicStack*)seen_try_calloc(
+        1, sizeof(SeenAtomicStack));
+    if (!s) return 0;
     __atomic_store_n(&s->top, NULL, __ATOMIC_RELAXED);
     return (int64_t)(uintptr_t)s;
 }
 
 void seen_atomic_stack_push(int64_t handle, int64_t value) {
     SeenAtomicStack* s = (SeenAtomicStack*)(uintptr_t)handle;
-    SeenAStackNode* node = (SeenAStackNode*)malloc(sizeof(SeenAStackNode));
+    SeenAStackNode* node = (SeenAStackNode*)seen_try_malloc(
+        sizeof(SeenAStackNode));
+    if (!node) seen_oom_abort("atomic stack node", sizeof(SeenAStackNode));
     node->value = value;
     node->next = __atomic_load_n(&s->top, __ATOMIC_RELAXED);
     while (!__atomic_compare_exchange_n(&s->top, &node->next, node, 1,
@@ -7144,9 +9666,9 @@ int64_t seen_atomic_stack_pop(int64_t handle) {
     SeenAStackNode* top = __atomic_load_n(&s->top, __ATOMIC_ACQUIRE);
     while (top != NULL) {
         if (__atomic_compare_exchange_n(&s->top, &top, top->next, 1,
-                __ATOMIC_ACQ_REL, __ATOMIC_RELAXED)) {
+            __ATOMIC_ACQ_REL, __ATOMIC_RELAXED)) {
             int64_t val = top->value;
-            free(top);
+            seen_runtime_free_budgeted(top, sizeof(SeenAStackNode));
             return val;
         }
         // retry — top updated by CAS
@@ -7159,10 +9681,10 @@ void seen_atomic_stack_destroy(int64_t handle) {
     SeenAStackNode* node = __atomic_load_n(&s->top, __ATOMIC_RELAXED);
     while (node) {
         SeenAStackNode* next = node->next;
-        free(node);
+        seen_runtime_free_budgeted(node, sizeof(SeenAStackNode));
         node = next;
     }
-    free(s);
+    seen_runtime_free_budgeted(s, sizeof(SeenAtomicStack));
 }
 
 // ============================================================================
@@ -7326,13 +9848,19 @@ int64_t seen_arr_clone(int64_t src) {
     int64_t len = srcArr->len;
     int64_t cap = srcArr->cap;
     if (cap < len) cap = len;
-    SeenArray* dst = (SeenArray*)malloc(sizeof(SeenArray));
+    SeenArray* dst = (SeenArray*)seen_try_malloc(sizeof(SeenArray));
+    if (!dst) seen_oom_abort("seen_arr_clone header", sizeof(SeenArray));
     dst->len = len;
     dst->cap = cap;
     dst->element_size = srcArr->element_size;
     if (cap > 0 && srcArr->data) {
-        dst->data = malloc(cap * srcArr->element_size);
-        memcpy(dst->data, srcArr->data, len * srcArr->element_size);
+        dst->data = Vec_alloc_data(cap, srcArr->element_size,
+            "seen_arr_clone data");
+        if (len > 0) {
+            memcpy(dst->data, srcArr->data,
+                (size_t)Vec_checked_bytes(len, srcArr->element_size,
+                    "seen_arr_clone copy"));
+        }
     } else {
         dst->data = NULL;
     }
@@ -7393,18 +9921,32 @@ typedef struct {
 } SeenByteBuffer;
 
 static SeenByteBuffer* seen_bytebuf_new(int64_t cap) {
-    SeenByteBuffer* buf = (SeenByteBuffer*)malloc(sizeof(SeenByteBuffer));
-    buf->data = (uint8_t*)malloc(cap > 0 ? cap : 64);
+    SeenByteBuffer* buf =
+        (SeenByteBuffer*)seen_try_malloc(sizeof(SeenByteBuffer));
+    if (!buf) seen_oom_abort("binary buffer header", sizeof(SeenByteBuffer));
     buf->length = 0;
     buf->capacity = cap > 0 ? cap : 64;
+    buf->data = (uint8_t*)Vec_alloc_data(buf->capacity,
+        (int64_t)sizeof(uint8_t), "binary buffer data");
     return buf;
 }
 
 static void seen_bytebuf_ensure(SeenByteBuffer* buf, int64_t extra) {
+    if (extra < 0 || buf->length > INT64_MAX - extra) {
+        seen_oom_abort("binary buffer grow overflow", INT64_MAX);
+    }
     if (buf->length + extra > buf->capacity) {
+        int64_t oldCap = buf->capacity;
+        if (buf->capacity > INT64_MAX / 2) {
+            seen_oom_abort("binary buffer grow overflow", INT64_MAX);
+        }
         int64_t newCap = buf->capacity * 2;
         if (newCap < buf->length + extra) newCap = buf->length + extra;
-        buf->data = (uint8_t*)realloc(buf->data, newCap);
+        if (newCap < oldCap) {
+            seen_oom_abort("binary buffer grow overflow", INT64_MAX);
+        }
+        buf->data = (uint8_t*)Vec_realloc_data(buf->data, oldCap, newCap,
+            (int64_t)sizeof(uint8_t), "binary buffer data");
         buf->capacity = newCap;
     }
 }
@@ -7488,7 +10030,7 @@ SeenString seen_binary_read_str(int64_t buf_handle, int64_t offset) {
     int32_t slen = 0;
     memcpy(&slen, buf->data + offset, 4);
     if (slen < 0 || offset + 4 + slen > buf->length) return result;
-    char* data = (char*)malloc(slen + 1);
+    char* data = seen_runtime_alloc_chars(slen, "binary read string");
     memcpy(data, buf->data + offset + 4, slen);
     data[slen] = '\0';
     result.data = data;
@@ -7581,9 +10123,12 @@ typedef struct {
 } SeenJsonBuilder;
 
 int64_t seen_json_start_object(int64_t unused) {
-    SeenJsonBuilder* jb = (SeenJsonBuilder*)malloc(sizeof(SeenJsonBuilder));
+    SeenJsonBuilder* jb =
+        (SeenJsonBuilder*)seen_try_malloc(sizeof(SeenJsonBuilder));
+    if (!jb) seen_oom_abort("json builder header", sizeof(SeenJsonBuilder));
     jb->capacity = 256;
-    jb->data = (char*)malloc(jb->capacity);
+    jb->data = (char*)Vec_alloc_data(jb->capacity, (int64_t)sizeof(char),
+        "json builder data");
     jb->data[0] = '{';
     jb->length = 1;
     jb->fieldCount = 0;
@@ -7592,9 +10137,17 @@ int64_t seen_json_start_object(int64_t unused) {
 }
 
 static void jb_ensure(SeenJsonBuilder* jb, int64_t extra) {
+    if (extra < 0 || jb->length > INT64_MAX - extra) {
+        seen_oom_abort("json builder grow overflow", INT64_MAX);
+    }
     if (jb->length + extra >= jb->capacity) {
+        int64_t oldCapacity = jb->capacity;
+        if (jb->capacity > (INT64_MAX - extra) / 2) {
+            seen_oom_abort("json builder grow overflow", INT64_MAX);
+        }
         jb->capacity = jb->capacity * 2 + extra;
-        jb->data = (char*)realloc(jb->data, jb->capacity);
+        jb->data = (char*)Vec_realloc_data(jb->data, oldCapacity,
+            jb->capacity, (int64_t)sizeof(char), "json builder data");
     }
 }
 
@@ -7832,10 +10385,8 @@ SeenString seen_json_decode_string(SeenString raw) {
         return empty;
     }
 
-    char* out = (char*)malloc((size_t)trimmed.len);
-    if (!out) {
-        return empty;
-    }
+    char* out = seen_runtime_alloc_chars(trimmed.len - 2,
+        "seen_json_decode_string");
 
     int64_t out_len = 0;
     for (int64_t i = 1; i < trimmed.len - 1; i++) {
@@ -8010,7 +10561,7 @@ void seen_stack_overflow_panic(void) {
 // ============================================================================
 
 int64_t seen_small_vec_new(int64_t inline_capacity) {
-    SeenSmallVec *sv = (SeenSmallVec *)malloc(sizeof(SeenSmallVec));
+    SeenSmallVec *sv = (SeenSmallVec *)seen_try_malloc(sizeof(SeenSmallVec));
     if (!sv) return 0;
     sv->data = NULL;
     memset(sv->inline_buf, 0, sizeof(sv->inline_buf));
@@ -8024,17 +10575,24 @@ static void sv_ensure_capacity(SeenSmallVec *sv, int64_t needed) {
     if (needed <= sv->capacity) return;
     int64_t new_cap = sv->capacity * 2;
     if (new_cap < needed) new_cap = needed;
+    if (new_cap <= 0 || new_cap > INT64_MAX / (int64_t)sizeof(int64_t)) {
+        seen_oom_abort("SmallVec capacity overflow", new_cap);
+    }
+    int64_t new_bytes = new_cap * (int64_t)sizeof(int64_t);
     if (sv->data == NULL) {
         // Transition from inline to heap
-        sv->data = (int64_t *)malloc(new_cap * sizeof(int64_t));
-        if (!sv->data) return;
+        sv->data = (int64_t *)seen_try_malloc(new_bytes);
+        if (!sv->data) seen_oom_abort("SmallVec heap storage", new_bytes);
         // Copy inline data to heap
         for (int64_t i = 0; i < sv->length; i++) {
             sv->data[i] = sv->inline_buf[i];
         }
     } else {
-        sv->data = (int64_t *)realloc(sv->data, new_cap * sizeof(int64_t));
-        if (!sv->data) return;
+        int64_t old_bytes = sv->capacity * (int64_t)sizeof(int64_t);
+        int64_t* grown = (int64_t *)seen_try_realloc(
+            sv->data, old_bytes, new_bytes);
+        if (!grown) seen_oom_abort("SmallVec heap growth", new_bytes);
+        sv->data = grown;
     }
     sv->capacity = new_cap;
 }
@@ -8087,7 +10645,8 @@ void seen_small_vec_clear(int64_t handle) {
     sv->length = 0;
     // If on heap, free and go back to inline
     if (sv->data) {
-        free(sv->data);
+        seen_runtime_free_budgeted(sv->data,
+            sv->capacity * (int64_t)sizeof(int64_t));
         sv->data = NULL;
         sv->capacity = sv->inline_cap;
     }
@@ -8101,8 +10660,19 @@ void seen_small_vec_clear(int64_t handle) {
 
 #define SEEN_BOOTSTRAP_WEAK SEEN_WEAK
 
-SEEN_BOOTSTRAP_WEAK int64_t seen_packed_chunk_create(int64_t size) { return (int64_t)calloc(1, (size_t)size); }
-SEEN_BOOTSTRAP_WEAK void seen_packed_chunk_free(int64_t ptr) { free((void*)ptr); }
+SEEN_BOOTSTRAP_WEAK int64_t seen_packed_chunk_create(int64_t size) {
+    if (size <= 0 || size > INT64_MAX - (int64_t)sizeof(int64_t)) return 0;
+    int64_t total = size + (int64_t)sizeof(int64_t);
+    int64_t* base = (int64_t*)seen_try_calloc(1, total);
+    if (!base) return 0;
+    *base = total;
+    return (int64_t)(base + 1);
+}
+SEEN_BOOTSTRAP_WEAK void seen_packed_chunk_free(int64_t ptr) {
+    if (!ptr) return;
+    int64_t* base = ((int64_t*)ptr) - 1;
+    seen_runtime_free_budgeted(base, *base);
+}
 SEEN_BOOTSTRAP_WEAK int64_t seen_packed_chunk_get(int64_t ptr, int64_t idx) { return ((int64_t*)ptr)[idx]; }
 SEEN_BOOTSTRAP_WEAK void seen_packed_chunk_set(int64_t ptr, int64_t idx, int64_t val) { ((int64_t*)ptr)[idx] = val; }
 SEEN_BOOTSTRAP_WEAK int64_t seen_rle_compress(int64_t data, int64_t len) { (void)data; (void)len; return 0; }
@@ -8120,12 +10690,14 @@ SEEN_WEAK void seen_vk_cmd_write_timestamp(int64_t a, int64_t b, int64_t c) { (v
 // Hearton engine string helpers (SeenString already typedef'd above)
 SeenString hearton_int_to_str(int64_t val) {
     char buf[32]; int n = snprintf(buf, sizeof(buf), "%ld", (long)val);
-    char* s = malloc(n + 1); memcpy(s, buf, n + 1);
+    char* s = seen_runtime_alloc_chars(n, "hearton_int_to_str");
+    memcpy(s, buf, (size_t)n + 1);
     return (SeenString){n, s};
 }
 SeenString hearton_float_to_str(double val) {
     char buf[64]; int n = snprintf(buf, sizeof(buf), "%.6f", val);
-    char* s = malloc(n + 1); memcpy(s, buf, n + 1);
+    char* s = seen_runtime_alloc_chars(n, "hearton_float_to_str");
+    memcpy(s, buf, (size_t)n + 1);
     return (SeenString){n, s};
 }
 int64_t seen_string_contains(int64_t s_len, char* s_data, int64_t sub_len, char* sub_data) {
@@ -8154,7 +10726,9 @@ SeenString seen_string_token(int64_t s_len, char* s_data, int64_t d_len, char* d
         if (s_data[i] == d_data[0]) { end = i; break; }
     }
     int64_t len = end - start;
-    char* r = malloc(len + 1); memcpy(r, s_data + start, len); r[len] = 0;
+    char* r = seen_runtime_alloc_chars(len, "seen_string_token");
+    memcpy(r, s_data + start, (size_t)len);
+    r[len] = 0;
     return (SeenString){len, r};
 }
 
@@ -8175,7 +10749,159 @@ SEEN_BOOTSTRAP_WEAK int64_t seen_string_to_int(int64_t len, char* data) { (void)
 SEEN_BOOTSTRAP_WEAK double seen_math_positive_infinity(void) { return INFINITY; }
 SEEN_BOOTSTRAP_WEAK double seen_math_negative_infinity(void) { return -INFINITY; }
 SEEN_BOOTSTRAP_WEAK double seen_math_nan(void) { return NAN; }
-SEEN_BOOTSTRAP_WEAK double seen_math_sqrt(double x) { return sqrt(x); }
+
+typedef double (*SeenUnaryMathFn)(double);
+typedef double (*SeenBinaryMathFn)(double, double);
+
+#if defined(_WIN32)
+#define SEEN_LIBM_UNARY_WRAPPER(seen_name, libm_name) \
+    SEEN_BOOTSTRAP_WEAK double seen_name(double x) { return libm_name(x); }
+#define SEEN_LIBM_BINARY_WRAPPER(seen_name, libm_name) \
+    SEEN_BOOTSTRAP_WEAK double seen_name(double x, double y) { return libm_name(x, y); }
+#else
+static void* seen_resolve_libm_symbol(const char* name) {
+    void* symbol = NULL;
+#if defined(__GLIBC__)
+    symbol = dlvsym(RTLD_NEXT, name, "GLIBC_2.2.5");
+#endif
+    if (!symbol) {
+        symbol = dlsym(RTLD_NEXT, name);
+    }
+#if defined(__APPLE__)
+    if (!symbol) {
+        void* handle = dlopen("/usr/lib/libSystem.B.dylib", RTLD_LAZY | RTLD_LOCAL);
+        if (handle) {
+            symbol = dlsym(handle, name);
+        }
+    }
+#else
+    if (!symbol) {
+        void* handle = dlopen("libm.so.6", RTLD_LAZY | RTLD_LOCAL);
+        if (!handle) {
+            handle = dlopen("libm.so", RTLD_LAZY | RTLD_LOCAL);
+        }
+        if (handle) {
+            symbol = dlsym(handle, name);
+        }
+    }
+#endif
+    if (!symbol) {
+        fprintf(stderr, "Seen runtime: unable to resolve libm symbol '%s'\n", name);
+        abort();
+    }
+    return symbol;
+}
+
+#define SEEN_LIBM_UNARY_WRAPPER(seen_name, libm_name) \
+    SEEN_BOOTSTRAP_WEAK double seen_name(double x) { \
+        static SeenUnaryMathFn fn = NULL; \
+        if (!fn) { \
+            fn = (SeenUnaryMathFn)seen_resolve_libm_symbol(#libm_name); \
+        } \
+        return fn(x); \
+    }
+
+#define SEEN_LIBM_BINARY_WRAPPER(seen_name, libm_name) \
+    SEEN_BOOTSTRAP_WEAK double seen_name(double x, double y) { \
+        static SeenBinaryMathFn fn = NULL; \
+        if (!fn) { \
+            fn = (SeenBinaryMathFn)seen_resolve_libm_symbol(#libm_name); \
+        } \
+        return fn(x, y); \
+    }
+#endif
+
+SEEN_LIBM_UNARY_WRAPPER(seen_math_sqrt, sqrt)
+SEEN_LIBM_UNARY_WRAPPER(seen_math_sin, sin)
+SEEN_LIBM_UNARY_WRAPPER(seen_math_cos, cos)
+SEEN_LIBM_UNARY_WRAPPER(seen_math_tan, tan)
+SEEN_LIBM_UNARY_WRAPPER(seen_math_asin, asin)
+SEEN_LIBM_UNARY_WRAPPER(seen_math_acos, acos)
+SEEN_LIBM_UNARY_WRAPPER(seen_math_atan, atan)
+SEEN_LIBM_BINARY_WRAPPER(seen_math_atan2, atan2)
+SEEN_LIBM_UNARY_WRAPPER(seen_math_floor, floor)
+SEEN_LIBM_UNARY_WRAPPER(seen_math_ceil, ceil)
+SEEN_LIBM_BINARY_WRAPPER(seen_math_pow, pow)
+SEEN_LIBM_UNARY_WRAPPER(seen_math_exp, exp)
+SEEN_LIBM_UNARY_WRAPPER(seen_math_exp2, exp2)
+SEEN_LIBM_UNARY_WRAPPER(seen_math_log, log)
+SEEN_LIBM_UNARY_WRAPPER(seen_math_log2, log2)
+SEEN_LIBM_UNARY_WRAPPER(seen_math_log10, log10)
+SEEN_LIBM_BINARY_WRAPPER(seen_math_fmod, fmod)
+SEEN_LIBM_UNARY_WRAPPER(seen_math_cbrt, cbrt)
+SEEN_LIBM_BINARY_WRAPPER(seen_math_hypot, hypot)
+SEEN_LIBM_UNARY_WRAPPER(seen_math_sinh, sinh)
+SEEN_LIBM_UNARY_WRAPPER(seen_math_cosh, cosh)
+SEEN_LIBM_UNARY_WRAPPER(seen_math_tanh, tanh)
+SEEN_LIBM_UNARY_WRAPPER(seen_math_round, round)
+SEEN_LIBM_UNARY_WRAPPER(seen_math_asinh, asinh)
+SEEN_LIBM_UNARY_WRAPPER(seen_math_acosh, acosh)
+SEEN_LIBM_UNARY_WRAPPER(seen_math_atanh, atanh)
+SEEN_LIBM_BINARY_WRAPPER(seen_math_copysign, copysign)
+
+int64_t seen_math_popcount_i64(int64_t x) {
+    return (int64_t)__builtin_popcountll((unsigned long long)x);
+}
+
+int64_t seen_math_clz_i64(int64_t x) {
+    unsigned long long value = (unsigned long long)x;
+    if (value == 0ULL) return 64;
+    return (int64_t)__builtin_clzll(value);
+}
+
+int64_t seen_math_ctz_i64(int64_t x) {
+    unsigned long long value = (unsigned long long)x;
+    if (value == 0ULL) return 64;
+    return (int64_t)__builtin_ctzll(value);
+}
+
+int64_t seen_math_rotate_left_i64(int64_t x, int64_t shift) {
+    unsigned long long value = (unsigned long long)x;
+    unsigned int amount = (unsigned int)(shift & 63);
+    if (amount == 0) return x;
+    return (int64_t)((value << amount) | (value >> (64U - amount)));
+}
+
+int64_t seen_math_rotate_right_i64(int64_t x, int64_t shift) {
+    unsigned long long value = (unsigned long long)x;
+    unsigned int amount = (unsigned int)(shift & 63);
+    if (amount == 0) return x;
+    return (int64_t)((value >> amount) | (value << (64U - amount)));
+}
+
+int64_t seen_math_byteswap_i64(int64_t x) {
+    return (int64_t)__builtin_bswap64((unsigned long long)x);
+}
+
+SEEN_BOOTSTRAP_WEAK double seen_parse_float_range(SeenString text, int64_t start, int64_t end) {
+    if (start < 0) start = 0;
+    if (end < start) end = start;
+    if (end > text.len) end = text.len;
+
+    int64_t len = end - start;
+    if (len <= 0) return 0.0;
+
+    char stack_buf[128];
+    char* buf = stack_buf;
+    bool heap = false;
+    if (len >= (int64_t)sizeof(stack_buf)) {
+        buf = (char*)seen_try_malloc(len + 1);
+        if (!buf) seen_oom_abort("parse float buffer", len + 1);
+        heap = true;
+    }
+
+    memcpy(buf, text.data + start, (size_t)len);
+    buf[len] = 0;
+    char* parse_end = NULL;
+    errno = 0;
+    double value = strtod(buf, &parse_end);
+
+    if (heap) {
+        free(buf);
+        seen_memory_release_reservation(len + 1);
+    }
+    return value;
+}
 SEEN_BOOTSTRAP_WEAK int64_t seen_string_starts_with(int64_t s_len, char* s_data, int64_t p_len, char* p_data) {
     (void)s_len; (void)s_data; (void)p_len; (void)p_data; return 0;
 }
@@ -8424,8 +11150,19 @@ SEEN_BOOTSTRAP_I64_STUB(seen_world_to_chunk_coord)
 #undef SEEN_BOOTSTRAP_I64_STUB
 
 // --- Memory utility stubs ---
-SEEN_WEAK int64_t seen_mem_alloc(int64_t a) { return (int64_t)calloc(1, (size_t)a); }
-SEEN_WEAK void seen_mem_free(int64_t a) { free((void*)a); }
+SEEN_WEAK int64_t seen_mem_alloc(int64_t a) {
+    if (a <= 0 || a > INT64_MAX - (int64_t)sizeof(int64_t)) return 0;
+    int64_t total = a + (int64_t)sizeof(int64_t);
+    int64_t* base = (int64_t*)seen_try_calloc(1, total);
+    if (!base) return 0;
+    *base = total;
+    return (int64_t)(base + 1);
+}
+SEEN_WEAK void seen_mem_free(int64_t a) {
+    if (!a) return;
+    int64_t* base = ((int64_t*)a) - 1;
+    seen_runtime_free_budgeted(base, *base);
+}
 SEEN_WEAK void seen_memcpy_bytes(int64_t dst, int64_t src, int64_t n) { if (dst && src && n > 0) memcpy((void*)dst, (void*)src, (size_t)n); }
 SEEN_WEAK void seen_memcpy_floats(int64_t dst, int64_t src, int64_t n) { if (dst && src && n > 0) memcpy((void*)dst, (void*)src, (size_t)n * sizeof(float)); }
 SEEN_WEAK void seen_memcpy_ints(int64_t dst, int64_t src, int64_t n) { if (dst && src && n > 0) memcpy((void*)dst, (void*)src, (size_t)n * sizeof(int64_t)); }

@@ -1,6 +1,6 @@
 # CLI Reference
 
-This page documents the shipped Seen 0.8.3 compiler binary. The release
+This page documents the shipped Seen 0.9.0 compiler binary. The release
 entrypoint is `seen compile`; older `seen build` examples are stale for the
 current packaged compiler.
 
@@ -32,6 +32,7 @@ Common options:
 |--------|-------------|
 | `--profile deterministic` | Reject nondeterministic collection usage unless explicitly annotated |
 | `--no-cache` | Disable incremental compilation caching |
+| `--verbose` | Show full per-module compiler progress and expanded warning diagnostics |
 | `--language <lang>` / `-l <lang>` | Source keyword language: `en`, `ar`, `es`, `ru`, `zh`, `ja` |
 | `--target=<platform>` / `--target <platform>` | Cross-compile target |
 | `--target-cpu=<cpu>` | CPU baseline: `native`, `x86-64`, `x86-64-v3`, `x86-64-v4` |
@@ -47,22 +48,33 @@ Common options:
 | `--pic` | Emit PIC objects suitable for shared-library links |
 | `--object-manifest <path>` | Write an object-to-module TSV manifest and skip final executable link |
 | `--fast` | Use the lightweight optimization path used by bootstrap verification |
+| `--no-merged-release-lto` | Disable full merged release LTO for lower-memory release builds |
+| `--emit-module-ir-dir <dir>` | Emit raw per-module LLVM IR into `<dir>` for packaging/cross-build tools |
+| `--stop-after-ir` | Stop after `--emit-module-ir-dir`; requires an IR output directory |
 | `--no-fork` | Disable parallel IR/optimization steps |
 | `--projectprefix <n>` | Large-project validation prefix hint |
 
 Supported target platforms in the shipped help are:
 
 ```text
-linux-x86_64, linux-arm64, windows-x86_64,
-macos-x86_64, macos-arm64, ios-arm64,
-ios-sim-arm64, android-arm64
+linux-x86_64, linux-arm64, linux-riscv64,
+windows-x86_64, macos-x86_64, macos-arm64,
+ios-arm64, ios-sim-arm64, android-arm64
 ```
+
+See [Compilation Targets](targets.md) for target triples, aliases, and
+RISC-V/QEMU verification commands.
+
+By default, `seen compile` prints bounded progress at useful phase checkpoints
+instead of one line per internal action. Warning diagnostics remain visible, and
+`--verbose` expands progress and warnings when debugging a specific module.
 
 Examples:
 
 ```bash
 seen compile hello.seen hello
 seen compile app.seen app --target=linux-arm64 --target-cpu=x86-64
+seen compile app.seen app-rv64 --target=linux-riscv64
 seen compile plugin.seen plugin_host --pic --no-cache --no-fork \
   --object-manifest /tmp/plugin.objects.tsv
 ```
@@ -87,11 +99,12 @@ seen check <input.seen> [--profile deterministic]
 Compile and execute a Seen source file.
 
 ```bash
-seen run <input.seen> [--aot] [--verbose] [--language <lang>]
+seen run <input.seen> [--aot] [--no-cache] [--verbose] [--language <lang>]
 ```
 
 By default `seen run` uses the JIT path. Pass `--aot` to compile an executable
-first, and `--verbose` to show compiler diagnostics during the run.
+first, `--no-cache` to force a fresh compile, and `--verbose` to show compiler
+diagnostics during the run. Run flags may appear before or after the input path.
 
 ### Packaging Commands
 
@@ -156,3 +169,7 @@ fails with an explicit unsupported-backend diagnostic.
 - `.seen_cache/` -- source-level incremental cache
 - `/tmp/seen_ir_cache` -- IR content-addressed cache
 - `/tmp/seen_thinlto_cache` -- ThinLTO linker cache
+- `target/seen-build/runtime-objects/` -- signature-keyed runtime objects
+- `target/seen-build/release-lto/` -- merged release-LTO object cache
+- `target/seen-build/perf-baselines/` -- performance gate baselines
+- `target/seen-build/package-artifacts/` -- release package artifact caches

@@ -8,6 +8,7 @@
 
 #include "seen_pinning.h"
 #include "seen_region.h"
+#include "seen_runtime.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -57,6 +58,16 @@ void __seen_pinning_init_attrs(SeenPinningAttrs* attrs) {
     attrs->pinned_size = 0;
 }
 
+static SeenPinStatus __seen_region_ensure_pinning_attrs(SeenRegion* region) {
+    if (!region) return SEEN_PIN_ERR_NULL_REGION;
+    if (region->pinning_attrs) return SEEN_PIN_SUCCESS;
+    region->pinning_attrs =
+        (SeenPinningAttrs*)seen_try_malloc(sizeof(SeenPinningAttrs));
+    if (!region->pinning_attrs) return SEEN_PIN_ERR_NO_MEMORY;
+    __seen_pinning_init_attrs(region->pinning_attrs);
+    return SEEN_PIN_SUCCESS;
+}
+
 // ============================================================================
 // Memory Pinning Implementation
 // ============================================================================
@@ -73,13 +84,8 @@ SeenPinStatus __seen_region_pin_memory(SeenRegion* region) {
     }
 
     // Allocate pinning attributes if not present
-    if (!region->pinning_attrs) {
-        region->pinning_attrs = (SeenPinningAttrs*)malloc(sizeof(SeenPinningAttrs));
-        if (!region->pinning_attrs) {
-            return SEEN_PIN_ERR_NO_MEMORY;
-        }
-        __seen_pinning_init_attrs(region->pinning_attrs);
-    }
+    SeenPinStatus attr_status = __seen_region_ensure_pinning_attrs(region);
+    if (attr_status != SEEN_PIN_SUCCESS) return attr_status;
 
     // Check memory lock limit
     struct rlimit rlim;
@@ -118,13 +124,8 @@ SeenPinStatus __seen_region_pin_memory(SeenRegion* region) {
     }
 
     // Allocate pinning attributes if not present
-    if (!region->pinning_attrs) {
-        region->pinning_attrs = (SeenPinningAttrs*)malloc(sizeof(SeenPinningAttrs));
-        if (!region->pinning_attrs) {
-            return SEEN_PIN_ERR_NO_MEMORY;
-        }
-        __seen_pinning_init_attrs(region->pinning_attrs);
-    }
+    SeenPinStatus attr_status = __seen_region_ensure_pinning_attrs(region);
+    if (attr_status != SEEN_PIN_SUCCESS) return attr_status;
 
     // Check memory lock limit
     struct rlimit rlim;
@@ -232,13 +233,8 @@ SeenPinStatus __seen_region_set_numa_affinity(SeenRegion* region, int node) {
     }
 
     // Allocate pinning attributes if not present
-    if (!region->pinning_attrs) {
-        region->pinning_attrs = (SeenPinningAttrs*)malloc(sizeof(SeenPinningAttrs));
-        if (!region->pinning_attrs) {
-            return SEEN_PIN_ERR_NO_MEMORY;
-        }
-        __seen_pinning_init_attrs(region->pinning_attrs);
-    }
+    SeenPinStatus attr_status = __seen_region_ensure_pinning_attrs(region);
+    if (attr_status != SEEN_PIN_SUCCESS) return attr_status;
 
     if (node == SEEN_NUMA_AUTO) {
         // Use interleaved policy
@@ -308,13 +304,8 @@ SeenPinStatus __seen_region_use_huge_pages(SeenRegion* region) {
 
 #ifdef __linux__
     // Allocate pinning attributes if not present
-    if (!region->pinning_attrs) {
-        region->pinning_attrs = (SeenPinningAttrs*)malloc(sizeof(SeenPinningAttrs));
-        if (!region->pinning_attrs) {
-            return SEEN_PIN_ERR_NO_MEMORY;
-        }
-        __seen_pinning_init_attrs(region->pinning_attrs);
-    }
+    SeenPinStatus attr_status = __seen_region_ensure_pinning_attrs(region);
+    if (attr_status != SEEN_PIN_SUCCESS) return attr_status;
 
     // Use madvise to enable transparent huge pages
 #ifdef MADV_HUGEPAGE
@@ -331,11 +322,8 @@ SeenPinStatus __seen_region_use_huge_pages(SeenRegion* region) {
     // macOS handles superpage promotion transparently for large aligned allocations.
     // Mark region for sequential access to hint the kernel.
     if (!region->pinning_attrs) {
-        region->pinning_attrs = (SeenPinningAttrs*)malloc(sizeof(SeenPinningAttrs));
-        if (!region->pinning_attrs) {
-            return SEEN_PIN_ERR_NO_MEMORY;
-        }
-        __seen_pinning_init_attrs(region->pinning_attrs);
+        SeenPinStatus attr_status = __seen_region_ensure_pinning_attrs(region);
+        if (attr_status != SEEN_PIN_SUCCESS) return attr_status;
     }
     madvise(region->base, region->size, MADV_SEQUENTIAL);
     region->pinning_attrs->use_huge_pages = 1;
@@ -633,7 +621,8 @@ SeenRegion* __seen_region_create_pinned(
 
     // Copy pinning attributes
     if (attrs) {
-        region->pinning_attrs = (SeenPinningAttrs*)malloc(sizeof(SeenPinningAttrs));
+        region->pinning_attrs =
+            (SeenPinningAttrs*)seen_try_malloc(sizeof(SeenPinningAttrs));
         if (!region->pinning_attrs) {
             __seen_region_destroy(region);
             return NULL;

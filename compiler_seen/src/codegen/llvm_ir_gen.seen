@@ -8,7 +8,7 @@ bridging here; put new lowering rules in the extracted modules.
 ///
 import parser.real_parser.{ProgramNode, FunctionNode, ClassNode, BlockNode, StatementNode, ParserExpressionNode}
 import str.string.{StringBuilder}
-import codegen.ir_module_driver.{generateMultipleState, generateSingleState}
+import codegen.ir_module_driver.{generateMultipleState, generateSingleState, emitMultipleState, emitSingleState}
 import codegen.ir_call_args_driver.{prepareCallArgumentsWithDefaultsState}
 import codegen.ir_call_driver.{generateCallWithGlobalState}
 import codegen.ir_enum_ctor_gen.{generateEnumConstructorState}
@@ -39,7 +39,7 @@ class LLVMIRGenerator {
     var stringConstants: Array<String>
     var nextReg: Int
     var nextBlock: Int
-    // Using parallel arrays as workaround for Map.get() bug
+    // Parallel arrays keep this bootstrap-fragile state layout stable.
     var varNames: Array<String>
     var varRegs: Array<String>
     var varTypes: Array<String>
@@ -140,11 +140,30 @@ class LLVMIRGenerator {
             this.stringConstants, programs)
     }
 
+    fun generateMultipleToFile(programs: Array<ProgramNode>, outputPath: String)
+        r: Bool {
+
+        resetSharedModuleGenerationScratchState()
+        emitMultipleState(this as Int, this.output, this.stringConstants,
+            programs)
+        return this.output.writeToFile(outputPath)
+    }
+
     fun generateSingle(program: ProgramNode, moduleIndex: Int) r: String {
         reset()
         resetSharedModuleGenerationScratchState()
         return generateSingleState(this as Int, this.output,
             this.stringConstants, program, moduleIndex)
+    }
+
+    fun generateSingleToFile(program: ProgramNode, moduleIndex: Int,
+        outputPath: String) r: Bool {
+
+        reset()
+        resetSharedModuleGenerationScratchState()
+        emitSingleState(this as Int, this.output, this.stringConstants,
+            program, moduleIndex)
+        return this.output.writeToFile(outputPath)
     }
     fun generateExpression(expr: ParserExpressionNode) r: String { return generateExpressionWithGlobalState(this as Int, this.output, expr, this.varNames, this.varRegs, this.varTypes, this.stringConstants) }
     ///

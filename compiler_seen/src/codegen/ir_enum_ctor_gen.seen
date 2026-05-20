@@ -87,7 +87,7 @@ fun allocateEnumConstructorObjectImpl(output: StringBuilder, regBox: Array<Int>,
 
     let totalSize = 8 + fieldCount * 8
     let objReg = getNextRegFn(regBox)
-    output.append("  " + objReg + " = call ptr @malloc(i64 " +
+    output.append("  " + objReg + " = call ptr @seen_checked_malloc(i64 " +
         totalSize.toString() + ")\n")
     output.append("  store i64 " + tag.toString() + ", ptr " + objReg + "\n")
     return objReg

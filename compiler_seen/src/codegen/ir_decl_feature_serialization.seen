@@ -80,7 +80,7 @@ fun generateBinaryDeserializerImpl(output: StringBuilder, classNode: ClassNode, 
     output.append("; @binary deserialize for " + className + "\n")
     output.append("define i64 @" + className + "_deserialize(i64 %buf) #0 {\n")
     output.append("entry:\n")
-    output.append("  %mem = call ptr @malloc(i64 " + sz.toString() + ")\n")
+    output.append("  %mem = call ptr @seen_checked_malloc(i64 " + sz.toString() + ")\n")
     var dataOffset = 0
     var bci = 0
     while bci < binaryClassCount {
@@ -209,7 +209,7 @@ fun generateJsonDeserializeImpl(output: StringBuilder, classNode: ClassNode, str
     output.append("; @derive(Json) deserialize for " + className + "\n")
     output.append("define i64 @" + className + "_fromJson(%SeenString %json) #0 {\n")
     output.append("entry:\n")
-    output.append("  %mem = call ptr @malloc(i64 " + sz.toString() + ")\n")
+    output.append("  %mem = call ptr @seen_checked_malloc(i64 " + sz.toString() + ")\n")
     output.append("  call void @llvm.memset.p0.i64(ptr %mem, i8 0, i64 " + sz.toString() + ", i1 false)\n")
     var initFi = 0
     var initByteOff = 0
@@ -310,7 +310,7 @@ fun generatePacketReaderImpl(output: StringBuilder, classNode: ClassNode, packet
     output.append("define i64 @" + className + "_readPacket(i64 %buf) #0 {\n")
     output.append("entry:\n")
     output.append("  %hdr = call i64 @seen_packet_read_header(i64 %buf, i64 0)\n")
-    output.append("  %mem = call ptr @malloc(i64 " + sz.toString() + ")\n")
+    output.append("  %mem = call ptr @seen_checked_malloc(i64 " + sz.toString() + ")\n")
     var fi = 0
     var byteOff = 8
     while fi < numFields {

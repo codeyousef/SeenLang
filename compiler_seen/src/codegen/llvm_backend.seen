@@ -7,6 +7,7 @@ import io.file.{writeText as stdWriteText, readText as stdReadText}
 import time.time.{nowNanos}
 import process.process.{execCommand, CommandResult}
 import codegen.llvm_backend_types.{BenchmarkResult, CompilationConfig, CompilationStats}
+import str.string.{StringBuilder}
 
 class LLVMBackend {
     var optimizationLevel: Int
@@ -392,36 +393,38 @@ class LLVMBackend {
     fun addLoopUnrollingHints(ir: String) r: String {
         // Add metadata for loop unrolling
         let lines = ir.split("\n")
-        let result = ""
+        let result = StringBuilder.new()
         
         for line in lines {
-            result = result + line + "\n"
+            result.append(line)
+            result.append("\n")
             
             if line.contains("br label %") and line.contains("!prof") {
                 // Add loop unroll metadata after branch with profiling info
-                result = result + "!llvm.loop !{!llvm.loop.unroll.enable, !llvm.loop.unroll.count, i32 8}\n"
+                result.append("!llvm.loop !{!llvm.loop.unroll.enable, !llvm.loop.unroll.count, i32 8}\n")
             }
         }
         
-        return result
+        return result.toString()
     }
     
     fun addVectorizationHints(ir: String) r: String {
         // Add vectorization metadata
         let lines = ir.split("\n")
-        let result = ""
+        let result = StringBuilder.new()
         
         for line in lines {
-            result = result + line + "\n"
+            result.append(line)
+            result.append("\n")
             
             if line.contains("for.body:") {
                 // Add vectorization metadata for loop bodies
-                result = result + "!llvm.loop.vectorize.enable = !{!0}\n"
-                result = result + "!llvm.loop.vectorize.width = !{i32 8}\n"
+                result.append("!llvm.loop.vectorize.enable = !{!0}\n")
+                result.append("!llvm.loop.vectorize.width = !{i32 8}\n")
             }
         }
         
-        return result
+        return result.toString()
     }
     
     fun addInlineHints(ir: String) r: String {

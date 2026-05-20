@@ -15,6 +15,13 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+BUILD_TRACE_COMMON="$SCRIPT_DIR/build_trace_common.sh"
+if [[ -f "$BUILD_TRACE_COMMON" ]]; then
+    # shellcheck source=scripts/build_trace_common.sh
+    source "$BUILD_TRACE_COMMON"
+    seen_build_trace_init "build_and_upload_release"
+    trap 'seen_build_trace_summary' EXIT
+fi
 
 VERSION="${1:-}"
 if [[ -z "$VERSION" ]]; then
@@ -95,6 +102,10 @@ if [[ ! -x "$LINUX_X64_COMPILER" ]]; then
     exit 1
 fi
 
+if declare -F seen_build_require_full_release_stamp >/dev/null 2>&1; then
+    seen_build_require_full_release_stamp "$ROOT_DIR" "$LINUX_X64_COMPILER"
+fi
+
 if [[ -n "${SEEN_APPIMAGE_RUNTIME_FILE:-}" && ! -f "$SEEN_APPIMAGE_RUNTIME_FILE" ]]; then
     die "SEEN_APPIMAGE_RUNTIME_FILE does not exist: $SEEN_APPIMAGE_RUNTIME_FILE"
 fi
@@ -118,7 +129,10 @@ rm -f "$TMPFILE" "${TMPFILE%.seen}"
 
 echo ""
 echo "=== Building Linux release packages (v$VERSION)... ==="
-rm -rf "$DIST_DIR"
+if [[ "${SEEN_RELEASE_CLEAN_DIST:-0}" == "1" ]]; then
+    rm -rf "$DIST_DIR"
+fi
+mkdir -p "$DIST_DIR"
 "$SCRIPT_DIR/build_release.sh" \
     --version "$VERSION" \
     --output-dir "$DIST_DIR" \

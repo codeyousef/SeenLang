@@ -53,7 +53,9 @@ for name in names {
 
 ## Vec\<T\>
 
-Chunked vector with amortized O(1) push/pop. Better for very large collections.
+Contiguous vector with amortized O(1) push/pop and O(1) indexed access.
+`Vec<T>` is the preferred performance-oriented growable sequence when callers
+need repeated `get`, `set`, iteration, or conversion back to `Array<T>`.
 
 ```seen
 import collections.vec
@@ -84,6 +86,11 @@ let v = Vec<Int>.withCapacity(1000)
 
 Robin-hood hashing hash map. Iteration order is non-deterministic.
 
+Generic keys in the source fallback hash through their stable string form, so
+supported primitive and string keys no longer collapse into a single bucket.
+For string-heavy workloads, `StringHashMap<V>` still avoids generic conversion
+overhead and uses byte-wise hashing directly.
+
 ```seen
 import collections.hash_map
 ```
@@ -101,6 +108,9 @@ let map = HashMap<String, Int>.withCapacity(100)
 |--------|--------|-------------|
 | `insert(key: K, value: V)` | `Void` | Insert or update |
 | `get(key: K)` | `Option<V>` | Lookup by key |
+| `getOrDefault(key: K, defaultValue: V)` | `V` | Lookup without allocating an `Option` result |
+| `containsKey(key: K)` | `Bool` | Probe without allocating an `Option` result |
+| `getUnchecked(key: K)` | `V` | Direct lookup for hot paths after `containsKey`; missing keys are caller error |
 | `remove(key: K)` | `Option<V>` | Remove by key |
 | `len()` | `Int` | Number of entries |
 | `isEmpty()` | `Bool` | Check empty |
@@ -116,6 +126,7 @@ let map = HashMap<String, Int>.withCapacity(100)
 | `hashmap_new_*_with_capacity(cap)` | Create with capacity |
 | `hashmap_insert_*(map, key, val)` | Insert |
 | `hashmap_get_*(map, key)` | Lookup |
+| `hashmap_getUnchecked_*(map, key)` | Direct lookup without constructing an `Option` wrapper |
 | `hashmap_remove_*(map, key)` | Remove |
 | `hashmap_clear_*(map)` | Clear all entries |
 | `hashmap_size_*(map)` | Get size |
@@ -238,11 +249,68 @@ import collections.string_hash_map
 
 ## ByteBuffer
 
-Low-level byte buffer for binary data.
+Low-level byte storage for binary data. `ByteArray` and `ByteBuffer` use compact
+runtime-backed byte storage and expose `Int` values at the API boundary.
 
 ```seen
 import collections.byte_buffer
+
+let bytes = ByteBuffer.withCapacity(1024)
+bytes.reserve(4096)
+bytes.push(255)
+bytes.push(256)   // stored as 0
+let value = bytes.get(0)
 ```
+
+### Byte APIs
+
+| Type | Description |
+|------|-------------|
+| `ByteArray` | Compact growable byte array |
+| `ByteBuffer` | Convenience wrapper around `ByteArray` |
+| `Int32Buffer` / `Int64Buffer` | Primitive integer buffer APIs backed by compact runtime storage |
+| `Float32Buffer` / `Float64Buffer` | Primitive floating-point buffer APIs backed by native `float`/`double` storage |
+
+| Method | Return | Description |
+|--------|--------|-------------|
+| `capacity()` | `Int` | Current allocated capacity |
+| `tryReserve(requiredCapacity)` | `Bool` | Grow backing storage without aborting on allocation failure |
+| `reserve(requiredCapacity)` | `Void` | Grow backing storage or panic with a Seen diagnostic |
+| `push(value: Int)` | `Void` | Append byte, masked to `0..255` |
+| `append(other)` | `Void` | Append another byte buffer |
+| `get(index: Int)` | `Int` | Read byte |
+| `set(index: Int, value: Int)` | `Void` | Write byte |
+| `slice(start: Int, end: Int)` | same type | Copy a byte range |
+| `reverse()` | `Void` | Reverse in place |
+| `fill(value: Int)` | `Void` | Fill existing bytes |
+| `toArray()` / `toIntArray()` | `Array<Int>` | Convert to integer byte values |
+
+## Algorithms
+
+Shared collection algorithms for performance-sensitive integer and floating-point
+paths.
+
+```seen
+import collections.algorithms
+```
+
+Module path: `collections/algorithms`.
+
+| Function / Type | Description |
+|-----------------|-------------|
+| `binarySearchInt(values, needle)` | Return matching index or `-1` |
+| `lowerBoundInt(values, needle)` | First insertion slot not less than `needle` |
+| `upperBoundInt(values, needle)` | First insertion slot greater than `needle` |
+| `unstableSortInt(values)` | In-place introsort with insertion sort for small partitions and a heapsort depth fallback |
+| `stableSortInt(values)` | Stable sorted copy |
+| `radixSortInt(values)` | Signed integer radix sort that preserves negative/positive ordering |
+| `IntPriorityQueue.min()` / `.max()` | Binary heap priority queues |
+| `binarySearchFloat(values, needle)` | Return matching float index or `-1` |
+| `lowerBoundFloat(values, needle)` | First float insertion slot not less than `needle` |
+| `upperBoundFloat(values, needle)` | First float insertion slot greater than `needle` |
+| `unstableSortFloat(values)` | In-place introsort for `Array<Float>` |
+| `stableSortFloat(values)` | Stable sorted float copy |
+| `FloatPriorityQueue.min()` / `.max()` | Binary heap priority queues for floats |
 
 ## BitSet
 

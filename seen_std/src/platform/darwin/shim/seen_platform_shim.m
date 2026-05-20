@@ -5,6 +5,55 @@
 //              -framework AudioToolbox -framework GameController
 
 #import <Foundation/Foundation.h>
+#include <stdint.h>
+#include <stdlib.h>
+
+#if defined(__APPLE__)
+extern int64_t seen_memory_try_reserve_bytes(int64_t size) __attribute__((weak_import));
+extern void seen_memory_release_bytes(int64_t size) __attribute__((weak_import));
+#endif
+
+static void* seen_darwin_calloc_sized(size_t count, size_t item_size, const char* label, size_t* out_bytes) {
+    if (item_size != 0 && count > SIZE_MAX / item_size) {
+        NSLog(@"[Seen Platform] Allocation size overflow for %s", label);
+        return NULL;
+    }
+    size_t bytes = count * item_size;
+    if (bytes == 0 || bytes > (size_t)INT64_MAX) {
+        NSLog(@"[Seen Platform] Invalid allocation size for %s", label);
+        return NULL;
+    }
+#if defined(__APPLE__)
+    if (seen_memory_try_reserve_bytes && !seen_memory_try_reserve_bytes((int64_t)bytes)) {
+        NSLog(@"[Seen Platform] Allocation budget exhausted for %s (%zu bytes)", label, bytes);
+        return NULL;
+    }
+#endif
+    void* ptr = calloc(count, item_size);
+    if (!ptr) {
+#if defined(__APPLE__)
+        if (seen_memory_release_bytes) {
+            seen_memory_release_bytes((int64_t)bytes);
+        }
+#endif
+        NSLog(@"[Seen Platform] Host allocation failed for %s (%zu bytes)", label, bytes);
+        return NULL;
+    }
+    if (out_bytes) {
+        *out_bytes = bytes;
+    }
+    return ptr;
+}
+
+static void seen_darwin_free_sized(void* ptr, size_t bytes) {
+    if (!ptr) return;
+#if defined(__APPLE__)
+    if (seen_memory_release_bytes && bytes > 0 && bytes <= (size_t)INT64_MAX) {
+        seen_memory_release_bytes((int64_t)bytes);
+    }
+#endif
+    free(ptr);
+}
 
 #if __has_include(<Metal/Metal.h>)
 #define SEEN_HAS_METAL 1
@@ -185,7 +234,7 @@ typedef struct {
 } SeenAudioStream;
 
 void* seen_audio_create_output(double sampleRate, int64_t channels, int64_t bufferSize) {
-    SeenAudioStream* stream = calloc(1, sizeof(SeenAudioStream));
+    SeenAudioStream* stream = seen_darwin_calloc_sized(1, sizeof(SeenAudioStream), "CoreAudio stream", NULL);
     if (!stream) return NULL;
 
     stream->format.mSampleRate = sampleRate;
@@ -223,7 +272,7 @@ void seen_audio_destroy(void* streamPtr) {
     if (stream->queue) {
         AudioQueueDispose(stream->queue, true);
     }
-    free(stream);
+    seen_darwin_free_sized(stream, sizeof(SeenAudioStream));
 }
 
 #endif // SEEN_HAS_COREAUDIO

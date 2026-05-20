@@ -86,6 +86,30 @@ fun process() r: Result<Int, String> {
 }
 ```
 
+## Allocation Errors
+
+`memory/allocation` defines the resource-safety side of Seen's memory model.
+
+```seen
+import memory.allocation
+```
+
+### Types
+
+| Type | Description |
+|------|-------------|
+| `AllocError` | Allocation failure details, including requested bytes and current budget state |
+| `MemoryStats` | Current limit, used bytes, peak bytes, remaining bytes, and failure count |
+
+### Functions
+
+| Function | Return | Description |
+|----------|--------|-------------|
+| `setMemoryLimitBytes(bytes)` | `Void` | Set the process allocation budget |
+| `memoryStats()` | `MemoryStats` | Read runtime allocation counters |
+| `memoryRemainingBytes()` | `Int` | Return available tracked allocation budget |
+| `ensureAllocationBudget(bytes)` | `Result<Unit, AllocError>` | Check budget before a fallible allocation path |
+
 ### Example
 
 ```seen

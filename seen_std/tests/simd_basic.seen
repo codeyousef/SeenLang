@@ -1,0 +1,72 @@
+///
+SIMD runtime compatibility tests.
+Expected: Array<Float> wrappers use double-array runtime paths and handle vectors remain compatible.
+///
+
+import simd.simd_math.{simd_reduce_sum, simd_prefix_sum, simd_min, simd_max, simd_dot_product}
+import simd.simd_types.{simd_f4_splat, simd_f4_add, simd_f4_mul, simd_f4_min, simd_f4_max, simd_f4_sum, simd_f4_dot}
+
+fun approxEqual(a: Float, b: Float) r: Bool {
+    var diff = a - b
+    if diff < 0.0 {
+        diff = 0.0 - diff
+    }
+    return diff < 0.0001
+}
+
+fun expect(condition: Bool, message: String) r: Int {
+    if condition {
+        println("PASS: " + message)
+        return 0
+    }
+    println("FAIL: " + message)
+    return 1
+}
+
+fun main() r: Int {
+    var failed = 0
+
+    let values = Array<Float>()
+    values.push(1.0)
+    values.push(2.0)
+    values.push(3.0)
+    values.push(4.0)
+    values.push(5.0)
+    values.push(6.0)
+    values.push(7.0)
+    values.push(8.0)
+
+    let other = Array<Float>()
+    other.push(8.0)
+    other.push(7.0)
+    other.push(6.0)
+    other.push(5.0)
+    other.push(4.0)
+    other.push(3.0)
+    other.push(2.0)
+    other.push(1.0)
+
+    failed = failed + expect(approxEqual(simd_reduce_sum(values, values.length()), 36.0), "SIMD reduce sum")
+    failed = failed + expect(approxEqual(simd_min(values, values.length()), 1.0), "SIMD reduce min")
+    failed = failed + expect(approxEqual(simd_max(values, values.length()), 8.0), "SIMD reduce max")
+    failed = failed + expect(approxEqual(simd_dot_product(values, other, values.length()), 120.0), "SIMD dot product")
+
+    simd_prefix_sum(values, values.length())
+    failed = failed + expect(approxEqual(values[0], 1.0), "SIMD prefix first")
+    failed = failed + expect(approxEqual(values[3], 10.0), "SIMD prefix middle")
+    failed = failed + expect(approxEqual(values[7], 36.0), "SIMD prefix last")
+
+    let splatA = simd_f4_splat(2.0)
+    let splatB = simd_f4_splat(3.0)
+    let added = simd_f4_add(splatA, splatB)
+    let multiplied = simd_f4_mul(added, splatB)
+    let minVec = simd_f4_min(multiplied, simd_f4_splat(20.0))
+    let maxVec = simd_f4_max(minVec, simd_f4_splat(10.0))
+    failed = failed + expect(approxEqual(simd_f4_sum(maxVec), 60.0), "SIMD handle chain sum")
+    failed = failed + expect(approxEqual(simd_f4_dot(splatA, splatB), 24.0), "SIMD handle dot")
+
+    if failed > 0 {
+        return 1
+    }
+    return 0
+}

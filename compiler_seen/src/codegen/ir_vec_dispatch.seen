@@ -58,6 +58,13 @@ fun emitVecMethodCoreImpl(output: StringBuilder, regBox: Array<Int>,
         return "0"
     }
 
+    // tryPush
+    if methodName == "tryPush" {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call i64 @Vec_tryPush" + suffix + "(ptr " + vecPtrReg + ", " + argType + " " + arg0 + ")\n")
+        return resultReg
+    }
+
     // get
     if methodName == "get" {
         let resultReg = getNextRegFn(regBox)
@@ -96,6 +103,13 @@ fun emitVecMethodCoreImpl(output: StringBuilder, regBox: Array<Int>,
     if methodName == "reserve" or methodName == "ensureCapacity" {
         output.append("  call void @Vec_ensureCapacity" + suffix + "(ptr " + vecPtrReg + ", i64 " + arg0 + ")\n")
         return "0"
+    }
+
+    // tryReserve/tryEnsureCapacity
+    if methodName == "tryReserve" or methodName == "tryEnsureCapacity" {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call i64 @Vec_tryEnsureCapacity" + suffix + "(ptr " + vecPtrReg + ", i64 " + arg0 + ")\n")
+        return resultReg
     }
 
     // contains
@@ -173,6 +187,28 @@ fun emitVecMethodCoreImpl(output: StringBuilder, regBox: Array<Int>,
             }
         }
         return "0"
+    }
+
+    // toArray
+    if methodName == "toArray" {
+        let rawReg = getNextRegFn(regBox)
+        if hasStr {
+            output.append("  " + rawReg + " = call ptr @Vec_toArray_str(ptr " + vecPtrReg + ")\n")
+        } else {
+            if hasFloat {
+                output.append("  " + rawReg + " = call ptr @Vec_toArray_float(ptr " + vecPtrReg + ")\n")
+            } else {
+                output.append("  " + rawReg + " = call ptr @Vec_toArray(ptr " + vecPtrReg + ")\n")
+            }
+        }
+        return rawReg
+    }
+
+    // tryToArray
+    if methodName == "tryToArray" {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call i64 @Vec_tryToArray" + suffix + "(ptr " + vecPtrReg + ")\n")
+        return resultReg
     }
 
     // Unhandled method - return empty to signal fallthrough

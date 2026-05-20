@@ -4,13 +4,15 @@ Extracted from ir_function_gen.seen
 ///
 
 import parser.real_parser.{BlockNode}
+import str.string.{StringBuilder}
 
 ///
 analyzeDeadStoresImpl — Scan block for var x = literal; x = expr2 pattern (DSE 9.10b)
 Returns pipe-delimited list of variable names whose literal initializers should be skipped
 ///
 fun analyzeDeadStoresImpl(block: BlockNode) r: String {
-    var result = ""
+    let result = StringBuilder.new()
+    var hasResult = false
     var dsIdx = 0
     while dsIdx < block.statements.length() - 1 {
         let dsStmt = block.statements[dsIdx]
@@ -53,11 +55,11 @@ fun analyzeDeadStoresImpl(block: BlockNode) r: String {
                     if not dsIsReadModWrite {
                         // Only record if initializer is a pure literal (no side effects)
                         if dsStmt.initializer.kind == "Literal" {
-                            if result == "" {
-                                result = dsStmt.variableName
-                            } else {
-                                result = result + "|" + dsStmt.variableName
+                            if hasResult {
+                                result.append("|")
                             }
+                            result.append(dsStmt.variableName)
+                            hasResult = true
                         }
                     }
                 }
@@ -65,5 +67,5 @@ fun analyzeDeadStoresImpl(block: BlockNode) r: String {
         }
         dsIdx = dsIdx + 1
     }
-    return result
+    return result.toString()
 }

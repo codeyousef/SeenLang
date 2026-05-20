@@ -109,6 +109,27 @@ fun add(a: Int, b: Int) r: Int {
 
 ### Default parameters are not yet supported — use overloads or optional types.
 
+## Facade Components
+
+Facade component functions use the contextual `component` form. Inside a
+component body, `state`, `computed`, and `uiEffect` declare UI-local state,
+derived values, and explicit side-effect blocks:
+
+```seen
+component Counter(title: String) {
+    state count: Int = 0
+    computed label: String = title + ": " + count.toString()
+
+    uiEffect {
+        println(label)
+    }
+}
+```
+
+Component calls support named arguments and trailing or named slot blocks for
+declarative APIs. Dynamic child lists should provide stable keys so frontend and
+editor diagnostics can catch missing or duplicate child identity.
+
 ## Control Flow
 
 ### if / else
@@ -453,6 +474,26 @@ fun compute() r: Result<Int, String> {
 }
 ```
 
+### Allocation errors
+
+Allocation-heavy APIs expose fallible `try*` forms using the same
+`Result<T, E>` style. `AllocError` carries the requested size plus current
+runtime memory-budget state.
+
+```seen
+import core.result.{Result, Ok}
+import core.unit.{Unit}
+import memory.allocation.{AllocError, ensureAllocationBudget}
+
+fun prepareBuffer(bytes: Int) r: Result<Unit, AllocError> {
+    ensureAllocationBudget(bytes)?
+    return Ok(Unit{})
+}
+```
+
+Set `SEEN_MEMORY_LIMIT_BYTES` to enforce a process allocation budget from the
+outside, or call `setMemoryLimitBytes(bytes)` inside a program.
+
 ### try / catch
 
 ```seen
@@ -513,7 +554,28 @@ map.insert("bob", 25)
 let age = map.get("alice")
 ```
 
-See the [Collections API](api-reference/collections.md) for Vec, BTreeMap, LinkedList, and more.
+### Byte Buffers and Algorithms
+
+```seen
+let bytes = ByteBuffer.withCapacity(256)
+bytes.reserve(1024)
+bytes.push(255)
+
+let raw = Int32Buffer.withCapacity(128)
+raw.push(42)
+
+let values = [5, 1, 3]
+unstableSortInt(values)
+let slot = lowerBoundInt(values, 3)
+
+let scores = Array<Float>()
+scores.push(3.5)
+scores.push(1.25)
+unstableSortFloat(scores)
+```
+
+See the [Collections API](api-reference/collections.md) for Vec, BTreeMap,
+ByteBuffer, primitive buffers, sort/search helpers, priority queues, and more.
 
 ## Ranges
 

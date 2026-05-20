@@ -3,6 +3,8 @@
 // Requires Vulkan SDK (libvulkan)
 
 #include "seen_gpu.h"
+#include "seen_runtime.h"
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -57,6 +59,55 @@ typedef struct {
 static SeenGpuContext g_gpu = {0};
 
 // --- Helper Functions ---
+
+static int seen_gpu_mul_bytes(size_t count, size_t item_size, size_t* out_bytes) {
+    if (item_size != 0 && count > SIZE_MAX / item_size) {
+        return 0;
+    }
+    size_t bytes = count * item_size;
+    if (bytes > (size_t)INT64_MAX) {
+        return 0;
+    }
+    *out_bytes = bytes;
+    return 1;
+}
+
+static void* seen_gpu_alloc_bytes(size_t bytes, const char* label) {
+    if (bytes == 0 || bytes > (size_t)INT64_MAX) {
+        fprintf(stderr, "[seen_gpu] Invalid allocation size for %s: %zu\n", label, bytes);
+        return NULL;
+    }
+    void* ptr = seen_try_malloc((int64_t)bytes);
+    if (!ptr) {
+        fprintf(stderr, "[seen_gpu] Allocation budget exhausted for %s (%zu bytes)\n", label, bytes);
+    }
+    return ptr;
+}
+
+static void* seen_gpu_calloc_bytes(size_t count, size_t item_size, const char* label, size_t* out_bytes) {
+    size_t bytes = 0;
+    if (!seen_gpu_mul_bytes(count, item_size, &bytes) || bytes == 0) {
+        fprintf(stderr, "[seen_gpu] Invalid allocation size for %s\n", label);
+        return NULL;
+    }
+    void* ptr = seen_try_calloc((int64_t)count, (int64_t)item_size);
+    if (!ptr) {
+        fprintf(stderr, "[seen_gpu] Allocation budget exhausted for %s (%zu bytes)\n", label, bytes);
+        return NULL;
+    }
+    if (out_bytes) {
+        *out_bytes = bytes;
+    }
+    return ptr;
+}
+
+static void seen_gpu_free_bytes(void* ptr, size_t bytes) {
+    if (!ptr) return;
+    if (bytes > 0 && bytes <= (size_t)INT64_MAX) {
+        seen_memory_release_bytes((int64_t)bytes);
+    }
+    free(ptr);
+}
 
 static uint32_t find_memory_type(uint32_t type_filter, VkMemoryPropertyFlags properties) {
     for (uint32_t i = 0; i < g_gpu.mem_props.memoryTypeCount; i++) {
@@ -223,8 +274,27 @@ int64_t seen_gpu_init(void) {
         return 0;
     }
 
-    VkPhysicalDevice* devices = (VkPhysicalDevice*)malloc(device_count * sizeof(VkPhysicalDevice));
-    vkEnumeratePhysicalDevices(g_gpu.instance, &device_count, devices);
+    size_t devices_bytes = 0;
+    if (!seen_gpu_mul_bytes((size_t)device_count, sizeof(VkPhysicalDevice), &devices_bytes)) {
+        fprintf(stderr, "[seen_gpu] Physical device list is too large\n");
+        vkDestroyInstance(g_gpu.instance, NULL);
+        memset(&g_gpu, 0, sizeof(g_gpu));
+        return 0;
+    }
+    VkPhysicalDevice* devices = (VkPhysicalDevice*)seen_gpu_alloc_bytes(devices_bytes, "physical device list");
+    if (!devices) {
+        vkDestroyInstance(g_gpu.instance, NULL);
+        memset(&g_gpu, 0, sizeof(g_gpu));
+        return 0;
+    }
+    res = vkEnumeratePhysicalDevices(g_gpu.instance, &device_count, devices);
+    if (res != VK_SUCCESS) {
+        fprintf(stderr, "[seen_gpu] vkEnumeratePhysicalDevices failed: %d\n", res);
+        seen_gpu_free_bytes(devices, devices_bytes);
+        vkDestroyInstance(g_gpu.instance, NULL);
+        memset(&g_gpu, 0, sizeof(g_gpu));
+        return 0;
+    }
 
     // Prefer discrete GPU
     g_gpu.physical_device = devices[0];
@@ -236,13 +306,25 @@ int64_t seen_gpu_init(void) {
             break;
         }
     }
-    free(devices);
+    seen_gpu_free_bytes(devices, devices_bytes);
 
     // Find compute queue family
     uint32_t queue_family_count = 0;
     vkGetPhysicalDeviceQueueFamilyProperties(g_gpu.physical_device, &queue_family_count, NULL);
-    VkQueueFamilyProperties* queue_families = (VkQueueFamilyProperties*)malloc(
-        queue_family_count * sizeof(VkQueueFamilyProperties));
+    size_t queue_families_bytes = 0;
+    if (!seen_gpu_mul_bytes((size_t)queue_family_count, sizeof(VkQueueFamilyProperties), &queue_families_bytes)) {
+        fprintf(stderr, "[seen_gpu] Queue family list is too large\n");
+        vkDestroyInstance(g_gpu.instance, NULL);
+        memset(&g_gpu, 0, sizeof(g_gpu));
+        return 0;
+    }
+    VkQueueFamilyProperties* queue_families =
+        (VkQueueFamilyProperties*)seen_gpu_alloc_bytes(queue_families_bytes, "queue family list");
+    if (!queue_families) {
+        vkDestroyInstance(g_gpu.instance, NULL);
+        memset(&g_gpu, 0, sizeof(g_gpu));
+        return 0;
+    }
     vkGetPhysicalDeviceQueueFamilyProperties(g_gpu.physical_device, &queue_family_count, queue_families);
 
     g_gpu.compute_queue_family = UINT32_MAX;
@@ -255,7 +337,7 @@ int64_t seen_gpu_init(void) {
             }
         }
     }
-    free(queue_families);
+    seen_gpu_free_bytes(queue_families, queue_families_bytes);
 
     if (g_gpu.compute_queue_family == UINT32_MAX) {
         fprintf(stderr, "[seen_gpu] No compute queue family found\n");
@@ -327,7 +409,9 @@ int64_t seen_gpu_is_available(void) {
 int64_t seen_gpu_buffer_create(int64_t size, int64_t usage) {
     if (!g_gpu.initialized) return 0;
 
-    SeenGpuBuffer* buf = (SeenGpuBuffer*)calloc(1, sizeof(SeenGpuBuffer));
+    size_t buffer_handle_bytes = 0;
+    SeenGpuBuffer* buf = (SeenGpuBuffer*)seen_gpu_calloc_bytes(
+        1, sizeof(SeenGpuBuffer), "GPU buffer handle", &buffer_handle_bytes);
     if (!buf) return 0;
     buf->size = (VkDeviceSize)size;
 
@@ -356,7 +440,7 @@ int64_t seen_gpu_buffer_create(int64_t size, int64_t usage) {
         mem_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
         ok = create_vk_buffer(size, vk_usage, mem_flags, &buf->buffer, &buf->memory);
         if (!ok) {
-            free(buf);
+            seen_gpu_free_bytes(buf, buffer_handle_bytes);
             return 0;
         }
         buf->host_visible = 0;
@@ -471,7 +555,7 @@ void seen_gpu_buffer_destroy(int64_t handle) {
     }
     vkDestroyBuffer(g_gpu.device, buf->buffer, NULL);
     vkFreeMemory(g_gpu.device, buf->memory, NULL);
-    free(buf);
+    seen_gpu_free_bytes(buf, sizeof(SeenGpuBuffer));
 }
 
 int64_t seen_gpu_shader_load(const char* spirv_path) {
@@ -493,7 +577,14 @@ int64_t seen_gpu_shader_load(const char* spirv_path) {
         return 0;
     }
 
-    uint32_t* code = (uint32_t*)malloc(file_size);
+    if ((uint64_t)file_size > (uint64_t)INT64_MAX) {
+        fprintf(stderr, "[seen_gpu] SPIR-V file too large: %s (size=%ld)\n", spirv_path, file_size);
+        fclose(f);
+        return 0;
+    }
+
+    size_t code_bytes = (size_t)file_size;
+    uint32_t* code = (uint32_t*)seen_gpu_alloc_bytes(code_bytes, "SPIR-V shader bytes");
     if (!code) {
         fclose(f);
         return 0;
@@ -503,7 +594,7 @@ int64_t seen_gpu_shader_load(const char* spirv_path) {
 
     if ((long)read_size != file_size) {
         fprintf(stderr, "[seen_gpu] Failed to read shader: %s\n", spirv_path);
-        free(code);
+        seen_gpu_free_bytes(code, code_bytes);
         return 0;
     }
 
@@ -514,7 +605,7 @@ int64_t seen_gpu_shader_load(const char* spirv_path) {
 
     VkShaderModule shader_module;
     VkResult res = vkCreateShaderModule(g_gpu.device, &module_info, NULL, &shader_module);
-    free(code);
+    seen_gpu_free_bytes(code, code_bytes);
 
     if (res != VK_SUCCESS) {
         fprintf(stderr, "[seen_gpu] vkCreateShaderModule failed: %d\n", res);
@@ -528,15 +619,29 @@ int64_t seen_gpu_pipeline_create(int64_t shader_handle, int64_t binding_count) {
     if (!g_gpu.initialized || !shader_handle) return 0;
     VkShaderModule shader_module = (VkShaderModule)(uintptr_t)shader_handle;
 
-    SeenGpuPipeline* pipe = (SeenGpuPipeline*)calloc(1, sizeof(SeenGpuPipeline));
+    if (binding_count < 0 || binding_count > INT_MAX || binding_count > UINT32_MAX) {
+        fprintf(stderr, "[seen_gpu] Invalid descriptor binding count: %" PRId64 "\n", binding_count);
+        return 0;
+    }
+
+    size_t pipeline_bytes = 0;
+    SeenGpuPipeline* pipe = (SeenGpuPipeline*)seen_gpu_calloc_bytes(
+        1, sizeof(SeenGpuPipeline), "GPU pipeline handle", &pipeline_bytes);
     if (!pipe) return 0;
     pipe->shader_module = shader_module;
     pipe->binding_count = (int)binding_count;
 
     // Create descriptor set layout with N storage buffer bindings
     VkDescriptorSetLayoutBinding* bindings = NULL;
+    size_t bindings_bytes = 0;
     if (binding_count > 0) {
-        bindings = (VkDescriptorSetLayoutBinding*)calloc(binding_count, sizeof(VkDescriptorSetLayoutBinding));
+        bindings = (VkDescriptorSetLayoutBinding*)seen_gpu_calloc_bytes(
+            (size_t)binding_count, sizeof(VkDescriptorSetLayoutBinding),
+            "GPU descriptor bindings", &bindings_bytes);
+        if (!bindings) {
+            seen_gpu_free_bytes(pipe, pipeline_bytes);
+            return 0;
+        }
         for (int i = 0; i < binding_count; i++) {
             bindings[i].binding = i;
             bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
@@ -551,10 +656,10 @@ int64_t seen_gpu_pipeline_create(int64_t shader_handle, int64_t binding_count) {
     layout_info.pBindings = bindings;
 
     VkResult res = vkCreateDescriptorSetLayout(g_gpu.device, &layout_info, NULL, &pipe->desc_layout);
-    free(bindings);
+    seen_gpu_free_bytes(bindings, bindings_bytes);
     if (res != VK_SUCCESS) {
         fprintf(stderr, "[seen_gpu] vkCreateDescriptorSetLayout failed: %d\n", res);
-        free(pipe);
+        seen_gpu_free_bytes(pipe, pipeline_bytes);
         return 0;
     }
 
@@ -568,7 +673,7 @@ int64_t seen_gpu_pipeline_create(int64_t shader_handle, int64_t binding_count) {
     if (res != VK_SUCCESS) {
         fprintf(stderr, "[seen_gpu] vkCreatePipelineLayout failed: %d\n", res);
         vkDestroyDescriptorSetLayout(g_gpu.device, pipe->desc_layout, NULL);
-        free(pipe);
+        seen_gpu_free_bytes(pipe, pipeline_bytes);
         return 0;
     }
 
@@ -589,7 +694,7 @@ int64_t seen_gpu_pipeline_create(int64_t shader_handle, int64_t binding_count) {
         fprintf(stderr, "[seen_gpu] vkCreateComputePipelines failed: %d\n", res);
         vkDestroyPipelineLayout(g_gpu.device, pipe->layout, NULL);
         vkDestroyDescriptorSetLayout(g_gpu.device, pipe->desc_layout, NULL);
-        free(pipe);
+        seen_gpu_free_bytes(pipe, pipeline_bytes);
         return 0;
     }
 
@@ -612,7 +717,7 @@ int64_t seen_gpu_pipeline_create(int64_t shader_handle, int64_t binding_count) {
             vkDestroyPipeline(g_gpu.device, pipe->pipeline, NULL);
             vkDestroyPipelineLayout(g_gpu.device, pipe->layout, NULL);
             vkDestroyDescriptorSetLayout(g_gpu.device, pipe->desc_layout, NULL);
-            free(pipe);
+            seen_gpu_free_bytes(pipe, pipeline_bytes);
             return 0;
         }
     }
@@ -631,7 +736,7 @@ void seen_gpu_pipeline_destroy(int64_t handle) {
         vkDestroyDescriptorPool(g_gpu.device, pipe->desc_pool, NULL);
     }
     vkDestroyShaderModule(g_gpu.device, pipe->shader_module, NULL);
-    free(pipe);
+    seen_gpu_free_bytes(pipe, sizeof(SeenGpuPipeline));
 }
 
 int64_t seen_gpu_dispatch(int64_t pipeline_handle, int64_t gx, int64_t gy, int64_t gz,
@@ -641,7 +746,13 @@ int64_t seen_gpu_dispatch(int64_t pipeline_handle, int64_t gx, int64_t gy, int64
 
     // Allocate descriptor set
     VkDescriptorSet desc_set = VK_NULL_HANDLE;
-    if (pipe->binding_count > 0 && buffer_count > 0) {
+    int64_t usable_count64 = buffer_count < pipe->binding_count ? buffer_count : pipe->binding_count;
+    if (pipe->binding_count > 0 && usable_count64 > 0) {
+        if (!buffers) {
+            fprintf(stderr, "[seen_gpu] Missing buffer handles for dispatch\n");
+            return 0;
+        }
+
         VkDescriptorSetAllocateInfo alloc_info = {0};
         alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
         alloc_info.descriptorPool = pipe->desc_pool;
@@ -655,11 +766,29 @@ int64_t seen_gpu_dispatch(int64_t pipeline_handle, int64_t gx, int64_t gy, int64
         }
 
         // Write buffer descriptors
-        VkWriteDescriptorSet* writes = (VkWriteDescriptorSet*)calloc(buffer_count, sizeof(VkWriteDescriptorSet));
-        VkDescriptorBufferInfo* buf_infos = (VkDescriptorBufferInfo*)calloc(buffer_count, sizeof(VkDescriptorBufferInfo));
+        size_t descriptor_count = (size_t)usable_count64;
+        size_t writes_bytes = 0;
+        size_t buf_infos_bytes = 0;
+        VkWriteDescriptorSet* writes = (VkWriteDescriptorSet*)seen_gpu_calloc_bytes(
+            descriptor_count, sizeof(VkWriteDescriptorSet), "GPU descriptor writes", &writes_bytes);
+        VkDescriptorBufferInfo* buf_infos = (VkDescriptorBufferInfo*)seen_gpu_calloc_bytes(
+            descriptor_count, sizeof(VkDescriptorBufferInfo), "GPU descriptor buffer infos", &buf_infos_bytes);
+        if (!writes || !buf_infos) {
+            seen_gpu_free_bytes(writes, writes_bytes);
+            seen_gpu_free_bytes(buf_infos, buf_infos_bytes);
+            vkFreeDescriptorSets(g_gpu.device, pipe->desc_pool, 1, &desc_set);
+            return 0;
+        }
 
-        for (int i = 0; i < buffer_count && i < pipe->binding_count; i++) {
+        for (int i = 0; i < usable_count64; i++) {
             SeenGpuBuffer* buf = (SeenGpuBuffer*)(uintptr_t)buffers[i];
+            if (!buf) {
+                fprintf(stderr, "[seen_gpu] Null GPU buffer handle at descriptor %d\n", i);
+                seen_gpu_free_bytes(writes, writes_bytes);
+                seen_gpu_free_bytes(buf_infos, buf_infos_bytes);
+                vkFreeDescriptorSets(g_gpu.device, pipe->desc_pool, 1, &desc_set);
+                return 0;
+            }
             buf_infos[i].buffer = buf->buffer;
             buf_infos[i].offset = 0;
             buf_infos[i].range = VK_WHOLE_SIZE;
@@ -672,10 +801,9 @@ int64_t seen_gpu_dispatch(int64_t pipeline_handle, int64_t gx, int64_t gy, int64
             writes[i].pBufferInfo = &buf_infos[i];
         }
 
-        int write_count = buffer_count < pipe->binding_count ? (int)buffer_count : pipe->binding_count;
-        vkUpdateDescriptorSets(g_gpu.device, write_count, writes, 0, NULL);
-        free(writes);
-        free(buf_infos);
+        vkUpdateDescriptorSets(g_gpu.device, (uint32_t)usable_count64, writes, 0, NULL);
+        seen_gpu_free_bytes(writes, writes_bytes);
+        seen_gpu_free_bytes(buf_infos, buf_infos_bytes);
     }
 
     // Record and submit command buffer
@@ -712,7 +840,13 @@ int64_t seen_gpu_dispatch_indirect(int64_t pipeline_handle, int64_t indirect_buf
 
     // Allocate descriptor set
     VkDescriptorSet desc_set = VK_NULL_HANDLE;
-    if (pipe->binding_count > 0 && buffer_count > 0) {
+    int64_t usable_count64 = buffer_count < pipe->binding_count ? buffer_count : pipe->binding_count;
+    if (pipe->binding_count > 0 && usable_count64 > 0) {
+        if (!buffers) {
+            fprintf(stderr, "[seen_gpu] Missing buffer handles for indirect dispatch\n");
+            return 0;
+        }
+
         VkDescriptorSetAllocateInfo alloc_info = {0};
         alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
         alloc_info.descriptorPool = pipe->desc_pool;
@@ -725,11 +859,29 @@ int64_t seen_gpu_dispatch_indirect(int64_t pipeline_handle, int64_t indirect_buf
             return 0;
         }
 
-        VkWriteDescriptorSet* writes = (VkWriteDescriptorSet*)calloc(buffer_count, sizeof(VkWriteDescriptorSet));
-        VkDescriptorBufferInfo* buf_infos = (VkDescriptorBufferInfo*)calloc(buffer_count, sizeof(VkDescriptorBufferInfo));
+        size_t descriptor_count = (size_t)usable_count64;
+        size_t writes_bytes = 0;
+        size_t buf_infos_bytes = 0;
+        VkWriteDescriptorSet* writes = (VkWriteDescriptorSet*)seen_gpu_calloc_bytes(
+            descriptor_count, sizeof(VkWriteDescriptorSet), "GPU indirect descriptor writes", &writes_bytes);
+        VkDescriptorBufferInfo* buf_infos = (VkDescriptorBufferInfo*)seen_gpu_calloc_bytes(
+            descriptor_count, sizeof(VkDescriptorBufferInfo), "GPU indirect descriptor buffer infos", &buf_infos_bytes);
+        if (!writes || !buf_infos) {
+            seen_gpu_free_bytes(writes, writes_bytes);
+            seen_gpu_free_bytes(buf_infos, buf_infos_bytes);
+            vkFreeDescriptorSets(g_gpu.device, pipe->desc_pool, 1, &desc_set);
+            return 0;
+        }
 
-        for (int i = 0; i < buffer_count && i < pipe->binding_count; i++) {
+        for (int i = 0; i < usable_count64; i++) {
             SeenGpuBuffer* buf = (SeenGpuBuffer*)(uintptr_t)buffers[i];
+            if (!buf) {
+                fprintf(stderr, "[seen_gpu] Null GPU buffer handle at indirect descriptor %d\n", i);
+                seen_gpu_free_bytes(writes, writes_bytes);
+                seen_gpu_free_bytes(buf_infos, buf_infos_bytes);
+                vkFreeDescriptorSets(g_gpu.device, pipe->desc_pool, 1, &desc_set);
+                return 0;
+            }
             buf_infos[i].buffer = buf->buffer;
             buf_infos[i].offset = 0;
             buf_infos[i].range = VK_WHOLE_SIZE;
@@ -742,10 +894,9 @@ int64_t seen_gpu_dispatch_indirect(int64_t pipeline_handle, int64_t indirect_buf
             writes[i].pBufferInfo = &buf_infos[i];
         }
 
-        int write_count = buffer_count < pipe->binding_count ? (int)buffer_count : pipe->binding_count;
-        vkUpdateDescriptorSets(g_gpu.device, write_count, writes, 0, NULL);
-        free(writes);
-        free(buf_infos);
+        vkUpdateDescriptorSets(g_gpu.device, (uint32_t)usable_count64, writes, 0, NULL);
+        seen_gpu_free_bytes(writes, writes_bytes);
+        seen_gpu_free_bytes(buf_infos, buf_infos_bytes);
     }
 
     VkCommandBuffer cmd = begin_one_shot_cmd();

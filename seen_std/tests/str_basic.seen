@@ -24,6 +24,7 @@ import str.string.{
     trimStart,
     words
 }
+import str.escape.{StringEscape}
 
 fun expect(condition: Bool, message: String) -> Void {
     if not condition {
@@ -65,8 +66,11 @@ fun main() -> Int {
     expect(contains("deterministic", "mini"), "substring match expected")
     expect(startsWith("channel", "chan"), "startsWith expected")
     expect(endsWith("scheduler", "uler"), "endsWith expected")
+    expect(contains("deterministic", "c"), "single-byte contains expected")
+    expect(indexOf("deterministic", "i", 0) == 6, "single-byte indexOf expected")
     expect(indexOf("abracadabra", "abra", 1) == 7, "indexOf offset mismatch")
     expect(lastIndexOf("abracadabra", "bra") == 8, "lastIndexOf mismatch")
+    expect(lastIndexOf("mississippi", "s") == 6, "single-byte lastIndexOf mismatch")
 
     let repeated = repeat("ha", 3)
     expect(repeated == "hahaha", "repeat should copy text")
@@ -94,6 +98,16 @@ fun main() -> Int {
     expect(ensureSuffix("log", ".seen") == "log.seen", "ensureSuffix mismatch")
     expect(padStart("seen", 6, '_') == "__seen", "padStart mismatch")
     expect(padEnd("seen", 6, '_') == "seen__", "padEnd mismatch")
+
+    let esc = StringEscape{}
+    let jsonRaw = "a\n\"b\\"
+    let jsonEscaped = esc.escapeJson(jsonRaw)
+    let jsonUnescaped = esc.unescapeJson(jsonEscaped)
+    expect(jsonEscaped == "a\\n\\\"b\\\\", "escapeJson mismatch")
+    expect(jsonUnescaped == jsonRaw, "unescapeJson mismatch")
+    let encodedUrl = esc.urlEncode("a b?")
+    expect(encodedUrl == "a+b%3F", "urlEncode mismatch")
+    expect(esc.escapeHtml("<a&\"'>") == "&lt;a&amp;&quot;&#39;&gt;", "escapeHtml mismatch")
 
     let cString = combined.toCString()
     expect(cString.toSeenString() == combined, "CString round-trip failed")

@@ -80,19 +80,24 @@ static int fallback_numa_node_of_cpu(int cpu) {
 
 static void* fallback_numa_alloc_onnode(size_t size, int node) {
     (void)node;
-    return malloc(size);
+    if (size > (size_t)INT64_MAX) return NULL;
+    return seen_try_malloc((int64_t)size);
 }
 
 static void* fallback_numa_alloc_interleaved(size_t size) {
-    return malloc(size);
+    if (size > (size_t)INT64_MAX) return NULL;
+    return seen_try_malloc((int64_t)size);
 }
 
 static void* fallback_numa_alloc_local(size_t size) {
-    return malloc(size);
+    if (size > (size_t)INT64_MAX) return NULL;
+    return seen_try_malloc((int64_t)size);
 }
 
 static void fallback_numa_free(void* ptr, size_t size) {
-    (void)size;
+    if (size <= (size_t)INT64_MAX) {
+        seen_memory_release_bytes((int64_t)size);
+    }
     free(ptr);
 }
 
@@ -377,7 +382,7 @@ void* seen_numa_alloc_onnode(size_t size, int node) {
         seen_numa_init();
     }
     
-    if (size == 0) return NULL;
+    if (size == 0 || size > (size_t)INT64_MAX) return NULL;
     
     // Validate node
     if (node < 0) {
@@ -390,16 +395,18 @@ void* seen_numa_alloc_onnode(size_t size, int node) {
     
 #ifdef SEEN_NUMA_USE_LIBNUMA
     if (g_numa_topology.numa_available) {
+        if (!seen_memory_try_reserve_bytes((int64_t)size)) return NULL;
         ptr = numa_alloc_onnode(size, node);
         if (!ptr) {
+            seen_memory_release_bytes((int64_t)size);
             // Fallback to malloc on failure
-            ptr = malloc(size);
+            ptr = seen_try_malloc((int64_t)size);
         }
     } else {
-        ptr = malloc(size);
+        ptr = seen_try_malloc((int64_t)size);
     }
 #else
-    ptr = malloc(size);
+    ptr = seen_try_malloc((int64_t)size);
 #endif
     
     if (ptr) {
@@ -414,21 +421,23 @@ void* seen_numa_alloc_interleaved(size_t size) {
         seen_numa_init();
     }
     
-    if (size == 0) return NULL;
+    if (size == 0 || size > (size_t)INT64_MAX) return NULL;
     
     void* ptr = NULL;
     
 #ifdef SEEN_NUMA_USE_LIBNUMA
     if (g_numa_topology.numa_available) {
+        if (!seen_memory_try_reserve_bytes((int64_t)size)) return NULL;
         ptr = numa_alloc_interleaved(size);
         if (!ptr) {
-            ptr = malloc(size);
+            seen_memory_release_bytes((int64_t)size);
+            ptr = seen_try_malloc((int64_t)size);
         }
     } else {
-        ptr = malloc(size);
+        ptr = seen_try_malloc((int64_t)size);
     }
 #else
-    ptr = malloc(size);
+    ptr = seen_try_malloc((int64_t)size);
 #endif
     
     if (ptr) {
@@ -450,7 +459,7 @@ void* seen_numa_alloc_aligned(size_t size, size_t alignment, int node) {
         seen_numa_init();
     }
     
-    if (size == 0) return NULL;
+    if (size == 0 || size > (size_t)INT64_MAX) return NULL;
     
     // Validate alignment (must be power of 2)
     if (alignment == 0 || (alignment & (alignment - 1)) != 0) {
@@ -462,18 +471,21 @@ void* seen_numa_alloc_aligned(size_t size, size_t alignment, int node) {
 #ifdef SEEN_NUMA_USE_LIBNUMA
     if (g_numa_topology.numa_available) {
         // Use posix_memalign with NUMA awareness via mbind
+        if (!seen_memory_try_reserve_bytes((int64_t)size)) return NULL;
         if (posix_memalign(&ptr, alignment, size) == 0) {
             // Bind to specific node if requested
             if (node >= 0 && node < g_numa_topology.num_nodes) {
                 unsigned long nodemask = (1UL << node);
                 mbind(ptr, size, MPOL_BIND, &nodemask, sizeof(nodemask) * 8, 0);
             }
+        } else {
+            seen_memory_release_bytes((int64_t)size);
         }
     } else {
-        posix_memalign(&ptr, alignment, size);
+        ptr = seen_checked_aligned_alloc((int64_t)alignment, (int64_t)size);
     }
 #else
-    posix_memalign(&ptr, alignment, size);
+    ptr = seen_checked_aligned_alloc((int64_t)alignment, (int64_t)size);
 #endif
     
     if (ptr) {
@@ -499,6 +511,7 @@ void seen_numa_free(void* ptr, size_t size) {
     free(ptr);
 #endif
     
+    seen_memory_release_bytes((int64_t)size);
     seen_numa_stat_free(node, size);
 }
 
@@ -559,11 +572,14 @@ int seen_numa_move_pages(void* ptr, size_t size, int target_node) {
     if (num_pages <= 0) return 0;
     
     // Allocate arrays for move_pages
-    void** pages = (void**)malloc(num_pages * sizeof(void*));
-    int* nodes = (int*)malloc(num_pages * sizeof(int));
-    int* status = (int*)malloc(num_pages * sizeof(int));
+    void** pages = (void**)seen_try_malloc((int64_t)num_pages * (int64_t)sizeof(void*));
+    int* nodes = (int*)seen_try_malloc((int64_t)num_pages * (int64_t)sizeof(int));
+    int* status = (int*)seen_try_malloc((int64_t)num_pages * (int64_t)sizeof(int));
     
     if (!pages || !nodes || !status) {
+        if (pages) seen_memory_release_bytes((int64_t)num_pages * (int64_t)sizeof(void*));
+        if (nodes) seen_memory_release_bytes((int64_t)num_pages * (int64_t)sizeof(int));
+        if (status) seen_memory_release_bytes((int64_t)num_pages * (int64_t)sizeof(int));
         free(pages);
         free(nodes);
         free(status);
@@ -579,6 +595,9 @@ int seen_numa_move_pages(void* ptr, size_t size, int target_node) {
     
     int ret = numa_move_pages(0, num_pages, pages, nodes, status, 0);
     
+    seen_memory_release_bytes((int64_t)num_pages * (int64_t)sizeof(void*));
+    seen_memory_release_bytes((int64_t)num_pages * (int64_t)sizeof(int));
+    seen_memory_release_bytes((int64_t)num_pages * (int64_t)sizeof(int));
     free(pages);
     free(nodes);
     free(status);

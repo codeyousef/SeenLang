@@ -62,6 +62,9 @@ let value = parseJson(jsonString)
 
 `JsonParser` and `JsonParseResult` expose parser state and success/error
 results for callers that need more control than a one-shot parse helper.
+In 0.9.0 the parser's string and number paths avoid the old per-character
+concatenation and full-number substring pass. Number conversion uses a runtime
+range parser, reducing allocation pressure in large JSON payloads.
 
 ### JSON Builder
 
@@ -72,6 +75,8 @@ import json.builder
 ```
 
 `JsonBuilder` and `JsonBuilder_new` provide incremental JSON construction.
+The builder stores output in `StringBuilder` parts internally, so large objects
+and arrays grow linearly instead of repeatedly copying the whole JSON string.
 
 ## Runtime JSON Functions
 

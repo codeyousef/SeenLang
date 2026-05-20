@@ -34,6 +34,9 @@ fun detectHostPlatform() r: Void {
         if unameM.output.contains("arm64") or unameM.output.contains("aarch64") {
             arch = "arm64"
         }
+        if unameM.output.contains("riscv64") {
+            arch = "riscv64"
+        }
     }
     if os == "darwin" {
         if arch == "arm64" {
@@ -47,6 +50,9 @@ fun detectHostPlatform() r: Void {
         if arch == "arm64" {
             g_hostTargetTriple = "aarch64-unknown-linux-gnu"
             g_hostDataLayout = "e-m:e-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128"
+        } else if arch == "riscv64" {
+            g_hostTargetTriple = "riscv64-unknown-linux-gnu"
+            g_hostDataLayout = "e-m:e-p:64:64-i64:64-i128:128-n32:64-S128"
         } else {
             g_hostTargetTriple = "x86_64-unknown-linux-gnu"
             g_hostDataLayout = "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128"

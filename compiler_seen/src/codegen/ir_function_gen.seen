@@ -12,6 +12,7 @@ import codegen.ir_type_mapping.{isClassTypeImpl}
 import codegen.ir_decl_registry.{registerFunctionStateImpl}
 import codegen.ir_string_collect.{trimSpacesImpl}
 import codegen.ir_function_usage.{hasGeneratedFunctionNameImpl, shouldSkipRuntimeBuiltinStubImpl}
+import codegen.ir_comptime_target.{getComptimeTargetName, comptimeTargetIsX86_64, comptimeTargetIsAarch64, comptimeTargetIsRiscv64}
 import str.string.{StringBuilder}
 import codegen.ir_function_box_utils.{ensureFunctionStringBoxValue, ensureFunctionIntBoxValue}
 import codegen.ir_function_snapshots.{FunctionGenerationIdentitySnapshot}
@@ -203,19 +204,26 @@ fun shouldSkipFunctionByCfgImpl(output: StringBuilder, fn: FunctionNode,
         return false
     }
     var cfgMatch = false
+    let activeTarget = getComptimeTargetName()
     var cfgIdx = 0
     while cfgIdx < fn.decorators.length() {
         if fn.decorators[cfgIdx].name == "cfg" {
             if fn.decorators[cfgIdx].arguments.length() > 0 {
                 let cfgPred = fn.decorators[cfgIdx].arguments[0]
                 if cfgPred == "linux" or cfgPred == "target_os_linux" {
-                    cfgMatch = true
+                    cfgMatch = activeTarget == "linux-x86_64" or activeTarget == "linux-arm64" or activeTarget == "linux-riscv64"
                 }
                 if cfgPred == "unix" {
-                    cfgMatch = true
+                    cfgMatch = activeTarget != "windows-x86_64"
                 }
                 if cfgPred == "x86_64" or cfgPred == "target_arch_x86_64" {
-                    cfgMatch = true
+                    cfgMatch = comptimeTargetIsX86_64(activeTarget)
+                }
+                if cfgPred == "aarch64" or cfgPred == "arm64" or cfgPred == "target_arch_aarch64" {
+                    cfgMatch = comptimeTargetIsAarch64(activeTarget)
+                }
+                if cfgPred == "riscv64" or cfgPred == "target_arch_riscv64" {
+                    cfgMatch = comptimeTargetIsRiscv64(activeTarget)
                 }
                 if cfgPred == "debug" {
                     cfgMatch = false

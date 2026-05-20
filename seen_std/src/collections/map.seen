@@ -1,11 +1,16 @@
 ///
 seen_std.collections.map
-Simple Map<K, V> implementation using parallel arrays.
-This is a basic linear probe hash map optimized for simplicity.
+Compatibility Map<K, V> API.
+
+The LLVM backend lowers Map constructors and methods to the indexed HashMap
+runtime. The source body remains a bootstrap fallback for older stage compilers.
 ///
 
 import collections.vec.{Vec}
 import core.option.{Option, Some, None}
+import core.result.{Result, Ok, Err}
+import core.unit.{Unit}
+import memory.allocation.{AllocError}
 
 class Map<K, V> {
     var keys: Vec<K>
@@ -14,15 +19,43 @@ class Map<K, V> {
     var length: Int
 
     static fun new() r: Map<K, V> {
+        return Map.withCapacity(0)
+    }
+
+    static fun withCapacity(capacity: Int) r: Map<K, V> {
+        return Map<K, V>.tryWithCapacity(capacity).expect(
+            "Map.withCapacity allocation failed")
+    }
+
+    static fun tryWithCapacity(capacity: Int) r: Result<Map<K, V>, AllocError> {
+        let keysResult = Vec<K>.tryWithCapacity(capacity)
+        if keysResult.isErr() {
+            return Err<Map<K, V>, AllocError>(keysResult.unwrapErr())
+        }
+        let valuesResult = Vec<V>.tryWithCapacity(capacity)
+        if valuesResult.isErr() {
+            return Err<Map<K, V>, AllocError>(valuesResult.unwrapErr())
+        }
+        let hashesResult = Vec<Int>.tryWithCapacity(capacity)
+        if hashesResult.isErr() {
+            return Err<Map<K, V>, AllocError>(hashesResult.unwrapErr())
+        }
         return Map{
-            keys: Vec.new(),
-            values: Vec.new(),
-            hashes: Vec.new(),
+            keys: keysResult.unwrap(),
+            values: valuesResult.unwrap(),
+            hashes: hashesResult.unwrap(),
             length: 0
         }
     }
 
     fun put(key: K, value: V) r: Void {
+        let inserted = this.tryPut(key, value)
+        if inserted.isErr() {
+            panic("Map.put allocation failed")
+        }
+    }
+
+    fun tryPut(key: K, value: V) r: Result<Unit, AllocError> {
         // Route through locals so the stage-1 type checker resolves Vec methods correctly
         var keysVec: Vec<K> = this.keys
         var valuesVec: Vec<V> = this.values
@@ -33,21 +66,54 @@ class Map<K, V> {
                 // Update existing value
                 valuesVec.set(i, value)
                 this.values = valuesVec
-                return
+                return Ok<Unit, AllocError>(Unit{})
             }
             i = i + 1
         }
         // Add new entry
-        keysVec.push(key)
+        let keyPush = keysVec.tryPush(key)
+        if keyPush.isErr() {
+            return keyPush
+        }
         this.keys = keysVec
 
-        valuesVec.push(value)
+        let valuePush = valuesVec.tryPush(value)
+        if valuePush.isErr() {
+            return valuePush
+        }
         this.values = valuesVec
 
         var hashesVec: Vec<Int> = this.hashes
-        hashesVec.push(0)
+        let hashPush = hashesVec.tryPush(0)
+        if hashPush.isErr() {
+            return hashPush
+        }
         this.hashes = hashesVec
         this.length = this.length + 1
+        return Ok<Unit, AllocError>(Unit{})
+    }
+
+    fun reserve(capacity: Int) r: Void {
+        let reserved = this.tryReserve(capacity)
+        if reserved.isErr() {
+            panic("Map.reserve allocation failed")
+        }
+    }
+
+    fun tryReserve(capacity: Int) r: Result<Unit, AllocError> {
+        let keyReserve = this.keys.tryReserve(capacity)
+        if keyReserve.isErr() {
+            return keyReserve
+        }
+        let valueReserve = this.values.tryReserve(capacity)
+        if valueReserve.isErr() {
+            return valueReserve
+        }
+        let hashReserve = this.hashes.tryReserve(capacity)
+        if hashReserve.isErr() {
+            return hashReserve
+        }
+        return Ok<Unit, AllocError>(Unit{})
     }
 
     fun get(key: K) r: Option<V> {
@@ -62,6 +128,22 @@ class Map<K, V> {
             i = i + 1
         }
         return None()
+    }
+
+    fun getOrDefault(key: K, defaultValue: V) r: V {
+        let found = this.get(key)
+        if found.isSome() {
+            return found.unwrap()
+        }
+        return defaultValue
+    }
+
+    fun getUnchecked(key: K) r: V {
+        let found = this.get(key)
+        if found.isNone() {
+            panic("Map.getUnchecked missing key")
+        }
+        return found.unwrap()
     }
 
     fun containsKey(key: K) r: Bool {
@@ -142,6 +224,22 @@ class Map<K, V> {
             i = i + 1
         }
         return None()
+    }
+
+    fun removeOrDefault(key: K, defaultValue: V) r: V {
+        let removed = this.remove(key)
+        if removed.isSome() {
+            return removed.unwrap()
+        }
+        return defaultValue
+    }
+
+    fun removeUnchecked(key: K) r: V {
+        let removed = this.remove(key)
+        if removed.isNone() {
+            panic("Map.removeUnchecked missing key")
+        }
+        return removed.unwrap()
     }
 
     fun size() r: Int {

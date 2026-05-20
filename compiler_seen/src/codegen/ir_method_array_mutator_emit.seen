@@ -8,7 +8,7 @@ import codegen.ir_member_access_driver.{tryGenerateChainedReceiverMemberAccessSt
 import codegen.ir_method_call_plan.{isDottedArrayMutatorLiteralImpl, planArrayMutatorFreeTypeImpl, planArrayMutatorFreeEmitImpl, planArrayMutatorPushPointerImpl, planArrayMutatorFallbackPointerImpl, resolveArrayMutatorVariableNameImpl, resolveArrayReceiverElementTypeImpl, resolveArrayPushElementTypeImpl, shouldLoadLocalArrayMutatorPointerImpl, shouldResolveChainedArrayMutatorReceiverImpl, shouldUseImplicitThisArrayMutatorPointerImpl}
 import codegen.ir_method_receiver_predicates.{isArrayReceiverTypeImpl}
 import codegen.ir_string_collect.{getBaseTypeNameImpl}
-import codegen.ir_type_mapping.{isClassTypeImpl}
+import codegen.ir_type_mapping.{isClassHandleLikeTypeImpl, isClassTypeImpl}
 import codegen.ir_type_tables.{resolvePopElementTypeImpl}
 import codegen.ir_variable_gen.{emitLocalVariableLoadImpl, findActiveVariableIndexImpl}
 import codegen.ir_literal_gen.{normalizeDoubleLiteralForLlvmImpl}
@@ -139,6 +139,9 @@ fun emitArrayPushMutationImpl(output: StringBuilder, regBox: Array<Int>,
         let newByteSizeReg = getNextRegFn(regBox)
         output.append("  " + newByteSizeReg + " = shl i64 " + newCapReg +
             ", 3\n")
+        let oldByteSizeReg = getNextRegFn(regBox)
+        output.append("  " + oldByteSizeReg + " = shl i64 " + capReg +
+            ", 3\n")
         let slowDataPtrPtrReg = getNextRegFn(regBox)
         output.append("  " + slowDataPtrPtrReg +
             " = getelementptr inbounds %SeenArray, ptr " + arrayPtrReg +
@@ -147,8 +150,9 @@ fun emitArrayPushMutationImpl(output: StringBuilder, regBox: Array<Int>,
         output.append("  " + slowOldDataReg + " = load ptr, ptr " +
             slowDataPtrPtrReg + ", !tbaa !104\n")
         let slowNewDataReg = getNextRegFn(regBox)
-        output.append("  " + slowNewDataReg + " = call ptr @realloc(ptr " +
-            slowOldDataReg + ", i64 " + newByteSizeReg + ")\n")
+        output.append("  " + slowNewDataReg +
+            " = call ptr @seen_checked_realloc(ptr " + slowOldDataReg +
+            ", i64 " + oldByteSizeReg + ", i64 " + newByteSizeReg + ")\n")
         output.append("  store ptr " + slowNewDataReg + ", ptr " +
             slowDataPtrPtrReg + ", !tbaa !104\n")
         let slowElemPtrReg = getNextRegFn(regBox)
@@ -221,19 +225,35 @@ fun emitArrayPushMutationImpl(output: StringBuilder, regBox: Array<Int>,
                 arrayPtrReg + ", ptr " + ptrArgReg + ")\n")
             return resultReg
         }
-        var ptrArgReg = argReg
-        if isClassTypeImpl(pushElemType, structNames) == 1 {
+        if isClassTypeImpl(pushElemType, structNames) == 1 or
+            (pushElemType != "" and pushElemType != "Unknown" and
+                isClassHandleLikeTypeImpl(pushElemType, structNames) == 1) {
+
+            if argReg == "null" or argReg == "0" {
+                output.append("  call void @seen_arr_push_ptr(ptr " +
+                    arrayPtrReg + ", ptr null)\n")
+                return "0"
+            }
             let ptrReg = getNextRegFn(regBox)
             output.append("  " + ptrReg + " = inttoptr i64 " + argReg +
                 " to ptr\n")
-            ptrArgReg = ptrReg
+            output.append("  call void @seen_arr_push_ptr(ptr " + arrayPtrReg +
+                ", ptr " + ptrReg + ")\n")
+            return "0"
         }
-        if ptrArgReg == "0" {
-            ptrArgReg = "null"
+
+        var valueArgReg = argReg
+        if valueArgReg == "null" {
+            valueArgReg = "0"
         }
-        output.append("  call void @seen_arr_push_ptr(ptr " + arrayPtrReg +
-            ", ptr " + ptrArgReg + ")\n")
-        return "0"
+        let tmpReg = getNextRegFn(regBox)
+        output.append("  " + tmpReg + " = alloca i64\n")
+        output.append("  store i64 " + valueArgReg + ", ptr " + tmpReg +
+            "\n")
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call i64 @Array_push(ptr " +
+            arrayPtrReg + ", ptr " + tmpReg + ")\n")
+        return resultReg
     }
 
     return ""

@@ -1,0 +1,63 @@
+import json.parser.{parseJson}
+import json.builder.{JsonBuilder_new}
+import str.string.{StringBuilder, contains, indexOf, lastIndexOf, replaceAll, split, trim}
+
+fun main() r: Int {
+    let builder = StringBuilder.new()
+    var i = 0
+    while i < 256 {
+        builder.append("{\"id\":")
+        builder.append(i.toString())
+        builder.append(",\"name\":\"item")
+        builder.append(i.toString())
+        builder.append("\",\"active\":true,\"values\":[1,2,3]}")
+        i = i + 1
+    }
+
+    let jsonBuilder = JsonBuilder_new()
+    jsonBuilder.startObject()
+    i = 0
+    while i < 128 {
+        jsonBuilder.key("field" + i.toString())
+        jsonBuilder.string("value-" + i.toString())
+        i = i + 1
+    }
+    jsonBuilder.endObject()
+    let jsonBuilt = jsonBuilder.build()
+    if not contains(jsonBuilt, "\"field127\"") {
+        return 3
+    }
+
+    let searchText = "   alpha,beta,gamma,delta,epsilon,zeta,eta,theta,alpha,beta,gamma   "
+    var searchScore = 0
+    i = 0
+    while i < 512 {
+        if contains(searchText, "theta") {
+            searchScore = searchScore + indexOf(searchText, "alpha", 1)
+            searchScore = searchScore + lastIndexOf(searchText, "gamma")
+        }
+        let pieces = split(searchText, ",")
+        searchScore = searchScore + pieces.length()
+        let replaced = replaceAll(searchText, "alpha", "omega")
+        searchScore = searchScore + trim(replaced).length()
+        i = i + 1
+    }
+
+    let text = "{\"items\":[{\"id\":1,\"name\":\"alpha\",\"active\":true},{\"id\":2,\"name\":\"beta\",\"active\":false}],\"count\":2}"
+    var parsed = 0
+    while parsed < 256 {
+        let result = parseJson(text)
+        if result.success != 1 {
+            return 1
+        }
+        parsed = parsed + 1
+    }
+
+    if builder.length() <= 0 {
+        return 2
+    }
+    if searchScore <= 0 {
+        return 4
+    }
+    return 0
+}

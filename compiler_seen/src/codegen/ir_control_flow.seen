@@ -6,6 +6,7 @@ These are pure AST analysis functions (no generateExpression callbacks needed)
 
 import parser.real_parser.{StatementNode, ParserExpressionNode, BlockNode}
 import codegen.ir_optimization.{parseIntManual, getNextRegFn}
+import codegen.ir_comptime_target.{getComptimeTargetName, comptimeTargetIsX86_64, comptimeTargetIsAarch64, comptimeTargetIsRiscv64}
 import str.string.{StringBuilder}
 
 fun emitWhileConditionBranchImpl(output: StringBuilder, regBox: Array<Int>,
@@ -367,14 +368,21 @@ evaluateCfgPredicateImpl — Evaluate @cfg predicate for conditional compilation
 Returns true if the function should be included
 ///
 fun evaluateCfgPredicateImpl(cfgPred: String, enabledFeatures: String) r: Bool {
+    let activeTarget = getComptimeTargetName()
     if cfgPred == "linux" or cfgPred == "target_os_linux" {
-        return true
+        return activeTarget == "linux-x86_64" or activeTarget == "linux-arm64" or activeTarget == "linux-riscv64"
     }
     if cfgPred == "unix" {
-        return true
+        return activeTarget != "windows-x86_64"
     }
     if cfgPred == "x86_64" or cfgPred == "target_arch_x86_64" {
-        return true
+        return comptimeTargetIsX86_64(activeTarget)
+    }
+    if cfgPred == "aarch64" or cfgPred == "arm64" or cfgPred == "target_arch_aarch64" {
+        return comptimeTargetIsAarch64(activeTarget)
+    }
+    if cfgPred == "riscv64" or cfgPred == "target_arch_riscv64" {
+        return comptimeTargetIsRiscv64(activeTarget)
     }
     if cfgPred == "debug" {
         return false

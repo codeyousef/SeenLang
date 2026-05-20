@@ -36,6 +36,11 @@ let byte = seen_byte_at(s, 0) // raw byte at index
 
 ### String Functions
 
+Prefix, suffix, search, count, split, and replace helpers scan byte indexes
+directly and allocate only the returned pieces or rebuilt result. Common
+prefix/suffix and substring probes use runtime byte-search fast paths, including
+a single-byte `memchr` path for delimiter-heavy workloads.
+
 | Function | Signature | Description |
 |----------|-----------|-------------|
 | `split` | `(text: String, delimiter: String) r: Array<String>` | Split by delimiter |
@@ -92,7 +97,10 @@ let byte = seen_byte_at(s, 0) // raw byte at index
 
 ## StringBuilder
 
-Efficient string building with amortized allocation:
+Efficient string building with amortized allocation. `repeat`, `join`, `split`,
+and compiler-facing builder paths use this instead of repeated string
+concatenation for large outputs. `toString()` flattens the accumulated parts
+through a one-pass runtime helper.
 
 ```seen
 import str.string
@@ -109,13 +117,16 @@ let sb = StringBuilder.new()
 | Method | Return | Description |
 |--------|--------|-------------|
 | `append(text: String)` | `Void` | Append string |
+| `tryAppend(text: String)` | `Result<Unit, AllocError>` | Append after checking the current memory budget |
 | `appendChar(ch: Char)` | `Void` | Append character |
 | `appendLine(text: String)` | `Void` | Append string + newline |
 | `appendAll(values: Array<String>)` | `Void` | Append all strings |
 | `clear()` | `Void` | Clear contents |
 | `isEmpty()` | `Bool` | Check if empty |
 | `length()` | `Int` | Get total length |
-| `toString()` | `String` | Build final string |
+| `toString()` | `String` | Build final string with a linear flatten pass |
+| `tryToString()` | `Result<String, AllocError>` | Build after checking the current memory budget |
+| `writeToFile(path: String)` | `Bool` | Stream builder parts to a file |
 | `buildAndClear()` | `String` | Build string and clear builder |
 
 ### Example

@@ -54,6 +54,7 @@ fun emitCoreRuntimeDecls(output: StringBuilder, runtimeDeclsLoaded: Bool, define
         output.append("declare i64 @StringBuilder_append(ptr nonnull, %SeenString) nounwind willreturn\n")
         output.append("declare i64 @StringBuilder_appendChar(ptr nonnull, i64) nounwind willreturn\n")
         output.append("declare %SeenString @StringBuilder_toString(ptr nonnull) nounwind willreturn\n")
+        output.append("declare i1 @StringBuilder_writeToFile_impl(ptr nonnull, %SeenString) nounwind\n")
         output.append("declare void @StringBuilder_clear_impl(ptr nonnull) nounwind willreturn\n")
         output.append("declare i64 @StringBuilder_length(ptr nonnull) nounwind willreturn memory(argmem: read)\n")
         output.append("declare i64 @StringBuilder_appendFloat(ptr nonnull, double) nounwind willreturn\n")
@@ -94,7 +95,7 @@ fun emitCoreRuntimeDecls(output: StringBuilder, runtimeDeclsLoaded: Bool, define
             output.append("declare i1 @Result_isOkay(ptr) nounwind\n")
         }
         if not isFuncDefinedInModule("Result_unwrapErr", definedFuncs) {
-            output.append("declare %SeenString @Result_unwrapErr(ptr) nounwind\n")
+            output.append("declare i64 @Result_unwrapErr(ptr) nounwind\n")
         }
         output.append("declare i64 @SeenTokenType_unwrap(i64) nounwind readonly\n")
         emitLspJsonRuntimeDecls(output, definedFuncs)
@@ -118,11 +119,23 @@ fun emitCoreRuntimeDecls(output: StringBuilder, runtimeDeclsLoaded: Bool, define
         if not isFuncDefinedInModule("HashMap_getOrDefault", definedFuncs) {
             output.append("declare i64 @HashMap_getOrDefault(ptr, i64, i64) nounwind readonly\n")
         }
+        if not isFuncDefinedInModule("HashMap_getUnchecked", definedFuncs) {
+            output.append("declare i64 @HashMap_getUnchecked(ptr, i64) nounwind readonly\n")
+        }
         if not isFuncDefinedInModule("HashMap_containsKey", definedFuncs) {
             output.append("declare i1 @HashMap_containsKey(ptr, i64) nounwind readonly\n")
         }
+        if not isFuncDefinedInModule("HashMap_containsValue", definedFuncs) {
+            output.append("declare i1 @HashMap_containsValue(ptr, i64) nounwind readonly\n")
+        }
         if not isFuncDefinedInModule("HashMap_remove", definedFuncs) {
             output.append("declare i64 @HashMap_remove(ptr, i64) nounwind\n")
+        }
+        if not isFuncDefinedInModule("HashMap_removeOrDefault", definedFuncs) {
+            output.append("declare i64 @HashMap_removeOrDefault(ptr, i64, i64) nounwind\n")
+        }
+        if not isFuncDefinedInModule("HashMap_removeUnchecked", definedFuncs) {
+            output.append("declare i64 @HashMap_removeUnchecked(ptr, i64) nounwind\n")
         }
         if not isFuncDefinedInModule("HashMap_keys", definedFuncs) {
             output.append("declare ptr @HashMap_keys(ptr) nounwind\n")
@@ -153,11 +166,23 @@ fun emitCoreRuntimeDecls(output: StringBuilder, runtimeDeclsLoaded: Bool, define
         if not isFuncDefinedInModule("HashMap_getOrDefault_str", definedFuncs) {
             output.append("declare i64 @HashMap_getOrDefault_str(ptr, %SeenString, i64) nounwind readonly\n")
         }
+        if not isFuncDefinedInModule("HashMap_getUnchecked_str", definedFuncs) {
+            output.append("declare i64 @HashMap_getUnchecked_str(ptr, %SeenString) nounwind readonly\n")
+        }
         if not isFuncDefinedInModule("HashMap_containsKey_str", definedFuncs) {
             output.append("declare i1 @HashMap_containsKey_str(ptr, %SeenString) nounwind readonly\n")
         }
+        if not isFuncDefinedInModule("HashMap_containsValue_str", definedFuncs) {
+            output.append("declare i1 @HashMap_containsValue_str(ptr, i64) nounwind readonly\n")
+        }
         if not isFuncDefinedInModule("HashMap_remove_str", definedFuncs) {
             output.append("declare i64 @HashMap_remove_str(ptr, %SeenString) nounwind\n")
+        }
+        if not isFuncDefinedInModule("HashMap_removeOrDefault_str", definedFuncs) {
+            output.append("declare i64 @HashMap_removeOrDefault_str(ptr, %SeenString, i64) nounwind\n")
+        }
+        if not isFuncDefinedInModule("HashMap_removeUnchecked_str", definedFuncs) {
+            output.append("declare i64 @HashMap_removeUnchecked_str(ptr, %SeenString) nounwind\n")
         }
         if not isFuncDefinedInModule("HashMap_keys_str", definedFuncs) {
             output.append("declare ptr @HashMap_keys_str(ptr) nounwind\n")
@@ -188,11 +213,23 @@ fun emitCoreRuntimeDecls(output: StringBuilder, runtimeDeclsLoaded: Bool, define
         if not isFuncDefinedInModule("HashMap_getOrDefault_str_str", definedFuncs) {
             output.append("declare %SeenString @HashMap_getOrDefault_str_str(ptr, %SeenString, %SeenString) nounwind readonly\n")
         }
+        if not isFuncDefinedInModule("HashMap_getUnchecked_str_str", definedFuncs) {
+            output.append("declare %SeenString @HashMap_getUnchecked_str_str(ptr, %SeenString) nounwind readonly\n")
+        }
         if not isFuncDefinedInModule("HashMap_containsKey_str_str", definedFuncs) {
             output.append("declare i1 @HashMap_containsKey_str_str(ptr, %SeenString) nounwind readonly\n")
         }
+        if not isFuncDefinedInModule("HashMap_containsValue_str_str", definedFuncs) {
+            output.append("declare i1 @HashMap_containsValue_str_str(ptr, %SeenString) nounwind readonly\n")
+        }
         if not isFuncDefinedInModule("HashMap_remove_str_str", definedFuncs) {
             output.append("declare i64 @HashMap_remove_str_str(ptr, %SeenString) nounwind\n")
+        }
+        if not isFuncDefinedInModule("HashMap_removeOrDefault_str_str", definedFuncs) {
+            output.append("declare %SeenString @HashMap_removeOrDefault_str_str(ptr, %SeenString, %SeenString) nounwind\n")
+        }
+        if not isFuncDefinedInModule("HashMap_removeUnchecked_str_str", definedFuncs) {
+            output.append("declare %SeenString @HashMap_removeUnchecked_str_str(ptr, %SeenString) nounwind\n")
         }
         if not isFuncDefinedInModule("HashMap_keys_str_str", definedFuncs) {
             output.append("declare ptr @HashMap_keys_str_str(ptr) nounwind\n")
@@ -223,11 +260,23 @@ fun emitCoreRuntimeDecls(output: StringBuilder, runtimeDeclsLoaded: Bool, define
         if not isFuncDefinedInModule("HashMap_getOrDefault_int_str", definedFuncs) {
             output.append("declare %SeenString @HashMap_getOrDefault_int_str(ptr, i64, %SeenString) nounwind readonly\n")
         }
+        if not isFuncDefinedInModule("HashMap_getUnchecked_int_str", definedFuncs) {
+            output.append("declare %SeenString @HashMap_getUnchecked_int_str(ptr, i64) nounwind readonly\n")
+        }
         if not isFuncDefinedInModule("HashMap_containsKey_int_str", definedFuncs) {
             output.append("declare i1 @HashMap_containsKey_int_str(ptr, i64) nounwind readonly\n")
         }
+        if not isFuncDefinedInModule("HashMap_containsValue_int_str", definedFuncs) {
+            output.append("declare i1 @HashMap_containsValue_int_str(ptr, %SeenString) nounwind readonly\n")
+        }
         if not isFuncDefinedInModule("HashMap_remove_int_str", definedFuncs) {
             output.append("declare i64 @HashMap_remove_int_str(ptr, i64) nounwind\n")
+        }
+        if not isFuncDefinedInModule("HashMap_removeOrDefault_int_str", definedFuncs) {
+            output.append("declare %SeenString @HashMap_removeOrDefault_int_str(ptr, i64, %SeenString) nounwind\n")
+        }
+        if not isFuncDefinedInModule("HashMap_removeUnchecked_int_str", definedFuncs) {
+            output.append("declare %SeenString @HashMap_removeUnchecked_int_str(ptr, i64) nounwind\n")
         }
         if not isFuncDefinedInModule("HashMap_keys_int_str", definedFuncs) {
             output.append("declare ptr @HashMap_keys_int_str(ptr) nounwind\n")

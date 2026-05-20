@@ -516,7 +516,8 @@ SeenTEEStatus __seen_derive_key(
 
 // Convert bytes to hex string
 static char* bytes_to_hex(const uint8_t* bytes, size_t len) {
-    char* hex = (char*)malloc(len * 2 + 1);
+    if (len > ((size_t)INT64_MAX - 1) / 2) return NULL;
+    char* hex = (char*)seen_try_malloc((int64_t)(len * 2 + 1));
     if (!hex) return NULL;
 
     for (size_t i = 0; i < len; i++) {
@@ -672,7 +673,7 @@ SeenString __seen_unseal_string_ex(SeenString sealed_hex, SeenString additional_
         return seen_cstr_to_str("");
     }
 
-    char* result = (char*)malloc(plain_len + 1);
+    char* result = (char*)seen_try_malloc((int64_t)plain_len + 1);
     if (!result) {
         return seen_cstr_to_str("");
     }
@@ -700,7 +701,7 @@ SeenString __seen_get_attestation_json(SeenString report_data, int64_t attest_ty
     }
 
     // Build JSON manually (no JSON library dependency)
-    char* json = (char*)malloc(4096);
+    char* json = (char*)seen_try_malloc(4096);
     if (!json) {
         return seen_cstr_to_str("");
     }
@@ -722,7 +723,10 @@ SeenString __seen_get_attestation_json(SeenString report_data, int64_t attest_ty
         report.valid ? "true" : "false"
     );
 
-    free(measurement_hex);
+    if (measurement_hex) {
+        seen_memory_release_bytes((int64_t)report.measurement_size * 2 + 1);
+        free(measurement_hex);
+    }
     return seen_cstr_to_str(json);
 }
 

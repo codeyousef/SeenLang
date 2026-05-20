@@ -14,7 +14,7 @@ The standard library is written in Seen and provides high-level abstractions.
 | [Async](async.md) | Future, waker, task, and async runtime helpers |
 | [Audio](audio.md) | Audio devices, formats, and backend wrappers |
 | [Strings](string.md) | String operations, StringBuilder |
-| [Collections](collections.md) | Array, Vec, HashMap, BTreeMap, HashSet, LinkedList, SmallVec |
+| [Collections](collections.md) | Array, Vec, HashMap, BTreeMap, ByteBuffer, sort/search helpers, priority queues |
 | [Math](math.md) | Mathematical functions and constants |
 | [I/O](io.md) | File I/O, stdio, buffered readers/writers |
 | [Environment](env.md) | Environment helpers |
@@ -31,7 +31,7 @@ The standard library is written in Seen and provides high-level abstractions.
 | [GPU](gpu.md) | Buffer, Uniform, Image types; Vulkan runtime |
 | [Graphics](graphics.md) | GPU resource wrappers, renderer, shader helpers |
 | [Input](input.md) | Gamepad state and events |
-| [Memory Regions](memory.md) | Mapped, pool, and stack regions |
+| [Memory](memory.md) | Allocation budgets plus mapped, pool, and stack regions |
 | [Networking](net.md) | Poll and TCP wrappers |
 | [Platform](platform.md) | Darwin, Linux, Windows, and Web bindings |
 | [Scripting](scripting.md) | Lua integration |
@@ -47,7 +47,8 @@ The runtime is written in C and provides low-level primitives that every Seen pr
 
 - ~170 functions covering strings, arrays, I/O, math, concurrency, SIMD, and memory management
 - Automatically linked by the compiler (`-lm -lpthread`)
-- Platform-specific implementations for Linux and macOS
+- Platform-specific implementations for Linux, Linux RISC-V cross-targets,
+  macOS, and Windows packaging/runtime helpers
 
 ## Prelude
 

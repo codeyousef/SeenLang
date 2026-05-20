@@ -12,6 +12,10 @@
 #include <time.h>
 #include <sys/stat.h>
 
+extern void* seen_try_malloc(int64_t size);
+extern void* seen_try_calloc(int64_t count, int64_t size);
+extern void seen_memory_release_bytes(int64_t size);
+
 // ============================================================================
 // Global State
 // ============================================================================
@@ -76,9 +80,13 @@ SeenHotModule* __seen_hotreload_load_named(SeenStringHR path, SeenStringHR name)
         snprintf(g_last_error, sizeof(g_last_error), "Maximum number of modules reached");
         return NULL;
     }
+    if (!path.data || path.len < 0 || path.len >= INT64_MAX) {
+        snprintf(g_last_error, sizeof(g_last_error), "Invalid module path");
+        return NULL;
+    }
 
     // Convert path to C string
-    char* cpath = (char*)malloc(path.len + 1);
+    char* cpath = (char*)seen_try_malloc(path.len + 1);
     if (!cpath) {
         snprintf(g_last_error, sizeof(g_last_error), "Out of memory");
         return NULL;
@@ -90,14 +98,16 @@ SeenHotModule* __seen_hotreload_load_named(SeenStringHR path, SeenStringHR name)
     void* handle = dlopen(cpath, RTLD_NOW | RTLD_LOCAL);
     if (!handle) {
         snprintf(g_last_error, sizeof(g_last_error), "dlopen failed: %s", dlerror());
+        seen_memory_release_bytes(path.len + 1);
         free(cpath);
         return NULL;
     }
 
     // Allocate module structure
-    SeenHotModule* module = (SeenHotModule*)calloc(1, sizeof(SeenHotModule));
+    SeenHotModule* module = (SeenHotModule*)seen_try_calloc(1, sizeof(SeenHotModule));
     if (!module) {
         dlclose(handle);
+        seen_memory_release_bytes(path.len + 1);
         free(cpath);
         snprintf(g_last_error, sizeof(g_last_error), "Out of memory");
         return NULL;
@@ -125,6 +135,7 @@ SeenHotModule* __seen_hotreload_load_named(SeenStringHR path, SeenStringHR name)
     // Register module
     g_hot_modules[g_hot_module_count++] = module;
 
+    seen_memory_release_bytes(path.len + 1);
     free(cpath);
 
     fprintf(stderr, "[Hot Reload] Loaded module '%s' (v%ld)\n", module->name, (long)module->version);
@@ -137,9 +148,13 @@ int __seen_hotreload_reload(SeenHotModule* module, SeenStringHR new_path) {
         snprintf(g_last_error, sizeof(g_last_error), "Invalid module");
         return 0;
     }
+    if (!new_path.data || new_path.len < 0 || new_path.len >= INT64_MAX) {
+        snprintf(g_last_error, sizeof(g_last_error), "Invalid module path");
+        return 0;
+    }
 
     // Convert path to C string
-    char* cpath = (char*)malloc(new_path.len + 1);
+    char* cpath = (char*)seen_try_malloc(new_path.len + 1);
     if (!cpath) {
         snprintf(g_last_error, sizeof(g_last_error), "Out of memory");
         return 0;
@@ -154,6 +169,7 @@ int __seen_hotreload_reload(SeenHotModule* module, SeenStringHR new_path) {
     void* new_handle = dlopen(cpath, RTLD_NOW | RTLD_LOCAL);
     if (!new_handle) {
         snprintf(g_last_error, sizeof(g_last_error), "dlopen failed: %s", dlerror());
+        seen_memory_release_bytes(new_path.len + 1);
         free(cpath);
         return 0;
     }
@@ -180,6 +196,7 @@ int __seen_hotreload_reload(SeenHotModule* module, SeenStringHR new_path) {
     module->load_timestamp = time(NULL);
     strncpy(module->path, cpath, SEEN_HOTRELOAD_MAX_PATH - 1);
 
+    seen_memory_release_bytes(new_path.len + 1);
     free(cpath);
 
     fprintf(stderr, "[Hot Reload] Reloaded module '%s' (v%ld)\n", module->name, (long)module->version);
@@ -212,6 +229,7 @@ void __seen_hotreload_unload(SeenHotModule* module) {
 
     fprintf(stderr, "[Hot Reload] Unloaded module '%s'\n", module->name);
 
+    seen_memory_release_bytes((int64_t)sizeof(SeenHotModule));
     free(module);
 }
 
@@ -334,15 +352,21 @@ int64_t __seen_hotreload_call_i64_ptr(SeenHotModule* module, SeenStringHR name, 
 
 SeenArrayHR* __seen_hotreload_serialize_state(void* state, int64_t size) {
     // Allocate array
-    SeenArrayHR* arr = (SeenArrayHR*)malloc(sizeof(SeenArrayHR));
+    SeenArrayHR* arr = (SeenArrayHR*)seen_try_malloc(sizeof(SeenArrayHR));
     if (!arr) return NULL;
 
     arr->len = 0;
     arr->cap = size > 0 ? size : 8;
     arr->element_size = sizeof(int64_t);
-    arr->data = malloc(arr->cap * sizeof(int64_t));
+    if (arr->cap > INT64_MAX / (int64_t)sizeof(int64_t)) {
+        seen_memory_release_bytes((int64_t)sizeof(SeenArrayHR));
+        free(arr);
+        return NULL;
+    }
+    arr->data = seen_try_malloc(arr->cap * (int64_t)sizeof(int64_t));
 
     if (!arr->data) {
+        seen_memory_release_bytes((int64_t)sizeof(SeenArrayHR));
         free(arr);
         return NULL;
     }
@@ -363,7 +387,7 @@ SeenArrayHR* __seen_hotreload_serialize_state(void* state, int64_t size) {
 void* __seen_hotreload_deserialize_state(SeenArrayHR* data) {
     if (!data || data->len == 0) return NULL;
 
-    void* state = malloc(data->len);
+    void* state = seen_try_malloc(data->len);
     if (!state) return NULL;
 
     unsigned char* bytes = (unsigned char*)state;

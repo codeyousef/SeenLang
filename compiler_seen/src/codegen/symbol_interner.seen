@@ -1,0 +1,242 @@
+// symbol_interner.seen - Compiler-internal string interner.
+
+var g_symbolNames: Array<String> = Array<String>()
+var g_symbolHashes: Array<Int> = Array<Int>()
+var g_symbolBuckets: Array<Int> = Array<Int>()
+var g_symbolPayloadBytes: Int = 0
+
+fun symbolInternerInitialBuckets() r: Int {
+    return 4096
+}
+
+fun symbolHashImpl(text: String) r: Int {
+    var hash = 2166136261
+    var i = 0
+    while i < text.length() {
+        hash = (hash * 16777619) + text.byteAt(i)
+        i = i + 1
+    }
+    if hash < 0 {
+        hash = 0 - hash
+    }
+    if hash < 0 {
+        hash = 1
+    }
+    return hash
+}
+
+fun symbolBucketIndex(hash: Int, bucketCount: Int) r: Int {
+    if bucketCount <= 0 {
+        return 0
+    }
+    var idx = hash % bucketCount
+    if idx < 0 {
+        idx = 0 - idx
+    }
+    return idx
+}
+
+fun resetSymbolInterner() r: Void {
+    g_symbolNames = Array<String>()
+    g_symbolHashes = Array<Int>()
+    g_symbolBuckets = Array<Int>()
+    g_symbolPayloadBytes = 0
+}
+
+fun initializeSymbolBuckets(capacity: Int) r: Void {
+    g_symbolBuckets = Array<Int>()
+    var i = 0
+    while i < capacity {
+        g_symbolBuckets.push(0)
+        i = i + 1
+    }
+}
+
+fun ensureSymbolBuckets() r: Void {
+    if g_symbolBuckets.length() == 0 {
+        initializeSymbolBuckets(symbolInternerInitialBuckets())
+    }
+}
+
+fun placeSymbolBucket(symbolId: Int, hash: Int) r: Void {
+    ensureSymbolBuckets()
+    let bucketCount = g_symbolBuckets.length()
+    var bucket = symbolBucketIndex(hash, bucketCount)
+    var probes = 0
+    while probes < bucketCount {
+        if g_symbolBuckets[bucket] == 0 {
+            g_symbolBuckets[bucket] = symbolId
+            return
+        }
+        bucket = (bucket + 1) % bucketCount
+        probes = probes + 1
+    }
+}
+
+fun resizeSymbolBuckets(newCapacity: Int) r: Void {
+    initializeSymbolBuckets(newCapacity)
+    var i = 0
+    while i < g_symbolNames.length() {
+        placeSymbolBucket(i + 1, g_symbolHashes[i])
+        i = i + 1
+    }
+}
+
+fun maybeGrowSymbolBuckets() r: Void {
+    ensureSymbolBuckets()
+    if (g_symbolNames.length() + 1) * 100 > g_symbolBuckets.length() * 70 {
+        resizeSymbolBuckets(g_symbolBuckets.length() * 2)
+    }
+}
+
+fun internSymbol(name: String) r: Int {
+    maybeGrowSymbolBuckets()
+    let hash = symbolHashImpl(name)
+    let bucketCount = g_symbolBuckets.length()
+    var bucket = symbolBucketIndex(hash, bucketCount)
+    var probes = 0
+    while probes < bucketCount {
+        let symbolId = g_symbolBuckets[bucket]
+        if symbolId == 0 {
+            let newId = g_symbolNames.length() + 1
+            g_symbolNames.push(name)
+            g_symbolHashes.push(hash)
+            g_symbolPayloadBytes = g_symbolPayloadBytes + name.length()
+            g_symbolBuckets[bucket] = newId
+            return newId
+        }
+        let symbolIdx = symbolId - 1
+        if symbolIdx >= 0 and symbolIdx < g_symbolNames.length() {
+            if g_symbolHashes[symbolIdx] == hash and
+                g_symbolNames[symbolIdx] == name {
+                return symbolId
+            }
+        }
+        bucket = (bucket + 1) % bucketCount
+        probes = probes + 1
+    }
+
+    resizeSymbolBuckets(bucketCount * 2)
+    return internSymbol(name)
+}
+
+fun symbolName(symbolId: Int) r: String {
+    let idx = symbolId - 1
+    if idx >= 0 and idx < g_symbolNames.length() {
+        return g_symbolNames[idx]
+    }
+    return ""
+}
+
+fun symbolInternerCount() r: Int {
+    return g_symbolNames.length()
+}
+
+fun symbolInternerBucketCount() r: Int {
+    return g_symbolBuckets.length()
+}
+
+fun symbolInternerMemoryBytes() r: Int {
+    return g_symbolPayloadBytes +
+        (g_symbolNames.length() * 24) +
+        (g_symbolHashes.length() * 8) +
+        (g_symbolBuckets.length() * 8)
+}
+
+fun symbolInternerTraceDetail() r: String {
+    return "symbol_count=" + symbolInternerCount().toString() +
+        " symbol_bytes=" + symbolInternerMemoryBytes().toString() +
+        " symbol_buckets=" + symbolInternerBucketCount().toString()
+}
+
+class SymbolIdSet {
+    var buckets: Array<Int>
+    var count: Int
+
+    static fun new() r: SymbolIdSet {
+        return SymbolIdSet{
+            buckets: Array<Int>(),
+            count: 0
+        }
+    }
+}
+
+fun symbolIdSetCapacityFor(expectedCount: Int) r: Int {
+    var capacity = 16
+    let target = expectedCount * 2
+    while capacity < target {
+        capacity = capacity * 2
+    }
+    return capacity
+}
+
+fun newSymbolIdSet(expectedCount: Int) r: SymbolIdSet {
+    let set = SymbolIdSet.new()
+    let capacity = symbolIdSetCapacityFor(expectedCount)
+    var i = 0
+    while i < capacity {
+        set.buckets.push(0)
+        i = i + 1
+    }
+    return set
+}
+
+fun symbolIdSetBucket(symbolId: Int, bucketCount: Int) r: Int {
+    if bucketCount <= 0 {
+        return 0
+    }
+    var bucket = symbolId % bucketCount
+    if bucket < 0 {
+        bucket = 0 - bucket
+    }
+    return bucket
+}
+
+fun symbolIdSetContains(set: SymbolIdSet, symbolId: Int) r: Bool {
+    if symbolId <= 0 or set.buckets.length() == 0 {
+        return false
+    }
+    let bucketCount = set.buckets.length()
+    var bucket = symbolIdSetBucket(symbolId, bucketCount)
+    var probes = 0
+    while probes < bucketCount {
+        let entry = set.buckets[bucket]
+        if entry == 0 {
+            return false
+        }
+        if entry == symbolId {
+            return true
+        }
+        bucket = (bucket + 1) % bucketCount
+        probes = probes + 1
+    }
+    return false
+}
+
+fun symbolIdSetAdd(set: SymbolIdSet, symbolId: Int) r: Bool {
+    if symbolId <= 0 {
+        return false
+    }
+    if set.buckets.length() == 0 {
+        let fresh = newSymbolIdSet(16)
+        set.buckets = fresh.buckets
+        set.count = fresh.count
+    }
+    let bucketCount = set.buckets.length()
+    var bucket = symbolIdSetBucket(symbolId, bucketCount)
+    var probes = 0
+    while probes < bucketCount {
+        let entry = set.buckets[bucket]
+        if entry == symbolId {
+            return false
+        }
+        if entry == 0 {
+            set.buckets[bucket] = symbolId
+            set.count = set.count + 1
+            return true
+        }
+        bucket = (bucket + 1) % bucketCount
+        probes = probes + 1
+    }
+    return false
+}

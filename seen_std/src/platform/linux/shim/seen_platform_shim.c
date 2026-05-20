@@ -12,6 +12,7 @@
 
 #define _GNU_SOURCE
 #include <stdint.h>
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -150,6 +151,87 @@ void seen_sdl_get_drawable_size(void* window, int32_t* w, int32_t* h) {
 #ifdef SEEN_USE_VULKAN
 #include <vulkan/vulkan.h>
 
+__attribute__((weak)) int64_t seen_memory_try_reserve_bytes(int64_t size);
+__attribute__((weak)) void seen_memory_release_bytes(int64_t size);
+
+static int seen_platform_mul_bytes(size_t count, size_t item_size, size_t* out_bytes) {
+    if (item_size != 0 && count > SIZE_MAX / item_size) {
+        return 0;
+    }
+    size_t bytes = count * item_size;
+    if (bytes > (size_t)INT64_MAX) {
+        return 0;
+    }
+    *out_bytes = bytes;
+    return 1;
+}
+
+static int seen_platform_reserve_bytes(size_t bytes) {
+    if (bytes == 0 || bytes > (size_t)INT64_MAX) {
+        return 0;
+    }
+    if (seen_memory_try_reserve_bytes) {
+        return seen_memory_try_reserve_bytes((int64_t)bytes) != 0;
+    }
+    return 1;
+}
+
+static void seen_platform_release_bytes(size_t bytes) {
+    if (bytes > 0 && bytes <= (size_t)INT64_MAX && seen_memory_release_bytes) {
+        seen_memory_release_bytes((int64_t)bytes);
+    }
+}
+
+static void* seen_platform_alloc_array(size_t count, size_t item_size, const char* label, size_t* out_bytes) {
+    size_t bytes = 0;
+    if (!seen_platform_mul_bytes(count, item_size, &bytes) || bytes == 0) {
+        fprintf(stderr, "[seen_platform] invalid allocation size for %s\n", label);
+        return NULL;
+    }
+    if (!seen_platform_reserve_bytes(bytes)) {
+        fprintf(stderr, "[seen_platform] allocation budget exhausted for %s (%zu bytes)\n", label, bytes);
+        return NULL;
+    }
+    void* ptr = malloc(bytes);
+    if (!ptr) {
+        seen_platform_release_bytes(bytes);
+        fprintf(stderr, "[seen_platform] host allocation failed for %s (%zu bytes)\n", label, bytes);
+        return NULL;
+    }
+    if (out_bytes) {
+        *out_bytes = bytes;
+    }
+    return ptr;
+}
+
+static void* seen_platform_calloc_array(size_t count, size_t item_size, const char* label, size_t* out_bytes) {
+    size_t bytes = 0;
+    if (!seen_platform_mul_bytes(count, item_size, &bytes) || bytes == 0) {
+        fprintf(stderr, "[seen_platform] invalid allocation size for %s\n", label);
+        return NULL;
+    }
+    if (!seen_platform_reserve_bytes(bytes)) {
+        fprintf(stderr, "[seen_platform] allocation budget exhausted for %s (%zu bytes)\n", label, bytes);
+        return NULL;
+    }
+    void* ptr = calloc(count, item_size);
+    if (!ptr) {
+        seen_platform_release_bytes(bytes);
+        fprintf(stderr, "[seen_platform] host allocation failed for %s (%zu bytes)\n", label, bytes);
+        return NULL;
+    }
+    if (out_bytes) {
+        *out_bytes = bytes;
+    }
+    return ptr;
+}
+
+static void seen_platform_free_sized(void* ptr, size_t bytes) {
+    if (!ptr) return;
+    seen_platform_release_bytes(bytes);
+    free(ptr);
+}
+
 // Create Vulkan instance with simplified parameters
 int32_t seen_vk_create_instance(
     const char* app_name, uint32_t app_version,
@@ -194,14 +276,19 @@ int32_t seen_vk_enumerate_physical_devices(uint64_t instance, uint32_t* count, u
         return vkEnumeratePhysicalDevices((VkInstance)instance, count, NULL);
     }
 
-    VkPhysicalDevice* vk_devices = malloc(*count * sizeof(VkPhysicalDevice));
+    size_t vk_devices_bytes = 0;
+    VkPhysicalDevice* vk_devices = (VkPhysicalDevice*)seen_platform_alloc_array(
+        *count, sizeof(VkPhysicalDevice), "Vulkan physical device list", &vk_devices_bytes);
+    if (!vk_devices) {
+        return VK_ERROR_OUT_OF_HOST_MEMORY;
+    }
     VkResult result = vkEnumeratePhysicalDevices((VkInstance)instance, count, vk_devices);
 
-    for (uint32_t i = 0; i < *count; i++) {
+    for (uint32_t i = 0; result == VK_SUCCESS && i < *count; i++) {
         devices[i] = (uint64_t)vk_devices[i];
     }
 
-    free(vk_devices);
+    seen_platform_free_sized(vk_devices, vk_devices_bytes);
     return result;
 }
 
@@ -232,11 +319,14 @@ uint32_t seen_vk_get_physical_device_queue_family_flags(uint64_t device, uint32_
 
     if (index >= count) return 0;
 
-    VkQueueFamilyProperties* props = malloc(count * sizeof(VkQueueFamilyProperties));
+    size_t props_bytes = 0;
+    VkQueueFamilyProperties* props = (VkQueueFamilyProperties*)seen_platform_alloc_array(
+        count, sizeof(VkQueueFamilyProperties), "Vulkan queue family properties", &props_bytes);
+    if (!props) return 0;
     vkGetPhysicalDeviceQueueFamilyProperties((VkPhysicalDevice)device, &count, props);
 
     uint32_t flags = props[index].queueFlags;
-    free(props);
+    seen_platform_free_sized(props, props_bytes);
     return flags;
 }
 
@@ -259,7 +349,15 @@ int32_t seen_vk_create_device(
     uint32_t extension_count,
     uint64_t* out_device
 ) {
-    float* priorities = malloc(queue_count * sizeof(float));
+    if (queue_count == 0) {
+        return VK_ERROR_INITIALIZATION_FAILED;
+    }
+    size_t priorities_bytes = 0;
+    float* priorities = (float*)seen_platform_alloc_array(
+        queue_count, sizeof(float), "Vulkan queue priorities", &priorities_bytes);
+    if (!priorities) {
+        return VK_ERROR_OUT_OF_HOST_MEMORY;
+    }
     for (uint32_t i = 0; i < queue_count; i++) {
         priorities[i] = 1.0f;
     }
@@ -281,7 +379,7 @@ int32_t seen_vk_create_device(
 
     VkDevice device;
     VkResult result = vkCreateDevice((VkPhysicalDevice)physical_device, &create_info, NULL, &device);
-    free(priorities);
+    seen_platform_free_sized(priorities, priorities_bytes);
 
     if (result == VK_SUCCESS) {
         *out_device = (uint64_t)device;
@@ -370,14 +468,19 @@ int32_t seen_vk_get_swapchain_images(uint64_t device, uint64_t swapchain, uint32
         return vkGetSwapchainImagesKHR((VkDevice)device, (VkSwapchainKHR)swapchain, count, NULL);
     }
 
-    VkImage* vk_images = malloc(*count * sizeof(VkImage));
+    size_t vk_images_bytes = 0;
+    VkImage* vk_images = (VkImage*)seen_platform_alloc_array(
+        *count, sizeof(VkImage), "Vulkan swapchain images", &vk_images_bytes);
+    if (!vk_images) {
+        return VK_ERROR_OUT_OF_HOST_MEMORY;
+    }
     VkResult result = vkGetSwapchainImagesKHR((VkDevice)device, (VkSwapchainKHR)swapchain, count, vk_images);
 
-    for (uint32_t i = 0; i < *count; i++) {
+    for (uint32_t i = 0; result == VK_SUCCESS && i < *count; i++) {
         images[i] = (uint64_t)vk_images[i];
     }
 
-    free(vk_images);
+    seen_platform_free_sized(vk_images, vk_images_bytes);
     return result;
 }
 
@@ -512,7 +615,15 @@ int32_t seen_vk_create_framebuffer(
     uint32_t width, uint32_t height,
     uint64_t* out_framebuffer
 ) {
-    VkImageView* views = malloc(attachment_count * sizeof(VkImageView));
+    size_t views_bytes = 0;
+    VkImageView* views = NULL;
+    if (attachment_count > 0) {
+        views = (VkImageView*)seen_platform_alloc_array(
+            attachment_count, sizeof(VkImageView), "Vulkan framebuffer attachments", &views_bytes);
+        if (!views) {
+            return VK_ERROR_OUT_OF_HOST_MEMORY;
+        }
+    }
     for (uint32_t i = 0; i < attachment_count; i++) {
         views[i] = (VkImageView)attachments[i];
     }
@@ -529,7 +640,7 @@ int32_t seen_vk_create_framebuffer(
 
     VkFramebuffer fb;
     VkResult result = vkCreateFramebuffer((VkDevice)device, &create_info, NULL, &fb);
-    free(views);
+    seen_platform_free_sized(views, views_bytes);
 
     if (result == VK_SUCCESS) {
         *out_framebuffer = (uint64_t)fb;
@@ -570,14 +681,22 @@ int32_t seen_vk_allocate_command_buffers(
         .commandBufferCount = count
     };
 
-    VkCommandBuffer* vk_buffers = malloc(count * sizeof(VkCommandBuffer));
+    if (count == 0) {
+        return VK_ERROR_INITIALIZATION_FAILED;
+    }
+    size_t vk_buffers_bytes = 0;
+    VkCommandBuffer* vk_buffers = (VkCommandBuffer*)seen_platform_alloc_array(
+        count, sizeof(VkCommandBuffer), "Vulkan command buffers", &vk_buffers_bytes);
+    if (!vk_buffers) {
+        return VK_ERROR_OUT_OF_HOST_MEMORY;
+    }
     VkResult result = vkAllocateCommandBuffers((VkDevice)device, &alloc_info, vk_buffers);
 
-    for (uint32_t i = 0; i < count; i++) {
+    for (uint32_t i = 0; result == VK_SUCCESS && i < count; i++) {
         buffers[i] = (uint64_t)vk_buffers[i];
     }
 
-    free(vk_buffers);
+    seen_platform_free_sized(vk_buffers, vk_buffers_bytes);
     return result;
 }
 
@@ -670,22 +789,38 @@ void seen_vk_destroy_fence(uint64_t device, uint64_t fence) {
 }
 
 int32_t seen_vk_wait_for_fences(uint64_t device, uint32_t count, uint64_t* fences, int32_t wait_all, uint64_t timeout) {
-    VkFence* vk_fences = malloc(count * sizeof(VkFence));
+    if (count == 0) {
+        return VK_SUCCESS;
+    }
+    size_t vk_fences_bytes = 0;
+    VkFence* vk_fences = (VkFence*)seen_platform_alloc_array(
+        count, sizeof(VkFence), "Vulkan fence wait list", &vk_fences_bytes);
+    if (!vk_fences) {
+        return VK_ERROR_OUT_OF_HOST_MEMORY;
+    }
     for (uint32_t i = 0; i < count; i++) {
         vk_fences[i] = (VkFence)fences[i];
     }
     VkResult result = vkWaitForFences((VkDevice)device, count, vk_fences, wait_all, timeout);
-    free(vk_fences);
+    seen_platform_free_sized(vk_fences, vk_fences_bytes);
     return result;
 }
 
 int32_t seen_vk_reset_fences(uint64_t device, uint32_t count, uint64_t* fences) {
-    VkFence* vk_fences = malloc(count * sizeof(VkFence));
+    if (count == 0) {
+        return VK_SUCCESS;
+    }
+    size_t vk_fences_bytes = 0;
+    VkFence* vk_fences = (VkFence*)seen_platform_alloc_array(
+        count, sizeof(VkFence), "Vulkan fence reset list", &vk_fences_bytes);
+    if (!vk_fences) {
+        return VK_ERROR_OUT_OF_HOST_MEMORY;
+    }
     for (uint32_t i = 0; i < count; i++) {
         vk_fences[i] = (VkFence)fences[i];
     }
     VkResult result = vkResetFences((VkDevice)device, count, vk_fences);
-    free(vk_fences);
+    seen_platform_free_sized(vk_fences, vk_fences_bytes);
     return result;
 }
 
@@ -734,7 +869,15 @@ int32_t seen_vk_queue_present(uint64_t queue, uint64_t wait_semaphore, uint64_t 
 /* --- Descriptor Sets --- */
 
 int64_t seen_vk_create_descriptor_set_layout(uint64_t device, int32_t binding_count, int32_t* binding_indices, int32_t* binding_types, int32_t* binding_stages) {
-    VkDescriptorSetLayoutBinding* bindings = (VkDescriptorSetLayoutBinding*)calloc(binding_count, sizeof(VkDescriptorSetLayoutBinding));
+    if (binding_count < 0) return 0;
+    size_t bindings_bytes = 0;
+    VkDescriptorSetLayoutBinding* bindings = NULL;
+    if (binding_count > 0) {
+        bindings = (VkDescriptorSetLayoutBinding*)seen_platform_calloc_array(
+            (size_t)binding_count, sizeof(VkDescriptorSetLayoutBinding),
+            "Vulkan descriptor set layout bindings", &bindings_bytes);
+        if (!bindings) return 0;
+    }
     for (int i = 0; i < binding_count; i++) {
         bindings[i].binding = binding_indices[i];
         bindings[i].descriptorType = binding_types[i];
@@ -748,12 +891,20 @@ int64_t seen_vk_create_descriptor_set_layout(uint64_t device, int32_t binding_co
     };
     VkDescriptorSetLayout layout;
     VkResult r = vkCreateDescriptorSetLayout((VkDevice)device, &ci, NULL, &layout);
-    free(bindings);
+    seen_platform_free_sized(bindings, bindings_bytes);
     return r == VK_SUCCESS ? (int64_t)layout : 0;
 }
 
 int64_t seen_vk_create_descriptor_pool(uint64_t device, int32_t max_sets, int32_t type_count, int32_t* types, int32_t* counts) {
-    VkDescriptorPoolSize* sizes = (VkDescriptorPoolSize*)calloc(type_count, sizeof(VkDescriptorPoolSize));
+    if (type_count < 0) return 0;
+    size_t sizes_bytes = 0;
+    VkDescriptorPoolSize* sizes = NULL;
+    if (type_count > 0) {
+        sizes = (VkDescriptorPoolSize*)seen_platform_calloc_array(
+            (size_t)type_count, sizeof(VkDescriptorPoolSize),
+            "Vulkan descriptor pool sizes", &sizes_bytes);
+        if (!sizes) return 0;
+    }
     for (int i = 0; i < type_count; i++) {
         sizes[i].type = types[i];
         sizes[i].descriptorCount = counts[i];
@@ -766,7 +917,7 @@ int64_t seen_vk_create_descriptor_pool(uint64_t device, int32_t max_sets, int32_
     };
     VkDescriptorPool pool;
     VkResult r = vkCreateDescriptorPool((VkDevice)device, &ci, NULL, &pool);
-    free(sizes);
+    seen_platform_free_sized(sizes, sizes_bytes);
     return r == VK_SUCCESS ? (int64_t)pool : 0;
 }
 

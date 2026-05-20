@@ -333,8 +333,8 @@ fun registerKnownDataTypesImpl(structNames: Array<String>, structLayouts: Array<
     structFieldTypes.push("ptr|Int|Int")
     structLlvmFieldTypes.push("ptr|i64|i64")
     structSizes.push(24)
-    structMethodNames.push("push,get,len,length,isEmpty,set,pop,clear,contains,indexOf,reverse,remove,insert,first,last,sort")
-    structMethodRetTypes.push("Void|T|Int|Int|Bool|Void|T|Void|Bool|Int|Void|T|Void|T|T|Void")
+    structMethodNames.push("push,get,len,length,isEmpty,set,pop,clear,contains,indexOf,reverse,remove,insert,first,last,sort,capacity,reserve,ensureCapacity,toArray")
+    structMethodRetTypes.push("Void|T|Int|Int|Bool|Void|T|Void|Bool|Int|Void|T|Void|T|T|Void|Int|Void|Void|Array<T>")
     ///
     BTreeMap<K,V> { root: i64 (Option<BTreeNode>), length: i64 }
     For simplicity, we use a linear implementation: { entries: ptr, capacity: i64, length: i64 }

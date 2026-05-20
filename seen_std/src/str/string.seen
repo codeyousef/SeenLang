@@ -7,6 +7,17 @@ UTF-8 friendly helpers and CString bridges used by bootstrap tooling.
 Disabled during bootstrap - FFI not needed for core functionality
 import ffi.cinterop.{CString, toCString, fromCString}
 ///
+import core.result.{Result, Ok, Err}
+import core.unit.{Unit}
+import io.file.{writeText, appendText}
+import memory.allocation.{AllocError, ensureAllocationBudget}
+
+extern "C" fun seen_string_builder_flatten(parts: Array<String>, totalLength: Int) r: String
+extern "C" fun seen_string_contains_fast(text: String, needle: String) r: Bool
+extern "C" fun seen_string_starts_with_fast(text: String, prefix: String) r: Bool
+extern "C" fun seen_string_ends_with_fast(text: String, suffix: String) r: Bool
+extern "C" fun seen_string_index_of_fast(text: String, needle: String, start: Int) r: Int
+extern "C" fun seen_string_last_index_of_fast(text: String, needle: String) r: Int
 
 class StringBuilder {
     var parts: Array<String>
@@ -27,17 +38,25 @@ class StringBuilder {
         this.parts.push(text)
     }
 
+    fun tryAppend(text: String) r: Result<Unit, AllocError> {
+        let budget = ensureAllocationBudget(text.length())
+        if budget.isErr() {
+            return Err<Unit, AllocError>(budget.unwrapErr())
+        }
+        append(text)
+        return Ok<Unit, AllocError>(Unit{})
+    }
+
     fun appendChar(ch: Char) r: Void {
         this.totalLength = this.totalLength + 1
         this.parts.push(ch.toString())
     }
 
     fun appendLine(text: String = "") r: Void {
-        if text.length() == 0 {
-            append("\n")
-        } else {
-            append(text + "\n")
+        if text.length() > 0 {
+            append(text)
         }
+        append("\n")
     }
 
     fun appendAll(values: Array<String>) r: Void {
@@ -67,16 +86,36 @@ class StringBuilder {
         return built
     }
 
+    fun tryToString() r: Result<String, AllocError> {
+        let budget = ensureAllocationBudget(this.totalLength + 1)
+        if budget.isErr() {
+            return Err<String, AllocError>(budget.unwrapErr())
+        }
+        return Ok<String, AllocError>(toString())
+    }
+
+    fun writeToFile(path: String) r: Bool {
+        if not writeText(path, "") {
+            return false
+        }
+        var index = 0
+        while index < this.parts.length() {
+            if not appendText(path, this.parts[index]) {
+                return false
+            }
+            index = index + 1
+        }
+        return true
+    }
+
     fun toString() r: String {
         let len = this.parts.length()
         if len == 0 { return "" }
         if len == 1 { return this.parts[0] }
-        if len == 2 { return this.parts[0] + this.parts[1] }
-        // Use binary tree reduction: O(n log n) instead of O(n²)
-        return this.reduceToString(0, len)
+        return seen_string_builder_flatten(this.parts, this.totalLength)
     }
 
-    // Binary tree reduction for efficient string concatenation
+    // Compatibility fallback retained for bootstrap paths that cannot call runtime helpers.
     fun reduceToString(start: Int, end: Int) r: String {
         let count = end - start
         if count == 0 { return "" }
@@ -102,7 +141,6 @@ class StringBuilder {
         while index < values.length() {
             if index + 1 < values.length() {
                 let s = values[index] + values[index + 1]
-                println("[DEBUG] mergeAdjacent: pushing len=" + s.length().toString())
                 merged.push(s)
                 index = index + 2
             } else {
@@ -126,22 +164,36 @@ fun split(text: String, delimiter: String) r: Array<String> {
         return pieces
     }
 
-    var current = ""
     var index = 0
+    var segmentStart = 0
     let limit = text.length()
-    while index < limit {
-        let nextIndex = index + delimLength
-        if nextIndex <= limit and text.substring(index, nextIndex) == delimiter {
-            pieces.push(current)
-            current = ""
-            index = nextIndex
+    while index <= limit - delimLength {
+        if stringRegionMatches(text, index, delimiter) {
+            pieces.push(text.substring(segmentStart, index))
+            index = index + delimLength
+            segmentStart = index
         } else {
-            current = current + text.charAt(index)
             index = index + 1
         }
     }
-    pieces.push(current)
+    pieces.push(text.substring(segmentStart, limit))
     return pieces
+}
+
+fun stringRegionMatches(text: String, offset: Int, needle: String) r: Bool {
+    let needleLength = needle.length()
+    if offset < 0 or offset + needleLength > text.length() {
+        return false
+    }
+
+    var index = 0
+    while index < needleLength {
+        if text.byteAt(offset + index) != needle.byteAt(index) {
+            return false
+        }
+        index = index + 1
+    }
+    return true
 }
 
 fun utf8ByteLenFromLeadByte(byte: Int) r: Int {
@@ -253,50 +305,19 @@ fun isBlank(text: String) r: Bool {
 }
 
 fun contains(text: String, needle: String) r: Bool {
-    return indexOf(text, needle, 0) >= 0
+    return seen_string_contains_fast(text, needle)
 }
 
 fun startsWith(text: String, prefix: String) r: Bool {
-    if prefix.length() > text.length() {
-        return false
-    }
-    return text.substring(0, prefix.length()) == prefix
+    return seen_string_starts_with_fast(text, prefix)
 }
 
 fun endsWith(text: String, suffix: String) r: Bool {
-    if suffix.length() > text.length() {
-        return false
-    }
-    let start = text.length() - suffix.length()
-    return text.substring(start, text.length()) == suffix
+    return seen_string_ends_with_fast(text, suffix)
 }
 
 fun indexOf(text: String, needle: String, startIndex: Int = 0) r: Int {
-    let needleLength = needle.length()
-    if needleLength == 0 {
-        if startIndex < 0 {
-            return 0
-        }
-        if startIndex > text.length() {
-            return text.length()
-        }
-        return startIndex
-    }
-    var start = startIndex
-    if start < 0 {
-        start = 0
-    }
-    let limit = text.length() - needleLength
-    if limit < 0 {
-        return -1
-    }
-    while start <= limit {
-        if text.substring(start, start + needleLength) == needle {
-            return start
-        }
-        start = start + 1
-    }
-    return -1
+    return seen_string_index_of_fast(text, needle, startIndex)
 }
 
 fun String_charCodeAt(s: String, index: Int) r: Int {
@@ -305,21 +326,7 @@ fun String_charCodeAt(s: String, index: Int) r: Int {
 }
 
 fun lastIndexOf(text: String, needle: String) r: Int {
-    let needleLength = needle.length()
-    if needleLength == 0 {
-        return text.length()
-    }
-    if needleLength > text.length() {
-        return -1
-    }
-    var index = text.length() - needleLength
-    while index >= 0 {
-        if text.substring(index, index + needleLength) == needle {
-            return index
-        }
-        index = index - 1
-    }
-    return -1
+    return seen_string_last_index_of_fast(text, needle)
 }
 
 fun lines(text: String, dropEmpty: Bool = false) r: Array<String> {
@@ -411,18 +418,21 @@ fun replaceAll(text: String, target: String, replacement: String) r: String {
     let length = text.length()
     let targetLength = target.length()
     var index = 0
+    var segmentStart = 0
     while index <= length - targetLength {
-        if text.substring(index, index + targetLength) == target {
+        if stringRegionMatches(text, index, target) {
+            if index > segmentStart {
+                builder.append(text.substring(segmentStart, index))
+            }
             builder.append(replacement)
             index = index + targetLength
+            segmentStart = index
         } else {
-            builder.appendChar(text.charAt(index))
             index = index + 1
         }
     }
-    while index < length {
-        builder.appendChar(text.charAt(index))
-        index = index + 1
+    if segmentStart < length {
+        builder.append(text.substring(segmentStart, length))
     }
     return builder.toString()
 }
@@ -491,29 +501,35 @@ fun repeat(text: String, times: Int) r: String {
     if times <= 0 {
         return ""
     }
-    var result = ""
+    if text.length() == 0 {
+        return ""
+    }
+    let builder = StringBuilder.new()
     var i = 0
     while i < times {
-        result = result + text
+        builder.append(text)
         i = i + 1
     }
-    return result
+    return builder.toString()
 }
 
 fun join(parts: Array<String>, separator: String) r: String {
     if parts.length() == 0 {
         return ""
     }
-    var result = ""
+    if parts.length() == 1 {
+        return parts[0]
+    }
+    let builder = StringBuilder.new()
     var index = 0
     while index < parts.length() {
-        result = result + parts[index]
+        builder.append(parts[index])
         if index != parts.length() - 1 {
-            result = result + separator
+            builder.append(separator)
         }
         index = index + 1
     }
-    return result
+    return builder.toString()
 }
 
 // Extension method for Array<String>
@@ -637,7 +653,7 @@ fun String_count(text: String, needle: String) r: Int {
     var i = 0
     let limit = text.length() - needleLen
     while i <= limit {
-        if text.substring(i, i + needleLen) == needle {
+        if stringRegionMatches(text, i, needle) {
             count = count + 1
             i = i + needleLen
         } else {

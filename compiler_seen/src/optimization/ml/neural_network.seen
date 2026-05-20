@@ -6,6 +6,7 @@ Feedforward network with backpropagation training
 import math.math.{exp, tanh, max, min, abs}
 import io.file.{readText, writeText}
 import json.value.{JsonValue, JsonValue_emptyObject, JsonValue_emptyArray, JsonValue_number, JsonValue_numberFloat, JsonValue_bool}
+import str.string.{StringBuilder}
 
 // Sigmoid activation function: 1 / (1 + e^(-x))
 fun sigmoid(x: Float) r: Float {
@@ -495,31 +496,38 @@ fun jsonToString(json: JsonValue) r: String {
         return "\"" + json.getString() + "\""
     }
     if json.isArray() {
-        var result = "["
+        let result = StringBuilder.new()
+        result.append("[")
         let arr = json.getArray()
         var i = 0
         while i < arr.length() {
             if i > 0 {
-                result = result + ","
+                result.append(",")
             }
-            result = result + jsonToString(arr[i])
+            result.append(jsonToString(arr[i]))
             i = i + 1
         }
-        return result + "]"
+        result.append("]")
+        return result.toString()
     }
     if json.isObject() {
-        var result = "{"
+        let result = StringBuilder.new()
+        result.append("{")
         let keys = json.objectKeys
         let vals = json.objectValues
         var i = 0
         while i < keys.length() {
             if i > 0 {
-                result = result + ","
+                result.append(",")
             }
-            result = result + "\"" + keys[i] + "\":" + jsonToString(vals[i])
+            result.append("\"")
+            result.append(keys[i])
+            result.append("\":")
+            result.append(jsonToString(vals[i]))
             i = i + 1
         }
-        return result + "}"
+        result.append("}")
+        return result.toString()
     }
     return "{}"
 }

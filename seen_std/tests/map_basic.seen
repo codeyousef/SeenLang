@@ -1,0 +1,102 @@
+///
+Map<K,V> compatibility test
+Exercises compiler-lowered Map runtime paths for string/int keys and values.
+///
+
+import collections.map.{Map}
+import core.option.{Option, Some, None}
+
+fun expect(condition: Bool, message: String) r: Void {
+    if not condition {
+        println("FAIL: " + message)
+        abort(message)
+    }
+}
+
+fun main() r: Int {
+    let counts = Map<String, Int>.new()
+    expect(counts.tryReserve(128).isOkay(), "Map tryReserve should report success")
+    var i = 0
+    while i < 96 {
+        expect(counts.tryPut("key-" + i.toString(), i * 3).isOkay(),
+            "Map tryPut should report success")
+        i = i + 1
+    }
+
+    expect(counts.size() == 96, "Map<String,Int> size after inserts")
+    expect(not counts.isEmpty(), "Map<String,Int> should not be empty")
+    expect(counts.containsKey("key-42"), "Map<String,Int> contains key")
+    expect(counts.containsValue(126), "Map<String,Int> contains value")
+    expect(not counts.containsKey("missing"), "Map<String,Int> missing key")
+
+    let found = counts.get("key-42")
+    expect(found.isSome(), "Map<String,Int> get should return Some")
+    expect(found.unwrap() == 126, "Map<String,Int> get value")
+
+    counts.put("key-42", 9000)
+    let updated = counts.get("key-42")
+    expect(updated.isSome(), "Map<String,Int> updated get should return Some")
+    expect(updated.unwrap() == 9000, "Map<String,Int> updated value")
+    expect(counts.size() == 96, "Map<String,Int> update should not grow")
+
+    let removed = counts.remove("key-42")
+    expect(removed.isSome(), "Map<String,Int> remove should return Some")
+    expect(removed.unwrap() == 9000, "Map<String,Int> removed value")
+    expect(not counts.containsKey("key-42"), "Map<String,Int> remove clears key")
+    expect(counts.removeOrDefault("key-43", -1) == 129,
+        "Map<String,Int> removeOrDefault existing")
+    expect(counts.removeOrDefault("missing", -1) == -1,
+        "Map<String,Int> removeOrDefault fallback")
+    expect(counts.containsKey("key-44") and counts.removeUnchecked("key-44") == 132,
+        "Map<String,Int> removeUnchecked existing")
+
+    let countKeys = counts.keys()
+    let countValues = counts.values()
+    expect(countKeys.len() == counts.size(), "Map<String,Int> keys length")
+    expect(countValues.len() == counts.size(), "Map<String,Int> values length")
+
+    let names = Map<String, String>.new()
+    expect(Map<String, String>.tryWithCapacity(4).isOkay(),
+        "Map tryWithCapacity should return Ok")
+    names.put("seen", "language")
+    names.put("stage", "compiler")
+    let seenName = names.get("seen")
+    expect(seenName.isSome(), "Map<String,String> get should return Some")
+    expect(seenName.unwrap() == "language", "Map<String,String> keeps string data pointer")
+    expect(names.getOrDefault("stage", "missing") == "compiler",
+        "Map<String,String> getOrDefault existing")
+    expect(names.getOrDefault("none", "missing") == "missing",
+        "Map<String,String> getOrDefault fallback")
+    expect(names.containsKey("seen") and names.getUnchecked("seen") == "language",
+        "Map<String,String> getUnchecked existing")
+    expect(names.removeOrDefault("stage", "missing") == "compiler",
+        "Map<String,String> removeOrDefault existing")
+    expect(names.removeOrDefault("none", "missing") == "missing",
+        "Map<String,String> removeOrDefault fallback")
+    expect(names.containsValue("language"), "Map<String,String> contains value")
+
+    let ids = Map<Int, String>.new()
+    ids.put(7, "seven")
+    ids.put(11, "eleven")
+    expect(ids.get(11).unwrap() == "eleven", "Map<Int,String> get value")
+    expect(ids.getUnchecked(7) == "seven", "Map<Int,String> getUnchecked existing")
+    expect(ids.removeOrDefault(11, "missing") == "eleven",
+        "Map<Int,String> removeOrDefault existing")
+    expect(ids.removeOrDefault(12, "missing") == "missing",
+        "Map<Int,String> removeOrDefault fallback")
+    expect(ids.containsValue("seven"), "Map<Int,String> contains string value")
+
+    let numeric = Map<Int, Int>.new()
+    numeric.put(1, 10)
+    numeric.put(2, 20)
+    expect(numeric.getOrDefault(2, -1) == 20, "Map<Int,Int> getOrDefault existing")
+    expect(numeric.getOrDefault(3, -1) == -1, "Map<Int,Int> getOrDefault fallback")
+    expect(numeric.removeUnchecked(1) == 10, "Map<Int,Int> removeUnchecked existing")
+    expect(numeric.values().len() == 1, "Map<Int,Int> values length after removal")
+
+    names.clear()
+    expect(names.isEmpty(), "Map clear empties map")
+
+    println("PASS: Map compatibility tests passed")
+    return 0
+}

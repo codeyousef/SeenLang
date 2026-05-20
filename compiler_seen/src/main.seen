@@ -187,7 +187,7 @@ fun main() r: Int {
     } else if command == "pkg" {
         exit = StagePkgCommand(GetRawCommandLineArgs())
     } else if command == "--version" or command == "-v" {
-        printLn("Seen 0.8.3 (100% self-hosted)")
+        printLn("Seen 0.9.0 (100% self-hosted)")
         printLn("Language: Seen")
         printLn("Targets: native, wasm, uww, c, llvm-ir")
         exit = 0
@@ -329,7 +329,7 @@ fun getDefaultOutput(sourceFile: String, target: Target) r: String {
 }
 
 fun printUsage() r: Void {
-    printLn("Seen 0.8.3 - 100% Self-hosted Compiler")
+    printLn("Seen 0.9.0 - 100% Self-hosted Compiler")
     printLn("")
     printLn("Usage: seen <command> [options]")
     printLn("")
@@ -361,6 +361,7 @@ fun printUsage() r: Void {
     printLn("      macos-arm64               macOS ARM64 executable")
     printLn("      linux-x86_64              Linux x86_64 executable")
     printLn("      linux-arm64               Linux ARM64 executable")
+    printLn("      linux-riscv64             Linux RISC-V 64 executable")
     printLn("      ios-arm64                 iOS ARM64 artifact")
     printLn("      ios-sim-arm64             iOS Simulator ARM64 artifact")
     printLn("      android-arm64             Android ARM64 shared library")
@@ -779,7 +780,7 @@ fun targetToString(target: Target) r: String {
         Target.iOS_ARM64 -> "ios-arm64"
         Target.iOS_Simulator_ARM64 -> "ios-sim-arm64"
         Target.Android_ARM64 -> "android-arm64"
-        Target.RISC_V -> "riscv"
+        Target.RISC_V -> "linux-riscv64"
         _ -> "native"
     }
 }

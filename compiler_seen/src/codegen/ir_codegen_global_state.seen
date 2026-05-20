@@ -27,7 +27,7 @@ import codegen.ir_string_collect.{getBaseTypeNameImpl}
 import codegen.ir_type_mapping.{mapTypeImpl}
 import codegen.ir_type_header.{tryLoadTypeHeaderIntoOutputImpl, emitBuiltinTypeHeaderImpl}
 import codegen.ir_module_constants.{ModuleConstantRegistrySnapshot, emitGlobalVariablesSnapshotImpl, findModuleConstantSnapshotImpl, tryInferModuleConstantVariableTypeSnapshotImpl}
-import codegen.ir_module_emit.{emitCrossModuleConstantDeclaresImpl}
+import codegen.ir_module_emit.{emitCrossModuleConstantDeclaresIndexedImpl}
 import codegen.ir_variable_gen.{findActiveVariableIndexImpl, findVisibleVariableTypeImpl}
 import codegen.ir_local_type_fallback.{tryInferLLVMIRGeneratorThisFieldTypeImpl, tryInferStructThisFieldTypeImpl, tryInferImplicitThisVariableTypeImpl}
 import codegen.ir_stmt_decl.{LetStatementPlan, appendCollectedDeclarationImpl, prepareLetStatementPlanImpl, resolveLetPreAllocatedRegImpl}
@@ -275,10 +275,11 @@ fun emitGlobalVariablesWithGlobalStateImpl(output: StringBuilder,
 }
 
 fun emitCrossModuleConstantDeclaresWithGlobalStateImpl(output: StringBuilder,
-    xmConstNames: String, xmConstTypes: String, xmConstCount: Int) r: Void {
+    xmConstNames: String, xmConstTypes: String, xmConstCount: Int,
+    xmConstNamesArr: Array<String>, xmConstTypesArr: Array<String>) r: Void {
 
-    emitCrossModuleConstantDeclaresImpl(output, moduleConstantNames,
-        xmConstNames, xmConstTypes, xmConstCount)
+    emitCrossModuleConstantDeclaresIndexedImpl(output, moduleConstantNames,
+        xmConstNamesArr, xmConstTypesArr, xmConstCount)
 }
 
 fun findModuleConstantWithGlobalStateImpl(name: String,

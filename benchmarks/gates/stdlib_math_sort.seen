@@ -1,0 +1,32 @@
+import math.math.{sin, cos, sqrt, pow, popcount, rotateLeft}
+import collections.algorithms.{unstableSortInt, radixSortInt}
+
+fun main() r: Int {
+    let values = Array<Int>()
+    var i = 0
+    while i < 512 {
+        values.push((i * 7919 + 17) % 10007)
+        i = i + 1
+    }
+    unstableSortInt(values)
+
+    let radix = radixSortInt(values)
+
+    var accum = 0.0
+    var j = 1
+    while j < values.length() {
+        if values[j - 1] > values[j] or radix[j - 1] > radix[j] {
+            return 1
+        }
+        let f = values[j].toFloat() / 1000.0
+        accum = accum + sqrt(f + 1.0) + sin(f) * cos(f) + pow(f + 1.0, 1.25)
+        accum = accum + popcount(values[j]).toFloat()
+        accum = accum + (rotateLeft(values[j], j) & 255).toFloat()
+        j = j + 1
+    }
+
+    if accum <= 0.0 {
+        return 2
+    }
+    return 0
+}

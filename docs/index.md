@@ -41,6 +41,7 @@ fun main() {
 - [Multi-Language Support](multilingual.md) -- keyword translations and adding languages
 - [FFI](ffi.md) -- C interop, extern functions, linking
 - [Tooling](tooling.md) -- VS Code extension, LSP, formatting, debugging
+- [Compilation Targets](targets.md) -- native and cross-target names, triples, RISC-V/QEMU verification
 
 ### Project & Build
 

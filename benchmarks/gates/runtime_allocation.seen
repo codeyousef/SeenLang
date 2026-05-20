@@ -1,0 +1,27 @@
+import memory.allocation.{setMemoryLimitBytes, memoryStats}
+
+fun main() r: Int {
+    setMemoryLimitBytes(128 * 1024 * 1024)
+
+    var round = 0
+    var total = 0
+    while round < 128 {
+        let values = Array<Int>()
+        var i = 0
+        while i < 1024 {
+            values.push(i + round)
+            i = i + 1
+        }
+        total = total + values.length()
+        round = round + 1
+    }
+
+    let stats = memoryStats()
+    if total <= 0 {
+        return 1
+    }
+    if stats.peakBytes < stats.usedBytes {
+        return 2
+    }
+    return 0
+}

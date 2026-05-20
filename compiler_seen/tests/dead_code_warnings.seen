@@ -11,6 +11,8 @@ fun main() r: Int {
     program.items.push(makeSymbolImport("lexer.lexer",
         "SeenLexer", "AliasLexer", 2, 8))
     program.items.push(makeModuleImport("process.process", 3, 8))
+    program.items.push(makeSymbolImport("collections.btree_map",
+        "BTreeMap", "TreeMap", 4, 8))
 
     program.items.push(makeSimpleFunctionItem("unusedHelper", "private", 5,
         makeReturnBlock(6)))
@@ -53,12 +55,14 @@ fun main() r: Int {
     if hasMessageFragment(warnings, "UsedType") { return 12 }
     if not hasMessageFragment(warnings, "unusedMethodParam") { return 13 }
     if hasMessageFragment(warnings, "methodOnlyHelper") { return 14 }
+    if hasMessageFragment(warnings, "methodReceiver") { return 15 }
+    if hasMessageFragment(warnings, "TreeMap") { return 16 }
 
     let warningIndex = findCodeIndex(warnings, "W001")
-    if warningIndex < 0 { return 15 }
+    if warningIndex < 0 { return 17 }
     let warning = warnings[warningIndex]
-    if warning.line < 1 { return 16 }
-    if warning.endColumn <= warning.column { return 17 }
+    if warning.line < 1 { return 18 }
+    if warning.endColumn <= warning.column { return 19 }
 
     return 0
 }
@@ -170,25 +174,29 @@ fun makeMainBlock() r: BlockNode {
         49, 9))
     body.statements.push(makeLetStmt("usedLocal", makeCallExpr("usedHelper"),
         50, 9))
+    body.statements.push(makeLetStmt("methodReceiver",
+        makeMethodExpr("TreeMap<String, Int>", "new"), 51, 9))
+    body.statements.push(makeExpressionStmt(
+        makeMethodExpr("methodReceiver", "insert"), 52, 9))
 
     let falseBranch = BlockNode.new()
     falseBranch.statements.push(makeLetStmt("branchValue",
-        makeLiteralExpr("3", "Int"), 52, 13))
+        makeLiteralExpr("3", "Int"), 53, 13))
     body.statements.push(makeIfStmt(makeLiteralExpr("false", "Bool"),
-        falseBranch, BlockNode.new(), 51, 9))
+        falseBranch, BlockNode.new(), 53, 9))
 
     let trueBranch = BlockNode.new()
     trueBranch.statements.push(makeLetStmt("_reachable",
-        makeVarExpr("usedLocal"), 55, 13))
+        makeVarExpr("usedLocal"), 56, 13))
     let hiddenBranch = BlockNode.new()
     hiddenBranch.statements.push(makeLetStmt("hidden",
-        makeLiteralExpr("4", "Int"), 57, 13))
+        makeLiteralExpr("4", "Int"), 58, 13))
     body.statements.push(makeIfStmt(makeLiteralExpr("true", "Bool"),
-        trueBranch, hiddenBranch, 54, 9))
+        trueBranch, hiddenBranch, 55, 9))
 
-    body.statements.push(makeReturnStmt(makeVarExpr("usedLocal"), 59, 9))
+    body.statements.push(makeReturnStmt(makeVarExpr("usedLocal"), 60, 9))
     body.statements.push(makeLetStmt("afterReturn",
-        makeLiteralExpr("5", "Int"), 60, 9))
+        makeLiteralExpr("5", "Int"), 61, 9))
     return body
 }
 
@@ -237,6 +245,17 @@ fun makeReturnStmt(value: ParserExpressionNode, line: Int,
     return stmt
 }
 
+fun makeExpressionStmt(value: ParserExpressionNode, line: Int,
+    column: Int) r: StatementNode {
+
+    let stmt = StatementNode.new()
+    stmt.kind = "Expression"
+    stmt.expression = value
+    stmt.line = line
+    stmt.column = column
+    return stmt
+}
+
 fun makeIfStmt(condition: ParserExpressionNode, thenBranch: BlockNode,
     elseBranch: BlockNode, line: Int, column: Int) r: StatementNode {
 
@@ -269,6 +288,15 @@ fun makeCallExpr(name: String) r: ParserExpressionNode {
     let expr = ParserExpressionNode.new()
     expr.kind = "Call"
     expr.callee = name
+    return expr
+}
+
+fun makeMethodExpr(receiver: String, method: String) r: ParserExpressionNode {
+    let expr = ParserExpressionNode.new()
+    expr.kind = "MethodCall"
+    expr.literalValue = receiver
+    expr.variableName = method
+    expr.callee = method
     return expr
 }
 

@@ -153,7 +153,8 @@ fun tryGenerateExplicitCollectionMethodCallImpl(output: StringBuilder,
 
     let isCollectionType = receiverType.startsWith("Vec<") or
         receiverType == "Vec" or receiverType.startsWith("BTreeMap<") or
-        receiverType == "BTreeMap" or receiverType.startsWith("HashMap<") or
+        receiverType == "BTreeMap" or receiverType.startsWith("Map<") or
+        receiverType == "Map" or receiverType.startsWith("HashMap<") or
         receiverType == "HashMap" or
         receiverType.startsWith("StringHashMap<") or
         receiverType == "StringHashMap" or
@@ -227,7 +228,8 @@ fun emitStringBuilderReceiverMethodCallImpl(output: StringBuilder,
     if receiverType != "StringBuilder" {
         return ""
     }
-    if methodName != "append" and methodName != "appendInt" and
+    if methodName != "append" and methodName != "writeToFile" and
+        methodName != "appendInt" and
         methodName != "appendFloat" and methodName != "appendChar" and
         methodName != "clear" and methodName != "length" and
         methodName != "toString" {
@@ -377,10 +379,23 @@ fun tryGenerateStaticFactoryMethodCallImpl(output: StringBuilder,
     }
 
     if methodName == "withCapacity" and argCount > 0 and
-        (potentialClassName == "HashMap" or
+        (potentialClassName == "Map" or potentialClassName == "HashMap" or
             potentialClassName == "StringHashMap") {
         return emitStaticHashMapWithCapacityCallImpl(output, regBox,
             potentialClassName, fullClassName, firstArgReg)
+    }
+
+    if methodName == "tryWithCapacity" and argCount > 0 and
+        (potentialClassName == "Map" or potentialClassName == "HashMap" or
+            potentialClassName == "StringHashMap") {
+        let mapReg = emitStaticHashMapWithCapacityCallImpl(output, regBox,
+            potentialClassName, fullClassName, firstArgReg)
+        if mapReg != "" {
+            let resultReg = getNextRegFn(regBox)
+            output.append("  " + resultReg + " = call i64 @Ok(i64 " +
+                mapReg + ")\n")
+            return resultReg
+        }
     }
 
     if potentialClassName == "Array" and methodName == "withLength" and
@@ -426,6 +441,12 @@ fun emitPreparedStaticMethodCallImpl(output: StringBuilder, regBox: Array<Int>,
     if potentialClassName == "String" and methodName == "fromCharCode" {
         return emitStringFromCharCodeCallImpl(output, regBox, argRegs,
             argTypeStrs)
+    }
+    if potentialClassName == "Int" and methodName == "max" {
+        return "9223372036854775807"
+    }
+    if potentialClassName == "Int" and methodName == "min" {
+        return "-9223372036854775808"
     }
 
     return emitGenericStaticCallImpl(output, regBox,

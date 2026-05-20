@@ -655,7 +655,7 @@ class KeywordManager {
 
     ///
     Load stdlib entries from TOML into parallel arrays (key, value).
-    Avoids Map entirely to sidestep the Map.keys()/Map.put() runtime crash bugs.
+    Keeps this bootstrap reader independent of collection runtime lowering.
     ///
     fun loadStdlibToArrays(path: String, keys: Array<String>, values: Array<String>) r: Void {
         let content = readText(path)
@@ -730,7 +730,7 @@ class KeywordManager {
     Build stdlib alias map: localized name -> English short name.
     For non-English languages, loads both English and target language stdlib
     TOMLs, then resolves localized_name -> canonical_path -> english_name.
-    Uses parallel arrays instead of Map to avoid Map runtime crash bugs.
+    Uses parallel arrays so older bootstrap compilers can read aliases too.
     ///
     fun loadStdlibAliases(language: String) r: Void {
         if language == "en" {
@@ -767,8 +767,8 @@ class KeywordManager {
         ///
         Resolve: for each local entry, find the English name that shares
         the same canonical path, then store as "ALIAS:localName=englishName"
-        in the sources array. Avoids Map<String,String>.get() which returns
-        only first 8 bytes of SeenString (len field), losing the data ptr.
+        in the sources array. This stays array-backed so early bootstrap
+        compilers do not need modern Map runtime lowering.
         ///
         var i = 0
         while i < localNames.length() {
@@ -797,8 +797,7 @@ class KeywordManager {
     fun resolveStdlibAlias(name: String) r: String {
         ///
         Search sources array for "ALIAS:name=value" entries.
-        Cannot use Map<String,String>.get() — it returns only len field (8 bytes),
-        losing the data pointer, causing SIGSEGV on dereference.
+        Keep this path array-backed for bootstrap compiler compatibility.
         ///
         let prefix = "ALIAS:" + name + "="
         var idx = 0

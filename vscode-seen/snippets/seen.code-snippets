@@ -525,6 +525,42 @@
     ],
     "description": "Errdefer block (runs on error exit)"
   },
+  "String Builder": {
+    "prefix": "stringbuilder",
+    "body": [
+      "let ${1:builder} = StringBuilder.new()",
+      "${1:builder}.append(${2:\"value\"})",
+      "let ${3:result} = ${1:builder}.toString()"
+    ],
+    "description": "Build a string with StringBuilder"
+  },
+  "Byte Buffer": {
+    "prefix": "bytebuffer",
+    "body": [
+      "let ${1:bytes} = ByteBuffer.withCapacity(${2:256})",
+      "${1:bytes}.push(${3:255})",
+      "let ${4:value} = ${1:bytes}.get(${5:0})"
+    ],
+    "description": "Create and read a byte-backed ByteBuffer"
+  },
+  "HashMap Lookup": {
+    "prefix": "hashmap",
+    "body": [
+      "let ${1:map} = HashMap<${2:String}, ${3:Int}>.withCapacity(${4:64})",
+      "${1:map}.insert(${5:\"key\"}, ${6:1})",
+      "let ${7:value} = ${1:map}.getOrDefault(${5:\"key\"}, ${8:0})"
+    ],
+    "description": "HashMap insert and direct-value lookup"
+  },
+  "Priority Queue": {
+    "prefix": "priorityqueue",
+    "body": [
+      "let ${1:queue} = IntPriorityQueue.min()",
+      "${1:queue}.push(${2:42})",
+      "let ${3:next} = ${1:queue}.pop()"
+    ],
+    "description": "Integer priority queue"
+  },
   "Benchmark": {
     "prefix": "bench",
     "body": [

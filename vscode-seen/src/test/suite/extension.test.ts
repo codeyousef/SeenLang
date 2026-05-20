@@ -82,6 +82,24 @@ suite('Extension Test Suite', () => {
         assert.deepStrictEqual(languages, ['en', 'ar', 'es', 'ru', 'zh', 'ja']);
     });
 
+    test('Target enum should match shipped compiler targets', () => {
+        const packageJsonPath = path.join(__dirname, '../../../package.json');
+        const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+        const targets = packageJson.contributes.configuration.properties['seen.target.default'].enum;
+        assert.deepStrictEqual(targets, [
+            'native',
+            'linux-x86_64',
+            'linux-arm64',
+            'linux-riscv64',
+            'windows-x86_64',
+            'macos-x86_64',
+            'macos-arm64',
+            'ios-arm64',
+            'ios-sim-arm64',
+            'android-arm64'
+        ]);
+    });
+
     test('Extension should not call unsupported custom LSP methods', () => {
         const commandsPath = path.join(__dirname, '../../commands.js');
         const commandsSource = fs.readFileSync(commandsPath, 'utf8');
@@ -243,6 +261,18 @@ suite('Language Features Test Suite', () => {
         assert.ok(grammar.includes('computed'));
     });
 
+    test('Grammar should include 0.9.0 performance and memory types', () => {
+        const grammarPath = path.join(__dirname, '../../../syntaxes/seen.tmLanguage.json');
+        const grammar = fs.readFileSync(grammarPath, 'utf8');
+
+        assert.ok(grammar.includes('ByteBuffer'));
+        assert.ok(grammar.includes('Int32Buffer'));
+        assert.ok(grammar.includes('Float64Buffer'));
+        assert.ok(grammar.includes('IntPriorityQueue'));
+        assert.ok(grammar.includes('AllocError'));
+        assert.ok(grammar.includes('MemoryStats'));
+    });
+
     test('Snippets should include facade component constructs', () => {
         const snippetsPath = path.join(__dirname, '../../../snippets/seen.code-snippets');
         const snippets = JSON.parse(fs.readFileSync(snippetsPath, 'utf8'));
@@ -251,6 +281,16 @@ suite('Language Features Test Suite', () => {
         assert.ok(snippets['UI State']);
         assert.ok(snippets['Computed Value']);
         assert.ok(snippets['UI Effect']);
+    });
+
+    test('Snippets should include 0.9.0 performance constructs', () => {
+        const snippetsPath = path.join(__dirname, '../../../snippets/seen.code-snippets');
+        const snippets = JSON.parse(fs.readFileSync(snippetsPath, 'utf8'));
+
+        assert.ok(snippets['String Builder']);
+        assert.ok(snippets['Byte Buffer']);
+        assert.ok(snippets['HashMap Lookup']);
+        assert.ok(snippets['Priority Queue']);
     });
 });
 

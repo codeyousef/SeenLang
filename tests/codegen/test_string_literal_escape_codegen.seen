@@ -1,0 +1,16 @@
+fun expect(condition: Bool, message: String) -> Void {
+    if not condition {
+        abort(message)
+    }
+}
+
+fun main() -> Int {
+    let text = "A\"B\\C\nD\tE\rF"
+    expect(text.length() == 11, "escaped string literal length mismatch")
+    expect(text.charAt(1) == '"', "quote escape mismatch")
+    expect(text.charAt(3) == '\\', "backslash escape mismatch")
+    expect(text.charAt(5) == '\n', "newline escape mismatch")
+    expect(text.charAt(7) == '\t', "tab escape mismatch")
+    expect(text.charAt(9) == '\r', "carriage return escape mismatch")
+    return 0
+}

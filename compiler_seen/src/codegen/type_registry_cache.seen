@@ -1,11 +1,13 @@
 // type_registry_cache.seen - Shared type-registry lookup cache hooks.
 
-var g_findStructCacheNames: Array<String> = Array<String>()
+import codegen.symbol_interner.{internSymbol}
+
+var g_findStructCacheNameIds: Array<Int> = Array<Int>()
 var g_findStructCacheIdxs: Array<Int> = Array<Int>()
 var g_findStructCacheLens: Array<Int> = Array<Int>()
-var g_fieldInfoCacheKeys: Array<String> = Array<String>()
+var g_fieldInfoCacheKeyIds: Array<Int> = Array<Int>()
 var g_fieldInfoCacheIdxs: Array<Int> = Array<Int>()
-var g_funcReturnCacheNames: Array<String> = Array<String>()
+var g_funcReturnCacheNameIds: Array<Int> = Array<Int>()
 var g_funcReturnCacheIdxs: Array<Int> = Array<Int>()
 var g_funcReturnCacheLens: Array<Int> = Array<Int>()
 
@@ -23,20 +25,26 @@ fun min3(a: Int, b: Int, c: Int) r: Int {
 }
 
 fun resetStructLookupCache() r: Void {
-    g_findStructCacheNames = Array<String>()
+    g_findStructCacheNameIds = Array<Int>()
     g_findStructCacheIdxs = Array<Int>()
     g_findStructCacheLens = Array<Int>()
 }
 
 fun resetFunctionReturnCache() r: Void {
-    g_funcReturnCacheNames = Array<String>()
+    g_funcReturnCacheNameIds = Array<Int>()
     g_funcReturnCacheIdxs = Array<Int>()
     g_funcReturnCacheLens = Array<Int>()
 }
 
 fun resetFieldInfoCache() r: Void {
-    g_fieldInfoCacheKeys = Array<String>()
+    g_fieldInfoCacheKeyIds = Array<Int>()
     g_fieldInfoCacheIdxs = Array<Int>()
+}
+
+fun resetTypeRegistryLookupCaches() r: Void {
+    resetStructLookupCache()
+    resetFunctionReturnCache()
+    resetFieldInfoCache()
 }
 
 fun cachedStructNameMatches(name: String, cachedName: String) r: Bool {
@@ -66,12 +74,13 @@ fun structCacheStoredName(name: String, idx: Int,
 
 fun findCachedStructIndex(name: String, structNames: Array<String>) r: Int {
     let currentLen = structNames.length()
-    var limit = min3(g_findStructCacheNames.length(),
+    let nameId = internSymbol(name)
+    var limit = min3(g_findStructCacheNameIds.length(),
         g_findStructCacheIdxs.length(), g_findStructCacheLens.length())
     var i = limit - 1
     while i >= 0 {
         if g_findStructCacheLens[i] == currentLen and
-            g_findStructCacheNames[i] == name {
+            g_findStructCacheNameIds[i] == nameId {
 
             let idx = g_findStructCacheIdxs[i]
             if idx >= 0 and idx < currentLen {
@@ -84,10 +93,11 @@ fun findCachedStructIndex(name: String, structNames: Array<String>) r: Int {
         let ltIdx = name.indexOf("<", 0)
         if ltIdx > 0 {
             let baseName = name.substring(0, ltIdx)
+            let baseNameId = internSymbol(baseName)
             i = limit - 1
             while i >= 0 {
                 if g_findStructCacheLens[i] == currentLen and
-                    g_findStructCacheNames[i] == baseName {
+                    g_findStructCacheNameIds[i] == baseNameId {
 
                     let idx = g_findStructCacheIdxs[i]
                     if idx >= 0 and idx < currentLen {
@@ -105,24 +115,25 @@ fun cacheStructIndex(name: String, idx: Int, structNames: Array<String>) r: Void
     if idx < 0 or idx >= structNames.length() {
         return
     }
-    if g_findStructCacheNames.length() > typeRegistryCacheMaxEntries() {
+    if g_findStructCacheNameIds.length() > typeRegistryCacheMaxEntries() {
         resetStructLookupCache()
     }
     let currentLen = structNames.length()
     let cachedName = structCacheStoredName(name, idx, structNames)
-    var limit = min3(g_findStructCacheNames.length(),
+    let cachedNameId = internSymbol(cachedName)
+    var limit = min3(g_findStructCacheNameIds.length(),
         g_findStructCacheIdxs.length(), g_findStructCacheLens.length())
     var i = limit - 1
     while i >= 0 {
         if g_findStructCacheLens[i] == currentLen and
-            g_findStructCacheNames[i] == cachedName {
+            g_findStructCacheNameIds[i] == cachedNameId {
 
             g_findStructCacheIdxs[i] = idx
             return
         }
         i = i - 1
     }
-    g_findStructCacheNames.push(cachedName)
+    g_findStructCacheNameIds.push(cachedNameId)
     g_findStructCacheIdxs.push(idx)
     g_findStructCacheLens.push(currentLen)
     return
@@ -132,12 +143,13 @@ fun findCachedFunctionReturnIndex(name: String,
     funcNames: Array<String>) r: Int {
 
     let currentLen = funcNames.length()
-    var limit = min3(g_funcReturnCacheNames.length(),
+    let nameId = internSymbol(name)
+    var limit = min3(g_funcReturnCacheNameIds.length(),
         g_funcReturnCacheIdxs.length(), g_funcReturnCacheLens.length())
     var i = limit - 1
     while i >= 0 {
         if g_funcReturnCacheLens[i] == currentLen and
-            g_funcReturnCacheNames[i] == name {
+            g_funcReturnCacheNameIds[i] == nameId {
 
             let idx = g_funcReturnCacheIdxs[i]
             if idx == -1 {
@@ -158,34 +170,36 @@ fun cacheFunctionReturnIndex(name: String, idx: Int,
     if idx < -1 or idx >= funcNames.length() {
         return
     }
-    if g_funcReturnCacheNames.length() > typeRegistryCacheMaxEntries() {
+    if g_funcReturnCacheNameIds.length() > typeRegistryCacheMaxEntries() {
         resetFunctionReturnCache()
     }
     let currentLen = funcNames.length()
-    var limit = min3(g_funcReturnCacheNames.length(),
+    let nameId = internSymbol(name)
+    var limit = min3(g_funcReturnCacheNameIds.length(),
         g_funcReturnCacheIdxs.length(), g_funcReturnCacheLens.length())
     var i = limit - 1
     while i >= 0 {
         if g_funcReturnCacheLens[i] == currentLen and
-            g_funcReturnCacheNames[i] == name {
+            g_funcReturnCacheNameIds[i] == nameId {
 
             g_funcReturnCacheIdxs[i] = idx
             return
         }
         i = i - 1
     }
-    g_funcReturnCacheNames.push(name)
+    g_funcReturnCacheNameIds.push(nameId)
     g_funcReturnCacheIdxs.push(idx)
     g_funcReturnCacheLens.push(currentLen)
     return
 }
 
 fun findCachedFieldIndex(key: String) r: Int {
-    var limit = min2(g_fieldInfoCacheKeys.length(),
+    let keyId = internSymbol(key)
+    var limit = min2(g_fieldInfoCacheKeyIds.length(),
         g_fieldInfoCacheIdxs.length())
     var i = limit - 1
     while i >= 0 {
-        if g_fieldInfoCacheKeys[i] == key {
+        if g_fieldInfoCacheKeyIds[i] == keyId {
             return g_fieldInfoCacheIdxs[i]
         }
         i = i - 1
@@ -197,20 +211,21 @@ fun cacheFieldIndex(key: String, idx: Int) r: Void {
     if idx < 0 {
         return
     }
-    if g_fieldInfoCacheKeys.length() > typeRegistryCacheMaxEntries() {
+    if g_fieldInfoCacheKeyIds.length() > typeRegistryCacheMaxEntries() {
         resetFieldInfoCache()
     }
-    var limit = min2(g_fieldInfoCacheKeys.length(),
+    let keyId = internSymbol(key)
+    var limit = min2(g_fieldInfoCacheKeyIds.length(),
         g_fieldInfoCacheIdxs.length())
     var i = limit - 1
     while i >= 0 {
-        if g_fieldInfoCacheKeys[i] == key {
+        if g_fieldInfoCacheKeyIds[i] == keyId {
             g_fieldInfoCacheIdxs[i] = idx
             return
         }
         i = i - 1
     }
-    g_fieldInfoCacheKeys.push(key)
+    g_fieldInfoCacheKeyIds.push(keyId)
     g_fieldInfoCacheIdxs.push(idx)
     return
 }

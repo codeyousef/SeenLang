@@ -56,6 +56,15 @@ typedef struct {
     SeenString message;
 } FrontendDiagnostic;
 
+typedef struct {
+    int64_t limitBytes;
+    int64_t usedBytes;
+    int64_t peakBytes;
+    int64_t allocationFailures;
+} SeenMemoryStats;
+
+void* seen_checked_malloc(int64_t size);
+
 // Forward declarations for generator types
 typedef struct CGenerator CGenerator;
 
@@ -72,7 +81,7 @@ char* seen_str_to_cstr(SeenString s);
 // Create SeenString with copy
 static inline SeenString seen_str_copy(const char* s) {
     size_t len = strlen(s);
-    char* data = (char*)malloc(len + 1);
+    char* data = (char*)seen_checked_malloc((int64_t)len + 1);
     memcpy(data, s, len + 1);
     SeenString result = { len, data };
     return result;
@@ -100,7 +109,7 @@ void* seen_arr_get_element_ptr(SeenArray* a, int64_t idx);
 // String concatenation (SeenString + char*)
 static inline SeenString seen_str_concat(SeenString a, const char* b) {
     size_t blen = strlen(b);
-    char* newdata = (char*)malloc(a.len + blen + 1);
+    char* newdata = (char*)seen_checked_malloc(a.len + (int64_t)blen + 1);
     memcpy(newdata, a.data, a.len);
     memcpy(newdata + a.len, b, blen + 1);
     SeenString result = { a.len + blen, newdata };
@@ -109,6 +118,24 @@ static inline SeenString seen_str_concat(SeenString a, const char* b) {
 
 // String concatenation (SeenString + SeenString)
 SeenString seen_str_concat_ss(SeenString a, SeenString b);
+
+// Fallible allocation and memory-budget ABI
+void seen_memory_set_limit_bytes(int64_t bytes);
+int64_t seen_memory_limit_bytes(void);
+int64_t seen_memory_used_bytes(void);
+int64_t seen_memory_peak_bytes(void);
+int64_t seen_memory_allocation_failures(void);
+int64_t seen_memory_remaining_bytes(void);
+int64_t seen_memory_try_reserve_bytes(int64_t size);
+void seen_memory_release_bytes(int64_t size);
+SeenMemoryStats seen_memory_stats(void);
+void* seen_try_malloc(int64_t size);
+void* seen_try_calloc(int64_t count, int64_t size);
+void* seen_try_realloc(void* old, int64_t old_size, int64_t new_size);
+void* seen_checked_malloc(int64_t size);
+void* seen_checked_realloc(void* old, int64_t old_size, int64_t new_size);
+void* seen_checked_aligned_alloc(int64_t alignment, int64_t size);
+void* seen_try_aligned_realloc(void* old, int64_t old_size, int64_t new_size, int64_t alignment);
 
 // String equality (SeenString == char*)
 static inline bool seen_str_eq(SeenString a, const char* b) {
@@ -158,6 +185,45 @@ int64_t seen_error_message_len(void);
 void seen_error_set_cstr(int64_t subsystem, int64_t code, const char* message);
 double seen_ptr_deref_f64(int64_t ptr);
 
+// Math helpers used by the stdlib wrappers.
+double seen_math_positive_infinity(void);
+double seen_math_negative_infinity(void);
+double seen_math_nan(void);
+double seen_math_sqrt(double x);
+double seen_math_sin(double x);
+double seen_math_cos(double x);
+double seen_math_tan(double x);
+double seen_math_asin(double x);
+double seen_math_acos(double x);
+double seen_math_atan(double x);
+double seen_math_atan2(double y, double x);
+double seen_math_floor(double x);
+double seen_math_ceil(double x);
+double seen_math_pow(double x, double y);
+double seen_math_exp(double x);
+double seen_math_exp2(double x);
+double seen_math_log(double x);
+double seen_math_log2(double x);
+double seen_math_log10(double x);
+double seen_math_fmod(double x, double y);
+double seen_math_cbrt(double x);
+double seen_math_hypot(double x, double y);
+double seen_math_sinh(double x);
+double seen_math_cosh(double x);
+double seen_math_tanh(double x);
+double seen_math_round(double x);
+double seen_math_asinh(double x);
+double seen_math_acosh(double x);
+double seen_math_atanh(double x);
+double seen_math_copysign(double x, double y);
+int64_t seen_math_popcount_i64(int64_t x);
+int64_t seen_math_clz_i64(int64_t x);
+int64_t seen_math_ctz_i64(int64_t x);
+int64_t seen_math_rotate_left_i64(int64_t x, int64_t shift);
+int64_t seen_math_rotate_right_i64(int64_t x, int64_t shift);
+int64_t seen_math_byteswap_i64(int64_t x);
+double seen_parse_float_range(SeenString text, int64_t start, int64_t end);
+
 // Char (Unicode code point) to string
 SeenString seen_char_to_str(int64_t c);
 
@@ -200,9 +266,28 @@ int64_t String_count(SeenString s, SeenString needle);
 int64_t Int_unwrap(int64_t val);
 void* Optional_unwrap(void* ptr);
 
+// Runtime-backed Vec conversion helpers.
+void* Vec_toArray(void* vecPtr);
+void* Vec_toArray_str(void* vecPtr);
+void* Vec_toArray_float(void* vecPtr);
+int64_t Vec_tryPush(void* vecPtr, int64_t value);
+int64_t Vec_tryPush_str(void* vecPtr, SeenString value);
+int64_t Vec_tryPush_float(void* vecPtr, double value);
+int64_t Vec_tryEnsureCapacity(void* vecPtr, int64_t capacity);
+int64_t Vec_tryEnsureCapacity_str(void* vecPtr, int64_t capacity);
+int64_t Vec_tryEnsureCapacity_float(void* vecPtr, int64_t capacity);
+int64_t Vec_tryToArray(void* vecPtr);
+int64_t Vec_tryToArray_str(void* vecPtr);
+int64_t Vec_tryToArray_float(void* vecPtr);
+
+int64_t HashMap_getUnchecked(void* mapPtr, int64_t key);
+int64_t HashMap_getUnchecked_str(void* mapPtr, SeenString key);
+SeenString HashMap_getUnchecked_str_str(void* mapPtr, SeenString key);
+SeenString HashMap_getUnchecked_int_str(void* mapPtr, int64_t key);
+
 // Alias for compatibility
 static inline char* seen_to_string(int64_t n) {
-    char* buf = (char*)malloc(32);
+    char* buf = (char*)seen_checked_malloc(32);
     sprintf(buf, "%" PRId64, n);
     return buf;
 }
@@ -245,6 +330,9 @@ void seen_arr_push_str(SeenArray* arr, SeenString s);
 
 // Push i64 by value (not pointer) - for Array<Int>
 void seen_arr_push_i64(SeenArray* arr, int64_t val);
+
+// Push f64 by value - for Array<Float>
+void seen_arr_push_f64(SeenArray* arr, double val);
 
 // Generic push for pointer types
 void seen_arr_push_ptr(SeenArray* arr, void* p);
@@ -349,6 +437,49 @@ void* StringBuilder_new(void);
 void* StringBuilder_new_with_capacity(int64_t cap);
 int64_t StringBuilder_append(void* sb, SeenString text);
 SeenString StringBuilder_toString(void* sb);
+SeenString seen_string_builder_flatten(SeenArray* parts, int64_t totalLength);
+
+void* seen_byte_array_new(int64_t capacity);
+int64_t seen_byte_array_len(void* handle);
+int64_t seen_byte_array_capacity(void* handle);
+bool seen_byte_array_try_reserve(void* handle, int64_t required);
+void seen_byte_array_clear(void* handle);
+void seen_byte_array_push(void* handle, int64_t value);
+void seen_byte_array_append(void* handle, void* other_handle);
+int64_t seen_byte_array_get(void* handle, int64_t index);
+void seen_byte_array_set(void* handle, int64_t index, int64_t value);
+void seen_byte_array_fill(void* handle, int64_t value);
+void* seen_byte_array_slice(void* handle, int64_t start, int64_t end);
+void seen_byte_array_reverse(void* handle);
+SeenArray* seen_byte_array_to_int_array(void* handle);
+
+void* seen_i32_buffer_new(int64_t capacity);
+int64_t seen_primitive_buffer_capacity(void* handle);
+bool seen_primitive_buffer_try_reserve(void* handle, int64_t required);
+int64_t seen_i32_buffer_len(void* handle);
+void seen_i32_buffer_clear(void* handle);
+void seen_i32_buffer_push(void* handle, int64_t value);
+int64_t seen_i32_buffer_get(void* handle, int64_t index);
+void seen_i32_buffer_set(void* handle, int64_t index, int64_t value);
+void* seen_i64_buffer_new(int64_t capacity);
+int64_t seen_i64_buffer_len(void* handle);
+void seen_i64_buffer_clear(void* handle);
+void seen_i64_buffer_push(void* handle, int64_t value);
+int64_t seen_i64_buffer_get(void* handle, int64_t index);
+void seen_i64_buffer_set(void* handle, int64_t index, int64_t value);
+void* seen_f32_buffer_new(int64_t capacity);
+int64_t seen_f32_buffer_len(void* handle);
+void seen_f32_buffer_clear(void* handle);
+void seen_f32_buffer_push(void* handle, double value);
+double seen_f32_buffer_get(void* handle, int64_t index);
+void seen_f32_buffer_set(void* handle, int64_t index, double value);
+void* seen_f64_buffer_new(int64_t capacity);
+int64_t seen_f64_buffer_len(void* handle);
+void seen_f64_buffer_clear(void* handle);
+void seen_f64_buffer_push(void* handle, double value);
+double seen_f64_buffer_get(void* handle, int64_t index);
+void seen_f64_buffer_set(void* handle, int64_t index, double value);
+bool StringBuilder_writeToFile_impl(void* sb, SeenString path);
 int64_t StringBuilder_length(void* sb);
 void StringBuilder_clear_impl(void* sb);
 int64_t StringBuilder_appendFloat(void* sb, double f);
@@ -363,17 +494,35 @@ static inline StringBuilder StringBuilder_new_value(void) {
 // Fast-path push for StringBuilder (skips validation, relies on LTO inlining)
 static inline void seen_arr_push_str_fast(SeenArray* arr, SeenString s) {
     if (__builtin_expect(arr->len >= arr->cap, 0)) {
+        if (arr->cap > INT64_MAX / 2) return;
         int64_t new_cap = arr->cap == 0 ? 8 : arr->cap * 2;
+        if (new_cap > INT64_MAX / (int64_t)sizeof(SeenString)) return;
+        void* new_data = seen_try_realloc(arr->data,
+            arr->cap * (int64_t)sizeof(SeenString),
+            new_cap * (int64_t)sizeof(SeenString));
+        if (!new_data) return;
         arr->cap = new_cap;
-        arr->data = realloc(arr->data, new_cap * sizeof(SeenString));
+        arr->data = new_data;
     }
     ((SeenString*)arr->data)[arr->len++] = s;
 }
 
-static inline void StringBuilder_append_value(StringBuilder* sb, SeenString text) {
-    if (text.len == 0) return;
+static inline bool StringBuilder_tryAppend_value(StringBuilder* sb, SeenString text) {
+    if (!sb || !sb->parts || text.len < 0) return false;
+    if (text.len == 0) return true;
+    if (INT64_MAX - sb->totalLength < text.len) return false;
+    int64_t old_len = sb->parts->len;
     sb->totalLength += text.len;
     seen_arr_push_str_fast(sb->parts, text);
+    if (sb->parts->len == old_len) {
+        sb->totalLength -= text.len;
+        return false;
+    }
+    return true;
+}
+
+static inline void StringBuilder_append_value(StringBuilder* sb, SeenString text) {
+    (void)StringBuilder_tryAppend_value(sb, text);
 }
 
 static inline void StringBuilder_appendLine(StringBuilder* sb, SeenString text) {
@@ -387,7 +536,11 @@ static inline void StringBuilder_clear(StringBuilder* sb) {
 }
 
 static inline SeenString StringBuilder_toString_value(StringBuilder* sb) {
-    char* data = (char*)malloc(sb->totalLength + 1);
+    char* data = (char*)seen_try_malloc(sb->totalLength + 1);
+    if (!data) {
+        SeenString empty = { 0, "" };
+        return empty;
+    }
     char* ptr = data;
     for (int64_t i = 0; i < sb->parts->len; i++) {
         SeenString part = ((SeenString*)sb->parts->data)[i];
@@ -417,6 +570,11 @@ bool endsWith(SeenString text, SeenString suffix);
 
 // Check if contains substring
 bool contains(SeenString text, SeenString needle);
+bool seen_string_contains_fast(SeenString text, SeenString needle);
+bool seen_string_starts_with_fast(SeenString text, SeenString prefix);
+bool seen_string_ends_with_fast(SeenString text, SeenString suffix);
+int64_t seen_string_index_of_fast(SeenString text, SeenString needle, int64_t start);
+int64_t seen_string_last_index_of_fast(SeenString text, SeenString needle);
 
 // Find index of substring
 int64_t indexOf(SeenString text, SeenString needle, int64_t start);
@@ -525,7 +683,7 @@ int64_t __seen_middleware_get_count(void);
 // Detect CPU features (called automatically at startup)
 void seen_cpu_detect(void);
 
-// Check if a specific CPU feature is available (e.g., "avx2", "sse4.2", "neon")
+// Check if a specific CPU feature is available (e.g., "avx2", "sse4.2", "neon", "riscv64", "rvv")
 int64_t seen_cpu_has_feature(SeenString name);
 
 // Returns SIMD tier: 0=scalar, 1=SSE4.2, 2=AVX2, 3=AVX-512, 4=NEON, 5=SVE
@@ -554,6 +712,14 @@ double seen_simd_f4_sum(void* a);
 double seen_simd_f4_dot(void* a, void* b);
 void* seen_simd_f4_load(void* ptr);
 void seen_simd_f4_store(void* vec, void* ptr);
+void seen_simd_f4_splat_into(void* out, double val);
+void seen_simd_f4_add_into(void* out, void* a, void* b);
+void seen_simd_f4_sub_into(void* out, void* a, void* b);
+void seen_simd_f4_mul_into(void* out, void* a, void* b);
+void seen_simd_f4_div_into(void* out, void* a, void* b);
+void seen_simd_f4_min_into(void* out, void* a, void* b);
+void seen_simd_f4_max_into(void* out, void* a, void* b);
+void seen_simd_f4_load_into(void* out, void* ptr);
 
 // 8-wide float (AVX2)
 void* seen_simd_f8_splat(double val);
@@ -567,6 +733,14 @@ double seen_simd_f8_sum(void* a);
 double seen_simd_f8_dot(void* a, void* b);
 void* seen_simd_f8_load(void* ptr);
 void seen_simd_f8_store(void* vec, void* ptr);
+void seen_simd_f8_splat_into(void* out, double val);
+void seen_simd_f8_add_into(void* out, void* a, void* b);
+void seen_simd_f8_sub_into(void* out, void* a, void* b);
+void seen_simd_f8_mul_into(void* out, void* a, void* b);
+void seen_simd_f8_div_into(void* out, void* a, void* b);
+void seen_simd_f8_min_into(void* out, void* a, void* b);
+void seen_simd_f8_max_into(void* out, void* a, void* b);
+void seen_simd_f8_load_into(void* out, void* ptr);
 
 // Auto-dispatch SIMD array operations
 double seen_simd_reduce_sum(void* arr_data, int64_t len);
@@ -574,6 +748,35 @@ double seen_simd_dot_product(void* a_data, void* b_data, int64_t len);
 double seen_simd_reduce_min(void* arr_data, int64_t len);
 double seen_simd_reduce_max(void* arr_data, int64_t len);
 void seen_simd_prefix_sum(void* arr_data, int64_t len);
+
+// Seen stdlib compatibility wrappers over Array<Float> (double storage).
+int64_t __simd_f4_splat(double val);
+int64_t __simd_f4_load(int64_t ptr);
+void __simd_f4_store(int64_t vec, int64_t ptr);
+int64_t __simd_f4_add(int64_t a, int64_t b);
+int64_t __simd_f4_sub(int64_t a, int64_t b);
+int64_t __simd_f4_mul(int64_t a, int64_t b);
+int64_t __simd_f4_div(int64_t a, int64_t b);
+int64_t __simd_f4_min(int64_t a, int64_t b);
+int64_t __simd_f4_max(int64_t a, int64_t b);
+double __simd_f4_sum(int64_t a);
+double __simd_f4_dot(int64_t a, int64_t b);
+int64_t __simd_f8_splat(double val);
+int64_t __simd_f8_load(int64_t ptr);
+void __simd_f8_store(int64_t vec, int64_t ptr);
+int64_t __simd_f8_add(int64_t a, int64_t b);
+int64_t __simd_f8_sub(int64_t a, int64_t b);
+int64_t __simd_f8_mul(int64_t a, int64_t b);
+int64_t __simd_f8_div(int64_t a, int64_t b);
+int64_t __simd_f8_min(int64_t a, int64_t b);
+int64_t __simd_f8_max(int64_t a, int64_t b);
+double __simd_f8_sum(int64_t a);
+double __simd_f8_dot(int64_t a, int64_t b);
+double __simd_reduce_sum(SeenArray* arr, int64_t len);
+double __simd_dot_product(SeenArray* a, SeenArray* b, int64_t len);
+double __simd_reduce_min(SeenArray* arr, int64_t len);
+double __simd_reduce_max(SeenArray* arr, int64_t len);
+void __simd_prefix_sum(SeenArray* arr, int64_t len);
 
 // ============================================================================
 // 32-bit Index Arena Allocator

@@ -8,7 +8,7 @@ import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_literal_gen.{normalizeDoubleLiteralForLlvmImpl}
 
 ///
-StringBuilder method dispatch: append, appendInt, appendFloat, appendChar, clear, length, toString
+StringBuilder method dispatch: append, writeToFile, appendInt, appendFloat, appendChar, clear, length, toString
 receiverPtrReg must be pre-converted via convertReceiverToPtr
 arg0 is pre-generated argument (or "" if none)
 isFloatAppendFused: 1 if detected sb.append(__FloatToString(x)) pattern
@@ -16,6 +16,11 @@ isFloatAppendFused: 1 if detected sb.append(__FloatToString(x)) pattern
 fun emitStringBuilderMethodImpl(output: StringBuilder, regBox: Array<Int>,
     methodName: String, receiverPtrReg: String, arg0: String,
     isFloatAppendFused: Int) r: String {
+    if methodName == "writeToFile" {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call i1 @StringBuilder_writeToFile_impl(ptr " + receiverPtrReg + ", %SeenString " + arg0 + ")\n")
+        return resultReg
+    }
     if methodName == "append" {
         if isFloatAppendFused == 1 {
             let callRegF = getNextRegFn(regBox)

@@ -30,13 +30,21 @@ fun main() -> Int {
 
     vec.clear()
     expect(vec.isEmpty(), "clear should reset vector")
+    expect(vec.capacity() >= 8, "clear should keep allocated capacity for reuse")
 
     vec.reserve(64)
     expect(vec.capacity() >= 64, "reserve should grow capacity")
+    expect(vec.tryReserve(96).isOkay(), "tryReserve should report success")
+    expect(vec.capacity() >= 96, "tryReserve should grow capacity")
+
+    let maybeVec = Vec<Int>.tryWithCapacity(32)
+    expect(maybeVec.isOkay(), "tryWithCapacity should return Ok")
+    let fallibleVec = maybeVec.unwrap()
+    expect(fallibleVec.capacity() >= 32, "tryWithCapacity should reserve capacity")
 
     var index = 0
     while index < 128 {
-        vec.push(index)
+        expect(vec.tryPush(index).isOkay(), "tryPush should report success")
         index = index + 1
     }
     expect(vec.len() == 128, "len should reflect large push count")
@@ -50,6 +58,7 @@ fun main() -> Int {
     }
     expect(vec.len() == 28, "length should shrink after pops")
     expect(vec.get(0) == 0 and vec.get(vec.len() - 1) == 27, "remaining elements should stay intact")
+    expect(vec.tryToArray().isOkay(), "tryToArray should return Ok")
 
     return 0
 }

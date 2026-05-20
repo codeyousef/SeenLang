@@ -80,9 +80,11 @@ fun emitAsyncCoroutinePreambleImpl(output: StringBuilder, regBox: Array<Int>, bl
     let coroSizeReg = getNextRegFn(regBox)
     let coroAllocReg = getNextRegFn(regBox)
     let coroBeginReg = getNextRegFn(regBox)
+    let coroSize64Reg = getNextRegFn(regBox)
     output.append("  " + coroIdReg + " = call token @llvm.coro.id(i32 0, ptr " + promiseReg + ", ptr null, ptr null)\n")
     output.append("  " + coroSizeReg + " = call i32 @llvm.coro.size.i32()\n")
-    output.append("  " + coroAllocReg + " = call noalias ptr @malloc(i32 " + coroSizeReg + ")\n")
+    output.append("  " + coroSize64Reg + " = zext i32 " + coroSizeReg + " to i64\n")
+    output.append("  " + coroAllocReg + " = call noalias ptr @seen_checked_malloc(i64 " + coroSize64Reg + ")\n")
     output.append("  " + coroBeginReg + " = call ptr @llvm.coro.begin(token " + coroIdReg + ", ptr " + coroAllocReg + ")\n")
 
     coroIdBox[0] = coroIdReg

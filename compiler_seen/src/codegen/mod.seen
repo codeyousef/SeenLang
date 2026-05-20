@@ -20,7 +20,7 @@ fun createCodeGenerator() r: CodeGenerator {
 
 fun createBackend(target: Target) r: Backend {
     if target == Target.LLVM_IR or target == Target.Linux_x86_64 or target == Target.Windows_x86_64 or
-        target == Target.macOS_x86_64 or target == Target.macOS_ARM64 or target == Target.Linux_ARM64 {
+        target == Target.macOS_x86_64 or target == Target.macOS_ARM64 or target == Target.Linux_ARM64 or target == Target.RISC_V {
         return LLVMBackend.new(target) as Backend
     } else if target == Target.C {
         return CBackend.new() as Backend

@@ -47,7 +47,8 @@ fun tryInferImplicitThisVariableTypeImpl(varName: String, thisType: String,
 fun tryInferNamedPrimitiveVariableTypeImpl(varName: String) r: String {
     if varName == "Int8" or varName == "UInt8" or varName == "Int16" or
         varName == "UInt16" or varName == "Int32" or varName == "UInt32" or
-        varName == "Int64" or varName == "UInt64" or varName == "Float32" {
+        varName == "Int64" or varName == "UInt64" or varName == "Float32" or
+        varName == "Float64" {
         return varName
     }
     return ""

@@ -1,5 +1,38 @@
 // Collection receiver method return type lookup helpers.
 
+fun collectionMapTypePartImpl(structName: String, prefixLen: Int,
+    wantValue: Bool) r: String {
+
+    if not(structName.endsWith(">")) {
+        return ""
+    }
+    var commaIdx = 0
+    var depth = 0
+    var i = prefixLen
+    while i < structName.length() - 1 {
+        let ch = structName.substring(i, i + 1)
+        if ch == "<" { depth = depth + 1 }
+        if ch == ">" { depth = depth - 1 }
+        if ch == "," and depth == 0 {
+            commaIdx = i
+            i = structName.length()
+        }
+        i = i + 1
+    }
+    if commaIdx <= 0 {
+        return ""
+    }
+    if wantValue {
+        var valueType = structName.substring(commaIdx + 1,
+            structName.length() - 1)
+        if valueType.startsWith(" ") {
+            valueType = valueType.substring(1, valueType.length())
+        }
+        return valueType
+    }
+    return structName.substring(prefixLen, commaIdx)
+}
+
 fun getCollectionMethodReturnTypeImpl(structName: String,
     methodName: String) r: String {
 
@@ -25,6 +58,21 @@ fun getCollectionMethodReturnTypeImpl(structName: String,
         if methodName == "len" or methodName == "length" or
             methodName == "indexOf" {
             return "Int"
+        }
+        if methodName == "tryPush" or methodName == "tryReserve" or
+            methodName == "tryEnsureCapacity" {
+            return "Result<Unit, AllocError>"
+        }
+        if methodName == "tryWithCapacity" {
+            return "Result<" + structName + ", AllocError>"
+        }
+        if methodName == "tryToArray" {
+            if structName.startsWith("Vec<") and structName.endsWith(">") {
+                let elementType = structName.substring(4,
+                    structName.length() - 1)
+                return "Result<Array<" + elementType + ">, AllocError>"
+            }
+            return "Result<Array<Int>, AllocError>"
         }
         if methodName == "isEmpty" or methodName == "contains" {
             return "Bool"
@@ -91,6 +139,35 @@ fun getCollectionMethodReturnTypeImpl(structName: String,
             }
             return "Option"
         }
+        if methodName == "getOrDefault" or methodName == "getUnchecked" or
+            methodName == "removeOrDefault" or methodName == "removeUnchecked" {
+            if structName.startsWith("BTreeMap<") and
+                structName.endsWith(">") {
+                let inner = structName.substring(9, structName.length() - 1)
+                var commaIdx = 0
+                var depth = 0
+                var i = 0
+                while i < inner.length() {
+                    let ch = inner.substring(i, i + 1)
+                    if ch == "<" { depth = depth + 1 }
+                    if ch == ">" { depth = depth - 1 }
+                    if ch == "," and depth == 0 {
+                        commaIdx = i
+                        i = inner.length()
+                    }
+                    i = i + 1
+                }
+                if commaIdx > 0 {
+                    var valueType = inner.substring(commaIdx + 1,
+                        inner.length())
+                    if valueType.startsWith(" ") {
+                        valueType = valueType.substring(1, valueType.length())
+                    }
+                    return valueType
+                }
+            }
+            return "Int"
+        }
         if methodName == "keys" {
             if structName.startsWith("BTreeMap<") and
                 structName.endsWith(">") {
@@ -146,8 +223,65 @@ fun getCollectionMethodReturnTypeImpl(structName: String,
         }
     }
 
+    if structName == "Map" or structName.startsWith("Map<") {
+        if methodName == "size" or methodName == "len" or
+            methodName == "length" {
+            return "Int"
+        }
+        if methodName == "tryPut" or methodName == "tryReserve" {
+            return "Result<Unit, AllocError>"
+        }
+        if methodName == "tryWithCapacity" {
+            return "Result<" + structName + ", AllocError>"
+        }
+        if methodName == "isEmpty" or methodName == "containsKey" or
+            methodName == "containsValue" {
+            return "Bool"
+        }
+        if methodName == "put" or methodName == "set" or
+            methodName == "clear" {
+            return "Void"
+        }
+        if methodName == "get" or methodName == "remove" {
+            if structName.startsWith("Map<") {
+                let valueType = collectionMapTypePartImpl(structName, 4, true)
+                if valueType != "" { return "Option<" + valueType + ">" }
+            }
+            return "Option"
+        }
+        if methodName == "getOrDefault" or methodName == "getUnchecked" or
+            methodName == "removeOrDefault" or methodName == "removeUnchecked" {
+            if structName.startsWith("Map<") {
+                let valueType = collectionMapTypePartImpl(structName, 4, true)
+                if valueType != "" { return valueType }
+            }
+            return "Int"
+        }
+        if methodName == "keys" {
+            if structName.startsWith("Map<") {
+                let keyType = collectionMapTypePartImpl(structName, 4, false)
+                if keyType != "" { return "Vec<" + keyType + ">" }
+            }
+            return "Vec"
+        }
+        if methodName == "values" {
+            if structName.startsWith("Map<") {
+                let valueType = collectionMapTypePartImpl(structName, 4, true)
+                if valueType != "" { return "Vec<" + valueType + ">" }
+            }
+            return "Vec"
+        }
+    }
+
     if structName == "HashMap" or structName.startsWith("HashMap<") {
         if methodName == "size" or methodName == "len" { return "Int" }
+        if methodName == "tryInsert" or methodName == "tryReserve" or
+            methodName == "tryResize" {
+            return "Result<Unit, AllocError>"
+        }
+        if methodName == "tryWithCapacity" {
+            return "Result<" + structName + ", AllocError>"
+        }
         if methodName == "isEmpty" or methodName == "containsKey" {
             return "Bool"
         }
@@ -180,7 +314,8 @@ fun getCollectionMethodReturnTypeImpl(structName: String,
             }
             return "Option"
         }
-        if methodName == "getOrDefault" {
+        if methodName == "getOrDefault" or methodName == "getUnchecked" or
+            methodName == "removeOrDefault" or methodName == "removeUnchecked" {
             if structName.startsWith("HashMap<") and
                 structName.endsWith(">") {
                 let inner = structName.substring(8, structName.length() - 1)
@@ -269,6 +404,13 @@ fun getCollectionMethodReturnTypeImpl(structName: String,
             methodName == "loadFactorPercent" {
             return "Int"
         }
+        if methodName == "tryInsert" or methodName == "tryReserve" or
+            methodName == "tryEnsureCapacityFor" or methodName == "tryResize" {
+            return "Result<Unit, AllocError>"
+        }
+        if methodName == "tryWithCapacity" {
+            return "Result<" + structName + ", AllocError>"
+        }
         if methodName == "isEmpty" or methodName == "contains" or
             methodName == "remove" {
             return "Bool"
@@ -287,7 +429,8 @@ fun getCollectionMethodReturnTypeImpl(structName: String,
             }
             return "Option"
         }
-        if methodName == "getOrDefault" {
+        if methodName == "getOrDefault" or methodName == "getUnchecked" or
+            methodName == "removeOrDefault" or methodName == "removeUnchecked" {
             if structName.startsWith("StringHashMap<") and
                 structName.endsWith(">") {
                 return structName.substring(14, structName.length() - 1)
@@ -295,6 +438,50 @@ fun getCollectionMethodReturnTypeImpl(structName: String,
             return "Int"
         }
         if methodName == "keys" { return "Array<String>" }
+    }
+
+    if structName == "HashSet" or structName.startsWith("HashSet<") {
+        if methodName == "len" or methodName == "size" {
+            return "Int"
+        }
+        if methodName == "tryInsert" {
+            return "Result<Bool, AllocError>"
+        }
+        if methodName == "tryReserve" {
+            return "Result<Unit, AllocError>"
+        }
+        if methodName == "tryWithCapacity" {
+            return "Result<" + structName + ", AllocError>"
+        }
+        if methodName == "isEmpty" or methodName == "insert" or
+            methodName == "remove" or methodName == "contains" {
+            return "Bool"
+        }
+        if methodName == "clear" {
+            return "Void"
+        }
+    }
+
+    if structName == "StringHashSet" {
+        if methodName == "len" or methodName == "size" {
+            return "Int"
+        }
+        if methodName == "tryInsert" {
+            return "Result<Bool, AllocError>"
+        }
+        if methodName == "tryReserve" {
+            return "Result<Unit, AllocError>"
+        }
+        if methodName == "tryWithCapacity" {
+            return "Result<StringHashSet, AllocError>"
+        }
+        if methodName == "isEmpty" or methodName == "insert" or
+            methodName == "remove" or methodName == "contains" {
+            return "Bool"
+        }
+        if methodName == "clear" {
+            return "Void"
+        }
     }
 
     if structName == "LinkedList" or structName.startsWith("LinkedList<") {

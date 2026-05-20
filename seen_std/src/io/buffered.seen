@@ -3,6 +3,8 @@ Buffered I/O - Production-quality buffered reader/writer
 Reduces syscall overhead for high-throughput I/O
 ///
 
+import str.string.{StringBuilder}
+
 class BufferedWriter {
     buffer: Array<String>
     bufferSize: Int
@@ -13,7 +15,7 @@ class BufferedWriter {
         writer.buffer = Array<String>(size)
         writer.bufferSize = size
         writer.currentSize = 0
-        writer
+        return writer
     }
     
     fun write(data: String) {
@@ -31,24 +33,24 @@ class BufferedWriter {
     
     fun flush(): String {
         if this.currentSize == 0 {
-            ""
+            return ""
         }
         
-        let result = ""
+        let result = StringBuilder.new()
         var i = 0
         while i < this.buffer.length() {
-            result = result + this.buffer[i]
+            result.append(this.buffer[i])
             i = i + 1
         }
         
         this.buffer = Array<String>(this.bufferSize)
         this.currentSize = 0
         
-        result
+        return result.toString()
     }
     
     fun getContents(): String {
-        this.flush()
+        return this.flush()
     }
 }
 
@@ -62,45 +64,45 @@ class BufferedReader {
         reader.data = content
         reader.position = 0
         reader.length = content.length()
-        reader
+        return reader
     }
     
     fun readChar(): Int {
         if this.position >= this.length {
-            -1
+            return -1
         }
         
         let ch = this.data.charAt(this.position)
         this.position = this.position + 1
-        ch
+        return ch
     }
     
     fun readLine(): String {
         if this.position >= this.length {
-            ""
+            return ""
         }
         
-        let result = ""
-        let ch = this.readChar()
+        let result = StringBuilder.new()
+        var ch = this.readChar()
         
         while ch != -1 and ch != 10 {
             if ch != 13 {
-                result = result + String.fromCharCode(ch)
+                result.append(String.fromCharCode(ch))
             }
             ch = this.readChar()
         }
         
-        result
+        return result.toString()
     }
     
     fun readAll(): String {
         if this.position >= this.length {
-            ""
+            return ""
         }
         
         let result = this.data.substring(this.position, this.length)
         this.position = this.length
-        result
+        return result
     }
     
     fun skip(count: Int) {
@@ -111,10 +113,10 @@ class BufferedReader {
     }
     
     fun hasMore(): Bool {
-        this.position < this.length
+        return this.position < this.length
     }
     
     fun remaining(): Int {
-        this.length - this.position
+        return this.length - this.position
     }
 }

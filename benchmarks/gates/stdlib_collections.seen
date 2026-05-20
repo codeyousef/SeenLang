@@ -1,0 +1,129 @@
+import collections.algorithms.{binarySearchFloat, binarySearchInt, lowerBoundFloat, lowerBoundInt, unstableSortFloat, unstableSortInt, FloatPriorityQueue, IntPriorityQueue}
+import collections.byte_buffer.{ByteBuffer, Float32Buffer, Float64Buffer, Int32Buffer, Int64Buffer}
+import collections.hash_map.{HashMap}
+
+fun checksumArray(values: Array<Int>) r: Int {
+    var sum = 0
+    var i = 0
+    while i < values.length() {
+        sum = sum + values[i]
+        i = i + 1
+    }
+    return sum
+}
+
+fun main() r: Int {
+    let values = Array<Int>()
+    var i = 0
+    while i < 4096 {
+        values.push((i * 17 + 11) % 1009)
+        i = i + 1
+    }
+
+    var rounds = 0
+    var total = 0
+    while rounds < 64 {
+        var j = 0
+        while j < values.length() {
+            values[j] = (values[j] + rounds + j) % 4099
+            j = j + 1
+        }
+        total = total + checksumArray(values)
+        rounds = rounds + 1
+    }
+
+    let buffer = ByteBuffer.withCapacity(4096)
+    buffer.reserve(8192)
+    i = 0
+    while i < 4096 {
+        buffer.push((i * 31 + 7) % 256)
+        i = i + 1
+    }
+    let bufferSlice = buffer.slice(64, 512)
+    total = total + bufferSlice.length() + bufferSlice.get(0)
+
+    let i32s = Int32Buffer.withCapacity(4096)
+    let i64s = Int64Buffer.withCapacity(4096)
+    let f32s = Float32Buffer.withCapacity(4096)
+    let f64s = Float64Buffer.withCapacity(4096)
+    i32s.reserve(8192)
+    i64s.reserve(8192)
+    f32s.reserve(8192)
+    f64s.reserve(8192)
+    i = 0
+    while i < 4096 {
+        i32s.push((i % 1024) as Int32)
+        i64s.push((i * 3) as Int64)
+        f32s.push(i.toFloat() * 0.5)
+        f64s.push(i.toFloat() * 1.5)
+        i = i + 1
+    }
+    total = total + (i32s.get(100) as Int)
+    total = total + (i64s.get(200) as Int)
+    total = total + f32s.get(300).toInt()
+    total = total + f64s.get(400).toInt()
+
+    let sorted = Array<Int>()
+    i = 0
+    while i < 2048 {
+        sorted.push((i * 7919 + 17) % 10007)
+        i = i + 1
+    }
+    unstableSortInt(sorted)
+    total = total + lowerBoundInt(sorted, 5000)
+    total = total + binarySearchInt(sorted, sorted[sorted.length() / 2])
+
+    let sortedFloats = Array<Float>()
+    i = 0
+    while i < 2048 {
+        sortedFloats.push(((i * 3571 + 29) % 10007).toFloat() * 0.25)
+        i = i + 1
+    }
+    unstableSortFloat(sortedFloats)
+    total = total + lowerBoundFloat(sortedFloats, 1250.0)
+    total = total + binarySearchFloat(sortedFloats, sortedFloats[sortedFloats.length() / 2])
+
+    let queue = IntPriorityQueue.min()
+    i = 0
+    while i < 1024 {
+        queue.push((i * 17 + 5) % 4096)
+        i = i + 1
+    }
+    i = 0
+    while i < 128 {
+        total = total + queue.pop()
+        i = i + 1
+    }
+
+    let floatQueue = FloatPriorityQueue.max()
+    i = 0
+    while i < 1024 {
+        floatQueue.push(((i * 19 + 3) % 4096).toFloat())
+        i = i + 1
+    }
+    i = 0
+    while i < 128 {
+        total = total + floatQueue.pop().toInt()
+        i = i + 1
+    }
+
+    let map = HashMap<String, Int>.withCapacity(2048)
+    i = 0
+    while i < 2048 {
+        map.insert("key-" + i.toString(), i)
+        i = i + 1
+    }
+    i = 0
+    while i < 2048 {
+        let key = "key-" + i.toString()
+        if map.containsKey(key) {
+            total = total + map.getUnchecked(key)
+        }
+        i = i + 1
+    }
+
+    if total <= 0 {
+        return 1
+    }
+    return 0
+}

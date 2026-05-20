@@ -74,6 +74,14 @@ fun main() r: Int {
         failed = failed + 1
     }
 
+    if map.containsKey(1) and map.getUnchecked(1) == "ONE" {
+        println("PASS: getUnchecked() returns existing value without Option")
+        passed = passed + 1
+    } else {
+        println("FAIL: getUnchecked() did not return existing value")
+        failed = failed + 1
+    }
+
     // Test 4: containsKey()
     if map.containsKey(1) {
         println("PASS: containsKey() returns true for existing key")
@@ -150,6 +158,30 @@ fun main() r: Int {
         failed = failed + 1
     }
 
+    if map.removeOrDefault(3, "missing") == "three" {
+        println("PASS: removeOrDefault() returns removed value")
+        passed = passed + 1
+    } else {
+        println("FAIL: removeOrDefault() did not return removed value")
+        failed = failed + 1
+    }
+
+    if map.removeOrDefault(999, "missing") == "missing" {
+        println("PASS: removeOrDefault() returns fallback for missing key")
+        passed = passed + 1
+    } else {
+        println("FAIL: removeOrDefault() did not return fallback")
+        failed = failed + 1
+    }
+
+    if map.containsKey(4) and map.removeUnchecked(4) == "four" {
+        println("PASS: removeUnchecked() returns existing value")
+        passed = passed + 1
+    } else {
+        println("FAIL: removeUnchecked() did not return existing value")
+        failed = failed + 1
+    }
+
     // Test 9: clear()
     map.clear()
     if map.size() == 0 {
@@ -178,10 +210,23 @@ fun main() r: Int {
         failed = failed + 1
     }
 
+    if HashMap<Int, Int>.tryWithCapacity(100).isOkay() and
+        bigMap.tryReserve(128).isOkay() {
+        println("PASS: fallible capacity APIs return Ok")
+        passed = passed + 1
+    } else {
+        println("FAIL: fallible capacity APIs failed")
+        failed = failed + 1
+    }
+
     // Insert many items to test resizing
     var i = 0
     while i < 50 {
-        bigMap.insert(i, i * 2)
+        let inserted = bigMap.tryInsert(i, i * 2)
+        if inserted.isErr() {
+            println("FAIL: tryInsert failed during resize test")
+            failed = failed + 1
+        }
         i = i + 1
     }
 
@@ -209,6 +254,57 @@ fun main() r: Int {
         passed = passed + 1
     } else {
         println("FAIL: Some values incorrect after resize")
+        failed = failed + 1
+    }
+
+    // Test 11: string keys should distribute by their content, not a constant fallback
+    let stringMap: HashMap<String, Int> = HashMap<String, Int>.withCapacity(8)
+    stringMap.insert("alpha", 1)
+    stringMap.insert("bravo", 2)
+    stringMap.insert("charlie", 3)
+    stringMap.insert("delta", 4)
+    let stringValue = stringMap.get("charlie")
+    if stringMap.size() == 4 and stringValue.isSome() and stringValue.unwrap() == 3 {
+        println("PASS: HashMap hashes string keys by content")
+        passed = passed + 1
+    } else {
+        println("FAIL: HashMap string-key lookup failed")
+        failed = failed + 1
+    }
+
+    if stringMap.containsKey("delta") and stringMap.getUnchecked("delta") == 4 {
+        println("PASS: string-key getUnchecked() returns existing value")
+        passed = passed + 1
+    } else {
+        println("FAIL: string-key getUnchecked() failed")
+        failed = failed + 1
+    }
+
+    if stringMap.removeOrDefault("alpha", -1) == 1 {
+        println("PASS: string-key removeOrDefault() returns existing value")
+        passed = passed + 1
+    } else {
+        println("FAIL: string-key removeOrDefault() failed")
+        failed = failed + 1
+    }
+
+    if stringMap.containsKey("bravo") and stringMap.removeUnchecked("bravo") == 2 {
+        println("PASS: string-key removeUnchecked() returns existing value")
+        passed = passed + 1
+    } else {
+        println("FAIL: string-key removeUnchecked() failed")
+        failed = failed + 1
+    }
+
+    let inferredStringMap = HashMap<String, Int>.withCapacity(4)
+    inferredStringMap.insert("echo", 5)
+    inferredStringMap.insert("foxtrot", 6)
+    if inferredStringMap.containsKey("echo") and
+        inferredStringMap.getUnchecked("foxtrot") == 6 {
+        println("PASS: inferred string-key HashMap factory preserves key ABI")
+        passed = passed + 1
+    } else {
+        println("FAIL: inferred string-key HashMap factory lost key ABI")
         failed = failed + 1
     }
 

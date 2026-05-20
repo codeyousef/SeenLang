@@ -5,7 +5,7 @@ import parser.real_parser.{FunctionNode, ItemNode, ParamNode, TypeNode}
 import codegen.ir_string_collect.{getBaseTypeNameImpl}
 import codegen.ir_type_mapping.{mapTypeImpl, isClassTypeImpl}
 import codegen.ir_call_args.{hasFloatParamFuncImpl}
-import codegen.ir_decl_scan.{buildDeclareParamsImpl, buildDeclareStringImpl, shouldRegisterCrossModuleFunctionImpl, shouldSkipStringBuilderMethodDeclImpl, recordCrossModuleDeclareImpl}
+import codegen.ir_decl_scan.{buildDeclareParamsImpl, buildDeclareStringImpl, shouldRegisterCrossModuleFunctionImpl, shouldSkipStringBuilderMethodDeclImpl, shouldSkipVecMethodDeclImpl, recordCrossModuleDeclareImpl}
 import codegen.ir_decl_registry.{DeclarationPassState, registerFunctionStateImpl, registerEnumDeclarationStateImpl}
 import codegen.ir_async_registry.{registerAsyncFunctionImpl}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
@@ -146,6 +146,39 @@ fun registerFloatParamMetadataImpl(funcName: String, params: Array<ParamNode>,
     }
 }
 
+fun registerDefaultParamMetadataIntoStateImpl(implFuncName: String,
+    paramIdx: Int, rawTypeName: String, state: DeclarationPassState)
+    r: Void {
+
+    if not rawTypeName.contains("~default~") {
+        return
+    }
+
+    let defSepPos = rawTypeName.indexOf("~default~", 0)
+    let defValue = rawTypeName.substring(defSepPos + 9,
+        rawTypeName.length())
+    let defTypeName = normalizeSeenTypeNameImpl(rawTypeName.substring(0,
+        defSepPos))
+    state.funcDefaultsArr = state.funcDefaultsArr + implFuncName + ":" +
+        paramIdx.toString() + ":" + defValue + ":" + defTypeName + "|"
+}
+
+fun registerFunctionParamDefaultMetadataIntoStateImpl(fn: FunctionNode,
+    implFuncName: String, state: DeclarationPassState) r: Void {
+
+    var paramIdx = 0
+    while paramIdx < fn.params.length() {
+        registerDefaultParamMetadataIntoStateImpl(implFuncName, paramIdx,
+            fn.params[paramIdx].paramType.typeName, state)
+        paramIdx = paramIdx + 1
+    }
+
+    if fn.params.length() > 0 {
+        state.funcParamCountArr = state.funcParamCountArr + implFuncName +
+            ":" + fn.params.length().toString() + "|"
+    }
+}
+
 fun collectDeclaredParamTypeInfoImpl(params: Array<ParamNode>,
     paramSeenTypes: Array<String>, paramLlvmTypes: Array<String>,
     structNames: Array<String>, typeAliasNames: String,
@@ -236,6 +269,7 @@ fun registerClassMethodDeclarationsIntoStateImpl(className: String,
     visibility: String, ctx: DeclarationItemContext) r: Void {
 
     let isStringBuilder = className == "StringBuilder"
+    let isVec = className == "Vec"
     var methodIdx = 0
     while methodIdx < methods.length() {
         let method = methods[methodIdx]
@@ -244,11 +278,17 @@ fun registerClassMethodDeclarationsIntoStateImpl(className: String,
             methodIdx = methodIdx + 1
             continue
         }
+        if isVec and shouldSkipVecMethodDeclImpl(method.name) {
+            methodIdx = methodIdx + 1
+            continue
+        }
 
         let mangledName = className + "_" + method.name
         let methodRetTypeName = methodRetTypeNames[methodIdx]
         registerFloatParamMetadataImpl(mangledName, method.params,
             ctx.floatParamFuncNames, ctx.floatParamParamIdxs)
+        registerFunctionParamDefaultMetadataIntoStateImpl(method, mangledName,
+            ctx.state)
 
         var methodRetLlvm = mapDeclaredTypeImpl(methodRetTypeName,
             ctx.structNames, ctx.typeAliasNames, ctx.typeAliasTargets,
@@ -291,6 +331,8 @@ fun registerTopLevelFunctionDeclarationIntoStateImpl(funcObj: FunctionNode,
         ctx.structNames)
     registerFloatParamMetadataImpl(floatRegistryFuncName, funcObj.params,
         ctx.floatParamFuncNames, ctx.floatParamParamIdxs)
+    registerFunctionParamDefaultMetadataIntoStateImpl(funcObj, funcObj.name,
+        ctx.state)
 
     let bodyStmtCount = funcObj.body.statements.length()
     var declRetLlvm = mapDeclaredTypeImpl(funcRetTypeName, ctx.structNames,

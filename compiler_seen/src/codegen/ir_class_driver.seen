@@ -111,7 +111,8 @@ fun generateRegularClassMethodsState(ctx: CodegenLoweringContext,
     while methodIdx < classNode.methods.length() {
         let method = classNode.methods[methodIdx]
         let methodName = method.name
-        if shouldSkipSourceClassMethodImpl(methodName, isStringBuilder) {
+        if shouldSkipSourceClassMethodImpl(methodName, classNode.name,
+            isStringBuilder) {
             methodIdx = methodIdx + 1
             continue
         }
@@ -135,7 +136,8 @@ fun generatePlainLargeClassState(ctx: CodegenLoweringContext,
     while methodIdx < methods.length() {
         let method = methods[methodIdx]
         let methodName = method.name
-        if shouldSkipSourceClassMethodImpl(methodName, isStringBuilder) {
+        if shouldSkipSourceClassMethodImpl(methodName, className,
+            isStringBuilder) {
             methodIdx = methodIdx + 1
             continue
         }

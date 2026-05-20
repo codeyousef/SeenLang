@@ -4,6 +4,9 @@ Allocator-backed string type built atop the high-performance Vec implementation.
 ///
 
 import collections.vec.{Vec}
+import core.result.{Result, Ok, Err}
+import core.unit.{Unit}
+import memory.allocation.{AllocError, ensureAllocationBudget}
 import str.string.{StringBuilder}
 
 class StdString {
@@ -13,16 +16,32 @@ class StdString {
         return StdString{ buffer: Vec<Char>.new() }
     }
 
-    fun fromString(text: String) r: StdString {
-        let s = StdString.new()
-        s.push(text)
-        return s
+    static fun fromString(text: String) r: StdString {
+        return StdString.tryFromString(text).expect(
+            "StdString.fromString allocation failed")
     }
 
-    fun withCapacity(capacity: Int) r: StdString {
+    static fun tryFromString(text: String) r: Result<StdString, AllocError> {
         let s = StdString.new()
-        s.reserve(capacity)
-        return s
+        let pushed = s.tryPush(text)
+        if pushed.isErr() {
+            return Err<StdString, AllocError>(pushed.unwrapErr())
+        }
+        return Ok<StdString, AllocError>(s)
+    }
+
+    static fun withCapacity(capacity: Int) r: StdString {
+        return StdString.tryWithCapacity(capacity).expect(
+            "StdString.withCapacity allocation failed")
+    }
+
+    static fun tryWithCapacity(capacity: Int) r: Result<StdString, AllocError> {
+        let s = StdString.new()
+        let reserved = s.tryReserve(capacity)
+        if reserved.isErr() {
+            return Err<StdString, AllocError>(reserved.unwrapErr())
+        }
+        return Ok<StdString, AllocError>(s)
     }
 
     fun len() r: Int {
@@ -42,17 +61,48 @@ class StdString {
     }
 
     fun reserve(capacity: Int) r: Void {
-        buffer.ensureCapacity(capacity)
-    }
-
-    fun push(text: String) r: Void {
-        for ch in text {
-            buffer.push(ch)
+        let reserved = this.tryReserve(capacity)
+        if reserved.isErr() {
+            panic("StdString.reserve allocation failed")
         }
     }
 
+    fun tryReserve(capacity: Int) r: Result<Unit, AllocError> {
+        return buffer.tryEnsureCapacity(capacity)
+    }
+
+    fun push(text: String) r: Void {
+        let pushed = this.tryPush(text)
+        if pushed.isErr() {
+            panic("StdString.push allocation failed")
+        }
+    }
+
+    fun tryPush(text: String) r: Result<Unit, AllocError> {
+        let reserved = this.tryReserve(buffer.len() + text.length())
+        if reserved.isErr() {
+            return reserved
+        }
+        for ch in text {
+            buffer.push(ch)
+        }
+        return Ok<Unit, AllocError>(Unit{})
+    }
+
     fun pushChar(ch: Char) r: Void {
+        let pushed = this.tryPushChar(ch)
+        if pushed.isErr() {
+            panic("StdString.pushChar allocation failed")
+        }
+    }
+
+    fun tryPushChar(ch: Char) r: Result<Unit, AllocError> {
+        let reserved = this.tryReserve(buffer.len() + 1)
+        if reserved.isErr() {
+            return reserved
+        }
         buffer.push(ch)
+        return Ok<Unit, AllocError>(Unit{})
     }
 
     fun popChar() r: Char {
@@ -67,8 +117,17 @@ class StdString {
     }
 
     fun toString() r: String {
+        return this.tryToString().expect("StdString.toString allocation failed")
+    }
+
+    fun tryToString() r: Result<String, AllocError> {
         if buffer.len() == 0 {
-            return ""
+            return Ok<String, AllocError>("")
+        }
+        let budget = ensureAllocationBudget(buffer.len() + 1)
+        if budget.isErr() {
+            return Err<String, AllocError>(
+                AllocError.outOfMemory(buffer.len() + 1))
         }
         let builder = StringBuilder.new()
         var index = 0
@@ -76,7 +135,7 @@ class StdString {
             builder.appendChar(buffer.get(index))
             index = index + 1
         }
-        return builder.toString()
+        return Ok<String, AllocError>(builder.toString())
     }
 
     fun intoString() r: String {

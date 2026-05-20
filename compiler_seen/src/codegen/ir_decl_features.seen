@@ -25,7 +25,7 @@ fun generateHotReloadMethodsImpl(output: StringBuilder, classNode: ClassNode) r:
     output.append("entry:\n")
     output.append("  %szptr2 = getelementptr %" + cn + ", ptr null, i32 1\n")
     output.append("  %sz2 = ptrtoint ptr %szptr2 to i64\n")
-    output.append("  %buf = call noalias ptr @malloc(i64 %sz2)\n")
+    output.append("  %buf = call noalias ptr @seen_checked_malloc(i64 %sz2)\n")
     output.append("  call void @llvm.memcpy.p0.p0.i64(ptr %buf, ptr %this, i64 %sz2, i1 false)\n")
     output.append("  %result = ptrtoint ptr %buf to i64\n")
     output.append("  ret i64 %result\n")
@@ -80,7 +80,7 @@ fun generateDeriveDeserializeImpl(output: StringBuilder, classNode: ClassNode, s
     let numFields = classNode.fields.length()
     let classSize = numFields * 8
     output.append("  %size = add i64 0, " + classSize.toString() + "\n")
-    output.append("  %mem = call ptr @malloc(i64 %size)\n")
+    output.append("  %mem = call ptr @seen_checked_malloc(i64 %size)\n")
     var fieldIdx = 0
     while fieldIdx < classNode.fields.length() {
         let field = classNode.fields[fieldIdx]
@@ -110,7 +110,7 @@ fun generateDeriveCloneImpl(output: StringBuilder, classNode: ClassNode, structN
     output.append("entry:\n")
     let numFields = classNode.fields.length()
     let sz = numFields * 8
-    output.append("  %mem = call ptr @malloc(i64 " + sz.toString() + ")\n")
+    output.append("  %mem = call ptr @seen_checked_malloc(i64 " + sz.toString() + ")\n")
     var fi = 0
     while fi < numFields {
         let fis = fi.toString()

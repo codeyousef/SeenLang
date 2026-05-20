@@ -6,6 +6,7 @@
 #define _GNU_SOURCE
 #endif
 #include "seen_region.h"
+#include "seen_runtime.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -120,7 +121,7 @@ SeenRegion* __seen_region_create_named(int64_t size, int32_t strategy, const cha
     }
 
     // Allocate region structure
-    SeenRegion* region = (SeenRegion*)malloc(sizeof(SeenRegion));
+    SeenRegion* region = (SeenRegion*)seen_try_malloc(sizeof(SeenRegion));
     if (!region) {
         fprintf(stderr, "ERROR: Failed to allocate region structure\n");
         return NULL;
@@ -131,21 +132,35 @@ SeenRegion* __seen_region_create_named(int64_t size, int32_t strategy, const cha
 
     if (strategy == SEEN_REGION_GPU) {
         // GPU-visible memory: page-aligned mmap suitable for Vulkan vkMapMemory
+        if (!seen_memory_try_reserve_bytes(size)) {
+            seen_memory_release_bytes((int64_t)sizeof(SeenRegion));
+            free(region);
+            return NULL;
+        }
         base = mmap(NULL, (size_t)size,
                     PROT_READ | PROT_WRITE,
                     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
         if (base == MAP_FAILED) {
             fprintf(stderr, "ERROR: mmap failed for GPU region (%ld bytes)\n", (long)size);
+            seen_memory_release_bytes(size);
+            seen_memory_release_bytes((int64_t)sizeof(SeenRegion));
             free(region);
             return NULL;
         }
     } else if (strategy == SEEN_REGION_CXL_NEAR || strategy == SEEN_REGION_CXL_FAR) {
         // Use mmap for CXL/NUMA-aware allocation
+        if (!seen_memory_try_reserve_bytes(size)) {
+            seen_memory_release_bytes((int64_t)sizeof(SeenRegion));
+            free(region);
+            return NULL;
+        }
         base = mmap(NULL, (size_t)size,
                     PROT_READ | PROT_WRITE,
                     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
         if (base == MAP_FAILED) {
             fprintf(stderr, "ERROR: mmap failed for CXL region (%ld bytes)\n", (long)size);
+            seen_memory_release_bytes(size);
+            seen_memory_release_bytes((int64_t)sizeof(SeenRegion));
             free(region);
             return NULL;
         }
@@ -165,11 +180,12 @@ SeenRegion* __seen_region_create_named(int64_t size, int32_t strategy, const cha
         }
 #endif
     } else {
-        base = malloc((size_t)size);
+        base = seen_try_malloc(size);
     }
 
     if (!base) {
         fprintf(stderr, "ERROR: Failed to allocate region memory (%ld bytes)\n", (long)size);
+        seen_memory_release_bytes((int64_t)sizeof(SeenRegion));
         free(region);
         return NULL;
     }
@@ -218,6 +234,7 @@ void __seen_region_destroy(SeenRegion* region) {
 
     // Free pinning attributes if present
     if (region->pinning_attrs) {
+        seen_memory_release_bytes((int64_t)sizeof(*region->pinning_attrs));
         free(region->pinning_attrs);
         region->pinning_attrs = NULL;
     }
@@ -227,8 +244,10 @@ void __seen_region_destroy(SeenRegion* region) {
         if (region->strategy == SEEN_REGION_GPU ||
             region->strategy == SEEN_REGION_CXL_NEAR ||
             region->strategy == SEEN_REGION_CXL_FAR) {
+            seen_memory_release_bytes((int64_t)region->size);
             munmap(region->base, region->size);
         } else {
+            seen_memory_release_bytes((int64_t)region->size);
             free(region->base);
         }
         region->base = NULL;
@@ -251,6 +270,7 @@ void __seen_region_destroy(SeenRegion* region) {
     }
 
     // Free region structure
+    seen_memory_release_bytes((int64_t)sizeof(SeenRegion));
     free(region);
 }
 

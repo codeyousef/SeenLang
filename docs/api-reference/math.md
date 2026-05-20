@@ -35,6 +35,9 @@
 | `sinh` | `(x: Float) r: Float` | Hyperbolic sine |
 | `cosh` | `(x: Float) r: Float` | Hyperbolic cosine |
 | `tanh` | `(x: Float) r: Float` | Hyperbolic tangent |
+| `asinh` | `(x: Float) r: Float` | Inverse hyperbolic sine |
+| `acosh` | `(x: Float) r: Float` | Inverse hyperbolic cosine |
+| `atanh` | `(x: Float) r: Float` | Inverse hyperbolic tangent |
 
 ## Exponential and Logarithmic
 
@@ -55,6 +58,18 @@
 | `floor` | `(x: Float) r: Float` | Round down |
 | `ceil` | `(x: Float) r: Float` | Round up |
 | `round` | `(x: Float) r: Float` | Round to nearest |
+| `copysign` | `(x: Float, y: Float) r: Float` | Magnitude of `x` with sign of `y` |
+
+## Integer Bit Operations
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `popcount` | `(x: Int) r: Int` | Count set bits |
+| `countLeadingZeros` | `(x: Int) r: Int` | Count leading zero bits, returning 64 for zero |
+| `countTrailingZeros` | `(x: Int) r: Int` | Count trailing zero bits, returning 64 for zero |
+| `rotateLeft` | `(x: Int, shift: Int) r: Int` | Rotate bits left modulo 64 |
+| `rotateRight` | `(x: Int, shift: Int) r: Int` | Rotate bits right modulo 64 |
+| `byteswap` | `(x: Int) r: Int` | Reverse byte order |
 
 ## Angle Conversion
 
@@ -65,7 +80,9 @@
 
 ## Runtime Math Functions
 
-These are mapped to LLVM intrinsics for maximum performance:
+The public stdlib math APIs route through runtime/libm-backed helpers where
+available. The LLVM backend may lower the internal `__*` helpers to LLVM
+intrinsics for maximum performance:
 
 | Runtime Function | LLVM Intrinsic |
 |-----------------|----------------|
@@ -89,6 +106,15 @@ Additional runtime functions:
 | `__Sinh(x)` | Hyperbolic sine |
 | `__Cosh(x)` | Hyperbolic cosine |
 | `__Tanh(x)` | Hyperbolic tangent |
+| `seen_math_round(x)` | Runtime/libm round |
+| `seen_math_asinh(x)` | Inverse hyperbolic sine |
+| `seen_math_acosh(x)` | Inverse hyperbolic cosine |
+| `seen_math_atanh(x)` | Inverse hyperbolic tangent |
+| `seen_math_copysign(x, y)` | Copy sign |
+
+The stdlib also exposes C ABI wrappers named `seen_math_*` for source-level
+modules that need stable runtime dispatch without depending on compiler
+intrinsic names directly.
 
 ## Time
 

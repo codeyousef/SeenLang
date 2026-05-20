@@ -72,7 +72,8 @@ seen lsp
 The server resolves project language from nearby `Seen.toml` when possible and
 falls back to English. It masks `/// ... ///` block comments for source-symbol
 operations and supports completions/hover for packages, annotations, effects,
-capabilities, hot reload, imports, sealed classes, exports, and stdlib modules.
+capabilities, hot reload, imports, sealed classes, exports, new collection and
+memory types, and stdlib modules.
 
 ### Neovim
 
@@ -150,6 +151,37 @@ bash scripts/native_target_smoke.sh --compiler compiler_seen/target/seen --targe
 bash scripts/platform_matrix.sh --stage3 compiler_seen/target/seen --platform linux-arm64
 ```
 
+## Linux RISC-V Cross Sysroot and QEMU
+
+Seen supports `linux-riscv64` as an RV64GC Linux GNU userspace target. The
+canonical target list and triples are documented in
+[Compilation Targets](targets.md). On pacman-compatible Linux hosts, install
+system packages directly or create a local sysroot:
+
+```bash
+sudo pacman -Syu --needed clang llvm lld file qemu-user qemu-user-static qemu-system-riscv qemu-system-riscv-firmware riscv64-linux-gnu-binutils riscv64-linux-gnu-gcc riscv64-linux-gnu-glibc
+
+# Optional local sysroot instead of relying on /usr/riscv64-linux-gnu:
+./scripts/setup_linux_riscv64_sysroot.sh
+source artifacts/toolchains/linux-riscv64/env.sh
+```
+
+Validate the fast emulator tier with QEMU user-mode:
+
+```bash
+bash scripts/test_riscv64_qemu.sh --compiler compiler_seen/target/seen --require
+bash scripts/native_target_smoke.sh --compiler compiler_seen/target/seen --target linux-riscv64
+```
+
+For full guest validation, provide a RISC-V Linux kernel/rootfs with SSH and run:
+
+```bash
+SEEN_RISCV64_QEMU_KERNEL=/path/to/Image \
+SEEN_RISCV64_QEMU_ROOTFS=/path/to/rootfs.qcow2 \
+SEEN_RISCV64_QEMU_IDENTITY=/path/to/key \
+bash scripts/test_riscv64_system_qemu.sh --compiler compiler_seen/target/seen --require
+```
+
 ## Import from C
 
 Generate Seen bindings from a C header:
@@ -165,4 +197,5 @@ source or package interface modules.
 
 - [Getting Started](getting-started.md)
 - [CLI Reference](cli-reference.md)
+- [Compilation Targets](targets.md)
 - [Project Configuration](project-config.md)

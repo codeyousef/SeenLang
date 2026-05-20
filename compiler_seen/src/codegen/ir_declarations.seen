@@ -171,44 +171,52 @@ Some/None Constructor IR Emission (extracted from generateCall)
 fun emitSomeConstructorImpl(output: StringBuilder, regBox: Array<Int>,
     argReg: String, argType: String, isClassArg: Int) r: String {
 
-    // Allocate Option struct on heap (pool for 16 bytes) ; alloc-sinkable
     let allocReg = getNextRegFn(regBox)
-    output.append("  " + allocReg + " = call ptr @seen_pool_alloc(i64 16) ; alloc-sinkable\n")
-    // Set hasValue = true
-    let hasValuePtrReg = getNextRegFn(regBox)
-    output.append("  " + hasValuePtrReg + " = getelementptr inbounds { i1, i64 }, ptr " + allocReg + ", i32 0, i32 0\n")
-    output.append("  store i1 true, ptr " + hasValuePtrReg + "\n")
-    // Set value from argument - need to convert to i64 for storage
-    let valuePtrReg = getNextRegFn(regBox)
-    output.append("  " + valuePtrReg + " = getelementptr inbounds { i1, i64 }, ptr " + allocReg + ", i32 0, i32 1\n")
-    // Handle different argument types using flag pattern (stage1 has issues with else if chains)
     var someArgHandled = false
+
     if argType == "String" {
-        // String (SeenString struct) - store pointer to the string struct
-        let tmpAlloc = getNextRegFn(regBox)
-        output.append("  " + tmpAlloc + " = alloca %SeenString\n")
-        output.append("  store %SeenString " + argReg + ", ptr " + tmpAlloc + "\n")
-        let tmpAsInt = getNextRegFn(regBox)
-        output.append("  " + tmpAsInt + " = ptrtoint ptr " + tmpAlloc + " to i64\n")
-        output.append("  store i64 " + tmpAsInt + ", ptr " + valuePtrReg + "\n")
+        output.append("  " + allocReg + " = call ptr @seen_pool_alloc(i64 24) ; alloc-sinkable Option<String>\n")
+        let hasValuePtrReg = getNextRegFn(regBox)
+        output.append("  " + hasValuePtrReg + " = getelementptr inbounds { i1, %SeenString }, ptr " + allocReg + ", i32 0, i32 0\n")
+        output.append("  store i1 true, ptr " + hasValuePtrReg + "\n")
+        let valuePtrReg = getNextRegFn(regBox)
+        output.append("  " + valuePtrReg + " = getelementptr inbounds { i1, %SeenString }, ptr " + allocReg + ", i32 0, i32 1\n")
+        output.append("  store %SeenString " + argReg + ", ptr " + valuePtrReg + "\n")
         someArgHandled = true
     }
+
     if not someArgHandled and argType == "Bool" {
-        // Bool (i1) - zero extend to i64
-        let extReg = getNextRegFn(regBox)
-        output.append("  " + extReg + " = zext i1 " + argReg + " to i64\n")
-        output.append("  store i64 " + extReg + ", ptr " + valuePtrReg + "\n")
+        output.append("  " + allocReg + " = call ptr @seen_pool_alloc(i64 2) ; alloc-sinkable Option<Bool>\n")
+        let hasValuePtrReg = getNextRegFn(regBox)
+        output.append("  " + hasValuePtrReg + " = getelementptr inbounds { i1, i1 }, ptr " + allocReg + ", i32 0, i32 0\n")
+        output.append("  store i1 true, ptr " + hasValuePtrReg + "\n")
+        let valuePtrReg = getNextRegFn(regBox)
+        output.append("  " + valuePtrReg + " = getelementptr inbounds { i1, i1 }, ptr " + allocReg + ", i32 0, i32 1\n")
+        output.append("  store i1 " + argReg + ", ptr " + valuePtrReg + "\n")
         someArgHandled = true
     }
-    if not someArgHandled and isClassArg == 1 {
-        // Class types are already stored as i64
-        output.append("  store i64 " + argReg + ", ptr " + valuePtrReg + "\n")
+
+    if not someArgHandled and argType == "Float" {
+        output.append("  " + allocReg + " = call ptr @seen_pool_alloc(i64 16) ; alloc-sinkable Option<Float>\n")
+        let hasValuePtrReg = getNextRegFn(regBox)
+        output.append("  " + hasValuePtrReg + " = getelementptr inbounds { i1, double }, ptr " + allocReg + ", i32 0, i32 0\n")
+        output.append("  store i1 true, ptr " + hasValuePtrReg + "\n")
+        let valuePtrReg = getNextRegFn(regBox)
+        output.append("  " + valuePtrReg + " = getelementptr inbounds { i1, double }, ptr " + allocReg + ", i32 0, i32 1\n")
+        output.append("  store double " + argReg + ", ptr " + valuePtrReg + "\n")
         someArgHandled = true
     }
+
     if not someArgHandled {
-        // Int, Char, and other i64 types
+        output.append("  " + allocReg + " = call ptr @seen_pool_alloc(i64 16) ; alloc-sinkable Option<i64>\n")
+        let hasValuePtrReg = getNextRegFn(regBox)
+        output.append("  " + hasValuePtrReg + " = getelementptr inbounds { i1, i64 }, ptr " + allocReg + ", i32 0, i32 0\n")
+        output.append("  store i1 true, ptr " + hasValuePtrReg + "\n")
+        let valuePtrReg = getNextRegFn(regBox)
+        output.append("  " + valuePtrReg + " = getelementptr inbounds { i1, i64 }, ptr " + allocReg + ", i32 0, i32 1\n")
         output.append("  store i64 " + argReg + ", ptr " + valuePtrReg + "\n")
     }
+
     // Convert to i64 (class types stored as pointer-as-int)
     let resultReg = getNextRegFn(regBox)
     output.append("  " + resultReg + " = ptrtoint ptr " + allocReg + " to i64\n")

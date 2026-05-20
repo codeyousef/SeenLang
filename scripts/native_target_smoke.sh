@@ -12,6 +12,7 @@ RELEASE_MODE=0
 DEFAULT_TARGETS=(
   "linux-x86_64"
   "linux-arm64"
+  "linux-riscv64"
   "windows-x86_64"
   "macos-x86_64"
   "macos-arm64"
@@ -252,6 +253,9 @@ artifact_matches_target() {
     linux-arm64)
       [[ "$description" == *"ELF"* && ( "$description" == *"ARM aarch64"* || "$description" == *"ARM64"* ) ]]
       ;;
+    linux-riscv64)
+      [[ "$description" == *"ELF"* && ( "$description" == *"RISC-V"* || "$description" == *"riscv"* ) ]]
+      ;;
     windows-*)
       [[ "$description" == *"PE32"* || "$description" == *"MS Windows"* ]]
       ;;
@@ -287,6 +291,25 @@ preflight_target() {
         return 0
       fi
       echo "Linux ARM64 cross-compilation requires SEEN_LINUX_ARM64_SYSROOT or /usr/aarch64-linux-gnu"
+      return 1
+      ;;
+    linux-riscv64)
+      if [[ "$(uname -m)" == "riscv64" ]]; then
+        return 0
+      fi
+      if [[ -n "${SEEN_LINUX_RISCV64_SYSROOT:-}" && -d "${SEEN_LINUX_RISCV64_SYSROOT}" ]]; then
+        return 0
+      fi
+      if [[ -n "${RISCV64_SYSROOT:-}" && -d "${RISCV64_SYSROOT}" ]]; then
+        return 0
+      fi
+      if [[ -d "$ROOT_DIR/artifacts/toolchains/linux-riscv64/usr/riscv64-linux-gnu" ]]; then
+        return 0
+      fi
+      if [[ -d /usr/riscv64-linux-gnu ]]; then
+        return 0
+      fi
+      echo "Linux RISC-V cross-compilation requires SEEN_LINUX_RISCV64_SYSROOT, RISCV64_SYSROOT, artifacts/toolchains/linux-riscv64, or /usr/riscv64-linux-gnu"
       return 1
       ;;
     android-*)

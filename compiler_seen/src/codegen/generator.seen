@@ -62,6 +62,7 @@ class CodeGenerator {
         backends.put(Target.macOS_x86_64, LLVMBackend.new(Target.macOS_x86_64))
         backends.put(Target.macOS_ARM64, LLVMBackend.new(Target.macOS_ARM64))
         backends.put(Target.Linux_ARM64, LLVMBackend.new(Target.Linux_ARM64))
+        backends.put(Target.RISC_V, LLVMBackend.new(Target.RISC_V))
 
         // C backend
         backends.put(Target.C, CBackend.new())
@@ -478,7 +479,7 @@ class CodeGenerator {
     fun createCrossCompilationBackend(target: Target) r: Backend? {
         return match target {
             Target.Linux_x86_64, Target.Windows_x86_64, Target.macOS_x86_64,
-            Target.macOS_ARM64, Target.Linux_ARM64 -> LLVMBackend.new(target)
+            Target.macOS_ARM64, Target.Linux_ARM64, Target.RISC_V -> LLVMBackend.new(target)
             Target.C -> CBackend.new()
             Target.WASM -> WASMBackend.new()
             _ -> null
@@ -571,6 +572,7 @@ class LLVMBackend extends Backend {
         features = match target {
             Target.macOS_ARM64, Target.iOS_ARM64, Target.iOS_Simulator_ARM64 -> ["+neon", "+crypto", "+fullfp16", "+ras", "+lse", "+rdm", "+rcpc", "+zcm", "+zcz"]
             Target.Linux_ARM64 -> ["+neon", "+crypto"]
+            Target.RISC_V -> ["+m", "+a", "+f", "+d", "+c"]
             _ -> ["+sse2", "+sse3", "+ssse3", "+sse4.1", "+sse4.2"]
         }
     }

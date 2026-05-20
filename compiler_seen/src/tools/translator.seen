@@ -7,6 +7,7 @@ language's keyword or stdlib mappings.
 ///
 
 import io.file.{readText}
+import str.string.{StringBuilder}
 
 ///
 Load keyword pairs from a TOML file's [keywords] section into parallel arrays.
@@ -372,7 +373,7 @@ fun translateSource(source: String, fromLang: String, toLang: String) r: String 
     loadAllStdlib(toLang, tgtStdNames, tgtStdPaths)
 
     let len = source.length()
-    var result = ""
+    let result = StringBuilder.new()
     var pos = 0
 
     while pos < len {
@@ -393,7 +394,7 @@ fun translateSource(source: String, fromLang: String, toLang: String) r: String 
                     end = end + 1
                 }
             }
-            result = result + source.substring(pos, end)
+            result.append(source.substring(pos, end))
             pos = end
         } else if b == 39 {
             // Char literal: copy verbatim
@@ -409,13 +410,13 @@ fun translateSource(source: String, fromLang: String, toLang: String) r: String 
                     end = end + 1
                 }
             }
-            result = result + source.substring(pos, end)
+            result.append(source.substring(pos, end))
             pos = end
         } else if b == 47 and pos + 2 < len and source.byteAt(pos + 1) == 47 and
             source.byteAt(pos + 2) == 47 and isTripleSlashBlockDelimiterLine(source, pos) {
 
             let end = consumeTripleSlashBlockComment(source, pos)
-            result = result + source.substring(pos, end)
+            result.append(source.substring(pos, end))
             pos = end
         } else if b == 47 and pos + 1 < len and source.byteAt(pos + 1) == 47 {
             // Single-line comment: copy to end of line
@@ -424,7 +425,7 @@ fun translateSource(source: String, fromLang: String, toLang: String) r: String 
                 if source.byteAt(end) == 10 { break }
                 end = end + 1
             }
-            result = result + source.substring(pos, end)
+            result.append(source.substring(pos, end))
             pos = end
         } else if isAlphaOrUnderscore(b) == 1 or b >= 128 {
             // Identifier or keyword (ASCII alpha/underscore or UTF-8 multibyte)
@@ -446,24 +447,24 @@ fun translateSource(source: String, fromLang: String, toLang: String) r: String 
             // Try keyword translation first
             let kwResult = translateKeyword(word, srcKwTexts, srcKwTypes, tgtKwTexts, tgtKwTypes)
             if kwResult != "" {
-                result = result + kwResult
+                result.append(kwResult)
             } else {
                 // Try stdlib translation
                 let stdResult = translateStdlib(word, srcStdNames, srcStdPaths, tgtStdNames, tgtStdPaths)
                 if stdResult != "" {
-                    result = result + stdResult
+                    result.append(stdResult)
                 } else {
                     // Not a keyword or stdlib name — keep as-is
-                    result = result + word
+                    result.append(word)
                 }
             }
             pos = end
         } else {
             // Everything else: whitespace, operators, numbers, punctuation — copy verbatim
-            result = result + source.substring(pos, pos + 1)
+            result.append(source.substring(pos, pos + 1))
             pos = pos + 1
         }
     }
 
-    return result
+    return result.toString()
 }

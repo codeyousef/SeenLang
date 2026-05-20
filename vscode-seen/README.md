@@ -12,7 +12,7 @@
 
 ## Features
 
-- **Syntax Highlighting** -- TextMate grammar for `.seen` files with support for `///` block comments, `@export`, SIMD types, GPU annotations, async/await, and all 6 keyword languages
+- **Syntax Highlighting** -- TextMate grammar for `.seen` files with support for `///` block comments, `@export`, SIMD types, GPU annotations, async/await, performance collection types, and all 6 keyword languages
 - **IntelliSense** -- Code completion and type information via the built-in LSP
 - **Error Diagnostics** -- Real-time error checking as you type
 - **Go to Definition / Find References** -- Navigate your codebase
@@ -22,6 +22,7 @@
 - **Compile Integration** -- Compile, run, check, and package from the editor
 - **Shared Module Builds** -- Compile PIC objects and object manifests for hot-reload/shared-library workflows
 - **Package Workflows** -- Run `seen pkg fetch`, `pack`, `prebuild`, and `publish` from VS Code
+- **Target Awareness** -- Configuration choices track the shipped native and cross targets, including `linux-riscv64`
 - **Multi-Language Keywords** -- Switch between English, Arabic, Spanish, Russian, Chinese, and Japanese keywords
 
 ## Quick Start
@@ -71,6 +72,8 @@
 | `sealed` | Sealed class declaration |
 | `comment` | `///` multi-line block comment |
 | `hotreload` / `hotmodule` / `hotcall` | Hot reload import, load, and Int-call helpers |
+| `stringbuilder` / `bytebuffer` | StringBuilder and byte-backed buffer setup |
+| `hashmap` / `priorityqueue` | HashMap lookup and priority queue setup |
 | `closure` | Closure expression `\|x\| expr` |
 | `parallel_for` | Parallel for loop |
 | `compute` | GPU compute kernel with `@compute` |
@@ -102,7 +105,7 @@
 | `seen.lsp.enabled` | `true` | Enable language server |
 | `seen.lsp.trace.server` | `"off"` | LSP tracing (`off`, `messages`, `verbose`) |
 | `seen.formatting.enable` | `true` | Enable code formatting |
-| `seen.target.default` | `"native"` | Compilation target |
+| `seen.target.default` | `"native"` | Compilation target: `native`, `linux-x86_64`, `linux-arm64`, `linux-riscv64`, `windows-x86_64`, `macos-x86_64`, `macos-arm64`, `ios-arm64`, `ios-sim-arm64`, or `android-arm64` |
 | `seen.compile.pic` | `false` | Emit PIC objects for shared-library builds |
 | `seen.compile.objectManifest` | `""` | Optional manifest path for shared-module object builds |
 | `seen.language.default` | `"en"` | Keyword language (`en`, `ar`, `es`, `ru`, `zh`, `ja`) |

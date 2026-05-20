@@ -10,6 +10,7 @@ import codegen.ir_call_low_level_driver.{tryGenerateLowLevelBuiltinCallState}
 import codegen.ir_call_meta_driver.{tryGenerateNonTransmuteMetaBuiltinCallState}
 import codegen.ir_call_regular_emit.{emitRegularFunctionCallTailState}
 import codegen.ir_call_regular_plan.{stripGenericCalleeNameImpl, resolveRegularCallLlvmReturnTypeImpl}
+import codegen.ir_call_runtime.{emitResultRuntimeBuiltinCallImpl}
 import codegen.ir_call_runtime_driver.{tryGenerateRuntimeBuiltinCallState, tryGenerateMathBuiltinCallState}
 import codegen.ir_codegen_feature_state.{getFeatureAsyncFuncNamesImpl, getFeatureAsyncFuncCountImpl, getFeatureBoundsCheckEnabledImpl, getFeatureBoundsCheckLabelCountImpl, setFeatureBoundsCheckLabelCountImpl, getFeatureComptimeParamFuncNamesImpl, getFeatureComptimeParamCountImpl, getFeatureCurrentClassParentNameImpl, getFeatureEnumVariantCountImpl, getFeatureEnumVariantFieldCountsImpl, getFeatureEnumVariantNamesImpl, getFeatureInsideUnsafeImpl, getDefaultFillArgRegsImpl, getDefaultFillArgTypeStrsImpl, getFeatureRegBoxImpl}
 import codegen.ir_codegen_global_state.{getBoundedActiveVarCountWithGlobalStateImpl}
@@ -155,6 +156,22 @@ fun generateCallState(ctx: CodegenLoweringContext,
         varTypes, stringConstants)
     var argRegs = getDefaultFillArgRegsImpl()
     var argTypeStrs = getDefaultFillArgTypeStrsImpl()
+    if funcName == "indexOf" and argRegs.length() == 2 {
+        argRegs.push("0")
+        argTypeStrs.push("i64")
+    }
+    if funcName == "lastIndexOf" and argRegs.length() == 2 {
+        argRegs.push("-1")
+        argTypeStrs.push("i64")
+    }
+    if (funcName == "Ok" or funcName == "Err") and argRegs.length() > 0 {
+        let boxedResultPayload = emitResultRuntimeBuiltinCallImpl(output,
+            getFeatureRegBoxImpl(), funcName, argRegs[0], argTypeStrs[0])
+        if boxedResultPayload != "" {
+            argRegs[0] = boxedResultPayload
+            argTypeStrs[0] = "i64"
+        }
+    }
 
     let returnType = inferLoweredExpressionType(ctx, expr)
     let llvmReturnType = resolveRegularCallLlvmReturnTypeImpl(

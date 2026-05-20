@@ -4,6 +4,12 @@ Common array operations that auto-dispatch via C runtime SIMD functions
 Uses AVX2 when available, falls back to scalar
 ///
 
+extern fun __simd_reduce_sum(arr: Array<Float>, len: Int) r: Float
+extern fun __simd_prefix_sum(arr: Array<Float>, len: Int) r: Void
+extern fun __simd_reduce_min(arr: Array<Float>, len: Int) r: Float
+extern fun __simd_reduce_max(arr: Array<Float>, len: Int) r: Float
+extern fun __simd_dot_product(a: Array<Float>, b: Array<Float>, len: Int) r: Float
+
 ///
 Reduce-sum: sum all elements in a float array
 Dispatches to AVX2 SIMD when available

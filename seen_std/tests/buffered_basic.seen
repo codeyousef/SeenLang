@@ -1,0 +1,24 @@
+import io.buffered.{BufferedReader, BufferedWriter}
+
+fun expect(condition: Bool, message: String) -> Void {
+    if not condition {
+        abort(message)
+    }
+}
+
+fun main() -> Int {
+    let writer = BufferedWriter.new(64)
+    writer.write("Seen")
+    writer.write("Lang")
+    expect(writer.flush() == "SeenLang", "BufferedWriter.flush mismatch")
+    expect(writer.getContents() == "", "BufferedWriter should be empty after flush")
+
+    let reader = BufferedReader.new("alpha\r\nbeta\nlast")
+    expect(reader.readLine() == "alpha", "BufferedReader first line mismatch")
+    expect(reader.readLine() == "beta", "BufferedReader second line mismatch")
+    expect(reader.remaining() == 4, "BufferedReader remaining mismatch")
+    expect(reader.readAll() == "last", "BufferedReader readAll mismatch")
+    expect(not reader.hasMore(), "BufferedReader should be drained")
+
+    return 0
+}

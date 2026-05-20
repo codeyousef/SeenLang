@@ -18,7 +18,7 @@ fun hashString(value: String) r: Int {
     let len = value.length()
     var i = 0
     while i < len {
-        let c = value.charCodeAt(i)
+        let c = value.byteAt(i)
         hash = ((hash << 5) + hash) + c
         i = i + 1
     }

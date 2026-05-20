@@ -3,6 +3,8 @@ LLVM IR String Utilities
 Pure functions for string manipulation used by the LLVM IR generator
 ///
 
+import str.string.{StringBuilder}
+
 // Convert a hex string value (like "0x00C0") to decimal string
 fun hexToDecimal(value: String) r: String {
     let len = value.length()
@@ -74,16 +76,23 @@ fun trimSpaces(value: String) r: String {
 
 // Remove all spaces, tabs, and carriage returns from a string
 fun removeSpaces(value: String) r: String {
-    var result = ""
+    let result = StringBuilder.new()
     var i = 0
+    var segmentStart = 0
     while i < value.length() {
         let c = value.substring(i, i + 1)
-        if c != " " and c != "\t" and c != "\r" {
-            result = result + c
+        if c == " " or c == "\t" or c == "\r" {
+            if segmentStart < i {
+                result.append(value.substring(segmentStart, i))
+            }
+            segmentStart = i + 1
         }
         i = i + 1
     }
-    return result
+    if segmentStart < value.length() {
+        result.append(value.substring(segmentStart, value.length()))
+    }
+    return result.toString()
 }
 
 ///
@@ -197,26 +206,36 @@ fun parseDecimalInt(value: String) r: Int {
 
 // Escape a string for LLVM IR string constants
 fun escapeString(str: String) r: String {
-    var result = ""
+    let result = StringBuilder.new()
     var i = 0
+    var segmentStart = 0
     while i < str.length() {
         let c = str.substring(i, i + 1)
+        var escaped = ""
         if c == "\\" {
-            result = result + "\\\\"
+            escaped = "\\\\"
         } else if c == "\"" {
-            result = result + "\\\""
+            escaped = "\\\""
         } else if c == "\n" {
-            result = result + "\\0A"
+            escaped = "\\0A"
         } else if c == "\t" {
-            result = result + "\\09"
+            escaped = "\\09"
         } else if c == "\r" {
-            result = result + "\\0D"
-        } else {
-            result = result + c
+            escaped = "\\0D"
+        }
+        if escaped != "" {
+            if segmentStart < i {
+                result.append(str.substring(segmentStart, i))
+            }
+            result.append(escaped)
+            segmentStart = i + 1
         }
         i = i + 1
     }
-    return result
+    if segmentStart < str.length() {
+        result.append(str.substring(segmentStart, str.length()))
+    }
+    return result.toString()
 }
 
 // Convert a single character to its ASCII code string representation

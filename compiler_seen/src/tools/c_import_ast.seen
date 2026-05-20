@@ -4,6 +4,7 @@ import tools.c_import_gen.{CImportGenerator, CImportResult, CImportedTypedef, CI
 import tools.c_import_util.{findLastIndexOf, getClangAstDepth, extractClangDeclStartLocation, resolveClangTypedefType}
 import tools.c_import_type_map.{cImportInferTypedefSeenType, cImportIsRecordBackedTypedef, cImportChoosePreferredClangType}
 import tools.c_import_state.{cImportHasImportedRecordNamed, cImportFindImportedRecordIndex, cImportHasImportedFunctionNamed, cImportHasImportedTypedefNamed, cImportHasImportedConstantNamed, cImportFindImportedTypedefIndex}
+import str.string.{StringBuilder}
 
 fun cImportParseClangAstDump(gen: CImportGenerator, astDump: String, result: CImportResult) r: Void {
     let lines = astDump.split("\n")
@@ -455,7 +456,7 @@ fun cImportIsValidCIdentifier(gen: CImportGenerator, s: String) r: Bool {
 }
 
 fun cImportExtractQuotedType(gen: CImportGenerator, parts: Array<String>, startIdx: Int) r: String {
-    var result = ""
+    let result = StringBuilder.new()
     var inQuote = false
 
     var i = startIdx
@@ -464,23 +465,25 @@ fun cImportExtractQuotedType(gen: CImportGenerator, parts: Array<String>, startI
 
         if part.startsWith("'") {
             inQuote = true
-            result = part.substring(1, part.length())
-            if result.endsWith("'") {
-                result = result.substring(0, result.length() - 1)
-                return result
+            let first = part.substring(1, part.length())
+            if first.endsWith("'") {
+                return first.substring(0, first.length() - 1)
             }
+            result.append(first)
         } else if inQuote {
-            result = result + " " + part
             if part.endsWith("'") {
-                result = result.substring(0, result.length() - 1)
-                return result
+                result.append(" ")
+                result.append(part.substring(0, part.length() - 1))
+                return result.toString()
             }
+            result.append(" ")
+            result.append(part)
         }
 
         i = i + 1
     }
 
-    return result
+    return result.toString()
 }
 
 fun cImportParseTypeSignature(gen: CImportGenerator, typeStr: String, fn: CImportedFunction) r: Void {

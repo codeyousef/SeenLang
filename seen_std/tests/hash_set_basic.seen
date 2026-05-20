@@ -1,0 +1,145 @@
+///
+HashSet<T> basic behavior backed by runtime HashMap tables.
+///
+
+import collections.hashset.{HashSet, StringHashSet}
+
+fun main() r: Int {
+    var failed = 0
+
+    let ints = HashSet<Int>.withCapacity(4)
+    if HashSet<Int>.tryWithCapacity(4).isOkay() and ints.tryReserve(8).isOkay() {
+        println("PASS: fallible HashSet capacity APIs return Ok")
+    } else {
+        println("FAIL: fallible HashSet capacity APIs return Ok")
+        failed = failed + 1
+    }
+
+    if ints.isEmpty() {
+        println("PASS: new set starts empty")
+    } else {
+        println("FAIL: new set starts empty")
+        failed = failed + 1
+    }
+
+    let tryInsertInt = ints.tryInsert(7)
+    if tryInsertInt.isOkay() and tryInsertInt.unwrap() {
+        println("PASS: insert reports new int")
+    } else {
+        println("FAIL: insert reports new int")
+        failed = failed + 1
+    }
+
+    if not ints.insert(7) {
+        println("PASS: duplicate insert reports existing int")
+    } else {
+        println("FAIL: duplicate insert reports existing int")
+        failed = failed + 1
+    }
+
+    if ints.contains(7) {
+        println("PASS: contains finds inserted int")
+    } else {
+        println("FAIL: contains finds inserted int")
+        failed = failed + 1
+    }
+
+    if ints.len() == 1 {
+        println("PASS: duplicate insert keeps size")
+    } else {
+        println("FAIL: duplicate insert keeps size")
+        failed = failed + 1
+    }
+
+    if ints.remove(7) {
+        println("PASS: remove reports existing int")
+    } else {
+        println("FAIL: remove reports existing int")
+        failed = failed + 1
+    }
+
+    if not ints.contains(7) {
+        println("PASS: removed int is gone")
+    } else {
+        println("FAIL: removed int is gone")
+        failed = failed + 1
+    }
+
+    if not ints.remove(7) {
+        println("PASS: missing remove reports false")
+    } else {
+        println("FAIL: missing remove reports false")
+        failed = failed + 1
+    }
+
+    let words = StringHashSet.new()
+    if StringHashSet.tryWithCapacity(4).isOkay() and words.tryReserve(8).isOkay() {
+        println("PASS: fallible StringHashSet capacity APIs return Ok")
+    } else {
+        println("FAIL: fallible StringHashSet capacity APIs return Ok")
+        failed = failed + 1
+    }
+
+    let tryInsertWord = words.tryInsert("alpha")
+    if tryInsertWord.isOkay() and tryInsertWord.unwrap() {
+        println("PASS: insert reports new string")
+    } else {
+        println("FAIL: insert reports new string")
+        failed = failed + 1
+    }
+
+    if words.insert("bravo") {
+        println("PASS: insert reports second string")
+    } else {
+        println("FAIL: insert reports second string")
+        failed = failed + 1
+    }
+
+    if not words.insert("alpha") {
+        println("PASS: duplicate string reports existing")
+    } else {
+        println("FAIL: duplicate string reports existing")
+        failed = failed + 1
+    }
+
+    if words.contains("alpha") {
+        println("PASS: contains finds string by content")
+    } else {
+        println("FAIL: contains finds string by content")
+        failed = failed + 1
+    }
+
+    if words.contains("bravo") {
+        println("PASS: contains finds second string")
+    } else {
+        println("FAIL: contains finds second string")
+        failed = failed + 1
+    }
+
+    if not words.contains("charlie") {
+        println("PASS: contains rejects missing string")
+    } else {
+        println("FAIL: contains rejects missing string")
+        failed = failed + 1
+    }
+
+    if words.len() == 2 {
+        println("PASS: string set size is stable")
+    } else {
+        println("FAIL: string set size is stable")
+        failed = failed + 1
+    }
+
+    words.clear()
+    if words.isEmpty() {
+        println("PASS: clear empties string set")
+    } else {
+        println("FAIL: clear empties string set")
+        failed = failed + 1
+    }
+
+    if failed == 0 {
+        println("PASS: HashSet tests passed")
+    }
+    return failed
+}

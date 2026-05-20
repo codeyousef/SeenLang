@@ -10,6 +10,7 @@ RUN_RUNTIME=0
 PLATFORMS=(
   "linux-x86_64"
   "linux-arm64"
+  "linux-riscv64"
   "windows-x86_64"
   "macos-x86_64"
   "macos-arm64"
@@ -173,12 +174,17 @@ run_linux() {
     runtime_message="Linux runtime examples skipped because compile smoke was unavailable"
     platform_message="$smoke_note"
   elif [[ "$RUN_RUNTIME" -eq 1 ]]; then
-    if ! run_with_timeout_capture /tmp/linux_ecs_run.log "$STAGE3_BIN" run "$ROOT_DIR/examples/seen-ecs-min/main.seen"; then
+    if [[ "$platform" == "linux-riscv64" ]]; then
+      if ! bash "$ROOT_DIR/scripts/test_riscv64_qemu.sh" --compiler "$STAGE3_BIN" --output-dir "$REPORT_DIR/qemu-riscv64" --require >/tmp/linux_riscv64_qemu.log 2>&1; then
+        runtime_status="failure"
+        runtime_message="failed to run linux-riscv64 QEMU user-mode smoke"
+      fi
+    elif ! run_with_timeout_capture /tmp/linux_ecs_run.log "$STAGE3_BIN" run "$ROOT_DIR/examples/seen-ecs-min/main.seen"; then
       runtime_status="failure"
       runtime_message="failed to run seen-ecs-min"
     fi
 
-    if [[ "$runtime_status" == "success" ]]; then
+    if [[ "$runtime_status" == "success" && "$platform" != "linux-riscv64" ]]; then
       if ! run_with_timeout_capture /tmp/linux_vulkan.log "$STAGE3_BIN" run "$ROOT_DIR/examples/seen-vulkan-min/main.seen"; then
         runtime_status="failure"
         runtime_message="failed to run seen-vulkan-min"
@@ -213,6 +219,7 @@ run_linux() {
   "ecs_log": "$(json_escape_file /tmp/linux_ecs.log)",
   "ecs_run_log": "$(json_escape_file /tmp/linux_ecs_run.log)",
   "vulkan_log": "$(json_escape_file /tmp/linux_vulkan.log)",
+  "riscv64_qemu_log": "$(json_escape_file /tmp/linux_riscv64_qemu.log)",
   "runtime_status": "$runtime_status",
   "message": "$(json_escape "$platform_message")"
 }

@@ -1,46 +1,181 @@
 // HashSet implementation
 import collections.hash_map.{HashMap}
+import core.result.{Result, Ok, Err}
+import core.unit.{Unit}
+import memory.allocation.{AllocError}
 
 @nondeterministic
 class HashSet<T> {
-    var map: HashMap<T, Bool>
+    var map: HashMap<String, Bool>
     
-    fun new() -> HashSet<T> {
+    static fun new() -> HashSet<T> {
         return HashSet {
-            map: HashMap<T, Bool>.new()
+            map: HashMap<String, Bool>.new()
         }
     }
     
-    fun withCapacity(capacity: Int) -> HashSet<T> {
-        return HashSet {
-            map: HashMap<T, Bool>.withCapacity(capacity)
+    static fun withCapacity(capacity: Int) -> HashSet<T> {
+        return HashSet<T>.tryWithCapacity(capacity).expect(
+            "HashSet.withCapacity allocation failed")
+    }
+
+    static fun tryWithCapacity(capacity: Int) -> Result<HashSet<T>, AllocError> {
+        let mapResult = HashMap<String, Bool>.tryWithCapacity(capacity)
+        if mapResult.isErr() {
+            return Err<HashSet<T>, AllocError>(mapResult.unwrapErr())
         }
+        let set = HashSet {
+            map: mapResult.unwrap()
+        }
+        return Ok<HashSet<T>, AllocError>(set)
     }
     
     fun insert(value: T) -> Bool {
-        let hadValue = this.map.containsKey(value)
-        this.map.insert(value, true)
-        return not hadValue
+        return this.tryInsert(value).expect("HashSet.insert allocation failed")
+    }
+
+    fun tryInsert(value: T) -> Result<Bool, AllocError> {
+        let key = value.toString()
+        var backing: HashMap<String, Bool> = this.map
+        let hadValue = backing.containsKey(key)
+        let inserted = backing.tryInsert(key, true)
+        if inserted.isErr() {
+            return Err<Bool, AllocError>(inserted.unwrapErr())
+        }
+        this.map = backing
+        return Ok<Bool, AllocError>(not hadValue)
+    }
+
+    fun reserve(requiredEntries: Int) -> Void {
+        let reserved = this.tryReserve(requiredEntries)
+        if reserved.isErr() {
+            panic("HashSet.reserve allocation failed")
+        }
+    }
+
+    fun tryReserve(requiredEntries: Int) -> Result<Unit, AllocError> {
+        var backing: HashMap<String, Bool> = this.map
+        let reserved = backing.tryReserve(requiredEntries)
+        if reserved.isErr() {
+            return reserved
+        }
+        this.map = backing
+        return Ok<Unit, AllocError>(Unit{})
     }
     
     fun remove(value: T) -> Bool {
-        let result = this.map.remove(value)
+        let key = value.toString()
+        var backing: HashMap<String, Bool> = this.map
+        let result = backing.remove(key)
+        this.map = backing
         return result.isSome()
     }
     
     fun contains(value: T) -> Bool {
-        return this.map.containsKey(value)
+        let key = value.toString()
+        var backing: HashMap<String, Bool> = this.map
+        return backing.containsKey(key)
     }
     
     fun len() -> Int {
-        return this.map.size()
+        var backing: HashMap<String, Bool> = this.map
+        return backing.size()
     }
     
     fun isEmpty() -> Bool {
-        return this.map.isEmpty()
+        var backing: HashMap<String, Bool> = this.map
+        return backing.isEmpty()
     }
     
     fun clear() -> Void {
-        this.map.clear()
+        var backing: HashMap<String, Bool> = this.map
+        backing.clear()
+        this.map = backing
+    }
+}
+
+class StringHashSet {
+    var map: HashMap<String, Bool>
+
+    static fun new() -> StringHashSet {
+        return StringHashSet {
+            map: HashMap<String, Bool>.new()
+        }
+    }
+
+    static fun withCapacity(capacity: Int) -> StringHashSet {
+        return StringHashSet.tryWithCapacity(capacity).expect(
+            "StringHashSet.withCapacity allocation failed")
+    }
+
+    static fun tryWithCapacity(capacity: Int) -> Result<StringHashSet, AllocError> {
+        let mapResult = HashMap<String, Bool>.tryWithCapacity(capacity)
+        if mapResult.isErr() {
+            return Err<StringHashSet, AllocError>(mapResult.unwrapErr())
+        }
+        let set = StringHashSet {
+            map: mapResult.unwrap()
+        }
+        return Ok<StringHashSet, AllocError>(set)
+    }
+
+    fun insert(value: String) -> Bool {
+        return this.tryInsert(value).expect("StringHashSet.insert allocation failed")
+    }
+
+    fun tryInsert(value: String) -> Result<Bool, AllocError> {
+        var backing: HashMap<String, Bool> = this.map
+        let hadValue = backing.containsKey(value)
+        let inserted = backing.tryInsert(value, true)
+        if inserted.isErr() {
+            return Err<Bool, AllocError>(inserted.unwrapErr())
+        }
+        this.map = backing
+        return Ok<Bool, AllocError>(not hadValue)
+    }
+
+    fun reserve(requiredEntries: Int) -> Void {
+        let reserved = this.tryReserve(requiredEntries)
+        if reserved.isErr() {
+            panic("StringHashSet.reserve allocation failed")
+        }
+    }
+
+    fun tryReserve(requiredEntries: Int) -> Result<Unit, AllocError> {
+        var backing: HashMap<String, Bool> = this.map
+        let reserved = backing.tryReserve(requiredEntries)
+        if reserved.isErr() {
+            return reserved
+        }
+        this.map = backing
+        return Ok<Unit, AllocError>(Unit{})
+    }
+
+    fun remove(value: String) -> Bool {
+        var backing: HashMap<String, Bool> = this.map
+        let result = backing.remove(value)
+        this.map = backing
+        return result.isSome()
+    }
+
+    fun contains(value: String) -> Bool {
+        var backing: HashMap<String, Bool> = this.map
+        return backing.containsKey(value)
+    }
+
+    fun len() -> Int {
+        var backing: HashMap<String, Bool> = this.map
+        return backing.size()
+    }
+
+    fun isEmpty() -> Bool {
+        var backing: HashMap<String, Bool> = this.map
+        return backing.isEmpty()
+    }
+
+    fun clear() -> Void {
+        var backing: HashMap<String, Bool> = this.map
+        backing.clear()
+        this.map = backing
     }
 }

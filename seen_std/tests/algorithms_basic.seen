@@ -1,0 +1,106 @@
+///
+Collection Algorithms Basic Test
+Expected: sort, search, radix sort, and priority queues preserve ordering.
+///
+
+import collections.algorithms.{binarySearchFloat, binarySearchInt, lowerBoundFloat, lowerBoundInt, upperBoundFloat, upperBoundInt, unstableSortFloat, unstableSortInt, stableSortFloat, stableSortInt, radixSortInt, FloatPriorityQueue, IntPriorityQueue}
+
+fun isSorted(values: Array<Int>) r: Bool {
+    var index = 1
+    while index < values.length() {
+        if values[index - 1] > values[index] {
+            return false
+        }
+        index = index + 1
+    }
+    return true
+}
+
+fun isSortedFloat(values: Array<Float>) r: Bool {
+    var index = 1
+    while index < values.length() {
+        if values[index - 1] > values[index] {
+            return false
+        }
+        index = index + 1
+    }
+    return true
+}
+
+fun expect(condition: Bool, message: String) r: Int {
+    if condition {
+        println("PASS: " + message)
+        return 0
+    }
+    println("FAIL: " + message)
+    return 1
+}
+
+fun main() r: Int {
+    var failed = 0
+
+    let values = [9, 4, 1, 7, 4, 0, 12, 3]
+    unstableSortInt(values)
+    failed = failed + expect(isSorted(values), "unstableSortInt sorts in place")
+    failed = failed + expect(binarySearchInt(values, 7) >= 0, "binarySearchInt finds existing value")
+    failed = failed + expect(binarySearchInt(values, 100) == -1, "binarySearchInt reports missing value")
+    failed = failed + expect(lowerBoundInt(values, 4) == 3, "lowerBoundInt returns first matching slot")
+    failed = failed + expect(upperBoundInt(values, 4) == 5, "upperBoundInt returns slot after duplicates")
+
+    let stable = stableSortInt([5, 2, 5, 1, 3])
+    failed = failed + expect(isSorted(stable), "stableSortInt returns sorted copy")
+
+    let floats = Array<Float>()
+    floats.push(9.5)
+    floats.push(4.25)
+    floats.push(1.0)
+    floats.push(7.75)
+    floats.push(4.25)
+    floats.push(0.5)
+    unstableSortFloat(floats)
+    failed = failed + expect(isSortedFloat(floats), "unstableSortFloat sorts in place")
+    failed = failed + expect(binarySearchFloat(floats, 7.75) >= 0, "binarySearchFloat finds existing value")
+    failed = failed + expect(binarySearchFloat(floats, 100.0) == -1, "binarySearchFloat reports missing value")
+    failed = failed + expect(lowerBoundFloat(floats, 4.25) == 2, "lowerBoundFloat returns first matching slot")
+    failed = failed + expect(upperBoundFloat(floats, 4.25) == 4, "upperBoundFloat returns slot after duplicates")
+
+    let stableInput = Array<Float>()
+    stableInput.push(5.0)
+    stableInput.push(2.5)
+    stableInput.push(5.0)
+    stableInput.push(1.25)
+    stableInput.push(3.75)
+    let stableFloats = stableSortFloat(stableInput)
+    failed = failed + expect(isSortedFloat(stableFloats), "stableSortFloat returns sorted copy")
+
+    let radix = radixSortInt([1000, 1, 255, 16, 4096, 0])
+    failed = failed + expect(isSorted(radix), "radixSortInt returns sorted copy")
+    let signedRadix = radixSortInt([5, -10, 0, -1, 7, -100])
+    failed = failed + expect(isSorted(signedRadix), "radixSortInt handles signed values")
+
+    let minQueue = IntPriorityQueue.min()
+    minQueue.push(8)
+    minQueue.push(3)
+    minQueue.push(5)
+    failed = failed + expect(minQueue.pop() == 3, "min priority queue pops smallest")
+    failed = failed + expect(minQueue.pop() == 5, "min priority queue preserves heap order")
+
+    let maxQueue = IntPriorityQueue.max()
+    maxQueue.push(8)
+    maxQueue.push(3)
+    maxQueue.push(5)
+    failed = failed + expect(maxQueue.pop() == 8, "max priority queue pops largest")
+    failed = failed + expect(maxQueue.peek() == 5, "max priority queue peek")
+
+    let floatQueue = FloatPriorityQueue.min()
+    floatQueue.push(8.5)
+    floatQueue.push(3.25)
+    floatQueue.push(5.75)
+    failed = failed + expect(floatQueue.pop() == 3.25, "float priority queue pops smallest")
+    failed = failed + expect(floatQueue.peek() == 5.75, "float priority queue peek")
+
+    if failed > 0 {
+        return 1
+    }
+    return 0
+}
