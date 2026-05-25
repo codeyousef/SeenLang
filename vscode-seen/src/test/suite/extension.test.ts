@@ -261,7 +261,7 @@ suite('Language Features Test Suite', () => {
         assert.ok(grammar.includes('computed'));
     });
 
-    test('Grammar should include 0.9.0 performance and memory types', () => {
+    test('Grammar should include 0.9.1 performance and memory types', () => {
         const grammarPath = path.join(__dirname, '../../../syntaxes/seen.tmLanguage.json');
         const grammar = fs.readFileSync(grammarPath, 'utf8');
 
@@ -283,7 +283,7 @@ suite('Language Features Test Suite', () => {
         assert.ok(snippets['UI Effect']);
     });
 
-    test('Snippets should include 0.9.0 performance constructs', () => {
+    test('Snippets should include 0.9.1 performance constructs', () => {
         const snippetsPath = path.join(__dirname, '../../../snippets/seen.code-snippets');
         const snippets = JSON.parse(fs.readFileSync(snippetsPath, 'utf8'));
 

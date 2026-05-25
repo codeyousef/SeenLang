@@ -8,13 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.6.0] - 2026-05-18
 
 ### Added
-- Target configuration coverage for Seen 0.9.0 native and cross targets, including `linux-riscv64`.
-- Syntax highlighting coverage for new 0.9.0 collection, byte buffer, primitive buffer, memory, and priority queue types.
+- Target configuration coverage for Seen 0.9.1 native and cross targets, including `linux-riscv64`.
+- Syntax highlighting coverage for new 0.9.1 collection, byte buffer, primitive buffer, memory, and priority queue types.
 - Snippets for StringBuilder, ByteBuffer, HashMap direct lookup, and integer priority queues.
 
 ### Changed
 - Compiler auto-download platform detection now recognizes Linux RISC-V hosts.
-- Marketplace documentation now points users at the current target list and 0.9.0 tooling surface.
+- Marketplace documentation now points users at the current target list and 0.9.1 tooling surface.
 
 ## [1.5.0] - 2026-05-10
 

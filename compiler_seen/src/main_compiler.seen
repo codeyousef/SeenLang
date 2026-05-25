@@ -10268,17 +10268,21 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                     mainCompilerShellQuote(optProgressLine) + " >&2\n"
             }
             moduleScript = moduleScript + "  rm -f " + objFile + " " + optFile + " " + statusFile + " " + logFile + "\n"
-            moduleScript = moduleScript + "  if " + moduleOptCmd + " >" + logFile + " 2>&1; then\n"
+            moduleScript = moduleScript + "  " + moduleOptCmd + " >" + logFile + " 2>&1\n"
+            moduleScript = moduleScript + "  opt_status=$?\n"
+            moduleScript = moduleScript + "  if [ \"$opt_status\" -eq 0 ]; then\n"
             if pollyStep != "" {
                 moduleScript = moduleScript + pollyStep
             }
-            moduleScript = moduleScript + "    if " + moduleObjCmd + " >>" + logFile + " 2>&1; then\n"
+            moduleScript = moduleScript + "    " + moduleObjCmd + " >>" + logFile + " 2>&1\n"
+            moduleScript = moduleScript + "    obj_status=$?\n"
+            moduleScript = moduleScript + "    if [ \"$obj_status\" -eq 0 ]; then\n"
             moduleScript = moduleScript + "      printf 'ok' > " + statusFile + "\n"
             moduleScript = moduleScript + "    else\n"
-            moduleScript = moduleScript + "      printf 'object' > " + statusFile + "\n"
+            moduleScript = moduleScript + "      printf 'object:%s' \"$obj_status\" > " + statusFile + "\n"
             moduleScript = moduleScript + "    fi\n"
             moduleScript = moduleScript + "  else\n"
-            moduleScript = moduleScript + "    printf 'opt' > " + statusFile + "\n"
+            moduleScript = moduleScript + "    printf 'opt:%s' \"$opt_status\" > " + statusFile + "\n"
             moduleScript = moduleScript + "  fi\n"
             if pass2bRunsParallel {
                 moduleScript = moduleScript + ") &\n"
@@ -10329,14 +10333,17 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             let statusText = loadFileContent(statusFile)
             let sourcePath = uncachedSrcPaths[vi]
             if statusText != "ok" {
-                if statusText == "opt" {
+                if statusText.startsWith("opt") {
                     println("    Error: optimization failed for module " + midx + ": " + sourcePath)
                 } else {
-                    if statusText == "object" {
+                    if statusText.startsWith("object") {
                         println("    Error: object emission failed for module " + midx + ": " + sourcePath)
                     } else {
                         println("    Error: module optimization did not complete for module " + midx + ": " + sourcePath)
                     }
+                }
+                if statusText != "" {
+                    println("    Pass 2b status: " + statusText)
                 }
                 let logFile = moduleTempPath(compileTempDir, midx, ".opt.log")
                 let logTail: CommandResult = runCommand("tail -n 40 " + logFile)
@@ -11774,7 +11781,7 @@ fun runScriptCommand(inputFile: String, useAot: Bool, verbose: Bool,
 }
 
 fun seenCompilerVersion() r: String {
-    return "0.9.0"
+    return "0.9.1"
 }
 
 fun printVersion() r: Void {

@@ -1,6 +1,6 @@
 # Benchmark Suite Status
 
-## Canonical 0.9.0 Gates
+## Canonical 0.9.1 Gates
 
 The maintained performance gates live in `benchmarks/gates/` and are driven by
 `scripts/perf_gate.sh` from the repository root. These fixtures are valid Seen

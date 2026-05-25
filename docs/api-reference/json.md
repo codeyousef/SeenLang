@@ -62,7 +62,7 @@ let value = parseJson(jsonString)
 
 `JsonParser` and `JsonParseResult` expose parser state and success/error
 results for callers that need more control than a one-shot parse helper.
-In 0.9.0 the parser's string and number paths avoid the old per-character
+In 0.9.1 the parser's string and number paths avoid the old per-character
 concatenation and full-number substring pass. Number conversion uses a runtime
 range parser, reducing allocation pressure in large JSON payloads.
 

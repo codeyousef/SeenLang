@@ -5,7 +5,17 @@ All notable changes to the Seen compiler will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.9.0] - Unreleased
+## [0.9.1] - 2026-05-25
+
+### Changed
+
+- Bumped the shipped Seen compiler, workspace, CLI, LSP, and release metadata version to `0.9.1`.
+
+### Fixed
+
+- Hardened Pass 2b optimizer/object failure reporting so large builds record the failing subprocess stage and exit status before printing the module log tail.
+
+## [0.9.0]
 
 ### Added
 
