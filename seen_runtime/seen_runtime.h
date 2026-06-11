@@ -395,6 +395,10 @@ SeenString readText(SeenString path);
 // Write string to file
 bool writeText(SeenString path, SeenString content);
 
+// Move an open file descriptor to an absolute byte offset
+bool seen_file_seek(int64_t fd, int64_t offset);
+bool __FileSeek(int64_t fd, int64_t offset);
+
 // ============================================================================
 // Process Functions
 // ============================================================================

@@ -9,14 +9,22 @@ Usage: import graphics.gpu.{GpuBuffer, GpuPipeline, gpuInit, gpuShutdown}
 extern fun seen_gpu_init() r: Int
 extern fun seen_gpu_shutdown() r: Void
 extern fun seen_gpu_is_available() r: Int
+extern fun seen_gpu_device_type() r: Int
 extern fun seen_gpu_buffer_create(size: Int, usage: Int) r: Int
 extern fun seen_gpu_buffer_write(handle: Int, data: Int, size: Int) r: Int
 extern fun seen_gpu_buffer_read(handle: Int, data: Int, size: Int) r: Int
+extern fun seen_gpu_buffer_write_float_array(handle: Int, data: Array<Float>, count: Int) r: Int
+extern fun seen_gpu_buffer_read_float_array(handle: Int, data: Array<Float>, count: Int) r: Int
+extern fun seen_gpu_buffer_write_int_array(handle: Int, data: Array<Int>, count: Int) r: Int
+extern fun seen_gpu_buffer_read_int_array(handle: Int, data: Array<Int>, count: Int) r: Int
+extern fun seen_gpu_buffer_write_f32_scalar(handle: Int, value: Float) r: Int
+extern fun seen_gpu_buffer_write_i32_scalar(handle: Int, value: Int) r: Int
 extern fun seen_gpu_buffer_destroy(handle: Int) r: Void
 extern fun seen_gpu_shader_load(path: String) r: Int
 extern fun seen_gpu_pipeline_create(shader: Int, bindingCount: Int) r: Int
 extern fun seen_gpu_pipeline_destroy(handle: Int) r: Void
 extern fun seen_gpu_dispatch(pipeline: Int, gx: Int, gy: Int, gz: Int, buffers: Int, count: Int) r: Int
+extern fun seen_gpu_dispatch_handles(pipeline: Int, gx: Int, gy: Int, gz: Int, h0: Int, h1: Int, h2: Int, h3: Int, h4: Int, h5: Int, h6: Int, h7: Int, count: Int) r: Int
 extern fun seen_gpu_dispatch_indirect(pipeline: Int, indirect: Int, buffers: Int, count: Int) r: Int
 extern fun seen_gpu_fence_create() r: Int
 extern fun seen_gpu_fence_wait(handle: Int, timeoutNs: Int) r: Int
@@ -37,6 +45,10 @@ fun gpuShutdown() r: Void {
 fun gpuIsAvailable() r: Bool {
     let result = seen_gpu_is_available()
     return result == 1
+}
+
+fun gpuDeviceType() r: Int {
+    return seen_gpu_device_type()
 }
 
 fun gpuDeviceWaitIdle() r: Bool {
@@ -84,15 +96,32 @@ class GpuBuffer {
     }
 
     fun writeData(data: Array<Float>) r: Bool {
-        // Array data pointer is passed as Int handle
-        let dataSize = data.length() * 8
-        let result = seen_gpu_buffer_write(handle, 0, dataSize)
+        let result = seen_gpu_buffer_write_float_array(handle, data, data.length())
         return result == 1
     }
 
     fun readData(data: Array<Float>) r: Bool {
-        let dataSize = data.length() * 8
-        let result = seen_gpu_buffer_read(handle, 0, dataSize)
+        let result = seen_gpu_buffer_read_float_array(handle, data, data.length())
+        return result == 1
+    }
+
+    fun writeIntData(data: Array<Int>) r: Bool {
+        let result = seen_gpu_buffer_write_int_array(handle, data, data.length())
+        return result == 1
+    }
+
+    fun readIntData(data: Array<Int>) r: Bool {
+        let result = seen_gpu_buffer_read_int_array(handle, data, data.length())
+        return result == 1
+    }
+
+    fun writeFloatScalar(value: Float) r: Bool {
+        let result = seen_gpu_buffer_write_f32_scalar(handle, value)
+        return result == 1
+    }
+
+    fun writeIntScalar(value: Int) r: Bool {
+        let result = seen_gpu_buffer_write_i32_scalar(handle, value)
         return result == 1
     }
 
@@ -197,7 +226,27 @@ class GpuPipeline {
         if handle == 0 {
             return false
         }
-        let result = seen_gpu_dispatch(handle, gx, gy, gz, 0, buffers.length())
+        if buffers.length() > 8 {
+            return false
+        }
+        var h0 = 0
+        var h1 = 0
+        var h2 = 0
+        var h3 = 0
+        var h4 = 0
+        var h5 = 0
+        var h6 = 0
+        var h7 = 0
+        if buffers.length() > 0 { h0 = buffers[0] }
+        if buffers.length() > 1 { h1 = buffers[1] }
+        if buffers.length() > 2 { h2 = buffers[2] }
+        if buffers.length() > 3 { h3 = buffers[3] }
+        if buffers.length() > 4 { h4 = buffers[4] }
+        if buffers.length() > 5 { h5 = buffers[5] }
+        if buffers.length() > 6 { h6 = buffers[6] }
+        if buffers.length() > 7 { h7 = buffers[7] }
+        let result = seen_gpu_dispatch_handles(handle, gx, gy, gz,
+            h0, h1, h2, h3, h4, h5, h6, h7, buffers.length())
         return result == 1
     }
 

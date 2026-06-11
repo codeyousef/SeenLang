@@ -593,6 +593,17 @@ SeenArray* __ReadFileBytes(int64_t fd, int64_t size) {
     return seen_read_file_bytes_from_stream(f, size);
 }
 
+// Move an open file descriptor to an absolute byte offset.
+bool seen_file_seek(int64_t fd, int64_t offset) {
+    FILE* f = (FILE*)(intptr_t)fd;
+    if (!f || offset < 0) return false;
+    return fseek(f, (long)offset, SEEK_SET) == 0;
+}
+
+bool __FileSeek(int64_t fd, int64_t offset) {
+    return seen_file_seek(fd, offset);
+}
+
 // Compatibility helper for older code that declared __ReadFileBytes(path).
 SeenArray* __ReadFileBytesPath(SeenString path) {
     char* cpath = seen_runtime_cstring(path, "__ReadFileBytesPath path");
@@ -11190,6 +11201,34 @@ SEEN_BOOTSTRAP_WEAK int64_t seen_gpu_req_get_gx(int64_t a) { (void)a; return 0; 
 SEEN_BOOTSTRAP_WEAK int64_t seen_gpu_req_get_gy(int64_t a) { (void)a; return 0; }
 SEEN_BOOTSTRAP_WEAK int64_t seen_gpu_req_get_gz(int64_t a) { (void)a; return 0; }
 SEEN_BOOTSTRAP_WEAK int64_t seen_gpu_req_get_kind(int64_t a) { (void)a; return 0; }
+
+// --- GPU runtime link fallbacks ---
+// Strong definitions from seen_gpu.c override these when the GPU runtime object is linked.
+SEEN_BOOTSTRAP_WEAK int64_t seen_gpu_init(void) { return 0; }
+SEEN_BOOTSTRAP_WEAK void seen_gpu_shutdown(void) {}
+SEEN_BOOTSTRAP_WEAK int64_t seen_gpu_is_available(void) { return 0; }
+SEEN_BOOTSTRAP_WEAK int64_t seen_gpu_device_type(void) { return -1; }
+SEEN_BOOTSTRAP_WEAK int64_t seen_gpu_buffer_create(int64_t size, int64_t usage) { (void)size; (void)usage; return 0; }
+SEEN_BOOTSTRAP_WEAK int64_t seen_gpu_buffer_write(int64_t handle, void* data, int64_t size) { (void)handle; (void)data; (void)size; return 0; }
+SEEN_BOOTSTRAP_WEAK int64_t seen_gpu_buffer_read(int64_t handle, void* data, int64_t size) { (void)handle; (void)data; (void)size; return 0; }
+SEEN_BOOTSTRAP_WEAK int64_t seen_gpu_buffer_write_float_array(int64_t handle, void* array_ptr, int64_t count) { (void)handle; (void)array_ptr; (void)count; return 0; }
+SEEN_BOOTSTRAP_WEAK int64_t seen_gpu_buffer_read_float_array(int64_t handle, void* array_ptr, int64_t count) { (void)handle; (void)array_ptr; (void)count; return 0; }
+SEEN_BOOTSTRAP_WEAK int64_t seen_gpu_buffer_write_int_array(int64_t handle, void* array_ptr, int64_t count) { (void)handle; (void)array_ptr; (void)count; return 0; }
+SEEN_BOOTSTRAP_WEAK int64_t seen_gpu_buffer_read_int_array(int64_t handle, void* array_ptr, int64_t count) { (void)handle; (void)array_ptr; (void)count; return 0; }
+SEEN_BOOTSTRAP_WEAK int64_t seen_gpu_buffer_write_f32_scalar(int64_t handle, double value) { (void)handle; (void)value; return 0; }
+SEEN_BOOTSTRAP_WEAK int64_t seen_gpu_buffer_write_i32_scalar(int64_t handle, int64_t value) { (void)handle; (void)value; return 0; }
+SEEN_BOOTSTRAP_WEAK void seen_gpu_buffer_destroy(int64_t handle) { (void)handle; }
+SEEN_BOOTSTRAP_WEAK int64_t seen_gpu_shader_load(SeenString spirv_path) { (void)spirv_path; return 0; }
+SEEN_BOOTSTRAP_WEAK int64_t seen_gpu_pipeline_create(int64_t shader_handle, int64_t binding_count) { (void)shader_handle; (void)binding_count; return 0; }
+SEEN_BOOTSTRAP_WEAK void seen_gpu_pipeline_destroy(int64_t handle) { (void)handle; }
+SEEN_BOOTSTRAP_WEAK int64_t seen_gpu_dispatch(int64_t pipeline_handle, int64_t gx, int64_t gy, int64_t gz, int64_t* buffers, int64_t buffer_count) { (void)pipeline_handle; (void)gx; (void)gy; (void)gz; (void)buffers; (void)buffer_count; return 0; }
+SEEN_BOOTSTRAP_WEAK int64_t seen_gpu_dispatch_handles(int64_t pipeline_handle, int64_t gx, int64_t gy, int64_t gz, int64_t h0, int64_t h1, int64_t h2, int64_t h3, int64_t h4, int64_t h5, int64_t h6, int64_t h7, int64_t buffer_count) { (void)pipeline_handle; (void)gx; (void)gy; (void)gz; (void)h0; (void)h1; (void)h2; (void)h3; (void)h4; (void)h5; (void)h6; (void)h7; (void)buffer_count; return 0; }
+SEEN_BOOTSTRAP_WEAK int64_t seen_gpu_dispatch_indirect(int64_t pipeline_handle, int64_t indirect_buf_handle, int64_t* buffers, int64_t buffer_count) { (void)pipeline_handle; (void)indirect_buf_handle; (void)buffers; (void)buffer_count; return 0; }
+SEEN_BOOTSTRAP_WEAK int64_t seen_gpu_fence_create(void) { return 0; }
+SEEN_BOOTSTRAP_WEAK int64_t seen_gpu_fence_wait(int64_t handle, int64_t timeout_ns) { (void)handle; (void)timeout_ns; return 0; }
+SEEN_BOOTSTRAP_WEAK void seen_gpu_fence_destroy(int64_t handle) { (void)handle; }
+SEEN_BOOTSTRAP_WEAK int64_t seen_gpu_device_wait_idle(void) { return 0; }
+SEEN_BOOTSTRAP_WEAK void seen_barrier(void) {}
 
 // --- Packed chunk extra stubs ---
 SEEN_BOOTSTRAP_WEAK int64_t seen_packed_chunk_data_ptr(int64_t a) { (void)a; return 0; }

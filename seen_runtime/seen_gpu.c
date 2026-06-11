@@ -52,6 +52,7 @@ typedef struct {
     uint32_t compute_queue_family;
     VkCommandPool command_pool;
     VkPhysicalDeviceMemoryProperties mem_props;
+    int device_type;
     int initialized;
 } SeenGpuContext;
 
@@ -308,6 +309,10 @@ int64_t seen_gpu_init(void) {
     }
     seen_gpu_free_bytes(devices, devices_bytes);
 
+    VkPhysicalDeviceProperties selected_props;
+    vkGetPhysicalDeviceProperties(g_gpu.physical_device, &selected_props);
+    g_gpu.device_type = (int)selected_props.deviceType;
+
     // Find compute queue family
     uint32_t queue_family_count = 0;
     vkGetPhysicalDeviceQueueFamilyProperties(g_gpu.physical_device, &queue_family_count, NULL);
@@ -404,6 +409,11 @@ void seen_gpu_shutdown(void) {
 
 int64_t seen_gpu_is_available(void) {
     return g_gpu.initialized ? 1 : 0;
+}
+
+int64_t seen_gpu_device_type(void) {
+    if (!g_gpu.initialized) return -1;
+    return (int64_t)g_gpu.device_type;
 }
 
 int64_t seen_gpu_buffer_create(int64_t size, int64_t usage) {
@@ -546,6 +556,106 @@ int64_t seen_gpu_buffer_read(int64_t handle, void* data, int64_t size) {
     return 1;
 }
 
+static int64_t seen_gpu_clamped_array_count(SeenArray* arr, int64_t requested) {
+    if (!arr || requested < 0 || arr->len < 0) {
+        return -1;
+    }
+    if (requested == 0 || requested > arr->len) {
+        return arr->len;
+    }
+    return requested;
+}
+
+int64_t seen_gpu_buffer_write_float_array(int64_t handle, void* array_ptr, int64_t count) {
+    SeenArray* arr = (SeenArray*)array_ptr;
+    int64_t n = seen_gpu_clamped_array_count(arr, count);
+    if (n < 0 || !arr->data) return 0;
+    size_t byte_count = 0;
+    if (!seen_gpu_mul_bytes((size_t)n, sizeof(float), &byte_count)) return 0;
+    if (byte_count == 0) return 1;
+
+    float* tmp = (float*)seen_gpu_alloc_bytes(byte_count, "GPU f32 upload staging");
+    if (!tmp) return 0;
+    double* src = (double*)arr->data;
+    for (int64_t i = 0; i < n; i++) {
+        tmp[i] = (float)src[i];
+    }
+    int64_t ok = seen_gpu_buffer_write(handle, tmp, (int64_t)byte_count);
+    seen_gpu_free_bytes(tmp, byte_count);
+    return ok;
+}
+
+int64_t seen_gpu_buffer_read_float_array(int64_t handle, void* array_ptr, int64_t count) {
+    SeenArray* arr = (SeenArray*)array_ptr;
+    int64_t n = seen_gpu_clamped_array_count(arr, count);
+    if (n < 0 || !arr->data) return 0;
+    size_t byte_count = 0;
+    if (!seen_gpu_mul_bytes((size_t)n, sizeof(float), &byte_count)) return 0;
+    if (byte_count == 0) return 1;
+
+    float* tmp = (float*)seen_gpu_alloc_bytes(byte_count, "GPU f32 readback staging");
+    if (!tmp) return 0;
+    int64_t ok = seen_gpu_buffer_read(handle, tmp, (int64_t)byte_count);
+    if (ok == 1) {
+        double* dst = (double*)arr->data;
+        for (int64_t i = 0; i < n; i++) {
+            dst[i] = (double)tmp[i];
+        }
+    }
+    seen_gpu_free_bytes(tmp, byte_count);
+    return ok;
+}
+
+int64_t seen_gpu_buffer_write_int_array(int64_t handle, void* array_ptr, int64_t count) {
+    SeenArray* arr = (SeenArray*)array_ptr;
+    int64_t n = seen_gpu_clamped_array_count(arr, count);
+    if (n < 0 || !arr->data) return 0;
+    size_t byte_count = 0;
+    if (!seen_gpu_mul_bytes((size_t)n, sizeof(int32_t), &byte_count)) return 0;
+    if (byte_count == 0) return 1;
+
+    int32_t* tmp = (int32_t*)seen_gpu_alloc_bytes(byte_count, "GPU i32 upload staging");
+    if (!tmp) return 0;
+    int64_t* src = (int64_t*)arr->data;
+    for (int64_t i = 0; i < n; i++) {
+        tmp[i] = (int32_t)src[i];
+    }
+    int64_t ok = seen_gpu_buffer_write(handle, tmp, (int64_t)byte_count);
+    seen_gpu_free_bytes(tmp, byte_count);
+    return ok;
+}
+
+int64_t seen_gpu_buffer_read_int_array(int64_t handle, void* array_ptr, int64_t count) {
+    SeenArray* arr = (SeenArray*)array_ptr;
+    int64_t n = seen_gpu_clamped_array_count(arr, count);
+    if (n < 0 || !arr->data) return 0;
+    size_t byte_count = 0;
+    if (!seen_gpu_mul_bytes((size_t)n, sizeof(int32_t), &byte_count)) return 0;
+    if (byte_count == 0) return 1;
+
+    int32_t* tmp = (int32_t*)seen_gpu_alloc_bytes(byte_count, "GPU i32 readback staging");
+    if (!tmp) return 0;
+    int64_t ok = seen_gpu_buffer_read(handle, tmp, (int64_t)byte_count);
+    if (ok == 1) {
+        int64_t* dst = (int64_t*)arr->data;
+        for (int64_t i = 0; i < n; i++) {
+            dst[i] = (int64_t)tmp[i];
+        }
+    }
+    seen_gpu_free_bytes(tmp, byte_count);
+    return ok;
+}
+
+int64_t seen_gpu_buffer_write_f32_scalar(int64_t handle, double value) {
+    float v = (float)value;
+    return seen_gpu_buffer_write(handle, &v, (int64_t)sizeof(float));
+}
+
+int64_t seen_gpu_buffer_write_i32_scalar(int64_t handle, int64_t value) {
+    int32_t v = (int32_t)value;
+    return seen_gpu_buffer_write(handle, &v, (int64_t)sizeof(int32_t));
+}
+
 void seen_gpu_buffer_destroy(int64_t handle) {
     if (!g_gpu.initialized || !handle) return;
     SeenGpuBuffer* buf = (SeenGpuBuffer*)(uintptr_t)handle;
@@ -558,12 +668,16 @@ void seen_gpu_buffer_destroy(int64_t handle) {
     seen_gpu_free_bytes(buf, sizeof(SeenGpuBuffer));
 }
 
-int64_t seen_gpu_shader_load(const char* spirv_path) {
-    if (!g_gpu.initialized || !spirv_path) return 0;
+int64_t seen_gpu_shader_load(SeenString spirv_path_seen) {
+    if (!g_gpu.initialized || spirv_path_seen.len <= 0 || !spirv_path_seen.data) return 0;
+
+    char* spirv_path = seen_str_to_cstr(spirv_path_seen);
+    if (!spirv_path) return 0;
 
     FILE* f = fopen(spirv_path, "rb");
     if (!f) {
         fprintf(stderr, "[seen_gpu] Cannot open shader: %s\n", spirv_path);
+        free(spirv_path);
         return 0;
     }
 
@@ -574,12 +688,14 @@ int64_t seen_gpu_shader_load(const char* spirv_path) {
     if (file_size <= 0 || file_size % 4 != 0) {
         fprintf(stderr, "[seen_gpu] Invalid SPIR-V file: %s (size=%ld)\n", spirv_path, file_size);
         fclose(f);
+        free(spirv_path);
         return 0;
     }
 
     if ((uint64_t)file_size > (uint64_t)INT64_MAX) {
         fprintf(stderr, "[seen_gpu] SPIR-V file too large: %s (size=%ld)\n", spirv_path, file_size);
         fclose(f);
+        free(spirv_path);
         return 0;
     }
 
@@ -587,6 +703,7 @@ int64_t seen_gpu_shader_load(const char* spirv_path) {
     uint32_t* code = (uint32_t*)seen_gpu_alloc_bytes(code_bytes, "SPIR-V shader bytes");
     if (!code) {
         fclose(f);
+        free(spirv_path);
         return 0;
     }
     size_t read_size = fread(code, 1, file_size, f);
@@ -595,6 +712,7 @@ int64_t seen_gpu_shader_load(const char* spirv_path) {
     if ((long)read_size != file_size) {
         fprintf(stderr, "[seen_gpu] Failed to read shader: %s\n", spirv_path);
         seen_gpu_free_bytes(code, code_bytes);
+        free(spirv_path);
         return 0;
     }
 
@@ -609,9 +727,11 @@ int64_t seen_gpu_shader_load(const char* spirv_path) {
 
     if (res != VK_SUCCESS) {
         fprintf(stderr, "[seen_gpu] vkCreateShaderModule failed: %d\n", res);
+        free(spirv_path);
         return 0;
     }
 
+    free(spirv_path);
     return (int64_t)(uintptr_t)shader_module;
 }
 
@@ -832,6 +952,18 @@ int64_t seen_gpu_dispatch(int64_t pipeline_handle, int64_t gx, int64_t gy, int64
     return submit_ok ? 1 : 0;
 }
 
+int64_t seen_gpu_dispatch_handles(int64_t pipeline_handle, int64_t gx, int64_t gy, int64_t gz,
+                                  int64_t h0, int64_t h1, int64_t h2, int64_t h3,
+                                  int64_t h4, int64_t h5, int64_t h6, int64_t h7,
+                                  int64_t buffer_count) {
+    int64_t buffers[8] = { h0, h1, h2, h3, h4, h5, h6, h7 };
+    if (buffer_count < 0 || buffer_count > 8) {
+        fprintf(stderr, "[seen_gpu] Invalid fixed dispatch buffer count: %" PRId64 "\n", buffer_count);
+        return 0;
+    }
+    return seen_gpu_dispatch(pipeline_handle, gx, gy, gz, buffers, buffer_count);
+}
+
 int64_t seen_gpu_dispatch_indirect(int64_t pipeline_handle, int64_t indirect_buf_handle,
                                    int64_t* buffers, int64_t buffer_count) {
     if (!g_gpu.initialized || !pipeline_handle || !indirect_buf_handle) return 0;
@@ -979,6 +1111,8 @@ void seen_gpu_shutdown(void) {}
 
 int64_t seen_gpu_is_available(void) { return 0; }
 
+int64_t seen_gpu_device_type(void) { return -1; }
+
 int64_t seen_gpu_buffer_create(int64_t size, int64_t usage) {
     (void)size; (void)usage;
     return 0;
@@ -994,9 +1128,39 @@ int64_t seen_gpu_buffer_read(int64_t handle, void* data, int64_t size) {
     return 0;
 }
 
+int64_t seen_gpu_buffer_write_float_array(int64_t handle, void* array_ptr, int64_t count) {
+    (void)handle; (void)array_ptr; (void)count;
+    return 0;
+}
+
+int64_t seen_gpu_buffer_read_float_array(int64_t handle, void* array_ptr, int64_t count) {
+    (void)handle; (void)array_ptr; (void)count;
+    return 0;
+}
+
+int64_t seen_gpu_buffer_write_int_array(int64_t handle, void* array_ptr, int64_t count) {
+    (void)handle; (void)array_ptr; (void)count;
+    return 0;
+}
+
+int64_t seen_gpu_buffer_read_int_array(int64_t handle, void* array_ptr, int64_t count) {
+    (void)handle; (void)array_ptr; (void)count;
+    return 0;
+}
+
+int64_t seen_gpu_buffer_write_f32_scalar(int64_t handle, double value) {
+    (void)handle; (void)value;
+    return 0;
+}
+
+int64_t seen_gpu_buffer_write_i32_scalar(int64_t handle, int64_t value) {
+    (void)handle; (void)value;
+    return 0;
+}
+
 void seen_gpu_buffer_destroy(int64_t handle) { (void)handle; }
 
-int64_t seen_gpu_shader_load(const char* spirv_path) {
+int64_t seen_gpu_shader_load(SeenString spirv_path) {
     (void)spirv_path;
     return 0;
 }
@@ -1012,6 +1176,17 @@ int64_t seen_gpu_dispatch(int64_t pipeline_handle, int64_t gx, int64_t gy, int64
                           int64_t* buffers, int64_t buffer_count) {
     (void)pipeline_handle; (void)gx; (void)gy; (void)gz;
     (void)buffers; (void)buffer_count;
+    return 0;
+}
+
+int64_t seen_gpu_dispatch_handles(int64_t pipeline_handle, int64_t gx, int64_t gy, int64_t gz,
+                                  int64_t h0, int64_t h1, int64_t h2, int64_t h3,
+                                  int64_t h4, int64_t h5, int64_t h6, int64_t h7,
+                                  int64_t buffer_count) {
+    (void)pipeline_handle; (void)gx; (void)gy; (void)gz;
+    (void)h0; (void)h1; (void)h2; (void)h3;
+    (void)h4; (void)h5; (void)h6; (void)h7;
+    (void)buffer_count;
     return 0;
 }
 

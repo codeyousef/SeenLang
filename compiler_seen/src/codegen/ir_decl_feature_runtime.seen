@@ -178,7 +178,7 @@ fun emitFeatureDecls(output: StringBuilder, definedFuncs: Array<String>) r: Void
         output.append("declare void @seen_gpu_buffer_destroy(i64) nounwind\n")
     }
     if not isFuncDefinedInModule("seen_gpu_shader_load", definedFuncs) {
-        output.append("declare i64 @seen_gpu_shader_load(ptr) nounwind\n")
+        output.append("declare i64 @seen_gpu_shader_load(%SeenString) nounwind\n")
     }
     if not isFuncDefinedInModule("seen_gpu_pipeline_create", definedFuncs) {
         output.append("declare i64 @seen_gpu_pipeline_create(i64, i64) nounwind\n")

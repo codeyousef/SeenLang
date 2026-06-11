@@ -10,6 +10,7 @@ extern fun __ReadFile(fd: Int) r: String
 extern fun __ReadFileBytes(fd: Int, size: Int) r: Array<Int>
 extern fun __WriteFile(fd: Int, content: String) r: Int
 extern fun __WriteFileBytes(fd: Int, bytes: Array<Int>) r: Int
+extern fun seen_file_seek(fd: Int, offset: Int) r: Bool
 extern fun __CloseFile(fd: Int) r: Int
 extern fun __FileSize(fd: Int) r: Int
 extern fun __FileError(fd: Int) r: String
@@ -189,13 +190,121 @@ fun createDirectory(path: String) r: Bool {
 }
 
 fun size(path: String) r: Int {
-    let fd: Int = __OpenFile(path, "r")
+    let fd: Int = __OpenFile(path, "rb")
     if fd < 0 {
         return -1
     }
     let fileSize: Int = __FileSize(fd)
     let _ = __CloseFile(fd)
     return fileSize
+}
+
+fun readBytes(path: String) r: Array<Int> {
+    let fd: Int = __OpenFile(path, "rb")
+    if fd < 0 {
+        return Array<Int>()
+    }
+    let fileSize: Int = __FileSize(fd)
+    if fileSize < 0 {
+        let _ = __CloseFile(fd)
+        return Array<Int>()
+    }
+    let bytes: Array<Int> = __ReadFileBytes(fd, fileSize)
+    let _ = __CloseFile(fd)
+    return bytes
+}
+
+fun readBytesPrefix(path: String, maxBytes: Int) r: Array<Int> {
+    return readBytesRange(path, 0, maxBytes)
+}
+
+fun readBytesRange(path: String, offset: Int, byteCount: Int) r: Array<Int> {
+    if offset < 0 or byteCount <= 0 {
+        return Array<Int>()
+    }
+    let fd: Int = __OpenFile(path, "rb")
+    if fd < 0 {
+        return Array<Int>()
+    }
+    if not seen_file_seek(fd, offset) {
+        let _ = __CloseFile(fd)
+        return Array<Int>()
+    }
+    let bytes: Array<Int> = __ReadFileBytes(fd, byteCount)
+    let _ = __CloseFile(fd)
+    return bytes
+}
+
+fun writeBytes(path: String, bytes: Array<Int>) r: Bool {
+    ensureParentDirectories(path)
+    let fd: Int = __OpenFile(path, "wb")
+    if fd < 0 {
+        return false
+    }
+    let written: Int = __WriteFileBytes(fd, bytes)
+    let _ = __CloseFile(fd)
+    return written >= 0
+}
+
+fun writeBytesAt(path: String, offset: Int, bytes: Array<Int>) r: Bool {
+    if offset < 0 {
+        return false
+    }
+    let fd: Int = __OpenFile(path, "r+b")
+    if fd < 0 {
+        return false
+    }
+    if not seen_file_seek(fd, offset) {
+        let _ = __CloseFile(fd)
+        return false
+    }
+    let written: Int = __WriteFileBytes(fd, bytes)
+    let _ = __CloseFile(fd)
+    return written == bytes.length()
+}
+
+fun copyFileBytes(src: String, dst: String) r: Bool {
+    if not exists(src) {
+        return false
+    }
+    ensureParentDirectories(dst)
+    let inFd: Int = __OpenFile(src, "rb")
+    if inFd < 0 {
+        return false
+    }
+    let outFd: Int = __OpenFile(dst, "wb")
+    if outFd < 0 {
+        let _ = __CloseFile(inFd)
+        return false
+    }
+    let chunkSize = 65536
+    var total = 0
+    var ok = true
+    var done = false
+    while not done {
+        let chunk: Array<Int> = __ReadFileBytes(inFd, chunkSize)
+        if chunk.length() == 0 {
+            done = true
+        } else {
+            let written: Int = __WriteFileBytes(outFd, chunk)
+            if written != chunk.length() {
+                ok = false
+                done = true
+            } else {
+                total = total + written
+                if chunk.length() < chunkSize {
+                    done = true
+                }
+            }
+        }
+    }
+    let _ = __CloseFile(inFd)
+    let _ = __CloseFile(outFd)
+    let expected = size(src)
+    if expected >= 0 and total != expected {
+        return false
+    }
+    return ok
 }
 
 fun writeLines(path: String, lines: Array<String>) r: Bool {
