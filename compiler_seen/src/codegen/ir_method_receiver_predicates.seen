@@ -8,6 +8,9 @@ fun isOptionReceiverTypeImpl(receiverType: String) r: Bool {
     if receiverType == "Option" {
         return true
     }
+    if receiverType.endsWith("?") {
+        return true
+    }
     return receiverType.startsWith("Option<")
 }
 

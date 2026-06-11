@@ -24,7 +24,7 @@ fun readLine() r: String {
 Read exactly N bytes from stdin (blocking)
 May return fewer bytes if EOF is reached before count
 ///
-fun readBytes(count: Int) r: String {
+fun readStdinBytes(count: Int) r: String {
     return __ReadStdinBytes(count)
 }
 

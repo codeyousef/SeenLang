@@ -406,19 +406,31 @@ fun buildToolVersionForCache(toolName: String) r: String {
     return ""
 }
 
+fun runtimeSourceContentForCache(relativePath: String) r: String {
+    let root = getCompilerRoot()
+    if root != "" {
+        let rootedPath = root + "/" + relativePath
+        let rootedContent = loadFileContent(rootedPath)
+        if rootedContent != "" {
+            return rootedContent
+        }
+    }
+    return loadFileContent(relativePath)
+}
+
 fun runtimeSourceSignatureForCache() r: String {
     var input = "runtime-v2"
-    input = hashString(input + "\n" + loadFileContent("seen_runtime/seen_runtime.c"))
-    input = hashString(input + "\n" + loadFileContent("seen_runtime/seen_runtime.h"))
-    input = hashString(input + "\n" + loadFileContent("seen_runtime/seen_region.c"))
-    input = hashString(input + "\n" + loadFileContent("seen_runtime/seen_region.h"))
-    input = hashString(input + "\n" + loadFileContent("seen_runtime/seen_gpu.c"))
-    input = hashString(input + "\n" + loadFileContent("seen_runtime/seen_gpu.h"))
-    input = hashString(input + "\n" + loadFileContent("seen_runtime/seen_hotreload.c"))
-    input = hashString(input + "\n" + loadFileContent("seen_runtime/seen_hotreload.h"))
-    input = hashString(input + "\n" + loadFileContent("seen_runtime/seen_tee_common.c"))
-    input = hashString(input + "\n" + loadFileContent("seen_runtime/seen_tee.h"))
-    input = hashString(input + "\n" + loadFileContent("seen_runtime/seen_compat_win32.h"))
+    input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/seen_runtime.c"))
+    input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/seen_runtime.h"))
+    input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/seen_region.c"))
+    input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/seen_region.h"))
+    input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/seen_gpu.c"))
+    input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/seen_gpu.h"))
+    input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/seen_hotreload.c"))
+    input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/seen_hotreload.h"))
+    input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/seen_tee_common.c"))
+    input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/seen_tee.h"))
+    input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/seen_compat_win32.h"))
     return input
 }
 
@@ -2672,6 +2684,21 @@ fun resolvePrebuiltArtifactSelfImportPath(importPath: Array<String>,
     if loadFileContent(directPath) != "" {
         return directPath
     }
+
+    var qualifiedPath = getSourceDir(tomlPath) + "/src"
+    var qualifiedIdx = 0
+    while qualifiedIdx < importPath.length() {
+        qualifiedPath = qualifiedPath + "/" + importPath[qualifiedIdx]
+        qualifiedIdx = qualifiedIdx + 1
+    }
+    let qualifiedModPath = qualifiedPath + "/mod.seen"
+    if loadFileContent(qualifiedModPath) != "" {
+        return qualifiedModPath
+    }
+    let qualifiedDirectPath = qualifiedPath + ".seen"
+    if loadFileContent(qualifiedDirectPath) != "" {
+        return qualifiedDirectPath
+    }
     return ""
 }
 
@@ -3822,6 +3849,38 @@ fun tryExistingRelativeImportPath(importPath: Array<String>, sourceDir: String) 
     return ""
 }
 
+fun resolveStdlibRootImportPath(importPath: Array<String>) r: String {
+    if importPath.length() == 0 {
+        return ""
+    }
+    if not isStdlibImportRoot(importPath[0]) {
+        return ""
+    }
+
+    var stdlibBase = "seen_std/src/"
+    let compRoot = getCompilerRoot()
+    if compRoot != "" {
+        stdlibBase = compRoot + "/seen_std/src/"
+    }
+    var i = 0
+    while i < importPath.length() {
+        if i > 0 {
+            stdlibBase = stdlibBase + "/"
+        }
+        stdlibBase = stdlibBase + importPath[i]
+        i = i + 1
+    }
+    let stdlibModPath = stdlibBase + "/mod.seen"
+    if readText(stdlibModPath) != "" {
+        return stdlibModPath
+    }
+    let stdlibDirectPath = stdlibBase + ".seen"
+    if readText(stdlibDirectPath) != "" {
+        return stdlibDirectPath
+    }
+    return ""
+}
+
 fun resolveImportPath(importPath: Array<String>, sourceDir: String) r: String {
     // Convert import path segments to file path
 
@@ -3868,35 +3927,21 @@ fun resolveImportPath(importPath: Array<String>, sourceDir: String) r: String {
         if packageImportPath != "" {
             return packageImportPath
         }
+        if isStdlibSourceDir(sourceDir) and isStdlibImportRoot(firstSegment) {
+            let stdlibSourceRootPath = resolveStdlibRootImportPath(importPath)
+            if stdlibSourceRootPath != "" {
+                return stdlibSourceRootPath
+            }
+        }
         let localImportPath = tryExistingRelativeImportPath(importPath, sourceDir)
         if localImportPath != "" {
             return localImportPath
         }
 
         if isStdlibImportRoot(firstSegment) {
-            // This is a stdlib import — resolve from compiler root
-            var stdlibBase = "seen_std/src/"
-            let compRoot = getCompilerRoot()
-            if compRoot != "" {
-                stdlibBase = compRoot + "/seen_std/src/"
-            }
-            var i = 0
-            while i < importPath.length() {
-                if i > 0 {
-                    stdlibBase = stdlibBase + "/"
-                }
-                stdlibBase = stdlibBase + importPath[i]
-                i = i + 1
-            }
-            let stdlibModPath = stdlibBase + "/mod.seen"
-            let stdlibDirectPath = stdlibBase + ".seen"
-            let stdlibModContent = readText(stdlibModPath)
-            if stdlibModContent != "" {
-                return stdlibModPath
-            }
-            let stdlibDirectContent = readText(stdlibDirectPath)
-            if stdlibDirectContent != "" {
-                return stdlibDirectPath
+            let stdlibImportPath = resolveStdlibRootImportPath(importPath)
+            if stdlibImportPath != "" {
+                return stdlibImportPath
             }
         }
     }
@@ -3947,6 +3992,28 @@ fun resolveImportPath(importPath: Array<String>, sourceDir: String) r: String {
                 let skipMod = readText(testSkip + "/mod.seen")
                 if skipMod != "" {
                     startIdx = 1
+                }
+            }
+        }
+
+        let projectTomlPath = findNearestSeenTomlFromDir(sourceDir)
+        let projectTomlContent = loadFileContent(projectTomlPath)
+        if projectTomlContent != "" {
+            let projectName = extractTomlProjectName(projectTomlContent)
+            if projectName == importPath[0] {
+                var projectQualifiedPath = getSourceDir(projectTomlPath) + "/src"
+                var pqi = 0
+                while pqi < importPath.length() {
+                    projectQualifiedPath = projectQualifiedPath + "/" + importPath[pqi]
+                    pqi = pqi + 1
+                }
+                let projectQualifiedMod = projectQualifiedPath + "/mod.seen"
+                if readText(projectQualifiedMod) != "" {
+                    return projectQualifiedMod
+                }
+                let projectQualifiedDirect = projectQualifiedPath + ".seen"
+                if readText(projectQualifiedDirect) != "" {
+                    return projectQualifiedDirect
                 }
             }
         }
@@ -12326,7 +12393,7 @@ fun runScriptCommand(inputFile: String, useAot: Bool, verbose: Bool,
 }
 
 fun seenCompilerVersion() r: String {
-    return "0.9.1"
+    return "0.9.2"
 }
 
 fun printVersion() r: Void {

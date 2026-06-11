@@ -4,13 +4,14 @@ import parser.real_parser.{StatementNode, ParserExpressionNode}
 import str.string.{StringBuilder}
 import codegen.ir_async_return.{prepareAsyncReturnValuePlanImpl, emitAsyncReturnValueBranchImpl, emitAsyncReturnVoidBranchImpl}
 import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl, getFeatureBlockBoxImpl}
-import codegen.ir_codegen_global_state.{getPendingArrayLiteralTypeWithGlobalStateImpl, setPendingArrayLiteralTypeWithGlobalStateImpl, getCurrentFunctionReturnTypeWithGlobalStateImpl, setBlockTerminatedWithGlobalStateImpl}
+import codegen.ir_codegen_global_state.{getPendingArrayLiteralTypeWithGlobalStateImpl, setPendingArrayLiteralTypeWithGlobalStateImpl, getCurrentFunctionReturnTypeWithGlobalStateImpl, setBlockTerminatedWithGlobalStateImpl, getGlobalStructNamesImpl}
 import codegen.ir_codegen_type_state.{mapTypeState, isDataTypeState}
 import codegen.ir_function_state.{getCurrentFunctionEmissionStateImpl, currentFunctionRegionSizeBytesImpl, isCurrentFunctionAsyncLoweringImpl, markTailCallPositionImpl}
 import codegen.ir_lowering_context.{CodegenLoweringContext, lowerExpression, inferLoweredExpressionType, lowerCallExpression, prepareLoweredCallArgumentsWithDefaults, lowerEnumConstructor, resetLoweringGenerator, resetLoweringSharedModuleScratch, syncLoweringState, writeBackLoweringState, lowerProgramClasses, lowerProgramTopLevelFunctions, lowerPlainLargeClass, lowerClassNode, lowerFunctionNode, lowerClassMethodFromList, setLowerCurrentClassParentName, resetLoweringLocalCodegenState, collectLoweringVariableDeclarations, clearLoweringActiveBindings, lowerBlock, lowerStatement, isLoweringBlockTerminated, beginLoweringNestedScratch, restoreLoweringNestedScratch, currentLoweringFunctionOptions}
 import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_stmt_gen.{normalizeIfConditionTypeImpl}
 import codegen.ir_stmt_return.{emitErrdeferTempReturnLoadImpl, emitReturnRegionAndProfileCleanupImpl, emitDefaultEmptyReturnStatementImpl, emitCharLiteralReturnImpl, shouldSeedReturnPendingArrayLiteralTypeImpl, shouldMarkReturnTailCallImpl, resolveCharLiteralReturnValueImpl, emitFinalReturnStatementValueImpl}
+import codegen.ir_assignment_coerce.{coerceOptionStoreValueCoreImpl}
 import codegen.ir_string_emit.{getStringConstantIndexImpl}
 import codegen.ir_function_body.{beginFunctionBodyReturnDeferCleanupImpl, beginFunctionBodyVoidErrdeferCleanupImpl, beginFunctionBodyValueErrdeferCleanupImpl, finishFunctionBodyValueErrdeferCleanupImpl}
 
@@ -123,6 +124,18 @@ fun resolveReturnStatementValueRegState(ctx: CodegenLoweringContext,
     return ReturnValueResolutionState.new(valueReg, errdeferTempAlloca)
 }
 
+fun returnValueIsExplicitOptionConstructorImpl(expr: ParserExpressionNode)
+    r: Bool {
+
+    if expr.callee == "Some" or expr.callee == "None" {
+        return true
+    }
+    if expr.callee.startsWith("Some<") or expr.callee.startsWith("None<") {
+        return true
+    }
+    return false
+}
+
 fun generateReturnStatementState(ctx: CodegenLoweringContext,
     output: StringBuilder, stmt: StatementNode,
     stringConstants: Array<String>, deferCount: Int,
@@ -179,13 +192,24 @@ fun generateReturnStatementState(ctx: CodegenLoweringContext,
     newErrdeferTempAlloca = returnValueState.errdeferTempAlloca
     let inferredReturnExprType =
         inferLoweredExpressionType(ctx, stmt.returnValue)
-    let returnExprType = normalizeIfConditionTypeImpl(stmt.returnValue,
+    var returnExprType = normalizeIfConditionTypeImpl(stmt.returnValue,
         inferredReturnExprType)
+    var returnValueReg = returnValueState.valueReg
+    if llvmType == "i64" and
+        not returnValueIsExplicitOptionConstructorImpl(stmt.returnValue) {
+        let optionReturnReg = coerceOptionStoreValueCoreImpl(output,
+            getFeatureRegBoxImpl(), currentReturnType, returnExprType,
+            returnValueReg, getGlobalStructNamesImpl())
+        if optionReturnReg != returnValueReg {
+            returnValueReg = optionReturnReg
+            returnExprType = currentReturnType
+        }
+    }
     let returnExprLlvmType = mapTypeState(returnExprType)
     emitFinalReturnStatementValueImpl(output, getFeatureRegBoxImpl(),
         isDataTypeState(currentReturnType), stmt.returnValue.kind,
         returnExprType, returnExprLlvmType, llvmType,
-        returnValueState.valueReg)
+        returnValueReg)
     setBlockTerminatedWithGlobalStateImpl(true)
     return newErrdeferTempAlloca
 }

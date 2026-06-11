@@ -42,7 +42,8 @@ fun planMethodLowerCallImpl(receiverType: String, methodName: String,
         receiverType == "StringBuilder" and isStringBuilderRuntime
     plan.shouldTryPrimitiveConversion = true
     plan.shouldTryNumeric = isNumericReceiver
-    plan.shouldTryStringLike = true
+    plan.shouldTryStringLike =
+        shouldTryStringLikeMethodLowerImpl(receiverType, methodName)
     plan.shouldTraceUnwrapToJsonSource =
         receiverType == "ptr" and methodName == "toJson" and
         operandCount > 0
@@ -53,6 +54,35 @@ fun planMethodLowerCallImpl(receiverType: String, methodName: String,
     plan.hasArg0 = argCount > 0
     plan.hasArg1 = argCount > 1
     return plan
+}
+
+fun shouldTryStringLikeMethodLowerImpl(receiverType: String,
+    methodName: String) r: Bool {
+
+    if receiverType == "String" or receiverType == "String?" or
+        receiverType == "SeenString" or receiverType == "%SeenString" {
+        return true
+    }
+    if receiverType == "Char" {
+        return methodName == "isDigit" or methodName == "isAlpha" or
+            methodName == "isAlphanumeric" or methodName == "isUpperCase" or
+            methodName == "isLowerCase" or methodName == "isWhitespace" or
+            methodName == "toUpperCase" or methodName == "toLowerCase"
+    }
+    if receiverType == "JsonValue" or receiverType == "ptr" {
+        return methodName == "getString" or methodName == "getInt" or
+            methodName == "getBool" or methodName == "getNumber" or
+            methodName == "isObject" or methodName == "isArray" or
+            methodName == "isString" or methodName == "isNumber" or
+            methodName == "isBool" or methodName == "isNull"
+    }
+    if receiverType == "Int" {
+        return methodName == "toSeenString"
+    }
+    if receiverType == "" {
+        return true
+    }
+    return false
 }
 
 fun methodLowerStringBuilderArgActionImpl(receiverType: String,

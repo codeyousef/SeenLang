@@ -13,7 +13,7 @@ import codegen.ir_call_regular_plan.{stripGenericCalleeNameImpl, resolveRegularC
 import codegen.ir_call_runtime.{emitResultRuntimeBuiltinCallImpl}
 import codegen.ir_call_runtime_driver.{tryGenerateRuntimeBuiltinCallState, tryGenerateMathBuiltinCallState}
 import codegen.ir_codegen_feature_state.{getFeatureAsyncFuncNamesImpl, getFeatureAsyncFuncCountImpl, getFeatureBoundsCheckEnabledImpl, getFeatureBoundsCheckLabelCountImpl, setFeatureBoundsCheckLabelCountImpl, getFeatureComptimeParamFuncNamesImpl, getFeatureComptimeParamCountImpl, getFeatureCurrentClassParentNameImpl, getFeatureEnumVariantCountImpl, getFeatureEnumVariantFieldCountsImpl, getFeatureEnumVariantNamesImpl, getFeatureInsideUnsafeImpl, getDefaultFillArgRegsImpl, getDefaultFillArgTypeStrsImpl, getFeatureRegBoxImpl}
-import codegen.ir_codegen_global_state.{getBoundedActiveVarCountWithGlobalStateImpl}
+import codegen.ir_codegen_global_state.{getBoundedActiveVarCountWithGlobalStateImpl, getFunctionReturnTypeWithGlobalStateImpl}
 import codegen.ir_codegen_state.{getSharedCodegenState}
 import codegen.ir_codegen_type_state.{mapTypeState}
 import codegen.ir_constructor_call_driver.{tryGenerateConstructorLikeCallState}
@@ -137,11 +137,18 @@ fun generateCallState(ctx: CodegenLoweringContext,
             lowLevelBuiltinResult.boundsCheckLabelCount)
     }
 
-    let implicitThisResult = tryGenerateImplicitThisCallState(ctx, output,
-        expr, funcName, varNames, varRegs, varTypes, stringConstants)
-    if implicitThisResult != "" {
-        return CallDriverResult.new(implicitThisResult,
-            lowLevelBuiltinResult.boundsCheckLabelCount)
+    var shouldTryImplicitThisCall = true
+    if expr.arguments.length() > 0 and
+        getFunctionReturnTypeWithGlobalStateImpl(funcName) != "" {
+        shouldTryImplicitThisCall = false
+    }
+    if shouldTryImplicitThisCall {
+        let implicitThisResult = tryGenerateImplicitThisCallState(ctx, output,
+            expr, funcName, varNames, varRegs, varTypes, stringConstants)
+        if implicitThisResult != "" {
+            return CallDriverResult.new(implicitThisResult,
+                lowLevelBuiltinResult.boundsCheckLabelCount)
+        }
     }
 
     let mathBuiltinResult = tryGenerateMathBuiltinCallState(ctx, output,

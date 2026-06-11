@@ -71,6 +71,12 @@ fun tryInferUnwrapMethodTypeState(methodName: String, receiverType: String,
 fun tryInferBuiltinReceiverMethodCallTypeState(methodName: String,
     receiverType: String, isClassInner: Int) r: String {
 
+    if receiverType.endsWith("?") {
+        if methodName == "isSome" or methodName == "IsSome" or
+            methodName == "isNone" or methodName == "IsNone" {
+            return "Bool"
+        }
+    }
     let simpleBuiltinType = tryInferSimpleBuiltinReceiverMethodTypeState(
         methodName, receiverType)
     if simpleBuiltinType != "" {

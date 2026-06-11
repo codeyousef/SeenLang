@@ -5,6 +5,24 @@ All notable changes to the Seen compiler will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.2] - 2026-06-12
+
+### Added+
+
+- Added focused trainer-blocker regression coverage for project self-imports, byte-range file I/O, `String.fromCharCode`, string equality, single-evaluation method arguments, global function dispatch, conditional method calls, nested arrays, class-array returns, JSON parsing, and GPU shader artifact emission.
+
+### Fixed
+
+- Fixed project self-import resolution so project-qualified imports from tests and companion modules resolve against both stripped and package-qualified `src/` layouts.
+- Fixed stdlib import resolution from stdlib sources so canonical root imports are preferred over invalid relative fallbacks.
+- Fixed installed compiler runtime-source discovery and runtime cache signatures so compilers launched from outside the source checkout still find the repo runtime and stdlib through the resolved compiler root.
+- Fixed the `io.stdio` byte-read helper name collision with file I/O by using the stdin-specific `readStdinBytes` entrypoint.
+- Fixed method-call lowering so arguments are not evaluated speculatively for unrelated user methods, preserving single evaluation for side-effecting call arguments.
+- Fixed unqualified global function calls inside class methods so they no longer rewrite to implicit receiver method calls when a same-named method exists.
+- Fixed nullable and `Option<T>` receiver handling for suffix-`?` types, including `isSome`/`isNone` inference and explicit `Some`/`None` return preservation.
+- Fixed `JsonValue.get` and `getAt` return typing so JSON parser optional values route through the `Option<JsonValue>` method path instead of nullable erasure paths.
+- Fixed implicit `Option<T>` storage coercion so scalar nullable-like names are not misclassified as boxed option targets.
+
 ## [0.9.1] - 2026-05-25
 
 ### Changed

@@ -13,6 +13,16 @@ fun optionStoreInnerTypeCoreImpl(targetSeenType: String) r: String {
     if targetSeenType.startsWith("Optional<") and targetSeenType.endsWith(">") {
         return targetSeenType.substring(9, targetSeenType.length() - 1)
     }
+    if targetSeenType.endsWith("?") {
+        let innerType = targetSeenType.substring(0,
+            targetSeenType.length() - 1)
+        if innerType == "String" or innerType == "Bool" or
+            innerType == "Boolean" or innerType == "Float" or
+            innerType == "Int" or innerType == "Char" {
+            return ""
+        }
+        return innerType
+    }
     return ""
 }
 
@@ -22,10 +32,16 @@ fun optionStoreSourceAlreadyWrappedCoreImpl(targetSeenType: String,
     if sourceSeenType == targetSeenType {
         return true
     }
+    if sourceSeenType == "Option" or sourceSeenType == "Optional" {
+        return true
+    }
     if sourceSeenType.startsWith("Option<") {
         return true
     }
-    return sourceSeenType.startsWith("Optional<")
+    if sourceSeenType.startsWith("Optional<") {
+        return true
+    }
+    return sourceSeenType.endsWith("?")
 }
 
 fun optionStoreInnerIsClassCoreImpl(innerType: String,

@@ -159,7 +159,7 @@ fun computeMethodReturnTypeUncachedImpl(structName: String, methodName: String,
     if structName == "JsonValue" {
         if methodName == "emptyObject" or methodName == "emptyArray" { return "JsonValue" }
         if methodName == "number" or methodName == "string" or methodName == "object" or methodName == "array" or methodName == "bool" or methodName == "null" or methodName == "nullValue" or methodName == "numberFloat" or methodName == "fromBool" { return "JsonValue" }
-        if methodName == "get" or methodName == "getAt" { return "JsonValue?" }
+        if methodName == "get" or methodName == "getAt" { return "Option<JsonValue>" }
         if methodName == "getArray" { return "Array<JsonValue>" }
         if methodName == "keys" { return "Array<String>" }
         if methodName == "getString" or methodName == "stringify" or methodName == "toString" { return "String" }

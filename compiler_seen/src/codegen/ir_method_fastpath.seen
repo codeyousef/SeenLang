@@ -114,7 +114,8 @@ fun tryGenerateExplicitOptionMethodCallImpl(output: StringBuilder, regBox: Array
     blockLabelBox: Array<Int>, methodName: String, receiverReg: String,
     receiverType: String, optDefaultReg: String) r: String {
 
-    let isOptionType = receiverType == "Option" or receiverType.startsWith("Option<")
+    let isOptionType = receiverType == "Option" or
+        receiverType.startsWith("Option<") or receiverType.endsWith("?")
     if not isOptionType {
         return ""
     }

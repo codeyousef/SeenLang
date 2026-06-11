@@ -57,10 +57,34 @@ fun shouldReadReceiverFastPathArgImpl(action: Int, argCount: Int,
 }
 
 fun shouldPrepareEarlyMethodFastPathArgsImpl(receiverType: String) r: Bool {
-    if receiverType == "Array" or receiverType.startsWith("Array<") {
-        return false
+    if receiverType.startsWith("dyn ") {
+        return true
     }
-    return true
+    if receiverType == "Option" or receiverType.startsWith("Option<") {
+        return true
+    }
+    if receiverType.endsWith("?") {
+        return true
+    }
+    if receiverType == "Vec" or receiverType.startsWith("Vec<") {
+        return true
+    }
+    if receiverType == "BTreeMap" or receiverType.startsWith("BTreeMap<") {
+        return true
+    }
+    if receiverType == "Map" or receiverType.startsWith("Map<") {
+        return true
+    }
+    if receiverType == "HashMap" or receiverType.startsWith("HashMap<") {
+        return true
+    }
+    if receiverType == "StringHashMap" or receiverType.startsWith("StringHashMap<") {
+        return true
+    }
+    if receiverType == "LinkedList" or receiverType.startsWith("LinkedList<") {
+        return true
+    }
+    return false
 }
 
 fun shouldTryStaticMethodCallImpl(receiverReg: String,

@@ -6,7 +6,7 @@ Handles reading/writing LSP messages over stdio
 import json.value.{JsonValue, JsonValue_emptyObject, JsonValue_string, JsonValue_number, JsonValue_nullValue, JsonValue_bool}
 import json.parser.{parseJson}
 import json.builder.{jsonToString}
-import io.stdio.{readLine, readBytes, flushStdout, printRaw, parseInt, ContentLengthReader, ContentLengthReader_new}
+import io.stdio.{readLine, flushStdout, printRaw, parseInt, ContentLengthReader, ContentLengthReader_new}
 
 ///
 ============================================================================
