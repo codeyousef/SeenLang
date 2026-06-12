@@ -34,6 +34,10 @@ extern fun seen_f32_buffer_clear(handle: Int) r: Void
 extern fun seen_f32_buffer_push(handle: Int, value: Float) r: Void
 extern fun seen_f32_buffer_get(handle: Int, index: Int) r: Float
 extern fun seen_f32_buffer_set(handle: Int, index: Int, value: Float) r: Void
+extern fun seen_f32_array_from_le_bytes(bytes: Array<Int>, offset: Int, count: Int) r: Array<Float>
+extern fun seen_f32_array_to_le_bytes(values: Array<Float>) r: Array<Int>
+extern fun seen_f32_array_copy_from_le_bytes(bytes: Array<Int>, offset: Int, count: Int, target: Array<Float>) r: Bool
+extern fun seen_f32_array_append_le_bytes(bytes: Array<Int>, values: Array<Float>) r: Bool
 extern fun seen_f64_buffer_new(capacity: Int) r: Int
 extern fun seen_f64_buffer_len(handle: Int) r: Int
 extern fun seen_f64_buffer_clear(handle: Int) r: Void
@@ -267,6 +271,22 @@ class Float32Buffer {
     fun set(index: Int, value: Float) -> Void {
         seen_f32_buffer_set(this.handle, index, value)
     }
+}
+
+fun f32ArrayFromLittleEndianBytes(bytes: Array<Int>, offset: Int, count: Int) r: Array<Float> {
+    return seen_f32_array_from_le_bytes(bytes, offset, count)
+}
+
+fun f32ArrayToLittleEndianBytes(values: Array<Float>) r: Array<Int> {
+    return seen_f32_array_to_le_bytes(values)
+}
+
+fun f32ArrayCopyFromLittleEndianBytes(bytes: Array<Int>, offset: Int, count: Int, target: Array<Float>) r: Bool {
+    return seen_f32_array_copy_from_le_bytes(bytes, offset, count, target)
+}
+
+fun f32ArrayAppendLittleEndianBytes(bytes: Array<Int>, values: Array<Float>) r: Bool {
+    return seen_f32_array_append_le_bytes(bytes, values)
 }
 
 class Float64Buffer {

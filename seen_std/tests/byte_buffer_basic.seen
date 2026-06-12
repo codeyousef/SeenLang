@@ -3,7 +3,7 @@ ByteArray and ByteBuffer Basic Test
 Expected: byte-backed buffers mask values, preserve order, and support primitive widths.
 ///
 
-import collections.byte_buffer.{ByteArray, ByteBuffer, Float32Buffer, Float64Buffer, Int32Buffer, Int64Buffer}
+import collections.byte_buffer.{ByteArray, ByteBuffer, Float32Buffer, Float64Buffer, Int32Buffer, Int64Buffer, f32ArrayAppendLittleEndianBytes, f32ArrayCopyFromLittleEndianBytes, f32ArrayFromLittleEndianBytes, f32ArrayToLittleEndianBytes}
 
 fun expect(condition: Bool, message: String) r: Int {
     if condition {
@@ -67,6 +67,34 @@ fun main() r: Int {
     floats32.push(2.5)
     failed = failed + expect(floats32.length() == 2, "Float32Buffer length")
     failed = failed + expect(floats32.get(0) < floats32.get(1), "Float32Buffer values")
+
+    let f32Values = Array<Float>()
+    f32Values.push(1.5)
+    f32Values.push(-2.25)
+    f32Values.push(0.0)
+    f32Values.push(0.125)
+    let encoded = f32ArrayToLittleEndianBytes(f32Values)
+    failed = failed + expect(encoded.length() == 16, "f32 little-endian encode length")
+    failed = failed + expect(encoded[0] == 0 and encoded[1] == 0 and encoded[2] == 192 and encoded[3] == 63, "f32 little-endian encode positive")
+    failed = failed + expect(encoded[4] == 0 and encoded[5] == 0 and encoded[6] == 16 and encoded[7] == 192, "f32 little-endian encode negative")
+    let prefixed = Array<Int>()
+    prefixed.push(17)
+    prefixed.push(23)
+    failed = failed + expect(f32ArrayAppendLittleEndianBytes(prefixed, f32Values), "f32 append little-endian bytes")
+    failed = failed + expect(prefixed.length() == 18 and prefixed[2] == 0 and prefixed[17] == 62, "f32 append preserves prefix")
+    let decoded = f32ArrayFromLittleEndianBytes(prefixed, 2, 4)
+    failed = failed + expect(decoded.length() == 4, "f32 little-endian decode length")
+    failed = failed + expect(decoded[0] > 1.49 and decoded[0] < 1.51, "f32 little-endian decode positive")
+    failed = failed + expect(decoded[1] < -2.24 and decoded[1] > -2.26, "f32 little-endian decode negative")
+    failed = failed + expect(decoded[3] > 0.124 and decoded[3] < 0.126, "f32 little-endian decode small")
+    let copied = Array<Float>()
+    copied.push(0.0)
+    copied.push(0.0)
+    copied.push(0.0)
+    copied.push(0.0)
+    failed = failed + expect(f32ArrayCopyFromLittleEndianBytes(prefixed, 2, 4, copied), "f32 copy little-endian bytes")
+    failed = failed + expect(copied[1] < -2.24 and copied[1] > -2.26, "f32 copy little-endian value")
+    failed = failed + expect(not f32ArrayCopyFromLittleEndianBytes(prefixed, 15, 4, copied), "f32 copy rejects short range")
 
     let floats64 = Float64Buffer.new()
     floats64.reserve(10)

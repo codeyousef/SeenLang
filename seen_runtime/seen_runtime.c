@@ -1609,6 +1609,109 @@ void seen_f32_buffer_set(void* handle, int64_t index, double value) {
     ((float*)buffer->data)[index] = (float)value;
 }
 
+static bool seen_i64_array_ensure_capacity(SeenArray* arr, int64_t required) {
+    if (!arr || required < 0) return false;
+    if (arr->element_size < (int64_t)sizeof(int64_t)) {
+        arr->element_size = sizeof(int64_t);
+    }
+    if (required <= arr->cap) return true;
+    int64_t new_cap = arr->cap > 0 ? arr->cap : 8;
+    while (new_cap < required) {
+        if (new_cap > INT64_MAX / 2) return false;
+        new_cap *= 2;
+    }
+    int64_t old_bytes = arr->cap * arr->element_size;
+    int64_t new_bytes = new_cap * arr->element_size;
+    void* new_data = seen_try_aligned_realloc(arr->data, old_bytes, new_bytes, 32);
+    if (!new_data) return false;
+    arr->data = new_data;
+    arr->cap = new_cap;
+    return true;
+}
+
+static uint8_t seen_le_byte_at(SeenArray* bytes, int64_t index) {
+    int64_t* data = (int64_t*)bytes->data;
+    return (uint8_t)(data[index] & 255);
+}
+
+static double seen_f32_decode_le_at(SeenArray* bytes, int64_t offset) {
+    uint32_t bits = (uint32_t)seen_le_byte_at(bytes, offset)
+        | ((uint32_t)seen_le_byte_at(bytes, offset + 1) << 8)
+        | ((uint32_t)seen_le_byte_at(bytes, offset + 2) << 16)
+        | ((uint32_t)seen_le_byte_at(bytes, offset + 3) << 24);
+    float value = 0.0f;
+    memcpy(&value, &bits, sizeof(float));
+    return (double)value;
+}
+
+bool seen_f32_array_copy_from_le_bytes(SeenArray* bytes,
+                                       int64_t offset,
+                                       int64_t count,
+                                       SeenArray* target) {
+    if (!bytes || !target || offset < 0 || count < 0) return false;
+    if (bytes->element_size < (int64_t)sizeof(int64_t)) return false;
+    if (target->element_size < (int64_t)sizeof(double)) return false;
+    if (count > INT64_MAX / 4) return false;
+    if (offset > bytes->len || count * 4 > bytes->len - offset) return false;
+    if (target->len < count) return false;
+    double* out = (double*)target->data;
+    for (int64_t i = 0; i < count; i++) {
+        out[i] = seen_f32_decode_le_at(bytes, offset + i * 4);
+    }
+    return true;
+}
+
+SeenArray* seen_f32_array_from_le_bytes(SeenArray* bytes,
+                                        int64_t offset,
+                                        int64_t count) {
+    if (!bytes || offset < 0 || count < 0 || count > INT64_MAX / 4
+        || bytes->element_size < (int64_t)sizeof(int64_t)
+        || offset > bytes->len || count * 4 > bytes->len - offset) {
+        return seen_arr_new_filled_double(0, 0.0);
+    }
+    SeenArray* out = seen_arr_new_filled_double(count, 0.0);
+    (void)seen_f32_array_copy_from_le_bytes(bytes, offset, count, out);
+    return out;
+}
+
+bool seen_f32_array_append_le_bytes(SeenArray* bytes, SeenArray* values) {
+    if (!bytes || !values) return false;
+    if (bytes->element_size < (int64_t)sizeof(int64_t)) return false;
+    if (values->element_size < (int64_t)sizeof(double)) return false;
+    if (values->len < 0 || values->len > INT64_MAX / 4) return false;
+    int64_t byte_count = values->len * 4;
+    if (bytes->len > INT64_MAX - byte_count) return false;
+    int64_t start = bytes->len;
+    int64_t required = start + byte_count;
+    if (!seen_i64_array_ensure_capacity(bytes, required)) return false;
+    int64_t* out = (int64_t*)bytes->data;
+    double* in = (double*)values->data;
+    for (int64_t i = 0; i < values->len; i++) {
+        float value = (float)in[i];
+        uint32_t bits = 0;
+        memcpy(&bits, &value, sizeof(float));
+        int64_t base = start + i * 4;
+        out[base] = (int64_t)(bits & 255u);
+        out[base + 1] = (int64_t)((bits >> 8) & 255u);
+        out[base + 2] = (int64_t)((bits >> 16) & 255u);
+        out[base + 3] = (int64_t)((bits >> 24) & 255u);
+    }
+    bytes->len = required;
+    return true;
+}
+
+SeenArray* seen_f32_array_to_le_bytes(SeenArray* values) {
+    SeenArray* bytes = seen_arr_new_with_size_ptr((int64_t)sizeof(int64_t));
+    if (!values || values->len <= 0) return bytes;
+    if (!seen_i64_array_ensure_capacity(bytes, values->len * 4)) {
+        return bytes;
+    }
+    if (!seen_f32_array_append_le_bytes(bytes, values)) {
+        bytes->len = 0;
+    }
+    return bytes;
+}
+
 void* seen_f64_buffer_new(int64_t capacity) {
     return seen_primitive_buffer_new(capacity, (int64_t)sizeof(double), "Float64Buffer");
 }

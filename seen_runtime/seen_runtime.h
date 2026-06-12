@@ -325,6 +325,10 @@ SeenArray* seen_arr_new_ptr_ptr(void);
 // Create array with custom element_size (for data types)
 SeenArray* seen_arr_new_with_size_ptr(int64_t element_size);
 
+// Create numeric arrays pre-filled with a scalar value
+SeenArray* seen_arr_new_filled_i64(int64_t count, int64_t value);
+SeenArray* seen_arr_new_filled_double(int64_t count, double value);
+
 // Push string to array
 void seen_arr_push_str(SeenArray* arr, SeenString s);
 
@@ -477,6 +481,10 @@ void seen_f32_buffer_clear(void* handle);
 void seen_f32_buffer_push(void* handle, double value);
 double seen_f32_buffer_get(void* handle, int64_t index);
 void seen_f32_buffer_set(void* handle, int64_t index, double value);
+SeenArray* seen_f32_array_from_le_bytes(SeenArray* bytes, int64_t offset, int64_t count);
+SeenArray* seen_f32_array_to_le_bytes(SeenArray* values);
+bool seen_f32_array_copy_from_le_bytes(SeenArray* bytes, int64_t offset, int64_t count, SeenArray* target);
+bool seen_f32_array_append_le_bytes(SeenArray* bytes, SeenArray* values);
 void* seen_f64_buffer_new(int64_t capacity);
 int64_t seen_f64_buffer_len(void* handle);
 void seen_f64_buffer_clear(void* handle);
