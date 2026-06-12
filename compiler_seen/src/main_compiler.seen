@@ -9524,6 +9524,21 @@ fun shaderKnownTensorKernelBody(name: String) r: String {
             "    float x = input_data[idx];\n" +
             "    out_data[idx] = 0.5 * x * (1.0 + tanh(0.7978845608 * (x + 0.044715 * x * x * x)));\n"
     }
+    if name == "tensorGeluBackward" {
+        return "    int idx = int(gl_GlobalInvocationID.x);\n" +
+            "    int count = count_data[0];\n" +
+            "    if (idx >= count) { return; }\n" +
+            "    float x = input_data[idx];\n" +
+            "    float inner = 0.7978845608 * (x + 0.044715 * x * x * x);\n" +
+            "    float t = 0.0;\n" +
+            "    if (inner > 3.0) { t = 1.0; }\n" +
+            "    else if (inner < -3.0) { t = -1.0; }\n" +
+            "    else { t = inner * (27.0 + inner * inner) / (27.0 + 9.0 * inner * inner); }\n" +
+            "    float sechSq = 1.0 - t * t;\n" +
+            "    float innerGrad = 0.7978845608 * (1.0 + 0.134145 * x * x);\n" +
+            "    float derivative = 0.5 * (1.0 + t) + 0.5 * x * sechSq * innerGrad;\n" +
+            "    out_data[idx] = grad_data[idx] * derivative;\n"
+    }
     if name == "tensorMatmul" {
         return "    int col = int(gl_GlobalInvocationID.x);\n" +
             "    int row = int(gl_GlobalInvocationID.y);\n" +
@@ -9547,6 +9562,21 @@ fun shaderKnownTensorKernelBody(name: String) r: String {
             "        sum += input_data[row * cols + col];\n" +
             "    }\n" +
             "    out_data[row] = sum;\n"
+    }
+    if name == "tensorNormalizeRows" {
+        return "    int row = int(gl_GlobalInvocationID.x);\n" +
+            "    int rows = rows_data[0];\n" +
+            "    int cols = cols_data[0];\n" +
+            "    if (row >= rows) { return; }\n" +
+            "    float normSq = 0.0;\n" +
+            "    for (int col = 0; col < cols; col++) {\n" +
+            "        float value = input_data[row * cols + col];\n" +
+            "        normSq += value * value;\n" +
+            "    }\n" +
+            "    float norm = sqrt(normSq);\n" +
+            "    for (int col = 0; col < cols; col++) {\n" +
+            "        out_data[row * cols + col] = norm > 0.000000001 ? input_data[row * cols + col] / norm : 0.0;\n" +
+            "    }\n"
     }
     if name == "tensorLayerNormRows" {
         return "    int row = int(gl_GlobalInvocationID.x);\n" +
@@ -9618,6 +9648,39 @@ fun shaderKnownTensorKernelBody(name: String) r: String {
             "    }\n" +
             "    float denom = sqrt(aNorm) * sqrt(bNorm);\n" +
             "    out_data[row] = denom > 0.000000001 ? dot / denom : 0.0;\n"
+    }
+    if name == "tensorAttentionContext" {
+        return "    int dim = int(gl_GlobalInvocationID.x);\n" +
+            "    int token = int(gl_GlobalInvocationID.y);\n" +
+            "    int head = int(gl_GlobalInvocationID.z);\n" +
+            "    int seqLen = seqLen_data[0];\n" +
+            "    int hiddenSize = hiddenSize_data[0];\n" +
+            "    int attentionHeads = attentionHeads_data[0];\n" +
+            "    if (token >= seqLen || head >= attentionHeads || attentionHeads <= 0) { return; }\n" +
+            "    int headDim = hiddenSize / attentionHeads;\n" +
+            "    if (dim >= headDim) { return; }\n" +
+            "    int offset = head * headDim;\n" +
+            "    float scale = sqrt(float(headDim));\n" +
+            "    float maxScore = -99999999.0;\n" +
+            "    for (int other = 0; other < seqLen; other++) {\n" +
+            "        float score = 0.0;\n" +
+            "        for (int inner = 0; inner < headDim; inner++) {\n" +
+            "            score += q_data[token * hiddenSize + offset + inner] * k_data[other * hiddenSize + offset + inner];\n" +
+            "        }\n" +
+            "        maxScore = max(maxScore, score / scale);\n" +
+            "    }\n" +
+            "    float denom = 0.0;\n" +
+            "    float weighted = 0.0;\n" +
+            "    for (int other = 0; other < seqLen; other++) {\n" +
+            "        float score = 0.0;\n" +
+            "        for (int inner = 0; inner < headDim; inner++) {\n" +
+            "            score += q_data[token * hiddenSize + offset + inner] * k_data[other * hiddenSize + offset + inner];\n" +
+            "        }\n" +
+            "        float weight = exp(score / scale - maxScore);\n" +
+            "        denom += weight;\n" +
+            "        weighted += weight * v_data[other * hiddenSize + offset + dim];\n" +
+            "    }\n" +
+            "    out_data[token * hiddenSize + offset + dim] = denom > 0.0 ? weighted / denom : 0.0;\n"
     }
     if name == "tensorTripletMarginLoss" {
         return "    int row = int(gl_GlobalInvocationID.x);\n" +
