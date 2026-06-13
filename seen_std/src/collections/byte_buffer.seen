@@ -5,6 +5,7 @@ extern fun seen_byte_array_len(handle: Int) r: Int
 extern fun seen_byte_array_capacity(handle: Int) r: Int
 extern fun seen_byte_array_try_reserve(handle: Int, required: Int) r: Bool
 extern fun seen_byte_array_clear(handle: Int) r: Void
+extern fun seen_byte_array_release(handle: Int) r: Void
 extern fun seen_byte_array_push(handle: Int, value: Int) r: Void
 extern fun seen_byte_array_append(handle: Int, other: Int) r: Void
 extern fun seen_byte_array_get(handle: Int, index: Int) r: Int
@@ -17,6 +18,7 @@ extern fun seen_byte_array_to_int_array(handle: Int) r: Array<Int>
 extern fun seen_i32_buffer_new(capacity: Int) r: Int
 extern fun seen_primitive_buffer_capacity(handle: Int) r: Int
 extern fun seen_primitive_buffer_try_reserve(handle: Int, required: Int) r: Bool
+extern fun seen_primitive_buffer_release(handle: Int) r: Void
 extern fun seen_i32_buffer_len(handle: Int) r: Int
 extern fun seen_i32_buffer_clear(handle: Int) r: Void
 extern fun seen_i32_buffer_push(handle: Int, value: Int32) r: Void
@@ -94,6 +96,10 @@ class ByteArray {
         seen_byte_array_clear(this.handle)
     }
 
+    fun clearAndRelease() -> Void {
+        seen_byte_array_release(this.handle)
+    }
+
     fun push(value: Int) -> Void {
         seen_byte_array_push(this.handle, value)
     }
@@ -164,6 +170,10 @@ class Int32Buffer {
         seen_i32_buffer_clear(this.handle)
     }
 
+    fun clearAndRelease() -> Void {
+        seen_primitive_buffer_release(this.handle)
+    }
+
     fun push(value: Int32) -> Void {
         seen_i32_buffer_push(this.handle, value)
     }
@@ -212,6 +222,10 @@ class Int64Buffer {
         seen_i64_buffer_clear(this.handle)
     }
 
+    fun clearAndRelease() -> Void {
+        seen_primitive_buffer_release(this.handle)
+    }
+
     fun push(value: Int64) -> Void {
         seen_i64_buffer_push(this.handle, value)
     }
@@ -258,6 +272,10 @@ class Float32Buffer {
 
     fun clear() -> Void {
         seen_f32_buffer_clear(this.handle)
+    }
+
+    fun clearAndRelease() -> Void {
+        seen_primitive_buffer_release(this.handle)
     }
 
     fun push(value: Float) -> Void {
@@ -322,6 +340,10 @@ class Float64Buffer {
 
     fun clear() -> Void {
         seen_f64_buffer_clear(this.handle)
+    }
+
+    fun clearAndRelease() -> Void {
+        seen_primitive_buffer_release(this.handle)
     }
 
     fun push(value: Float) -> Void {

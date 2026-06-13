@@ -344,6 +344,15 @@ void seen_arr_push_ptr(SeenArray* arr, void* p);
 // Clear array (reset length to 0 without freeing buffer)
 void seen_arr_clear(SeenArray* arr);
 
+// Release array backing storage while keeping the array handle usable.
+void seen_arr_release(SeenArray* arr);
+void seen_arr_release_i64(SeenArray* arr);
+void seen_arr_release_f64(SeenArray* arr);
+void seen_arr_release_str(SeenArray* arr);
+
+// Release array backing storage and the heap-allocated array header.
+void seen_arr_free(SeenArray* arr);
+
 // Generic Array_push (for generated code)
 int64_t Array_push(SeenArray* arr, void* element);
 // Generic Array_set (for generated code)
@@ -452,6 +461,7 @@ int64_t seen_byte_array_len(void* handle);
 int64_t seen_byte_array_capacity(void* handle);
 bool seen_byte_array_try_reserve(void* handle, int64_t required);
 void seen_byte_array_clear(void* handle);
+void seen_byte_array_release(void* handle);
 void seen_byte_array_push(void* handle, int64_t value);
 void seen_byte_array_append(void* handle, void* other_handle);
 int64_t seen_byte_array_get(void* handle, int64_t index);
@@ -464,6 +474,7 @@ SeenArray* seen_byte_array_to_int_array(void* handle);
 void* seen_i32_buffer_new(int64_t capacity);
 int64_t seen_primitive_buffer_capacity(void* handle);
 bool seen_primitive_buffer_try_reserve(void* handle, int64_t required);
+void seen_primitive_buffer_release(void* handle);
 int64_t seen_i32_buffer_len(void* handle);
 void seen_i32_buffer_clear(void* handle);
 void seen_i32_buffer_push(void* handle, int64_t value);
@@ -543,7 +554,11 @@ static inline void StringBuilder_appendLine(StringBuilder* sb, SeenString text) 
 }
 
 static inline void StringBuilder_clear(StringBuilder* sb) {
-    sb->parts->len = 0;
+    if (!sb) return;
+    if (sb->parts) {
+        seen_arr_free(sb->parts);
+    }
+    sb->parts = seen_arr_new_str_ptr();
     sb->totalLength = 0;
 }
 

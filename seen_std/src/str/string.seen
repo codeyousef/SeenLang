@@ -13,6 +13,7 @@ import io.file.{writeText, appendText}
 import memory.allocation.{AllocError, ensureAllocationBudget}
 
 extern "C" fun seen_string_builder_flatten(parts: Array<String>, totalLength: Int) r: String
+extern "C" fun seen_arr_free(parts: Array<String>) r: Void
 extern "C" fun seen_string_contains_fast(text: String, needle: String) r: Bool
 extern "C" fun seen_string_starts_with_fast(text: String, prefix: String) r: Bool
 extern "C" fun seen_string_ends_with_fast(text: String, suffix: String) r: Bool
@@ -68,6 +69,7 @@ class StringBuilder {
     }
 
     fun clear() r: Void {
+        seen_arr_free(this.parts)
         this.parts = Array<String>()
         this.totalLength = 0
     }
