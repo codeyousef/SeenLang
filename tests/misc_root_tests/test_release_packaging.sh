@@ -63,13 +63,32 @@ FAKE_EOF
 chmod +x "$FAKE_COMPILER"
 
 DIST_DIR="$TMP_DIR/dist"
-"$ROOT_DIR/scripts/build_release.sh" \
+ARTIFACT_CACHE_ROOT="$TMP_DIR/artifact-cache"
+mkdir -p "$DIST_DIR"
+printf 'stale release artifact\n' > "$DIST_DIR/seen-0.9.2-linux-x64.tar.gz"
+
+SEEN_RELEASE_ARTIFACT_CACHE_ROOT="$ARTIFACT_CACHE_ROOT" "$ROOT_DIR/scripts/build_release.sh" \
     --version 0.9.3 \
     --output-dir "$DIST_DIR" \
     --compiler "$FAKE_COMPILER" \
     --cpu-baseline x86-64 \
     --artifact-suffix linux-x64 \
     --skip-verify >/dev/null
+
+rm -rf "$DIST_DIR"
+mkdir -p "$DIST_DIR"
+SEEN_RELEASE_ARTIFACT_CACHE_ROOT="$ARTIFACT_CACHE_ROOT" "$ROOT_DIR/scripts/build_release.sh" \
+    --version 0.9.3 \
+    --output-dir "$DIST_DIR" \
+    --compiler "$FAKE_COMPILER" \
+    --cpu-baseline x86-64 \
+    --artifact-suffix linux-x64 \
+    --skip-verify >/dev/null
+
+if [[ -e "$DIST_DIR/seen-0.9.2-linux-x64.tar.gz" ]]; then
+    echo "release artifact cache restored a stale version" >&2
+    exit 1
+fi
 
 TARBALL="$DIST_DIR/seen-0.9.3-linux-x64.tar.gz"
 test -f "$TARBALL"
