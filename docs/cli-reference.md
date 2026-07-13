@@ -1,6 +1,6 @@
 # CLI Reference
 
-This page documents the shipped Seen 0.9.4 compiler binary. The release
+This page documents the shipped Seen 0.9.5 compiler binary. The release
 entrypoint is `seen compile`; older `seen build` examples are stale for the
 current packaged compiler.
 

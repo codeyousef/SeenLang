@@ -86,7 +86,7 @@ SEEN_LOW_MEMORY=1 scripts/perf_gate.sh --compare --suite build --tier quick
 scripts/perf_gate.sh --compare --suite stdlib
 scripts/perf_gate.sh --compare --suite runtime
 scripts/perf_gate.sh --compare --suite release-lto
-scripts/perf_gate.sh --compare --suite packages --version 0.9.4-build
+scripts/perf_gate.sh --compare --suite packages --version 0.9.5-build
 ```
 
 Schema-v2 baselines are stored under

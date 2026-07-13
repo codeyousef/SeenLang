@@ -62,14 +62,22 @@ windows_payload_hash_for_installer() {
     if declare -F seen_build_hash_paths >/dev/null 2>&1; then
         seen_build_hash_paths \
             "$PROJECT_DIR/seen_std/src" \
-            "$PROJECT_DIR/seen_runtime" \
+            "$PROJECT_DIR/seen_runtime/seen_runtime.h" \
+            "$PROJECT_DIR/seen_runtime/seen_region.h" \
+            "$PROJECT_DIR/seen_runtime/seen_gpu.h" \
+            "$PROJECT_DIR/seen_runtime/seen_compat_win32.h" \
             "$PROJECT_DIR/languages" \
             "$PROJECT_DIR/docs" \
             "$PROJECT_DIR/installer/windows/install-llvm.ps1" \
             "${SEEN_WINDOWS_LLVM_BUNDLE_DIR:-}" \
             "${SEEN_WINDOWS_LLVM_INSTALLER:-}"
     else
-        find "$PROJECT_DIR/seen_std/src" "$PROJECT_DIR/seen_runtime" "$PROJECT_DIR/languages" "$PROJECT_DIR/docs" \
+        find "$PROJECT_DIR/seen_std/src" \
+            "$PROJECT_DIR/seen_runtime/seen_runtime.h" \
+            "$PROJECT_DIR/seen_runtime/seen_region.h" \
+            "$PROJECT_DIR/seen_runtime/seen_gpu.h" \
+            "$PROJECT_DIR/seen_runtime/seen_compat_win32.h" \
+            "$PROJECT_DIR/languages" "$PROJECT_DIR/docs" \
             -type f -print0 2>/dev/null | sort -z | xargs -0 sha256sum 2>/dev/null | sha256sum | awk '{print $1}'
     fi
 }

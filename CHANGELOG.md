@@ -5,6 +5,18 @@ All notable changes to the Seen compiler will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.5] - 2026-07-13
+
+### Changed
+
+- Made Linux platform Vulkan shim exports weak so engines can provide strong Vulkan implementations while still consuming individual standard-library fallbacks such as RGBA8 image readback.
+- Bumped the shipped Seen compiler metadata to `0.9.5` and `seen_std` to `0.1.3`.
+
+### Fixed
+
+- Fixed duplicate Vulkan symbol failures when applications combine `platform.linux.vulkan` with an engine-owned Vulkan runtime.
+- Fixed Windows payload manifests so host-generated Linux runtime objects cannot invalidate otherwise reusable Windows compiler artifacts.
+
 ## [0.9.4] - 2026-07-13
 
 ### Changed

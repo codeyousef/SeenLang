@@ -24,6 +24,12 @@ int32_t seen_vk_read_image_rgba8(
     int32_t width, int32_t height, int32_t format,
     uint8_t* out_rgba, uint64_t out_size, int32_t flip_y);
 
+static int engine_override_called = 0;
+
+void seen_vk_destroy_instance(uint64_t instance) {
+    if (instance == 42) engine_override_called = 1;
+}
+
 static int expect_result(const char* label, int32_t actual, int32_t expected) {
     if (actual == expected) return 0;
     fprintf(stderr, "%s: expected %d, got %d\n", label, expected, actual);
@@ -41,6 +47,8 @@ int main(void) {
         seen_vk_read_image_rgba8(1, 1, 1, 1, 1, 0, 1, 1, 126, output, sizeof(output), 0), -11);
     failed |= expect_result("undersized output",
         seen_vk_read_image_rgba8(1, 1, 1, 1, 1, 0, 4, 4, 37, output, sizeof(output), 0), -1);
+    seen_vk_destroy_instance(42);
+    failed |= expect_result("strong engine override", engine_override_called, 1);
     if (failed) return 1;
     puts("Vulkan readback shim validation passed");
     return 0;
@@ -52,7 +60,14 @@ TEST_EOF
     ulimit -v "$SEEN_TEST_VMEM_KB"
     cc -std=c11 -Wall -Wextra -Werror -DSEEN_USE_VULKAN \
         $(pkg-config --cflags vulkan) \
-        "$ROOT_DIR/seen_std/src/platform/linux/shim/seen_platform_shim.c" \
+        -c "$ROOT_DIR/seen_std/src/platform/linux/shim/seen_platform_shim.c" \
+        -o "$TMP_DIR/seen_platform_shim.o"
+    if nm -g --defined-only "$TMP_DIR/seen_platform_shim.o" | awk '$2 == "T" && $3 ~ /^seen_vk_/ { print }' | grep -q .; then
+        echo "FAIL: Vulkan shim exports must remain weak when engine overrides are linked" >&2
+        exit 1
+    fi
+    cc -std=c11 -Wall -Wextra -Werror \
+        "$TMP_DIR/seen_platform_shim.o" \
         "$TMP_DIR/readback_test.c" \
         $(pkg-config --libs vulkan) \
         -o "$TMP_DIR/readback_test"

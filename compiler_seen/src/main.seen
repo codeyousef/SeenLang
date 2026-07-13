@@ -187,7 +187,7 @@ fun main() r: Int {
     } else if command == "pkg" {
         exit = StagePkgCommand(GetRawCommandLineArgs())
     } else if command == "--version" or command == "-v" {
-        printLn("Seen 0.9.4 (100% self-hosted)")
+        printLn("Seen 0.9.5 (100% self-hosted)")
         printLn("Language: Seen")
         printLn("Targets: native, wasm, uww, c, llvm-ir")
         exit = 0
@@ -329,7 +329,7 @@ fun getDefaultOutput(sourceFile: String, target: Target) r: String {
 }
 
 fun printUsage() r: Void {
-    printLn("Seen 0.9.4 - 100% Self-hosted Compiler")
+    printLn("Seen 0.9.5 - 100% Self-hosted Compiler")
     printLn("")
     printLn("Usage: seen <command> [options]")
     printLn("")
