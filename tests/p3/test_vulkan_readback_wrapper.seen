@@ -1,0 +1,22 @@
+import platform.linux.vulkan.{vk_read_image_rgba8}
+
+fun main() r: Int {
+    let result = vk_read_image_rgba8(
+        0 as UInt64, 0 as UInt64, 0 as UInt64,
+        0 as UInt64, 0 as UInt64, 0,
+        0, 1, 37, false
+    )
+    if result.isErr() {
+        let oversized = vk_read_image_rgba8(
+            0 as UInt64, 0 as UInt64, 0 as UInt64,
+            0 as UInt64, 0 as UInt64, 0,
+            536870912, 1, 37, false
+        )
+        if oversized.isErr() {
+            println("PASS: Vulkan readback wrapper rejects invalid dimensions")
+            return 0
+        }
+    }
+    println("FAIL: Vulkan readback wrapper accepted invalid dimensions")
+    return 1
+}

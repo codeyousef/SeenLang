@@ -357,6 +357,15 @@ extern "C" fun seen_vk_destroy_swapchain(device: UInt64, swapchain: UInt64) r: V
 extern "C" fun seen_vk_get_swapchain_images(device: UInt64, swapchain: UInt64, count: *UInt32, images: *UInt64) r: Int32
 extern "C" fun seen_vk_acquire_next_image(device: UInt64, swapchain: UInt64, timeout: UInt64, semaphore: UInt64, fence: UInt64, imageIndex: *UInt32) r: Int32
 
+// Synchronous diagnostic readback. The source image must include
+// VK_IMAGE_USAGE_TRANSFER_SRC_BIT and be owned by the supplied queue.
+extern "C" fun seen_vk_read_image_rgba8(
+    physicalDevice: UInt64, device: UInt64, queue: UInt64,
+    commandPool: UInt64, image: UInt64, currentLayout: Int32,
+    width: Int32, height: Int32, format: Int32,
+    outRgba: *UInt8, outSize: UInt64, flipY: Int32
+) r: Int32
+
 // Image views
 extern "C" fun seen_vk_create_image_view(device: UInt64, image: UInt64, viewType: UInt32, format: UInt32, aspectMask: UInt32, outView: *UInt64) r: Int32
 extern "C" fun seen_vk_destroy_image_view(device: UInt64, view: UInt64) r: Void
@@ -448,6 +457,40 @@ fun vk_succeeded(result: Int) r: Bool {
 // Check if result is an error
 fun vk_failed(result: Int) r: Bool {
     return result < 0
+}
+
+fun vk_read_image_rgba8(
+    physicalDevice: UInt64, device: UInt64, queue: UInt64,
+    commandPool: UInt64, image: UInt64, currentLayout: Int,
+    width: Int, height: Int, format: Int, flipY: Bool
+) r: Result<Array<UInt8>, String> {
+    if width <= 0 or height <= 0 {
+        return Err("Vulkan image readback requires positive dimensions")
+    }
+    if width > 536870911 / height {
+        return Err("Vulkan image readback exceeds the 2 GiB RGBA8 limit")
+    }
+    let byteCount = width * height * 4
+    if byteCount <= 0 {
+        return Err("Vulkan image readback dimensions overflowed")
+    }
+    var pixels = Array<UInt8>.withCapacity(byteCount)
+    var index = 0
+    while index < byteCount {
+        pixels.push(0 as UInt8)
+        index = index + 1
+    }
+    var flip = 0
+    if flipY { flip = 1 }
+    let result = seen_vk_read_image_rgba8(
+        physicalDevice, device, queue, commandPool, image,
+        currentLayout as Int32, width as Int32, height as Int32, format as Int32,
+        pixels.data() as *UInt8, byteCount as UInt64, flip as Int32
+    )
+    if vk_failed(result as Int) {
+        return Err("Vulkan image readback failed: " + vk_result_string(result as Int))
+    }
+    return Ok(pixels)
 }
 
 // Make Vulkan API version

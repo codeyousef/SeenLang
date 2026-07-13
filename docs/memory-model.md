@@ -4,7 +4,7 @@ Seen uses region-based memory management with no garbage collector. Memory is ma
 
 ## Allocation Failure
 
-Seen 0.9.2 treats allocation failure as part of memory safety. A program can set
+Seen 0.9.3 treats allocation failure as part of memory safety. A program can set
 or inherit a process allocation budget with `SEEN_MEMORY_LIMIT_BYTES`; runtime
 allocation helpers track used bytes, peak bytes, and allocation failures.
 

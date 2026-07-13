@@ -5,6 +5,22 @@ All notable changes to the Seen compiler will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.3] - 2026-07-13
+
+### Added
+
+- Added bounded Vulkan RGBA8 image readback through the Linux platform shim, including transfer-buffer allocation, layout restoration, BGRA conversion, and optional vertical flipping for deterministic compositor-independent captures.
+- Added a typed `vk_read_image_rgba8` Seen wrapper returning canonical RGBA bytes through `Result<Array<UInt8>, String>`.
+
+### Changed
+
+- Bumped the shipped Seen compiler, workspace, CLI, LSP, documentation, release tests, and benchmark metadata to `0.9.3`.
+- Bumped the `seen_std` package version to `0.1.1` for the Vulkan readback API addition.
+
+### Fixed
+
+- Fixed the prepared specialized-method lowering wrapper to forward argument registers through the current specialization ABI, restoring full self-hosted rebuild compatibility.
+
 ## [0.9.2] - 2026-06-12
 
 ### Added+

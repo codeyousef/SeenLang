@@ -2,9 +2,9 @@
 # Build release packages for the Seen language compiler.
 #
 # Usage:
-#   ./scripts/build_release.sh --version 0.9.2 \
+#   ./scripts/build_release.sh --version 0.9.3 \
 #     --cpu-baseline x86-64 --artifact-suffix linux-x64
-#   ./scripts/build_release.sh --version 0.9.2 \
+#   ./scripts/build_release.sh --version 0.9.3 \
 #     --compiler compiler_seen/target/seen-x86-64-v3 \
 #     --cpu-baseline x86-64-v3 --artifact-suffix linux-x64-v3
 #
@@ -53,6 +53,7 @@ release_payload_hash() {
             "$ROOT_DIR/languages" \
             "$ROOT_DIR/docs" \
             "$ROOT_DIR/README.md" \
+            "$ROOT_DIR/CHANGELOG.md" \
             "$ROOT_DIR/LICENSE" \
             "$ROOT_DIR/scripts/seen_toolchain.sh" \
             "${SEEN_LLVM_BUNDLE_DIR:-}"
@@ -156,7 +157,7 @@ usage() {
     echo "          [--cpu-baseline <x86-64|x86-64-v3>] [--artifact-suffix <linux-x64|linux-x64-v3>]"
     echo ""
     echo "Options:"
-    echo "  --version          Release version (e.g., 0.9.2) [required]"
+    echo "  --version          Release version (e.g., 0.9.3) [required]"
     echo "  --output-dir       Output directory (default: dist/)"
     echo "  --compiler         Path to compiler binary (default: compiler_seen/target/seen)"
     echo "  --cpu-baseline     Packaged binary CPU baseline (default: x86-64)"
@@ -301,6 +302,7 @@ if [[ "$PAYLOAD_CACHE_HIT" != "1" ]]; then
 
     echo "[5/6] Copying documentation and shared toolchain payload..."
     cp "$ROOT_DIR/README.md" "$STAGING/share/doc/seen/"
+    cp "$ROOT_DIR/CHANGELOG.md" "$STAGING/share/doc/seen/"
     [[ -f "$ROOT_DIR/LICENSE" ]] && cp "$ROOT_DIR/LICENSE" "$STAGING/share/doc/seen/"
 fi
 

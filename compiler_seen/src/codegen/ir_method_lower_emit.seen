@@ -154,11 +154,11 @@ fun emitPreparedScalarReceiverFallbackImpl(output: StringBuilder,
 fun emitPreparedSpecializedMethodLowerImpl(output: StringBuilder,
     regBox: Array<Int>, methodName: String, instanceTypeName: String,
     receiverType: String, returnTypeStr: String, receiverLlvmType: String,
-    receiverReg: String, structNames: Array<String>) r: String {
+    receiverReg: String, argRegs: Array<String>) r: String {
 
     return tryGenerateSpecializedInstanceMethodCallImpl(output, regBox,
         methodName, instanceTypeName, receiverType, returnTypeStr,
-        receiverLlvmType, receiverReg)
+        receiverLlvmType, receiverReg, argRegs)
 }
 
 fun emitPreparedUserMethodLowerImpl(output: StringBuilder,

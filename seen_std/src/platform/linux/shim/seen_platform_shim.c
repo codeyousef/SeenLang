@@ -1171,6 +1171,189 @@ void seen_vk_cmd_copy_buffer_to_image(uint64_t cmd, uint64_t buffer, uint64_t im
                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 }
 
+int32_t seen_vk_read_image_rgba8(
+    uint64_t physical_device, uint64_t device, uint64_t queue,
+    uint64_t command_pool, uint64_t image, int32_t current_layout,
+    int32_t width, int32_t height, int32_t format,
+    uint8_t* out_rgba, uint64_t out_size, int32_t flip_y
+) {
+    if (!physical_device || !device || !queue || !command_pool || !image || !out_rgba) {
+        return VK_ERROR_INITIALIZATION_FAILED;
+    }
+    if (width <= 0 || height <= 0) {
+        return VK_ERROR_INITIALIZATION_FAILED;
+    }
+    if (format != VK_FORMAT_R8G8B8A8_UNORM &&
+        format != VK_FORMAT_R8G8B8A8_SRGB &&
+        format != VK_FORMAT_B8G8R8A8_UNORM &&
+        format != VK_FORMAT_B8G8R8A8_SRGB) {
+        return VK_ERROR_FORMAT_NOT_SUPPORTED;
+    }
+
+    size_t pixel_count = 0;
+    size_t byte_count = 0;
+    if (!seen_platform_mul_bytes((size_t)width, (size_t)height, &pixel_count) ||
+        !seen_platform_mul_bytes(pixel_count, 4, &byte_count) ||
+        byte_count > out_size) {
+        return VK_ERROR_OUT_OF_HOST_MEMORY;
+    }
+
+    VkDevice vk_device = (VkDevice)device;
+    VkBuffer buffer = VK_NULL_HANDLE;
+    VkDeviceMemory memory = VK_NULL_HANDLE;
+    VkCommandBuffer command_buffer = VK_NULL_HANDLE;
+    VkResult result = VK_SUCCESS;
+
+    VkBufferCreateInfo buffer_info = {
+        .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        .size = byte_count,
+        .usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        .sharingMode = VK_SHARING_MODE_EXCLUSIVE
+    };
+    result = vkCreateBuffer(vk_device, &buffer_info, NULL, &buffer);
+    if (result != VK_SUCCESS) goto cleanup;
+
+    VkMemoryRequirements requirements;
+    vkGetBufferMemoryRequirements(vk_device, buffer, &requirements);
+    VkPhysicalDeviceMemoryProperties memory_properties;
+    vkGetPhysicalDeviceMemoryProperties((VkPhysicalDevice)physical_device, &memory_properties);
+    uint32_t memory_type = UINT32_MAX;
+    const VkMemoryPropertyFlags required_properties =
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    for (uint32_t index = 0; index < memory_properties.memoryTypeCount; index++) {
+        if ((requirements.memoryTypeBits & (1u << index)) != 0 &&
+            (memory_properties.memoryTypes[index].propertyFlags & required_properties) == required_properties) {
+            memory_type = index;
+            break;
+        }
+    }
+    if (memory_type == UINT32_MAX) {
+        result = VK_ERROR_FEATURE_NOT_PRESENT;
+        goto cleanup;
+    }
+
+    VkMemoryAllocateInfo allocation_info = {
+        .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        .allocationSize = requirements.size,
+        .memoryTypeIndex = memory_type
+    };
+    result = vkAllocateMemory(vk_device, &allocation_info, NULL, &memory);
+    if (result != VK_SUCCESS) goto cleanup;
+    result = vkBindBufferMemory(vk_device, buffer, memory, 0);
+    if (result != VK_SUCCESS) goto cleanup;
+
+    result = vkQueueWaitIdle((VkQueue)queue);
+    if (result != VK_SUCCESS) goto cleanup;
+
+    VkCommandBufferAllocateInfo command_allocate_info = {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+        .commandPool = (VkCommandPool)command_pool,
+        .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+        .commandBufferCount = 1
+    };
+    result = vkAllocateCommandBuffers(vk_device, &command_allocate_info, &command_buffer);
+    if (result != VK_SUCCESS) goto cleanup;
+
+    VkCommandBufferBeginInfo command_begin_info = {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+        .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
+    };
+    result = vkBeginCommandBuffer(command_buffer, &command_begin_info);
+    if (result != VK_SUCCESS) goto cleanup;
+
+    VkImageMemoryBarrier to_transfer = {
+        .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+        .srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT | VK_ACCESS_MEMORY_READ_BIT,
+        .dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT,
+        .oldLayout = (VkImageLayout)current_layout,
+        .newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .image = (VkImage)image,
+        .subresourceRange = {
+            .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+            .baseMipLevel = 0,
+            .levelCount = 1,
+            .baseArrayLayer = 0,
+            .layerCount = 1
+        }
+    };
+    vkCmdPipelineBarrier(
+        command_buffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+        0, 0, NULL, 0, NULL, 1, &to_transfer);
+
+    VkBufferImageCopy copy_region = {
+        .bufferOffset = 0,
+        .bufferRowLength = 0,
+        .bufferImageHeight = 0,
+        .imageSubresource = {
+            .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+            .mipLevel = 0,
+            .baseArrayLayer = 0,
+            .layerCount = 1
+        },
+        .imageOffset = { 0, 0, 0 },
+        .imageExtent = { (uint32_t)width, (uint32_t)height, 1 }
+    };
+    vkCmdCopyImageToBuffer(
+        command_buffer, (VkImage)image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        buffer, 1, &copy_region);
+
+    VkImageMemoryBarrier restore_layout = to_transfer;
+    restore_layout.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+    restore_layout.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
+    restore_layout.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    restore_layout.newLayout = (VkImageLayout)current_layout;
+    vkCmdPipelineBarrier(
+        command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+        0, 0, NULL, 0, NULL, 1, &restore_layout);
+
+    result = vkEndCommandBuffer(command_buffer);
+    if (result != VK_SUCCESS) goto cleanup;
+
+    VkSubmitInfo submit_info = {
+        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        .commandBufferCount = 1,
+        .pCommandBuffers = &command_buffer
+    };
+    result = vkQueueSubmit((VkQueue)queue, 1, &submit_info, VK_NULL_HANDLE);
+    if (result != VK_SUCCESS) goto cleanup;
+    result = vkQueueWaitIdle((VkQueue)queue);
+    if (result != VK_SUCCESS) goto cleanup;
+
+    void* mapped = NULL;
+    result = vkMapMemory(vk_device, memory, 0, byte_count, 0, &mapped);
+    if (result != VK_SUCCESS) goto cleanup;
+
+    const uint8_t* source = (const uint8_t*)mapped;
+    const int source_is_bgra =
+        format == VK_FORMAT_B8G8R8A8_UNORM || format == VK_FORMAT_B8G8R8A8_SRGB;
+    for (int32_t destination_y = 0; destination_y < height; destination_y++) {
+        int32_t source_y = flip_y ? height - 1 - destination_y : destination_y;
+        const uint8_t* source_row = source + (size_t)source_y * (size_t)width * 4;
+        uint8_t* destination_row = out_rgba + (size_t)destination_y * (size_t)width * 4;
+        if (!source_is_bgra) {
+            memcpy(destination_row, source_row, (size_t)width * 4);
+            continue;
+        }
+        for (int32_t x = 0; x < width; x++) {
+            destination_row[x * 4 + 0] = source_row[x * 4 + 2];
+            destination_row[x * 4 + 1] = source_row[x * 4 + 1];
+            destination_row[x * 4 + 2] = source_row[x * 4 + 0];
+            destination_row[x * 4 + 3] = source_row[x * 4 + 3];
+        }
+    }
+    vkUnmapMemory(vk_device, memory);
+
+cleanup:
+    if (command_buffer != VK_NULL_HANDLE) {
+        vkFreeCommandBuffers(vk_device, (VkCommandPool)command_pool, 1, &command_buffer);
+    }
+    if (buffer != VK_NULL_HANDLE) vkDestroyBuffer(vk_device, buffer, NULL);
+    if (memory != VK_NULL_HANDLE) vkFreeMemory(vk_device, memory, NULL);
+    return result;
+}
+
 void seen_vk_cmd_reset_query_pool(uint64_t cmd, uint64_t pool, int32_t first, int32_t count) {
     vkCmdResetQueryPool((VkCommandBuffer)cmd, (VkQueryPool)pool, first, count);
 }
