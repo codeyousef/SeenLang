@@ -1,6 +1,6 @@
 [project]
 name = "seen_std"
-version = "0.1.1"
+version = "0.1.2"
 language = "en"
 visibility = "explicit"
 description = "Core Seen standard library modules used by the self-hosted compiler"

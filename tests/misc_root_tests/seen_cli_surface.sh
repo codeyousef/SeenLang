@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 COMPILER="${SEEN_BIN:-$ROOT_DIR/compiler_seen/target/seen}"
-VERSION="${SEEN_EXPECTED_VERSION:-0.9.3}"
+VERSION="${SEEN_EXPECTED_VERSION:-0.9.4}"
 
 fail() {
     echo "FAIL: $*" >&2
