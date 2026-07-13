@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Fixed duplicate Vulkan symbol failures when applications combine `platform.linux.vulkan` with an engine-owned Vulkan runtime.
 - Fixed Windows payload manifests so host-generated Linux runtime objects cannot invalidate otherwise reusable Windows compiler artifacts.
+- Fixed Windows object-cache publication races and included backend optimization settings in cache identities.
 
 ## [0.9.4] - 2026-07-13
 
