@@ -1,0 +1,2479 @@
+openapi: 3.1.0
+jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
+info:
+  title: Seen package registry API
+  version: 1.0.0
+  summary: Versioned package publication and retrieval contract
+  description: |
+    Host-neutral HTTP contract for Seen package metadata, immutable release
+    reservation, archive ingestion, release-state actions, source-proof
+    history, and archive download.
+
+    Package identity, release state, source provenance, registry authorization,
+    and account authentication are separate concerns. Aether issues and manages
+    passkeys, sessions, and bearer credentials outside this API. This contract
+    validates those credentials at the boundary and owns package/namespace
+    authorization, reports, enforcement review, and namespace ownership changes.
+    Registry namespace recovery never changes or recovers an Aether account.
+
+    Public writer deployment remains disabled until the contract, storage,
+    scanner, signing, authorization, and resolver gates are enabled together.
+servers:
+  - url: https://seen.dev.yousef.codes
+    description: Development deployment
+  - url: https://seen.yousef.codes
+    description: Production deployment
+tags:
+  - name: Packages
+    description: Package-level metadata and namespace reservation
+  - name: Releases
+    description: Immutable version reservation and release-state reads
+  - name: Uploads
+    description: Content-addressed archive ingestion
+  - name: Source proofs
+    description: Append-only forge verification records
+  - name: Release actions
+    description: Explicit availability, visibility, and retention transitions
+  - name: Signed metadata
+    description: Public, byte-exact TUF metadata delivery
+  - name: Blobs
+    description: Content-addressed package archive bytes
+  - name: Reports
+    description: Access-controlled ecosystem security reports
+  - name: Enforcement
+    description: Appeals, independent review, quarantine, and reinstatement
+  - name: Namespaces
+    description: Registry namespace transfer and ownership recovery workflows
+x-seen-contract:
+  api_prefix: /packages/api/v1
+  privacy:
+    public_listing: public-active-packages-only
+    private_lookup: authenticated-and-authorized-only
+    concealed_result: not_found
+    total_counts: forbidden
+  authorization:
+    account_authentication_provider: external-aether
+    credential_issuance_in_registry_api: false
+    accepted_credential: short-lived-bearer
+    required_claims:
+      - iss
+      - aud
+      - sub
+      - exp
+      - auth_time
+      - environment
+      - scopes
+    audience_and_environment_mismatch: reject
+    recent_auth_max_age_seconds: 900
+    recent_auth_claim: auth_time
+    recent_auth_claim_type: jwt-numeric-date-seconds
+    recent_auth_rule: server-now-minus-auth-time-must-be-between-negative-future-tolerance-and-operation-maximum
+    future_auth_time_tolerance_seconds: 60
+    authorization_order:
+      - validate-token-boundary
+      - reject-environment-or-audience-mismatch
+      - apply-explicit-role-deny
+      - require-operation-scope
+      - authorize-resource-role
+      - apply-recent-auth-and-separation-policy
+    publisher_explicitly_denied_operations:
+      - emergencySecurityQuarantineRelease
+      - reviewEnforcementAppeal
+      - reviewedReinstateRelease
+      - reviewOwnershipRecovery
+      - executeOwnershipRecovery
+  timestamps:
+    format: RFC3339
+    timezone: UTC
+    suffix: Z
+    fractional_seconds: optional-up-to-9-digits
+    client_ordering: forbidden
+  pagination:
+    style: opaque-cursor
+    default_limit: 25
+    maximum_limit: 100
+    cursor_maximum_bytes: 512
+    cursor_scope:
+      - authenticated-principal
+      - canonical-path
+      - filters
+      - sort-order
+    response_fields:
+      - items
+      - next_cursor
+      - has_more
+  idempotency:
+    required_on:
+      - POST
+      - DELETE
+    key_minimum_bytes: 16
+    key_maximum_bytes: 128
+    retention_seconds: 86400
+    scope:
+      - authenticated-principal
+      - HTTP-method
+      - canonical-path
+      - key
+    fingerprint:
+      - request-body-bytes
+      - content-type
+      - digest-headers
+    same_fingerprint: replay-original-status-headers-and-body
+    different_fingerprint: idempotency_key_reused
+    replay_header: Idempotency-Replayed
+  digests:
+    algorithm: sha256
+    json_encoding: lowercase-hex-without-prefix
+    archive_header: X-Seen-Archive-Sha256
+    etag_encoding: quoted-sha256-colon-lowercase-hex
+    verification: stream-and-compare-before-promotion
+    client_download_rule: compare-response-header-lockfile-and-computed-digest
+  retry:
+    authority: error.retryable
+    delay: Retry-After-must-equal-error.retry_after_seconds
+    mutation_rule: reuse-identical-body-and-idempotency-key
+    strategy: bounded-exponential-backoff-with-jitter
+  archive_policy:
+    format: tar+gzip
+    content_model: source-only
+    compressed_bytes: 26214400
+    expanded_bytes: 104857600
+    entry_count: 4096
+    regular_file_bytes: 10485760
+    path_bytes: 240
+    path_depth: 16
+    compression_ratio: 100
+    validation_seconds: 30
+  release_invariants:
+    reservation_tuple:
+      - package
+      - version
+      - archive_sha256
+    reservation: atomic-and-never-reusable
+    archive_and_manifest: immutable
+    archive_manifest_binding:
+      authority: uploaded-archive-root-Seen.toml
+      hash_input: exact-raw-Seen.toml-bytes
+      required_matches:
+        - reserved-manifest-sha256
+        - reserved-parsed-manifest
+        - path-package-identity
+        - reserved-version
+        - reserved-capabilities
+        - reserved-include
+        - reserved-assets
+      include_evaluation: recompute-from-validated-archive-entry-paths
+      mismatch: reject-before-ready-or-blob-promotion
+    verification_records: append-only
+    promotion_order:
+      - verify-archive
+      - promote-blob
+      - publish-signed-resolver-metadata
+    public_delay_seconds: 259200
+    private_to_public: restart-public-quarantine-and-delay
+x-seen-error-codes:
+  invalid_request: {http_status: 400, retryable: false}
+  invalid_package_identity: {http_status: 400, retryable: false}
+  invalid_version: {http_status: 400, retryable: false}
+  invalid_cursor: {http_status: 400, retryable: false}
+  page_limit_exceeded: {http_status: 400, retryable: false}
+  unauthenticated: {http_status: 401, retryable: false}
+  forbidden: {http_status: 403, retryable: false}
+  not_found: {http_status: 404, retryable: false}
+  package_already_exists: {http_status: 409, retryable: false}
+  version_already_reserved: {http_status: 409, retryable: false}
+  idempotency_key_required: {http_status: 400, retryable: false}
+  idempotency_key_reused: {http_status: 409, retryable: false}
+  digest_required: {http_status: 400, retryable: false}
+  digest_mismatch: {http_status: 422, retryable: false}
+  archive_too_large: {http_status: 413, retryable: false}
+  archive_rejected: {http_status: 422, retryable: false}
+  source_proof_invalid: {http_status: 422, retryable: false}
+  release_not_ready: {http_status: 409, retryable: true}
+  release_unavailable: {http_status: 409, retryable: false}
+  state_transition_forbidden: {http_status: 409, retryable: false}
+  rate_limited: {http_status: 429, retryable: true}
+  writer_disabled: {http_status: 503, retryable: false}
+  temporarily_unavailable: {http_status: 503, retryable: true}
+  internal_error: {http_status: 500, retryable: true}
+paths:
+  /packages/api/v1/packages:
+    get:
+      tags:
+        - Packages
+      operationId: listPublicPackages
+      summary: List public packages
+      description: |
+        Returns only public, non-tombstoned package projections ordered by
+        canonical identity ascending. The response never includes a total
+        count. Authentication does not expand this public listing.
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: Page of public packages
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PackagePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      tags:
+        - Packages
+      operationId: createPackage
+      summary: Reserve a package identity
+      description: |
+        Reserves a canonical package identity for the authenticated principal.
+        Namespace authorization is evaluated separately from identity syntax.
+        An identity that has ever had a public release is never recycled.
+      security:
+        - bearerAuth: []
+      x-seen-required-scopes:
+        - registry:packages:create
+      x-seen-resource-authorization: namespace-create
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePackageRequest"
+      responses:
+        "201":
+          description: Package identity reserved
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+            Idempotency-Replayed:
+              $ref: "#/components/headers/IdempotencyReplayed"
+            Location:
+              $ref: "#/components/headers/ResourceLocation"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PackageRecord"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /packages/api/v1/packages/{owner}/{name}:
+    get:
+      tags:
+        - Packages
+      operationId: getPackage
+      summary: Get an exact package
+      description: |
+        Returns the public projection, or the authorized private projection when
+        a bearer token is supplied. Missing and concealed private packages both
+        return the identical not_found response.
+      security:
+        - {}
+        - bearerAuth: []
+      x-seen-optional-bearer-scope: registry:packages:read
+      x-seen-resource-authorization: public-or-package-reader
+      parameters:
+        - $ref: "#/components/parameters/Owner"
+        - $ref: "#/components/parameters/Name"
+      responses:
+        "200":
+          description: Package record
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+            ETag:
+              $ref: "#/components/headers/MetadataEtag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PackageRecord"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /packages/api/v1/packages/{owner}/{name}/releases:
+    get:
+      tags:
+        - Releases
+      operationId: listPackageReleases
+      summary: List releases for an exact package
+      description: |
+        Public callers see public releases that reached an externally visible
+        lifecycle, including yanked releases. An authorized bearer may also see
+        private and unavailable records for that package. Results are ordered by
+        reserved_at descending and exact version ascending as a tie-breaker.
+      security:
+        - {}
+        - bearerAuth: []
+      x-seen-optional-bearer-scope: registry:packages:read
+      x-seen-resource-authorization: public-or-package-reader
+      parameters:
+        - $ref: "#/components/parameters/Owner"
+        - $ref: "#/components/parameters/Name"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: Page of releases
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReleasePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      tags:
+        - Releases
+      operationId: reserveRelease
+      summary: Atomically reserve a version and archive digest
+      description: |
+        Atomically reserves package, exact version, and archive SHA-256 before
+        returning an upload path. The manifest identity and version must equal
+        the path and request version. The request manifest is a reservation
+        commitment, not trusted archive metadata: validation reparses the root
+        Seen.toml from the uploaded bytes and byte/field-matches it before the
+        release can become ready. A reserved version is never reusable,
+        including after rejection, yank, deletion, or purge.
+      security:
+        - bearerAuth: []
+      x-seen-required-scopes:
+        - registry:packages:publish
+      x-seen-resource-authorization: package-publisher
+      parameters:
+        - $ref: "#/components/parameters/Owner"
+        - $ref: "#/components/parameters/Name"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReserveReleaseRequest"
+      responses:
+        "201":
+          description: Release reserved and upload session created
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+            Idempotency-Replayed:
+              $ref: "#/components/headers/IdempotencyReplayed"
+            Location:
+              $ref: "#/components/headers/ResourceLocation"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReleaseReservation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /packages/api/v1/packages/{owner}/{name}/releases/{version}:
+    get:
+      tags:
+        - Releases
+      operationId: getRelease
+      summary: Get an exact release
+      description: |
+        Public callers may read public visible release records. Authorized
+        callers may also read private and pre-activation state. Missing and
+        concealed private releases return the identical not_found response.
+      security:
+        - {}
+        - bearerAuth: []
+      x-seen-optional-bearer-scope: registry:packages:read
+      x-seen-resource-authorization: public-or-package-reader
+      parameters:
+        - $ref: "#/components/parameters/Owner"
+        - $ref: "#/components/parameters/Name"
+        - $ref: "#/components/parameters/Version"
+      responses:
+        "200":
+          description: Release record
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+            ETag:
+              $ref: "#/components/headers/MetadataEtag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReleaseRecord"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      tags:
+        - Release actions
+      operationId: softDeletePrivateRelease
+      summary: Soft-delete a private release
+      description: |
+        Soft-deletes a private release. Public releases cannot use this
+        operation. The package, version, digest reservation, audit history, and
+        retention record remain immutable.
+      security:
+        - bearerAuth: []
+      x-seen-required-scopes:
+        - registry:packages:delete
+      x-seen-resource-authorization: package-owner
+      parameters:
+        - $ref: "#/components/parameters/Owner"
+        - $ref: "#/components/parameters/Name"
+        - $ref: "#/components/parameters/Version"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: Updated release record
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+            Idempotency-Replayed:
+              $ref: "#/components/headers/IdempotencyReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReleaseRecord"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /packages/api/v1/packages/{owner}/{name}/releases/{version}/source-proofs:
+    get:
+      tags:
+        - Source proofs
+      operationId: listReleaseSourceProofs
+      summary: List append-only source-proof history
+      description: |
+        Lists source proofs by sequence descending. Public callers see the
+        proofs attached to public visible releases. Authorized callers may see
+        pre-activation proof history. Evidence payloads and credentials are not
+        exposed by this projection.
+      security:
+        - {}
+        - bearerAuth: []
+      x-seen-optional-bearer-scope: registry:packages:read
+      x-seen-resource-authorization: public-or-package-reader
+      parameters:
+        - $ref: "#/components/parameters/Owner"
+        - $ref: "#/components/parameters/Name"
+        - $ref: "#/components/parameters/Version"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: Page of source proofs
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SourceProofPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /packages/api/v1/packages/{owner}/{name}/releases/{version}/source-proofs/{proof_id}:
+    get:
+      tags:
+        - Source proofs
+      operationId: getReleaseSourceProof
+      summary: Get an exact source-proof record
+      security:
+        - {}
+        - bearerAuth: []
+      x-seen-optional-bearer-scope: registry:packages:read
+      x-seen-resource-authorization: public-or-package-reader
+      parameters:
+        - $ref: "#/components/parameters/Owner"
+        - $ref: "#/components/parameters/Name"
+        - $ref: "#/components/parameters/Version"
+        - $ref: "#/components/parameters/ProofId"
+      responses:
+        "200":
+          description: Source-proof record
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+            ETag:
+              $ref: "#/components/headers/MetadataEtag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SourceProof"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /packages/api/v1/packages/{owner}/{name}/releases/{version}/download:
+    get:
+      tags:
+        - Releases
+      operationId: downloadRelease
+      summary: Obtain the immutable release archive
+      description: |
+        Returns the exact immutable archive bytes, or redirects once to a
+        content-addressed location that implements the identical 200 response
+        contract. Bytes are available only after blob promotion and signed
+        resolver metadata publication. X-Seen-Archive-Sha256, the strong ETag,
+        release record, lockfile, and computed body digest must agree. Clients
+        hash the complete body and fail closed before extraction on any mismatch.
+        Public archives use immutable caching; private archives use no-store.
+      security:
+        - {}
+        - bearerAuth: []
+      x-seen-optional-bearer-scope: registry:packages:read
+      x-seen-resource-authorization: public-or-package-reader
+      parameters:
+        - $ref: "#/components/parameters/Owner"
+        - $ref: "#/components/parameters/Name"
+        - $ref: "#/components/parameters/Version"
+      responses:
+        "200":
+          description: Exact immutable tar+gzip package archive bytes
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+            X-Seen-Archive-Sha256:
+              $ref: "#/components/headers/ArchiveSha256"
+            ETag:
+              $ref: "#/components/headers/ArchiveEtag"
+            Content-Length:
+              $ref: "#/components/headers/BlobContentLength"
+            Cache-Control:
+              $ref: "#/components/headers/BlobCacheControl"
+          content:
+            application/gzip:
+              schema:
+                type: string
+                format: binary
+                maxLength: 26214400
+        "307":
+          description: |
+            Single redirect to a location that returns the exact 200 byte,
+            digest, length, ETag, authorization, and cache contract above.
+            Clients must not forward bearer credentials to a different origin;
+            private cross-origin locations carry their authorization in a
+            short-lived URL and must return Cache-Control private,no-store.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+            Location:
+              $ref: "#/components/headers/DownloadLocation"
+            X-Seen-Archive-Sha256:
+              $ref: "#/components/headers/ArchiveSha256"
+            ETag:
+              $ref: "#/components/headers/ArchiveEtag"
+            Cache-Control:
+              description: public,max-age=31536000,immutable for public bytes; private,no-store for private bytes
+              schema:
+                type: string
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /packages/api/v1/uploads/{upload_id}/archive:
+    put:
+      tags:
+        - Uploads
+      operationId: uploadReleaseArchive
+      summary: Upload the reserved archive bytes
+      description: |
+        Streams one tar+gzip archive into quarantine. The declared digest,
+        X-Seen-Archive-Sha256 header, reserved release digest, and computed
+        digest must all be identical lowercase SHA-256 hex. A retry must send
+        the complete identical body. Bytes are never promoted by this operation.
+      security:
+        - bearerAuth: []
+      x-seen-required-scopes:
+        - registry:packages:publish
+      x-seen-resource-authorization: reserved-upload-owner
+      parameters:
+        - $ref: "#/components/parameters/UploadId"
+        - $ref: "#/components/parameters/ArchiveDigestHeader"
+        - $ref: "#/components/parameters/ContentLength"
+      requestBody:
+        required: true
+        content:
+          application/gzip:
+            schema:
+              type: string
+              format: binary
+              maxLength: 26214400
+      responses:
+        "204":
+          description: Complete archive accepted into quarantine
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+            X-Seen-Archive-Sha256:
+              $ref: "#/components/headers/ArchiveSha256"
+            ETag:
+              $ref: "#/components/headers/ArchiveEtag"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /packages/api/v1/uploads/{upload_id}/complete:
+    post:
+      tags:
+        - Uploads
+      operationId: completeReleaseUpload
+      summary: Seal an upload and start validation
+      description: |
+        Seals the quarantine object after its complete digest and byte count are
+        verified, then schedules archive validation, source verification, and
+        scanning. Validation must locate exactly one regular root Seen.toml,
+        SHA-256 its exact raw bytes, strictly parse it, and match the reserved
+        manifest hash, complete parsed manifest, package identity, version,
+        capabilities, include globs, and assets. Include membership is recomputed
+        from validated archive paths and is never trusted from the client. Any
+        mismatch rejects before ready state, blob promotion, or signed metadata.
+        A 202 response does not make the release resolver-visible.
+      security:
+        - bearerAuth: []
+      x-seen-required-scopes:
+        - registry:packages:publish
+      x-seen-resource-authorization: reserved-upload-owner
+      parameters:
+        - $ref: "#/components/parameters/UploadId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CompleteUploadRequest"
+      responses:
+        "202":
+          description: Upload sealed and validation scheduled
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+            Idempotency-Replayed:
+              $ref: "#/components/headers/IdempotencyReplayed"
+            Location:
+              $ref: "#/components/headers/ResourceLocation"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReleaseRecord"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /packages/api/v1/packages/{owner}/{name}/releases/{version}/actions/yank:
+    post:
+      tags:
+        - Release actions
+      operationId: yankRelease
+      summary: Yank a release from new resolution
+      description: |
+        Changes signed resolver availability without changing release bytes,
+        version reservation, lifecycle history, or existing exact lock pins.
+      security:
+        - bearerAuth: []
+      x-seen-required-scopes:
+        - registry:packages:yank
+      x-seen-resource-authorization: package-publisher
+      parameters:
+        - $ref: "#/components/parameters/Owner"
+        - $ref: "#/components/parameters/Name"
+        - $ref: "#/components/parameters/Version"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/YankReleaseRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/ReleaseActionSucceeded"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /packages/api/v1/packages/{owner}/{name}/releases/{version}/actions/unyank:
+    post:
+      tags:
+        - Release actions
+      operationId: unyankRelease
+      summary: Restore a publisher-yanked release
+      description: |
+        Restores availability only when policy still permits it. Publisher
+        action cannot override a security quarantine or purged retention state.
+      security:
+        - bearerAuth: []
+      x-seen-required-scopes:
+        - registry:packages:yank
+      x-seen-resource-authorization: package-publisher
+      parameters:
+        - $ref: "#/components/parameters/Owner"
+        - $ref: "#/components/parameters/Name"
+        - $ref: "#/components/parameters/Version"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          $ref: "#/components/responses/ReleaseActionSucceeded"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /packages/api/v1/packages/{owner}/{name}/releases/{version}/actions/make-public:
+    post:
+      tags:
+        - Release actions
+      operationId: makeReleasePublic
+      summary: Begin private-to-public conversion
+      description: |
+        Restarts quarantine, the first scan, the full 72-hour public delay, the
+        second scan, and fresh source-proof verification. The release remains
+        unavailable until promotion and signed metadata publication complete.
+      security:
+        - bearerAuth: []
+      x-seen-required-scopes:
+        - registry:packages:visibility
+      x-seen-resource-authorization: package-owner
+      parameters:
+        - $ref: "#/components/parameters/Owner"
+        - $ref: "#/components/parameters/Name"
+        - $ref: "#/components/parameters/Version"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "202":
+          $ref: "#/components/responses/ReleaseActionAccepted"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /packages/api/v1/packages/{owner}/{name}/releases/{version}/actions/restore:
+    post:
+      tags:
+        - Release actions
+      operationId: restoreSoftDeletedRelease
+      summary: Restore a retained private release
+      description: |
+        Restores a soft-deleted private release only while its blob remains
+        retained. This does not reuse or alter its immutable version or digest.
+      security:
+        - bearerAuth: []
+      x-seen-required-scopes:
+        - registry:packages:delete
+      x-seen-resource-authorization: package-owner
+      parameters:
+        - $ref: "#/components/parameters/Owner"
+        - $ref: "#/components/parameters/Name"
+        - $ref: "#/components/parameters/Version"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          $ref: "#/components/responses/ReleaseActionSucceeded"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /packages/api/v1/metadata/{metadata_filename}:
+    get:
+      tags:
+        - Signed metadata
+      operationId: getSignedMetadata
+      summary: Fetch a byte-exact signed TUF metadata envelope
+      description: |
+        Serves metadata only for this server's configured environment and
+        repository. Versioned files are immutable and cacheable forever;
+        unversioned timestamp metadata uses its short freshness policy. The
+        body is the exact stored canonical envelope bytes covered by the
+        response SHA-256 and strong ETag. There is no cross-environment or
+        cross-repository fallback.
+      security:
+        - {}
+      parameters:
+        - $ref: "#/components/parameters/MetadataFilename"
+      responses:
+        "200":
+          description: Exact signed TUF JSON envelope bytes
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+            X-Seen-Metadata-Sha256:
+              $ref: "#/components/headers/MetadataSha256"
+            ETag:
+              $ref: "#/components/headers/MetadataDigestEtag"
+            Content-Length:
+              $ref: "#/components/headers/MetadataContentLength"
+            Cache-Control:
+              $ref: "#/components/headers/MetadataCacheControl"
+          content:
+            application/vnd.seen.tuf+json:
+              schema:
+                $ref: "#/components/schemas/TufMetadataEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /packages/api/v1/blobs/sha256/{archive_sha256}:
+    get:
+      tags:
+        - Blobs
+      operationId: getArchiveBlob
+      summary: Fetch content-addressed package archive bytes
+      description: |
+        Returns the exact bytes whose computed SHA-256 equals the lowercase
+        digest in the path, X-Seen-Archive-Sha256, and ETag. A public caller is
+        authorized only when at least one public release exposes these bytes.
+        Private-only bytes require registry:packages:read and release access;
+        absent and concealed private blobs return the identical not_found
+        response. Security-quarantined bytes are not downloadable.
+      security:
+        - {}
+        - bearerAuth: []
+      x-seen-optional-bearer-scope: registry:packages:read
+      x-seen-resource-authorization: public-or-authorized-release-by-digest
+      parameters:
+        - $ref: "#/components/parameters/ArchiveSha256Path"
+      responses:
+        "200":
+          description: Exact immutable tar+gzip archive bytes
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+            X-Seen-Archive-Sha256:
+              $ref: "#/components/headers/ArchiveSha256"
+            ETag:
+              $ref: "#/components/headers/ArchiveEtag"
+            Content-Length:
+              $ref: "#/components/headers/BlobContentLength"
+            Cache-Control:
+              $ref: "#/components/headers/BlobCacheControl"
+          content:
+            application/gzip:
+              schema:
+                type: string
+                format: binary
+                maxLength: 26214400
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /packages/api/v1/reports:
+    post:
+      tags:
+        - Reports
+      operationId: createSecurityReport
+      summary: Submit an access-controlled package security report
+      description: |
+        Creates an opaque acknowledgement for the authenticated reporter.
+        Evidence references and reporter identity remain access-controlled and
+        are never added to public package projections or list totals.
+      security:
+        - bearerAuth: []
+      x-seen-required-scopes:
+        - registry:reports:create
+      x-seen-resource-authorization: authenticated-reporter
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SecurityReportCreateRequest"
+      responses:
+        "201":
+          description: Security report acknowledged
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+            Idempotency-Replayed:
+              $ref: "#/components/headers/IdempotencyReplayed"
+            Location:
+              $ref: "#/components/headers/ResourceLocation"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecurityReportRecord"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /packages/api/v1/reports/{report_id}:
+    get:
+      tags:
+        - Reports
+      operationId: getSecurityReport
+      summary: Read an authorized security-report acknowledgement
+      description: |
+        Available only to the submitting reporter or registry trust-and-safety
+        and security roles. Unauthorized and absent identifiers return the same
+        not_found response. Evidence payloads are stored outside this record.
+      security:
+        - bearerAuth: []
+      x-seen-required-scopes:
+        - registry:reports:read
+      x-seen-resource-authorization: reporter-or-registry-reviewer
+      parameters:
+        - $ref: "#/components/parameters/ReportId"
+      responses:
+        "200":
+          description: Authorized report acknowledgement
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+            ETag:
+              $ref: "#/components/headers/MetadataEtag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecurityReportRecord"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /packages/api/v1/incidents/{incident_id}/appeals:
+    post:
+      tags:
+        - Enforcement
+      operationId: createEnforcementAppeal
+      summary: Appeal a registry enforcement incident
+      description: |
+        The subject package owner may submit an append-only appeal. Submission
+        never changes quarantine or download policy; only an independent review
+        followed by the reviewed reinstatement operation can do so.
+      security:
+        - bearerAuth: []
+      x-seen-required-scopes:
+        - registry:appeals:create
+      x-seen-resource-authorization: incident-subject-owner
+      parameters:
+        - $ref: "#/components/parameters/IncidentId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EnforcementAppealCreateRequest"
+      responses:
+        "201":
+          description: Appeal submitted without changing enforcement state
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+            Idempotency-Replayed:
+              $ref: "#/components/headers/IdempotencyReplayed"
+            Location:
+              $ref: "#/components/headers/ResourceLocation"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnforcementAppealRecord"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /packages/api/v1/appeals/{appeal_id}:
+    get:
+      tags:
+        - Enforcement
+      operationId: getEnforcementAppeal
+      summary: Read an authorized enforcement appeal
+      security:
+        - bearerAuth: []
+      x-seen-required-scopes:
+        - registry:appeals:read
+      x-seen-resource-authorization: appellant-subject-owner-or-registry-reviewer
+      parameters:
+        - $ref: "#/components/parameters/AppealId"
+      responses:
+        "200":
+          description: Authorized appeal record
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+            ETag:
+              $ref: "#/components/headers/MetadataEtag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnforcementAppealRecord"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /packages/api/v1/appeals/{appeal_id}/reviews:
+    post:
+      tags:
+        - Enforcement
+      operationId: reviewEnforcementAppeal
+      summary: Record an independent appeal review
+      description: |
+        Registry trust-and-safety only. Package publishers are explicitly denied
+        even when they own the subject. The reviewer must differ from the
+        original enforcement actor and appellant. A time-bounded emergency
+        waiver records mandatory retrospective review but does not itself
+        reinstate a release.
+      security:
+        - bearerAuth: []
+      x-seen-required-scopes:
+        - registry:appeals:review
+      x-seen-required-actor-role: registry-trust-and-safety
+      x-seen-explicitly-denied-actor-roles:
+        - publisher
+      x-seen-requires-recent-auth-seconds: 900
+      x-seen-separation-of-duties: reviewer-must-differ-from-original-enforcer-and-appellant
+      parameters:
+        - $ref: "#/components/parameters/AppealId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AppealReviewRequest"
+      responses:
+        "201":
+          description: Independent review recorded; release state is unchanged
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+            Idempotency-Replayed:
+              $ref: "#/components/headers/IdempotencyReplayed"
+            Location:
+              $ref: "#/components/headers/ResourceLocation"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppealReviewRecord"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /packages/api/v1/packages/{owner}/{name}/releases/{version}/actions/security-quarantine:
+    post:
+      tags:
+        - Enforcement
+      operationId: emergencySecurityQuarantineRelease
+      summary: Immediately security-quarantine a release
+      description: |
+        Registry security only; publisher credentials are explicitly denied
+        regardless of package ownership. Success atomically creates an incident
+        and audit event, denies resolution and download, and publishes signed
+        security metadata. A 200 response is returned only after that metadata
+        is durably available. Signing failure fails closed and cannot report
+        success.
+      security:
+        - bearerAuth: []
+      x-seen-required-scopes:
+        - registry:security:enforce
+      x-seen-required-actor-role: registry-security
+      x-seen-explicitly-denied-actor-roles:
+        - publisher
+      x-seen-requires-recent-auth-seconds: 900
+      parameters:
+        - $ref: "#/components/parameters/Owner"
+        - $ref: "#/components/parameters/Name"
+        - $ref: "#/components/parameters/Version"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SecurityQuarantineRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/SecurityActionSucceeded"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /packages/api/v1/packages/{owner}/{name}/releases/{version}/actions/security-reinstate:
+    post:
+      tags:
+        - Enforcement
+      operationId: reviewedReinstateRelease
+      summary: Reinstate a security-quarantined release after independent review
+      description: |
+        Registry security only; publisher credentials are explicitly denied.
+        The incident, approved appeal review, and release must match. Success
+        publishes signed security metadata before returning and restores
+        selection/download only if all non-security release policy still allows.
+      security:
+        - bearerAuth: []
+      x-seen-required-scopes:
+        - registry:security:reinstate
+      x-seen-required-actor-role: registry-security
+      x-seen-explicitly-denied-actor-roles:
+        - publisher
+      x-seen-requires-recent-auth-seconds: 900
+      x-seen-required-review-decision: approve-reinstatement
+      parameters:
+        - $ref: "#/components/parameters/Owner"
+        - $ref: "#/components/parameters/Name"
+        - $ref: "#/components/parameters/Version"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewedReinstatementRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/SecurityActionSucceeded"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /packages/api/v1/namespaces/{owner}/transfers:
+    post:
+      tags:
+        - Namespaces
+      operationId: createNamespaceTransfer
+      summary: Start a two-party namespace ownership transfer
+      description: |
+        Registry namespace authorization workflow, not an Aether account flow.
+        The current owner starts the transfer with authentication no more than
+        15 minutes old. The reserved seen namespace cannot be transferred.
+      security:
+        - bearerAuth: []
+      x-seen-required-scopes:
+        - registry:namespaces:transfer
+      x-seen-resource-authorization: current-namespace-owner
+      x-seen-requires-recent-auth-seconds: 900
+      parameters:
+        - $ref: "#/components/parameters/Owner"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NamespaceTransferCreateRequest"
+      responses:
+        "201":
+          $ref: "#/components/responses/NamespaceTransferCreated"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /packages/api/v1/namespace-transfers/{transfer_id}:
+    get:
+      tags:
+        - Namespaces
+      operationId: getNamespaceTransfer
+      summary: Read an authorized namespace transfer
+      security:
+        - bearerAuth: []
+      x-seen-required-scopes:
+        - registry:namespaces:transfer:read
+      x-seen-resource-authorization: transfer-participant-or-namespace-reviewer
+      parameters:
+        - $ref: "#/components/parameters/TransferId"
+      responses:
+        "200":
+          description: Authorized namespace transfer record
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+            ETag:
+              $ref: "#/components/headers/MetadataEtag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NamespaceTransferRecord"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /packages/api/v1/namespace-transfers/{transfer_id}/actions/accept:
+    post:
+      tags:
+        - Namespaces
+      operationId: acceptNamespaceTransfer
+      summary: Accept a namespace transfer as the named new owner
+      description: |
+        Requires the named new owner's bearer credential and authentication no
+        more than 15 minutes old. Acceptance begins the fixed seven-day cooling
+        period and does not yet change authorization.
+      security:
+        - bearerAuth: []
+      x-seen-required-scopes:
+        - registry:namespaces:transfer:accept
+      x-seen-resource-authorization: named-new-namespace-owner
+      x-seen-requires-recent-auth-seconds: 900
+      parameters:
+        - $ref: "#/components/parameters/TransferId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NamespaceTransferAcceptRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/NamespaceTransferUpdated"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /packages/api/v1/namespace-transfers/{transfer_id}/actions/execute:
+    post:
+      tags:
+        - Namespaces
+      operationId: executeNamespaceTransfer
+      summary: Execute an accepted namespace transfer after cooling
+      description: |
+        Requires a transfer participant with recent authentication. Execution
+        fails until both owners accepted and 604800 seconds elapsed. It changes
+        namespace authorization only; identities, versions, digests,
+        attestations, tombstones, and history remain immutable.
+      security:
+        - bearerAuth: []
+      x-seen-required-scopes:
+        - registry:namespaces:transfer
+      x-seen-resource-authorization: transfer-participant
+      x-seen-requires-recent-auth-seconds: 900
+      parameters:
+        - $ref: "#/components/parameters/TransferId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NamespaceTransferExecuteRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/NamespaceTransferUpdated"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /packages/api/v1/namespaces/{owner}/ownership-recoveries:
+    post:
+      tags:
+        - Namespaces
+      operationId: createOwnershipRecovery
+      summary: Request recovery of an abandoned registry namespace
+      description: |
+        This recovers Seen registry namespace authorization only and never an
+        Aether account, passkey, or session. A namespace with public release
+        history is never recoverable. Eligible empty namespaces require 180
+        days of inactivity, independent review, and a 30-day public notice.
+      security:
+        - bearerAuth: []
+      x-seen-required-scopes:
+        - registry:namespaces:recovery:create
+      x-seen-resource-authorization: authenticated-recovery-claimant
+      x-seen-requires-recent-auth-seconds: 900
+      parameters:
+        - $ref: "#/components/parameters/Owner"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OwnershipRecoveryCreateRequest"
+      responses:
+        "201":
+          $ref: "#/components/responses/OwnershipRecoveryCreated"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /packages/api/v1/ownership-recoveries/{recovery_id}:
+    get:
+      tags:
+        - Namespaces
+      operationId: getOwnershipRecovery
+      summary: Read an authorized namespace ownership-recovery record
+      security:
+        - bearerAuth: []
+      x-seen-required-scopes:
+        - registry:namespaces:recovery:read
+      x-seen-resource-authorization: claimant-current-owner-or-namespace-reviewer
+      parameters:
+        - $ref: "#/components/parameters/RecoveryId"
+      responses:
+        "200":
+          description: Authorized ownership-recovery record
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+            ETag:
+              $ref: "#/components/headers/MetadataEtag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OwnershipRecoveryRecord"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /packages/api/v1/ownership-recoveries/{recovery_id}/reviews:
+    post:
+      tags:
+        - Namespaces
+      operationId: reviewOwnershipRecovery
+      summary: Independently review a namespace ownership-recovery claim
+      description: |
+        Registry namespace reviewers only. Publishers and claimants are
+        explicitly denied. Approval starts the 30-day notice; it does not change
+        namespace authorization and cannot override permanent public history.
+      security:
+        - bearerAuth: []
+      x-seen-required-scopes:
+        - registry:namespaces:recovery:review
+      x-seen-required-actor-role: registry-namespace-reviewer
+      x-seen-explicitly-denied-actor-roles:
+        - publisher
+        - recovery-claimant
+      x-seen-requires-recent-auth-seconds: 900
+      x-seen-separation-of-duties: reviewer-must-differ-from-claimant-and-current-owner
+      parameters:
+        - $ref: "#/components/parameters/RecoveryId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OwnershipRecoveryReviewRequest"
+      responses:
+        "201":
+          description: Independent namespace recovery review recorded
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+            Idempotency-Replayed:
+              $ref: "#/components/headers/IdempotencyReplayed"
+            Location:
+              $ref: "#/components/headers/ResourceLocation"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OwnershipRecoveryReviewRecord"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /packages/api/v1/ownership-recoveries/{recovery_id}/actions/execute:
+    post:
+      tags:
+        - Namespaces
+      operationId: executeOwnershipRecovery
+      summary: Execute an approved ownership recovery after notice
+      description: |
+        Registry namespace reviewers only; publishers and claimants are
+        explicitly denied. Execution requires an approved independent review,
+        the full 30-day notice, continued eligibility, and recent authentication.
+        It changes registry authorization only and preserves all history.
+      security:
+        - bearerAuth: []
+      x-seen-required-scopes:
+        - registry:namespaces:recovery:execute
+      x-seen-required-actor-role: registry-namespace-reviewer
+      x-seen-explicitly-denied-actor-roles:
+        - publisher
+        - recovery-claimant
+      x-seen-requires-recent-auth-seconds: 900
+      parameters:
+        - $ref: "#/components/parameters/RecoveryId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OwnershipRecoveryExecuteRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/OwnershipRecoveryUpdated"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Short-lived bearer credential issued by external Aether and accepted at
+        the registry boundary. Passkey ceremonies, sessions, account recovery,
+        credential issuance, rotation, and revocation are not registry API
+        operations. The registry validates issuer, audience, subject, expiry,
+        environment, scopes, and auth_time before applying its own resource
+        authorization, explicit role denies, recent-auth, and separation-of-duty
+        policies. Recent-auth operations compare the server clock to the JWT
+        NumericDate auth_time; token expiry or issue time is not a substitute.
+  parameters:
+    Owner:
+      name: owner
+      in: path
+      required: true
+      description: Canonical lowercase owner segment
+      schema:
+        $ref: "#/components/schemas/PackageSegment"
+    Name:
+      name: name
+      in: path
+      required: true
+      description: Canonical lowercase package-name segment
+      schema:
+        $ref: "#/components/schemas/PackageSegment"
+    Version:
+      name: version
+      in: path
+      required: true
+      description: Exact semantic version; ranges and tags are rejected
+      schema:
+        $ref: "#/components/schemas/ExactVersion"
+    ProofId:
+      name: proof_id
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: "^prf_[A-Za-z0-9_-]{16,96}$"
+    UploadId:
+      name: upload_id
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: "^upl_[A-Za-z0-9_-]{16,96}$"
+    MetadataFilename:
+      name: metadata_filename
+      in: path
+      required: true
+      description: |
+        TUF metadata filename. Numeric prefixes identify immutable versions;
+        only the configured environment and repository are served.
+      schema:
+        type: string
+        pattern: "^(?:(?:root|timestamp)\\.json|[1-9][0-9]*\\.(?:root|snapshot|targets|releases|security)\\.json)$"
+    ArchiveSha256Path:
+      name: archive_sha256
+      in: path
+      required: true
+      description: Lowercase SHA-256 of the exact requested archive bytes
+      schema:
+        $ref: "#/components/schemas/Sha256"
+    ReportId:
+      name: report_id
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: "^rpt_[A-Za-z0-9_-]{16,96}$"
+    IncidentId:
+      name: incident_id
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: "^inc_[A-Za-z0-9_-]{16,96}$"
+    AppealId:
+      name: appeal_id
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: "^apl_[A-Za-z0-9_-]{16,96}$"
+    TransferId:
+      name: transfer_id
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: "^ntr_[A-Za-z0-9_-]{16,96}$"
+    RecoveryId:
+      name: recovery_id
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: "^nrc_[A-Za-z0-9_-]{16,96}$"
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: Page size. Values above 100 fail instead of being silently clamped.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 25
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      description: |
+        Opaque cursor bound to the authenticated principal, canonical path,
+        filters, and sort order. Clients must not decode, edit, or transfer it.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 512
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: |
+        Case-sensitive opaque key retained for at least 24 hours. Reusing it
+        with the same scoped request replays the original response. Reusing it
+        with a different fingerprint returns idempotency_key_reused.
+      schema:
+        type: string
+        minLength: 16
+        maxLength: 128
+        pattern: "^[A-Za-z0-9._~-]+$"
+    ArchiveDigestHeader:
+      name: X-Seen-Archive-Sha256
+      in: header
+      required: true
+      description: Lowercase SHA-256 hex of the complete request body
+      schema:
+        $ref: "#/components/schemas/Sha256"
+    ContentLength:
+      name: Content-Length
+      in: header
+      required: true
+      description: Exact compressed body length in bytes
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 26214400
+  headers:
+    RequestId:
+      description: Stable request identifier mirrored in any error envelope
+      required: true
+      schema:
+        type: string
+        pattern: "^req_[A-Za-z0-9_-]{16,96}$"
+    IdempotencyReplayed:
+      description: True only when the original stored response was replayed
+      required: true
+      schema:
+        type: boolean
+    ResourceLocation:
+      description: Canonical API path for the created or updated resource
+      required: true
+      schema:
+        type: string
+        pattern: "^/packages/api/v1/"
+    DownloadLocation:
+      description: |
+        Immutable public URL or short-lived authorized private URL implementing
+        the documented archive 200 response contract. Bearer credentials must
+        never be forwarded to a different origin.
+      required: true
+      schema:
+        type: string
+        format: uri
+    ArchiveSha256:
+      description: Lowercase SHA-256 hex of the complete archive bytes
+      required: true
+      schema:
+        $ref: "#/components/schemas/Sha256"
+    ArchiveEtag:
+      description: Strong content ETag encoded as quoted sha256 colon lowercase hex
+      required: true
+      schema:
+        type: string
+        pattern: '^"sha256:[0-9a-f]{64}"$'
+    BlobContentLength:
+      description: Exact complete archive body length in bytes
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 26214400
+    BlobCacheControl:
+      description: |
+        public,max-age=31536000,immutable for publicly authorized bytes;
+        private,no-store for authorized private bytes.
+      required: true
+      schema:
+        type: string
+        enum:
+          - public,max-age=31536000,immutable
+          - private,no-store
+    MetadataSha256:
+      description: Lowercase SHA-256 of the exact signed metadata response bytes
+      required: true
+      schema:
+        $ref: "#/components/schemas/Sha256"
+    MetadataDigestEtag:
+      description: Strong content ETag for the exact metadata envelope bytes
+      required: true
+      schema:
+        type: string
+        pattern: '^"sha256:[0-9a-f]{64}"$'
+    MetadataContentLength:
+      description: Exact signed metadata body length in bytes
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 16777216
+    MetadataCacheControl:
+      description: |
+        public,max-age=31536000,immutable for numerically versioned metadata;
+        public,max-age=300,must-revalidate for unversioned bootstrap root or
+        timestamp metadata.
+      required: true
+      schema:
+        type: string
+        enum:
+          - public,max-age=31536000,immutable
+          - public,max-age=300,must-revalidate
+    MetadataEtag:
+      description: Strong opaque ETag for this metadata representation
+      required: true
+      schema:
+        type: string
+        pattern: '^"[A-Za-z0-9._:-]{8,128}"$'
+    RetryAfter:
+      description: Decimal delay in seconds; equals error.retry_after_seconds
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 86400
+    WwwAuthenticate:
+      description: Bearer authentication challenge
+      required: true
+      schema:
+        type: string
+  schemas:
+    PackageRecord:
+      $ref: ./schemas/package-record.schema.json
+    ReleaseRecord:
+      $ref: ./schemas/release-record.schema.json
+    SourceProof:
+      $ref: ./schemas/source-proof.schema.json
+    ErrorEnvelope:
+      $ref: ./schemas/error-envelope.schema.json
+    ParsedManifest:
+      $ref: ./schemas/seen-manifest-v1.schema.json
+    TufMetadataEnvelope:
+      $ref: ./schemas/tuf-metadata-envelope-v1.schema.json
+    SecurityReportCreateRequest:
+      $ref: ./schemas/registry-api-workflows-v1.schema.json#/$defs/SecurityReportCreateRequest
+    SecurityReportRecord:
+      $ref: ./schemas/registry-api-workflows-v1.schema.json#/$defs/SecurityReportRecord
+    EnforcementAppealCreateRequest:
+      $ref: ./schemas/registry-api-workflows-v1.schema.json#/$defs/EnforcementAppealCreateRequest
+    EnforcementAppealRecord:
+      $ref: ./schemas/registry-api-workflows-v1.schema.json#/$defs/EnforcementAppealRecord
+    AppealReviewRequest:
+      $ref: ./schemas/registry-api-workflows-v1.schema.json#/$defs/AppealReviewRequest
+    AppealReviewRecord:
+      $ref: ./schemas/registry-api-workflows-v1.schema.json#/$defs/AppealReviewRecord
+    SecurityQuarantineRequest:
+      $ref: ./schemas/registry-api-workflows-v1.schema.json#/$defs/SecurityQuarantineRequest
+    ReviewedReinstatementRequest:
+      $ref: ./schemas/registry-api-workflows-v1.schema.json#/$defs/ReviewedReinstatementRequest
+    SecurityActionRecord:
+      $ref: ./schemas/registry-api-workflows-v1.schema.json#/$defs/SecurityActionRecord
+    NamespaceTransferCreateRequest:
+      $ref: ./schemas/registry-api-workflows-v1.schema.json#/$defs/NamespaceTransferCreateRequest
+    NamespaceTransferAcceptRequest:
+      $ref: ./schemas/registry-api-workflows-v1.schema.json#/$defs/NamespaceTransferAcceptRequest
+    NamespaceTransferExecuteRequest:
+      $ref: ./schemas/registry-api-workflows-v1.schema.json#/$defs/NamespaceTransferExecuteRequest
+    NamespaceTransferRecord:
+      $ref: ./schemas/registry-api-workflows-v1.schema.json#/$defs/NamespaceTransferRecord
+    OwnershipRecoveryCreateRequest:
+      $ref: ./schemas/registry-api-workflows-v1.schema.json#/$defs/OwnershipRecoveryCreateRequest
+    OwnershipRecoveryReviewRequest:
+      $ref: ./schemas/registry-api-workflows-v1.schema.json#/$defs/OwnershipRecoveryReviewRequest
+    OwnershipRecoveryReviewRecord:
+      $ref: ./schemas/registry-api-workflows-v1.schema.json#/$defs/OwnershipRecoveryReviewRecord
+    OwnershipRecoveryExecuteRequest:
+      $ref: ./schemas/registry-api-workflows-v1.schema.json#/$defs/OwnershipRecoveryExecuteRequest
+    OwnershipRecoveryRecord:
+      $ref: ./schemas/registry-api-workflows-v1.schema.json#/$defs/OwnershipRecoveryRecord
+    PackageIdentity:
+      $ref: ./schemas/package-identity.schema.json
+    PackageSegment:
+      type: string
+      minLength: 1
+      maxLength: 63
+      pattern: "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+    ExactVersion:
+      type: string
+      format: semver-exact
+      maxLength: 128
+      pattern: "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$"
+    Sha256:
+      type: string
+      pattern: "^[0-9a-f]{64}$"
+    UtcTimestamp:
+      type: string
+      format: date-time
+      pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,9})?Z$"
+    Cursor:
+      type: string
+      minLength: 1
+      maxLength: 512
+    PackagePage:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - next_cursor
+        - has_more
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/PackageRecord"
+        next_cursor:
+          oneOf:
+            - $ref: "#/components/schemas/Cursor"
+            - type: "null"
+        has_more:
+          type: boolean
+    ReleasePage:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - next_cursor
+        - has_more
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/ReleaseRecord"
+        next_cursor:
+          oneOf:
+            - $ref: "#/components/schemas/Cursor"
+            - type: "null"
+        has_more:
+          type: boolean
+    SourceProofPage:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - next_cursor
+        - has_more
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/SourceProof"
+        next_cursor:
+          oneOf:
+            - $ref: "#/components/schemas/Cursor"
+            - type: "null"
+        has_more:
+          type: boolean
+    CreatePackageRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - identity
+      properties:
+        identity:
+          $ref: "#/components/schemas/PackageIdentity"
+        description:
+          type: string
+          maxLength: 512
+        repository:
+          type: string
+          format: uri
+          pattern: "^https://"
+        license_spdx:
+          type: string
+          minLength: 1
+          maxLength: 128
+    ReserveReleaseRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - version
+        - visibility
+        - archive
+        - manifest_sha256
+        - manifest
+        - source
+      properties:
+        version:
+          $ref: "#/components/schemas/ExactVersion"
+        visibility:
+          enum:
+            - private
+            - public
+        archive:
+          type: object
+          additionalProperties: false
+          required:
+            - format
+            - sha256
+            - compressed_bytes
+          properties:
+            format:
+              const: tar+gzip
+            sha256:
+              $ref: "#/components/schemas/Sha256"
+            compressed_bytes:
+              type: integer
+              minimum: 1
+              maximum: 26214400
+        manifest_sha256:
+          $ref: "#/components/schemas/Sha256"
+        manifest:
+          $ref: "#/components/schemas/ParsedManifest"
+        source:
+          $ref: "#/components/schemas/SourceDeclaration"
+    SourceDeclaration:
+      type: object
+      additionalProperties: false
+      required:
+        - forge
+        - repository_id
+        - installation_id
+        - requested_ref
+        - expected_commit
+        - license_spdx
+      properties:
+        forge:
+          enum:
+            - github
+            - gitlab
+        repository_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        installation_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        requested_ref:
+          type: string
+          minLength: 1
+          maxLength: 255
+        expected_commit:
+          type: string
+          pattern: "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+        license_spdx:
+          type: string
+          minLength: 1
+          maxLength: 128
+    ReleaseReservation:
+      type: object
+      additionalProperties: false
+      required:
+        - release
+        - upload
+      properties:
+        release:
+          $ref: "#/components/schemas/ReleaseRecord"
+        upload:
+          $ref: "#/components/schemas/UploadInstruction"
+    UploadInstruction:
+      type: object
+      additionalProperties: false
+      required:
+        - upload_id
+        - method
+        - path
+        - expires_at
+        - maximum_bytes
+        - required_headers
+      properties:
+        upload_id:
+          type: string
+          pattern: "^upl_[A-Za-z0-9_-]{16,96}$"
+        method:
+          const: PUT
+        path:
+          type: string
+          pattern: "^/packages/api/v1/uploads/[A-Za-z0-9_-]+/archive$"
+        expires_at:
+          $ref: "#/components/schemas/UtcTimestamp"
+        maximum_bytes:
+          const: 26214400
+        required_headers:
+          type: object
+          additionalProperties: false
+          required:
+            - Content-Type
+            - Content-Length
+            - X-Seen-Archive-Sha256
+          properties:
+            Content-Type:
+              const: application/gzip
+            Content-Length:
+              type: integer
+              minimum: 1
+              maximum: 26214400
+            X-Seen-Archive-Sha256:
+              $ref: "#/components/schemas/Sha256"
+    CompleteUploadRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - archive_sha256
+        - compressed_bytes
+      properties:
+        archive_sha256:
+          $ref: "#/components/schemas/Sha256"
+        compressed_bytes:
+          type: integer
+          minimum: 1
+          maximum: 26214400
+    YankReleaseRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        reason:
+          type: string
+          maxLength: 512
+        advisory_url:
+          type: string
+          format: uri
+          pattern: "^https://"
+  responses:
+    SecurityActionSucceeded:
+      description: Signed security availability change completed
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+        Idempotency-Replayed:
+          $ref: "#/components/headers/IdempotencyReplayed"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/SecurityActionRecord"
+    NamespaceTransferCreated:
+      description: Namespace transfer created without changing authorization
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+        Idempotency-Replayed:
+          $ref: "#/components/headers/IdempotencyReplayed"
+        Location:
+          $ref: "#/components/headers/ResourceLocation"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/NamespaceTransferRecord"
+    NamespaceTransferUpdated:
+      description: Namespace transfer workflow state updated
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+        Idempotency-Replayed:
+          $ref: "#/components/headers/IdempotencyReplayed"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/NamespaceTransferRecord"
+    OwnershipRecoveryCreated:
+      description: Namespace ownership-recovery claim created without changing authorization
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+        Idempotency-Replayed:
+          $ref: "#/components/headers/IdempotencyReplayed"
+        Location:
+          $ref: "#/components/headers/ResourceLocation"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/OwnershipRecoveryRecord"
+    OwnershipRecoveryUpdated:
+      description: Approved namespace ownership recovery executed
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+        Idempotency-Replayed:
+          $ref: "#/components/headers/IdempotencyReplayed"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/OwnershipRecoveryRecord"
+    ReleaseActionSucceeded:
+      description: Release state updated
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+        Idempotency-Replayed:
+          $ref: "#/components/headers/IdempotencyReplayed"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ReleaseRecord"
+    ReleaseActionAccepted:
+      description: Release transition accepted for asynchronous processing
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+        Idempotency-Replayed:
+          $ref: "#/components/headers/IdempotencyReplayed"
+        Location:
+          $ref: "#/components/headers/ResourceLocation"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ReleaseRecord"
+    BadRequest:
+      description: Request syntax, identity, version, cursor, digest declaration, or idempotency key is invalid
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    Unauthenticated:
+      description: A valid bearer credential is required
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+        WWW-Authenticate:
+          $ref: "#/components/headers/WwwAuthenticate"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    Forbidden:
+      description: The authenticated principal cannot perform this operation
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    NotFound:
+      description: Resource is absent or concealed by private non-enumerability
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    Conflict:
+      description: Immutable reservation, idempotency fingerprint, readiness, availability, or state transition conflict
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    PayloadTooLarge:
+      description: Declared or streamed archive exceeds the compressed-byte limit
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    Unprocessable:
+      description: Digest, archive, manifest, or source verification failed closed
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    TooManyRequests:
+      description: Authenticated quota or rate limit exceeded
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+        Retry-After:
+          $ref: "#/components/headers/RetryAfter"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    ServiceUnavailable:
+      description: Writer is disabled or a required registry dependency is unavailable
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+        Retry-After:
+          description: Present only when error.retryable is true
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 86400
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    InternalError:
+      description: Unexpected server failure
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+        Retry-After:
+          $ref: "#/components/headers/RetryAfter"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"

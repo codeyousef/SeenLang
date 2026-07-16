@@ -1,0 +1,260 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:seen:package-registry:v1:archive-policy",
+  "title": "Seen hosted package archive policy v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract_version",
+    "archive_format",
+    "content_model",
+    "limits",
+    "path_rules",
+    "entry_rules",
+    "content_rules",
+    "evaluation_order",
+    "failure_mode"
+  ],
+  "properties": {
+    "contract_version": {"const": 1},
+    "archive_format": {"const": "tar+gzip"},
+    "content_model": {"const": "source-only"},
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "compressed_bytes",
+        "expanded_bytes",
+        "entry_count",
+        "regular_file_bytes",
+        "path_bytes",
+        "path_depth",
+        "compression_ratio",
+        "validation_seconds"
+      ],
+      "properties": {
+        "compressed_bytes": {"type": "integer", "minimum": 1, "maximum": 26214400},
+        "expanded_bytes": {"type": "integer", "minimum": 1, "maximum": 104857600},
+        "entry_count": {"type": "integer", "minimum": 1, "maximum": 4096},
+        "regular_file_bytes": {"type": "integer", "minimum": 1, "maximum": 10485760},
+        "path_bytes": {"type": "integer", "minimum": 1, "maximum": 240},
+        "path_depth": {"type": "integer", "minimum": 1, "maximum": 16},
+        "compression_ratio": {"type": "integer", "minimum": 1, "maximum": 100},
+        "validation_seconds": {"type": "integer", "minimum": 1, "maximum": 30}
+      }
+    },
+    "path_rules": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "encoding",
+        "unicode_form",
+        "separator",
+        "absolute_paths",
+        "dot_segments",
+        "empty_segments",
+        "backslashes",
+        "control_characters",
+        "duplicate_effective_paths",
+        "portable_case_collisions",
+        "unicode_normalization_collisions",
+        "metadata_path_resolution"
+      ],
+      "properties": {
+        "encoding": {"const": "utf-8"},
+        "unicode_form": {"const": "NFC-reject-noncanonical"},
+        "separator": {"const": "/"},
+        "absolute_paths": {"const": "reject"},
+        "dot_segments": {"const": "reject"},
+        "empty_segments": {"const": "reject"},
+        "backslashes": {"const": "reject"},
+        "control_characters": {"const": "reject"},
+        "duplicate_effective_paths": {"const": "reject"},
+        "portable_case_collisions": {"const": "reject"},
+        "unicode_normalization_collisions": {"const": "reject"},
+        "metadata_path_resolution": {"const": "validate-effective-path-after-all-tar-headers"}
+      }
+    },
+    "entry_rules": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "allowed_types",
+        "forbidden_types",
+        "executable_mode",
+        "sparse_files",
+        "required_regular_files",
+        "manifest_include_enforced",
+        "manifest_location",
+        "manifest_hash_input",
+        "manifest_parser",
+        "manifest_reservation_binding",
+        "manifest_bound_fields",
+        "include_membership_source",
+        "unsupported_header",
+        "parse_error"
+      ],
+      "properties": {
+        "allowed_types": {
+          "const": ["regular-file", "directory"]
+        },
+        "forbidden_types": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "symlink",
+              "hardlink",
+              "character-device",
+              "block-device",
+              "fifo",
+              "socket",
+              "sparse-file",
+              "unknown"
+            ]
+          },
+          "minItems": 8,
+          "maxItems": 8
+        },
+        "executable_mode": {"const": "reject"},
+        "sparse_files": {"const": "reject"},
+        "required_regular_files": {"const": ["Seen.toml"]},
+        "manifest_include_enforced": {"const": true},
+        "manifest_location": {"const": "exactly-one-root-regular-file-Seen.toml"},
+        "manifest_hash_input": {"const": "exact-raw-Seen.toml-bytes"},
+        "manifest_parser": {"const": "strict-seen-manifest-v1-reject-unknown-or-duplicate-fields"},
+        "manifest_reservation_binding": {"const": "exact-hash-and-complete-parsed-value-before-ready"},
+        "manifest_bound_fields": {
+          "const": [
+            "package.identity",
+            "project.version",
+            "package.capabilities",
+            "package.include",
+            "package.assets"
+          ]
+        },
+        "include_membership_source": {"const": "recompute-from-validated-effective-archive-paths"},
+        "unsupported_header": {"const": "reject"},
+        "parse_error": {"const": "reject"}
+      }
+    },
+    "content_rules": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "inspection_scope",
+        "inspect_prefix_bytes",
+        "decision",
+        "path_name_classifiers",
+        "binary_magic_prefixes",
+        "script_content_prefixes",
+        "prebuilt_match_rule",
+        "lifecycle_script_match_rule",
+        "prebuilt_error_code",
+        "script_error_code"
+      ],
+      "properties": {
+        "inspection_scope": {"const": "all-regular-files-before-staging-promotion"},
+        "inspect_prefix_bytes": {"const": 4096},
+        "decision": {"const": "reject-on-any-classifier-match"},
+        "path_name_classifiers": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "case_folding",
+            "prebuilt_suffixes",
+            "prebuilt_basenames",
+            "script_extensions",
+            "forbidden_lifecycle_stems",
+            "forbidden_script_path_segments"
+          ],
+          "properties": {
+            "case_folding": {"const": "ascii-lowercase"},
+            "prebuilt_suffixes": {
+              "type": "array",
+              "minItems": 12,
+              "uniqueItems": true,
+              "items": {"type": "string", "pattern": "^\\.[a-z0-9]+$"}
+            },
+            "prebuilt_basenames": {
+              "type": "array",
+              "minItems": 2,
+              "uniqueItems": true,
+              "items": {"type": "string", "minLength": 1}
+            },
+            "script_extensions": {
+              "type": "array",
+              "minItems": 8,
+              "uniqueItems": true,
+              "items": {"type": "string", "pattern": "^\\.[a-z0-9]+$"}
+            },
+            "forbidden_lifecycle_stems": {
+              "type": "array",
+              "minItems": 9,
+              "uniqueItems": true,
+              "items": {"type": "string", "pattern": "^[a-z][a-z0-9_-]*$"}
+            },
+            "forbidden_script_path_segments": {
+              "type": "array",
+              "minItems": 4,
+              "uniqueItems": true,
+              "items": {"type": "string", "minLength": 1}
+            }
+          }
+        },
+        "binary_magic_prefixes": {
+          "type": "array",
+          "minItems": 9,
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "offset", "prefix_hex", "classification"],
+            "properties": {
+              "name": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"},
+              "offset": {"const": 0},
+              "prefix_hex": {"type": "string", "pattern": "^(?:[0-9a-f]{2}){2,16}$"},
+              "classification": {"enum": ["native-binary", "object-or-library", "bytecode", "nested-binary-container"]}
+            }
+          }
+        },
+        "script_content_prefixes": {
+          "type": "array",
+          "minItems": 3,
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "prefix_hex"],
+            "properties": {
+              "name": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"},
+              "prefix_hex": {"type": "string", "pattern": "^(?:[0-9a-f]{2}){2,64}$"}
+            }
+          }
+        },
+        "prebuilt_match_rule": {"const": "reject-if-suffix-basename-or-binary-magic-matches"},
+        "lifecycle_script_match_rule": {"const": "reject-if-forbidden-stem-regardless-of-mode-or-if-script-content-under-forbidden-path"},
+        "prebuilt_error_code": {"const": "archive_prebuilt_artifact_forbidden"},
+        "script_error_code": {"const": "archive_lifecycle_script_forbidden"}
+      }
+    },
+    "evaluation_order": {
+      "const": [
+        "stream-compressed-input-with-hard-byte-and-time-limits",
+        "parse-headers-without-materializing-files",
+        "resolve-effective-path-and-entry-type",
+        "enforce-path-type-count-and-expanded-size-policy",
+        "classify-regular-files-by-effective-path-name-and-content-prefix",
+        "reject-prebuilt-artifacts-and-lifecycle-scripts-regardless-of-mode",
+        "verify-archive-sha256",
+        "locate-and-sha256-exact-raw-root-Seen.toml",
+        "strictly-parse-and-match-reserved-manifest-identity-version-capabilities-include-and-assets",
+        "recompute-manifest-include-membership-from-validated-effective-paths",
+        "extract-to-new-empty-staging-directory",
+        "rehash-and-verify-extracted-regular-files",
+        "atomically-promote-staging-directory"
+      ]
+    },
+    "failure_mode": {"const": "reject-closed-delete-staging-retain-audit-evidence"}
+  }
+}

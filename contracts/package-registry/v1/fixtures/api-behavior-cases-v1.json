@@ -1,0 +1,167 @@
+{
+  "contract_version": 1,
+  "base_path": "/packages/api/v1",
+  "pagination": {
+    "default_limit": 25,
+    "maximum_limit": 100,
+    "sort_orders": {
+      "packages": ["identity:asc"],
+      "releases": ["reserved_at:desc", "version:asc"],
+      "source_proofs": ["sequence:desc"]
+    },
+    "cursor_binding": [
+      "authenticated-principal",
+      "canonical-path",
+      "filters",
+      "sort-order"
+    ],
+    "response_fields": ["items", "next_cursor", "has_more"],
+    "forbidden_response_fields": ["total", "total_count"],
+    "cases": [
+      {
+        "name": "default-page",
+        "request": {"limit": null, "cursor": null},
+        "expected_limit": 25
+      },
+      {
+        "name": "maximum-page",
+        "request": {"limit": 100, "cursor": null},
+        "expected_limit": 100
+      },
+      {
+        "name": "over-limit-fails",
+        "request": {"limit": 101, "cursor": null},
+        "expected_error": "page_limit_exceeded"
+      },
+      {
+        "name": "cursor-principal-mismatch-fails",
+        "request": {"limit": 25, "cursor": "opaque-cursor-from-another-principal"},
+        "expected_error": "invalid_cursor"
+      }
+    ]
+  },
+  "idempotency": {
+    "retention_seconds": 86400,
+    "key_pattern": "^[A-Za-z0-9._~-]{16,128}$",
+    "scope": [
+      "authenticated-principal",
+      "HTTP-method",
+      "canonical-path",
+      "key"
+    ],
+    "fingerprint": [
+      "request-body-bytes",
+      "content-type",
+      "digest-headers"
+    ],
+    "cases": [
+      {
+        "name": "first-mutation",
+        "same_key": false,
+        "same_fingerprint": false,
+        "expected": "execute-and-store-response",
+        "Idempotency-Replayed": false
+      },
+      {
+        "name": "identical-retry",
+        "same_key": true,
+        "same_fingerprint": true,
+        "expected": "replay-original-status-headers-and-body",
+        "Idempotency-Replayed": true
+      },
+      {
+        "name": "changed-body",
+        "same_key": true,
+        "same_fingerprint": false,
+        "expected_error": "idempotency_key_reused"
+      }
+    ]
+  },
+  "recent_auth": {
+    "claim": "auth_time",
+    "claim_encoding": "jwt-numeric-date-seconds",
+    "maximum_age_seconds": 900,
+    "future_tolerance_seconds": 60,
+    "substitutes_forbidden": ["exp", "iat", "token-issuance-time"],
+    "cases": [
+      {"name": "boundary-age-accepted", "server_now": 1784190600, "auth_time": 1784189700, "expected": "accept"},
+      {"name": "future-within-tolerance-accepted", "server_now": 1784190600, "auth_time": 1784190660, "expected": "accept"},
+      {"name": "stale-auth-rejected", "server_now": 1784190600, "auth_time": 1784189699, "expected": "reject", "error_code": "forbidden"},
+      {"name": "missing-auth-time-rejected", "server_now": 1784190600, "auth_time": null, "expected": "reject", "error_code": "unauthenticated"},
+      {"name": "far-future-auth-time-rejected", "server_now": 1784190600, "auth_time": 1784190661, "expected": "reject", "error_code": "unauthenticated"}
+    ]
+  },
+  "timestamps": {
+    "format": "RFC3339-UTC-Z",
+    "fractional_seconds_digits": {"minimum": 0, "maximum": 9},
+    "valid": [
+      "2026-07-16T08:00:00Z",
+      "2026-07-16T08:00:00.125Z",
+      "2026-07-16T08:00:00.123456789Z"
+    ],
+    "invalid": [
+      "2026-07-16T11:00:00+03:00",
+      "2026-07-16 08:00:00Z",
+      "2026-07-16T08:00:00"
+    ]
+  },
+  "digests": {
+    "algorithm": "sha256",
+    "json_encoding": "lowercase-hex-without-prefix",
+    "header": "X-Seen-Archive-Sha256",
+    "etag_example": "\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"",
+    "valid": [
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    ],
+    "invalid": [
+      "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    ],
+    "upload_equality": [
+      "reserved-release-digest",
+      "request-json-digest",
+      "X-Seen-Archive-Sha256",
+      "computed-stream-digest"
+    ],
+    "download_equality": [
+      "signed-resolver-metadata-digest",
+      "release-record-digest",
+      "X-Seen-Archive-Sha256",
+      "lockfile-digest",
+      "computed-download-digest"
+    ],
+    "mismatch_result": "fail-closed"
+  },
+  "retry": {
+    "authority": "error.retryable",
+    "retryable_delay_must_exist": true,
+    "non_retryable_delay_must_be_null": true,
+    "Retry-After_must_equal_retry_after_seconds": true,
+    "mutation_retry": "reuse-identical-idempotency-key-and-request",
+    "strategy": "bounded-exponential-backoff-with-jitter"
+  },
+  "privacy": {
+    "public_package_listing": "public-active-only",
+    "private_total_counts": "forbidden",
+    "absent_response": {
+      "http_status": 404,
+      "code": "not_found",
+      "details": {}
+    },
+    "concealed_private_response": {
+      "http_status": 404,
+      "code": "not_found",
+      "details": {}
+    },
+    "observable_shapes_must_match": true
+  },
+  "separation": {
+    "package_record": "package-level-metadata",
+    "release_record": "immutable-version-digest-and-four-state-dimensions",
+    "source_proof_record": "append-only-forge-verification",
+    "authentication": "external-bearer-boundary",
+    "identity_account_flows_in_registry_api": false
+  }
+}

@@ -106,7 +106,10 @@ By default `seen run` uses the JIT path. Pass `--aot` to compile an executable
 first, `--no-cache` to force a fresh compile, and `--verbose` to show compiler
 diagnostics during the run. Run flags may appear before or after the input path.
 
-### Packaging Commands
+### Packaging Commands (Seen 0.10 source preview)
+
+This subsection describes unreleased 0.10 source behavior. It is not part of
+the published 0.9.5 binary surface until a verified compiler rebuild ships.
 
 ```bash
 seen pkg fetch [project-dir-or-manifest]
@@ -119,7 +122,8 @@ seen pkg publish <registry-dir> [project-dir-or-manifest]
 - `pack` creates a source archive for the current package.
 - `prebuild` emits a local prebuilt artifact containing `Seen.pkg.toml`,
   `objects.tsv`, `interface.index.tsv`, object files, and interface sources.
-- `publish` writes a static-registry index and archive into a local directory.
+- `publish` writes a legacy local-static index and archive for development. It
+  is not the hosted-v1 upload flow and does not run registry security gates.
 
 ### Platform Packaging Commands
 

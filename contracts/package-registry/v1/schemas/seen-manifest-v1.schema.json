@@ -1,0 +1,171 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:seen:package-registry:v1:manifest",
+  "title": "Seen package manifest v1 (parsed TOML)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["manifest-version", "project", "package", "dependencies"],
+  "properties": {
+    "manifest-version": {"const": 1},
+    "project": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": {"$ref": "#/$defs/alias"},
+        "version": {"$ref": "#/$defs/exactVersion"},
+        "language": {"enum": ["en", "ar", "es", "ru", "zh", "ja"]},
+        "description": {"type": "string"},
+        "authors": {"type": "array", "items": {"type": "string"}},
+        "edition": {"type": "string"},
+        "modules": {"type": "array", "items": {"type": "string"}},
+        "license": {"type": "string", "minLength": 1},
+        "repository": {"type": "string", "format": "uri"}
+      }
+    },
+    "package": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["identity", "visibility", "include", "assets", "capabilities"],
+      "properties": {
+        "identity": {"$ref": "#/$defs/identity"},
+        "visibility": {"enum": ["private", "public"]},
+        "include": {"type": "array", "items": {"type": "string"}},
+        "assets": {"type": "array", "items": {"type": "string"}},
+        "capabilities": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/capability"}
+        }
+      }
+    },
+    "registries": {
+      "type": "object",
+      "additionalProperties": {"$ref": "#/$defs/registryOrigin"}
+    },
+    "dependencies": {
+      "type": "object",
+      "propertyNames": {"$ref": "#/$defs/alias"},
+      "additionalProperties": {"$ref": "#/$defs/dependency"}
+    },
+    "native": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "dependencies": {
+          "type": "object",
+          "maxProperties": 0
+        }
+      }
+    }
+  },
+  "$defs": {
+    "alias": {
+      "type": "string",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$",
+      "not": {
+        "enum": [
+          "lexer",
+          "parser",
+          "typechecker",
+          "macro",
+          "bootstrap",
+          "codegen",
+          "lsp",
+          "tools",
+          "optimization",
+          "trace",
+          "ir",
+          "types",
+          "testing",
+          "ffi"
+        ]
+      }
+    },
+    "identity": {
+      "type": "string",
+      "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?/[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+    },
+    "exactVersion": {
+      "type": "string",
+      "format": "semver-exact",
+      "maxLength": 128,
+      "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$"
+    },
+    "versionRequirement": {
+      "type": "string",
+      "format": "seen-semver-requirement-v1",
+      "maxLength": 261,
+      "description": "Canonical v1 exact, caret, tilde, or bounded comparator-conjunction requirement. Comparator bounds must additionally be ordered by SemVer precedence.",
+      "oneOf": [
+        {"$ref": "#/$defs/exactVersion"},
+        {"$ref": "#/$defs/caretRequirement"},
+        {"$ref": "#/$defs/tildeRequirement"},
+        {"$ref": "#/$defs/comparatorRequirement"}
+      ]
+    },
+    "caretRequirement": {
+      "type": "string",
+      "pattern": "^\\^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?$"
+    },
+    "tildeRequirement": {
+      "type": "string",
+      "pattern": "^~(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:\\.(?:0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?)?$"
+    },
+    "comparatorRequirement": {
+      "type": "string",
+      "pattern": "^(?:>=|>)(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)? (?:<=|<)(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?$"
+    },
+    "registryOrigin": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+(?:/[a-z0-9][a-z0-9._~-]*)+$"
+    },
+    "capability": {
+      "enum": [
+        "file",
+        "network",
+        "process",
+        "environment",
+        "dynamic-load",
+        "ffi",
+        "unsafe",
+        "native-link",
+        "macro"
+      ]
+    },
+    "dependency": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["package", "version"],
+          "properties": {
+            "package": {"$ref": "#/$defs/identity"},
+            "version": {"$ref": "#/$defs/versionRequirement"},
+            "registry": {"type": "string", "minLength": 1},
+            "allow": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {"$ref": "#/$defs/capability"}
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["path"],
+          "properties": {"path": {"type": "string", "minLength": 1}}
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["artifact"],
+          "properties": {
+            "artifact": {"type": "string", "minLength": 1}
+          }
+        }
+      ]
+    }
+  }
+}

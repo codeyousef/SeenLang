@@ -1,0 +1,45 @@
+{
+  "contract_version": 1,
+  "reserved_owners": [
+    "admin",
+    "api",
+    "seen",
+    "security",
+    "support"
+  ],
+  "syntactically_valid": [
+    {"identity": "seen/json", "owner": "seen", "name": "json", "reserved": true},
+    {"identity": "a/b", "owner": "a", "name": "b", "reserved": false},
+    {"identity": "alice/mathx", "owner": "alice", "name": "mathx", "reserved": false},
+    {"identity": "owner-2/name-3", "owner": "owner-2", "name": "name-3", "reserved": false},
+    {"identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "owner": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "name": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "reserved": false}
+  ],
+  "invalid": [
+    {"identity": "mathx", "reason": "invalid_shape"},
+    {"identity": "/mathx", "reason": "empty_segment"},
+    {"identity": "alice/", "reason": "empty_segment"},
+    {"identity": "alice//mathx", "reason": "invalid_shape"},
+    {"identity": "Alice/mathx", "reason": "not_lowercase"},
+    {"identity": "alice/MathX", "reason": "not_lowercase"},
+    {"identity": "alice/naïve", "reason": "non_ascii"},
+    {"identity": "alice/../mathx", "reason": "invalid_shape"},
+    {"identity": "alice/-mathx", "reason": "invalid_character"},
+    {"identity": "alice/mathx-", "reason": "invalid_character"},
+    {"identity": "alice/math_x", "reason": "invalid_character"},
+    {"identity": "alice/math.x", "reason": "invalid_character"},
+    {"identity": "alice%2fadmin/mathx", "reason": "invalid_character"},
+    {"identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/mathx", "reason": "segment_too_long"}
+  ],
+  "registration_policy": {
+    "status": "draft_not_enforced",
+    "comparison_scope": "canonical owner and package segments plus full owner/name identity",
+    "unicode_data_revision": "must_be_frozen_before_public_registration",
+    "skeleton_algorithm": "must_be_frozen_before_public_registration",
+    "similarity_thresholds": "must_be_frozen_before_public_registration"
+  },
+  "policy_examples": [
+    {"candidate": "seen/js0n", "conflicts_with": "seen/json", "expected": "manual_review"},
+    {"candidate": "alice/rnathx", "conflicts_with": "alice/mathx", "expected": "manual_review"},
+    {"candidate": "carol/geometry", "conflicts_with": "alice/mathx", "expected": "allow"}
+  ]
+}

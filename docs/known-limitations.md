@@ -27,9 +27,18 @@ docs.
 
 ## Packages
 
+These package-manager bullets describe the unreleased Seen 0.10 source tree,
+not the published Seen 0.9.5 compiler binary.
+
 - Registry dependency versions are exact-only for now.
-- `seen pkg publish` writes static registry files to a local directory; it does
-  not upload to a remote service.
+- `seen pkg publish` writes legacy local-static files for development; it does
+  not upload to the hosted service or run hosted ingestion/security gates.
+- HTTPS registry resolution currently fails closed until signed metadata
+  verification and hardened extraction are implemented.
+- `Seen.lock` v2 is currently written as a resolution report; `--locked` and
+  `--frozen` enforcement are not implemented yet.
+- Package `capabilities` and dependency `allow` are draft contract fields; the
+  current compiler does not enforce capability consent yet.
 - Local prebuilt artifacts are consumed through `{ artifact = "..." }`
   dependencies and are linked from `objects.tsv`.
 

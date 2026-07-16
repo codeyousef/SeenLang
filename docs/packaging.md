@@ -1,14 +1,14 @@
 # Seen Packaging
 
-Seen packages are source archives served from a static registry. A registry can
-live on a normal website or object storage bucket as long as it serves files
-over HTTPS.
+Seen 0.10 is designing a hosted, signed package registry. The existing compiler
+also has a legacy local-static package flow for development; that flow is not a
+hosted-v1 publisher and must not be exposed as a public write path.
 
-The current default public registry URL is:
+The planned development registry base URL is:
 
 ```toml
 [registries]
-default = "https://seen.yousef.codes/packages"
+default = "https://seen.dev.yousef.codes/packages"
 ```
 
 ## Package Manifest
@@ -16,20 +16,32 @@ default = "https://seen.yousef.codes/packages"
 Packages use the same `Seen.toml` format as applications:
 
 ```toml
+manifest-version = 1
+
 [project]
-name = "mathx"
+name = "math_core"
 version = "0.1.0"
 language = "en"
+
+[package]
+identity = "alice/mathx"
+visibility = "public"
+include = ["src/**/*.seen", "README.md", "LICENSE"]
+assets = []
+capabilities = []
 
 [dependencies]
 
 [native.dependencies]
 ```
 
-The package name is currently also the dependency key and import root.
+`project.name` is the package's local module root. `package.identity` is its
+canonical registry identity. They are intentionally independent. Consumer
+dependency keys are a third value: local aliases/import roots that do not
+change registry identity.
 
 ```seen
-import mathx.value.{answer}
+import math_core.value.{answer}
 ```
 
 ## Consumer Setup
@@ -40,28 +52,41 @@ name = "demo"
 version = "0.1.0"
 
 [registries]
-default = "https://seen.yousef.codes/packages"
+default = "https://seen.dev.yousef.codes/packages"
 
 [dependencies]
-mathx = "0.1.0"
+calc = { package = "alice/mathx", version = "0.1.0" }
 
 [native.dependencies]
 ```
 
-Registry dependencies are fetched into `.seen/packages/`, and registry-backed
-projects get a `Seen.lock`.
+Source imports use the alias:
 
-## Static Registry Layout
+```seen
+import calc.value.{answer}
+```
 
-The compiler expects this layout under the registry base URL:
+Registry dependencies are fetched into
+`.seen/packages/<owner>/<name>/<version>/<archive-sha256>/`, and registry-backed projects get a
+dependency `Seen.lock` version 2 containing the alias, canonical identity,
+exact version, resolved registry origin, and exact archive digest. The separate
+stdlib ABI snapshot is named `Seen.modules.lock`. The current compiler writes
+the dependency file as a provisional resolution report; lock enforcement is
+not implemented yet, and hosted resolution remains disabled until it is.
+
+## Legacy Local-Static Registry Layout
+
+The current development-only compatibility flow writes this layout:
 
 ```text
 packages/
 ├── index/
-│   └── mathx.toml
+│   └── alice/
+│       └── mathx.toml
 └── archives/
-    └── mathx/
-        └── mathx-0.1.0.seenpkg.tgz
+    └── alice/
+        └── mathx/
+            └── mathx-0.1.0.seenpkg.tgz
 ```
 
 Each package index is a TOML file:
@@ -71,13 +96,15 @@ version = 1
 
 [[releases]]
 version = "0.1.0"
-archive = "archives/mathx/mathx-0.1.0.seenpkg.tgz"
+archive = "archives/alice/mathx/mathx-0.1.0.seenpkg.tgz"
 sha256 = "..."
 ```
 
-## Publishing
+## Local Development Publishing
 
-`seen pkg publish` writes into a local static registry directory:
+`seen pkg publish` writes into a local static registry directory. It does not
+perform hosted ingestion, provenance verification, sandboxed scans, the public
+72-hour delay, a second scan, or signed metadata publication:
 
 ```bash
 seen pkg publish ./dist/registry ./path/to/package
@@ -89,19 +116,11 @@ For convenience, this repo also includes:
 scripts/publish_registry.sh --manifest ./path/to/package
 ```
 
-That script publishes into `dist/registry` by default. If you also pass
-`--sync-dir`, it mirrors the registry tree into your website checkout or deploy
-directory:
-
-```bash
-scripts/publish_registry.sh \
-  --manifest ./examples/mathx \
-  --sync-dir /path/to/site/public/packages
-```
-
-If your hosting setup serves `/path/to/site/public/packages` at
-`https://seen.yousef.codes/packages`, the package is ready for consumers after
-you deploy the site.
+That script publishes into `dist/registry` for filesystem-based development
+only; it intentionally has no website-sync or public-URL option. Do not deploy
+this output as the hosted Seen registry. Hosted v1 publication
+must use `/packages/api/v1` after its writer is enabled and must remain
+unavailable until ingestion, scanning, delay, and signing complete.
 
 ## Prebuilt Package Artifacts
 
@@ -154,21 +173,34 @@ helpers that return `String`, classes, arrays, or other aggregate values,
 because the consumer must see the real signature even though the implementation
 came from the artifact.
 
-## Deploying To `seen.yousef.codes`
+## Hosted Registry Environments
 
-One simple flow is:
+Development will first deploy at
+`https://seen.dev.yousef.codes/packages`. Production later promotes the same
+host-neutral contract to `https://seen.yousef.codes/packages` by changing
+environment configuration, delegated signing identities, and routing—not by
+rewriting package or schema identities.
 
-1. Build a compiler with `pkg` support.
-2. Run `scripts/publish_registry.sh --manifest <package> --sync-dir <site-packages-dir>`.
-3. Deploy your site as usual.
-4. Verify that `https://seen.yousef.codes/packages/index/<package>.toml` is reachable.
-5. Verify that a separate Seen project can `seen pkg fetch` from the hosted URL.
+The hosted writer is currently disabled. The local-static script above is only
+for local/private compatibility testing. The compiler also fails closed on
+HTTPS registry resolution until signed resolver metadata and hardened archive
+extraction are implemented; the configured development URL is the intended
+future default, not an unsigned-static fallback.
 
 ## Current Limits
 
 - Registry versions are exact-only for now. `^`, `~`, and `*` are rejected.
-- `seen pkg publish` writes to local directories; it does not upload over HTTP.
-- Package name, dependency key, and import root are the same in this MVP.
+- `seen pkg publish` is a legacy local-development operation; it does not
+  upload over HTTP and does not satisfy hosted-v1 security gates.
+- Hosted URLs must use HTTPS. Plain HTTP registries are rejected; filesystem
+  paths remain available for explicit local development.
+- The current extractor still uses the platform archive tool and is not the
+  hosted-v1 hardened extractor. Hosted resolution remains disabled until
+  bounded preflight, link/device/path rejection, staging, and atomic promotion
+  land under FEL-631/FEL-629.
+- Legacy unscoped dependencies remain available for local static-registry
+  compatibility; the hosted v1 registry requires canonical `owner/name`
+  identities.
 - Prebuilt package artifacts are local path dependencies; registry publication
   still serves source archives.
 - Artifact interface modules are declaration-only from the consumer's point of

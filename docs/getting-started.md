@@ -101,7 +101,7 @@ version = "0.1.0"
 language = "en"
 
 [registries]
-default = "https://seen.yousef.codes/packages"
+default = "https://seen.dev.yousef.codes/packages"
 
 [dependencies]
 

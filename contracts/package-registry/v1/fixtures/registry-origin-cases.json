@@ -1,0 +1,20 @@
+{
+  "contract_version": 1,
+  "valid": [
+    "https://seen.dev.yousef.codes/packages",
+    "https://seen.yousef.codes/packages",
+    "https://registry.example.org/seen/packages-v1"
+  ],
+  "invalid": [
+    "http://seen.dev.yousef.codes/packages",
+    "https://seen.dev.yousef.codes",
+    "https://seen.dev.yousef.codes/packages/",
+    "https://Seen.dev.yousef.codes/packages",
+    "https://user@seen.dev.yousef.codes/packages",
+    "https://seen.dev.yousef.codes:443/packages",
+    "https://seen.dev.yousef.codes/packages?channel=dev",
+    "https://seen.dev.yousef.codes/packages#latest",
+    "https://seen.dev.yousef.codes/../packages",
+    "https://seen.dev.yousef.codes/%70ackages"
+  ]
+}

@@ -1,0 +1,317 @@
+{
+  "contract_version": 1,
+  "schema": "../schemas/tuf-metadata-envelope-v1.schema.json",
+  "cryptographic_material": "synthetic-non-production",
+  "canonical_serialization": "seen-tuf-canonical-json-v1",
+  "metadata_chain": {
+    "snapshot_meta_documents": {
+      "targets.json": "targets",
+      "releases.json": "release_targets",
+      "security.json": "security_targets"
+    },
+    "timestamp_meta_documents": {"snapshot.json": "snapshot"}
+  },
+  "validation_time": "2026-07-16T12:00:00Z",
+  "metadata": {
+    "root": {
+      "signatures": [
+        {"keyid": "prod-root-a", "sig": "cHJvZC1yb290LWEtc3ludGhldGljLXNpZ25hdHVyZS0wMDAwMDA"},
+        {"keyid": "prod-root-b", "sig": "cHJvZC1yb290LWItc3ludGhldGljLXNpZ25hdHVyZS0wMDAwMDA"}
+      ],
+      "signed": {
+        "_type": "root",
+        "spec_version": "1.0",
+        "version": 1,
+        "expires": "2027-07-16T12:00:00Z",
+        "environment": "production",
+        "repository_id": "seen-prod-registry-v1",
+        "consistent_snapshot": true,
+        "keys": {
+          "prod-root-a": {"keytype": "ed25519", "scheme": "ed25519", "keyval": {"public": "cHJvZC1yb290LWEtc3ludGhldGljLXB1YmxpYy1rZXktMDAwMDA"}},
+          "prod-root-b": {"keytype": "ed25519", "scheme": "ed25519", "keyval": {"public": "cHJvZC1yb290LWItc3ludGhldGljLXB1YmxpYy1rZXktMDAwMDA"}},
+          "prod-root-c": {"keytype": "ed25519", "scheme": "ed25519", "keyval": {"public": "cHJvZC1yb290LWMtc3ludGhldGljLXB1YmxpYy1rZXktMDAwMDA"}},
+          "prod-targets-a": {"keytype": "ed25519", "scheme": "ed25519", "keyval": {"public": "cHJvZC10YXJnZXRzLWEtc3ludGhldGljLXB1YmxpYy1rZXktMDAw"}},
+          "prod-targets-b": {"keytype": "ed25519", "scheme": "ed25519", "keyval": {"public": "cHJvZC10YXJnZXRzLWItc3ludGhldGljLXB1YmxpYy1rZXktMDAw"}},
+          "prod-targets-c": {"keytype": "ed25519", "scheme": "ed25519", "keyval": {"public": "cHJvZC10YXJnZXRzLWMtc3ludGhldGljLXB1YmxpYy1rZXktMDAw"}},
+          "prod-snapshot-a": {"keytype": "ecdsa", "scheme": "ecdsa-sha2-nistp256", "keyval": {"public": "cHJvZC1zbmFwc2hvdC1hLXN5bnRoZXRpYy1wdWJsaWMta2V5LTAw"}},
+          "prod-timestamp-a": {"keytype": "ecdsa", "scheme": "ecdsa-sha2-nistp256", "keyval": {"public": "cHJvZC10aW1lc3RhbXAtYS1zeW50aGV0aWMtcHVibGljLWtleS0w"}}
+        },
+        "roles": {
+          "root": {"keyids": ["prod-root-a", "prod-root-b", "prod-root-c"], "threshold": 2},
+          "targets": {"keyids": ["prod-targets-a", "prod-targets-b", "prod-targets-c"], "threshold": 2},
+          "snapshot": {"keyids": ["prod-snapshot-a"], "threshold": 1},
+          "timestamp": {"keyids": ["prod-timestamp-a"], "threshold": 1}
+        }
+      }
+    },
+    "targets": {
+      "signatures": [
+        {"keyid": "prod-targets-a", "sig": "cHJvZC10YXJnZXRzLWEtc3ludGhldGljLXNpZ25hdHVyZS0wMDA"},
+        {"keyid": "prod-targets-b", "sig": "cHJvZC10YXJnZXRzLWItc3ludGhldGljLXNpZ25hdHVyZS0wMDA"}
+      ],
+      "signed": {
+        "_type": "targets",
+        "spec_version": "1.0",
+        "version": 17,
+        "expires": "2026-08-15T12:00:00Z",
+        "environment": "production",
+        "repository_id": "seen-prod-registry-v1",
+        "targets": {},
+        "delegations": {
+          "keys": {
+            "prod-releases-a": {"keytype": "ecdsa", "scheme": "ecdsa-sha2-nistp256", "keyval": {"public": "cHJvZC1yZWxlYXNlcy1hLXN5bnRoZXRpYy1wdWJsaWMta2V5LTAw"}},
+            "prod-releases-b": {"keytype": "ecdsa", "scheme": "ecdsa-sha2-nistp256", "keyval": {"public": "cHJvZC1yZWxlYXNlcy1iLXN5bnRoZXRpYy1wdWJsaWMta2V5LTAw"}},
+            "prod-security-a": {"keytype": "ecdsa", "scheme": "ecdsa-sha2-nistp256", "keyval": {"public": "cHJvZC1zZWN1cml0eS1hLXN5bnRoZXRpYy1wdWJsaWMta2V5LTAw"}},
+            "prod-security-b": {"keytype": "ecdsa", "scheme": "ecdsa-sha2-nistp256", "keyval": {"public": "cHJvZC1zZWN1cml0eS1iLXN5bnRoZXRpYy1wdWJsaWMta2V5LTAw"}},
+            "prod-security-c": {"keytype": "ecdsa", "scheme": "ecdsa-sha2-nistp256", "keyval": {"public": "cHJvZC1zZWN1cml0eS1jLXN5bnRoZXRpYy1wdWJsaWMta2V5LTAw"}}
+          },
+          "roles": [
+            {"name": "security", "keyids": ["prod-security-a", "prod-security-b", "prod-security-c"], "threshold": 2, "terminating": false, "paths": ["packages/*/*/*/*/*"]},
+            {"name": "releases", "keyids": ["prod-releases-a", "prod-releases-b"], "threshold": 2, "terminating": false, "paths": ["packages/*/*/*/*/*"]}
+          ]
+        }
+      }
+    },
+    "release_targets": {
+      "signatures": [
+        {"keyid": "prod-releases-a", "sig": "cHJvZC1yZWxlYXNlcy1hLXN5bnRoZXRpYy1zaWduYXR1cmUtMDAw"},
+        {"keyid": "prod-releases-b", "sig": "cHJvZC1yZWxlYXNlcy1iLXN5bnRoZXRpYy1zaWduYXR1cmUtMDAw"}
+      ],
+      "signed": {
+        "_type": "targets",
+        "spec_version": "1.0",
+        "version": 42,
+        "expires": "2026-07-20T12:00:00Z",
+        "environment": "production",
+        "repository_id": "seen-prod-registry-v1",
+        "targets": {
+          "packages/alice/mathx/1.2.3/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/mathx-1.2.3.seenpkg.tgz": {
+            "length": 8192,
+            "hashes": {"sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+            "custom": {
+              "environment": "production",
+              "registry_origin": "https://seen.yousef.codes/packages",
+              "package": "alice/mathx",
+              "version": "1.2.3",
+              "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "archive_filename": "mathx-1.2.3.seenpkg.tgz",
+              "visibility": "public",
+              "lifecycle": "active",
+              "retention": "retained",
+              "availability": "available",
+              "source_proof_sha256": "bcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbc",
+              "provenance_sha256": "97a6bce7f5a8c220d6c8938cd4954002e776a50f2d710e8722a6ca0e73453729"
+            }
+          }
+        }
+      }
+    },
+    "security_targets": {
+      "signatures": [
+        {"keyid": "prod-security-a", "sig": "cHJvZC1zZWN1cml0eS1hLXN5bnRoZXRpYy1zaWduYXR1cmUtMDAw"},
+        {"keyid": "prod-security-b", "sig": "cHJvZC1zZWN1cml0eS1iLXN5bnRoZXRpYy1zaWduYXR1cmUtMDAw"}
+      ],
+      "signed": {
+        "_type": "targets",
+        "spec_version": "1.0",
+        "version": 12,
+        "expires": "2026-07-16T18:00:00Z",
+        "environment": "production",
+        "repository_id": "seen-prod-registry-v1",
+        "targets": {
+          "packages/alice/mathx/1.2.3/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/mathx-1.2.3.seenpkg.tgz": {
+            "length": 8192,
+            "hashes": {"sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+            "custom": {
+              "environment": "production",
+              "registry_origin": "https://seen.yousef.codes/packages",
+              "package": "alice/mathx",
+              "version": "1.2.3",
+              "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "archive_filename": "mathx-1.2.3.seenpkg.tgz",
+              "visibility": "public",
+              "lifecycle": "active",
+              "retention": "retained",
+              "availability": "security-quarantined",
+              "source_proof_sha256": "bcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbc",
+              "provenance_sha256": "97a6bce7f5a8c220d6c8938cd4954002e776a50f2d710e8722a6ca0e73453729",
+              "incident_id": "inc_GHSA_2026_mathx_0001",
+              "security_action": "quarantine"
+            }
+          }
+        }
+      }
+    },
+    "snapshot": {
+      "signatures": [
+        {"keyid": "prod-snapshot-a", "sig": "cHJvZC1zbmFwc2hvdC1hLXN5bnRoZXRpYy1zaWduYXR1cmUtMDAw"}
+      ],
+      "signed": {
+        "_type": "snapshot",
+        "spec_version": "1.0",
+        "version": 91,
+        "expires": "2026-07-17T12:00:00Z",
+        "environment": "production",
+        "repository_id": "seen-prod-registry-v1",
+        "meta": {
+          "targets.json": {"version": 17, "length": 1403, "hashes": {"sha256": "b2a4b14cc3c8d506e9611a8c1c30bb9a74fa7418c947c4811b07310fb22c3c0d"}},
+          "releases.json": {"version": 42, "length": 1123, "hashes": {"sha256": "02c1aa8c41c9a8803ea3f5be219b2f310362de0c60714d2e8198986f5776a36c"}},
+          "security.json": {"version": 12, "length": 1206, "hashes": {"sha256": "60ae5c82f0bb0fdc413c0991207149e96a8df55ee603992b8e317e5416fe3045"}}
+        }
+      }
+    },
+    "timestamp": {
+      "signatures": [
+        {"keyid": "prod-timestamp-a", "sig": "cHJvZC10aW1lc3RhbXAtYS1zeW50aGV0aWMtc2lnbmF0dXJlLTAwMA"}
+      ],
+      "signed": {
+        "_type": "timestamp",
+        "spec_version": "1.0",
+        "version": 108,
+        "expires": "2026-07-16T18:00:00Z",
+        "environment": "production",
+        "repository_id": "seen-prod-registry-v1",
+        "meta": {
+          "snapshot.json": {"version": 91, "length": 673, "hashes": {"sha256": "d727ce4aeb230ea4bb93ec3ec314014c66d6ee0ddd62739987af21dc148404f8"}}
+        }
+      }
+    }
+  },
+  "target_binding_cases": [
+    {
+      "name": "canonical-public-release-target",
+      "role": "releases",
+      "target_path": "packages/alice/mathx/1.2.3/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/mathx-1.2.3.seenpkg.tgz",
+      "custom": {"package": "alice/mathx", "version": "1.2.3", "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "archive_filename": "mathx-1.2.3.seenpkg.tgz", "visibility": "public", "lifecycle": "active", "retention": "retained", "availability": "available"},
+      "target_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "expected": "accept"
+    },
+    {
+      "name": "path-package-does-not-match-custom",
+      "role": "releases",
+      "target_path": "packages/mallory/mathx/1.2.3/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/mathx-1.2.3.seenpkg.tgz",
+      "custom": {"package": "alice/mathx", "version": "1.2.3", "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "archive_filename": "mathx-1.2.3.seenpkg.tgz", "visibility": "public", "lifecycle": "active", "retention": "retained", "availability": "available"},
+      "target_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "expected": "reject",
+      "error_code": "signing_target_path_identity_mismatch"
+    },
+    {
+      "name": "path-version-does-not-match-custom",
+      "role": "releases",
+      "target_path": "packages/alice/mathx/9.9.9/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/mathx-9.9.9.seenpkg.tgz",
+      "custom": {"package": "alice/mathx", "version": "1.2.3", "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "archive_filename": "mathx-9.9.9.seenpkg.tgz", "visibility": "public", "lifecycle": "active", "retention": "retained", "availability": "available"},
+      "target_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "expected": "reject",
+      "error_code": "signing_target_path_version_mismatch"
+    },
+    {
+      "name": "path-digest-does-not-match-custom",
+      "role": "releases",
+      "target_path": "packages/alice/mathx/1.2.3/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/mathx-1.2.3.seenpkg.tgz",
+      "custom": {"package": "alice/mathx", "version": "1.2.3", "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "archive_filename": "mathx-1.2.3.seenpkg.tgz", "visibility": "public", "lifecycle": "active", "retention": "retained", "availability": "available"},
+      "target_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "expected": "reject",
+      "error_code": "signing_target_path_digest_mismatch"
+    },
+    {
+      "name": "archive-leaf-does-not-match-custom",
+      "role": "releases",
+      "target_path": "packages/alice/mathx/1.2.3/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/mathx-1.2.3.seenpkg.tgz",
+      "custom": {"package": "alice/mathx", "version": "1.2.3", "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "archive_filename": "other-1.2.3.seenpkg.tgz", "visibility": "public", "lifecycle": "active", "retention": "retained", "availability": "available"},
+      "target_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "expected": "reject",
+      "error_code": "signing_target_path_leaf_mismatch"
+    },
+    {
+      "name": "private-release-cannot-enter-public-metadata",
+      "role": "releases",
+      "target_path": "packages/alice/mathx/1.2.3/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/mathx-1.2.3.seenpkg.tgz",
+      "custom": {"package": "alice/mathx", "version": "1.2.3", "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "archive_filename": "mathx-1.2.3.seenpkg.tgz", "visibility": "private", "lifecycle": "active", "retention": "retained", "availability": "available"},
+      "target_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "expected": "reject",
+      "error_code": "signing_release_not_public"
+    },
+    {
+      "name": "nonactive-release-cannot-enter-public-metadata",
+      "role": "releases",
+      "target_path": "packages/alice/mathx/1.2.3/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/mathx-1.2.3.seenpkg.tgz",
+      "custom": {"package": "alice/mathx", "version": "1.2.3", "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "archive_filename": "mathx-1.2.3.seenpkg.tgz", "visibility": "public", "lifecycle": "ready", "retention": "retained", "availability": "available"},
+      "target_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "expected": "reject",
+      "error_code": "signing_release_not_active"
+    },
+    {
+      "name": "nonretained-release-cannot-enter-public-metadata",
+      "role": "releases",
+      "target_path": "packages/alice/mathx/1.2.3/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/mathx-1.2.3.seenpkg.tgz",
+      "custom": {"package": "alice/mathx", "version": "1.2.3", "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "archive_filename": "mathx-1.2.3.seenpkg.tgz", "visibility": "public", "lifecycle": "active", "retention": "purged", "availability": "available"},
+      "target_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "expected": "reject",
+      "error_code": "signing_release_not_retained"
+    },
+    {
+      "name": "release-role-cannot-publish-security-quarantine",
+      "role": "releases",
+      "target_path": "packages/alice/mathx/1.2.3/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/mathx-1.2.3.seenpkg.tgz",
+      "custom": {"package": "alice/mathx", "version": "1.2.3", "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "archive_filename": "mathx-1.2.3.seenpkg.tgz", "visibility": "public", "lifecycle": "active", "retention": "retained", "availability": "security-quarantined", "incident_id": "inc_GHSA_2026_mathx_0001", "security_action": "quarantine"},
+      "target_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "expected": "reject",
+      "error_code": "signing_wrong_role"
+    },
+    {
+      "name": "security-role-quarantine-is-authoritative",
+      "role": "security",
+      "target_path": "packages/alice/mathx/1.2.3/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/mathx-1.2.3.seenpkg.tgz",
+      "custom": {"package": "alice/mathx", "version": "1.2.3", "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "archive_filename": "mathx-1.2.3.seenpkg.tgz", "visibility": "public", "lifecycle": "active", "retention": "retained", "availability": "security-quarantined", "incident_id": "inc_GHSA_2026_mathx_0001", "security_action": "quarantine"},
+      "target_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "expected": "accept"
+    }
+  ],
+  "overlay_resolution_cases": [
+    {
+      "name": "security-quarantine-overrides-release-availability",
+      "target_path": "packages/alice/mathx/1.2.3/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/mathx-1.2.3.seenpkg.tgz",
+      "candidates": [
+        {"role": "security", "present": true, "availability": "security-quarantined", "incident_id": "inc_GHSA_2026_mathx_0001", "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+        {"role": "releases", "present": true, "availability": "available", "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+      ],
+      "expected": {"decision": "select", "role": "security", "availability": "security-quarantined"}
+    },
+    {
+      "name": "missing-security-overlay-falls-through",
+      "target_path": "packages/alice/mathx/1.2.3/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/mathx-1.2.3.seenpkg.tgz",
+      "candidates": [
+        {"role": "security", "present": false},
+        {"role": "releases", "present": true, "availability": "available", "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+      ],
+      "expected": {"decision": "select", "role": "releases", "availability": "available"}
+    },
+    {
+      "name": "reviewed-reinstatement-requires-security-role",
+      "target_path": "packages/alice/mathx/1.2.3/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/mathx-1.2.3.seenpkg.tgz",
+      "candidates": [
+        {"role": "security", "present": true, "availability": "available", "security_action": "reinstate-reviewed", "incident_id": "inc_GHSA_2026_mathx_0001", "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+        {"role": "releases", "present": true, "availability": "security-quarantined", "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+      ],
+      "expected": {"decision": "select", "role": "security", "availability": "available"}
+    },
+    {
+      "name": "security-overlay-digest-mismatch-fails-closed",
+      "target_path": "packages/alice/mathx/1.2.3/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/mathx-1.2.3.seenpkg.tgz",
+      "candidates": [
+        {"role": "security", "present": true, "availability": "security-quarantined", "incident_id": "inc_GHSA_2026_mathx_0001", "archive_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+        {"role": "releases", "present": true, "availability": "available", "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+      ],
+      "expected": {"decision": "reject", "error_code": "signing_overlay_digest_mismatch"}
+    },
+    {
+      "name": "security-quarantine-without-incident-fails-closed",
+      "target_path": "packages/alice/mathx/1.2.3/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/mathx-1.2.3.seenpkg.tgz",
+      "candidates": [
+        {"role": "security", "present": true, "availability": "security-quarantined", "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+        {"role": "releases", "present": true, "availability": "available", "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+      ],
+      "expected": {"decision": "reject", "error_code": "signing_security_incident_required"}
+    }
+  ]
+}

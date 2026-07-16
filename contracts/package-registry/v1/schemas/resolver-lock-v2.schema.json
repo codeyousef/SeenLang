@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:seen:package-registry:v1:resolver-lock-v2",
+  "title": "Seen dependency resolver lock v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "packages"],
+  "properties": {
+    "version": {"const": 2},
+    "packages": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/package"}
+    }
+  },
+  "$defs": {
+    "alias": {
+      "type": "string",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$",
+      "not": {
+        "enum": [
+          "lexer",
+          "parser",
+          "typechecker",
+          "macro",
+          "bootstrap",
+          "codegen",
+          "lsp",
+          "tools",
+          "optimization",
+          "trace",
+          "ir",
+          "types",
+          "testing",
+          "ffi"
+        ]
+      }
+    },
+    "identity": {
+      "type": "string",
+      "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?/[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+    },
+    "exactVersion": {
+      "type": "string",
+      "format": "semver-exact",
+      "maxLength": 128,
+      "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "registryOrigin": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+(?:/[a-z0-9][a-z0-9._~-]*)+$"
+    },
+    "package": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "alias",
+        "package",
+        "version",
+        "source",
+        "registry_origin"
+      ],
+      "properties": {
+        "alias": {"$ref": "#/$defs/alias"},
+        "package": {"type": "string", "minLength": 1},
+        "version": {"$ref": "#/$defs/exactVersion"},
+        "source": {
+          "enum": ["hosted-registry", "legacy-local-static"]
+        },
+        "registry_origin": {"type": "string", "minLength": 1},
+        "archive_sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {"source": {"const": "hosted-registry"}},
+            "required": ["source"]
+          },
+          "then": {
+            "required": ["archive_sha256"],
+            "properties": {
+              "package": {"$ref": "#/$defs/identity"},
+              "registry_origin": {"$ref": "#/$defs/registryOrigin"}
+            }
+          }
+        }
+      ]
+    }
+  }
+}

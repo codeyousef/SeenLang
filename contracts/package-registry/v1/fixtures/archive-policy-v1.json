@@ -1,0 +1,117 @@
+{
+  "contract_version": 1,
+  "archive_format": "tar+gzip",
+  "content_model": "source-only",
+  "limits": {
+    "compressed_bytes": 26214400,
+    "expanded_bytes": 104857600,
+    "entry_count": 4096,
+    "regular_file_bytes": 10485760,
+    "path_bytes": 240,
+    "path_depth": 16,
+    "compression_ratio": 100,
+    "validation_seconds": 30
+  },
+  "path_rules": {
+    "encoding": "utf-8",
+    "unicode_form": "NFC-reject-noncanonical",
+    "separator": "/",
+    "absolute_paths": "reject",
+    "dot_segments": "reject",
+    "empty_segments": "reject",
+    "backslashes": "reject",
+    "control_characters": "reject",
+    "duplicate_effective_paths": "reject",
+    "portable_case_collisions": "reject",
+    "unicode_normalization_collisions": "reject",
+    "metadata_path_resolution": "validate-effective-path-after-all-tar-headers"
+  },
+  "entry_rules": {
+    "allowed_types": ["regular-file", "directory"],
+    "forbidden_types": [
+      "symlink",
+      "hardlink",
+      "character-device",
+      "block-device",
+      "fifo",
+      "socket",
+      "sparse-file",
+      "unknown"
+    ],
+    "executable_mode": "reject",
+    "sparse_files": "reject",
+    "required_regular_files": ["Seen.toml"],
+    "manifest_include_enforced": true,
+    "manifest_location": "exactly-one-root-regular-file-Seen.toml",
+    "manifest_hash_input": "exact-raw-Seen.toml-bytes",
+    "manifest_parser": "strict-seen-manifest-v1-reject-unknown-or-duplicate-fields",
+    "manifest_reservation_binding": "exact-hash-and-complete-parsed-value-before-ready",
+    "manifest_bound_fields": ["package.identity", "project.version", "package.capabilities", "package.include", "package.assets"],
+    "include_membership_source": "recompute-from-validated-effective-archive-paths",
+    "unsupported_header": "reject",
+    "parse_error": "reject"
+  },
+  "content_rules": {
+    "inspection_scope": "all-regular-files-before-staging-promotion",
+    "inspect_prefix_bytes": 4096,
+    "decision": "reject-on-any-classifier-match",
+    "path_name_classifiers": {
+      "case_folding": "ascii-lowercase",
+      "prebuilt_suffixes": [
+        ".o", ".obj", ".a", ".lib", ".so", ".dylib", ".dll",
+        ".exe", ".wasm", ".class", ".jar", ".pyc", ".pyo", ".bc"
+      ],
+      "prebuilt_basenames": ["a.out", "core"],
+      "script_extensions": [
+        ".sh", ".bash", ".zsh", ".fish", ".ps1", ".cmd", ".bat",
+        ".py", ".rb", ".js"
+      ],
+      "forbidden_lifecycle_stems": [
+        "preinstall", "install", "postinstall", "prebuild", "build",
+        "postbuild", "prepare", "configure", "bootstrap", "prepublish",
+        "postpublish", "release"
+      ],
+      "forbidden_script_path_segments": [
+        "scripts", ".hooks", "hooks", "lifecycle", "build-scripts", "install-scripts"
+      ]
+    },
+    "binary_magic_prefixes": [
+      {"name": "elf", "offset": 0, "prefix_hex": "7f454c46", "classification": "native-binary"},
+      {"name": "portable-executable", "offset": 0, "prefix_hex": "4d5a", "classification": "native-binary"},
+      {"name": "mach-o-32", "offset": 0, "prefix_hex": "feedface", "classification": "native-binary"},
+      {"name": "mach-o-64", "offset": 0, "prefix_hex": "feedfacf", "classification": "native-binary"},
+      {"name": "mach-o-32-reversed", "offset": 0, "prefix_hex": "cefaedfe", "classification": "native-binary"},
+      {"name": "mach-o-64-reversed", "offset": 0, "prefix_hex": "cffaedfe", "classification": "native-binary"},
+      {"name": "webassembly", "offset": 0, "prefix_hex": "0061736d", "classification": "bytecode"},
+      {"name": "unix-ar", "offset": 0, "prefix_hex": "213c617263683e0a", "classification": "object-or-library"},
+      {"name": "llvm-bitcode", "offset": 0, "prefix_hex": "4243c0de", "classification": "bytecode"},
+      {"name": "java-class-or-fat-mach-o", "offset": 0, "prefix_hex": "cafebabe", "classification": "bytecode"},
+      {"name": "zip-or-jar", "offset": 0, "prefix_hex": "504b0304", "classification": "nested-binary-container"}
+    ],
+    "script_content_prefixes": [
+      {"name": "posix-shebang", "prefix_hex": "2321"},
+      {"name": "windows-batch-echo-off", "prefix_hex": "406563686f206f6666"},
+      {"name": "powershell-error-policy", "prefix_hex": "244572726f72416374696f6e507265666572656e6365"}
+    ],
+    "prebuilt_match_rule": "reject-if-suffix-basename-or-binary-magic-matches",
+    "lifecycle_script_match_rule": "reject-if-forbidden-stem-regardless-of-mode-or-if-script-content-under-forbidden-path",
+    "prebuilt_error_code": "archive_prebuilt_artifact_forbidden",
+    "script_error_code": "archive_lifecycle_script_forbidden"
+  },
+  "evaluation_order": [
+    "stream-compressed-input-with-hard-byte-and-time-limits",
+    "parse-headers-without-materializing-files",
+    "resolve-effective-path-and-entry-type",
+    "enforce-path-type-count-and-expanded-size-policy",
+    "classify-regular-files-by-effective-path-name-and-content-prefix",
+    "reject-prebuilt-artifacts-and-lifecycle-scripts-regardless-of-mode",
+    "verify-archive-sha256",
+    "locate-and-sha256-exact-raw-root-Seen.toml",
+    "strictly-parse-and-match-reserved-manifest-identity-version-capabilities-include-and-assets",
+    "recompute-manifest-include-membership-from-validated-effective-paths",
+    "extract-to-new-empty-staging-directory",
+    "rehash-and-verify-extracted-regular-files",
+    "atomically-promote-staging-directory"
+  ],
+  "failure_mode": "reject-closed-delete-staging-retain-audit-evidence"
+}

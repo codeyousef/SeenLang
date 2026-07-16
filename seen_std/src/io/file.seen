@@ -163,8 +163,8 @@ fun writeText(path: String, content: String) r: Bool {
         return false
     }
     let written: Int = __WriteFile(fd, content)
-    let _ = __CloseFile(fd)
-    return written >= 0
+    let closeResult: Int = __CloseFile(fd)
+    return written == content.length() and closeResult >= 0
 }
 
 fun appendText(path: String, content: String) r: Bool {

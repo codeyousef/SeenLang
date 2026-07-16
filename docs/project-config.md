@@ -5,6 +5,8 @@ Seen projects use `Seen.toml` for configuration.
 ## Minimal Seen.toml
 
 ```toml
+manifest-version = 1
+
 [project]
 name = "my_project"
 version = "0.1.0"
@@ -72,31 +74,68 @@ modules = [
 
 ## [dependencies] Section
 
+The scoped registry fields below describe the unreleased Seen 0.10 source
+preview. The published 0.9.5 compiler does not include this contract.
+
 ```toml
 [registries]
-default = "https://seen.yousef.codes/packages"
+default = "https://seen.dev.yousef.codes/packages"
 
 [dependencies]
-mathx = "0.1.0"
+calc = { package = "alice/mathx", version = "0.1.0" }
 gamekit = { path = "../gamekit" }
 ```
 
+The development URL is the intended hosted-v1 origin. Remote resolution is
+currently fail-closed until signed metadata verification and hardened archive
+extraction land; explicit filesystem registries are available only for trusted
+local development.
+
 Package dependencies can be either:
 
-- exact registry versions like `"0.1.0"`
+- scoped registry packages like
+  `{ package = "alice/mathx", version = "0.1.0" }`; the table key is the
+  local import alias
+- legacy unscoped exact versions like `"0.1.0"` for local static registries
 - local Seen package paths like `{ path = "../gamekit" }`
 - local prebuilt artifacts like `{ artifact = "../dist/gamekit-0.1.0.seenpkg" }`
 
-Dependencies are imported by the dependency key:
+Dependencies are imported by the local dependency key, independent of their
+canonical registry identity:
 
 ```seen
-import mathx.value.{answer}
+import calc.value.{answer}
 import gamekit.player.{Player}
 ```
 
-Registry packages are installed under `.seen/packages/`, and registry-backed
-projects get a `Seen.lock` recording the resolved package versions and install
-paths.
+Scoped registry packages are installed under
+`.seen/packages/<owner>/<name>/<version>/<archive-sha256>/`, and registry-backed projects get a
+dependency `Seen.lock` version 2 recording aliases, canonical identities,
+resolved versions, canonical registry origins, and exact archive digests. The
+current compiler does not yet consume this provisional resolution report on a
+later run. The stdlib ABI/module snapshot is a separate `Seen.modules.lock`
+artifact.
+
+## [package] Section
+
+A publishable package keeps its local module root separate from its registry
+identity:
+
+```toml
+[project]
+name = "math_core"
+version = "0.1.0"
+
+[package]
+identity = "alice/mathx"
+visibility = "public"
+include = ["src/**/*.seen", "README.md", "LICENSE"]
+assets = []
+capabilities = []
+```
+
+`project.name`, a consumer's dependency alias, and `package.identity` are not
+required to match.
 
 ## [native.dependencies] Section
 

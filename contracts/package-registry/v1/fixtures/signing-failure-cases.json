@@ -1,0 +1,59 @@
+{
+  "contract_version": 1,
+  "policy": "signing-policy-v1.json",
+  "validation_time": "2026-07-16T12:00:00Z",
+  "valid": [
+    {
+      "name": "production_release_threshold",
+      "environment": "production",
+      "role": "releases",
+      "keyids": ["prod-releases-a", "prod-releases-b"],
+      "metadata_version": 42,
+      "previous_trusted_version": 41,
+      "expires": "2026-07-20T12:00:00Z",
+      "target_path": "packages/alice/mathx/1.2.3/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/mathx-1.2.3.seenpkg.tgz",
+      "expected": "accept"
+    },
+    {
+      "name": "sequential_root_rotation_dual_threshold",
+      "environment": "production",
+      "role": "root",
+      "old_root_version": 7,
+      "new_root_version": 8,
+      "old_root_signatures": ["prod-root-a", "prod-root-b"],
+      "new_root_signatures": ["prod-root-b", "prod-root-c"],
+      "expected": "accept"
+    }
+  ],
+  "invalid": [
+    {"name": "development_key_on_production", "environment": "production", "role": "releases", "keyids": ["dev-releases-a"], "expected": "reject", "error_code": "signing_environment_mismatch"},
+    {"name": "repository_id_mismatch", "environment": "production", "metadata_repository_id": "seen-dev-registry-v1", "expected": "reject", "error_code": "signing_repository_mismatch"},
+    {"name": "registry_origin_mismatch", "environment": "production", "metadata_registry_origin": "https://seen.dev.yousef.codes/packages", "expected": "reject", "error_code": "signing_origin_mismatch"},
+    {"name": "release_threshold_not_met", "environment": "production", "role": "releases", "keyids": ["prod-releases-a"], "expected": "reject", "error_code": "signing_threshold_not_met"},
+    {"name": "security_threshold_not_met", "environment": "production", "role": "security", "keyids": ["prod-security-a"], "expected": "reject", "error_code": "signing_threshold_not_met"},
+    {"name": "unknown_key", "environment": "production", "role": "timestamp", "keyids": ["prod-timestamp-unknown"], "expected": "reject", "error_code": "signing_unknown_key"},
+    {"name": "revoked_key", "environment": "production", "role": "timestamp", "key_status": "revoked", "expected": "reject", "error_code": "signing_revoked_key"},
+    {"name": "role_confusion", "environment": "production", "role": "targets", "keyids": ["prod-timestamp-a"], "expected": "reject", "error_code": "signing_wrong_role"},
+    {"name": "attestation_role_confusion", "environment": "production", "role": "source-proof", "keyids": ["prod-provenance-a"], "expected": "reject", "error_code": "signing_wrong_role"},
+    {"name": "delegated_path_escape", "environment": "production", "role": "releases", "target_path": "admin/root.json", "expected": "reject", "error_code": "signing_path_not_delegated"},
+    {"name": "target_path_custom_identity_mismatch", "environment": "production", "role": "releases", "target_path": "packages/mallory/mathx/1.2.3/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/mathx-1.2.3.seenpkg.tgz", "metadata_package": "alice/mathx", "expected": "reject", "error_code": "signing_target_path_identity_mismatch"},
+    {"name": "private_release_target", "environment": "production", "role": "releases", "visibility": "private", "lifecycle": "active", "retention": "retained", "availability": "available", "expected": "reject", "error_code": "signing_release_not_public"},
+    {"name": "nonactive_release_target", "environment": "production", "role": "releases", "visibility": "public", "lifecycle": "ready", "retention": "retained", "availability": "available", "expected": "reject", "error_code": "signing_release_not_active"},
+    {"name": "release_role_security_quarantine", "environment": "production", "role": "releases", "visibility": "public", "lifecycle": "active", "retention": "retained", "availability": "security-quarantined", "expected": "reject", "error_code": "signing_wrong_role"},
+    {"name": "expired_timestamp", "environment": "production", "role": "timestamp", "expires": "2026-07-16T11:59:59Z", "expected": "reject", "error_code": "signing_metadata_expired"},
+    {"name": "timestamp_freeze", "environment": "production", "role": "timestamp", "metadata_version": 88, "previous_trusted_version": 88, "previous_expires": "2026-07-16T12:05:00Z", "received_expires": "2026-07-16T12:05:00Z", "expected": "reject", "error_code": "signing_freeze_detected"},
+    {"name": "snapshot_rollback", "environment": "production", "role": "snapshot", "metadata_version": 40, "previous_trusted_version": 41, "expected": "reject", "error_code": "signing_metadata_rollback"},
+    {"name": "root_rollback", "environment": "production", "role": "root", "metadata_version": 6, "previous_trusted_version": 7, "expected": "reject", "error_code": "signing_root_rollback"},
+    {"name": "snapshot_hash_mismatch", "environment": "production", "role": "snapshot", "expected_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "actual_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "expected": "reject", "error_code": "signing_metadata_hash_mismatch"},
+    {"name": "target_length_mismatch", "environment": "production", "role": "releases", "expected_length": 8192, "actual_length": 8193, "expected": "reject", "error_code": "signing_target_length_mismatch"},
+    {"name": "target_digest_mismatch", "environment": "production", "role": "releases", "expected_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "actual_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "expected": "reject", "error_code": "signing_target_hash_mismatch"},
+    {"name": "root_rotation_old_threshold_missing", "environment": "production", "role": "root", "old_root_version": 7, "new_root_version": 8, "old_root_signatures": ["prod-root-a"], "new_root_signatures": ["prod-root-b", "prod-root-c"], "expected": "reject", "error_code": "signing_old_root_threshold_not_met"},
+    {"name": "root_rotation_new_threshold_missing", "environment": "production", "role": "root", "old_root_version": 7, "new_root_version": 8, "old_root_signatures": ["prod-root-a", "prod-root-b"], "new_root_signatures": ["prod-root-c"], "expected": "reject", "error_code": "signing_new_root_threshold_not_met"},
+    {"name": "root_rotation_version_skip", "environment": "production", "role": "root", "old_root_version": 7, "new_root_version": 9, "expected": "reject", "error_code": "signing_nonsequential_root_version"},
+    {"name": "online_root_key", "environment": "production", "role": "root", "key_storage": "cloud-kms", "key_online": true, "expected": "reject", "error_code": "signing_root_must_be_offline"},
+    {"name": "keyid_reused_between_environments", "development_keyid": "shared-release-key", "production_keyid": "shared-release-key", "expected": "reject", "error_code": "signing_cross_environment_key_reuse"},
+    {"name": "kms_resource_reused_between_environments", "development_kms_resource": "projects/shared/locations/global/keyRings/registry/cryptoKeys/releases/cryptoKeyVersions/1", "production_kms_resource": "projects/shared/locations/global/keyRings/registry/cryptoKeys/releases/cryptoKeyVersions/1", "expected": "reject", "error_code": "signing_cross_environment_kms_reuse"},
+    {"name": "unsigned_security_quarantine", "environment": "production", "action": "security-quarantine-target", "keyids": [], "expected": "reject", "error_code": "signing_threshold_not_met"},
+    {"name": "network_failure_with_expired_cache", "environment": "production", "network": "unavailable", "cached_metadata_expires": "2026-07-16T11:59:59Z", "expected": "reject", "error_code": "signing_no_fresh_trusted_metadata"}
+  ]
+}

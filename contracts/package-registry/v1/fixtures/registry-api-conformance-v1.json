@@ -1,0 +1,340 @@
+{
+  "contract_version": 1,
+  "openapi": "../openapi.yaml",
+  "workflow_schema": "../schemas/registry-api-workflows-v1.schema.json",
+  "authorization_boundary": {
+    "account_authentication_provider": "external-aether",
+    "credential_issuance_in_registry_api": false,
+    "accepted_credential": "short-lived-bearer",
+    "required_claims": ["iss", "aud", "sub", "exp", "auth_time", "environment", "scopes"],
+    "recent_auth_max_age_seconds": 900,
+    "recent_auth_claim": "auth_time",
+    "recent_auth_rule": "server-now-minus-auth-time-must-be-between-negative-future-tolerance-and-operation-maximum",
+    "future_auth_time_tolerance_seconds": 60,
+    "publisher_explicitly_denied_operations": [
+      "emergencySecurityQuarantineRelease",
+      "reviewEnforcementAppeal",
+      "reviewedReinstateRelease",
+      "reviewOwnershipRecovery",
+      "executeOwnershipRecovery"
+    ],
+    "authorization_order": [
+      "validate-token-boundary",
+      "reject-environment-or-audience-mismatch",
+      "apply-explicit-role-deny",
+      "require-operation-scope",
+      "authorize-resource-role",
+      "apply-recent-auth-and-separation-policy"
+    ]
+  },
+  "required_operations": [
+    "getSignedMetadata",
+    "getArchiveBlob",
+    "createSecurityReport",
+    "getSecurityReport",
+    "createEnforcementAppeal",
+    "getEnforcementAppeal",
+    "reviewEnforcementAppeal",
+    "emergencySecurityQuarantineRelease",
+    "reviewedReinstateRelease",
+    "createNamespaceTransfer",
+    "getNamespaceTransfer",
+    "acceptNamespaceTransfer",
+    "executeNamespaceTransfer",
+    "createOwnershipRecovery",
+    "getOwnershipRecovery",
+    "reviewOwnershipRecovery",
+    "executeOwnershipRecovery"
+  ],
+  "cases": [
+    {
+      "name": "versioned-signed-metadata-is-public-and-immutable",
+      "operation_id": "getSignedMetadata",
+      "actor": "anonymous",
+      "scopes": [],
+      "recent_auth_age_seconds": null,
+      "preconditions": {"filename": "42.releases.json", "environment": "production"},
+      "request": {},
+      "expected": {
+        "authorization": "public",
+        "http_status": 200,
+        "assertions": ["exact-stored-envelope-bytes", "sha256-header-matches-body", "strong-etag-matches-body", "immutable-cache-policy"]
+      }
+    },
+    {
+      "name": "cross-environment-metadata-is-not-served",
+      "operation_id": "getSignedMetadata",
+      "actor": "anonymous",
+      "scopes": [],
+      "recent_auth_age_seconds": null,
+      "preconditions": {"server_environment": "development", "requested_repository": "seen-prod-registry-v1"},
+      "request": {"metadata_filename": "42.releases.json"},
+      "expected": {
+        "authorization": "public",
+        "http_status": 404,
+        "error_code": "not_found",
+        "assertions": ["no-cross-environment-fallback"]
+      }
+    },
+    {
+      "name": "public-blob-response-is-content-addressed",
+      "operation_id": "getArchiveBlob",
+      "actor": "anonymous",
+      "scopes": [],
+      "recent_auth_age_seconds": null,
+      "preconditions": {"public_authorized_release": true, "availability": "available"},
+      "request": {"archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+      "expected": {
+        "authorization": "public",
+        "http_status": 200,
+        "assertions": ["body-hash-equals-path-digest", "body-hash-equals-digest-header", "body-hash-equals-etag", "immutable-cache-policy"]
+      }
+    },
+    {
+      "name": "private-blob-is-concealed-from-anonymous-caller",
+      "operation_id": "getArchiveBlob",
+      "actor": "anonymous",
+      "scopes": [],
+      "recent_auth_age_seconds": null,
+      "preconditions": {"private_release_only": true},
+      "request": {"archive_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+      "expected": {
+        "authorization": "deny",
+        "http_status": 404,
+        "error_code": "not_found",
+        "assertions": ["same-shape-as-absent-blob", "no-cache"]
+      }
+    },
+    {
+      "name": "authenticated-reporter-receives-opaque-acknowledgement",
+      "operation_id": "createSecurityReport",
+      "actor": "reporter",
+      "scopes": ["registry:reports:create"],
+      "recent_auth_age_seconds": null,
+      "preconditions": {},
+      "request": {"subject": {"package": "alice/mathx", "version": "1.2.3"}, "category": "malicious-code", "summary": "unexpected network behavior"},
+      "expected": {
+        "authorization": "allow",
+        "http_status": 201,
+        "assertions": ["opaque-report-id", "acknowledged-status", "evidence-not-public"]
+      }
+    },
+    {
+      "name": "publisher-is-explicitly-denied-emergency-quarantine",
+      "operation_id": "emergencySecurityQuarantineRelease",
+      "actor": "publisher",
+      "scopes": ["registry:packages:publish"],
+      "recent_auth_age_seconds": 60,
+      "preconditions": {"owns_package": true},
+      "request": {"reason": "publisher requested emergency action", "severity": "critical"},
+      "expected": {
+        "authorization": "deny",
+        "http_status": 403,
+        "error_code": "forbidden",
+        "assertions": ["owner-grant-does-not-override-security-role-deny"]
+      }
+    },
+    {
+      "name": "security-quarantine-is-effective-with-signed-metadata",
+      "operation_id": "emergencySecurityQuarantineRelease",
+      "actor": "registry-security",
+      "scopes": ["registry:security:enforce"],
+      "recent_auth_age_seconds": 30,
+      "preconditions": {"release_exists": true, "availability": "available"},
+      "request": {"reason": "confirmed credential compromise", "severity": "critical"},
+      "expected": {
+        "authorization": "allow",
+        "http_status": 200,
+        "assertions": ["incident-created", "audit-event-created", "resolver-denied", "downloads-denied", "signed-security-metadata-published-before-response"]
+      }
+    },
+    {
+      "name": "publisher-may-submit-appeal",
+      "operation_id": "createEnforcementAppeal",
+      "actor": "publisher",
+      "scopes": ["registry:appeals:create"],
+      "recent_auth_age_seconds": 120,
+      "preconditions": {"is_subject_owner": true, "incident_open": true},
+      "request": {"requested_outcome": "reviewed-reinstatement", "statement": "credential rotated and release re-audited"},
+      "expected": {
+        "authorization": "allow",
+        "http_status": 201,
+        "assertions": ["appeal-linked-to-incident", "append-only-audit-event"]
+      }
+    },
+    {
+      "name": "original-enforcer-cannot-review-appeal",
+      "operation_id": "reviewEnforcementAppeal",
+      "actor": "registry-trust-and-safety",
+      "scopes": ["registry:appeals:review"],
+      "recent_auth_age_seconds": 45,
+      "preconditions": {"reviewer_is_original_enforcer": true, "emergency_waiver": false},
+      "request": {"decision": "approve-reinstatement", "rationale": "remediation confirmed", "emergency_waiver": false},
+      "expected": {
+        "authorization": "deny",
+        "http_status": 403,
+        "error_code": "forbidden",
+        "assertions": ["two-actor-separation-enforced"]
+      }
+    },
+    {
+      "name": "independent-reviewer-may-approve-reinstatement",
+      "operation_id": "reviewEnforcementAppeal",
+      "actor": "registry-trust-and-safety",
+      "scopes": ["registry:appeals:review"],
+      "recent_auth_age_seconds": 45,
+      "preconditions": {"reviewer_is_original_enforcer": false},
+      "request": {"decision": "approve-reinstatement", "rationale": "remediation confirmed", "emergency_waiver": false},
+      "expected": {
+        "authorization": "allow",
+        "http_status": 201,
+        "assertions": ["actor-separation-recorded", "review-does-not-itself-reinstate"]
+      }
+    },
+    {
+      "name": "publisher-cannot-execute-reviewed-reinstatement",
+      "operation_id": "reviewedReinstateRelease",
+      "actor": "publisher",
+      "scopes": ["registry:appeals:create"],
+      "recent_auth_age_seconds": 30,
+      "preconditions": {"approved_review_exists": true, "owns_package": true},
+      "request": {"incident_id": "inc_01JZXA1B2C3D4E5F6G7H", "appeal_id": "apl_01JZXA1B2C3D4E5F6G7H", "review_id": "rev_01JZXA1B2C3D4E5F6G7H"},
+      "expected": {
+        "authorization": "deny",
+        "http_status": 403,
+        "error_code": "forbidden",
+        "assertions": ["publisher-deny-precedes-package-ownership"]
+      }
+    },
+    {
+      "name": "security-role-executes-reviewed-reinstatement",
+      "operation_id": "reviewedReinstateRelease",
+      "actor": "registry-security",
+      "scopes": ["registry:security:reinstate"],
+      "recent_auth_age_seconds": 30,
+      "preconditions": {"approved_independent_review_exists": true, "incident_matches_release": true},
+      "request": {"incident_id": "inc_01JZXA1B2C3D4E5F6G7H", "appeal_id": "apl_01JZXA1B2C3D4E5F6G7H", "review_id": "rev_01JZXA1B2C3D4E5F6G7H"},
+      "expected": {
+        "authorization": "allow",
+        "http_status": 200,
+        "assertions": ["approved-review-bound", "signed-security-metadata-published-before-response", "audit-event-created"]
+      }
+    },
+    {
+      "name": "stale-auth-cannot-start-namespace-transfer",
+      "operation_id": "createNamespaceTransfer",
+      "actor": "current-namespace-owner",
+      "scopes": ["registry:namespaces:transfer"],
+      "recent_auth_age_seconds": 901,
+      "preconditions": {"owns_namespace": true},
+      "request": {"new_owner_principal_id": "prn_01JZXA1B2C3D4E5F6G7H"},
+      "expected": {
+        "authorization": "deny",
+        "http_status": 403,
+        "error_code": "forbidden",
+        "assertions": ["recent-auth-max-900-seconds"]
+      }
+    },
+    {
+      "name": "new-owner-acceptance-starts-seven-day-cooling",
+      "operation_id": "acceptNamespaceTransfer",
+      "actor": "new-namespace-owner",
+      "scopes": ["registry:namespaces:transfer:accept"],
+      "recent_auth_age_seconds": 60,
+      "preconditions": {"is_named_new_owner": true, "transfer_state": "pending-acceptance"},
+      "request": {"acknowledge_namespace_transfer": true},
+      "expected": {
+        "authorization": "allow",
+        "http_status": 200,
+        "assertions": ["new-owner-acceptance-recorded", "cooling-period-604800-seconds", "authorization-not-yet-changed"]
+      }
+    },
+    {
+      "name": "namespace-transfer-cannot-execute-before-cooling",
+      "operation_id": "executeNamespaceTransfer",
+      "actor": "current-namespace-owner",
+      "scopes": ["registry:namespaces:transfer"],
+      "recent_auth_age_seconds": 60,
+      "preconditions": {"both_accepted": true, "cooling_elapsed_seconds": 604799},
+      "request": {"acknowledge_irreversible_authorization_change": true},
+      "expected": {
+        "authorization": "allow",
+        "http_status": 409,
+        "error_code": "state_transition_forbidden",
+        "assertions": ["namespace-authorization-unchanged"]
+      }
+    },
+    {
+      "name": "namespace-transfer-executes-after-cooling",
+      "operation_id": "executeNamespaceTransfer",
+      "actor": "current-namespace-owner",
+      "scopes": ["registry:namespaces:transfer"],
+      "recent_auth_age_seconds": 60,
+      "preconditions": {"both_accepted": true, "cooling_elapsed_seconds": 604800},
+      "request": {"acknowledge_irreversible_authorization_change": true},
+      "expected": {
+        "authorization": "allow",
+        "http_status": 200,
+        "assertions": ["authorization-only-change", "package-history-unchanged", "audit-event-created"]
+      }
+    },
+    {
+      "name": "ownership-recovery-is-not-account-recovery",
+      "operation_id": "createOwnershipRecovery",
+      "actor": "recovery-claimant",
+      "scopes": ["registry:namespaces:recovery:create"],
+      "recent_auth_age_seconds": 120,
+      "preconditions": {"aether_account_authenticated": true, "namespace_inactive_seconds": 15552000},
+      "request": {"claim_statement": "namespace stewardship evidence", "evidence_references": ["evd_01JZXA1B2C3D4E5F6G7H"]},
+      "expected": {
+        "authorization": "allow",
+        "http_status": 201,
+        "assertions": ["registry-namespace-workflow-only", "aether-account-ownership-unchanged", "public-history-prevents-recycling"]
+      }
+    },
+    {
+      "name": "publisher-cannot-review-ownership-recovery",
+      "operation_id": "reviewOwnershipRecovery",
+      "actor": "publisher",
+      "scopes": ["registry:namespaces:recovery:create"],
+      "recent_auth_age_seconds": 60,
+      "preconditions": {"recovery_state": "submitted"},
+      "request": {"decision": "approve-notice", "rationale": "self approval"},
+      "expected": {
+        "authorization": "deny",
+        "http_status": 403,
+        "error_code": "forbidden",
+        "assertions": ["independent-namespace-review-required"]
+      }
+    },
+    {
+      "name": "ownership-recovery-cannot-execute-before-notice",
+      "operation_id": "executeOwnershipRecovery",
+      "actor": "registry-namespace-reviewer",
+      "scopes": ["registry:namespaces:recovery:execute"],
+      "recent_auth_age_seconds": 60,
+      "preconditions": {"approved_review_exists": true, "notice_elapsed_seconds": 2591999},
+      "request": {"review_id": "rev_01JZXA1B2C3D4E5F6G7H", "acknowledge_irreversible_authorization_change": true},
+      "expected": {
+        "authorization": "allow",
+        "http_status": 409,
+        "error_code": "state_transition_forbidden",
+        "assertions": ["namespace-authorization-unchanged", "notice-period-2592000-seconds"]
+      }
+    },
+    {
+      "name": "reviewed-ownership-recovery-executes-after-notice",
+      "operation_id": "executeOwnershipRecovery",
+      "actor": "registry-namespace-reviewer",
+      "scopes": ["registry:namespaces:recovery:execute"],
+      "recent_auth_age_seconds": 60,
+      "preconditions": {"approved_independent_review_exists": true, "notice_elapsed_seconds": 2592000, "no_public_release_history": true},
+      "request": {"review_id": "rev_01JZXA1B2C3D4E5F6G7H", "acknowledge_irreversible_authorization_change": true},
+      "expected": {
+        "authorization": "allow",
+        "http_status": 200,
+        "assertions": ["authorization-only-change", "audit-event-created", "tombstones-and-history-unchanged"]
+      }
+    }
+  ]
+}

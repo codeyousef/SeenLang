@@ -1,0 +1,393 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:seen:package-registry:v1:release-record",
+  "title": "Seen package registry release record v1",
+  "description": "An immutable release identity and digest plus its four orthogonal mutable state dimensions and append-only verification summary.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract_version",
+    "package",
+    "version",
+    "archive",
+    "manifest_sha256",
+    "capabilities",
+    "state",
+    "source_proof_id",
+    "verification",
+    "timestamps",
+    "resolver_metadata_version",
+    "links"
+  ],
+  "properties": {
+    "contract_version": {
+      "const": 1
+    },
+    "package": {
+      "$ref": "#/$defs/packageIdentity"
+    },
+    "version": {
+      "$ref": "#/$defs/exactVersion"
+    },
+    "archive": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "format",
+        "sha256",
+        "compressed_bytes",
+        "expanded_bytes",
+        "entry_count",
+        "largest_regular_file_bytes",
+        "longest_path_bytes",
+        "maximum_path_depth"
+      ],
+      "properties": {
+        "format": {
+          "const": "tar+gzip"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "compressed_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 26214400
+        },
+        "expanded_bytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 104857600
+        },
+        "entry_count": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "maximum": 4096
+        },
+        "largest_regular_file_bytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 10485760
+        },
+        "longest_path_bytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "maximum": 240
+        },
+        "maximum_path_depth": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "maximum": 16
+        }
+      }
+    },
+    "manifest_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "capabilities": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/capability"
+      }
+    },
+    "state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "lifecycle",
+        "visibility",
+        "availability",
+        "retention"
+      ],
+      "x-seen-state-invariants": [
+        "public-implies-retained",
+        "resolver-available-yanked-or-security-quarantined-implies-active-and-retained",
+        "soft-deleted-or-purged-implies-private-and-unavailable"
+      ],
+      "properties": {
+        "lifecycle": {
+          "enum": [
+            "reserved",
+            "quarantined",
+            "first-scanning",
+            "delayed",
+            "second-scanning",
+            "ready",
+            "active",
+            "rejected"
+          ]
+        },
+        "visibility": {
+          "enum": [
+            "private",
+            "public"
+          ]
+        },
+        "availability": {
+          "enum": [
+            "unavailable",
+            "available",
+            "yanked",
+            "security-quarantined"
+          ]
+        },
+        "retention": {
+          "enum": [
+            "retained",
+            "soft-deleted",
+            "purged"
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {"visibility": {"const": "public"}},
+            "required": ["visibility"]
+          },
+          "then": {
+            "properties": {"retention": {"const": "retained"}}
+          }
+        },
+        {
+          "if": {
+            "properties": {"availability": {"not": {"const": "unavailable"}}},
+            "required": ["availability"]
+          },
+          "then": {
+            "properties": {
+              "lifecycle": {"const": "active"},
+              "retention": {"const": "retained"}
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "retention": {"enum": ["soft-deleted", "purged"]}
+            },
+            "required": ["retention"]
+          },
+          "then": {
+            "properties": {
+              "visibility": {"const": "private"},
+              "availability": {"const": "unavailable"}
+            }
+          }
+        }
+      ]
+    },
+    "source_proof_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^prf_[A-Za-z0-9_-]{16,96}$"
+    },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "origin",
+        "integrity",
+        "source",
+        "first_scan",
+        "second_scan",
+        "attestation_sequence"
+      ],
+      "properties": {
+        "origin": {
+          "$ref": "#/$defs/checkStatus"
+        },
+        "integrity": {
+          "$ref": "#/$defs/checkStatus"
+        },
+        "source": {
+          "$ref": "#/$defs/checkStatus"
+        },
+        "first_scan": {
+          "$ref": "#/$defs/checkStatus"
+        },
+        "second_scan": {
+          "$ref": "#/$defs/checkStatus"
+        },
+        "attestation_sequence": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "timestamps": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reserved_at",
+        "uploaded_at",
+        "quarantined_at",
+        "public_delay_started_at",
+        "public_delay_ends_at",
+        "ready_at",
+        "activated_at",
+        "yanked_at",
+        "security_quarantined_at",
+        "soft_deleted_at",
+        "updated_at"
+      ],
+      "properties": {
+        "reserved_at": {
+          "$ref": "#/$defs/utcTimestamp"
+        },
+        "uploaded_at": {
+          "$ref": "#/$defs/nullableUtcTimestamp"
+        },
+        "quarantined_at": {
+          "$ref": "#/$defs/nullableUtcTimestamp"
+        },
+        "public_delay_started_at": {
+          "$ref": "#/$defs/nullableUtcTimestamp"
+        },
+        "public_delay_ends_at": {
+          "$ref": "#/$defs/nullableUtcTimestamp"
+        },
+        "ready_at": {
+          "$ref": "#/$defs/nullableUtcTimestamp"
+        },
+        "activated_at": {
+          "$ref": "#/$defs/nullableUtcTimestamp"
+        },
+        "yanked_at": {
+          "$ref": "#/$defs/nullableUtcTimestamp"
+        },
+        "security_quarantined_at": {
+          "$ref": "#/$defs/nullableUtcTimestamp"
+        },
+        "soft_deleted_at": {
+          "$ref": "#/$defs/nullableUtcTimestamp"
+        },
+        "updated_at": {
+          "$ref": "#/$defs/utcTimestamp"
+        }
+      }
+    },
+    "resolver_metadata_version": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 1
+    },
+    "links": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "self",
+        "package",
+        "source_proof",
+        "download"
+      ],
+      "properties": {
+        "self": {
+          "$ref": "#/$defs/apiPath"
+        },
+        "package": {
+          "$ref": "#/$defs/apiPath"
+        },
+        "source_proof": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/apiPath"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "download": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/apiPath"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "$defs": {
+    "packageIdentity": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 127,
+      "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?/[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+    },
+    "exactVersion": {
+      "type": "string",
+      "format": "semver-exact",
+      "maxLength": 128,
+      "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "utcTimestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,9})?Z$"
+    },
+    "nullableUtcTimestamp": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/utcTimestamp"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "apiPath": {
+      "type": "string",
+      "pattern": "^/packages/api/v1/"
+    },
+    "capability": {
+      "enum": [
+        "file",
+        "network",
+        "process",
+        "environment",
+        "dynamic-load",
+        "ffi",
+        "unsafe",
+        "native-link",
+        "macro"
+      ]
+    },
+    "checkStatus": {
+      "enum": [
+        "pending",
+        "passed",
+        "failed",
+        "inconclusive",
+        "not-required"
+      ]
+    }
+  }
+}

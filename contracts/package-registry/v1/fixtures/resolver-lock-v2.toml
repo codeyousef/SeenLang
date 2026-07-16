@@ -1,0 +1,17 @@
+version = 2
+
+[[packages]]
+alias = "json_pkg"
+package = "seen/json"
+version = "2.1.0"
+source = "hosted-registry"
+registry_origin = "https://seen.dev.yousef.codes/packages"
+archive_sha256 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+[[packages]]
+alias = "local_math"
+package = "alice/mathx"
+version = "0.1.0"
+source = "legacy-local-static"
+registry_origin = "/workspace/dev-registry"
+archive_sha256 = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"

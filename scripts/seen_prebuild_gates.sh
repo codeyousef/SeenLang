@@ -71,14 +71,21 @@ require_cmd opt
 echo "Prebuild gates: Python and shell syntax..."
 python3 -m py_compile "$SCRIPT_DIR/fix_ir.py" \
     "$SCRIPT_DIR/check_codegen_abi_boundaries.py" \
-    "$SCRIPT_DIR/verify_ir_call_shapes.py"
+    "$SCRIPT_DIR/verify_ir_call_shapes.py" \
+    "$REPO_ROOT/tests/package_registry_contracts.py"
 bash -n "$SCRIPT_DIR/safe_rebuild.sh" \
     "$SCRIPT_DIR/recovery_opt.sh" \
     "$SCRIPT_DIR/seen_prebuild_gates.sh" \
     "$REPO_ROOT/tests/misc_root_tests/seen_fix_ir_stage2_patterns.sh" \
     "$REPO_ROOT/tests/misc_root_tests/seen_codegen_abi_preflight.sh" \
     "$REPO_ROOT/tests/misc_root_tests/seen_ir_call_shape_preflight.sh" \
-    "$REPO_ROOT/tests/misc_root_tests/seen_selfhosted_abi_smoke.sh"
+    "$REPO_ROOT/tests/misc_root_tests/seen_selfhosted_abi_smoke.sh" \
+    "$REPO_ROOT/tests/misc_root_tests/seen_pkg_local_registry.sh" \
+    "$REPO_ROOT/tests/misc_root_tests/seen_pkg_scoped_identity.sh"
+
+echo "Prebuild gates: package registry draft contracts..."
+PYTHONDONTWRITEBYTECODE=1 python3 \
+    "$REPO_ROOT/tests/package_registry_contracts.py"
 
 if [ "${SEEN_SKIP_CODEGEN_ABI_PREFLIGHT:-0}" != "1" ]; then
     echo "Prebuild gates: codegen ABI/import/cycle checks..."

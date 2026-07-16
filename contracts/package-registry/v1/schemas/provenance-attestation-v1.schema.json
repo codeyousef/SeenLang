@@ -1,0 +1,262 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:seen:package-registry:v1:provenance-attestation",
+  "title": "Seen package provenance attestation v1",
+  "x-seen-semantic-rules": {
+    "evaluation": "all-rules-must-pass-before-signing-and-publication",
+    "failure_reporting": "first-failing-rule-in-array-order",
+    "rules": [
+      {
+        "id": "invocation-time-order",
+        "operator": "rfc3339-less-than-or-equal",
+        "left_pointer": "/invocation/started_at",
+        "right_pointer": "/invocation/finished_at",
+        "error_code": "provenance_invalid_time_order"
+      },
+      {
+        "id": "generation-after-invocation",
+        "operator": "rfc3339-less-than-or-equal",
+        "left_pointer": "/invocation/finished_at",
+        "right_pointer": "/generated_at",
+        "error_code": "provenance_invalid_time_order"
+      },
+      {
+        "id": "source-proof-material-binding",
+        "operator": "pointer-equals-unique-material-digest",
+        "left_pointer": "/source_proof_sha256",
+        "material_uri_prefix": "seen:source-proof:",
+        "digest_field": "sha256",
+        "error_code": "provenance_source_proof_mismatch"
+      },
+      {
+        "id": "source-tree-material-binding",
+        "operator": "pointer-equals-unique-material-digest",
+        "left_pointer": "/packing/source_tree_sha256",
+        "material_uri_pattern": "^git\\+https://(?:github\\.com|gitlab\\.com)/",
+        "digest_field": "sha256",
+        "error_code": "provenance_material_digest_mismatch"
+      },
+      {
+        "id": "packed-tree-binding",
+        "operator": "json-pointer-equality",
+        "left_pointer": "/packing/source_tree_sha256",
+        "right_pointer": "/packing/packed_tree_sha256",
+        "error_code": "provenance_packed_tree_mismatch"
+      },
+      {
+        "id": "archive-subject-binding",
+        "operator": "json-pointer-equals-trusted-context",
+        "left_pointer": "/subject/archive_sha256",
+        "context_pointer": "/release/archive/sha256",
+        "error_code": "provenance_subject_digest_mismatch"
+      },
+      {
+        "id": "manifest-digest-binding",
+        "operator": "json-pointer-equals-trusted-context",
+        "left_pointer": "/packing/manifest_sha256",
+        "context_pointer": "/release/manifest_sha256",
+        "error_code": "provenance_manifest_digest_mismatch"
+      },
+      {
+        "id": "statement-digest-binding",
+        "operator": "sha256-seen-tuf-canonical-json-v1-excluding",
+        "document_pointer": "",
+        "excluded_pointers": ["/statement_sha256", "/signature"],
+        "expected_pointer": "/statement_sha256",
+        "error_code": "provenance_statement_digest_mismatch"
+      }
+    ]
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract_version",
+    "attestation_type",
+    "attestation_id",
+    "environment",
+    "repository_id",
+    "subject",
+    "source_proof_sha256",
+    "builder",
+    "invocation",
+    "materials",
+    "packing",
+    "generated_at",
+    "statement_sha256",
+    "signature"
+  ],
+  "properties": {
+    "contract_version": {"const": 1},
+    "attestation_type": {"const": "seen-package-provenance"},
+    "attestation_id": {"type": "string", "pattern": "^pa-[a-z0-9][a-z0-9-]{7,95}$"},
+    "environment": {"enum": ["development", "production"]},
+    "repository_id": {"type": "string", "pattern": "^seen-(dev|prod)-[a-z0-9-]+$"},
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["package", "version", "archive_sha256"],
+      "properties": {
+        "package": {"type": "string", "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?/[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"},
+        "version": {"$ref": "#/$defs/exactVersion"},
+        "archive_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "source_proof_sha256": {"$ref": "#/$defs/sha256"},
+    "builder": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "workload_identity", "isolated", "network_access", "secret_access"],
+      "properties": {
+        "id": {"const": "seen-registry-source-packer"},
+        "version": {"type": "string", "pattern": "^[1-9][0-9]*\\.[0-9]+\\.[0-9]+$"},
+        "workload_identity": {"type": "string", "pattern": "^seen-(dev|prod)-packer@[a-z0-9.-]+$"},
+        "isolated": {"const": true},
+        "network_access": {"const": "none"},
+        "secret_access": {"const": "signing-service-only"}
+      }
+    },
+    "invocation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "started_at", "finished_at", "parameters_sha256", "reproducible"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^pack-[a-z0-9-]{8,96}$"},
+        "started_at": {"type": "string", "format": "date-time"},
+        "finished_at": {"type": "string", "format": "date-time"},
+        "parameters_sha256": {"$ref": "#/$defs/sha256"},
+        "reproducible": {"const": true}
+      }
+    },
+    "materials": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["uri", "sha256"],
+        "properties": {
+          "uri": {"type": "string", "pattern": "^(git\\+https://(?:github\\.com|gitlab\\.com)/|seen:source-proof:|seen:archive-policy:).+$"},
+          "sha256": {"$ref": "#/$defs/sha256"}
+        }
+      },
+      "allOf": [
+        {
+          "contains": {
+            "type": "object",
+            "properties": {"uri": {"pattern": "^git\\+https://(?:github\\.com|gitlab\\.com)/"}},
+            "required": ["uri"]
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "type": "object",
+            "properties": {"uri": {"pattern": "^seen:source-proof:"}},
+            "required": ["uri"]
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "type": "object",
+            "properties": {"uri": {"pattern": "^seen:archive-policy:"}},
+            "required": ["uri"]
+          },
+          "minContains": 1,
+          "maxContains": 1
+        }
+      ]
+    },
+    "packing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "archive_format",
+        "content_model",
+        "archive_policy_version",
+        "archive_policy_result",
+        "manifest_sha256",
+        "source_tree_sha256",
+        "packed_tree_sha256",
+        "normalized_timestamps",
+        "normalized_ownership",
+        "sorted_entries"
+      ],
+      "properties": {
+        "archive_format": {"const": "tar+gzip"},
+        "content_model": {"const": "source-only"},
+        "archive_policy_version": {"const": 1},
+        "archive_policy_result": {"const": "passed"},
+        "manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "source_tree_sha256": {"$ref": "#/$defs/sha256"},
+        "packed_tree_sha256": {"$ref": "#/$defs/sha256"},
+        "normalized_timestamps": {"const": true},
+        "normalized_ownership": {"const": true},
+        "sorted_entries": {"const": true}
+      }
+    },
+    "generated_at": {"type": "string", "format": "date-time"},
+    "statement_sha256": {"$ref": "#/$defs/sha256"},
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["keyid", "algorithm", "sig"],
+      "properties": {
+        "keyid": {"type": "string", "pattern": "^(dev|prod)-provenance-[a-z0-9-]+$"},
+        "algorithm": {"const": "ecdsa-sha2-nistp256"},
+        "sig": {"type": "string", "pattern": "^[A-Za-z0-9_-]{32,1024}$"}
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"environment": {"const": "production"}},
+        "required": ["environment"]
+      },
+      "then": {
+        "properties": {
+          "repository_id": {"const": "seen-prod-registry-v1"},
+          "builder": {
+            "properties": {
+              "workload_identity": {"const": "seen-prod-packer@registry.example"}
+            }
+          },
+          "signature": {
+            "properties": {
+              "keyid": {"const": "prod-provenance-a"}
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "repository_id": {"const": "seen-dev-registry-v1"},
+          "builder": {
+            "properties": {
+              "workload_identity": {"const": "seen-dev-packer@registry.example"}
+            }
+          },
+          "signature": {
+            "properties": {
+              "keyid": {"const": "dev-provenance-a"}
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "exactVersion": {
+      "type": "string",
+      "format": "semver-exact",
+      "maxLength": 128,
+      "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$"
+    },
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

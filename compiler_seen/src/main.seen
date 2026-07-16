@@ -943,7 +943,7 @@ fun initCommand(projectName: String) r: Int {
     }
 
     // Write Seen.toml
-    let tomlContent = "[project]\nname = \"" + projectName + "\"\nversion = \"0.1.0\"\n\n[registries]\ndefault = \"https://seen.yousef.codes/packages\"\n\n[dependencies]\n\n[native.dependencies]\n"
+    let tomlContent = "[project]\nname = \"" + projectName + "\"\nversion = \"0.1.0\"\n\n[registries]\ndefault = \"https://seen.dev.yousef.codes/packages\"\n\n[dependencies]\n\n[native.dependencies]\n"
     if not myWriteText(projectName + "/Seen.toml", tomlContent) {
         printLn("Error: Could not write Seen.toml")
         return 1

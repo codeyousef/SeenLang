@@ -1,0 +1,21 @@
+manifest-version = 1
+
+[project]
+name = "registry_example"
+version = "1.0.0"
+language = "en"
+license = "Apache-2.0"
+repository = "https://github.com/example/registry-example"
+
+[package]
+identity = "alice/registry-example"
+visibility = "public"
+include = ["src/**/*.seen", "README.md", "LICENSE"]
+assets = []
+capabilities = ["network"]
+
+[dependencies]
+json_pkg = { package = "seen/json", version = "2.1.0", allow = [] }
+tls_pkg = { package = "alice/tls", version = "1.4.0", allow = ["network", "ffi"] }
+
+[native.dependencies]

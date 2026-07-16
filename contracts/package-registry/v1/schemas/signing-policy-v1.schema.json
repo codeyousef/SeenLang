@@ -1,0 +1,315 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:seen:package-registry:v1:signing-policy",
+  "title": "Seen registry signing and trust policy v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract_version",
+    "framework",
+    "canonical_serialization",
+    "canonical_serialization_rules",
+    "hash_algorithms",
+    "consistent_snapshot",
+    "environments",
+    "cross_environment_rules",
+    "client_failure_policy"
+  ],
+  "properties": {
+    "contract_version": {"const": 1},
+    "framework": {"const": "tuf-1.0"},
+    "canonical_serialization": {"const": "seen-tuf-canonical-json-v1"},
+    "canonical_serialization_rules": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scope",
+        "signature_input",
+        "metadata_file_input",
+        "encoding",
+        "object_key_order",
+        "separators",
+        "string_escaping",
+        "unicode",
+        "numbers",
+        "trailing_newline"
+      ],
+      "properties": {
+        "scope": {"const": "selected-json-value"},
+        "signature_input": {"const": "envelope.signed"},
+        "metadata_file_input": {"const": "complete-envelope-including-signatures"},
+        "encoding": {"const": "utf-8"},
+        "object_key_order": {"const": "unicode-code-point-ascending"},
+        "separators": {"const": "comma-and-colon-without-whitespace"},
+        "string_escaping": {"const": "rfc8259-minimal-short-control-escapes-otherwise-lowercase-u00xx"},
+        "unicode": {"const": "emit-unescaped-unicode-scalars"},
+        "numbers": {"const": "base-10-integers-no-leading-zeroes"},
+        "trailing_newline": {"const": false}
+      }
+    },
+    "hash_algorithms": {"const": ["sha256"]},
+    "consistent_snapshot": {"const": true},
+    "environments": {
+      "type": "array",
+      "minItems": 2,
+      "items": {"$ref": "#/$defs/environment"}
+    },
+    "cross_environment_rules": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key_ids_disjoint",
+        "public_keys_disjoint",
+        "kms_resources_disjoint",
+        "repository_ids_disjoint",
+        "registry_origins_disjoint",
+        "metadata_rejected_on_environment_mismatch"
+      ],
+      "properties": {
+        "key_ids_disjoint": {"const": true},
+        "public_keys_disjoint": {"const": true},
+        "kms_resources_disjoint": {"const": true},
+        "repository_ids_disjoint": {"const": true},
+        "registry_origins_disjoint": {"const": true},
+        "metadata_rejected_on_environment_mismatch": {"const": true}
+      }
+    },
+    "client_failure_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "expired_metadata",
+        "metadata_rollback",
+        "root_rollback",
+        "freeze_or_stale_timestamp",
+        "unknown_or_revoked_key",
+        "threshold_not_met",
+        "role_or_path_violation",
+        "hash_or_length_mismatch",
+        "network_failure",
+        "clock_skew_seconds",
+        "persistent_trusted_state"
+      ],
+      "properties": {
+        "expired_metadata": {"const": "reject"},
+        "metadata_rollback": {"const": "reject"},
+        "root_rollback": {"const": "reject"},
+        "freeze_or_stale_timestamp": {"const": "reject"},
+        "unknown_or_revoked_key": {"const": "reject"},
+        "threshold_not_met": {"const": "reject"},
+        "role_or_path_violation": {"const": "reject"},
+        "hash_or_length_mismatch": {"const": "reject"},
+        "network_failure": {"const": "use-only-unexpired-previously-verified-metadata"},
+        "clock_skew_seconds": {"type": "integer", "minimum": 0, "maximum": 300},
+        "persistent_trusted_state": {"const": true}
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "registryOrigin": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+(?:/[a-z0-9][a-z0-9._~-]*)+$"
+    },
+    "key": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["keyid", "algorithm", "public_key", "storage", "online", "status"],
+      "properties": {
+        "keyid": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{2,95}$"},
+        "algorithm": {"enum": ["ed25519", "ecdsa-sha2-nistp256"]},
+        "public_key": {"type": "string", "pattern": "^[A-Za-z0-9_-]{43,512}$"},
+        "storage": {"enum": ["offline-encrypted", "cloud-kms"]},
+        "online": {"type": "boolean"},
+        "status": {"enum": ["active", "retired", "revoked"]},
+        "kms_resource": {"type": "string", "pattern": "^projects/[A-Za-z0-9_-]+/locations/[A-Za-z0-9_-]+/keyRings/[A-Za-z0-9_-]+/cryptoKeys/[A-Za-z0-9_-]+/cryptoKeyVersions/[1-9][0-9]*$"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"online": {"const": true}}, "required": ["online"]},
+          "then": {"properties": {"storage": {"const": "cloud-kms"}}, "required": ["kms_resource"]},
+          "else": {"properties": {"storage": {"const": "offline-encrypted"}}, "not": {"required": ["kms_resource"]}}
+        }
+      ]
+    },
+    "role": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "keyids",
+        "threshold",
+        "online",
+        "max_age_seconds",
+        "environment_bound",
+        "repository_id_bound",
+        "allowed_actions"
+      ],
+      "properties": {
+        "keyids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{2,95}$"}
+        },
+        "threshold": {"type": "integer", "minimum": 1},
+        "online": {"type": "boolean"},
+        "max_age_seconds": {"type": "integer", "minimum": 300, "maximum": 34300800},
+        "environment_bound": {"const": true},
+        "repository_id_bound": {"const": true},
+        "allowed_actions": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "trust-root-and-key-rotation",
+              "delegate-target-paths",
+              "bind-metadata-versions-and-hashes",
+              "freshness-and-snapshot-pointer",
+              "publish-release-target",
+              "yank-release-target",
+              "security-quarantine-target",
+              "reinstate-reviewed-target",
+              "sign-source-proof",
+              "sign-provenance-attestation"
+            ]
+          }
+        },
+        "paths": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "terminating": {"type": "boolean"}
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "registry_origin",
+        "repository_id",
+        "metadata_prefix",
+        "key_namespace",
+        "trusted_root",
+        "keys",
+        "tuf_roles",
+        "delegated_roles",
+        "target_overlay_policy",
+        "attestation_roles",
+        "root_rotation"
+      ],
+      "properties": {
+        "name": {"enum": ["development", "production"]},
+        "registry_origin": {"$ref": "#/$defs/registryOrigin"},
+        "repository_id": {"type": "string", "pattern": "^seen-(dev|prod)-[a-z0-9-]+$"},
+        "metadata_prefix": {"type": "string", "pattern": "^metadata/(development|production)$"},
+        "key_namespace": {"type": "string", "pattern": "^seen-(dev|prod)$"},
+        "trusted_root": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["version", "sha256", "out_of_band_distribution"],
+          "properties": {
+            "version": {"type": "integer", "minimum": 1},
+            "sha256": {"$ref": "#/$defs/sha256"},
+            "out_of_band_distribution": {"const": true}
+          }
+        },
+        "keys": {
+          "type": "array",
+          "minItems": 8,
+          "items": {"$ref": "#/$defs/key"}
+        },
+        "tuf_roles": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["root", "targets", "snapshot", "timestamp"],
+          "properties": {
+            "root": {"$ref": "#/$defs/role"},
+            "targets": {"$ref": "#/$defs/role"},
+            "snapshot": {"$ref": "#/$defs/role"},
+            "timestamp": {"$ref": "#/$defs/role"}
+          }
+        },
+        "delegated_roles": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["releases", "security"],
+          "properties": {
+            "releases": {"$ref": "#/$defs/role"},
+            "security": {"$ref": "#/$defs/role"}
+          }
+        },
+        "target_overlay_policy": {
+          "$ref": "#/$defs/targetOverlayPolicy"
+        },
+        "attestation_roles": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["source-proof", "provenance"],
+          "properties": {
+            "source-proof": {"$ref": "#/$defs/role"},
+            "provenance": {"$ref": "#/$defs/role"}
+          }
+        },
+        "root_rotation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "monotonic_version",
+            "requires_old_root_threshold",
+            "requires_new_root_threshold",
+            "sequential_versions_only",
+            "out_of_band_rebootstrap_on_threshold_loss"
+          ],
+          "properties": {
+            "monotonic_version": {"const": true},
+            "requires_old_root_threshold": {"const": true},
+            "requires_new_root_threshold": {"const": true},
+            "sequential_versions_only": {"const": true},
+            "out_of_band_rebootstrap_on_threshold_loss": {"const": true}
+          }
+        }
+      }
+    },
+    "targetOverlayPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target_namespace",
+        "evaluation_order",
+        "resolution_algorithm",
+        "absent_security_target",
+        "security_target_precedence",
+        "digest_binding",
+        "target_path_binding",
+        "release_target_state",
+        "release_role_availability",
+        "security_role_availability",
+        "security_overlay_state",
+        "quarantine_requires_incident_id",
+        "release_role_cannot_override_security",
+        "reinstatement_authority"
+      ],
+      "properties": {
+        "target_namespace": {"const": "packages/*/*/*/*/*"},
+        "evaluation_order": {"const": ["security", "releases"]},
+        "resolution_algorithm": {"const": "first-present-valid-target-by-role-order"},
+        "absent_security_target": {"const": "continue-to-releases"},
+        "security_target_precedence": {"const": "authoritative-for-identical-target-path"},
+        "digest_binding": {"const": "package-version-archive-digest-must-match-base-release"},
+        "target_path_binding": {"const": "path-owner-name-version-digest-and-leaf-must-byte-match-target-custom"},
+        "release_target_state": {"const": "visibility-public-lifecycle-active-retention-retained"},
+        "release_role_availability": {"const": ["available", "yanked"]},
+        "security_role_availability": {"const": ["available", "security-quarantined"]},
+        "security_overlay_state": {"const": "same-public-active-retained-release-and-identical-target-path"},
+        "quarantine_requires_incident_id": {"const": true},
+        "release_role_cannot_override_security": {"const": true},
+        "reinstatement_authority": {"const": "security-role-threshold"}
+      }
+    }
+  }
+}

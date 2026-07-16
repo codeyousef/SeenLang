@@ -1,0 +1,158 @@
+{
+  "contract_version": 1,
+  "framework": "tuf-1.0",
+  "canonical_serialization": "seen-tuf-canonical-json-v1",
+  "canonical_serialization_rules": {
+    "scope": "selected-json-value",
+    "signature_input": "envelope.signed",
+    "metadata_file_input": "complete-envelope-including-signatures",
+    "encoding": "utf-8",
+    "object_key_order": "unicode-code-point-ascending",
+    "separators": "comma-and-colon-without-whitespace",
+    "string_escaping": "rfc8259-minimal-short-control-escapes-otherwise-lowercase-u00xx",
+    "unicode": "emit-unescaped-unicode-scalars",
+    "numbers": "base-10-integers-no-leading-zeroes",
+    "trailing_newline": false
+  },
+  "hash_algorithms": ["sha256"],
+  "consistent_snapshot": true,
+  "environments": [
+    {
+      "name": "development",
+      "registry_origin": "https://seen.dev.yousef.codes/packages",
+      "repository_id": "seen-dev-registry-v1",
+      "metadata_prefix": "metadata/development",
+      "key_namespace": "seen-dev",
+      "trusted_root": {
+        "version": 1,
+        "sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+        "out_of_band_distribution": true
+      },
+      "keys": [
+        {"keyid": "dev-root-a", "algorithm": "ed25519", "public_key": "ZGV2LXJvb3QtYS1zeW50aGV0aWMtcHVibGljLWtleS0wMDAwMDA", "storage": "offline-encrypted", "online": false, "status": "active"},
+        {"keyid": "dev-root-b", "algorithm": "ed25519", "public_key": "ZGV2LXJvb3QtYi1zeW50aGV0aWMtcHVibGljLWtleS0wMDAwMDA", "storage": "offline-encrypted", "online": false, "status": "active"},
+        {"keyid": "dev-root-c", "algorithm": "ed25519", "public_key": "ZGV2LXJvb3QtYy1zeW50aGV0aWMtcHVibGljLWtleS0wMDAwMDA", "storage": "offline-encrypted", "online": false, "status": "active"},
+        {"keyid": "dev-targets-a", "algorithm": "ed25519", "public_key": "ZGV2LXRhcmdldHMtYS1zeW50aGV0aWMtcHVibGljLWtleS0wMDAw", "storage": "offline-encrypted", "online": false, "status": "active"},
+        {"keyid": "dev-targets-b", "algorithm": "ed25519", "public_key": "ZGV2LXRhcmdldHMtYi1zeW50aGV0aWMtcHVibGljLWtleS0wMDAw", "storage": "offline-encrypted", "online": false, "status": "active"},
+        {"keyid": "dev-snapshot-a", "algorithm": "ecdsa-sha2-nistp256", "public_key": "ZGV2LXNuYXBzaG90LWEtc3ludGhldGljLXB1YmxpYy1rZXktMDAw", "storage": "cloud-kms", "online": true, "status": "active", "kms_resource": "projects/seen-dev/locations/global/keyRings/registry/cryptoKeys/snapshot/cryptoKeyVersions/1"},
+        {"keyid": "dev-timestamp-a", "algorithm": "ecdsa-sha2-nistp256", "public_key": "ZGV2LXRpbWVzdGFtcC1hLXN5bnRoZXRpYy1wdWJsaWMta2V5LTAw", "storage": "cloud-kms", "online": true, "status": "active", "kms_resource": "projects/seen-dev/locations/global/keyRings/registry/cryptoKeys/timestamp/cryptoKeyVersions/1"},
+        {"keyid": "dev-releases-a", "algorithm": "ecdsa-sha2-nistp256", "public_key": "ZGV2LXJlbGVhc2VzLWEtc3ludGhldGljLXB1YmxpYy1rZXktMDAw", "storage": "cloud-kms", "online": true, "status": "active", "kms_resource": "projects/seen-dev/locations/global/keyRings/registry/cryptoKeys/releases/cryptoKeyVersions/1"},
+        {"keyid": "dev-security-a", "algorithm": "ecdsa-sha2-nistp256", "public_key": "ZGV2LXNlY3VyaXR5LWEtc3ludGhldGljLXB1YmxpYy1rZXktMDAw", "storage": "cloud-kms", "online": true, "status": "active", "kms_resource": "projects/seen-dev/locations/global/keyRings/registry/cryptoKeys/security/cryptoKeyVersions/1"},
+        {"keyid": "dev-source-proof-a", "algorithm": "ecdsa-sha2-nistp256", "public_key": "ZGV2LXNvdXJjZS1wcm9vZi1hLXN5bnRoZXRpYy1wdWJsaWMta2V5", "storage": "cloud-kms", "online": true, "status": "active", "kms_resource": "projects/seen-dev/locations/global/keyRings/registry/cryptoKeys/source-proof/cryptoKeyVersions/1"},
+        {"keyid": "dev-provenance-a", "algorithm": "ecdsa-sha2-nistp256", "public_key": "ZGV2LXByb3ZlbmFuY2UtYS1zeW50aGV0aWMtcHVibGljLWtleS0w", "storage": "cloud-kms", "online": true, "status": "active", "kms_resource": "projects/seen-dev/locations/global/keyRings/registry/cryptoKeys/provenance/cryptoKeyVersions/1"}
+      ],
+      "tuf_roles": {
+        "root": {"keyids": ["dev-root-a", "dev-root-b", "dev-root-c"], "threshold": 2, "online": false, "max_age_seconds": 31536000, "environment_bound": true, "repository_id_bound": true, "allowed_actions": ["trust-root-and-key-rotation"]},
+        "targets": {"keyids": ["dev-targets-a", "dev-targets-b"], "threshold": 2, "online": false, "max_age_seconds": 2592000, "environment_bound": true, "repository_id_bound": true, "allowed_actions": ["delegate-target-paths"]},
+        "snapshot": {"keyids": ["dev-snapshot-a"], "threshold": 1, "online": true, "max_age_seconds": 86400, "environment_bound": true, "repository_id_bound": true, "allowed_actions": ["bind-metadata-versions-and-hashes"]},
+        "timestamp": {"keyids": ["dev-timestamp-a"], "threshold": 1, "online": true, "max_age_seconds": 21600, "environment_bound": true, "repository_id_bound": true, "allowed_actions": ["freshness-and-snapshot-pointer"]}
+      },
+      "delegated_roles": {
+        "releases": {"keyids": ["dev-releases-a"], "threshold": 1, "online": true, "max_age_seconds": 604800, "environment_bound": true, "repository_id_bound": true, "allowed_actions": ["publish-release-target", "yank-release-target"], "paths": ["packages/*/*/*/*/*"], "terminating": false},
+        "security": {"keyids": ["dev-security-a"], "threshold": 1, "online": true, "max_age_seconds": 21600, "environment_bound": true, "repository_id_bound": true, "allowed_actions": ["security-quarantine-target", "reinstate-reviewed-target"], "paths": ["packages/*/*/*/*/*"], "terminating": false}
+      },
+      "target_overlay_policy": {
+        "target_namespace": "packages/*/*/*/*/*",
+        "evaluation_order": ["security", "releases"],
+        "resolution_algorithm": "first-present-valid-target-by-role-order",
+        "absent_security_target": "continue-to-releases",
+        "security_target_precedence": "authoritative-for-identical-target-path",
+        "digest_binding": "package-version-archive-digest-must-match-base-release",
+        "target_path_binding": "path-owner-name-version-digest-and-leaf-must-byte-match-target-custom",
+        "release_target_state": "visibility-public-lifecycle-active-retention-retained",
+        "release_role_availability": ["available", "yanked"],
+        "security_role_availability": ["available", "security-quarantined"],
+        "security_overlay_state": "same-public-active-retained-release-and-identical-target-path",
+        "quarantine_requires_incident_id": true,
+        "release_role_cannot_override_security": true,
+        "reinstatement_authority": "security-role-threshold"
+      },
+      "attestation_roles": {
+        "source-proof": {"keyids": ["dev-source-proof-a"], "threshold": 1, "online": true, "max_age_seconds": 86400, "environment_bound": true, "repository_id_bound": true, "allowed_actions": ["sign-source-proof"]},
+        "provenance": {"keyids": ["dev-provenance-a"], "threshold": 1, "online": true, "max_age_seconds": 86400, "environment_bound": true, "repository_id_bound": true, "allowed_actions": ["sign-provenance-attestation"]}
+      },
+      "root_rotation": {"monotonic_version": true, "requires_old_root_threshold": true, "requires_new_root_threshold": true, "sequential_versions_only": true, "out_of_band_rebootstrap_on_threshold_loss": true}
+    },
+    {
+      "name": "production",
+      "registry_origin": "https://seen.yousef.codes/packages",
+      "repository_id": "seen-prod-registry-v1",
+      "metadata_prefix": "metadata/production",
+      "key_namespace": "seen-prod",
+      "trusted_root": {
+        "version": 1,
+        "sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+        "out_of_band_distribution": true
+      },
+      "keys": [
+        {"keyid": "prod-root-a", "algorithm": "ed25519", "public_key": "cHJvZC1yb290LWEtc3ludGhldGljLXB1YmxpYy1rZXktMDAwMDA", "storage": "offline-encrypted", "online": false, "status": "active"},
+        {"keyid": "prod-root-b", "algorithm": "ed25519", "public_key": "cHJvZC1yb290LWItc3ludGhldGljLXB1YmxpYy1rZXktMDAwMDA", "storage": "offline-encrypted", "online": false, "status": "active"},
+        {"keyid": "prod-root-c", "algorithm": "ed25519", "public_key": "cHJvZC1yb290LWMtc3ludGhldGljLXB1YmxpYy1rZXktMDAwMDA", "storage": "offline-encrypted", "online": false, "status": "active"},
+        {"keyid": "prod-targets-a", "algorithm": "ed25519", "public_key": "cHJvZC10YXJnZXRzLWEtc3ludGhldGljLXB1YmxpYy1rZXktMDAw", "storage": "offline-encrypted", "online": false, "status": "active"},
+        {"keyid": "prod-targets-b", "algorithm": "ed25519", "public_key": "cHJvZC10YXJnZXRzLWItc3ludGhldGljLXB1YmxpYy1rZXktMDAw", "storage": "offline-encrypted", "online": false, "status": "active"},
+        {"keyid": "prod-targets-c", "algorithm": "ed25519", "public_key": "cHJvZC10YXJnZXRzLWMtc3ludGhldGljLXB1YmxpYy1rZXktMDAw", "storage": "offline-encrypted", "online": false, "status": "active"},
+        {"keyid": "prod-snapshot-a", "algorithm": "ecdsa-sha2-nistp256", "public_key": "cHJvZC1zbmFwc2hvdC1hLXN5bnRoZXRpYy1wdWJsaWMta2V5LTAw", "storage": "cloud-kms", "online": true, "status": "active", "kms_resource": "projects/seen-prod/locations/global/keyRings/registry/cryptoKeys/snapshot/cryptoKeyVersions/1"},
+        {"keyid": "prod-timestamp-a", "algorithm": "ecdsa-sha2-nistp256", "public_key": "cHJvZC10aW1lc3RhbXAtYS1zeW50aGV0aWMtcHVibGljLWtleS0w", "storage": "cloud-kms", "online": true, "status": "active", "kms_resource": "projects/seen-prod/locations/global/keyRings/registry/cryptoKeys/timestamp/cryptoKeyVersions/1"},
+        {"keyid": "prod-releases-a", "algorithm": "ecdsa-sha2-nistp256", "public_key": "cHJvZC1yZWxlYXNlcy1hLXN5bnRoZXRpYy1wdWJsaWMta2V5LTAw", "storage": "cloud-kms", "online": true, "status": "active", "kms_resource": "projects/seen-prod/locations/global/keyRings/registry/cryptoKeys/releases-a/cryptoKeyVersions/1"},
+        {"keyid": "prod-releases-b", "algorithm": "ecdsa-sha2-nistp256", "public_key": "cHJvZC1yZWxlYXNlcy1iLXN5bnRoZXRpYy1wdWJsaWMta2V5LTAw", "storage": "cloud-kms", "online": true, "status": "active", "kms_resource": "projects/seen-prod/locations/global/keyRings/registry/cryptoKeys/releases-b/cryptoKeyVersions/1"},
+        {"keyid": "prod-security-a", "algorithm": "ecdsa-sha2-nistp256", "public_key": "cHJvZC1zZWN1cml0eS1hLXN5bnRoZXRpYy1wdWJsaWMta2V5LTAw", "storage": "cloud-kms", "online": true, "status": "active", "kms_resource": "projects/seen-prod/locations/global/keyRings/registry/cryptoKeys/security-a/cryptoKeyVersions/1"},
+        {"keyid": "prod-security-b", "algorithm": "ecdsa-sha2-nistp256", "public_key": "cHJvZC1zZWN1cml0eS1iLXN5bnRoZXRpYy1wdWJsaWMta2V5LTAw", "storage": "cloud-kms", "online": true, "status": "active", "kms_resource": "projects/seen-prod/locations/global/keyRings/registry/cryptoKeys/security-b/cryptoKeyVersions/1"},
+        {"keyid": "prod-security-c", "algorithm": "ecdsa-sha2-nistp256", "public_key": "cHJvZC1zZWN1cml0eS1jLXN5bnRoZXRpYy1wdWJsaWMta2V5LTAw", "storage": "cloud-kms", "online": true, "status": "active", "kms_resource": "projects/seen-prod/locations/global/keyRings/registry/cryptoKeys/security-c/cryptoKeyVersions/1"},
+        {"keyid": "prod-source-proof-a", "algorithm": "ecdsa-sha2-nistp256", "public_key": "cHJvZC1zb3VyY2UtcHJvb2YtYS1zeW50aGV0aWMtcHVibGljLWtleQ", "storage": "cloud-kms", "online": true, "status": "active", "kms_resource": "projects/seen-prod/locations/global/keyRings/registry/cryptoKeys/source-proof/cryptoKeyVersions/1"},
+        {"keyid": "prod-provenance-a", "algorithm": "ecdsa-sha2-nistp256", "public_key": "cHJvZC1wcm92ZW5hbmNlLWEtc3ludGhldGljLXB1YmxpYy1rZXkw", "storage": "cloud-kms", "online": true, "status": "active", "kms_resource": "projects/seen-prod/locations/global/keyRings/registry/cryptoKeys/provenance/cryptoKeyVersions/1"}
+      ],
+      "tuf_roles": {
+        "root": {"keyids": ["prod-root-a", "prod-root-b", "prod-root-c"], "threshold": 2, "online": false, "max_age_seconds": 31536000, "environment_bound": true, "repository_id_bound": true, "allowed_actions": ["trust-root-and-key-rotation"]},
+        "targets": {"keyids": ["prod-targets-a", "prod-targets-b", "prod-targets-c"], "threshold": 2, "online": false, "max_age_seconds": 2592000, "environment_bound": true, "repository_id_bound": true, "allowed_actions": ["delegate-target-paths"]},
+        "snapshot": {"keyids": ["prod-snapshot-a"], "threshold": 1, "online": true, "max_age_seconds": 86400, "environment_bound": true, "repository_id_bound": true, "allowed_actions": ["bind-metadata-versions-and-hashes"]},
+        "timestamp": {"keyids": ["prod-timestamp-a"], "threshold": 1, "online": true, "max_age_seconds": 21600, "environment_bound": true, "repository_id_bound": true, "allowed_actions": ["freshness-and-snapshot-pointer"]}
+      },
+      "delegated_roles": {
+        "releases": {"keyids": ["prod-releases-a", "prod-releases-b"], "threshold": 2, "online": true, "max_age_seconds": 604800, "environment_bound": true, "repository_id_bound": true, "allowed_actions": ["publish-release-target", "yank-release-target"], "paths": ["packages/*/*/*/*/*"], "terminating": false},
+        "security": {"keyids": ["prod-security-a", "prod-security-b", "prod-security-c"], "threshold": 2, "online": true, "max_age_seconds": 21600, "environment_bound": true, "repository_id_bound": true, "allowed_actions": ["security-quarantine-target", "reinstate-reviewed-target"], "paths": ["packages/*/*/*/*/*"], "terminating": false}
+      },
+      "target_overlay_policy": {
+        "target_namespace": "packages/*/*/*/*/*",
+        "evaluation_order": ["security", "releases"],
+        "resolution_algorithm": "first-present-valid-target-by-role-order",
+        "absent_security_target": "continue-to-releases",
+        "security_target_precedence": "authoritative-for-identical-target-path",
+        "digest_binding": "package-version-archive-digest-must-match-base-release",
+        "target_path_binding": "path-owner-name-version-digest-and-leaf-must-byte-match-target-custom",
+        "release_target_state": "visibility-public-lifecycle-active-retention-retained",
+        "release_role_availability": ["available", "yanked"],
+        "security_role_availability": ["available", "security-quarantined"],
+        "security_overlay_state": "same-public-active-retained-release-and-identical-target-path",
+        "quarantine_requires_incident_id": true,
+        "release_role_cannot_override_security": true,
+        "reinstatement_authority": "security-role-threshold"
+      },
+      "attestation_roles": {
+        "source-proof": {"keyids": ["prod-source-proof-a"], "threshold": 1, "online": true, "max_age_seconds": 86400, "environment_bound": true, "repository_id_bound": true, "allowed_actions": ["sign-source-proof"]},
+        "provenance": {"keyids": ["prod-provenance-a"], "threshold": 1, "online": true, "max_age_seconds": 86400, "environment_bound": true, "repository_id_bound": true, "allowed_actions": ["sign-provenance-attestation"]}
+      },
+      "root_rotation": {"monotonic_version": true, "requires_old_root_threshold": true, "requires_new_root_threshold": true, "sequential_versions_only": true, "out_of_band_rebootstrap_on_threshold_loss": true}
+    }
+  ],
+  "cross_environment_rules": {
+    "key_ids_disjoint": true,
+    "public_keys_disjoint": true,
+    "kms_resources_disjoint": true,
+    "repository_ids_disjoint": true,
+    "registry_origins_disjoint": true,
+    "metadata_rejected_on_environment_mismatch": true
+  },
+  "client_failure_policy": {
+    "expired_metadata": "reject",
+    "metadata_rollback": "reject",
+    "root_rollback": "reject",
+    "freeze_or_stale_timestamp": "reject",
+    "unknown_or_revoked_key": "reject",
+    "threshold_not_met": "reject",
+    "role_or_path_violation": "reject",
+    "hash_or_length_mismatch": "reject",
+    "network_failure": "use-only-unexpired-previously-verified-metadata",
+    "clock_skew_seconds": 300,
+    "persistent_trusted_state": true
+  }
+}
