@@ -647,15 +647,10 @@ prepare_bootstrap_source_overlay() {
             ln -s "$entry" "$BOOTSTRAP_SOURCE_ROOT/compiler_seen/$base"
         fi
     done
-    for entry in "$REPO_ROOT/seen_std"/*; do
-        local base
-        base=$(basename "$entry")
-        if [ "$base" = "src" ]; then
-            copy_bootstrap_seen_tree "$entry" "$BOOTSTRAP_SOURCE_ROOT/seen_std/src"
-        else
-            ln -s "$entry" "$BOOTSTRAP_SOURCE_ROOT/seen_std/$base"
-        fi
-    done
+    # seen_std is a local package dependency. Keep its overlay symlink-free so
+    # the package client's local-source hardening sees the same regular-file
+    # layout that a published package archive contains.
+    copy_bootstrap_seen_tree "$REPO_ROOT/seen_std" "$BOOTSTRAP_SOURCE_ROOT/seen_std"
     echo -e "${YELLOW}Bootstrap source overlay enabled: temporary /// bodies stripped for older bootstrap compilers.${NC}"
 }
 
