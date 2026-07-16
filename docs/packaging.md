@@ -253,19 +253,21 @@ the package client. Production later promotes the same host-neutral contract to
 delegated signing identities, and routing—not by rewriting package or schema
 identities. Production is not deployed and has no embedded root.
 
-Controlled internal publishing is active in development, but submitted releases
-remain delayed and unavailable. They do not enter public catalog metadata,
-resolution, or downloads until promotion is implemented. Hosted account
-operations, private-package access, yanking, and reporting remain inactive.
+Controlled internal publishing is active in development. Submissions complete
+as quarantined and unavailable; immutable-source verification and a successful
+first isolated scan begin the exact 72-hour public delay. Activation requires a
+fresh source proof, a second successful scan, and exact-digest promotion. Hosted
+account operations and private-package access remain inactive; authenticated
+report, appeal, yank, and emergency-security service endpoints are available.
 
 ## Current Limits
 
 - The development registry and embedded official root are active; production
   remains absent and fails closed without an embedded root.
-- Submitted releases remain delayed, unavailable, and invisible to catalog,
-  resolution, and downloads until promotion work lands.
-- Hosted login/account flows, private packages, yanking, and reporting are
-  inactive; publishing is restricted to controlled internal credentials.
+- Submitted releases remain quarantined or delayed, unavailable, and invisible
+  to catalog, resolution, and downloads until every review gate passes.
+- Hosted login/account flows and private packages remain inactive; publishing
+  and enforcement mutations require controlled role-specific credentials.
 - Hosted URLs must use canonical HTTPS origins; plain HTTP, origin changes, and
   unsigned fallback metadata are rejected.
 - Prebuilt package artifacts are local path dependencies; registry publication

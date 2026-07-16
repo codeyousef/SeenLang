@@ -187,18 +187,21 @@ be selected by the package's `include` or `assets` patterns. Windows rejects
 `--token-file`; inject `SEEN_REGISTRY_TOKEN` through the trusted publisher
 process environment instead.
 
-The development service accepts the bound submission but keeps the release
-delayed, unavailable, and excluded from public catalog, resolution, and
-download. The CLI still reserves these inactive hosted operations:
+The development service accepts the bound submission as quarantined and
+unavailable. Successful immutable-source verification and the first isolated
+scan start the exact 72-hour public delay; a fresh source proof and second scan
+are required before promotion into catalog, resolution, and download metadata.
+The CLI still reserves these hosted operations:
 
 ```bash
 seen pkg login|logout|whoami [options]
 seen pkg yank|report [options]
 ```
 
-They and private-package access remain inactive in 0.10.0. The development read
-service and embedded trust root are live; production remains absent and fails
-closed.
+The service exposes authenticated report, yank, appeal, and emergency-security
+workflows, while their CLI commands and private-package access remain inactive
+in 0.10.0. The development service and embedded trust root are live; production
+remains absent and fails closed.
 
 ### Platform Packaging Commands
 
