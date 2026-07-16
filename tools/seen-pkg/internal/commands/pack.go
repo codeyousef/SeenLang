@@ -29,6 +29,10 @@ type PackResult struct {
 // Pack builds deterministic, source-only Seen package bytes and validates the
 // resulting archive with the same policy used during installation.
 func Pack(ctx context.Context, projectRoot, outputPath string) (PackResult, error) {
+	return packWithForbiddenFile(ctx, projectRoot, outputPath, nil)
+}
+
+func packWithForbiddenFile(ctx context.Context, projectRoot, outputPath string, forbidden os.FileInfo) (PackResult, error) {
 	root, err := filepath.Abs(projectRoot)
 	if err != nil {
 		return PackResult{}, err
@@ -86,16 +90,26 @@ func Pack(ctx context.Context, projectRoot, outputPath string) (PackResult, erro
 	tarWriter := tar.NewWriter(gzipWriter)
 	for _, relative := range files {
 		full := filepath.Join(root, filepath.FromSlash(relative))
-		info, err := os.Stat(full)
+		file, err := os.Open(full)
 		if err != nil {
 			return PackResult{}, err
+		}
+		info, err := file.Stat()
+		if err != nil {
+			_ = file.Close()
+			return PackResult{}, err
+		}
+		if !info.Mode().IsRegular() {
+			_ = file.Close()
+			return PackResult{}, fmt.Errorf("package source contains non-regular entry %q", relative)
+		}
+		if forbidden != nil && os.SameFile(forbidden, info) {
+			_ = file.Close()
+			return PackResult{}, fmt.Errorf("publish token file must not be selected as package content")
 		}
 		header := &tar.Header{Name: relative, Mode: 0o644, Size: info.Size(), Typeflag: tar.TypeReg, ModTime: time.Unix(0, 0).UTC(), AccessTime: time.Time{}, ChangeTime: time.Time{}, Uid: 0, Gid: 0, Uname: "", Gname: "", Format: tar.FormatUSTAR}
 		if err := tarWriter.WriteHeader(header); err != nil {
-			return PackResult{}, err
-		}
-		file, err := os.Open(full)
-		if err != nil {
+			_ = file.Close()
 			return PackResult{}, err
 		}
 		_, copyErr := io.Copy(tarWriter, file)

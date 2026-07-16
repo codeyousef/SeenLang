@@ -138,14 +138,17 @@ calc = { package = "alice/mathx", version = "^1.2.0", allow = ["file"] }
 
 Use `seen pkg fetch` for normal resolution, `--locked` to require an unchanged
 lock, `--offline` to prohibit network access, or `--frozen` for both. Package
-metadata and archives must verify against an out-of-band registry trust root;
-downloads are bounded and packages are exposed through immutable,
-content-addressed storage and project-local read-only views.
+metadata and archives must verify against a pinned registry trust root; the
+official development root is embedded, while custom registries still need an
+out-of-band root and digest. Downloads are bounded and packages are exposed
+through immutable, content-addressed storage and project-local read-only views.
 
-The development URL above and the later production URL are planned origins,
-not active services in this release. Seen 0.10.0 does not embed either official
-trust root, and hosted authentication, private packages, publishing, yanking,
-and reporting remain inactive pending the service and Aether integration. See
+The development URL above serves public signed TUF metadata and catalog reads.
+Authorized internal `seen pkg publish` submissions are accepted, but releases
+remain `lifecycle=delayed`, `availability=unavailable`, and excluded from
+catalog, resolution, and download until promotion work lands. Hosted login,
+private packages, yanking, and reporting remain inactive. The production
+registry is not deployed and has no embedded trust root. See
 [docs/packaging.md](docs/packaging.md) for the complete workflow and security
 model.
 

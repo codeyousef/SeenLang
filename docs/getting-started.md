@@ -179,10 +179,11 @@ seen compile src/main.seen my_project --frozen
 ```
 
 `compile`, `check`, and `run` prepare declared dependencies automatically. The
-planned development origin in this example is not activated by Seen 0.10.0:
-the client ships without its official trust root and fails closed until that
-root and the hosted service are provisioned. See [Packaging](packaging.md) for
-custom signed registries, lock modes, and capability consent.
+development origin in this example serves public signed metadata and catalog
+reads, and the client embeds its official trust root. No submitted release is
+currently resolver-visible because promotion remains disabled. See
+[Packaging](packaging.md) for custom signed registries, lock modes, and
+capability consent.
 
 ## Editor Setup
 

@@ -40,17 +40,17 @@ code --install-extension seen-*.vsix
 | Seen: Package Fetch | `seen pkg fetch` |
 | Seen: Package Pack | `seen pkg pack` |
 | Seen: Package Prebuild | `seen pkg prebuild` |
-| Seen: Package Publish | `seen pkg publish` (hosted operation inactive) |
+| Seen: Package Publish | `seen pkg publish` (authorized internal publishing) |
 | Seen: Translate to Another Language | `seen translate <file> --from <lang> --to <lang>` |
 
 Extension-only commands such as update checks or visual helpers are editor UI
 features; compiler behavior remains controlled by the `seen` CLI.
 
-Hosted package authentication, private-package access, publishing, yanking,
-and reporting are inactive in Seen 0.10.0 pending service and Aether
-integration. Package fetches also fail closed unless their registry has an
-out-of-band trust root; the planned official origins do not yet have one
-embedded in the release.
+The official development registry uses its embedded root and serves live public
+TUF metadata and catalog reads. Custom registries still require an out-of-band
+root. Authorized internal publishes remain delayed, unavailable, and invisible
+to resolution. Hosted login, private-package access, yanking, and reporting are
+inactive, and the production registry is absent.
 
 ### Configuration
 

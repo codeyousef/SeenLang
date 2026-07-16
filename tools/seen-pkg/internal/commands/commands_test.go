@@ -23,7 +23,7 @@ func TestVersionHandshake(t *testing.T) {
 }
 func TestHostedAndAuthCommandsFailClosed(t *testing.T) {
 	t.Parallel()
-	for _, command := range []string{"login", "logout", "whoami", "publish", "yank", "report"} {
+	for _, command := range []string{"login", "logout", "whoami", "yank", "report"} {
 		var out, errOut bytes.Buffer
 		if code := Run(context.Background(), []string{command}, &out, &errOut); code == 0 || !strings.Contains(errOut.String(), "refusing to continue") {
 			t.Errorf("%s code=%d err=%q", command, code, errOut.String())
@@ -32,7 +32,7 @@ func TestHostedAndAuthCommandsFailClosed(t *testing.T) {
 }
 func TestSurfaceRecognizesAllCommands(t *testing.T) {
 	t.Parallel()
-	for _, command := range []string{"add", "remove", "fetch", "update", "pack"} {
+	for _, command := range []string{"add", "remove", "fetch", "update", "pack", "publish"} {
 		var out, errOut bytes.Buffer
 		if code := Run(context.Background(), []string{command}, &out, &errOut); code != 69 || strings.Contains(errOut.String(), "unknown command") {
 			t.Errorf("%s code=%d err=%q", command, code, errOut.String())

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -19,7 +20,9 @@ import (
 	"github.com/codeyousef/seen/tools/seen-pkg/internal/tuf"
 )
 
-type ProductionBackend struct{}
+type ProductionBackend struct {
+	httpClient *http.Client
+}
 
 func NewProductionBackend() *ProductionBackend { return &ProductionBackend{} }
 
@@ -33,6 +36,8 @@ func (backend *ProductionBackend) Run(ctx context.Context, command string, argum
 		return backend.remove(arguments, streams)
 	case "pack":
 		return backend.pack(ctx, arguments, streams)
+	case "publish":
+		return backend.publish(ctx, arguments, streams)
 	default:
 		return fmt.Errorf("unsupported backend command %q", command)
 	}
@@ -333,7 +338,9 @@ func registrySpecs(parsed *model.Manifest, cli resolutionCLI, cacheRoot string) 
 			return nil, fmt.Errorf("custom registry %q requires --environment %s=development|production and --repository-id %s=ID for its initial pinned-root bootstrap", alias, alias, alias)
 		}
 		if prior, exists := byOrigin[origin]; exists {
-			if prior.Environment != spec.Environment || prior.RepositoryID != spec.RepositoryID || prior.TrustedRoot != spec.TrustedRoot || prior.TrustedRootSHA256 != spec.TrustedRootSHA256 {
+			if prior.Environment != spec.Environment || prior.RepositoryID != spec.RepositoryID ||
+				prior.TrustedRoot != spec.TrustedRoot || prior.TrustedRootSHA256 != spec.TrustedRootSHA256 ||
+				prior.BuiltinTrustedRoot != spec.BuiltinTrustedRoot || prior.BuiltinTrustedRootSHA256 != spec.BuiltinTrustedRootSHA256 {
 				return nil, fmt.Errorf("registry aliases for %s have inconsistent trust configuration", origin)
 			}
 			continue

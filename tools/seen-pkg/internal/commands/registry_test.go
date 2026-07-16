@@ -32,6 +32,83 @@ func TestWritePrivateAtomicReplacesExistingMetadata(t *testing.T) {
 	}
 }
 
+func TestInitialTrustedRootManualOverride(t *testing.T) {
+	t.Parallel()
+	manualRoot := []byte(`{"manual":true}`)
+	manualPath := filepath.Join(t.TempDir(), "root.json")
+	if err := os.WriteFile(manualPath, manualRoot, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	root, digest, err := initialTrustedRoot(registrySpec{
+		Alias:                    "default",
+		TrustedRoot:              manualPath,
+		TrustedRootSHA256:        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		BuiltinTrustedRoot:       `{"builtin":true}`,
+		BuiltinTrustedRootSHA256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(root, manualRoot) || digest != "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" {
+		t.Fatalf("manual trust selection = %q, %q", root, digest)
+	}
+}
+
+func TestInitialTrustedRootRejectsIncompleteConfiguration(t *testing.T) {
+	t.Parallel()
+	cases := map[string]registrySpec{
+		"manual root only":   {Alias: "custom", TrustedRoot: "/tmp/root.json"},
+		"manual digest only": {Alias: "custom", TrustedRootSHA256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+		"builtin root only":  {Alias: "custom", BuiltinTrustedRoot: `{}`},
+		"builtin digest only": {
+			Alias:                    "custom",
+			BuiltinTrustedRootSHA256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		},
+		"no root": {Alias: "custom"},
+	}
+	for name, spec := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			if _, _, err := initialTrustedRoot(spec); err == nil {
+				t.Fatal("incomplete trust configuration accepted")
+			}
+		})
+	}
+}
+
+func TestDevelopmentRegistryEmbedsVerifiedRoot(t *testing.T) {
+	t.Parallel()
+	spec, err := defaultRegistrySpec("default", "https://seen.dev.yousef.codes/packages")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, pinnedDigest, err := initialTrustedRoot(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonicalRoot, err := tuf.CanonicalJSON(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(canonicalRoot)
+	if actual := hex.EncodeToString(digest[:]); actual != seenDevelopmentTrustedRootSHA256 || pinnedDigest != actual {
+		t.Fatalf("development root digest = %q (pin %q), want %q", actual, pinnedDigest, seenDevelopmentTrustedRootSHA256)
+	}
+	store := &tuf.FileStore{Path: filepath.Join(t.TempDir(), "trusted-state.json")}
+	verifier, err := tuf.New(tuf.Config{
+		Environment:    spec.Environment,
+		RepositoryID:   spec.RepositoryID,
+		RegistryOrigin: spec.Origin,
+		Store:          store,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := verifier.BootstrapRoot(root, pinnedDigest); err != nil {
+		t.Fatalf("bootstrap embedded development root: %v", err)
+	}
+}
+
 func TestMetadataFailureKeepsPreviousCacheGenerationAndTrustedState(t *testing.T) {
 	fixturePath := filepath.Join("..", "..", "..", "..", "contracts", "package-registry", "v1", "fixtures", "tuf-metadata-examples.json")
 	raw, err := os.ReadFile(fixturePath)
