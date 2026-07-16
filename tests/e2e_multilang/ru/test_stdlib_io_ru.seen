@@ -5,6 +5,13 @@
             использовать содержимое строки. Проверяем через __FileSize.
 ///
 
+extern функция __OpenFile(path: строка, mode: строка) r: целое
+extern функция __WriteFile(fd: целое, content: строка) r: целое
+extern функция __CloseFile(fd: целое) r: целое
+extern функция __FileSize(fd: целое) r: целое
+extern функция __FileExists(path: строка) r: логическое
+extern функция __DeleteFile(path: строка) r: логическое
+
 функция главная() r: целое {
     пусть путь = "/tmp/seen_e2e_test_ru.txt"
     пусть содержимое = "hello from seen e2e test in russian"

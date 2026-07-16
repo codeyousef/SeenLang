@@ -10,6 +10,13 @@
         استعمال محتوى النص المعاد. نتحقق عبر __FileSize بدلا.
 ///
 
+extern دالة __OpenFile(path: نص, mode: نص) ن: عدد
+extern دالة __WriteFile(fd: عدد, content: نص) ن: عدد
+extern دالة __CloseFile(fd: عدد) ن: عدد
+extern دالة __FileSize(fd: عدد) ن: عدد
+extern دالة __FileExists(path: نص) ن: منطقي
+extern دالة __DeleteFile(path: نص) ن: منطقي
+
 دالة رئيسية() ن: عدد {
     اجعل مسار = "/tmp/seen_e2e_test_ar.txt"
     اجعل محتوى = "مرحبا من اختبار سين بالعربية"

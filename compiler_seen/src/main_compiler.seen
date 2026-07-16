@@ -8665,7 +8665,10 @@ fun isKnownCompilerBuiltinCallName(callName: String) r: Bool {
         return true
     }
     if callName == "str_to_cstr" or callName == "cstr_to_str" or
-        callName == "split" or callName == "async_yield" {
+        callName == "split" or callName == "startsWith" or
+        callName == "endsWith" or callName == "contains" or
+        callName == "indexOf" or callName == "lastIndexOf" or
+        callName == "async_yield" {
         return true
     }
     if callName.startsWith("simd_") or callName.startsWith("Simd") or

@@ -35,6 +35,7 @@ WHEN_ENUM_NON_EXHAUSTIVE_SRC="$ROOT_DIR/tests/fixtures/current_limitations/when_
 WHEN_ENUM_EXHAUSTIVE_OK_SRC="$ROOT_DIR/tests/fixtures/current_limitations/when_enum_exhaustive_ok.seen"
 WHEN_ENUM_ELSE_OK_SRC="$ROOT_DIR/tests/fixtures/current_limitations/when_enum_else_ok.seen"
 UNRESOLVED_FREE_CALL_SRC="$ROOT_DIR/tests/fixtures/current_limitations/unresolved_free_call.seen"
+RUNTIME_STRING_BUILTINS_SRC="$ROOT_DIR/tests/codegen/test_runtime_string_free_calls_regression.seen"
 BOOL_RETURN_COERCION_SRC="$ROOT_DIR/tests/codegen/test_bool_return_int_coercion_regression.seen"
 BOOL_HELPER_LOGICAL_SRC="$ROOT_DIR/tests/codegen/test_bool_helper_logical_regression.seen"
 STRING_VAR_INIT_CONCAT_SRC="$ROOT_DIR/tests/codegen/test_string_var_initializer_concat_regression.seen"
@@ -2229,6 +2230,7 @@ run_check_failure_case "enum matches must be exhaustive without else" "$WHEN_ENU
 run_check_success_case "enum matches stay allowed when all variants are covered" "$WHEN_ENUM_EXHAUSTIVE_OK_SRC" "$TMP_ROOT/when_enum_exhaustive_ok.log"
 run_check_success_case "enum matches stay allowed with else arm" "$WHEN_ENUM_ELSE_OK_SRC" "$TMP_ROOT/when_enum_else_ok.log"
 run_check_failure_case "unresolved free function calls are diagnosed" "$UNRESOLVED_FREE_CALL_SRC" "$TMP_ROOT/unresolved_free_call.log" 'unresolved function `chunkInBounds`'
+run_success_case "runtime-backed string free calls remain resolvable" "$RUNTIME_STRING_BUILTINS_SRC" "$TMP_ROOT/runtime_string_builtins" "$TMP_ROOT/runtime_string_builtins.log"
 run_success_case "Bool returns coerce Int predicates to i1" "$BOOL_RETURN_COERCION_SRC" "$TMP_ROOT/bool_return_coercion" "$TMP_ROOT/bool_return_coercion.log"
 run_success_case "Bool helper logical conditions stay verifier-clean" "$BOOL_HELPER_LOGICAL_SRC" "$TMP_ROOT/bool_helper_logical" "$TMP_ROOT/bool_helper_logical.log"
 run_success_case "string local initializer survives nested concat rewrite" "$STRING_VAR_INIT_CONCAT_SRC" "$TMP_ROOT/string_var_init_concat" "$TMP_ROOT/string_var_init_concat.log"

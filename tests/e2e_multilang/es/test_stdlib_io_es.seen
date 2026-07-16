@@ -10,6 +10,13 @@ NOTA: __ReadFile retorna SeenString pero codegen lo trata como i64 -- no se pued
       el contenido de la cadena retornada. Verificar via __FileSize en su lugar.
 ///
 
+extern función __OpenFile(path: cadena, mode: cadena) r: entero
+extern función __WriteFile(fd: entero, content: cadena) r: entero
+extern función __CloseFile(fd: entero) r: entero
+extern función __FileSize(fd: entero) r: entero
+extern función __FileExists(path: cadena) r: logico
+extern función __DeleteFile(path: cadena) r: logico
+
 función principal() r: entero {
     sea ruta = "/tmp/seen_e2e_test_es.txt"
     sea contenido = "hola desde la prueba e2e de seen en espanol"
