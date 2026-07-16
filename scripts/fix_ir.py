@@ -558,6 +558,10 @@ def fix_undefined_symbols(content):
     for m in re.finditer(r'(?:load|store)\s+\S+.*?ptr\s+@([A-Za-z_]\w*)', content):
         global_uses.add(m.group(1))
     for gname in global_uses:
+        # Function symbols are valid pointer operands too. Do not synthesize a
+        # conflicting global when a declared function is stored in a table.
+        if gname in declared:
+            continue
         if not re.search(r'^@' + re.escape(gname) + r'\s*=', content, re.MULTILINE):
             insert_lines.append(f'@{gname} = external global ptr')
 
