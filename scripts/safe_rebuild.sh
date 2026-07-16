@@ -656,6 +656,9 @@ prepare_bootstrap_source_overlay() {
 
 cleanup_bootstrap_source_overlay() {
     if [ -n "$BOOTSTRAP_SOURCE_ROOT" ] && [ "$BOOTSTRAP_SOURCE_ROOT" != "$REPO_ROOT" ]; then
+        # Hardened package views are read-only. Restore owner write permission
+        # inside the disposable overlay so trap cleanup can remove them.
+        chmod -R u+w "$BOOTSTRAP_SOURCE_ROOT/compiler_seen/.seen" 2>/dev/null || true
         rm -rf "$BOOTSTRAP_SOURCE_ROOT"
     fi
 }
