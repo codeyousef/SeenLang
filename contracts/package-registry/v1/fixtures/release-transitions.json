@@ -368,6 +368,281 @@
       "failure_step": 3
     }
   ],
+  "promotion_protocol": {
+    "server_clock": "rfc3339-utc",
+    "public_delay_seconds": 259200,
+    "delay_comparison": "elapsed-greater-than-or-equal",
+    "state_write": "compare-and-swap-on-revision",
+    "idempotent_replay": "same-key-and-exact-reviewed-input-only",
+    "reviewed_input_fields": ["archive_sha256", "source_proof_id", "source_proof_sha256"],
+    "promotion_order": [
+      "compare-ready-state-and-revision",
+      "match-release-and-reviewed-input",
+      "promote-blob",
+      "publish-signed-resolver-metadata",
+      "commit-active-state-and-audit"
+    ]
+  },
+  "promotion_trace_cases": [
+    {
+      "name": "public-delay-exact-72-hour-boundary",
+      "initial": {
+        "state": {"lifecycle": "delayed", "visibility": "public", "availability": "unavailable", "retention": "retained"},
+        "revision": 7,
+        "public_delay_started_at": "2026-07-13T12:00:00Z",
+        "release_input": {
+          "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "source_proof_id": "prf_01JZX8K9F7Q2W4N6M8R0",
+          "source_proof_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "reviewed_input": null,
+        "promoted_input": null,
+        "promotion_idempotency_key": null,
+        "promotion_count": 0
+      },
+      "operations": [
+        {
+          "kind": "begin-second-scan",
+          "at": "2026-07-16T12:00:00Z",
+          "expected_revision": 7,
+          "input": {
+            "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "source_proof_id": "prf_01JZX8K9F7Q2W4N6M8R0",
+            "source_proof_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          },
+          "expected": "applied"
+        }
+      ],
+      "final": {
+        "state": {"lifecycle": "second-scanning", "visibility": "public", "availability": "unavailable", "retention": "retained"},
+        "revision": 8,
+        "promotion_count": 0
+      }
+    },
+    {
+      "name": "public-delay-one-second-before-boundary",
+      "initial": {
+        "state": {"lifecycle": "delayed", "visibility": "public", "availability": "unavailable", "retention": "retained"},
+        "revision": 7,
+        "public_delay_started_at": "2026-07-13T12:00:00Z",
+        "release_input": {
+          "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "source_proof_id": "prf_01JZX8K9F7Q2W4N6M8R0",
+          "source_proof_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "reviewed_input": null,
+        "promoted_input": null,
+        "promotion_idempotency_key": null,
+        "promotion_count": 0
+      },
+      "operations": [
+        {
+          "kind": "begin-second-scan",
+          "at": "2026-07-16T11:59:59Z",
+          "expected_revision": 7,
+          "input": {
+            "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "source_proof_id": "prf_01JZX8K9F7Q2W4N6M8R0",
+            "source_proof_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          },
+          "expected": "denied",
+          "error_code": "public_delay_not_elapsed"
+        }
+      ],
+      "final": {
+        "state": {"lifecycle": "delayed", "visibility": "public", "availability": "unavailable", "retention": "retained"},
+        "revision": 7,
+        "promotion_count": 0
+      }
+    },
+    {
+      "name": "double-promotion-is-one-idempotent-write",
+      "initial": {
+        "state": {"lifecycle": "ready", "visibility": "public", "availability": "unavailable", "retention": "retained"},
+        "revision": 20,
+        "public_delay_started_at": "2026-07-13T12:00:00Z",
+        "release_input": {
+          "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "source_proof_id": "prf_01JZX8K9F7Q2W4N6M8R0",
+          "source_proof_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "reviewed_input": {
+          "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "source_proof_id": "prf_01JZX8K9F7Q2W4N6M8R0",
+          "source_proof_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "promoted_input": null,
+        "promotion_idempotency_key": null,
+        "promotion_count": 0
+      },
+      "operations": [
+        {
+          "kind": "promote",
+          "at": "2026-07-16T12:05:00Z",
+          "expected_revision": 20,
+          "idempotency_key": "promote-acme-http-1-2-3",
+          "input": {
+            "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "source_proof_id": "prf_01JZX8K9F7Q2W4N6M8R0",
+            "source_proof_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          },
+          "expected": "applied"
+        },
+        {
+          "kind": "promote",
+          "at": "2026-07-16T12:05:01Z",
+          "expected_revision": 20,
+          "idempotency_key": "promote-acme-http-1-2-3",
+          "input": {
+            "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "source_proof_id": "prf_01JZX8K9F7Q2W4N6M8R0",
+            "source_proof_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          },
+          "expected": "replayed"
+        }
+      ],
+      "final": {
+        "state": {"lifecycle": "active", "visibility": "public", "availability": "available", "retention": "retained"},
+        "revision": 21,
+        "promotion_count": 1
+      }
+    },
+    {
+      "name": "concurrent-promotion-state-race-uses-cas",
+      "initial": {
+        "state": {"lifecycle": "ready", "visibility": "public", "availability": "unavailable", "retention": "retained"},
+        "revision": 30,
+        "public_delay_started_at": "2026-07-13T12:00:00Z",
+        "release_input": {
+          "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "source_proof_id": "prf_01JZX8K9F7Q2W4N6M8R0",
+          "source_proof_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "reviewed_input": {
+          "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "source_proof_id": "prf_01JZX8K9F7Q2W4N6M8R0",
+          "source_proof_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "promoted_input": null,
+        "promotion_idempotency_key": null,
+        "promotion_count": 0
+      },
+      "operations": [
+        {
+          "kind": "promote",
+          "at": "2026-07-16T12:06:00Z",
+          "expected_revision": 30,
+          "idempotency_key": "promote-racer-a",
+          "input": {
+            "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "source_proof_id": "prf_01JZX8K9F7Q2W4N6M8R0",
+            "source_proof_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          },
+          "expected": "applied"
+        },
+        {
+          "kind": "promote",
+          "at": "2026-07-16T12:06:00Z",
+          "expected_revision": 30,
+          "idempotency_key": "promote-racer-b",
+          "input": {
+            "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "source_proof_id": "prf_01JZX8K9F7Q2W4N6M8R0",
+            "source_proof_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          },
+          "expected": "cas-conflict",
+          "error_code": "release_state_changed"
+        }
+      ],
+      "final": {
+        "state": {"lifecycle": "active", "visibility": "public", "availability": "available", "retention": "retained"},
+        "revision": 31,
+        "promotion_count": 1
+      }
+    },
+    {
+      "name": "promotion-rejects-unreviewed-archive",
+      "initial": {
+        "state": {"lifecycle": "ready", "visibility": "public", "availability": "unavailable", "retention": "retained"},
+        "revision": 40,
+        "public_delay_started_at": "2026-07-13T12:00:00Z",
+        "release_input": {
+          "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "source_proof_id": "prf_01JZX8K9F7Q2W4N6M8R0",
+          "source_proof_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "reviewed_input": {
+          "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "source_proof_id": "prf_01JZX8K9F7Q2W4N6M8R0",
+          "source_proof_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "promoted_input": null,
+        "promotion_idempotency_key": null,
+        "promotion_count": 0
+      },
+      "operations": [
+        {
+          "kind": "promote",
+          "at": "2026-07-16T12:07:00Z",
+          "expected_revision": 40,
+          "idempotency_key": "promote-unreviewed-archive",
+          "input": {
+            "archive_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            "source_proof_id": "prf_01JZX8K9F7Q2W4N6M8R0",
+            "source_proof_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          },
+          "expected": "denied",
+          "error_code": "promotion_input_mismatch"
+        }
+      ],
+      "final": {
+        "state": {"lifecycle": "ready", "visibility": "public", "availability": "unavailable", "retention": "retained"},
+        "revision": 40,
+        "promotion_count": 0
+      }
+    },
+    {
+      "name": "promotion-rejects-unreviewed-source-proof",
+      "initial": {
+        "state": {"lifecycle": "ready", "visibility": "public", "availability": "unavailable", "retention": "retained"},
+        "revision": 50,
+        "public_delay_started_at": "2026-07-13T12:00:00Z",
+        "release_input": {
+          "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "source_proof_id": "prf_01JZX8K9F7Q2W4N6M8R0",
+          "source_proof_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "reviewed_input": {
+          "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "source_proof_id": "prf_01JZX8K9F7Q2W4N6M8R0",
+          "source_proof_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "promoted_input": null,
+        "promotion_idempotency_key": null,
+        "promotion_count": 0
+      },
+      "operations": [
+        {
+          "kind": "promote",
+          "at": "2026-07-16T12:08:00Z",
+          "expected_revision": 50,
+          "idempotency_key": "promote-unreviewed-proof",
+          "input": {
+            "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "source_proof_id": "prf_01JZXDIFFERENTPROOF0001",
+            "source_proof_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+          },
+          "expected": "denied",
+          "error_code": "promotion_input_mismatch"
+        }
+      ],
+      "final": {
+        "state": {"lifecycle": "ready", "visibility": "public", "availability": "unavailable", "retention": "retained"},
+        "revision": 50,
+        "promotion_count": 0
+      }
+    }
+  ],
   "immutable_with_archive_digest": [
     "package",
     "version",

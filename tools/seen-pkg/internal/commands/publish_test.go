@@ -22,7 +22,7 @@ import (
 	"github.com/codeyousef/seen/tools/seen-pkg/internal/model"
 )
 
-func TestPublishUsesAuthenticatedContractFlowAndLeavesPublicReleaseDelayed(t *testing.T) {
+func TestPublishUsesAuthenticatedContractFlowAndLeavesPublicReleaseQuarantined(t *testing.T) {
 	project := t.TempDir()
 	manifestText := `manifest-version = 1
 
@@ -81,7 +81,7 @@ capabilities = []
 			if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
 				t.Error(err)
 			}
-			if body.Version != "0.1.0" || body.Visibility != "public" || body.Source.RepositoryID != "123456" {
+			if body.Version != "0.1.0" || body.Visibility != "public" || body.Source.Forge != "gitlab" || body.Source.RepositoryID != "123456" {
 				t.Errorf("unexpected reservation: %+v", body)
 			}
 			manifestDigest := sha256.Sum256([]byte(manifestText))
@@ -139,7 +139,7 @@ capabilities = []
 			}
 			response.Header().Set("Content-Type", "application/json")
 			response.WriteHeader(http.StatusAccepted)
-			if err := json.NewEncoder(response).Encode(validReleaseRecord("seen/registry-smoke", "0.1.0", "public", "delayed", "unavailable", reservedManifestSHA256, reservedDigest, reservedLength)); err != nil {
+			if err := json.NewEncoder(response).Encode(validReleaseRecord("seen/registry-smoke", "0.1.0", "public", "quarantined", "unavailable", reservedManifestSHA256, reservedDigest, reservedLength)); err != nil {
 				t.Error(err)
 			}
 		default:
@@ -158,6 +158,7 @@ capabilities = []
 	client := &http.Client{Transport: transport}
 
 	t.Setenv("SEEN_REGISTRY_TOKEN", token)
+	t.Setenv("SEEN_SOURCE_FORGE", "gitlab")
 	t.Setenv("SEEN_SOURCE_REPOSITORY_ID", "123456")
 	t.Setenv("SEEN_SOURCE_INSTALLATION_ID", "internal-dev-publisher")
 	t.Setenv("SEEN_SOURCE_REF", "refs/heads/feat/FEL-630-seen-registry-client")
@@ -171,7 +172,7 @@ capabilities = []
 	if code != 0 {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "Submitted seen/registry-smoke@0.1.0") || strings.Contains(stdout.String(), "Published") || !strings.Contains(stdout.String(), "lifecycle=delayed") || !strings.Contains(stdout.String(), "72-hour delay") {
+	if !strings.Contains(stdout.String(), "Submitted seen/registry-smoke@0.1.0") || strings.Contains(stdout.String(), "Published") || !strings.Contains(stdout.String(), "lifecycle=quarantined") || !strings.Contains(stdout.String(), "72-hour delay") {
 		t.Fatalf("stdout=%q", stdout.String())
 	}
 	want := []string{
@@ -348,6 +349,7 @@ func TestPublishManifestMustRemainByteExactAfterPacking(t *testing.T) {
 
 func TestPublishSourceDeclarationEnforcesContractBoundsAndHTTPSRepository(t *testing.T) {
 	valid := publishCLI{
+		SourceForge:    "github",
 		RepositoryID:   "123456",
 		InstallationID: "internal-dev-publisher",
 		SourceRef:      "refs/heads/main",
@@ -362,6 +364,8 @@ func TestPublishSourceDeclarationEnforcesContractBoundsAndHTTPSRepository(t *tes
 		name   string
 		mutate func(*publishCLI)
 	}{
+		{"source-forge", func(cli *publishCLI) { cli.SourceForge = "bitbucket" }},
+		{"source-forge-case", func(cli *publishCLI) { cli.SourceForge = "GitHub" }},
 		{"repository-id", func(cli *publishCLI) { cli.RepositoryID = strings.Repeat("r", 129) }},
 		{"installation-id", func(cli *publishCLI) { cli.InstallationID = strings.Repeat("i", 129) }},
 		{"source-ref", func(cli *publishCLI) { cli.SourceRef = "refs/heads/" + strings.Repeat("r", 255) }},
@@ -378,6 +382,34 @@ func TestPublishSourceDeclarationEnforcesContractBoundsAndHTTPSRepository(t *tes
 				t.Fatal("invalid publish source declaration was accepted")
 			}
 		})
+	}
+}
+
+func TestParsePublishCLISourceForgeDefaultsAndOverrides(t *testing.T) {
+	t.Setenv("SEEN_SOURCE_FORGE", "")
+	defaults, err := parsePublishCLI(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if defaults.SourceForge != "github" {
+		t.Fatalf("default source forge = %q", defaults.SourceForge)
+	}
+
+	t.Setenv("SEEN_SOURCE_FORGE", "gitlab")
+	fromEnvironment, err := parsePublishCLI(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fromEnvironment.SourceForge != "gitlab" {
+		t.Fatalf("environment source forge = %q", fromEnvironment.SourceForge)
+	}
+
+	fromFlag, err := parsePublishCLI([]string{"--source-forge", "github"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fromFlag.SourceForge != "github" {
+		t.Fatalf("flag source forge = %q", fromFlag.SourceForge)
 	}
 }
 

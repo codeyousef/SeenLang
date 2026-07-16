@@ -180,8 +180,11 @@ seen pkg prebuild [project-dir-or-manifest] [output-dir]
 graph, `update` performs fresh selection, `tree` prints the locked graph,
 `audit` validates lock graph/capability bindings and lists package digests, and
 `pack` creates a source archive. `publish` is restricted to controlled internal
-publisher credentials, requires source repository/install/ref/commit/license
-bindings, and returns a delayed, unavailable release. Unix token files must be
+publisher credentials, requires source
+forge/repository/install/ref/commit/license bindings, and returns a quarantined,
+unavailable release. The public delay begins only after source verification and
+the first scan pass. `--source-forge` (or `SEEN_SOURCE_FORGE`) accepts exactly
+`github` or `gitlab` and defaults to `github`. Unix token files must be
 private regular files outside the selected package content; Windows publishers
 use `SEEN_REGISTRY_TOKEN` from a trusted process environment. `prebuild` remains
 the separate local native-artifact workflow described below.

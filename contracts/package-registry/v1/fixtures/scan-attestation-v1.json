@@ -1,0 +1,58 @@
+{
+  "contract_version": 1,
+  "attestation_type": "seen-package-scan",
+  "attestation_id": "scn_01JZX9M1N2P3Q4R5S6T7",
+  "sequence": 2,
+  "previous_attestation_id": "scn_01JZX8A1B2C3D4E5F6G7",
+  "subject": {
+    "package": "acme/http",
+    "version": "1.2.3",
+    "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "source_proof_id": "prf_01JZX8K9F7Q2W4N6M8R0",
+    "source_proof_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "scan": {
+    "phase": "second",
+    "attempt": 1,
+    "policy_version": "package-scan-v1.0.0",
+    "ruleset_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "scanner": {
+    "id": "seen-package-scanner",
+    "version": "1.0.0",
+    "isolated": true,
+    "network_access": "none",
+    "secret_access": "none",
+    "input_access": "read-only"
+  },
+  "input": {
+    "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "source_proof_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "read_only": true
+  },
+  "sandbox": {
+    "rootless": true,
+    "ephemeral": true,
+    "network_access": "none",
+    "cpu_limit_millis": 2000,
+    "memory_limit_bytes": 536870912,
+    "process_limit": 64
+  },
+  "invocation": {
+    "id": "scan-run-acme-http-second-0001",
+    "started_at": "2026-07-16T12:00:00Z",
+    "finished_at": "2026-07-16T12:00:30Z",
+    "timeout_seconds": 300
+  },
+  "result": {
+    "status": "passed",
+    "reason": null,
+    "disposition": "promotion-eligible",
+    "observed_archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "observed_source_proof_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "findings": [],
+    "report_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "evidence_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+  },
+  "generated_at": "2026-07-16T12:00:31Z"
+}

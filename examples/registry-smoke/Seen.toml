@@ -2,14 +2,14 @@ manifest-version = 1
 
 [project]
 name = "registry_smoke"
-version = "0.1.0"
+version = "0.1.1"
 license = "MIT"
 repository = "https://github.com/codeyousef/SeenLang"
 
 [package]
 identity = "seen/registry-smoke"
 visibility = "public"
-include = ["src/**/*.seen"]
+include = ["src/**/*.seen", "LICENSE"]
 assets = []
 capabilities = []
 

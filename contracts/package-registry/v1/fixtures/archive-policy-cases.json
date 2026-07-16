@@ -407,6 +407,58 @@
         "notes": "The validator stopped before trusting any partial result."
       },
       "expected": "reject", "error_code": "archive_validation_timeout"
+    },
+    {
+      "name": "fifo_entry",
+      "description": "A FIFO entry is rejected before extraction even in a rootless worker.",
+      "archive": {
+        "format": "tar+gzip", "parser_result": "complete",
+        "stats": {"compressed_bytes": 1024, "expanded_bytes": 512, "entry_count": 2, "max_regular_file_bytes": 512, "max_path_bytes": 13, "max_path_depth": 2, "compression_ratio": 0.5},
+        "entries": [
+          {"header_path": "Seen.toml", "effective_path": "Seen.toml", "type": "regular-file", "size": 512, "mode": "0644", "included_by_manifest": true, "header_override": "none"},
+          {"header_path": "assets/pipe", "effective_path": "assets/pipe", "type": "fifo", "size": 0, "mode": "0644", "included_by_manifest": true, "header_override": "none"}
+        ]
+      },
+      "expected": "reject", "error_code": "archive_entry_type_forbidden", "failure_entry": 1
+    },
+    {
+      "name": "socket_entry",
+      "description": "A socket entry is rejected before any extractor can materialize it.",
+      "archive": {
+        "format": "tar+gzip", "parser_result": "complete",
+        "stats": {"compressed_bytes": 1024, "expanded_bytes": 512, "entry_count": 2, "max_regular_file_bytes": 512, "max_path_bytes": 15, "max_path_depth": 2, "compression_ratio": 0.5},
+        "entries": [
+          {"header_path": "Seen.toml", "effective_path": "Seen.toml", "type": "regular-file", "size": 512, "mode": "0644", "included_by_manifest": true, "header_override": "none"},
+          {"header_path": "assets/socket", "effective_path": "assets/socket", "type": "socket", "size": 0, "mode": "0644", "included_by_manifest": true, "header_override": "none"}
+        ]
+      },
+      "expected": "reject", "error_code": "archive_entry_type_forbidden", "failure_entry": 1
+    },
+    {
+      "name": "sparse_file_entry",
+      "description": "A sparse file is rejected from header metadata without trusting its apparent expanded size.",
+      "archive": {
+        "format": "tar+gzip", "parser_result": "complete",
+        "stats": {"compressed_bytes": 16384, "expanded_bytes": 1049088, "entry_count": 2, "max_regular_file_bytes": 512, "max_path_bytes": 17, "max_path_depth": 2, "compression_ratio": 64.03125},
+        "entries": [
+          {"header_path": "Seen.toml", "effective_path": "Seen.toml", "type": "regular-file", "size": 512, "mode": "0644", "included_by_manifest": true, "header_override": "none"},
+          {"header_path": "assets/sparse.db", "effective_path": "assets/sparse.db", "type": "sparse-file", "size": 1048576, "mode": "0644", "included_by_manifest": true, "header_override": "none"}
+        ]
+      },
+      "expected": "reject", "error_code": "archive_entry_type_forbidden", "failure_entry": 1
+    },
+    {
+      "name": "unknown_entry_type",
+      "description": "An unknown archive entry type fails closed instead of being coerced to a regular file.",
+      "archive": {
+        "format": "tar+gzip", "parser_result": "complete",
+        "stats": {"compressed_bytes": 1024, "expanded_bytes": 512, "entry_count": 2, "max_regular_file_bytes": 512, "max_path_bytes": 14, "max_path_depth": 2, "compression_ratio": 0.5},
+        "entries": [
+          {"header_path": "Seen.toml", "effective_path": "Seen.toml", "type": "regular-file", "size": 512, "mode": "0644", "included_by_manifest": true, "header_override": "none"},
+          {"header_path": "assets/mystery", "effective_path": "assets/mystery", "type": "unknown", "size": 0, "mode": "0644", "included_by_manifest": true, "header_override": "none"}
+        ]
+      },
+      "expected": "reject", "error_code": "archive_entry_type_forbidden", "failure_entry": 1
     }
   ]
 }

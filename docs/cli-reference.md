@@ -118,7 +118,7 @@ seen pkg add|remove|fetch|update [options]
 seen pkg tree [--lock <Seen.lock>]
 seen pkg audit [--lock <Seen.lock>]
 seen pkg pack [options]
-seen pkg publish [project-dir-or-manifest] [--registry <origin>] [--token-file <mode-0600-file>] [source options]
+seen pkg publish [project-dir-or-manifest] [--registry <origin>] [--token-file <mode-0600-file>] [--source-forge github|gitlab] [source options]
 seen pkg prebuild [project-dir-or-manifest] [output-dir]
 ```
 
@@ -131,8 +131,9 @@ seen pkg prebuild [project-dir-or-manifest] [output-dir]
   explicit lock path.
 - `pack` creates a validated source archive for the current package.
 - `publish` submits a source package with an authorized internal credential and
-  bound source repository, installation, ref, commit, and SPDX license
-  metadata. Development submissions complete as delayed and unavailable.
+  bound source forge, repository, installation, ref, commit, and SPDX license
+  metadata. Development submissions complete as quarantined and unavailable;
+  the public delay begins only after source verification and the first scan pass.
 - `prebuild` emits a local prebuilt artifact containing `Seen.pkg.toml`,
   `objects.tsv`, `interface.index.tsv`, object files, and interface sources.
 
@@ -169,12 +170,17 @@ Controlled internal publishing is available through:
 ```bash
 seen pkg publish [project-dir-or-manifest] \
   --token-file <mode-0600-file> \
+  --source-forge github \
   --source-repository-id <id> \
   --source-installation-id <id> \
   --source-ref refs/heads/<branch> \
   --source-commit <full-commit> \
   --license-spdx <identifier>
 ```
+
+`--source-forge` accepts exactly `github` or `gitlab`. The equivalent
+`SEEN_SOURCE_FORGE` environment variable has the same validation and defaults
+to `github` when neither form is supplied.
 
 On Linux and macOS, a token file must be one private regular file and must not
 be selected by the package's `include` or `assets` patterns. Windows rejects

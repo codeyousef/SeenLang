@@ -9,7 +9,7 @@ import re
 import tomllib
 import unicodedata
 from copy import deepcopy
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -1251,6 +1251,28 @@ def parse_openapi_operations(openapi: str) -> dict[str, tuple[str, str, str]]:
     return operations
 
 
+def source_proof_semantic_error(
+    proof: dict[str, Any], trusted: dict[str, Any]
+) -> str | None:
+    if (
+        proof["package"] != trusted["package"]
+        or proof["version"] != trusted["version"]
+    ):
+        return "source_proof_release_identity_mismatch"
+    if proof["repository"] != trusted["repository"]:
+        return "source_proof_repository_mismatch"
+    if proof["requested_ref"] != trusted["requested_ref"]:
+        return "source_proof_requested_ref_mismatch"
+    if (
+        proof["resolved_ref"] != trusted["resolved_ref"]
+        or proof["commit"] != trusted["commit"]
+    ):
+        return "source_proof_mutable_ref_changed"
+    if proof["archive"] != trusted["archive"]:
+        return "source_proof_archive_digest_mismatch"
+    return None
+
+
 def check_api_contracts() -> None:
     for schema_name, fixture_name in (
         ("package-record.schema.json", "package-record-v1.json"),
@@ -1288,12 +1310,28 @@ def check_api_contracts() -> None:
     assert all(check["status"] == "passed" for check in proof["checks"])
 
     proof_schema = load_json("schemas/source-proof.schema.json")
+    proof_semantic_rules = proof_schema["x-seen-semantic-rules"]["rules"]
+    assert any(
+        rule["error_code"] == "source_proof_mutable_ref_changed"
+        for rule in proof_semantic_rules
+    )
     proof_failures = load_json("fixtures/source-proof-failure-cases.json")
     assert proof_failures["base_source_proof"] == "source-proof-v1.json"
     for case in proof_failures["invalid_cases"]:
         invalid = apply_json_mutations(proof, case["mutations"])
-        assert schema_errors(invalid, proof_schema, proof_schema), case["name"]
-        assert case["expected"] == "schema-reject"
+        failures = schema_errors(invalid, proof_schema, proof_schema)
+        if case["expected"] == "schema-reject":
+            assert failures, case["name"]
+        else:
+            assert case["expected"] == "semantic-reject", case["name"]
+            assert not failures, f"{case['name']}: {failures}"
+            assert (
+                source_proof_semantic_error(invalid, proof) == case["error_code"]
+            ), case["name"]
+    assert any(
+        case["error_code"] == "source_proof_mutable_ref_changed"
+        for case in proof_failures["invalid_cases"]
+    )
 
     error_schema = load_json("schemas/error-envelope.schema.json")
     errors_fixture = load_json("fixtures/api-error-cases-v1.json")
@@ -1586,6 +1624,10 @@ def check_archive_contracts() -> None:
         "absolute",
         "symlink",
         "device",
+        "fifo",
+        "socket",
+        "sparse",
+        "unknown",
         "collision",
         "bomb",
         "executable",
@@ -1598,6 +1640,13 @@ def check_archive_contracts() -> None:
         "package manager state",
     ):
         assert required in coverage, f"missing hostile archive case: {required}"
+    covered_forbidden_types = {
+        entry["type"]
+        for case in fixture["cases"]
+        if case["expected"] == "reject"
+        for entry in case["archive"]["entries"]
+    }
+    assert set(entry_rules["forbidden_types"]) <= covered_forbidden_types
 
     binding_fixture = load_json("fixtures/manifest-archive-binding-cases-v1.json")
     assert binding_fixture["comparison"] == (
@@ -2196,7 +2245,9 @@ def provenance_semantic_error(
     finished = datetime.fromisoformat(
         attestation["invocation"]["finished_at"].replace("Z", "+00:00")
     )
-    generated = datetime.fromisoformat(attestation["generated_at"].replace("Z", "+00:00"))
+    generated = datetime.fromisoformat(
+        attestation["generated_at"].replace("Z", "+00:00")
+    )
     if not started <= finished <= generated:
         return "provenance_invalid_time_order"
     if attestation["invocation"]["reproducible"] is not True:
@@ -2234,6 +2285,111 @@ def check_provenance_contracts() -> None:
         else:
             assert observed == case["error_code"], case["name"]
         assert case["expected"] == "reject"
+
+
+def scan_attestation_semantic_error(
+    attestation: dict[str, Any], trusted: dict[str, Any]
+) -> str | None:
+    started = datetime.fromisoformat(
+        attestation["invocation"]["started_at"].replace("Z", "+00:00")
+    )
+    finished = datetime.fromisoformat(
+        attestation["invocation"]["finished_at"].replace("Z", "+00:00")
+    )
+    generated = datetime.fromisoformat(attestation["generated_at"].replace("Z", "+00:00"))
+    if not started <= finished <= generated:
+        return "scan_invalid_time_order"
+    subject = attestation["subject"]
+    if (
+        subject["package"] != trusted["package"]
+        or subject["version"] != trusted["version"]
+    ):
+        return "scan_release_identity_mismatch"
+    if (
+        subject["archive_sha256"] != trusted["archive_sha256"]
+        or attestation["input"]["archive_sha256"] != subject["archive_sha256"]
+        or attestation["result"]["observed_archive_sha256"]
+        != subject["archive_sha256"]
+    ):
+        return "scan_archive_digest_mismatch"
+    if subject["source_proof_id"] != trusted["source_proof_id"]:
+        return "scan_source_proof_id_mismatch"
+    if (
+        subject["source_proof_sha256"] != trusted["source_proof_sha256"]
+        or attestation["input"]["source_proof_sha256"]
+        != subject["source_proof_sha256"]
+        or attestation["result"]["observed_source_proof_sha256"]
+        != subject["source_proof_sha256"]
+    ):
+        return "scan_source_proof_digest_mismatch"
+    result = attestation["result"]
+    if result["status"] == "error":
+        return {
+            "scanner-inconclusive": "scan_inconclusive",
+            "scanner-crash": "scan_scanner_crash",
+        }[result["reason"]]
+    if result["status"] == "timeout":
+        return "scan_scanner_timeout"
+    if result["status"] == "failed":
+        return "scan_policy_failed"
+    if result["status"] != "passed" or result["disposition"] != "promotion-eligible":
+        return "scan_result_not_passed"
+    return None
+
+
+def check_scan_attestation_contracts() -> None:
+    schema = load_json("schemas/scan-attestation-v1.schema.json")
+    base = load_json("fixtures/scan-attestation-v1.json")
+    errors = schema_errors(base, schema, schema)
+    assert not errors, errors
+    assert base["scan"]["phase"] in {"first", "second"}
+    assert re.fullmatch(r"[0-9a-f]{64}", base["scan"]["ruleset_sha256"])
+    assert base["subject"]["source_proof_id"].startswith("prf_")
+    assert base["scanner"] == {
+        "id": "seen-package-scanner",
+        "version": "1.0.0",
+        "isolated": True,
+        "network_access": "none",
+        "secret_access": "none",
+        "input_access": "read-only",
+    }
+    assert base["input"]["read_only"] is True
+    assert isinstance(base["result"]["findings"], list)
+    assert re.fullmatch(r"[0-9a-f]{64}", base["result"]["evidence_sha256"])
+
+    failure_fixture = load_json("fixtures/scan-attestation-failure-cases-v1.json")
+    assert failure_fixture["base_attestation"] == "scan-attestation-v1.json"
+    trusted = failure_fixture["trusted_release"]
+    assert scan_attestation_semantic_error(base, trusted) is None
+    names = [case["name"] for case in failure_fixture["cases"]]
+    assert len(names) == len(set(names))
+    for case in failure_fixture["cases"]:
+        mutated = apply_json_mutations(base, case["mutations"])
+        failures = schema_errors(mutated, schema, schema)
+        if case["validation"] == "schema-reject":
+            assert failures, case["name"]
+        else:
+            assert case["validation"] == "semantic-reject", case["name"]
+            assert not failures, f"{case['name']}: {failures}"
+            assert (
+                scan_attestation_semantic_error(mutated, trusted)
+                == case["error_code"]
+            ), case["name"]
+        assert case["expected"] == "retry-unavailable", case["name"]
+        assert case["public_error_code"] == "temporarily_unavailable", case["name"]
+        assert case["next_lifecycle"] == "delayed", case["name"]
+        assert case["publicly_visible"] is False, case["name"]
+    coverage = " ".join(names)
+    for required in (
+        "scanner-crash",
+        "scanner-timeout",
+        "scan-result-missing",
+        "archive-digest-missing",
+        "source-proof-digest-missing",
+        "archive-digest-inconsistent",
+        "source-proof-digest-inconsistent",
+    ):
+        assert required in coverage, f"missing scan failure case: {required}"
 
 
 def transition_matches(
@@ -2305,6 +2461,105 @@ def apply_trace_step(
         state.update(next_state)
         return True
     return False
+
+
+def apply_promotion_operation(
+    protocol: dict[str, Any], record: dict[str, Any], operation: dict[str, Any]
+) -> tuple[str, str | None]:
+    at = datetime.fromisoformat(operation["at"].replace("Z", "+00:00"))
+    input_binding = operation["input"]
+    if operation["kind"] == "begin-second-scan":
+        if operation["expected_revision"] != record["revision"]:
+            return "cas-conflict", "release_state_changed"
+        if input_binding != record["release_input"]:
+            return "denied", "promotion_input_mismatch"
+        if record["state"]["lifecycle"] != "delayed":
+            return "denied", "state_transition_forbidden"
+        delay_started = datetime.fromisoformat(
+            record["public_delay_started_at"].replace("Z", "+00:00")
+        )
+        delay_ends = delay_started + timedelta(seconds=protocol["public_delay_seconds"])
+        if at < delay_ends:
+            return "denied", "public_delay_not_elapsed"
+        record["state"]["lifecycle"] = "second-scanning"
+        record["revision"] += 1
+        return "applied", None
+
+    assert operation["kind"] == "promote", operation["kind"]
+    if (
+        input_binding != record["release_input"]
+        or input_binding != record["reviewed_input"]
+    ):
+        return "denied", "promotion_input_mismatch"
+    if (
+        record["state"]["lifecycle"] == "active"
+        and operation["idempotency_key"] == record["promotion_idempotency_key"]
+        and input_binding == record["promoted_input"]
+    ):
+        return "replayed", None
+    if operation["expected_revision"] != record["revision"]:
+        return "cas-conflict", "release_state_changed"
+    if record["state"] != {
+        "lifecycle": "ready",
+        "visibility": "public",
+        "availability": "unavailable",
+        "retention": "retained",
+    }:
+        return "denied", "release_not_ready"
+    record["promoted_input"] = deepcopy(input_binding)
+    record["promotion_idempotency_key"] = operation["idempotency_key"]
+    record["promotion_count"] += 1
+    record["state"]["lifecycle"] = "active"
+    record["state"]["availability"] = "available"
+    record["revision"] += 1
+    return "applied", None
+
+
+def check_promotion_traces(fixture: dict[str, Any]) -> None:
+    protocol = fixture["promotion_protocol"]
+    assert protocol["server_clock"] == "rfc3339-utc"
+    assert protocol["public_delay_seconds"] == 72 * 60 * 60
+    assert protocol["delay_comparison"] == "elapsed-greater-than-or-equal"
+    assert protocol["state_write"] == "compare-and-swap-on-revision"
+    assert protocol["reviewed_input_fields"] == [
+        "archive_sha256",
+        "source_proof_id",
+        "source_proof_sha256",
+    ]
+    cases = fixture["promotion_trace_cases"]
+    names = [case["name"] for case in cases]
+    assert len(names) == len(set(names))
+    for case in cases:
+        record = deepcopy(case["initial"])
+        assert state_satisfies_invariants(fixture, record["state"]), case["name"]
+        assert record["promotion_count"] == 0, case["name"]
+        assert set(record["release_input"]) == set(protocol["reviewed_input_fields"])
+        assert record["release_input"]["source_proof_id"].startswith("prf_")
+        if record["state"]["lifecycle"] == "ready":
+            assert record["reviewed_input"] == record["release_input"], case["name"]
+        for operation in case["operations"]:
+            assert set(operation["input"]) == set(protocol["reviewed_input_fields"])
+            outcome, error_code = apply_promotion_operation(
+                protocol, record, operation
+            )
+            assert outcome == operation["expected"], case["name"]
+            assert error_code == operation.get("error_code"), case["name"]
+        for key, value in case["final"].items():
+            assert record[key] == value, case["name"]
+        assert record["promotion_count"] <= 1, case["name"]
+        if record["promotion_count"]:
+            assert record["promoted_input"] == record["reviewed_input"], case["name"]
+            assert record["promoted_input"] == record["release_input"], case["name"]
+    coverage = " ".join(names)
+    for required in (
+        "exact-72-hour-boundary",
+        "one-second-before-boundary",
+        "double-promotion",
+        "state-race",
+        "unreviewed-archive",
+        "unreviewed-source-proof",
+    ):
+        assert required in coverage, f"missing promotion trace: {required}"
 
 
 def check_release_transitions() -> None:
@@ -2386,6 +2641,52 @@ def check_release_transitions() -> None:
                 assert state == case["final"], case["name"]
         else:
             assert failure_step == case["failure_step"], case["name"]
+    check_promotion_traces(fixture)
+
+
+def positive_safe_claims(text: str) -> list[str]:
+    patterns = (
+        re.compile(
+            r"\b(?:package|release)s?(?:\s+[a-z-]+){0,3}\s+"
+            r"(?:is|are|was|were|be|been|marked|certified|considered)\s+"
+            r"(?:as\s+)?safe\b",
+            re.IGNORECASE,
+        ),
+        re.compile(r"\bsafe\s+(?:package|release)s?\b", re.IGNORECASE),
+    )
+    claims: list[str] = []
+    for pattern in patterns:
+        for match in pattern.finditer(text):
+            prefix = text[max(0, match.start() - 96) : match.start()].lower()
+            if re.search(
+                r"\b(?:(?:must\s+)?never|must\s+not|do\s+not|does\s+not|cannot)\s+"
+                r"(?:claim|say|state|call|describe|label|mark|certify|mean|guarantee)"
+                r"[^.\n]{0,64}$",
+                prefix,
+            ):
+                continue
+            claims.append(match.group(0))
+    return claims
+
+
+def check_public_wording() -> None:
+    surfaces = [
+        CONTRACT / "README.md",
+        CONTRACT / "openapi.yaml",
+        CONTRACT / "fixtures" / "api-error-cases-v1.json",
+        CONTRACT / "fixtures" / "package-record-v1.json",
+        CONTRACT / "fixtures" / "release-record-v1.json",
+        ROOT / "README.md",
+        ROOT / "docs" / "cli-reference.md",
+        ROOT / "docs" / "packaging.md",
+        ROOT / "docs" / "known-limitations.md",
+        *sorted((ROOT / "tools" / "seen-pkg" / "internal" / "commands").glob("*.go")),
+    ]
+    for surface in surfaces:
+        claims = positive_safe_claims(surface.read_text(encoding="utf-8"))
+        assert not claims, f"{surface.relative_to(ROOT)} makes a public safety claim: {claims}"
+    assert positive_safe_claims("This package is safe.") == ["package is safe"]
+    assert not positive_safe_claims("The dashboard must never say a package is safe.")
 
 
 def check_security_boundary() -> None:
@@ -2394,7 +2695,8 @@ def check_security_boundary() -> None:
     assert "normative v1" in readme
     assert "not yet the normative" not in readme
     assert "valid deterministic test signatures" in readme
-    assert "official origins fail closed" in readme
+    assert "official development root" in readme
+    assert re.search(r"production still\s+fails closed", readme)
     assert "Signing-key compromise" in threat_model
     table_rows = [
         line
@@ -2422,6 +2724,8 @@ def check_security_boundary() -> None:
     for row in table_rows[1:]:
         columns = [column.strip() for column in row.split("|")[1:-1]]
         assert len(columns) == 6 and all(columns), row
+
+
 def main() -> None:
     check_identities()
     check_manifest()
@@ -2435,7 +2739,9 @@ def main() -> None:
     check_archive_contracts()
     check_signing_contracts()
     check_provenance_contracts()
+    check_scan_attestation_contracts()
     check_release_transitions()
+    check_public_wording()
     check_security_boundary()
     print("PASS: Seen package registry v1 normative contracts and shared fixtures")
 
