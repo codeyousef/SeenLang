@@ -269,9 +269,10 @@ snapshot/timestamp length and SHA-256 fields.
 
 The cryptographic fixture uses valid deterministic test signatures and a
 repository ID and origin reserved for tests. It is not a development or
-production trust root. Until an official complete root envelope and digest are
-distributed out of band with the client, both official origins fail closed;
-planned key names or illustrative policy material never activate trust.
+production trust root and activates neither environment. The current package
+client separately distributes the official development root; production still
+fails closed without its own root. Planned key names or illustrative policy
+material never activate trust.
 
 Bearer credentials for operations marked with a recent-auth maximum must carry
 the JWT NumericDate `auth_time` claim. The registry compares its server clock to

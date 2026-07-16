@@ -118,6 +118,7 @@ seen pkg add|remove|fetch|update [options]
 seen pkg tree [--lock <Seen.lock>]
 seen pkg audit [--lock <Seen.lock>]
 seen pkg pack [options]
+seen pkg publish [project-dir-or-manifest] [--registry <origin>] [--token-file <mode-0600-file>] [source options]
 seen pkg prebuild [project-dir-or-manifest] [output-dir]
 ```
 
@@ -129,6 +130,9 @@ seen pkg prebuild [project-dir-or-manifest] [output-dir]
   capability bindings and lists the locked package digests. Both accept an
   explicit lock path.
 - `pack` creates a validated source archive for the current package.
+- `publish` submits a source package with an authorized internal credential and
+  bound source repository, installation, ref, commit, and SPDX license
+  metadata. Development submissions complete as delayed and unavailable.
 - `prebuild` emits a local prebuilt artifact containing `Seen.pkg.toml`,
   `objects.tsv`, `interface.index.tsv`, object files, and interface sources.
 
@@ -138,8 +142,9 @@ lock and never changes it; `--offline` permits only unexpired, previously
 verified local metadata and blobs; `--frozen` applies both. `update` cannot be
 combined with `--locked` or `--frozen`.
 
-The first fetch from a custom signed registry must establish its out-of-band
-root and immutable signing identity:
+The official development registry uses its embedded root and needs no manual
+`--trusted-root` flags. The first fetch from a custom signed registry must
+establish its out-of-band root and immutable signing identity:
 
 ```bash
 seen pkg fetch \
@@ -155,19 +160,39 @@ trusted state. Later `fetch` calls—and automatic fetches issued by
 `compile`, `check`, or `run`—need only the manifest and resolution mode.
 Supplying an environment or repository ID that conflicts with the trusted root
 is rejected. Deleting the package metadata cache intentionally removes this
-local trust state and makes a new explicit pinned-root bootstrap necessary.
+local trust state and makes a new explicit pinned-root bootstrap necessary for
+custom origins; the official development root remains available from the
+client.
 
-The CLI reserves these hosted operations:
+Controlled internal publishing is available through:
+
+```bash
+seen pkg publish [project-dir-or-manifest] \
+  --token-file <mode-0600-file> \
+  --source-repository-id <id> \
+  --source-installation-id <id> \
+  --source-ref refs/heads/<branch> \
+  --source-commit <full-commit> \
+  --license-spdx <identifier>
+```
+
+On Linux and macOS, a token file must be one private regular file and must not
+be selected by the package's `include` or `assets` patterns. Windows rejects
+`--token-file`; inject `SEEN_REGISTRY_TOKEN` through the trusted publisher
+process environment instead.
+
+The development service accepts the bound submission but keeps the release
+delayed, unavailable, and excluded from public catalog, resolution, and
+download. The CLI still reserves these inactive hosted operations:
 
 ```bash
 seen pkg login|logout|whoami [options]
-seen pkg publish|yank|report [options]
+seen pkg yank|report [options]
 ```
 
-They are intentionally inactive in 0.10.0. The hosted service, official trust
-root, and Aether authentication integration are not provisioned, so the
-commands fail closed instead of treating either planned official origin as
-live.
+They and private-package access remain inactive in 0.10.0. The development read
+service and embedded trust root are live; production remains absent and fails
+closed.
 
 ### Platform Packaging Commands
 

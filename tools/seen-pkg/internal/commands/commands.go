@@ -71,7 +71,7 @@ func (runner Runner) Run(ctx context.Context, args []string) int {
 	case "login", "logout", "whoami":
 		fmt.Fprintf(runner.Streams.Stderr, "seen-pkg %s: authentication bridge/service is not available; refusing to continue\n", command)
 		return 69
-	case "publish", "yank", "report":
+	case "yank", "report":
 		fmt.Fprintf(runner.Streams.Stderr, "seen-pkg %s: hosted registry write service is not available; refusing to continue\n", command)
 		return 69
 	case "tree":
@@ -86,7 +86,7 @@ func (runner Runner) Run(ctx context.Context, args []string) int {
 			return 1
 		}
 		return 0
-	case "add", "remove", "fetch", "update", "pack":
+	case "add", "remove", "fetch", "update", "pack", "publish":
 		if runner.Backend == nil {
 			fmt.Fprintf(runner.Streams.Stderr, "seen-pkg %s: package engine is not connected; refusing to continue\n", command)
 			return 69

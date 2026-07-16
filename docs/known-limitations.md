@@ -27,12 +27,14 @@ docs.
 
 ## Packages
 
-- Seen 0.10.0 does not embed an official trust root for either planned hosted
-  origin. Both official origins fail closed until a complete root envelope and
-  digest are distributed out of band.
-- Hosted authentication, private-package access, publishing, yanking, and
-  reporting are inactive until the registry service and Aether authentication
-  integration are provisioned.
+- The development registry's official root is embedded and its public signed
+  metadata and catalog are live. Production remains unprovisioned and fails
+  closed without an embedded root.
+- Controlled internal publishing is active, but every submitted release remains
+  delayed, unavailable, and invisible to public catalog, resolution, and
+  download until promotion is implemented.
+- Hosted login/logout/whoami, private-package access, yanking, and reporting
+  remain inactive.
 - Package capability declarations are consent and policy signals, not an
   operating-system sandbox. In particular, FFI, unsafe operations, native
   linking, and process execution require the same review they would in local

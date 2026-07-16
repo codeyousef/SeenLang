@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	_ "embed"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -25,8 +26,20 @@ import (
 
 const maxMetadataBytes int64 = 4 * 1024 * 1024
 
+const seenDevelopmentTrustedRootSHA256 = "bd7987e88034bf219594c75dee0d51eb60a3fb3dc87baba9e9d33dfbfd02e474"
+
+//go:embed trust/seen-dev-root.json
+var seenDevelopmentTrustedRoot string
+
 type registrySpec struct {
-	Alias, Origin, Environment, RepositoryID, TrustedRoot, TrustedRootSHA256 string
+	Alias                    string
+	Origin                   string
+	Environment              string
+	RepositoryID             string
+	TrustedRoot              string
+	TrustedRootSHA256        string
+	BuiltinTrustedRoot       string
+	BuiltinTrustedRootSHA256 string
 }
 
 type registryRuntime struct {
@@ -146,14 +159,11 @@ func (runtime *registryRuntime) load(ctx context.Context, origin string, offline
 		if offline {
 			return nil, resolver.ErrOfflineDataUnavailable
 		}
-		if spec.TrustedRoot == "" || spec.TrustedRootSHA256 == "" {
-			return nil, fmt.Errorf("trusted root for registry %q is not provisioned; pass --trusted-root %s=PATH and --trusted-root-sha256 %s=DIGEST", spec.Alias, spec.Alias, spec.Alias)
-		}
-		root, err := os.ReadFile(spec.TrustedRoot)
+		root, rootSHA256, err := initialTrustedRoot(spec)
 		if err != nil {
-			return nil, fmt.Errorf("read trusted root for %s: %w", spec.Alias, err)
+			return nil, err
 		}
-		if err := verifier.BootstrapRoot(root, spec.TrustedRootSHA256); err != nil {
+		if err := verifier.BootstrapRoot(root, rootSHA256); err != nil {
 			return nil, err
 		}
 		state, err = transaction.Load()
@@ -211,12 +221,35 @@ func (runtime *registryRuntime) load(ctx context.Context, origin string, offline
 	return repository, nil
 }
 
+func initialTrustedRoot(spec registrySpec) ([]byte, string, error) {
+	manual := spec.TrustedRoot != "" || spec.TrustedRootSHA256 != ""
+	if manual {
+		if spec.TrustedRoot == "" || spec.TrustedRootSHA256 == "" {
+			return nil, "", fmt.Errorf("manual trusted root for registry %q requires both --trusted-root %s=PATH and --trusted-root-sha256 %s=DIGEST", spec.Alias, spec.Alias, spec.Alias)
+		}
+		root, err := os.ReadFile(spec.TrustedRoot)
+		if err != nil {
+			return nil, "", fmt.Errorf("read trusted root for %s: %w", spec.Alias, err)
+		}
+		return root, spec.TrustedRootSHA256, nil
+	}
+	if spec.BuiltinTrustedRoot != "" || spec.BuiltinTrustedRootSHA256 != "" {
+		if spec.BuiltinTrustedRoot == "" || spec.BuiltinTrustedRootSHA256 == "" {
+			return nil, "", fmt.Errorf("built-in trusted root for registry %q is incomplete", spec.Alias)
+		}
+		return []byte(spec.BuiltinTrustedRoot), spec.BuiltinTrustedRootSHA256, nil
+	}
+	return nil, "", fmt.Errorf("trusted root for registry %q is not provisioned; pass --trusted-root %s=PATH and --trusted-root-sha256 %s=DIGEST", spec.Alias, spec.Alias, spec.Alias)
+}
+
 func defaultRegistrySpec(alias, origin string) (registrySpec, error) {
 	spec := registrySpec{Alias: alias, Origin: origin}
 	switch origin {
 	case "https://seen.dev.yousef.codes/packages":
 		spec.Environment = "development"
 		spec.RepositoryID = "seen-dev-registry-v1"
+		spec.BuiltinTrustedRoot = seenDevelopmentTrustedRoot
+		spec.BuiltinTrustedRootSHA256 = seenDevelopmentTrustedRootSHA256
 	case "https://seen.yousef.codes/packages":
 		spec.Environment = "production"
 		spec.RepositoryID = "seen-prod-registry-v1"

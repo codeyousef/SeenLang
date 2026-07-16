@@ -96,12 +96,12 @@ gamekit = { path = "../gamekit" }
 
 `manifest-version = 1` is required for registry dependencies and publishable
 package fields. Registry origins are canonical absolute HTTPS URLs. The
-development URL above is the planned official origin, but the 0.10.0 client
-does not embed its official trust root and the service is not claimed to be
-deployed. It therefore fails closed unless a complete root envelope and digest
-are configured out of band. Production will later use
-`https://seen.yousef.codes/packages` with independent environment routing and
-signing configuration.
+development URL above is the live official origin, and the client embeds its
+official trust root for public signed metadata and catalog reads. Production
+will later use `https://seen.yousef.codes/packages` with independent environment
+routing and signing configuration; it is not deployed and has no embedded
+root. Internal development submissions remain delayed and unavailable, so they
+cannot satisfy dependency resolution until promotion is implemented.
 
 For a custom HTTPS registry, its first manual `seen pkg fetch` also supplies
 `--environment <alias>=development|production` and

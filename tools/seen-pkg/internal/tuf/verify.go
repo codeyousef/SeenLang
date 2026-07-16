@@ -330,8 +330,10 @@ func (v *Verifier) validateCommon(common Common, expectedType string, checkExpir
 	return nil
 }
 
-// Refresh verifies a newly fetched chain and rejects an unchanged timestamp as
-// a freeze signal. VerifyCached is the explicit offline/idempotent alternative.
+// Refresh verifies a newly fetched chain. A byte-identical timestamp may be
+// reused while it still has a safe freshness margin; once it approaches expiry,
+// an unchanged network response is a freeze signal. VerifyCached is the
+// explicit offline/idempotent alternative.
 func (v *Verifier) Refresh(set MetadataSet) (*Repository, error) {
 	return v.verifySet(set, false)
 }
@@ -512,11 +514,16 @@ func (v *Verifier) checkVersion(role string, common Common, canonical []byte, al
 			return failure("signing_same_version_changed", fmt.Errorf("%s bytes changed without version increment", role))
 		}
 		if role == "timestamp" && !allowEqual {
-			return failure("signing_freeze_detected", errors.New("refreshed timestamp version did not advance"))
+			expires, err := time.Parse(time.RFC3339, common.Expires)
+			if err != nil || !v.config.Now().UTC().Add(minimumNetworkTimestampMargin).Before(expires) {
+				return failure("signing_freeze_detected", errors.New("refreshed timestamp did not advance before its freshness margin"))
+			}
 		}
 	}
 	return nil
 }
+
+const minimumNetworkTimestampMargin = 5 * time.Minute
 
 func verifyFileBinding(meta FileMeta, raw []byte) error {
 	if meta.Version < 1 || meta.Length < 1 || len(meta.Hashes) != 1 || !validDigest(meta.Hashes["sha256"]) {

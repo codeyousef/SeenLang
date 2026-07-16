@@ -6,17 +6,18 @@ installing verified source packages. The compiler prepares those dependencies
 before `compile`, `check`, and `run` and rejects a package client from a
 different Seen release.
 
-The planned development registry origin is:
+The official development registry origin is:
 
 ```toml
 [registries]
 default = "https://seen.dev.yousef.codes/packages"
 ```
 
-That URL is configuration, not a claim that the hosted service is live. Seen
-0.10.0 deliberately ships without an official root envelope or digest for the
-development or production origin, so both origins fail closed. An HTTPS origin
-becomes usable only with a complete root of trust distributed out of band.
+That service exposes public signed TUF metadata and catalog reads. Seen embeds
+its official development root and digest, so no manual trust flags are needed
+for this origin. The production registry is not deployed and has no embedded
+root, while custom HTTPS origins require a complete root of trust distributed
+out of band.
 
 ## Package Manifest
 
@@ -171,19 +172,23 @@ The package command group is:
 ```bash
 seen pkg add|remove|fetch|update|tree|audit [options]
 seen pkg pack [project-dir-or-manifest] [output]
+seen pkg publish [project-dir-or-manifest] [options]
 seen pkg prebuild [project-dir-or-manifest] [output-dir]
 ```
 
 `add` and `remove` edit project dependencies, `fetch` installs the resolved
 graph, `update` performs fresh selection, `tree` prints the locked graph,
 `audit` validates lock graph/capability bindings and lists package digests, and
-`pack` creates a source archive. `prebuild` remains the separate local
-native-artifact workflow described below.
+`pack` creates a source archive. `publish` is restricted to controlled internal
+publisher credentials, requires source repository/install/ref/commit/license
+bindings, and returns a delayed, unavailable release. Unix token files must be
+private regular files outside the selected package content; Windows publishers
+use `SEEN_REGISTRY_TOKEN` from a trusted process environment. `prebuild` remains
+the separate local native-artifact workflow described below.
 
-The CLI also reserves `login`, `logout`, `whoami`, `publish`, `yank`, and
-`report` for the hosted workflow. They fail closed in 0.10.0 because the service
-and Aether authentication integration are not active. They do not silently
-write an unsigned registry or treat the planned development URL as live.
+The CLI also reserves `login`, `logout`, `whoami`, `yank`, and `report` for the
+hosted workflow. Those operations and private-package access remain inactive;
+they fail closed instead of weakening registry authentication or trust.
 
 ## Prebuilt Package Artifacts
 
@@ -238,24 +243,26 @@ came from the artifact.
 
 ## Hosted Registry Environments
 
-Development is planned to deploy first at
-`https://seen.dev.yousef.codes/packages`. Production later promotes the same
-host-neutral contract to `https://seen.yousef.codes/packages` by changing
-environment configuration, delegated signing identities, and routing—not by
-rewriting package or schema identities.
+Development is deployed at `https://seen.dev.yousef.codes/packages`, serving
+public signed TUF metadata and catalog reads. Its official root is embedded in
+the package client. Production later promotes the same host-neutral contract to
+`https://seen.yousef.codes/packages` by changing environment configuration,
+delegated signing identities, and routing—not by rewriting package or schema
+identities. Production is not deployed and has no embedded root.
 
-Neither deployment is activated by this release. The official origins remain
-untrusted until an official complete root envelope and digest are distributed
-out of band. Hosted account operations, private-package access, publishing,
-yanking, and reporting remain inactive until the service and Aether integration
-are ready.
+Controlled internal publishing is active in development, but submitted releases
+remain delayed and unavailable. They do not enter public catalog metadata,
+resolution, or downloads until promotion is implemented. Hosted account
+operations, private-package access, yanking, and reporting remain inactive.
 
 ## Current Limits
 
-- No official registry trust root is embedded in 0.10.0, so the planned
-  development and production origins fail closed.
-- Hosted authentication, private packages, publishing, yanking, and reporting
-  are inactive until the service and Aether authentication integration ship.
+- The development registry and embedded official root are active; production
+  remains absent and fails closed without an embedded root.
+- Submitted releases remain delayed, unavailable, and invisible to catalog,
+  resolution, and downloads until promotion work lands.
+- Hosted login/account flows, private packages, yanking, and reporting are
+  inactive; publishing is restricted to controlled internal credentials.
 - Hosted URLs must use canonical HTTPS origins; plain HTTP, origin changes, and
   unsigned fallback metadata are rejected.
 - Prebuilt package artifacts are local path dependencies; registry publication

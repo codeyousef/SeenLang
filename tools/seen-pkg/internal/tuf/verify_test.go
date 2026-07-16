@@ -216,11 +216,40 @@ func TestRefreshVerifiesChainAndSecurityOverlay(t *testing.T) {
 	if selection.Role != "security" || selection.Target.Custom.Availability != "security-quarantined" {
 		t.Fatalf("security overlay was not authoritative: %+v", selection)
 	}
-	if _, err := v.Refresh(fixture.metadata); tufCode(t, err) != "signing_freeze_detected" {
-		t.Fatalf("unchanged network timestamp = %v", err)
+	if _, err := v.Refresh(fixture.metadata); err != nil {
+		t.Fatalf("safely fresh unchanged network timestamp = %v", err)
 	}
 	if _, err := v.VerifyCached(fixture.metadata); err != nil {
 		t.Fatalf("cached verification failed: %v", err)
+	}
+}
+
+func TestRefreshRejectsUnchangedTimestampAtFrozenContractMargin(t *testing.T) {
+	fixture := newFixture(t)
+	now := fixture.now
+	v, err := New(Config{
+		Environment: testEnvironment, RepositoryID: testRepository, RegistryOrigin: testOrigin,
+		Store: &MemoryStore{}, Now: func() time.Time { return now },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := v.BootstrapRoot(fixture.root, digest(fixture.root)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := v.Refresh(fixture.metadata); err != nil {
+		t.Fatal(err)
+	}
+	expires, err := time.Parse(time.RFC3339, fixture.timestamp.Expires)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now = expires.Add(-minimumNetworkTimestampMargin)
+	if _, err := v.Refresh(fixture.metadata); tufCode(t, err) != "signing_freeze_detected" {
+		t.Fatalf("unchanged near-expiry network timestamp = %v", err)
+	}
+	if _, err := v.VerifyCached(fixture.metadata); err != nil {
+		t.Fatalf("still-valid cached metadata failed at the network freeze margin: %v", err)
 	}
 }
 
