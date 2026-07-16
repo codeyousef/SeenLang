@@ -21,6 +21,7 @@
     "empty_segments": "reject",
     "backslashes": "reject",
     "control_characters": "reject",
+    "reserved_package_state_paths": "reject-case-insensitive-.seen-segments-and-package-map.tsv-basenames",
     "duplicate_effective_paths": "reject",
     "portable_case_collisions": "reject",
     "unicode_normalization_collisions": "reject",

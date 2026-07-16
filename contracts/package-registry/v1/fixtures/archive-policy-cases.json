@@ -71,6 +71,19 @@
       "expected": "reject", "error_code": "archive_path_absolute", "failure_entry": 1
     },
     {
+      "name": "package_manager_state_shadowing",
+      "description": "Package manager state cannot be supplied by an archive to shadow the authoritative project package map.",
+      "archive": {
+        "format": "tar+gzip", "parser_result": "complete",
+        "stats": {"compressed_bytes": 1024, "expanded_bytes": 2048, "entry_count": 2, "max_regular_file_bytes": 1024, "max_path_bytes": 26, "max_path_depth": 3, "compression_ratio": 2},
+        "entries": [
+          {"header_path": "Seen.toml", "effective_path": "Seen.toml", "type": "regular-file", "size": 512, "mode": "0644", "included_by_manifest": true, "header_override": "none"},
+          {"header_path": "src/.seen/package-map.tsv", "effective_path": "src/.seen/package-map.tsv", "type": "regular-file", "size": 1024, "mode": "0644", "included_by_manifest": true, "header_override": "none"}
+        ]
+      },
+      "expected": "reject", "error_code": "archive_path_invalid", "failure_entry": 1
+    },
+    {
       "name": "symlink_entry",
       "description": "Symlinks are rejected even when the link target appears to stay inside the package.",
       "archive": {

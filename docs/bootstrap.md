@@ -37,6 +37,11 @@ new stages verify correctly.
 Do not run a compiler rebuild without explicit memory limits. A typical guarded
 run derives a main cap from current memory and keeps optimizer work capped:
 
+Source rebuilds of Seen 0.10 also require Go 1.26 or newer to build the
+version-matched `seen-pkg` helper. Set `SEEN_GO` when that executable is not the
+default `go` on `PATH`. Binary releases already include the helper beside the
+compiler and do not require Go.
+
 ```bash
 AVAIL_KB=$(awk '/MemAvailable/ {print $2}' /proc/meminfo)
 MAIN_KB=$(( AVAIL_KB * 70 / 100 ))
@@ -86,7 +91,7 @@ SEEN_LOW_MEMORY=1 scripts/perf_gate.sh --compare --suite build --tier quick
 scripts/perf_gate.sh --compare --suite stdlib
 scripts/perf_gate.sh --compare --suite runtime
 scripts/perf_gate.sh --compare --suite release-lto
-scripts/perf_gate.sh --compare --suite packages --version 0.9.5-build
+scripts/perf_gate.sh --compare --suite packages --version 0.10.0-build
 ```
 
 Schema-v2 baselines are stored under

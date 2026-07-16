@@ -1,17 +1,68 @@
 version = 2
+manifest_sha256 = "f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0"
+
+[root]
+name = "example_app"
+version = "1.0.0"
+
+[[root.dependencies]]
+alias = "math"
+package = "alice/mathx"
+registry_origin = "https://seen.dev.yousef.codes/packages"
+requirement = "^1.2.0"
+resolved_version = "1.2.3"
+resolved_archive_sha256 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+allow = ["file"]
+
+[[root.dependencies]]
+alias = "web"
+package = "seen/web"
+registry_origin = "https://seen.dev.yousef.codes/packages"
+requirement = "~2.4"
+resolved_version = "2.4.7"
+resolved_archive_sha256 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+allow = ["network"]
 
 [[packages]]
-alias = "json_pkg"
-package = "seen/json"
-version = "2.1.0"
+package = "alice/mathx"
+version = "1.2.3"
 source = "hosted-registry"
 registry_origin = "https://seen.dev.yousef.codes/packages"
-archive_sha256 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+archive_sha256 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+target_path = "packages/alice/mathx/1.2.3/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/mathx-1.2.3.seenpkg.tgz"
+metadata_version = 42
+capabilities = ["file"]
+grants = ["file"]
+
+[[packages.dependencies]]
+alias = "util"
+package = "seen/util"
+registry_origin = "https://seen.dev.yousef.codes/packages"
+requirement = ">=1.1.0 <2.0.0"
+resolved_version = "1.5.0"
+resolved_archive_sha256 = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+allow = []
 
 [[packages]]
-alias = "local_math"
-package = "alice/mathx"
-version = "0.1.0"
-source = "legacy-local-static"
-registry_origin = "/workspace/dev-registry"
-archive_sha256 = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+package = "seen/util"
+version = "1.5.0"
+source = "hosted-registry"
+registry_origin = "https://seen.dev.yousef.codes/packages"
+archive_sha256 = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+target_path = "packages/seen/util/1.5.0/cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc/util-1.5.0.seenpkg.tgz"
+metadata_version = 42
+capabilities = []
+grants = []
+dependencies = []
+
+[[packages]]
+package = "seen/web"
+version = "2.4.7"
+source = "hosted-registry"
+registry_origin = "https://seen.dev.yousef.codes/packages"
+archive_sha256 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+target_path = "packages/seen/web/2.4.7/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/web-2.4.7.seenpkg.tgz"
+metadata_version = 42
+capabilities = ["network"]
+grants = ["network"]
+dependencies = []

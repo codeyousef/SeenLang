@@ -74,31 +74,57 @@ modules = [
 
 ## [dependencies] Section
 
-The scoped registry fields below describe the unreleased Seen 0.10 source
-preview. The published 0.9.5 compiler does not include this contract.
+Seen 0.10.0 uses package aliases from `[dependencies]` as local import roots.
+Registry identity, registry origin, version requirement, and import alias remain
+separate values.
 
 ```toml
+manifest-version = 1
+
 [registries]
 default = "https://seen.dev.yousef.codes/packages"
 
 [dependencies]
-calc = { package = "alice/mathx", version = "0.1.0" }
+calc = { package = "alice/mathx", version = "^1.2.0", allow = ["file"] }
+web = { package = "seen/web", version = "~2.4", allow = ["network"] }
 gamekit = { path = "../gamekit" }
+
+[package-grants]
+"alice/mathx" = ["file"]
+"seen/web" = ["network"]
 ```
 
-The development URL is the intended hosted-v1 origin. Remote resolution is
-currently fail-closed until signed metadata verification and hardened archive
-extraction land; explicit filesystem registries are available only for trusted
-local development.
+`manifest-version = 1` is required for registry dependencies and publishable
+package fields. Registry origins are canonical absolute HTTPS URLs. The
+development URL above is the planned official origin, but the 0.10.0 client
+does not embed its official trust root and the service is not claimed to be
+deployed. It therefore fails closed unless a complete root envelope and digest
+are configured out of band. Production will later use
+`https://seen.yousef.codes/packages` with independent environment routing and
+signing configuration.
+
+For a custom HTTPS registry, its first manual `seen pkg fetch` also supplies
+`--environment <alias>=development|production` and
+`--repository-id <alias>=seen-dev-...|seen-prod-...` alongside the trusted-root
+path and SHA-256 pin. These values are checked against the signed root and then
+recovered from verified private trusted state on later compiler-triggered
+fetches; they do not need to be copied into `Seen.toml`. A conflicting value is
+never allowed to replace the pinned identity. See [CLI Reference](cli-reference.md#packaging-commands)
+for the complete bootstrap example.
 
 Package dependencies can be either:
 
 - scoped registry packages like
-  `{ package = "alice/mathx", version = "0.1.0" }`; the table key is the
-  local import alias
-- legacy unscoped exact versions like `"0.1.0"` for local static registries
+  `{ package = "alice/mathx", version = "^1.2.0", allow = ["file"] }`; the
+  table key is the local import alias
 - local Seen package paths like `{ path = "../gamekit" }`
 - local prebuilt artifacts like `{ artifact = "../dist/gamekit-0.1.0.seenpkg" }`
+
+Registry requirements support exact versions, caret requirements such as
+`^2.1.0`, tilde requirements such as `~1.4`, and bounded comparator
+conjunctions such as `>=1.2.3 <2.0.0`. Wildcards, tags, OR expressions, and
+unbounded comparator forms are rejected so every accepted requirement has one
+canonical meaning.
 
 Dependencies are imported by the local dependency key, independent of their
 canonical registry identity:
@@ -108,13 +134,23 @@ import calc.value.{answer}
 import gamekit.player.{Player}
 ```
 
-Scoped registry packages are installed under
-`.seen/packages/<owner>/<name>/<version>/<archive-sha256>/`, and registry-backed projects get a
-dependency `Seen.lock` version 2 recording aliases, canonical identities,
-resolved versions, canonical registry origins, and exact archive digests. The
-current compiler does not yet consume this provisional resolution report on a
-later run. The stdlib ABI/module snapshot is a separate `Seen.modules.lock`
-artifact.
+`allow` is the publisher-edge consent for the dependency's signed capability
+request. `[package-grants]` records the root project's consent by canonical
+identity and must cover every direct and transitive package. Supported
+capabilities are `file`, `network`, `process`, `environment`, `dynamic-load`,
+`ffi`, `unsafe`, `native-link`, and `macro`. These declarations are policy and
+consent signals, not an operating-system sandbox.
+
+Registry packages are stored in immutable content-addressed cache entries and
+exposed through project-local read-only views only after the complete graph,
+metadata, archive digests, and capability grants verify. Registry-backed
+projects get an atomically written dependency `Seen.lock` version 2 recording
+the manifest digest, root edges, all reachable transitive nodes, canonical
+origins, exact versions and archive digests, signed target paths and metadata
+versions, dependency edges, capability requests, and grants. The compiler
+enforces that lock in `--locked` mode; `--offline` prohibits network access and
+uses verified local state; `--frozen` applies both restrictions. The stdlib
+ABI/module snapshot is a separate `Seen.modules.lock` artifact.
 
 ## [package] Section
 
@@ -135,7 +171,8 @@ capabilities = []
 ```
 
 `project.name`, a consumer's dependency alias, and `package.identity` are not
-required to match.
+required to match. Hosted archives are source-only and are checked against the
+package's declared include/assets lists and signed metadata before installation.
 
 ## [native.dependencies] Section
 

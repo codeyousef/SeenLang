@@ -17,6 +17,7 @@
     },
     "bin": [
         "seen.exe",
+        "seen-pkg.exe",
         "seen-lsp.exe",
         "seen-riscv.exe"
     ],

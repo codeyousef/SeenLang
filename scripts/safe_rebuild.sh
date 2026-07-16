@@ -32,6 +32,7 @@ FROZEN_ABS=""
 BUILD_TRACE_COMMON="$SCRIPT_DIR/build_trace_common.sh"
 REBUILD_TIER="full"
 CLEAN_CACHE=0
+PACKAGE_CLIENT_BUILD_OUTPUT="$REPO_ROOT/target/seen-build/package-client/seen-pkg"
 
 if [ -f "$BUILD_TRACE_COMMON" ]; then
     # shellcheck source=scripts/build_trace_common.sh
@@ -1683,6 +1684,38 @@ run_tier_targeted_checks() {
     return 0
 }
 
+prepare_package_client() {
+    local expected_version helper
+    expected_version=$(awk -F'"' '/^version = / { print $2; exit }' "$REPO_ROOT/Seen.toml")
+    if [ -z "$expected_version" ]; then
+        echo -e "${RED}ERROR: could not read the Seen version for package-client coupling.${NC}" >&2
+        return 1
+    fi
+
+    if [ -n "${SEEN_PACKAGE_CLIENT:-}" ]; then
+        helper="$SEEN_PACKAGE_CLIENT"
+        if [ ! -x "$helper" ]; then
+            echo -e "${RED}ERROR: SEEN_PACKAGE_CLIENT is not executable: $helper${NC}" >&2
+            return 1
+        fi
+    else
+        mkdir -p "$(dirname "$PACKAGE_CLIENT_BUILD_OUTPUT")"
+        "$SCRIPT_DIR/build_package_client.sh" \
+            --version "$expected_version" \
+            --output "$PACKAGE_CLIENT_BUILD_OUTPUT" || return 1
+        helper="$PACKAGE_CLIENT_BUILD_OUTPUT"
+    fi
+
+    if ! "$helper" --expect-version "$expected_version" version --machine >/dev/null 2>&1; then
+        echo -e "${RED}ERROR: package-client version handshake failed for Seen $expected_version.${NC}" >&2
+        return 1
+    fi
+    SEEN_PACKAGE_CLIENT="$(cd "$(dirname "$helper")" && pwd)/$(basename "$helper")"
+    PACKAGE_CLIENT_BUILD_OUTPUT="$SEEN_PACKAGE_CLIENT"
+    export SEEN_PACKAGE_CLIENT
+    echo "Package client: $SEEN_PACKAGE_CLIENT"
+}
+
 install_tier_verified_compiler() {
     local compiler_path=$1
 
@@ -1694,6 +1727,10 @@ install_tier_verified_compiler() {
     chmod +x "$REPO_ROOT/compiler_seen/target/seen"
     cp "$REPO_ROOT/compiler_seen/target/seen" "$REPO_ROOT/target/release/seen"
     chmod +x "$REPO_ROOT/target/release/seen"
+    cp "$PACKAGE_CLIENT_BUILD_OUTPUT" "$REPO_ROOT/compiler_seen/target/seen-pkg"
+    chmod +x "$REPO_ROOT/compiler_seen/target/seen-pkg"
+    cp "$PACKAGE_CLIENT_BUILD_OUTPUT" "$REPO_ROOT/target/release/seen-pkg"
+    chmod +x "$REPO_ROOT/target/release/seen-pkg"
 }
 
 run_tiered_rebuild() {
@@ -1785,6 +1822,8 @@ run_tiered_rebuild() {
             else
                 cp "$output_path" "$final_output_path"
                 chmod +x "$final_output_path"
+                cp "$PACKAGE_CLIENT_BUILD_OUTPUT" "$(dirname "$final_output_path")/seen-pkg"
+                chmod +x "$(dirname "$final_output_path")/seen-pkg"
             fi
             echo -e "${GREEN}${REBUILD_TIER} rebuild complete.${NC}"
             if [ "$REBUILD_TIER" = "quick" ]; then
@@ -2137,6 +2176,11 @@ recover_with_existing_stage_builders() {
 }
 
 preserve_existing_production_compiler >/dev/null 2>&1 || true
+
+# Every compiler produced from 0.10 onward invokes this exact, version-matched
+# helper during dependency preparation. Build and verify it before any stage
+# can become a builder for the next stage.
+prepare_package_client || exit 1
 
 if [ "$REBUILD_TIER" != "full" ]; then
     run_tiered_rebuild
@@ -3296,6 +3340,8 @@ mkdir -p compiler_seen/target
 rm -f compiler_seen/target/seen 2>/dev/null || true
 cp "$VERIFIED" compiler_seen/target/seen
 chmod +x compiler_seen/target/seen
+cp "$PACKAGE_CLIENT_BUILD_OUTPUT" compiler_seen/target/seen-pkg
+chmod +x compiler_seen/target/seen-pkg
 cp "$STAGE2" stage2_head 2>/dev/null || true
 [ -f "$STAGE3" ] && cp "$STAGE3" stage3_head 2>/dev/null || true
 rm -f stage3_recovery_head 2>/dev/null || true
@@ -3305,6 +3351,8 @@ rm -f stage3_recovery_head 2>/dev/null || true
 mkdir -p target/release
 cp compiler_seen/target/seen target/release/seen
 chmod +x target/release/seen
+cp "$PACKAGE_CLIENT_BUILD_OUTPUT" target/release/seen-pkg
+chmod +x target/release/seen-pkg
 if declare -F seen_build_write_full_release_stamp >/dev/null 2>&1; then
     seen_build_write_full_release_stamp "$REPO_ROOT" "$REPO_ROOT/compiler_seen/target/seen"
 fi

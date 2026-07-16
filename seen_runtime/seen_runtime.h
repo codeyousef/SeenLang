@@ -419,6 +419,17 @@ bool __FileSeek(int64_t fd, int64_t offset);
 // Run shell command
 CommandResult runCommand(SeenString cmd);
 
+// Execute a version-coupled helper without shell parsing. The helper receives
+// exactly "--request <request_path>".
+int64_t __ExecuteProgramRequest(SeenString path, SeenString request_path);
+
+// Absolute path of the running Seen executable, or an empty string when the
+// platform cannot determine it.
+SeenString __CurrentExecutablePath(void);
+
+// Absolute current working directory, or an empty string on failure.
+SeenString __CurrentWorkingDirectory(void);
+
 // Check if command was successful
 bool commandWasSuccessful(CommandResult result);
 

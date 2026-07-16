@@ -11,6 +11,7 @@
 #include <sys/stat.h>
 #include <math.h>
 #include <time.h>
+#include <wchar.h>
 
 // On Windows, seen_aligned_realloc must use _aligned_realloc/_aligned_free
 // instead of allocating new + memcpy + free (which would crash with _aligned_malloc memory).
@@ -27,6 +28,7 @@
 #include <errno.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
+#include <fcntl.h>
 #include <unistd.h>
 #if !defined(__ANDROID__)
 #include <execinfo.h>
@@ -41,6 +43,7 @@
 // Apple platform headers
 #if defined(__APPLE__)
 #include <TargetConditionals.h>
+#include <mach-o/dyld.h>
 #endif
 
 // Apple/Android aligned_alloc compatibility shim.
@@ -810,9 +813,53 @@ typedef struct {
     SeenString output;
 } SeenCommandResult;
 
+static int64_t seen_execute_exact_request_frame(SeenString frame,
+    bool* handled);
+
+#ifdef _WIN32
+static wchar_t* seen_win32_utf8_to_wide(const char* text, size_t length,
+    const char* context) {
+    if (!text || length == 0 || length > INT_MAX ||
+        memchr(text, '\0', length) != NULL) {
+        return NULL;
+    }
+    int needed = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text,
+        (int)length, NULL, 0);
+    if (needed <= 0) return NULL;
+    wchar_t* wide = (wchar_t*)seen_try_malloc(
+        ((int64_t)needed + 1) * (int64_t)sizeof(wchar_t));
+    if (!wide) {
+        seen_oom_abort(context, ((int64_t)needed + 1) *
+            (int64_t)sizeof(wchar_t));
+    }
+    if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text,
+            (int)length, wide, needed) != needed) {
+        free(wide);
+        return NULL;
+    }
+    wide[needed] = L'\0';
+    return wide;
+}
+
+static int64_t seen_execute_program_request_wide(const wchar_t* path,
+    const wchar_t* request_path) {
+    if (!path || !request_path || path[0] == L'\0' ||
+        request_path[0] == L'\0') {
+        return 127;
+    }
+    const wchar_t* argv[] = {path, L"--request", request_path, NULL};
+    intptr_t status = _wspawnv(_P_WAIT, path, argv);
+    if (status == -1) return 127;
+    return (int64_t)status;
+}
+#endif
+
 // Execute program by path and return exit code.
 #ifdef _WIN32
 int64_t __ExecuteProgram(SeenString path) {
+    bool handled = false;
+    int64_t exact_status = seen_execute_exact_request_frame(path, &handled);
+    if (handled) return exact_status;
     char* cpath = seen_runtime_cstring(path, "__ExecuteProgram path");
 
     int status = system(cpath);
@@ -823,6 +870,9 @@ int64_t __ExecuteProgram(SeenString path) {
 // Uses posix_spawn via /bin/sh -c (like system(3) but available on all Apple platforms).
 extern char **environ;
 int64_t __ExecuteProgram(SeenString path) {
+    bool handled = false;
+    int64_t exact_status = seen_execute_exact_request_frame(path, &handled);
+    if (handled) return exact_status;
     char* cpath = seen_runtime_cstring(path, "__ExecuteProgram path");
 
 #if defined(__ANDROID__)
@@ -850,7 +900,806 @@ int64_t __ExecuteProgram(SeenString path) {
 }
 #endif
 
-// Execute command and capture output
+// Execute a helper without a shell. The helper receives exactly
+// "--request <request_path>" so arbitrary user package arguments remain in a
+// length-prefixed request file instead of being reinterpreted by cmd.exe or a
+// POSIX shell.
+int64_t __ExecuteProgramRequest(SeenString path, SeenString request_path) {
+#ifdef _WIN32
+    wchar_t* wide_path = seen_win32_utf8_to_wide(path.data, (size_t)path.len,
+        "__ExecuteProgramRequest path");
+    wchar_t* wide_request = seen_win32_utf8_to_wide(request_path.data,
+        (size_t)request_path.len, "__ExecuteProgramRequest request path");
+    if (!wide_path || !wide_request) {
+        free(wide_path);
+        free(wide_request);
+        return 127;
+    }
+    int64_t status = seen_execute_program_request_wide(wide_path,
+        wide_request);
+    free(wide_path);
+    free(wide_request);
+    return status;
+#else
+    char* cpath = seen_runtime_cstring(path, "__ExecuteProgramRequest path");
+    char* crequest = seen_runtime_cstring(request_path,
+        "__ExecuteProgramRequest request path");
+    if (!cpath || !crequest) {
+        free(cpath);
+        free(crequest);
+        return 127;
+    }
+
+    pid_t pid;
+    char* argv[] = {cpath, "--request", crequest, NULL};
+    int err = posix_spawn(&pid, cpath, NULL, NULL, argv, environ);
+    free(cpath);
+    free(crequest);
+    if (err != 0) return 127;
+
+    int status = 0;
+    pid_t waited;
+    do {
+        waited = waitpid(pid, &status, 0);
+    } while (waited < 0 && errno == EINTR);
+    if (waited < 0) return 127;
+    if (WIFEXITED(status)) return (int64_t)WEXITSTATUS(status);
+    if (WIFSIGNALED(status)) return (int64_t)(128 + WTERMSIG(status));
+    return 127;
+#endif
+}
+
+// Return the absolute path of the running Seen executable. Package-helper
+// discovery uses this instead of PATH so a different executable cannot be
+// substituted ahead of the version-coupled sibling shipped with Seen.
+SeenString __CurrentExecutablePath(void) {
+#ifdef _WIN32
+    wchar_t wide_path[32768];
+    DWORD wide_len = GetModuleFileNameW(NULL, wide_path,
+        (DWORD)(sizeof(wide_path) / sizeof(wide_path[0])));
+    if (wide_len == 0 || wide_len >=
+        (DWORD)(sizeof(wide_path) / sizeof(wide_path[0]))) {
+        SeenString empty = {0, ""};
+        return empty;
+    }
+    int utf8_len = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS,
+        wide_path, (int)wide_len, NULL, 0, NULL, NULL);
+    if (utf8_len <= 0) {
+        SeenString empty = {0, ""};
+        return empty;
+    }
+    char* utf8 = (char*)seen_try_malloc((int64_t)utf8_len + 1);
+    if (!utf8) seen_oom_abort("__CurrentExecutablePath", utf8_len + 1);
+    if (WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, wide_path,
+            (int)wide_len, utf8, utf8_len, NULL, NULL) != utf8_len) {
+        free(utf8);
+        SeenString empty = {0, ""};
+        return empty;
+    }
+    utf8[utf8_len] = '\0';
+    SeenString result = {(int64_t)utf8_len, utf8};
+    return result;
+#elif defined(__APPLE__)
+    uint32_t size = 0;
+    (void)_NSGetExecutablePath(NULL, &size);
+    if (size == 0) {
+        SeenString empty = {0, ""};
+        return empty;
+    }
+    char* raw = (char*)seen_try_malloc((int64_t)size);
+    if (!raw) seen_oom_abort("__CurrentExecutablePath", size);
+    if (_NSGetExecutablePath(raw, &size) != 0) {
+        free(raw);
+        SeenString empty = {0, ""};
+        return empty;
+    }
+    char* resolved = realpath(raw, NULL);
+    free(raw);
+    if (!resolved) {
+        SeenString empty = {0, ""};
+        return empty;
+    }
+    SeenString result = seen_str_copy(resolved);
+    free(resolved);
+    return result;
+#else
+    size_t capacity = 1024;
+    while (capacity <= 1024 * 1024) {
+        char* path_buffer = (char*)seen_try_malloc((int64_t)capacity);
+        if (!path_buffer) {
+            seen_oom_abort("__CurrentExecutablePath", (int64_t)capacity);
+        }
+        ssize_t length = readlink("/proc/self/exe", path_buffer,
+            capacity - 1);
+        if (length >= 0 && (size_t)length < capacity - 1) {
+            path_buffer[length] = '\0';
+            SeenString result = {(int64_t)length, path_buffer};
+            return result;
+        }
+        free(path_buffer);
+        if (length < 0) break;
+        capacity *= 2;
+    }
+    SeenString empty = {0, ""};
+    return empty;
+#endif
+}
+
+SeenString __CurrentWorkingDirectory(void) {
+#ifdef _WIN32
+    DWORD needed = GetCurrentDirectoryW(0, NULL);
+    if (needed == 0) {
+        SeenString empty = {0, ""};
+        return empty;
+    }
+    wchar_t* wide_path = (wchar_t*)seen_try_malloc(
+        (int64_t)needed * (int64_t)sizeof(wchar_t));
+    if (!wide_path) {
+        seen_oom_abort("__CurrentWorkingDirectory", (int64_t)needed * 2);
+    }
+    DWORD wide_len = GetCurrentDirectoryW(needed, wide_path);
+    if (wide_len == 0 || wide_len >= needed) {
+        free(wide_path);
+        SeenString empty = {0, ""};
+        return empty;
+    }
+    int utf8_len = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS,
+        wide_path, (int)wide_len, NULL, 0, NULL, NULL);
+    if (utf8_len <= 0) {
+        free(wide_path);
+        SeenString empty = {0, ""};
+        return empty;
+    }
+    char* utf8 = (char*)seen_try_malloc((int64_t)utf8_len + 1);
+    if (!utf8) seen_oom_abort("__CurrentWorkingDirectory", utf8_len + 1);
+    if (WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, wide_path,
+            (int)wide_len, utf8, utf8_len, NULL, NULL) != utf8_len) {
+        free(wide_path);
+        free(utf8);
+        SeenString empty = {0, ""};
+        return empty;
+    }
+    free(wide_path);
+    utf8[utf8_len] = '\0';
+    SeenString result = {(int64_t)utf8_len, utf8};
+    return result;
+#else
+    size_t capacity = 1024;
+    while (capacity <= 1024 * 1024) {
+        char* path_buffer = (char*)seen_try_malloc((int64_t)capacity);
+        if (!path_buffer) {
+            seen_oom_abort("__CurrentWorkingDirectory", (int64_t)capacity);
+        }
+        if (getcwd(path_buffer, capacity) != NULL) {
+            SeenString result = {(int64_t)strlen(path_buffer), path_buffer};
+            return result;
+        }
+        int error = errno;
+        free(path_buffer);
+        if (error != ERANGE) break;
+        capacity *= 2;
+    }
+    SeenString empty = {0, ""};
+    return empty;
+#endif
+}
+
+static bool seen_write_all_fd(int fd, const char* data, size_t length) {
+#ifdef _WIN32
+    (void)fd;
+    (void)data;
+    (void)length;
+    return false;
+#else
+    size_t written = 0;
+    while (written < length) {
+        ssize_t count = write(fd, data + written, length - written);
+        if (count < 0) {
+            if (errno == EINTR) continue;
+            return false;
+        }
+        if (count == 0) return false;
+        written += (size_t)count;
+    }
+    return true;
+#endif
+}
+
+#ifndef _WIN32
+static bool seen_posix_is_trusted_shared_temp(const char* path) {
+    if (strcmp(path, "/tmp") == 0) return true;
+#ifdef __APPLE__
+    if (strcmp(path, "/private/tmp") == 0) return true;
+#endif
+    return false;
+}
+
+static bool seen_posix_temp_directory_is_safe(const char* path) {
+    if (!path || path[0] != '/') return false;
+    size_t length = strlen(path);
+    if (length == 0 || length > 4096) return false;
+    char normalized[4097];
+    memcpy(normalized, path, length + 1);
+    while (length > 1 && normalized[length - 1] == '/') {
+        normalized[--length] = '\0';
+    }
+    struct stat link_info;
+    struct stat info;
+    if (lstat(normalized, &link_info) != 0 || S_ISLNK(link_info.st_mode) ||
+        stat(normalized, &info) != 0 || !S_ISDIR(info.st_mode)) {
+        return false;
+    }
+    if (info.st_uid == geteuid() && (info.st_mode & 0022) == 0) {
+        return true;
+    }
+    return (info.st_mode & S_ISVTX) != 0 &&
+        seen_posix_is_trusted_shared_temp(normalized);
+}
+#endif
+
+#ifdef _WIN32
+typedef struct {
+    SECURITY_ATTRIBUTES attributes;
+    SECURITY_DESCRIPTOR descriptor;
+    PACL acl;
+    TOKEN_USER* token_user;
+    HANDLE token;
+} SeenWin32PrivateSecurity;
+
+static void seen_win32_private_security_release(
+    SeenWin32PrivateSecurity* security) {
+    if (!security) return;
+    if (security->token) CloseHandle(security->token);
+    free(security->token_user);
+    free(security->acl);
+    memset(security, 0, sizeof(*security));
+}
+
+static bool seen_win32_private_security_init(
+    SeenWin32PrivateSecurity* security) {
+    memset(security, 0, sizeof(*security));
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY,
+            &security->token)) {
+        return false;
+    }
+    DWORD token_bytes = 0;
+    (void)GetTokenInformation(security->token, TokenUser, NULL, 0,
+        &token_bytes);
+    if (token_bytes == 0 || GetLastError() != ERROR_INSUFFICIENT_BUFFER) {
+        seen_win32_private_security_release(security);
+        return false;
+    }
+    security->token_user = (TOKEN_USER*)seen_try_malloc(token_bytes);
+    if (!security->token_user) {
+        seen_oom_abort("Seen package request token", token_bytes);
+    }
+    if (!GetTokenInformation(security->token, TokenUser,
+            security->token_user, token_bytes, &token_bytes) ||
+        !IsValidSid(security->token_user->User.Sid)) {
+        seen_win32_private_security_release(security);
+        return false;
+    }
+    DWORD sid_bytes = GetLengthSid(security->token_user->User.Sid);
+    DWORD acl_bytes = (DWORD)sizeof(ACL) +
+        (DWORD)sizeof(ACCESS_ALLOWED_ACE) - (DWORD)sizeof(DWORD) + sid_bytes;
+    security->acl = (PACL)seen_try_malloc(acl_bytes);
+    if (!security->acl) {
+        seen_oom_abort("Seen package request ACL", acl_bytes);
+    }
+    if (!InitializeAcl(security->acl, acl_bytes, ACL_REVISION) ||
+        !AddAccessAllowedAceEx(security->acl, ACL_REVISION,
+            OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE, GENERIC_ALL,
+            security->token_user->User.Sid) ||
+        !InitializeSecurityDescriptor(&security->descriptor,
+            SECURITY_DESCRIPTOR_REVISION) ||
+        !SetSecurityDescriptorDacl(&security->descriptor, TRUE,
+            security->acl, FALSE) ||
+        !SetSecurityDescriptorControl(&security->descriptor,
+            SE_DACL_PROTECTED, SE_DACL_PROTECTED)) {
+        seen_win32_private_security_release(security);
+        return false;
+    }
+    security->attributes.nLength = sizeof(security->attributes);
+    security->attributes.lpSecurityDescriptor = &security->descriptor;
+    security->attributes.bInheritHandle = FALSE;
+    return true;
+}
+
+static bool seen_win32_join_path(wchar_t* output, size_t capacity,
+    const wchar_t* directory, const wchar_t* leaf) {
+    size_t directory_length = wcslen(directory);
+    size_t leaf_length = wcslen(leaf);
+    bool needs_separator = directory_length > 0 &&
+        directory[directory_length - 1] != L'\\' &&
+        directory[directory_length - 1] != L'/';
+    size_t total = directory_length + (needs_separator ? 1U : 0U) +
+        leaf_length;
+    if (total + 1 > capacity) return false;
+    memcpy(output, directory, directory_length * sizeof(wchar_t));
+    size_t cursor = directory_length;
+    if (needs_separator) output[cursor++] = L'\\';
+    memcpy(output + cursor, leaf, (leaf_length + 1) * sizeof(wchar_t));
+    return true;
+}
+
+static bool seen_win32_write_request(HANDLE file, const char* content,
+    size_t length) {
+    size_t written = 0;
+    while (written < length) {
+        size_t remaining = length - written;
+        DWORD chunk = remaining > (size_t)MAXDWORD ? MAXDWORD :
+            (DWORD)remaining;
+        DWORD count = 0;
+        if (!WriteFile(file, content + written, chunk, &count, NULL) ||
+            count == 0) {
+            return false;
+        }
+        written += (size_t)count;
+    }
+    return FlushFileBuffers(file) != 0;
+}
+
+static volatile LONG seen_win32_request_counter = 0;
+
+typedef BOOLEAN (WINAPI *SeenWin32RandomBytes)(PVOID, ULONG);
+
+static bool seen_win32_random_bytes(void* output, ULONG length) {
+    HMODULE advapi = GetModuleHandleW(L"advapi32.dll");
+    if (!advapi) return false;
+    SeenWin32RandomBytes generate = (SeenWin32RandomBytes)(uintptr_t)
+        GetProcAddress(advapi, "SystemFunction036");
+    return generate && generate(output, length) != FALSE;
+}
+
+static bool seen_win32_create_private_request(const char* content,
+    size_t length, wchar_t* directory_path, size_t directory_capacity,
+    wchar_t* request_path, size_t request_capacity, HANDLE* directory_handle,
+    HANDLE* request_handle) {
+    *directory_handle = INVALID_HANDLE_VALUE;
+    *request_handle = INVALID_HANDLE_VALUE;
+    SeenWin32PrivateSecurity security;
+    if (!seen_win32_private_security_init(&security)) return false;
+
+    wchar_t temp_root[32768];
+    DWORD temp_length = GetTempPathW(
+        (DWORD)(sizeof(temp_root) / sizeof(temp_root[0])), temp_root);
+    if (temp_length == 0 || temp_length >=
+        (DWORD)(sizeof(temp_root) / sizeof(temp_root[0]))) {
+        seen_win32_private_security_release(&security);
+        return false;
+    }
+
+    bool created = false;
+    for (int attempt = 0; attempt < 64; attempt++) {
+        DWORD nonce[4];
+        if (!seen_win32_random_bytes(nonce, (ULONG)sizeof(nonce))) break;
+        wchar_t leaf[128];
+        LONG counter = InterlockedIncrement(&seen_win32_request_counter);
+        int leaf_length = _snwprintf(leaf,
+            sizeof(leaf) / sizeof(leaf[0]),
+            L"seen-pkg-%08lx%08lx%08lx%08lx-%ld",
+            (unsigned long)nonce[0], (unsigned long)nonce[1],
+            (unsigned long)nonce[2], (unsigned long)nonce[3],
+            (long)counter);
+        if (leaf_length <= 0 || (size_t)leaf_length >=
+            sizeof(leaf) / sizeof(leaf[0]) ||
+            !seen_win32_join_path(directory_path, directory_capacity,
+                temp_root, leaf)) {
+            break;
+        }
+        if (CreateDirectoryW(directory_path, &security.attributes)) {
+            created = true;
+            break;
+        }
+        DWORD create_error = GetLastError();
+        if (create_error != ERROR_ALREADY_EXISTS &&
+            create_error != ERROR_FILE_EXISTS) {
+            break;
+        }
+    }
+    if (!created) {
+        seen_win32_private_security_release(&security);
+        return false;
+    }
+
+    *directory_handle = CreateFileW(directory_path, FILE_READ_ATTRIBUTES,
+        FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING,
+        FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
+    BY_HANDLE_FILE_INFORMATION directory_info;
+    if (*directory_handle == INVALID_HANDLE_VALUE ||
+        !GetFileInformationByHandle(*directory_handle, &directory_info) ||
+        !(directory_info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) ||
+        (directory_info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) ||
+        !seen_win32_join_path(request_path, request_capacity, directory_path,
+            L"request")) {
+        if (*directory_handle != INVALID_HANDLE_VALUE) {
+            CloseHandle(*directory_handle);
+            *directory_handle = INVALID_HANDLE_VALUE;
+        }
+        RemoveDirectoryW(directory_path);
+        seen_win32_private_security_release(&security);
+        return false;
+    }
+
+    *request_handle = CreateFileW(request_path, GENERIC_READ | GENERIC_WRITE,
+        FILE_SHARE_READ, &security.attributes, CREATE_NEW,
+        FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_OPEN_REPARSE_POINT |
+            FILE_FLAG_WRITE_THROUGH,
+        NULL);
+    BY_HANDLE_FILE_INFORMATION request_info;
+    bool request_ok = *request_handle != INVALID_HANDLE_VALUE &&
+        GetFileInformationByHandle(*request_handle, &request_info) &&
+        !(request_info.dwFileAttributes &
+            (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) &&
+        seen_win32_write_request(*request_handle, content, length);
+    seen_win32_private_security_release(&security);
+    if (!request_ok) {
+        if (*request_handle != INVALID_HANDLE_VALUE) {
+            CloseHandle(*request_handle);
+            *request_handle = INVALID_HANDLE_VALUE;
+        }
+        DeleteFileW(request_path);
+        CloseHandle(*directory_handle);
+        *directory_handle = INVALID_HANDLE_VALUE;
+        RemoveDirectoryW(directory_path);
+        return false;
+    }
+    return true;
+}
+#endif
+
+static char* seen_package_helper_path(const char* explicit_path,
+    size_t explicit_length) {
+    if (explicit_length > 0) {
+        if (memchr(explicit_path, '\0', explicit_length) != NULL) return NULL;
+        char* result = (char*)seen_try_malloc((int64_t)explicit_length + 1);
+        if (!result) seen_oom_abort("seen package helper path",
+            (int64_t)explicit_length + 1);
+        memcpy(result, explicit_path, explicit_length);
+        result[explicit_length] = '\0';
+        return result;
+    }
+
+    const char* override_path = getenv("SEEN_PACKAGE_CLIENT");
+    if (override_path && override_path[0] != '\0') {
+        size_t override_length = strlen(override_path);
+        char* result = (char*)seen_try_malloc((int64_t)override_length + 1);
+        if (!result) seen_oom_abort("seen package helper override",
+            (int64_t)override_length + 1);
+        memcpy(result, override_path, override_length + 1);
+        return result;
+    }
+
+    SeenString executable = __CurrentExecutablePath();
+    if (executable.len <= 0 || executable.data == NULL) return NULL;
+    size_t length = (size_t)executable.len;
+    size_t directory_length = length;
+    while (directory_length > 0 &&
+        executable.data[directory_length - 1] != '/' &&
+        executable.data[directory_length - 1] != '\\') {
+        directory_length--;
+    }
+#ifdef _WIN32
+    const char* helper_name = "seen-pkg.exe";
+#else
+    const char* helper_name = "seen-pkg";
+#endif
+    size_t helper_length = strlen(helper_name);
+    char* result = (char*)seen_try_malloc(
+        (int64_t)(directory_length + helper_length + 1));
+    if (!result) seen_oom_abort("seen package helper sibling",
+        (int64_t)(directory_length + helper_length + 1));
+    memcpy(result, executable.data, directory_length);
+    memcpy(result + directory_length, helper_name, helper_length + 1);
+    free(executable.data);
+    return result;
+}
+
+static int64_t seen_execute_exact_request_frame(SeenString frame,
+    bool* handled) {
+    static const char prefix[] = "SEEN_EXACT_REQUEST_V1\n";
+    const size_t prefix_length = sizeof(prefix) - 1;
+    *handled = false;
+    if (frame.len < (int64_t)prefix_length || frame.data == NULL ||
+        memcmp(frame.data, prefix, prefix_length) != 0) {
+        return 0;
+    }
+    *handled = true;
+
+    size_t length = (size_t)frame.len;
+    size_t cursor = prefix_length;
+    size_t path_length = 0;
+    size_t digits = 0;
+    while (cursor < length && frame.data[cursor] != '\n') {
+        unsigned char ch = (unsigned char)frame.data[cursor];
+        if (ch < '0' || ch > '9' || digits >= 10) return 126;
+        if (path_length > (32768U - (size_t)(ch - '0')) / 10U) return 126;
+        path_length = path_length * 10U + (size_t)(ch - '0');
+        cursor++;
+        digits++;
+    }
+    if (digits == 0 || cursor >= length || frame.data[cursor] != '\n') {
+        return 126;
+    }
+    cursor++;
+    if (path_length > length - cursor) return 126;
+    const char* explicit_path = frame.data + cursor;
+    cursor += path_length;
+    const char* request_content = frame.data + cursor;
+    size_t request_length = length - cursor;
+    if (request_length == 0 || request_length > 8U * 1024U * 1024U) {
+        return 126;
+    }
+
+    char* helper_path = seen_package_helper_path(explicit_path, path_length);
+    if (!helper_path) return 127;
+
+#ifdef _WIN32
+    wchar_t request_directory[32768];
+    wchar_t request_path[32768];
+    HANDLE request_directory_handle = INVALID_HANDLE_VALUE;
+    HANDLE request_handle = INVALID_HANDLE_VALUE;
+    if (!seen_win32_create_private_request(request_content, request_length,
+            request_directory,
+            sizeof(request_directory) / sizeof(request_directory[0]),
+            request_path, sizeof(request_path) / sizeof(request_path[0]),
+            &request_directory_handle, &request_handle)) {
+        free(helper_path);
+        return 126;
+    }
+    wchar_t* wide_helper_path = seen_win32_utf8_to_wide(helper_path,
+        strlen(helper_path), "Seen package helper path");
+    if (!wide_helper_path) {
+        CloseHandle(request_handle);
+        DeleteFileW(request_path);
+        CloseHandle(request_directory_handle);
+        RemoveDirectoryW(request_directory);
+        free(helper_path);
+        return 127;
+    }
+#else
+    const char* temp_directory = getenv("TMPDIR");
+    if (!seen_posix_temp_directory_is_safe(temp_directory)) {
+        temp_directory = "/tmp";
+    }
+    if (!seen_posix_temp_directory_is_safe(temp_directory)) {
+        free(helper_path);
+        return 126;
+    }
+    size_t temp_length = strlen(temp_directory);
+    static const char suffix[] = "/seen-pkg-request.XXXXXX";
+    if (temp_length > 4096 - sizeof(suffix)) {
+        free(helper_path);
+        return 126;
+    }
+    char* request_path = (char*)seen_try_malloc(
+        (int64_t)(temp_length + sizeof(suffix)));
+    if (!request_path) seen_oom_abort("seen package request path",
+        (int64_t)(temp_length + sizeof(suffix)));
+    memcpy(request_path, temp_directory, temp_length);
+    memcpy(request_path + temp_length, suffix, sizeof(suffix));
+    int request_fd = mkstemp(request_path);
+    if (request_fd < 0) {
+        free(request_path);
+        free(helper_path);
+        return 126;
+    }
+    // Remove the directory entry before writing any request bytes. The helper
+    // opens the inherited descriptor through the process fd namespace, so a
+    // swapped TMPDIR parent or pathname can never replace the verified file.
+    bool write_ok = fchmod(request_fd, 0600) == 0;
+    bool request_unlinked = unlink(request_path) == 0;
+    write_ok = write_ok && request_unlinked;
+    if (write_ok) {
+        write_ok = seen_write_all_fd(request_fd, request_content,
+            request_length);
+    }
+    if (write_ok && fsync(request_fd) != 0) write_ok = false;
+    if (write_ok && lseek(request_fd, 0, SEEK_SET) < 0) write_ok = false;
+    int descriptor_flags = fcntl(request_fd, F_GETFD);
+    if (write_ok && (descriptor_flags < 0 ||
+            fcntl(request_fd, F_SETFD, descriptor_flags & ~FD_CLOEXEC) != 0)) {
+        write_ok = false;
+    }
+    if (!write_ok) {
+        if (!request_unlinked) unlink(request_path);
+        free(request_path);
+        close(request_fd);
+        free(helper_path);
+        return 126;
+    }
+    free(request_path);
+    char request_fd_path[64];
+#ifdef __APPLE__
+    int request_fd_path_length = snprintf(request_fd_path,
+        sizeof(request_fd_path), "/dev/fd/%d", request_fd);
+#else
+    int request_fd_path_length = snprintf(request_fd_path,
+        sizeof(request_fd_path), "/proc/self/fd/%d", request_fd);
+#endif
+    if (request_fd_path_length <= 0 ||
+        (size_t)request_fd_path_length >= sizeof(request_fd_path)) {
+        close(request_fd);
+        free(helper_path);
+        return 126;
+    }
+#endif
+
+#ifdef _WIN32
+    int64_t status = seen_execute_program_request_wide(wide_helper_path,
+        request_path);
+    free(wide_helper_path);
+#else
+    SeenString helper = {(int64_t)strlen(helper_path), helper_path};
+    SeenString request = {(int64_t)request_fd_path_length, request_fd_path};
+    int64_t status = __ExecuteProgramRequest(helper, request);
+#endif
+#ifdef _WIN32
+    CloseHandle(request_handle);
+    DeleteFileW(request_path);
+    CloseHandle(request_directory_handle);
+    RemoveDirectoryW(request_directory);
+#else
+    close(request_fd);
+#endif
+    free(helper_path);
+    return status;
+}
+
+static int seen_hex_nibble(unsigned char value) {
+    if (value >= '0' && value <= '9') return (int)(value - '0');
+    if (value >= 'a' && value <= 'f') return (int)(value - 'a') + 10;
+    if (value >= 'A' && value <= 'F') return (int)(value - 'A') + 10;
+    return -1;
+}
+
+#ifdef _WIN32
+static SeenString seen_win32_final_path(const char* raw_path,
+    size_t raw_length) {
+    SeenString empty = {0, ""};
+    wchar_t* wide_path = seen_win32_utf8_to_wide(raw_path, raw_length,
+        "Seen canonical path input");
+    if (!wide_path) return empty;
+    HANDLE handle = CreateFileW(wide_path, 0,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL,
+        OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
+    free(wide_path);
+    if (handle == INVALID_HANDLE_VALUE) return empty;
+
+    DWORD needed = GetFinalPathNameByHandleW(handle, NULL, 0,
+        FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
+    if (needed == 0 || needed > 32767) {
+        CloseHandle(handle);
+        return empty;
+    }
+    wchar_t* final_path = (wchar_t*)seen_try_malloc(
+        ((int64_t)needed + 1) * (int64_t)sizeof(wchar_t));
+    if (!final_path) {
+        CloseHandle(handle);
+        seen_oom_abort("Seen canonical Windows path",
+            ((int64_t)needed + 1) * (int64_t)sizeof(wchar_t));
+    }
+    DWORD final_length = GetFinalPathNameByHandleW(handle, final_path,
+        needed + 1, FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
+    CloseHandle(handle);
+    if (final_length == 0 || final_length > needed) {
+        free(final_path);
+        return empty;
+    }
+
+    const wchar_t* normalized = final_path;
+    size_t normalized_length = (size_t)final_length;
+    wchar_t* unc_path = NULL;
+    if (normalized_length >= 8 &&
+        wmemcmp(normalized, L"\\\\?\\UNC\\", 8) == 0) {
+        normalized_length = 2 + normalized_length - 8;
+        unc_path = (wchar_t*)seen_try_malloc(
+            ((int64_t)normalized_length + 1) * (int64_t)sizeof(wchar_t));
+        if (!unc_path) {
+            free(final_path);
+            seen_oom_abort("Seen canonical UNC path",
+                ((int64_t)normalized_length + 1) *
+                    (int64_t)sizeof(wchar_t));
+        }
+        unc_path[0] = L'\\';
+        unc_path[1] = L'\\';
+        memcpy(unc_path + 2, normalized + 8,
+            (normalized_length - 2) * sizeof(wchar_t));
+        unc_path[normalized_length] = L'\0';
+        normalized = unc_path;
+    } else if (normalized_length >= 4 &&
+        wmemcmp(normalized, L"\\\\?\\", 4) == 0) {
+        normalized += 4;
+        normalized_length -= 4;
+    }
+
+    int utf8_length = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS,
+        normalized, (int)normalized_length, NULL, 0, NULL, NULL);
+    if (utf8_length <= 0) {
+        free(unc_path);
+        free(final_path);
+        return empty;
+    }
+    char* utf8 = (char*)seen_try_malloc((int64_t)utf8_length + 1);
+    if (!utf8) {
+        free(unc_path);
+        free(final_path);
+        seen_oom_abort("Seen canonical UTF-8 path", utf8_length + 1);
+    }
+    if (WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, normalized,
+            (int)normalized_length, utf8, utf8_length, NULL, NULL) !=
+        utf8_length) {
+        free(utf8);
+        free(unc_path);
+        free(final_path);
+        return empty;
+    }
+    utf8[utf8_length] = '\0';
+    free(unc_path);
+    free(final_path);
+    SeenString result = {(int64_t)utf8_length, utf8};
+    return result;
+}
+#endif
+
+static bool seen_execute_native_command_frame(SeenString command,
+    SeenCommandResult* result) {
+    static const char current_directory_frame[] =
+        "SEEN_CURRENT_DIRECTORY_V1";
+    if (command.len == (int64_t)(sizeof(current_directory_frame) - 1) &&
+        memcmp(command.data, current_directory_frame,
+            sizeof(current_directory_frame) - 1) == 0) {
+        result->output = __CurrentWorkingDirectory();
+        result->success = result->output.len > 0;
+        return true;
+    }
+
+    static const char canonical_path_prefix[] =
+        "SEEN_CANONICAL_PATH_V1_";
+    const size_t prefix_length = sizeof(canonical_path_prefix) - 1;
+    if (command.len <= (int64_t)prefix_length ||
+        memcmp(command.data, canonical_path_prefix, prefix_length) != 0) {
+        return false;
+    }
+
+    const size_t hex_length = (size_t)command.len - prefix_length;
+    if ((hex_length & 1u) != 0 || hex_length / 2 > 1024 * 1024) {
+        return true;
+    }
+    const size_t path_length = hex_length / 2;
+    char* raw_path = (char*)seen_try_malloc((int64_t)path_length + 1);
+    if (!raw_path) {
+        seen_oom_abort("Seen canonical path frame", (int64_t)path_length + 1);
+    }
+    for (size_t index = 0; index < path_length; index++) {
+        int high = seen_hex_nibble((unsigned char)command.data[
+            prefix_length + index * 2]);
+        int low = seen_hex_nibble((unsigned char)command.data[
+            prefix_length + index * 2 + 1]);
+        if (high < 0 || low < 0 || (high == 0 && low == 0)) {
+            free(raw_path);
+            return true;
+        }
+        raw_path[index] = (char)((high << 4) | low);
+    }
+    raw_path[path_length] = '\0';
+
+#ifdef _WIN32
+    result->output = seen_win32_final_path(raw_path, path_length);
+#else
+    char* canonical_path = realpath(raw_path, NULL);
+    if (canonical_path) {
+        result->output = seen_str_copy(canonical_path);
+        free(canonical_path);
+    }
+#endif
+    free(raw_path);
+    result->success = result->output.len > 0;
+    return true;
+}
+
+// Execute command and capture output. Fixed native frames above reuse this
+// stable ABI for bootstrap compatibility and never pass path bytes to a shell.
 // Returns a pointer to a malloc'd SeenCommandResult (to avoid ABI issues with large struct returns)
 SeenCommandResult* __ExecuteCommand(SeenString cmd) {
     SeenCommandResult* result =
@@ -859,6 +1708,10 @@ SeenCommandResult* __ExecuteCommand(SeenString cmd) {
     result->success = false;
     result->output.len = 0;
     result->output.data = "";
+
+    if (seen_execute_native_command_frame(cmd, result)) {
+        return result;
+    }
 
     char* ccmd = seen_runtime_cstring(cmd, "__ExecuteCommand command");
 

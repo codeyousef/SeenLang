@@ -5,6 +5,42 @@ All notable changes to the Seen compiler will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - 2026-07-16
+
+### Added
+
+- Added the version-coupled `seen-pkg` client behind `seen pkg`, with commands for dependency editing, resolution, fetching, updates, graph inspection, auditing, and source archive creation.
+- Added standards-compliant `Seen.toml` parsing and deterministic transitive dependency resolution for exact, caret, tilde, and bounded comparator requirements, including cycles, diamonds, prerelease rules, yanks, security quarantine, and conflict diagnostics.
+- Added enforceable `Seen.lock` version 2 graphs with canonical root edges, all reachable package nodes, exact versions and archive digests, signed target paths and metadata versions, transitive edges, package capability requests, and root grants.
+- Added `--locked`, `--offline`, and `--frozen` package-resolution modes to `seen pkg fetch` and to automatic dependency preparation in `seen compile`, `seen check`, and `seen run`.
+- Added the package-registry v1 contract, schemas, executable fixtures, API model, threat model, namespace rules, archive policy, signing policy, and deterministic resolver behavior shared by clients and future registry services.
+- Added a signed-metadata client with canonical JSON and Ed25519 verification, threshold and role checks, rollback/freeze protection, expiry enforcement, and exact target binding.
+- Added bounded HTTPS downloads, immutable content-addressed package storage, project-local read-only package views, and a two-pass archive extractor that rejects unsafe paths, links, devices, native binaries, lifecycle scripts, archive mutation, and resource-limit violations.
+- Added package capability consent through dependency-edge `allow` declarations and root `[package-grants]`, checked for direct and transitive dependencies before package download, build, or lockfile update.
+- Added an exact, argument-preserving structured-request launch API used to invoke the release-matched package client without a command shell or caller-managed temporary file.
+
+### Changed
+
+- Bumped the shipped Seen compiler, workspace, CLI, LSP, release documentation, and benchmark baseline metadata to `0.10.0`, and bumped `seen_std` to `0.2.0` for its new process APIs.
+- Renamed the standard-library module/ABI snapshot from `seen_std/Seen.lock` to `seen_std/Seen.modules.lock`, keeping it distinct from project dependency locks.
+- Changed package imports to resolve through an authoritative project-local package map produced only after the complete dependency graph, signed metadata, archive digests, and package views verify.
+- Changed release packaging to ship the package client beside the matching Seen compiler and reject client/compiler version mismatches.
+- Kept the planned development and production registry origins fail-closed: Seen 0.10.0 does not embed an official trust root or claim that either hosted service is deployed.
+
+### Security
+
+- Package identities, aliases, registry origins, semantic versions, target paths, lockfiles, and metadata are validated canonically and rejected instead of being normalized or repaired.
+- Package metadata and blobs are accepted only when their signatures, version chain, target identity, lengths, and SHA-256 digests match the configured out-of-band trust root.
+- Capability declarations are explicit consent and policy signals, not an operating-system sandbox; packages using FFI, unsafe operations, native linking, or similar capabilities still require appropriate review.
+- Hosted authentication, private-package access, publishing, yanking, and reporting remain inactive until the registry service and Aether authentication integration are available.
+
+### Fixed
+
+- Reconciled the release history so the immutable `v0.9.5` release is an ancestor of `main` before the 0.10.0 release line.
+- Hardened rebuild and package verification paths so the exact clean source tree, package contracts, client binaries, compiler/client version coupling, release payloads, and package import maps are checked before publication.
+- Prevented hosted archives from shadowing the authoritative package map, bound extracted cache inventories back to the verified archive bytes, and made strict manifest v1 reject fields or dependency shapes outside the published contract.
+- Made trusted-metadata refreshes crash-safe and cross-process serialized, and limited release checksums/uploads to artifacts freshly produced for the exact release version.
+
 ## [0.9.5] - 2026-07-13
 
 ### Changed

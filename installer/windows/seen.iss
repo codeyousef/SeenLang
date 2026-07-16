@@ -53,6 +53,7 @@ Name: "docs"; Description: "Documentation"; Types: full
 [Files]
 ; Compiler binary
 Source: "{#SourceDir}\bin\seen.exe"; DestDir: "{app}\bin"; Components: compiler; Flags: ignoreversion
+Source: "{#SourceDir}\bin\seen-pkg.exe"; DestDir: "{app}\bin"; Components: compiler; Flags: ignoreversion
 
 ; Runtime headers
 Source: "{#SourceDir}\lib\seen\runtime\*.h"; DestDir: "{app}\lib\seen\runtime"; Components: runtime; Flags: ignoreversion

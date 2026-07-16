@@ -31,11 +31,11 @@
     {"identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/mathx", "reason": "segment_too_long"}
   ],
   "registration_policy": {
-    "status": "draft_not_enforced",
+    "status": "normative_enforced",
     "comparison_scope": "canonical owner and package segments plus full owner/name identity",
-    "unicode_data_revision": "must_be_frozen_before_public_registration",
-    "skeleton_algorithm": "must_be_frozen_before_public_registration",
-    "similarity_thresholds": "must_be_frozen_before_public_registration"
+    "unicode_data_revision": "Unicode-17.0.0",
+    "skeleton_algorithm": "UTS-39-17.0.0-confusable-skeleton",
+    "similarity_thresholds": "exact-skeleton-reject;damerau-levenshtein-at-most-1-manual-review;confusable-token-score-at-least-0.80-manual-review"
   },
   "policy_examples": [
     {"candidate": "seen/js0n", "conflicts_with": "seen/json", "expected": "manual_review"},

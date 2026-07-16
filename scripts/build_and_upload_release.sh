@@ -10,6 +10,7 @@
 #   - Optional: dpkg-deb, rpmbuild, appimagetool for Linux packages
 #   - Optional: x86_64-w64-mingw32-gcc, makensis for Windows cross-build
 #   - Optional: osxcross (o64-clang) for macOS cross-build
+#   - Optional: prebuilt macOS archives in SEEN_RELEASE_MACOS_INPUT_DIR
 
 set -euo pipefail
 
@@ -34,7 +35,10 @@ TAG="v$VERSION"
 COMPILER="$ROOT_DIR/compiler_seen/target/seen"
 LINUX_X64_COMPILER="${SEEN_LINUX_X64_COMPILER:-$COMPILER}"
 LINUX_X64_V3_COMPILER="${SEEN_LINUX_X64_V3_COMPILER:-$ROOT_DIR/compiler_seen/target/seen-x86-64-v3}"
+SEEN_PACKAGE_CLIENT_BIN="${SEEN_PACKAGE_CLIENT_BIN:-$(dirname "$LINUX_X64_COMPILER")/seen-pkg}"
+export SEEN_PACKAGE_CLIENT_BIN
 DIST_DIR="$ROOT_DIR/dist"  # absolute path required — build_release.sh cd's into subshells
+MACOS_INPUT_DIR="${SEEN_RELEASE_MACOS_INPUT_DIR:-}"
 
 die() {
     echo "Error: $*" >&2
@@ -59,19 +63,27 @@ require_artifacts() {
 
 write_checksum_manifest() {
     local -a artifact_names=()
-    local artifact_name
+    local -a sorted_artifact_names=()
+    local artifact artifact_dir artifact_name
 
-    while IFS= read -r artifact_name; do
-        artifact_names+=("$artifact_name")
-    done < <(cd "$DIST_DIR" && find . -maxdepth 1 -type f \
-        \( -name '*.tar.gz' -o -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' -o -name '*.zip' -o -name '*.exe' \) \
-        -printf '%f\n' | sort)
+    for artifact in "$@"; do
+        [[ -s "$artifact" ]] || die "Checksum artifact missing or empty: $artifact"
+        artifact_dir="$(cd "$(dirname "$artifact")" && pwd -P)"
+        if [[ "$artifact_dir" != "$(cd "$DIST_DIR" && pwd -P)" ]]; then
+            die "Refusing to checksum an artifact outside $DIST_DIR: $artifact"
+        fi
+        artifact_names+=("$(basename "$artifact")")
+    done
 
     if [[ "${#artifact_names[@]}" -eq 0 ]]; then
         die "No checksum-eligible artifacts produced in $DIST_DIR"
     fi
 
-    (cd "$DIST_DIR" && sha256sum "${artifact_names[@]}" > SHA256SUMS)
+    while IFS= read -r artifact_name; do
+        sorted_artifact_names+=("$artifact_name")
+    done < <(printf '%s\n' "${artifact_names[@]}" | LC_ALL=C sort -u)
+
+    (cd "$DIST_DIR" && sha256sum "${sorted_artifact_names[@]}" > SHA256SUMS)
     (cd "$DIST_DIR" && sha256sum -c SHA256SUMS >/dev/null)
 }
 
@@ -101,6 +113,9 @@ if [[ ! -x "$LINUX_X64_COMPILER" ]]; then
     echo "  SEEN_LOW_MEMORY=1 SEEN_MAIN_VMEM_KB=8388608 SEEN_OPT_VMEM_KB=2097152 SEEN_RELEASE_CPU_BASELINE=x86-64 ./scripts/safe_rebuild.sh"
     exit 1
 fi
+if [[ ! -x "$SEEN_PACKAGE_CLIENT_BIN" ]]; then
+    die "Version-coupled package client not found at $SEEN_PACKAGE_CLIENT_BIN; run scripts/safe_rebuild.sh --tier full first"
+fi
 
 if declare -F seen_build_require_full_release_stamp >/dev/null 2>&1; then
     seen_build_require_full_release_stamp "$ROOT_DIR" "$LINUX_X64_COMPILER"
@@ -129,10 +144,60 @@ rm -f "$TMPFILE" "${TMPFILE%.seen}"
 
 echo ""
 echo "=== Building Linux release packages (v$VERSION)... ==="
+if [[ -n "$MACOS_INPUT_DIR" ]]; then
+    if [[ ! -d "$MACOS_INPUT_DIR" ]]; then
+        die "SEEN_RELEASE_MACOS_INPUT_DIR is not a directory: $MACOS_INPUT_DIR"
+    fi
+    MACOS_INPUT_DIR="$(cd "$MACOS_INPUT_DIR" && pwd -P)"
+    DIST_INPUT_BOUNDARY="$DIST_DIR"
+    if [[ -d "$DIST_DIR" ]]; then
+        DIST_INPUT_BOUNDARY="$(cd "$DIST_DIR" && pwd -P)"
+    fi
+    case "$MACOS_INPUT_DIR/" in
+        "$DIST_INPUT_BOUNDARY/"*)
+            die "SEEN_RELEASE_MACOS_INPUT_DIR must be outside $DIST_DIR"
+            ;;
+    esac
+fi
 if [[ "${SEEN_RELEASE_CLEAN_DIST:-0}" == "1" ]]; then
     rm -rf "$DIST_DIR"
 fi
 mkdir -p "$DIST_DIR"
+
+# A failed optional builder must not be able to reuse an older artifact from a
+# previous attempt at this same version. Remove only outputs this command can
+# produce or upload; unrelated versions in dist/ are left untouched.
+shopt -s nullglob
+VERSION_OUTPUTS=(
+    "$DIST_DIR/seen-$VERSION-linux-x64.tar.gz"
+    "$DIST_DIR/seen-$VERSION-linux-x64-v3.tar.gz"
+    "$DIST_DIR/seen-lang_${VERSION}_amd64.deb"
+    "$DIST_DIR/seen-lang-$VERSION-1.x86_64.rpm"
+    "$DIST_DIR/seen-lang-devel-$VERSION-1.x86_64.rpm"
+    "$DIST_DIR/seen-lang-docs-$VERSION-1.noarch.rpm"
+    "$DIST_DIR/SeenLanguage-$VERSION-x86_64.AppImage"
+    "$DIST_DIR/seen-$VERSION-windows-x64.zip"
+    "$DIST_DIR/seen-$VERSION-windows-x64.zip.sha256"
+    "$DIST_DIR/Seen-$VERSION-windows-x64-setup.exe"
+    "$DIST_DIR/Seen-$VERSION-windows-x64-setup.exe.sha256"
+    "$DIST_DIR"/seen-"$VERSION"-macos-*.tar.gz
+)
+shopt -u nullglob
+rm -f -- "${VERSION_OUTPUTS[@]}" "$DIST_DIR/SHA256SUMS" "$DIST_DIR/seen-lang.rb"
+
+if [[ -n "$MACOS_INPUT_DIR" ]]; then
+    shopt -s nullglob
+    MACOS_INPUTS=("$MACOS_INPUT_DIR"/seen-"$VERSION"-macos-*.tar.gz)
+    shopt -u nullglob
+    if [[ "${#MACOS_INPUTS[@]}" -eq 0 ]]; then
+        die "No seen-$VERSION-macos-*.tar.gz archives found in $MACOS_INPUT_DIR"
+    fi
+    for artifact in "${MACOS_INPUTS[@]}"; do
+        [[ -s "$artifact" ]] || die "macOS input artifact missing or empty: $artifact"
+        cp -f -- "$artifact" "$DIST_DIR/"
+    done
+fi
+
 "$SCRIPT_DIR/build_release.sh" \
     --version "$VERSION" \
     --output-dir "$DIST_DIR" \
@@ -207,6 +272,7 @@ fi
 
 # --- macOS Homebrew formula ---
 
+HOMEBREW_FORMULA=""
 if [[ -f "$ROOT_DIR/installer/homebrew/generate-formula.sh" ]]; then
     echo ""
     if [[ "${SEEN_RELEASE_GENERATE_HOMEBREW:-0}" == "1" ]] ||
@@ -215,6 +281,7 @@ if [[ -f "$ROOT_DIR/installer/homebrew/generate-formula.sh" ]]; then
         if bash "$ROOT_DIR/installer/homebrew/generate-formula.sh" \
             --version "$VERSION" \
             --output "$DIST_DIR/seen-lang.rb" 2>&1 | tail -5; then
+            HOMEBREW_FORMULA="$DIST_DIR/seen-lang.rb"
             echo "  -> $DIST_DIR/seen-lang.rb"
         else
             rm -f "$DIST_DIR/seen-lang.rb"
@@ -242,11 +309,6 @@ else
 fi
 
 # --- Summary ---
-
-ARTIFACTS=("$DIST_DIR"/*)
-if [[ ${#ARTIFACTS[@]} -eq 0 ]]; then
-    die "No artifacts produced in $DIST_DIR"
-fi
 
 EXPECTED_ARTIFACTS=(
     "$DIST_DIR/seen-$VERSION-linux-x64.tar.gz"
@@ -281,18 +343,37 @@ fi
 
 require_artifacts "${EXPECTED_ARTIFACTS[@]}"
 
+CHECKSUM_ARTIFACTS=("${EXPECTED_ARTIFACTS[@]}")
+
+# macOS archives can only reach dist/ through the explicit cross-host input
+# directory prepared above. Include only archives for this exact version.
+for artifact in "$DIST_DIR"/seen-"$VERSION"-macos-*.tar.gz; do
+    [[ -s "$artifact" ]] || continue
+    CHECKSUM_ARTIFACTS+=("$artifact")
+done
+
 write_sidecar_checksum "$DIST_DIR/seen-$VERSION-windows-x64.zip"
 write_sidecar_checksum "$DIST_DIR/Seen-$VERSION-windows-x64-setup.exe"
 
 # Regenerate checksums to include all platforms
 echo ""
 echo "Regenerating checksums..."
-write_checksum_manifest
+write_checksum_manifest "${CHECKSUM_ARTIFACTS[@]}"
 echo "  -> $DIST_DIR/SHA256SUMS"
+
+RELEASE_ARTIFACTS=("${CHECKSUM_ARTIFACTS[@]}" "$DIST_DIR/SHA256SUMS")
+for artifact in \
+    "$DIST_DIR/seen-$VERSION-windows-x64.zip.sha256" \
+    "$DIST_DIR/Seen-$VERSION-windows-x64-setup.exe.sha256"; do
+    [[ -s "$artifact" ]] && RELEASE_ARTIFACTS+=("$artifact")
+done
+if [[ -n "$HOMEBREW_FORMULA" ]]; then
+    RELEASE_ARTIFACTS+=("$HOMEBREW_FORMULA")
+fi
 
 echo ""
 echo "Artifacts:"
-ls -lh "$DIST_DIR"/ | grep -v '^total'
+ls -lh -- "${RELEASE_ARTIFACTS[@]}"
 
 # --- Tag and push ---
 
@@ -325,6 +406,13 @@ fi
 
 NOTES="## Seen Language $VERSION
 
+### Highlights
+
+- Adds the version-coupled \`seen pkg\` client, deterministic transitive resolution, and enforceable \`Seen.lock\` v2 graphs.
+- Verifies signed registry metadata, bounded source archives, immutable package views, and explicit capability consent before exposing a package graph.
+- Supports explicit local \`{ path = \"...\" }\` dependencies while rejecting unsigned directory registries.
+- Keeps the planned hosted origins fail-closed until their independent trust roots and services are provisioned.
+
 ### Installation
 
 **Linux:**
@@ -336,30 +424,21 @@ sudo ./install.sh
 
 \`linux-x64\` is the portable x86-64 baseline. Use \`seen-${VERSION}-linux-x64-v3.tar.gz\` only on x86-64-v3/AVX2-class machines.
 
-**Windows:** Download \`Seen-${VERSION}-windows-x64-setup.exe\` or the ZIP archive. The installer includes Seen's runtime, standard library, language files, and LLVM toolchain support; users do not need LLVM preinstalled.
-
-**macOS:** \`brew install seen-lang\` (if published) or build from source with \`./scripts/bootstrap_macos.sh\`.
-
-**Or download individual packages below.**
-
-### Verification
-
-All artifacts are signed with [Sigstore](https://www.sigstore.dev/) keyless signing (signatures added by CI after upload).
-
-\`\`\`bash
-cosign verify-blob --bundle <artifact>.bundle <artifact>
-\`\`\`
+Windows and macOS artifacts, when produced for this release, are listed below.
+Otherwise use the platform bootstrap instructions in the repository.
 
 ### Checksums
 
-See \`SHA256SUMS\` for file integrity verification."
+Download \`SHA256SUMS\` from this release and verify files with
+\`sha256sum -c SHA256SUMS\`."
 
-# Create or update the release, uploading all artifacts
+# Create or update the release, uploading only the exact version-scoped set
+# assembled above. dist/ can contain older local builds and must never be swept.
 if gh release view "$TAG" &>/dev/null 2>&1; then
     echo "Release $TAG exists, uploading artifacts..."
-    gh release upload "$TAG" "$DIST_DIR"/* --clobber
+    gh release upload "$TAG" "${RELEASE_ARTIFACTS[@]}" --clobber
 else
-    gh release create "$TAG" "$DIST_DIR"/* \
+    gh release create "$TAG" "${RELEASE_ARTIFACTS[@]}" \
         --title "Seen Language $VERSION" \
         --notes "$NOTES" \
         $PRERELEASE_FLAG
@@ -368,5 +447,3 @@ fi
 echo ""
 echo "=== Done! ==="
 echo "Release: https://github.com/codeyousef/SeenLang/releases/tag/$TAG"
-echo ""
-echo "CI will automatically sign artifacts when the tag is processed."

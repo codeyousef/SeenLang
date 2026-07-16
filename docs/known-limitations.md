@@ -27,18 +27,21 @@ docs.
 
 ## Packages
 
-These package-manager bullets describe the unreleased Seen 0.10 source tree,
-not the published Seen 0.9.5 compiler binary.
-
-- Registry dependency versions are exact-only for now.
-- `seen pkg publish` writes legacy local-static files for development; it does
-  not upload to the hosted service or run hosted ingestion/security gates.
-- HTTPS registry resolution currently fails closed until signed metadata
-  verification and hardened extraction are implemented.
-- `Seen.lock` v2 is currently written as a resolution report; `--locked` and
-  `--frozen` enforcement are not implemented yet.
-- Package `capabilities` and dependency `allow` are draft contract fields; the
-  current compiler does not enforce capability consent yet.
+- Seen 0.10.0 does not embed an official trust root for either planned hosted
+  origin. Both official origins fail closed until a complete root envelope and
+  digest are distributed out of band.
+- Hosted authentication, private-package access, publishing, yanking, and
+  reporting are inactive until the registry service and Aether authentication
+  integration are provisioned.
+- Package capability declarations are consent and policy signals, not an
+  operating-system sandbox. In particular, FFI, unsafe operations, native
+  linking, and process execution require the same review they would in local
+  source.
+- The compiler and package client are version-coupled. A partial installation
+  that omits the matching `seen-pkg` binary, or supplies a client from another
+  Seen release, is rejected.
+- Hosted registry archives are source-only. Native prebuilt artifacts remain
+  local path dependencies and are not accepted as hosted package contents.
 - Local prebuilt artifacts are consumed through `{ artifact = "..." }`
   dependencies and are linked from `objects.tsv`.
 

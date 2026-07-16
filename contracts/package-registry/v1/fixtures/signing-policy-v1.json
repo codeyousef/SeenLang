@@ -1,7 +1,7 @@
 {
   "contract_version": 1,
   "framework": "tuf-1.0",
-  "canonical_serialization": "seen-tuf-canonical-json-v1",
+  "canonical_serialization": "tuf-canonical-json-v1",
   "canonical_serialization_rules": {
     "scope": "selected-json-value",
     "signature_input": "envelope.signed",
@@ -24,22 +24,22 @@
       "metadata_prefix": "metadata/development",
       "key_namespace": "seen-dev",
       "trusted_root": {
-        "version": 1,
-        "sha256": "1111111111111111111111111111111111111111111111111111111111111111",
-        "out_of_band_distribution": true
+        "status": "unconfigured",
+        "out_of_band_distribution": true,
+        "client_behavior": "fail-closed"
       },
       "keys": [
-        {"keyid": "dev-root-a", "algorithm": "ed25519", "public_key": "ZGV2LXJvb3QtYS1zeW50aGV0aWMtcHVibGljLWtleS0wMDAwMDA", "storage": "offline-encrypted", "online": false, "status": "active"},
-        {"keyid": "dev-root-b", "algorithm": "ed25519", "public_key": "ZGV2LXJvb3QtYi1zeW50aGV0aWMtcHVibGljLWtleS0wMDAwMDA", "storage": "offline-encrypted", "online": false, "status": "active"},
-        {"keyid": "dev-root-c", "algorithm": "ed25519", "public_key": "ZGV2LXJvb3QtYy1zeW50aGV0aWMtcHVibGljLWtleS0wMDAwMDA", "storage": "offline-encrypted", "online": false, "status": "active"},
-        {"keyid": "dev-targets-a", "algorithm": "ed25519", "public_key": "ZGV2LXRhcmdldHMtYS1zeW50aGV0aWMtcHVibGljLWtleS0wMDAw", "storage": "offline-encrypted", "online": false, "status": "active"},
-        {"keyid": "dev-targets-b", "algorithm": "ed25519", "public_key": "ZGV2LXRhcmdldHMtYi1zeW50aGV0aWMtcHVibGljLWtleS0wMDAw", "storage": "offline-encrypted", "online": false, "status": "active"},
-        {"keyid": "dev-snapshot-a", "algorithm": "ecdsa-sha2-nistp256", "public_key": "ZGV2LXNuYXBzaG90LWEtc3ludGhldGljLXB1YmxpYy1rZXktMDAw", "storage": "cloud-kms", "online": true, "status": "active", "kms_resource": "projects/seen-dev/locations/global/keyRings/registry/cryptoKeys/snapshot/cryptoKeyVersions/1"},
-        {"keyid": "dev-timestamp-a", "algorithm": "ecdsa-sha2-nistp256", "public_key": "ZGV2LXRpbWVzdGFtcC1hLXN5bnRoZXRpYy1wdWJsaWMta2V5LTAw", "storage": "cloud-kms", "online": true, "status": "active", "kms_resource": "projects/seen-dev/locations/global/keyRings/registry/cryptoKeys/timestamp/cryptoKeyVersions/1"},
-        {"keyid": "dev-releases-a", "algorithm": "ecdsa-sha2-nistp256", "public_key": "ZGV2LXJlbGVhc2VzLWEtc3ludGhldGljLXB1YmxpYy1rZXktMDAw", "storage": "cloud-kms", "online": true, "status": "active", "kms_resource": "projects/seen-dev/locations/global/keyRings/registry/cryptoKeys/releases/cryptoKeyVersions/1"},
-        {"keyid": "dev-security-a", "algorithm": "ecdsa-sha2-nistp256", "public_key": "ZGV2LXNlY3VyaXR5LWEtc3ludGhldGljLXB1YmxpYy1rZXktMDAw", "storage": "cloud-kms", "online": true, "status": "active", "kms_resource": "projects/seen-dev/locations/global/keyRings/registry/cryptoKeys/security/cryptoKeyVersions/1"},
-        {"keyid": "dev-source-proof-a", "algorithm": "ecdsa-sha2-nistp256", "public_key": "ZGV2LXNvdXJjZS1wcm9vZi1hLXN5bnRoZXRpYy1wdWJsaWMta2V5", "storage": "cloud-kms", "online": true, "status": "active", "kms_resource": "projects/seen-dev/locations/global/keyRings/registry/cryptoKeys/source-proof/cryptoKeyVersions/1"},
-        {"keyid": "dev-provenance-a", "algorithm": "ecdsa-sha2-nistp256", "public_key": "ZGV2LXByb3ZlbmFuY2UtYS1zeW50aGV0aWMtcHVibGljLWtleS0w", "storage": "cloud-kms", "online": true, "status": "active", "kms_resource": "projects/seen-dev/locations/global/keyRings/registry/cryptoKeys/provenance/cryptoKeyVersions/1"}
+        {"keyid": "dev-root-a", "key_usage": "tuf-metadata", "algorithm": "ed25519", "public_key": "ZGV2LXJvb3QtYS1zeW50aGV0aWMtcHVibGljLWtleS0wMDAwMDA", "storage": "offline-encrypted", "online": false, "status": "active"},
+        {"keyid": "dev-root-b", "key_usage": "tuf-metadata", "algorithm": "ed25519", "public_key": "ZGV2LXJvb3QtYi1zeW50aGV0aWMtcHVibGljLWtleS0wMDAwMDA", "storage": "offline-encrypted", "online": false, "status": "active"},
+        {"keyid": "dev-root-c", "key_usage": "tuf-metadata", "algorithm": "ed25519", "public_key": "ZGV2LXJvb3QtYy1zeW50aGV0aWMtcHVibGljLWtleS0wMDAwMDA", "storage": "offline-encrypted", "online": false, "status": "active"},
+        {"keyid": "dev-targets-a", "key_usage": "tuf-metadata", "algorithm": "ed25519", "public_key": "ZGV2LXRhcmdldHMtYS1zeW50aGV0aWMtcHVibGljLWtleS0wMDAw", "storage": "offline-encrypted", "online": false, "status": "active"},
+        {"keyid": "dev-targets-b", "key_usage": "tuf-metadata", "algorithm": "ed25519", "public_key": "ZGV2LXRhcmdldHMtYi1zeW50aGV0aWMtcHVibGljLWtleS0wMDAw", "storage": "offline-encrypted", "online": false, "status": "active"},
+        {"keyid": "dev-snapshot-a", "key_usage": "tuf-metadata", "algorithm": "ed25519", "public_key": "ZGV2LXNuYXBzaG90LWEtc3ludGhldGljLXB1YmxpYy1rZXktMDAw", "storage": "cloud-kms", "online": true, "status": "active", "kms_resource": "projects/seen-dev/locations/global/keyRings/registry/cryptoKeys/snapshot/cryptoKeyVersions/1"},
+        {"keyid": "dev-timestamp-a", "key_usage": "tuf-metadata", "algorithm": "ed25519", "public_key": "ZGV2LXRpbWVzdGFtcC1hLXN5bnRoZXRpYy1wdWJsaWMta2V5LTAw", "storage": "cloud-kms", "online": true, "status": "active", "kms_resource": "projects/seen-dev/locations/global/keyRings/registry/cryptoKeys/timestamp/cryptoKeyVersions/1"},
+        {"keyid": "dev-releases-a", "key_usage": "tuf-metadata", "algorithm": "ed25519", "public_key": "ZGV2LXJlbGVhc2VzLWEtc3ludGhldGljLXB1YmxpYy1rZXktMDAw", "storage": "cloud-kms", "online": true, "status": "active", "kms_resource": "projects/seen-dev/locations/global/keyRings/registry/cryptoKeys/releases/cryptoKeyVersions/1"},
+        {"keyid": "dev-security-a", "key_usage": "tuf-metadata", "algorithm": "ed25519", "public_key": "ZGV2LXNlY3VyaXR5LWEtc3ludGhldGljLXB1YmxpYy1rZXktMDAw", "storage": "cloud-kms", "online": true, "status": "active", "kms_resource": "projects/seen-dev/locations/global/keyRings/registry/cryptoKeys/security/cryptoKeyVersions/1"},
+        {"keyid": "dev-source-proof-a", "key_usage": "attestation", "algorithm": "ecdsa-sha2-nistp256", "public_key": "ZGV2LXNvdXJjZS1wcm9vZi1hLXN5bnRoZXRpYy1wdWJsaWMta2V5", "storage": "cloud-kms", "online": true, "status": "active", "kms_resource": "projects/seen-dev/locations/global/keyRings/registry/cryptoKeys/source-proof/cryptoKeyVersions/1"},
+        {"keyid": "dev-provenance-a", "key_usage": "attestation", "algorithm": "ecdsa-sha2-nistp256", "public_key": "ZGV2LXByb3ZlbmFuY2UtYS1zeW50aGV0aWMtcHVibGljLWtleS0w", "storage": "cloud-kms", "online": true, "status": "active", "kms_resource": "projects/seen-dev/locations/global/keyRings/registry/cryptoKeys/provenance/cryptoKeyVersions/1"}
       ],
       "tuf_roles": {
         "root": {"keyids": ["dev-root-a", "dev-root-b", "dev-root-c"], "threshold": 2, "online": false, "max_age_seconds": 31536000, "environment_bound": true, "repository_id_bound": true, "allowed_actions": ["trust-root-and-key-rotation"]},
@@ -80,26 +80,26 @@
       "metadata_prefix": "metadata/production",
       "key_namespace": "seen-prod",
       "trusted_root": {
-        "version": 1,
-        "sha256": "2222222222222222222222222222222222222222222222222222222222222222",
-        "out_of_band_distribution": true
+        "status": "unconfigured",
+        "out_of_band_distribution": true,
+        "client_behavior": "fail-closed"
       },
       "keys": [
-        {"keyid": "prod-root-a", "algorithm": "ed25519", "public_key": "cHJvZC1yb290LWEtc3ludGhldGljLXB1YmxpYy1rZXktMDAwMDA", "storage": "offline-encrypted", "online": false, "status": "active"},
-        {"keyid": "prod-root-b", "algorithm": "ed25519", "public_key": "cHJvZC1yb290LWItc3ludGhldGljLXB1YmxpYy1rZXktMDAwMDA", "storage": "offline-encrypted", "online": false, "status": "active"},
-        {"keyid": "prod-root-c", "algorithm": "ed25519", "public_key": "cHJvZC1yb290LWMtc3ludGhldGljLXB1YmxpYy1rZXktMDAwMDA", "storage": "offline-encrypted", "online": false, "status": "active"},
-        {"keyid": "prod-targets-a", "algorithm": "ed25519", "public_key": "cHJvZC10YXJnZXRzLWEtc3ludGhldGljLXB1YmxpYy1rZXktMDAw", "storage": "offline-encrypted", "online": false, "status": "active"},
-        {"keyid": "prod-targets-b", "algorithm": "ed25519", "public_key": "cHJvZC10YXJnZXRzLWItc3ludGhldGljLXB1YmxpYy1rZXktMDAw", "storage": "offline-encrypted", "online": false, "status": "active"},
-        {"keyid": "prod-targets-c", "algorithm": "ed25519", "public_key": "cHJvZC10YXJnZXRzLWMtc3ludGhldGljLXB1YmxpYy1rZXktMDAw", "storage": "offline-encrypted", "online": false, "status": "active"},
-        {"keyid": "prod-snapshot-a", "algorithm": "ecdsa-sha2-nistp256", "public_key": "cHJvZC1zbmFwc2hvdC1hLXN5bnRoZXRpYy1wdWJsaWMta2V5LTAw", "storage": "cloud-kms", "online": true, "status": "active", "kms_resource": "projects/seen-prod/locations/global/keyRings/registry/cryptoKeys/snapshot/cryptoKeyVersions/1"},
-        {"keyid": "prod-timestamp-a", "algorithm": "ecdsa-sha2-nistp256", "public_key": "cHJvZC10aW1lc3RhbXAtYS1zeW50aGV0aWMtcHVibGljLWtleS0w", "storage": "cloud-kms", "online": true, "status": "active", "kms_resource": "projects/seen-prod/locations/global/keyRings/registry/cryptoKeys/timestamp/cryptoKeyVersions/1"},
-        {"keyid": "prod-releases-a", "algorithm": "ecdsa-sha2-nistp256", "public_key": "cHJvZC1yZWxlYXNlcy1hLXN5bnRoZXRpYy1wdWJsaWMta2V5LTAw", "storage": "cloud-kms", "online": true, "status": "active", "kms_resource": "projects/seen-prod/locations/global/keyRings/registry/cryptoKeys/releases-a/cryptoKeyVersions/1"},
-        {"keyid": "prod-releases-b", "algorithm": "ecdsa-sha2-nistp256", "public_key": "cHJvZC1yZWxlYXNlcy1iLXN5bnRoZXRpYy1wdWJsaWMta2V5LTAw", "storage": "cloud-kms", "online": true, "status": "active", "kms_resource": "projects/seen-prod/locations/global/keyRings/registry/cryptoKeys/releases-b/cryptoKeyVersions/1"},
-        {"keyid": "prod-security-a", "algorithm": "ecdsa-sha2-nistp256", "public_key": "cHJvZC1zZWN1cml0eS1hLXN5bnRoZXRpYy1wdWJsaWMta2V5LTAw", "storage": "cloud-kms", "online": true, "status": "active", "kms_resource": "projects/seen-prod/locations/global/keyRings/registry/cryptoKeys/security-a/cryptoKeyVersions/1"},
-        {"keyid": "prod-security-b", "algorithm": "ecdsa-sha2-nistp256", "public_key": "cHJvZC1zZWN1cml0eS1iLXN5bnRoZXRpYy1wdWJsaWMta2V5LTAw", "storage": "cloud-kms", "online": true, "status": "active", "kms_resource": "projects/seen-prod/locations/global/keyRings/registry/cryptoKeys/security-b/cryptoKeyVersions/1"},
-        {"keyid": "prod-security-c", "algorithm": "ecdsa-sha2-nistp256", "public_key": "cHJvZC1zZWN1cml0eS1jLXN5bnRoZXRpYy1wdWJsaWMta2V5LTAw", "storage": "cloud-kms", "online": true, "status": "active", "kms_resource": "projects/seen-prod/locations/global/keyRings/registry/cryptoKeys/security-c/cryptoKeyVersions/1"},
-        {"keyid": "prod-source-proof-a", "algorithm": "ecdsa-sha2-nistp256", "public_key": "cHJvZC1zb3VyY2UtcHJvb2YtYS1zeW50aGV0aWMtcHVibGljLWtleQ", "storage": "cloud-kms", "online": true, "status": "active", "kms_resource": "projects/seen-prod/locations/global/keyRings/registry/cryptoKeys/source-proof/cryptoKeyVersions/1"},
-        {"keyid": "prod-provenance-a", "algorithm": "ecdsa-sha2-nistp256", "public_key": "cHJvZC1wcm92ZW5hbmNlLWEtc3ludGhldGljLXB1YmxpYy1rZXkw", "storage": "cloud-kms", "online": true, "status": "active", "kms_resource": "projects/seen-prod/locations/global/keyRings/registry/cryptoKeys/provenance/cryptoKeyVersions/1"}
+        {"keyid": "prod-root-a", "key_usage": "tuf-metadata", "algorithm": "ed25519", "public_key": "cHJvZC1yb290LWEtc3ludGhldGljLXB1YmxpYy1rZXktMDAwMDA", "storage": "offline-encrypted", "online": false, "status": "active"},
+        {"keyid": "prod-root-b", "key_usage": "tuf-metadata", "algorithm": "ed25519", "public_key": "cHJvZC1yb290LWItc3ludGhldGljLXB1YmxpYy1rZXktMDAwMDA", "storage": "offline-encrypted", "online": false, "status": "active"},
+        {"keyid": "prod-root-c", "key_usage": "tuf-metadata", "algorithm": "ed25519", "public_key": "cHJvZC1yb290LWMtc3ludGhldGljLXB1YmxpYy1rZXktMDAwMDA", "storage": "offline-encrypted", "online": false, "status": "active"},
+        {"keyid": "prod-targets-a", "key_usage": "tuf-metadata", "algorithm": "ed25519", "public_key": "cHJvZC10YXJnZXRzLWEtc3ludGhldGljLXB1YmxpYy1rZXktMDAw", "storage": "offline-encrypted", "online": false, "status": "active"},
+        {"keyid": "prod-targets-b", "key_usage": "tuf-metadata", "algorithm": "ed25519", "public_key": "cHJvZC10YXJnZXRzLWItc3ludGhldGljLXB1YmxpYy1rZXktMDAw", "storage": "offline-encrypted", "online": false, "status": "active"},
+        {"keyid": "prod-targets-c", "key_usage": "tuf-metadata", "algorithm": "ed25519", "public_key": "cHJvZC10YXJnZXRzLWMtc3ludGhldGljLXB1YmxpYy1rZXktMDAw", "storage": "offline-encrypted", "online": false, "status": "active"},
+        {"keyid": "prod-snapshot-a", "key_usage": "tuf-metadata", "algorithm": "ed25519", "public_key": "cHJvZC1zbmFwc2hvdC1hLXN5bnRoZXRpYy1wdWJsaWMta2V5LTAw", "storage": "cloud-kms", "online": true, "status": "active", "kms_resource": "projects/seen-prod/locations/global/keyRings/registry/cryptoKeys/snapshot/cryptoKeyVersions/1"},
+        {"keyid": "prod-timestamp-a", "key_usage": "tuf-metadata", "algorithm": "ed25519", "public_key": "cHJvZC10aW1lc3RhbXAtYS1zeW50aGV0aWMtcHVibGljLWtleS0w", "storage": "cloud-kms", "online": true, "status": "active", "kms_resource": "projects/seen-prod/locations/global/keyRings/registry/cryptoKeys/timestamp/cryptoKeyVersions/1"},
+        {"keyid": "prod-releases-a", "key_usage": "tuf-metadata", "algorithm": "ed25519", "public_key": "cHJvZC1yZWxlYXNlcy1hLXN5bnRoZXRpYy1wdWJsaWMta2V5LTAw", "storage": "cloud-kms", "online": true, "status": "active", "kms_resource": "projects/seen-prod/locations/global/keyRings/registry/cryptoKeys/releases-a/cryptoKeyVersions/1"},
+        {"keyid": "prod-releases-b", "key_usage": "tuf-metadata", "algorithm": "ed25519", "public_key": "cHJvZC1yZWxlYXNlcy1iLXN5bnRoZXRpYy1wdWJsaWMta2V5LTAw", "storage": "cloud-kms", "online": true, "status": "active", "kms_resource": "projects/seen-prod/locations/global/keyRings/registry/cryptoKeys/releases-b/cryptoKeyVersions/1"},
+        {"keyid": "prod-security-a", "key_usage": "tuf-metadata", "algorithm": "ed25519", "public_key": "cHJvZC1zZWN1cml0eS1hLXN5bnRoZXRpYy1wdWJsaWMta2V5LTAw", "storage": "cloud-kms", "online": true, "status": "active", "kms_resource": "projects/seen-prod/locations/global/keyRings/registry/cryptoKeys/security-a/cryptoKeyVersions/1"},
+        {"keyid": "prod-security-b", "key_usage": "tuf-metadata", "algorithm": "ed25519", "public_key": "cHJvZC1zZWN1cml0eS1iLXN5bnRoZXRpYy1wdWJsaWMta2V5LTAw", "storage": "cloud-kms", "online": true, "status": "active", "kms_resource": "projects/seen-prod/locations/global/keyRings/registry/cryptoKeys/security-b/cryptoKeyVersions/1"},
+        {"keyid": "prod-security-c", "key_usage": "tuf-metadata", "algorithm": "ed25519", "public_key": "cHJvZC1zZWN1cml0eS1jLXN5bnRoZXRpYy1wdWJsaWMta2V5LTAw", "storage": "cloud-kms", "online": true, "status": "active", "kms_resource": "projects/seen-prod/locations/global/keyRings/registry/cryptoKeys/security-c/cryptoKeyVersions/1"},
+        {"keyid": "prod-source-proof-a", "key_usage": "attestation", "algorithm": "ecdsa-sha2-nistp256", "public_key": "cHJvZC1zb3VyY2UtcHJvb2YtYS1zeW50aGV0aWMtcHVibGljLWtleQ", "storage": "cloud-kms", "online": true, "status": "active", "kms_resource": "projects/seen-prod/locations/global/keyRings/registry/cryptoKeys/source-proof/cryptoKeyVersions/1"},
+        {"keyid": "prod-provenance-a", "key_usage": "attestation", "algorithm": "ecdsa-sha2-nistp256", "public_key": "cHJvZC1wcm92ZW5hbmNlLWEtc3ludGhldGljLXB1YmxpYy1rZXkw", "storage": "cloud-kms", "online": true, "status": "active", "kms_resource": "projects/seen-prod/locations/global/keyRings/registry/cryptoKeys/provenance/cryptoKeyVersions/1"}
       ],
       "tuf_roles": {
         "root": {"keyids": ["prod-root-a", "prod-root-b", "prod-root-c"], "threshold": 2, "online": false, "max_age_seconds": 31536000, "environment_bound": true, "repository_id_bound": true, "allowed_actions": ["trust-root-and-key-rotation"]},

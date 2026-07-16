@@ -113,6 +113,10 @@ trace_output.txt
 # Incremental compilation cache
 .seen_cache/
 
+# Materialized package views and authoritative local import maps
+.seen/
+/tools/seen-pkg/bin/
+
 # Core dumps
 core
 

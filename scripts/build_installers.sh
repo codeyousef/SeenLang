@@ -84,6 +84,15 @@ stage_linux() {
   mkdir -p "$staging"
   cp "$STAGE3_BIN" "$staging/seen"
   chmod +x "$staging/seen"
+  "$ROOT_DIR/scripts/build_package_client.sh" \
+    --version "$VERSION" \
+    --goos linux \
+    --goarch amd64 \
+    --output "$staging/seen-pkg"
+  if ! "$staging/seen-pkg" --expect-version "$VERSION" version --machine >/dev/null 2>&1; then
+    echo "Staged package-client version handshake failed for Seen $VERSION" >&2
+    exit 1
+  fi
   echo "[installers] Building Linux DEB"
   (cd "$ROOT_DIR/installer/linux" && ./build-deb.sh "$VERSION" amd64 --source-dir installer/tmp/linux --output-dir "$OUTPUT_DIR/linux")
   echo "[installers] Building Linux RPM"

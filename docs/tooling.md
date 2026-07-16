@@ -40,11 +40,17 @@ code --install-extension seen-*.vsix
 | Seen: Package Fetch | `seen pkg fetch` |
 | Seen: Package Pack | `seen pkg pack` |
 | Seen: Package Prebuild | `seen pkg prebuild` |
-| Seen: Package Publish | `seen pkg publish` |
+| Seen: Package Publish | `seen pkg publish` (hosted operation inactive) |
 | Seen: Translate to Another Language | `seen translate <file> --from <lang> --to <lang>` |
 
 Extension-only commands such as update checks or visual helpers are editor UI
 features; compiler behavior remains controlled by the `seen` CLI.
+
+Hosted package authentication, private-package access, publishing, yanking,
+and reporting are inactive in Seen 0.10.0 pending service and Aether
+integration. Package fetches also fail closed unless their registry has an
+out-of-band trust root; the planned official origins do not yet have one
+embedded in the release.
 
 ### Configuration
 

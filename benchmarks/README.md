@@ -4,7 +4,7 @@
 
 Use `scripts/perf_gate.sh` from the repository root for maintained benchmark
 checks. The gate fixtures in `benchmarks/gates/` are valid Seen programs and are
-the source of truth for 0.9.5 performance acceptance.
+the source of truth for 0.10.0 performance acceptance.
 
 ```bash
 SEEN_LOW_MEMORY=1 scripts/perf_gate.sh --compare --suite stdlib

@@ -48,6 +48,15 @@
       "propertyNames": {"$ref": "#/$defs/alias"},
       "additionalProperties": {"$ref": "#/$defs/dependency"}
     },
+    "package-grants": {
+      "type": "object",
+      "propertyNames": {"$ref": "#/$defs/identity"},
+      "additionalProperties": {
+        "type": "array",
+        "uniqueItems": true,
+        "items": {"$ref": "#/$defs/capability"}
+      }
+    },
     "native": {
       "type": "object",
       "additionalProperties": false,
@@ -163,6 +172,15 @@
           "required": ["artifact"],
           "properties": {
             "artifact": {"type": "string", "minLength": 1}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["system", "path"],
+          "properties": {
+            "system": {"const": true},
+            "path": {"type": "string", "minLength": 1}
           }
         }
       ]

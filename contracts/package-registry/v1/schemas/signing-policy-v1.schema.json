@@ -18,7 +18,7 @@
   "properties": {
     "contract_version": {"const": 1},
     "framework": {"const": "tuf-1.0"},
-    "canonical_serialization": {"const": "seen-tuf-canonical-json-v1"},
+    "canonical_serialization": {"const": "tuf-canonical-json-v1"},
     "canonical_serialization_rules": {
       "type": "object",
       "additionalProperties": false,
@@ -115,9 +115,10 @@
     "key": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["keyid", "algorithm", "public_key", "storage", "online", "status"],
+      "required": ["keyid", "key_usage", "algorithm", "public_key", "storage", "online", "status"],
       "properties": {
         "keyid": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{2,95}$"},
+        "key_usage": {"enum": ["tuf-metadata", "attestation"]},
         "algorithm": {"enum": ["ed25519", "ecdsa-sha2-nistp256"]},
         "public_key": {"type": "string", "pattern": "^[A-Za-z0-9_-]{43,512}$"},
         "storage": {"enum": ["offline-encrypted", "cloud-kms"]},
@@ -126,6 +127,11 @@
         "kms_resource": {"type": "string", "pattern": "^projects/[A-Za-z0-9_-]+/locations/[A-Za-z0-9_-]+/keyRings/[A-Za-z0-9_-]+/cryptoKeys/[A-Za-z0-9_-]+/cryptoKeyVersions/[1-9][0-9]*$"}
       },
       "allOf": [
+        {
+          "if": {"properties": {"key_usage": {"const": "tuf-metadata"}}, "required": ["key_usage"]},
+          "then": {"properties": {"algorithm": {"const": "ed25519"}}},
+          "else": {"properties": {"algorithm": {"const": "ecdsa-sha2-nistp256"}}}
+        },
         {
           "if": {"properties": {"online": {"const": true}}, "required": ["online"]},
           "then": {"properties": {"storage": {"const": "cloud-kms"}}, "required": ["kms_resource"]},
@@ -211,12 +217,21 @@
         "trusted_root": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["version", "sha256", "out_of_band_distribution"],
+          "required": ["status", "out_of_band_distribution", "client_behavior"],
           "properties": {
+            "status": {"enum": ["unconfigured", "configured"]},
             "version": {"type": "integer", "minimum": 1},
             "sha256": {"$ref": "#/$defs/sha256"},
-            "out_of_band_distribution": {"const": true}
-          }
+            "out_of_band_distribution": {"const": true},
+            "client_behavior": {"const": "fail-closed"}
+          },
+          "allOf": [
+            {
+              "if": {"properties": {"status": {"const": "configured"}}, "required": ["status"]},
+              "then": {"required": ["version", "sha256"]},
+              "else": {"not": {"anyOf": [{"required": ["version"]}, {"required": ["sha256"]}]}}
+            }
+          ]
         },
         "keys": {
           "type": "array",

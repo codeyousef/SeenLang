@@ -59,7 +59,7 @@
       },
       {
         "id": "statement-digest-binding",
-        "operator": "sha256-seen-tuf-canonical-json-v1-excluding",
+        "operator": "sha256-tuf-canonical-json-v1-excluding",
         "document_pointer": "",
         "excluded_pointers": ["/statement_sha256", "/signature"],
         "expected_pointer": "/statement_sha256",

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Dependency-free consistency checks for the draft Seen registry contract."""
+"""Dependency-free consistency checks for the normative Seen registry contract."""
 
 from __future__ import annotations
 
@@ -30,13 +30,102 @@ def load_toml(relative: str) -> dict[str, Any]:
 
 
 def canonical_json_bytes(value: Any) -> bytes:
-    """Encode the frozen seen-tuf-canonical-json-v1 representation."""
+    """Encode the frozen tuf-canonical-json-v1 representation."""
     return json.dumps(
         value,
         ensure_ascii=False,
         separators=(",", ":"),
         sort_keys=True,
     ).encode("utf-8")
+
+
+ED25519_Q = 2**255 - 19
+ED25519_L = 2**252 + 27742317777372353535851937790883648493
+ED25519_D = -121665 * pow(121666, ED25519_Q - 2, ED25519_Q) % ED25519_Q
+ED25519_I = pow(2, (ED25519_Q - 1) // 4, ED25519_Q)
+
+
+def ed25519_xrecover(y: int) -> int:
+    xx = (y * y - 1) * pow(ED25519_D * y * y + 1, ED25519_Q - 2, ED25519_Q)
+    x = pow(xx % ED25519_Q, (ED25519_Q + 3) // 8, ED25519_Q)
+    if (x * x - xx) % ED25519_Q:
+        x = x * ED25519_I % ED25519_Q
+    if x & 1:
+        x = ED25519_Q - x
+    return x
+
+
+ED25519_BY = 4 * pow(5, ED25519_Q - 2, ED25519_Q) % ED25519_Q
+ED25519_BX = ed25519_xrecover(ED25519_BY)
+ED25519_B = (ED25519_BX, ED25519_BY, 1, ED25519_BX * ED25519_BY % ED25519_Q)
+
+
+def ed25519_add(
+    left: tuple[int, int, int, int], right: tuple[int, int, int, int]
+) -> tuple[int, int, int, int]:
+    x1, y1, z1, t1 = left
+    x2, y2, z2, t2 = right
+    a = (y1 - x1) * (y2 - x2) % ED25519_Q
+    b = (y1 + x1) * (y2 + x2) % ED25519_Q
+    c = 2 * ED25519_D * t1 * t2 % ED25519_Q
+    d = 2 * z1 * z2 % ED25519_Q
+    e, f, g, h = b - a, d - c, d + c, b + a
+    return e * f % ED25519_Q, g * h % ED25519_Q, f * g % ED25519_Q, e * h % ED25519_Q
+
+
+def ed25519_multiply(
+    point: tuple[int, int, int, int], scalar: int
+) -> tuple[int, int, int, int]:
+    result = (0, 1, 1, 0)
+    while scalar:
+        if scalar & 1:
+            result = ed25519_add(result, point)
+        point = ed25519_add(point, point)
+        scalar >>= 1
+    return result
+
+
+def ed25519_encode(point: tuple[int, int, int, int]) -> bytes:
+    x, y, z, _ = point
+    inverse = pow(z, ED25519_Q - 2, ED25519_Q)
+    x, y = x * inverse % ED25519_Q, y * inverse % ED25519_Q
+    return (y | ((x & 1) << 255)).to_bytes(32, "little")
+
+
+def ed25519_decode(encoded: bytes) -> tuple[int, int, int, int] | None:
+    if len(encoded) != 32:
+        return None
+    value = int.from_bytes(encoded, "little")
+    y = value & ((1 << 255) - 1)
+    if y >= ED25519_Q:
+        return None
+    x = ed25519_xrecover(y)
+    if (x & 1) != (value >> 255):
+        x = ED25519_Q - x
+    if (-x * x + y * y - 1 - ED25519_D * x * x * y * y) % ED25519_Q:
+        return None
+    return x, y, 1, x * y % ED25519_Q
+
+
+def verify_ed25519(public_hex: str, signature_hex: str, message: bytes) -> bool:
+    try:
+        public = bytes.fromhex(public_hex)
+        signature = bytes.fromhex(signature_hex)
+    except ValueError:
+        return False
+    if len(public) != 32 or len(signature) != 64:
+        return False
+    public_point = ed25519_decode(public)
+    r_point = ed25519_decode(signature[:32])
+    scalar = int.from_bytes(signature[32:], "little")
+    if public_point is None or r_point is None or scalar >= ED25519_L:
+        return False
+    challenge = int.from_bytes(
+        hashlib.sha512(signature[:32] + public + message).digest(), "little"
+    ) % ED25519_L
+    return ed25519_encode(ed25519_multiply(ED25519_B, scalar)) == ed25519_encode(
+        ed25519_add(r_point, ed25519_multiply(public_point, challenge))
+    )
 
 
 def resolve_schema_ref(
@@ -414,15 +503,10 @@ def check_identities() -> None:
         assert identity_failure_reason(identity) == case["reason"], identity
 
     policy = cases["registration_policy"]
-    assert policy["status"] == "draft_not_enforced"
-    assert all(
-        policy[field] == "must_be_frozen_before_public_registration"
-        for field in (
-            "unicode_data_revision",
-            "skeleton_algorithm",
-            "similarity_thresholds",
-        )
-    )
+    assert policy["status"] == "normative_enforced"
+    assert policy["unicode_data_revision"] == "Unicode-17.0.0"
+    assert policy["skeleton_algorithm"] == "UTS-39-17.0.0-confusable-skeleton"
+    assert policy["similarity_thresholds"].startswith("exact-skeleton-reject;")
     for case in cases["policy_examples"]:
         assert pattern.fullmatch(case["candidate"]), case["candidate"]
         assert pattern.fullmatch(case["conflicts_with"]), case["conflicts_with"]
@@ -437,6 +521,9 @@ def check_manifest() -> None:
     assert "package" in schema["required"]
     assert schema["properties"]["project"]["additionalProperties"] is False
     assert schema["properties"]["package"]["additionalProperties"] is False
+    assert schema["properties"]["package-grants"]["propertyNames"] == {
+        "$ref": "#/$defs/identity"
+    }
     assert not schema_errors(manifest, schema, schema), schema_errors(
         manifest, schema, schema
     )
@@ -455,6 +542,8 @@ def check_manifest() -> None:
     version_pattern = re.compile(schema["$defs"]["exactVersion"]["pattern"])
     capability_values = set(schema["$defs"]["capability"]["enum"])
     assert set(package["capabilities"]) <= capability_values
+    assert set(manifest["package-grants"]) == {"alice/tls", "seen/json"}
+    assert set(manifest["package-grants"]["alice/tls"]) <= capability_values
     assert schema["$defs"]["exactVersion"]["format"] == "semver-exact"
     assert is_exact_semver(project["version"])
 
@@ -478,26 +567,87 @@ def check_resolver_lock() -> None:
     assert schema["$id"] == "urn:seen:package-registry:v1:resolver-lock-v2"
     assert lock["version"] == 2
     assert not schema_errors(lock, schema, schema), schema_errors(lock, schema, schema)
-    alias_pattern = re.compile(schema["$defs"]["alias"]["pattern"])
-    reserved_aliases = set(schema["$defs"]["alias"]["not"]["enum"])
     version_pattern = re.compile(schema["$defs"]["exactVersion"]["pattern"])
     digest_pattern = re.compile(schema["$defs"]["sha256"]["pattern"])
+    assert digest_pattern.fullmatch(lock["manifest_sha256"])
+    assert is_exact_semver(lock["root"]["version"])
 
-    aliases: set[str] = set()
+    node_keys: set[tuple[str, str, str, str]] = set()
+    package_order: list[tuple[str, str, str, str]] = []
     for package in lock["packages"]:
-        assert alias_pattern.fullmatch(package["alias"])
-        assert package["alias"] not in reserved_aliases
-        assert package["alias"] not in aliases
-        aliases.add(package["alias"])
         assert version_pattern.fullmatch(package["version"])
         assert is_exact_semver(package["version"])
-        assert package["source"] in {"hosted-registry", "legacy-local-static"}
-        assert package["registry_origin"]
-        assert not ({"name", "registry", "path", "sha256"} & set(package))
-        if package["source"] == "hosted-registry":
-            assert identity_failure_reason(package["package"]) == ""
-            assert package["registry_origin"].startswith("https://")
-            assert digest_pattern.fullmatch(package["archive_sha256"])
+        assert package["source"] == "hosted-registry"
+        assert identity_failure_reason(package["package"]) == ""
+        assert package["registry_origin"].startswith("https://")
+        assert digest_pattern.fullmatch(package["archive_sha256"])
+        key = (
+            package["registry_origin"],
+            package["package"],
+            package["version"],
+            package["archive_sha256"],
+        )
+        assert key not in node_keys
+        node_keys.add(key)
+        package_order.append(key)
+        assert set(package["capabilities"]) <= set(package["grants"])
+        owner, name = package["package"].split("/")
+        expected_target = (
+            f"packages/{owner}/{name}/{package['version']}/"
+            f"{package['archive_sha256']}/{name}-{package['version']}.seenpkg.tgz"
+        )
+        assert package["target_path"] == expected_target
+
+    assert package_order == sorted(package_order)
+    all_edges = list(lock["root"]["dependencies"])
+    for package in lock["packages"]:
+        dependencies = package["dependencies"]
+        assert [edge["alias"] for edge in dependencies] == sorted(
+            edge["alias"] for edge in dependencies
+        )
+        all_edges.extend(dependencies)
+    assert [edge["alias"] for edge in lock["root"]["dependencies"]] == sorted(
+        edge["alias"] for edge in lock["root"]["dependencies"]
+    )
+    for edge in all_edges:
+        key = (
+            edge["registry_origin"],
+            edge["package"],
+            edge["resolved_version"],
+            edge["resolved_archive_sha256"],
+        )
+        assert key in node_keys
+        assert requirement_allows(edge["requirement"], edge["resolved_version"])
+        node = next(
+            item
+            for item in lock["packages"]
+            if (
+                item["registry_origin"],
+                item["package"],
+                item["version"],
+                item["archive_sha256"],
+            )
+            == key
+        )
+        assert set(node["capabilities"]) <= set(edge["allow"])
+
+    reachable = {
+        (edge["registry_origin"], edge["package"], edge["resolved_version"], edge["resolved_archive_sha256"])
+        for edge in lock["root"]["dependencies"]
+    }
+    changed = True
+    while changed:
+        changed = False
+        for package in lock["packages"]:
+            key = (package["registry_origin"], package["package"], package["version"], package["archive_sha256"])
+            if key not in reachable:
+                continue
+            for edge in package["dependencies"]:
+                child = (edge["registry_origin"], edge["package"], edge["resolved_version"], edge["resolved_archive_sha256"])
+                if child not in reachable:
+                    reachable.add(child)
+                    changed = True
+    assert reachable == node_keys
 
 
 def check_semantic_versions() -> None:
@@ -717,8 +867,13 @@ def check_semver_requirements() -> None:
     assert policy["resolution_key"] == ["registry_origin", "package"]
     assert policy["canonical_input"]["cross_registry_fallback"] == "forbidden"
     assert policy["build_metadata_policy"]["lexical-build-tiebreak"] == "forbidden"
-    assert policy["implementation_status"]["compiler_subset"] == "exact-requirements-only"
-    assert policy["implementation_status"]["hosted_resolution"].startswith("disabled-")
+    modes = policy["operation_modes"]
+    assert set(modes) == {"normal", "update", "locked", "offline", "frozen"}
+    assert modes["locked"]["write_lock"] is False
+    assert modes["offline"]["network"] == "forbidden"
+    assert modes["frozen"]["equivalent_to"] == ["locked", "offline"]
+    assert policy["mode_composition"]["update_with_locked"] == "invalid-mode-combination"
+    assert policy["graph_contract"]["fixture"] == "resolver-graph-cases-v1.json"
     case_fixture = load_json(f"fixtures/{policy['case_fixture']}")
     assert case_fixture["policy"] == "resolution-policy-v1.json"
     cases = case_fixture["cases"]
@@ -741,6 +896,197 @@ def check_semver_requirements() -> None:
         errors = schema_errors(case, case_schema, case_schema)
         assert not errors, f"{case['name']}: {errors}"
         assert resolution_result(case) == case["expected"], case["name"]
+
+
+def graph_resolution_result(case: dict[str, Any]) -> dict[str, Any]:
+    root_edges = case["root"]["dependencies"]
+    candidates_by_key: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for candidate in case["candidates"]:
+        key = (candidate["registry_origin"], candidate["package"])
+        candidates_by_key.setdefault(key, []).append(candidate)
+    for candidates in candidates_by_key.values():
+        candidates.sort(
+            key=lambda item: split_semver(item["version"])[0],
+            reverse=True,
+        )
+
+    def constraints_for(
+        selected: dict[tuple[str, str], dict[str, Any]],
+    ) -> dict[tuple[str, str], list[tuple[str, dict[str, Any]]]]:
+        constraints: dict[tuple[str, str], list[tuple[str, dict[str, Any]]]] = {}
+        for edge in root_edges:
+            constraints.setdefault((edge["registry_origin"], edge["package"]), []).append(
+                ("root", edge)
+            )
+        for candidate in selected.values():
+            requester = f"{candidate['package']}@{candidate['version']}"
+            for edge in candidate["dependencies"]:
+                constraints.setdefault(
+                    (edge["registry_origin"], edge["package"]), []
+                ).append((requester, edge))
+        for values in constraints.values():
+            values.sort(key=lambda item: (item[0], item[1]["requirement"]))
+        return constraints
+
+    last_conflict: dict[str, Any] | None = None
+
+    def solve(
+        selected: dict[tuple[str, str], dict[str, Any]],
+    ) -> dict[tuple[str, str], dict[str, Any]] | None:
+        nonlocal last_conflict
+        constraints = constraints_for(selected)
+        for key in sorted(selected):
+            if key not in constraints:
+                continue
+            if not all(
+                requirement_allows(edge["requirement"], selected[key]["version"])
+                for _, edge in constraints[key]
+            ):
+                last_conflict = {
+                    "outcome": "error",
+                    "error_code": "dependency_constraint_conflict",
+                    "conflict_requesters": sorted(
+                        {requester for requester, _ in constraints[key]}
+                    ),
+                }
+                return None
+        unresolved = [key for key in sorted(constraints) if key not in selected]
+        if not unresolved:
+            return selected
+        key = unresolved[0]
+        eligible = [
+            candidate
+            for candidate in candidates_by_key.get(key, [])
+            if candidate["availability"] == "available"
+            and all(
+                requirement_allows(edge["requirement"], candidate["version"])
+                for _, edge in constraints[key]
+            )
+        ]
+        if not eligible:
+            last_conflict = {
+                "outcome": "error",
+                "error_code": "dependency_constraint_conflict",
+                "conflict_requesters": sorted(
+                    {requester for requester, _ in constraints[key]}
+                ),
+            }
+            return None
+        for candidate in eligible:
+            attempt = dict(selected)
+            attempt[key] = candidate
+            result = solve(attempt)
+            if result is not None:
+                return result
+        return None
+
+    selected = solve({})
+    if selected is None:
+        assert last_conflict is not None
+        return last_conflict
+
+    constraints = constraints_for(selected)
+    for key in sorted(constraints):
+        candidate = selected[key]
+        requested = set(candidate["capabilities"])
+        for _, edge in constraints[key]:
+            missing = sorted(requested - set(edge["allow"]))
+            if missing:
+                return {
+                    "outcome": "error",
+                    "error_code": "dependency_capability_not_allowed",
+                    "package": candidate["package"],
+                    "capabilities": missing,
+                }
+    grants = {
+        item["package"]: set(item["capabilities"])
+        for item in case["root"]["grants"]
+    }
+    for key in sorted(selected):
+        candidate = selected[key]
+        missing = sorted(set(candidate["capabilities"]) - grants.get(candidate["package"], set()))
+        if missing:
+            return {
+                "outcome": "error",
+                "error_code": "capability_consent_required",
+                "package": candidate["package"],
+                "capabilities": missing,
+            }
+    return {
+        "outcome": "select",
+        "selected": [
+            {
+                "package": candidate["package"],
+                "version": candidate["version"],
+                "archive_sha256": candidate["archive_sha256"],
+            }
+            for _, candidate in sorted(selected.items())
+        ],
+    }
+
+
+def check_resolver_graph() -> None:
+    schema = load_json("schemas/resolver-graph-case-v1.schema.json")
+    fixture = load_json("fixtures/resolver-graph-cases-v1.json")
+    assert schema["$id"] == "urn:seen:package-registry:v1:resolver-graph-case"
+    policy = fixture["capability_policy"]
+    assert policy["not_a_sandbox"] is True
+    assert policy["new_or_expanded_request"].startswith("capability_consent_required")
+    names = [case["name"] for case in fixture["cases"]]
+    assert len(names) == len(set(names))
+    coverage = " ".join(names)
+    for required in ("diamond", "backtracking", "cycle", "conflict", "direct_capability", "transitive_capability"):
+        assert required in coverage, required
+    for case in fixture["cases"]:
+        errors = schema_errors(case, schema, schema)
+        assert not errors, f"{case['name']}: {errors}"
+        observed = graph_resolution_result(case)
+        assert observed == case["expected"], f"{case['name']}: {observed}"
+
+
+def resolver_mode_result(case: dict[str, Any]) -> dict[str, Any]:
+    strategy = case["strategy"]
+    modifiers = set(case["modifiers"])
+    if strategy == "update" and modifiers & {"locked", "frozen"}:
+        return {"error_code": "invalid_mode_combination"}
+    frozen = "frozen" in modifiers or {"locked", "offline"} <= modifiers
+    locked = "locked" in modifiers or frozen
+    offline = "offline" in modifiers or frozen
+    if locked and case["lock"] != "valid":
+        return {"error_code": "lock_required"}
+    if offline and case["local_data"] != "complete":
+        return {"error_code": "offline_data_unavailable"}
+    if locked:
+        return {
+            "selection": "locked",
+            "network": "forbidden" if offline else (
+                "not-required" if case["local_data"] == "complete" else "exact-locked-only"
+            ),
+            "write_lock": False,
+        }
+    if offline:
+        return {
+            "selection": "resolve-highest-local",
+            "network": "forbidden",
+            "write_lock": True,
+        }
+    if strategy == "normal" and case["lock"] == "valid":
+        return {"selection": "locked", "network": "not-required", "write_lock": False}
+    return {"selection": "resolve-highest", "network": "allowed", "write_lock": True}
+
+
+def check_resolver_modes() -> None:
+    policy = load_json("fixtures/resolution-policy-v1.json")
+    fixture = load_json(f"fixtures/{policy['graph_contract']['mode_fixture']}")
+    names = [case["name"] for case in fixture["cases"]]
+    assert len(names) == len(set(names))
+    coverage = " ".join(names)
+    for required in ("normal", "update", "locked", "offline", "frozen"):
+        assert required in coverage
+    for case in fixture["cases"]:
+        assert case["strategy"] in {"normal", "update"}
+        assert set(case["modifiers"]) <= {"locked", "offline", "frozen"}
+        assert resolver_mode_result(case) == case["expected"], case["name"]
 
 
 def check_registry_origins() -> None:
@@ -1136,6 +1482,9 @@ def archive_policy_error(
             return "archive_path_traversal"
         if any(not piece for piece in pieces):
             return "archive_path_invalid"
+        folded_pieces = [piece.casefold() for piece in pieces]
+        if ".seen" in folded_pieces or folded_pieces[-1] == "package-map.tsv":
+            return "archive_path_invalid"
     if len(paths) != len(set(paths)):
         return "archive_duplicate_path"
     folded = [path.casefold() for path in paths]
@@ -1246,6 +1595,7 @@ def check_archive_contracts() -> None:
         "prebuilt",
         "lifecycle",
         "binary",
+        "package manager state",
     ):
         assert required in coverage, f"missing hostile archive case: {required}"
 
@@ -1437,12 +1787,71 @@ def signing_case_error(
     return None
 
 
+def signing_policy_role_key_errors(policy: dict[str, Any]) -> list[str]:
+    """Cross-check role key references that JSON Schema cannot resolve by ID."""
+    errors: list[str] = []
+    expected_by_group = {
+        "tuf_roles": ("tuf-metadata", "ed25519"),
+        "delegated_roles": ("tuf-metadata", "ed25519"),
+        "attestation_roles": ("attestation", "ecdsa-sha2-nistp256"),
+    }
+    for environment in policy["environments"]:
+        environment_name = environment["name"]
+        keys = {key["keyid"]: key for key in environment["keys"]}
+        for role_group, (expected_usage, expected_algorithm) in expected_by_group.items():
+            for role_name, role in environment[role_group].items():
+                for keyid in role["keyids"]:
+                    key = keys.get(keyid)
+                    prefix = f"{environment_name}.{role_group}.{role_name}.{keyid}"
+                    if key is None:
+                        errors.append(f"{prefix}: unknown key")
+                        continue
+                    if key["key_usage"] != expected_usage:
+                        errors.append(
+                            f"{prefix}: key_usage {key['key_usage']!r}; "
+                            f"expected {expected_usage!r}"
+                        )
+                    if key["algorithm"] != expected_algorithm:
+                        errors.append(
+                            f"{prefix}: algorithm {key['algorithm']!r}; "
+                            f"expected {expected_algorithm!r}"
+                        )
+    return errors
+
+
 def check_signing_contracts() -> None:
     schema = load_json("schemas/signing-policy-v1.schema.json")
     policy = load_json("fixtures/signing-policy-v1.json")
     failures = schema_errors(policy, schema, schema)
     assert not failures, failures
-    assert policy["canonical_serialization"] == "seen-tuf-canonical-json-v1"
+    role_key_failures = signing_policy_role_key_errors(policy)
+    assert not role_key_failures, role_key_failures
+
+    algorithm_drift = deepcopy(policy)
+    drift_key = next(
+        key
+        for key in algorithm_drift["environments"][0]["keys"]
+        if key["keyid"] == "dev-snapshot-a"
+    )
+    drift_key["algorithm"] = "ecdsa-sha2-nistp256"
+    assert schema_errors(algorithm_drift, schema, schema)
+
+    role_assignment_drift = deepcopy(policy)
+    drift_key = next(
+        key
+        for key in role_assignment_drift["environments"][0]["keys"]
+        if key["keyid"] == "dev-snapshot-a"
+    )
+    drift_key["key_usage"] = "attestation"
+    drift_key["algorithm"] = "ecdsa-sha2-nistp256"
+    assert not schema_errors(role_assignment_drift, schema, schema)
+    assert signing_policy_role_key_errors(role_assignment_drift) == [
+        "development.tuf_roles.snapshot.dev-snapshot-a: "
+        "key_usage 'attestation'; expected 'tuf-metadata'",
+        "development.tuf_roles.snapshot.dev-snapshot-a: "
+        "algorithm 'ecdsa-sha2-nistp256'; expected 'ed25519'",
+    ]
+    assert policy["canonical_serialization"] == "tuf-canonical-json-v1"
     serialization = policy["canonical_serialization_rules"]
     assert serialization == {
         "scope": "selected-json-value",
@@ -1488,6 +1897,11 @@ def check_signing_contracts() -> None:
                 assert role["environment_bound"] is True
                 assert role["repository_id_bound"] is True
         assert environment["tuf_roles"]["root"]["online"] is False
+        assert environment["trusted_root"] == {
+            "status": "unconfigured",
+            "out_of_band_distribution": True,
+            "client_behavior": "fail-closed",
+        }
         assert environment["root_rotation"]["requires_old_root_threshold"] is True
         assert environment["root_rotation"]["requires_new_root_threshold"] is True
     assert key_sets["development"].isdisjoint(key_sets["production"])
@@ -1514,29 +1928,66 @@ def check_signing_contracts() -> None:
         "snapshot",
         "timestamp",
     } <= set(metadata)
+    assert tuf_fixture["cryptographic_material"] == (
+        "deterministic-test-only-not-an-official-trust-root"
+    )
+    trust = tuf_fixture["trust_boundaries"]
+    assert trust["test_repository_id"] == "seen-dev-test-fixture-v1"
+    assert trust["test_registry_origin"] == "https://test.invalid/packages"
+    assert trust["development_official_root"]["client_behavior"] == "fail-closed"
+    assert trust["production_official_root"]["client_behavior"] == "fail-closed"
+
+    root_signed = metadata["root"]["signed"]
+    root_keys = root_signed["keys"]
+    delegated = metadata["targets"]["signed"]["delegations"]
+    delegated_roles = {role["name"]: role for role in delegated["roles"]}
+    for keyid, key in {**root_keys, **delegated["keys"]}.items():
+        assert keyid == hashlib.sha256(canonical_json_bytes(key)).hexdigest()
+        assert key["keytype"] == key["scheme"] == "ed25519"
+
     role_for_document = {
-        "root": ("tuf_roles", "root"),
-        "targets": ("tuf_roles", "targets"),
-        "release_targets": ("delegated_roles", "releases"),
-        "security_targets": ("delegated_roles", "security"),
-        "snapshot": ("tuf_roles", "snapshot"),
-        "timestamp": ("tuf_roles", "timestamp"),
+        "root": (root_signed["roles"]["root"], root_keys),
+        "targets": (root_signed["roles"]["targets"], root_keys),
+        "release_targets": (delegated_roles["releases"], delegated["keys"]),
+        "security_targets": (delegated_roles["security"], delegated["keys"]),
+        "snapshot": (root_signed["roles"]["snapshot"], root_keys),
+        "timestamp": (root_signed["roles"]["timestamp"], root_keys),
     }
     for document_name, document in metadata.items():
         errors = schema_errors(document, tuf_schema, tuf_schema)
         assert not errors, f"{document_name}: {errors}"
         signed = document["signed"]
-        assert signed["environment"] == "production"
-        assert signed["repository_id"] == production["repository_id"]
-        group, role_name = role_for_document[document_name]
-        role = production[group][role_name]
-        signers = {signature["keyid"] for signature in document["signatures"]}
-        assert signers <= set(role["keyids"])
-        assert len(signers) >= role["threshold"]
+        assert signed["environment"] == "development"
+        assert signed["repository_id"] == trust["test_repository_id"]
+        assert datetime.fromisoformat(signed["expires"].replace("Z", "+00:00")) > datetime.fromisoformat(
+            tuf_fixture["validation_time"].replace("Z", "+00:00")
+        )
+        role, keys = role_for_document[document_name]
+        valid_signers: set[str] = set()
+        for signature in document["signatures"]:
+            keyid = signature["keyid"]
+            if keyid not in role["keyids"] or keyid not in keys:
+                continue
+            if verify_ed25519(
+                keys[keyid]["keyval"]["public"],
+                signature["sig"],
+                canonical_json_bytes(signed),
+            ):
+                valid_signers.add(keyid)
+        assert len(valid_signers) >= role["threshold"], document_name
+        first_signature = document["signatures"][0]
+        damaged = ("00" if first_signature["sig"][:2] != "00" else "01") + first_signature["sig"][2:]
+        assert not verify_ed25519(
+            keys[first_signature["keyid"]]["keyval"]["public"],
+            damaged,
+            canonical_json_bytes(signed),
+        )
         for target_path, target in signed.get("targets", {}).items():
             assert target["hashes"]["sha256"] == target["custom"]["archive_sha256"]
-            assert target["custom"]["environment"] == "production"
-            assert target["custom"]["registry_origin"] == production["registry_origin"]
+            assert target["custom"]["environment"] == "development"
+            assert target["custom"]["registry_origin"] == trust["test_registry_origin"]
+            assert isinstance(target["custom"]["dependencies"], list)
+            assert isinstance(target["custom"]["capabilities"], list)
             if document_name == "release_targets":
                 assert target_binding_error(
                     "releases",
@@ -1937,138 +2388,13 @@ def check_release_transitions() -> None:
             assert failure_step == case["failure_step"], case["name"]
 
 
-def check_compiler_separation() -> None:
-    source = (ROOT / "compiler_seen" / "src" / "main_compiler.seen").read_text(
-        encoding="utf-8"
-    )
-    package_class = source.split("class PackageDependency {", 1)[1].split(
-        "}\n\n", 1
-    )[0]
-    for field in (
-        "var alias: String",
-        "var packageIdentity: String",
-        "var registryAlias: String",
-        "var resolvedRegistryOrigin: String",
-        "var resolvedArchiveSha256: String",
-    ):
-        assert field in package_class
-    assert "var name: String" not in package_class
-    assert "var registry: String" not in package_class
-    assert "extractTomlPackageIdentity" in source
-    assert 'section == "package"' in source
-    assert 'key == "identity"' in source
-    assert 'var lockContent = "version = 2\\n"' in source
-    assert '"registry_origin = "' in source
-    assert '"archive_sha256 = "' in source
-    assert "packageLockTomlString(dep.resolvedRegistryOrigin)" in source
-    assert '"name = \\"" + dep.alias' not in source
-    assert 'return "https://seen.dev.yousef.codes/packages"' in source
-    assert "hosted registry resolution is disabled" in source
-    assert "curl -fsSL" not in source
-    assert 'dep.source = "invalid"' in source
-    assert "packageDependencyInlineFieldsAreKnownAndUnique" in source
-    resolver = source.split("fun resolvePackageImportPath(", 1)[1].split(
-        "\nfun resolveProjectSelfImportPath", 1
-    )[0]
-    assert 'rootModPath = packageRoot + "/src/mod.seen"' in resolver
-    assert "return directPath\n}" not in resolver
-    assert 'return versionRoot + "/" + archiveSha256' in source
-    assert source.count("package [project].name must be a portable ASCII module root") == 3
-    assert source.count("isExactSemanticVersion(version)") == 3
-    assert "isExactSemanticVersion(dep.version)" in source
-
-    atomic_writer = source.split("fun writeTextAtomically(", 1)[1].split(
-        "\nfun isHttpRegistryLocation", 1
-    )[0]
-    assert 'let tempPath = path + ".tmp." + getPid().toString()' in atomic_writer
-    assert "if not writeText(tempPath, content)" in atomic_writer
-    assert 'runCommand("mv -f " +' in atomic_writer
-    assert "if not commandWasSuccessful(renameResult)" in atomic_writer
-    assert atomic_writer.count("removePathIfExists(tempPath)") >= 3
-
-    lock_writer = source.split("fun writePackageLockfile(", 1)[1].split(
-        "\nfun ensureProjectPackageDependenciesForManifest", 1
-    )[0]
-    assert ") r: Bool {" in lock_writer
-    assert 'return writeTextAtomically(projectRoot + "/Seen.lock", lockContent)' in (
-        lock_writer
-    )
-    dependency_gate = source.split(
-        "fun ensureProjectPackageDependenciesForManifest(", 1
-    )[1].split("\nfun ensureProjectPackageDependenciesForInput", 1)[0]
-    assert "if not writePackageLockfile(projectRoot, deps)" in dependency_gate
-    assert "if exists(lockPath)" in dependency_gate
-
-    publish_flow = source.split('if subcommand == "publish" {', 1)[1].split(
-        "\n    printPkgUsage()", 1
-    )[0]
-    assert "if not writeTextAtomically(indexPath, newIndex)" in publish_flow
-    failed_index = publish_flow.split(
-        "if not writeTextAtomically(indexPath, newIndex)", 1
-    )[1].split("return 1", 1)[0]
-    assert "removePathIfExists(archivePath)" in failed_index
-
-    inline_validator = source.split(
-        "fun packageDependencyInlineFieldsAreKnownAndUnique(", 1
-    )[1].split("\nfun parsePackageDependencyEntry", 1)[0]
-    for parser in (
-        "scanTomlInlineQuotedString",
-        "scanTomlInlineStringArray",
-        "skipTomlInlineWhitespace",
-    ):
-        assert parser in inline_validator
-    for counter in (
-        "packageCount",
-        "versionCount",
-        "registryCount",
-        "pathCount",
-        "artifactCount",
-        "allowCount",
-        "systemCount",
-    ):
-        assert f"{counter} > 1" in inline_validator
-    assert "if pos >= value.length() or value.byteAt(pos) == 125" in inline_validator
-
-    boolean_parser = source.split("fun extractTomlInlineBooleanField(", 1)[1].split(
-        "\nfun packageDependencyInlineFieldsAreKnownAndUnique", 1
-    )[0]
-    assert "var inQuote = false" in boolean_parser
-    assert "var escaped = false" in boolean_parser
-    dependency_parser = source.split("fun parsePackageDependencyEntry(", 1)[1].split(
-        "\nfun extractTomlPackageDependencies", 1
-    )[0]
-    assert (
-        "if not packageDependencyInlineFieldsAreKnownAndUnique(trimmedValue)"
-        in dependency_parser
-    )
-    assert (
-        'extractTomlInlineBooleanField(trimmedValue, "system") == 1'
-        in dependency_parser
-    )
-    assert 'contains("system = true")' not in dependency_parser
-    dependency_extractor = source.split(
-        "fun extractTomlPackageDependencies(", 1
-    )[1].split("\nfun countRegistryPackageDependencies", 1)[0]
-    assert 'dep.error = "duplicate dependency alias"' in dependency_extractor
-
-    assert "packageDependencyInlineFieldsAreKnownAndUnique(tomlVal)" in source
-    assert 'extractTomlInlineBooleanField(tomlVal, "system") == 1' in source
-
-    file_source = (ROOT / "seen_std" / "src" / "io" / "file.seen").read_text(
-        encoding="utf-8"
-    )
-    write_text = file_source.split("fun writeText(", 1)[1].split(
-        "\nfun appendText", 1
-    )[0]
-    assert "return written == content.length() and closeResult >= 0" in write_text
-
-
-def check_draft_security_boundary() -> None:
+def check_security_boundary() -> None:
     readme = (CONTRACT / "README.md").read_text(encoding="utf-8")
     threat_model = (CONTRACT / "threat-model.md").read_text(encoding="utf-8")
-    packaging = (ROOT / "docs" / "packaging.md").read_text(encoding="utf-8")
-    assert "not yet the normative v1 contract" in readme
-    assert "Public upload" in readme and "must remain disabled" in readme
+    assert "normative v1" in readme
+    assert "not yet the normative" not in readme
+    assert "valid deterministic test signatures" in readme
+    assert "official origins fail closed" in readme
     assert "Signing-key compromise" in threat_model
     table_rows = [
         line
@@ -2096,25 +2422,22 @@ def check_draft_security_boundary() -> None:
     for row in table_rows[1:]:
         columns = [column.strip() for column in row.split("|")[1:-1]]
         assert len(columns) == 6 and all(columns), row
-    assert "legacy local-static" in packaging
-    assert "must not be exposed as a public write path" in packaging
-
-
 def main() -> None:
     check_identities()
     check_manifest()
     check_resolver_lock()
     check_semantic_versions()
     check_semver_requirements()
+    check_resolver_graph()
+    check_resolver_modes()
     check_registry_origins()
     check_api_contracts()
     check_archive_contracts()
     check_signing_contracts()
     check_provenance_contracts()
     check_release_transitions()
-    check_compiler_separation()
-    check_draft_security_boundary()
-    print("PASS: Seen package registry v1 draft contracts and shared fixtures")
+    check_security_boundary()
+    print("PASS: Seen package registry v1 normative contracts and shared fixtures")
 
 
 if __name__ == "__main__":

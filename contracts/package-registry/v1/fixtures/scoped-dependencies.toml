@@ -18,4 +18,8 @@ capabilities = ["network"]
 json_pkg = { package = "seen/json", version = "2.1.0", allow = [] }
 tls_pkg = { package = "alice/tls", version = "1.4.0", allow = ["network", "ffi"] }
 
+[package-grants]
+"alice/tls" = ["ffi", "network"]
+"seen/json" = []
+
 [native.dependencies]

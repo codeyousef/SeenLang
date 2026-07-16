@@ -1,0 +1,122 @@
+{
+  "contract_version": 1,
+  "schema": "../schemas/resolver-graph-case-v1.schema.json",
+  "registry_origin": "https://seen.dev.yousef.codes/packages",
+  "capability_policy": {
+    "signed_request": "candidate.capabilities",
+    "publisher_edge_limit": "every incoming edge allow must contain every requested capability",
+    "root_consent": "root grants must contain every requested capability for every direct or transitive package",
+    "new_or_expanded_request": "capability_consent_required-before-download-build-or-lock-write",
+    "removed_request": "accepted-with-deterministic-lock-rewrite-when-writes-are-allowed",
+    "multiple_paths": "all incoming edge limits are checked; root grants are keyed by canonical package identity",
+    "not_a_sandbox": true
+  },
+  "cases": [
+    {
+      "name": "diamond_intersects_transitive_constraints",
+      "strategy": "update", "modifiers": [],
+      "root": {"dependencies": [
+        {"alias": "a", "package": "alice/a", "registry_origin": "https://seen.dev.yousef.codes/packages", "requirement": "^1.0.0", "allow": []},
+        {"alias": "b", "package": "bob/b", "registry_origin": "https://seen.dev.yousef.codes/packages", "requirement": "^1.0.0", "allow": []}
+      ], "grants": []},
+      "candidates": [
+        {"package": "alice/a", "version": "1.0.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "availability": "available", "capabilities": [], "dependencies": [{"alias": "util", "package": "seen/util", "registry_origin": "https://seen.dev.yousef.codes/packages", "requirement": "^1.0.0", "allow": []}]},
+        {"package": "bob/b", "version": "1.0.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "availability": "available", "capabilities": [], "dependencies": [{"alias": "util", "package": "seen/util", "registry_origin": "https://seen.dev.yousef.codes/packages", "requirement": ">=1.5.0 <2.0.0", "allow": []}]},
+        {"package": "seen/util", "version": "1.8.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "availability": "available", "capabilities": [], "dependencies": []},
+        {"package": "seen/util", "version": "2.0.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "availability": "available", "capabilities": [], "dependencies": []}
+      ],
+      "expected": {"outcome": "select", "selected": [
+        {"package": "alice/a", "version": "1.0.0", "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+        {"package": "bob/b", "version": "1.0.0", "archive_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+        {"package": "seen/util", "version": "1.8.0", "archive_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}
+      ]}
+    },
+    {
+      "name": "canonical_backtracking_chooses_lower_parent",
+      "strategy": "update", "modifiers": [],
+      "root": {"dependencies": [
+        {"alias": "app", "package": "alice/app", "registry_origin": "https://seen.dev.yousef.codes/packages", "requirement": "^1.0.0", "allow": []},
+        {"alias": "core", "package": "seen/core", "registry_origin": "https://seen.dev.yousef.codes/packages", "requirement": "^1.0.0", "allow": []}
+      ], "grants": []},
+      "candidates": [
+        {"package": "alice/app", "version": "1.2.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "1212121212121212121212121212121212121212121212121212121212121212", "availability": "available", "capabilities": [], "dependencies": [{"alias": "core", "package": "seen/core", "registry_origin": "https://seen.dev.yousef.codes/packages", "requirement": "^2.0.0", "allow": []}]},
+        {"package": "alice/app", "version": "1.1.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "1111111111111111111111111111111111111111111111111111111111111111", "availability": "available", "capabilities": [], "dependencies": [{"alias": "core", "package": "seen/core", "registry_origin": "https://seen.dev.yousef.codes/packages", "requirement": "^1.0.0", "allow": []}]},
+        {"package": "seen/core", "version": "2.1.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "2222222222222222222222222222222222222222222222222222222222222222", "availability": "available", "capabilities": [], "dependencies": []},
+        {"package": "seen/core", "version": "1.9.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "1919191919191919191919191919191919191919191919191919191919191919", "availability": "available", "capabilities": [], "dependencies": []}
+      ],
+      "expected": {"outcome": "select", "selected": [
+        {"package": "alice/app", "version": "1.1.0", "archive_sha256": "1111111111111111111111111111111111111111111111111111111111111111"},
+        {"package": "seen/core", "version": "1.9.0", "archive_sha256": "1919191919191919191919191919191919191919191919191919191919191919"}
+      ]}
+    },
+    {
+      "name": "consistent_cycle_reuses_selected_nodes",
+      "strategy": "update", "modifiers": [],
+      "root": {"dependencies": [{"alias": "a", "package": "alice/a", "registry_origin": "https://seen.dev.yousef.codes/packages", "requirement": "^1.0.0", "allow": []}], "grants": []},
+      "candidates": [
+        {"package": "alice/a", "version": "1.0.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "availability": "available", "capabilities": [], "dependencies": [{"alias": "b", "package": "bob/b", "registry_origin": "https://seen.dev.yousef.codes/packages", "requirement": "^1.0.0", "allow": []}]},
+        {"package": "bob/b", "version": "1.0.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "availability": "available", "capabilities": [], "dependencies": [{"alias": "a", "package": "alice/a", "registry_origin": "https://seen.dev.yousef.codes/packages", "requirement": "^1.0.0", "allow": []}]}
+      ],
+      "expected": {"outcome": "select", "selected": [
+        {"package": "alice/a", "version": "1.0.0", "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+        {"package": "bob/b", "version": "1.0.0", "archive_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
+      ]}
+    },
+    {
+      "name": "diamond_conflict_reports_canonical_requesters",
+      "strategy": "update", "modifiers": [],
+      "root": {"dependencies": [
+        {"alias": "a", "package": "alice/a", "registry_origin": "https://seen.dev.yousef.codes/packages", "requirement": "1.0.0", "allow": []},
+        {"alias": "b", "package": "bob/b", "registry_origin": "https://seen.dev.yousef.codes/packages", "requirement": "1.0.0", "allow": []}
+      ], "grants": []},
+      "candidates": [
+        {"package": "alice/a", "version": "1.0.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "availability": "available", "capabilities": [], "dependencies": [{"alias": "util", "package": "seen/util", "registry_origin": "https://seen.dev.yousef.codes/packages", "requirement": "^1.0.0", "allow": []}]},
+        {"package": "bob/b", "version": "1.0.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "availability": "available", "capabilities": [], "dependencies": [{"alias": "util", "package": "seen/util", "registry_origin": "https://seen.dev.yousef.codes/packages", "requirement": "^2.0.0", "allow": []}]},
+        {"package": "seen/util", "version": "1.9.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "1111111111111111111111111111111111111111111111111111111111111111", "availability": "available", "capabilities": [], "dependencies": []},
+        {"package": "seen/util", "version": "2.1.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "2222222222222222222222222222222222222222222222222222222222222222", "availability": "available", "capabilities": [], "dependencies": []}
+      ],
+      "expected": {"outcome": "error", "error_code": "dependency_constraint_conflict", "conflict_requesters": ["alice/a@1.0.0", "bob/b@1.0.0"]}
+    },
+    {
+      "name": "direct_capability_must_be_allowed",
+      "strategy": "normal", "modifiers": [],
+      "root": {"dependencies": [{"alias": "http", "package": "seen/http", "registry_origin": "https://seen.dev.yousef.codes/packages", "requirement": "1.0.0", "allow": []}], "grants": [{"package": "seen/http", "capabilities": ["network"]}]},
+      "candidates": [{"package": "seen/http", "version": "1.0.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "availability": "available", "capabilities": ["network"], "dependencies": []}],
+      "expected": {"outcome": "error", "error_code": "dependency_capability_not_allowed", "package": "seen/http", "capabilities": ["network"]}
+    },
+    {
+      "name": "transitive_capability_requires_root_consent",
+      "strategy": "normal", "modifiers": [],
+      "root": {"dependencies": [{"alias": "web", "package": "alice/web", "registry_origin": "https://seen.dev.yousef.codes/packages", "requirement": "1.0.0", "allow": []}], "grants": []},
+      "candidates": [
+        {"package": "alice/web", "version": "1.0.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "availability": "available", "capabilities": [], "dependencies": [{"alias": "tls", "package": "seen/tls", "registry_origin": "https://seen.dev.yousef.codes/packages", "requirement": "1.0.0", "allow": ["network"]}]},
+        {"package": "seen/tls", "version": "1.0.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "availability": "available", "capabilities": ["network"], "dependencies": []}
+      ],
+      "expected": {"outcome": "error", "error_code": "capability_consent_required", "package": "seen/tls", "capabilities": ["network"]}
+    },
+    {
+      "name": "transitive_capability_with_root_consent",
+      "strategy": "normal", "modifiers": [],
+      "root": {"dependencies": [{"alias": "web", "package": "alice/web", "registry_origin": "https://seen.dev.yousef.codes/packages", "requirement": "1.0.0", "allow": []}], "grants": [{"package": "seen/tls", "capabilities": ["network"]}]},
+      "candidates": [
+        {"package": "alice/web", "version": "1.0.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "availability": "available", "capabilities": [], "dependencies": [{"alias": "tls", "package": "seen/tls", "registry_origin": "https://seen.dev.yousef.codes/packages", "requirement": "1.0.0", "allow": ["network"]}]},
+        {"package": "seen/tls", "version": "1.0.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "availability": "available", "capabilities": ["network"], "dependencies": []}
+      ],
+      "expected": {"outcome": "select", "selected": [
+        {"package": "alice/web", "version": "1.0.0", "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+        {"package": "seen/tls", "version": "1.0.0", "archive_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
+      ]}
+    },
+    {
+      "name": "expanded_capability_on_update_requires_new_consent",
+      "description": "The newer signed candidate adds network; an old capability-free approval cannot silently authorize it.",
+      "strategy": "update", "modifiers": [],
+      "root": {"dependencies": [{"alias": "http", "package": "seen/http", "registry_origin": "https://seen.dev.yousef.codes/packages", "requirement": "^1.0.0", "allow": ["network"]}], "grants": []},
+      "candidates": [
+        {"package": "seen/http", "version": "1.1.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "availability": "available", "capabilities": ["network"], "dependencies": []},
+        {"package": "seen/http", "version": "1.0.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "availability": "available", "capabilities": [], "dependencies": []}
+      ],
+      "expected": {"outcome": "error", "error_code": "capability_consent_required", "package": "seen/http", "capabilities": ["network"]}
+    }
+  ]
+}

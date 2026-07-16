@@ -210,6 +210,13 @@ install_seen() {
     if [ ! -f "$seen_bin" ]; then
         error "Release archive does not contain a Seen compiler binary"
     fi
+    local package_client_bin="$package_dir/bin/seen-pkg"
+    if [ ! -f "$package_client_bin" ] && [ -f "$temp_dir/seen-pkg" ]; then
+        package_client_bin="$temp_dir/seen-pkg"
+    fi
+    if [ ! -f "$package_client_bin" ]; then
+        error "Release archive does not contain the version-coupled Seen package client"
+    fi
     
     info "Installing Seen to $install_dir..."
     
@@ -223,6 +230,7 @@ install_seen() {
         # Install binaries. Use temp-file rename so an existing destination
         # symlink is replaced rather than followed by cp.
         install_file_no_follow "$seen_bin" "$install_dir/bin/seen" 755 true
+        install_file_no_follow "$package_client_bin" "$install_dir/bin/seen-pkg" 755 true
         
         # Install LSP server if present
         if [ -f "$package_dir/bin/seen-lsp" ]; then
@@ -273,6 +281,7 @@ install_seen() {
         mkdir -p "$install_dir/share/doc/seen"
         
         install_file_no_follow "$seen_bin" "$install_dir/bin/seen" 755 false
+        install_file_no_follow "$package_client_bin" "$install_dir/bin/seen-pkg" 755 false
         
         if [ -f "$package_dir/bin/seen-lsp" ]; then
             install_file_no_follow "$package_dir/bin/seen-lsp" "$install_dir/bin/seen-lsp" 755 false

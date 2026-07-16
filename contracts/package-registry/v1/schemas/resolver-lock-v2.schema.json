@@ -1,12 +1,14 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:seen:package-registry:v1:resolver-lock-v2",
-  "title": "Seen dependency resolver lock v2",
+  "title": "Seen dependency graph lock v2",
   "type": "object",
   "additionalProperties": false,
-  "required": ["version", "packages"],
+  "required": ["version", "manifest_sha256", "root", "packages"],
   "properties": {
     "version": {"const": 2},
+    "manifest_sha256": {"$ref": "#/$defs/sha256"},
+    "root": {"$ref": "#/$defs/root"},
     "packages": {
       "type": "array",
       "items": {"$ref": "#/$defs/package"}
@@ -16,24 +18,7 @@
     "alias": {
       "type": "string",
       "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$",
-      "not": {
-        "enum": [
-          "lexer",
-          "parser",
-          "typechecker",
-          "macro",
-          "bootstrap",
-          "codegen",
-          "lsp",
-          "tools",
-          "optimization",
-          "trace",
-          "ir",
-          "types",
-          "testing",
-          "ffi"
-        ]
-      }
+      "not": {"enum": ["lexer", "parser", "typechecker", "macro", "bootstrap", "codegen", "lsp", "tools", "optimization", "trace", "ir", "types", "testing", "ffi"]}
     },
     "identity": {
       "type": "string",
@@ -45,50 +30,73 @@
       "maxLength": 128,
       "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$"
     },
-    "sha256": {
-      "type": "string",
-      "pattern": "^[0-9a-f]{64}$"
-    },
+    "requirement": {"$ref": "urn:seen:package-registry:v1:semver-requirement"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "registryOrigin": {
       "type": "string",
       "format": "uri",
       "pattern": "^https://[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+(?:/[a-z0-9][a-z0-9._~-]*)+$"
     },
+    "capability": {
+      "enum": ["file", "network", "process", "environment", "dynamic-load", "ffi", "unsafe", "native-link", "macro"]
+    },
+    "capabilitySet": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/capability"}
+    },
+    "edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["alias", "package", "registry_origin", "requirement", "resolved_version", "resolved_archive_sha256", "allow"],
+      "properties": {
+        "alias": {"$ref": "#/$defs/alias"},
+        "package": {"$ref": "#/$defs/identity"},
+        "registry_origin": {"$ref": "#/$defs/registryOrigin"},
+        "requirement": {"$ref": "#/$defs/requirement"},
+        "resolved_version": {"$ref": "#/$defs/exactVersion"},
+        "resolved_archive_sha256": {"$ref": "#/$defs/sha256"},
+        "allow": {"$ref": "#/$defs/capabilitySet"}
+      }
+    },
+    "root": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "dependencies"],
+      "properties": {
+        "name": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$"},
+        "version": {"$ref": "#/$defs/exactVersion"},
+        "dependencies": {"type": "array", "items": {"$ref": "#/$defs/edge"}}
+      }
+    },
     "package": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "alias",
-        "package",
-        "version",
-        "source",
-        "registry_origin"
-      ],
+      "required": ["package", "version", "source", "registry_origin", "archive_sha256", "target_path", "metadata_version", "capabilities", "grants", "dependencies"],
       "properties": {
-        "alias": {"$ref": "#/$defs/alias"},
-        "package": {"type": "string", "minLength": 1},
+        "package": {"$ref": "#/$defs/identity"},
         "version": {"$ref": "#/$defs/exactVersion"},
-        "source": {
-          "enum": ["hosted-registry", "legacy-local-static"]
+        "source": {"const": "hosted-registry"},
+        "registry_origin": {"$ref": "#/$defs/registryOrigin"},
+        "archive_sha256": {"$ref": "#/$defs/sha256"},
+        "target_path": {
+          "type": "string",
+          "pattern": "^packages/[a-z0-9-]+/[a-z0-9-]+/[0-9A-Za-z.+-]+/[0-9a-f]{64}/[a-z0-9-]+-[0-9A-Za-z.+-]+\\.seenpkg\\.tgz$"
         },
-        "registry_origin": {"type": "string", "minLength": 1},
-        "archive_sha256": {"$ref": "#/$defs/sha256"}
-      },
-      "allOf": [
-        {
-          "if": {
-            "properties": {"source": {"const": "hosted-registry"}},
-            "required": ["source"]
-          },
-          "then": {
-            "required": ["archive_sha256"],
-            "properties": {
-              "package": {"$ref": "#/$defs/identity"},
-              "registry_origin": {"$ref": "#/$defs/registryOrigin"}
-            }
-          }
-        }
-      ]
+        "metadata_version": {"type": "integer", "minimum": 1},
+        "capabilities": {"$ref": "#/$defs/capabilitySet"},
+        "grants": {"$ref": "#/$defs/capabilitySet"},
+        "dependencies": {"type": "array", "items": {"$ref": "#/$defs/edge"}}
+      }
     }
+  },
+  "x-seen-semantic-rules": {
+    "node_identity": "registry_origin,package,version,archive_sha256",
+    "edge_binding": "each edge resolved tuple must name exactly one packages entry",
+    "graph_closure": "every non-root dependency edge must resolve to a packages entry and every packages entry must be reachable from root",
+    "canonical_order": "root dependencies and package dependencies sort by alias UTF-8; packages sort by registry_origin,package,version,archive_sha256 UTF-8",
+    "target_binding": "target_path owner,name,version,digest and leaf must byte-match the node",
+    "capability_binding": "capabilities are signed requests; grants are root consent and must be a superset; each incoming edge allow must also be a superset",
+    "write": "serialize deterministically and replace atomically only after complete graph, signed metadata, archive hashes, and capability consent validate"
   }
 }

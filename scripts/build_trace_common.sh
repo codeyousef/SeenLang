@@ -213,20 +213,40 @@ seen_build_write_full_release_stamp() {
     local compiler="${2:-$root/compiler_seen/target/seen}"
     local stamp_dir="$root/target/seen-build"
     local stamp="$stamp_dir/full-release.stamp"
-    local compiler_hash commit branch version
+    local compiler_hash package_client package_client_hash commit branch tree version
+
+    if [ -n "$(git -C "$root" status --porcelain --untracked-files=all 2>/dev/null)" ]; then
+        echo "Error: full release stamp requires a clean tracked and untracked source tree." >&2
+        echo "Commit the exact verified release tree before writing the stamp." >&2
+        return 1
+    fi
 
     mkdir -p "$stamp_dir"
     compiler_hash=$(seen_build_hash_file "$compiler")
+    package_client="${SEEN_PACKAGE_CLIENT_BIN:-$(dirname "$compiler")/seen-pkg}"
+    if [ ! -x "$package_client" ]; then
+        echo "Error: full release stamp requires the version-coupled package client beside the compiler." >&2
+        return 1
+    fi
+    package_client_hash=$(seen_build_hash_file "$package_client")
     commit=$(git -C "$root" rev-parse HEAD 2>/dev/null || echo unknown)
     branch=$(git -C "$root" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)
+    tree=$(git -C "$root" rev-parse 'HEAD^{tree}' 2>/dev/null || echo unknown)
+    if [ "$tree" = "unknown" ]; then
+        echo "Error: full release stamp could not resolve the verified Git tree." >&2
+        return 1
+    fi
     version=$("$compiler" --version 2>/dev/null | head -1 || echo unknown)
     {
-        printf 'stamp_version=1\n'
+        printf 'stamp_version=3\n'
         printf 'created_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
         printf 'branch=%s\n' "$branch"
         printf 'commit=%s\n' "$commit"
+        printf 'tree=%s\n' "$tree"
         printf 'compiler=%s\n' "$compiler"
         printf 'compiler_sha256=%s\n' "$compiler_hash"
+        printf 'package_client=%s\n' "$package_client"
+        printf 'package_client_sha256=%s\n' "$package_client_hash"
         printf 'seen_version=%s\n' "$version"
         printf 'release_cpu_baseline=%s\n' "${SEEN_RELEASE_CPU_BASELINE:-native}"
     } > "$stamp"
@@ -238,7 +258,7 @@ seen_build_require_full_release_stamp() {
     local compiler="$2"
     local stamp="$root/target/seen-build/full-release.stamp"
     local max_age="${SEEN_RELEASE_FULL_STAMP_MAX_AGE_SECONDS:-86400}"
-    local now stamp_time age expected_hash actual_hash
+    local now stamp_time age expected_hash actual_hash package_client expected_package_hash actual_package_hash expected_tree actual_tree
 
     if [ "${SEEN_RELEASE_SKIP_FULL_STAMP:-0}" = "1" ]; then
         echo "WARNING: full release stamp check skipped by SEEN_RELEASE_SKIP_FULL_STAMP=1." >&2
@@ -247,6 +267,24 @@ seen_build_require_full_release_stamp() {
     if [ ! -f "$stamp" ]; then
         echo "Error: release upload requires a recent full verification stamp." >&2
         echo "Run a memory-capped full rebuild first: scripts/safe_rebuild.sh --tier full" >&2
+        return 1
+    fi
+    if ! grep -Fqx 'stamp_version=3' "$stamp"; then
+        echo "Error: full verification stamp predates source-tree verification." >&2
+        echo "Run scripts/safe_rebuild.sh --tier full before uploading." >&2
+        return 1
+    fi
+
+    if [ -n "$(git -C "$root" status --porcelain --untracked-files=all 2>/dev/null)" ]; then
+        echo "Error: release upload requires the exact clean tree used by the full rebuild." >&2
+        echo "Commit or remove all source-tree changes, then run scripts/safe_rebuild.sh --tier full." >&2
+        return 1
+    fi
+    expected_tree=$(awk -F= '/^tree=/ {print $2; exit}' "$stamp")
+    actual_tree=$(git -C "$root" rev-parse 'HEAD^{tree}' 2>/dev/null || true)
+    if [ -z "$expected_tree" ] || [ "$expected_tree" != "$actual_tree" ]; then
+        echo "Error: full verification stamp does not match the current release source tree." >&2
+        echo "Run scripts/safe_rebuild.sh --tier full from the exact tree being published." >&2
         return 1
     fi
 
@@ -264,6 +302,18 @@ seen_build_require_full_release_stamp() {
     if [ -z "$expected_hash" ] || [ "$expected_hash" != "$actual_hash" ]; then
         echo "Error: full verification stamp does not match the compiler selected for upload." >&2
         echo "Run scripts/safe_rebuild.sh --tier full with the same compiler artifact." >&2
+        return 1
+    fi
+    package_client="${SEEN_PACKAGE_CLIENT_BIN:-$(dirname "$compiler")/seen-pkg}"
+    expected_package_hash=$(awk -F= '/^package_client_sha256=/ {print $2; exit}' "$stamp")
+    if [ ! -x "$package_client" ]; then
+        echo "Error: release package client is missing beside the verified compiler." >&2
+        return 1
+    fi
+    actual_package_hash=$(seen_build_hash_file "$package_client")
+    if [ -z "$expected_package_hash" ] || [ "$expected_package_hash" != "$actual_package_hash" ]; then
+        echo "Error: full verification stamp does not match the package client selected for upload." >&2
+        echo "Run scripts/safe_rebuild.sh --tier full with the same compiler and package client." >&2
         return 1
     fi
 }

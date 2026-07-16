@@ -12,7 +12,8 @@ import process
 |----------|-----------|-------------|
 | `runCommand` | `(cmd: String) r: CommandResult` | Execute shell command, capture output |
 | `runProgram` | `(path: String) r: Int` | Execute program, return exit code |
-| `execCommand` | `(cmd: String) r: Int` | Execute command, return exit code |
+| `runProgramRequest` | `(path: String, requestContent: String) r: Int` | Materialize private request content and execute an exact program path with one request-file argument, without a command shell |
+| `execCommand` | `(cmd: String) r: CommandResult` | Execute a shell command and return status/output |
 | `runCommandOutput` | `(cmd: String) r: String` | Execute and return stdout |
 | `runCommandOrAbort` | `(cmd: String) r: Void` | Execute, abort on failure |
 
@@ -33,6 +34,10 @@ if commandWasSuccessful(result) {
 }
 
 let exitCode = runProgram("/usr/bin/gcc")
+
+// Suitable for a structured request protocol: the helper path is not
+// shell-expanded and the runtime creates and removes the private request file.
+let helperStatus = runProgramRequest("/usr/lib/seen/seen-pkg", requestContent)
 ```
 
 ## Process Management
@@ -110,6 +115,7 @@ let safe = shellQuote("file with spaces.txt")
 | Function | Description |
 |----------|-------------|
 | `__ExecuteProgram(path)` | Execute program, return exit code |
+| `__ExecuteProgramRequest(path, requestPath)` | Internal exact-argument primitive used by the structured request bridge |
 | `__seen_fork()` | Fork process |
 | `__seen_waitpid(pid, flags)` | Wait for child |
 | `__seen_exit(code)` | Exit process |

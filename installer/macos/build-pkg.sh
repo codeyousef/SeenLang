@@ -3,6 +3,7 @@
 #
 # This creates an installer that places:
 #   /usr/local/bin/seen          - Compiler + LSP (seen lsp)
+#   /usr/local/bin/seen-pkg      - Version-coupled package client
 #   /usr/local/bin/seen-lsp      - Symlink to seen (convenience)
 #   /usr/local/lib/seen/         - Standard library sources
 #   /usr/local/share/seen/       - Language configs, runtime headers
@@ -13,11 +14,10 @@
 #
 # Requirements: macOS with pkgbuild + productbuild (included in Xcode CLI tools)
 
-set -e
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-VERSION="${VERSION:-0.1.0-alpha}"
 IDENTIFIER="org.seen-lang.seen"
 
 # Colors
@@ -48,11 +48,34 @@ if [ ! -x "$SEEN_BIN" ]; then
     die "Seen binary not found at $SEEN_BIN. Build it first with ./scripts/safe_rebuild.sh"
 fi
 
+COMPILER_VERSION_LINE="$("$SEEN_BIN" --version 2>/dev/null | head -n 1)"
+case "$COMPILER_VERSION_LINE" in
+    "Seen "*) COMPILER_VERSION="${COMPILER_VERSION_LINE#Seen }" ;;
+    *) die "Cannot read a release version from $SEEN_BIN --version" ;;
+esac
+VERSION="${VERSION:-$COMPILER_VERSION}"
+if [ "$COMPILER_VERSION" != "$VERSION" ]; then
+    die "Compiler version $COMPILER_VERSION does not match installer version $VERSION"
+fi
+
+SEEN_BIN_DIR="$(cd "$(dirname "$SEEN_BIN")" && pwd)"
+PACKAGE_CLIENT_BIN="${SEEN_PACKAGE_CLIENT_BIN:-$SEEN_BIN_DIR/seen-pkg}"
+if [ ! -x "$PACKAGE_CLIENT_BIN" ]; then
+    die "Version-coupled package client not found at $PACKAGE_CLIENT_BIN. Run ./scripts/safe_rebuild.sh --tier full first or set SEEN_PACKAGE_CLIENT_BIN."
+fi
+PACKAGE_CLIENT_VERSION="$("$PACKAGE_CLIENT_BIN" --expect-version "$VERSION" version --machine 2>/dev/null)" ||
+    die "Package client at $PACKAGE_CLIENT_BIN does not match Seen $VERSION"
+if ! grep -qx 'protocol=SEENPKG1' <<<"$PACKAGE_CLIENT_VERSION" ||
+   ! grep -qx "version=$VERSION" <<<"$PACKAGE_CLIENT_VERSION"; then
+    die "Package client at $PACKAGE_CLIENT_BIN returned an invalid version handshake"
+fi
+
 ARCH=$(file "$SEEN_BIN" | grep -o 'arm64\|x86_64' | head -1)
 [ -z "$ARCH" ] && die "Cannot determine architecture of $SEEN_BIN"
 
 info "=== Seen macOS Installer Builder ==="
 info "Binary:  $SEEN_BIN ($ARCH)"
+info "Packages: $PACKAGE_CLIENT_BIN"
 info "Version: $VERSION"
 echo ""
 
@@ -70,10 +93,12 @@ mkdir -p "$PAYLOAD/usr/local/share/seen/languages"
 mkdir -p "$PAYLOAD/usr/local/share/seen/runtime"
 mkdir -p "$SCRIPTS"
 
-# --- 1. Install compiler binary (includes LSP) ---
-info "[1/5] Packaging compiler binary..."
+# --- 1. Install compiler binary, package client, and LSP wrapper ---
+info "[1/5] Packaging compiler and package client..."
 cp "$SEEN_BIN" "$PAYLOAD/usr/local/bin/seen"
 chmod 755 "$PAYLOAD/usr/local/bin/seen"
+cp "$PACKAGE_CLIENT_BIN" "$PAYLOAD/usr/local/bin/seen-pkg"
+chmod 755 "$PAYLOAD/usr/local/bin/seen-pkg"
 
 # Create seen-lsp convenience symlink (points to same binary, runs `seen lsp`)
 # We use a tiny wrapper script so editors can invoke seen-lsp directly
@@ -131,13 +156,14 @@ if [ -x "$SEEN" ]; then
     echo "Seen Language installed successfully!"
     echo ""
     echo "  Compiler:  $SEEN"
+    echo "  Packages:  /usr/local/bin/seen-pkg"
     echo "  LSP:       /usr/local/bin/seen-lsp  (or: seen lsp)"
     echo "  Stdlib:    /usr/local/lib/seen/"
     echo "  Languages: /usr/local/share/seen/languages/"
     echo ""
     echo "Quick start:"
     echo "  echo 'fun main() { println(\"Hello, Seen!\") }' > hello.seen"
-    echo "  seen build hello.seen"
+    echo "  seen compile hello.seen hello"
     echo "  ./hello"
     echo ""
     echo "VS Code extension:"
@@ -202,7 +228,8 @@ code { background: #f0f0f0; padding: 2px 6px; border-radius: 3px; font-size: 13p
 <p>A high-performance systems programming language with multi-language support.</p>
 
 <p>This installer will place the following on your system:</p>
-<div class="feature"><code>/usr/local/bin/seen</code> &mdash; Compiler, build system, and formatter</div>
+<div class="feature"><code>/usr/local/bin/seen</code> &mdash; Compiler and language server</div>
+<div class="feature"><code>/usr/local/bin/seen-pkg</code> &mdash; Version-coupled package client</div>
 <div class="feature"><code>/usr/local/bin/seen-lsp</code> &mdash; Language Server for editor integration</div>
 <div class="feature"><code>/usr/local/lib/seen/</code> &mdash; Standard library</div>
 <div class="feature"><code>/usr/local/share/seen/</code> &mdash; Language configs and runtime</div>
@@ -226,7 +253,7 @@ pre { background: #f8f8f8; padding: 12px; border-radius: 6px; font-size: 13px; }
 <p>Seen has been installed. Open a new terminal and try:</p>
 
 <pre>echo 'fun main() { println("Hello!") }' > hello.seen
-seen build hello.seen
+seen compile hello.seen hello
 ./hello</pre>
 
 <p><b>VS Code extension:</b></p>

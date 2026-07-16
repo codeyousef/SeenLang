@@ -2,9 +2,9 @@
 # Build release packages for the Seen language compiler.
 #
 # Usage:
-#   ./scripts/build_release.sh --version 0.9.5 \
+#   ./scripts/build_release.sh --version 0.10.0 \
 #     --cpu-baseline x86-64 --artifact-suffix linux-x64
-#   ./scripts/build_release.sh --version 0.9.5 \
+#   ./scripts/build_release.sh --version 0.10.0 \
 #     --compiler compiler_seen/target/seen-x86-64-v3 \
 #     --cpu-baseline x86-64-v3 --artifact-suffix linux-x64-v3
 #
@@ -31,6 +31,7 @@ fi
 VERSION=""
 OUTPUT_DIR="$ROOT_DIR/dist"
 COMPILER_BIN="$ROOT_DIR/compiler_seen/target/seen"
+PACKAGE_CLIENT_BIN="${SEEN_PACKAGE_CLIENT_BIN:-$ROOT_DIR/tools/seen-pkg/bin/seen-pkg}"
 CPU_BASELINE="${SEEN_RELEASE_CPU_BASELINE:-x86-64}"
 ARTIFACT_SUFFIX=""
 SKIP_VERIFY="${SEEN_RELEASE_SKIP_VERIFY:-0}"
@@ -56,6 +57,10 @@ release_payload_hash() {
             "$ROOT_DIR/CHANGELOG.md" \
             "$ROOT_DIR/LICENSE" \
             "$ROOT_DIR/scripts/seen_toolchain.sh" \
+            "$ROOT_DIR/tools/seen-pkg/go.mod" \
+            "$ROOT_DIR/tools/seen-pkg/go.sum" \
+            "$ROOT_DIR/tools/seen-pkg/cmd" \
+            "$ROOT_DIR/tools/seen-pkg/internal" \
             "${SEEN_LLVM_BUNDLE_DIR:-}"
     else
         find "$ROOT_DIR/seen_std/src" "$ROOT_DIR/seen_runtime" "$ROOT_DIR/languages" "$ROOT_DIR/docs" \
@@ -85,8 +90,9 @@ release_package_tool_signature() {
 }
 
 release_artifact_key() {
-    local compiler_hash payload_hash script_hash tool_hash
+    local compiler_hash package_client_hash payload_hash script_hash tool_hash
     compiler_hash="$(seen_build_hash_file "$COMPILER_BIN" 2>/dev/null || sha256sum "$COMPILER_BIN" | awk '{print $1}')"
+    package_client_hash="$(seen_build_hash_file "$PACKAGE_CLIENT_BIN" 2>/dev/null || sha256sum "$PACKAGE_CLIENT_BIN" | awk '{print $1}')"
     payload_hash="$1"
     script_hash="$(seen_build_hash_paths "$SCRIPT_DIR/build_release.sh" "$ROOT_DIR/installer/linux" 2>/dev/null || sha256sum "$SCRIPT_DIR/build_release.sh" | awk '{print $1}')"
     tool_hash="$(release_package_tool_signature)"
@@ -97,6 +103,7 @@ release_artifact_key() {
         printf 'cpu=%s\n' "$CPU_BASELINE"
         printf 'suffix=%s\n' "$ARTIFACT_SUFFIX"
         printf 'compiler=%s\n' "$compiler_hash"
+        printf 'package_client=%s\n' "$package_client_hash"
         printf 'payload=%s\n' "$payload_hash"
         printf 'scripts=%s\n' "$script_hash"
         printf 'tools=%s\n' "$tool_hash"
@@ -176,7 +183,7 @@ usage() {
     echo "          [--cpu-baseline <x86-64|x86-64-v3>] [--artifact-suffix <linux-x64|linux-x64-v3>]"
     echo ""
     echo "Options:"
-    echo "  --version          Release version (e.g., 0.9.5) [required]"
+    echo "  --version          Release version (e.g., 0.10.0) [required]"
     echo "  --output-dir       Output directory (default: dist/)"
     echo "  --compiler         Path to compiler binary (default: compiler_seen/target/seen)"
     echo "  --cpu-baseline     Packaged binary CPU baseline (default: x86-64)"
@@ -241,6 +248,18 @@ if [[ ! -x "$COMPILER_BIN" ]]; then
     exit 1
 fi
 
+if [[ ! -x "$PACKAGE_CLIENT_BIN" ]]; then
+    "$SCRIPT_DIR/build_package_client.sh" \
+        --version "$VERSION" \
+        --goos linux \
+        --goarch amd64 \
+        --output "$PACKAGE_CLIENT_BIN"
+fi
+if [[ ! -x "$PACKAGE_CLIENT_BIN" ]]; then
+    echo "Error: package client binary not found at $PACKAGE_CLIENT_BIN" >&2
+    exit 1
+fi
+
 mkdir -p "$OUTPUT_DIR"
 OUTPUT_DIR="$(cd "$OUTPUT_DIR" && pwd)"
 
@@ -278,10 +297,13 @@ fi
 STAGING="$OUTPUT_DIR/staging/$PACKAGE_NAME"
 mkdir -p "$STAGING"/{bin,lib/seen/std,lib/seen/runtime,lib/seen/toolchain,share/seen/languages,share/doc/seen}
 
-echo "[1/6] Copying compiler binary..."
+echo "[1/6] Copying compiler and package-client binaries..."
 cp "$COMPILER_BIN" "$STAGING/bin/seen"
 chmod +x "$STAGING/bin/seen"
 strip "$STAGING/bin/seen" 2>/dev/null || true
+cp "$PACKAGE_CLIENT_BIN" "$STAGING/bin/seen-pkg"
+chmod +x "$STAGING/bin/seen-pkg"
+strip "$STAGING/bin/seen-pkg" 2>/dev/null || true
 
 if [[ -f "$PAYLOAD_CACHE_DIR/.ready" ]]; then
     echo "[2-5/6] Reusing package payload cache..."
@@ -414,6 +436,7 @@ install_file_no_follow() {
 echo "Installing Seen Language to $PREFIX ..."
 run_install mkdir -p "$PREFIX/bin" "$PREFIX/lib/seen" "$PREFIX/share/seen" "$PREFIX/share/doc/seen"
 install_file_no_follow "bin/seen" "$PREFIX/bin/seen" 755
+install_file_no_follow "bin/seen-pkg" "$PREFIX/bin/seen-pkg" 755
 run_install cp -r lib/seen/* "$PREFIX/lib/seen/"
 run_install cp -r share/seen/* "$PREFIX/share/seen/"
 run_install cp -r share/doc/seen/* "$PREFIX/share/doc/seen/"

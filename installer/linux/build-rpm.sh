@@ -197,6 +197,7 @@ validate_sources() {
     
     local required_files=(
         "$SOURCE_DIR/seen"
+        "$SOURCE_DIR/seen-pkg"
         "$PROJECT_ROOT/seen_std"
         "$PROJECT_ROOT/languages"
     )
@@ -320,6 +321,7 @@ install -d %{buildroot}%{_datadir}/pixmaps
 
 # Install binaries
 install -m 755 seen %{buildroot}%{_bindir}/seen
+install -m 755 seen-pkg %{buildroot}%{_bindir}/seen-pkg
 %if 0%{?with_lsp:1}
 install -m 755 seen-lsp %{buildroot}%{_bindir}/seen-lsp
 %endif
@@ -398,6 +400,7 @@ DESKTOPEOF
 %license LICENSE
 %doc README.md
 %{_bindir}/seen
+%{_bindir}/seen-pkg
 %{_libdir}/seen/
 %{_datadir}/seen/
 %{_mandir}/man1/seen.1*
@@ -473,6 +476,7 @@ create_source_tarball() {
     
     # Copy binaries
     cp "$SOURCE_DIR/seen" "$source_dir/"
+    cp "$SOURCE_DIR/seen-pkg" "$source_dir/"
     
     if [ -f "$SOURCE_DIR/seen-lsp" ]; then
         cp "$SOURCE_DIR/seen-lsp" "$source_dir/"

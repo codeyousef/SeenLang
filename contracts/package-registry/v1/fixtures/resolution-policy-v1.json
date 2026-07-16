@@ -41,28 +41,56 @@
     "same-version-different-digest": "fail-metadata-equivocation",
     "lexical-build-tiebreak": "forbidden"
   },
-  "lock_modes": {
-    "frozen": {
-      "lock_required": true,
-      "candidate_order": "locked-only",
-      "network_reselection": false,
-      "write_lock": false,
-      "invalid_lock": "fail-closed"
-    },
+  "operation_modes": {
     "normal": {
+      "selection": "prefer-valid-locked-graph-then-resolve-highest",
       "lock_required": false,
       "candidate_order": "valid-locked-candidate-first-then-descending-precedence",
-      "network_reselection": true,
+      "network": "allowed",
       "write_lock": "only-if-selection-differs-or-entry-is-missing",
       "invalid_lock": "reselect-except-origin-digest-or-security-failures"
     },
     "update": {
+      "selection": "resolve-highest-without-lock-preference",
       "lock_required": false,
       "candidate_order": "descending-precedence-ignore-lock-preference",
-      "network_reselection": true,
+      "network": "required-unless-combined-with-offline",
       "write_lock": true,
       "invalid_lock": "reselect-except-origin-digest-or-security-failures"
+    },
+    "locked": {
+      "selection": "locked-graph-only",
+      "lock_required": true,
+      "candidate_order": "locked-only",
+      "network": "allowed-only-for-exact-locked-metadata-and-blobs",
+      "write_lock": false,
+      "invalid_lock": "fail-closed"
+    },
+    "offline": {
+      "selection": "normal-or-update-strategy-over-locally-verified-metadata-and-blobs-only",
+      "lock_required": false,
+      "candidate_order": "selected-strategy",
+      "network": "forbidden",
+      "write_lock": "allowed-after-complete-local-verification",
+      "cache_miss": "offline_data_unavailable"
+    },
+    "frozen": {
+      "selection": "locked-graph-only",
+      "equivalent_to": ["locked", "offline"],
+      "lock_required": true,
+      "candidate_order": "locked-only",
+      "network": "forbidden",
+      "write_lock": false,
+      "invalid_lock": "fail-closed"
     }
+  },
+  "mode_composition": {
+    "offline_with_normal": "allowed",
+    "offline_with_update": "allowed-and-selects-from-locally-verified-candidates",
+    "locked_with_offline": "allowed-and-identical-to-frozen",
+    "update_with_locked": "invalid-mode-combination",
+    "update_with_frozen": "invalid-mode-combination",
+    "frozen_with_network_override": "forbidden"
   },
   "deterministic_solver": {
     "package_decision_order": "ascending-utf8-by-registry-origin-then-package",
@@ -86,13 +114,20 @@
     "lock_required",
     "locked_requirement_mismatch",
     "locked_release_quarantined",
-    "metadata_equivocation"
+    "metadata_equivocation",
+    "offline_data_unavailable",
+    "invalid_mode_combination",
+    "dependency_cycle_inconsistent",
+    "capability_consent_required",
+    "dependency_capability_not_allowed"
   ],
-  "implementation_status": {
-    "compiler_subset": "exact-requirements-only",
-    "executable_fixture_scope": "per-package-candidate-selection-kernel-only",
-    "transitive_graph_backtracking_fixture": "deferred-to-FEL-629",
-    "full_resolver_issue": "FEL-629",
-    "hosted_resolution": "disabled-until-full-contract-enforcement"
+  "graph_contract": {
+    "fixture": "resolver-graph-cases-v1.json",
+    "mode_fixture": "resolver-mode-cases-v1.json",
+    "candidate_metadata": "signed-target-custom-fields-only",
+    "cycle_handling": "reuse-an-identical-selected-node-when-all-accumulated-constraints-still-match-otherwise-backtrack",
+    "diamond_handling": "intersect-all-incoming-requirements-for-one-resolution-key",
+    "capability_consent": "validate-every-direct-and-transitive-node-before-download-build-or-lock-write",
+    "conflict_explanation": "stable-minimal-incompatibility-chain-in-canonical-requester-order"
   }
 }

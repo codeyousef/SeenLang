@@ -12,6 +12,7 @@ Usage: verify_release_cpu_baseline.sh [--cpu-baseline <x86-64|x86-64-v3>] <artif
 
 Checks:
   - package metadata declares the requested CPU baseline
+  - version-coupled package client is present and accepts the release version
   - default x86-64 packages do not contain AVX-512-only instruction evidence
   - packaged compiler starts, runs `check`, and compiles a small program
 USAGE
@@ -160,10 +161,15 @@ for artifact in "${ARTIFACTS[@]}"; do
     fi
 
     bin="$package_dir/bin/seen"
+    package_client="$package_dir/bin/seen-pkg"
     metadata="$package_dir/share/doc/seen/release-cpu-baseline.txt"
 
     if [[ ! -x "$bin" ]]; then
         echo "Packaged compiler missing or not executable: $bin" >&2
+        exit 1
+    fi
+    if [[ ! -x "$package_client" ]]; then
+        echo "Packaged package client missing or not executable: $package_client" >&2
         exit 1
     fi
     if [[ ! -f "$metadata" ]]; then
@@ -175,9 +181,38 @@ for artifact in "${ARTIFACTS[@]}"; do
         cat "$metadata" >&2
         exit 1
     fi
+    release_version=""
+    while IFS='=' read -r metadata_key metadata_value; do
+        if [[ "$metadata_key" == "version" ]]; then
+            release_version="$metadata_value"
+            break
+        fi
+    done < "$metadata"
+    if [[ -z "$release_version" ]]; then
+        echo "Release metadata does not declare a version: $metadata" >&2
+        exit 1
+    fi
+
+    compiler_version_output=""
+    if ! compiler_version_output="$("$bin" --version 2>&1)"; then
+        echo "Packaged compiler could not report its version: $bin" >&2
+        exit 1
+    fi
+    compiler_version_line="${compiler_version_output%%$'\n'*}"
+    compiler_version_line="${compiler_version_line%$'\r'}"
+    if [[ "$compiler_version_line" != "Seen $release_version" ]]; then
+        echo "Compiler version mismatch: release metadata expects 'Seen $release_version', got '$compiler_version_line'" >&2
+        exit 1
+    fi
+
+    if ! "$package_client" --expect-version "$release_version" version >/dev/null 2>&1; then
+        echo "Package-client version handshake failed for Seen $release_version" >&2
+        exit 1
+    fi
 
     if [[ "$CPU_BASELINE" == "x86-64" ]]; then
         scan_for_avx512 "$bin"
+        scan_for_avx512 "$package_client"
     fi
 
     run_smoke_tests "$bin" "$tmpdir"

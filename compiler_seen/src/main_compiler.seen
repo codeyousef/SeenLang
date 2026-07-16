@@ -25,8 +25,8 @@ limitation where boolean variables generate invalid IR.
 
 import bootstrap.frontend.{FrontendResult, FrontendDiagnostic, runFrontendCompat, runFrontendDeclarationsCompat, encodeDiagMessage, parseDiagBaseMessage, parseDiagCode, parseDiagSuggestion, parseDiagNote, parseDiagEndColumn}
 import io.file.{readText, writeText, appendText, exists}
-import process.process.{runCommand, runProgram, CommandResult, commandWasSuccessful, processFork, waitPid, processExit, getPid}
-import env.env.{args}
+import process.process.{runCommand, runProgram, runProgramRequest, CommandResult, commandWasSuccessful, processFork, waitPid, processExit, getPid}
+import env.env.{args, getOrDefault}
 import codegen.llvm_ir_gen.{LLVMIRGenerator, newLLVMIRGenerator, overrideTargetTriple}
 import parser.real_parser.{ProgramNode, ItemNode, ImportSymbolNode, ClassNode, FunctionNode, StatementNode, ParserExpressionNode, BlockNode, EnumNode, getUiSlotCount, getUiSlotBlock}
 import lsp.server.{runLspServer}
@@ -335,6 +335,9 @@ var g_resolveRealInputPathKeys: Array<String> = Array<String>()
 var g_resolveRealInputPathValues: Array<String> = Array<String>()
 var g_buildTracePathLoaded: Int = 0
 var g_buildTracePathCache: String = ""
+var g_packageLockedCli: Int = 0
+var g_packageOfflineCli: Int = 0
+var g_packageFrozenCli: Int = 0
 
 fun clearValidationModuleCache() r: Void {
     g_validationModulePaths = Array<String>()
@@ -1286,9 +1289,37 @@ class PackageRelease {
 }
 
 fun currentWorkingDir() r: String {
+    // Keep this call on the stable command ABI so the previous compiler can
+    // bootstrap this source. Current runtimes recognize the fixed token and
+    // return the directory without invoking a shell.
+    let nativeResult = runCommand("SEEN_CURRENT_DIRECTORY_V1")
+    if commandWasSuccessful(nativeResult) and nativeResult.output != "" {
+        return trimPathCommandOutput(nativeResult.output)
+    }
+
+    // Compatibility with a previous runtime. These commands contain no
+    // caller-controlled bytes: pwd covers POSIX shells and bare `cd` prints
+    // the working directory under cmd.exe.
     let pwdResult = runCommand("pwd")
-    if commandWasSuccessful(pwdResult) {
-        return pwdResult.output.trim()
+    if commandWasSuccessful(pwdResult) and pwdResult.output != "" {
+        return trimPathCommandOutput(pwdResult.output)
+    }
+    let cdResult = runCommand("cd")
+    if commandWasSuccessful(cdResult) and cdResult.output != "" {
+        return trimPathCommandOutput(cdResult.output)
+    }
+    return ""
+}
+
+fun trimPathCommandOutput(output: String) r: String {
+    var end = output.length()
+    while end > 0 {
+        let last = output.byteAt(end - 1)
+        if last == 10 or last == 13 {
+            end = end - 1
+        } else {
+            return output.substring(0, end)
+        }
     }
     return ""
 }
@@ -1343,6 +1374,79 @@ fun writeTextAtomically(path: String, content: String) r: Bool {
     return true
 }
 
+fun packageClientExpectedVersion() r: String {
+    return "0.10.0"
+}
+
+fun packageClientHelperPath() r: String {
+    let overridePath = getOrDefault("SEEN_PACKAGE_CLIENT", "")
+    if overridePath != "" and exists(overridePath) {
+        return overridePath
+    }
+
+    // Source-checkout fallback for developer builds. Release packages always
+    // leave this empty so the runtime resolves the version-coupled sibling of
+    // the running Seen executable without consulting PATH.
+    let compilerRoot = getCompilerRoot()
+    if compilerRoot != "" {
+        let targetHelper = compilerRoot + "/tools/seen-pkg/bin/seen-pkg"
+        if exists(targetHelper) {
+            return targetHelper
+        }
+        let targetHelperExe = targetHelper + ".exe"
+        if exists(targetHelperExe) {
+            return targetHelperExe
+        }
+    }
+    return ""
+}
+
+fun packageClientRequestContent(requestArgs: Array<String>) r: String {
+    var content = "SEENPKG1\n" + requestArgs.length().toString() + "\n"
+    var idx = 0
+    while idx < requestArgs.length() {
+        let arg = requestArgs[idx]
+        content = content + arg.length().toString() + "\n" + arg + "\n"
+        idx = idx + 1
+    }
+    return content
+}
+
+fun invokePackageClient(rawArgs: Array<String>) r: Int {
+    let helperPath = packageClientHelperPath()
+
+    let requestArgs = Array<String>()
+    requestArgs.push("--expect-version")
+    requestArgs.push(packageClientExpectedVersion())
+    var argIdx = 0
+    while argIdx < rawArgs.length() {
+        requestArgs.push(rawArgs[argIdx])
+        argIdx = argIdx + 1
+    }
+
+    let status = runProgramRequest(helperPath,
+        packageClientRequestContent(requestArgs))
+    if status == 127 {
+        println("Error: the Seen " + packageClientExpectedVersion() +
+            " package client is missing; reinstall the complete Seen release")
+    }
+    return status
+}
+
+fun appendPackageResolutionModeArgs(requestArgs: Array<String>) r: Void {
+    if g_packageFrozenCli == 1 {
+        requestArgs.push("--frozen")
+        return
+    }
+    if g_packageLockedCli == 1 {
+        requestArgs.push("--locked")
+    }
+    if g_packageOfflineCli == 1 {
+        requestArgs.push("--offline")
+    }
+    return
+}
+
 fun isHttpRegistryLocation(location: String) r: Bool {
     return location.startsWith("http://") or location.startsWith("https://")
 }
@@ -1359,32 +1463,58 @@ fun resolveProjectPath(projectRoot: String, path: String) r: String {
     if path == "" {
         return ""
     }
-    if path.length() > 0 {
-        if path.byteAt(0) == 47 {
-            return path
-        }
+    if isAbsolutePath(path) {
+        return path
     }
     if projectRoot == "" {
         return path
     }
-    if projectRoot == "/" {
-        return "/" + path
+    if pathByteIsSeparator(projectRoot.byteAt(projectRoot.length() - 1)) {
+        return projectRoot + path
     }
     return projectRoot + "/" + path
 }
 
-// Get directory part of file path. Uses byteAt() (47 = '/')
+fun pathByteIsSeparator(value: Int) r: Bool {
+    return value == 47 or value == 92
+}
+
+fun isAsciiPathLetter(value: Int) r: Bool {
+    return (value >= 65 and value <= 90) or
+        (value >= 97 and value <= 122)
+}
+
+fun isWindowsDrivePath(path: String) r: Bool {
+    return path.length() >= 3 and isAsciiPathLetter(path.byteAt(0)) and
+        path.byteAt(1) == 58 and pathByteIsSeparator(path.byteAt(2))
+}
+
+fun pathUsesWindowsComparison(path: String) r: Bool {
+    if isWindowsDrivePath(path) {
+        return true
+    }
+    return path.length() >= 2 and path.byteAt(0) == 92 and
+        path.byteAt(1) == 92
+}
+
+// Get the directory part of a POSIX or Windows path.
 fun getSourceDir(filePath: String) r: String {
     var lastSlash = 0 - 1
     var i = 0
     while i < filePath.length() {
-        if filePath.byteAt(i) == 47 {
+        if pathByteIsSeparator(filePath.byteAt(i)) {
             lastSlash = i
         }
         i = i + 1
     }
     if lastSlash < 0 {
         return ""
+    }
+    if lastSlash == 0 {
+        return filePath.substring(0, 1)
+    }
+    if lastSlash == 2 and isWindowsDrivePath(filePath) {
+        return filePath.substring(0, 3)
     }
     return filePath.substring(0, lastSlash)
 }
@@ -1393,7 +1523,59 @@ fun isAbsolutePath(path: String) r: Bool {
     if path.length() == 0 {
         return false
     }
-    return path.byteAt(0) == 47
+    if pathByteIsSeparator(path.byteAt(0)) {
+        return true
+    }
+    return isWindowsDrivePath(path)
+}
+
+fun pathHexDigit(value: Int) r: String {
+    if value < 10 {
+        return String.fromCharCode(48 + value)
+    }
+    return String.fromCharCode(97 + value - 10)
+}
+
+fun pathHexFramePayload(path: String) r: String {
+    let builder = StringBuilder.new()
+    var idx = 0
+    while idx < path.length() {
+        let value = path.byteAt(idx)
+        builder.append(pathHexDigit(value / 16))
+        builder.append(pathHexDigit(value % 16))
+        idx = idx + 1
+    }
+    return builder.toString()
+}
+
+fun pathComparisonKey(path: String) r: String {
+    let windowsRules = pathUsesWindowsComparison(path)
+    let builder = StringBuilder.new()
+    var idx = 0
+    while idx < path.length() {
+        var value = path.byteAt(idx)
+        if pathByteIsSeparator(value) {
+            value = 47
+        } else {
+            if windowsRules and value >= 65 and value <= 90 {
+                value = value + 32
+            }
+        }
+        builder.append(String.fromCharCode(value))
+        idx = idx + 1
+    }
+    var normalized = builder.toString()
+    var keepTrimming = true
+    while keepTrimming and normalized.length() > 1 and
+        normalized.endsWith("/") {
+
+        if normalized.length() == 3 and normalized.byteAt(1) == 58 {
+            keepTrimming = false
+        } else {
+            normalized = normalized.substring(0, normalized.length() - 1)
+        }
+    }
+    return normalized
 }
 
 fun realInputPathCacheMaxEntries() r: Int {
@@ -1468,24 +1650,22 @@ fun resolveRealInputPath(path: String) r: String {
             resolved = cwd + "/" + resolved
         }
     }
-    if isAbsolutePath(resolved) {
-        cacheRealInputPath(path, resolved)
-        return resolved
-    }
-    let realpathResult = runCommand("readlink -f " +
-        mainCompilerShellQuote(resolved))
-    if commandWasSuccessful(realpathResult) {
-        var realpath = realpathResult.output
-        if realpath.length() > 0 {
-            if realpath.byteAt(realpath.length() - 1) == 10 {
-                realpath = realpath.substring(0, realpath.length() - 1)
-            }
-        }
-        if realpath != "" {
-            cacheRealInputPath(path, realpath)
-            return realpath
+
+    // The path bytes are hex encoded so a previous runtime that does not know
+    // this fixed command token can only report command-not-found; it cannot
+    // interpret any caller-controlled byte as shell syntax. Current runtimes
+    // canonicalize natively (including symlinks) on POSIX and Windows.
+    let nativeFrame = "SEEN_CANONICAL_PATH_V1_" +
+        pathHexFramePayload(resolved)
+    let nativeResult = runCommand(nativeFrame)
+    if commandWasSuccessful(nativeResult) {
+        let nativePath = trimPathCommandOutput(nativeResult.output)
+        if nativePath != "" and isAbsolutePath(nativePath) {
+            cacheRealInputPath(path, nativePath)
+            return nativePath
         }
     }
+
     cacheRealInputPath(path, resolved)
     return resolved
 }
@@ -3326,7 +3506,7 @@ fun writePackageLockfile(projectRoot: String,
     return writeTextAtomically(projectRoot + "/Seen.lock", lockContent)
 }
 
-fun ensureProjectPackageDependenciesForManifest(manifestPath: String, quiet: Bool) r: Bool {
+fun ensureProjectPackageDependenciesForManifestLegacy(manifestPath: String, quiet: Bool) r: Bool {
     let tomlContent = loadFileContent(manifestPath)
     if tomlContent == "" {
         return true
@@ -3416,6 +3596,19 @@ fun ensureProjectPackageDependenciesForManifest(manifestPath: String, quiet: Boo
     return true
 }
 
+fun ensureProjectPackageDependenciesForManifest(manifestPath: String,
+    quiet: Bool) r: Bool {
+
+    let requestArgs = Array<String>()
+    requestArgs.push("fetch")
+    requestArgs.push(manifestPath)
+    if quiet {
+        requestArgs.push("--quiet")
+    }
+    appendPackageResolutionModeArgs(requestArgs)
+    return invokePackageClient(requestArgs) == 0
+}
+
 fun ensureProjectPackageDependenciesForInput(inputFile: String, quiet: Bool) r: Bool {
     let manifestPath = findNearestSeenTomlForInput(inputFile)
     if manifestPath == "" {
@@ -3424,8 +3617,97 @@ fun ensureProjectPackageDependenciesForInput(inputFile: String, quiet: Bool) r: 
     return ensureProjectPackageDependenciesForManifest(manifestPath, quiet)
 }
 
-fun resolvePackageDependencyProjectRoot(sourceDir: String,
+fun findNearestPackageMapFromDir(initialDir: String) r: String {
+    var current = resolveRealInputPath(initialDir)
+    if current == "" {
+        current = currentWorkingDir()
+    }
+    while current != "" {
+        let candidate = current + "/.seen/package-map.tsv"
+        if exists(candidate) {
+            return candidate
+        }
+        let parent = getSourceDir(current)
+        if parent == "" or parent == current {
+            return ""
+        }
+        current = parent
+    }
+    return ""
+}
+
+fun pathIsInsidePackageRequester(path: String, requesterRoot: String) r: Bool {
+    let normalizedPath = pathComparisonKey(path)
+    let normalizedRequester = pathComparisonKey(requesterRoot)
+    if normalizedPath == normalizedRequester {
+        return true
+    }
+    if normalizedRequester == "/" {
+        return normalizedPath.startsWith("/")
+    }
+    return normalizedPath.startsWith(normalizedRequester + "/")
+}
+
+fun resolvePackageMapDependencyRoot(sourceDir: String,
     dependencyAlias: String) r: String {
+
+    let mapPath = findNearestPackageMapFromDir(sourceDir)
+    if mapPath == "" {
+        return ""
+    }
+    let content = loadFileContent(mapPath)
+    let canonicalSourceDir = resolveRealInputPath(sourceDir)
+    var bestRequesterLength = -1
+    var bestDependencyRoot = ""
+    var lineStart = 0
+    var pos = 0
+    while pos <= content.length() {
+        var atEnd = false
+        if pos == content.length() {
+            atEnd = true
+        }
+        var atNewline = false
+        if not atEnd and content.byteAt(pos) == 10 {
+            atNewline = true
+        }
+        if atEnd or atNewline {
+            var line = content.substring(lineStart, pos)
+            if line.endsWith("\r") {
+                line = line.substring(0, line.length() - 1)
+            }
+            let firstTab = line.indexOf("\t", 0)
+            if firstTab > 0 {
+                let secondTab = line.indexOf("\t", firstTab + 1)
+                if secondTab > firstTab + 1 and
+                    line.indexOf("\t", secondTab + 1) < 0 {
+
+                    let requesterRoot = line.substring(0, firstTab)
+                    let alias = line.substring(firstTab + 1, secondTab)
+                    let dependencyRoot = line.substring(secondTab + 1,
+                        line.length())
+                    let requesterComparisonLength =
+                        pathComparisonKey(requesterRoot).length()
+                    if alias == dependencyAlias and
+                        requesterComparisonLength > bestRequesterLength and
+                        pathIsInsidePackageRequester(canonicalSourceDir,
+                            requesterRoot) and
+                        loadFileContent(dependencyRoot + "/Seen.toml") != "" {
+
+                        bestRequesterLength = requesterComparisonLength
+                        bestDependencyRoot = dependencyRoot
+                    }
+                }
+            }
+            lineStart = pos + 1
+        }
+        pos = pos + 1
+    }
+    return bestDependencyRoot
+}
+
+fun resolveExplicitPackageDependencyProjectRoot(sourceDir: String,
+    dependencyAlias: String, allowPath: Bool) r: String {
+
     let tomlPath = findNearestSeenTomlFromDir(sourceDir)
     let tomlContent = loadFileContent(tomlPath)
     if tomlContent == "" {
@@ -3437,23 +3719,48 @@ fun resolvePackageDependencyProjectRoot(sourceDir: String,
     while idx < deps.length() {
         let dep = deps[idx]
         if dep.alias == dependencyAlias {
-            if dep.source == "path" {
+            if allowPath and dep.source == "path" {
                 let resolvedPath = resolveProjectPath(projectRoot, dep.path)
                 if loadFileContent(resolvedPath + "/Seen.toml") != "" {
                     return resolvedPath
                 }
                 return ""
             }
-            if dep.source == "registry" {
-                return ensureRegistryPackageInstalled(projectRoot, tomlContent, dep, true)
-            }
             if dep.source == "artifact" {
                 return resolvePrebuiltPackageArtifactRoot(projectRoot, dep)
             }
+            // Hosted packages are resolved only by the signed package helper
+            // and must appear in its verified package map. Never consult the
+            // legacy in-compiler registry installer from import resolution.
+            return ""
         }
         idx = idx + 1
     }
     return ""
+}
+
+fun resolvePackageDependencyProjectRoot(sourceDir: String,
+    dependencyAlias: String) r: String {
+
+    let packageMapPath = findNearestPackageMapFromDir(sourceDir)
+    if packageMapPath != "" {
+        // The helper graph is authoritative for hosted and path edges. A
+        // prebuilt artifact deliberately has no source-root map entry, so keep
+        // that explicit compiler-only fallback for mixed graphs.
+        let mappedRoot = resolvePackageMapDependencyRoot(sourceDir,
+            dependencyAlias)
+        if mappedRoot != "" {
+            return mappedRoot
+        }
+        return resolveExplicitPackageDependencyProjectRoot(sourceDir,
+            dependencyAlias, false)
+    }
+
+    // Legacy projects without hosted packages may still use explicit local
+    // paths or prebuilt artifacts. A registry dependency without a verified
+    // map is intentionally unresolved.
+    return resolveExplicitPackageDependencyProjectRoot(sourceDir,
+        dependencyAlias, true)
 }
 
 fun findNearestSeenPkgTomlFromDir(dir: String) r: String {
@@ -4095,15 +4402,35 @@ fun createPrebuiltPackageArtifact(manifestPath: String,
 }
 
 fun printPkgUsage() r: Void {
-    println("Usage: seen pkg fetch [project-dir-or-manifest]")
-    println("       seen pkg pack [project-dir-or-manifest] [output]")
+    println("Usage: seen pkg add|remove|fetch|update|tree|audit [options]")
+    println("       seen pkg pack|publish|yank|report [options]")
+    println("       seen pkg login|logout|whoami [options]")
     println("       seen pkg prebuild [project-dir-or-manifest] [output-dir]")
-    println("       seen pkg publish <registry-dir> [project-dir-or-manifest]")
     println("")
-    println("Registry dependencies use { package = \"owner/name\", version = \"...\" }; exact versions are required for now.")
+    println("Registry dependencies use { package = \"owner/name\", version = \"^2.1.0\" }.")
+    println("Use --locked, --offline, or --frozen for reproducible resolution modes.")
     println("Local prebuilt artifacts remain available with { artifact = \"...\" } dependencies.")
-    println("Published registry roots use scoped index/<owner>/<name>.toml and archives/<owner>/<name> paths.")
     return
+}
+
+fun isPackageClientSubcommand(command: String) r: Bool {
+    if command == "help" or command == "--help" or command == "-h" or
+        command == "version" {
+        return true
+    }
+    if command == "login" or command == "logout" or command == "whoami" {
+        return true
+    }
+    if command == "add" or command == "remove" or command == "fetch" {
+        return true
+    }
+    if command == "update" or command == "tree" or command == "audit" {
+        return true
+    }
+    if command == "pack" or command == "publish" or command == "yank" {
+        return true
+    }
+    return command == "report"
 }
 
 fun pkgCommand(argv: Array<String>) r: Int {
@@ -4112,6 +4439,22 @@ fun pkgCommand(argv: Array<String>) r: Int {
         return 1
     }
     let subcommand = argv[2]
+
+    if isPackageClientSubcommand(subcommand) {
+        let forwarded = Array<String>()
+        var forwardIdx = 2
+        while forwardIdx < argv.length() {
+            forwarded.push(argv[forwardIdx])
+            forwardIdx = forwardIdx + 1
+        }
+        return invokePackageClient(forwarded)
+    }
+
+    if subcommand != "prebuild" {
+        println("Error: unknown package command `" + subcommand + "`")
+        printPkgUsage()
+        return 1
+    }
 
     if subcommand == "fetch" {
         var manifestPath = resolveProjectManifestPath("")
@@ -9940,7 +10283,7 @@ fun sourcesNeedTeeHardwareRuntime(modulePaths: Array<String>) r: Bool {
 fun buildTargetLinkLibraries(target: String, hasGpuRuntime: Bool) r: String {
     var libs = " -lm -lpthread"
     if target == "windows-x86_64" {
-        libs = ""
+        libs = " -ladvapi32"
     } else {
         if target == "android-arm64" {
             libs = " -lm -ldl"
@@ -13318,6 +13661,9 @@ fun jitRunCommand(inputFile: String, verbose: Bool, language: String,
     useCache: Bool) r: Int {
     resetRealInputPathCache()
     let jitInput = resolveRealInputPath(inputFile)
+    if not ensureProjectPackageDependenciesForInput(jitInput, true) {
+        return 1
+    }
     if verbose {
         println("[jit] Compiling " + inputFile + "...")
     }
@@ -13484,7 +13830,7 @@ fun runScriptCommand(inputFile: String, useAot: Bool, verbose: Bool,
 }
 
 fun seenCompilerVersion() r: String {
-    return "0.9.5"
+    return "0.10.0"
 }
 
 fun printVersion() r: Void {
@@ -13497,9 +13843,9 @@ fun printVersion() r: Void {
 fun printUsage() r: Void {
     println("Seen " + seenCompilerVersion() + " - Self-hosted Compiler")
     println("")
-    println("Usage: seen compile <input.seen> [output] [--profile deterministic] [--no-cache] [--verbose]")
-    println("       seen check <input.seen> [--profile deterministic]")
-    println("       seen run <input.seen> [--aot] [--no-cache] [--verbose] [--language <lang>]")
+    println("Usage: seen compile <input.seen> [output] [--profile deterministic] [--no-cache] [--verbose] [--locked|--offline|--frozen]")
+    println("       seen check <input.seen> [--profile deterministic] [--locked|--offline|--frozen]")
+    println("       seen run <input.seen> [--aot] [--no-cache] [--verbose] [--language <lang>] [--locked|--offline|--frozen]")
     println("       seen bundle <executable> <AppName> [--icon=<icon.icns>] [--version=<1.0>]")
     println("       seen sign <path> [--identity=<identity>]")
     println("       seen notarize <path> --apple-id=<email> --team-id=<id> --password=<pwd>")
@@ -13508,7 +13854,7 @@ fun printUsage() r: Void {
     println("       seen ipa <executable> <AppName> [--bundle-id=...] [--version=...] [--provisioning-profile=...]")
     println("       seen translate <file> --from <lang> --to <lang> [-o <output>]")
     println("       seen import-c <header.h>")
-    println("       seen pkg <fetch|pack|prebuild|publish> ...")
+    println("       seen pkg <add|remove|fetch|update|tree|audit|pack|publish|yank|report> ...")
     println("       seen lsp")
     println("       seen --help | -h")
     println("       seen --version | -v")
@@ -13516,6 +13862,9 @@ fun printUsage() r: Void {
     println("Options:")
     println("  --profile deterministic  Reject HashMap/HashSet without @nondeterministic")
     println("  --no-cache               Disable incremental compilation caching")
+    println("  --locked                 Require the existing Seen.lock without changing it")
+    println("  --offline                Prohibit network access and use verified local state")
+    println("  --frozen                 Apply both --locked and --offline")
     println("  --aot                    Use AOT compilation for 'run' (default: JIT via lli)")
     println("  --verbose                Show full per-module compiler progress and warnings")
     println("  --target-cpu=<cpu>       Target CPU (native, x86-64, x86-64-v3, x86-64-v4, rv64gc)")
@@ -13747,7 +14096,15 @@ fun main() r: Int {
         var positionalArgs = Array<String>()
         var argIdx = 2
         while argIdx < argv.length() {
-            if argv[argIdx] == "--no-cache" {
+            if argv[argIdx] == "--locked" {
+                g_packageLockedCli = 1
+            } else if argv[argIdx] == "--offline" {
+                g_packageOfflineCli = 1
+            } else if argv[argIdx] == "--frozen" {
+                g_packageFrozenCli = 1
+                g_packageLockedCli = 1
+                g_packageOfflineCli = 1
+            } else if argv[argIdx] == "--no-cache" {
                 useCache = false
             } else {
                 if argv[argIdx] == "--verbose" {
@@ -13970,6 +14327,19 @@ fun main() r: Int {
             return 1
         }
         let inputFile = argv[2]
+        var checkModeIdx = 3
+        while checkModeIdx < argv.length() {
+            if argv[checkModeIdx] == "--locked" {
+                g_packageLockedCli = 1
+            } else if argv[checkModeIdx] == "--offline" {
+                g_packageOfflineCli = 1
+            } else if argv[checkModeIdx] == "--frozen" {
+                g_packageFrozenCli = 1
+                g_packageLockedCli = 1
+                g_packageOfflineCli = 1
+            }
+            checkModeIdx = checkModeIdx + 1
+        }
         let profile = parseProfile(argv, 3)
         var language = parseLanguage(argv, 3)
         // Read language from Seen.toml [project] if CLI didn't explicitly set --language
@@ -14000,6 +14370,14 @@ fun main() r: Int {
         while ri < argv.length() {
             if argv[ri] == "--aot" {
                 useAot = true
+            } else if argv[ri] == "--locked" {
+                g_packageLockedCli = 1
+            } else if argv[ri] == "--offline" {
+                g_packageOfflineCli = 1
+            } else if argv[ri] == "--frozen" {
+                g_packageFrozenCli = 1
+                g_packageLockedCli = 1
+                g_packageOfflineCli = 1
             } else if argv[ri] == "--no-cache" {
                 runUseCache = false
             } else if argv[ri] == "--verbose" {

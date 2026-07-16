@@ -11,6 +11,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 WIN_DIR="${PROJECT_DIR}/target-windows"
 VERSION="${1:-1.0.0}"
+PACKAGE_CLIENT_BIN="${SEEN_WINDOWS_PACKAGE_CLIENT_BIN:-$WIN_DIR/seen-pkg.exe}"
 BUILD_TRACE_COMMON="$SCRIPT_DIR/build_trace_common.sh"
 if [ -f "$BUILD_TRACE_COMMON" ]; then
     # shellcheck source=scripts/build_trace_common.sh
@@ -41,6 +42,7 @@ windows_payload_hash() {
             "$PROJECT_DIR/languages" \
             "$PROJECT_DIR/docs" \
             "$PROJECT_DIR/installer/windows/install-llvm.ps1" \
+            "$PACKAGE_CLIENT_BIN" \
             "${SEEN_WINDOWS_LLVM_BUNDLE_DIR:-}" \
             "${SEEN_WINDOWS_LLVM_INSTALLER:-}"
     else
@@ -50,6 +52,7 @@ windows_payload_hash() {
             "$PROJECT_DIR/seen_runtime/seen_gpu.h" \
             "$PROJECT_DIR/seen_runtime/seen_compat_win32.h" \
             "$PROJECT_DIR/languages" "$PROJECT_DIR/docs" \
+            "$PACKAGE_CLIENT_BIN" \
             -type f -print0 2>/dev/null | sort -z | xargs -0 sha256sum 2>/dev/null | sha256sum | awk '{print $1}'
     fi
 }
@@ -160,6 +163,19 @@ restore_windows_package_artifact() {
 echo "=== Packaging Seen $VERSION for Windows ==="
 echo "  Output: $PACKAGE_DIR"
 
+# A Windows PE helper cannot be handshaken on the Unix cross-build host. Build
+# it unconditionally from the version-checked source so a stale helper from a
+# previous release can never be folded into a fresh payload manifest.
+"$SCRIPT_DIR/build_package_client.sh" \
+    --version "$VERSION" \
+    --goos windows \
+    --goarch amd64 \
+    --output "$PACKAGE_CLIENT_BIN"
+if [ ! -f "$PACKAGE_CLIENT_BIN" ]; then
+    echo "ERROR: seen-pkg.exe not found in $WIN_DIR"
+    exit 1
+fi
+
 # --- Compiler binary ---
 if [ ! -f "$WIN_DIR/seen.exe" ]; then
     echo "ERROR: seen.exe not found in $WIN_DIR"
@@ -184,6 +200,8 @@ mkdir -p "$PACKAGE_DIR/share/seen/docs"
 
 cp "$WIN_DIR/seen.exe" "$PACKAGE_DIR/bin/"
 echo "  bin/seen.exe"
+cp "$PACKAGE_CLIENT_BIN" "$PACKAGE_DIR/bin/seen-pkg.exe"
+echo "  bin/seen-pkg.exe"
 
 cat > "$PACKAGE_DIR/bin/seen-env.cmd" << 'CMD_EOF'
 @echo off

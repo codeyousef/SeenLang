@@ -17,7 +17,7 @@ fun main() {
 - **Self-hosted compiler** -- the compiler is written in Seen and verified through staged bootstrap
 - **Multi-language keywords** -- write code in English, Arabic, Spanish, Russian, Chinese, or Japanese
 - **LLVM backend** -- native code generation, optimization, cross-target support, and package artifact linking
-- **Packages** -- source registry packages plus local prebuilt artifacts with interface indexes
+- **Packages** -- deterministic signed source-package graphs, enforced locks, capability consent, and local prebuilt artifacts
 - **Tooling** -- built-in LSP, VS Code extension, C import generation, platform packaging helpers
 - **GPU/SIMD APIs** -- stdlib and runtime surfaces for graphics, compute, and vectorized code paths
 
@@ -46,7 +46,7 @@ fun main() {
 ### Project & Build
 
 - [Project Configuration](project-config.md) -- Seen.toml format and project structure
-- [Packaging](packaging.md) -- static registry layout, publishing, and hosting
+- [Packaging](packaging.md) -- dependencies, lock modes, signed registries, package security, and hosted-service status
 - [Compiler Architecture](compiler-architecture.md) -- frontend, codegen, backend, and bootstrap internals
 - [Bootstrap System](bootstrap.md) -- self-hosting verification and safe rebuilds
 - [Known Limitations](known-limitations.md) -- current bugs and workarounds

@@ -1,11 +1,10 @@
 # Seen package registry contract v1
 
-This directory is a provisional design package shared by the Seen 0.10 compiler
-and registry service. It is not yet the normative v1 contract. Public upload
-endpoints must remain disabled until FEL-632 supplies and reviews the complete
-OpenAPI, manifest, lockfile, record, error, archive, resolution, and signing
-contracts. Any review change must update the schemas, fixtures, compiler test,
-and service test atomically.
+This directory is the normative v1 wire, manifest, resolution, lock, archive,
+and trust contract shared by Seen clients and the registry service. A producer
+or consumer claiming v1 conformance must satisfy the schemas, semantic rules,
+and executable fixtures together. A contract change updates those artifacts
+and both client and service conformance tests atomically.
 
 Contract paths are host-neutral. Development uses
 `https://seen.dev.yousef.codes/packages`; production promotion later changes
@@ -96,28 +95,30 @@ resolver reports `ambiguous_build_metadata` instead of using a lexical
 tie-break. The registry returning one exact version with different digests is
 `metadata_equivocation`.
 
-Frozen mode requires a valid lock and never reselects. Normal mode tries a
-valid locked candidate first, then canonical descending candidate order if the
-lock is missing or no longer satisfies the graph. Update mode ignores lock
-preference. Package decisions are ordered by the UTF-8 bytes of canonical
-origin then identity; constraints are ordered by requester then requirement;
-candidate traversal and depth-first backtracking use the frozen order. The
-first complete graph wins. If none exists,
+Normal mode tries a valid locked candidate first, then canonical descending
+candidate order if the lock is missing or no longer satisfies the graph.
+Update mode ignores lock preference. `--locked` requires an exact, current
+lock, permits network access only to fetch its exact signed metadata and blobs,
+and never writes it. `--offline` forbids all network access and applies normal
+or update selection only to unexpired, previously verified local metadata and
+verified blobs; it may write a complete lock. `--frozen` is exactly locked plus
+offline. Update cannot be combined with locked or frozen.
+
+Package decisions are ordered by the UTF-8 bytes of canonical origin then
+identity; constraints are ordered by requester then requirement; candidate
+traversal and depth-first backtracking use the frozen order. Cycles reuse an
+identical already-selected node only while every accumulated constraint still
+matches. Diamonds intersect all incoming constraints. The first complete graph
+wins. If none exists,
 `dependency_constraint_conflict` reports requesters in canonical order. A new
 lock is committed atomically only after the complete graph and every archive
-digest verify. `fixtures/resolution-policy-v1.json` and
-`fixtures/deterministic-resolution-cases-v1.json` are the executable reference
-contract for the per-package candidate-selection kernel. Transitive dependency
-graph expansion, canonical depth-first backtracking, and atomic whole-graph lock
-commit fixtures remain explicitly deferred to FEL-629 alongside the full hosted
-resolver; the current fixture names must not be read as executable graph-solver
-coverage.
-
-The current compiler implements only the exact-requirement subset represented
-by `fixtures/scoped-dependencies.toml`; it does not yet consume a lock for
-resolution. FEL-629 owns the complete requirement parser, solver, lock modes,
-and capability consent. Hosted resolution remains disabled until that work
-enforces this contract.
+digest verify. `fixtures/resolution-policy-v1.json`,
+`fixtures/deterministic-resolution-cases-v1.json`, and
+`fixtures/resolver-graph-cases-v1.json` are the executable reference contract
+for requirements, graph expansion, cycles, diamonds, canonical backtracking,
+conflicts, and capability consent. `fixtures/resolver-mode-cases-v1.json`
+independently freezes normal, update, locked, offline, and frozen behavior and
+their valid combinations.
 
 A publishable project declares its canonical identity independently from its
 local project name:
@@ -148,14 +149,15 @@ static-registry dependencies remain a
 temporary local-development compatibility path and are not valid identities
 for the hosted v1 registry.
 
-`Seen.lock` is the dependency resolver lock format. Version 2 records an explicit
-alias, canonical package identity, exact resolved version, canonical registry
-origin, source kind, and the digest of the exact downloaded archive. It never
-records a mutable manifest registry alias as the origin. The current compiler
-writes this shape as a provisional resolution report but does not yet enforce
-it on a later run; `--locked`/`--frozen` consumption is required before hosted
-resolution can be enabled. The stdlib ABI/module hash snapshot is a different
-artifact named `Seen.modules.lock`.
+`Seen.lock` version 2 records the manifest digest, root dependency edges, every
+reachable transitive node, exact requirements, canonical origins, exact
+versions, archive digests, signed target paths and metadata versions,
+dependencies, requested capabilities, and root grants. Aliases belong to edges,
+not package nodes. Every edge resolves to exactly one node, every node is
+reachable from the root, and deterministic ordering makes equivalent graphs
+byte-identical. It never records a mutable manifest registry alias as the
+origin. The stdlib ABI/module hash snapshot is a different artifact named
+`Seen.modules.lock`.
 
 ## Namespace lifecycle
 
@@ -180,7 +182,9 @@ no release history may be reclaimed only after 180 days of inactivity, a
 Hosted archives are source-only. They may contain Seen source, `Seen.toml`,
 documentation, tests, license files, and small assets matched by explicit
 include globs. They may not contain executables, object files, dynamic or static
-libraries, device entries, links, or install/build lifecycle scripts.
+libraries, device entries, links, install/build lifecycle scripts, any `.seen`
+path segment, or a `package-map.tsv` file. Package-resolution state belongs only
+to the consuming project's package client and cannot be supplied by an archive.
 
 The root `Seen.toml` inside the uploaded archive is authoritative. The registry
 hashes its exact raw bytes, parses it strictly, and byte/field-matches the
@@ -188,6 +192,11 @@ reservation's manifest digest, complete parsed manifest, path identity, version,
 capabilities, include globs, and assets. Include membership is recomputed from
 validated effective archive paths. Client-supplied parsed manifest fields never
 replace this check, and any mismatch rejects before ready state or promotion.
+The strict hosted form requires `manifest-version = 1`, `[project]`, `[package]`,
+and `[dependencies]` (which may be empty), rejects unknown or duplicate fields,
+and treats `[package-grants]` as the optional canonical root-consent table.
+Legacy local manifests without the hosted strict option remain a separate
+compiler-compatibility surface.
 
 Initial hard limits are 25 MiB compressed and 100 MiB expanded. The ingestion
 contract also pins configurable file-count, per-file, path-length, path-depth,
@@ -196,12 +205,16 @@ closed with a stable machine-readable error code.
 
 The canonical capability vocabulary is `file`, `network`, `process`,
 `environment`, `dynamic-load`, `ffi`, `unsafe`, `native-link`, and `macro`.
-Packages declare requested capabilities; dependency edges declare `allow`.
+Packages declare requested capabilities in signed resolver metadata;
+dependency edges declare `allow`.
 Capabilities are consent and policy signals, not an operating-system sandbox.
 In particular, FFI, unsafe operations, and native linking can escape language
-enforcement. The current compiler parser does not enforce package capabilities
-or dependency `allow`; these fields are contract fixtures only, and hosted
-resolution remains disabled until consent enforcement is implemented.
+enforcement. Every incoming edge must allow all capabilities requested by its
+child. In addition, the root project must grant all requested capabilities for
+every direct and transitive node. A newly introduced package capability or an
+expanded request fails with `capability_consent_required` before download,
+build, or lock write until the root explicitly grants it. Removing a request is
+safe and produces a deterministic lock rewrite when writes are allowed.
 
 ## Release state and immutability
 
@@ -242,11 +255,23 @@ The owner/name, exact version, digest, and archive filename must match the targe
 custom fields, and the target hash must match the same digest. Clients and
 signers reject rather than decode, normalize, or repair any mismatch.
 
-Metadata signatures and metadata-file hashes use
-`seen-tuf-canonical-json-v1`, frozen in the signing-policy schema and fixture.
+Metadata signatures and metadata-file hashes use TUF canonical JSON, frozen as
+`tuf-canonical-json-v1` in the signing-policy schema and fixture. Ed25519 public
+keys are lowercase hex of 32 raw bytes, signatures are lowercase hex of 64 raw
+bytes, and a key ID is the lowercase SHA-256 of the canonical TUF key object.
+Every key referenced by a root, top-level, or delegated TUF role is tagged
+`key_usage: tuf-metadata` and must use Ed25519. Source-proof and provenance keys
+are tagged `key_usage: attestation`, may use the separately specified ECDSA
+format, and must never be assigned to a TUF metadata role.
 The same JSON serialization primitive applies to the `signed` value for
 signature input and to the complete envelope (including signatures) for
 snapshot/timestamp length and SHA-256 fields.
+
+The cryptographic fixture uses valid deterministic test signatures and a
+repository ID and origin reserved for tests. It is not a development or
+production trust root. Until an official complete root envelope and digest are
+distributed out of band with the client, both official origins fail closed;
+planned key names or illustrative policy material never activate trust.
 
 Bearer credentials for operations marked with a recent-auth maximum must carry
 the JWT NumericDate `auth_time` claim. The registry compares its server clock to
@@ -263,5 +288,4 @@ python3 tests/package_registry_contracts.py
 
 The test uses only the Python standard library so compiler and service builds
 can consume the same fixtures without a package-manager bootstrap dependency.
-Passing it establishes fixture consistency, not approval of the unfinished v1
-contract.
+Passing it establishes consistency with the normative v1 contract.
