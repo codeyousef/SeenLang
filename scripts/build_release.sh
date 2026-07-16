@@ -2,9 +2,9 @@
 # Build release packages for the Seen language compiler.
 #
 # Usage:
-#   ./scripts/build_release.sh --version 0.9.2 \
+#   ./scripts/build_release.sh --version 0.9.5 \
 #     --cpu-baseline x86-64 --artifact-suffix linux-x64
-#   ./scripts/build_release.sh --version 0.9.2 \
+#   ./scripts/build_release.sh --version 0.9.5 \
 #     --compiler compiler_seen/target/seen-x86-64-v3 \
 #     --cpu-baseline x86-64-v3 --artifact-suffix linux-x64-v3
 #
@@ -53,6 +53,7 @@ release_payload_hash() {
             "$ROOT_DIR/languages" \
             "$ROOT_DIR/docs" \
             "$ROOT_DIR/README.md" \
+            "$ROOT_DIR/CHANGELOG.md" \
             "$ROOT_DIR/LICENSE" \
             "$ROOT_DIR/scripts/seen_toolchain.sh" \
             "${SEEN_LLVM_BUNDLE_DIR:-}"
@@ -107,15 +108,24 @@ restore_release_artifacts_from_cache() {
     local cache_dir="$1"
     local manifest="$cache_dir/manifest.env"
     [[ -f "$manifest" ]] || return 1
+    grep -Fqx "version=$VERSION" "$manifest" || return 1
+    grep -Fqx "artifact_suffix=$ARTIFACT_SUFFIX" "$manifest" || return 1
     if [[ "$SKIP_VERIFY" != "1" ]] && ! grep -q '^verified=1$' "$manifest"; then
         return 1
     fi
     shopt -s nullglob
-    local artifacts=("$cache_dir"/*)
+    local artifacts=(
+        "$cache_dir"/seen-"$VERSION"-*.tar.gz
+        "$cache_dir"/seen-lang_"$VERSION"_*.deb
+        "$cache_dir"/seen-lang-"$VERSION"-*.rpm
+        "$cache_dir"/seen-lang-devel-"$VERSION"-*.rpm
+        "$cache_dir"/seen-lang-docs-"$VERSION"-*.rpm
+        "$cache_dir"/SeenLanguage-"$VERSION"-*.AppImage
+    )
     shopt -u nullglob
-    [[ "${#artifacts[@]}" -gt 1 ]] || return 1
-    cp -a "$cache_dir"/. "$OUTPUT_DIR/"
-    rm -f "$OUTPUT_DIR/manifest.env"
+    [[ "${#artifacts[@]}" -gt 0 ]] || return 1
+    cp -a "${artifacts[@]}" "$OUTPUT_DIR/"
+    [[ -f "$cache_dir/SHA256SUMS" ]] && cp -a "$cache_dir/SHA256SUMS" "$OUTPUT_DIR/"
     if declare -F seen_build_trace_event >/dev/null 2>&1; then
         seen_build_trace_event "package artifact cache" "hit" "$(basename "$cache_dir")"
     fi
@@ -128,9 +138,19 @@ store_release_artifacts_to_cache() {
     rm -rf "$cache_dir.tmp"
     mkdir -p "$cache_dir.tmp"
     shopt -s nullglob
-    cp -a "$OUTPUT_DIR"/*.tar.gz "$OUTPUT_DIR"/*.deb "$OUTPUT_DIR"/*.rpm \
-        "$OUTPUT_DIR"/*.AppImage "$OUTPUT_DIR"/SHA256SUMS "$cache_dir.tmp/" 2>/dev/null || true
+    local artifacts=(
+        "$OUTPUT_DIR"/seen-"$VERSION"-*.tar.gz
+        "$OUTPUT_DIR"/seen-lang_"$VERSION"_*.deb
+        "$OUTPUT_DIR"/seen-lang-"$VERSION"-*.rpm
+        "$OUTPUT_DIR"/seen-lang-devel-"$VERSION"-*.rpm
+        "$OUTPUT_DIR"/seen-lang-docs-"$VERSION"-*.rpm
+        "$OUTPUT_DIR"/SeenLanguage-"$VERSION"-*.AppImage
+    )
     shopt -u nullglob
+    if [[ "${#artifacts[@]}" -gt 0 ]]; then
+        cp -a "${artifacts[@]}" "$cache_dir.tmp/"
+    fi
+    [[ -f "$OUTPUT_DIR/SHA256SUMS" ]] && cp -a "$OUTPUT_DIR/SHA256SUMS" "$cache_dir.tmp/"
     {
         printf 'artifact_manifest_version=1\n'
         printf 'version=%s\n' "$VERSION"
@@ -156,7 +176,7 @@ usage() {
     echo "          [--cpu-baseline <x86-64|x86-64-v3>] [--artifact-suffix <linux-x64|linux-x64-v3>]"
     echo ""
     echo "Options:"
-    echo "  --version          Release version (e.g., 0.9.2) [required]"
+    echo "  --version          Release version (e.g., 0.9.5) [required]"
     echo "  --output-dir       Output directory (default: dist/)"
     echo "  --compiler         Path to compiler binary (default: compiler_seen/target/seen)"
     echo "  --cpu-baseline     Packaged binary CPU baseline (default: x86-64)"
@@ -239,7 +259,7 @@ PAYLOAD_CACHE_ROOT="$ROOT_DIR/target/seen-build/package-payloads/linux"
 PAYLOAD_KEY="$(release_payload_hash)"
 PAYLOAD_CACHE_DIR="$PAYLOAD_CACHE_ROOT/$PAYLOAD_KEY"
 PAYLOAD_CACHE_HIT=0
-ARTIFACT_CACHE_ROOT="$ROOT_DIR/target/seen-build/package-artifacts/linux"
+ARTIFACT_CACHE_ROOT="${SEEN_RELEASE_ARTIFACT_CACHE_ROOT:-$ROOT_DIR/target/seen-build/package-artifacts/linux}"
 ARTIFACT_KEY="$(release_artifact_key "$PAYLOAD_KEY")"
 ARTIFACT_CACHE_DIR="$ARTIFACT_CACHE_ROOT/$ARTIFACT_KEY"
 mkdir -p "$ARTIFACT_CACHE_ROOT"
@@ -301,6 +321,7 @@ if [[ "$PAYLOAD_CACHE_HIT" != "1" ]]; then
 
     echo "[5/6] Copying documentation and shared toolchain payload..."
     cp "$ROOT_DIR/README.md" "$STAGING/share/doc/seen/"
+    cp "$ROOT_DIR/CHANGELOG.md" "$STAGING/share/doc/seen/"
     [[ -f "$ROOT_DIR/LICENSE" ]] && cp "$ROOT_DIR/LICENSE" "$STAGING/share/doc/seen/"
 fi
 
@@ -513,7 +534,12 @@ fi
 echo ""
 echo "Generating checksums..."
 (cd "$OUTPUT_DIR" && find . -maxdepth 1 -type f \
-    \( -name '*.tar.gz' -o -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' \) \
+    \( -name "seen-$VERSION-*.tar.gz" \
+       -o -name "seen-lang_${VERSION}_*.deb" \
+       -o -name "seen-lang-$VERSION-*.rpm" \
+       -o -name "seen-lang-devel-$VERSION-*.rpm" \
+       -o -name "seen-lang-docs-$VERSION-*.rpm" \
+       -o -name "SeenLanguage-$VERSION-*.AppImage" \) \
     -printf '%f\n' | sort | xargs -r sha256sum > SHA256SUMS)
 echo "  -> $OUTPUT_DIR/SHA256SUMS"
 

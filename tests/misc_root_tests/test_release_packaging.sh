@@ -16,7 +16,7 @@ set -euo pipefail
 
 case "${1:-}" in
     --version)
-        echo "Seen Language 0.9.2"
+        echo "Seen Language 0.9.5"
         ;;
     pkg)
         case "${2:-}" in
@@ -63,15 +63,34 @@ FAKE_EOF
 chmod +x "$FAKE_COMPILER"
 
 DIST_DIR="$TMP_DIR/dist"
-"$ROOT_DIR/scripts/build_release.sh" \
-    --version 0.9.2 \
+ARTIFACT_CACHE_ROOT="$TMP_DIR/artifact-cache"
+mkdir -p "$DIST_DIR"
+printf 'stale release artifact\n' > "$DIST_DIR/seen-0.9.2-linux-x64.tar.gz"
+
+SEEN_RELEASE_ARTIFACT_CACHE_ROOT="$ARTIFACT_CACHE_ROOT" "$ROOT_DIR/scripts/build_release.sh" \
+    --version 0.9.5 \
     --output-dir "$DIST_DIR" \
     --compiler "$FAKE_COMPILER" \
     --cpu-baseline x86-64 \
     --artifact-suffix linux-x64 \
     --skip-verify >/dev/null
 
-TARBALL="$DIST_DIR/seen-0.9.2-linux-x64.tar.gz"
+rm -rf "$DIST_DIR"
+mkdir -p "$DIST_DIR"
+SEEN_RELEASE_ARTIFACT_CACHE_ROOT="$ARTIFACT_CACHE_ROOT" "$ROOT_DIR/scripts/build_release.sh" \
+    --version 0.9.5 \
+    --output-dir "$DIST_DIR" \
+    --compiler "$FAKE_COMPILER" \
+    --cpu-baseline x86-64 \
+    --artifact-suffix linux-x64 \
+    --skip-verify >/dev/null
+
+if [[ -e "$DIST_DIR/seen-0.9.2-linux-x64.tar.gz" ]]; then
+    echo "release artifact cache restored a stale version" >&2
+    exit 1
+fi
+
+TARBALL="$DIST_DIR/seen-0.9.5-linux-x64.tar.gz"
 test -f "$TARBALL"
 
 "$ROOT_DIR/scripts/verify_release_cpu_baseline.sh" --cpu-baseline x86-64 "$TARBALL" >/dev/null
@@ -89,7 +108,7 @@ PATH="$MIN_SCAN_PATH" "$ROOT_DIR/scripts/verify_release_cpu_baseline.sh" \
 EXTRACT_DIR="$TMP_DIR/extract"
 mkdir -p "$EXTRACT_DIR"
 tar -xzf "$TARBALL" -C "$EXTRACT_DIR"
-PACKAGE_DIR="$EXTRACT_DIR/seen-0.9.2-linux-x64"
+PACKAGE_DIR="$EXTRACT_DIR/seen-0.9.5-linux-x64"
 
 PREFIX="$TMP_DIR/prefix"
 mkdir -p "$PREFIX/bin"
@@ -109,12 +128,14 @@ if [[ -L "$PREFIX/bin/seen" ]]; then
     exit 1
 fi
 
-if ! "$PREFIX/bin/seen" --version | grep -q '0.9.2'; then
+if ! "$PREFIX/bin/seen" --version | grep -q '0.9.5'; then
     echo "installed seen binary did not come from the release package" >&2
     exit 1
 fi
 
 grep -qx 'cpu-baseline=x86-64' "$PACKAGE_DIR/share/doc/seen/release-cpu-baseline.txt"
+test -f "$PACKAGE_DIR/share/doc/seen/CHANGELOG.md"
+grep -Fq '## [0.9.5] - 2026-07-13' "$PACKAGE_DIR/share/doc/seen/CHANGELOG.md"
 grep -qx 'llvm_min_version=18' "$PACKAGE_DIR/lib/seen/toolchain/manifest.env"
 test -x "$PACKAGE_DIR/lib/seen/toolchain/seen-toolchain.sh"
 test -f "$PACKAGE_DIR/share/doc/seen/toolchain-dependencies.txt"

@@ -772,7 +772,7 @@ build_appimage() {
     # Build AppImage
     local build_opts=()
     local runtime_file="${SEEN_APPIMAGE_RUNTIME_FILE:-${APPIMAGE_RUNTIME_FILE:-}}"
-    local compressor="${SEEN_APPIMAGE_COMPRESSOR:-xz}"
+    local compressor="${SEEN_APPIMAGE_COMPRESSOR:-zstd}"
     local mksquashfs_processors="${SEEN_APPIMAGE_MKSQUASHFS_PROCESSORS:-1}"
     if $VERBOSE; then
         build_opts+=("-v")

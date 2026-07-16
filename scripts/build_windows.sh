@@ -166,6 +166,9 @@ windows_hash_key() {
         printf 'seen=%s\n' "$(hash_file_for_windows "$SEEN")"
         printf 'abi=%s\n' "$(hash_file_for_windows "$ABI_SCRIPT")"
         printf 'backend=%s\n' "$SEEN_WINDOWS_OBJECT_BACKEND"
+        printf 'clang_opt=%s\n' "$SEEN_WINDOWS_CLANG_OPT"
+        printf 'clang_warn=%s\n' "${SEEN_WINDOWS_CLANG_WARN_FLAGS[*]}"
+        printf 'llc_opt=%s\n' "$SEEN_WINDOWS_LLC_OPT"
         printf 'clang=%s\n' "$($CLANG --version 2>/dev/null | head -1 || true)"
         printf 'llc=%s\n' "$($LLC --version 2>/dev/null | head -1 || true)"
         printf 'mingw=%s\n' "$($MINGW_GCC --version 2>/dev/null | head -1 || true)"
@@ -251,7 +254,7 @@ cross_compile() {
         local win_ll="$OUTPUT_DIR/${base}_win.ll"
         local win_asm="$OUTPUT_DIR/${base}_win.s"
         local win_obj="$OUTPUT_DIR/${base}_win.o"
-        local object_key object_cache_obj
+        local object_key object_cache_obj object_cache_tmp
 
         object_key=$(windows_hash_key "object-v1" "$ll")
         object_cache_obj="$OBJECT_CACHE_DIR/$object_key.o"
@@ -268,7 +271,9 @@ cross_compile() {
 
         if [ "$SEEN_WINDOWS_OBJECT_BACKEND" = "clang" ]; then
             "$CLANG" -target x86_64-w64-windows-gnu -c "$win_ll" -o "$win_obj" "$SEEN_WINDOWS_CLANG_OPT" "${SEEN_WINDOWS_CLANG_WARN_FLAGS[@]}" 2>&1
-            cp "$win_obj" "$object_cache_obj"
+            object_cache_tmp="${object_cache_obj}.tmp.$$"
+            cp "$win_obj" "$object_cache_tmp"
+            mv -f "$object_cache_tmp" "$object_cache_obj"
             WIN_LINK_INPUTS="$WIN_LINK_INPUTS $object_cache_obj"
         else
             $LLC "$win_ll" -o "$win_asm" -mtriple=x86_64-w64-mingw32 "$SEEN_WINDOWS_LLC_OPT" --filetype=asm 2>&1

@@ -1,5 +1,8 @@
-import memory.allocation.{setMemoryLimitBytes, memoryStats, ensureAllocationBudget}
+import memory.allocation.{setMemoryLimitBytes, memoryStats, ensureAllocationBudget, releaseFloatArrayStorage}
 import str.string.{StringBuilder}
+import collections.byte_buffer.{ByteArray}
+import core.result.{Result}
+import core.unit.{Unit}
 
 fun main() r: Int {
     setMemoryLimitBytes(128 * 1024 * 1024)
@@ -7,6 +10,10 @@ fun main() r: Int {
     let budgetOk = ensureAllocationBudget(64)
     if not budgetOk.isOkay() {
         return 1
+    }
+    let resultImportAnchor: Result<Unit, AllocError> = budgetOk
+    if resultImportAnchor.isErr() {
+        return 15
     }
 
     let builder = StringBuilder.new()
@@ -34,6 +41,55 @@ fun main() r: Int {
     }
     if stats.peakBytes < stats.usedBytes {
         return 7
+    }
+
+    let releaseBuilder = StringBuilder.new()
+    var index = 0
+    while index < 2048 {
+        releaseBuilder.append("x")
+        index = index + 1
+    }
+    let builderBeforeClear = memoryStats().usedBytes
+    releaseBuilder.clear()
+    let builderAfterClear = memoryStats().usedBytes
+    if builderAfterClear >= builderBeforeClear {
+        return 8
+    }
+
+    let bytes = ByteArray.withCapacity(2)
+    bytes.reserve(4096)
+    let bytesBeforeRelease = memoryStats().usedBytes
+    bytes.clearAndRelease()
+    let bytesAfterRelease = memoryStats().usedBytes
+    if bytes.capacity() != 0 or bytes.length() != 0 {
+        return 9
+    }
+    if bytesAfterRelease >= bytesBeforeRelease {
+        return 10
+    }
+    bytes.push(42)
+    if bytes.length() != 1 or bytes.get(0) != 42 {
+        return 11
+    }
+
+    let floats = Array<Float>()
+    index = 0
+    while index < 4096 {
+        floats.push(1.5)
+        index = index + 1
+    }
+    let floatsBeforeRelease = memoryStats().usedBytes
+    releaseFloatArrayStorage(floats)
+    let floatsAfterRelease = memoryStats().usedBytes
+    if floats.length() != 0 {
+        return 12
+    }
+    if floatsAfterRelease >= floatsBeforeRelease {
+        return 13
+    }
+    floats.push(2.5)
+    if floats.length() != 1 or floats[0] < 2.4 {
+        return 14
     }
 
     return 0

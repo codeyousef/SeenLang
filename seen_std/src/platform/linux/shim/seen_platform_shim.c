@@ -151,6 +151,8 @@ void seen_sdl_get_drawable_size(void* window, int32_t* w, int32_t* h) {
 #ifdef SEEN_USE_VULKAN
 #include <vulkan/vulkan.h>
 
+#define SEEN_VK_SHIM_API __attribute__((weak))
+
 __attribute__((weak)) int64_t seen_memory_try_reserve_bytes(int64_t size);
 __attribute__((weak)) void seen_memory_release_bytes(int64_t size);
 
@@ -233,7 +235,7 @@ static void seen_platform_free_sized(void* ptr, size_t bytes) {
 }
 
 // Create Vulkan instance with simplified parameters
-int32_t seen_vk_create_instance(
+SEEN_VK_SHIM_API int32_t seen_vk_create_instance(
     const char* app_name, uint32_t app_version,
     const char* engine_name, uint32_t engine_version,
     uint32_t api_version,
@@ -267,11 +269,11 @@ int32_t seen_vk_create_instance(
     return result;
 }
 
-void seen_vk_destroy_instance(uint64_t instance) {
+SEEN_VK_SHIM_API void seen_vk_destroy_instance(uint64_t instance) {
     vkDestroyInstance((VkInstance)instance, NULL);
 }
 
-int32_t seen_vk_enumerate_physical_devices(uint64_t instance, uint32_t* count, uint64_t* devices) {
+SEEN_VK_SHIM_API int32_t seen_vk_enumerate_physical_devices(uint64_t instance, uint32_t* count, uint64_t* devices) {
     if (devices == NULL) {
         return vkEnumeratePhysicalDevices((VkInstance)instance, count, NULL);
     }
@@ -292,7 +294,7 @@ int32_t seen_vk_enumerate_physical_devices(uint64_t instance, uint32_t* count, u
     return result;
 }
 
-void seen_vk_get_physical_device_properties(
+SEEN_VK_SHIM_API void seen_vk_get_physical_device_properties(
     uint64_t device,
     uint32_t* device_type,
     char* device_name,  // Must be at least 256 bytes
@@ -307,13 +309,13 @@ void seen_vk_get_physical_device_properties(
     *api_version = props.apiVersion;
 }
 
-int32_t seen_vk_get_physical_device_queue_family_count(uint64_t device) {
+SEEN_VK_SHIM_API int32_t seen_vk_get_physical_device_queue_family_count(uint64_t device) {
     uint32_t count = 0;
     vkGetPhysicalDeviceQueueFamilyProperties((VkPhysicalDevice)device, &count, NULL);
     return count;
 }
 
-uint32_t seen_vk_get_physical_device_queue_family_flags(uint64_t device, uint32_t index) {
+SEEN_VK_SHIM_API uint32_t seen_vk_get_physical_device_queue_family_flags(uint64_t device, uint32_t index) {
     uint32_t count = 0;
     vkGetPhysicalDeviceQueueFamilyProperties((VkPhysicalDevice)device, &count, NULL);
 
@@ -330,7 +332,7 @@ uint32_t seen_vk_get_physical_device_queue_family_flags(uint64_t device, uint32_
     return flags;
 }
 
-int32_t seen_vk_get_physical_device_surface_support(
+SEEN_VK_SHIM_API int32_t seen_vk_get_physical_device_surface_support(
     uint64_t device, uint32_t queue_family, uint64_t surface, int32_t* supported
 ) {
     VkBool32 support;
@@ -341,7 +343,7 @@ int32_t seen_vk_get_physical_device_surface_support(
     return result;
 }
 
-int32_t seen_vk_create_device(
+SEEN_VK_SHIM_API int32_t seen_vk_create_device(
     uint64_t physical_device,
     uint32_t queue_family_index,
     uint32_t queue_count,
@@ -387,25 +389,25 @@ int32_t seen_vk_create_device(
     return result;
 }
 
-void seen_vk_destroy_device(uint64_t device) {
+SEEN_VK_SHIM_API void seen_vk_destroy_device(uint64_t device) {
     vkDestroyDevice((VkDevice)device, NULL);
 }
 
-void seen_vk_get_device_queue(uint64_t device, uint32_t family, uint32_t index, uint64_t* queue) {
+SEEN_VK_SHIM_API void seen_vk_get_device_queue(uint64_t device, uint32_t family, uint32_t index, uint64_t* queue) {
     VkQueue q;
     vkGetDeviceQueue((VkDevice)device, family, index, &q);
     *queue = (uint64_t)q;
 }
 
-int32_t seen_vk_device_wait_idle(uint64_t device) {
+SEEN_VK_SHIM_API int32_t seen_vk_device_wait_idle(uint64_t device) {
     return vkDeviceWaitIdle((VkDevice)device);
 }
 
-void seen_vk_destroy_surface(uint64_t instance, uint64_t surface) {
+SEEN_VK_SHIM_API void seen_vk_destroy_surface(uint64_t instance, uint64_t surface) {
     vkDestroySurfaceKHR((VkInstance)instance, (VkSurfaceKHR)surface, NULL);
 }
 
-int32_t seen_vk_get_surface_capabilities(
+SEEN_VK_SHIM_API int32_t seen_vk_get_surface_capabilities(
     uint64_t device, uint64_t surface,
     uint32_t* min_image_count, uint32_t* max_image_count,
     uint32_t* current_width, uint32_t* current_height,
@@ -426,7 +428,7 @@ int32_t seen_vk_get_surface_capabilities(
     return result;
 }
 
-int32_t seen_vk_create_swapchain(
+SEEN_VK_SHIM_API int32_t seen_vk_create_swapchain(
     uint64_t device, uint64_t surface,
     uint32_t min_image_count, uint32_t format, uint32_t color_space,
     uint32_t width, uint32_t height,
@@ -459,11 +461,11 @@ int32_t seen_vk_create_swapchain(
     return result;
 }
 
-void seen_vk_destroy_swapchain(uint64_t device, uint64_t swapchain) {
+SEEN_VK_SHIM_API void seen_vk_destroy_swapchain(uint64_t device, uint64_t swapchain) {
     vkDestroySwapchainKHR((VkDevice)device, (VkSwapchainKHR)swapchain, NULL);
 }
 
-int32_t seen_vk_get_swapchain_images(uint64_t device, uint64_t swapchain, uint32_t* count, uint64_t* images) {
+SEEN_VK_SHIM_API int32_t seen_vk_get_swapchain_images(uint64_t device, uint64_t swapchain, uint32_t* count, uint64_t* images) {
     if (images == NULL) {
         return vkGetSwapchainImagesKHR((VkDevice)device, (VkSwapchainKHR)swapchain, count, NULL);
     }
@@ -484,7 +486,7 @@ int32_t seen_vk_get_swapchain_images(uint64_t device, uint64_t swapchain, uint32
     return result;
 }
 
-int32_t seen_vk_acquire_next_image(
+SEEN_VK_SHIM_API int32_t seen_vk_acquire_next_image(
     uint64_t device, uint64_t swapchain, uint64_t timeout,
     uint64_t semaphore, uint64_t fence, uint32_t* image_index
 ) {
@@ -494,7 +496,7 @@ int32_t seen_vk_acquire_next_image(
     );
 }
 
-int32_t seen_vk_create_image_view(
+SEEN_VK_SHIM_API int32_t seen_vk_create_image_view(
     uint64_t device, uint64_t image,
     uint32_t view_type, uint32_t format, uint32_t aspect_mask,
     uint64_t* out_view
@@ -527,11 +529,11 @@ int32_t seen_vk_create_image_view(
     return result;
 }
 
-void seen_vk_destroy_image_view(uint64_t device, uint64_t view) {
+SEEN_VK_SHIM_API void seen_vk_destroy_image_view(uint64_t device, uint64_t view) {
     vkDestroyImageView((VkDevice)device, (VkImageView)view, NULL);
 }
 
-int32_t seen_vk_create_shader_module(uint64_t device, const uint32_t* code, uint32_t code_size, uint64_t* out_module) {
+SEEN_VK_SHIM_API int32_t seen_vk_create_shader_module(uint64_t device, const uint32_t* code, uint32_t code_size, uint64_t* out_module) {
     VkShaderModuleCreateInfo create_info = {
         .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
         .codeSize = code_size,
@@ -546,11 +548,11 @@ int32_t seen_vk_create_shader_module(uint64_t device, const uint32_t* code, uint
     return result;
 }
 
-void seen_vk_destroy_shader_module(uint64_t device, uint64_t module) {
+SEEN_VK_SHIM_API void seen_vk_destroy_shader_module(uint64_t device, uint64_t module) {
     vkDestroyShaderModule((VkDevice)device, (VkShaderModule)module, NULL);
 }
 
-int32_t seen_vk_create_render_pass_simple(
+SEEN_VK_SHIM_API int32_t seen_vk_create_render_pass_simple(
     uint64_t device,
     uint32_t color_format,
     uint32_t final_layout,
@@ -605,11 +607,11 @@ int32_t seen_vk_create_render_pass_simple(
     return result;
 }
 
-void seen_vk_destroy_render_pass(uint64_t device, uint64_t render_pass) {
+SEEN_VK_SHIM_API void seen_vk_destroy_render_pass(uint64_t device, uint64_t render_pass) {
     vkDestroyRenderPass((VkDevice)device, (VkRenderPass)render_pass, NULL);
 }
 
-int32_t seen_vk_create_framebuffer(
+SEEN_VK_SHIM_API int32_t seen_vk_create_framebuffer(
     uint64_t device, uint64_t render_pass,
     uint64_t* attachments, uint32_t attachment_count,
     uint32_t width, uint32_t height,
@@ -648,11 +650,11 @@ int32_t seen_vk_create_framebuffer(
     return result;
 }
 
-void seen_vk_destroy_framebuffer(uint64_t device, uint64_t framebuffer) {
+SEEN_VK_SHIM_API void seen_vk_destroy_framebuffer(uint64_t device, uint64_t framebuffer) {
     vkDestroyFramebuffer((VkDevice)device, (VkFramebuffer)framebuffer, NULL);
 }
 
-int32_t seen_vk_create_command_pool(uint64_t device, uint32_t queue_family, uint32_t flags, uint64_t* out_pool) {
+SEEN_VK_SHIM_API int32_t seen_vk_create_command_pool(uint64_t device, uint32_t queue_family, uint32_t flags, uint64_t* out_pool) {
     VkCommandPoolCreateInfo create_info = {
         .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
         .flags = flags,
@@ -667,11 +669,11 @@ int32_t seen_vk_create_command_pool(uint64_t device, uint32_t queue_family, uint
     return result;
 }
 
-void seen_vk_destroy_command_pool(uint64_t device, uint64_t pool) {
+SEEN_VK_SHIM_API void seen_vk_destroy_command_pool(uint64_t device, uint64_t pool) {
     vkDestroyCommandPool((VkDevice)device, (VkCommandPool)pool, NULL);
 }
 
-int32_t seen_vk_allocate_command_buffers(
+SEEN_VK_SHIM_API int32_t seen_vk_allocate_command_buffers(
     uint64_t device, uint64_t pool, uint32_t level, uint32_t count, uint64_t* buffers
 ) {
     VkCommandBufferAllocateInfo alloc_info = {
@@ -700,7 +702,7 @@ int32_t seen_vk_allocate_command_buffers(
     return result;
 }
 
-int32_t seen_vk_begin_command_buffer(uint64_t buffer, uint32_t flags) {
+SEEN_VK_SHIM_API int32_t seen_vk_begin_command_buffer(uint64_t buffer, uint32_t flags) {
     VkCommandBufferBeginInfo begin_info = {
         .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
         .flags = flags
@@ -708,11 +710,11 @@ int32_t seen_vk_begin_command_buffer(uint64_t buffer, uint32_t flags) {
     return vkBeginCommandBuffer((VkCommandBuffer)buffer, &begin_info);
 }
 
-int32_t seen_vk_end_command_buffer(uint64_t buffer) {
+SEEN_VK_SHIM_API int32_t seen_vk_end_command_buffer(uint64_t buffer) {
     return vkEndCommandBuffer((VkCommandBuffer)buffer);
 }
 
-void seen_vk_cmd_begin_render_pass(
+SEEN_VK_SHIM_API void seen_vk_cmd_begin_render_pass(
     uint64_t cmd, uint64_t render_pass, uint64_t framebuffer,
     int32_t x, int32_t y, uint32_t width, uint32_t height,
     float clear_r, float clear_g, float clear_b, float clear_a
@@ -733,29 +735,29 @@ void seen_vk_cmd_begin_render_pass(
     vkCmdBeginRenderPass((VkCommandBuffer)cmd, &begin_info, VK_SUBPASS_CONTENTS_INLINE);
 }
 
-void seen_vk_cmd_end_render_pass(uint64_t cmd) {
+SEEN_VK_SHIM_API void seen_vk_cmd_end_render_pass(uint64_t cmd) {
     vkCmdEndRenderPass((VkCommandBuffer)cmd);
 }
 
-void seen_vk_cmd_bind_pipeline(uint64_t cmd, uint32_t bind_point, uint64_t pipeline) {
+SEEN_VK_SHIM_API void seen_vk_cmd_bind_pipeline(uint64_t cmd, uint32_t bind_point, uint64_t pipeline) {
     vkCmdBindPipeline((VkCommandBuffer)cmd, bind_point, (VkPipeline)pipeline);
 }
 
-void seen_vk_cmd_set_viewport(uint64_t cmd, float x, float y, float w, float h, float min_d, float max_d) {
+SEEN_VK_SHIM_API void seen_vk_cmd_set_viewport(uint64_t cmd, float x, float y, float w, float h, float min_d, float max_d) {
     VkViewport viewport = { x, y, w, h, min_d, max_d };
     vkCmdSetViewport((VkCommandBuffer)cmd, 0, 1, &viewport);
 }
 
-void seen_vk_cmd_set_scissor(uint64_t cmd, int32_t x, int32_t y, uint32_t w, uint32_t h) {
+SEEN_VK_SHIM_API void seen_vk_cmd_set_scissor(uint64_t cmd, int32_t x, int32_t y, uint32_t w, uint32_t h) {
     VkRect2D scissor = {{ x, y }, { w, h }};
     vkCmdSetScissor((VkCommandBuffer)cmd, 0, 1, &scissor);
 }
 
-void seen_vk_cmd_draw(uint64_t cmd, uint32_t vertex_count, uint32_t instance_count, uint32_t first_vertex, uint32_t first_instance) {
+SEEN_VK_SHIM_API void seen_vk_cmd_draw(uint64_t cmd, uint32_t vertex_count, uint32_t instance_count, uint32_t first_vertex, uint32_t first_instance) {
     vkCmdDraw((VkCommandBuffer)cmd, vertex_count, instance_count, first_vertex, first_instance);
 }
 
-int32_t seen_vk_create_semaphore(uint64_t device, uint64_t* out_semaphore) {
+SEEN_VK_SHIM_API int32_t seen_vk_create_semaphore(uint64_t device, uint64_t* out_semaphore) {
     VkSemaphoreCreateInfo create_info = {
         .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO
     };
@@ -767,11 +769,11 @@ int32_t seen_vk_create_semaphore(uint64_t device, uint64_t* out_semaphore) {
     return result;
 }
 
-void seen_vk_destroy_semaphore(uint64_t device, uint64_t semaphore) {
+SEEN_VK_SHIM_API void seen_vk_destroy_semaphore(uint64_t device, uint64_t semaphore) {
     vkDestroySemaphore((VkDevice)device, (VkSemaphore)semaphore, NULL);
 }
 
-int32_t seen_vk_create_fence(uint64_t device, uint32_t flags, uint64_t* out_fence) {
+SEEN_VK_SHIM_API int32_t seen_vk_create_fence(uint64_t device, uint32_t flags, uint64_t* out_fence) {
     VkFenceCreateInfo create_info = {
         .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
         .flags = flags
@@ -784,11 +786,11 @@ int32_t seen_vk_create_fence(uint64_t device, uint32_t flags, uint64_t* out_fenc
     return result;
 }
 
-void seen_vk_destroy_fence(uint64_t device, uint64_t fence) {
+SEEN_VK_SHIM_API void seen_vk_destroy_fence(uint64_t device, uint64_t fence) {
     vkDestroyFence((VkDevice)device, (VkFence)fence, NULL);
 }
 
-int32_t seen_vk_wait_for_fences(uint64_t device, uint32_t count, uint64_t* fences, int32_t wait_all, uint64_t timeout) {
+SEEN_VK_SHIM_API int32_t seen_vk_wait_for_fences(uint64_t device, uint32_t count, uint64_t* fences, int32_t wait_all, uint64_t timeout) {
     if (count == 0) {
         return VK_SUCCESS;
     }
@@ -806,7 +808,7 @@ int32_t seen_vk_wait_for_fences(uint64_t device, uint32_t count, uint64_t* fence
     return result;
 }
 
-int32_t seen_vk_reset_fences(uint64_t device, uint32_t count, uint64_t* fences) {
+SEEN_VK_SHIM_API int32_t seen_vk_reset_fences(uint64_t device, uint32_t count, uint64_t* fences) {
     if (count == 0) {
         return VK_SUCCESS;
     }
@@ -824,7 +826,7 @@ int32_t seen_vk_reset_fences(uint64_t device, uint32_t count, uint64_t* fences) 
     return result;
 }
 
-int32_t seen_vk_queue_submit(
+SEEN_VK_SHIM_API int32_t seen_vk_queue_submit(
     uint64_t queue,
     uint64_t wait_semaphore, uint32_t wait_stage,
     uint64_t command_buffer,
@@ -850,7 +852,7 @@ int32_t seen_vk_queue_submit(
     return vkQueueSubmit((VkQueue)queue, 1, &submit_info, (VkFence)fence);
 }
 
-int32_t seen_vk_queue_present(uint64_t queue, uint64_t wait_semaphore, uint64_t swapchain, uint32_t image_index) {
+SEEN_VK_SHIM_API int32_t seen_vk_queue_present(uint64_t queue, uint64_t wait_semaphore, uint64_t swapchain, uint32_t image_index) {
     VkSemaphore sem = (VkSemaphore)wait_semaphore;
     VkSwapchainKHR sc = (VkSwapchainKHR)swapchain;
 
@@ -868,7 +870,7 @@ int32_t seen_vk_queue_present(uint64_t queue, uint64_t wait_semaphore, uint64_t 
 
 /* --- Descriptor Sets --- */
 
-int64_t seen_vk_create_descriptor_set_layout(uint64_t device, int32_t binding_count, int32_t* binding_indices, int32_t* binding_types, int32_t* binding_stages) {
+SEEN_VK_SHIM_API int64_t seen_vk_create_descriptor_set_layout(uint64_t device, int32_t binding_count, int32_t* binding_indices, int32_t* binding_types, int32_t* binding_stages) {
     if (binding_count < 0) return 0;
     size_t bindings_bytes = 0;
     VkDescriptorSetLayoutBinding* bindings = NULL;
@@ -895,7 +897,7 @@ int64_t seen_vk_create_descriptor_set_layout(uint64_t device, int32_t binding_co
     return r == VK_SUCCESS ? (int64_t)layout : 0;
 }
 
-int64_t seen_vk_create_descriptor_pool(uint64_t device, int32_t max_sets, int32_t type_count, int32_t* types, int32_t* counts) {
+SEEN_VK_SHIM_API int64_t seen_vk_create_descriptor_pool(uint64_t device, int32_t max_sets, int32_t type_count, int32_t* types, int32_t* counts) {
     if (type_count < 0) return 0;
     size_t sizes_bytes = 0;
     VkDescriptorPoolSize* sizes = NULL;
@@ -921,7 +923,7 @@ int64_t seen_vk_create_descriptor_pool(uint64_t device, int32_t max_sets, int32_
     return r == VK_SUCCESS ? (int64_t)pool : 0;
 }
 
-int64_t seen_vk_allocate_descriptor_set(uint64_t device, uint64_t pool, uint64_t layout) {
+SEEN_VK_SHIM_API int64_t seen_vk_allocate_descriptor_set(uint64_t device, uint64_t pool, uint64_t layout) {
     VkDescriptorSetLayout l = (VkDescriptorSetLayout)layout;
     VkDescriptorSetAllocateInfo ai = {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
@@ -934,7 +936,7 @@ int64_t seen_vk_allocate_descriptor_set(uint64_t device, uint64_t pool, uint64_t
     return r == VK_SUCCESS ? (int64_t)set : 0;
 }
 
-void seen_vk_update_descriptor_set_buffer(uint64_t device, uint64_t set, int32_t binding, uint64_t buffer, int64_t offset, int64_t range) {
+SEEN_VK_SHIM_API void seen_vk_update_descriptor_set_buffer(uint64_t device, uint64_t set, int32_t binding, uint64_t buffer, int64_t offset, int64_t range) {
     VkDescriptorBufferInfo bi = { .buffer = (VkBuffer)buffer, .offset = offset, .range = range };
     VkWriteDescriptorSet w = {
         .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
@@ -947,7 +949,7 @@ void seen_vk_update_descriptor_set_buffer(uint64_t device, uint64_t set, int32_t
     vkUpdateDescriptorSets((VkDevice)device, 1, &w, 0, NULL);
 }
 
-void seen_vk_update_descriptor_set_image(uint64_t device, uint64_t set, int32_t binding, uint64_t image_view, uint64_t sampler, int32_t layout) {
+SEEN_VK_SHIM_API void seen_vk_update_descriptor_set_image(uint64_t device, uint64_t set, int32_t binding, uint64_t image_view, uint64_t sampler, int32_t layout) {
     VkDescriptorImageInfo ii = {
         .sampler = (VkSampler)sampler,
         .imageView = (VkImageView)image_view,
@@ -964,14 +966,14 @@ void seen_vk_update_descriptor_set_image(uint64_t device, uint64_t set, int32_t 
     vkUpdateDescriptorSets((VkDevice)device, 1, &w, 0, NULL);
 }
 
-void seen_vk_cmd_bind_descriptor_sets(uint64_t cmd, int32_t bind_point, uint64_t layout, int32_t first_set, uint64_t set) {
+SEEN_VK_SHIM_API void seen_vk_cmd_bind_descriptor_sets(uint64_t cmd, int32_t bind_point, uint64_t layout, int32_t first_set, uint64_t set) {
     VkDescriptorSet s = (VkDescriptorSet)set;
     vkCmdBindDescriptorSets((VkCommandBuffer)cmd, bind_point, (VkPipelineLayout)layout, first_set, 1, &s, 0, NULL);
 }
 
 /* --- Images and Samplers --- */
 
-int64_t seen_vk_create_image(uint64_t device, int32_t width, int32_t height, int32_t format, int32_t usage, int32_t tiling) {
+SEEN_VK_SHIM_API int64_t seen_vk_create_image(uint64_t device, int32_t width, int32_t height, int32_t format, int32_t usage, int32_t tiling) {
     VkImageCreateInfo ci = {
         .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
         .imageType = VK_IMAGE_TYPE_2D,
@@ -990,11 +992,11 @@ int64_t seen_vk_create_image(uint64_t device, int32_t width, int32_t height, int
     return r == VK_SUCCESS ? (int64_t)image : 0;
 }
 
-void seen_vk_destroy_image(uint64_t device, uint64_t image) {
+SEEN_VK_SHIM_API void seen_vk_destroy_image(uint64_t device, uint64_t image) {
     vkDestroyImage((VkDevice)device, (VkImage)image, NULL);
 }
 
-int64_t seen_vk_create_sampler(uint64_t device, int32_t filter, int32_t address_mode, float max_aniso) {
+SEEN_VK_SHIM_API int64_t seen_vk_create_sampler(uint64_t device, int32_t filter, int32_t address_mode, float max_aniso) {
     VkSamplerCreateInfo ci = {
         .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
         .magFilter = filter,
@@ -1013,7 +1015,7 @@ int64_t seen_vk_create_sampler(uint64_t device, int32_t filter, int32_t address_
     return r == VK_SUCCESS ? (int64_t)sampler : 0;
 }
 
-int64_t seen_vk_create_shadow_sampler(uint64_t device) {
+SEEN_VK_SHIM_API int64_t seen_vk_create_shadow_sampler(uint64_t device) {
     VkSamplerCreateInfo ci = {
         .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
         .magFilter = VK_FILTER_LINEAR,
@@ -1031,11 +1033,11 @@ int64_t seen_vk_create_shadow_sampler(uint64_t device) {
     return r == VK_SUCCESS ? (int64_t)sampler : 0;
 }
 
-void seen_vk_destroy_sampler(uint64_t device, uint64_t sampler) {
+SEEN_VK_SHIM_API void seen_vk_destroy_sampler(uint64_t device, uint64_t sampler) {
     vkDestroySampler((VkDevice)device, (VkSampler)sampler, NULL);
 }
 
-void seen_vk_cmd_pipeline_barrier_image(uint64_t cmd, uint64_t image, int32_t old_layout, int32_t new_layout, int32_t src_stage, int32_t dst_stage) {
+SEEN_VK_SHIM_API void seen_vk_cmd_pipeline_barrier_image(uint64_t cmd, uint64_t image, int32_t old_layout, int32_t new_layout, int32_t src_stage, int32_t dst_stage) {
     VkImageMemoryBarrier barrier = {
         .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
         .oldLayout = old_layout,
@@ -1068,7 +1070,7 @@ void seen_vk_cmd_pipeline_barrier_image(uint64_t cmd, uint64_t image, int32_t ol
 
 /* --- Compute Pipelines --- */
 
-int64_t seen_vk_create_compute_pipeline(uint64_t device, uint64_t shader_module, uint64_t layout) {
+SEEN_VK_SHIM_API int64_t seen_vk_create_compute_pipeline(uint64_t device, uint64_t shader_module, uint64_t layout) {
     VkComputePipelineCreateInfo ci = {
         .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
         .stage = {
@@ -1084,30 +1086,30 @@ int64_t seen_vk_create_compute_pipeline(uint64_t device, uint64_t shader_module,
     return r == VK_SUCCESS ? (int64_t)pipeline : 0;
 }
 
-void seen_vk_cmd_dispatch(uint64_t cmd, int32_t gx, int32_t gy, int32_t gz) {
+SEEN_VK_SHIM_API void seen_vk_cmd_dispatch(uint64_t cmd, int32_t gx, int32_t gy, int32_t gz) {
     vkCmdDispatch((VkCommandBuffer)cmd, gx, gy, gz);
 }
 
-void seen_vk_cmd_bind_compute_pipeline(uint64_t cmd, uint64_t pipeline) {
+SEEN_VK_SHIM_API void seen_vk_cmd_bind_compute_pipeline(uint64_t cmd, uint64_t pipeline) {
     vkCmdBindPipeline((VkCommandBuffer)cmd, VK_PIPELINE_BIND_POINT_COMPUTE, (VkPipeline)pipeline);
 }
 
 /* --- Push Constants --- */
 
-void seen_vk_cmd_push_constants(uint64_t cmd, uint64_t layout, int32_t stages, int32_t offset, int32_t size, uint64_t data_ptr) {
+SEEN_VK_SHIM_API void seen_vk_cmd_push_constants(uint64_t cmd, uint64_t layout, int32_t stages, int32_t offset, int32_t size, uint64_t data_ptr) {
     vkCmdPushConstants((VkCommandBuffer)cmd, (VkPipelineLayout)layout, stages, offset, size, (const void*)data_ptr);
 }
 
 /* --- Buffer Copy --- */
 
-void seen_vk_cmd_copy_buffer(uint64_t cmd, uint64_t src, uint64_t dst, int64_t size) {
+SEEN_VK_SHIM_API void seen_vk_cmd_copy_buffer(uint64_t cmd, uint64_t src, uint64_t dst, int64_t size) {
     VkBufferCopy region = { .srcOffset = 0, .dstOffset = 0, .size = size };
     vkCmdCopyBuffer((VkCommandBuffer)cmd, (VkBuffer)src, (VkBuffer)dst, 1, &region);
 }
 
 /* --- Timestamp Queries --- */
 
-int64_t seen_vk_create_query_pool(uint64_t device, int32_t count) {
+SEEN_VK_SHIM_API int64_t seen_vk_create_query_pool(uint64_t device, int32_t count) {
     VkQueryPoolCreateInfo ci = {
         .sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO,
         .queryType = VK_QUERY_TYPE_TIMESTAMP,
@@ -1118,21 +1120,21 @@ int64_t seen_vk_create_query_pool(uint64_t device, int32_t count) {
     return r == VK_SUCCESS ? (int64_t)pool : 0;
 }
 
-void seen_vk_destroy_query_pool(uint64_t device, uint64_t pool) {
+SEEN_VK_SHIM_API void seen_vk_destroy_query_pool(uint64_t device, uint64_t pool) {
     vkDestroyQueryPool((VkDevice)device, (VkQueryPool)pool, NULL);
 }
 
-void seen_vk_cmd_write_timestamp(uint64_t cmd, int32_t stage, uint64_t pool, int32_t query) {
+SEEN_VK_SHIM_API void seen_vk_cmd_write_timestamp(uint64_t cmd, int32_t stage, uint64_t pool, int32_t query) {
     vkCmdWriteTimestamp((VkCommandBuffer)cmd, stage, (VkQueryPool)pool, query);
 }
 
-void seen_vk_get_query_results(uint64_t device, uint64_t pool, int32_t first, int32_t count, int64_t* results) {
+SEEN_VK_SHIM_API void seen_vk_get_query_results(uint64_t device, uint64_t pool, int32_t first, int32_t count, int64_t* results) {
     vkGetQueryPoolResults((VkDevice)device, (VkQueryPool)pool, first, count,
                           count * sizeof(uint64_t), (uint64_t*)results, sizeof(uint64_t),
                           VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
 }
 
-float seen_vk_get_timestamp_period(uint64_t physical_device) {
+SEEN_VK_SHIM_API float seen_vk_get_timestamp_period(uint64_t physical_device) {
     VkPhysicalDeviceProperties props;
     vkGetPhysicalDeviceProperties((VkPhysicalDevice)physical_device, &props);
     return props.limits.timestampPeriod;
@@ -1140,7 +1142,7 @@ float seen_vk_get_timestamp_period(uint64_t physical_device) {
 
 /* --- Image memory --- */
 
-int64_t seen_vk_get_image_memory_requirements(uint64_t device, uint64_t image, int64_t* size_out, int64_t* alignment_out, uint32_t* type_bits_out) {
+SEEN_VK_SHIM_API int64_t seen_vk_get_image_memory_requirements(uint64_t device, uint64_t image, int64_t* size_out, int64_t* alignment_out, uint32_t* type_bits_out) {
     VkMemoryRequirements reqs;
     vkGetImageMemoryRequirements((VkDevice)device, (VkImage)image, &reqs);
     *size_out = reqs.size;
@@ -1149,11 +1151,11 @@ int64_t seen_vk_get_image_memory_requirements(uint64_t device, uint64_t image, i
     return 0;
 }
 
-int32_t seen_vk_bind_image_memory(uint64_t device, uint64_t image, uint64_t memory, int64_t offset) {
+SEEN_VK_SHIM_API int32_t seen_vk_bind_image_memory(uint64_t device, uint64_t image, uint64_t memory, int64_t offset) {
     return vkBindImageMemory((VkDevice)device, (VkImage)image, (VkDeviceMemory)memory, offset);
 }
 
-void seen_vk_cmd_copy_buffer_to_image(uint64_t cmd, uint64_t buffer, uint64_t image, int32_t width, int32_t height) {
+SEEN_VK_SHIM_API void seen_vk_cmd_copy_buffer_to_image(uint64_t cmd, uint64_t buffer, uint64_t image, int32_t width, int32_t height) {
     VkBufferImageCopy region = {
         .bufferOffset = 0,
         .bufferRowLength = 0,
@@ -1171,18 +1173,202 @@ void seen_vk_cmd_copy_buffer_to_image(uint64_t cmd, uint64_t buffer, uint64_t im
                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 }
 
-void seen_vk_cmd_reset_query_pool(uint64_t cmd, uint64_t pool, int32_t first, int32_t count) {
+SEEN_VK_SHIM_API int32_t seen_vk_read_image_rgba8(
+    uint64_t physical_device, uint64_t device, uint64_t queue,
+    uint64_t command_pool, uint64_t image, int32_t current_layout,
+    int32_t width, int32_t height, int32_t format,
+    uint8_t* out_rgba, uint64_t out_size, int32_t flip_y
+) {
+    if (!physical_device || !device || !queue || !command_pool || !image || !out_rgba) {
+        return VK_ERROR_INITIALIZATION_FAILED;
+    }
+    if (width <= 0 || height <= 0) {
+        return VK_ERROR_INITIALIZATION_FAILED;
+    }
+    if (format != VK_FORMAT_R8G8B8A8_UNORM &&
+        format != VK_FORMAT_R8G8B8A8_SRGB &&
+        format != VK_FORMAT_B8G8R8A8_UNORM &&
+        format != VK_FORMAT_B8G8R8A8_SRGB) {
+        return VK_ERROR_FORMAT_NOT_SUPPORTED;
+    }
+
+    size_t pixel_count = 0;
+    size_t byte_count = 0;
+    if (!seen_platform_mul_bytes((size_t)width, (size_t)height, &pixel_count) ||
+        !seen_platform_mul_bytes(pixel_count, 4, &byte_count) ||
+        byte_count > out_size) {
+        return VK_ERROR_OUT_OF_HOST_MEMORY;
+    }
+
+    VkDevice vk_device = (VkDevice)device;
+    VkBuffer buffer = VK_NULL_HANDLE;
+    VkDeviceMemory memory = VK_NULL_HANDLE;
+    VkCommandBuffer command_buffer = VK_NULL_HANDLE;
+    VkResult result = VK_SUCCESS;
+
+    VkBufferCreateInfo buffer_info = {
+        .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        .size = byte_count,
+        .usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        .sharingMode = VK_SHARING_MODE_EXCLUSIVE
+    };
+    result = vkCreateBuffer(vk_device, &buffer_info, NULL, &buffer);
+    if (result != VK_SUCCESS) goto cleanup;
+
+    VkMemoryRequirements requirements;
+    vkGetBufferMemoryRequirements(vk_device, buffer, &requirements);
+    VkPhysicalDeviceMemoryProperties memory_properties;
+    vkGetPhysicalDeviceMemoryProperties((VkPhysicalDevice)physical_device, &memory_properties);
+    uint32_t memory_type = UINT32_MAX;
+    const VkMemoryPropertyFlags required_properties =
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    for (uint32_t index = 0; index < memory_properties.memoryTypeCount; index++) {
+        if ((requirements.memoryTypeBits & (1u << index)) != 0 &&
+            (memory_properties.memoryTypes[index].propertyFlags & required_properties) == required_properties) {
+            memory_type = index;
+            break;
+        }
+    }
+    if (memory_type == UINT32_MAX) {
+        result = VK_ERROR_FEATURE_NOT_PRESENT;
+        goto cleanup;
+    }
+
+    VkMemoryAllocateInfo allocation_info = {
+        .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        .allocationSize = requirements.size,
+        .memoryTypeIndex = memory_type
+    };
+    result = vkAllocateMemory(vk_device, &allocation_info, NULL, &memory);
+    if (result != VK_SUCCESS) goto cleanup;
+    result = vkBindBufferMemory(vk_device, buffer, memory, 0);
+    if (result != VK_SUCCESS) goto cleanup;
+
+    result = vkQueueWaitIdle((VkQueue)queue);
+    if (result != VK_SUCCESS) goto cleanup;
+
+    VkCommandBufferAllocateInfo command_allocate_info = {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+        .commandPool = (VkCommandPool)command_pool,
+        .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+        .commandBufferCount = 1
+    };
+    result = vkAllocateCommandBuffers(vk_device, &command_allocate_info, &command_buffer);
+    if (result != VK_SUCCESS) goto cleanup;
+
+    VkCommandBufferBeginInfo command_begin_info = {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+        .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
+    };
+    result = vkBeginCommandBuffer(command_buffer, &command_begin_info);
+    if (result != VK_SUCCESS) goto cleanup;
+
+    VkImageMemoryBarrier to_transfer = {
+        .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+        .srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT | VK_ACCESS_MEMORY_READ_BIT,
+        .dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT,
+        .oldLayout = (VkImageLayout)current_layout,
+        .newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .image = (VkImage)image,
+        .subresourceRange = {
+            .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+            .baseMipLevel = 0,
+            .levelCount = 1,
+            .baseArrayLayer = 0,
+            .layerCount = 1
+        }
+    };
+    vkCmdPipelineBarrier(
+        command_buffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+        0, 0, NULL, 0, NULL, 1, &to_transfer);
+
+    VkBufferImageCopy copy_region = {
+        .bufferOffset = 0,
+        .bufferRowLength = 0,
+        .bufferImageHeight = 0,
+        .imageSubresource = {
+            .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+            .mipLevel = 0,
+            .baseArrayLayer = 0,
+            .layerCount = 1
+        },
+        .imageOffset = { 0, 0, 0 },
+        .imageExtent = { (uint32_t)width, (uint32_t)height, 1 }
+    };
+    vkCmdCopyImageToBuffer(
+        command_buffer, (VkImage)image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        buffer, 1, &copy_region);
+
+    VkImageMemoryBarrier restore_layout = to_transfer;
+    restore_layout.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+    restore_layout.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
+    restore_layout.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    restore_layout.newLayout = (VkImageLayout)current_layout;
+    vkCmdPipelineBarrier(
+        command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+        0, 0, NULL, 0, NULL, 1, &restore_layout);
+
+    result = vkEndCommandBuffer(command_buffer);
+    if (result != VK_SUCCESS) goto cleanup;
+
+    VkSubmitInfo submit_info = {
+        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        .commandBufferCount = 1,
+        .pCommandBuffers = &command_buffer
+    };
+    result = vkQueueSubmit((VkQueue)queue, 1, &submit_info, VK_NULL_HANDLE);
+    if (result != VK_SUCCESS) goto cleanup;
+    result = vkQueueWaitIdle((VkQueue)queue);
+    if (result != VK_SUCCESS) goto cleanup;
+
+    void* mapped = NULL;
+    result = vkMapMemory(vk_device, memory, 0, byte_count, 0, &mapped);
+    if (result != VK_SUCCESS) goto cleanup;
+
+    const uint8_t* source = (const uint8_t*)mapped;
+    const int source_is_bgra =
+        format == VK_FORMAT_B8G8R8A8_UNORM || format == VK_FORMAT_B8G8R8A8_SRGB;
+    for (int32_t destination_y = 0; destination_y < height; destination_y++) {
+        int32_t source_y = flip_y ? height - 1 - destination_y : destination_y;
+        const uint8_t* source_row = source + (size_t)source_y * (size_t)width * 4;
+        uint8_t* destination_row = out_rgba + (size_t)destination_y * (size_t)width * 4;
+        if (!source_is_bgra) {
+            memcpy(destination_row, source_row, (size_t)width * 4);
+            continue;
+        }
+        for (int32_t x = 0; x < width; x++) {
+            destination_row[x * 4 + 0] = source_row[x * 4 + 2];
+            destination_row[x * 4 + 1] = source_row[x * 4 + 1];
+            destination_row[x * 4 + 2] = source_row[x * 4 + 0];
+            destination_row[x * 4 + 3] = source_row[x * 4 + 3];
+        }
+    }
+    vkUnmapMemory(vk_device, memory);
+
+cleanup:
+    if (command_buffer != VK_NULL_HANDLE) {
+        vkFreeCommandBuffers(vk_device, (VkCommandPool)command_pool, 1, &command_buffer);
+    }
+    if (buffer != VK_NULL_HANDLE) vkDestroyBuffer(vk_device, buffer, NULL);
+    if (memory != VK_NULL_HANDLE) vkFreeMemory(vk_device, memory, NULL);
+    return result;
+}
+
+SEEN_VK_SHIM_API void seen_vk_cmd_reset_query_pool(uint64_t cmd, uint64_t pool, int32_t first, int32_t count) {
     vkCmdResetQueryPool((VkCommandBuffer)cmd, (VkQueryPool)pool, first, count);
 }
 
-void seen_vk_destroy_descriptor_pool(uint64_t device, uint64_t pool) {
+SEEN_VK_SHIM_API void seen_vk_destroy_descriptor_pool(uint64_t device, uint64_t pool) {
     vkDestroyDescriptorPool((VkDevice)device, (VkDescriptorPool)pool, NULL);
 }
 
-void seen_vk_destroy_descriptor_set_layout(uint64_t device, uint64_t layout) {
+SEEN_VK_SHIM_API void seen_vk_destroy_descriptor_set_layout(uint64_t device, uint64_t layout) {
     vkDestroyDescriptorSetLayout((VkDevice)device, (VkDescriptorSetLayout)layout, NULL);
 }
 
+#undef SEEN_VK_SHIM_API
 #endif /* SEEN_USE_VULKAN */
 
 /* ============================================================================

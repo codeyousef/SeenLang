@@ -119,7 +119,11 @@ void *seen_pool_alloc(int64_t size) {
         slab = (PoolSlab *)seen_try_malloc(sizeof(PoolSlab));
         if (!slab) return NULL;
         slab->base = (char *)seen_try_malloc(POOL_SLAB_SIZE);
-        if (!slab->base) return NULL;
+        if (!slab->base) {
+            seen_memory_release_bytes((int64_t)sizeof(PoolSlab));
+            free(slab);
+            return NULL;
+        }
         slab->used = 0;
         slab->next = pool_slabs[cls];
         pool_slabs[cls] = slab;
@@ -131,7 +135,9 @@ void *seen_pool_alloc(int64_t size) {
 
 __attribute__((hot))
 void seen_pool_free(void *ptr, int64_t size) {
-    if (__builtin_expect(!ptr || size <= 0 || size > POOL_MAX_SIZE, 0)) {
+    if (__builtin_expect(!ptr, 0)) return;
+    if (__builtin_expect(size <= 0 || size > POOL_MAX_SIZE, 0)) {
+        seen_memory_release_bytes(size > 0 ? size : 1);
         free(ptr); return;
     }
     int cls = pool_class((size_t)size);
@@ -389,6 +395,33 @@ void* seen_try_realloc(void* old, int64_t old_size, int64_t new_size) {
 
 static void seen_oom_abort(const char* context, int64_t size);
 
+static void seen_allocation_failure_exit(void) {
+    fflush(stderr);
+    _Exit(134);
+}
+
+static void seen_runtime_print_backtrace(void) {
+#if !defined(_WIN32) && !defined(__ANDROID__)
+    void* frames[32];
+    int count = backtrace(frames, 32);
+    char** symbols = backtrace_symbols(frames, count);
+    if (!symbols) return;
+    fprintf(stderr, "Seen runtime backtrace (%d frames):\n", count);
+    for (int i = 0; i < count; i++) {
+        fprintf(stderr, "  %s\n", symbols[i]);
+    }
+    free(symbols);
+#endif
+}
+
+static int64_t seen_aligned_accounted_size(int64_t size, int64_t alignment) {
+    if (alignment <= 0) alignment = 32;
+    if (size <= 0) size = alignment;
+    size_t aligned = seen_align_up((size_t)size, (size_t)alignment);
+    if (aligned > (size_t)INT64_MAX) return INT64_MAX;
+    return (int64_t)aligned;
+}
+
 void* seen_checked_malloc(int64_t size) {
     void* ptr = seen_try_malloc(size);
     if (!ptr) seen_oom_abort("compiler-emitted allocation", size);
@@ -405,8 +438,10 @@ void* seen_try_aligned_realloc(void* old, int64_t old_size, int64_t new_size,
     int64_t alignment) {
     if (alignment <= 0) alignment = 32;
     if (new_size <= 0) new_size = alignment;
-    size_t aligned_size = seen_align_up((size_t)new_size, (size_t)alignment);
-    if (!seen_memory_can_reserve(old ? old_size : 0, (int64_t)aligned_size)) {
+    int64_t old_accounted = old ? seen_aligned_accounted_size(old_size, alignment) : 0;
+    int64_t new_accounted = seen_aligned_accounted_size(new_size, alignment);
+    size_t aligned_size = (size_t)new_accounted;
+    if (!seen_memory_can_reserve(old_accounted, new_accounted)) {
         return NULL;
     }
 
@@ -434,7 +469,7 @@ void* seen_try_aligned_realloc(void* old, int64_t old_size, int64_t new_size,
         free(old);
     }
 #endif
-    seen_memory_commit_reservation(old ? old_size : 0, (int64_t)aligned_size);
+    seen_memory_commit_reservation(old_accounted, new_accounted);
     return p;
 }
 
@@ -452,7 +487,8 @@ static void seen_oom_abort(const char* context, int64_t size) {
         (long long)seen_memory_used_bytes(),
         (long long)seen_memory_peak_bytes(),
         (long long)seen_memory_allocation_failures());
-    abort();
+    seen_runtime_print_backtrace();
+    seen_allocation_failure_exit();
 }
 
 // Debug counters (guarded behind SEEN_RUNTIME_DEBUG env var)
@@ -498,10 +534,28 @@ static char* seen_runtime_alloc_chars(int64_t len, const char* context) {
     return data;
 }
 
+static char* seen_runtime_alloc_pool_chars(int64_t len, const char* context) {
+    if (len < 0 || len >= INT64_MAX) {
+        seen_oom_abort(context, len);
+    }
+    char* data = (char*)seen_pool_alloc(len + 1);
+    if (!data) {
+        seen_oom_abort(context, len + 1);
+    }
+    return data;
+}
+
 static void seen_runtime_free_budgeted(void* ptr, int64_t size) {
     if (!ptr) return;
     seen_memory_release_reservation(size);
     free(ptr);
+}
+
+static void seen_runtime_free_aligned_budgeted(void* ptr, int64_t size,
+    int64_t alignment) {
+    if (!ptr) return;
+    seen_memory_release_reservation(seen_aligned_accounted_size(size, alignment));
+    seen_aligned_free(ptr);
 }
 
 static char* seen_runtime_cstring(SeenString s, const char* context) {
@@ -567,21 +621,65 @@ SeenString __ReadFile(int64_t fd) {
     return result;
 }
 
-static SeenArray* seen_read_file_bytes_from_stream(FILE* f, int64_t size) {
-    SeenArray* arr = seen_arr_new_ptr_ptr();
-    if (!f) return arr;
-
-    if (size < 0) {
-        int c;
-        while ((c = fgetc(f)) != EOF) {
-            seen_arr_push_i64(arr, (int64_t)(unsigned char)c);
-        }
+static SeenArray* seen_arr_new_i64_capacity(int64_t capacity) {
+    if (capacity < 0 || capacity > INT64_MAX / (int64_t)sizeof(int64_t)) {
+        seen_oom_abort("Array<Int> byte read capacity", capacity);
+    }
+    SeenArray* arr = (SeenArray*)seen_try_malloc(sizeof(SeenArray));
+    if (!arr) seen_oom_abort("Array<Int> byte read header", sizeof(SeenArray));
+    arr->len = 0;
+    arr->cap = capacity;
+    arr->element_size = sizeof(int64_t);
+    if (capacity <= 0) {
+        arr->data = NULL;
         return arr;
     }
+    size_t bytes = (size_t)capacity * sizeof(int64_t);
+    arr->data = seen_try_aligned_realloc(NULL, 0, (int64_t)bytes, 32);
+    if (!arr->data) seen_oom_abort("Array<Int> byte read data", (int64_t)bytes);
+    return arr;
+}
 
-    for (int64_t i = 0; i < size; i++) {
-        int c = fgetc(f);
-        if (c == EOF) break;
+static SeenArray* seen_read_file_bytes_sized(FILE* f, int64_t size) {
+    SeenArray* arr = seen_arr_new_i64_capacity(size);
+    if (!f || size <= 0) return arr;
+
+    size_t chunk_capacity = (size_t)(size < 65536 ? size : 65536);
+    unsigned char* chunk = (unsigned char*)seen_try_malloc((int64_t)chunk_capacity);
+    if (!chunk) seen_oom_abort("__ReadFileBytes chunk", (int64_t)chunk_capacity);
+    int64_t* data = (int64_t*)arr->data;
+    int64_t total = 0;
+    while (total < size) {
+        size_t want = (size_t)((size - total) < (int64_t)chunk_capacity
+            ? (size - total)
+            : (int64_t)chunk_capacity);
+        size_t got = fread(chunk, 1, want, f);
+        if (got == 0) {
+            break;
+        }
+        for (size_t i = 0; i < got; i++) {
+            data[total + (int64_t)i] = (int64_t)chunk[i];
+        }
+        total += (int64_t)got;
+        if (got < want) {
+            break;
+        }
+    }
+    seen_memory_release_bytes((int64_t)chunk_capacity);
+    free(chunk);
+    arr->len = total;
+    return arr;
+}
+
+static SeenArray* seen_read_file_bytes_from_stream(FILE* f, int64_t size) {
+    if (!f) return seen_arr_new_i64_capacity(0);
+    if (size >= 0) {
+        return seen_read_file_bytes_sized(f, size);
+    }
+
+    SeenArray* arr = seen_arr_new_i64_capacity(0);
+    int c;
+    while ((c = fgetc(f)) != EOF) {
         seen_arr_push_i64(arr, (int64_t)(unsigned char)c);
     }
     return arr;
@@ -1101,7 +1199,28 @@ static void* seen_aligned_realloc(void* old, size_t old_size, size_t new_size) {
             old_size, new_size, (long long)seen_memory_limit_bytes(),
             (long long)seen_memory_used_bytes(),
             (long long)seen_memory_peak_bytes());
-        abort();
+        seen_allocation_failure_exit();
+    }
+    return p;
+}
+
+static void* seen_aligned_realloc_array(SeenArray* arr, size_t old_size,
+    size_t new_size, int64_t new_cap, const char* context) {
+    void* p = seen_try_aligned_realloc(arr ? arr->data : NULL,
+        (int64_t)old_size, (int64_t)new_size, 32);
+    if (!p) {
+        fprintf(stderr,
+            "Seen allocation failure: %s aligned resize from %zu to %zu bytes failed (len=%lld cap=%lld new_cap=%lld elem=%lld limit=%lld used=%lld peak=%lld)\n",
+            context ? context : "array grow", old_size, new_size,
+            (long long)(arr ? arr->len : -1),
+            (long long)(arr ? arr->cap : -1),
+            (long long)new_cap,
+            (long long)(arr ? arr->element_size : -1),
+            (long long)seen_memory_limit_bytes(),
+            (long long)seen_memory_used_bytes(),
+            (long long)seen_memory_peak_bytes());
+        seen_runtime_print_backtrace();
+        seen_allocation_failure_exit();
     }
     return p;
 }
@@ -1191,8 +1310,10 @@ void seen_arr_push_str(SeenArray* arr, SeenString s) {
             abort();
         }
         size_t old_sz = (size_t)arr->cap * sizeof(SeenString);
+        arr->data = seen_aligned_realloc_array(arr, old_sz,
+            (size_t)new_cap * sizeof(SeenString), new_cap,
+            "seen_arr_push_str");
         arr->cap = new_cap;
-        arr->data = seen_aligned_realloc(arr->data, old_sz, (size_t)arr->cap * sizeof(SeenString));
     }
     ((SeenString*)arr->data)[arr->len++] = s;
 }
@@ -1214,8 +1335,10 @@ void seen_arr_push_i64(SeenArray* arr, int64_t val) {
             abort();
         }
         size_t old_sz = (size_t)arr->cap * (size_t)arr->element_size;
+        arr->data = seen_aligned_realloc_array(arr, old_sz,
+            (size_t)new_cap * (size_t)arr->element_size, new_cap,
+            "seen_arr_push_i64");
         arr->cap = new_cap;
-        arr->data = seen_aligned_realloc(arr->data, old_sz, (size_t)arr->cap * (size_t)arr->element_size);
     }
     if (arr->element_size == (int64_t)sizeof(int64_t)) {
         ((int64_t*)arr->data)[arr->len++] = val;
@@ -1247,10 +1370,12 @@ void seen_arr_push_f64(SeenArray* arr, double val) {
         abort();
     }
     if (arr->len >= arr->cap) {
-        size_t old_sz = (size_t)arr->cap * (size_t)arr->element_size;
         int64_t new_cap = (arr->cap == 0) ? 8 : arr->cap * 2;
+        size_t old_sz = (size_t)arr->cap * (size_t)arr->element_size;
+        arr->data = seen_aligned_realloc_array(arr, old_sz,
+            (size_t)new_cap * (size_t)arr->element_size, new_cap,
+            "seen_arr_push_f64");
         arr->cap = new_cap;
-        arr->data = seen_aligned_realloc(arr->data, old_sz, (size_t)arr->cap * (size_t)arr->element_size);
     }
     ((double*)arr->data)[arr->len++] = val;
 }
@@ -1279,6 +1404,40 @@ SeenString seen_arr_pop_str(SeenArray* arr) {
 // Clear array (reset length to 0 without freeing buffer — reuse allocation)
 void seen_arr_clear(SeenArray* arr) {
     if (arr) arr->len = 0;
+}
+
+void seen_arr_release(SeenArray* arr) {
+    if (!arr) return;
+    if (arr->data) {
+        int64_t bytes = 0;
+        if (arr->cap > 0 && arr->element_size > 0 &&
+            arr->cap <= INT64_MAX / arr->element_size) {
+            bytes = arr->cap * arr->element_size;
+        }
+        if (bytes <= 0) bytes = 32;
+        seen_runtime_free_aligned_budgeted(arr->data, bytes, 32);
+    }
+    arr->data = NULL;
+    arr->len = 0;
+    arr->cap = 0;
+}
+
+void seen_arr_release_i64(SeenArray* arr) {
+    seen_arr_release(arr);
+}
+
+void seen_arr_release_f64(SeenArray* arr) {
+    seen_arr_release(arr);
+}
+
+void seen_arr_release_str(SeenArray* arr) {
+    seen_arr_release(arr);
+}
+
+void seen_arr_free(SeenArray* arr) {
+    if (!arr) return;
+    seen_arr_release(arr);
+    seen_runtime_free_budgeted(arr, (int64_t)sizeof(SeenArray));
 }
 
 // ============================================================================
@@ -1352,6 +1511,17 @@ void seen_byte_array_clear(void* handle) {
     if (bytes) bytes->len = 0;
 }
 
+void seen_byte_array_release(void* handle) {
+    SeenByteArray* bytes = (SeenByteArray*)handle;
+    if (!bytes) return;
+    if (bytes->data) {
+        seen_runtime_free_budgeted(bytes->data, bytes->cap > 0 ? bytes->cap : 1);
+    }
+    bytes->data = NULL;
+    bytes->len = 0;
+    bytes->cap = 0;
+}
+
 void seen_byte_array_push(void* handle, int64_t value) {
     SeenByteArray* bytes = (SeenByteArray*)handle;
     seen_byte_array_ensure(bytes, bytes->len + 1);
@@ -1422,11 +1592,13 @@ void seen_byte_array_reverse(void* handle) {
 
 SeenArray* seen_byte_array_to_int_array(void* handle) {
     SeenByteArray* bytes = (SeenByteArray*)handle;
-    SeenArray* arr = seen_arr_new_ptr_ptr();
-    if (!bytes) return arr;
+    if (!bytes) return seen_arr_new_i64_capacity(0);
+    SeenArray* arr = seen_arr_new_i64_capacity(bytes->len);
+    int64_t* out = (int64_t*)arr->data;
     for (int64_t i = 0; i < bytes->len; i++) {
-        seen_arr_push_i64(arr, (int64_t)bytes->data[i]);
+        out[i] = (int64_t)bytes->data[i];
     }
+    arr->len = bytes->len;
     return arr;
 }
 
@@ -1499,6 +1671,23 @@ bool seen_primitive_buffer_try_reserve(void* handle, int64_t required) {
 int64_t seen_primitive_buffer_capacity(void* handle) {
     SeenPrimitiveBuffer* buffer = (SeenPrimitiveBuffer*)handle;
     return buffer ? buffer->cap : 0;
+}
+
+void seen_primitive_buffer_release(void* handle) {
+    SeenPrimitiveBuffer* buffer = (SeenPrimitiveBuffer*)handle;
+    if (!buffer) return;
+    if (buffer->data) {
+        int64_t bytes = 0;
+        if (buffer->cap > 0 && buffer->elem_size > 0 &&
+            buffer->cap <= INT64_MAX / buffer->elem_size) {
+            bytes = buffer->cap * buffer->elem_size;
+        }
+        if (bytes <= 0) bytes = 1;
+        seen_runtime_free_budgeted(buffer->data, bytes);
+    }
+    buffer->data = NULL;
+    buffer->len = 0;
+    buffer->cap = 0;
 }
 
 static void seen_primitive_check_index(SeenPrimitiveBuffer* buffer,
@@ -1776,8 +1965,10 @@ void seen_arr_push_ptr(SeenArray* arr, void* p) {
             abort();
         }
         size_t old_sz = (size_t)arr->cap * (size_t)arr->element_size;
+        arr->data = seen_aligned_realloc_array(arr, old_sz,
+            (size_t)new_cap * (size_t)arr->element_size, new_cap,
+            "seen_arr_push_ptr");
         arr->cap = new_cap;
-        arr->data = seen_aligned_realloc(arr->data, old_sz, (size_t)arr->cap * (size_t)arr->element_size);
     }
     if (arr->element_size == (int64_t)sizeof(void*)) {
         ((void**)arr->data)[arr->len++] = p;
@@ -1821,7 +2012,8 @@ int64_t Array_push(SeenArray* arr, void* element) {
         }
         size_t old_size = (size_t)arr->cap * (size_t)arr->element_size;
         size_t new_size = (size_t)new_cap * (size_t)arr->element_size;
-        arr->data = seen_aligned_realloc(arr->data, old_size, new_size);
+        arr->data = seen_aligned_realloc_array(arr, old_size, new_size,
+            new_cap, "Array_push");
         arr->cap = new_cap;
     }
 
@@ -2097,7 +2289,7 @@ SeenString seen_substring(SeenString s, int64_t start, int64_t end) {
         return empty;
     }
     int64_t newlen = end - start;
-    char* newdata = (char*)seen_pool_alloc(newlen + 1);
+    char* newdata = seen_runtime_alloc_pool_chars(newlen, "seen_substring");
     memcpy(newdata, s.data + start, newlen);
     newdata[newlen] = 0;
     SeenString result = { newlen, newdata };
@@ -2111,20 +2303,10 @@ SeenString seen_str_concat_ss(SeenString a, SeenString b) {
         return result;
     }
     if (a.data == NULL && a.len == 0) {
-        // a is empty, return copy of b
-        char* newdata = (char*)seen_pool_alloc(b.len + 1);
-        memcpy(newdata, b.data, b.len);
-        newdata[b.len] = 0;
-        SeenString result = { b.len, newdata };
-        return result;
+        return b;
     }
     if (b.data == NULL && b.len == 0) {
-        // b is empty, return copy of a
-        char* newdata = (char*)seen_pool_alloc(a.len + 1);
-        memcpy(newdata, a.data, a.len);
-        newdata[a.len] = 0;
-        SeenString result = { a.len, newdata };
-        return result;
+        return a;
     }
     // Non-zero length with NULL data is a real error
     if (a.data == NULL || b.data == NULL) {
@@ -2139,7 +2321,11 @@ SeenString seen_str_concat_ss(SeenString a, SeenString b) {
 #endif
         abort();
     }
-    char* newdata = (char*)seen_pool_alloc(a.len + b.len + 1);
+    if (a.len < 0 || b.len < 0 || a.len > INT64_MAX - b.len - 1) {
+        seen_oom_abort("seen_str_concat_ss length overflow", INT64_MAX);
+    }
+    char* newdata = seen_runtime_alloc_pool_chars(a.len + b.len,
+        "seen_str_concat_ss");
     memcpy(newdata, a.data, a.len);
     memcpy(newdata + a.len, b.data, b.len);
     newdata[a.len + b.len] = 0;
@@ -2733,11 +2919,13 @@ void* StringBuilder_new_with_capacity(int64_t cap) {
     if (!sb) seen_oom_abort("StringBuilder_new_with_capacity header", sizeof(StringBuilder));
     SeenArray* parts = (SeenArray*)seen_try_malloc(sizeof(SeenArray));
     if (!parts) seen_oom_abort("StringBuilder_new_with_capacity parts", sizeof(SeenArray));
-    int64_t data_size = cap * (int64_t)sizeof(SeenString);
-    parts->data = seen_try_malloc(data_size > 0 ? data_size : 1);
+    int64_t actual_cap = cap > 0 ? cap : 8;
+    int64_t data_size = actual_cap * (int64_t)sizeof(SeenString);
+    parts->data = seen_try_aligned_realloc(NULL, 0, data_size, 32);
     if (!parts->data) seen_oom_abort("StringBuilder_new_with_capacity data", data_size);
     parts->len = 0;
-    parts->cap = cap;
+    parts->cap = actual_cap;
+    parts->element_size = sizeof(SeenString);
     sb->parts = parts;
     sb->totalLength = 0;
     return sb;
