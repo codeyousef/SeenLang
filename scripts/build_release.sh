@@ -303,7 +303,7 @@ chmod +x "$STAGING/bin/seen"
 strip "$STAGING/bin/seen" 2>/dev/null || true
 cp "$PACKAGE_CLIENT_BIN" "$STAGING/bin/seen-pkg"
 chmod +x "$STAGING/bin/seen-pkg"
-strip "$STAGING/bin/seen-pkg" 2>/dev/null || true
+# Preserve Go symbols for release CPU-baseline attribution of dispatched ISA paths.
 
 if [[ -f "$PAYLOAD_CACHE_DIR/.ready" ]]; then
     echo "[2-5/6] Reusing package payload cache..."

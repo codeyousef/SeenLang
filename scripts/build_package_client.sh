@@ -113,11 +113,17 @@ trap 'rm -f "$tmp_output"' EXIT
 echo "Building seen-pkg $VERSION for $TARGET_OS/$TARGET_ARCH (VMEM ${VMEM_KB} KiB)..."
 (
     cd "$PACKAGE_DIR"
+    target_tuning=()
+    if [[ "$TARGET_ARCH" == "amd64" ]]; then
+        target_tuning+=(GOAMD64=v1)
+    fi
     build_command=(
         env CGO_ENABLED=0 GOOS="$TARGET_OS" GOARCH="$TARGET_ARCH"
+        "${target_tuning[@]}"
         GOMAXPROCS="${GOMAXPROCS:-2}" GOFLAGS="${GOFLAGS:--p=1}"
         "$GO_BIN" build -mod=readonly -trimpath -buildvcs=false
-        -ldflags="-s -w" -o "$tmp_output" ./cmd/seen-pkg
+        # Keep Go symbols so the release verifier can attribute dispatched ISA paths.
+        -ldflags="-w" -o "$tmp_output" ./cmd/seen-pkg
     )
     if command -v prlimit >/dev/null 2>&1; then
         exec prlimit --as="$((VMEM_KB * 1024))" -- "${build_command[@]}"

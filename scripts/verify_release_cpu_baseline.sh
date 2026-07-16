@@ -13,7 +13,7 @@ Usage: verify_release_cpu_baseline.sh [--cpu-baseline <x86-64|x86-64-v3>] <artif
 Checks:
   - package metadata declares the requested CPU baseline
   - version-coupled package client is present and accepts the release version
-  - default x86-64 packages do not contain AVX-512-only instruction evidence
+  - native binaries do not require AVX-512 (runtime-dispatched Go paths are allowed)
   - packaged compiler starts, runs `check`, and compiles a small program
 USAGE
 }
@@ -54,8 +54,63 @@ if [[ ${#ARTIFACTS[@]} -eq 0 ]]; then
     exit 2
 fi
 
+go_package_client_has_compatible_baseline() {
+    local bin="$1"
+    local goamd64=""
+    local level=""
+
+    [[ "$(basename "$bin")" == "seen-pkg" ]] || return 1
+    grep -aFq $'path\tgithub.com/codeyousef/seen/tools/seen-pkg/cmd/seen-pkg' "$bin" || return 1
+    grep -aFq $'build\tCGO_ENABLED=0' "$bin" || return 1
+    grep -aFq $'build\tGOARCH=amd64' "$bin" || return 1
+    grep -aFq $'build\tGOOS=linux' "$bin" || return 1
+
+    for level in v1 v2 v3 v4; do
+        if grep -aFq $'build\t'"GOAMD64=$level" "$bin"; then
+            [[ -z "$goamd64" ]] || return 1
+            goamd64="$level"
+        fi
+    done
+    [[ -n "$goamd64" ]] || return 1
+
+    case "$CPU_BASELINE:$goamd64" in
+        x86-64:v1|x86-64-v3:v1|x86-64-v3:v2|x86-64-v3:v3) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+go_package_client_avx512_is_runtime_dispatched() {
+    local disassembly="$1"
+
+    awk '
+        function allowed(name) {
+            if (name ~ /^expandAVX512_[0-9]+$/) return 1
+            if (name ~ /^internal\/runtime\/gc\/scan\.(FilterNilAVX512\.abi0|scanSpanPackedAVX512\.abi0)$/) return 1
+            if (name == "runtime.asyncPreempt.abi0") return 1
+            if (name == "hash/crc32.ieeeCLMUL.abi0") return 1
+            return 0
+        }
+        /^[[:space:]]*[[:xdigit:]]+ <[^>]+>:/ {
+            current = $0
+            sub(/^[^<]*</, "", current)
+            sub(/>:.*/, "", current)
+        }
+        {
+            lower = tolower($0)
+            evex = lower ~ /^[[:space:]]*[[:xdigit:]]+:[[:space:]]+62[[:space:]]/
+            registers = lower ~ /(%zmm[0-9]+|%k[0-7]([^[:alnum:]_]|$))/
+            if ((evex || registers) && !allowed(current)) {
+                print "Unapproved AVX-512 evidence in " current ": " $0 > "/dev/stderr"
+                failed = 1
+            }
+        }
+        END { exit failed ? 1 : 0 }
+    ' "$disassembly"
+}
+
 scan_for_avx512() {
     local bin="$1"
+    local disassembly=""
 
     if ! command -v file >/dev/null 2>&1 || ! command -v objdump >/dev/null 2>&1; then
         echo "Warning: instruction scan skipped because file or objdump is unavailable" >&2
@@ -67,10 +122,28 @@ scan_for_avx512() {
         return 0
     fi
 
-    if objdump -d "$bin" | grep -Eiq '\b(zmm[0-9]+|%zmm[0-9]+|k[0-7]\{|%k[0-7]\{|avx512|vgather.*zmm|vscatter.*zmm)\b'; then
-        echo "AVX-512-only instruction evidence found in $bin" >&2
+    disassembly="$(mktemp /tmp/seen_release_objdump.XXXXXX)"
+    # x86 instructions are at most 15 bytes, so width 16 prevents wrapped raw-byte
+    # continuations from looking like EVEX (0x62) instruction starts.
+    if ! objdump -d --insn-width=16 "$bin" > "$disassembly"; then
+        echo "Unable to disassemble native release binary: $bin" >&2
+        rm -f "$disassembly"
         return 1
     fi
+
+    if grep -Eiq '(^[[:space:]]*[[:xdigit:]]+:[[:space:]]+62[[:space:]]|%zmm[0-9]+|%k[0-7]([^[:alnum:]_]|$))' \
+        "$disassembly"; then
+        if go_package_client_has_compatible_baseline "$bin" && \
+            go_package_client_avx512_is_runtime_dispatched "$disassembly"; then
+            echo "Accepted runtime-dispatched AVX-512 in baseline-compatible Go package client: $bin"
+            rm -f "$disassembly"
+            return 0
+        fi
+        echo "AVX-512-only instruction evidence found in $bin" >&2
+        rm -f "$disassembly"
+        return 1
+    fi
+    rm -f "$disassembly"
 }
 
 run_smoke_tests() {
@@ -205,15 +278,18 @@ for artifact in "${ARTIFACTS[@]}"; do
         exit 1
     fi
 
+    if ! go_package_client_has_compatible_baseline "$package_client"; then
+        echo "Package-client Go CPU baseline is incompatible with $CPU_BASELINE: $package_client" >&2
+        exit 1
+    fi
+
     if ! "$package_client" --expect-version "$release_version" version >/dev/null 2>&1; then
         echo "Package-client version handshake failed for Seen $release_version" >&2
         exit 1
     fi
 
-    if [[ "$CPU_BASELINE" == "x86-64" ]]; then
-        scan_for_avx512 "$bin"
-        scan_for_avx512 "$package_client"
-    fi
+    scan_for_avx512 "$bin"
+    scan_for_avx512 "$package_client"
 
     run_smoke_tests "$bin" "$tmpdir"
     rm -rf "$tmpdir"
