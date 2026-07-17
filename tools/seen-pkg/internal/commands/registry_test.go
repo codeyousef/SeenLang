@@ -272,6 +272,7 @@ func TestCustomRegistryAutomaticFetchReusesTrustedIdentity(t *testing.T) {
 		t.Fatalf("derived identity = %+v", automaticSpecs[0])
 	}
 	runtime := newRegistryRuntime(automaticSpecs, cacheRoot, true)
+	runtime.now = func() time.Time { return now }
 	candidates, err := runtime.Candidates(context.Background(), model.PackageKey{RegistryOrigin: origin, Package: "alice/mathx"}, resolver.Access{Offline: true})
 	if err != nil || len(candidates) != 1 {
 		t.Fatalf("automatic cached fetch candidates = %+v, %v", candidates, err)

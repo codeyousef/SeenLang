@@ -278,6 +278,15 @@ The owner/name, exact version, digest, and archive filename must match the targe
 custom fields, and the target hash must match the same digest. Clients and
 signers reject rather than decode, normalize, or repair any mismatch.
 
+Each target also carries a registry attestation binding the exact subject and
+blob length, publisher and registry-service identities, immutable source
+repository and commit, final scan result and policy/evidence versions, public
+visibility, and activation time. `registry_attestation_sha256` and the legacy
+`provenance_sha256` alias are both the SHA-256 of the canonical projection
+defined by the TUF schema; the source-proof digest must equal the review
+binding. Clients fail closed when any field is absent, inconsistent, or
+re-hashed under a different projection.
+
 Metadata signatures and metadata-file hashes use TUF canonical JSON, frozen as
 `tuf-canonical-json-v1` in the signing-policy schema and fixture. Ed25519 public
 keys are lowercase hex of 32 raw bytes, signatures are lowercase hex of 64 raw
@@ -296,6 +305,13 @@ production trust root and activates neither environment. The current package
 client separately distributes the official development root; production still
 fails closed without its own root. Planned key names or illustrative policy
 material never activate trust.
+
+The fixture's `client_conformance_cases` also freezes complete-chain behavior
+for a signed wrong-environment update, missing delegated metadata, an online
+key before and after offline delegation revocation, and recovery with its
+replacement key. Implementations must re-sign every changed role and rebuild
+snapshot/timestamp hash and length bindings before evaluating each case; an
+invalid signature is not a substitute for the expected policy decision.
 
 Bearer credentials for operations marked with a recent-auth maximum must carry
 the JWT NumericDate `auth_time` claim. The registry compares its server clock to

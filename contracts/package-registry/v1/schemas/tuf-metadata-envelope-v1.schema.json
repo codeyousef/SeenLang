@@ -12,13 +12,27 @@
       "comparison": "byte-exact-without-decoding-or-normalization",
       "requires": [
         "custom.package-equals-owner-slash-name",
+        "custom.owner-and-name-equal-target-path",
         "custom.version-equals-version",
         "custom.archive_sha256-equals-archive_sha256",
         "custom.archive_filename-equals-archive_filename",
         "custom.archive_filename-equals-name-dash-version-dot-seenpkg-dot-tgz",
-        "hashes.sha256-equals-custom.archive_sha256"
+        "hashes.sha256-equals-custom.archive_sha256",
+        "custom.blob-equals-target-length-and-hash"
       ],
       "failure": "reject-before-signing-or-client-selection"
+    },
+    "registry_attestation_binding": {
+      "canonical_projection": {
+        "subject": ["package", "owner", "name", "version", "blob", "visibility"],
+        "publisher": ["publisher_principal", "registry_service_identity"],
+        "source": ["source_repository", "source_commit"],
+        "review": "review",
+        "activation": "activated_at"
+      },
+      "digest": "custom.registry_attestation_sha256-and-custom.provenance_sha256-equal-sha256-of-tuf-canonical-json-projection",
+      "source_proof": "custom.source_proof_sha256-equals-custom.review.source_proof_sha256",
+      "failure": "reject-before-client-selection"
     },
     "release_role_eligibility": {
       "state": {
@@ -128,14 +142,24 @@
             "environment",
             "registry_origin",
             "package",
+            "owner",
+            "name",
             "version",
             "archive_sha256",
             "archive_filename",
+            "blob",
+            "publisher_principal",
+            "registry_service_identity",
+            "source_repository",
+            "source_commit",
+            "review",
             "visibility",
             "lifecycle",
             "retention",
             "availability",
+            "activated_at",
             "source_proof_sha256",
+            "registry_attestation_sha256",
             "provenance_sha256",
             "dependencies",
             "capabilities"
@@ -150,6 +174,8 @@
               "type": "string",
               "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?/[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
             },
+            "owner": {"$ref": "#/$defs/packageComponent"},
+            "name": {"$ref": "#/$defs/packageComponent"},
             "version": {"$ref": "#/$defs/exactVersion"},
             "archive_sha256": {"$ref": "#/$defs/sha256"},
             "archive_filename": {
@@ -158,11 +184,29 @@
               "maxLength": 256,
               "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?-[0-9A-Za-z.+-]{5,128}\\.seenpkg\\.tgz$"
             },
+            "blob": {"$ref": "#/$defs/attestedBlob"},
+            "publisher_principal": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9:@._/-]*$"
+            },
+            "registry_service_identity": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[a-z0-9](?:[a-z0-9-]{0,126}[a-z0-9])?$"
+            },
+            "source_repository": {"$ref": "#/$defs/attestedRepository"},
+            "source_commit": {"$ref": "#/$defs/attestedCommit"},
+            "review": {"$ref": "#/$defs/attestedReview"},
             "visibility": {"const": "public"},
             "lifecycle": {"const": "active"},
             "retention": {"const": "retained"},
             "availability": {"enum": ["available", "yanked", "security-quarantined"]},
+            "activated_at": {"type": "string", "format": "date-time"},
             "source_proof_sha256": {"$ref": "#/$defs/sha256"},
+            "registry_attestation_sha256": {"$ref": "#/$defs/sha256"},
             "provenance_sha256": {"$ref": "#/$defs/sha256"},
             "dependencies": {
               "type": "array",
@@ -212,6 +256,82 @@
             }
           ]
         }
+      }
+    },
+    "packageComponent": {
+      "type": "string",
+      "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+    },
+    "attestedBlob": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sha256", "length"],
+      "properties": {
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "length": {"type": "integer", "minimum": 1, "maximum": 26214400}
+      }
+    },
+    "attestedRepository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["forge", "repository_id", "canonical_url"],
+      "properties": {
+        "forge": {"enum": ["github", "gitlab"]},
+        "repository_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+        },
+        "canonical_url": {
+          "type": "string",
+          "pattern": "^https://[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?(?:/[A-Za-z0-9._~-]+)+$"
+        }
+      }
+    },
+    "attestedCommit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "value"],
+      "properties": {
+        "algorithm": {"enum": ["sha1", "sha256"]},
+        "value": {"type": "string", "pattern": "^[0-9a-f]{40}(?:[0-9a-f]{24})?$"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"algorithm": {"const": "sha1"}}, "required": ["algorithm"]},
+          "then": {"properties": {"value": {"pattern": "^[0-9a-f]{40}$"}}}
+        },
+        {
+          "if": {"properties": {"algorithm": {"const": "sha256"}}, "required": ["algorithm"]},
+          "then": {"properties": {"value": {"pattern": "^[0-9a-f]{64}$"}}}
+        }
+      ]
+    },
+    "attestedReview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result",
+        "policy_version",
+        "source_proof_id",
+        "source_proof_sha256",
+        "scan_attestation_id",
+        "scan_attestation_sha256",
+        "scanner_id",
+        "scanner_version",
+        "attestation_sequence"
+      ],
+      "properties": {
+        "result": {"const": "passed"},
+        "policy_version": {"type": "string", "minLength": 1, "maxLength": 128},
+        "source_proof_id": {"type": "string", "pattern": "^prf_[A-Za-z0-9_-]{8,96}$"},
+        "source_proof_sha256": {"$ref": "#/$defs/sha256"},
+        "scan_attestation_id": {"type": "string", "pattern": "^scn_[A-Za-z0-9_-]{8,96}$"},
+        "scan_attestation_sha256": {"$ref": "#/$defs/sha256"},
+        "scanner_id": {"type": "string", "minLength": 1, "maxLength": 128},
+        "scanner_version": {"type": "string", "minLength": 1, "maxLength": 128},
+        "attestation_sequence": {"type": "integer", "minimum": 1}
       }
     },
     "capability": {
