@@ -3,6 +3,30 @@
   "$id": "urn:seen:package-registry:v1:source-proof",
   "title": "Seen package registry source proof v1",
   "description": "An append-only verification record binding a package archive to an immutable forge repository and commit.",
+  "x-seen-semantic-rules": {
+    "evaluation": "all-rules-must-pass-at-verification-and-each-pre-activation-recheck",
+    "failure_reporting": "first-failing-rule-in-array-order",
+    "rules": [
+      {
+        "id": "immutable-ref-resolution",
+        "operator": "repository-requested-ref-resolved-ref-and-commit-equal-trusted-verification-context",
+        "document_pointers": [
+          "/repository",
+          "/requested_ref",
+          "/resolved_ref",
+          "/commit"
+        ],
+        "error_code": "source_proof_mutable_ref_changed"
+      },
+      {
+        "id": "archive-digest-binding",
+        "operator": "json-pointer-equals-trusted-context",
+        "left_pointer": "/archive/package_sha256",
+        "context_pointer": "/release/archive/sha256",
+        "error_code": "source_proof_archive_digest_mismatch"
+      }
+    ]
+  },
   "type": "object",
   "additionalProperties": false,
   "required": [

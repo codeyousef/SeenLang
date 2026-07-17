@@ -6,8 +6,8 @@ info:
   summary: Versioned package publication and retrieval contract
   description: |
     Host-neutral HTTP contract for Seen package metadata, immutable release
-    reservation, archive ingestion, release-state actions, source-proof
-    history, and archive download.
+    reservation, archive ingestion, release-state actions, source-proof and
+    scan-attestation history, and archive download.
 
     Package identity, release state, source provenance, registry authorization,
     and account authentication are separate concerns. Aether issues and manages
@@ -2003,6 +2003,8 @@ components:
       $ref: ./schemas/release-record.schema.json
     SourceProof:
       $ref: ./schemas/source-proof.schema.json
+    ScanAttestation:
+      $ref: ./schemas/scan-attestation-v1.schema.json
     ErrorEnvelope:
       $ref: ./schemas/error-envelope.schema.json
     ParsedManifest:

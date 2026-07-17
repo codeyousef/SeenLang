@@ -1,10 +1,11 @@
 # Seen package registry contract v1
 
 This directory is the normative v1 wire, manifest, resolution, lock, archive,
-and trust contract shared by Seen clients and the registry service. A producer
-or consumer claiming v1 conformance must satisfy the schemas, semantic rules,
-and executable fixtures together. A contract change updates those artifacts
-and both client and service conformance tests atomically.
+source-proof, provenance, scan-attestation, release-state, and trust contract
+shared by Seen clients and the registry service. A producer or consumer
+claiming v1 conformance must satisfy the schemas, semantic rules, and executable
+fixtures together. A contract change updates those artifacts and both client
+and service conformance tests atomically.
 
 Contract paths are host-neutral. Development uses
 `https://seen.dev.yousef.codes/packages`; production promotion later changes
@@ -222,9 +223,20 @@ The executable transition fixture keeps four orthogonal dimensions:
 lifecycle, visibility, resolver availability, and retention. A public release
 cannot use the private first-scan-to-ready edge: it passes a distinct first
 scan, waits at least 72 hours, and then enters a distinct second-scan state with
-a fresh source-proof check. Scanner outages and inconclusive results retry from
-quarantine or delay while remaining unavailable; only definitive policy
-failure rejects a reserved version.
+a fresh source-proof check. The verifier resolves the requested forge ref into
+an immutable commit at verification and at every pre-activation recheck; any
+repository, ref, or commit drift fails with
+`source_proof_mutable_ref_changed`. Scanner outages and inconclusive results
+retry from quarantine or delay while remaining unavailable; only definitive
+policy failure rejects a reserved version.
+
+The 72-hour delay is exactly 259,200 seconds measured by the registry server's
+UTC clock. The second scan may start when elapsed time is greater than or equal
+to that boundary; one second earlier is denied. Ready-to-active promotion uses
+a compare-and-swap state revision. Only the exact archive and source-proof
+digests captured by the successful review may be promoted. Replaying the same
+promotion key with those exact inputs is idempotent; a competing stale write
+fails without publishing a second blob or metadata record.
 
 Package identity, version, and archive digest are reserved atomically before a
 release enters quarantine. Manifest/capability data derived from the archive is
@@ -232,6 +244,17 @@ bound immutably to that digest. Later provenance and scan rechecks are
 append-only attestations. Blob promotion must complete before resolver-visible
 signed metadata is published. Yanking and security quarantine change signed
 availability, not lifecycle history or bytes; neither allows version reuse.
+
+`schemas/scan-attestation-v1.schema.json` is the normative isolated-scan record.
+It binds the mounted and scanner-observed archive and source-proof digests to
+the immutable release, records rootless ephemeral execution and resource
+limits, and makes only a `passed` / `promotion-eligible` result usable by a
+later state transition. `fixtures/scan-attestation-v1.json` and
+`fixtures/scan-attestation-failure-cases-v1.json` freeze fail-closed behavior
+for scanner crashes, timeouts, missing results or digests, and inconsistent
+archive or source-proof observations. `fixtures/release-transitions.json`
+freezes the exact delay boundary, idempotent replay, state-race, and reviewed
+input-binding traces.
 
 Private package names and versions are not enumerable. A private release may be
 soft-deleted, but its identity/version reservation and audit record remain; blob

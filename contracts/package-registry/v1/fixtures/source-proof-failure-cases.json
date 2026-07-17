@@ -34,6 +34,15 @@
       ],
       "expected": "schema-reject",
       "error_code": "source_proof_verified_at_required"
+    },
+    {
+      "name": "mutable-ref-resolves-to-different-commit",
+      "description": "A ref re-resolved after review cannot replace the immutable commit bound by the trusted verification context.",
+      "mutations": [
+        {"op": "replace", "path": "/commit/value", "value": "fedcba9876543210fedcba9876543210fedcba98"}
+      ],
+      "expected": "semantic-reject",
+      "error_code": "source_proof_mutable_ref_changed"
     }
   ]
 }

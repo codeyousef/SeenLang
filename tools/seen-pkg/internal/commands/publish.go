@@ -24,16 +24,18 @@ import (
 
 const (
 	defaultPublishOrigin      = "https://seen.dev.yousef.codes/packages"
+	defaultSourceForge        = "github"
 	maxAPIResponseBytes       = 4 * 1024 * 1024
 	maxPublishTokenFileBytes  = 4096
 	maximumArchiveUploadBytes = 25 * 1024 * 1024
 )
 
 type publishCLI struct {
-	ManifestPath, RegistryOrigin, TokenFile               string
-	RepositoryID, InstallationID, SourceRef, SourceCommit string
-	LicenseSPDX, Description, RepositoryURL               string
-	Quiet                                                 bool
+	ManifestPath, RegistryOrigin, TokenFile   string
+	SourceForge, RepositoryID, InstallationID string
+	SourceRef, SourceCommit                   string
+	LicenseSPDX, Description, RepositoryURL   string
+	Quiet                                     bool
 }
 
 type createPackageRequest struct {
@@ -190,7 +192,7 @@ func (backend *ProductionBackend) publish(ctx context.Context, arguments []strin
 		Archive:        publishArchive{Format: "tar+gzip", SHA256: packed.SHA256, CompressedBytes: packed.Length},
 		ManifestSHA256: manifestSHA256,
 		Manifest:       manifestJSON,
-		Source:         publishSource{Forge: "github", RepositoryID: cli.RepositoryID, InstallationID: cli.InstallationID, RequestedRef: cli.SourceRef, ExpectedCommit: cli.SourceCommit, LicenseSPDX: cli.LicenseSPDX},
+		Source:         publishSource{Forge: cli.SourceForge, RepositoryID: cli.RepositoryID, InstallationID: cli.InstallationID, RequestedRef: cli.SourceRef, ExpectedCommit: cli.SourceCommit, LicenseSPDX: cli.LicenseSPDX},
 	}
 	owner, name, _ := strings.Cut(parsed.Package.Identity, "/")
 	path := fmt.Sprintf("/api/v1/packages/%s/%s/releases", url.PathEscape(owner), url.PathEscape(name))
@@ -235,7 +237,7 @@ func (backend *ProductionBackend) publish(ctx context.Context, arguments []strin
 }
 
 func parsePublishCLI(arguments []string) (publishCLI, error) {
-	options := publishCLI{RegistryOrigin: envOr("SEEN_REGISTRY_ORIGIN", defaultPublishOrigin), TokenFile: os.Getenv("SEEN_REGISTRY_TOKEN_FILE"), RepositoryID: os.Getenv("SEEN_SOURCE_REPOSITORY_ID"), InstallationID: os.Getenv("SEEN_SOURCE_INSTALLATION_ID"), SourceRef: os.Getenv("SEEN_SOURCE_REF"), SourceCommit: os.Getenv("SEEN_SOURCE_COMMIT"), LicenseSPDX: os.Getenv("SEEN_SOURCE_LICENSE_SPDX")}
+	options := publishCLI{RegistryOrigin: envOr("SEEN_REGISTRY_ORIGIN", defaultPublishOrigin), TokenFile: os.Getenv("SEEN_REGISTRY_TOKEN_FILE"), SourceForge: envOr("SEEN_SOURCE_FORGE", defaultSourceForge), RepositoryID: os.Getenv("SEEN_SOURCE_REPOSITORY_ID"), InstallationID: os.Getenv("SEEN_SOURCE_INSTALLATION_ID"), SourceRef: os.Getenv("SEEN_SOURCE_REF"), SourceCommit: os.Getenv("SEEN_SOURCE_COMMIT"), LicenseSPDX: os.Getenv("SEEN_SOURCE_LICENSE_SPDX")}
 	for index := 0; index < len(arguments); index++ {
 		argument := arguments[index]
 		if argument == "--quiet" {
@@ -253,6 +255,8 @@ func parsePublishCLI(arguments []string) (publishCLI, error) {
 				options.RegistryOrigin = value
 			case "--token-file":
 				options.TokenFile = value
+			case "--source-forge":
+				options.SourceForge = value
 			case "--source-repository-id":
 				options.RepositoryID = value
 			case "--source-installation-id":
@@ -294,6 +298,9 @@ func (cli *publishCLI) fillManifestDefaults(document map[string]any) {
 }
 
 func (cli publishCLI) validateSource() error {
+	if cli.SourceForge != "github" && cli.SourceForge != "gitlab" {
+		return errors.New("source forge must be exactly github or gitlab")
+	}
 	missing := make([]string, 0, 5)
 	for _, field := range []struct {
 		name  string

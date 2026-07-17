@@ -118,7 +118,7 @@ seen pkg add|remove|fetch|update [options]
 seen pkg tree [--lock <Seen.lock>]
 seen pkg audit [--lock <Seen.lock>]
 seen pkg pack [options]
-seen pkg publish [project-dir-or-manifest] [--registry <origin>] [--token-file <mode-0600-file>] [source options]
+seen pkg publish [project-dir-or-manifest] [--registry <origin>] [--token-file <mode-0600-file>] [--source-forge github|gitlab] [source options]
 seen pkg prebuild [project-dir-or-manifest] [output-dir]
 ```
 
@@ -131,8 +131,9 @@ seen pkg prebuild [project-dir-or-manifest] [output-dir]
   explicit lock path.
 - `pack` creates a validated source archive for the current package.
 - `publish` submits a source package with an authorized internal credential and
-  bound source repository, installation, ref, commit, and SPDX license
-  metadata. Development submissions complete as delayed and unavailable.
+  bound source forge, repository, installation, ref, commit, and SPDX license
+  metadata. Development submissions complete as quarantined and unavailable;
+  the public delay begins only after source verification and the first scan pass.
 - `prebuild` emits a local prebuilt artifact containing `Seen.pkg.toml`,
   `objects.tsv`, `interface.index.tsv`, object files, and interface sources.
 
@@ -169,6 +170,7 @@ Controlled internal publishing is available through:
 ```bash
 seen pkg publish [project-dir-or-manifest] \
   --token-file <mode-0600-file> \
+  --source-forge github \
   --source-repository-id <id> \
   --source-installation-id <id> \
   --source-ref refs/heads/<branch> \
@@ -176,23 +178,30 @@ seen pkg publish [project-dir-or-manifest] \
   --license-spdx <identifier>
 ```
 
+`--source-forge` accepts exactly `github` or `gitlab`. The equivalent
+`SEEN_SOURCE_FORGE` environment variable has the same validation and defaults
+to `github` when neither form is supplied.
+
 On Linux and macOS, a token file must be one private regular file and must not
 be selected by the package's `include` or `assets` patterns. Windows rejects
 `--token-file`; inject `SEEN_REGISTRY_TOKEN` through the trusted publisher
 process environment instead.
 
-The development service accepts the bound submission but keeps the release
-delayed, unavailable, and excluded from public catalog, resolution, and
-download. The CLI still reserves these inactive hosted operations:
+The development service accepts the bound submission as quarantined and
+unavailable. Successful immutable-source verification and the first isolated
+scan start the exact 72-hour public delay; a fresh source proof and second scan
+are required before promotion into catalog, resolution, and download metadata.
+The CLI still reserves these hosted operations:
 
 ```bash
 seen pkg login|logout|whoami [options]
 seen pkg yank|report [options]
 ```
 
-They and private-package access remain inactive in 0.10.0. The development read
-service and embedded trust root are live; production remains absent and fails
-closed.
+The service exposes authenticated report, yank, appeal, and emergency-security
+workflows, while their CLI commands and private-package access remain inactive
+in 0.10.0. The development service and embedded trust root are live; production
+remains absent and fails closed.
 
 ### Platform Packaging Commands
 

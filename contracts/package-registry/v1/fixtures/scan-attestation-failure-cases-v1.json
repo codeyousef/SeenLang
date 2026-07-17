@@ -1,0 +1,105 @@
+{
+  "contract_version": 1,
+  "base_attestation": "scan-attestation-v1.json",
+  "schema": "../schemas/scan-attestation-v1.schema.json",
+  "trusted_release": {
+    "package": "acme/http",
+    "version": "1.2.3",
+    "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "source_proof_id": "prf_01JZX8K9F7Q2W4N6M8R0",
+    "source_proof_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "failure_mode": "remain-unavailable-retain-audit-and-retry-from-delayed",
+  "cases": [
+    {
+      "name": "scanner-crash",
+      "mutations": [
+        {"op": "replace", "path": "/result/status", "value": "error"},
+        {"op": "replace", "path": "/result/reason", "value": "scanner-crash"},
+        {"op": "replace", "path": "/result/disposition", "value": "retry-unavailable"},
+        {"op": "replace", "path": "/result/report_sha256", "value": null}
+      ],
+      "validation": "semantic-reject",
+      "expected": "retry-unavailable",
+      "error_code": "scan_scanner_crash",
+      "public_error_code": "temporarily_unavailable",
+      "next_lifecycle": "delayed",
+      "publicly_visible": false
+    },
+    {
+      "name": "scanner-timeout",
+      "mutations": [
+        {"op": "replace", "path": "/result/status", "value": "timeout"},
+        {"op": "replace", "path": "/result/reason", "value": "scanner-timeout"},
+        {"op": "replace", "path": "/result/disposition", "value": "retry-unavailable"},
+        {"op": "replace", "path": "/result/report_sha256", "value": null}
+      ],
+      "validation": "semantic-reject",
+      "expected": "retry-unavailable",
+      "error_code": "scan_scanner_timeout",
+      "public_error_code": "temporarily_unavailable",
+      "next_lifecycle": "delayed",
+      "publicly_visible": false
+    },
+    {
+      "name": "scan-result-missing",
+      "mutations": [
+        {"op": "remove", "path": "/result"}
+      ],
+      "validation": "schema-reject",
+      "expected": "retry-unavailable",
+      "error_code": "scan_result_missing",
+      "public_error_code": "temporarily_unavailable",
+      "next_lifecycle": "delayed",
+      "publicly_visible": false
+    },
+    {
+      "name": "observed-archive-digest-missing",
+      "mutations": [
+        {"op": "remove", "path": "/result/observed_archive_sha256"}
+      ],
+      "validation": "schema-reject",
+      "expected": "retry-unavailable",
+      "error_code": "scan_archive_digest_missing",
+      "public_error_code": "temporarily_unavailable",
+      "next_lifecycle": "delayed",
+      "publicly_visible": false
+    },
+    {
+      "name": "observed-source-proof-digest-missing",
+      "mutations": [
+        {"op": "remove", "path": "/result/observed_source_proof_sha256"}
+      ],
+      "validation": "schema-reject",
+      "expected": "retry-unavailable",
+      "error_code": "scan_source_proof_digest_missing",
+      "public_error_code": "temporarily_unavailable",
+      "next_lifecycle": "delayed",
+      "publicly_visible": false
+    },
+    {
+      "name": "observed-archive-digest-inconsistent",
+      "mutations": [
+        {"op": "replace", "path": "/result/observed_archive_sha256", "value": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"}
+      ],
+      "validation": "semantic-reject",
+      "expected": "retry-unavailable",
+      "error_code": "scan_archive_digest_mismatch",
+      "public_error_code": "temporarily_unavailable",
+      "next_lifecycle": "delayed",
+      "publicly_visible": false
+    },
+    {
+      "name": "observed-source-proof-digest-inconsistent",
+      "mutations": [
+        {"op": "replace", "path": "/result/observed_source_proof_sha256", "value": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"}
+      ],
+      "validation": "semantic-reject",
+      "expected": "retry-unavailable",
+      "error_code": "scan_source_proof_digest_mismatch",
+      "public_error_code": "temporarily_unavailable",
+      "next_lifecycle": "delayed",
+      "publicly_visible": false
+    }
+  ]
+}
