@@ -14,10 +14,11 @@ import (
 )
 
 const (
-	testEnvironment = "production"
-	testRepository  = "seen-prod-registry-v1"
-	testOrigin      = "https://seen.yousef.codes/packages"
-	testTargetPath  = "packages/alice/mathx/1.2.3/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/mathx-1.2.3.seenpkg.tgz"
+	testEnvironment       = "production"
+	testRepository        = "seen-prod-registry-v1"
+	testOrigin            = "https://seen.yousef.codes/packages"
+	testTargetPath        = "packages/alice/mathx/1.2.3/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/mathx-1.2.3.seenpkg.tgz"
+	fixtureActivationTime = "2026-07-16T11:59:00Z"
 )
 
 type signingKey struct {
@@ -37,6 +38,22 @@ type fixture struct {
 	targets   TargetsSigned
 	snapshot  SnapshotSigned
 	timestamp TimestampSigned
+}
+
+type clientConformanceContract struct {
+	Cases []clientConformanceCase `json:"client_conformance_cases"`
+}
+
+type clientConformanceCase struct {
+	Name         string                  `json:"name"`
+	InitialState string                  `json:"initial_state"`
+	Steps        []clientConformanceStep `json:"steps"`
+}
+
+type clientConformanceStep struct {
+	Action    string `json:"action"`
+	Expected  string `json:"expected"`
+	ErrorCode string `json:"error_code"`
 }
 
 func newSigningKey(t *testing.T) signingKey {
@@ -135,11 +152,29 @@ func newFixture(t *testing.T) fixture {
 
 	baseCustom := TargetCustom{
 		Environment: testEnvironment, RegistryOrigin: testOrigin, Package: "alice/mathx", Version: "1.2.3",
+		Owner: "alice", Name: "mathx",
 		ArchiveSHA256: strings.Repeat("a", 64), ArchiveFilename: "mathx-1.2.3.seenpkg.tgz",
+		Blob:               AttestedBlob{SHA256: strings.Repeat("a", 64), Length: 8192},
+		PublisherPrincipal: "publisher:alice", RegistryServiceIdentity: "release-promoter",
+		SourceRepository: AttestedRepository{Forge: "github", RepositoryID: "987654321", CanonicalURL: "https://github.com/alice/mathx"},
+		SourceCommit:     AttestedCommit{Algorithm: "sha1", Value: "0123456789abcdef0123456789abcdef01234567"},
+		Review: AttestedReview{
+			Result: "passed", PolicyVersion: "package-scan-v1.0.0",
+			SourceProofID: "prf_01JZX8K9F7Q2W4N6M8R0", SourceProofSHA256: strings.Repeat("b", 64),
+			ScanAttestationID: "scn_01JZX9M1N2P3Q4R5S6T7", ScanAttestationSHA256: strings.Repeat("d", 64),
+			ScannerID: "seen-package-scanner", ScannerVersion: "1.0.0", AttestationSequence: 4,
+		},
 		Visibility: "public", Lifecycle: "active", Retention: "retained", Availability: "available",
-		SourceProofSHA256: strings.Repeat("b", 64), ProvenanceSHA256: strings.Repeat("c", 64),
-		Dependencies: []TargetDependency{}, Capabilities: []string{"file"},
+		ActivatedAt:       fixtureActivationTime,
+		SourceProofSHA256: strings.Repeat("b", 64),
+		Dependencies:      []TargetDependency{}, Capabilities: []string{"file"},
 	}
+	attestationSHA256, err := registryAttestationDigest(baseCustom)
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseCustom.RegistryAttestationSHA256 = attestationSHA256
+	baseCustom.ProvenanceSHA256 = attestationSHA256
 	baseTarget := TargetMeta{Length: 8192, Hashes: map[string]string{"sha256": strings.Repeat("a", 64)}, Custom: baseCustom}
 	releases := TargetsSigned{Common: common("targets", 42, now.Add(4*24*time.Hour)), Targets: map[string]TargetMeta{testTargetPath: baseTarget}}
 	securityTarget := baseTarget
@@ -194,6 +229,225 @@ func tufCode(t *testing.T, err error) string {
 		t.Fatalf("expected TUF Error, got %T: %v", err, err)
 	}
 	return verification.Code
+}
+
+func loadClientConformanceCases(t *testing.T) map[string]clientConformanceCase {
+	t.Helper()
+	fixturePath := filepath.Join("..", "..", "..", "..", "contracts", "package-registry", "v1", "fixtures", "tuf-metadata-examples.json")
+	raw, err := os.ReadFile(fixturePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var contract clientConformanceContract
+	if err := json.Unmarshal(raw, &contract); err != nil {
+		t.Fatal(err)
+	}
+	cases := make(map[string]clientConformanceCase, len(contract.Cases))
+	for _, item := range contract.Cases {
+		if item.Name == "" || len(item.Steps) == 0 {
+			t.Fatalf("invalid client conformance case: %+v", item)
+		}
+		if _, duplicate := cases[item.Name]; duplicate {
+			t.Fatalf("duplicate client conformance case %q", item.Name)
+		}
+		cases[item.Name] = item
+	}
+	return cases
+}
+
+func requireConformanceSteps(t *testing.T, item clientConformanceCase, initialState string, actions ...string) {
+	t.Helper()
+	if item.InitialState != initialState {
+		t.Fatalf("%s initial state = %q, want %q", item.Name, item.InitialState, initialState)
+	}
+	if len(item.Steps) != len(actions) {
+		t.Fatalf("%s steps = %d, want %d", item.Name, len(item.Steps), len(actions))
+	}
+	for index, action := range actions {
+		if item.Steps[index].Action != action {
+			t.Fatalf("%s step %d action = %q, want %q", item.Name, index, item.Steps[index].Action, action)
+		}
+	}
+}
+
+func assertConformanceResult(t *testing.T, step clientConformanceStep, err error) {
+	t.Helper()
+	switch step.Expected {
+	case "accept":
+		if step.ErrorCode != "" {
+			t.Fatalf("accepted conformance step declares error code %q", step.ErrorCode)
+		}
+		if err != nil {
+			t.Fatalf("conformance step rejected: %v", err)
+		}
+	case "reject":
+		if err == nil {
+			t.Fatal("conformance step unexpectedly accepted")
+		}
+		if got := tufCode(t, err); got != step.ErrorCode {
+			t.Fatalf("conformance error = %q, want %q: %v", got, step.ErrorCode, err)
+		}
+	default:
+		t.Fatalf("unknown conformance expectation %q", step.Expected)
+	}
+}
+
+func bootstrapAndRefreshFixture(t *testing.T, fixture fixture) *Verifier {
+	t.Helper()
+	verifier := verifierFor(t, fixture, &MemoryStore{})
+	if err := verifier.BootstrapRoot(fixture.root, digest(fixture.root)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := verifier.Refresh(fixture.metadata); err != nil {
+		t.Fatal(err)
+	}
+	return verifier
+}
+
+func advanceReleaseTransaction(t *testing.T, fixture *fixture, signer signingKey) {
+	t.Helper()
+	fixture.releases.Version++
+	fixture.snapshot.Version++
+	fixture.timestamp.Version++
+	fixture.rebuildWithDelegatedSigners(t, signer, fixture.keys["security-a"])
+}
+
+func replaceReleaseDelegation(t *testing.T, fixture *fixture, replacement signingKey) {
+	t.Helper()
+	if fixture.targets.Delegations == nil {
+		t.Fatal("fixture has no delegated targets policy")
+	}
+	roles := append([]DelegatedRole(nil), fixture.targets.Delegations.Roles...)
+	found := false
+	for index := range roles {
+		if roles[index].Name == "releases" {
+			roles[index].KeyIDs = []string{replacement.id}
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("fixture has no releases delegation")
+	}
+	fixture.targets.Delegations = &Delegations{
+		Keys: map[string]Key{
+			replacement.id:                tufKey(replacement),
+			fixture.keys["security-a"].id: tufKey(fixture.keys["security-a"]),
+		},
+		Roles: roles,
+	}
+	fixture.targets.Version++
+	fixture.releases.Version++
+	fixture.snapshot.Version++
+	fixture.timestamp.Version++
+}
+
+func runWrongEnvironmentConformance(t *testing.T, item clientConformanceCase) {
+	requireConformanceSteps(t, item, "trusted-root-only", "refresh-complete-chain-resigned-with-release-environment-changed")
+	fixture := newFixture(t)
+	fixture.releases.Environment = "development"
+	fixture.rebuild(t)
+	verifier := verifierFor(t, fixture, &MemoryStore{})
+	if err := verifier.BootstrapRoot(fixture.root, digest(fixture.root)); err != nil {
+		t.Fatal(err)
+	}
+	_, err := verifier.Refresh(fixture.metadata)
+	assertConformanceResult(t, item.Steps[0], err)
+}
+
+func runMissingMetadataConformance(t *testing.T, item clientConformanceCase) {
+	requireConformanceSteps(t, item, "trusted-root-only", "refresh-complete-chain-with-security-metadata-absent")
+	fixture := newFixture(t)
+	store := &MemoryStore{}
+	verifier := verifierFor(t, fixture, store)
+	if err := verifier.BootstrapRoot(fixture.root, digest(fixture.root)); err != nil {
+		t.Fatal(err)
+	}
+	fixture.metadata.Security = nil
+	_, err := verifier.Refresh(fixture.metadata)
+	assertConformanceResult(t, item.Steps[0], err)
+	state, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Versions["timestamp"] != 0 || state.Versions["snapshot"] != 0 || state.Versions["security"] != 0 {
+		t.Fatalf("missing metadata advanced trusted state: %+v", state.Versions)
+	}
+}
+
+func runCompromisedCurrentKeyConformance(t *testing.T, item clientConformanceCase) {
+	requireConformanceSteps(t, item, "base-metadata-refreshed", "refresh-next-release-version-signed-by-current-delegated-key")
+	fixture := newFixture(t)
+	verifier := bootstrapAndRefreshFixture(t, fixture)
+	target := fixture.releases.Targets[testTargetPath]
+	target.Custom.Availability = "yanked"
+	target.Custom.YankReason = "compromised delegated key changed availability"
+	fixture.releases.Targets[testTargetPath] = target
+	advanceReleaseTransaction(t, &fixture, fixture.keys["releases-a"])
+	_, err := verifier.Refresh(fixture.metadata)
+	assertConformanceResult(t, item.Steps[0], err)
+}
+
+func runRevokedDelegationConformance(t *testing.T, item clientConformanceCase) {
+	requireConformanceSteps(t, item, "base-metadata-refreshed", "refresh-resigned-chain-after-offline-targets-replaces-release-key-but-release-uses-former-key")
+	fixture := newFixture(t)
+	verifier := bootstrapAndRefreshFixture(t, fixture)
+	former := fixture.keys["releases-a"]
+	replacement := newSigningKey(t)
+	replaceReleaseDelegation(t, &fixture, replacement)
+	fixture.rebuildWithDelegatedSigners(t, former, fixture.keys["security-a"])
+	_, err := verifier.Refresh(fixture.metadata)
+	assertConformanceResult(t, item.Steps[0], err)
+}
+
+func runRecoveryConformance(t *testing.T, item clientConformanceCase) {
+	requireConformanceSteps(
+		t,
+		item,
+		"base-metadata-refreshed",
+		"reject-resigned-chain-after-offline-targets-replaces-release-key-but-release-uses-former-key",
+		"refresh-same-next-versions-resigned-by-replacement-release-key",
+	)
+	fixture := newFixture(t)
+	verifier := bootstrapAndRefreshFixture(t, fixture)
+	former := fixture.keys["releases-a"]
+	replacement := newSigningKey(t)
+	replaceReleaseDelegation(t, &fixture, replacement)
+	fixture.rebuildWithDelegatedSigners(t, former, fixture.keys["security-a"])
+	_, err := verifier.Refresh(fixture.metadata)
+	assertConformanceResult(t, item.Steps[0], err)
+
+	// The failed transaction did not advance trust. Re-signing the same next
+	// signed versions with the newly delegated key must therefore recover.
+	fixture.rebuildWithDelegatedSigners(t, replacement, fixture.keys["security-a"])
+	repository, err := verifier.Refresh(fixture.metadata)
+	assertConformanceResult(t, item.Steps[1], err)
+	if repository == nil || repository.Releases.Version != fixture.releases.Version {
+		t.Fatalf("recovery did not install replacement metadata: %+v", repository)
+	}
+}
+
+func TestFrozenClientConformanceCases(t *testing.T) {
+	cases := loadClientConformanceCases(t)
+	runners := []struct {
+		name string
+		run  func(*testing.T, clientConformanceCase)
+	}{
+		{"wrong-environment-signed-chain", runWrongEnvironmentConformance},
+		{"missing-delegated-metadata", runMissingMetadataConformance},
+		{"compromised-online-key-remains-authorized-before-revocation", runCompromisedCurrentKeyConformance},
+		{"revoked-delegation-rejects-former-online-key", runRevokedDelegationConformance},
+		{"replacement-delegation-recovers-after-compromise", runRecoveryConformance},
+	}
+	if len(cases) != len(runners) {
+		t.Fatalf("client conformance cases = %d, want %d", len(cases), len(runners))
+	}
+	for _, runner := range runners {
+		item, ok := cases[runner.name]
+		if !ok {
+			t.Fatalf("missing client conformance case %q", runner.name)
+		}
+		t.Run(runner.name, func(t *testing.T) { runner.run(t, item) })
+	}
 }
 
 func TestRefreshVerifiesChainAndSecurityOverlay(t *testing.T) {
@@ -281,6 +535,13 @@ func TestMetadataHashLengthAndOriginFailClosed(t *testing.T) {
 			mutate: func(f *fixture) {
 				target := f.security.Targets[testTargetPath]
 				target.Length++
+				target.Custom.Blob.Length = target.Length
+				attestationSHA256, err := registryAttestationDigest(target.Custom)
+				if err != nil {
+					t.Fatal(err)
+				}
+				target.Custom.RegistryAttestationSHA256 = attestationSHA256
+				target.Custom.ProvenanceSHA256 = attestationSHA256
 				f.security.Targets[testTargetPath] = target
 				f.rebuild(t)
 			},
@@ -305,10 +566,111 @@ func TestMetadataHashLengthAndOriginFailClosed(t *testing.T) {
 	}
 }
 
+func TestRegistryAttestationFailsClosed(t *testing.T) {
+	baseFixture := newFixture(t)
+	tests := []struct {
+		name   string
+		mutate func(*TargetCustom)
+	}{
+		{
+			name: "publisher principal missing",
+			mutate: func(custom *TargetCustom) {
+				custom.PublisherPrincipal = ""
+			},
+		},
+		{
+			name: "source commit invalid",
+			mutate: func(custom *TargetCustom) {
+				custom.SourceCommit.Value = "not-a-commit"
+			},
+		},
+		{
+			name: "source repository identifier invalid",
+			mutate: func(custom *TargetCustom) {
+				custom.SourceRepository.RepositoryID = "repository id with spaces"
+			},
+		},
+		{
+			name: "source repository host is not canonical lowercase",
+			mutate: func(custom *TargetCustom) {
+				custom.SourceRepository.CanonicalURL = "https://GitHub.com/alice/mathx"
+			},
+		},
+		{
+			name: "source repository path is percent encoded",
+			mutate: func(custom *TargetCustom) {
+				custom.SourceRepository.CanonicalURL = "https://github.com/alice/math%78"
+			},
+		},
+		{
+			name: "source proof differs from review",
+			mutate: func(custom *TargetCustom) {
+				custom.SourceProofSHA256 = strings.Repeat("c", 64)
+			},
+		},
+		{
+			name: "activation is in the future",
+			mutate: func(custom *TargetCustom) {
+				custom.ActivatedAt = baseFixture.now.Add(10 * time.Minute).Format(time.RFC3339)
+			},
+		},
+		{
+			name: "canonical digest is stale",
+			mutate: func(custom *TargetCustom) {
+				custom.PublisherPrincipal = "publisher:bob"
+			},
+		},
+		{
+			name: "legacy provenance digest differs",
+			mutate: func(custom *TargetCustom) {
+				custom.ProvenanceSHA256 = strings.Repeat("c", 64)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			fixture := newFixture(t)
+			target := fixture.releases.Targets[testTargetPath]
+			tc.mutate(&target.Custom)
+			fixture.releases.Targets[testTargetPath] = target
+			fixture.rebuild(t)
+
+			verifier := verifierFor(t, fixture, &MemoryStore{})
+			if err := verifier.BootstrapRoot(fixture.root, digest(fixture.root)); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := verifier.Refresh(fixture.metadata); tufCode(t, err) != "signing_target_attestation_invalid" {
+				t.Fatalf("attestation mutation = %v", err)
+			}
+		})
+	}
+}
+
+func TestSecurityTargetRejectsYankReason(t *testing.T) {
+	fixture := newFixture(t)
+	target := fixture.security.Targets[testTargetPath]
+	target.Custom.YankReason = "release-role field must not cross the security boundary"
+	fixture.security.Targets[testTargetPath] = target
+	fixture.rebuild(t)
+
+	verifier := verifierFor(t, fixture, &MemoryStore{})
+	if err := verifier.BootstrapRoot(fixture.root, digest(fixture.root)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := verifier.Refresh(fixture.metadata); tufCode(t, err) != "signing_metadata_invalid" {
+		t.Fatalf("security target with yank reason = %v", err)
+	}
+}
+
 func (f *fixture) rebuild(t *testing.T) {
+	f.rebuildWithDelegatedSigners(t, f.keys["releases-a"], f.keys["security-a"])
+}
+
+func (f *fixture) rebuildWithDelegatedSigners(t *testing.T, releasesSigner, securitySigner signingKey) {
 	t.Helper()
-	f.metadata.Releases = envelopeFor(t, f.releases, map[string]signingKey{"releases-a": f.keys["releases-a"]})
-	f.metadata.Security = envelopeFor(t, f.security, map[string]signingKey{"security-a": f.keys["security-a"]})
+	f.metadata.Releases = envelopeFor(t, f.releases, map[string]signingKey{"releases-a": releasesSigner})
+	f.metadata.Security = envelopeFor(t, f.security, map[string]signingKey{"security-a": securitySigner})
 	f.metadata.Targets = envelopeFor(t, f.targets, map[string]signingKey{"targets-a": f.keys["targets-a"]})
 	f.snapshot.Meta = map[string]FileMeta{
 		"targets.json":  fileMeta(t, f.targets.Version, f.metadata.Targets),

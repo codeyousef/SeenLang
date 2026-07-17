@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/codeyousef/seen/tools/seen-pkg/internal/atomicfile"
 	"github.com/codeyousef/seen/tools/seen-pkg/internal/model"
@@ -50,6 +51,7 @@ type registryRuntime struct {
 	preferCached bool
 	verified     map[string]*tuf.Repository
 	policy       transport.Policy
+	now          func() time.Time
 }
 
 func newRegistryRuntime(specs []registrySpec, cacheRoot string, offline bool) *registryRuntime {
@@ -57,7 +59,7 @@ func newRegistryRuntime(specs []registrySpec, cacheRoot string, offline bool) *r
 	for _, spec := range specs {
 		byOrigin[spec.Origin] = spec
 	}
-	return &registryRuntime{specs: byOrigin, metadataRoot: filepath.Join(cacheRoot, "metadata"), offline: offline, verified: map[string]*tuf.Repository{}, policy: transport.DefaultPolicy()}
+	return &registryRuntime{specs: byOrigin, metadataRoot: filepath.Join(cacheRoot, "metadata"), offline: offline, verified: map[string]*tuf.Repository{}, policy: transport.DefaultPolicy(), now: time.Now}
 }
 
 func (runtime *registryRuntime) Candidates(ctx context.Context, key model.PackageKey, access resolver.Access) ([]model.Candidate, error) {
@@ -151,7 +153,7 @@ func (runtime *registryRuntime) load(ctx context.Context, origin string, offline
 	if loadErr != nil && !errors.Is(loadErr, os.ErrNotExist) {
 		return nil, loadErr
 	}
-	verifier, err := tuf.New(tuf.Config{Environment: spec.Environment, RepositoryID: spec.RepositoryID, RegistryOrigin: spec.Origin, Store: transaction})
+	verifier, err := tuf.New(tuf.Config{Environment: spec.Environment, RepositoryID: spec.RepositoryID, RegistryOrigin: spec.Origin, Store: transaction, Now: runtime.now})
 	if err != nil {
 		return nil, err
 	}

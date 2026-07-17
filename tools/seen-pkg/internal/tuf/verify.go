@@ -25,9 +25,16 @@ var (
 	componentPattern  = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`)
 	semverPattern     = regexp.MustCompile(`^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$`)
 	incidentPattern   = regexp.MustCompile(`^inc_[A-Za-z0-9_-]{8,96}$`)
+	proofIDPattern    = regexp.MustCompile(`^prf_[A-Za-z0-9_-]{8,96}$`)
+	scanIDPattern     = regexp.MustCompile(`^scn_[A-Za-z0-9_-]{8,96}$`)
 	repositoryPattern = regexp.MustCompile(`^seen-(dev|prod)-[a-z0-9-]+$`)
 	aliasPattern      = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,63}$`)
 	originPathPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._~-]*$`)
+	principalPattern  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9:@._/-]{0,255}$`)
+	servicePattern    = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,126}[a-z0-9])?$`)
+	sourceIDPattern   = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
+	sourceURLPattern  = regexp.MustCompile(`^https://[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?(?:/[A-Za-z0-9._~-]+)+$`)
+	commitPattern     = regexp.MustCompile(`^[0-9a-f]+$`)
 )
 
 var capabilities = map[string]bool{
@@ -585,6 +592,9 @@ func (v *Verifier) validateTarget(role, targetPath string, target TargetMeta) er
 	if custom.Package != owner+"/"+name {
 		return failure("signing_target_path_identity_mismatch", errors.New("path and custom package differ"))
 	}
+	if custom.Owner != owner || custom.Name != name {
+		return failure("signing_target_path_identity_mismatch", errors.New("path and attested owner/name differ"))
+	}
 	if custom.Version != version {
 		return failure("signing_target_path_version_mismatch", errors.New("path and custom version differ"))
 	}
@@ -597,6 +607,9 @@ func (v *Verifier) validateTarget(role, targetPath string, target TargetMeta) er
 	}
 	if target.Length < 1 || target.Length > 25*1024*1024 || len(target.Hashes) != 1 || target.Hashes["sha256"] != archiveDigest {
 		return failure("signing_target_hash_mismatch", errors.New("target length or digest binding is invalid"))
+	}
+	if custom.Blob.SHA256 != archiveDigest || custom.Blob.Length != target.Length {
+		return failure("signing_target_attestation_invalid", errors.New("attested blob does not match target bytes"))
 	}
 	if custom.Environment != v.config.Environment {
 		return failure("signing_environment_mismatch", errors.New("target environment mismatch"))
@@ -613,8 +626,8 @@ func (v *Verifier) validateTarget(role, targetPath string, target TargetMeta) er
 	if custom.Retention != "retained" {
 		return failure("signing_release_not_retained", errors.New("public metadata contains nonretained release"))
 	}
-	if !validDigest(custom.SourceProofSHA256) || !validDigest(custom.ProvenanceSHA256) {
-		return failure("signing_target_attestation_invalid", errors.New("source proof and provenance digests are required"))
+	if err := v.validateRegistryAttestation(custom); err != nil {
+		return err
 	}
 	if custom.Dependencies == nil || custom.Capabilities == nil {
 		return failure("signing_target_graph_invalid", errors.New("signed dependencies and capabilities arrays are required"))
@@ -640,6 +653,9 @@ func (v *Verifier) validateTarget(role, targetPath string, target TargetMeta) er
 			return failure("signing_wrong_role", errors.New("release role contains security action"))
 		}
 	case "security":
+		if custom.YankReason != "" {
+			return failure("signing_metadata_invalid", errors.New("security target has yank reason"))
+		}
 		if !incidentPattern.MatchString(custom.IncidentID) {
 			return failure("signing_security_incident_required", errors.New("security target lacks incident ID"))
 		}
@@ -652,6 +668,106 @@ func (v *Verifier) validateTarget(role, targetPath string, target TargetMeta) er
 		return failure("signing_wrong_role", errors.New("invalid security action or availability"))
 	default:
 		return failure("signing_wrong_role", errors.New("unknown target role"))
+	}
+	return nil
+}
+
+type registryAttestationSubject struct {
+	Package    string       `json:"package"`
+	Owner      string       `json:"owner"`
+	Name       string       `json:"name"`
+	Version    string       `json:"version"`
+	Blob       AttestedBlob `json:"blob"`
+	Visibility string       `json:"visibility"`
+}
+
+type registryAttestationProjection struct {
+	Subject                 registryAttestationSubject `json:"subject"`
+	PublisherPrincipal      string                     `json:"publisher_principal"`
+	RegistryServiceIdentity string                     `json:"registry_service_identity"`
+	SourceRepository        AttestedRepository         `json:"source_repository"`
+	SourceCommit            AttestedCommit             `json:"source_commit"`
+	Review                  AttestedReview             `json:"review"`
+	ActivatedAt             string                     `json:"activated_at"`
+}
+
+func registryAttestationDigest(custom TargetCustom) (string, error) {
+	projection := registryAttestationProjection{
+		Subject: registryAttestationSubject{
+			Package: custom.Package, Owner: custom.Owner, Name: custom.Name,
+			Version: custom.Version, Blob: custom.Blob, Visibility: custom.Visibility,
+		},
+		PublisherPrincipal: custom.PublisherPrincipal, RegistryServiceIdentity: custom.RegistryServiceIdentity,
+		SourceRepository: custom.SourceRepository, SourceCommit: custom.SourceCommit,
+		Review: custom.Review, ActivatedAt: custom.ActivatedAt,
+	}
+	raw, err := json.Marshal(projection)
+	if err != nil {
+		return "", err
+	}
+	canonical, err := CanonicalJSON(raw)
+	if err != nil {
+		return "", err
+	}
+	return digest(canonical), nil
+}
+
+func (v *Verifier) validateRegistryAttestation(custom TargetCustom) error {
+	if !principalPattern.MatchString(custom.PublisherPrincipal) || !servicePattern.MatchString(custom.RegistryServiceIdentity) {
+		return failure("signing_target_attestation_invalid", errors.New("publisher or registry service identity is invalid"))
+	}
+	repository := custom.SourceRepository
+	if repository.Forge != "github" && repository.Forge != "gitlab" {
+		return failure("signing_target_attestation_invalid", errors.New("source forge is invalid"))
+	}
+	if !sourceIDPattern.MatchString(repository.RepositoryID) || validateSourceRepositoryURL(repository.CanonicalURL) != nil {
+		return failure("signing_target_attestation_invalid", errors.New("source repository identity is invalid"))
+	}
+	commitLength := 0
+	switch custom.SourceCommit.Algorithm {
+	case "sha1":
+		commitLength = 40
+	case "sha256":
+		commitLength = 64
+	default:
+		return failure("signing_target_attestation_invalid", errors.New("source commit algorithm is invalid"))
+	}
+	if len(custom.SourceCommit.Value) != commitLength || !commitPattern.MatchString(custom.SourceCommit.Value) {
+		return failure("signing_target_attestation_invalid", errors.New("source commit digest is invalid"))
+	}
+	review := custom.Review
+	if review.Result != "passed" || review.PolicyVersion == "" || len(review.PolicyVersion) > 128 ||
+		!proofIDPattern.MatchString(review.SourceProofID) || !validDigest(review.SourceProofSHA256) ||
+		!scanIDPattern.MatchString(review.ScanAttestationID) || !validDigest(review.ScanAttestationSHA256) ||
+		review.ScannerID == "" || len(review.ScannerID) > 128 || review.ScannerVersion == "" || len(review.ScannerVersion) > 128 ||
+		review.AttestationSequence < 1 {
+		return failure("signing_target_attestation_invalid", errors.New("review attestation is incomplete"))
+	}
+	if custom.SourceProofSHA256 != review.SourceProofSHA256 {
+		return failure("signing_target_attestation_invalid", errors.New("source proof digest does not match review"))
+	}
+	activated, err := time.Parse(time.RFC3339, custom.ActivatedAt)
+	if err != nil || !strings.HasSuffix(custom.ActivatedAt, "Z") || activated.After(v.config.Now().UTC().Add(5*time.Minute)) {
+		return failure("signing_target_attestation_invalid", errors.New("activation time is invalid"))
+	}
+	attestationDigest, err := registryAttestationDigest(custom)
+	if err != nil || !validDigest(custom.RegistryAttestationSHA256) ||
+		custom.RegistryAttestationSHA256 != attestationDigest || custom.ProvenanceSHA256 != attestationDigest {
+		return failure("signing_target_attestation_invalid", errors.New("registry attestation digest does not bind canonical provenance"))
+	}
+	return nil
+}
+
+func validateSourceRepositoryURL(value string) error {
+	if !sourceURLPattern.MatchString(value) {
+		return errors.New("canonical HTTPS source repository URL required")
+	}
+	u, err := url.Parse(value)
+	if err != nil || !u.IsAbs() || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Port() != "" || u.Path == "" || u.Path == "/" {
+		return errors.New("canonical HTTPS source repository URL required")
+	}
+	if u.String() != value || strings.HasSuffix(value, "/") || u.Host != u.Hostname() {
+		return errors.New("source repository URL is not byte-canonical")
 	}
 	return nil
 }

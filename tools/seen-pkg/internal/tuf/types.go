@@ -47,24 +47,62 @@ type FileMeta struct {
 	Hashes  map[string]string `json:"hashes"`
 }
 
+type AttestedBlob struct {
+	SHA256 string `json:"sha256"`
+	Length int64  `json:"length"`
+}
+
+type AttestedRepository struct {
+	Forge        string `json:"forge"`
+	RepositoryID string `json:"repository_id"`
+	CanonicalURL string `json:"canonical_url"`
+}
+
+type AttestedCommit struct {
+	Algorithm string `json:"algorithm"`
+	Value     string `json:"value"`
+}
+
+type AttestedReview struct {
+	Result                string `json:"result"`
+	PolicyVersion         string `json:"policy_version"`
+	SourceProofID         string `json:"source_proof_id"`
+	SourceProofSHA256     string `json:"source_proof_sha256"`
+	ScanAttestationID     string `json:"scan_attestation_id"`
+	ScanAttestationSHA256 string `json:"scan_attestation_sha256"`
+	ScannerID             string `json:"scanner_id"`
+	ScannerVersion        string `json:"scanner_version"`
+	AttestationSequence   int64  `json:"attestation_sequence"`
+}
+
 type TargetCustom struct {
-	Environment       string             `json:"environment"`
-	RegistryOrigin    string             `json:"registry_origin"`
-	Package           string             `json:"package"`
-	Version           string             `json:"version"`
-	ArchiveSHA256     string             `json:"archive_sha256"`
-	ArchiveFilename   string             `json:"archive_filename"`
-	Visibility        string             `json:"visibility"`
-	Lifecycle         string             `json:"lifecycle"`
-	Retention         string             `json:"retention"`
-	Availability      string             `json:"availability"`
-	SourceProofSHA256 string             `json:"source_proof_sha256"`
-	ProvenanceSHA256  string             `json:"provenance_sha256"`
-	Dependencies      []TargetDependency `json:"dependencies"`
-	Capabilities      []string           `json:"capabilities"`
-	YankReason        string             `json:"yank_reason,omitempty"`
-	IncidentID        string             `json:"incident_id,omitempty"`
-	SecurityAction    string             `json:"security_action,omitempty"`
+	Environment               string             `json:"environment"`
+	RegistryOrigin            string             `json:"registry_origin"`
+	Package                   string             `json:"package"`
+	Owner                     string             `json:"owner"`
+	Name                      string             `json:"name"`
+	Version                   string             `json:"version"`
+	ArchiveSHA256             string             `json:"archive_sha256"`
+	ArchiveFilename           string             `json:"archive_filename"`
+	Blob                      AttestedBlob       `json:"blob"`
+	PublisherPrincipal        string             `json:"publisher_principal"`
+	RegistryServiceIdentity   string             `json:"registry_service_identity"`
+	SourceRepository          AttestedRepository `json:"source_repository"`
+	SourceCommit              AttestedCommit     `json:"source_commit"`
+	Review                    AttestedReview     `json:"review"`
+	Visibility                string             `json:"visibility"`
+	Lifecycle                 string             `json:"lifecycle"`
+	Retention                 string             `json:"retention"`
+	Availability              string             `json:"availability"`
+	ActivatedAt               string             `json:"activated_at"`
+	SourceProofSHA256         string             `json:"source_proof_sha256"`
+	RegistryAttestationSHA256 string             `json:"registry_attestation_sha256"`
+	ProvenanceSHA256          string             `json:"provenance_sha256"`
+	Dependencies              []TargetDependency `json:"dependencies"`
+	Capabilities              []string           `json:"capabilities"`
+	YankReason                string             `json:"yank_reason,omitempty"`
+	IncidentID                string             `json:"incident_id,omitempty"`
+	SecurityAction            string             `json:"security_action,omitempty"`
 }
 
 // TargetDependency is the signed transitive graph input. Alias belongs to the

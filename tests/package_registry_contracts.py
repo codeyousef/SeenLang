@@ -1668,6 +1668,7 @@ def target_binding_error(
     role_name: str,
     target_path: str,
     target_sha256: str,
+    target_length: int,
     custom: dict[str, Any],
 ) -> str | None:
     pieces = target_path.split("/")
@@ -1675,6 +1676,8 @@ def target_binding_error(
         return "signing_path_not_delegated"
     _, owner, name, path_version, path_digest, path_leaf = pieces
     if f"{owner}/{name}" != custom["package"]:
+        return "signing_target_path_identity_mismatch"
+    if owner != custom["owner"] or name != custom["name"]:
         return "signing_target_path_identity_mismatch"
     if path_version != custom["version"]:
         return "signing_target_path_version_mismatch"
@@ -1684,6 +1687,8 @@ def target_binding_error(
         return "signing_target_path_leaf_mismatch"
     if target_sha256 != custom["archive_sha256"]:
         return "signing_target_hash_mismatch"
+    if custom["blob"] != {"sha256": target_sha256, "length": target_length}:
+        return "signing_target_attestation_invalid"
 
     if role_name == "releases":
         if custom["visibility"] != "public":
@@ -1986,6 +1991,51 @@ def check_signing_contracts() -> None:
     assert trust["development_official_root"]["client_behavior"] == "fail-closed"
     assert trust["production_official_root"]["client_behavior"] == "fail-closed"
 
+    conformance_cases = {
+        case["name"]: case for case in tuf_fixture["client_conformance_cases"]
+    }
+    assert len(conformance_cases) == len(tuf_fixture["client_conformance_cases"])
+    assert set(conformance_cases) == {
+        "wrong-environment-signed-chain",
+        "missing-delegated-metadata",
+        "compromised-online-key-remains-authorized-before-revocation",
+        "revoked-delegation-rejects-former-online-key",
+        "replacement-delegation-recovers-after-compromise",
+    }
+    expected_conformance_results = {
+        "wrong-environment-signed-chain": [
+            ("reject", "signing_environment_mismatch")
+        ],
+        "missing-delegated-metadata": [
+            ("reject", "signing_metadata_invalid")
+        ],
+        "compromised-online-key-remains-authorized-before-revocation": [
+            ("accept", None)
+        ],
+        "revoked-delegation-rejects-former-online-key": [
+            ("reject", "signing_unknown_key")
+        ],
+        "replacement-delegation-recovers-after-compromise": [
+            ("reject", "signing_unknown_key"),
+            ("accept", None),
+        ],
+    }
+    for name, case in conformance_cases.items():
+        assert case["initial_state"] in {
+            "trusted-root-only",
+            "base-metadata-refreshed",
+        }
+        assert case["steps"]
+        observed = [
+            (step["expected"], step.get("error_code"))
+            for step in case["steps"]
+        ]
+        assert observed == expected_conformance_results[name], name
+        for step in case["steps"]:
+            assert step["action"]
+            assert step["expected"] in {"accept", "reject"}
+            assert ("error_code" in step) == (step["expected"] == "reject")
+
     root_signed = metadata["root"]["signed"]
     root_keys = root_signed["keys"]
     delegated = metadata["targets"]["signed"]["delegations"]
@@ -2032,16 +2082,46 @@ def check_signing_contracts() -> None:
             canonical_json_bytes(signed),
         )
         for target_path, target in signed.get("targets", {}).items():
-            assert target["hashes"]["sha256"] == target["custom"]["archive_sha256"]
-            assert target["custom"]["environment"] == "development"
-            assert target["custom"]["registry_origin"] == trust["test_registry_origin"]
-            assert isinstance(target["custom"]["dependencies"], list)
-            assert isinstance(target["custom"]["capabilities"], list)
+            custom = target["custom"]
+            assert target["hashes"]["sha256"] == custom["archive_sha256"]
+            assert custom["blob"] == {
+                "sha256": target["hashes"]["sha256"],
+                "length": target["length"],
+            }
+            assert custom["package"] == f'{custom["owner"]}/{custom["name"]}'
+            assert custom["environment"] == "development"
+            assert custom["registry_origin"] == trust["test_registry_origin"]
+            assert custom["review"]["result"] == "passed"
+            assert custom["source_proof_sha256"] == custom["review"]["source_proof_sha256"]
+            attestation_projection = {
+                "subject": {
+                    "package": custom["package"],
+                    "owner": custom["owner"],
+                    "name": custom["name"],
+                    "version": custom["version"],
+                    "blob": custom["blob"],
+                    "visibility": custom["visibility"],
+                },
+                "publisher_principal": custom["publisher_principal"],
+                "registry_service_identity": custom["registry_service_identity"],
+                "source_repository": custom["source_repository"],
+                "source_commit": custom["source_commit"],
+                "review": custom["review"],
+                "activated_at": custom["activated_at"],
+            }
+            attestation_sha256 = hashlib.sha256(
+                canonical_json_bytes(attestation_projection)
+            ).hexdigest()
+            assert custom["registry_attestation_sha256"] == attestation_sha256
+            assert custom["provenance_sha256"] == attestation_sha256
+            assert isinstance(custom["dependencies"], list)
+            assert isinstance(custom["capabilities"], list)
             if document_name == "release_targets":
                 assert target_binding_error(
                     "releases",
                     target_path,
                     target["hashes"]["sha256"],
+                    target["length"],
                     target["custom"],
                 ) is None
             if document_name == "security_targets":
@@ -2049,6 +2129,7 @@ def check_signing_contracts() -> None:
                     "security",
                     target_path,
                     target["hashes"]["sha256"],
+                    target["length"],
                     target["custom"],
                 ) is None
 
@@ -2079,6 +2160,7 @@ def check_signing_contracts() -> None:
             case["role"],
             case["target_path"],
             case["target_sha256"],
+            case["target_length"],
             case["custom"],
         )
         assert observed == case.get("error_code"), case["name"]
