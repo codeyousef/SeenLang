@@ -9,3 +9,7 @@
 
 - Do not run project builds or rebuild scripts without an explicit memory limit derived from current system memory.
 - Prefer capped serial or low-memory rebuild paths when available.
+
+## Repository hygiene
+
+- Keep generated build/test output and agent-local state in ignored paths; do not stage it.
