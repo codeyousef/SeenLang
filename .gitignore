@@ -9,6 +9,7 @@ installer/windows/output/
 installer/macos/*.pkg
 installer/macos/*.pkg.sha256
 .leann/
+/.gradle/
 
 # IDE specific files
 .idea/
@@ -196,6 +197,7 @@ README_VERIFICATION.md
 /docs/private/
 
 # Internal tooling
+/.agents/
 /.claude/
 CLAUDE.md
 llms.txt
