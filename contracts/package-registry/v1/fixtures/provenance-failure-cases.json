@@ -1,0 +1,25 @@
+{
+  "contract_version": 1,
+  "base_attestation": "provenance-attestation-v1.json",
+  "invalid_cases": [
+    {"name": "subject_archive_digest_mismatch", "mutations": [{"op": "replace", "path": "/subject/archive_sha256", "value": "0101010101010101010101010101010101010101010101010101010101010101"}], "expected": "reject", "error_code": "provenance_subject_digest_mismatch"},
+    {"name": "source_proof_digest_mismatch", "mutations": [{"op": "replace", "path": "/source_proof_sha256", "value": "0202020202020202020202020202020202020202020202020202020202020202"}], "expected": "reject", "error_code": "provenance_source_proof_mismatch"},
+    {"name": "source_proof_material_missing", "mutations": [{"op": "replace", "path": "/materials/1/uri", "value": "git+https://github.com/alice/second@dddddddddddddddddddddddddddddddddddddddd"}], "expected": "reject", "error_code": "provenance_material_cardinality"},
+    {"name": "archive_policy_material_missing", "mutations": [{"op": "replace", "path": "/materials/2/uri", "value": "git+https://gitlab.com/alice/third@dddddddddddddddddddddddddddddddddddddddd"}], "expected": "reject", "error_code": "provenance_material_cardinality"},
+    {"name": "material_commit_mismatch", "mutations": [{"op": "replace", "path": "/materials/0/sha256", "value": "0303030303030303030303030303030303030303030303030303030303030303"}], "expected": "reject", "error_code": "provenance_material_digest_mismatch"},
+    {"name": "packed_tree_mismatch", "mutations": [{"op": "replace", "path": "/packing/packed_tree_sha256", "value": "0404040404040404040404040404040404040404040404040404040404040404"}], "expected": "reject", "error_code": "provenance_packed_tree_mismatch"},
+    {"name": "manifest_digest_mismatch", "mutations": [{"op": "replace", "path": "/packing/manifest_sha256", "value": "0606060606060606060606060606060606060606060606060606060606060606"}], "expected": "reject", "error_code": "provenance_manifest_digest_mismatch"},
+    {"name": "noncanonical_subject_version", "mutations": [{"op": "replace", "path": "/subject/version", "value": "1.2.3-01"}], "expected": "reject", "error_code": "provenance_subject_version_invalid"},
+    {"name": "archive_policy_not_passed", "mutations": [{"op": "replace", "path": "/packing/archive_policy_result", "value": "failed"}], "expected": "reject", "error_code": "provenance_archive_policy_failed"},
+    {"name": "builder_network_enabled", "mutations": [{"op": "replace", "path": "/builder/network_access", "value": "egress"}], "expected": "reject", "error_code": "provenance_builder_not_isolated"},
+    {"name": "builder_secret_access_expanded", "mutations": [{"op": "replace", "path": "/builder/secret_access", "value": "all-registry-secrets"}], "expected": "reject", "error_code": "provenance_builder_secret_scope"},
+    {"name": "environment_mismatch", "mutations": [{"op": "replace", "path": "/environment", "value": "development"}], "expected": "reject", "error_code": "provenance_environment_mismatch"},
+    {"name": "repository_trust_mismatch", "mutations": [{"op": "replace", "path": "/repository_id", "value": "seen-dev-registry-v1"}], "expected": "reject", "error_code": "provenance_repository_mismatch"},
+    {"name": "source_proof_key_used_for_provenance", "mutations": [{"op": "replace", "path": "/signature/keyid", "value": "prod-source-proof-a"}], "expected": "reject", "error_code": "provenance_signature_wrong_role"},
+    {"name": "finish_before_start", "mutations": [{"op": "replace", "path": "/invocation/finished_at", "value": "2026-07-16T12:09:59Z"}], "expected": "reject", "error_code": "provenance_invalid_time_order"},
+    {"name": "generation_before_finish", "mutations": [{"op": "replace", "path": "/generated_at", "value": "2026-07-16T12:10:04Z"}], "expected": "reject", "error_code": "provenance_invalid_time_order"},
+    {"name": "packer_workload_environment_mismatch", "mutations": [{"op": "replace", "path": "/builder/workload_identity", "value": "seen-dev-packer@registry.example"}], "expected": "reject", "error_code": "provenance_workload_environment_mismatch"},
+    {"name": "nonreproducible_pack", "mutations": [{"op": "replace", "path": "/invocation/reproducible", "value": false}], "expected": "reject", "error_code": "provenance_nonreproducible_pack"},
+    {"name": "statement_digest_mismatch", "mutations": [{"op": "replace", "path": "/statement_sha256", "value": "0505050505050505050505050505050505050505050505050505050505050505"}], "expected": "reject", "error_code": "provenance_statement_digest_mismatch"}
+  ]
+}

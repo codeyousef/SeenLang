@@ -484,6 +484,12 @@ entry:
   ret i64 %1
 }
 
+define void @store_declared_function_pointer(ptr %0) {
+entry:
+  store ptr @returns_ptr, ptr %0
+  ret void
+}
+
 define void @assigned_void_call(ptr %0) {
 entry:
   %1 = call ptr @VoidHelper(ptr %0)
@@ -651,6 +657,7 @@ grep -q 'declare %SeenString @mapTypeImpl(%SeenString)' "$IR_FILE"
 grep -q 'declare i64 @ParserExpressionNode_new()' "$IR_FILE"
 grep -q 'declare i64 @Token_new(i64, %SeenString, i64, i64, i64, i64)' "$IR_FILE"
 grep -q 'declare i64 @FrontendDiagnostic_new(%SeenString, i64, i64, %SeenString, %SeenString)' "$IR_FILE"
+! grep -q '^@returns_ptr = external global ptr' "$IR_FILE"
 grep -q 'call void @VoidHelper(ptr %0)' "$IR_FILE"
 ! grep -q '= call ptr @VoidHelper' "$IR_FILE"
 grep -q '= load %TypeNode, ptr' "$IR_FILE"

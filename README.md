@@ -25,7 +25,7 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
-  <a href="docs/cli-reference.md"><img src="https://img.shields.io/badge/release-0.9.5-2f855a.svg" alt="Seen 0.9.5"></a>
+  <a href="docs/cli-reference.md"><img src="https://img.shields.io/badge/release-0.10.1-2f855a.svg" alt="Seen 0.10.1"></a>
   <a href="docs/targets.md"><img src="https://img.shields.io/badge/backend-LLVM-5f43b2.svg" alt="LLVM backend"></a>
   <a href="docs/bootstrap.md"><img src="https://img.shields.io/badge/compiler-self--hosted-brightgreen.svg" alt="Self-hosted compiler"></a>
   <a href="docs/multilingual.md"><img src="https://img.shields.io/badge/languages-6-orange.svg" alt="6 keyword languages"></a>
@@ -118,6 +118,40 @@ The shipped compiler surface is documented in
 [docs/cli-reference.md](docs/cli-reference.md). Source build and bootstrap notes
 live in [docs/bootstrap.md](docs/bootstrap.md).
 
+## Packages
+
+Seen 0.10.1 resolves package dependencies declared in `Seen.toml` and records
+the complete verified graph in `Seen.lock` version 2:
+
+```toml
+manifest-version = 1
+
+[registries]
+default = "https://seen.dev.yousef.codes/packages"
+
+[dependencies]
+calc = { package = "alice/mathx", version = "^1.2.0", allow = ["file"] }
+
+[package-grants]
+"alice/mathx" = ["file"]
+```
+
+Use `seen pkg fetch` for normal resolution, `--locked` to require an unchanged
+lock, `--offline` to prohibit network access, or `--frozen` for both. Package
+metadata and archives must verify against a pinned registry trust root; the
+official development root is embedded, while custom registries still need an
+out-of-band root and digest. Downloads are bounded and packages are exposed
+through immutable, content-addressed storage and project-local read-only views.
+
+The development URL above serves public signed TUF metadata and catalog reads.
+Authorized internal `seen pkg publish` submissions are accepted, but releases
+remain `lifecycle=delayed`, `availability=unavailable`, and excluded from
+catalog, resolution, and download until promotion work lands. Hosted login,
+private packages, yanking, and reporting remain inactive. The production
+registry is not deployed and has no embedded trust root. See
+[docs/packaging.md](docs/packaging.md) for the complete workflow and security
+model.
+
 ## Examples
 
 Types and methods:
@@ -191,6 +225,9 @@ fun dot_product(a: Array<Float>, b: Array<Float>, n: Int) r: Float {
   helpers, radix sort, and priority queues.
 - **Tooling built in**: LSP, official VS Code extension, diagnostics,
   completions, snippets, package commands, and source translation.
+- **Verified package graphs**: deterministic transitive resolution, `Seen.lock`
+  enforcement, signed metadata, bounded source archives, and explicit
+  capability consent.
 - **Native systems surfaces**: C interop, SIMD helpers, GPU-facing APIs, package
   prebuilds, and platform packaging commands.
 
@@ -240,7 +277,7 @@ See [docs/tooling.md](docs/tooling.md) for editor setup and diagnostics.
 ## Benchmark Gates
 
 Seen keeps small, capped performance gates for the compiler, stdlib, runtime,
-release LTO, and packages. Current 0.9.5 baseline coverage includes:
+release LTO, and packages. Current 0.10.1 baseline coverage includes:
 
 | Suite | Maintained Gate Coverage |
 |-------|--------------------------|

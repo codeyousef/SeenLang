@@ -237,6 +237,16 @@ function Install-Seen {
             Move-Item $seenPath (Join-Path $binDir "seen.exe") -Force
         }
     }
+
+    # Keep the package client beside the exact compiler version that invokes it.
+    $seenPkgExe = Get-ChildItem -Path $InstallDir -Name "seen-pkg.exe" -Recurse | Select-Object -First 1
+    if (-not $seenPkgExe) {
+        Write-Error-Custom "Release archive does not contain seen-pkg.exe"
+    }
+    $seenPkgPath = Join-Path $InstallDir $seenPkgExe
+    if ($seenPkgPath -ne (Join-Path $binDir "seen-pkg.exe")) {
+        Move-Item $seenPkgPath (Join-Path $binDir "seen-pkg.exe") -Force
+    }
     
     # Move LSP server if present
     $lspExe = Get-ChildItem -Path $InstallDir -Name "seen-lsp.exe" -Recurse | Select-Object -First 1

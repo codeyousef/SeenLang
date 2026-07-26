@@ -1,0 +1,69 @@
+version = 1
+
+[[modules]]
+path = "src/core/option.seen"
+hash = "da2740127024874f32b73acafd8301ebbca2722db7d9888c250640c5d385d106"
+
+[[modules]]
+path = "src/core/result.seen"
+hash = "c32b442210ecd691cd763005cc54b8e0a76d68d8e78e3bca31e6e698baa7a8de"
+
+[[modules]]
+path = "src/core/prelude.seen"
+hash = "b6d648e01a8245ae22f64b76c07157744ef95643774930a26f737a8a5a934c06"
+
+[[modules]]
+path = "src/collections/list_utils.seen"
+hash = "052cf0d907526933def8f9e66554a35c02c4fb444dadaeb789b47106d8ab02f6"
+
+[[modules]]
+path = "src/collections/vec.seen"
+hash = "832ea74414432dc170e52e5295dd95cd5cf72ff99d045d93d4cf4236c26ba0c2"
+
+[[modules]]
+path = "src/collections/std_string.seen"
+hash = "c389b304136b424944a271d61d59fed4286de6c8cf23aaa40228eb86f644fc6a"
+
+[[modules]]
+path = "src/collections/string_hash_map.seen"
+hash = "17de7084aa3484167262d7a0078e50fecbad33e01808d1746c8e67120c770697"
+
+[[modules]]
+path = "src/collections/string_buffer.seen"
+hash = "8aa1d4613f7a58ffbe11f418374c10758194c6198780f5a9e33ce8037fe6d1f3"
+
+[[modules]]
+path = "src/io/file.seen"
+hash = "ad2667d51c3f5beddbc11850b76f93b6f0e1ce4180fa52f218f081c62d6aad6c"
+
+[[modules]]
+path = "src/env/env.seen"
+hash = "88069c4a0b043083cc5891436c6ace45e205ca3ae7ba265d92d54b64dc329c65"
+
+[[modules]]
+path = "src/fs/path.seen"
+hash = "da0e27d6ad4770c005322cc49a2bb7103573f81fe381e6ef45b982f1c26c642f"
+
+[[modules]]
+path = "src/process/process.seen"
+hash = "b55c02fa3878c1df326323611d72ee6481e6a4624c3db38a67393b7a507b7bb3"
+
+[[modules]]
+path = "src/time/time.seen"
+hash = "317499bce21965ba3b020ef694e83ea54a8f8f948dabf6a809795aab310cccb3"
+
+[[modules]]
+path = "src/async/runtime.seen"
+hash = "d503e1d216fa0df1c61e4f5fcf2fb82845591822f24316bfd087baf61122ee81"
+
+[[modules]]
+path = "src/ffi/cinterop.seen"
+hash = "a487cadd0256cfbcb9604cec2ec15632e360798b614f5bd646547d944e40cc7f"
+
+[[modules]]
+path = "src/str/string.seen"
+hash = "21e0ae8ef748e3a406e9d47dc8ca1bb303461bb7a14803f3b3f10201af60b658"
+
+[[modules]]
+path = "src/math/math.seen"
+hash = "0822f44cfb57260b5db24248087686c7d31caffda4532f93e5b4d9dfadc6c4c3"

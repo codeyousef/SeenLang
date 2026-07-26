@@ -70,6 +70,9 @@ fun emitPrimitiveRuntimeDecls(output: StringBuilder,
     output.append("declare i1 @__CreateDirectory(%SeenString) nounwind\n")
     // Process primitives
     output.append("declare i64 @__ExecuteProgram(%SeenString) nounwind\n")
+    output.append("declare i64 @__ExecuteProgramRequest(%SeenString, %SeenString) nounwind\n")
+    output.append("declare %SeenString @__CurrentExecutablePath() nounwind\n")
+    output.append("declare %SeenString @__CurrentWorkingDirectory() nounwind\n")
     output.append("declare ptr @__ExecuteCommand(%SeenString) nounwind\n")
     // Environment primitives
     output.append("declare ptr @__GetCommandLineArgs() nounwind\n")

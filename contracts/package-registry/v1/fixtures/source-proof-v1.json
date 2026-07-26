@@ -1,0 +1,67 @@
+{
+  "contract_version": 1,
+  "proof_id": "prf_01JZX8K9F7Q2W4N6M8R0",
+  "sequence": 2,
+  "previous_proof_id": "prf_01JZX7A1B2C3D4E5F6G7",
+  "package": "acme/http",
+  "version": "1.2.3",
+  "repository": {
+    "forge": "github",
+    "repository_id": "987654321",
+    "canonical_url": "https://github.com/acme-seen/http",
+    "installation_id": "2468013579"
+  },
+  "requested_ref": "refs/tags/v1.2.3",
+  "resolved_ref": "refs/tags/v1.2.3",
+  "commit": {
+    "algorithm": "sha1",
+    "value": "0123456789abcdef0123456789abcdef01234567"
+  },
+  "archive": {
+    "forge_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "package_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "license": {
+    "declared_spdx": "MIT",
+    "files_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "compatible": true
+  },
+  "status": "verified",
+  "checks": [
+    {
+      "name": "repository-identity",
+      "status": "passed",
+      "checked_at": "2026-07-13T11:58:00Z",
+      "evidence_sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    {
+      "name": "installation-identity",
+      "status": "passed",
+      "checked_at": "2026-07-13T11:58:01Z",
+      "evidence_sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+    },
+    {
+      "name": "commit-resolution",
+      "status": "passed",
+      "checked_at": "2026-07-13T11:58:02Z",
+      "evidence_sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+    },
+    {
+      "name": "archive-digest",
+      "status": "passed",
+      "checked_at": "2026-07-13T11:58:03Z",
+      "evidence_sha256": "4444444444444444444444444444444444444444444444444444444444444444"
+    },
+    {
+      "name": "license",
+      "status": "passed",
+      "checked_at": "2026-07-13T11:58:04Z",
+      "evidence_sha256": "5555555555555555555555555555555555555555555555555555555555555555"
+    }
+  ],
+  "verified_at": "2026-07-13T11:58:05Z",
+  "verifier": {
+    "service": "source-verifier",
+    "policy_version": "source-proof-v1"
+  }
+}

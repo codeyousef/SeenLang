@@ -48,6 +48,10 @@ $SeenExe = Join-Path $SourceDir "bin\seen.exe"
 if (-not (Test-Path $SeenExe)) {
     Write-Error "seen.exe not found at: $SeenExe`nRun scripts/build_windows.sh and scripts/package_windows.sh first."
 }
+$SeenPkgExe = Join-Path $SourceDir "bin\seen-pkg.exe"
+if (-not (Test-Path $SeenPkgExe)) {
+    Write-Error "seen-pkg.exe not found at: $SeenPkgExe`nRun scripts/package_windows.sh first."
+}
 
 # Create output directory
 $OutputPath = Join-Path $ScriptDir $OutputDir

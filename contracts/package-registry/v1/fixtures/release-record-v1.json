@@ -1,0 +1,54 @@
+{
+  "contract_version": 1,
+  "package": "acme/http",
+  "version": "1.2.3",
+  "archive": {
+    "format": "tar+gzip",
+    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "compressed_bytes": 18342,
+    "expanded_bytes": 72110,
+    "entry_count": 14,
+    "largest_regular_file_bytes": 18220,
+    "longest_path_bytes": 41,
+    "maximum_path_depth": 4
+  },
+  "manifest_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "capabilities": [
+    "network"
+  ],
+  "state": {
+    "lifecycle": "active",
+    "visibility": "public",
+    "availability": "available",
+    "retention": "retained"
+  },
+  "source_proof_id": "prf_01JZX8K9F7Q2W4N6M8R0",
+  "verification": {
+    "origin": "passed",
+    "integrity": "passed",
+    "source": "passed",
+    "first_scan": "passed",
+    "second_scan": "passed",
+    "attestation_sequence": 7
+  },
+  "timestamps": {
+    "reserved_at": "2026-07-09T08:00:00Z",
+    "uploaded_at": "2026-07-09T08:02:10Z",
+    "quarantined_at": "2026-07-09T08:02:11Z",
+    "public_delay_started_at": "2026-07-10T12:00:00Z",
+    "public_delay_ends_at": "2026-07-13T12:00:00Z",
+    "ready_at": "2026-07-13T12:00:02Z",
+    "activated_at": "2026-07-13T12:00:03Z",
+    "yanked_at": null,
+    "security_quarantined_at": null,
+    "soft_deleted_at": null,
+    "updated_at": "2026-07-13T12:00:03.125Z"
+  },
+  "resolver_metadata_version": 42,
+  "links": {
+    "self": "/packages/api/v1/packages/acme/http/releases/1.2.3",
+    "package": "/packages/api/v1/packages/acme/http",
+    "source_proof": "/packages/api/v1/packages/acme/http/releases/1.2.3/source-proofs/prf_01JZX8K9F7Q2W4N6M8R0",
+    "download": "/packages/api/v1/packages/acme/http/releases/1.2.3/download"
+  }
+}

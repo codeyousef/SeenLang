@@ -129,11 +129,16 @@
       </Directory>
     </Directory>
 
-    <!-- Compiler binaries (always present: seen.exe; optional: seen-lsp.exe) -->
+    <!-- Version-coupled compiler and package-client binaries -->
     <ComponentGroup Id="CompilerBinaries" Directory="BinDir">
       <Component Id="SeenExe" Guid="B7A1C2D3-E4F5-6789-ABCD-111111111111">
         <File Id="seen_exe"
               Source="$(var.SourceDir)\bin\seen.exe"
+              KeyPath="yes" />
+      </Component>
+      <Component Id="SeenPkgExe" Guid="B7A1C2D3-E4F5-6789-ABCD-111111111122">
+        <File Id="seen_pkg_exe"
+              Source="$(var.SourceDir)\bin\seen-pkg.exe"
               KeyPath="yes" />
       </Component>
     </ComponentGroup>

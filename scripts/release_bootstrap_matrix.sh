@@ -12,7 +12,7 @@ OUTPUT_DIR="$DEFAULT_OUTPUT"
 SIGNING_KEY=""
 VERIFY_KEY=""
 ABI_MANIFEST="$ROOT_DIR/seen_std/Seen.toml"
-ABI_LOCK="$ROOT_DIR/seen_std/Seen.lock"
+ABI_LOCK="$ROOT_DIR/seen_std/Seen.modules.lock"
 ABI_SNAPSHOT=""
 SKIP_ABI_VERIFY=0
 PACKAGE_STDLIB=0
@@ -39,7 +39,7 @@ Options:
   --signing-key <path>  Ed25519 signing key to sign each manifest (raw/hex seed)
   --public-key <path>   Ed25519 public key used to verify signatures (optional)
   --abi-manifest <path> Seen stdlib manifest for ABI guard (default: seen_std/Seen.toml)
-  --abi-lock <path>     Seen stdlib lock file (default: seen_std/Seen.lock)
+  --abi-lock <path>     Seen stdlib module lock (default: seen_std/Seen.modules.lock)
   --abi-snapshot <path> Output path for ABI snapshot JSON (optional)
   --skip-abi-verify     Skip running abi_guard verification
   --package-stdlib      Run scripts/package_seen_std.sh after the matrix completes

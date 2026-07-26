@@ -45,6 +45,7 @@ done
 WIN_DIR="${PROJECT_DIR}/target-windows"
 PACKAGE_DIR="${WIN_DIR}/seen-${VERSION}-windows-x64"
 INSTALLER_DIR="${PROJECT_DIR}/installer/windows"
+PACKAGE_CLIENT_BIN="${SEEN_WINDOWS_PACKAGE_CLIENT_BIN:-$WIN_DIR/seen-pkg.exe}"
 WINDOWS_EXE_REUSED=false
 NUMERIC_VERSION="${VERSION%%-*}"
 IFS='.' read -r VI_MAJOR VI_MINOR VI_PATCH _ <<EOF
@@ -69,6 +70,7 @@ windows_payload_hash_for_installer() {
             "$PROJECT_DIR/languages" \
             "$PROJECT_DIR/docs" \
             "$PROJECT_DIR/installer/windows/install-llvm.ps1" \
+            "$PACKAGE_CLIENT_BIN" \
             "${SEEN_WINDOWS_LLVM_BUNDLE_DIR:-}" \
             "${SEEN_WINDOWS_LLVM_INSTALLER:-}"
     else
@@ -78,9 +80,22 @@ windows_payload_hash_for_installer() {
             "$PROJECT_DIR/seen_runtime/seen_gpu.h" \
             "$PROJECT_DIR/seen_runtime/seen_compat_win32.h" \
             "$PROJECT_DIR/languages" "$PROJECT_DIR/docs" \
+            "$PACKAGE_CLIENT_BIN" \
             -type f -print0 2>/dev/null | sort -z | xargs -0 sha256sum 2>/dev/null | sha256sum | awk '{print $1}'
     fi
 }
+
+# Cross-built PE helpers cannot run on this host for a version handshake.
+# Always rebuild from the version-coupled source before hashing or packaging.
+"$SCRIPT_DIR/build_package_client.sh" \
+    --version "$VERSION" \
+    --goos windows \
+    --goarch amd64 \
+    --output "$PACKAGE_CLIENT_BIN"
+if [ ! -f "$PACKAGE_CLIENT_BIN" ]; then
+    echo "ERROR: could not build $PACKAGE_CLIENT_BIN"
+    exit 1
+fi
 
 windows_toolchain_hash_for_installer() {
     if declare -F seen_build_hash_paths >/dev/null 2>&1; then

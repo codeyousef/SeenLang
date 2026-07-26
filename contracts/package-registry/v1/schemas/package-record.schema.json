@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:seen:package-registry:v1:package-record",
+  "title": "Seen package registry package record v1",
+  "description": "The stable package-level projection returned by the v1 registry API. Release lifecycle and provenance are represented by separate records.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract_version",
+    "identity",
+    "namespace_status",
+    "description",
+    "repository",
+    "license_spdx",
+    "latest_active_version",
+    "created_at",
+    "updated_at",
+    "links"
+  ],
+  "properties": {
+    "contract_version": {
+      "const": 1
+    },
+    "identity": {
+      "$ref": "#/$defs/packageIdentity"
+    },
+    "namespace_status": {
+      "enum": [
+        "active",
+        "tombstoned",
+        "frozen"
+      ]
+    },
+    "description": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 512
+    },
+    "repository": {
+      "oneOf": [
+        {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "license_spdx": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "latest_active_version": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/exactVersion"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "created_at": {
+      "$ref": "#/$defs/utcTimestamp"
+    },
+    "updated_at": {
+      "$ref": "#/$defs/utcTimestamp"
+    },
+    "links": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "self",
+        "releases"
+      ],
+      "properties": {
+        "self": {
+          "$ref": "#/$defs/apiPath"
+        },
+        "releases": {
+          "$ref": "#/$defs/apiPath"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "packageIdentity": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 127,
+      "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?/[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+    },
+    "exactVersion": {
+      "type": "string",
+      "format": "semver-exact",
+      "maxLength": 128,
+      "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$"
+    },
+    "utcTimestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,9})?Z$"
+    },
+    "apiPath": {
+      "type": "string",
+      "pattern": "^/packages/api/v1/"
+    }
+  }
+}

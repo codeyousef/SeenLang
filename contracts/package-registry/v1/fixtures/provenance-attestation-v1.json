@@ -1,0 +1,52 @@
+{
+  "contract_version": 1,
+  "attestation_type": "seen-package-provenance",
+  "attestation_id": "pa-prod-mathx-0001",
+  "environment": "production",
+  "repository_id": "seen-prod-registry-v1",
+  "subject": {
+    "package": "alice/mathx",
+    "version": "1.2.3",
+    "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "source_proof_sha256": "bcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbc",
+  "builder": {
+    "id": "seen-registry-source-packer",
+    "version": "1.0.0",
+    "workload_identity": "seen-prod-packer@registry.example",
+    "isolated": true,
+    "network_access": "none",
+    "secret_access": "signing-service-only"
+  },
+  "invocation": {
+    "id": "pack-mathx-1-2-3-0001",
+    "started_at": "2026-07-16T12:10:00Z",
+    "finished_at": "2026-07-16T12:10:05Z",
+    "parameters_sha256": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+    "reproducible": true
+  },
+  "materials": [
+    {"uri": "git+https://github.com/alice/mathx@dddddddddddddddddddddddddddddddddddddddd", "sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"},
+    {"uri": "seen:source-proof:prf_prod_mathx_first_0001", "sha256": "bcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbc"},
+    {"uri": "seen:archive-policy:v1", "sha256": "dededededededededededededededededededededededededededededededede"}
+  ],
+  "packing": {
+    "archive_format": "tar+gzip",
+    "content_model": "source-only",
+    "archive_policy_version": 1,
+    "archive_policy_result": "passed",
+    "manifest_sha256": "efefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef",
+    "source_tree_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "packed_tree_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "normalized_timestamps": true,
+    "normalized_ownership": true,
+    "sorted_entries": true
+  },
+  "generated_at": "2026-07-16T12:10:06Z",
+  "statement_sha256": "97a6bce7f5a8c220d6c8938cd4954002e776a50f2d710e8722a6ca0e73453729",
+  "signature": {
+    "keyid": "prod-provenance-a",
+    "algorithm": "ecdsa-sha2-nistp256",
+    "sig": "cHJvZC1wcm92ZW5hbmNlLWEtc3ludGhldGljLXNpZ25hdHVyZS0wMDA"
+  }
+}

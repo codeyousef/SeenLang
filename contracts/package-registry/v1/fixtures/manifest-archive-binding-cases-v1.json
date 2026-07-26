@@ -1,0 +1,36 @@
+{
+  "contract_version": 1,
+  "policy": "archive-policy-v1.json",
+  "comparison": "exact-hash-and-complete-parsed-value-before-ready",
+  "base": {
+    "path_identity": "alice/mathx",
+    "reserved_version": "1.2.3",
+    "reserved_manifest_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "reserved_manifest": {
+      "project_version": "1.2.3",
+      "package_identity": "alice/mathx",
+      "capabilities": ["file"],
+      "include": ["src/**/*.seen", "README.md"],
+      "assets": []
+    },
+    "archive_manifest_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "archive_manifest": {
+      "project_version": "1.2.3",
+      "package_identity": "alice/mathx",
+      "capabilities": ["file"],
+      "include": ["src/**/*.seen", "README.md"],
+      "assets": []
+    },
+    "all_effective_paths_match_include": true
+  },
+  "cases": [
+    {"name": "exact-reserved-manifest-match", "mutations": [], "expected": "accept"},
+    {"name": "raw-manifest-hash-mismatch", "mutations": [{"path": "/archive_manifest_sha256", "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}], "expected": "reject", "error_code": "archive_manifest_digest_mismatch"},
+    {"name": "archive-manifest-identity-mismatch", "mutations": [{"path": "/archive_manifest/package_identity", "value": "mallory/mathx"}], "expected": "reject", "error_code": "archive_manifest_identity_mismatch"},
+    {"name": "archive-manifest-version-mismatch", "mutations": [{"path": "/archive_manifest/project_version", "value": "9.9.9"}], "expected": "reject", "error_code": "archive_manifest_version_mismatch"},
+    {"name": "archive-capability-underdeclaration", "mutations": [{"path": "/archive_manifest/capabilities", "value": ["file", "network"]}], "expected": "reject", "error_code": "archive_manifest_capabilities_mismatch"},
+    {"name": "archive-include-mismatch", "mutations": [{"path": "/archive_manifest/include", "value": ["src/**/*.seen", "scripts/**"]}], "expected": "reject", "error_code": "archive_manifest_include_mismatch"},
+    {"name": "archive-assets-mismatch", "mutations": [{"path": "/archive_manifest/assets", "value": ["assets/payload.bin"]}], "expected": "reject", "error_code": "archive_manifest_assets_mismatch"},
+    {"name": "effective-path-outside-manifest", "mutations": [{"path": "/all_effective_paths_match_include", "value": false}], "expected": "reject", "error_code": "archive_include_policy_violation"}
+  ]
+}

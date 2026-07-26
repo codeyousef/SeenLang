@@ -1,0 +1,468 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:seen:package-registry:v1:tuf-metadata-envelope",
+  "title": "Seen TUF metadata envelope v1",
+  "x-seen-semantic-rules": {
+    "canonical_serialization": "tuf-canonical-json-v1",
+    "signature_encoding": "lowercase-hex-of-64-raw-ed25519-signature-bytes",
+    "public_key_encoding": "lowercase-hex-of-32-raw-ed25519-public-key-bytes",
+    "keyid_derivation": "lowercase-sha256-of-tuf-canonical-json-key-object",
+    "target_key_binding": {
+      "template": "packages/{owner}/{name}/{version}/{archive_sha256}/{archive_filename}",
+      "comparison": "byte-exact-without-decoding-or-normalization",
+      "requires": [
+        "custom.package-equals-owner-slash-name",
+        "custom.owner-and-name-equal-target-path",
+        "custom.version-equals-version",
+        "custom.archive_sha256-equals-archive_sha256",
+        "custom.archive_filename-equals-archive_filename",
+        "custom.archive_filename-equals-name-dash-version-dot-seenpkg-dot-tgz",
+        "hashes.sha256-equals-custom.archive_sha256",
+        "custom.blob-equals-target-length-and-hash"
+      ],
+      "failure": "reject-before-signing-or-client-selection"
+    },
+    "registry_attestation_binding": {
+      "canonical_projection": {
+        "subject": ["package", "owner", "name", "version", "blob", "visibility"],
+        "publisher": ["publisher_principal", "registry_service_identity"],
+        "source": ["source_repository", "source_commit"],
+        "review": "review",
+        "activation": "activated_at"
+      },
+      "digest": "custom.registry_attestation_sha256-and-custom.provenance_sha256-equal-sha256-of-tuf-canonical-json-projection",
+      "source_proof": "custom.source_proof_sha256-equals-custom.review.source_proof_sha256",
+      "failure": "reject-before-client-selection"
+    },
+    "release_role_eligibility": {
+      "state": {
+        "visibility": "public",
+        "lifecycle": "active",
+        "retention": "retained"
+      },
+      "availability": ["available", "yanked"]
+    },
+    "security_overlay": {
+      "authority": "security-role-target-is-authoritative-for-the-identical-bound-target-key",
+      "base_release_state": "same-public-active-retained-release",
+      "availability": ["available", "security-quarantined"],
+      "digest_change": "forbidden",
+      "release_role_override": "forbidden"
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["signatures", "signed"],
+  "properties": {
+    "signatures": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["keyid", "sig"],
+        "properties": {
+          "keyid": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "sig": {"type": "string", "pattern": "^[0-9a-f]{128}$"}
+        }
+      }
+    },
+    "signed": {"$ref": "#/$defs/signed"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "exactVersion": {
+      "type": "string",
+      "format": "semver-exact",
+      "maxLength": 128,
+      "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$"
+    },
+    "key": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["keytype", "scheme", "keyval"],
+      "properties": {
+        "keytype": {"const": "ed25519"},
+        "scheme": {"const": "ed25519"},
+        "keyval": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["public"],
+          "properties": {
+            "public": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+          }
+        }
+      }
+    },
+    "role": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["keyids", "threshold"],
+      "properties": {
+        "keyids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        },
+        "threshold": {"type": "integer", "minimum": 1}
+      }
+    },
+    "fileMeta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "length", "hashes"],
+      "properties": {
+        "version": {"type": "integer", "minimum": 1},
+        "length": {"type": "integer", "minimum": 1},
+        "hashes": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["sha256"],
+          "properties": {"sha256": {"$ref": "#/$defs/sha256"}}
+        }
+      }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["length", "hashes", "custom"],
+      "properties": {
+        "length": {"type": "integer", "minimum": 1, "maximum": 26214400},
+        "hashes": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["sha256"],
+          "properties": {"sha256": {"$ref": "#/$defs/sha256"}}
+        },
+        "custom": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "environment",
+            "registry_origin",
+            "package",
+            "owner",
+            "name",
+            "version",
+            "archive_sha256",
+            "archive_filename",
+            "blob",
+            "publisher_principal",
+            "registry_service_identity",
+            "source_repository",
+            "source_commit",
+            "review",
+            "visibility",
+            "lifecycle",
+            "retention",
+            "availability",
+            "activated_at",
+            "source_proof_sha256",
+            "registry_attestation_sha256",
+            "provenance_sha256",
+            "dependencies",
+            "capabilities"
+          ],
+          "properties": {
+            "environment": {"enum": ["development", "production"]},
+            "registry_origin": {
+              "type": "string",
+              "pattern": "^https://[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+(?:/[a-z0-9][a-z0-9._~-]*)+$"
+            },
+            "package": {
+              "type": "string",
+              "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?/[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+            },
+            "owner": {"$ref": "#/$defs/packageComponent"},
+            "name": {"$ref": "#/$defs/packageComponent"},
+            "version": {"$ref": "#/$defs/exactVersion"},
+            "archive_sha256": {"$ref": "#/$defs/sha256"},
+            "archive_filename": {
+              "type": "string",
+              "minLength": 12,
+              "maxLength": 256,
+              "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?-[0-9A-Za-z.+-]{5,128}\\.seenpkg\\.tgz$"
+            },
+            "blob": {"$ref": "#/$defs/attestedBlob"},
+            "publisher_principal": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9:@._/-]*$"
+            },
+            "registry_service_identity": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[a-z0-9](?:[a-z0-9-]{0,126}[a-z0-9])?$"
+            },
+            "source_repository": {"$ref": "#/$defs/attestedRepository"},
+            "source_commit": {"$ref": "#/$defs/attestedCommit"},
+            "review": {"$ref": "#/$defs/attestedReview"},
+            "visibility": {"const": "public"},
+            "lifecycle": {"const": "active"},
+            "retention": {"const": "retained"},
+            "availability": {"enum": ["available", "yanked", "security-quarantined"]},
+            "activated_at": {"type": "string", "format": "date-time"},
+            "source_proof_sha256": {"$ref": "#/$defs/sha256"},
+            "registry_attestation_sha256": {"$ref": "#/$defs/sha256"},
+            "provenance_sha256": {"$ref": "#/$defs/sha256"},
+            "dependencies": {
+              "type": "array",
+              "items": {"$ref": "#/$defs/dependency"}
+            },
+            "capabilities": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {"$ref": "#/$defs/capability"}
+            },
+            "yank_reason": {"type": "string", "minLength": 1},
+            "incident_id": {"type": "string", "pattern": "^inc_[A-Za-z0-9_-]{8,96}$"},
+            "security_action": {"enum": ["quarantine", "reinstate-reviewed"]}
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {"availability": {"const": "yanked"}},
+                "required": ["availability"]
+              },
+              "then": {"required": ["yank_reason"]},
+              "else": {"not": {"required": ["yank_reason"]}}
+            },
+            {
+              "if": {
+                "properties": {"availability": {"const": "security-quarantined"}},
+                "required": ["availability"]
+              },
+              "then": {
+                "required": ["incident_id", "security_action"],
+                "properties": {"security_action": {"const": "quarantine"}}
+              }
+            },
+            {
+              "if": {
+                "properties": {"security_action": {"const": "reinstate-reviewed"}},
+                "required": ["security_action"]
+              },
+              "then": {
+                "required": ["incident_id"],
+                "properties": {"availability": {"const": "available"}}
+              }
+            },
+            {
+              "if": {"required": ["incident_id"]},
+              "then": {"required": ["security_action"]}
+            }
+          ]
+        }
+      }
+    },
+    "packageComponent": {
+      "type": "string",
+      "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+    },
+    "attestedBlob": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sha256", "length"],
+      "properties": {
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "length": {"type": "integer", "minimum": 1, "maximum": 26214400}
+      }
+    },
+    "attestedRepository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["forge", "repository_id", "canonical_url"],
+      "properties": {
+        "forge": {"enum": ["github", "gitlab"]},
+        "repository_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+        },
+        "canonical_url": {
+          "type": "string",
+          "pattern": "^https://[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?(?:/[A-Za-z0-9._~-]+)+$"
+        }
+      }
+    },
+    "attestedCommit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "value"],
+      "properties": {
+        "algorithm": {"enum": ["sha1", "sha256"]},
+        "value": {"type": "string", "pattern": "^[0-9a-f]{40}(?:[0-9a-f]{24})?$"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"algorithm": {"const": "sha1"}}, "required": ["algorithm"]},
+          "then": {"properties": {"value": {"pattern": "^[0-9a-f]{40}$"}}}
+        },
+        {
+          "if": {"properties": {"algorithm": {"const": "sha256"}}, "required": ["algorithm"]},
+          "then": {"properties": {"value": {"pattern": "^[0-9a-f]{64}$"}}}
+        }
+      ]
+    },
+    "attestedReview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result",
+        "policy_version",
+        "source_proof_id",
+        "source_proof_sha256",
+        "scan_attestation_id",
+        "scan_attestation_sha256",
+        "scanner_id",
+        "scanner_version",
+        "attestation_sequence"
+      ],
+      "properties": {
+        "result": {"const": "passed"},
+        "policy_version": {"type": "string", "minLength": 1, "maxLength": 128},
+        "source_proof_id": {"type": "string", "pattern": "^prf_[A-Za-z0-9_-]{8,96}$"},
+        "source_proof_sha256": {"$ref": "#/$defs/sha256"},
+        "scan_attestation_id": {"type": "string", "pattern": "^scn_[A-Za-z0-9_-]{8,96}$"},
+        "scan_attestation_sha256": {"$ref": "#/$defs/sha256"},
+        "scanner_id": {"type": "string", "minLength": 1, "maxLength": 128},
+        "scanner_version": {"type": "string", "minLength": 1, "maxLength": 128},
+        "attestation_sequence": {"type": "integer", "minimum": 1}
+      }
+    },
+    "capability": {
+      "enum": ["file", "network", "process", "environment", "dynamic-load", "ffi", "unsafe", "native-link", "macro"]
+    },
+    "dependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["alias", "package", "registry_origin", "requirement", "allow"],
+      "properties": {
+        "alias": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$"},
+        "package": {"type": "string", "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?/[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"},
+        "registry_origin": {"type": "string", "pattern": "^https://[a-z0-9.-]+/[a-z0-9][a-z0-9._~/-]*$"},
+        "requirement": {"$ref": "urn:seen:package-registry:v1:semver-requirement"},
+        "allow": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/capability"}}
+      }
+    },
+    "delegatedRole": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "keyids", "threshold", "terminating", "paths"],
+      "properties": {
+        "name": {"enum": ["releases", "security"]},
+        "keyids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        },
+        "threshold": {"type": "integer", "minimum": 1},
+        "terminating": {"type": "boolean"},
+        "paths": {"const": ["packages/*/*/*/*/*"]}
+      },
+      "allOf": [
+        {"properties": {"terminating": {"const": false}}}
+      ]
+    },
+    "delegations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["keys", "roles"],
+      "properties": {
+        "keys": {
+          "type": "object",
+          "minProperties": 2,
+          "additionalProperties": {"$ref": "#/$defs/key"}
+        },
+        "roles": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "uniqueItems": true,
+          "prefixItems": [
+            {
+              "allOf": [
+                {"$ref": "#/$defs/delegatedRole"},
+                {"properties": {"name": {"const": "security"}}}
+              ]
+            },
+            {
+              "allOf": [
+                {"$ref": "#/$defs/delegatedRole"},
+                {"properties": {"name": {"const": "releases"}}}
+              ]
+            }
+          ],
+          "items": {"$ref": "#/$defs/delegatedRole"}
+        }
+      }
+    },
+    "signed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["_type", "spec_version", "version", "expires", "environment", "repository_id"],
+      "properties": {
+        "_type": {"enum": ["root", "targets", "snapshot", "timestamp"]},
+        "spec_version": {"type": "string", "pattern": "^1\\.0(?:\\.[0-9]+)?$"},
+        "version": {"type": "integer", "minimum": 1},
+        "expires": {"type": "string", "format": "date-time"},
+        "environment": {"enum": ["development", "production"]},
+        "repository_id": {"type": "string", "pattern": "^seen-(dev|prod)-[a-z0-9-]+$"},
+        "consistent_snapshot": {"type": "boolean"},
+        "keys": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {"$ref": "#/$defs/key"}
+        },
+        "roles": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["root", "targets", "snapshot", "timestamp"],
+          "properties": {
+            "root": {"$ref": "#/$defs/role"},
+            "targets": {"$ref": "#/$defs/role"},
+            "snapshot": {"$ref": "#/$defs/role"},
+            "timestamp": {"$ref": "#/$defs/role"}
+          }
+        },
+        "meta": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {"$ref": "#/$defs/fileMeta"}
+        },
+        "targets": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "pattern": "^packages/[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?/[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?/[0-9A-Za-z.+-]{5,128}/[0-9a-f]{64}/[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?-[0-9A-Za-z.+-]{5,128}\\.seenpkg\\.tgz$"
+          },
+          "additionalProperties": {"$ref": "#/$defs/target"}
+        },
+        "delegations": {"$ref": "#/$defs/delegations"}
+      },
+      "oneOf": [
+        {
+          "properties": {"_type": {"const": "root"}, "consistent_snapshot": {"const": true}},
+          "required": ["keys", "roles", "consistent_snapshot"]
+        },
+        {
+          "properties": {"_type": {"const": "timestamp"}, "meta": {"required": ["snapshot.json"]}},
+          "required": ["meta"]
+        },
+        {
+          "properties": {"_type": {"const": "snapshot"}},
+          "required": ["meta"]
+        },
+        {
+          "properties": {"_type": {"const": "targets"}},
+          "required": ["targets"]
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,464 @@
+{
+  "contract_version": 1,
+  "policy": "archive-policy-v1.json",
+  "case_schema": "../schemas/archive-validation-case-v1.schema.json",
+  "cases": [
+    {
+      "name": "minimal_source_archive",
+      "description": "A source-only package with a regular manifest and Seen source is accepted.",
+      "archive": {
+        "format": "tar+gzip",
+        "parser_result": "complete",
+        "stats": {"compressed_bytes": 2048, "expanded_bytes": 8192, "entry_count": 3, "max_regular_file_bytes": 4096, "max_path_bytes": 18, "max_path_depth": 2, "compression_ratio": 4},
+        "entries": [
+          {"header_path": "Seen.toml", "effective_path": "Seen.toml", "type": "regular-file", "size": 512, "mode": "0644", "included_by_manifest": true, "header_override": "none"},
+          {"header_path": "src", "effective_path": "src", "type": "directory", "size": 0, "mode": "0755", "included_by_manifest": true, "header_override": "none"},
+          {"header_path": "src/main.seen", "effective_path": "src/main.seen", "type": "regular-file", "size": 4096, "mode": "0644", "included_by_manifest": true, "header_override": "none"}
+        ]
+      },
+      "expected": "accept"
+    },
+    {
+      "name": "parent_traversal",
+      "description": "A parent segment is rejected before extraction.",
+      "archive": {
+        "format": "tar+gzip", "parser_result": "complete",
+        "stats": {"compressed_bytes": 1024, "expanded_bytes": 2048, "entry_count": 2, "max_regular_file_bytes": 1024, "max_path_bytes": 18, "max_path_depth": 2, "compression_ratio": 2},
+        "entries": [
+          {"header_path": "Seen.toml", "effective_path": "Seen.toml", "type": "regular-file", "size": 512, "mode": "0644", "included_by_manifest": true, "header_override": "none"},
+          {"header_path": "../escape.seen", "effective_path": "../escape.seen", "type": "regular-file", "size": 1024, "mode": "0644", "included_by_manifest": true, "header_override": "none"}
+        ]
+      },
+      "expected": "reject", "error_code": "archive_path_traversal", "failure_entry": 1
+    },
+    {
+      "name": "pax_effective_path_traversal",
+      "description": "Validation uses the PAX-overridden effective path, not the benign legacy header path.",
+      "archive": {
+        "format": "tar+gzip", "parser_result": "complete",
+        "stats": {"compressed_bytes": 1024, "expanded_bytes": 2048, "entry_count": 2, "max_regular_file_bytes": 1024, "max_path_bytes": 24, "max_path_depth": 3, "compression_ratio": 2},
+        "entries": [
+          {"header_path": "Seen.toml", "effective_path": "Seen.toml", "type": "regular-file", "size": 512, "mode": "0644", "included_by_manifest": true, "header_override": "none"},
+          {"header_path": "src/looks-safe.seen", "effective_path": "src/../../escape.seen", "type": "regular-file", "size": 1024, "mode": "0644", "included_by_manifest": true, "header_override": "pax-path"}
+        ]
+      },
+      "expected": "reject", "error_code": "archive_path_traversal", "failure_entry": 1
+    },
+    {
+      "name": "posix_absolute_path",
+      "description": "A POSIX absolute path is rejected.",
+      "archive": {
+        "format": "tar+gzip", "parser_result": "complete",
+        "stats": {"compressed_bytes": 1024, "expanded_bytes": 2048, "entry_count": 2, "max_regular_file_bytes": 1024, "max_path_bytes": 11, "max_path_depth": 2, "compression_ratio": 2},
+        "entries": [
+          {"header_path": "Seen.toml", "effective_path": "Seen.toml", "type": "regular-file", "size": 512, "mode": "0644", "included_by_manifest": true, "header_override": "none"},
+          {"header_path": "/etc/passwd", "effective_path": "/etc/passwd", "type": "regular-file", "size": 1024, "mode": "0644", "included_by_manifest": true, "header_override": "none"}
+        ]
+      },
+      "expected": "reject", "error_code": "archive_path_absolute", "failure_entry": 1
+    },
+    {
+      "name": "windows_absolute_path",
+      "description": "Drive-qualified and backslash paths are not portable relative archive paths.",
+      "archive": {
+        "format": "tar+gzip", "parser_result": "complete",
+        "stats": {"compressed_bytes": 1024, "expanded_bytes": 2048, "entry_count": 2, "max_regular_file_bytes": 1024, "max_path_bytes": 22, "max_path_depth": 1, "compression_ratio": 2},
+        "entries": [
+          {"header_path": "Seen.toml", "effective_path": "Seen.toml", "type": "regular-file", "size": 512, "mode": "0644", "included_by_manifest": true, "header_override": "none"},
+          {"header_path": "C:\\Windows\\escape.seen", "effective_path": "C:\\Windows\\escape.seen", "type": "regular-file", "size": 1024, "mode": "0644", "included_by_manifest": true, "header_override": "none"}
+        ]
+      },
+      "expected": "reject", "error_code": "archive_path_absolute", "failure_entry": 1
+    },
+    {
+      "name": "package_manager_state_shadowing",
+      "description": "Package manager state cannot be supplied by an archive to shadow the authoritative project package map.",
+      "archive": {
+        "format": "tar+gzip", "parser_result": "complete",
+        "stats": {"compressed_bytes": 1024, "expanded_bytes": 2048, "entry_count": 2, "max_regular_file_bytes": 1024, "max_path_bytes": 26, "max_path_depth": 3, "compression_ratio": 2},
+        "entries": [
+          {"header_path": "Seen.toml", "effective_path": "Seen.toml", "type": "regular-file", "size": 512, "mode": "0644", "included_by_manifest": true, "header_override": "none"},
+          {"header_path": "src/.seen/package-map.tsv", "effective_path": "src/.seen/package-map.tsv", "type": "regular-file", "size": 1024, "mode": "0644", "included_by_manifest": true, "header_override": "none"}
+        ]
+      },
+      "expected": "reject", "error_code": "archive_path_invalid", "failure_entry": 1
+    },
+    {
+      "name": "symlink_entry",
+      "description": "Symlinks are rejected even when the link target appears to stay inside the package.",
+      "archive": {
+        "format": "tar+gzip", "parser_result": "complete",
+        "stats": {"compressed_bytes": 1024, "expanded_bytes": 1024, "entry_count": 2, "max_regular_file_bytes": 512, "max_path_bytes": 13, "max_path_depth": 2, "compression_ratio": 1},
+        "entries": [
+          {"header_path": "Seen.toml", "effective_path": "Seen.toml", "type": "regular-file", "size": 512, "mode": "0644", "included_by_manifest": true, "header_override": "none"},
+          {"header_path": "src/main.seen", "effective_path": "src/main.seen", "type": "symlink", "size": 0, "mode": "0777", "included_by_manifest": true, "link_target": "../real/main.seen", "header_override": "none"}
+        ]
+      },
+      "expected": "reject", "error_code": "archive_entry_type_forbidden", "failure_entry": 1
+    },
+    {
+      "name": "hardlink_entry",
+      "description": "Hard links are rejected rather than resolved by the extractor.",
+      "archive": {
+        "format": "tar+gzip", "parser_result": "complete",
+        "stats": {"compressed_bytes": 1024, "expanded_bytes": 1024, "entry_count": 2, "max_regular_file_bytes": 512, "max_path_bytes": 13, "max_path_depth": 2, "compression_ratio": 1},
+        "entries": [
+          {"header_path": "Seen.toml", "effective_path": "Seen.toml", "type": "regular-file", "size": 512, "mode": "0644", "included_by_manifest": true, "header_override": "none"},
+          {"header_path": "src/main.seen", "effective_path": "src/main.seen", "type": "hardlink", "size": 0, "mode": "0644", "included_by_manifest": true, "link_target": "../../outside", "header_override": "none"}
+        ]
+      },
+      "expected": "reject", "error_code": "archive_entry_type_forbidden", "failure_entry": 1
+    },
+    {
+      "name": "device_entry",
+      "description": "Character and block device nodes are never package content.",
+      "archive": {
+        "format": "tar+gzip", "parser_result": "complete",
+        "stats": {"compressed_bytes": 1024, "expanded_bytes": 1024, "entry_count": 2, "max_regular_file_bytes": 512, "max_path_bytes": 9, "max_path_depth": 2, "compression_ratio": 1},
+        "entries": [
+          {"header_path": "Seen.toml", "effective_path": "Seen.toml", "type": "regular-file", "size": 512, "mode": "0644", "included_by_manifest": true, "header_override": "none"},
+          {"header_path": "assets/tty", "effective_path": "assets/tty", "type": "character-device", "size": 0, "mode": "0600", "included_by_manifest": true, "device_major": 5, "device_minor": 0, "header_override": "none"}
+        ]
+      },
+      "expected": "reject", "error_code": "archive_entry_type_forbidden", "failure_entry": 1
+    },
+    {
+      "name": "duplicate_effective_path",
+      "description": "Two headers resolving to the same effective path are rejected.",
+      "archive": {
+        "format": "tar+gzip", "parser_result": "complete",
+        "stats": {"compressed_bytes": 2048, "expanded_bytes": 4096, "entry_count": 3, "max_regular_file_bytes": 2048, "max_path_bytes": 13, "max_path_depth": 2, "compression_ratio": 2},
+        "entries": [
+          {"header_path": "Seen.toml", "effective_path": "Seen.toml", "type": "regular-file", "size": 512, "mode": "0644", "included_by_manifest": true, "header_override": "none"},
+          {"header_path": "src/main.seen", "effective_path": "src/main.seen", "type": "regular-file", "size": 1024, "mode": "0644", "included_by_manifest": true, "header_override": "none"},
+          {"header_path": "safe-placeholder", "effective_path": "src/main.seen", "type": "regular-file", "size": 2048, "mode": "0644", "included_by_manifest": true, "header_override": "pax-path"}
+        ]
+      },
+      "expected": "reject", "error_code": "archive_duplicate_path", "failure_entry": 2
+    },
+    {
+      "name": "portable_case_collision",
+      "description": "Paths that collide on case-insensitive filesystems are rejected on every host.",
+      "archive": {
+        "format": "tar+gzip", "parser_result": "complete",
+        "stats": {"compressed_bytes": 2048, "expanded_bytes": 4096, "entry_count": 3, "max_regular_file_bytes": 2048, "max_path_bytes": 13, "max_path_depth": 2, "compression_ratio": 2},
+        "entries": [
+          {"header_path": "Seen.toml", "effective_path": "Seen.toml", "type": "regular-file", "size": 512, "mode": "0644", "included_by_manifest": true, "header_override": "none"},
+          {"header_path": "src/Math.seen", "effective_path": "src/Math.seen", "type": "regular-file", "size": 1024, "mode": "0644", "included_by_manifest": true, "header_override": "none"},
+          {"header_path": "src/math.seen", "effective_path": "src/math.seen", "type": "regular-file", "size": 2048, "mode": "0644", "included_by_manifest": true, "header_override": "none"}
+        ]
+      },
+      "expected": "reject", "error_code": "archive_portable_case_collision", "failure_entry": 2
+    },
+    {
+      "name": "unicode_normalization_collision",
+      "description": "NFC-equivalent paths are rejected rather than normalized into one platform-dependent file.",
+      "archive": {
+        "format": "tar+gzip", "parser_result": "complete",
+        "stats": {"compressed_bytes": 2048, "expanded_bytes": 4096, "entry_count": 3, "max_regular_file_bytes": 2048, "max_path_bytes": 15, "max_path_depth": 2, "compression_ratio": 2},
+        "entries": [
+          {"header_path": "Seen.toml", "effective_path": "Seen.toml", "type": "regular-file", "size": 512, "mode": "0644", "included_by_manifest": true, "header_override": "none"},
+          {"header_path": "src/café.seen", "effective_path": "src/café.seen", "type": "regular-file", "size": 1024, "mode": "0644", "included_by_manifest": true, "header_override": "none"},
+          {"header_path": "src/café.seen", "effective_path": "src/café.seen", "type": "regular-file", "size": 2048, "mode": "0644", "included_by_manifest": true, "header_override": "none"}
+        ]
+      },
+      "expected": "reject", "error_code": "archive_unicode_normalization_collision", "failure_entry": 2
+    },
+    {
+      "name": "compressed_size_limit",
+      "description": "The compressed input stream is stopped after 25 MiB even if headers claim a small expansion.",
+      "archive": {
+        "format": "tar+gzip", "parser_result": "complete",
+        "stats": {"compressed_bytes": 26214401, "expanded_bytes": 52428800, "entry_count": 2, "max_regular_file_bytes": 10485760, "max_path_bytes": 15, "max_path_depth": 2, "compression_ratio": 2},
+        "entries": [
+          {"header_path": "Seen.toml", "effective_path": "Seen.toml", "type": "regular-file", "size": 512, "mode": "0644", "included_by_manifest": true, "header_override": "none"}
+        ],
+        "notes": "Validation stops at the compressed byte ceiling; later aggregate values are untrusted."
+      },
+      "expected": "reject", "error_code": "archive_compressed_size_limit"
+    },
+    {
+      "name": "path_length_limit",
+      "description": "The effective UTF-8 path cannot exceed 240 bytes.",
+      "archive": {
+        "format": "tar+gzip", "parser_result": "complete",
+        "stats": {"compressed_bytes": 1024, "expanded_bytes": 2048, "entry_count": 2, "max_regular_file_bytes": 1024, "max_path_bytes": 241, "max_path_depth": 2, "compression_ratio": 2},
+        "entries": [
+          {"header_path": "Seen.toml", "effective_path": "Seen.toml", "type": "regular-file", "size": 512, "mode": "0644", "included_by_manifest": true, "header_override": "none"},
+          {"header_path": "src/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "effective_path": "src/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "type": "regular-file", "size": 1024, "mode": "0644", "included_by_manifest": true, "header_override": "gnu-longname"}
+        ]
+      },
+      "expected": "reject", "error_code": "archive_path_length_limit", "failure_entry": 1
+    },
+    {
+      "name": "path_depth_limit",
+      "description": "The effective path cannot exceed sixteen nonempty segments.",
+      "archive": {
+        "format": "tar+gzip", "parser_result": "complete",
+        "stats": {"compressed_bytes": 1024, "expanded_bytes": 2048, "entry_count": 2, "max_regular_file_bytes": 1024, "max_path_bytes": 33, "max_path_depth": 17, "compression_ratio": 2},
+        "entries": [
+          {"header_path": "Seen.toml", "effective_path": "Seen.toml", "type": "regular-file", "size": 512, "mode": "0644", "included_by_manifest": true, "header_override": "none"},
+          {"header_path": "a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a", "effective_path": "a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a", "type": "regular-file", "size": 1024, "mode": "0644", "included_by_manifest": true, "header_override": "none"}
+        ]
+      },
+      "expected": "reject", "error_code": "archive_path_depth_limit", "failure_entry": 1
+    },
+    {
+      "name": "compression_ratio_bomb",
+      "description": "A ratio over 100 is rejected even while absolute expanded size remains below 100 MiB.",
+      "archive": {
+        "format": "tar+gzip", "parser_result": "complete",
+        "stats": {"compressed_bytes": 1000, "expanded_bytes": 100001, "entry_count": 2, "max_regular_file_bytes": 100001, "max_path_bytes": 15, "max_path_depth": 2, "compression_ratio": 100.001},
+        "entries": [
+          {"header_path": "Seen.toml", "effective_path": "Seen.toml", "type": "regular-file", "size": 512, "mode": "0644", "included_by_manifest": true, "header_override": "none"},
+          {"header_path": "assets/data.bin", "effective_path": "assets/data.bin", "type": "regular-file", "size": 99489, "mode": "0644", "included_by_manifest": true, "header_override": "none"}
+        ]
+      },
+      "expected": "reject", "error_code": "archive_compression_ratio_limit"
+    },
+    {
+      "name": "block_device_entry",
+      "description": "Block devices are rejected independently of extractor privileges.",
+      "archive": {
+        "format": "tar+gzip", "parser_result": "complete",
+        "stats": {"compressed_bytes": 1024, "expanded_bytes": 1024, "entry_count": 2, "max_regular_file_bytes": 512, "max_path_bytes": 10, "max_path_depth": 2, "compression_ratio": 1},
+        "entries": [
+          {"header_path": "Seen.toml", "effective_path": "Seen.toml", "type": "regular-file", "size": 512, "mode": "0644", "included_by_manifest": true, "header_override": "none"},
+          {"header_path": "assets/sda", "effective_path": "assets/sda", "type": "block-device", "size": 0, "mode": "0600", "included_by_manifest": true, "device_major": 8, "device_minor": 0, "header_override": "none"}
+        ]
+      },
+      "expected": "reject", "error_code": "archive_entry_type_forbidden", "failure_entry": 1
+    },
+    {
+      "name": "expanded_size_bomb",
+      "description": "Highly compressible content exceeding the expanded byte ceiling is rejected while streaming.",
+      "archive": {
+        "format": "tar+gzip", "parser_result": "complete",
+        "stats": {"compressed_bytes": 1048576, "expanded_bytes": 104857601, "entry_count": 3, "max_regular_file_bytes": 10485760, "max_path_bytes": 15, "max_path_depth": 2, "compression_ratio": 100.000001},
+        "entries": [
+          {"header_path": "Seen.toml", "effective_path": "Seen.toml", "type": "regular-file", "size": 512, "mode": "0644", "included_by_manifest": true, "header_override": "none"},
+          {"header_path": "assets/data.bin", "effective_path": "assets/data.bin", "type": "regular-file", "size": 10485760, "mode": "0644", "included_by_manifest": true, "header_override": "none"}
+        ],
+        "notes": "The entry list is a representative prefix; aggregate counters are authoritative for the synthetic bomb."
+      },
+      "expected": "reject", "error_code": "archive_expanded_size_limit"
+    },
+    {
+      "name": "entry_count_bomb",
+      "description": "An archive with more than 4096 entries is rejected without materializing the entries.",
+      "archive": {
+        "format": "tar+gzip", "parser_result": "complete",
+        "stats": {"compressed_bytes": 1048576, "expanded_bytes": 8388608, "entry_count": 4097, "max_regular_file_bytes": 512, "max_path_bytes": 32, "max_path_depth": 3, "compression_ratio": 8},
+        "entries": [
+          {"header_path": "Seen.toml", "effective_path": "Seen.toml", "type": "regular-file", "size": 512, "mode": "0644", "included_by_manifest": true, "header_override": "none"}
+        ],
+        "notes": "The entry list is a representative prefix; aggregate counters are authoritative."
+      },
+      "expected": "reject", "error_code": "archive_entry_count_limit"
+    },
+    {
+      "name": "single_file_limit",
+      "description": "A single regular file cannot exceed 10 MiB even when total expanded size is below 100 MiB.",
+      "archive": {
+        "format": "tar+gzip", "parser_result": "complete",
+        "stats": {"compressed_bytes": 2097152, "expanded_bytes": 10486273, "entry_count": 2, "max_regular_file_bytes": 10485761, "max_path_bytes": 15, "max_path_depth": 2, "compression_ratio": 5.0002},
+        "entries": [
+          {"header_path": "Seen.toml", "effective_path": "Seen.toml", "type": "regular-file", "size": 512, "mode": "0644", "included_by_manifest": true, "header_override": "none"},
+          {"header_path": "assets/data.bin", "effective_path": "assets/data.bin", "type": "regular-file", "size": 10485761, "mode": "0644", "included_by_manifest": true, "header_override": "none"}
+        ]
+      },
+      "expected": "reject", "error_code": "archive_file_size_limit", "failure_entry": 1
+    },
+    {
+      "name": "executable_mode",
+      "description": "Executable mode bits are rejected even on an otherwise allowed regular source file.",
+      "archive": {
+        "format": "tar+gzip", "parser_result": "complete",
+        "stats": {"compressed_bytes": 1024, "expanded_bytes": 2048, "entry_count": 2, "max_regular_file_bytes": 1024, "max_path_bytes": 13, "max_path_depth": 2, "compression_ratio": 2},
+        "entries": [
+          {"header_path": "Seen.toml", "effective_path": "Seen.toml", "type": "regular-file", "size": 512, "mode": "0644", "included_by_manifest": true, "header_override": "none"},
+          {"header_path": "src/main.seen", "effective_path": "src/main.seen", "type": "regular-file", "size": 1024, "mode": "0755", "included_by_manifest": true, "header_override": "none"}
+        ]
+      },
+      "expected": "reject", "error_code": "archive_executable_forbidden", "failure_entry": 1
+    },
+    {
+      "name": "manifest_missing",
+      "description": "Seen.toml must be present exactly once as a regular file at the archive root.",
+      "archive": {
+        "format": "tar+gzip", "parser_result": "complete",
+        "stats": {"compressed_bytes": 1024, "expanded_bytes": 2048, "entry_count": 1, "max_regular_file_bytes": 2048, "max_path_bytes": 13, "max_path_depth": 2, "compression_ratio": 2},
+        "entries": [
+          {"header_path": "src/main.seen", "effective_path": "src/main.seen", "type": "regular-file", "size": 2048, "mode": "0644", "included_by_manifest": true, "header_override": "none"}
+        ]
+      },
+      "expected": "reject", "error_code": "archive_manifest_missing"
+    },
+    {
+      "name": "manifest_include_escape",
+      "description": "A regular file not matched by the manifest include or asset allowlist is rejected.",
+      "archive": {
+        "format": "tar+gzip", "parser_result": "complete",
+        "stats": {"compressed_bytes": 1024, "expanded_bytes": 2048, "entry_count": 2, "max_regular_file_bytes": 1024, "max_path_bytes": 15, "max_path_depth": 1, "compression_ratio": 2},
+        "entries": [
+          {"header_path": "Seen.toml", "effective_path": "Seen.toml", "type": "regular-file", "size": 512, "mode": "0644", "included_by_manifest": true, "header_override": "none"},
+          {"header_path": ".env.production", "effective_path": ".env.production", "type": "regular-file", "size": 1024, "mode": "0644", "included_by_manifest": false, "header_override": "none"}
+        ]
+      },
+      "expected": "reject", "error_code": "archive_include_policy_violation", "failure_entry": 1
+    },
+    {
+      "name": "prebuilt_object_extension_non_executable",
+      "description": "A native object is rejected by its normalized suffix even with mode 0644 and harmless-looking leading bytes.",
+      "archive": {
+        "format": "tar+gzip", "parser_result": "complete",
+        "stats": {"compressed_bytes": 2048, "expanded_bytes": 4096, "entry_count": 2, "max_regular_file_bytes": 2048, "max_path_bytes": 12, "max_path_depth": 2, "compression_ratio": 2},
+        "entries": [
+          {"header_path": "Seen.toml", "effective_path": "Seen.toml", "type": "regular-file", "size": 512, "mode": "0644", "included_by_manifest": true, "header_override": "none", "content_classification": "manifest"},
+          {"header_path": "src/native.o", "effective_path": "src/native.o", "type": "regular-file", "size": 2048, "mode": "0644", "included_by_manifest": true, "header_override": "none", "leading_bytes_hex": "00010203", "content_classification": "object-or-library", "detected_classifier": "suffix-o"}
+        ]
+      },
+      "expected": "reject", "error_code": "archive_prebuilt_artifact_forbidden", "failure_entry": 1
+    },
+    {
+      "name": "prebuilt_shared_library_non_executable",
+      "description": "A shared library is rejected by path/name classification even when executable bits are clear.",
+      "archive": {
+        "format": "tar+gzip", "parser_result": "complete",
+        "stats": {"compressed_bytes": 2048, "expanded_bytes": 4096, "entry_count": 2, "max_regular_file_bytes": 2048, "max_path_bytes": 19, "max_path_depth": 2, "compression_ratio": 2},
+        "entries": [
+          {"header_path": "Seen.toml", "effective_path": "Seen.toml", "type": "regular-file", "size": 512, "mode": "0644", "included_by_manifest": true, "header_override": "none", "content_classification": "manifest"},
+          {"header_path": "vendor/libmathx.so", "effective_path": "vendor/libmathx.so", "type": "regular-file", "size": 2048, "mode": "0644", "included_by_manifest": true, "header_override": "none", "leading_bytes_hex": "00010203", "content_classification": "object-or-library", "detected_classifier": "suffix-so"}
+        ]
+      },
+      "expected": "reject", "error_code": "archive_prebuilt_artifact_forbidden", "failure_entry": 1
+    },
+    {
+      "name": "renamed_elf_binary_magic",
+      "description": "Renaming an ELF binary to an asset extension does not bypass leading-byte classification.",
+      "archive": {
+        "format": "tar+gzip", "parser_result": "complete",
+        "stats": {"compressed_bytes": 2048, "expanded_bytes": 4096, "entry_count": 2, "max_regular_file_bytes": 2048, "max_path_bytes": 18, "max_path_depth": 2, "compression_ratio": 2},
+        "entries": [
+          {"header_path": "Seen.toml", "effective_path": "Seen.toml", "type": "regular-file", "size": 512, "mode": "0644", "included_by_manifest": true, "header_override": "none", "content_classification": "manifest"},
+          {"header_path": "assets/payload.dat", "effective_path": "assets/payload.dat", "type": "regular-file", "size": 2048, "mode": "0644", "included_by_manifest": true, "header_override": "none", "leading_bytes_hex": "7f454c4602010100", "content_classification": "native-binary", "detected_classifier": "elf"}
+        ]
+      },
+      "expected": "reject", "error_code": "archive_prebuilt_artifact_forbidden", "failure_entry": 1
+    },
+    {
+      "name": "renamed_webassembly_magic",
+      "description": "WebAssembly bytecode is rejected by magic bytes even without the .wasm suffix.",
+      "archive": {
+        "format": "tar+gzip", "parser_result": "complete",
+        "stats": {"compressed_bytes": 2048, "expanded_bytes": 4096, "entry_count": 2, "max_regular_file_bytes": 2048, "max_path_bytes": 19, "max_path_depth": 2, "compression_ratio": 2},
+        "entries": [
+          {"header_path": "Seen.toml", "effective_path": "Seen.toml", "type": "regular-file", "size": 512, "mode": "0644", "included_by_manifest": true, "header_override": "none", "content_classification": "manifest"},
+          {"header_path": "assets/module.data", "effective_path": "assets/module.data", "type": "regular-file", "size": 2048, "mode": "0644", "included_by_manifest": true, "header_override": "none", "leading_bytes_hex": "0061736d01000000", "content_classification": "bytecode", "detected_classifier": "webassembly"}
+        ]
+      },
+      "expected": "reject", "error_code": "archive_prebuilt_artifact_forbidden", "failure_entry": 1
+    },
+    {
+      "name": "install_script_non_executable",
+      "description": "An install lifecycle script is rejected by normalized stem and shebang classification despite mode 0644.",
+      "archive": {
+        "format": "tar+gzip", "parser_result": "complete",
+        "stats": {"compressed_bytes": 1024, "expanded_bytes": 2048, "entry_count": 2, "max_regular_file_bytes": 1024, "max_path_bytes": 18, "max_path_depth": 2, "compression_ratio": 2},
+        "entries": [
+          {"header_path": "Seen.toml", "effective_path": "Seen.toml", "type": "regular-file", "size": 512, "mode": "0644", "included_by_manifest": true, "header_override": "none", "content_classification": "manifest"},
+          {"header_path": "scripts/install.sh", "effective_path": "scripts/install.sh", "type": "regular-file", "size": 1024, "mode": "0644", "included_by_manifest": true, "header_override": "none", "leading_bytes_hex": "23212f62696e2f73680a", "content_classification": "script", "detected_classifier": "lifecycle-stem-install"}
+        ]
+      },
+      "expected": "reject", "error_code": "archive_lifecycle_script_forbidden", "failure_entry": 1
+    },
+    {
+      "name": "build_script_non_executable",
+      "description": "A build script without an extension is rejected by its basename and content prefix even with mode 0644.",
+      "archive": {
+        "format": "tar+gzip", "parser_result": "complete",
+        "stats": {"compressed_bytes": 1024, "expanded_bytes": 2048, "entry_count": 2, "max_regular_file_bytes": 1024, "max_path_bytes": 9, "max_path_depth": 1, "compression_ratio": 2},
+        "entries": [
+          {"header_path": "Seen.toml", "effective_path": "Seen.toml", "type": "regular-file", "size": 512, "mode": "0644", "included_by_manifest": true, "header_override": "none", "content_classification": "manifest"},
+          {"header_path": "build", "effective_path": "build", "type": "regular-file", "size": 1024, "mode": "0644", "included_by_manifest": true, "header_override": "none", "leading_bytes_hex": "23212f7573722f62696e2f656e7620626173680a", "content_classification": "script", "detected_classifier": "lifecycle-stem-build"}
+        ]
+      },
+      "expected": "reject", "error_code": "archive_lifecycle_script_forbidden", "failure_entry": 1
+    },
+    {
+      "name": "truncated_archive",
+      "description": "A parser error or incomplete end-of-archive marker fails closed.",
+      "archive": {
+        "format": "tar+gzip", "parser_result": "truncated",
+        "stats": {"compressed_bytes": 900, "expanded_bytes": 1024, "entry_count": 1, "max_regular_file_bytes": 512, "max_path_bytes": 9, "max_path_depth": 1, "compression_ratio": 1.14},
+        "entries": [
+          {"header_path": "Seen.toml", "effective_path": "Seen.toml", "type": "regular-file", "size": 512, "mode": "0644", "included_by_manifest": true, "header_override": "none"}
+        ]
+      },
+      "expected": "reject", "error_code": "archive_parse_failed"
+    },
+    {
+      "name": "validation_timeout",
+      "description": "Validation exceeding the hard time budget is not treated as a clean archive.",
+      "archive": {
+        "format": "tar+gzip", "parser_result": "timeout",
+        "stats": {"compressed_bytes": 1048576, "expanded_bytes": 52428800, "entry_count": 4000, "max_regular_file_bytes": 10485760, "max_path_bytes": 200, "max_path_depth": 15, "compression_ratio": 50},
+        "entries": [],
+        "notes": "The validator stopped before trusting any partial result."
+      },
+      "expected": "reject", "error_code": "archive_validation_timeout"
+    },
+    {
+      "name": "fifo_entry",
+      "description": "A FIFO entry is rejected before extraction even in a rootless worker.",
+      "archive": {
+        "format": "tar+gzip", "parser_result": "complete",
+        "stats": {"compressed_bytes": 1024, "expanded_bytes": 512, "entry_count": 2, "max_regular_file_bytes": 512, "max_path_bytes": 13, "max_path_depth": 2, "compression_ratio": 0.5},
+        "entries": [
+          {"header_path": "Seen.toml", "effective_path": "Seen.toml", "type": "regular-file", "size": 512, "mode": "0644", "included_by_manifest": true, "header_override": "none"},
+          {"header_path": "assets/pipe", "effective_path": "assets/pipe", "type": "fifo", "size": 0, "mode": "0644", "included_by_manifest": true, "header_override": "none"}
+        ]
+      },
+      "expected": "reject", "error_code": "archive_entry_type_forbidden", "failure_entry": 1
+    },
+    {
+      "name": "socket_entry",
+      "description": "A socket entry is rejected before any extractor can materialize it.",
+      "archive": {
+        "format": "tar+gzip", "parser_result": "complete",
+        "stats": {"compressed_bytes": 1024, "expanded_bytes": 512, "entry_count": 2, "max_regular_file_bytes": 512, "max_path_bytes": 15, "max_path_depth": 2, "compression_ratio": 0.5},
+        "entries": [
+          {"header_path": "Seen.toml", "effective_path": "Seen.toml", "type": "regular-file", "size": 512, "mode": "0644", "included_by_manifest": true, "header_override": "none"},
+          {"header_path": "assets/socket", "effective_path": "assets/socket", "type": "socket", "size": 0, "mode": "0644", "included_by_manifest": true, "header_override": "none"}
+        ]
+      },
+      "expected": "reject", "error_code": "archive_entry_type_forbidden", "failure_entry": 1
+    },
+    {
+      "name": "sparse_file_entry",
+      "description": "A sparse file is rejected from header metadata without trusting its apparent expanded size.",
+      "archive": {
+        "format": "tar+gzip", "parser_result": "complete",
+        "stats": {"compressed_bytes": 16384, "expanded_bytes": 1049088, "entry_count": 2, "max_regular_file_bytes": 512, "max_path_bytes": 17, "max_path_depth": 2, "compression_ratio": 64.03125},
+        "entries": [
+          {"header_path": "Seen.toml", "effective_path": "Seen.toml", "type": "regular-file", "size": 512, "mode": "0644", "included_by_manifest": true, "header_override": "none"},
+          {"header_path": "assets/sparse.db", "effective_path": "assets/sparse.db", "type": "sparse-file", "size": 1048576, "mode": "0644", "included_by_manifest": true, "header_override": "none"}
+        ]
+      },
+      "expected": "reject", "error_code": "archive_entry_type_forbidden", "failure_entry": 1
+    },
+    {
+      "name": "unknown_entry_type",
+      "description": "An unknown archive entry type fails closed instead of being coerced to a regular file.",
+      "archive": {
+        "format": "tar+gzip", "parser_result": "complete",
+        "stats": {"compressed_bytes": 1024, "expanded_bytes": 512, "entry_count": 2, "max_regular_file_bytes": 512, "max_path_bytes": 14, "max_path_depth": 2, "compression_ratio": 0.5},
+        "entries": [
+          {"header_path": "Seen.toml", "effective_path": "Seen.toml", "type": "regular-file", "size": 512, "mode": "0644", "included_by_manifest": true, "header_override": "none"},
+          {"header_path": "assets/mystery", "effective_path": "assets/mystery", "type": "unknown", "size": 0, "mode": "0644", "included_by_manifest": true, "header_override": "none"}
+        ]
+      },
+      "expected": "reject", "error_code": "archive_entry_type_forbidden", "failure_entry": 1
+    }
+  ]
+}

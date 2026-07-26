@@ -36,9 +36,11 @@ class SeenLang < Formula
 
   def install
     # Install binaries
-    bin.install "seen"
-    bin.install "seen-lsp" if File.exist?("seen-lsp")
-    bin.install "seen-riscv" if File.exist?("seen-riscv")
+    binary_root = Dir.exist?("bin") ? "bin" : "."
+    bin.install "#{binary_root}/seen"
+    bin.install "#{binary_root}/seen-pkg"
+    bin.install "#{binary_root}/seen-lsp" if File.exist?("#{binary_root}/seen-lsp")
+    bin.install "#{binary_root}/seen-riscv" if File.exist?("#{binary_root}/seen-riscv")
 
     # Install standard library
     if Dir.exist?("stdlib")

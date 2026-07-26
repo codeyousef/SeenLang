@@ -1,0 +1,509 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:seen:package-registry:v1:api-workflows",
+  "title": "Seen package registry API workflow records and requests v1",
+  "description": "Standalone request and record shapes for reports, enforcement review, namespace authorization workflows, and signed security actions. Aether account authentication and credential issuance are deliberately outside this schema.",
+  "oneOf": [
+    {"$ref": "#/$defs/SecurityReportCreateRequest"},
+    {"$ref": "#/$defs/SecurityReportRecord"},
+    {"$ref": "#/$defs/EnforcementAppealCreateRequest"},
+    {"$ref": "#/$defs/EnforcementAppealRecord"},
+    {"$ref": "#/$defs/AppealReviewRequest"},
+    {"$ref": "#/$defs/AppealReviewRecord"},
+    {"$ref": "#/$defs/SecurityQuarantineRequest"},
+    {"$ref": "#/$defs/ReviewedReinstatementRequest"},
+    {"$ref": "#/$defs/SecurityActionRecord"},
+    {"$ref": "#/$defs/NamespaceTransferCreateRequest"},
+    {"$ref": "#/$defs/NamespaceTransferAcceptRequest"},
+    {"$ref": "#/$defs/NamespaceTransferExecuteRequest"},
+    {"$ref": "#/$defs/NamespaceTransferRecord"},
+    {"$ref": "#/$defs/OwnershipRecoveryCreateRequest"},
+    {"$ref": "#/$defs/OwnershipRecoveryReviewRequest"},
+    {"$ref": "#/$defs/OwnershipRecoveryReviewRecord"},
+    {"$ref": "#/$defs/OwnershipRecoveryExecuteRequest"},
+    {"$ref": "#/$defs/OwnershipRecoveryRecord"}
+  ],
+  "$defs": {
+    "utcTimestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,9})?Z$"
+    },
+    "nullableTimestamp": {
+      "oneOf": [
+        {"$ref": "#/$defs/utcTimestamp"},
+        {"type": "null"}
+      ]
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "packageSegment": {
+      "type": "string",
+      "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+    },
+    "packageIdentity": {
+      "type": "string",
+      "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?/[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+    },
+    "exactVersion": {
+      "type": "string",
+      "format": "semver-exact",
+      "maxLength": 128,
+      "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$"
+    },
+    "principalId": {
+      "type": "string",
+      "pattern": "^prn_[A-Za-z0-9_-]{16,96}$"
+    },
+    "auditEventId": {
+      "type": "string",
+      "pattern": "^aud_[A-Za-z0-9_-]{16,96}$"
+    },
+    "evidenceReferences": {
+      "type": "array",
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^evd_[A-Za-z0-9_-]{16,96}$"
+      }
+    },
+    "releaseSubject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["package", "version"],
+      "properties": {
+        "package": {"$ref": "#/$defs/packageIdentity"},
+        "version": {
+          "oneOf": [
+            {"$ref": "#/$defs/exactVersion"},
+            {"type": "null"}
+          ]
+        }
+      }
+    },
+    "signedMetadataReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "environment",
+        "role",
+        "filename",
+        "version",
+        "length",
+        "sha256",
+        "published_at",
+        "expires_at"
+      ],
+      "properties": {
+        "environment": {"enum": ["development", "production"]},
+        "role": {"enum": ["root", "timestamp", "snapshot", "targets", "releases", "security"]},
+        "filename": {
+          "type": "string",
+          "pattern": "^(?:(?:root|timestamp)\\.json|[1-9][0-9]*\\.(?:root|snapshot|targets|releases|security)\\.json)$"
+        },
+        "version": {"type": "integer", "minimum": 1},
+        "length": {"type": "integer", "minimum": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "published_at": {"$ref": "#/$defs/utcTimestamp"},
+        "expires_at": {"$ref": "#/$defs/utcTimestamp"}
+      }
+    },
+    "SecurityReportCreateRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["subject", "category", "summary"],
+      "properties": {
+        "subject": {"$ref": "#/$defs/releaseSubject"},
+        "category": {
+          "enum": [
+            "malicious-code",
+            "typosquatting",
+            "credential-compromise",
+            "provenance-mismatch",
+            "vulnerability",
+            "policy-violation",
+            "other"
+          ]
+        },
+        "summary": {"type": "string", "minLength": 1, "maxLength": 512},
+        "details": {"type": "string", "maxLength": 10000},
+        "evidence_references": {
+          "allOf": [{"$ref": "#/$defs/evidenceReferences"}],
+          "minItems": 1
+        }
+      }
+    },
+    "SecurityReportRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract_version",
+        "report_id",
+        "subject",
+        "category",
+        "status",
+        "created_at",
+        "acknowledged_at",
+        "updated_at"
+      ],
+      "properties": {
+        "contract_version": {"const": 1},
+        "report_id": {"type": "string", "pattern": "^rpt_[A-Za-z0-9_-]{16,96}$"},
+        "subject": {"$ref": "#/$defs/releaseSubject"},
+        "category": {
+          "enum": [
+            "malicious-code",
+            "typosquatting",
+            "credential-compromise",
+            "provenance-mismatch",
+            "vulnerability",
+            "policy-violation",
+            "other"
+          ]
+        },
+        "status": {"enum": ["acknowledged", "triaged", "investigating", "closed"]},
+        "created_at": {"$ref": "#/$defs/utcTimestamp"},
+        "acknowledged_at": {"$ref": "#/$defs/utcTimestamp"},
+        "updated_at": {"$ref": "#/$defs/utcTimestamp"}
+      }
+    },
+    "EnforcementAppealCreateRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requested_outcome", "statement"],
+      "properties": {
+        "requested_outcome": {"const": "reviewed-reinstatement"},
+        "statement": {"type": "string", "minLength": 1, "maxLength": 10000},
+        "evidence_references": {"$ref": "#/$defs/evidenceReferences"}
+      }
+    },
+    "EnforcementAppealRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract_version",
+        "appeal_id",
+        "incident_id",
+        "subject",
+        "status",
+        "submitted_at",
+        "decided_at",
+        "latest_review_id",
+        "audit_event_id"
+      ],
+      "properties": {
+        "contract_version": {"const": 1},
+        "appeal_id": {"type": "string", "pattern": "^apl_[A-Za-z0-9_-]{16,96}$"},
+        "incident_id": {"type": "string", "pattern": "^inc_[A-Za-z0-9_-]{16,96}$"},
+        "subject": {"$ref": "#/$defs/releaseSubject"},
+        "status": {"enum": ["submitted", "under-review", "information-requested", "approved", "denied"]},
+        "submitted_at": {"$ref": "#/$defs/utcTimestamp"},
+        "decided_at": {"$ref": "#/$defs/nullableTimestamp"},
+        "latest_review_id": {
+          "oneOf": [
+            {"type": "string", "pattern": "^rev_[A-Za-z0-9_-]{16,96}$"},
+            {"type": "null"}
+          ]
+        },
+        "audit_event_id": {"$ref": "#/$defs/auditEventId"}
+      }
+    },
+    "AppealReviewRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["decision", "rationale", "emergency_waiver"],
+      "properties": {
+        "decision": {"enum": ["uphold", "approve-reinstatement", "request-more-information"]},
+        "rationale": {"type": "string", "minLength": 1, "maxLength": 10000},
+        "emergency_waiver": {"type": "boolean"},
+        "waiver_reason": {"type": "string", "minLength": 1, "maxLength": 2000},
+        "waiver_expires_at": {"$ref": "#/$defs/utcTimestamp"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"emergency_waiver": {"const": true}}, "required": ["emergency_waiver"]},
+          "then": {"required": ["waiver_reason", "waiver_expires_at"]},
+          "else": {"not": {"anyOf": [{"required": ["waiver_reason"]}, {"required": ["waiver_expires_at"]}]}}
+        }
+      ]
+    },
+    "AppealReviewRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract_version",
+        "review_id",
+        "appeal_id",
+        "decision",
+        "reviewer_role",
+        "actor_separation_verified",
+        "emergency_waiver",
+        "retrospective_review_required",
+        "reviewed_at",
+        "audit_event_id"
+      ],
+      "properties": {
+        "contract_version": {"const": 1},
+        "review_id": {"type": "string", "pattern": "^rev_[A-Za-z0-9_-]{16,96}$"},
+        "appeal_id": {"type": "string", "pattern": "^apl_[A-Za-z0-9_-]{16,96}$"},
+        "decision": {"enum": ["uphold", "approve-reinstatement", "request-more-information"]},
+        "reviewer_role": {"const": "registry-trust-and-safety"},
+        "actor_separation_verified": {"const": true},
+        "emergency_waiver": {"type": "boolean"},
+        "waiver_expires_at": {"$ref": "#/$defs/nullableTimestamp"},
+        "retrospective_review_required": {"type": "boolean"},
+        "reviewed_at": {"$ref": "#/$defs/utcTimestamp"},
+        "audit_event_id": {"$ref": "#/$defs/auditEventId"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"emergency_waiver": {"const": true}}, "required": ["emergency_waiver"]},
+          "then": {
+            "properties": {
+              "waiver_expires_at": {"$ref": "#/$defs/utcTimestamp"},
+              "retrospective_review_required": {"const": true}
+            }
+          },
+          "else": {
+            "properties": {
+              "waiver_expires_at": {"type": "null"},
+              "retrospective_review_required": {"const": false}
+            }
+          }
+        }
+      ]
+    },
+    "SecurityQuarantineRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reason", "severity"],
+      "properties": {
+        "reason": {"type": "string", "minLength": 1, "maxLength": 2000},
+        "severity": {"enum": ["critical", "high", "moderate"]},
+        "report_ids": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^rpt_[A-Za-z0-9_-]{16,96}$"}
+        },
+        "advisory_url": {"type": "string", "format": "uri", "pattern": "^https://"}
+      }
+    },
+    "ReviewedReinstatementRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["incident_id", "appeal_id", "review_id"],
+      "properties": {
+        "incident_id": {"type": "string", "pattern": "^inc_[A-Za-z0-9_-]{16,96}$"},
+        "appeal_id": {"type": "string", "pattern": "^apl_[A-Za-z0-9_-]{16,96}$"},
+        "review_id": {"type": "string", "pattern": "^rev_[A-Za-z0-9_-]{16,96}$"}
+      }
+    },
+    "SecurityActionRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract_version",
+        "incident_id",
+        "action",
+        "subject",
+        "effective_at",
+        "resolver_selection",
+        "download_policy",
+        "review_id",
+        "signed_metadata",
+        "audit_event_id"
+      ],
+      "properties": {
+        "contract_version": {"const": 1},
+        "incident_id": {"type": "string", "pattern": "^inc_[A-Za-z0-9_-]{16,96}$"},
+        "action": {"enum": ["security-quarantined", "reviewed-reinstated"]},
+        "subject": {"$ref": "#/$defs/releaseSubject"},
+        "effective_at": {"$ref": "#/$defs/utcTimestamp"},
+        "resolver_selection": {"enum": ["deny", "restore-if-release-policy-allows"]},
+        "download_policy": {"enum": ["deny", "restore-if-authorized"]},
+        "review_id": {
+          "oneOf": [
+            {"type": "string", "pattern": "^rev_[A-Za-z0-9_-]{16,96}$"},
+            {"type": "null"}
+          ]
+        },
+        "signed_metadata": {"$ref": "#/$defs/signedMetadataReference"},
+        "audit_event_id": {"$ref": "#/$defs/auditEventId"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"action": {"const": "security-quarantined"}}, "required": ["action"]},
+          "then": {
+            "properties": {
+              "resolver_selection": {"const": "deny"},
+              "download_policy": {"const": "deny"},
+              "review_id": {"type": "null"}
+            }
+          },
+          "else": {
+            "properties": {
+              "resolver_selection": {"const": "restore-if-release-policy-allows"},
+              "download_policy": {"const": "restore-if-authorized"},
+              "review_id": {"type": "string", "pattern": "^rev_[A-Za-z0-9_-]{16,96}$"}
+            }
+          }
+        }
+      ]
+    },
+    "NamespaceTransferCreateRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["new_owner_principal_id"],
+      "properties": {
+        "new_owner_principal_id": {"$ref": "#/$defs/principalId"},
+        "reason": {"type": "string", "maxLength": 2000}
+      }
+    },
+    "NamespaceTransferAcceptRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["acknowledge_namespace_transfer"],
+      "properties": {
+        "acknowledge_namespace_transfer": {"const": true}
+      }
+    },
+    "NamespaceTransferExecuteRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["acknowledge_irreversible_authorization_change"],
+      "properties": {
+        "acknowledge_irreversible_authorization_change": {"const": true}
+      }
+    },
+    "NamespaceTransferRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract_version",
+        "transfer_id",
+        "namespace",
+        "current_owner_principal_id",
+        "new_owner_principal_id",
+        "state",
+        "requested_at",
+        "accepted_at",
+        "eligible_at",
+        "executed_at",
+        "cooling_period_seconds",
+        "current_owner_recent_auth_verified",
+        "new_owner_recent_auth_verified",
+        "audit_event_id"
+      ],
+      "properties": {
+        "contract_version": {"const": 1},
+        "transfer_id": {"type": "string", "pattern": "^ntr_[A-Za-z0-9_-]{16,96}$"},
+        "namespace": {"$ref": "#/$defs/packageSegment"},
+        "current_owner_principal_id": {"$ref": "#/$defs/principalId"},
+        "new_owner_principal_id": {"$ref": "#/$defs/principalId"},
+        "state": {"enum": ["pending-acceptance", "cooling", "ready", "executed", "cancelled", "expired"]},
+        "requested_at": {"$ref": "#/$defs/utcTimestamp"},
+        "accepted_at": {"$ref": "#/$defs/nullableTimestamp"},
+        "eligible_at": {"$ref": "#/$defs/nullableTimestamp"},
+        "executed_at": {"$ref": "#/$defs/nullableTimestamp"},
+        "cooling_period_seconds": {"const": 604800},
+        "current_owner_recent_auth_verified": {"type": "boolean"},
+        "new_owner_recent_auth_verified": {"type": "boolean"},
+        "audit_event_id": {"$ref": "#/$defs/auditEventId"}
+      }
+    },
+    "OwnershipRecoveryCreateRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["claim_statement", "evidence_references"],
+      "properties": {
+        "claim_statement": {"type": "string", "minLength": 1, "maxLength": 10000},
+        "evidence_references": {"$ref": "#/$defs/evidenceReferences"}
+      }
+    },
+    "OwnershipRecoveryReviewRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["decision", "rationale"],
+      "properties": {
+        "decision": {"enum": ["approve-notice", "deny", "request-more-information"]},
+        "rationale": {"type": "string", "minLength": 1, "maxLength": 10000}
+      }
+    },
+    "OwnershipRecoveryReviewRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract_version",
+        "review_id",
+        "recovery_id",
+        "decision",
+        "reviewer_role",
+        "actor_separation_verified",
+        "reviewed_at",
+        "audit_event_id"
+      ],
+      "properties": {
+        "contract_version": {"const": 1},
+        "review_id": {"type": "string", "pattern": "^rev_[A-Za-z0-9_-]{16,96}$"},
+        "recovery_id": {"type": "string", "pattern": "^nrc_[A-Za-z0-9_-]{16,96}$"},
+        "decision": {"enum": ["approve-notice", "deny", "request-more-information"]},
+        "reviewer_role": {"const": "registry-namespace-reviewer"},
+        "actor_separation_verified": {"const": true},
+        "reviewed_at": {"$ref": "#/$defs/utcTimestamp"},
+        "audit_event_id": {"$ref": "#/$defs/auditEventId"}
+      }
+    },
+    "OwnershipRecoveryExecuteRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["review_id", "acknowledge_irreversible_authorization_change"],
+      "properties": {
+        "review_id": {"type": "string", "pattern": "^rev_[A-Za-z0-9_-]{16,96}$"},
+        "acknowledge_irreversible_authorization_change": {"const": true}
+      }
+    },
+    "OwnershipRecoveryRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract_version",
+        "recovery_id",
+        "namespace",
+        "claimant_principal_id",
+        "state",
+        "submitted_at",
+        "notice_started_at",
+        "eligible_at",
+        "executed_at",
+        "inactivity_required_seconds",
+        "notice_period_seconds",
+        "latest_review_id",
+        "audit_event_id"
+      ],
+      "properties": {
+        "contract_version": {"const": 1},
+        "recovery_id": {"type": "string", "pattern": "^nrc_[A-Za-z0-9_-]{16,96}$"},
+        "namespace": {"$ref": "#/$defs/packageSegment"},
+        "claimant_principal_id": {"$ref": "#/$defs/principalId"},
+        "state": {"enum": ["submitted", "information-requested", "notice", "ready", "approved", "denied", "executed"]},
+        "submitted_at": {"$ref": "#/$defs/utcTimestamp"},
+        "notice_started_at": {"$ref": "#/$defs/nullableTimestamp"},
+        "eligible_at": {"$ref": "#/$defs/nullableTimestamp"},
+        "executed_at": {"$ref": "#/$defs/nullableTimestamp"},
+        "inactivity_required_seconds": {"const": 15552000},
+        "notice_period_seconds": {"const": 2592000},
+        "latest_review_id": {
+          "oneOf": [
+            {"type": "string", "pattern": "^rev_[A-Za-z0-9_-]{16,96}$"},
+            {"type": "null"}
+          ]
+        },
+        "audit_event_id": {"$ref": "#/$defs/auditEventId"}
+      }
+    }
+  }
+}

@@ -16,6 +16,16 @@ fun runProgram(path: String) r: Int {
     return __ExecuteProgram(path)
 }
 
+fun runProgramRequest(path: String, requestContent: String) r: Int {
+    // This private runtime frame reuses the stable __ExecuteProgram ABI so a
+    // previous Seen release can bootstrap a compiler that understands the new
+    // package bridge. The runtime recognizes the frame, materializes a mode
+    // 0600 request file, and launches the helper with exact argv.
+    let frame = "SEEN_EXACT_REQUEST_V1\n" + path.length().toString() +
+        "\n" + path + requestContent
+    return __ExecuteProgram(frame)
+}
+
 fun execCommand(command: String) r: CommandResult {
     let result: CommandResult = __ExecuteCommand(command)
     return result

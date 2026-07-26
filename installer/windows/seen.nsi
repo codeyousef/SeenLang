@@ -69,6 +69,7 @@ Section "!Seen Compiler (required)" SEC_COMPILER
   SectionIn RO
   SetOutPath "$INSTDIR\bin"
   File "${SOURCE_DIR}/bin/seen.exe"
+  File "${SOURCE_DIR}/bin/seen-pkg.exe"
   File /nonfatal "${SOURCE_DIR}/bin/seen-env.cmd"
   SetOutPath "$INSTDIR"
   File "${SOURCE_DIR}/README.txt"

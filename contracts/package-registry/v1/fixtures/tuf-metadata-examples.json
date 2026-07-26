@@ -1,0 +1,643 @@
+{
+  "contract_version": 1,
+  "schema": "../schemas/tuf-metadata-envelope-v1.schema.json",
+  "cryptographic_material": "deterministic-test-only-not-an-official-trust-root",
+  "canonical_serialization": "tuf-canonical-json-v1",
+  "encoding": {
+    "public_key": "lowercase-hex-32-raw-ed25519-bytes",
+    "signature": "lowercase-hex-64-raw-ed25519-bytes",
+    "keyid": "lowercase-sha256-of-canonical-key-object"
+  },
+  "trust_boundaries": {
+    "test_repository_id": "seen-dev-test-fixture-v1",
+    "test_registry_origin": "https://test.invalid/packages",
+    "development_official_root": {
+      "status": "unconfigured",
+      "client_behavior": "fail-closed"
+    },
+    "production_official_root": {
+      "status": "unconfigured",
+      "client_behavior": "fail-closed"
+    },
+    "activation_rule": "an-official-root-is-trusted-only-when-its-complete-root-envelope-and-sha256-are-shipped-out-of-band-with-the-client"
+  },
+  "metadata_chain": {
+    "snapshot_meta_documents": {
+      "targets.json": "targets",
+      "releases.json": "release_targets",
+      "security.json": "security_targets"
+    },
+    "timestamp_meta_documents": {
+      "snapshot.json": "snapshot"
+    }
+  },
+  "validation_time": "2030-01-01T00:00:00Z",
+  "metadata": {
+    "root": {
+      "signatures": [
+        {
+          "keyid": "f6d375d343214f3465842398959656e0d3539731f7448d32557e8b2eee5979cd",
+          "sig": "7b0879ba1e2545bc5277f13ccf604291380a76c16b8ff2b6260ae4d61257ba8f43538563dd522ca0bf1246c2d0a32ef5b6768ecd22a9ee84452f5689bb28d90b"
+        }
+      ],
+      "signed": {
+        "_type": "root",
+        "spec_version": "1.0",
+        "version": 1,
+        "expires": "2035-01-01T00:00:00Z",
+        "environment": "development",
+        "repository_id": "seen-dev-test-fixture-v1",
+        "consistent_snapshot": true,
+        "keys": {
+          "f6d375d343214f3465842398959656e0d3539731f7448d32557e8b2eee5979cd": {
+            "keytype": "ed25519",
+            "scheme": "ed25519",
+            "keyval": {
+              "public": "bb942a5391175d26fb0afe9c717f2cf4f225d2ec734dd0dc626c87d2c6ac0d1e"
+            }
+          },
+          "f29b4705248a8c6489076e04593560e6e52044d2f95567fc0ea102c6ea4ccaad": {
+            "keytype": "ed25519",
+            "scheme": "ed25519",
+            "keyval": {
+              "public": "867b98929c063e04607f23dff99103ac635ce5b7957fe28efadb22be44ef038d"
+            }
+          },
+          "d10245c81f57ba03ecc1d0031e21f1b61ae6830a083a4fff74c8855eaa736404": {
+            "keytype": "ed25519",
+            "scheme": "ed25519",
+            "keyval": {
+              "public": "539752ab93a058a65cd8694e19f6d282c2da7460dac98afa9cd1c9b2ff883412"
+            }
+          },
+          "0aeac211a73cf556500f87465dd752bae7e40d0fdbc4f284d85f673527992b0b": {
+            "keytype": "ed25519",
+            "scheme": "ed25519",
+            "keyval": {
+              "public": "9674d844dc72c0baebd8c5b8851d3e981972a6c9ec377da55f5473e5b784fe4e"
+            }
+          },
+          "c3ae79cb9af9a3566526fc210aedb2eb09ab91317e73e63751fb82b7c90577a5": {
+            "keytype": "ed25519",
+            "scheme": "ed25519",
+            "keyval": {
+              "public": "4a341e65a07893ab953c2f027105233937e34eae418bcaf6839329d8fc02d9fd"
+            }
+          },
+          "e7f897935b684335367e18cde262b46b625fc090b4a886bd9e5c803aa04f4c96": {
+            "keytype": "ed25519",
+            "scheme": "ed25519",
+            "keyval": {
+              "public": "a0c6fb2f29172c356d33600228db006f724cb6e5e14f27a0436335b7fa90e875"
+            }
+          }
+        },
+        "roles": {
+          "root": {
+            "keyids": [
+              "f6d375d343214f3465842398959656e0d3539731f7448d32557e8b2eee5979cd"
+            ],
+            "threshold": 1
+          },
+          "targets": {
+            "keyids": [
+              "f29b4705248a8c6489076e04593560e6e52044d2f95567fc0ea102c6ea4ccaad"
+            ],
+            "threshold": 1
+          },
+          "snapshot": {
+            "keyids": [
+              "c3ae79cb9af9a3566526fc210aedb2eb09ab91317e73e63751fb82b7c90577a5"
+            ],
+            "threshold": 1
+          },
+          "timestamp": {
+            "keyids": [
+              "e7f897935b684335367e18cde262b46b625fc090b4a886bd9e5c803aa04f4c96"
+            ],
+            "threshold": 1
+          }
+        }
+      }
+    },
+    "targets": {
+      "signatures": [
+        {
+          "keyid": "f29b4705248a8c6489076e04593560e6e52044d2f95567fc0ea102c6ea4ccaad",
+          "sig": "563dfa3b37fe3c9474cda7d4fa9c3c5aba4f715c92e5c71d3e9601879ef40a0b98b800ce776d58d5ba431b79182f669b9320d25196ef01944fadce1a5540480c"
+        }
+      ],
+      "signed": {
+        "_type": "targets",
+        "spec_version": "1.0",
+        "version": 1,
+        "expires": "2035-01-01T00:00:00Z",
+        "environment": "development",
+        "repository_id": "seen-dev-test-fixture-v1",
+        "targets": {},
+        "delegations": {
+          "keys": {
+            "d10245c81f57ba03ecc1d0031e21f1b61ae6830a083a4fff74c8855eaa736404": {
+              "keytype": "ed25519",
+              "scheme": "ed25519",
+              "keyval": {
+                "public": "539752ab93a058a65cd8694e19f6d282c2da7460dac98afa9cd1c9b2ff883412"
+              }
+            },
+            "0aeac211a73cf556500f87465dd752bae7e40d0fdbc4f284d85f673527992b0b": {
+              "keytype": "ed25519",
+              "scheme": "ed25519",
+              "keyval": {
+                "public": "9674d844dc72c0baebd8c5b8851d3e981972a6c9ec377da55f5473e5b784fe4e"
+              }
+            }
+          },
+          "roles": [
+            {
+              "name": "security",
+              "keyids": [
+                "0aeac211a73cf556500f87465dd752bae7e40d0fdbc4f284d85f673527992b0b"
+              ],
+              "threshold": 1,
+              "terminating": false,
+              "paths": [
+                "packages/*/*/*/*/*"
+              ]
+            },
+            {
+              "name": "releases",
+              "keyids": [
+                "d10245c81f57ba03ecc1d0031e21f1b61ae6830a083a4fff74c8855eaa736404"
+              ],
+              "threshold": 1,
+              "terminating": false,
+              "paths": [
+                "packages/*/*/*/*/*"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "release_targets": {
+      "signatures": [
+        {
+          "keyid": "d10245c81f57ba03ecc1d0031e21f1b61ae6830a083a4fff74c8855eaa736404",
+          "sig": "f38fd8fd2b35abf515e65a560906ff07bd80587aa4bd438667ed765b12f7771759ea9567866f8ef145657de7f77b102a270ba1d2a8e16988e26dc61e4ef65e09"
+        }
+      ],
+      "signed": {
+        "_type": "targets",
+        "spec_version": "1.0",
+        "version": 2,
+        "expires": "2035-01-01T00:00:00Z",
+        "environment": "development",
+        "repository_id": "seen-dev-test-fixture-v1",
+        "targets": {
+          "packages/alice/mathx/1.2.3/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/mathx-1.2.3.seenpkg.tgz": {
+            "length": 8192,
+            "hashes": {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            "custom": {
+              "environment": "development",
+              "registry_origin": "https://test.invalid/packages",
+              "package": "alice/mathx",
+              "owner": "alice",
+              "name": "mathx",
+              "version": "1.2.3",
+              "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "archive_filename": "mathx-1.2.3.seenpkg.tgz",
+              "blob": {
+                "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "length": 8192
+              },
+              "publisher_principal": "publisher:alice",
+              "registry_service_identity": "release-promoter",
+              "source_repository": {
+                "forge": "github",
+                "repository_id": "987654321",
+                "canonical_url": "https://github.com/alice/mathx"
+              },
+              "source_commit": {
+                "algorithm": "sha1",
+                "value": "0123456789abcdef0123456789abcdef01234567"
+              },
+              "review": {
+                "result": "passed",
+                "policy_version": "package-scan-v1.0.0",
+                "source_proof_id": "prf_01JZX8K9F7Q2W4N6M8R0",
+                "source_proof_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "scan_attestation_id": "scn_01JZX9M1N2P3Q4R5S6T7",
+                "scan_attestation_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+                "scanner_id": "seen-package-scanner",
+                "scanner_version": "1.0.0",
+                "attestation_sequence": 4
+              },
+              "visibility": "public",
+              "lifecycle": "active",
+              "retention": "retained",
+              "availability": "available",
+              "activated_at": "2029-12-31T23:59:00Z",
+              "source_proof_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "registry_attestation_sha256": "1ed1b79bb7df89e0bc9fdf10e19673824e5465c3a3eba02b57cc34f34bdfb465",
+              "provenance_sha256": "1ed1b79bb7df89e0bc9fdf10e19673824e5465c3a3eba02b57cc34f34bdfb465",
+              "dependencies": [
+                {
+                  "alias": "util",
+                  "package": "seen/util",
+                  "registry_origin": "https://test.invalid/packages",
+                  "requirement": "^1.0.0",
+                  "allow": []
+                }
+              ],
+              "capabilities": [
+                "file"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "security_targets": {
+      "signatures": [
+        {
+          "keyid": "0aeac211a73cf556500f87465dd752bae7e40d0fdbc4f284d85f673527992b0b",
+          "sig": "1f1a2bce8d46622bde752b689b252717e308841df67bef4f67edfd31fdc422a6e86ef5687d2d8d9e275233c43df08057fdbd16f6ee175db6860e53bbec235f06"
+        }
+      ],
+      "signed": {
+        "_type": "targets",
+        "spec_version": "1.0",
+        "version": 3,
+        "expires": "2035-01-01T00:00:00Z",
+        "environment": "development",
+        "repository_id": "seen-dev-test-fixture-v1",
+        "targets": {
+          "packages/alice/mathx/1.2.3/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/mathx-1.2.3.seenpkg.tgz": {
+            "length": 8192,
+            "hashes": {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            "custom": {
+              "environment": "development",
+              "registry_origin": "https://test.invalid/packages",
+              "package": "alice/mathx",
+              "owner": "alice",
+              "name": "mathx",
+              "version": "1.2.3",
+              "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "archive_filename": "mathx-1.2.3.seenpkg.tgz",
+              "blob": {
+                "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "length": 8192
+              },
+              "publisher_principal": "publisher:alice",
+              "registry_service_identity": "release-promoter",
+              "source_repository": {
+                "forge": "github",
+                "repository_id": "987654321",
+                "canonical_url": "https://github.com/alice/mathx"
+              },
+              "source_commit": {
+                "algorithm": "sha1",
+                "value": "0123456789abcdef0123456789abcdef01234567"
+              },
+              "review": {
+                "result": "passed",
+                "policy_version": "package-scan-v1.0.0",
+                "source_proof_id": "prf_01JZX8K9F7Q2W4N6M8R0",
+                "source_proof_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "scan_attestation_id": "scn_01JZX9M1N2P3Q4R5S6T7",
+                "scan_attestation_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+                "scanner_id": "seen-package-scanner",
+                "scanner_version": "1.0.0",
+                "attestation_sequence": 4
+              },
+              "visibility": "public",
+              "lifecycle": "active",
+              "retention": "retained",
+              "availability": "security-quarantined",
+              "activated_at": "2029-12-31T23:59:00Z",
+              "source_proof_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "registry_attestation_sha256": "1ed1b79bb7df89e0bc9fdf10e19673824e5465c3a3eba02b57cc34f34bdfb465",
+              "provenance_sha256": "1ed1b79bb7df89e0bc9fdf10e19673824e5465c3a3eba02b57cc34f34bdfb465",
+              "dependencies": [
+                {
+                  "alias": "util",
+                  "package": "seen/util",
+                  "registry_origin": "https://test.invalid/packages",
+                  "requirement": "^1.0.0",
+                  "allow": []
+                }
+              ],
+              "capabilities": [
+                "file"
+              ],
+              "incident_id": "inc_TEST_fixture_0001",
+              "security_action": "quarantine"
+            }
+          }
+        }
+      }
+    },
+    "snapshot": {
+      "signatures": [
+        {
+          "keyid": "c3ae79cb9af9a3566526fc210aedb2eb09ab91317e73e63751fb82b7c90577a5",
+          "sig": "0ffcb1ce0fda486187bca373a88fd6420823f6c4c99657095414ebba3a15f3a3a870f17e5169b8ef7728dcdb2472910eaf88889dae8f510be302de08d505ed07"
+        }
+      ],
+      "signed": {
+        "_type": "snapshot",
+        "spec_version": "1.0",
+        "version": 4,
+        "expires": "2035-01-01T00:00:00Z",
+        "environment": "development",
+        "repository_id": "seen-dev-test-fixture-v1",
+        "meta": {
+          "targets.json": {
+            "version": 1,
+            "length": 1160,
+            "hashes": {
+              "sha256": "6e7f71cd6d913f78e80757246ac26d16af86eea25127a5280895c1e5f4c100a3"
+            }
+          },
+          "releases.json": {
+            "version": 2,
+            "length": 2309,
+            "hashes": {
+              "sha256": "4c149ab45c752ba3cd11843969b8544f1f331ea27b89ed23e385bf6a2dc50361"
+            }
+          },
+          "security.json": {
+            "version": 3,
+            "length": 2389,
+            "hashes": {
+              "sha256": "19e3b9256422c40c49a6a1645ef92423359e2a6a0d91295d1faf701497d8ea63"
+            }
+          }
+        }
+      }
+    },
+    "timestamp": {
+      "signatures": [
+        {
+          "keyid": "e7f897935b684335367e18cde262b46b625fc090b4a886bd9e5c803aa04f4c96",
+          "sig": "a885cd18bbf18c6e4efcb9df38e2d0802ce6c9ee9156e202972c5e8899d2fe13a2e317a6c0c1d1515d4ab41f85eff7c73729e9427d138daadfae75857bd47d04"
+        }
+      ],
+      "signed": {
+        "_type": "timestamp",
+        "spec_version": "1.0",
+        "version": 5,
+        "expires": "2035-01-01T00:00:00Z",
+        "environment": "development",
+        "repository_id": "seen-dev-test-fixture-v1",
+        "meta": {
+          "snapshot.json": {
+            "version": 4,
+            "length": 798,
+            "hashes": {
+              "sha256": "8d53ede3ae5cfb3aabbea0f97012ce9dbd5f54a7b3f0690abf4b053be87d9880"
+            }
+          }
+        }
+      }
+    }
+  },
+  "client_conformance_cases": [
+    {
+      "name": "wrong-environment-signed-chain",
+      "initial_state": "trusted-root-only",
+      "steps": [
+        {
+          "action": "refresh-complete-chain-resigned-with-release-environment-changed",
+          "expected": "reject",
+          "error_code": "signing_environment_mismatch"
+        }
+      ]
+    },
+    {
+      "name": "missing-delegated-metadata",
+      "initial_state": "trusted-root-only",
+      "steps": [
+        {
+          "action": "refresh-complete-chain-with-security-metadata-absent",
+          "expected": "reject",
+          "error_code": "signing_metadata_invalid"
+        }
+      ]
+    },
+    {
+      "name": "compromised-online-key-remains-authorized-before-revocation",
+      "initial_state": "base-metadata-refreshed",
+      "steps": [
+        {
+          "action": "refresh-next-release-version-signed-by-current-delegated-key",
+          "expected": "accept"
+        }
+      ]
+    },
+    {
+      "name": "revoked-delegation-rejects-former-online-key",
+      "initial_state": "base-metadata-refreshed",
+      "steps": [
+        {
+          "action": "refresh-resigned-chain-after-offline-targets-replaces-release-key-but-release-uses-former-key",
+          "expected": "reject",
+          "error_code": "signing_unknown_key"
+        }
+      ]
+    },
+    {
+      "name": "replacement-delegation-recovers-after-compromise",
+      "initial_state": "base-metadata-refreshed",
+      "steps": [
+        {
+          "action": "reject-resigned-chain-after-offline-targets-replaces-release-key-but-release-uses-former-key",
+          "expected": "reject",
+          "error_code": "signing_unknown_key"
+        },
+        {
+          "action": "refresh-same-next-versions-resigned-by-replacement-release-key",
+          "expected": "accept"
+        }
+      ]
+    }
+  ],
+  "target_binding_cases": [
+    {
+      "name": "canonical-public-release-target",
+      "role": "releases",
+      "target_path": "packages/alice/mathx/1.2.3/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/mathx-1.2.3.seenpkg.tgz",
+      "custom": {
+        "package": "alice/mathx",
+        "owner": "alice",
+        "name": "mathx",
+        "version": "1.2.3",
+        "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "archive_filename": "mathx-1.2.3.seenpkg.tgz",
+        "blob": {
+          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "length": 8192
+        },
+        "visibility": "public",
+        "lifecycle": "active",
+        "retention": "retained",
+        "availability": "available"
+      },
+      "target_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "target_length": 8192,
+      "expected": "accept"
+    },
+    {
+      "name": "path-package-does-not-match-custom",
+      "role": "releases",
+      "target_path": "packages/mallory/mathx/1.2.3/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/mathx-1.2.3.seenpkg.tgz",
+      "custom": {
+        "package": "alice/mathx",
+        "owner": "alice",
+        "name": "mathx",
+        "version": "1.2.3",
+        "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "archive_filename": "mathx-1.2.3.seenpkg.tgz",
+        "blob": {
+          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "length": 8192
+        },
+        "visibility": "public",
+        "lifecycle": "active",
+        "retention": "retained",
+        "availability": "available"
+      },
+      "target_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "target_length": 8192,
+      "expected": "reject",
+      "error_code": "signing_target_path_identity_mismatch"
+    },
+    {
+      "name": "attested-owner-does-not-match-target-path",
+      "role": "releases",
+      "target_path": "packages/alice/mathx/1.2.3/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/mathx-1.2.3.seenpkg.tgz",
+      "custom": {
+        "package": "alice/mathx",
+        "owner": "mallory",
+        "name": "mathx",
+        "version": "1.2.3",
+        "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "archive_filename": "mathx-1.2.3.seenpkg.tgz",
+        "blob": {
+          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "length": 8192
+        },
+        "visibility": "public",
+        "lifecycle": "active",
+        "retention": "retained",
+        "availability": "available"
+      },
+      "target_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "target_length": 8192,
+      "expected": "reject",
+      "error_code": "signing_target_path_identity_mismatch"
+    },
+    {
+      "name": "attested-blob-does-not-match-target-length",
+      "role": "releases",
+      "target_path": "packages/alice/mathx/1.2.3/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/mathx-1.2.3.seenpkg.tgz",
+      "custom": {
+        "package": "alice/mathx",
+        "owner": "alice",
+        "name": "mathx",
+        "version": "1.2.3",
+        "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "archive_filename": "mathx-1.2.3.seenpkg.tgz",
+        "blob": {
+          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "length": 8191
+        },
+        "visibility": "public",
+        "lifecycle": "active",
+        "retention": "retained",
+        "availability": "available"
+      },
+      "target_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "target_length": 8192,
+      "expected": "reject",
+      "error_code": "signing_target_attestation_invalid"
+    },
+    {
+      "name": "security-role-quarantine-is-authoritative",
+      "role": "security",
+      "target_path": "packages/alice/mathx/1.2.3/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/mathx-1.2.3.seenpkg.tgz",
+      "custom": {
+        "package": "alice/mathx",
+        "owner": "alice",
+        "name": "mathx",
+        "version": "1.2.3",
+        "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "archive_filename": "mathx-1.2.3.seenpkg.tgz",
+        "blob": {
+          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "length": 8192
+        },
+        "visibility": "public",
+        "lifecycle": "active",
+        "retention": "retained",
+        "availability": "security-quarantined",
+        "incident_id": "inc_TEST_fixture_0001",
+        "security_action": "quarantine"
+      },
+      "target_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "target_length": 8192,
+      "expected": "accept"
+    }
+  ],
+  "overlay_resolution_cases": [
+    {
+      "name": "security-quarantine-overrides-release-availability",
+      "target_path": "packages/alice/mathx/1.2.3/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/mathx-1.2.3.seenpkg.tgz",
+      "candidates": [
+        {
+          "role": "security",
+          "present": true,
+          "availability": "security-quarantined",
+          "incident_id": "inc_TEST_fixture_0001",
+          "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        {
+          "role": "releases",
+          "present": true,
+          "availability": "available",
+          "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      ],
+      "expected": {
+        "decision": "select",
+        "role": "security",
+        "availability": "security-quarantined"
+      }
+    },
+    {
+      "name": "missing-security-overlay-falls-through",
+      "target_path": "packages/alice/mathx/1.2.3/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/mathx-1.2.3.seenpkg.tgz",
+      "candidates": [
+        {
+          "role": "security",
+          "present": false
+        },
+        {
+          "role": "releases",
+          "present": true,
+          "availability": "available",
+          "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      ],
+      "expected": {
+        "decision": "select",
+        "role": "releases",
+        "availability": "available"
+      }
+    }
+  ]
+}

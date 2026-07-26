@@ -10,6 +10,13 @@ NOTE: __ReadFile returns SeenString but codegen treats as i64 - cannot use
       the returned string content. Verify via __FileSize instead.
 ///
 
+extern fun __OpenFile(path: String, mode: String) r: Int
+extern fun __WriteFile(fd: Int, content: String) r: Int
+extern fun __CloseFile(fd: Int) r: Int
+extern fun __FileSize(fd: Int) r: Int
+extern fun __FileExists(path: String) r: Bool
+extern fun __DeleteFile(path: String) r: Bool
+
 fun main() r: Int {
     let path = "/tmp/seen_e2e_test_en.txt"
     let content = "hello from seen e2e test"

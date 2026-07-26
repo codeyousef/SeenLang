@@ -7,5 +7,5 @@ ad-hoc definitions throughout the tree.
 
 This is **not** the final public stdlib—it mirrors just enough functionality to keep
 the bootstrap pipeline deterministic. Once the ABI guard workflow lands we can lock
-the module hashes recorded in `Seen.lock` and start shipping packaged releases
-(`libseen_std.seenpkg`).
+the module hashes recorded in `Seen.modules.lock` and start shipping packaged
+releases (`libseen_std.seenpkg`).

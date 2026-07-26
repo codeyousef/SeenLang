@@ -16,7 +16,7 @@ set -euo pipefail
 
 case "${1:-}" in
     --version)
-        echo "Seen Language 0.9.5"
+        echo "Seen 0.10.1"
         ;;
     pkg)
         case "${2:-}" in
@@ -62,13 +62,42 @@ esac
 FAKE_EOF
 chmod +x "$FAKE_COMPILER"
 
+FAKE_PACKAGE_CLIENT="$TMP_DIR/seen-pkg"
+cat > "$FAKE_PACKAGE_CLIENT" <<'PKG_EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "--expect-version" && "${2:-}" == "0.10.1" && "${3:-}" == "version" ]]; then
+    echo "seen-pkg 0.10.1"
+    exit 0
+fi
+echo "fake seen package client"
+PKG_EOF
+printf '# path\tgithub.com/codeyousef/seen/tools/seen-pkg/cmd/seen-pkg\n' >> "$FAKE_PACKAGE_CLIENT"
+printf '# build\tCGO_ENABLED=0\n' >> "$FAKE_PACKAGE_CLIENT"
+printf '# build\tGOARCH=amd64\n' >> "$FAKE_PACKAGE_CLIENT"
+printf '# build\tGOOS=linux\n' >> "$FAKE_PACKAGE_CLIENT"
+printf '# build\tGOAMD64=v1\n' >> "$FAKE_PACKAGE_CLIENT"
+chmod +x "$FAKE_PACKAGE_CLIENT"
+
+PACKAGING_TOOL_PATH="$TMP_DIR/packaging_tool_path"
+mkdir -p "$PACKAGING_TOOL_PATH"
+cat > "$PACKAGING_TOOL_PATH/strip" <<'STRIP_EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$(basename "${1:-}")" == "seen-pkg" ]]; then
+    sed -i '/GOAMD64=/d' "$1"
+fi
+STRIP_EOF
+chmod +x "$PACKAGING_TOOL_PATH/strip"
+
 DIST_DIR="$TMP_DIR/dist"
 ARTIFACT_CACHE_ROOT="$TMP_DIR/artifact-cache"
 mkdir -p "$DIST_DIR"
 printf 'stale release artifact\n' > "$DIST_DIR/seen-0.9.2-linux-x64.tar.gz"
 
+PATH="$PACKAGING_TOOL_PATH:$PATH" SEEN_PACKAGE_CLIENT_BIN="$FAKE_PACKAGE_CLIENT" \
 SEEN_RELEASE_ARTIFACT_CACHE_ROOT="$ARTIFACT_CACHE_ROOT" "$ROOT_DIR/scripts/build_release.sh" \
-    --version 0.9.5 \
+    --version 0.10.1 \
     --output-dir "$DIST_DIR" \
     --compiler "$FAKE_COMPILER" \
     --cpu-baseline x86-64 \
@@ -77,8 +106,9 @@ SEEN_RELEASE_ARTIFACT_CACHE_ROOT="$ARTIFACT_CACHE_ROOT" "$ROOT_DIR/scripts/build
 
 rm -rf "$DIST_DIR"
 mkdir -p "$DIST_DIR"
+PATH="$PACKAGING_TOOL_PATH:$PATH" SEEN_PACKAGE_CLIENT_BIN="$FAKE_PACKAGE_CLIENT" \
 SEEN_RELEASE_ARTIFACT_CACHE_ROOT="$ARTIFACT_CACHE_ROOT" "$ROOT_DIR/scripts/build_release.sh" \
-    --version 0.9.5 \
+    --version 0.10.1 \
     --output-dir "$DIST_DIR" \
     --compiler "$FAKE_COMPILER" \
     --cpu-baseline x86-64 \
@@ -90,14 +120,152 @@ if [[ -e "$DIST_DIR/seen-0.9.2-linux-x64.tar.gz" ]]; then
     exit 1
 fi
 
-TARBALL="$DIST_DIR/seen-0.9.5-linux-x64.tar.gz"
+TARBALL="$DIST_DIR/seen-0.10.1-linux-x64.tar.gz"
 test -f "$TARBALL"
 
 "$ROOT_DIR/scripts/verify_release_cpu_baseline.sh" --cpu-baseline x86-64 "$TARBALL" >/dev/null
 
+GO_SCAN_PATH="$TMP_DIR/go_scan_path"
+mkdir -p "$GO_SCAN_PATH"
+for tool in awk bash tar gzip find head grep mktemp rm cat chmod basename mkdir sed; do
+    tool_path="$(command -v "$tool")"
+    ln -s "$tool_path" "$GO_SCAN_PATH/$tool"
+done
+cat > "$GO_SCAN_PATH/file" <<'FILE_EOF'
+#!/usr/bin/env bash
+if [[ "$(basename "$1")" == "seen-pkg" ]]; then
+    echo "$1: ELF 64-bit LSB executable"
+else
+    echo "$1: POSIX shell script"
+fi
+FILE_EOF
+cat > "$GO_SCAN_PATH/objdump" <<'OBJDUMP_EOF'
+#!/usr/bin/env bash
+if [[ " $* " != *" --insn-width=16 "* ]]; then
+    echo "missing full x86 instruction width" >&2
+    exit 1
+fi
+symbol="${MOCK_AVX_SYMBOL:-runtime.asyncPreempt.abi0}"
+printf '0000000000000000 <%s>:\n' "$symbol"
+if [[ "${MOCK_EMIT_EVEX:-0}" == "1" ]]; then
+    printf '  0:\t62 f3 75 08 25 d0 ff\tvpternlogd $0xff,%%xmm0,%%xmm1,%%xmm2\n'
+elif [[ "${MOCK_EMIT_AVX:-1}" == "1" ]]; then
+    printf '  0:\t62 f1 fe 48 6f 08\tvmovdqu64 (%%rax),%%zmm1\n'
+else
+    printf '  0:\t90\tnop\n'
+fi
+OBJDUMP_EOF
+chmod +x "$GO_SCAN_PATH/file" "$GO_SCAN_PATH/objdump"
+
+PATH="$GO_SCAN_PATH" \
+    "$ROOT_DIR/scripts/verify_release_cpu_baseline.sh" \
+    --cpu-baseline x86-64 "$TARBALL" >/dev/null
+
+GO_V4_DIR="$TMP_DIR/go-v4"
+mkdir -p "$GO_V4_DIR"
+tar -xzf "$TARBALL" -C "$GO_V4_DIR"
+GO_V4_PACKAGE="$GO_V4_DIR/seen-0.10.1-linux-x64"
+sed -i 's/GOAMD64=v1/GOAMD64=v4/' "$GO_V4_PACKAGE/bin/seen-pkg"
+GO_V4_TARBALL="$TMP_DIR/seen-go-v4.tar.gz"
+tar -czf "$GO_V4_TARBALL" -C "$GO_V4_DIR" "$(basename "$GO_V4_PACKAGE")"
+set +e
+go_v4_output="$(MOCK_EMIT_AVX=0 PATH="$GO_SCAN_PATH" \
+    "$ROOT_DIR/scripts/verify_release_cpu_baseline.sh" \
+    --cpu-baseline x86-64 "$GO_V4_TARBALL" 2>&1)"
+go_v4_status=$?
+set -e
+if [[ "$go_v4_status" -eq 0 ]]; then
+    echo "release verifier accepted a GOAMD64=v4 helper for x86-64" >&2
+    exit 1
+fi
+if ! grep -Fq 'Package-client Go CPU baseline is incompatible with x86-64' <<<"$go_v4_output"; then
+    echo "$go_v4_output" >&2
+    echo "release verifier did not report the incompatible Go CPU baseline" >&2
+    exit 1
+fi
+
+GO_DUPLICATE_DIR="$TMP_DIR/go-duplicate"
+mkdir -p "$GO_DUPLICATE_DIR"
+tar -xzf "$TARBALL" -C "$GO_DUPLICATE_DIR"
+GO_DUPLICATE_PACKAGE="$GO_DUPLICATE_DIR/seen-0.10.1-linux-x64"
+printf '# build\tGOAMD64=v4\n' >> "$GO_DUPLICATE_PACKAGE/bin/seen-pkg"
+GO_DUPLICATE_TARBALL="$TMP_DIR/seen-go-duplicate.tar.gz"
+tar -czf "$GO_DUPLICATE_TARBALL" -C "$GO_DUPLICATE_DIR" "$(basename "$GO_DUPLICATE_PACKAGE")"
+set +e
+go_duplicate_output="$(MOCK_EMIT_AVX=0 PATH="$GO_SCAN_PATH" \
+    "$ROOT_DIR/scripts/verify_release_cpu_baseline.sh" \
+    --cpu-baseline x86-64 "$GO_DUPLICATE_TARBALL" 2>&1)"
+go_duplicate_status=$?
+set -e
+if [[ "$go_duplicate_status" -eq 0 ]]; then
+    echo "release verifier accepted conflicting GOAMD64 build metadata" >&2
+    exit 1
+fi
+if ! grep -Fq 'Package-client Go CPU baseline is incompatible with x86-64' \
+    <<<"$go_duplicate_output"; then
+    echo "$go_duplicate_output" >&2
+    echo "release verifier did not reject conflicting GOAMD64 build metadata" >&2
+    exit 1
+fi
+
+set +e
+go_unapproved_output="$(MOCK_AVX_SYMBOL=example.bad PATH="$GO_SCAN_PATH" \
+    "$ROOT_DIR/scripts/verify_release_cpu_baseline.sh" \
+    --cpu-baseline x86-64 "$TARBALL" 2>&1)"
+go_unapproved_status=$?
+set -e
+if [[ "$go_unapproved_status" -eq 0 ]]; then
+    echo "release verifier accepted AVX-512 in an unapproved Go symbol" >&2
+    exit 1
+fi
+if ! grep -Fq 'Unapproved AVX-512 evidence in example.bad' <<<"$go_unapproved_output"; then
+    echo "$go_unapproved_output" >&2
+    echo "release verifier did not identify the unapproved AVX-512 symbol" >&2
+    exit 1
+fi
+
+set +e
+go_evex_output="$(MOCK_AVX_SYMBOL=example.evex MOCK_EMIT_AVX=0 MOCK_EMIT_EVEX=1 \
+    PATH="$GO_SCAN_PATH" "$ROOT_DIR/scripts/verify_release_cpu_baseline.sh" \
+    --cpu-baseline x86-64 "$TARBALL" 2>&1)"
+go_evex_status=$?
+set -e
+if [[ "$go_evex_status" -eq 0 ]]; then
+    echo "release verifier accepted unapproved xmm-only EVEX instructions" >&2
+    exit 1
+fi
+if ! grep -Fq 'Unapproved AVX-512 evidence in example.evex' <<<"$go_evex_output"; then
+    echo "$go_evex_output" >&2
+    echo "release verifier did not identify the unapproved EVEX instruction" >&2
+    exit 1
+fi
+
+MISMATCH_DIR="$TMP_DIR/version-mismatch"
+mkdir -p "$MISMATCH_DIR"
+tar -xzf "$TARBALL" -C "$MISMATCH_DIR"
+MISMATCH_PACKAGE="$MISMATCH_DIR/seen-0.10.1-linux-x64"
+sed -i 's/Seen 0\.10\.1/Seen 9.9.9/' "$MISMATCH_PACKAGE/bin/seen"
+MISMATCH_TARBALL="$TMP_DIR/seen-version-mismatch.tar.gz"
+tar -czf "$MISMATCH_TARBALL" -C "$MISMATCH_DIR" "$(basename "$MISMATCH_PACKAGE")"
+set +e
+mismatch_output="$("$ROOT_DIR/scripts/verify_release_cpu_baseline.sh" \
+    --cpu-baseline x86-64 "$MISMATCH_TARBALL" 2>&1)"
+mismatch_status=$?
+set -e
+if [[ "$mismatch_status" -eq 0 ]]; then
+    echo "release verifier accepted mismatched compiler and release versions" >&2
+    exit 1
+fi
+if ! grep -Fq "Compiler version mismatch: release metadata expects 'Seen 0.10.1', got 'Seen 9.9.9'" \
+    <<<"$mismatch_output"; then
+    echo "$mismatch_output" >&2
+    echo "release verifier did not report the compiler version mismatch" >&2
+    exit 1
+fi
+
 MIN_SCAN_PATH="$TMP_DIR/min_scan_path"
 mkdir -p "$MIN_SCAN_PATH"
-for tool in bash tar gzip find head grep mktemp rm cat chmod basename mkdir; do
+for tool in bash tar gzip find head grep mktemp rm cat chmod basename mkdir sed; do
     tool_path="$(command -v "$tool")"
     ln -s "$tool_path" "$MIN_SCAN_PATH/$tool"
 done
@@ -108,13 +276,16 @@ PATH="$MIN_SCAN_PATH" "$ROOT_DIR/scripts/verify_release_cpu_baseline.sh" \
 EXTRACT_DIR="$TMP_DIR/extract"
 mkdir -p "$EXTRACT_DIR"
 tar -xzf "$TARBALL" -C "$EXTRACT_DIR"
-PACKAGE_DIR="$EXTRACT_DIR/seen-0.9.5-linux-x64"
+PACKAGE_DIR="$EXTRACT_DIR/seen-0.10.1-linux-x64"
 
 PREFIX="$TMP_DIR/prefix"
 mkdir -p "$PREFIX/bin"
 SYMLINK_TARGET="$TMP_DIR/original-target"
 printf 'original target content\n' > "$SYMLINK_TARGET"
 ln -s "$SYMLINK_TARGET" "$PREFIX/bin/seen"
+PKG_SYMLINK_TARGET="$TMP_DIR/original-pkg-target"
+printf 'original package target content\n' > "$PKG_SYMLINK_TARGET"
+ln -s "$PKG_SYMLINK_TARGET" "$PREFIX/bin/seen-pkg"
 
 (cd "$PACKAGE_DIR" && SEEN_SKIP_TOOLCHAIN=1 ./install.sh "$PREFIX" >/dev/null)
 
@@ -128,14 +299,23 @@ if [[ -L "$PREFIX/bin/seen" ]]; then
     exit 1
 fi
 
-if ! "$PREFIX/bin/seen" --version | grep -q '0.9.5'; then
+if [[ "$(cat "$PKG_SYMLINK_TARGET")" != "original package target content" ]]; then
+    echo "install.sh followed the existing seen-pkg symlink and overwrote its target" >&2
+    exit 1
+fi
+if [[ -L "$PREFIX/bin/seen-pkg" || ! -x "$PREFIX/bin/seen-pkg" ]]; then
+    echo "install.sh did not atomically install seen-pkg" >&2
+    exit 1
+fi
+
+if ! "$PREFIX/bin/seen" --version | grep -q '0.10.1'; then
     echo "installed seen binary did not come from the release package" >&2
     exit 1
 fi
 
 grep -qx 'cpu-baseline=x86-64' "$PACKAGE_DIR/share/doc/seen/release-cpu-baseline.txt"
 test -f "$PACKAGE_DIR/share/doc/seen/CHANGELOG.md"
-grep -Fq '## [0.9.5] - 2026-07-13' "$PACKAGE_DIR/share/doc/seen/CHANGELOG.md"
+grep -Fq '## [0.10.1] - 2026-07-26' "$PACKAGE_DIR/share/doc/seen/CHANGELOG.md"
 grep -qx 'llvm_min_version=18' "$PACKAGE_DIR/lib/seen/toolchain/manifest.env"
 test -x "$PACKAGE_DIR/lib/seen/toolchain/seen-toolchain.sh"
 test -f "$PACKAGE_DIR/share/doc/seen/toolchain-dependencies.txt"

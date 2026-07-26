@@ -1,0 +1,398 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:seen:package-registry:v1:source-proof",
+  "title": "Seen package registry source proof v1",
+  "description": "An append-only verification record binding a package archive to an immutable forge repository and commit.",
+  "x-seen-semantic-rules": {
+    "evaluation": "all-rules-must-pass-at-verification-and-each-pre-activation-recheck",
+    "failure_reporting": "first-failing-rule-in-array-order",
+    "rules": [
+      {
+        "id": "immutable-ref-resolution",
+        "operator": "repository-requested-ref-resolved-ref-and-commit-equal-trusted-verification-context",
+        "document_pointers": [
+          "/repository",
+          "/requested_ref",
+          "/resolved_ref",
+          "/commit"
+        ],
+        "error_code": "source_proof_mutable_ref_changed"
+      },
+      {
+        "id": "archive-digest-binding",
+        "operator": "json-pointer-equals-trusted-context",
+        "left_pointer": "/archive/package_sha256",
+        "context_pointer": "/release/archive/sha256",
+        "error_code": "source_proof_archive_digest_mismatch"
+      }
+    ]
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract_version",
+    "proof_id",
+    "sequence",
+    "previous_proof_id",
+    "package",
+    "version",
+    "repository",
+    "requested_ref",
+    "resolved_ref",
+    "commit",
+    "archive",
+    "license",
+    "status",
+    "checks",
+    "verified_at",
+    "verifier"
+  ],
+  "properties": {
+    "contract_version": {
+      "const": 1
+    },
+    "proof_id": {
+      "$ref": "#/$defs/proofId"
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "previous_proof_id": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/proofId"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "package": {
+      "$ref": "#/$defs/packageIdentity"
+    },
+    "version": {
+      "$ref": "#/$defs/exactVersion"
+    },
+    "repository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "forge",
+        "repository_id",
+        "canonical_url",
+        "installation_id"
+      ],
+      "properties": {
+        "forge": {
+          "enum": [
+            "github",
+            "gitlab"
+          ]
+        },
+        "repository_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "canonical_url": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://"
+        },
+        "installation_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      }
+    },
+    "requested_ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "resolved_ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "commit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "algorithm",
+        "value"
+      ],
+      "properties": {
+        "algorithm": {
+          "enum": [
+            "sha1",
+            "sha256"
+          ]
+        },
+        "value": {
+          "type": "string"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "algorithm": {
+                "const": "sha1"
+              }
+            },
+            "required": [
+              "algorithm"
+            ]
+          },
+          "then": {
+            "properties": {
+              "value": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{40}$"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "value": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "archive": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "forge_sha256",
+        "package_sha256"
+      ],
+      "properties": {
+        "forge_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "package_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "license": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "declared_spdx",
+        "files_sha256",
+        "compatible"
+      ],
+      "properties": {
+        "declared_spdx": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "files_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "compatible": {
+          "type": "boolean"
+        }
+      }
+    },
+    "status": {
+      "enum": [
+        "pending",
+        "verified",
+        "mismatch",
+        "unavailable",
+        "revoked"
+      ]
+    },
+    "checks": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 5,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "status",
+          "checked_at",
+          "evidence_sha256"
+        ],
+        "properties": {
+          "name": {
+            "enum": [
+              "repository-identity",
+              "installation-identity",
+              "commit-resolution",
+              "archive-digest",
+              "license"
+            ]
+          },
+          "status": {
+            "enum": [
+              "passed",
+              "failed",
+              "unavailable"
+            ]
+          },
+          "checked_at": {
+            "$ref": "#/$defs/utcTimestamp"
+          },
+          "evidence_sha256": {
+            "$ref": "#/$defs/sha256"
+          }
+        }
+      }
+    },
+    "verified_at": {
+      "$ref": "#/$defs/nullableUtcTimestamp"
+    },
+    "verifier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "service",
+        "policy_version"
+      ],
+      "properties": {
+        "service": {
+          "type": "string",
+          "pattern": "^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$"
+        },
+        "policy_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"status": {"const": "verified"}},
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "license": {
+            "properties": {"compatible": {"const": true}}
+          },
+          "verified_at": {"$ref": "#/$defs/utcTimestamp"},
+          "checks": {
+            "minItems": 5,
+            "maxItems": 5,
+            "allOf": [
+              {
+                "contains": {
+                  "type": "object",
+                  "properties": {
+                    "name": {"const": "repository-identity"},
+                    "status": {"const": "passed"}
+                  },
+                  "required": ["name", "status"]
+                },
+                "minContains": 1,
+                "maxContains": 1
+              },
+              {
+                "contains": {
+                  "type": "object",
+                  "properties": {
+                    "name": {"const": "installation-identity"},
+                    "status": {"const": "passed"}
+                  },
+                  "required": ["name", "status"]
+                },
+                "minContains": 1,
+                "maxContains": 1
+              },
+              {
+                "contains": {
+                  "type": "object",
+                  "properties": {
+                    "name": {"const": "commit-resolution"},
+                    "status": {"const": "passed"}
+                  },
+                  "required": ["name", "status"]
+                },
+                "minContains": 1,
+                "maxContains": 1
+              },
+              {
+                "contains": {
+                  "type": "object",
+                  "properties": {
+                    "name": {"const": "archive-digest"},
+                    "status": {"const": "passed"}
+                  },
+                  "required": ["name", "status"]
+                },
+                "minContains": 1,
+                "maxContains": 1
+              },
+              {
+                "contains": {
+                  "type": "object",
+                  "properties": {
+                    "name": {"const": "license"},
+                    "status": {"const": "passed"}
+                  },
+                  "required": ["name", "status"]
+                },
+                "minContains": 1,
+                "maxContains": 1
+              }
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "packageIdentity": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 127,
+      "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?/[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+    },
+    "proofId": {
+      "type": "string",
+      "pattern": "^prf_[A-Za-z0-9_-]{16,96}$"
+    },
+    "exactVersion": {
+      "type": "string",
+      "format": "semver-exact",
+      "maxLength": 128,
+      "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "utcTimestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,9})?Z$"
+    },
+    "nullableUtcTimestamp": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/utcTimestamp"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  }
+}

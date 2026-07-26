@@ -1,0 +1,665 @@
+{
+  "contract_version": 1,
+  "initial_state": {
+    "lifecycle": "reserved",
+    "visibility": "private",
+    "availability": "unavailable",
+    "retention": "retained"
+  },
+  "dimensions": {
+    "lifecycle": [
+      "reserved",
+      "quarantined",
+      "first-scanning",
+      "delayed",
+      "second-scanning",
+      "ready",
+      "active",
+      "rejected"
+    ],
+    "visibility": ["private", "public"],
+    "availability": [
+      "unavailable",
+      "available",
+      "yanked",
+      "security-quarantined"
+    ],
+    "retention": ["retained", "soft-deleted", "purged"]
+  },
+  "lifecycle_transitions": [
+    {
+      "from": "reserved",
+      "to": "quarantined",
+      "requires": [
+        "identity_version_digest_reserved_atomically",
+        "blob_in_quarantine"
+      ]
+    },
+    {
+      "from": "quarantined",
+      "to": "first-scanning",
+      "requires": ["sandbox_available", "immutable_scan_input"]
+    },
+    {
+      "from": "first-scanning",
+      "to": "quarantined",
+      "requires": ["retryable_scanner_outage_or_inconclusive_result"]
+    },
+    {
+      "from": "first-scanning",
+      "to": "rejected",
+      "requires": ["definitive_policy_failure", "audit_event"]
+    },
+    {
+      "from": "first-scanning",
+      "to": "ready",
+      "when": {"visibility": "private"},
+      "requires": [
+        "first_scan_passed",
+        "origin_verified",
+        "integrity_verified"
+      ]
+    },
+    {
+      "from": "first-scanning",
+      "to": "delayed",
+      "when": {"visibility": "public"},
+      "requires": [
+        "first_scan_passed",
+        "origin_verified",
+        "integrity_verified",
+        "public_delay_started"
+      ]
+    },
+    {
+      "from": "delayed",
+      "to": "second-scanning",
+      "when": {"visibility": "public"},
+      "requires": [
+        "public_delay_72_hours_elapsed",
+        "fresh_source_proof",
+        "immutable_scan_input"
+      ]
+    },
+    {
+      "from": "second-scanning",
+      "to": "delayed",
+      "requires": ["retryable_scanner_outage_or_inconclusive_result"]
+    },
+    {
+      "from": "second-scanning",
+      "to": "rejected",
+      "requires": ["definitive_policy_failure", "audit_event"]
+    },
+    {
+      "from": "second-scanning",
+      "to": "ready",
+      "when": {"visibility": "public"},
+      "requires": [
+        "second_scan_passed",
+        "fresh_source_proof_verified",
+        "integrity_reverified"
+      ]
+    },
+    {
+      "from": "ready",
+      "to": "active",
+      "requires": [
+        "blob_promoted_before_metadata",
+        "resolver_metadata_signed_and_published",
+        "audit_event"
+      ],
+      "sets": {"availability": "available"}
+    }
+  ],
+  "visibility_transitions": [
+    {
+      "from": "private",
+      "to": "public",
+      "when": {
+        "lifecycle": "reserved",
+        "availability": "unavailable",
+        "retention": "retained"
+      },
+      "requires": ["publisher_authorized", "audit_event"]
+    },
+    {
+      "from": "private",
+      "to": "public",
+      "when": {
+        "lifecycle": "active",
+        "availability": "available",
+        "retention": "retained"
+      },
+      "requires": ["publisher_authorized", "audit_event"],
+      "sets": {
+        "lifecycle": "quarantined",
+        "availability": "unavailable"
+      }
+    }
+  ],
+  "availability_transitions": [
+    {
+      "from": "available",
+      "to": "yanked",
+      "requires": ["signed_yank_metadata", "audit_event"]
+    },
+    {
+      "from": "yanked",
+      "to": "available",
+      "requires": ["signed_unyank_metadata", "audit_event"]
+    },
+    {
+      "from": "available",
+      "to": "security-quarantined",
+      "requires": ["signed_revocation_metadata", "incident_id", "audit_event"]
+    },
+    {
+      "from": "yanked",
+      "to": "security-quarantined",
+      "requires": ["signed_revocation_metadata", "incident_id", "audit_event"]
+    },
+    {
+      "from": "security-quarantined",
+      "to": "available",
+      "requires": [
+        "incident_resolved",
+        "independent_security_review",
+        "signed_reinstatement_metadata",
+        "audit_event"
+      ]
+    },
+    {
+      "from": "security-quarantined",
+      "to": "yanked",
+      "requires": [
+        "incident_resolved",
+        "independent_security_review",
+        "signed_yank_metadata",
+        "audit_event"
+      ]
+    }
+  ],
+  "retention_transitions": [
+    {
+      "from": "retained",
+      "to": "soft-deleted",
+      "when": {
+        "visibility": "private",
+        "lifecycle": "active",
+        "availability": "available"
+      },
+      "requires": ["publisher_authorized", "audit_event"],
+      "sets": {"availability": "unavailable"}
+    },
+    {
+      "from": "soft-deleted",
+      "to": "retained",
+      "when": {
+        "visibility": "private",
+        "lifecycle": "active",
+        "availability": "unavailable"
+      },
+      "requires": ["retention_window_open", "publisher_authorized", "audit_event"],
+      "sets": {"availability": "available"}
+    },
+    {
+      "from": "soft-deleted",
+      "to": "purged",
+      "when": {
+        "visibility": "private",
+        "lifecycle": "active",
+        "availability": "unavailable"
+      },
+      "requires": ["retention_window_elapsed", "purge_job_audited"]
+    }
+  ],
+  "forbidden_transitions": [
+    {
+      "dimension": "visibility",
+      "from": "public",
+      "to": "private",
+      "reason": "public_history_cannot_be_hidden"
+    },
+    {
+      "dimension": "retention",
+      "from": "retained",
+      "to": "soft-deleted",
+      "when": {"visibility": "public"},
+      "reason": "public_release_bytes_are_retained"
+    },
+    {
+      "dimension": "lifecycle",
+      "from": "first-scanning",
+      "to": "ready",
+      "when": {"visibility": "public"},
+      "reason": "public_release_requires_delay_and_second_scan"
+    },
+    {
+      "dimension": "lifecycle",
+      "from": "delayed",
+      "to": "ready",
+      "reason": "public_release_requires_distinct_second_scan"
+    },
+    {
+      "dimension": "visibility",
+      "from": "private",
+      "to": "public",
+      "when": {"lifecycle": "rejected"},
+      "reason": "rejected_version_cannot_be_resurrected"
+    },
+    {
+      "dimension": "visibility",
+      "from": "private",
+      "to": "public",
+      "when": {"retention": "purged"},
+      "reason": "purged_private_version_cannot_be_resurrected"
+    }
+  ],
+  "state_invariants": [
+    {
+      "when": {"visibility": "public"},
+      "requires": {"retention": "retained"}
+    },
+    {
+      "when_not": {"availability": "unavailable"},
+      "requires": {"lifecycle": "active", "retention": "retained"}
+    },
+    {
+      "when": {"retention": "soft-deleted"},
+      "requires": {"visibility": "private", "availability": "unavailable"}
+    },
+    {
+      "when": {"retention": "purged"},
+      "requires": {"visibility": "private", "availability": "unavailable"}
+    }
+  ],
+  "trace_cases": [
+    {
+      "name": "private_release_activates_after_first_scan",
+      "initial": {
+        "lifecycle": "reserved",
+        "visibility": "private",
+        "availability": "unavailable",
+        "retention": "retained"
+      },
+      "steps": [
+        {"dimension": "lifecycle", "to": "quarantined", "evidence": ["identity_version_digest_reserved_atomically", "blob_in_quarantine"]},
+        {"dimension": "lifecycle", "to": "first-scanning", "evidence": ["sandbox_available", "immutable_scan_input"]},
+        {"dimension": "lifecycle", "to": "ready", "evidence": ["first_scan_passed", "origin_verified", "integrity_verified"]},
+        {"dimension": "lifecycle", "to": "active", "evidence": ["blob_promoted_before_metadata", "resolver_metadata_signed_and_published", "audit_event"]}
+      ],
+      "expected": "allow"
+    },
+    {
+      "name": "public_release_uses_two_distinct_scans",
+      "initial": {
+        "lifecycle": "reserved",
+        "visibility": "private",
+        "availability": "unavailable",
+        "retention": "retained"
+      },
+      "steps": [
+        {"dimension": "visibility", "to": "public", "evidence": ["publisher_authorized", "audit_event"]},
+        {"dimension": "lifecycle", "to": "quarantined", "evidence": ["identity_version_digest_reserved_atomically", "blob_in_quarantine"]},
+        {"dimension": "lifecycle", "to": "first-scanning", "evidence": ["sandbox_available", "immutable_scan_input"]},
+        {"dimension": "lifecycle", "to": "delayed", "evidence": ["first_scan_passed", "origin_verified", "integrity_verified", "public_delay_started"]},
+        {"dimension": "lifecycle", "to": "second-scanning", "evidence": ["public_delay_72_hours_elapsed", "fresh_source_proof", "immutable_scan_input"]},
+        {"dimension": "lifecycle", "to": "ready", "evidence": ["second_scan_passed", "fresh_source_proof_verified", "integrity_reverified"]},
+        {"dimension": "lifecycle", "to": "active", "evidence": ["blob_promoted_before_metadata", "resolver_metadata_signed_and_published", "audit_event"]}
+      ],
+      "expected": "allow"
+    },
+    {
+      "name": "public_first_scan_cannot_skip_delay",
+      "initial": {
+        "lifecycle": "reserved",
+        "visibility": "private",
+        "availability": "unavailable",
+        "retention": "retained"
+      },
+      "steps": [
+        {"dimension": "visibility", "to": "public", "evidence": ["publisher_authorized", "audit_event"]},
+        {"dimension": "lifecycle", "to": "quarantined", "evidence": ["identity_version_digest_reserved_atomically", "blob_in_quarantine"]},
+        {"dimension": "lifecycle", "to": "first-scanning", "evidence": ["sandbox_available", "immutable_scan_input"]},
+        {"dimension": "lifecycle", "to": "ready", "evidence": ["first_scan_passed", "origin_verified", "integrity_verified"]}
+      ],
+      "expected": "deny",
+      "failure_step": 3
+    },
+    {
+      "name": "private_to_public_restarts_quarantine",
+      "initial": {
+        "lifecycle": "reserved",
+        "visibility": "private",
+        "availability": "unavailable",
+        "retention": "retained"
+      },
+      "steps": [
+        {"dimension": "lifecycle", "to": "quarantined", "evidence": ["identity_version_digest_reserved_atomically", "blob_in_quarantine"]},
+        {"dimension": "lifecycle", "to": "first-scanning", "evidence": ["sandbox_available", "immutable_scan_input"]},
+        {"dimension": "lifecycle", "to": "ready", "evidence": ["first_scan_passed", "origin_verified", "integrity_verified"]},
+        {"dimension": "lifecycle", "to": "active", "evidence": ["blob_promoted_before_metadata", "resolver_metadata_signed_and_published", "audit_event"]},
+        {"dimension": "visibility", "to": "public", "evidence": ["publisher_authorized", "audit_event"]}
+      ],
+      "expected": "allow",
+      "final": {
+        "lifecycle": "quarantined",
+        "visibility": "public",
+        "availability": "unavailable",
+        "retention": "retained"
+      }
+    },
+    {
+      "name": "rejected_private_release_cannot_become_public",
+      "initial": {
+        "lifecycle": "reserved",
+        "visibility": "private",
+        "availability": "unavailable",
+        "retention": "retained"
+      },
+      "steps": [
+        {"dimension": "lifecycle", "to": "quarantined", "evidence": ["identity_version_digest_reserved_atomically", "blob_in_quarantine"]},
+        {"dimension": "lifecycle", "to": "first-scanning", "evidence": ["sandbox_available", "immutable_scan_input"]},
+        {"dimension": "lifecycle", "to": "rejected", "evidence": ["definitive_policy_failure", "audit_event"]},
+        {"dimension": "visibility", "to": "public", "evidence": ["publisher_authorized", "audit_event"]}
+      ],
+      "expected": "deny",
+      "failure_step": 3
+    }
+  ],
+  "promotion_protocol": {
+    "server_clock": "rfc3339-utc",
+    "public_delay_seconds": 259200,
+    "delay_comparison": "elapsed-greater-than-or-equal",
+    "state_write": "compare-and-swap-on-revision",
+    "idempotent_replay": "same-key-and-exact-reviewed-input-only",
+    "reviewed_input_fields": ["archive_sha256", "source_proof_id", "source_proof_sha256"],
+    "promotion_order": [
+      "compare-ready-state-and-revision",
+      "match-release-and-reviewed-input",
+      "promote-blob",
+      "publish-signed-resolver-metadata",
+      "commit-active-state-and-audit"
+    ]
+  },
+  "promotion_trace_cases": [
+    {
+      "name": "public-delay-exact-72-hour-boundary",
+      "initial": {
+        "state": {"lifecycle": "delayed", "visibility": "public", "availability": "unavailable", "retention": "retained"},
+        "revision": 7,
+        "public_delay_started_at": "2026-07-13T12:00:00Z",
+        "release_input": {
+          "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "source_proof_id": "prf_01JZX8K9F7Q2W4N6M8R0",
+          "source_proof_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "reviewed_input": null,
+        "promoted_input": null,
+        "promotion_idempotency_key": null,
+        "promotion_count": 0
+      },
+      "operations": [
+        {
+          "kind": "begin-second-scan",
+          "at": "2026-07-16T12:00:00Z",
+          "expected_revision": 7,
+          "input": {
+            "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "source_proof_id": "prf_01JZX8K9F7Q2W4N6M8R0",
+            "source_proof_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          },
+          "expected": "applied"
+        }
+      ],
+      "final": {
+        "state": {"lifecycle": "second-scanning", "visibility": "public", "availability": "unavailable", "retention": "retained"},
+        "revision": 8,
+        "promotion_count": 0
+      }
+    },
+    {
+      "name": "public-delay-one-second-before-boundary",
+      "initial": {
+        "state": {"lifecycle": "delayed", "visibility": "public", "availability": "unavailable", "retention": "retained"},
+        "revision": 7,
+        "public_delay_started_at": "2026-07-13T12:00:00Z",
+        "release_input": {
+          "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "source_proof_id": "prf_01JZX8K9F7Q2W4N6M8R0",
+          "source_proof_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "reviewed_input": null,
+        "promoted_input": null,
+        "promotion_idempotency_key": null,
+        "promotion_count": 0
+      },
+      "operations": [
+        {
+          "kind": "begin-second-scan",
+          "at": "2026-07-16T11:59:59Z",
+          "expected_revision": 7,
+          "input": {
+            "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "source_proof_id": "prf_01JZX8K9F7Q2W4N6M8R0",
+            "source_proof_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          },
+          "expected": "denied",
+          "error_code": "public_delay_not_elapsed"
+        }
+      ],
+      "final": {
+        "state": {"lifecycle": "delayed", "visibility": "public", "availability": "unavailable", "retention": "retained"},
+        "revision": 7,
+        "promotion_count": 0
+      }
+    },
+    {
+      "name": "double-promotion-is-one-idempotent-write",
+      "initial": {
+        "state": {"lifecycle": "ready", "visibility": "public", "availability": "unavailable", "retention": "retained"},
+        "revision": 20,
+        "public_delay_started_at": "2026-07-13T12:00:00Z",
+        "release_input": {
+          "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "source_proof_id": "prf_01JZX8K9F7Q2W4N6M8R0",
+          "source_proof_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "reviewed_input": {
+          "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "source_proof_id": "prf_01JZX8K9F7Q2W4N6M8R0",
+          "source_proof_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "promoted_input": null,
+        "promotion_idempotency_key": null,
+        "promotion_count": 0
+      },
+      "operations": [
+        {
+          "kind": "promote",
+          "at": "2026-07-16T12:05:00Z",
+          "expected_revision": 20,
+          "idempotency_key": "promote-acme-http-1-2-3",
+          "input": {
+            "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "source_proof_id": "prf_01JZX8K9F7Q2W4N6M8R0",
+            "source_proof_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          },
+          "expected": "applied"
+        },
+        {
+          "kind": "promote",
+          "at": "2026-07-16T12:05:01Z",
+          "expected_revision": 20,
+          "idempotency_key": "promote-acme-http-1-2-3",
+          "input": {
+            "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "source_proof_id": "prf_01JZX8K9F7Q2W4N6M8R0",
+            "source_proof_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          },
+          "expected": "replayed"
+        }
+      ],
+      "final": {
+        "state": {"lifecycle": "active", "visibility": "public", "availability": "available", "retention": "retained"},
+        "revision": 21,
+        "promotion_count": 1
+      }
+    },
+    {
+      "name": "concurrent-promotion-state-race-uses-cas",
+      "initial": {
+        "state": {"lifecycle": "ready", "visibility": "public", "availability": "unavailable", "retention": "retained"},
+        "revision": 30,
+        "public_delay_started_at": "2026-07-13T12:00:00Z",
+        "release_input": {
+          "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "source_proof_id": "prf_01JZX8K9F7Q2W4N6M8R0",
+          "source_proof_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "reviewed_input": {
+          "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "source_proof_id": "prf_01JZX8K9F7Q2W4N6M8R0",
+          "source_proof_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "promoted_input": null,
+        "promotion_idempotency_key": null,
+        "promotion_count": 0
+      },
+      "operations": [
+        {
+          "kind": "promote",
+          "at": "2026-07-16T12:06:00Z",
+          "expected_revision": 30,
+          "idempotency_key": "promote-racer-a",
+          "input": {
+            "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "source_proof_id": "prf_01JZX8K9F7Q2W4N6M8R0",
+            "source_proof_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          },
+          "expected": "applied"
+        },
+        {
+          "kind": "promote",
+          "at": "2026-07-16T12:06:00Z",
+          "expected_revision": 30,
+          "idempotency_key": "promote-racer-b",
+          "input": {
+            "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "source_proof_id": "prf_01JZX8K9F7Q2W4N6M8R0",
+            "source_proof_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          },
+          "expected": "cas-conflict",
+          "error_code": "release_state_changed"
+        }
+      ],
+      "final": {
+        "state": {"lifecycle": "active", "visibility": "public", "availability": "available", "retention": "retained"},
+        "revision": 31,
+        "promotion_count": 1
+      }
+    },
+    {
+      "name": "promotion-rejects-unreviewed-archive",
+      "initial": {
+        "state": {"lifecycle": "ready", "visibility": "public", "availability": "unavailable", "retention": "retained"},
+        "revision": 40,
+        "public_delay_started_at": "2026-07-13T12:00:00Z",
+        "release_input": {
+          "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "source_proof_id": "prf_01JZX8K9F7Q2W4N6M8R0",
+          "source_proof_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "reviewed_input": {
+          "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "source_proof_id": "prf_01JZX8K9F7Q2W4N6M8R0",
+          "source_proof_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "promoted_input": null,
+        "promotion_idempotency_key": null,
+        "promotion_count": 0
+      },
+      "operations": [
+        {
+          "kind": "promote",
+          "at": "2026-07-16T12:07:00Z",
+          "expected_revision": 40,
+          "idempotency_key": "promote-unreviewed-archive",
+          "input": {
+            "archive_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            "source_proof_id": "prf_01JZX8K9F7Q2W4N6M8R0",
+            "source_proof_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          },
+          "expected": "denied",
+          "error_code": "promotion_input_mismatch"
+        }
+      ],
+      "final": {
+        "state": {"lifecycle": "ready", "visibility": "public", "availability": "unavailable", "retention": "retained"},
+        "revision": 40,
+        "promotion_count": 0
+      }
+    },
+    {
+      "name": "promotion-rejects-unreviewed-source-proof",
+      "initial": {
+        "state": {"lifecycle": "ready", "visibility": "public", "availability": "unavailable", "retention": "retained"},
+        "revision": 50,
+        "public_delay_started_at": "2026-07-13T12:00:00Z",
+        "release_input": {
+          "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "source_proof_id": "prf_01JZX8K9F7Q2W4N6M8R0",
+          "source_proof_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "reviewed_input": {
+          "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "source_proof_id": "prf_01JZX8K9F7Q2W4N6M8R0",
+          "source_proof_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "promoted_input": null,
+        "promotion_idempotency_key": null,
+        "promotion_count": 0
+      },
+      "operations": [
+        {
+          "kind": "promote",
+          "at": "2026-07-16T12:08:00Z",
+          "expected_revision": 50,
+          "idempotency_key": "promote-unreviewed-proof",
+          "input": {
+            "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "source_proof_id": "prf_01JZXDIFFERENTPROOF0001",
+            "source_proof_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+          },
+          "expected": "denied",
+          "error_code": "promotion_input_mismatch"
+        }
+      ],
+      "final": {
+        "state": {"lifecycle": "ready", "visibility": "public", "availability": "unavailable", "retention": "retained"},
+        "revision": 50,
+        "promotion_count": 0
+      }
+    }
+  ],
+  "immutable_with_archive_digest": [
+    "package",
+    "version",
+    "archive_sha256",
+    "manifest",
+    "capabilities",
+    "archive_size",
+    "expanded_size"
+  ],
+  "append_only_attestations": [
+    "source_proof_checks",
+    "scan_results",
+    "provenance_rechecks"
+  ],
+  "mutable_by_signed_metadata_only": [
+    "availability",
+    "yank_reason",
+    "security_advisories"
+  ]
+}

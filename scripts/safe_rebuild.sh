@@ -32,6 +32,7 @@ FROZEN_ABS=""
 BUILD_TRACE_COMMON="$SCRIPT_DIR/build_trace_common.sh"
 REBUILD_TIER="full"
 CLEAN_CACHE=0
+PACKAGE_CLIENT_BUILD_OUTPUT="$REPO_ROOT/target/seen-build/package-client/seen-pkg"
 
 if [ -f "$BUILD_TRACE_COMMON" ]; then
     # shellcheck source=scripts/build_trace_common.sh
@@ -283,7 +284,7 @@ run_guarded_command_to_log() {
 }
 
 log_failure_signal_pattern() {
-    printf '%s\n' 'IR VERIFY|llvm-as:|/usr/bin/opt:|clang: error|ld\.lld: error|LLVM ERROR|Error: optimization failed|Segmentation fault|core dumped|Traceback \(most recent call last\)|(^|[[:space:]])Error:'
+    printf '%s\n' 'Fatal Lexer Error|Fatal Parser Error|IR VERIFY|llvm-as:|/usr/bin/opt:|clang: error|ld\.lld: error|LLVM ERROR|Error: optimization failed|Segmentation fault|core dumped|Traceback \(most recent call last\)|(^|[[:space:]])Error:'
 }
 
 start_log_failure_watcher() {
@@ -300,12 +301,11 @@ start_log_failure_watcher() {
         local pattern
         pattern=$(log_failure_signal_pattern)
         local interval="${SEEN_FAILURE_WATCH_INTERVAL_SECS:-2}"
-        local tail_lines="${SEEN_FAILURE_WATCH_TAIL_LINES:-1000}"
         local match=""
 
         while kill -0 "$watched_pid" 2>/dev/null; do
             if [ -f "$log_file" ]; then
-                match=$(tail -n "$tail_lines" "$log_file" 2>/dev/null | grep -n -m1 -E "$pattern" 2>/dev/null || true)
+                match=$(grep -n -m1 -E "$pattern" "$log_file" 2>/dev/null || true)
                 if [ -n "$match" ]; then
                     printf "\n%s[%s]%s first failure signal: %s\n" "$YELLOW" "$label" "$NC" "$match" >&2
                     printf "%s[%s]%s stopping build step early; set SEEN_ABORT_ON_FIRST_FAILURE_SIGNAL=0 to wait for the full command.\n" "$YELLOW" "$label" "$NC" >&2
@@ -647,20 +647,18 @@ prepare_bootstrap_source_overlay() {
             ln -s "$entry" "$BOOTSTRAP_SOURCE_ROOT/compiler_seen/$base"
         fi
     done
-    for entry in "$REPO_ROOT/seen_std"/*; do
-        local base
-        base=$(basename "$entry")
-        if [ "$base" = "src" ]; then
-            copy_bootstrap_seen_tree "$entry" "$BOOTSTRAP_SOURCE_ROOT/seen_std/src"
-        else
-            ln -s "$entry" "$BOOTSTRAP_SOURCE_ROOT/seen_std/$base"
-        fi
-    done
+    # seen_std is a local package dependency. Keep its overlay symlink-free so
+    # the package client's local-source hardening sees the same regular-file
+    # layout that a published package archive contains.
+    copy_bootstrap_seen_tree "$REPO_ROOT/seen_std" "$BOOTSTRAP_SOURCE_ROOT/seen_std"
     echo -e "${YELLOW}Bootstrap source overlay enabled: temporary /// bodies stripped for older bootstrap compilers.${NC}"
 }
 
 cleanup_bootstrap_source_overlay() {
     if [ -n "$BOOTSTRAP_SOURCE_ROOT" ] && [ "$BOOTSTRAP_SOURCE_ROOT" != "$REPO_ROOT" ]; then
+        # Hardened package views are read-only. Restore owner write permission
+        # inside the disposable overlay so trap cleanup can remove them.
+        chmod -R u+w "$BOOTSTRAP_SOURCE_ROOT/compiler_seen/.seen" 2>/dev/null || true
         rm -rf "$BOOTSTRAP_SOURCE_ROOT"
     fi
 }
@@ -1086,6 +1084,7 @@ RELEASE_CLANG_MARCH_FLAG="$(release_cpu_baseline_to_march "$RELEASE_CPU_BASELINE
 MAIN_COMPILER_VMEM_KB=""
 OPT_VMEM_KB=""
 RECOVERY_TIMEOUT_SECS="${SEEN_RECOVERY_TIMEOUT_SECS:-1800}"
+TIER_TIMEOUT_SECS="${SEEN_TIER_TIMEOUT_SECS:-2700}"
 IR_RECOVERY_DISABLED="${SEEN_DISABLE_IR_RECOVERY:-0}"
 SYSTEM_MEMORY_KB=$(detect_effective_system_memory_kb || true)
 SYSTEM_AVAILABLE_KB=$(detect_available_memory_kb || true)
@@ -1142,6 +1141,11 @@ if [ "${SEEN_DISABLE_MEMORY_GUARD:-0}" != "1" ]; then
         export SEEN_MEMORY_GUARD_KERNEL_SCOPE=0
         export SEEN_MEMORY_GUARD_REQUIRE_KERNEL_SCOPE=0
     fi
+fi
+
+if ! is_positive_integer "$TIER_TIMEOUT_SECS"; then
+    echo -e "${RED}ERROR: SEEN_TIER_TIMEOUT_SECS must be a positive integer number of seconds.${NC}" >&2
+    exit 1
 fi
 
 if [ "${SEEN_LOW_MEMORY:-0}" = "1" ]; then
@@ -1561,6 +1565,10 @@ tier_source_root_for_builder() {
     local builder_path=$1
     local builder_name
     builder_name=$(basename "$builder_path")
+    if [ "${SEEN_TIER_USE_BOOTSTRAP_OVERLAY:-${SEEN_EXISTING_BUILDER_USE_BOOTSTRAP_OVERLAY:-0}}" = "1" ]; then
+        printf '%s\n' "$BOOTSTRAP_SOURCE_ROOT"
+        return 0
+    fi
     case "$builder_name" in
         seen_frozen*|stage1_frozen*)
             printf '%s\n' "$BOOTSTRAP_SOURCE_ROOT"
@@ -1572,6 +1580,9 @@ tier_source_root_for_builder() {
 }
 
 tier_builder_requires_bootstrap_preflight() {
+    if [ "${SEEN_TIER_USE_BOOTSTRAP_OVERLAY:-${SEEN_EXISTING_BUILDER_USE_BOOTSTRAP_OVERLAY:-0}}" = "1" ]; then
+        return 0
+    fi
     case "$(basename "$1")" in
         seen_frozen*|stage1_frozen*)
             return 0
@@ -1583,6 +1594,14 @@ tier_builder_requires_bootstrap_preflight() {
 tier_builder_path_for_source_root() {
     local builder_path=$1
     local source_root=$2
+    if [ "$source_root" = "$BOOTSTRAP_SOURCE_ROOT" ] &&
+        [ "${SEEN_TIER_USE_BOOTSTRAP_OVERLAY:-${SEEN_EXISTING_BUILDER_USE_BOOTSTRAP_OVERLAY:-0}}" = "1" ]; then
+        local overlay_builder="$BOOTSTRAP_SOURCE_ROOT/compiler_seen/target/seen_tier_builder"
+        cp -pL "$builder_path" "$overlay_builder" || return 1
+        chmod +x "$overlay_builder" 2>/dev/null || true
+        printf '%s\n' "$overlay_builder"
+        return 0
+    fi
     case "$builder_path" in
         "$REPO_ROOT"/*)
             if [ "$source_root" = "$BOOTSTRAP_SOURCE_ROOT" ]; then
@@ -1663,6 +1682,38 @@ run_tier_targeted_checks() {
     return 0
 }
 
+prepare_package_client() {
+    local expected_version helper
+    expected_version=$(awk -F'"' '/^version = / { print $2; exit }' "$REPO_ROOT/Seen.toml")
+    if [ -z "$expected_version" ]; then
+        echo -e "${RED}ERROR: could not read the Seen version for package-client coupling.${NC}" >&2
+        return 1
+    fi
+
+    if [ -n "${SEEN_PACKAGE_CLIENT:-}" ]; then
+        helper="$SEEN_PACKAGE_CLIENT"
+        if [ ! -x "$helper" ]; then
+            echo -e "${RED}ERROR: SEEN_PACKAGE_CLIENT is not executable: $helper${NC}" >&2
+            return 1
+        fi
+    else
+        mkdir -p "$(dirname "$PACKAGE_CLIENT_BUILD_OUTPUT")"
+        "$SCRIPT_DIR/build_package_client.sh" \
+            --version "$expected_version" \
+            --output "$PACKAGE_CLIENT_BUILD_OUTPUT" || return 1
+        helper="$PACKAGE_CLIENT_BUILD_OUTPUT"
+    fi
+
+    if ! "$helper" --expect-version "$expected_version" version --machine >/dev/null 2>&1; then
+        echo -e "${RED}ERROR: package-client version handshake failed for Seen $expected_version.${NC}" >&2
+        return 1
+    fi
+    SEEN_PACKAGE_CLIENT="$(cd "$(dirname "$helper")" && pwd)/$(basename "$helper")"
+    PACKAGE_CLIENT_BUILD_OUTPUT="$SEEN_PACKAGE_CLIENT"
+    export SEEN_PACKAGE_CLIENT
+    echo "Package client: $SEEN_PACKAGE_CLIENT"
+}
+
 install_tier_verified_compiler() {
     local compiler_path=$1
 
@@ -1674,6 +1725,10 @@ install_tier_verified_compiler() {
     chmod +x "$REPO_ROOT/compiler_seen/target/seen"
     cp "$REPO_ROOT/compiler_seen/target/seen" "$REPO_ROOT/target/release/seen"
     chmod +x "$REPO_ROOT/target/release/seen"
+    cp "$PACKAGE_CLIENT_BUILD_OUTPUT" "$REPO_ROOT/compiler_seen/target/seen-pkg"
+    chmod +x "$REPO_ROOT/compiler_seen/target/seen-pkg"
+    cp "$PACKAGE_CLIENT_BUILD_OUTPUT" "$REPO_ROOT/target/release/seen-pkg"
+    chmod +x "$REPO_ROOT/target/release/seen-pkg"
 }
 
 run_tiered_rebuild() {
@@ -1730,7 +1785,7 @@ run_tiered_rebuild() {
             echo "    Legacy stage builder requires forked codegen; memory guard remains active."
         fi
 
-        run_guarded_command_to_log_with_failure_watch "$label compile" 0 "$MAIN_COMPILER_VMEM_KB" "$compile_log" \
+        run_guarded_command_to_log_with_failure_watch "$label compile" "$TIER_TIMEOUT_SECS" "$MAIN_COMPILER_VMEM_KB" "$compile_log" \
             bash -c 'cd "$1" || exit 1; shift; exec "$@"' bash "$source_root" \
             env \
                 SEEN_COMPILER_SOURCE_ROOT="$source_root" \
@@ -1742,6 +1797,11 @@ run_tiered_rebuild() {
                 SEEN_OPT_JOBS="$SEEN_OPT_JOBS" \
                 "$builder_for_root" compile "$COMPILER_SOURCE" "$output_path" \
                 "${compile_flags[@]}" || compile_status=$?
+
+        if grep -qE 'Fatal Lexer Error|Fatal Parser Error' "$compile_log" 2>/dev/null; then
+            echo -e "${YELLOW}  Builder emitted a fatal frontend diagnostic; rejecting its output.${NC}"
+            compile_status=1
+        fi
 
         if [ "$compile_status" -ne 0 ]; then
             echo -e "${YELLOW}  Builder failed for $REBUILD_TIER tier (exit=$compile_status); trying next candidate.${NC}"
@@ -1760,6 +1820,8 @@ run_tiered_rebuild() {
             else
                 cp "$output_path" "$final_output_path"
                 chmod +x "$final_output_path"
+                cp "$PACKAGE_CLIENT_BUILD_OUTPUT" "$(dirname "$final_output_path")/seen-pkg"
+                chmod +x "$(dirname "$final_output_path")/seen-pkg"
             fi
             echo -e "${GREEN}${REBUILD_TIER} rebuild complete.${NC}"
             if [ "$REBUILD_TIER" = "quick" ]; then
@@ -2112,6 +2174,11 @@ recover_with_existing_stage_builders() {
 }
 
 preserve_existing_production_compiler >/dev/null 2>&1 || true
+
+# Every compiler produced from 0.10 onward invokes this exact, version-matched
+# helper during dependency preparation. Build and verify it before any stage
+# can become a builder for the next stage.
+prepare_package_client || exit 1
 
 if [ "$REBUILD_TIER" != "full" ]; then
     run_tiered_rebuild
@@ -3271,6 +3338,8 @@ mkdir -p compiler_seen/target
 rm -f compiler_seen/target/seen 2>/dev/null || true
 cp "$VERIFIED" compiler_seen/target/seen
 chmod +x compiler_seen/target/seen
+cp "$PACKAGE_CLIENT_BUILD_OUTPUT" compiler_seen/target/seen-pkg
+chmod +x compiler_seen/target/seen-pkg
 cp "$STAGE2" stage2_head 2>/dev/null || true
 [ -f "$STAGE3" ] && cp "$STAGE3" stage3_head 2>/dev/null || true
 rm -f stage3_recovery_head 2>/dev/null || true
@@ -3280,6 +3349,8 @@ rm -f stage3_recovery_head 2>/dev/null || true
 mkdir -p target/release
 cp compiler_seen/target/seen target/release/seen
 chmod +x target/release/seen
+cp "$PACKAGE_CLIENT_BUILD_OUTPUT" target/release/seen-pkg
+chmod +x target/release/seen-pkg
 if declare -F seen_build_write_full_release_stamp >/dev/null 2>&1; then
     seen_build_write_full_release_stamp "$REPO_ROOT" "$REPO_ROOT/compiler_seen/target/seen"
 fi

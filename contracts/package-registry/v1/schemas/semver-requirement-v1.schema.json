@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:seen:package-registry:v1:semver-requirement",
+  "title": "Seen canonical SemVer requirement v1",
+  "description": "A canonical Seen v1 dependency requirement. The custom format also rejects comparator intervals whose lower bound is not strictly below the upper bound by SemVer precedence.",
+  "type": "string",
+  "format": "seen-semver-requirement-v1",
+  "maxLength": 261,
+  "oneOf": [
+    {"$ref": "#/$defs/exact"},
+    {"$ref": "#/$defs/caret"},
+    {"$ref": "#/$defs/tilde"},
+    {"$ref": "#/$defs/comparatorConjunction"}
+  ],
+  "$defs": {
+    "exact": {
+      "type": "string",
+      "description": "A full canonical SemVer matched byte-for-byte, including optional prerelease and build metadata.",
+      "maxLength": 128,
+      "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$"
+    },
+    "caret": {
+      "type": "string",
+      "description": "A caret followed by a full SemVer without build metadata. The upper bound increments the leftmost nonzero core component, or patch when all components are zero.",
+      "pattern": "^\\^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?$"
+    },
+    "tilde": {
+      "type": "string",
+      "description": "A tilde followed by major.minor or a full SemVer without build metadata. The exclusive upper bound increments minor.",
+      "pattern": "^~(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:\\.(?:0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?)?$"
+    },
+    "comparatorConjunction": {
+      "type": "string",
+      "description": "Exactly one lower and one upper full-SemVer comparator in that order, separated by one ASCII space. Bounds exclude build metadata and must form a nonempty ascending interval.",
+      "pattern": "^(?:>=|>)(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)? (?:<=|<)(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?$"
+    }
+  }
+}

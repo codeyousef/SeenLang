@@ -5,6 +5,13 @@ E2Eテスト: 入出力標準ライブラリ（日本語）
     内容の比較不可。__FileSizeで代わりに検証
 ///
 
+extern 関数 __OpenFile(path: 文字列, mode: 文字列) r: 整数
+extern 関数 __WriteFile(fd: 整数, content: 文字列) r: 整数
+extern 関数 __CloseFile(fd: 整数) r: 整数
+extern 関数 __FileSize(fd: 整数) r: 整数
+extern 関数 __FileExists(path: 文字列) r: 真偽
+extern 関数 __DeleteFile(path: 文字列) r: 真偽
+
 関数 メイン() r: 整数 {
     定数 パス = "/tmp/seen_e2e_test_ja.txt"
     定数 内容 = "hello from seen e2e test"

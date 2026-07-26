@@ -1,0 +1,121 @@
+{
+  "contract_version": 1,
+  "schema": "../schemas/semver-requirement-v1.schema.json",
+  "canonicalization": "reject-noncanonical-input-without-repair",
+  "valid": [
+    {
+      "input": "2.1.0",
+      "kind": "exact",
+      "exact_version": "2.1.0",
+      "prerelease_cores": []
+    },
+    {
+      "input": "1.2.3-alpha.1+build.5",
+      "kind": "exact",
+      "exact_version": "1.2.3-alpha.1+build.5",
+      "prerelease_cores": ["1.2.3"]
+    },
+    {
+      "input": "^2.1.0",
+      "kind": "caret",
+      "lower": {"operator": ">=", "version": "2.1.0"},
+      "upper": {"operator": "<", "version": "3.0.0"},
+      "prerelease_cores": []
+    },
+    {
+      "input": "^0.2.3",
+      "kind": "caret",
+      "lower": {"operator": ">=", "version": "0.2.3"},
+      "upper": {"operator": "<", "version": "0.3.0"},
+      "prerelease_cores": []
+    },
+    {
+      "input": "^0.0.3",
+      "kind": "caret",
+      "lower": {"operator": ">=", "version": "0.0.3"},
+      "upper": {"operator": "<", "version": "0.0.4"},
+      "prerelease_cores": []
+    },
+    {
+      "input": "^0.0.0",
+      "kind": "caret",
+      "lower": {"operator": ">=", "version": "0.0.0"},
+      "upper": {"operator": "<", "version": "0.0.1"},
+      "prerelease_cores": []
+    },
+    {
+      "input": "^1.2.3-alpha.1",
+      "kind": "caret",
+      "lower": {"operator": ">=", "version": "1.2.3-alpha.1"},
+      "upper": {"operator": "<", "version": "2.0.0"},
+      "prerelease_cores": ["1.2.3"]
+    },
+    {
+      "input": "~1.4",
+      "kind": "tilde",
+      "lower": {"operator": ">=", "version": "1.4.0"},
+      "upper": {"operator": "<", "version": "1.5.0"},
+      "prerelease_cores": []
+    },
+    {
+      "input": "~1.4.2",
+      "kind": "tilde",
+      "lower": {"operator": ">=", "version": "1.4.2"},
+      "upper": {"operator": "<", "version": "1.5.0"},
+      "prerelease_cores": []
+    },
+    {
+      "input": "~1.4.2-beta.1",
+      "kind": "tilde",
+      "lower": {"operator": ">=", "version": "1.4.2-beta.1"},
+      "upper": {"operator": "<", "version": "1.5.0"},
+      "prerelease_cores": ["1.4.2"]
+    },
+    {
+      "input": ">=1.2.3 <2.0.0",
+      "kind": "comparator-conjunction",
+      "lower": {"operator": ">=", "version": "1.2.3"},
+      "upper": {"operator": "<", "version": "2.0.0"},
+      "prerelease_cores": []
+    },
+    {
+      "input": ">1.2.3 <=1.9.9",
+      "kind": "comparator-conjunction",
+      "lower": {"operator": ">", "version": "1.2.3"},
+      "upper": {"operator": "<=", "version": "1.9.9"},
+      "prerelease_cores": []
+    },
+    {
+      "input": ">=1.2.3-alpha.1 <2.0.0",
+      "kind": "comparator-conjunction",
+      "lower": {"operator": ">=", "version": "1.2.3-alpha.1"},
+      "upper": {"operator": "<", "version": "2.0.0"},
+      "prerelease_cores": ["1.2.3"]
+    }
+  ],
+  "invalid": [
+    {"input": "", "error_code": "invalid_version_requirement", "reason": "empty"},
+    {"input": "1.4", "error_code": "invalid_version_requirement", "reason": "bare-partial"},
+    {"input": "^1.4", "error_code": "invalid_version_requirement", "reason": "caret-requires-full-version"},
+    {"input": "~1", "error_code": "invalid_version_requirement", "reason": "tilde-requires-major-minor"},
+    {"input": "^1.2.3+build", "error_code": "invalid_version_requirement", "reason": "range-build-metadata"},
+    {"input": "~1.2.3+build", "error_code": "invalid_version_requirement", "reason": "range-build-metadata"},
+    {"input": ">=1.2.3+build <2.0.0", "error_code": "invalid_version_requirement", "reason": "range-build-metadata"},
+    {"input": "^1.2.3 || ^2.0.0", "error_code": "invalid_version_requirement", "reason": "or-operator-forbidden"},
+    {"input": "1.2.*", "error_code": "invalid_version_requirement", "reason": "wildcard-forbidden"},
+    {"input": "1.x", "error_code": "invalid_version_requirement", "reason": "wildcard-forbidden"},
+    {"input": "latest", "error_code": "invalid_version_requirement", "reason": "tag-forbidden"},
+    {"input": " ^1.2.3", "error_code": "invalid_version_requirement", "reason": "leading-whitespace"},
+    {"input": "^1.2.3 ", "error_code": "invalid_version_requirement", "reason": "trailing-whitespace"},
+    {"input": ">=1.2.3  <2.0.0", "error_code": "invalid_version_requirement", "reason": "noncanonical-whitespace"},
+    {"input": ">=1.2.3\t<2.0.0", "error_code": "invalid_version_requirement", "reason": "noncanonical-whitespace"},
+    {"input": ">=1.2.3,<2.0.0", "error_code": "invalid_version_requirement", "reason": "comma-conjunction-forbidden"},
+    {"input": ">=2.0.0 <1.0.0", "error_code": "invalid_version_requirement", "reason": "bounds-not-ascending"},
+    {"input": ">=1.2.3 <1.2.3", "error_code": "invalid_version_requirement", "reason": "empty-interval"},
+    {"input": "01.2.3", "error_code": "invalid_version_requirement", "reason": "numeric-leading-zero"},
+    {"input": "1.2.3-01", "error_code": "invalid_version_requirement", "reason": "numeric-prerelease-leading-zero"},
+    {"input": ">=1.2.3", "error_code": "invalid_version_requirement", "reason": "unbounded-comparator"},
+    {"input": "1.2.3 - 2.0.0", "error_code": "invalid_version_requirement", "reason": "hyphen-range-forbidden"},
+    {"input": "=1.2.3", "error_code": "invalid_version_requirement", "reason": "equals-prefix-forbidden"}
+  ]
+}

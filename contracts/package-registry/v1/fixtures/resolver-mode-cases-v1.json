@@ -1,0 +1,20 @@
+{
+  "contract_version": 1,
+  "policy": "resolution-policy-v1.json",
+  "cases": [
+    {"name": "normal_prefers_valid_lock", "strategy": "normal", "modifiers": [], "lock": "valid", "local_data": "complete", "expected": {"selection": "locked", "network": "not-required", "write_lock": false}},
+    {"name": "normal_resolves_missing_lock", "strategy": "normal", "modifiers": [], "lock": "missing", "local_data": "missing", "expected": {"selection": "resolve-highest", "network": "allowed", "write_lock": true}},
+    {"name": "update_ignores_valid_lock", "strategy": "update", "modifiers": [], "lock": "valid", "local_data": "complete", "expected": {"selection": "resolve-highest", "network": "allowed", "write_lock": true}},
+    {"name": "locked_fetches_exact_missing_blob", "strategy": "normal", "modifiers": ["locked"], "lock": "valid", "local_data": "metadata-only", "expected": {"selection": "locked", "network": "exact-locked-only", "write_lock": false}},
+    {"name": "locked_requires_current_lock", "strategy": "normal", "modifiers": ["locked"], "lock": "missing", "local_data": "complete", "expected": {"error_code": "lock_required"}},
+    {"name": "offline_normal_resolves_local_candidates", "strategy": "normal", "modifiers": ["offline"], "lock": "missing", "local_data": "complete", "expected": {"selection": "resolve-highest-local", "network": "forbidden", "write_lock": true}},
+    {"name": "offline_update_resolves_local_candidates", "strategy": "update", "modifiers": ["offline"], "lock": "valid", "local_data": "complete", "expected": {"selection": "resolve-highest-local", "network": "forbidden", "write_lock": true}},
+    {"name": "offline_cache_miss_fails", "strategy": "normal", "modifiers": ["offline"], "lock": "missing", "local_data": "missing", "expected": {"error_code": "offline_data_unavailable"}},
+    {"name": "frozen_is_locked_plus_offline", "strategy": "normal", "modifiers": ["frozen"], "lock": "valid", "local_data": "complete", "expected": {"selection": "locked", "network": "forbidden", "write_lock": false}},
+    {"name": "frozen_missing_blob_fails_offline", "strategy": "normal", "modifiers": ["frozen"], "lock": "valid", "local_data": "metadata-only", "expected": {"error_code": "offline_data_unavailable"}},
+    {"name": "frozen_requires_lock", "strategy": "normal", "modifiers": ["frozen"], "lock": "missing", "local_data": "complete", "expected": {"error_code": "lock_required"}},
+    {"name": "locked_offline_equals_frozen", "strategy": "normal", "modifiers": ["locked", "offline"], "lock": "valid", "local_data": "complete", "expected": {"selection": "locked", "network": "forbidden", "write_lock": false}},
+    {"name": "update_locked_is_invalid", "strategy": "update", "modifiers": ["locked"], "lock": "valid", "local_data": "complete", "expected": {"error_code": "invalid_mode_combination"}},
+    {"name": "update_frozen_is_invalid", "strategy": "update", "modifiers": ["frozen"], "lock": "valid", "local_data": "complete", "expected": {"error_code": "invalid_mode_combination"}}
+  ]
+}

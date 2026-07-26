@@ -1,0 +1,41 @@
+{
+  "contract_version": 1,
+  "base_release_record": "release-record-v1.json",
+  "schema": "../schemas/release-record.schema.json",
+  "cases": [
+    {
+      "name": "public-active-available-retained",
+      "state": {"lifecycle": "active", "visibility": "public", "availability": "available", "retention": "retained"},
+      "expected": "accept"
+    },
+    {
+      "name": "private-active-yanked-retained",
+      "state": {"lifecycle": "active", "visibility": "private", "availability": "yanked", "retention": "retained"},
+      "expected": "accept"
+    },
+    {
+      "name": "public-release-cannot-be-purged",
+      "state": {"lifecycle": "active", "visibility": "public", "availability": "unavailable", "retention": "purged"},
+      "expected": "reject",
+      "error_code": "release_state_public_not_retained"
+    },
+    {
+      "name": "reserved-release-cannot-be-available",
+      "state": {"lifecycle": "reserved", "visibility": "private", "availability": "available", "retention": "retained"},
+      "expected": "reject",
+      "error_code": "release_state_available_not_active"
+    },
+    {
+      "name": "soft-deleted-release-cannot-be-public",
+      "state": {"lifecycle": "active", "visibility": "public", "availability": "unavailable", "retention": "soft-deleted"},
+      "expected": "reject",
+      "error_code": "release_state_deleted_not_private"
+    },
+    {
+      "name": "purged-release-cannot-remain-available",
+      "state": {"lifecycle": "active", "visibility": "private", "availability": "available", "retention": "purged"},
+      "expected": "reject",
+      "error_code": "release_state_deleted_not_unavailable"
+    }
+  ]
+}

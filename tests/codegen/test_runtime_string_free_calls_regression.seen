@@ -1,0 +1,26 @@
+///
+Runtime-backed string helpers must remain valid as free calls after unresolved
+function validation runs.
+///
+
+fun main() r: Int {
+    let text = "alpha beta alpha"
+
+    if not contains(text, "beta") {
+        return 1
+    }
+    if not startsWith(text, "alpha") {
+        return 2
+    }
+    if not endsWith(text, "alpha") {
+        return 3
+    }
+    if indexOf(text, "beta", 0) != 6 {
+        return 4
+    }
+    if lastIndexOf(text, "alpha") != 11 {
+        return 5
+    }
+
+    return 0
+}

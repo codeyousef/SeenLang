@@ -100,9 +100,6 @@ name = "my_project"
 version = "0.1.0"
 language = "en"
 
-[registries]
-default = "https://seen.yousef.codes/packages"
-
 [dependencies]
 
 [native.dependencies]
@@ -147,6 +144,46 @@ Compile:
 seen compile src/main.seen my_project
 ./my_project
 ```
+
+## Add Package Dependencies
+
+Local source packages can be declared directly:
+
+```toml
+[dependencies]
+gamekit = { path = "../gamekit" }
+```
+
+For a signed registry, configure its canonical HTTPS origin and use a local
+alias for each canonical `owner/name` package identity:
+
+```toml
+manifest-version = 1
+
+[registries]
+default = "https://seen.dev.yousef.codes/packages"
+
+[dependencies]
+calc = { package = "alice/mathx", version = "^1.2.0", allow = ["file"] }
+
+[package-grants]
+"alice/mathx" = ["file"]
+```
+
+Fetch and lock the dependency graph, then verify reproducible use:
+
+```bash
+seen pkg fetch
+seen check src/main.seen --locked
+seen compile src/main.seen my_project --frozen
+```
+
+`compile`, `check`, and `run` prepare declared dependencies automatically. The
+development origin in this example serves public signed metadata and catalog
+reads, and the client embeds its official trust root. No submitted release is
+currently resolver-visible because promotion remains disabled. See
+[Packaging](packaging.md) for custom signed registries, lock modes, and
+capability consent.
 
 ## Editor Setup
 

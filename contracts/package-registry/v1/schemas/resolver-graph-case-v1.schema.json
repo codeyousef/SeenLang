@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:seen:package-registry:v1:resolver-graph-case",
+  "title": "Seen deterministic dependency graph case v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "strategy", "modifiers", "root", "candidates", "expected"],
+  "properties": {
+    "name": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,95}$"},
+    "description": {"type": "string", "minLength": 1},
+    "strategy": {"enum": ["normal", "update"]},
+    "modifiers": {"type": "array", "uniqueItems": true, "items": {"enum": ["locked", "offline", "frozen"]}},
+    "root": {"$ref": "#/$defs/root"},
+    "candidates": {"type": "array", "items": {"$ref": "#/$defs/candidate"}},
+    "expected": {"oneOf": [{"$ref": "#/$defs/solution"}, {"$ref": "#/$defs/failure"}]}
+  },
+  "$defs": {
+    "identity": {"type": "string", "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?/[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"},
+    "origin": {"type": "string", "pattern": "^https://[a-z0-9.-]+/[a-z0-9][a-z0-9._~/-]*$"},
+    "version": {"type": "string", "format": "semver-exact"},
+    "requirement": {"$ref": "urn:seen:package-registry:v1:semver-requirement"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "capability": {"enum": ["file", "network", "process", "environment", "dynamic-load", "ffi", "unsafe", "native-link", "macro"]},
+    "capabilities": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/capability"}},
+    "edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["alias", "package", "registry_origin", "requirement", "allow"],
+      "properties": {
+        "alias": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$"},
+        "package": {"$ref": "#/$defs/identity"},
+        "registry_origin": {"$ref": "#/$defs/origin"},
+        "requirement": {"$ref": "#/$defs/requirement"},
+        "allow": {"$ref": "#/$defs/capabilities"}
+      }
+    },
+    "grant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["package", "capabilities"],
+      "properties": {"package": {"$ref": "#/$defs/identity"}, "capabilities": {"$ref": "#/$defs/capabilities"}}
+    },
+    "root": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dependencies", "grants"],
+      "properties": {
+        "dependencies": {"type": "array", "items": {"$ref": "#/$defs/edge"}},
+        "grants": {"type": "array", "items": {"$ref": "#/$defs/grant"}}
+      }
+    },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["package", "version", "registry_origin", "archive_sha256", "availability", "capabilities", "dependencies"],
+      "properties": {
+        "package": {"$ref": "#/$defs/identity"},
+        "version": {"$ref": "#/$defs/version"},
+        "registry_origin": {"$ref": "#/$defs/origin"},
+        "archive_sha256": {"$ref": "#/$defs/sha256"},
+        "availability": {"enum": ["available", "yanked", "security-quarantined"]},
+        "capabilities": {"$ref": "#/$defs/capabilities"},
+        "dependencies": {"type": "array", "items": {"$ref": "#/$defs/edge"}}
+      }
+    },
+    "selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["package", "version", "archive_sha256"],
+      "properties": {"package": {"$ref": "#/$defs/identity"}, "version": {"$ref": "#/$defs/version"}, "archive_sha256": {"$ref": "#/$defs/sha256"}}
+    },
+    "solution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["outcome", "selected"],
+      "properties": {"outcome": {"const": "select"}, "selected": {"type": "array", "items": {"$ref": "#/$defs/selection"}}}
+    },
+    "failure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["outcome", "error_code"],
+      "properties": {
+        "outcome": {"const": "error"},
+        "error_code": {"enum": ["dependency_constraint_conflict", "dependency_cycle_inconsistent", "dependency_capability_not_allowed", "capability_consent_required", "offline_data_unavailable", "lock_required", "invalid_mode_combination"]},
+        "package": {"$ref": "#/$defs/identity"},
+        "capabilities": {"$ref": "#/$defs/capabilities"},
+        "conflict_requesters": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+      }
+    }
+  }
+}

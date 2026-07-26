@@ -1,0 +1,4 @@
+// A source-only package used to verify the development registry ingestion path.
+fun registry_smoke_answer() -> i32 {
+    return 42
+}

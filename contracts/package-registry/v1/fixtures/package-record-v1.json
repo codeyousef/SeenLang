@@ -1,0 +1,15 @@
+{
+  "contract_version": 1,
+  "identity": "acme/http",
+  "namespace_status": "active",
+  "description": "Small HTTP primitives for Seen applications.",
+  "repository": "https://github.com/acme-seen/http",
+  "license_spdx": "MIT",
+  "latest_active_version": "1.2.3",
+  "created_at": "2026-07-09T08:00:00Z",
+  "updated_at": "2026-07-13T12:00:03.125Z",
+  "links": {
+    "self": "/packages/api/v1/packages/acme/http",
+    "releases": "/packages/api/v1/packages/acme/http/releases"
+  }
+}

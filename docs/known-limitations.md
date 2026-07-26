@@ -27,9 +27,23 @@ docs.
 
 ## Packages
 
-- Registry dependency versions are exact-only for now.
-- `seen pkg publish` writes static registry files to a local directory; it does
-  not upload to a remote service.
+- The development registry's official root is embedded and its public signed
+  metadata and catalog are live. Production remains unprovisioned and fails
+  closed without an embedded root.
+- Controlled internal publishing is active, but every submitted release remains
+  delayed, unavailable, and invisible to public catalog, resolution, and
+  download until promotion is implemented.
+- Hosted login/logout/whoami, private-package access, yanking, and reporting
+  remain inactive.
+- Package capability declarations are consent and policy signals, not an
+  operating-system sandbox. In particular, FFI, unsafe operations, native
+  linking, and process execution require the same review they would in local
+  source.
+- The compiler and package client are version-coupled. A partial installation
+  that omits the matching `seen-pkg` binary, or supplies a client from another
+  Seen release, is rejected.
+- Hosted registry archives are source-only. Native prebuilt artifacts remain
+  local path dependencies and are not accepted as hosted package contents.
 - Local prebuilt artifacts are consumed through `{ artifact = "..." }`
   dependencies and are linked from `objects.tsv`.
 

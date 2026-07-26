@@ -1,0 +1,218 @@
+{
+  "contract_version": 1,
+  "catalog": {
+    "invalid_request": {"http_status": 400, "retryable": false},
+    "invalid_package_identity": {"http_status": 400, "retryable": false},
+    "invalid_version": {"http_status": 400, "retryable": false},
+    "invalid_cursor": {"http_status": 400, "retryable": false},
+    "page_limit_exceeded": {"http_status": 400, "retryable": false},
+    "unauthenticated": {"http_status": 401, "retryable": false},
+    "forbidden": {"http_status": 403, "retryable": false},
+    "not_found": {"http_status": 404, "retryable": false},
+    "package_already_exists": {"http_status": 409, "retryable": false},
+    "version_already_reserved": {"http_status": 409, "retryable": false},
+    "idempotency_key_required": {"http_status": 400, "retryable": false},
+    "idempotency_key_reused": {"http_status": 409, "retryable": false},
+    "digest_required": {"http_status": 400, "retryable": false},
+    "digest_mismatch": {"http_status": 422, "retryable": false},
+    "archive_too_large": {"http_status": 413, "retryable": false},
+    "archive_rejected": {"http_status": 422, "retryable": false},
+    "source_proof_invalid": {"http_status": 422, "retryable": false},
+    "release_not_ready": {"http_status": 409, "retryable": true},
+    "release_unavailable": {"http_status": 409, "retryable": false},
+    "state_transition_forbidden": {"http_status": 409, "retryable": false},
+    "rate_limited": {"http_status": 429, "retryable": true},
+    "writer_disabled": {"http_status": 503, "retryable": false},
+    "temporarily_unavailable": {"http_status": 503, "retryable": true},
+    "internal_error": {"http_status": 500, "retryable": true}
+  },
+  "invariants": {
+    "client_branch_field": "error.code",
+    "human_text_is_stable": false,
+    "retry_authority_field": "error.retryable",
+    "retry_delay_body_field": "error.retry_after_seconds",
+    "retry_delay_header": "Retry-After",
+    "retry_delay_values_must_match": true,
+    "non_retryable_delay": null,
+    "request_id_header": "X-Request-Id",
+    "request_id_body_field": "error.request_id",
+    "request_id_values_must_match": true,
+    "private_absence_code": "not_found",
+    "private_absence_details": {}
+  },
+  "cases": [
+    {
+      "name": "invalid-version",
+      "http_status": 400,
+      "headers": {
+        "X-Request-Id": "req_01JZXA1B2C3D4E5F6G7H"
+      },
+      "body": {
+        "error": {
+          "code": "invalid_version",
+          "message": "version must be an exact semantic version",
+          "request_id": "req_01JZXA1B2C3D4E5F6G7H",
+          "occurred_at": "2026-07-16T08:00:00Z",
+          "retryable": false,
+          "retry_after_seconds": null,
+          "details": {
+            "field": "version"
+          }
+        }
+      }
+    },
+    {
+      "name": "private-release-concealed",
+      "equivalence_group": "not-found",
+      "http_status": 404,
+      "headers": {
+        "X-Request-Id": "req_01JZXA2B3C4D5E6F7G8H"
+      },
+      "body": {
+        "error": {
+          "code": "not_found",
+          "message": "resource not found",
+          "request_id": "req_01JZXA2B3C4D5E6F7G8H",
+          "occurred_at": "2026-07-16T08:00:01Z",
+          "retryable": false,
+          "retry_after_seconds": null,
+          "details": {}
+        }
+      }
+    },
+    {
+      "name": "absent-release",
+      "equivalence_group": "not-found",
+      "http_status": 404,
+      "headers": {
+        "X-Request-Id": "req_01JZXA3B4C5D6E7F8G9H"
+      },
+      "body": {
+        "error": {
+          "code": "not_found",
+          "message": "resource not found",
+          "request_id": "req_01JZXA3B4C5D6E7F8G9H",
+          "occurred_at": "2026-07-16T08:00:02Z",
+          "retryable": false,
+          "retry_after_seconds": null,
+          "details": {}
+        }
+      }
+    },
+    {
+      "name": "idempotency-fingerprint-conflict",
+      "http_status": 409,
+      "headers": {
+        "X-Request-Id": "req_01JZXA4B5C6D7E8F9G0H"
+      },
+      "body": {
+        "error": {
+          "code": "idempotency_key_reused",
+          "message": "idempotency key was already used for a different request",
+          "request_id": "req_01JZXA4B5C6D7E8F9G0H",
+          "occurred_at": "2026-07-16T08:00:03Z",
+          "retryable": false,
+          "retry_after_seconds": null,
+          "details": {}
+        }
+      }
+    },
+    {
+      "name": "digest-mismatch",
+      "http_status": 422,
+      "headers": {
+        "X-Request-Id": "req_01JZXA5B6C7D8E9F0G1H"
+      },
+      "body": {
+        "error": {
+          "code": "digest_mismatch",
+          "message": "computed archive digest does not match the reserved digest",
+          "request_id": "req_01JZXA5B6C7D8E9F0G1H",
+          "occurred_at": "2026-07-16T08:00:04Z",
+          "retryable": false,
+          "retry_after_seconds": null,
+          "details": {
+            "field": "X-Seen-Archive-Sha256"
+          }
+        }
+      }
+    },
+    {
+      "name": "release-scan-pending",
+      "http_status": 409,
+      "headers": {
+        "X-Request-Id": "req_01JZXA6B7C8D9E0F1G2H",
+        "Retry-After": 30
+      },
+      "body": {
+        "error": {
+          "code": "release_not_ready",
+          "message": "release validation is still in progress",
+          "request_id": "req_01JZXA6B7C8D9E0F1G2H",
+          "occurred_at": "2026-07-16T08:00:05Z",
+          "retryable": true,
+          "retry_after_seconds": 30,
+          "details": {
+            "lifecycle": "second-scanning"
+          }
+        }
+      }
+    },
+    {
+      "name": "rate-limited",
+      "http_status": 429,
+      "headers": {
+        "X-Request-Id": "req_01JZXA7B8C9D0E1F2G3H",
+        "Retry-After": 60
+      },
+      "body": {
+        "error": {
+          "code": "rate_limited",
+          "message": "request quota exceeded",
+          "request_id": "req_01JZXA7B8C9D0E1F2G3H",
+          "occurred_at": "2026-07-16T08:00:06Z",
+          "retryable": true,
+          "retry_after_seconds": 60,
+          "details": {}
+        }
+      }
+    },
+    {
+      "name": "writer-disabled",
+      "http_status": 503,
+      "headers": {
+        "X-Request-Id": "req_01JZXA8B9C0D1E2F3G4H"
+      },
+      "body": {
+        "error": {
+          "code": "writer_disabled",
+          "message": "package publication is not enabled",
+          "request_id": "req_01JZXA8B9C0D1E2F3G4H",
+          "occurred_at": "2026-07-16T08:00:07Z",
+          "retryable": false,
+          "retry_after_seconds": null,
+          "details": {}
+        }
+      }
+    },
+    {
+      "name": "scanner-temporarily-unavailable",
+      "http_status": 503,
+      "headers": {
+        "X-Request-Id": "req_01JZXA9B0C1D2E3F4G5H",
+        "Retry-After": 120
+      },
+      "body": {
+        "error": {
+          "code": "temporarily_unavailable",
+          "message": "a required verification service is unavailable",
+          "request_id": "req_01JZXA9B0C1D2E3F4G5H",
+          "occurred_at": "2026-07-16T08:00:08Z",
+          "retryable": true,
+          "retry_after_seconds": 120,
+          "details": {}
+        }
+      }
+    }
+  ]
+}

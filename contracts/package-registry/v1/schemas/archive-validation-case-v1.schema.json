@@ -1,0 +1,129 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:seen:package-registry:v1:archive-validation-case",
+  "title": "Seen archive policy validation case v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "description", "archive", "expected"],
+  "properties": {
+    "name": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_]*$"},
+    "description": {"type": "string", "minLength": 1},
+    "archive": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["format", "parser_result", "stats", "entries"],
+      "properties": {
+        "format": {"const": "tar+gzip"},
+        "parser_result": {"enum": ["complete", "truncated", "unsupported-header", "timeout"]},
+        "stats": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "compressed_bytes",
+            "expanded_bytes",
+            "entry_count",
+            "max_regular_file_bytes",
+            "max_path_bytes",
+            "max_path_depth",
+            "compression_ratio"
+          ],
+          "properties": {
+            "compressed_bytes": {"type": "integer", "minimum": 0},
+            "expanded_bytes": {"type": "integer", "minimum": 0},
+            "entry_count": {"type": "integer", "minimum": 0},
+            "max_regular_file_bytes": {"type": "integer", "minimum": 0},
+            "max_path_bytes": {"type": "integer", "minimum": 0},
+            "max_path_depth": {"type": "integer", "minimum": 0},
+            "compression_ratio": {"type": "number", "minimum": 0}
+          }
+        },
+        "entries": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/entry"}
+        },
+        "notes": {"type": "string"}
+      }
+    },
+    "expected": {"enum": ["accept", "reject"]},
+    "error_code": {
+      "enum": [
+        "archive_compressed_size_limit",
+        "archive_expanded_size_limit",
+        "archive_entry_count_limit",
+        "archive_file_size_limit",
+        "archive_path_length_limit",
+        "archive_path_depth_limit",
+        "archive_compression_ratio_limit",
+        "archive_path_absolute",
+        "archive_path_traversal",
+        "archive_path_invalid",
+        "archive_duplicate_path",
+        "archive_portable_case_collision",
+        "archive_unicode_normalization_collision",
+        "archive_entry_type_forbidden",
+        "archive_executable_forbidden",
+        "archive_prebuilt_artifact_forbidden",
+        "archive_lifecycle_script_forbidden",
+        "archive_manifest_missing",
+        "archive_include_policy_violation",
+        "archive_parse_failed",
+        "archive_validation_timeout"
+      ]
+    },
+    "failure_entry": {"type": "integer", "minimum": 0}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"expected": {"const": "reject"}}, "required": ["expected"]},
+      "then": {"required": ["error_code"]},
+      "else": {"not": {"required": ["error_code"]}}
+    }
+  ],
+  "$defs": {
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["header_path", "effective_path", "type", "size", "mode", "included_by_manifest"],
+      "properties": {
+        "header_path": {"type": "string"},
+        "effective_path": {"type": "string"},
+        "type": {
+          "enum": [
+            "regular-file",
+            "directory",
+            "symlink",
+            "hardlink",
+            "character-device",
+            "block-device",
+            "fifo",
+            "socket",
+            "sparse-file",
+            "unknown"
+          ]
+        },
+        "size": {"type": "integer", "minimum": 0},
+        "mode": {"type": "string", "pattern": "^[0-7]{4}$"},
+        "included_by_manifest": {"type": "boolean"},
+        "link_target": {"type": "string"},
+        "header_override": {"enum": ["none", "pax-path", "gnu-longname"]},
+        "leading_bytes_hex": {"type": "string", "pattern": "^(?:[0-9a-f]{2}){0,4096}$"},
+        "content_classification": {
+          "enum": [
+            "manifest",
+            "seen-source",
+            "text-source",
+            "opaque-data",
+            "native-binary",
+            "object-or-library",
+            "bytecode",
+            "nested-binary-container",
+            "script"
+          ]
+        },
+        "detected_classifier": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"},
+        "device_major": {"type": "integer", "minimum": 0},
+        "device_minor": {"type": "integer", "minimum": 0}
+      }
+    }
+  }
+}

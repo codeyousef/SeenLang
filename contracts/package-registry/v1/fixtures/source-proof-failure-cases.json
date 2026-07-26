@@ -1,0 +1,48 @@
+{
+  "contract_version": 1,
+  "base_source_proof": "source-proof-v1.json",
+  "schema": "../schemas/source-proof.schema.json",
+  "invalid_cases": [
+    {
+      "name": "verified-proof-missing-required-check",
+      "mutations": [
+        {"op": "replace", "path": "/checks/4/name", "value": "archive-digest"}
+      ],
+      "expected": "schema-reject",
+      "error_code": "source_proof_required_check_missing"
+    },
+    {
+      "name": "verified-proof-has-failed-check",
+      "mutations": [
+        {"op": "replace", "path": "/checks/3/status", "value": "failed"}
+      ],
+      "expected": "schema-reject",
+      "error_code": "source_proof_check_not_passed"
+    },
+    {
+      "name": "verified-proof-license-incompatible",
+      "mutations": [
+        {"op": "replace", "path": "/license/compatible", "value": false}
+      ],
+      "expected": "schema-reject",
+      "error_code": "source_proof_license_incompatible"
+    },
+    {
+      "name": "verified-proof-without-verification-time",
+      "mutations": [
+        {"op": "replace", "path": "/verified_at", "value": null}
+      ],
+      "expected": "schema-reject",
+      "error_code": "source_proof_verified_at_required"
+    },
+    {
+      "name": "mutable-ref-resolves-to-different-commit",
+      "description": "A ref re-resolved after review cannot replace the immutable commit bound by the trusted verification context.",
+      "mutations": [
+        {"op": "replace", "path": "/commit/value", "value": "fedcba9876543210fedcba9876543210fedcba98"}
+      ],
+      "expected": "semantic-reject",
+      "error_code": "source_proof_mutable_ref_changed"
+    }
+  ]
+}

@@ -35,6 +35,7 @@ WHEN_ENUM_NON_EXHAUSTIVE_SRC="$ROOT_DIR/tests/fixtures/current_limitations/when_
 WHEN_ENUM_EXHAUSTIVE_OK_SRC="$ROOT_DIR/tests/fixtures/current_limitations/when_enum_exhaustive_ok.seen"
 WHEN_ENUM_ELSE_OK_SRC="$ROOT_DIR/tests/fixtures/current_limitations/when_enum_else_ok.seen"
 UNRESOLVED_FREE_CALL_SRC="$ROOT_DIR/tests/fixtures/current_limitations/unresolved_free_call.seen"
+RUNTIME_STRING_BUILTINS_SRC="$ROOT_DIR/tests/codegen/test_runtime_string_free_calls_regression.seen"
 BOOL_RETURN_COERCION_SRC="$ROOT_DIR/tests/codegen/test_bool_return_int_coercion_regression.seen"
 BOOL_HELPER_LOGICAL_SRC="$ROOT_DIR/tests/codegen/test_bool_helper_logical_regression.seen"
 STRING_VAR_INIT_CONCAT_SRC="$ROOT_DIR/tests/codegen/test_string_var_initializer_concat_regression.seen"
@@ -49,6 +50,7 @@ NESTED_CONTINUE_HIGH_ARITY_SRC="$ROOT_DIR/tests/codegen/test_nested_continue_hig
 FEL66_EMIT_LLVM_MANIFEST_SRC="$ROOT_DIR/tests/codegen/test_fel66_emit_llvm_export_manifest.seen"
 FEL67_HOTRELOAD_INLINE_CAST_SRC="$ROOT_DIR/tests/codegen/test_fel67_hotreload_inline_literal_cast.seen"
 FEL68_STATIC_NEW_HANDLE_SRC="$ROOT_DIR/tests/codegen/test_fel68_static_new_handle_regression.seen"
+FEL646_RESULT_POINTER_PAYLOAD_SRC="$ROOT_DIR/tests/codegen/test_fel646_result_pointer_payload_regression.seen"
 
 cleanup_seen_artifacts() {
     rm -rf "$ROOT_DIR/.seen_cache" /tmp/seen_ir_cache "$TMP_ROOT"
@@ -183,6 +185,84 @@ run_success_case_with_ir_check() {
     fi
 
     echo "PASS: $label"
+}
+
+run_result_pointer_payload_regression_case() {
+    local output_file="$TMP_ROOT/fel646_result_pointer_payload"
+    local log_file="$TMP_ROOT/fel646_result_pointer_payload.log"
+    local ir_dir="$TMP_ROOT/fel646_ir"
+    local result_ir
+    local result_body
+    local consumer_ir
+    local consumer_reification
+    local real_opt
+
+    cleanup_seen_artifacts
+    mkdir -p "$ir_dir"
+
+    if [[ "$BUILD_CMD" == "build" ]]; then
+        if ! timeout 120 "$COMPILER" build \
+            "$FEL646_RESULT_POINTER_PAYLOAD_SRC" -o "$output_file" --fast \
+            --no-cache --no-fork --jobs 1 --opt-jobs 1 \
+            --emit-module-ir-dir "$ir_dir" >"$log_file" 2>&1; then
+            echo "FAIL: FEL-646 Result pointer payload compile failed"
+            cat "$log_file"
+            exit 1
+        fi
+    else
+        if ! timeout 120 "$COMPILER" compile \
+            "$FEL646_RESULT_POINTER_PAYLOAD_SRC" "$output_file" --fast \
+            --no-cache --no-fork --jobs 1 --opt-jobs 1 \
+            --emit-module-ir-dir "$ir_dir" >"$log_file" 2>&1; then
+            echo "FAIL: FEL-646 Result pointer payload compile failed"
+            cat "$log_file"
+            exit 1
+        fi
+    fi
+
+    result_ir="$(grep -El 'define .*@Result_unwrap\(' "$ir_dir"/*.ll \
+        2>/dev/null | head -n 1 || true)"
+    if [[ -z "$result_ir" ]]; then
+        echo "FAIL: FEL-646 Result module IR was not emitted"
+        cat "$log_file"
+        exit 1
+    fi
+
+    result_body="$(sed -n '/define .*@Result_unwrap(/,/^}/p' "$result_ir")"
+    if ! grep -Eq '= call ptr @seen_arr_get_element_ptr\(' \
+        <<<"$result_body" ||
+        ! grep -Eq '= load i64, ptr ' <<<"$result_body"; then
+        echo "FAIL: FEL-646 Result.unwrap did not load its erased payload"
+        printf '%s\n' "$result_body"
+        exit 1
+    fi
+
+    consumer_ir="$(grep -El '= call i64 @Result_unwrap\(' "$ir_dir"/*.ll \
+        2>/dev/null | head -n 1 || true)"
+    consumer_reification="$(grep -A 1 -m 1 \
+        -E '= call i64 @Result_unwrap\(' "$consumer_ir" 2>/dev/null || true)"
+    if [[ -z "$consumer_ir" ]] ||
+        ! grep -Eq '= inttoptr i64 .* to ptr' \
+            <<<"$consumer_reification"; then
+        echo "FAIL: FEL-646 Result.unwrap payload handle was not reified"
+        printf '%s\n' "$consumer_reification"
+        exit 1
+    fi
+
+    real_opt="$(command -v opt || true)"
+    if [[ -z "$real_opt" ]] ||
+        ! "$real_opt" -passes=verify -disable-output "$result_ir"; then
+        echo "FAIL: FEL-646 Result module IR failed LLVM verification"
+        exit 1
+    fi
+
+    if ! "$output_file" >/dev/null 2>&1; then
+        echo "FAIL: FEL-646 Result pointer payload binary exited non-zero"
+        cat "$log_file"
+        exit 1
+    fi
+
+    echo "PASS: FEL-646 Result pointer payload stays verifier-clean"
 }
 
 run_check_success_case() {
@@ -2229,6 +2309,7 @@ run_check_failure_case "enum matches must be exhaustive without else" "$WHEN_ENU
 run_check_success_case "enum matches stay allowed when all variants are covered" "$WHEN_ENUM_EXHAUSTIVE_OK_SRC" "$TMP_ROOT/when_enum_exhaustive_ok.log"
 run_check_success_case "enum matches stay allowed with else arm" "$WHEN_ENUM_ELSE_OK_SRC" "$TMP_ROOT/when_enum_else_ok.log"
 run_check_failure_case "unresolved free function calls are diagnosed" "$UNRESOLVED_FREE_CALL_SRC" "$TMP_ROOT/unresolved_free_call.log" 'unresolved function `chunkInBounds`'
+run_success_case "runtime-backed string free calls remain resolvable" "$RUNTIME_STRING_BUILTINS_SRC" "$TMP_ROOT/runtime_string_builtins" "$TMP_ROOT/runtime_string_builtins.log"
 run_success_case "Bool returns coerce Int predicates to i1" "$BOOL_RETURN_COERCION_SRC" "$TMP_ROOT/bool_return_coercion" "$TMP_ROOT/bool_return_coercion.log"
 run_success_case "Bool helper logical conditions stay verifier-clean" "$BOOL_HELPER_LOGICAL_SRC" "$TMP_ROOT/bool_helper_logical" "$TMP_ROOT/bool_helper_logical.log"
 run_success_case "string local initializer survives nested concat rewrite" "$STRING_VAR_INIT_CONCAT_SRC" "$TMP_ROOT/string_var_init_concat" "$TMP_ROOT/string_var_init_concat.log"
@@ -2244,6 +2325,7 @@ run_success_case "nested continue high-arity functions compile" "$NESTED_CONTINU
 run_emit_llvm_object_manifest_case
 run_success_case "FEL-67 hotreload inline string cast stays verifier-clean" "$FEL67_HOTRELOAD_INLINE_CAST_SRC" "$TMP_ROOT/fel67_hotreload_inline_cast" "$TMP_ROOT/fel67_hotreload_inline_cast.log"
 run_static_new_handle_regression_case
+run_result_pointer_payload_regression_case
 run_c12_case
 run_recovery_partial_failure_case
 run_toml_project_modules_case

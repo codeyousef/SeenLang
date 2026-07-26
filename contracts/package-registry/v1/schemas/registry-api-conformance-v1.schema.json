@@ -1,0 +1,157 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:seen:package-registry:v1:api-conformance",
+  "title": "Seen package registry service conformance suite v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract_version",
+    "openapi",
+    "workflow_schema",
+    "authorization_boundary",
+    "required_operations",
+    "cases"
+  ],
+  "properties": {
+    "contract_version": {"const": 1},
+    "openapi": {"const": "../openapi.yaml"},
+    "workflow_schema": {"const": "../schemas/registry-api-workflows-v1.schema.json"},
+    "authorization_boundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "account_authentication_provider",
+        "credential_issuance_in_registry_api",
+        "accepted_credential",
+        "required_claims",
+        "recent_auth_max_age_seconds",
+        "recent_auth_claim",
+        "recent_auth_rule",
+        "future_auth_time_tolerance_seconds",
+        "publisher_explicitly_denied_operations",
+        "authorization_order"
+      ],
+      "properties": {
+        "account_authentication_provider": {"const": "external-aether"},
+        "credential_issuance_in_registry_api": {"const": false},
+        "accepted_credential": {"const": "short-lived-bearer"},
+        "required_claims": {
+          "const": ["iss", "aud", "sub", "exp", "auth_time", "environment", "scopes"]
+        },
+        "recent_auth_max_age_seconds": {"const": 900},
+        "recent_auth_claim": {"const": "auth_time"},
+        "recent_auth_rule": {"const": "server-now-minus-auth-time-must-be-between-negative-future-tolerance-and-operation-maximum"},
+        "future_auth_time_tolerance_seconds": {"const": 60},
+        "publisher_explicitly_denied_operations": {
+          "const": [
+            "emergencySecurityQuarantineRelease",
+            "reviewEnforcementAppeal",
+            "reviewedReinstateRelease",
+            "reviewOwnershipRecovery",
+            "executeOwnershipRecovery"
+          ]
+        },
+        "authorization_order": {
+          "const": [
+            "validate-token-boundary",
+            "reject-environment-or-audience-mismatch",
+            "apply-explicit-role-deny",
+            "require-operation-scope",
+            "authorize-resource-role",
+            "apply-recent-auth-and-separation-policy"
+          ]
+        }
+      }
+    },
+    "required_operations": {
+      "type": "array",
+      "minItems": 17,
+      "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]+$"}
+    },
+    "cases": {
+      "type": "array",
+      "minItems": 16,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/case"}
+    }
+  },
+  "$defs": {
+    "case": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "operation_id",
+        "actor",
+        "scopes",
+        "preconditions",
+        "request",
+        "expected"
+      ],
+      "properties": {
+        "name": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"},
+        "operation_id": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]+$"},
+        "actor": {
+          "enum": [
+            "anonymous",
+            "publisher",
+            "current-namespace-owner",
+            "new-namespace-owner",
+            "recovery-claimant",
+            "reporter",
+            "registry-security",
+            "registry-trust-and-safety",
+            "registry-namespace-reviewer"
+          ]
+        },
+        "scopes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^[a-z][a-z0-9:-]{2,95}$"}
+        },
+        "recent_auth_age_seconds": {
+          "oneOf": [
+            {"type": "integer", "minimum": 0},
+            {"type": "null"}
+          ]
+        },
+        "preconditions": {"type": "object"},
+        "request": {"type": "object"},
+        "expected": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["authorization", "http_status", "assertions"],
+          "properties": {
+            "authorization": {"enum": ["allow", "deny", "public"]},
+            "http_status": {"type": "integer", "minimum": 200, "maximum": 599},
+            "error_code": {
+              "enum": [
+                "invalid_request",
+                "unauthenticated",
+                "forbidden",
+                "not_found",
+                "state_transition_forbidden",
+                "release_unavailable",
+                "temporarily_unavailable"
+              ]
+            },
+            "assertions": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"}
+            }
+          },
+          "allOf": [
+            {
+              "if": {"properties": {"http_status": {"minimum": 400}}, "required": ["http_status"]},
+              "then": {"required": ["error_code"]},
+              "else": {"not": {"required": ["error_code"]}}
+            }
+          ]
+        }
+      }
+    }
+  }
+}

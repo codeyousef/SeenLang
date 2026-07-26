@@ -1,0 +1,319 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:seen:package-registry:v1:scan-attestation",
+  "title": "Seen package scan attestation v1",
+  "description": "An append-only record binding one isolated scan result to the exact immutable release archive and source proof reviewed by the scanner.",
+  "x-seen-semantic-rules": {
+    "evaluation": "all-rules-must-pass-before-ready-or-promotion",
+    "failure_reporting": "first-failing-rule-in-array-order",
+    "rules": [
+      {
+        "id": "invocation-time-order",
+        "operator": "rfc3339-less-than-or-equal",
+        "left_pointer": "/invocation/started_at",
+        "right_pointer": "/invocation/finished_at",
+        "error_code": "scan_invalid_time_order"
+      },
+      {
+        "id": "generation-after-invocation",
+        "operator": "rfc3339-less-than-or-equal",
+        "left_pointer": "/invocation/finished_at",
+        "right_pointer": "/generated_at",
+        "error_code": "scan_invalid_time_order"
+      },
+      {
+        "id": "mounted-archive-binding",
+        "operator": "json-pointer-equality",
+        "left_pointer": "/input/archive_sha256",
+        "right_pointer": "/subject/archive_sha256",
+        "error_code": "scan_archive_digest_mismatch"
+      },
+      {
+        "id": "observed-archive-binding",
+        "operator": "json-pointer-equality",
+        "left_pointer": "/result/observed_archive_sha256",
+        "right_pointer": "/subject/archive_sha256",
+        "error_code": "scan_archive_digest_mismatch"
+      },
+      {
+        "id": "mounted-source-proof-binding",
+        "operator": "json-pointer-equality",
+        "left_pointer": "/input/source_proof_sha256",
+        "right_pointer": "/subject/source_proof_sha256",
+        "error_code": "scan_source_proof_digest_mismatch"
+      },
+      {
+        "id": "observed-source-proof-binding",
+        "operator": "json-pointer-equality",
+        "left_pointer": "/result/observed_source_proof_sha256",
+        "right_pointer": "/subject/source_proof_sha256",
+        "error_code": "scan_source_proof_digest_mismatch"
+      },
+      {
+        "id": "trusted-release-archive-binding",
+        "operator": "json-pointer-equals-trusted-context",
+        "left_pointer": "/subject/archive_sha256",
+        "context_pointer": "/release/archive/sha256",
+        "error_code": "scan_archive_digest_mismatch"
+      },
+      {
+        "id": "trusted-release-source-proof-binding",
+        "operator": "json-pointer-equals-trusted-context",
+        "left_pointer": "/subject/source_proof_sha256",
+        "context_pointer": "/release/source_proof_sha256",
+        "error_code": "scan_source_proof_digest_mismatch"
+      },
+      {
+        "id": "trusted-release-source-proof-id-binding",
+        "operator": "json-pointer-equals-trusted-context",
+        "left_pointer": "/subject/source_proof_id",
+        "context_pointer": "/release/source_proof_id",
+        "error_code": "scan_source_proof_id_mismatch"
+      },
+      {
+        "id": "promotion-requires-passed-result",
+        "operator": "status-disposition-pair",
+        "passed_status": "passed",
+        "eligible_disposition": "promotion-eligible",
+        "error_code": "scan_result_not_passed"
+      }
+    ]
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract_version",
+    "attestation_type",
+    "attestation_id",
+    "sequence",
+    "previous_attestation_id",
+    "subject",
+    "scan",
+    "scanner",
+    "input",
+    "sandbox",
+    "invocation",
+    "result",
+    "generated_at"
+  ],
+  "properties": {
+    "contract_version": {"const": 1},
+    "attestation_type": {"const": "seen-package-scan"},
+    "attestation_id": {"$ref": "#/$defs/attestationId"},
+    "sequence": {"type": "integer", "minimum": 1},
+    "previous_attestation_id": {
+      "oneOf": [
+        {"$ref": "#/$defs/attestationId"},
+        {"type": "null"}
+      ]
+    },
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["package", "version", "archive_sha256", "source_proof_id", "source_proof_sha256"],
+      "properties": {
+        "package": {"$ref": "#/$defs/packageIdentity"},
+        "version": {"$ref": "#/$defs/exactVersion"},
+        "archive_sha256": {"$ref": "#/$defs/sha256"},
+        "source_proof_id": {"type": "string", "pattern": "^prf_[A-Za-z0-9_-]{16,96}$"},
+        "source_proof_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "scan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["phase", "attempt", "policy_version", "ruleset_sha256"],
+      "properties": {
+        "phase": {"enum": ["first", "second"]},
+        "attempt": {"type": "integer", "minimum": 1},
+        "policy_version": {"type": "string", "pattern": "^[a-z0-9][a-z0-9.-]{0,63}$"},
+        "ruleset_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "scanner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "version",
+        "isolated",
+        "network_access",
+        "secret_access",
+        "input_access"
+      ],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{2,63}$"},
+        "version": {"type": "string", "pattern": "^[1-9][0-9]*\\.[0-9]+\\.[0-9]+$"},
+        "isolated": {"const": true},
+        "network_access": {"const": "none"},
+        "secret_access": {"const": "none"},
+        "input_access": {"const": "read-only"}
+      }
+    },
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["archive_sha256", "source_proof_sha256", "read_only"],
+      "properties": {
+        "archive_sha256": {"$ref": "#/$defs/sha256"},
+        "source_proof_sha256": {"$ref": "#/$defs/sha256"},
+        "read_only": {"const": true}
+      }
+    },
+    "sandbox": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rootless",
+        "ephemeral",
+        "network_access",
+        "cpu_limit_millis",
+        "memory_limit_bytes",
+        "process_limit"
+      ],
+      "properties": {
+        "rootless": {"const": true},
+        "ephemeral": {"const": true},
+        "network_access": {"const": "none"},
+        "cpu_limit_millis": {"type": "integer", "minimum": 1},
+        "memory_limit_bytes": {"type": "integer", "minimum": 1048576},
+        "process_limit": {"type": "integer", "minimum": 1}
+      }
+    },
+    "invocation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "started_at", "finished_at", "timeout_seconds"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^scan-run-[a-z0-9-]{8,96}$"},
+        "started_at": {"$ref": "#/$defs/utcTimestamp"},
+        "finished_at": {"$ref": "#/$defs/utcTimestamp"},
+        "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 3600}
+      }
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "reason",
+        "disposition",
+        "observed_archive_sha256",
+        "observed_source_proof_sha256",
+        "findings",
+        "report_sha256",
+        "evidence_sha256"
+      ],
+      "properties": {
+        "status": {"enum": ["passed", "failed", "error", "timeout"]},
+        "reason": {
+          "oneOf": [
+            {"type": "null"},
+            {"enum": ["policy-violation", "scanner-inconclusive", "scanner-crash", "scanner-timeout"]}
+          ]
+        },
+        "disposition": {"enum": ["promotion-eligible", "reject", "retry-unavailable"]},
+        "observed_archive_sha256": {"$ref": "#/$defs/sha256"},
+        "observed_source_proof_sha256": {"$ref": "#/$defs/sha256"},
+        "findings": {
+          "type": "array",
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["rule_id", "severity", "code", "path"],
+            "properties": {
+              "rule_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9.-]{1,95}$"},
+              "severity": {"enum": ["info", "low", "medium", "high", "critical"]},
+              "code": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_]{2,95}$"},
+              "path": {
+                "oneOf": [
+                  {"type": "string", "maxLength": 240},
+                  {"type": "null"}
+                ]
+              }
+            }
+          }
+        },
+        "report_sha256": {
+          "oneOf": [
+            {"$ref": "#/$defs/sha256"},
+            {"type": "null"}
+          ]
+        },
+        "evidence_sha256": {
+          "description": "SHA-256 of the immutable scanner evidence bundle retained with this attestation.",
+          "$ref": "#/$defs/sha256"
+        }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"status": {"const": "passed"}}, "required": ["status"]},
+          "then": {
+            "properties": {
+              "reason": {"type": "null"},
+              "disposition": {"const": "promotion-eligible"},
+              "report_sha256": {"$ref": "#/$defs/sha256"}
+            }
+          }
+        },
+        {
+          "if": {"properties": {"status": {"const": "failed"}}, "required": ["status"]},
+          "then": {
+            "properties": {
+              "reason": {"const": "policy-violation"},
+              "disposition": {"const": "reject"},
+              "report_sha256": {"$ref": "#/$defs/sha256"}
+            }
+          }
+        },
+        {
+          "if": {"properties": {"status": {"const": "error"}}, "required": ["status"]},
+          "then": {
+            "properties": {
+              "reason": {"enum": ["scanner-inconclusive", "scanner-crash"]},
+              "disposition": {"const": "retry-unavailable"},
+              "report_sha256": {"type": "null"}
+            }
+          }
+        },
+        {
+          "if": {"properties": {"status": {"const": "timeout"}}, "required": ["status"]},
+          "then": {
+            "properties": {
+              "reason": {"const": "scanner-timeout"},
+              "disposition": {"const": "retry-unavailable"},
+              "report_sha256": {"type": "null"}
+            }
+          }
+        }
+      ]
+    },
+    "generated_at": {"$ref": "#/$defs/utcTimestamp"}
+  },
+  "$defs": {
+    "packageIdentity": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 127,
+      "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?/[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+    },
+    "attestationId": {
+      "type": "string",
+      "pattern": "^scn_[A-Za-z0-9_-]{16,96}$"
+    },
+    "exactVersion": {
+      "type": "string",
+      "format": "semver-exact",
+      "maxLength": 128,
+      "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$"
+    },
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "utcTimestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,9})?Z$"
+    }
+  }
+}

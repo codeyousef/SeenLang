@@ -1,0 +1,328 @@
+{
+  "contract_version": 1,
+  "policy": "resolution-policy-v1.json",
+  "case_schema": "../schemas/deterministic-resolution-case-v1.schema.json",
+  "cases": [
+    {
+      "name": "exact_build_is_byte_exact",
+      "description": "An exact requirement containing build metadata selects only that canonical version string.",
+      "mode": "normal",
+      "package": "seen/json",
+      "registry_origin": "https://seen.dev.yousef.codes/packages",
+      "requirements": [{"requester": "root", "requirement": "1.2.3+source.1"}],
+      "lock": null,
+      "candidates": [
+        {"version": "1.2.3", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "1111111111111111111111111111111111111111111111111111111111111111", "availability": "available"},
+        {"version": "1.2.3+source.1", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "2222222222222222222222222222222222222222222222222222222222222222", "availability": "available"}
+      ],
+      "expected": {"outcome": "select", "version": "1.2.3+source.1", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "2222222222222222222222222222222222222222222222222222222222222222", "from_lock": false, "write_lock": true}
+    },
+    {
+      "name": "caret_selects_highest_stable",
+      "description": "Candidate input order does not affect highest-precedence stable selection.",
+      "mode": "normal",
+      "package": "seen/json",
+      "registry_origin": "https://seen.dev.yousef.codes/packages",
+      "requirements": [{"requester": "root", "requirement": "^1.2.0"}],
+      "lock": null,
+      "candidates": [
+        {"version": "2.0.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "3333333333333333333333333333333333333333333333333333333333333333", "availability": "available"},
+        {"version": "1.10.0-alpha.1", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "4444444444444444444444444444444444444444444444444444444444444444", "availability": "available"},
+        {"version": "1.9.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "5555555555555555555555555555555555555555555555555555555555555555", "availability": "available"},
+        {"version": "1.2.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "6666666666666666666666666666666666666666666666666666666666666666", "availability": "available"}
+      ],
+      "expected": {"outcome": "select", "version": "1.9.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "5555555555555555555555555555555555555555555555555555555555555555", "from_lock": false, "write_lock": true}
+    },
+    {
+      "name": "caret_zero_minor_stays_bounded",
+      "mode": "normal",
+      "package": "seen/json",
+      "registry_origin": "https://seen.dev.yousef.codes/packages",
+      "requirements": [{"requester": "root", "requirement": "^0.2.3"}],
+      "lock": null,
+      "candidates": [
+        {"version": "0.3.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "7777777777777777777777777777777777777777777777777777777777777777", "availability": "available"},
+        {"version": "0.2.9", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "8888888888888888888888888888888888888888888888888888888888888888", "availability": "available"}
+      ],
+      "expected": {"outcome": "select", "version": "0.2.9", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "8888888888888888888888888888888888888888888888888888888888888888", "from_lock": false, "write_lock": true}
+    },
+    {
+      "name": "tilde_partial_selects_within_minor",
+      "mode": "normal",
+      "package": "alice/tls",
+      "registry_origin": "https://seen.dev.yousef.codes/packages",
+      "requirements": [{"requester": "root", "requirement": "~1.4"}],
+      "lock": null,
+      "candidates": [
+        {"version": "1.5.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "9999999999999999999999999999999999999999999999999999999999999999", "availability": "available"},
+        {"version": "1.4.10-beta.1", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "availability": "available"},
+        {"version": "1.4.9", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "availability": "available"}
+      ],
+      "expected": {"outcome": "select", "version": "1.4.9", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "from_lock": false, "write_lock": true}
+    },
+    {
+      "name": "bounded_comparators_select_highest",
+      "mode": "normal",
+      "package": "seen/json",
+      "registry_origin": "https://seen.dev.yousef.codes/packages",
+      "requirements": [{"requester": "root", "requirement": ">1.2.3 <=1.9.9"}],
+      "lock": null,
+      "candidates": [
+        {"version": "1.2.3", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "availability": "available"},
+        {"version": "1.9.9", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "availability": "available"},
+        {"version": "2.0.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "availability": "available"}
+      ],
+      "expected": {"outcome": "select", "version": "1.9.9", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "from_lock": false, "write_lock": true}
+    },
+    {
+      "name": "prerelease_opt_in_is_core_specific",
+      "mode": "normal",
+      "package": "seen/json",
+      "registry_origin": "https://seen.dev.yousef.codes/packages",
+      "requirements": [{"requester": "root", "requirement": "^1.2.3-alpha.1"}],
+      "lock": null,
+      "candidates": [
+        {"version": "1.3.0-beta.1", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", "availability": "available"},
+        {"version": "1.2.3-alpha.2", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "1010101010101010101010101010101010101010101010101010101010101010", "availability": "available"},
+        {"version": "1.2.3", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "1212121212121212121212121212121212121212121212121212121212121212", "availability": "available"}
+      ],
+      "expected": {"outcome": "select", "version": "1.2.3", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "1212121212121212121212121212121212121212121212121212121212121212", "from_lock": false, "write_lock": true}
+    },
+    {
+      "name": "stable_requirement_excludes_prerelease",
+      "mode": "normal",
+      "package": "seen/json",
+      "registry_origin": "https://seen.dev.yousef.codes/packages",
+      "requirements": [{"requester": "root", "requirement": ">=1.2.0 <2.0.0"}],
+      "lock": null,
+      "candidates": [
+        {"version": "1.5.0-beta.1", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "1313131313131313131313131313131313131313131313131313131313131313", "availability": "available"}
+      ],
+      "expected": {"outcome": "error", "error_code": "no_matching_version"}
+    },
+    {
+      "name": "fresh_resolution_filters_yanked",
+      "mode": "normal",
+      "package": "seen/json",
+      "registry_origin": "https://seen.dev.yousef.codes/packages",
+      "requirements": [{"requester": "root", "requirement": "^1.0.0"}],
+      "lock": null,
+      "candidates": [
+        {"version": "1.5.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "1414141414141414141414141414141414141414141414141414141414141414", "availability": "yanked"},
+        {"version": "1.4.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "1515151515151515151515151515151515151515151515151515151515151515", "availability": "available"}
+      ],
+      "expected": {"outcome": "select", "version": "1.4.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "1515151515151515151515151515151515151515151515151515151515151515", "from_lock": false, "write_lock": true}
+    },
+    {
+      "name": "normal_mode_preserves_yanked_lock",
+      "mode": "normal",
+      "package": "seen/json",
+      "registry_origin": "https://seen.dev.yousef.codes/packages",
+      "requirements": [{"requester": "root", "requirement": "^1.0.0"}],
+      "lock": {"version": "1.5.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "1616161616161616161616161616161616161616161616161616161616161616"},
+      "candidates": [
+        {"version": "1.4.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "1717171717171717171717171717171717171717171717171717171717171717", "availability": "available"},
+        {"version": "1.5.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "1616161616161616161616161616161616161616161616161616161616161616", "availability": "yanked"}
+      ],
+      "expected": {"outcome": "select", "version": "1.5.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "1616161616161616161616161616161616161616161616161616161616161616", "from_lock": true, "write_lock": false}
+    },
+    {
+      "name": "update_mode_replaces_yanked_lock",
+      "mode": "update",
+      "package": "seen/json",
+      "registry_origin": "https://seen.dev.yousef.codes/packages",
+      "requirements": [{"requester": "root", "requirement": "^1.0.0"}],
+      "lock": {"version": "1.5.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "1818181818181818181818181818181818181818181818181818181818181818"},
+      "candidates": [
+        {"version": "1.5.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "1818181818181818181818181818181818181818181818181818181818181818", "availability": "yanked"},
+        {"version": "1.4.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "1919191919191919191919191919191919191919191919191919191919191919", "availability": "available"}
+      ],
+      "expected": {"outcome": "select", "version": "1.4.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "1919191919191919191919191919191919191919191919191919191919191919", "from_lock": false, "write_lock": true}
+    },
+    {
+      "name": "normal_mode_prefers_valid_lock",
+      "mode": "normal",
+      "package": "seen/json",
+      "registry_origin": "https://seen.dev.yousef.codes/packages",
+      "requirements": [{"requester": "root", "requirement": "^1.0.0"}],
+      "lock": {"version": "1.4.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "2020202020202020202020202020202020202020202020202020202020202020"},
+      "candidates": [
+        {"version": "1.5.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "2121212121212121212121212121212121212121212121212121212121212121", "availability": "available"},
+        {"version": "1.4.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "2020202020202020202020202020202020202020202020202020202020202020", "availability": "available"}
+      ],
+      "expected": {"outcome": "select", "version": "1.4.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "2020202020202020202020202020202020202020202020202020202020202020", "from_lock": true, "write_lock": false}
+    },
+    {
+      "name": "update_mode_chooses_highest",
+      "mode": "update",
+      "package": "seen/json",
+      "registry_origin": "https://seen.dev.yousef.codes/packages",
+      "requirements": [{"requester": "root", "requirement": "^1.0.0"}],
+      "lock": {"version": "1.4.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "2222222222222222222222222222222222222222222222222222222222222222"},
+      "candidates": [
+        {"version": "1.4.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "2222222222222222222222222222222222222222222222222222222222222222", "availability": "available"},
+        {"version": "1.5.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "2323232323232323232323232323232323232323232323232323232323232323", "availability": "available"}
+      ],
+      "expected": {"outcome": "select", "version": "1.5.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "2323232323232323232323232323232323232323232323232323232323232323", "from_lock": false, "write_lock": true}
+    },
+    {
+      "name": "normal_mode_reselects_stale_requirement_lock",
+      "mode": "normal",
+      "package": "seen/json",
+      "registry_origin": "https://seen.dev.yousef.codes/packages",
+      "requirements": [{"requester": "root", "requirement": "^2.0.0"}],
+      "lock": {"version": "1.5.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "2424242424242424242424242424242424242424242424242424242424242424"},
+      "candidates": [
+        {"version": "1.5.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "2424242424242424242424242424242424242424242424242424242424242424", "availability": "available"},
+        {"version": "2.1.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "2525252525252525252525252525252525252525252525252525252525252525", "availability": "available"}
+      ],
+      "expected": {"outcome": "select", "version": "2.1.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "2525252525252525252525252525252525252525252525252525252525252525", "from_lock": false, "write_lock": true}
+    },
+    {
+      "name": "build_metadata_top_tie_fails",
+      "mode": "normal",
+      "package": "seen/json",
+      "registry_origin": "https://seen.dev.yousef.codes/packages",
+      "requirements": [{"requester": "root", "requirement": "^1.0.0"}],
+      "lock": null,
+      "candidates": [
+        {"version": "1.5.0+source.1", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "2626262626262626262626262626262626262626262626262626262626262626", "availability": "available"},
+        {"version": "1.5.0+source.2", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "2727272727272727272727272727272727272727272727272727272727272727", "availability": "available"}
+      ],
+      "expected": {"outcome": "error", "error_code": "ambiguous_build_metadata"}
+    },
+    {
+      "name": "candidate_origin_mismatch_fails",
+      "mode": "normal",
+      "package": "seen/json",
+      "registry_origin": "https://seen.dev.yousef.codes/packages",
+      "requirements": [{"requester": "root", "requirement": "^1.0.0"}],
+      "lock": null,
+      "candidates": [
+        {"version": "1.9.0", "registry_origin": "https://seen.yousef.codes/packages", "archive_sha256": "2828282828282828282828282828282828282828282828282828282828282828", "availability": "available"}
+      ],
+      "expected": {"outcome": "error", "error_code": "registry_origin_mismatch"}
+    },
+    {
+      "name": "locked_origin_mismatch_fails",
+      "mode": "normal",
+      "package": "seen/json",
+      "registry_origin": "https://seen.dev.yousef.codes/packages",
+      "requirements": [{"requester": "root", "requirement": "^1.0.0"}],
+      "lock": {"version": "1.5.0", "registry_origin": "https://seen.yousef.codes/packages", "archive_sha256": "2929292929292929292929292929292929292929292929292929292929292929"},
+      "candidates": [
+        {"version": "1.5.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "3030303030303030303030303030303030303030303030303030303030303030", "availability": "available"}
+      ],
+      "expected": {"outcome": "error", "error_code": "locked_origin_mismatch"}
+    },
+    {
+      "name": "lock_digest_mismatch_fails",
+      "mode": "normal",
+      "package": "seen/json",
+      "registry_origin": "https://seen.dev.yousef.codes/packages",
+      "requirements": [{"requester": "root", "requirement": "^1.0.0"}],
+      "lock": {"version": "1.5.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "3131313131313131313131313131313131313131313131313131313131313131"},
+      "candidates": [
+        {"version": "1.5.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "3232323232323232323232323232323232323232323232323232323232323232", "availability": "available"}
+      ],
+      "expected": {"outcome": "error", "error_code": "lock_digest_mismatch"}
+    },
+    {
+      "name": "frozen_mode_requires_lock",
+      "mode": "frozen",
+      "package": "seen/json",
+      "registry_origin": "https://seen.dev.yousef.codes/packages",
+      "requirements": [{"requester": "root", "requirement": "^1.0.0"}],
+      "lock": null,
+      "candidates": [
+        {"version": "1.5.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "3333333333333333333333333333333333333333333333333333333333333333", "availability": "available"}
+      ],
+      "expected": {"outcome": "error", "error_code": "lock_required"}
+    },
+    {
+      "name": "frozen_mode_preserves_yanked_lock",
+      "mode": "frozen",
+      "package": "seen/json",
+      "registry_origin": "https://seen.dev.yousef.codes/packages",
+      "requirements": [{"requester": "root", "requirement": "^1.0.0"}],
+      "lock": {"version": "1.5.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "4545454545454545454545454545454545454545454545454545454545454545"},
+      "candidates": [
+        {"version": "1.5.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "4545454545454545454545454545454545454545454545454545454545454545", "availability": "yanked"}
+      ],
+      "expected": {"outcome": "select", "version": "1.5.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "4545454545454545454545454545454545454545454545454545454545454545", "from_lock": true, "write_lock": false}
+    },
+    {
+      "name": "frozen_mode_rejects_requirement_drift",
+      "mode": "frozen",
+      "package": "seen/json",
+      "registry_origin": "https://seen.dev.yousef.codes/packages",
+      "requirements": [{"requester": "root", "requirement": "^2.0.0"}],
+      "lock": {"version": "1.5.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "3434343434343434343434343434343434343434343434343434343434343434"},
+      "candidates": [
+        {"version": "1.5.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "3434343434343434343434343434343434343434343434343434343434343434", "availability": "available"},
+        {"version": "2.1.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "3535353535353535353535353535353535353535353535353535353535353535", "availability": "available"}
+      ],
+      "expected": {"outcome": "error", "error_code": "locked_requirement_mismatch"}
+    },
+    {
+      "name": "quarantined_lock_fails_closed",
+      "mode": "normal",
+      "package": "seen/json",
+      "registry_origin": "https://seen.dev.yousef.codes/packages",
+      "requirements": [{"requester": "root", "requirement": "^1.0.0"}],
+      "lock": {"version": "1.5.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "3636363636363636363636363636363636363636363636363636363636363636"},
+      "candidates": [
+        {"version": "1.5.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "3636363636363636363636363636363636363636363636363636363636363636", "availability": "security-quarantined"},
+        {"version": "1.4.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "3737373737373737373737373737373737373737373737373737373737373737", "availability": "available"}
+      ],
+      "expected": {"outcome": "error", "error_code": "locked_release_quarantined"}
+    },
+    {
+      "name": "same_version_digest_equivocation_fails",
+      "mode": "normal",
+      "package": "seen/json",
+      "registry_origin": "https://seen.dev.yousef.codes/packages",
+      "requirements": [{"requester": "root", "requirement": "1.5.0"}],
+      "lock": null,
+      "candidates": [
+        {"version": "1.5.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "3838383838383838383838383838383838383838383838383838383838383838", "availability": "available"},
+        {"version": "1.5.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "3939393939393939393939393939393939393939393939393939393939393939", "availability": "available"}
+      ],
+      "expected": {"outcome": "error", "error_code": "metadata_equivocation"}
+    },
+    {
+      "name": "graph_constraints_intersect",
+      "mode": "normal",
+      "package": "seen/json",
+      "registry_origin": "https://seen.dev.yousef.codes/packages",
+      "requirements": [
+        {"requester": "alice/app@1.0.0", "requirement": "^1.2.0"},
+        {"requester": "bob/plugin@2.0.0", "requirement": ">=1.4.0 <1.6.0"}
+      ],
+      "lock": null,
+      "candidates": [
+        {"version": "1.6.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "4040404040404040404040404040404040404040404040404040404040404040", "availability": "available"},
+        {"version": "1.5.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "4141414141414141414141414141414141414141414141414141414141414141", "availability": "available"},
+        {"version": "1.4.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "4242424242424242424242424242424242424242424242424242424242424242", "availability": "available"}
+      ],
+      "expected": {"outcome": "select", "version": "1.5.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "4141414141414141414141414141414141414141414141414141414141414141", "from_lock": false, "write_lock": true}
+    },
+    {
+      "name": "graph_conflict_is_stable",
+      "description": "No candidate satisfies both constraints; requester details are emitted in canonical order.",
+      "mode": "normal",
+      "package": "seen/json",
+      "registry_origin": "https://seen.dev.yousef.codes/packages",
+      "requirements": [
+        {"requester": "bob/plugin@2.0.0", "requirement": "^2.0.0"},
+        {"requester": "alice/app@1.0.0", "requirement": "^1.0.0"}
+      ],
+      "lock": null,
+      "candidates": [
+        {"version": "2.1.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "4343434343434343434343434343434343434343434343434343434343434343", "availability": "available"},
+        {"version": "1.9.0", "registry_origin": "https://seen.dev.yousef.codes/packages", "archive_sha256": "4444444444444444444444444444444444444444444444444444444444444444", "availability": "available"}
+      ],
+      "expected": {"outcome": "error", "error_code": "dependency_constraint_conflict", "conflict_requesters": ["alice/app@1.0.0", "bob/plugin@2.0.0"]}
+    }
+  ]
+}
