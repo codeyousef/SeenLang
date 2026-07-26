@@ -11,9 +11,9 @@ MIN_PATH="$TMP_DIR/path"
 OPTIONAL_PATH="$TMP_DIR/optional-path"
 DIST_DIR="$FIXTURE_ROOT/dist"
 STALE_ARTIFACT="$DIST_DIR/seen-0.8.0-linux-x64.tar.gz"
-CURRENT_ARTIFACT="$DIST_DIR/seen-0.10.0-linux-x64.tar.gz"
-STALE_OPTIONAL_ARTIFACT="$DIST_DIR/seen-lang_0.10.0_amd64.deb"
-IMPLICIT_MACOS_ARTIFACT="$DIST_DIR/seen-0.10.0-macos-arm64.tar.gz"
+CURRENT_ARTIFACT="$DIST_DIR/seen-0.10.1-linux-x64.tar.gz"
+STALE_OPTIONAL_ARTIFACT="$DIST_DIR/seen-lang_0.10.1_amd64.deb"
+IMPLICIT_MACOS_ARTIFACT="$DIST_DIR/seen-0.10.1-macos-arm64.tar.gz"
 
 mkdir -p "$FIXTURE_ROOT/scripts" "$FIXTURE_BIN" "$MIN_PATH" "$OPTIONAL_PATH" "$DIST_DIR"
 cp "$ROOT_DIR/scripts/build_and_upload_release.sh" "$FIXTURE_ROOT/scripts/"
@@ -119,7 +119,7 @@ chmod 755 "$OPTIONAL_PATH/dpkg-deb"
 
 assert_checksum_scope() {
     local expected_macos="${1:-}"
-    if ! grep -Fq 'seen-0.10.0-linux-x64.tar.gz' "$DIST_DIR/SHA256SUMS"; then
+    if ! grep -Fq 'seen-0.10.1-linux-x64.tar.gz' "$DIST_DIR/SHA256SUMS"; then
         echo "SHA256SUMS omitted the current release artifact" >&2
         exit 1
     fi
@@ -146,7 +146,7 @@ assert_release_args() {
 
     mapfile -d '' -t args < "$capture"
     if [[ "${args[0]:-}" != "release" || "${args[1]:-}" != "$expected_action" ||
-        "${args[2]:-}" != "v0.10.0" ]]; then
+        "${args[2]:-}" != "v0.10.1" ]]; then
         echo "unexpected gh release $expected_action prefix" >&2
         exit 1
     fi
@@ -192,7 +192,7 @@ run_release_case() {
         SEEN_LINUX_X64_COMPILER="$FIXTURE_BIN/seen" \
         SEEN_LINUX_X64_V3_COMPILER="$FIXTURE_BIN/seen-v3-absent" \
         SEEN_PACKAGE_CLIENT_BIN="$FIXTURE_BIN/seen-pkg" \
-        "$FIXTURE_ROOT/scripts/build_and_upload_release.sh" 0.10.0 >/dev/null
+        "$FIXTURE_ROOT/scripts/build_and_upload_release.sh" 0.10.1 >/dev/null
 
     assert_checksum_scope
     assert_release_args "$capture" "$action"
@@ -206,7 +206,7 @@ run_failed_optional_case() {
     printf 'stale same-version optional artifact\n' > "$STALE_OPTIONAL_ARTIFACT"
     printf 'stale checksums\n' > "$DIST_DIR/SHA256SUMS"
     printf 'stale formula\n' > "$DIST_DIR/seen-lang.rb"
-    printf 'stale sidecar\n' > "$DIST_DIR/seen-0.10.0-windows-x64.zip.sha256"
+    printf 'stale sidecar\n' > "$DIST_DIR/seen-0.10.1-windows-x64.zip.sha256"
     set +e
     output="$(PATH="$FIXTURE_BIN:$OPTIONAL_PATH:$MIN_PATH" \
         GH_CAPTURE="$capture" \
@@ -214,7 +214,7 @@ run_failed_optional_case() {
         SEEN_LINUX_X64_COMPILER="$FIXTURE_BIN/seen" \
         SEEN_LINUX_X64_V3_COMPILER="$FIXTURE_BIN/seen-v3-absent" \
         SEEN_PACKAGE_CLIENT_BIN="$FIXTURE_BIN/seen-pkg" \
-        "$FIXTURE_ROOT/scripts/build_and_upload_release.sh" 0.10.0 2>&1)"
+        "$FIXTURE_ROOT/scripts/build_and_upload_release.sh" 0.10.1 2>&1)"
     status=$?
     set -e
 
@@ -233,7 +233,7 @@ run_failed_optional_case() {
     for generated in \
         "$DIST_DIR/SHA256SUMS" \
         "$DIST_DIR/seen-lang.rb" \
-        "$DIST_DIR/seen-0.10.0-windows-x64.zip.sha256"; do
+        "$DIST_DIR/seen-0.10.1-windows-x64.zip.sha256"; do
         if [[ -e "$generated" ]]; then
             echo "release preparation retained stale generated output: $generated" >&2
             exit 1
@@ -252,7 +252,7 @@ run_failed_optional_case() {
 
 run_explicit_macos_case() {
     local input_dir="$TMP_DIR/macos-input"
-    local input_artifact="$input_dir/seen-0.10.0-macos-arm64.tar.gz"
+    local input_artifact="$input_dir/seen-0.10.1-macos-arm64.tar.gz"
     local copied_artifact="$DIST_DIR/$(basename "$input_artifact")"
     local capture="$TMP_DIR/gh-explicit-macos.args"
 
@@ -265,7 +265,7 @@ run_explicit_macos_case() {
         SEEN_LINUX_X64_V3_COMPILER="$FIXTURE_BIN/seen-v3-absent" \
         SEEN_PACKAGE_CLIENT_BIN="$FIXTURE_BIN/seen-pkg" \
         SEEN_RELEASE_MACOS_INPUT_DIR="$input_dir" \
-        "$FIXTURE_ROOT/scripts/build_and_upload_release.sh" 0.10.0 >/dev/null
+        "$FIXTURE_ROOT/scripts/build_and_upload_release.sh" 0.10.1 >/dev/null
 
     if [[ ! -s "$input_artifact" || ! -s "$copied_artifact" ]]; then
         echo "explicit macOS input was not preserved and staged" >&2

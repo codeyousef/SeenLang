@@ -232,6 +232,31 @@ fun extractOptionInnerTypeImpl(receiverType: String, fallbackType: String) r: St
     return fallbackType
 }
 
+///
+emitResultPayloadHandleCallImpl — call a generic Result payload accessor using
+its erased i64 ABI. Callers reify that handle into the payload's LLVM type.
+///
+fun emitResultPayloadHandleCallImpl(output: StringBuilder,
+    regBox: Array<Int>, methodName: String, receiverLlvmType: String,
+    receiverReg: String, argRegs: Array<String>) r: String {
+
+    let payloadHandleReg = getNextRegFn(regBox)
+    if methodName == "unwrapErr" {
+        output.append("  " + payloadHandleReg +
+            " = call i64 @Result_unwrapErr(" + receiverLlvmType + " " +
+            receiverReg + ")\n")
+    } else if methodName == "expect" and argRegs.length() > 0 {
+        output.append("  " + payloadHandleReg +
+            " = call i64 @Result_expect(" + receiverLlvmType + " " +
+            receiverReg + ", %SeenString " + argRegs[0] + ")\n")
+    } else {
+        output.append("  " + payloadHandleReg +
+            " = call i64 @Result_unwrap(" + receiverLlvmType + " " +
+            receiverReg + ")\n")
+    }
+    return payloadHandleReg
+}
+
 fun tryGenerateSpecializedInstanceMethodCallImpl(output: StringBuilder,
     regBox: Array<Int>, methodName: String, instanceTypeName: String,
     receiverType: String, returnTypeStr: String, receiverLlvmType: String,
@@ -287,18 +312,8 @@ fun tryGenerateSpecializedInstanceMethodCallImpl(output: StringBuilder,
             payloadType = extractResultErrorType(receiverType)
         }
         if payloadType == "String" {
-            let boxedPayloadReg = getNextRegFn(regBox)
-            if methodName == "unwrapErr" {
-                output.append("  " + boxedPayloadReg + " = call i64 @Result_unwrapErr(" +
-                    receiverLlvmType + " " + receiverReg + ")\n")
-            } else if methodName == "expect" and argRegs.length() > 0 {
-                output.append("  " + boxedPayloadReg + " = call i64 @Result_expect(" +
-                    receiverLlvmType + " " + receiverReg + ", %SeenString " +
-                    argRegs[0] + ")\n")
-            } else {
-                output.append("  " + boxedPayloadReg + " = call i64 @Result_unwrap(" +
-                    receiverLlvmType + " " + receiverReg + ")\n")
-            }
+            let boxedPayloadReg = emitResultPayloadHandleCallImpl(output,
+                regBox, methodName, receiverLlvmType, receiverReg, argRegs)
             let slotPtrReg = getNextRegFn(regBox)
             output.append("  " + slotPtrReg + " = inttoptr i64 " +
                 boxedPayloadReg + " to ptr\n")
@@ -308,21 +323,19 @@ fun tryGenerateSpecializedInstanceMethodCallImpl(output: StringBuilder,
             return resultReg
         }
         if payloadType == "Bool" {
-            let boxedPayloadReg = getNextRegFn(regBox)
-            if methodName == "unwrapErr" {
-                output.append("  " + boxedPayloadReg + " = call i64 @Result_unwrapErr(" +
-                    receiverLlvmType + " " + receiverReg + ")\n")
-            } else if methodName == "expect" and argRegs.length() > 0 {
-                output.append("  " + boxedPayloadReg + " = call i64 @Result_expect(" +
-                    receiverLlvmType + " " + receiverReg + ", %SeenString " +
-                    argRegs[0] + ")\n")
-            } else {
-                output.append("  " + boxedPayloadReg + " = call i64 @Result_unwrap(" +
-                    receiverLlvmType + " " + receiverReg + ")\n")
-            }
+            let boxedPayloadReg = emitResultPayloadHandleCallImpl(output,
+                regBox, methodName, receiverLlvmType, receiverReg, argRegs)
             let resultReg = getNextRegFn(regBox)
             output.append("  " + resultReg + " = trunc i64 " +
                 boxedPayloadReg + " to i1\n")
+            return resultReg
+        }
+        if mapTypeState(payloadType) == "ptr" {
+            let payloadHandleReg = emitResultPayloadHandleCallImpl(output,
+                regBox, methodName, receiverLlvmType, receiverReg, argRegs)
+            let resultReg = getNextRegFn(regBox)
+            output.append("  " + resultReg + " = inttoptr i64 " +
+                payloadHandleReg + " to ptr\n")
             return resultReg
         }
     }

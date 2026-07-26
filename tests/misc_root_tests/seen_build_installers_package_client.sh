@@ -33,12 +33,12 @@ while [[ $# -gt 0 ]]; do
         *) exit 2 ;;
     esac
 done
-[[ "$version" == "0.10.0" && "$goos" == "linux" && "$goarch" == "amd64" ]]
+[[ "$version" == "0.10.1" && "$goos" == "linux" && "$goarch" == "amd64" ]]
 cat > "$output" <<'HELPER_EOF'
 #!/usr/bin/env bash
-if [[ "${1:-}" == "--expect-version" && "${2:-}" == "0.10.0" &&
+if [[ "${1:-}" == "--expect-version" && "${2:-}" == "0.10.1" &&
       "${3:-}" == "version" && "${4:-}" == "--machine" ]]; then
-    printf 'protocol=SEENPKG1\nversion=0.10.0\n'
+    printf 'protocol=SEENPKG1\nversion=0.10.1\n'
     exit 0
 fi
 exit 1
@@ -64,7 +64,7 @@ done
 [[ -x "$FIXTURE_ROOT/$source_dir/seen" ]]
 [[ -x "$FIXTURE_ROOT/$source_dir/seen-pkg" ]]
 "$FIXTURE_ROOT/$source_dir/seen-pkg" \
-    --expect-version 0.10.0 version --machine >/dev/null
+    --expect-version 0.10.1 version --machine >/dev/null
 basename "$0" >> "$CALL_LOG"
 BUILDER_EOF
 chmod +x "$FIXTURE_ROOT/installer/linux/fake-builder.sh"
@@ -75,7 +75,7 @@ done
 
 export FIXTURE_ROOT CALL_LOG
 "$FIXTURE_ROOT/scripts/build_installers.sh" \
-    --version 0.10.0 \
+    --version 0.10.1 \
     --stage3 "$FIXTURE_ROOT/stage3_seen" \
     --output-dir "$TMP_DIR/output" >/dev/null
 

@@ -1375,7 +1375,7 @@ fun writeTextAtomically(path: String, content: String) r: Bool {
 }
 
 fun packageClientExpectedVersion() r: String {
-    return "0.10.0"
+    return "0.10.1"
 }
 
 fun packageClientHelperPath() r: String {
@@ -13833,7 +13833,7 @@ fun runScriptCommand(inputFile: String, useAot: Bool, verbose: Bool,
 }
 
 fun seenCompilerVersion() r: String {
-    return "0.10.0"
+    return "0.10.1"
 }
 
 fun printVersion() r: Void {

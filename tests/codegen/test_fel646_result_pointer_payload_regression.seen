@@ -1,0 +1,24 @@
+import core.result.{Result, Ok}
+
+fun makePointerPayload() r: Result<Array<Int>, Int> {
+    let values = Array<Int>()
+    values.push(17)
+    values.push(42)
+    return Ok(values)
+}
+
+fun main() r: Int {
+    let result: Result<Array<Int>, Int> = makePointerPayload()
+    if not result.isOkay() {
+        return 1
+    }
+
+    let values: Array<Int> = result.unwrap()
+    if values.length() != 2 {
+        return 2
+    }
+    if values[0] != 17 or values[1] != 42 {
+        return 3
+    }
+    return 0
+}

@@ -10,8 +10,8 @@ import (
 func TestVersionHandshake(t *testing.T) {
 	t.Parallel()
 	var out, errOut bytes.Buffer
-	code := Run(context.Background(), []string{"--expect-version", "0.10.0", "version", "--machine"}, &out, &errOut)
-	if code != 0 || out.String() != "protocol=SEENPKG1\nversion=0.10.0\n" {
+	code := Run(context.Background(), []string{"--expect-version", "0.10.1", "version", "--machine"}, &out, &errOut)
+	if code != 0 || out.String() != "protocol=SEENPKG1\nversion=0.10.1\n" {
 		t.Fatalf("code=%d out=%q err=%q", code, out.String(), errOut.String())
 	}
 	out.Reset()

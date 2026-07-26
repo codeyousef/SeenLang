@@ -74,7 +74,7 @@ modules = [
 
 ## [dependencies] Section
 
-Seen 0.10.0 uses package aliases from `[dependencies]` as local import roots.
+Seen 0.10.1 uses package aliases from `[dependencies]` as local import roots.
 Registry identity, registry origin, version requirement, and import alias remain
 separate values.
 
