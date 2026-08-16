@@ -5,8 +5,20 @@
 set -e
 
 # Configuration
-VERSION="1.0.0"
-TEST_DIR="/tmp/seen-installer-tests"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd -P)"
+ARTIFACT_ROOT_SCRIPT="$PROJECT_ROOT/scripts/artifact_root.sh"
+if [ ! -f "$ARTIFACT_ROOT_SCRIPT" ]; then
+    echo "ERROR: missing artifact-root helper: $ARTIFACT_ROOT_SCRIPT" >&2
+    exit 1
+fi
+# shellcheck source=scripts/artifact_root.sh
+source "$ARTIFACT_ROOT_SCRIPT"
+seen_artifact_root_init "$PROJECT_ROOT"
+INSTALLER_ARTIFACT_ROOT=$(seen_artifact_scope_init installer-tests)
+
+VERSION="0.10.1"
+TEST_DIR="$INSTALLER_ARTIFACT_ROOT/runner"
 VERBOSE=false
 QUICK_MODE=false
 PLATFORMS=()
@@ -85,6 +97,27 @@ Test Categories:
 EOF
 }
 
+validate_test_dir() {
+    local relative_path
+    case "$TEST_DIR" in
+        "$INSTALLER_ARTIFACT_ROOT"/*) ;;
+        *)
+            echo "ERROR: --test-dir must stay under $INSTALLER_ARTIFACT_ROOT" >&2
+            return 1
+            ;;
+    esac
+    relative_path=${TEST_DIR#"$PROJECT_ROOT"/}
+    seen_artifact_assert_safe_relative_path "$relative_path" || return 1
+    seen_artifact_assert_no_symlink_components "$PROJECT_ROOT" "$relative_path"
+}
+
+remove_test_dir() {
+    validate_test_dir || return 1
+    if [ -d "$TEST_DIR" ]; then
+        rm -rf -- "$TEST_DIR"
+    fi
+}
+
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -113,7 +146,7 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --clean)
-            rm -rf "$TEST_DIR"
+            remove_test_dir
             success "Test directory cleaned: $TEST_DIR"
             exit 0
             ;;
@@ -128,13 +161,10 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Get absolute paths
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-
 # Setup test environment
 setup_test_env() {
     info "Setting up test environment..."
+    validate_test_dir
     
     # Create test directory
     mkdir -p "$TEST_DIR"

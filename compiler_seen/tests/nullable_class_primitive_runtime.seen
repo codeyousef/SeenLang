@@ -1,0 +1,39 @@
+class NullableWidget {
+    var value: Int
+
+    static fun new(value: Int) r: NullableWidget {
+        return NullableWidget{ value: value }
+    }
+}
+
+fun maybeWidget(present: Bool) r: NullableWidget? {
+    if present {
+        return NullableWidget.new(41)
+    }
+    return null
+}
+
+fun maybeInt(present: Bool) r: Int? {
+    if present {
+        return 7
+    }
+    return null
+}
+
+fun main() r: Int {
+    let presentWidget = maybeWidget(true)
+    if presentWidget == null { return 1 }
+    let widget = presentWidget.unwrap()
+    if widget.value != 41 { return 2 }
+
+    let absentWidget = maybeWidget(false)
+    if absentWidget != null { return 3 }
+
+    let presentInt = maybeInt(true)
+    if presentInt == null { return 4 }
+    if presentInt.unwrap() != 7 { return 5 }
+
+    let absentInt = maybeInt(false)
+    if absentInt != null { return 6 }
+    return 0
+}

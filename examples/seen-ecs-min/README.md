@@ -1,56 +1,34 @@
 # seen-ecs-min
 
-A deterministic entity-component-system (ECS) micro-simulation that ships with the Seen repository for POST-2. The
-sample assembles a world with tagged entities, steps simple transform + velocity systems, and reports how many
-survivors/casualties remain after a configurable number of frames. Everything executes inside Seen source so the same
-program runs unchanged on Linux, WebAssembly, or Android.
+A deterministic entity-component-system micro-simulation. It models entities,
+movement, health, and a small frame loop entirely in Seen; it is not an engine
+or a platform-specific package.
 
-## Layout
-
-- `src/main.seen` — ECS definitions, systems, and simulation harness.
-- `Seen.toml` — manifest that lists the preferred targets; the file is optional for `seen run` but helps downstream
-  tooling package the sample.
-
-## Running
-
-### Linux interpreter (fast edit cycle)
+From the repository root, use the verified compiler:
 
 ```bash
-target/release/seen_cli run examples/seen-ecs-min/src/main.seen
+mkdir -p .seen/agent-tools/examples
+scripts/run_with_project_artifacts.sh ecs-check -- \
+  compiler_seen/target/seen check examples/seen-ecs-min/src/main.seen
+scripts/run_with_project_artifacts.sh ecs-run -- \
+  compiler_seen/target/seen run examples/seen-ecs-min/src/main.seen
+scripts/run_with_project_artifacts.sh ecs-compile -- \
+  compiler_seen/target/seen compile examples/seen-ecs-min/src/main.seen \
+  .seen/agent-tools/examples/seen-ecs-min
+.seen/agent-tools/examples/seen-ecs-min
 ```
 
-### Linux LLVM build
+Cross-compilation uses a shipped target name and a positional output path:
 
 ```bash
-target/release/seen_cli build examples/seen-ecs-min/src/main.seen \
-  --backend llvm \
-  --target x86_64-unknown-linux-gnu \
-  --output build/linux/seen-ecs-min
+scripts/run_with_project_artifacts.sh ecs-android -- \
+  compiler_seen/target/seen compile examples/seen-ecs-min/src/main.seen \
+  .seen/agent-tools/examples/seen-ecs-min-android --target=android-arm64
 ```
 
-### WebAssembly artifact
+That command requires the target toolchain documented in
+[`docs/targets.md`](../../docs/targets.md); it does not create an Android app
+bundle. The 0.10.1 compiler does not advertise a WebAssembly target.
 
-```bash
-target/release/seen_cli build examples/seen-ecs-min/src/main.seen \
-  --backend llvm \
-  --target wasm32-unknown-unknown \
-  --output build/web/seen-ecs-min.wasm
-```
-
-### Android shared library
-
-```bash
-export ANDROID_NDK_HOME=/path/to/ndk
-
-target/release/seen_cli build examples/seen-ecs-min/src/main.seen \
-  --backend llvm \
-  --target android-arm64 \
-  --output build/android/libseen-ecs-min.so
-```
-
-To package an Android App Bundle, use `scripts/bundle_android.sh` with a project tree that already contains
-`AndroidManifest.xml`, `dex/`, and any Android resources. The repository's JNI-ready packaging example is
-`examples/android/hello_ndk/`.
-
-The simulation prints a concise summary (frames, casualties, survivors, simulated distance). CI can run the interpreter
-variant to prove the project builds without touching LLVM or the Android toolchain.
+`Seen.toml` records project metadata and preferred active targets. The direct
+`check`, `run`, and `compile` commands still receive the source file explicitly.

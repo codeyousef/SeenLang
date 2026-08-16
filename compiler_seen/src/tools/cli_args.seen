@@ -1,0 +1,220 @@
+///
+/// Strict, bootstrap-friendly command-line argument parsing for the shipped CLI.
+/// Each value alias maps to a canonical name so aliases participate in duplicate
+/// and conflict checks together.
+///
+
+class CliArguments {
+    var ok: Bool
+    var help: Bool
+    var error: String
+    var positionals: Array<String>
+    var optionNames: Array<String>
+    var optionValues: Array<String>
+    var optionIsValue: Array<Int>
+
+    static fun new() r: CliArguments {
+        return CliArguments{
+            ok: true,
+            help: false,
+            error: "",
+            positionals: Array<String>(),
+            optionNames: Array<String>(),
+            optionValues: Array<String>(),
+            optionIsValue: Array<Int>()
+        }
+    }
+
+    fun hasOption(name: String) r: Bool {
+        var index = 0
+        while index < this.optionNames.length() {
+            if this.optionNames[index] == name {
+                return true
+            }
+            index = index + 1
+        }
+        return false
+    }
+
+    fun valueOr(name: String, defaultValue: String) r: String {
+        var index = 0
+        while index < this.optionNames.length() {
+            if this.optionNames[index] == name {
+                return this.optionValues[index]
+            }
+            index = index + 1
+        }
+        return defaultValue
+    }
+
+    fun valuesFor(name: String) r: Array<String> {
+        let values = Array<String>()
+        var index = 0
+        while index < this.optionNames.length() {
+            if this.optionNames[index] == name {
+                values.push(this.optionValues[index])
+            }
+            index = index + 1
+        }
+        return values
+    }
+}
+
+fun cliArrayContains(values: Array<String>, value: String) r: Bool {
+    var index = 0
+    while index < values.length() {
+        if values[index] == value {
+            return true
+        }
+        index = index + 1
+    }
+    return false
+}
+
+fun cliHelpRequested(argv: Array<String>, startIndex: Int) r: Bool {
+    if argv.length() != startIndex + 1 {
+        return false
+    }
+    var index = startIndex
+    while index < argv.length() {
+        if argv[index] == "--" {
+            return false
+        }
+        if argv[index] == "--help" or argv[index] == "-h" {
+            return true
+        }
+        index = index + 1
+    }
+    return false
+}
+
+fun cliLooksLikeOption(value: String) r: Bool {
+    return value.startsWith("-")
+}
+
+fun cliFlagCanonical(flagAliases: Array<String>, flagCanonical: Array<String>,
+    argument: String) r: String {
+
+    var index = 0
+    while index < flagAliases.length() {
+        if flagAliases[index] == argument {
+            return flagCanonical[index]
+        }
+        index = index + 1
+    }
+    return ""
+}
+
+fun cliValueAliasIndex(valueAliases: Array<String>, argument: String) r: Int {
+    var index = 0
+    while index < valueAliases.length() {
+        let alias = valueAliases[index]
+        if argument == alias or argument.startsWith(alias + "=") {
+            return index
+        }
+        index = index + 1
+    }
+    return -1
+}
+
+fun cliRecordOption(result: CliArguments, canonical: String, value: String,
+    isValue: Bool,
+    repeatableOptions: Array<String>) r: Bool {
+
+    if not cliArrayContains(repeatableOptions, canonical) {
+        var index = 0
+        while index < result.optionNames.length() {
+            if result.optionNames[index] == canonical {
+                if result.optionValues[index] != value {
+                    result.ok = false
+                    result.error = "conflicting values for option '" + canonical +
+                        "': '" + result.optionValues[index] + "' and '" + value + "'"
+                    return false
+                }
+                return true
+            }
+            index = index + 1
+        }
+    }
+    result.optionNames.push(canonical)
+    result.optionValues.push(value)
+    result.optionIsValue.push(if isValue { 1 } else { 0 })
+    return true
+}
+
+fun parseCliArguments(argv: Array<String>, startIndex: Int,
+    flagAliases: Array<String>, flagCanonical: Array<String>,
+    valueAliases: Array<String>, valueCanonical: Array<String>,
+    repeatableOptions: Array<String>) r: CliArguments {
+
+    let result = CliArguments.new()
+    if flagAliases.length() != flagCanonical.length() or
+        valueAliases.length() != valueCanonical.length() {
+
+        result.ok = false
+        result.error = "internal command-line option table mismatch"
+        return result
+    }
+    if cliHelpRequested(argv, startIndex) {
+        result.help = true
+        return result
+    }
+
+    var optionsEnabled = true
+    var index = startIndex
+    while index < argv.length() {
+        let argument = argv[index]
+        if optionsEnabled and argument == "--" {
+            optionsEnabled = false
+        } else if optionsEnabled {
+            let flagName = cliFlagCanonical(flagAliases, flagCanonical, argument)
+            if flagName != "" {
+                if not cliRecordOption(result, flagName, "true", false,
+                    repeatableOptions) {
+                    return result
+                }
+            } else {
+                let valueIndex = cliValueAliasIndex(valueAliases, argument)
+                if valueIndex >= 0 {
+                    let alias = valueAliases[valueIndex]
+                    let canonical = valueCanonical[valueIndex]
+                    var value = ""
+                    if argument == alias {
+                        if index + 1 >= argv.length() or argv[index + 1] == "--" or
+                            cliLooksLikeOption(argv[index + 1]) {
+
+                            result.ok = false
+                            result.error = "option '" + argument + "' requires a value"
+                            return result
+                        }
+                        index = index + 1
+                        value = argv[index]
+                    } else {
+                        value = argument.substring(alias.length() + 1,
+                            argument.length())
+                        if value == "" {
+                            result.ok = false
+                            result.error = "option '" + alias + "' requires a value"
+                            return result
+                        }
+                    }
+                    if not cliRecordOption(result, canonical, value, true,
+                        repeatableOptions) {
+
+                        return result
+                    }
+                } else if cliLooksLikeOption(argument) {
+                    result.ok = false
+                    result.error = "unknown option '" + argument + "'"
+                    return result
+                } else {
+                    result.positionals.push(argument)
+                }
+            }
+        } else {
+            result.positionals.push(argument)
+        }
+        index = index + 1
+    }
+    return result
+}

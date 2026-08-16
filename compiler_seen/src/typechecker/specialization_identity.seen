@@ -1,0 +1,479 @@
+///
+/// ABI-neutral identities for demand-specialized declarations.
+///
+/// This module deliberately has no dependency on LLVM, object formats, or
+/// concrete aggregate layouts. Semantic analysis supplies a canonical
+/// declaration identity, a canonical definition fingerprint, fully resolved
+/// TypeRef arguments, canonical typed comptime values, and the complete target
+/// identity. The fingerprint provider must cover the canonical declaration,
+/// generic signature, body, and declaration-owned fields. The target identity
+/// must cover the triple, CPU/features, data layout, and semantic ABI version.
+/// Only a successful demand may enter the cache.
+///
+/// The deterministic mangle is an internal compiler name. Exported/public ABI
+/// names must continue to be chosen by the ABI layer.
+///
+
+import str.string.{StringBuilder}
+import typechecker.type_ref.{TypeRef}
+import typechecker.semantic_registry.{SemanticDiagnostic}
+import typechecker.semantic_registry.{semanticIsBuiltinType}
+import typechecker.semantic_registry.{semanticBuiltinGenericArity}
+
+/// Hard ceiling shared with the 0.11 specialization plan.
+fun specializationLimit() r: Int {
+    return 65536
+}
+
+fun specializationAppendComponent(out: StringBuilder, label: String,
+    value: String) r: Void {
+
+    out.append("|")
+    out.append(label)
+    out.append("=")
+    out.append(value.length().toString())
+    out.append(":")
+    out.append(value)
+}
+
+/// Bytewise comparison is locale-independent and stable across hosts.
+fun specializationCompareCanonical(left: String, right: String) r: Int {
+    let sharedLength = if left.length() < right.length() {
+        left.length()
+    } else {
+        right.length()
+    }
+    var index = 0
+    while index < sharedLength {
+        let leftByte: Int = left.byteAt(index)
+        let rightByte: Int = right.byteAt(index)
+        if leftByte < rightByte { return -1 }
+        if leftByte > rightByte { return 1 }
+        index = index + 1
+    }
+    if left.length() < right.length() { return -1 }
+    if left.length() > right.length() { return 1 }
+    return 0
+}
+
+fun specializationHexEncode(value: String) r: String {
+    let digits = "0123456789abcdef"
+    let out = StringBuilder.new()
+    var index = 0
+    while index < value.length() {
+        let byte: Int = value.byteAt(index)
+        let high = (byte / 16) % 16
+        let low = byte % 16
+        out.append(digits.substring(high, high + 1))
+        out.append(digits.substring(low, low + 1))
+        index = index + 1
+    }
+    return out.toString()
+}
+
+///
+/// A collision-free internal mangle for the canonical key. A future lowering
+/// layer may shorten it with a stable digest only if it also checks collisions
+/// against the full canonical key.
+///
+fun specializationMangle(canonicalKey: String) r: String {
+    return "__seen_spec_v1_" + specializationHexEncode(canonicalKey)
+}
+
+class SpecializationComptimeArgument {
+    let valueKind: String
+    let typeIdentity: String
+    let canonicalValue: String
+    let valid: Bool
+    let error: String
+
+    ///
+    /// canonicalValue is the CT-MIR value serializer's deterministic output.
+    /// The value may be empty (for example, an empty String); kind and type
+    /// identities must never be empty.
+    ///
+    static fun new(valueKind: String, typeIdentity: String,
+        canonicalValue: String) r: SpecializationComptimeArgument {
+
+        return SpecializationComptimeArgument{
+            valueKind: valueKind,
+            typeIdentity: typeIdentity,
+            canonicalValue: canonicalValue,
+            valid: valueKind != "" and typeIdentity != "",
+            error: if valueKind == "" or typeIdentity == "" {
+                "comptime argument requires canonical kind and type identities"
+            } else {
+                ""
+            }
+        }
+    }
+
+    static fun invalid(message: String) r: SpecializationComptimeArgument {
+        return SpecializationComptimeArgument{
+            valueKind: "",
+            typeIdentity: "",
+            canonicalValue: "",
+            valid: false,
+            error: message
+        }
+    }
+
+    fun canonical() r: String {
+        let out = StringBuilder.new()
+        out.append("seen-comptime-argument-v1")
+        specializationAppendComponent(out, "kind", this.valueKind)
+        specializationAppendComponent(out, "type", this.typeIdentity)
+        specializationAppendComponent(out, "value", this.canonicalValue)
+        return out.toString()
+    }
+}
+
+fun specializationBuildCanonicalKey(canonicalDeclaration: String,
+    definitionFingerprint: String, typeArguments: Array<String>,
+    comptimeArguments: Array<String>, canonicalTarget: String) r: String {
+
+    let out = StringBuilder.new()
+    out.append("seen-specialization-key-v1")
+    specializationAppendComponent(out, "declaration",
+        canonicalDeclaration)
+    specializationAppendComponent(out, "definition",
+        definitionFingerprint)
+    specializationAppendComponent(out, "target", canonicalTarget)
+    out.append("|type-count=")
+    out.append(typeArguments.length().toString())
+    var index = 0
+    while index < typeArguments.length() {
+        specializationAppendComponent(out, "type-" + index.toString(),
+            typeArguments[index])
+        index = index + 1
+    }
+    out.append("|comptime-count=")
+    out.append(comptimeArguments.length().toString())
+    index = 0
+    while index < comptimeArguments.length() {
+        specializationAppendComponent(out, "comptime-" + index.toString(),
+            comptimeArguments[index])
+        index = index + 1
+    }
+    return out.toString()
+}
+
+/// Immutable-by-convention snapshot retained by semantic and cache layers.
+class SpecializationKey {
+    let canonicalDeclaration: String
+    let definitionFingerprint: String
+    let canonicalTypeArguments: Array<String>
+    let canonicalComptimeArguments: Array<String>
+    let canonicalTarget: String
+    let canonicalText: String
+    let mangledName: String
+    let valid: Bool
+    let error: String
+
+    static fun fromValidatedDemand(canonicalDeclaration: String,
+        definitionFingerprint: String, typeArguments: Array<String>,
+        comptimeArguments: Array<String>, canonicalTarget: String)
+        r: SpecializationKey {
+
+        let canonicalText = specializationBuildCanonicalKey(
+            canonicalDeclaration, definitionFingerprint, typeArguments,
+            comptimeArguments, canonicalTarget)
+        return SpecializationKey{
+            canonicalDeclaration: canonicalDeclaration,
+            definitionFingerprint: definitionFingerprint,
+            canonicalTypeArguments: typeArguments,
+            canonicalComptimeArguments: comptimeArguments,
+            canonicalTarget: canonicalTarget,
+            canonicalText: canonicalText,
+            mangledName: specializationMangle(canonicalText),
+            valid: true,
+            error: ""
+        }
+    }
+
+    static fun invalid(message: String) r: SpecializationKey {
+        return SpecializationKey{
+            canonicalDeclaration: "",
+            definitionFingerprint: "",
+            canonicalTypeArguments: Array<String>(),
+            canonicalComptimeArguments: Array<String>(),
+            canonicalTarget: "",
+            canonicalText: "",
+            mangledName: "",
+            valid: false,
+            error: message
+        }
+    }
+}
+
+class SpecializationDemandResult {
+    var success: Bool
+    var key: SpecializationKey
+    var diagnostics: Array<SemanticDiagnostic>
+
+    static fun new() r: SpecializationDemandResult {
+        return SpecializationDemandResult{
+            success: true,
+            key: SpecializationKey.invalid(
+                "specialization demand was not validated"),
+            diagnostics: Array<SemanticDiagnostic>()
+        }
+    }
+
+    fun addError(code: String, message: String, file: String, line: Int,
+        column: Int) r: Void {
+
+        this.diagnostics.push(SemanticDiagnostic.new(code, message, file,
+            line, column))
+        this.success = false
+    }
+}
+
+fun specializationKnownOwnership(ownership: String) r: Bool {
+    return ownership == "" or ownership == "move" or
+        ownership == "borrow" or ownership == "ref" or
+        ownership == "own" or ownership == "comptime"
+}
+
+/// Validate structure before canonicalIdentity() can index child arguments.
+fun specializationTypeStructureError(typeRef: TypeRef) r: String {
+    if not typeRef.valid {
+        if typeRef.error != "" { return typeRef.error }
+        return "invalid type reference"
+    }
+    if typeRef.base == "" or typeRef.base == "Unknown" {
+        return "type reference has no concrete base"
+    }
+    if not specializationKnownOwnership(typeRef.ownership) {
+        return "unknown ownership mode '" + typeRef.ownership + "'"
+    }
+    if typeRef.hasBitWidth and
+        (typeRef.bitWidth <= 0 or typeRef.bitWidth > 64) {
+
+        return "bitfield width must be between 1 and 64"
+    }
+
+    if typeRef.kind == "constant" {
+        if typeRef.arguments.length() != 0 {
+            return "constant type argument cannot have child types"
+        }
+        return ""
+    }
+    if typeRef.kind == "pointer" or typeRef.kind == "const_pointer" or
+        typeRef.kind == "dynamic" {
+
+        if typeRef.arguments.length() != 1 {
+            return "type kind '" + typeRef.kind +
+                "' requires exactly one child type"
+        }
+    } else if typeRef.kind == "fixed_array" {
+        if typeRef.arguments.length() != 2 or
+            typeRef.arguments[1].kind != "constant" {
+
+            return "fixed array requires an element type and constant length"
+        }
+    } else if typeRef.kind == "function" {
+        if typeRef.arguments.length() < 1 {
+            return "function type requires a return type"
+        }
+    } else if typeRef.kind == "error_union" {
+        if typeRef.arguments.length() < 2 {
+            return "error union requires at least two alternatives"
+        }
+    } else if typeRef.kind == "named" {
+        let builtinArity = semanticBuiltinGenericArity(typeRef.base)
+        if builtinArity >= 0 and
+            typeRef.arguments.length() != builtinArity {
+
+            return "builtin generic type '" + typeRef.base + "' requires " +
+                builtinArity.toString() + " argument(s)"
+        }
+        if semanticIsBuiltinType(typeRef.base) and
+            typeRef.arguments.length() != 0 {
+
+            return "builtin type '" + typeRef.base +
+                "' cannot have type arguments"
+        }
+    } else {
+        return "unsupported type reference kind '" + typeRef.kind + "'"
+    }
+
+    var index = 0
+    while index < typeRef.arguments.length() {
+        let childError = specializationTypeStructureError(
+            typeRef.arguments[index])
+        if childError != "" { return childError }
+        index = index + 1
+    }
+    return ""
+}
+
+fun specializationContainsIdentityGeneric(typeRef: TypeRef) r: Bool {
+    if typeRef.identityBase.contains("generic:") { return true }
+    var index = 0
+    while index < typeRef.arguments.length() {
+        if specializationContainsIdentityGeneric(typeRef.arguments[index]) {
+            return true
+        }
+        index = index + 1
+    }
+    return false
+}
+
+fun specializationContainsOpenGeneric(typeRef: TypeRef,
+    genericNames: Array<String>) r: Bool {
+
+    return typeRef.isOpen(genericNames) or
+        specializationContainsIdentityGeneric(typeRef)
+}
+
+///
+/// A named user type is concrete only after the lexical semantic pass records
+/// identityBase. Built-ins and structural constant nodes are self-identifying.
+///
+fun specializationTypeResolutionError(typeRef: TypeRef) r: String {
+    if typeRef.kind == "named" {
+        let builtinArity = semanticBuiltinGenericArity(typeRef.base)
+        if not semanticIsBuiltinType(typeRef.base) and builtinArity < 0 {
+            if typeRef.identityBase == "" or
+                typeRef.identityBase == "Unknown" {
+
+                return "type '" + typeRef.base +
+                    "' has no canonical semantic identity"
+            }
+        }
+    }
+    var index = 0
+    while index < typeRef.arguments.length() {
+        let childError = specializationTypeResolutionError(
+            typeRef.arguments[index])
+        if childError != "" { return childError }
+        index = index + 1
+    }
+    return ""
+}
+
+fun specializationTypeDiagnosticFile(typeRef: TypeRef,
+    fallback: String) r: String {
+
+    if typeRef.file != "" { return typeRef.file }
+    return fallback
+}
+
+fun specializationTypeDiagnosticLine(typeRef: TypeRef,
+    fallback: Int) r: Int {
+
+    if typeRef.line > 0 { return typeRef.line }
+    return fallback
+}
+
+fun specializationTypeDiagnosticColumn(typeRef: TypeRef,
+    fallback: Int) r: Int {
+
+    if typeRef.column > 0 { return typeRef.column }
+    return fallback
+}
+
+///
+/// Validate and snapshot a specialization demand. This is the explicit
+/// diagnostic boundary: callers must not construct a lowering specialization
+/// when success is false.
+///
+fun buildSpecializationDemand(canonicalDeclaration: String,
+    definitionFingerprint: String, typeArguments: Array<TypeRef>,
+    comptimeArguments: Array<SpecializationComptimeArgument>,
+    genericNames: Array<String>, canonicalTarget: String, file: String,
+    line: Int, column: Int) r: SpecializationDemandResult {
+
+    let result = SpecializationDemandResult.new()
+    if canonicalDeclaration == "" or
+        canonicalDeclaration.contains("generic:") {
+
+        result.addError("E_SPECIALIZATION_DECLARATION",
+            "specialization requires a canonical concrete declaration identity",
+            file, line, column)
+    }
+    if definitionFingerprint == "" {
+        result.addError("E_SPECIALIZATION_FINGERPRINT",
+            "specialization requires a canonical definition fingerprint",
+            file, line, column)
+    }
+    if canonicalTarget == "" or canonicalTarget == "Unknown" {
+        result.addError("E_SPECIALIZATION_TARGET",
+            "specialization requires a canonical target identity", file,
+            line, column)
+    }
+
+    let canonicalTypes = Array<String>()
+    var index = 0
+    while index < typeArguments.length() {
+        let typeRef = typeArguments[index]
+        let diagnosticFile = specializationTypeDiagnosticFile(typeRef, file)
+        let diagnosticLine = specializationTypeDiagnosticLine(typeRef, line)
+        let diagnosticColumn = specializationTypeDiagnosticColumn(typeRef,
+            column)
+        let structureError = specializationTypeStructureError(typeRef)
+        if structureError != "" {
+            result.addError("E_SPECIALIZATION_TYPE",
+                "type argument " + index.toString() + " is invalid: " +
+                structureError, diagnosticFile, diagnosticLine,
+                diagnosticColumn)
+        } else if specializationContainsOpenGeneric(typeRef, genericNames) {
+            result.addError("E_SPECIALIZATION_OPEN_GENERIC",
+                "type argument " + index.toString() +
+                " remains open at a specialization boundary", diagnosticFile,
+                diagnosticLine, diagnosticColumn)
+        } else {
+            let resolutionError = specializationTypeResolutionError(typeRef)
+            if resolutionError != "" {
+                result.addError("E_SPECIALIZATION_UNRESOLVED_TYPE",
+                    "type argument " + index.toString() + " is unresolved: " +
+                    resolutionError, diagnosticFile, diagnosticLine,
+                    diagnosticColumn)
+            } else {
+                canonicalTypes.push(typeRef.canonicalIdentity())
+            }
+        }
+        index = index + 1
+    }
+
+    let canonicalComptime = Array<String>()
+    index = 0
+    while index < comptimeArguments.length() {
+        let argument = comptimeArguments[index]
+        if not argument.valid {
+            result.addError("E_SPECIALIZATION_COMPTIME",
+                "comptime argument " + index.toString() + " is invalid: " +
+                argument.error, file, line, column)
+        } else if argument.typeIdentity == "Unknown" or
+            argument.typeIdentity.contains("generic:") {
+
+            result.addError("E_SPECIALIZATION_COMPTIME",
+                "comptime argument " + index.toString() +
+                " does not have a concrete canonical type", file, line,
+                column)
+        } else {
+            canonicalComptime.push(argument.canonical())
+        }
+        index = index + 1
+    }
+
+    if not result.success { return result }
+    result.key = SpecializationKey.fromValidatedDemand(canonicalDeclaration,
+        definitionFingerprint, canonicalTypes, canonicalComptime,
+        canonicalTarget)
+    return result
+}
+
+///
+/// Driver integration hooks (intentionally not wired in this isolated slice):
+///
+/// 1. After lexical semantics and substitution, compute the canonical
+///    declaration fingerprint and complete target identity described above.
+/// 2. Call buildSpecializationDemand() with resolved TypeRefs and typed CT-MIR
+///    values. Emit every returned SemanticDiagnostic on failure.
+/// 3. Keep one specialization_cache.SpecializationCache per compilation and
+///    call registerDemand().
+/// 4. Hand only result.key to later semantic/lowering work; an open generic or
+///    failed registration must never reach IR generation.
+///

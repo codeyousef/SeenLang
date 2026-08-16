@@ -2,23 +2,49 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
-TMP_DIR="$(mktemp -d /tmp/seen_selfhosted_abi_smoke.XXXXXX)"
-VMEM_KB="${SEEN_SELFHOSTED_ABI_VMEM_KB:-${SEEN_MAIN_VMEM_KB:-2097152}}"
-trap 'rm -rf "$TMP_DIR"' EXIT
-
 COMPILER="${SEEN_SELFHOSTED_ABI_COMPILER:-${COMPILER:-}}"
 if [ -z "$COMPILER" ]; then
     if [ -x "$ROOT_DIR/compiler_seen/target/seen" ]; then
         COMPILER="$ROOT_DIR/compiler_seen/target/seen"
-    else
-        COMPILER="$(command -v seen || true)"
     fi
 fi
-
 if [ -z "$COMPILER" ] || [ ! -x "$COMPILER" ]; then
     echo "FAIL: no executable Seen compiler for self-hosted ABI smoke" >&2
     exit 1
 fi
+CAPPED_ENTRY="$ROOT_DIR/scripts/run_capped_regression.sh"
+SCOPE=seen-selfhosted-abi-smoke
+if [ "${SEEN_CAPPED_REGRESSION_ACTIVE:-0}" != "1" ]; then
+    exec bash "$CAPPED_ENTRY" "$SCOPE" --compiler "$COMPILER" -- \
+        bash "$0" "$@"
+fi
+COMPILER="${SEEN_CAPPED_REGRESSION_COMPILER:-$COMPILER}"
+bash "$CAPPED_ENTRY" --verify-active "$SCOPE" --compiler "$COMPILER"
+ATTESTED_SEEN="${SEEN_ATTESTED_COMPILER_RUNNER:?}"
+VMEM_KB="${SEEN_SELFHOSTED_ABI_VMEM_KB:-$SEEN_MAIN_VMEM_KB}"
+case "$VMEM_KB" in
+    ''|*[!0-9]*)
+        echo "RESOURCE STOP: invalid self-hosted ABI memory cap" >&2
+        exit 126
+        ;;
+esac
+if [ "$VMEM_KB" -le 0 ] || [ "$VMEM_KB" -gt "$SEEN_MAIN_VMEM_KB" ]; then
+    echo "RESOURCE STOP: self-hosted ABI cap must not exceed the verified main cap" >&2
+    exit 126
+fi
+TMP_DIR="$(mktemp -d "$SEEN_ARTIFACT_ROOT/seen-selfhosted-abi-smoke.XXXXXX")"
+
+cleanup() {
+    case "$TMP_DIR" in
+        "$SEEN_ARTIFACT_ROOT"/seen-selfhosted-abi-smoke.*)
+            [ -d "$TMP_DIR" ] && [ ! -L "$TMP_DIR" ] &&
+                [ "$(dirname -- "$TMP_DIR")" = "$SEEN_ARTIFACT_ROOT" ] || return 1
+            rm -rf -- "$TMP_DIR"
+            ;;
+        *) return 1 ;;
+    esac
+}
+trap cleanup EXIT
 
 PROJECT_DIR="$TMP_DIR/selfhost_abi"
 OUTPUT_FILE="$PROJECT_DIR/selfhost_abi_smoke"
@@ -124,34 +150,63 @@ EOF
 
 run_capped() {
     (
-        ulimit -v "$VMEM_KB" 2>/dev/null || true
+        if ! ulimit -S -v "$VMEM_KB" 2>/dev/null; then
+            echo "RESOURCE STOP: could not apply self-hosted ABI virtual-memory cap (${VMEM_KB} KiB)" >&2
+            exit 126
+        fi
+        active_vmem=$(ulimit -S -v 2>/dev/null || true)
+        case "$active_vmem" in
+            ''|*[!0-9]*)
+                echo "RESOURCE STOP: could not read back self-hosted ABI virtual-memory cap" >&2
+                exit 126
+                ;;
+        esac
+        if [ "$active_vmem" -gt "$VMEM_KB" ]; then
+            echo "RESOURCE STOP: self-hosted ABI virtual-memory cap read-back exceeds ${VMEM_KB} KiB" >&2
+            exit 126
+        fi
         "$@"
     )
 }
 
-if ! (
+normalized_failure_status() {
+    case "$1" in
+        124|125|126|137|143) printf '%s\n' "$1" ;;
+        *) printf '1\n' ;;
+    esac
+}
+
+check_status=0
+(
     cd "$PROJECT_DIR" &&
-    run_capped timeout 180 "$COMPILER" check main.seen >"$CHECK_LOG" 2>&1
-); then
+    run_capped timeout 180 bash "$ATTESTED_SEEN" "$COMPILER" \
+        check main.seen >"$CHECK_LOG" 2>&1
+) || check_status=$?
+if [ "$check_status" -ne 0 ]; then
     echo "FAIL: self-hosted ABI check smoke failed; log: $CHECK_LOG" >&2
     tail -n 120 "$CHECK_LOG" >&2 || true
-    exit 1
+    exit "$(normalized_failure_status "$check_status")"
 fi
 
-if ! (
+compile_status=0
+(
     cd "$PROJECT_DIR" &&
-    run_capped timeout 180 "$COMPILER" compile main.seen "$OUTPUT_FILE" \
-        --fast --no-cache --no-fork >"$COMPILE_LOG" 2>&1
-); then
+    run_capped timeout 180 bash "$ATTESTED_SEEN" "$COMPILER" \
+        compile main.seen "$OUTPUT_FILE" --fast --no-cache \
+        >"$COMPILE_LOG" 2>&1
+) || compile_status=$?
+if [ "$compile_status" -ne 0 ]; then
     echo "FAIL: self-hosted ABI compile smoke failed; log: $COMPILE_LOG" >&2
     tail -n 120 "$COMPILE_LOG" >&2 || true
-    exit 1
+    exit "$(normalized_failure_status "$compile_status")"
 fi
 
-if ! run_capped "$OUTPUT_FILE" >"$RUN_LOG" 2>&1; then
+run_status=0
+run_capped "$OUTPUT_FILE" >"$RUN_LOG" 2>&1 || run_status=$?
+if [ "$run_status" -ne 0 ]; then
     echo "FAIL: self-hosted ABI run smoke failed; log: $RUN_LOG" >&2
     tail -n 120 "$RUN_LOG" >&2 || true
-    exit 1
+    exit "$(normalized_failure_status "$run_status")"
 fi
 
 echo "PASS: self-hosted ABI smoke fixture"

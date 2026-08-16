@@ -9,6 +9,10 @@ utilities used with `extern fun` and `seen import-c`.
 |------------------|--------|---------|
 | `CTypeInfo` | `ffi/c_types` | C type size/alignment metadata |
 | `CFunctionSignature` | `ffi/c_types` | Parsed C function signature helper |
-| `CString` | `ffi/cinterop` | C string wrapper |
+| `CString` | `ffi/cinterop` | bootstrap wrapper around a Seen `String`; not a raw NUL-terminated `char *` |
+
+For an actual native string boundary, use a reviewed shim or the runtime
+`seen_str_to_cstr`/`seen_cstr_to_str` helpers and document who owns any allocated
+copy. A Seen `String` is the `{ length, data }` `SeenString` representation.
 
 Related guide: [Foreign Function Interface](../ffi.md).

@@ -1,0 +1,33 @@
+import str.string.{StringBuilder}
+// The mutator imports the acyclic lowering callback bridge.  Seed the facade
+// explicitly for this standalone codegen fixture so those callbacks have
+// definitions when the fixture is linked outside main_compiler's full graph.
+import codegen.llvm_ir_gen.{LLVMIRGenerator}
+import codegen.ir_method_array_mutator_emit.{emitArrayPushMutationImpl}
+
+fun arrayBoolPushExpect(condition: Bool, message: String) r: Void {
+    if not condition { abort(message) }
+}
+
+fun main() r: Int {
+    let output = StringBuilder.new()
+    let registers = Array<Int>()
+    registers.push(0)
+    let blocks = Array<Int>()
+    blocks.push(0)
+    let structNames = Array<String>()
+
+    let result = emitArrayPushMutationImpl(output, registers, blocks,
+        "%array", "%flag", "Bool", "Array<Bool>", false, structNames)
+    let ir = output.toString()
+
+    arrayBoolPushExpect(result != "",
+        "Array<Bool>.push must emit a result register")
+    arrayBoolPushExpect(ir.contains(" = zext i1 %flag to i64\n"),
+        "Array<Bool>.push must widen its i1 value to the eight-byte array ABI")
+    arrayBoolPushExpect(not ir.contains("store i64 %flag"),
+        "Array<Bool>.push must not store an i1 register as i64")
+    arrayBoolPushExpect(ir.contains("call i64 @Array_push(ptr %array"),
+        "Array<Bool>.push must pass the widened value slot to Array_push")
+    return 0
+}

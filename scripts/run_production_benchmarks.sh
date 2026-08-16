@@ -3,11 +3,191 @@
 # Runs all 16 benchmarks from benchmarks/production/
 # Outputs: markdown report + JSONL machine-readable results
 
-set -e
+set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-cd "$REPO_ROOT"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd -P)"
+SELF_PATH="$SCRIPT_DIR/$(basename -- "${BASH_SOURCE[0]}")"
+ARTIFACT_ROOT_HELPER="$SCRIPT_DIR/artifact_root.sh"
+ARTIFACT_WRAPPER="$SCRIPT_DIR/run_with_project_artifacts.sh"
+HARD_SCOPE_WRAPPER="$SCRIPT_DIR/run_in_hard_memory_scope.sh"
+BUILDER_CAPABILITY="$SCRIPT_DIR/rebuild_builder_capability.sh"
+BUILDER_APPLICABILITY="$SCRIPT_DIR/rebuild_builder_applicability.sh"
+SERIALIZER_VERIFY="$SCRIPT_DIR/verify_fork_serializer.sh"
+BOUNDED_TOOLCHAIN_PREPARE="$SCRIPT_DIR/prepare_bounded_toolchain.sh"
+ORIGINAL_ARGS=("$@")
+
+if [ "$#" -ne 0 ]; then
+    echo "ERROR: run_production_benchmarks.sh accepts no arguments" >&2
+    exit 2
+fi
+
+is_positive_integer() {
+    case "${1:-}" in
+        ''|*[!0-9]*) return 1 ;;
+        *) [ "$1" -gt 0 ] 2>/dev/null ;;
+    esac
+}
+
+derive_main_kb() {
+    local total=$1
+    local available=$2
+    local cap=$((total / 4))
+    local available_cap=$((available / 2))
+    if [ "$available_cap" -lt "$cap" ]; then cap=$available_cap; fi
+    if [ "$cap" -gt 4194304 ]; then cap=4194304; fi
+    [ "$cap" -gt 0 ] || cap=1
+    printf '%s\n' "$cap"
+}
+
+derive_opt_kb() {
+    local total=$1
+    local main=$2
+    local cap=$((total / 10))
+    local half_main=$((main / 2))
+    if [ "$half_main" -lt "$cap" ]; then cap=$half_main; fi
+    if [ "$cap" -gt 2097152 ]; then cap=2097152; fi
+    [ "$cap" -gt 0 ] || cap=1
+    printf '%s\n' "$cap"
+}
+
+validate_benchmark_output_root() {
+    local candidate=$1
+    local relative_path
+    local canonical_candidate
+
+    case "$candidate" in
+        "$REPO_ROOT"/*) relative_path=${candidate#"$REPO_ROOT"/} ;;
+        *)
+            echo "ERROR: benchmark output must stay inside the repository: $candidate" >&2
+            return 1
+            ;;
+    esac
+    seen_artifact_assert_safe_relative_path "$relative_path" || return 1
+    seen_artifact_assert_no_symlink_components "$REPO_ROOT" "$relative_path" || return 1
+    if [ -L "$candidate" ] || { [ -e "$candidate" ] && [ ! -d "$candidate" ]; }; then
+        echo "ERROR: unsafe benchmark output root: $candidate" >&2
+        return 1
+    fi
+    if command -v git >/dev/null 2>&1 &&
+        git -C "$REPO_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+
+        git -C "$REPO_ROOT" check-ignore -q -- "$relative_path" || {
+            echo "ERROR: benchmark output root must be ignored by Git: $candidate" >&2
+            return 1
+        }
+    else
+        case "$relative_path" in
+            .seen|.seen/*) ;;
+            *)
+                echo "ERROR: without Git, benchmark output must stay below .seen/: $candidate" >&2
+                return 1
+                ;;
+        esac
+    fi
+    if [ -d "$candidate" ]; then
+        canonical_candidate=$(seen_artifact_canonical_dir "$candidate") || return 1
+        [ "$canonical_candidate" = "$candidate" ] || {
+            echo "ERROR: benchmark output root is not canonical: $candidate" >&2
+            return 1
+        }
+    fi
+}
+
+[ -f "$ARTIFACT_ROOT_HELPER" ] || {
+    echo "ERROR: missing artifact-root helper: $ARTIFACT_ROOT_HELPER" >&2
+    exit 1
+}
+# shellcheck source=scripts/artifact_root.sh
+source "$ARTIFACT_ROOT_HELPER"
+
+total_kb=$(awk '/^MemTotal:/ { print $2; exit }' /proc/meminfo 2>/dev/null || true)
+available_kb=$(awk '/^MemAvailable:/ { print $2; exit }' /proc/meminfo 2>/dev/null || true)
+if ! is_positive_integer "$total_kb" || ! is_positive_integer "$available_kb"; then
+    echo "ERROR: could not derive production-benchmark memory caps" >&2
+    exit 1
+fi
+main_kb=${SEEN_MAIN_VMEM_KB:-$(derive_main_kb "$total_kb" "$available_kb")}
+if ! is_positive_integer "$main_kb" || [ "$main_kb" -gt 4194304 ]; then
+    echo "ERROR: production-benchmark main cap must be positive and at most 4 GiB" >&2
+    exit 1
+fi
+opt_kb=${SEEN_OPT_VMEM_KB:-$(derive_opt_kb "$total_kb" "$main_kb")}
+memory_limit_bytes=${SEEN_MEMORY_LIMIT_BYTES:-$((main_kb * 1024))}
+if ! is_positive_integer "$opt_kb" || [ "$opt_kb" -gt 2097152 ] ||
+    [ "$opt_kb" -gt "$main_kb" ] ||
+    ! is_positive_integer "$memory_limit_bytes" ||
+    [ "$memory_limit_bytes" -gt "$((main_kb * 1024))" ]; then
+
+    echo "ERROR: inconsistent production-benchmark optimizer/allocation cap" >&2
+    exit 1
+fi
+export SEEN_LOW_MEMORY=1 SEEN_JOBS=1 SEEN_OPT_JOBS=1
+export SEEN_MAIN_VMEM_KB="$main_kb" SEEN_OPT_VMEM_KB="$opt_kb"
+export SEEN_MEMORY_LIMIT_BYTES="$memory_limit_bytes"
+
+seen_artifact_root_init "$REPO_ROOT" || exit 1
+if [ -z "${SEEN_PRODUCTION_BENCH_OUTPUT_ROOT:-}" ]; then
+    if [ "${SEEN_PROJECT_ARTIFACT_WRAPPER:-0}" = "1" ] &&
+        [ "${SEEN_PROJECT_ARTIFACT_NAMESPACE_ACTIVE:-0}" = "1" ]; then
+
+        SEEN_PRODUCTION_BENCH_OUTPUT_ROOT="$REPO_ROOT/.seen/agent-tools/production-benchmarks"
+    else
+        SEEN_PRODUCTION_BENCH_OUTPUT_ROOT="$SEEN_ARTIFACT_ROOT/production-benchmarks"
+    fi
+fi
+validate_benchmark_output_root "$SEEN_PRODUCTION_BENCH_OUTPUT_ROOT" || exit 1
+export SEEN_PRODUCTION_BENCH_OUTPUT_ROOT
+
+if [ "${SEEN_PROJECT_ARTIFACT_WRAPPER:-0}" != "1" ] ||
+    [ "${SEEN_PROJECT_ARTIFACT_NAMESPACE_ACTIVE:-0}" != "1" ]; then
+
+    [ -x "$ARTIFACT_WRAPPER" ] || {
+        echo "ERROR: missing project-artifact wrapper: $ARTIFACT_WRAPPER" >&2
+        exit 1
+    }
+    exec "$ARTIFACT_WRAPPER" production-benchmarks -- \
+        "$SELF_PATH" "${ORIGINAL_ARGS[@]}"
+fi
+
+seen_artifact_root_init "$REPO_ROOT" || exit 1
+validate_benchmark_output_root "$SEEN_PRODUCTION_BENCH_OUTPUT_ROOT" || exit 1
+if [ "$(uname -s)" = "Linux" ]; then
+    namespace_tmp_identity=$(stat -c '%d:%i' /tmp 2>/dev/null || true)
+    artifact_root_identity=$(stat -c '%d:%i' "$SEEN_ARTIFACT_ROOT" 2>/dev/null || true)
+    if [ -z "$namespace_tmp_identity" ] ||
+        [ "$namespace_tmp_identity" != "$artifact_root_identity" ]; then
+
+        echo "ERROR: production-benchmark artifact namespace validation failed" >&2
+        exit 1
+    fi
+fi
+cd -- "$REPO_ROOT"
+
+if [ "${SEEN_HARD_MEMORY_SCOPE_ACTIVE:-0}" != "1" ] &&
+    [ "${SEEN_MEMORY_GUARD_IN_SCOPE:-0}" != "1" ]; then
+
+    [ -x "$HARD_SCOPE_WRAPPER" ] || {
+        echo "ERROR: missing hard-memory-scope wrapper: $HARD_SCOPE_WRAPPER" >&2
+        exit 1
+    }
+    exec "$HARD_SCOPE_WRAPPER" --label "Seen production benchmarks" -- \
+        "$SELF_PATH" "${ORIGINAL_ARGS[@]}"
+fi
+SEEN_HARD_MEMORY_SCOPE_ACTIVE=1
+export SEEN_HARD_MEMORY_SCOPE_ACTIVE
+"$HARD_SCOPE_WRAPPER" --label "Seen production benchmarks read-back" \
+    --verify-only --
+main_kb=$SEEN_MAIN_VMEM_KB
+if ! ulimit -S -v "$main_kb" 2>/dev/null; then
+    echo "ERROR: could not apply the production-benchmark address-space cap" >&2
+    exit 126
+fi
+active_main_kb=$(ulimit -S -v 2>/dev/null || true)
+if ! is_positive_integer "$active_main_kb" || [ "$active_main_kb" -gt "$main_kb" ]; then
+    echo "ERROR: production-benchmark address-space cap read-back failed" >&2
+    exit 126
+fi
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -15,36 +195,96 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-RESULTS_DIR="target/seen-build/benchmark-results"
-mkdir -p "$RESULTS_DIR"
+mkdir -p -- "$SEEN_PRODUCTION_BENCH_OUTPUT_ROOT"
+validate_benchmark_output_root "$SEEN_PRODUCTION_BENCH_OUTPUT_ROOT" || exit 1
+RESULTS_DIR="$SEEN_PRODUCTION_BENCH_OUTPUT_ROOT/results"
+BENCH_BIN_ROOT="$SEEN_ARTIFACT_ROOT/production-benchmark-bin"
+for benchmark_directory in "$RESULTS_DIR" "$BENCH_BIN_ROOT"; do
+    seen_artifact_assert_no_symlink_components "$REPO_ROOT" \
+        "${benchmark_directory#"$REPO_ROOT"/}" || exit 1
+done
+mkdir -p -- "$RESULTS_DIR" "$BENCH_BIN_ROOT"
+for benchmark_directory in "$RESULTS_DIR" "$BENCH_BIN_ROOT"; do
+    [ -d "$benchmark_directory" ] && [ ! -L "$benchmark_directory" ] || {
+        echo "ERROR: unsafe production-benchmark directory: $benchmark_directory" >&2
+        exit 1
+    }
+    seen_artifact_assert_no_symlink_components "$REPO_ROOT" \
+        "${benchmark_directory#"$REPO_ROOT"/}" || exit 1
+done
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 REPORT_FILE="$RESULTS_DIR/production_comparison_$TIMESTAMP.md"
 JSONL_FILE="$RESULTS_DIR/results_$TIMESTAMP.jsonl"
+for result_file in "$REPORT_FILE" "$JSONL_FILE"; do
+    if [ -L "$result_file" ] || { [ -e "$result_file" ] && [ ! -f "$result_file" ]; }; then
+        echo "ERROR: unsafe production-benchmark result file: $result_file" >&2
+        exit 1
+    fi
+    rm -f -- "$result_file"
+done
 
 SEEN_COMPILER="$REPO_ROOT/compiler_seen/target/seen"
 
-if [ -z "${SEEN_MEMORY_LIMIT_BYTES:-}" ]; then
-    AVAILABLE_KB=$(awk '/MemAvailable:/ { print $2 }' /proc/meminfo 2>/dev/null || echo 0)
-    if [ "$AVAILABLE_KB" -gt 0 ]; then
-        DERIVED_BYTES=$((AVAILABLE_KB * 1024 / 4))
-        MAX_BYTES=$((12 * 1024 * 1024 * 1024))
-        if [ "$DERIVED_BYTES" -gt "$MAX_BYTES" ]; then
-            DERIVED_BYTES=$MAX_BYTES
-        fi
-        export SEEN_MEMORY_LIMIT_BYTES="$DERIVED_BYTES"
-    else
-        export SEEN_MEMORY_LIMIT_BYTES=$((8 * 1024 * 1024 * 1024))
-    fi
-fi
-export SEEN_LOW_MEMORY="${SEEN_LOW_MEMORY:-1}"
-
 echo -e "${BLUE}=== Production Benchmark Suite ===${NC}"
 
-if [ ! -f "$SEEN_COMPILER" ]; then
+if [ ! -x "$SEEN_COMPILER" ] || [ -L "$SEEN_COMPILER" ]; then
     echo -e "${RED}ERROR: Self-hosted compiler not found at $SEEN_COMPILER${NC}"
     echo "Run ./scripts/safe_rebuild.sh to build the compiler first."
     exit 1
 fi
+FORK_SERIALIZER_SO=${SEEN_FORK_SERIALIZER_SO:-}
+FORK_SERIALIZER_ATTESTATION=${SEEN_FORK_SERIALIZER_ATTESTATION:-}
+if ! bash "$SERIALIZER_VERIFY" "$FORK_SERIALIZER_SO" \
+    "$FORK_SERIALIZER_ATTESTATION" "$SEEN_ARTIFACT_ROOT" \
+    "${SEEN_MEMORY_GUARD_SCOPE_UNIT:-}" >/dev/null; then
+
+    echo -e "${RED}ERROR: production benchmarks require the scope-attested serializer produced by safe_rebuild${NC}" >&2
+    exit 126
+fi
+if ! SEEN_MEMORY_GUARD_IN_SCOPE=1 bash "$BUILDER_APPLICABILITY" \
+    "$SEEN_COMPILER" "$FORK_SERIALIZER_SO" >/dev/null; then
+
+    echo -e "${RED}ERROR: production compiler is not serializer-applicable${NC}" >&2
+    exit 126
+fi
+BOUNDED_TOOLCHAIN_DIR=$(bash "$BOUNDED_TOOLCHAIN_PREPARE" "$SEEN_ARTIFACT_ROOT") ||
+    exit 126
+PATH="$BOUNDED_TOOLCHAIN_DIR:$PATH"
+export PATH SEEN_BOUNDED_TOOLCHAIN_DIR="$BOUNDED_TOOLCHAIN_DIR"
+compiler_capability_status=0
+compiler_capability=$(env -u LD_PRELOAD -u SEEN_FORK_SERIALIZER_TARGET \
+    -u SEEN_FORK_SERIALIZER_ROOT_PID \
+    bash "$BUILDER_CAPABILITY" "$SEEN_COMPILER" 2>/dev/null) ||
+    compiler_capability_status=$?
+if [ "$compiler_capability_status" -ne 0 ]; then
+    echo -e "${RED}ERROR: production compiler schema probe failed with status $compiler_capability_status${NC}" >&2
+    exit 126
+fi
+case "$compiler_capability" in
+    advertised-jobs) COMPILER_WORKER_FLAGS=(--jobs 1 --opt-jobs 1) ;;
+    advertised-no-fork) COMPILER_WORKER_FLAGS=(--no-fork) ;;
+    serializer-required) COMPILER_WORKER_FLAGS=() ;;
+    *) echo -e "${RED}ERROR: production compiler schema probe failed${NC}" >&2; exit 126 ;;
+esac
+
+abort_on_resource_failure() {
+    local status=$1
+    local output=$2
+    local label=$3
+    case "$status" in
+        124|125|126|137|143)
+            echo "RESOURCE STOP: $label stopped with status $status" >&2
+            exit "$status"
+            ;;
+    esac
+    if [ "$status" -ne 0 ] && grep -Eiq \
+        '(^|[^[:alnum:]_])(resource stop:|out of memory|cannot allocate memory|could not allocate memory|memory allocation (failed|failure)|allocation failure|std::bad_alloc|bad_alloc|resource temporarily unavailable|cannot fork|can.t fork|fork: retry|fork (failed|failure)|pthread_create([^[:alnum:]_].*)?(failed|failure)|failed to create (a )?thread|can.t create (a )?thread|cannot create (a )?thread|thread creation (failed|failure))([^[:alnum:]_]|$)' \
+        <<<"$output"; then
+
+        echo "RESOURCE STOP: $label reported a resource failure" >&2
+        exit 126
+    fi
+}
 
 # Check for /usr/bin/time (GNU time) for peak RSS measurement
 HAS_GNU_TIME=false
@@ -100,7 +340,12 @@ for benchmark in "${BENCHMARKS[@]}"; do
     echo -e "${BLUE}=== [$num/16] $display_name ===${NC}"
 
     SEEN_FILE="benchmarks/production/${file_name}.seen"
-    OUTPUT_BIN="/tmp/bench_${num}"
+    OUTPUT_BIN="$BENCH_BIN_ROOT/bench_${num}"
+    if [ -L "$OUTPUT_BIN" ] || { [ -e "$OUTPUT_BIN" ] && [ ! -f "$OUTPUT_BIN" ]; }; then
+        echo "ERROR: unsafe production-benchmark binary path: $OUTPUT_BIN" >&2
+        exit 1
+    fi
+    rm -f -- "$OUTPUT_BIN"
 
     if [ ! -f "$SEEN_FILE" ]; then
         echo -e "${RED}ERROR: $SEEN_FILE not found${NC}"
@@ -117,11 +362,19 @@ for benchmark in "${BENCHMARKS[@]}"; do
     # Measure compile time
     echo "Compiling..."
     COMPILE_START=$(date +%s%N)
-    COMPILE_OUTPUT=$("$SEEN_COMPILER" compile "$SEEN_FILE" "$OUTPUT_BIN" 2>&1 || true)
+    COMPILE_STATUS=0
+    COMPILE_OUTPUT=$(env -u SEEN_FORK_SERIALIZER_ROOT_PID \
+        LD_PRELOAD="$FORK_SERIALIZER_SO" \
+        SEEN_FORK_SERIALIZER_TARGET="$SEEN_COMPILER" \
+        "$SEEN_COMPILER" compile "$SEEN_FILE" "$OUTPUT_BIN" \
+        "${COMPILER_WORKER_FLAGS[@]}" 2>&1) || COMPILE_STATUS=$?
     COMPILE_END=$(date +%s%N)
     COMPILE_MS=$(( (COMPILE_END - COMPILE_START) / 1000000 ))
+    abort_on_resource_failure "$COMPILE_STATUS" "$COMPILE_OUTPUT" \
+        "production compile $file_name"
 
-    if ! echo "$COMPILE_OUTPUT" | tail -1 | grep -q "Build succeeded"; then
+    if [ "$COMPILE_STATUS" -ne 0 ] ||
+        ! echo "$COMPILE_OUTPUT" | tail -1 | grep -q "Build succeeded"; then
         echo -e "${RED}Compilation failed${NC}"
         echo "$COMPILE_OUTPUT" | tail -5
         echo "| $num | $display_name | N/A | $COMPILE_MS | N/A | N/A | Compile Error |" >> "$REPORT_FILE"
@@ -130,7 +383,7 @@ for benchmark in "${BENCHMARKS[@]}"; do
         continue
     fi
 
-    if [ ! -f "$OUTPUT_BIN" ]; then
+    if [ ! -f "$OUTPUT_BIN" ] || [ -L "$OUTPUT_BIN" ]; then
         echo -e "${RED}ERROR: Binary not generated${NC}"
         echo "| $num | $display_name | N/A | $COMPILE_MS | N/A | N/A | No Binary |" >> "$REPORT_FILE"
         echo "{\"name\":\"$display_name\",\"file\":\"$file_name\",\"runtime_ms\":null,\"compile_ms\":$COMPILE_MS,\"binary_kb\":null,\"peak_rss_kb\":null,\"status\":\"no_binary\"}" >> "$JSONL_FILE"
@@ -144,13 +397,17 @@ for benchmark in "${BENCHMARKS[@]}"; do
     # Run benchmark with optional peak RSS measurement
     echo "Running benchmark..."
     PEAK_RSS="N/A"
+    RUN_STATUS=0
     if $HAS_GNU_TIME; then
-        TIME_OUTPUT=$(/usr/bin/time -v timeout 120 "$OUTPUT_BIN" 2>&1) && RUN_OK=true || RUN_OK=false
+        TIME_OUTPUT=$(/usr/bin/time -v timeout 120 "$OUTPUT_BIN" 2>&1) || RUN_STATUS=$?
         PEAK_RSS=$(echo "$TIME_OUTPUT" | grep "Maximum resident set size" | grep -oP '\d+' || echo "N/A")
         OUTPUT=$(echo "$TIME_OUTPUT" | sed '/Command being timed/,$d')
     else
-        OUTPUT=$(timeout 120 "$OUTPUT_BIN" 2>&1) && RUN_OK=true || RUN_OK=false
+        OUTPUT=$(timeout 120 "$OUTPUT_BIN" 2>&1) || RUN_STATUS=$?
     fi
+    abort_on_resource_failure "$RUN_STATUS" "${TIME_OUTPUT:-$OUTPUT}" \
+        "production runtime $file_name"
+    if [ "$RUN_STATUS" -eq 0 ]; then RUN_OK=true; else RUN_OK=false; fi
 
     if $RUN_OK; then
         MIN_TIME=$(echo "$OUTPUT" | grep -oP "(?<=Min time: )[0-9.]+" || echo "$OUTPUT" | grep -oP "(?<=Time: )[0-9.]+" || echo "N/A")
@@ -173,7 +430,7 @@ for benchmark in "${BENCHMARKS[@]}"; do
             FAIL_COUNT=$((FAIL_COUNT + 1))
         fi
     else
-        EXIT_CODE=$?
+        EXIT_CODE=$RUN_STATUS
         if [ $EXIT_CODE -eq 124 ]; then
             echo -e "${RED}Timeout (120s)${NC}"
             echo "| $num | $display_name | N/A | $COMPILE_MS | $BINARY_KB | N/A | Timeout |" >> "$REPORT_FILE"

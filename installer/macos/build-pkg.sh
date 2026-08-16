@@ -19,6 +19,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 IDENTIFIER="org.seen-lang.seen"
+ARTIFACT_HELPER="$PROJECT_ROOT/scripts/artifact_root.sh"
 
 # Colors
 RED='\033[0;31m'
@@ -45,7 +46,7 @@ prune_packaged_stdlib_artifacts() {
 SEEN_BIN="${1:-$PROJECT_ROOT/compiler_seen/target/seen}"
 
 if [ ! -x "$SEEN_BIN" ]; then
-    die "Seen binary not found at $SEEN_BIN. Build it first with ./scripts/safe_rebuild.sh"
+    die "Seen binary not found at $SEEN_BIN. Use the capped quick/verify procedure in docs/bootstrap.md."
 fi
 
 COMPILER_VERSION_LINE="$("$SEEN_BIN" --version 2>/dev/null | head -n 1)"
@@ -61,7 +62,7 @@ fi
 SEEN_BIN_DIR="$(cd "$(dirname "$SEEN_BIN")" && pwd)"
 PACKAGE_CLIENT_BIN="${SEEN_PACKAGE_CLIENT_BIN:-$SEEN_BIN_DIR/seen-pkg}"
 if [ ! -x "$PACKAGE_CLIENT_BIN" ]; then
-    die "Version-coupled package client not found at $PACKAGE_CLIENT_BIN. Run ./scripts/safe_rebuild.sh --tier full first or set SEEN_PACKAGE_CLIENT_BIN."
+    die "Version-coupled package client not found at $PACKAGE_CLIENT_BIN. Use the capped full-tier procedure in docs/bootstrap.md or set SEEN_PACKAGE_CLIENT_BIN."
 fi
 PACKAGE_CLIENT_VERSION="$("$PACKAGE_CLIENT_BIN" --expect-version "$VERSION" version --machine 2>/dev/null)" ||
     die "Package client at $PACKAGE_CLIENT_BIN does not match Seen $VERSION"
@@ -79,9 +80,25 @@ info "Packages: $PACKAGE_CLIENT_BIN"
 info "Version: $VERSION"
 echo ""
 
-# --- Set up staging area ---
-WORK_DIR=$(mktemp -d /tmp/seen-pkg-build.XXXXXX)
-trap "rm -rf '$WORK_DIR'" EXIT
+# --- Set up project-local staging area ---
+[ -f "$ARTIFACT_HELPER" ] || die "Missing artifact-root helper: $ARTIFACT_HELPER"
+# shellcheck source=scripts/artifact_root.sh
+source "$ARTIFACT_HELPER"
+seen_artifact_root_init "$PROJECT_ROOT" || die "Could not validate artifact root"
+INSTALLER_SCOPE=$(seen_artifact_scope_init installer-macos) ||
+    die "Could not create installer artifact scope"
+WORK_DIR=$(seen_artifact_mktemp_dir "$INSTALLER_SCOPE" package) ||
+    die "Could not create installer work directory"
+cleanup_work_dir() {
+    case "$WORK_DIR" in
+        "$INSTALLER_SCOPE"/package.*)
+            [ -d "$WORK_DIR" ] && [ ! -L "$WORK_DIR" ] &&
+                rm -rf -- "$WORK_DIR"
+            ;;
+        *) warn "Refusing to clean unexpected work directory: $WORK_DIR" ;;
+    esac
+}
+trap cleanup_work_dir EXIT
 
 PAYLOAD="$WORK_DIR/payload"
 SCRIPTS="$WORK_DIR/scripts"

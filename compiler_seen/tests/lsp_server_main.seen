@@ -1,0 +1,7 @@
+import lsp.server.{runLspServer}
+
+fun main() r: Int {
+    return runLspServer()
+}
+
+main()

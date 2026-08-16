@@ -1,227 +1,142 @@
 # Concurrency
 
-Seen provides async/await, parallel for loops, and synchronization primitives for concurrent programming.
+Seen 0.10.1 provides LLVM-coroutine async functions, a cooperative runtime,
+capture-free parallel loops, and low-level synchronization primitives. These
+features are usable, but their current boundaries matter.
 
-## Async / Await
+## Async and await
 
-Async functions are implemented using LLVM coroutines.
-
-### Declaring async functions
-
-```seen
-@async
-fun fetchData(url: String) r: String {
-    let response = await httpGet(url)
-    return response.body
-}
-```
-
-The `@async` decorator transforms the function into a coroutine that returns a handle (`ptr`).
-
-### Awaiting results
+Declare a coroutine with `@async` and await another coroutine from its body:
 
 ```seen
 @async
-fun processAll() r: Int {
-    let a = await fetchData("https://api.example.com/a")
-    let b = await fetchData("https://api.example.com/b")
-    return a.length() + b.length()
+fun compute() r: Int {
+    async_yield()
+    return 42
 }
-```
 
-### Async runtime
-
-```seen
 fun main() {
     let rt = new_async_runtime()
-    runtime_spawn(rt, processAll(), "main_task")
-    runtime_run_until_complete(rt)
+    let value = runtime_block_on_int(rt, compute())
+    println(value)
 }
 ```
 
-Runtime methods:
-- `new_async_runtime()` -- create a runtime
-- `runtime_spawn(rt, task, name)` -- schedule a coroutine
-- `runtime_tick(rt)` -- process one tick
-- `runtime_run_until_complete(rt)` -- run until all tasks finish
-- `runtime_block_on_int(rt, task)` -- block on a task returning Int
-- `runtime_block_on_void(rt, task)` -- block on a void task
-- `runtime_pending_count(rt)` -- number of pending tasks
-- `runtime_stop(rt)` -- stop the runtime
-
-### async_yield
-
-Yield control back to the runtime from within an async function:
+An `@async` call returns an opaque coroutine handle. `await` and the blocking
+helpers currently resume and poll that handle synchronously. Concurrency between
+several coroutines requires registering each handle with `runtime_spawn` and
+driving the cooperative runtime:
 
 ```seen
-@async
-fun longRunning() {
-    var i = 0
-    while i < 1000 {
-        doWork(i)
-        async_yield()  // allow other tasks to run
-        i = i + 1
-    }
-}
+let rt = new_async_runtime()
+runtime_spawn(rt, first(), "first")
+runtime_spawn(rt, second(), "second")
+runtime_run_until_complete(rt)
 ```
 
-### Async Scopes
+The runtime is single-threaded and cooperative. `async_yield()` yields from the
+current coroutine; it is not an operating-system thread scheduler.
 
-Structured concurrency with scopes:
+Useful runtime functions include `runtime_tick`, `runtime_is_completed`,
+`runtime_pending_count`, `runtime_block_on_void`, `runtime_block_on_int`,
+`runtime_block_on_float`, and `runtime_stop`.
+
+### Async scopes
+
+Scopes track tasks and join them before the caller continues:
 
 ```seen
-let scope = new_async_scope()
-scope_spawn(scope, task1(), "t1")
-scope_spawn(scope, task2(), "t2")
-scope_join(scope)   // wait for all tasks
-scope_cancel(scope) // or cancel all
+let rt = new_async_runtime()
+let scope = new_async_scope(rt)
+scope_spawn(scope, rt, first(), "first")
+scope_spawn(scope, rt, second(), "second")
+scope_join(scope, rt)
 ```
 
-## Parallel For
+`scope_cancel(scope)` currently records best-effort cancellation state; it does
+not forcibly interrupt coroutine frames.
 
-Fork-based parallel iteration:
+## Parallel for
+
+The current `parallel_for` lowering uses pthread workers with statically divided
+index ranges:
 
 ```seen
-var results = Array<Int>.withLength(1000)
 parallel_for i in 0..1000 {
-    results[i] = computeExpensive(i)
+    independent_work(i)
 }
 ```
 
-Each iteration may run in a separate forked process.
+In the shipped 0.10.1 compiler, a parallel body has no capture environment.
+Keep it capture-free: do not read or mutate enclosing locals from the body.
+Explicit value/reference/move captures and compiler-proven disjoint mutation
+are planned language work, not part of this release. Worker count and scheduling
+are runtime implementation details and code must not depend on iteration order.
 
-## Synchronization Primitives
+## Synchronization primitives
 
-### Mutex
+Import the relevant module under `sync/` or `thread/` before using these types.
+
+### Mutex and RwLock
 
 ```seen
 let mutex = Mutex.new()
 mutex.lock()
-// critical section
+// protected work
 mutex.unlock()
-```
 
-`Mutex.new()` creates a real pthread mutex. Methods:
-- `lock()` -- acquire the lock (blocking)
-- `unlock()` -- release the lock
-- `tryLock()` -- non-blocking attempt, returns Bool
-
-### RwLock
-
-Read-write lock for concurrent reads:
-
-```seen
 let rwlock = RwLock.new()
-
-// Multiple readers
 rwlock.readLock()
-let data = sharedData
+// read
 rwlock.readUnlock()
-
-// Exclusive writer
 rwlock.writeLock()
-sharedData = newValue
+// write
 rwlock.writeUnlock()
+rwlock.destroy()
 ```
 
-### Barrier
+`Mutex.tryLock()` returns whether the lock was acquired.
 
-Synchronize N threads at a rendezvous point:
-
-```seen
-let barrier = Barrier.new(4)  // 4 threads must arrive
-
-// In each thread:
-barrier.wait()  // blocks until all 4 arrive
-```
-
-### AtomicInt
-
-Lock-free integer operations:
+### AtomicInt and AtomicBool
 
 ```seen
 let counter = AtomicInt.new(0)
-counter.store(42)
-let val = counter.load()
-counter.compareExchange(expected, desired)
+counter.store_release(42)
+let value = counter.load_acquire()
+let changed = counter.compare_exchange(42, 43)
 ```
 
-Operations:
-- `load()` / `load_relaxed()` / `load_acquire()` -- read value
-- `store()` / `store_release()` -- write value
-- `compareExchange(expected, desired)` -- CAS operation
+`AtomicInt` also provides `load`, `load_relaxed`, `store`, `add`, and `sub`.
+The compare-and-exchange method is named `compare_exchange`.
 
-### Channel
+### Barrier, Channel, and ThreadLocal
 
-Message passing between threads (MPSC via Unix pipes):
+`Barrier` waits until its configured number of participants arrive. `Channel`
+is currently an `Int`-only blocking channel backed by the runtime, rather than a
+generic typed channel. `ThreadLocal` stores one `Int` value per thread.
 
-```seen
-let ch = Channel.new()
-ch.send(42)
-let value = ch.receive()
-```
-
-### ThreadLocal
-
-Per-thread storage:
+### Work-stealing pool
 
 ```seen
-let tls = ThreadLocal.new()
-tls.set(42)
-let value = tls.get()
-```
-
-## Thread Safety Markers
-
-### `@send`
-
-Mark a type as safe to transfer between threads:
-
-```seen
-@send
-class Message {
-    var data: String
-}
-```
-
-### `@sync`
-
-Mark a type as safe to share between threads:
-
-```seen
-@sync
-class SharedCounter {
-    var mutex: Mutex
-    var count: Int
-}
-```
-
-## Work-Stealing Thread Pool
-
-```seen
-let pool = WorkStealingPool.new(4)  // 4 worker threads
-pool.submit(taskFunction, arg)
+let pool = WorkStealingPool.new(4)
+pool.submit(fn_ptr, arg)
 pool.shutdown()
 ```
 
-## Actor Model
+`submit` is a low-level API: both the function pointer and its argument are
+passed as `Int` values. It is not yet a closure- or typed-task API.
 
-```seen
-actor CounterActor {
-    var count: Int
+## Thread-safety markers
 
-    receive Increment {
-        this.count = this.count + 1
-    }
+The parser recognizes `@send` and `@sync` type markers. They express thread
+safety intent, but 0.10.1 does not use them to make outer-local captures in
+`parallel_for` safe; such captures are not lowered at all.
 
-    receive GetCount {
-        reply this.count
-    }
-}
-```
+Actor declaration syntax and a general actor runtime are not shipped in the
+active compiler path.
 
 ## Related
 
 - [Memory Model](memory-model.md) -- ownership and regions
-- [API Reference: Sync](api-reference/sync.md) -- full sync primitive API
-- [SIMD and GPU](simd-and-gpu.md) -- parallel computation
+- [API Reference: Sync](api-reference/sync.md) -- synchronization APIs
+- [SIMD and GPU](simd-and-gpu.md) -- data-parallel computation

@@ -2,14 +2,28 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
-COMPILER="$ROOT_DIR/compiler_seen/target/seen"
-TMP_DIR="$(mktemp -d /tmp/seen_import_c_arrays.XXXXXX)"
+COMPILER="${COMPILER:-$ROOT_DIR/compiler_seen/target/seen}"
+CAPPED_ENTRY="$ROOT_DIR/scripts/run_capped_regression.sh"
+SCOPE=seen-import-c-arrays
+if [ "${SEEN_CAPPED_REGRESSION_ACTIVE:-0}" != "1" ]; then
+    exec bash "$CAPPED_ENTRY" "$SCOPE" --compiler "$COMPILER" -- bash "$0" "$@"
+fi
+COMPILER="${SEEN_CAPPED_REGRESSION_COMPILER:-$COMPILER}"
+bash "$CAPPED_ENTRY" --verify-active "$SCOPE" --compiler "$COMPILER"
+ATTESTED_SEEN="${SEEN_ATTESTED_COMPILER_RUNNER:?}"
+TMP_DIR="$(mktemp -d "$SEEN_ARTIFACT_ROOT/seen-import-c-arrays.XXXXXX")"
 HEADER="$TMP_DIR/arrays.h"
 FULL_OUT="$TMP_DIR/arrays_full.out"
 OUT="$TMP_DIR/arrays_bindings.seen"
 
 cleanup() {
-    rm -rf "$TMP_DIR"
+    case "$TMP_DIR" in
+        "$SEEN_ARTIFACT_ROOT"/seen-import-c-arrays.*)
+            [ -d "$TMP_DIR" ] && [ ! -L "$TMP_DIR" ] &&
+                [ "$(dirname -- "$TMP_DIR")" = "$SEEN_ARTIFACT_ROOT" ] || return 1
+            rm -rf -- "$TMP_DIR" ;;
+        *) return 1 ;;
+    esac
 }
 
 trap cleanup EXIT
@@ -26,7 +40,7 @@ typedef union ClearValue {
 void use_arrays(Pixel *pixel, ClearValue *clear);
 EOF
 
-"$COMPILER" import-c "$HEADER" >"$FULL_OUT"
+bash "$ATTESTED_SEEN" "$COMPILER" import-c "$HEADER" >"$FULL_OUT"
 sed -n '/^\/\/ Auto-generated/,$p' "$FULL_OUT" >"$OUT"
 
 if grep -Fq 'Warning:' "$FULL_OUT"; then
@@ -65,6 +79,7 @@ fun main() r: Void {
 }
 EOF
 
-"$COMPILER" compile "$OUT" "$TMP_DIR/arrays_probe" --fast >/dev/null
+bash "$ATTESTED_SEEN" "$COMPILER" compile \
+    "$OUT" "$TMP_DIR/arrays_probe" --fast >/dev/null
 
 echo "PASS: import-c emits inline array layouts for imported structs and unions"

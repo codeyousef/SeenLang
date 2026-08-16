@@ -17,6 +17,10 @@ seen -h
 
 `--version` prints the shipped compiler version and exits successfully.
 `--help` prints the supported command surface and exits successfully.
+Every supported command also accepts `-h` and `--help`. Command parsing is
+strict: unknown flags, missing values, conflicting options, wrong arity, and
+extra operands are usage errors. Use `--` before an input or output path that
+starts with `-`.
 
 ### `seen compile`
 
@@ -38,7 +42,7 @@ Common options:
 | `--frozen` | Apply both `--locked` and `--offline` |
 | `--language <lang>` / `-l <lang>` | Source keyword language: `en`, `ar`, `es`, `ru`, `zh`, `ja` |
 | `--target=<platform>` / `--target <platform>` | Cross-compile target |
-| `--target-cpu=<cpu>` | CPU baseline: `native`, `x86-64`, `x86-64-v3`, `x86-64-v4` |
+| `--target-cpu=<cpu>` | CPU baseline: `native`, `x86-64`, `x86-64-v3`, `x86-64-v4`, `rv64gc` |
 | `--simd=<policy>` | SIMD policy: `auto`, `none`, `sse4.2`, `avx2`, `avx512` |
 | `--simd-report` / `--simd-report=full` | Show LLVM vectorization reports |
 | `--backend=<name>` / `--backend <name>` | Backend selector; the shipped binary supports LLVM |
@@ -50,11 +54,17 @@ Common options:
 | `--ml-decision-log=<path>` | Write optimization decision logs as JSONL |
 | `--pic` | Emit PIC objects suitable for shared-library links |
 | `--object-manifest <path>` | Write an object-to-module TSV manifest and skip final executable link |
+| `--release` | Enable the release optimization/LTO path |
 | `--fast` | Use the lightweight optimization path used by bootstrap verification |
 | `--no-merged-release-lto` | Disable full merged release LTO for lower-memory release builds |
+| `--emit-llvm` | Preserve per-module LLVM IR beside the requested output |
 | `--emit-module-ir-dir <dir>` | Emit raw per-module LLVM IR into `<dir>` for packaging/cross-build tools |
 | `--stop-after-ir` | Stop after `--emit-module-ir-dir`; requires an IR output directory |
+| `--bounds-check` | Enable bounds checks in supported lowering paths |
+| `--null-safety` | Enable null-safety checks in supported lowering paths |
 | `--no-fork` | Disable parallel IR/optimization steps |
+| `--jobs <n>` | Bound parallel IR-generation workers |
+| `--opt-jobs <n>` | Bound parallel optimizer workers |
 | `--projectprefix <n>` | Large-project validation prefix hint |
 
 Supported target platforms in the shipped help are:
@@ -79,15 +89,20 @@ seen compile hello.seen hello
 seen compile app.seen app --target=linux-arm64 --target-cpu=x86-64
 seen compile app.seen app-rv64 --target=linux-riscv64
 seen compile plugin.seen plugin_host --pic --no-cache --no-fork \
-  --object-manifest /tmp/plugin.objects.tsv
+  --object-manifest .seen/agent-tools/plugin.objects.tsv
 ```
 
 When `--object-manifest` is present, `seen compile` stops after object emission
 and records one tab-separated row per emitted module object:
 
 ```text
-/tmp/seen_module_0.o	src/plugin.seen
+.seen/agent-tools/compiler/seen_compile_<id>/seen_module_0.o	src/plugin.seen
 ```
+
+Compiler-owned scratch and cache output defaults to the current project's
+ignored `.seen/agent-tools/compiler/` directory. `SEEN_ARTIFACT_ROOT` may select
+a different directory inside the same project, but it must be below `.seen/`
+or be verified as Git-ignored, and it must not traverse symbolic links.
 
 ### `seen check`
 
@@ -121,6 +136,12 @@ seen pkg pack [options]
 seen pkg publish [project-dir-or-manifest] [--registry <origin>] [--token-file <mode-0600-file>] [--source-forge github|gitlab] [source options]
 seen pkg prebuild [project-dir-or-manifest] [output-dir]
 ```
+
+`seen pkg prebuild -h` and `seen pkg prebuild --help` print the
+compiler-owned subcommand help. It accepts no flags; use `--` before a project
+or output path beginning with `-`. Unknown flags and more than two operands are
+compiler usage errors with exit code 1. Other `seen pkg` subcommands are
+validated and executed by the matching version of the package sidecar.
 
 - `add` and `remove` edit dependencies in `Seen.toml`.
 - `fetch` resolves the complete dependency graph, verifies signed metadata and
@@ -222,9 +243,17 @@ seen import-c <header.h>
 seen lsp
 ```
 
-`translate` rewrites source keywords between supported Seen languages.
+`translate` requires `--to`; `--from` defaults to `en`, and omitting `-o`
+writes translated source to standard output. It rewrites lexer-activated
+keywords and recognized standard-library aliases while preserving strings,
+comments, unrelated identifiers, and layout. Input and language-pack failures
+are errors, and `-o` uses an atomic same-directory replacement. Use `--` before
+a dash-prefixed input path and `--output=--name.seen` for a dash-prefixed output
+path.
 `import-c` generates Seen `extern fun` declarations from C headers.
-`lsp` starts the built-in language server.
+`lsp` starts the built-in stdio language server for editor clients; it is not
+an interactive shell command. Formatting is available through LSP and does not
+add a standalone formatter command.
 
 ## PGO Workflow
 
@@ -251,8 +280,8 @@ fails with an explicit unsupported-backend diagnostic.
 - `.seen/views/` -- project-local read-only package views
 - `.seen/package-map.tsv` -- authoritative alias-to-package-view mapping for the project
 - `.seen_cache/` -- source-level incremental cache
-- `/tmp/seen_ir_cache` -- IR content-addressed cache
-- `/tmp/seen_thinlto_cache` -- ThinLTO linker cache
+- `.seen/agent-tools/compiler/seen_ir_cache/` -- IR content-addressed cache
+- `.seen/agent-tools/compiler/seen_thinlto_cache/` -- ThinLTO linker cache
 - `target/seen-build/runtime-objects/` -- signature-keyed runtime objects
 - `target/seen-build/release-lto/` -- merged release-LTO object cache
 - `target/seen-build/perf-baselines/` -- performance gate baselines

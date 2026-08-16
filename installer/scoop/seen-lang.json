@@ -1,25 +1,23 @@
 {
-    "version": "1.0.0",
+    "version": "0.10.1",
     "description": "High-performance systems programming language",
     "homepage": "https://seen-lang.org",
     "license": "MIT",
-    "url": "https://github.com/codeyousef/SeenLang/releases/download/v1.0.0/seen-1.0.0-windows-x64.zip",
+    "url": "https://github.com/codeyousef/SeenLang/releases/download/v0.10.1/seen-0.10.1-windows-x64.zip",
     "hash": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
     "architecture": {
         "64bit": {
-            "url": "https://github.com/codeyousef/SeenLang/releases/download/v1.0.0/seen-1.0.0-windows-x64.zip",
+            "url": "https://github.com/codeyousef/SeenLang/releases/download/v0.10.1/seen-0.10.1-windows-x64.zip",
             "hash": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
         },
         "arm64": {
-            "url": "https://github.com/codeyousef/SeenLang/releases/download/v1.0.0/seen-1.0.0-windows-arm64.zip",
+            "url": "https://github.com/codeyousef/SeenLang/releases/download/v0.10.1/seen-0.10.1-windows-arm64.zip",
             "hash": "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
         }
     },
     "bin": [
-        "seen.exe",
-        "seen-pkg.exe",
-        "seen-lsp.exe",
-        "seen-riscv.exe"
+        "bin\\seen.exe",
+        "bin\\seen-pkg.exe"
     ],
     "env_add_path": "bin",
     "env_set": {
@@ -31,7 +29,7 @@
     ],
     "shortcuts": [
         [
-            "seen.exe",
+            "bin\\seen.exe",
             "Seen Language"
         ]
     ],
@@ -56,10 +54,10 @@
         "Seen Language has been installed successfully!",
         "",
         "To get started:",
-        "  seen init my-project",
-        "  cd my-project",
-        "  seen build",
-        "  seen run",
+        "  Create Seen.toml and src/main.seen, then:",
+        "  seen check src/main.seen",
+        "  seen run src/main.seen",
+        "  seen compile src/main.seen my-project.exe",
         "",
         "VS Code Extension:",
         "  Install the 'Seen Language' extension for syntax highlighting and IntelliSense",

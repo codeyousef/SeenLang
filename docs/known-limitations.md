@@ -6,9 +6,20 @@ docs.
 
 ## Bootstrap and Rebuilds
 
-- Full compiler rebuilds must be memory-capped. Use the pattern in
-  [Bootstrap System](bootstrap.md) instead of running `scripts/safe_rebuild.sh`
-  uncapped.
+- Every compiler rebuild must run inside one read-back-verified cgroup v2 scope
+  that caps the aggregate process tree, disables swap, and limits tasks. A
+  per-process `ulimit` or userspace RSS poller alone is not containment. Use the
+  guarded path in [Bootstrap System](bootstrap.md).
+- The automatic aggregate rebuild cap is at most 4 GiB, with one compiler and
+  one optimizer worker. The build must fail before compiler work if a user
+  systemd scope or any required limit read-back is unavailable.
+- No equally hard standalone entry point is currently documented for direct
+  compiler, prebuild-gate, performance-gate, or package-helper builds. Run those
+  phases through `scripts/safe_rebuild.sh`; artifact-root isolation alone does
+  not cap memory.
+- Frozen and legacy builders are rejected unless capability discovery proves
+  bounded `--jobs`/`--opt-jobs`, `--no-fork`, or an explicit serializer. A CLI
+  silently accepting an unknown flag does not prove serial execution.
 - If a rebuild fails, inspect the first concrete failing module/log before
   retrying. Blind retries can hide deterministic compiler issues.
 - `scripts/fix_ir.py` remains a compatibility guard for malformed IR emitted by
@@ -52,6 +63,49 @@ docs.
 `HashMap` and `HashSet` iteration order is nondeterministic. In deterministic
 mode, use ordered collections such as `BTreeMap`/`BTreeSet` or explicitly mark
 the nondeterministic usage where allowed.
+
+## Language and Code Generation
+
+- Plain enums and exhaustive matching are supported. Payload/data enums remain
+  experimental; do not assume every construction, pattern, ownership, and drop
+  path is complete without a focused test.
+- Closure literals currently lower only when they do not capture enclosing
+  locals. A closure environment and its ownership/lifetime rules are not yet a
+  shipped feature.
+- `parallel_for` is capture-free in 0.10.1. Its pthread worker callback has no
+  outer-local environment, so examples must not read or mutate enclosing
+  locals. Explicit value/reference/move captures and compiler-proven disjoint
+  mutation are future work.
+- `await` and the blocking async helpers use cooperative polling. Several
+  awaited calls do not become concurrent merely by appearing in an async
+  function; register coroutine handles with `runtime_spawn` and drive the
+  runtime when cooperative interleaving is required.
+- `comptime` supports the tested integer/string expressions, target predicates,
+  parameters, assertions, and simple block control flow. Arbitrary recursive
+  compile-time functions, heap-backed values, I/O, and general macro execution
+  are not established release features.
+
+## SIMD and GPU
+
+- Native SIMD coverage is currently `f32x4`, `f32x8`, `f64x2`, `f64x4`,
+  `i32x4`, and `i32x8`. Low-level vector load/store builtins take raw addresses,
+  not `(Array, offset)` arguments.
+- `--emit-glsl` emits inspectable shader/reflection artifacts and invokes
+  `glslc` when available, but arbitrary Seen shader bodies are not guaranteed
+  to translate faithfully. The generated host wrapper does not construct a
+  usable Vulkan pipeline. Real GPU execution still needs explicit shader,
+  buffer, pipeline, synchronization, and fallback handling through the runtime.
+
+## Native Interoperability
+
+- Seen `String` uses the `%SeenString` length/data representation and is not a C
+  `char *`. Use a reviewed shim or explicit raw-pointer conversion for native C
+  text APIs; the compatibility `CString` wrapper does not by itself promise a
+  newly allocated NUL-terminated buffer.
+- `pub fun` controls Seen visibility; use `@export` for an unmangled native
+  symbol. Even then, verify emitted signatures and use `@repr(C)` for supported
+  aggregate layouts before publishing a C header.
+- Native library declarations belong under `[native.dependencies]`.
 
 ## Low-Level Runtime Rules
 

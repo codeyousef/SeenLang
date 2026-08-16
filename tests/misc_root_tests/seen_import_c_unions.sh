@@ -2,13 +2,27 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
-COMPILER="$ROOT_DIR/compiler_seen/target/seen"
-TMP_DIR="$(mktemp -d /tmp/seen_import_c_unions.XXXXXX)"
+COMPILER="${COMPILER:-$ROOT_DIR/compiler_seen/target/seen}"
+CAPPED_ENTRY="$ROOT_DIR/scripts/run_capped_regression.sh"
+SCOPE=seen-import-c-unions
+if [ "${SEEN_CAPPED_REGRESSION_ACTIVE:-0}" != "1" ]; then
+    exec bash "$CAPPED_ENTRY" "$SCOPE" --compiler "$COMPILER" -- bash "$0" "$@"
+fi
+COMPILER="${SEEN_CAPPED_REGRESSION_COMPILER:-$COMPILER}"
+bash "$CAPPED_ENTRY" --verify-active "$SCOPE" --compiler "$COMPILER"
+ATTESTED_SEEN="${SEEN_ATTESTED_COMPILER_RUNNER:?}"
+TMP_DIR="$(mktemp -d "$SEEN_ARTIFACT_ROOT/seen-import-c-unions.XXXXXX")"
 HEADER="$TMP_DIR/unions.h"
 OUT="$TMP_DIR/unions_bindings.seen"
 
 cleanup() {
-    rm -rf "$TMP_DIR"
+    case "$TMP_DIR" in
+        "$SEEN_ARTIFACT_ROOT"/seen-import-c-unions.*)
+            [ -d "$TMP_DIR" ] && [ ! -L "$TMP_DIR" ] &&
+                [ "$(dirname -- "$TMP_DIR")" = "$SEEN_ARTIFACT_ROOT" ] || return 1
+            rm -rf -- "$TMP_DIR" ;;
+        *) return 1 ;;
+    esac
 }
 
 trap cleanup EXIT
@@ -28,7 +42,8 @@ typedef struct Wrapper {
 void use_union(MyValue value, MyValue *out_value, Wrapper *wrapper);
 EOF
 
-"$COMPILER" import-c "$HEADER" | sed -n '/^\/\/ Auto-generated/,$p' >"$OUT"
+bash "$ATTESTED_SEEN" "$COMPILER" import-c "$HEADER" | \
+    sed -n '/^\/\/ Auto-generated/,$p' >"$OUT"
 
 if [ "$(grep -Fxc '@union' "$OUT")" -ne 1 ]; then
     echo "FAIL: import-c should emit a Seen union annotation for C unions"
@@ -78,6 +93,6 @@ fun main() r: Void {
 }
 EOF
 
-"$COMPILER" check "$OUT" >/dev/null
+bash "$ATTESTED_SEEN" "$COMPILER" check "$OUT" >/dev/null
 
 echo "PASS: import-c emits union layouts and preserves union-backed signatures"

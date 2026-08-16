@@ -2,8 +2,25 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
-TMP_DIR="$(mktemp -d /tmp/seen-macos-package-client.XXXXXX)"
-trap 'rm -rf "$TMP_DIR"' EXIT
+CAPPED_ENTRY="$ROOT_DIR/scripts/run_capped_regression.sh"
+SCOPE=seen-macos-package-client-packaging
+if [ "${SEEN_CAPPED_PLATFORM_REGRESSION_ACTIVE:-0}" != "1" ]; then
+    exec bash "$CAPPED_ENTRY" --platform "$SCOPE" -- bash "$0" "$@"
+fi
+bash "$CAPPED_ENTRY" --verify-platform-active "$SCOPE"
+TMP_DIR="$(mktemp -d "$SEEN_ARTIFACT_ROOT/seen-macos-package-client.XXXXXX")"
+
+cleanup() {
+    case "$TMP_DIR" in
+        "$SEEN_ARTIFACT_ROOT"/seen-macos-package-client.*)
+            [ -d "$TMP_DIR" ] && [ ! -L "$TMP_DIR" ] &&
+                [ "$(dirname -- "$TMP_DIR")" = "$SEEN_ARTIFACT_ROOT" ] || return 1
+            rm -rf -- "$TMP_DIR"
+            ;;
+        *) return 1 ;;
+    esac
+}
+trap cleanup EXIT
 
 FIXTURE_ROOT="$TMP_DIR/repo"
 FAKE_BIN="$TMP_DIR/bin"
@@ -76,7 +93,7 @@ touch "$FIXTURE_ROOT/seen_std/src/value.seen"
 touch "$FIXTURE_ROOT/languages/en/keywords.toml"
 touch "$FIXTURE_ROOT/seen_runtime/seen_runtime.h"
 
-PATH="$FAKE_BIN:$PATH" \
+PATH="$SEEN_BOUNDED_TOOLCHAIN_DIR:$FAKE_BIN:$PATH" \
 SEEN_MACOS_FIXTURE_MARKER="$MARKER" \
 VERSION=0.10.1 \
 bash "$FIXTURE_ROOT/installer/macos/build-pkg.sh" \
@@ -92,7 +109,7 @@ exit 0
 WRONG_HELPER_EOF
 chmod +x "$TMP_DIR/wrong-seen-pkg"
 
-if PATH="$FAKE_BIN:$PATH" \
+if PATH="$SEEN_BOUNDED_TOOLCHAIN_DIR:$FAKE_BIN:$PATH" \
     SEEN_MACOS_FIXTURE_MARKER="$MARKER" \
     SEEN_PACKAGE_CLIENT_BIN="$TMP_DIR/wrong-seen-pkg" \
     VERSION=0.10.1 \
@@ -102,7 +119,7 @@ if PATH="$FAKE_BIN:$PATH" \
     exit 1
 fi
 
-if PATH="$FAKE_BIN:$PATH" \
+if PATH="$SEEN_BOUNDED_TOOLCHAIN_DIR:$FAKE_BIN:$PATH" \
     SEEN_MACOS_FIXTURE_MARKER="$MARKER" \
     VERSION=0.9.0 \
     bash "$FIXTURE_ROOT/installer/macos/build-pkg.sh" \

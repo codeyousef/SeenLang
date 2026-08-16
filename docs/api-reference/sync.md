@@ -114,7 +114,8 @@ Uses heap-allocated storage via `__AtomicAlloc(initial)`.
 | `load_acquire()` | `Int` | Load with acquire ordering |
 | `store(value: Int)` | `Void` | Store value |
 | `store_release(value: Int)` | `Void` | Store with release ordering |
-| `compareExchange(expected: Int, desired: Int)` | `Bool` | CAS operation |
+| `add(value: Int)` / `sub(value: Int)` | `Int` | Atomic arithmetic |
+| `compare_exchange(expected: Int, new_value: Int)` | `Bool` | CAS operation |
 
 ### Example
 
@@ -150,6 +151,9 @@ Internally uses `__ChannelCreate` which packs `read_fd << 32 | write_fd` into an
 |--------|-------------|
 | `send(value)` | Send a value |
 | `receive()` | Receive a value (blocking) |
+| `close()` | Close the channel |
+
+`Channel` currently transports `Int` values; it is not a generic typed channel.
 
 ## ThreadLocal
 

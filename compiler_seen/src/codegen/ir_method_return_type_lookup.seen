@@ -16,8 +16,15 @@ fun getMethodReturnTypeImpl(structName: String, methodName: String,
         return g_methodReturnCacheTypes[cached]
     }
 
-    let resultType = computeMethodReturnTypeUncachedImpl(structName,
+    var resultType = computeMethodReturnTypeUncachedImpl(structName,
         methodName, structNames, structMethodNames, structMethodRetTypes)
+    // The parser lowers T? declarations to Option<T>.  Some bootstrap-era
+    // fallback tables still use the surface spelling; canonicalize those
+    // entries before they reach ABI selection or method dispatch.
+    if resultType.endsWith("?") {
+        resultType = "Option<" + resultType.substring(0,
+            resultType.length() - 1) + ">"
+    }
     cacheMethodReturnTypeImpl(structName, methodName, resultType, structNames,
         structMethodNames, structMethodRetTypes)
     return resultType

@@ -51,8 +51,25 @@ type resolutionCLI struct {
 
 func parseResolutionCLI(arguments []string) (resolutionCLI, error) {
 	options := resolutionCLI{TrustedRoots: map[string]string{}, TrustedRootSHA256: map[string]string{}, Environments: map[string]string{}, RepositoryIDs: map[string]string{}}
+	optionsEnabled := true
+	manifestProvided := false
 	for index := 0; index < len(arguments); index++ {
 		argument := arguments[index]
+		if optionsEnabled && argument == "--" {
+			optionsEnabled = false
+			continue
+		}
+		if !optionsEnabled {
+			if manifestProvided {
+				return options, usageErrorf("only one project or Seen.toml path is allowed")
+			}
+			if argument == "" {
+				return options, usageErrorf("project or Seen.toml path must not be empty")
+			}
+			options.ManifestPath = argument
+			manifestProvided = true
+			continue
+		}
 		switch argument {
 		case "--locked":
 			options.Locked = true
@@ -64,7 +81,7 @@ func parseResolutionCLI(arguments []string) (resolutionCLI, error) {
 			options.Quiet = true
 		case "--cache", "--trusted-root", "--trusted-root-sha256", "--environment", "--repository-id":
 			if index+1 >= len(arguments) {
-				return options, fmt.Errorf("%s requires a value", argument)
+				return options, usageErrorf("%s requires a value", argument)
 			}
 			value := arguments[index+1]
 			index++
@@ -74,42 +91,54 @@ func parseResolutionCLI(arguments []string) (resolutionCLI, error) {
 			case "--trusted-root":
 				alias, item, err := aliasValue(value)
 				if err != nil {
+					return options, usageErrorf("%v", err)
+				}
+				if err := setAliasCLIValue(options.TrustedRoots, argument, alias, item); err != nil {
 					return options, err
 				}
-				options.TrustedRoots[alias] = item
 			case "--trusted-root-sha256":
 				alias, item, err := aliasValue(value)
 				if err != nil {
-					return options, err
+					return options, usageErrorf("%v", err)
 				}
 				if err := model.ValidateSHA256(item); err != nil {
+					return options, usageErrorf("%v", err)
+				}
+				if err := setAliasCLIValue(options.TrustedRootSHA256, argument, alias, item); err != nil {
 					return options, err
 				}
-				options.TrustedRootSHA256[alias] = item
 			case "--environment":
 				alias, item, err := aliasValue(value)
 				if err != nil {
+					return options, usageErrorf("%v", err)
+				}
+				if err := setAliasCLIValue(options.Environments, argument, alias, item); err != nil {
 					return options, err
 				}
-				options.Environments[alias] = item
 			case "--repository-id":
 				alias, item, err := aliasValue(value)
 				if err != nil {
+					return options, usageErrorf("%v", err)
+				}
+				if err := setAliasCLIValue(options.RepositoryIDs, argument, alias, item); err != nil {
 					return options, err
 				}
-				options.RepositoryIDs[alias] = item
 			}
 		default:
 			if strings.HasPrefix(argument, "-") {
-				return options, fmt.Errorf("unknown option %s", argument)
+				return options, usageErrorf("unknown option %s", argument)
 			}
-			if options.ManifestPath != "" {
-				return options, fmt.Errorf("only one project or Seen.toml path is allowed")
+			if manifestProvided {
+				return options, usageErrorf("only one project or Seen.toml path is allowed")
+			}
+			if argument == "" {
+				return options, usageErrorf("project or Seen.toml path must not be empty")
 			}
 			options.ManifestPath = argument
+			manifestProvided = true
 		}
 	}
-	if options.ManifestPath == "" {
+	if !manifestProvided {
 		options.ManifestPath = "Seen.toml"
 	}
 	if options.CacheRoot == "" {
@@ -123,6 +152,14 @@ func parseResolutionCLI(arguments []string) (resolutionCLI, error) {
 		options.CacheRoot = filepath.Join(base, "seen", "package-registry-v1")
 	}
 	return options, nil
+}
+
+func setAliasCLIValue(values map[string]string, option, alias, value string) error {
+	if prior, found := values[alias]; found && prior != value {
+		return usageErrorf("conflicting values for option %q alias %q: %q and %q", option, alias, prior, value)
+	}
+	values[alias] = value
+	return nil
 }
 
 func aliasValue(value string) (string, string, error) {
@@ -140,6 +177,9 @@ func aliasValue(value string) (string, string, error) {
 }
 
 func resolveManifestPath(input string) (string, string, error) {
+	if input == "" {
+		return "", "", usageErrorf("project or Seen.toml path must not be empty")
+	}
 	absolute, err := filepath.Abs(input)
 	if err != nil {
 		return "", "", err
@@ -167,7 +207,7 @@ func (backend *ProductionBackend) resolve(ctx context.Context, command string, a
 		return err
 	}
 	if command == "update" && (cli.Locked || cli.Frozen) {
-		return &resolver.Error{Code: "invalid_mode_combination", Detail: "update cannot be combined with locked or frozen"}
+		return usageErrorf("update cannot be combined with --locked or --frozen")
 	}
 	manifestPath, projectRoot, err := resolveManifestPath(cli.ManifestPath)
 	if err != nil {

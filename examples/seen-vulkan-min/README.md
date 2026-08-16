@@ -1,76 +1,37 @@
 # seen-vulkan-min
 
-A tiny graphics workload that mirrors the steps of a Vulkan triangle sample without depending on platform APIs. It
-runs entirely inside the core Seen runtime so the same source can be executed via the interpreter, LLVM, MLIR, or CLIF
-backends on Linux, WebAssembly, or Android. The example focuses on the deterministic hand-off between lifecycle phases
-(instance → device → swapchain → frame graph) and emits a validation summary so CI can assert that no simulated
-validation layer errors occurred.
+A deterministic simulation of the lifecycle phases in a Vulkan-style triangle
+program. Despite its name, `src/main.seen` does not call Vulkan; it is useful for
+exercising data types, frame-state transitions, and validation reporting without
+a GPU dependency. `shaders/triangle.spv` is a bundled sample asset.
 
-## Layout
-
-- `src/main.seen` — state machine plus frame loop.
-- `shaders/triangle.spv` — canonical SPIR-V blob reused by the shader CLI (`seen shaders ...`). It is copied from
-  `examples/shaders/triangle.spv` so the sample can bundle and re-export a real shader asset when `seen build --bundle`
-  is invoked.
-- `Seen.toml` — project manifest describing the entry file and preferred targets.
-
-## Running
-
-All commands assume the workspace root and a built `seen_cli` binary under `target/release/seen_cli`.
-
-### Linux interpreter fast path
+From the repository root:
 
 ```bash
-target/release/seen_cli run examples/seen-vulkan-min/src/main.seen
+mkdir -p .seen/agent-tools/examples
+scripts/run_with_project_artifacts.sh vulkan-check -- \
+  compiler_seen/target/seen check examples/seen-vulkan-min/src/main.seen
+scripts/run_with_project_artifacts.sh vulkan-run -- \
+  compiler_seen/target/seen run examples/seen-vulkan-min/src/main.seen
+scripts/run_with_project_artifacts.sh vulkan-compile -- \
+  compiler_seen/target/seen compile examples/seen-vulkan-min/src/main.seen \
+  .seen/agent-tools/examples/seen-vulkan-min
+.seen/agent-tools/examples/seen-vulkan-min
 ```
 
-### Linux LLVM build (shared library)
+The program prints a frame summary including `validation_errors`. These are
+simulation results, not messages from Vulkan validation layers.
+
+For an Android target artifact, use the current target spelling and install the
+required NDK/toolchain first:
 
 ```bash
-target/release/seen_cli build examples/seen-vulkan-min/src/main.seen \
-  --backend llvm \
-  --target x86_64-unknown-linux-gnu \
-  --shared \
-  --output build/linux/libseen_vulkan_min.so
+scripts/run_with_project_artifacts.sh vulkan-android -- \
+  compiler_seen/target/seen compile examples/seen-vulkan-min/src/main.seen \
+  .seen/agent-tools/examples/seen-vulkan-min-android --target=android-arm64
 ```
 
-### WebAssembly bundle (with loader)
-
-```bash
-target/release/seen_cli build examples/seen-vulkan-min/src/main.seen \
-  --backend llvm \
-  --target wasm32-unknown-unknown \
-  --bundle wasm \
-  --wasm-loader minimal \
-  --output build/web/triangle.wasm
-```
-
-### Android shared library
-
-```bash
-export ANDROID_NDK_HOME=/path/to/ndk
-
-target/release/seen_cli build examples/seen-vulkan-min/src/main.seen \
-  --backend llvm \
-  --target android-arm64 \
-  --output build/android/libseen_vulkan_min.so
-```
-
-### Android App Bundle
-
-```bash
-export ANDROID_NDK_HOME=/path/to/ndk
-
-bash scripts/bundle_android.sh \
-  compiler_seen/target/seen \
-  examples/seen-vulkan-min/src/main.seen \
-  artifacts/android/seen_vulkan_min.aab
-```
-
-The sample carries Android manifest and resource metadata in the project root. When a project does not provide its own
-dex payload, `scripts/bundle_android.sh` reuses the scaffold from `examples/android/hello_ndk/`, which includes the
-sample shader asset at `assets/shaders/triangle.spv` and generates `arm64-v8a/libapp.so`.
-
-The CLI emits a per-frame validation report. CI can grep for `validation_errors=0` to ensure the simulated validation
-layers stayed happy. Because the sample avoids host-specific syscalls it can be exercised on any platform that supports
-the Seen interpreter.
+This compiler command does not bundle the manifest, dex payload, resources, or
+shader asset. See [`docs/targets.md`](../../docs/targets.md) and the repository's
+Android packaging helpers for those separate steps. The shipped compiler is
+LLVM-only and does not advertise a WebAssembly target.

@@ -1,0 +1,626 @@
+///
+Structured Seen type references used by semantic analysis.
+
+The parser AST keeps its bootstrap-compatible TypeNode string for now; this
+module is the single lossless boundary that turns that spelling into a
+recursive representation. LLVM lowering and interface serialization can
+consume the canonical form without reparsing ad hoc substrings.
+///
+
+import str.string.{StringBuilder}
+
+class TypeRef {
+    var kind: String
+    var base: String
+    var identityBase: String
+    var arguments: Array<TypeRef>
+    var nullable: Bool
+    var ownership: String
+    var hasBitWidth: Bool
+    var bitWidth: Int
+    var defaultValue: String
+    var file: String
+    var line: Int
+    var column: Int
+    var valid: Bool
+    var error: String
+
+    static fun new() r: TypeRef {
+        return TypeRef{
+            kind: "named",
+            base: "Unknown",
+            identityBase: "",
+            arguments: Array<TypeRef>(),
+            nullable: false,
+            ownership: "",
+            hasBitWidth: false,
+            bitWidth: 0,
+            defaultValue: "",
+            file: "",
+            line: 0,
+            column: 0,
+            valid: true,
+            error: ""
+        }
+    }
+
+    fun canonical() r: String {
+        return this.canonicalUsingIdentity(false)
+    }
+
+    ///
+    Returns the identity used by semantic registries and later lowering. A
+    resolved user type uses its module-qualified identityBase; built-ins retain
+    their canonical source name. Callers must validate the TypeRef first.
+    ///
+    fun canonicalIdentity() r: String {
+        return this.canonicalUsingIdentity(true)
+    }
+
+    fun canonicalUsingIdentity(useIdentity: Bool) r: String {
+        let out = StringBuilder.new()
+        if this.ownership != "" {
+            out.append(this.ownership)
+            out.append(":")
+        }
+        if this.kind == "function" {
+            out.append("(")
+            var parameterIndex = 0
+            while parameterIndex + 1 < this.arguments.length() {
+                if parameterIndex > 0 { out.append(",") }
+                if useIdentity {
+                    out.append(this.arguments[parameterIndex].canonicalIdentity())
+                } else {
+                    out.append(this.arguments[parameterIndex].canonical())
+                }
+                parameterIndex = parameterIndex + 1
+            }
+            out.append(") -> ")
+            if this.arguments.length() > 0 {
+                let returnIndex = this.arguments.length() - 1
+                if useIdentity {
+                    out.append(this.arguments[returnIndex].canonicalIdentity())
+                } else {
+                    out.append(this.arguments[returnIndex].canonical())
+                }
+            } else {
+                out.append("Unknown")
+            }
+            if this.nullable { out.append("?") }
+            return out.toString()
+        }
+        if this.kind == "pointer" or this.kind == "const_pointer" or
+            this.kind == "dynamic" {
+            if this.kind == "pointer" { out.append("*") }
+            if this.kind == "const_pointer" { out.append("*const ") }
+            if this.kind == "dynamic" { out.append("dyn ") }
+            if useIdentity {
+                out.append(this.arguments[0].canonicalIdentity())
+            } else {
+                out.append(this.arguments[0].canonical())
+            }
+            if this.nullable { out.append("?") }
+            return out.toString()
+        }
+        if this.kind == "fixed_array" {
+            if useIdentity {
+                out.append(this.arguments[0].canonicalIdentity())
+            } else {
+                out.append(this.arguments[0].canonical())
+            }
+            out.append("[")
+            out.append(this.arguments[1].base)
+            out.append("]")
+            if this.nullable { out.append("?") }
+            return out.toString()
+        }
+        if useIdentity and this.identityBase != "" {
+            out.append(this.identityBase)
+        } else {
+            out.append(this.base)
+        }
+        if this.arguments.length() > 0 {
+            out.append("<")
+            var i = 0
+            while i < this.arguments.length() {
+                if this.kind == "error_union" and i > 0 {
+                    out.append("|")
+                } else if i > 0 {
+                    out.append(",")
+                }
+                if useIdentity {
+                    out.append(this.arguments[i].canonicalIdentity())
+                } else {
+                    out.append(this.arguments[i].canonical())
+                }
+                i = i + 1
+            }
+            out.append(">")
+        }
+        if this.hasBitWidth {
+            out.append(":bitfield(")
+            out.append(this.bitWidth.toString())
+            out.append(")")
+        }
+        if this.nullable { out.append("?") }
+        return out.toString()
+    }
+
+    fun isOpen(genericNames: Array<String>) r: Bool {
+        var i = 0
+        while i < genericNames.length() {
+            if this.base == genericNames[i] and this.arguments.length() == 0 {
+                return true
+            }
+            i = i + 1
+        }
+        i = 0
+        while i < this.arguments.length() {
+            if this.arguments[i].isOpen(genericNames) { return true }
+            i = i + 1
+        }
+        return false
+    }
+}
+
+fun typeRefIsSpace(ch: Char) r: Bool {
+    return ch == ' ' or ch == '\t' or ch == '\r' or ch == '\n'
+}
+
+fun typeRefSkipSpace(text: String, cursor: Array<Int>) r: Void {
+    while cursor[0] < text.length() and
+        typeRefIsSpace(text.byteAt(cursor[0])) {
+
+        cursor[0] = cursor[0] + 1
+    }
+}
+
+fun typeRefStartsAt(text: String, cursor: Int, prefix: String) r: Bool {
+    if cursor < 0 or cursor + prefix.length() > text.length() { return false }
+    return text.substring(cursor, cursor + prefix.length()) == prefix
+}
+
+fun typeRefIsDelimiter(ch: Char) r: Bool {
+    return ch == '<' or ch == '>' or ch == ',' or ch == '?' or
+        ch == '[' or ch == ']' or ch == '!' or ch == '|' or
+        ch == ':' or ch == '(' or ch == ')' or ch == '-' or
+        typeRefIsSpace(ch)
+}
+
+fun typeRefIsDigits(text: String) r: Bool {
+    if text == "" { return false }
+    var i = 0
+    while i < text.length() {
+        let ch = text.byteAt(i)
+        if ch < '0' or ch > '9' { return false }
+        i = i + 1
+    }
+    return true
+}
+
+fun typeRefParseUnsignedInt(text: String) r: Int {
+    var value = 0
+    var i = 0
+    while i < text.length() {
+        if value > 64 { return 65 }
+        value = value * 10 + (text.byteAt(i) - 48)
+        if value > 64 { return 65 }
+        i = i + 1
+    }
+    return value
+}
+
+fun typeRefInvalid(message: String, line: Int, column: Int,
+    file: String = "") r: TypeRef {
+
+    let result = TypeRef.new()
+    result.valid = false
+    result.error = message
+    result.line = line
+    result.column = column
+    result.file = file
+    return result
+}
+
+fun parseTypeRefAt(text: String, cursor: Array<Int>, line: Int, column: Int,
+    file: String)
+    r: TypeRef {
+
+    typeRefSkipSpace(text, cursor)
+
+    if cursor[0] < text.length() and text.byteAt(cursor[0]) == '(' {
+        cursor[0] = cursor[0] + 1
+        let functionType = TypeRef.new()
+        functionType.kind = "function"
+        functionType.base = "Function"
+        functionType.file = file
+        functionType.line = line
+        functionType.column = column
+        typeRefSkipSpace(text, cursor)
+
+        var parametersDone = false
+        if cursor[0] < text.length() and text.byteAt(cursor[0]) == ')' {
+            cursor[0] = cursor[0] + 1
+            parametersDone = true
+        }
+        while not parametersDone {
+            if cursor[0] >= text.length() {
+                return typeRefInvalid("unterminated function parameter list",
+                    line, column, file)
+            }
+            let parameter = parseTypeRefAt(text, cursor, line, column, file)
+            if not parameter.valid { return parameter }
+            functionType.arguments.push(parameter)
+            typeRefSkipSpace(text, cursor)
+            if cursor[0] >= text.length() {
+                return typeRefInvalid("unterminated function parameter list",
+                    line, column, file)
+            }
+            let delimiter = text.byteAt(cursor[0])
+            if delimiter == ',' {
+                cursor[0] = cursor[0] + 1
+                typeRefSkipSpace(text, cursor)
+                if cursor[0] < text.length() and
+                    text.byteAt(cursor[0]) == ')' {
+
+                    return typeRefInvalid(
+                        "function parameter list cannot end with ','",
+                        line, column, file)
+                }
+            } else if delimiter == ')' {
+                cursor[0] = cursor[0] + 1
+                parametersDone = true
+            } else {
+                return typeRefInvalid(
+                    "expected ',' or ')' in function parameter list",
+                    line, column, file)
+            }
+        }
+
+        typeRefSkipSpace(text, cursor)
+        if not typeRefStartsAt(text, cursor[0], "->") {
+            if functionType.arguments.length() == 0 {
+                functionType.kind = "named"
+                functionType.base = "()"
+                return functionType
+            }
+            return typeRefInvalid("expected '->' in function type", line,
+                column, file)
+        }
+        cursor[0] = cursor[0] + 2
+        typeRefSkipSpace(text, cursor)
+        let returnType = parseTypeRefAt(text, cursor, line, column, file)
+        if not returnType.valid { return returnType }
+        functionType.arguments.push(returnType)
+        return functionType
+    }
+
+    if typeRefStartsAt(text, cursor[0], "*const") and
+        cursor[0] + 6 < text.length() and
+        typeRefIsSpace(text.byteAt(cursor[0] + 6)) {
+        cursor[0] = cursor[0] + 6
+        typeRefSkipSpace(text, cursor)
+        let pointee = parseTypeRefAt(text, cursor, line, column, file)
+        if not pointee.valid { return pointee }
+        let pointer = TypeRef.new()
+        pointer.kind = "const_pointer"
+        pointer.base = "*const"
+        pointer.arguments.push(pointee)
+        pointer.file = file
+        pointer.line = line
+        pointer.column = column
+        return pointer
+    }
+    if typeRefStartsAt(text, cursor[0], "*") {
+        cursor[0] = cursor[0] + 1
+        let pointee = parseTypeRefAt(text, cursor, line, column, file)
+        if not pointee.valid { return pointee }
+        let pointer = TypeRef.new()
+        pointer.kind = "pointer"
+        pointer.base = "*"
+        pointer.arguments.push(pointee)
+        pointer.file = file
+        pointer.line = line
+        pointer.column = column
+        return pointer
+    }
+    if typeRefStartsAt(text, cursor[0], "dyn ") {
+        cursor[0] = cursor[0] + 4
+        let target = parseTypeRefAt(text, cursor, line, column, file)
+        if not target.valid { return target }
+        let dynamic = TypeRef.new()
+        dynamic.kind = "dynamic"
+        dynamic.base = "dyn"
+        dynamic.arguments.push(target)
+        dynamic.file = file
+        dynamic.line = line
+        dynamic.column = column
+        return dynamic
+    }
+
+    var result = TypeRef.new()
+    result.line = line
+    result.column = column
+    result.file = file
+
+    let ownershipModes = Array<String>()
+    ownershipModes.push("move")
+    ownershipModes.push("borrow")
+    ownershipModes.push("ref")
+    ownershipModes.push("own")
+    ownershipModes.push("comptime")
+    var oi = 0
+    while oi < ownershipModes.length() {
+        let mode = ownershipModes[oi]
+        let marker = mode + ":"
+        if typeRefStartsAt(text, cursor[0], marker) {
+            result.ownership = mode
+            cursor[0] = cursor[0] + marker.length()
+            typeRefSkipSpace(text, cursor)
+            break
+        }
+        oi = oi + 1
+    }
+
+    let start = cursor[0]
+    while cursor[0] < text.length() and
+        not typeRefIsDelimiter(text.byteAt(cursor[0])) {
+
+        cursor[0] = cursor[0] + 1
+    }
+    if cursor[0] == start {
+        return typeRefInvalid("expected a type name", line, column, file)
+    }
+    result.base = text.substring(start, cursor[0])
+    if typeRefIsDigits(result.base) { result.kind = "constant" }
+    if result.base == "ErrorUnion" { result.kind = "error_union" }
+    typeRefSkipSpace(text, cursor)
+
+    if cursor[0] < text.length() and text.byteAt(cursor[0]) == '<' {
+        cursor[0] = cursor[0] + 1
+        typeRefSkipSpace(text, cursor)
+        if cursor[0] < text.length() and text.byteAt(cursor[0]) == '>' {
+            return typeRefInvalid("generic argument list cannot be empty",
+                line, column, file)
+        }
+        var done = false
+        while not done and cursor[0] < text.length() {
+            let argument = parseTypeRefAt(text, cursor, line, column, file)
+            if not argument.valid { return argument }
+            if result.base == "ErrorUnion" and
+                argument.kind == "error_union" {
+                var unionIndex = 0
+                while unionIndex < argument.arguments.length() {
+                    result.arguments.push(argument.arguments[unionIndex])
+                    unionIndex = unionIndex + 1
+                }
+            } else {
+                result.arguments.push(argument)
+            }
+            typeRefSkipSpace(text, cursor)
+            if cursor[0] >= text.length() {
+                return typeRefInvalid("unterminated generic argument list",
+                    line, column, file)
+            }
+            let delimiter = text.byteAt(cursor[0])
+            if delimiter == ',' or
+                (delimiter == '|' and result.base == "ErrorUnion") {
+                cursor[0] = cursor[0] + 1
+                typeRefSkipSpace(text, cursor)
+            } else {
+                if delimiter == '>' {
+                    cursor[0] = cursor[0] + 1
+                    done = true
+                } else {
+                    return typeRefInvalid("expected ',' or '>' in generic type",
+                        line, column, file)
+                }
+            }
+        }
+        if not done {
+            return typeRefInvalid("unterminated generic argument list",
+                line, column, file)
+        }
+    }
+
+    typeRefSkipSpace(text, cursor)
+    let bitfieldMarker = ":bitfield("
+    if typeRefStartsAt(text, cursor[0], bitfieldMarker) {
+        cursor[0] = cursor[0] + bitfieldMarker.length()
+        let widthStart = cursor[0]
+        while cursor[0] < text.length() and
+            text.byteAt(cursor[0]) >= '0' and
+            text.byteAt(cursor[0]) <= '9' {
+
+            cursor[0] = cursor[0] + 1
+        }
+        let widthText = text.substring(widthStart, cursor[0])
+        if widthText == "" or cursor[0] >= text.length() or
+            text.byteAt(cursor[0]) != ')' {
+
+            return typeRefInvalid(
+                "expected a bitfield width and ')'", line, column, file)
+        }
+        let bitWidth = typeRefParseUnsignedInt(widthText)
+        if bitWidth <= 0 or bitWidth > 64 {
+            return typeRefInvalid("bitfield width must be between 1 and 64",
+                line, column, file)
+        }
+        result.hasBitWidth = true
+        result.bitWidth = bitWidth
+        cursor[0] = cursor[0] + 1
+        typeRefSkipSpace(text, cursor)
+    }
+
+    if cursor[0] < text.length() and text.byteAt(cursor[0]) == '?' {
+        result.nullable = true
+        cursor[0] = cursor[0] + 1
+    }
+
+    while cursor[0] < text.length() and text.byteAt(cursor[0]) == '[' {
+        cursor[0] = cursor[0] + 1
+        typeRefSkipSpace(text, cursor)
+        let lengthStart = cursor[0]
+        while cursor[0] < text.length() and
+            text.byteAt(cursor[0]) >= '0' and
+            text.byteAt(cursor[0]) <= '9' {
+            cursor[0] = cursor[0] + 1
+        }
+        let lengthText = text.substring(lengthStart, cursor[0])
+        if lengthText == "" or cursor[0] >= text.length() or
+            text.byteAt(cursor[0]) != ']' {
+            return typeRefInvalid("expected a fixed array length and ']'",
+                line, column, file)
+        }
+        cursor[0] = cursor[0] + 1
+        let lengthRef = TypeRef.new()
+        lengthRef.kind = "constant"
+        lengthRef.base = lengthText
+        let fixed = TypeRef.new()
+        fixed.kind = "fixed_array"
+        fixed.base = "FixedArray"
+        fixed.arguments.push(result)
+        fixed.arguments.push(lengthRef)
+        fixed.file = file
+        fixed.line = line
+        fixed.column = column
+        result = fixed
+        typeRefSkipSpace(text, cursor)
+    }
+
+    // Nullability may apply to the fixed array as a whole (`T[N]?`) rather
+    // than only to its element (`T?[N]`).
+    if cursor[0] < text.length() and text.byteAt(cursor[0]) == '?' {
+        result.nullable = true
+        cursor[0] = cursor[0] + 1
+        typeRefSkipSpace(text, cursor)
+    }
+
+    if cursor[0] < text.length() and text.byteAt(cursor[0]) == '!' {
+        cursor[0] = cursor[0] + 1
+        let errorType = parseTypeRefAt(text, cursor, line, column, file)
+        if not errorType.valid { return errorType }
+        let fallible = TypeRef.new()
+        fallible.base = "Result"
+        fallible.arguments.push(result)
+        fallible.arguments.push(errorType)
+        fallible.file = file
+        fallible.line = line
+        fallible.column = column
+        return fallible
+    }
+    if cursor[0] < text.length() and text.byteAt(cursor[0]) == '|' {
+        let errorUnion = TypeRef.new()
+        errorUnion.kind = "error_union"
+        errorUnion.base = "ErrorUnion"
+        errorUnion.arguments.push(result)
+        while cursor[0] < text.length() and text.byteAt(cursor[0]) == '|' {
+            cursor[0] = cursor[0] + 1
+            let alternative = parseTypeRefAt(text, cursor, line, column, file)
+            if not alternative.valid { return alternative }
+            errorUnion.arguments.push(alternative)
+        }
+        errorUnion.file = file
+        errorUnion.line = line
+        errorUnion.column = column
+        return errorUnion
+    }
+    return result
+}
+
+fun parseTypeRef(text: String, line: Int = 0, column: Int = 0,
+    file: String = "") r: TypeRef {
+
+    var typeText = text
+    var defaultValue = ""
+    var outerOwnership = ""
+    let defaultMarker = typeText.indexOf("~default~", 0)
+    if defaultMarker >= 0 {
+        defaultValue = typeText.substring(defaultMarker + 9,
+            typeText.length())
+        typeText = typeText.substring(0, defaultMarker)
+    }
+    if typeText.startsWith("move:") {
+        outerOwnership = "move"
+        typeText = typeText.substring(5, typeText.length())
+    } else if typeText.startsWith("borrow:") {
+        outerOwnership = "borrow"
+        typeText = typeText.substring(7, typeText.length())
+    } else if typeText.startsWith("ref:") {
+        outerOwnership = "ref"
+        typeText = typeText.substring(4, typeText.length())
+    } else if typeText.startsWith("own:") {
+        outerOwnership = "own"
+        typeText = typeText.substring(4, typeText.length())
+    } else if typeText.startsWith("comptime:") {
+        outerOwnership = "comptime"
+        typeText = typeText.substring(9, typeText.length())
+    }
+    let cursor = Array<Int>()
+    cursor.push(0)
+    let result = parseTypeRefAt(typeText, cursor, line, column, file)
+    if not result.valid { return result }
+    typeRefSkipSpace(typeText, cursor)
+    if cursor[0] != typeText.length() {
+        return typeRefInvalid("unexpected trailing tokens in type '" +
+            text + "'", line, column, file)
+    }
+    result.defaultValue = defaultValue
+    if result.ownership == "" { result.ownership = outerOwnership }
+    return result
+}
+
+fun typeRefSubstitute(typeRef: TypeRef, names: Array<String>,
+    values: Array<TypeRef>) r: TypeRef {
+
+    var i = 0
+    while i < names.length() and i < values.length() {
+        if typeRef.base == names[i] and typeRef.arguments.length() == 0 {
+            let replacement = values[i]
+            let result = TypeRef.new()
+            result.kind = replacement.kind
+            result.base = replacement.base
+            result.identityBase = replacement.identityBase
+            result.arguments = replacement.arguments
+            result.nullable = typeRef.nullable or replacement.nullable
+            result.ownership = typeRef.ownership
+            result.hasBitWidth = typeRef.hasBitWidth or
+                replacement.hasBitWidth
+            result.bitWidth = typeRef.bitWidth
+            if not typeRef.hasBitWidth {
+                result.bitWidth = replacement.bitWidth
+            }
+            if result.ownership == "" { result.ownership = replacement.ownership }
+            result.file = typeRef.file
+            result.defaultValue = typeRef.defaultValue
+            result.line = typeRef.line
+            result.column = typeRef.column
+            result.valid = replacement.valid
+            result.error = replacement.error
+            return result
+        }
+        i = i + 1
+    }
+
+    let result = TypeRef.new()
+    result.kind = typeRef.kind
+    result.base = typeRef.base
+    result.identityBase = typeRef.identityBase
+    result.nullable = typeRef.nullable
+    result.ownership = typeRef.ownership
+    result.hasBitWidth = typeRef.hasBitWidth
+    result.bitWidth = typeRef.bitWidth
+    result.defaultValue = typeRef.defaultValue
+    result.file = typeRef.file
+    result.line = typeRef.line
+    result.column = typeRef.column
+    result.valid = typeRef.valid
+    result.error = typeRef.error
+    i = 0
+    while i < typeRef.arguments.length() {
+        result.arguments.push(typeRefSubstitute(typeRef.arguments[i], names,
+            values))
+        i = i + 1
+    }
+    return result
+}

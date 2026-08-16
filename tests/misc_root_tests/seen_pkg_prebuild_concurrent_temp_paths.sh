@@ -3,11 +3,27 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 COMPILER="${COMPILER:-$ROOT_DIR/compiler_seen/target/seen}"
-TMP_DIR="$(mktemp -d /tmp/seen_pkg_prebuild_concurrent.XXXXXX)"
+CAPPED_ENTRY="$ROOT_DIR/scripts/run_capped_regression.sh"
+SCOPE=seen-pkg-prebuild-concurrent-temp-paths
+if [ "${SEEN_CAPPED_REGRESSION_ACTIVE:-0}" != "1" ]; then
+    exec bash "$CAPPED_ENTRY" "$SCOPE" --compiler "$COMPILER" -- \
+        bash "$0" "$@"
+fi
+COMPILER="${SEEN_CAPPED_REGRESSION_COMPILER:-$COMPILER}"
+bash "$CAPPED_ENTRY" --verify-active "$SCOPE" --compiler "$COMPILER"
+ATTESTED_SEEN="${SEEN_ATTESTED_COMPILER_RUNNER:?}"
+TMP_DIR="$(mktemp -d "$SEEN_ARTIFACT_ROOT/seen-pkg-prebuild-concurrent.XXXXXX")"
 
 cleanup() {
     if [ -z "${SEEN_KEEP_TMP:-}" ]; then
-        rm -rf "$TMP_DIR"
+        case "$TMP_DIR" in
+            "$SEEN_ARTIFACT_ROOT"/seen-pkg-prebuild-concurrent.*)
+                [ -d "$TMP_DIR" ] && [ ! -L "$TMP_DIR" ] &&
+                    [ "$(dirname -- "$TMP_DIR")" = "$SEEN_ARTIFACT_ROOT" ] || return 1
+                rm -rf -- "$TMP_DIR"
+                ;;
+            *) return 1 ;;
+        esac
     else
         echo "KEEP: $TMP_DIR"
     fi
@@ -15,22 +31,7 @@ cleanup() {
 
 trap cleanup EXIT
 
-if [ -z "${SEEN_TEST_NO_ULIMIT:-}" ]; then
-    AVAIL_KB="$(awk '/MemAvailable/ {print $2}' /proc/meminfo 2>/dev/null || echo 0)"
-    if [ "$AVAIL_KB" -gt 0 ]; then
-        CAP_KB=$(( AVAIL_KB * 70 / 100 ))
-        if [ "$CAP_KB" -gt 14680064 ]; then
-            CAP_KB=14680064
-        fi
-        if [ "$CAP_KB" -ge 8388608 ]; then
-            ulimit -v "$CAP_KB"
-        fi
-    fi
-fi
-
-REAL_OPT="$(command -v opt || true)"
-REAL_LLC="$(command -v llc || true)"
-if [ -z "$REAL_OPT" ] || [ -z "$REAL_LLC" ]; then
+if ! command -v opt >/dev/null 2>&1 || ! command -v llc >/dev/null 2>&1; then
     echo "SKIP: LLVM opt/llc not available"
     exit 0
 fi
@@ -40,20 +41,6 @@ if command -v llvm-nm >/dev/null 2>&1; then
 else
     NM_TOOL=nm
 fi
-
-WRAP_DIR="$TMP_DIR/wrap"
-mkdir -p "$WRAP_DIR"
-cat >"$WRAP_DIR/opt" <<EOF
-#!/usr/bin/env bash
-sleep 0.2
-exec "$REAL_OPT" "\$@"
-EOF
-cat >"$WRAP_DIR/llc" <<EOF
-#!/usr/bin/env bash
-sleep 0.2
-exec "$REAL_LLC" "\$@"
-EOF
-chmod +x "$WRAP_DIR/opt" "$WRAP_DIR/llc"
 
 make_pkg() {
     local name="$1"
@@ -118,14 +105,16 @@ make_pkg alpha 100
 make_pkg beta 200
 
 (
-    PATH="$WRAP_DIR:$PATH" "$COMPILER" pkg prebuild "$TMP_DIR/alpha" \
-        "$TMP_DIR/alpha_artifact" >"$TMP_DIR/alpha.log" 2>&1
+    bash "$ATTESTED_SEEN" "$COMPILER" pkg prebuild \
+        "$TMP_DIR/alpha" "$TMP_DIR/alpha_artifact" \
+        >"$TMP_DIR/alpha.log" 2>&1
 ) &
 alpha_pid=$!
 
 (
-    PATH="$WRAP_DIR:$PATH" "$COMPILER" pkg prebuild "$TMP_DIR/beta" \
-        "$TMP_DIR/beta_artifact" >"$TMP_DIR/beta.log" 2>&1
+    bash "$ATTESTED_SEEN" "$COMPILER" pkg prebuild \
+        "$TMP_DIR/beta" "$TMP_DIR/beta_artifact" \
+        >"$TMP_DIR/beta.log" 2>&1
 ) &
 beta_pid=$!
 

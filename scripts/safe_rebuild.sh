@@ -6,8 +6,11 @@
 
 set -e
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd -P)"
+ARTIFACT_ROOT_SCRIPT="$SCRIPT_DIR/artifact_root.sh"
+SERIAL_AUXILIARY_SCRIPT="$SCRIPT_DIR/serial_auxiliary_env.sh"
+SAFE_REBUILD_ORIGINAL_ARGS=("$@")
 
 # Colors for output
 RED='\033[0;31m'
@@ -18,35 +21,56 @@ BOLD='\033[1m'
 DIM='\033[2m'
 NC='\033[0m' # No Color
 
-STAGE2="/tmp/stage2_safe_rebuild"
-STAGE3="/tmp/stage3_safe_rebuild"
-STAGE3_RECOVERY="/tmp/stage3_safe_rebuild_recovery"
-PRESERVED_PROD_BUILDER="/tmp/seen_preserved_prod_builder"
+STAGE2=""
+STAGE3=""
+STAGE3_RECOVERY=""
+PRESERVED_PROD_BUILDER=""
+REBUILD_ARTIFACT_SCOPE=""
+REBUILD_WORK_ROOT=""
+COMPILER_ARTIFACT_ROOT=""
+# PROJECT_ARTIFACT_ROOT is the stable project-wide base. Preserve it across
+# both the private-/tmp re-exec and the later hard-cgroup re-exec; the latter
+# intentionally carries SEEN_ARTIFACT_ROOT as the per-run directory.
+PROJECT_ARTIFACT_ROOT="${PROJECT_ARTIFACT_ROOT:-}"
 COMPILER_SOURCE="compiler_seen/src/main_compiler.seen"
 MEMORY_GUARD_SCRIPT="$SCRIPT_DIR/memory_guard.sh"
+BUILDER_CAPABILITY_SCRIPT="$SCRIPT_DIR/rebuild_builder_capability.sh"
+BUILDER_APPLICABILITY_SCRIPT="$SCRIPT_DIR/rebuild_builder_applicability.sh"
+BUILDER_SELECTION_SCRIPT="$SCRIPT_DIR/rebuild_builder_selection.sh"
 FORK_SERIALIZER_SOURCE="$SCRIPT_DIR/fork_serializer.c"
+FORK_SERIALIZER_SELFTEST_SOURCE="$SCRIPT_DIR/fork_serializer_selftest.c"
 FORK_SERIALIZER_SO=""
+FORK_SERIALIZER_ATTESTATION=""
+FORK_SERIALIZER_VERIFY_SCRIPT="$SCRIPT_DIR/verify_fork_serializer.sh"
+BOUNDED_TOOLCHAIN_PREPARE_SCRIPT="$SCRIPT_DIR/prepare_bounded_toolchain.sh"
+BOUNDED_TOOLCHAIN_DIR=""
 BOOTSTRAP_SOURCE_ROOT=""
 BOOTSTRAP_PREFLIGHT_DONE=0
 FROZEN_ABS=""
 BUILD_TRACE_COMMON="$SCRIPT_DIR/build_trace_common.sh"
 REBUILD_TIER="full"
 CLEAN_CACHE=0
+ARTIFACT_PREFLIGHT_ONLY=0
 PACKAGE_CLIENT_BUILD_OUTPUT="$REPO_ROOT/target/seen-build/package-client/seen-pkg"
+SOURCE_PACKAGE_CLIENT=""
+SOURCE_PACKAGE_CLIENT_VERSION=""
+REBUILD_SCOPE_EVIDENCE_FILE=""
 
 if [ -f "$BUILD_TRACE_COMMON" ]; then
     # shellcheck source=scripts/build_trace_common.sh
     source "$BUILD_TRACE_COMMON"
-    seen_build_trace_init "safe_rebuild"
 fi
 
 safe_rebuild_usage() {
-    echo "Usage: $0 [--tier quick|verify|full] [--clean-cache] [--help]"
+    echo "Usage: $0 [--tier quick|verify|full] [--clean-cache] [--artifact-preflight] [--help]"
     echo ""
     echo "Tiers:"
     echo "  quick   Cache-enabled developer rebuild to compiler_seen/target/seen-dev; smoke only."
     echo "  verify  Cache-enabled production rebuild; targeted checks; install after verification."
     echo "  full    Cold staged bootstrap verification. This is the default for compatibility."
+    echo ""
+    echo "Artifacts default to <repository>/.seen/agent-tools. Set SEEN_ARTIFACT_ROOT"
+    echo "to another Git-ignored path inside the repository to override that location."
 }
 
 while [ "$#" -gt 0 ]; do
@@ -65,6 +89,10 @@ while [ "$#" -gt 0 ]; do
             ;;
         --clean-cache)
             CLEAN_CACHE=1
+            shift
+            ;;
+        --artifact-preflight)
+            ARTIFACT_PREFLIGHT_ONLY=1
             shift
             ;;
         -h|--help)
@@ -87,11 +115,449 @@ case "$REBUILD_TIER" in
         ;;
 esac
 
+if [ ! -f "$ARTIFACT_ROOT_SCRIPT" ]; then
+    echo -e "${RED:-}ERROR: missing artifact-root helper: $ARTIFACT_ROOT_SCRIPT${NC:-}" >&2
+    exit 1
+fi
+if [ ! -f "$SERIAL_AUXILIARY_SCRIPT" ]; then
+    echo -e "${RED:-}ERROR: missing serial-auxiliary helper: $SERIAL_AUXILIARY_SCRIPT${NC:-}" >&2
+    exit 1
+fi
+# shellcheck source=scripts/artifact_root.sh
+source "$ARTIFACT_ROOT_SCRIPT"
+# shellcheck source=scripts/serial_auxiliary_env.sh
+source "$SERIAL_AUXILIARY_SCRIPT"
+if [ "${SEEN_ARTIFACT_NAMESPACE_ACTIVE:-0}" = "1" ]; then
+    inherited_project_artifact_root=$PROJECT_ARTIFACT_ROOT
+    case "$inherited_project_artifact_root" in
+        "$REPO_ROOT"/*) ;;
+        *)
+            echo -e "${RED:-}ERROR: inherited project artifact root is missing or escaped the repository: $inherited_project_artifact_root${NC:-}" >&2
+            exit 1
+            ;;
+    esac
+    if [ ! -d "$inherited_project_artifact_root" ] ||
+        [ -L "$inherited_project_artifact_root" ]; then
+
+        echo -e "${RED:-}ERROR: inherited project artifact root is unsafe: $inherited_project_artifact_root${NC:-}" >&2
+        exit 1
+    fi
+    canonical_inherited_project_root=$(seen_artifact_canonical_dir \
+        "$inherited_project_artifact_root") || exit 1
+    if [ "$canonical_inherited_project_root" != "$inherited_project_artifact_root" ]; then
+        echo -e "${RED:-}ERROR: inherited project artifact root is not canonical: $inherited_project_artifact_root${NC:-}" >&2
+        exit 1
+    fi
+    # Restore the stable base before resolving the safe-rebuild scope. Later,
+    # SEEN_ARTIFACT_ROOT is deliberately rebound to REBUILD_WORK_ROOT for tools.
+    SEEN_ARTIFACT_ROOT=$inherited_project_artifact_root
+    export SEEN_ARTIFACT_ROOT PROJECT_ARTIFACT_ROOT
+fi
+seen_artifact_root_init "$REPO_ROOT" || exit 1
+PROJECT_ARTIFACT_ROOT="$SEEN_ARTIFACT_ROOT"
+REBUILD_ARTIFACT_SCOPE=$(seen_artifact_scope_init safe-rebuild) || exit 1
+if [ "${SEEN_ARTIFACT_NAMESPACE_ACTIVE:-0}" = "1" ]; then
+    REBUILD_WORK_ROOT=${SEEN_REBUILD_WORK_ROOT:-}
+    case "$REBUILD_WORK_ROOT" in
+        "$REBUILD_ARTIFACT_SCOPE"/*)
+            inherited_rebuild_name=${REBUILD_WORK_ROOT#"$REBUILD_ARTIFACT_SCOPE"/}
+            ;;
+        *)
+            echo -e "${RED:-}ERROR: invalid inherited rebuild artifact directory: $REBUILD_WORK_ROOT${NC:-}" >&2
+            exit 1
+            ;;
+    esac
+    case "$inherited_rebuild_name" in
+        preflight|run.*) ;;
+        *)
+            echo -e "${RED:-}ERROR: invalid inherited rebuild artifact basename: $inherited_rebuild_name${NC:-}" >&2
+            exit 1
+            ;;
+    esac
+    case "$inherited_rebuild_name" in
+        */*)
+            echo -e "${RED:-}ERROR: inherited rebuild artifact directory may not contain nested components.${NC:-}" >&2
+            exit 1
+            ;;
+    esac
+    inherited_rebuild_relative=${REBUILD_WORK_ROOT#"$REPO_ROOT"/}
+    seen_artifact_assert_safe_relative_path "$inherited_rebuild_relative" || exit 1
+    seen_artifact_assert_no_symlink_components "$REPO_ROOT" \
+        "$inherited_rebuild_relative" || exit 1
+    if [ ! -d "$REBUILD_WORK_ROOT" ] || [ -L "$REBUILD_WORK_ROOT" ]; then
+        echo -e "${RED:-}ERROR: inherited rebuild artifact directory is unsafe: $REBUILD_WORK_ROOT${NC:-}" >&2
+        exit 1
+    fi
+else
+    if [ "$ARTIFACT_PREFLIGHT_ONLY" = "1" ]; then
+        REBUILD_WORK_ROOT="$REBUILD_ARTIFACT_SCOPE/preflight"
+        if [ -L "$REBUILD_WORK_ROOT" ]; then
+            echo -e "${RED:-}ERROR: artifact preflight directory is a symbolic link: $REBUILD_WORK_ROOT${NC:-}" >&2
+            exit 1
+        fi
+        preflight_rebuild_relative=${REBUILD_WORK_ROOT#"$REPO_ROOT"/}
+        seen_artifact_assert_safe_relative_path "$preflight_rebuild_relative" || exit 1
+        seen_artifact_assert_no_symlink_components "$REPO_ROOT" \
+            "$preflight_rebuild_relative" || exit 1
+        mkdir -p -- "$REBUILD_WORK_ROOT" || exit 1
+    else
+        REBUILD_WORK_ROOT=$(seen_artifact_mktemp_dir "$REBUILD_ARTIFACT_SCOPE" run) || exit 1
+    fi
+fi
+rebuild_work_relative=${REBUILD_WORK_ROOT#"$REPO_ROOT"/}
+case "$REBUILD_WORK_ROOT" in
+    "$REPO_ROOT"/*) ;;
+    *)
+        echo -e "${RED:-}ERROR: rebuild artifact directory escaped the repository.${NC:-}" >&2
+        exit 1
+        ;;
+esac
+seen_artifact_assert_safe_relative_path "$rebuild_work_relative" || exit 1
+seen_artifact_assert_no_symlink_components "$REPO_ROOT" "$rebuild_work_relative" || exit 1
+canonical_rebuild_work_root=$(seen_artifact_canonical_dir "$REBUILD_WORK_ROOT") || exit 1
+if [ "$canonical_rebuild_work_root" != "$REBUILD_WORK_ROOT" ]; then
+    echo -e "${RED:-}ERROR: rebuild artifact directory is not canonical: $REBUILD_WORK_ROOT${NC:-}" >&2
+    exit 1
+fi
+
+# Production outputs are not disposable artifact-root entries, but they are
+# still write boundaries. Reject poisoned parent components and endpoints, and
+# install through a same-directory temporary file so an existing hard link is
+# replaced rather than truncated in place.
+safe_rebuild_prepare_checkout_directory() {
+    local relative_dir=$1
+    local destination canonical_destination expected_destination
+
+    seen_artifact_assert_safe_relative_path "$relative_dir" || return 1
+    seen_artifact_assert_no_symlink_components "$REPO_ROOT" \
+        "$relative_dir" || return 1
+    if [ "$relative_dir" = "." ]; then
+        destination=$REPO_ROOT
+        expected_destination=$REPO_ROOT
+    else
+        destination="$REPO_ROOT/$relative_dir"
+        expected_destination=$destination
+    fi
+    if [ -e "$destination" ] && [ ! -d "$destination" ]; then
+        echo -e "${RED:-}ERROR: install parent is not a directory: $destination${NC:-}" >&2
+        return 1
+    fi
+    [ ! -L "$destination" ] || {
+        echo -e "${RED:-}ERROR: install parent is a symbolic link: $destination${NC:-}" >&2
+        return 1
+    }
+    mkdir -p -- "$destination" || return 1
+    seen_artifact_assert_no_symlink_components "$REPO_ROOT" \
+        "$relative_dir" || return 1
+    canonical_destination=$(seen_artifact_canonical_dir "$destination") || return 1
+    if [ "$canonical_destination" != "$expected_destination" ]; then
+        echo -e "${RED:-}ERROR: install parent is not canonical: $destination${NC:-}" >&2
+        return 1
+    fi
+}
+
+safe_rebuild_assert_checkout_output() {
+    local relative_path=$1
+    local parent target
+
+    seen_artifact_assert_safe_relative_path "$relative_path" || return 1
+    case "$relative_path" in
+        */*) parent=${relative_path%/*} ;;
+        *) parent=. ;;
+    esac
+    safe_rebuild_prepare_checkout_directory "$parent" || return 1
+    target="$REPO_ROOT/$relative_path"
+    if [ -L "$target" ]; then
+        echo -e "${RED:-}ERROR: refusing symbolic-link install target: $target${NC:-}" >&2
+        return 1
+    fi
+    if [ -e "$target" ] && [ ! -f "$target" ]; then
+        echo -e "${RED:-}ERROR: install target is not a regular file: $target${NC:-}" >&2
+        return 1
+    fi
+}
+
+safe_rebuild_install_checkout_file() {
+    local source=$1
+    local relative_path=$2
+    local target parent base temporary
+
+    if [ ! -f "$source" ] || [ -L "$source" ]; then
+        echo -e "${RED:-}ERROR: install source is not a regular non-symlink file: $source${NC:-}" >&2
+        return 1
+    fi
+    safe_rebuild_assert_checkout_output "$relative_path" || return 1
+    target="$REPO_ROOT/$relative_path"
+    parent=$(dirname -- "$target")
+    base=$(basename -- "$target")
+    temporary=$(mktemp "$parent/.${base}.install.XXXXXX") || return 1
+    if ! cp -- "$source" "$temporary" || ! chmod 755 "$temporary"; then
+        rm -f -- "$temporary"
+        return 1
+    fi
+    if ! mv -f -- "$temporary" "$target"; then
+        rm -f -- "$temporary"
+        return 1
+    fi
+    [ -f "$target" ] && [ ! -L "$target" ] || {
+        echo -e "${RED:-}ERROR: installed output is unsafe: $target${NC:-}" >&2
+        return 1
+    }
+}
+
+safe_rebuild_remove_checkout_file() {
+    local relative_path=$1
+    local target
+
+    safe_rebuild_assert_checkout_output "$relative_path" || return 1
+    target="$REPO_ROOT/$relative_path"
+    rm -f -- "$target"
+}
+
+safe_rebuild_validate_install_destinations() {
+    local relative_path
+    for relative_path in \
+        compiler_seen/target/seen \
+        compiler_seen/target/seen-dev \
+        compiler_seen/target/seen-pkg \
+        target/release/seen \
+        target/release/seen-pkg \
+        stage2_head stage3_head stage3_recovery_head; do
+
+        safe_rebuild_assert_checkout_output "$relative_path" || return 1
+    done
+}
+COMPILER_ARTIFACT_ROOT="$REBUILD_WORK_ROOT"
+if [ -L "$COMPILER_ARTIFACT_ROOT" ]; then
+    echo -e "${RED:-}ERROR: compiler artifact scope is a symbolic link: $COMPILER_ARTIFACT_ROOT${NC:-}" >&2
+    exit 1
+fi
+mkdir -p -- "$COMPILER_ARTIFACT_ROOT" "$REBUILD_WORK_ROOT/tool-tmp"
+if [ ! -d "$COMPILER_ARTIFACT_ROOT" ] || [ -L "$COMPILER_ARTIFACT_ROOT" ]; then
+    echo -e "${RED:-}ERROR: compiler artifact scope is not a safe directory: $COMPILER_ARTIFACT_ROOT${NC:-}" >&2
+    exit 1
+fi
+TMPDIR="$REBUILD_WORK_ROOT/tool-tmp"
+SEEN_ARTIFACT_ROOT="$COMPILER_ARTIFACT_ROOT"
+export TMPDIR SEEN_ARTIFACT_ROOT PROJECT_ARTIFACT_ROOT
+
+# Frozen 0.10 builders use absolute /tmp paths internally. On Linux, run the
+# whole rebuild in a private mount namespace whose /tmp is this project-local
+# per-run directory. This keeps the recovery logic intact without writing to the
+# host's temporary filesystem. Other hosts must explicitly opt into the legacy
+# behavior until their frozen builder understands SEEN_ARTIFACT_ROOT.
+if [ "${SEEN_ARTIFACT_NAMESPACE_ACTIVE:-0}" != "1" ]; then
+    artifact_host_os=$(uname -s)
+    if [ "$artifact_host_os" = "Linux" ]; then
+        if ! command -v bwrap >/dev/null 2>&1; then
+            echo -e "${RED:-}ERROR: project-local frozen-bootstrap artifacts require bwrap on Linux.${NC:-}" >&2
+            echo "Install Bubblewrap; this script will not fall back to host /tmp on Linux." >&2
+            exit 1
+        fi
+        if ! bwrap --die-with-parent --bind / / --dev-bind /dev /dev \
+            --proc /proc --ro-bind /sys /sys \
+            --bind "$REBUILD_WORK_ROOT" /tmp -- true; then
+            echo -e "${RED:-}ERROR: could not map the project artifact directory onto the rebuild's /tmp.${NC:-}" >&2
+            exit 1
+        fi
+        export SEEN_ARTIFACT_NAMESPACE_ACTIVE=1
+        export SEEN_PROJECT_ARTIFACT_WRAPPER=1
+        export SEEN_PROJECT_ARTIFACT_NAMESPACE_ACTIVE=1
+        export SEEN_REBUILD_WORK_ROOT="$REBUILD_WORK_ROOT"
+        export SEEN_ARTIFACT_ROOT="$PROJECT_ARTIFACT_ROOT"
+        exec bwrap --die-with-parent --bind / / --dev-bind /dev /dev \
+            --proc /proc --ro-bind /sys /sys \
+            --bind "$REBUILD_WORK_ROOT" /tmp -- \
+            "$SCRIPT_DIR/safe_rebuild.sh" "${SAFE_REBUILD_ORIGINAL_ARGS[@]}"
+    elif [ "${SEEN_ALLOW_SYSTEM_TMP:-0}" != "1" ]; then
+        echo -e "${RED:-}ERROR: this frozen bootstrap cannot redirect absolute temporary paths on $artifact_host_os.${NC:-}" >&2
+        echo "Set SEEN_ALLOW_SYSTEM_TMP=1 only if legacy host temporary-file use is acceptable." >&2
+        exit 1
+    else
+        echo -e "${YELLOW:-}WARNING: SEEN_ALLOW_SYSTEM_TMP=1 permits legacy host temporary-file use.${NC:-}" >&2
+    fi
+else
+    if [ "$(uname -s)" = "Linux" ]; then
+        namespace_tmp_identity=$(stat -c '%d:%i' /tmp 2>/dev/null || true)
+        work_root_identity=$(stat -c '%d:%i' "$REBUILD_WORK_ROOT" 2>/dev/null || true)
+        if [ -z "$namespace_tmp_identity" ] || [ "$namespace_tmp_identity" != "$work_root_identity" ]; then
+            echo -e "${RED:-}ERROR: rebuild artifact namespace validation failed.${NC:-}" >&2
+            exit 1
+        fi
+    fi
+fi
+if ! cd -- "$REPO_ROOT"; then
+    echo -e "${RED:-}ERROR: could not enter the canonical repository root: $REPO_ROOT${NC:-}" >&2
+    exit 1
+fi
+SEEN_PROJECT_ARTIFACT_WRAPPER=1
+SEEN_PROJECT_ARTIFACT_NAMESPACE_ACTIVE=1
+export SEEN_PROJECT_ARTIFACT_WRAPPER SEEN_PROJECT_ARTIFACT_NAMESPACE_ACTIVE
+
+# Only the outer aggregate supervisor owns its private `.aggregate-supervisor`
+# TMPDIR. Nested command guards share the per-run tool-tmp directory and must
+# never inherit permission to remove it.
+SEEN_MEMORY_GUARD_REMOVE_EMPTY_TMPDIR=0
+export SEEN_MEMORY_GUARD_REMOVE_EMPTY_TMPDIR
+
+if [ "${SEEN_MEMORY_GUARD_IN_SCOPE:-0}" = "1" ]; then
+    seen_serial_auxiliary_verify "$REPO_ROOT" "$SEEN_ARTIFACT_ROOT" || exit 126
+else
+    seen_serial_auxiliary_prepare "$REPO_ROOT" "$SEEN_ARTIFACT_ROOT" || exit 126
+fi
+
+# Do not forward caller-controlled metrics destinations into nested guards.
+# Aggregate and per-step metrics are assigned explicitly below the validated
+# project-local run root.
+unset SEEN_MEMORY_GUARD_METRICS_FILE SEEN_MEMORY_GUARD_SUCCESS_METRICS_FILE
+
+# Trace initialization can create its destination. Defer it until the private
+# project-local temporary namespace is active so an explicit /tmp trace path
+# cannot touch the host temporary filesystem during the initial re-exec.
+if declare -F seen_build_trace_init >/dev/null 2>&1; then
+    if [ -n "${SEEN_TRACE_BUILD:-}" ] || [ -n "${SEEN_BUILD_TRACE:-}" ]; then
+        SEEN_TRACE_BUILD="$REBUILD_WORK_ROOT/safe-rebuild.trace.jsonl"
+        SEEN_BUILD_TRACE="$SEEN_TRACE_BUILD"
+        export SEEN_TRACE_BUILD SEEN_BUILD_TRACE
+    fi
+    seen_build_trace_init "safe_rebuild"
+fi
+
+if [ "$ARTIFACT_PREFLIGHT_ONLY" = "1" ]; then
+    echo "Project artifact root: $PROJECT_ARTIFACT_ROOT"
+    echo "Rebuild artifact directory: $REBUILD_WORK_ROOT"
+    echo "Checkout working directory: $PWD"
+    if [ "$(uname -s)" = "Linux" ]; then
+        echo "Frozen-bootstrap temporary mapping: project-local"
+    else
+        echo "Frozen-bootstrap temporary mapping: legacy host temporary directory allowed"
+    fi
+    exit 0
+fi
+
+STAGE2="$REBUILD_WORK_ROOT/stage2_safe_rebuild"
+STAGE3="$REBUILD_WORK_ROOT/stage3_safe_rebuild"
+STAGE3_RECOVERY="$REBUILD_WORK_ROOT/stage3_safe_rebuild_recovery"
+PRESERVED_PROD_BUILDER="$REBUILD_WORK_ROOT/seen_preserved_prod_builder"
+REBUILD_FATAL_STATUS_FILE="$REBUILD_WORK_ROOT/.fatal-containment-status"
+REBUILD_RECORDED_FATAL_STATUS=""
+if [ -L "$REBUILD_FATAL_STATUS_FILE" ] || [ -e "$REBUILD_FATAL_STATUS_FILE" ]; then
+    echo -e "${RED:-}ERROR: refusing pre-existing rebuild fatal-status marker.${NC:-}" >&2
+    exit 1
+fi
+
+read_rebuild_fatal_status() {
+    local recorded_status=""
+    local extra_line=""
+    local fatal_status_fd=""
+    REBUILD_RECORDED_FATAL_STATUS=""
+    [ "$REBUILD_FATAL_STATUS_FILE" = \
+        "$REBUILD_WORK_ROOT/.fatal-containment-status" ] || return 1
+    [ -f "$REBUILD_FATAL_STATUS_FILE" ] &&
+        [ ! -L "$REBUILD_FATAL_STATUS_FILE" ] || return 1
+    exec {fatal_status_fd}< "$REBUILD_FATAL_STATUS_FILE" || return 1
+    IFS= read -r recorded_status <&"$fatal_status_fd" || {
+        exec {fatal_status_fd}<&-
+        return 1
+    }
+    if IFS= read -r extra_line <&"$fatal_status_fd"; then
+        exec {fatal_status_fd}<&-
+        return 1
+    fi
+    exec {fatal_status_fd}<&-
+    case "$recorded_status" in
+        124|125|126|137|143)
+            REBUILD_RECORDED_FATAL_STATUS=$recorded_status
+            ;;
+        *) return 1 ;;
+    esac
+}
+
+record_rebuild_fatal_status() {
+    local fatal_status=$1
+    local marker_status=1
+    local noclobber_was_set=0
+    case "$fatal_status" in
+        124|125|126|137|143) ;;
+        *) fatal_status=143 ;;
+    esac
+    [ "$REBUILD_FATAL_STATUS_FILE" = \
+        "$REBUILD_WORK_ROOT/.fatal-containment-status" ] || return 1
+    [ ! -L "$REBUILD_FATAL_STATUS_FILE" ] || return 1
+    if [ -e "$REBUILD_FATAL_STATUS_FILE" ]; then
+        read_rebuild_fatal_status
+        return
+    fi
+    [[ -o noclobber ]] && noclobber_was_set=1
+    set -C
+    if printf '%s\n' "$fatal_status" > "$REBUILD_FATAL_STATUS_FILE" \
+        2>/dev/null; then
+
+        marker_status=0
+    fi
+    [ "$noclobber_was_set" -eq 1 ] || set +C
+    return "$marker_status"
+}
+
+safe_rebuild_handle_term() {
+    local fatal_status=143
+    trap - TERM
+    read_rebuild_fatal_status 2>/dev/null || true
+    case "$REBUILD_RECORDED_FATAL_STATUS" in
+        124|125|126|137|143)
+            fatal_status=$REBUILD_RECORDED_FATAL_STATUS
+            ;;
+    esac
+    exit "$fatal_status"
+}
+
 safe_rebuild_cleanup() {
+    local status=$?
+    local cleanup_entry=""
+    local supervisor_dir="$REBUILD_WORK_ROOT/.aggregate-supervisor"
+    if [ -e "$REBUILD_FATAL_STATUS_FILE" ] ||
+        [ -L "$REBUILD_FATAL_STATUS_FILE" ]; then
+
+        read_rebuild_fatal_status 2>/dev/null || true
+        case "$REBUILD_RECORDED_FATAL_STATUS" in
+            124|125|126|137|143)
+                status=$REBUILD_RECORDED_FATAL_STATUS
+                ;;
+            *) status=143 ;;
+        esac
+    fi
     cleanup_bootstrap_source_overlay
     if declare -F seen_build_trace_summary >/dev/null 2>&1; then
         seen_build_trace_summary
     fi
+    if [ "$status" -eq 0 ] && [ -n "$REBUILD_WORK_ROOT" ] &&
+        [ -n "$REBUILD_ARTIFACT_SCOPE" ]; then
+        case "$REBUILD_WORK_ROOT" in
+            "$REBUILD_ARTIFACT_SCOPE"/run.*)
+                if [ -d "$REBUILD_WORK_ROOT" ] && [ ! -L "$REBUILD_WORK_ROOT" ] &&
+                    [ "$(dirname -- "$REBUILD_WORK_ROOT")" = "$REBUILD_ARTIFACT_SCOPE" ]; then
+                    # The outer aggregate guard keeps live reason/ready state in
+                    # this reserved directory until after the child exits and
+                    # final metrics are retained. Clean every other direct entry,
+                    # but never delete the supervisor's state out from under it.
+                    for cleanup_entry in \
+                        "$REBUILD_WORK_ROOT"/* \
+                        "$REBUILD_WORK_ROOT"/.[!.]* \
+                        "$REBUILD_WORK_ROOT"/..?*; do
+
+                        [ -e "$cleanup_entry" ] || [ -L "$cleanup_entry" ] || continue
+                        [ "$cleanup_entry" != "$supervisor_dir" ] || continue
+                        [ "$(dirname -- "$cleanup_entry")" = "$REBUILD_WORK_ROOT" ] || {
+                            status=1
+                            break
+                        }
+                        rm -rf -- "$cleanup_entry"
+                    done
+                fi
+                ;;
+        esac
+    fi
+    return "$status"
 }
 
 # --- Progress monitoring helpers ---
@@ -161,62 +627,96 @@ user_memory_scope_available() {
     systemctl --user show-environment >/dev/null 2>&1
 }
 
+verify_rebuild_kernel_scope() {
+    REBUILD_SCOPE_EVIDENCE_FILE="$REBUILD_WORK_ROOT/rebuild-containment-preflight.metrics"
+    "$MEMORY_GUARD_SCRIPT" \
+        --label "rebuild containment preflight" \
+        --rss-limit-kb "$MEMORY_GUARD_RSS_KB" \
+        --available-reserve-kb "$MEMORY_GUARD_RESERVE_KB" \
+        --vmem-limit-kb "$OPT_VMEM_KB" \
+        --timeout-secs 5 \
+        --tasks-max "$MEMORY_GUARD_TASKS_MAX" \
+        --cgroup-stop-kb "$MEMORY_GUARD_CGROUP_STOP_KB" \
+        --kill-only \
+        --metrics-file "$REBUILD_SCOPE_EVIDENCE_FILE" \
+        -- sh -c 'sleep 0.05'
+}
+
+enter_rebuild_kernel_scope() {
+    local aggregate_metrics="$REBUILD_WORK_ROOT/safe_rebuild_${REBUILD_TIER}.aggregate.metrics"
+    local successful_metrics="$REBUILD_ARTIFACT_SCOPE/last-success-${REBUILD_TIER}.aggregate.metrics"
+    local supervisor_tmp="$REBUILD_WORK_ROOT/.aggregate-supervisor"
+    if [ -L "$supervisor_tmp" ] || { [ -e "$supervisor_tmp" ] && [ ! -d "$supervisor_tmp" ]; }; then
+        echo -e "${RED}ERROR: unsafe aggregate supervisor directory: $supervisor_tmp${NC}" >&2
+        exit 1
+    fi
+    mkdir -p -- "$supervisor_tmp" || exit 1
+    echo -e "${YELLOW}Entering verified aggregate rebuild cgroup before any build starts.${NC}"
+    exec env \
+        TMPDIR="$supervisor_tmp" \
+        SEEN_MEMORY_GUARD_REMOVE_EMPTY_TMPDIR=1 \
+        "$MEMORY_GUARD_SCRIPT" \
+        --label "safe rebuild $REBUILD_TIER aggregate" \
+        --rss-limit-kb "$MEMORY_GUARD_RSS_KB" \
+        --available-reserve-kb "$MEMORY_GUARD_RESERVE_KB" \
+        --vmem-limit-kb "$MAIN_COMPILER_VMEM_KB" \
+        --tasks-max "$MEMORY_GUARD_TASKS_MAX" \
+        --cgroup-stop-kb "$MEMORY_GUARD_CGROUP_STOP_KB" \
+        --kill-only \
+        --metrics-file "$aggregate_metrics" \
+        --success-metrics-file "$successful_metrics" \
+        -- env \
+            SEEN_REBUILD_AGGREGATE_SCOPE_ACTIVE=1 \
+            "$SCRIPT_DIR/safe_rebuild.sh" "${SAFE_REBUILD_ORIGINAL_ARGS[@]}"
+}
+
 run_guarded_command() {
     local label=$1
     local timeout_secs=$2
     local vmem_kb=$3
     shift 3
 
-    if memory_guard_enabled; then
-        local guard_cmd=("$MEMORY_GUARD_SCRIPT" --label "$label")
-        if [ -n "${MEMORY_GUARD_RSS_KB:-}" ]; then
-            guard_cmd+=(--rss-limit-kb "$MEMORY_GUARD_RSS_KB")
-        fi
-        if [ -n "${MEMORY_GUARD_RESERVE_KB:-}" ]; then
-            guard_cmd+=(--available-reserve-kb "$MEMORY_GUARD_RESERVE_KB")
-        fi
-        if [ -n "$vmem_kb" ]; then
-            guard_cmd+=(--vmem-limit-kb "$vmem_kb")
-        fi
-        if [ -n "$timeout_secs" ] && [ "$timeout_secs" != "0" ]; then
-            guard_cmd+=(--timeout-secs "$timeout_secs")
-        fi
-        if [ -n "${MEMORY_GUARD_TASKS_MAX:-}" ]; then
-            guard_cmd+=(--tasks-max "$MEMORY_GUARD_TASKS_MAX")
-        fi
-        if [ -n "${MEMORY_GUARD_CGROUP_STOP_KB:-}" ]; then
-            guard_cmd+=(--cgroup-stop-kb "$MEMORY_GUARD_CGROUP_STOP_KB")
-        fi
-        if [ "${SEEN_MEMORY_GUARD_KILL_ONLY:-0}" = "1" ]; then
-            guard_cmd+=(--kill-only)
-        fi
-        if [ -n "${SEEN_MEMORY_GUARD_METRICS_FILE:-}" ]; then
-            guard_cmd+=(--metrics-file "$SEEN_MEMORY_GUARD_METRICS_FILE")
-        fi
-        guard_cmd+=(-- "$@")
-        "${guard_cmd[@]}"
-        return $?
+    if ! memory_guard_enabled; then
+        echo -e "${RED}ERROR: refusing unguarded rebuild command: $label.${NC}" >&2
+        return 126
     fi
 
-    if [ -n "$timeout_secs" ] && [ "$timeout_secs" != "0" ]; then
-        timeout "$timeout_secs" bash -c '
-            if [ -n "$1" ]; then
-                ulimit -v "$1" 2>/dev/null || true
-            fi
-            shift
-            exec "$@"
-        ' bash "$vmem_kb" "$@"
-        return $?
+    local guard_cmd=("$MEMORY_GUARD_SCRIPT" --label "$label")
+    if [ -n "${MEMORY_GUARD_RSS_KB:-}" ]; then
+        guard_cmd+=(--rss-limit-kb "$MEMORY_GUARD_RSS_KB")
     fi
-
+    if [ -n "${MEMORY_GUARD_RESERVE_KB:-}" ]; then
+        guard_cmd+=(--available-reserve-kb "$MEMORY_GUARD_RESERVE_KB")
+    fi
     if [ -n "$vmem_kb" ]; then
-        (
-            ulimit -v "$vmem_kb" 2>/dev/null || true
-            "$@"
-        )
-    else
-        "$@"
+        guard_cmd+=(--vmem-limit-kb "$vmem_kb")
     fi
+    if [ -n "$timeout_secs" ] && [ "$timeout_secs" != "0" ]; then
+        guard_cmd+=(--timeout-secs "$timeout_secs")
+    fi
+    if [ -n "${MEMORY_GUARD_TASKS_MAX:-}" ]; then
+        guard_cmd+=(--tasks-max "$MEMORY_GUARD_TASKS_MAX")
+    fi
+    if [ -n "${MEMORY_GUARD_CGROUP_STOP_KB:-}" ]; then
+        guard_cmd+=(--cgroup-stop-kb "$MEMORY_GUARD_CGROUP_STOP_KB")
+    fi
+    if [ "${SEEN_MEMORY_GUARD_KILL_ONLY:-0}" = "1" ]; then
+        guard_cmd+=(--kill-only)
+    fi
+    if [ -n "${SEEN_MEMORY_GUARD_METRICS_FILE:-}" ]; then
+        guard_cmd+=(--metrics-file "$SEEN_MEMORY_GUARD_METRICS_FILE")
+    fi
+    guard_cmd+=(-- "$@")
+    local guarded_status=0
+    "${guard_cmd[@]}" || guarded_status=$?
+    case "$guarded_status" in
+        124|125|126|137|143)
+            echo -e "${RED}FATAL: $label hit containment status $guarded_status; aborting the rebuild without fallback or retry.${NC}" >&2
+            record_rebuild_fatal_status "$guarded_status" || true
+            kill -TERM "$$" 2>/dev/null || true
+            ;;
+    esac
+    return "$guarded_status"
 }
 
 run_guarded_command_to_log() {
@@ -229,6 +729,9 @@ run_guarded_command_to_log() {
     local guard_log="${log_file%.log}.guard.log"
     local guard_metrics="${log_file%.log}.guard.metrics"
     local trace_start=""
+    local guard_state=""
+    local guard_status=""
+    local resource_stop=0
     if declare -F seen_build_trace_step_start >/dev/null 2>&1; then
         trace_start=$(seen_build_trace_step_start "$label")
     fi
@@ -253,14 +756,38 @@ run_guarded_command_to_log() {
         } >> "$log_file" 2>/dev/null || true
     fi
 
+    if [ -f "$guard_metrics" ]; then
+        guard_state=$(awk -F= '/^state=/ {print $2; exit}' "$guard_metrics" 2>/dev/null || true)
+        guard_status=$(awk -F= '/^command_status=/ {print $2; exit}' "$guard_metrics" 2>/dev/null || true)
+    fi
+    case "$status" in
+        124|125|126|137|143) resource_stop=1 ;;
+    esac
+    case "$guard_state" in
+        rss_limit|cgroup_limit|reserve_limit|tasks_limit|timeout|\
+        detached_descendants|startup_failure)
+            resource_stop=1
+            ;;
+    esac
+    # A compiler or LLVM subprocess can catch an allocation failure and exit
+    # with an ordinary status (commonly 1), leaving the guard metrics in the
+    # otherwise-successful "complete" state. Treat only explicit allocation
+    # diagnostics on a nonzero command as a containment failure so candidate
+    # and recovery loops can never retry after an OOM-like stop.
+    if [ "$status" -ne 0 ] && grep -Eiq \
+        '(^|[^[:alnum:]_])(resource stop:|out of memory|cannot allocate memory|could not allocate memory|memory allocation (failed|failure)|allocation failure|std::bad_alloc|bad_alloc|resource temporarily unavailable|cannot fork|can.t fork|fork: retry|fork (failed|failure)|pthread_create([^[:alnum:]_].*)?(failed|failure)|failed to create (a )?thread|can.t create (a )?thread|cannot create (a )?thread|thread creation (failed|failure))([^[:alnum:]_]|$)' \
+        "$log_file" 2>/dev/null; then
+
+        resource_stop=1
+        guard_state="resource_diagnostic"
+    fi
+
     if declare -F seen_build_trace_step_end >/dev/null 2>&1; then
         local trace_detail="log=$log_file"
-        local peak_rss_kb peak_cgroup_kb guard_state guard_status
+        local peak_rss_kb peak_cgroup_kb
         if [ -f "$guard_metrics" ]; then
             peak_rss_kb=$(awk -F= '/^peak_rss_kb=/ {print $2; exit}' "$guard_metrics" 2>/dev/null || true)
             peak_cgroup_kb=$(awk -F= '/^peak_cgroup_kb=/ {print $2; exit}' "$guard_metrics" 2>/dev/null || true)
-            guard_state=$(awk -F= '/^state=/ {print $2; exit}' "$guard_metrics" 2>/dev/null || true)
-            guard_status=$(awk -F= '/^command_status=/ {print $2; exit}' "$guard_metrics" 2>/dev/null || true)
             if [ -n "$peak_rss_kb" ]; then
                 trace_detail="$trace_detail peak_rss_kb=$peak_rss_kb"
             fi
@@ -280,6 +807,12 @@ run_guarded_command_to_log() {
             seen_build_trace_step_end "$label" "$trace_start" "failed:$status" "$trace_detail"
         fi
     fi
+    if [ "$resource_stop" -eq 1 ]; then
+        [ "$status" -ne 0 ] || status=125
+        echo -e "${RED}FATAL: $label hit a resource/containment stop (status=$status, guard_state=${guard_state:-unknown}); aborting the rebuild without fallback or retry.${NC}" >&2
+        record_rebuild_fatal_status "$status" || true
+        kill -TERM "$$" 2>/dev/null || true
+    fi
     return "$status"
 }
 
@@ -288,37 +821,11 @@ log_failure_signal_pattern() {
 }
 
 start_log_failure_watcher() {
-    local label=$1
-    local log_file=$2
-    local watched_pid=$3
-
-    if [ "${SEEN_ABORT_ON_FIRST_FAILURE_SIGNAL:-1}" = "0" ]; then
-        echo ""
-        return 0
-    fi
-
-    (
-        local pattern
-        pattern=$(log_failure_signal_pattern)
-        local interval="${SEEN_FAILURE_WATCH_INTERVAL_SECS:-2}"
-        local match=""
-
-        while kill -0 "$watched_pid" 2>/dev/null; do
-            if [ -f "$log_file" ]; then
-                match=$(grep -n -m1 -E "$pattern" "$log_file" 2>/dev/null || true)
-                if [ -n "$match" ]; then
-                    printf "\n%s[%s]%s first failure signal: %s\n" "$YELLOW" "$label" "$NC" "$match" >&2
-                    printf "%s[%s]%s stopping build step early; set SEEN_ABORT_ON_FIRST_FAILURE_SIGNAL=0 to wait for the full command.\n" "$YELLOW" "$label" "$NC" >&2
-                    kill -TERM "$watched_pid" 2>/dev/null || true
-                    sleep 5
-                    kill -KILL "$watched_pid" 2>/dev/null || true
-                    exit 0
-                fi
-            fi
-            sleep "$interval"
-        done
-    ) &
-    echo "$!"
+    # Failure classification runs once after the authenticated guard has
+    # synchronously stopped and drained the command. A polling watcher adds a
+    # shell, grep, and sleep to the 16-task aggregate budget without being able
+    # to stop the guarded cgroup safely.
+    printf '%s\n' ""
 }
 
 run_guarded_command_to_log_with_failure_watch() {
@@ -328,45 +835,187 @@ run_guarded_command_to_log_with_failure_watch() {
     local log_file=$4
     shift 4
 
-    : > "$log_file"
-    run_guarded_command_to_log "$label" "$timeout_secs" "$vmem_kb" "$log_file" "$@" &
-    local command_pid=$!
-    local failure_watcher_pid
-    failure_watcher_pid=$(start_log_failure_watcher "$label" "$log_file" "$command_pid")
-
-    local status=0
-    wait "$command_pid" || status=$?
-    if [ -n "$failure_watcher_pid" ]; then
-        kill "$failure_watcher_pid" 2>/dev/null || true
-        wait "$failure_watcher_pid" 2>/dev/null || true
-    fi
-    return "$status"
+    run_guarded_command_to_log "$label" "$timeout_secs" "$vmem_kb" \
+        "$log_file" "$@"
 }
 
 build_fork_serializer() {
-    if [ "$HOST_OS" = "Darwin" ]; then
-        return 0
+    local serializer_tmp=""
+    local attestation_tmp=""
+    local serializer_sha=""
+    local source_sha=""
+    local selftest_source_sha=""
+    local body_sha=""
+    local scope_unit="${SEEN_MEMORY_GUARD_SCOPE_UNIT:-}"
+
+    if [ "$HOST_OS" != "Linux" ]; then
+        echo -e "${RED}ERROR: rebuild candidates require a verified fork serializer, which is currently available only on Linux.${NC}" >&2
+        return 1
     fi
-    if [ "$LOW_MEMORY_MODE" != "1" ]; then
-        return 0
-    fi
-    if [ ! -f "$FORK_SERIALIZER_SOURCE" ]; then
-        return 0
+    if [ ! -f "$FORK_SERIALIZER_SOURCE" ] ||
+        [ ! -f "$FORK_SERIALIZER_SELFTEST_SOURCE" ]; then
+
+        echo -e "${RED}ERROR: required fork serializer source/self-test is missing.${NC}" >&2
+        return 1
     fi
     if ! command -v clang >/dev/null 2>&1; then
-        echo -e "${YELLOW}WARNING: clang unavailable; legacy frozen fork serialization disabled.${NC}"
-        return 0
+        echo -e "${RED}ERROR: clang unavailable; cannot build the required fork serializer.${NC}" >&2
+        return 1
     fi
+    if [ ! -x "$FORK_SERIALIZER_VERIFY_SCRIPT" ] ||
+        [ ! -x "$BUILDER_APPLICABILITY_SCRIPT" ]; then
 
-    FORK_SERIALIZER_SO="/tmp/seen_fork_serializer_$$.so"
-    rm -f "$FORK_SERIALIZER_SO"
-    if run_guarded_command "fork serializer build" 60 "${OPT_VMEM_KB:-}" \
-        clang -shared -fPIC -O2 "$FORK_SERIALIZER_SOURCE" -o "$FORK_SERIALIZER_SO" -ldl; then
-        echo -e "${YELLOW}Legacy frozen fork serialization enabled.${NC}"
-    else
-        echo -e "${YELLOW}WARNING: failed to build fork serializer; continuing without it.${NC}"
-        FORK_SERIALIZER_SO=""
+        echo -e "${RED}ERROR: fork serializer verification helpers are missing.${NC}" >&2
+        return 1
     fi
+    case "$scope_unit" in
+        seen-memory-guard-*.scope) ;;
+        *)
+            echo -e "${RED}ERROR: verified scope unit is unavailable for serializer attestation.${NC}" >&2
+            return 1
+            ;;
+    esac
+
+    case "$REBUILD_WORK_ROOT" in
+        "$REBUILD_ARTIFACT_SCOPE"/run.*) ;;
+        *)
+            echo -e "${RED}ERROR: fork serializer output root is not the verified rebuild artifact directory.${NC}" >&2
+            return 1
+            ;;
+    esac
+    FORK_SERIALIZER_SO="$REBUILD_WORK_ROOT/seen-fork-serializer.so"
+    FORK_SERIALIZER_ATTESTATION="$REBUILD_WORK_ROOT/seen-fork-serializer.attestation"
+    if [ -L "$FORK_SERIALIZER_SO" ]; then
+        echo -e "${RED}ERROR: refusing symbolic-link fork serializer output.${NC}" >&2
+        return 1
+    fi
+    serializer_tmp=$(mktemp "$REBUILD_WORK_ROOT/.seen-fork-serializer.XXXXXX.so") || return 1
+    if run_guarded_command "fork serializer build" 60 "${OPT_VMEM_KB:-}" \
+        clang -shared -fPIC -O2 "$FORK_SERIALIZER_SOURCE" -o "$serializer_tmp" -ldl -pthread &&
+        [ -f "$serializer_tmp" ] && [ ! -L "$serializer_tmp" ] &&
+        mv -f -- "$serializer_tmp" "$FORK_SERIALIZER_SO"; then
+
+        local selftest_binary="$REBUILD_WORK_ROOT/seen-fork-serializer-selftest"
+        local selftest_state="$REBUILD_WORK_ROOT/seen-fork-serializer-selftest.state"
+        local cachetest_serializer="$REBUILD_WORK_ROOT/seen-fork-serializer-cachetest.so"
+        if [ -L "$selftest_binary" ] || [ -L "$selftest_state" ] ||
+            [ -L "$cachetest_serializer" ]; then
+
+            echo -e "${RED}ERROR: refusing unsafe fork serializer self-test paths.${NC}" >&2
+            return 1
+        fi
+        if ! run_guarded_command "fork serializer self-test build" 60 "${OPT_VMEM_KB:-}" \
+            clang -O2 -pthread "$FORK_SERIALIZER_SELFTEST_SOURCE" \
+                -o "$selftest_binary"; then
+
+            echo -e "${RED}ERROR: failed to build the capped fork serializer self-test.${NC}" >&2
+            return 1
+        fi
+        if ! run_guarded_command "fork serializer cache-limit test build" 60 "${OPT_VMEM_KB:-}" \
+            clang -shared -fPIC -O2 -DSERIALIZER_STATUS_CAPACITY=2 \
+                "$FORK_SERIALIZER_SOURCE" -o "$cachetest_serializer" \
+                -ldl -pthread; then
+
+            echo -e "${RED}ERROR: failed to build the capped serializer cache-limit test shim.${NC}" >&2
+            return 1
+        fi
+        if ! run_guarded_command "fork serializer cache-limit self-test" 20 "${OPT_VMEM_KB:-}" \
+            env -u SEEN_FORK_SERIALIZER_ROOT_PID \
+                LD_PRELOAD="$cachetest_serializer" \
+                SEEN_FORK_SERIALIZER_TARGET="$selftest_binary" \
+                "$selftest_binary" --cache-overflow; then
+
+            echo -e "${RED}ERROR: fork serializer cache limit did not fail closed.${NC}" >&2
+            return 1
+        fi
+        if ! run_guarded_command "fork serializer dynamic self-test" 30 "${OPT_VMEM_KB:-}" \
+            env -u SEEN_FORK_SERIALIZER_ROOT_PID \
+                LD_PRELOAD="$FORK_SERIALIZER_SO" \
+                SEEN_FORK_SERIALIZER_TARGET="$selftest_binary" \
+                "$selftest_binary" "$selftest_state"; then
+
+            echo -e "${RED}ERROR: fork serializer dynamic self-test failed; compiler candidates remain disabled.${NC}" >&2
+            return 1
+        fi
+        if run_guarded_command "fork serializer target rejection self-test" 10 "${OPT_VMEM_KB:-}" \
+            env -u SEEN_FORK_SERIALIZER_ROOT_PID \
+                LD_PRELOAD="$FORK_SERIALIZER_SO" \
+                SEEN_FORK_SERIALIZER_TARGET="$FORK_SERIALIZER_SOURCE" \
+                "$selftest_binary" "$selftest_state.target-rejection"; then
+
+            echo -e "${RED}ERROR: fork serializer accepted a mismatched root target.${NC}" >&2
+            return 1
+        fi
+        serializer_sha=$(sha256sum "$FORK_SERIALIZER_SO" | awk '{print $1}') || return 1
+        source_sha=$(sha256sum "$FORK_SERIALIZER_SOURCE" | awk '{print $1}') || return 1
+        selftest_source_sha=$(sha256sum "$FORK_SERIALIZER_SELFTEST_SOURCE" | awk '{print $1}') || return 1
+        attestation_tmp=$(mktemp "$REBUILD_WORK_ROOT/.seen-fork-serializer-attestation.XXXXXX") || return 1
+        {
+            printf 'version=seen-fork-serializer-attestation-v2\n'
+            printf 'serializer_sha256=%s\n' "$serializer_sha"
+            printf 'source_sha256=%s\n' "$source_sha"
+            printf 'selftest_source_sha256=%s\n' "$selftest_source_sha"
+            printf 'dynamic_selftest=passed\n'
+            printf 'scope_unit=%s\n' "$scope_unit"
+            printf 'verified_memory_max_bytes=%s\n' "$verified_memory_max"
+            printf 'verified_memory_swap_max_bytes=%s\n' "$verified_memory_swap_max"
+            printf 'verified_pids_max=%s\n' "$verified_pids_max"
+        } > "$attestation_tmp"
+        body_sha=$(sha256sum "$attestation_tmp" | awk '{print $1}') || return 1
+        printf 'body_sha256=%s\n' "$body_sha" >> "$attestation_tmp"
+        mv -f -- "$attestation_tmp" "$FORK_SERIALIZER_ATTESTATION"
+        export SEEN_FORK_SERIALIZER_SO="$FORK_SERIALIZER_SO"
+        export SEEN_FORK_SERIALIZER_ATTESTATION="$FORK_SERIALIZER_ATTESTATION"
+        if ! bash "$FORK_SERIALIZER_VERIFY_SCRIPT" \
+            "$FORK_SERIALIZER_SO" "$FORK_SERIALIZER_ATTESTATION" \
+            "$REBUILD_WORK_ROOT" "$scope_unit" >/dev/null; then
+
+            echo -e "${RED}ERROR: fork serializer attestation verification failed.${NC}" >&2
+            return 1
+        fi
+        echo -e "${YELLOW}Verified-scope direct compiler-child serialization enabled; the hard cgroup remains authoritative for descendant tools.${NC}"
+    else
+        echo -e "${RED}ERROR: failed to build the required fork serializer.${NC}" >&2
+        rm -f -- "$serializer_tmp"
+        [ -z "$attestation_tmp" ] || rm -f -- "$attestation_tmp"
+        FORK_SERIALIZER_SO=""
+        FORK_SERIALIZER_ATTESTATION=""
+        return 1
+    fi
+}
+
+compiler_serializer_applicable() {
+    local compiler_path=$1
+
+    [ -n "$FORK_SERIALIZER_SO" ] && [ -n "$FORK_SERIALIZER_ATTESTATION" ] ||
+        return 1
+    bash "$FORK_SERIALIZER_VERIFY_SCRIPT" \
+        "$FORK_SERIALIZER_SO" "$FORK_SERIALIZER_ATTESTATION" \
+        "$REBUILD_WORK_ROOT" "${SEEN_MEMORY_GUARD_SCOPE_UNIT:-}" >/dev/null ||
+        return 1
+    SEEN_MEMORY_GUARD_IN_SCOPE=1 \
+        bash "$BUILDER_APPLICABILITY_SCRIPT" \
+            "$compiler_path" "$FORK_SERIALIZER_SO" >/dev/null
+}
+
+prepare_bounded_toolchain() {
+    [ -x "$BOUNDED_TOOLCHAIN_PREPARE_SCRIPT" ] || {
+        echo -e "${RED}ERROR: bounded-toolchain helper is missing.${NC}" >&2
+        return 1
+    }
+    BOUNDED_TOOLCHAIN_DIR=$(bash "$BOUNDED_TOOLCHAIN_PREPARE_SCRIPT" \
+        "$REBUILD_WORK_ROOT") || return 1
+    case "$BOUNDED_TOOLCHAIN_DIR" in
+        "$REBUILD_WORK_ROOT"/bounded-toolchain) ;;
+        *)
+            echo -e "${RED}ERROR: bounded-toolchain helper returned an unsafe path.${NC}" >&2
+            return 1
+            ;;
+    esac
+    [ -d "$BOUNDED_TOOLCHAIN_DIR" ] && [ ! -L "$BOUNDED_TOOLCHAIN_DIR" ] ||
+        return 1
+    PATH="$BOUNDED_TOOLCHAIN_DIR:$PATH"
+    export PATH SEEN_BOUNDED_TOOLCHAIN_DIR="$BOUNDED_TOOLCHAIN_DIR"
 }
 
 # Monitor a compilation step in background, printing live progress.
@@ -463,31 +1112,13 @@ run_with_progress() {
     local logfile=$1
     shift
 
-    # Start compilation in background, logging to file. The guard watches the
-    # entire child process tree, so forked opt/link children count toward the cap.
+    # Keep the guarded command in the foreground. The aggregate owner supplies
+    # cgroup-native progress/accounting without extra polling shells.
     : > "$logfile"
-    run_guarded_command_to_log "$label" 0 "${MAIN_COMPILER_VMEM_KB:-}" "$logfile" "$@" &
-    local compile_pid=$!
-
-    # Start progress monitor
-    monitor_compilation "$compile_pid" "$label" &
-    local monitor_pid=$!
-    local failure_watcher_pid
-    failure_watcher_pid=$(start_log_failure_watcher "$label" "$logfile" "$compile_pid")
-
-    # Wait for compilation to finish
     local exit_code=0
-    wait "$compile_pid" || exit_code=$?
-
-    # Stop monitor
-    kill "$monitor_pid" 2>/dev/null || true
-    wait "$monitor_pid" 2>/dev/null || true
-    if [ -n "$failure_watcher_pid" ]; then
-        kill "$failure_watcher_pid" 2>/dev/null || true
-        wait "$failure_watcher_pid" 2>/dev/null || true
-    fi
-
-    return $exit_code
+    run_guarded_command_to_log "$label" 0 "${MAIN_COMPILER_VMEM_KB:-}" \
+        "$logfile" "$@" || exit_code=$?
+    return "$exit_code"
 }
 
 # Snapshot watcher: periodically copies Stage2 module artifacts to a safe
@@ -535,26 +1166,37 @@ finish_ll_snapshot_watcher() {
     wait "$watcher_pid" 2>/dev/null || true
 }
 
-kill_matching_processes() {
+kill_scope_matching_processes() {
     local pattern=$1
+    local current_cgroup=""
+    local candidate_cgroup=""
     local matched_pids=()
+
+    current_cgroup=$(awk -F: '$1 == "0" { print $3; exit }' /proc/self/cgroup 2>/dev/null || true)
+    if [ -z "$current_cgroup" ] || [ "$current_cgroup" = "/" ]; then
+        echo -e "${RED}ERROR: refusing process cleanup without an isolated rebuild cgroup.${NC}" >&2
+        return 1
+    fi
     while IFS= read -r pid; do
         [ -n "$pid" ] || continue
-        matched_pids+=("$pid")
+        candidate_cgroup=$(awk -F: '$1 == "0" { print $3; exit }' "/proc/$pid/cgroup" 2>/dev/null || true)
+        if [ "$candidate_cgroup" = "$current_cgroup" ]; then
+            matched_pids+=("$pid")
+        fi
     done < <(ps -eo pid=,args= | awk -v pat="$pattern" -v self="$$" '$0 ~ pat && $1 != self { print $1 }')
     if [ "${#matched_pids[@]}" -gt 0 ]; then
-        kill -9 "${matched_pids[@]}" 2>/dev/null || true
+        kill -KILL "${matched_pids[@]}" 2>/dev/null || true
     fi
 }
 
-# Kill orphaned fork children from the frozen compiler.
-# Uses SIGKILL (not SIGTERM) because SIGTERM triggers cleanup handlers that delete files.
+# Kill only orphaned fork children in this rebuild's verified transient cgroup.
+# SIGTERM triggers legacy cleanup handlers which delete recovery files.
 kill_frozen_orphans() {
-    kill_matching_processes "$(basename "$FROZEN")"
-    kill_matching_processes "seen_parallel_opt"
-    kill_matching_processes "opt.*seen_module"
-    kill_matching_processes "clang.*seen_module"
-    kill_matching_processes "ld.lld.*seen_module"
+    kill_scope_matching_processes "$(basename "$FROZEN")"
+    kill_scope_matching_processes "seen_parallel_opt"
+    kill_scope_matching_processes "opt.*seen_module"
+    kill_scope_matching_processes "clang.*seen_module"
+    kill_scope_matching_processes "ld.lld.*seen_module"
     sleep 2
 }
 
@@ -664,6 +1306,7 @@ cleanup_bootstrap_source_overlay() {
 }
 
 trap safe_rebuild_cleanup EXIT
+trap safe_rebuild_handle_term TERM
 
 extract_expected_module_count() {
     local log_file=$1
@@ -800,8 +1443,12 @@ bootstrap_binary_usable() {
     local bin=$1
     local smoke_log="/tmp/seen_bootstrap_smoke_$$_$(basename "$bin").log"
     [ -x "$bin" ] || return 1
+    compiler_serializer_applicable "$bin" || return 1
     run_guarded_command "bootstrap smoke $(basename "$bin")" 5 "$MAIN_COMPILER_VMEM_KB" \
-        "$bin" >"$smoke_log" 2>&1
+        env -u SEEN_FORK_SERIALIZER_ROOT_PID -u SEEN_PACKAGE_CLIENT \
+            LD_PRELOAD="$FORK_SERIALIZER_SO" \
+            SEEN_FORK_SERIALIZER_TARGET="$bin" \
+            "$bin" >"$smoke_log" 2>&1
     local exit_code=$?
     rm -f "$smoke_log"
     [ "$exit_code" -eq 0 ] || [ "$exit_code" -eq 1 ]
@@ -916,7 +1563,9 @@ derive_main_compiler_vmem_kb() {
         fi
     fi
 
-    local max_main_kb=$((10 * 1024 * 1024))
+    # A rebuild is compiler development, not the only workload on the host.
+    # Four GiB is a hard ceiling for both derived and caller-supplied caps.
+    local max_main_kb=$((4 * 1024 * 1024))
     if [ "$cap_kb" -gt "$max_main_kb" ]; then
         cap_kb=$max_main_kb
     fi
@@ -977,17 +1626,16 @@ derive_memory_guard_reserve_kb() {
 derive_memory_guard_rss_kb() {
     local total_kb=$1
     local available_kb=$2
-    local reserve_kb=$3
-    local cap_kb=$((total_kb * 60 / 100))
+    local cap_kb=$((total_kb * 25 / 100))
 
-    if is_positive_integer "$available_kb" && [ "$available_kb" -gt "$reserve_kb" ]; then
-        local available_cap_kb=$((available_kb - reserve_kb))
+    if is_positive_integer "$available_kb"; then
+        local available_cap_kb=$((available_kb * 50 / 100))
         if [ "$available_cap_kb" -gt 0 ] && [ "$available_cap_kb" -lt "$cap_kb" ]; then
             cap_kb=$available_cap_kb
         fi
     fi
 
-    local max_guard_kb=$((48 * 1024 * 1024))
+    local max_guard_kb=$((4 * 1024 * 1024))
     if [ "$cap_kb" -gt "$max_guard_kb" ]; then
         cap_kb=$max_guard_kb
     fi
@@ -1023,8 +1671,6 @@ guard_low_memory_concurrency() {
 }
 
 configure_adaptive_rebuild_workers() {
-    local jobs opt_jobs
-
     if [ -n "${SEEN_JOBS:-}" ] && ! is_positive_integer "$SEEN_JOBS"; then
         echo -e "${RED}ERROR: SEEN_JOBS must be a positive integer.${NC}" >&2
         exit 1
@@ -1033,20 +1679,16 @@ configure_adaptive_rebuild_workers() {
         echo -e "${RED}ERROR: SEEN_OPT_JOBS must be a positive integer.${NC}" >&2
         exit 1
     fi
-
-    if declare -F seen_build_derive_jobs >/dev/null 2>&1; then
-        read -r jobs opt_jobs < <(seen_build_derive_jobs "$MAIN_COMPILER_VMEM_KB" "$OPT_VMEM_KB")
-    else
-        jobs=2
-        opt_jobs=1
+    if [ -n "${SEEN_JOBS:-}" ] && [ "$SEEN_JOBS" -ne 1 ]; then
+        echo -e "${RED}ERROR: hard-contained rebuilds require SEEN_JOBS=1.${NC}" >&2
+        exit 1
     fi
-
-    if [ -z "${SEEN_JOBS:-}" ]; then
-        export SEEN_JOBS="$jobs"
+    if [ -n "${SEEN_OPT_JOBS:-}" ] && [ "$SEEN_OPT_JOBS" -ne 1 ]; then
+        echo -e "${RED}ERROR: hard-contained rebuilds require SEEN_OPT_JOBS=1.${NC}" >&2
+        exit 1
     fi
-    if [ -z "${SEEN_OPT_JOBS:-}" ]; then
-        export SEEN_OPT_JOBS="$opt_jobs"
-    fi
+    export SEEN_JOBS=1
+    export SEEN_OPT_JOBS=1
 
     if declare -F seen_build_trace_event >/dev/null 2>&1; then
         seen_build_trace_event "worker budget" "ok" "SEEN_JOBS=$SEEN_JOBS SEEN_OPT_JOBS=$SEEN_OPT_JOBS"
@@ -1093,6 +1735,32 @@ MEMORY_GUARD_RESERVE_KB=""
 MEMORY_GUARD_TASKS_MAX=""
 MEMORY_GUARD_CGROUP_STOP_KB=""
 
+if [ "${SEEN_DISABLE_MEMORY_GUARD:-0}" = "1" ]; then
+    echo -e "${RED}ERROR: safe rebuilds may not disable hard memory containment.${NC}" >&2
+    exit 1
+fi
+if [ ! -x "$MEMORY_GUARD_SCRIPT" ]; then
+    echo -e "${RED}ERROR: required memory guard is missing or not executable: $MEMORY_GUARD_SCRIPT${NC}" >&2
+    exit 1
+fi
+if [ ! -f "$BUILDER_CAPABILITY_SCRIPT" ]; then
+    echo -e "${RED}ERROR: required builder-capability helper is missing: $BUILDER_CAPABILITY_SCRIPT${NC}" >&2
+    exit 1
+fi
+if [ ! -f "$BUILDER_SELECTION_SCRIPT" ]; then
+    echo -e "${RED}ERROR: required builder-selection helper is missing: $BUILDER_SELECTION_SCRIPT${NC}" >&2
+    exit 1
+fi
+case "${SEEN_LOW_MEMORY:-1}" in
+    1) ;;
+    *)
+        echo -e "${RED}ERROR: safe rebuilds require capped mode; SEEN_LOW_MEMORY must be 1.${NC}" >&2
+        exit 1
+        ;;
+esac
+SEEN_LOW_MEMORY=1
+export SEEN_LOW_MEMORY
+
 if [ -n "$RELEASE_CPU_BASELINE" ]; then
     RELEASE_TARGET_CPU_FLAG="--target-cpu=$RELEASE_CPU_BASELINE"
     STAGE2_COMPILE_FLAGS="$STAGE2_COMPILE_FLAGS $RELEASE_TARGET_CPU_FLAG"
@@ -1125,7 +1793,7 @@ if [ "${SEEN_DISABLE_MEMORY_GUARD:-0}" != "1" ]; then
     fi
     MEMORY_GUARD_RESERVE_KB="${SEEN_GUARD_RESERVE_KB:-$(derive_memory_guard_reserve_kb "$SYSTEM_MEMORY_KB" "$SYSTEM_AVAILABLE_KB")}"
     MEMORY_GUARD_RSS_KB="${SEEN_GUARD_RSS_KB:-$(derive_memory_guard_rss_kb "$SYSTEM_MEMORY_KB" "$SYSTEM_AVAILABLE_KB" "$MEMORY_GUARD_RESERVE_KB")}"
-    MEMORY_GUARD_TASKS_MAX="${SEEN_GUARD_TASKS_MAX:-256}"
+    MEMORY_GUARD_TASKS_MAX="${SEEN_GUARD_TASKS_MAX:-16}"
     MEMORY_GUARD_CGROUP_STOP_KB="${SEEN_GUARD_CGROUP_STOP_KB:-$((MEMORY_GUARD_RSS_KB * 90 / 100))}"
     if [ "$MEMORY_GUARD_CGROUP_STOP_KB" -lt 1 ]; then
         MEMORY_GUARD_CGROUP_STOP_KB=1
@@ -1134,13 +1802,29 @@ if [ "${SEEN_DISABLE_MEMORY_GUARD:-0}" != "1" ]; then
     export SEEN_MEMORY_GUARD_RESERVE_KB="$MEMORY_GUARD_RESERVE_KB"
     export SEEN_MEMORY_GUARD_TASKS_MAX="$MEMORY_GUARD_TASKS_MAX"
     export SEEN_MEMORY_GUARD_CGROUP_STOP_KB="$MEMORY_GUARD_CGROUP_STOP_KB"
-    if [ "$HOST_OS" != "Darwin" ] && [ "${SEEN_MEMORY_GUARD_KERNEL_SCOPE:-1}" != "0" ] &&
-        user_memory_scope_available; then
-        export SEEN_MEMORY_GUARD_REQUIRE_KERNEL_SCOPE=1
-    else
-        export SEEN_MEMORY_GUARD_KERNEL_SCOPE=0
-        export SEEN_MEMORY_GUARD_REQUIRE_KERNEL_SCOPE=0
+    if [ "$MEMORY_GUARD_RSS_KB" -gt 4194304 ]; then
+        echo -e "${RED}ERROR: SEEN_GUARD_RSS_KB may not exceed the 4 GiB aggregate hard ceiling (4194304 KiB).${NC}" >&2
+        exit 1
     fi
+    if [ "$MEMORY_GUARD_TASKS_MAX" -gt 16 ]; then
+        echo -e "${RED}ERROR: SEEN_GUARD_TASKS_MAX may not exceed the hard rebuild ceiling of 16.${NC}" >&2
+        exit 1
+    fi
+    if [ "$HOST_OS" != "Linux" ]; then
+        echo -e "${RED}ERROR: no equally hard rebuild memory scope is implemented for $HOST_OS.${NC}" >&2
+        exit 1
+    fi
+    if [ "${SEEN_MEMORY_GUARD_KERNEL_SCOPE:-1}" = "0" ]; then
+        echo -e "${RED}ERROR: Linux safe rebuilds require a kernel cgroup; polling-only containment is forbidden.${NC}" >&2
+        exit 1
+    fi
+    if ! user_memory_scope_available; then
+        echo -e "${RED}ERROR: cannot create the required user systemd memory scope.${NC}" >&2
+        echo "No compiler or helper build was started. Run from a session with a working user systemd manager." >&2
+        exit 1
+    fi
+    export SEEN_MEMORY_GUARD_KERNEL_SCOPE=1
+    export SEEN_MEMORY_GUARD_REQUIRE_KERNEL_SCOPE=1
 fi
 
 if ! is_positive_integer "$TIER_TIMEOUT_SECS"; then
@@ -1150,8 +1834,6 @@ fi
 
 if [ "${SEEN_LOW_MEMORY:-0}" = "1" ]; then
     LOW_MEMORY_MODE=1
-    STAGE2_COMPILE_FLAGS="$STAGE2_COMPILE_FLAGS --no-fork"
-    PASS2_COMPILE_FLAGS="$PASS2_COMPILE_FLAGS --no-fork"
     if ! is_positive_integer "$SYSTEM_MEMORY_KB"; then
         echo -e "${RED}ERROR: Could not detect system memory for low-memory rebuild caps.${NC}"
         echo "Set SEEN_MAIN_VMEM_KB and SEEN_OPT_VMEM_KB explicitly, or run on a host with /proc/meminfo or sysctl hw.memsize."
@@ -1171,12 +1853,24 @@ if [ "${SEEN_LOW_MEMORY:-0}" = "1" ]; then
         echo -e "${RED}ERROR: Low-memory rebuild caps must be positive integer KB values.${NC}"
         exit 1
     fi
+    if [ "$MAIN_COMPILER_VMEM_KB" -gt 4194304 ]; then
+        echo -e "${RED}ERROR: SEEN_MAIN_VMEM_KB may not exceed the 4 GiB hard ceiling (4194304 KiB).${NC}" >&2
+        exit 1
+    fi
+    if [ "$OPT_VMEM_KB" -gt 2097152 ]; then
+        echo -e "${RED}ERROR: SEEN_OPT_VMEM_KB may not exceed the 2 GiB hard ceiling (2097152 KiB).${NC}" >&2
+        exit 1
+    fi
+    if [ "$OPT_VMEM_KB" -gt "$MAIN_COMPILER_VMEM_KB" ]; then
+        echo -e "${RED}ERROR: SEEN_OPT_VMEM_KB may not exceed SEEN_MAIN_VMEM_KB.${NC}" >&2
+        exit 1
+    fi
     if [ -z "${SEEN_GUARD_RSS_KB:-}" ]; then
         MEMORY_GUARD_RSS_KB="$MAIN_COMPILER_VMEM_KB"
         export SEEN_MEMORY_GUARD_RSS_KB="$MEMORY_GUARD_RSS_KB"
     fi
     if [ -z "${SEEN_GUARD_TASKS_MAX:-}" ]; then
-        MEMORY_GUARD_TASKS_MAX=48
+        MEMORY_GUARD_TASKS_MAX=16
         export SEEN_MEMORY_GUARD_TASKS_MAX="$MEMORY_GUARD_TASKS_MAX"
     fi
     if [ -z "${SEEN_GUARD_CGROUP_STOP_KB:-}" ]; then
@@ -1186,8 +1880,23 @@ if [ "${SEEN_LOW_MEMORY:-0}" = "1" ]; then
         fi
         export SEEN_MEMORY_GUARD_CGROUP_STOP_KB="$MEMORY_GUARD_CGROUP_STOP_KB"
     fi
+    if [ "$MEMORY_GUARD_RSS_KB" -gt "$MAIN_COMPILER_VMEM_KB" ]; then
+        echo -e "${RED}ERROR: SEEN_GUARD_RSS_KB may not exceed SEEN_MAIN_VMEM_KB.${NC}" >&2
+        exit 1
+    fi
+    max_early_stop_kb=$((MEMORY_GUARD_RSS_KB * 90 / 100))
+    if [ "$MEMORY_GUARD_CGROUP_STOP_KB" -gt "$max_early_stop_kb" ]; then
+        MEMORY_GUARD_CGROUP_STOP_KB="$max_early_stop_kb"
+        export SEEN_MEMORY_GUARD_CGROUP_STOP_KB="$MEMORY_GUARD_CGROUP_STOP_KB"
+    fi
     RECOVERY_TIMEOUT_SECS="${SEEN_RECOVERY_TIMEOUT_SECS:-7200}"
     MAIN_COMPILER_MEMORY_LIMIT_BYTES="${SEEN_MEMORY_LIMIT_BYTES:-$((MAIN_COMPILER_VMEM_KB * 1024))}"
+    if ! is_positive_integer "$MAIN_COMPILER_MEMORY_LIMIT_BYTES" ||
+        [ "$MAIN_COMPILER_MEMORY_LIMIT_BYTES" -gt "$((MAIN_COMPILER_VMEM_KB * 1024))" ]; then
+
+        echo -e "${RED}ERROR: SEEN_MEMORY_LIMIT_BYTES must be positive and no larger than SEEN_MAIN_VMEM_KB in bytes.${NC}" >&2
+        exit 1
+    fi
     export SEEN_LOW_MEMORY=1
     export SEEN_MAIN_VMEM_KB="$MAIN_COMPILER_VMEM_KB"
     export SEEN_OPT_VMEM_KB="$OPT_VMEM_KB"
@@ -1203,6 +1912,40 @@ if [ "${SEEN_LOW_MEMORY:-0}" = "1" ]; then
 fi
 
 configure_adaptive_rebuild_workers
+
+if [ "${SEEN_REBUILD_AGGREGATE_SCOPE_ACTIVE:-0}" != "1" ]; then
+    enter_rebuild_kernel_scope
+fi
+if [ "${SEEN_MEMORY_GUARD_IN_SCOPE:-0}" != "1" ]; then
+    echo -e "${RED}ERROR: aggregate rebuild cgroup marker was forged or lost.${NC}" >&2
+    echo "No compiler or helper build was started." >&2
+    exit 1
+fi
+if ! verify_rebuild_kernel_scope; then
+    echo -e "${RED}ERROR: hard rebuild containment preflight failed.${NC}" >&2
+    echo "No compiler or helper build was started." >&2
+    exit 1
+fi
+verified_cgroup_path=$(awk -F= '$1 == "verified_cgroup_path" { sub(/^[^=]*=/, ""); print; exit }' "$REBUILD_SCOPE_EVIDENCE_FILE")
+verified_memory_max=$(awk -F= '$1 == "verified_memory_max_bytes" { print $2; exit }' "$REBUILD_SCOPE_EVIDENCE_FILE")
+verified_memory_swap_max=$(awk -F= '$1 == "verified_memory_swap_max_bytes" { print $2; exit }' "$REBUILD_SCOPE_EVIDENCE_FILE")
+verified_pids_max=$(awk -F= '$1 == "verified_pids_max" { print $2; exit }' "$REBUILD_SCOPE_EVIDENCE_FILE")
+if [ -z "$verified_cgroup_path" ] || ! is_positive_integer "$verified_memory_max" ||
+    [ "$verified_memory_swap_max" != "0" ] || ! is_positive_integer "$verified_pids_max"; then
+
+    echo -e "${RED}ERROR: verified cgroup evidence record is missing or incomplete.${NC}" >&2
+    exit 1
+fi
+echo -e "${YELLOW}Verified kernel containment: cgroup $verified_cgroup_path; memory.max $verified_memory_max bytes; memory.swap.max $verified_memory_swap_max; pids.max $verified_pids_max.${NC}"
+
+# Build the root-targeted serializer only after actual cgroup read-back, then
+# require it for every compiler candidate in every tier. It serializes direct
+# compiler children; the hard cgroup, task cap, serial worker settings, and
+# bounded tool wrappers remain authoritative for descendant tools. Advertised
+# CLI flags are defense in depth, never proof that a binary honors them.
+build_fork_serializer || exit 1
+prepare_bounded_toolchain || exit 1
+safe_rebuild_validate_install_destinations || exit 1
 
 if memory_guard_enabled; then
     echo -e "${YELLOW}Memory guard enabled: tree RSS cap $(format_bytes $((MEMORY_GUARD_RSS_KB * 1024))); cgroup stop $(format_bytes $((MEMORY_GUARD_CGROUP_STOP_KB * 1024))); reserve $(format_bytes $((MEMORY_GUARD_RESERVE_KB * 1024))); tasks max ${MEMORY_GUARD_TASKS_MAX:-unlimited}.${NC}"
@@ -1438,12 +2181,30 @@ smoke_test_compiler() {
     local check_log="/tmp/safe_rebuild_${stage_slug}_hello_check.log"
     local compile_log="/tmp/safe_rebuild_${stage_slug}_hello_compile.log"
     local run_log="/tmp/safe_rebuild_${stage_slug}_hello_run.log"
-    local compiler_env=()
+    local compiler_env=(-u SEEN_PACKAGE_CLIENT)
     local check_cmd=("$compiler_path" check "$smoke_source")
     local compile_cmd=("$compiler_path" compile "$smoke_source" "$smoke_bin" --fast --no-cache)
     local smoke_flags="--fast --no-cache"
     local smoke_cache_key smoke_cache_dir smoke_cache_bin
 
+    if [ -z "$FORK_SERIALIZER_SO" ] || [ ! -f "$FORK_SERIALIZER_SO" ] ||
+        [ -L "$FORK_SERIALIZER_SO" ]; then
+
+        echo -e "${YELLOW}${stage_label} refused: verified fork serializer is unavailable.${NC}"
+        return 1
+    fi
+    if ! compiler_serializer_applicable "$compiler_path"; then
+        echo -e "${YELLOW}${stage_label} refused: compiler is not serializer-applicable.${NC}"
+        return 1
+    fi
+    compiler_env+=("LD_PRELOAD=$FORK_SERIALIZER_SO")
+    compiler_env+=("SEEN_FORK_SERIALIZER_TARGET=$compiler_path")
+    compiler_env+=("SEEN_FORK_SERIALIZER_ROOT_PID=")
+    # The fresh source helper is valid only for a compiler that reports the
+    # exact checkout version. Legacy/frozen builders inherit no package helper.
+    if compiler_reports_checkout_version "$compiler_path"; then
+        compiler_env+=("SEEN_PACKAGE_CLIENT=$SOURCE_PACKAGE_CLIENT")
+    fi
     if [ "$LOW_MEMORY_MODE" = "1" ]; then
         compiler_env+=("SEEN_LOW_MEMORY=${SEEN_LOW_MEMORY:-1}")
         if [ -n "$MAIN_COMPILER_VMEM_KB" ]; then
@@ -1455,9 +2216,16 @@ smoke_test_compiler() {
         if [ -n "${SEEN_MEMORY_LIMIT_BYTES:-}" ]; then
             compiler_env+=("SEEN_MEMORY_LIMIT_BYTES=$SEEN_MEMORY_LIMIT_BYTES")
         fi
-        check_cmd+=(--no-fork)
-        compile_cmd+=(--no-fork)
-        smoke_flags="$smoke_flags --no-fork"
+        if tier_builder_supports_jobs "$compiler_path"; then
+            compile_cmd+=(--jobs "$SEEN_JOBS" --opt-jobs "$SEEN_OPT_JOBS")
+            smoke_flags="$smoke_flags --jobs $SEEN_JOBS --opt-jobs $SEEN_OPT_JOBS"
+        elif tier_builder_supports_no_fork "$compiler_path"; then
+            compile_cmd+=(--no-fork)
+            smoke_flags="$smoke_flags --no-fork"
+        else
+            smoke_flags="$smoke_flags serializer-required"
+            echo -e "${YELLOW}${stage_label} advertises no worker controls; direct-child serialization and the hard cgroup remain mandatory.${NC}"
+        fi
     fi
     if [ -n "${RELEASE_TARGET_CPU_FLAG:-}" ]; then
         compile_cmd+=("$RELEASE_TARGET_CPU_FLAG")
@@ -1613,33 +2381,66 @@ tier_builder_path_for_source_root() {
     printf '%s\n' "$builder_path"
 }
 
-tier_builder_candidates() {
-    if [ -n "${SEEN_STAGE_BUILDER:-}" ]; then
-        printf '%s\n' "$SEEN_STAGE_BUILDER"
+compiler_reports_checkout_version() {
+    local compiler_path=$1
+    local version_output version_status first_line
+
+    [ -n "$SOURCE_PACKAGE_CLIENT_VERSION" ] || return 1
+    [ -f "$compiler_path" ] && [ -x "$compiler_path" ] &&
+        [ ! -L "$compiler_path" ] || return 1
+    if version_output=$(env -u LD_PRELOAD -u SEEN_FORK_SERIALIZER_TARGET \
+        -u SEEN_FORK_SERIALIZER_ROOT_PID -u SEEN_PACKAGE_CLIENT \
+        timeout 10 "$compiler_path" --version 2>&1); then
+
+        version_status=0
+    else
+        version_status=$?
     fi
-    printf '%s\n' \
-        "$REPO_ROOT/compiler_seen/target/seen-dev" \
-        "$REPO_ROOT/stage2_head" \
-        "$REPO_ROOT/stage3_recovery_head" \
-        "$REPO_ROOT/stage3_head" \
-        "$REPO_ROOT/compiler_seen/target/seen" \
-        "$REPO_ROOT/target/release/seen" \
-        "$REPO_ROOT/bootstrap/stage1_frozen_v3" \
-        "$REPO_ROOT/bootstrap/stage1_frozen"
+    [ "$version_status" -eq 0 ] || return 1
+    first_line=${version_output%%$'\n'*}
+    [ "$first_line" = "Seen $SOURCE_PACKAGE_CLIENT_VERSION" ]
+}
+
+select_tier_builder() {
+    local selection_args=(
+        --repo-root "$REPO_ROOT"
+        --checkout-version "$SOURCE_PACKAGE_CLIENT_VERSION"
+        --source-sidecar "$SOURCE_PACKAGE_CLIENT"
+    )
+    if [ -n "${SEEN_STAGE_BUILDER:-}" ]; then
+        selection_args+=(--explicit-builder "$SEEN_STAGE_BUILDER")
+    fi
+    bash "$BUILDER_SELECTION_SCRIPT" "${selection_args[@]}"
 }
 
 tier_builder_supports_jobs() {
     local builder_path=$1
-    "$builder_path" --help 2>/dev/null | grep -q -- '--jobs'
+    local capability
+    local capability_status=0
+    capability=$(env -u LD_PRELOAD -u SEEN_FORK_SERIALIZER_TARGET \
+        -u SEEN_FORK_SERIALIZER_ROOT_PID \
+        bash "$BUILDER_CAPABILITY_SCRIPT" "$builder_path" 2>/dev/null) ||
+        capability_status=$?
+    if [ "$capability_status" -ne 0 ]; then
+        echo -e "${RED}ERROR: builder capability probe failed with status $capability_status: $builder_path${NC}" >&2
+        exit 126
+    fi
+    [ "$capability" = "advertised-jobs" ]
 }
 
-tier_legacy_builder_requires_guarded_fork() {
-    case "$(basename "$1")" in
-        stage2_head)
-            return 0
-            ;;
-    esac
-    return 1
+tier_builder_supports_no_fork() {
+    local builder_path=$1
+    local capability
+    local capability_status=0
+    capability=$(env -u LD_PRELOAD -u SEEN_FORK_SERIALIZER_TARGET \
+        -u SEEN_FORK_SERIALIZER_ROOT_PID \
+        bash "$BUILDER_CAPABILITY_SCRIPT" "$builder_path" 2>/dev/null) ||
+        capability_status=$?
+    if [ "$capability_status" -ne 0 ]; then
+        echo -e "${RED}ERROR: builder capability probe failed with status $capability_status: $builder_path${NC}" >&2
+        exit 126
+    fi
+    [ "$capability" = "advertised-no-fork" ]
 }
 
 run_tier_prebuild_gates_if_needed() {
@@ -1654,7 +2455,8 @@ run_tier_prebuild_gates_if_needed() {
     echo "Running verify-tier prebuild gates..."
     if run_guarded_command_to_log_with_failure_watch "prebuild gates" 900 "$MAIN_COMPILER_VMEM_KB" \
         /tmp/safe_rebuild_verify_prebuild_gates.log \
-        bash "$SCRIPT_DIR/seen_prebuild_gates.sh"; then
+        env SEEN_PACKAGE_CLIENT="$SOURCE_PACKAGE_CLIENT" \
+            bash "$SCRIPT_DIR/seen_prebuild_gates.sh"; then
         return 0
     fi
     echo -e "${RED}ERROR: verify-tier prebuild gates failed.${NC}"
@@ -1662,8 +2464,42 @@ run_tier_prebuild_gates_if_needed() {
     return 1
 }
 
+run_stage1_acceptance_checks() {
+    local compiler_path=$1
+    local acceptance_tier=$2
+    local acceptance_log="/tmp/safe_rebuild_${acceptance_tier}_stage1_acceptance.log"
+    local acceptance_timeout=1800
+
+    if [ "$acceptance_tier" = "verify" ]; then
+        acceptance_timeout=7200
+    fi
+
+    echo "Running ${acceptance_tier}-tier Stage-1 acceptance checks against $compiler_path..."
+    if run_guarded_command_to_log_with_failure_watch \
+        "${acceptance_tier} Stage-1 acceptance" "$acceptance_timeout" \
+        "$MAIN_COMPILER_VMEM_KB" "$acceptance_log" \
+        env \
+            SEEN_PACKAGE_CLIENT="$SOURCE_PACKAGE_CLIENT" \
+            SEEN_LOW_MEMORY=1 \
+            SEEN_MAIN_VMEM_KB="$MAIN_COMPILER_VMEM_KB" \
+            SEEN_OPT_VMEM_KB="$OPT_VMEM_KB" \
+            SEEN_MEMORY_LIMIT_BYTES="$SEEN_MEMORY_LIMIT_BYTES" \
+            SEEN_PROJECT_ARTIFACT_WRAPPER=1 \
+            "$SCRIPT_DIR/seen_stage1_acceptance.sh" \
+                --tier "$acceptance_tier" --compiler "$compiler_path"; then
+
+        return 0
+    fi
+
+    echo -e "${RED}ERROR: ${acceptance_tier}-tier Stage-1 acceptance checks failed.${NC}"
+    tail_log_if_exists "$acceptance_log" 40
+    return 1
+}
+
 run_tier_targeted_checks() {
     local compiler_path=$1
+
+    run_stage1_acceptance_checks "$compiler_path" "$REBUILD_TIER" || return 1
 
     if [ "$REBUILD_TIER" != "verify" ]; then
         return 0
@@ -1672,6 +2508,10 @@ run_tier_targeted_checks() {
     if [ -f "$REPO_ROOT/compiler_seen/tests/dead_code_warnings.seen" ]; then
         if ! run_guarded_command_to_log_with_failure_watch "verify dead-code test check" 300 "$MAIN_COMPILER_VMEM_KB" \
             /tmp/safe_rebuild_verify_dead_code.log \
+            env -u SEEN_FORK_SERIALIZER_ROOT_PID \
+            SEEN_PACKAGE_CLIENT="$SOURCE_PACKAGE_CLIENT" \
+            LD_PRELOAD="$FORK_SERIALIZER_SO" \
+            SEEN_FORK_SERIALIZER_TARGET="$compiler_path" \
             "$compiler_path" check "$REPO_ROOT/compiler_seen/tests/dead_code_warnings.seen"; then
             echo -e "${RED}ERROR: verify-tier dead-code test check failed.${NC}"
             tail_log_if_exists /tmp/safe_rebuild_verify_dead_code.log 30
@@ -1683,7 +2523,7 @@ run_tier_targeted_checks() {
 }
 
 prepare_package_client() {
-    local expected_version helper
+    local expected_version helper handshake expected_handshake
     expected_version=$(awk -F'"' '/^version = / { print $2; exit }' "$REPO_ROOT/Seen.toml")
     if [ -z "$expected_version" ]; then
         echo -e "${RED}ERROR: could not read the Seen version for package-client coupling.${NC}" >&2
@@ -1692,26 +2532,40 @@ prepare_package_client() {
 
     if [ -n "${SEEN_PACKAGE_CLIENT:-}" ]; then
         helper="$SEEN_PACKAGE_CLIENT"
-        if [ ! -x "$helper" ]; then
-            echo -e "${RED}ERROR: SEEN_PACKAGE_CLIENT is not executable: $helper${NC}" >&2
+        if [ ! -f "$helper" ] || [ ! -x "$helper" ] || [ -L "$helper" ]; then
+            echo -e "${RED}ERROR: SEEN_PACKAGE_CLIENT is not a regular executable: $helper${NC}" >&2
             return 1
         fi
     else
         mkdir -p "$(dirname "$PACKAGE_CLIENT_BUILD_OUTPUT")"
-        "$SCRIPT_DIR/build_package_client.sh" \
-            --version "$expected_version" \
-            --output "$PACKAGE_CLIENT_BUILD_OUTPUT" || return 1
+        run_guarded_command "package client build" 600 "$OPT_VMEM_KB" \
+            "$SCRIPT_DIR/build_package_client.sh" \
+                --version "$expected_version" \
+                --output "$PACKAGE_CLIENT_BUILD_OUTPUT" || return 1
         helper="$PACKAGE_CLIENT_BUILD_OUTPUT"
     fi
 
-    if ! "$helper" --expect-version "$expected_version" version --machine >/dev/null 2>&1; then
+    helper="$(cd "$(dirname "$helper")" && pwd -P)/$(basename "$helper")"
+    if ! handshake=$("$helper" --expect-version "$expected_version" \
+        version --machine 2>&1); then
+
         echo -e "${RED}ERROR: package-client version handshake failed for Seen $expected_version.${NC}" >&2
         return 1
     fi
-    SEEN_PACKAGE_CLIENT="$(cd "$(dirname "$helper")" && pwd)/$(basename "$helper")"
-    PACKAGE_CLIENT_BUILD_OUTPUT="$SEEN_PACKAGE_CLIENT"
-    export SEEN_PACKAGE_CLIENT
-    echo "Package client: $SEEN_PACKAGE_CLIENT"
+    expected_handshake=$(printf 'protocol=SEENPKG1\nversion=%s' "$expected_version")
+    if [ "$handshake" != "$expected_handshake" ]; then
+        echo -e "${RED}ERROR: package-client returned a malformed Seen $expected_version handshake.${NC}" >&2
+        return 1
+    fi
+
+    # Keep the source-version helper distinct from candidate state. Quick and
+    # verify pass it only to an exact-version builder; full-tier legacy/frozen
+    # builders run with SEEN_PACKAGE_CLIENT unset.
+    SOURCE_PACKAGE_CLIENT_VERSION="$expected_version"
+    SOURCE_PACKAGE_CLIENT="$helper"
+    PACKAGE_CLIENT_BUILD_OUTPUT="$SOURCE_PACKAGE_CLIENT"
+    unset SEEN_PACKAGE_CLIENT
+    echo "Source package client: $SOURCE_PACKAGE_CLIENT"
 }
 
 install_tier_verified_compiler() {
@@ -1719,16 +2573,14 @@ install_tier_verified_compiler() {
 
     echo ""
     echo "Installing verified compiler..."
-    mkdir -p "$REPO_ROOT/compiler_seen/target" "$REPO_ROOT/target/release"
-    rm -f "$REPO_ROOT/compiler_seen/target/seen" 2>/dev/null || true
-    cp "$compiler_path" "$REPO_ROOT/compiler_seen/target/seen"
-    chmod +x "$REPO_ROOT/compiler_seen/target/seen"
-    cp "$REPO_ROOT/compiler_seen/target/seen" "$REPO_ROOT/target/release/seen"
-    chmod +x "$REPO_ROOT/target/release/seen"
-    cp "$PACKAGE_CLIENT_BUILD_OUTPUT" "$REPO_ROOT/compiler_seen/target/seen-pkg"
-    chmod +x "$REPO_ROOT/compiler_seen/target/seen-pkg"
-    cp "$PACKAGE_CLIENT_BUILD_OUTPUT" "$REPO_ROOT/target/release/seen-pkg"
-    chmod +x "$REPO_ROOT/target/release/seen-pkg"
+    safe_rebuild_install_checkout_file "$compiler_path" \
+        compiler_seen/target/seen || return 1
+    safe_rebuild_install_checkout_file "$compiler_path" \
+        target/release/seen || return 1
+    safe_rebuild_install_checkout_file "$PACKAGE_CLIENT_BUILD_OUTPUT" \
+        compiler_seen/target/seen-pkg || return 1
+    safe_rebuild_install_checkout_file "$PACKAGE_CLIENT_BUILD_OUTPUT" \
+        target/release/seen-pkg || return 1
 }
 
 run_tiered_rebuild() {
@@ -1757,88 +2609,107 @@ run_tiered_rebuild() {
     echo "  Output: $final_output_path"
 
     rm -f "$output_path"
-    mkdir -p "$(dirname "$output_path")" "$(dirname "$final_output_path")"
+    mkdir -p "$(dirname "$output_path")"
 
-    while IFS= read -r candidate; do
-        [ -n "$candidate" ] || continue
-        [ -x "$candidate" ] || continue
-        if tier_builder_requires_bootstrap_preflight "$candidate"; then
-            ensure_bootstrap_preflight || return 1
-        fi
-        source_root=$(tier_source_root_for_builder "$candidate")
-        builder_for_root=$(tier_builder_path_for_source_root "$candidate" "$source_root")
-        [ -x "$builder_for_root" ] || continue
+    candidate=$(select_tier_builder) || {
+        echo -e "${RED}ERROR: no exact-version quick/verify builder passed selection.${NC}" >&2
+        return 1
+    }
+    [ -f "$candidate" ] && [ -x "$candidate" ] && [ ! -L "$candidate" ] || {
+        echo -e "${RED}ERROR: selected tier builder became unsafe: $candidate${NC}" >&2
+        return 1
+    }
+    if tier_builder_requires_bootstrap_preflight "$candidate"; then
+        echo -e "${RED}ERROR: quick/verify may not select a frozen bootstrap builder.${NC}" >&2
+        return 1
+    fi
+    source_root=$(tier_source_root_for_builder "$candidate")
+    builder_for_root=$(tier_builder_path_for_source_root "$candidate" "$source_root")
+    [ -f "$builder_for_root" ] && [ -x "$builder_for_root" ] &&
+        [ ! -L "$builder_for_root" ] || {
+        echo -e "${RED}ERROR: selected tier builder is unavailable in its source root.${NC}" >&2
+        return 1
+    }
+    if ! compiler_reports_checkout_version "$builder_for_root"; then
+        echo -e "${RED}ERROR: selected tier builder lost exact checkout-version identity.${NC}" >&2
+        return 1
+    fi
+    if ! compiler_serializer_applicable "$builder_for_root"; then
+        echo -e "${RED}ERROR: selected tier builder failed serializer applicability checks.${NC}" >&2
+        return 1
+    fi
 
-        echo "  Trying builder: $candidate"
-        compile_status=0
-        compile_flags=(--fast)
-        if [ -n "${RELEASE_TARGET_CPU_FLAG:-}" ]; then
-            compile_flags+=("$RELEASE_TARGET_CPU_FLAG")
-        fi
-        if [ "${SEEN_FORCE_SERIAL_REBUILD:-0}" = "1" ]; then
-            compile_flags+=(--no-fork)
-        elif [ "$LOW_MEMORY_MODE" = "1" ] && ! tier_builder_supports_jobs "$builder_for_root" &&
-            ! tier_legacy_builder_requires_guarded_fork "$candidate"; then
-            echo "    Builder lacks worker-budget flags; using --no-fork under low-memory cap."
-            compile_flags+=(--no-fork)
-        elif [ "$LOW_MEMORY_MODE" = "1" ] && ! tier_builder_supports_jobs "$builder_for_root"; then
-            echo "    Legacy stage builder requires forked codegen; memory guard remains active."
-        fi
+    echo "  Selected builder: $candidate"
+    compile_status=0
+    compile_flags=(--fast)
+    if [ -n "${RELEASE_TARGET_CPU_FLAG:-}" ]; then
+        compile_flags+=("$RELEASE_TARGET_CPU_FLAG")
+    fi
+    if tier_builder_supports_jobs "$builder_for_root"; then
+        compile_flags+=(--jobs "$SEEN_JOBS" --opt-jobs "$SEEN_OPT_JOBS")
+    elif tier_builder_supports_no_fork "$builder_for_root"; then
+        compile_flags+=(--no-fork)
+    else
+        echo -e "${YELLOW}    Builder advertises no worker controls; direct-child serialization and the hard cgroup remain mandatory.${NC}"
+    fi
 
-        run_guarded_command_to_log_with_failure_watch "$label compile" "$TIER_TIMEOUT_SECS" "$MAIN_COMPILER_VMEM_KB" "$compile_log" \
-            bash -c 'cd "$1" || exit 1; shift; exec "$@"' bash "$source_root" \
-            env \
-                SEEN_COMPILER_SOURCE_ROOT="$source_root" \
-                SEEN_LOW_MEMORY="${SEEN_LOW_MEMORY:-0}" \
-                SEEN_MAIN_VMEM_KB="$MAIN_COMPILER_VMEM_KB" \
-                SEEN_OPT_VMEM_KB="$OPT_VMEM_KB" \
-                SEEN_MEMORY_LIMIT_BYTES="${SEEN_MEMORY_LIMIT_BYTES:-}" \
-                SEEN_JOBS="$SEEN_JOBS" \
-                SEEN_OPT_JOBS="$SEEN_OPT_JOBS" \
-                "$builder_for_root" compile "$COMPILER_SOURCE" "$output_path" \
-                "${compile_flags[@]}" || compile_status=$?
+    run_guarded_command_to_log_with_failure_watch "$label compile" "$TIER_TIMEOUT_SECS" "$MAIN_COMPILER_VMEM_KB" "$compile_log" \
+        bash -c 'cd "$1" || exit 1; shift; exec "$@"' bash "$source_root" \
+        env \
+            SEEN_PACKAGE_CLIENT="$SOURCE_PACKAGE_CLIENT" \
+            SEEN_COMPILER_SOURCE_ROOT="$source_root" \
+            SEEN_LOW_MEMORY="${SEEN_LOW_MEMORY:-0}" \
+            SEEN_MAIN_VMEM_KB="$MAIN_COMPILER_VMEM_KB" \
+            SEEN_OPT_VMEM_KB="$OPT_VMEM_KB" \
+            SEEN_MEMORY_LIMIT_BYTES="${SEEN_MEMORY_LIMIT_BYTES:-}" \
+            SEEN_JOBS="$SEEN_JOBS" \
+            SEEN_OPT_JOBS="$SEEN_OPT_JOBS" \
+            LD_PRELOAD="$FORK_SERIALIZER_SO" \
+            SEEN_FORK_SERIALIZER_TARGET="$builder_for_root" \
+            SEEN_FORK_SERIALIZER_ROOT_PID= \
+            "$builder_for_root" compile "$COMPILER_SOURCE" "$output_path" \
+            "${compile_flags[@]}" || compile_status=$?
 
-        if grep -qE 'Fatal Lexer Error|Fatal Parser Error' "$compile_log" 2>/dev/null; then
-            echo -e "${YELLOW}  Builder emitted a fatal frontend diagnostic; rejecting its output.${NC}"
-            compile_status=1
-        fi
+    if grep -qE 'Fatal Lexer Error|Fatal Parser Error' "$compile_log" 2>/dev/null; then
+        echo -e "${YELLOW}  Builder emitted a fatal frontend diagnostic; rejecting its output.${NC}"
+        compile_status=1
+    fi
 
-        if [ "$compile_status" -ne 0 ]; then
-            echo -e "${YELLOW}  Builder failed for $REBUILD_TIER tier (exit=$compile_status); trying next candidate.${NC}"
-            tail_log_if_exists "$compile_log" 10
-            rm -f "$output_path"
-            if [ "${SEEN_STAGE_BUILDER_ONLY:-0}" = "1" ] && [ -n "${SEEN_STAGE_BUILDER:-}" ] && [ "$candidate" = "$SEEN_STAGE_BUILDER" ]; then
-                return "$compile_status"
-            fi
-            continue
-        fi
-
-        if smoke_test_compiler "$output_path" "$REBUILD_TIER compiler" "$REBUILD_TIER"; then
-            run_tier_targeted_checks "$output_path" || return 1
-            if [ "$REBUILD_TIER" = "verify" ]; then
-                install_tier_verified_compiler "$output_path"
-            else
-                cp "$output_path" "$final_output_path"
-                chmod +x "$final_output_path"
-                cp "$PACKAGE_CLIENT_BUILD_OUTPUT" "$(dirname "$final_output_path")/seen-pkg"
-                chmod +x "$(dirname "$final_output_path")/seen-pkg"
-            fi
-            echo -e "${GREEN}${REBUILD_TIER} rebuild complete.${NC}"
-            if [ "$REBUILD_TIER" = "quick" ]; then
-                echo "Developer compiler: compiler_seen/target/seen-dev"
-            else
-                echo "Production compiler updated: compiler_seen/target/seen"
-                echo "Also installed to: target/release/seen"
-            fi
-            return 0
-        fi
-
-        echo -e "${YELLOW}  Built compiler failed smoke; trying next builder.${NC}"
+    if [ "$compile_status" -ne 0 ]; then
+        echo -e "${RED}ERROR: selected $REBUILD_TIER builder failed (exit=$compile_status); legacy fallback is forbidden.${NC}" >&2
+        tail_log_if_exists "$compile_log" 10
         rm -f "$output_path"
-    done < <(tier_builder_candidates)
+        return "$compile_status"
+    fi
 
-    echo -e "${RED}ERROR: no trusted stage builder completed the $REBUILD_TIER rebuild.${NC}"
-    return 1
+    if ! compiler_reports_checkout_version "$output_path"; then
+        echo -e "${RED}ERROR: selected builder produced a compiler with the wrong version identity; fallback is forbidden.${NC}" >&2
+        rm -f "$output_path"
+        return 1
+    fi
+    if ! smoke_test_compiler "$output_path" "$REBUILD_TIER compiler" "$REBUILD_TIER"; then
+        echo -e "${RED}ERROR: compiler from the selected builder failed smoke; legacy fallback is forbidden.${NC}" >&2
+        rm -f "$output_path"
+        return 1
+    fi
+
+    run_tier_targeted_checks "$output_path" || return 1
+    if [ "$REBUILD_TIER" = "verify" ]; then
+        install_tier_verified_compiler "$output_path" || return 1
+    else
+        safe_rebuild_install_checkout_file "$output_path" \
+            compiler_seen/target/seen-dev || return 1
+        safe_rebuild_install_checkout_file "$PACKAGE_CLIENT_BUILD_OUTPUT" \
+            compiler_seen/target/seen-pkg || return 1
+    fi
+    echo -e "${GREEN}${REBUILD_TIER} rebuild complete.${NC}"
+    if [ "$REBUILD_TIER" = "quick" ]; then
+        echo "Developer compiler: compiler_seen/target/seen-dev"
+    else
+        echo "Production compiler updated: compiler_seen/target/seen"
+        echo "Also installed to: target/release/seen"
+    fi
+    return 0
 }
 
 recover_with_preserved_production_compiler() {
@@ -1889,18 +2760,37 @@ recover_with_preserved_production_compiler() {
 
     local recovery_exit=0
     local recovery_marker=""
+    local recovery_concurrency_flags=()
+    local recovery_package_env=(env -u SEEN_PACKAGE_CLIENT)
+    if ! compiler_serializer_applicable "$recovery_builder_path"; then
+        echo -e "${YELLOW}Preserved production compiler failed serializer applicability checks.${NC}"
+        return 1
+    fi
+    if tier_builder_supports_jobs "$recovery_builder_path"; then
+        recovery_concurrency_flags+=(--jobs "$SEEN_JOBS" --opt-jobs "$SEEN_OPT_JOBS")
+    elif tier_builder_supports_no_fork "$recovery_builder_path"; then
+        recovery_concurrency_flags+=(--no-fork)
+    else
+        echo -e "${YELLOW}Preserved production compiler advertises no worker controls; direct-child serialization and the hard cgroup remain mandatory.${NC}"
+    fi
+    if compiler_reports_checkout_version "$recovery_builder_path"; then
+        recovery_package_env+=("SEEN_PACKAGE_CLIENT=$SOURCE_PACKAGE_CLIENT")
+    fi
     recovery_marker=$(mktemp -d /tmp/seen_preserved_recovery_marker.XXXXXX 2>/dev/null || true)
     run_guarded_command_to_log "preserved compiler recovery" "$RECOVERY_TIMEOUT_SECS" "$MAIN_COMPILER_VMEM_KB" /tmp/safe_rebuild_stage3_recovery.log \
         bash -c 'cd "$1" || exit 1; shift; exec "$@"' bash "$recovery_source_root" \
-        env PATH="$OPT_WRAPPER_DIR:$PATH" \
+        "${recovery_package_env[@]}" PATH="$OPT_WRAPPER_DIR:$PATH" \
             SEEN_COMPILER_SOURCE_ROOT="$recovery_source_root" \
             SEEN_LOW_MEMORY="${SEEN_LOW_MEMORY:-0}" \
             SEEN_SKIP_IR_FIXUPS=1 \
             SEEN_MAIN_VMEM_KB="$MAIN_COMPILER_VMEM_KB" \
             SEEN_OPT_VMEM_KB="$OPT_VMEM_KB" \
             SEEN_MEMORY_LIMIT_BYTES="${SEEN_MEMORY_LIMIT_BYTES:-}" \
+            LD_PRELOAD="$FORK_SERIALIZER_SO" \
+            SEEN_FORK_SERIALIZER_TARGET="$recovery_builder_path" \
+            SEEN_FORK_SERIALIZER_ROOT_PID= \
             "$recovery_builder_path" compile "$COMPILER_SOURCE" "$STAGE3_RECOVERY" \
-            --fast --no-cache --no-fork $RELEASE_TARGET_CPU_FLAG || recovery_exit=$?
+            --fast --no-cache "${recovery_concurrency_flags[@]}" $RELEASE_TARGET_CPU_FLAG || recovery_exit=$?
     if [ "$recovery_exit" -eq 0 ]; then
         rm -rf "$recovery_marker"
         echo -e "${GREEN}Recovery rebuild succeeded.${NC}"
@@ -1981,7 +2871,7 @@ link_recovered_compiler() {
     [ -f "$rt_dir/seen_gpu.o" ] && pkg-config --exists vulkan 2>/dev/null && link_libs="$link_libs -lvulkan"
 
     echo "  Linking $obj_count modules..."
-    if run_guarded_command "${label} recovery link" 0 "" clang -O1 -fuse-ld=lld \
+    if run_guarded_command "${label} recovery link" 0 "$OPT_VMEM_KB" clang -O1 -fuse-ld=lld \
         -Wl,--allow-multiple-definition \
         "$RELEASE_CLANG_MARCH_FLAG" -Wl,--gc-sections -Wno-unused-command-line-argument \
         $link_objs $rt_objs -o "$output_path" $link_libs 2>/tmp/safe_rebuild_link.log; then
@@ -2068,11 +2958,21 @@ recover_with_existing_stage_builder() {
     local builder_name
     local builder_slug
     local builder_log
+    local recovery_concurrency_flags=()
+    local recovery_package_env=(env -u SEEN_PACKAGE_CLIENT)
 
     [ -x "$builder_path" ] || return 1
     builder_name=$(basename "$builder_path")
     builder_slug=$(printf "%s" "$builder_name" | tr -c 'A-Za-z0-9_' '_')
     builder_log="/tmp/safe_rebuild_existing_stage_${builder_slug}.log"
+
+    if tier_builder_supports_jobs "$builder_path"; then
+        recovery_concurrency_flags+=(--jobs "$SEEN_JOBS" --opt-jobs "$SEEN_OPT_JOBS")
+    elif tier_builder_supports_no_fork "$builder_path"; then
+        recovery_concurrency_flags+=(--no-fork)
+    else
+        echo -e "${YELLOW}Existing stage builder advertises no worker controls; direct-child serialization and the hard cgroup remain mandatory.${NC}"
+    fi
 
     echo ""
     echo "Recovery: trying existing stage builder $builder_path..."
@@ -2116,16 +3016,26 @@ recover_with_existing_stage_builder() {
     esac
 
     local recovery_exit=0
+    if ! compiler_serializer_applicable "$recovery_builder_path"; then
+        echo -e "${YELLOW}Existing stage builder failed serializer applicability checks.${NC}"
+        return 1
+    fi
+    if compiler_reports_checkout_version "$recovery_builder_path"; then
+        recovery_package_env+=("SEEN_PACKAGE_CLIENT=$SOURCE_PACKAGE_CLIENT")
+    fi
     run_guarded_command_to_log "existing stage builder $builder_name recovery" "$RECOVERY_TIMEOUT_SECS" "$MAIN_COMPILER_VMEM_KB" "$builder_log" \
         bash -c 'cd "$1" || exit 1; shift; exec "$@"' bash "$recovery_source_root" \
-        env PATH="$OPT_WRAPPER_DIR:$PATH" \
+        "${recovery_package_env[@]}" PATH="$OPT_WRAPPER_DIR:$PATH" \
             SEEN_COMPILER_SOURCE_ROOT="$recovery_source_root" \
             SEEN_LOW_MEMORY="${SEEN_LOW_MEMORY:-0}" \
             SEEN_MAIN_VMEM_KB="$MAIN_COMPILER_VMEM_KB" \
             SEEN_OPT_VMEM_KB="$OPT_VMEM_KB" \
             SEEN_MEMORY_LIMIT_BYTES="${SEEN_MEMORY_LIMIT_BYTES:-}" \
+            LD_PRELOAD="$FORK_SERIALIZER_SO" \
+            SEEN_FORK_SERIALIZER_TARGET="$recovery_builder_path" \
+            SEEN_FORK_SERIALIZER_ROOT_PID= \
             "$recovery_builder_path" compile "$COMPILER_SOURCE" "$STAGE3_RECOVERY" \
-            --fast --no-cache --no-fork $RELEASE_TARGET_CPU_FLAG || recovery_exit=$?
+            --fast --no-cache "${recovery_concurrency_flags[@]}" $RELEASE_TARGET_CPU_FLAG || recovery_exit=$?
 
     if [ "$recovery_exit" -eq 0 ]; then
         echo -e "${GREEN}Existing stage builder $builder_name rebuilt the compiler.${NC}"
@@ -2193,7 +3103,8 @@ if [ "${SEEN_SKIP_PREBUILD_GATES:-0}" != "1" ]; then
     echo "Running prebuild gates..."
     if ! run_guarded_command_to_log_with_failure_watch "prebuild gates" 900 "$MAIN_COMPILER_VMEM_KB" \
         /tmp/safe_rebuild_prebuild_gates.log \
-        bash "$SCRIPT_DIR/seen_prebuild_gates.sh"; then
+        env SEEN_PACKAGE_CLIENT="$SOURCE_PACKAGE_CLIENT" \
+            bash "$SCRIPT_DIR/seen_prebuild_gates.sh"; then
         echo -e "${RED}ERROR: prebuild gates failed.${NC}"
         tail_log_if_exists /tmp/safe_rebuild_prebuild_gates.log 30
         exit 1
@@ -2204,8 +3115,8 @@ fi
 
 # Kill any leftover compilation processes that might write to /tmp/seen_module_*
 # and interfere with this build (race condition causes duplicate symbols)
-kill_matching_processes "seen compile"
-kill_matching_processes "seen build"
+kill_scope_matching_processes "seen compile"
+kill_scope_matching_processes "seen build"
 sleep 1
 
 # Clean up any previous test files and cache
@@ -2252,7 +3163,21 @@ cat > "$OPT_WRAPPER_DIR/opt" << WRAPPER_EOF
 ARGS=("\$@")
 if [ "\${SEEN_LOW_MEMORY:-0}" = "1" ] && [ -n "\${SEEN_OPT_VMEM_KB:-}" ]; then
     # Cap the whole wrapper so fix_ir.py and llvm-as stay within the low-memory budget too.
-    ulimit -v "\$SEEN_OPT_VMEM_KB" 2>/dev/null || true
+    if ! ulimit -S -v "\$SEEN_OPT_VMEM_KB" 2>/dev/null; then
+        echo "RESOURCE STOP: could not apply optimizer virtual-memory cap (\${SEEN_OPT_VMEM_KB} KiB)" >&2
+        exit 126
+    fi
+    ACTIVE_OPT_VMEM=\$(ulimit -S -v 2>/dev/null || true)
+    case "\$ACTIVE_OPT_VMEM" in
+        ''|*[!0-9]*)
+            echo "RESOURCE STOP: could not read back optimizer virtual-memory cap" >&2
+            exit 126
+            ;;
+    esac
+    if [ "\$ACTIVE_OPT_VMEM" -gt "\$SEEN_OPT_VMEM_KB" ]; then
+        echo "RESOURCE STOP: optimizer virtual-memory cap read-back exceeds \${SEEN_OPT_VMEM_KB} KiB" >&2
+        exit 126
+    fi
 fi
 SEEN_OPT_LOCK_HELD=0
 acquire_seen_low_memory_opt_lock() {
@@ -2471,7 +3396,18 @@ WRAPPER_EOF
     chmod +x "$OPT_WRAPPER_DIR/opt"
 fi  # end platform-specific opt wrapper
 
-build_fork_serializer
+if [ "$REBUILD_TIER" = "full" ]; then
+    if tier_builder_supports_jobs "$FROZEN_ABS"; then
+        STAGE2_COMPILE_FLAGS="$STAGE2_COMPILE_FLAGS --jobs $SEEN_JOBS --opt-jobs $SEEN_OPT_JOBS"
+    elif tier_builder_supports_no_fork "$FROZEN_ABS"; then
+        STAGE2_COMPILE_FLAGS="$STAGE2_COMPILE_FLAGS --no-fork"
+    elif [ -n "$FORK_SERIALIZER_SO" ]; then
+        echo -e "${YELLOW}Frozen builder has no worker controls; required fork serialization is active.${NC}"
+    else
+        echo -e "${RED}ERROR: frozen builder has no bounded worker controls or serializer.${NC}" >&2
+        exit 1
+    fi
+fi
 
 if [ "$LOW_MEMORY_MODE" = "1" ] && [ "$HOST_OS" != "Darwin" ] && [ "${SEEN_SKIP_LOW_MEMORY_SHORTCUT:-0}" != "1" ]; then
     echo ""
@@ -2510,7 +3446,10 @@ if [ "$HOST_OS" = "Darwin" ]; then
     # eliminated by opt) but still produce a full .opt.ll set we can relink in step 1b.
     if run_with_progress "S1→S2" /tmp/safe_rebuild_stage2.log \
         bash -c 'cd "$1" || exit 1; shift; exec "$@"' bash "$BOOTSTRAP_SOURCE_ROOT" \
-        env SEEN_COMPILER_SOURCE_ROOT="$BOOTSTRAP_SOURCE_ROOT" \
+        env -u SEEN_FORK_SERIALIZER_ROOT_PID -u SEEN_PACKAGE_CLIENT \
+            LD_PRELOAD="$FORK_SERIALIZER_SO" \
+            SEEN_FORK_SERIALIZER_TARGET="$FROZEN_ABS" \
+            SEEN_COMPILER_SOURCE_ROOT="$BOOTSTRAP_SOURCE_ROOT" \
             "$FROZEN_ABS" compile "$COMPILER_SOURCE" "$STAGE2" $STAGE2_COMPILE_FLAGS; then
         echo -e "${GREEN}Stage2 build succeeded.${NC}"
     else
@@ -2535,9 +3474,13 @@ else
     SNAPSHOT_DIR="/tmp/seen_ll_snapshot_$$"
     rm -rf "$SNAPSHOT_DIR"
 
-    FROZEN_COMPILE_ENV=(env "PATH=$OPT_WRAPPER_DIR:$PATH" "SEEN_COMPILER_SOURCE_ROOT=$BOOTSTRAP_SOURCE_ROOT")
+    FROZEN_COMPILE_ENV=(env -u SEEN_FORK_SERIALIZER_ROOT_PID \
+        -u SEEN_PACKAGE_CLIENT \
+        "PATH=$OPT_WRAPPER_DIR:$PATH" \
+        "SEEN_COMPILER_SOURCE_ROOT=$BOOTSTRAP_SOURCE_ROOT")
     if [ -n "$FORK_SERIALIZER_SO" ]; then
         FROZEN_COMPILE_ENV+=("LD_PRELOAD=$FORK_SERIALIZER_SO")
+        FROZEN_COMPILE_ENV+=("SEEN_FORK_SERIALIZER_TARGET=$FROZEN_ABS")
     fi
 
     # Start compiler in background
@@ -2590,10 +3533,11 @@ else
         echo -e "${GREEN}Stage2 build succeeded.${NC}"
         rm -rf "$SNAPSHOT_DIR"
     else
-        STAGE2_OOM_LIKE=0
         if stage2_failure_looks_oom "$COMPILE_EXIT" /tmp/safe_rebuild_stage2.log; then
-            STAGE2_OOM_LIKE=1
-            echo -e "${YELLOW}Stage2 appears to have been OOM-killed; skipping frozen --no-fork retry and using recovery paths instead.${NC}"
+            echo -e "${RED}ERROR: Stage2 hit an OOM/resource failure; aborting without partial-IR recovery or retry.${NC}" >&2
+            kill_frozen_orphans
+            preserve_stage2_failure_artifacts "$SNAPSHOT_DIR"
+            exit "$COMPILE_EXIT"
         fi
 
         # Kill orphaned fork children before recovery (SIGKILL to avoid cleanup handlers)
@@ -2708,113 +3652,10 @@ else
             if [ "$EMPTY_COUNT" -gt 0 ]; then
                 echo -e "${YELLOW}Empty modules ($EMPTY_COUNT with 0 function definitions):${EMPTY_MODULES}${NC}"
 
-                # --- Retry loop: re-run frozen compiler to fill empty modules ---
-                # OOM kills are non-deterministic, so retrying will likely produce
-                # a different set of empty modules (or none at all).
-                MAX_RETRIES=2
-                RETRY=0
-                while [ "$EMPTY_COUNT" -gt 0 ] && [ "$RETRY" -lt "$MAX_RETRIES" ]; do
-                    RETRY=$((RETRY+1))
-                    echo -e "${YELLOW}Retry $RETRY/$MAX_RETRIES: re-running frozen compiler to fill $EMPTY_COUNT empty module(s)...${NC}"
-
-                    # Clean /tmp for retry run
-                    rm -f /tmp/seen_module_*.ll /tmp/seen_module_*.o /tmp/seen_module_*.opt.ll
-                    rm -f /tmp/seen_module_*.opt.status /tmp/seen_module_*.opt.log
-
-                    RETRY_SNAPSHOT="/tmp/seen_retry_snapshot_${$}_${RETRY}"
-                    rm -rf "$RETRY_SNAPSHOT"
-                    RETRY_COMPILE_ENV=(env "PATH=$OPT_WRAPPER_DIR:$PATH" "SEEN_COMPILER_SOURCE_ROOT=$BOOTSTRAP_SOURCE_ROOT")
-                    if [ -n "$FORK_SERIALIZER_SO" ]; then
-                        RETRY_COMPILE_ENV+=("LD_PRELOAD=$FORK_SERIALIZER_SO")
-                    fi
-
-                    SEEN_MEMORY_GUARD_KILL_ONLY=1 run_guarded_command_to_log "Retry$RETRY" 600 "$MAIN_COMPILER_VMEM_KB" /tmp/retry_${RETRY}.log \
-                        bash -c 'cd "$1" || exit 1; shift; exec "$@"' bash "$BOOTSTRAP_SOURCE_ROOT" \
-                        "${RETRY_COMPILE_ENV[@]}" "$FROZEN_ABS" compile "$COMPILER_SOURCE" /dev/null \
-                            $STAGE2_COMPILE_FLAGS &
-                    RETRY_PID=$!
-
-                    start_ll_snapshot_watcher "$RETRY_PID" "$RETRY_SNAPSHOT" &
-                    RETRY_WATCHER=$!
-                    monitor_compilation "$RETRY_PID" "Retry$RETRY" &
-                    RETRY_MONITOR=$!
-
-                    wait $RETRY_PID 2>/dev/null || true
-                    finish_ll_snapshot_watcher "$RETRY_WATCHER"
-                    kill $RETRY_MONITOR 2>/dev/null || true; wait $RETRY_MONITOR 2>/dev/null || true
-                    kill_frozen_orphans
-
-                    RETRY_COUNT=$(count_plain_module_lls "$RETRY_SNAPSHOT")
-                    echo ""
-                    echo "  Retry $RETRY: captured $RETRY_COUNT .ll files"
-
-                    # Replace modules where retry has MORE defines (catches both
-                    # empty modules and partially-generated/truncated modules)
-                    REPLACED=0
-                    for retry_ll in "$RETRY_SNAPSHOT"/seen_module_*.ll; do
-                        [ -f "$retry_ll" ] || continue
-                        [[ "$retry_ll" == *.opt.ll ]] && continue
-                        [[ "$retry_ll" == *.polly.ll ]] && continue
-                        bn=$(basename "$retry_ll")
-                        mod=$(basename "$retry_ll" .ll)
-                        orig_ll="$RECOVERY_DIR/$bn"
-                        [ -f "$orig_ll" ] || continue
-
-                        orig_defines=$(grep -c '^define' "$orig_ll" 2>/dev/null | tail -1)
-                        orig_defines=${orig_defines:-0}
-                        retry_defines=$(grep -c '^define' "$retry_ll" 2>/dev/null | tail -1)
-                        retry_defines=${retry_defines:-0}
-
-                        if [ "$retry_defines" -gt "$orig_defines" ] 2>/dev/null; then
-                            cp "$retry_ll" "$orig_ll"
-                            rm -f "$RECOVERY_DIR/${mod}.opt.ll" "$RECOVERY_DIR/${mod}.o"
-                            echo "    Replaced $bn: $orig_defines -> $retry_defines defines"
-                            REPLACED=$((REPLACED+1))
-                        fi
-                    done
-                    rm -rf "$RETRY_SNAPSHOT"
-                    echo "  Retry $RETRY: replaced $REPLACED module(s)"
-
-                    # Re-run opt wrapper + thinlto-bc on replaced modules (those missing .o)
-                    if [ "$REPLACED" -gt 0 ]; then
-                        REAL_OPT_BIN=$(command -v opt)
-                        for llfile in "$RECOVERY_DIR"/seen_module_*.ll; do
-                            [ -f "$llfile" ] || continue
-                            [[ "$llfile" == *.opt.ll ]] && continue
-                            [[ "$llfile" == *.polly.ll ]] && continue
-                            mod=$(basename "$llfile" .ll)
-                            objfile="$RECOVERY_DIR/${mod}.o"
-                            [ -f "$objfile" ] && continue
-
-                            optfile="$RECOVERY_DIR/${mod}.opt.ll"
-                            echo "    Re-optimizing ${mod}..."
-                            # Use opt wrapper to apply dedup, byteAt fix, fix_ir.py
-                            if ! run_guarded_command "Retry$RETRY ${mod} opt" 300 "$OPT_VMEM_KB" \
-                                "$OPT_WRAPPER_DIR/opt" \
-                                -passes='function(sroa,instcombine<no-verify-fixpoint>,simplifycfg),default<O1>' \
-                                -inline-threshold=250 -S "$llfile" -o "$optfile" 2>/dev/null; then
-                                cp "$llfile" "$optfile" 2>/dev/null || true
-                            fi
-                            run_guarded_command "Retry$RETRY ${mod} thinlto" 300 "$OPT_VMEM_KB" \
-                                "$REAL_OPT_BIN" --thinlto-bc "$optfile" -o "$objfile" 2>/dev/null || true
-                        done
-                    fi
-
-                    # Re-count empty modules
-                    EMPTY_MODULES=$(find_problem_empty_modules "$RECOVERY_DIR")
-                    EMPTY_COUNT=$(echo "$EMPTY_MODULES" | wc -w)
-                    if [ "$EMPTY_COUNT" -eq 0 ]; then
-                        echo -e "${GREEN}  All modules now have function definitions!${NC}"
-                    else
-                        echo -e "${YELLOW}  Still $EMPTY_COUNT empty module(s):${EMPTY_MODULES}${NC}"
-                    fi
-                done
-
-                # Recount .o files after retries
-                if [ "$RETRY" -gt 0 ]; then
-                    OBJ_COUNT=$(count_module_objects "$RECOVERY_DIR")
-                    echo "  Post-retry: $OBJ_COUNT/$EXPECTED_STAGE2_MODULES .o files ready."
-                fi
+                # Never re-run a compiler after a partial or resource-stopped
+                # attempt. Continue only with deterministic merge/recovery from
+                # already captured artifacts and bounded trusted builders.
+                echo -e "${YELLOW}Frozen compiler retries are disabled; using deterministic captured-artifact recovery only.${NC}"
 
                 # --- Pass 2: Two-pass .ll merge for satellite modules ---
                 if [ "$EMPTY_COUNT" -gt 0 ]; then
@@ -2822,7 +3663,22 @@ else
                 # but outputs 0 defines for satellite codegen modules. The production
                 # compiler generates satellite modules correctly but hangs on module 5.
                 # Merge: pick the .ll with more defines from each compiler.
-                PROD_COMPILER="compiler_seen/target/seen"
+                PROD_COMPILER="$REPO_ROOT/compiler_seen/target/seen"
+                if [ -x "$PROD_COMPILER" ]; then
+                    if ! compiler_serializer_applicable "$PROD_COMPILER"; then
+                        echo -e "${YELLOW}Production compiler failed serializer applicability checks; Pass 2 rejected.${NC}"
+                        PROD_COMPILER=""
+                    fi
+                fi
+                if [ -x "$PROD_COMPILER" ]; then
+                    if tier_builder_supports_jobs "$PROD_COMPILER"; then
+                        PASS2_COMPILE_FLAGS="$PASS2_COMPILE_FLAGS --jobs $SEEN_JOBS --opt-jobs $SEEN_OPT_JOBS"
+                    elif tier_builder_supports_no_fork "$PROD_COMPILER"; then
+                        PASS2_COMPILE_FLAGS="$PASS2_COMPILE_FLAGS --no-fork"
+                    else
+                        echo -e "${YELLOW}Production compiler advertises no worker controls; direct-child serialization and the hard cgroup remain required for Pass 2.${NC}"
+                    fi
+                fi
                 if [ -x "$PROD_COMPILER" ]; then
                     echo -e "${YELLOW}Running Pass 2 (production compiler) to fill empty modules...${NC}"
 
@@ -2836,7 +3692,10 @@ else
 
                     SEEN_MEMORY_GUARD_KILL_ONLY=1 run_guarded_command_to_log "Pass2" 600 "$MAIN_COMPILER_VMEM_KB" /tmp/pass2.log \
                         bash -c 'cd "$1" || exit 1; shift; exec "$@"' bash "$BOOTSTRAP_SOURCE_ROOT" \
-                        env SEEN_COMPILER_SOURCE_ROOT="$BOOTSTRAP_SOURCE_ROOT" \
+                        env -u SEEN_FORK_SERIALIZER_ROOT_PID -u SEEN_PACKAGE_CLIENT \
+                        LD_PRELOAD="$FORK_SERIALIZER_SO" \
+                        SEEN_FORK_SERIALIZER_TARGET="$PROD_COMPILER" \
+                        SEEN_COMPILER_SOURCE_ROOT="$BOOTSTRAP_SOURCE_ROOT" \
                         "$PROD_COMPILER" compile "$COMPILER_SOURCE" /dev/null \
                             $PASS2_COMPILE_FLAGS &
                     PASS2_PID=$!
@@ -2849,10 +3708,8 @@ else
                     wait $PASS2_PID 2>/dev/null || true
                     finish_ll_snapshot_watcher "$PASS2_WATCHER"
                     kill $PASS2_MONITOR 2>/dev/null; wait $PASS2_MONITOR 2>/dev/null || true
-                    # Kill any children of the Pass 2 compiler (fork children, opt, clang)
-                    for child in $(pgrep -P $PASS2_PID 2>/dev/null); do
-                        kill -9 "$child" 2>/dev/null || true
-                    done
+                    # The per-command guard owns Pass 2's process group. Do not
+                    # scan or signal host processes after its PID has exited.
                     sleep 2
 
                     PASS2_COUNT=$(count_plain_module_lls "$PASS2_SNAPSHOT")
@@ -2987,7 +3844,7 @@ else
             LINK_LIBS="-lm -lpthread"
             [ -f "$RT_DIR/seen_gpu.o" ] && pkg-config --exists vulkan 2>/dev/null && LINK_LIBS="$LINK_LIBS -lvulkan"
 
-            if run_guarded_command "Stage2 recovery link" 0 "" clang -O1 -fuse-ld=lld \
+            if run_guarded_command "Stage2 recovery link" 0 "$OPT_VMEM_KB" clang -O1 -fuse-ld=lld \
                 -Wl,--allow-multiple-definition \
                 "$RELEASE_CLANG_MARCH_FLAG" -Wl,--gc-sections -Wno-unused-command-line-argument \
                 $LINK_OBJS $RT_OBJS -o "$STAGE2" $LINK_LIBS 2>/tmp/safe_rebuild_link.log; then
@@ -3117,7 +3974,7 @@ POSTOPT_FIX
                 clang -O2 -c -I seen_runtime seen_runtime/seen_region.c -o "$NATIVE_REGION" 2>/dev/null || true
             RT_OBJS="$NATIVE_RT"
             [ -f "$NATIVE_REGION" ] && RT_OBJS="$RT_OBJS $NATIVE_REGION"
-            if run_guarded_command "macOS stage2 relink" 0 "$MAIN_COMPILER_VMEM_KB" \
+            if run_guarded_command "macOS stage2 relink" 0 "$OPT_VMEM_KB" \
                 clang -O2 -arch arm64 $RELINK_OBJS $RT_OBJS -o "$STAGE2" -lm -lpthread 2>/tmp/relink_link.log; then
                 echo -e "${GREEN}    macOS relink succeeded ($(wc -c < "$STAGE2" | tr -d ' ') bytes).${NC}"
             else
@@ -3137,6 +3994,10 @@ fi
 if [ -z "${VERIFIED:-}" ]; then
 echo ""
 echo "Stage2 smoke: checking hello-world..."
+if ! compiler_reports_checkout_version "$STAGE2"; then
+    echo -e "${RED}ERROR: Fresh Stage2 does not report the exact checkout version.${NC}" >&2
+    exit 1
+fi
 if ! smoke_test_compiler "$STAGE2" "Stage2" "stage2"; then
     echo -e "${RED}ERROR: Fresh Stage2 cannot compile a normal user program.${NC}"
     echo -e "${RED}Refusing to continue with an unusable bootstrap compiler.${NC}"
@@ -3148,6 +4009,18 @@ if [ "${SEEN_STOP_AFTER_STAGE2_SMOKE:-0}" = "1" ]; then
     exit 0
 fi
 
+STAGE3_COMPILE_FLAGS=(--fast --no-cache)
+if tier_builder_supports_jobs "$STAGE2"; then
+    STAGE3_COMPILE_FLAGS+=(--jobs "$SEEN_JOBS" --opt-jobs "$SEEN_OPT_JOBS")
+elif tier_builder_supports_no_fork "$STAGE2"; then
+    STAGE3_COMPILE_FLAGS+=(--no-fork)
+else
+    echo -e "${YELLOW}Fresh Stage2 advertises no worker controls; direct-child serialization and the hard cgroup remain mandatory.${NC}"
+fi
+if [ -n "${RELEASE_TARGET_CPU_FLAG:-}" ]; then
+    STAGE3_COMPILE_FLAGS+=("$RELEASE_TARGET_CPU_FLAG")
+fi
+
 if [ "$HOST_OS" = "Darwin" ]; then
     # macOS: full S2→S3 bootstrap verification works
     rm -rf .seen_cache/ /tmp/seen_ir_cache/
@@ -3156,7 +4029,12 @@ if [ "$HOST_OS" = "Darwin" ]; then
 
     echo ""
     echo "Step 2: Building stage3 with stage2 (--fast)..."
-    if run_with_progress "S2→S3" /tmp/safe_rebuild_stage3.log $STAGE2 compile "$COMPILER_SOURCE" "$STAGE3" $STAGE2_COMPILE_FLAGS; then
+    if run_with_progress "S2→S3" /tmp/safe_rebuild_stage3.log \
+        env -u SEEN_FORK_SERIALIZER_ROOT_PID \
+        SEEN_PACKAGE_CLIENT="$SOURCE_PACKAGE_CLIENT" \
+        LD_PRELOAD="$FORK_SERIALIZER_SO" \
+        SEEN_FORK_SERIALIZER_TARGET="$STAGE2" \
+        "$STAGE2" compile "$COMPILER_SOURCE" "$STAGE3" "${STAGE3_COMPILE_FLAGS[@]}"; then
         echo -e "${GREEN}Stage3 build succeeded.${NC}"
     else
         echo -e "${RED}ERROR: Stage3 build failed!${NC}"
@@ -3204,7 +4082,7 @@ if [ "$HOST_OS" = "Darwin" ]; then
                 clang -O2 -c -I seen_runtime seen_runtime/seen_region.c -o "$NATIVE_REGION" 2>/dev/null || true
             RT_OBJS="$NATIVE_RT"
             [ -f "$NATIVE_REGION" ] && RT_OBJS="$RT_OBJS $NATIVE_REGION"
-            if run_guarded_command "macOS stage3 relink" 0 "$MAIN_COMPILER_VMEM_KB" \
+            if run_guarded_command "macOS stage3 relink" 0 "$OPT_VMEM_KB" \
                 clang -O2 -arch arm64 $RELINK_OBJS $RT_OBJS -o "$STAGE3" -lm -lpthread 2>/tmp/relink_link.log; then
                 echo -e "${GREEN}    macOS stage3 relink succeeded ($(wc -c < "$STAGE3" | tr -d ' ') bytes).${NC}"
             else
@@ -3250,7 +4128,11 @@ else
 
     S3_MARKER=$(mktemp -d /tmp/seen_stage3_marker.XXXXXX 2>/dev/null || true)
     if run_guarded_command_to_log_with_failure_watch "S2->S3" 1800 "$MAIN_COMPILER_VMEM_KB" /tmp/safe_rebuild_stage3.log \
-        "$STAGE2" compile "$COMPILER_SOURCE" "$STAGE3" --fast --no-cache --no-fork $RELEASE_TARGET_CPU_FLAG \
+        env -u SEEN_FORK_SERIALIZER_ROOT_PID \
+        SEEN_PACKAGE_CLIENT="$SOURCE_PACKAGE_CLIENT" \
+        LD_PRELOAD="$FORK_SERIALIZER_SO" \
+        SEEN_FORK_SERIALIZER_TARGET="$STAGE2" \
+        "$STAGE2" compile "$COMPILER_SOURCE" "$STAGE3" "${STAGE3_COMPILE_FLAGS[@]}" \
         ; then
         rm -rf "$S3_MARKER"
         echo -e "${GREEN}Stage3 build succeeded.${NC}"
@@ -3330,27 +4212,31 @@ else
 fi
 fi
 
+# A full rebuild must cover the same Stage-1 acceptance surface as verify
+# before the selected compiler can replace checkout production artifacts.
+run_stage1_acceptance_checks "$VERIFIED" verify || exit 1
+
 # Install production compiler
 echo ""
 echo "Installing production compiler..."
-mkdir -p compiler_seen/target
-# Remove before copy to avoid "Text file busy" if the binary is in use
-rm -f compiler_seen/target/seen 2>/dev/null || true
-cp "$VERIFIED" compiler_seen/target/seen
-chmod +x compiler_seen/target/seen
-cp "$PACKAGE_CLIENT_BUILD_OUTPUT" compiler_seen/target/seen-pkg
-chmod +x compiler_seen/target/seen-pkg
-cp "$STAGE2" stage2_head 2>/dev/null || true
-[ -f "$STAGE3" ] && cp "$STAGE3" stage3_head 2>/dev/null || true
-rm -f stage3_recovery_head 2>/dev/null || true
-[ -f "$STAGE3_RECOVERY" ] && cp "$STAGE3_RECOVERY" stage3_recovery_head 2>/dev/null || true
+safe_rebuild_install_checkout_file "$VERIFIED" \
+    compiler_seen/target/seen || exit 1
+safe_rebuild_install_checkout_file "$PACKAGE_CLIENT_BUILD_OUTPUT" \
+    compiler_seen/target/seen-pkg || exit 1
+safe_rebuild_install_checkout_file "$STAGE2" stage2_head || exit 1
+if [ -f "$STAGE3" ]; then
+    safe_rebuild_install_checkout_file "$STAGE3" stage3_head || exit 1
+fi
+safe_rebuild_remove_checkout_file stage3_recovery_head || exit 1
+if [ -f "$STAGE3_RECOVERY" ]; then
+    safe_rebuild_install_checkout_file "$STAGE3_RECOVERY" \
+        stage3_recovery_head || exit 1
+fi
 
 # Also install to target/release/seen (README install path)
-mkdir -p target/release
-cp compiler_seen/target/seen target/release/seen
-chmod +x target/release/seen
-cp "$PACKAGE_CLIENT_BUILD_OUTPUT" target/release/seen-pkg
-chmod +x target/release/seen-pkg
+safe_rebuild_install_checkout_file "$VERIFIED" target/release/seen || exit 1
+safe_rebuild_install_checkout_file "$PACKAGE_CLIENT_BUILD_OUTPUT" \
+    target/release/seen-pkg || exit 1
 if declare -F seen_build_write_full_release_stamp >/dev/null 2>&1; then
     seen_build_write_full_release_stamp "$REPO_ROOT" "$REPO_ROOT/compiler_seen/target/seen"
 fi

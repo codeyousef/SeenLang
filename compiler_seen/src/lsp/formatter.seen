@@ -1,0 +1,1347 @@
+///
+Lossless, error-tolerant formatting helpers for the Seen language server.
+
+Stage one deliberately formats only trivia around tokens which can be
+recognized without a full parse. String and character literals, comments,
+and physical line endings are never reconstructed.
+///
+
+import lsp.types.{TextEdit, TextEdit_new, Range_new, LspPosition_new}
+import lexer.keyword_manager.{KeywordManager}
+import lexer.lexer.{newSeenLexerCompat}
+import lexer.token_type.{SeenTokenType}
+import parser.real_parser.{newRealParserCompat, resetParserRecoveryErrors,
+    getParserRecoveryErrorCount}
+import str.string.{StringBuilder}
+
+fun formatterIsSpace(ch: Char) r: Bool {
+    return ch == ' ' or ch == '\t' or ch == '\r'
+}
+
+fun formatterIsDigit(ch: Char) r: Bool {
+    return ch >= '0' and ch <= '9'
+}
+
+fun formatterIsWordByte(ch: Char) r: Bool {
+    if ch >= 'a' and ch <= 'z' { return true }
+    if ch >= 'A' and ch <= 'Z' { return true }
+    if formatterIsDigit(ch) { return true }
+    if ch == '_' { return true }
+    // A UTF-8 continuation is part of the same source token. The formatter
+    // never decodes or rewrites it.
+    return ch.toInt() >= 128
+}
+
+fun formatterStripCarriageReturn(line: String) r: String {
+    if line.length() > 0 and line.byteAt(line.length() - 1) == '\r' {
+        return line.substring(0, line.length() - 1)
+    }
+    return line
+}
+
+fun formatterIndentUnit(width: Int, insertSpaces: Bool) r: String {
+    if not insertSpaces {
+        return "\t"
+    }
+    let builder = StringBuilder.new()
+    var i = 0
+    while i < width {
+        builder.append(" ")
+        i = i + 1
+    }
+    return builder.toString()
+}
+
+fun formatterRepeat(text: String, count: Int) r: String {
+    let builder = StringBuilder.new()
+    var i = 0
+    while i < count {
+        builder.append(text)
+        i = i + 1
+    }
+    return builder.toString()
+}
+
+fun formatterDominantNewline(content: String) r: String {
+    var crlf = 0
+    var lf = 0
+    var i = 0
+    while i < content.length() {
+        if content.byteAt(i) == '\n' {
+            if i > 0 and content.byteAt(i - 1) == '\r' {
+                crlf = crlf + 1
+            } else {
+                lf = lf + 1
+            }
+        }
+        i = i + 1
+    }
+    if crlf > lf { return "\r\n" }
+    return "\n"
+}
+
+fun formatterLeadingWhitespace(line: String) r: String {
+    var end = 0
+    while end < line.length() {
+        let ch = line.byteAt(end)
+        if ch != ' ' and ch != '\t' { break }
+        end = end + 1
+    }
+    return line.substring(0, end)
+}
+
+fun formatterTwoCharOperator(line: String, pos: Int) r: Bool {
+    if pos + 1 >= line.length() { return false }
+    let pair = line.substring(pos, pos + 2)
+    if pair == "==" or pair == "!=" or pair == "<=" or pair == ">=" { return true }
+    if pair == "->" or pair == "=>" or pair == "+=" or pair == "-=" { return true }
+    if pair == "*=" or pair == "/=" or pair == "%=" or pair == "&&" { return true }
+    if pair == "||" or pair == "::" or pair == "?." or pair == "??" { return true }
+    if pair == "<<" or pair == ">>" or pair == "&=" or pair == "|=" { return true }
+    if pair == "^=" or pair == ".." { return true }
+    return false
+}
+
+fun formatterIsPunctuation(ch: Char) r: Bool {
+    if ch == '(' or ch == ')' or ch == '[' or ch == ']' { return true }
+    if ch == '{' or ch == '}' or ch == ',' or ch == ';' { return true }
+    if ch == '.' or ch == ':' or ch == '@' { return true }
+    if ch == '=' or ch == '!' or ch == '<' or ch == '>' { return true }
+    if ch == '+' or ch == '-' or ch == '*' or ch == '/' { return true }
+    if ch == '%' or ch == '&' or ch == '|' or ch == '^' { return true }
+    if ch == '?' { return true }
+    return false
+}
+
+///
+Tokenize one physical line. tokenKinds are 0 for active source tokens,
+1 for a protected literal, and 2 for a protected line comment. Token byte
+offsets let spacing rules preserve ambiguous original gaps.
+///
+fun formatterTokenizeLine(line: String, tokens: Array<String>, tokenKinds: Array<Int>,
+    starts: Array<Int>, ends: Array<Int>, commentState: Array<Int>) r: Bool {
+    if commentState[0] == 1 {
+        let close = line.indexOf("*/", 0)
+        if close >= 0 {
+            commentState[0] = 0
+        }
+        return false
+    }
+
+    var pos = 0
+    while pos < line.length() {
+        let ch = line.byteAt(pos)
+        if formatterIsSpace(ch) {
+            pos = pos + 1
+        } else {
+            if ch == '/' and pos + 1 < line.length() and line.byteAt(pos + 1) == '/' {
+                tokens.push(line.substring(pos, line.length()))
+                tokenKinds.push(2)
+                starts.push(pos)
+                ends.push(line.length())
+                return true
+            }
+            if ch == '/' and pos + 1 < line.length() and line.byteAt(pos + 1) == '*' {
+                let close = line.indexOf("*/", pos + 2)
+                if close < 0 {
+                    commentState[0] = 1
+                }
+                // Legacy block comments are invalid Seen and are kept byte-for-byte.
+                return false
+            }
+            if ch == '"' or ch.toInt() == 39 {
+                let quote = ch
+                let start = pos
+                pos = pos + 1
+                var escaped = false
+                var closed = false
+                while pos < line.length() {
+                    let current = line.byteAt(pos)
+                    if escaped {
+                        escaped = false
+                    } else {
+                        if current == '\\' {
+                            escaped = true
+                        } else {
+                            if current == quote {
+                                pos = pos + 1
+                                closed = true
+                                break
+                            }
+                        }
+                    }
+                    pos = pos + 1
+                }
+                if not closed {
+                    return false
+                }
+                tokens.push(line.substring(start, pos))
+                tokenKinds.push(1)
+                starts.push(start)
+                ends.push(pos)
+            } else {
+                if formatterIsPunctuation(ch) {
+                    let start = pos
+                    if formatterTwoCharOperator(line, pos) {
+                        pos = pos + 2
+                    } else {
+                        pos = pos + 1
+                    }
+                    tokens.push(line.substring(start, pos))
+                    tokenKinds.push(0)
+                    starts.push(start)
+                    ends.push(pos)
+                } else {
+                    let start = pos
+                    while pos < line.length() {
+                        let current = line.byteAt(pos)
+                        if formatterIsSpace(current) or formatterIsPunctuation(current) {
+                            break
+                        }
+                        pos = pos + 1
+                    }
+                    if pos == start {
+                        pos = pos + 1
+                    }
+                    tokens.push(line.substring(start, pos))
+                    tokenKinds.push(0)
+                    starts.push(start)
+                    ends.push(pos)
+                }
+            }
+        }
+    }
+    return true
+}
+
+fun formatterIsWordToken(token: String, kind: Int) r: Bool {
+    if kind == 1 { return true }
+    if token.length() == 0 { return false }
+    return formatterIsWordByte(token.byteAt(0))
+}
+
+fun formatterIsControlKeyword(token: String, keywords: KeywordManager) r: Bool {
+    let tokenType = keywords.getKeywordTypeDirect(token)
+    if tokenType == SeenTokenType.KeywordIf or tokenType == SeenTokenType.KeywordWhile { return true }
+    if tokenType == SeenTokenType.KeywordFor or tokenType == SeenTokenType.KeywordMatch { return true }
+    if tokenType == SeenTokenType.KeywordWhen or tokenType == SeenTokenType.KeywordCatch { return true }
+    return false
+}
+
+fun formatterPreferredKeyword(token: String, keywords: KeywordManager) r: String {
+    let tokenName = keywords.findKeywordSourceEntry(token)
+    if tokenName == "" { return token }
+    let suffix = "=" + tokenName
+    let sources = keywords.getSources()
+    var i = 0
+    while i < sources.length() {
+        let entry = sources[i]
+        if entry.startsWith("KW:") and entry.endsWith(suffix) {
+            let equals = entry.indexOf("=", 3)
+            if equals > 3 {
+                return entry.substring(3, equals)
+            }
+        }
+        i = i + 1
+    }
+    return token
+}
+
+fun formatterIsSpacedOperator(token: String) r: Bool {
+    if token == "=" or token == "==" or token == "!=" { return true }
+    if token == "<=" or token == ">=" or token == "->" or token == "=>" { return true }
+    if token == "+" or token == "-" or token == "/" or token == "%" { return true }
+    if token == "+=" or token == "-=" or token == "*=" or token == "/=" { return true }
+    if token == "%=" or token == "&&" or token == "||" { return true }
+    return false
+}
+
+fun formatterAllowsUnaryAfter(token: String, keywords: KeywordManager) r: Bool {
+    if token == "" or token == "(" or token == "[" or token == "{" { return true }
+    if token == "," or token == ":" or token == "=" or token == "=>" { return true }
+    let tokenType = keywords.getKeywordTypeDirect(token)
+    if tokenType == SeenTokenType.KeywordReturn or tokenType == SeenTokenType.KeywordThrow {
+        return true
+    }
+    if formatterIsSpacedOperator(token) { return true }
+    return false
+}
+
+fun formatterGap(prev: String, current: String, prevKind: Int, currentKind: Int,
+    originalGap: String, beforePrev: String, keywords: KeywordManager) r: String {
+    if currentKind == 2 {
+        if prev == "" { return "" }
+        return " "
+    }
+    if current == ")" or current == "]" { return "" }
+    if current == "," or current == ";" or current == "." or current == "?." { return "" }
+    if current == "::" or current == ":" { return "" }
+    if prev == "(" or prev == "[" or prev == "." or prev == "?." { return "" }
+    if prev == "::" or prev == "@" { return "" }
+    if prev == "," or prev == ";" or prev == ":" { return " " }
+    if current == "(" {
+        if formatterIsControlKeyword(prev, keywords) { return " " }
+        let previousType = keywords.getKeywordTypeDirect(prev)
+        if previousType == SeenTokenType.KeywordReturn or
+            previousType == SeenTokenType.KeywordThrow { return " " }
+        return ""
+    }
+    if current == "}" {
+        if prev == "{" { return "" }
+        return " "
+    }
+    if current == "{" { return " " }
+    if prev == "{" and current != "}" { return " " }
+    if (prev == "+" or prev == "-") and formatterAllowsUnaryAfter(beforePrev, keywords) {
+        return ""
+    }
+    if formatterIsSpacedOperator(prev) or formatterIsSpacedOperator(current) { return " " }
+    if formatterIsWordToken(prev, prevKind) and formatterIsWordToken(current, currentKind) {
+        return " "
+    }
+    if (prev == ")" or prev == "]") and formatterIsWordToken(current, currentKind) {
+        return " "
+    }
+    if prev == "}" and formatterIsWordToken(current, currentKind) { return " " }
+
+    // Pointer/reference and generic/comparison punctuation is context-sensitive.
+    // Preserve whether and how it was separated instead of guessing.
+    return originalGap
+}
+
+fun formatterValidateAndUpdateDepth(tokens: Array<String>, tokenKinds: Array<Int>,
+    depthState: Array<Int>) r: Bool {
+    var braces = depthState[0]
+    var parens = depthState[1]
+    var brackets = depthState[2]
+    var i = 0
+    while i < tokens.length() {
+        if tokenKinds[i] == 0 {
+            let token = tokens[i]
+            if token == "{" { braces = braces + 1 }
+            if token == "}" {
+                braces = braces - 1
+                if braces < 0 { return false }
+            }
+            if token == "(" { parens = parens + 1 }
+            if token == ")" {
+                parens = parens - 1
+                if parens < 0 { return false }
+            }
+            if token == "[" { brackets = brackets + 1 }
+            if token == "]" {
+                brackets = brackets - 1
+                if brackets < 0 { return false }
+            }
+        }
+        i = i + 1
+    }
+    depthState[0] = braces
+    depthState[1] = parens
+    depthState[2] = brackets
+    return true
+}
+
+fun formatterJoinRegion(rawLines: Array<String>, start: Int, end: Int) r: String {
+    let builder = StringBuilder.new()
+    var line = start
+    while line <= end and line < rawLines.length() {
+        builder.append(formatterStripCarriageReturn(rawLines[line]))
+        if line < end { builder.append("\n") }
+        line = line + 1
+    }
+    return builder.toString()
+}
+
+///
+Run the real lexer and parser over one balanced top-level region. The parser's
+recovery counter distinguishes accepted syntax from silent recovery, while
+leaving type/name resolution out of formatting decisions.
+///
+fun formatterRegionIsParseValid(source: String, language: String) r: Bool {
+    if source.trim() == "" { return true }
+    resetParserRecoveryErrors()
+    let lexer = newSeenLexerCompat(source, 1, language)
+    let tokens = lexer.tokenize()
+    let parser = newRealParserCompat(tokens)
+    let program = parser.parse()
+    if getParserRecoveryErrorCount() != 0 { return false }
+
+    // Payload-like enum recovery uses an internal marker and must never be
+    // treated as a format-safe unit enum.
+    var i = 0
+    while i < program.items.length() {
+        let item = program.items[i]
+        if item.itemType == "Enum" {
+            var vi = 0
+            while vi < item.enumNode.variants.length() {
+                if item.enumNode.variants[vi].startsWith("$invalid-payload$:") {
+                    return false
+                }
+                vi = vi + 1
+            }
+        }
+        i = i + 1
+    }
+    return true
+}
+
+///
+Return one flag per physical line. A zero means the line belongs to an
+invalid or unbalanced region and therefore must remain byte-identical.
+///
+fun formatterParseValidLineMask(content: String, language: String) r: Array<Int> {
+    let rawLines = content.split("\n")
+    let mask = Array<Int>()
+    var mi = 0
+    while mi < rawLines.length() {
+        mask.push(1)
+        mi = mi + 1
+    }
+
+    let depth = Array<Int>()
+    depth.push(0)
+    depth.push(0)
+    depth.push(0)
+    let commentState = Array<Int>()
+    commentState.push(0)
+    var tripleSlashBlock = false
+    var regionStart = 0
+    var regionSafe = true
+    var regionHasCode = false
+    var lineIndex = 0
+    while lineIndex < rawLines.length() {
+        let line = formatterStripCarriageReturn(rawLines[lineIndex])
+        let trimmed = line.trim()
+        if trimmed == "///" {
+            tripleSlashBlock = not tripleSlashBlock
+        } else if tripleSlashBlock or trimmed.startsWith("//") {
+            // Protected comments do not affect parser balance.
+        } else {
+            let tokens = Array<String>()
+            let kinds = Array<Int>()
+            let starts = Array<Int>()
+            let ends = Array<Int>()
+            if not formatterTokenizeLine(line, tokens, kinds, starts, ends,
+                commentState) {
+                regionSafe = false
+            } else {
+                if tokens.length() > 0 { regionHasCode = true }
+                if not formatterValidateAndUpdateDepth(tokens, kinds, depth) {
+                    regionSafe = false
+                }
+            }
+        }
+
+        let balanced = depth[0] == 0 and depth[1] == 0 and depth[2] == 0 and
+            commentState[0] == 0 and not tripleSlashBlock
+        if balanced {
+            var valid = regionSafe
+            if valid and regionHasCode {
+                valid = formatterRegionIsParseValid(
+                    formatterJoinRegion(rawLines, regionStart, lineIndex),
+                    language)
+            }
+            if not valid {
+                var unsafeLine = regionStart
+                while unsafeLine <= lineIndex {
+                    mask[unsafeLine] = 0
+                    unsafeLine = unsafeLine + 1
+                }
+            }
+            regionStart = lineIndex + 1
+            regionSafe = true
+            regionHasCode = false
+        }
+        lineIndex = lineIndex + 1
+    }
+
+    if regionStart < rawLines.length() {
+        var tail = regionStart
+        while tail < rawLines.length() {
+            mask[tail] = 0
+            tail = tail + 1
+        }
+    }
+    return mask
+}
+
+fun formatterLeadingDelimiterCount(tokens: Array<String>,
+    tokenKinds: Array<Int>, delimiter: String) r: Int {
+
+    var count = 0
+    var i = 0
+    while i < tokens.length() {
+        if tokenKinds[i] != 0 or tokens[i] != delimiter {
+            break
+        }
+        count = count + 1
+        i = i + 1
+    }
+    return count
+}
+
+fun formatterFormatTokenLine(line: String, tokens: Array<String>, tokenKinds: Array<Int>,
+    starts: Array<Int>, ends: Array<Int>, indent: String, keywords: KeywordManager) r: String {
+    if tokens.length() == 0 { return "" }
+    let builder = StringBuilder.new()
+    builder.append(indent)
+    var i = 0
+    while i < tokens.length() {
+        if i > 0 {
+            let gapStart = ends[i - 1]
+            let gapEnd = starts[i]
+            var originalGap = ""
+            if gapEnd > gapStart {
+                originalGap = line.substring(gapStart, gapEnd)
+            }
+            var beforePrev = ""
+            if i > 1 { beforePrev = tokens[i - 2] }
+            builder.append(formatterGap(tokens[i - 1], tokens[i], tokenKinds[i - 1],
+                tokenKinds[i], originalGap, beforePrev, keywords))
+        }
+        if tokenKinds[i] == 0 and formatterIsWordToken(tokens[i], tokenKinds[i]) {
+            builder.append(formatterPreferredKeyword(tokens[i], keywords))
+        } else {
+            builder.append(tokens[i])
+        }
+        i = i + 1
+    }
+    return builder.toString()
+}
+
+fun formatterImportBodyStart(line: String, keywords: KeywordManager) r: Int {
+    let firstSpace = line.indexOf(" ", 0)
+    if firstSpace <= 0 { return -1 }
+    let first = line.substring(0, firstSpace)
+    let firstType = keywords.getKeywordTypeDirect(first)
+    if firstType == SeenTokenType.KeywordImport or firstType == SeenTokenType.KeywordUse {
+        return firstSpace + 1
+    }
+    if firstType != SeenTokenType.KeywordPub { return -1 }
+    let secondStart = firstSpace + 1
+    let secondSpace = line.indexOf(" ", secondStart)
+    if secondSpace <= secondStart { return -1 }
+    let second = line.substring(secondStart, secondSpace)
+    if keywords.getKeywordTypeDirect(second) != SeenTokenType.KeywordImport { return -1 }
+    return secondSpace + 1
+}
+
+fun formatterIsSortableImport(line: String, keywords: KeywordManager) r: Bool {
+    var bodyStart = 0
+    bodyStart = formatterImportBodyStart(line, keywords)
+    if bodyStart < 0 { return false }
+    if line.contains("//") or line.contains("/*") { return false }
+    if line.contains("\"") or line.contains("'") { return false }
+    if bodyStart >= line.length() { return false }
+    var braces = 0
+    var i = bodyStart
+    while i < line.length() {
+        let ch = line.byteAt(i)
+        if ch == '{' { braces = braces + 1 }
+        if ch == '}' {
+            braces = braces - 1
+            if braces < 0 { return false }
+        }
+        var allowed = formatterIsWordByte(ch) or formatterIsSpace(ch)
+        if ch == '.' or ch == ':' or ch == '{' or ch == '}' or ch == ',' { allowed = true }
+        if ch == '*' { allowed = true }
+        if ch == ';' and i == line.length() - 1 { allowed = true }
+        if not allowed { return false }
+        i = i + 1
+    }
+    if braces != 0 { return false }
+    var last = line.length() - 1
+    if line.byteAt(last) == ';' { last = last - 1 }
+    while last >= bodyStart and formatterIsSpace(line.byteAt(last)) { last = last - 1 }
+    if last < bodyStart { return false }
+    let lastChar = line.byteAt(last)
+    if lastChar == '.' or lastChar == ':' or lastChar == ',' or lastChar == '{' { return false }
+    return true
+}
+
+fun formatterStringGreater(left: String, right: String) r: Bool {
+    var limit = left.length()
+    if right.length() < limit { limit = right.length() }
+    var i = 0
+    while i < limit {
+        let leftByte = left.byteAt(i).toInt()
+        let rightByte = right.byteAt(i).toInt()
+        if leftByte > rightByte { return true }
+        if leftByte < rightByte { return false }
+        i = i + 1
+    }
+    return left.length() > right.length()
+}
+
+fun formatterImportCategory(line: String, keywords: KeywordManager) r: Int {
+    let firstSpace = line.indexOf(" ", 0)
+    if firstSpace <= 0 { return 3 }
+    let firstType = keywords.getKeywordTypeDirect(line.substring(0, firstSpace))
+    if firstType == SeenTokenType.KeywordPub { return 0 }
+    if firstType == SeenTokenType.KeywordImport { return 1 }
+    return 2
+}
+
+fun formatterImportGreater(left: String, right: String, keywords: KeywordManager) r: Bool {
+    let leftCategory = formatterImportCategory(left, keywords)
+    let rightCategory = formatterImportCategory(right, keywords)
+    if leftCategory > rightCategory { return true }
+    if leftCategory < rightCategory { return false }
+    return formatterStringGreater(left, right)
+}
+
+fun formatterIsAttachedImportComment(line: String) r: Bool {
+    let trimmed = line.trim()
+    if not trimmed.startsWith("//") { return false }
+    return trimmed != "///"
+}
+
+fun formatterLineIsSafe(safeMask: Array<Int>, line: Int) r: Bool {
+    return line >= 0 and line < safeMask.length() and safeMask[line] == 1
+}
+
+fun formatterSortImportBlocks(lines: Array<String>, safeMask: Array<Int>,
+    keywords: KeywordManager) r: Void {
+
+    var start = 0
+    while start < lines.length() {
+        // A contiguous comment run immediately before an import belongs to
+        // that import. A file-level header is separated from imports by a
+        // blank line, which keeps it outside this block.
+        var firstImport = start
+        while firstImport < lines.length() and
+            formatterLineIsSafe(safeMask, firstImport) and
+            formatterIsAttachedImportComment(lines[firstImport]) {
+
+            firstImport = firstImport + 1
+        }
+        if firstImport < lines.length() and
+            formatterLineIsSafe(safeMask, firstImport) and
+            formatterIsSortableImport(lines[firstImport], keywords) {
+
+            let groupStarts = Array<Int>()
+            let groupEnds = Array<Int>()
+            let groupKeys = Array<String>()
+            groupStarts.push(start)
+            groupEnds.push(firstImport + 1)
+            groupKeys.push(lines[firstImport])
+            var end = firstImport + 1
+            var scanning = true
+            while scanning and end < lines.length() {
+                let groupStart = end
+                while end < lines.length() and
+                    formatterLineIsSafe(safeMask, end) and
+                    formatterIsAttachedImportComment(lines[end]) {
+
+                    end = end + 1
+                }
+                if end < lines.length() and
+                    formatterLineIsSafe(safeMask, end) and
+                    formatterIsSortableImport(lines[end], keywords) {
+
+                    groupStarts.push(groupStart)
+                    groupEnds.push(end + 1)
+                    groupKeys.push(lines[end])
+                    end = end + 1
+                } else {
+                    end = groupStart
+                    scanning = false
+                }
+            }
+            if groupKeys.length() > 1 {
+                let order = Array<Int>()
+                var oi = 0
+                while oi < groupKeys.length() {
+                    order.push(oi)
+                    oi = oi + 1
+                }
+                var i = 1
+                while i < order.length() {
+                    let currentGroup = order[i]
+                    var j = i - 1
+                    while j >= 0 and formatterImportGreater(groupKeys[order[j]],
+                        groupKeys[currentGroup], keywords) {
+                        order[j + 1] = order[j]
+                        j = j - 1
+                    }
+                    order[j + 1] = currentGroup
+                    i = i + 1
+                }
+                let replacement = Array<String>()
+                var sortedIndex = 0
+                while sortedIndex < order.length() {
+                    let sourceGroup = order[sortedIndex]
+                    var sourceLine = groupStarts[sourceGroup]
+                    while sourceLine < groupEnds[sourceGroup] {
+                        replacement.push(lines[sourceLine])
+                        sourceLine = sourceLine + 1
+                    }
+                    sortedIndex = sortedIndex + 1
+                }
+                var replacementIndex = 0
+                while replacementIndex < replacement.length() {
+                    lines[start + replacementIndex] = replacement[replacementIndex]
+                    replacementIndex = replacementIndex + 1
+                }
+            }
+            start = end
+        } else {
+            start = start + 1
+        }
+    }
+}
+
+fun formatterAsciiUppercaseWord(token: String) r: Bool {
+    if token.length() == 0 { return false }
+    let first = token.byteAt(0)
+    return first >= 'A' and first <= 'Z'
+}
+
+fun formatterTypeBodyKeyword(token: String, keywords: KeywordManager) r: Bool {
+    let tokenType = keywords.getKeywordTypeDirect(token)
+    if tokenType == SeenTokenType.KeywordClass or
+        tokenType == SeenTokenType.KeywordTrait { return true }
+    if tokenType == SeenTokenType.KeywordStruct or
+        tokenType == SeenTokenType.KeywordData { return true }
+    if tokenType == SeenTokenType.KeywordImpl { return true }
+    return false
+}
+
+fun formatterListDelimiterEligible(tokens: Array<String>, kinds: Array<Int>,
+    index: Int, opener: String, keywords: KeywordManager) r: Bool {
+    if index <= 0 { return opener == "[" }
+    let previous = tokens[index - 1]
+    var beforePrevious = ""
+    if index > 1 { beforePrevious = tokens[index - 2] }
+
+    if opener == "(" {
+        if formatterIsControlKeyword(previous, keywords) { return false }
+        if previous == "=" or previous == ":" or previous == "," { return false }
+        if previous == "(" or previous == "[" or previous == "{" { return false }
+        // Only identifiers introduce calls, declarations, decorators, and
+        // constructors. A language keyword followed by a parenthesized
+        // expression (for example `return (value)`) is not a list and must
+        // never gain a trailing comma.
+        if formatterIsWordToken(previous, kinds[index - 1]) {
+            return keywords.getKeywordTypeDirect(previous) ==
+                SeenTokenType.Identifier
+        }
+        return previous == ")" or previous == "]" or previous == ">"
+    }
+
+    if opener == "[" {
+        // A bracket after a value is indexing or a fixed-array type, not a
+        // comma-separated literal.
+        if formatterIsWordToken(previous, kinds[index - 1]) { return false }
+        if previous == ")" or previous == "]" or previous == ">" { return false }
+        return true
+    }
+
+    if opener == "{" {
+        if previous == "." or previous == "::" { return true }
+        // A return type immediately precedes a function body (`r: Int {`).
+        // That body is not an aggregate field list.
+        if beforePrevious == ":" { return false }
+        let beforeType = keywords.getKeywordTypeDirect(beforePrevious)
+        if beforeType == SeenTokenType.KeywordEnum or
+            beforeType == SeenTokenType.KeywordUnion { return true }
+        if formatterTypeBodyKeyword(beforePrevious, keywords) { return false }
+        return formatterAsciiUppercaseWord(previous)
+    }
+    return false
+}
+
+fun formatterMatchingDelimiter(open: String, close: String) r: Bool {
+    if open == "(" and close == ")" { return true }
+    if open == "[" and close == "]" { return true }
+    if open == "{" and close == "}" { return true }
+    return false
+}
+
+fun formatterPreviousCodeLine(lines: Array<String>, closeLine: Int,
+    openLine: Int) r: Int {
+    var line = closeLine - 1
+    while line > openLine {
+        let trimmed = lines[line].trim()
+        if trimmed != "" and not trimmed.startsWith("//") { return line }
+        line = line - 1
+    }
+    return -1
+}
+
+fun formatterSetTrailingComma(line: String, enabled: Bool) r: String {
+    if line.contains("//") { return line }
+    var end = line.length()
+    while end > 0 and formatterIsSpace(line.byteAt(end - 1)) {
+        end = end - 1
+    }
+    if end == 0 { return line }
+    let hasComma = line.byteAt(end - 1) == ','
+    if enabled {
+        if hasComma { return line }
+        return line.substring(0, end) + "," + line.substring(end, line.length())
+    }
+    if not hasComma { return line }
+    return line.substring(0, end - 1) + line.substring(end, line.length())
+}
+
+fun formatterApplyTrailingCommas(lines: Array<String>, safeMask: Array<Int>,
+    enabled: Bool, keywords: KeywordManager) r: Void {
+    let openKinds = Array<String>()
+    let openLines = Array<Int>()
+    let eligible = Array<Int>()
+    var stackDepth = 0
+    var lineIndex = 0
+    while lineIndex < lines.length() {
+        if lineIndex < safeMask.length() and safeMask[lineIndex] == 0 {
+            var si = 0
+            while si < stackDepth {
+                eligible[si] = 0
+                si = si + 1
+            }
+            lineIndex = lineIndex + 1
+            continue
+        }
+
+        let tokens = Array<String>()
+        let kinds = Array<Int>()
+        let starts = Array<Int>()
+        let ends = Array<Int>()
+        let commentState = Array<Int>()
+        commentState.push(0)
+        if formatterTokenizeLine(lines[lineIndex], tokens, kinds, starts, ends,
+            commentState) {
+            var ti = 0
+            while ti < tokens.length() {
+                let token = tokens[ti]
+                if kinds[ti] == 2 {
+                    var ci = 0
+                    while ci < stackDepth {
+                        eligible[ci] = 0
+                        ci = ci + 1
+                    }
+                    break
+                }
+                if token == "(" or token == "[" or token == "{" {
+                    let isEligible = formatterListDelimiterEligible(tokens,
+                        kinds, ti, token, keywords)
+                    if stackDepth < openKinds.length() {
+                        openKinds[stackDepth] = token
+                        openLines[stackDepth] = lineIndex
+                        if isEligible { eligible[stackDepth] = 1 }
+                        else { eligible[stackDepth] = 0 }
+                    } else {
+                        openKinds.push(token)
+                        openLines.push(lineIndex)
+                        if isEligible { eligible.push(1) } else { eligible.push(0) }
+                    }
+                    stackDepth = stackDepth + 1
+                } else if token == ")" or token == "]" or token == "}" {
+                    if stackDepth > 0 and formatterMatchingDelimiter(
+                        openKinds[stackDepth - 1], token) {
+
+                        let slot = stackDepth - 1
+                        let openingLine = openLines[slot]
+                        if eligible[slot] == 1 and lineIndex > openingLine {
+                            let previousLine = formatterPreviousCodeLine(lines,
+                                lineIndex, openingLine)
+                            if previousLine >= 0 and
+                                previousLine < safeMask.length() and
+                                safeMask[previousLine] == 1 {
+
+                                lines[previousLine] = formatterSetTrailingComma(
+                                    lines[previousLine], enabled)
+                            }
+                        }
+                        stackDepth = stackDepth - 1
+                    }
+                }
+                ti = ti + 1
+            }
+        }
+        lineIndex = lineIndex + 1
+    }
+}
+
+fun formatterTokenDepthAtTop(parenDepth: Int, bracketDepth: Int,
+    braceDepth: Int, opener: String) r: Bool {
+    if opener == "(" {
+        return parenDepth == 1 and bracketDepth == 0 and braceDepth == 0
+    }
+    if opener == "[" {
+        return parenDepth == 0 and bracketDepth == 1 and braceDepth == 0
+    }
+    return parenDepth == 0 and bracketDepth == 0 and braceDepth == 1
+}
+
+fun formatterReflowLine(line: String, lineWidth: Int, indentUnit: String,
+    trailingComma: Bool, keywords: KeywordManager) r: Array<String> {
+    let unchanged = Array<String>()
+    unchanged.push(line)
+    if formatterUtf16Length(line, line.length()) <= lineWidth { return unchanged }
+    if line.contains("//") { return unchanged }
+
+    let tokens = Array<String>()
+    let kinds = Array<Int>()
+    let starts = Array<Int>()
+    let ends = Array<Int>()
+    let commentState = Array<Int>()
+    commentState.push(0)
+    if not formatterTokenizeLine(line, tokens, kinds, starts, ends,
+        commentState) { return unchanged }
+
+    var openIndex = -1
+    var closeIndex = -1
+    var opener = ""
+    var itemCount = 0
+    var oi = 0
+    while oi < tokens.length() and openIndex < 0 {
+        let candidate = tokens[oi]
+        if (candidate == "(" or candidate == "[" or candidate == "{") and
+            formatterListDelimiterEligible(tokens, kinds, oi, candidate,
+                keywords) {
+
+            var parens = 0
+            var brackets = 0
+            var braces = 0
+            if candidate == "(" { parens = 1 }
+            if candidate == "[" { brackets = 1 }
+            if candidate == "{" { braces = 1 }
+            var commas = 0
+            var ci = oi + 1
+            while ci < tokens.length() {
+                let token = tokens[ci]
+                if token == "," and formatterTokenDepthAtTop(parens,
+                    brackets, braces, candidate) { commas = commas + 1 }
+                if token == "(" { parens = parens + 1 }
+                if token == "[" { brackets = brackets + 1 }
+                if token == "{" { braces = braces + 1 }
+                if token == ")" { parens = parens - 1 }
+                if token == "]" { brackets = brackets - 1 }
+                if token == "}" { braces = braces - 1 }
+                let closed = parens == 0 and brackets == 0 and braces == 0
+                if closed {
+                    if commas > 0 {
+                        openIndex = oi
+                        closeIndex = ci
+                        opener = candidate
+                        itemCount = commas + 1
+                    }
+                    break
+                }
+                ci = ci + 1
+            }
+        }
+        oi = oi + 1
+    }
+    if openIndex < 0 or closeIndex <= openIndex or itemCount < 2 {
+        return unchanged
+    }
+
+    let items = Array<String>()
+    var itemStart = ends[openIndex]
+    var parens2 = 0
+    var brackets2 = 0
+    var braces2 = 0
+    if opener == "(" { parens2 = 1 }
+    if opener == "[" { brackets2 = 1 }
+    if opener == "{" { braces2 = 1 }
+    var ti = openIndex + 1
+    while ti < closeIndex {
+        let token = tokens[ti]
+        if token == "," and formatterTokenDepthAtTop(parens2, brackets2,
+            braces2, opener) {
+            items.push(line.substring(itemStart, starts[ti]).trim())
+            itemStart = ends[ti]
+        } else {
+            if token == "(" { parens2 = parens2 + 1 }
+            if token == "[" { brackets2 = brackets2 + 1 }
+            if token == "{" { braces2 = braces2 + 1 }
+            if token == ")" { parens2 = parens2 - 1 }
+            if token == "]" { brackets2 = brackets2 - 1 }
+            if token == "}" { braces2 = braces2 - 1 }
+        }
+        ti = ti + 1
+    }
+    items.push(line.substring(itemStart, starts[closeIndex]).trim())
+    if items.length() != itemCount { return unchanged }
+    var ii = 0
+    while ii < items.length() {
+        if items[ii] == "" { return unchanged }
+        ii = ii + 1
+    }
+
+    let result = Array<String>()
+    let leading = formatterLeadingWhitespace(line)
+    result.push(line.substring(0, ends[openIndex]))
+    ii = 0
+    while ii < items.length() {
+        var itemLine = leading + indentUnit + items[ii]
+        if ii + 1 < items.length() or trailingComma {
+            itemLine = itemLine + ","
+        }
+        result.push(itemLine)
+        ii = ii + 1
+    }
+    result.push(leading + line.substring(starts[closeIndex], line.length()))
+    return result
+}
+
+fun formatterReflowLongLines(lines: Array<String>, safeMask: Array<Int>,
+    lineWidth: Int, indentUnit: String, trailingComma: Bool,
+    keywords: KeywordManager, newline: String) r: Array<String> {
+    let result = Array<String>()
+    var i = 0
+    while i < lines.length() {
+        if i < safeMask.length() and safeMask[i] == 1 {
+            let reflowed = formatterReflowLine(lines[i], lineWidth, indentUnit,
+                trailingComma, keywords)
+            let builder = StringBuilder.new()
+            var ri = 0
+            while ri < reflowed.length() {
+                if ri > 0 { builder.append(newline) }
+                builder.append(reflowed[ri])
+                ri = ri + 1
+            }
+            result.push(builder.toString())
+        } else {
+            result.push(lines[i])
+        }
+        i = i + 1
+    }
+    return result
+}
+
+fun formatterFormatLinesWithLanguageOptions(content: String, indentWidth: Int,
+    insertSpaces: Bool, sortImports: Bool, language: String, lineWidth: Int,
+    trailingComma: Bool) r: Array<String> {
+    let rawLines = content.split("\n")
+    let lines = Array<String>()
+    let keywords = KeywordManager.new(language)
+    let indentUnit = formatterIndentUnit(indentWidth, insertSpaces)
+    let safeMask = formatterParseValidLineMask(content, language)
+    let depthState = Array<Int>()
+    depthState.push(0)
+    depthState.push(0)
+    depthState.push(0)
+    let commentState = Array<Int>()
+    commentState.push(0)
+    var tripleSlashBlock = false
+    var lastBalancedLine = -1
+    var lineIndex = 0
+    while lineIndex < rawLines.length() {
+        let line = formatterStripCarriageReturn(rawLines[lineIndex])
+        let trimmed = line.trim()
+        if trimmed == "///" {
+            tripleSlashBlock = not tripleSlashBlock
+            lines.push(line)
+        } else {
+            if tripleSlashBlock or trimmed.startsWith("//") or commentState[0] == 1 {
+                if commentState[0] == 1 {
+                    let close = line.indexOf("*/", 0)
+                    if close >= 0 { commentState[0] = 0 }
+                }
+                lines.push(line)
+            } else {
+                let tokens = Array<String>()
+                let tokenKinds = Array<Int>()
+                let starts = Array<Int>()
+                let ends = Array<Int>()
+                if not formatterTokenizeLine(line, tokens, tokenKinds, starts, ends, commentState) {
+                    lines.push(line)
+                } else {
+                    let beforeBraceDepth = depthState[0]
+                    let beforeParenDepth = depthState[1]
+                    let beforeBracketDepth = depthState[2]
+                    let leadingBraceClose = formatterLeadingDelimiterCount(
+                        tokens, tokenKinds, "}")
+                    let leadingParenClose = formatterLeadingDelimiterCount(
+                        tokens, tokenKinds, ")")
+                    let leadingBracketClose = formatterLeadingDelimiterCount(
+                        tokens, tokenKinds, "]")
+                    if not formatterValidateAndUpdateDepth(tokens, tokenKinds, depthState) {
+                        lines.push(line)
+                    } else {
+                        var lineDepth = beforeBraceDepth - leadingBraceClose +
+                            beforeParenDepth - leadingParenClose +
+                            beforeBracketDepth - leadingBracketClose
+                        if lineDepth < 0 { lineDepth = 0 }
+                        let indent = formatterRepeat(indentUnit, lineDepth)
+                        if lineIndex < safeMask.length() and safeMask[lineIndex] == 0 {
+                            lines.push(line)
+                        } else {
+                            lines.push(formatterFormatTokenLine(line, tokens,
+                                tokenKinds, starts, ends, indent, keywords))
+                        }
+                        if depthState[0] == 0 and depthState[1] == 0 and depthState[2] == 0 {
+                            lastBalancedLine = lineIndex
+                        }
+                    }
+                }
+            }
+        }
+        lineIndex = lineIndex + 1
+    }
+    if sortImports {
+        formatterSortImportBlocks(lines, safeMask, keywords)
+    }
+    formatterApplyTrailingCommas(lines, safeMask, trailingComma, keywords)
+    if depthState[0] != 0 or depthState[1] != 0 or depthState[2] != 0 {
+        var unsafeLine = lastBalancedLine + 1
+        while unsafeLine < lines.length() {
+            lines[unsafeLine] = formatterStripCarriageReturn(rawLines[unsafeLine])
+            unsafeLine = unsafeLine + 1
+        }
+    }
+    return formatterReflowLongLines(lines, safeMask, lineWidth, indentUnit,
+        trailingComma, keywords, formatterDominantNewline(content))
+}
+
+fun formatterFormatLinesWithLanguage(content: String, indentWidth: Int,
+    insertSpaces: Bool, sortImports: Bool, language: String) r: Array<String> {
+    return formatterFormatLinesWithLanguageOptions(content, indentWidth,
+        insertSpaces, sortImports, language, 100, true)
+}
+
+fun formatterFormatLines(content: String, indentWidth: Int, insertSpaces: Bool,
+    sortImports: Bool) r: Array<String> {
+    return formatterFormatLinesWithLanguage(content, indentWidth, insertSpaces,
+        sortImports, "en")
+}
+
+fun formatSeenTextWithLanguageOptions(content: String, indentWidth: Int,
+    insertSpaces: Bool, sortImports: Bool, language: String, lineWidth: Int,
+    trailingComma: Bool) r: String {
+    let lines = formatterFormatLinesWithLanguageOptions(content, indentWidth,
+        insertSpaces, sortImports, language, lineWidth, trailingComma)
+    let rawLines = content.split("\n")
+    let builder = StringBuilder.new()
+    var i = 0
+    while i < lines.length() {
+        builder.append(lines[i])
+        if i + 1 < lines.length() {
+            if rawLines[i].endsWith("\r") {
+                builder.append("\r\n")
+            } else {
+                builder.append("\n")
+            }
+        }
+        i = i + 1
+    }
+    return builder.toString()
+}
+
+fun formatSeenTextWithLanguage(content: String, indentWidth: Int,
+    insertSpaces: Bool, sortImports: Bool, language: String) r: String {
+    return formatSeenTextWithLanguageOptions(content, indentWidth, insertSpaces,
+        sortImports, language, 100, true)
+}
+
+fun formatSeenText(content: String, indentWidth: Int, insertSpaces: Bool,
+    sortImports: Bool) r: String {
+    return formatSeenTextWithLanguage(content, indentWidth, insertSpaces, sortImports, "en")
+}
+
+fun formatterUtf8CharLength(text: String, pos: Int) r: Int {
+    let byte = text.byteAt(pos).toInt()
+    if byte < 128 { return 1 }
+    if byte >= 240 { return 4 }
+    if byte >= 224 { return 3 }
+    if byte >= 192 { return 2 }
+    return 1
+}
+
+fun formatterUtf16Length(text: String, byteEnd: Int) r: Int {
+    var units = 0
+    var pos = 0
+    while pos < byteEnd and pos < text.length() {
+        let length = formatterUtf8CharLength(text, pos)
+        if length == 4 {
+            units = units + 2
+        } else {
+            units = units + 1
+        }
+        pos = pos + length
+    }
+    return units
+}
+
+fun formatterCommonPrefix(left: String, right: String) r: Int {
+    var limit = left.length()
+    if right.length() < limit { limit = right.length() }
+    var pos = 0
+    while pos < limit and left.byteAt(pos) == right.byteAt(pos) {
+        pos = pos + 1
+    }
+    while pos > 0 and pos < left.length() {
+        let byte = left.byteAt(pos).toInt()
+        if byte < 128 or byte >= 192 { break }
+        pos = pos - 1
+    }
+    return pos
+}
+
+fun formatterCommonSuffix(left: String, right: String, prefix: Int) r: Int {
+    var suffix = 0
+    while suffix < left.length() - prefix and suffix < right.length() - prefix {
+        if left.byteAt(left.length() - suffix - 1) != right.byteAt(right.length() - suffix - 1) {
+            break
+        }
+        suffix = suffix + 1
+    }
+    // The replacement boundaries must not split a UTF-8 scalar.
+    while suffix > 0 and suffix < left.length() - prefix {
+        let boundary = left.length() - suffix
+        let byte = left.byteAt(boundary).toInt()
+        if byte < 128 or byte >= 192 { break }
+        suffix = suffix - 1
+    }
+    return suffix
+}
+
+fun formatSeenDocumentEditsWithLanguageOptions(content: String, indentWidth: Int,
+    insertSpaces: Bool, sortImports: Bool, language: String, lineWidth: Int,
+    trailingComma: Bool) r: Array<TextEdit> {
+    let originalRaw = content.split("\n")
+    let formatted = formatterFormatLinesWithLanguageOptions(content, indentWidth,
+        insertSpaces, sortImports, language, lineWidth, trailingComma)
+    let edits = Array<TextEdit>()
+    var line = 0
+    while line < originalRaw.length() and line < formatted.length() {
+        let original = formatterStripCarriageReturn(originalRaw[line])
+        let replacement = formatted[line]
+        if original != replacement {
+            let prefix = formatterCommonPrefix(original, replacement)
+            let suffix = formatterCommonSuffix(original, replacement, prefix)
+            let oldEnd = original.length() - suffix
+            let newEnd = replacement.length() - suffix
+            let startCharacter = formatterUtf16Length(original, prefix)
+            let endCharacter = formatterUtf16Length(original, oldEnd)
+            let range = Range_new(LspPosition_new(line, startCharacter),
+                LspPosition_new(line, endCharacter))
+            edits.push(TextEdit_new(range, replacement.substring(prefix, newEnd)))
+        }
+        line = line + 1
+    }
+    return edits
+}
+
+fun formatSeenDocumentEditsWithLanguage(content: String, indentWidth: Int,
+    insertSpaces: Bool, sortImports: Bool, language: String) r: Array<TextEdit> {
+    return formatSeenDocumentEditsWithLanguageOptions(content, indentWidth,
+        insertSpaces, sortImports, language, 100, true)
+}
+
+fun formatSeenDocumentEdits(content: String, indentWidth: Int, insertSpaces: Bool,
+    sortImports: Bool) r: Array<TextEdit> {
+    return formatSeenDocumentEditsWithLanguage(content, indentWidth, insertSpaces,
+        sortImports, "en")
+}
+
+fun formatterTomlValue(line: String) r: String {
+    let equals = line.indexOf("=", 0)
+    if equals < 0 { return "" }
+    var value = line.substring(equals + 1, line.length()).trim()
+    let comment = value.indexOf("#", 0)
+    if comment >= 0 {
+        value = value.substring(0, comment).trim()
+    }
+    return value
+}
+
+fun formatterTomlKey(line: String) r: String {
+    let equals = line.indexOf("=", 0)
+    if equals < 0 { return "" }
+    return line.substring(0, equals).trim()
+}
+
+fun formatterPositiveInt(value: String) r: Int {
+    if value.length() == 0 { return 0 }
+    var i = 0
+    while i < value.length() {
+        if not formatterIsDigit(value.byteAt(i)) { return 0 }
+        i = i + 1
+    }
+    return value.toInt()
+}
+
+fun formatterIndentFromToml(content: String, fallback: Int) r: Int {
+    let lines = content.split("\n")
+    var section = ""
+    var i = 0
+    while i < lines.length() {
+        let line = formatterStripCarriageReturn(lines[i]).trim()
+        if line.startsWith("[") and line.endsWith("]") {
+            section = line.substring(1, line.length() - 1).trim()
+        } else {
+            if section == "format" and formatterTomlKey(line) == "indent" {
+                let value = formatterPositiveInt(formatterTomlValue(line))
+                if value >= 1 and value <= 16 { return value }
+            }
+        }
+        i = i + 1
+    }
+    return fallback
+}
+
+fun formatterLineWidthFromToml(content: String, fallback: Int) r: Int {
+    let lines = content.split("\n")
+    var section = ""
+    var i = 0
+    while i < lines.length() {
+        let line = formatterStripCarriageReturn(lines[i]).trim()
+        if line.startsWith("[") and line.endsWith("]") {
+            section = line.substring(1, line.length() - 1).trim()
+        } else if section == "format" and
+            formatterTomlKey(line) == "line-width" {
+
+            let value = formatterPositiveInt(formatterTomlValue(line))
+            if value >= 20 and value <= 1000 { return value }
+        }
+        i = i + 1
+    }
+    return fallback
+}
+
+/// Returns -1 when the manifest does not specify trailing-comma.
+fun formatterTrailingCommaFromToml(content: String) r: Int {
+    let lines = content.split("\n")
+    var section = ""
+    var i = 0
+    while i < lines.length() {
+        let line = formatterStripCarriageReturn(lines[i]).trim()
+        if line.startsWith("[") and line.endsWith("]") {
+            section = line.substring(1, line.length() - 1).trim()
+        } else if section == "format" and
+            formatterTomlKey(line) == "trailing-comma" {
+
+            let value = formatterTomlValue(line)
+            if value == "true" { return 1 }
+            if value == "false" { return 0 }
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+/// Returns -1 when the manifest does not specify sort-imports.
+fun formatterSortImportsFromToml(content: String) r: Int {
+    let lines = content.split("\n")
+    var section = ""
+    var i = 0
+    while i < lines.length() {
+        let line = formatterStripCarriageReturn(lines[i]).trim()
+        if line.startsWith("[") and line.endsWith("]") {
+            section = line.substring(1, line.length() - 1).trim()
+        } else {
+            if section == "format" and formatterTomlKey(line) == "sort-imports" {
+                let value = formatterTomlValue(line)
+                if value == "true" { return 1 }
+                if value == "false" { return 0 }
+            }
+        }
+        i = i + 1
+    }
+    return -1
+}

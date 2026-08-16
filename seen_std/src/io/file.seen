@@ -4,6 +4,8 @@ import core.unit.{Unit}
 
 extern fun __FileExists(path: String) r: Bool
 extern fun __DeleteFile(path: String) r: Bool
+extern fun seen_replace_file(source: String, destination: String) r: Bool
+extern fun seen_write_text_atomic(destination: String, content: String) r: Bool
 extern fun __CreateDirectory(path: String) r: Bool
 extern fun __OpenFile(path: String, mode: String) r: Int
 extern fun __ReadFile(fd: Int) r: String
@@ -113,6 +115,49 @@ class FsFileResult {
     }
 }
 
+///
+/// Bootstrap-safe checked text read. Unlike readText, this distinguishes a
+/// valid empty file from an open/read/close failure. It deliberately avoids a
+/// generic Result return so bootstrap compilers do not need to synthesize
+/// cross-module Result method specializations merely to discover data files.
+///
+class CheckedTextRead {
+    var success: Bool
+    var content: String
+    var error: String
+
+    static fun ok(content: String) r: CheckedTextRead {
+        return CheckedTextRead{ success: true, content: content, error: "" }
+    }
+
+    static fun err(error: String) r: CheckedTextRead {
+        return CheckedTextRead{ success: false, content: "", error: error }
+    }
+}
+
+fun readTextChecked(path: String) r: CheckedTextRead {
+    let fd: Int = __OpenFile(path, "rb")
+    if fd < 0 {
+        return CheckedTextRead.err("failed to open file: " + path)
+    }
+
+    let expectedSize: Int = __FileSize(fd)
+    if expectedSize < 0 {
+        let _ = __CloseFile(fd)
+        return CheckedTextRead.err("failed to determine file size: " + path)
+    }
+    let content: String = __ReadFile(fd)
+    let readError: String = __FileError(fd)
+    let closeResult: Int = __CloseFile(fd)
+    if readError != "" or content.length() != expectedSize {
+        return CheckedTextRead.err("failed to read file: " + path)
+    }
+    if closeResult < 0 {
+        return CheckedTextRead.err("failed to close file: " + path)
+    }
+    return CheckedTextRead.ok(content)
+}
+
 fun read_to_string(path: String) r: Result<String, String> {
     let res = FsFile.open(path)
     if res.isOk {
@@ -167,6 +212,17 @@ fun writeText(path: String, content: String) r: Bool {
     return written == content.length() and closeResult >= 0
 }
 
+///
+/// Bootstrap-safe transactional text output. The runtime creates an exclusive
+/// temporary file beside path, validates every write/sync/close operation, and
+/// commits with one atomic replacement. A failure before commit preserves an
+/// existing destination and removes only the temporary file owned by this call.
+/// Existing symlink destinations are rejected rather than followed.
+///
+fun writeTextAtomically(path: String, content: String) r: Bool {
+    return seen_write_text_atomic(path, content)
+}
+
 fun appendText(path: String, content: String) r: Bool {
     let fd: Int = __OpenFile(path, "a")
     if fd < 0 {
@@ -183,6 +239,10 @@ fun exists(path: String) r: Bool {
 
 fun deleteFile(path: String) r: Bool {
     return __DeleteFile(path)
+}
+
+fun replaceFile(source: String, destination: String) r: Bool {
+    return seen_replace_file(source, destination)
 }
 
 fun createDirectory(path: String) r: Bool {

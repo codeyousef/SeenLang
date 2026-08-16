@@ -3,49 +3,33 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 COMPILER="${COMPILER:-$ROOT_DIR/compiler_seen/target/seen}"
-if [[ "$COMPILER" != /* ]]; then
-    if [[ "$COMPILER" == */* ]]; then
-        COMPILER="$(cd "$(dirname "$COMPILER")" && pwd)/$(basename "$COMPILER")"
-    else
-        COMPILER="$(command -v "$COMPILER" || printf '%s' "$COMPILER")"
-    fi
+CAPPED_ENTRY="$ROOT_DIR/scripts/run_capped_regression.sh"
+SCOPE=seen-trainer-blocker-regressions
+if [ "${SEEN_CAPPED_REGRESSION_ACTIVE:-0}" != "1" ]; then
+    exec bash "$CAPPED_ENTRY" "$SCOPE" --compiler "$COMPILER" -- \
+        bash "$0" "$@"
 fi
-TMP_DIR="$(mktemp -d /tmp/seen_trainer_blockers.XXXXXX)"
+COMPILER="${SEEN_CAPPED_REGRESSION_COMPILER:-$COMPILER}"
+bash "$CAPPED_ENTRY" --verify-active "$SCOPE" --compiler "$COMPILER"
+ATTESTED_SEEN="${SEEN_ATTESTED_COMPILER_RUNNER:?}"
+TMP_DIR="$(mktemp -d "$SEEN_ARTIFACT_ROOT/seen-trainer-blockers.XXXXXX")"
 
 cleanup() {
     if [ -z "${SEEN_KEEP_TMP:-}" ]; then
-        rm -rf "$TMP_DIR"
+        case "$TMP_DIR" in
+            "$SEEN_ARTIFACT_ROOT"/seen-trainer-blockers.*)
+                [ -d "$TMP_DIR" ] && [ ! -L "$TMP_DIR" ] &&
+                    [ "$(dirname -- "$TMP_DIR")" = "$SEEN_ARTIFACT_ROOT" ] || return 1
+                rm -rf -- "$TMP_DIR"
+                ;;
+            *) return 1 ;;
+        esac
     else
         echo "KEEP: $TMP_DIR"
     fi
 }
 
 trap cleanup EXIT
-
-apply_memory_cap() {
-    if [ -n "${SEEN_TEST_NO_ULIMIT:-}" ]; then
-        return
-    fi
-
-    local avail_kb current_limit target_kb
-    avail_kb="$(awk '/MemAvailable/ { print $2 }' /proc/meminfo 2>/dev/null || echo 0)"
-    if [ "$avail_kb" -le 0 ]; then
-        return
-    fi
-
-    target_kb=$(( avail_kb / 2 ))
-    if [ "$target_kb" -gt 8388608 ]; then
-        target_kb=8388608
-    fi
-    if [ "$target_kb" -lt 1048576 ]; then
-        return
-    fi
-
-    current_limit="$(ulimit -v)"
-    if [ "$current_limit" = "unlimited" ] || [ "$current_limit" -gt "$target_kb" ]; then
-        ulimit -v "$target_kb"
-    fi
-}
 
 run_program() {
     local name="$1"
@@ -54,8 +38,8 @@ run_program() {
     local log="$TMP_DIR/$name.compile.log"
     local out="$TMP_DIR/$name.run.log"
 
-    if ! "$COMPILER" compile "$src" "$bin" --fast --no-cache --no-fork \
-        --jobs=1 --opt-jobs=1 >"$log" 2>&1; then
+    if ! bash "$ATTESTED_SEEN" "$COMPILER" compile "$src" "$bin" \
+        --fast --no-cache >"$log" 2>&1; then
         echo "FAIL: $name did not compile"
         cat "$log"
         exit 1
@@ -69,10 +53,6 @@ run_program() {
         exit 1
     fi
 }
-
-apply_memory_cap
-export SEEN_JOBS=1
-export SEEN_OPT_JOBS=1
 
 mkdir -p "$TMP_DIR/src/trainer" "$TMP_DIR/tests" "$TMP_DIR/target"
 cat >"$TMP_DIR/Seen.toml" <<'TOML'
@@ -466,8 +446,9 @@ SEEN
 
 (
     cd "$TMP_DIR/gpu_probe"
-    if ! "$COMPILER" compile src/main.seen target/probe --fast --no-cache \
-        --no-fork --emit-glsl --jobs=1 --opt-jobs=1 \
+    if ! bash "$ATTESTED_SEEN" "$COMPILER" compile \
+        src/main.seen target/probe --fast --no-cache \
+        --emit-glsl \
         >"$TMP_DIR/gpu_probe.compile.log" 2>&1; then
         echo "FAIL: gpu_probe did not compile"
         cat "$TMP_DIR/gpu_probe.compile.log"

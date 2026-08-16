@@ -1,0 +1,20 @@
+import io.file.{CheckedTextRead, readTextChecked, writeTextAtomically}
+
+fun verifyAtomicTextApi(path: String, content: String) r: Bool {
+    if not writeTextAtomically(path, content) {
+        return false
+    }
+    let read: CheckedTextRead = readTextChecked(path)
+    return read.success and read.content == content
+}
+
+fun main() {
+    // The native runtime regression owns filesystem mutation. This fixture
+    // keeps the bootstrap-safe Seen declarations in the checked module graph.
+    if false {
+        let verified = verifyAtomicTextApi("unused", "unused")
+        if verified {
+            println("unreachable")
+        }
+    }
+}

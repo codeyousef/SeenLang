@@ -34,65 +34,122 @@ new stages verify correctly.
 | `--tier verify` | Cache-enabled production rebuild with prebuild gates, smoke checks, and targeted compiler checks before install. | `compiler_seen/target/seen` and `target/release/seen` |
 | `--tier full` | Cold staged bootstrap verification with the existing Stage 1/2/3 and recovery semantics. This is still the no-argument default. | `compiler_seen/target/seen`, `target/release/seen`, and a full-release stamp |
 
-Do not run a compiler rebuild without explicit memory limits. A typical guarded
-run derives a main cap from current memory and keeps optimizer work capped:
+### Hard-containment contract
+
+Do not run a compiler, rebuild, package-helper build, optimizer, linker, or
+build-capable test without an aggregate kernel-enforced memory boundary around
+the whole process tree. A per-process `ulimit` is only a secondary defense: it
+does not stop many children from exhausting the host together.
+
+On Linux, a supported rebuild must create one transient user-systemd scope
+around the entire post-namespace rebuild and read back all of these controls
+before starting any compiler or helper build:
+
+- `memory.max` is a positive value no greater than the requested aggregate cap;
+- `memory.swap.max` is exactly `0`;
+- `pids.max` is a positive value no greater than the requested `TasksMax`.
+
+The automatic aggregate cap is the minimum of 25% of total memory, 50% of
+currently available memory, and 4 GiB. The optimizer's secondary per-process
+limit is the minimum of 10% of total memory, half the aggregate cap, and 2 GiB.
+The rebuild also forces `SEEN_JOBS=1`, `SEEN_OPT_JOBS=1`, and `TasksMax` no
+greater than 16. `ulimit -v` and the userspace RSS observer run inside that
+scope as early-warning and per-process defenses; neither replaces the cgroup.
+
+If the user systemd manager, cgroup v2 controls, or limit read-back is
+unavailable, the rebuild must fail before compiler work begins. Polling-only
+containment and an unverified environment marker are not supported fallbacks.
+This section defines the required policy; the read-back reported by each run is
+the evidence that the particular checkout and host enforced it.
 
 Source rebuilds of Seen 0.10 also require Go 1.26 or newer to build the
 version-matched `seen-pkg` helper. Set `SEEN_GO` when that executable is not the
 default `go` on `PATH`. Binary releases already include the helper beside the
 compiler and do not require Go.
 
-```bash
-AVAIL_KB=$(awk '/MemAvailable/ {print $2}' /proc/meminfo)
-MAIN_KB=$(( AVAIL_KB * 70 / 100 ))
-if [ "$MAIN_KB" -gt 10485760 ]; then MAIN_KB=10485760; fi
-ulimit -v "$MAIN_KB"
-SEEN_LOW_MEMORY=1 \
-SEEN_SKIP_LOW_MEMORY_SHORTCUT=1 \
-SEEN_MAIN_VMEM_KB="$MAIN_KB" \
-SEEN_OPT_VMEM_KB=2097152 \
-SEEN_MEMORY_LIMIT_BYTES="$(( MAIN_KB * 1024 ))" \
-./scripts/safe_rebuild.sh
-```
-
-The script runs prebuild gates before expensive compiler work unless explicitly
-disabled with `SEEN_SKIP_PREBUILD_GATES=1`.
-
-For iterative work, use the same derived caps with a quicker tier:
+Use the guarded rebuild entry point and spell the tier explicitly:
 
 ```bash
 SEEN_LOW_MEMORY=1 \
-SEEN_MAIN_VMEM_KB="$MAIN_KB" \
-SEEN_OPT_VMEM_KB=2097152 \
-SEEN_MEMORY_LIMIT_BYTES="$(( MAIN_KB * 1024 ))" \
+SEEN_JOBS=1 \
+SEEN_OPT_JOBS=1 \
 ./scripts/safe_rebuild.sh --tier quick
 ```
 
-`--clean-cache` explicitly removes `.seen_cache/`, `/tmp/seen_ir_cache`,
-`/tmp/seen_thinlto_cache`, and generated-test object caches. Quick and verify
-tiers do not clear useful caches during normal rebuilds.
+The command is permitted to continue only after it reports the read-back
+verified `MemoryMax`, zero swap allowance, and task limit. Do not wrap it in an
+ad hoc `ulimit` block and mistake that for aggregate containment.
+
+The verify/full paths run their required prebuild gates inside the same hard
+scope before expensive compiler work. Do not disable them for a routine
+rebuild.
+
+All rebuild scratch files default to the Git-ignored
+`.seen/agent-tools/safe-rebuild/` directory in the checkout. Set
+`SEEN_ARTIFACT_ROOT` to choose a different location, but it must still be an
+ignored directory inside the repository and must not traverse symbolic links.
+Validate the location and frozen-bootstrap mapping without starting a build:
+
+```bash
+./scripts/safe_rebuild.sh --artifact-preflight
+```
+
+The frozen compiler predates the artifact-root setting and uses absolute
+temporary paths internally. On Linux, `safe_rebuild.sh` uses Bubblewrap to map
+those paths onto its project-local per-run directory, then enters the transient
+scope without losing that mount namespace. The host temporary filesystem is
+not written. The script fails closed if either the private mapping or the hard
+scope is unavailable. `SEEN_ALLOW_SYSTEM_TMP=1` is an explicit compatibility
+escape hatch for other hosts, and must not be set when project-local artifacts
+are a requirement.
+
+`scripts/run_with_project_artifacts.sh` preserves command arguments, creates a
+unique ignored directory under `.seen/agent-tools/<scope>/`, sets `TMPDIR` and
+`SEEN_ARTIFACT_ROOT`, and maps that directory onto `/tmp` only inside the
+command's private Linux mount namespace. It cleans the unique directory after
+the command. Add
+`--keep-on-failure` after the scope to retain a failed run for inspection. It
+fails closed when Bubblewrap or the private mapping is unavailable.
+
+Artifact isolation is not memory containment. Until a standalone entry point
+can place a direct compiler, prebuild, performance, or package-helper command in
+the same read-back-verified scope, do not invoke those build-capable paths
+directly or use the artifact wrapper as a substitute. Drive them through the
+appropriate `safe_rebuild.sh` tier instead.
+
+For verification or a cold fixed-point rebuild, replace the final tier with
+`--tier verify` or `--tier full` while retaining low-memory mode and the serial
+worker settings. Always spell the tier explicitly in automation, even though no
+argument currently means `full`.
+`SEEN_SKIP_LOW_MEMORY_SHORTCUT=1` deliberately disables a protective shortcut;
+do not set it for routine work.
+
+```bash
+./scripts/safe_rebuild.sh --help
+```
+
+No equally hard rebuild scope is currently documented for macOS or for Linux
+sessions without a working user systemd manager and writable cgroup v2
+controls. Rebuilds on those hosts must fail closed until an equivalent,
+read-back-verified aggregate boundary is implemented.
+
+`--clean-cache` explicitly removes `.seen_cache/` and the rebuild's isolated IR,
+ThinLTO, and generated-test object caches. Quick and verify tiers do not clear
+useful caches during normal rebuilds.
 
 ## Build Telemetry
 
 Set `SEEN_TRACE_BUILD=<path>` to write JSONL build events. `SEEN_BUILD_TRACE`
 is accepted as a compatibility alias.
 
-```bash
-SEEN_TRACE_BUILD=/tmp/seen-build.jsonl ./scripts/safe_rebuild.sh --tier quick
-```
+Add `SEEN_TRACE_BUILD=.seen/agent-tools/seen-build.jsonl` to the guarded rebuild
+invocation above; do not start a second rebuild just to collect telemetry.
 
-The scripts also print a concise timing summary. Use `scripts/perf_gate.sh` to
-record and compare capped performance baselines. `scripts/build_perf_gate.sh`
-remains a compatibility wrapper for the build suite.
-
-```bash
-SEEN_LOW_MEMORY=1 scripts/perf_gate.sh --record-baseline --suite build --tier quick
-SEEN_LOW_MEMORY=1 scripts/perf_gate.sh --compare --suite build --tier quick
-scripts/perf_gate.sh --compare --suite stdlib
-scripts/perf_gate.sh --compare --suite runtime
-scripts/perf_gate.sh --compare --suite release-lto
-scripts/perf_gate.sh --compare --suite packages --version 0.10.1-build
-```
+The scripts also print a concise timing summary. `scripts/perf_gate.sh` records
+and compares performance baselines, and `scripts/build_perf_gate.sh` remains a
+compatibility wrapper for the build suite. Both are build-capable entry points;
+do not run them standalone until they provide the same whole-command verified
+scope. A per-benchmark userspace guard does not satisfy this requirement.
 
 Schema-v2 baselines are stored under
 `target/seen-build/perf-baselines/<suite>/`. Build traces include guard
@@ -109,16 +166,18 @@ scripts preserve warm caches unless `SEEN_BENCH_COLD_CACHE=1` is set.
 
 ## Worker Budgets
 
-The rebuild script derives `SEEN_JOBS` and `SEEN_OPT_JOBS` from CPU count and
-the memory caps when the variables are not supplied. The compiler also accepts
-`--jobs <n>` and `--opt-jobs <n>`. `--no-fork` remains the explicit serial
-escape hatch.
+The rebuild requires `SEEN_JOBS=1` and `SEEN_OPT_JOBS=1`; values other than one
+must be rejected. A candidate builder is usable only when capability discovery
+proves that it supports both `--jobs` and `--opt-jobs`, supports `--no-fork`, or
+is placed behind an explicit serializer that bounds its descendants. Passing a
+flag to a permissive legacy CLI is not proof that the flag was honored.
 
-Quick and verify tiers choose a trusted builder before doing frozen-bootstrap
-startup/hash checks or creating the bootstrap source overlay. Those frozen-only
-steps still run for full cold verification and for quick/verify fallback to a
-frozen compiler. Quick/verify smoke compiles use a signature-keyed cache, but
-the smoke executable is still run every time.
+Quick and verify tiers choose a trusted, capability-proven builder before doing
+frozen-bootstrap startup/hash checks or creating the bootstrap source overlay.
+A frozen or legacy builder that advertises none of the bounded-worker controls
+must be rejected instead of being used as an automatic fallback. Quick/verify
+smoke compiles use a signature-keyed cache, but the smoke executable is still
+run every time.
 
 ## Prebuild Gates
 
@@ -130,11 +189,9 @@ The prebuild gate catches failures that used to appear late in Stage 2/Stage 3:
 - malformed frozen-bootstrap IR patterns repaired by `fix_ir.py`
 - stale package/runtime artifact assumptions
 
-Run it directly when changing compiler source or bootstrap scripts:
-
-```bash
-scripts/seen_prebuild_gates.sh
-```
+The verify and full rebuild tiers run the gate inside their aggregate hard
+scope. Do not run `scripts/seen_prebuild_gates.sh` directly until it has a
+standalone entry point with the same read-back-verified containment.
 
 ## Package Artifacts During Bootstrap
 
@@ -150,20 +207,12 @@ During dependent builds, the compiler loads declarations from the artifact
 interface/index, links listed objects, and skips code generation for modules
 provided by the artifact.
 
-## Manual Smoke Checks
+## Smoke Checks
 
-When a rebuild succeeds, verify the fresh compiler can compile a minimal program
-before replacing any system-wide binary:
-
-```bash
-cat > /tmp/seen_hello.seen <<'SEEN'
-fun main() {
-    println("hello")
-}
-SEEN
-compiler_seen/target/seen compile /tmp/seen_hello.seen /tmp/seen_hello
-/tmp/seen_hello
-```
+Quick, verify, and full tiers compile and execute their required smoke fixtures
+inside the rebuild's aggregate hard scope. Do not repeat the smoke with a direct
+compiler invocation outside that scope. Before replacing a system-wide binary,
+require the verify/full smoke evidence from the fresh compiler.
 
 ## Updating a System Binary
 
@@ -177,10 +226,11 @@ sha256sum compiler_seen/target/seen target/release/seen "$(command -v seen)"
 ## Emergency Recovery
 
 If the working compiler is broken, use the frozen compiler and the guarded
-rebuild scripts instead of retrying uncapped builds:
+rebuild script instead of invoking the frozen compiler directly or retrying
+uncapped builds:
 
 ```bash
-./bootstrap/stage1_frozen compile compiler_seen/src/main_compiler.seen recovery_compiler
+./scripts/safe_rebuild.sh --tier full
 ```
 
 If a rebuild fails, inspect the first concrete failing log/artifact and fix that

@@ -85,6 +85,13 @@ fun poll_task(task: CoroutineTask) -> Bool {
     }
 
     let h = task.handle
+    // A coroutine at final suspend must never be resumed again. This can
+    // happen when the same task ID is queued more than once before a tick.
+    if seen_coro_done(h) == 1 {
+        task.completed = true
+        llvm_coro_destroy(h)
+        return true
+    }
     llvm_coro_resume(h)
 
     let done = seen_coro_done(h)
@@ -309,9 +316,10 @@ before we can read the promise.
 fun runtime_block_on_int(rt: AsyncRuntime, handle: ptr) -> Int {
     var done_flag = 0
     while done_flag == 0 {
-        llvm_coro_resume(handle)
         if seen_coro_done(handle) == 1 {
             done_flag = 1
+        } else {
+            llvm_coro_resume(handle)
         }
     }
     let result = __seen_promise_load_i64(handle)
@@ -323,9 +331,10 @@ fun runtime_block_on_int(rt: AsyncRuntime, handle: ptr) -> Int {
 fun runtime_block_on_float(rt: AsyncRuntime, handle: ptr) -> Float {
     var done_flag = 0
     while done_flag == 0 {
-        llvm_coro_resume(handle)
         if seen_coro_done(handle) == 1 {
             done_flag = 1
+        } else {
+            llvm_coro_resume(handle)
         }
     }
     let result = __seen_promise_load_f64(handle)

@@ -6,6 +6,8 @@ set -e
 
 # Configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+REPORT_DIR="$PROJECT_ROOT/.seen/agent-tools/installer-tests/reports"
 VERBOSE=false
 QUICK_MODE=false
 CLEANUP=true
@@ -306,7 +308,8 @@ show_results() {
 
 # Generate test report
 generate_report() {
-    local report_file="$SCRIPT_DIR/test-report-$(date +%Y%m%d-%H%M%S).txt"
+    mkdir -p -- "$REPORT_DIR"
+    local report_file="$REPORT_DIR/test-report-$(date +%Y%m%d-%H%M%S).txt"
     
     {
         echo "Seen Language Installer Test Report"
@@ -339,10 +342,9 @@ generate_report() {
 
 # Cleanup on exit
 cleanup() {
-    if $CLEANUP; then
-        # Clean up any temporary files
-        find /tmp -name "seen-*-test*" -type d -mtime -1 -exec rm -rf {} + 2>/dev/null || true
-    fi
+    # Each suite owns and validates its project-local work directory. Never
+    # sweep a shared system temporary directory from the master runner.
+    :
 }
 
 # Handle script interruption

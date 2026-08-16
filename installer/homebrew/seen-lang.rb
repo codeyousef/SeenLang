@@ -1,13 +1,13 @@
 class SeenLang < Formula
   desc "High-performance systems programming language"
   homepage "https://seen-lang.org"
-  url "https://github.com/codeyousef/SeenLang/releases/download/v1.0.0/seen-1.0.0-macos-x64.tar.gz"
+  url "https://github.com/codeyousef/SeenLang/releases/download/v0.10.1/seen-0.10.1-macos-x64.tar.gz"
   sha256 "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
   license "MIT"
-  version "1.0.0"
+  version "0.10.1"
 
   # Dependencies
-  depends_on "llvm" => :build
+  depends_on "llvm"
   depends_on "cmake" => :build
 
   # Runtime dependencies
@@ -16,20 +16,20 @@ class SeenLang < Formula
   # Supported platforms
   on_macos do
     if Hardware::CPU.intel?
-      url "https://github.com/codeyousef/SeenLang/releases/download/v1.0.0/seen-1.0.0-macos-x64.tar.gz"
+      url "https://github.com/codeyousef/SeenLang/releases/download/v0.10.1/seen-0.10.1-macos-x64.tar.gz"
       sha256 "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
     elsif Hardware::CPU.arm?
-      url "https://github.com/codeyousef/SeenLang/releases/download/v1.0.0/seen-1.0.0-macos-arm64.tar.gz" 
+      url "https://github.com/codeyousef/SeenLang/releases/download/v0.10.1/seen-0.10.1-macos-arm64.tar.gz"
       sha256 "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
     end
   end
 
   on_linux do
     if Hardware::CPU.intel?
-      url "https://github.com/codeyousef/SeenLang/releases/download/v1.0.0/seen-1.0.0-linux-x64.tar.gz"
+      url "https://github.com/codeyousef/SeenLang/releases/download/v0.10.1/seen-0.10.1-linux-x64.tar.gz"
       sha256 "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
     elsif Hardware::CPU.arm? && Hardware::CPU.is_64_bit?
-      url "https://github.com/codeyousef/SeenLang/releases/download/v1.0.0/seen-1.0.0-linux-arm64.tar.gz"
+      url "https://github.com/codeyousef/SeenLang/releases/download/v0.10.1/seen-0.10.1-linux-arm64.tar.gz"
       sha256 "9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba"
     end
   end
@@ -67,8 +67,7 @@ class SeenLang < Formula
       man1.install "seen.1"
     end
 
-    # Create shell completions
-    generate_completions_from_executable(bin/"seen", "completion", shells: [:bash, :zsh, :fish])
+    # The 0.10.1 CLI does not expose a completion-generator subcommand.
   end
 
   def post_install
@@ -86,17 +85,14 @@ class SeenLang < Formula
     # Test basic functionality
     system bin/"seen", "--version"
     
-    # Test project creation and building
-    mkdir "test-project" do
-      system bin/"seen", "init", "hello"
-      cd "hello" do
-        # Check if Seen.toml was created
-        assert_predicate Pathname.pwd/"Seen.toml", :exist?
-        
-        # Try to build the project
-        system bin/"seen", "build"
-      end
-    end
+    (testpath/"hello.seen").write <<~SEEN
+      fun main() {
+          println("hello")
+      }
+    SEEN
+    system bin/"seen", "check", testpath/"hello.seen"
+    system bin/"seen", "compile", testpath/"hello.seen", testpath/"hello"
+    assert_equal "hello\n", shell_output("#{testpath}/hello")
 
     # Test LSP server if available
     if (bin/"seen-lsp").exist?
@@ -116,18 +112,18 @@ class SeenLang
       Seen Language has been installed successfully!
 
       To get started:
-        seen init my-project
-        cd my-project  
-        seen build
-        seen run
+        Create Seen.toml and src/main.seen, then run:
+        seen check src/main.seen
+        seen run src/main.seen
+        seen compile src/main.seen my-project
 
       VS Code Extension:
         Install the "Seen Language" extension from the VS Code marketplace
         for syntax highlighting, IntelliSense, and debugging support.
 
       Language Server:
-        The language server (seen-lsp) is included for IDE integration.
-        Most editors will auto-discover it when the extension is installed.
+        Run `seen lsp`. Some release archives also include an optional
+        seen-lsp convenience wrapper.
 
       Documentation:
         - Language reference: https://docs.seen-lang.org
@@ -146,7 +142,7 @@ class SeenLang
 
   # Bottle configuration for binary distribution
   bottle do
-    root_url "https://github.com/codeyousef/SeenLang/releases/download/v1.0.0/"
+    root_url "https://github.com/codeyousef/SeenLang/releases/download/v0.10.1/"
     
     sha256 cellar: :any_skip_relocation, arm64_ventura:  "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
     sha256 cellar: :any_skip_relocation, arm64_monterey: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
@@ -159,12 +155,12 @@ class SeenLang
 
   # Resource definitions for additional files
   resource "language-configs" do
-    url "https://github.com/codeyousef/SeenLang/releases/download/v1.0.0/language-configs.tar.gz"
+    url "https://github.com/codeyousef/SeenLang/releases/download/v0.10.1/language-configs.tar.gz"
     sha256 "567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234"
   end
 
   resource "stdlib-source" do
-    url "https://github.com/codeyousef/SeenLang/releases/download/v1.0.0/stdlib-source.tar.gz"
+    url "https://github.com/codeyousef/SeenLang/releases/download/v0.10.1/stdlib-source.tar.gz"
     sha256 "cdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890ab"
   end
 end

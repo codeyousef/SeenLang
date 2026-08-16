@@ -80,19 +80,31 @@ fun generateVariableState(output: StringBuilder, varNames: Array<String>,
         return "0"
     }
 
+    let activeCount = getBoundedActiveVarCountWithGlobalStateImpl(varNames)
+    var idx = activeCount - 1
+    while idx >= 0 {
+        if idx < varNames.length() and varNames[idx] == varName {
+            // Ordinary lexical bindings shadow module-local comptime names.
+            // Keep the compatibility path for explicitly comptime parameters
+            // until demand-specialization replaces that legacy registry.
+            if not varTypes[idx].startsWith("comptime:") {
+                return emitLocalVariableLoadImpl(output,
+                    getFeatureRegBoxImpl(), mapTypeState(varTypes[idx]),
+                    varRegs[idx])
+            }
+            break
+        }
+        idx = idx - 1
+    }
+
     let ctReg = tryGenerateComptimeVariableState(output, varName)
     if ctReg != "" {
         return ctReg
     }
 
-    let activeCount = getBoundedActiveVarCountWithGlobalStateImpl(varNames)
-    var idx = activeCount - 1
-    while idx >= 0 {
-        if idx < varNames.length() and varNames[idx] == varName {
-            return emitLocalVariableLoadImpl(output, getFeatureRegBoxImpl(),
-                mapTypeState(varTypes[idx]), varRegs[idx])
-        }
-        idx = idx - 1
+    if idx >= 0 {
+        return emitLocalVariableLoadImpl(output, getFeatureRegBoxImpl(),
+            mapTypeState(varTypes[idx]), varRegs[idx])
     }
 
     let fallbackReg = tryGenerateFallbackVariableState(output, varNames,

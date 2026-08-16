@@ -76,7 +76,7 @@ function Show-Help {
     Write-Host ""
     Write-Host "Examples:"
     Write-Host "  .\install.ps1                              # Install latest version"
-    Write-Host "  .\install.ps1 -Version 1.0.0               # Install specific version"
+    Write-Host "  .\install.ps1 -Version 0.10.1              # Install specific version"
     Write-Host "  .\install.ps1 -System                      # System-wide installation"
     Write-Host "  .\install.ps1 -InstallDir C:\Tools\Seen    # Custom directory"
     Write-Host ""
@@ -430,15 +430,13 @@ function Show-GettingStarted {
     Write-Host ""
     Write-Host "To get started with Seen:"
     Write-Host ""
-    Write-Host "  # Create a new project" -ForegroundColor Blue
-    Write-Host "  seen init my-project" -ForegroundColor Blue
+    Write-Host "  # Create Seen.toml and src/main.seen, then:" -ForegroundColor Blue
     Write-Host "  cd my-project" -ForegroundColor Blue
     Write-Host ""
-    Write-Host "  # Build your project" -ForegroundColor Blue
-    Write-Host "  seen build" -ForegroundColor Blue
+    Write-Host "  seen check src/main.seen" -ForegroundColor Blue
     Write-Host ""
-    Write-Host "  # Run your project" -ForegroundColor Blue
-    Write-Host "  seen run" -ForegroundColor Blue
+    Write-Host "  seen run src/main.seen" -ForegroundColor Blue
+    Write-Host "  seen compile src/main.seen my-project.exe" -ForegroundColor Blue
     Write-Host ""
     Write-Host "For VS Code support, install the extension:"
     Write-Host "  code --install-extension seen-lang.seen-vscode" -ForegroundColor Blue

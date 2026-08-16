@@ -9,11 +9,11 @@ suite('Extension Test Suite', () => {
     vscode.window.showInformationMessage('Start all tests.');
 
     test('Extension should be present', () => {
-        assert.ok(vscode.extensions.getExtension('seen-lang.seen'));
+        assert.ok(vscode.extensions.getExtension('yousefcodes.seen-vscode'));
     });
 
     test('Extension should activate', async () => {
-        const extension = vscode.extensions.getExtension('seen-lang.seen');
+        const extension = vscode.extensions.getExtension('yousefcodes.seen-vscode');
         if (extension) {
             await extension.activate();
             assert.ok(extension.isActive);
@@ -67,12 +67,23 @@ suite('Extension Test Suite', () => {
         assert.strictEqual(config.get('compiler.path'), 'seen');
         assert.strictEqual(config.get('lsp.enabled'), true);
         assert.strictEqual(config.get('formatting.enable'), true);
+        assert.strictEqual(config.get('formatting.sortImports'), true);
+        assert.strictEqual(config.get('formatting.useManifest'), true);
         assert.strictEqual(config.get('reactive.marbleDiagrams'), true);
         assert.strictEqual(config.get('benchmark.showInline'), true);
         assert.strictEqual(config.get('target.default'), 'native');
         assert.strictEqual(config.get('compile.pic'), false);
         assert.strictEqual(config.get('compile.objectManifest'), '');
         assert.strictEqual(config.get('language.default'), 'en');
+    });
+
+    test('Seen is configured as its default formatter', () => {
+        const packageJsonPath = path.join(__dirname, '../../../package.json');
+        const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+        assert.strictEqual(
+            packageJson.contributes.configurationDefaults['[seen]']['editor.defaultFormatter'],
+            'yousefcodes.seen-vscode'
+        );
     });
 
     test('Language enum should match compiler-supported languages', () => {
@@ -97,6 +108,22 @@ suite('Extension Test Suite', () => {
             'ios-arm64',
             'ios-sim-arm64',
             'android-arm64'
+        ]);
+    });
+
+    test('Task definitions advertise only supported CLI operations', () => {
+        const packageJsonPath = path.join(__dirname, '../../../package.json');
+        const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+        const taskKinds = packageJson.contributes.taskDefinitions[0].properties.task.enum;
+        assert.deepStrictEqual(taskKinds, [
+            'compile',
+            'run',
+            'check',
+            'compile-shared',
+            'pkg-fetch',
+            'pkg-pack',
+            'pkg-prebuild',
+            'pkg-publish'
         ]);
     });
 
@@ -132,6 +159,35 @@ suite('Extension Test Suite', () => {
         } finally {
             provider.dispose();
         }
+    });
+
+    test('Fallback diagnostics keep dirty checks in project-local artifacts', () => {
+        const diagnosticsPath = path.join(__dirname, '../../errorDiagnostics.js');
+        const diagnosticsSource = fs.readFileSync(diagnosticsPath, 'utf8');
+        assert.ok(diagnosticsSource.includes('agent-tools'));
+        assert.ok(diagnosticsSource.includes('vscode-check'));
+        assert.ok(diagnosticsSource.includes('mkdtemp'));
+        assert.ok(!diagnosticsSource.includes('os.tmpdir'));
+        assert.ok(!diagnosticsSource.includes('require("os")'));
+    });
+
+    test('Unsupported CLI compatibility commands fail closed', () => {
+        const commandsPath = path.join(__dirname, '../../commands.js');
+        const commandsSource = fs.readFileSync(commandsPath, 'utf8');
+        const replPath = path.join(__dirname, '../../repl.js');
+        const replSource = fs.readFileSync(replPath, 'utf8');
+
+        for (const command of ['test', 'clean', 'init', 'benchmark', 'repl']) {
+            assert.ok(commandsSource.includes(`seen ${command} is not supported`));
+            assert.ok(!commandsSource.includes(`['${command}'`));
+        }
+        assert.ok(commandsSource.includes("'Seen Compile', 'compile', ['compile'"));
+        assert.ok(!commandsSource.includes("['build'"));
+        assert.ok(!commandsSource.includes('runBenchmarks('));
+        assert.ok(!commandsSource.includes("shellArgs: ['repl']"));
+        assert.ok(replSource.includes('seen repl is not supported'));
+        assert.ok(!replSource.includes("shellArgs: ['repl']"));
+        assert.ok(!replSource.includes('createTerminal('));
     });
 });
 

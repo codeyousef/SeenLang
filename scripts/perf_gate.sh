@@ -3,23 +3,38 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd -P)"
+SELF_PATH="$SCRIPT_DIR/$(basename -- "${BASH_SOURCE[0]}")"
 BUILD_TRACE_COMMON="$SCRIPT_DIR/build_trace_common.sh"
 MEMORY_GUARD_SCRIPT="$SCRIPT_DIR/memory_guard.sh"
-
-# shellcheck source=scripts/build_trace_common.sh
-source "$BUILD_TRACE_COMMON"
-seen_build_trace_init "perf_gate"
+ARTIFACT_ROOT_SCRIPT="$SCRIPT_DIR/artifact_root.sh"
+ARTIFACT_WRAPPER="$SCRIPT_DIR/run_with_project_artifacts.sh"
+HARD_SCOPE_WRAPPER="$SCRIPT_DIR/run_in_hard_memory_scope.sh"
+BUILDER_CAPABILITY="$SCRIPT_DIR/rebuild_builder_capability.sh"
+BUILDER_APPLICABILITY="$SCRIPT_DIR/rebuild_builder_applicability.sh"
+SERIALIZER_VERIFY="$SCRIPT_DIR/verify_fork_serializer.sh"
+BOUNDED_TOOLCHAIN_PREPARE="$SCRIPT_DIR/prepare_bounded_toolchain.sh"
+ORIGINAL_ARGS=("$@")
 
 MODE=""
 SUITE="${SEEN_PERF_GATE_SUITE:-build}"
 TIER="${SEEN_PERF_GATE_TIER:-quick}"
 BENCH="${SEEN_PERF_GATE_BENCH:-}"
 VERSION="${SEEN_VERSION:-0.10.1-build}"
-BASELINE_ROOT="$ROOT_DIR/target/seen-build/perf-baselines"
-TRACE_DIR="$ROOT_DIR/target/seen-build/traces"
-RESULT_DIR="$ROOT_DIR/target/seen-build/perf-results"
+BASELINE_ROOT=""
+TRACE_DIR=""
+RESULT_DIR=""
+FORK_SERIALIZER_SO=""
+FORK_SERIALIZER_ATTESTATION=""
+PERF_COMPILER_FLAGS=()
+
+if [ ! -f "$ARTIFACT_ROOT_SCRIPT" ]; then
+    echo "Error: missing artifact-root helper: $ARTIFACT_ROOT_SCRIPT" >&2
+    exit 1
+fi
+# shellcheck source=scripts/artifact_root.sh
+source "$ARTIFACT_ROOT_SCRIPT"
 
 usage() {
     cat >&2 <<'EOF'
@@ -33,7 +48,8 @@ Options:
   -h, --help
 
 All commands derive memory caps from current system memory unless explicit
-SEEN_MAIN_VMEM_KB / SEEN_OPT_VMEM_KB values are provided.
+SEEN_MAIN_VMEM_KB / SEEN_OPT_VMEM_KB values are provided. The aggregate/main
+cap may not exceed 4 GiB; the optimizer cap may not exceed 2 GiB.
 EOF
 }
 
@@ -45,17 +61,120 @@ detect_available_kb() {
     awk '/^MemAvailable:/ {print $2; exit}' /proc/meminfo 2>/dev/null || echo ""
 }
 
+is_positive_integer() {
+    case "${1:-}" in
+        ''|*[!0-9]*) return 1 ;;
+        *) [ "$1" -gt 0 ] 2>/dev/null ;;
+    esac
+}
+
+validate_perf_output_root() {
+    local candidate=$1
+    local relative_path
+    local canonical_candidate
+
+    case "$candidate" in
+        "$ROOT_DIR"/*) relative_path=${candidate#"$ROOT_DIR"/} ;;
+        *)
+            echo "Error: performance output root must stay inside the repository: $candidate" >&2
+            return 1
+            ;;
+    esac
+    seen_artifact_assert_safe_relative_path "$relative_path" || return 1
+    seen_artifact_assert_no_symlink_components "$ROOT_DIR" "$relative_path" || return 1
+    if [ -L "$candidate" ] || { [ -e "$candidate" ] && [ ! -d "$candidate" ]; }; then
+        echo "Error: unsafe performance output root: $candidate" >&2
+        return 1
+    fi
+    if command -v git >/dev/null 2>&1 &&
+        git -C "$ROOT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+
+        if ! git -C "$ROOT_DIR" check-ignore -q -- "$relative_path"; then
+            echo "Error: performance output root must be ignored by Git: $candidate" >&2
+            return 1
+        fi
+    else
+        case "$relative_path" in
+            .seen|.seen/*) ;;
+            *)
+                echo "Error: without Git, performance output must stay below .seen/: $candidate" >&2
+                return 1
+                ;;
+        esac
+    fi
+    if [ -d "$candidate" ]; then
+        canonical_candidate=$(seen_artifact_canonical_dir "$candidate") || {
+            echo "Error: could not resolve performance output root: $candidate" >&2
+            return 1
+        }
+        if [ "$canonical_candidate" != "$candidate" ]; then
+            echo "Error: performance output root is not canonical: $candidate" >&2
+            return 1
+        fi
+    fi
+}
+
+ensure_perf_directory() {
+    local directory=$1
+    validate_perf_output_root "$directory" || return 1
+    mkdir -p -- "$directory" || return 1
+    validate_perf_output_root "$directory" || return 1
+    [ -d "$directory" ] && [ ! -L "$directory" ] || return 1
+}
+
+prepare_perf_output_file() {
+    local output_file=$1
+    local parent_directory
+    case "$output_file" in
+        "$SEEN_PERF_OUTPUT_ROOT"/*) ;;
+        *) echo "Error: performance output escaped validated root: $output_file" >&2; return 1 ;;
+    esac
+    parent_directory=$(dirname -- "$output_file")
+    ensure_perf_directory "$parent_directory" || return 1
+    if [ -L "$output_file" ] || { [ -e "$output_file" ] && [ ! -f "$output_file" ]; }; then
+        echo "Error: unsafe performance output file: $output_file" >&2
+        return 1
+    fi
+    rm -f -- "$output_file"
+}
+
+prepare_perf_compiler() {
+    local compiler=$1
+    local capability
+    local capability_status=0
+    if ! SEEN_MEMORY_GUARD_IN_SCOPE=1 bash "$BUILDER_APPLICABILITY" \
+        "$compiler" "$FORK_SERIALIZER_SO" >/dev/null; then
+
+        echo "Error: performance compiler is not serializer-applicable: $compiler" >&2
+        return 1
+    fi
+    capability=$(env -u LD_PRELOAD -u SEEN_FORK_SERIALIZER_TARGET \
+        -u SEEN_FORK_SERIALIZER_ROOT_PID \
+        bash "$BUILDER_CAPABILITY" "$compiler" 2>/dev/null) ||
+        capability_status=$?
+    if [ "$capability_status" -ne 0 ]; then
+        echo "Error: performance compiler schema probe failed with status $capability_status" >&2
+        return 1
+    fi
+    case "$capability" in
+        advertised-jobs) PERF_COMPILER_FLAGS=(--jobs 1 --opt-jobs 1) ;;
+        advertised-no-fork) PERF_COMPILER_FLAGS=(--no-fork) ;;
+        serializer-required) PERF_COMPILER_FLAGS=() ;;
+        *) echo "Error: performance compiler schema probe failed" >&2; return 1 ;;
+    esac
+}
+
 derive_main_kb() {
     local total="$1" avail="$2" cap
     cap=$((total * 25 / 100))
-    if seen_build_positive_integer "$avail"; then
+    if is_positive_integer "$avail"; then
         local avail_cap=$((avail * 50 / 100))
         if [ "$avail_cap" -gt 0 ] && [ "$avail_cap" -lt "$cap" ]; then
             cap="$avail_cap"
         fi
     fi
-    if [ "$cap" -gt 10485760 ]; then
-        cap=10485760
+    if [ "$cap" -gt 4194304 ]; then
+        cap=4194304
     fi
     if [ "$cap" -lt 1 ]; then
         cap=1
@@ -184,7 +303,7 @@ compare_max_percent() {
     local percent="$6"
     local next_step="$7"
 
-    if ! seen_build_positive_integer "$baseline" || [ "$baseline" -eq 0 ]; then
+    if ! is_positive_integer "$baseline" || [ "$baseline" -eq 0 ]; then
         return 0
     fi
     local threshold=$((baseline * percent / 100))
@@ -205,7 +324,7 @@ compare_min_percent() {
     local percent="$6"
     local next_step="$7"
 
-    if ! seen_build_positive_integer "$baseline" || [ "$baseline" -eq 0 ]; then
+    if ! is_positive_integer "$baseline" || [ "$baseline" -eq 0 ]; then
         return 0
     fi
     local threshold=$((baseline * percent / 100))
@@ -329,9 +448,11 @@ run_build_suite() {
     start_ms=$(seen_build_now_ms)
     SEEN_TRACE_BUILD="$trace_file" \
     SEEN_LOW_MEMORY="${SEEN_LOW_MEMORY:-1}" \
+    SEEN_JOBS=1 \
+    SEEN_OPT_JOBS=1 \
     SEEN_MAIN_VMEM_KB="$main_kb" \
     SEEN_OPT_VMEM_KB="$opt_kb" \
-    SEEN_MEMORY_LIMIT_BYTES="$((main_kb * 1024))" \
+    SEEN_MEMORY_LIMIT_BYTES="$memory_limit_bytes" \
         "$SCRIPT_DIR/safe_rebuild.sh" --tier "$TIER"
     end_ms=$(seen_build_now_ms)
     duration_ms=$((end_ms - start_ms))
@@ -395,11 +516,16 @@ run_guarded_gate_command() {
     local metrics_file="$3"
     shift 3
 
+    SEEN_MEMORY_GUARD_KERNEL_SCOPE=1 \
+    SEEN_MEMORY_GUARD_REQUIRE_KERNEL_SCOPE=1 \
+    SEEN_MEMORY_GUARD_SCOPE_OWNER=0 \
     "$MEMORY_GUARD_SCRIPT" \
         --label "$label" \
         --rss-limit-kb "$main_kb" \
         --available-reserve-kb "$reserve_kb" \
         --vmem-limit-kb "$main_kb" \
+        --tasks-max "$guard_tasks_max" \
+        --cgroup-stop-kb "$guard_cgroup_stop_kb" \
         --timeout-secs "$timeout_secs" \
         --metrics-file "$metrics_file" \
         -- "$@"
@@ -423,15 +549,23 @@ run_one_benchmark() {
         exit 1
     fi
     compiler=$(find_benchmark_compiler)
-    mkdir -p "$RESULT_DIR/bin" "$RESULT_DIR/metrics"
+    prepare_perf_compiler "$compiler" || exit 126
+    ensure_perf_directory "$RESULT_DIR/bin" || exit 1
+    ensure_perf_directory "$RESULT_DIR/metrics" || exit 1
     bin="$RESULT_DIR/bin/${suite}-${bench}"
     metrics_compile="$RESULT_DIR/metrics/${suite}-${bench}-compile.env"
     metrics_run="$RESULT_DIR/metrics/${suite}-${bench}-run.env"
-    rm -f "$bin" "$metrics_compile" "$metrics_run"
+    prepare_perf_output_file "$bin" || exit 1
+    prepare_perf_output_file "$metrics_compile" || exit 1
+    prepare_perf_output_file "$metrics_run" || exit 1
 
     compile_start=$(seen_build_now_ms)
     run_guarded_gate_command "${suite}/${bench} compile" 300 "$metrics_compile" \
-        "$compiler" compile "$fixture" "$bin" --fast
+        env -u SEEN_FORK_SERIALIZER_ROOT_PID \
+        LD_PRELOAD="$FORK_SERIALIZER_SO" \
+        SEEN_FORK_SERIALIZER_TARGET="$compiler" \
+        "$compiler" compile "$fixture" "$bin" --fast \
+        "${PERF_COMPILER_FLAGS[@]}"
     compile_end=$(seen_build_now_ms)
     compile_ms=$((compile_end - compile_start))
 
@@ -490,11 +624,15 @@ run_packages_suite() {
     local artifact_hits artifact_misses artifact_reused package_bytes
 
     compiler=$(find_benchmark_compiler)
+    prepare_perf_compiler "$compiler" || exit 126
     output_dir="$RESULT_DIR/package-dist"
     trace_file="$TRACE_DIR/${MODE}-packages-linux-$(date +%Y%m%d%H%M%S).jsonl"
     metrics_file="$RESULT_DIR/metrics/packages-linux.env"
-    mkdir -p "$output_dir" "$RESULT_DIR/metrics" "$TRACE_DIR"
-    rm -f "$metrics_file" "$trace_file"
+    ensure_perf_directory "$output_dir" || exit 1
+    ensure_perf_directory "$RESULT_DIR/metrics" || exit 1
+    ensure_perf_directory "$TRACE_DIR" || exit 1
+    prepare_perf_output_file "$metrics_file" || exit 1
+    prepare_perf_output_file "$trace_file" || exit 1
 
     start_ms=$(seen_build_now_ms)
     run_guarded_gate_command "packages/linux" 300 "$metrics_file" \
@@ -543,21 +681,30 @@ run_release_lto_variant() {
     local compiler fixture bin trace_file metrics_file start_ms end_ms duration_ms peak_rss binary_size status_line
 
     compiler=$(find_benchmark_compiler)
+    prepare_perf_compiler "$compiler" || exit 126
     fixture="$ROOT_DIR/benchmarks/gates/release_lto_entry.seen"
     if [ ! -f "$fixture" ]; then
         echo "Error: missing release LTO fixture $fixture" >&2
         exit 1
     fi
-    mkdir -p "$RESULT_DIR/bin" "$RESULT_DIR/metrics" "$TRACE_DIR"
+    ensure_perf_directory "$RESULT_DIR/bin" || exit 1
+    ensure_perf_directory "$RESULT_DIR/metrics" || exit 1
+    ensure_perf_directory "$TRACE_DIR" || exit 1
     bin="$RESULT_DIR/bin/release-lto-${name}"
     trace_file="$TRACE_DIR/${MODE}-release-lto-${name}-$(date +%Y%m%d%H%M%S).jsonl"
     metrics_file="$RESULT_DIR/metrics/release-lto-${name}-compile.env"
-    rm -f "$bin" "$trace_file" "$metrics_file"
+    prepare_perf_output_file "$bin" || exit 1
+    prepare_perf_output_file "$trace_file" || exit 1
+    prepare_perf_output_file "$metrics_file" || exit 1
 
     start_ms=$(seen_build_now_ms)
     run_guarded_gate_command "release-lto/${name} compile" 300 "$metrics_file" \
         env SEEN_BUILD_TRACE="$trace_file" SEEN_TRACE_BUILD="$trace_file" \
-        "$compiler" compile "$fixture" "$bin" --release --no-cache "$@"
+        LD_PRELOAD="$FORK_SERIALIZER_SO" \
+        SEEN_FORK_SERIALIZER_TARGET="$compiler" \
+        SEEN_FORK_SERIALIZER_ROOT_PID= \
+        "$compiler" compile "$fixture" "$bin" --release --no-cache \
+        "${PERF_COMPILER_FLAGS[@]}" "$@"
     end_ms=$(seen_build_now_ms)
     duration_ms=$((end_ms - start_ms))
     peak_rss=$(metric_value "$metrics_file" peak_rss_kb)
@@ -595,15 +742,45 @@ run_release_lto_variant() {
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
-        --record-baseline) MODE="record"; shift ;;
-        --compare) MODE="compare"; shift ;;
-        --suite) SUITE="${2:-}"; shift 2 ;;
+        --record-baseline)
+            [ -z "$MODE" ] || [ "$MODE" = "record" ] || {
+                echo "Conflicting gate modes." >&2
+                exit 1
+            }
+            MODE="record"
+            shift
+            ;;
+        --compare)
+            [ -z "$MODE" ] || [ "$MODE" = "compare" ] || {
+                echo "Conflicting gate modes." >&2
+                exit 1
+            }
+            MODE="compare"
+            shift
+            ;;
+        --suite)
+            [ "$#" -ge 2 ] || { echo "Missing value for --suite." >&2; exit 1; }
+            SUITE=$2
+            shift 2
+            ;;
         --suite=*) SUITE="${1#--suite=}"; shift ;;
-        --tier) TIER="${2:-}"; shift 2 ;;
+        --tier)
+            [ "$#" -ge 2 ] || { echo "Missing value for --tier." >&2; exit 1; }
+            TIER=$2
+            shift 2
+            ;;
         --tier=*) TIER="${1#--tier=}"; shift ;;
-        --bench) BENCH="${2:-}"; shift 2 ;;
+        --bench)
+            [ "$#" -ge 2 ] || { echo "Missing value for --bench." >&2; exit 1; }
+            BENCH=$2
+            shift 2
+            ;;
         --bench=*) BENCH="${1#--bench=}"; shift ;;
-        --version) VERSION="${2:-}"; shift 2 ;;
+        --version)
+            [ "$#" -ge 2 ] || { echo "Missing value for --version." >&2; exit 1; }
+            VERSION=$2
+            shift 2
+            ;;
         --version=*) VERSION="${1#--version=}"; shift ;;
         -h|--help) usage; exit 0 ;;
         *) echo "Unknown option: $1" >&2; usage; exit 1 ;;
@@ -622,18 +799,191 @@ case "$TIER" in
     quick|verify|full) ;;
     *) echo "Invalid tier: $TIER" >&2; exit 1 ;;
 esac
+case "$VERSION" in
+    ''|*[!A-Za-z0-9._+-]*)
+        echo "Invalid version label: $VERSION" >&2
+        exit 1
+        ;;
+esac
+if [ -n "$BENCH" ]; then
+    while IFS= read -r requested_bench; do
+        case "$requested_bench" in
+            ''|*[!A-Za-z0-9._-]*)
+                echo "Invalid benchmark name: $requested_bench" >&2
+                exit 1
+                ;;
+        esac
+    done < <(printf '%s\n' "$BENCH" | tr ',' '\n')
+fi
 
 total_kb=$(detect_memory_kb)
 avail_kb=$(detect_available_kb)
-if ! seen_build_positive_integer "$total_kb"; then
+if ! is_positive_integer "$total_kb" || ! is_positive_integer "$avail_kb"; then
     echo "Error: could not derive memory caps from /proc/meminfo." >&2
     exit 1
 fi
 main_kb="${SEEN_MAIN_VMEM_KB:-$(derive_main_kb "$total_kb" "$avail_kb")}"
+if ! is_positive_integer "$main_kb"; then
+    echo "Error: performance-gate main memory cap must be a positive integer." >&2
+    exit 1
+fi
 opt_kb="${SEEN_OPT_VMEM_KB:-$(derive_opt_kb "$total_kb" "$main_kb")}"
 reserve_kb="${SEEN_MEMORY_GUARD_RESERVE_KB:-$((total_kb / 10))}"
+memory_limit_bytes="${SEEN_MEMORY_LIMIT_BYTES:-$((main_kb * 1024))}"
+if ! is_positive_integer "$opt_kb" || ! is_positive_integer "$reserve_kb" ||
+    ! is_positive_integer "$memory_limit_bytes"; then
 
-mkdir -p "$BASELINE_ROOT" "$TRACE_DIR" "$RESULT_DIR"
+    echo "Error: performance-gate memory caps must be positive integers." >&2
+    exit 1
+fi
+if [ "$main_kb" -gt 4194304 ] ||
+    [ "$opt_kb" -gt "$main_kb" ] || [ "$opt_kb" -gt 2097152 ] ||
+    [ "$memory_limit_bytes" -gt "$((main_kb * 1024))" ]; then
+
+    echo "Error: optimizer and allocation caps must not exceed the main cap." >&2
+    exit 1
+fi
+
+export SEEN_LOW_MEMORY=1
+export SEEN_JOBS=1
+export SEEN_OPT_JOBS=1
+export SEEN_PACKAGE_JOBS=1
+export SEEN_MAIN_VMEM_KB="$main_kb"
+export SEEN_OPT_VMEM_KB="$opt_kb"
+export SEEN_MEMORY_LIMIT_BYTES="$memory_limit_bytes"
+export SEEN_MEMORY_GUARD_RESERVE_KB="$reserve_kb"
+
+seen_artifact_root_init "$ROOT_DIR" || {
+    echo "Error: performance-gate artifact root validation failed." >&2
+    exit 1
+}
+if [ -z "${SEEN_PERF_OUTPUT_ROOT:-}" ]; then
+    if [ "${SEEN_PROJECT_ARTIFACT_WRAPPER:-0}" = "1" ] &&
+        [ "${SEEN_PROJECT_ARTIFACT_NAMESPACE_ACTIVE:-0}" = "1" ]; then
+
+        SEEN_PERF_OUTPUT_ROOT="$ROOT_DIR/.seen/agent-tools/perf-gate"
+    else
+        SEEN_PERF_OUTPUT_ROOT="$SEEN_ARTIFACT_ROOT/perf-gate"
+    fi
+fi
+validate_perf_output_root "$SEEN_PERF_OUTPUT_ROOT" || exit 1
+export SEEN_PERF_OUTPUT_ROOT
+
+if [ "${SEEN_PROJECT_ARTIFACT_WRAPPER:-0}" != "1" ] ||
+    [ "${SEEN_PROJECT_ARTIFACT_NAMESPACE_ACTIVE:-0}" != "1" ]; then
+
+    [ -x "$ARTIFACT_WRAPPER" ] || {
+        echo "Error: missing project-artifact wrapper: $ARTIFACT_WRAPPER" >&2
+        exit 1
+    }
+    exec "$ARTIFACT_WRAPPER" perf-gate -- \
+        "$SELF_PATH" "${ORIGINAL_ARGS[@]}"
+fi
+
+seen_artifact_root_init "$ROOT_DIR" || {
+    echo "Error: performance-gate private artifact validation failed." >&2
+    exit 1
+}
+validate_perf_output_root "$SEEN_PERF_OUTPUT_ROOT" || exit 1
+if [ "$(uname -s)" = "Linux" ]; then
+    namespace_tmp_identity=$(stat -c '%d:%i' /tmp 2>/dev/null || true)
+    artifact_root_identity=$(stat -c '%d:%i' "$SEEN_ARTIFACT_ROOT" \
+        2>/dev/null || true)
+    if [ -z "$namespace_tmp_identity" ] ||
+        [ "$namespace_tmp_identity" != "$artifact_root_identity" ]; then
+
+        echo "Error: performance-gate artifact namespace validation failed." >&2
+        exit 1
+    fi
+fi
+if ! cd -- "$ROOT_DIR"; then
+    echo "Error: could not enter repository root: $ROOT_DIR" >&2
+    exit 1
+fi
+
+if [ "${SEEN_HARD_MEMORY_SCOPE_ACTIVE:-0}" != "1" ] &&
+    [ "${SEEN_MEMORY_GUARD_IN_SCOPE:-0}" != "1" ]; then
+
+    [ -x "$HARD_SCOPE_WRAPPER" ] || {
+        echo "Error: missing hard-memory-scope wrapper: $HARD_SCOPE_WRAPPER" >&2
+        exit 1
+    }
+    exec "$HARD_SCOPE_WRAPPER" --label "Seen performance gate" -- \
+        "$SELF_PATH" "${ORIGINAL_ARGS[@]}"
+fi
+SEEN_HARD_MEMORY_SCOPE_ACTIVE=1
+export SEEN_HARD_MEMORY_SCOPE_ACTIVE
+"$HARD_SCOPE_WRAPPER" --label "Seen performance gate read-back" \
+    --verify-only --
+
+main_kb=$SEEN_MAIN_VMEM_KB
+opt_kb=$SEEN_OPT_VMEM_KB
+memory_limit_bytes=$SEEN_MEMORY_LIMIT_BYTES
+reserve_kb=$SEEN_MEMORY_GUARD_RESERVE_KB
+guard_tasks_max=${SEEN_MEMORY_GUARD_TASKS_MAX:-16}
+guard_cgroup_stop_kb=${SEEN_MEMORY_GUARD_CGROUP_STOP_KB:-$((main_kb * 90 / 100))}
+if ! is_positive_integer "$guard_tasks_max" || [ "$guard_tasks_max" -gt 16 ] ||
+    ! is_positive_integer "$guard_cgroup_stop_kb" ||
+    [ "$guard_cgroup_stop_kb" -gt "$main_kb" ]; then
+
+    echo "Error: inherited aggregate scope limits are inconsistent." >&2
+    exit 1
+fi
+if ! ulimit -S -v "$main_kb" 2>/dev/null; then
+    echo "Error: could not apply the performance-gate address-space cap." >&2
+    exit 126
+fi
+active_main_kb=$(ulimit -S -v 2>/dev/null || true)
+if ! is_positive_integer "$active_main_kb" || [ "$active_main_kb" -gt "$main_kb" ]; then
+    echo "Error: performance-gate address-space cap read-back failed." >&2
+    exit 126
+fi
+if [ "$SUITE" != "build" ]; then
+    FORK_SERIALIZER_SO=${SEEN_FORK_SERIALIZER_SO:-}
+    FORK_SERIALIZER_ATTESTATION=${SEEN_FORK_SERIALIZER_ATTESTATION:-}
+    if ! bash "$SERIALIZER_VERIFY" "$FORK_SERIALIZER_SO" \
+        "$FORK_SERIALIZER_ATTESTATION" "$SEEN_ARTIFACT_ROOT" \
+        "${SEEN_MEMORY_GUARD_SCOPE_UNIT:-}" >/dev/null; then
+
+        echo "Error: direct performance suites require the scope-attested serializer produced by safe_rebuild." >&2
+        exit 126
+    fi
+    BOUNDED_TOOLCHAIN_DIR=$(bash "$BOUNDED_TOOLCHAIN_PREPARE" "$SEEN_ARTIFACT_ROOT") ||
+        exit 126
+    PATH="$BOUNDED_TOOLCHAIN_DIR:$PATH"
+    export PATH SEEN_BOUNDED_TOOLCHAIN_DIR="$BOUNDED_TOOLCHAIN_DIR"
+fi
+
+ensure_perf_directory "$SEEN_PERF_OUTPUT_ROOT" || exit 1
+BASELINE_ROOT="$SEEN_PERF_OUTPUT_ROOT/perf-baselines"
+TRACE_DIR="$SEEN_PERF_OUTPUT_ROOT/traces"
+RESULT_DIR="$SEEN_PERF_OUTPUT_ROOT/perf-results"
+for perf_directory in "$BASELINE_ROOT" "$TRACE_DIR" "$RESULT_DIR"; do
+    seen_artifact_assert_no_symlink_components "$ROOT_DIR" \
+        "${perf_directory#"$ROOT_DIR"/}" || exit 1
+done
+for perf_directory in "$BASELINE_ROOT" "$TRACE_DIR" "$RESULT_DIR"; do
+    ensure_perf_directory "$perf_directory" || exit 1
+done
+for perf_directory in "$BASELINE_ROOT" "$TRACE_DIR" "$RESULT_DIR"; do
+    if [ ! -d "$perf_directory" ] || [ -L "$perf_directory" ]; then
+        echo "Error: unsafe performance output directory: $perf_directory" >&2
+        exit 1
+    fi
+    seen_artifact_assert_no_symlink_components "$ROOT_DIR" \
+        "${perf_directory#"$ROOT_DIR"/}" || exit 1
+done
+
+SEEN_TRACE_BUILD="$TRACE_DIR/perf-gate-${MODE}-${SUITE}-$(date +%Y%m%d%H%M%S).jsonl"
+SEEN_BUILD_TRACE="$SEEN_TRACE_BUILD"
+export SEEN_TRACE_BUILD SEEN_BUILD_TRACE
+[ -f "$BUILD_TRACE_COMMON" ] || {
+    echo "Error: missing build-trace helper: $BUILD_TRACE_COMMON" >&2
+    exit 1
+}
+# shellcheck source=scripts/build_trace_common.sh
+source "$BUILD_TRACE_COMMON"
+seen_build_trace_init "perf_gate"
 
 case "$SUITE" in
     build)

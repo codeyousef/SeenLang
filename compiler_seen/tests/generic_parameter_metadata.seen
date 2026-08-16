@@ -1,0 +1,46 @@
+import lexer.lexer.{newSeenLexerCompat}
+import parser.real_parser.{newRealParserCompat}
+import parser.real_parser.{genericParameterCount, genericParameterNameAt}
+import parser.real_parser.{genericParameterModifierAt}
+
+fun genericMetadataExpect(condition: Bool, message: String) r: Void {
+    if not condition { abort(message) }
+}
+
+fun main() r: Int {
+    let source =
+        "class Box<T, const N: Int> { var value: T " +
+        "fun map<U>(next: U) r: U { return next } } " +
+        "fun collect<...Items>(value: Int) r: Int { return value }"
+    let lexer = newSeenLexerCompat(source, 1, "en")
+    let parser = newRealParserCompat(lexer.tokenize())
+    let program = parser.parse()
+
+    genericMetadataExpect(program.items.length() == 2,
+        "generic declarations parse")
+    let klass = program.items[0].classNode
+    genericMetadataExpect(genericParameterCount(klass.decorators) == 2,
+        "class generic parameter count")
+    genericMetadataExpect(genericParameterNameAt(klass.decorators, 0) == "T",
+        "class type parameter name")
+    genericMetadataExpect(genericParameterNameAt(klass.decorators, 1) == "N",
+        "class const parameter name")
+    genericMetadataExpect(genericParameterModifierAt(klass.decorators, 1) ==
+        "const", "class const parameter modifier")
+
+    genericMetadataExpect(klass.methods.length() == 1,
+        "generic method parses")
+    genericMetadataExpect(genericParameterNameAt(
+        klass.methods[0].decorators, 0) == "U", "method generic metadata")
+
+    let variadic = program.items[1].function
+    genericMetadataExpect(genericParameterNameAt(variadic.decorators, 0) ==
+        "Items", "variadic parameter name")
+    genericMetadataExpect(genericParameterModifierAt(variadic.decorators, 0) ==
+        "variadic", "variadic parameter modifier")
+    genericMetadataExpect(variadic.hasDecorator("variadic_generic"),
+        "variadic compatibility decorator remains")
+    return 0
+}
+
+main()

@@ -608,11 +608,18 @@ SeenString __ReadFile(int64_t fd) {
         return empty;
     }
 
-    // Get current position and file size
+    // Get the current position and file size without allowing a failed seek to
+    // turn into a negative (and then enormous) allocation request.
     long cur = ftell(f);
-    fseek(f, 0, SEEK_END);
+    if (cur < 0 || fseek(f, 0, SEEK_END) != 0) {
+        SeenString empty = { 0, "" };
+        return empty;
+    }
     long size = ftell(f);
-    fseek(f, cur, SEEK_SET);  // Restore position
+    if (size < cur || fseek(f, cur, SEEK_SET) != 0) {
+        SeenString empty = { 0, "" };
+        return empty;
+    }
 
     // For full file read, read from current position
     long remaining = size - cur;
@@ -752,10 +759,10 @@ int64_t __FileSize(int64_t fd) {
     if (!f) return -1;
 
     long cur = ftell(f);
-    fseek(f, 0, SEEK_END);
+    if (cur < 0 || fseek(f, 0, SEEK_END) != 0) return -1;
     long size = ftell(f);
-    fseek(f, cur, SEEK_SET);
-    return size;
+    if (size < 0 || fseek(f, cur, SEEK_SET) != 0) return -1;
+    return (int64_t)size;
 }
 
 // Get file error message (empty if no error)
@@ -853,6 +860,35 @@ static int64_t seen_execute_program_request_wide(const wchar_t* path,
     return (int64_t)status;
 }
 #endif
+
+// Atomically replace destination with source. Callers create source beside the
+// destination, so both platforms perform a single same-filesystem rename.
+bool seen_replace_file(SeenString source, SeenString destination) {
+#ifdef _WIN32
+    wchar_t* wide_source = seen_win32_utf8_to_wide(source.data,
+        (size_t)source.len, "seen_replace_file source");
+    wchar_t* wide_destination = seen_win32_utf8_to_wide(destination.data,
+        (size_t)destination.len, "seen_replace_file destination");
+    if (!wide_source || !wide_destination) {
+        free(wide_source);
+        free(wide_destination);
+        return false;
+    }
+    BOOL replaced = MoveFileExW(wide_source, wide_destination,
+        MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH);
+    free(wide_source);
+    free(wide_destination);
+    return replaced != 0;
+#else
+    char* csource = seen_runtime_cstring(source, "seen_replace_file source");
+    char* cdestination = seen_runtime_cstring(destination,
+        "seen_replace_file destination");
+    int status = rename(csource, cdestination);
+    free(csource);
+    free(cdestination);
+    return status == 0;
+#endif
+}
 
 // Execute program by path and return exit code.
 #ifdef _WIN32
@@ -1347,6 +1383,557 @@ static bool seen_win32_create_private_request(const char* content,
     return true;
 }
 #endif
+
+// Atomic text writes are implemented entirely in the runtime so bootstrap
+// callers never have to guess a temporary name, remove a pre-existing path, or
+// treat a partial write as success. Temporary files are created exclusively in
+// the destination directory and are removed only by the call that created
+// them.
+#if !defined(SEEN_TEST_ATOMIC_IO_FAILURE_INJECTION)
+enum {
+    SEEN_ATOMIC_IO_FAIL_NONE = 0,
+    SEEN_ATOMIC_IO_FAIL_WRITE = 1,
+    SEEN_ATOMIC_IO_FAIL_SYNC = 2,
+    SEEN_ATOMIC_IO_FAIL_CLOSE = 3,
+    SEEN_ATOMIC_IO_FAIL_RENAME = 4
+};
+#endif
+
+#if defined(SEEN_TEST_ATOMIC_IO_FAILURE_INJECTION)
+#if defined(_WIN32)
+static __declspec(thread) int64_t seen_atomic_io_failure_stage = 0;
+static __declspec(thread) int64_t seen_atomic_io_forced_collisions = 0;
+#else
+static _Thread_local int64_t seen_atomic_io_failure_stage = 0;
+static _Thread_local int64_t seen_atomic_io_forced_collisions = 0;
+#endif
+
+void seen_test_atomic_write_fail_stage(int64_t stage) {
+    seen_atomic_io_failure_stage = stage;
+}
+
+void seen_test_atomic_write_force_collisions(int64_t attempts) {
+    seen_atomic_io_forced_collisions = attempts > 0 ? attempts : 0;
+}
+
+static bool seen_atomic_io_should_fail(int64_t stage) {
+    return seen_atomic_io_failure_stage == stage;
+}
+
+static bool seen_atomic_io_force_collision(unsigned char* output,
+    size_t length) {
+    if (seen_atomic_io_forced_collisions <= 0) return false;
+    seen_atomic_io_forced_collisions--;
+    memset(output, 0, length);
+    return true;
+}
+#else
+static bool seen_atomic_io_should_fail(int64_t stage) {
+    (void)stage;
+    return false;
+}
+
+static bool seen_atomic_io_force_collision(unsigned char* output,
+    size_t length) {
+    (void)output;
+    (void)length;
+    return false;
+}
+#endif
+
+#ifdef _WIN32
+static wchar_t* seen_atomic_utf8_to_full_path(SeenString path) {
+    if (path.len <= 0 || path.len > INT_MAX || !path.data ||
+        memchr(path.data, '\0', (size_t)path.len) != NULL) {
+        return NULL;
+    }
+    int wide_length = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
+        path.data, (int)path.len, NULL, 0);
+    if (wide_length <= 0) return NULL;
+    wchar_t* wide = (wchar_t*)malloc(
+        ((size_t)wide_length + 1U) * sizeof(wchar_t));
+    if (!wide) return NULL;
+    if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, path.data,
+            (int)path.len, wide, wide_length) != wide_length) {
+        free(wide);
+        return NULL;
+    }
+    wide[wide_length] = L'\0';
+
+    DWORD required = GetFullPathNameW(wide, 0, NULL, NULL);
+    if (required == 0 || required >= 32767U) {
+        free(wide);
+        return NULL;
+    }
+    wchar_t* full = (wchar_t*)malloc(
+        ((size_t)required + 1U) * sizeof(wchar_t));
+    if (!full) {
+        free(wide);
+        return NULL;
+    }
+    DWORD actual = GetFullPathNameW(wide, required + 1U, full, NULL);
+    free(wide);
+    if (actual == 0 || actual > required) {
+        free(full);
+        return NULL;
+    }
+    return full;
+}
+
+static bool seen_win32_atomic_destination_allowed(const wchar_t* path) {
+    DWORD attributes = GetFileAttributesW(path);
+    if (attributes != INVALID_FILE_ATTRIBUTES) {
+        return (attributes & (FILE_ATTRIBUTE_DIRECTORY |
+            FILE_ATTRIBUTE_REPARSE_POINT)) == 0;
+    }
+    DWORD error = GetLastError();
+    return error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND;
+}
+
+static bool seen_win32_atomic_write_all(HANDLE file, const char* content,
+    size_t length) {
+    size_t written = 0;
+    while (written < length) {
+        size_t remaining = length - written;
+        DWORD chunk = remaining > (size_t)MAXDWORD ? MAXDWORD :
+            (DWORD)remaining;
+        DWORD count = 0;
+        if (!WriteFile(file, content + written, chunk, &count, NULL) ||
+            count == 0) {
+            return false;
+        }
+        written += (size_t)count;
+    }
+    return true;
+}
+
+static bool seen_win32_atomic_replace(const wchar_t* temporary,
+    const wchar_t* destination) {
+    for (int attempt = 0; attempt < 256; attempt++) {
+        // A concurrent writer can replace destination between retries. Reject
+        // reparse points and non-files every time rather than only before the
+        // first commit attempt.
+        if (!seen_win32_atomic_destination_allowed(destination)) return false;
+        if (MoveFileExW(temporary, destination,
+                MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+            return true;
+        }
+        DWORD error = GetLastError();
+        if (error != ERROR_ACCESS_DENIED &&
+            error != ERROR_SHARING_VIOLATION &&
+            error != ERROR_LOCK_VIOLATION) {
+            return false;
+        }
+        // Sharing conflicts are transient when multiple well-behaved writers
+        // commit at once. Keep the retry bounded so an externally locked
+        // destination still fails predictably.
+        Sleep(1);
+    }
+    return false;
+}
+
+static bool seen_write_text_atomic_platform(SeenString path,
+    SeenString content) {
+    wchar_t* destination = seen_atomic_utf8_to_full_path(path);
+    wchar_t* temporary = NULL;
+    HANDLE temporary_handle = INVALID_HANDLE_VALUE;
+    bool temporary_created = false;
+    bool committed = false;
+    bool result = false;
+    if (!destination || !seen_win32_atomic_destination_allowed(destination)) {
+        goto cleanup;
+    }
+
+    size_t destination_length = wcslen(destination);
+    size_t prefix_length = 0;
+    for (size_t i = 0; i < destination_length; i++) {
+        if (destination[i] == L'\\' || destination[i] == L'/') {
+            prefix_length = i + 1U;
+        }
+    }
+    const wchar_t* destination_leaf = destination + prefix_length;
+    if (destination_leaf[0] == L'\0' ||
+        (wcscmp(destination_leaf, L".") == 0) ||
+        (wcscmp(destination_leaf, L"..") == 0)) {
+        goto cleanup;
+    }
+
+    static const wchar_t temporary_prefix[] = L".seen-tmp.";
+    const size_t nonce_hex_length = 32U;
+    size_t temporary_capacity = prefix_length +
+        (sizeof(temporary_prefix) / sizeof(temporary_prefix[0]) - 1U) +
+        nonce_hex_length + 1U;
+    if (temporary_capacity >= 32767U ||
+        temporary_capacity > SIZE_MAX / sizeof(wchar_t)) {
+        goto cleanup;
+    }
+    temporary = (wchar_t*)malloc(temporary_capacity * sizeof(wchar_t));
+    if (!temporary) goto cleanup;
+    memcpy(temporary, destination, prefix_length * sizeof(wchar_t));
+    memcpy(temporary + prefix_length, temporary_prefix,
+        (sizeof(temporary_prefix) / sizeof(temporary_prefix[0]) - 1U) *
+            sizeof(wchar_t));
+    size_t nonce_start = prefix_length +
+        (sizeof(temporary_prefix) / sizeof(temporary_prefix[0]) - 1U);
+    static const wchar_t hex[] = L"0123456789abcdef";
+
+    for (int attempt = 0; attempt < 64; attempt++) {
+        unsigned char nonce[16];
+        if (!seen_atomic_io_force_collision(nonce, sizeof(nonce)) &&
+            !seen_win32_random_bytes(nonce, (ULONG)sizeof(nonce))) {
+            goto cleanup;
+        }
+        for (size_t i = 0; i < sizeof(nonce); i++) {
+            temporary[nonce_start + i * 2U] = hex[nonce[i] >> 4U];
+            temporary[nonce_start + i * 2U + 1U] = hex[nonce[i] & 0x0fU];
+        }
+        temporary[nonce_start + nonce_hex_length] = L'\0';
+        temporary_handle = CreateFileW(temporary, GENERIC_WRITE, 0, NULL,
+            CREATE_NEW, FILE_ATTRIBUTE_TEMPORARY |
+                FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_WRITE_THROUGH,
+            NULL);
+        if (temporary_handle != INVALID_HANDLE_VALUE) {
+            temporary_created = true;
+            break;
+        }
+        DWORD error = GetLastError();
+        if (error != ERROR_FILE_EXISTS && error != ERROR_ALREADY_EXISTS) {
+            goto cleanup;
+        }
+    }
+    if (!temporary_created) goto cleanup;
+
+    BY_HANDLE_FILE_INFORMATION temporary_info;
+    if (!GetFileInformationByHandle(temporary_handle, &temporary_info) ||
+        (temporary_info.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY |
+            FILE_ATTRIBUTE_REPARSE_POINT)) != 0) {
+        goto cleanup;
+    }
+
+    if (seen_atomic_io_should_fail(SEEN_ATOMIC_IO_FAIL_WRITE)) {
+        size_t prefix = (size_t)content.len / 2U;
+        if (prefix > 0) {
+            (void)seen_win32_atomic_write_all(temporary_handle,
+                content.data, prefix);
+        }
+        goto cleanup;
+    }
+    if (!seen_win32_atomic_write_all(temporary_handle, content.data,
+            (size_t)content.len) ||
+        seen_atomic_io_should_fail(SEEN_ATOMIC_IO_FAIL_SYNC) ||
+        !FlushFileBuffers(temporary_handle)) {
+        goto cleanup;
+    }
+
+    bool close_ok = CloseHandle(temporary_handle) != 0;
+    temporary_handle = INVALID_HANDLE_VALUE;
+    if (seen_atomic_io_should_fail(SEEN_ATOMIC_IO_FAIL_CLOSE)) {
+        close_ok = false;
+    }
+    if (!close_ok ||
+        !seen_win32_atomic_destination_allowed(destination) ||
+        seen_atomic_io_should_fail(SEEN_ATOMIC_IO_FAIL_RENAME)) {
+        goto cleanup;
+    }
+
+    if (!seen_win32_atomic_replace(temporary, destination)) {
+        goto cleanup;
+    }
+    committed = true;
+    result = true;
+
+cleanup:
+    if (temporary_handle != INVALID_HANDLE_VALUE) {
+        (void)CloseHandle(temporary_handle);
+    }
+    if (temporary_created && !committed && temporary) {
+        (void)DeleteFileW(temporary);
+    }
+    free(temporary);
+    free(destination);
+    return result;
+}
+#else
+typedef struct {
+    char* directory;
+    char* leaf;
+} SeenAtomicPath;
+
+static void seen_atomic_path_release(SeenAtomicPath* path) {
+    if (!path) return;
+    free(path->directory);
+    free(path->leaf);
+    path->directory = NULL;
+    path->leaf = NULL;
+}
+
+static bool seen_atomic_path_split(SeenString source, SeenAtomicPath* result) {
+    memset(result, 0, sizeof(*result));
+    if (source.len <= 0 || !source.data ||
+        (uint64_t)source.len > (uint64_t)SIZE_MAX - 1U ||
+        memchr(source.data, '\0', (size_t)source.len) != NULL) {
+        return false;
+    }
+    size_t length = (size_t)source.len;
+    size_t slash = SIZE_MAX;
+    for (size_t i = 0; i < length; i++) {
+        if (source.data[i] == '/') slash = i;
+    }
+    size_t leaf_start = slash == SIZE_MAX ? 0U : slash + 1U;
+    size_t leaf_length = length - leaf_start;
+    if (leaf_length == 0 ||
+        (leaf_length == 1 && source.data[leaf_start] == '.') ||
+        (leaf_length == 2 && source.data[leaf_start] == '.' &&
+            source.data[leaf_start + 1U] == '.')) {
+        return false;
+    }
+
+    size_t directory_length = 0;
+    const char* directory_source = ".";
+    if (slash == 0) {
+        directory_source = "/";
+        directory_length = 1;
+    } else if (slash != SIZE_MAX) {
+        directory_source = source.data;
+        directory_length = slash;
+    } else {
+        directory_length = 1;
+    }
+    result->directory = (char*)malloc(directory_length + 1U);
+    result->leaf = (char*)malloc(leaf_length + 1U);
+    if (!result->directory || !result->leaf) {
+        seen_atomic_path_release(result);
+        return false;
+    }
+    memcpy(result->directory, directory_source, directory_length);
+    result->directory[directory_length] = '\0';
+    memcpy(result->leaf, source.data + leaf_start, leaf_length);
+    result->leaf[leaf_length] = '\0';
+    return true;
+}
+
+static bool seen_posix_atomic_destination_allowed(int directory_fd,
+    const char* leaf, bool* exists, mode_t* mode) {
+    struct stat info;
+    if (fstatat(directory_fd, leaf, &info, AT_SYMLINK_NOFOLLOW) == 0) {
+        if (!S_ISREG(info.st_mode)) return false;
+        *exists = true;
+        *mode = info.st_mode;
+        return true;
+    }
+    if (errno != ENOENT) return false;
+    *exists = false;
+    *mode = 0;
+    return true;
+}
+
+static bool seen_posix_random_bytes(unsigned char* output, size_t length) {
+    int flags = O_RDONLY;
+#ifdef O_CLOEXEC
+    flags |= O_CLOEXEC;
+#endif
+    int random_fd = open("/dev/urandom", flags);
+    if (random_fd < 0) return false;
+#ifndef O_CLOEXEC
+    int descriptor_flags = fcntl(random_fd, F_GETFD);
+    if (descriptor_flags < 0 ||
+        fcntl(random_fd, F_SETFD, descriptor_flags | FD_CLOEXEC) != 0) {
+        close(random_fd);
+        return false;
+    }
+#endif
+    size_t read_count = 0;
+    while (read_count < length) {
+        ssize_t count = read(random_fd, output + read_count,
+            length - read_count);
+        if (count < 0) {
+            if (errno == EINTR) continue;
+            close(random_fd);
+            return false;
+        }
+        if (count == 0) {
+            close(random_fd);
+            return false;
+        }
+        read_count += (size_t)count;
+    }
+    return close(random_fd) == 0;
+}
+
+static bool seen_posix_atomic_sync_file(int fd) {
+#if defined(__APPLE__) && defined(F_FULLFSYNC)
+    if (fcntl(fd, F_FULLFSYNC) == 0) return true;
+    if (errno != EINVAL
+#ifdef ENOTSUP
+        && errno != ENOTSUP
+#endif
+    ) {
+        return false;
+    }
+#endif
+    return fsync(fd) == 0;
+}
+
+static bool seen_posix_atomic_sync_directory(int fd) {
+    if (fsync(fd) == 0) return true;
+    int error = errno;
+    if (error == EINVAL || error == EROFS) return true;
+#ifdef ENOTSUP
+    if (error == ENOTSUP) return true;
+#endif
+#ifdef EOPNOTSUPP
+    if (error == EOPNOTSUPP) return true;
+#endif
+    return false;
+}
+
+static bool seen_write_text_atomic_platform(SeenString path,
+    SeenString content) {
+    SeenAtomicPath destination;
+    int directory_fd = -1;
+    int temporary_fd = -1;
+    bool temporary_created = false;
+    bool committed = false;
+    bool result = false;
+    char temporary_leaf[64] = {0};
+    bool destination_exists = false;
+    mode_t destination_mode = 0;
+
+    if (!seen_atomic_path_split(path, &destination)) return false;
+    int directory_flags = O_RDONLY;
+#ifdef O_CLOEXEC
+    directory_flags |= O_CLOEXEC;
+#endif
+#ifdef O_DIRECTORY
+    directory_flags |= O_DIRECTORY;
+#endif
+    directory_fd = open(destination.directory, directory_flags);
+    if (directory_fd < 0) goto cleanup;
+#ifndef O_CLOEXEC
+    int descriptor_flags = fcntl(directory_fd, F_GETFD);
+    if (descriptor_flags < 0 || fcntl(directory_fd, F_SETFD,
+            descriptor_flags | FD_CLOEXEC) != 0) {
+        goto cleanup;
+    }
+#endif
+    struct stat directory_info;
+    if (fstat(directory_fd, &directory_info) != 0 ||
+        !S_ISDIR(directory_info.st_mode) ||
+        !seen_posix_atomic_destination_allowed(directory_fd,
+            destination.leaf, &destination_exists, &destination_mode)) {
+        goto cleanup;
+    }
+
+    static const char prefix[] = ".seen-tmp.";
+    static const char hex[] = "0123456789abcdef";
+    for (int attempt = 0; attempt < 64; attempt++) {
+        unsigned char nonce[16];
+        if (!seen_atomic_io_force_collision(nonce, sizeof(nonce)) &&
+            !seen_posix_random_bytes(nonce, sizeof(nonce))) goto cleanup;
+        memcpy(temporary_leaf, prefix, sizeof(prefix) - 1U);
+        size_t cursor = sizeof(prefix) - 1U;
+        for (size_t i = 0; i < sizeof(nonce); i++) {
+            temporary_leaf[cursor++] = hex[nonce[i] >> 4U];
+            temporary_leaf[cursor++] = hex[nonce[i] & 0x0fU];
+        }
+        temporary_leaf[cursor] = '\0';
+        int create_flags = O_WRONLY | O_CREAT | O_EXCL;
+#ifdef O_CLOEXEC
+        create_flags |= O_CLOEXEC;
+#endif
+#ifdef O_NOFOLLOW
+        create_flags |= O_NOFOLLOW;
+#endif
+        temporary_fd = openat(directory_fd, temporary_leaf, create_flags,
+            destination_exists ? 0600 : 0666);
+        if (temporary_fd >= 0) {
+            temporary_created = true;
+            break;
+        }
+        if (errno != EEXIST) goto cleanup;
+    }
+    if (!temporary_created) goto cleanup;
+
+#ifndef O_CLOEXEC
+    int temporary_descriptor_flags = fcntl(temporary_fd, F_GETFD);
+    if (temporary_descriptor_flags < 0 || fcntl(temporary_fd, F_SETFD,
+            temporary_descriptor_flags | FD_CLOEXEC) != 0) {
+        goto cleanup;
+    }
+#endif
+    struct stat temporary_info;
+    if (fstat(temporary_fd, &temporary_info) != 0 ||
+        !S_ISREG(temporary_info.st_mode) || temporary_info.st_nlink != 1) {
+        goto cleanup;
+    }
+    if (destination_exists &&
+        fchmod(temporary_fd, destination_mode & 0777) != 0) {
+        goto cleanup;
+    }
+
+    if (seen_atomic_io_should_fail(SEEN_ATOMIC_IO_FAIL_WRITE)) {
+        size_t partial = (size_t)content.len / 2U;
+        if (partial > 0) {
+            (void)seen_write_all_fd(temporary_fd, content.data, partial);
+        }
+        goto cleanup;
+    }
+    if (!seen_write_all_fd(temporary_fd, content.data,
+            (size_t)content.len) ||
+        seen_atomic_io_should_fail(SEEN_ATOMIC_IO_FAIL_SYNC) ||
+        !seen_posix_atomic_sync_file(temporary_fd)) {
+        goto cleanup;
+    }
+
+    int close_status = close(temporary_fd);
+    temporary_fd = -1;
+    if (seen_atomic_io_should_fail(SEEN_ATOMIC_IO_FAIL_CLOSE)) {
+        close_status = -1;
+    }
+    if (close_status != 0 ||
+        !seen_posix_atomic_sync_directory(directory_fd)) {
+        goto cleanup;
+    }
+
+    bool current_destination_exists = false;
+    mode_t current_destination_mode = 0;
+    if (!seen_posix_atomic_destination_allowed(directory_fd,
+            destination.leaf, &current_destination_exists,
+            &current_destination_mode) ||
+        seen_atomic_io_should_fail(SEEN_ATOMIC_IO_FAIL_RENAME)) {
+        goto cleanup;
+    }
+    if (renameat(directory_fd, temporary_leaf, directory_fd,
+            destination.leaf) != 0) {
+        goto cleanup;
+    }
+    committed = true;
+    // The data file was synchronized before commit. Synchronize the directory
+    // entry when supported; after rename succeeds the transaction is committed,
+    // so a late directory-sync error must not be reported as an unchanged-file
+    // failure.
+    (void)seen_posix_atomic_sync_directory(directory_fd);
+    result = true;
+
+cleanup:
+    if (temporary_fd >= 0) (void)close(temporary_fd);
+    if (temporary_created && !committed && directory_fd >= 0) {
+        (void)unlinkat(directory_fd, temporary_leaf, 0);
+    }
+    if (directory_fd >= 0) (void)close(directory_fd);
+    seen_atomic_path_release(&destination);
+    return result;
+}
+#endif
+
+bool seen_write_text_atomic(SeenString path, SeenString content) {
+    if (content.len < 0 ||
+        ((uint64_t)content.len > (uint64_t)SIZE_MAX) ||
+        (content.len > 0 && !content.data)) {
+        return false;
+    }
+    return seen_write_text_atomic_platform(path, content);
+}
 
 static char* seen_package_helper_path(const char* explicit_path,
     size_t explicit_length) {
@@ -10645,52 +11232,119 @@ void seen_ws_pool_shutdown(int64_t pool_handle) {
 // ============================================================================
 
 typedef struct {
-    int64_t (*body)(int64_t);
+    SeenPForBodyV2 body;
+    void *env;
+    SeenPForDropErrorV2 drop_error;
     int64_t start;
     int64_t end;
-} SeenPForArgs;
+    int64_t first_error_index;
+    int64_t first_error;
+} SeenPForArgsV2;
+
+#if defined(_WIN32)
+static __declspec(thread) int64_t seen_pfor_depth = 0;
+#else
+static _Thread_local int64_t seen_pfor_depth = 0;
+#endif
+
+int64_t seen_get_num_cores(void);
+
+#if defined(SEEN_TEST_PFOR_FAILURE_INJECTION)
+static int64_t seen_pfor_test_fail_create_after = -1;
+static int64_t seen_pfor_test_fail_allocations = 0;
+
+void seen_test_parallel_for_fail_create_after(int64_t worker_index) {
+    seen_pfor_test_fail_create_after = worker_index;
+}
+
+void seen_test_parallel_for_fail_allocations(int64_t enabled) {
+    seen_pfor_test_fail_allocations = enabled;
+}
+#endif
+
+static void seen_pfor_run_chunk_v2(SeenPForArgsV2 *a) {
+    seen_pfor_depth += 1;
+    for (int64_t i = a->start; i < a->end; i++) {
+        int64_t error = a->body(i, a->env);
+        if (error == 0) continue;
+
+        if (a->first_error == 0) {
+            a->first_error_index = i;
+            a->first_error = error;
+        } else if (a->drop_error) {
+            a->drop_error(error);
+        }
+    }
+    seen_pfor_depth -= 1;
+}
 
 static void* seen_pfor_worker(void* arg) {
-    SeenPForArgs* a = (SeenPForArgs*)arg;
-    for (int64_t i = a->start; i < a->end; i++) {
-        a->body(i);
-    }
+    seen_pfor_run_chunk_v2((SeenPForArgsV2 *)arg);
     return NULL;
 }
 
-void seen_parallel_for(int64_t start, int64_t end, int64_t fn_ptr, int64_t nthreads) {
-    int64_t (*body)(int64_t) = (int64_t (*)(int64_t))(uintptr_t)fn_ptr;
+int64_t seen_parallel_for_v2(int64_t start, int64_t end,
+                            SeenPForBodyV2 body, void *env,
+                            SeenPForDropErrorV2 drop_error,
+                            int64_t nthreads) {
     int64_t range = end - start;
-    if (range <= 0) return;
+    if (range <= 0 || !body) return 0;
+
+    if (seen_pfor_depth > 0) {
+        SeenPForArgsV2 nested = {
+            body, env, drop_error, start, end, -1, 0
+        };
+        seen_pfor_run_chunk_v2(&nested);
+        return nested.first_error;
+    }
 
     int64_t nt = nthreads;
     if (nt <= 0) {
-        nt = 4; // default thread count
+        nt = seen_get_num_cores();
     }
+    if (nt < 1) nt = 1;
     if (nt > range) nt = range;
     if (nt > 64) nt = 64;
 
     if (nt == 1) {
-        // Just run sequentially
-        for (int64_t i = start; i < end; i++) body(i);
-        return;
+        SeenPForArgsV2 sequential = {
+            body, env, drop_error, start, end, -1, 0
+        };
+        seen_pfor_run_chunk_v2(&sequential);
+        return sequential.first_error;
     }
 
-    pthread_t* threads = (pthread_t*)seen_try_malloc(
-        (int64_t)sizeof(pthread_t) * nt);
-    SeenPForArgs* args = (SeenPForArgs*)seen_try_malloc(
-        (int64_t)sizeof(SeenPForArgs) * nt);
-    if (!threads || !args) {
+    pthread_t* threads = NULL;
+    SeenPForArgsV2* args = NULL;
+    unsigned char* started = NULL;
+#if defined(SEEN_TEST_PFOR_FAILURE_INJECTION)
+    if (!seen_pfor_test_fail_allocations) {
+#endif
+        threads = (pthread_t*)seen_try_malloc(
+            (int64_t)sizeof(pthread_t) * nt);
+        args = (SeenPForArgsV2*)seen_try_calloc(
+            nt, (int64_t)sizeof(SeenPForArgsV2));
+        started = (unsigned char*)seen_try_calloc(nt, 1);
+#if defined(SEEN_TEST_PFOR_FAILURE_INJECTION)
+    }
+#endif
+    if (!threads || !args || !started) {
         if (threads) {
             seen_runtime_free_budgeted(threads,
                 (int64_t)sizeof(pthread_t) * nt);
         }
         if (args) {
             seen_runtime_free_budgeted(args,
-                (int64_t)sizeof(SeenPForArgs) * nt);
+                (int64_t)sizeof(SeenPForArgsV2) * nt);
         }
-        for (int64_t i = start; i < end; i++) body(i);
-        return;
+        if (started) {
+            seen_runtime_free_budgeted(started, nt);
+        }
+        SeenPForArgsV2 fallback = {
+            body, env, drop_error, start, end, -1, 0
+        };
+        seen_pfor_run_chunk_v2(&fallback);
+        return fallback.first_error;
     }
     int64_t chunk = range / nt;
     int64_t remainder = range % nt;
@@ -10698,16 +11352,73 @@ void seen_parallel_for(int64_t start, int64_t end, int64_t fn_ptr, int64_t nthre
 
     for (int64_t t = 0; t < nt; t++) {
         args[t].body = body;
+        args[t].env = env;
+        args[t].drop_error = drop_error;
         args[t].start = cur;
         args[t].end = cur + chunk + (t < remainder ? 1 : 0);
+        args[t].first_error_index = -1;
+        args[t].first_error = 0;
         cur = args[t].end;
-        pthread_create(&threads[t], NULL, seen_pfor_worker, &args[t]);
+        int create_result = -1;
+#if defined(SEEN_TEST_PFOR_FAILURE_INJECTION)
+        if (seen_pfor_test_fail_create_after < 0 ||
+            t < seen_pfor_test_fail_create_after) {
+#endif
+            create_result = pthread_create(&threads[t], NULL,
+                                            seen_pfor_worker, &args[t]);
+#if defined(SEEN_TEST_PFOR_FAILURE_INJECTION)
+        }
+#endif
+        if (create_result == 0) {
+            started[t] = 1;
+        } else {
+            // Preserve exactly-once execution even when only some workers
+            // could be created.
+            seen_pfor_run_chunk_v2(&args[t]);
+        }
     }
     for (int64_t t = 0; t < nt; t++) {
-        pthread_join(threads[t], NULL);
+        if (started[t] && pthread_join(threads[t], NULL) != 0) {
+            fprintf(stderr, "PANIC: parallel_for worker join failed\n");
+            abort();
+        }
+    }
+
+    int64_t winner_index = -1;
+    int64_t winner = 0;
+    for (int64_t t = 0; t < nt; t++) {
+        if (args[t].first_error == 0) continue;
+        if (winner == 0 || args[t].first_error_index < winner_index) {
+            if (winner != 0 && drop_error) drop_error(winner);
+            winner_index = args[t].first_error_index;
+            winner = args[t].first_error;
+        } else if (drop_error) {
+            drop_error(args[t].first_error);
+        }
     }
     seen_runtime_free_budgeted(threads, (int64_t)sizeof(pthread_t) * nt);
-    seen_runtime_free_budgeted(args, (int64_t)sizeof(SeenPForArgs) * nt);
+    seen_runtime_free_budgeted(args, (int64_t)sizeof(SeenPForArgsV2) * nt);
+    seen_runtime_free_budgeted(started, nt);
+    return winner;
+}
+
+typedef struct {
+    int64_t (*body)(int64_t);
+} SeenPForCompatEnv;
+
+static int64_t seen_pfor_compat_body(int64_t index, void *raw_env) {
+    SeenPForCompatEnv *env = (SeenPForCompatEnv *)raw_env;
+    env->body(index);
+    return 0;
+}
+
+void seen_parallel_for(int64_t start, int64_t end, int64_t fn_ptr,
+                       int64_t nthreads) {
+    SeenPForCompatEnv env = {
+        (int64_t (*)(int64_t))(uintptr_t)fn_ptr
+    };
+    (void)seen_parallel_for_v2(start, end, seen_pfor_compat_body, &env,
+                               NULL, nthreads);
 }
 
 // ============================================================================

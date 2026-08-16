@@ -79,6 +79,16 @@
           "default": true,
           "description": "Enable automatic code formatting"
         },
+        "seen.formatting.sortImports": {
+          "type": "boolean",
+          "default": true,
+          "description": "Conservatively sort valid top-level import blocks, keeping attached comments with their imports"
+        },
+        "seen.formatting.useManifest": {
+          "type": "boolean",
+          "default": true,
+          "description": "Use formatting defaults from the nearest Seen.toml"
+        },
         "seen.reactive.marbleDiagrams": {
           "type": "boolean",
           "default": true,
@@ -122,6 +132,11 @@
           "default": "en",
           "description": "Default language for new projects"
         }
+      }
+    },
+    "configurationDefaults": {
+      "[seen]": {
+        "editor.defaultFormatter": "yousefcodes.seen-vscode"
       }
     },
     "commands": [
@@ -253,7 +268,7 @@
         "properties": {
           "task": {
             "type": "string",
-            "enum": ["build", "run", "test", "benchmark", "check", "compile-shared", "pkg-fetch", "pkg-pack", "pkg-prebuild", "pkg-publish", "clean", "init"]
+            "enum": ["compile", "run", "check", "compile-shared", "pkg-fetch", "pkg-pack", "pkg-prebuild", "pkg-publish"]
           },
           "args": {
             "type": "array",

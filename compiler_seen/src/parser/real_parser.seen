@@ -29,6 +29,12 @@ class EnumNode {
     }
 }
 
+// Internal recovery marker. It cannot collide with a source identifier and is
+// consumed by the frontend before declarations can reach code generation.
+fun invalidPayloadEnumMarker(variant: String) r: String {
+    return "$invalid-payload$:" + variant
+}
+
 // Annotation/Decorator node for @deterministic, @nondeterministic, @extern, etc.
 class AnnotationNode {
     var name: String
@@ -41,6 +47,52 @@ class AnnotationNode {
     fun addArgument(arg: String) r: Void {
         this.arguments.push(arg)
     }
+}
+
+fun genericParameterCount(decorators: Array<AnnotationNode>) r: Int {
+    var count = 0
+    var i = 0
+    while i < decorators.length() {
+        if decorators[i].name == "generic_parameter" { count = count + 1 }
+        i = i + 1
+    }
+    return count
+}
+
+fun genericParameterNameAt(decorators: Array<AnnotationNode>, index: Int)
+    r: String {
+
+    var seen = 0
+    var i = 0
+    while i < decorators.length() {
+        let decorator = decorators[i]
+        if decorator.name == "generic_parameter" {
+            if seen == index and decorator.arguments.length() > 0 {
+                return decorator.arguments[0]
+            }
+            seen = seen + 1
+        }
+        i = i + 1
+    }
+    return ""
+}
+
+fun genericParameterModifierAt(decorators: Array<AnnotationNode>, index: Int)
+    r: String {
+
+    var seen = 0
+    var i = 0
+    while i < decorators.length() {
+        let decorator = decorators[i]
+        if decorator.name == "generic_parameter" {
+            if seen == index and decorator.arguments.length() > 1 {
+                return decorator.arguments[1]
+            }
+            seen = seen + 1
+        }
+        i = i + 1
+    }
+    return ""
 }
 
 class ItemNode {
@@ -242,6 +294,19 @@ var g_uiSlotListIds: Array<String> = Array<String>()
 var g_uiSlotNames: Array<String> = Array<String>()
 var g_uiSlotBlocks: Array<BlockNode> = Array<BlockNode>()
 var g_uiTrailingBlockSuppressionDepth: Int = 0
+var g_parserRecoveryErrorCount: Int = 0
+
+fun resetParserRecoveryErrors() r: Void {
+    g_parserRecoveryErrorCount = 0
+}
+
+fun getParserRecoveryErrorCount() r: Int {
+    return g_parserRecoveryErrorCount
+}
+
+fun recordParserRecoveryError() r: Void {
+    g_parserRecoveryErrorCount = g_parserRecoveryErrorCount + 1
+}
 
 fun ensureUiArgListId(expr: ParserExpressionNode) r: String {
     if not expr.operator.startsWith("__ui_args:") {
@@ -560,6 +625,7 @@ class RealParser {
         if checkNameLikeToken() {
             return advance()
         }
+        recordParserRecoveryError()
         return peek()
     }
 
@@ -568,6 +634,7 @@ class RealParser {
             let token = advance()
             return token.getValue()
         }
+        recordParserRecoveryError()
         return peekTokenValue()
     }
 
@@ -684,6 +751,7 @@ class RealParser {
         if checkToken(tokenType) {
             return advance()
         }
+        recordParserRecoveryError()
         return peek()
     }
 
@@ -1129,6 +1197,7 @@ class RealParser {
             }
 
             // Skip this.tokens we do not understand yet.
+            recordParserRecoveryError()
             advance()
         }
 
@@ -1362,16 +1431,86 @@ class RealParser {
         }
     }
 
-    fun skipGenericParametersIfPresent() r: Void {
-        if checkToken(SeenTokenType.LessThan) {
-            advance()
-            var gd = 1
-            while gd > 0 and not isAtEnd() {
-                if checkToken(SeenTokenType.LessThan) { gd = gd + 1 }
-                if checkToken(SeenTokenType.GreaterThan) { gd = gd - 1 }
-                advance()
-            }
+    fun recordGenericParameterDecorator(decorators: Array<AnnotationNode>,
+        name: String, modifier: String) r: Void {
+
+        let metadata = AnnotationNode.new("generic_parameter")
+        metadata.addArgument(name)
+        metadata.addArgument(modifier)
+        decorators.push(metadata)
+        if modifier == "variadic" {
+            let compatibility = AnnotationNode.new("variadic_generic")
+            compatibility.addArgument(name)
+            decorators.push(compatibility)
         }
+    }
+
+    ///
+    Consume a declaration's generic parameter list while preserving parameter
+    identity in decorators. This avoids changing bootstrap-sensitive AST
+    layouts while giving semantic passes explicit names and modifiers.
+    ///
+    fun parseGenericParametersInto(decorators: Array<AnnotationNode>) r: Void {
+        if not checkToken(SeenTokenType.LessThan) { return }
+        advance()
+        var depth = 1
+        var expectName = true
+        var modifier = ""
+        while depth > 0 and not isAtEnd() {
+            if depth == 1 and checkToken(SeenTokenType.Comma) {
+                advance()
+                expectName = true
+                modifier = ""
+                continue
+            }
+            if depth == 1 and expectName {
+                if checkToken(SeenTokenType.Ellipsis) or
+                    peekTokenValue() == "..." {
+                    advance()
+                    modifier = "variadic"
+                    continue
+                }
+                // Older lexer/bootstrap combinations expose an ellipsis as
+                // three Dot tokens even though current lexers use Ellipsis.
+                if peekTokenValue() == "." and
+                    peekAt(1).getValue() == "." and
+                    peekAt(2).getValue() == "." {
+                    advance()
+                    advance()
+                    advance()
+                    modifier = "variadic"
+                    continue
+                }
+                if checkToken(SeenTokenType.KeywordConst) {
+                    advance()
+                    modifier = "const"
+                    continue
+                }
+                if checkToken(SeenTokenType.KeywordComptime) {
+                    advance()
+                    modifier = "comptime"
+                    continue
+                }
+                if checkNameLikeToken() {
+                    let genericName = advance().getValue()
+                    recordGenericParameterDecorator(decorators, genericName,
+                        modifier)
+                    expectName = false
+                    continue
+                }
+            }
+            if checkToken(SeenTokenType.LessThan) {
+                depth = depth + 1
+            }
+            if checkToken(SeenTokenType.GreaterThan) {
+                depth = depth - 1
+            }
+            advance()
+        }
+    }
+
+    fun skipGenericParametersIfPresent() r: Void {
+        parseGenericParametersInto(this.pendingDecorators)
     }
 
     fun skipFunctionBodyAndMarkDeclaration() r: Bool {
@@ -1700,7 +1839,7 @@ class RealParser {
         if inferredType == "" or inferredType == currentType {
             return false
         }
-        if currentType == "Int" {
+        if currentType == "Unknown" {
             return true
         }
         if currentType == "ptr" {
@@ -1902,7 +2041,7 @@ class RealParser {
             gvType = inferTopLevelGlobalType(gvInitExpr)
         }
         if gvType == "" {
-            gvType = "Int"
+            gvType = "Unknown"
         }
 
         if matchTokenStr(SeenTokenType.Semicolon) { }
@@ -1940,7 +2079,7 @@ class RealParser {
             gvStaticValue = extractTopLevelStaticInitializer(gvInitExpr)
         }
         if gvType == "" {
-            gvType = "Int"
+            gvType = "Unknown"
         }
 
         if matchTokenStr(SeenTokenType.Semicolon) { }
@@ -2125,15 +2264,7 @@ class RealParser {
         // trace
 
         // Skip generic type parameters: fun name<T: Ord + Clone>(...)
-        if checkToken(SeenTokenType.LessThan) {
-            advance()
-            var gd = 1
-            while gd > 0 and not isAtEnd() {
-                if checkToken(SeenTokenType.LessThan) { gd = gd + 1 }
-                if checkToken(SeenTokenType.GreaterThan) { gd = gd - 1 }
-                advance()
-            }
-        }
+        parseGenericParametersInto(func.decorators)
 
         parseParameterList(func)
         parseOptionalReturnTypeIntoScratch()
@@ -2229,25 +2360,7 @@ class RealParser {
         Skip generic type parameters: fun name<T: Ord + Clone>(...)
         : Detect variadic generic ...Ts syntax
         ///
-        if checkToken(SeenTokenType.LessThan) {
-            advance()
-            var gd = 1
-            while gd > 0 and not isAtEnd() {
-                // : Detect '...' Identifier for variadic generics
-                if checkToken(SeenTokenType.Ellipsis) {
-                    advance()
-                    if checkToken(SeenTokenType.Identifier) {
-                        let packName = peek().getValue()
-                        let variadicAnn = AnnotationNode.new("variadic_generic")
-                        variadicAnn.addArgument(packName)
-                        this.lastFunction.decorators.push(variadicAnn)
-                    }
-                }
-                if checkToken(SeenTokenType.LessThan) { gd = gd + 1 }
-                if checkToken(SeenTokenType.GreaterThan) { gd = gd - 1 }
-                advance()
-            }
-        }
+        parseGenericParametersInto(this.lastFunction.decorators)
 
         // Apply pending decorators to this function
         applyDecoratorsToFunction()
@@ -2598,19 +2711,7 @@ class RealParser {
         // trace
 
         // Skip generic type parameters if present (e.g., class BTreeMap<K, V> { ... })
-        if checkToken(SeenTokenType.LessThan) {
-            advance()  // consume '<'
-            var genericDepth = 1
-            while genericDepth > 0 and not isAtEnd() {
-                if checkToken(SeenTokenType.LessThan) {
-                    genericDepth = genericDepth + 1
-                }
-                if checkToken(SeenTokenType.GreaterThan) {
-                    genericDepth = genericDepth - 1
-                }
-                advance()
-            }
-        }
+        parseGenericParametersInto(classNode.decorators)
 
         // Parse class body
         if matchTokenStr(SeenTokenType.LeftBrace) {
@@ -2673,15 +2774,8 @@ class RealParser {
                             this.lastFunction.line = methodNameTok.getLine()
                             this.lastFunction.column = methodNameTok.getColumn()
                             // Skip generic type parameters
-                            if checkToken(SeenTokenType.LessThan) {
-                                advance()
-                                var gd = 1
-                                while gd > 0 and not isAtEnd() {
-                                    if checkToken(SeenTokenType.LessThan) { gd = gd + 1 }
-                                    if checkToken(SeenTokenType.GreaterThan) { gd = gd - 1 }
-                                    advance()
-                                }
-                            }
+                            parseGenericParametersInto(
+                                this.lastFunction.decorators)
                             applyDecoratorsToFunction()
                             parseParameterListField()
                             var resolvedReturnTypeName = this.pendingFunctionReturnTypeName
@@ -2753,15 +2847,8 @@ class RealParser {
                         this.lastFunction.line = methodLine2
                         this.lastFunction.column = methodColumn2
                         // Skip generic type parameters
-                        if checkToken(SeenTokenType.LessThan) {
-                            advance()
-                            var gd = 1
-                            while gd > 0 and not isAtEnd() {
-                                if checkToken(SeenTokenType.LessThan) { gd = gd + 1 }
-                                if checkToken(SeenTokenType.GreaterThan) { gd = gd - 1 }
-                                advance()
-                            }
-                        }
+                        parseGenericParametersInto(
+                            this.lastFunction.decorators)
                         applyDecoratorsToFunction()
                         parseParameterListField()
                         var resolvedReturnTypeName2 = this.pendingFunctionReturnTypeName
@@ -2877,19 +2964,7 @@ class RealParser {
         classNode.name = nameToken.getValue()
 
         // Skip generic type parameters if present (e.g., class BTreeMap<K, V> { ... })
-        if checkToken(SeenTokenType.LessThan) {
-            advance()  // consume '<'
-            var genericDepth = 1
-            while genericDepth > 0 and not isAtEnd() {
-                if checkToken(SeenTokenType.LessThan) {
-                    genericDepth = genericDepth + 1
-                }
-                if checkToken(SeenTokenType.GreaterThan) {
-                    genericDepth = genericDepth - 1
-                }
-                advance()
-            }
-        }
+        parseGenericParametersInto(classNode.decorators)
 
         // Parse optional 'extends ParentClass' clause
         if checkToken(SeenTokenType.KeywordExtends) {
@@ -2961,15 +3036,8 @@ class RealParser {
                             this.lastFunction.line = methodNameTokInto.getLine()
                             this.lastFunction.column = methodNameTokInto.getColumn()
                             // Skip generic type parameters: fun name<T: Ord>(...)
-                            if checkToken(SeenTokenType.LessThan) {
-                                advance()
-                                var gd = 1
-                                while gd > 0 and not isAtEnd() {
-                                    if checkToken(SeenTokenType.LessThan) { gd = gd + 1 }
-                                    if checkToken(SeenTokenType.GreaterThan) { gd = gd - 1 }
-                                    advance()
-                                }
-                            }
+                            parseGenericParametersInto(
+                                this.lastFunction.decorators)
                             applyDecoratorsToFunction()
                             parseParameterListField()
                             var resolvedReturnTypeNameInto = this.pendingFunctionReturnTypeName
@@ -3053,15 +3121,8 @@ class RealParser {
                         this.lastFunction.line = methodLine
                         this.lastFunction.column = methodColumn
                         // Skip generic type parameters: fun name<T: Ord>(...)
-                        if checkToken(SeenTokenType.LessThan) {
-                            advance()
-                            var gd = 1
-                            while gd > 0 and not isAtEnd() {
-                                if checkToken(SeenTokenType.LessThan) { gd = gd + 1 }
-                                if checkToken(SeenTokenType.GreaterThan) { gd = gd - 1 }
-                                advance()
-                            }
-                        }
+                        parseGenericParametersInto(
+                            this.lastFunction.decorators)
                         applyDecoratorsToFunction()
                         parseParameterListField()
                         var resolvedReturnTypeNameInto2 = this.pendingFunctionReturnTypeName
@@ -3391,15 +3452,7 @@ class RealParser {
         applyPendingTypeModifiersToClass(classNode)
 
         // Skip optional generic params <T, U>
-        if checkToken(SeenTokenType.LessThan) {
-            advance()
-            var gd = 1
-            while gd > 0 and not isAtEnd() {
-                if checkToken(SeenTokenType.LessThan) { gd = gd + 1 }
-                if checkToken(SeenTokenType.GreaterThan) { gd = gd - 1 }
-                advance()
-            }
-        }
+        parseGenericParametersInto(classNode.decorators)
 
         // Parse parenthesized field list: (name: Type, ...)
         if matchTokenStr(SeenTokenType.LeftParen) {
@@ -3449,16 +3502,57 @@ class RealParser {
         let enumNode = EnumNode.new()
         enumNode.name = nameToken.getValue()
 
+        // Generic enums are part of the payload-enum surface and are not
+        // supported by the current unit-enum AST. Consume them with balanced,
+        // progress-guaranteed recovery so the frontend can reject them.
+        if matchTokenStr(SeenTokenType.LessThan) {
+            recordParserRecoveryError()
+            enumNode.variants.push(invalidPayloadEnumMarker("generic-enum"))
+            var genericDepth = 1
+            while genericDepth > 0 and not isAtEnd() {
+                if matchTokenStr(SeenTokenType.LessThan) {
+                    genericDepth = genericDepth + 1
+                } else if matchTokenStr(SeenTokenType.GreaterThan) {
+                    genericDepth = genericDepth - 1
+                } else {
+                    advance()
+                }
+            }
+        }
+
         // Parse enum variants inside braces
         if matchTokenStr(SeenTokenType.LeftBrace) {
             while not checkToken(SeenTokenType.RightBrace) and not isAtEnd() {
+                var variantHandled = false
                 if checkToken(SeenTokenType.Identifier) {
                     let variant = advance().getValue()
-                    enumNode.variants.push(variant)
+                    if matchTokenStr(SeenTokenType.LeftParen) {
+                        recordParserRecoveryError()
+                        enumNode.variants.push(invalidPayloadEnumMarker(variant))
+                        var payloadDepth = 1
+                        while payloadDepth > 0 and not isAtEnd() {
+                            if matchTokenStr(SeenTokenType.LeftParen) {
+                                payloadDepth = payloadDepth + 1
+                            } else if matchTokenStr(SeenTokenType.RightParen) {
+                                payloadDepth = payloadDepth - 1
+                            } else {
+                                advance()
+                            }
+                        }
+                    } else {
+                        enumNode.variants.push(variant)
+                    }
+                    variantHandled = true
                 }
                 // Skip comma if present
                 if matchTokenStr(SeenTokenType.Comma) {
                     // continue
+                    variantHandled = true
+                }
+                if not variantHandled {
+                    // Malformed enum syntax must always make progress.
+                    recordParserRecoveryError()
+                    advance()
                 }
             }
             consume(SeenTokenType.RightBrace, "Expected '}' after enum variants")
@@ -3497,15 +3591,52 @@ class RealParser {
         let enumNode = EnumNode.new()
         enumNode.name = nameToken.getValue()
 
+        if matchTokenStr(SeenTokenType.LessThan) {
+            recordParserRecoveryError()
+            enumNode.variants.push(invalidPayloadEnumMarker("generic-enum"))
+            var genericDepth = 1
+            while genericDepth > 0 and not isAtEnd() {
+                if matchTokenStr(SeenTokenType.LessThan) {
+                    genericDepth = genericDepth + 1
+                } else if matchTokenStr(SeenTokenType.GreaterThan) {
+                    genericDepth = genericDepth - 1
+                } else {
+                    advance()
+                }
+            }
+        }
+
         // Parse enum variants inside braces
         if matchTokenStr(SeenTokenType.LeftBrace) {
             while not checkToken(SeenTokenType.RightBrace) and not isAtEnd() {
+                var variantHandled = false
                 if checkToken(SeenTokenType.Identifier) {
                     let variant = advance().getValue()
-                    enumNode.variants.push(variant)
+                    if matchTokenStr(SeenTokenType.LeftParen) {
+                        recordParserRecoveryError()
+                        enumNode.variants.push(invalidPayloadEnumMarker(variant))
+                        var payloadDepth = 1
+                        while payloadDepth > 0 and not isAtEnd() {
+                            if matchTokenStr(SeenTokenType.LeftParen) {
+                                payloadDepth = payloadDepth + 1
+                            } else if matchTokenStr(SeenTokenType.RightParen) {
+                                payloadDepth = payloadDepth - 1
+                            } else {
+                                advance()
+                            }
+                        }
+                    } else {
+                        enumNode.variants.push(variant)
+                    }
+                    variantHandled = true
                 }
                 if matchTokenStr(SeenTokenType.Comma) {
                     // continue
+                    variantHandled = true
+                }
+                if not variantHandled {
+                    recordParserRecoveryError()
+                    advance()
                 }
             }
             consume(SeenTokenType.RightBrace, "Expected '}' after enum variants")
@@ -3557,6 +3688,10 @@ class RealParser {
         }
 
         while not isAtEnd() {
+            if checkToken(SeenTokenType.RightParen) {
+                advance()
+                return
+            }
             // Check for variadic '...' as final parameter
             if checkToken(SeenTokenType.Ellipsis) {
                 advance()
@@ -3592,6 +3727,7 @@ class RealParser {
             ownership = "borrow"
         }
         if not checkNameLikeToken() {
+            recordParserRecoveryError()
             return ParamNode.new()
         }
         let nameToken = advance()
@@ -4109,8 +4245,18 @@ class RealParser {
             this.currentBlock.statements.push(this.lastStatement)
             return
         }
-        if checkToken(SeenTokenType.Identifier) and peek().getValue() == "parallel_for" {
-            advance()  // consume 'parallel_for'
+        var matchedParallelFor = false
+        if matchTokenStr(SeenTokenType.KeywordParallelFor) {
+            matchedParallelFor = true
+        }
+        // Bootstrap compatibility: older keyword tables emitted this as an
+        // ordinary identifier even though the production tables reserve it.
+        if not matchedParallelFor and checkToken(SeenTokenType.Identifier) and
+            peek().getValue() == "parallel_for" {
+            advance()
+            matchedParallelFor = true
+        }
+        if matchedParallelFor {
             parseParallelForStatementField()
             this.currentBlock.statements.push(this.lastStatement)
             return
@@ -4260,8 +4406,18 @@ class RealParser {
             stmt.loopBody = this.lastParsedBlock
             return stmt
         }
-        if checkToken(SeenTokenType.Identifier) and peek().getValue() == "parallel_for" {
-            advance()  // consume 'parallel_for'
+        var matchedParallelFor = false
+        if matchTokenStr(SeenTokenType.KeywordParallelFor) {
+            matchedParallelFor = true
+        }
+        // Keep accepting the contextual spelling while bootstrapping older
+        // compilers that did not activate KeywordParallelFor.
+        if not matchedParallelFor and checkToken(SeenTokenType.Identifier) and
+            peek().getValue() == "parallel_for" {
+            advance()
+            matchedParallelFor = true
+        }
+        if matchedParallelFor {
             return parseParallelForStatement()
         }
         if matchTokenStr(SeenTokenType.KeywordFor) { return parseForInStatement() }
@@ -5925,6 +6081,12 @@ class RealParser {
                     // trace
                     parseCallArgumentInto(expr)
                     while matchTokenStr(getCommaType()) {
+                        // A comma immediately before ')' is a trailing comma,
+                        // not an empty argument. This check also guarantees
+                        // progress for malformed comma runs.
+                        if checkToken(getRightParenType()) {
+                            break
+                        }
                         parseCallArgumentInto(expr)
                     }
                     // trace
@@ -6260,6 +6422,9 @@ class RealParser {
                     if not matchTokenStr(SeenTokenType.Comma) {
                         break
                     }
+                    if checkToken(SeenTokenType.BitwiseOr) {
+                        break
+                    }
                 }
                 if closureValid {
                     if checkToken(SeenTokenType.BitwiseOr) {
@@ -6526,6 +6691,9 @@ class RealParser {
             if not checkToken(SeenTokenType.RightBracket) {
                 arrayExpr.arguments.push(parseExpression())
                 while matchTokenStr(getCommaType()) {
+                    if checkToken(SeenTokenType.RightBracket) {
+                        break
+                    }
                     arrayExpr.arguments.push(parseExpression())
                 }
             }
@@ -6535,6 +6703,7 @@ class RealParser {
 
         // Unknown token - advance to avoid infinite loop
         if not isAtEnd() {
+            recordParserRecoveryError()
             advance()
         }
         return ParserExpressionNode.new()
@@ -7260,6 +7429,9 @@ class RealParser {
 
                     // Additional fields separated by comma
                     while matchTokenStr(SeenTokenType.Comma) {
+                        if checkToken(SeenTokenType.RightParen) {
+                            break
+                        }
                         let nextField = parsePatternFieldExpr()
                         expr.operands.push(nextField)
                     }

@@ -1,0 +1,244 @@
+import typechecker.type_ref.{TypeRef, parseTypeRef}
+import typechecker.specialization_identity.{SpecializationComptimeArgument}
+import typechecker.specialization_identity.{SpecializationDemandResult}
+import typechecker.specialization_identity.{buildSpecializationDemand}
+import typechecker.specialization_identity.{specializationLimit}
+import typechecker.specialization_cache.{SpecializationCache}
+
+fun specializationExpect(condition: Bool, message: String) r: Void {
+    if not condition { abort(message) }
+}
+
+fun noTypes() r: Array<TypeRef> {
+    return Array<TypeRef>()
+}
+
+fun noComptimeArguments() r: Array<SpecializationComptimeArgument> {
+    return Array<SpecializationComptimeArgument>()
+}
+
+fun noGenericNames() r: Array<String> {
+    return Array<String>()
+}
+
+fun oneType(typeRef: TypeRef) r: Array<TypeRef> {
+    let arguments = Array<TypeRef>()
+    arguments.push(typeRef)
+    return arguments
+}
+
+fun oneComptime(valueKind: String, typeIdentity: String,
+    canonicalValue: String) r: Array<SpecializationComptimeArgument> {
+
+    let arguments = Array<SpecializationComptimeArgument>()
+    arguments.push(SpecializationComptimeArgument.new(valueKind,
+        typeIdentity, canonicalValue))
+    return arguments
+}
+
+fun specializationDemand(declaration: String, fingerprint: String,
+    typeArguments: Array<TypeRef>,
+    comptimeArguments: Array<SpecializationComptimeArgument>, target: String)
+    r: SpecializationDemandResult {
+
+    return buildSpecializationDemand(declaration, fingerprint, typeArguments,
+        comptimeArguments, noGenericNames(), target, "demand.seen", 7, 11)
+}
+
+fun testIdentityInputsAndSnapshot() r: Void {
+    let optionInt = parseTypeRef("Option<Int>", 7, 11, "demand.seen")
+    let base = specializationDemand("demo::map", "sha256:def-map-v1",
+        oneType(optionInt), oneComptime("integer", "Int", "42"),
+        "x86_64-unknown-linux-gnu|features=+sse2")
+    specializationExpect(base.success, "concrete demand succeeds")
+    specializationExpect(base.key.canonicalDeclaration == "demo::map",
+        "key snapshots canonical declaration")
+    specializationExpect(base.key.definitionFingerprint ==
+        "sha256:def-map-v1", "key snapshots definition fingerprint")
+    specializationExpect(base.key.canonicalTypeArguments.length() == 1 and
+        base.key.canonicalTypeArguments[0] == "Option<Int>",
+        "key snapshots structured TypeRef identity")
+    specializationExpect(base.key.canonicalComptimeArguments.length() == 1,
+        "key snapshots typed comptime value")
+    specializationExpect(base.key.canonicalTarget ==
+        "x86_64-unknown-linux-gnu|features=+sse2",
+        "key snapshots canonical target")
+    specializationExpect(base.key.mangledName.startsWith(
+        "__seen_spec_v1_"), "internal mangle is versioned")
+
+    let repeated = specializationDemand("demo::map", "sha256:def-map-v1",
+        oneType(parseTypeRef("Option<Int>", 0, 0)),
+        oneComptime("integer", "Int", "42"),
+        "x86_64-unknown-linux-gnu|features=+sse2")
+    specializationExpect(repeated.success and
+        repeated.key.canonicalText == base.key.canonicalText and
+        repeated.key.mangledName == base.key.mangledName,
+        "equivalent demands have deterministic identities")
+
+    optionInt.nullable = true
+    optionInt.ownership = "borrow"
+    specializationExpect(base.key.canonicalTypeArguments[0] ==
+        "Option<Int>", "validated key does not retain mutable TypeRef")
+
+    let changedTarget = specializationDemand("demo::map",
+        "sha256:def-map-v1", oneType(parseTypeRef("Option<Int>", 0, 0)),
+        oneComptime("integer", "Int", "42"),
+        "aarch64-unknown-linux-gnu|features=baseline")
+    specializationExpect(changedTarget.success and
+        changedTarget.key.canonicalText != base.key.canonicalText,
+        "target participates in identity")
+
+    let changedDefinition = specializationDemand("demo::map",
+        "sha256:def-map-v2", oneType(parseTypeRef("Option<Int>", 0, 0)),
+        oneComptime("integer", "Int", "42"),
+        "x86_64-unknown-linux-gnu|features=+sse2")
+    specializationExpect(changedDefinition.success and
+        changedDefinition.key.canonicalText != base.key.canonicalText,
+        "definition fingerprint participates in identity")
+
+    let changedOwnership = specializationDemand("demo::map",
+        "sha256:def-map-v1",
+        oneType(parseTypeRef("borrow:Option<Int>?", 0, 0)),
+        oneComptime("integer", "Int", "42"),
+        "x86_64-unknown-linux-gnu|features=+sse2")
+    specializationExpect(changedOwnership.success and
+        changedOwnership.key.canonicalText != base.key.canonicalText,
+        "TypeRef ownership and nullability participate in identity")
+
+    let changedValue = specializationDemand("demo::map",
+        "sha256:def-map-v1", oneType(parseTypeRef("Option<Int>", 0, 0)),
+        oneComptime("integer", "Int", "43"),
+        "x86_64-unknown-linux-gnu|features=+sse2")
+    specializationExpect(changedValue.success and
+        changedValue.key.canonicalText != base.key.canonicalText,
+        "comptime value participates in identity")
+
+    let changedValueType = specializationDemand("demo::map",
+        "sha256:def-map-v1", oneType(parseTypeRef("Option<Int>", 0, 0)),
+        oneComptime("string", "String", "42"),
+        "x86_64-unknown-linux-gnu|features=+sse2")
+    specializationExpect(changedValueType.success and
+        changedValueType.key.canonicalText != base.key.canonicalText,
+        "comptime value kind and type disambiguate equal text")
+
+    let userType = parseTypeRef("Box<Int>", 0, 0)
+    userType.identityBase = "demo.models::Box"
+    let userDemand = specializationDemand("demo::consume",
+        "sha256:def-consume-v1", oneType(userType), noComptimeArguments(),
+        "x86_64-unknown-linux-gnu")
+    specializationExpect(userDemand.success and
+        userDemand.key.canonicalTypeArguments[0] == "demo.models::Box<Int>",
+        "resolved user type uses canonical semantic identity")
+}
+
+fun testFailClosedDemandDiagnostics() r: Void {
+    let names = Array<String>()
+    names.push("T")
+    let openType = parseTypeRef("Option<T>", 9, 4, "generic.seen")
+    let openDemand = buildSpecializationDemand("demo::open",
+        "sha256:def-open", oneType(openType), noComptimeArguments(), names,
+        "x86_64-unknown-linux-gnu", "fallback.seen", 1, 1)
+    specializationExpect(not openDemand.success and
+        openDemand.diagnostics.length() == 1 and
+        openDemand.diagnostics[0].code == "E_SPECIALIZATION_OPEN_GENERIC",
+        "source generic is rejected explicitly")
+    specializationExpect(openDemand.diagnostics[0].location.file ==
+        "generic.seen" and openDemand.diagnostics[0].location.line == 9 and
+        openDemand.diagnostics[0].location.column == 4,
+        "open generic diagnostic preserves TypeRef location")
+
+    let identityOpen = parseTypeRef("T", 0, 0)
+    identityOpen.identityBase = "generic:demo::open::T"
+    let identityDemand = specializationDemand("demo::open",
+        "sha256:def-open", oneType(identityOpen), noComptimeArguments(),
+        "x86_64-unknown-linux-gnu")
+    specializationExpect(not identityDemand.success and
+        identityDemand.diagnostics[0].code ==
+        "E_SPECIALIZATION_OPEN_GENERIC",
+        "semantic generic marker is rejected without a caller name list")
+
+    let unresolved = specializationDemand("demo::consume",
+        "sha256:def-consume", oneType(parseTypeRef("Missing", 0, 0)),
+        noComptimeArguments(), "x86_64-unknown-linux-gnu")
+    specializationExpect(not unresolved.success and
+        unresolved.diagnostics[0].code ==
+        "E_SPECIALIZATION_UNRESOLVED_TYPE",
+        "unresolved user TypeRef is rejected")
+
+    let malformed = TypeRef.new()
+    malformed.kind = "pointer"
+    malformed.base = "Pointer"
+    let malformedDemand = specializationDemand("demo::consume",
+        "sha256:def-consume", oneType(malformed), noComptimeArguments(),
+        "x86_64-unknown-linux-gnu")
+    specializationExpect(not malformedDemand.success and
+        malformedDemand.diagnostics[0].code == "E_SPECIALIZATION_TYPE",
+        "malformed structural TypeRef is rejected before canonicalization")
+
+    let invalidCt = Array<SpecializationComptimeArgument>()
+    invalidCt.push(SpecializationComptimeArgument.invalid(
+        "CT-MIR value was not deterministic"))
+    let invalidCtDemand = specializationDemand("demo::ct",
+        "sha256:def-ct", noTypes(), invalidCt,
+        "x86_64-unknown-linux-gnu")
+    specializationExpect(not invalidCtDemand.success and
+        invalidCtDemand.diagnostics[0].code == "E_SPECIALIZATION_COMPTIME",
+        "invalid comptime value is rejected")
+
+    let missingMetadata = specializationDemand("", "", noTypes(),
+        noComptimeArguments(), "")
+    specializationExpect(not missingMetadata.success and
+        missingMetadata.diagnostics.length() == 3,
+        "missing declaration, fingerprint, and target are exhaustive")
+}
+
+fun testDeterministicCacheOrdering() r: Void {
+    let target = "x86_64-unknown-linux-gnu"
+    let alpha = specializationDemand("alpha::work", "sha256:alpha",
+        oneType(parseTypeRef("Int", 0, 0)), noComptimeArguments(), target)
+    let omega = specializationDemand("omega::work", "sha256:omega",
+        oneType(parseTypeRef("Int", 0, 0)), noComptimeArguments(), target)
+    specializationExpect(alpha.success and omega.success,
+        "cache fixtures are valid demands")
+
+    let reverseCache = SpecializationCache.new()
+    let omegaInsert = reverseCache.registerDemand(omega, "cache.seen", 1, 1)
+    let alphaInsert = reverseCache.registerDemand(alpha, "cache.seen", 2, 1)
+    specializationExpect(omegaInsert.success and omegaInsert.inserted and
+        alphaInsert.success and alphaInsert.inserted,
+        "unique demands insert")
+    specializationExpect(reverseCache.count() == 2 and
+        reverseCache.keyAt(0).canonicalText == alpha.key.canonicalText and
+        reverseCache.keyAt(1).canonicalText == omega.key.canonicalText,
+        "cache is canonical-key sorted, not discovery ordered")
+
+    let forwardCache = SpecializationCache.new()
+    forwardCache.registerDemand(alpha, "cache.seen", 1, 1)
+    forwardCache.registerDemand(omega, "cache.seen", 2, 1)
+    specializationExpect(forwardCache.canonicalIndex() ==
+        reverseCache.canonicalIndex(),
+        "stable cache index is insertion-order independent")
+
+    let duplicate = reverseCache.registerDemand(alpha, "cache.seen", 3, 1)
+    specializationExpect(duplicate.success and not duplicate.inserted and
+        reverseCache.count() == 2,
+        "duplicate is a cache hit and consumes no specialization budget")
+
+    let rejectedCache = SpecializationCache.new()
+    let rejected = rejectedCache.registerDemand(
+        specializationDemand("", "", noTypes(), noComptimeArguments(), ""),
+        "cache.seen", 4, 1)
+    specializationExpect(not rejected.success and rejectedCache.count() == 0,
+        "failed demand never enters cache")
+    specializationExpect(specializationLimit() == 65536,
+        "specialization ceiling is the 0.11 hard limit")
+}
+
+fun main() r: Int {
+    testIdentityInputsAndSnapshot()
+    testFailClosedDemandDiagnostics()
+    testDeterministicCacheOrdering()
+    return 0
+}
+
+main()

@@ -1,6 +1,7 @@
 ///
 Example: UWW Deterministic Game State
-Compile with: seen build examples/uww_game.seen -t uww
+Check the source with: seen check examples/uww_game.seen
+`uww` is a library/domain example, not a shipped compiler target name.
 This program demonstrates deterministic computation for UWW runtime
 ///
 

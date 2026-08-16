@@ -2,14 +2,28 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
-COMPILER="$ROOT_DIR/compiler_seen/target/seen"
-TMP_DIR="$(mktemp -d /tmp/seen_import_c_bitfields.XXXXXX)"
+COMPILER="${COMPILER:-$ROOT_DIR/compiler_seen/target/seen}"
+CAPPED_ENTRY="$ROOT_DIR/scripts/run_capped_regression.sh"
+SCOPE=seen-import-c-bitfields
+if [ "${SEEN_CAPPED_REGRESSION_ACTIVE:-0}" != "1" ]; then
+    exec bash "$CAPPED_ENTRY" "$SCOPE" --compiler "$COMPILER" -- bash "$0" "$@"
+fi
+COMPILER="${SEEN_CAPPED_REGRESSION_COMPILER:-$COMPILER}"
+bash "$CAPPED_ENTRY" --verify-active "$SCOPE" --compiler "$COMPILER"
+ATTESTED_SEEN="${SEEN_ATTESTED_COMPILER_RUNNER:?}"
+TMP_DIR="$(mktemp -d "$SEEN_ARTIFACT_ROOT/seen-import-c-bitfields.XXXXXX")"
 HEADER="$TMP_DIR/bitfields.h"
 FULL_OUT="$TMP_DIR/bitfields_full.out"
 OUT="$TMP_DIR/bitfields_bindings.seen"
 
 cleanup() {
-    rm -rf "$TMP_DIR"
+    case "$TMP_DIR" in
+        "$SEEN_ARTIFACT_ROOT"/seen-import-c-bitfields.*)
+            [ -d "$TMP_DIR" ] && [ ! -L "$TMP_DIR" ] &&
+                [ "$(dirname -- "$TMP_DIR")" = "$SEEN_ARTIFACT_ROOT" ] || return 1
+            rm -rf -- "$TMP_DIR" ;;
+        *) return 1 ;;
+    esac
 }
 
 trap cleanup EXIT
@@ -31,7 +45,7 @@ typedef struct SignedFlags {
 void use_flags(Flags *flags, SignedFlags *signed_flags);
 EOF
 
-"$COMPILER" import-c "$HEADER" >"$FULL_OUT"
+bash "$ATTESTED_SEEN" "$COMPILER" import-c "$HEADER" >"$FULL_OUT"
 sed -n '/^\/\/ Auto-generated/,$p' "$FULL_OUT" >"$OUT"
 
 FLAGS_BLOCK="$(sed -n '/^class Flags {$/,/^}$/p' "$OUT")"
@@ -115,7 +129,8 @@ fun main() r: Int {
 }
 EOF
 
-"$COMPILER" compile "$OUT" "$TMP_DIR/bitfields_probe" --fast >/dev/null
+bash "$ATTESTED_SEEN" "$COMPILER" compile \
+    "$OUT" "$TMP_DIR/bitfields_probe" --fast >/dev/null
 "$TMP_DIR/bitfields_probe" >/dev/null
 
 echo "PASS: import-c emits ABI-correct bitfield storage with helper accessors"

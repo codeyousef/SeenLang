@@ -161,13 +161,13 @@ fun inferMethodCallTypeTableImpl(callee: String) r: String {
     if callee == "create" { return "FsFileResult" }
     // LSP methods returning nullable types
     if callee == "readMessage" {
-        return "LspMessage?"
+        return "Option<LspMessage>"
     }
     if callee == "getDocument" {
-        return "Document?"
+        return "Option<Document>"
     }
     if callee == "getAt" {
-        return "JsonValue?"
+        return "Option<JsonValue>"
     }
     if callee == "readContent" { return "Result" }
     if callee == "writeContent" { return "Result" }

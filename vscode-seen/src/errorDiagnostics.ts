@@ -5,7 +5,6 @@ import * as vscode from 'vscode';
 import { spawn } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
-import * as os from 'os';
 
 export interface SeenError {
     code: string;
@@ -59,7 +58,20 @@ export class SeenDiagnosticProvider {
     }
     
     private async compileAndGetErrors(document: vscode.TextDocument): Promise<SeenError[]> {
-        const checkedPath = await this.prepareDocumentForCheck(document);
+        let checkedPath: string;
+        try {
+            checkedPath = await this.prepareDocumentForCheck(document);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            return [{
+                code: 'E005',
+                severity: 'error',
+                message: `Could not prepare project-local Seen check artifacts: ${message}`,
+                file: document.fileName,
+                location: { line: 1, column: 1, length: 1 },
+                suggestions: []
+            }];
+        }
         return new Promise((resolve) => {
             const seenPath = vscode.workspace.getConfiguration('seen').get<string>('compiler.path', 'seen');
             const language = vscode.workspace.getConfiguration('seen').get<string>('language.default', 'en');
@@ -101,18 +113,99 @@ export class SeenDiagnosticProvider {
             return document.fileName;
         }
 
-        const tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'seen-vscode-check-'));
+        const artifactRoot = await this.findProjectArtifactRoot(document.uri);
+        const scopeRoot = path.join(artifactRoot, 'vscode-check');
+        await this.ensureContainedDirectory(artifactRoot, scopeRoot);
+        const tempDir = await fs.promises.mkdtemp(path.join(scopeRoot, 'run.'));
+        this.assertContainedPath(scopeRoot, tempDir);
         const tempPath = path.join(tempDir, path.basename(document.fileName));
         await fs.promises.writeFile(tempPath, document.getText(), 'utf8');
         return tempPath;
+    }
+
+    private async findProjectArtifactRoot(documentUri: vscode.Uri): Promise<string> {
+        let current = path.dirname(documentUri.fsPath);
+        const filesystemRoot = path.parse(current).root;
+        while (current !== '') {
+            const manifest = path.join(current, 'Seen.toml');
+            try {
+                const stat = await fs.promises.lstat(manifest);
+                if (stat.isFile() && !stat.isSymbolicLink()) {
+                    const seenRoot = path.join(current, '.seen');
+                    const artifactRoot = path.join(seenRoot, 'agent-tools');
+                    await this.ensureContainedDirectory(current, seenRoot);
+                    await this.ensureContainedDirectory(seenRoot, artifactRoot);
+                    return artifactRoot;
+                }
+            } catch (error) {
+                const code = (error as NodeJS.ErrnoException).code;
+                if (code !== 'ENOENT' && code !== 'ENOTDIR') {
+                    throw error;
+                }
+            }
+            if (current === filesystemRoot) {
+                break;
+            }
+            const parent = path.dirname(current);
+            if (parent === current) {
+                break;
+            }
+            current = parent;
+        }
+        throw new Error('no enclosing Seen.toml was found');
+    }
+
+    private assertContainedPath(parent: string, candidate: string): void {
+        const relative = path.relative(path.resolve(parent), path.resolve(candidate));
+        if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
+            throw new Error(`artifact path escaped its project scope: ${candidate}`);
+        }
+    }
+
+    private async ensureContainedDirectory(parent: string, candidate: string): Promise<void> {
+        this.assertContainedPath(parent, candidate);
+        try {
+            const existing = await fs.promises.lstat(candidate);
+            if (existing.isSymbolicLink() || !existing.isDirectory()) {
+                throw new Error(`artifact path is not a real directory: ${candidate}`);
+            }
+        } catch (error) {
+            const code = (error as NodeJS.ErrnoException).code;
+            if (code !== 'ENOENT') {
+                throw error;
+            }
+            await fs.promises.mkdir(candidate, { recursive: false });
+            const created = await fs.promises.lstat(candidate);
+            if (created.isSymbolicLink() || !created.isDirectory()) {
+                throw new Error(`artifact directory validation failed: ${candidate}`);
+            }
+        }
     }
 
     private cleanupPreparedDocument(checkedPath: string, originalPath: string): void {
         if (checkedPath === originalPath) {
             return;
         }
-        fs.promises.rm(path.dirname(checkedPath), { recursive: true, force: true }).catch(() => {
-            // Best-effort cleanup only.
+        const runDirectory = path.dirname(checkedPath);
+        const scopeRoot = path.dirname(runDirectory);
+        if (path.basename(scopeRoot) !== 'vscode-check' ||
+            path.basename(path.dirname(scopeRoot)) !== 'agent-tools' ||
+            !path.basename(runDirectory).startsWith('run.')) {
+
+            return;
+        }
+        try {
+            this.assertContainedPath(scopeRoot, runDirectory);
+        } catch {
+            return;
+        }
+        fs.promises.lstat(runDirectory).then(stat => {
+            if (!stat.isDirectory() || stat.isSymbolicLink()) {
+                return;
+            }
+            return fs.promises.rm(runDirectory, { recursive: true, force: false });
+        }).catch(() => {
+            // A failed validated cleanup is left in the ignored project scope.
         });
     }
     

@@ -1,0 +1,1063 @@
+///
+Semantic identities, cross-module declarations, decorators, and lexical
+bindings. The representation deliberately uses parallel arrays: bootstrap
+stages lower these predictably, and later enum/pfor passes can query the same
+registry without depending on LLVM generator state.
+///
+
+import typechecker.type_ref.{TypeRef, parseTypeRef}
+
+class SemanticSourceLocation {
+    var file: String
+    var line: Int
+    var column: Int
+
+    static fun new(file: String, line: Int, column: Int)
+        r: SemanticSourceLocation {
+
+        return SemanticSourceLocation{
+            file: file,
+            line: line,
+            column: column
+        }
+    }
+}
+
+class SemanticDiagnostic {
+    var code: String
+    var message: String
+    var location: SemanticSourceLocation
+
+    static fun new(code: String, message: String, file: String, line: Int,
+        column: Int) r: SemanticDiagnostic {
+
+        return SemanticDiagnostic{
+            code: code,
+            message: message,
+            location: SemanticSourceLocation.new(file, line, column)
+        }
+    }
+}
+
+fun semanticCanonicalDeclaration(moduleName: String, name: String) r: String {
+    if moduleName == "" { return name }
+    return moduleName + "::" + name
+}
+
+fun semanticNormalizeModuleIdentity(path: String) r: String {
+    var normalized = path
+    if normalized.endsWith(".seen") {
+        normalized = normalized.substring(0, normalized.length() - 5)
+    }
+    var result = ""
+    var i = 0
+    while i < normalized.length() {
+        if normalized.byteAt(i) == '/' or normalized.byteAt(i) == 92 {
+            result = result + "."
+        } else {
+            result = result + normalized.substring(i, i + 1)
+        }
+        i = i + 1
+    }
+    return result
+}
+
+fun semanticIsBuiltinType(name: String) r: Bool {
+    if name == "()" or name == "Unit" or name == "Void" { return true }
+    if name == "Never" or name == "Any" { return true }
+    if name == "Bool" or name == "Boolean" or name == "Char" or
+        name == "String" or name == "StringBuilder" { return true }
+    if name == "Int" or name == "UInt" or name == "Float" { return true }
+    if name == "Int8" or name == "Int16" or name == "Int32" or
+        name == "Int64" { return true }
+    if name == "UInt8" or name == "UInt16" or name == "UInt32" or
+        name == "UInt64" { return true }
+    if name == "Float32" or name == "Float64" { return true }
+    if name == "Byte" or name == "u8" or name == "i8" or name == "i16" or
+        name == "i32" or name == "i64" { return true }
+    if name == "u16" or name == "u32" or name == "u64" { return true }
+    if name == "f32" or name == "f64" or name == "ptr" { return true }
+    if name == "f32x4" or name == "f32x8" or name == "f64x2" or
+        name == "f64x4" or name == "i32x4" or name == "i32x8" {
+        return true
+    }
+    return false
+}
+
+fun semanticBuiltinGenericArity(name: String) r: Int {
+    if name == "Array" or name == "List" or name == "Option" or
+        name == "Optional" or name == "Vec" or name == "Set" or
+        name == "HashSet" or name == "Box" or name == "Pointer" or
+        name == "LinkedList" or name == "Buffer" or name == "Uniform" or
+        name == "Image" { return 1 }
+    if name == "Result" or name == "Map" or name == "HashMap" or
+        name == "BTreeMap" or name == "SmallVec" { return 2 }
+    return -1
+}
+
+///
+/// Lifecycle property states are intentionally numeric and fail closed:
+///   1  structurally proved here, 0 proved absent, -1 not evaluated,
+///  -2  cyclic, -3 unproven. Behavioral and lowering proofs remain separate.
+/// State 2 is reserved for the internal recursion marker.
+///
+fun semanticLifecyclePropertyIndex(propertyName: String) r: Int {
+    if propertyName == "Copy" { return 0 }
+    if propertyName == "Equatable" { return 1 }
+    if propertyName == "Drop" { return 2 }
+    if propertyName == "Send" { return 3 }
+    if propertyName == "Sync" { return 4 }
+    return -1
+}
+
+fun semanticLifecyclePropertyName(propertyIndex: Int) r: String {
+    if propertyIndex == 0 { return "Copy" }
+    if propertyIndex == 1 { return "Equatable" }
+    if propertyIndex == 2 { return "Drop" }
+    if propertyIndex == 3 { return "Send" }
+    if propertyIndex == 4 { return "Sync" }
+    return "Unknown"
+}
+
+fun semanticIsSimdBuiltinType(name: String) r: Bool {
+    return name == "f32x4" or name == "f32x8" or name == "f64x2" or
+        name == "f64x4" or name == "i32x4" or name == "i32x8"
+}
+
+///
+/// Explicit builtin lifecycle table. This is deliberately conservative for
+/// owning and dynamically typed values: a marker on an enclosing declaration
+/// cannot turn String, Any, or raw storage into a bitwise-copyable value.
+///
+fun semanticBuiltinLifecycleProperty(name: String, propertyName: String)
+    r: Int {
+
+    if semanticLifecyclePropertyIndex(propertyName) < 0 { return -3 }
+    if not semanticIsBuiltinType(name) { return -3 }
+
+    if name == "String" {
+        if propertyName == "Equatable" or propertyName == "Drop" or
+            propertyName == "Send" or propertyName == "Sync" { return 1 }
+        return 0
+    }
+    if name == "Any" {
+        if propertyName == "Drop" { return 1 }
+        return 0
+    }
+    if name == "ptr" {
+        if propertyName == "Copy" or propertyName == "Equatable" {
+            return 1
+        }
+        return 0
+    }
+    if semanticIsSimdBuiltinType(name) {
+        if propertyName == "Copy" or propertyName == "Send" or
+            propertyName == "Sync" { return 1 }
+        return 0
+    }
+    if propertyName == "Drop" { return 0 }
+    return 1
+}
+
+class SemanticDeclarationRegistry {
+    var modules: Array<String>
+    var names: Array<String>
+    var canonicalNames: Array<String>
+    var kinds: Array<String>
+    var typeIdentities: Array<String>
+    var files: Array<String>
+    var lines: Array<Int>
+    var columns: Array<Int>
+    var decoratorOwners: Array<String>
+    var decoratorNames: Array<String>
+    var decoratorArgumentStarts: Array<Int>
+    var decoratorArgumentCounts: Array<Int>
+    var decoratorArguments: Array<String>
+    var importOwners: Array<String>
+    var importAliases: Array<String>
+    var importTargetModules: Array<String>
+    var importTargetNames: Array<String>
+    var resolvedImportOwners: Array<String>
+    var resolvedImportLogicalModules: Array<String>
+    var resolvedImportTargetModules: Array<String>
+    var genericOwners: Array<String>
+    var genericNames: Array<String>
+    var genericModifiers: Array<String>
+    var lifecycleFieldOwners: Array<String>
+    var lifecycleFieldModules: Array<String>
+    var lifecycleFieldNames: Array<String>
+    var lifecycleFieldTypeNames: Array<String>
+    var lifecycleFieldFiles: Array<String>
+    var lifecycleFieldLines: Array<Int>
+    var lifecycleFieldColumns: Array<Int>
+    var lifecyclePropertyStates: Array<Int>
+
+    static fun new() r: SemanticDeclarationRegistry {
+        return SemanticDeclarationRegistry{
+            modules: Array<String>(),
+            names: Array<String>(),
+            canonicalNames: Array<String>(),
+            kinds: Array<String>(),
+            typeIdentities: Array<String>(),
+            files: Array<String>(),
+            lines: Array<Int>(),
+            columns: Array<Int>(),
+            decoratorOwners: Array<String>(),
+            decoratorNames: Array<String>(),
+            decoratorArgumentStarts: Array<Int>(),
+            decoratorArgumentCounts: Array<Int>(),
+            decoratorArguments: Array<String>(),
+            importOwners: Array<String>(),
+            importAliases: Array<String>(),
+            importTargetModules: Array<String>(),
+            importTargetNames: Array<String>(),
+            resolvedImportOwners: Array<String>(),
+            resolvedImportLogicalModules: Array<String>(),
+            resolvedImportTargetModules: Array<String>(),
+            genericOwners: Array<String>(),
+            genericNames: Array<String>(),
+            genericModifiers: Array<String>(),
+            lifecycleFieldOwners: Array<String>(),
+            lifecycleFieldModules: Array<String>(),
+            lifecycleFieldNames: Array<String>(),
+            lifecycleFieldTypeNames: Array<String>(),
+            lifecycleFieldFiles: Array<String>(),
+            lifecycleFieldLines: Array<Int>(),
+            lifecycleFieldColumns: Array<Int>(),
+            lifecyclePropertyStates: Array<Int>()
+        }
+    }
+
+    fun invalidateLifecycleProperties() r: Void {
+        var i = 0
+        while i < this.lifecyclePropertyStates.length() {
+            this.lifecyclePropertyStates[i] = -1
+            i = i + 1
+        }
+    }
+
+    fun findCanonical(canonicalName: String) r: Int {
+        var i = 0
+        while i < this.canonicalNames.length() {
+            if this.canonicalNames[i] == canonicalName { return i }
+            i = i + 1
+        }
+        return -1
+    }
+
+    fun registerDeclaration(moduleName: String, name: String, kind: String,
+        typeIdentity: String, file: String, line: Int, column: Int) r: Bool {
+
+        let canonicalName = semanticCanonicalDeclaration(moduleName, name)
+        if this.findCanonical(canonicalName) >= 0 { return false }
+        this.invalidateLifecycleProperties()
+        this.modules.push(moduleName)
+        this.names.push(name)
+        this.canonicalNames.push(canonicalName)
+        this.kinds.push(kind)
+        this.typeIdentities.push(typeIdentity)
+        this.files.push(file)
+        this.lines.push(line)
+        this.columns.push(column)
+        var propertyIndex = 0
+        while propertyIndex < 5 {
+            this.lifecyclePropertyStates.push(-1)
+            propertyIndex = propertyIndex + 1
+        }
+        return true
+    }
+
+    fun lookupIndex(moduleName: String, name: String) r: Int {
+        let local = this.findCanonical(
+            semanticCanonicalDeclaration(moduleName, name))
+        if local >= 0 { return local }
+
+        var importedMatch = -1
+        var ii = 0
+        while ii < this.importOwners.length() {
+            if this.importOwners[ii] == moduleName and
+                this.importAliases[ii] == name and
+                this.importTargetNames[ii] != "*" {
+
+                let imported = this.findCanonical(semanticCanonicalDeclaration(
+                    this.importTargetModules[ii], this.importTargetNames[ii]))
+                if imported >= 0 {
+                    if importedMatch >= 0 and importedMatch != imported {
+                        return -2
+                    }
+                    importedMatch = imported
+                }
+            }
+            ii = ii + 1
+        }
+        if importedMatch >= 0 { return importedMatch }
+
+        var dot = -1
+        var di = 0
+        while di < name.length() {
+            if name.byteAt(di) == '.' { dot = di }
+            di = di + 1
+        }
+        if dot > 0 and dot + 1 < name.length() {
+            let prefix = name.substring(0, dot)
+            let leaf = name.substring(dot + 1, name.length())
+            importedMatch = -1
+            ii = 0
+            while ii < this.importOwners.length() {
+                if this.importOwners[ii] == moduleName and
+                    this.importAliases[ii] == prefix and
+                    this.importTargetNames[ii] == "*" {
+
+                    let qualified = this.findCanonical(
+                        semanticCanonicalDeclaration(
+                            this.importTargetModules[ii], leaf))
+                    if qualified >= 0 {
+                        if importedMatch >= 0 and
+                            importedMatch != qualified { return -2 }
+                        importedMatch = qualified
+                    }
+                }
+                ii = ii + 1
+            }
+            if importedMatch >= 0 { return importedMatch }
+        }
+        return -1
+    }
+
+    fun registerImport(ownerModule: String, alias: String,
+        targetModule: String, targetName: String) r: Void {
+
+        this.invalidateLifecycleProperties()
+        this.importOwners.push(ownerModule)
+        this.importAliases.push(alias)
+        this.importTargetModules.push(targetModule)
+        this.importTargetNames.push(targetName)
+    }
+
+    ///
+    Bind a source-level import module to the canonical identity of the file
+    selected by package-aware import resolution. The compiler registers these
+    bindings before declaration collection; standalone semantic clients may
+    omit them when logical and canonical module names are already identical.
+    ///
+    fun registerResolvedImportModule(ownerModule: String,
+        logicalModule: String, targetModule: String) r: Void {
+
+        var i = 0
+        while i < this.resolvedImportOwners.length() {
+            if this.resolvedImportOwners[i] == ownerModule and
+                this.resolvedImportLogicalModules[i] == logicalModule {
+
+                if this.resolvedImportTargetModules[i] == targetModule {
+                    return
+                }
+            }
+            i = i + 1
+        }
+        this.resolvedImportOwners.push(ownerModule)
+        this.resolvedImportLogicalModules.push(logicalModule)
+        this.resolvedImportTargetModules.push(targetModule)
+        this.invalidateLifecycleProperties()
+    }
+
+    fun resolveImportedModule(ownerModule: String, logicalModule: String)
+        r: String {
+
+        var resolved = ""
+        var i = 0
+        while i < this.resolvedImportOwners.length() {
+            if this.resolvedImportOwners[i] == ownerModule and
+                this.resolvedImportLogicalModules[i] == logicalModule {
+
+                if resolved != "" and
+                    resolved != this.resolvedImportTargetModules[i] {
+                    return ""
+                }
+                resolved = this.resolvedImportTargetModules[i]
+            }
+            i = i + 1
+        }
+        if resolved != "" { return resolved }
+        return logicalModule
+    }
+
+    fun registerGenericParameter(ownerCanonical: String, name: String,
+        modifier: String = "")
+        r: Void {
+
+        var existing = 0
+        while existing < this.genericOwners.length() {
+            if this.genericOwners[existing] == ownerCanonical and
+                this.genericNames[existing] == name {
+                if this.genericModifiers[existing] == "" and modifier != "" {
+                    this.genericModifiers[existing] = modifier
+                    this.invalidateLifecycleProperties()
+                }
+                return
+            }
+            existing = existing + 1
+        }
+        this.genericOwners.push(ownerCanonical)
+        this.genericNames.push(name)
+        this.genericModifiers.push(modifier)
+        this.invalidateLifecycleProperties()
+    }
+
+    fun isGenericParameter(ownerCanonical: String, name: String) r: Bool {
+        var i = 0
+        while i < this.genericOwners.length() {
+            if this.genericOwners[i] == ownerCanonical and
+                this.genericNames[i] == name { return true }
+            i = i + 1
+        }
+        return false
+    }
+
+    fun genericParameterModifier(ownerCanonical: String, name: String)
+        r: String {
+
+        var i = 0
+        while i < this.genericOwners.length() {
+            if this.genericOwners[i] == ownerCanonical and
+                this.genericNames[i] == name {
+                return this.genericModifiers[i]
+            }
+            i = i + 1
+        }
+        return ""
+    }
+
+    ///
+    Count every declared generic parameter for one canonical declaration.
+    Type, const, and comptime parameters all occupy one source argument slot.
+    ///
+    fun genericParameterCountForOwner(ownerCanonical: String) r: Int {
+        var count = 0
+        var i = 0
+        while i < this.genericOwners.length() {
+            if this.genericOwners[i] == ownerCanonical {
+                count = count + 1
+            }
+            i = i + 1
+        }
+        return count
+    }
+
+    ///
+    Return the modifier at the declaration-order parameter index. Generic
+    metadata is registered in parser order, so this remains bootstrap-safe
+    without introducing a second ordering table.
+    ///
+    fun genericParameterModifierAtForOwner(ownerCanonical: String,
+        parameterIndex: Int) r: String {
+
+        if parameterIndex < 0 { return "" }
+        var ownerIndex = 0
+        var i = 0
+        while i < this.genericOwners.length() {
+            if this.genericOwners[i] == ownerCanonical {
+                if ownerIndex == parameterIndex {
+                    return this.genericModifiers[i]
+                }
+                ownerIndex = ownerIndex + 1
+            }
+            i = i + 1
+        }
+        return ""
+    }
+
+    fun hasFinalVariadicGenericParameter(ownerCanonical: String) r: Bool {
+        let count = this.genericParameterCountForOwner(ownerCanonical)
+        if count == 0 { return false }
+        return this.genericParameterModifierAtForOwner(ownerCanonical,
+            count - 1) == "variadic"
+    }
+
+    fun resolveTypeBase(moduleName: String, name: String) r: String {
+        if semanticIsBuiltinType(name) or semanticBuiltinGenericArity(name) >= 0 {
+            return name
+        }
+        let index = this.lookupIndex(moduleName, name)
+        if index < 0 { return "" }
+        let kind = this.kinds[index]
+        if kind != "Class" and kind != "Struct" and kind != "Enum" and
+            kind != "Trait" and kind != "TypeAlias" and kind != "Union" {
+            return ""
+        }
+        return this.canonicalNames[index]
+    }
+
+    fun declarationTypeIdentity(moduleName: String, name: String) r: String {
+        let index = this.lookupIndex(moduleName, name)
+        if index < 0 { return "" }
+        return this.typeIdentities[index]
+    }
+
+    fun registerDecorator(ownerCanonical: String, name: String,
+        arguments: Array<String>) r: Void {
+
+        this.invalidateLifecycleProperties()
+        this.decoratorOwners.push(ownerCanonical)
+        this.decoratorNames.push(name)
+        this.decoratorArgumentStarts.push(this.decoratorArguments.length())
+        this.decoratorArgumentCounts.push(arguments.length())
+        var i = 0
+        while i < arguments.length() {
+            this.decoratorArguments.push(arguments[i])
+            i = i + 1
+        }
+    }
+
+    fun hasDecorator(ownerCanonical: String, name: String) r: Bool {
+        var i = 0
+        while i < this.decoratorOwners.length() {
+            if this.decoratorOwners[i] == ownerCanonical and
+                this.decoratorNames[i] == name { return true }
+            i = i + 1
+        }
+        return false
+    }
+
+    fun decoratorCount(ownerCanonical: String, name: String) r: Int {
+        var count = 0
+        var i = 0
+        while i < this.decoratorOwners.length() {
+            if this.decoratorOwners[i] == ownerCanonical and
+                this.decoratorNames[i] == name { count = count + 1 }
+            i = i + 1
+        }
+        return count
+    }
+
+    fun decoratorHasArgument(ownerCanonical: String, name: String,
+        argument: String) r: Bool {
+
+        var i = 0
+        while i < this.decoratorOwners.length() {
+            if this.decoratorOwners[i] == ownerCanonical and
+                this.decoratorNames[i] == name {
+
+                let start = this.decoratorArgumentStarts[i]
+                let count = this.decoratorArgumentCounts[i]
+                var argumentIndex = 0
+                while argumentIndex < count {
+                    if this.decoratorArguments[start + argumentIndex] ==
+                        argument { return true }
+                    argumentIndex = argumentIndex + 1
+                }
+            }
+            i = i + 1
+        }
+        return false
+    }
+
+    ///
+    /// Store the declared aggregate graph without changing parser AST layout.
+    /// Field type spellings are resolved lazily after every module declaration
+    /// has been collected, so forward and package-qualified imports work.
+    ///
+    fun registerLifecycleField(ownerCanonical: String, moduleName: String,
+        fieldName: String, typeName: String, file: String, line: Int,
+        column: Int) r: Void {
+
+        var existing = 0
+        while existing < this.lifecycleFieldOwners.length() {
+            if this.lifecycleFieldOwners[existing] == ownerCanonical and
+                this.lifecycleFieldNames[existing] == fieldName and
+                this.lifecycleFieldFiles[existing] == file and
+                this.lifecycleFieldLines[existing] == line and
+                this.lifecycleFieldColumns[existing] == column {
+
+                if this.lifecycleFieldTypeNames[existing] != typeName or
+                    this.lifecycleFieldModules[existing] != moduleName {
+                    this.lifecycleFieldTypeNames[existing] = typeName
+                    this.lifecycleFieldModules[existing] = moduleName
+                    this.invalidateLifecycleProperties()
+                }
+                return
+            }
+            existing = existing + 1
+        }
+
+        this.lifecycleFieldOwners.push(ownerCanonical)
+        this.lifecycleFieldModules.push(moduleName)
+        this.lifecycleFieldNames.push(fieldName)
+        this.lifecycleFieldTypeNames.push(typeName)
+        this.lifecycleFieldFiles.push(file)
+        this.lifecycleFieldLines.push(line)
+        this.lifecycleFieldColumns.push(column)
+        this.invalidateLifecycleProperties()
+    }
+
+    ///
+    /// Return whether a field is declared directly by one canonical aggregate.
+    /// Lexical name resolution uses this only after local bindings so method
+    /// parameters and block locals retain normal shadowing precedence.
+    ///
+    fun hasDeclaredField(ownerCanonical: String, fieldName: String) r: Bool {
+        if ownerCanonical == "" or fieldName == "" { return false }
+        var i = 0
+        while i < this.lifecycleFieldOwners.length() {
+            if this.lifecycleFieldOwners[i] == ownerCanonical and
+                this.lifecycleFieldNames[i] == fieldName {
+
+                return true
+            }
+            i = i + 1
+        }
+        return false
+    }
+
+    ///
+    /// Resolve fields visible through the owning class and its parent chain.
+    /// Parent edges reuse the declaration graph collected for lifecycle checks;
+    /// the declaration-count bound makes malformed inheritance cycles terminal.
+    ///
+    fun hasVisibleInstanceField(ownerCanonical: String, fieldName: String)
+        r: Bool {
+
+        if ownerCanonical == "" or fieldName == "" { return false }
+        var currentOwner = ownerCanonical
+        var depth = 0
+        while currentOwner != "" and depth < this.canonicalNames.length() {
+            if this.hasDeclaredField(currentOwner, fieldName) { return true }
+
+            var parentFieldIndex = -1
+            var i = 0
+            while i < this.lifecycleFieldOwners.length() {
+                if this.lifecycleFieldOwners[i] == currentOwner and
+                    this.lifecycleFieldNames[i] == "@parent" {
+
+                    parentFieldIndex = i
+                    break
+                }
+                i = i + 1
+            }
+            if parentFieldIndex < 0 { return false }
+
+            let parentType = parseTypeRef(
+                this.lifecycleFieldTypeNames[parentFieldIndex],
+                this.lifecycleFieldLines[parentFieldIndex],
+                this.lifecycleFieldColumns[parentFieldIndex],
+                this.lifecycleFieldFiles[parentFieldIndex])
+            if not parentType.valid or parentType.base == "" { return false }
+            let parentIndex = this.lookupIndex(
+                this.lifecycleFieldModules[parentFieldIndex], parentType.base)
+            if parentIndex < 0 { return false }
+            let parentKind = this.kinds[parentIndex]
+            if parentKind != "Class" and parentKind != "Struct" {
+                return false
+            }
+            currentOwner = this.canonicalNames[parentIndex]
+            depth = depth + 1
+        }
+        return false
+    }
+
+    fun lifecyclePropertyIsDeclared(ownerCanonical: String,
+        propertyName: String) r: Bool {
+
+        if propertyName == "Copy" {
+            return this.hasDecorator(ownerCanonical, "trivially_copyable")
+        }
+        if propertyName == "Equatable" {
+            if this.decoratorHasArgument(ownerCanonical, "derive", "Eq") {
+                return true
+            }
+            return this.decoratorHasArgument(ownerCanonical, "derive",
+                "Equatable")
+        }
+        if propertyName == "Drop" {
+            return this.hasDecorator(ownerCanonical, "c_resource")
+        }
+        if propertyName == "Send" {
+            return this.hasDecorator(ownerCanonical, "send")
+        }
+        if propertyName == "Sync" {
+            return this.hasDecorator(ownerCanonical, "sync")
+        }
+        return false
+    }
+
+    fun lifecyclePropertyStateSlot(declarationIndex: Int,
+        propertyName: String) r: Int {
+
+        let propertyIndex = semanticLifecyclePropertyIndex(propertyName)
+        if declarationIndex < 0 or propertyIndex < 0 { return -1 }
+        return declarationIndex * 5 + propertyIndex
+    }
+
+    fun lifecycleStoredPropertyState(declarationIndex: Int,
+        propertyName: String) r: Int {
+
+        let slot = this.lifecyclePropertyStateSlot(declarationIndex,
+            propertyName)
+        if slot < 0 or slot >= this.lifecyclePropertyStates.length() {
+            return -3
+        }
+        return this.lifecyclePropertyStates[slot]
+    }
+
+    fun setLifecycleStoredPropertyState(declarationIndex: Int,
+        propertyName: String, state: Int) r: Void {
+
+        let slot = this.lifecyclePropertyStateSlot(declarationIndex,
+            propertyName)
+        if slot >= 0 and slot < this.lifecyclePropertyStates.length() {
+            this.lifecyclePropertyStates[slot] = state
+        }
+    }
+
+    fun lifecycleAllTypeArgumentsState(ownerIndex: Int, typeRef: TypeRef,
+        propertyName: String) r: Int {
+
+        if typeRef.arguments.length() == 0 { return -3 }
+        var i = 0
+        while i < typeRef.arguments.length() {
+            let state = this.lifecycleTypePropertyState(ownerIndex,
+                typeRef.arguments[i], propertyName)
+            if state != 1 { return state }
+            i = i + 1
+        }
+        return 1
+    }
+
+    fun lifecycleAnyTypeArgumentState(ownerIndex: Int, typeRef: TypeRef,
+        propertyName: String) r: Int {
+
+        if typeRef.arguments.length() == 0 { return -3 }
+        var unresolvedState = 0
+        var i = 0
+        while i < typeRef.arguments.length() {
+            let state = this.lifecycleTypePropertyState(ownerIndex,
+                typeRef.arguments[i], propertyName)
+            if state == 1 { return 1 }
+            if unresolvedState == 0 and state < 0 {
+                unresolvedState = state
+            }
+            i = i + 1
+        }
+        return unresolvedState
+    }
+
+    fun lifecycleBuiltinGenericPropertyState(ownerIndex: Int,
+        typeRef: TypeRef, propertyName: String) r: Int {
+
+        let name = typeRef.base
+        if name == "Pointer" {
+            return semanticBuiltinLifecycleProperty("ptr", propertyName)
+        }
+        if name == "Option" or name == "Optional" or name == "Result" {
+            if propertyName == "Drop" {
+                return this.lifecycleAnyTypeArgumentState(ownerIndex, typeRef,
+                    propertyName)
+            }
+            return this.lifecycleAllTypeArgumentsState(ownerIndex, typeRef,
+                propertyName)
+        }
+        if name == "Box" {
+            if propertyName == "Copy" { return 0 }
+            if propertyName == "Drop" { return 1 }
+            if typeRef.arguments.length() != 1 { return -3 }
+            return this.lifecycleTypePropertyState(ownerIndex,
+                typeRef.arguments[0], propertyName)
+        }
+        if name == "Array" or name == "List" or name == "Vec" or
+            name == "Set" or name == "HashSet" or name == "LinkedList" or
+            name == "Map" or name == "HashMap" or name == "BTreeMap" or
+            name == "SmallVec" {
+
+            if propertyName == "Copy" or propertyName == "Equatable" {
+                return 0
+            }
+            if propertyName == "Drop" { return 1 }
+            // Mutable owning handles are not Sync, and Send requires the later
+            // uniqueness/move proof rather than only element properties.
+            if propertyName == "Sync" { return 0 }
+            if propertyName == "Send" { return -3 }
+            return -3
+        }
+        if name == "Buffer" or name == "Uniform" or name == "Image" {
+            if propertyName == "Drop" { return 1 }
+            if propertyName == "Send" { return -3 }
+            return 0
+        }
+        return -3
+    }
+
+    fun lifecycleTypePropertyState(ownerIndex: Int, typeRef: TypeRef,
+        propertyName: String) r: Int {
+
+        if semanticLifecyclePropertyIndex(propertyName) < 0 or
+            not typeRef.valid { return -3 }
+        if ownerIndex < 0 or ownerIndex >= this.canonicalNames.length() {
+            return -3
+        }
+
+        // Borrow and mutable-reference field lifetimes need the later borrow
+        // checker. Do not infer ownership or thread-safety from their pointee.
+        if typeRef.ownership == "borrow" or typeRef.ownership == "ref" {
+            return -3
+        }
+        if typeRef.kind == "pointer" or typeRef.kind == "const_pointer" {
+            return semanticBuiltinLifecycleProperty("ptr", propertyName)
+        }
+        if typeRef.kind == "dynamic" { return -3 }
+        if typeRef.kind == "function" {
+            if propertyName == "Copy" or propertyName == "Send" or
+                propertyName == "Sync" { return 1 }
+            return 0
+        }
+        if typeRef.kind == "fixed_array" {
+            if typeRef.arguments.length() == 0 { return -3 }
+            return this.lifecycleTypePropertyState(ownerIndex,
+                typeRef.arguments[0], propertyName)
+        }
+        if typeRef.kind == "error_union" {
+            if propertyName == "Drop" {
+                return this.lifecycleAnyTypeArgumentState(ownerIndex, typeRef,
+                    propertyName)
+            }
+            return this.lifecycleAllTypeArgumentsState(ownerIndex, typeRef,
+                propertyName)
+        }
+        if typeRef.kind == "constant" { return -3 }
+
+        let ownerCanonical = this.canonicalNames[ownerIndex]
+        if this.isGenericParameter(ownerCanonical, typeRef.base) {
+            return -3
+        }
+        if semanticIsBuiltinType(typeRef.base) {
+            return semanticBuiltinLifecycleProperty(typeRef.base,
+                propertyName)
+        }
+        if semanticBuiltinGenericArity(typeRef.base) >= 0 {
+            return this.lifecycleBuiltinGenericPropertyState(ownerIndex,
+                typeRef, propertyName)
+        }
+
+        let declarationIndex = this.lookupIndex(this.modules[ownerIndex],
+            typeRef.base)
+        if declarationIndex < 0 { return -3 }
+        let kind = this.kinds[declarationIndex]
+        if kind == "Class" or kind == "Struct" or kind == "Enum" {
+            return this.deriveLifecycleDeclarationProperty(declarationIndex,
+                propertyName)
+        }
+        return -3
+    }
+
+    fun deriveLifecycleDeclarationProperty(declarationIndex: Int,
+        propertyName: String) r: Int {
+
+        let stored = this.lifecycleStoredPropertyState(declarationIndex,
+            propertyName)
+        if stored == 2 { return -2 }
+        if stored != -1 { return stored }
+        if declarationIndex < 0 or
+            declarationIndex >= this.canonicalNames.length() {
+            return -3
+        }
+
+        this.setLifecycleStoredPropertyState(declarationIndex, propertyName, 2)
+        let ownerCanonical = this.canonicalNames[declarationIndex]
+        let kind = this.kinds[declarationIndex]
+
+        if kind == "Enum" {
+            let enumState = if propertyName == "Drop" { 0 } else { 1 }
+            this.setLifecycleStoredPropertyState(declarationIndex, propertyName,
+                enumState)
+            return enumState
+        }
+        if kind != "Class" and kind != "Struct" {
+            this.setLifecycleStoredPropertyState(declarationIndex, propertyName,
+                -3)
+            return -3
+        }
+
+        if propertyName == "Drop" {
+            if this.lifecyclePropertyIsDeclared(ownerCanonical, "Drop") {
+                this.setLifecycleStoredPropertyState(declarationIndex,
+                    propertyName, 1)
+                return 1
+            }
+            var dropState = 0
+            var fieldIndex = 0
+            while fieldIndex < this.lifecycleFieldOwners.length() {
+                if this.lifecycleFieldOwners[fieldIndex] == ownerCanonical {
+                    let fieldType = parseTypeRef(
+                        this.lifecycleFieldTypeNames[fieldIndex],
+                        this.lifecycleFieldLines[fieldIndex],
+                        this.lifecycleFieldColumns[fieldIndex],
+                        this.lifecycleFieldFiles[fieldIndex])
+                    let fieldState = this.lifecycleTypePropertyState(
+                        declarationIndex, fieldType, propertyName)
+                    if fieldState == 1 {
+                        dropState = 1
+                        break
+                    }
+                    if dropState == 0 and fieldState < 0 {
+                        dropState = fieldState
+                    }
+                }
+                fieldIndex = fieldIndex + 1
+            }
+            this.setLifecycleStoredPropertyState(declarationIndex,
+                propertyName, dropState)
+            return dropState
+        }
+
+        if not this.lifecyclePropertyIsDeclared(ownerCanonical, propertyName) {
+            this.setLifecycleStoredPropertyState(declarationIndex, propertyName,
+                0)
+            return 0
+        }
+        if propertyName == "Copy" {
+            if this.hasDecorator(ownerCanonical, "move") {
+                this.setLifecycleStoredPropertyState(declarationIndex,
+                    propertyName, 0)
+                return 0
+            }
+            let dropState = this.deriveLifecycleDeclarationProperty(
+                declarationIndex, "Drop")
+            if dropState != 0 {
+                let copyState = if dropState == 1 { 0 } else { dropState }
+                this.setLifecycleStoredPropertyState(declarationIndex,
+                    propertyName, copyState)
+                return copyState
+            }
+        }
+
+        var propertyState = 1
+        var fieldIndex = 0
+        while fieldIndex < this.lifecycleFieldOwners.length() {
+            if this.lifecycleFieldOwners[fieldIndex] == ownerCanonical {
+                let fieldType = parseTypeRef(
+                    this.lifecycleFieldTypeNames[fieldIndex],
+                    this.lifecycleFieldLines[fieldIndex],
+                    this.lifecycleFieldColumns[fieldIndex],
+                    this.lifecycleFieldFiles[fieldIndex])
+                let fieldState = this.lifecycleTypePropertyState(
+                    declarationIndex, fieldType, propertyName)
+                if fieldState != 1 {
+                    propertyState = fieldState
+                    break
+                }
+            }
+            fieldIndex = fieldIndex + 1
+        }
+        this.setLifecycleStoredPropertyState(declarationIndex, propertyName,
+            propertyState)
+        return propertyState
+    }
+
+    fun lifecyclePropertyState(ownerCanonical: String, propertyName: String)
+        r: Int {
+
+        let declarationIndex = this.findCanonical(ownerCanonical)
+        if declarationIndex < 0 { return -3 }
+        return this.deriveLifecycleDeclarationProperty(declarationIndex,
+            propertyName)
+    }
+
+    fun hasLifecycleProperty(ownerCanonical: String, propertyName: String)
+        r: Bool {
+
+        return this.lifecyclePropertyState(ownerCanonical, propertyName) == 1
+    }
+
+    fun firstLifecycleFailingFieldIndex(ownerCanonical: String,
+        propertyName: String) r: Int {
+
+        let declarationIndex = this.findCanonical(ownerCanonical)
+        if declarationIndex < 0 { return -1 }
+        var fieldIndex = 0
+        while fieldIndex < this.lifecycleFieldOwners.length() {
+            if this.lifecycleFieldOwners[fieldIndex] == ownerCanonical {
+                let fieldType = parseTypeRef(
+                    this.lifecycleFieldTypeNames[fieldIndex],
+                    this.lifecycleFieldLines[fieldIndex],
+                    this.lifecycleFieldColumns[fieldIndex],
+                    this.lifecycleFieldFiles[fieldIndex])
+                if this.lifecycleTypePropertyState(declarationIndex, fieldType,
+                    propertyName) != 1 { return fieldIndex }
+            }
+            fieldIndex = fieldIndex + 1
+        }
+        return -1
+    }
+}
+
+class ScopedBindings {
+    var names: Array<String>
+    var typeIdentities: Array<String>
+    var mutableFlags: Array<Int>
+    var files: Array<String>
+    var lines: Array<Int>
+    var columns: Array<Int>
+    var scopeStarts: Array<Int>
+
+    static fun new() r: ScopedBindings {
+        let result = ScopedBindings{
+            names: Array<String>(),
+            typeIdentities: Array<String>(),
+            mutableFlags: Array<Int>(),
+            files: Array<String>(),
+            lines: Array<Int>(),
+            columns: Array<Int>(),
+            scopeStarts: Array<Int>()
+        }
+        result.scopeStarts.push(0)
+        return result
+    }
+
+    fun beginScope() r: Void {
+        this.scopeStarts.push(this.names.length())
+    }
+
+    fun endScope() r: Void {
+        if this.scopeStarts.length() <= 1 { return }
+        let start = this.scopeStarts[this.scopeStarts.length() - 1]
+        while this.names.length() > start {
+            this.names.pop()
+            this.typeIdentities.pop()
+            this.mutableFlags.pop()
+            this.files.pop()
+            this.lines.pop()
+            this.columns.pop()
+        }
+        this.scopeStarts.pop()
+    }
+
+    fun containsInCurrentScope(name: String) r: Bool {
+        let start = this.scopeStarts[this.scopeStarts.length() - 1]
+        var i = start
+        while i < this.names.length() {
+            if this.names[i] == name { return true }
+            i = i + 1
+        }
+        return false
+    }
+
+    fun define(name: String, typeIdentity: String, mutable: Bool, file: String,
+        line: Int, column: Int) r: Bool {
+
+        if this.containsInCurrentScope(name) { return false }
+        this.names.push(name)
+        this.typeIdentities.push(typeIdentity)
+        this.mutableFlags.push(if mutable { 1 } else { 0 })
+        this.files.push(file)
+        this.lines.push(line)
+        this.columns.push(column)
+        return true
+    }
+
+    fun lookup(name: String) r: String {
+        var i = this.names.length() - 1
+        while i >= 0 {
+            if this.names[i] == name { return this.typeIdentities[i] }
+            i = i - 1
+        }
+        return ""
+    }
+}

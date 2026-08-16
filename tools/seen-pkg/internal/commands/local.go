@@ -21,9 +21,16 @@ import (
 )
 
 const (
-	maxLocalViewEntries = 100_000
-	maxLocalViewBytes   = int64(2 * 1024 * 1024 * 1024)
-	maxLocalViewFile    = int64(512 * 1024 * 1024)
+	maxLocalViewEntries             = 100_000
+	maxLocalViewBytes               = int64(2 * 1024 * 1024 * 1024)
+	maxLocalViewFile                = int64(512 * 1024 * 1024)
+	prebuiltPackageSchema           = "seen-prebuilt-package-v2"
+	prebuiltInterfaceSchema         = "seen-package-interface-v2"
+	prebuiltObjectManifestSchema    = "seen-package-object-manifest-v2"
+	prebuiltLayoutABI               = "seen-layout-abi-v2"
+	prebuiltObjectCacheABI          = "seen-object-cache-abi-v2"
+	prebuiltArtifactFormatVersion   = 2
+	prebuiltArtifactRebuildGuidance = "rebuild using Seen 0.11"
 )
 
 type localSnapshot struct {
@@ -258,44 +265,108 @@ func copyLocalTree(ctx context.Context, sourceRoot, destinationRoot string) erro
 		return err
 	}
 	entries, total := 0, int64(0)
-	return filepath.WalkDir(sourceRoot, func(name string, entry os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
+	activeDirectories := map[string]bool{}
+	return copyLocalDirectory(ctx, sourceRoot, sourceRoot, destinationRoot, ".",
+		activeDirectories, &entries, &total)
+}
+
+// copyLocalDirectory follows only symlinks whose fully-resolved target remains
+// inside sourceRoot. The immutable view contains real files/directories, never
+// links, so publication paths can continue to reject links unconditionally.
+func copyLocalDirectory(ctx context.Context, sourceRoot, sourceDirectory,
+	destinationRoot, destinationRelative string, activeDirectories map[string]bool,
+	entries *int, total *int64) error {
+
+	canonicalDirectory, err := filepath.EvalSymlinks(sourceDirectory)
+	if err != nil {
+		return fmt.Errorf("resolve local package directory %q: %w",
+			filepath.ToSlash(destinationRelative), err)
+	}
+	canonicalDirectory, err = filepath.Abs(canonicalDirectory)
+	if err != nil {
+		return err
+	}
+	inside, err := pathWithin(sourceRoot, canonicalDirectory)
+	if err != nil || !inside {
+		return fmt.Errorf("local package symbolic link %q escapes package root",
+			filepath.ToSlash(destinationRelative))
+	}
+	if activeDirectories[canonicalDirectory] {
+		return fmt.Errorf("local package symbolic link cycle at %q",
+			filepath.ToSlash(destinationRelative))
+	}
+	activeDirectories[canonicalDirectory] = true
+	defer delete(activeDirectories, canonicalDirectory)
+
+	directoryEntries, err := os.ReadDir(canonicalDirectory)
+	if err != nil {
+		return err
+	}
+	for _, entry := range directoryEntries {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		relative, err := filepath.Rel(sourceRoot, name)
-		if err != nil {
-			return err
-		}
-		if relative == "." {
-			return nil
+		relative := entry.Name()
+		if destinationRelative != "." {
+			relative = filepath.Join(destinationRelative, entry.Name())
 		}
 		first := relative
 		if separator := strings.IndexRune(relative, filepath.Separator); separator >= 0 {
 			first = relative[:separator]
 		}
 		if first == ".git" || first == ".seen" {
-			if entry.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
+			continue
 		}
-		entries++
-		if entries > maxLocalViewEntries {
+		*entries = *entries + 1
+		if *entries > maxLocalViewEntries {
 			return fmt.Errorf("local package exceeds %d entries", maxLocalViewEntries)
 		}
+
+		name := filepath.Join(canonicalDirectory, entry.Name())
+		resolved := name
 		if entry.Type()&os.ModeSymlink != 0 {
-			return fmt.Errorf("local package contains symbolic link %q", filepath.ToSlash(relative))
+			resolved, err = filepath.EvalSymlinks(name)
+			if err != nil {
+				return fmt.Errorf("resolve local package symbolic link %q: %w",
+					filepath.ToSlash(relative), err)
+			}
+			resolved, err = filepath.Abs(resolved)
+			if err != nil {
+				return err
+			}
+			inside, err := pathWithin(sourceRoot, resolved)
+			if err != nil || !inside {
+				return fmt.Errorf("local package symbolic link %q escapes package root",
+					filepath.ToSlash(relative))
+			}
+			resolvedRelative, err := filepath.Rel(sourceRoot, resolved)
+			if err != nil {
+				return err
+			}
+			resolvedFirst := resolvedRelative
+			if separator := strings.IndexRune(resolvedRelative, filepath.Separator); separator >= 0 {
+				resolvedFirst = resolvedRelative[:separator]
+			}
+			if resolvedFirst == ".git" || resolvedFirst == ".seen" {
+				return fmt.Errorf("local package symbolic link %q targets excluded package state",
+					filepath.ToSlash(relative))
+			}
 		}
-		info, err := entry.Info()
+
+		info, err := os.Stat(resolved)
 		if err != nil {
 			return err
 		}
 		destination := filepath.Join(destinationRoot, relative)
 		if info.IsDir() {
-			return os.Mkdir(destination, 0o700)
+			if err := os.Mkdir(destination, 0o700); err != nil {
+				return err
+			}
+			if err := copyLocalDirectory(ctx, sourceRoot, resolved, destinationRoot,
+				relative, activeDirectories, entries, total); err != nil {
+				return err
+			}
+			continue
 		}
 		if !info.Mode().IsRegular() {
 			return fmt.Errorf("local package contains unsupported file type %q", filepath.ToSlash(relative))
@@ -303,11 +374,11 @@ func copyLocalTree(ctx context.Context, sourceRoot, destinationRoot string) erro
 		if info.Size() > maxLocalViewFile {
 			return fmt.Errorf("local package file %q exceeds %d bytes", filepath.ToSlash(relative), maxLocalViewFile)
 		}
-		total += info.Size()
-		if total > maxLocalViewBytes {
+		*total = *total + info.Size()
+		if *total > maxLocalViewBytes {
 			return fmt.Errorf("local package exceeds %d bytes", maxLocalViewBytes)
 		}
-		input, err := os.Open(name)
+		input, err := os.Open(resolved)
 		if err != nil {
 			return err
 		}
@@ -329,8 +400,8 @@ func copyLocalTree(ctx context.Context, sourceRoot, destinationRoot string) erro
 		if written != info.Size() {
 			return fmt.Errorf("local package changed while copying %q", filepath.ToSlash(relative))
 		}
-		return nil
-	})
+	}
+	return nil
 }
 
 func copyLocalFile(ctx context.Context, destination io.Writer, source io.Reader) (int64, error) {
@@ -480,8 +551,137 @@ func makeLocalTreeWritable(root string) {
 }
 
 type artifactManifest struct {
-	InterfacePath  string `toml:"interface_path"`
-	ObjectManifest string `toml:"object_manifest"`
+	Schema                string `toml:"schema"`
+	Version               int    `toml:"version"`
+	InterfaceSchema       string `toml:"interface_schema"`
+	InterfaceVersion      int    `toml:"interface_version"`
+	ObjectManifestSchema  string `toml:"object_manifest_schema"`
+	ObjectManifestVersion int    `toml:"object_manifest_version"`
+	LayoutABI             string `toml:"layout_abi"`
+	ObjectCacheABI        string `toml:"object_cache_abi"`
+	Language              string `toml:"language"`
+	InterfacePath         string `toml:"interface_path"`
+	InterfaceIndex        string `toml:"interface_index"`
+	ObjectManifest        string `toml:"object_manifest"`
+	DeclarationDigest     string `toml:"declaration_digest"`
+	BuildSignature        string `toml:"build_signature"`
+}
+
+func incompatibleArtifact(root, reason string) error {
+	return fmt.Errorf("artifact %s %s; %s", root, reason, prebuiltArtifactRebuildGuidance)
+}
+
+func validateArtifactTableHeader(raw []byte, schema string) ([]string, error) {
+	var lines []string
+	for _, line := range strings.Split(string(raw), "\n") {
+		line = strings.TrimSuffix(line, "\r")
+		if strings.TrimSpace(line) == "" || strings.HasPrefix(strings.TrimSpace(line), "#") {
+			continue
+		}
+		lines = append(lines, line)
+	}
+	expected := []string{
+		"schema\t" + schema,
+		"version\t2",
+		"layout_abi\t" + prebuiltLayoutABI,
+		"object_cache_abi\t" + prebuiltObjectCacheABI,
+	}
+	if len(lines) < len(expected) {
+		return nil, fmt.Errorf("table header is incomplete")
+	}
+	for index := range expected {
+		if lines[index] != expected[index] {
+			return nil, fmt.Errorf("table header row %d is %q, want %q", index+1, lines[index], expected[index])
+		}
+	}
+	return lines[len(expected):], nil
+}
+
+func requireArtifactRelativeMember(root, value string, nonempty bool) (string, error) {
+	if err := validateArtifactRelativePath(value); err != nil {
+		return "", err
+	}
+	member, err := resolveArtifactMember(root, value)
+	if err != nil {
+		return "", err
+	}
+	info, err := os.Lstat(member)
+	if err != nil {
+		return "", err
+	}
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || (nonempty && info.Size() == 0) {
+		kind := ""
+		if nonempty {
+			kind = " nonempty"
+		}
+		return "", fmt.Errorf("member %s must be a%s regular file", member, kind)
+	}
+	return member, nil
+}
+
+func validateArtifactRelativePath(value string) error {
+	name := filepath.FromSlash(value)
+	if value == "" || filepath.IsAbs(name) {
+		return fmt.Errorf("path must be nonempty and relative")
+	}
+	clean := filepath.Clean(name)
+	if clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) || clean != name {
+		return fmt.Errorf("path must be canonical and stay inside the artifact")
+	}
+	return nil
+}
+
+func validateArtifactInterfaceRows(root string, rows []string) error {
+	moduleCount := 0
+	for _, row := range rows {
+		fields := strings.Split(row, "\t")
+		if len(fields) == 0 {
+			continue
+		}
+		switch fields[0] {
+		case "module":
+			if len(fields) < 5 || fields[1] == "" || fields[4] == "" {
+				return fmt.Errorf("malformed module row")
+			}
+			if _, err := requireArtifactRelativeMember(root, fields[1], false); err != nil {
+				return fmt.Errorf("interface module %q: %w", fields[1], err)
+			}
+			moduleCount++
+		case "import", "function", "class", "enum", "declaration":
+			if len(fields) < 6 || fields[1] == "" || fields[4] == "" {
+				return fmt.Errorf("malformed %s declaration row", fields[0])
+			}
+		default:
+			return fmt.Errorf("unknown interface row kind %q", fields[0])
+		}
+	}
+	if moduleCount == 0 {
+		return fmt.Errorf("interface has no module rows")
+	}
+	return nil
+}
+
+func validateArtifactObjectRows(root string, rows []string) error {
+	if len(rows) == 0 {
+		return fmt.Errorf("object manifest has no object rows")
+	}
+	for _, row := range rows {
+		fields := strings.Split(row, "\t")
+		if len(fields) != 2 || fields[0] == "" || fields[1] == "" {
+			return fmt.Errorf("malformed object row")
+		}
+		if _, err := requireArtifactRelativeMember(root, fields[0], true); err != nil {
+			return fmt.Errorf("object %q: %w", fields[0], err)
+		}
+		// The source column is immutable provenance, not an interface fallback.
+		// An outer prebuild may flatten a dependency object whose source is not
+		// copied into the outer artifact, but the provenance path must remain
+		// portable and incapable of escaping the artifact namespace.
+		if err := validateArtifactRelativePath(fields[1]); err != nil {
+			return fmt.Errorf("object source provenance %q: %w", fields[1], err)
+		}
+	}
+	return nil
 }
 
 func validateArtifactDependency(base string, dependency model.Dependency) (string, error) {
@@ -492,39 +692,82 @@ func validateArtifactDependency(base string, dependency model.Dependency) (strin
 	manifestPath := filepath.Join(artifactRoot, "Seen.pkg.toml")
 	if err := requireNonemptyRegularFile(manifestPath); err != nil {
 		fallback := filepath.Join(artifactRoot, "seenpkg.toml")
-		if fallbackErr := requireNonemptyRegularFile(fallback); fallbackErr != nil {
-			return "", fmt.Errorf("artifact %s is missing a nonempty Seen.pkg.toml or seenpkg.toml", artifactRoot)
+		if fallbackErr := requireNonemptyRegularFile(fallback); fallbackErr == nil {
+			return "", incompatibleArtifact(artifactRoot, "uses the legacy seenpkg.toml manifest")
 		}
-		manifestPath = fallback
+		return "", incompatibleArtifact(artifactRoot, "is missing a nonempty v2 Seen.pkg.toml")
 	}
 	raw, err := os.ReadFile(manifestPath)
 	if err != nil {
-		return "", err
+		return "", incompatibleArtifact(artifactRoot, fmt.Sprintf("cannot read Seen.pkg.toml: %v", err))
 	}
 	var metadata artifactManifest
 	if err := toml.Unmarshal(raw, &metadata); err != nil {
-		return "", fmt.Errorf("parse artifact manifest: %w", err)
+		return "", incompatibleArtifact(artifactRoot, fmt.Sprintf("has an invalid Seen.pkg.toml: %v", err))
 	}
-	if metadata.ObjectManifest == "" {
-		metadata.ObjectManifest = "objects.tsv"
+	if metadata.Schema != prebuiltPackageSchema ||
+		metadata.Version != prebuiltArtifactFormatVersion ||
+		metadata.InterfaceSchema != prebuiltInterfaceSchema ||
+		metadata.InterfaceVersion != prebuiltArtifactFormatVersion ||
+		metadata.ObjectManifestSchema != prebuiltObjectManifestSchema ||
+		metadata.ObjectManifestVersion != prebuiltArtifactFormatVersion ||
+		metadata.LayoutABI != prebuiltLayoutABI ||
+		metadata.ObjectCacheABI != prebuiltObjectCacheABI {
+		return "", incompatibleArtifact(artifactRoot, "has an unsupported schema or ABI")
 	}
-	if metadata.InterfacePath == "" {
-		metadata.InterfacePath = "src"
+	if metadata.Language == "" || metadata.InterfacePath == "" || metadata.InterfaceIndex == "" ||
+		metadata.ObjectManifest == "" || len(metadata.DeclarationDigest) != sha256.Size*2 ||
+		!strings.Contains(metadata.BuildSignature, "layout="+prebuiltLayoutABI) ||
+		!strings.Contains(metadata.BuildSignature, "object-cache="+prebuiltObjectCacheABI) {
+		return "", incompatibleArtifact(artifactRoot, "has incomplete v2 metadata")
 	}
 	objectManifest, err := resolveArtifactMember(artifactRoot, metadata.ObjectManifest)
 	if err != nil {
-		return "", fmt.Errorf("artifact object_manifest: %w", err)
+		return "", incompatibleArtifact(artifactRoot, fmt.Sprintf("has an unsafe object_manifest: %v", err))
 	}
 	if err := requireNonemptyRegularFile(objectManifest); err != nil {
-		return "", fmt.Errorf("artifact object manifest %s is unusable: %w", objectManifest, err)
+		return "", incompatibleArtifact(artifactRoot, fmt.Sprintf("has an unusable object manifest: %v", err))
 	}
 	interfaceRoot, err := resolveArtifactMember(artifactRoot, metadata.InterfacePath)
 	if err != nil {
-		return "", fmt.Errorf("artifact interface_path: %w", err)
+		return "", incompatibleArtifact(artifactRoot, fmt.Sprintf("has an unsafe interface_path: %v", err))
 	}
 	info, err := os.Lstat(interfaceRoot)
 	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return "", fmt.Errorf("artifact interface directory %s is missing or not a real directory", interfaceRoot)
+		return "", incompatibleArtifact(artifactRoot, "has a missing or linked interface directory")
+	}
+	interfaceIndex, err := resolveArtifactMember(artifactRoot, metadata.InterfaceIndex)
+	if err != nil {
+		return "", incompatibleArtifact(artifactRoot, fmt.Sprintf("has an unsafe interface_index: %v", err))
+	}
+	if err := requireNonemptyRegularFile(interfaceIndex); err != nil {
+		return "", incompatibleArtifact(artifactRoot, fmt.Sprintf("has an unusable interface index: %v", err))
+	}
+	interfaceRaw, err := os.ReadFile(interfaceIndex)
+	if err != nil {
+		return "", incompatibleArtifact(artifactRoot, fmt.Sprintf("cannot read interface index: %v", err))
+	}
+	interfaceRows, err := validateArtifactTableHeader(interfaceRaw, prebuiltInterfaceSchema)
+	if err != nil {
+		return "", incompatibleArtifact(artifactRoot, fmt.Sprintf("has an incompatible interface index: %v", err))
+	}
+	if err := validateArtifactInterfaceRows(artifactRoot, interfaceRows); err != nil {
+		return "", incompatibleArtifact(artifactRoot, fmt.Sprintf("has an invalid interface index: %v", err))
+	}
+	actualDigest := sha256.Sum256(interfaceRaw)
+	if hex.EncodeToString(actualDigest[:]) != strings.ToLower(metadata.DeclarationDigest) {
+		return "", incompatibleArtifact(artifactRoot, "has a declaration fingerprint mismatch")
+	}
+	objectRaw, err := os.ReadFile(objectManifest)
+	if err != nil {
+		return "", incompatibleArtifact(artifactRoot, fmt.Sprintf("cannot read object manifest: %v", err))
+	}
+	objectRows, err := validateArtifactTableHeader(objectRaw, prebuiltObjectManifestSchema)
+	if err != nil {
+		return "", incompatibleArtifact(artifactRoot, fmt.Sprintf("has an incompatible object manifest: %v", err))
+	}
+	if err := validateArtifactObjectRows(artifactRoot, objectRows); err != nil {
+		return "", incompatibleArtifact(artifactRoot, fmt.Sprintf("has an invalid object manifest: %v", err))
 	}
 	return artifactRoot, nil
 }
@@ -541,6 +784,17 @@ func resolveArtifactMember(root, value string) (string, error) {
 	real, err := filepath.EvalSymlinks(absolute)
 	if err != nil {
 		return "", err
+	}
+	if filepath.Clean(absolute) != filepath.Clean(real) {
+		return "", fmt.Errorf("artifact member must not traverse symbolic links")
+	}
+	rootReal, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return "", err
+	}
+	inside, err := pathWithin(filepath.Clean(rootReal), filepath.Clean(real))
+	if err != nil || !inside || filepath.Clean(rootReal) == filepath.Clean(real) {
+		return "", fmt.Errorf("artifact member escapes artifact root")
 	}
 	return filepath.Clean(real), nil
 }

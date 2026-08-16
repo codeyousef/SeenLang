@@ -8,6 +8,7 @@ import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_type_info.{findStructIdx}
 import codegen.ir_literal_gen.{normalizeDoubleLiteralForLlvmImpl}
+import codegen.ir_decl_late_declares.{moduleBuilderAlreadyDeclaresFunctionCoreImpl}
 
 // Check if a function name is defined in the current module
 fun isFuncDefinedInModule(name: String, definedFuncs: Array<String>) r: Bool {
@@ -249,28 +250,46 @@ fun emitExternDeclImpl(output: StringBuilder,
     externRetType: String, isVariadic: Int) r: Void {
 
     // Build the declaration
-    var externDecl = "declare " + externRetType + " @" + externSymbol + "("
+    var externSignature = "declare " + externRetType + " @" + externSymbol + "("
     var pIdx = 0
     while pIdx < paramCount {
         if pIdx > 0 {
-            externDecl = externDecl + ", "
+            externSignature = externSignature + ", "
         }
-        externDecl = externDecl + mappedParamTypes[pIdx]
+        externSignature = externSignature + mappedParamTypes[pIdx]
         pIdx = pIdx + 1
     }
     if isVariadic == 1 {
         if paramCount > 0 {
-            externDecl = externDecl + ", "
+            externSignature = externSignature + ", "
         }
-        externDecl = externDecl + "..."
+        externSignature = externSignature + "..."
     }
-    externDecl = externDecl + ") nounwind memory(inaccessiblemem: readwrite)\n"
+    externSignature = externSignature + ")"
+    let externDecl = externSignature +
+        " nounwind memory(inaccessiblemem: readwrite)\n"
 
     // Skip declaration for LLVM intrinsics (already in ir_declarations.seen)
     if externSymbol.startsWith("llvm.") {
         output.append("; llvm intrinsic " + externSymbol + " — declared in ir_declarations\n")
     } else {
-        output.append(externDecl)
+        let alreadyDeclared = moduleBuilderAlreadyDeclaresFunctionCoreImpl(
+            output, externSymbol)
+        var matchingDeclaration = false
+        if alreadyDeclared {
+            var declarationPartIdx = 0
+            while declarationPartIdx < output.parts.length() {
+                if output.parts[declarationPartIdx].contains(externSignature) {
+                    matchingDeclaration = true
+                }
+                declarationPartIdx = declarationPartIdx + 1
+            }
+        }
+        if not alreadyDeclared or not matchingDeclaration {
+            // A mismatched same-name declaration is emitted deliberately so
+            // LLVM rejects the conflicting ABI instead of silently choosing one.
+            output.append(externDecl)
+        }
     }
 
     // If symbol differs from function name, emit a wrapper that calls the extern

@@ -2,13 +2,27 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
-COMPILER="$ROOT_DIR/compiler_seen/target/seen"
-TMP_DIR="$(mktemp -d /tmp/seen_import_c_bitfields_64.XXXXXX)"
+COMPILER="${COMPILER:-$ROOT_DIR/compiler_seen/target/seen}"
+CAPPED_ENTRY="$ROOT_DIR/scripts/run_capped_regression.sh"
+SCOPE=seen-import-c-bitfields-64
+if [ "${SEEN_CAPPED_REGRESSION_ACTIVE:-0}" != "1" ]; then
+    exec bash "$CAPPED_ENTRY" "$SCOPE" --compiler "$COMPILER" -- bash "$0" "$@"
+fi
+COMPILER="${SEEN_CAPPED_REGRESSION_COMPILER:-$COMPILER}"
+bash "$CAPPED_ENTRY" --verify-active "$SCOPE" --compiler "$COMPILER"
+ATTESTED_SEEN="${SEEN_ATTESTED_COMPILER_RUNNER:?}"
+TMP_DIR="$(mktemp -d "$SEEN_ARTIFACT_ROOT/seen-import-c-bitfields-64.XXXXXX")"
 HEADER="$TMP_DIR/bitfields_64.h"
 OUT="$TMP_DIR/bitfields_64_bindings.seen"
 
 cleanup() {
-    rm -rf "$TMP_DIR"
+    case "$TMP_DIR" in
+        "$SEEN_ARTIFACT_ROOT"/seen-import-c-bitfields-64.*)
+            [ -d "$TMP_DIR" ] && [ ! -L "$TMP_DIR" ] &&
+                [ "$(dirname -- "$TMP_DIR")" = "$SEEN_ARTIFACT_ROOT" ] || return 1
+            rm -rf -- "$TMP_DIR" ;;
+        *) return 1 ;;
+    esac
 }
 trap cleanup EXIT
 
@@ -23,7 +37,8 @@ typedef struct WideBits {
 void use_wide_bits(WideBits *value);
 H
 
-"$COMPILER" import-c "$HEADER" | sed -n '/^\/\/ Auto-generated/,$p' >"$OUT"
+bash "$ATTESTED_SEEN" "$COMPILER" import-c "$HEADER" | \
+    sed -n '/^\/\/ Auto-generated/,$p' >"$OUT"
 
 WIDE_BLOCK="$(sed -n '/^class WideBits {$/,/^}$/p' "$OUT")"
 if ! printf '%s\n' "$WIDE_BLOCK" | grep -Fqx '    var _bitfield_storage_0: UInt64'; then
@@ -52,7 +67,8 @@ fun main() r: Void {
 }
 H
 
-"$COMPILER" compile "$OUT" "$TMP_DIR/bitfields_64_probe" --fast >/dev/null
+bash "$ATTESTED_SEEN" "$COMPILER" compile \
+    "$OUT" "$TMP_DIR/bitfields_64_probe" --fast >/dev/null
 
 if [ "$(grep -Fxc 'extern fun use_wide_bits(arg0: *WideBits) r: Void' "$OUT")" -ne 1 ]; then
     echo "FAIL: import-c should preserve typed pointers for widened bitfield-backed records"

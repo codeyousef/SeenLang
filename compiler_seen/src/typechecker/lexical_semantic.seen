@@ -1,0 +1,975 @@
+///
+Stage-2 lexical semantic foundation executed after parsing and before LLVM
+lowering. It establishes shared identities, declaration metadata, and proved
+scope/type diagnostics without claiming complete inference or call resolution.
+Implicit locals may retain the explicit `Unknown` identity until a later
+inference pass; this module never invents an Int fallback for them.
+///
+
+import parser.real_parser.{ProgramNode, FunctionNode, ClassNode, BlockNode}
+import parser.real_parser.{ParserExpressionNode, TypeNode, AnnotationNode}
+import parser.real_parser.{genericParameterCount, genericParameterNameAt}
+import parser.real_parser.{genericParameterModifierAt}
+import typechecker.type_ref.{TypeRef, parseTypeRef}
+import typechecker.semantic_registry.{SemanticDiagnostic}
+import typechecker.semantic_registry.{SemanticDeclarationRegistry}
+import typechecker.semantic_registry.{ScopedBindings}
+import typechecker.semantic_registry.{semanticCanonicalDeclaration}
+import typechecker.semantic_registry.{semanticIsBuiltinType}
+import typechecker.semantic_registry.{semanticBuiltinGenericArity}
+import typechecker.semantic_registry.{semanticNormalizeModuleIdentity}
+
+class LexicalSemanticResult {
+    var success: Bool
+    var diagnostics: Array<SemanticDiagnostic>
+    var registry: SemanticDeclarationRegistry
+
+    static fun new(registry: SemanticDeclarationRegistry)
+        r: LexicalSemanticResult {
+
+        return LexicalSemanticResult{
+            success: true,
+            diagnostics: Array<SemanticDiagnostic>(),
+            registry: registry
+        }
+    }
+
+    fun addError(code: String, message: String, file: String, line: Int,
+        column: Int) r: Void {
+
+        this.diagnostics.push(SemanticDiagnostic.new(code, message, file,
+            line, column))
+        this.success = false
+    }
+}
+
+fun semanticGenericNameIndex(names: Array<String>, name: String) r: Int {
+    var i = 0
+    while i < names.length() {
+        if names[i] == name { return i }
+        i = i + 1
+    }
+    return -1
+}
+
+fun resolveSemanticTypeRef(result: LexicalSemanticResult, typeRef: TypeRef,
+    moduleName: String, genericOwner: String, genericNames: Array<String>,
+    requireConcrete: Bool) r: Bool {
+
+    if not typeRef.valid {
+        result.addError("E_TYPE_SYNTAX", typeRef.error, typeRef.file,
+            typeRef.line, typeRef.column)
+        return false
+    }
+    if typeRef.base == "" or typeRef.base == "Unknown" {
+        result.addError("E_TYPE_UNKNOWN",
+            "type could not be resolved; add an explicit type annotation",
+            typeRef.file, typeRef.line, typeRef.column)
+        return false
+    }
+    if semanticGenericNameIndex(genericNames, typeRef.base) >= 0 {
+        let modifier = result.registry.genericParameterModifier(genericOwner,
+            typeRef.base)
+        var modifierIdentity = ""
+        if modifier != "" { modifierIdentity = modifier + ":" }
+        typeRef.identityBase = "generic:" + modifierIdentity + genericOwner +
+            "::" + typeRef.base
+        if requireConcrete {
+            result.addError("E_TYPE_OPEN_GENERIC",
+                "generic type '" + typeRef.base +
+                "' remains open at a concrete lowering boundary",
+                typeRef.file, typeRef.line, typeRef.column)
+            return false
+        }
+        return true
+    }
+    if typeRef.kind == "constant" { return true }
+    if typeRef.kind == "pointer" or typeRef.kind == "const_pointer" or
+        typeRef.kind == "dynamic" or typeRef.kind == "fixed_array" or
+        typeRef.kind == "function" {
+
+        var structuralValid = true
+        var structuralIndex = 0
+        while structuralIndex < typeRef.arguments.length() {
+            if not resolveSemanticTypeRef(result,
+                typeRef.arguments[structuralIndex], moduleName, genericOwner,
+                genericNames, requireConcrete) {
+                structuralValid = false
+            }
+            structuralIndex = structuralIndex + 1
+        }
+        typeRef.identityBase = typeRef.base
+        return structuralValid
+    }
+    if typeRef.kind == "error_union" {
+        var unionValid = true
+        var unionIndex = 0
+        while unionIndex < typeRef.arguments.length() {
+            if not resolveSemanticTypeRef(result,
+                typeRef.arguments[unionIndex], moduleName, genericOwner,
+                genericNames, requireConcrete) {
+                unionValid = false
+            }
+            unionIndex = unionIndex + 1
+        }
+        typeRef.identityBase = "ErrorUnion"
+        return unionValid
+    }
+
+    let builtinArity = semanticBuiltinGenericArity(typeRef.base)
+    if builtinArity >= 0 and typeRef.arguments.length() != builtinArity {
+        result.addError("E_TYPE_ARITY", "type '" + typeRef.base +
+            "' expects " + builtinArity.toString() + " argument(s), found " +
+            typeRef.arguments.length().toString(), typeRef.file, typeRef.line,
+            typeRef.column)
+        return false
+    }
+    if semanticIsBuiltinType(typeRef.base) and
+        typeRef.arguments.length() > 0 {
+
+        result.addError("E_TYPE_ARITY", "non-generic type '" + typeRef.base +
+            "' cannot have type arguments", typeRef.file, typeRef.line,
+            typeRef.column)
+        return false
+    }
+
+    var resolvedBase = ""
+    var resolvedUserDeclarationIndex = -1
+    ///
+    Builtin names intentionally retain precedence over user declarations for
+    the bootstrap-compatible 0.11 foundation. Only the registry-resolved user
+    branch below participates in declaration-owned arity validation.
+    ///
+    if semanticIsBuiltinType(typeRef.base) or builtinArity >= 0 {
+        resolvedBase = typeRef.base
+    } else {
+        let declarationIndex = result.registry.lookupIndex(moduleName,
+            typeRef.base)
+        if declarationIndex == -2 {
+            result.addError("E_TYPE_AMBIGUOUS", "type '" + typeRef.base +
+                "' is declared by more than one module", typeRef.file,
+                typeRef.line, typeRef.column)
+            return false
+        }
+        if declarationIndex >= 0 {
+            let kind = result.registry.kinds[declarationIndex]
+            if kind == "Class" or kind == "Struct" or kind == "Enum" or
+                kind == "Trait" or kind == "TypeAlias" or kind == "Union" {
+                resolvedBase = result.registry.canonicalNames[
+                    declarationIndex]
+                resolvedUserDeclarationIndex = declarationIndex
+            }
+        }
+    }
+    if resolvedBase == "" {
+        result.addError("E_TYPE_UNKNOWN", "unknown type '" + typeRef.base +
+            "'", typeRef.file, typeRef.line, typeRef.column)
+        return false
+    }
+    typeRef.identityBase = resolvedBase
+
+    if resolvedUserDeclarationIndex >= 0 {
+        let genericCount = result.registry.genericParameterCountForOwner(
+            resolvedBase)
+        let actualCount = typeRef.arguments.length()
+        if result.registry.hasFinalVariadicGenericParameter(resolvedBase) {
+            let minimumCount = genericCount - 1
+            if actualCount < minimumCount {
+                result.addError("E_TYPE_ARITY", "type '" + typeRef.base +
+                    "' expects at least " + minimumCount.toString() +
+                    " argument(s), found " + actualCount.toString(),
+                    typeRef.file, typeRef.line, typeRef.column)
+                return false
+            }
+        } else if actualCount != genericCount {
+            if genericCount == 0 {
+                result.addError("E_TYPE_ARITY", "non-generic type '" +
+                    typeRef.base + "' cannot have type arguments", typeRef.file,
+                    typeRef.line, typeRef.column)
+            } else {
+                result.addError("E_TYPE_ARITY", "type '" + typeRef.base +
+                    "' expects " + genericCount.toString() +
+                    " argument(s), found " + actualCount.toString(),
+                    typeRef.file, typeRef.line, typeRef.column)
+            }
+            return false
+        }
+    }
+
+    var valid = true
+    var i = 0
+    while i < typeRef.arguments.length() {
+        if not resolveSemanticTypeRef(result, typeRef.arguments[i], moduleName,
+            genericOwner, genericNames, requireConcrete) { valid = false }
+        i = i + 1
+    }
+    return valid
+}
+
+fun resolveSemanticTypeForOwner(result: LexicalSemanticResult,
+    typeName: String,
+    file: String, line: Int, column: Int, moduleName: String,
+    genericOwner: String, genericNames: Array<String>, requireConcrete: Bool)
+    r: String {
+
+    var genericIndex = 0
+    while genericIndex < genericNames.length() {
+        result.registry.registerGenericParameter(genericOwner,
+            genericNames[genericIndex])
+        genericIndex = genericIndex + 1
+    }
+    let typeRef = parseTypeRef(typeName, line, column, file)
+    if not resolveSemanticTypeRef(result, typeRef, moduleName, genericOwner,
+        genericNames, requireConcrete) {
+        return ""
+    }
+    return typeRef.canonicalIdentity()
+}
+
+fun resolveSemanticType(result: LexicalSemanticResult, typeName: String,
+    file: String, line: Int, column: Int, moduleName: String,
+    genericNames: Array<String>) r: String {
+
+    return resolveSemanticTypeForOwner(result, typeName, file, line, column,
+        moduleName, moduleName, genericNames, false)
+}
+
+/// Resolve a type at an IR/codegen root where no symbolic generic may remain.
+fun requireConcreteSemanticType(result: LexicalSemanticResult,
+    typeName: String, file: String, line: Int, column: Int,
+    moduleName: String, genericOwner: String, genericNames: Array<String>)
+    r: String {
+
+    return resolveSemanticTypeForOwner(result, typeName, file, line, column,
+        moduleName, genericOwner, genericNames, true)
+}
+
+fun resolveSemanticTypeNode(result: LexicalSemanticResult, typeNode: TypeNode,
+    file: String, line: Int, column: Int, moduleName: String,
+    genericOwner: String, genericNames: Array<String>) r: String {
+
+    let typeRef = parseTypeRef(typeNode.typeName, line, column, file)
+    if typeNode.isNullable and typeRef.base != "Option" {
+        typeRef.nullable = true
+    }
+    if not resolveSemanticTypeRef(result, typeRef, moduleName, genericOwner,
+        genericNames, false) {
+        return ""
+    }
+    return typeRef.canonicalIdentity()
+}
+
+fun registerSemanticDecorators(registry: SemanticDeclarationRegistry,
+    owner: String, decorators: Array<AnnotationNode>) r: Void {
+
+    var i = 0
+    while i < decorators.length() {
+        registry.registerDecorator(owner, decorators[i].name,
+            decorators[i].arguments)
+        i = i + 1
+    }
+}
+
+fun registerSemanticDecoratorGenerics(
+    registry: SemanticDeclarationRegistry, owner: String,
+    decorators: Array<AnnotationNode>) r: Void {
+
+    var i = 0
+    let count = genericParameterCount(decorators)
+    while i < count {
+        let name = genericParameterNameAt(decorators, i)
+        if name != "" {
+            registry.registerGenericParameter(owner, name,
+                genericParameterModifierAt(decorators, i))
+        }
+        i = i + 1
+    }
+}
+
+fun semanticDecoratorGenericNames(decorators: Array<AnnotationNode>,
+    inherited: Array<String>) r: Array<String> {
+
+    let names = Array<String>()
+    var i = 0
+    while i < inherited.length() {
+        names.push(inherited[i])
+        i = i + 1
+    }
+    i = 0
+    let parameterCount = genericParameterCount(decorators)
+    while i < parameterCount {
+        let genericName = genericParameterNameAt(decorators, i)
+        if genericName != "" and
+            semanticGenericNameIndex(names, genericName) < 0 {
+            names.push(genericName)
+        }
+        i = i + 1
+    }
+    return names
+}
+
+fun semanticDecoratorGenericModifier(decorators: Array<AnnotationNode>,
+    name: String) r: String {
+
+    var i = 0
+    let parameterCount = genericParameterCount(decorators)
+    while i < parameterCount {
+        if genericParameterNameAt(decorators, i) == name {
+            return genericParameterModifierAt(decorators, i)
+        }
+        i = i + 1
+    }
+    return ""
+}
+
+fun semanticClassHasDecorator(classNode: ClassNode, name: String) r: Bool {
+    var i = 0
+    while i < classNode.decorators.length() {
+        if classNode.decorators[i].name == name { return true }
+        i = i + 1
+    }
+    return false
+}
+
+fun semanticClassDeclarationKind(classNode: ClassNode) r: String {
+    if semanticClassHasDecorator(classNode, "type_alias") {
+        return "TypeAlias"
+    }
+    if semanticClassHasDecorator(classNode, "trait") { return "Trait" }
+    if semanticClassHasDecorator(classNode, "union") { return "Union" }
+    if semanticClassHasDecorator(classNode, "struct") or
+        semanticClassHasDecorator(classNode, "data") { return "Struct" }
+    return "Class"
+}
+
+fun semanticClassDecoratorFirstArgument(classNode: ClassNode, name: String)
+    r: String {
+
+    var i = 0
+    while i < classNode.decorators.length() {
+        let decorator = classNode.decorators[i]
+        if decorator.name == name and decorator.arguments.length() > 0 {
+            return decorator.arguments[0]
+        }
+        i = i + 1
+    }
+    return ""
+}
+
+fun semanticLifecycleTypeNodeSpelling(typeNode: TypeNode) r: String {
+    var spelling = typeNode.typeName
+    if typeNode.isNullable and not spelling.endsWith("?") {
+        spelling = spelling + "?"
+    }
+    return spelling
+}
+
+fun registerSemanticImports(registry: SemanticDeclarationRegistry,
+    program: ProgramNode, moduleName: String) r: Void {
+
+    var i = 0
+    while i < program.items.length() {
+        let item = program.items[i]
+        if item.itemType == "Import" {
+            let logicalTargetModule = semanticNormalizeModuleIdentity(
+                item.name)
+            let targetModule = registry.resolveImportedModule(moduleName,
+                logicalTargetModule)
+            if item.importSymbols.length() == 0 {
+                var aliasStart = 0
+                var aliasIndex = 0
+                while aliasIndex < logicalTargetModule.length() {
+                    if logicalTargetModule.byteAt(aliasIndex) == '.' {
+                        aliasStart = aliasIndex + 1
+                    }
+                    aliasIndex = aliasIndex + 1
+                }
+                let moduleAlias = logicalTargetModule.substring(aliasStart,
+                    logicalTargetModule.length())
+                registry.registerImport(moduleName, moduleAlias, targetModule,
+                    "*")
+            }
+            var si = 0
+            while si < item.importSymbols.length() {
+                let symbol = item.importSymbols[si]
+                if symbol.name == "*" {
+                    registry.registerImport(moduleName, symbol.alias,
+                        targetModule, "*")
+                } else {
+                    var alias = symbol.alias
+                    if alias == "" { alias = symbol.name }
+                    registry.registerImport(moduleName, alias, targetModule,
+                        symbol.name)
+                }
+                si = si + 1
+            }
+        }
+        i = i + 1
+    }
+}
+
+fun registerSemanticFunction(result: LexicalSemanticResult,
+    moduleName: String, file: String, ownerPrefix: String,
+    function: FunctionNode, kind: String) r: Void {
+
+    var localName = function.name
+    if ownerPrefix != "" { localName = ownerPrefix + "." + function.name }
+    let canonical = semanticCanonicalDeclaration(moduleName, localName)
+    if not result.registry.registerDeclaration(moduleName, localName, kind,
+        canonical + "#fn", file, function.line, function.column) {
+
+        result.addError("E_DECL_DUPLICATE", "duplicate declaration '" +
+            canonical + "'", file, function.line, function.column)
+        return
+    }
+    registerSemanticDecorators(result.registry, canonical,
+        function.decorators)
+    registerSemanticDecoratorGenerics(result.registry, canonical,
+        function.decorators)
+}
+
+fun semanticGlobalEncodedType(encoded: String) r: String {
+    var start = 0
+    if encoded.length() > 0 {
+        let firstByte = encoded.byteAt(0)
+        if firstByte == 76 or firstByte == 86 { start = 1 }
+    }
+    var i = start
+    while i < encoded.length() {
+        if encoded.byteAt(i) == 58 {
+            return encoded.substring(start, i)
+        }
+        i = i + 1
+    }
+    return encoded.substring(start, encoded.length())
+}
+
+fun collectSemanticDeclarations(result: LexicalSemanticResult,
+    program: ProgramNode, moduleName: String, file: String) r: Void {
+
+    registerSemanticImports(result.registry, program, moduleName)
+    var i = 0
+    while i < program.items.length() {
+        let item = program.items[i]
+        if item.itemType == "Function" {
+            registerSemanticFunction(result, moduleName, file, "",
+                item.function, "Function")
+        } else if item.itemType == "Class" {
+            let canonical = semanticCanonicalDeclaration(moduleName,
+                item.classNode.name)
+            let declarationKind = semanticClassDeclarationKind(
+                item.classNode)
+            let declarationRegistered = result.registry.registerDeclaration(
+                moduleName,
+                item.classNode.name, declarationKind, canonical, file, item.line,
+                item.column)
+            if not declarationRegistered {
+                result.addError("E_DECL_DUPLICATE", "duplicate declaration '" +
+                    canonical + "'", file, item.line, item.column)
+            }
+            registerSemanticDecorators(result.registry, canonical,
+                item.classNode.decorators)
+            registerSemanticDecoratorGenerics(result.registry, canonical,
+                item.classNode.decorators)
+            if declarationRegistered {
+                if item.classNode.parentName != "" {
+                    result.registry.registerLifecycleField(canonical,
+                        moduleName, "@parent", item.classNode.parentName, file,
+                        item.line, item.column)
+                }
+                var fieldIndex = 0
+                while fieldIndex < item.classNode.fields.length() {
+                    let field = item.classNode.fields[fieldIndex]
+                    if not field.name.startsWith("@type_alias:") {
+                        result.registry.registerLifecycleField(canonical,
+                            moduleName, field.name,
+                            semanticLifecycleTypeNodeSpelling(field.paramType),
+                            file, field.line, field.column)
+                    }
+                    fieldIndex = fieldIndex + 1
+                }
+            }
+            var mi = 0
+            while mi < item.classNode.methods.length() {
+                registerSemanticFunction(result, moduleName, file,
+                    item.classNode.name, item.classNode.methods[mi], "Method")
+                mi = mi + 1
+            }
+        } else if item.itemType == "Enum" {
+            let canonical = semanticCanonicalDeclaration(moduleName,
+                item.enumNode.name)
+            if not result.registry.registerDeclaration(moduleName,
+                item.enumNode.name, "Enum", canonical, file, item.line,
+                item.column) {
+                result.addError("E_DECL_DUPLICATE", "duplicate declaration '" +
+                    canonical + "'", file, item.line, item.column)
+            }
+        } else if item.itemType == "GlobalVar" {
+            let canonical = semanticCanonicalDeclaration(moduleName, item.name)
+            let typeIdentity = semanticGlobalEncodedType(item.visibility)
+            if not result.registry.registerDeclaration(moduleName, item.name,
+                "Global", typeIdentity, file, item.line, item.column) {
+                result.addError("E_DECL_DUPLICATE", "duplicate declaration '" +
+                    canonical + "'", file, item.line, item.column)
+            }
+        }
+        i = i + 1
+    }
+}
+
+fun semanticIsReservedValueLiteral(name: String) r: Bool {
+    // `null` is a lexer keyword and denotes the nullable sentinel. Older
+    // bootstrap ASTs represent it as VarExpr rather than Literal.
+    return name == "null"
+}
+
+fun semanticTopLevelExtensionReceiverType(result: LexicalSemanticResult,
+    moduleName: String, functionName: String) r: String {
+
+    // The bootstrap parser canonicalizes `fun Type.method(...)` to
+    // `Type_method` and does not retain a separate receiver field. Recover
+    // that receiver only when its type resolves in the current module graph.
+    let separator = functionName.indexOf("_")
+    if separator <= 0 { return "" }
+    let receiverName = functionName.substring(0, separator)
+    return result.registry.resolveTypeBase(moduleName, receiverName)
+}
+
+fun semanticCheckExpression(result: LexicalSemanticResult,
+    expression: ParserExpressionNode, bindings: ScopedBindings,
+    moduleName: String, file: String, line: Int, column: Int,
+    ownerType: String) r: Void {
+
+    if expression.kind == "Closure" {
+        bindings.beginScope()
+        var parameterIndex = 0
+        while parameterIndex < expression.arguments.length() {
+            let parameterName = expression.arguments[parameterIndex].literalValue
+            if parameterName != "" {
+                bindings.define(parameterName, "Unknown", false, file, line,
+                    column)
+            }
+            parameterIndex = parameterIndex + 1
+        }
+        var bodyIndex = 0
+        while bodyIndex < expression.operands.length() {
+            semanticCheckExpression(result, expression.operands[bodyIndex],
+                bindings, moduleName, file, line, column, ownerType)
+            bodyIndex = bodyIndex + 1
+        }
+        bindings.endScope()
+        return
+    }
+    if expression.kind == "WhenExpression" {
+        // Pattern bindings are encoded inside PatternArm nodes and are not yet
+        // losslessly exposed. Validate only the subject until that metadata is
+        // available, avoiding false unknown-binding errors in arm results.
+        if expression.operands.length() > 0 {
+            semanticCheckExpression(result, expression.operands[0], bindings,
+                moduleName, file, line, column, ownerType)
+        }
+        return
+    }
+    if expression.kind == "Variable" or expression.kind == "VarExpr" {
+        let name = expression.variableName
+        if name != "" and not semanticIsReservedValueLiteral(name) and
+            bindings.lookup(name) == "" and
+            not result.registry.hasVisibleInstanceField(ownerType, name) and
+            result.registry.lookupIndex(moduleName, name) < 0 {
+
+            result.addError("E_BINDING_UNKNOWN", "unknown binding '" + name +
+                "'", file, line, column)
+        }
+    }
+    if expression.kind == "Assignment" and expression.variableName != "" and
+        bindings.lookup(expression.variableName) == "" and
+        not result.registry.hasVisibleInstanceField(ownerType,
+            expression.variableName) and
+        result.registry.lookupIndex(moduleName, expression.variableName) < 0 {
+
+        result.addError("E_BINDING_UNKNOWN", "unknown assignment target '" +
+            expression.variableName + "'", file, line, column)
+    }
+    if bindings.lookup("this") == "" and expression.literalValue == "this" and
+        (expression.kind == "MemberAccess" or
+            expression.kind == "MethodCall") {
+
+        result.addError("E_BINDING_UNKNOWN", "unknown binding 'this'", file,
+            line, column)
+    }
+    var i = 0
+    while i < expression.operands.length() {
+        semanticCheckExpression(result, expression.operands[i], bindings,
+            moduleName, file, line, column, ownerType)
+        i = i + 1
+    }
+    i = 0
+    while i < expression.arguments.length() {
+        semanticCheckExpression(result, expression.arguments[i], bindings,
+            moduleName, file, line, column, ownerType)
+        i = i + 1
+    }
+}
+
+fun semanticCheckBlock(result: LexicalSemanticResult, block: BlockNode,
+    bindings: ScopedBindings, moduleName: String, file: String,
+    ownerType: String, genericOwner: String,
+    genericNames: Array<String>) r: Void {
+
+    bindings.beginScope()
+    var i = 0
+    while i < block.statements.length() {
+        let statement = block.statements[i]
+        if statement.kind == "Let" or statement.kind == "Var" or
+            statement.kind == "UiState" or statement.kind == "UiComputed" {
+            semanticCheckExpression(result, statement.initializer, bindings,
+                moduleName, file, statement.line, statement.column, ownerType)
+            var typeName = statement.variableType.typeName
+            let hasExplicitType = typeName != "" and typeName != "Unknown"
+            if not hasExplicitType { typeName = statement.initializer.literalType }
+            var identity = ""
+            if hasExplicitType {
+                identity = resolveSemanticTypeNode(result,
+                    statement.variableType, file, statement.line,
+                    statement.column, moduleName, genericOwner, genericNames)
+            } else if typeName != "" and typeName != "Unknown" {
+                identity = resolveSemanticTypeForOwner(result, typeName, file,
+                    statement.line, statement.column, moduleName,
+                    genericOwner, genericNames, false)
+            } else {
+                // The AST does not yet carry call/member inference results.
+                // Preserve an explicit non-lowerable identity and let a later
+                // inference pass refine it; never substitute Int.
+                identity = "Unknown"
+            }
+            // `_` is an explicit discard pattern, not a lexical binding.
+            // Its initializer and annotation have already been checked above,
+            // so repeated discards neither hide errors nor collide in scope.
+            if statement.variableName != "_" and identity != "" and not bindings.define(statement.variableName,
+                identity, statement.kind == "Var" or
+                    statement.kind == "UiState", file, statement.line,
+                statement.column) {
+                result.addError("E_BINDING_DUPLICATE", "duplicate binding '" +
+                    statement.variableName + "' in this scope", file,
+                    statement.line, statement.column)
+            }
+        } else if statement.kind == "Return" {
+            semanticCheckExpression(result, statement.returnValue, bindings,
+                moduleName, file, statement.line, statement.column, ownerType)
+        } else if statement.kind == "If" {
+            semanticCheckExpression(result, statement.condition, bindings,
+                moduleName, file, statement.line, statement.column, ownerType)
+            semanticCheckBlock(result, statement.thenBranch, bindings,
+                moduleName, file, ownerType, genericOwner, genericNames)
+            semanticCheckBlock(result, statement.elseBranch, bindings,
+                moduleName, file, ownerType, genericOwner, genericNames)
+        } else if statement.kind == "While" {
+            semanticCheckExpression(result, statement.loopCondition, bindings,
+                moduleName, file, statement.line, statement.column, ownerType)
+            semanticCheckBlock(result, statement.loopBody, bindings,
+                moduleName, file, ownerType, genericOwner, genericNames)
+        } else if statement.kind == "ForIn" or
+            statement.kind == "ParallelFor" {
+
+            semanticCheckExpression(result, statement.expression, bindings,
+                moduleName, file, statement.line, statement.column, ownerType)
+            bindings.beginScope()
+            bindings.define(statement.variableName, "Unknown", false, file,
+                statement.line, statement.column)
+            semanticCheckBlock(result, statement.loopBody, bindings,
+                moduleName, file, ownerType, genericOwner, genericNames)
+            bindings.endScope()
+        } else if statement.kind == "TryCatch" {
+            semanticCheckBlock(result, statement.thenBranch, bindings,
+                moduleName, file, ownerType, genericOwner, genericNames)
+            bindings.beginScope()
+            if statement.variableName != "" {
+                bindings.define(statement.variableName, "Unknown", false,
+                    file, statement.line, statement.column)
+            }
+            semanticCheckBlock(result, statement.elseBranch, bindings,
+                moduleName, file, ownerType, genericOwner, genericNames)
+            bindings.endScope()
+        } else if statement.kind == "Defer" or statement.kind == "Errdefer" or
+            statement.kind == "Throw" or statement.kind == "Expression" {
+
+            semanticCheckExpression(result, statement.expression, bindings,
+                moduleName, file, statement.line, statement.column, ownerType)
+            semanticCheckBlock(result, statement.thenBranch, bindings,
+                moduleName, file, ownerType, genericOwner, genericNames)
+        } else if statement.kind == "Region" or statement.kind == "Unsafe" or
+            statement.kind == "UiEffect" or
+            statement.kind == "ComptimeBlock" or
+            statement.kind == "ComptimeIf" or
+            statement.kind == "ComptimeAssert" or
+            statement.kind == "IfLet" {
+
+            semanticCheckExpression(result, statement.expression, bindings,
+                moduleName, file, statement.line, statement.column, ownerType)
+            semanticCheckExpression(result, statement.condition, bindings,
+                moduleName, file, statement.line, statement.column, ownerType)
+            semanticCheckBlock(result, statement.thenBranch, bindings,
+                moduleName, file, ownerType, genericOwner, genericNames)
+            semanticCheckBlock(result, statement.elseBranch, bindings,
+                moduleName, file, ownerType, genericOwner, genericNames)
+        } else {
+            semanticCheckExpression(result, statement.expression, bindings,
+                moduleName, file, statement.line, statement.column, ownerType)
+        }
+        i = i + 1
+    }
+    bindings.endScope()
+}
+
+fun semanticCheckFunction(result: LexicalSemanticResult,
+    function: FunctionNode, moduleName: String, file: String,
+    ownerType: String, genericNames: Array<String>) r: Void {
+
+    let functionGenericNames = semanticDecoratorGenericNames(
+        function.decorators, genericNames)
+    var functionOwner = semanticCanonicalDeclaration(moduleName,
+        function.name)
+    if ownerType != "" { functionOwner = ownerType + "." + function.name }
+    var genericIndex = 0
+    while genericIndex < functionGenericNames.length() {
+        let genericName = functionGenericNames[genericIndex]
+        var modifier = semanticDecoratorGenericModifier(function.decorators,
+            genericName)
+        if modifier == "" and ownerType != "" {
+            modifier = result.registry.genericParameterModifier(ownerType,
+                genericName)
+        }
+        result.registry.registerGenericParameter(functionOwner, genericName,
+            modifier)
+        genericIndex = genericIndex + 1
+    }
+    let bindings = ScopedBindings.new()
+    var instanceOwnerType = ownerType
+    if function.isStatic { instanceOwnerType = "" }
+    if instanceOwnerType == "" and not function.isStatic {
+        instanceOwnerType = semanticTopLevelExtensionReceiverType(result,
+            moduleName, function.name)
+    }
+    if instanceOwnerType != "" {
+        bindings.define("this", instanceOwnerType, false, file, function.line,
+            function.column)
+    }
+    // Declared parameters form one scope above the body and may explicitly
+    // shadow the implicit receiver. Duplicate declared parameters still share
+    // this scope and remain errors.
+    bindings.beginScope()
+    var i = 0
+    while i < function.params.length() {
+        let parameter = function.params[i]
+        let identity = resolveSemanticTypeNode(result, parameter.paramType,
+            file, parameter.line, parameter.column, moduleName,
+            functionOwner, functionGenericNames)
+        if identity != "" and not bindings.define(parameter.name, identity,
+            parameter.isMutable, file, parameter.line, parameter.column) {
+
+            result.addError("E_BINDING_DUPLICATE", "duplicate parameter '" +
+                parameter.name + "'", file, parameter.line, parameter.column)
+        }
+        i = i + 1
+    }
+    let returnName = function.returnType.typeName
+    if returnName != "" and returnName != "Unknown" {
+        let _ = resolveSemanticTypeNode(result, function.returnType, file,
+            function.line, function.column, moduleName, functionOwner,
+            functionGenericNames)
+    }
+    semanticCheckBlock(result, function.body, bindings, moduleName, file,
+        instanceOwnerType, functionOwner, functionGenericNames)
+    bindings.endScope()
+}
+
+fun semanticValidateDeclaredLifecycleProperty(result: LexicalSemanticResult,
+    ownerCanonical: String, propertyName: String, file: String, line: Int,
+    column: Int) r: Void {
+
+    if not result.registry.lifecyclePropertyIsDeclared(ownerCanonical,
+        propertyName) { return }
+    let state = result.registry.lifecyclePropertyState(ownerCanonical,
+        propertyName)
+    if state == 1 { return }
+
+    var diagnosticFile = file
+    var diagnosticLine = line
+    var diagnosticColumn = column
+    var fieldDescription = ""
+    let fieldIndex = result.registry.firstLifecycleFailingFieldIndex(
+        ownerCanonical, propertyName)
+    if fieldIndex >= 0 {
+        diagnosticFile = result.registry.lifecycleFieldFiles[fieldIndex]
+        diagnosticLine = result.registry.lifecycleFieldLines[fieldIndex]
+        diagnosticColumn = result.registry.lifecycleFieldColumns[fieldIndex]
+        fieldDescription = " through field '" +
+            result.registry.lifecycleFieldNames[fieldIndex] + "' of type '" +
+            result.registry.lifecycleFieldTypeNames[fieldIndex] + "'"
+    }
+
+    if state == -2 {
+        result.addError("E_PROPERTY_CYCLE", "lifecycle property '" +
+            propertyName + "' for '" + ownerCanonical + "' is cyclic" +
+            fieldDescription + "; use explicit indirection",
+            diagnosticFile, diagnosticLine, diagnosticColumn)
+        return
+    }
+    if state == -3 {
+        result.addError("E_PROPERTY_UNPROVEN", "lifecycle property '" +
+            propertyName + "' for '" + ownerCanonical +
+            "' cannot be proved" + fieldDescription +
+            "; a concrete specialization or explicit supported field type is required",
+            diagnosticFile, diagnosticLine, diagnosticColumn)
+        return
+    }
+    result.addError("E_PROPERTY_FIELD", "declaration '" + ownerCanonical +
+        "' requests lifecycle property '" + propertyName + "' but it fails" +
+        fieldDescription, diagnosticFile, diagnosticLine, diagnosticColumn)
+}
+
+fun semanticValidateLifecycleDeclaration(result: LexicalSemanticResult,
+    ownerCanonical: String, file: String, line: Int, column: Int) r: Void {
+
+    let copyDeclared = result.registry.lifecyclePropertyIsDeclared(
+        ownerCanonical, "Copy")
+    let moveDeclared = result.registry.hasDecorator(ownerCanonical, "move")
+    let dropDeclared = result.registry.lifecyclePropertyIsDeclared(
+        ownerCanonical, "Drop")
+    if copyDeclared and (moveDeclared or dropDeclared) {
+        var conflict = "@move"
+        if dropDeclared { conflict = "@c_resource" }
+        result.addError("E_PROPERTY_CONFLICT", "declaration '" +
+            ownerCanonical + "' cannot combine @trivially_copyable with " +
+            conflict + "; Copy and Drop/move-only semantics are mutually exclusive",
+            file, line, column)
+    } else {
+        semanticValidateDeclaredLifecycleProperty(result, ownerCanonical,
+            "Copy", file, line, column)
+    }
+    semanticValidateDeclaredLifecycleProperty(result, ownerCanonical,
+        "Equatable", file, line, column)
+    semanticValidateDeclaredLifecycleProperty(result, ownerCanonical,
+        "Send", file, line, column)
+    semanticValidateDeclaredLifecycleProperty(result, ownerCanonical,
+        "Sync", file, line, column)
+
+    // Populate the transitive cleanup requirement even when no marker asks for
+    // it. Lowering does not consume this metadata yet.
+    let _ = result.registry.lifecyclePropertyState(ownerCanonical, "Drop")
+}
+
+fun checkSemanticDeclarations(result: LexicalSemanticResult,
+    program: ProgramNode, moduleName: String, file: String,
+    genericNames: Array<String>) r: Void {
+
+    var i = 0
+    while i < program.items.length() {
+        let item = program.items[i]
+        if item.itemType == "Function" {
+            semanticCheckFunction(result, item.function, moduleName, file, "",
+                genericNames)
+        } else if item.itemType == "Class" {
+            let ownerType = semanticCanonicalDeclaration(moduleName,
+                item.classNode.name)
+            let classGenericNames = semanticDecoratorGenericNames(
+                item.classNode.decorators, genericNames)
+            var genericIndex = 0
+            while genericIndex < classGenericNames.length() {
+                let genericName = classGenericNames[genericIndex]
+                let modifier = semanticDecoratorGenericModifier(
+                    item.classNode.decorators, genericName)
+                result.registry.registerGenericParameter(ownerType,
+                    genericName, modifier)
+                genericIndex = genericIndex + 1
+            }
+            let aliasTarget = semanticClassDecoratorFirstArgument(
+                item.classNode, "type_alias")
+            if aliasTarget != "" {
+                let aliasIdentity = resolveSemanticTypeForOwner(result,
+                    aliasTarget, file, item.line, item.column, moduleName,
+                    ownerType, classGenericNames, false)
+                let aliasIndex = result.registry.findCanonical(ownerType)
+                if aliasIndex >= 0 and aliasIdentity != "" {
+                    result.registry.typeIdentities[aliasIndex] = aliasIdentity
+                }
+            }
+            var fi = 0
+            while fi < item.classNode.fields.length() {
+                let field = item.classNode.fields[fi]
+                let _ = resolveSemanticTypeNode(result, field.paramType, file,
+                    field.line, field.column, moduleName, ownerType,
+                    classGenericNames)
+                fi = fi + 1
+            }
+            semanticValidateLifecycleDeclaration(result, ownerType, file,
+                item.line, item.column)
+            var mi = 0
+            while mi < item.classNode.methods.length() {
+                semanticCheckFunction(result, item.classNode.methods[mi],
+                    moduleName, file, ownerType, classGenericNames)
+                mi = mi + 1
+            }
+        } else if item.itemType == "GlobalVar" {
+            let globalType = semanticGlobalEncodedType(item.visibility)
+            if globalType == "" or globalType == "Unknown" {
+                result.addError("E_GLOBAL_TYPE_INFERENCE",
+                    "global '" + item.name +
+                    "' type could not be inferred; add an explicit type annotation",
+                    file, item.line, item.column)
+            } else {
+                let owner = semanticCanonicalDeclaration(moduleName,
+                    item.name)
+                let identity = resolveSemanticTypeForOwner(result,
+                    globalType, file, item.line, item.column, moduleName,
+                    owner, Array<String>(), false)
+                let declarationIndex = result.registry.findCanonical(owner)
+                if identity != "" and declarationIndex >= 0 {
+                    result.registry.typeIdentities[declarationIndex] = identity
+                }
+            }
+        }
+        i = i + 1
+    }
+}
+
+///
+Pass 1a API: collect declarations from every module into one registry before
+validating any type references. This ordering permits forward cross-module
+references while preserving duplicate declaration diagnostics.
+///
+fun collectLexicalSemanticModule(program: ProgramNode, moduleName: String,
+    file: String, registry: SemanticDeclarationRegistry)
+    r: LexicalSemanticResult {
+
+    let result = LexicalSemanticResult.new(registry)
+    collectSemanticDeclarations(result, program, moduleName, file)
+    return result
+}
+
+///
+Pass 1b API: validate the semantics this foundation can prove using the complete
+cross-module registry. Later passes remain responsible for exhaustive call
+resolution, generic-call validation and specialization, and refining explicit
+Unknown identities.
+///
+fun checkLexicalSemanticModule(program: ProgramNode, moduleName: String,
+    file: String, registry: SemanticDeclarationRegistry)
+    r: LexicalSemanticResult {
+
+    let result = LexicalSemanticResult.new(registry)
+    checkSemanticDeclarations(result, program, moduleName, file,
+        Array<String>())
+    return result
+}
+
+fun runLexicalSemanticPass(program: ProgramNode, moduleName: String,
+    file: String, registry: SemanticDeclarationRegistry)
+    r: LexicalSemanticResult {
+
+    let result = LexicalSemanticResult.new(registry)
+    collectSemanticDeclarations(result, program, moduleName, file)
+    checkSemanticDeclarations(result, program, moduleName, file,
+        Array<String>())
+    return result
+}

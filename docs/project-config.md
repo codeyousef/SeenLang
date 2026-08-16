@@ -1,6 +1,9 @@
 # Project Configuration
 
-Seen projects use `Seen.toml` for configuration.
+Seen projects use `Seen.toml` for configuration. New manifests should declare
+the current schema with `manifest-version = 1` as their first field. This field
+selects the current parser contract; publishing additionally requires the
+strict `[package]` and `[dependencies]` sections described below.
 
 ## Minimal Seen.toml
 
@@ -44,7 +47,7 @@ Example:
 ```toml
 [project]
 name = "seen_compiler"
-version = "1.0.0"
+version = "0.10.1"
 language = "en"
 visibility = "caps"
 description = "Self-hosted Seen compiler"
@@ -158,6 +161,8 @@ A publishable package keeps its local module root separate from its registry
 identity:
 
 ```toml
+manifest-version = 1
+
 [project]
 name = "math_core"
 version = "0.1.0"
@@ -238,8 +243,16 @@ Code formatting preferences:
 line-width = 100
 indent = 4
 trailing-comma = true
+sort-imports = true
 document-types = [".seen", ".md", ".toml"]
 ```
+
+The LSP formatter reads these values from the nearest `Seen.toml`. Standard LSP
+`tabSize` and `insertSpaces` options override `indent`; the other defaults are a
+100-column width, trailing commas, and conservative import sorting. Sorting
+keeps comments attached to their import and never merges or deduplicates
+imports. Invalid regions are left byte-identical. The 0.10 CLI has no
+standalone formatter subcommand.
 
 ## [test] Section
 

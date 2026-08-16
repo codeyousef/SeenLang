@@ -2,6 +2,7 @@ package commands
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -33,40 +34,71 @@ func (runner Runner) Run(ctx context.Context, args []string) int {
 	if runner.Streams.Stderr == nil {
 		runner.Streams.Stderr = io.Discard
 	}
-	if len(args) >= 1 && args[0] == "--expect-version" {
-		if len(args) < 2 {
-			fmt.Fprintln(runner.Streams.Stderr, "seen-pkg: --expect-version requires a value")
-			return 64
-		}
-		if args[1] != SidecarVersion {
-			fmt.Fprintf(runner.Streams.Stderr, "seen-pkg: compiler/sidecar version mismatch: compiler expects %s but sidecar is %s\n", args[1], SidecarVersion)
-			return 78
-		}
-		args = args[2:]
+	global, err := parseGlobalArguments(args)
+	if err != nil {
+		fmt.Fprintln(runner.Streams.Stderr, "seen-pkg:", err)
+		usage(runner.Streams.Stderr)
+		return 64
 	}
-	if len(args) == 1 && args[0] == "--protocol-version" {
+	if global.expectedVersion != "" && global.expectedVersion != SidecarVersion {
+		fmt.Fprintf(runner.Streams.Stderr, "seen-pkg: compiler/sidecar version mismatch: compiler expects %s but sidecar is %s\n", global.expectedVersion, SidecarVersion)
+		return 78
+	}
+	if global.help {
+		usage(runner.Streams.Stdout)
+		return 0
+	}
+	if global.protocolVersion {
 		fmt.Fprintln(runner.Streams.Stdout, ProtocolVersion)
 		return 0
 	}
+	args = global.commandLine
 	if len(args) == 0 {
 		usage(runner.Streams.Stderr)
 		return 64
 	}
 	command, arguments := args[0], args[1:]
+	if command == "help" {
+		if len(arguments) == 0 {
+			usage(runner.Streams.Stdout)
+			return 0
+		}
+		if len(arguments) != 1 {
+			fmt.Fprintln(runner.Streams.Stderr, "seen-pkg help: unexpected extra operand", arguments[1])
+			usage(runner.Streams.Stderr)
+			return 64
+		}
+		schema, found := commandSchemaFor(arguments[0])
+		if !found {
+			fmt.Fprintf(runner.Streams.Stderr, "seen-pkg help: unknown command %q\n", arguments[0])
+			usage(runner.Streams.Stderr)
+			return 64
+		}
+		commandUsage(runner.Streams.Stdout, schema)
+		return 0
+	}
+	schema, found := commandSchemaFor(command)
+	if !found {
+		fmt.Fprintf(runner.Streams.Stderr, "seen-pkg: unknown command %q\n", command)
+		usage(runner.Streams.Stderr)
+		return 64
+	}
+	parsed, err := parseCommandArguments(command, arguments, schema)
+	if err != nil {
+		return runner.reportUsageError(command, schema, err)
+	}
+	if parsed.help {
+		commandUsage(runner.Streams.Stdout, schema)
+		return 0
+	}
+	arguments = parsed.arguments
 	switch command {
 	case "version":
-		if len(arguments) == 1 && arguments[0] == "--machine" {
+		if parsed.has("--machine") {
 			fmt.Fprintf(runner.Streams.Stdout, "protocol=%s\nversion=%s\n", ProtocolVersion, SidecarVersion)
 			return 0
 		}
-		if len(arguments) != 0 {
-			fmt.Fprintln(runner.Streams.Stderr, "seen-pkg: version accepts only --machine")
-			return 64
-		}
 		fmt.Fprintf(runner.Streams.Stdout, "seen-pkg %s (%s)\n", SidecarVersion, ProtocolVersion)
-		return 0
-	case "help", "--help", "-h":
-		usage(runner.Streams.Stdout)
 		return 0
 	case "login", "logout", "whoami":
 		fmt.Fprintf(runner.Streams.Stderr, "seen-pkg %s: authentication bridge/service is not available; refusing to continue\n", command)
@@ -76,12 +108,20 @@ func (runner Runner) Run(ctx context.Context, args []string) int {
 		return 69
 	case "tree":
 		if err := runTree(arguments, runner.Streams.Stdout); err != nil {
+			var usageErr *UsageError
+			if errors.As(err, &usageErr) {
+				return runner.reportUsageError(command, schema, usageErr)
+			}
 			fmt.Fprintln(runner.Streams.Stderr, "seen-pkg tree:", err)
 			return 1
 		}
 		return 0
 	case "audit":
 		if err := runAudit(arguments, runner.Streams.Stdout); err != nil {
+			var usageErr *UsageError
+			if errors.As(err, &usageErr) {
+				return runner.reportUsageError(command, schema, usageErr)
+			}
 			fmt.Fprintln(runner.Streams.Stderr, "seen-pkg audit:", err)
 			return 1
 		}
@@ -92,15 +132,22 @@ func (runner Runner) Run(ctx context.Context, args []string) int {
 			return 69
 		}
 		if err := runner.Backend.Run(ctx, command, arguments, runner.Streams); err != nil {
+			var usageErr *UsageError
+			if errors.As(err, &usageErr) {
+				return runner.reportUsageError(command, schema, usageErr)
+			}
 			fmt.Fprintf(runner.Streams.Stderr, "seen-pkg %s: %v\n", command, err)
 			return 1
 		}
 		return 0
-	default:
-		fmt.Fprintf(runner.Streams.Stderr, "seen-pkg: unknown command %q\n", command)
-		usage(runner.Streams.Stderr)
-		return 64
 	}
+	return 64
+}
+
+func (runner Runner) reportUsageError(command string, schema commandSchema, err error) int {
+	fmt.Fprintf(runner.Streams.Stderr, "seen-pkg %s: %v\n", command, err)
+	commandUsage(runner.Streams.Stderr, schema)
+	return 64
 }
 
 func usage(output io.Writer) {
@@ -115,7 +162,7 @@ func lockPath(arguments []string) (string, error) {
 	if len(arguments) == 2 && arguments[0] == "--lock" && arguments[1] != "" {
 		return arguments[1], nil
 	}
-	return "", fmt.Errorf("usage: --lock <path>")
+	return "", usageErrorf("expected --lock <path>")
 }
 func runAudit(arguments []string, output io.Writer) error {
 	filename, err := lockPath(arguments)

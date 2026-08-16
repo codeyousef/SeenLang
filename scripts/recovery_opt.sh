@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Recovery script: fix up .ll files and produce .o files.
 # Runs WITHOUT set -e so per-module failures can be reported explicitly.
 #
@@ -12,12 +12,90 @@
 # Usage: recovery_opt.sh <opt_wrapper_dir> <script_dir> [source_ll_dir] [--skip-fixups]
 #   opt_wrapper_dir: directory containing the opt wrapper script
 #   script_dir:      directory containing fix_ir.py and other helpers
-#   source_ll_dir:   directory containing seen_module_*.ll (default: $SEEN_RECOVERY_LL_DIR or /tmp)
+#   source_ll_dir:   directory containing seen_module_*.ll
+#                    (default: $SEEN_RECOVERY_LL_DIR or project-local TMPDIR)
+
+set -u
+
+RECOVERY_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+REPO_ROOT="$(cd "$RECOVERY_SCRIPT_DIR/.." && pwd -P)"
+ARTIFACT_HELPER="$RECOVERY_SCRIPT_DIR/artifact_root.sh"
+HARD_SCOPE_WRAPPER="$RECOVERY_SCRIPT_DIR/run_in_hard_memory_scope.sh"
+BOUNDED_TOOLCHAIN_PREPARE="$RECOVERY_SCRIPT_DIR/prepare_bounded_toolchain.sh"
+
+if [ "$#" -lt 2 ] || [ "$#" -gt 4 ]; then
+    echo "  ERROR: recovery_opt.sh requires <opt_wrapper_dir> <script_dir> [source_ll_dir] [--skip-fixups]" >&2
+    exit 2
+fi
+
+if [ "${SEEN_PROJECT_ARTIFACT_WRAPPER:-0}" != "1" ] ||
+    [ "${SEEN_PROJECT_ARTIFACT_NAMESPACE_ACTIVE:-0}" != "1" ] ||
+    [ "${SEEN_ARTIFACT_NAMESPACE_ACTIVE:-0}" != "1" ] ||
+    [ "${SEEN_REBUILD_AGGREGATE_SCOPE_ACTIVE:-0}" != "1" ]; then
+
+    echo "RESOURCE STOP: standalone recovery is unsupported; use safe_rebuild so the caller owns the retained recovery directory" >&2
+    exit 126
+fi
+
+if [ "${SEEN_MEMORY_GUARD_IN_SCOPE:-0}" != "1" ]; then
+    echo "RESOURCE STOP: recovery lost its owning aggregate memory scope" >&2
+    exit 126
+fi
+
+# A verified safe-rebuild aggregate scope does not need the compatibility
+# marker, so set it only after the kernel-scope marker is present and require
+# the wrapper to read the actual cgroup files before any tool discovery.
+SEEN_HARD_MEMORY_SCOPE_ACTIVE=1
+export SEEN_HARD_MEMORY_SCOPE_ACTIVE
+"$HARD_SCOPE_WRAPPER" --label "Seen recovery optimizer read-back" \
+    --verify-only -- || exit 126
+
+[ -f "$ARTIFACT_HELPER" ] || {
+    echo "RESOURCE STOP: artifact-root helper is unavailable" >&2
+    exit 126
+}
+# shellcheck source=scripts/artifact_root.sh
+source "$ARTIFACT_HELPER"
+seen_artifact_root_init "$REPO_ROOT" || exit 126
+case "${TMPDIR:-}" in
+    "$SEEN_ARTIFACT_ROOT"/*) recovery_tmp_relative=${TMPDIR#"$REPO_ROOT"/} ;;
+    *)
+        echo "RESOURCE STOP: recovery TMPDIR escaped the project artifact root" >&2
+        exit 126
+        ;;
+esac
+seen_artifact_assert_safe_relative_path "$recovery_tmp_relative" || exit 126
+seen_artifact_assert_no_symlink_components "$REPO_ROOT" \
+    "$recovery_tmp_relative" || exit 126
+canonical_recovery_tmp=$(seen_artifact_canonical_dir "$TMPDIR" 2>/dev/null || true)
+if [ -z "$canonical_recovery_tmp" ] || [ "$canonical_recovery_tmp" != "$TMPDIR" ] ||
+    [ ! -w "$TMPDIR" ] || [ -L "$TMPDIR" ]; then
+
+    echo "RESOURCE STOP: recovery TMPDIR is not a canonical safe writable directory" >&2
+    exit 126
+fi
+if [ "$(uname -s)" != "Linux" ]; then
+    echo "RESOURCE STOP: no verified non-Linux private-/tmp recovery path is available" >&2
+    exit 126
+fi
+namespace_tmp_identity=$(stat -c '%d:%i' /tmp 2>/dev/null || true)
+artifact_identity=$(stat -c '%d:%i' "$SEEN_ARTIFACT_ROOT" 2>/dev/null || true)
+if [ -z "$namespace_tmp_identity" ] ||
+    [ "$namespace_tmp_identity" != "$artifact_identity" ]; then
+
+    echo "RESOURCE STOP: recovery /tmp is not mapped to the project artifact root" >&2
+    exit 126
+fi
+
+BOUNDED_TOOLCHAIN_DIR=$(bash "$BOUNDED_TOOLCHAIN_PREPARE" \
+    "$SEEN_ARTIFACT_ROOT") || exit 126
+PATH="$BOUNDED_TOOLCHAIN_DIR:$PATH"
+export PATH SEEN_BOUNDED_TOOLCHAIN_DIR="$BOUNDED_TOOLCHAIN_DIR"
 
 OPT_WRAPPER_DIR="$1"
 SCRIPT_DIR="$2"
 SKIP_FIXUPS=0
-SOURCE_LL_DIR="${SEEN_RECOVERY_LL_DIR:-/tmp}"
+SOURCE_LL_DIR="${SEEN_RECOVERY_LL_DIR:-${TMPDIR:-}}"
 if [ "${3:-}" = "--skip-fixups" ]; then
     SKIP_FIXUPS=1
 elif [ -n "${3:-}" ]; then
@@ -58,17 +136,35 @@ fi
 run_with_opt_limit() {
     if [ "${SEEN_LOW_MEMORY:-0}" = "1" ] && [ -n "${SEEN_OPT_VMEM_KB:-}" ]; then
         (
-            ulimit -v "$SEEN_OPT_VMEM_KB" 2>/dev/null || true
+            if ! ulimit -S -v "$SEEN_OPT_VMEM_KB" 2>/dev/null; then
+                echo "RESOURCE STOP: could not apply recovery optimizer virtual-memory cap (${SEEN_OPT_VMEM_KB} KiB)" >&2
+                exit 126
+            fi
+            active_opt_vmem=$(ulimit -S -v 2>/dev/null || true)
+            case "$active_opt_vmem" in
+                ''|*[!0-9]*)
+                    echo "RESOURCE STOP: could not read back recovery optimizer virtual-memory cap" >&2
+                    exit 126
+                    ;;
+            esac
+            if [ "$active_opt_vmem" -gt "$SEEN_OPT_VMEM_KB" ]; then
+                echo "RESOURCE STOP: recovery optimizer virtual-memory cap read-back exceeds ${SEEN_OPT_VMEM_KB} KiB" >&2
+                exit 126
+            fi
             "$@"
         )
     else
-        "$@"
+        echo "RESOURCE STOP: recovery optimizer requires SEEN_LOW_MEMORY=1 and an explicit SEEN_OPT_VMEM_KB" >&2
+        return 126
     fi
 }
 
-# Copy .ll files to a private directory so concurrent compilations
-# (which also write to /tmp/seen_module_*) can't interfere.
-WORK_DIR=$(mktemp -d /tmp/seen_recovery.XXXXXX)
+# Copy .ll files to a private project-local directory so concurrent
+# compilations cannot interfere and the host temporary directory is untouched.
+WORK_DIR=$(mktemp -d "$TMPDIR/seen_recovery.XXXXXX") || {
+    echo "RESOURCE STOP: could not create the project-local recovery directory" >&2
+    exit 126
+}
 LL_COUNT=0
 for f in "$SOURCE_LL_DIR"/seen_module_*.ll; do
     [ -f "$f" ] || continue
@@ -101,9 +197,18 @@ for llfile in "$WORK_DIR"/seen_module_*.ll; do
     else
         OPT_CMD="$OPT_WRAPPER_DIR/opt"
     fi
-    if ! run_with_opt_limit "$OPT_CMD" \
+    opt_status=0
+    run_with_opt_limit "$OPT_CMD" \
         -passes='default<O1>' \
-        -inline-threshold=250 -S "$llfile" -o "$optfile" >"$optlog" 2>&1; then
+        -inline-threshold=250 -S "$llfile" -o "$optfile" >"$optlog" 2>&1 || opt_status=$?
+    if [ "$opt_status" -ne 0 ]; then
+        case "$opt_status" in
+            124|125|126|137|143)
+                echo "  RESOURCE STOP: opt stopped for $modname (status=$opt_status); preserving $WORK_DIR" >&2
+                tail -40 "$optlog" 2>/dev/null || true
+                exit "$opt_status"
+                ;;
+        esac
         echo "  ERROR: opt failed for $modname"
         echo "  First failure log: $optlog"
         tail -40 "$optlog" 2>/dev/null || true
@@ -133,7 +238,16 @@ for llfile in "$WORK_DIR"/seen_module_*.ll; do
     else
         OBJ_CMD=("$REAL_LLC" -filetype=obj -O1 -relocation-model=pic "$optfile" -o "$objfile")
     fi
-    if ! run_with_opt_limit "${OBJ_CMD[@]}" >"$thinlog" 2>&1; then
+    object_status=0
+    run_with_opt_limit "${OBJ_CMD[@]}" >"$thinlog" 2>&1 || object_status=$?
+    if [ "$object_status" -ne 0 ]; then
+        case "$object_status" in
+            124|125|126|137|143)
+                echo "  RESOURCE STOP: object emission stopped for $modname (status=$object_status); preserving $WORK_DIR" >&2
+                tail -40 "$thinlog" 2>/dev/null || true
+                exit "$object_status"
+                ;;
+        esac
         echo "  ERROR: object emission failed for $modname"
         echo "  First failure log: $thinlog"
         tail -40 "$thinlog" 2>/dev/null || true

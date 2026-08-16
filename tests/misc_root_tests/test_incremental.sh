@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 # Test incremental compilation caching
+# Historical direct-entry fixture. It mutates the checkout-wide cache and has
+# not yet been migrated to the attested compiler runner.
+echo "RESOURCE STOP: legacy incremental fixture is disabled until capped migration" >&2
+exit 126
+
 set -e
 cd "$(dirname "$0")/../.."
 

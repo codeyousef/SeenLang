@@ -132,7 +132,7 @@ fun emitLspJsonRuntimeDecls(output: StringBuilder,
         output.append("declare i64 @JsonRpcHandler_new() nounwind\n")
     }
     if not isFuncDefinedInModule("JsonRpcHandler_readMessage", definedFuncs) {
-        output.append("declare ptr @JsonRpcHandler_readMessage(ptr) nounwind\n")
+        output.append("declare i64 @JsonRpcHandler_readMessage(ptr) nounwind\n")
     }
     if not isFuncDefinedInModule("JsonRpcHandler_sendResponse", definedFuncs) {
         output.append("declare void @JsonRpcHandler_sendResponse(ptr, ptr) nounwind\n")
@@ -165,7 +165,7 @@ fun emitLspJsonRuntimeDecls(output: StringBuilder,
         output.append("declare i1 @MessageDispatcher_hasMethod(ptr, %SeenString) nounwind readonly\n")
     }
     if not isFuncDefinedInModule("LspMessage_fromJson", definedFuncs) {
-        output.append("declare ptr @LspMessage_fromJson(i64) nounwind\n")
+        output.append("declare i64 @LspMessage_fromJson(i64) nounwind\n")
     }
     if not isFuncDefinedInModule("LspMessage_isNotification", definedFuncs) {
         output.append("declare i1 @LspMessage_isNotification(ptr) nounwind readonly\n")
@@ -222,58 +222,65 @@ fun emitLspJsonRuntimeDecls(output: StringBuilder,
     if not isFuncDefinedInModule("ServerInfo_toJson", definedFuncs) {
         output.append("declare i64 @ServerInfo_toJson(ptr) nounwind\n")
     }
-    // LSP type fromJson method declarations (return ptr = nullable class instance)
+    // T? is represented as a boxed Option<T> handle, hence the i64 result.
+    // Non-nullable Seen class results use the same pointer-as-i64 ABI.
     if not isFuncDefinedInModule("LspPosition_fromJson", definedFuncs) {
-        output.append("declare ptr @LspPosition_fromJson(i64) nounwind\n")
+        output.append("declare i64 @LspPosition_fromJson(i64) nounwind\n")
     }
     if not isFuncDefinedInModule("Range_fromJson", definedFuncs) {
-        output.append("declare ptr @Range_fromJson(i64) nounwind\n")
+        output.append("declare i64 @Range_fromJson(i64) nounwind\n")
     }
     if not isFuncDefinedInModule("TextDocumentIdentifier_fromJson", definedFuncs) {
-        output.append("declare ptr @TextDocumentIdentifier_fromJson(i64) nounwind\n")
+        output.append("declare i64 @TextDocumentIdentifier_fromJson(i64) nounwind\n")
     }
     if not isFuncDefinedInModule("VersionedTextDocumentIdentifier_fromJson", definedFuncs) {
-        output.append("declare ptr @VersionedTextDocumentIdentifier_fromJson(i64) nounwind\n")
+        output.append("declare i64 @VersionedTextDocumentIdentifier_fromJson(i64) nounwind\n")
     }
     if not isFuncDefinedInModule("TextDocumentItem_fromJson", definedFuncs) {
-        output.append("declare ptr @TextDocumentItem_fromJson(i64) nounwind\n")
+        output.append("declare i64 @TextDocumentItem_fromJson(i64) nounwind\n")
     }
     if not isFuncDefinedInModule("TextDocumentContentChangeEvent_fromJson", definedFuncs) {
-        output.append("declare ptr @TextDocumentContentChangeEvent_fromJson(i64) nounwind\n")
+        output.append("declare i64 @TextDocumentContentChangeEvent_fromJson(i64) nounwind\n")
     }
     if not isFuncDefinedInModule("DidOpenTextDocumentParams_fromJson", definedFuncs) {
-        output.append("declare ptr @DidOpenTextDocumentParams_fromJson(i64) nounwind\n")
+        output.append("declare i64 @DidOpenTextDocumentParams_fromJson(i64) nounwind\n")
     }
     if not isFuncDefinedInModule("DidChangeTextDocumentParams_fromJson", definedFuncs) {
-        output.append("declare ptr @DidChangeTextDocumentParams_fromJson(i64) nounwind\n")
+        output.append("declare i64 @DidChangeTextDocumentParams_fromJson(i64) nounwind\n")
     }
     if not isFuncDefinedInModule("DidCloseTextDocumentParams_fromJson", definedFuncs) {
-        output.append("declare ptr @DidCloseTextDocumentParams_fromJson(i64) nounwind\n")
+        output.append("declare i64 @DidCloseTextDocumentParams_fromJson(i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("DidSaveTextDocumentParams_fromJson", definedFuncs) {
+        output.append("declare i64 @DidSaveTextDocumentParams_fromJson(i64) nounwind\n")
     }
     if not isFuncDefinedInModule("TextDocumentPositionParams_fromJson", definedFuncs) {
-        output.append("declare ptr @TextDocumentPositionParams_fromJson(i64) nounwind\n")
+        output.append("declare i64 @TextDocumentPositionParams_fromJson(i64) nounwind\n")
     }
     if not isFuncDefinedInModule("CodeActionContext_fromJson", definedFuncs) {
-        output.append("declare ptr @CodeActionContext_fromJson(i64) nounwind\n")
+        output.append("declare i64 @CodeActionContext_fromJson(i64) nounwind\n")
     }
     if not isFuncDefinedInModule("CodeActionParams_fromJson", definedFuncs) {
-        output.append("declare ptr @CodeActionParams_fromJson(i64) nounwind\n")
+        output.append("declare i64 @CodeActionParams_fromJson(i64) nounwind\n")
     }
     if not isFuncDefinedInModule("DocumentFormattingParams_fromJson", definedFuncs) {
-        output.append("declare ptr @DocumentFormattingParams_fromJson(i64) nounwind\n")
+        output.append("declare i64 @DocumentFormattingParams_fromJson(i64) nounwind\n")
     }
     if not isFuncDefinedInModule("InitializeParams_fromJson", definedFuncs) {
-        output.append("declare ptr @InitializeParams_fromJson(i64) nounwind\n")
+        output.append("declare i64 @InitializeParams_fromJson(i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("ClientCapabilities_fromJson", definedFuncs) {
+        output.append("declare i64 @ClientCapabilities_fromJson(i64) nounwind\n")
     }
     // Alias functions for params types (standalone functions, not class methods)
     if not isFuncDefinedInModule("CompletionParams_fromJson", definedFuncs) {
-        output.append("declare ptr @CompletionParams_fromJson(i64) nounwind\n")
+        output.append("declare i64 @CompletionParams_fromJson(i64) nounwind\n")
     }
     if not isFuncDefinedInModule("HoverParams_fromJson", definedFuncs) {
-        output.append("declare ptr @HoverParams_fromJson(i64) nounwind\n")
+        output.append("declare i64 @HoverParams_fromJson(i64) nounwind\n")
     }
     if not isFuncDefinedInModule("DefinitionParams_fromJson", definedFuncs) {
-        output.append("declare ptr @DefinitionParams_fromJson(i64) nounwind\n")
+        output.append("declare i64 @DefinitionParams_fromJson(i64) nounwind\n")
     }
     if not isFuncDefinedInModule("JsonValue_unwrap", definedFuncs) {
         output.append("declare i64 @JsonValue_unwrap(ptr) nounwind\n")
@@ -314,7 +321,7 @@ fun emitLspJsonRuntimeDecls(output: StringBuilder,
         output.append("declare void @JsonValue_push(ptr, i64) nounwind\n")
     }
     if not isFuncDefinedInModule("JsonValue_get", definedFuncs) {
-        output.append("declare ptr @JsonValue_get(ptr, %SeenString) nounwind readonly\n")
+        output.append("declare i64 @JsonValue_get(ptr, %SeenString) nounwind readonly\n")
     }
     if not isFuncDefinedInModule("JsonValue_getArray", definedFuncs) {
         output.append("declare ptr @JsonValue_getArray(ptr) nounwind readonly\n")

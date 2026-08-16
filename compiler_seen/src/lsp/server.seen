@@ -42,12 +42,17 @@ import lsp.jsonrpc.{
     JSONRPC_METHOD_NOT_FOUND, JSONRPC_INTERNAL_ERROR,
     LSP_SERVER_NOT_INITIALIZED
 }
+import lsp.formatter.{formatSeenDocumentEditsWithLanguageOptions,
+    formatterIndentFromToml, formatterLineWidthFromToml,
+    formatterTrailingCommaFromToml, formatterSortImportsFromToml}
 import lexer.lexer.{SeenLexer}
+import lexer.language_pack.{resolveLanguagesRoot}
 import lexer.token.{Token, SeenTokenType, TOKEN_EOF}
 import parser.real_parser.{RealParser, ProgramNode}
 import typechecker.typechecker.{SeenTypeChecker}
 import bootstrap.frontend.{run_frontend, FrontendDiagnostic, parseDiagBaseMessage, parseDiagCode, parseDiagSuggestion, parseDiagNote, parseDiagEndColumn}
-import io.file.{readText, exists}
+import io.file.{readTextChecked, exists}
+import str.string.{StringBuilder}
 
 ///
 ============================================================================
@@ -347,11 +352,140 @@ class SeenLspServer {
         return trimmed.startsWith("//")
     }
 
+    fun uriHexValue(ch: Char) r: Int {
+        if ch >= '0' and ch <= '9' { return ch.toInt() - 48 }
+        if ch >= 'a' and ch <= 'f' { return ch.toInt() - 87 }
+        if ch >= 'A' and ch <= 'F' { return ch.toInt() - 55 }
+        return -1
+    }
+
+    fun uriPercentByte(uri: String, pos: Int) r: Int {
+        if pos + 2 >= uri.length() or uri.byteAt(pos) != '%' { return -1 }
+        let high = this.uriHexValue(uri.byteAt(pos + 1))
+        let low = this.uriHexValue(uri.byteAt(pos + 2))
+        if high < 0 or low < 0 { return -1 }
+        return high * 16 + low
+    }
+
+    fun uriUtf8ByteLength(first: Int) r: Int {
+        if first < 128 { return 1 }
+        if first >= 240 { return 4 }
+        if first >= 224 { return 3 }
+        if first >= 192 { return 2 }
+        return 1
+    }
+
+    fun percentDecodeFilePath(encoded: String) r: String {
+        let builder = StringBuilder.new()
+        var pos = 0
+        while pos < encoded.length() {
+            if encoded.byteAt(pos) != '%' {
+                let length = this.uriUtf8ByteLength(
+                    encoded.byteAt(pos).toInt())
+                if pos + length > encoded.length() { return "" }
+                builder.append(encoded.substring(pos, pos + length))
+                pos = pos + length
+            } else {
+                let first = this.uriPercentByte(encoded, pos)
+                if first < 0 { return "" }
+                var count = this.uriUtf8ByteLength(first)
+                if count == 1 {
+                    builder.appendChar(String.fromCharCode(first).charAt(0))
+                    pos = pos + 3
+                } else {
+                    var codepoint = first
+                    if count == 2 { codepoint = first - 192 }
+                    if count == 3 { codepoint = first - 224 }
+                    if count == 4 { codepoint = first - 240 }
+                    var next = 1
+                    while next < count {
+                        let bytePos = pos + next * 3
+                        let continuation = this.uriPercentByte(encoded, bytePos)
+                        if continuation < 128 or continuation >= 192 { return "" }
+                        codepoint = codepoint * 64 + continuation - 128
+                        next = next + 1
+                    }
+                    builder.append(String.fromCharCode(codepoint))
+                    pos = pos + count * 3
+                }
+            }
+        }
+        return builder.toString()
+    }
+
+    fun isWindowsDrivePath(path: String) r: Bool {
+        if path.length() < 3 or path.byteAt(1) != ':' or
+            path.byteAt(2) != '/' {
+
+            return false
+        }
+        let drive = path.byteAt(0)
+        return (drive >= 'A' and drive <= 'Z') or
+            (drive >= 'a' and drive <= 'z')
+    }
+
+    fun normalizeLocalFilePath(path: String) r: String {
+        // RFC 8089 Windows file URIs use /C:/path. Native Windows file APIs
+        // accept C:/path, while POSIX paths retain their leading slash.
+        if path.length() >= 4 and path.byteAt(0) == '/' and
+            this.isWindowsDrivePath(path.substring(1, path.length())) {
+
+            return path.substring(1, path.length())
+        }
+        return path
+    }
+
     fun uriToPath(uri: String) r: String {
         if uri.startsWith("file://") {
-            return uri.substring(7, uri.length())
+            let decoded = this.percentDecodeFilePath(
+                uri.substring(7, uri.length()))
+            if decoded == "" { return "" }
+            if decoded.startsWith("/") {
+                return this.normalizeLocalFilePath(decoded)
+            }
+
+            // `file://localhost/path` has a local authority. Other nonempty
+            // authorities denote UNC hosts and must retain their leading `//`.
+            let authorityEnd = decoded.indexOf("/", 0)
+            if authorityEnd >= 0 {
+                let authority = decoded.substring(0, authorityEnd)
+                let authorityPath = decoded.substring(authorityEnd,
+                    decoded.length())
+                if authority.toLowerCase() == "localhost" {
+                    return this.normalizeLocalFilePath(authorityPath)
+                }
+                if authority != "" {
+                    return "//" + decoded
+                }
+            }
+            if this.isWindowsDrivePath(decoded) { return decoded }
+            return ""
         }
         return uri
+    }
+
+    fun isFileSystemRoot(path: String) r: Bool {
+        if path == "/" { return true }
+        if path.length() == 2 and path.byteAt(1) == ':' {
+            let drive = path.byteAt(0)
+            if (drive >= 'A' and drive <= 'Z') or
+                (drive >= 'a' and drive <= 'z') {
+
+                return true
+            }
+        }
+        if path.startsWith("//") {
+            let shareStart = path.indexOf("/", 2)
+            if shareStart > 2 and shareStart + 1 < path.length() {
+                return path.indexOf("/", shareStart + 1) < 0
+            }
+        }
+        return false
+    }
+
+    fun seenManifestCandidate(directory: String) r: String {
+        if directory.endsWith("/") { return directory + "Seen.toml" }
+        return directory + "/Seen.toml"
     }
 
     fun parentDirectory(path: String) r: String {
@@ -372,10 +506,11 @@ class SeenLspServer {
         var current = this.parentDirectory(this.uriToPath(uri))
         var guard = 0
         while current != "" and guard < 64 {
-            let candidate = current + "/Seen.toml"
+            let candidate = this.seenManifestCandidate(current)
             if exists(candidate) {
                 return candidate
             }
+            if this.isFileSystemRoot(current) { return "" }
             let parent = this.parentDirectory(current)
             if parent == current {
                 return ""
@@ -423,17 +558,16 @@ class SeenLspServer {
             if trimmed.startsWith("[") and trimmed.endsWith("]") {
                 section = trimmed.substring(1, trimmed.length() - 1)
             } else {
-                if section == "project" and trimmed.startsWith("language") {
-                    let lang = this.extractTomlValue(trimmed)
-                    if this.isSupportedLanguage(lang) {
-                        return lang
-                    }
+                let equals = trimmed.indexOf("=", 0)
+                var key = ""
+                if equals >= 0 {
+                    key = trimmed.substring(0, equals).trim()
                 }
-                if section == "language" and trimmed.startsWith("default") {
-                    let lang = this.extractTomlValue(trimmed)
-                    if this.isSupportedLanguage(lang) {
-                        return lang
-                    }
+                if section == "project" and key == "language" {
+                    return this.extractTomlValue(trimmed)
+                }
+                if section == "language" and key == "default" {
+                    return this.extractTomlValue(trimmed)
                 }
             }
             i = i + 1
@@ -442,17 +576,23 @@ class SeenLspServer {
     }
 
     fun resolveDocumentLanguage(uri: String) r: String {
+        if uri.startsWith("file://") and this.uriToPath(uri) == "" {
+            return ""
+        }
+        var language = "en"
         let manifest = this.findNearestSeenToml(uri)
         if manifest != "" {
-            let content = readText(manifest)
-            if content != "" {
-                let lang = this.extractLanguageFromToml(content)
-                if lang != "" {
-                    return lang
-                }
+            let contentResult = readTextChecked(manifest)
+            if not contentResult.success { return "" }
+            let content = contentResult.content
+            let lang = this.extractLanguageFromToml(content)
+            if lang != "" {
+                if not this.isSupportedLanguage(lang) { return "" }
+                language = lang
             }
         }
-        return "en"
+        if resolveLanguagesRoot(language) == "" { return "" }
+        return language
     }
 
     fun getAstForDocument(uri: String) r: ProgramNode {
@@ -463,6 +603,7 @@ class SeenLspServer {
         let docObj = doc.unwrap()
         let content = docObj.content
         let language = this.resolveDocumentLanguage(uri)
+        if language == "" { return ProgramNode.new() }
         let result = run_frontend(content, uri, language)
         return result.program
     }
@@ -1247,8 +1388,100 @@ class SeenLspServer {
             return
         }
 
-        // For now, return empty array (no edits)
-        let response = LspResponse_success(msg.id, JsonValue_emptyArray())
+        let formattingParams = DocumentFormattingParams_fromJson(msg.params.unwrap())
+        if formattingParams == null {
+            let response = LspResponse_success(msg.id, JsonValue_emptyArray())
+            this.rpc.sendResponse(response)
+            return
+        }
+
+        let params = formattingParams.unwrap()
+        let doc = this.getDocument(params.textDocument.uri)
+        if doc == null {
+            let response = LspResponse_success(msg.id, JsonValue_emptyArray())
+            this.rpc.sendResponse(response)
+            return
+        }
+
+        var indentWidth = 4
+        var lineWidth = 100
+        var insertSpaces = true
+        var trailingComma = true
+        var sortImports = true
+        var useManifest = true
+        var hasLspTabSize = false
+        var hasSortOption = false
+        let optionsValue = msg.params.unwrap().get("options")
+        if optionsValue != null and optionsValue.unwrap().isObject() {
+            let options = optionsValue.unwrap()
+            let tabSize = options.get("tabSize")
+            if tabSize != null and tabSize.unwrap().isNumber() {
+                let requestedWidth = tabSize.unwrap().getInt()
+                if requestedWidth >= 1 and requestedWidth <= 16 {
+                    indentWidth = requestedWidth
+                    hasLspTabSize = true
+                }
+            }
+            let spaces = options.get("insertSpaces")
+            if spaces != null and spaces.unwrap().isBool() {
+                insertSpaces = spaces.unwrap().getBool()
+            }
+            let manifestOption = options.get("useManifest")
+            if manifestOption != null and manifestOption.unwrap().isBool() {
+                useManifest = manifestOption.unwrap().getBool()
+            }
+            let sortOption = options.get("sortImports")
+            if sortOption != null and sortOption.unwrap().isBool() {
+                sortImports = sortOption.unwrap().getBool()
+                hasSortOption = true
+            }
+        }
+
+        if useManifest {
+            let manifest = this.findNearestSeenToml(params.textDocument.uri)
+            if manifest != "" {
+                let manifestResult = readTextChecked(manifest)
+                if not manifestResult.success {
+                    this.rpc.sendError(msg.id, JSONRPC_INTERNAL_ERROR,
+                        "Formatting unavailable: the nearest Seen.toml could not be read.")
+                    return
+                }
+                let manifestContent = manifestResult.content
+                // A valid LSP tabSize is authoritative. The manifest is a
+                // fallback only when the client did not provide one.
+                if not hasLspTabSize {
+                    indentWidth = formatterIndentFromToml(manifestContent, indentWidth)
+                }
+                lineWidth = formatterLineWidthFromToml(manifestContent,
+                    lineWidth)
+                let manifestTrailingComma =
+                    formatterTrailingCommaFromToml(manifestContent)
+                if manifestTrailingComma == 0 { trailingComma = false }
+                if manifestTrailingComma == 1 { trailingComma = true }
+                let manifestSort = formatterSortImportsFromToml(manifestContent)
+                if not hasSortOption {
+                    if manifestSort == 0 { sortImports = false }
+                    if manifestSort == 1 { sortImports = true }
+                }
+            }
+        }
+
+        let documentLanguage = this.resolveDocumentLanguage(params.textDocument.uri)
+        if documentLanguage == "" {
+            this.rpc.sendError(msg.id, JSONRPC_INTERNAL_ERROR,
+                "Formatting unavailable: Seen.toml selects an unsupported language or its complete language pack could not be loaded.")
+            return
+        }
+        let textEdits = formatSeenDocumentEditsWithLanguageOptions(
+            doc.unwrap().content, indentWidth, insertSpaces, sortImports,
+            documentLanguage, lineWidth, trailingComma)
+        let edits = JsonValue_emptyArray()
+        var i = 0
+        while i < textEdits.length() {
+            edits.push(textEdits[i].toJson())
+            i = i + 1
+        }
+        let response = LspResponse_success(msg.id, edits)
         this.rpc.sendResponse(response)
     }
 
@@ -1733,6 +1966,18 @@ class SeenLspServer {
     fun analyzeDocument(uri: String, content: String) r: Void {
         let diagnostics = Array<Diagnostic>()
         let language = this.resolveDocumentLanguage(uri)
+        if language == "" {
+            let range = Range_new(LspPosition_new(0, 0),
+                LspPosition_new(0, 0))
+            let diagnostic = Diagnostic_new(range, DIAGNOSTIC_ERROR,
+                "Seen.toml selects an unsupported language or its complete language pack could not be loaded.")
+            diagnostic.code = "E005"
+            diagnostics.push(diagnostic)
+            let params = PublishDiagnosticsParams_new(uri, diagnostics)
+            this.rpc.sendNotification("textDocument/publishDiagnostics",
+                params.toJson())
+            return
+        }
         let result = run_frontend(content, uri, language)
 
         // Store encoded messages for code actions

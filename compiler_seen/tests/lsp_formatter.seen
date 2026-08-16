@@ -1,0 +1,357 @@
+import lsp.formatter.{formatSeenText, formatSeenTextWithLanguage,
+    formatSeenTextWithLanguageOptions, formatSeenDocumentEdits,
+    formatSeenDocumentEditsWithLanguageOptions, formatterIndentFromToml,
+    formatterLineWidthFromToml, formatterTrailingCommaFromToml,
+    formatterUtf16Length, formatterCommonPrefix, formatterCommonSuffix,
+    formatterSortImportsFromToml}
+import bootstrap.frontend.{run_frontend}
+import json.builder.{jsonToString}
+
+fun expectEqual(actual: String, expected: String, label: String) r: Bool {
+    if actual != expected {
+        println("formatter mismatch: " + label)
+        println("actual: " + actual)
+        println("expected: " + expected)
+        return false
+    }
+    return true
+}
+
+fun expectFrontendSuccess(source: String, language: String, label: String)
+    r: Bool {
+
+    let result = run_frontend(source, label, language)
+    if not result.success {
+        println("formatted source did not pass the frontend: " + label)
+        return false
+    }
+    return true
+}
+
+fun main() r: Int {
+    let source = "import zeta.mod\r\n" +
+        "import alpha.mod\r\n" +
+        "fun main()r:Int{\r\n" +
+        "let literal=\"a  +  b { //\";  // keep  two\r\n" +
+        "if(true){\r\n" +
+        "let value=1+2\r\n" +
+        "}\r\n" +
+        "}\r\n"
+    let expected = "import alpha.mod\r\n" +
+        "import zeta.mod\r\n" +
+        "fun main() r: Int {\r\n" +
+        "  let literal = \"a  +  b { //\"; // keep  two\r\n" +
+        "  if (true) {\r\n" +
+        "    let value = 1 + 2\r\n" +
+        "  }\r\n" +
+        "}\r\n"
+    if not expectEqual(formatSeenText(source, 2, true, true), expected,
+        "lossless literals, comments, CRLF, indentation, and imports") {
+        return 1
+    }
+
+    let invalidSource = "fun complete()r:Int{ return 1 }\n" +
+        "fun broken() r: Int {\n" +
+        "    let bad = \"unterminated\n" +
+        "let safe=1+2\n" +
+        "let stillBroken=3\n"
+    let invalidExpected = "fun complete() r: Int { return 1 }\n" +
+        "fun broken() r: Int {\n" +
+        "    let bad = \"unterminated\n" +
+        "let safe=1+2\n" +
+        "let stillBroken=3\n"
+    if not expectEqual(formatSeenText(invalidSource, 2, true, true), invalidExpected,
+        "only a balanced region before an invalid tail") {
+        return 2
+    }
+
+    let invalidLine = "let broken = \"unterminated\nfun complete()r:Int{ return 2 }\n"
+    let invalidLineExpected = "let broken = \"unterminated\nfun complete() r: Int { return 2 }\n"
+    if not expectEqual(formatSeenText(invalidLine, 4, true, false), invalidLineExpected,
+        "lexically unsafe line is preserved while a later balanced region formats") {
+        return 16
+    }
+
+    let commentedImports = "// file header\n\nimport zeta.mod\nimport alpha.mod\n"
+    let commentedExpected = "// file header\n\nimport alpha.mod\nimport zeta.mod\n"
+    if not expectEqual(formatSeenText(commentedImports, 4, true, true), commentedExpected,
+        "file header stays outside the import block") {
+        return 3
+    }
+
+    let leadingAttached = "// zeta explanation\nimport zeta.mod\n" +
+        "// alpha explanation\nimport alpha.mod\n"
+    let leadingAttachedExpected = "// alpha explanation\nimport alpha.mod\n" +
+        "// zeta explanation\nimport zeta.mod\n"
+    if not expectEqual(formatSeenText(leadingAttached, 4, true, true),
+        leadingAttachedExpected,
+        "comments before the first import remain attached during sorting") {
+
+        return 21
+    }
+
+    let categorized = "use omega.mod\npub import zeta.mod\nimport beta.mod\nimport alpha.mod\n"
+    let categorizedExpected = "pub import zeta.mod\nimport alpha.mod\nimport beta.mod\nuse omega.mod\n"
+    if not expectEqual(formatSeenText(categorized, 4, true, true), categorizedExpected,
+        "import categories and names") {
+        return 4
+    }
+
+    let attached = "import zeta.mod\n// alpha explanation\nimport alpha.mod\n"
+    let attachedExpected = "// alpha explanation\nimport alpha.mod\nimport zeta.mod\n"
+    if not expectEqual(formatSeenText(attached, 4, true, true), attachedExpected,
+        "attached comments move with their import") {
+        return 5
+    }
+
+    let indentedComment = "import zeta.mod\n  // alpha explanation\nimport alpha.mod\n"
+    let indentedCommentExpected = "  // alpha explanation\nimport alpha.mod\nimport zeta.mod\n"
+    if not expectEqual(formatSeenText(indentedComment, 4, true, true),
+        indentedCommentExpected, "indented attached comments move with their import") {
+        return 17
+    }
+
+    let unsafeImport = "import zeta.mod // keep attached\nimport alpha.mod\n"
+    if not expectEqual(formatSeenText(unsafeImport, 4, true, true), unsafeImport,
+        "inline-comment import block is not reordered") {
+        return 18
+    }
+
+    let invalidImportGap = "import zeta.mod\nlet = 1\nimport alpha.mod\n"
+    if not expectEqual(formatSeenText(invalidImportGap, 4, true, true),
+        invalidImportGap, "an invalid import gap prevents reordering") {
+
+        return 22
+    }
+
+    let unicodeLine = "let emoji = \"😀\";let x=1"
+    if formatterUtf16Length(unicodeLine, 19) != 17 {
+        println("formatter position conversion is not UTF-16")
+        return 6
+    }
+    let originalLine = "let emoji = \"😀\";let x=1"
+    let formattedLine = "let emoji = \"😀\"; let x = 1"
+    let prefix = formatterCommonPrefix(originalLine, formattedLine)
+    let suffix = formatterCommonSuffix(originalLine, formattedLine, prefix)
+    if prefix != 19 or suffix != 1 {
+        println("formatter did not compute minimal line edit boundaries")
+        return 7
+    }
+    let edits = formatSeenDocumentEdits(originalLine + "\n", 4, true, false)
+    if edits.length() != 1 {
+        println("expected one non-overlapping line edit")
+        return 8
+    }
+    if edits[0].range.start.character != 17 or edits[0].range.end.character != 23 {
+        println("formatter edit range is not minimal UTF-16")
+        return 9
+    }
+    if edits[0].newText != " let x = " {
+        println("formatter replacement did not preserve its common suffix")
+        return 10
+    }
+    let editJson = jsonToString(edits[0].toJson())
+    if not editJson.contains("\"character\":17") or
+        not editJson.contains("\"character\":23") or
+        not editJson.contains("\"newText\":\" let x = \"") {
+        println("formatter edit did not serialize as an LSP JSON payload")
+        return 11
+    }
+
+    let manifest = "[project]\nindent = 9\n[format]\nindent = 3\n" +
+        "line-width = 72\ntrailing-comma = false\n"
+    if formatterIndentFromToml(manifest, 4) != 3 {
+        println("nearest manifest format indent was not read")
+        return 12
+    }
+    if formatterLineWidthFromToml(manifest, 100) != 72 or
+        formatterTrailingCommaFromToml(manifest) != 0 {
+
+        println("nearest manifest width/trailing-comma settings were not read")
+        return 23
+    }
+    let manifestSort = "[format]\nindentation = 9\nsort-imports-extra = false\n" +
+        "sort-imports = false\n"
+    if formatterIndentFromToml(manifestSort, 4) != 4 or
+        formatterSortImportsFromToml(manifestSort) != 0 {
+
+        println("manifest formatter keys were not matched exactly")
+        return 19
+    }
+
+    let tabbed = "fun main() r: Int {\nlet x=1\n}\n"
+    let tabbedExpected = "fun main() r: Int {\n\tlet x = 1\n}\n"
+    if not expectEqual(formatSeenText(tabbed, 8, false, false), tabbedExpected,
+        "LSP insertSpaces false") {
+        return 13
+    }
+    let unary = "let negative=-1\nlet sum=1+2\n"
+    let unaryExpected = "let negative = -1\nlet sum = 1 + 2\n"
+    if not expectEqual(formatSeenText(unary, 4, true, false), unaryExpected,
+        "unary and binary operators remain distinct") {
+        return 14
+    }
+    let spanish = "usar zeta.mod\nimportar alpha.mod\nfunción main()r:Int{\nsi(verdadero){\n}\n}\n"
+    let spanishExpected = "importar alpha.mod\nusar zeta.mod\nfunción main() r: Int {\n  si (verdadero) {\n  }\n}\n"
+    if not expectEqual(formatSeenTextWithLanguage(spanish, 2, true, true, "es"),
+        spanishExpected, "project-language active keywords") {
+        return 15
+    }
+    let spanishUnary = "función main() r: Int {\nretornar - 1\n}\n"
+    if not expectEqual(formatSeenTextWithLanguage(spanishUnary, 2, true, false, "es"),
+        "función main() r: Int {\n  retornar -1\n}\n",
+        "localized return keeps unary operator spacing") {
+        return 20
+    }
+
+    let balancedInvalid = "fun before()r:Int{ return 1 }\n" +
+        "let     = 1\n" +
+        "fun after()r:Int{ return 2 }\n"
+    let balancedInvalidExpected = "fun before() r: Int { return 1 }\n" +
+        "let     = 1\n" +
+        "fun after() r: Int { return 2 }\n"
+    if not expectEqual(formatSeenText(balancedInvalid, 4, true, false),
+        balancedInvalidExpected,
+        "balanced parser-invalid gaps remain byte-identical") {
+
+        return 24
+    }
+
+    let grouping = "fun main() r: Int {\n    return (\n        1\n    )\n}\n"
+    if not expectEqual(formatSeenText(grouping, 4, true, false), grouping,
+        "parenthesized expressions do not gain trailing commas") {
+
+        return 25
+    }
+
+    let longSource = "fun combine(first: Int, second: Int, third: Int) r: Int {\n" +
+        "    return first+second+third\n}\n" +
+        "fun main() r: Int {\n" +
+        "    let value=combine(111111111,222222222,333333333)\n" +
+        "    return value\n}\n"
+    let longExpected = "fun combine(\n" +
+        "    first: Int,\n" +
+        "    second: Int,\n" +
+        "    third: Int,\n" +
+        ") r: Int {\n" +
+        "    return first + second + third\n}\n" +
+        "fun main() r: Int {\n" +
+        "    let value = combine(\n" +
+        "        111111111,\n" +
+        "        222222222,\n" +
+        "        333333333,\n" +
+        "    )\n" +
+        "    return value\n}\n"
+    let longFormatted = formatSeenTextWithLanguageOptions(longSource, 4, true,
+        false, "en", 44, true)
+    if not expectEqual(longFormatted, longExpected,
+        "line-width reflow and default trailing commas") {
+
+        return 26
+    }
+    if not expectEqual(formatSeenTextWithLanguageOptions(longFormatted, 4,
+        true, false, "en", 44, true), longFormatted,
+        "formatter idempotence after reflow") {
+
+        return 27
+    }
+    if not expectFrontendSuccess(longFormatted, "en",
+        "format-then-check English reflow") {
+
+        return 28
+    }
+
+    let withoutTrailing = "fun combine(\n" +
+        "first: Int,\nsecond: Int,\n) r: Int {\n" +
+        "return first+second\n}\n"
+    let withoutTrailingExpected = "fun combine(\n" +
+        "    first: Int,\n    second: Int\n) r: Int {\n" +
+        "    return first + second\n}\n"
+    if not expectEqual(formatSeenTextWithLanguageOptions(withoutTrailing, 4,
+        true, false, "en", 100, false), withoutTrailingExpected,
+        "manifest-style trailing comma disablement") {
+
+        return 29
+    }
+
+    let languages = Array<String>()
+    languages.push("en")
+    languages.push("ar")
+    languages.push("es")
+    languages.push("ru")
+    languages.push("zh")
+    languages.push("ja")
+    let multilingualSources = Array<String>()
+    multilingualSources.push("fun main()r:Int{\nreturn 0\n}\n")
+    multilingualSources.push("دالة main()r:Int{\nرجع 0\n}\n")
+    multilingualSources.push("función main()r:Int{\nretornar 0\n}\n")
+    multilingualSources.push("функция main()r:Int{\nвернуть 0\n}\n")
+    multilingualSources.push("函数 main()r:Int{\n返回 0\n}\n")
+    multilingualSources.push("関数 main()r:Int{\n戻る 0\n}\n")
+    let multilingualExpected = Array<String>()
+    multilingualExpected.push("fun main() r: Int {\n  return 0\n}\n")
+    multilingualExpected.push("دالة main() r: Int {\n  رجع 0\n}\n")
+    multilingualExpected.push("función main() r: Int {\n  retornar 0\n}\n")
+    multilingualExpected.push("функция main() r: Int {\n  вернуть 0\n}\n")
+    multilingualExpected.push("函数 main() r: Int {\n  返回 0\n}\n")
+    multilingualExpected.push("関数 main() r: Int {\n  戻る 0\n}\n")
+    var languageIndex = 0
+    while languageIndex < languages.length() {
+        let formatted = formatSeenTextWithLanguage(
+            multilingualSources[languageIndex], 2, true, false,
+            languages[languageIndex])
+        if not expectEqual(formatted, multilingualExpected[languageIndex],
+            "six-language formatter " + languages[languageIndex]) {
+
+            return 30 + languageIndex
+        }
+        if not expectEqual(formatSeenTextWithLanguage(formatted, 2, true,
+            false, languages[languageIndex]), formatted,
+            "six-language idempotence " + languages[languageIndex]) {
+
+            return 40 + languageIndex
+        }
+        if not expectFrontendSuccess(formatted, languages[languageIndex],
+            "format-then-check " + languages[languageIndex]) {
+
+            return 50 + languageIndex
+        }
+        languageIndex = languageIndex + 1
+    }
+
+    let aspirational = "функция main() r: Int {\nпусть актёр=1\nвернуть актёр\n}\n"
+    let aspirationalExpected = "функция main() r: Int {\n  пусть актёр = 1\n  вернуть актёр\n}\n"
+    if not expectEqual(formatSeenTextWithLanguage(aspirational, 2, true,
+        false, "ru"), aspirationalExpected,
+        "aspirational language-pack entries remain identifiers") {
+
+        return 60
+    }
+
+    let reflowEdits = formatSeenDocumentEditsWithLanguageOptions(longSource,
+        4, true, false, "en", 44, true)
+    var previousEditLine = -1
+    var editIndex = 0
+    while editIndex < reflowEdits.length() {
+        let edit = reflowEdits[editIndex]
+        if edit.range.start.line <= previousEditLine or
+            edit.range.start.line != edit.range.end.line {
+
+            println("formatter reflow edits overlap or span original lines")
+            return 61
+        }
+        previousEditLine = edit.range.start.line
+        editIndex = editIndex + 1
+    }
+
+    let crlfLong = longSource.replace("\n", "\r\n")
+    let crlfFormatted = formatSeenTextWithLanguageOptions(crlfLong, 4, true,
+        false, "en", 44, true)
+    if crlfFormatted.contains("\n") and not crlfFormatted.contains("\r\n") {
+        println("reflow did not preserve the dominant CRLF style")
+        return 62
+    }
+    return 0
+}
+
+main();

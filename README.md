@@ -80,6 +80,8 @@ seen translate hello.seen --from en --to ja -o hello_ja.seen
 ```
 
 ```toml
+manifest-version = 1
+
 [project]
 name = "my_project"
 language = "ar"
@@ -178,35 +180,29 @@ fun main() {
 }
 ```
 
-Pattern matching:
+Pattern matching with the currently supported plain enum representation:
 
 ```seen
-enum Shape {
-    Circle(radius: Float)
-    Rectangle(width: Float, height: Float)
-}
+enum Direction { North, South, East, West }
 
-fun area(shape: Shape) r: Float {
-    return when shape {
-        is Circle(r) => 3.14159 * r * r
-        is Rectangle(w, h) => w * h
+fun directionCode(direction: Direction) r: Int {
+    return match direction {
+        is North -> 0
+        is South -> 1
+        is East -> 2
+        is West -> 3
     }
 }
 ```
 
-SIMD-oriented code:
+SIMD-oriented code (native reductions are receiver methods):
 
 ```seen
-fun dot_product(a: Array<Float>, b: Array<Float>, n: Int) r: Float {
-    var sum = f32x4(0.0, 0.0, 0.0, 0.0)
-    var i = 0
-    while i + 4 <= n {
-        let va = simd_load_f32x4(a, i)
-        let vb = simd_load_f32x4(b, i)
-        sum = sum + va * vb
-        i = i + 4
-    }
-    return reduce_add(sum)
+fun vector_total() r: Float {
+    let left = f32x4(1.0, 2.0, 3.0, 4.0)
+    let right = f32x4(5.0, 6.0, 7.0, 8.0)
+    let sum = left + right
+    return sum.reduce_add()
 }
 ```
 

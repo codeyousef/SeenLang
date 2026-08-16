@@ -1,8 +1,16 @@
+manifest-version = 1
+
 [project]
-name = "test-project"
+name = "test_project"
 version = "0.1.0"
 language = "en"
 edition = "2024"
+
+[format]
+line-width = 72
+indent = 3
+trailing-comma = false
+sort-imports = false
 authors = ["Test Author <test@seen-lang.org>"]
 description = "Test project for VSCode extension testing"
 

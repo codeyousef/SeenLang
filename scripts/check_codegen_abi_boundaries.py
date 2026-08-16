@@ -531,6 +531,13 @@ BOOTSTRAP_DIRECT_IMPORT_ALLOWLIST = {
     "codegen.ir_type_info",
     "codegen.ir_type_tables",
 }
+BOOTSTRAP_DIRECT_IMPORT_REQUIRED = {
+    # These modules were added after the frozen bootstrap compiler. Bootstrap
+    # import discovery only walks main_compiler.seen itself, so permanent
+    # curated-module entries cannot make the first rebuilding compiler see them.
+    "lsp.formatter",
+    "typechecker.type_ref",
+}
 LOWERING_CONTEXT_BUILDER_RETURN = "currentLoweringOutput"
 LOWERING_CONTEXT_FORBIDDEN_CALLBACKS = {
     "appendLoweringOutput",
@@ -710,12 +717,27 @@ def main_compiler_direct_bootstrap_import_findings(root: Path) -> list[Finding]:
         for match in re.finditer(r"^\s*import\s+([A-Za-z_][A-Za-z0-9_.]*)", text, re.M)
     }
     pushed_modules: list[tuple[int, str]] = []
+    all_pushed_modules: set[str] = set()
     for match in re.finditer(r'modules\.push\("([A-Za-z_][A-Za-z0-9_.]*)"\)', text):
         module = normalize_import_module(match.group(1))
-        if module.startswith("codegen."):
+        all_pushed_modules.add(module)
+        if (
+            module.startswith("codegen.")
+            or module in BOOTSTRAP_DIRECT_IMPORT_REQUIRED
+        ):
             pushed_modules.append((line_for_offset(text, match.start()), module))
 
     findings: list[Finding] = []
+    for module in sorted(BOOTSTRAP_DIRECT_IMPORT_REQUIRED):
+        if module not in all_pushed_modules:
+            findings.append(
+                Finding(
+                    path,
+                    1,
+                    f"bootstrap bridge module `{module}` is not in the curated "
+                    "module list; newer bootstrap compilers would omit its definition",
+                )
+            )
     for line_no, module in pushed_modules:
         if module in BOOTSTRAP_DIRECT_IMPORT_ALLOWLIST:
             continue

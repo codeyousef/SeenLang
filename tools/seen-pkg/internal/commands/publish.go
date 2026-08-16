@@ -238,15 +238,21 @@ func (backend *ProductionBackend) publish(ctx context.Context, arguments []strin
 
 func parsePublishCLI(arguments []string) (publishCLI, error) {
 	options := publishCLI{RegistryOrigin: envOr("SEEN_REGISTRY_ORIGIN", defaultPublishOrigin), TokenFile: os.Getenv("SEEN_REGISTRY_TOKEN_FILE"), SourceForge: envOr("SEEN_SOURCE_FORGE", defaultSourceForge), RepositoryID: os.Getenv("SEEN_SOURCE_REPOSITORY_ID"), InstallationID: os.Getenv("SEEN_SOURCE_INSTALLATION_ID"), SourceRef: os.Getenv("SEEN_SOURCE_REF"), SourceCommit: os.Getenv("SEEN_SOURCE_COMMIT"), LicenseSPDX: os.Getenv("SEEN_SOURCE_LICENSE_SPDX")}
+	optionsEnabled := true
+	manifestProvided := false
 	for index := 0; index < len(arguments); index++ {
 		argument := arguments[index]
-		if argument == "--quiet" {
+		if optionsEnabled && argument == "--" {
+			optionsEnabled = false
+			continue
+		}
+		if optionsEnabled && argument == "--quiet" {
 			options.Quiet = true
 			continue
 		}
-		if strings.HasPrefix(argument, "-") {
+		if optionsEnabled && strings.HasPrefix(argument, "-") {
 			if index+1 >= len(arguments) {
-				return options, fmt.Errorf("%s requires a value", argument)
+				return options, usageErrorf("%s requires a value", argument)
 			}
 			value := arguments[index+1]
 			index++
@@ -272,16 +278,20 @@ func parsePublishCLI(arguments []string) (publishCLI, error) {
 			case "--repository":
 				options.RepositoryURL = value
 			default:
-				return options, fmt.Errorf("unknown option %s", argument)
+				return options, usageErrorf("unknown option %s", argument)
 			}
 			continue
 		}
-		if options.ManifestPath != "" {
-			return options, errors.New("only one project or Seen.toml path is allowed")
+		if manifestProvided {
+			return options, usageErrorf("only one project or Seen.toml path is allowed")
+		}
+		if argument == "" {
+			return options, usageErrorf("project or Seen.toml path must not be empty")
 		}
 		options.ManifestPath = argument
+		manifestProvided = true
 	}
-	if options.ManifestPath == "" {
+	if !manifestProvided {
 		options.ManifestPath = "Seen.toml"
 	}
 	return options, nil

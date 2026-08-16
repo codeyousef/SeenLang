@@ -1,11 +1,145 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Seen Language Test Suite
 # Run all tests and report results
-set -e
+set -euo pipefail
 
-# Use stage1 compiler (the actual working compiler)
-SEEN="./bootstrap/stage1_frozen"
-STAGE1="./bootstrap/stage1_frozen"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd -P)"
+WRAPPER="$SCRIPT_DIR/run_with_project_artifacts.sh"
+HARD_SCOPE_WRAPPER="$SCRIPT_DIR/run_in_hard_memory_scope.sh"
+ARTIFACT_ROOT_HELPER="$SCRIPT_DIR/artifact_root.sh"
+BUILDER_CAPABILITY="$SCRIPT_DIR/rebuild_builder_capability.sh"
+BUILDER_APPLICABILITY="$SCRIPT_DIR/rebuild_builder_applicability.sh"
+SERIALIZER_VERIFY="$SCRIPT_DIR/verify_fork_serializer.sh"
+BOUNDED_TOOLCHAIN_PREPARE="$SCRIPT_DIR/prepare_bounded_toolchain.sh"
+
+is_positive_integer() {
+    case "$1" in
+        ''|*[!0-9]*) return 1 ;;
+        *) [ "$1" -gt 0 ] 2>/dev/null ;;
+    esac
+}
+
+require_vmem_cap() {
+    local limit_kb=$1
+    local label=$2
+    local active_kb=""
+
+    if ! ulimit -S -v "$limit_kb" 2>/dev/null; then
+        echo "ERROR: could not apply $label virtual-memory cap (${limit_kb} KiB)" >&2
+        return 126
+    fi
+    active_kb=$(ulimit -S -v 2>/dev/null || true)
+    if ! is_positive_integer "$active_kb" || [ "$active_kb" -gt "$limit_kb" ]; then
+        echo "ERROR: $label virtual-memory cap read-back failed" >&2
+        return 126
+    fi
+}
+
+if ! is_positive_integer "${SEEN_MAIN_VMEM_KB:-}" ||
+    ! is_positive_integer "${SEEN_OPT_VMEM_KB:-}" ||
+    ! is_positive_integer "${SEEN_MEMORY_LIMIT_BYTES:-}"; then
+    echo "ERROR: explicit positive main, optimizer, and byte memory caps are required" >&2
+    exit 2
+fi
+
+if [ "${SEEN_PROJECT_ARTIFACT_WRAPPER:-0}" != "1" ] ||
+    [ "${SEEN_PROJECT_ARTIFACT_NAMESPACE_ACTIVE:-0}" != "1" ]; then
+    exec "$WRAPPER" legacy-all-tests -- env \
+        SEEN_LOW_MEMORY=1 \
+        SEEN_MAIN_VMEM_KB="$SEEN_MAIN_VMEM_KB" \
+        SEEN_OPT_VMEM_KB="$SEEN_OPT_VMEM_KB" \
+        SEEN_MEMORY_LIMIT_BYTES="$SEEN_MEMORY_LIMIT_BYTES" \
+        SEEN="${SEEN:-$REPO_ROOT/compiler_seen/target/seen}" \
+        STAGE1="${STAGE1:-${SEEN:-$REPO_ROOT/compiler_seen/target/seen}}" \
+        "$0"
+fi
+
+[ -f "$ARTIFACT_ROOT_HELPER" ] || {
+    echo "ERROR: missing artifact-root helper: $ARTIFACT_ROOT_HELPER" >&2
+    exit 2
+}
+# shellcheck source=scripts/artifact_root.sh
+source "$ARTIFACT_ROOT_HELPER"
+seen_artifact_root_init "$REPO_ROOT" || exit 2
+if [ "$(uname -s)" = "Linux" ]; then
+    namespace_tmp_identity=$(stat -c '%d:%i' /tmp 2>/dev/null || true)
+    artifact_root_identity=$(stat -c '%d:%i' "$SEEN_ARTIFACT_ROOT" \
+        2>/dev/null || true)
+    if [ -z "$namespace_tmp_identity" ] ||
+        [ "$namespace_tmp_identity" != "$artifact_root_identity" ]; then
+
+        echo "ERROR: legacy all-tests artifact namespace validation failed" >&2
+        exit 2
+    fi
+fi
+
+if [ "${SEEN_HARD_MEMORY_SCOPE_ACTIVE:-0}" != "1" ] &&
+    [ "${SEEN_MEMORY_GUARD_IN_SCOPE:-0}" != "1" ]; then
+    [ -x "$HARD_SCOPE_WRAPPER" ] || {
+        echo "ERROR: missing hard-memory-scope wrapper: $HARD_SCOPE_WRAPPER" >&2
+        exit 2
+    }
+    exec "$HARD_SCOPE_WRAPPER" --label "Legacy Seen all-tests" -- "$0"
+fi
+SEEN_HARD_MEMORY_SCOPE_ACTIVE=1
+export SEEN_HARD_MEMORY_SCOPE_ACTIVE
+"$HARD_SCOPE_WRAPPER" --label "Legacy Seen all-tests read-back" \
+    --verify-only --
+
+cd "$REPO_ROOT"
+require_vmem_cap "$SEEN_MAIN_VMEM_KB" "main compiler"
+
+# Use the explicitly selected checkout compiler. Frozen bootstrap binaries are
+# for rebuild recovery, not acceptance of current source behavior.
+SEEN="${SEEN:-$REPO_ROOT/compiler_seen/target/seen}"
+STAGE1="${STAGE1:-$SEEN}"
+[ -x "$STAGE1" ] || {
+    echo "ERROR: selected compile-stage compiler is not executable: $STAGE1" >&2
+    exit 2
+}
+[ -f "$BUILDER_CAPABILITY" ] || {
+    echo "ERROR: missing builder capability classifier: $BUILDER_CAPABILITY" >&2
+    exit 2
+}
+FORK_SERIALIZER_SO=${SEEN_FORK_SERIALIZER_SO:-}
+FORK_SERIALIZER_ATTESTATION=${SEEN_FORK_SERIALIZER_ATTESTATION:-}
+if ! bash "$SERIALIZER_VERIFY" "$FORK_SERIALIZER_SO" \
+    "$FORK_SERIALIZER_ATTESTATION" "$SEEN_ARTIFACT_ROOT" \
+    "${SEEN_MEMORY_GUARD_SCOPE_UNIT:-}" >/dev/null; then
+
+    echo "ERROR: legacy all-tests requires the scope-attested fork serializer produced by safe_rebuild" >&2
+    exit 126
+fi
+if ! SEEN_MEMORY_GUARD_IN_SCOPE=1 bash "$BUILDER_APPLICABILITY" \
+    "$STAGE1" "$FORK_SERIALIZER_SO" >/dev/null; then
+
+    echo "ERROR: selected compiler is not serializer-applicable: $STAGE1" >&2
+    exit 126
+fi
+BOUNDED_TOOLCHAIN_DIR=$(bash "$BOUNDED_TOOLCHAIN_PREPARE" "$SEEN_ARTIFACT_ROOT") ||
+    exit 126
+PATH="$BOUNDED_TOOLCHAIN_DIR:$PATH"
+export PATH SEEN_BOUNDED_TOOLCHAIN_DIR="$BOUNDED_TOOLCHAIN_DIR"
+stage1_capability_status=0
+stage1_capability=$(env -u LD_PRELOAD -u SEEN_FORK_SERIALIZER_TARGET \
+    -u SEEN_FORK_SERIALIZER_ROOT_PID \
+    bash "$BUILDER_CAPABILITY" "$STAGE1" 2>/dev/null) ||
+    stage1_capability_status=$?
+if [ "$stage1_capability_status" -ne 0 ]; then
+    echo "ERROR: selected compiler schema probe failed with status $stage1_capability_status: $STAGE1" >&2
+    exit 126
+fi
+case "$stage1_capability" in
+    advertised-jobs)
+        STAGE1_WORKER_FLAGS=(--jobs 1 --opt-jobs 1)
+        ;;
+    advertised-no-fork)
+        STAGE1_WORKER_FLAGS=(--no-fork)
+        ;;
+    serializer-required) STAGE1_WORKER_FLAGS=() ;;
+    *) echo "ERROR: selected compiler schema probe failed: $STAGE1" >&2; exit 126 ;;
+esac
 PASS=0
 FAIL=0
 SKIP=0
@@ -18,16 +152,70 @@ YELLOW='\033[1;33m'
 NC='\033[0m'
 
 run_test() {
-    local name="$1"
-    local cmd="$2"
+    local name=$1
+    local test_log
+    local status=0
+    shift
     TOTAL=$((TOTAL + 1))
-    if eval "$cmd" > /dev/null 2>&1; then
+    test_log="$SEEN_ARTIFACT_ROOT/run-all-test-${TOTAL}.log"
+    "$@" >"$test_log" 2>&1 || status=$?
+    case "$status" in
+        124|125|126|137|143)
+            echo -e "  ${RED}RESOURCE STOP${NC} $name (status=$status)" >&2
+            exit "$status"
+            ;;
+    esac
+    if [ "$status" -ne 0 ] && grep -Eiq \
+        '(^|[^[:alnum:]_])(resource stop:|out of memory|cannot allocate memory|could not allocate memory|memory allocation (failed|failure)|allocation failure|std::bad_alloc|bad_alloc|resource temporarily unavailable|cannot fork|can.t fork|fork: retry|fork (failed|failure)|pthread_create([^[:alnum:]_].*)?(failed|failure)|failed to create (a )?thread|can.t create (a )?thread|cannot create (a )?thread|thread creation (failed|failure))([^[:alnum:]_]|$)' \
+        "$test_log" 2>/dev/null; then
+
+        echo -e "  ${RED}RESOURCE STOP${NC} $name (diagnostic)" >&2
+        exit 126
+    fi
+    if [ "$status" -eq 0 ]; then
         echo -e "  ${GREEN}PASS${NC} $name"
         PASS=$((PASS + 1))
     else
         echo -e "  ${RED}FAIL${NC} $name"
         FAIL=$((FAIL + 1))
     fi
+}
+
+seen_help_has_compile() {
+    env -u LD_PRELOAD -u SEEN_FORK_SERIALIZER_TARGET \
+        -u SEEN_FORK_SERIALIZER_ROOT_PID "$SEEN" 2>&1 |
+        grep -Eq 'compile|Usage'
+}
+
+check_inline_seen() {
+    local compiler=$1
+    local source_file=$2
+    printf '%s\n' 'fun main() r: Int { return 0 }' > "$source_file"
+    env -u SEEN_FORK_SERIALIZER_ROOT_PID \
+        LD_PRELOAD="$FORK_SERIALIZER_SO" \
+        SEEN_FORK_SERIALIZER_TARGET="$compiler" \
+        "$compiler" check "$source_file"
+}
+
+compile_fixture() {
+    local input=$1
+    local output=$2
+    local run_output=$3
+
+    (
+        rm -rf .seen_cache/
+        env \
+            LD_PRELOAD="$FORK_SERIALIZER_SO" \
+            SEEN_FORK_SERIALIZER_TARGET="$STAGE1" \
+            SEEN_FORK_SERIALIZER_ROOT_PID= \
+            SEEN_JOBS=1 \
+            SEEN_OPT_JOBS=1 \
+            "$STAGE1" compile "$input" "$output" \
+                "${STAGE1_WORKER_FLAGS[@]}"
+        if [ "$run_output" = "1" ]; then
+            "$output"
+        fi
+    )
 }
 
 skip_test() {
@@ -48,10 +236,10 @@ rm -rf .seen_cache/
 
 # ---- Section 1: Compiler Commands ----
 echo "--- Compiler Commands ---"
-run_test "seen compile help" "$SEEN 2>&1 | grep -q 'compile\|Usage'"
-run_test "seen check (valid)" "echo 'fun main() r: Int { return 0 }' > /tmp/seen_test_valid.seen && $SEEN check /tmp/seen_test_valid.seen"
-run_test "compiler exists" "test -x $SEEN"
-run_test "production compiler exists" "test -f ./compiler_seen/target/seen"
+run_test "seen compile help" seen_help_has_compile
+run_test "seen check (valid)" check_inline_seen "$SEEN" /tmp/seen_test_valid.seen
+run_test "compiler exists" test -x "$SEEN"
+run_test "production compiler exists" test -f ./compiler_seen/target/seen
 
 # ---- Section 2: Compilation ----
 echo ""
@@ -163,11 +351,8 @@ SEEN
 
 # Compile and run tests (clear cache between each to avoid stale objects)
 for test in hello arithmetic strings loops functions class array; do
-    if [ -f "$STAGE1" ]; then
-        run_test "compile $test" "rm -rf .seen_cache/ && $STAGE1 compile /tmp/seen_test_${test}.seen /tmp/seen_test_${test}_bin && /tmp/seen_test_${test}_bin"
-    else
-        skip_test "compile $test" "stage1_frozen not found"
-    fi
+    run_test "compile $test" compile_fixture \
+        "/tmp/seen_test_${test}.seen" "/tmp/seen_test_${test}_bin" 1
 done
 
 # ---- Section 3: Language Features ----
@@ -208,43 +393,33 @@ main()
 SEEN
 
 for test in forin enum stringinterp; do
-    if [ -f "$STAGE1" ]; then
-        run_test "feature $test" "rm -rf .seen_cache/ && $STAGE1 compile /tmp/seen_test_${test}.seen /tmp/seen_test_${test}_bin && /tmp/seen_test_${test}_bin"
-    else
-        skip_test "feature $test" "stage1_frozen not found"
-    fi
+    run_test "feature $test" compile_fixture \
+        "/tmp/seen_test_${test}.seen" "/tmp/seen_test_${test}_bin" 1
 done
 
 # ---- Section 4: Type System ----
 echo ""
 echo "--- Type System ---"
-run_test "type check pass" "echo 'fun main() r: Int { return 0 }' > /tmp/seen_typecheck.seen && $SEEN check /tmp/seen_typecheck.seen"
+run_test "type check pass" check_inline_seen "$SEEN" /tmp/seen_typecheck.seen
 
 # ---- Section 5: Bootstrap Verification ----
 echo ""
 echo "--- Bootstrap ---"
-if [ -f "$STAGE1" ]; then
-    run_test "stage1 exists" "test -f $STAGE1"
-    run_test "stage1 executable" "test -x $STAGE1"
-    run_test "stage1 SHA256" "test -f bootstrap/stage1_frozen.sha256"
-else
-    skip_test "bootstrap" "stage1_frozen not found"
-fi
+run_test "stage1 exists" test -f "$STAGE1"
+run_test "stage1 executable" test -x "$STAGE1"
+run_test "stage1 SHA256" test -f bootstrap/stage1_frozen.sha256
 
 # ---- Section 6: Production Benchmarks ----
 echo ""
 echo "--- Benchmarks (compile-only) ---"
-if [ -f "$STAGE1" ]; then
-    for bench in 01_matrix_mult 02_sieve 05_nbody 09_json_serialize 12_fannkuch; do
-        if [ -f "benchmarks/production/${bench}.seen" ]; then
-            run_test "bench compile $bench" "rm -rf .seen_cache/ && $STAGE1 compile benchmarks/production/${bench}.seen /tmp/seen_bench_${bench}"
-        else
-            skip_test "bench $bench" "not found"
-        fi
-    done
-else
-    skip_test "benchmarks" "stage1_frozen not found"
-fi
+for bench in 01_matrix_mult 02_sieve 05_nbody 09_json_serialize 12_fannkuch; do
+    if [ -f "benchmarks/production/${bench}.seen" ]; then
+        run_test "bench compile $bench" compile_fixture \
+            "benchmarks/production/${bench}.seen" "/tmp/seen_bench_${bench}" 0
+    else
+        skip_test "bench $bench" "not found"
+    fi
+done
 
 # ---- Section 7: E-graph Optimization ----
 echo ""
@@ -268,18 +443,15 @@ fun main() r: Int {
 main()
 SEEN
 
-if [ -f "$STAGE1" ]; then
-    run_test "e-graph strength reduction" "rm -rf .seen_cache/ && $STAGE1 compile /tmp/seen_test_egraph.seen /tmp/seen_test_egraph_bin && /tmp/seen_test_egraph_bin"
-else
-    skip_test "e-graph" "stage1_frozen not found"
-fi
+run_test "e-graph strength reduction" compile_fixture \
+    /tmp/seen_test_egraph.seen /tmp/seen_test_egraph_bin 1
 
 # ---- Section 8: Runtime ----
 echo ""
 echo "--- Runtime ---"
-run_test "runtime library exists" "test -f seen_runtime/seen_runtime.c"
-run_test "region runtime exists" "test -f seen_runtime/seen_region.c"
-run_test "region header exists" "test -f seen_runtime/seen_region.h"
+run_test "runtime library exists" test -f seen_runtime/seen_runtime.c
+run_test "region runtime exists" test -f seen_runtime/seen_region.c
+run_test "region header exists" test -f seen_runtime/seen_region.h
 
 # ---- Cleanup ----
 rm -f /tmp/seen_test_*.seen /tmp/seen_test_*_bin /tmp/seen_test_*_bin.c /tmp/seen_bench_*

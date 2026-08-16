@@ -1,21 +1,13 @@
 # test_builtin
 
-A Seen programming language project.
-
-## Building
+A small Seen program that exercises printing, debugging, and assertions.
 
 ```bash
-seen build
+seen check src/main.seen
+seen run src/main.seen
+seen compile src/main.seen test_builtin
+./test_builtin
 ```
 
-## Running
-
-```bash
-seen run
-```
-
-## Testing
-
-```bash
-seen test
-```
+The shipped 0.10.1 CLI does not provide project-wide `build` or `test`
+subcommands; pass the source file to `check`, `run`, or `compile` explicitly.

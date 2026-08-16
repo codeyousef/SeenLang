@@ -1,0 +1,159 @@
+import typechecker.type_ref.{TypeRef, parseTypeRef, typeRefSubstitute}
+
+fun expectTypeRef(actual: String, expected: String, label: String) r: Bool {
+    if actual != expected {
+        println("type-ref mismatch: " + label)
+        println("actual: " + actual)
+        println("expected: " + expected)
+        return false
+    }
+    return true
+}
+
+fun main() r: Int {
+    let nested = parseTypeRef("Result<Option<Int>,Error>", 0, 0)
+    if not nested.valid or
+        not expectTypeRef(nested.canonical(), "Result<Option<Int>,Error>",
+            "nested generic canonical form") {
+
+        return 1
+    }
+
+    let nullable = parseTypeRef("Array<String>?", 0, 0)
+    if not nullable.valid or not nullable.nullable or
+        not expectTypeRef(nullable.canonical(), "Array<String>?",
+            "nullable generic") {
+
+        return 2
+    }
+
+    let genericNames = Array<String>()
+    genericNames.push("T")
+    let genericValues = Array<TypeRef>()
+    genericValues.push(parseTypeRef("Map<String,Int>", 0, 0))
+    let substituted = typeRefSubstitute(parseTypeRef("Option<T>", 0, 0),
+        genericNames, genericValues)
+    if not substituted.valid or
+        not expectTypeRef(substituted.canonical(),
+            "Option<Map<String,Int>>", "generic substitution") {
+
+        return 3
+    }
+
+    let emptyArguments = parseTypeRef("Option<>", 0, 0)
+    if emptyArguments.valid { return 4 }
+
+    let trailingComma = parseTypeRef("Result<Int,>", 0, 0)
+    if trailingComma.valid { return 5 }
+
+    let unterminated = parseTypeRef("Array<Array<Int>", 0, 0)
+    if unterminated.valid { return 6 }
+
+    let pointer = parseTypeRef("*pkg.Node", 4, 7, "types.seen")
+    if not pointer.valid or not expectTypeRef(pointer.canonical(),
+        "*pkg.Node", "raw pointer") { return 7 }
+    if pointer.file != "types.seen" or pointer.line != 4 or
+        pointer.column != 7 { return 8 }
+
+    let constPointer = parseTypeRef("*const pkg.Node?", 0, 0)
+    if not constPointer.valid or not expectTypeRef(constPointer.canonical(),
+        "*const pkg.Node?", "const raw pointer") { return 9 }
+
+    let dynamic = parseTypeRef("dyn graphics.Drawable", 0, 0)
+    if not dynamic.valid or not expectTypeRef(dynamic.canonical(),
+        "dyn graphics.Drawable", "dynamic trait") { return 10 }
+
+    let fixed = parseTypeRef("Int[16]", 0, 0)
+    if not fixed.valid or not expectTypeRef(fixed.canonical(), "Int[16]",
+        "fixed array") { return 11 }
+
+    let fallible = parseTypeRef("Int ! io.Error", 0, 0)
+    if not fallible.valid or not expectTypeRef(fallible.canonical(),
+        "Result<Int,io.Error>", "fallible normalization") { return 12 }
+
+    let union = parseTypeRef("ErrorUnion<io.Read|io.Write>", 0, 0)
+    if not union.valid or not expectTypeRef(union.canonical(),
+        "ErrorUnion<io.Read|io.Write>", "error union") { return 13 }
+
+    let sourceUnion = parseTypeRef("io.Read | io.Write", 0, 0)
+    if not sourceUnion.valid or not expectTypeRef(sourceUnion.canonical(),
+        "ErrorUnion<io.Read|io.Write>", "source error union") { return 14 }
+
+    let constGeneric = parseTypeRef("Grid<math.Scalar,8,16>", 0, 0)
+    if not constGeneric.valid or not expectTypeRef(constGeneric.canonical(),
+        "Grid<math.Scalar,8,16>", "const generic literals") { return 15 }
+
+    let badFixed = parseTypeRef("Int[]", 0, 0)
+    if badFixed.valid { return 16 }
+
+    let defaulted = parseTypeRef("comptime:Int~default~64", 0, 0)
+    if not defaulted.valid or defaulted.ownership != "comptime" or
+        defaulted.defaultValue != "64" or not expectTypeRef(
+            defaulted.canonical(), "comptime:Int",
+            "parameter metadata normalization") { return 17 }
+
+    let ownedPointer = parseTypeRef("borrow:*const Int", 0, 0)
+    if not ownedPointer.valid or not expectTypeRef(ownedPointer.canonical(),
+        "borrow:*const Int", "owned pointer") { return 18 }
+
+    let constantNamed = parseTypeRef("*constant", 0, 0)
+    if not constantNamed.valid or constantNamed.kind != "pointer" or
+        not expectTypeRef(constantNamed.canonical(), "*constant",
+            "const keyword requires a boundary") { return 19 }
+
+    let nullableFixed = parseTypeRef("Int[4]?", 0, 0)
+    if not nullableFixed.valid or not nullableFixed.nullable or
+        not expectTypeRef(nullableFixed.canonical(), "Int[4]?",
+            "nullable fixed array") { return 20 }
+
+    let fallibleFixed = parseTypeRef("Int[4] ! io.Error", 0, 0)
+    if not fallibleFixed.valid or not expectTypeRef(fallibleFixed.canonical(),
+        "Result<Int[4],io.Error>", "fallible fixed array") { return 21 }
+
+    let bitfield = parseTypeRef("Int:bitfield(1)", 3, 8,
+        "bitfield.seen")
+    if not bitfield.valid or not bitfield.hasBitWidth or
+        bitfield.bitWidth != 1 or not expectTypeRef(bitfield.canonical(),
+            "Int:bitfield(1)", "bitfield layout metadata") { return 22 }
+
+    let fullWidthBitfield = parseTypeRef("UInt64:bitfield(64)", 0, 0)
+    if not fullWidthBitfield.valid or fullWidthBitfield.bitWidth != 64 or
+        not expectTypeRef(fullWidthBitfield.canonical(),
+            "UInt64:bitfield(64)", "full-width bitfield") { return 23 }
+
+    let zeroWidthBitfield = parseTypeRef("Int:bitfield(0)", 0, 0)
+    if zeroWidthBitfield.valid { return 24 }
+
+    let functionType = parseTypeRef("() -> T", 5, 11,
+        "callback.seen")
+    if not functionType.valid or functionType.kind != "function" or
+        functionType.arguments.length() != 1 or not expectTypeRef(
+            functionType.canonical(), "() -> T", "zero-argument function") {
+        return 25
+    }
+    if functionType.file != "callback.seen" or functionType.line != 5 or
+        functionType.column != 11 { return 26 }
+
+    let parameterizedFunction = parseTypeRef(
+        "(Int, Option<String>) -> Result<Bool,io.Error>", 0, 0)
+    if not parameterizedFunction.valid or
+        parameterizedFunction.arguments.length() != 3 or not expectTypeRef(
+            parameterizedFunction.canonical(),
+            "(Int,Option<String>) -> Result<Bool,io.Error>",
+            "parameterized function") { return 27 }
+
+    let nestedFunction = parseTypeRef("Option<() -> Int>", 0, 0)
+    if not nestedFunction.valid or not expectTypeRef(nestedFunction.canonical(),
+        "Option<() -> Int>", "function generic argument") { return 28 }
+
+    let missingFunctionArrow = parseTypeRef("(Int) Int", 0, 0)
+    if missingFunctionArrow.valid { return 29 }
+
+    let unitType = parseTypeRef("()", 0, 0)
+    if not unitType.valid or not expectTypeRef(unitType.canonical(), "()",
+        "unit type remains distinct from a function") { return 30 }
+
+    return 0
+}
+
+main()

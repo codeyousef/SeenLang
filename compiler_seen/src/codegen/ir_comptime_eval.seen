@@ -280,7 +280,7 @@ fun evaluateConstExprStrImpl(expr: ParserExpressionNode, comptimeNames: String, 
             return expr.literalValue
         }
     }
-    if expr.kind == "Variable" {
+    if expr.kind == "Variable" or expr.kind == "VarExpr" {
         let ctStrName = expr.literalValue
         if ctStrName == "" {
             return lookupComptimeStrVarImpl(expr.variableName, comptimeStrNames, comptimeStrValues, comptimeStrCount)
@@ -332,7 +332,7 @@ fun evaluateConstExprImpl(expr: ParserExpressionNode, comptimeNames: String, com
             return 0
         }
     }
-    if expr.kind == "Variable" {
+    if expr.kind == "Variable" or expr.kind == "VarExpr" {
         let ctName = expr.literalValue
         if ctName == "" {
             let ctName2 = expr.variableName
@@ -448,7 +448,8 @@ fun evaluateConstExprImpl(expr: ParserExpressionNode, comptimeNames: String, com
     if expr.kind == "Call" {
         if expr.callee == "sizeof" and expr.arguments.length() > 0 {
             let typeName = expr.arguments[0].literalValue
-            if typeName == "" and expr.arguments[0].kind == "Variable" {
+            if typeName == "" and (expr.arguments[0].kind == "Variable" or
+                expr.arguments[0].kind == "VarExpr") {
                 let tn2 = expr.arguments[0].variableName
                 return comptimeSizeofImpl(tn2)
             }

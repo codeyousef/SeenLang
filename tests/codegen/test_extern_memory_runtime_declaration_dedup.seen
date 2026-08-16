@@ -1,0 +1,7 @@
+extern fun seen_stack_region_new(capacity: Int) r: Int
+extern fun seen_stack_region_destroy(handle: Int) r: Void
+
+fun main() {
+    let handle = seen_stack_region_new(64)
+    seen_stack_region_destroy(handle)
+}

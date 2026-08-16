@@ -24,6 +24,7 @@ runtime:
 
 - LLVM 18+ with `clang`, `opt`, `llc`, `llvm-as`, and `lld`
 - GCC or a compatible C compiler for runtime objects
+- Go 1.26+ for the version-matched `seen-pkg` helper
 - Git
 
 On Ubuntu/Debian:
@@ -44,17 +45,10 @@ On macOS:
 brew install llvm gcc git
 ```
 
-Build the self-hosted compiler:
-
-```bash
-git clone https://github.com/codeyousef/SeenLang.git
-cd SeenLang
-./scripts/safe_rebuild.sh
-```
-
-The production compiler lands at `compiler_seen/target/seen`. Follow the
-repository rebuild rules when running this script: derive and set explicit
-memory limits rather than running an uncapped rebuild.
+After cloning the repository, follow the complete capped command in
+[Bootstrap System](bootstrap.md). Use an explicit tier: `--tier quick` produces
+the development compiler, while `--tier verify` produces the verified
+`compiler_seen/target/seen`. Never invoke the rebuild script uncapped.
 
 ## Hello World
 
@@ -95,6 +89,8 @@ my_project/
 Minimal `Seen.toml`:
 
 ```toml
+manifest-version = 1
+
 [project]
 name = "my_project"
 version = "0.1.0"
@@ -104,6 +100,10 @@ language = "en"
 
 [native.dependencies]
 ```
+
+`manifest-version = 1` is the current manifest schema. Keep it at the top of
+new manifests. Publishing also requires the strict package/dependency fields in
+the packaging guide.
 
 The `language` field sets the keyword language. Supported languages are `en`,
 `ar`, `es`, `ru`, `zh`, and `ja`.

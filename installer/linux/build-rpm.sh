@@ -11,6 +11,8 @@ SOURCE_DIR="${SOURCE_DIR:-../../compiler_seen/target}"
 OUTPUT_DIR="output"
 VERBOSE=false
 RELEASE="1"
+INSTALLER_SCOPE=""
+WORK_DIR=""
 
 # Colors
 RED='\033[0;31m'
@@ -62,7 +64,7 @@ Seen Language RPM Package Builder
 Usage: $0 <version> <architecture> [options]
 
 Arguments:
-  version              Version number (e.g., 1.0.0)
+  version              Version number (e.g., 0.10.1)
   architecture         Target architecture (x86_64, aarch64, riscv64)
 
 Options:
@@ -73,7 +75,7 @@ Options:
   --help               Show this help message
 
 Examples:
-  $0 1.0.0 x86_64
+  $0 0.10.1 x86_64
   $0 1.2.3 aarch64 --verbose
   $0 2.0.0 x86_64 --release 2
 
@@ -149,6 +151,7 @@ esac
 # Get absolute paths
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+ARTIFACT_HELPER="$PROJECT_ROOT/scripts/artifact_root.sh"
 if [[ "$SOURCE_DIR" = /* ]]; then
     SOURCE_DIR="$(cd "$SOURCE_DIR" && pwd)"
 else
@@ -213,6 +216,34 @@ validate_sources() {
     if [ ${#missing_files[@]} -gt 0 ]; then
         error "Missing required files: ${missing_files[*]}"
     fi
+
+    if [ ! -x "$SOURCE_DIR/seen" ]; then
+        error "Seen compiler is not executable: $SOURCE_DIR/seen"
+    fi
+    if [ ! -x "$SOURCE_DIR/seen-pkg" ]; then
+        error "Seen package client is not executable: $SOURCE_DIR/seen-pkg"
+    fi
+
+    local compiler_version_output
+    local compiler_version_line
+    if ! compiler_version_output=$("$SOURCE_DIR/seen" --version 2>/dev/null); then
+        error "Could not read compiler version from $SOURCE_DIR/seen"
+    fi
+    IFS= read -r compiler_version_line <<< "$compiler_version_output"
+    if [ "$compiler_version_line" != "Seen $VERSION" ]; then
+        error "Compiler version '${compiler_version_line:-unknown}' does not match package version $VERSION"
+    fi
+
+    local package_client_handshake
+    local expected_handshake
+    if ! package_client_handshake=$("$SOURCE_DIR/seen-pkg" \
+        --expect-version "$VERSION" version --machine 2>/dev/null); then
+        error "Package client at $SOURCE_DIR/seen-pkg does not match Seen $VERSION"
+    fi
+    expected_handshake=$(printf 'protocol=SEENPKG1\nversion=%s' "$VERSION")
+    if [ "$package_client_handshake" != "$expected_handshake" ]; then
+        error "Package client at $SOURCE_DIR/seen-pkg returned an invalid version handshake"
+    fi
     
     # Check optional files
     local optional_files=(
@@ -228,6 +259,18 @@ validate_sources() {
     done
     
     success "✓ Source validation passed"
+}
+
+cleanup_work_dir() {
+    case "${WORK_DIR:-}" in
+        "${INSTALLER_SCOPE:-}"/package.*)
+            if [ -d "$WORK_DIR" ] && [ ! -L "$WORK_DIR" ]; then
+                rm -rf -- "$WORK_DIR"
+            fi
+            ;;
+        "") ;;
+        *) warning "Refusing to clean unexpected work directory: $WORK_DIR" ;;
+    esac
 }
 
 # Create RPM build environment
@@ -350,8 +393,14 @@ cat > %{buildroot}%{_mandir}/man1/seen.1 << 'MANEOF'
 .SH NAME
 seen \- Seen programming language compiler and toolchain
 .SH SYNOPSIS
-.B seen
-[\fIOPTION\fR]... [\fICOMMAND\fR] [\fIARGS\fR]...
+.B seen compile
+\fIINPUT.seen\fR [\fIOUTPUT\fR] [\fIOPTIONS\fR]
+.br
+.B seen check
+\fIINPUT.seen\fR
+.br
+.B seen run
+\fIINPUT.seen\fR [\fB--aot\fR]
 .SH DESCRIPTION
 Seen is a high-performance systems programming language compiler and toolchain.
 .SH OPTIONS
@@ -363,21 +412,21 @@ Show version information
 Show help message
 .SH COMMANDS
 .TP
-\fBbuild\fR
-Build the current project
+\fBcompile\fR
+Compile a source file with the LLVM backend
 .TP
 \fBrun\fR
-Run the current project
+Compile and run a source file
 .TP
-\fBtest\fR
-Run project tests
+\fBcheck\fR
+Check a source file without producing an executable
 .SH EXAMPLES
 .TP
-\fBseen init hello\fR
-Create a new project
+\fBseen check src/main.seen\fR
+Check a source file
 .TP
-\fBseen build\fR
-Build the current project
+\fBseen compile src/main.seen hello\fR
+Compile a native executable
 .SH SEE ALSO
 Documentation: https://docs.seen-lang.org
 MANEOF
@@ -530,10 +579,9 @@ This RPM package provides the complete Seen toolchain.
 ## Usage
 
 ```bash
-seen init my-project
-cd my-project
-seen build
-seen run
+seen check src/main.seen
+seen run src/main.seen
+seen compile src/main.seen my-project
 ```
 
 ## Documentation
@@ -648,16 +696,25 @@ main() {
     check_dependencies
     validate_sources
     
-    # Create temporary directory
-    local temp_dir=$(mktemp -d)
-    trap "rm -rf $temp_dir" EXIT
+    # Create an isolated, project-local staging directory.
+    [ -f "$ARTIFACT_HELPER" ] || error "Missing artifact-root helper: $ARTIFACT_HELPER"
+    # shellcheck source=scripts/artifact_root.sh
+    source "$ARTIFACT_HELPER"
+    seen_artifact_root_init "$PROJECT_ROOT" || error "Could not validate artifact root"
+    INSTALLER_SCOPE=$(seen_artifact_scope_init installer-linux-rpm) ||
+        error "Could not create RPM installer artifact scope"
+    WORK_DIR=$(seen_artifact_mktemp_dir "$INSTALLER_SCOPE" package) ||
+        error "Could not create RPM installer work directory"
+    trap cleanup_work_dir EXIT
     
     # Set up RPM build environment
-    local rpmbuild_dir=$(setup_rpm_build_env "$temp_dir")
+    local rpmbuild_dir
+    rpmbuild_dir=$(setup_rpm_build_env "$WORK_DIR")
     
     # Create build files
-    local spec_file=$(create_spec_file "$rpmbuild_dir")
-    create_source_tarball "$rpmbuild_dir" "$temp_dir"
+    local spec_file
+    spec_file=$(create_spec_file "$rpmbuild_dir")
+    create_source_tarball "$rpmbuild_dir" "$WORK_DIR"
     
     # Build RPM
     build_rpm "$rpmbuild_dir" "$spec_file"

@@ -1,0 +1,56 @@
+import lsp.server.{SeenLspServer_new}
+
+fun expectUriPath(condition: Bool, message: String) r: Void {
+    if not condition { abort(message) }
+}
+
+fun main() r: Int {
+    let server = SeenLspServer_new()
+
+    expectUriPath(server.uriToPath(
+        "file:///home/user/Seen%20Project/main.seen") ==
+        "/home/user/Seen Project/main.seen",
+        "POSIX file URI percent decoding failed")
+    expectUriPath(server.uriToPath(
+        "file:///C:/Seen%20Project/src/main.seen") ==
+        "C:/Seen Project/src/main.seen",
+        "Windows drive file URI normalization failed")
+    expectUriPath(server.uriToPath(
+        "file://localhost/C:/Seen%20Project/src/main.seen") ==
+        "C:/Seen Project/src/main.seen",
+        "localhost Windows file URI normalization failed")
+    expectUriPath(server.uriToPath(
+        "file://build-server/share/Seen%20Project/main.seen") ==
+        "//build-server/share/Seen Project/main.seen",
+        "UNC file URI authority was not preserved")
+    expectUriPath(server.uriToPath(
+        "file:////build-server/share/Seen%20Project/main.seen") ==
+        "//build-server/share/Seen Project/main.seen",
+        "authority-free UNC file URI was not preserved")
+    expectUriPath(server.uriToPath("file:///bad%2") == "",
+        "malformed percent encoding must fail closed")
+
+    expectUriPath(server.parentDirectory(
+        "C:/Seen Project/src/main.seen") == "C:/Seen Project/src",
+        "Windows nearest-manifest parent traversal failed")
+    expectUriPath(server.parentDirectory(
+        "//build-server/share/Seen Project/main.seen") ==
+        "//build-server/share/Seen Project",
+        "UNC nearest-manifest parent traversal failed")
+    expectUriPath(server.isFileSystemRoot("C:"),
+        "Windows drive root was not recognized")
+    expectUriPath(server.isFileSystemRoot("//build-server/share"),
+        "UNC share root was not recognized")
+    expectUriPath(not server.isFileSystemRoot("//build-server/share/src"),
+        "UNC child directory was mistaken for a share root")
+    expectUriPath(server.seenManifestCandidate("C:/Seen Project") ==
+        "C:/Seen Project/Seen.toml",
+        "Windows nearest-manifest candidate was malformed")
+    expectUriPath(server.seenManifestCandidate(
+        "//build-server/share/Seen Project") ==
+        "//build-server/share/Seen Project/Seen.toml",
+        "UNC nearest-manifest candidate was malformed")
+    return 0
+}
+
+main()

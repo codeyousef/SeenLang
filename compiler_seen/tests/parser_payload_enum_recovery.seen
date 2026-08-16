@@ -1,0 +1,61 @@
+import bootstrap.frontend.{run_frontend, run_frontend_declarations,
+    FrontendResult}
+
+fun hasPayloadEnumDiagnostic(result: FrontendResult) r: Bool {
+    var i = 0
+    while i < result.diagnostics.length() {
+        let message = result.diagnostics[i].message
+        if message.contains("E014") and
+            message.contains("not supported by Seen 0.10") {
+
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
+fun expectRejected(source: String, label: String) r: Bool {
+    let full = run_frontend(source, label, "en")
+    if full.success or not hasPayloadEnumDiagnostic(full) {
+        println("full frontend did not reject payload enum syntax: " + label)
+        return false
+    }
+
+    let declarations = run_frontend_declarations(source, label, "en")
+    if declarations.success or not hasPayloadEnumDiagnostic(declarations) {
+        println("declaration frontend exposed payload enum syntax: " + label)
+        return false
+    }
+    return true
+}
+
+fun main() r: Int {
+    if not expectRejected(
+        "enum Option<T> { None, Some(value: T) }",
+        "generic payload enum") {
+
+        return 1
+    }
+    if not expectRejected(
+        "enum Payload { Unit, Pair(left: Int, right: Array<Int>) }",
+        "nested balanced payload enum") {
+
+        return 2
+    }
+    if not expectRejected(
+        "enum Broken { Some(value: Int",
+        "unterminated payload enum") {
+
+        return 3
+    }
+    if not expectRejected(
+        "enum Broken<T { Some(value: Int) }",
+        "unterminated generic enum") {
+
+        return 4
+    }
+    return 0
+}
+
+main()

@@ -1,0 +1,25 @@
+import json.parser.{parseJson}
+import lsp.jsonrpc.{LspMessage_fromJson}
+
+fun main() r: Int {
+    let source = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}"
+    let parsed = parseJson(source)
+    if parsed.success != 1 or parsed.value == null {
+        println("json parse failed: " + parsed.error + " at " +
+            parsed.errorPosition.toString())
+        return 1
+    }
+    let message = LspMessage_fromJson(parsed.value.unwrap())
+    if message == null {
+        println("message parse failed")
+        return 2
+    }
+    let value = message.unwrap()
+    if value.id != 1 or value.method != "initialize" or value.params == null {
+        println("message fields failed")
+        return 3
+    }
+    return 0
+}
+
+main()

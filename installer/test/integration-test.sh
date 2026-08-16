@@ -5,8 +5,20 @@
 set -e
 
 # Configuration
-TEST_VERSION="1.0.0"
-TEST_DIR="/tmp/seen-integration-test"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd -P)"
+ARTIFACT_ROOT_SCRIPT="$PROJECT_ROOT/scripts/artifact_root.sh"
+if [ ! -f "$ARTIFACT_ROOT_SCRIPT" ]; then
+    echo "ERROR: missing artifact-root helper: $ARTIFACT_ROOT_SCRIPT" >&2
+    exit 1
+fi
+# shellcheck source=scripts/artifact_root.sh
+source "$ARTIFACT_ROOT_SCRIPT"
+seen_artifact_root_init "$PROJECT_ROOT"
+INSTALLER_ARTIFACT_ROOT=$(seen_artifact_scope_init installer-tests)
+
+TEST_VERSION="0.10.1"
+TEST_DIR="$INSTALLER_ARTIFACT_ROOT/integration"
 CLEANUP=true
 VERBOSE=false
 
@@ -74,12 +86,34 @@ test_case() {
 }
 
 # Setup test environment
+validate_test_dir() {
+    local relative_path
+    case "$TEST_DIR" in
+        "$INSTALLER_ARTIFACT_ROOT"/*) ;;
+        *)
+            echo "ERROR: --test-dir must stay under $INSTALLER_ARTIFACT_ROOT" >&2
+            return 1
+            ;;
+    esac
+    relative_path=${TEST_DIR#"$PROJECT_ROOT"/}
+    seen_artifact_assert_safe_relative_path "$relative_path" || return 1
+    seen_artifact_assert_no_symlink_components "$PROJECT_ROOT" "$relative_path"
+}
+
+remove_test_dir() {
+    validate_test_dir || return 1
+    if [ -d "$TEST_DIR" ]; then
+        rm -rf -- "$TEST_DIR"
+    fi
+}
+
 setup_test_env() {
     log "Setting up test environment..."
+    validate_test_dir
     
     # Clean previous test
     if [ -d "$TEST_DIR" ] && $CLEANUP; then
-        rm -rf "$TEST_DIR"
+        remove_test_dir
     fi
     
     # Create test directory
@@ -90,6 +124,7 @@ setup_test_env() {
     export PATH="$TEST_DIR/bin:$PATH"
     export SEEN_LIB_PATH="$TEST_DIR/lib/seen"
     export SEEN_DATA_PATH="$TEST_DIR/share/seen"
+    export TEST_DIR
     
     log "Test environment ready: $TEST_DIR"
 }
@@ -104,22 +139,23 @@ test_project_creation() {
     
     # Create basic Seen.toml
     cat > Seen.toml << EOF
-[package]
-name = "test-project"
+manifest-version = 1
+
+[project]
+name = "test_project"
 version = "0.1.0"
 language = "en"
 
 [build]
-target = "native"
-optimization = "release"
+targets = ["linux-x86_64"]
 EOF
     
     # Create main source file
     mkdir -p src
     cat > src/main.seen << EOF
-fn main() {
-    println!("Hello from Seen Language!");
-    println!("Integration test successful!");
+fun main() {
+    println("Hello from Seen Language!")
+    println("Integration test successful!")
 }
 EOF
     
@@ -140,61 +176,39 @@ test_binary_execution() {
 #!/bin/bash
 case "$1" in
     --version)
-        echo "Seen Language 1.0.0"
+        echo "Seen 0.10.1"
         echo "Commit: abc123def456"
         echo "Built: 2024-01-01"
         ;;
-    init)
-        mkdir -p "$2"
-        cd "$2"
-        cat > Seen.toml << 'TOML'
-[package]
-name = "$2"
-version = "0.1.0"
-
-[build]
-target = "native"
-TOML
-        mkdir -p src
-        cat > src/main.seen << 'SEEN'
-fn main() {
-    println!("Hello, World!");
-}
-SEEN
-        echo "Created project: $2"
-        ;;
-    build)
-        if [ -f "Seen.toml" ]; then
-            echo "Building project..."
-            sleep 0.1
-            mkdir -p target
-            echo "Build completed successfully"
-        else
-            echo "Error: Seen.toml not found" >&2
+    check)
+        if [ ! -f "$2" ]; then
+            echo "error: source file not found: $2" >&2
             exit 1
         fi
+        echo "Check succeeded"
         ;;
     run)
-        if [ -f "Seen.toml" ]; then
-            echo "Running project..."
-            echo "Hello, World!"
-        else
-            echo "Error: Project not built" >&2
+        if [ ! -f "$2" ]; then
+            echo "error: source file not found: $2" >&2
             exit 1
         fi
+        echo "Hello, World!"
         ;;
-    test)
-        echo "Running tests..."
-        echo "All tests passed"
+    compile)
+        if [ ! -f "$2" ] || [ -z "$3" ]; then
+            echo "usage: seen compile <input.seen> [output]" >&2
+            exit 1
+        fi
+        printf '#!/bin/sh\nprintf "%s\\n" "Hello, World!"\n' > "$3"
+        chmod +x "$3"
         ;;
     *)
         echo "Seen Language Compiler"
         echo "Usage: seen <command> [options]"
         echo "Commands:"
-        echo "  init <name>    Create a new project"
-        echo "  build          Build the project"
-        echo "  run            Run the project"
-        echo "  test           Run tests"
+        echo "  compile <input.seen> [output]"
+        echo "  check <input.seen>"
+        echo "  run <input.seen> [--aot]"
         echo "  --version      Show version"
         ;;
 esac
@@ -204,7 +218,7 @@ EOF
     
     # Test version command
     local version_output=$(seen --version)
-    if [[ "$version_output" == *"Seen Language"* ]]; then
+    if [[ "$version_output" == *"Seen 0.10.1"* ]]; then
         return 0
     else
         return 1
@@ -217,20 +231,18 @@ test_project_workflow() {
     
     cd "$TEST_DIR"
     
-    # Initialize project
-    if ! seen init test-workflow; then
-        return 1
-    fi
-    
+    mkdir -p test-workflow/src
+    printf 'fun main() {\n    println("Hello, World!")\n}\n' > test-workflow/src/main.seen
     cd test-workflow
-    
-    # Build project
-    if ! seen build; then
+
+    if ! seen check src/main.seen; then
         return 1
     fi
-    
-    # Run project
-    local output=$(seen run)
+    if ! seen compile src/main.seen hello; then
+        return 1
+    fi
+
+    local output=$(seen run src/main.seen)
     if [[ "$output" == *"Hello, World!"* ]]; then
         return 0
     else
@@ -249,12 +261,12 @@ test_stdlib_installation() {
     mkdir -p "$TEST_DIR/lib/seen/core"
     cat > "$TEST_DIR/lib/seen/core/mod.seen" << EOF
 // Core module for Seen Language
-pub fn main() {
+pub fun main() {
     // Entry point
 }
 
-pub trait Display {
-    fn display(&self) -> String;
+trait Display {
+    fun display(this: Display) r: String
 }
 EOF
     
@@ -262,11 +274,11 @@ EOF
     mkdir -p "$TEST_DIR/lib/seen/collections"
     cat > "$TEST_DIR/lib/seen/collections/mod.seen" << EOF
 // Collections module
-pub struct Vec<T> {
+class Vec<T> {
     // Vector implementation
 }
 
-pub struct HashMap<K, V> {
+class HashMap<K, V> {
     // HashMap implementation
 }
 EOF
@@ -293,7 +305,7 @@ name = "English"
 code = "en"
 
 [keywords]
-function = "fn"
+function = "fun"
 return = "return"
 if = "if"
 else = "else"
@@ -369,7 +381,7 @@ test_lsp_server() {
 #!/bin/bash
 case "$1" in
     --version)
-        echo "Seen Language Server 1.0.0"
+        echo "Seen Language Server 0.10.1"
         ;;
     --stdio)
         echo "LSP server started in stdio mode"
@@ -410,7 +422,7 @@ test_riscv_tools() {
 #!/bin/bash
 case "$1" in
     --version)
-        echo "Seen RISC-V Compiler 1.0.0"
+        echo "Seen RISC-V Compiler 0.10.1"
         echo "Target: riscv64-unknown-linux-gnu"
         ;;
     compile)
@@ -478,7 +490,7 @@ EOF
 cleanup_test_env() {
     if $CLEANUP && [ -d "$TEST_DIR" ]; then
         log "Cleaning up test environment..."
-        rm -rf "$TEST_DIR"
+        remove_test_dir
         log "Cleanup completed"
     fi
 }

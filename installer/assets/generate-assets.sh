@@ -261,8 +261,8 @@ generate_screenshots() {
     # IDE integration screenshot
     convert -size 800x600 xc:"#2C3E50" \
             -fill "#ECF0F1" -font DejaVu-Sans-Mono -pointsize 12 \
-            -draw "text 20,30 'fn main() {'" \
-            -draw "text 40,50 'println!(\"Hello, Seen!\");'" \
+            -draw "text 20,30 'fun main() {'" \
+            -draw "text 40,50 'println(\"Hello, Seen!\")'" \
             -draw "text 20,70 '}'" \
             -fill "$SEEN_ORANGE" -font DejaVu-Sans -pointsize 10 \
             -draw "text 20,600 'Seen Language - IDE Integration'" \
@@ -271,12 +271,12 @@ generate_screenshots() {
     # Terminal usage screenshot
     convert -size 800x400 xc:"#1C1C1C" \
             -fill "#00FF00" -font DejaVu-Sans-Mono -pointsize 14 \
-            -draw "text 20,30 '$ seen init my-project'" \
-            -draw "text 20,50 '$ cd my-project'" \
-            -draw "text 20,70 '$ seen build'" \
-            -draw "text 20,90 'Built in 42ms'" \
-            -draw "text 20,110 '$ seen run'" \
-            -draw "text 20,130 'Hello, Seen!'" \
+            -draw "text 20,30 '$ seen check src/main.seen'" \
+            -draw "text 20,50 '$ seen compile src/main.seen app'" \
+            -draw "text 20,70 'Compiled successfully'" \
+            -draw "text 20,90 '$ seen run src/main.seen'" \
+            -draw "text 20,110 'Hello, Seen!'" \
+            -draw "text 20,130 '$ ./app'" \
             -fill "$SEEN_BLUE" -font DejaVu-Sans -pointsize 10 \
             -draw "text 20,390 'Seen Language - Terminal Usage'" \
             screenshots/terminal-usage.png

@@ -2,12 +2,46 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-TMP_DIR="$(mktemp -d /tmp/seen_vk_readback.XXXXXX)"
+CAPPED_ENTRY="$ROOT_DIR/scripts/run_capped_regression.sh"
+SCOPE=seen-vk-readback-shim
+if [ "${SEEN_CAPPED_PLATFORM_REGRESSION_ACTIVE:-0}" != "1" ]; then
+    exec bash "$CAPPED_ENTRY" --platform "$SCOPE" -- bash "$0" "$@"
+fi
+bash "$CAPPED_ENTRY" --verify-platform-active "$SCOPE"
+TMP_DIR="$(mktemp -d "$SEEN_ARTIFACT_ROOT/seen-vk-readback.XXXXXX")"
 
 cleanup() {
-    rm -rf "$TMP_DIR"
+    case "$TMP_DIR" in
+        "$SEEN_ARTIFACT_ROOT"/seen-vk-readback.*)
+            [ -d "$TMP_DIR" ] && [ ! -L "$TMP_DIR" ] &&
+                [ "$(dirname -- "$TMP_DIR")" = "$SEEN_ARTIFACT_ROOT" ] || return 1
+            rm -rf -- "$TMP_DIR"
+            ;;
+        *) return 1 ;;
+    esac
 }
 trap cleanup EXIT
+
+run_helper_capped() {
+    (
+        if ! ulimit -S -v "$SEEN_OPT_VMEM_KB" 2>/dev/null; then
+            echo "RESOURCE STOP: could not apply Vulkan helper memory cap" >&2
+            exit 126
+        fi
+        active_vmem=$(ulimit -S -v 2>/dev/null || true)
+        case "$active_vmem" in
+            ''|*[!0-9]*)
+                echo "RESOURCE STOP: could not read back Vulkan helper memory cap" >&2
+                exit 126
+                ;;
+        esac
+        [ "$active_vmem" -le "$SEEN_OPT_VMEM_KB" ] || {
+            echo "RESOURCE STOP: Vulkan helper cap exceeds request" >&2
+            exit 126
+        }
+        "$@"
+    )
+}
 
 if ! pkg-config --exists vulkan; then
     echo "SKIP: Vulkan development files are unavailable"
@@ -55,10 +89,8 @@ int main(void) {
 }
 TEST_EOF
 
-: "${SEEN_TEST_VMEM_KB:=16777216}"
 (
-    ulimit -v "$SEEN_TEST_VMEM_KB"
-    cc -std=c11 -Wall -Wextra -Werror -DSEEN_USE_VULKAN \
+    run_helper_capped cc -std=c11 -Wall -Wextra -Werror -DSEEN_USE_VULKAN \
         $(pkg-config --cflags vulkan) \
         -c "$ROOT_DIR/seen_std/src/platform/linux/shim/seen_platform_shim.c" \
         -o "$TMP_DIR/seen_platform_shim.o"
@@ -66,7 +98,7 @@ TEST_EOF
         echo "FAIL: Vulkan shim exports must remain weak when engine overrides are linked" >&2
         exit 1
     fi
-    cc -std=c11 -Wall -Wextra -Werror \
+    run_helper_capped cc -std=c11 -Wall -Wextra -Werror \
         "$TMP_DIR/seen_platform_shim.o" \
         "$TMP_DIR/readback_test.c" \
         $(pkg-config --libs vulkan) \

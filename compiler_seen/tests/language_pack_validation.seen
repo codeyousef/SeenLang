@@ -1,0 +1,28 @@
+import lexer.language_pack.{languagePackContentHasValidTable}
+
+fun expectLanguagePackValidation(condition: Bool, message: String) r: Void {
+    if not condition { abort(message) }
+}
+
+fun main() r: Int {
+    expectLanguagePackValidation(languagePackContentHasValidTable(
+        "name = \"English\"\n[keywords]\n\"fun\" = \"KeywordFun\"\n",
+        "keywords"), "valid keyword table was rejected")
+
+    expectLanguagePackValidation(not languagePackContentHasValidTable(
+        "[unrelated]\n\"fun\" = \"KeywordFun\"\n", "keywords"),
+        "mapping in the wrong table was accepted")
+
+    expectLanguagePackValidation(not languagePackContentHasValidTable(
+        "[keywords]\n# no mappings\n", "keywords"),
+        "empty required table was accepted")
+
+    expectLanguagePackValidation(not languagePackContentHasValidTable(
+        "[keywords]\n\"fun\" = KeywordFun\n", "keywords"),
+        "unquoted mapping value was accepted")
+
+    expectLanguagePackValidation(not languagePackContentHasValidTable(
+        "[keywords]\n\"fun\" = \"KeywordFun\"\nbroken\n", "keywords"),
+        "valid prefix hid a malformed table entry")
+    return 0
+}

@@ -4,7 +4,20 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 COMPILER="${COMPILER:-$ROOT_DIR/compiler_seen/target/seen}"
 SEEN_COMPILE_CMD="${SEEN_COMPILE_CMD:-compile}"
-TMP_DIR="$(mktemp -d /tmp/seen_pkg_scoped_identity.XXXXXX)"
+[ "$SEEN_COMPILE_CMD" = "compile" ] || {
+    echo "FAIL: only the supported compile command is accepted" >&2
+    exit 2
+}
+CAPPED_ENTRY="$ROOT_DIR/scripts/run_capped_regression.sh"
+SCOPE=seen-pkg-scoped-identity
+if [ "${SEEN_CAPPED_REGRESSION_ACTIVE:-0}" != "1" ]; then
+    exec bash "$CAPPED_ENTRY" "$SCOPE" --compiler "$COMPILER" -- \
+        bash "$0" "$@"
+fi
+COMPILER="${SEEN_CAPPED_REGRESSION_COMPILER:-$COMPILER}"
+bash "$CAPPED_ENTRY" --verify-active "$SCOPE" --compiler "$COMPILER"
+ATTESTED_SEEN="${SEEN_ATTESTED_COMPILER_RUNNER:?}"
+TMP_DIR="$(mktemp -d "$SEEN_ARTIFACT_ROOT/seen-pkg-scoped-identity.XXXXXX")"
 REGISTRY_DIR="$TMP_DIR/registry"
 REGISTRY_ALT_DIR="$TMP_DIR/registry-alt"
 PACKAGE_DIR="$TMP_DIR/mathx"
@@ -13,7 +26,14 @@ BAD_PACKAGE_DIR="$TMP_DIR/bad-package"
 OUTPUT_BIN="$TMP_DIR/consumer_bin"
 
 cleanup() {
-    rm -rf "$TMP_DIR"
+    case "$TMP_DIR" in
+        "$SEEN_ARTIFACT_ROOT"/seen-pkg-scoped-identity.*)
+            [ -d "$TMP_DIR" ] && [ ! -L "$TMP_DIR" ] &&
+                [ "$(dirname -- "$TMP_DIR")" = "$SEEN_ARTIFACT_ROOT" ] || return 1
+            rm -rf -- "$TMP_DIR"
+            ;;
+        *) return 1 ;;
+    esac
 }
 
 trap cleanup EXIT
@@ -48,7 +68,7 @@ EOF
 
 (
     cd "$PACKAGE_DIR"
-    "$COMPILER" pkg publish "$REGISTRY_DIR" >/dev/null
+    bash "$ATTESTED_SEEN" "$COMPILER" pkg publish "$REGISTRY_DIR" >/dev/null
 )
 
 test -f "$REGISTRY_DIR/index/alice/mathx.toml"
@@ -67,7 +87,7 @@ EOF
 
 (
     cd "$PACKAGE_DIR"
-    "$COMPILER" pkg publish "$REGISTRY_ALT_DIR" >/dev/null
+    bash "$ATTESTED_SEEN" "$COMPILER" pkg publish "$REGISTRY_ALT_DIR" >/dev/null
 )
 
 cat >"$CONSUMER_DIR/Seen.toml" <<EOF
@@ -97,7 +117,7 @@ fun main() r: Int {
 }
 EOF
 
-"$COMPILER" pkg fetch "$CONSUMER_DIR" >/dev/null
+bash "$ATTESTED_SEEN" "$COMPILER" pkg fetch "$CONSUMER_DIR" >/dev/null
 
 test "$(find "$CONSUMER_DIR/.seen/packages/alice/mathx/0.1.0" \
     -mindepth 2 -maxdepth 2 -name Seen.toml | wc -l)" -eq 2
@@ -114,7 +134,8 @@ if grep -Eq '^(name|registry|path) = ' "$CONSUMER_DIR/Seen.lock"; then
     exit 1
 fi
 
-"$COMPILER" "$SEEN_COMPILE_CMD" "$CONSUMER_DIR/src/main.seen" \
+bash "$ATTESTED_SEEN" "$COMPILER" "$SEEN_COMPILE_CMD" \
+    "$CONSUMER_DIR/src/main.seen" \
     "$OUTPUT_BIN" --fast >/dev/null
 "$OUTPUT_BIN" >/dev/null
 
@@ -126,7 +147,7 @@ fun main() r: Int {
 }
 EOF
 
-if "$COMPILER" "$SEEN_COMPILE_CMD" \
+if bash "$ATTESTED_SEEN" "$COMPILER" "$SEEN_COMPILE_CMD" \
     "$CONSUMER_DIR/src/private_probe.seen" "$TMP_DIR/private_probe" \
     --fast >/dev/null 2>&1; then
     echo "FAIL: package-private symbol was importable by a consumer"
@@ -149,7 +170,8 @@ default = "$REGISTRY_DIR"
 $dependency_line
 EOF
 
-    if "$COMPILER" pkg fetch "$CONSUMER_DIR" >/dev/null 2>&1; then
+    if bash "$ATTESTED_SEEN" "$COMPILER" pkg fetch \
+        "$CONSUMER_DIR" >/dev/null 2>&1; then
         echo "FAIL: malformed inline dependency was accepted: $case_name"
         exit 1
     fi
@@ -209,11 +231,13 @@ fun main() r: Int {
 }
 EOF
 
-if ! "$COMPILER" pkg fetch "$CONSUMER_DIR" >/dev/null 2>&1; then
+if ! bash "$ATTESTED_SEEN" "$COMPILER" pkg fetch \
+    "$CONSUMER_DIR" >/dev/null 2>&1; then
     echo "FAIL: system=true text inside a quoted path changed dependency classification"
     exit 1
 fi
-if ! "$COMPILER" "$SEEN_COMPILE_CMD" "$CONSUMER_DIR/src/main.seen" \
+if ! bash "$ATTESTED_SEEN" "$COMPILER" "$SEEN_COMPILE_CMD" \
+    "$CONSUMER_DIR/src/main.seen" \
     "$TMP_DIR/quoted_system_path_bin" --fast >/dev/null 2>&1; then
     echo "FAIL: quoted system=true path was linked as a legacy system dependency"
     exit 1
@@ -231,7 +255,8 @@ default = "$REGISTRY_DIR"
 calc = { package = "alice/../mathx", version = "0.1.0" }
 EOF
 
-if "$COMPILER" pkg fetch "$CONSUMER_DIR" >/dev/null 2>&1; then
+if bash "$ATTESTED_SEEN" "$COMPILER" pkg fetch \
+    "$CONSUMER_DIR" >/dev/null 2>&1; then
     echo "FAIL: traversal-shaped package identity was accepted"
     exit 1
 fi
@@ -248,7 +273,8 @@ default = "$REGISTRY_DIR"
 calc = { pakage = "alice/mathx", version = "0.1.0" }
 EOF
 
-if "$COMPILER" pkg fetch "$CONSUMER_DIR" >/dev/null 2>&1; then
+if bash "$ATTESTED_SEEN" "$COMPILER" pkg fetch \
+    "$CONSUMER_DIR" >/dev/null 2>&1; then
     echo "FAIL: misspelled package field fell back to the alias"
     exit 1
 fi
@@ -265,7 +291,8 @@ default = "$REGISTRY_DIR"
 calc = { subpackage = "alice/evil", version = "0.1.0" }
 EOF
 
-if "$COMPILER" pkg fetch "$CONSUMER_DIR" >/dev/null 2>&1; then
+if bash "$ATTESTED_SEEN" "$COMPILER" pkg fetch \
+    "$CONSUMER_DIR" >/dev/null 2>&1; then
     echo "FAIL: subpackage field was parsed as package"
     exit 1
 fi
@@ -282,7 +309,8 @@ default = "$REGISTRY_DIR"
 calc = { package = "alice/mathx", version = "0.1.0", registrry = "private" }
 EOF
 
-if "$COMPILER" pkg fetch "$CONSUMER_DIR" >/dev/null 2>&1; then
+if bash "$ATTESTED_SEEN" "$COMPILER" pkg fetch \
+    "$CONSUMER_DIR" >/dev/null 2>&1; then
     echo "FAIL: unknown registry field was silently ignored"
     exit 1
 fi
@@ -299,7 +327,8 @@ default = "$REGISTRY_DIR"
 calc = { package = "alice/mathx", path = "../mathx", version = "0.1.0" }
 EOF
 
-if "$COMPILER" pkg fetch "$CONSUMER_DIR" >/dev/null 2>&1; then
+if bash "$ATTESTED_SEEN" "$COMPILER" pkg fetch \
+    "$CONSUMER_DIR" >/dev/null 2>&1; then
     echo "FAIL: mixed registry and path dependency source was accepted"
     exit 1
 fi
@@ -316,7 +345,8 @@ default = "$REGISTRY_DIR"
 calc = { package = "alice/mathx", package = "alice/other", version = "0.1.0" }
 EOF
 
-if "$COMPILER" pkg fetch "$CONSUMER_DIR" >/dev/null 2>&1; then
+if bash "$ATTESTED_SEEN" "$COMPILER" pkg fetch \
+    "$CONSUMER_DIR" >/dev/null 2>&1; then
     echo "FAIL: duplicate inline package field was accepted"
     exit 1
 fi
@@ -334,7 +364,8 @@ calc = { package = "alice/mathx", version = "0.1.0" }
 calc = { package = "alice/mathx", version = "0.1.0" }
 EOF
 
-if "$COMPILER" pkg fetch "$CONSUMER_DIR" >/dev/null 2>&1; then
+if bash "$ATTESTED_SEEN" "$COMPILER" pkg fetch \
+    "$CONSUMER_DIR" >/dev/null 2>&1; then
     echo "FAIL: duplicate dependency alias was accepted"
     exit 1
 fi
@@ -349,7 +380,8 @@ legacy_native = { system = true, path = "native/lib" }
 legacy_native = { system = true, path = "native/lib" }
 EOF
 
-if "$COMPILER" pkg fetch "$CONSUMER_DIR" >/dev/null 2>&1; then
+if bash "$ATTESTED_SEEN" "$COMPILER" pkg fetch \
+    "$CONSUMER_DIR" >/dev/null 2>&1; then
     echo "FAIL: duplicate legacy system dependency alias was accepted"
     exit 1
 fi
@@ -363,7 +395,8 @@ version = "0.1.0"
 legacy_native = { system = true, path = "native/lib" }
 EOF
 
-if ! "$COMPILER" pkg fetch "$CONSUMER_DIR" >/dev/null 2>&1; then
+if ! bash "$ATTESTED_SEEN" "$COMPILER" pkg fetch \
+    "$CONSUMER_DIR" >/dev/null 2>&1; then
     echo "FAIL: legacy system dependency with native path regressed"
     exit 1
 fi
@@ -377,7 +410,7 @@ version = "0.1.0"
 identity = "alice/escape"
 EOF
 
-if "$COMPILER" pkg publish "$REGISTRY_DIR" \
+if bash "$ATTESTED_SEEN" "$COMPILER" pkg publish "$REGISTRY_DIR" \
     "$BAD_PACKAGE_DIR" >/dev/null 2>&1; then
     echo "FAIL: traversal-shaped project name was accepted for publishing"
     exit 1

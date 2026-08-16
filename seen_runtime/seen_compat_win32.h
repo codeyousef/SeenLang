@@ -248,8 +248,9 @@ static inline int pthread_create(pthread_t *thread, const pthread_attr_t *attr,
 
 static inline int pthread_join(pthread_t thread, void **retval) {
     (void)retval;
-    WaitForSingleObject(thread, INFINITE);
-    CloseHandle(thread);
+    DWORD wait_result = WaitForSingleObject(thread, INFINITE);
+    BOOL close_result = CloseHandle(thread);
+    if (wait_result != WAIT_OBJECT_0 || !close_result) return -1;
     return 0;
 }
 

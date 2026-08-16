@@ -412,6 +412,28 @@ bool writeText(SeenString path, SeenString content);
 bool seen_file_seek(int64_t fd, int64_t offset);
 bool __FileSeek(int64_t fd, int64_t offset);
 
+// Atomically replace destination with a same-filesystem temporary file.
+bool seen_replace_file(SeenString source, SeenString destination);
+
+// Durably write a complete text value to an exclusive same-directory
+// temporary file and atomically replace destination. Existing symlink/reparse
+// destinations are rejected rather than followed.
+bool seen_write_text_atomic(SeenString destination, SeenString content);
+
+#if defined(SEEN_TEST_ATOMIC_IO_FAILURE_INJECTION)
+enum {
+    SEEN_ATOMIC_IO_FAIL_NONE = 0,
+    SEEN_ATOMIC_IO_FAIL_WRITE = 1,
+    SEEN_ATOMIC_IO_FAIL_SYNC = 2,
+    SEEN_ATOMIC_IO_FAIL_CLOSE = 3,
+    SEEN_ATOMIC_IO_FAIL_RENAME = 4
+};
+
+// Focused runtime-test hook; never present in production runtime builds.
+void seen_test_atomic_write_fail_stage(int64_t stage);
+void seen_test_atomic_write_force_collisions(int64_t attempts);
+#endif
+
 // ============================================================================
 // Process Functions
 // ============================================================================
@@ -924,6 +946,20 @@ void    seen_tls_destroy(int64_t key);
 int64_t seen_ws_pool_new(int64_t nworkers);
 void    seen_ws_pool_submit(int64_t pool_handle, int64_t fn_ptr, int64_t arg);
 void    seen_ws_pool_shutdown(int64_t pool_handle);
+
+// ============================================================================
+// Parallel For
+// ============================================================================
+typedef int64_t (*SeenPForBodyV2)(int64_t index, void *environment);
+typedef void (*SeenPForDropErrorV2)(int64_t owned_error);
+
+int64_t seen_parallel_for_v2(int64_t start, int64_t end,
+    SeenPForBodyV2 body, void *environment,
+    SeenPForDropErrorV2 drop_error, int64_t nthreads);
+
+// 0.10 callback ABI retained while old objects are rebuilt.
+void seen_parallel_for(int64_t start, int64_t end, int64_t function_pointer,
+    int64_t nthreads);
 
 // ============================================================================
 // VSD Pinning Runtime (for @preallocate pinning extensions)

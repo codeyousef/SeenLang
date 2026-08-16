@@ -5,6 +5,11 @@ Modules: `simd/simd_math`, `simd/simd_types`
 SIMD modules define vector types and math helpers used by the compiler/runtime
 SIMD lowering paths.
 
+The native LLVM vector types exercised by the compiler are `f32x4`, `f32x8`,
+`f64x2`, `f64x4`, `i32x4`, and `i32x8`. Arithmetic returns another native
+vector, and horizontal reductions are receiver calls such as
+`value.reduce_add()`, `value.reduce_min()`, and `value.reduce_max()`.
+
 | Type | Purpose |
 |------|---------|
 | `SimdFloat4` | 4-lane floating-point vector wrapper |
@@ -17,6 +22,10 @@ vector values and do not allocate temporary heap objects. The `SimdFloat4` and
 `SimdFloat8` wrapper types remain as handle-based compatibility APIs; runtime
 also exposes non-allocating `*_into` entrypoints for codegen or FFI paths that
 can provide caller-owned storage.
+
+Low-level `simd_load_*` and `simd_store_*` builtins consume raw pointer
+addresses. They are not documented as `(Array, offset)` helpers; use reviewed
+raw-memory code or the stdlib array functions below.
 
 Runtime array reductions for `Array<Float>` use the double-array storage used
 by Seen arrays, with AVX2 or NEON min/max/sum/dot/prefix paths where available

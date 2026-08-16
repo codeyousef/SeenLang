@@ -1,0 +1,157 @@
+///
+/// Deterministic in-memory cache for validated specialization demands.
+///
+/// This stays separate from identity validation so cache policy can be wired
+/// into a compilation without introducing LLVM or object-cache dependencies.
+///
+
+import str.string.{StringBuilder}
+import typechecker.semantic_registry.{SemanticDiagnostic}
+import typechecker.specialization_identity.{SpecializationKey}
+import typechecker.specialization_identity.{SpecializationDemandResult}
+import typechecker.specialization_identity.{specializationLimit}
+import typechecker.specialization_identity.{specializationCompareCanonical}
+import typechecker.specialization_identity.{specializationAppendComponent}
+
+class SpecializationCacheRegistration {
+    var success: Bool
+    var inserted: Bool
+    var index: Int
+    var key: SpecializationKey
+    var diagnostics: Array<SemanticDiagnostic>
+
+    static fun new() r: SpecializationCacheRegistration {
+        return SpecializationCacheRegistration{
+            success: true,
+            inserted: false,
+            index: -1,
+            key: SpecializationKey.invalid(
+                "specialization was not registered"),
+            diagnostics: Array<SemanticDiagnostic>()
+        }
+    }
+
+    fun addError(code: String, message: String, file: String, line: Int,
+        column: Int) r: Void {
+
+        this.diagnostics.push(SemanticDiagnostic.new(code, message, file,
+            line, column))
+        this.success = false
+    }
+}
+
+class SpecializationCache {
+    let orderedKeys: Array<SpecializationKey>
+
+    static fun new() r: SpecializationCache {
+        return SpecializationCache{
+            orderedKeys: Array<SpecializationKey>()
+        }
+    }
+
+    fun count() r: Int {
+        return this.orderedKeys.length()
+    }
+
+    fun lowerBound(canonicalText: String) r: Int {
+        var low = 0
+        var high = this.orderedKeys.length()
+        while low < high {
+            let middle = low + ((high - low) / 2)
+            if specializationCompareCanonical(
+                this.orderedKeys[middle].canonicalText, canonicalText) < 0 {
+
+                low = middle + 1
+            } else {
+                high = middle
+            }
+        }
+        return low
+    }
+
+    fun findCanonical(canonicalText: String) r: Int {
+        let index = this.lowerBound(canonicalText)
+        if index < this.orderedKeys.length() and
+            this.orderedKeys[index].canonicalText == canonicalText {
+
+            return index
+        }
+        return -1
+    }
+
+    fun keyAt(index: Int) r: SpecializationKey {
+        if index < 0 or index >= this.orderedKeys.length() {
+            return SpecializationKey.invalid(
+                "specialization cache index is out of bounds")
+        }
+        return this.orderedKeys[index]
+    }
+
+    ///
+    /// Register a validated demand. Duplicate keys are successful cache hits
+    /// and do not consume the hard specialization budget. The returned index
+    /// is the current sorted position, not a persistent handle: later sorted
+    /// insertions may shift it.
+    ///
+    fun registerDemand(demand: SpecializationDemandResult, file: String,
+        line: Int, column: Int) r: SpecializationCacheRegistration {
+
+        let result = SpecializationCacheRegistration.new()
+        if not demand.success or not demand.key.valid {
+            var diagnosticIndex = 0
+            while diagnosticIndex < demand.diagnostics.length() {
+                result.diagnostics.push(demand.diagnostics[diagnosticIndex])
+                diagnosticIndex = diagnosticIndex + 1
+            }
+            if result.diagnostics.length() == 0 {
+                result.addError("E_SPECIALIZATION_INVALID_DEMAND",
+                    "only a validated specialization demand may be cached",
+                    file, line, column)
+            } else {
+                result.success = false
+            }
+            return result
+        }
+
+        let existing = this.findCanonical(demand.key.canonicalText)
+        if existing >= 0 {
+            result.key = this.orderedKeys[existing]
+            result.index = existing
+            return result
+        }
+        if this.orderedKeys.length() >= specializationLimit() {
+            result.addError("E_SPECIALIZATION_LIMIT",
+                "specialization limit of " + specializationLimit().toString() +
+                " was exceeded", file, line, column)
+            return result
+        }
+
+        let insertion = this.lowerBound(demand.key.canonicalText)
+        this.orderedKeys.push(demand.key)
+        var shift = this.orderedKeys.length() - 1
+        while shift > insertion {
+            this.orderedKeys[shift] = this.orderedKeys[shift - 1]
+            shift = shift - 1
+        }
+        this.orderedKeys[insertion] = demand.key
+        result.inserted = true
+        result.index = insertion
+        result.key = demand.key
+        return result
+    }
+
+    /// Stable cache-index serialization independent of demand discovery order.
+    fun canonicalIndex() r: String {
+        let out = StringBuilder.new()
+        out.append("seen-specialization-cache-v1")
+        out.append("|count=")
+        out.append(this.orderedKeys.length().toString())
+        var index = 0
+        while index < this.orderedKeys.length() {
+            specializationAppendComponent(out, "key-" + index.toString(),
+                this.orderedKeys[index].canonicalText)
+            index = index + 1
+        }
+        return out.toString()
+    }
+}

@@ -173,7 +173,9 @@ fun shouldContinueComptimeWhileImpl(condVal: Int) r: Bool {
 }
 
 fun shouldEmitRuntimeComptimeStatementImpl(action: Int) r: Bool {
-    return action == 0
+    // Compile-time blocks are never a runtime fallback. Unsupported
+    // statements are rejected by the frontend before lowering.
+    return false
 }
 
 fun resolveComptimeAssignmentTargetImpl(assignExpr: ParserExpressionNode)
@@ -235,6 +237,9 @@ fun emitComptimeAssertPassedNoteImpl(output: StringBuilder) r: Void {
 }
 
 fun classifyComptimeAssertResultImpl(condVal: Int) r: Int {
+    if condVal == -9999999 {
+        return 0
+    }
     if condVal == 0 {
         return 1
     }
@@ -242,6 +247,9 @@ fun classifyComptimeAssertResultImpl(condVal: Int) r: Int {
 }
 
 fun classifyComptimeIfBranchImpl(condVal: Int, elseStatementCount: Int) r: Int {
+    if condVal == -9999999 {
+        return 0
+    }
     if condVal != 0 {
         return 1
     }

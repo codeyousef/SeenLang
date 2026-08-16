@@ -1,10 +1,12 @@
+manifest-version = 1
+
 [project]
-name = "seen-ecs-min"
+name = "seen_ecs_min"
 version = "0.1.0"
 language = "en"
 description = "Deterministic ECS workload for the Seen MVP."
 
 [build]
 entry = "src/main.seen"
-targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown", "android-arm64"]
+targets = ["linux-x86_64", "android-arm64"]
 optimize = "speed"

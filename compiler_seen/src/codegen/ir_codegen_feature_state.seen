@@ -598,6 +598,14 @@ fun resetFeatureModuleScratchStateImpl() r: Void {
     g_errdeferExprs = Array<ParserExpressionNode>()
     g_initFuncNames = ""
     g_initFuncCount = 0
+    // Comptime bindings are scoped to one module lowering pass. Reset both
+    // registries so values, especially Strings, cannot leak across modules.
+    g_comptimeNames = ""
+    g_comptimeValues = ""
+    g_comptimeCount = 0
+    g_comptimeStrNames = ""
+    g_comptimeStrValues = ""
+    g_comptimeStrCount = 0
 }
 
 fun setPanicOnOverflowStateImpl(enabled: Bool) r: Void {

@@ -4,14 +4,34 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 COMPILER="${COMPILER:-$ROOT_DIR/compiler_seen/target/seen}"
 SEEN_COMPILE_CMD="${SEEN_COMPILE_CMD:-compile}"
-TMP_DIR="$(mktemp -d /tmp/seen_pkg_local_registry.XXXXXX)"
+[ "$SEEN_COMPILE_CMD" = "compile" ] || {
+    echo "FAIL: only the supported compile command is accepted" >&2
+    exit 2
+}
+CAPPED_ENTRY="$ROOT_DIR/scripts/run_capped_regression.sh"
+SCOPE=seen-pkg-local-registry
+if [ "${SEEN_CAPPED_REGRESSION_ACTIVE:-0}" != "1" ]; then
+    exec bash "$CAPPED_ENTRY" "$SCOPE" --compiler "$COMPILER" -- \
+        bash "$0" "$@"
+fi
+COMPILER="${SEEN_CAPPED_REGRESSION_COMPILER:-$COMPILER}"
+bash "$CAPPED_ENTRY" --verify-active "$SCOPE" --compiler "$COMPILER"
+ATTESTED_SEEN="${SEEN_ATTESTED_COMPILER_RUNNER:?}"
+TMP_DIR="$(mktemp -d "$SEEN_ARTIFACT_ROOT/seen-pkg-local-registry.XXXXXX")"
 REGISTRY_DIR="$TMP_DIR/registry"
 PACKAGE_DIR="$TMP_DIR/mathx"
 CONSUMER_DIR="$TMP_DIR/consumer"
 OUTPUT_BIN="$TMP_DIR/consumer_bin"
 
 cleanup() {
-    rm -rf "$TMP_DIR"
+    case "$TMP_DIR" in
+        "$SEEN_ARTIFACT_ROOT"/seen-pkg-local-registry.*)
+            [ -d "$TMP_DIR" ] && [ ! -L "$TMP_DIR" ] &&
+                [ "$(dirname -- "$TMP_DIR")" = "$SEEN_ARTIFACT_ROOT" ] || return 1
+            rm -rf -- "$TMP_DIR"
+            ;;
+        *) return 1 ;;
+    esac
 }
 
 trap cleanup EXIT
@@ -36,7 +56,7 @@ EOF
 
 (
     cd "$PACKAGE_DIR"
-    "$COMPILER" pkg publish "$REGISTRY_DIR" >/dev/null
+    bash "$ATTESTED_SEEN" "$COMPILER" pkg publish "$REGISTRY_DIR" >/dev/null
 )
 
 if [ ! -f "$REGISTRY_DIR/index/mathx.toml" ]; then
@@ -60,8 +80,9 @@ EOF
 chmod +x "$CHECKSUM_FAILURE_BIN/sha256sum"
 if (
     cd "$PACKAGE_DIR"
-    PATH="$CHECKSUM_FAILURE_BIN:$PATH" \
-        "$COMPILER" pkg publish "$CHECKSUM_FAILURE_REGISTRY"
+    SEEN_ATTESTED_SEEN_PATH="$SEEN_BOUNDED_TOOLCHAIN_DIR:$CHECKSUM_FAILURE_BIN:$PATH" \
+        bash "$ATTESTED_SEEN" "$COMPILER" pkg publish \
+        "$CHECKSUM_FAILURE_REGISTRY"
 ) >"$CHECKSUM_FAILURE_OUTPUT" 2>&1; then
     echo "FAIL: pkg publish accepted an archive without a sha256 digest"
     exit 1
@@ -101,7 +122,7 @@ fun main() r: Int {
 }
 EOF
 
-"$COMPILER" pkg fetch "$CONSUMER_DIR" >/dev/null
+bash "$ATTESTED_SEEN" "$COMPILER" pkg fetch "$CONSUMER_DIR" >/dev/null
 
 if [ ! -f "$CONSUMER_DIR/Seen.lock" ]; then
     echo "FAIL: pkg fetch did not write Seen.lock"
@@ -114,7 +135,8 @@ if [ "$(find "$CONSUMER_DIR/.seen/packages/mathx/0.1.0" \
     exit 1
 fi
 
-"$COMPILER" "$SEEN_COMPILE_CMD" "$CONSUMER_DIR/src/main.seen" "$OUTPUT_BIN" --fast >/dev/null
+bash "$ATTESTED_SEEN" "$COMPILER" "$SEEN_COMPILE_CMD" \
+    "$CONSUMER_DIR/src/main.seen" "$OUTPUT_BIN" --fast >/dev/null
 "$OUTPUT_BIN" >/dev/null
 
 sed -i 's|^sha256 = .*|sha256 = "../../victim"|' \
@@ -127,7 +149,7 @@ version = "9.9.9"
 EOF
 touch "$CONSUMER_DIR/.seen/packages/victim/sentinel"
 MALFORMED_DIGEST_OUTPUT="$TMP_DIR/malformed-digest.log"
-if "$COMPILER" pkg fetch "$CONSUMER_DIR" \
+if bash "$ATTESTED_SEEN" "$COMPILER" pkg fetch "$CONSUMER_DIR" \
     >"$MALFORMED_DIGEST_OUTPUT" 2>&1; then
     echo "FAIL: malformed legacy digest was accepted as a cache path"
     exit 1
@@ -145,7 +167,7 @@ version = "0.1.0"
 
 [dependencies]
 EOF
-"$COMPILER" pkg fetch "$CONSUMER_DIR" >/dev/null
+bash "$ATTESTED_SEEN" "$COMPILER" pkg fetch "$CONSUMER_DIR" >/dev/null
 if [ -f "$CONSUMER_DIR/Seen.lock" ]; then
     echo "FAIL: removing registry dependencies left a stale Seen.lock"
     exit 1

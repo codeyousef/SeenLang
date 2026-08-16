@@ -246,6 +246,12 @@ fun emitArrayPushMutationImpl(output: StringBuilder, regBox: Array<Int>,
         if valueArgReg == "null" {
             valueArgReg = "0"
         }
+        if pushElemType == "Bool" {
+            let widenedBoolReg = getNextRegFn(regBox)
+            output.append("  " + widenedBoolReg + " = zext i1 " +
+                valueArgReg + " to i64\n")
+            valueArgReg = widenedBoolReg
+        }
         let tmpReg = getNextRegFn(regBox)
         output.append("  " + tmpReg + " = alloca i64\n")
         output.append("  store i64 " + valueArgReg + ", ptr " + tmpReg +

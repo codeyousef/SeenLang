@@ -99,14 +99,28 @@ fun normalizeSeenTypeNameImpl(seenType: String) r: String {
     return normalized
 }
 
-fun normalizeDeclaredTypeNodeImpl(typeNode: TypeNode) r: String {
-    let normalized = normalizeSeenTypeNameImpl(typeNode.typeName)
-    if typeNode.isNullable {
-        if normalized == "Option<String>" or normalized == "Optional<String>" {
-            return "String?"
+fun normalizeDeclaredTypePartsImpl(typeName: String, isNullable: Bool)
+    r: String {
+
+    let normalized = normalizeSeenTypeNameImpl(typeName)
+    if isNullable {
+        // Keep one representation rule for every T?: the parser may already
+        // have expanded the spelling to Option<T>, while bootstrap-created
+        // TypeNodes can still carry T plus isNullable.  Never discard the
+        // nullable bit and never wrap an existing option twice.
+        if normalized == "Option" or normalized == "Optional" or
+            normalized.startsWith("Option<") or
+            normalized.startsWith("Optional<") {
+            return normalized
         }
+        return "Option<" + normalized + ">"
     }
     return normalized
+}
+
+fun normalizeDeclaredTypeNodeImpl(typeNode: TypeNode) r: String {
+    return normalizeDeclaredTypePartsImpl(typeNode.typeName,
+        typeNode.isNullable)
 }
 
 fun mapDeclaredTypeImpl(seenType: String, structNames: Array<String>,

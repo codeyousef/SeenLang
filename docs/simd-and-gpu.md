@@ -1,233 +1,104 @@
 # SIMD and GPU
 
-## SIMD Vector Types
+Seen 0.10.1 has native LLVM vector values for CPU SIMD and an experimental
+Vulkan compute path. The two paths are independent.
 
-Seen provides built-in SIMD types for data-parallel computation:
+## Native SIMD vectors
 
-| Type | Description | Elements |
-|------|-------------|----------|
-| `f32x4` | 4 x 32-bit float | 4 |
-| `f64x2` | 2 x 64-bit float | 2 |
-| `i32x4` | 4 x 32-bit integer | 4 |
-| `i64x2` | 2 x 64-bit integer | 2 |
-| `i16x8` | 8 x 16-bit integer | 8 |
-| `i8x16` | 16 x 8-bit integer | 16 |
+The native vector types exercised by the shipped compiler are:
 
-### Construction
+| Type | Lanes |
+|------|-------|
+| `f32x4`, `f32x8` | four or eight 32-bit floats |
+| `f64x2`, `f64x4` | two or four 64-bit floats |
+| `i32x4`, `i32x8` | four or eight 32-bit integers |
 
-```seen
-let v = f32x4(1.0, 2.0, 3.0, 4.0)
-let zeros = f32x4(0.0, 0.0, 0.0, 0.0)
-let ints = i32x4(1, 2, 3, 4)
-```
-
-### Arithmetic
-
-Standard operators work on SIMD types:
+Constructors, arithmetic, and receiver-style horizontal reductions lower to
+LLVM vector values:
 
 ```seen
-let a = f32x4(1.0, 2.0, 3.0, 4.0)
-let b = f32x4(5.0, 6.0, 7.0, 8.0)
-let sum = a + b    // f32x4(6.0, 8.0, 10.0, 12.0)
-let prod = a * b   // f32x4(5.0, 12.0, 21.0, 32.0)
-let diff = a - b
-let quot = a / b
-```
-
-These native vector expressions are value-lowered by the compiler and do not
-allocate heap temporaries. The `simd.simd_types` `SimdFloat4` and `SimdFloat8`
-wrappers remain available for compatibility with handle-based runtime calls;
-new runtime `*_into` entrypoints provide a caller-storage ABI for FFI or future
-lowering paths that need wrapper operations without allocating a new handle for
-each temporary.
-
-### Horizontal Reductions
-
-```seen
-let v = f32x4(1.0, 2.0, 3.0, 4.0)
-let total = reduce_add(v)   // 10.0
-let minimum = reduce_min(v) // 1.0
-let maximum = reduce_max(v) // 4.0
-```
-
-### Load and Store
-
-```seen
-let vec = simd_load_f32x4(array, offset)
-simd_store_f32x4(vec, array, offset)
-```
-
-### Example: Dot Product
-
-```seen
-fun dot_product(a: Array<Float>, b: Array<Float>, n: Int) r: Float {
-    var sum = f32x4(0.0, 0.0, 0.0, 0.0)
-    var i = 0
-    while i + 4 <= n {
-        let va = simd_load_f32x4(a, i)
-        let vb = simd_load_f32x4(b, i)
-        sum = sum + va * vb
-        i = i + 4
-    }
-    return reduce_add(sum)
+fun vector_total() r: Float {
+    let a = f32x4(1.0, 2.0, 3.0, 4.0)
+    let b = f32x4(5.0, 6.0, 7.0, 8.0)
+    let sum = a + b
+    return sum.reduce_add()
 }
 ```
 
-## SIMD Policy Flags
+The reduction methods are `reduce_add`, `reduce_min`, and `reduce_max`. Native
+vector expressions do not allocate wrapper objects.
 
-Control SIMD code generation:
+The low-level `simd_load_*` and `simd_store_*` builtins operate on raw pointer
+addresses, not `(Array, offset)` pairs. Prefer the tested constructors and
+stdlib array helpers unless code is already at a reviewed FFI/raw-memory
+boundary.
+
+### Stdlib SIMD helpers
+
+`simd/simd_math` provides array operations such as `simd_reduce_sum`,
+`simd_prefix_sum`, `simd_min`, `simd_max`, and `simd_dot_product`. These work on
+Seen's double-backed `Array<Float>` storage. Runtime dispatch uses AVX2 or NEON
+paths where available and scalar fallbacks otherwise. `SimdFloat4` and
+`SimdFloat8` remain handle-based compatibility wrappers.
+
+### Compiler controls
 
 ```bash
-seen compile app.seen app --simd=auto     # Auto-detect (default)
-seen compile app.seen app --simd=none     # Disable SIMD
-seen compile app.seen app --simd=sse4.2   # Force SSE 4.2
-seen compile app.seen app --simd=avx2     # Force AVX2
-seen compile app.seen app --simd=avx512   # Force AVX-512
+seen compile app.seen app --simd=auto
+seen compile app.seen app --simd=none
+seen compile app.seen app --simd=sse4.2
+seen compile app.seen app --simd=avx2
+seen compile app.seen app --simd=avx512
+seen compile app.seen app --simd-report=full
 ```
 
-Vectorization report:
+`--simd=auto` is the default. Use `--target-cpu` to choose the target CPU
+baseline; deterministic mode forces the compiler's deterministic SIMD policy.
 
-```bash
-seen compile app.seen app --simd-report       # Summary
-seen compile app.seen app --simd-report=full  # Per-loop detail
-```
+## Experimental GPU compute
 
-## Runtime SIMD Functions
-
-Auto-dispatching functions that select the best SIMD width at runtime:
+Compute declarations use the current decorator and built-in spellings:
 
 ```seen
-import simd.simd_math.{simd_reduce_sum, simd_prefix_sum, simd_min, simd_max, simd_dot_product}
-
-// Sum Array<Float> elements with SIMD when supported
-let total = simd_reduce_sum(values, values.length())
-
-// Dot product
-let dot = simd_dot_product(a, b, a.length())
-
-// Min/max
-let min_val = simd_min(values, values.length())
-let max_val = simd_max(values, values.length())
-
-// Prefix sum
-simd_prefix_sum(values, values.length())
-```
-
-The stdlib runtime helpers operate on Seen's `Array<Float>` double storage.
-AVX2-capable x86 and NEON-capable AArch64 targets use vectorized sum, dot,
-min/max, and prefix paths where available; other targets intentionally fall
-back to scalar loops.
-
-## CPU Feature Detection
-
-```seen
-seen_cpu_detect()                        // detect features at startup
-let has_avx2 = seen_cpu_has_feature("avx2")
-let tier = seen_cpu_simd_tier()          // 0=scalar, 1=SSE, 2=AVX2, 3=AVX512, 4=NEON
-```
-
----
-
-## GPU Compute
-
-Seen supports GPU compute shaders via Vulkan with GLSL code generation.
-
-### Pipeline
-
-```
-Seen AST → GLSL #version 450 → glslc → SPIR-V (.spv) → Vulkan runtime
-```
-
-### Writing GPU Compute Shaders
-
-```seen
-@compute(workgroup_size = 64)
+@compute(workgroup: 64)
 fun vector_add(a: Buffer<Float>, b: Buffer<Float>, out: Buffer<Float>) {
-    let idx = global_invocation_id.x
-    out[idx] = a[idx] + b[idx]
+    let index = globalInvocationId.x
+    out[index] = a[index] + b[index]
 }
 ```
 
-The `@compute` decorator:
-- Marks the function as a GPU compute shader
-- `workgroup_size` sets the local workgroup dimensions
-- The function body is compiled to GLSL, then to SPIR-V
-
-### GPU Types
-
-| Type | Description |
-|------|-------------|
-| `Buffer<T>` | Storage buffer (read/write) |
-| `Uniform<T>` | Uniform buffer (read-only, shared across invocations) |
-| `Image<T>` | Texture/image (read/write) |
-
-All GPU types are opaque handles (`i64`) in the host code.
-
-### Dispatching GPU Compute
-
-```seen
-fun main() {
-    let device = gpu_init()
-    let a = gpu_create_buffer(device, data_a, size)
-    let b = gpu_create_buffer(device, data_b, size)
-    let out = gpu_create_buffer(device, null, size)
-
-    // Dispatch compute shader
-    vector_add_gpu_dispatch(groups_x, groups_y, groups_z, buffers, num_buffers)
-
-    let result = gpu_read_buffer(out, size)
-    gpu_destroy(device)
-}
-```
-
-### Inspecting Generated Shaders
+`--emit-glsl` writes shader artifacts below `<output>.shaders/`, including
+`.comp.glsl` and reflection JSON. When `glslc` is available, the compiler also
+produces SPIR-V `.comp.spv` output.
 
 ```bash
 seen compile app.seen app --emit-glsl
 ```
 
-This saves the generated GLSL alongside the binary.
+This is not yet an automatic source-to-running-GPU pipeline. Arbitrary Seen
+shader bodies are not all translated faithfully, and the generated host
+dispatch wrapper does not construct a usable Vulkan pipeline for the caller.
+Treat generated GLSL/reflection as inspectable build artifacts. Production
+dispatch must explicitly initialize the runtime, load SPIR-V, create buffers
+and a pipeline, dispatch with that pipeline handle, synchronize, and release
+resources.
 
-### Example: Matrix Multiply on GPU
+The C runtime API in `seen_gpu.h` uses these names:
 
-```seen
-@compute(workgroup_size = 16)
-fun matmul(a: Buffer<Float>, b: Buffer<Float>, c: Buffer<Float>) {
-    let row = global_invocation_id.y
-    let col = global_invocation_id.x
-    var sum = 0.0
-    var k = 0
-    while k < N {
-        sum = sum + a[row * N + k] * b[k * N + col]
-        k = k + 1
-    }
-    c[row * N + col] = sum
-}
-```
+- `seen_gpu_init`, `seen_gpu_shutdown`, and `seen_gpu_is_available`
+- `seen_gpu_buffer_create`, `seen_gpu_buffer_write`,
+  `seen_gpu_buffer_read`, and `seen_gpu_buffer_destroy`
+- `seen_gpu_shader_load`, `seen_gpu_pipeline_create`, and
+  `seen_gpu_pipeline_destroy`
+- `seen_gpu_dispatch` or `seen_gpu_dispatch_handles`
+- fence helpers and `seen_gpu_device_wait_idle`
 
-### GPU Runtime Functions
-
-The Vulkan runtime (`seen_gpu.c`) provides:
-
-| Function | Description |
-|----------|-------------|
-| `seen_gpu_init()` | Initialize Vulkan instance and device |
-| `seen_gpu_create_buffer()` | Create GPU buffer |
-| `seen_gpu_write_buffer()` | Write data to GPU buffer |
-| `seen_gpu_read_buffer()` | Read data from GPU buffer |
-| `seen_gpu_create_pipeline()` | Create compute pipeline from SPIR-V |
-| `seen_gpu_dispatch()` | Dispatch compute workgroups |
-| `seen_gpu_barrier()` | Memory barrier |
-| `seen_gpu_destroy()` | Cleanup Vulkan resources |
-
-### Prerequisites
-
-GPU compute requires:
-- Vulkan SDK and drivers
-- `glslc` (from the Vulkan SDK) for SPIR-V compilation
-- Link with `-lvulkan`
+GPU compilation needs `glslc`. GPU execution additionally needs Vulkan headers,
+the Vulkan loader, and a suitable device/driver. Programs should check
+`seen_gpu_init()` and `seen_gpu_is_available()` and provide a CPU fallback.
 
 ## Related
 
-- [CLI Reference](cli-reference.md) -- SIMD and GPU flags
-- [API Reference: GPU](api-reference/gpu.md) -- GPU type reference
+- [CLI Reference](cli-reference.md) -- compiler flags
+- [API Reference: SIMD](api-reference/simd.md)
+- [API Reference: GPU](api-reference/gpu.md)

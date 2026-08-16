@@ -1,0 +1,85 @@
+import str.string.{StringBuilder}
+import codegen.ir_decl_items.{normalizeDeclaredTypePartsImpl}
+import codegen.ir_method_call_type_table.{inferMethodCallTypeTableImpl}
+import codegen.ir_method_return_type_lookup.{getMethodReturnTypeImpl}
+import codegen.ir_infer_type.{inferGeneratedCallTypeImpl}
+import codegen.ir_lsp_field_types.{getKnownLspSeenFieldTypeTableImpl}
+import codegen.ir_decl_runtime_lsp_json.{emitLspJsonRuntimeDecls}
+import codegen.ir_type_ops_comparison.{emitBoxedOptionNullComparisonImpl}
+
+fun nullableCodegenExpect(condition: Bool, message: String) r: Void {
+    if not condition { abort(message) }
+}
+
+fun main() r: Int {
+    nullableCodegenExpect(normalizeDeclaredTypePartsImpl("Widget", true) ==
+        "Option<Widget>", "nullable class declaration must become Option")
+
+    nullableCodegenExpect(normalizeDeclaredTypePartsImpl("Int", true) ==
+        "Option<Int>", "nullable primitive declaration must become Option")
+
+    nullableCodegenExpect(normalizeDeclaredTypePartsImpl("Option<String>",
+        true) ==
+        "Option<String>", "canonical Option must not be wrapped twice")
+
+    let names = Array<String>()
+    let methods = Array<String>()
+    let returns = Array<String>()
+    nullableCodegenExpect(getMethodReturnTypeImpl("JsonRpcHandler",
+        "readMessage", names, methods, returns) == "Option<LspMessage>",
+        "registered method lookup must canonicalize nullable return")
+    nullableCodegenExpect(inferMethodCallTypeTableImpl("readMessage") ==
+        "Option<LspMessage>", "fallback method table must use Option")
+    nullableCodegenExpect(inferGeneratedCallTypeImpl(
+        "Widget_fromJson", 0, "", 0, "Widget", "", 1) ==
+        "Option<Widget>", "generated fromJson fallback must use Option")
+    nullableCodegenExpect(getKnownLspSeenFieldTypeTableImpl("LspMessage",
+        "params") == "Option<JsonValue>",
+        "nullable LSP field must use Option")
+    nullableCodegenExpect(getKnownLspSeenFieldTypeTableImpl("CodeAction",
+        "edit") == "Option<TextEdit>",
+        "nullable LSP field must preserve its declared payload type")
+    nullableCodegenExpect(getKnownLspSeenFieldTypeTableImpl(
+        "DidSaveTextDocumentParams", "text") == "Option<String>",
+        "nullable string field must use Option<String>")
+    nullableCodegenExpect(getKnownLspSeenFieldTypeTableImpl(
+        "InitializeParams", "capabilities") == "ClientCapabilities",
+        "non-nullable LSP field must not be rewritten as Option")
+
+    let declarations = StringBuilder.new()
+    emitLspJsonRuntimeDecls(declarations, Array<String>())
+    let declarationText = declarations.toString()
+    nullableCodegenExpect(declarationText.contains(
+        "declare i64 @LspMessage_fromJson(i64)"),
+        "nullable fromJson ABI must return an i64 Option handle")
+    nullableCodegenExpect(not declarationText.contains(
+        "declare ptr @LspMessage_fromJson(i64)"),
+        "nullable fromJson ABI must not return a raw class pointer")
+    nullableCodegenExpect(declarationText.contains(
+        "declare i64 @JsonValue_get(ptr, %SeenString)"),
+        "nullable JsonValue.get ABI must return an i64 Option handle")
+    nullableCodegenExpect(declarationText.contains(
+        "declare i64 @DidSaveTextDocumentParams_fromJson(i64)"),
+        "nullable DidSave parser ABI must return an i64 Option handle")
+    nullableCodegenExpect(declarationText.contains(
+        "declare i64 @ClientCapabilities_fromJson(i64)"),
+        "class parser ABI must use the pointer-as-i64 class handle")
+
+    let comparison = StringBuilder.new()
+    let registers = Array<Int>()
+    registers.push(0)
+    let comparisonReg = emitBoxedOptionNullComparisonImpl(comparison,
+        registers, "%option", true)
+    let comparisonIr = comparison.toString()
+    nullableCodegenExpect(comparisonReg != "",
+        "boxed Option comparison must produce a result")
+    nullableCodegenExpect(comparisonIr.contains("inttoptr i64 %option to ptr"),
+        "boxed Option comparison must dereference the Option handle")
+    nullableCodegenExpect(comparisonIr.contains(
+        "getelementptr inbounds { i1, i64 }"),
+        "boxed Option comparison must address the active tag")
+    nullableCodegenExpect(comparisonIr.contains("xor i1"),
+        "Option == null must invert the active tag")
+
+    return 0
+}

@@ -92,6 +92,8 @@
   "seen.compiler.path": "seen",
   "seen.lsp.enabled": true,
   "seen.formatting.enable": true,
+  "seen.formatting.sortImports": true,
+  "seen.formatting.useManifest": true,
   "seen.target.default": "native",
   "seen.compile.pic": false,
   "seen.compile.objectManifest": "",
@@ -105,6 +107,8 @@
 | `seen.lsp.enabled` | `true` | Enable language server |
 | `seen.lsp.trace.server` | `"off"` | LSP tracing (`off`, `messages`, `verbose`) |
 | `seen.formatting.enable` | `true` | Enable code formatting |
+| `seen.formatting.sortImports` | `true` | Sort complete valid top-level import blocks without detaching comments |
+| `seen.formatting.useManifest` | `true` | Read formatting defaults from the nearest `Seen.toml` |
 | `seen.target.default` | `"native"` | Compilation target: `native`, `linux-x86_64`, `linux-arm64`, `linux-riscv64`, `windows-x86_64`, `macos-x86_64`, `macos-arm64`, `ios-arm64`, `ios-sim-arm64`, or `android-arm64` |
 | `seen.compile.pic` | `false` | Emit PIC objects for shared-library builds |
 | `seen.compile.objectManifest` | `""` | Optional manifest path for shared-module object builds |

@@ -3,26 +3,29 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 COMPILER="${COMPILER:-$ROOT_DIR/compiler_seen/target/seen}"
-TMP_DIR="$(mktemp -d /tmp/seen_pkg_prebuild_symbols.XXXXXX)"
+CAPPED_ENTRY="$ROOT_DIR/scripts/run_capped_regression.sh"
+SCOPE=seen-pkg-prebuild-artifact-symbols
+if [ "${SEEN_CAPPED_REGRESSION_ACTIVE:-0}" != "1" ]; then
+    exec bash "$CAPPED_ENTRY" "$SCOPE" --compiler "$COMPILER" -- \
+        bash "$0" "$@"
+fi
+COMPILER="${SEEN_CAPPED_REGRESSION_COMPILER:-$COMPILER}"
+bash "$CAPPED_ENTRY" --verify-active "$SCOPE" --compiler "$COMPILER"
+ATTESTED_SEEN="${SEEN_ATTESTED_COMPILER_RUNNER:?}"
+TMP_DIR="$(mktemp -d "$SEEN_ARTIFACT_ROOT/seen-pkg-prebuild-artifact-symbols.XXXXXX")"
 
 cleanup() {
-    rm -rf "$TMP_DIR"
+    case "$TMP_DIR" in
+        "$SEEN_ARTIFACT_ROOT"/seen-pkg-prebuild-artifact-symbols.*)
+            [ -d "$TMP_DIR" ] && [ ! -L "$TMP_DIR" ] &&
+                [ "$(dirname -- "$TMP_DIR")" = "$SEEN_ARTIFACT_ROOT" ] || return 1
+            rm -rf -- "$TMP_DIR"
+            ;;
+        *) return 1 ;;
+    esac
 }
 
 trap cleanup EXIT
-
-if [ -z "${SEEN_TEST_NO_ULIMIT:-}" ]; then
-    AVAIL_KB="$(awk '/MemAvailable/ {print $2}' /proc/meminfo 2>/dev/null || echo 0)"
-    if [ "$AVAIL_KB" -gt 0 ]; then
-        CAP_KB=$(( AVAIL_KB * 70 / 100 ))
-        if [ "$CAP_KB" -gt 14680064 ]; then
-            CAP_KB=14680064
-        fi
-        if [ "$CAP_KB" -ge 10485760 ]; then
-            ulimit -v "$CAP_KB"
-        fi
-    fi
-fi
 
 mkdir -p "$TMP_DIR/pkg/src" "$TMP_DIR/consumer/src"
 
@@ -45,7 +48,8 @@ pub fun libx_exported_value() r: Int {
 }
 EOF
 
-"$COMPILER" pkg prebuild "$TMP_DIR/pkg" "$TMP_DIR/artifact" >/dev/null
+bash "$ATTESTED_SEEN" "$COMPILER" pkg prebuild \
+    "$TMP_DIR/pkg" "$TMP_DIR/artifact" >/dev/null
 
 OBJ="$TMP_DIR/artifact/$(awk -F '	' '$2 ~ /value\.seen$/ {print $1}' "$TMP_DIR/artifact/objects.tsv")"
 if [ ! -f "$OBJ" ]; then
@@ -92,7 +96,10 @@ EOF
 
 (
     cd "$TMP_DIR/cwd_export"
-    "$CWD_COMPILER" compile "$TMP_DIR/cwd_export/.entry.seen" "$TMP_DIR/cwd_export/out" --pic --no-fork --no-cache --object-manifest "$TMP_DIR/cwd_export/objects.tsv" --emit-llvm >/dev/null
+    bash "$ATTESTED_SEEN" "$CWD_COMPILER" compile \
+        "$TMP_DIR/cwd_export/.entry.seen" "$TMP_DIR/cwd_export/out" \
+        --pic --no-cache \
+        --object-manifest "$TMP_DIR/cwd_export/objects.tsv" --emit-llvm >/dev/null
 )
 
 CWD_OBJ_REL="$(awk -F '	' '$2 ~ /hot_module\.seen$/ {print $1}' "$TMP_DIR/cwd_export/objects.tsv")"
@@ -150,7 +157,8 @@ fun main() r: Int {
 }
 EOF
 
-"$COMPILER" compile "$TMP_DIR/consumer/src/main.seen" "$TMP_DIR/consumer_bin" --fast >/dev/null
+bash "$ATTESTED_SEEN" "$COMPILER" compile \
+    "$TMP_DIR/consumer/src/main.seen" "$TMP_DIR/consumer_bin" --fast >/dev/null
 "$TMP_DIR/consumer_bin"
 
 echo "PASS: prebuilt package artifacts preserve public and exported symbols for downstream consumers"

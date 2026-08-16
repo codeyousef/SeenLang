@@ -1,0 +1,279 @@
+///
+/// Shared language-pack discovery for the lexer and source translator.
+/// A candidate is accepted only when the complete shipped pack is present.
+///
+
+import io.file.{readTextChecked}
+import env.env.{args, getOrDefault}
+
+extern fun __CurrentExecutablePath() r: String
+
+fun languagePackParentDir(path: String) r: String {
+    var lastSeparator = path.length() - 1
+    while lastSeparator >= 0 {
+        let current = path.byteAt(lastSeparator)
+        if current == 47 or current == 92 {
+            break
+        }
+        lastSeparator = lastSeparator - 1
+    }
+    if lastSeparator < 0 {
+        return ""
+    }
+    if lastSeparator == 0 {
+        return path.substring(0, 1)
+    }
+    // Preserve a Windows drive root such as C:\.
+    if lastSeparator == 2 and path.length() >= 3 and path.byteAt(1) == 58 {
+        return path.substring(0, 3)
+    }
+    return path.substring(0, lastSeparator)
+}
+
+fun languagePackWithTrailingSlash(path: String) r: String {
+    if path == "" {
+        return ""
+    }
+    let finalByte = path.byteAt(path.length() - 1)
+    if finalByte == 47 or finalByte == 92 {
+        return path
+    }
+    return path + "/"
+}
+
+fun languagePackContentHasValidTable(content: String, tableName: String)
+    r: Bool {
+
+    var position = 0
+    var inRequiredTable = false
+    var sawMapping = false
+    while position < content.length() {
+        var lineEnd = position
+        while lineEnd < content.length() and content.byteAt(lineEnd) != '\n' {
+            lineEnd = lineEnd + 1
+        }
+        var left = position
+        while left < lineEnd and (content.byteAt(left) == ' ' or
+            content.byteAt(left) == '\t' or content.byteAt(left) == '\r') {
+
+            left = left + 1
+        }
+        var right = lineEnd
+        while right > left and (content.byteAt(right - 1) == ' ' or
+            content.byteAt(right - 1) == '\t' or
+            content.byteAt(right - 1) == '\r') {
+
+            right = right - 1
+        }
+
+        if right > left and content.byteAt(left) != '#' {
+            if content.byteAt(left) == '[' {
+                let section = content.substring(left, right)
+                inRequiredTable = section == "[" + tableName + "]"
+            } else if inRequiredTable {
+                // Tables consumed by the bootstrap readers consist of quoted
+                // string-to-string mappings. Reject malformed entries instead
+                // of loading only the prefix that happened to parse.
+                if content.byteAt(left) != '"' {
+                    return false
+                }
+                var keyEnd = left + 1
+                while keyEnd < right and content.byteAt(keyEnd) != '"' {
+                    keyEnd = keyEnd + 1
+                }
+                if keyEnd >= right { return false }
+                var equalsPos = keyEnd + 1
+                while equalsPos < right and (content.byteAt(equalsPos) == ' ' or
+                    content.byteAt(equalsPos) == '\t') {
+
+                    equalsPos = equalsPos + 1
+                }
+                if equalsPos >= right or content.byteAt(equalsPos) != '=' {
+                    return false
+                }
+                var valueStart = equalsPos + 1
+                while valueStart < right and
+                    (content.byteAt(valueStart) == ' ' or
+                    content.byteAt(valueStart) == '\t') {
+
+                    valueStart = valueStart + 1
+                }
+                if valueStart >= right or content.byteAt(valueStart) != '"' {
+                    return false
+                }
+                var valueEnd = valueStart + 1
+                while valueEnd < right and content.byteAt(valueEnd) != '"' {
+                    valueEnd = valueEnd + 1
+                }
+                if valueEnd >= right { return false }
+                sawMapping = true
+            }
+        }
+        position = lineEnd + 1
+    }
+    return sawMapping
+}
+
+fun languagePackFileIsComplete(directory: String, language: String,
+    suffix: String) r: Bool {
+
+    // Every shipped table is non-empty. The checked non-generic API keeps an
+    // unreadable file distinct from valid content without requiring bootstrap
+    // Result specialization across a module boundary.
+    let result = readTextChecked(
+        directory + language + "-" + suffix + ".toml")
+    if not result.success or result.content.length() == 0 {
+        return false
+    }
+
+    var requiredTable = "std_lib"
+    if suffix.startsWith("keywords-") {
+        requiredTable = "keywords"
+    } else if suffix == "operators" {
+        requiredTable = "operators"
+    }
+
+    // A non-empty file is not a usable pack table. Require the table consumed
+    // by the lexer/translator and at least one quoted mapping. This prevents a
+    // truncated or unrelated TOML file from being accepted and then silently
+    // producing a partial/unchanged translation.
+    return languagePackContentHasValidTable(result.content, requiredTable)
+}
+
+fun isCompleteLanguagePackRoot(root: String, language: String) r: Bool {
+    let normalized = languagePackWithTrailingSlash(root)
+    if normalized == "" or language == "" {
+        return false
+    }
+    let directory = normalized + language + "/"
+
+    if not languagePackFileIsComplete(directory, language, "keywords-control") { return false }
+    if not languagePackFileIsComplete(directory, language, "keywords-vars") { return false }
+    if not languagePackFileIsComplete(directory, language, "keywords-types") { return false }
+    if not languagePackFileIsComplete(directory, language, "keywords-module") { return false }
+    if not languagePackFileIsComplete(directory, language, "keywords-literals") { return false }
+    if not languagePackFileIsComplete(directory, language, "keywords-async") { return false }
+    if not languagePackFileIsComplete(directory, language, "keywords-modifiers") { return false }
+    if not languagePackFileIsComplete(directory, language, "keywords-memory") { return false }
+    if not languagePackFileIsComplete(directory, language, "keywords-meta") { return false }
+    if not languagePackFileIsComplete(directory, language, "keywords-misc") { return false }
+    if not languagePackFileIsComplete(directory, language, "operators") { return false }
+    if not languagePackFileIsComplete(directory, language, "builtins") { return false }
+    if not languagePackFileIsComplete(directory, language, "math") { return false }
+    if not languagePackFileIsComplete(directory, language, "collections") { return false }
+    if not languagePackFileIsComplete(directory, language, "io") { return false }
+    if not languagePackFileIsComplete(directory, language, "env") { return false }
+    if not languagePackFileIsComplete(directory, language, "str") { return false }
+    return true
+}
+
+fun completeLanguagePackRoot(root: String, language: String) r: String {
+    let normalized = languagePackWithTrailingSlash(root)
+    if isCompleteLanguagePackRoot(normalized, language) {
+        return normalized
+    }
+    return ""
+}
+
+fun resolveLanguagePackFromDataPath(language: String) r: String {
+    let dataPath = getOrDefault("SEEN_DATA_PATH", "")
+    if dataPath == "" {
+        return ""
+    }
+    let nested = completeLanguagePackRoot(dataPath + "/languages", language)
+    if nested != "" {
+        return nested
+    }
+    return completeLanguagePackRoot(dataPath, language)
+}
+
+fun resolveLanguagePackFromExecutable(language: String) r: String {
+    var executable = __CurrentExecutablePath()
+    if executable == "" {
+        let allArgs = args()
+        if allArgs.length() > 0 {
+            executable = allArgs[0]
+        }
+    }
+    if executable == "" {
+        return ""
+    }
+
+    let binDirectory = languagePackParentDir(executable)
+    let prefix = languagePackParentDir(binDirectory)
+    if prefix != "" {
+        let shareRoot = completeLanguagePackRoot(
+            prefix + "/share/seen/languages", language)
+        if shareRoot != "" {
+            return shareRoot
+        }
+        let libRoot = completeLanguagePackRoot(
+            prefix + "/lib/seen/languages", language)
+        if libRoot != "" {
+            return libRoot
+        }
+    }
+
+    // Bootstrap and agent-local binaries can be nested more deeply than the
+    // release bin/ layout. Search only a bounded ancestor chain, accepting a
+    // checkout root solely when its complete language pack validates.
+    var ancestor = binDirectory
+    var depth = 0
+    while ancestor != "" and depth < 8 {
+        let checkoutRoot = completeLanguagePackRoot(
+            ancestor + "/languages", language)
+        if checkoutRoot != "" {
+            return checkoutRoot
+        }
+        let parent = languagePackParentDir(ancestor)
+        if parent == ancestor {
+            break
+        }
+        ancestor = parent
+        depth = depth + 1
+    }
+    return ""
+}
+
+///
+/// Resolve the languages directory. SEEN_DATA_PATH is authoritative when set:
+/// accepting a silent fallback there can combine files from different installs.
+///
+fun resolveLanguagesRoot(language: String) r: String {
+    let configuredDataPath = getOrDefault("SEEN_DATA_PATH", "")
+    if configuredDataPath != "" {
+        return resolveLanguagePackFromDataPath(language)
+    }
+
+    let executableRoot = resolveLanguagePackFromExecutable(language)
+    if executableRoot != "" {
+        return executableRoot
+    }
+    let currentRoot = completeLanguagePackRoot("languages", language)
+    if currentRoot != "" {
+        return currentRoot
+    }
+    let systemRoot = completeLanguagePackRoot("/usr/share/seen/languages", language)
+    if systemRoot != "" {
+        return systemRoot
+    }
+    let localSystemRoot = completeLanguagePackRoot(
+        "/usr/local/share/seen/languages", language)
+    if localSystemRoot != "" {
+        return localSystemRoot
+    }
+    let programData = getOrDefault("ProgramData", "")
+    if programData != "" {
+        let programDataRoot = completeLanguagePackRoot(
+            programData + "/Seen/languages", language)
+        if programDataRoot != "" {
+            return programDataRoot
+        }
+    }
+    let programFiles = getOrDefault("ProgramFiles", "")
+    if programFiles != "" {
+        return completeLanguagePackRoot(
+            programFiles + "/Seen/share/seen/languages", language)
+    }
+    return ""
+}

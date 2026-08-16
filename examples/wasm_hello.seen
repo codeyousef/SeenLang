@@ -1,6 +1,7 @@
 ///
 Example: Simple WASM program
-Compile with: seen build examples/wasm_hello.seen -t wasm
+Check with: seen check examples/wasm_hello.seen
+Seen 0.10.1 does not advertise a WebAssembly compile target.
 ///
 
 fun fibonacci(n: Int) r: Int {

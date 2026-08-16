@@ -340,18 +340,18 @@ fun getSeenFieldTypeImpl(structName: String, fieldName: String, structNames: Arr
             if fieldName == "jsonrpc" { return "String" }
             if fieldName == "id" { return "Int" }
             if fieldName == "method" { return "String" }
-            if fieldName == "params" { return "JsonValue?" }
+            if fieldName == "params" { return "Option<JsonValue>" }
         }
         if structName == "LspError" {
             if fieldName == "code" { return "Int" }
             if fieldName == "message" { return "String" }
-            if fieldName == "data" { return "JsonValue?" }
+            if fieldName == "data" { return "Option<JsonValue>" }
         }
         if structName == "LspResponse" {
             if fieldName == "jsonrpc" { return "String" }
             if fieldName == "id" { return "Int" }
-            if fieldName == "result" { return "JsonValue?" }
-            if fieldName == "error" { return "LspError?" }
+            if fieldName == "result" { return "Option<JsonValue>" }
+            if fieldName == "error" { return "Option<LspError>" }
         }
         if structName == "Document" {
             if fieldName == "uri" { return "String" }
@@ -443,7 +443,7 @@ fun getSeenFieldTypeImpl(structName: String, fieldName: String, structNames: Arr
         }
         if structName == "Hover" {
             if fieldName == "contents" { return "MarkupContent" }
-            if fieldName == "range" { return "Range?" }
+            if fieldName == "range" { return "Option<Range>" }
         }
         if structName == "TextEdit" {
             if fieldName == "range" { return "Range" }

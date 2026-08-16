@@ -1,0 +1,1092 @@
+import parser.real_parser.{ProgramNode, ItemNode, ClassNode, FunctionNode}
+import parser.real_parser.{ParamNode, TypeNode, AnnotationNode, ImportSymbolNode}
+import parser.real_parser.{StatementNode, ParserExpressionNode}
+import typechecker.lexical_semantic.{runLexicalSemanticPass}
+import typechecker.lexical_semantic.{collectLexicalSemanticModule}
+import typechecker.lexical_semantic.{checkLexicalSemanticModule}
+import typechecker.lexical_semantic.{resolveSemanticType, LexicalSemanticResult}
+import typechecker.lexical_semantic.{requireConcreteSemanticType}
+import typechecker.semantic_registry.{SemanticDeclarationRegistry}
+import typechecker.semantic_registry.{ScopedBindings}
+import typechecker.semantic_registry.{semanticNormalizeModuleIdentity}
+import typechecker.semantic_registry.{semanticBuiltinLifecycleProperty}
+
+fun semanticExpect(condition: Bool, message: String) r: Void {
+    if not condition { abort(message) }
+}
+
+fun semanticType(name: String) r: TypeNode {
+    return TypeNode{ typeName: name, isNullable: false }
+}
+
+fun semanticClassProgram(name: String, fieldName: String, fieldType: String,
+    decoratorName: String) r: ProgramNode {
+
+    let program = ProgramNode.new()
+    let item = ItemNode.new()
+    item.itemType = "Class"
+    item.name = name
+    item.classNode = ClassNode.new()
+    item.classNode.name = name
+    item.line = 1
+    item.column = 1
+    let field = ParamNode.new()
+    field.name = fieldName
+    field.paramType = semanticType(fieldType)
+    field.line = 1
+    field.column = 20
+    item.classNode.fields.push(field)
+    if decoratorName != "" {
+        let decorator = AnnotationNode.new(decoratorName)
+        decorator.arguments.push("wire")
+        item.classNode.decorators.push(decorator)
+    }
+    program.items.push(item)
+    return program
+}
+
+fun semanticFunctionProgram(name: String, parameterType: String,
+    returnType: String) r: ProgramNode {
+
+    let program = ProgramNode.new()
+    let item = ItemNode.new()
+    item.itemType = "Function"
+    item.name = name
+    item.function = FunctionNode.new()
+    item.function.name = name
+    item.function.line = 1
+    item.function.column = 1
+    item.function.returnType = semanticType(returnType)
+    let parameter = ParamNode.new()
+    parameter.name = "value"
+    parameter.paramType = semanticType(parameterType)
+    parameter.line = 1
+    parameter.column = 9
+    item.function.params.push(parameter)
+    program.items.push(item)
+    return program
+}
+
+fun semanticImport(moduleName: String, symbolName: String, alias: String)
+    r: ItemNode {
+
+    let item = ItemNode.new()
+    item.itemType = "Import"
+    item.name = moduleName
+    if symbolName != "" {
+        let symbol = ImportSymbolNode.new()
+        symbol.name = symbolName
+        symbol.alias = alias
+        item.importSymbols.push(symbol)
+    }
+    return item
+}
+
+fun semanticVariable(name: String) r: ParserExpressionNode {
+    let expression = ParserExpressionNode.new()
+    expression.kind = "VarExpr"
+    expression.variableName = name
+    return expression
+}
+
+fun testRegistryAndScopes() r: Void {
+    let registry = SemanticDeclarationRegistry.new()
+    semanticExpect(registry.registerDeclaration("alpha", "User", "Class",
+        "alpha::User", "alpha.seen", 2, 3), "register alpha.User")
+    semanticExpect(registry.resolveTypeBase("beta", "User") == "",
+        "unimported cross-module type is not visible")
+    registry.registerImport("beta", "User", "alpha", "User")
+    semanticExpect(registry.resolveTypeBase("beta", "User") == "alpha::User",
+        "selected import resolves canonically")
+
+    let args = Array<String>()
+    args.push("wire")
+    registry.registerDecorator("alpha::User", "derive", args)
+    semanticExpect(registry.hasDecorator("alpha::User", "derive"),
+        "decorator metadata is queryable")
+
+    let bindings = ScopedBindings.new()
+    semanticExpect(bindings.define("value", "Int", false, "scope.seen", 1,
+        1), "define outer binding")
+    bindings.beginScope()
+    semanticExpect(bindings.define("value", "String", false, "scope.seen", 2,
+        5), "nested scope may shadow")
+    semanticExpect(bindings.lookup("value") == "String",
+        "inner binding wins")
+    bindings.endScope()
+    semanticExpect(bindings.lookup("value") == "Int",
+        "ending scope restores outer binding")
+}
+
+fun testCrossModulePass() r: Void {
+    let registry = SemanticDeclarationRegistry.new()
+    let alphaProgram = semanticClassProgram("User", "id", "Int", "derive")
+    let alpha = runLexicalSemanticPass(alphaProgram,
+        "alpha", "alpha.seen", registry)
+    semanticExpect(alpha.success, "alpha semantic pass succeeds")
+    semanticExpect(registry.hasDecorator("alpha::User", "derive"),
+        "class decorator registered")
+
+    let betaProgram = semanticClassProgram("Box", "item", "User", "")
+    betaProgram.items.push(semanticImport("alpha", "User", ""))
+    let identityItem = semanticFunctionProgram("identity", "User", "User")
+    betaProgram.items.push(identityItem.items[0])
+    let beta = runLexicalSemanticPass(betaProgram,
+        "beta", "beta.seen", registry)
+    semanticExpect(beta.success, "beta resolves alpha.User before lowering")
+    semanticExpect(registry.resolveTypeBase("beta", "User") == "alpha::User",
+        "cross-module identity remains canonical")
+    semanticExpect(registry.findCanonical("beta::Box") >= 0,
+        "beta declaration registered")
+}
+
+fun testForwardCrossModulePass() r: Void {
+    let registry = SemanticDeclarationRegistry.new()
+    let firstProgram = semanticClassProgram("Envelope", "payload", "Later",
+        "")
+    firstProgram.items.push(semanticImport("later", "Later", ""))
+    let laterProgram = semanticClassProgram("Later", "value", "Int", "")
+
+    let firstCollected = collectLexicalSemanticModule(firstProgram, "first",
+        "first.seen", registry)
+    let laterCollected = collectLexicalSemanticModule(laterProgram, "later",
+        "later.seen", registry)
+    semanticExpect(firstCollected.success and laterCollected.success,
+        "all module declarations collect before validation")
+
+    let firstChecked = checkLexicalSemanticModule(firstProgram, "first",
+        "first.seen", registry)
+    let laterChecked = checkLexicalSemanticModule(laterProgram, "later",
+        "later.seen", registry)
+    semanticExpect(firstChecked.success and laterChecked.success,
+        "forward cross-module type resolves from complete registry")
+    semanticExpect(registry.resolveTypeBase("first", "Later") ==
+        "later::Later", "forward type gets canonical later-module identity")
+}
+
+fun testFailClosedTypes() r: Void {
+    let registry = SemanticDeclarationRegistry.new()
+    let unknownProgram = semanticFunctionProgram("bad", "Missing", "Int")
+    let unknown = runLexicalSemanticPass(unknownProgram,
+        "bad", "unknown.seen", registry)
+    semanticExpect(not unknown.success, "unknown type must fail")
+    semanticExpect(unknown.diagnostics.length() == 1,
+        "unknown type emits one focused diagnostic")
+    semanticExpect(unknown.diagnostics[0].code == "E_TYPE_UNKNOWN",
+        "unknown type diagnostic code")
+    semanticExpect(unknown.diagnostics[0].location.file == "unknown.seen",
+        "unknown type preserves source file")
+
+    let genericRegistry = SemanticDeclarationRegistry.new()
+    let genericResult = LexicalSemanticResult.new(genericRegistry)
+    let genericNames = Array<String>()
+    genericNames.push("T")
+    genericRegistry.registerGenericParameter("generic::root", "T", "")
+    let identity = requireConcreteSemanticType(genericResult, "Option<T>",
+        "generic.seen", 8, 12, "generic", "generic::root", genericNames)
+    semanticExpect(identity == "", "open generic has no lowering identity")
+    semanticExpect(not genericResult.success,
+        "open generic fails before lowering")
+    semanticExpect(genericResult.diagnostics[0].code ==
+        "E_TYPE_OPEN_GENERIC", "open generic diagnostic code")
+    semanticExpect(genericResult.diagnostics[0].location.line == 8 and
+        genericResult.diagnostics[0].location.column == 12,
+        "open generic preserves source coordinates")
+    semanticExpect(genericRegistry.isGenericParameter("generic::root", "T"),
+        "explicit generic parameter metadata is preserved")
+
+    let concreteRegistry = SemanticDeclarationRegistry.new()
+    let concreteT = semanticClassProgram("T", "value", "Int", "")
+    semanticExpect(runLexicalSemanticPass(concreteT, "concrete",
+        "concrete.seen", concreteRegistry).success,
+        "one-letter concrete T is not guessed to be an open generic")
+}
+
+fun testGenericDefinitionsRemainSymbolic() r: Void {
+    let registry = SemanticDeclarationRegistry.new()
+    let box = semanticClassProgram("Box", "value", "T", "")
+    let typeParameter = AnnotationNode.new("generic_parameter")
+    typeParameter.arguments.push("T")
+    typeParameter.arguments.push("")
+    box.items[0].classNode.decorators.push(typeParameter)
+
+    let identity = semanticFunctionProgram("id", "U", "U")
+    let functionParameter = AnnotationNode.new("generic_parameter")
+    functionParameter.arguments.push("U")
+    functionParameter.arguments.push("comptime")
+    identity.items[0].function.decorators.push(functionParameter)
+    box.items.push(identity.items[0])
+
+    let collected = collectLexicalSemanticModule(box, "generics",
+        "generics.seen", registry)
+    let checked = checkLexicalSemanticModule(box, "generics",
+        "generics.seen", registry)
+    semanticExpect(collected.success and checked.success,
+        "generic definitions preserve symbolic types during checking")
+    semanticExpect(registry.isGenericParameter("generics::Box", "T"),
+        "class generic belongs to its declaration")
+    semanticExpect(registry.isGenericParameter("generics::id", "U"),
+        "function generic belongs to its declaration")
+    semanticExpect(registry.genericParameterModifier("generics::id", "U") ==
+        "comptime", "structured generic modifier is preserved")
+
+    let demand = LexicalSemanticResult.new(registry)
+    let names = Array<String>()
+    names.push("T")
+    let concrete = requireConcreteSemanticType(demand, "Box<T>",
+        "root.seen", 9, 4, "generics", "generics::Box", names)
+    semanticExpect(concrete == "" and not demand.success,
+        "unspecialized generic concrete demand fails")
+    semanticExpect(demand.diagnostics[0].code == "E_TYPE_OPEN_GENERIC",
+        "concrete-demand diagnostic is explicit")
+}
+
+fun testUserDefinedGenericTypeArity() r: Void {
+    let registry = SemanticDeclarationRegistry.new()
+    semanticExpect(registry.registerDeclaration("types", "Envelope", "Class",
+        "types::Envelope", "types.seen", 1, 1), "register generic Envelope")
+    registry.registerGenericParameter("types::Envelope", "T", "")
+    semanticExpect(registry.registerDeclaration("types", "Plain", "Class",
+        "types::Plain", "types.seen", 2, 1), "register non-generic Plain")
+    semanticExpect(registry.registerDeclaration("types", "Matrix", "Class",
+        "types::Matrix", "types.seen", 3, 1), "register generic Matrix")
+    registry.registerGenericParameter("types::Matrix", "T", "")
+    registry.registerGenericParameter("types::Matrix", "N", "const")
+    registry.registerGenericParameter("types::Matrix", "Mode", "comptime")
+    semanticExpect(registry.registerDeclaration("types", "Bundle", "Class",
+        "types::Bundle", "types.seen", 4, 1), "register variadic Bundle")
+    registry.registerGenericParameter("types::Bundle", "Head", "")
+    registry.registerGenericParameter("types::Bundle", "Tail", "variadic")
+
+    registry.registerImport("consumer", "Envelope", "types", "Envelope")
+    registry.registerImport("consumer", "Parcel", "types", "Envelope")
+    registry.registerImport("consumer", "Plain", "types", "Plain")
+    registry.registerImport("consumer", "Matrix", "types", "Matrix")
+    registry.registerImport("consumer", "Bundle", "types", "Bundle")
+    let noGenerics = Array<String>()
+
+    let fixed = LexicalSemanticResult.new(registry)
+    semanticExpect(resolveSemanticType(fixed, "Envelope<Int>", "use.seen",
+        5, 7, "consumer", noGenerics) == "types::Envelope<Int>" and
+        fixed.success, "user generic accepts its declared arity")
+    let aliased = LexicalSemanticResult.new(registry)
+    semanticExpect(resolveSemanticType(aliased, "Parcel<String>", "use.seen",
+        6, 7, "consumer", noGenerics) == "types::Envelope<String>" and
+        aliased.success, "import alias uses canonical declaration arity")
+
+    let missing = LexicalSemanticResult.new(registry)
+    semanticExpect(resolveSemanticType(missing, "Envelope", "use.seen", 11,
+        13, "consumer", noGenerics) == "" and not missing.success,
+        "missing user generic argument fails")
+    semanticExpect(missing.diagnostics.length() == 1 and
+        missing.diagnostics[0].code == "E_TYPE_ARITY",
+        "missing user generic argument has one arity diagnostic")
+    semanticExpect(missing.diagnostics[0].location.line == 11 and
+        missing.diagnostics[0].location.column == 13,
+        "user generic arity diagnostic preserves source coordinates")
+
+    let surplus = LexicalSemanticResult.new(registry)
+    semanticExpect(resolveSemanticType(surplus, "Envelope<Int,String>",
+        "use.seen", 12, 3, "consumer", noGenerics) == "" and
+        surplus.diagnostics[0].code == "E_TYPE_ARITY",
+        "surplus user generic argument fails")
+    let nongeneric = LexicalSemanticResult.new(registry)
+    semanticExpect(resolveSemanticType(nongeneric, "Plain<Int>", "use.seen",
+        13, 3, "consumer", noGenerics) == "" and
+        nongeneric.diagnostics[0].code == "E_TYPE_ARITY",
+        "type arguments on a non-generic declaration fail")
+
+    semanticExpect(registry.genericParameterCountForOwner("types::Matrix") ==
+        3 and registry.genericParameterModifierAtForOwner("types::Matrix", 1) ==
+        "const" and registry.genericParameterModifierAtForOwner(
+        "types::Matrix", 2) == "comptime",
+        "const and comptime generic parameters occupy arity slots")
+    let qualified = LexicalSemanticResult.new(registry)
+    semanticExpect(resolveSemanticType(qualified, "Matrix<Int,4,8>",
+        "use.seen", 14, 3, "consumer", noGenerics) ==
+        "types::Matrix<Int,4,8>" and qualified.success,
+        "const and comptime arguments satisfy user generic arity")
+    let qualifiedMissing = LexicalSemanticResult.new(registry)
+    semanticExpect(resolveSemanticType(qualifiedMissing, "Matrix<Int,4>",
+        "use.seen", 14, 9, "consumer", noGenerics) == "" and
+        qualifiedMissing.diagnostics[0].code == "E_TYPE_ARITY",
+        "missing const or comptime argument fails user generic arity")
+
+    semanticExpect(registry.hasFinalVariadicGenericParameter("types::Bundle"),
+        "final variadic generic metadata is queryable")
+    let variadicMinimum = LexicalSemanticResult.new(registry)
+    semanticExpect(resolveSemanticType(variadicMinimum, "Bundle<Int>",
+        "use.seen", 15, 3, "consumer", noGenerics) ==
+        "types::Bundle<Int>" and variadicMinimum.success,
+        "final variadic generic accepts its fixed minimum")
+    let variadic = LexicalSemanticResult.new(registry)
+    semanticExpect(resolveSemanticType(variadic, "Bundle<Int,String,Bool>",
+        "use.seen", 15, 3, "consumer", noGenerics) ==
+        "types::Bundle<Int,String,Bool>" and variadic.success,
+        "final variadic generic accepts surplus arguments")
+    let variadicMissing = LexicalSemanticResult.new(registry)
+    semanticExpect(resolveSemanticType(variadicMissing, "Bundle", "use.seen",
+        16, 3, "consumer", noGenerics) == "" and
+        variadicMissing.diagnostics[0].code == "E_TYPE_ARITY",
+        "final variadic generic still requires fixed parameters")
+
+    semanticExpect(registry.registerDeclaration("consumer", "Box", "Class",
+        "consumer::Box", "use.seen", 20, 1), "register shadowing Box")
+    let builtin = LexicalSemanticResult.new(registry)
+    semanticExpect(resolveSemanticType(builtin, "Box<Int>", "use.seen", 21,
+        3, "consumer", noGenerics) == "Box<Int>" and builtin.success,
+        "builtin generic names explicitly retain precedence")
+}
+
+fun testImportBoundariesAndAmbiguity() r: Void {
+    let registry = SemanticDeclarationRegistry.new()
+    let left = semanticClassProgram("Shared", "value", "Int", "")
+    let right = semanticClassProgram("Shared", "value", "String", "")
+    semanticExpect(collectLexicalSemanticModule(left, "left", "left.seen",
+        registry).success, "collect left.Shared")
+    semanticExpect(collectLexicalSemanticModule(right, "right", "right.seen",
+        registry).success, "collect right.Shared")
+
+    let consumer = semanticClassProgram("Consumer", "value", "Shared", "")
+    semanticExpect(collectLexicalSemanticModule(consumer, "consumer",
+        "consumer.seen", registry).success, "collect consumer")
+    let checked = checkLexicalSemanticModule(consumer, "consumer",
+        "consumer.seen", registry)
+    semanticExpect(not checked.success, "unimported type must fail")
+    semanticExpect(checked.diagnostics[0].code == "E_TYPE_UNKNOWN",
+        "unimported type diagnostic code")
+
+    let ambiguous = semanticClassProgram("Ambiguous", "value", "Shared", "")
+    ambiguous.items.push(semanticImport("left", "Shared", ""))
+    ambiguous.items.push(semanticImport("right", "Shared", ""))
+    semanticExpect(collectLexicalSemanticModule(ambiguous, "ambiguous",
+        "ambiguous.seen", registry).success, "collect ambiguous consumer")
+    let ambiguousChecked = checkLexicalSemanticModule(ambiguous,
+        "ambiguous", "ambiguous.seen", registry)
+    semanticExpect(not ambiguousChecked.success,
+        "two selected imports with one local alias must fail")
+    semanticExpect(ambiguousChecked.diagnostics[0].code ==
+        "E_TYPE_AMBIGUOUS", "ambiguous import diagnostic code")
+}
+
+fun testImportQualifiedIdentities() r: Void {
+    let registry = SemanticDeclarationRegistry.new()
+    let alpha = semanticClassProgram("User", "id", "Int", "")
+    semanticExpect(collectLexicalSemanticModule(alpha, "alpha", "alpha.seen",
+        registry).success, "collect imported declaration")
+
+    let qualified = semanticClassProgram("Qualified", "user", "a.User", "")
+    qualified.items.push(semanticImport("alpha", "*", "a"))
+    semanticExpect(collectLexicalSemanticModule(qualified, "qualified",
+        "qualified.seen", registry).success, "collect module alias")
+    semanticExpect(checkLexicalSemanticModule(qualified, "qualified",
+        "qualified.seen", registry).success,
+        "module-qualified import resolves")
+
+    let selected = semanticClassProgram("Selected", "user", "Person", "")
+    selected.items.push(semanticImport("alpha", "User", "Person"))
+    semanticExpect(collectLexicalSemanticModule(selected, "selected",
+        "selected.seen", registry).success, "collect symbol alias")
+    semanticExpect(checkLexicalSemanticModule(selected, "selected",
+        "selected.seen", registry).success,
+        "selected import identity resolves")
+}
+
+fun testEncodedDeclarationKinds() r: Void {
+    let registry = SemanticDeclarationRegistry.new()
+    let alias = semanticClassProgram("Meters", "", "", "type_alias")
+    let traitProgram = semanticClassProgram("Drawable", "", "", "trait")
+    semanticExpect(collectLexicalSemanticModule(alias, "types", "types.seen",
+        registry).success, "collect type alias")
+    semanticExpect(collectLexicalSemanticModule(traitProgram, "types",
+        "types.seen", registry).success, "collect trait")
+    let aliasIndex = registry.findCanonical("types::Meters")
+    let traitIndex = registry.findCanonical("types::Drawable")
+    semanticExpect(registry.kinds[aliasIndex] == "TypeAlias",
+        "type alias kind exposed")
+    semanticExpect(registry.kinds[traitIndex] == "Trait",
+        "trait kind exposed")
+}
+
+fun testPackageAwareModuleIdentities() r: Void {
+    let rootPath = semanticNormalizeModuleIdentity(
+        "project/src/models/user.seen")
+    let leftPath = semanticNormalizeModuleIdentity(
+        "project/.seen/views/alice-left/source/src/models/user.seen")
+    let rightPath = semanticNormalizeModuleIdentity(
+        "project/.seen/views/bob-right/source/src/models/user.seen")
+    semanticExpect(rootPath != leftPath and leftPath != rightPath and
+        rootPath != rightPath,
+        "same relative module paths retain package/view identity")
+
+    let registry = SemanticDeclarationRegistry.new()
+    semanticExpect(registry.registerDeclaration(leftPath, "User", "Class",
+        leftPath + "::User", "left-user.seen", 1, 1),
+        "register left package type")
+    semanticExpect(registry.registerDeclaration(rightPath, "User", "Class",
+        rightPath + "::User", "right-user.seen", 1, 1),
+        "register right package type without collision")
+
+    let owner = semanticNormalizeModuleIdentity("project/src/main.seen")
+    registry.registerResolvedImportModule(owner, "left.models.user",
+        leftPath)
+    registry.registerResolvedImportModule(owner, "right.models.user",
+        rightPath)
+    registry.registerImport(owner, "LeftUser",
+        registry.resolveImportedModule(owner, "left.models.user"), "User")
+    registry.registerImport(owner, "RightUser",
+        registry.resolveImportedModule(owner, "right.models.user"), "User")
+    semanticExpect(registry.resolveTypeBase(owner, "LeftUser") ==
+        leftPath + "::User", "left package import keeps physical identity")
+    semanticExpect(registry.resolveTypeBase(owner, "RightUser") ==
+        rightPath + "::User", "right package import keeps physical identity")
+    semanticExpect(registry.resolveTypeBase(owner, "User") == "",
+        "same-leaf package type cannot bypass imports")
+}
+
+fun testSupportedEncodedTypes() r: Void {
+    let registry = SemanticDeclarationRegistry.new()
+    let encoded = semanticClassProgram("Encoded", "flag",
+        "Int:bitfield(1)", "")
+    let callback = ParamNode.new()
+    callback.name = "factory"
+    callback.paramType = semanticType("() -> Int")
+    callback.line = 2
+    callback.column = 5
+    encoded.items[0].classNode.fields.push(callback)
+    let checked = runLexicalSemanticPass(encoded, "encoded",
+        "encoded.seen", registry)
+    semanticExpect(checked.success,
+        "bitfield and function field types pass lexical semantics")
+}
+
+fun testGlobalInferenceProvenance() r: Void {
+    let registry = SemanticDeclarationRegistry.new()
+    let unresolved = ProgramNode.new()
+    let item = ItemNode.new()
+    item.itemType = "GlobalVar"
+    item.name = "mystery"
+    item.visibility = "LUnknown:"
+    item.line = 7
+    item.column = 5
+    unresolved.items.push(item)
+    let checked = runLexicalSemanticPass(unresolved, "globals",
+        "globals.seen", registry)
+    semanticExpect(not checked.success,
+        "unresolved top-level global inference fails closed")
+    semanticExpect(checked.diagnostics[0].code ==
+        "E_GLOBAL_TYPE_INFERENCE", "global inference diagnostic code")
+    semanticExpect(checked.diagnostics[0].location.line == 7 and
+        checked.diagnostics[0].location.column == 5,
+        "global inference diagnostic preserves location")
+
+    let explicitRegistry = SemanticDeclarationRegistry.new()
+    let explicit = ProgramNode.new()
+    let explicitItem = ItemNode.new()
+    explicitItem.itemType = "GlobalVar"
+    explicitItem.name = "count"
+    explicitItem.visibility = "LInt:"
+    explicit.items.push(explicitItem)
+    semanticExpect(runLexicalSemanticPass(explicit, "globals",
+        "globals.seen", explicitRegistry).success,
+        "explicit top-level global type remains valid")
+}
+
+fun testUnresolvedInferenceIdentity() r: Void {
+    let registry = SemanticDeclarationRegistry.new()
+    let program = semanticFunctionProgram("factory", "Int", "Int")
+    let statement = StatementNode.new()
+    statement.kind = "Let"
+    statement.variableName = "created"
+    statement.variableType = semanticType("Unknown")
+    statement.initializer = ParserExpressionNode.new()
+    statement.initializer.kind = "Call"
+    statement.initializer.callee = "make"
+    statement.initializer.literalType = ""
+    program.items[0].function.body.statements.push(statement)
+    semanticExpect(runLexicalSemanticPass(program, "inference",
+        "inference.seen", registry).success,
+        "unsupported call inference remains Unknown without Int fallback")
+}
+
+fun testKnownAndUnknownAssignmentTraversal() r: Void {
+    let failureRegistry = SemanticDeclarationRegistry.new()
+    let failure = semanticFunctionProgram("badWalk", "Int", "Int")
+    let unknownAssignment = StatementNode.new()
+    unknownAssignment.kind = "Expression"
+    let unknownExpression = ParserExpressionNode.new()
+    unknownExpression.kind = "Assignment"
+    unknownExpression.variableName = "missing"
+    unknownAssignment.expression = unknownExpression
+    failure.items[0].function.body.statements.push(unknownAssignment)
+    let checked = runLexicalSemanticPass(failure, "failure",
+        "failure.seen", failureRegistry)
+    semanticExpect(not checked.success and
+        checked.diagnostics[0].code == "E_BINDING_UNKNOWN",
+        "known assignment semantics fail closed")
+}
+
+fun testDiscardBindingsRemainNonbinding() r: Void {
+    let registry = SemanticDeclarationRegistry.new()
+    let program = semanticFunctionProgram("discard", "Int", "Int")
+    let first = StatementNode.new()
+    first.kind = "Let"
+    first.variableName = "_"
+    first.variableType = semanticType("Int")
+    first.initializer.kind = "Literal"
+    first.initializer.literalValue = "1"
+    first.initializer.literalType = "Int"
+    program.items[0].function.body.statements.push(first)
+    let second = StatementNode.new()
+    second.kind = "Let"
+    second.variableName = "_"
+    second.variableType = semanticType("Int")
+    second.initializer.kind = "Literal"
+    second.initializer.literalValue = "2"
+    second.initializer.literalType = "Int"
+    program.items[0].function.body.statements.push(second)
+    semanticExpect(runLexicalSemanticPass(program, "discard", "discard.seen",
+        registry).success, "repeated discard bindings do not collide")
+
+    let failureRegistry = SemanticDeclarationRegistry.new()
+    let failure = semanticFunctionProgram("discardFailure", "Int", "Int")
+    let discarded = StatementNode.new()
+    discarded.kind = "Let"
+    discarded.variableName = "_"
+    discarded.variableType = semanticType("Int")
+    discarded.initializer = semanticVariable("missing")
+    failure.items[0].function.body.statements.push(discarded)
+    let checked = runLexicalSemanticPass(failure, "discard_failure",
+        "discard-failure.seen", failureRegistry)
+    semanticExpect(not checked.success and
+        checked.diagnostics[0].code == "E_BINDING_UNKNOWN",
+        "discard initializers still undergo semantic traversal")
+}
+
+fun testReservedNullValueLiteral() r: Void {
+    let registry = SemanticDeclarationRegistry.new()
+    let program = semanticFunctionProgram("nullable", "Int", "Int")
+    let value = StatementNode.new()
+    value.kind = "Expression"
+    value.expression = semanticVariable("null")
+    program.items[0].function.body.statements.push(value)
+    semanticExpect(runLexicalSemanticPass(program, "null_value",
+        "null-value.seen", registry).success,
+        "the reserved null value is not an unresolved binding")
+
+    let assignmentRegistry = SemanticDeclarationRegistry.new()
+    let assignment = semanticFunctionProgram("badNullTarget", "Int", "Int")
+    let statement = StatementNode.new()
+    statement.kind = "Expression"
+    statement.expression.kind = "Assignment"
+    statement.expression.variableName = "null"
+    assignment.items[0].function.body.statements.push(statement)
+    let assignmentChecked = runLexicalSemanticPass(assignment, "null_target",
+        "null-target.seen", assignmentRegistry)
+    semanticExpect(not assignmentChecked.success and
+        assignmentChecked.diagnostics[0].code == "E_BINDING_UNKNOWN",
+        "the reserved null value cannot become an assignment target")
+}
+
+fun testStringBuilderBootstrapBuiltin() r: Void {
+    let registry = SemanticDeclarationRegistry.new()
+    let program = semanticClassProgram("JsonLike", "buffer",
+        "StringBuilder", "")
+    semanticExpect(runLexicalSemanticPass(program, "json_builder",
+        "json-builder.seen", registry).success,
+        "StringBuilder is available as a non-generic bootstrap builtin")
+
+    let invalidRegistry = SemanticDeclarationRegistry.new()
+    let invalid = semanticClassProgram("BadBuilder", "buffer",
+        "StringBuilder<Int>", "")
+    let checked = runLexicalSemanticPass(invalid, "bad_builder",
+        "bad-builder.seen", invalidRegistry)
+    semanticExpect(not checked.success and
+        checked.diagnostics[0].code == "E_TYPE_ARITY",
+        "StringBuilder rejects unsupported type arguments")
+}
+
+fun testTopLevelExtensionReceiverBinding() r: Void {
+    let registry = SemanticDeclarationRegistry.new()
+    let program = semanticFunctionProgram("String_trim", "Int", "String")
+    let returned = StatementNode.new()
+    returned.kind = "Return"
+    returned.returnValue = semanticVariable("this")
+    program.items[0].function.body.statements.push(returned)
+    semanticExpect(runLexicalSemanticPass(program, "extensions",
+        "extensions.seen", registry).success,
+        "canonicalized top-level extension methods receive this")
+
+    let failureRegistry = SemanticDeclarationRegistry.new()
+    let failure = semanticFunctionProgram("plainFunction", "Int", "Int")
+    let invalid = StatementNode.new()
+    invalid.kind = "Return"
+    invalid.returnValue = semanticVariable("this")
+    failure.items[0].function.body.statements.push(invalid)
+    let checked = runLexicalSemanticPass(failure, "extensions",
+        "plain-function.seen", failureRegistry)
+    semanticExpect(not checked.success and
+        checked.diagnostics[0].code == "E_BINDING_UNKNOWN",
+        "ordinary top-level functions do not receive this")
+}
+
+fun testImplicitOwningFieldBindings() r: Void {
+    let registry = SemanticDeclarationRegistry.new()
+    let program = semanticClassProgram("Counter", "stored", "Int", "")
+    program.items[0].classNode.fields[0].isMutable = true
+
+    let read = FunctionNode.new()
+    read.name = "read"
+    read.returnType = semanticType("Int")
+    let readReturn = StatementNode.new()
+    readReturn.kind = "Return"
+    readReturn.returnValue = semanticVariable("stored")
+    read.body.statements.push(readReturn)
+    program.items[0].classNode.methods.push(read)
+
+    let write = FunctionNode.new()
+    write.name = "write"
+    let writeStatement = StatementNode.new()
+    writeStatement.kind = "Expression"
+    writeStatement.expression.kind = "Assignment"
+    writeStatement.expression.variableName = "stored"
+    write.body.statements.push(writeStatement)
+    program.items[0].classNode.methods.push(write)
+
+    let parameterShadow = FunctionNode.new()
+    parameterShadow.name = "parameterShadow"
+    parameterShadow.returnType = semanticType("Int")
+    let shadowingParameter = ParamNode.new()
+    shadowingParameter.name = "stored"
+    shadowingParameter.paramType = semanticType("Int")
+    parameterShadow.params.push(shadowingParameter)
+    let parameterReturn = StatementNode.new()
+    parameterReturn.kind = "Return"
+    parameterReturn.returnValue = semanticVariable("stored")
+    parameterShadow.body.statements.push(parameterReturn)
+    program.items[0].classNode.methods.push(parameterShadow)
+
+    let localShadow = FunctionNode.new()
+    localShadow.name = "localShadow"
+    localShadow.returnType = semanticType("Int")
+    let local = StatementNode.new()
+    local.kind = "Let"
+    local.variableName = "stored"
+    local.variableType = semanticType("Int")
+    local.initializer.kind = "Literal"
+    local.initializer.literalValue = "1"
+    local.initializer.literalType = "Int"
+    localShadow.body.statements.push(local)
+    let localReturn = StatementNode.new()
+    localReturn.kind = "Return"
+    localReturn.returnValue = semanticVariable("stored")
+    localShadow.body.statements.push(localReturn)
+    program.items[0].classNode.methods.push(localShadow)
+
+    let explicitReceiver = FunctionNode.new()
+    explicitReceiver.name = "explicitReceiver"
+    explicitReceiver.returnType = semanticType("Int")
+    let receiverParameter = ParamNode.new()
+    receiverParameter.name = "this"
+    receiverParameter.paramType = semanticType("Counter")
+    explicitReceiver.params.push(receiverParameter)
+    let receiverReturn = StatementNode.new()
+    receiverReturn.kind = "Return"
+    receiverReturn.returnValue.kind = "MemberAccess"
+    receiverReturn.returnValue.literalValue = "this"
+    receiverReturn.returnValue.variableName = "stored"
+    explicitReceiver.body.statements.push(receiverReturn)
+    program.items[0].classNode.methods.push(explicitReceiver)
+
+    let checked = runLexicalSemanticPass(program, "fields", "fields.seen",
+        registry)
+    semanticExpect(checked.success,
+        "owning methods resolve implicit fields after locals and parameters")
+    semanticExpect(registry.hasDeclaredField("fields::Counter", "stored"),
+        "declared field metadata is queryable by canonical owner")
+    semanticExpect(registry.hasVisibleInstanceField("fields::Counter",
+        "stored"), "direct fields are visible in instance scope")
+
+    let outside = semanticFunctionProgram("outside", "Int", "Int")
+    let outsideReturn = StatementNode.new()
+    outsideReturn.kind = "Return"
+    outsideReturn.returnValue = semanticVariable("stored")
+    outside.items[0].function.body.statements.push(outsideReturn)
+    let outsideChecked = runLexicalSemanticPass(outside, "fields",
+        "outside-fields.seen", registry)
+    semanticExpect(not outsideChecked.success and
+        outsideChecked.diagnostics.length() == 1 and
+        outsideChecked.diagnostics[0].code == "E_BINDING_UNKNOWN",
+        "a class field name remains unknown outside its owning class")
+
+    let duplicateRegistry = SemanticDeclarationRegistry.new()
+    let duplicate = semanticFunctionProgram("duplicate", "Int", "Int")
+    let duplicateParameter = ParamNode.new()
+    duplicateParameter.name = "value"
+    duplicateParameter.paramType = semanticType("Int")
+    duplicate.items[0].function.params.push(duplicateParameter)
+    let duplicateChecked = runLexicalSemanticPass(duplicate, "duplicates",
+        "duplicates.seen", duplicateRegistry)
+    semanticExpect(not duplicateChecked.success and
+        duplicateChecked.diagnostics.length() == 1 and
+        duplicateChecked.diagnostics[0].code == "E_BINDING_DUPLICATE",
+        "explicit receiver shadowing does not permit duplicate parameters")
+}
+
+fun testInheritedImplicitFieldBindings() r: Void {
+    let registry = SemanticDeclarationRegistry.new()
+    let program = ProgramNode.new()
+    let base = semanticClassProgram("Base", "inherited", "Int", "")
+    program.items.push(base.items[0])
+    let child = semanticClassProgram("Child", "own", "Int", "")
+    child.items[0].classNode.parentName = "Base"
+    let inheritedRead = FunctionNode.new()
+    inheritedRead.name = "inheritedRead"
+    inheritedRead.returnType = semanticType("Int")
+    let inheritedReturn = StatementNode.new()
+    inheritedReturn.kind = "Return"
+    inheritedReturn.returnValue = semanticVariable("inherited")
+    inheritedRead.body.statements.push(inheritedReturn)
+    child.items[0].classNode.methods.push(inheritedRead)
+    program.items.push(child.items[0])
+
+    let checked = runLexicalSemanticPass(program, "inheritance",
+        "inheritance.seen", registry)
+    semanticExpect(checked.success and
+        registry.hasVisibleInstanceField("inheritance::Child", "inherited"),
+        "instance scope resolves fields through the declared parent chain")
+
+    let importedRegistry = SemanticDeclarationRegistry.new()
+    let provider = semanticClassProgram("Parent", "remoteField", "Int", "")
+    let importedChild = semanticClassProgram("ImportedChild", "own", "Int",
+        "")
+    importedChild.items[0].classNode.parentName = "RemoteBase"
+    importedChild.items.push(semanticImport("provider", "Parent",
+        "RemoteBase"))
+    let remoteRead = FunctionNode.new()
+    remoteRead.name = "remoteRead"
+    remoteRead.returnType = semanticType("Int")
+    let remoteReturn = StatementNode.new()
+    remoteReturn.kind = "Return"
+    remoteReturn.returnValue = semanticVariable("remoteField")
+    remoteRead.body.statements.push(remoteReturn)
+    importedChild.items[0].classNode.methods.push(remoteRead)
+    let providerCollected = collectLexicalSemanticModule(provider, "provider",
+        "provider.seen", importedRegistry)
+    let childCollected = collectLexicalSemanticModule(importedChild,
+        "consumer", "consumer.seen", importedRegistry)
+    let providerChecked = checkLexicalSemanticModule(provider, "provider",
+        "provider.seen", importedRegistry)
+    let childChecked = checkLexicalSemanticModule(importedChild, "consumer",
+        "consumer.seen", importedRegistry)
+    semanticExpect(providerCollected.success and childCollected.success and
+        providerChecked.success and childChecked.success and
+        importedRegistry.hasVisibleInstanceField("consumer::ImportedChild",
+            "remoteField"),
+        "import aliases resolve inherited fields in the child module")
+
+    let cycleRegistry = SemanticDeclarationRegistry.new()
+    semanticExpect(cycleRegistry.registerDeclaration("cycle", "A", "Class",
+        "cycle::A", "cycle.seen", 1, 1), "register cycle A")
+    semanticExpect(cycleRegistry.registerDeclaration("cycle", "B", "Class",
+        "cycle::B", "cycle.seen", 2, 1), "register cycle B")
+    cycleRegistry.registerLifecycleField("cycle::A", "cycle", "@parent",
+        "B", "cycle.seen", 1, 1)
+    cycleRegistry.registerLifecycleField("cycle::B", "cycle", "@parent",
+        "A", "cycle.seen", 2, 1)
+    semanticExpect(not cycleRegistry.hasVisibleInstanceField("cycle::A",
+        "missing"), "cyclic parent metadata terminates without a match")
+}
+
+fun testStaticMethodInstanceBindingsRejected() r: Void {
+    let bareRegistry = SemanticDeclarationRegistry.new()
+    let bareProgram = semanticClassProgram("StaticBare", "stored", "Int", "")
+    let bareMethod = FunctionNode.new()
+    bareMethod.name = "badBare"
+    bareMethod.isStatic = true
+    bareMethod.returnType = semanticType("Int")
+    let bareReturn = StatementNode.new()
+    bareReturn.kind = "Return"
+    bareReturn.returnValue = semanticVariable("stored")
+    bareMethod.body.statements.push(bareReturn)
+    bareProgram.items[0].classNode.methods.push(bareMethod)
+    let bareChecked = runLexicalSemanticPass(bareProgram, "static_bare",
+        "static-bare.seen", bareRegistry)
+    semanticExpect(not bareChecked.success and
+        bareChecked.diagnostics.length() == 1 and
+        bareChecked.diagnostics[0].code == "E_BINDING_UNKNOWN",
+        "static methods cannot resolve a bare instance field")
+
+    let thisRegistry = SemanticDeclarationRegistry.new()
+    let thisProgram = semanticClassProgram("StaticThis", "stored", "Int", "")
+    let thisMethod = FunctionNode.new()
+    thisMethod.name = "badThis"
+    thisMethod.isStatic = true
+    thisMethod.returnType = semanticType("Int")
+    let thisReturn = StatementNode.new()
+    thisReturn.kind = "Return"
+    thisReturn.returnValue.kind = "MemberAccess"
+    thisReturn.returnValue.literalValue = "this"
+    thisReturn.returnValue.variableName = "stored"
+    thisMethod.body.statements.push(thisReturn)
+    thisProgram.items[0].classNode.methods.push(thisMethod)
+    let thisChecked = runLexicalSemanticPass(thisProgram, "static_this",
+        "static-this.seen", thisRegistry)
+    semanticExpect(not thisChecked.success and
+        thisChecked.diagnostics.length() == 1 and
+        thisChecked.diagnostics[0].code == "E_BINDING_UNKNOWN" and
+        thisChecked.diagnostics[0].message.contains("this"),
+        "static methods cannot resolve an explicit this receiver")
+
+    let shadowRegistry = SemanticDeclarationRegistry.new()
+    let shadowProgram = semanticClassProgram("StaticShadow", "stored", "Int",
+        "")
+    let shadowMethod = FunctionNode.new()
+    shadowMethod.name = "shadow"
+    shadowMethod.isStatic = true
+    shadowMethod.returnType = semanticType("Int")
+    let shadowParameter = ParamNode.new()
+    shadowParameter.name = "stored"
+    shadowParameter.paramType = semanticType("Int")
+    shadowMethod.params.push(shadowParameter)
+    let shadowReturn = StatementNode.new()
+    shadowReturn.kind = "Return"
+    shadowReturn.returnValue = semanticVariable("stored")
+    shadowMethod.body.statements.push(shadowReturn)
+    shadowProgram.items[0].classNode.methods.push(shadowMethod)
+    semanticExpect(runLexicalSemanticPass(shadowProgram, "static_shadow",
+        "static-shadow.seen", shadowRegistry).success,
+        "a static parameter may shadow an instance field name")
+}
+
+fun testLifecyclePropertyFoundation() r: Void {
+    semanticExpect(semanticBuiltinLifecycleProperty("Int", "Copy") == 1 and
+        semanticBuiltinLifecycleProperty("Int", "Drop") == 0,
+        "scalar builtin lifecycle properties are explicit")
+    semanticExpect(semanticBuiltinLifecycleProperty("String", "Copy") == 0 and
+        semanticBuiltinLifecycleProperty("String", "Equatable") == 1 and
+        semanticBuiltinLifecycleProperty("String", "Drop") == 1,
+        "owning String is non-Copy with explicit equality and cleanup metadata")
+    semanticExpect(semanticBuiltinLifecycleProperty("ptr", "Send") == 0,
+        "raw pointers do not gain thread-safety properties")
+
+    let registry = SemanticDeclarationRegistry.new()
+    let program = ProgramNode.new()
+
+    let leaf = semanticClassProgram("Leaf", "value", "Int", "")
+    leaf.items[0].classNode.decorators.push(
+        AnnotationNode.new("trivially_copyable"))
+    leaf.items[0].classNode.decorators.push(AnnotationNode.new("send"))
+    leaf.items[0].classNode.decorators.push(AnnotationNode.new("sync"))
+    let equality = AnnotationNode.new("derive")
+    equality.arguments.push("Eq")
+    leaf.items[0].classNode.decorators.push(equality)
+    program.items.push(leaf.items[0])
+
+    let resource = semanticClassProgram("Resource", "handle", "Int", "")
+    resource.items[0].classNode.decorators.push(
+        AnnotationNode.new("c_resource"))
+    program.items.push(resource.items[0])
+    let holder = semanticClassProgram("Holder", "resource", "Resource", "")
+    program.items.push(holder.items[0])
+    let resourceChild = semanticClassProgram("ResourceChild", "tag", "Int", "")
+    resourceChild.items[0].classNode.parentName = "Resource"
+    program.items.push(resourceChild.items[0])
+    let sendChild = semanticClassProgram("SendChild", "tag", "Int", "")
+    sendChild.items[0].classNode.parentName = "Leaf"
+    sendChild.items[0].classNode.decorators.push(AnnotationNode.new("send"))
+    program.items.push(sendChild.items[0])
+
+    let checked = runLexicalSemanticPass(program, "lifecycle",
+        "lifecycle.seen", registry)
+    semanticExpect(checked.success,
+        "proved lifecycle markers and transitive Drop metadata pass")
+    semanticExpect(registry.hasLifecycleProperty("lifecycle::Leaf", "Copy") and
+        registry.hasLifecycleProperty("lifecycle::Leaf", "Equatable") and
+        registry.hasLifecycleProperty("lifecycle::Leaf", "Send") and
+        registry.hasLifecycleProperty("lifecycle::Leaf", "Sync"),
+        "existing declaration markers produce queryable proved properties")
+    semanticExpect(not registry.hasLifecycleProperty("lifecycle::Leaf", "Drop"),
+        "scalar-only Copy declaration does not require Drop")
+    semanticExpect(registry.hasLifecycleProperty("lifecycle::Resource", "Drop") and
+        not registry.hasLifecycleProperty("lifecycle::Resource", "Copy"),
+        "c_resource is Drop and non-Copy")
+    semanticExpect(registry.hasLifecycleProperty("lifecycle::Holder", "Drop"),
+        "Drop requirement derives transitively through aggregate fields")
+    semanticExpect(not registry.hasLifecycleProperty("lifecycle::Holder", "Copy"),
+        "unmarked owning class handles do not gain Copy")
+    semanticExpect(registry.hasLifecycleProperty("lifecycle::ResourceChild",
+        "Drop") and registry.hasLifecycleProperty("lifecycle::SendChild",
+        "Send"), "parent declarations participate in transitive properties")
+
+    let enumRegistry = SemanticDeclarationRegistry.new()
+    semanticExpect(enumRegistry.registerDeclaration("lifecycle", "State",
+        "Enum", "lifecycle::State", "state.seen", 1, 1),
+        "register unit enum lifecycle fixture")
+    semanticExpect(enumRegistry.hasLifecycleProperty("lifecycle::State", "Copy") and
+        enumRegistry.hasLifecycleProperty("lifecycle::State", "Equatable") and
+        not enumRegistry.hasLifecycleProperty("lifecycle::State", "Drop"),
+        "unit enum properties are explicit and cleanup-free")
+}
+
+fun testLifecyclePropertyFailures() r: Void {
+    let fieldRegistry = SemanticDeclarationRegistry.new()
+    let fieldProgram = ProgramNode.new()
+    let plain = semanticClassProgram("Plain", "value", "Int", "")
+    fieldProgram.items.push(plain.items[0])
+    let carrier = semanticClassProgram("Carrier", "plain", "Plain", "")
+    carrier.items[0].classNode.decorators.push(AnnotationNode.new("send"))
+    fieldProgram.items.push(carrier.items[0])
+    let fieldChecked = runLexicalSemanticPass(fieldProgram, "properties",
+        "properties.seen", fieldRegistry)
+    semanticExpect(not fieldChecked.success and
+        fieldChecked.diagnostics.length() == 1 and
+        fieldChecked.diagnostics[0].code == "E_PROPERTY_FIELD",
+        "explicit Send cannot override a non-Send field")
+    semanticExpect(fieldChecked.diagnostics[0].location.column == 20,
+        "property field diagnostic keeps the field source location")
+
+    let arrayRegistry = SemanticDeclarationRegistry.new()
+    let arrayOwner = semanticClassProgram("ArrayOwner", "values",
+        "Array<Int>", "")
+    arrayOwner.items[0].classNode.decorators.push(
+        AnnotationNode.new("trivially_copyable"))
+    let arrayChecked = runLexicalSemanticPass(arrayOwner, "array_property",
+        "array-property.seen", arrayRegistry)
+    semanticExpect(not arrayChecked.success and
+        arrayChecked.diagnostics[0].code == "E_PROPERTY_FIELD" and
+        not arrayRegistry.hasLifecycleProperty("array_property::ArrayOwner",
+            "Copy"),
+        "owning Array fields remain Drop and cannot be forced Copy")
+
+    let syncArrayRegistry = SemanticDeclarationRegistry.new()
+    let syncArray = semanticClassProgram("SyncArray", "values",
+        "Array<Int>", "")
+    syncArray.items[0].classNode.decorators.push(AnnotationNode.new("sync"))
+    let syncArrayChecked = runLexicalSemanticPass(syncArray,
+        "sync_array_property", "sync-array-property.seen", syncArrayRegistry)
+    semanticExpect(not syncArrayChecked.success and
+        syncArrayChecked.diagnostics[0].code == "E_PROPERTY_FIELD",
+        "mutable Array handles cannot smuggle Sync through element properties")
+
+    let sendArrayRegistry = SemanticDeclarationRegistry.new()
+    let sendArray = semanticClassProgram("SendArray", "values",
+        "Array<Int>", "")
+    sendArray.items[0].classNode.decorators.push(AnnotationNode.new("send"))
+    let sendArrayChecked = runLexicalSemanticPass(sendArray,
+        "send_array_property", "send-array-property.seen", sendArrayRegistry)
+    semanticExpect(not sendArrayChecked.success and
+        sendArrayChecked.diagnostics[0].code == "E_PROPERTY_UNPROVEN",
+        "mutable Array Send stays unproven before uniqueness analysis")
+
+    let genericRegistry = SemanticDeclarationRegistry.new()
+    let generic = semanticClassProgram("GenericBox", "value", "T", "")
+    let parameter = AnnotationNode.new("generic_parameter")
+    parameter.arguments.push("T")
+    parameter.arguments.push("")
+    generic.items[0].classNode.decorators.push(parameter)
+    generic.items[0].classNode.decorators.push(AnnotationNode.new("send"))
+    let genericChecked = runLexicalSemanticPass(generic, "generic_property",
+        "generic-property.seen", genericRegistry)
+    semanticExpect(not genericChecked.success and
+        genericChecked.diagnostics[0].code == "E_PROPERTY_UNPROVEN",
+        "generic-dependent property stays unproven before specialization")
+    semanticExpect(genericChecked.diagnostics[0].location.column == 20,
+        "unproven generic property points to the dependent field")
+
+    let conflictRegistry = SemanticDeclarationRegistry.new()
+    let conflict = semanticClassProgram("BadResource", "handle", "Int", "")
+    conflict.items[0].classNode.decorators.push(
+        AnnotationNode.new("trivially_copyable"))
+    conflict.items[0].classNode.decorators.push(
+        AnnotationNode.new("c_resource"))
+    let conflictChecked = runLexicalSemanticPass(conflict, "conflict",
+        "conflict.seen", conflictRegistry)
+    semanticExpect(not conflictChecked.success and
+        conflictChecked.diagnostics.length() == 1 and
+        conflictChecked.diagnostics[0].code == "E_PROPERTY_CONFLICT",
+        "Copy and Drop declarations are mutually exclusive")
+}
+
+fun testCrossModuleLifecycleProperties() r: Void {
+    let registry = SemanticDeclarationRegistry.new()
+    let provider = semanticClassProgram("Transfer", "value", "Int", "")
+    provider.items[0].classNode.decorators.push(AnnotationNode.new("send"))
+
+    let consumer = semanticClassProgram("Envelope", "payload", "Remote", "")
+    consumer.items[0].classNode.decorators.push(AnnotationNode.new("send"))
+    consumer.items.push(semanticImport("provider", "Transfer", "Remote"))
+
+    let providerCollected = collectLexicalSemanticModule(provider, "provider",
+        "provider.seen", registry)
+    let consumerCollected = collectLexicalSemanticModule(consumer, "consumer",
+        "consumer.seen", registry)
+    semanticExpect(providerCollected.success and consumerCollected.success,
+        "lifecycle declarations collect across modules")
+    let providerChecked = checkLexicalSemanticModule(provider, "provider",
+        "provider.seen", registry)
+    let consumerChecked = checkLexicalSemanticModule(consumer, "consumer",
+        "consumer.seen", registry)
+    semanticExpect(providerChecked.success and consumerChecked.success and
+        registry.hasLifecycleProperty("consumer::Envelope", "Send"),
+        "import aliases retain canonical transitive lifecycle properties")
+}
+
+fun testLifecyclePropertyCyclesAndIndirection() r: Void {
+    let cycleRegistry = SemanticDeclarationRegistry.new()
+    let cycle = ProgramNode.new()
+    let left = semanticClassProgram("Left", "right", "Right", "")
+    left.items[0].classNode.decorators.push(AnnotationNode.new("send"))
+    cycle.items.push(left.items[0])
+    let right = semanticClassProgram("Right", "left", "Left", "")
+    right.items[0].classNode.decorators.push(AnnotationNode.new("send"))
+    cycle.items.push(right.items[0])
+    let cycleChecked = runLexicalSemanticPass(cycle, "cycle", "cycle.seen",
+        cycleRegistry)
+    semanticExpect(not cycleChecked.success and
+        cycleChecked.diagnostics[0].code == "E_PROPERTY_CYCLE",
+        "mutual direct lifecycle dependency fails closed")
+    semanticExpect(cycleRegistry.lifecyclePropertyState("cycle::Left",
+        "Send") == -2, "cyclic property remains queryably unproved")
+
+    let pointerRegistry = SemanticDeclarationRegistry.new()
+    let pointerNode = semanticClassProgram("Node", "next", "*Node", "")
+    pointerNode.items[0].classNode.decorators.push(
+        AnnotationNode.new("trivially_copyable"))
+    let pointerChecked = runLexicalSemanticPass(pointerNode, "pointer_cycle",
+        "pointer-cycle.seen", pointerRegistry)
+    semanticExpect(pointerChecked.success and
+        pointerRegistry.hasLifecycleProperty("pointer_cycle::Node", "Copy"),
+        "explicit pointer indirection breaks direct Copy recursion")
+}
+
+fun main() r: Int {
+    testRegistryAndScopes()
+    testCrossModulePass()
+    testForwardCrossModulePass()
+    testFailClosedTypes()
+    testGenericDefinitionsRemainSymbolic()
+    testUserDefinedGenericTypeArity()
+    testImportBoundariesAndAmbiguity()
+    testImportQualifiedIdentities()
+    testEncodedDeclarationKinds()
+    testPackageAwareModuleIdentities()
+    testSupportedEncodedTypes()
+    testGlobalInferenceProvenance()
+    testUnresolvedInferenceIdentity()
+    testKnownAndUnknownAssignmentTraversal()
+    testDiscardBindingsRemainNonbinding()
+    testReservedNullValueLiteral()
+    testStringBuilderBootstrapBuiltin()
+    testTopLevelExtensionReceiverBinding()
+    testImplicitOwningFieldBindings()
+    testInheritedImplicitFieldBindings()
+    testStaticMethodInstanceBindingsRejected()
+    testLifecyclePropertyFoundation()
+    testLifecyclePropertyFailures()
+    testCrossModuleLifecycleProperties()
+    testLifecyclePropertyCyclesAndIndirection()
+    return 0
+}
+
+main()

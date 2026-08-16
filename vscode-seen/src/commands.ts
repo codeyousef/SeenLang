@@ -1,6 +1,5 @@
 // src/commands.ts
 import * as vscode from 'vscode';
-import { LanguageClient } from 'vscode-languageclient/node';
 import * as cp from 'child_process';
 import * as path from 'path';
 import { ReactiveVisualizer } from './reactive';
@@ -14,11 +13,42 @@ const SEEN_LANGUAGES = [
     { label: 'Japanese (ja)', value: 'ja' }
 ];
 
+const BENCHMARK_UNSUPPORTED_MESSAGE =
+    'seen benchmark is not supported by the shipped compiler. Use a project-specific benchmark harness for now.';
+const REPL_UNSUPPORTED_MESSAGE =
+    'seen repl is not supported by the shipped compiler.';
+
+type SeenTaskKind =
+    | 'compile'
+    | 'run'
+    | 'check'
+    | 'compile-shared'
+    | 'pkg-fetch'
+    | 'pkg-pack'
+    | 'pkg-prebuild'
+    | 'pkg-publish';
+
+const SEEN_TASK_CLI_PREFIXES: Record<SeenTaskKind, readonly string[]> = {
+    compile: ['compile'],
+    run: ['run'],
+    check: ['check'],
+    'compile-shared': ['compile'],
+    'pkg-fetch': ['pkg', 'fetch'],
+    'pkg-pack': ['pkg', 'pack'],
+    'pkg-prebuild': ['pkg', 'prebuild'],
+    'pkg-publish': ['pkg', 'publish']
+};
+
 function getSeenPath(): string {
     return vscode.workspace.getConfiguration('seen').get<string>('compiler.path', 'seen');
 }
 
-function createSeenTask(name: string, task: string, args: string[]): vscode.Task {
+function createSeenTask(name: string, task: SeenTaskKind, args: string[]): vscode.Task {
+    const expectedPrefix = SEEN_TASK_CLI_PREFIXES[task];
+    if (!expectedPrefix.every((part, index) => args[index] === part)) {
+        throw new Error(`Seen task '${task}' has an unsupported CLI invocation`);
+    }
+
     const seenPath = getSeenPath();
     const seenTask = new vscode.Task(
         { type: 'seen', task },
@@ -32,7 +62,7 @@ function createSeenTask(name: string, task: string, args: string[]): vscode.Task
     return seenTask;
 }
 
-async function executeSeenTask(name: string, task: string, args: string[]): Promise<void> {
+async function executeSeenTask(name: string, task: SeenTaskKind, args: string[]): Promise<void> {
     await vscode.tasks.executeTask(createSeenTask(name, task, args));
 }
 
@@ -168,7 +198,7 @@ function currentReactiveStreamInfo(document: vscode.TextDocument, position: vsco
     };
 }
 
-export function setupCommands(context: vscode.ExtensionContext, client: LanguageClient) {
+export function setupCommands(context: vscode.ExtensionContext) {
     // Compile command. Keep the seen.build command id for existing keybindings.
     context.subscriptions.push(
         vscode.commands.registerCommand('seen.build', async () => {
@@ -214,32 +244,21 @@ export function setupCommands(context: vscode.ExtensionContext, client: Language
     // Benchmark command
     context.subscriptions.push(
         vscode.commands.registerCommand('seen.benchmark', async () => {
-            const config = vscode.workspace.getConfiguration('seen');
-            const showInline = config.get<boolean>('benchmark.showInline', true);
-
-            if (showInline) {
-                // Run benchmarks and show results inline
-                const results = await runBenchmarks();
-                showBenchmarkResults(results);
-            } else {
-                await executeSeenTask('Seen Benchmark', 'benchmark', ['benchmark', '--json']);
-            }
+            vscode.window.showWarningMessage(BENCHMARK_UNSUPPORTED_MESSAGE);
         })
     );
 
     // Individual benchmark run (from CodeLens)
     context.subscriptions.push(
-        vscode.commands.registerCommand('seen.benchmark.run', async (uri: vscode.Uri, benchmarkName: string) => {
-            await executeSeenTask(`Benchmark: ${benchmarkName}`, 'benchmark', ['benchmark', '--filter', benchmarkName]);
+        vscode.commands.registerCommand('seen.benchmark.run', async () => {
+            vscode.window.showWarningMessage(BENCHMARK_UNSUPPORTED_MESSAGE);
         })
     );
 
     // Benchmark comparison (from CodeLens)
     context.subscriptions.push(
-        vscode.commands.registerCommand('seen.benchmark.compare', async (uri: vscode.Uri, benchmarkName: string) => {
-            const results = await runBenchmarks(benchmarkName);
-            // Show comparison view
-            vscode.window.showInformationMessage(`Benchmark comparison for ${benchmarkName} completed`);
+        vscode.commands.registerCommand('seen.benchmark.compare', async () => {
+            vscode.window.showWarningMessage(BENCHMARK_UNSUPPORTED_MESSAGE);
         })
     );
 
@@ -256,25 +275,14 @@ export function setupCommands(context: vscode.ExtensionContext, client: Language
                 return;
             }
 
-            try {
-                const formatted = await client.sendRequest('textDocument/formatting', {
-                    textDocument: { uri: document.uri.toString() },
-                    options: {
-                        tabSize: editor.options.tabSize as number,
-                        insertSpaces: editor.options.insertSpaces as boolean
-                    }
-                });
+            const formatting = vscode.workspace.getConfiguration('seen.formatting', document.uri);
+            if (!formatting.get<boolean>('enable', true)) {
+                vscode.window.showInformationMessage('Seen formatting is disabled in settings.');
+                return;
+            }
 
-                if (formatted && Array.isArray(formatted) && formatted.length > 0) {
-                    await editor.edit(editBuilder => {
-                        formatted.forEach((edit: any) => {
-                            const range = client.protocol2CodeConverter.asRange(edit.range);
-                            if (range) {
-                                editBuilder.replace(range, edit.newText);
-                            }
-                        });
-                    });
-                }
+            try {
+                await vscode.commands.executeCommand('editor.action.formatDocument');
             } catch (error) {
                 vscode.window.showErrorMessage('Failed to format document: ' + error);
             }
@@ -535,12 +543,7 @@ export function setupCommands(context: vscode.ExtensionContext, client: Language
     // Open REPL
     context.subscriptions.push(
         vscode.commands.registerCommand('seen.repl', async () => {
-            const terminal = vscode.window.createTerminal({
-                name: 'Seen REPL',
-                shellPath: vscode.workspace.getConfiguration('seen').get<string>('compiler.path', 'seen'),
-                shellArgs: ['repl']
-            });
-            terminal.show();
+            vscode.window.showWarningMessage(REPL_UNSUPPORTED_MESSAGE);
         })
     );
 
@@ -725,49 +728,4 @@ export function setupCommands(context: vscode.ExtensionContext, client: Language
             }
         })
     );
-}
-
-async function runBenchmarks(filter?: string): Promise<any> {
-    return new Promise((resolve, reject) => {
-        const args = filter ? ['benchmark', '--json', '--filter', filter] : ['benchmark', '--json'];
-        const child = cp.spawn(getSeenPath(), args, { cwd: workspaceRoot() });
-        let stdout = '';
-        let stderr = '';
-        child.stdout.on('data', data => { stdout += data.toString(); });
-        child.stderr.on('data', data => { stderr += data.toString(); });
-        child.on('error', reject);
-        child.on('close', code => {
-            if (code !== 0) {
-                reject(new Error(stderr || stdout || `seen benchmark exited with ${code}`));
-                return;
-            }
-            try {
-                const results = JSON.parse(stdout);
-                resolve(results);
-            } catch (e) {
-                reject(e);
-            }
-        });
-    });
-}
-
-function showBenchmarkResults(results: any) {
-    // Create output channel for benchmark results
-    const output = vscode.window.createOutputChannel('Seen Benchmarks');
-    output.clear();
-    output.appendLine('Benchmark Results');
-    output.appendLine('=================');
-
-    if (results.benchmarks) {
-        for (const bench of results.benchmarks) {
-            output.appendLine(`\n${bench.name}:`);
-            output.appendLine(`  Time: ${bench.mean}ms (\u00b1${bench.stddev}ms)`);
-            output.appendLine(`  Iterations: ${bench.iterations}`);
-            if (bench.throughput) {
-                output.appendLine(`  Throughput: ${bench.throughput} ops/sec`);
-            }
-        }
-    }
-
-    output.show();
 }

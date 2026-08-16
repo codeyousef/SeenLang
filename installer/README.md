@@ -1,296 +1,88 @@
-# Seen Language Installer
+# Seen installer tooling
 
-Installer system for the Seen programming language. Supports major platforms and package managers.
+This directory contains release-packaging scripts and templates for Seen
+0.10.1. It is maintainer tooling, not proof that every package is already
+published to a public package-manager repository.
 
-## Overview
+## Layout
 
-🚀 **Alpha Phase Complete** - The Seen Language installer now includes the world's most advanced compiler optimization technology:
+- `scripts/` — Unix and PowerShell binary-release installers
+- `linux/` — DEB, RPM, and AppImage builders
+- `windows/` — MSI/WiX builder and validation scripts
+- `homebrew/` — formula template and generator
+- `scoop/` — manifest template and generator
+- `test/` — installer/package smoke tests
+- `assets/` — icons and release assets
 
-### Revolutionary Optimization Features
-- ✅ **E-graph Optimization**: Equality saturation discovering optimizations LLVM misses
-- ✅ **Machine Learning**: Compiler learns from every compilation
-- ✅ **Superoptimization**: SMT-based provably optimal code generation
-- ✅ **Profile-Guided**: Automatic 20%+ performance improvements
-- ✅ **Memory Revolution**: Cache-oblivious, NUMA-aware optimization
-- ✅ **Multi-Architecture**: Perfect code for x86-64, ARM64, RISC-V, WASM
+The checked-in Homebrew and Scoop files are templates. Replace placeholder
+checksums with hashes from the exact 0.10.1 release assets before publishing.
 
-### Installation Methods
-- **Universal scripts** for automated installation
-- **Native installers** (MSI, DEB, RPM, AppImage)
-- **Package managers** (Homebrew, Scoop)
-- **Automated release pipeline** with continuous optimization updates
+## Installed command surface
 
-## Installation Methods
+An installation should provide a matched `seen` and `seen-pkg`. Optional helper
+binaries may also be present. The shipped compiler uses explicit source paths:
 
-### Universal Installation
-
-**Linux/macOS:**
 ```bash
-curl -sSL https://install.seen-lang.org | bash
+seen --version
+seen check src/main.seen
+seen run src/main.seen
+seen compile src/main.seen my-program
+./my-program
 ```
 
-**Windows:**
+Create `Seen.toml` and `src/main.seen` yourself; 0.10.1 does not ship `init`,
+`build`, `test`, `fmt`, or `clean` commands. New manifests begin with:
+
+```toml
+manifest-version = 1
+
+[project]
+name = "my_program"
+version = "0.1.0"
+language = "en"
+```
+
+The installed compiler is LLVM-only. Native compilation requires the
+version-matched runtime/stdlib payload plus LLVM 18 or newer tools (`clang`,
+`opt`, `llc`, `llvm-as`, and `lld`). Source rebuilds also require the Go version
+documented in [`docs/bootstrap.md`](../docs/bootstrap.md) to build the matching
+package helper; binary releases include that helper.
+
+## Building package artifacts
+
+Examples for the current release version:
+
+```bash
+installer/linux/build-deb.sh 0.10.1 amd64
+installer/linux/build-rpm.sh 0.10.1 x86_64
+installer/linux/build-appimage.sh 0.10.1 x86_64
+installer/homebrew/generate-formula.sh --version 0.10.1
+```
+
 ```powershell
-iwr https://install.seen-lang.org/install.ps1 | iex
+installer\windows\build.bat 0.10.1 x64
+installer\scoop\generate-manifest.ps1 -Version 0.10.1
 ```
 
-### Package Managers
+Each builder has its own host-tool prerequisites. Build release artifacts from
+a verified compiler payload and run the format-specific validation before
+publishing. Release archives should include the toolchain manifest/helper so an
+installation can diagnose or provision its LLVM dependency consistently.
 
-**macOS/Linux - Homebrew:**
-```bash
-brew install seen-lang
-```
+## Verification
 
-**Windows - Scoop:**
-```powershell
-scoop install seen-lang
-```
+At minimum, validate:
 
-### Native Packages
+1. archive/package checksums and signatures;
+2. installation and PATH behavior on a clean supported host;
+3. `seen --version` and matching `seen-pkg` version;
+4. `seen check`, `seen run`, and `seen compile` on a minimal `.seen` file;
+5. uninstall/upgrade behavior and absence of undeclared generated files.
 
-**Ubuntu/Debian:**
-```bash
-sudo apt install ./seen-lang_1.0.0_amd64.deb
-```
+Use `installer/test/integration-test.sh` for the repository's mock packaging
+workflow. It does not replace a clean-host test of the actual release artifact.
 
-**RHEL/CentOS/Fedora:**
-```bash
-sudo rpm -i seen-lang-1.0.0-1.x86_64.rpm
-```
-
-**Linux (Universal):**
-```bash
-chmod +x SeenLanguage-1.0.0-x86_64.AppImage
-./SeenLanguage-1.0.0-x86_64.AppImage
-```
-
-**Windows:**
-- Double-click `Seen-1.0.0-x64.msi`
-- Follow installation wizard
-
-## Directory Structure
-
-```
-installer/
-├── scripts/                    # Universal installation scripts
-│   ├── install.sh             # Unix/Linux/macOS installer
-│   └── install.ps1            # Windows PowerShell installer
-│
-├── windows/                   # Windows installers
-│   ├── seen.wxs              # WiX configuration
-│   ├── build-msi.ps1         # MSI build script
-│   ├── build.bat             # Batch wrapper
-│   └── validate-msi.ps1      # MSI validation
-│
-├── linux/                    # Linux packages
-│   ├── build-deb.sh          # Debian package builder
-│   ├── build-rpm.sh          # RPM package builder
-│   └── build-appimage.sh     # AppImage builder
-│
-├── macos/                     # macOS packages
-│   └── (future DMG support)
-│
-├── homebrew/                  # Homebrew formula
-│   ├── seen-lang.rb          # Formula template
-│   └── generate-formula.sh   # Formula generator
-│
-├── scoop/                     # Scoop manifest
-│   ├── seen-lang.json        # Manifest template
-│   └── generate-manifest.ps1 # Manifest generator
-│
-├── docker/                   # Docker images
-│   └── (future support)
-│
-└── assets/                   # Branding assets
-    ├── icons/
-    ├── banners/
-    └── screenshots/
-```
-
-## Building Installers
-
-### Prerequisites
-
-**Windows (MSI):**
-- WiX Toolset v3.11+
-- PowerShell 5.0+
-- Visual Studio Build Tools
-
-**Linux (DEB/RPM/AppImage):**
-- dpkg-dev (for DEB)
-- rpm-build (for RPM)
-- fuse (for AppImage)
-- Standard build tools
-
-### Build Commands
-
-Release tarballs include `lib/seen/toolchain/manifest.env` and
-`lib/seen/toolchain/seen-toolchain.sh`. Set `SEEN_LLVM_BUNDLE_DIR` while
-building a release to bundle a prepared LLVM tree, or install/check LLVM
-explicitly with `SEEN_MANAGED_TOOLCHAIN=1 ./install.sh <prefix>` after
-extracting a package. The required tools are LLVM 18+ `clang`, `opt`, `llc`,
-`llvm-as`, and `lld`.
-
-**Windows MSI:**
-```powershell
-cd installer/windows
-.\build.bat 1.0.0 x64
-```
-
-**Linux DEB:**
-```bash
-cd installer/linux
-./build-deb.sh 1.0.0 amd64
-```
-
-**Linux RPM:**
-```bash
-cd installer/linux  
-./build-rpm.sh 1.0.0 x86_64
-```
-
-**Linux AppImage:**
-```bash
-cd installer/linux
-./build-appimage.sh 1.0.0 x86_64
-```
-
-**Homebrew Formula:**
-```bash
-cd installer/homebrew
-./generate-formula.sh --version 1.0.0
-```
-
-**Scoop Manifest:**
-```powershell
-cd installer/scoop
-.\generate-manifest.ps1 -Version 1.0.0
-```
-
-## Automated Release Process
-
-The complete release process is automated via GitHub Actions:
-
-1. **Trigger**: Push tag or manual dispatch
-2. **Build**: Cross-platform binary compilation
-3. **Package**: Generate all installer formats
-4. **Release**: Create GitHub release with assets
-5. **Publish**: Update package manager repositories
-
-### GitHub Actions Workflow
-
-The release workflow supports:
-- ✅ Multi-platform builds (Windows, macOS, Linux)
-- ✅ Multi-architecture (x64, ARM64, RISC-V64)
-- ✅ All installer formats (MSI, DEB, RPM, AppImage)
-- ✅ Package manager manifests (Homebrew, Scoop)
-- ✅ Automated checksum generation
-- ✅ Draft/prerelease support
-
-## Configuration
-
-### Environment Variables
-
-**Universal Installer:**
-- `VERSION`: Target version (default: latest)
-- `INSTALL_DIR`: Installation directory
-- `ARCH`: Target architecture
-- `ADD_TO_PATH`: Add to PATH (true/false)
-- `INSTALL_STDLIB`: Install standard library (true/false)
-
-**Package Managers:**
-- `HOMEBREW_TAP_REPO`: Homebrew tap repository
-- `SCOOP_BUCKET_REPO`: Scoop bucket repository
-- GitHub tokens for automated publishing
-
-### Customization
-
-All installers support customization:
-- Installation directory
-- Component selection
-- PATH configuration
-- File associations
-- Desktop integration
-
-## Security
-
-### Code Signing
-
-**Windows:**
-- MSI packages support Authenticode signing
-- Configure signing certificate in build pipeline
-
-**macOS:**
-- Homebrew formulas support notarization
-- Apple Developer ID required for distribution
-
-### Checksums
-
-All packages include SHA256 checksums:
-- Automated generation during build
-- Verification in installation scripts
-- Published alongside releases
-
-## Testing
-
-### Validation Framework
-
-Each installer includes validation:
-- **Syntax validation**: Manifest/spec file format
-- **Dependency checking**: Required tools and libraries  
-- **Installation testing**: Full install/uninstall cycle
-- **Integration testing**: Package manager workflows
-
-### Manual Testing
-
-**Before Release:**
-1. Test universal installers on clean systems
-2. Verify package manager integration
-3. Test upgrade/downgrade scenarios
-4. Validate PATH and environment setup
-5. Check desktop integration
-
-## Troubleshooting
-
-### Common Issues
-
-**Universal Installer:**
-- **Permission denied**: Run with appropriate privileges
-- **Network timeout**: Check internet connection and proxy
-- **Path not found**: Restart shell or run `source ~/.bashrc`
-
-**Windows MSI:**
-- **WiX not found**: Install WiX Toolset and set WIX environment variable
-- **Signing failed**: Configure code signing certificate
-- **Installation blocked**: Check Windows Defender and Group Policy
-
-**Linux Packages:**
-- **Dependencies missing**: Install required build tools
-- **Architecture mismatch**: Use correct architecture flag
-- **Permission error**: Use `sudo` for system-wide installation
-
-**Package Managers:**
-- **Formula/manifest outdated**: Check for updates in tap/bucket
-- **Checksum mismatch**: Wait for cache refresh or clear cache
-- **Version not found**: Verify release exists on GitHub
-
-### Support
-
-- **Documentation**: https://docs.seen-lang.org/installation
-- **Issues**: https://github.com/codeyousef/SeenLang/issues
-- **Community**: https://discord.gg/seen-lang
-
-## Contributing
-
-Improvements to the installer system are welcome:
-
-1. **Bug Fixes**: Report and fix installation issues
-2. **New Platforms**: Add support for additional platforms
-3. **Package Managers**: Integrate with more package managers
-4. **Automation**: Improve build and release processes
-
-See [CONTRIBUTING.md](../CONTRIBUTING.md) for details.
-
-## License
-
-The installer system is licensed under the same terms as Seen Language (MIT License).
+See [`docs/getting-started.md`](../docs/getting-started.md),
+[`docs/cli-reference.md`](../docs/cli-reference.md), and
+[`docs/targets.md`](../docs/targets.md) for the current language/toolchain
+instructions.

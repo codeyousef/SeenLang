@@ -9,13 +9,19 @@ Seen interoperates with C through `extern` function declarations and the runtime
 Declare C functions with `extern fun`:
 
 ```seen
-extern fun printf(format: String) r: Int
-extern fun malloc(size: Int) r: Int
-extern fun free(ptr: Int)
-extern fun strlen(s: String) r: Int
+extern fun malloc(size: UInt64) r: *Void
+extern fun free(value: *Void)
+extern fun strlen(value: *const UInt8) r: UInt64
 ```
 
-Functions starting with `__` and having an empty body are treated as external declarations:
+Use pointer types for C pointer parameters. A Seen `String` is the two-field
+`SeenString` value described below; it is not implicitly a NUL-terminated
+`char *`. Convert or wrap C strings explicitly and verify every declaration
+against the C header for the selected target.
+
+Compiler and standard-library internals still contain legacy `__`-prefixed
+empty-body declarations. They are a bootstrap compatibility path, not the
+public FFI grammar. Application code should use explicit `extern fun`:
 
 ```seen
 fun __OpenFile(path: String, mode: String) r: Int {}
@@ -26,11 +32,10 @@ fun __CloseFile(fd: Int) r: Int {}
 ### Using C functions
 
 ```seen
-extern fun time(t: Int) r: Int
+extern fun seen_memory_used_bytes() r: Int
 
 fun main() {
-    let now = time(0)
-    println("Unix timestamp: {now}")
+    println("Seen-managed bytes: {seen_memory_used_bytes()}")
 }
 ```
 
@@ -42,9 +47,9 @@ Pass linker flags via the compiler:
 seen compile app.seen app    # automatically links -lm -lpthread
 ```
 
-The compiler always links:
-- `-lm` (math library)
-- `-lpthread` (POSIX threads)
+Native Linux links the math and pthread runtime dependencies by default. Other
+targets use their target-specific runtime libraries; do not add POSIX link
+assumptions to Windows, Android, or Apple builds.
 
 Additional libraries (e.g., `-lvulkan`) are added when GPU features are used.
 
@@ -53,13 +58,16 @@ Additional libraries (e.g., `-lvulkan`) are added when GPU features are used.
 For native shims that live inside your project, declare the library in `Seen.toml` and add a local search path:
 
 ```toml
-[dependencies]
-seen_platform = { system = true, path = "native/lib" }
+[native.dependencies]
+seen_platform = { path = "native/lib" }
 ```
 
 `path` is resolved relative to the nearest `Seen.toml`. Seen adds `-L<resolved-path>` during linking. On native Linux/macOS builds it also records that directory as a runtime search path, so `seen compile` outputs run without extra `LIBRARY_PATH` or `LD_LIBRARY_PATH` wrappers.
 
-## @cImport
+Legacy `{ system = true }` entries under `[dependencies]` remain accepted, but
+new manifests should use `[native.dependencies]`.
+
+## Importing C declarations
 
 Generate Seen bindings from a C header file:
 
@@ -71,10 +79,15 @@ This parses the C header and outputs `extern fun` declarations.
 
 ## Exposing Seen to C
 
-Seen functions can be called from C when compiled as a library. The function name is preserved in the generated object file.
+Seen declarations exposed to C need an ABI reviewed against emitted LLVM IR.
+`pub` controls Seen visibility; it is not by itself a native export. Use
+`@export` to preserve an unmangled symbol, `@repr(C)` for supported
+layout-sensitive data, and inspect the object signature before publishing a
+header.
 
 ```seen
-pub fun add(a: Int, b: Int) r: Int {
+@export
+fun add(a: Int, b: Int) r: Int {
     return a + b
 }
 ```
@@ -119,7 +132,7 @@ class NetworkPacket {
 ```c
 typedef struct {
     int64_t len;
-    const char* data;
+    char* data;
 } SeenString;
 ```
 
@@ -149,14 +162,20 @@ The Seen runtime (`seen_runtime/seen_runtime.c`) provides ~170 C functions that 
 
 ## C Interop Utilities
 
-The standard library provides helpers in `seen_std/src/ffi/`:
+The standard library currently provides bootstrap compatibility wrappers in
+`seen_std/src/ffi/`:
 
 ```seen
-import ffi
+import ffi.cinterop.{CString, toCString, fromCString}
 
-let cstr = toCString("hello")    // Seen String → CString
-let str = fromCString(cstr)       // CString → Seen String
+let wrapped = toCString("hello")
+let text = fromCString(wrapped)
 ```
+
+`CString` currently stores a Seen `String`; `toCString` does not allocate a
+NUL-terminated `char *`. At a real C boundary, use the reviewed runtime
+conversion helpers (`seen_str_to_cstr` returns an allocated copy) or a native
+shim with an explicit ownership contract.
 
 Type mapping helpers:
 

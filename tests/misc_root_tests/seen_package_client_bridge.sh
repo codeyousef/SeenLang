@@ -2,10 +2,25 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-TMP_DIR="$(mktemp -d /tmp/seen_package_bridge.XXXXXX)"
+source "$ROOT_DIR/scripts/artifact_root.sh"
+seen_artifact_root_init "$ROOT_DIR"
+ARTIFACT_SCOPE="$(seen_artifact_scope_init package-client-bridge)"
+TMP_DIR="$(seen_artifact_mktemp_dir "$ARTIFACT_SCOPE" run)"
 
 cleanup() {
-    rm -rf "$TMP_DIR"
+    status=$?
+    case "$TMP_DIR" in
+        "$ARTIFACT_SCOPE"/run.*)
+            if [[ -d "$TMP_DIR" && ! -L "$TMP_DIR" ]]; then
+                rm -rf -- "$TMP_DIR"
+            fi
+            ;;
+        *)
+            echo "refusing to remove unexpected package bridge path: $TMP_DIR" >&2
+            status=1
+            ;;
+    esac
+    exit "$status"
 }
 trap cleanup EXIT
 

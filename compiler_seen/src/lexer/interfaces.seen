@@ -108,15 +108,15 @@ class Position {
 }
 
 // Utility functions - stubbed for bootstrap (match not supported in Stage1)
-fun tokenTypeIsOperator(tokenType: TokenType) r: Bool {
+fun tokenTypeIsOperator(tokenType: SeenTokenType) r: Bool {
     return false
 }
 
-fun tokenTypeIsLiteral(tokenType: TokenType) r: Bool {
+fun tokenTypeIsLiteral(tokenType: SeenTokenType) r: Bool {
     return false
 }
 
-fun tokenTypeIsKeyword(tokenType: TokenType) r: Bool {
+fun tokenTypeIsKeyword(tokenType: SeenTokenType) r: Bool {
     return false
 }
 

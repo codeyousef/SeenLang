@@ -3,10 +3,26 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 COMPILER="${SEEN_BIN:-$ROOT_DIR/compiler_seen/target/seen}"
-TMP_DIR="$(mktemp -d /tmp/seen_package_run_prepare.XXXXXX)"
+CAPPED_ENTRY="$ROOT_DIR/scripts/run_capped_regression.sh"
+SCOPE=seen-package-run-preparation
+if [ "${SEEN_CAPPED_REGRESSION_ACTIVE:-0}" != "1" ]; then
+    exec bash "$CAPPED_ENTRY" "$SCOPE" --compiler "$COMPILER" -- \
+        bash "$0" "$@"
+fi
+COMPILER="${SEEN_CAPPED_REGRESSION_COMPILER:-$COMPILER}"
+bash "$CAPPED_ENTRY" --verify-active "$SCOPE" --compiler "$COMPILER"
+ATTESTED_SEEN="${SEEN_ATTESTED_COMPILER_RUNNER:?}"
+TMP_DIR="$(mktemp -d "$SEEN_ARTIFACT_ROOT/seen-package-run-preparation.XXXXXX")"
 
 cleanup() {
-    rm -rf "$TMP_DIR"
+    case "$TMP_DIR" in
+        "$SEEN_ARTIFACT_ROOT"/seen-package-run-preparation.*)
+            [ -d "$TMP_DIR" ] && [ ! -L "$TMP_DIR" ] &&
+                [ "$(dirname -- "$TMP_DIR")" = "$SEEN_ARTIFACT_ROOT" ] || return 1
+            rm -rf -- "$TMP_DIR"
+            ;;
+        *) return 1 ;;
+    esac
 }
 trap cleanup EXIT
 
@@ -82,7 +98,8 @@ chmod 755 "$HELPER"
 
 set +e
 SEEN_PACKAGE_CLIENT="$HELPER" SEEN_RUN_PREP_CAPTURE="$CAPTURE" \
-    "$COMPILER" run "$PROJECT/src/main.seen" --frozen \
+    bash "$ATTESTED_SEEN" "$COMPILER" run \
+    "$PROJECT/src/main.seen" --frozen \
     >"$TMP_DIR/compiler.out" 2>&1
 status=$?
 set -e

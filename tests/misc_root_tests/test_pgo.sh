@@ -1,6 +1,10 @@
 #!/bin/bash
 # Test PGO generate → merge → use cycle
 # Verifies the full PGO workflow produces valid binaries
+# Historical direct-entry fixture; fixed profile paths are intentionally kept
+# only as documentation until this test is migrated to project-local artifacts.
+echo "RESOURCE STOP: legacy PGO fixture is disabled until capped migration" >&2
+exit 126
 
 set -e
 

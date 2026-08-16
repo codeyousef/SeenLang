@@ -5,6 +5,7 @@ fun main() r: Int {
     source = source + "extern fun cputs(value: String) r: Int;\n"
     source = source + "type AliasInt = Int\n"
     source = source + "var globalWidget = Widget.new()\n"
+    source = source + "var unresolvedGlobal = unknownFactory()\n"
     source = source + "class Widget {\n"
     source = source + "    value: Int\n"
     source = source + "    static fun new() r: Widget {\n"
@@ -42,6 +43,7 @@ fun main() r: Int {
     var sawGlobal = false
     var sawLargeBody = false
     var sawImplFunction = false
+    var preservedUnknownGlobal = false
 
     var idx = 0
     while idx < result.program.items.length() {
@@ -76,6 +78,10 @@ fun main() r: Int {
         if item.itemType == "GlobalVar" and item.name == "globalWidget" {
             sawGlobal = item.visibility.contains("Widget")
         }
+        if item.itemType == "GlobalVar" and item.name == "unresolvedGlobal" {
+            preservedUnknownGlobal = item.visibility.contains("Unknown") and
+                not item.visibility.contains("Int")
+        }
         idx = idx + 1
     }
 
@@ -85,5 +91,6 @@ fun main() r: Int {
     if not sawGlobal { return 5 }
     if not sawLargeBody { return 6 }
     if not sawImplFunction { return 7 }
+    if not preservedUnknownGlobal { return 8 }
     return 0
 }

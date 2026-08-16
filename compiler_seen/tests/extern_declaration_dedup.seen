@@ -1,0 +1,44 @@
+import str.string.{StringBuilder}
+import codegen.ir_declarations.{emitExternDeclImpl}
+
+fun externDedupExpect(condition: Bool, message: String) r: Void {
+    if not condition { abort(message) }
+}
+
+fun main() r: Int {
+    let oneIntParam = Array<String>()
+    oneIntParam.push("i64")
+
+    let exact = StringBuilder.new()
+    let exactPrelude =
+        "declare i64 @seen_stack_region_new(i64) nounwind\n"
+    exact.append(exactPrelude)
+    emitExternDeclImpl(exact, "seen_stack_region_new",
+        "seen_stack_region_new", oneIntParam, 1, "i64", 0)
+    externDedupExpect(exact.toString() == exactPrelude,
+        "an exact prelude declaration must remain the sole declaration")
+
+    let fourIntParams = Array<String>()
+    fourIntParams.push("i64")
+    fourIntParams.push("i64")
+    fourIntParams.push("i64")
+    fourIntParams.push("i64")
+    let mismatch = StringBuilder.new()
+    mismatch.append(
+        "declare i64 @seen_mapped_new(i64, ptr, i64, i64) nounwind\n")
+    emitExternDeclImpl(mismatch, "seen_mapped_new", "seen_mapped_new",
+        fourIntParams, 4, "i64", 0)
+    externDedupExpect(mismatch.toString().contains(
+        "declare i64 @seen_mapped_new(i64, i64, i64, i64)"),
+        "a conflicting same-name ABI must not be silently suppressed")
+
+    let alias = StringBuilder.new()
+    alias.append("declare i64 @native_symbol(i64) nounwind\n")
+    emitExternDeclImpl(alias, "seen_alias", "native_symbol", oneIntParam,
+        1, "i64", 0)
+    externDedupExpect(alias.toString().contains(
+        "define i64 @seen_alias(i64 %p0)"),
+        "deduplicating the external symbol must preserve its alias wrapper")
+
+    return 0
+}

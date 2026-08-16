@@ -35,7 +35,7 @@ Location: `compiler_seen/src/parser/`
 - Recursive-descent parser centered on `real_parser.seen`.
 - Produces program, declaration, statement, and expression nodes.
 - Parses current syntax including package imports, `effect(Token)`,
-  `@using`, `@operator`, nullable/nullish forms, `when`, closures, sealed
+  `@using`, `fun operator+` declarations, nullable/nullish forms, `when`, closures, sealed
   classes, traits/interfaces, module namespace aliases, facade `component`
   functions, named arguments, trailing/named slot blocks, UI `state` /
   `computed` / `uiEffect` constructs, and hot-reload-facing shared-module
@@ -45,12 +45,12 @@ Location: `compiler_seen/src/parser/`
 
 Location: `compiler_seen/src/typechecker/`
 
-- Runs frontend type validation and diagnostics.
-- Tracks scoped symbols, nullable information, deterministic-mode checks, and
-  effect/capability requirements.
-- Emits conservative warning diagnostics for unreachable statements, unused
-  locals, unused parameters, unused private top-level functions, unused import
-  symbols, and unused whole-module imports.
+Type validation is split across the bootstrap/frontend path, focused
+typechecker modules, and whole-program checks in `main_compiler.seen`; there is
+not one monolithic authoritative pass. The `TypeChecker` interface module also
+serves compatibility callers. Together these paths track scoped symbols,
+nullable information, deterministic-mode checks, effect/capability
+requirements, and conservative unused/unreachable warnings.
 
 ### Bootstrap Frontend
 
@@ -119,8 +119,8 @@ Important target controls include `--target`, `--target-cpu`, `--simd`,
 The compiler uses source-level and IR-level caches:
 
 - `.seen_cache/`
-- `/tmp/seen_ir_cache`
-- `/tmp/seen_thinlto_cache`
+- `<SEEN_ARTIFACT_ROOT>/seen_ir_cache/`
+- `<SEEN_ARTIFACT_ROOT>/seen_thinlto_cache/`
 - `target/seen-build/runtime-objects/`
 - `target/seen-build/release-lto/`
 
@@ -147,8 +147,9 @@ signature-keyed merged-LTO object while preserving the default merged-LTO mode.
 
 `seen compile --emit-module-ir-dir <dir> --stop-after-ir` writes raw per-module
 LLVM IR into a caller-owned directory and exits before object emission/linking.
-Packaging and cross-build scripts use this instead of scraping global `/tmp`
-module artifacts.
+Packaging and cross-build scripts use this instead of scraping compiler-owned
+scratch artifacts. By default, compiler scratch and these caches live below
+the checkout's ignored `.seen/agent-tools/compiler/` directory.
 
 `SEEN_TRACE_BUILD=<path>` writes JSONL build events
 from rebuild scripts and compiler phases such as module discovery, declaration
@@ -182,7 +183,7 @@ alias. Compiler trace events use millisecond timestamps and escaped JSON fields.
 | `Array<T>` | runtime array handle/pointer |
 | Class/value handles | pointer or handle depending on lowering path |
 | Simple enum | integer tag |
-| Data enum | allocated payload/tag representation |
+| Payload/data enum | experimental payload/tag paths; verify each use with a focused test |
 
 ## Contributing to the Compiler
 

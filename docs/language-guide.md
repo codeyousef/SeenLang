@@ -107,7 +107,17 @@ fun add(a: Int, b: Int) r: Int {
 }
 ```
 
-### Default parameters are not yet supported — use overloads or optional types.
+### Default parameters
+
+Trailing literal defaults are supported:
+
+```seen
+fun add(a: Int, b: Int = 10) r: Int {
+    return a + b
+}
+
+let total = add(5)
+```
 
 ## Facade Components
 
@@ -215,9 +225,10 @@ let result = when value {
 ### match on enums
 
 ```seen
-when shape {
-    is Circle(r) => println("Circle with radius {r}")
-    is Rectangle(w, h) => println("Rectangle {w}x{h}")
+match direction {
+    is Direction.North -> println("north")
+    is Direction.South -> println("south")
+    else -> println("horizontal")
 }
 ```
 
@@ -323,22 +334,15 @@ enum Direction {
 }
 ```
 
-### Data-carrying enum
-
-```seen
-enum Shape {
-    Circle(radius: Float)
-    Rectangle(width: Float, height: Float)
-    Triangle(base: Float, height: Float)
-}
-```
-
 ### Using enums
 
 ```seen
 let dir = Direction.North
-let shape = Shape.Circle(5.0)
 ```
+
+The production 0.10 compiler has exercised codegen for plain identifier
+variants. Treat payload variants as experimental until a focused parser,
+exhaustiveness, construction, and codegen test covers the exact form.
 
 ## Traits and impl
 
@@ -346,7 +350,7 @@ let shape = Shape.Circle(5.0)
 
 ```seen
 trait Printable {
-    fun display() r: String
+    fun display(this: Printable) r: String
 }
 ```
 
@@ -354,7 +358,7 @@ trait Printable {
 
 ```seen
 impl Printable for Point {
-    fun display() r: String {
+    fun display(this: Point) r: String {
         return "({this.x}, {this.y})"
     }
 }
@@ -367,6 +371,9 @@ fun printItem<T: Printable>(item: T) {
     println(item.display())
 }
 ```
+
+Use `dyn Printable` where a tested call path needs runtime vtable dispatch.
+Both trait and implementation signatures declare the receiver explicitly.
 
 ## Generics
 
@@ -676,16 +683,21 @@ diagnosed by the compiler.
 Annotations start with `@` and attach metadata to declarations:
 
 ```seen
-@using("libm")
-extern fun cos(x: Float) r: Float
+@using(FileToken)
+fun readConfig(token: FileToken) r: String {
+    return readText("config.toml")
+}
 
-@operator("+")
-fun addVec(a: Vec2, b: Vec2) r: Vec2 {
-    return Vec2.new(a.x + b.x, a.y + b.y)
+@repr(C)
+class NativePoint {
+    var x: Float
+    var y: Float
 }
 ```
 
-Common annotations include `@using`, `@operator`, `@export`, `@cfg`,
+`@using(...)` declares capability tokens; it is not a native-library linker
+directive. Declare linker dependencies in `[native.dependencies]` in
+`Seen.toml`. Common annotations include `@using`, `@export`, `@cfg`,
 `@compute`, `@derive`, and `@reflect`.
 
 ## Operator Overloading
@@ -695,15 +707,18 @@ class Vec2 {
     var x: Float
     var y: Float
 
-    operator fun +(other: Vec2) r: Vec2 {
+    fun operator+(other: Vec2) r: Vec2 {
         return Vec2.new(this.x + other.x, this.y + other.y)
     }
 
-    operator fun *(scalar: Float) r: Vec2 {
+    fun operator*(scalar: Float) r: Vec2 {
         return Vec2.new(this.x * scalar, this.y * scalar)
     }
 }
 ```
+
+The operator symbol is part of the method name (`operator+`, `operator-`,
+`operator*`, and so on); `operator fun +` is not the active grammar.
 
 ## Unsafe Blocks
 

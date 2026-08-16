@@ -246,6 +246,11 @@ fun run_frontend_declarations(source: String, fileLabel: String, language: Strin
 
     let parser: RealParser = newRealParserCompat(tokens)
     result.program = parser.parseDeclarationsOnly()
+    frontendAddUnsupportedPayloadEnumDiagnostics(result, fileLabel,
+        result.program)
+    if result.hasErrors() {
+        return result
+    }
     result.success = true
     return result
 }
@@ -880,6 +885,35 @@ fun facadeValidateStatement(result: FrontendResult, fileLabel: String,
     stmt: StatementNode, functions: Array<FunctionNode>, insideComponent: Bool)
     r: Void {
 
+    if stmt.kind == "ParallelFor" and
+        (stmt.expression.kind != "Range" or
+            stmt.expression.operands.length() != 2) {
+
+        facadeAddDiagnostic(result, fileLabel, "error", "E007",
+            "parallel_for requires an exclusive start..end range.",
+            "Use parallel_for item in start..end { ... }.")
+    }
+
+    if stmt.kind == "ComptimeAssert" or stmt.kind == "ComptimeIf" {
+        if not frontendComptimeExpressionIsSupported(stmt.expression) {
+            facadeAddDiagnostic(result, fileLabel, "error", "E008",
+                stmt.kind + " condition is not supported by the compile-time evaluator.",
+                "Use literals, compile-time bindings, target predicates, or supported deterministic operators.")
+        }
+    }
+
+    if stmt.kind == "ComptimeAssert" and
+        frontendComptimeExpressionIsDefinitelyFalse(stmt.expression) {
+
+        facadeAddDiagnostic(result, fileLabel, "error", "E008",
+            "compile-time assertion failed.",
+            "Fix the assertion condition; comptime assertions never become runtime exits.")
+    }
+
+    if stmt.kind == "ComptimeBlock" {
+        frontendValidateComptimeBlock(result, fileLabel, stmt.thenBranch)
+    }
+
     if stmt.kind == "UiState" or stmt.kind == "UiComputed" or
         stmt.kind == "UiEffect" {
         if not insideComponent {
@@ -941,6 +975,105 @@ fun facadeValidateStatement(result: FrontendResult, fileLabel: String,
     }
 }
 
+fun frontendComptimeExpressionIsSupported(expr: ParserExpressionNode) r: Bool {
+    if expr.kind == "Literal" {
+        return expr.literalType == "Int" or expr.literalType == "Bool" or
+            expr.literalType == "String"
+    }
+    if expr.kind == "Variable" or expr.kind == "VarExpr" {
+        return true
+    }
+    if expr.kind == "MemberAccess" {
+        return expr.literalValue == "target"
+    }
+    if expr.kind == "Binary" {
+        if expr.operands.length() != 2 {
+            return false
+        }
+        let op = expr.operator
+        if op != "+" and op != "-" and op != "*" and op != "/" and
+            op != "==" and op != "!=" and op != "<" and op != ">" and
+            op != "<=" and op != ">=" {
+
+            return false
+        }
+        return frontendComptimeExpressionIsSupported(expr.operands[0]) and
+            frontendComptimeExpressionIsSupported(expr.operands[1])
+    }
+    if expr.kind == "Unary" {
+        return expr.operands.length() == 1 and
+            (expr.operator == "-" or expr.operator == "not" or
+                expr.operator == "!") and
+            frontendComptimeExpressionIsSupported(expr.operands[0])
+    }
+    if expr.kind == "Call" {
+        if expr.callee != "sizeof" and expr.callee != "typeFields" and
+            expr.callee != "typeFieldCount" and
+            expr.callee != "typeFieldSize" and expr.callee != "toString" and
+            expr.callee != "typeFieldName" and
+            expr.callee != "typeFieldType" {
+
+            return false
+        }
+        var i = 0
+        while i < expr.arguments.length() {
+            if not frontendComptimeExpressionIsSupported(expr.arguments[i]) {
+                return false
+            }
+            i = i + 1
+        }
+        return true
+    }
+    return false
+}
+
+fun frontendComptimeExpressionIsDefinitelyFalse(expr: ParserExpressionNode)
+    r: Bool {
+
+    if expr.kind != "Literal" {
+        return false
+    }
+    if expr.literalType == "Bool" {
+        return expr.literalValue == "false"
+    }
+    if expr.literalType == "Int" {
+        return expr.literalValue == "0"
+    }
+    return false
+}
+
+fun frontendValidateComptimeBlock(result: FrontendResult, fileLabel: String,
+    block: BlockNode) r: Void {
+
+    var i = 0
+    while i < block.statements.length() {
+        let inner = block.statements[i]
+        var supported = false
+        if inner.kind == "Let" or inner.kind == "Var" {
+            supported = frontendComptimeExpressionIsSupported(inner.initializer)
+        }
+        if inner.kind == "Assignment" or inner.kind == "Expression" {
+            supported = inner.expression.kind == "Assignment" and
+                inner.expression.operands.length() > 0 and
+                frontendComptimeExpressionIsSupported(inner.expression.operands[0])
+        }
+        if inner.kind == "While" {
+            supported = frontendComptimeExpressionIsSupported(
+                inner.loopCondition)
+            if supported {
+                frontendValidateComptimeBlock(result, fileLabel,
+                    inner.loopBody)
+            }
+        }
+        if not supported {
+            facadeAddDiagnostic(result, fileLabel, "error", "E008",
+                "Unsupported statement in comptime block: " + inner.kind + ".",
+                "Keep compile-time blocks deterministic and limited to supported bindings, assignments, and while loops.")
+        }
+        i = i + 1
+    }
+}
+
 fun facadeValidateBlock(result: FrontendResult, fileLabel: String,
     block: BlockNode, functions: Array<FunctionNode>, insideComponent: Bool)
     r: Void {
@@ -997,8 +1130,36 @@ fun frontendNormalizeNamedArguments(program: ProgramNode) r: Void {
     }
 }
 
+fun frontendAddUnsupportedPayloadEnumDiagnostics(result: FrontendResult,
+    fileLabel: String, program: ProgramNode) r: Void {
+
+    var i = 0
+    while i < program.items.length() {
+        let item = program.items[i]
+        if item.itemType == "Enum" {
+            var vi = 0
+            var reportedUnsupportedPayload = false
+            while vi < item.enumNode.variants.length() {
+                let variant = item.enumNode.variants[vi]
+                if not reportedUnsupportedPayload and
+                    variant.startsWith("$invalid-payload$:") {
+
+                    facadeAddDiagnostic(result, fileLabel, "error", "E014",
+                        "Generic and payload enum syntax is not supported by Seen 0.10.",
+                        "Use unit variants in Seen 0.10; payload enums require Seen 0.11.")
+                    reportedUnsupportedPayload = true
+                }
+                vi = vi + 1
+            }
+        }
+        i = i + 1
+    }
+}
+
 fun addFacadeDiagnostics(result: FrontendResult, fileLabel: String,
     program: ProgramNode) r: Void {
+
+    frontendAddUnsupportedPayloadEnumDiagnostics(result, fileLabel, program)
 
     let functions = Array<FunctionNode>()
     facadeCollectCallableFunctions(program, functions)

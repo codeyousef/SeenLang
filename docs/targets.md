@@ -15,8 +15,23 @@ Use the canonical target names with `seen compile --target=<name>`.
 | `ios-sim-arm64` | `arm64-apple-ios-simulator` | iOS simulator target |
 | `android-arm64` | `aarch64-linux-android` | Android NDK ARM64 target |
 
-Aliases accepted by the compiler include `riscv64`, `riscv64-linux-gnu`, and
-`riscv64-unknown-linux-gnu` for `linux-riscv64`.
+The canonical names above and only these exact aliases are accepted:
+
+- Linux x86-64: `x86_64-linux-gnu`, `x86_64-unknown-linux-gnu`
+- Linux ARM64: `aarch64-linux-gnu`, `aarch64-unknown-linux-gnu`
+- Linux RISC-V: `riscv64`, `riscv64-linux-gnu`, `riscv64-unknown-linux-gnu`
+- Windows x86-64: `windows-gnu-x86_64`, `x86_64-pc-windows-msvc`,
+  `x86_64-w64-windows-gnu`
+- macOS x86-64: `x86_64-apple-darwin`
+- macOS ARM64: `arm64-apple-darwin`, `aarch64-apple-darwin`
+- iOS device: `arm64-apple-ios`, `aarch64-apple-ios`,
+  `arm64-apple-ios17.0`, `aarch64-apple-ios17.0`
+- iOS simulator: `arm64-apple-ios-simulator`,
+  `aarch64-apple-ios-simulator`, `arm64-apple-ios17.0-simulator`,
+  `aarch64-apple-ios17.0-simulator`
+- Android ARM64: `aarch64-linux-android`, `aarch64-linux-android24`
+
+Other values are rejected as CLI usage errors before toolchain discovery.
 
 ## Linux RISC-V
 

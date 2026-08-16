@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# This suite deliberately shadows opt and llc to inject optimizer/object
+# failures.  The active capped-regression contract requires the canonical
+# bounded toolchain to remain first in PATH, and no attested derived
+# fault-injection toolchain exists yet.  Refuse before resolving or touching
+# any historical host-temporary or cache path rather than weakening containment.
+echo "RESOURCE STOP: fix regressions require an attested bounded fault-injection toolchain" >&2
+exit 126
+
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 COMPILER="${COMPILER:-$ROOT_DIR/compiler_seen/target/seen}"
 TMP_ROOT="${TMP_ROOT:-/tmp/seen_fix_regressions}"

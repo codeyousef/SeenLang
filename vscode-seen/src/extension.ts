@@ -5,7 +5,7 @@ import * as cp from 'child_process';
 import { LanguageClient, LanguageClientOptions, ServerOptions, TransportKind } from 'vscode-languageclient/node';
 import { setupCommands } from './commands';
 import { SeenDebugAdapterFactory, registerDebugSupport } from './debugger';
-import { SeenReplProvider, registerReplCommands } from './repl';
+import { registerReplCommands } from './repl';
 import { ReactiveVisualizer, ReactiveStreamViewProvider, ReactiveInlineValueProvider } from './reactive';
 import { BenchmarkRunner, BenchmarkTreeDataProvider, BenchmarkCodeLensProvider, registerBenchmarkCommands } from './benchmark';
 import { SeenDiagnosticProvider, SeenQuickFixProvider, SeenErrorLens } from './errorDiagnostics';
@@ -16,6 +16,18 @@ let client: LanguageClient | undefined;
 let diagnosticProvider: SeenDiagnosticProvider | undefined;
 let lspActive = false;
 let binaryManager: BinaryManager | undefined;
+
+function hasExplicitSetting(configuration: vscode.WorkspaceConfiguration, section: string): boolean {
+    const inspected = configuration.inspect(section);
+    return inspected !== undefined && (
+        inspected.globalValue !== undefined ||
+        inspected.workspaceValue !== undefined ||
+        inspected.workspaceFolderValue !== undefined ||
+        inspected.globalLanguageValue !== undefined ||
+        inspected.workspaceLanguageValue !== undefined ||
+        inspected.workspaceFolderLanguageValue !== undefined
+    );
+}
 
 export async function activate(context: vscode.ExtensionContext) {
     console.log('Seen Language extension is activating');
@@ -139,12 +151,6 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.debug.registerDebugAdapterDescriptorFactory('seen', debugAdapterFactory)
     );
 
-    // Register REPL provider
-    const replProvider = new SeenReplProvider(seenPath);
-    context.subscriptions.push(
-        vscode.window.registerTerminalProfileProvider('seen.repl', replProvider)
-    );
-
     // Register custom views
     registerCustomViews(context);
 
@@ -207,7 +213,7 @@ export async function activate(context: vscode.ExtensionContext) {
     }
 
     // Register commands (works with or without LSP)
-    setupCommands(context, client as LanguageClient);
+    setupCommands(context);
 
     // Register additional command modules
     registerDebugSupport(context);
@@ -245,6 +251,34 @@ async function startLanguageServer(context: vscode.ExtensionContext, seenPath: s
         initializationOptions: {
             capabilities: {
                 multilingual: true
+            }
+        },
+        middleware: {
+            provideDocumentFormattingEdits: (document, options, token, next) => {
+                const formatting = vscode.workspace.getConfiguration('seen.formatting', document.uri);
+                if (!formatting.get<boolean>('enable', true)) {
+                    return [];
+                }
+                const protocolOptions: vscode.FormattingOptions & Record<string, boolean | number | string> = {
+                    ...options,
+                    useManifest: formatting.get<boolean>('useManifest', true)
+                };
+                // An explicit editor setting wins. If the setting only has its
+                // extension default, omit it so the nearest Seen.toml can decide.
+                if (hasExplicitSetting(formatting, 'sortImports')) {
+                    protocolOptions.sortImports = formatting.get<boolean>('sortImports', true);
+                }
+                // The language client's default FormattingOptions converter keeps
+                // only standard LSP keys. Send this request directly so Seen's
+                // manifest/import options reach the server as well.
+                const activeClient = client;
+                if (!activeClient) {
+                    return next(document, options, token);
+                }
+                return activeClient.sendRequest<any[]>('textDocument/formatting', {
+                    textDocument: { uri: document.uri.toString() },
+                    options: protocolOptions
+                }, token).then(edits => activeClient.protocol2CodeConverter.asTextEdits(edits, token));
             }
         }
     };

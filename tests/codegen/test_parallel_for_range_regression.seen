@@ -1,0 +1,5 @@
+fun main() {
+    parallel_for i in 2..5 {
+        println(i)
+    }
+}

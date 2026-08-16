@@ -188,12 +188,16 @@ fun generateParallelForStatementState(ctx: CodegenLoweringContext,
     let savedNestedState = beginLoweringNestedScratch(ctx, pforReturnType)
     let nestedOutput = getSharedCodegenState().output
 
-    nestedOutput.append("define i64 " + bodyFuncName + "(i64 %0) nounwind {\n")
+    nestedOutput.append("define internal i64 " + bodyFuncName + "(i64 %0) nounwind {\n")
     nestedOutput.append("entry:\n")
+    let inductionSlot = "%pfor.index.addr"
+    nestedOutput.append("  " + inductionSlot + " = alloca i64\n")
+    nestedOutput.append("  store i64 %0, ptr " + inductionSlot + "\n")
+    let nestedState = getSharedCodegenState()
     setActiveVarCountWithGlobalStateImpl(storeActiveVariableBindingImpl(
-        varNames, varRegs, varTypes,
-        getBoundedActiveVarCountWithGlobalStateImpl(varNames),
-        stmt.variableName, "%0", "Int"))
+        nestedState.varNames, nestedState.varRegs, nestedState.varTypes,
+        getBoundedActiveVarCountWithGlobalStateImpl(nestedState.varNames),
+        stmt.variableName, inductionSlot, "Int"))
     lowerBlock(ctx, stmt.loopBody)
 
     if not isLoweringBlockTerminated(ctx) {
@@ -249,10 +253,11 @@ fun processComptimeStatementsState(ctx: CodegenLoweringContext,
         if shouldProcessComptimeWhileImpl(ctAction) {
             var ctWhileIter = 0
             while ctWhileIter < 1000 {
-                let ctWhileCond = evaluateConstExprState(ctStmt.expression)
+                let ctWhileCond = evaluateConstExprState(
+                    ctStmt.loopCondition)
                 if not shouldContinueComptimeWhileImpl(ctWhileCond) { break }
                 processComptimeStatementsState(ctx, output,
-                    ctStmt.thenBranch)
+                    ctStmt.loopBody)
                 ctWhileIter = ctWhileIter + 1
             }
             emitComptimeWhileUnrolledNoteImpl(output, ctWhileIter)
@@ -269,6 +274,11 @@ fun generateComptimeAssertState(output: StringBuilder,
 
     let condVal = evaluateConstExprState(stmt.expression)
     let assertAction = classifyComptimeAssertResultImpl(condVal)
+    if assertAction == 0 {
+        output.append("  ; ERROR: comptime assert condition was not evaluable\n")
+        output.append("  unreachable\n")
+        return
+    }
     if assertAction == 1 {
         let msg = resolveComptimeAssertMessageImpl(stmt.condition)
         emitComptimeAssertFailureNoteImpl(output, msg)
@@ -285,6 +295,11 @@ fun generateComptimeIfState(ctx: CodegenLoweringContext,
     let condVal = evaluateConstExprState(stmt.expression)
     let branchAction = classifyComptimeIfBranchImpl(condVal,
         stmt.elseBranch.statements.length())
+    if branchAction == 0 {
+        output.append("  ; ERROR: comptime if condition was not evaluable\n")
+        output.append("  unreachable\n")
+        return
+    }
     if shouldGenerateComptimeIfThenImpl(branchAction) {
         emitComptimeIfBranchNoteImpl(output, branchAction)
         lowerBlock(ctx, stmt.thenBranch)

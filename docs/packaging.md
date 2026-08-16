@@ -55,6 +55,8 @@ import math_core.value.{answer}
 ## Consumer Setup
 
 ```toml
+manifest-version = 1
+
 [project]
 name = "demo"
 version = "0.1.0"
@@ -306,8 +308,8 @@ should be run under an explicit memory guard during release verification.
   hash, payload hash, and toolchain hash before ZIP/installer staging proceeds.
 - Windows cross-builds use compiler-owned `--emit-module-ir-dir` output plus
   `target-windows/ir-cache/`, `target-windows/object-cache/`, and
-  `target-windows/runtime-cache/` instead of clearing `.seen_cache` or
-  `/tmp/seen_ir_cache`. Windows ZIP outputs are cached under
+  `target-windows/runtime-cache/` instead of clearing `.seen_cache` or the
+  compiler-owned `<SEEN_ARTIFACT_ROOT>/seen_ir_cache/`. Windows ZIP outputs are cached under
   `target-windows/package-artifacts/` with the same manifest-gated reuse model.
 - `installer/linux/build-appimage.sh` prefers an installed `appimagetool`, can
   use `SEEN_APPIMAGE_RUNTIME_FILE` for offline builds, defaults to `xz`

@@ -2,14 +2,28 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
-COMPILER="$ROOT_DIR/compiler_seen/target/seen"
-TMP_DIR="$(mktemp -d /tmp/seen_import_c_real_headers.XXXXXX)"
+COMPILER="${COMPILER:-$ROOT_DIR/compiler_seen/target/seen}"
+CAPPED_ENTRY="$ROOT_DIR/scripts/run_capped_regression.sh"
+SCOPE=seen-import-c-real-headers
+if [ "${SEEN_CAPPED_REGRESSION_ACTIVE:-0}" != "1" ]; then
+    exec bash "$CAPPED_ENTRY" "$SCOPE" --compiler "$COMPILER" -- bash "$0" "$@"
+fi
+COMPILER="${SEEN_CAPPED_REGRESSION_COMPILER:-$COMPILER}"
+bash "$CAPPED_ENTRY" --verify-active "$SCOPE" --compiler "$COMPILER"
+ATTESTED_SEEN="${SEEN_ATTESTED_COMPILER_RUNNER:?}"
+TMP_DIR="$(mktemp -d "$SEEN_ARTIFACT_ROOT/seen-import-c-real-headers.XXXXXX")"
 STRING_OUT="$TMP_DIR/string.out"
 STDIO_OUT="$TMP_DIR/stdio.out"
 VULKAN_OUT="$TMP_DIR/vulkan.out"
 
 cleanup() {
-    rm -rf "$TMP_DIR"
+    case "$TMP_DIR" in
+        "$SEEN_ARTIFACT_ROOT"/seen-import-c-real-headers.*)
+            [ -d "$TMP_DIR" ] && [ ! -L "$TMP_DIR" ] &&
+                [ "$(dirname -- "$TMP_DIR")" = "$SEEN_ARTIFACT_ROOT" ] || return 1
+            rm -rf -- "$TMP_DIR" ;;
+        *) return 1 ;;
+    esac
 }
 
 trap cleanup EXIT
@@ -44,11 +58,11 @@ if [ -z "$STRING_HEADER" ] || [ -z "$STDIO_HEADER" ]; then
     exit 0
 fi
 
-"$COMPILER" import-c "$STRING_HEADER" >"$STRING_OUT"
-"$COMPILER" import-c "$STDIO_HEADER" >"$STDIO_OUT"
+bash "$ATTESTED_SEEN" "$COMPILER" import-c "$STRING_HEADER" >"$STRING_OUT"
+bash "$ATTESTED_SEEN" "$COMPILER" import-c "$STDIO_HEADER" >"$STDIO_OUT"
 
 if [ -n "$VULKAN_HEADER" ]; then
-    "$COMPILER" import-c "$VULKAN_HEADER" >"$VULKAN_OUT"
+    bash "$ATTESTED_SEEN" "$COMPILER" import-c "$VULKAN_HEADER" >"$VULKAN_OUT"
 fi
 
 if grep -q '^extern fun prev(' "$STRING_OUT"; then

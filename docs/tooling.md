@@ -60,6 +60,8 @@ inactive, and the production registry is absent.
   "seen.lsp.enabled": true,
   "seen.lsp.trace.server": "off",
   "seen.formatting.enable": true,
+  "seen.formatting.sortImports": true,
+  "seen.formatting.useManifest": true,
   "seen.target.default": "native",
   "seen.compile.pic": false,
   "seen.compile.objectManifest": "",
@@ -80,6 +82,15 @@ falls back to English. It masks `/// ... ///` block comments for source-symbol
 operations and supports completions/hover for packages, annotations, effects,
 capabilities, hot reload, imports, sealed classes, exports, new collection and
 memory types, and stdlib modules.
+
+Document formatting is LSP-only; the 0.10 CLI has no standalone formatter
+subcommand.
+Defaults are 100 columns, four-space indentation, trailing commas, and sorted
+valid top-level import blocks. The nearest `Seen.toml` `[format]` section can set
+`line-width`, `indent`, `trailing-comma`, and `sort-imports`; client `tabSize`
+and `insertSpaces` take precedence for indentation. The formatter preserves
+strings, comments, dominant newline style, and parser-invalid gaps, and returns
+minimal UTF-16 LSP edits.
 
 ### Neovim
 
@@ -124,10 +135,16 @@ warnings in editor clients rather than promoted to errors.
 Useful environment-variable tracing:
 
 ```bash
-SEEN_DEBUG_TYPES=1 seen compile program.seen program
-SEEN_TRACE_LLVM=all seen compile program.seen program
-SEEN_TRACE_LLVM=gep seen compile program.seen program
+SEEN_TRACE_LEXER=1 seen check program.seen
+SEEN_TRACE_PARSER=1 seen check program.seen
+SEEN_TRACE_CODEGEN=1 seen compile program.seen program
+SEEN_TRACE_ALL=1 SEEN_TRACE_VERBOSE=1 seen compile program.seen program
 ```
+
+For compiler build-phase timing and cache/module events, set
+`SEEN_TRACE_BUILD=.seen/agent-tools/seen-build.jsonl`. `SEEN_BUILD_TRACE` is a
+compatibility alias. Older examples using `SEEN_DEBUG_TYPES` or
+`SEEN_TRACE_LLVM` are not dependable shipped tracing interfaces.
 
 LLVM and compile-database emission are compile flags:
 

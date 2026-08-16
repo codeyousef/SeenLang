@@ -287,6 +287,10 @@ fun emitRegionStatementCleanupImpl(output: StringBuilder, regBox: Array<Int>,
 }
 
 fun classifyParallelForRangeExprImpl(rangeExpr: ParserExpressionNode) r: Int {
+    if rangeExpr.kind == "Range" and rangeExpr.operands.length() == 2 {
+        return 1
+    }
+    // Transitional compatibility with the legacy range AST.
     if rangeExpr.kind == "Binary" and rangeExpr.operator == ".." {
         return 1
     }
@@ -300,7 +304,7 @@ fun buildParallelForBodyFunctionNameImpl(pforIdx: Int) r: String {
 fun emitParallelForBodyHeaderImpl(output: StringBuilder, bodyFuncName: String)
     r: Void {
 
-    output.append("define i64 " + bodyFuncName + "(i64 %0) nounwind {\n")
+    output.append("define internal i64 " + bodyFuncName + "(i64 %0) nounwind {\n")
     output.append("entry:\n")
 }
 

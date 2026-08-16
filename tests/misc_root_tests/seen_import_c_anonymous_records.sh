@@ -2,13 +2,27 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
-COMPILER="$ROOT_DIR/compiler_seen/target/seen"
-TMP_DIR="$(mktemp -d /tmp/seen_import_c_anonymous_records.XXXXXX)"
+COMPILER="${COMPILER:-$ROOT_DIR/compiler_seen/target/seen}"
+CAPPED_ENTRY="$ROOT_DIR/scripts/run_capped_regression.sh"
+SCOPE=seen-import-c-anonymous-records
+if [ "${SEEN_CAPPED_REGRESSION_ACTIVE:-0}" != "1" ]; then
+    exec bash "$CAPPED_ENTRY" "$SCOPE" --compiler "$COMPILER" -- bash "$0" "$@"
+fi
+COMPILER="${SEEN_CAPPED_REGRESSION_COMPILER:-$COMPILER}"
+bash "$CAPPED_ENTRY" --verify-active "$SCOPE" --compiler "$COMPILER"
+ATTESTED_SEEN="${SEEN_ATTESTED_COMPILER_RUNNER:?}"
+TMP_DIR="$(mktemp -d "$SEEN_ARTIFACT_ROOT/seen-import-c-anonymous-records.XXXXXX")"
 HEADER="$TMP_DIR/anonymous_records.h"
 OUT="$TMP_DIR/anonymous_records_bindings.seen"
 
 cleanup() {
-    rm -rf "$TMP_DIR"
+    case "$TMP_DIR" in
+        "$SEEN_ARTIFACT_ROOT"/seen-import-c-anonymous-records.*)
+            [ -d "$TMP_DIR" ] && [ ! -L "$TMP_DIR" ] &&
+                [ "$(dirname -- "$TMP_DIR")" = "$SEEN_ARTIFACT_ROOT" ] || return 1
+            rm -rf -- "$TMP_DIR" ;;
+        *) return 1 ;;
+    esac
 }
 
 trap cleanup EXIT
@@ -29,7 +43,8 @@ typedef struct Outer {
 void use_outer(Outer *outer);
 EOF
 
-"$COMPILER" import-c "$HEADER" | sed -n '/^\/\/ Auto-generated/,$p' >"$OUT"
+bash "$ATTESTED_SEEN" "$COMPILER" import-c "$HEADER" | \
+    sed -n '/^\/\/ Auto-generated/,$p' >"$OUT"
 
 if [ "$(grep -Fxc 'class Outer_anon_union_0 {' "$OUT")" -ne 1 ]; then
     echo "FAIL: import-c should synthesize a named union class for anonymous union members"
@@ -98,6 +113,7 @@ fun main() r: Void {
 }
 EOF
 
-"$COMPILER" compile "$OUT" "$TMP_DIR/anonymous_records_probe" --fast >/dev/null
+bash "$ATTESTED_SEEN" "$COMPILER" compile \
+    "$OUT" "$TMP_DIR/anonymous_records_probe" --fast >/dev/null
 
 echo "PASS: import-c emits synthesized anonymous record layouts"

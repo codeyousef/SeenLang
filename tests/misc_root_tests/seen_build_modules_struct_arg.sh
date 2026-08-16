@@ -3,30 +3,33 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 COMPILER="${COMPILER:-$ROOT_DIR/compiler_seen/target/seen}"
-TMP_DIR="$(mktemp -d /tmp/seen_build_modules_struct_arg.XXXXXX)"
+CAPPED_ENTRY="$ROOT_DIR/scripts/run_capped_regression.sh"
+SCOPE=seen-build-modules-struct-arg
+if [ "${SEEN_CAPPED_REGRESSION_ACTIVE:-0}" != "1" ]; then
+    exec bash "$CAPPED_ENTRY" "$SCOPE" --compiler "$COMPILER" -- \
+        bash "$0" "$@"
+fi
+COMPILER="${SEEN_CAPPED_REGRESSION_COMPILER:-$COMPILER}"
+bash "$CAPPED_ENTRY" --verify-active "$SCOPE" --compiler "$COMPILER"
+ATTESTED_SEEN="${SEEN_ATTESTED_COMPILER_RUNNER:?}"
+TMP_DIR="$(mktemp -d "$SEEN_ARTIFACT_ROOT/seen-build-modules-struct-arg.XXXXXX")"
 
 cleanup() {
     if [ -z "${SEEN_KEEP_TMP:-}" ]; then
-        rm -rf "$TMP_DIR"
+        case "$TMP_DIR" in
+            "$SEEN_ARTIFACT_ROOT"/seen-build-modules-struct-arg.*)
+                [ -d "$TMP_DIR" ] && [ ! -L "$TMP_DIR" ] &&
+                    [ "$(dirname -- "$TMP_DIR")" = "$SEEN_ARTIFACT_ROOT" ] || return 1
+                rm -rf -- "$TMP_DIR"
+                ;;
+            *) return 1 ;;
+        esac
     else
         echo "KEEP: $TMP_DIR"
     fi
 }
 
 trap cleanup EXIT
-
-if [ -z "${SEEN_TEST_NO_ULIMIT:-}" ]; then
-    AVAIL_KB="$(awk '/MemAvailable/ {print $2}' /proc/meminfo 2>/dev/null || echo 0)"
-    if [ "$AVAIL_KB" -gt 0 ]; then
-        CAP_KB=$(( AVAIL_KB * 70 / 100 ))
-        if [ "$CAP_KB" -gt 14680064 ]; then
-            CAP_KB=14680064
-        fi
-        if [ "$CAP_KB" -ge 8388608 ]; then
-            ulimit -v "$CAP_KB"
-        fi
-    fi
-fi
 
 cat >"$TMP_DIR/Seen.toml" <<'EOF'
 [project]
@@ -103,8 +106,8 @@ fun main() {
 EOF
 
 LOG="$TMP_DIR/compile.log"
-"$COMPILER" compile "$TMP_DIR/main.seen" "$TMP_DIR/out" \
-    --no-cache --no-fork >"$LOG" 2>&1
+bash "$ATTESTED_SEEN" "$COMPILER" compile "$TMP_DIR/main.seen" "$TMP_DIR/out" \
+    --no-cache >"$LOG" 2>&1
 
 if grep -F "Unknown struct type 'MeshVertex'" "$LOG" >/dev/null; then
     echo "FAIL: build.modules struct argument repro lost MeshVertex layout"

@@ -13,6 +13,8 @@ VERBOSE=false
 STEAM_RUNTIME=false
 BUNDLE_VULKAN=false
 APPIMAGE_TOOL_URL="https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage"
+INSTALLER_SCOPE=""
+WORK_DIR=""
 
 # Steam Runtime configuration
 STEAM_RUNTIME_VERSION="sniper"  # or "soldier" for older compatibility
@@ -68,7 +70,7 @@ Seen Language AppImage Builder
 Usage: $0 <version> <architecture> [options]
 
 Arguments:
-  version              Version number (e.g., 1.0.0)
+  version              Version number (e.g., 0.10.1)
   architecture         Target architecture (x86_64, aarch64, riscv64)
 
 Options:
@@ -80,7 +82,7 @@ Options:
   --help               Show this help message
 
 Examples:
-  $0 1.0.0 x86_64
+  $0 0.10.1 x86_64
   $0 1.2.3 x86_64 --steam-runtime --bundle-vulkan
   $0 1.2.3 aarch64 --verbose
 
@@ -174,6 +176,7 @@ esac
 # Get absolute paths
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+ARTIFACT_HELPER="$PROJECT_ROOT/scripts/artifact_root.sh"
 if [[ "$SOURCE_DIR" = /* ]]; then
     SOURCE_DIR="$(cd "$SOURCE_DIR" && pwd)"
 else
@@ -257,6 +260,34 @@ validate_sources() {
     if [ ${#missing_files[@]} -gt 0 ]; then
         error "Missing required files: ${missing_files[*]}"
     fi
+
+    if [ ! -x "$SOURCE_DIR/seen" ]; then
+        error "Seen compiler is not executable: $SOURCE_DIR/seen"
+    fi
+    if [ ! -x "$SOURCE_DIR/seen-pkg" ]; then
+        error "Seen package client is not executable: $SOURCE_DIR/seen-pkg"
+    fi
+
+    local compiler_version_output
+    local compiler_version_line
+    if ! compiler_version_output=$("$SOURCE_DIR/seen" --version 2>/dev/null); then
+        error "Could not read compiler version from $SOURCE_DIR/seen"
+    fi
+    IFS= read -r compiler_version_line <<< "$compiler_version_output"
+    if [ "$compiler_version_line" != "Seen $VERSION" ]; then
+        error "Compiler version '${compiler_version_line:-unknown}' does not match package version $VERSION"
+    fi
+
+    local package_client_handshake
+    local expected_handshake
+    if ! package_client_handshake=$("$SOURCE_DIR/seen-pkg" \
+        --expect-version "$VERSION" version --machine 2>/dev/null); then
+        error "Package client at $SOURCE_DIR/seen-pkg does not match Seen $VERSION"
+    fi
+    expected_handshake=$(printf 'protocol=SEENPKG1\nversion=%s' "$VERSION")
+    if [ "$package_client_handshake" != "$expected_handshake" ]; then
+        error "Package client at $SOURCE_DIR/seen-pkg returned an invalid version handshake"
+    fi
     
     # Check optional files
     local optional_files=(
@@ -272,6 +303,18 @@ validate_sources() {
     done
     
     success "✓ Source validation passed"
+}
+
+cleanup_work_dir() {
+    case "${WORK_DIR:-}" in
+        "${INSTALLER_SCOPE:-}"/package.*)
+            if [ -d "$WORK_DIR" ] && [ ! -L "$WORK_DIR" ]; then
+                rm -rf -- "$WORK_DIR"
+            fi
+            ;;
+        "") ;;
+        *) warning "Refusing to clean unexpected work directory: $WORK_DIR" ;;
+    esac
 }
 
 # Download appimagetool
@@ -473,7 +516,7 @@ Type=Application
 Name=Seen Language
 GenericName=Systems Programming Language
 Comment=High-performance systems programming language with multi-language support
-Exec=seen %F
+Exec=seen check %f
 Icon=SeenLanguage
 Terminal=true
 Categories=Development;IDE;TextEditor;
@@ -482,19 +525,11 @@ StartupNotify=false
 MimeType=text/x-seen;application/x-seen;
 X-AppImage-Version=$VERSION
 X-AppImage-BuildId=$(date +%Y%m%d%H%M%S)
-Actions=new-project;build;check;
+Actions=help;
 
-[Desktop Action new-project]
-Name=New Project
-Exec=seen new %U
-
-[Desktop Action build]
-Name=Build Project
-Exec=seen build
-
-[Desktop Action check]
-Name=Type Check
-Exec=seen check
+[Desktop Action help]
+Name=Show CLI Help
+Exec=seen --help
 EOF
 
     # Copy desktop file to applications directory as well
@@ -854,15 +889,24 @@ main() {
     check_fuse
     validate_sources
     
-    # Create temporary directory
-    local temp_dir=$(mktemp -d)
-    trap "rm -rf $temp_dir" EXIT
+    # Create an isolated, project-local staging directory.
+    [ -f "$ARTIFACT_HELPER" ] || error "Missing artifact-root helper: $ARTIFACT_HELPER"
+    # shellcheck source=scripts/artifact_root.sh
+    source "$ARTIFACT_HELPER"
+    seen_artifact_root_init "$PROJECT_ROOT" || error "Could not validate artifact root"
+    INSTALLER_SCOPE=$(seen_artifact_scope_init installer-linux-appimage) ||
+        error "Could not create AppImage installer artifact scope"
+    WORK_DIR=$(seen_artifact_mktemp_dir "$INSTALLER_SCOPE" package) ||
+        error "Could not create AppImage installer work directory"
+    trap cleanup_work_dir EXIT
     
     # Download tools
-    local appimagetool=$(download_appimagetool "$temp_dir")
+    local appimagetool
+    appimagetool=$(download_appimagetool "$WORK_DIR")
     
     # Create AppDir
-    local appdir=$(create_appdir "$temp_dir")
+    local appdir
+    appdir=$(create_appdir "$WORK_DIR")
     
     # Build AppDir contents
     create_apprun "$appdir"
@@ -882,7 +926,7 @@ main() {
     fi
 
     # Build AppImage
-    build_appimage "$temp_dir" "$appdir" "$appimagetool"
+    build_appimage "$WORK_DIR" "$appdir" "$appimagetool"
     
     # Test the result
     local appimage_file="$OUTPUT_DIR/SeenLanguage-$VERSION-$ARCH.AppImage"

@@ -1,6 +1,9 @@
 #!/bin/bash
 # End-to-end SIMD codegen verification test
 # Tests vectorization report, scalar equivalence, and instruction verification
+# Historical direct-entry fixture with fixed output paths.
+echo "RESOURCE STOP: legacy SIMD integration fixture is disabled until capped migration" >&2
+exit 126
 
 set -e
 

@@ -2,18 +2,32 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
-COMPILER="$ROOT_DIR/compiler_seen/target/seen"
-TMP_DIR="$(mktemp -d /tmp/seen_import_c_bootstrap_module.XXXXXX)"
-PROBE_SRC="$ROOT_DIR/compiler_seen/src/seen_import_c_bootstrap_probe_tmp.seen"
+COMPILER="${COMPILER:-$ROOT_DIR/compiler_seen/target/seen}"
+CAPPED_ENTRY="$ROOT_DIR/scripts/run_capped_regression.sh"
+SCOPE=seen-import-c-bootstrap-module
+if [ "${SEEN_CAPPED_REGRESSION_ACTIVE:-0}" != "1" ]; then
+    exec bash "$CAPPED_ENTRY" "$SCOPE" --compiler "$COMPILER" -- bash "$0" "$@"
+fi
+COMPILER="${SEEN_CAPPED_REGRESSION_COMPILER:-$COMPILER}"
+bash "$CAPPED_ENTRY" --verify-active "$SCOPE" --compiler "$COMPILER"
+ATTESTED_SEEN="${SEEN_ATTESTED_COMPILER_RUNNER:?}"
+TMP_DIR="$(mktemp -d "$SEEN_ARTIFACT_ROOT/seen-import-c-bootstrap-module.XXXXXX")"
+PROBE_SRC="$TMP_DIR/compiler_seen/src/seen_import_c_bootstrap_probe.seen"
 PROBE_BIN="$TMP_DIR/probe_bin"
 RUN_OUT="$TMP_DIR/run.out"
 
 cleanup() {
-    rm -rf "$TMP_DIR"
-    rm -f "$PROBE_SRC"
+    case "$TMP_DIR" in
+        "$SEEN_ARTIFACT_ROOT"/seen-import-c-bootstrap-module.*)
+            [ -d "$TMP_DIR" ] && [ ! -L "$TMP_DIR" ] &&
+                [ "$(dirname -- "$TMP_DIR")" = "$SEEN_ARTIFACT_ROOT" ] || return 1
+            rm -rf -- "$TMP_DIR" ;;
+        *) return 1 ;;
+    esac
 }
 
 trap cleanup EXIT
+mkdir -p "$(dirname -- "$PROBE_SRC")"
 
 cat >"$PROBE_SRC" <<'EOF'
 import tools.c_import_gen.{CImportGenerator, CImportResult}
@@ -37,7 +51,8 @@ fun main() r: Int {
 }
 EOF
 
-"$COMPILER" compile "$PROBE_SRC" "$PROBE_BIN" --fast --no-cache
+bash "$ATTESTED_SEEN" "$COMPILER" compile \
+    "$PROBE_SRC" "$PROBE_BIN" --fast --no-cache
 "$PROBE_BIN" >"$RUN_OUT"
 
 grep -q '^PASS: import-c bootstrap module compiles$' "$RUN_OUT" || {

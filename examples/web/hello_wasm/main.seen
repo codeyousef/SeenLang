@@ -1,4 +1,4 @@
-// Minimal WebAssembly sample for wasm32 targets
+// Web-oriented sample source. Seen 0.10.1 does not ship a wasm32 compile target.
 
 fun main() -> Int {
     let value = 42

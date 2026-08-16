@@ -5,6 +5,36 @@ import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_type_info.{charToCodeStr}
 import codegen.ir_literal_gen.{normalizeDoubleLiteralForLlvmImpl}
 
+fun isBoxedOptionSeenTypeImpl(seenType: String) r: Bool {
+    return seenType == "Option" or seenType == "Optional" or
+        seenType.startsWith("Option<") or
+        seenType.startsWith("Optional<") or seenType.endsWith("?")
+}
+
+// A nullable value is an i64 handle to the boxed Option payload.  None is a
+// real box whose tag is false, not the integer zero used by a null literal.
+fun emitBoxedOptionNullComparisonImpl(output: StringBuilder,
+    regBox: Array<Int>, optionReg: String, equalsNull: Bool) r: String {
+
+    let optionPtrReg = getNextRegFn(regBox)
+    output.append("  " + optionPtrReg + " = inttoptr i64 " + optionReg +
+        " to ptr\n")
+    let tagPtrReg = getNextRegFn(regBox)
+    output.append("  " + tagPtrReg +
+        " = getelementptr inbounds { i1, i64 }, ptr " + optionPtrReg +
+        ", i32 0, i32 0\n")
+    let hasValueReg = getNextRegFn(regBox)
+    output.append("  " + hasValueReg + " = load i1, ptr " + tagPtrReg +
+        "\n")
+    if not equalsNull {
+        return hasValueReg
+    }
+    let resultReg = getNextRegFn(regBox)
+    output.append("  " + resultReg + " = xor i1 " + hasValueReg +
+        ", true\n")
+    return resultReg
+}
+
 fun emitComparisonBinaryOpImpl(output: StringBuilder, regBox: Array<Int>,
     operator: String, resultReg: String, leftReg: String, rightReg: String,
     leftType: String, rightType: String,
@@ -13,6 +43,14 @@ fun emitComparisonBinaryOpImpl(output: StringBuilder, regBox: Array<Int>,
     leftMappedType: String) r: String {
 
     if operator == "==" {
+        if isBoxedOptionSeenTypeImpl(leftType) and rightReg == "0" {
+            return emitBoxedOptionNullComparisonImpl(output, regBox,
+                leftReg, true)
+        }
+        if isBoxedOptionSeenTypeImpl(rightType) and leftReg == "0" {
+            return emitBoxedOptionNullComparisonImpl(output, regBox,
+                rightReg, true)
+        }
         if leftType == "Char" or rightType == "Char" {
             var leftVal = leftReg
             var rightVal = rightReg
@@ -116,6 +154,14 @@ fun emitComparisonBinaryOpImpl(output: StringBuilder, regBox: Array<Int>,
     }
 
     if operator == "!=" {
+        if isBoxedOptionSeenTypeImpl(leftType) and rightReg == "0" {
+            return emitBoxedOptionNullComparisonImpl(output, regBox,
+                leftReg, false)
+        }
+        if isBoxedOptionSeenTypeImpl(rightType) and leftReg == "0" {
+            return emitBoxedOptionNullComparisonImpl(output, regBox,
+                rightReg, false)
+        }
         if leftType == "Char" or rightType == "Char" {
             var leftVal = leftReg
             var rightVal = rightReg

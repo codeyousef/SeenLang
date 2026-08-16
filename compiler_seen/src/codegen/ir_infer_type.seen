@@ -368,7 +368,7 @@ fun inferGeneratedCallTypeImpl(callee: String, isSimdCallee: Int,
             return fromJsonRetType
         }
         if fromJsonBaseTypeKnown == 1 {
-            return fromJsonBaseType + "?"
+            return "Option<" + fromJsonBaseType + ">"
         }
     }
     return ""
