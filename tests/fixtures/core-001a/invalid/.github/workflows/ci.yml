@@ -1,0 +1,13 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  required:
+    name: required
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: scripts/ci_required.sh

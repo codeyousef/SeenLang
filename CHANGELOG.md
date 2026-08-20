@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Added the versioned, schema-defined native-boundary ledger and a deterministic fail-closed validator for production ABI symbols.
 - Added a deterministic foreign-symbol/backend source inventory and restored the required CI gate that rejects unreviewed inventory drift.
+- Replaced obsolete disabled workflow fallbacks with one bounded, commit-pinned required CI contract and deterministic validation fixtures.
+
+### Fixed
+
+- Kept Wine-backed atomic I/O verification within the bounded task scope by suppressing unrelated Wine service helpers and waiting for server cleanup.
 
 ## [0.10.1] - 2026-07-26
 

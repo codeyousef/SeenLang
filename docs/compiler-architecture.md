@@ -131,6 +131,22 @@ backend implementations present in compiler source, and which backend the
 shipped CLI exposes. `scripts/ci_required.sh` regenerates the inventory in
 memory and rejects any byte-level drift before a pull request can merge.
 
+## Required CI contract
+
+Gate 0 has one active workflow and one required job: `.github/workflows/ci.yml`
+publishes `CI / required` from an Ubuntu 24.04 runner. It uses a commit-pinned
+checkout action, read-only repository permissions, a ten-minute timeout, and
+only the deterministic static gates in `scripts/ci_required.sh`. The policy is
+platform-neutral and therefore applies to Linux x86-64, Linux ARM64, macOS, and
+Windows changes even though the Gate 0 runner is Linux x86-64.
+
+Obsolete disabled workflows are not retained as fallbacks: they referenced
+unsupported compiler commands and paths and bypassed current containment
+policy. `scripts/check_ci_workflows.py` scans `.github` with explicit file and
+byte bounds, rejects links and retired workflow paths, and compares the active
+workflow byte-for-byte with the reviewed contract. Run
+`tests/misc_root_tests/seen_ci_workflow_contract.sh` after any CI-policy change.
+
 ## Incremental and Parallel Compilation
 
 The compiler uses source-level and IR-level caches:
