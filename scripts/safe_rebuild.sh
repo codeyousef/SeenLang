@@ -681,6 +681,33 @@ run_guarded_command() {
         return 126
     fi
 
+    # The aggregate scope has already been read back against its transient
+    # cgroup. Do not consume additional pids on a redundant nested observer;
+    # retain the command's VMEM and wall-clock limits while the aggregate
+    # cgroup remains the authoritative memory/swap/task boundary.
+    if [ "${SEEN_REBUILD_AGGREGATE_SCOPE_VERIFIED:-0}" = "1" ]; then
+        local scoped_status=0
+        if [ -n "$timeout_secs" ] && [ "$timeout_secs" != "0" ]; then
+            (
+                [ -z "$vmem_kb" ] || ulimit -S -v "$vmem_kb"
+                exec timeout -k 1 "$timeout_secs" "$@"
+            ) || scoped_status=$?
+        else
+            (
+                [ -z "$vmem_kb" ] || ulimit -S -v "$vmem_kb"
+                exec "$@"
+            ) || scoped_status=$?
+        fi
+        case "$scoped_status" in
+            124|125|126|137|143)
+                echo -e "${RED}FATAL: $label hit containment status $scoped_status; aborting the rebuild without fallback or retry.${NC}" >&2
+                record_rebuild_fatal_status "$scoped_status" || true
+                kill -TERM "$$" 2>/dev/null || true
+                ;;
+        esac
+        return "$scoped_status"
+    fi
+
     local guard_cmd=("$MEMORY_GUARD_SCRIPT" --label "$label")
     if [ -n "${MEMORY_GUARD_RSS_KB:-}" ]; then
         guard_cmd+=(--rss-limit-kb "$MEMORY_GUARD_RSS_KB")
@@ -1793,7 +1820,7 @@ if [ "${SEEN_DISABLE_MEMORY_GUARD:-0}" != "1" ]; then
     fi
     MEMORY_GUARD_RESERVE_KB="${SEEN_GUARD_RESERVE_KB:-$(derive_memory_guard_reserve_kb "$SYSTEM_MEMORY_KB" "$SYSTEM_AVAILABLE_KB")}"
     MEMORY_GUARD_RSS_KB="${SEEN_GUARD_RSS_KB:-$(derive_memory_guard_rss_kb "$SYSTEM_MEMORY_KB" "$SYSTEM_AVAILABLE_KB" "$MEMORY_GUARD_RESERVE_KB")}"
-    MEMORY_GUARD_TASKS_MAX="${SEEN_GUARD_TASKS_MAX:-16}"
+    MEMORY_GUARD_TASKS_MAX="${SEEN_GUARD_TASKS_MAX:-24}"
     MEMORY_GUARD_CGROUP_STOP_KB="${SEEN_GUARD_CGROUP_STOP_KB:-$((MEMORY_GUARD_RSS_KB * 90 / 100))}"
     if [ "$MEMORY_GUARD_CGROUP_STOP_KB" -lt 1 ]; then
         MEMORY_GUARD_CGROUP_STOP_KB=1
@@ -1806,8 +1833,8 @@ if [ "${SEEN_DISABLE_MEMORY_GUARD:-0}" != "1" ]; then
         echo -e "${RED}ERROR: SEEN_GUARD_RSS_KB may not exceed the 4 GiB aggregate hard ceiling (4194304 KiB).${NC}" >&2
         exit 1
     fi
-    if [ "$MEMORY_GUARD_TASKS_MAX" -gt 16 ]; then
-        echo -e "${RED}ERROR: SEEN_GUARD_TASKS_MAX may not exceed the hard rebuild ceiling of 16.${NC}" >&2
+    if [ "$MEMORY_GUARD_TASKS_MAX" -gt 24 ]; then
+        echo -e "${RED}ERROR: SEEN_GUARD_TASKS_MAX may not exceed the hard rebuild ceiling of 24.${NC}" >&2
         exit 1
     fi
     if [ "$HOST_OS" != "Linux" ]; then
@@ -1870,7 +1897,7 @@ if [ "${SEEN_LOW_MEMORY:-0}" = "1" ]; then
         export SEEN_MEMORY_GUARD_RSS_KB="$MEMORY_GUARD_RSS_KB"
     fi
     if [ -z "${SEEN_GUARD_TASKS_MAX:-}" ]; then
-        MEMORY_GUARD_TASKS_MAX=16
+        MEMORY_GUARD_TASKS_MAX=24
         export SEEN_MEMORY_GUARD_TASKS_MAX="$MEMORY_GUARD_TASKS_MAX"
     fi
     if [ -z "${SEEN_GUARD_CGROUP_STOP_KB:-}" ]; then
@@ -1937,6 +1964,8 @@ if [ -z "$verified_cgroup_path" ] || ! is_positive_integer "$verified_memory_max
     exit 1
 fi
 echo -e "${YELLOW}Verified kernel containment: cgroup $verified_cgroup_path; memory.max $verified_memory_max bytes; memory.swap.max $verified_memory_swap_max; pids.max $verified_pids_max.${NC}"
+SEEN_REBUILD_AGGREGATE_SCOPE_VERIFIED=1
+export SEEN_REBUILD_AGGREGATE_SCOPE_VERIFIED
 
 # Build the root-targeted serializer only after actual cgroup read-back, then
 # require it for every compiler candidate in every tier. It serializes direct

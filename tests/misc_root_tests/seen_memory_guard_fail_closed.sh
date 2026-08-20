@@ -329,8 +329,8 @@ esac
 grep -Fq 'run_guarded_command "package client build"' "$SAFE_REBUILD" ||
     fail "package-client helper build is not secondarily guarded"
 grep -Fq 'MemorySwapMax=0' "$GUARD" || fail "MemorySwapMax request missing"
-grep -Fq 'tasks_max="${TASKS_MAX:-16}"' "$GUARD" ||
-    fail "kernel scope can still default above the 16-task ceiling"
+grep -Fq 'tasks_max="${TASKS_MAX:-24}"' "$GUARD" ||
+    fail "kernel scope can still default above the 24-task ceiling"
 grep -Fq '[ "$memory_swap_max" != "0" ]' "$GUARD" ||
     fail "MemorySwapMax read-back missing"
 if grep -Fq 'TMPDIR:-/tmp' "$GUARD"; then

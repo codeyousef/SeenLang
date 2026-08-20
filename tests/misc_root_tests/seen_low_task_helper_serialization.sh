@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# No-build regression for helper probes used near the TasksMax=16 boundary.
+# No-build regression for helper probes used near the TasksMax=24 boundary.
 
 set -euo pipefail
 
