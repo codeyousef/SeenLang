@@ -9,6 +9,9 @@ Components:
   optimizer.seen     - Equality saturation optimizer
 ///
 
+import optimization.egraph.optimizer.{EGraphOptimizer}
+import optimization.egraph.rewrite_rules.{loadStandardRuleSet}
+
 ///
 Public API: run the e-graph optimization pass on expression nodes
 Returns the optimizer with applied rule stats

@@ -103,7 +103,7 @@ class LspClient:
 
     def send(self, message: dict[str, Any]) -> None:
         assert self.process.stdin is not None
-        body = json.dumps(message, ensure_ascii=False, separators=(",", ":")).encode()
+        body = json.dumps(message, ensure_ascii=True, separators=(",", ":")).encode()
         header = f"Content-Length: {len(body)}\r\n\r\n".encode()
         self.process.stdin.write(header + body)
         self.process.stdin.flush()
@@ -121,7 +121,12 @@ class LspClient:
                 chunk = os.read(self.process.stdout.fileno(), count - len(result))
                 if not chunk:
                     stderr = self.process.stderr.read().decode(errors="replace")
-                    fail(f"LSP server closed its output early: {stderr}")
+                    returncode = self.process.poll()
+                    fail(
+                        "LSP server closed its output early "
+                        f"(status {returncode}, notifications "
+                        f"{self.notifications!r}): {stderr}"
+                    )
                 result.extend(chunk)
         finally:
             selector.close()
@@ -268,7 +273,10 @@ def valid_protocol_suite(client: LspClient, work: Path) -> None:
             fail(f"{language} formatting returned no edits")
         formatted = apply_edits(source, edits)
         if formatted != expected:
-            fail(f"{language} protocol formatting mismatch\n{formatted!r}\n{expected!r}")
+            fail(
+                f"{language} protocol formatting mismatch\n"
+                f"edits={edits!r}\n{formatted!r}\n{expected!r}"
+            )
 
         emoji_line = source.splitlines()[1]
         emoji_edits = [edit for edit in edits if edit["range"]["start"]["line"] == 1]

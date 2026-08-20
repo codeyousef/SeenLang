@@ -24,13 +24,22 @@ grep -Fxq '        run: scripts/ci_required.sh' "$WORKFLOW" ||
     fail "workflow does not invoke the required gate"
 
 for required_command in \
+    'python3 scripts/check_ci_workflows.py' \
     'tests/misc_root_tests/seen_native_boundaries_ledger.sh' \
     'tests/misc_root_tests/seen_native_inventory_gate.sh' \
+    'tests/misc_root_tests/seen_ci_workflow_contract.sh' \
     'git diff --check'; do
 
     grep -Fq "$required_command" "$REQUIRED" ||
         fail "required gate omitted $required_command"
 done
+
+[ ! -e "$ROOT_DIR/.github/workflows-disabled" ] ||
+    fail "retired workflow directory remains"
+if find "$ROOT_DIR/.github/workflows" -maxdepth 1 -type f -name '*.disabled' -print -quit |
+    grep -q .; then
+    fail "retired disabled workflow remains active in the repository"
+fi
 
 if rg -n 'safe_rebuild|compiler_seen/target/seen|(^|[[:space:]])sudo([[:space:]]|$)|/tmp/' \
     "$WORKFLOW" "$REQUIRED"; then

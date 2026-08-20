@@ -463,12 +463,12 @@ if [ "$TIER" = "verify" ]; then
         env GOCACHE="$STAGE1_GO_CACHE" GOMODCACHE="$STAGE1_GO_MODCACHE" \
             GOPATH="$STAGE1_GO_PATH" GOTMPDIR="$STAGE1_GO_TMP" \
             GOENV=off GOTELEMETRY=off GOTOOLCHAIN=local \
-            GOMAXPROCS=1 GOFLAGS=-p=1 \
+            GOMAXPROCS=1 GOFLAGS="-p=1 -modcacherw" \
             "$GO_BIN" test -p=1 ./...
     )
 
-    "$REPO_ROOT/installer/test/test-runner.sh" --quick
-    "$REPO_ROOT/installer/test/integration-test.sh"
+    bash "$REPO_ROOT/installer/test/test-runner.sh" --quick
+    bash "$REPO_ROOT/installer/test/integration-test.sh"
 
     compile_fixture lsp-server \
         "$REPO_ROOT/compiler_seen/tests/lsp_server_main.seen"

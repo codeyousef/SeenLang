@@ -108,6 +108,10 @@ fi
 RUN_ROOT="$(mktemp -d "$SEEN_ARTIFACT_ROOT/multilingual-e2e.XXXXXX")"
 cleanup() {
     local status=$?
+    if [ "$status" -ne 0 ]; then
+        echo "Retained failed multilingual E2E artifacts: $RUN_ROOT" >&2
+        return "$status"
+    fi
     case "$RUN_ROOT" in
         "$SEEN_ARTIFACT_ROOT"/multilingual-e2e.*)
             if [ -d "$RUN_ROOT" ] && [ ! -L "$RUN_ROOT" ]; then

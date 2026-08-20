@@ -7,6 +7,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 ENTRY="$ROOT_DIR/scripts/run_capped_regression.sh"
 RUNNER="$ROOT_DIR/scripts/run_attested_seen.sh"
 STAGE1_ACCEPTANCE="$ROOT_DIR/scripts/seen_stage1_acceptance.sh"
+ATOMIC_TEXT_IO="$ROOT_DIR/tests/misc_root_tests/seen_atomic_text_io.sh"
 ARTIFACT_HELPER="$ROOT_DIR/scripts/artifact_root.sh"
 SERIAL_AUXILIARY="$ROOT_DIR/scripts/serial_auxiliary_env.sh"
 CAPABILITY_CALLERS=(
@@ -175,14 +176,34 @@ grep -Fq 'compile_status=$?' "$STAGE1_ACCEPTANCE" ||
     fail "Stage-1 acceptance does not capture the exact compiler status"
 grep -Fq 'return "$compile_status"' "$STAGE1_ACCEPTANCE" ||
     fail "Stage-1 acceptance collapses the compiler failure status"
+grep -Fq 'GOMAXPROCS=1 GOFLAGS="-p=1 -modcacherw"' \
+    "$STAGE1_ACCEPTANCE" ||
+    fail "Stage-1 Go tests are not serial or their cache is not cleanup-safe"
 grep -Fq 'tail -c "$FIXTURE_LOG_TAIL_BYTES" -- "$compile_log"' \
     "$STAGE1_ACCEPTANCE" ||
     fail "Stage-1 acceptance does not print a bounded compiler log tail"
+grep -Fq 'WINE_OVERRIDES="explorer.exe,services.exe,winemenubuilder.exe=d"' \
+    "$ATOMIC_TEXT_IO" ||
+    fail "atomic I/O Wine fixture can start an unbounded service topology"
+grep -Fq 'WINE_CPU_TOPOLOGY="1:1"' "$ATOMIC_TEXT_IO" ||
+    fail "atomic I/O Wine fixture does not bound its virtual CPU topology"
+grep -Fq 'taskset -c "$wine_cpu"' "$ATOMIC_TEXT_IO" ||
+    fail "atomic I/O Wine fixture does not bind its host CPU topology"
+grep -Fq '"$SEEN_WINE_PREFIX_TEMPLATE/." "$WINE_PREFIX/"' "$ATOMIC_TEXT_IO" ||
+    fail "atomic I/O Wine fixture does not clone the bounded prefix template"
+grep -Fq 'env WINEPREFIX="$WINE_PREFIX" wineserver -w' "$ATOMIC_TEXT_IO" ||
+    fail "atomic I/O Wine fixture does not wait for server cleanup"
 grep -Fq 'elif [ "$status" -ne 0 ]; then' "$STAGE1_ACCEPTANCE" ||
     fail "Stage-1 acceptance cleanup does not retain failed fixture artifacts"
 grep -Fq 'Stage-1 acceptance failure artifacts retained:' \
     "$STAGE1_ACCEPTANCE" ||
     fail "Stage-1 acceptance does not report retained failure artifacts"
+grep -Fq 'bash "$REPO_ROOT/installer/test/test-runner.sh" --quick' \
+    "$STAGE1_ACCEPTANCE" ||
+    fail "Stage-1 acceptance executes a non-executable installer test directly"
+grep -Fq 'bash "$REPO_ROOT/installer/test/integration-test.sh"' \
+    "$STAGE1_ACCEPTANCE" ||
+    fail "Stage-1 acceptance executes a non-executable integration test directly"
 grep -Fq 'if [ "$status" -eq 0 ] && [ "$cleanup_status" -ne 0 ]; then' \
     "$STAGE1_ACCEPTANCE" ||
     fail "Stage-1 acceptance cleanup can collapse a resource failure status"

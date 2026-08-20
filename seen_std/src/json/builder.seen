@@ -173,7 +173,10 @@ fun escapeJsonString(input: String) r: String {
     let len = input.length()
 
     while i < len {
-        let ch = input.charAt(i)
+        // String length and substring offsets are UTF-8 byte based. Inspect
+        // bytes here as well so non-ASCII prefixes cannot shift subsequent
+        // ASCII/control-character escaping.
+        let ch = input.byteAt(i)
 
         var escaped = ""
         var wasEscaped = 0

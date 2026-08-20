@@ -1,0 +1,18 @@
+{
+  "active_workflows": [
+    ".github/workflows/ci.yml"
+  ],
+  "checkout": "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683",
+  "gate": "scripts/ci_required.sh",
+  "job_count": 1,
+  "platforms": {
+    "linux-arm64": "static-policy",
+    "linux-x86_64": "required",
+    "macos": "static-policy",
+    "windows": "static-policy"
+  },
+  "required_check": "CI / required",
+  "runner": "ubuntu-24.04",
+  "timeout_minutes": 10,
+  "version": 1
+}

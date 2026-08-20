@@ -34,6 +34,7 @@ COMPILER_ARTIFACT_ROOT=""
 PROJECT_ARTIFACT_ROOT="${PROJECT_ARTIFACT_ROOT:-}"
 COMPILER_SOURCE="compiler_seen/src/main_compiler.seen"
 MEMORY_GUARD_SCRIPT="$SCRIPT_DIR/memory_guard.sh"
+HARD_MEMORY_SCOPE_WRAPPER="$SCRIPT_DIR/run_in_hard_memory_scope.sh"
 BUILDER_CAPABILITY_SCRIPT="$SCRIPT_DIR/rebuild_builder_capability.sh"
 BUILDER_APPLICABILITY_SCRIPT="$SCRIPT_DIR/rebuild_builder_applicability.sh"
 BUILDER_SELECTION_SCRIPT="$SCRIPT_DIR/rebuild_builder_selection.sh"
@@ -670,6 +671,77 @@ enter_rebuild_kernel_scope() {
             "$SCRIPT_DIR/safe_rebuild.sh" "${SAFE_REBUILD_ORIGINAL_ARGS[@]}"
 }
 
+prepare_bounded_wine_prefix_template() {
+    local template_root="$REBUILD_WORK_ROOT/wine-prefix-template"
+    local template_prefix="$template_root/prefix"
+    local wine_cpu=""
+    local cpu_key cpu_value
+
+    [ "$REBUILD_TIER" = "verify" ] || return 0
+    command -v wine >/dev/null 2>&1 || return 0
+    command -v wineboot >/dev/null 2>&1 || return 0
+    command -v wineserver >/dev/null 2>&1 || return 0
+    command -v taskset >/dev/null 2>&1 || {
+        echo -e "${RED}ERROR: Wine prefix preparation requires taskset.${NC}" >&2
+        return 126
+    }
+    while read -r cpu_key cpu_value; do
+        if [ "$cpu_key" = "Cpus_allowed_list:" ]; then
+            wine_cpu="${cpu_value%%[-,]*}"
+            break
+        fi
+    done < /proc/self/status
+    case "$wine_cpu" in
+        ''|*[!0-9]*)
+            echo -e "${RED}ERROR: could not select an allowed CPU for Wine prefix preparation.${NC}" >&2
+            return 126
+            ;;
+    esac
+    if [ -e "$template_root" ] || [ -L "$template_root" ]; then
+        echo -e "${RED}ERROR: refusing an existing Wine prefix template path.${NC}" >&2
+        return 126
+    fi
+    mkdir -p -- "$template_root/home" "$template_root/cache" \
+        "$template_root/config" "$template_root/data" || return 1
+    if ! "$HARD_MEMORY_SCOPE_WRAPPER" \
+        --label "Wine prefix preparation" -- \
+        bash -c '
+            set -euo pipefail
+            template_root=$1
+            wine_cpu=$2
+            cleanup() {
+                status=$?
+                env WINEPREFIX="$template_root/prefix" wineserver -k \
+                    >/dev/null 2>&1 || true
+                env WINEPREFIX="$template_root/prefix" wineserver -w \
+                    >/dev/null 2>&1 || true
+                exit "$status"
+            }
+            trap cleanup EXIT
+            env \
+                HOME="$template_root/home" \
+                XDG_CACHE_HOME="$template_root/cache" \
+                XDG_CONFIG_HOME="$template_root/config" \
+                XDG_DATA_HOME="$template_root/data" \
+                WINEARCH=win64 \
+                WINEPREFIX="$template_root/prefix" \
+                WINEDEBUG=-all \
+                WINEDLLOVERRIDES="explorer.exe,services.exe,winemenubuilder.exe=d" \
+                WINE_CPU_TOPOLOGY=1:1 \
+                taskset -c "$wine_cpu" wineboot --init
+            env WINEPREFIX="$template_root/prefix" wineserver -w
+        ' bash "$template_root" "$wine_cpu"; then
+
+        echo -e "${RED}ERROR: bounded Wine prefix preparation failed.${NC}" >&2
+        return 1
+    fi
+    [ -d "$template_prefix" ] && [ ! -L "$template_prefix" ] || {
+        echo -e "${RED}ERROR: bounded Wine prefix preparation produced no safe prefix.${NC}" >&2
+        return 1
+    }
+    export SEEN_WINE_PREFIX_TEMPLATE="$template_prefix"
+}
+
 run_guarded_command() {
     local label=$1
     local timeout_secs=$2
@@ -767,13 +839,22 @@ run_guarded_command_to_log() {
     rm -f "$guard_metrics"
 
     local status=0
-    SEEN_MEMORY_GUARD_METRICS_FILE="$guard_metrics" \
-    run_guarded_command "$label" "$timeout_secs" "$vmem_kb" \
-        bash -c '
-            log_file=$1
-            shift
-            exec "$@" > "$log_file" 2>&1
-        ' bash "$log_file" "$@" > "$guard_log" 2>&1 || status=$?
+    if [ "${SEEN_REBUILD_AGGREGATE_SCOPE_VERIFIED:-0}" = "1" ]; then
+        # The aggregate cgroup is already the authenticated observer. Redirect
+        # the bounded command directly so a logger shell does not consume one
+        # of the deliberately scarce task slots for the command's lifetime.
+        SEEN_MEMORY_GUARD_METRICS_FILE="$guard_metrics" \
+        run_guarded_command "$label" "$timeout_secs" "$vmem_kb" \
+            "$@" > "$log_file" 2>&1 || status=$?
+    else
+        SEEN_MEMORY_GUARD_METRICS_FILE="$guard_metrics" \
+        run_guarded_command "$label" "$timeout_secs" "$vmem_kb" \
+            bash -c '
+                log_file=$1
+                shift
+                exec "$@" > "$log_file" 2>&1
+            ' bash "$log_file" "$@" > "$guard_log" 2>&1 || status=$?
+    fi
 
     if [ -s "$guard_log" ]; then
         {
@@ -1821,7 +1902,7 @@ if [ "${SEEN_DISABLE_MEMORY_GUARD:-0}" != "1" ]; then
     MEMORY_GUARD_RESERVE_KB="${SEEN_GUARD_RESERVE_KB:-$(derive_memory_guard_reserve_kb "$SYSTEM_MEMORY_KB" "$SYSTEM_AVAILABLE_KB")}"
     MEMORY_GUARD_RSS_KB="${SEEN_GUARD_RSS_KB:-$(derive_memory_guard_rss_kb "$SYSTEM_MEMORY_KB" "$SYSTEM_AVAILABLE_KB" "$MEMORY_GUARD_RESERVE_KB")}"
     MEMORY_GUARD_TASKS_MAX="${SEEN_GUARD_TASKS_MAX:-24}"
-    MEMORY_GUARD_CGROUP_STOP_KB="${SEEN_GUARD_CGROUP_STOP_KB:-$((MEMORY_GUARD_RSS_KB * 90 / 100))}"
+    MEMORY_GUARD_CGROUP_STOP_KB="${SEEN_GUARD_CGROUP_STOP_KB:-$MEMORY_GUARD_RSS_KB}"
     if [ "$MEMORY_GUARD_CGROUP_STOP_KB" -lt 1 ]; then
         MEMORY_GUARD_CGROUP_STOP_KB=1
     fi
@@ -1901,7 +1982,7 @@ if [ "${SEEN_LOW_MEMORY:-0}" = "1" ]; then
         export SEEN_MEMORY_GUARD_TASKS_MAX="$MEMORY_GUARD_TASKS_MAX"
     fi
     if [ -z "${SEEN_GUARD_CGROUP_STOP_KB:-}" ]; then
-        MEMORY_GUARD_CGROUP_STOP_KB=$((MEMORY_GUARD_RSS_KB * 90 / 100))
+        MEMORY_GUARD_CGROUP_STOP_KB=$MEMORY_GUARD_RSS_KB
         if [ "$MEMORY_GUARD_CGROUP_STOP_KB" -lt 1 ]; then
             MEMORY_GUARD_CGROUP_STOP_KB=1
         fi
@@ -1911,7 +1992,7 @@ if [ "${SEEN_LOW_MEMORY:-0}" = "1" ]; then
         echo -e "${RED}ERROR: SEEN_GUARD_RSS_KB may not exceed SEEN_MAIN_VMEM_KB.${NC}" >&2
         exit 1
     fi
-    max_early_stop_kb=$((MEMORY_GUARD_RSS_KB * 90 / 100))
+    max_early_stop_kb=$MEMORY_GUARD_RSS_KB
     if [ "$MEMORY_GUARD_CGROUP_STOP_KB" -gt "$max_early_stop_kb" ]; then
         MEMORY_GUARD_CGROUP_STOP_KB="$max_early_stop_kb"
         export SEEN_MEMORY_GUARD_CGROUP_STOP_KB="$MEMORY_GUARD_CGROUP_STOP_KB"
@@ -1941,6 +2022,7 @@ fi
 configure_adaptive_rebuild_workers
 
 if [ "${SEEN_REBUILD_AGGREGATE_SCOPE_ACTIVE:-0}" != "1" ]; then
+    prepare_bounded_wine_prefix_template || exit $?
     enter_rebuild_kernel_scope
 fi
 if [ "${SEEN_MEMORY_GUARD_IN_SCOPE:-0}" != "1" ]; then

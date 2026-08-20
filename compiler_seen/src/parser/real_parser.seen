@@ -5292,9 +5292,9 @@ class RealParser {
     fun parseAssignment() r: ParserExpressionNode {
         let expr = parseOr()
 
-        // Postfix 'as' type cast — direct value check, no isAtEnd guard (peek() returns EOF safely)
-        if peek().getValue() == "as" {
-            advance()   // consume 'as'
+        // Postfix 'as' type cast. Match the canonical token kind so localized
+        // spellings are parsed identically to the English source spelling.
+        if matchTokenStr(SeenTokenType.KeywordAs) {
             let castTN = parseTypeNode()
             let castE = ParserExpressionNode.new()
             castE.kind = "Cast"

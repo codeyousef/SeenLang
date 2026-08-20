@@ -3,6 +3,8 @@ Rewrite Rules System for E-graph Equality Saturation
 Implements algebraic, bitwise, comparison, and strength-reduction rules
 ///
 
+import optimization.egraph.egraph.{EGraph}
+
 // A rewrite rule: if lhsOp matches, replace with rhsOp
 class RewriteRule {
     let name: String       // human-readable rule name

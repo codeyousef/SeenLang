@@ -4327,7 +4327,7 @@ fun resolvePrebuiltArtifactSelfImportPath(importPath: Array<String>,
         return directPath
     }
 
-    var qualifiedPath = getSourceDir(tomlPath) + "/src"
+    var qualifiedPath = artifactRoot + "/src"
     var qualifiedIdx = 0
     while qualifiedIdx < importPath.length() {
         qualifiedPath = qualifiedPath + "/" + importPath[qualifiedIdx]
@@ -7688,7 +7688,8 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("typechecker.semantic_registry")
         modules.push("typechecker.lexical_semantic")
         modules.push("typechecker.interfaces")
-        modules.push("typechecker.typechecker")
+        // The legacy no-op SeenTypeChecker is not imported by the compiler.
+        // Do not inject that stale stub into the bootstrap graph.
         modules.push("typechecker.determinism")
         // Macro modules must come before bootstrap.frontend (which imports them)
         modules.push("macro.ast_node")
