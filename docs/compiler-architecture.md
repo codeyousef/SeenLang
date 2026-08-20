@@ -114,6 +114,16 @@ Important target controls include `--target`, `--target-cpu`, `--simd`,
 `--sanitize`, `--pgo-generate`, `--pgo-use`, `--pic`, and
 `--object-manifest`.
 
+## Native-boundary ledger
+
+Native ABI use is explicit and versioned in
+[`architecture/native-boundaries.json`](architecture/native-boundaries.json).
+It records the owning subsystem, purpose, ABI, supported platforms, and each
+foreign symbol. The ledger is a fail-closed contract: update it alongside any
+production FFI addition, then run `tests/misc_root_tests/seen_native_boundaries_ledger.sh`.
+The JSON shape is defined by
+[`../schemas/native-boundaries.schema.json`](../schemas/native-boundaries.schema.json).
+
 ## Incremental and Parallel Compilation
 
 The compiler uses source-level and IR-level caches:
