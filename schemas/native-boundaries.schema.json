@@ -4,9 +4,10 @@
   "title": "Seen native-boundary ledger",
   "type": "object",
   "additionalProperties": false,
-  "required": ["version", "boundaries"],
+  "required": ["version", "inventory", "boundaries"],
   "properties": {
     "version": {"const": 1},
+    "inventory": {"const": "native-inventory.json"},
     "boundaries": {
       "type": "array",
       "minItems": 1,

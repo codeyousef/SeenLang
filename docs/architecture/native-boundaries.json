@@ -1,5 +1,6 @@
 {
   "version": 1,
+  "inventory": "native-inventory.json",
   "boundaries": [
     {
       "id": "llvm-c-api",

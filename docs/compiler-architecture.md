@@ -124,6 +124,13 @@ production FFI addition, then run `tests/misc_root_tests/seen_native_boundaries_
 The JSON shape is defined by
 [`../schemas/native-boundaries.schema.json`](../schemas/native-boundaries.schema.json).
 
+[`architecture/native-inventory.json`](architecture/native-inventory.json)
+is the deterministic source inventory behind that review contract. It records
+every production Seen `extern fun` symbol with its declaring source files, all
+backend implementations present in compiler source, and which backend the
+shipped CLI exposes. `scripts/ci_required.sh` regenerates the inventory in
+memory and rejects any byte-level drift before a pull request can merge.
+
 ## Incremental and Parallel Compilation
 
 The compiler uses source-level and IR-level caches:

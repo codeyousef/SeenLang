@@ -27,10 +27,13 @@ def string(value: object, name: str, pattern: re.Pattern[str], maximum: int) -> 
 
 
 def validate(document: object) -> None:
-    if not isinstance(document, dict) or set(document) != {"version", "boundaries"}:
-        fail("ledger must contain exactly version and boundaries")
+    expected_fields = {"version", "inventory", "boundaries"}
+    if not isinstance(document, dict) or set(document) != expected_fields:
+        fail("ledger must contain exactly version, inventory, and boundaries")
     if document["version"] != 1:
         fail("unsupported ledger version")
+    if document["inventory"] != "native-inventory.json":
+        fail("inventory must name native-inventory.json")
     boundaries = document["boundaries"]
     if not isinstance(boundaries, list) or not boundaries:
         fail("boundaries must be a non-empty array")

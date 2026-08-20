@@ -1,0 +1,6906 @@
+{
+  "version": 1,
+  "scan_roots": [
+    "compiler_seen/src",
+    "seen_std/src"
+  ],
+  "foreign_symbols": [
+    {
+      "name": "LLVMIRGenerator_collectLoweringVariableDeclarationsCallback",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/codegen/ir_lowering_context_bridge.seen"
+      ]
+    },
+    {
+      "name": "LLVMIRGenerator_generateCall",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/codegen/ir_lowering_context_bridge.seen"
+      ]
+    },
+    {
+      "name": "LLVMIRGenerator_generateExpression",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/codegen/ir_lowering_context_bridge.seen"
+      ]
+    },
+    {
+      "name": "LLVMIRGenerator_generateExpressionIntoCallback",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/codegen/ir_lowering_context_bridge.seen"
+      ]
+    },
+    {
+      "name": "LLVMIRGenerator_inferExpressionType",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/codegen/ir_lowering_context_bridge.seen"
+      ]
+    },
+    {
+      "name": "LLVMIRGenerator_isBlockTerminated",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/codegen/ir_lowering_context_bridge.seen"
+      ]
+    },
+    {
+      "name": "LLVMIRGenerator_lowerBlockCallback",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/codegen/ir_lowering_context_bridge.seen"
+      ]
+    },
+    {
+      "name": "LLVMIRGenerator_lowerClassMethodFromListCallback",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/codegen/ir_lowering_context_bridge.seen"
+      ]
+    },
+    {
+      "name": "LLVMIRGenerator_lowerClassNodeCallback",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/codegen/ir_lowering_context_bridge.seen"
+      ]
+    },
+    {
+      "name": "LLVMIRGenerator_lowerEnumConstructorCallback",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/codegen/ir_lowering_context_bridge.seen"
+      ]
+    },
+    {
+      "name": "LLVMIRGenerator_lowerFunctionNodeCallback",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/codegen/ir_lowering_context_bridge.seen"
+      ]
+    },
+    {
+      "name": "LLVMIRGenerator_lowerProgramTopLevelFunctionsCallback",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/codegen/ir_lowering_context_bridge.seen"
+      ]
+    },
+    {
+      "name": "LLVMIRGenerator_lowerStatementCallback",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/codegen/ir_lowering_context_bridge.seen"
+      ]
+    },
+    {
+      "name": "LLVMIRGenerator_prepareLoweredCallArgumentsWithDefaultsCallback",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/codegen/ir_lowering_context_bridge.seen"
+      ]
+    },
+    {
+      "name": "LLVMIRGenerator_reset",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/codegen/ir_lowering_context_bridge.seen"
+      ]
+    },
+    {
+      "name": "LLVMIRGenerator_resetSharedModuleGenerationScratchState",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/codegen/ir_lowering_context_bridge.seen"
+      ]
+    },
+    {
+      "name": "LLVMIRGenerator_syncState",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/codegen/ir_lowering_context_bridge.seen"
+      ]
+    },
+    {
+      "name": "LLVMIRGenerator_writeBackState",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/codegen/ir_lowering_context_bridge.seen"
+      ]
+    },
+    {
+      "name": "SDL_ClearError",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_CloseGamepad",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_CreateWindow",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_CreateWindow",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_CursorVisible",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_Delay",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_Delay",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_DestroyWindow",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_DestroyWindow",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_GetClipboardText",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_GetError",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_GetError",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_GetGamepadAxis",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_GetGamepadButton",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_GetGamepadName",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_GetGamepads",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_GetKeyName",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_GetKeyboardState",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_GetKeyboardState",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_GetModState",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_GetModState",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_GetMouseState",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_GetMouseState",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_GetPerformanceCounter",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_GetPerformanceFrequency",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_GetRelativeMouseMode",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_GetRelativeMouseState",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_GetScancodeFromName",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_GetTicks",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_GetTicks",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_GetWindowFlags",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_GetWindowFlags",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_GetWindowPosition",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_GetWindowSize",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_GetWindowSize",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_GetWindowTitle",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_GetWindowTitle",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_HasClipboardText",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_HideCursor",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_HideWindow",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_HideWindow",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_Init",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_Init",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_MaximizeWindow",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_MaximizeWindow",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_Metal_CreateView",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_Metal_DestroyView",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_Metal_GetLayer",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_MinimizeWindow",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_MinimizeWindow",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_OpenGamepad",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_PollEvent",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_PollEvent",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_PushEvent",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_Quit",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_Quit",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_RaiseWindow",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_RestoreWindow",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_RumbleGamepad",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_SetClipboardText",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_SetRelativeMouseMode",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_SetWindowFullscreen",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_SetWindowFullscreen",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_SetWindowPosition",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_SetWindowSize",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_SetWindowSize",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_SetWindowTitle",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_SetWindowTitle",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_ShowCursor",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_ShowWindow",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_ShowWindow",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_Vulkan_CreateSurface",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_Vulkan_GetDrawableSize",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_Vulkan_GetInstanceExtensions",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_WaitEvent",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_WaitEventTimeout",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SDL_WarpMouseInWindow",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/sdl3.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_ISteamApps_BIsAppInstalled",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_ISteamApps_BIsDlcInstalled",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_ISteamApps_BIsSubscribed",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_ISteamApps_BIsSubscribedApp",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_ISteamApps_BIsVACBanned",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_ISteamApps_GetAvailableGameLanguages",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_ISteamApps_GetCurrentGameLanguage",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_ISteamApps_GetDLCCount",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_ISteamFriends_ActivateGameOverlay",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_ISteamFriends_ActivateGameOverlayToWebPage",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_ISteamFriends_ClearRichPresence",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_ISteamFriends_GetFriendCount",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_ISteamFriends_GetPersonaName",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_ISteamFriends_GetPersonaState",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_ISteamFriends_SetRichPresence",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_ISteamInput_GetConnectedControllers",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_ISteamInput_Init",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_ISteamInput_RunFrame",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_ISteamInput_Shutdown",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_ISteamInput_TriggerVibration",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_ISteamRemoteStorage_FileDelete",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_ISteamRemoteStorage_FileExists",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_ISteamRemoteStorage_FileRead",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_ISteamRemoteStorage_FileWrite",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_ISteamRemoteStorage_GetFileCount",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_ISteamRemoteStorage_GetFileSize",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_ISteamRemoteStorage_GetQuota",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_ISteamRemoteStorage_IsCloudEnabledForAccount",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_ISteamRemoteStorage_IsCloudEnabledForApp",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_ISteamRemoteStorage_SetCloudEnabledForApp",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_ISteamUserStats_ClearAchievement",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_ISteamUserStats_GetAchievement",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_ISteamUserStats_GetAchievementName",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_ISteamUserStats_GetNumAchievements",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_ISteamUserStats_GetStatFloat",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_ISteamUserStats_GetStatInt32",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_ISteamUserStats_IndicateAchievementProgress",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_ISteamUserStats_RequestCurrentStats",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_ISteamUserStats_ResetAllStats",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_ISteamUserStats_SetAchievement",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_ISteamUserStats_SetStatFloat",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_ISteamUserStats_SetStatInt32",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_ISteamUserStats_StoreStats",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_ISteamUser_BLoggedOn",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_ISteamUser_GetPlayerSteamLevel",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_ISteamUser_GetSteamID",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_ISteamUtils_GetAppID",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_ISteamUtils_GetCurrentBatteryPower",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_ISteamUtils_GetIPCountry",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_ISteamUtils_GetSecondsSinceAppActive",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_ISteamUtils_GetServerRealTime",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_ISteamUtils_IsOverlayEnabled",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_ISteamUtils_IsSteamInBigPictureMode",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_ISteamUtils_IsSteamRunningInVR",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_ISteamUtils_IsSteamRunningOnSteamDeck",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_ISteamUtils_SetOverlayNotificationPosition",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_Init",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_IsSteamRunning",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_RestartAppIfNecessary",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_RunCallbacks",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_Shutdown",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_SteamApps_v008",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_SteamFriends_v017",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_SteamInput_v006",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_SteamRemoteStorage_v016",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_SteamUserStats_v012",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_SteamUser_v023",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamAPI_SteamUtils_v010",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamApps",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamClient",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamFriends",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamInput",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamRemoteStorage",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamUser",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamUserStats",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "SteamUtils",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/steam.seen"
+      ]
+    },
+    {
+      "name": "Z3_ast_to_string",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_dec_ref",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_del_config",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_del_context",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_get_bv_sort_size",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_get_error_code",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_get_error_msg",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_get_full_version",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_get_numeral_int64",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_get_numeral_string",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_get_numeral_uint64",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_get_symbol_string",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_get_version",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_inc_ref",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_and",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_bool",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_bool_sort",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_bv_sort",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_bvadd",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_bvand",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_bvashr",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_bvlshr",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_bvmul",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_bvnand",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_bvneg",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_bvnor",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_bvnot",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_bvor",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_bvsdiv",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_bvsge",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_bvsgt",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_bvshl",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_bvsle",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_bvslt",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_bvsmod",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_bvsrem",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_bvsub",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_bvudiv",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_bvuge",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_bvugt",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_bvule",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_bvult",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_bvurem",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_bvxnor",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_bvxor",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_concat",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_config",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_const",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_context",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_context_rc",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_distinct",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_eq",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_exists_const",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_ext_rotate_left",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_ext_rotate_right",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_extract",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_false",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_forall_const",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_iff",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_implies",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_int",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_int64",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_int_sort",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_int_symbol",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_ite",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_not",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_numeral",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_or",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_sign_ext",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_simple_solver",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_solver",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_string_symbol",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_true",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_unsigned_int",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_unsigned_int64",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_xor",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_mk_zero_ext",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_model_dec_ref",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_model_eval",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_model_get_const_decl",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_model_get_num_consts",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_model_inc_ref",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_model_to_string",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_reset_memory",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_set_param_value",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_solver_assert",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_solver_check",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_solver_dec_ref",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_solver_get_model",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_solver_get_reason_unknown",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_solver_inc_ref",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_solver_pop",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_solver_push",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_solver_reset",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_solver_to_string",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "Z3_sort_to_string",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/ffi/z3_ffi.seen"
+      ]
+    },
+    {
+      "name": "__ArrayNew",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/bootstrap/intrinsics.seen",
+        "seen_std/src/core/intrinsics.seen"
+      ]
+    },
+    {
+      "name": "__BinaryBufferData",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/core/binary.seen"
+      ]
+    },
+    {
+      "name": "__BinaryBufferLength",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/core/binary.seen"
+      ]
+    },
+    {
+      "name": "__BinaryBufferNew",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/core/binary.seen"
+      ]
+    },
+    {
+      "name": "__BinaryReadF64",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/core/binary.seen"
+      ]
+    },
+    {
+      "name": "__BinaryReadI64",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/core/binary.seen"
+      ]
+    },
+    {
+      "name": "__BinaryWriteF64",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/core/binary.seen"
+      ]
+    },
+    {
+      "name": "__BinaryWriteI64",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/core/binary.seen"
+      ]
+    },
+    {
+      "name": "__CloseFile",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/main.seen",
+        "seen_std/src/io/file.seen"
+      ]
+    },
+    {
+      "name": "__CompressRLE",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/core/compress.seen"
+      ]
+    },
+    {
+      "name": "__CreateDirectory",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/io/file.seen"
+      ]
+    },
+    {
+      "name": "__CurrentExecutablePath",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/lexer/language_pack.seen"
+      ]
+    },
+    {
+      "name": "__DecompressRLE",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/core/compress.seen"
+      ]
+    },
+    {
+      "name": "__DeleteFile",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/io/file.seen"
+      ]
+    },
+    {
+      "name": "__ExecuteCommand",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/process/process.seen"
+      ]
+    },
+    {
+      "name": "__ExecuteProgram",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/process/process.seen"
+      ]
+    },
+    {
+      "name": "__FileError",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/io/file.seen"
+      ]
+    },
+    {
+      "name": "__FileExists",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/main.seen",
+        "seen_std/src/io/file.seen"
+      ]
+    },
+    {
+      "name": "__FileSize",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/io/file.seen"
+      ]
+    },
+    {
+      "name": "__FlushStdout",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/io/stdio.seen"
+      ]
+    },
+    {
+      "name": "__GetCommandLineArgs",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/env/env.seen"
+      ]
+    },
+    {
+      "name": "__GetEnv",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/env/env.seen"
+      ]
+    },
+    {
+      "name": "__GetTime",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/optimization/ml/ml_optimizer_nn.seen",
+        "compiler_seen/src/optimization/ml/training_data.seen"
+      ]
+    },
+    {
+      "name": "__GetTimestamp",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/time/time.seen"
+      ]
+    },
+    {
+      "name": "__HasEnv",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/env/env.seen"
+      ]
+    },
+    {
+      "name": "__MutexCreate",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/sync/mpsc_queue.seen"
+      ]
+    },
+    {
+      "name": "__MutexDestroy",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/sync/mpsc_queue.seen"
+      ]
+    },
+    {
+      "name": "__MutexLock",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/sync/mpsc_queue.seen"
+      ]
+    },
+    {
+      "name": "__MutexUnlock",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/sync/mpsc_queue.seen"
+      ]
+    },
+    {
+      "name": "__OpenFile",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/main.seen",
+        "seen_std/src/io/file.seen"
+      ]
+    },
+    {
+      "name": "__Print",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/parser/real_parser.seen"
+      ]
+    },
+    {
+      "name": "__PrintInt",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/parser/real_parser.seen"
+      ]
+    },
+    {
+      "name": "__PrintRaw",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/io/stdio.seen"
+      ]
+    },
+    {
+      "name": "__ReadFile",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/io/file.seen"
+      ]
+    },
+    {
+      "name": "__ReadFileBytes",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/io/file.seen"
+      ]
+    },
+    {
+      "name": "__ReadStdinBytes",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/io/stdio.seen"
+      ]
+    },
+    {
+      "name": "__ReadStdinLine",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/io/stdio.seen"
+      ]
+    },
+    {
+      "name": "__RemoveEnv",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/env/env.seen"
+      ]
+    },
+    {
+      "name": "__SetEnv",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/env/env.seen"
+      ]
+    },
+    {
+      "name": "__VerifyStringABI",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/main.seen"
+      ]
+    },
+    {
+      "name": "__WriteFile",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/main.seen",
+        "seen_std/src/io/file.seen"
+      ]
+    },
+    {
+      "name": "__WriteFileBytes",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/io/file.seen"
+      ]
+    },
+    {
+      "name": "__default",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/collections/hash_map.seen",
+        "seen_std/src/collections/vec.seen",
+        "seen_std/src/core/option.seen"
+      ]
+    },
+    {
+      "name": "__panic",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/async/future.seen"
+      ]
+    },
+    {
+      "name": "__seen_attestation_measurement_json",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/security/enclave.seen"
+      ]
+    },
+    {
+      "name": "__seen_enclave_create",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/security/enclave.seen"
+      ]
+    },
+    {
+      "name": "__seen_enclave_destroy",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/security/enclave.seen"
+      ]
+    },
+    {
+      "name": "__seen_enclave_enter",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/security/enclave.seen"
+      ]
+    },
+    {
+      "name": "__seen_enclave_exit",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/security/enclave.seen"
+      ]
+    },
+    {
+      "name": "__seen_exit",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/process/process.seen"
+      ]
+    },
+    {
+      "name": "__seen_fork",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/process/process.seen"
+      ]
+    },
+    {
+      "name": "__seen_get_attestation_json",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/security/enclave.seen"
+      ]
+    },
+    {
+      "name": "__seen_getpid",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/process/process.seen"
+      ]
+    },
+    {
+      "name": "__seen_hotreload_call_i64",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/framework/hotreload.seen"
+      ]
+    },
+    {
+      "name": "__seen_hotreload_call_i64_ptr",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/framework/hotreload.seen"
+      ]
+    },
+    {
+      "name": "__seen_hotreload_deserialize_state",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/framework/hotreload.seen"
+      ]
+    },
+    {
+      "name": "__seen_hotreload_find",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/framework/hotreload.seen"
+      ]
+    },
+    {
+      "name": "__seen_hotreload_get_error",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/framework/hotreload.seen"
+      ]
+    },
+    {
+      "name": "__seen_hotreload_get_function",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/framework/hotreload.seen"
+      ]
+    },
+    {
+      "name": "__seen_hotreload_get_timestamp",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/framework/hotreload.seen"
+      ]
+    },
+    {
+      "name": "__seen_hotreload_get_version",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/framework/hotreload.seen"
+      ]
+    },
+    {
+      "name": "__seen_hotreload_is_active",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/framework/hotreload.seen"
+      ]
+    },
+    {
+      "name": "__seen_hotreload_load",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/framework/hotreload.seen"
+      ]
+    },
+    {
+      "name": "__seen_hotreload_load_named",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/framework/hotreload.seen"
+      ]
+    },
+    {
+      "name": "__seen_hotreload_poll",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/framework/hotreload.seen"
+      ]
+    },
+    {
+      "name": "__seen_hotreload_reload",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/framework/hotreload.seen"
+      ]
+    },
+    {
+      "name": "__seen_hotreload_serialize_state",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/framework/hotreload.seen"
+      ]
+    },
+    {
+      "name": "__seen_hotreload_stop_watch",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/framework/hotreload.seen"
+      ]
+    },
+    {
+      "name": "__seen_hotreload_unload",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/framework/hotreload.seen"
+      ]
+    },
+    {
+      "name": "__seen_hotreload_watch_file",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/framework/hotreload.seen"
+      ]
+    },
+    {
+      "name": "__seen_in_enclave",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/security/enclave.seen"
+      ]
+    },
+    {
+      "name": "__seen_promise_load_f64",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/async/runtime.seen"
+      ]
+    },
+    {
+      "name": "__seen_promise_load_i64",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/async/runtime.seen"
+      ]
+    },
+    {
+      "name": "__seen_seal_string",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/security/enclave.seen"
+      ]
+    },
+    {
+      "name": "__seen_tee_get_type",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/security/enclave.seen"
+      ]
+    },
+    {
+      "name": "__seen_tee_init",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/security/enclave.seen"
+      ]
+    },
+    {
+      "name": "__seen_tee_is_active",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/security/enclave.seen"
+      ]
+    },
+    {
+      "name": "__seen_unseal_string",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/security/enclave.seen"
+      ]
+    },
+    {
+      "name": "__seen_unseal_string_ex",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/security/enclave.seen"
+      ]
+    },
+    {
+      "name": "__seen_verify_attestation_json",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/security/enclave.seen"
+      ]
+    },
+    {
+      "name": "__seen_waitpid",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/process/process.seen"
+      ]
+    },
+    {
+      "name": "__simd_dot_product",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/simd/simd_math.seen"
+      ]
+    },
+    {
+      "name": "__simd_f4_add",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/simd/simd_types.seen"
+      ]
+    },
+    {
+      "name": "__simd_f4_div",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/simd/simd_types.seen"
+      ]
+    },
+    {
+      "name": "__simd_f4_dot",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/simd/simd_types.seen"
+      ]
+    },
+    {
+      "name": "__simd_f4_load",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/simd/simd_types.seen"
+      ]
+    },
+    {
+      "name": "__simd_f4_max",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/simd/simd_types.seen"
+      ]
+    },
+    {
+      "name": "__simd_f4_min",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/simd/simd_types.seen"
+      ]
+    },
+    {
+      "name": "__simd_f4_mul",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/simd/simd_types.seen"
+      ]
+    },
+    {
+      "name": "__simd_f4_splat",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/simd/simd_types.seen"
+      ]
+    },
+    {
+      "name": "__simd_f4_store",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/simd/simd_types.seen"
+      ]
+    },
+    {
+      "name": "__simd_f4_sub",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/simd/simd_types.seen"
+      ]
+    },
+    {
+      "name": "__simd_f4_sum",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/simd/simd_types.seen"
+      ]
+    },
+    {
+      "name": "__simd_f8_add",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/simd/simd_types.seen"
+      ]
+    },
+    {
+      "name": "__simd_f8_div",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/simd/simd_types.seen"
+      ]
+    },
+    {
+      "name": "__simd_f8_dot",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/simd/simd_types.seen"
+      ]
+    },
+    {
+      "name": "__simd_f8_load",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/simd/simd_types.seen"
+      ]
+    },
+    {
+      "name": "__simd_f8_max",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/simd/simd_types.seen"
+      ]
+    },
+    {
+      "name": "__simd_f8_min",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/simd/simd_types.seen"
+      ]
+    },
+    {
+      "name": "__simd_f8_mul",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/simd/simd_types.seen"
+      ]
+    },
+    {
+      "name": "__simd_f8_splat",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/simd/simd_types.seen"
+      ]
+    },
+    {
+      "name": "__simd_f8_store",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/simd/simd_types.seen"
+      ]
+    },
+    {
+      "name": "__simd_f8_sub",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/simd/simd_types.seen"
+      ]
+    },
+    {
+      "name": "__simd_f8_sum",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/simd/simd_types.seen"
+      ]
+    },
+    {
+      "name": "__simd_prefix_sum",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/simd/simd_math.seen"
+      ]
+    },
+    {
+      "name": "__simd_reduce_max",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/simd/simd_math.seen"
+      ]
+    },
+    {
+      "name": "__simd_reduce_min",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/simd/simd_math.seen"
+      ]
+    },
+    {
+      "name": "__simd_reduce_sum",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/simd/simd_math.seen"
+      ]
+    },
+    {
+      "name": "__thread_yield",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/async/future.seen",
+        "seen_std/src/async/runtime.seen"
+      ]
+    },
+    {
+      "name": "abort",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/bootstrap/intrinsics.seen",
+        "seen_std/src/core/intrinsics.seen"
+      ]
+    },
+    {
+      "name": "async_yield",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/async/runtime.seen"
+      ]
+    },
+    {
+      "name": "beginLoweringNestedScratch",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/codegen/ir_lowering_context.seen"
+      ]
+    },
+    {
+      "name": "clearLoweringActiveBindings",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/codegen/ir_lowering_context.seen"
+      ]
+    },
+    {
+      "name": "collectLoweringVariableDeclarations",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/codegen/ir_lowering_context.seen"
+      ]
+    },
+    {
+      "name": "currentLoweringFunctionOptions",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/codegen/ir_lowering_context.seen"
+      ]
+    },
+    {
+      "name": "inferLoweredExpressionType",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/codegen/ir_lowering_context.seen"
+      ]
+    },
+    {
+      "name": "isLoweringBlockTerminated",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/codegen/ir_lowering_context.seen"
+      ]
+    },
+    {
+      "name": "libinput_device_config_accel_get_speed",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/libinput.seen"
+      ]
+    },
+    {
+      "name": "libinput_device_config_accel_set_speed",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/libinput.seen"
+      ]
+    },
+    {
+      "name": "libinput_device_config_left_handed_get",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/libinput.seen"
+      ]
+    },
+    {
+      "name": "libinput_device_config_left_handed_set",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/libinput.seen"
+      ]
+    },
+    {
+      "name": "libinput_device_config_scroll_get_natural_scroll_enabled",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/libinput.seen"
+      ]
+    },
+    {
+      "name": "libinput_device_config_scroll_set_natural_scroll_enabled",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/libinput.seen"
+      ]
+    },
+    {
+      "name": "libinput_device_config_tap_get_enabled",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/libinput.seen"
+      ]
+    },
+    {
+      "name": "libinput_device_config_tap_set_enabled",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/libinput.seen"
+      ]
+    },
+    {
+      "name": "libinput_device_get_id_product",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/libinput.seen"
+      ]
+    },
+    {
+      "name": "libinput_device_get_id_vendor",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/libinput.seen"
+      ]
+    },
+    {
+      "name": "libinput_device_get_name",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/libinput.seen"
+      ]
+    },
+    {
+      "name": "libinput_device_get_sysname",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/libinput.seen"
+      ]
+    },
+    {
+      "name": "libinput_device_has_capability",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/libinput.seen"
+      ]
+    },
+    {
+      "name": "libinput_device_ref",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/libinput.seen"
+      ]
+    },
+    {
+      "name": "libinput_device_unref",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/libinput.seen"
+      ]
+    },
+    {
+      "name": "libinput_dispatch",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/libinput.seen"
+      ]
+    },
+    {
+      "name": "libinput_event_destroy",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/libinput.seen"
+      ]
+    },
+    {
+      "name": "libinput_event_gesture_get_angle_delta",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/libinput.seen"
+      ]
+    },
+    {
+      "name": "libinput_event_gesture_get_cancelled",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/libinput.seen"
+      ]
+    },
+    {
+      "name": "libinput_event_gesture_get_dx",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/libinput.seen"
+      ]
+    },
+    {
+      "name": "libinput_event_gesture_get_dy",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/libinput.seen"
+      ]
+    },
+    {
+      "name": "libinput_event_gesture_get_finger_count",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/libinput.seen"
+      ]
+    },
+    {
+      "name": "libinput_event_gesture_get_scale",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/libinput.seen"
+      ]
+    },
+    {
+      "name": "libinput_event_gesture_get_time",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/libinput.seen"
+      ]
+    },
+    {
+      "name": "libinput_event_get_device",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/libinput.seen"
+      ]
+    },
+    {
+      "name": "libinput_event_get_type",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/libinput.seen"
+      ]
+    },
+    {
+      "name": "libinput_event_keyboard_get_key",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/libinput.seen"
+      ]
+    },
+    {
+      "name": "libinput_event_keyboard_get_key_state",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/libinput.seen"
+      ]
+    },
+    {
+      "name": "libinput_event_keyboard_get_time",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/libinput.seen"
+      ]
+    },
+    {
+      "name": "libinput_event_pointer_get_button",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/libinput.seen"
+      ]
+    },
+    {
+      "name": "libinput_event_pointer_get_button_state",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/libinput.seen"
+      ]
+    },
+    {
+      "name": "libinput_event_pointer_get_dx",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/libinput.seen"
+      ]
+    },
+    {
+      "name": "libinput_event_pointer_get_dx_unaccelerated",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/libinput.seen"
+      ]
+    },
+    {
+      "name": "libinput_event_pointer_get_dy",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/libinput.seen"
+      ]
+    },
+    {
+      "name": "libinput_event_pointer_get_dy_unaccelerated",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/libinput.seen"
+      ]
+    },
+    {
+      "name": "libinput_event_pointer_get_time",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/libinput.seen"
+      ]
+    },
+    {
+      "name": "libinput_event_touch_get_slot",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/libinput.seen"
+      ]
+    },
+    {
+      "name": "libinput_event_touch_get_time",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/libinput.seen"
+      ]
+    },
+    {
+      "name": "libinput_event_touch_get_x",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/libinput.seen"
+      ]
+    },
+    {
+      "name": "libinput_event_touch_get_x_transformed",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/libinput.seen"
+      ]
+    },
+    {
+      "name": "libinput_event_touch_get_y",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/libinput.seen"
+      ]
+    },
+    {
+      "name": "libinput_event_touch_get_y_transformed",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/libinput.seen"
+      ]
+    },
+    {
+      "name": "libinput_get_event",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/libinput.seen"
+      ]
+    },
+    {
+      "name": "libinput_get_fd",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/libinput.seen"
+      ]
+    },
+    {
+      "name": "libinput_path_add_device",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/libinput.seen"
+      ]
+    },
+    {
+      "name": "libinput_path_create_context",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/libinput.seen"
+      ]
+    },
+    {
+      "name": "libinput_path_remove_device",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/libinput.seen"
+      ]
+    },
+    {
+      "name": "libinput_resume",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/libinput.seen"
+      ]
+    },
+    {
+      "name": "libinput_suspend",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/libinput.seen"
+      ]
+    },
+    {
+      "name": "libinput_unref",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/libinput.seen"
+      ]
+    },
+    {
+      "name": "llvm_coro_destroy",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/async/runtime.seen"
+      ]
+    },
+    {
+      "name": "llvm_coro_resume",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/async/runtime.seen"
+      ]
+    },
+    {
+      "name": "lowerBlock",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/codegen/ir_lowering_context.seen"
+      ]
+    },
+    {
+      "name": "lowerCallExpression",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/codegen/ir_lowering_context.seen"
+      ]
+    },
+    {
+      "name": "lowerClassMethodFromList",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/codegen/ir_lowering_context.seen"
+      ]
+    },
+    {
+      "name": "lowerClassNode",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/codegen/ir_lowering_context.seen"
+      ]
+    },
+    {
+      "name": "lowerEnumConstructor",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/codegen/ir_lowering_context.seen"
+      ]
+    },
+    {
+      "name": "lowerExpression",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/codegen/ir_lowering_context.seen"
+      ]
+    },
+    {
+      "name": "lowerExpressionInto",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/codegen/ir_lowering_context.seen"
+      ]
+    },
+    {
+      "name": "lowerFunctionNode",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/codegen/ir_lowering_context.seen"
+      ]
+    },
+    {
+      "name": "lowerPlainLargeClass",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/codegen/ir_lowering_context.seen"
+      ]
+    },
+    {
+      "name": "lowerProgramClasses",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/codegen/ir_lowering_context.seen"
+      ]
+    },
+    {
+      "name": "lowerProgramTopLevelFunctions",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/codegen/ir_lowering_context.seen"
+      ]
+    },
+    {
+      "name": "lowerStatement",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/codegen/ir_lowering_context.seen"
+      ]
+    },
+    {
+      "name": "prepareLoweredCallArgumentsWithDefaults",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/codegen/ir_lowering_context.seen"
+      ]
+    },
+    {
+      "name": "resetLoweringGenerator",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/codegen/ir_lowering_context.seen"
+      ]
+    },
+    {
+      "name": "resetLoweringLocalCodegenState",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/codegen/ir_lowering_context.seen"
+      ]
+    },
+    {
+      "name": "resetLoweringSharedModuleScratch",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/codegen/ir_lowering_context.seen"
+      ]
+    },
+    {
+      "name": "restoreLoweringNestedScratch",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/codegen/ir_lowering_context.seen"
+      ]
+    },
+    {
+      "name": "seen_al_buffer_data",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/audio/openal.seen"
+      ]
+    },
+    {
+      "name": "seen_al_close_device",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/audio/openal.seen"
+      ]
+    },
+    {
+      "name": "seen_al_create_context",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/audio/openal.seen"
+      ]
+    },
+    {
+      "name": "seen_al_delete_buffer",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/audio/openal.seen"
+      ]
+    },
+    {
+      "name": "seen_al_delete_source",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/audio/openal.seen"
+      ]
+    },
+    {
+      "name": "seen_al_destroy_context",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/audio/openal.seen"
+      ]
+    },
+    {
+      "name": "seen_al_distance_model",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/audio/openal.seen"
+      ]
+    },
+    {
+      "name": "seen_al_gen_buffer",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/audio/openal.seen"
+      ]
+    },
+    {
+      "name": "seen_al_gen_source",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/audio/openal.seen"
+      ]
+    },
+    {
+      "name": "seen_al_get_error",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/audio/openal.seen"
+      ]
+    },
+    {
+      "name": "seen_al_listener_set_gain",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/audio/openal.seen"
+      ]
+    },
+    {
+      "name": "seen_al_listener_set_orientation",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/audio/openal.seen"
+      ]
+    },
+    {
+      "name": "seen_al_listener_set_pos",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/audio/openal.seen"
+      ]
+    },
+    {
+      "name": "seen_al_listener_set_velocity",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/audio/openal.seen"
+      ]
+    },
+    {
+      "name": "seen_al_make_current",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/audio/openal.seen"
+      ]
+    },
+    {
+      "name": "seen_al_open_device",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/audio/openal.seen"
+      ]
+    },
+    {
+      "name": "seen_al_source_get_state",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/audio/openal.seen"
+      ]
+    },
+    {
+      "name": "seen_al_source_pause",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/audio/openal.seen"
+      ]
+    },
+    {
+      "name": "seen_al_source_play",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/audio/openal.seen"
+      ]
+    },
+    {
+      "name": "seen_al_source_rewind",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/audio/openal.seen"
+      ]
+    },
+    {
+      "name": "seen_al_source_set_buffer",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/audio/openal.seen"
+      ]
+    },
+    {
+      "name": "seen_al_source_set_direction",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/audio/openal.seen"
+      ]
+    },
+    {
+      "name": "seen_al_source_set_gain",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/audio/openal.seen"
+      ]
+    },
+    {
+      "name": "seen_al_source_set_looping",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/audio/openal.seen"
+      ]
+    },
+    {
+      "name": "seen_al_source_set_max_distance",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/audio/openal.seen"
+      ]
+    },
+    {
+      "name": "seen_al_source_set_pitch",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/audio/openal.seen"
+      ]
+    },
+    {
+      "name": "seen_al_source_set_pos",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/audio/openal.seen"
+      ]
+    },
+    {
+      "name": "seen_al_source_set_reference_distance",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/audio/openal.seen"
+      ]
+    },
+    {
+      "name": "seen_al_source_set_rolloff",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/audio/openal.seen"
+      ]
+    },
+    {
+      "name": "seen_al_source_set_velocity",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/audio/openal.seen"
+      ]
+    },
+    {
+      "name": "seen_al_source_stop",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/audio/openal.seen"
+      ]
+    },
+    {
+      "name": "seen_alsa_close",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/alsa.seen"
+      ]
+    },
+    {
+      "name": "seen_alsa_drain",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/alsa.seen"
+      ]
+    },
+    {
+      "name": "seen_alsa_open",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/alsa.seen"
+      ]
+    },
+    {
+      "name": "seen_alsa_prepare",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/alsa.seen"
+      ]
+    },
+    {
+      "name": "seen_alsa_recover",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/alsa.seen"
+      ]
+    },
+    {
+      "name": "seen_alsa_set_params",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/alsa.seen"
+      ]
+    },
+    {
+      "name": "seen_alsa_strerror",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/alsa.seen"
+      ]
+    },
+    {
+      "name": "seen_alsa_writei",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/alsa.seen"
+      ]
+    },
+    {
+      "name": "seen_arr_free",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/str/string.seen"
+      ]
+    },
+    {
+      "name": "seen_arr_release_f64",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/memory/allocation.seen"
+      ]
+    },
+    {
+      "name": "seen_arr_release_i64",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/memory/allocation.seen"
+      ]
+    },
+    {
+      "name": "seen_arr_release_str",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/memory/allocation.seen"
+      ]
+    },
+    {
+      "name": "seen_atomic_queue_destroy",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/sync/atomic_queue.seen"
+      ]
+    },
+    {
+      "name": "seen_atomic_queue_new",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/sync/atomic_queue.seen"
+      ]
+    },
+    {
+      "name": "seen_atomic_queue_pop",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/sync/atomic_queue.seen"
+      ]
+    },
+    {
+      "name": "seen_atomic_queue_push",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/sync/atomic_queue.seen"
+      ]
+    },
+    {
+      "name": "seen_atomic_stack_destroy",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/sync/atomic_stack.seen"
+      ]
+    },
+    {
+      "name": "seen_atomic_stack_new",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/sync/atomic_stack.seen"
+      ]
+    },
+    {
+      "name": "seen_atomic_stack_pop",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/sync/atomic_stack.seen"
+      ]
+    },
+    {
+      "name": "seen_atomic_stack_push",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/sync/atomic_stack.seen"
+      ]
+    },
+    {
+      "name": "seen_audio_create_output",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/coreaudio.seen"
+      ]
+    },
+    {
+      "name": "seen_audio_destroy",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/coreaudio.seen"
+      ]
+    },
+    {
+      "name": "seen_audio_get_default_device",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/coreaudio.seen"
+      ]
+    },
+    {
+      "name": "seen_audio_get_device_name",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/coreaudio.seen"
+      ]
+    },
+    {
+      "name": "seen_audio_get_device_sample_rate",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/coreaudio.seen"
+      ]
+    },
+    {
+      "name": "seen_audio_start",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/coreaudio.seen"
+      ]
+    },
+    {
+      "name": "seen_audio_stop",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/coreaudio.seen"
+      ]
+    },
+    {
+      "name": "seen_audio_write",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/coreaudio.seen"
+      ]
+    },
+    {
+      "name": "seen_barrier_destroy",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/sync/barrier.seen"
+      ]
+    },
+    {
+      "name": "seen_barrier_new",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/sync/barrier.seen"
+      ]
+    },
+    {
+      "name": "seen_barrier_wait",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/sync/barrier.seen"
+      ]
+    },
+    {
+      "name": "seen_byte_array_append",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/collections/byte_buffer.seen"
+      ]
+    },
+    {
+      "name": "seen_byte_array_capacity",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/collections/byte_buffer.seen"
+      ]
+    },
+    {
+      "name": "seen_byte_array_clear",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/collections/byte_buffer.seen"
+      ]
+    },
+    {
+      "name": "seen_byte_array_fill",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/collections/byte_buffer.seen"
+      ]
+    },
+    {
+      "name": "seen_byte_array_get",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/collections/byte_buffer.seen"
+      ]
+    },
+    {
+      "name": "seen_byte_array_len",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/collections/byte_buffer.seen"
+      ]
+    },
+    {
+      "name": "seen_byte_array_new",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/collections/byte_buffer.seen"
+      ]
+    },
+    {
+      "name": "seen_byte_array_push",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/collections/byte_buffer.seen"
+      ]
+    },
+    {
+      "name": "seen_byte_array_release",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/collections/byte_buffer.seen"
+      ]
+    },
+    {
+      "name": "seen_byte_array_reverse",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/collections/byte_buffer.seen"
+      ]
+    },
+    {
+      "name": "seen_byte_array_set",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/collections/byte_buffer.seen"
+      ]
+    },
+    {
+      "name": "seen_byte_array_slice",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/collections/byte_buffer.seen"
+      ]
+    },
+    {
+      "name": "seen_byte_array_to_int_array",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/collections/byte_buffer.seen"
+      ]
+    },
+    {
+      "name": "seen_byte_array_try_reserve",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/collections/byte_buffer.seen"
+      ]
+    },
+    {
+      "name": "seen_cocoa_app_init",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/cocoa.seen"
+      ]
+    },
+    {
+      "name": "seen_cocoa_app_poll_event",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/cocoa.seen"
+      ]
+    },
+    {
+      "name": "seen_cocoa_app_run",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/cocoa.seen"
+      ]
+    },
+    {
+      "name": "seen_cocoa_app_stop",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/cocoa.seen"
+      ]
+    },
+    {
+      "name": "seen_cocoa_app_terminate",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/cocoa.seen"
+      ]
+    },
+    {
+      "name": "seen_cocoa_cursor_hide",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/cocoa.seen"
+      ]
+    },
+    {
+      "name": "seen_cocoa_cursor_set_position",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/cocoa.seen"
+      ]
+    },
+    {
+      "name": "seen_cocoa_cursor_show",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/cocoa.seen"
+      ]
+    },
+    {
+      "name": "seen_cocoa_get_key_code",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/cocoa.seen"
+      ]
+    },
+    {
+      "name": "seen_cocoa_get_modifier_flags",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/cocoa.seen"
+      ]
+    },
+    {
+      "name": "seen_cocoa_get_mouse_x",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/cocoa.seen"
+      ]
+    },
+    {
+      "name": "seen_cocoa_get_mouse_y",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/cocoa.seen"
+      ]
+    },
+    {
+      "name": "seen_cocoa_metal_device_create",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/cocoa.seen"
+      ]
+    },
+    {
+      "name": "seen_cocoa_metal_layer_create",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/cocoa.seen"
+      ]
+    },
+    {
+      "name": "seen_cocoa_window_close",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/cocoa.seen"
+      ]
+    },
+    {
+      "name": "seen_cocoa_window_content_view",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/cocoa.seen"
+      ]
+    },
+    {
+      "name": "seen_cocoa_window_create",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/cocoa.seen"
+      ]
+    },
+    {
+      "name": "seen_cocoa_window_deminiaturize",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/cocoa.seen"
+      ]
+    },
+    {
+      "name": "seen_cocoa_window_get_height",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/cocoa.seen"
+      ]
+    },
+    {
+      "name": "seen_cocoa_window_get_width",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/cocoa.seen"
+      ]
+    },
+    {
+      "name": "seen_cocoa_window_is_visible",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/cocoa.seen"
+      ]
+    },
+    {
+      "name": "seen_cocoa_window_make_key",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/cocoa.seen"
+      ]
+    },
+    {
+      "name": "seen_cocoa_window_miniaturize",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/cocoa.seen"
+      ]
+    },
+    {
+      "name": "seen_cocoa_window_set_frame",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/cocoa.seen"
+      ]
+    },
+    {
+      "name": "seen_cocoa_window_set_title",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/cocoa.seen"
+      ]
+    },
+    {
+      "name": "seen_cocoa_window_toggle_fullscreen",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/cocoa.seen"
+      ]
+    },
+    {
+      "name": "seen_coro_done",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/async/runtime.seen"
+      ]
+    },
+    {
+      "name": "seen_coro_promise",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/async/runtime.seen"
+      ]
+    },
+    {
+      "name": "seen_cstr_to_str",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/sdl3.seen"
+      ]
+    },
+    {
+      "name": "seen_evdev_close_device",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/evdev.seen"
+      ]
+    },
+    {
+      "name": "seen_evdev_free",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/evdev.seen"
+      ]
+    },
+    {
+      "name": "seen_evdev_get_id_product",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/evdev.seen"
+      ]
+    },
+    {
+      "name": "seen_evdev_get_id_vendor",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/evdev.seen"
+      ]
+    },
+    {
+      "name": "seen_evdev_get_name",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/evdev.seen"
+      ]
+    },
+    {
+      "name": "seen_evdev_has_event_code",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/evdev.seen"
+      ]
+    },
+    {
+      "name": "seen_evdev_has_event_type",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/evdev.seen"
+      ]
+    },
+    {
+      "name": "seen_evdev_new",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/evdev.seen"
+      ]
+    },
+    {
+      "name": "seen_evdev_next_event",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/evdev.seen"
+      ]
+    },
+    {
+      "name": "seen_evdev_open_device",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/evdev.seen"
+      ]
+    },
+    {
+      "name": "seen_evdev_set_fd",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/evdev.seen"
+      ]
+    },
+    {
+      "name": "seen_f32_array_append_le_bytes",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/collections/byte_buffer.seen"
+      ]
+    },
+    {
+      "name": "seen_f32_array_copy_from_le_bytes",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/collections/byte_buffer.seen"
+      ]
+    },
+    {
+      "name": "seen_f32_array_from_le_bytes",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/collections/byte_buffer.seen"
+      ]
+    },
+    {
+      "name": "seen_f32_array_to_le_bytes",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/collections/byte_buffer.seen"
+      ]
+    },
+    {
+      "name": "seen_f32_buffer_clear",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/collections/byte_buffer.seen"
+      ]
+    },
+    {
+      "name": "seen_f32_buffer_get",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/collections/byte_buffer.seen"
+      ]
+    },
+    {
+      "name": "seen_f32_buffer_len",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/collections/byte_buffer.seen"
+      ]
+    },
+    {
+      "name": "seen_f32_buffer_new",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/collections/byte_buffer.seen"
+      ]
+    },
+    {
+      "name": "seen_f32_buffer_push",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/collections/byte_buffer.seen"
+      ]
+    },
+    {
+      "name": "seen_f32_buffer_set",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/collections/byte_buffer.seen"
+      ]
+    },
+    {
+      "name": "seen_f64_buffer_clear",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/collections/byte_buffer.seen"
+      ]
+    },
+    {
+      "name": "seen_f64_buffer_get",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/collections/byte_buffer.seen"
+      ]
+    },
+    {
+      "name": "seen_f64_buffer_len",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/collections/byte_buffer.seen"
+      ]
+    },
+    {
+      "name": "seen_f64_buffer_new",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/collections/byte_buffer.seen"
+      ]
+    },
+    {
+      "name": "seen_f64_buffer_push",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/collections/byte_buffer.seen"
+      ]
+    },
+    {
+      "name": "seen_f64_buffer_set",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/collections/byte_buffer.seen"
+      ]
+    },
+    {
+      "name": "seen_file_seek",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/io/file.seen"
+      ]
+    },
+    {
+      "name": "seen_gamepad_axis_value",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/input/gamepad_unified.seen"
+      ]
+    },
+    {
+      "name": "seen_gamepad_button_held",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/input/gamepad_unified.seen"
+      ]
+    },
+    {
+      "name": "seen_gamepad_button_pressed",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/input/gamepad_unified.seen"
+      ]
+    },
+    {
+      "name": "seen_gamepad_button_released",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/input/gamepad_unified.seen"
+      ]
+    },
+    {
+      "name": "seen_gamepad_count",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/input/gamepad_unified.seen"
+      ]
+    },
+    {
+      "name": "seen_gamepad_get_name",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/input/gamepad_unified.seen"
+      ]
+    },
+    {
+      "name": "seen_gamepad_init",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/input/gamepad_unified.seen"
+      ]
+    },
+    {
+      "name": "seen_gamepad_is_connected",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/input/gamepad_unified.seen"
+      ]
+    },
+    {
+      "name": "seen_gamepad_poll",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/input/gamepad_unified.seen"
+      ]
+    },
+    {
+      "name": "seen_gamepad_set_deadzone",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/input/gamepad_unified.seen"
+      ]
+    },
+    {
+      "name": "seen_gamepad_set_vibration",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/input/gamepad_unified.seen"
+      ]
+    },
+    {
+      "name": "seen_gamepad_shutdown",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/input/gamepad_unified.seen"
+      ]
+    },
+    {
+      "name": "seen_gc_get_axis_value",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/gamecontroller.seen"
+      ]
+    },
+    {
+      "name": "seen_gc_get_controller",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/gamecontroller.seen"
+      ]
+    },
+    {
+      "name": "seen_gc_get_controller_count",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/gamecontroller.seen"
+      ]
+    },
+    {
+      "name": "seen_gc_get_controller_name",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/gamecontroller.seen"
+      ]
+    },
+    {
+      "name": "seen_gc_has_haptics",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/gamecontroller.seen"
+      ]
+    },
+    {
+      "name": "seen_gc_has_motion",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/gamecontroller.seen"
+      ]
+    },
+    {
+      "name": "seen_gc_is_button_pressed",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/gamecontroller.seen"
+      ]
+    },
+    {
+      "name": "seen_gc_play_haptic",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/gamecontroller.seen"
+      ]
+    },
+    {
+      "name": "seen_gc_start_discovery",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/gamecontroller.seen"
+      ]
+    },
+    {
+      "name": "seen_gc_stop_discovery",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/gamecontroller.seen"
+      ]
+    },
+    {
+      "name": "seen_get_num_cores",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/thread/affinity.seen"
+      ]
+    },
+    {
+      "name": "seen_gpu_buffer_create",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/graphics/gpu.seen"
+      ]
+    },
+    {
+      "name": "seen_gpu_buffer_destroy",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/graphics/gpu.seen"
+      ]
+    },
+    {
+      "name": "seen_gpu_buffer_read",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/graphics/gpu.seen"
+      ]
+    },
+    {
+      "name": "seen_gpu_buffer_read_float_array",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/graphics/gpu.seen"
+      ]
+    },
+    {
+      "name": "seen_gpu_buffer_read_int_array",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/graphics/gpu.seen"
+      ]
+    },
+    {
+      "name": "seen_gpu_buffer_write",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/graphics/gpu.seen"
+      ]
+    },
+    {
+      "name": "seen_gpu_buffer_write_f32_scalar",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/graphics/gpu.seen"
+      ]
+    },
+    {
+      "name": "seen_gpu_buffer_write_float_array",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/graphics/gpu.seen"
+      ]
+    },
+    {
+      "name": "seen_gpu_buffer_write_i32_scalar",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/graphics/gpu.seen"
+      ]
+    },
+    {
+      "name": "seen_gpu_buffer_write_int_array",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/graphics/gpu.seen"
+      ]
+    },
+    {
+      "name": "seen_gpu_device_type",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/graphics/gpu.seen"
+      ]
+    },
+    {
+      "name": "seen_gpu_device_wait_idle",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/graphics/gpu.seen"
+      ]
+    },
+    {
+      "name": "seen_gpu_dispatch",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/graphics/gpu.seen"
+      ]
+    },
+    {
+      "name": "seen_gpu_dispatch_handles",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/graphics/gpu.seen"
+      ]
+    },
+    {
+      "name": "seen_gpu_dispatch_indirect",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/graphics/gpu.seen"
+      ]
+    },
+    {
+      "name": "seen_gpu_fence_create",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/graphics/gpu.seen"
+      ]
+    },
+    {
+      "name": "seen_gpu_fence_destroy",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/graphics/gpu.seen"
+      ]
+    },
+    {
+      "name": "seen_gpu_fence_wait",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/graphics/gpu.seen"
+      ]
+    },
+    {
+      "name": "seen_gpu_init",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/graphics/gpu.seen"
+      ]
+    },
+    {
+      "name": "seen_gpu_is_available",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/graphics/gpu.seen"
+      ]
+    },
+    {
+      "name": "seen_gpu_pipeline_create",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/graphics/gpu.seen"
+      ]
+    },
+    {
+      "name": "seen_gpu_pipeline_destroy",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/graphics/gpu.seen"
+      ]
+    },
+    {
+      "name": "seen_gpu_shader_load",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/graphics/gpu.seen"
+      ]
+    },
+    {
+      "name": "seen_gpu_shutdown",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/graphics/gpu.seen"
+      ]
+    },
+    {
+      "name": "seen_i32_buffer_clear",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/collections/byte_buffer.seen"
+      ]
+    },
+    {
+      "name": "seen_i32_buffer_get",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/collections/byte_buffer.seen"
+      ]
+    },
+    {
+      "name": "seen_i32_buffer_len",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/collections/byte_buffer.seen"
+      ]
+    },
+    {
+      "name": "seen_i32_buffer_new",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/collections/byte_buffer.seen"
+      ]
+    },
+    {
+      "name": "seen_i32_buffer_push",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/collections/byte_buffer.seen"
+      ]
+    },
+    {
+      "name": "seen_i32_buffer_set",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/collections/byte_buffer.seen"
+      ]
+    },
+    {
+      "name": "seen_i64_buffer_clear",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/collections/byte_buffer.seen"
+      ]
+    },
+    {
+      "name": "seen_i64_buffer_get",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/collections/byte_buffer.seen"
+      ]
+    },
+    {
+      "name": "seen_i64_buffer_len",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/collections/byte_buffer.seen"
+      ]
+    },
+    {
+      "name": "seen_i64_buffer_new",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/collections/byte_buffer.seen"
+      ]
+    },
+    {
+      "name": "seen_i64_buffer_push",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/collections/byte_buffer.seen"
+      ]
+    },
+    {
+      "name": "seen_i64_buffer_set",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/collections/byte_buffer.seen"
+      ]
+    },
+    {
+      "name": "seen_lua_close",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/scripting/lua.seen"
+      ]
+    },
+    {
+      "name": "seen_lua_createtable",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/scripting/lua.seen"
+      ]
+    },
+    {
+      "name": "seen_lua_dofile",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/scripting/lua.seen"
+      ]
+    },
+    {
+      "name": "seen_lua_dostring",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/scripting/lua.seen"
+      ]
+    },
+    {
+      "name": "seen_lua_getfield",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/scripting/lua.seen"
+      ]
+    },
+    {
+      "name": "seen_lua_getglobal",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/scripting/lua.seen"
+      ]
+    },
+    {
+      "name": "seen_lua_gettable",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/scripting/lua.seen"
+      ]
+    },
+    {
+      "name": "seen_lua_gettop",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/scripting/lua.seen"
+      ]
+    },
+    {
+      "name": "seen_lua_isinteger",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/scripting/lua.seen"
+      ]
+    },
+    {
+      "name": "seen_lua_isnil",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/scripting/lua.seen"
+      ]
+    },
+    {
+      "name": "seen_lua_isstring",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/scripting/lua.seen"
+      ]
+    },
+    {
+      "name": "seen_lua_len",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/scripting/lua.seen"
+      ]
+    },
+    {
+      "name": "seen_lua_newstate",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/scripting/lua.seen"
+      ]
+    },
+    {
+      "name": "seen_lua_next",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/scripting/lua.seen"
+      ]
+    },
+    {
+      "name": "seen_lua_openlibs",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/scripting/lua.seen"
+      ]
+    },
+    {
+      "name": "seen_lua_pcall",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/scripting/lua.seen"
+      ]
+    },
+    {
+      "name": "seen_lua_pop",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/scripting/lua.seen"
+      ]
+    },
+    {
+      "name": "seen_lua_pushboolean",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/scripting/lua.seen"
+      ]
+    },
+    {
+      "name": "seen_lua_pushinteger",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/scripting/lua.seen"
+      ]
+    },
+    {
+      "name": "seen_lua_pushnil",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/scripting/lua.seen"
+      ]
+    },
+    {
+      "name": "seen_lua_pushnumber",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/scripting/lua.seen"
+      ]
+    },
+    {
+      "name": "seen_lua_pushstring",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/scripting/lua.seen"
+      ]
+    },
+    {
+      "name": "seen_lua_rawgeti",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/scripting/lua.seen"
+      ]
+    },
+    {
+      "name": "seen_lua_rawseti",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/scripting/lua.seen"
+      ]
+    },
+    {
+      "name": "seen_lua_setfield",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/scripting/lua.seen"
+      ]
+    },
+    {
+      "name": "seen_lua_setglobal",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/scripting/lua.seen"
+      ]
+    },
+    {
+      "name": "seen_lua_settable",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/scripting/lua.seen"
+      ]
+    },
+    {
+      "name": "seen_lua_settop",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/scripting/lua.seen"
+      ]
+    },
+    {
+      "name": "seen_lua_toboolean",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/scripting/lua.seen"
+      ]
+    },
+    {
+      "name": "seen_lua_tointeger",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/scripting/lua.seen"
+      ]
+    },
+    {
+      "name": "seen_lua_tostring",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/scripting/lua.seen"
+      ]
+    },
+    {
+      "name": "seen_lua_type",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/scripting/lua.seen"
+      ]
+    },
+    {
+      "name": "seen_lua_typename",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/scripting/lua.seen"
+      ]
+    },
+    {
+      "name": "seen_mapped_data",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/memory/mapped_region.seen"
+      ]
+    },
+    {
+      "name": "seen_mapped_free",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/memory/mapped_region.seen"
+      ]
+    },
+    {
+      "name": "seen_mapped_length",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/memory/mapped_region.seen"
+      ]
+    },
+    {
+      "name": "seen_mapped_new",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/memory/mapped_region.seen"
+      ]
+    },
+    {
+      "name": "seen_mapped_sync",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/memory/mapped_region.seen"
+      ]
+    },
+    {
+      "name": "seen_math_acos",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/math/math.seen"
+      ]
+    },
+    {
+      "name": "seen_math_acosh",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/math/math.seen"
+      ]
+    },
+    {
+      "name": "seen_math_asin",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/math/math.seen"
+      ]
+    },
+    {
+      "name": "seen_math_asinh",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/math/math.seen"
+      ]
+    },
+    {
+      "name": "seen_math_atan",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/math/math.seen"
+      ]
+    },
+    {
+      "name": "seen_math_atan2",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/math/math.seen"
+      ]
+    },
+    {
+      "name": "seen_math_atanh",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/math/math.seen"
+      ]
+    },
+    {
+      "name": "seen_math_byteswap_i64",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/math/math.seen"
+      ]
+    },
+    {
+      "name": "seen_math_cbrt",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/math/math.seen"
+      ]
+    },
+    {
+      "name": "seen_math_ceil",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/math/math.seen"
+      ]
+    },
+    {
+      "name": "seen_math_clz_i64",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/math/math.seen"
+      ]
+    },
+    {
+      "name": "seen_math_copysign",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/math/math.seen"
+      ]
+    },
+    {
+      "name": "seen_math_cos",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/math/math.seen"
+      ]
+    },
+    {
+      "name": "seen_math_cosh",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/math/math.seen"
+      ]
+    },
+    {
+      "name": "seen_math_ctz_i64",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/math/math.seen"
+      ]
+    },
+    {
+      "name": "seen_math_exp",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/math/math.seen"
+      ]
+    },
+    {
+      "name": "seen_math_exp2",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/math/math.seen"
+      ]
+    },
+    {
+      "name": "seen_math_floor",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/math/math.seen"
+      ]
+    },
+    {
+      "name": "seen_math_fmod",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/math/math.seen"
+      ]
+    },
+    {
+      "name": "seen_math_hypot",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/math/math.seen"
+      ]
+    },
+    {
+      "name": "seen_math_log",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/math/math.seen"
+      ]
+    },
+    {
+      "name": "seen_math_log10",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/math/math.seen"
+      ]
+    },
+    {
+      "name": "seen_math_log2",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/math/math.seen"
+      ]
+    },
+    {
+      "name": "seen_math_nan",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/math/math.seen"
+      ]
+    },
+    {
+      "name": "seen_math_negative_infinity",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/math/math.seen"
+      ]
+    },
+    {
+      "name": "seen_math_popcount_i64",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/math/math.seen"
+      ]
+    },
+    {
+      "name": "seen_math_positive_infinity",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/math/math.seen"
+      ]
+    },
+    {
+      "name": "seen_math_pow",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/math/math.seen"
+      ]
+    },
+    {
+      "name": "seen_math_rotate_left_i64",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/math/math.seen"
+      ]
+    },
+    {
+      "name": "seen_math_rotate_right_i64",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/math/math.seen"
+      ]
+    },
+    {
+      "name": "seen_math_round",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/math/math.seen"
+      ]
+    },
+    {
+      "name": "seen_math_sin",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/math/math.seen"
+      ]
+    },
+    {
+      "name": "seen_math_sinh",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/math/math.seen"
+      ]
+    },
+    {
+      "name": "seen_math_sqrt",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/math/math.seen"
+      ]
+    },
+    {
+      "name": "seen_math_tan",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/math/math.seen"
+      ]
+    },
+    {
+      "name": "seen_math_tanh",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/math/math.seen"
+      ]
+    },
+    {
+      "name": "seen_memory_allocation_failures",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/memory/allocation.seen"
+      ]
+    },
+    {
+      "name": "seen_memory_limit_bytes",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/memory/allocation.seen"
+      ]
+    },
+    {
+      "name": "seen_memory_peak_bytes",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/memory/allocation.seen"
+      ]
+    },
+    {
+      "name": "seen_memory_remaining_bytes",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/memory/allocation.seen"
+      ]
+    },
+    {
+      "name": "seen_memory_set_limit_bytes",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/memory/allocation.seen"
+      ]
+    },
+    {
+      "name": "seen_memory_used_bytes",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/memory/allocation.seen"
+      ]
+    },
+    {
+      "name": "seen_mtl_buffer_contents",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/metal.seen"
+      ]
+    },
+    {
+      "name": "seen_mtl_buffer_length",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/metal.seen"
+      ]
+    },
+    {
+      "name": "seen_mtl_commit",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/metal.seen"
+      ]
+    },
+    {
+      "name": "seen_mtl_compute_dispatch",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/metal.seen"
+      ]
+    },
+    {
+      "name": "seen_mtl_compute_set_buffer",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/metal.seen"
+      ]
+    },
+    {
+      "name": "seen_mtl_compute_set_pipeline",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/metal.seen"
+      ]
+    },
+    {
+      "name": "seen_mtl_create_buffer",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/metal.seen"
+      ]
+    },
+    {
+      "name": "seen_mtl_create_command_buffer",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/metal.seen"
+      ]
+    },
+    {
+      "name": "seen_mtl_create_command_queue",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/metal.seen"
+      ]
+    },
+    {
+      "name": "seen_mtl_create_compute_encoder",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/metal.seen"
+      ]
+    },
+    {
+      "name": "seen_mtl_create_compute_pipeline",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/metal.seen"
+      ]
+    },
+    {
+      "name": "seen_mtl_create_function",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/metal.seen"
+      ]
+    },
+    {
+      "name": "seen_mtl_create_library_from_source",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/metal.seen"
+      ]
+    },
+    {
+      "name": "seen_mtl_create_render_encoder",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/metal.seen"
+      ]
+    },
+    {
+      "name": "seen_mtl_create_render_pipeline",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/metal.seen"
+      ]
+    },
+    {
+      "name": "seen_mtl_create_system_default_device",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/metal.seen"
+      ]
+    },
+    {
+      "name": "seen_mtl_device_name",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/metal.seen"
+      ]
+    },
+    {
+      "name": "seen_mtl_end_encoding",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/metal.seen"
+      ]
+    },
+    {
+      "name": "seen_mtl_release",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/metal.seen"
+      ]
+    },
+    {
+      "name": "seen_mtl_wait_until_completed",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/darwin/metal.seen"
+      ]
+    },
+    {
+      "name": "seen_parse_float_range",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/json/parser.seen"
+      ]
+    },
+    {
+      "name": "seen_pool_region_alloc",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/memory/pool_region.seen"
+      ]
+    },
+    {
+      "name": "seen_pool_region_available",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/memory/pool_region.seen"
+      ]
+    },
+    {
+      "name": "seen_pool_region_destroy",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/memory/pool_region.seen"
+      ]
+    },
+    {
+      "name": "seen_pool_region_free",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/memory/pool_region.seen"
+      ]
+    },
+    {
+      "name": "seen_pool_region_new",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/memory/pool_region.seen"
+      ]
+    },
+    {
+      "name": "seen_pool_region_reset",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/memory/pool_region.seen"
+      ]
+    },
+    {
+      "name": "seen_primitive_buffer_capacity",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/collections/byte_buffer.seen"
+      ]
+    },
+    {
+      "name": "seen_primitive_buffer_release",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/collections/byte_buffer.seen"
+      ]
+    },
+    {
+      "name": "seen_primitive_buffer_try_reserve",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/collections/byte_buffer.seen"
+      ]
+    },
+    {
+      "name": "seen_pw_deinit",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/pipewire.seen"
+      ]
+    },
+    {
+      "name": "seen_pw_get_library_version",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/pipewire.seen"
+      ]
+    },
+    {
+      "name": "seen_pw_init",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/pipewire.seen"
+      ]
+    },
+    {
+      "name": "seen_pw_thread_loop_destroy",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/pipewire.seen"
+      ]
+    },
+    {
+      "name": "seen_pw_thread_loop_get_loop",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/pipewire.seen"
+      ]
+    },
+    {
+      "name": "seen_pw_thread_loop_lock",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/pipewire.seen"
+      ]
+    },
+    {
+      "name": "seen_pw_thread_loop_new",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/pipewire.seen"
+      ]
+    },
+    {
+      "name": "seen_pw_thread_loop_start",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/pipewire.seen"
+      ]
+    },
+    {
+      "name": "seen_pw_thread_loop_stop",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/pipewire.seen"
+      ]
+    },
+    {
+      "name": "seen_pw_thread_loop_unlock",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/pipewire.seen"
+      ]
+    },
+    {
+      "name": "seen_replace_file",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/io/file.seen"
+      ]
+    },
+    {
+      "name": "seen_rwlock_destroy",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/sync/rwlock.seen"
+      ]
+    },
+    {
+      "name": "seen_rwlock_new",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/sync/rwlock.seen"
+      ]
+    },
+    {
+      "name": "seen_rwlock_read_lock",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/sync/rwlock.seen"
+      ]
+    },
+    {
+      "name": "seen_rwlock_read_unlock",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/sync/rwlock.seen"
+      ]
+    },
+    {
+      "name": "seen_rwlock_write_lock",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/sync/rwlock.seen"
+      ]
+    },
+    {
+      "name": "seen_rwlock_write_unlock",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/sync/rwlock.seen"
+      ]
+    },
+    {
+      "name": "seen_set_thread_affinity",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/thread/affinity.seen"
+      ]
+    },
+    {
+      "name": "seen_stack_region_alloc",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/memory/stack_region.seen"
+      ]
+    },
+    {
+      "name": "seen_stack_region_destroy",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/memory/stack_region.seen"
+      ]
+    },
+    {
+      "name": "seen_stack_region_new",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/memory/stack_region.seen"
+      ]
+    },
+    {
+      "name": "seen_stack_region_pop",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/memory/stack_region.seen"
+      ]
+    },
+    {
+      "name": "seen_stack_region_remaining",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/memory/stack_region.seen"
+      ]
+    },
+    {
+      "name": "seen_stack_region_reset",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/memory/stack_region.seen"
+      ]
+    },
+    {
+      "name": "seen_string_builder_flatten",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/str/string.seen"
+      ]
+    },
+    {
+      "name": "seen_string_contains_fast",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/str/string.seen"
+      ]
+    },
+    {
+      "name": "seen_string_ends_with_fast",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/str/string.seen"
+      ]
+    },
+    {
+      "name": "seen_string_index_of_fast",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/str/string.seen"
+      ]
+    },
+    {
+      "name": "seen_string_last_index_of_fast",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/str/string.seen"
+      ]
+    },
+    {
+      "name": "seen_string_starts_with_fast",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/str/string.seen"
+      ]
+    },
+    {
+      "name": "seen_tls_destroy",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/sync/thread_local.seen"
+      ]
+    },
+    {
+      "name": "seen_tls_get",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/sync/thread_local.seen"
+      ]
+    },
+    {
+      "name": "seen_tls_new",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/sync/thread_local.seen"
+      ]
+    },
+    {
+      "name": "seen_tls_set",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/sync/thread_local.seen"
+      ]
+    },
+    {
+      "name": "seen_vk_acquire_next_image",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/vulkan.seen"
+      ]
+    },
+    {
+      "name": "seen_vk_allocate_command_buffers",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/vulkan.seen"
+      ]
+    },
+    {
+      "name": "seen_vk_begin_command_buffer",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/vulkan.seen"
+      ]
+    },
+    {
+      "name": "seen_vk_cmd_begin_render_pass",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/vulkan.seen"
+      ]
+    },
+    {
+      "name": "seen_vk_cmd_bind_pipeline",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/vulkan.seen"
+      ]
+    },
+    {
+      "name": "seen_vk_cmd_draw",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/vulkan.seen"
+      ]
+    },
+    {
+      "name": "seen_vk_cmd_end_render_pass",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/vulkan.seen"
+      ]
+    },
+    {
+      "name": "seen_vk_cmd_set_scissor",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/vulkan.seen"
+      ]
+    },
+    {
+      "name": "seen_vk_cmd_set_viewport",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/vulkan.seen"
+      ]
+    },
+    {
+      "name": "seen_vk_create_command_pool",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/vulkan.seen"
+      ]
+    },
+    {
+      "name": "seen_vk_create_device",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/vulkan.seen"
+      ]
+    },
+    {
+      "name": "seen_vk_create_fence",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/vulkan.seen"
+      ]
+    },
+    {
+      "name": "seen_vk_create_framebuffer",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/vulkan.seen"
+      ]
+    },
+    {
+      "name": "seen_vk_create_image_view",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/vulkan.seen"
+      ]
+    },
+    {
+      "name": "seen_vk_create_instance",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/vulkan.seen"
+      ]
+    },
+    {
+      "name": "seen_vk_create_render_pass_simple",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/vulkan.seen"
+      ]
+    },
+    {
+      "name": "seen_vk_create_semaphore",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/vulkan.seen"
+      ]
+    },
+    {
+      "name": "seen_vk_create_shader_module",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/vulkan.seen"
+      ]
+    },
+    {
+      "name": "seen_vk_create_swapchain",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/vulkan.seen"
+      ]
+    },
+    {
+      "name": "seen_vk_destroy_command_pool",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/vulkan.seen"
+      ]
+    },
+    {
+      "name": "seen_vk_destroy_device",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/vulkan.seen"
+      ]
+    },
+    {
+      "name": "seen_vk_destroy_fence",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/vulkan.seen"
+      ]
+    },
+    {
+      "name": "seen_vk_destroy_framebuffer",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/vulkan.seen"
+      ]
+    },
+    {
+      "name": "seen_vk_destroy_image_view",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/vulkan.seen"
+      ]
+    },
+    {
+      "name": "seen_vk_destroy_instance",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/vulkan.seen"
+      ]
+    },
+    {
+      "name": "seen_vk_destroy_render_pass",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/vulkan.seen"
+      ]
+    },
+    {
+      "name": "seen_vk_destroy_semaphore",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/vulkan.seen"
+      ]
+    },
+    {
+      "name": "seen_vk_destroy_shader_module",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/vulkan.seen"
+      ]
+    },
+    {
+      "name": "seen_vk_destroy_surface",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/vulkan.seen"
+      ]
+    },
+    {
+      "name": "seen_vk_destroy_swapchain",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/vulkan.seen"
+      ]
+    },
+    {
+      "name": "seen_vk_device_wait_idle",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/vulkan.seen"
+      ]
+    },
+    {
+      "name": "seen_vk_end_command_buffer",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/vulkan.seen"
+      ]
+    },
+    {
+      "name": "seen_vk_enumerate_physical_devices",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/vulkan.seen"
+      ]
+    },
+    {
+      "name": "seen_vk_get_device_queue",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/vulkan.seen"
+      ]
+    },
+    {
+      "name": "seen_vk_get_physical_device_properties",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/vulkan.seen"
+      ]
+    },
+    {
+      "name": "seen_vk_get_physical_device_queue_family_count",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/vulkan.seen"
+      ]
+    },
+    {
+      "name": "seen_vk_get_physical_device_queue_family_flags",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/vulkan.seen"
+      ]
+    },
+    {
+      "name": "seen_vk_get_physical_device_surface_support",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/vulkan.seen"
+      ]
+    },
+    {
+      "name": "seen_vk_get_surface_capabilities",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/vulkan.seen"
+      ]
+    },
+    {
+      "name": "seen_vk_get_swapchain_images",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/vulkan.seen"
+      ]
+    },
+    {
+      "name": "seen_vk_queue_present",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/vulkan.seen"
+      ]
+    },
+    {
+      "name": "seen_vk_queue_submit",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/vulkan.seen"
+      ]
+    },
+    {
+      "name": "seen_vk_read_image_rgba8",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/vulkan.seen"
+      ]
+    },
+    {
+      "name": "seen_vk_reset_fences",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/vulkan.seen"
+      ]
+    },
+    {
+      "name": "seen_vk_wait_for_fences",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/platform/linux/vulkan.seen"
+      ]
+    },
+    {
+      "name": "seen_wgpu_adapter_request_device",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/web/webgpu.seen"
+      ]
+    },
+    {
+      "name": "seen_wgpu_buffer_destroy",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/web/webgpu.seen"
+      ]
+    },
+    {
+      "name": "seen_wgpu_buffer_get_mapped_range",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/web/webgpu.seen"
+      ]
+    },
+    {
+      "name": "seen_wgpu_buffer_map_async",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/web/webgpu.seen"
+      ]
+    },
+    {
+      "name": "seen_wgpu_buffer_read",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/web/webgpu.seen"
+      ]
+    },
+    {
+      "name": "seen_wgpu_buffer_unmap",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/web/webgpu.seen"
+      ]
+    },
+    {
+      "name": "seen_wgpu_buffer_write",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/web/webgpu.seen"
+      ]
+    },
+    {
+      "name": "seen_wgpu_canvas_get_context",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/web/webgpu.seen"
+      ]
+    },
+    {
+      "name": "seen_wgpu_compute_pass_dispatch",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/web/webgpu.seen"
+      ]
+    },
+    {
+      "name": "seen_wgpu_compute_pass_set_bind_group",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/web/webgpu.seen"
+      ]
+    },
+    {
+      "name": "seen_wgpu_compute_pass_set_pipeline",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/web/webgpu.seen"
+      ]
+    },
+    {
+      "name": "seen_wgpu_context_get_current_texture",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/web/webgpu.seen"
+      ]
+    },
+    {
+      "name": "seen_wgpu_device_create_bind_group",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/web/webgpu.seen"
+      ]
+    },
+    {
+      "name": "seen_wgpu_device_create_bind_group_layout",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/web/webgpu.seen"
+      ]
+    },
+    {
+      "name": "seen_wgpu_device_create_buffer",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/web/webgpu.seen"
+      ]
+    },
+    {
+      "name": "seen_wgpu_device_create_command_encoder",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/web/webgpu.seen"
+      ]
+    },
+    {
+      "name": "seen_wgpu_device_create_compute_pipeline",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/web/webgpu.seen"
+      ]
+    },
+    {
+      "name": "seen_wgpu_device_create_pipeline_layout",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/web/webgpu.seen"
+      ]
+    },
+    {
+      "name": "seen_wgpu_device_create_render_pipeline",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/web/webgpu.seen"
+      ]
+    },
+    {
+      "name": "seen_wgpu_device_create_sampler",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/web/webgpu.seen"
+      ]
+    },
+    {
+      "name": "seen_wgpu_device_create_shader",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/web/webgpu.seen"
+      ]
+    },
+    {
+      "name": "seen_wgpu_device_create_texture",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/web/webgpu.seen"
+      ]
+    },
+    {
+      "name": "seen_wgpu_device_destroy",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/web/webgpu.seen"
+      ]
+    },
+    {
+      "name": "seen_wgpu_encoder_begin_compute_pass",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/web/webgpu.seen"
+      ]
+    },
+    {
+      "name": "seen_wgpu_encoder_begin_render_pass",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/web/webgpu.seen"
+      ]
+    },
+    {
+      "name": "seen_wgpu_encoder_copy_buffer_to_buffer",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/web/webgpu.seen"
+      ]
+    },
+    {
+      "name": "seen_wgpu_encoder_finish",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/web/webgpu.seen"
+      ]
+    },
+    {
+      "name": "seen_wgpu_pass_end",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/web/webgpu.seen"
+      ]
+    },
+    {
+      "name": "seen_wgpu_queue_submit",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/web/webgpu.seen"
+      ]
+    },
+    {
+      "name": "seen_wgpu_queue_write_buffer",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/web/webgpu.seen"
+      ]
+    },
+    {
+      "name": "seen_wgpu_render_pass_draw",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/web/webgpu.seen"
+      ]
+    },
+    {
+      "name": "seen_wgpu_render_pass_draw_indexed",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/web/webgpu.seen"
+      ]
+    },
+    {
+      "name": "seen_wgpu_render_pass_set_bind_group",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/web/webgpu.seen"
+      ]
+    },
+    {
+      "name": "seen_wgpu_render_pass_set_index_buffer",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/web/webgpu.seen"
+      ]
+    },
+    {
+      "name": "seen_wgpu_render_pass_set_pipeline",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/web/webgpu.seen"
+      ]
+    },
+    {
+      "name": "seen_wgpu_render_pass_set_vertex_buffer",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/web/webgpu.seen"
+      ]
+    },
+    {
+      "name": "seen_wgpu_request_adapter",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/web/webgpu.seen"
+      ]
+    },
+    {
+      "name": "seen_wgpu_texture_create_view",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/web/webgpu.seen"
+      ]
+    },
+    {
+      "name": "seen_wgpu_texture_destroy",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/web/webgpu.seen"
+      ]
+    },
+    {
+      "name": "seen_win32_create_window",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/windows/win32.seen"
+      ]
+    },
+    {
+      "name": "seen_win32_destroy_window",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/windows/win32.seen"
+      ]
+    },
+    {
+      "name": "seen_win32_dispatch_message",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/windows/win32.seen"
+      ]
+    },
+    {
+      "name": "seen_win32_get_async_key_state",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/windows/win32.seen"
+      ]
+    },
+    {
+      "name": "seen_win32_get_client_rect",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/windows/win32.seen"
+      ]
+    },
+    {
+      "name": "seen_win32_get_cursor_pos",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/windows/win32.seen"
+      ]
+    },
+    {
+      "name": "seen_win32_get_message_id",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/windows/win32.seen"
+      ]
+    },
+    {
+      "name": "seen_win32_get_tick_count",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/windows/win32.seen"
+      ]
+    },
+    {
+      "name": "seen_win32_peek_message",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/windows/win32.seen"
+      ]
+    },
+    {
+      "name": "seen_win32_post_quit",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/windows/win32.seen"
+      ]
+    },
+    {
+      "name": "seen_win32_query_perf_counter",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/windows/win32.seen"
+      ]
+    },
+    {
+      "name": "seen_win32_query_perf_frequency",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/windows/win32.seen"
+      ]
+    },
+    {
+      "name": "seen_win32_register_class",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/windows/win32.seen"
+      ]
+    },
+    {
+      "name": "seen_win32_set_cursor_pos",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/windows/win32.seen"
+      ]
+    },
+    {
+      "name": "seen_win32_show_window",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/windows/win32.seen"
+      ]
+    },
+    {
+      "name": "seen_win32_sleep",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/windows/win32.seen"
+      ]
+    },
+    {
+      "name": "seen_win32_translate_message",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/windows/win32.seen"
+      ]
+    },
+    {
+      "name": "seen_wl_compositor_create_surface",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/linux/wayland.seen"
+      ]
+    },
+    {
+      "name": "seen_wl_display_connect",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/linux/wayland.seen"
+      ]
+    },
+    {
+      "name": "seen_wl_display_disconnect",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/linux/wayland.seen"
+      ]
+    },
+    {
+      "name": "seen_wl_display_dispatch",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/linux/wayland.seen"
+      ]
+    },
+    {
+      "name": "seen_wl_display_flush",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/linux/wayland.seen"
+      ]
+    },
+    {
+      "name": "seen_wl_display_get_fd",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/linux/wayland.seen"
+      ]
+    },
+    {
+      "name": "seen_wl_display_roundtrip",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/linux/wayland.seen"
+      ]
+    },
+    {
+      "name": "seen_wl_get_event_button",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/linux/wayland.seen"
+      ]
+    },
+    {
+      "name": "seen_wl_get_event_key",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/linux/wayland.seen"
+      ]
+    },
+    {
+      "name": "seen_wl_get_event_state",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/linux/wayland.seen"
+      ]
+    },
+    {
+      "name": "seen_wl_get_event_type",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/linux/wayland.seen"
+      ]
+    },
+    {
+      "name": "seen_wl_get_event_x",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/linux/wayland.seen"
+      ]
+    },
+    {
+      "name": "seen_wl_get_event_y",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/linux/wayland.seen"
+      ]
+    },
+    {
+      "name": "seen_wl_poll_event",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/linux/wayland.seen"
+      ]
+    },
+    {
+      "name": "seen_wl_surface_attach",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/linux/wayland.seen"
+      ]
+    },
+    {
+      "name": "seen_wl_surface_commit",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/linux/wayland.seen"
+      ]
+    },
+    {
+      "name": "seen_wl_surface_damage",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/linux/wayland.seen"
+      ]
+    },
+    {
+      "name": "seen_wl_surface_destroy",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/linux/wayland.seen"
+      ]
+    },
+    {
+      "name": "seen_wl_vk_surface_create",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/linux/wayland.seen"
+      ]
+    },
+    {
+      "name": "seen_write_text_atomic",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/io/file.seen"
+      ]
+    },
+    {
+      "name": "seen_ws_pool_new",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/thread/pool.seen"
+      ]
+    },
+    {
+      "name": "seen_ws_pool_shutdown",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/thread/pool.seen"
+      ]
+    },
+    {
+      "name": "seen_ws_pool_submit",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/thread/pool.seen"
+      ]
+    },
+    {
+      "name": "seen_xcb_connect",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/linux/x11.seen"
+      ]
+    },
+    {
+      "name": "seen_xcb_connection_has_error",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/linux/x11.seen"
+      ]
+    },
+    {
+      "name": "seen_xcb_create_window",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/linux/x11.seen"
+      ]
+    },
+    {
+      "name": "seen_xcb_destroy_window",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/linux/x11.seen"
+      ]
+    },
+    {
+      "name": "seen_xcb_disconnect",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/linux/x11.seen"
+      ]
+    },
+    {
+      "name": "seen_xcb_flush",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/linux/x11.seen"
+      ]
+    },
+    {
+      "name": "seen_xcb_free_event",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/linux/x11.seen"
+      ]
+    },
+    {
+      "name": "seen_xcb_get_event_button",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/linux/x11.seen"
+      ]
+    },
+    {
+      "name": "seen_xcb_get_event_height",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/linux/x11.seen"
+      ]
+    },
+    {
+      "name": "seen_xcb_get_event_keycode",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/linux/x11.seen"
+      ]
+    },
+    {
+      "name": "seen_xcb_get_event_state",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/linux/x11.seen"
+      ]
+    },
+    {
+      "name": "seen_xcb_get_event_type",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/linux/x11.seen"
+      ]
+    },
+    {
+      "name": "seen_xcb_get_event_width",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/linux/x11.seen"
+      ]
+    },
+    {
+      "name": "seen_xcb_get_event_window",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/linux/x11.seen"
+      ]
+    },
+    {
+      "name": "seen_xcb_get_event_x",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/linux/x11.seen"
+      ]
+    },
+    {
+      "name": "seen_xcb_get_event_y",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/linux/x11.seen"
+      ]
+    },
+    {
+      "name": "seen_xcb_get_fd",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/linux/x11.seen"
+      ]
+    },
+    {
+      "name": "seen_xcb_is_close_event",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/linux/x11.seen"
+      ]
+    },
+    {
+      "name": "seen_xcb_map_window",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/linux/x11.seen"
+      ]
+    },
+    {
+      "name": "seen_xcb_move",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/linux/x11.seen"
+      ]
+    },
+    {
+      "name": "seen_xcb_poll_event",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/linux/x11.seen"
+      ]
+    },
+    {
+      "name": "seen_xcb_resize",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/linux/x11.seen"
+      ]
+    },
+    {
+      "name": "seen_xcb_set_max_size",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/linux/x11.seen"
+      ]
+    },
+    {
+      "name": "seen_xcb_set_min_size",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/linux/x11.seen"
+      ]
+    },
+    {
+      "name": "seen_xcb_set_title",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/linux/x11.seen"
+      ]
+    },
+    {
+      "name": "seen_xcb_setup_close_protocol",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/linux/x11.seen"
+      ]
+    },
+    {
+      "name": "seen_xcb_unmap_window",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/linux/x11.seen"
+      ]
+    },
+    {
+      "name": "seen_xcb_vk_surface_create",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/linux/x11.seen"
+      ]
+    },
+    {
+      "name": "seen_xcb_wait_event",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/linux/x11.seen"
+      ]
+    },
+    {
+      "name": "seen_xdg_surface_create",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/linux/wayland.seen"
+      ]
+    },
+    {
+      "name": "seen_xdg_surface_destroy",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/linux/wayland.seen"
+      ]
+    },
+    {
+      "name": "seen_xdg_toplevel_create",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/linux/wayland.seen"
+      ]
+    },
+    {
+      "name": "seen_xdg_toplevel_destroy",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/linux/wayland.seen"
+      ]
+    },
+    {
+      "name": "seen_xdg_toplevel_set_fullscreen",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/linux/wayland.seen"
+      ]
+    },
+    {
+      "name": "seen_xdg_toplevel_set_max_size",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/linux/wayland.seen"
+      ]
+    },
+    {
+      "name": "seen_xdg_toplevel_set_maximized",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/linux/wayland.seen"
+      ]
+    },
+    {
+      "name": "seen_xdg_toplevel_set_min_size",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/linux/wayland.seen"
+      ]
+    },
+    {
+      "name": "seen_xdg_toplevel_set_size",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/linux/wayland.seen"
+      ]
+    },
+    {
+      "name": "seen_xdg_toplevel_set_title",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/linux/wayland.seen"
+      ]
+    },
+    {
+      "name": "seen_xdg_toplevel_unset_fullscreen",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/linux/wayland.seen"
+      ]
+    },
+    {
+      "name": "seen_xdg_toplevel_unset_maximized",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/linux/wayland.seen"
+      ]
+    },
+    {
+      "name": "seen_xdg_wm_base_get",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/linux/wayland.seen"
+      ]
+    },
+    {
+      "name": "seen_xinput_get_buttons",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/windows/xinput.seen"
+      ]
+    },
+    {
+      "name": "seen_xinput_get_capabilities",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/windows/xinput.seen"
+      ]
+    },
+    {
+      "name": "seen_xinput_get_left_thumb_x",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/windows/xinput.seen"
+      ]
+    },
+    {
+      "name": "seen_xinput_get_left_thumb_y",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/windows/xinput.seen"
+      ]
+    },
+    {
+      "name": "seen_xinput_get_left_trigger",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/windows/xinput.seen"
+      ]
+    },
+    {
+      "name": "seen_xinput_get_right_thumb_x",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/windows/xinput.seen"
+      ]
+    },
+    {
+      "name": "seen_xinput_get_right_thumb_y",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/windows/xinput.seen"
+      ]
+    },
+    {
+      "name": "seen_xinput_get_right_trigger",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/windows/xinput.seen"
+      ]
+    },
+    {
+      "name": "seen_xinput_get_state",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/windows/xinput.seen"
+      ]
+    },
+    {
+      "name": "seen_xinput_set_vibration",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/platform/windows/xinput.seen"
+      ]
+    },
+    {
+      "name": "setLowerCurrentClassParentName",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/codegen/ir_lowering_context.seen"
+      ]
+    },
+    {
+      "name": "stdoutLine",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/io/file.seen"
+      ]
+    },
+    {
+      "name": "syncLoweringState",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/codegen/ir_lowering_context.seen"
+      ]
+    },
+    {
+      "name": "uww_deterministic_rand",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/uww/mod.seen"
+      ]
+    },
+    {
+      "name": "uww_log",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/uww/mod.seen"
+      ]
+    },
+    {
+      "name": "uww_log_level",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/uww/mod.seen"
+      ]
+    },
+    {
+      "name": "uww_sha256",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/uww/mod.seen"
+      ]
+    },
+    {
+      "name": "uww_storage_delete",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/uww/mod.seen"
+      ]
+    },
+    {
+      "name": "uww_storage_exists",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/uww/mod.seen"
+      ]
+    },
+    {
+      "name": "uww_storage_get",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/uww/mod.seen"
+      ]
+    },
+    {
+      "name": "uww_storage_set",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/uww/mod.seen"
+      ]
+    },
+    {
+      "name": "uww_timestamp",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/uww/mod.seen"
+      ]
+    },
+    {
+      "name": "uww_verify_ed25519",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/uww/mod.seen"
+      ]
+    },
+    {
+      "name": "writeBackLoweringState",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/codegen/ir_lowering_context.seen"
+      ]
+    }
+  ],
+  "backends": [
+    {
+      "name": "c",
+      "status": "source-only",
+      "sources": [
+        "compiler_seen/src/codegen/generator.seen",
+        "compiler_seen/src/codegen/interfaces.seen"
+      ]
+    },
+    {
+      "name": "llvm",
+      "status": "shipped",
+      "sources": [
+        "compiler_seen/src/codegen/generator.seen",
+        "compiler_seen/src/codegen/interfaces.seen",
+        "compiler_seen/src/codegen/llvm_backend.seen"
+      ]
+    },
+    {
+      "name": "uww",
+      "status": "source-only",
+      "sources": [
+        "compiler_seen/src/codegen/interfaces.seen"
+      ]
+    },
+    {
+      "name": "wasm",
+      "status": "source-only",
+      "sources": [
+        "compiler_seen/src/codegen/generator.seen",
+        "compiler_seen/src/codegen/interfaces.seen"
+      ]
+    }
+  ]
+}
