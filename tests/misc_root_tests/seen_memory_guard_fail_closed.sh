@@ -578,10 +578,10 @@ for direct_compile_script in \
     grep -Fq 'SEEN_FORK_SERIALIZER_TARGET' "$direct_compile_script" ||
         fail "direct compiler entry does not bind the serializer target: $direct_compile_script"
 done
-grep -Fq '[ "$MAIN_COMPILER_VMEM_KB" -gt 4194304 ]' "$SAFE_REBUILD" ||
-    fail "safe rebuild lacks the 4 GiB hard maximum"
-grep -Fq '[ "$MEMORY_GUARD_RSS_KB" -gt 4194304 ]' "$SAFE_REBUILD" ||
-    fail "safe rebuild accepts an aggregate guard cap above 4 GiB"
+grep -Fq '[ "$MAIN_COMPILER_VMEM_KB" -gt "$DERIVED_MEMORY_CAP_KB" ]' "$SAFE_REBUILD" ||
+    fail "safe rebuild accepts a compiler cap above the current-memory-derived limit"
+grep -Fq '[ "$MEMORY_GUARD_RSS_KB" -gt "$DERIVED_MEMORY_CAP_KB" ]' "$SAFE_REBUILD" ||
+    fail "safe rebuild accepts an aggregate guard cap above the current-memory-derived limit"
 grep -Fq '[ "$OPT_VMEM_KB" -gt 2097152 ]' "$SAFE_REBUILD" ||
     fail "safe rebuild lacks the 2 GiB optimizer hard maximum"
 grep -Fq '[ "$MAIN_COMPILER_MEMORY_LIMIT_BYTES" -gt "$((MAIN_COMPILER_VMEM_KB * 1024))" ]' "$SAFE_REBUILD" ||

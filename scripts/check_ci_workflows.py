@@ -36,8 +36,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-      - name: Run required static gates
-        run: scripts/ci_required.sh
+      - name: Run required contained gates
+        run: scripts/run_ci_required.sh
 """.encode("utf-8")
 
 
@@ -132,7 +132,7 @@ def validate(root: Path, max_files: int, max_bytes: int, cancel_after: int) -> d
     return {
         "active_workflows": workflows,
         "checkout": "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683",
-        "gate": "scripts/ci_required.sh",
+        "gate": "scripts/run_ci_required.sh",
         "job_count": 1,
         "platforms": {
             "linux-arm64": "static-policy",

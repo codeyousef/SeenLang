@@ -13,15 +13,16 @@ ARTIFACT_ROOT_HELPER="$SCRIPT_DIR/artifact_root.sh"
 SERIAL_AUXILIARY_HELPER="$SCRIPT_DIR/serial_auxiliary_env.sh"
 LABEL="Seen build-capable command"
 VERIFY_ONLY=0
-MAX_AGGREGATE_KB=4194304
+TIMEOUT_SECS=0
 
 usage() {
     cat >&2 <<'EOF'
-Usage: run_in_hard_memory_scope.sh [--label TEXT] [--verify-only] -- command [args...]
+Usage: run_in_hard_memory_scope.sh [--label TEXT] [--timeout-secs N] [--verify-only] -- command [args...]
 
-Enters a verified Linux user-systemd scope capped at no more than 4 GiB,
-MemorySwapMax=0, and TasksMax=24. --verify-only performs the same read-back but
-does not run a workload.
+Enters a verified Linux user-systemd scope capped at the smaller of 25% of
+total memory and 50% of currently available memory, with MemorySwapMax=0 and
+TasksMax=24. --verify-only performs the same read-back but does not run a
+workload. --timeout-secs adds a bounded wall-clock deadline.
 EOF
 }
 
@@ -46,6 +47,14 @@ while [ "$#" -gt 0 ]; do
             VERIFY_ONLY=1
             shift
             ;;
+        --timeout-secs)
+            [ "$#" -ge 2 ] || {
+                echo "ERROR: --timeout-secs requires a value" >&2
+                exit 2
+            }
+            TIMEOUT_SECS=$2
+            shift 2
+            ;;
         --)
             shift
             break
@@ -67,6 +76,12 @@ if [ "$VERIFY_ONLY" = "0" ] && [ "$#" -eq 0 ]; then
     usage
     exit 2
 fi
+case "$TIMEOUT_SECS" in
+    ''|*[!0-9]*)
+        echo "ERROR: --timeout-secs must be zero or a positive integer" >&2
+        exit 2
+        ;;
+esac
 if [ "$VERIFY_ONLY" = "1" ]; then
     if [ "${SEEN_MEMORY_GUARD_IN_SCOPE:-0}" != "1" ] ||
         [ -z "${SEEN_MEMORY_GUARD_SCOPE_UNIT:-}" ]; then
@@ -138,9 +153,6 @@ derived_rss_kb=$((total_kb / 4))
 half_available_kb=$((available_kb / 2))
 if [ "$derived_rss_kb" -gt "$half_available_kb" ]; then
     derived_rss_kb=$half_available_kb
-fi
-if [ "$derived_rss_kb" -gt "$MAX_AGGREGATE_KB" ]; then
-    derived_rss_kb=$MAX_AGGREGATE_KB
 fi
 if [ "$derived_rss_kb" -lt 1 ]; then
     echo "ERROR: derived aggregate memory cap is not positive" >&2
@@ -255,5 +267,6 @@ exec env \
         --vmem-limit-kb "$main_vmem_kb" \
         --tasks-max "$tasks_max" \
         --cgroup-stop-kb "$cgroup_stop_kb" \
+        --timeout-secs "$TIMEOUT_SECS" \
         --kill-only \
         -- "${scope_command[@]}"

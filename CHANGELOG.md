@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added the versioned, schema-defined native-boundary ledger and a deterministic fail-closed validator for production ABI symbols.
 - Added a deterministic foreign-symbol/backend source inventory and restored the required CI gate that rejects unreviewed inventory drift.
 - Replaced obsolete disabled workflow fallbacks with one bounded, commit-pinned required CI contract and deterministic validation fixtures.
+- Enforced the required CI gate inside a read-back-verified, zero-swap Linux memory and task scope with serial workers, bounded execution time, and deterministic containment fixtures.
 
 ### Fixed
 

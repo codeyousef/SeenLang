@@ -49,9 +49,11 @@ before starting any compiler or helper build:
 - `memory.swap.max` is exactly `0`;
 - `pids.max` is a positive value no greater than the requested `TasksMax`.
 
-The automatic aggregate cap is the minimum of 25% of total memory, 50% of
-currently available memory, and 4 GiB. The optimizer's secondary per-process
-limit is the minimum of 10% of total memory, half the aggregate cap, and 2 GiB.
+The automatic aggregate cap is the minimum of 25% of total memory and 50% of
+currently available memory. The main compiler VMEM and allocation limits equal
+that live-derived cap; a caller may request a smaller value but never a larger
+one. The optimizer's secondary per-process limit is the minimum of 10% of total
+memory, half the aggregate cap, and 2 GiB.
 The rebuild also forces `SEEN_JOBS=1`, `SEEN_OPT_JOBS=1`, and `TasksMax` no
 greater than 24. `ulimit -v` and the userspace RSS observer run inside that
 scope as early-warning and per-process defenses; neither replaces the cgroup.
@@ -90,6 +92,15 @@ ad hoc `ulimit` block and mistake that for aggregate containment.
 The verify/full paths run their required prebuild gates inside the same hard
 scope before expensive compiler work. Do not disable them for a routine
 rebuild.
+
+Required pull-request CI uses the same boundary through
+`scripts/run_ci_required.sh`. The wrapper derives a cap from current memory,
+creates a project-local artifact directory, enters the hard scope with a
+540-second deadline, and then invokes `scripts/ci_required.sh`. The inner gate
+must successfully run `scripts/run_in_hard_memory_scope.sh --verify-only`
+before any required checks proceed. Its versioned contract is
+`docs/architecture/ci-containment.json`; unsupported hosts fail before running
+the gate.
 
 All rebuild scratch files default to the Git-ignored
 `.seen/agent-tools/safe-rebuild/` directory in the checkout. Set

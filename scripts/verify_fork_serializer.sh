@@ -297,8 +297,15 @@ done
 case "$record_memory_max:$record_pids_max" in
     *[!0-9:]*|:*|*:) fail "invalid cgroup limits in record" ;;
 esac
-[ "$record_memory_max" -gt 0 ] && [ "$record_memory_max" -le 4294967296 ] ||
-    fail "recorded memory.max exceeds 4 GiB"
+expected_memory_max_kb=${SEEN_MEMORY_GUARD_RSS_KB:-}
+case "$expected_memory_max_kb" in
+    ''|*[!0-9]*) fail "current-memory-derived aggregate cap is missing or invalid" ;;
+esac
+[ "$expected_memory_max_kb" -gt 0 ] ||
+    fail "current-memory-derived aggregate cap is not positive"
+expected_memory_max_bytes=$((expected_memory_max_kb * 1024))
+[ "$record_memory_max" -eq "$expected_memory_max_bytes" ] ||
+    fail "recorded memory.max differs from the current-memory-derived aggregate cap"
 [ "$record_swap_max" = "0" ] || fail "recorded memory.swap.max is not zero"
 [ "$record_pids_max" -gt 0 ] && [ "$record_pids_max" -le 24 ] ||
     fail "recorded pids.max exceeds 24"

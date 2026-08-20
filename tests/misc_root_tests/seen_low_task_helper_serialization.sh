@@ -311,7 +311,8 @@ cp -- "$record_body" "$record_file"
 printf 'body_sha256=%s\n' "$record_body_sha" >> "$record_file"
 
 set +e
-SEEN_MEMORY_GUARD_IN_SCOPE=1 bash "$SERIALIZER_VERIFY" \
+SEEN_MEMORY_GUARD_IN_SCOPE=1 SEEN_MEMORY_GUARD_RSS_KB=4194304 \
+    bash "$SERIALIZER_VERIFY" \
     "$serializer_fixture" "$record_file" "$TEST_ROOT" "$fake_scope" \
     > "$TEST_ROOT/verify.out" 2> "$TEST_ROOT/verify.err"
 verify_status=$?
@@ -330,7 +331,8 @@ mapfile -t valid_record_lines < "$record_file"
 printf '%s\n' "${valid_record_lines[@]:0:9}" \
     "body_sha256=$bad_hash" > "$TEST_ROOT/bad-checksum.attestation"
 set +e
-SEEN_MEMORY_GUARD_IN_SCOPE=1 bash "$SERIALIZER_VERIFY" \
+SEEN_MEMORY_GUARD_IN_SCOPE=1 SEEN_MEMORY_GUARD_RSS_KB=4194304 \
+    bash "$SERIALIZER_VERIFY" \
     "$serializer_fixture" "$TEST_ROOT/bad-checksum.attestation" \
     "$TEST_ROOT" "$fake_scope" > "$TEST_ROOT/bad-checksum.out" \
     2> "$TEST_ROOT/bad-checksum.err"
