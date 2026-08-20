@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the pinned CORE-002B generate/consume reference microbenchmark."""
+"""Run the host-normalized pinned CORE-002B generate/consume microbenchmark."""
 
 from __future__ import annotations
 
@@ -43,7 +43,7 @@ def main() -> int:
         ).encode("utf-8")
         baseline = json.loads(args.baseline.read_bytes())
         expected_fields = {
-            "baseline_median_ns",
+            "baseline_ratio_ppm",
             "iterations_per_sample",
             "max_regression_percent",
             "samples",
@@ -52,23 +52,27 @@ def main() -> int:
         }
         if not isinstance(baseline, dict) or set(baseline) != expected_fields:
             fail("baseline has missing or unknown fields")
-        if baseline["version"] != 1 or baseline["warmups"] != 5 or baseline["samples"] != 30:
-            fail("benchmark must use version 1 with 5 warmups and 30 samples")
+        if (
+            baseline["version"] != 2
+            or baseline["warmups"] != 5
+            or baseline["samples"] != 30
+        ):
+            fail("benchmark must use version 2 with 5 warmups and 30 samples")
         if baseline["max_regression_percent"] != 5:
             fail("benchmark regression ceiling must be 5 percent")
         iterations = baseline["iterations_per_sample"]
-        baseline_ns = baseline["baseline_median_ns"]
+        baseline_ratio_ppm = baseline["baseline_ratio_ppm"]
         if (
             isinstance(iterations, bool)
             or not isinstance(iterations, int)
             or not 1 <= iterations <= 100_000
-            or isinstance(baseline_ns, bool)
-            or not isinstance(baseline_ns, int)
-            or not 1 <= baseline_ns <= 10_000_000_000
+            or isinstance(baseline_ratio_ppm, bool)
+            or not isinstance(baseline_ratio_ppm, int)
+            or not 1 <= baseline_ratio_ppm <= 100_000_000
         ):
             fail("benchmark iteration or baseline bounds are invalid")
 
-        def sample() -> int:
+        def candidate_sample() -> int:
             started = time.perf_counter_ns()
             for _ in range(iterations):
                 parsed = checker.parse_and_validate(expected, 1024 * 1024)
@@ -79,16 +83,46 @@ def main() -> int:
                     fail("generate/consume bytes changed")
             return time.perf_counter_ns() - started
 
+        def control_sample() -> int:
+            started = time.perf_counter_ns()
+            for _ in range(iterations):
+                parsed = json.loads(expected)
+                generated = (
+                    json.dumps(parsed, indent=2, sort_keys=True) + "\n"
+                ).encode("utf-8")
+                if generated != expected:
+                    fail("control generate/consume bytes changed")
+            return time.perf_counter_ns() - started
+
         for _ in range(5):
-            sample()
-        samples = [sample() for _ in range(30)]
-        median_ns = int(statistics.median(samples))
-        maximum_ns = baseline_ns * 105 // 100
-        if median_ns > maximum_ns:
-            fail(f"median {median_ns} ns exceeds 5% ceiling {maximum_ns} ns")
+            candidate_sample()
+            control_sample()
+        candidate_samples: list[int] = []
+        control_samples: list[int] = []
+        for sample_index in range(30):
+            if sample_index % 2 == 0:
+                control_samples.append(control_sample())
+                candidate_samples.append(candidate_sample())
+            else:
+                candidate_samples.append(candidate_sample())
+                control_samples.append(control_sample())
+        candidate_median_ns = int(statistics.median(candidate_samples))
+        control_median_ns = int(statistics.median(control_samples))
+        if control_median_ns < 1:
+            fail("control median is not positive")
+        ratio_ppm = candidate_median_ns * 1_000_000 // control_median_ns
+        maximum_ratio_ppm = baseline_ratio_ppm * 105 // 100
+        if ratio_ppm > maximum_ratio_ppm:
+            fail(
+                f"normalized ratio {ratio_ppm} ppm exceeds 5% ceiling "
+                f"{maximum_ratio_ppm} ppm"
+            )
         print(
-            f"compatibility-runtime benchmark: median_ns={median_ns} "
-            f"ceiling_ns={maximum_ns} warmups=5 samples=30 status=pass"
+            "compatibility-runtime benchmark: "
+            f"candidate_median_ns={candidate_median_ns} "
+            f"control_median_ns={control_median_ns} ratio_ppm={ratio_ppm} "
+            f"ceiling_ratio_ppm={maximum_ratio_ppm} "
+            "warmups=5 samples=30 status=pass"
         )
     except (OSError, json.JSONDecodeError, ValueError) as error:
         print(f"compatibility-runtime benchmark: {error}", file=sys.stderr)

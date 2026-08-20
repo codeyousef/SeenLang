@@ -90,3 +90,8 @@ with `core.002b.*` diagnostics and are never repaired.
 The schema validator's pinned microbenchmark uses five warmups and thirty
 samples with a hard five-percent regression ceiling:
 `python3 scripts/benchmark_compatibility_manifest.py releases/compatibility-manifest.json tests/fixtures/core-002a/happy/benchmark.json`.
+The runtime generate/consume benchmark uses the same sample policy and applies
+the hard five-percent ceiling to its ratio against a same-process canonical
+JSON control workload, so the pinned gate remains meaningful across runner
+speeds:
+`python3 scripts/benchmark_compatibility_runtime.py releases/compatibility-manifest.json tests/fixtures/core-002b/happy/benchmark.json`.
