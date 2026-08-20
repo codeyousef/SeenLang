@@ -229,6 +229,7 @@ fun formatterIsControlKeyword(token: String, keywords: KeywordManager) r: Bool {
 }
 
 fun formatterPreferredKeyword(token: String, keywords: KeywordManager) r: String {
+    if token.length() > 0 and formatterIsDigit(token.byteAt(0)) { return token }
     let tokenName = keywords.findKeywordSourceEntry(token)
     if tokenName == "" { return token }
     let suffix = "=" + tokenName

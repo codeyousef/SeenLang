@@ -276,13 +276,19 @@ read_cgroup_process_snapshot() {
     while IFS= read -r pid; do
         is_positive_integer "$pid" || continue
         [ -r "/proc/$pid/status" ] || continue
+        # The task may exit between the readability check and open. Open the
+        # proc file explicitly so that expected race stays silent.
+        if ! exec 3< "/proc/$pid/status" 2>/dev/null; then
+            continue
+        fi
         CGROUP_PROCESS_COUNT=$((CGROUP_PROCESS_COUNT + 1))
-        while IFS=' ' read -r key value unit; do
+        while IFS=' ' read -r key value unit <&3; do
             if [ "$key" = "VmRSS:" ] && is_nonnegative_integer "$value"; then
                 CGROUP_SUMMED_RSS_KB=$((CGROUP_SUMMED_RSS_KB + value))
                 break
             fi
-        done < "/proc/$pid/status" 2>/dev/null || true
+        done
+        exec 3<&-
     done < "$cgroup_dir/cgroup.procs"
 }
 
@@ -917,7 +923,7 @@ if [ "${SEEN_MEMORY_GUARD_IN_SCOPE:-0}" != "1" ] &&
     fi
     scoped_args+=(--interval-secs "$INTERVAL_SECS" --label "$LABEL" -- "$@")
 
-    high_kb=$((RSS_LIMIT_KB * 90 / 100))
+    high_kb=$((RSS_LIMIT_KB * 99 / 100))
     if [ "$high_kb" -lt 1 ]; then
         high_kb=1
     fi

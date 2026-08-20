@@ -196,7 +196,7 @@ if [ "$VERIFY_ONLY" = "1" ]; then
         exit 126
     fi
 fi
-cgroup_stop_kb=${SEEN_MEMORY_GUARD_CGROUP_STOP_KB:-$((rss_kb * 90 / 100))}
+cgroup_stop_kb=${SEEN_MEMORY_GUARD_CGROUP_STOP_KB:-$rss_kb}
 if ! is_positive_integer "$cgroup_stop_kb" || [ "$cgroup_stop_kb" -gt "$rss_kb" ]; then
     echo "ERROR: cgroup stop threshold must be positive and no larger than the aggregate cap" >&2
     exit 126

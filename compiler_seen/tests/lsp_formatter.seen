@@ -204,6 +204,26 @@ fun main() r: Int {
         return 20
     }
 
+    let arabicNumeric = "دالة main()r:Int{\nاجعل value=1+2\nرجع value\n}\n"
+    let arabicNumericExpected =
+        "دالة main() r: Int {\n  اجعل value = 1 + 2\n  رجع value\n}\n"
+    if not expectEqual(formatSeenTextWithLanguage(arabicNumeric, 2, true, false,
+        "ar"), arabicNumericExpected,
+        "localized numeric tokens remain source text") {
+
+        return 35
+    }
+    let arabicProtocol =
+        "دالة main()r:Int{\n  اجعل emoji = \"😀\";اجعل value=1+2\nرجع value\n}\n"
+    let arabicEdits = formatSeenDocumentEditsWithLanguageOptions(arabicProtocol,
+        2, true, false, "ar", 100, true)
+    if arabicEdits.length() < 2 or
+        not jsonToString(arabicEdits[1].toJson()).contains("اجعل value = 1 + ") {
+
+        println("localized formatter edit JSON corrupted non-ASCII text")
+        return 36
+    }
+
     let balancedInvalid = "fun before()r:Int{ return 1 }\n" +
         "let     = 1\n" +
         "fun after()r:Int{ return 2 }\n"

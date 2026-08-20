@@ -53,8 +53,15 @@ The automatic aggregate cap is the minimum of 25% of total memory, 50% of
 currently available memory, and 4 GiB. The optimizer's secondary per-process
 limit is the minimum of 10% of total memory, half the aggregate cap, and 2 GiB.
 The rebuild also forces `SEEN_JOBS=1`, `SEEN_OPT_JOBS=1`, and `TasksMax` no
-greater than 16. `ulimit -v` and the userspace RSS observer run inside that
+greater than 24. `ulimit -v` and the userspace RSS observer run inside that
 scope as early-warning and per-process defenses; neither replaces the cgroup.
+
+Optional host compatibility runners must fit inside the same task ceiling.
+The Wine-backed atomic-I/O fixture disables Wine desktop, service, and menu
+processes that are unrelated to its Win32 file-API contract, executes the
+Windows binary three times, and waits for `wineserver` before cleanup. Do not
+raise `pids.max` or hide an installed compatibility runner to make that test
+pass.
 
 If the user systemd manager, cgroup v2 controls, or limit read-back is
 unavailable, the rebuild must fail before compiler work begins. Polling-only

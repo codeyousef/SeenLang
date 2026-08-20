@@ -488,8 +488,13 @@ for cache_variable in GOCACHE GOMODCACHE GOPATH GOTMPDIR; do
     grep -Fq "$cache_variable=\"\$PACKAGE_CACHE_ROOT/" "$PACKAGE_BUILD" ||
         fail "package-client $cache_variable is not project-local"
 done
-grep -Fq 'GOMAXPROCS=1 GOFLAGS=-p=1' "$PACKAGE_BUILD" ||
-    fail "package-client build fan-out is not serial"
+grep -Fq 'GOMAXPROCS=1 GOFLAGS="-p=1 -modcacherw"' "$PACKAGE_BUILD" ||
+    fail "package-client build fan-out is not serial or its cache is not cleanup-safe"
+grep -Fq 'max_early_stop_kb=$MEMORY_GUARD_RSS_KB' \
+    "$SAFE_REBUILD" ||
+    fail "safe rebuild stop watermark does not use the full bounded hard cap"
+grep -Fq 'high_kb=$((RSS_LIMIT_KB * 99 / 100))' "$GUARD" ||
+    fail "kernel MemoryHigh does not match the bounded proactive watermark"
 grep -Fq 'active_vmem_kb=$(ulimit -S -v' "$PACKAGE_BUILD" ||
     fail "package-client fallback cap is not read back"
 grep -Fq '[ "$active_vmem_kb" -gt "$VMEM_KB" ]' "$PACKAGE_BUILD" ||

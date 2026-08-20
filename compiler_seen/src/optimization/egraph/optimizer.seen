@@ -3,6 +3,10 @@ E-graph Optimizer - Equality Saturation Pass
 Builds an e-graph, applies rewrite rules iteratively, then extracts optimal code
 ///
 
+import optimization.egraph.egraph.{EGraph}
+import optimization.egraph.rewrite_rules.{RewriteRule, applyRule}
+import optimization.egraph.cost_model.{CostModel}
+
 class EGraphOptimizer {
     let iterationLimit: Int
     var appliedRules: Int

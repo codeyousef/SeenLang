@@ -217,7 +217,7 @@ echo "Building seen-pkg $VERSION for $TARGET_OS/$TARGET_ARCH (VMEM ${VMEM_KB} Ki
         "${target_tuning[@]}"
         GOCACHE="$GOCACHE" GOMODCACHE="$GOMODCACHE" GOPATH="$GOPATH"
         GOTMPDIR="$GOTMPDIR" GOENV=off GOTELEMETRY=off GOTOOLCHAIN=local
-        GOMAXPROCS=1 GOFLAGS=-p=1
+        GOMAXPROCS=1 GOFLAGS="-p=1 -modcacherw"
         "$GO_BIN" build -mod=readonly -trimpath -buildvcs=false
         # Keep Go symbols so the release verifier can attribute dispatched ISA paths.
         -ldflags="-w" -o "$tmp_output" ./cmd/seen-pkg

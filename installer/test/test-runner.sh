@@ -311,7 +311,7 @@ test_deb_package() {
     fi
     
     # Test help output
-    if timeout 10 "$build_script" --help >/dev/null 2>&1; then
+    if timeout 10 bash "$build_script" --help >/dev/null 2>&1; then
         success "DEB build script help works"
     else
         error "DEB build script help failed"
@@ -345,7 +345,7 @@ test_rpm_package() {
     fi
     
     # Test help output
-    if timeout 10 "$build_script" --help >/dev/null 2>&1; then
+    if timeout 10 bash "$build_script" --help >/dev/null 2>&1; then
         success "RPM build script help works"
     else
         error "RPM build script help failed"
@@ -379,7 +379,7 @@ test_appimage() {
     fi
     
     # Test help output
-    if timeout 10 "$build_script" --help >/dev/null 2>&1; then
+    if timeout 10 bash "$build_script" --help >/dev/null 2>&1; then
         success "AppImage build script help works"
     else
         error "AppImage build script help failed"
@@ -520,7 +520,7 @@ test_scoop() {
 test_github_actions() {
     info "Testing GitHub Actions workflow..."
     
-    local workflow_file="$PROJECT_ROOT/.github/workflows/release.yml"
+    local workflow_file="$PROJECT_ROOT/.github/workflows/ci.yml"
     
     if [ ! -f "$workflow_file" ]; then
         error "GitHub Actions workflow not found: $workflow_file"
@@ -556,7 +556,7 @@ test_documentation() {
     local docs=(
         "$PROJECT_ROOT/installer/README.md"
         "$PROJECT_ROOT/installer/assets/README.md"
-        "$PROJECT_ROOT/docs/Installer Plan.md"
+        "$PROJECT_ROOT/docs/packaging.md"
     )
     
     local missing_docs=()
@@ -613,7 +613,7 @@ test_assets() {
     fi
     
     # Test help output
-    if "$asset_script" --help >/dev/null 2>&1; then
+    if bash "$asset_script" --help >/dev/null 2>&1; then
         success "Asset generation script help works"
     else
         error "Asset generation script help failed"

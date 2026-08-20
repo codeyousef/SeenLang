@@ -15,8 +15,16 @@ ATTESTED_SEEN="${SEEN_ATTESTED_COMPILER_RUNNER:?}"
 ARTIFACT_ROOT="$SEEN_ARTIFACT_ROOT"
 
 TEST_ROOT="$(mktemp -d "$ARTIFACT_ROOT/seen-atomic-text-io.XXXXXX")"
+WINE_PREFIX="$TEST_ROOT/wine-prefix"
+WINE_OVERRIDES="explorer.exe,services.exe,winemenubuilder.exe=d"
+WINE_CPU_TOPOLOGY="1:1"
+wine_server_started=0
 cleanup() {
     status=$?
+    if [ "$wine_server_started" = "1" ] && command -v wineserver >/dev/null 2>&1; then
+        env WINEPREFIX="$WINE_PREFIX" wineserver -k >/dev/null 2>&1 || true
+        env WINEPREFIX="$WINE_PREFIX" wineserver -w >/dev/null 2>&1 || true
+    fi
     if [ -d "$TEST_ROOT/work/locked" ] && [ ! -L "$TEST_ROOT/work/locked" ]; then
         chmod 0700 "$TEST_ROOT/work/locked" 2>/dev/null || true
     fi
@@ -95,9 +103,43 @@ if command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1; then
             -Wl,--gc-sections -lkernel32 -ladvapi32 -lshell32 -lws2_32 \
             -o "$TEST_ROOT/seen-atomic-text-io-windows.exe"
     if command -v wine >/dev/null 2>&1; then
+        if ! command -v taskset >/dev/null 2>&1; then
+            echo "Wine execution requires taskset for bounded CPU topology" >&2
+            exit 1
+        fi
+        wine_cpu=""
+        while read -r cpu_key cpu_value; do
+            if [ "$cpu_key" = "Cpus_allowed_list:" ]; then
+                wine_cpu="${cpu_value%%[-,]*}"
+                break
+            fi
+        done < /proc/self/status
+        case "$wine_cpu" in
+            ''|*[!0-9]*)
+                echo "could not select an allowed CPU for bounded Wine execution" >&2
+                exit 1
+                ;;
+        esac
         mkdir -p -- "$TEST_ROOT/wine-home" "$TEST_ROOT/wine-prefix" \
             "$TEST_ROOT/wine-cache" "$TEST_ROOT/wine-config" \
             "$TEST_ROOT/wine-data"
+        if [ -n "${SEEN_WINE_PREFIX_TEMPLATE:-}" ]; then
+            case "$SEEN_WINE_PREFIX_TEMPLATE" in
+                "$ARTIFACT_ROOT"/*) ;;
+                *)
+                    echo "Wine prefix template escaped the artifact root" >&2
+                    exit 1
+                    ;;
+            esac
+            if [ ! -d "$SEEN_WINE_PREFIX_TEMPLATE" ] ||
+                [ -L "$SEEN_WINE_PREFIX_TEMPLATE" ]; then
+
+                echo "Wine prefix template is not a safe directory" >&2
+                exit 1
+            fi
+            cp -a -- "$SEEN_WINE_PREFIX_TEMPLATE/." "$WINE_PREFIX/"
+        fi
+        wine_server_started=1
         for windows_run in 1 2 3; do
             windows_work="$TEST_ROOT/windows-work-$windows_run"
             mkdir -p -- "$windows_work"
@@ -108,8 +150,12 @@ if command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1; then
                     XDG_CACHE_HOME="$TEST_ROOT/wine-cache" \
                     XDG_CONFIG_HOME="$TEST_ROOT/wine-config" \
                     XDG_DATA_HOME="$TEST_ROOT/wine-data" \
-                    WINEPREFIX="$TEST_ROOT/wine-prefix" \
+                    WINEARCH=win64 \
+                    WINEPREFIX="$WINE_PREFIX" \
                     WINEDEBUG=-all \
+                    WINEDLLOVERRIDES="$WINE_OVERRIDES" \
+                    WINE_CPU_TOPOLOGY="$WINE_CPU_TOPOLOGY" \
+                    taskset -c "$wine_cpu" \
                     wine "$TEST_ROOT/seen-atomic-text-io-windows.exe"
             )
             if [ ! -f "$windows_work/windows-test-passed.marker" ] ||
@@ -120,6 +166,8 @@ if command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1; then
                 exit 1
             fi
         done
+        env WINEPREFIX="$WINE_PREFIX" wineserver -w
+        wine_server_started=0
     fi
 fi
 

@@ -1,15 +1,15 @@
 class SeenTypeChecker {
-    var smartCastContext: Map<String, Type>
+    var smartCastContext: Map<String, Any>
     var strictMode: Bool
-    var environment: Map<String, Type>
+    var environment: Map<String, Any>
     var errors: Array<String>
     var warnings: Array<String>
 
     static fun new() r: SeenTypeChecker {
         return SeenTypeChecker{
-            smartCastContext: Map<String, Type>.new(),
+            smartCastContext: Map<String, Any>.new(),
             strictMode: true,
-            environment: Map<String, Type>.new(),
+            environment: Map<String, Any>.new(),
             errors: Array<String>(),
             warnings: Array<String>()
         }

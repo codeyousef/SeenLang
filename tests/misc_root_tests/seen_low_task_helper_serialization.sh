@@ -9,6 +9,7 @@ CAPABILITY="$ROOT_DIR/scripts/rebuild_builder_capability.sh"
 APPLICABILITY="$ROOT_DIR/scripts/rebuild_builder_applicability.sh"
 SERIALIZER_VERIFY="$ROOT_DIR/scripts/verify_fork_serializer.sh"
 MEMORY_GUARD="$ROOT_DIR/scripts/memory_guard.sh"
+SAFE_REBUILD="$ROOT_DIR/scripts/safe_rebuild.sh"
 SERIALIZER_SOURCE="$ROOT_DIR/scripts/fork_serializer.c"
 SERIALIZER_SELFTEST_SOURCE="$ROOT_DIR/scripts/fork_serializer_selftest.c"
 
@@ -48,6 +49,18 @@ trap cleanup EXIT
 bash -n "$CAPABILITY" "$APPLICABILITY" "$SERIALIZER_VERIFY" ||
     fail "helper syntax"
 command -v rg >/dev/null 2>&1 || fail "rg is required"
+
+guarded_log_body=$(sed -n '/^run_guarded_command_to_log()/,/^}/p' \
+    "$SAFE_REBUILD")
+grep -Fq 'if [ "${SEEN_REBUILD_AGGREGATE_SCOPE_VERIFIED:-0}" = "1" ]; then' \
+    <<< "$guarded_log_body" ||
+    fail "aggregate log capture does not select its direct-command path"
+grep -Fq '"$@" > "$log_file" 2>&1 || status=$?' <<< "$guarded_log_body" ||
+    fail "aggregate log capture retains a persistent logger shell"
+grep -Fq 'prepare_bounded_wine_prefix_template || exit $?' "$SAFE_REBUILD" ||
+    fail "verify rebuild does not prepare Wine outside the aggregate task topology"
+grep -Fq '"$HARD_MEMORY_SCOPE_WRAPPER"' "$SAFE_REBUILD" ||
+    fail "Wine prefix preparation lacks a hard-scope entry"
 
 # The acceptance stack leaves very little task headroom. These exact patterns
 # previously created three-stage pipelines plus a command-substitution shell.

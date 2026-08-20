@@ -49,7 +49,6 @@ import lexer.lexer.{SeenLexer}
 import lexer.language_pack.{resolveLanguagesRoot}
 import lexer.token.{Token, SeenTokenType, TOKEN_EOF}
 import parser.real_parser.{RealParser, ProgramNode}
-import typechecker.typechecker.{SeenTypeChecker}
 import bootstrap.frontend.{run_frontend, FrontendDiagnostic, parseDiagBaseMessage, parseDiagCode, parseDiagSuggestion, parseDiagNote, parseDiagEndColumn}
 import io.file.{readTextChecked, exists}
 import str.string.{StringBuilder}
@@ -2563,7 +2562,7 @@ class SeenLspServer {
             return "Declares an explicit component side-effect block.\n\n```seen\nuiEffect {\n    refresh()\n}\n```"
         }
         if word == "import" {
-            return "Imports symbols from a module or package.\n\n```seen\nimport module.{Symbol1, Symbol2}\nimport package_name\nimport package_name::src::module.{Symbol}\n```"
+            return "Imports symbols from a module or package.\n\n```seen\nimport module.{{Symbol1, Symbol2}}\nimport package_name\nimport package_name::src::module.{{Symbol}}\n```"
         }
         if word == "package" {
             return "Declares or refers to a package root import."
